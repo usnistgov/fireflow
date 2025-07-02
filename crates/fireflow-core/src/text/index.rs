@@ -1,9 +1,6 @@
-use crate::macros::{newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
-
-use derive_more::{Display, FromStr};
+use derive_more::{Display, From, FromStr, Into};
 use serde::Serialize;
 use std::fmt;
-use std::num::ParseIntError;
 
 /// An index starting at 1, used as the basis for keyword indices
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug, Serialize, Display, FromStr)]
@@ -24,12 +21,9 @@ impl From<IndexFromOne> for usize {
 macro_rules! newtype_index {
     ($(#[$attr:meta])* $t:ident) => {
         $(#[$attr])*
+        #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug, Serialize,
+                 FromStr, Display, From, Into)]
         pub struct $t(pub IndexFromOne);
-
-        newtype_disp!($t);
-        newtype_from!($t, IndexFromOne);
-        newtype_from_outer!($t, IndexFromOne);
-        newtype_fromstr!($t, ParseIntError);
 
         impl From<usize> for $t {
             fn from(value: usize) -> Self {
@@ -67,19 +61,16 @@ impl IndexFromOne {
 
 newtype_index!(
     /// The 'n' in $Pn* keywords
-    #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug, Serialize)]
     MeasIndex
 );
 
 newtype_index!(
     /// The 'n' in $Gn* keywords
-    #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug, Serialize)]
     GateIndex
 );
 
 newtype_index!(
     /// The 'n' in $Rn* keywords
-    #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug, Serialize)]
     RegionIndex
 );
 

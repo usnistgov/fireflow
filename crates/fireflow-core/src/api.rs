@@ -3,7 +3,6 @@ use crate::core::*;
 use crate::data::*;
 use crate::error::*;
 use crate::header::*;
-use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::segment::*;
 use crate::text::keywords::*;
 use crate::text::parser::*;
@@ -12,6 +11,7 @@ use crate::validated::dataframe::FCSDataFrame;
 use crate::validated::standard::*;
 
 use chrono::NaiveDate;
+use derive_more::{Display, From};
 use itertools::Itertools;
 use serde::Serialize;
 use std::fmt;
@@ -321,103 +321,102 @@ pub struct StdDatasetFailure;
 
 pub struct StdDatasetWithKwsFailure;
 
-enum_from_disp!(
-    pub StdTEXTWarning,
-    [Raw, ParseRawTEXTWarning],
-    [Std, StdTEXTFromRawWarning]
-);
+#[derive(From, Display)]
+pub enum StdTEXTWarning {
+    Raw(ParseRawTEXTWarning),
+    Std(StdTEXTFromRawWarning),
+}
 
-enum_from_disp!(
-    pub StdTEXTError,
-    [Raw, HeaderOrRawError],
-    [Std, StdTEXTFromRawError]
-);
+#[derive(From, Display)]
+pub enum StdTEXTError {
+    Raw(HeaderOrRawError),
+    Std(StdTEXTFromRawError),
+}
 
-enum_from_disp!(
-    pub StdDatasetWarning,
-    [Raw, ParseRawTEXTWarning],
-    [Std, StdDatasetFromRawWarning]
-);
+#[derive(From, Display)]
+pub enum StdDatasetWarning {
+    Raw(ParseRawTEXTWarning),
+    Std(StdDatasetFromRawWarning),
+}
 
-enum_from_disp!(
-    pub StdDatasetError,
-    [Raw, HeaderOrRawError],
-    [Std, StdDatasetFromRawError]
-);
+#[derive(From, Display)]
+pub enum StdDatasetError {
+    Raw(HeaderOrRawError),
+    Std(StdDatasetFromRawError),
+}
 
-enum_from_disp!(
-    pub RawDatasetWarning,
-    [Raw, ParseRawTEXTWarning],
-    [Read, LookupAndReadDataAnalysisWarning]
-);
+#[derive(From, Display)]
+pub enum RawDatasetWarning {
+    Raw(ParseRawTEXTWarning),
+    Read(LookupAndReadDataAnalysisWarning),
+}
 
-enum_from_disp!(
-    pub RawDatasetError,
-    [Raw, HeaderOrRawError],
-    [Read, LookupAndReadDataAnalysisError]
-);
+#[derive(From, Display)]
+pub enum RawDatasetError {
+    Raw(HeaderOrRawError),
+    Read(LookupAndReadDataAnalysisError),
+}
 
-enum_from_disp!(
-    pub ParseRawTEXTWarning,
-    [Char, DelimCharError],
-    [Keywords, ParseKeywordsIssue],
-    [SuppOffsets, STextSegmentWarning],
-    [Nextdata, ParseKeyError<ParseIntError>],
-    [Nonstandard, NonstandardError]
+#[derive(From, Display)]
+pub enum ParseRawTEXTWarning {
+    Char(DelimCharError),
+    Keywords(ParseKeywordsIssue),
+    SuppOffsets(STextSegmentWarning),
+    Nextdata(ParseKeyError<ParseIntError>),
+    Nonstandard(NonstandardError),
+}
 
-);
+#[derive(From, Display)]
+pub enum HeaderOrRawError {
+    Header(HeaderError),
+    RawTEXT(ParseRawTEXTError),
+}
 
-enum_from_disp!(
-    pub HeaderOrRawError,
-    [Header, HeaderError],
-    [RawTEXT, ParseRawTEXTError]
-);
+#[derive(From, Display)]
+pub enum RawToReaderError {
+    Layout(RawToLayoutError),
+    Reader(NewDataReaderError),
+}
 
-enum_from_disp!(
-    pub RawToReaderError,
-    [Layout, RawToLayoutError],
-    [Reader, NewDataReaderError]
-);
+#[derive(From, Display)]
+pub enum RawToReaderWarning {
+    Layout(RawToLayoutWarning),
+    Reader(NewDataReaderWarning),
+}
 
-enum_from_disp!(
-    pub RawToReaderWarning,
-    [Layout, RawToLayoutWarning],
-    [Reader, NewDataReaderWarning]
-);
+#[derive(From, Display)]
+pub enum STextSegmentError {
+    ReqSegment(ReqSegmentError),
+    Dup(DuplicatedSuppTEXT),
+}
 
-enum_from_disp!(
-    pub STextSegmentError,
-    [ReqSegment, ReqSegmentError],
-    [Dup, DuplicatedSuppTEXT]
-);
-
-enum_from_disp!(
-    pub STextSegmentWarning,
-    [ReqSegment, ReqSegmentError],
-    [OptSegment, OptSegmentError],
-    [Dup, DuplicatedSuppTEXT]
-);
+#[derive(From, Display)]
+pub enum STextSegmentWarning {
+    ReqSegment(ReqSegmentError),
+    OptSegment(OptSegmentError),
+    Dup(DuplicatedSuppTEXT),
+}
 
 pub struct DuplicatedSuppTEXT;
 
-enum_from_disp!(
-    pub ParseRawTEXTError,
-    [Delim, DelimVerifyError],
-    [Primary, ParsePrimaryTEXTError],
-    [Supplemental, ParseSupplementalTEXTError],
-    [SuppOffsets, STextSegmentError],
-    [Nextdata, ReqKeyError<ParseIntError>],
-    [NonAscii, NonAsciiKeyError],
-    [NonUtf8, NonUtf8KeywordError],
-    [Nonstandard, NonstandardError],
-    [Header, Box<HeaderValidationError>]
-);
+#[derive(From, Display)]
+pub enum ParseRawTEXTError {
+    Delim(DelimVerifyError),
+    Primary(ParsePrimaryTEXTError),
+    Supplemental(ParseSupplementalTEXTError),
+    SuppOffsets(STextSegmentError),
+    Nextdata(ReqKeyError<ParseIntError>),
+    NonAscii(NonAsciiKeyError),
+    NonUtf8(NonUtf8KeywordError),
+    Nonstandard(NonstandardError),
+    Header(Box<HeaderValidationError>),
+}
 
-enum_from_disp!(
-    pub DelimVerifyError,
-    [Empty, EmptyTEXTError],
-    [Char, DelimCharError]
-);
+#[derive(From, Display)]
+pub enum DelimVerifyError {
+    Empty(EmptyTEXTError),
+    Char(DelimCharError),
+}
 
 pub struct DelimCharError(u8);
 
@@ -435,33 +434,31 @@ pub struct FinalDelimError;
 #[derive(Debug)]
 pub struct DelimBoundError;
 
-enum_from_disp!(
-    pub ParsePrimaryTEXTError,
-    [Keywords, ParseKeywordsIssue],
-    [Empty, NoTEXTWordsError]
-);
+#[derive(From, Display)]
+pub enum ParsePrimaryTEXTError {
+    Keywords(ParseKeywordsIssue),
+    Empty(NoTEXTWordsError),
+}
 
 pub struct NoTEXTWordsError;
 
-enum_from_disp!(
-    #[derive(Debug)]
-    pub ParseKeywordsIssue,
-    [BlankKey, BlankKeyError],
-    [BlankValue, BlankValueError],
-    [Uneven, UnevenWordsError],
-    [Final, FinalDelimError],
-    [Unique, KeywordInsertError],
-    [Bound, DelimBoundError],
+#[derive(Debug, Display, From)]
+pub enum ParseKeywordsIssue {
+    BlankKey(BlankKeyError),
+    BlankValue(BlankValueError),
+    Uneven(UnevenWordsError),
+    Final(FinalDelimError),
+    Unique(KeywordInsertError),
+    Bound(DelimBoundError),
     // this is only for supp TEXT but seems less wasteful/convoluted to put here
-    [Mismatch, DelimMismatch]
+    Mismatch(DelimMismatch),
+}
 
-);
-
-enum_from_disp!(
-    pub ParseSupplementalTEXTError,
-    [Keywords, ParseKeywordsIssue],
-    [Mismatch, DelimMismatch]
-);
+#[derive(From, Display)]
+pub enum ParseSupplementalTEXTError {
+    Keywords(ParseKeywordsIssue),
+    Mismatch(DelimMismatch),
+}
 
 #[derive(Debug, Clone)]
 pub struct DelimMismatch {

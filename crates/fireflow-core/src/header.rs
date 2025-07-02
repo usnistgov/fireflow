@@ -1,12 +1,12 @@
 use crate::config::HeaderConfig;
 use crate::error::*;
-use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::segment::*;
 use crate::text::keywords::*;
 use crate::text::parser::*;
 use crate::validated::ascii_uint::*;
 use crate::validated::standard::*;
 
+use derive_more::{Display, From};
 use nonempty::NonEmpty;
 use serde::Serialize;
 use std::fmt;
@@ -356,11 +356,11 @@ impl fmt::Display for HeaderError {
     }
 }
 
-enum_from_disp!(
-    pub HeaderValidationError,
-    [Overlap, SegmentOverlapError],
-    [InHeader, InHeaderError]
-);
+#[derive(From, Display)]
+pub enum HeaderValidationError {
+    Overlap(SegmentOverlapError),
+    InHeader(InHeaderError),
+}
 
 pub struct InHeaderError(GenericSegment);
 

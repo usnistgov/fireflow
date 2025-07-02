@@ -1,11 +1,11 @@
 use crate::config::HeaderConfig;
 use crate::error::*;
-use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::text::keywords::*;
 use crate::text::parser::*;
 use crate::validated::ascii_uint::*;
 use crate::validated::standard::*;
 
+use derive_more::{Display, From};
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use serde::Serialize;
@@ -434,17 +434,17 @@ impl HasRegion for OtherSegmentId {
     const REGION: &'static str = "OTHER";
 }
 
-enum_from_disp!(
-    pub ReqSegmentError,
-    [Key, ReqKeyError<ParseIntError>],
-    [Segment, SegmentError<Uint20Char>]
-);
+#[derive(From, Display)]
+pub enum ReqSegmentError {
+    Key(ReqKeyError<ParseIntError>),
+    Segment(SegmentError<Uint20Char>),
+}
 
-enum_from_disp!(
-    pub OptSegmentError,
-    [Key, ParseKeyError<ParseIntError>],
-    [Segment, SegmentError<Uint20Char>]
-);
+#[derive(From, Display)]
+pub enum OptSegmentError {
+    Key(ParseKeyError<ParseIntError>),
+    Segment(SegmentError<Uint20Char>),
+}
 
 impl<I, S> OffsetCorrection<I, S> {
     pub fn new(begin: i32, end: i32) -> Self {
@@ -1005,12 +1005,12 @@ impl<T> NonEmptySegment<T> {
     }
 }
 
-enum_from_disp!(
-    pub HeaderSegmentError,
-    [Standard, SegmentError<Uint8Digit>],
-    [Other, SegmentError<Uint20Char>],
-    [Parse, ParseOffsetError]
-);
+#[derive(From, Display)]
+pub enum HeaderSegmentError {
+    Standard(SegmentError<Uint8Digit>),
+    Other(SegmentError<Uint20Char>),
+    Parse(ParseOffsetError),
+}
 
 pub struct SegmentError<T> {
     begin: T,

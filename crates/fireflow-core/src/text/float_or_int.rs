@@ -1,5 +1,4 @@
 use crate::error::BiTentative;
-use crate::macros::newtype_from_outer;
 use crate::validated::ascii_range::Chars;
 
 use derive_more::{Display, From};
@@ -30,7 +29,13 @@ pub struct NonNanFloat<T>(T);
 pub type NonNanF32 = NonNanFloat<f32>;
 pub type NonNanF64 = NonNanFloat<f64>;
 
-newtype_from_outer!(NonNanF64, f64);
+impl From<NonNanF64> for f64 {
+    fn from(value: NonNanF64) -> Self {
+        value.0
+    }
+}
+
+// newtype_from_outer!(NonNanF64, f64);
 
 impl NonNanF64 {
     fn as_int<T>(&self) -> Result<T, FloatToIntError<T>>

@@ -2,7 +2,7 @@ use crate::config::*;
 use crate::data::*;
 use crate::error::*;
 use crate::header::*;
-use crate::macros::{enum_from, enum_from_disp, match_many_to_one, newtype_from};
+use crate::macros::match_many_to_one;
 use crate::segment::*;
 use crate::text::byteord::*;
 use crate::text::compensation::*;
@@ -24,6 +24,7 @@ use crate::validated::shortname::*;
 use crate::validated::standard::*;
 
 use chrono::Timelike;
+use derive_more::{Display, From};
 use itertools::Itertools;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
@@ -86,22 +87,16 @@ pub struct Core<A, D, O, M, T, P, N, W, L> {
 }
 
 /// The ANALYSIS segment, which is just a string of bytes
-#[derive(Clone)]
+#[derive(Clone, From)]
 pub struct Analysis(pub Vec<u8>);
 
-newtype_from!(Analysis, Vec<u8>);
-
 /// An OTHER segment, which is just a string of bytes
-#[derive(Clone)]
+#[derive(Clone, From)]
 pub struct Other(pub Vec<u8>);
 
-newtype_from!(Other, Vec<u8>);
-
 /// All OTHER segments
-#[derive(Clone, Default)]
+#[derive(Clone, Default, From)]
 pub struct Others(pub Vec<Other>);
-
-newtype_from!(Others, Vec<Other>);
 
 /// Root of the metadata hierarchy.
 ///
@@ -1275,13 +1270,14 @@ pub struct TEXTOffsets<T> {
     pub tot: T,
 }
 
+#[derive(From)]
 pub struct TEXTOffsets2_0(pub TEXTOffsets<Option<Tot>>);
-pub struct TEXTOffsets3_0(pub TEXTOffsets<Tot>);
-pub struct TEXTOffsets3_2(pub TEXTOffsets<Tot>);
 
-newtype_from!(TEXTOffsets2_0, TEXTOffsets<Option<Tot>>);
-newtype_from!(TEXTOffsets3_0, TEXTOffsets<Tot>);
-newtype_from!(TEXTOffsets3_2, TEXTOffsets<Tot>);
+#[derive(From)]
+pub struct TEXTOffsets3_0(pub TEXTOffsets<Tot>);
+
+#[derive(From)]
+pub struct TEXTOffsets3_2(pub TEXTOffsets<Tot>);
 
 impl CommonMeasurement {
     fn lookup<E>(
@@ -4891,32 +4887,32 @@ type TemporalConvertTentative<M> = BiTentative<M, TemporalConvertError>;
 
 pub(crate) type LayoutConvertResult<L> = MultiResult<L, LayoutConvertError>;
 
-enum_from_disp!(
-    pub OpticalConvertError,
-    [NoScale, NoScaleError],
-    [Wavelengths, WavelengthsLossError],
-    [Xfer, AnyMeasKeyLossError]
-);
+#[derive(From, Display)]
+pub enum OpticalConvertError {
+    NoScale(NoScaleError),
+    Wavelengths(WavelengthsLossError),
+    Xfer(AnyMeasKeyLossError),
+}
 
-enum_from_disp!(
-    pub OpticalConvertWarning,
-    [Wavelengths, WavelengthsLossError],
-    [Xfer, AnyMeasKeyLossError]
-);
+#[derive(From, Display)]
+pub enum OpticalConvertWarning {
+    Wavelengths(WavelengthsLossError),
+    Xfer(AnyMeasKeyLossError),
+}
 
-enum_from_disp!(
-    pub TemporalConvertError,
-    [Timestep, TimestepLossError],
-    [Xfer, AnyMeasKeyLossError]
-);
+#[derive(From, Display)]
+pub enum TemporalConvertError {
+    Timestep(TimestepLossError),
+    Xfer(AnyMeasKeyLossError),
+}
 
-enum_from_disp!(
-    pub LayoutConvertError,
-    [OrderToEndian, OrderedToEndianError],
-    [Width, ConvertWidthError],
-    [MixedToOrdered, MixedToOrderedLayoutError],
-    [MixedToNonMixed, MixedToNonMixedLayoutError]
-);
+#[derive(From, Display)]
+pub enum LayoutConvertError {
+    OrderToEndian(OrderedToEndianError),
+    Width(ConvertWidthError),
+    MixedToOrdered(MixedToOrderedLayoutError),
+    MixedToNonMixed(MixedToNonMixedLayoutError),
+}
 
 pub struct TimestepLossError(Timestep);
 
@@ -7279,20 +7275,20 @@ impl fmt::Display for OptionalKwToIdentityError {
     }
 }
 
-enum_from_disp!(
-    pub StdReaderError,
-    [Layout, NewDataLayoutError],
-    [Reader, NewDataReaderError]
-);
+#[derive(From, Display)]
+pub enum StdReaderError {
+    Layout(NewDataLayoutError),
+    Reader(NewDataReaderError),
+}
 
 pub struct TerminalDataLayoutFailure;
 
-enum_from_disp!(
-    pub StdWriterError,
-    [Layout, NewDataLayoutError],
-    [Check, ColumnError<AnyLossError>],
-    [Overflow, Uint8DigitOverflow]
-);
+#[derive(From, Display)]
+pub enum StdWriterError {
+    Layout(NewDataLayoutError),
+    Check(ColumnError<AnyLossError>),
+    Overflow(Uint8DigitOverflow),
+}
 
 pub enum ExistingLinkError {
     Trigger,
@@ -7313,11 +7309,11 @@ impl fmt::Display for ExistingLinkError {
     }
 }
 
-enum_from_disp!(
-    pub SetSpilloverError,
-    [New, SpilloverError],
-    [Link, SpilloverLinkError]
-);
+#[derive(From, Display)]
+pub enum SetSpilloverError {
+    New(SpilloverError),
+    Link(SpilloverLinkError),
+}
 
 pub struct SpilloverLinkError;
 
@@ -7327,79 +7323,79 @@ impl fmt::Display for SpilloverLinkError {
     }
 }
 
-enum_from_disp!(
-    pub SetMeasurementsError,
-    [New, NewNamedVecError],
-    [Link, ExistingLinkError],
-    [MeasNumber, MeasLayoutMismatchError]
-);
+#[derive(From, Display)]
+pub enum SetMeasurementsError {
+    New(NewNamedVecError),
+    Link(ExistingLinkError),
+    MeasNumber(MeasLayoutMismatchError),
+}
 
-enum_from_disp!(
-    pub SetMeasurementsAndDataError,
-    [Meas, SetMeasurementsError],
-    [New, NewDataframeError],
-    [Mismatch, MeasDataMismatchError]
-);
+#[derive(From, Display)]
+pub enum SetMeasurementsAndDataError {
+    Meas(SetMeasurementsError),
+    New(NewDataframeError),
+    Mismatch(MeasDataMismatchError),
+}
 
-enum_from_disp!(
-    pub ColumsnToDataframeError,
-    [New, NewDataframeError],
-    [Mismatch, MeasDataMismatchError]
-);
+#[derive(From, Display)]
+pub enum ColumsnToDataframeError {
+    New(NewDataframeError),
+    Mismatch(MeasDataMismatchError),
+}
 
-enum_from_disp!(
-    pub SetMeasurementsOnlyError,
-    [Meas, SetMeasurementsError],
-    [Mismatch, MeasDataMismatchError]
-);
+#[derive(From, Display)]
+pub enum SetMeasurementsOnlyError {
+    Meas(SetMeasurementsError),
+    Mismatch(MeasDataMismatchError),
+}
 
-enum_from_disp!(
-    pub PushTemporalError,
-    [Center, InsertCenterError],
-    [Layout, LayoutPushColumnError]
-);
+#[derive(From, Display)]
+pub enum PushTemporalError {
+    Center(InsertCenterError),
+    Layout(LayoutPushColumnError),
+}
 
-enum_from_disp!(
-    pub InsertTemporalError,
-    [Center, InsertCenterError],
-    [Layout, LayoutInsertColumnWarning]
-);
+#[derive(From, Display)]
+pub enum InsertTemporalError {
+    Center(InsertCenterError),
+    Layout(LayoutInsertColumnWarning),
+}
 
-enum_from_disp!(
-    pub PushOpticalError,
-    [Unique, NonUniqueKeyError],
-    [Layout, LayoutPushColumnError]
-);
+#[derive(From, Display)]
+pub enum PushOpticalError {
+    Unique(NonUniqueKeyError),
+    Layout(LayoutPushColumnError),
+}
 
-enum_from_disp!(
-    pub InsertOpticalError,
-    [Insert, InsertError],
-    [Layout, LayoutInsertColumnWarning]
-);
+#[derive(From, Display)]
+pub enum InsertOpticalError {
+    Insert(InsertError),
+    Layout(LayoutInsertColumnWarning),
+}
 
-enum_from_disp!(
-    pub PushTemporalToDatasetError,
-    [Measurement, PushTemporalError],
-    [Column, ColumnLengthError]
-);
+#[derive(From, Display)]
+pub enum PushTemporalToDatasetError {
+    Measurement(PushTemporalError),
+    Column(ColumnLengthError),
+}
 
-enum_from_disp!(
-    pub InsertTemporalToDatasetError,
-    [Measurement, InsertTemporalError],
-    [Column, ColumnLengthError]
-);
+#[derive(From, Display)]
+pub enum InsertTemporalToDatasetError {
+    Measurement(InsertTemporalError),
+    Column(ColumnLengthError),
+}
 
-enum_from_disp!(
-    pub PushOpticalToDatasetError,
-    [Measurement, PushOpticalError],
-    [Column, ColumnLengthError]
-);
+#[derive(From, Display)]
+pub enum PushOpticalToDatasetError {
+    Measurement(PushOpticalError),
+    Column(ColumnLengthError),
+}
 
-enum_from_disp!(
-    pub InsertOpticalInDatasetError,
-    [Measurement, InsertOpticalError],
-    [Column, ColumnLengthError]
-);
+#[derive(From, Display)]
+pub enum InsertOpticalInDatasetError {
+    Measurement(InsertOpticalError),
+    Column(ColumnLengthError),
+}
 
 pub struct MeasLayoutMismatchError {
     meas_n: usize,
@@ -7439,42 +7435,42 @@ impl fmt::Display for MissingMeasurementNameError {
     }
 }
 
-enum_from_disp!(
-    pub StdTEXTFromRawError,
-    [Metaroot, LookupKeysError],
-    [Layout, Box<LookupLayoutError>],
-    [Offsets, LookupTEXTOffsetsError],
-    [Pseudostandard, PseudostandardError]
-);
+#[derive(From, Display)]
+pub enum StdTEXTFromRawError {
+    Metaroot(LookupKeysError),
+    Layout(Box<LookupLayoutError>),
+    Offsets(LookupTEXTOffsetsError),
+    Pseudostandard(PseudostandardError),
+}
 
-enum_from_disp!(
-    pub StdTEXTFromRawWarning,
-    [Metaroot, LookupKeysWarning],
-    [Meas, LookupMeasWarning],
-    [Layout, LookupLayoutWarning],
-    [Offsets, LookupTEXTOffsetsWarning],
-    [Pseudostandard, PseudostandardError]
-);
+#[derive(From, Display)]
+pub enum StdTEXTFromRawWarning {
+    Metaroot(LookupKeysWarning),
+    Meas(LookupMeasWarning),
+    Layout(LookupLayoutWarning),
+    Offsets(LookupTEXTOffsetsWarning),
+    Pseudostandard(PseudostandardError),
+}
 
-enum_from_disp!(
-    pub StdDatasetFromRawError,
-    [TEXT, Box<StdTEXTFromRawError>],
-    [Dataframe, ReadDataframeError],
-    [Offsets, LookupTEXTOffsetsError]
-);
+#[derive(From, Display)]
+pub enum StdDatasetFromRawError {
+    TEXT(Box<StdTEXTFromRawError>),
+    Dataframe(ReadDataframeError),
+    Offsets(LookupTEXTOffsetsError),
+}
 
-enum_from_disp!(
-    pub StdDatasetFromRawWarning,
-    [TEXT, StdTEXTFromRawWarning],
-    [Offsets, LookupTEXTOffsetsWarning],
-    [Layout, ReadDataframeWarning]
-);
+#[derive(From, Display)]
+pub enum StdDatasetFromRawWarning {
+    TEXT(StdTEXTFromRawWarning),
+    Offsets(LookupTEXTOffsetsWarning),
+    Layout(ReadDataframeWarning),
+}
 
-enum_from_disp!(
-    pub LookupMeasWarning,
-    [Parse, LookupKeysWarning],
-    [Pattern, NonStdMeasRegexError]
-);
+#[derive(From, Display)]
+pub enum LookupMeasWarning {
+    Parse(LookupKeysWarning),
+    Pattern(NonStdMeasRegexError),
+}
 
 pub struct RegionToMeasIndexError(GateIndex);
 
@@ -7559,40 +7555,40 @@ impl fmt::Display for NoScaleError {
     }
 }
 
-enum_from_disp!(
-    pub ReplaceTemporalError,
-    [ToOptical, TemporalToOpticalError],
-    [Set, SetCenterError]
-);
+#[derive(From, Display)]
+pub enum ReplaceTemporalError {
+    ToOptical(TemporalToOpticalError),
+    Set(SetCenterError),
+}
 
-enum_from_disp!(
-    pub SetTemporalError,
-    [Swap, SwapOpticalTemporalError],
-    [Set, SetCenterError]
-);
+#[derive(From, Display)]
+pub enum SetTemporalError {
+    Swap(SwapOpticalTemporalError),
+    Set(SetCenterError),
+}
 
-enum_from_disp!(
-    pub SwapOpticalTemporalError,
-    [ToTemporal, OpticalToTemporalError],
-    [ToOptical, TemporalToOpticalError]
-);
+#[derive(From, Display)]
+pub enum SwapOpticalTemporalError {
+    ToTemporal(OpticalToTemporalError),
+    ToOptical(TemporalToOpticalError),
+}
 
-enum_from_disp!(
-    pub OpticalToTemporalError,
-    [NonLinear, OpticalNonLinearError],
-    [Loss, AnyOpticalToTemporalKeyLossError]
-);
+#[derive(From, Display)]
+pub enum OpticalToTemporalError {
+    NonLinear(OpticalNonLinearError),
+    Loss(AnyOpticalToTemporalKeyLossError),
+}
 
-enum_from_disp!(
-    pub TemporalToOpticalError,
-    [Loss, AnyTemporalToOpticalKeyLossError]
-);
+#[derive(From, Display)]
+pub enum TemporalToOpticalError {
+    Loss(AnyTemporalToOpticalKeyLossError),
+}
 
-enum_from_disp!(
-    pub SetTemporalIndexError,
-    [Convert, OpticalToTemporalError],
-    [Index, SetCenterError]
-);
+#[derive(From, Display)]
+pub enum SetTemporalIndexError {
+    Convert(OpticalToTemporalError),
+    Index(SetCenterError),
+}
 
 pub struct OpticalNonLinearError;
 
@@ -7602,142 +7598,142 @@ impl fmt::Display for OpticalNonLinearError {
     }
 }
 
-enum_from_disp!(
-    pub MetarootConvertError,
-    [NoCyt, NoCytError],
-    [Mode, ModeNotListError],
-    [GateLink, RegionToGateIndexError],
-    [MeasLink, RegionToMeasIndexError],
-    [GateToMeas, GateToMeasIndexError],
-    [MeasToGate, MeasToGateIndexError],
-    [Gates3_0To2_0, AppliedGates3_0To2_0Error],
-    [Gates3_0To3_2, AppliedGates3_0To3_2Error],
-    [Gates3_2To2_0, AppliedGates3_2To2_0Error],
-    [Gates2_0To3_2, AppliedGates2_0To3_2Error],
-    [Loss, AnyMetarootKeyLossError],
-    [Comp2_0, Comp2_0TransferError]
-);
+#[derive(From, Display)]
+pub enum MetarootConvertError {
+    NoCyt(NoCytError),
+    Mode(ModeNotListError),
+    GateLink(RegionToGateIndexError),
+    MeasLink(RegionToMeasIndexError),
+    GateToMeas(GateToMeasIndexError),
+    MeasToGate(MeasToGateIndexError),
+    Gates3_0To2_0(AppliedGates3_0To2_0Error),
+    Gates3_0To3_2(AppliedGates3_0To3_2Error),
+    Gates3_2To2_0(AppliedGates3_2To2_0Error),
+    Gates2_0To3_2(AppliedGates2_0To3_2Error),
+    Loss(AnyMetarootKeyLossError),
+    Comp2_0(Comp2_0TransferError),
+}
 
-enum_from_disp!(
-    pub MetarootConvertWarning,
-    [Mode, ModeNotListError],
-    [Gates3_0To2_0, AppliedGates3_0To2_0Error],
-    [Gates3_0To3_2, AppliedGates3_0To3_2Error],
-    [Gates3_2To2_0, AppliedGates3_2To2_0Error],
-    [Gates2_0To3_2, AppliedGates2_0To3_2Error],
-    [Loss, AnyMetarootKeyLossError],
-    [Optical, OpticalConvertWarning],
-    [Temporal, TemporalConvertError],
-    [Comp2_0, Comp2_0TransferError]
-);
+#[derive(From, Display)]
+pub enum MetarootConvertWarning {
+    Mode(ModeNotListError),
+    Gates3_0To2_0(AppliedGates3_0To2_0Error),
+    Gates3_0To3_2(AppliedGates3_0To3_2Error),
+    Gates3_2To2_0(AppliedGates3_2To2_0Error),
+    Gates2_0To3_2(AppliedGates2_0To3_2Error),
+    Loss(AnyMetarootKeyLossError),
+    Optical(OpticalConvertWarning),
+    Temporal(TemporalConvertError),
+    Comp2_0(Comp2_0TransferError),
+}
 
-enum_from_disp!(
-    /// Error when a metaroot keyword will be lost when converting versions
-    pub AnyMetarootKeyLossError,
-    [Cytsn,            UnitaryKeyLossError<Cytsn>],
-    [Unicode,          UnitaryKeyLossError<Unicode>],
-    [Vol,              UnitaryKeyLossError<Vol>],
-    [Flowrate,         UnitaryKeyLossError<Flowrate>],
-    [Comp,             UnitaryKeyLossError<Compensation3_0>],
-    [Platename,        UnitaryKeyLossError<Platename>],
-    [Plateid,          UnitaryKeyLossError<Plateid>],
-    [Wellid,           UnitaryKeyLossError<Wellid>],
-    [Carrierid,        UnitaryKeyLossError<Carrierid>],
-    [Locationid,       UnitaryKeyLossError<Locationid>],
-    [Carriertype,      UnitaryKeyLossError<Carriertype>],
-    [LastModifier,     UnitaryKeyLossError<LastModifier>],
-    [LastModified,     UnitaryKeyLossError<ModifiedDateTime>],
-    [Originality,      UnitaryKeyLossError<Originality>],
-    [UnstainedCenters, UnitaryKeyLossError<UnstainedCenters>],
-    [UnstainedInfo,    UnitaryKeyLossError<UnstainedInfo>],
-    [Begindatetime,    UnitaryKeyLossError<BeginDateTime>],
-    [Enddatetime,      UnitaryKeyLossError<EndDateTime>],
-    [Spillover,        UnitaryKeyLossError<Spillover>],
-    [CSMode,           UnitaryKeyLossError<CSMode>],
-    [CSVBits,          UnitaryKeyLossError<CSVBits>],
-    [CSVFlag,          IndexedKeyLossError<CSVFlag>]
-);
+/// Error when a metaroot keyword will be lost when converting versions
+#[derive(From, Display)]
+pub enum AnyMetarootKeyLossError {
+    Cytsn(UnitaryKeyLossError<Cytsn>),
+    Unicode(UnitaryKeyLossError<Unicode>),
+    Vol(UnitaryKeyLossError<Vol>),
+    Flowrate(UnitaryKeyLossError<Flowrate>),
+    Comp(UnitaryKeyLossError<Compensation3_0>),
+    Platename(UnitaryKeyLossError<Platename>),
+    Plateid(UnitaryKeyLossError<Plateid>),
+    Wellid(UnitaryKeyLossError<Wellid>),
+    Carrierid(UnitaryKeyLossError<Carrierid>),
+    Locationid(UnitaryKeyLossError<Locationid>),
+    Carriertype(UnitaryKeyLossError<Carriertype>),
+    LastModifier(UnitaryKeyLossError<LastModifier>),
+    LastModified(UnitaryKeyLossError<ModifiedDateTime>),
+    Originality(UnitaryKeyLossError<Originality>),
+    UnstainedCenters(UnitaryKeyLossError<UnstainedCenters>),
+    UnstainedInfo(UnitaryKeyLossError<UnstainedInfo>),
+    Begindatetime(UnitaryKeyLossError<BeginDateTime>),
+    Enddatetime(UnitaryKeyLossError<EndDateTime>),
+    Spillover(UnitaryKeyLossError<Spillover>),
+    CSMode(UnitaryKeyLossError<CSMode>),
+    CSVBits(UnitaryKeyLossError<CSVBits>),
+    CSVFlag(IndexedKeyLossError<CSVFlag>),
+}
 
-enum_from_disp!(
-    /// Error when an optical keyword will be lost when converting versions
-    pub AnyMeasKeyLossError,
-    [Filter,          IndexedKeyLossError<Filter>],
-    [Power,           IndexedKeyLossError<Power>],
-    [DetectorType,    IndexedKeyLossError<DetectorType>],
-    [PercentEmitted,  IndexedKeyLossError<PercentEmitted>],
-    [DetectorVoltage, IndexedKeyLossError<DetectorVoltage>],
-    [Wavelength,      IndexedKeyLossError<Wavelength>],
-    [Wavelengths,     IndexedKeyLossError<Wavelengths>],
-    [MeasType,        IndexedKeyLossError<OpticalType>],
-    [TempType,        IndexedKeyLossError<TemporalType>],
-    [Analyte,         IndexedKeyLossError<Analyte>],
-    [Tag,             IndexedKeyLossError<Tag>],
-    [Gain,            IndexedKeyLossError<Gain>],
-    [Display,         IndexedKeyLossError<Display>],
-    [DetectorName,    IndexedKeyLossError<DetectorName>],
-    [Feature,         IndexedKeyLossError<Feature>],
-    [PeakBin,         IndexedKeyLossError<PeakBin>],
-    [PeakNumber,      IndexedKeyLossError<PeakNumber>],
-    [Calibration3_1,  IndexedKeyLossError<Calibration3_1>],
-    [Calibration3_2,  IndexedKeyLossError<Calibration3_2>]
-);
+/// Error when an optical keyword will be lost when converting versions
+#[derive(From, Display)]
+pub enum AnyMeasKeyLossError {
+    Filter(IndexedKeyLossError<Filter>),
+    Power(IndexedKeyLossError<Power>),
+    DetectorType(IndexedKeyLossError<DetectorType>),
+    PercentEmitted(IndexedKeyLossError<PercentEmitted>),
+    DetectorVoltage(IndexedKeyLossError<DetectorVoltage>),
+    Wavelength(IndexedKeyLossError<Wavelength>),
+    Wavelengths(IndexedKeyLossError<Wavelengths>),
+    MeasType(IndexedKeyLossError<OpticalType>),
+    TempType(IndexedKeyLossError<TemporalType>),
+    Analyte(IndexedKeyLossError<Analyte>),
+    Tag(IndexedKeyLossError<Tag>),
+    Gain(IndexedKeyLossError<Gain>),
+    Display(IndexedKeyLossError<Display>),
+    DetectorName(IndexedKeyLossError<DetectorName>),
+    Feature(IndexedKeyLossError<Feature>),
+    PeakBin(IndexedKeyLossError<PeakBin>),
+    PeakNumber(IndexedKeyLossError<PeakNumber>),
+    Calibration3_1(IndexedKeyLossError<Calibration3_1>),
+    Calibration3_2(IndexedKeyLossError<Calibration3_2>),
+}
 
-enum_from_disp!(
-    /// Error when an optical keyword will be lost when converting to temporal
-    pub AnyOpticalToTemporalKeyLossError,
-    [Filter,          IndexedKeyLossError<Filter>],
-    [Power,           IndexedKeyLossError<Power>],
-    [DetectorType,    IndexedKeyLossError<DetectorType>],
-    [PercentEmitted,  IndexedKeyLossError<PercentEmitted>],
-    [DetectorVoltage, IndexedKeyLossError<DetectorVoltage>],
-    [Wavelength,      IndexedKeyLossError<Wavelength>],
-    [Wavelengths,     IndexedKeyLossError<Wavelengths>],
-    [MeasType,        IndexedKeyLossError<OpticalType>],
-    [Analyte,         IndexedKeyLossError<Analyte>],
-    [Tag,             IndexedKeyLossError<Tag>],
-    [Gain,            IndexedKeyLossError<Gain>],
-    [DetectorName,    IndexedKeyLossError<DetectorName>],
-    [Feature,         IndexedKeyLossError<Feature>],
-    [Calibration3_1,  IndexedKeyLossError<Calibration3_1>],
-    [Calibration3_2,  IndexedKeyLossError<Calibration3_2>]
-);
+/// Error when an optical keyword will be lost when converting to temporal
+#[derive(From, Display)]
+pub enum AnyOpticalToTemporalKeyLossError {
+    Filter(IndexedKeyLossError<Filter>),
+    Power(IndexedKeyLossError<Power>),
+    DetectorType(IndexedKeyLossError<DetectorType>),
+    PercentEmitted(IndexedKeyLossError<PercentEmitted>),
+    DetectorVoltage(IndexedKeyLossError<DetectorVoltage>),
+    Wavelength(IndexedKeyLossError<Wavelength>),
+    Wavelengths(IndexedKeyLossError<Wavelengths>),
+    MeasType(IndexedKeyLossError<OpticalType>),
+    Analyte(IndexedKeyLossError<Analyte>),
+    Tag(IndexedKeyLossError<Tag>),
+    Gain(IndexedKeyLossError<Gain>),
+    DetectorName(IndexedKeyLossError<DetectorName>),
+    Feature(IndexedKeyLossError<Feature>),
+    Calibration3_1(IndexedKeyLossError<Calibration3_1>),
+    Calibration3_2(IndexedKeyLossError<Calibration3_2>),
+}
 
-enum_from_disp!(
-    /// Error when a temporal keyword will be lost when converting to optical
-    pub AnyTemporalToOpticalKeyLossError,
-    [TempType,        IndexedKeyLossError<TemporalType>]
-);
+/// Error when a temporal keyword will be lost when converting to optical
+#[derive(From, Display)]
+pub enum AnyTemporalToOpticalKeyLossError {
+    TempType(IndexedKeyLossError<TemporalType>),
+}
 
-enum_from_disp!(
-    pub LookupAndReadDataAnalysisError,
-    [Offsets, LookupTEXTOffsetsError],
-    [Layout, RawToLayoutError],
-    [Dataframe, ReadDataframeError]
-);
+#[derive(From, Display)]
+pub enum LookupAndReadDataAnalysisError {
+    Offsets(LookupTEXTOffsetsError),
+    Layout(RawToLayoutError),
+    Dataframe(ReadDataframeError),
+}
 
-enum_from_disp!(
-    pub LookupAndReadDataAnalysisWarning,
-    [Offsets, LookupTEXTOffsetsWarning],
-    [Layout, RawToLayoutWarning],
-    [Data, ReadDataframeWarning]
-);
+#[derive(From, Display)]
+pub enum LookupAndReadDataAnalysisWarning {
+    Offsets(LookupTEXTOffsetsWarning),
+    Layout(RawToLayoutWarning),
+    Data(ReadDataframeWarning),
+}
 
-enum_from_disp!(
-    pub LookupTEXTOffsetsWarning,
-    [Tot, ParseKeyError<std::num::ParseIntError>],
-    [ReqData, ReqSegmentWithDefaultWarning<DataSegmentId>],
-    [ReqAnalysis, ReqSegmentWithDefaultWarning<AnalysisSegmentId>],
-    [MismatchAnalysis, OptSegmentWithDefaultWarning<AnalysisSegmentId>]
-);
+#[derive(From, Display)]
+pub enum LookupTEXTOffsetsWarning {
+    Tot(ParseKeyError<std::num::ParseIntError>),
+    ReqData(ReqSegmentWithDefaultWarning<DataSegmentId>),
+    ReqAnalysis(ReqSegmentWithDefaultWarning<AnalysisSegmentId>),
+    MismatchAnalysis(OptSegmentWithDefaultWarning<AnalysisSegmentId>),
+}
 
-enum_from_disp!(
-    pub LookupTEXTOffsetsError,
-    [Tot, ReqKeyError<std::num::ParseIntError>],
-    [ReqData, ReqSegmentWithDefaultError<DataSegmentId>],
-    [ReqAnalysis, ReqSegmentWithDefaultError<AnalysisSegmentId>],
-    [MismatchData, SegmentMismatchWarning<DataSegmentId>],
-    [MismatchAnalysis, SegmentMismatchWarning<AnalysisSegmentId>]
-);
+#[derive(From, Display)]
+pub enum LookupTEXTOffsetsError {
+    Tot(ReqKeyError<std::num::ParseIntError>),
+    ReqData(ReqSegmentWithDefaultError<DataSegmentId>),
+    ReqAnalysis(ReqSegmentWithDefaultError<AnalysisSegmentId>),
+    MismatchData(SegmentMismatchWarning<DataSegmentId>),
+    MismatchAnalysis(SegmentMismatchWarning<AnalysisSegmentId>),
+}
 
 type LookupTEXTOffsetsResult<T> =
     DeferredResult<T, LookupTEXTOffsetsWarning, LookupTEXTOffsetsError>;
@@ -7862,11 +7858,11 @@ impl fmt::Display for ModeNotListError {
     }
 }
 
-enum_from_disp!(
-    pub SetFloatError,
-    [Nan, NanFloatError],
-    [Column, ColumnNumberError]
-);
+#[derive(From, Display)]
+pub enum SetFloatError {
+    Nan(NanFloatError),
+    Column(ColumnNumberError),
+}
 
 #[derive(Debug)]
 pub struct ColumnNumberError {

@@ -51,7 +51,7 @@
 use crate::config::{ReaderConfig, StdTextReadConfig};
 use crate::core::*;
 use crate::error::*;
-use crate::macros::{enum_from, enum_from_disp, match_many_to_one, newtype_disp, newtype_from};
+use crate::macros::match_many_to_one;
 use crate::nonempty::NonEmptyExt;
 use crate::segment::*;
 use crate::text::byteord::*;
@@ -71,6 +71,7 @@ use crate::validated::bitmask::{
 use crate::validated::dataframe::*;
 use crate::validated::standard::*;
 
+use derive_more::{Display, From};
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use num_traits::float::Float;
@@ -88,43 +89,36 @@ use std::str;
 ///
 /// This is identical to 3.0 in every way except that the $TOT keyword in 2.0
 /// is optional, which requires a different interface.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, From)]
 pub struct DataLayout2_0(pub AnyOrderedLayout<MaybeTot>);
 
-newtype_from!(DataLayout2_0, AnyOrderedLayout<MaybeTot>);
-
 /// All possible byte layouts for the DATA segment in 2.0.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, From)]
 pub struct DataLayout3_0(pub AnyOrderedLayout<KnownTot>);
-
-newtype_from!(DataLayout3_0, AnyOrderedLayout<KnownTot>);
 
 /// All possible byte layouts for the DATA segment in 3.1.
 ///
 /// Unlike 2.0 and 3.0, the integer layout allows the column widths to be
 /// different. This is a consequence of making BYTEORD only mean "big or little
 /// endian" and have nothing to do with number of bytes.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, From)]
 pub struct DataLayout3_1(pub NonMixedEndianLayout);
 
-newtype_from!(DataLayout3_1, NonMixedEndianLayout);
-
-enum_from!(
-    /// All possible byte layouts for the DATA segment in 3.2.
-    ///
-    /// In addition to the loosened integer layouts in 3.1, 3.2 additionally allows
-    /// each column to have a different type and size (hence "Mixed").
-    #[derive(Clone, Serialize)]
-    pub DataLayout3_2,
-    [Mixed, EndianLayout<NullMixedType>],
-    [NonMixed, NonMixedEndianLayout]
-);
+/// All possible byte layouts for the DATA segment in 3.2.
+///
+/// In addition to the loosened integer layouts in 3.1, 3.2 additionally allows
+/// each column to have a different type and size (hence "Mixed").
+#[derive(Clone, Serialize, From)]
+pub enum DataLayout3_2 {
+    Mixed(EndianLayout<NullMixedType>),
+    NonMixed(NonMixedEndianLayout),
+}
 
 /// All possible byte layouts for the DATA segment in 2.0 and 3.0.
 ///
 /// It is so named "Ordered" because the BYTEORD keyword represents any possible
 /// byte ordering that may occur rather than simply little or big endian.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, From)]
 pub enum AnyOrderedLayout<T> {
     Ascii(AnyAsciiLayout<T>),
     Integer(AnyOrderedUintLayout<T>),
@@ -134,14 +128,13 @@ pub enum AnyOrderedLayout<T> {
 
 // TODO make an integer layout which has only one width, which will cover the
 // vast majority of cases and make certain operations easier.
-enum_from!(
-    #[derive(Clone, Serialize)]
-    pub NonMixedEndianLayout,
-    [Ascii, AnyAsciiLayout<KnownTot>],
-    [Integer, EndianLayout<AnyNullBitmask>],
-    [F32, EndianLayout<F32Range>],
-    [F64, EndianLayout<F64Range>]
-);
+#[derive(Clone, Serialize, From)]
+pub enum NonMixedEndianLayout {
+    Ascii(AnyAsciiLayout<KnownTot>),
+    Integer(EndianLayout<AnyNullBitmask>),
+    F32(EndianLayout<F32Range>),
+    F64(EndianLayout<F64Range>),
+}
 
 type EndianLayout<C> = FixedLayout<C, Endian, KnownTot>;
 
@@ -150,7 +143,7 @@ type EndianLayout<C> = FixedLayout<C, Endian, KnownTot>;
 /// This may either be fixed (ie columns have the same number of characters)
 /// or variable (ie columns have have different number of characters and are
 /// separated by delimiters).
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, From)]
 pub enum AnyAsciiLayout<T> {
     Delimited(DelimAsciiLayout<T>),
     Fixed(FixedAsciiLayout<T>),
@@ -174,7 +167,7 @@ pub struct FixedLayout<C, L, T> {
 }
 
 /// Byte layout for integers that may be in any byte order.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, From)]
 pub enum AnyOrderedUintLayout<T> {
     // TODO the first two don't need to be ordered
     Uint08(OrderedLayout<Bitmask08, T>),
@@ -188,25 +181,6 @@ pub enum AnyOrderedUintLayout<T> {
 }
 
 type OrderedLayout<C, T> = FixedLayout<C, <C as HasNativeWidth>::Order, T>;
-
-macro_rules! into_any_ordered_layout {
-    ($var:ident, $inner:ident) => {
-        impl<T> From<OrderedLayout<$inner, T>> for AnyOrderedUintLayout<T> {
-            fn from(value: OrderedLayout<$inner, T>) -> Self {
-                Self::$var(value)
-            }
-        }
-    };
-}
-
-into_any_ordered_layout!(Uint08, Bitmask08);
-into_any_ordered_layout!(Uint16, Bitmask16);
-into_any_ordered_layout!(Uint24, Bitmask24);
-into_any_ordered_layout!(Uint32, Bitmask32);
-into_any_ordered_layout!(Uint40, Bitmask40);
-into_any_ordered_layout!(Uint48, Bitmask48);
-into_any_ordered_layout!(Uint56, Bitmask56);
-into_any_ordered_layout!(Uint64, Bitmask64);
 
 /// The type of a non-delimited column in the DATA segment for 3.2
 pub enum MixedType<F: ColumnFamily> {
@@ -1005,13 +979,13 @@ impl From<F64Range> for FloatOrInt {
     }
 }
 
-enum_from!(
-    pub MixedToOrderedUintError,
-    [IsAscii, MixedIsAscii],
-    [IsWrongInteger, UintToUintError],
-    [IsFloat, MixedIsFloat],
-    [IsDouble, MixedIsDouble]
-);
+#[derive(From)]
+pub enum MixedToOrderedUintError {
+    IsAscii(MixedIsAscii),
+    IsWrongInteger(UintToUintError),
+    IsFloat(MixedIsFloat),
+    IsDouble(MixedIsDouble),
+}
 
 impl fmt::Display for MixedToOrderedUintError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -1028,12 +1002,12 @@ impl fmt::Display for MixedToOrderedUintError {
     }
 }
 
-enum_from!(
-    pub MixedToEndianUintError,
-    [IsAscii, MixedIsAscii],
-    [IsFloat, MixedIsFloat],
-    [IsDouble, MixedIsDouble]
-);
+#[derive(From)]
+pub enum MixedToEndianUintError {
+    IsAscii(MixedIsAscii),
+    IsFloat(MixedIsFloat),
+    IsDouble(MixedIsDouble),
+}
 
 impl fmt::Display for MixedToEndianUintError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -1045,12 +1019,12 @@ impl fmt::Display for MixedToEndianUintError {
     }
 }
 
-enum_from!(
-    pub MixedToAsciiError,
-    [IsInteger, MixedIsInteger],
-    [IsFloat, MixedIsFloat],
-    [IsDouble, MixedIsDouble]
-);
+#[derive(From)]
+pub enum MixedToAsciiError {
+    IsInteger(MixedIsInteger),
+    IsFloat(MixedIsFloat),
+    IsDouble(MixedIsDouble),
+}
 
 impl fmt::Display for MixedToAsciiError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -1063,12 +1037,12 @@ impl fmt::Display for MixedToAsciiError {
     }
 }
 
-enum_from!(
-    pub MixedToFloatError,
-    [IsAscii, MixedIsAscii],
-    [IsInteger, MixedIsInteger],
-    [IsDouble, MixedIsDouble]
-);
+#[derive(From)]
+pub enum MixedToFloatError {
+    IsAscii(MixedIsAscii),
+    IsInteger(MixedIsInteger),
+    IsDouble(MixedIsDouble),
+}
 
 impl fmt::Display for MixedToFloatError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -1081,12 +1055,12 @@ impl fmt::Display for MixedToFloatError {
     }
 }
 
-enum_from!(
-    pub MixedToDoubleError,
-    [IsAscii, MixedIsAscii],
-    [IsInteger, MixedIsInteger],
-    [IsFloat, MixedIsFloat]
-);
+#[derive(From)]
+pub enum MixedToDoubleError {
+    IsAscii(MixedIsAscii),
+    IsInteger(MixedIsInteger),
+    IsFloat(MixedIsFloat),
+}
 
 impl fmt::Display for MixedToDoubleError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -1677,17 +1651,15 @@ impl EndianLayout<NullMixedType> {
                 .enumerate()
                 .map(|(i, c)| {
                     c.try_into().map_err(|e| MixedColumnConvertError {
-                        error: MixedToOrderedConvertError::Ascii(e),
+                        error: MixedToOrderedConvertError::from(e),
                         index: (i + 1).into(),
                     })
                 })
                 .gather()
-                .map(|xs| {
-                    AnyOrderedLayout::Ascii(AnyAsciiLayout::Fixed(FixedLayout::new1(x, xs, ())))
-                }),
+                .map(|xs| AnyAsciiLayout::Fixed(FixedLayout::new1(x, xs, ())).into()),
             MixedType::Uint(x) => x
                 .try_into_one_size(cs, endian, 1)
-                .map(AnyOrderedLayout::Integer)
+                .map(|i| i.into())
                 .mult_map_errors(|(index, error)| MixedColumnConvertError {
                     index,
                     error: error.into(),
@@ -1697,23 +1669,23 @@ impl EndianLayout<NullMixedType> {
                 .enumerate()
                 .map(|(i, c)| {
                     c.try_into().map_err(|e| MixedColumnConvertError {
-                        error: MixedToOrderedConvertError::Float(e),
+                        error: MixedToOrderedConvertError::from(e),
                         index: (i + 1).into(),
                     })
                 })
                 .gather()
-                .map(|xs| AnyOrderedLayout::F32(FixedLayout::new1(x, xs, endian.into()))),
+                .map(|xs| FixedLayout::new1(x, xs, endian.into()).into()),
             MixedType::F64(x) => cs
                 .into_iter()
                 .enumerate()
                 .map(|(i, c)| {
                     c.try_into().map_err(|e| MixedColumnConvertError {
-                        error: MixedToOrderedConvertError::Double(e),
+                        error: MixedToOrderedConvertError::from(e),
                         index: (i + 1).into(),
                     })
                 })
                 .gather()
-                .map(|xs| AnyOrderedLayout::F64(FixedLayout::new1(x, xs, endian.into()))),
+                .map(|xs| FixedLayout::new1(x, xs, endian.into()).into()),
         }
     }
 
@@ -1727,33 +1699,31 @@ impl EndianLayout<NullMixedType> {
             MixedType::Ascii(x) => it
                 .map(|(i, c)| {
                     c.try_into()
-                        .map_err(|e| (i, MixedToNonMixedConvertError::Ascii(e)))
+                        .map_err(|e| (i, MixedToNonMixedConvertError::from(e)))
                 })
                 .gather()
-                .map(|xs| {
-                    NonMixedEndianLayout::Ascii(AnyAsciiLayout::Fixed(FixedLayout::new1(x, xs, ())))
-                }),
+                .map(|xs| AnyAsciiLayout::Fixed(FixedLayout::new1(x, xs, ())).into()),
             MixedType::Uint(x) => it
                 .map(|(i, c)| {
                     c.try_into()
-                        .map_err(|e| (i, MixedToNonMixedConvertError::Integer(e)))
+                        .map_err(|e| (i, MixedToNonMixedConvertError::from(e)))
                 })
                 .gather()
-                .map(|xs| NonMixedEndianLayout::Integer(FixedLayout::new1(x, xs, byte_layout))),
+                .map(|xs| FixedLayout::new1(x, xs, byte_layout).into()),
             MixedType::F32(x) => it
                 .map(|(i, c)| {
                     c.try_into()
-                        .map_err(|e| (i, MixedToNonMixedConvertError::Float(e)))
+                        .map_err(|e| (i, MixedToNonMixedConvertError::from(e)))
                 })
                 .gather()
-                .map(|xs| NonMixedEndianLayout::F32(FixedLayout::new1(x, xs, byte_layout))),
+                .map(|xs| FixedLayout::new1(x, xs, byte_layout).into()),
             MixedType::F64(x) => it
                 .map(|(i, c)| {
                     c.try_into()
-                        .map_err(|e| (i, MixedToNonMixedConvertError::Double(e)))
+                        .map_err(|e| (i, MixedToNonMixedConvertError::from(e)))
                 })
                 .gather()
-                .map(|xs| NonMixedEndianLayout::F64(FixedLayout::new1(x, xs, byte_layout))),
+                .map(|xs| FixedLayout::new1(x, xs, byte_layout).into()),
         }
         .mult_map_errors(|(i, error)| MixedColumnConvertError {
             index: (i + 1).into(),
@@ -2008,16 +1978,10 @@ impl AnyNullBitmask {
         Bitmask56: TryFrom<X, Error = E>,
         Bitmask64: TryFrom<X, Error = E>,
     {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            x,
-            {
-                Bitmask::try_from_many(tail, starting_index)
-                    .map(|xs| FixedLayout::new1(x, xs, endian.into()).into())
-            }
-        )
+        match_any_uint!(self, Self, x, {
+            Bitmask::try_from_many(tail, starting_index)
+                .map(|xs| FixedLayout::new1(x, xs, endian.into()).into())
+        })
     }
 }
 
@@ -2997,8 +2961,8 @@ impl<T> AnyOrderedUintLayout<T> {
 impl<T> AnyAsciiLayout<T> {
     fn tot_into<X>(self) -> AnyAsciiLayout<X> {
         match self {
-            Self::Delimited(x) => AnyAsciiLayout::Delimited(DelimAsciiLayout::new(x.ranges)),
-            Self::Fixed(x) => AnyAsciiLayout::Fixed(x.tot_into()),
+            Self::Delimited(x) => DelimAsciiLayout::new(x.ranges).into(),
+            Self::Fixed(x) => x.tot_into().into(),
         }
     }
 
@@ -3023,7 +2987,7 @@ impl<T> AnyAsciiLayout<T> {
                     .map_warnings(|e| go(e, i))
             });
             let ret = Tentative::mconcat_ne(ts)
-                .map(|ranges| AnyAsciiLayout::Delimited(DelimAsciiLayout::new(ranges)))
+                .map(|ranges| DelimAsciiLayout::new(ranges).into())
                 .map_errors(|e| e.inner_into());
             Ok(ret)
         } else {
@@ -3707,15 +3671,15 @@ impl DataLayout3_2 {
         // check if the mixed types are all the same, in which case we can use a
         // simpler layout
         if let Ok(rs) = ranges.as_ref().try_map(|x| AsciiRange::try_from(*x)) {
-            Self::NonMixed(NonMixedEndianLayout::new_ascii_fixed(rs))
+            NonMixedEndianLayout::new_ascii_fixed(rs).into()
         } else if let Ok(rs) = ranges.as_ref().try_map(|x| AnyNullBitmask::try_from(*x)) {
-            Self::NonMixed(NonMixedEndianLayout::new_uint(rs, endian))
+            NonMixedEndianLayout::new_uint(rs, endian).into()
         } else if let Ok(rs) = ranges.as_ref().try_map(|x| F32Range::try_from(*x)) {
-            Self::NonMixed(NonMixedEndianLayout::new_f32(rs, endian))
+            NonMixedEndianLayout::new_f32(rs, endian).into()
         } else if let Ok(rs) = ranges.as_ref().try_map(|x| F64Range::try_from(*x)) {
-            Self::NonMixed(NonMixedEndianLayout::new_f64(rs, endian))
+            NonMixedEndianLayout::new_f64(rs, endian).into()
         } else {
-            Self::Mixed(FixedLayout::new(ranges, endian))
+            FixedLayout::new(ranges, endian).into()
         }
     }
 
@@ -3730,11 +3694,11 @@ impl DataLayout3_2 {
 
 impl<T> AnyOrderedLayout<T> {
     pub fn new_ascii_fixed(ranges: NonEmpty<AsciiRange>) -> Self {
-        Self::Ascii(AnyAsciiLayout::new_fixed(ranges))
+        AnyAsciiLayout::new_fixed(ranges).into()
     }
 
     pub fn new_ascii_delim(ranges: NonEmpty<u64>) -> Self {
-        Self::Ascii(AnyAsciiLayout::new_delim(ranges))
+        AnyAsciiLayout::new_delim(ranges).into()
     }
 
     pub fn new_uint<U, const LEN: usize>(
@@ -3748,11 +3712,11 @@ impl<T> AnyOrderedLayout<T> {
     }
 
     pub fn new_f32(ranges: NonEmpty<F32Range>, byte_layout: SizedByteOrd<4>) -> Self {
-        Self::F32(FixedLayout::new(ranges, byte_layout))
+        FixedLayout::new(ranges, byte_layout).into()
     }
 
     pub fn new_f64(ranges: NonEmpty<F64Range>, byte_layout: SizedByteOrd<8>) -> Self {
-        Self::F64(FixedLayout::new(ranges, byte_layout))
+        FixedLayout::new(ranges, byte_layout).into()
     }
 
     // TODO this doesn't feel dry
@@ -3907,21 +3871,13 @@ impl<T> AnyOrderedLayout<T> {
     }
 
     fn ranges(&self) -> NonEmpty<FloatOrInt> {
-        match self {
-            Self::Ascii(a) => a.ranges(),
-            Self::Integer(i) => i.ranges(),
-            Self::F32(f) => f.ranges(),
-            Self::F64(f) => f.ranges(),
-        }
+        match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, { x.ranges() })
     }
 
     pub(crate) fn tot_into<X>(self) -> AnyOrderedLayout<X> {
-        match self {
-            Self::Ascii(a) => AnyOrderedLayout::Ascii(a.tot_into()),
-            Self::Integer(i) => AnyOrderedLayout::Integer(i.tot_into()),
-            Self::F32(f) => AnyOrderedLayout::F32(f.tot_into()),
-            Self::F64(f) => AnyOrderedLayout::F64(f.tot_into()),
-        }
+        match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, {
+            x.tot_into().into()
+        })
     }
 
     fn h_read_checked_df<R: Read>(
@@ -3976,14 +3932,8 @@ impl<T> AnyOrderedLayout<T> {
         match self {
             Self::Ascii(x) => Ok(NonMixedEndianLayout::Ascii(x.tot_into())),
             Self::Integer(x) => x.into_endian().map(NonMixedEndianLayout::Integer),
-            Self::F32(x) => x
-                .tot_into()
-                .byte_layout_try_into()
-                .map(NonMixedEndianLayout::F32),
-            Self::F64(x) => x
-                .tot_into()
-                .byte_layout_try_into()
-                .map(NonMixedEndianLayout::F64),
+            Self::F32(x) => x.tot_into().byte_layout_try_into().map(|y| y.into()),
+            Self::F64(x) => x.tot_into().byte_layout_try_into().map(|y| y.into()),
         }
         .into_mult()
     }
@@ -4017,23 +3967,23 @@ impl<T> AnyOrderedLayout<T> {
 
 impl NonMixedEndianLayout {
     pub fn new_ascii_fixed(ranges: NonEmpty<AsciiRange>) -> Self {
-        Self::Ascii(AnyAsciiLayout::new_fixed(ranges))
+        AnyAsciiLayout::new_fixed(ranges).into()
     }
 
     pub fn new_ascii_delim(ranges: NonEmpty<u64>) -> Self {
-        Self::Ascii(AnyAsciiLayout::new_delim(ranges))
+        AnyAsciiLayout::new_delim(ranges).into()
     }
 
     pub fn new_uint(columns: NonEmpty<AnyNullBitmask>, endian: Endian) -> Self {
-        Self::Integer(FixedLayout::new(columns, endian))
+        FixedLayout::new(columns, endian).into()
     }
 
     pub fn new_f32(ranges: NonEmpty<F32Range>, endian: Endian) -> Self {
-        Self::F32(FixedLayout::new(ranges, endian))
+        FixedLayout::new(ranges, endian).into()
     }
 
     pub fn new_f64(ranges: NonEmpty<F64Range>, endian: Endian) -> Self {
-        Self::F64(FixedLayout::new(ranges, endian))
+        FixedLayout::new(ranges, endian).into()
     }
 
     // TODO this doesn't feel dry
@@ -4185,10 +4135,10 @@ impl NonMixedEndianLayout {
 
     pub(crate) fn into_ordered<T>(self) -> LayoutConvertResult<AnyOrderedLayout<T>> {
         match self {
-            Self::Ascii(x) => Ok(AnyOrderedLayout::Ascii(x.tot_into())),
-            Self::Integer(x) => x.uint_try_into_ordered().map(AnyOrderedLayout::Integer),
-            Self::F32(x) => Ok(AnyOrderedLayout::F32(x.tot_into().byte_layout_into())),
-            Self::F64(x) => Ok(AnyOrderedLayout::F64(x.tot_into().byte_layout_into())),
+            Self::Ascii(x) => Ok(x.tot_into().into()),
+            Self::Integer(x) => x.uint_try_into_ordered().map(|i| i.into()),
+            Self::F32(x) => Ok(x.tot_into().byte_layout_into().into()),
+            Self::F64(x) => Ok(x.tot_into().byte_layout_into().into()),
         }
     }
 
@@ -4211,84 +4161,84 @@ impl NonMixedEndianLayout {
     }
 }
 
-enum_from_disp!(
-    pub AsciiToUintError,
-    [NotAscii, NotAsciiError],
-    [Int, ParseIntError]
-);
+#[derive(From, Display)]
+pub enum AsciiToUintError {
+    NotAscii(NotAsciiError),
+    Int(ParseIntError),
+}
 
 pub struct NotAsciiError(Vec<u8>);
 
-enum_from_disp!(
-    pub NewDataLayoutError,
-    [Ascii,       ColumnError<ascii_range::NewAsciiRangeError>],
-    [FixedInt,    NewFixedIntLayoutError],
-    [Float,       ColumnError<FloatWidthError>],
-    [VariableInt, ColumnError<NewUintTypeError>],
-    [Mixed,       ColumnError<NewMixedTypeError>],
-    [ByteOrd,     ByteOrdToSizedError]
-);
+#[derive(From, Display)]
+pub enum NewDataLayoutError {
+    Ascii(ColumnError<ascii_range::NewAsciiRangeError>),
+    FixedInt(NewFixedIntLayoutError),
+    Float(ColumnError<FloatWidthError>),
+    VariableInt(ColumnError<NewUintTypeError>),
+    Mixed(ColumnError<NewMixedTypeError>),
+    ByteOrd(ByteOrdToSizedError),
+}
 
-enum_from_disp!(
-    pub NewFixedIntLayoutError,
-    [Width, SingleFixedWidthError],
-    [Column, ColumnError<IntOrderedColumnError>]
-);
+#[derive(From, Display)]
+pub enum NewFixedIntLayoutError {
+    Width(SingleFixedWidthError),
+    Column(ColumnError<IntOrderedColumnError>),
+}
 
-enum_from_disp!(
-    pub IntOrderedColumnError,
-    [Order, ByteOrdToSizedError],
+#[derive(From, Display)]
+pub enum IntOrderedColumnError {
+    Order(ByteOrdToSizedError),
     // TODO sloppy nesting
-    [Endian, ByteOrdToSizedEndianError],
-    [Size,  BitmaskError]
-);
+    Endian(ByteOrdToSizedEndianError),
+    Size(BitmaskError),
+}
 
-enum_from_disp!(
-    pub SingleFixedWidthError,
-    [Bytes, WidthToBytesError],
-    [Multi, MultiWidthsError]
-);
+#[derive(From, Display)]
+pub enum SingleFixedWidthError {
+    Bytes(WidthToBytesError),
+    Multi(MultiWidthsError),
+}
 
 pub struct MultiWidthsError(pub NonEmpty<Bytes>);
 
-enum_from_disp!(
-    pub NewMixedTypeError,
-    [Ascii, ascii_range::NewAsciiRangeError],
-    [Uint, NewUintTypeError],
-    [Float, FloatWidthError]
-);
+#[derive(From, Display)]
+pub enum NewMixedTypeError {
+    Ascii(ascii_range::NewAsciiRangeError),
+    Uint(NewUintTypeError),
+    Float(FloatWidthError),
+}
 
-enum_from_disp!(
-    pub NewMixedTypeWarning,
-    [Ascii, IntRangeError],
-    [Uint, BitmaskError],
-    [Float, FloatRangeError]
-);
+#[derive(From, Display)]
+pub enum NewMixedTypeWarning {
+    Ascii(IntRangeError),
+    Uint(BitmaskError),
+    Float(FloatRangeError),
+}
 
-enum_from_disp!(
-    pub NewUintTypeError,
-    [Bitmask, BitmaskError],
-    [Bytes, WidthToBytesError]
-);
+#[derive(From, Display)]
+pub enum NewUintTypeError {
+    Bitmask(BitmaskError),
+    Bytes(WidthToBytesError),
+}
 
-enum_from_disp!(
-    pub NewOrderedUintLayoutError,
-    [Column, ColumnError<OrderedFloatError>],
-    [ByteOrd, ByteOrdToSizedError]
-);
+#[derive(From, Display)]
+pub enum NewOrderedUintLayoutError {
+    Column(ColumnError<OrderedFloatError>),
+    ByteOrd(ByteOrdToSizedError),
+}
 
-enum_from_disp!(
-    pub OrderedFloatError,
-    [Order,      ByteOrdToSizedError],
-    [WrongWidth, FloatWidthError]
-);
+#[derive(From, Display)]
+pub enum OrderedFloatError {
+    Order(ByteOrdToSizedError),
+    WrongWidth(FloatWidthError),
+}
 
-enum_from_disp!(
-    pub FloatWidthError,
-    [Bytes,      WidthToBytesError],
-    [WrongWidth, WrongFloatWidth],
-    [Range, FloatRangeError]
-);
+#[derive(From, Display)]
+pub enum FloatWidthError {
+    Bytes(WidthToBytesError),
+    WrongWidth(WrongFloatWidth),
+    Range(FloatRangeError),
+}
 
 pub struct WrongFloatWidth {
     pub width: Bytes,
@@ -4297,23 +4247,23 @@ pub struct WrongFloatWidth {
 
 pub type DataReaderResult<T> = DeferredResult<T, NewDataReaderWarning, NewDataReaderError>;
 
-enum_from_disp!(
-    pub NewDataReaderError,
-    [TotMismatch, TotEventMismatch],
-    [ParseTot, ReqKeyError<ParseIntError>],
-    [ParseSeg, ReqSegmentWithDefaultError<DataSegmentId>],
-    [Width, UnevenEventWidth],
-    [Mismatch, SegmentMismatchWarning<DataSegmentId>]
-);
+#[derive(From, Display)]
+pub enum NewDataReaderError {
+    TotMismatch(TotEventMismatch),
+    ParseTot(ReqKeyError<ParseIntError>),
+    ParseSeg(ReqSegmentWithDefaultError<DataSegmentId>),
+    Width(UnevenEventWidth),
+    Mismatch(SegmentMismatchWarning<DataSegmentId>),
+}
 
-enum_from_disp!(
-    pub NewDataReaderWarning,
-    [TotMismatch, TotEventMismatch],
-    [ParseTot, ParseKeyError<ParseIntError>],
-    [Layout, ColumnError<IntRangeError>],
-    [Width, UnevenEventWidth],
-    [Segment, ReqSegmentWithDefaultWarning<DataSegmentId>]
-);
+#[derive(From, Display)]
+pub enum NewDataReaderWarning {
+    TotMismatch(TotEventMismatch),
+    ParseTot(ParseKeyError<ParseIntError>),
+    Layout(ColumnError<IntRangeError>),
+    Width(UnevenEventWidth),
+    Segment(ReqSegmentWithDefaultWarning<DataSegmentId>),
+}
 
 pub struct TotEventMismatch {
     tot: Tot,
@@ -4326,16 +4276,15 @@ pub struct UnevenEventWidth {
     remainder: usize,
 }
 
+#[derive(Display)]
 pub struct ColumnWriterError(ColumnError<AnyLossError>);
 
-newtype_disp!(ColumnWriterError);
-
-enum_from_disp!(
-    pub AnyLossError,
-    [Int, LossError<BitmaskLossError>],
-    [Float, LossError<Infallible>],
-    [Ascii, LossError<AsciiLossError>]
-);
+#[derive(From, Display)]
+pub enum AnyLossError {
+    Int(LossError<BitmaskLossError>),
+    Float(LossError<Infallible>),
+    Ascii(LossError<AsciiLossError>),
+}
 
 pub struct AsciiLossError(Chars);
 
@@ -4380,82 +4329,82 @@ impl<E> ColumnError<E> {
 
 type LookupLayoutResult<T> = DeferredResult<T, LookupLayoutWarning, LookupLayoutError>;
 
-enum_from_disp!(
-    pub LookupLayoutError,
-    [New, NewDataLayoutError],
-    [Raw, LookupKeysError]
-);
+#[derive(From, Display)]
+pub enum LookupLayoutError {
+    New(NewDataLayoutError),
+    Raw(LookupKeysError),
+}
 
-enum_from_disp!(
-    pub LookupLayoutWarning,
-    [New, ColumnError<NewMixedTypeWarning>],
-    [Raw, LookupKeysWarning]
-);
+#[derive(From, Display)]
+pub enum LookupLayoutWarning {
+    New(ColumnError<NewMixedTypeWarning>),
+    Raw(LookupKeysWarning),
+}
 
 type FromRawResult<T> = DeferredResult<T, RawToLayoutWarning, RawToLayoutError>;
 
-enum_from_disp!(
-    pub RawToLayoutError,
-    [New, NewDataLayoutError],
-    [Raw, RawParsedError]
-);
+#[derive(From, Display)]
+pub enum RawToLayoutError {
+    New(NewDataLayoutError),
+    Raw(RawParsedError),
+}
 
-enum_from_disp!(
-    pub RawToLayoutWarning,
-    [New, ColumnError<NewMixedTypeWarning>],
-    [Raw, ParseKeyError<NumTypeError>]
-);
+#[derive(From, Display)]
+pub enum RawToLayoutWarning {
+    New(ColumnError<NewMixedTypeWarning>),
+    Raw(ParseKeyError<NumTypeError>),
+}
 
-enum_from_disp!(
-    pub RawParsedError,
-    [AlphaNumType, ReqKeyError<AlphaNumTypeError>],
-    [Endian, ReqKeyError<NewEndianError>],
-    [ByteOrd, ReqKeyError<ParseByteOrdError>],
-    [Int, ReqKeyError<ParseIntError>],
-    [Range, ReqKeyError<ParseFloatOrIntError>]
-);
+#[derive(From, Display)]
+pub enum RawParsedError {
+    AlphaNumType(ReqKeyError<AlphaNumTypeError>),
+    Endian(ReqKeyError<NewEndianError>),
+    ByteOrd(ReqKeyError<ParseByteOrdError>),
+    Int(ReqKeyError<ParseIntError>),
+    Range(ReqKeyError<ParseFloatOrIntError>),
+}
 
-enum_from_disp!(
-    pub ReadDataframeError,
-    [Ascii, ReadAsciiError],
-    [Uneven, UnevenEventWidth],
-    [TotMismatch, TotEventMismatch],
-    [Delim, ReadDelimWithRowsAsciiError],
-    [DelimNoRows, ReadDelimAsciiWithoutRowsError],
-    [AlphaNum, AsciiToUintError]
-);
+#[derive(From, Display)]
+pub enum ReadDataframeError {
+    Ascii(ReadAsciiError),
+    Uneven(UnevenEventWidth),
+    TotMismatch(TotEventMismatch),
+    Delim(ReadDelimWithRowsAsciiError),
+    DelimNoRows(ReadDelimAsciiWithoutRowsError),
+    AlphaNum(AsciiToUintError),
+}
 
-enum_from_disp!(
-    pub ReadAsciiError,
-    [Delim, ReadDelimAsciiError],
-    [Fixed, ReadFixedAsciiError]
-);
+#[derive(From, Display)]
+pub enum ReadAsciiError {
+    Delim(ReadDelimAsciiError),
+    Fixed(ReadFixedAsciiError),
+}
 
-enum_from_disp!(
-    pub ReadFixedAsciiError,
-    [Uneven, UnevenEventWidth],
-    [Tot, TotEventMismatch],
-    [ToUint, AsciiToUintError]
-);
+#[derive(From, Display)]
+pub enum ReadFixedAsciiError {
+    Uneven(UnevenEventWidth),
+    Tot(TotEventMismatch),
+    ToUint(AsciiToUintError),
+}
 
-enum_from_disp!(
-    pub ReadDataframeWarning,
-    [Uneven, UnevenEventWidth],
-    [Tot, TotEventMismatch]
-);
+#[derive(From, Display)]
+pub enum ReadDataframeWarning {
+    Uneven(UnevenEventWidth),
+    Tot(TotEventMismatch),
+}
 
-enum_from_disp!(
-    pub ReadDelimAsciiError,
-    [Rows, ReadDelimWithRowsAsciiError],
-    [NoRows, ReadDelimAsciiWithoutRowsError]
-);
+#[derive(From, Display)]
+pub enum ReadDelimAsciiError {
+    Rows(ReadDelimWithRowsAsciiError),
+    NoRows(ReadDelimAsciiWithoutRowsError),
+}
 
-enum_from_disp!(
-    pub ReadDelimWithRowsAsciiError,
-    [RowsExceeded, RowsExceededError],
-    [Incomplete, DelimIncompleteError],
-    [Parse, AsciiToUintError]
-);
+#[derive(From, Display)]
+pub enum ReadDelimWithRowsAsciiError {
+    RowsExceeded(RowsExceededError),
+    Incomplete(DelimIncompleteError),
+    Parse(AsciiToUintError),
+}
 
 // signify that parsing exceeded max rows
 pub struct RowsExceededError(usize);
@@ -4633,35 +4582,35 @@ impl fmt::Display for MixedIsDouble {
 pub type MixedToOrderedLayoutError = MixedColumnConvertError<MixedToOrderedConvertError>;
 pub type MixedToNonMixedLayoutError = MixedColumnConvertError<MixedToNonMixedConvertError>;
 
-enum_from_disp!(
-    pub MixedToOrderedConvertError,
-    [Ascii, MixedToAsciiError],
-    [Integer, MixedToOrderedUintError],
-    [Float, MixedToFloatError],
-    [Double, MixedToDoubleError]
-);
+#[derive(From, Display)]
+pub enum MixedToOrderedConvertError {
+    Ascii(MixedToAsciiError),
+    Integer(MixedToOrderedUintError),
+    Float(MixedToFloatError),
+    Double(MixedToDoubleError),
+}
 
-enum_from_disp!(
-    pub MixedToNonMixedConvertError,
-    [Ascii, MixedToAsciiError],
-    [Integer, MixedToEndianUintError],
-    [Float, MixedToFloatError],
-    [Double, MixedToDoubleError]
-);
+#[derive(From, Display)]
+pub enum MixedToNonMixedConvertError {
+    Ascii(MixedToAsciiError),
+    Integer(MixedToEndianUintError),
+    Float(MixedToFloatError),
+    Double(MixedToDoubleError),
+}
 
-enum_from_disp!(
-    pub LayoutPushColumnError,
-    [Ascii, IntRangeError],
-    [Int, BitmaskError],
-    [Float, FloatRangeError]
-);
+#[derive(From, Display)]
+pub enum LayoutPushColumnError {
+    Ascii(IntRangeError),
+    Int(BitmaskError),
+    Float(FloatRangeError),
+}
 
-enum_from_disp!(
-    pub LayoutInsertColumnWarning,
-    [Ascii, IntRangeError],
-    [Int, BitmaskError],
-    [Float, FloatRangeError]
-);
+#[derive(From, Display)]
+pub enum LayoutInsertColumnWarning {
+    Ascii(IntRangeError),
+    Int(BitmaskError),
+    Float(FloatRangeError),
+}
 
 pub struct MixedColumnConvertError<E> {
     index: MeasIndex,

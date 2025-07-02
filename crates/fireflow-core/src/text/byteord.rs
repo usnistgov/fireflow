@@ -1,7 +1,7 @@
-use crate::macros::{match_many_to_one, newtype_from_outer};
+use crate::macros::match_many_to_one;
 use crate::validated::ascii_range::{Chars, CharsError};
 
-use derive_more::{Display, From};
+use derive_more::{Display, From, Into};
 use itertools::Itertools;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use serde::Serialize;
@@ -69,7 +69,7 @@ pub enum Bytes {
 ///
 /// Subsequent operations can be used to use it as "bytes" or "characters"
 /// depending on what is needed by the column.
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash, From)]
+#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash, From, Into)]
 #[from(Chars, Bytes)]
 pub struct BitsOrChars(u8);
 
@@ -535,8 +535,6 @@ impl fmt::Display for Width {
         }
     }
 }
-
-newtype_from_outer!(BitsOrChars, u8);
 
 pub struct BitsError(u8);
 

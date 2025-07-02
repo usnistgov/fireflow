@@ -1,9 +1,9 @@
 macro_rules! py_wrap {
-    ($pytype:ident, $rstype:path, $name:expr) => {
+    ($v:vis$pytype:ident, $rstype:path, $name:expr) => {
         #[pyclass(name = $name)]
         #[derive(Clone)]
         #[repr(transparent)]
-        struct $pytype($rstype);
+        $v struct $pytype($rstype);
 
         impl From<$rstype> for $pytype {
             fn from(value: $rstype) -> Self {

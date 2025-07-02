@@ -17,6 +17,7 @@ use fireflow_core::validated::other_width::*;
 use fireflow_core::validated::pattern::*;
 use fireflow_core::validated::shortname::*;
 
+use super::layout::{PyDataLayout2_0, PyDataLayout3_0, PyDataLayout3_1, PyDataLayout3_2};
 use super::macros::{py_disp, py_enum, py_eq, py_ord, py_parse, py_wrap};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
@@ -66,6 +67,11 @@ fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTemporal3_0>()?;
     m.add_class::<PyTemporal3_1>()?;
     m.add_class::<PyTemporal3_2>()?;
+
+    m.add_class::<PyDataLayout2_0>()?;
+    m.add_class::<PyDataLayout3_0>()?;
+    m.add_class::<PyDataLayout3_1>()?;
+    m.add_class::<PyDataLayout3_2>()?;
 
     m.add_class::<PyCalibration3_1>()?;
     m.add_class::<PyCalibration3_2>()?;

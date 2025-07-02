@@ -1,37 +1,41 @@
-use fireflow_core::text::byteord::SizedByteOrd;
+use fireflow_core::data::{
+    AnyNullBitmask, AnyOrderedLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
+    FloatRange, NonMixedEndianLayout, NullMixedType,
+};
+use fireflow_core::text::byteord::{Endian, SizedByteOrd};
+use fireflow_core::text::float_or_int::{NonNanF32, NonNanF64, NonNanFloat};
 use fireflow_core::validated::ascii_range::{AsciiRange, Chars};
 use fireflow_core::validated::bitmask::Bitmask;
-use fireflow_core::{
-    data::{AnyOrderedLayout, DataLayout2_0, DataLayout3_0, FloatRange},
-    text::float_or_int::NonNanFloat,
-};
 
 use crate::class::PyreflowException;
 
-use super::macros::{py_disp, py_enum, py_eq, py_ord, py_parse, py_wrap};
+use super::macros::py_wrap;
 
 use nonempty::NonEmpty;
 use pyo3::prelude::*;
 use pyo3::types::PyType;
 
-py_wrap!(PyDataLayout2_0, DataLayout2_0, "DataLayout2_0");
-py_wrap!(PyDataLayout3_0, DataLayout3_0, "DataLayout3_0");
+py_wrap!(pub(crate) PyDataLayout2_0, DataLayout2_0, "DataLayout2_0");
+py_wrap!(pub(crate) PyDataLayout3_0, DataLayout3_0, "DataLayout3_0");
+py_wrap!(pub(crate) PyDataLayout3_1, DataLayout3_1, "DataLayout3_1");
+py_wrap!(pub(crate) PyDataLayout3_2, DataLayout3_2, "DataLayout3_2");
 
+// ascii layouts for all versions
 macro_rules! new_ascii_methods {
-    ($t:ident, $wrap:path) => {
+    ($t:ident, $wrap:path, $subwrap:ident) => {
         #[pymethods]
         impl $t {
             #[classmethod]
             fn new_ascii_delim(_: &Bound<'_, PyType>, ranges: Vec<u64>) -> PyResult<Self> {
                 let rs = vec_to_ne(ranges)?;
-                Ok($wrap(AnyOrderedLayout::new_ascii_delim(rs)).into())
+                Ok($wrap($subwrap::new_ascii_delim(rs)).into())
             }
 
             #[classmethod]
             fn new_ascii_fixed_u64(_: &Bound<'_, PyType>, ranges: Vec<u64>) -> PyResult<Self> {
                 let xs = vec_to_ne(ranges)?;
                 let rs = xs.map(AsciiRange::from);
-                Ok($wrap(AnyOrderedLayout::new_ascii_fixed(rs)).into())
+                Ok($wrap($subwrap::new_ascii_fixed(rs)).into())
             }
 
             #[classmethod]
@@ -46,21 +50,29 @@ macro_rules! new_ascii_methods {
                 let rs = ys
                     .try_map(|(x, c)| AsciiRange::try_new(x, c))
                     .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-                Ok($wrap(AnyOrderedLayout::new_ascii_fixed(rs)).into())
+                Ok($wrap($subwrap::new_ascii_fixed(rs)).into())
             }
         }
     };
 }
 
-new_ascii_methods!(PyDataLayout2_0, DataLayout2_0);
-new_ascii_methods!(PyDataLayout3_0, DataLayout3_0);
+new_ascii_methods!(PyDataLayout2_0, DataLayout2_0, AnyOrderedLayout);
+new_ascii_methods!(PyDataLayout3_0, DataLayout3_0, AnyOrderedLayout);
+new_ascii_methods!(PyDataLayout3_1, DataLayout3_1, NonMixedEndianLayout);
+new_ascii_methods!(
+    PyDataLayout3_2,
+    DataLayout3_2::NonMixed,
+    NonMixedEndianLayout
+);
 
-macro_rules! new_ordered_uint {
-    ($t:ident, $wrap:path, $fn_name:ident, $uint:ident, $size:expr) => {
+// integer layouts for 2.0/3.0
+macro_rules! new_uint_2_0 {
+    ($t:ident, $wrap:path, $fn_ordered:ident, $fn_endian:ident, $uint:ident, $size:expr) => {
         #[pymethods]
         impl $t {
             #[classmethod]
-            fn $fn_name(
+            /// Make a new layout for $size-byte Uints with a given byte order.
+            fn $fn_ordered(
                 _: &Bound<'_, PyType>,
                 ranges: Vec<$uint>,
                 byteord: Vec<u8>,
@@ -69,40 +81,163 @@ macro_rules! new_ordered_uint {
                 let b = vec_to_byteord(byteord)?;
                 Ok($wrap(AnyOrderedLayout::new_uint(rs, b)).into())
             }
+
+            /// Make a new layout for $size-byte Uints with a given endian-ness.
+            #[classmethod]
+            fn $fn_endian(
+                _: &Bound<'_, PyType>,
+                ranges: Vec<$uint>,
+                is_big: bool,
+            ) -> PyResult<Self> {
+                let b = SizedByteOrd::Endian(Endian::is_big(is_big));
+                let rs = vec_to_bitmasks::<$uint, $size>(ranges)?;
+                Ok($wrap(AnyOrderedLayout::new_uint(rs, b)).into())
+            }
         }
     };
 }
 
 macro_rules! new_ordered_uint_methods {
     ($t:ident, $wrap:path) => {
-        new_ordered_uint!($t, $wrap, new_uint08, u8, 1);
-        new_ordered_uint!($t, $wrap, new_uint16, u16, 2);
-        new_ordered_uint!($t, $wrap, new_uint24, u32, 3);
-        new_ordered_uint!($t, $wrap, new_uint32, u32, 4);
-        new_ordered_uint!($t, $wrap, new_uint40, u64, 5);
-        new_ordered_uint!($t, $wrap, new_uint48, u64, 6);
-        new_ordered_uint!($t, $wrap, new_uint56, u64, 7);
-        new_ordered_uint!($t, $wrap, new_uint64, u64, 8);
+        new_uint_2_0!($t, $wrap, new_uint08_ordered, new_uint08_endian, u8, 1);
+        new_uint_2_0!($t, $wrap, new_uint16_ordered, new_uint16_endian, u16, 2);
+        new_uint_2_0!($t, $wrap, new_uint24_ordered, new_uint24_endian, u32, 3);
+        new_uint_2_0!($t, $wrap, new_uint32_ordered, new_uint32_endian, u32, 4);
+        new_uint_2_0!($t, $wrap, new_uint40_ordered, new_uint40_endian, u64, 5);
+        new_uint_2_0!($t, $wrap, new_uint48_ordered, new_uint48_endian, u64, 6);
+        new_uint_2_0!($t, $wrap, new_uint56_ordered, new_uint56_endian, u64, 7);
+        new_uint_2_0!($t, $wrap, new_uint64_ordered, new_uint64_endian, u64, 8);
     };
 }
 
 new_ordered_uint_methods!(PyDataLayout2_0, DataLayout2_0);
 new_ordered_uint_methods!(PyDataLayout3_0, DataLayout3_0);
 
-#[pymethods]
-impl PyDataLayout2_0 {
-    #[classmethod]
-    fn new_f32(_: &Bound<'_, PyType>, ranges: Vec<f32>, byteord: Vec<u8>) -> PyResult<Self> {
-        let rs = vec_to_float_ranges(ranges)?;
-        let b = vec_to_byteord(byteord)?;
-        Ok(DataLayout2_0(AnyOrderedLayout::new_f32(rs, b)).into())
-    }
+// float layouts for 2.0/3.0
+macro_rules! new_float_2_0 {
+    ($t:ident, $wrap:path, $fn_ordered:ident, $fn_endian:ident, $num:ident, $subfn:ident) => {
+        #[pymethods]
+        impl $t {
+            #[classmethod]
+            /// Make a new $num layout with a given byte order.
+            fn $fn_ordered(
+                _: &Bound<'_, PyType>,
+                ranges: Vec<$num>,
+                byteord: Vec<u8>,
+            ) -> PyResult<Self> {
+                let rs = vec_to_float_ranges(ranges)?;
+                let b = vec_to_byteord(byteord)?;
+                Ok($wrap(AnyOrderedLayout::$subfn(rs, b)).into())
+            }
 
+            #[classmethod]
+            /// Make a new $num layout with a given endian-ness.
+            fn $fn_endian(
+                _: &Bound<'_, PyType>,
+                ranges: Vec<$num>,
+                is_big: bool,
+            ) -> PyResult<Self> {
+                let e = SizedByteOrd::Endian(Endian::is_big(is_big));
+                let rs = vec_to_float_ranges(ranges)?;
+                Ok($wrap(AnyOrderedLayout::$subfn(rs, e)).into())
+            }
+        }
+    };
+}
+
+new_float_2_0!(
+    PyDataLayout2_0,
+    DataLayout2_0,
+    new_f32_ordered,
+    new_f32_endian,
+    f32,
+    new_f32
+);
+new_float_2_0!(
+    PyDataLayout2_0,
+    DataLayout2_0,
+    new_f64_ordered,
+    new_f64_endian,
+    f64,
+    new_f64
+);
+new_float_2_0!(
+    PyDataLayout3_0,
+    DataLayout3_0,
+    new_f32_ordered,
+    new_f32_endian,
+    f32,
+    new_f32
+);
+new_float_2_0!(
+    PyDataLayout3_0,
+    DataLayout3_0,
+    new_f64_ordered,
+    new_f64_endian,
+    f64,
+    new_f64
+);
+
+// float layouts for 3.1/3.2
+macro_rules! new_float_3_1 {
+    ($t:ident, $wrap:path, $fn:ident, $num:ident) => {
+        #[pymethods]
+        impl $t {
+            #[classmethod]
+            /// Make a new $num layout with a given endian-ness.
+            fn $fn(_: &Bound<'_, PyType>, ranges: Vec<$num>, is_big: bool) -> PyResult<Self> {
+                let e = Endian::is_big(is_big);
+                let rs = vec_to_float_ranges(ranges)?;
+                Ok($wrap(NonMixedEndianLayout::$fn(rs, e)).into())
+            }
+        }
+    };
+}
+
+new_float_3_1!(PyDataLayout3_1, DataLayout3_1, new_f32, f32);
+new_float_3_1!(PyDataLayout3_1, DataLayout3_1, new_f64, f64);
+new_float_3_1!(PyDataLayout3_2, DataLayout3_2::NonMixed, new_f32, f32);
+new_float_3_1!(PyDataLayout3_2, DataLayout3_2::NonMixed, new_f64, f64);
+
+// uint layout for 3.1/3.2
+macro_rules! new_uint_3_1 {
+    ($t:ident, $wrap:path) => {
+        #[pymethods]
+        impl $t {
+            #[classmethod]
+            /// Make a new Uint layout with a given endian-ness.
+            ///
+            /// Width of each column (in bytes) will depend in the input range.
+            fn new_uint(_: &Bound<'_, PyType>, ranges: Vec<u64>, is_big: bool) -> PyResult<Self> {
+                let e = Endian::is_big(is_big);
+                let xs = vec_to_ne(ranges)?;
+                let rs = xs.map(AnyNullBitmask::from_u64);
+                Ok($wrap(NonMixedEndianLayout::new_uint(rs, e)).into())
+            }
+        }
+    };
+}
+
+new_uint_3_1!(PyDataLayout3_1, DataLayout3_1);
+new_uint_3_1!(PyDataLayout3_2, DataLayout3_2::NonMixed);
+
+#[pymethods]
+impl PyDataLayout3_2 {
     #[classmethod]
-    fn new_f64(_: &Bound<'_, PyType>, ranges: Vec<f64>, byteord: Vec<u8>) -> PyResult<Self> {
-        let rs = vec_to_float_ranges(ranges)?;
-        let b = vec_to_byteord(byteord)?;
-        Ok(DataLayout2_0(AnyOrderedLayout::new_f64(rs, b)).into())
+    /// Make a new mixed layout with a given endian-ness.
+    ///
+    /// Columns must be specified as pairs like (flag, value) where 'flag'
+    /// is one of "A", "I", "F", or "D" corresponding to Ascii, Integer, Float,
+    /// or Double datatypes. The 'value' field should be an integer for "A" or
+    /// "I" and a float for "F" or "D".
+    fn new_mixed(
+        _: &Bound<'_, PyType>,
+        ranges: Vec<Bound<'_, PyAny>>,
+        is_big: bool,
+    ) -> PyResult<Self> {
+        let e = Endian::is_big(is_big);
+        let rs = vec_to_mixed_type(ranges)?;
+        Ok(DataLayout3_2::new_mixed(rs, e).into())
     }
 }
 
@@ -130,6 +265,40 @@ where
             Ok(y)
         }
     })
+}
+
+fn vec_to_mixed_type(xs: Vec<Bound<'_, PyAny>>) -> PyResult<NonEmpty<NullMixedType>> {
+    let ns = vec_to_ne(xs)?;
+    ns.try_map(any_to_mixed_type)
+}
+
+fn any_to_mixed_type(x: Bound<'_, PyAny>) -> PyResult<NullMixedType> {
+    if let Ok((flag, value)) = x.extract::<(String, Bound<'_, PyAny>)>() {
+        match flag.as_str() {
+            "F" => value
+                .extract::<f32>()
+                .map_err(|e| e.to_string())
+                .and_then(|y| NonNanF32::try_from(y).map_err(|e| e.to_string()))
+                .map(|range| NullMixedType::F32(FloatRange { range })),
+            "D" => value
+                .extract::<f64>()
+                .map_err(|e| e.to_string())
+                .and_then(|y| NonNanF64::try_from(y).map_err(|e| e.to_string()))
+                .map(|range| NullMixedType::F64(FloatRange { range })),
+            "I" => value
+                .extract()
+                .map(|y| NullMixedType::Uint(AnyNullBitmask::from_u64(y)))
+                .map_err(|e| e.to_string()),
+            "A" => value
+                .extract::<u64>()
+                .map(|y| NullMixedType::Ascii(AsciiRange::from(y)))
+                .map_err(|e| e.to_string()),
+            _ => Err("flag must be one of 'A', 'F', 'D', or 'I'".to_string()),
+        }
+    } else {
+        Err("must be pair like '(flag, value)'".to_string())
+    }
+    .map_err(PyreflowException::new_err)
 }
 
 fn vec_to_ne<X>(xs: Vec<X>) -> PyResult<NonEmpty<X>> {

@@ -217,7 +217,7 @@ pub enum MixedType<F: ColumnFamily> {
     F64(NativeWrapper<F, F64Range>),
 }
 
-type NullMixedType = MixedType<ColumnNullFamily>;
+pub type NullMixedType = MixedType<ColumnNullFamily>;
 type ReaderMixedType = MixedType<ColumnReaderFamily>;
 type WriterMixedType<'a> = MixedType<ColumnWriterFamily<'a>>;
 
@@ -233,7 +233,7 @@ pub enum AnyBitmask<F: ColumnFamily> {
     Uint64(NativeWrapper<F, Bitmask64>),
 }
 
-type AnyNullBitmask = AnyBitmask<ColumnNullFamily>;
+pub type AnyNullBitmask = AnyBitmask<ColumnNullFamily>;
 type AnyReaderBitmask = AnyBitmask<ColumnReaderFamily>;
 type AnyWriterBitmask<'a> = AnyBitmask<ColumnWriterFamily<'a>>;
 
@@ -2026,7 +2026,7 @@ impl AnyNullBitmask {
     ///
     /// The width is determined by the magnitude of the range; the smallest
     /// possible will be used.
-    fn from_u64(range: u64) -> Self {
+    pub fn from_u64(range: u64) -> Self {
         // ASSUME these will never truncate because we check the width first
         match Bytes::from_u64(range) {
             Bytes::B1 => Self::Uint08(Bitmask::from_u64(range).0),
@@ -3966,7 +3966,7 @@ impl DataLayout3_2 {
         }
     }
 
-    fn new_mixed(ranges: NonEmpty<NullMixedType>, endian: Endian) -> Self {
+    pub fn new_mixed(ranges: NonEmpty<NullMixedType>, endian: Endian) -> Self {
         // check if the mixed types are all the same, in which case we can use a
         // simpler layout
         if let Ok(rs) = ranges.as_ref().try_map(|x| AsciiRange::try_from(*x)) {
@@ -4279,23 +4279,23 @@ impl NonMixedEndianLayout {
     //     }
     // }
 
-    fn new_ascii_fixed(ranges: NonEmpty<AsciiRange>) -> Self {
+    pub fn new_ascii_fixed(ranges: NonEmpty<AsciiRange>) -> Self {
         Self::Ascii(AnyAsciiLayout::new_fixed(ranges))
     }
 
-    fn new_ascii_delim(ranges: NonEmpty<u64>) -> Self {
+    pub fn new_ascii_delim(ranges: NonEmpty<u64>) -> Self {
         Self::Ascii(AnyAsciiLayout::new_delim(ranges))
     }
 
-    fn new_uint(columns: NonEmpty<AnyNullBitmask>, endian: Endian) -> Self {
+    pub fn new_uint(columns: NonEmpty<AnyNullBitmask>, endian: Endian) -> Self {
         Self::Integer(FixedLayout::new(columns, endian))
     }
 
-    fn new_f32(ranges: NonEmpty<F32Range>, endian: Endian) -> Self {
+    pub fn new_f32(ranges: NonEmpty<F32Range>, endian: Endian) -> Self {
         Self::F32(FixedLayout::new(ranges, endian))
     }
 
-    fn new_f64(ranges: NonEmpty<F64Range>, endian: Endian) -> Self {
+    pub fn new_f64(ranges: NonEmpty<F64Range>, endian: Endian) -> Self {
         Self::F64(FixedLayout::new(ranges, endian))
     }
 

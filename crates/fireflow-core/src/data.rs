@@ -56,10 +56,9 @@ use crate::nonempty::NonEmptyExt;
 use crate::segment::*;
 use crate::text::byteord::*;
 use crate::text::float_or_int::{
-    FloatOrInt, FloatRangeError, IntRangeError, NonNanF32, NonNanF64, NonNanFloat,
-    ParseFloatOrIntError, ToFloatError,
+    FloatOrInt, FloatRangeError, IntRangeError, NonNanFloat, ParseFloatOrIntError, ToFloatError,
 };
-use crate::text::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
+use crate::text::index::{IndexError, IndexFromOne, MeasIndex};
 use crate::text::keywords::*;
 use crate::text::optional::{ClearOptional, ClearOptionalOr};
 use crate::text::parser::*;
@@ -281,17 +280,6 @@ pub struct MaybeTot;
 #[derive(Clone, Serialize)]
 pub struct KnownTot;
 
-// /// A struct whose fields map 1-1 with keyword values pertaining to data layout.
-// pub struct LayoutValues<S, D> {
-//     datatype: AlphaNumType,
-//     byte_layout: S,
-//     columns: Vec<ColumnLayoutValues<D>>,
-// }
-
-// type OrderedLayoutValues = LayoutValues<ByteOrd, ()>;
-// type LayoutValues3_1 = LayoutValues<Endian, ()>;
-// type LayoutValues3_2 = LayoutValues<Endian, Option<NumType>>;
-
 /// A struct whose fields map 1-1 with keyword values in one data column
 pub struct ColumnLayoutValues<D> {
     width: Width,
@@ -301,18 +289,6 @@ pub struct ColumnLayoutValues<D> {
 
 type ColumnLayoutValues2_0 = ColumnLayoutValues<()>;
 type ColumnLayoutValues3_2 = ColumnLayoutValues<Option<NumType>>;
-
-// pub struct UintColumnValues {
-//     width: Bytes,
-//     range: Range,
-// }
-
-// pub enum MixedColumnValues {
-//     Float(NonNanF32),
-//     Double(NonNanF64),
-//     Ascii(AsciiRange),
-//     Uint(UintColumnValues),
-// }
 
 /// A type which represents a column which may have associated data.
 ///
@@ -382,13 +358,9 @@ pub trait VersionedDataLayout: Sized {
 
     fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>>;
 
-    // fn insert(
-    //     &mut self,
-    //     index: MeasIndex,
-    //     range: Range,
-    //     notrunc: bool,
-    // ) -> DeferredResult<(), LayoutInsertColumnWarning, LayoutInsertColumnError>;
-
+    // no need to check since this will be done after validating that the index
+    // is within the measurement vector, which has its own check and should
+    // always be the same length
     fn insert_nocheck(
         &mut self,
         index: MeasIndex,
@@ -449,8 +421,6 @@ pub trait VersionedDataLayout: Sized {
 
     fn h_write_df_inner<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame)
         -> io::Result<()>;
-
-    // fn layout_values(&self) -> LayoutValues<Self::ByteLayout, Self::ColDatatype>;
 
     fn req_keywords(&self) -> [(String, String); 2];
 
@@ -772,10 +742,6 @@ pub(crate) trait VersionedColumnLayout: Sized {
         kws: &StdKeywords,
         i: MeasIndex,
     ) -> DeferredResult<Self, ParseKeyError<NumTypeError>, RawParsedError>;
-
-    // fn req_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, String)>;
-
-    // fn opt_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, Option<String>)>;
 }
 
 macro_rules! impl_null_layout {
@@ -1613,25 +1579,6 @@ impl<T> Serialize for DelimAsciiLayout<T> {
     }
 }
 
-impl<T> FixedAsciiLayout<T> {
-    // fn ascii_layout_values<D: Copy, S: Default>(&self, datatype: D) -> LayoutValues<S, D> {
-    //     LayoutValues {
-    //         datatype: AlphaNumType::Ascii,
-    //         // NOTE BYTEORD is meaningless for ASCII so use dummy
-    //         byte_layout: S::default(),
-    //         columns: self.column_layout_values(datatype).into(),
-    //     }
-    // }
-
-    // fn column_layout_values<D: Copy>(&self, datatype: D) -> NonEmpty<ColumnLayoutValues<D>> {
-    //     self.columns.as_ref().map(|c| ColumnLayoutValues {
-    //         width: Width::Fixed(c.fixed_width()),
-    //         range: Range(c.range().into()),
-    //         datatype,
-    //     })
-    // }
-}
-
 impl EndianLayout<AnyNullBitmask> {
     pub(crate) fn endian_uint_try_new<D>(
         cs: NonEmpty<ColumnLayoutValues<D>>,
@@ -1653,47 +1600,6 @@ impl EndianLayout<AnyNullBitmask> {
 }
 
 impl EndianLayout<NullMixedType> {
-    // fn mixed_layout_values(&self) -> LayoutValues<Endian, Option<NumType>> {
-    //     let cs: NonEmpty<_> = self.columns.as_ref().map(|c| ColumnLayoutValues {
-    //         width: Width::Fixed(c.fixed_width()),
-    //         range: c.range(),
-    //         datatype: c.as_num_type(),
-    //     });
-    //     // If any numeric types are none, then that means at least one column is
-    //     // ASCII, which means that $DATATYPE needs to be "A" since $PnDATATYPE
-    //     // cannot be "A".
-    //     let (datatype, columns) = if let Ok(mut ds) = cs.as_ref().try_map(|c| c.datatype.ok_or(()))
-    //     {
-    //         // Determine which type appears the most, use that for $DATATYPE
-    //         ds.sort();
-    //         // TODO this should be a general non-empty function
-    //         let mut counts = NonEmpty::new((ds.head, 1));
-    //         for d in ds.tail {
-    //             if counts.last().0 == d {
-    //                 counts.last_mut().1 += 1;
-    //             } else {
-    //                 counts.push((d, 1));
-    //             }
-    //         }
-    //         let mode = counts.maximum_by_key(|x| x.1).0;
-    //         // Set all columns which have same type as $DATATYPE to None
-    //         let new_cs = cs.map(|mut c| {
-    //             if c.datatype.is_some_and(|x| x == mode) {
-    //                 c.datatype = None;
-    //             }
-    //             c
-    //         });
-    //         (mode.into(), new_cs)
-    //     } else {
-    //         (AlphaNumType::Ascii, cs)
-    //     };
-    //     LayoutValues3_2 {
-    //         datatype,
-    //         byte_layout: self.byte_layout,
-    //         columns: columns.into(),
-    //     }
-    // }
-
     fn primary_datatype(&self) -> AlphaNumType {
         // If any numeric types are none, then that means at least one column is
         // ASCII, which means that $DATATYPE needs to be "A" since $PnDATATYPE
@@ -2078,45 +1984,6 @@ fn ascii_to_uint(buf: &[u8]) -> Result<u64, AsciiToUintError> {
     }
 }
 
-// impl<S, D> LayoutValues<S, D> {
-//     pub(crate) fn req_keywords(&self) -> impl Iterator<Item = (String, String)>
-//     where
-//         S: ReqMetarootKey,
-//     {
-//         [self.datatype.pair(), self.byte_layout.pair()].into_iter()
-//     }
-
-//     pub(crate) fn req_meas_keywords(&self) -> impl Iterator<Item = (String, String, String)>
-//     where
-//         ColumnLayoutValues<D>: VersionedColumnLayout,
-//     {
-//         self.columns
-//             .iter()
-//             .enumerate()
-//             .flat_map(|(i, c)| c.req_keywords(i.into()))
-//     }
-
-//     pub(crate) fn opt_meas_keywords(&self) -> impl Iterator<Item = (String, String, Option<String>)>
-//     where
-//         ColumnLayoutValues<D>: VersionedColumnLayout,
-//     {
-//         self.columns
-//             .iter()
-//             .enumerate()
-//             .flat_map(|(i, c)| c.opt_keywords(i.into()))
-//     }
-// }
-
-// impl<S: Default, D> Default for LayoutValues<S, D> {
-//     fn default() -> Self {
-//         Self {
-//             datatype: AlphaNumType::Integer,
-//             byte_layout: S::default(),
-//             columns: vec![],
-//         }
-//     }
-// }
-
 impl VersionedColumnLayout for ColumnLayoutValues2_0 {
     fn lookup(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
         let j = i.into();
@@ -2145,15 +2012,6 @@ impl VersionedColumnLayout for ColumnLayoutValues2_0 {
             .map(Tentative::new1)
             .map_err(DeferredFailure::new2)
     }
-
-    // fn req_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, String)> {
-    //     let j = i.into();
-    //     [self.range.triple(j), self.width.triple(j)].into_iter()
-    // }
-
-    // fn opt_keywords(&self, _: MeasIndex) -> impl Iterator<Item = (String, String, Option<String>)> {
-    //     [].into_iter()
-    // }
 }
 
 impl VersionedColumnLayout for ColumnLayoutValues3_2 {
@@ -2193,20 +2051,6 @@ impl VersionedColumnLayout for ColumnLayoutValues3_2 {
                     })
             })
     }
-
-    // fn req_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, String)> {
-    //     let j = i.into();
-    //     [self.range.triple(j), self.width.triple(j)].into_iter()
-    // }
-
-    // fn opt_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, Option<String>)> {
-    //     [(
-    //         NumType::std(i.into()).to_string(),
-    //         NumType::std_blank(),
-    //         self.datatype.map(|x| x.to_string()),
-    //     )]
-    //     .into_iter()
-    // }
 }
 
 impl From<ColumnLayoutValues3_2> for ColumnLayoutValues2_0 {
@@ -2226,29 +2070,6 @@ impl<T> DelimAsciiLayout<T> {
             tot_action: PhantomData,
         }
     }
-
-    // fn layout_values<D: Copy, S: Default>(&self, datatype: D) -> LayoutValues<S, D> {
-    //     LayoutValues {
-    //         datatype: AlphaNumType::Ascii,
-    //         // NOTE BYTEORD is meaningless for delimited ASCII so use a dummy
-    //         byte_layout: S::default(),
-    //         columns: self.column_layout_values(datatype).into(),
-    //     }
-    // }
-
-    // fn column_layout_values<D: Copy>(&self, datatype: D) -> NonEmpty<ColumnLayoutValues<D>> {
-    //     self.ranges.as_ref().map(|r| ColumnLayoutValues {
-    //         width: Width::Variable,
-    //         range: Range((*r).into()),
-    //         datatype,
-    //     })
-    // }
-
-    // fn insert(&mut self, index: MeasIndex, range: u64) -> Result<(), BoundaryIndexError> {
-    //     IndexFromOne::from(index)
-    //         .check_boundary_index(self.ranges.len())
-    //         .map(|i| self.ranges.insert(i, range))
-    // }
 
     fn insert_unchecked(&mut self, index: MeasIndex, range: u64) {
         self.ranges.insert(index.into(), range)
@@ -2508,12 +2329,6 @@ impl<C, S, T> FixedLayout<C, S, T> {
             .def_map_value(|columns| Self::new(columns, byte_layout))
     }
 
-    // fn insert_inner(&mut self, index: MeasIndex, col: C) -> Result<(), BoundaryIndexError> {
-    //     IndexFromOne::from(index)
-    //         .check_boundary_index(self.columns.len())
-    //         .map(|i| self.columns.insert(i, col))
-    // }
-
     fn insert_inner_nocheck(&mut self, index: MeasIndex, col: C) {
         self.columns.insert(index.into(), col)
     }
@@ -2529,27 +2344,6 @@ impl<C, S, T> FixedLayout<C, S, T> {
     fn remove_nocheck_inner(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
         self.columns.remove_nocheck(index.into())
     }
-
-    // fn layout_values<D: Copy, R>(&self, datatype: D) -> LayoutValues<R, D>
-    // where
-    //     R: From<S>,
-    //     S: Copy,
-    //     C: IsFixed + HasDatatype,
-    // {
-    //     LayoutValues {
-    //         datatype: C::DATATYPE,
-    //         byte_layout: self.byte_layout.into(),
-    //         columns: self
-    //             .columns
-    //             .as_ref()
-    //             .map(|c| ColumnLayoutValues {
-    //                 width: Width::Fixed(c.fixed_width()),
-    //                 range: c.range(),
-    //                 datatype,
-    //             })
-    //             .into(),
-    //     }
-    // }
 
     fn h_read_df_numeric<R: Read, I, W, E>(
         &self,
@@ -2764,19 +2558,6 @@ impl<C, S, T> FixedLayout<C, S, T> {
 }
 
 impl<C, const LEN: usize, S, T> FixedLayout<FloatRange<C, LEN>, S, T> {
-    // pub(crate) fn new_floating(
-    //     &self,
-    //     ranges: NonEmpty<C>,
-    //     byte_layout: S,
-    // ) -> Result<Self, NanFloatError>
-    // where
-    //     NonNanFloat<C>: TryFrom<C, Error = NanFloatError>,
-    // {
-    //     let columns =
-    //         ranges.try_map(|r| NonNanFloat::try_from(r).map(|range| FloatRange { range }))?;
-    //     Ok(FixedLayout::new(columns, byte_layout))
-    // }
-
     // fn insert_float(
     //     &mut self,
     //     index: MeasIndex,
@@ -2816,35 +2597,7 @@ impl<C, const LEN: usize, S, T> FixedLayout<FloatRange<C, LEN>, S, T> {
     }
 }
 
-// impl<C, const LEN: usize, T> FixedLayout<Bitmask<C, LEN>, SizedByteOrd<LEN>, T>
-// where
-//     C: IntFromBytes<LEN> + TryFrom<usize> + Ord,
-// {
-//     pub(crate) fn new_ordered_uint(
-//         &self,
-//         ranges: NonEmpty<C>,
-//         byte_layout: SizedByteOrd<LEN>,
-//         notrunc: bool,
-//     ) -> BiTentative<Self, bitmask::BitmaskTruncationError>
-//     where
-//         C: num_traits::PrimInt,
-//         u64: From<C>,
-//     {
-//         Tentative::mconcat_ne(ranges.map(|b| Bitmask::from_native_tnt(b, notrunc)))
-//             .map(|columns| Self::new(columns, byte_layout))
-//     }
-// }
-
 impl<T> FixedLayout<AnyNullBitmask, Endian, T> {
-    // pub(crate) fn new_endian_uint(
-    //     &self,
-    //     ranges: NonEmpty<Range>,
-    //     byte_layout: Endian,
-    // ) -> BiTentative<Self, BitmaskError> {
-    //     Tentative::mconcat_ne(widths.map(|w| AnyUintType::new1(w.width, w.range, true)))
-    //         .map(|columns| Self::new(columns, byte_layout))
-    // }
-
     // fn insert_uint(
     //     &mut self,
     //     index: MeasIndex,
@@ -2869,17 +2622,6 @@ impl<T> FixedLayout<AnyNullBitmask, Endian, T> {
         AnyBitmask::from_range(range, notrunc).map(|t| self.push_inner(t))
     }
 }
-
-// impl<T> FixedLayout<NullMixedType, Endian, T> {
-//     pub(crate) fn new_mixed(
-//         &self,
-//         widths: NonEmpty<MixedColumnValues>,
-//         byte_layout: Endian,
-//     ) -> BiTentative<Self, BitmaskError> {
-//         Tentative::mconcat_ne(widths.map(|w| AnyUintType::new1(w.width, w.range, true)))
-//             .map(|columns| Self::new(columns, byte_layout))
-//     }
-// }
 
 macro_rules! def_native_wrapper {
     ($name:path, $native:ty, $size:expr, $native_size:expr, $bytes:ident) => {
@@ -3095,10 +2837,6 @@ macro_rules! match_any_uint {
 }
 
 impl<T> AnyOrderedUintLayout<T> {
-    // fn layout_values(&self) -> OrderedLayoutValues {
-    //     match_any_uint!(self, Self, l, { l.layout_values(()) })
-    // }
-
     fn tot_into<X>(self) -> AnyOrderedUintLayout<X> {
         match_any_uint!(self, Self, l, { l.tot_into().into() })
     }
@@ -3141,20 +2879,6 @@ impl<T> AnyOrderedUintLayout<T> {
                 })
             })
     }
-
-    // fn insert(
-    //     &mut self,
-    //     index: MeasIndex,
-    //     range: Range,
-    //     notrunc: bool,
-    // ) -> DeferredResult<(), IntRangeError, IntInsertColumnError> {
-    //     match_any_uint!(self, Self, l, {
-    //         IntFromBytes::column_type_from_range(range, notrunc)
-    //             .errors_into()
-    //             .and_maybe(|t| l.insert_inner(index, t).into_deferred())
-    //             .def_map_value(|_| ())
-    //     })
-    // }
 
     fn insert_nocheck(
         &mut self,
@@ -3232,13 +2956,6 @@ impl<T> AnyOrderedUintLayout<T> {
 }
 
 impl<T> AnyAsciiLayout<T> {
-    // fn layout_values<D: Copy, S: Default>(&self, datatype: D) -> LayoutValues<S, D> {
-    //     match self {
-    //         Self::Delimited(x) => x.layout_values(datatype),
-    //         Self::Fixed(x) => x.ascii_layout_values(datatype),
-    //     }
-    // }
-
     fn tot_into<X>(self) -> AnyAsciiLayout<X> {
         match self {
             Self::Delimited(x) => AnyAsciiLayout::Delimited(DelimAsciiLayout::new(x.ranges)),
@@ -3277,22 +2994,6 @@ impl<T> AnyAsciiLayout<T> {
             .def_map_value(Self::Fixed)
         }
     }
-
-    // fn insert(
-    //     &mut self,
-    //     index: MeasIndex,
-    //     range: Range,
-    //     notrunc: bool,
-    // ) -> DeferredResult<(), IntRangeError, IntInsertColumnError> {
-    //     IntFromBytes::<8>::range_to_int(range, notrunc)
-    //         .errors_into()
-    //         .and_maybe(|x| match self {
-    //             Self::Fixed(l) => l
-    //                 .insert_inner(index, AsciiType::from_u64(x))
-    //                 .into_deferred(),
-    //             Self::Delimited(l) => l.insert(index, x).into_deferred(),
-    //         })
-    // }
 
     fn insert_nocheck(
         &mut self,
@@ -3431,15 +3132,6 @@ impl VersionedDataLayout for DataLayout2_0 {
         AnyOrderedLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
     }
 
-    // fn insert(
-    //     &mut self,
-    //     index: MeasIndex,
-    //     range: Range,
-    //     notrunc: bool,
-    // ) -> DeferredResult<(), LayoutInsertColumnWarning, LayoutInsertColumnError> {
-    //     self.0.insert(index, range, notrunc)
-    // }
-
     fn insert_nocheck(
         &mut self,
         index: MeasIndex,
@@ -3490,10 +3182,6 @@ impl VersionedDataLayout for DataLayout2_0 {
     ) -> io::Result<()> {
         self.0.h_write_df(h, df)
     }
-
-    // fn layout_values(&self) -> OrderedLayoutValues {
-    //     self.0.layout_values()
-    // }
 
     fn req_keywords(&self) -> [(String, String); 2] {
         self.0.req_keywords()
@@ -3536,15 +3224,6 @@ impl VersionedDataLayout for DataLayout3_0 {
         AnyOrderedLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
     }
 
-    // fn insert(
-    //     &mut self,
-    //     index: MeasIndex,
-    //     range: Range,
-    //     notrunc: bool,
-    // ) -> DeferredResult<(), LayoutInsertColumnWarning, LayoutInsertColumnError> {
-    //     self.0.insert(index, range, notrunc)
-    // }
-
     fn insert_nocheck(
         &mut self,
         index: MeasIndex,
@@ -3595,10 +3274,6 @@ impl VersionedDataLayout for DataLayout3_0 {
     ) -> io::Result<()> {
         self.0.h_write_df(h, df)
     }
-
-    // fn layout_values(&self) -> OrderedLayoutValues {
-    //     self.0.layout_values()
-    // }
 
     fn req_keywords(&self) -> [(String, String); 2] {
         self.0.req_keywords()
@@ -3663,15 +3338,6 @@ impl VersionedDataLayout for DataLayout3_1 {
             })
     }
 
-    // fn insert(
-    //     &mut self,
-    //     index: MeasIndex,
-    //     range: Range,
-    //     notrunc: bool,
-    // ) -> DeferredResult<(), LayoutInsertColumnWarning, LayoutInsertColumnError> {
-    //     self.0.insert(index, range, notrunc)
-    // }
-
     fn insert_nocheck(
         &mut self,
         index: MeasIndex,
@@ -3722,10 +3388,6 @@ impl VersionedDataLayout for DataLayout3_1 {
     ) -> io::Result<()> {
         self.0.h_write_df(h, df)
     }
-
-    // fn layout_values(&self) -> LayoutValues3_1 {
-    //     self.0.layout_values(())
-    // }
 
     fn req_keywords(&self) -> [(String, String); 2] {
         self.0.req_keywords()
@@ -3809,22 +3471,6 @@ impl VersionedDataLayout for DataLayout3_2 {
                 .def_inner_into()
             })
     }
-
-    // fn insert(
-    //     &mut self,
-    //     index: MeasIndex,
-    //     range: Range,
-    //     notrunc: bool,
-    // ) -> DeferredResult<(), LayoutInsertColumnWarning, LayoutInsertColumnError> {
-    //     match self {
-    //         Self::NonMixed(x) => x.insert(index, range, notrunc),
-    //         Self::Mixed(x) => x
-    //             .insert_inner(index, MixedType::new_from_range(range.0))
-    //             // TODO this is confusing
-    //             .map_err(IntInsertColumnError::Index)
-    //             .into_deferred(),
-    //     }
-    // }
 
     fn insert_nocheck(
         &mut self,
@@ -3913,13 +3559,6 @@ impl VersionedDataLayout for DataLayout3_2 {
         }
     }
 
-    // fn layout_values(&self) -> LayoutValues3_2 {
-    //     match self {
-    //         Self::NonMixed(x) => x.layout_values(None),
-    //         Self::Mixed(x) => x.mixed_layout_values(),
-    //     }
-    // }
-
     fn req_keywords(&self) -> [(String, String); 2] {
         match self {
             Self::NonMixed(x) => x.req_keywords(),
@@ -3981,40 +3620,9 @@ impl DataLayout3_2 {
             Self::Mixed(FixedLayout::new(ranges, endian))
         }
     }
-
-    // fn new_ascii_fixed(ranges: NonEmpty<AsciiRange>) -> Self {
-    //     Self::Ascii(AnyAsciiLayout::new_fixed(ranges))
-    // }
-
-    // fn new_ascii_delim(ranges: NonEmpty<u64>) -> Self {
-    //     Self::Ascii(AnyAsciiLayout::new_delim(ranges))
-    // }
-
-    // fn new_uint(columns: NonEmpty<AnyNullBitmask>, byte_layout: Endian) -> Self {
-    //     Self::Integer(FixedLayout::new(columns, byte_layout))
-    // }
-
-    // fn new_f32(ranges: NonEmpty<NonNanF32>, byte_layout: Endian) -> Self {
-    //     let rs = ranges.map(|range| FloatRange { range });
-    //     Self::F32(FixedLayout::new(rs, byte_layout))
-    // }
-
-    // fn new_f64(ranges: NonEmpty<NonNanF64>, byte_layout: Endian) -> Self {
-    //     let rs = ranges.map(|range| FloatRange { range });
-    //     Self::F64(FixedLayout::new(rs, byte_layout))
-    // }
 }
 
 impl<T> AnyOrderedLayout<T> {
-    // fn layout_values(&self) -> OrderedLayoutValues {
-    //     match self {
-    //         Self::Ascii(x) => x.layout_values(()),
-    //         Self::Integer(x) => x.layout_values(),
-    //         Self::F32(x) => x.layout_values(()),
-    //         Self::F64(x) => x.layout_values(()),
-    //     }
-    // }
-
     pub fn new_ascii_fixed(ranges: NonEmpty<AsciiRange>) -> Self {
         Self::Ascii(AnyAsciiLayout::new_fixed(ranges))
     }
@@ -4105,20 +3713,6 @@ impl<T> AnyOrderedLayout<T> {
                 .def_inner_into()
             })
     }
-
-    // fn insert(
-    //     &mut self,
-    //     index: MeasIndex,
-    //     range: Range,
-    //     notrunc: bool,
-    // ) -> DeferredResult<(), LayoutInsertColumnWarning, LayoutInsertColumnError> {
-    //     match self {
-    //         Self::Ascii(l) => l.insert(index, range, notrunc).def_inner_into(),
-    //         Self::Integer(l) => l.insert(index, range, notrunc).def_inner_into(),
-    //         Self::F32(l) => l.insert_float(index, range, notrunc).def_inner_into(),
-    //         Self::F64(l) => l.insert_float(index, range, notrunc).def_inner_into(),
-    //     }
-    // }
 
     fn insert_nocheck(
         &mut self,
@@ -4270,15 +3864,6 @@ impl<T> AnyOrderedLayout<T> {
 }
 
 impl NonMixedEndianLayout {
-    // fn layout_values<D: Copy>(&self, datatype: D) -> LayoutValues<Endian, D> {
-    //     match self {
-    //         Self::Ascii(x) => x.layout_values(datatype),
-    //         Self::Integer(x) => x.layout_values(datatype),
-    //         Self::F32(x) => x.layout_values(datatype),
-    //         Self::F64(x) => x.layout_values(datatype),
-    //     }
-    // }
-
     pub fn new_ascii_fixed(ranges: NonEmpty<AsciiRange>) -> Self {
         Self::Ascii(AnyAsciiLayout::new_fixed(ranges))
     }
@@ -4364,20 +3949,6 @@ impl NonMixedEndianLayout {
             Self::F64(x) => x.h_write_df::<_, ColumnWriter<_, _, _>>(h, df),
         }
     }
-
-    // fn insert(
-    //     &mut self,
-    //     index: MeasIndex,
-    //     range: Range,
-    //     notrunc: bool,
-    // ) -> DeferredResult<(), LayoutInsertColumnWarning, LayoutInsertColumnError> {
-    //     match self {
-    //         Self::Ascii(l) => l.insert(index, range, notrunc).def_inner_into(),
-    //         Self::Integer(l) => l.insert_uint(index, range, notrunc).def_inner_into(),
-    //         Self::F32(l) => l.insert_float(index, range, notrunc).def_inner_into(),
-    //         Self::F64(l) => l.insert_float(index, range, notrunc).def_inner_into(),
-    //     }
-    // }
 
     fn insert_nocheck(
         &mut self,
@@ -4894,12 +4465,6 @@ enum_from_disp!(
     [Double, MixedToDoubleError]
 );
 
-// enum_from_disp!(
-//     pub LayoutInsertColumnError,
-//     [Int, IntInsertColumnError],
-//     [Float, FloatInsertColumnError]
-// );
-
 enum_from_disp!(
     pub LayoutPushColumnError,
     [Ascii, IntRangeError],
@@ -4912,19 +4477,6 @@ enum_from_disp!(
     [Ascii, IntRangeError],
     [Int, BitmaskError],
     [Float, FloatRangeError]
-);
-
-// NOTE this also applies to ASCII since these use u64 (an "int")
-enum_from_disp!(
-    pub IntInsertColumnError,
-    [Range, IntRangeError],
-    [Index, BoundaryIndexError]
-);
-
-enum_from_disp!(
-    pub FloatInsertColumnError,
-    [Range, FloatRangeError],
-    [Index, BoundaryIndexError]
 );
 
 pub struct MixedColumnConvertError<E> {

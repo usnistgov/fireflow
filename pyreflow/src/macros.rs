@@ -77,8 +77,8 @@ pub(crate) use py_ord;
 
 macro_rules! py_disp {
     ($pytype:ident) => {
-        impl fmt::Display for $pytype {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        impl std::fmt::Display for $pytype {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
                 self.0.fmt(f)
             }
         }
@@ -86,7 +86,7 @@ macro_rules! py_disp {
         #[pymethods]
         impl $pytype {
             fn __repr__(&self) -> String {
-                let name = <$pytype as PyTypeInfo>::NAME;
+                let name = <$pytype as pyo3::type_object::PyTypeInfo>::NAME;
                 format!("{}({})", name, self.0.to_string())
             }
         }

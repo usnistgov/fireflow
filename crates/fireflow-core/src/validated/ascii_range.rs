@@ -5,7 +5,7 @@ use crate::macros::{
     enum_from, enum_from_disp, match_many_to_one, newtype_disp, newtype_from_outer,
 };
 use crate::text::byteord::{Width, WidthToCharsError};
-use crate::text::float_or_int::IntRangeError;
+use crate::text::float_or_int::{FloatOrInt, IntRangeError};
 use crate::text::keywords::Range;
 
 use serde::Serialize;
@@ -38,6 +38,12 @@ impl From<u64> for AsciiRange {
     fn from(value: u64) -> Self {
         let chars = Chars::from_u64(value);
         Self { value, chars }
+    }
+}
+
+impl From<AsciiRange> for FloatOrInt {
+    fn from(value: AsciiRange) -> Self {
+        FloatOrInt::Int(value.value)
     }
 }
 

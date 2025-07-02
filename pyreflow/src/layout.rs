@@ -1,24 +1,76 @@
 use fireflow_core::data::{
     AnyNullBitmask, AnyOrderedLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
-    FloatRange, NonMixedEndianLayout, NullMixedType,
+    FloatRange, NonMixedEndianLayout, NullMixedType, VersionedDataLayout,
 };
 use fireflow_core::text::byteord::{Endian, SizedByteOrd};
 use fireflow_core::text::float_or_int::{NonNanF32, NonNanF64, NonNanFloat};
+use fireflow_core::text::keywords::AlphaNumType;
 use fireflow_core::validated::ascii_range::{AsciiRange, Chars};
 use fireflow_core::validated::bitmask::Bitmask;
 
+use super::utils;
 use crate::class::PyreflowException;
 
-use super::macros::py_wrap;
+use super::macros::{py_disp, py_enum, py_eq, py_parse, py_wrap};
 
 use nonempty::NonEmpty;
 use pyo3::prelude::*;
 use pyo3::types::PyType;
 
+// $DATATYPE (all versions)
+py_wrap!(pub(crate) PyAlphaNumType, AlphaNumType, "AlphaNumType");
+py_eq!(PyAlphaNumType);
+py_disp!(PyAlphaNumType);
+py_parse!(PyAlphaNumType);
+py_enum!(
+    PyAlphaNumType,
+    AlphaNumType,
+    [Ascii, ASCII],
+    [Integer, INTEGER],
+    [Single, SINGLE],
+    [Double, DOUBLE]
+);
+
+// All layouts
 py_wrap!(pub(crate) PyDataLayout2_0, DataLayout2_0, "DataLayout2_0");
 py_wrap!(pub(crate) PyDataLayout3_0, DataLayout3_0, "DataLayout3_0");
 py_wrap!(pub(crate) PyDataLayout3_1, DataLayout3_1, "DataLayout3_1");
 py_wrap!(pub(crate) PyDataLayout3_2, DataLayout3_2, "DataLayout3_2");
+
+macro_rules! common_methods {
+    ($t:ident) => {
+        #[pymethods]
+        impl $t {
+            /// Return the widths of each column (ie the $PnB keyword).
+            ///
+            /// This will be a list of integers equal to the number of columns
+            /// or an empty list if the layout is delimited Ascii (in which case
+            /// it has no column widths).
+            #[getter]
+            fn widths(&self) -> Vec<u8> {
+                self.0.widths().into_iter().map(u8::from).collect()
+            }
+
+            /// Return a list of ranges for each column.
+            ///
+            /// The elements of the list will be either a float or int and
+            /// will depend on the underlying layout structure.
+            #[getter]
+            fn ranges<'a>(&self, py: Python<'a>) -> PyResult<Vec<Bound<'a, PyAny>>> {
+                self.0
+                    .ranges()
+                    .into_iter()
+                    .map(|x| utils::float_or_int_to_any(x, py))
+                    .collect()
+            }
+        }
+    };
+}
+
+common_methods!(PyDataLayout2_0);
+common_methods!(PyDataLayout3_0);
+common_methods!(PyDataLayout3_1);
+common_methods!(PyDataLayout3_2);
 
 // ascii layouts for all versions
 macro_rules! new_ascii_methods {
@@ -238,6 +290,23 @@ impl PyDataLayout3_2 {
         let e = Endian::is_big(is_big);
         let rs = vec_to_mixed_type(ranges)?;
         Ok(DataLayout3_2::new_mixed(rs, e).into())
+    }
+
+    #[getter]
+    /// Return true if layout has more than one datatype.
+    fn is_mixed(&self) -> bool {
+        matches!(self.0, DataLayout3_2::Mixed(_))
+    }
+
+    #[getter]
+    /// Return list of datatypes for each column.
+    ///
+    /// If not a mixed layout, datatypes will be identical.
+    fn datatypes(&self) -> Vec<PyAlphaNumType> {
+        Vec::from(self.0.datatypes())
+            .into_iter()
+            .map(|x| x.into())
+            .collect()
     }
 }
 

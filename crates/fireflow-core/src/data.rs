@@ -427,6 +427,10 @@ pub trait VersionedDataLayout: Sized {
     fn req_meas_keywords(&self) -> NonEmpty<(String, String, String)>;
 
     fn opt_meas_keywords(&self) -> Vec<(String, String, Option<String>)>;
+
+    fn widths(&self) -> Vec<BitsOrChars>;
+
+    fn ranges(&self) -> NonEmpty<FloatOrInt>;
 }
 
 pub trait HasNativeType: Sized {
@@ -915,6 +919,18 @@ mixed_to_width!(Uint48, Bitmask48);
 mixed_to_width!(Uint56, Bitmask56);
 mixed_to_width!(Uint64, Bitmask64);
 
+macro_rules! match_any_uint {
+    ($value:expr, $root:ident, $inner:ident, $action:block) => {
+        match_many_to_one!(
+            $value,
+            $root,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            $inner,
+            $action
+        )
+    };
+}
+
 impl TryFrom<NullMixedType> for AsciiRange {
     type Error = MixedToAsciiError;
     fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
@@ -960,6 +976,32 @@ impl TryFrom<NullMixedType> for F64Range {
             MixedType::F32(_) => Err(MixedIsFloat.into()),
             MixedType::F64(x) => Ok(x),
         }
+    }
+}
+
+impl From<NullMixedType> for FloatOrInt {
+    fn from(value: NullMixedType) -> Self {
+        match_many_to_one!(value, NullMixedType, [Ascii, Uint, F32, F64], x, {
+            x.into()
+        })
+    }
+}
+
+impl From<AnyNullBitmask> for FloatOrInt {
+    fn from(value: AnyNullBitmask) -> Self {
+        match_any_uint!(value, AnyNullBitmask, x, { x.into() })
+    }
+}
+
+impl From<F32Range> for FloatOrInt {
+    fn from(value: F32Range) -> Self {
+        value.range.into()
+    }
+}
+
+impl From<F64Range> for FloatOrInt {
+    fn from(value: F64Range) -> Self {
+        value.range.into()
     }
 }
 
@@ -1880,13 +1922,17 @@ impl NullMixedType {
         }
     }
 
-    fn as_num_type(&self) -> Option<NumType> {
+    fn as_alpha_num_type(&self) -> AlphaNumType {
         match self {
-            Self::Ascii(_) => None,
-            Self::Uint(_) => Some(NumType::Integer),
-            Self::F32(_) => Some(NumType::Single),
-            Self::F64(_) => Some(NumType::Double),
+            Self::Ascii(_) => AlphaNumType::Ascii,
+            Self::Uint(_) => AlphaNumType::Integer,
+            Self::F32(_) => AlphaNumType::Single,
+            Self::F64(_) => AlphaNumType::Double,
         }
+    }
+
+    fn as_num_type(&self) -> Option<NumType> {
+        self.as_alpha_num_type().try_into().ok()
     }
 }
 
@@ -2500,6 +2546,21 @@ impl<C, S, T> FixedLayout<C, S, T> {
         self.columns.iter().map(|c| usize::from(c.nbytes())).sum()
     }
 
+    fn widths(&self) -> NonEmpty<BitsOrChars>
+    where
+        C: IsFixed,
+    {
+        self.columns.as_ref().map(|x| x.fixed_width())
+    }
+
+    fn ranges(&self) -> NonEmpty<FloatOrInt>
+    where
+        C: Copy,
+        FloatOrInt: From<C>,
+    {
+        self.columns.as_ref().map(|x| (*x).into())
+    }
+
     fn ncols(&self) -> usize {
         self.columns.len()
     }
@@ -2558,21 +2619,6 @@ impl<C, S, T> FixedLayout<C, S, T> {
 }
 
 impl<C, const LEN: usize, S, T> FixedLayout<FloatRange<C, LEN>, S, T> {
-    // fn insert_float(
-    //     &mut self,
-    //     index: MeasIndex,
-    //     range: Range,
-    //     notrunc: bool,
-    // ) -> DeferredResult<(), FloatRangeError, FloatInsertColumnError>
-    // where
-    //     C: FloatFromBytes<LEN>,
-    //     NonNanFloat<C>: TryFrom<FloatOrInt, Error = ToFloatError<C>>,
-    // {
-    //     C::column_type(range, notrunc)
-    //         .errors_into()
-    //         .and_maybe(|t| self.insert_inner(index, t).into_deferred())
-    // }
-
     fn insert_float_nocheck(
         &mut self,
         index: MeasIndex,
@@ -2598,17 +2644,6 @@ impl<C, const LEN: usize, S, T> FixedLayout<FloatRange<C, LEN>, S, T> {
 }
 
 impl<T> FixedLayout<AnyNullBitmask, Endian, T> {
-    // fn insert_uint(
-    //     &mut self,
-    //     index: MeasIndex,
-    //     range: Range,
-    //     notrunc: bool,
-    // ) -> DeferredResult<(), IntRangeError, IntInsertColumnError> {
-    //     AnyUintType::new_from_range(range, notrunc)
-    //         .errors_into()
-    //         .and_maybe(|t| self.insert_inner(index, t).into_deferred())
-    // }
-
     fn insert_uint_nocheck(
         &mut self,
         index: MeasIndex,
@@ -2824,18 +2859,6 @@ source_from_iter!(f64, u64, FromF64);
 source_from_iter!(f64, f32, FromF64);
 source_from_iter!(f64, f64, FromF64);
 
-macro_rules! match_any_uint {
-    ($value:expr, $root:ident, $inner:ident, $action:block) => {
-        match_many_to_one!(
-            $value,
-            $root,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            $inner,
-            $action
-        )
-    };
-}
-
 impl<T> AnyOrderedUintLayout<T> {
     fn tot_into<X>(self) -> AnyOrderedUintLayout<X> {
         match_any_uint!(self, Self, l, { l.tot_into().into() })
@@ -2913,6 +2936,14 @@ impl<T> AnyOrderedUintLayout<T> {
 
     fn nbytes(&self, df: &FCSDataFrame) -> u64 {
         match_any_uint!(self, Self, l, { l.nbytes(df) })
+    }
+
+    fn widths(&self) -> NonEmpty<BitsOrChars> {
+        match_any_uint!(self, Self, l, { l.widths() })
+    }
+
+    fn ranges(&self) -> NonEmpty<FloatOrInt> {
+        match_any_uint!(self, Self, l, { l.ranges() })
     }
 
     fn h_read_df<R: Read, W, E>(
@@ -3047,6 +3078,20 @@ impl<T> AnyAsciiLayout<T> {
         match self {
             Self::Delimited(_) => df.ascii_nbytes(),
             Self::Fixed(l) => l.nbytes(df),
+        }
+    }
+
+    fn widths(&self) -> Vec<BitsOrChars> {
+        match self {
+            Self::Delimited(_) => vec![],
+            Self::Fixed(l) => l.widths().into(),
+        }
+    }
+
+    fn ranges(&self) -> NonEmpty<FloatOrInt> {
+        match self {
+            Self::Delimited(l) => l.ranges.as_ref().map(|x| FloatOrInt::from(*x)),
+            Self::Fixed(l) => l.ranges(),
         }
     }
 
@@ -3194,6 +3239,14 @@ impl VersionedDataLayout for DataLayout2_0 {
     fn opt_meas_keywords(&self) -> Vec<(String, String, Option<String>)> {
         vec![]
     }
+
+    fn widths(&self) -> Vec<BitsOrChars> {
+        self.0.widths()
+    }
+
+    fn ranges(&self) -> NonEmpty<FloatOrInt> {
+        self.0.ranges()
+    }
 }
 
 impl VersionedDataLayout for DataLayout3_0 {
@@ -3285,6 +3338,14 @@ impl VersionedDataLayout for DataLayout3_0 {
 
     fn opt_meas_keywords(&self) -> Vec<(String, String, Option<String>)> {
         vec![]
+    }
+
+    fn widths(&self) -> Vec<BitsOrChars> {
+        self.0.widths()
+    }
+
+    fn ranges(&self) -> NonEmpty<FloatOrInt> {
+        self.0.ranges()
     }
 }
 
@@ -3399,6 +3460,14 @@ impl VersionedDataLayout for DataLayout3_1 {
 
     fn opt_meas_keywords(&self) -> Vec<(String, String, Option<String>)> {
         vec![]
+    }
+
+    fn widths(&self) -> Vec<BitsOrChars> {
+        self.0.widths()
+    }
+
+    fn ranges(&self) -> NonEmpty<FloatOrInt> {
+        self.0.ranges()
     }
 }
 
@@ -3589,6 +3658,20 @@ impl VersionedDataLayout for DataLayout3_2 {
             }
         }
     }
+
+    fn widths(&self) -> Vec<BitsOrChars> {
+        match self {
+            Self::NonMixed(x) => x.widths(),
+            Self::Mixed(x) => x.widths().into(),
+        }
+    }
+
+    fn ranges(&self) -> NonEmpty<FloatOrInt> {
+        match self {
+            Self::NonMixed(x) => x.ranges(),
+            Self::Mixed(x) => x.ranges(),
+        }
+    }
 }
 
 impl DataLayout3_1 {
@@ -3620,6 +3703,14 @@ impl DataLayout3_2 {
             Self::Mixed(FixedLayout::new(ranges, endian))
         }
     }
+
+    pub fn datatypes(&self) -> NonEmpty<AlphaNumType> {
+        match self {
+            // somewhat hacky way of getting a nonempty in a type-safe way
+            Self::NonMixed(x) => x.ranges().as_ref().map(|_| x.datatype()),
+            Self::Mixed(x) => x.columns.as_ref().map(|y| y.as_alpha_num_type()),
+        }
+    }
 }
 
 impl<T> AnyOrderedLayout<T> {
@@ -3647,6 +3738,16 @@ impl<T> AnyOrderedLayout<T> {
 
     pub fn new_f64(ranges: NonEmpty<F64Range>, byte_layout: SizedByteOrd<8>) -> Self {
         Self::F64(FixedLayout::new(ranges, byte_layout))
+    }
+
+    // TODO this doesn't feel dry
+    pub fn datatype(&self) -> AlphaNumType {
+        match self {
+            Self::Ascii(_) => AlphaNumType::Ascii,
+            Self::Integer(_) => AlphaNumType::Integer,
+            Self::F32(_) => AlphaNumType::Single,
+            Self::F64(_) => AlphaNumType::Double,
+        }
     }
 
     fn try_new(
@@ -3761,6 +3862,24 @@ impl<T> AnyOrderedLayout<T> {
 
     fn nbytes(&self, df: &FCSDataFrame) -> u64 {
         match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, { x.nbytes(df) })
+    }
+
+    fn widths(&self) -> Vec<BitsOrChars> {
+        match self {
+            Self::Ascii(a) => a.widths(),
+            Self::Integer(i) => i.widths().into(),
+            Self::F32(f) => f.widths().into(),
+            Self::F64(f) => f.widths().into(),
+        }
+    }
+
+    fn ranges(&self) -> NonEmpty<FloatOrInt> {
+        match self {
+            Self::Ascii(a) => a.ranges(),
+            Self::Integer(i) => i.ranges(),
+            Self::F32(f) => f.ranges(),
+            Self::F64(f) => f.ranges(),
+        }
     }
 
     pub(crate) fn tot_into<X>(self) -> AnyOrderedLayout<X> {
@@ -3884,6 +4003,16 @@ impl NonMixedEndianLayout {
         Self::F64(FixedLayout::new(ranges, endian))
     }
 
+    // TODO this doesn't feel dry
+    pub fn datatype(&self) -> AlphaNumType {
+        match self {
+            Self::Ascii(_) => AlphaNumType::Ascii,
+            Self::Integer(_) => AlphaNumType::Integer,
+            Self::F32(_) => AlphaNumType::Single,
+            Self::F64(_) => AlphaNumType::Double,
+        }
+    }
+
     fn try_new(
         datatype: AlphaNumType,
         endian: Endian,
@@ -3997,6 +4126,19 @@ impl NonMixedEndianLayout {
 
     fn nbytes(&self, df: &FCSDataFrame) -> u64 {
         match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, { x.nbytes(df) })
+    }
+
+    fn widths(&self) -> Vec<BitsOrChars> {
+        match self {
+            Self::Ascii(x) => x.widths(),
+            Self::Integer(x) => x.widths().into(),
+            Self::F32(x) => x.widths().into(),
+            Self::F64(x) => x.widths().into(),
+        }
+    }
+
+    fn ranges(&self) -> NonEmpty<FloatOrInt> {
+        match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, { x.ranges() })
     }
 
     pub(crate) fn into_ordered<T>(self) -> LayoutConvertResult<AnyOrderedLayout<T>> {

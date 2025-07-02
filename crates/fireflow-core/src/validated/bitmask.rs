@@ -27,6 +27,12 @@ pub struct Bitmask<T, const LEN: usize> {
 macro_rules! bitmask_type {
     ($name:ident, $wrapper:ident, $native:ty, $size:expr) => {
         pub type $name = $wrapper<$native, $size>;
+
+        impl From<$name> for FloatOrInt {
+            fn from(value: $name) -> Self {
+                FloatOrInt::from(u64::from(value.value))
+            }
+        }
     };
 }
 

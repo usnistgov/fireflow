@@ -4,7 +4,6 @@ use fireflow_core::core::*;
 use fireflow_core::error::*;
 use fireflow_core::header::*;
 use fireflow_core::segment::*;
-use fireflow_core::text::float_or_int::*;
 use fireflow_core::text::keywords::*;
 use fireflow_core::text::named_vec::Element;
 use fireflow_core::text::optional::*;
@@ -17,8 +16,11 @@ use fireflow_core::validated::other_width::*;
 use fireflow_core::validated::pattern::*;
 use fireflow_core::validated::shortname::*;
 
-use super::layout::{PyDataLayout2_0, PyDataLayout3_0, PyDataLayout3_1, PyDataLayout3_2};
+use super::layout::{
+    PyAlphaNumType, PyDataLayout2_0, PyDataLayout3_0, PyDataLayout3_1, PyDataLayout3_2,
+};
 use super::macros::{py_disp, py_enum, py_eq, py_ord, py_parse, py_wrap};
+use super::utils;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use nonempty::NonEmpty;
@@ -29,7 +31,6 @@ use pyo3::class::basic::CompareOp;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyWarning};
 use pyo3::prelude::*;
-use pyo3::type_object::PyTypeInfo;
 use pyo3::types::{IntoPyDict, PyDict, PyType};
 use pyo3::IntoPyObjectExt;
 use pyo3_polars::{PyDataFrame, PySeries};
@@ -1006,20 +1007,6 @@ py_enum!(
     [DataModified, DATA_MODIFIED]
 );
 
-// $DATATYPE (all versions)
-py_wrap!(PyAlphaNumType, AlphaNumType, "AlphaNumType");
-py_eq!(PyAlphaNumType);
-py_disp!(PyAlphaNumType);
-py_parse!(PyAlphaNumType);
-py_enum!(
-    PyAlphaNumType,
-    AlphaNumType,
-    [Ascii, ASCII],
-    [Integer, INTEGER],
-    [Single, SINGLE],
-    [Double, DOUBLE]
-);
-
 // $PnDATATYPE (3.2)
 py_wrap!(PyNumType, NumType, "NumType");
 py_eq!(PyNumType);
@@ -1960,7 +1947,7 @@ macro_rules! common_coretext_meas_get_set {
                     r: Bound<'_, PyAny>,
                     notrunc: bool,
                 ) -> PyResult<()> {
-                    let x = any_to_float_or_int(r)?;
+                    let x = utils::any_to_float_or_int(r)?;
                     let n = str_to_shortname(name)?;
                     self.0
                         .push_temporal(n, t.into(), x, notrunc)
@@ -1976,7 +1963,7 @@ macro_rules! common_coretext_meas_get_set {
                     r: Bound<'_, PyAny>,
                     notrunc: bool,
                 ) -> PyResult<()> {
-                    let x = any_to_float_or_int(r)?;
+                    let x = utils::any_to_float_or_int(r)?;
                     let n = str_to_shortname(name)?;
                     self.0
                         .insert_temporal(i.into(), n, t.into(), x, notrunc)
@@ -2013,7 +2000,7 @@ macro_rules! coredata_meas_get_set {
                     r: Bound<'_, PyAny>,
                     notrunc: bool,
                 ) -> PyResult<()> {
-                    let x = any_to_float_or_int(r)?;
+                    let x = utils::any_to_float_or_int(r)?;
                     let n = str_to_shortname(name)?;
                     let col = series_to_fcs(xs.into()).map_err(PyreflowException::new_err)?;
                     self.0
@@ -2031,7 +2018,7 @@ macro_rules! coredata_meas_get_set {
                     r: Bound<'_, PyAny>,
                     notrunc: bool,
                 ) -> PyResult<()> {
-                    let x = any_to_float_or_int(r)?;
+                    let x = utils::any_to_float_or_int(r)?;
                     let n = str_to_shortname(name)?;
                     let col = series_to_fcs(xs.into()).map_err(PyreflowException::new_err)?;
                     self.0
@@ -2133,7 +2120,7 @@ macro_rules! coretext2_0_meas_methods {
                     notrunc: bool,
                     name: Option<String>,
                 ) -> PyResult<String> {
-                    let x = any_to_float_or_int(r)?;
+                    let x = utils::any_to_float_or_int(r)?;
                     let n = name.map(str_to_shortname).transpose()?;
                     self.0
                         .push_optical(n.into(), m.into(), x, notrunc)
@@ -2151,7 +2138,7 @@ macro_rules! coretext2_0_meas_methods {
                     notrunc: bool,
                     name: Option<String>,
                 ) -> PyResult<String> {
-                    let x = any_to_float_or_int(r)?;
+                    let x = utils::any_to_float_or_int(r)?;
                     let n = name.map(str_to_shortname).transpose()?;
                     self.0
                         .insert_optical(i.into(), n.into(), m.into(), x, notrunc)
@@ -2201,7 +2188,7 @@ macro_rules! coretext3_1_meas_methods {
                     r: Bound<'_, PyAny>,
                     notrunc: bool,
                 ) -> PyResult<()> {
-                    let x = any_to_float_or_int(r)?;
+                    let x = utils::any_to_float_or_int(r)?;
                     let n = str_to_shortname(name)?;
                     self.0
                         .push_optical(Identity(n), m.into(), x, notrunc)
@@ -2218,7 +2205,7 @@ macro_rules! coretext3_1_meas_methods {
                     r: Bound<'_, PyAny>,
                     notrunc: bool,
                 ) -> PyResult<()> {
-                    let x = any_to_float_or_int(r)?;
+                    let x = utils::any_to_float_or_int(r)?;
                     let n = str_to_shortname(name)?;
                     self.0
                         .insert_optical(i.into(), Identity(n), m.into(), x, notrunc)
@@ -3565,23 +3552,6 @@ where
 
 // fn any_to_range(a: Bound<'_, PyAny>) -> PyResult<Range> {
 //     any_to_float_or_int(a).map(Range)
-// }
-
-fn any_to_float_or_int(a: Bound<'_, PyAny>) -> PyResult<FloatOrInt> {
-    a.clone()
-        .extract::<f64>()
-        .map_or(a.extract::<u64>().map(|x| x.into()), |x| {
-            NonNanF64::try_from(x)
-                .map(FloatOrInt::Float)
-                .map_err(|e| PyreflowException::new_err(e.to_string()))
-        })
-}
-
-// fn float_or_int_to_any(r: FloatOrInt, py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
-//     match r {
-//         FloatOrInt::Float(x) => f64::from(x).into_bound_py_any(py),
-//         FloatOrInt::Int(x) => x.into_bound_py_any(py),
-//     }
 // }
 
 fn to_positive_float(x: f32) -> PyResult<PositiveFloat> {

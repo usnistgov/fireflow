@@ -207,6 +207,18 @@ macro_rules! impl_non_nan_float {
 impl_non_nan_float!(f32, NonNanF32);
 impl_non_nan_float!(f64, NonNanF64);
 
+impl From<NonNanF32> for FloatOrInt {
+    fn from(value: NonNanF32) -> Self {
+        FloatOrInt::Float(value.inner_into())
+    }
+}
+
+impl From<NonNanF64> for FloatOrInt {
+    fn from(value: NonNanF64) -> Self {
+        FloatOrInt::Float(value)
+    }
+}
+
 #[derive(Debug)]
 pub struct NanFloatError;
 

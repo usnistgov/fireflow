@@ -1,14 +1,11 @@
-use crate::macros::{newtype_asref, newtype_disp};
-
+use derive_more::{AsRef, Display};
 use std::fmt;
 use std::str::FromStr;
 
 /// A String that matches a date.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, AsRef, Display)]
+#[as_ref(str)]
 pub struct DatePattern(String);
-
-newtype_asref!(DatePattern, str);
-newtype_disp!(DatePattern);
 
 impl FromStr for DatePattern {
     type Err = DatePatternError;

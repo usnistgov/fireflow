@@ -1,42 +1,27 @@
-use crate::macros::{newtype_asref, newtype_disp};
 use crate::text::index::MeasIndex;
 
+use derive_more::{AsRef, Display};
 use serde::Serialize;
-use std::borrow::Borrow;
 use std::fmt;
 use std::str::FromStr;
 
 /// The value for the $PnN key (all versions).
 ///
 /// This cannot contain commas.
-#[derive(Clone, Serialize, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Serialize, Eq, PartialEq, Hash, Debug, AsRef, Display)]
+#[as_ref(str)]
 pub struct Shortname(String);
 
 /// A prefix that can be made into a shortname by appending an index
 ///
 /// This cannot contain commas.
-#[derive(Clone, Serialize, Eq, PartialEq, Hash)]
+#[derive(Clone, Serialize, Eq, PartialEq, Hash, AsRef, Display)]
+#[as_ref(str)]
 pub struct ShortnamePrefix(Shortname);
-
-newtype_asref!(Shortname, str);
-newtype_disp!(Shortname);
-
-newtype_asref!(ShortnamePrefix, str);
-newtype_disp!(ShortnamePrefix);
-
-impl Borrow<str> for Shortname {
-    fn borrow(&self) -> &str {
-        self.0.as_str()
-    }
-}
 
 impl Shortname {
     pub fn new_unchecked<T: AsRef<str>>(s: T) -> Self {
         Shortname(s.as_ref().to_owned())
-    }
-
-    pub fn from_index(n: usize) -> Self {
-        Shortname(format!("M{n}"))
     }
 }
 

@@ -1,11 +1,8 @@
 //! Types used for constructing offsets in HEADER and TEXT
 
 use crate::header::MAX_HEADER_OFFSET;
-use crate::macros::{
-    enum_from, enum_from_disp, match_many_to_one, newtype_disp, newtype_from, newtype_from_outer,
-    newtype_fromstr,
-};
 
+use derive_more::{Display, From, FromStr, Into};
 use serde::Serialize;
 use std::fmt;
 use std::num::{ParseIntError, TryFromIntError};
@@ -19,22 +16,13 @@ use std::str::FromStr;
 ///
 /// This is used for the offsets in TEXT which must be formatted in a fixed
 /// width.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Default, FromStr, Into, From)]
+#[into(u64, i128)]
 pub struct Uint20Char(pub u64);
-
-newtype_from!(Uint20Char, u64);
-newtype_from_outer!(Uint20Char, u64);
-newtype_fromstr!(Uint20Char, ParseIntError);
 
 impl fmt::Display for Uint20Char {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "{:0>20}", self.0)
-    }
-}
-
-impl From<Uint20Char> for i128 {
-    fn from(value: Uint20Char) -> Self {
-        value.0.into()
     }
 }
 
@@ -54,26 +42,9 @@ impl TryFrom<i128> for Uint20Char {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Default)]
 pub struct Uint8Char(pub Uint8Digit);
 
-newtype_from!(Uint8Char, Uint8Digit);
-newtype_from_outer!(Uint8Char, Uint8Digit);
-newtype_fromstr!(Uint8Char, ParseUint8DigitError);
-
 impl fmt::Display for Uint8Char {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "{:0>8}", self.0)
-    }
-}
-
-impl From<Uint8Digit> for i128 {
-    fn from(value: Uint8Digit) -> Self {
-        value.0.into()
-    }
-}
-
-impl TryFrom<i128> for Uint8Digit {
-    type Error = TryFromIntError;
-    fn try_from(value: i128) -> Result<Self, Self::Error> {
-        value.try_into().map(Self)
     }
 }
 
@@ -83,11 +54,10 @@ impl TryFrom<i128> for Uint8Digit {
 ///
 /// This is used as-is for HEADER offsets, and used in a wrapper for $NEXTDATA,
 /// both of which have this constraint.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Default, Display, Into, From)]
+#[into(u32, u64, i128)]
+#[from(u8, u16)] // ASSUME these will never fail
 pub struct Uint8Digit(u32);
-
-newtype_from_outer!(Uint8Digit, u32);
-newtype_disp!(Uint8Digit);
 
 impl Uint8Digit {
     /// Parse from a buffer that contains 8 bytes.
@@ -117,31 +87,18 @@ impl Uint8Digit {
     }
 }
 
-enum_from_disp!(
-    pub ParseFixedUintError,
-    [Int, ParseIntError],
-    [NotAscii, BytesNotAscii],
-    [Negative, NegativeOffsetError]
-);
-
-impl From<Uint8Digit> for u64 {
-    fn from(value: Uint8Digit) -> Self {
-        value.0.into()
+impl TryFrom<i128> for Uint8Digit {
+    type Error = TryFromIntError;
+    fn try_from(value: i128) -> Result<Self, Self::Error> {
+        value.try_into().map(Self)
     }
 }
 
-// this should never fail
-impl From<u8> for Uint8Digit {
-    fn from(value: u8) -> Self {
-        Self(value.into())
-    }
-}
-
-// this should never fail either
-impl From<u16> for Uint8Digit {
-    fn from(value: u16) -> Self {
-        Self(value.into())
-    }
+#[derive(Display, From)]
+pub enum ParseFixedUintError {
+    Int(ParseIntError),
+    NotAscii(BytesNotAscii),
+    Negative(NegativeOffsetError),
 }
 
 impl TryFrom<u64> for Uint8Digit {
@@ -169,11 +126,11 @@ impl FromStr for Uint8Digit {
     }
 }
 
-enum_from_disp!(
-    pub ParseUint8DigitError,
-    [Overflow, Uint8DigitOverflow],
-    [Int, ParseIntError]
-);
+#[derive(Display, From)]
+pub enum ParseUint8DigitError {
+    Overflow(Uint8DigitOverflow),
+    Int(ParseIntError),
+}
 
 pub struct Uint8DigitOverflow(u64);
 

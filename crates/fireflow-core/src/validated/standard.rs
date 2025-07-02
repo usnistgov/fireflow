@@ -1,11 +1,10 @@
 use crate::config::RawTextReadConfig;
 use crate::error::*;
-use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::text::index::IndexFromOne;
 use crate::validated::nonstandard::*;
 
+use derive_more::{Display, From};
 use serde::Serialize;
-use std::borrow::Borrow;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
@@ -165,18 +164,6 @@ pub type StdKeywords = HashMap<StdKey, String>;
 pub type NonAsciiPairs = Vec<(String, String)>;
 pub type BytesPairs = Vec<(Vec<u8>, Vec<u8>)>;
 
-impl AsRef<str> for StdKey {
-    fn as_ref(&self) -> &str {
-        self.0.as_ref()
-    }
-}
-
-impl Borrow<str> for StdKey {
-    fn borrow(&self) -> &str {
-        self.0.borrow()
-    }
-}
-
 impl fmt::Display for StdKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "${}", self.0)
@@ -264,13 +251,12 @@ impl ParsedKeywords {
     }
 }
 
-enum_from_disp!(
-    #[derive(Debug)]
-    pub KeywordInsertError,
-    [StdPresent, StdPresent],
-    [NonStdPresent, NonStdPresent],
-    [Blank, BlankValueError]
-);
+#[derive(Debug, Display, From)]
+pub enum KeywordInsertError {
+    StdPresent(StdPresent),
+    NonStdPresent(NonStdPresent),
+    Blank(BlankValueError),
+}
 
 #[derive(Debug)]
 pub struct BlankValueError(pub Vec<u8>);

@@ -11,7 +11,7 @@ impl Default for TEXTDelim {
 }
 
 impl TEXTDelim {
-    pub fn new(x: u8) -> Result<TEXTDelim, TEXTDelimError> {
+    pub fn try_new(x: u8) -> Result<TEXTDelim, TEXTDelimError> {
         if (1..=126).contains(&x) {
             Err(TEXTDelimError(x))
         } else {

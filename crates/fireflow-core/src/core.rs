@@ -29,7 +29,6 @@ use nalgebra::DMatrix;
 use nonempty::NonEmpty;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
-use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::fmt;
@@ -2634,7 +2633,7 @@ where
                         // nonsense measurement.
                         let key = M::Name::unwrap(wrapped).and_then(|name| {
                             if let Some(tp) = conf.time.pattern.as_ref() {
-                                if tp.0.as_inner().is_match(name.as_ref()) {
+                                if tp.0.as_ref().is_match(name.as_ref()) {
                                     return Ok(name);
                                 }
                             }
@@ -3202,7 +3201,7 @@ macro_rules! comp_methods {
     () => {
         /// Return matrix for $COMP
         pub fn compensation(&self) -> Option<&Compensation> {
-            self.metaroot.specific.comp.as_ref_opt().map(|x| x.borrow())
+            self.metaroot.specific.comp.as_ref_opt().map(|x| x.as_ref())
         }
 
         /// Set matrix for $COMP
@@ -6639,7 +6638,7 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
     }
 
     fn as_compensation(&self) -> Option<&Compensation> {
-        self.comp.as_ref_opt().map(|x| x.borrow())
+        self.comp.as_ref_opt().map(|x| x.as_ref())
     }
 
     fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
@@ -6722,7 +6721,7 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
     }
 
     fn as_compensation(&self) -> Option<&Compensation> {
-        self.comp.as_ref_opt().map(|x| x.borrow())
+        self.comp.as_ref_opt().map(|x| x.as_ref())
     }
 
     fn with_compensation<F, X>(&mut self, f: F) -> Option<X>

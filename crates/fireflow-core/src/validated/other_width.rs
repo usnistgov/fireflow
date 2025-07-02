@@ -1,14 +1,11 @@
-use crate::macros::newtype_from_outer;
-
+use derive_more::Into;
 use std::fmt;
 
 /// Width to use when parsing OTHER segments.
 ///
 /// Must be integer between 1 and 20.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Into)]
 pub struct OtherWidth(u8);
-
-newtype_from_outer!(OtherWidth, u8);
 
 impl Default for OtherWidth {
     fn default() -> OtherWidth {

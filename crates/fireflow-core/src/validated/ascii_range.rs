@@ -1,13 +1,11 @@
 //! Types representing $PnR/$PnB keys for an Ascii column.
 
 use crate::error::{DeferredExt, DeferredResult, ResultExt};
-use crate::macros::{
-    enum_from, enum_from_disp, match_many_to_one, newtype_disp, newtype_from_outer,
-};
 use crate::text::byteord::{Width, WidthToCharsError};
 use crate::text::float_or_int::{FloatOrInt, IntRangeError};
 use crate::text::keywords::Range;
 
+use derive_more::{Display, From, Into};
 use serde::Serialize;
 use std::fmt;
 
@@ -26,13 +24,10 @@ pub struct AsciiRange {
 }
 
 /// The number of chars or an ASCII measurement
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Hash)]
+#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Hash, Display, Into)]
 pub struct Chars(u8);
 
 const MAX_CHARS: u8 = 20;
-
-newtype_disp!(Chars);
-newtype_from_outer!(Chars, u8);
 
 impl From<u64> for AsciiRange {
     fn from(value: u64) -> Self {
@@ -128,12 +123,12 @@ impl fmt::Display for CharsError {
     }
 }
 
-enum_from_disp!(
-    pub NewAsciiRangeError,
-    [New, NotEnoughCharsError],
-    [Width, WidthToCharsError],
-    [Range, IntRangeError]
-);
+#[derive(Display, From)]
+pub enum NewAsciiRangeError {
+    New(NotEnoughCharsError),
+    Width(WidthToCharsError),
+    Range(IntRangeError),
+}
 
 pub struct NotEnoughCharsError {
     chars: Chars,

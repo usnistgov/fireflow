@@ -1,9 +1,9 @@
 //! Types to represent the $PnB and $PnR values for a uint column.
 
 use crate::error::BiTentative;
-use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::text::float_or_int::{FloatOrInt, IntRangeError, ToIntError};
 
+use derive_more::{Display, From};
 use num_traits::PrimInt;
 use serde::Serialize;
 use std::fmt;
@@ -182,8 +182,8 @@ impl fmt::Display for BitmaskTruncationError {
     }
 }
 
-enum_from_disp!(
-    pub BitmaskError,
-    [ToInt, IntRangeError],
-    [Trunc, BitmaskTruncationError]
-);
+#[derive(Display, From)]
+pub enum BitmaskError {
+    ToInt(IntRangeError),
+    Trunc(BitmaskTruncationError),
+}

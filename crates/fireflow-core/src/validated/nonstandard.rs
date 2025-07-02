@@ -1,6 +1,6 @@
-use crate::macros::{newtype_asref, newtype_disp};
 use crate::text::index::IndexFromOne;
 
+use derive_more::{AsRef, Display};
 use regex::Regex;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -10,7 +10,8 @@ use std::str::FromStr;
 /// A String that matches a non-standard metadata keyword
 ///
 /// This shall not start with '$'.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, AsRef, Display)]
+#[as_ref(str)]
 pub struct NonStdKey(String);
 
 pub type NonStdPairs = Vec<(NonStdKey, String)>;
@@ -21,7 +22,8 @@ pub type NonStdKeywords = HashMap<NonStdKey, String>;
 /// This will have exactly one '%n' and not start with a '$'. The
 /// '%n' will be replaced by the measurement index which will be used
 /// to match keywords.
-#[derive(Clone)]
+#[derive(Clone, AsRef, Display)]
+#[as_ref(str)]
 pub struct NonStdMeasPattern(String);
 
 impl FromStr for NonStdKey {
@@ -140,9 +142,3 @@ impl fmt::Display for NonStdMeasRegexError {
         )
     }
 }
-
-newtype_disp!(NonStdKey);
-newtype_disp!(NonStdMeasPattern);
-
-newtype_asref!(NonStdKey, str);
-newtype_asref!(NonStdMeasPattern, str);

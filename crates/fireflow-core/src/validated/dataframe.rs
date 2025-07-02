@@ -1,7 +1,8 @@
-use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
+use crate::macros::match_many_to_one;
 use crate::text::index::BoundaryIndexError;
 use crate::validated::ascii_range::Chars;
 
+use derive_more::{Display, From};
 use polars_arrow::array::{Array, PrimitiveArray};
 use polars_arrow::buffer::Buffer;
 use polars_arrow::datatypes::ArrowDataType;
@@ -17,17 +18,16 @@ pub struct FCSDataFrame {
     nrows: usize,
 }
 
-enum_from!(
-    /// Any valid column from an FCS dataframe
-    #[derive(Clone)]
-    pub AnyFCSColumn,
-    [U08, U08Column],
-    [U16, U16Column],
-    [U32, U32Column],
-    [U64, U64Column],
-    [F32, F32Column],
-    [F64, F64Column]
-);
+/// Any valid column from an FCS dataframe
+#[derive(Clone, From)]
+pub enum AnyFCSColumn {
+    U08(U08Column),
+    U16(U16Column),
+    U32(U32Column),
+    U64(U64Column),
+    F32(F32Column),
+    F64(F64Column),
+}
 
 #[derive(Clone)]
 pub struct FCSColumn<T>(pub Buffer<T>);
@@ -111,11 +111,11 @@ pub struct ColumnLengthError {
     col_len: usize,
 }
 
-enum_from_disp!(
-    pub InsertColumnError,
-    [Index, BoundaryIndexError],
-    [Column, ColumnLengthError]
-);
+#[derive(From, Display)]
+pub enum InsertColumnError {
+    Index(BoundaryIndexError),
+    Column(ColumnLengthError),
+}
 
 impl fmt::Display for ColumnLengthError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {

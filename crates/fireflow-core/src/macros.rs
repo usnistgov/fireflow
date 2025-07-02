@@ -50,30 +50,6 @@ macro_rules! newtype_fromstr {
 
 pub(crate) use newtype_fromstr;
 
-macro_rules! newtype_asref {
-    ($from:ident, $to:ident) => {
-        impl std::convert::AsRef<$to> for $from {
-            fn as_ref(&self) -> &$to {
-                self.0.as_ref()
-            }
-        }
-    };
-}
-
-pub(crate) use newtype_asref;
-
-macro_rules! newtype_borrow {
-    ($from:ident, $to:ident) => {
-        impl std::borrow::Borrow<$to> for $from {
-            fn borrow(&self) -> &$to {
-                &self.0
-            }
-        }
-    };
-}
-
-pub(crate) use newtype_borrow;
-
 macro_rules! match_many_to_one {
     ($value:expr, $root:ident, [$($variant:ident),*], $inner:ident, $action:block) => {
         match $value {

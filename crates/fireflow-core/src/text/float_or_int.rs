@@ -35,8 +35,6 @@ impl From<NonNanF64> for f64 {
     }
 }
 
-// newtype_from_outer!(NonNanF64, f64);
-
 impl NonNanF64 {
     fn as_int<T>(&self) -> Result<T, FloatToIntError<T>>
     where

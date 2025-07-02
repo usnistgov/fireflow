@@ -1,20 +1,16 @@
-use crate::macros::newtype_disp;
-
+use derive_more::{Display, Into};
 use serde::Serialize;
 use std::fmt;
 use std::num::ParseFloatError;
 use std::str::FromStr;
 
 /// A non-negative float
-#[derive(Clone, Copy, Serialize, PartialEq)]
+#[derive(Clone, Copy, Serialize, PartialEq, Display, Into)]
 pub struct NonNegFloat(f32);
 
 /// A positive float
-#[derive(Clone, Copy, Serialize, PartialEq)]
+#[derive(Clone, Copy, Serialize, PartialEq, Display, Into)]
 pub struct PositiveFloat(f32);
-
-newtype_disp!(NonNegFloat);
-newtype_disp!(PositiveFloat);
 
 macro_rules! impl_ranged_float {
     ($type:ident, $op:tt, $zero:expr) => {
@@ -25,12 +21,6 @@ macro_rules! impl_ranged_float {
                 s.parse::<f32>()
                     .map_err(RangedFloatError::Parse)
                     .and_then(Self::try_from)
-            }
-        }
-
-        impl From<$type> for f32 {
-            fn from(x: $type) -> Self {
-                x.0
             }
         }
 

@@ -1,11 +1,12 @@
 use crate::macros::{newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
 
+use derive_more::{Display, FromStr};
 use serde::Serialize;
 use std::fmt;
 use std::num::ParseIntError;
 
 /// An index starting at 1, used as the basis for keyword indices
-#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug, Serialize)]
+#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug, Serialize, Display, FromStr)]
 pub struct IndexFromOne(usize);
 
 impl From<usize> for IndexFromOne {
@@ -19,9 +20,6 @@ impl From<IndexFromOne> for usize {
         value.0 - 1
     }
 }
-
-newtype_disp!(IndexFromOne);
-newtype_fromstr!(IndexFromOne, ParseIntError);
 
 macro_rules! newtype_index {
     ($(#[$attr:meta])* $t:ident) => {

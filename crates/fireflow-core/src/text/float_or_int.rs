@@ -1,7 +1,8 @@
 use crate::error::BiTentative;
-use crate::macros::{newtype_disp, newtype_from_outer};
+use crate::macros::newtype_from_outer;
 use crate::validated::ascii_range::Chars;
 
+use derive_more::{Display, From};
 use num_traits::bounds::Bounded;
 use num_traits::float::Float;
 use num_traits::AsPrimitive;
@@ -16,21 +17,20 @@ use std::str::FromStr;
 /// Technically this should only be an integer, but many versions also store
 /// floats which makes sense for cases where $DATATYPE/$PnDATATYPE indicates
 /// float or double.
-#[derive(Clone, Copy, Serialize, PartialEq)]
+#[derive(Clone, Copy, Serialize, PartialEq, From, Display)]
 pub enum FloatOrInt {
     Float(NonNanF64),
     Int(u64),
 }
 
 /// A float which is never NaN
-#[derive(Clone, Copy, Serialize, PartialEq, Default)]
+#[derive(Clone, Copy, Serialize, PartialEq, Default, Display)]
 pub struct NonNanFloat<T>(T);
 
 pub type NonNanF32 = NonNanFloat<f32>;
 pub type NonNanF64 = NonNanFloat<f64>;
 
 newtype_from_outer!(NonNanF64, f64);
-newtype_disp!(NonNanF64);
 
 impl NonNanF64 {
     fn as_int<T>(&self) -> Result<T, FloatToIntError<T>>
@@ -164,21 +164,6 @@ impl FromStr for FloatOrInt {
     }
 }
 
-impl fmt::Display for FloatOrInt {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Float(x) => write!(f, "{x}"),
-            Self::Int(x) => write!(f, "{x}"),
-        }
-    }
-}
-
-impl From<u64> for FloatOrInt {
-    fn from(value: u64) -> Self {
-        Self::Int(value)
-    }
-}
-
 impl TryFrom<FloatOrInt> for Chars {
     type Error = FloatToIntError<u64>;
 
@@ -210,12 +195,6 @@ impl_non_nan_float!(f64, NonNanF64);
 impl From<NonNanF32> for FloatOrInt {
     fn from(value: NonNanF32) -> Self {
         FloatOrInt::Float(value.inner_into())
-    }
-}
-
-impl From<NonNanF64> for FloatOrInt {
-    fn from(value: NonNanF64) -> Self {
-        FloatOrInt::Float(value)
     }
 }
 

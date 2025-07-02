@@ -1,5 +1,4 @@
 use crate::error::*;
-use crate::macros::{enum_from, newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
 use crate::validated::ascii_uint::*;
 use crate::validated::shortname::*;
 use crate::validated::standard::*;
@@ -19,33 +18,25 @@ use super::timestamps::*;
 use super::unstainedcenters::*;
 
 use chrono::{NaiveDateTime, NaiveTime, Timelike};
+use derive_more::{Display, From, FromStr, Into};
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use serde::Serialize;
 use std::collections::HashSet;
-use std::convert::Infallible;
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
 
 /// Value for $NEXTDATA (all versions)
+#[derive(From, Into, FromStr, Display)]
 pub struct Nextdata(pub Uint20Char);
 
-newtype_from!(Nextdata, Uint20Char);
-newtype_from_outer!(Nextdata, Uint20Char);
-newtype_fromstr!(Nextdata, ParseIntError);
-newtype_disp!(Nextdata);
-
 /// The value of the $PnG keyword
-#[derive(Clone, Copy, Serialize, PartialEq)]
+#[derive(Clone, Copy, Serialize, PartialEq, From, Display, FromStr)]
 pub struct Gain(pub PositiveFloat);
 
-newtype_from!(Gain, PositiveFloat);
-newtype_disp!(Gain);
-newtype_fromstr!(Gain, RangedFloatError);
-
 /// The value of the $TIMESTEP keyword
-#[derive(Clone, Copy, PartialEq, Serialize)]
+#[derive(Clone, Copy, PartialEq, Serialize, From, Display, FromStr)]
 pub struct Timestep(pub PositiveFloat);
 
 impl Default for Timestep {
@@ -55,17 +46,9 @@ impl Default for Timestep {
     }
 }
 
-newtype_disp!(Timestep);
-newtype_fromstr!(Timestep, RangedFloatError);
-newtype_from!(Timestep, PositiveFloat);
-
 /// The value of the $VOL keyword
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, From, Display, FromStr)]
 pub struct Vol(pub NonNegFloat);
-
-newtype_from!(Vol, NonNegFloat);
-newtype_disp!(Vol);
-newtype_fromstr!(Vol, RangedFloatError);
 
 /// The value of the $TR field (all versions)
 ///
@@ -495,7 +478,7 @@ impl fmt::Display for CalibrationFormat3_2 {
 /// The value for the $PnL key (3.1).
 ///
 /// Starting in 3.1 this is a vector rather than a scaler.
-#[derive(Clone)]
+#[derive(Clone, From)]
 pub struct Wavelengths(pub NonEmpty<u32>);
 
 impl Serialize for Wavelengths {
@@ -506,9 +489,6 @@ impl Serialize for Wavelengths {
         self.0.iter().collect::<Vec<_>>().serialize(serializer)
     }
 }
-
-newtype_from!(Wavelengths, NonEmpty<u32>);
-newtype_from_outer!(Wavelengths, NonEmpty<u32>);
 
 impl fmt::Display for Wavelengths {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -575,11 +555,8 @@ impl fmt::Display for WavelengthsError {
 ///
 /// Inner value is private to ensure it always gets parsed/printed using the
 /// correct format
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, From, Into)]
 pub struct ModifiedDateTime(pub NaiveDateTime);
-
-newtype_from!(ModifiedDateTime, NaiveDateTime);
-newtype_from_outer!(ModifiedDateTime, NaiveDateTime);
 
 const DATETIME_FMT: &str = "%d-%b-%Y %H:%M:%S";
 
@@ -901,12 +878,11 @@ where
     }
 }
 
-enum_from!(
-    #[derive(Clone, Copy, Serialize)]
-    pub MeasOrGateIndex,
-    [Meas, MeasIndex],
-    [Gate, GateIndex]
-);
+#[derive(Clone, Copy, Serialize, From)]
+pub enum MeasOrGateIndex {
+    Meas(MeasIndex),
+    Gate(GateIndex),
+}
 
 impl FromStr for MeasOrGateIndex {
     type Err = MeasOrGateIndexError;
@@ -953,11 +929,8 @@ impl fmt::Display for MeasOrGateIndexError {
     }
 }
 
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, From)]
 pub struct PrefixedMeasIndex(pub MeasIndex);
-
-newtype_from!(PrefixedMeasIndex, MeasIndex);
-newtype_from_outer!(PrefixedMeasIndex, MeasIndex);
 
 impl FromStr for PrefixedMeasIndex {
     type Err = PrefixedMeasIndexError;
@@ -1286,13 +1259,9 @@ impl fmt::Display for GatingError {
 }
 
 /// The value of the $PnR key.
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, From, Display, FromStr)]
+#[from(u64, FloatOrInt)]
 pub struct Range(pub FloatOrInt);
-
-newtype_from!(Range, FloatOrInt);
-newtype_from_outer!(Range, FloatOrInt);
-newtype_disp!(Range);
-newtype_fromstr!(Range, ParseFloatOrIntError);
 
 impl TryFrom<f64> for Range {
     type Error = NanFloatError;
@@ -1301,20 +1270,10 @@ impl TryFrom<f64> for Range {
     }
 }
 
-impl From<u64> for Range {
-    fn from(value: u64) -> Self {
-        FloatOrInt::from(value).into()
-    }
-}
-
 /// The value of the $GmR key
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, From, Display, FromStr)]
+#[from(u64, FloatOrInt)]
 pub struct GateRange(pub FloatOrInt);
-
-newtype_from!(GateRange, FloatOrInt);
-newtype_from_outer!(GateRange, FloatOrInt);
-newtype_disp!(GateRange);
-newtype_fromstr!(GateRange, ParseFloatOrIntError);
 
 impl TryFrom<f64> for GateRange {
     type Error = NanFloatError;
@@ -1323,35 +1282,17 @@ impl TryFrom<f64> for GateRange {
     }
 }
 
-impl From<u64> for GateRange {
-    fn from(value: u64) -> Self {
-        FloatOrInt::from(value).into()
-    }
-}
-
 /// The value of the $PnV key
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, From, Display, FromStr)]
 pub struct DetectorVoltage(pub NonNegFloat);
 
-newtype_from!(DetectorVoltage, NonNegFloat);
-newtype_disp!(DetectorVoltage);
-newtype_fromstr!(DetectorVoltage, RangedFloatError);
-
 /// The value of the $GmV key
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, Display, FromStr)]
 pub struct GateDetectorVoltage(pub NonNegFloat);
 
-newtype_from!(GateDetectorVoltage, NonNegFloat);
-newtype_disp!(GateDetectorVoltage);
-newtype_fromstr!(GateDetectorVoltage, RangedFloatError);
-
 /// The value of the $GmE key
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, Display, FromStr)]
 pub struct GateScale(pub Scale);
-
-newtype_from!(GateScale, Scale);
-newtype_disp!(GateScale);
-newtype_fromstr!(GateScale, ScaleError);
 
 // use the same fix we use for PnE here
 impl GateScale {
@@ -1366,53 +1307,28 @@ impl GateScale {
 }
 
 /// The value of the $CSVnFLAG key (2.0-3.0)
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, Display, FromStr)]
 pub struct CSVFlag(pub u32);
 
-newtype_from!(CSVFlag, u32);
-newtype_from_outer!(CSVFlag, u32);
-newtype_disp!(CSVFlag);
-newtype_fromstr!(CSVFlag, ParseIntError);
-
 /// The value of the $PKn key (2.0-3.1)
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, Display, FromStr)]
 pub struct PeakBin(pub u32);
 
-newtype_from!(PeakBin, u32);
-newtype_from_outer!(PeakBin, u32);
-newtype_disp!(PeakBin);
-newtype_fromstr!(PeakBin, ParseIntError);
-
 /// The value of the $PKNn key (2.0-3.1)
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, Display, FromStr)]
 pub struct PeakNumber(pub u32);
-
-newtype_from!(PeakNumber, u32);
-newtype_from_outer!(PeakNumber, u32);
-newtype_disp!(PeakNumber);
-newtype_fromstr!(PeakNumber, ParseIntError);
 
 macro_rules! newtype_string {
     ($t:ident) => {
-        #[derive(Clone, Serialize)]
+        #[derive(Clone, Serialize, Display, FromStr, From, Into)]
         pub struct $t(pub String);
-
-        newtype_disp!($t);
-        newtype_fromstr!($t, Infallible);
-        newtype_from!($t, String);
-        newtype_from_outer!($t, String);
     };
 }
 
 macro_rules! newtype_int {
     ($t:ident, $type:ident) => {
-        #[derive(Clone, Copy, Serialize)]
+        #[derive(Clone, Copy, Serialize, Display, FromStr, From, Into)]
         pub struct $t(pub $type);
-
-        newtype_disp!($t);
-        newtype_fromstr!($t, ParseIntError);
-        newtype_from!($t, $type);
-        newtype_from_outer!($t, $type);
     };
 }
 
@@ -1562,22 +1478,6 @@ macro_rules! kw_time {
     ($outer:ident, $wrap:ident, $inner:ident, $err:ident, $key:expr) => {
         type $outer = $wrap<$inner>;
 
-        impl From<$inner> for $outer {
-            fn from(value: $inner) -> Self {
-                $wrap(value)
-            }
-        }
-
-        impl FromStr for $outer {
-            type Err = $err;
-
-            fn from_str(s: &str) -> Result<Self, Self::Err> {
-                s.parse().map($wrap)
-            }
-        }
-
-        newtype_from_outer!($outer, $inner);
-        newtype_disp!($outer);
         kw_opt_meta!($outer, $key);
 
         impl From<NaiveTime> for $outer {
@@ -1831,12 +1731,8 @@ kw_req_meta!(Nextdata, "NEXTDATA");
 macro_rules! kw_offset {
     ($t:ident, $key:expr) => {
         /// Value for $$key (3.0-3.2)
+        #[derive(Display, From, Into, FromStr)]
         pub struct $t(pub Uint20Char);
-
-        newtype_from!($t, Uint20Char);
-        newtype_from_outer!($t, Uint20Char);
-        newtype_fromstr!($t, ParseIntError);
-        newtype_disp!($t);
 
         kw_req_meta!($t, $key);
     };

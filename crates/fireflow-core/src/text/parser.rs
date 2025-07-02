@@ -1,6 +1,5 @@
 use crate::core::*;
 use crate::error::*;
-use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::validated::pattern::*;
 use crate::validated::shortname::*;
 use crate::validated::standard::*;
@@ -19,6 +18,7 @@ use super::spillover::*;
 use super::timestamps::*;
 use super::unstainedcenters::*;
 
+use derive_more::{Display, From};
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use std::collections::{HashMap, HashSet};
@@ -421,92 +421,92 @@ pub(crate) type LookupResult<V> = DeferredResult<V, LookupKeysWarning, LookupKey
 pub(crate) type LookupTentative<V, E> = Tentative<V, LookupKeysWarning, E>;
 
 // TODO this could be nested better
-enum_from_disp!(
-    pub LookupKeysError,
-    [Parse, Box<ReqKeyError<ParseReqKeyError>>],
+#[derive(From, Display)]
+pub enum LookupKeysError {
+    Parse(Box<ReqKeyError<ParseReqKeyError>>),
     // TODO this currently does nothing, need to add a flag to toggle these to
     // errors
-    [Dep, DeprecatedError],
-    [Misc, LookupMiscError]
-);
+    Dep(DeprecatedError),
+    Misc(LookupMiscError),
+}
 
-enum_from_disp!(
-    pub LookupKeysWarning,
-    [Parse, ParseKeyError<ParseOptKeyWarning>],
-    [Relation, LookupRelationalWarning],
-    [Linked, LinkedNameError],
-    [Dep, DeprecatedError]
-);
+#[derive(From, Display)]
+pub enum LookupKeysWarning {
+    Parse(ParseKeyError<ParseOptKeyWarning>),
+    Relation(LookupRelationalWarning),
+    Linked(LinkedNameError),
+    Dep(DeprecatedError),
+}
 
-enum_from_disp!(
-    pub DeprecatedError,
-    [Key, DepKeyWarning],
-    [Value, DepValueWarning]
-);
+#[derive(From, Display)]
+pub enum DeprecatedError {
+    Key(DepKeyWarning),
+    Value(DepValueWarning),
+}
 
-enum_from_disp!(
-    /// Error encountered when parsing a required key from a string
-    pub ParseReqKeyError,
-    [FloatOrInt,    ParseFloatOrIntError],
-    [AlphaNumType,  AlphaNumTypeError],
-    [String,        Infallible],
-    [Int,           ParseIntError],
-    [Scale,         ScaleError],
-    [TemporalScale, TemporalScaleError],
-    [RangedFloat,   RangedFloatError],
-    [Mode,          ModeError],
-    [ByteOrd,       ParseByteOrdError],
-    [Endian,        NewEndianError],
-    [Shortname,     ShortnameError]
-);
+/// Error encountered when parsing a required key from a string
+#[derive(From, Display)]
+pub enum ParseReqKeyError {
+    FloatOrInt(ParseFloatOrIntError),
+    AlphaNumType(AlphaNumTypeError),
+    String(Infallible),
+    Int(ParseIntError),
+    Scale(ScaleError),
+    TemporalScale(TemporalScaleError),
+    RangedFloat(RangedFloatError),
+    Mode(ModeError),
+    ByteOrd(ParseByteOrdError),
+    Endian(NewEndianError),
+    Shortname(ShortnameError),
+}
 
-enum_from_disp!(
-    /// Error encountered when parsing an optional key from a string
-    pub ParseOptKeyWarning,
-    [NumType,            NumTypeError],
-    [Trigger,            TriggerError],
-    [Scale,              ScaleError],
-    [TemporalScale,      TemporalScaleError],
-    [Float,              ParseFloatError],
-    [RangedFloat,        RangedFloatError],
-    [Feature,            FeatureError],
-    [Wavelengths,        WavelengthsError],
-    [Calibration3_1,     CalibrationError<CalibrationFormat3_1>],
-    [Calibration3_2,     CalibrationError<CalibrationFormat3_2>],
-    [Int,                ParseIntError],
-    [String,             Infallible],
-    [FCSDate,            FCSDateError],
-    [FCSTime,            FCSTimeError],
-    [FCSTime60,          FCSTime60Error],
-    [FCSTime100,         FCSTime100Error],
-    [FCSDateTime,        FCSDateTimeError],
-    [ModifiedDateTime,   ModifiedDateTimeError],
-    [Originality,        OriginalityError],
-    [UnstainedCenter,    ParseUnstainedCenterError],
-    [Mode3_2,            Mode3_2Error],
-    [TemporalType,       TemporalTypeError],
-    [OpticalType,        OpticalTypeError],
-    [Shortname,          ShortnameError],
-    [Display,            DisplayError],
-    [Unicode,            UnicodeError],
-    [Spillover,          ParseSpilloverError],
-    [Compensation,       ParseCompError],
-    [FloatOrInt,         ParseFloatOrIntError],
-    [GateRegionIndex2_0, RegionGateIndexError<ParseIntError>],
-    [GateRegionIndex3_0, RegionGateIndexError<MeasOrGateIndexError>],
-    [GateRegionIndex3_2, RegionGateIndexError<PrefixedMeasIndexError>],
-    [GateRegionWindow,   GatePairError],
-    [Gating,             GatingError]
-);
+/// Error encountered when parsing an optional key from a string
+#[derive(From, Display)]
+pub enum ParseOptKeyWarning {
+    NumType(NumTypeError),
+    Trigger(TriggerError),
+    Scale(ScaleError),
+    TemporalScale(TemporalScaleError),
+    Float(ParseFloatError),
+    RangedFloat(RangedFloatError),
+    Feature(FeatureError),
+    Wavelengths(WavelengthsError),
+    Calibration3_1(CalibrationError<CalibrationFormat3_1>),
+    Calibration3_2(CalibrationError<CalibrationFormat3_2>),
+    Int(ParseIntError),
+    String(Infallible),
+    FCSDate(FCSDateError),
+    FCSTime(FCSTimeError),
+    FCSTime60(FCSTime60Error),
+    FCSTime100(FCSTime100Error),
+    FCSDateTime(FCSDateTimeError),
+    ModifiedDateTime(ModifiedDateTimeError),
+    Originality(OriginalityError),
+    UnstainedCenter(ParseUnstainedCenterError),
+    Mode3_2(Mode3_2Error),
+    TemporalType(TemporalTypeError),
+    OpticalType(OpticalTypeError),
+    Shortname(ShortnameError),
+    Display(DisplayError),
+    Unicode(UnicodeError),
+    Spillover(ParseSpilloverError),
+    Compensation(ParseCompError),
+    FloatOrInt(ParseFloatOrIntError),
+    GateRegionIndex2_0(RegionGateIndexError<ParseIntError>),
+    GateRegionIndex3_0(RegionGateIndexError<MeasOrGateIndexError>),
+    GateRegionIndex3_2(RegionGateIndexError<PrefixedMeasIndexError>),
+    GateRegionWindow(GatePairError),
+    Gating(GatingError),
+}
 
-enum_from_disp!(
-    /// Misc errors encountered when looking up keywords for standardization
-    pub LookupMiscError,
+/// Misc errors encountered when looking up keywords for standardization
+#[derive(From, Display)]
+pub enum LookupMiscError {
     // TODO this should be a configurable warning
-    [Temporal, TemporalError],
-    [NamedVec, NewNamedVecError],
-    [MissingTime, MissingTime]
-);
+    Temporal(TemporalError),
+    NamedVec(NewNamedVecError),
+    MissingTime(MissingTime),
+}
 
 /// Error triggered when time measurement is missing but required.
 pub struct MissingTime(pub TimePattern);
@@ -518,16 +518,16 @@ pub enum TemporalError {
     HasGain,
 }
 
-enum_from_disp!(
-    /// Error encountered when relation between two or more keys is invalid
-    pub LookupRelationalWarning,
-    [Timestamp, ReversedTimestamps],
-    [Datetime, ReversedDatetimes],
-    [CompShape, NewCompError],
-    [GateRegion, MismatchedIndexAndWindowError],
-    [GateRegionLink, GateRegionLinkError],
-    [GateMeasLink, GateMeasurementLinkError]
-);
+/// Error encountered when relation between two or more keys is invalid
+#[derive(From, Display)]
+pub enum LookupRelationalWarning {
+    Timestamp(ReversedTimestamps),
+    Datetime(ReversedDatetimes),
+    CompShape(NewCompError),
+    GateRegion(MismatchedIndexAndWindowError),
+    GateRegionLink(GateRegionLinkError),
+    GateMeasLink(GateMeasurementLinkError),
+}
 
 /// Error/warning triggered when encountering a key which is deprecated
 pub struct DepKeyWarning(pub StdKey);

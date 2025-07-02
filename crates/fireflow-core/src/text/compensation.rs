@@ -1,7 +1,5 @@
 use crate::error::*;
-use crate::macros::{
-    newtype_borrow, newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr,
-};
+use crate::macros::newtype_borrow;
 use crate::validated::standard::BiIndexedKey;
 use crate::validated::standard::*;
 
@@ -10,6 +8,7 @@ use super::keywords::{Dfc, Par};
 use super::optional::*;
 use super::parser::*;
 
+use derive_more::{Display, From, FromStr, Into};
 use itertools::Itertools;
 use nalgebra::DMatrix;
 use serde::Serialize;
@@ -18,21 +17,15 @@ use std::num::ParseFloatError;
 use std::str::FromStr;
 
 /// The aggregated values of the DFCiTOj keywords (2.0)
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, From, Into)]
 pub struct Compensation2_0(pub Compensation);
 
-newtype_from!(Compensation2_0, Compensation);
-newtype_from_outer!(Compensation2_0, Compensation);
 newtype_borrow!(Compensation2_0, Compensation);
 
 /// The value of the $COMP keyword (3.0)
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, From, Into, Display, FromStr)]
 pub struct Compensation3_0(pub Compensation);
 
-newtype_from!(Compensation3_0, Compensation);
-newtype_from_outer!(Compensation3_0, Compensation);
-newtype_disp!(Compensation3_0);
-newtype_fromstr!(Compensation3_0, ParseCompError);
 newtype_borrow!(Compensation3_0, Compensation);
 
 /// A compensation matrix.

@@ -1,10 +1,10 @@
-use crate::macros::newtype_from_outer;
 use crate::validated::shortname::*;
 
 use super::named_vec::NameMapping;
 use super::optional::ClearOptional;
 use super::parser::OptLinkedKey;
 
+use derive_more::Into;
 use itertools::Itertools;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -12,10 +12,8 @@ use std::fmt;
 use std::str::FromStr;
 
 /// The value for the $UNSTAINEDCENTERS key (3.2+)
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Into)]
 pub struct UnstainedCenters(HashMap<Shortname, f32>);
-
-newtype_from_outer!(UnstainedCenters, HashMap<Shortname, f32>);
 
 pub enum UnstainedCenterError {
     NonUnique,

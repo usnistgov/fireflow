@@ -1,12 +1,12 @@
 use crate::core::{AnyMetarootKeyLossError, UnitaryKeyLossError};
 use crate::error::*;
-use crate::macros::{newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
 use crate::validated::standard::*;
 
 use super::optional::*;
 use super::parser::*;
 
 use chrono::{DateTime, FixedOffset};
+use derive_more::{Display, From, FromStr, Into};
 use serde::Serialize;
 use std::fmt;
 use std::str::FromStr;
@@ -21,28 +21,15 @@ pub struct Datetimes {
     end: Option<EndDateTime>,
 }
 
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, From, Into, Display, FromStr)]
 pub struct BeginDateTime(pub FCSDateTime);
 
-newtype_from!(BeginDateTime, FCSDateTime);
-newtype_from_outer!(BeginDateTime, FCSDateTime);
-newtype_disp!(BeginDateTime);
-newtype_fromstr!(BeginDateTime, FCSDateTimeError);
-
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, From, Into, Display, FromStr)]
 pub struct EndDateTime(pub FCSDateTime);
 
-newtype_from!(EndDateTime, FCSDateTime);
-newtype_from_outer!(EndDateTime, FCSDateTime);
-newtype_disp!(EndDateTime);
-newtype_fromstr!(EndDateTime, FCSDateTimeError);
-
 /// A datetime as used in the $(BEGIN|END)DATETIME keys (3.2+ only)
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, From, Into)]
 pub struct FCSDateTime(pub DateTime<FixedOffset>);
-
-newtype_from!(FCSDateTime, DateTime<FixedOffset>);
-newtype_from_outer!(FCSDateTime, DateTime<FixedOffset>);
 
 macro_rules! get_set {
     ($fn_get_naive:ident, $fn:ident, $fn_naive:ident, $in:path, $field:ident) => {

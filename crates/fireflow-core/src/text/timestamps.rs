@@ -1,11 +1,11 @@
 use crate::error::*;
-use crate::macros::{newtype_from, newtype_from_outer};
 use crate::validated::standard::*;
 
 use super::optional::*;
 use super::parser::*;
 
 use chrono::{NaiveDate, NaiveTime, Timelike};
+use derive_more::{Display, From, FromStr, Into};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Serialize;
@@ -39,18 +39,15 @@ impl<X> Default for Timestamps<X> {
     }
 }
 
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, Display, FromStr, From)]
 pub struct Btim<T>(pub T);
 
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, Display, FromStr, From)]
 pub struct Etim<T>(pub T);
 
 /// A date as used in the $DATE key
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, From, Into)]
 pub struct FCSDate(pub NaiveDate);
-
-newtype_from!(FCSDate, NaiveDate);
-newtype_from_outer!(FCSDate, NaiveDate);
 
 macro_rules! get_set {
     ($fn_get_naive:ident, $fn:ident, $fn_naive:ident, $in:path, $in_naive:path, $field:ident) => {
@@ -249,11 +246,8 @@ impl fmt::Display for FCSDateError {
 }
 
 /// A time as used in the $BTIM/ETIM keys without seconds (2.0 only)
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd)]
+#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, From, Into)]
 pub struct FCSTime(pub NaiveTime);
-
-newtype_from!(FCSTime, NaiveTime);
-newtype_from_outer!(FCSTime, NaiveTime);
 
 impl FromStr for FCSTime {
     type Err = FCSTimeError;
@@ -280,11 +274,8 @@ impl fmt::Display for FCSTimeError {
 }
 
 /// A time as used in the $BTIM/ETIM keys with 1/60 seconds (3.0 only)
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd)]
+#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, From, Into)]
 pub struct FCSTime60(pub NaiveTime);
-
-newtype_from!(FCSTime60, NaiveTime);
-newtype_from_outer!(FCSTime60, NaiveTime);
 
 impl FromStr for FCSTime60 {
     type Err = FCSTime60Error;
@@ -326,11 +317,8 @@ impl fmt::Display for FCSTime60Error {
 }
 
 /// A time as used in the $BTIM/ETIM keys with centiseconds (3.1+ only)
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd)]
+#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, From, Into)]
 pub struct FCSTime100(pub NaiveTime);
-
-newtype_from!(FCSTime100, NaiveTime);
-newtype_from_outer!(FCSTime100, NaiveTime);
 
 impl FromStr for FCSTime100 {
     type Err = FCSTime100Error;

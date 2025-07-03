@@ -11,6 +11,7 @@
 /// standard is unclear.
 use crate::header::Version;
 use crate::segment::*;
+use crate::text::byteord::{ByteOrd, Bytes};
 use crate::validated::datepattern::DatePattern;
 use crate::validated::nonstandard::NonStdMeasPattern;
 use crate::validated::other_width::OtherWidth;
@@ -373,19 +374,34 @@ pub struct StdTextReadConfig {
     /// missing these will be taken from HEADER.
     pub allow_missing_required_offsets: bool,
 
-    // /// If given, override all $PnB keywords to a single value.
-    // ///
-    // /// Some files set $PnB to match the bitmask. For example, a 16-bit column
-    // /// may only use 10 bits, so $PnB will be 10 and $PnR will be 1024. This
-    // /// will not work since $PnB must match the width of the real data.
-    // ///
-    // /// Setting this will force all $PnB to be a given width. This is in
-    // /// bytes and NOT bits since this library does not support non-octal column
-    // /// widths and thus must be a number between 1 and 8, allowing a maximum
-    // /// numerical value of 2^64-1.
-    // ///
-    // /// This only has an effect for FCS 2.0-3.0 where $DATATYPE=I.
-    // pub integer_bytes_override: Option<Bytes>,
+    /// If given, override $PnB with the number of bytes in $BYTEORD.
+    ///
+    /// Some files set $PnB to match the bitmask. For example, a 16-bit column
+    /// may only use 10 bits, so $PnB will be 10 and $PnR will be 1024. This
+    /// will not work since $PnB must match the width of the real data.
+    ///
+    /// Setting this will force all $PnB to match $BYTEORD. Obviously this
+    /// assumed $BYTEORD is correct. If not, override this using
+    /// ['integer_byteord_override']. All $PnB will still be read regardless of
+    /// this flag, so this will not fix badly-formatted values (ie $PnB that
+    /// aren't numbers or are out of range). These will require manual
+    /// intervention.
+    ///
+    /// This only has an effect for FCS 2.0-3.0 where $DATATYPE=I.
+    pub integer_widths_from_byteord: bool,
+
+    /// If given, override the $BYTEORD keyword for 2.0-3.0 integer layouts.
+    ///
+    /// In some files the $BYTEORD does not match $PnB, all of which must be
+    /// $BYTEORD * 8. This option will override $BYTEORD from the file. $BYTEORD
+    /// will still be read, so this option will not salvage a badly-formatted
+    /// $BYTEORD value, which will need a different intervention.
+    ///
+    /// Obviously this must match the actual layout of the numbers in DATA. If
+    /// $PnB is also incorrect, use ['integer_widths_from_byteord'] to override
+    /// those values as well.
+    pub integer_byteord_override: Option<ByteOrd>,
+
     /// Corrections for DATA offsets in TEXT segment
     pub data: TEXTCorrection<DataSegmentId>,
 

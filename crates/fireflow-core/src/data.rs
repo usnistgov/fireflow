@@ -2836,35 +2836,45 @@ impl<T> AnyOrderedUintLayout<T> {
         })
     }
 
-    pub(crate) fn try_new<D>(
+    fn try_new<D>(
         cs: NonEmpty<ColumnLayoutValues<D>>,
-        o: ByteOrd,
-        notrunc: bool,
+        bo: ByteOrd,
+        conf: &StdTextReadConfig,
     ) -> DeferredResult<Self, ColumnError<BitmaskError>, NewFixedIntLayoutError> {
-        let n = o.nbytes();
+        let notrunc = conf.disallow_range_truncation;
+        let real_bo = conf.integer_byteord_override.unwrap_or(bo);
+        let n = real_bo.nbytes();
         // First, scan through the widths to make sure they are all fixed and
-        // are all the same number of bytes as ByteOrd
-        cs.iter()
-            .map(|c| Bytes::try_from(c.width))
-            .gather()
-            .mult_map_errors(SingleFixedWidthError::Bytes)
-            .and_then(|widths| {
-                NonEmpty::collect(widths.into_iter().filter(|w| *w != n).unique())
-                    .map_or(Ok(()), |ws| Err(NonEmpty::new(MultiWidthsError(ws).into())))
-            })
-            .mult_to_deferred()
-            .def_and_maybe(|_| {
-                // Second, make the layout, and force all columns to the correct
-                // type based on ByteOrd. It is necessary to check the columns
-                // first because the bitmask won't necessarily fail even if it
-                // is larger than the target type.
-                match_many_to_one!(o, ByteOrd, [O1, O2, O3, O4, O5, O6, O7, O8], o, {
-                    FixedLayout::try_new(cs, o, |c| {
-                        Ok(Bitmask::from_range(c.range.0, notrunc).errors_into())
-                    })
-                    .def_map_value(|x| x.into())
+        // are all the same number of bytes as ByteOrd. Skip this step if we
+        // are ignoring $PnB for width and simply using the length of $BYTEORD.
+        let width_res = if conf.integer_widths_from_byteord {
+            Ok(())
+        } else {
+            cs.iter()
+                .map(|c| Bytes::try_from(c.width))
+                .gather()
+                .mult_map_errors(SingleFixedWidthError::Bytes)
+                .and_then(|widths| {
+                    NonEmpty::collect(widths.into_iter().filter(|w| *w != n).unique())
+                        .map_or(Ok(()), |ws| Err(NonEmpty::new(MultiWidthsError(ws).into())))
                 })
+                .void()
+        };
+        // Second, make the layout, and force all columns to the correct type
+        // based on ByteOrd. It is necessary to check the columns first because
+        // the bitmask won't necessarily fail even if it is larger than the
+        // target type.
+        width_res.mult_to_deferred().def_and_maybe(|_| {
+            match_many_to_one!(real_bo, ByteOrd, [O1, O2, O3, O4, O5, O6, O7, O8], o, {
+                FixedLayout::try_new(cs, o, |c| {
+                    // NOTE at this point $PnB doesn't matter, so assume we
+                    // either ignored $PnB by way of $BYTEORD or checked to make
+                    // sure they match.
+                    Ok(Bitmask::from_range(c.range.0, notrunc).errors_into())
+                })
+                .def_map_value(|x| x.into())
             })
+        })
     }
 
     fn insert_nocheck(
@@ -3759,7 +3769,7 @@ impl<T> AnyOrderedLayout<T> {
                 .def_map_value(Self::Ascii)
                 .def_errors_into()
                 .def_map_warnings(|w| w.inner_into()),
-            AlphaNumType::Integer => AnyOrderedUintLayout::try_new(columns, byteord, notrunc)
+            AlphaNumType::Integer => AnyOrderedUintLayout::try_new(columns, byteord, conf)
                 .def_map_value(Self::Integer)
                 .def_map_warnings(|e| e.inner_into())
                 .def_inner_into(),

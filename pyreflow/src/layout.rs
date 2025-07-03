@@ -369,6 +369,7 @@ impl PyDataLayout3_2 {
             .collect()
     }
 
+    // TODO not DRY, but didn't feel like making the above macro more flexible
     #[getter]
     /// Return the byte order of the layout.
     ///

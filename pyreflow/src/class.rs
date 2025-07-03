@@ -4,6 +4,7 @@ use fireflow_core::core::*;
 use fireflow_core::error::*;
 use fireflow_core::header::*;
 use fireflow_core::segment::*;
+use fireflow_core::text::byteord::ByteOrd;
 use fireflow_core::text::keywords::*;
 use fireflow_core::text::named_vec::Element;
 use fireflow_core::text::optional::*;
@@ -303,6 +304,8 @@ fn py_fcs_read_raw_text(
         disallow_range_truncation=false,
         nonstandard_measurement_pattern=None,
         time_pattern=None,
+        integer_widths_from_byteord=false,
+        integer_byteord_override=vec![],
     )
 )]
 fn py_fcs_read_std_text(
@@ -350,6 +353,8 @@ fn py_fcs_read_std_text(
     disallow_range_truncation: bool,
     nonstandard_measurement_pattern: Option<String>,
     time_pattern: Option<String>,
+    integer_widths_from_byteord: bool,
+    integer_byteord_override: Vec<u8>,
 ) -> PyResult<(Bound<'_, PyAny>, PyParseData, Bound<'_, PyDict>)> {
     let header = header_config(
         version_override,
@@ -398,6 +403,8 @@ fn py_fcs_read_std_text(
         disallow_range_truncation,
         nonstandard_measurement_pattern,
         time_pattern,
+        integer_widths_from_byteord,
+        integer_byteord_override,
     )?;
 
     let out: StdTEXTOutput =
@@ -470,6 +477,8 @@ fn py_fcs_read_std_text(
         disallow_range_truncation=false,
         nonstandard_measurement_pattern=None,
         time_pattern=None,
+        integer_widths_from_byteord=false,
+        integer_byteord_override=vec![],
 
         allow_uneven_event_width=false,
         allow_tot_mismatch=false,
@@ -521,6 +530,8 @@ fn py_fcs_read_std_dataset(
     disallow_range_truncation: bool,
     nonstandard_measurement_pattern: Option<String>,
     time_pattern: Option<String>,
+    integer_widths_from_byteord: bool,
+    integer_byteord_override: Vec<u8>,
 
     allow_uneven_event_width: bool,
     allow_tot_mismatch: bool,
@@ -573,6 +584,8 @@ fn py_fcs_read_std_dataset(
         disallow_range_truncation,
         nonstandard_measurement_pattern,
         time_pattern,
+        integer_widths_from_byteord,
+        integer_byteord_override,
     )?;
 
     let conf = data_config(
@@ -700,12 +713,20 @@ fn std_config(
     disallow_range_truncation: bool,
     nonstandard_measurement_pattern: Option<String>,
     time_pattern: Option<String>,
+    integer_widths_from_byteord: bool,
+    integer_byteord_override: Vec<u8>,
 ) -> PyResult<StdTextReadConfig> {
     let sp = shortname_prefix.map(str_to_shortname_prefix).transpose()?;
     let nsmp = nonstandard_measurement_pattern
         .map(str_to_nonstd_meas_pat)
         .transpose()?;
     let tp = time_pattern.map(str_to_time_pat).transpose()?;
+    let xs = &integer_byteord_override[..];
+    let bo = if xs.is_empty() {
+        None
+    } else {
+        Some(ByteOrd::try_from(xs).map_err(|e| PyreflowException::new_err(e.to_string()))?)
+    };
 
     let out = StdTextReadConfig {
         raw,
@@ -725,6 +746,8 @@ fn std_config(
         analysis: OffsetCorrection::from(text_analysis_correction),
         disallow_range_truncation,
         nonstandard_measurement_pattern: nsmp,
+        integer_widths_from_byteord,
+        integer_byteord_override: bo,
     };
     Ok(out)
 }

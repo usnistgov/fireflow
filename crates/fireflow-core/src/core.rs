@@ -1112,12 +1112,15 @@ pub trait VersionedMetaroot: Sized {
 pub trait VersionedOptical: Sized {
     type Ver: Versioned;
 
-    fn req_suffixes_inner(&self, n: MeasIndex) -> impl Iterator<Item = (String, String, String)>;
+    fn req_suffixes_inner(
+        &self,
+        n: MeasIndex,
+    ) -> impl Iterator<Item = (MeasHeader, String, String)>;
 
     fn opt_suffixes_inner(
         &self,
         n: MeasIndex,
-    ) -> impl Iterator<Item = (String, String, Option<String>)>;
+    ) -> impl Iterator<Item = (MeasHeader, String, Option<String>)>;
 
     fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError>;
 }
@@ -1408,11 +1411,14 @@ where
         )
     }
 
-    fn req_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, String)> {
+    fn req_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (MeasHeader, String, String)> {
         self.specific.req_suffixes_inner(i)
     }
 
-    fn opt_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, Option<String>)> {
+    fn opt_keywords(
+        &self,
+        i: MeasIndex,
+    ) -> impl Iterator<Item = (MeasHeader, String, Option<String>)> {
         [
             OptIndexedKey::triple(&self.common.longname, i.into()),
             OptIndexedKey::triple(&self.filter, i.into()),
@@ -1427,7 +1433,7 @@ where
 
     // TODO move out, this is specific to the CLI interface
     // for table
-    fn table_pairs(&self) -> impl Iterator<Item = (String, Option<String>)> {
+    fn table_pairs(&self) -> impl Iterator<Item = (MeasHeader, Option<String>)> {
         // zero is a dummy and not meaningful here
         let n = 0.into();
         self.req_keywords(n)
@@ -1435,22 +1441,34 @@ where
             .chain(self.opt_keywords(n).map(|(k, _, v)| (k, v)))
     }
 
-    fn table_header(&self) -> Vec<String> {
-        ["index".into(), "$PnN".into()]
+    fn table_header(&self, opt_layout: Vec<MeasHeader>) -> Vec<String> {
+        let req_layout = req_meas_headers();
+        [MeasHeader("index".into()), Shortname::std_blank()]
             .into_iter()
+            .chain(req_layout)
             .chain(self.table_pairs().map(|(k, _)| k))
+            .chain(opt_layout)
+            .map(|x| x.0)
             .collect()
     }
 
-    fn table_row(&self, i: MeasIndex, n: Option<&Shortname>) -> Vec<String> {
+    fn table_row(
+        &self,
+        i: MeasIndex,
+        n: Option<&Shortname>,
+        req_layout: [String; 2],
+        opt_layout: Vec<Option<String>>,
+    ) -> Vec<String> {
         let na = || "NA".into();
         [i.to_string(), n.map_or(na(), |x| x.to_string())]
             .into_iter()
+            .chain(req_layout)
             .chain(
                 self.table_pairs()
                     .map(|(_, v)| v)
                     .map(|v| v.unwrap_or(na())),
             )
+            .chain(opt_layout.into_iter().map(|x| x.unwrap_or(na())))
             .collect()
     }
 
@@ -2471,7 +2489,11 @@ where
             )
             .flatten()
             .chain(ns.into_iter().flatten())
-            .chain(lv.into_iter().flat_map(|(k, _, v)| v.map(|x| (k, x))))
+            .chain(
+                lv.into_iter()
+                    .flatten()
+                    .flat_map(|(k, v)| v.map(|x| (k, x))),
+            )
     }
 
     fn req_meas_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -2492,7 +2514,7 @@ where
             )
             .flatten()
             .chain(ns.into_iter().flatten())
-            .chain(lv.into_iter().map(|(k, _, v)| (k, v)))
+            .chain(lv.into_iter().flatten())
     }
 
     fn req_root_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -2520,29 +2542,44 @@ where
             .map(|(i, n)| (Shortname::std(i.into()).to_string(), n.to_string()))
     }
 
-    // TODO add layout keywords back to this
     fn meas_table(&self, delim: &str) -> Vec<String>
     where
         M::Temporal: Clone,
-        M::Optical: OpticalFromTemporal<M::Temporal>,
+        M::Optical: OpticalFromTemporal<M::Temporal> + Clone,
     {
         let ms = &self.measurements;
         if let Some(m0) = ms.get(0.into()).ok().and_then(|x| x.non_center()) {
-            let header = m0.1.table_header();
-            let rows = self.measurements.iter().map(|(i, r)| {
-                r.both(
-                    |t| {
-                        // NOTE this will force-convert all fields in the time
-                        // measurement, which for this is actually want we want
-                        <M::Optical as OpticalFromTemporal<M::Temporal>>::from_temporal_unchecked(
-                            t.value.clone(),
-                        )
-                        .0
-                        .table_row(i, Some(&t.key))
-                    },
-                    |o| o.value.table_row(i, M::Name::as_opt(&o.key)),
-                )
-            });
+            // ASSUME if there is one measurement then this won't be None
+            let lt = self.layout.as_ref_opt().unwrap();
+            let req_layout: Vec<_> = lt
+                .req_meas_keywords()
+                .into_iter()
+                .map(|[x, y]| [x.1, y.1])
+                .collect();
+            let opt_layout: Vec<_> = lt
+                .opt_meas_keywords()
+                .into_iter()
+                .map(|xs| xs.into_iter().map(|(_, v)| v).collect::<Vec<_>>())
+                .collect();
+            let header = m0.1.table_header(lt.opt_meas_headers());
+            // TODO probably a more elegant way to do this
+            let rows = self
+                .measurements
+                .iter()
+                .map(|(i, r)| {
+                    // NOTE this will force-convert all fields in the time
+                    // measurement, which for this is actually want we want
+                    r.both(
+                        |t| {
+                            let v = M::Optical::from_temporal_unchecked(t.value.clone());
+                            (i, v.0, Some(&t.key))
+                        },
+                        |o| (i, o.value.clone(), M::Name::as_opt(&o.key)),
+                    )
+                })
+                .zip(req_layout)
+                .zip(opt_layout)
+                .map(|(((i, v, n), lr), lo)| v.table_row(i, n, lr, lo));
             [header]
                 .into_iter()
                 .chain(rows)
@@ -2557,7 +2594,7 @@ where
     pub(crate) fn print_meas_table(&self, delim: &str)
     where
         M::Temporal: Clone,
-        M::Optical: OpticalFromTemporal<M::Temporal>,
+        M::Optical: OpticalFromTemporal<M::Temporal> + Clone,
     {
         for e in self.meas_table(delim) {
             println!("{}", e);
@@ -4445,7 +4482,7 @@ impl PeakData {
     pub(crate) fn opt_keywords(
         &self,
         i: MeasIndex,
-    ) -> impl Iterator<Item = (String, String, Option<String>)> {
+    ) -> impl Iterator<Item = (MeasHeader, String, Option<String>)> {
         [
             OptIndexedKey::triple(&self.bin, i.into()),
             OptIndexedKey::triple(&self.size, i.into()),
@@ -5814,14 +5851,17 @@ impl LookupTemporal for InnerTemporal3_2 {
 
 impl VersionedOptical for InnerOptical2_0 {
     type Ver = Version2_0;
-    fn req_suffixes_inner(&self, _: MeasIndex) -> impl Iterator<Item = (String, String, String)> {
+    fn req_suffixes_inner(
+        &self,
+        _: MeasIndex,
+    ) -> impl Iterator<Item = (MeasHeader, String, String)> {
         [].into_iter()
     }
 
     fn opt_suffixes_inner(
         &self,
         i: MeasIndex,
-    ) -> impl Iterator<Item = (String, String, Option<String>)> {
+    ) -> impl Iterator<Item = (MeasHeader, String, Option<String>)> {
         [
             OptIndexedKey::triple(&self.scale, i.into()),
             OptIndexedKey::triple(&self.wavelength, i.into()),
@@ -5845,14 +5885,17 @@ impl VersionedOptical for InnerOptical2_0 {
 
 impl VersionedOptical for InnerOptical3_0 {
     type Ver = Version3_0;
-    fn req_suffixes_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, String)> {
+    fn req_suffixes_inner(
+        &self,
+        i: MeasIndex,
+    ) -> impl Iterator<Item = (MeasHeader, String, String)> {
         [self.scale.triple(i.into())].into_iter()
     }
 
     fn opt_suffixes_inner(
         &self,
         i: MeasIndex,
-    ) -> impl Iterator<Item = (String, String, Option<String>)> {
+    ) -> impl Iterator<Item = (MeasHeader, String, Option<String>)> {
         [
             OptIndexedKey::triple(&self.wavelength, i.into()),
             OptIndexedKey::triple(&self.gain, i.into()),
@@ -5878,14 +5921,17 @@ impl VersionedOptical for InnerOptical3_0 {
 
 impl VersionedOptical for InnerOptical3_1 {
     type Ver = Version3_1;
-    fn req_suffixes_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, String)> {
+    fn req_suffixes_inner(
+        &self,
+        i: MeasIndex,
+    ) -> impl Iterator<Item = (MeasHeader, String, String)> {
         [self.scale.triple(i.into())].into_iter()
     }
 
     fn opt_suffixes_inner(
         &self,
         i: MeasIndex,
-    ) -> impl Iterator<Item = (String, String, Option<String>)> {
+    ) -> impl Iterator<Item = (MeasHeader, String, Option<String>)> {
         [
             OptIndexedKey::triple(&self.wavelengths, i.into()),
             OptIndexedKey::triple(&self.gain, i.into()),
@@ -5914,14 +5960,17 @@ impl VersionedOptical for InnerOptical3_1 {
 
 impl VersionedOptical for InnerOptical3_2 {
     type Ver = Version3_2;
-    fn req_suffixes_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, String)> {
+    fn req_suffixes_inner(
+        &self,
+        i: MeasIndex,
+    ) -> impl Iterator<Item = (MeasHeader, String, String)> {
         [self.scale.triple(i.into())].into_iter()
     }
 
     fn opt_suffixes_inner(
         &self,
         i: MeasIndex,
-    ) -> impl Iterator<Item = (String, String, Option<String>)> {
+    ) -> impl Iterator<Item = (MeasHeader, String, Option<String>)> {
         [
             OptIndexedKey::triple(&self.wavelengths, i.into()),
             OptIndexedKey::triple(&self.gain, i.into()),
@@ -5976,7 +6025,7 @@ impl VersionedTemporal for InnerTemporal2_0 {
     fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
         self.peak
             .opt_keywords(i)
-            .flat_map(|(k, _, v)| v.map(|x| (k, x)))
+            .flat_map(|(_, k, v)| v.map(|x| (k, x)))
     }
 
     fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult<(), TemporalToOpticalError> {
@@ -6001,7 +6050,7 @@ impl VersionedTemporal for InnerTemporal3_0 {
     fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
         self.peak
             .opt_keywords(i)
-            .flat_map(|(k, _, v)| v.map(|x| (k, x)))
+            .flat_map(|(_, k, v)| v.map(|x| (k, x)))
     }
 
     fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult<(), TemporalToOpticalError> {
@@ -6026,7 +6075,7 @@ impl VersionedTemporal for InnerTemporal3_1 {
     fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
         self.peak
             .opt_keywords(i)
-            .map(|(k, _, v)| (k, v))
+            .map(|(_, k, v)| (k, v))
             .chain([OptIndexedKey::pair_opt(&self.display, i.into())])
             .flat_map(|(k, v)| v.map(|x| (k, x)))
     }

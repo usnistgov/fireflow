@@ -79,7 +79,7 @@ pub(crate) trait IndexedKey {
         StdKey(s)
     }
 
-    fn std_blank() -> String {
+    fn std_blank() -> MeasHeader {
         // reserve enough space for '$', prefix, suffix, and 'n'
         let n = Self::PREFIX.len() + 2 + Self::SUFFIX.len();
         let mut s = String::new();
@@ -88,7 +88,7 @@ pub(crate) trait IndexedKey {
         s.push_str(Self::PREFIX);
         s.push('n');
         s.push_str(Self::SUFFIX);
-        s
+        MeasHeader(s)
     }
 
     // /// Return true if a key matches the prefix/suffix.
@@ -107,6 +107,10 @@ pub(crate) trait IndexedKey {
     //     .is_some_and(|x| x > 0)
     // }
 }
+
+/// A string that should be used as the header in the measurement table.
+#[derive(Display)]
+pub struct MeasHeader(pub String);
 
 /// A standard key with two indices
 ///

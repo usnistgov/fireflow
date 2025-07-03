@@ -398,9 +398,11 @@ pub trait VersionedDataLayout: Sized {
 
     fn req_keywords(&self) -> [(String, String); 2];
 
-    fn req_meas_keywords(&self) -> NonEmpty<(String, String, String)>;
+    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]>;
 
-    fn opt_meas_keywords(&self) -> Vec<(String, String, Option<String>)>;
+    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>>;
+
+    fn opt_meas_headers(&self) -> Vec<MeasHeader>;
 
     fn widths(&self) -> Vec<BitsOrChars>;
 
@@ -437,10 +439,10 @@ pub trait IsFixed {
 
     fn range(&self) -> Range;
 
-    fn req_meas_keywords(&self, i: MeasIndex) -> [(String, String, String); 2] {
+    fn req_meas_keywords(&self, i: MeasIndex) -> [(String, String); 2] {
         [
-            Width::Fixed(self.fixed_width()).triple(i.into()),
-            self.range().triple(i.into()),
+            Width::Fixed(self.fixed_width()).pair(i.into()),
+            self.range().pair(i.into()),
         ]
     }
 }
@@ -2154,13 +2156,12 @@ impl<T> DelimAsciiLayout<T> {
         [AlphaNumType::Ascii.pair(), X::default().pair()]
     }
 
-    fn req_meas_keywords(&self) -> NonEmpty<(String, String, String)> {
-        let xs = self.ranges.as_ref().enumerate().map(|(i, r)| {
-            let x = Width::Variable.triple(i.into());
-            let y = Range((*r).into()).triple(i.into());
-            NonEmpty::from((x, vec![y]))
-        });
-        NonEmpty::flatten(xs)
+    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
+        self.ranges.as_ref().enumerate().map(|(i, r)| {
+            let x = Width::Variable.pair(i.into());
+            let y = Range((*r).into()).pair(i.into());
+            [x, y]
+        })
     }
 }
 
@@ -2570,15 +2571,14 @@ impl<C, S, T> FixedLayout<C, S, T> {
         [byteord.pair(), C::DATATYPE.pair()]
     }
 
-    fn req_meas_keywords(&self) -> NonEmpty<(String, String, String)>
+    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]>
     where
         C: IsFixed,
     {
-        let xs = self.columns.as_ref().enumerate().map(|(i, c)| {
-            let [x, y] = c.req_meas_keywords(i.into());
-            NonEmpty::from((x, vec![y]))
-        });
-        NonEmpty::flatten(xs)
+        self.columns
+            .as_ref()
+            .enumerate()
+            .map(|(i, c)| c.req_meas_keywords(i.into()))
     }
 }
 
@@ -2963,7 +2963,7 @@ impl<T> AnyOrderedUintLayout<T> {
         })
     }
 
-    fn req_meas_keywords(&self) -> NonEmpty<(String, String, String)> {
+    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
         match_any_uint!(self, Self, l, { l.req_meas_keywords() })
     }
 }
@@ -3123,7 +3123,7 @@ impl<T> AnyAsciiLayout<T> {
         }
     }
 
-    fn req_meas_keywords(&self) -> NonEmpty<(String, String, String)> {
+    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
         match self {
             Self::Fixed(l) => l.req_meas_keywords(),
             Self::Delimited(l) => l.req_meas_keywords(),
@@ -3214,11 +3214,15 @@ impl VersionedDataLayout for DataLayout2_0 {
         self.0.req_keywords()
     }
 
-    fn req_meas_keywords(&self) -> NonEmpty<(String, String, String)> {
+    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
         self.0.req_meas_keywords()
     }
 
-    fn opt_meas_keywords(&self) -> Vec<(String, String, Option<String>)> {
+    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
+        self.0.req_meas_keywords().map(|_| vec![])
+    }
+
+    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
         vec![]
     }
 
@@ -3314,11 +3318,15 @@ impl VersionedDataLayout for DataLayout3_0 {
         self.0.req_keywords()
     }
 
-    fn req_meas_keywords(&self) -> NonEmpty<(String, String, String)> {
+    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
         self.0.req_meas_keywords()
     }
 
-    fn opt_meas_keywords(&self) -> Vec<(String, String, Option<String>)> {
+    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
+        self.0.req_meas_keywords().map(|_| vec![])
+    }
+
+    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
         vec![]
     }
 
@@ -3436,11 +3444,15 @@ impl VersionedDataLayout for DataLayout3_1 {
         self.0.req_keywords()
     }
 
-    fn req_meas_keywords(&self) -> NonEmpty<(String, String, String)> {
+    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
         self.0.req_meas_keywords()
     }
 
-    fn opt_meas_keywords(&self) -> Vec<(String, String, Option<String>)> {
+    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
+        self.0.req_meas_keywords().map(|_| vec![])
+    }
+
+    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
         vec![]
     }
 
@@ -3617,28 +3629,40 @@ impl VersionedDataLayout for DataLayout3_2 {
         }
     }
 
-    fn req_meas_keywords(&self) -> NonEmpty<(String, String, String)> {
+    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
         match self {
             Self::NonMixed(x) => x.req_meas_keywords(),
             Self::Mixed(x) => x.req_meas_keywords(),
         }
     }
 
-    fn opt_meas_keywords(&self) -> Vec<(String, String, Option<String>)> {
+    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
         match self {
-            Self::NonMixed(_) => vec![],
+            // dirty hack to get a nonempty
+            Self::NonMixed(x) => x
+                .req_meas_keywords()
+                .enumerate()
+                .map(|(i, _)| vec![(NumType::std(i.into()).to_string(), None)]),
             Self::Mixed(x) => {
                 let dt = x.primary_datatype();
-                x.columns
-                    .iter()
-                    .map(|c| c.as_num_type())
-                    .filter(|&pdt| pdt.is_some_and(|y| AlphaNumType::from(y) != dt))
-                    .enumerate()
-                    // TODO into thing is silly
-                    .map(|(i, y)| NumType::triple(&y.into(), i.into()))
-                    .collect()
+                x.columns.as_ref().enumerate().map(|(i, c)| {
+                    c.as_num_type()
+                        .and_then(|y| {
+                            if AlphaNumType::from(y) != dt {
+                                None
+                            } else {
+                                Some(y)
+                            }
+                        })
+                        .map(|y| vec![NumType::pair_opt(&y.into(), i.into())])
+                        .unwrap_or_default()
+                })
             }
         }
+    }
+
+    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
+        vec![NumType::std_blank()]
     }
 
     fn widths(&self) -> Vec<BitsOrChars> {
@@ -3957,7 +3981,7 @@ impl<T> AnyOrderedLayout<T> {
         }
     }
 
-    fn req_meas_keywords(&self) -> NonEmpty<(String, String, String)> {
+    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
         match self {
             Self::Ascii(x) => x.req_meas_keywords(),
             Self::Integer(x) => x.req_meas_keywords(),
@@ -4161,7 +4185,7 @@ impl NonMixedEndianLayout {
         }
     }
 
-    fn req_meas_keywords(&self) -> NonEmpty<(String, String, String)> {
+    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
         match self {
             Self::Ascii(x) => x.req_meas_keywords(),
             Self::Integer(x) => x.req_meas_keywords(),
@@ -4651,4 +4675,9 @@ impl fmt::Display for ColumnNumberError {
             self.this_len, self.other_len,
         )
     }
+}
+
+// TODO this seems like it should live somewhere better
+pub(crate) fn req_meas_headers() -> [MeasHeader; 2] {
+    [Width::std_blank(), Range::std_blank()]
 }

@@ -121,7 +121,7 @@ where
             .into_deferred()
     }
 
-    fn triple(&self, i: IndexFromOne) -> (String, String, String) {
+    fn triple(&self, i: IndexFromOne) -> (MeasHeader, String, String) {
         (
             Self::std_blank(),
             Self::std(i).to_string(),
@@ -129,10 +129,10 @@ where
         )
     }
 
-    // fn pair(&self, i: IndexFromOne) -> (String, String) {
-    //     let (_, k, v) = self.triple(i);
-    //     (k, v)
-    // }
+    fn pair(&self, i: IndexFromOne) -> (String, String) {
+        let (_, k, v) = self.triple(i);
+        (k, v)
+    }
 }
 
 /// An optional metaroot key
@@ -206,7 +206,7 @@ where
         x
     }
 
-    fn triple(opt: &OptionalValue<Self>, i: IndexFromOne) -> (String, String, Option<String>) {
+    fn triple(opt: &OptionalValue<Self>, i: IndexFromOne) -> (MeasHeader, String, Option<String>) {
         (
             Self::std_blank(),
             Self::std(i).to_string(),

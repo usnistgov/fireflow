@@ -607,20 +607,19 @@ trait OrderedFromBytes<const OLEN: usize>: NumProps {
 /// Methods for reading/writing integers (1-8 bytes) from FCS files.
 trait IntFromBytes<const INTLEN: usize>: NumProps + OrderedFromBytes<INTLEN> {
     fn h_read_endian<R: Read>(h: &mut BufReader<R>, endian: Endian) -> io::Result<Self> {
-        // This will read data that is not a power-of-two bytes long. Start by
-        // reading n bytes into a vector, which can take a varying size. Then
-        // copy this into the power of 2 buffer and reset all the unused cells
-        // to 0. This copy has to go to one or the other end of the buffer
-        // depending on endianness.
+        // Read data that is not a power-of-two bytes long. Start by reading n
+        // bytes into a vector, which can take a varying size. Then copy this
+        // into the power of 2 buffer which will go to one or the other end of
+        // the buffer depending on endianness.
         let mut tmp = [0; INTLEN];
         let mut buf = Self::BUF::default();
         h.read_exact(&mut tmp)?;
         Ok(if endian == Endian::Big {
             let b = Self::LEN - INTLEN;
-            buf.as_mut()[b..].copy_from_slice(&tmp[b..]);
+            buf.as_mut()[b..].copy_from_slice(&tmp);
             Self::from_big(buf)
         } else {
-            buf.as_mut()[..INTLEN].copy_from_slice(&tmp[..INTLEN]);
+            buf.as_mut()[..INTLEN].copy_from_slice(&tmp);
             Self::from_little(buf)
         })
     }

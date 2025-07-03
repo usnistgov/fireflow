@@ -11,7 +11,7 @@
 /// standard is unclear.
 use crate::header::Version;
 use crate::segment::*;
-use crate::text::byteord::{ByteOrd, Bytes};
+use crate::text::byteord::ByteOrd;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::nonstandard::NonStdMeasPattern;
 use crate::validated::other_width::OtherWidth;

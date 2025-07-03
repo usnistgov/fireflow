@@ -2855,8 +2855,14 @@ impl<T> AnyOrderedUintLayout<T> {
                 .gather()
                 .mult_map_errors(SingleFixedWidthError::Bytes)
                 .and_then(|widths| {
-                    NonEmpty::collect(widths.into_iter().filter(|w| *w != n).unique())
-                        .map_or(Ok(()), |ws| Err(NonEmpty::new(MultiWidthsError(ws).into())))
+                    NonEmpty::collect(widths.into_iter().filter(|w| *w != n).unique()).map_or(
+                        Ok(()),
+                        |found| {
+                            Err(NonEmpty::new(
+                                WidthMismatchError { needed: n, found }.into(),
+                            ))
+                        },
+                    )
                 })
                 .void()
         };
@@ -4230,10 +4236,13 @@ pub enum IntOrderedColumnError {
 #[derive(From, Display)]
 pub enum SingleFixedWidthError {
     Bytes(WidthToBytesError),
-    Multi(MultiWidthsError),
+    Width(WidthMismatchError),
 }
 
-pub struct MultiWidthsError(pub NonEmpty<Bytes>);
+pub struct WidthMismatchError {
+    needed: Bytes,
+    found: NonEmpty<Bytes>,
+}
 
 #[derive(From, Display)]
 pub enum NewMixedTypeError {
@@ -4507,12 +4516,13 @@ impl fmt::Display for NotAsciiError {
     }
 }
 
-impl fmt::Display for MultiWidthsError {
+impl fmt::Display for WidthMismatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
-            "multiple measurement widths found when only one is needed: {}",
-            self.0.iter().join(", ")
+            "measurement width(s) do not match byte order which has {} bytes, got {}",
+            self.needed,
+            self.found.iter().join(", ")
         )
     }
 }

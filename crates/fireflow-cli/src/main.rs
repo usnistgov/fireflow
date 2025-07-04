@@ -273,7 +273,7 @@ fn main() -> Result<(), ()> {
             conf = config::RawTextReadConfig {
                 trim_value_whitespace: sargs.get_flag("trim-whitespace"),
                 allow_duplicated_stext: sargs.get_flag("allow-dup-stext"),
-                ignore_stext: sargs.get_flag("ignore-stext"),
+                ignore_supp_text: sargs.get_flag("ignore-stext"),
                 ..conf
             };
             fcs_read_raw_text(filepath, &conf)
@@ -322,7 +322,7 @@ fn main() -> Result<(), ()> {
             // get_text_delta(sargs);
             conf.raw.trim_value_whitespace = sargs.get_flag("trim-whitespace");
             conf.raw.allow_duplicated_stext = sargs.get_flag("allow-dup-stext");
-            conf.raw.ignore_stext = sargs.get_flag("ignore-stext");
+            conf.raw.ignore_supp_text = sargs.get_flag("ignore-stext");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
             fcs_read_std_text(filepath, &conf)
@@ -363,7 +363,7 @@ fn main() -> Result<(), ()> {
 
             conf.time.allow_missing = sargs.get_flag("ensure-time");
             conf.raw.allow_duplicated_stext = sargs.get_flag("allow-dup-stext");
-            conf.raw.ignore_stext = sargs.get_flag("ignore-stext");
+            conf.raw.ignore_supp_text = sargs.get_flag("ignore-stext");
             // conf.time.allow_nonlinear_scale = sargs.get_flag("ensure-time-linear");
             // conf.time.allow_nontime_keywords = sargs.get_flag("ensure-time-nogain");
             conf.allow_pseudostandard = sargs.get_flag("allow-pseudostandard");
@@ -396,7 +396,7 @@ fn main() -> Result<(), ()> {
             // get_text_delta(sargs);
             // TODO add DATA delta adjust
             conf.standard.raw.allow_duplicated_stext = sargs.get_flag("allow-dup-stext");
-            conf.standard.raw.ignore_stext = sargs.get_flag("ignore-stext");
+            conf.standard.raw.ignore_supp_text = sargs.get_flag("ignore-stext");
             conf.standard.raw.trim_value_whitespace = sargs.get_flag("trim-whitespace");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 

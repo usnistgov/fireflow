@@ -151,12 +151,17 @@ where
         default: HeaderSegment<Self>,
         allow_mismatch: bool,
         allow_missing: bool,
+        force_default: bool,
     ) -> ReqSegResult<Self>
     where
         Self: Copy,
     {
-        let res = Self::get(kws, corr).def_map_errors(ReqSegmentWithDefaultError::Req);
-        Self::default_or(res, default, allow_missing, allow_mismatch)
+        if force_default {
+            Ok(Tentative::new1(default.into_any()))
+        } else {
+            let res = Self::get(kws, corr).def_map_errors(ReqSegmentWithDefaultError::Req);
+            Self::default_or(res, default, allow_missing, allow_mismatch)
+        }
     }
 
     fn get<W>(
@@ -183,12 +188,21 @@ where
         default: HeaderSegment<Self>,
         allow_mismatch: bool,
         allow_missing: bool,
+        force_default: bool,
     ) -> ReqSegResult<Self>
     where
         Self: Copy,
     {
-        let res = Self::remove(kws, corr).def_map_errors(ReqSegmentWithDefaultError::Req);
-        Self::default_or(res, default, allow_missing, allow_mismatch)
+        // if we want to totally ignore the TEXT offsets, just blindly remove
+        // them so we don't trigger any pseudostandard false positives later and
+        // return the default segment
+        if force_default {
+            let _ = Self::remove_pair(kws);
+            Ok(Tentative::new1(default.into_any()))
+        } else {
+            let res = Self::remove(kws, corr).def_map_errors(ReqSegmentWithDefaultError::Req);
+            Self::default_or(res, default, allow_missing, allow_mismatch)
+        }
     }
 
     fn remove<W>(
@@ -275,14 +289,19 @@ where
         corr: TEXTCorrection<Self>,
         default: HeaderSegment<Self>,
         allow_mismatch: bool,
+        force_default: bool,
     ) -> OptSegTentative<Self>
     where
         Self: Copy,
         Self::B: OptMetarootKey,
         Self::E: OptMetarootKey,
     {
-        let res = Self::get(kws, corr).map_warnings(OptSegmentWithDefaultWarning::Opt);
-        Self::default_or(res, default, allow_mismatch)
+        if force_default {
+            Tentative::new1(default.into_any())
+        } else {
+            let res = Self::get(kws, corr).map_warnings(OptSegmentWithDefaultWarning::Opt);
+            Self::default_or(res, default, allow_mismatch)
+        }
     }
 
     fn get<E>(
@@ -306,12 +325,18 @@ where
         corr: TEXTCorrection<Self>,
         default: HeaderSegment<Self>,
         enforce: bool,
+        force_default: bool,
     ) -> OptSegTentative<Self>
     where
         Self: Copy,
     {
-        let res = Self::remove(kws, corr).map_warnings(OptSegmentWithDefaultWarning::Opt);
-        Self::default_or(res, default, enforce)
+        if force_default {
+            let _ = Self::remove_pair(kws);
+            Tentative::new1(default.into_any())
+        } else {
+            let res = Self::remove(kws, corr).map_warnings(OptSegmentWithDefaultWarning::Opt);
+            Self::default_or(res, default, enforce)
+        }
     }
 
     fn remove<E>(

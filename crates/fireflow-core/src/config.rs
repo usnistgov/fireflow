@@ -182,7 +182,21 @@ pub struct RawTextReadConfig {
     ///
     /// This may be useful if STEXT is duplicated (or partly overlaps) with
     /// primary TEXT.
-    pub ignore_stext: bool,
+    pub ignore_supp_text: bool,
+
+    /// If true, ignore DATA offsets in TEXT.
+    ///
+    /// This may be useful if DATA offsets are different from those in HEADER,
+    /// either inherently or after a correction. This obviously assumes the
+    /// offsets in HEADER are correct.
+    pub ignore_text_data_offsets: bool,
+
+    /// If true, ignore ANALYSIS offsets in TEXT.
+    ///
+    /// This may be useful if ANALYSIS offsets are different from those in
+    /// HEADER, either inherently or after a correction. This obviously assumes
+    /// the offsets in HEADER are correct.
+    pub ignore_text_analysis_offsets: bool,
 
     /// If true, treat every delimiter as literal.
     ///

@@ -6191,15 +6191,22 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         let allow_mismatch = conf.allow_header_text_offset_mismatch;
         let allow_missing = conf.allow_missing_required_offsets;
         let tot_res = Tot::remove_metaroot_req(kws).into_deferred();
-        let data_res =
-            KeyedReqSegment::remove_or(kws, conf.data, data_seg, allow_mismatch, allow_missing)
-                .def_inner_into();
+        let data_res = KeyedReqSegment::remove_or(
+            kws,
+            conf.data,
+            data_seg,
+            allow_mismatch,
+            allow_missing,
+            conf.raw.ignore_text_data_offsets,
+        )
+        .def_inner_into();
         let analysis_res = KeyedReqSegment::remove_or(
             kws,
             conf.analysis,
             analysis_seg,
             allow_mismatch,
             allow_missing,
+            conf.raw.ignore_text_analysis_offsets,
         )
         .def_inner_into();
         tot_res
@@ -6223,15 +6230,22 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         let allow_mismatch = conf.allow_header_text_offset_mismatch;
         let allow_missing = conf.allow_missing_required_offsets;
         let tot_res = Tot::get_metaroot_req(kws).into_deferred();
-        let data_res =
-            KeyedReqSegment::get_or(kws, conf.data, data_seg, allow_mismatch, allow_missing)
-                .def_inner_into();
+        let data_res = KeyedReqSegment::get_or(
+            kws,
+            conf.data,
+            data_seg,
+            allow_mismatch,
+            allow_missing,
+            conf.raw.ignore_text_data_offsets,
+        )
+        .def_inner_into();
         let analysis_res = KeyedReqSegment::get_or(
             kws,
             conf.analysis,
             analysis_seg,
             allow_mismatch,
             allow_missing,
+            conf.raw.ignore_text_analysis_offsets,
         )
         .def_inner_into();
         tot_res
@@ -6280,23 +6294,35 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         let allow_mismatch = conf.allow_header_text_offset_mismatch;
         let allow_missing = conf.allow_missing_required_offsets;
         let tot_res = Tot::remove_metaroot_req(kws).into_deferred();
-        let data_res =
-            KeyedReqSegment::remove_or(kws, conf.data, data_seg, allow_mismatch, allow_missing)
-                .def_inner_into();
+        let data_res = KeyedReqSegment::remove_or(
+            kws,
+            conf.data,
+            data_seg,
+            allow_mismatch,
+            allow_missing,
+            conf.raw.ignore_text_data_offsets,
+        )
+        .def_inner_into();
         tot_res
             .def_zip(data_res)
             .def_and_tentatively(|(tot, data)| {
                 {
-                    KeyedOptSegment::remove_or(kws, conf.analysis, analysis_seg, allow_mismatch)
-                        .inner_into()
-                        .map(|analysis| {
-                            TEXTOffsets {
-                                data,
-                                analysis,
-                                tot,
-                            }
-                            .into()
-                        })
+                    KeyedOptSegment::remove_or(
+                        kws,
+                        conf.analysis,
+                        analysis_seg,
+                        allow_mismatch,
+                        conf.raw.ignore_text_analysis_offsets,
+                    )
+                    .inner_into()
+                    .map(|analysis| {
+                        TEXTOffsets {
+                            data,
+                            analysis,
+                            tot,
+                        }
+                        .into()
+                    })
                 }
             })
     }
@@ -6310,22 +6336,34 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         let allow_mismatch = conf.allow_header_text_offset_mismatch;
         let allow_missing = conf.allow_missing_required_offsets;
         let tot_res = Tot::get_metaroot_req(kws).into_deferred();
-        let data_res =
-            KeyedReqSegment::get_or(kws, conf.data, data_seg, allow_mismatch, allow_missing)
-                .def_inner_into();
+        let data_res = KeyedReqSegment::get_or(
+            kws,
+            conf.data,
+            data_seg,
+            allow_mismatch,
+            allow_missing,
+            conf.raw.ignore_text_data_offsets,
+        )
+        .def_inner_into();
         tot_res
             .def_zip(data_res)
             .def_and_tentatively(|(tot, data)| {
-                KeyedOptSegment::get_or(kws, conf.analysis, analysis_seg, allow_mismatch)
-                    .inner_into()
-                    .map(|analysis| {
-                        TEXTOffsets {
-                            data,
-                            analysis,
-                            tot,
-                        }
-                        .into()
-                    })
+                KeyedOptSegment::get_or(
+                    kws,
+                    conf.analysis,
+                    analysis_seg,
+                    allow_mismatch,
+                    conf.raw.ignore_text_analysis_offsets,
+                )
+                .inner_into()
+                .map(|analysis| {
+                    TEXTOffsets {
+                        data,
+                        analysis,
+                        tot,
+                    }
+                    .into()
+                })
             })
     }
 

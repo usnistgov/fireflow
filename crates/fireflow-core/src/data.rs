@@ -2858,7 +2858,11 @@ impl<T> AnyOrderedUintLayout<T> {
                         Ok(()),
                         |found| {
                             Err(NonEmpty::new(
-                                WidthMismatchError { needed: n, found }.into(),
+                                WidthMismatchError {
+                                    byteord: real_bo,
+                                    found,
+                                }
+                                .into(),
                             ))
                         },
                     )
@@ -4239,7 +4243,7 @@ pub enum SingleFixedWidthError {
 }
 
 pub struct WidthMismatchError {
-    needed: Bytes,
+    byteord: ByteOrd,
     found: NonEmpty<Bytes>,
 }
 
@@ -4519,8 +4523,8 @@ impl fmt::Display for WidthMismatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
-            "measurement width(s) do not match byte order which has {} bytes, got {}",
-            self.needed,
+            "measurement width(s) do not match byte order which was {}, got {}",
+            self.byteord,
             self.found.iter().join(", ")
         )
     }

@@ -165,7 +165,7 @@ pub struct RawTextReadConfig {
     pub header: HeaderConfig,
 
     /// Corrections for supplemental TEXT segment
-    pub stext_correction: TEXTCorrection<SupplementalTextSegmentId>,
+    pub supp_text_correction: TEXTCorrection<SupplementalTextSegmentId>,
 
     /// If true, allow STEXT to exactly match the HEADER offsets for TEXT.
     ///

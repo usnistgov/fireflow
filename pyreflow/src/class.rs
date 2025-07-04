@@ -677,7 +677,7 @@ fn raw_config(
 ) -> PyResult<RawTextReadConfig> {
     let out = RawTextReadConfig {
         header,
-        stext_correction: OffsetCorrection::from(supp_text_correction),
+        supp_text_correction: OffsetCorrection::from(supp_text_correction),
         use_literal_delims,
         ignore_stext,
         allow_duplicated_stext,

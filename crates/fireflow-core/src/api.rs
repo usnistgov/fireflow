@@ -1026,12 +1026,12 @@ fn lookup_stext_offsets(
 ) -> Tentative<Option<SupplementalTextSegment>, STextSegmentWarning, STextSegmentError> {
     match version {
         Version::FCS2_0 => Tentative::new1(None),
-        Version::FCS3_0 | Version::FCS3_1 => KeyedReqSegment::get_mult(kws, conf.stext_correction)
+        Version::FCS3_0 | Version::FCS3_1 => KeyedReqSegment::get_mult(kws, conf.supp_text_correction)
             .map_or_else(
                 |es| Tentative::new_either(None, es.into(), conf.allow_missing_stext),
                 |t| Tentative::new1(Some(t)),
             ),
-        Version::FCS3_2 => KeyedOptSegment::get(kws, conf.stext_correction).warnings_into(),
+        Version::FCS3_2 => KeyedOptSegment::get(kws, conf.supp_text_correction).warnings_into(),
     }
     .and_tentatively(|x| {
         x.map(|seg| {

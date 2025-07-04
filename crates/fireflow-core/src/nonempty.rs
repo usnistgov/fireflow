@@ -2,6 +2,7 @@ use crate::error::{ErrorIter, MultiResult};
 use crate::text::index::{IndexError, IndexFromOne};
 use crate::text::optional::{ClearOptional, ClearOptionalOr};
 
+use itertools::Itertools;
 use nonempty::NonEmpty;
 
 pub(crate) trait NonEmptyExt {
@@ -12,6 +13,10 @@ pub(crate) trait NonEmptyExt {
     fn map_results<F, E, Y>(self, f: F) -> MultiResult<NonEmpty<Y>, E>
     where
         F: Fn(Self::X) -> Result<Y, E>;
+
+    fn unique(self) -> Self
+    where
+        Self::X: Clone + std::hash::Hash + Eq;
 
     fn remove(&mut self, index: IndexFromOne) -> Result<(), ClearOptionalOr<IndexError>>;
 
@@ -33,6 +38,13 @@ impl<X> NonEmptyExt for NonEmpty<X> {
             .into_iter()
             .gather()
             .map(|ys| NonEmpty::from_vec(ys).unwrap())
+    }
+
+    fn unique(self) -> Self
+    where
+        Self::X: Clone + std::hash::Hash + Eq,
+    {
+        NonEmpty::collect(self.into_iter().unique()).unwrap()
     }
 
     fn remove(&mut self, index: IndexFromOne) -> Result<(), ClearOptionalOr<IndexError>> {

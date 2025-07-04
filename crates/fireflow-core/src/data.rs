@@ -2849,23 +2849,23 @@ impl<T> AnyOrderedUintLayout<T> {
         let width_res = if conf.integer_widths_from_byteord {
             Ok(())
         } else {
-            cs.iter()
-                .map(|c| Bytes::try_from(c.width))
-                .gather()
+            cs.as_ref()
+                .map(|c| c.width)
+                .map_results(Bytes::try_from)
                 .mult_map_errors(SingleFixedWidthError::Bytes)
                 .and_then(|widths| {
-                    NonEmpty::collect(widths.into_iter().filter(|w| *w != n).unique()).map_or(
-                        Ok(()),
-                        |found| {
-                            Err(NonEmpty::new(
-                                WidthMismatchError {
-                                    byteord: real_bo,
-                                    found,
-                                }
-                                .into(),
-                            ))
-                        },
-                    )
+                    let us = widths.unique();
+                    if us.tail.is_empty() && us.head == n {
+                        Ok(())
+                    } else {
+                        Err(NonEmpty::new(
+                            WidthMismatchError {
+                                byteord: real_bo,
+                                found: us,
+                            }
+                            .into(),
+                        ))
+                    }
                 })
                 .void()
         };
@@ -4521,12 +4521,20 @@ impl fmt::Display for NotAsciiError {
 
 impl fmt::Display for WidthMismatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "measurement width(s) do not match byte order which was [{}], widths were {}",
-            self.byteord,
-            self.found.iter().join(", ")
-        )
+        if self.found.tail.is_empty() {
+            write!(
+                f,
+                "measurement width ({}) does not match byte order ({})",
+                self.found.head, self.byteord,
+            )
+        } else {
+            write!(
+                f,
+                "multiple measurement widths given ({}) for byte order [{}]",
+                self.found.iter().join(", "),
+                self.byteord,
+            )
+        }
     }
 }
 

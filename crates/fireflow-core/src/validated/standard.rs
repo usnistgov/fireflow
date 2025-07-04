@@ -186,7 +186,7 @@ impl ParsedKeywords {
         let n = k.len();
         match str::from_utf8(v) {
             Ok(vv) => {
-                // Trim whitespace from value if desired. Warn (or half) if this
+                // Trim whitespace from value if desired. Warn (or halt) if this
                 // results in a blank.
                 let value = if conf.trim_value_whitespace {
                     let trimmed = vv.trim();
@@ -221,7 +221,8 @@ impl ParsedKeywords {
                     // Non-standard key: does not start with '$' but is still
                     // ASCII
                     let kk = NonStdKey::into_unchecked(unsafe {
-                        String::from_utf8_unchecked(k.to_vec())
+                        let s = k.iter().copied().map(ascii_to_upper).collect();
+                        String::from_utf8_unchecked(s)
                     });
                     match self.nonstd.entry(kk) {
                         Entry::Occupied(e) => {

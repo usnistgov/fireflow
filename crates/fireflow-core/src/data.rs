@@ -4523,7 +4523,7 @@ impl fmt::Display for WidthMismatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
-            "measurement width(s) do not match byte order which was {}, got {}",
+            "measurement width(s) do not match byte order which was [{}], widths were {}",
             self.byteord,
             self.found.iter().join(", ")
         )

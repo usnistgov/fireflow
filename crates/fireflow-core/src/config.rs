@@ -13,7 +13,7 @@ use crate::header::Version;
 use crate::segment::*;
 use crate::text::byteord::ByteOrd;
 use crate::validated::datepattern::DatePattern;
-use crate::validated::keys::{KeyString, NonStdKeyPatterns, NonStdMeasPattern, StdKeyPatterns};
+use crate::validated::keys;
 use crate::validated::other_width::OtherWidth;
 use crate::validated::shortname::*;
 use crate::validated::textdelim::TEXTDelim;
@@ -328,7 +328,7 @@ pub struct RawTextReadConfig {
     ///
     /// This will be applied before ['rename_standard_keys'],
     /// ['promote_to_standard'], and ['demote_from_standard'].
-    pub ignore_standard_keys: StdKeyPatterns,
+    pub ignore_standard_keys: keys::StdKeyPatterns,
 
     /// Rename standard keys in TEXT.
     ///
@@ -339,14 +339,14 @@ pub struct RawTextReadConfig {
     /// Keys are renamed before ['promote_to_standard'] and
     /// ['demote_from_standard'] are applied.
     // TODO ensure src and dest are different
-    pub rename_standard_keys: HashMap<KeyString, KeyString>,
+    pub rename_standard_keys: HashMap<keys::KeyString, keys::KeyString>,
 
     /// A list of nonstandard keywords to be "promoted" to standard.
     ///
     /// All matching keywords will be prefixed with a "$" and added to the pool
     /// of standard keywords to be processed downstream when deriving data
     /// layouts, measurement metadata, etc. Matching will be case-insensitive.
-    pub promote_to_standard: NonStdKeyPatterns,
+    pub promote_to_standard: keys::NonStdKeyPatterns,
 
     /// A list of standard keywords to be "demoted" to non-standard.
     ///
@@ -360,13 +360,23 @@ pub struct RawTextReadConfig {
     ///
     /// Useful for surgically correcting "pseudostandard" keywords without
     /// using ['allow_pseudostandard'], which is a crude sledgehammer.
-    pub demote_from_standard: StdKeyPatterns,
+    pub demote_from_standard: keys::StdKeyPatterns,
 
     /// Replace values of standard keys.
     ///
     /// Keys will be matched in case-insensitive manner. The leading "$" is
     /// implied, so keys in this table should not include it.
-    pub replace_standard_key_values: HashMap<KeyString, String>,
+    pub replace_standard_key_values: HashMap<keys::KeyString, String>,
+
+    /// Append standard key/value pairs to those read from TEXT.
+    ///
+    /// This will be applied at the very end of TEXT processing, so no other
+    /// key/value transformations will apply to it; they will be appended
+    /// literally as-is.
+    ///
+    /// This will raise a warning or error if any keys are already present,
+    /// and existing value will not be overwritten in such cases.
+    pub append_standard_keywords: HashMap<keys::StdKey, String>,
 }
 
 /// Instructions for validating time-related properties.
@@ -511,8 +521,7 @@ pub struct StdTextReadConfig {
     /// This will matching something like 'P7FOO' which would be 'FOO' for
     /// measurement 7. These may be used when converting between different
     /// FCS versions.
-    pub nonstandard_measurement_pattern: Option<NonStdMeasPattern>,
-    // TODO add repair stuff
+    pub nonstandard_measurement_pattern: Option<keys::NonStdMeasPattern>,
 }
 
 /// Configuration options for both reading and writing

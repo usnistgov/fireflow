@@ -181,10 +181,11 @@ fn py_fcs_read_header(
         promote_patterns_to_standard=vec![],
         demote_keys_from_standard=vec![],
         demote_patterns_from_standard=vec![],
-        ignore_literal_keys=vec![],
-        ignore_pattern_keys=vec![],
-        rename_keys=vec![],
-        replace_key_values=vec![],
+        ignore_literal_standard_keys=vec![],
+        ignore_pattern_standard_keys=vec![],
+        rename_standard_keys=vec![],
+        replace_standard_key_values=vec![],
+        append_standard_keywords=vec![],
     )
 )]
 fn py_fcs_read_raw_text(
@@ -226,10 +227,11 @@ fn py_fcs_read_raw_text(
     promote_patterns_to_standard: Vec<String>,
     demote_keys_from_standard: Vec<String>,
     demote_patterns_from_standard: Vec<String>,
-    ignore_literal_keys: Vec<String>,
-    ignore_pattern_keys: Vec<String>,
-    rename_keys: Vec<(String, String)>,
-    replace_key_values: Vec<(String, String)>,
+    ignore_literal_standard_keys: Vec<String>,
+    ignore_pattern_standard_keys: Vec<String>,
+    rename_standard_keys: Vec<(String, String)>,
+    replace_standard_key_values: Vec<(String, String)>,
+    append_standard_keywords: Vec<(String, String)>,
 ) -> PyResult<(PyVersion, Bound<'_, PyDict>, Bound<'_, PyDict>, PyParseData)> {
     let header = header_config(
         version_override,
@@ -269,10 +271,11 @@ fn py_fcs_read_raw_text(
         promote_patterns_to_standard,
         demote_keys_from_standard,
         demote_patterns_from_standard,
-        ignore_literal_keys,
-        ignore_pattern_keys,
-        rename_keys,
-        replace_key_values,
+        ignore_literal_standard_keys,
+        ignore_pattern_standard_keys,
+        rename_standard_keys,
+        replace_standard_key_values,
+        append_standard_keywords,
     )?;
 
     let raw: RawTEXTOutput =
@@ -333,10 +336,11 @@ fn py_fcs_read_raw_text(
         promote_patterns_to_standard=vec![],
         demote_keys_from_standard=vec![],
         demote_patterns_from_standard=vec![],
-        ignore_literal_keys=vec![],
-        ignore_pattern_keys=vec![],
-        rename_keys=vec![],
-        replace_key_values=vec![],
+        ignore_literal_standard_keys=vec![],
+        ignore_pattern_standard_keys=vec![],
+        rename_standard_keys=vec![],
+        replace_standard_key_values=vec![],
+        append_standard_keywords=vec![],
 
         disallow_deprecated=false,
         time_ensure=false,
@@ -393,10 +397,11 @@ fn py_fcs_read_std_text(
     promote_patterns_to_standard: Vec<String>,
     demote_keys_from_standard: Vec<String>,
     demote_patterns_from_standard: Vec<String>,
-    ignore_literal_keys: Vec<String>,
-    ignore_pattern_keys: Vec<String>,
-    rename_keys: Vec<(String, String)>,
-    replace_key_values: Vec<(String, String)>,
+    ignore_literal_standard_keys: Vec<String>,
+    ignore_pattern_standard_keys: Vec<String>,
+    rename_standard_keys: Vec<(String, String)>,
+    replace_standard_key_values: Vec<(String, String)>,
+    append_standard_keywords: Vec<(String, String)>,
 
     disallow_deprecated: bool,
     time_ensure: bool,
@@ -451,10 +456,11 @@ fn py_fcs_read_std_text(
         promote_patterns_to_standard,
         demote_keys_from_standard,
         demote_patterns_from_standard,
-        ignore_literal_keys,
-        ignore_pattern_keys,
-        rename_keys,
-        replace_key_values,
+        ignore_literal_standard_keys,
+        ignore_pattern_standard_keys,
+        rename_standard_keys,
+        replace_standard_key_values,
+        append_standard_keywords,
     )?;
 
     let conf = std_config(
@@ -539,10 +545,11 @@ fn py_fcs_read_std_text(
         promote_patterns_to_standard=vec![],
         demote_keys_from_standard=vec![],
         demote_patterns_from_standard=vec![],
-        ignore_literal_keys=vec![],
-        ignore_pattern_keys=vec![],
-        rename_keys=vec![],
-        replace_key_values=vec![],
+        ignore_literal_standard_keys=vec![],
+        ignore_pattern_standard_keys=vec![],
+        rename_standard_keys=vec![],
+        replace_standard_key_values=vec![],
+        append_standard_keywords=vec![],
 
         disallow_deprecated=false,
         time_ensure=false,
@@ -603,10 +610,11 @@ fn py_fcs_read_std_dataset(
     promote_patterns_to_standard: Vec<String>,
     demote_keys_from_standard: Vec<String>,
     demote_patterns_from_standard: Vec<String>,
-    ignore_literal_keys: Vec<String>,
-    ignore_pattern_keys: Vec<String>,
-    rename_keys: Vec<(String, String)>,
-    replace_key_values: Vec<(String, String)>,
+    ignore_literal_standard_keys: Vec<String>,
+    ignore_pattern_standard_keys: Vec<String>,
+    rename_standard_keys: Vec<(String, String)>,
+    replace_standard_key_values: Vec<(String, String)>,
+    append_standard_keywords: Vec<(String, String)>,
 
     disallow_deprecated: bool,
     time_ensure: bool,
@@ -665,10 +673,11 @@ fn py_fcs_read_std_dataset(
         promote_patterns_to_standard,
         demote_keys_from_standard,
         demote_patterns_from_standard,
-        ignore_literal_keys,
-        ignore_pattern_keys,
-        rename_keys,
-        replace_key_values,
+        ignore_literal_standard_keys,
+        ignore_pattern_standard_keys,
+        rename_standard_keys,
+        replace_standard_key_values,
+        append_standard_keywords,
     )?;
 
     let standard = std_config(
@@ -783,16 +792,17 @@ fn raw_config(
     promote_patterns_to_standard: Vec<String>,
     demote_keys_from_standard: Vec<String>,
     demote_patterns_from_standard: Vec<String>,
-    ignore_literal_keys: Vec<String>,
-    ignore_pattern_keys: Vec<String>,
-    rename_keys: Vec<(String, String)>,
-    replace_key_values: Vec<(String, String)>,
+    ignore_literal_standard_keys: Vec<String>,
+    ignore_pattern_standard_keys: Vec<String>,
+    rename_standard_keys: Vec<(String, String)>,
+    replace_standard_key_values: Vec<(String, String)>,
+    append_standard_keywords: Vec<(String, String)>,
 ) -> PyResult<RawTextReadConfig> {
     let pss = strs_to_key_patterns(promote_keys_to_standard, promote_patterns_to_standard)?;
     let dss = strs_to_key_patterns(demote_keys_from_standard, demote_patterns_from_standard)?;
-    let iss = strs_to_key_patterns(ignore_literal_keys, ignore_pattern_keys)?;
+    let iss = strs_to_key_patterns(ignore_literal_standard_keys, ignore_pattern_standard_keys)?;
 
-    let rss = rename_keys
+    let rss = rename_standard_keys
         .into_iter()
         .map(|(x, y)| {
             x.parse::<KeyString>()
@@ -801,9 +811,15 @@ fn raw_config(
         .collect::<Result<HashMap<_, _>, _>>()
         .map_err(|e| PyreflowException::new_err(e.to_string()))?;
 
-    let rvs = replace_key_values
+    let rvs = replace_standard_key_values
         .into_iter()
         .map(|(k, v)| k.parse::<KeyString>().map(|x| (x, v)))
+        .collect::<Result<HashMap<_, _>, _>>()
+        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+
+    let ass = append_standard_keywords
+        .into_iter()
+        .map(|(k, v)| k.parse::<StdKey>().map(|x| (x, v)))
         .collect::<Result<HashMap<_, _>, _>>()
         .map_err(|e| PyreflowException::new_err(e.to_string()))?;
 
@@ -833,6 +849,7 @@ fn raw_config(
         ignore_standard_keys: iss,
         rename_standard_keys: rss,
         replace_standard_key_values: rvs,
+        append_standard_keywords: ass,
     };
     Ok(out)
 }

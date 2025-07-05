@@ -458,7 +458,7 @@ pub enum ParseKeywordsIssue {
     BlankValue(BlankValueError),
     Uneven(UnevenWordsError),
     Final(FinalDelimError),
-    Unique(KeywordInsertError),
+    Insert(KeywordInsertError),
     Bound(DelimBoundError),
     // this is only for supp TEXT but seems less wasteful/convoluted to put here
     Mismatch(DelimMismatch),
@@ -637,7 +637,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
     h: &mut BufReader<R>,
     header: Header,
     st: &ReadState<RawTextReadConfig>,
-) -> DeferredResult<RawTEXTOutput, ParseRawTEXTWarning, ImpureError<ParseRawTEXTError>> {
+) -> IODeferredResult<RawTEXTOutput, ParseRawTEXTWarning, ParseRawTEXTError> {
     let conf = &st.conf;
     let mut buf = vec![];
     let ptext_seg = header.segments.text;
@@ -650,46 +650,64 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
         .def_inner_into()
         .def_errors_liftio()?;
 
-    let tnt_primary = tnt_delim.and_maybe(|(delim, bytes)| {
-        let kws = ParsedKeywords::default();
-        split_raw_primary_text(kws, delim, bytes, conf)
-            .def_inner_into()
-            .def_errors_liftio()
-            .def_map_value(|_kws| (delim, _kws))
-    })?;
+    let kws_res = tnt_delim
+        .and_maybe(|(delim, bytes)| {
+            let kws = ParsedKeywords::default();
+            split_raw_primary_text(kws, delim, bytes, conf)
+                .def_inner_into()
+                .def_errors_liftio()
+                .def_map_value(|_kws| (delim, _kws))
+        })
+        .def_and_maybe(|(delim, mut kws)| {
+            if conf.ignore_supp_text {
+                // NOTE rip out the STEXT keywords so they don't trigger a false
+                // positive pseudostandard keyword error later
+                let _ = kws.std.remove(&Beginstext::std());
+                let _ = kws.std.remove(&Endstext::std());
+                Ok(Tentative::new1((delim, kws, None)))
+            } else {
+                lookup_stext_offsets(&mut kws.std, header.version, ptext_seg, st)
+                    .errors_into()
+                    .errors_liftio()
+                    .warnings_into()
+                    .map(|s| (s, kws))
+                    .and_maybe(|(maybe_supp_seg, _kws)| {
+                        let tnt_supp_kws = if let Some(seg) = maybe_supp_seg {
+                            buf.clear();
+                            seg.inner
+                                .h_read_contents(h, &mut buf)
+                                .map_err(|e| DeferredFailure::new1(e.into()))?;
+                            split_raw_supp_text(_kws, delim, &buf, conf)
+                                .inner_into()
+                                .errors_liftio()
+                        } else {
+                            Tentative::new1(_kws)
+                        };
+                        Ok(tnt_supp_kws.map(|k| (delim, k, maybe_supp_seg)))
+                    })
+            }
+        });
 
-    let tnt_all_kws = tnt_primary.and_maybe(|(delim, mut kws)| {
-        if conf.ignore_supp_text {
-            // NOTE rip out the STEXT keywords so they don't trigger a false
-            // positive pseudostandard keyword error later
-            let _ = kws.std.remove(&Beginstext::std());
-            let _ = kws.std.remove(&Endstext::std());
-            Ok(Tentative::new1((delim, kws, None)))
-        } else {
-            lookup_stext_offsets(&mut kws.std, header.version, ptext_seg, st)
-                .errors_into()
-                .errors_liftio()
-                .warnings_into()
-                .map(|s| (s, kws))
-                .and_maybe(|(maybe_supp_seg, _kws)| {
-                    let tnt_supp_kws = if let Some(seg) = maybe_supp_seg {
-                        buf.clear();
-                        seg.inner
-                            .h_read_contents(h, &mut buf)
-                            .map_err(|e| DeferredFailure::new1(e.into()))?;
-                        split_raw_supp_text(_kws, delim, &buf, conf)
-                            .inner_into()
-                            .errors_liftio()
-                    } else {
-                        Tentative::new1(_kws)
-                    };
-                    Ok(tnt_supp_kws.map(|k| (delim, k, maybe_supp_seg)))
-                })
-        }
-    })?;
-
-    let out = tnt_all_kws.and_tentatively(|(delimiter, mut kws, supp_text_seg)| {
+    let repair_res = kws_res.def_and_tentatively(|(delim, mut kws, supp_text_seg)| {
         repair_keywords(&mut kws.std, conf);
+        append_keywords(&mut kws.std, conf)
+            .map_or_else(
+                |es| {
+                    Leveled::many_to_tentative(es.into())
+                        .map_errors(KeywordInsertError::from)
+                        .map_errors(ParseKeywordsIssue::from)
+                        .map_errors(ParsePrimaryTEXTError::from)
+                        .map_warnings(KeywordInsertError::from)
+                        .map_warnings(ParseKeywordsIssue::from)
+                        .inner_into()
+                        .errors_liftio()
+                },
+                |_| Tentative::default(),
+            )
+            .map(|_| (delim, kws, supp_text_seg))
+    });
+
+    repair_res.def_and_tentatively(|(delimiter, kws, supp_text_seg)| {
         let mut tnt_parse = lookup_nextdata(&kws.std, conf.allow_missing_nextdata)
             .errors_into()
             .map(|nextdata| RawTEXTParseData {
@@ -758,9 +776,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
                 },
             })
             .errors_liftio()
-    });
-
-    Ok(out)
+    })
 }
 
 fn split_first_delim<'a>(
@@ -1033,6 +1049,25 @@ fn repair_keywords(kws: &mut StdKeywords, conf: &RawTextReadConfig) {
             }
         }
     }
+}
+
+fn append_keywords(
+    kws: &mut StdKeywords,
+    conf: &RawTextReadConfig,
+) -> MultiResult<(), Leveled<StdPresent>> {
+    conf.append_standard_keywords
+        .iter()
+        .map(|(k, v)| {
+            if let Some(value) = kws.insert(k.clone(), v.clone()) {
+                let key = k.clone();
+                let w = KeyPresent { key, value };
+                Err(Leveled::new(w, !conf.allow_nonunique))
+            } else {
+                Ok(())
+            }
+        })
+        .gather()
+        .void()
 }
 
 fn lookup_stext_offsets(

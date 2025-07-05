@@ -14,6 +14,7 @@
 //! to the user at the API boundary. The only way to get the value out of
 //! such a result is to run a function to process the errors/warnings.
 
+use itertools::Itertools;
 use nonempty::NonEmpty;
 use std::fmt;
 use std::io;
@@ -896,6 +897,31 @@ impl<T> Leveled<T> {
             Self::Warning(value)
         }
     }
+
+    pub fn many_to_tentative(xs: Vec<Self>) -> BiTentative<(), T> {
+        let (ws, es): (Vec<_>, Vec<_>) = xs
+            .into_iter()
+            .map(|x| match x {
+                Self::Warning(y) => Ok(y),
+                Self::Error(y) => Err(y),
+            })
+            .partition_result();
+        Tentative::new((), ws, es)
+    }
+
+    // pub fn many_to_deferred(xs: Vec<Self>) -> BiDeferredResult<(), T> {
+    //     let (ws, es): (Vec<_>, Vec<_>) = xs
+    //         .into_iter()
+    //         .map(|x| match x {
+    //             Self::Warning(y) => Ok(y),
+    //             Self::Error(y) => Err(y),
+    //         })
+    //         .partition_result();
+    //     match NonEmpty::from_vec(es) {
+    //         None => Ok(Tentative::new((), ws, vec![])),
+    //         Some(xs) => Err(DeferredFailure::new(ws, xs, ())),
+    //     }
+    // }
 
     pub fn inner_into<X>(self) -> Leveled<X>
     where

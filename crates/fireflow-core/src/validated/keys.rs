@@ -541,8 +541,8 @@ pub struct BlankValueError(pub Vec<u8>);
 
 #[derive(Debug)]
 pub struct KeyPresent<T> {
-    key: T,
-    value: String,
+    pub key: T,
+    pub value: String,
 }
 
 pub type StdPresent = KeyPresent<StdKey>;

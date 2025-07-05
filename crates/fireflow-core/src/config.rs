@@ -341,6 +341,11 @@ pub struct RawTextReadConfig {
     /// Useful for surgically correcting "pseudostandard" keywords without
     /// using ['allow_pseudostandard'], which is a crude sledgehammer.
     pub demote_from_standard: Vec<StdKey>,
+
+    /// Replace values of the given keys.
+    ///
+    /// Keys will be matched in case-insensitive manner.
+    pub replace_key_values: Vec<(KeyString, String)>,
 }
 
 /// Instructions for validating time-related properties.

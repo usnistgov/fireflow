@@ -178,6 +178,7 @@ fn py_fcs_read_header(
         demote_from_standard=vec![],
         ignore_keys=vec![],
         rename_keys=vec![],
+        replace_key_values=vec![],
     )
 )]
 fn py_fcs_read_raw_text(
@@ -218,6 +219,7 @@ fn py_fcs_read_raw_text(
     demote_from_standard: Vec<String>,
     ignore_keys: Vec<String>,
     rename_keys: Vec<(String, String)>,
+    replace_key_values: Vec<(String, String)>,
 ) -> PyResult<(PyVersion, Bound<'_, PyDict>, Bound<'_, PyDict>, PyParseData)> {
     let header = header_config(
         version_override,
@@ -256,6 +258,7 @@ fn py_fcs_read_raw_text(
         demote_from_standard,
         ignore_keys,
         rename_keys,
+        replace_key_values,
     )?;
 
     let raw: RawTEXTOutput =
@@ -315,6 +318,7 @@ fn py_fcs_read_raw_text(
         demote_from_standard=vec![],
         ignore_keys=vec![],
         rename_keys=vec![],
+        replace_key_values=vec![],
 
         disallow_deprecated=false,
         time_ensure=false,
@@ -370,6 +374,7 @@ fn py_fcs_read_std_text(
     demote_from_standard: Vec<String>,
     ignore_keys: Vec<String>,
     rename_keys: Vec<(String, String)>,
+    replace_key_values: Vec<(String, String)>,
 
     disallow_deprecated: bool,
     time_ensure: bool,
@@ -423,6 +428,7 @@ fn py_fcs_read_std_text(
         demote_from_standard,
         ignore_keys,
         rename_keys,
+        replace_key_values,
     )?;
 
     let conf = std_config(
@@ -506,6 +512,7 @@ fn py_fcs_read_std_text(
         demote_from_standard=vec![],
         ignore_keys=vec![],
         rename_keys=vec![],
+        replace_key_values=vec![],
 
         disallow_deprecated=false,
         time_ensure=false,
@@ -565,6 +572,7 @@ fn py_fcs_read_std_dataset(
     demote_from_standard: Vec<String>,
     ignore_keys: Vec<String>,
     rename_keys: Vec<(String, String)>,
+    replace_key_values: Vec<(String, String)>,
 
     disallow_deprecated: bool,
     time_ensure: bool,
@@ -622,6 +630,7 @@ fn py_fcs_read_std_dataset(
         demote_from_standard,
         ignore_keys,
         rename_keys,
+        replace_key_values,
     )?;
 
     let standard = std_config(
@@ -734,6 +743,7 @@ fn raw_config(
     demote_from_standard: Vec<String>,
     ignore_keys: Vec<String>,
     rename_keys: Vec<(String, String)>,
+    replace_key_values: Vec<(String, String)>,
 ) -> PyResult<RawTextReadConfig> {
     let pss = promote_to_standard
         .into_iter()
@@ -762,6 +772,12 @@ fn raw_config(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| PyreflowException::new_err(e.to_string()))?;
 
+    let rvs = replace_key_values
+        .into_iter()
+        .map(|(k, v)| k.parse::<KeyString>().map(|x| (x, v)))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+
     let out = RawTextReadConfig {
         header,
         supp_text_correction: OffsetCorrection::from(supp_text_correction),
@@ -787,6 +803,7 @@ fn raw_config(
         demote_from_standard: dss,
         ignore_keys: iss,
         rename_keys: rss,
+        replace_key_values: rvs,
     };
     Ok(out)
 }

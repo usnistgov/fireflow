@@ -14,14 +14,15 @@ use unicase::Ascii;
 ///
 /// These may only contain ASCII and must start with "$". The "$" is not
 /// actually stored but will be appended when converting to a ['String'].
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, AsRef)]
+#[as_ref(KeyString)]
 pub struct StdKey(KeyString);
 
 /// A non-standard key.
 ///
 /// This cannot start with '$' and may only contain ASCII characters.
 #[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash)]
-#[as_ref(str)]
+#[as_ref(KeyString)]
 pub struct NonStdKey(KeyString);
 
 pub type NonStdPairs = Vec<(NonStdKey, String)>;
@@ -348,6 +349,11 @@ impl ParsedKeywords {
             .filter(|(x, y)| x != y)
             .map(|x| (&x.0, &x.1))
             .collect();
+        let to_replace: HashMap<_, _> = conf
+            .replace_key_values
+            .iter()
+            .map(|x| (&x.0, x.1.as_str()))
+            .collect();
 
         // make a new key from a slice, possibly ignoring it or renaming it
         let new_key = |xs: &[u8]| -> Option<KeyString> {
@@ -359,30 +365,18 @@ impl ParsedKeywords {
             }
         };
 
-        // insert a standard key, possibly warning if already present
-        let mut ins_std = |kk: StdKey, value: String| match self.std.entry(kk) {
-            Entry::Occupied(e) => {
-                let key = e.key().clone();
-                let w = StdPresent { key, value };
-                Err(Leveled::new(w.into(), !conf.allow_nonunique))
-            }
-            Entry::Vacant(e) => {
-                e.insert(value);
-                Ok(())
-            }
+        let mut ins_std = |kk: StdKey, value: String| {
+            insert_nonunique(&mut self.std, kk, value, &to_replace, conf.allow_nonunique)
         };
 
-        // insert a non-standard key, possibly warning if already present
-        let mut ins_nonstd = |kk: NonStdKey, value: String| match self.nonstd.entry(kk) {
-            Entry::Occupied(e) => {
-                let key = e.key().clone();
-                let w = NonStdPresent { key, value };
-                Err(Leveled::new(w.into(), !conf.allow_nonunique))
-            }
-            Entry::Vacant(e) => {
-                e.insert(value);
-                Ok(())
-            }
+        let mut ins_nonstd = |kk: NonStdKey, value: String| {
+            insert_nonunique(
+                &mut self.nonstd,
+                kk,
+                value,
+                &to_replace,
+                conf.allow_nonunique,
+            )
         };
 
         match std::str::from_utf8(v) {
@@ -456,16 +450,13 @@ pub enum KeywordInsertError {
 pub struct BlankValueError(pub Vec<u8>);
 
 #[derive(Debug)]
-pub struct StdPresent {
-    key: StdKey,
+pub struct KeyPresent<T> {
+    key: T,
     value: String,
 }
 
-#[derive(Debug)]
-pub struct NonStdPresent {
-    key: NonStdKey,
-    value: String,
-}
+pub type StdPresent = KeyPresent<StdKey>;
+pub type NonStdPresent = KeyPresent<NonStdKey>;
 
 pub struct AsciiStringError(String);
 
@@ -490,21 +481,11 @@ pub struct NonStdMeasRegexError {
     index: IndexFromOne,
 }
 
-impl fmt::Display for StdPresent {
+impl<T: fmt::Display> fmt::Display for KeyPresent<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
-            "std key '{}' already present, has value '{}'",
-            self.key, self.value
-        )
-    }
-}
-
-impl fmt::Display for NonStdPresent {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "non-std key '{}' already present, has value '{}'",
+            "key '{}' already present, has value '{}'",
             self.key, self.value
         )
     }
@@ -581,6 +562,34 @@ fn has_std_prefix(xs: &[u8]) -> bool {
 
 fn has_no_std_prefix(xs: &[u8]) -> bool {
     xs.first().is_some_and(|x| *x != STD_PREFIX)
+}
+
+fn insert_nonunique<K>(
+    kws: &mut HashMap<K, String>,
+    k: K,
+    value: String,
+    to_replace: &HashMap<&KeyString, &str>,
+    allow_nonunique: bool,
+) -> Result<(), Leveled<KeywordInsertError>>
+where
+    K: std::hash::Hash + Eq + Clone + AsRef<KeyString>,
+    KeywordInsertError: From<KeyPresent<K>>,
+{
+    match kws.entry(k) {
+        Entry::Occupied(e) => {
+            let key = e.key().clone();
+            let w = KeyPresent { key, value };
+            Err(Leveled::new(w.into(), !allow_nonunique))
+        }
+        Entry::Vacant(e) => {
+            let v = to_replace
+                .get(e.key().as_ref())
+                .map(|v| v.to_string())
+                .unwrap_or(value);
+            e.insert(v);
+            Ok(())
+        }
+    }
 }
 
 const STD_PREFIX: u8 = 36; // '$'

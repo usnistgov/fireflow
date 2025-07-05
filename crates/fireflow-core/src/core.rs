@@ -2670,7 +2670,7 @@ where
                         // nonsense measurement.
                         let key = M::Name::unwrap(wrapped).and_then(|name| {
                             if let Some(tp) = conf.time.pattern.as_ref() {
-                                if tp.0.as_ref().is_match(name.as_ref()) {
+                                if tp.0.is_match(name.as_ref()) {
                                     return Ok(name);
                                 }
                             }

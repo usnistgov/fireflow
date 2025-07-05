@@ -15,9 +15,11 @@ use crate::text::byteord::ByteOrd;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::keys::{KeyString, NonStdKey, NonStdMeasPattern, StdKey};
 use crate::validated::other_width::OtherWidth;
-use crate::validated::pattern::TimePattern;
 use crate::validated::shortname::*;
 use crate::validated::textdelim::TEXTDelim;
+
+use derive_more::{Display, FromStr};
+use regex::Regex;
 
 /// Instructions for reading the DATA segment.
 #[derive(Default, Clone)]
@@ -375,6 +377,18 @@ pub struct TimeConfig {
 
     // /// If true, will ensure PnG is absent for time measurement.
     // pub allow_nontime_keywords: bool,
+}
+
+/// A pattern to match the $PnN for the time measurement.
+///
+/// Defaults to matching "TIME" or "Time".
+#[derive(Clone, FromStr, Display)]
+pub struct TimePattern(pub Regex);
+
+impl Default for TimePattern {
+    fn default() -> Self {
+        Self(Regex::new("^(TIME|Time)$").unwrap())
+    }
 }
 
 /// Instructions for reading the TEXT segment in a standardized structure.

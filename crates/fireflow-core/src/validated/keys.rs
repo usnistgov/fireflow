@@ -5,33 +5,35 @@ use crate::text::index::IndexFromOne;
 use derive_more::{AsRef, Display, From};
 use serde::Serialize;
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::str;
 use unicase::Ascii;
 
-/// Represents a standard key.
+/// A standard key.
 ///
 /// These may only contain ASCII and must start with "$". The "$" is not
 /// actually stored but will be appended when converting to a ['String'].
-///
-/// The only way to make such a key is to parse it from a bytestring using
-/// ['ParsedKeywords::insert'] or to make a type for the key and implement one
-/// of the 'Key', 'IndexedKey', or 'BiIndexedKey' traits which can create a key
-/// from thin-air. Both methods are internal, and thus users are not allowed to
-/// manipulate these directly.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct StdKey(Ascii<String>);
+pub struct StdKey(KeyString);
 
 /// A non-standard key.
 ///
 /// This cannot start with '$' and may only contain ASCII characters.
 #[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash)]
 #[as_ref(str)]
-pub struct NonStdKey(Ascii<String>);
+pub struct NonStdKey(KeyString);
 
 pub type NonStdPairs = Vec<(NonStdKey, String)>;
 pub type NonStdKeywords = HashMap<NonStdKey, String>;
+
+/// The internal string for a key (standard or nonstandard).
+///
+/// Must be non-empty and contain only ASCII characters. Comparisons will be
+/// case-insensitive.
+#[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash)]
+#[as_ref(str)]
+pub struct KeyString(Ascii<String>);
 
 /// A String that matches part of a non-standard measurement key.
 ///
@@ -187,15 +189,25 @@ pub(crate) trait BiIndexedKey {
     // }
 }
 
-impl StdKey {
+impl KeyString {
     fn new(s: String) -> Self {
         Self(Ascii::new(s))
+    }
+
+    fn from_bytes(xs: &[u8]) -> Self {
+        Self::new(unsafe { String::from_utf8_unchecked(xs.to_vec()) })
+    }
+}
+
+impl StdKey {
+    fn new(s: String) -> Self {
+        Self(KeyString::new(s))
     }
 }
 
 impl NonStdKey {
     fn new(s: String) -> Self {
-        Self(Ascii::new(s))
+        Self(KeyString::new(s))
     }
 }
 
@@ -223,15 +235,53 @@ impl fmt::Display for StdKey {
     }
 }
 
+impl str::FromStr for KeyString {
+    type Err = AsciiStringError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if is_printable_ascii(s.as_ref()) {
+            Ok(Self(Ascii::new(s.to_string())))
+        } else {
+            Err(AsciiStringError(s.to_string()))
+        }
+    }
+}
+
+impl str::FromStr for StdKey {
+    type Err = StdKeyError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.parse::<KeyString>()
+            .map_err(StdKeyError::Ascii)
+            .and_then(|x| {
+                if has_std_prefix(x.as_ref().as_bytes()) {
+                    Ok(Self::new(x.to_string()))
+                } else {
+                    Err(StdKeyError::Prefix(x.to_string()))
+                }
+            })
+    }
+}
+
 impl str::FromStr for NonStdKey {
     type Err = NonStdKeyError;
 
-    fn from_str(s: &str) -> Result<Self, NonStdKeyError> {
-        if s.starts_with("$") {
-            Err(NonStdKeyError(s.to_string()))
-        } else {
-            Ok(NonStdKey::new(s.to_string()))
-        }
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // if has_no_std_prefix(s.as_bytes()) && is_printable_ascii(s.as_ref()) {
+        //     Ok(Self::new(s.to_string()))
+        // } else {
+        //     Err(NonStdKeyError(s.to_string()))
+        // }
+
+        s.parse::<KeyString>()
+            .map_err(NonStdKeyError::Ascii)
+            .and_then(|x| {
+                if has_no_std_prefix(x.as_ref().as_bytes()) {
+                    Ok(Self::new(x.to_string()))
+                } else {
+                    Err(NonStdKeyError::Prefix(x.to_string()))
+                }
+            })
     }
 }
 
@@ -255,10 +305,10 @@ impl str::FromStr for NonStdMeasPattern {
     type Err = NonStdMeasPatternError;
 
     fn from_str(s: &str) -> Result<Self, NonStdMeasPatternError> {
-        if s.starts_with("$") || s.match_indices("%n").count() != 1 {
-            Err(NonStdMeasPatternError(s.to_string()))
-        } else {
+        if has_no_std_prefix(s.as_bytes()) || s.match_indices("%n").count() == 1 {
             Ok(NonStdMeasPattern(s.to_string()))
+        } else {
+            Err(NonStdMeasPatternError(s.to_string()))
         }
     }
 }
@@ -288,6 +338,53 @@ impl ParsedKeywords {
         // ASSUME key and value are never blank since we checked both prior to
         // calling this. The FCS standards do not allow either to be blank.
         let n = k.len();
+
+        let to_std: HashSet<_> = conf.promote_to_standard.iter().collect();
+        let to_nonstd: HashSet<_> = conf.demote_from_standard.iter().collect();
+        let ignore: HashSet<_> = conf.ignore_keys.iter().collect();
+        let to_rename: HashMap<_, _> = conf
+            .rename_keys
+            .iter()
+            .filter(|(x, y)| x != y)
+            .map(|x| (&x.0, &x.1))
+            .collect();
+
+        // make a new key from a slice, possibly ignoring it or renaming it
+        let new_key = |xs: &[u8]| -> Option<KeyString> {
+            let kk = KeyString::from_bytes(xs);
+            if ignore.contains(&kk) {
+                None
+            } else {
+                Some(to_rename.get(&kk).map_or(kk, |&x| x.clone()))
+            }
+        };
+
+        // insert a standard key, possibly warning if already present
+        let mut ins_std = |kk: StdKey, value: String| match self.std.entry(kk) {
+            Entry::Occupied(e) => {
+                let key = e.key().clone();
+                let w = StdPresent { key, value };
+                Err(Leveled::new(w.into(), !conf.allow_nonunique))
+            }
+            Entry::Vacant(e) => {
+                e.insert(value);
+                Ok(())
+            }
+        };
+
+        // insert a non-standard key, possibly warning if already present
+        let mut ins_nonstd = |kk: NonStdKey, value: String| match self.nonstd.entry(kk) {
+            Entry::Occupied(e) => {
+                let key = e.key().clone();
+                let w = NonStdPresent { key, value };
+                Err(Leveled::new(w.into(), !conf.allow_nonunique))
+            }
+            Entry::Vacant(e) => {
+                e.insert(value);
+                Ok(())
+            }
+        };
+
         match std::str::from_utf8(v) {
             Ok(vv) => {
                 // Trim whitespace from value if desired. Warn (or halt) if this
@@ -306,37 +403,28 @@ impl ParsedKeywords {
                 if n > 1 && k[0] == STD_PREFIX && is_printable_ascii(&k[1..]) {
                     // Standard key: starts with '$', check that remaining chars
                     // are ASCII
-                    let xs = k[1..].to_vec();
-                    let kk = StdKey::new(unsafe { String::from_utf8_unchecked(xs) });
-                    match self.std.entry(kk) {
-                        Entry::Occupied(e) => {
-                            let w = StdPresent {
-                                key: e.key().clone(),
-                                value,
-                            };
-                            Err(Leveled::new(w.into(), !conf.allow_nonunique))
+                    if let Some(kk) = new_key(&k[1..]) {
+                        let std_kk = StdKey(kk);
+                        if to_nonstd.contains(&std_kk) {
+                            ins_nonstd(NonStdKey(std_kk.0), value)
+                        } else {
+                            ins_std(std_kk, value)
                         }
-                        Entry::Vacant(e) => {
-                            e.insert(value);
-                            Ok(())
-                        }
+                    } else {
+                        Ok(())
                     }
                 } else if n > 0 && is_printable_ascii(k) {
                     // Non-standard key: does not start with '$' but is still
                     // ASCII
-                    let kk = NonStdKey::new(unsafe { String::from_utf8_unchecked(k.to_vec()) });
-                    match self.nonstd.entry(kk) {
-                        Entry::Occupied(e) => {
-                            let w = NonStdPresent {
-                                key: e.key().clone(),
-                                value,
-                            };
-                            Err(Leveled::new(w.into(), !conf.allow_nonunique))
+                    if let Some(kk) = new_key(k) {
+                        let nonstd_kk = NonStdKey(kk);
+                        if to_std.contains(&nonstd_kk) {
+                            ins_std(StdKey(nonstd_kk.0), value)
+                        } else {
+                            ins_nonstd(nonstd_kk, value)
                         }
-                        Entry::Vacant(e) => {
-                            e.insert(value);
-                            Ok(())
-                        }
+                    } else {
+                        Ok(())
                     }
                 } else if let Ok(kk) = String::from_utf8(k.to_vec()) {
                     // Non-ascii key: these are technically not allowed but save
@@ -379,7 +467,18 @@ pub struct NonStdPresent {
     value: String,
 }
 
-pub struct NonStdKeyError(String);
+pub struct AsciiStringError(String);
+
+#[derive(From)]
+pub enum StdKeyError {
+    Ascii(AsciiStringError),
+    Prefix(String),
+}
+
+pub enum NonStdKeyError {
+    Ascii(AsciiStringError),
+    Prefix(String),
+}
 
 pub struct NonStdMeasKeyError(String);
 
@@ -411,14 +510,31 @@ impl fmt::Display for NonStdPresent {
     }
 }
 
-impl fmt::Display for NonStdKeyError {
+impl fmt::Display for AsciiStringError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
-            "Non standard key must not start with '$' \
-             and only have ASCII characters, found '{}'",
+            "string should only have ASCII characters and not be empty, found '{}'",
             self.0
         )
+    }
+}
+
+impl fmt::Display for StdKeyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Ascii(x) => x.fmt(f),
+            Self::Prefix(x) => write!(f, "Standard key must start with '$', found '{x}'"),
+        }
+    }
+}
+
+impl fmt::Display for NonStdKeyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Ascii(x) => x.fmt(f),
+            Self::Prefix(x) => write!(f, "Non-standard key must not start with '$', found '{x}'"),
+        }
     }
 }
 
@@ -459,12 +575,12 @@ fn is_printable_ascii(xs: &[u8]) -> bool {
     xs.iter().all(|x| 32 <= *x && *x <= 126)
 }
 
-// fn ascii_to_upper(x: u8) -> u8 {
-//     if (97..=122).contains(&x) {
-//         x - 32
-//     } else {
-//         x
-//     }
-// }
+fn has_std_prefix(xs: &[u8]) -> bool {
+    xs.first().is_some_and(|x| *x == STD_PREFIX)
+}
+
+fn has_no_std_prefix(xs: &[u8]) -> bool {
+    xs.first().is_some_and(|x| *x != STD_PREFIX)
+}
 
 const STD_PREFIX: u8 = 36; // '$'

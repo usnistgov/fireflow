@@ -13,7 +13,7 @@ use crate::header::Version;
 use crate::segment::*;
 use crate::text::byteord::ByteOrd;
 use crate::validated::datepattern::DatePattern;
-use crate::validated::keys::NonStdMeasPattern;
+use crate::validated::keys::{KeyString, NonStdKey, NonStdMeasPattern, StdKey};
 use crate::validated::other_width::OtherWidth;
 use crate::validated::pattern::TimePattern;
 use crate::validated::shortname::*;
@@ -310,28 +310,35 @@ pub struct RawTextReadConfig {
     /// supplied, $DATE will be parsed according to the standard pattern which
     /// is '%d-%b-%Y'.
     pub date_pattern: Option<DatePattern>,
-    // /// A list of nonstandard keywords to be "promoted" to standard.
-    // ///
-    // /// All matching keywords will be prefixed with a "$" and added to the pool
-    // /// of standard keywords to be processed downstream when deriving data
-    // /// layouts, measurement metadata, etc.
-    // pub promote_to_standard: Vec<String>,
 
-    // /// A list of standard keywords to be "demoted" to non-standard.
-    // ///
-    // /// Only keywords starting with "$" will be considered. Matching keywords
-    // /// will be taken out of the pool of standard keywords ("$" prefix will be
-    // /// removed) and not be considered as such when processed downstream.
-    // ///
-    // /// Useful for surgically correcting "pseudostandard" keywords without
-    // /// using ['allow_pseudostandard'], which is a crude sledgehammer.
-    // pub demote_from_standard: Vec<String>,
+    /// A list of nonstandard keywords to be "promoted" to standard.
+    ///
+    /// All matching keywords will be prefixed with a "$" and added to the pool
+    /// of standard keywords to be processed downstream when deriving data
+    /// layouts, measurement metadata, etc. Matching will be case-insensitive.
+    pub promote_to_standard: Vec<NonStdKey>,
 
-    // /// Remove standard or nonstandard keys from TEXT.
-    // ///
-    // /// Keys will be matched literally as-is; standard keys must be matched
-    // /// by prefixing with "$".
-    // pub ignore_keys: Vec<String>,
+    /// A list of standard keywords to be "demoted" to non-standard.
+    ///
+    /// Only keywords starting with "$" will be considered. Matching keywords
+    /// will be taken out of the pool of standard keywords ("$" prefix will be
+    /// removed) and not be considered as such when processed downstream.
+    /// Matching will be case-insensitive.
+    ///
+    /// Useful for surgically correcting "pseudostandard" keywords without
+    /// using ['allow_pseudostandard'], which is a crude sledgehammer.
+    pub demote_from_standard: Vec<StdKey>,
+
+    /// Remove standard or nonstandard keys from TEXT.
+    ///
+    /// Comparisons will be case-insensitive.
+    pub ignore_keys: Vec<KeyString>,
+
+    /// Rename keys in TEXT.
+    ///
+    /// Keys matching the first part of the pair will be replaced by the second.
+    /// Comparisons are case-insensitive.
+    pub rename_keys: Vec<(KeyString, KeyString)>,
 }
 
 /// Instructions for validating time-related properties.

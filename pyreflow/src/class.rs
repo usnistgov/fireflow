@@ -173,7 +173,11 @@ fn py_fcs_read_header(
         allow_stext_own_delim=false,
         allow_missing_nextdata=false,
         trim_value_whitespace=false,
-        date_pattern=None
+        date_pattern=None,
+        promote_to_standard=vec![],
+        demote_from_standard=vec![],
+        ignore_keys=vec![],
+        rename_keys=vec![],
     )
 )]
 fn py_fcs_read_raw_text(
@@ -210,6 +214,10 @@ fn py_fcs_read_raw_text(
     allow_missing_nextdata: bool,
     trim_value_whitespace: bool,
     date_pattern: Option<String>,
+    promote_to_standard: Vec<String>,
+    demote_from_standard: Vec<String>,
+    ignore_keys: Vec<String>,
+    rename_keys: Vec<(String, String)>,
 ) -> PyResult<(PyVersion, Bound<'_, PyDict>, Bound<'_, PyDict>, PyParseData)> {
     let header = header_config(
         version_override,
@@ -244,6 +252,10 @@ fn py_fcs_read_raw_text(
         allow_missing_nextdata,
         trim_value_whitespace,
         date_pattern,
+        promote_to_standard,
+        demote_from_standard,
+        ignore_keys,
+        rename_keys,
     )?;
 
     let raw: RawTEXTOutput =
@@ -299,6 +311,10 @@ fn py_fcs_read_raw_text(
         allow_missing_nextdata=false,
         trim_value_whitespace=false,
         date_pattern=None,
+        promote_to_standard=vec![],
+        demote_from_standard=vec![],
+        ignore_keys=vec![],
+        rename_keys=vec![],
 
         disallow_deprecated=false,
         time_ensure=false,
@@ -350,6 +366,10 @@ fn py_fcs_read_std_text(
     allow_missing_nextdata: bool,
     trim_value_whitespace: bool,
     date_pattern: Option<String>,
+    promote_to_standard: Vec<String>,
+    demote_from_standard: Vec<String>,
+    ignore_keys: Vec<String>,
+    rename_keys: Vec<(String, String)>,
 
     disallow_deprecated: bool,
     time_ensure: bool,
@@ -399,6 +419,10 @@ fn py_fcs_read_std_text(
         allow_missing_nextdata,
         trim_value_whitespace,
         date_pattern,
+        promote_to_standard,
+        demote_from_standard,
+        ignore_keys,
+        rename_keys,
     )?;
 
     let conf = std_config(
@@ -478,6 +502,10 @@ fn py_fcs_read_std_text(
         allow_missing_nextdata=false,
         trim_value_whitespace=false,
         date_pattern=None,
+        promote_to_standard=vec![],
+        demote_from_standard=vec![],
+        ignore_keys=vec![],
+        rename_keys=vec![],
 
         disallow_deprecated=false,
         time_ensure=false,
@@ -533,6 +561,10 @@ fn py_fcs_read_std_dataset(
     allow_missing_nextdata: bool,
     trim_value_whitespace: bool,
     date_pattern: Option<String>,
+    promote_to_standard: Vec<String>,
+    demote_from_standard: Vec<String>,
+    ignore_keys: Vec<String>,
+    rename_keys: Vec<(String, String)>,
 
     disallow_deprecated: bool,
     time_ensure: bool,
@@ -586,6 +618,10 @@ fn py_fcs_read_std_dataset(
         allow_missing_nextdata,
         trim_value_whitespace,
         date_pattern,
+        promote_to_standard,
+        demote_from_standard,
+        ignore_keys,
+        rename_keys,
     )?;
 
     let standard = std_config(
@@ -694,7 +730,38 @@ fn raw_config(
     allow_missing_nextdata: bool,
     trim_value_whitespace: bool,
     date_pattern: Option<String>,
+    promote_to_standard: Vec<String>,
+    demote_from_standard: Vec<String>,
+    ignore_keys: Vec<String>,
+    rename_keys: Vec<(String, String)>,
 ) -> PyResult<RawTextReadConfig> {
+    let pss = promote_to_standard
+        .into_iter()
+        .map(|x| x.parse::<NonStdKey>())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+
+    let dss = demote_from_standard
+        .into_iter()
+        .map(|x| x.parse::<StdKey>())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+
+    let iss = ignore_keys
+        .into_iter()
+        .map(|x| x.parse::<KeyString>())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+
+    let rss = rename_keys
+        .into_iter()
+        .map(|(x, y)| {
+            x.parse::<KeyString>()
+                .and_then(|a| y.parse::<KeyString>().map(|b| (a, b)))
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+
     let out = RawTextReadConfig {
         header,
         supp_text_correction: OffsetCorrection::from(supp_text_correction),
@@ -716,6 +783,10 @@ fn raw_config(
         allow_missing_nextdata,
         trim_value_whitespace,
         date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
+        promote_to_standard: pss,
+        demote_from_standard: dss,
+        ignore_keys: iss,
+        rename_keys: rss,
     };
     Ok(out)
 }

@@ -37,7 +37,7 @@ pub struct Terminal<V, W> {
 /// Final failed result with either one error or multiple errors with a summary.
 pub struct TerminalFailure<W, E, T> {
     warnings: Vec<W>,
-    errors: NonEmpty<E>,
+    errors: Box<NonEmpty<E>>,
     reason: T,
 }
 
@@ -81,7 +81,7 @@ pub type BiTentative<V, T> = Tentative<V, T, T>;
 pub struct DeferredFailure<P, W, E> {
     passthru: P,
     warnings: Vec<W>,
-    errors: NonEmpty<E>,
+    errors: Box<NonEmpty<E>>,
 }
 
 /// Result for which failure can have multiple errors
@@ -131,6 +131,16 @@ impl<V, W> Terminal<V, W> {
         Self {
             value,
             warnings: vec![],
+        }
+    }
+
+    pub fn warnings_to_errors<T, E>(self, reason: T) -> TerminalResult<V, W, E, T>
+    where
+        E: From<W>,
+    {
+        match NonEmpty::from_vec(self.warnings) {
+            None => Ok(Terminal::new(self.value)),
+            Some(es) => Err(TerminalFailure::new(es.map(|e| e.into()), reason)),
         }
     }
 
@@ -251,7 +261,7 @@ impl<W, E, T> TerminalFailure<W, E, T> {
     pub fn new(errors: NonEmpty<E>, reason: T) -> Self {
         TerminalFailure {
             warnings: vec![],
-            errors,
+            errors: Box::new(errors),
             reason,
         }
     }
@@ -315,7 +325,7 @@ impl<W, E, T> TerminalFailure<W, E, T> {
         F: FnOnce(Vec<W>) -> X,
         G: FnOnce(NonEmpty<E>, T) -> Y,
     {
-        (f(self.warnings), g(self.errors, self.reason))
+        (f(self.warnings), g(*self.errors, self.reason))
     }
 }
 
@@ -422,11 +432,11 @@ impl<V, W, E> Tentative<V, W, E> {
             }
             Err(e) => {
                 self.warnings.extend(e.warnings);
-                self.errors.extend(e.errors);
+                self.errors.extend(*e.errors);
                 Err(DeferredFailure {
                     passthru: e.passthru,
                     warnings: self.warnings,
-                    errors: NonEmpty::from_vec(self.errors).unwrap(),
+                    errors: Box::new(NonEmpty::from_vec(self.errors).unwrap()),
                 })
             }
         }
@@ -544,17 +554,36 @@ impl<V, W, E> Tentative<V, W, E> {
     }
 
     pub fn terminate<T>(self, reason: T) -> TerminalResult<V, W, E, T> {
+        self.terminate_inner(reason).map(|(t, _)| t)
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn terminate_inner<T>(
+        self,
+        reason: T,
+    ) -> Result<(Terminal<V, W>, T), TerminalFailure<W, E, T>> {
         match NonEmpty::from_vec(self.errors) {
             Some(errors) => Err(TerminalFailure {
                 warnings: self.warnings,
-                errors,
+                errors: Box::new(errors),
                 reason,
             }),
-            None => Ok(Terminal {
-                value: self.value,
-                warnings: self.warnings,
-            }),
+            None => Ok((
+                Terminal {
+                    value: self.value,
+                    warnings: self.warnings,
+                },
+                reason,
+            )),
         }
+    }
+
+    pub fn terminate_nowarn<T>(self, reason: T) -> TerminalResult<V, W, E, T>
+    where
+        E: From<W>,
+    {
+        self.terminate_inner(reason)
+            .and_then(|(t, r)| t.warnings_to_errors(r))
     }
 
     pub fn zip<A>(self, a: Tentative<A, W, E>) -> Tentative<(V, A), W, E> {
@@ -676,7 +705,7 @@ impl<P, W, E> DeferredFailure<P, W, E> {
     pub fn new(warnings: Vec<W>, errors: NonEmpty<E>, passthru: P) -> Self {
         Self {
             warnings,
-            errors,
+            errors: Box::new(errors),
             passthru,
         }
     }
@@ -730,7 +759,7 @@ impl<P, W, E> DeferredFailure<P, W, E> {
         DeferredFailure {
             passthru: self.passthru,
             warnings: self.warnings,
-            errors: self.errors.map(f),
+            errors: Box::new(self.errors.map(f)),
         }
     }
 
@@ -757,7 +786,7 @@ impl<P, W, E> DeferredFailure<P, W, E> {
     }
 
     pub fn drop(self) -> DeferredFailure<(), W, E> {
-        DeferredFailure::new(self.warnings, self.errors, ())
+        DeferredFailure::new(self.warnings, *self.errors, ())
     }
 
     pub fn zip<P1>(self, a: DeferredFailure<P1, W, E>) -> DeferredFailure<(P, P1), W, E> {
@@ -817,7 +846,7 @@ impl<P, W, E> DeferredFailure<P, W, E> {
         F: Fn(P, P1) -> X,
     {
         self.warnings.extend(other.warnings);
-        self.errors.extend(other.errors);
+        self.errors.extend(*other.errors);
         DeferredFailure {
             passthru: f(self.passthru, other.passthru),
             warnings: self.warnings,
@@ -837,7 +866,7 @@ impl<W, E> DeferredFailure<(), W, E> {
 
     pub fn mappend(mut self, other: Self) -> Self {
         self.warnings.extend(other.warnings);
-        self.errors.extend(other.errors);
+        self.errors.extend(*other.errors);
         Self {
             passthru: (),
             warnings: self.warnings,
@@ -852,6 +881,19 @@ impl<W, E> DeferredFailure<(), W, E> {
     pub fn terminate<T>(self, reason: T) -> TerminalFailure<W, E, T> {
         TerminalFailure {
             warnings: self.warnings,
+            errors: self.errors,
+            reason,
+        }
+    }
+
+    pub fn terminate_nowarn<T>(mut self, reason: T) -> TerminalFailure<W, E, T>
+    where
+        E: From<W>,
+    {
+        let ws = self.warnings.into_iter().map(|e| e.into());
+        self.errors.extend(ws);
+        TerminalFailure {
+            warnings: vec![],
             errors: self.errors,
             reason,
         }
@@ -1222,6 +1264,25 @@ pub trait DeferredExt: Sized {
 
     fn def_terminate<T>(self, reason: T) -> TerminalResult<Self::V, Self::W, Self::E, T>;
 
+    fn def_terminate_nowarn<T>(self, reason: T) -> TerminalResult<Self::V, Self::W, Self::E, T>
+    where
+        Self::E: From<Self::W>;
+
+    fn def_terminate_maybe_warn<T>(
+        self,
+        reason: T,
+        warn_to_error: bool,
+    ) -> TerminalResult<Self::V, Self::W, Self::E, T>
+    where
+        Self::E: From<Self::W>,
+    {
+        if warn_to_error {
+            self.def_terminate_nowarn(reason)
+        } else {
+            self.def_terminate(reason)
+        }
+    }
+
     fn def_unfail(self) -> Tentative<Option<Self::V>, Self::W, Self::E>;
 }
 
@@ -1267,6 +1328,16 @@ impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
         match self {
             Ok(t) => t.terminate(reason),
             Err(e) => Err(e.terminate(reason)),
+        }
+    }
+
+    fn def_terminate_nowarn<T>(self, reason: T) -> TerminalResult<Self::V, Self::W, Self::E, T>
+    where
+        Self::E: From<Self::W>,
+    {
+        match self {
+            Ok(t) => t.terminate_nowarn(reason),
+            Err(e) => Err(e.terminate_nowarn(reason)),
         }
     }
 

@@ -542,6 +542,7 @@ impl<I, S, T> SpecificSegment<I, S, T> {
         I: HasRegion,
         S: HasSource,
         T: Default + Into<u64> + Into<i128> + TryFrom<i128> + Ord + Copy,
+        u64: From<T>,
     {
         Segment::try_new::<I, S>(begin, end, corr, file_len, force_truncate).map(|inner| Self {
             inner,
@@ -889,6 +890,7 @@ impl<T> Segment<T> {
     ) -> Result<Self, SegmentError<T>>
     where
         T: Default + Into<i128> + TryFrom<i128> + Ord + Copy,
+        u64: From<T>,
     {
         let x = Into::<i128>::into(begin) + i128::from(corr.begin);
         let y = Into::<i128>::into(end) + i128::from(corr.end);
@@ -913,7 +915,7 @@ impl<T> Segment<T> {
                     // truncation is impossible.
                     if let Some(fl) = file_len {
                         if new_end >= fl && !force_truncate {
-                            Err(err(SegmentErrorKind::Truncated))
+                            Err(err(SegmentErrorKind::Truncated(u64::from(fl))))
                         } else {
                             Ok(new_end.min(fl))
                         }
@@ -959,6 +961,7 @@ impl<T> Segment<T> {
         S: HasSource,
         I: HasRegion,
         T: Copy + Default + TryFrom<i128> + Into<i128> + Ord,
+        u64: From<T>,
     {
         let (b, e) = match self {
             Self::Empty => (T::default(), T::default()),
@@ -1123,7 +1126,7 @@ pub enum SegmentErrorKind {
     Range,
     Inverted,
     InHeader,
-    Truncated,
+    Truncated(u64),
 }
 
 pub struct ParseOffsetError {
@@ -1161,10 +1164,12 @@ where
         let begin_text = offset_text(&self.begin, self.corr_begin);
         let end_text = offset_text(&self.end, self.corr_end);
         let kind_text = match &self.kind {
-            SegmentErrorKind::Range => "Offset out of range",
-            SegmentErrorKind::Inverted => "Begin after end",
-            SegmentErrorKind::InHeader => "Begins within HEADER",
-            SegmentErrorKind::Truncated => "Segment exceeds file size",
+            SegmentErrorKind::Range => "Offset out of range".to_string(),
+            SegmentErrorKind::Inverted => "Begin after end".to_string(),
+            SegmentErrorKind::InHeader => "Begins within HEADER".to_string(),
+            SegmentErrorKind::Truncated(size) => {
+                format!("Segment exceeds file size ({size} bytes)")
+            }
         };
         write!(
             f,

@@ -1622,7 +1622,7 @@ where
         .chain(
             self.nonstandard_keywords
                 .iter()
-                .map(|(k, v)| (k.as_ref().to_string(), v.clone())),
+                .map(|(k, v)| (k.to_string(), v.clone())),
         )
     }
 
@@ -2637,7 +2637,7 @@ where
                     for (k, v) in nonstd {
                         if let Some(j) = ps
                             .iter()
-                            .position(|p| p.as_ref().is_match(k.as_ref().as_ref()))
+                            .position(|p| p.as_ref().is_match(AsRef::<str>::as_ref(&k)))
                         {
                             meas_nonstds[j].push((k, v));
                         } else {

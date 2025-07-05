@@ -820,7 +820,7 @@ impl OtherSegment {
 
         let begin_res = parse_one(bs0, true);
         let end_res = parse_one(bs1, false);
-        let file_len = st.file_len.try_into().ok();
+        let file_len = Some(st.file_len.into());
         begin_res
             .zip(end_res)
             .mult_errors_into()
@@ -911,11 +911,11 @@ impl<T> Segment<T> {
                     // file length is optional because it might exceed the max
                     // of whatever type is used in this segment, in which case
                     // truncation is impossible.
-                    if let Some(x) = file_len {
-                        if new_end >= x && !force_truncate {
+                    if let Some(fl) = file_len {
+                        if new_end >= fl && !force_truncate {
                             Err(err(SegmentErrorKind::Truncated))
                         } else {
-                            Ok(new_end.min(x))
+                            Ok(new_end.min(fl))
                         }
                     } else {
                         Ok(new_end)

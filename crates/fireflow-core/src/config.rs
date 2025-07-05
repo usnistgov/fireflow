@@ -13,14 +13,14 @@ use crate::header::Version;
 use crate::segment::*;
 use crate::text::byteord::ByteOrd;
 use crate::validated::datepattern::DatePattern;
-use crate::validated::keys::{KeyPatterns, KeyString, NonStdMeasPattern};
+use crate::validated::keys::{KeyString, NonStdKeyPatterns, NonStdMeasPattern, StdKeyPatterns};
 use crate::validated::other_width::OtherWidth;
 use crate::validated::shortname::*;
 use crate::validated::textdelim::TEXTDelim;
 
 use derive_more::{Display, FromStr};
 use regex::Regex;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// Instructions for reading the DATA segment.
 #[derive(Default, Clone)]
@@ -321,42 +321,52 @@ pub struct RawTextReadConfig {
     /// is '%d-%b-%Y'.
     pub date_pattern: Option<DatePattern>,
 
-    /// Remove standard or nonstandard keys from TEXT.
+    /// Remove standard keys from TEXT.
     ///
-    /// Comparisons will be case-insensitive. This takes precedence over
-    /// ['rename_keys'], ['promote_to_standard'], and ['demote_from_standard'].
-    pub ignore_keys: KeyPatterns,
+    /// Comparisons will be case-insensitive. Members of this list should not
+    /// try to match the leading "$" as this is implied.
+    ///
+    /// This will be applied before ['rename_standard_keys'],
+    /// ['promote_to_standard'], and ['demote_from_standard'].
+    pub ignore_standard_keys: StdKeyPatterns,
 
-    /// Rename keys in TEXT.
+    /// Rename standard keys in TEXT.
     ///
     /// Keys matching the first part of the pair will be replaced by the second.
-    /// Comparisons are case-insensitive. Keys are renamed before
-    /// ['promote_to_standard'] and ['demote_from_standard'] are applied.
+    /// The leading "$" is implied so keys in this table should not include it.
+    /// Comparisons are case-insensitive.
+    ///
+    /// Keys are renamed before ['promote_to_standard'] and
+    /// ['demote_from_standard'] are applied.
     // TODO ensure src and dest are different
-    pub rename_keys: HashMap<KeyString, KeyString>,
+    pub rename_standard_keys: HashMap<KeyString, KeyString>,
 
     /// A list of nonstandard keywords to be "promoted" to standard.
     ///
     /// All matching keywords will be prefixed with a "$" and added to the pool
     /// of standard keywords to be processed downstream when deriving data
     /// layouts, measurement metadata, etc. Matching will be case-insensitive.
-    pub promote_to_standard: KeyPatterns,
+    pub promote_to_standard: NonStdKeyPatterns,
 
     /// A list of standard keywords to be "demoted" to non-standard.
     ///
-    /// Only keywords starting with "$" will be considered. Matching keywords
-    /// will be taken out of the pool of standard keywords ("$" prefix will be
-    /// removed) and not be considered as such when processed downstream.
-    /// Matching will be case-insensitive.
+    /// Only keywords starting with "$" will be considered. The "$" is implied
+    /// when matching, so members of this list should not include it. Matching
+    /// will be case-insensitive.
+    ///
+    /// Matching keywords will be taken out of the pool of standard keywords
+    /// ("$" prefix will be removed) and not be considered as such when
+    /// processed downstream.
     ///
     /// Useful for surgically correcting "pseudostandard" keywords without
     /// using ['allow_pseudostandard'], which is a crude sledgehammer.
-    pub demote_from_standard: KeyPatterns,
+    pub demote_from_standard: StdKeyPatterns,
 
-    /// Replace values of the given keys.
+    /// Replace values of standard keys.
     ///
-    /// Keys will be matched in case-insensitive manner.
-    pub replace_key_values: HashMap<KeyString, String>,
+    /// Keys will be matched in case-insensitive manner. The leading "$" is
+    /// implied, so keys in this table should not include it.
+    pub replace_standard_key_values: HashMap<KeyString, String>,
 }
 
 /// Instructions for validating time-related properties.

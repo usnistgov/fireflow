@@ -830,9 +830,9 @@ fn raw_config(
         date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
         promote_to_standard: pss,
         demote_from_standard: dss,
-        ignore_keys: iss,
-        rename_keys: rss,
-        replace_key_values: rvs,
+        ignore_standard_keys: iss,
+        rename_standard_keys: rss,
+        replace_standard_key_values: rvs,
     };
     Ok(out)
 }
@@ -3403,7 +3403,7 @@ macro_rules! shared_meas_get_set {
                         .common
                         .nonstandard_keywords
                         .iter()
-                        .map(|(k, v)| (k.as_ref().to_string(), v.clone()))
+                        .map(|(k, v)| (k.to_string(), v.clone()))
                         .collect()
                 }
 
@@ -3754,11 +3754,17 @@ fn str_to_date_pat(s: String) -> PyResult<DatePattern> {
         .map_err(|e| PyreflowException::new_err(e.to_string()))
 }
 
-fn strs_to_key_patterns(lits: Vec<String>, pats: Vec<String>) -> PyResult<KeyPatterns> {
+fn strs_to_key_patterns<L, P>(lits: Vec<String>, pats: Vec<String>) -> PyResult<KeyPatterns<L, P>>
+where
+    L: std::str::FromStr,
+    P: std::str::FromStr,
+    L::Err: std::fmt::Display,
+    P::Err: std::fmt::Display,
+{
     let mut ls = KeyPatterns::try_from_literals(lits)
-        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+        .map_err(|e: L::Err| PyreflowException::new_err(e.to_string()))?;
     let ps = KeyPatterns::try_from_patterns(pats)
-        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+        .map_err(|e: P::Err| PyreflowException::new_err(e.to_string()))?;
     ls.extend(ps);
     Ok(ls)
 }

@@ -13,11 +13,14 @@ use crate::header::Version;
 use crate::segment::*;
 use crate::text::byteord::ByteOrd;
 use crate::validated::datepattern::DatePattern;
-use crate::validated::keys::{KeyString, NonStdKey, NonStdMeasPattern, StdKey};
+use crate::validated::keys;
 use crate::validated::other_width::OtherWidth;
-use crate::validated::pattern::TimePattern;
 use crate::validated::shortname::*;
 use crate::validated::textdelim::TEXTDelim;
+
+use derive_more::{Display, FromStr};
+use regex::Regex;
+use std::collections::HashMap;
 
 /// Instructions for reading the DATA segment.
 #[derive(Default, Clone)]
@@ -155,6 +158,13 @@ pub struct HeaderConfig {
     ///
     /// This flag will treat any negative offset as a 0.
     pub allow_negative: bool,
+
+    /// If true, truncate offsets that exceed the end of the file.
+    ///
+    /// In many cases, such offsets likely mean the file was incompletely
+    /// written, which is a larger problem itself. Setting this to true will at
+    /// least allow these files to be read.
+    pub truncate_offsets: bool,
 }
 
 /// Instructions for reading the TEXT segment as raw key/value pairs.
@@ -311,41 +321,62 @@ pub struct RawTextReadConfig {
     /// is '%d-%b-%Y'.
     pub date_pattern: Option<DatePattern>,
 
-    /// Remove standard or nonstandard keys from TEXT.
+    /// Remove standard keys from TEXT.
     ///
-    /// Comparisons will be case-insensitive. This takes precedence over
-    /// ['rename_keys'], ['promote_to_standard'], and ['demote_from_standard'].
-    pub ignore_keys: Vec<KeyString>,
+    /// Comparisons will be case-insensitive. Members of this list should not
+    /// try to match the leading "$" as this is implied.
+    ///
+    /// This will be applied before ['rename_standard_keys'],
+    /// ['promote_to_standard'], and ['demote_from_standard'].
+    pub ignore_standard_keys: keys::StdKeyPatterns,
 
-    /// Rename keys in TEXT.
+    /// Rename standard keys in TEXT.
     ///
     /// Keys matching the first part of the pair will be replaced by the second.
-    /// Comparisons are case-insensitive. Keys are renamed before
-    /// ['promote_to_standard'] and ['demote_from_standard'] are applied.
-    pub rename_keys: Vec<(KeyString, KeyString)>,
+    /// The leading "$" is implied so keys in this table should not include it.
+    /// Comparisons are case-insensitive.
+    ///
+    /// Keys are renamed before ['promote_to_standard'] and
+    /// ['demote_from_standard'] are applied.
+    // TODO ensure src and dest are different
+    pub rename_standard_keys: HashMap<keys::KeyString, keys::KeyString>,
 
     /// A list of nonstandard keywords to be "promoted" to standard.
     ///
     /// All matching keywords will be prefixed with a "$" and added to the pool
     /// of standard keywords to be processed downstream when deriving data
     /// layouts, measurement metadata, etc. Matching will be case-insensitive.
-    pub promote_to_standard: Vec<NonStdKey>,
+    pub promote_to_standard: keys::NonStdKeyPatterns,
 
     /// A list of standard keywords to be "demoted" to non-standard.
     ///
-    /// Only keywords starting with "$" will be considered. Matching keywords
-    /// will be taken out of the pool of standard keywords ("$" prefix will be
-    /// removed) and not be considered as such when processed downstream.
-    /// Matching will be case-insensitive.
+    /// Only keywords starting with "$" will be considered. The "$" is implied
+    /// when matching, so members of this list should not include it. Matching
+    /// will be case-insensitive.
+    ///
+    /// Matching keywords will be taken out of the pool of standard keywords
+    /// ("$" prefix will be removed) and not be considered as such when
+    /// processed downstream.
     ///
     /// Useful for surgically correcting "pseudostandard" keywords without
     /// using ['allow_pseudostandard'], which is a crude sledgehammer.
-    pub demote_from_standard: Vec<StdKey>,
+    pub demote_from_standard: keys::StdKeyPatterns,
 
-    /// Replace values of the given keys.
+    /// Replace values of standard keys.
     ///
-    /// Keys will be matched in case-insensitive manner.
-    pub replace_key_values: Vec<(KeyString, String)>,
+    /// Keys will be matched in case-insensitive manner. The leading "$" is
+    /// implied, so keys in this table should not include it.
+    pub replace_standard_key_values: HashMap<keys::KeyString, String>,
+
+    /// Append standard key/value pairs to those read from TEXT.
+    ///
+    /// This will be applied at the very end of TEXT processing, so no other
+    /// key/value transformations will apply to it; they will be appended
+    /// literally as-is.
+    ///
+    /// This will raise a warning or error if any keys are already present,
+    /// and existing value will not be overwritten in such cases.
+    pub append_standard_keywords: HashMap<keys::StdKey, String>,
 }
 
 /// Instructions for validating time-related properties.
@@ -490,8 +521,7 @@ pub struct StdTextReadConfig {
     /// This will matching something like 'P7FOO' which would be 'FOO' for
     /// measurement 7. These may be used when converting between different
     /// FCS versions.
-    pub nonstandard_measurement_pattern: Option<NonStdMeasPattern>,
-    // TODO add repair stuff
+    pub nonstandard_measurement_pattern: Option<keys::NonStdMeasPattern>,
 }
 
 /// Configuration options for both reading and writing
@@ -499,4 +529,48 @@ pub struct StdTextReadConfig {
 pub struct SharedConfig {
     /// If true, all warnings are considered to be fatal errors.
     pub warnings_are_errors: bool,
+}
+
+/// A pattern to match the $PnN for the time measurement.
+///
+/// Defaults to matching "TIME" or "Time".
+#[derive(Clone, FromStr, Display)]
+pub struct TimePattern(pub Regex);
+
+impl Default for TimePattern {
+    fn default() -> Self {
+        Self(Regex::new("^(TIME|Time)$").unwrap())
+    }
+}
+
+/// State pertinent to reading a file
+pub struct ReadState<'a, C> {
+    pub(crate) file_len: u64,
+    pub(crate) conf: &'a C,
+}
+
+impl<'a, C> ReadState<'a, C> {
+    pub(crate) fn init(f: &std::fs::File, conf: &'a C) -> std::io::Result<Self> {
+        f.metadata().map(|m| Self {
+            file_len: m.len(),
+            conf,
+        })
+    }
+
+    pub(crate) fn map_inner<D, F>(&self, f: F) -> ReadState<D>
+    where
+        F: FnOnce(&C) -> &D,
+    {
+        ReadState {
+            file_len: self.file_len,
+            conf: f(self.conf),
+        }
+    }
+
+    pub(crate) fn replace_inner<D>(&self, conf: &'a D) -> ReadState<D> {
+        ReadState {
+            file_len: self.file_len,
+            conf,
+        }
+    }
 }

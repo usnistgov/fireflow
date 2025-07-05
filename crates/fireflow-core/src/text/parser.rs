@@ -1,7 +1,7 @@
+use crate::config::TimePattern;
 use crate::core::*;
 use crate::error::*;
 use crate::validated::keys::*;
-use crate::validated::pattern::*;
 use crate::validated::shortname::*;
 
 use super::byteord::*;

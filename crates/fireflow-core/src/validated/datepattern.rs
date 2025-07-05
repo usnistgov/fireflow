@@ -3,6 +3,8 @@ use std::fmt;
 use std::str::FromStr;
 
 /// A String that matches a date.
+///
+/// To be used when parsing date using ['NaiveDate::parse_from_str'].
 #[derive(Clone, Debug, AsRef, Display)]
 #[as_ref(str)]
 pub struct DatePattern(String);

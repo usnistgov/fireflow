@@ -3,7 +3,6 @@ use fireflow_core::config;
 use fireflow_core::error::*;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::keys::NonStdMeasPattern;
-use fireflow_core::validated::pattern::*;
 
 use clap::{arg, value_parser, Command};
 use serde::ser::Serialize;
@@ -358,7 +357,7 @@ fn main() -> Result<(), ()> {
             }
 
             if let Some(m) = sargs.get_one::<String>("time-name").cloned() {
-                conf.time.pattern = Some(m.parse::<TimePattern>().unwrap());
+                conf.time.pattern = Some(m.parse::<config::TimePattern>().unwrap());
             }
 
             conf.time.allow_missing = sargs.get_flag("ensure-time");

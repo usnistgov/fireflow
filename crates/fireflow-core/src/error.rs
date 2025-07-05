@@ -134,13 +134,13 @@ impl<V, W> Terminal<V, W> {
         }
     }
 
-    pub fn warnings_to_errors<T, E>(self, reason: T) -> TerminalResult<V, W, E, T>
+    pub fn warnings_to_errors<T, E, F>(self, reason: T, f: F) -> TerminalResult<V, W, E, T>
     where
-        E: From<W>,
+        F: Fn(W) -> E,
     {
         match NonEmpty::from_vec(self.warnings) {
             None => Ok(Terminal::new(self.value)),
-            Some(es) => Err(TerminalFailure::new(es.map(|e| e.into()), reason)),
+            Some(ws) => Err(TerminalFailure::new(ws.map(f), reason)),
         }
     }
 
@@ -578,12 +578,12 @@ impl<V, W, E> Tentative<V, W, E> {
         }
     }
 
-    pub fn terminate_nowarn<T>(self, reason: T) -> TerminalResult<V, W, E, T>
+    pub fn terminate_nowarn<F, T>(self, reason: T, f: F) -> TerminalResult<V, W, E, T>
     where
-        E: From<W>,
+        F: Fn(W) -> E,
     {
         self.terminate_inner(reason)
-            .and_then(|(t, r)| t.warnings_to_errors(r))
+            .and_then(|(t, r)| t.warnings_to_errors(r, f))
     }
 
     pub fn zip<A>(self, a: Tentative<A, W, E>) -> Tentative<(V, A), W, E> {
@@ -886,12 +886,11 @@ impl<W, E> DeferredFailure<(), W, E> {
         }
     }
 
-    pub fn terminate_nowarn<T>(mut self, reason: T) -> TerminalFailure<W, E, T>
+    pub fn terminate_nowarn<T, F>(mut self, reason: T, f: F) -> TerminalFailure<W, E, T>
     where
-        E: From<W>,
+        F: Fn(W) -> E,
     {
-        let ws = self.warnings.into_iter().map(|e| e.into());
-        self.errors.extend(ws);
+        self.errors.extend(self.warnings.into_iter().map(f));
         TerminalFailure {
             warnings: vec![],
             errors: self.errors,
@@ -1237,10 +1236,10 @@ impl<V, P, W, E> PassthruExt for PassthruResult<V, P, W, E> {
     }
 }
 
-pub trait DeferredExt: Sized {
-    type V;
-    type E;
-    type W;
+pub trait DeferredExt: Sized + PassthruExt {
+    // type V;
+    // type E;
+    // type W;
 
     fn def_zip<V1>(
         self,
@@ -1264,20 +1263,25 @@ pub trait DeferredExt: Sized {
 
     fn def_terminate<T>(self, reason: T) -> TerminalResult<Self::V, Self::W, Self::E, T>;
 
-    fn def_terminate_nowarn<T>(self, reason: T) -> TerminalResult<Self::V, Self::W, Self::E, T>
+    fn def_terminate_nowarn<T, F>(
+        self,
+        reason: T,
+        f: F,
+    ) -> TerminalResult<Self::V, Self::W, Self::E, T>
     where
-        Self::E: From<Self::W>;
+        F: Fn(Self::W) -> Self::E;
 
-    fn def_terminate_maybe_warn<T>(
+    fn def_terminate_maybe_warn<T, F>(
         self,
         reason: T,
         warn_to_error: bool,
+        f: F,
     ) -> TerminalResult<Self::V, Self::W, Self::E, T>
     where
-        Self::E: From<Self::W>,
+        F: Fn(Self::W) -> Self::E,
     {
         if warn_to_error {
-            self.def_terminate_nowarn(reason)
+            self.def_terminate_nowarn(reason, f)
         } else {
             self.def_terminate(reason)
         }
@@ -1287,10 +1291,6 @@ pub trait DeferredExt: Sized {
 }
 
 impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
-    type V = V;
-    type E = E;
-    type W = W;
-
     fn def_zip<V1>(
         self,
         a: DeferredResult<V1, Self::W, Self::E>,
@@ -1331,13 +1331,17 @@ impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
         }
     }
 
-    fn def_terminate_nowarn<T>(self, reason: T) -> TerminalResult<Self::V, Self::W, Self::E, T>
+    fn def_terminate_nowarn<T, F>(
+        self,
+        reason: T,
+        f: F,
+    ) -> TerminalResult<Self::V, Self::W, Self::E, T>
     where
-        Self::E: From<Self::W>,
+        F: Fn(W) -> E,
     {
         match self {
-            Ok(t) => t.terminate_nowarn(reason),
-            Err(e) => Err(e.terminate_nowarn(reason)),
+            Ok(t) => t.terminate_nowarn(reason, f),
+            Err(e) => Err(e.terminate_nowarn(reason, f)),
         }
     }
 

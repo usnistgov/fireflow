@@ -7548,6 +7548,7 @@ pub enum StdDatasetFromRawError {
     TEXT(Box<StdTEXTFromRawError>),
     Dataframe(ReadDataframeError),
     Offsets(LookupTEXTOffsetsError),
+    Warn(StdDatasetFromRawWarning),
 }
 
 #[derive(From, Display)]
@@ -7800,6 +7801,7 @@ pub enum LookupAndReadDataAnalysisError {
     Offsets(LookupTEXTOffsetsError),
     Layout(RawToLayoutError),
     Dataframe(ReadDataframeError),
+    Warn(LookupAndReadDataAnalysisWarning),
 }
 
 #[derive(From, Display)]

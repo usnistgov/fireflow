@@ -44,7 +44,9 @@ pub fn fcs_read_raw_text(
 ) -> IOTerminalResult<RawTEXTOutput, ParseRawTEXTWarning, HeaderOrRawError, RawTEXTFailure> {
     read_fcs_raw_text_inner(p, conf)
         .def_map_value(|(x, _, _)| x)
-        .def_terminate(RawTEXTFailure)
+        .def_terminate_maybe_warn(RawTEXTFailure, conf.warnings_are_errors, |w| {
+            ImpureError::Pure(w.into())
+        })
 }
 
 /// Read HEADER and standardized TEXT from an FCS file.
@@ -60,7 +62,9 @@ pub fn fcs_read_std_text(
                 .def_inner_into()
                 .def_errors_liftio()
         })
-        .def_terminate(StdTEXTFailure)
+        .def_terminate_maybe_warn(StdTEXTFailure, conf.raw.warnings_are_errors, |w| {
+            ImpureError::Pure(StdTEXTError::from(w))
+        })
 }
 
 /// Read dataset from FCS file using standardized TEXT.
@@ -83,7 +87,11 @@ pub fn fcs_read_raw_dataset(
             .def_map_value(|dataset| RawDatasetOutput { text: raw, dataset })
             .def_io_into()
         })
-        .def_terminate(RawDatasetFailure)
+        .def_terminate_maybe_warn(
+            RawDatasetFailure,
+            conf.standard.raw.warnings_are_errors,
+            |w| ImpureError::Pure(RawDatasetError::from(w)),
+        )
 }
 
 /// Read dataset from FCS file using raw key/value pairs from TEXT.
@@ -97,7 +105,11 @@ pub fn fcs_read_std_dataset(
             raw.into_std_dataset(&mut h, &st.replace_inner(conf))
                 .def_io_into()
         })
-        .def_terminate(StdDatasetFailure)
+        .def_terminate_maybe_warn(
+            StdDatasetFailure,
+            conf.standard.raw.warnings_are_errors,
+            |w| ImpureError::Pure(StdDatasetError::from(w)),
+        )
 }
 
 /// Read DATA/ANALYSIS in FCS file using provided keywords.
@@ -132,7 +144,11 @@ pub fn fcs_read_raw_dataset_with_keywords(
                 &st,
             )
         })
-        .def_terminate(RawDatasetWithKwsFailure)
+        .def_terminate_maybe_warn(
+            RawDatasetWithKwsFailure,
+            conf.standard.raw.warnings_are_errors,
+            |w| ImpureError::Pure(LookupAndReadDataAnalysisError::from(w)),
+        )
 }
 
 /// Read DATA/ANALYSIS in FCS file using provided keywords to be standardized.
@@ -176,7 +192,11 @@ pub fn fcs_read_std_dataset_with_keywords(
                 pseudostandard: kws.std,
             })
         })
-        .def_terminate(StdDatasetWithKwsFailure)
+        .def_terminate_maybe_warn(
+            StdDatasetWithKwsFailure,
+            conf.standard.raw.warnings_are_errors,
+            |w| ImpureError::Pure(StdDatasetFromRawError::from(w)),
+        )
 }
 
 /// Output from parsing the TEXT segment.
@@ -341,6 +361,7 @@ pub enum StdTEXTWarning {
 pub enum StdTEXTError {
     Raw(HeaderOrRawError),
     Std(StdTEXTFromRawError),
+    Warn(StdTEXTWarning),
 }
 
 #[derive(From, Display)]
@@ -353,6 +374,7 @@ pub enum StdDatasetWarning {
 pub enum StdDatasetError {
     Raw(HeaderOrRawError),
     Std(StdDatasetFromRawError),
+    Warn(StdDatasetWarning),
 }
 
 #[derive(From, Display)]
@@ -365,6 +387,7 @@ pub enum RawDatasetWarning {
 pub enum RawDatasetError {
     Raw(HeaderOrRawError),
     Read(LookupAndReadDataAnalysisError),
+    Warn(RawDatasetWarning),
 }
 
 #[derive(From, Display)]
@@ -380,6 +403,7 @@ pub enum ParseRawTEXTWarning {
 pub enum HeaderOrRawError {
     Header(HeaderError),
     RawTEXT(ParseRawTEXTError),
+    Warn(ParseRawTEXTWarning),
 }
 
 #[derive(From, Display)]

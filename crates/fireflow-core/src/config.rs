@@ -28,9 +28,8 @@ pub struct DataReadConfig {
     /// Instructions to read and standardize TEXT.
     pub standard: StdTextReadConfig,
 
-    /// Shared configuration options
-    pub shared: SharedConfig,
-
+    // /// Shared configuration options
+    // pub shared: SharedConfig,
     /// Configuration to make reader for DATA and ANALYSIS
     pub reader: ReaderConfig,
 }
@@ -87,9 +86,8 @@ pub struct WriteConfig {
     /// any lossy conversion will halt immediately and return an error to the
     /// user.
     pub disallow_lossy_conversions: bool,
-
-    /// Shared configuration options
-    pub shared: SharedConfig,
+    // /// Shared configuration options
+    // pub shared: SharedConfig,
 }
 
 #[derive(Default, Clone)]
@@ -377,6 +375,9 @@ pub struct RawTextReadConfig {
     /// This will raise a warning or error if any keys are already present,
     /// and existing value will not be overwritten in such cases.
     pub append_standard_keywords: HashMap<keys::StdKey, String>,
+
+    /// If true, all warnings will become fatal errors.
+    pub warnings_are_errors: bool,
 }
 
 /// Instructions for validating time-related properties.
@@ -524,12 +525,12 @@ pub struct StdTextReadConfig {
     pub nonstandard_measurement_pattern: Option<keys::NonStdMeasPattern>,
 }
 
-/// Configuration options for both reading and writing
-#[derive(Default, Clone)]
-pub struct SharedConfig {
-    /// If true, all warnings are considered to be fatal errors.
-    pub warnings_are_errors: bool,
-}
+// /// Configuration options for both reading and writing
+// #[derive(Default, Clone)]
+// pub struct SharedConfig {
+//     /// If true, all warnings are considered to be fatal errors.
+//     pub warnings_are_errors: bool,
+// }
 
 /// A pattern to match the $PnN for the time measurement.
 ///

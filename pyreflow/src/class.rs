@@ -186,6 +186,7 @@ fn py_fcs_read_header(
         rename_standard_keys=vec![],
         replace_standard_key_values=vec![],
         append_standard_keywords=vec![],
+        warnings_are_errors=false,
     )
 )]
 fn py_fcs_read_raw_text(
@@ -232,6 +233,7 @@ fn py_fcs_read_raw_text(
     rename_standard_keys: Vec<(String, String)>,
     replace_standard_key_values: Vec<(String, String)>,
     append_standard_keywords: Vec<(String, String)>,
+    warnings_are_errors: bool,
 ) -> PyResult<(PyVersion, Bound<'_, PyDict>, Bound<'_, PyDict>, PyParseData)> {
     let header = header_config(
         version_override,
@@ -276,6 +278,7 @@ fn py_fcs_read_raw_text(
         rename_standard_keys,
         replace_standard_key_values,
         append_standard_keywords,
+        warnings_are_errors,
     )?;
 
     let raw: RawTEXTOutput =
@@ -341,6 +344,7 @@ fn py_fcs_read_raw_text(
         rename_standard_keys=vec![],
         replace_standard_key_values=vec![],
         append_standard_keywords=vec![],
+        warnings_are_errors=false,
 
         disallow_deprecated=false,
         time_ensure=false,
@@ -402,6 +406,7 @@ fn py_fcs_read_std_text(
     rename_standard_keys: Vec<(String, String)>,
     replace_standard_key_values: Vec<(String, String)>,
     append_standard_keywords: Vec<(String, String)>,
+    warnings_are_errors: bool,
 
     disallow_deprecated: bool,
     time_ensure: bool,
@@ -461,6 +466,7 @@ fn py_fcs_read_std_text(
         rename_standard_keys,
         replace_standard_key_values,
         append_standard_keywords,
+        warnings_are_errors,
     )?;
 
     let conf = std_config(
@@ -550,6 +556,7 @@ fn py_fcs_read_std_text(
         rename_standard_keys=vec![],
         replace_standard_key_values=vec![],
         append_standard_keywords=vec![],
+        warnings_are_errors=false,
 
         disallow_deprecated=false,
         time_ensure=false,
@@ -568,7 +575,6 @@ fn py_fcs_read_std_text(
 
         allow_uneven_event_width=false,
         allow_tot_mismatch=false,
-        warnings_are_errors=false
     )
 )]
 fn py_fcs_read_std_dataset(
@@ -615,6 +621,7 @@ fn py_fcs_read_std_dataset(
     rename_standard_keys: Vec<(String, String)>,
     replace_standard_key_values: Vec<(String, String)>,
     append_standard_keywords: Vec<(String, String)>,
+    warnings_are_errors: bool,
 
     disallow_deprecated: bool,
     time_ensure: bool,
@@ -633,7 +640,6 @@ fn py_fcs_read_std_dataset(
 
     allow_uneven_event_width: bool,
     allow_tot_mismatch: bool,
-    warnings_are_errors: bool,
 ) -> PyResult<(Bound<'_, PyAny>, PyParseData, Bound<'_, PyDict>)> {
     let header = header_config(
         version_override,
@@ -678,6 +684,7 @@ fn py_fcs_read_std_dataset(
         rename_standard_keys,
         replace_standard_key_values,
         append_standard_keywords,
+        warnings_are_errors,
     )?;
 
     let standard = std_config(
@@ -698,12 +705,7 @@ fn py_fcs_read_std_dataset(
         integer_byteord_override,
     )?;
 
-    let conf = data_config(
-        standard,
-        allow_uneven_event_width,
-        allow_tot_mismatch,
-        warnings_are_errors,
-    );
+    let conf = data_config(standard, allow_uneven_event_width, allow_tot_mismatch);
 
     let out: StdDatasetOutput =
         fcs_read_std_dataset(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
@@ -797,6 +799,7 @@ fn raw_config(
     rename_standard_keys: Vec<(String, String)>,
     replace_standard_key_values: Vec<(String, String)>,
     append_standard_keywords: Vec<(String, String)>,
+    warnings_are_errors: bool,
 ) -> PyResult<RawTextReadConfig> {
     let pss = strs_to_key_patterns(promote_keys_to_standard, promote_patterns_to_standard)?;
     let dss = strs_to_key_patterns(demote_keys_from_standard, demote_patterns_from_standard)?;
@@ -850,6 +853,7 @@ fn raw_config(
         rename_standard_keys: rss,
         replace_standard_key_values: rvs,
         append_standard_keywords: ass,
+        warnings_are_errors,
     };
     Ok(out)
 }
@@ -912,13 +916,9 @@ fn data_config(
     standard: StdTextReadConfig,
     allow_uneven_event_width: bool,
     allow_tot_mismatch: bool,
-    warnings_are_errors: bool,
 ) -> DataReadConfig {
     DataReadConfig {
         standard,
-        shared: SharedConfig {
-            warnings_are_errors,
-        },
         reader: ReaderConfig {
             allow_uneven_event_width,
             allow_tot_mismatch,

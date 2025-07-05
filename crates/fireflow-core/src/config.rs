@@ -500,3 +500,34 @@ pub struct SharedConfig {
     /// If true, all warnings are considered to be fatal errors.
     pub warnings_are_errors: bool,
 }
+
+pub struct ReadState<'a, C> {
+    pub(crate) file_len: u64,
+    pub(crate) conf: &'a C,
+}
+
+impl<'a, C> ReadState<'a, C> {
+    pub(crate) fn init(f: &std::fs::File, conf: &'a C) -> std::io::Result<Self> {
+        f.metadata().map(|m| Self {
+            file_len: m.len(),
+            conf,
+        })
+    }
+
+    pub(crate) fn map_inner<D, F>(&self, f: F) -> ReadState<D>
+    where
+        F: FnOnce(&C) -> &D,
+    {
+        ReadState {
+            file_len: self.file_len,
+            conf: f(&self.conf),
+        }
+    }
+
+    pub(crate) fn replace_inner<D>(&self, conf: &'a D) -> ReadState<D> {
+        ReadState {
+            file_len: self.file_len,
+            conf,
+        }
+    }
+}

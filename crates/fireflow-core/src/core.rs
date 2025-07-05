@@ -309,17 +309,17 @@ impl AnyCoreTEXT {
         nonstd: NonStdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
-        conf: &StdTextReadConfig,
+        st: &ReadState<StdTextReadConfig>,
     ) -> DeferredResult<(Self, TEXTOffsets<Option<Tot>>), StdTEXTFromRawWarning, StdTEXTFromRawError>
     {
         match version {
-            Version::FCS2_0 => CoreTEXT2_0::lookup(std, nonstd, data, analysis, conf)
+            Version::FCS2_0 => CoreTEXT2_0::lookup(std, nonstd, data, analysis, st)
                 .def_map_value(|(x, y)| (x.into(), y.into_common())),
-            Version::FCS3_0 => CoreTEXT3_0::lookup(std, nonstd, data, analysis, conf)
+            Version::FCS3_0 => CoreTEXT3_0::lookup(std, nonstd, data, analysis, st)
                 .def_map_value(|(x, y)| (x.into(), y.into_common())),
-            Version::FCS3_1 => CoreTEXT3_1::lookup(std, nonstd, data, analysis, conf)
+            Version::FCS3_1 => CoreTEXT3_1::lookup(std, nonstd, data, analysis, st)
                 .def_map_value(|(x, y)| (x.into(), y.into_common())),
-            Version::FCS3_2 => CoreTEXT3_2::lookup(std, nonstd, data, analysis, conf)
+            Version::FCS3_2 => CoreTEXT3_2::lookup(std, nonstd, data, analysis, st)
                 .def_map_value(|(x, y)| (x.into(), y.into_common())),
         }
     }
@@ -339,7 +339,7 @@ impl AnyCoreDataset {
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
         other_segs: &[OtherSegment],
-        conf: &DataReadConfig,
+        conf: &ReadState<DataReadConfig>,
     ) -> IODeferredResult<
         (Self, AnyDataSegment, AnyAnalysisSegment),
         StdDatasetFromRawWarning,
@@ -932,18 +932,23 @@ pub trait Versioned {
         kws: &StdKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
-        conf: &DataReadConfig,
+        st: &ReadState<DataReadConfig>,
     ) -> IODeferredResult<
         (FCSDataFrame, Analysis, AnyDataSegment, AnyAnalysisSegment),
         LookupAndReadDataAnalysisWarning,
         LookupAndReadDataAnalysisError,
     > {
-        let layout_res = Self::Layout::lookup_ro(kws, &conf.standard)
+        let layout_res = Self::Layout::lookup_ro(kws, &st.conf.standard)
             .def_inner_into()
             .def_errors_liftio();
-        let offset_res = Self::Offsets::lookup_ro(kws, data_seg, analysis_seg, &conf.standard)
-            .def_inner_into()
-            .def_errors_liftio();
+        let offset_res = Self::Offsets::lookup_ro(
+            kws,
+            data_seg,
+            analysis_seg,
+            &st.map_inner(|conf| &conf.standard),
+        )
+        .def_inner_into()
+        .def_errors_liftio();
         layout_res
             .def_zip(offset_res)
             .def_and_maybe(|(layout, offsets)| {
@@ -952,7 +957,7 @@ pub trait Versioned {
                 };
                 // TODO what if data seg is non empty and layout is empty?
                 let data_res = layout.map_or(Ok(Tentative::new1(FCSDataFrame::default())), |l| {
-                    l.h_read_df(h, offsets.tot(), offsets.data(), &conf.reader)
+                    l.h_read_df(h, offsets.tot(), offsets.data(), &st.conf.reader)
                         .def_warnings_into()
                         .def_map_errors(|e| e.inner_into())
                 });
@@ -1246,14 +1251,14 @@ pub trait VersionedTEXTOffsets: Sized {
         kws: &mut StdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
-        conf: &StdTextReadConfig,
+        conf: &ReadState<StdTextReadConfig>,
     ) -> LookupTEXTOffsetsResult<Self>;
 
     fn lookup_ro(
         kws: &StdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
-        conf: &StdTextReadConfig,
+        conf: &ReadState<StdTextReadConfig>,
     ) -> LookupTEXTOffsetsResult<Self>;
 
     // TODO this doesn't seem necessary
@@ -2723,7 +2728,7 @@ where
         nonstd: NonStdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
-        conf: &StdTextReadConfig,
+        st: &ReadState<StdTextReadConfig>,
     ) -> DeferredResult<
         (Self, <M::Ver as Versioned>::Offsets),
         StdTEXTFromRawWarning,
@@ -2743,6 +2748,8 @@ where
         let _ = kws.remove(&Beginstext::std());
         let _ = kws.remove(&Endstext::std());
 
+        let conf = &st.conf;
+
         // Lookup $PAR first since we need this to get the measurements
         let par_res = Par::lookup_req(kws).def_inner_into();
 
@@ -2751,7 +2758,7 @@ where
         // ANALYSIS, and processing these keywords now will make it easier to
         // determine if TEXT is totally standardized or not.
         let offsets_res =
-            <M::Ver as Versioned>::Offsets::lookup(kws, data, analysis, conf).def_inner_into();
+            <M::Ver as Versioned>::Offsets::lookup(kws, data, analysis, st).def_inner_into();
 
         par_res
             .def_and_maybe(|par| {
@@ -2944,7 +2951,7 @@ where
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
         other_segs: &[OtherSegment],
-        conf: &DataReadConfig,
+        st: &ReadState<DataReadConfig>,
         // TODO wrap this in a nice struct
     ) -> IODeferredResult<
         (Self, AnyDataSegment, AnyAnalysisSegment),
@@ -2957,41 +2964,47 @@ where
         M::Optical: LookupOptical,
         Version: From<M::Ver>,
     {
-        VersionedCoreTEXT::<M>::lookup(kws, nonstd, data_seg, analysis_seg, &conf.standard)
-            .def_map_errors(Box::new)
-            .def_inner_into()
-            .def_errors_liftio()
-            .def_and_maybe(|(text, offsets)| {
-                let or = OthersReader { segs: other_segs };
-                let ar = AnalysisReader {
-                    seg: offsets.analysis(),
-                };
-                // TODO what happens if the layout is empty but the segment
-                // isn't?
-                let data_res = text.layout.as_ref_opt().map_or(
-                    Ok(Tentative::new1(FCSDataFrame::default())),
-                    |l: &<M::Ver as Versioned>::Layout| {
-                        l.h_read_df(h, offsets.tot(), offsets.data(), &conf.reader)
-                            .def_warnings_into()
-                            .def_map_errors(|e| e.inner_into())
-                    },
-                );
-                let analysis_res = ar.h_read(h).into_deferred();
-                let others_res = or.h_read(h).into_deferred();
-                data_res.def_zip3(analysis_res, others_res).def_map_value(
-                    |(data, analysis, others)| {
-                        let c = Core {
-                            metaroot: text.metaroot,
-                            measurements: text.measurements,
-                            layout: text.layout,
-                            data,
-                            analysis,
-                            others,
-                        };
-                        (c, offsets.data(), offsets.analysis())
-                    },
-                )
-            })
+        VersionedCoreTEXT::<M>::lookup(
+            kws,
+            nonstd,
+            data_seg,
+            analysis_seg,
+            &st.map_inner(|conf| &conf.standard),
+        )
+        .def_map_errors(Box::new)
+        .def_inner_into()
+        .def_errors_liftio()
+        .def_and_maybe(|(text, offsets)| {
+            let or = OthersReader { segs: other_segs };
+            let ar = AnalysisReader {
+                seg: offsets.analysis(),
+            };
+            // TODO what happens if the layout is empty but the segment
+            // isn't?
+            let data_res = text.layout.as_ref_opt().map_or(
+                Ok(Tentative::new1(FCSDataFrame::default())),
+                |l: &<M::Ver as Versioned>::Layout| {
+                    l.h_read_df(h, offsets.tot(), offsets.data(), &st.conf.reader)
+                        .def_warnings_into()
+                        .def_map_errors(|e| e.inner_into())
+                },
+            );
+            let analysis_res = ar.h_read(h).into_deferred();
+            let others_res = or.h_read(h).into_deferred();
+            data_res
+                .def_zip3(analysis_res, others_res)
+                .def_map_value(|(data, analysis, others)| {
+                    let c = Core {
+                        metaroot: text.metaroot,
+                        measurements: text.measurements,
+                        layout: text.layout,
+                        data,
+                        analysis,
+                        others,
+                    };
+                    (c, offsets.data(), offsets.analysis())
+                })
+        })
     }
 
     /// Write this dataset (HEADER+TEXT+DATA+ANALYSIS+OTHER) to a handle
@@ -6118,7 +6131,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
         kws: &mut StdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
-        _: &StdTextReadConfig,
+        _: &ReadState<StdTextReadConfig>,
     ) -> LookupTEXTOffsetsResult<Self> {
         Ok(Tot::remove_metaroot_opt(kws)
             .map_or_else(
@@ -6139,7 +6152,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
         kws: &StdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
-        _: &StdTextReadConfig,
+        _: &ReadState<StdTextReadConfig>,
     ) -> LookupTEXTOffsetsResult<Self> {
         Ok(Tot::get_metaroot_opt(kws)
             .map_or_else(
@@ -6185,27 +6198,23 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         kws: &mut StdKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
-        conf: &StdTextReadConfig,
+        st: &ReadState<StdTextReadConfig>,
     ) -> LookupTEXTOffsetsResult<Self> {
-        let allow_mismatch = conf.allow_header_text_offset_mismatch;
-        let allow_missing = conf.allow_missing_required_offsets;
         let tot_res = Tot::remove_metaroot_req(kws).into_deferred();
         let data_res = KeyedReqSegment::remove_or(
             kws,
-            conf.data,
+            st.conf.data,
             data_seg,
-            allow_mismatch,
-            allow_missing,
-            conf.raw.ignore_text_data_offsets,
+            st.conf.raw.ignore_text_data_offsets,
+            st,
         )
         .def_inner_into();
         let analysis_res = KeyedReqSegment::remove_or(
             kws,
-            conf.analysis,
+            st.conf.analysis,
             analysis_seg,
-            allow_mismatch,
-            allow_missing,
-            conf.raw.ignore_text_analysis_offsets,
+            st.conf.raw.ignore_text_analysis_offsets,
+            st,
         )
         .def_inner_into();
         tot_res
@@ -6224,27 +6233,24 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         kws: &StdKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
-        conf: &StdTextReadConfig,
+        st: &ReadState<StdTextReadConfig>,
     ) -> LookupTEXTOffsetsResult<Self> {
-        let allow_mismatch = conf.allow_header_text_offset_mismatch;
-        let allow_missing = conf.allow_missing_required_offsets;
+        let conf = &st.conf;
         let tot_res = Tot::get_metaroot_req(kws).into_deferred();
         let data_res = KeyedReqSegment::get_or(
             kws,
             conf.data,
             data_seg,
-            allow_mismatch,
-            allow_missing,
             conf.raw.ignore_text_data_offsets,
+            st,
         )
         .def_inner_into();
         let analysis_res = KeyedReqSegment::get_or(
             kws,
             conf.analysis,
             analysis_seg,
-            allow_mismatch,
-            allow_missing,
             conf.raw.ignore_text_analysis_offsets,
+            st,
         )
         .def_inner_into();
         tot_res
@@ -6288,18 +6294,16 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         kws: &mut StdKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
-        conf: &StdTextReadConfig,
+        st: &ReadState<StdTextReadConfig>,
     ) -> LookupTEXTOffsetsResult<Self> {
-        let allow_mismatch = conf.allow_header_text_offset_mismatch;
-        let allow_missing = conf.allow_missing_required_offsets;
+        let conf = &st.conf;
         let tot_res = Tot::remove_metaroot_req(kws).into_deferred();
         let data_res = KeyedReqSegment::remove_or(
             kws,
             conf.data,
             data_seg,
-            allow_mismatch,
-            allow_missing,
             conf.raw.ignore_text_data_offsets,
+            st,
         )
         .def_inner_into();
         tot_res
@@ -6310,8 +6314,8 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
                         kws,
                         conf.analysis,
                         analysis_seg,
-                        allow_mismatch,
                         conf.raw.ignore_text_analysis_offsets,
+                        st,
                     )
                     .inner_into()
                     .map(|analysis| {
@@ -6330,18 +6334,16 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         kws: &StdKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
-        conf: &StdTextReadConfig,
+        st: &ReadState<StdTextReadConfig>,
     ) -> LookupTEXTOffsetsResult<Self> {
-        let allow_mismatch = conf.allow_header_text_offset_mismatch;
-        let allow_missing = conf.allow_missing_required_offsets;
+        let conf = &st.conf;
         let tot_res = Tot::get_metaroot_req(kws).into_deferred();
         let data_res = KeyedReqSegment::get_or(
             kws,
             conf.data,
             data_seg,
-            allow_mismatch,
-            allow_missing,
             conf.raw.ignore_text_data_offsets,
+            st,
         )
         .def_inner_into();
         tot_res
@@ -6351,8 +6353,8 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
                     kws,
                     conf.analysis,
                     analysis_seg,
-                    allow_mismatch,
                     conf.raw.ignore_text_analysis_offsets,
+                    st,
                 )
                 .inner_into()
                 .map(|analysis| {

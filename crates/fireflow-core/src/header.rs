@@ -1,4 +1,4 @@
-use crate::config::HeaderConfig;
+use crate::config::{HeaderConfig, ReadState};
 use crate::error::*;
 use crate::segment::*;
 use crate::text::keywords::*;
@@ -181,7 +181,7 @@ pub struct Header {
 impl Header {
     pub fn h_read<R: Read>(
         h: &mut BufReader<R>,
-        conf: &HeaderConfig,
+        conf: &ReadState<HeaderConfig>,
     ) -> MultiResult<Self, ImpureError<HeaderError>> {
         h_read_required_header(h, conf).and_then(|(version, text, data, analysis)| {
             [
@@ -219,7 +219,7 @@ impl Header {
 
 fn h_read_required_header<R: Read>(
     h: &mut BufReader<R>,
-    conf: &HeaderConfig,
+    st: &ReadState<HeaderConfig>,
 ) -> MultiResult<
     (
         Version,
@@ -229,13 +229,14 @@ fn h_read_required_header<R: Read>(
     ),
     ImpureError<HeaderError>,
 > {
+    let conf = &st.conf;
     let vers_res = Version::h_read(h)
         .map_err(NonEmpty::new)
         .mult_map_errors(|e| e.map_inner(HeaderError::Version));
     let space_res = h_read_spaces(h).map_err(NonEmpty::new);
-    let text_res = PrimaryTextSegment::h_read_offsets(h, false, conf, conf.text_correction);
-    let data_res = HeaderDataSegment::h_read_offsets(h, true, conf, conf.data_correction);
-    let anal_res = HeaderAnalysisSegment::h_read_offsets(h, true, conf, conf.analysis_correction);
+    let text_res = PrimaryTextSegment::h_read_offsets(h, false, st, conf.text_correction);
+    let data_res = HeaderDataSegment::h_read_offsets(h, true, st, conf.data_correction);
+    let anal_res = HeaderAnalysisSegment::h_read_offsets(h, true, st, conf.analysis_correction);
     let offset_res = text_res
         .mult_zip3(data_res, anal_res)
         .mult_map_errors(|e| e.map_inner(HeaderError::Segment));
@@ -264,10 +265,11 @@ fn h_read_spaces<R: Read>(h: &mut BufReader<R>) -> Result<(), ImpureError<Header
 fn h_read_other_segments<R: Read>(
     h: &mut BufReader<R>,
     text_begin: Uint8Digit,
-    conf: &HeaderConfig,
+    st: &ReadState<HeaderConfig>,
 ) -> MultiResult<Vec<OtherSegment>, ImpureError<HeaderError>> {
     // ASSUME this won't fail because we checked that each offset is greater
     // than this
+    let conf = &st.conf;
     let n = u64::from(text_begin) - u64::from(HEADER_LEN);
     let w = u8::from(conf.other_width);
     let mut buf0 = vec![];
@@ -288,7 +290,7 @@ fn h_read_other_segments<R: Read>(
             if buf0.iter().chain(buf1.iter()).all(|x| *x == 32) {
                 Ok(None)
             } else {
-                OtherSegment::parse(&buf0, &buf1, conf.allow_negative, corr)
+                OtherSegment::parse(&buf0, &buf1, conf.allow_negative, corr, st.file_len)
                     .map(Some)
                     .mult_map_errors(HeaderError::Segment)
                     .mult_map_errors(ImpureError::Pure)

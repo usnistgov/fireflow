@@ -520,7 +520,7 @@ impl<'a, C> ReadState<'a, C> {
     {
         ReadState {
             file_len: self.file_len,
-            conf: f(&self.conf),
+            conf: f(self.conf),
         }
     }
 

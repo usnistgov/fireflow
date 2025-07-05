@@ -155,6 +155,13 @@ pub struct HeaderConfig {
     ///
     /// This flag will treat any negative offset as a 0.
     pub allow_negative: bool,
+
+    /// If true, truncate offsets that exceed the end of the file.
+    ///
+    /// In many cases, such offsets likely mean the file was incompletely
+    /// written, which is a larger problem itself. Setting this to true will at
+    /// least allow these files to be read.
+    pub truncate_offsets: bool,
 }
 
 /// Instructions for reading the TEXT segment as raw key/value pairs.
@@ -501,6 +508,7 @@ pub struct SharedConfig {
     pub warnings_are_errors: bool,
 }
 
+/// State pertinent to reading a file
 pub struct ReadState<'a, C> {
     pub(crate) file_len: u64,
     pub(crate) conf: &'a C,

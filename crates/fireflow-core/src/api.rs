@@ -1042,16 +1042,17 @@ fn lookup_stext_offsets(
     st: &ReadState<RawTextReadConfig>,
 ) -> Tentative<Option<SupplementalTextSegment>, STextSegmentWarning, STextSegmentError> {
     let conf = &st.conf;
+    let hst = st.map_inner(|c| &c.header);
     match version {
         Version::FCS2_0 => Tentative::new1(None),
         Version::FCS3_0 | Version::FCS3_1 => {
-            KeyedReqSegment::get_mult(kws, conf.supp_text_correction, st.file_len).map_or_else(
+            KeyedReqSegment::get_mult(kws, conf.supp_text_correction, &hst).map_or_else(
                 |es| Tentative::new_either(None, es.into(), conf.allow_missing_stext),
                 |t| Tentative::new1(Some(t)),
             )
         }
         Version::FCS3_2 => {
-            KeyedOptSegment::get(kws, conf.supp_text_correction, st.file_len).warnings_into()
+            KeyedOptSegment::get(kws, conf.supp_text_correction, &hst).warnings_into()
         }
     }
     .and_tentatively(|x| {

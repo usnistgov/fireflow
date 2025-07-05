@@ -290,7 +290,7 @@ fn h_read_other_segments<R: Read>(
             if buf0.iter().chain(buf1.iter()).all(|x| *x == 32) {
                 Ok(None)
             } else {
-                OtherSegment::parse(&buf0, &buf1, conf.allow_negative, corr, st.file_len)
+                OtherSegment::parse(&buf0, &buf1, conf.allow_negative, corr, st)
                     .map(Some)
                     .mult_map_errors(HeaderError::Segment)
                     .mult_map_errors(ImpureError::Pure)

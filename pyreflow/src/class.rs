@@ -108,6 +108,7 @@ fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
         max_other=None,
         allow_negative=false,
         squish_offsets=false,
+        truncate_offsets=false,
     )
 )]
 fn py_fcs_read_header(
@@ -121,6 +122,7 @@ fn py_fcs_read_header(
     max_other: Option<usize>,
     allow_negative: bool,
     squish_offsets: bool,
+    truncate_offsets: bool,
 ) -> PyResult<PyHeader> {
     let conf = header_config(
         version_override,
@@ -132,6 +134,7 @@ fn py_fcs_read_header(
         max_other,
         allow_negative,
         squish_offsets,
+        truncate_offsets,
     )?;
     fcs_read_header(&p, &conf)
         .map_err(handle_failure_nowarn)
@@ -154,6 +157,7 @@ fn py_fcs_read_header(
         max_other=None,
         allow_negative=false,
         squish_offsets=false,
+        truncate_offsets=false,
 
         supp_text_correction=(0,0),
         use_literal_delims=false,
@@ -195,6 +199,7 @@ fn py_fcs_read_raw_text(
     max_other: Option<usize>,
     allow_negative: bool,
     squish_offsets: bool,
+    truncate_offsets: bool,
 
     supp_text_correction: (i32, i32),
     use_literal_delims: bool,
@@ -231,6 +236,7 @@ fn py_fcs_read_raw_text(
         max_other,
         allow_negative,
         squish_offsets,
+        truncate_offsets,
     )?;
 
     let conf = raw_config(
@@ -294,6 +300,7 @@ fn py_fcs_read_raw_text(
         max_other=None,
         allow_negative=false,
         squish_offsets=false,
+        truncate_offsets=false,
 
         supp_text_correction=(0,0),
         use_literal_delims=false,
@@ -350,6 +357,7 @@ fn py_fcs_read_std_text(
     max_other: Option<usize>,
     allow_negative: bool,
     squish_offsets: bool,
+    truncate_offsets: bool,
 
     supp_text_correction: (i32, i32),
     use_literal_delims: bool,
@@ -401,6 +409,7 @@ fn py_fcs_read_std_text(
         max_other,
         allow_negative,
         squish_offsets,
+        truncate_offsets,
     )?;
 
     let raw = raw_config(
@@ -488,6 +497,7 @@ fn py_fcs_read_std_text(
         max_other=None,
         allow_negative=false,
         squish_offsets=false,
+        truncate_offsets=false,
 
         supp_text_correction=(0,0),
         use_literal_delims=false,
@@ -548,6 +558,7 @@ fn py_fcs_read_std_dataset(
     max_other: Option<usize>,
     allow_negative: bool,
     squish_offsets: bool,
+    truncate_offsets: bool,
 
     supp_text_correction: (i32, i32),
     use_literal_delims: bool,
@@ -603,6 +614,7 @@ fn py_fcs_read_std_dataset(
         max_other,
         allow_negative,
         squish_offsets,
+        truncate_offsets,
     )?;
 
     let raw = raw_config(
@@ -693,6 +705,7 @@ fn header_config(
     max_other: Option<usize>,
     allow_negative: bool,
     squish_offsets: bool,
+    truncate_offsets: bool,
 ) -> PyResult<HeaderConfig> {
     let os = other_corrections
         .into_iter()
@@ -713,6 +726,7 @@ fn header_config(
         max_other,
         allow_negative,
         squish_offsets,
+        truncate_offsets,
     };
     Ok(out)
 }

@@ -376,7 +376,7 @@ impl FromStr for StdKeyPattern {
                 if matches_std(p.as_ref()) {
                     Ok(Self(p))
                 } else {
-                    Err(KeyPatternError::Prefix(true))
+                    Err(KeyPatternError::Prefix(true, p.0))
                 }
             })
     }
@@ -392,7 +392,7 @@ impl FromStr for NonStdKeyPattern {
                 if !matches_std(p.as_ref()) {
                     Ok(Self(p))
                 } else {
-                    Err(KeyPatternError::Prefix(false))
+                    Err(KeyPatternError::Prefix(false, p.0))
                 }
             })
     }
@@ -559,7 +559,7 @@ pub enum KeyStringError {
 
 pub enum KeyPatternError {
     Regex(regex::Error),
-    Prefix(bool),
+    Prefix(bool, Regex),
 }
 
 pub struct NonStdMeasKeyError(String);
@@ -612,13 +612,13 @@ impl fmt::Display for KeyPatternError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             Self::Regex(x) => x.fmt(f),
-            Self::Prefix(is_std) => {
+            Self::Prefix(is_std, pat) => {
                 let k = if *is_std {
                     "Pattern must match keywords starting with '$'"
                 } else {
                     "Pattern must match keywords not starting with '$'"
                 };
-                f.write_str(k)
+                write!(f, "{k}, got {}", pat.as_str())
             }
         }
     }

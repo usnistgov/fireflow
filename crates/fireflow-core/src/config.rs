@@ -311,6 +311,19 @@ pub struct RawTextReadConfig {
     /// is '%d-%b-%Y'.
     pub date_pattern: Option<DatePattern>,
 
+    /// Remove standard or nonstandard keys from TEXT.
+    ///
+    /// Comparisons will be case-insensitive. This takes precedence over
+    /// ['rename_keys'], ['promote_to_standard'], and ['demote_from_standard'].
+    pub ignore_keys: Vec<KeyString>,
+
+    /// Rename keys in TEXT.
+    ///
+    /// Keys matching the first part of the pair will be replaced by the second.
+    /// Comparisons are case-insensitive. Keys are renamed before
+    /// ['promote_to_standard'] and ['demote_from_standard'] are applied.
+    pub rename_keys: Vec<(KeyString, KeyString)>,
+
     /// A list of nonstandard keywords to be "promoted" to standard.
     ///
     /// All matching keywords will be prefixed with a "$" and added to the pool
@@ -328,17 +341,6 @@ pub struct RawTextReadConfig {
     /// Useful for surgically correcting "pseudostandard" keywords without
     /// using ['allow_pseudostandard'], which is a crude sledgehammer.
     pub demote_from_standard: Vec<StdKey>,
-
-    /// Remove standard or nonstandard keys from TEXT.
-    ///
-    /// Comparisons will be case-insensitive.
-    pub ignore_keys: Vec<KeyString>,
-
-    /// Rename keys in TEXT.
-    ///
-    /// Keys matching the first part of the pair will be replaced by the second.
-    /// Comparisons are case-insensitive.
-    pub rename_keys: Vec<(KeyString, KeyString)>,
 }
 
 /// Instructions for validating time-related properties.

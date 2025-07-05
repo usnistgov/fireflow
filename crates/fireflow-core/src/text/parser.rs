@@ -1,8 +1,8 @@
 use crate::core::*;
 use crate::error::*;
+use crate::validated::keys::*;
 use crate::validated::pattern::*;
 use crate::validated::shortname::*;
-use crate::validated::standard::*;
 
 use super::byteord::*;
 use super::compensation::*;

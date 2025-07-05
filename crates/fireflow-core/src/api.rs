@@ -8,7 +8,7 @@ use crate::text::keywords::*;
 use crate::text::parser::*;
 use crate::text::timestamps::*;
 use crate::validated::dataframe::FCSDataFrame;
-use crate::validated::standard::*;
+use crate::validated::keys::*;
 
 use chrono::NaiveDate;
 use derive_more::{Display, From};

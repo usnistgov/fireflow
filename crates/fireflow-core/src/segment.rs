@@ -3,7 +3,7 @@ use crate::error::*;
 use crate::text::keywords::*;
 use crate::text::parser::*;
 use crate::validated::ascii_uint::*;
-use crate::validated::standard::*;
+use crate::validated::keys::*;
 
 use derive_more::{Display, From};
 use itertools::Itertools;

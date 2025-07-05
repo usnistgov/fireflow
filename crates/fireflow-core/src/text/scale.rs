@@ -3,7 +3,7 @@ use crate::text::index::MeasIndex;
 use crate::text::optional::*;
 use crate::text::parser::*;
 use crate::text::ranged_float::*;
-use crate::validated::standard::*;
+use crate::validated::keys::*;
 
 use serde::Serialize;
 use std::fmt;

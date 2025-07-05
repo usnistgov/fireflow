@@ -618,7 +618,7 @@ impl fmt::Display for KeyPatternError {
                 } else {
                     "Pattern must match keywords not starting with '$'"
                 };
-                write!(f, "{k}, got {}", pat.as_str())
+                write!(f, "{k}, got '{}'", pat.as_str())
             }
         }
     }
@@ -708,7 +708,7 @@ where
 }
 
 fn matches_std(p: &Regex) -> bool {
-    p.is_match("$X") && !p.is_match("X")
+    p.is_match(str::from_utf8(&[STD_PREFIX]).unwrap())
 }
 
 const STD_PREFIX: u8 = 36; // '$'

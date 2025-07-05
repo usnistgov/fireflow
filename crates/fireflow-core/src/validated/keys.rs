@@ -3,6 +3,7 @@ use crate::error::*;
 use crate::text::index::IndexFromOne;
 
 use derive_more::{AsRef, Display, From};
+use regex::Regex;
 use serde::Serialize;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -75,6 +76,17 @@ pub struct ValidKeywords {
 /// A string that should be used as the header in the measurement table.
 #[derive(Display)]
 pub struct MeasHeader(pub String);
+
+/// A regular expression which matches a non-standard measurement key.
+///
+/// This must be derived from ['NonStdMeasPattern'].
+#[derive(AsRef)]
+#[as_ref(Regex)]
+pub(crate) struct NonStdMeasRegex(CaseInsRegex);
+
+/// A regex which ignores case when matching
+#[derive(AsRef)]
+pub(crate) struct CaseInsRegex(Regex);
 
 /// A standard key
 ///
@@ -286,22 +298,6 @@ impl str::FromStr for NonStdKey {
     }
 }
 
-pub struct NonStdMeasRegex(regex::Regex);
-
-impl NonStdMeasRegex {
-    pub fn try_match(&self, s: &str) -> Option<NonStdKey> {
-        if self.0.is_match(s) {
-            Some(NonStdKey::new(s.to_string()))
-        } else {
-            None
-        }
-    }
-
-    pub fn is_match(&self, s: &str) -> bool {
-        self.0.is_match(s)
-    }
-}
-
 impl str::FromStr for NonStdMeasPattern {
     type Err = NonStdMeasPatternError;
 
@@ -315,17 +311,27 @@ impl str::FromStr for NonStdMeasPattern {
 }
 
 impl NonStdMeasPattern {
-    // pub fn with_par(&self, par: Par) -> MultiResult<Vec<NonStdMeasRegex, NonStdMeasRegexError>> {
-    //     (0..par.0).map(|n| self.from_index(n.into())).gather()
-    // }
+    pub(crate) fn apply_index(
+        &self,
+        n: IndexFromOne,
+    ) -> Result<NonStdMeasRegex, NonStdMeasRegexError> {
+        self.0
+            .replace("%n", n.to_string().as_str())
+            .as_str()
+            .parse::<CaseInsRegex>()
+            .map_err(|error| NonStdMeasRegexError { error, index: n })
+            .map(NonStdMeasRegex)
+    }
+}
 
-    pub fn from_index(&self, n: IndexFromOne) -> Result<NonStdMeasRegex, NonStdMeasRegexError> {
-        let pattern = self.0.replace("%n", n.to_string().as_str());
-        regex::RegexBuilder::new(pattern.as_str())
+impl str::FromStr for CaseInsRegex {
+    type Err = regex::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        regex::RegexBuilder::new(s)
             .case_insensitive(true)
             .build()
-            .map_err(|_| NonStdMeasRegexError { pattern, index: n })
-            .map(NonStdMeasRegex)
+            .map(Self)
     }
 }
 
@@ -477,7 +483,7 @@ pub struct NonStdMeasKeyError(String);
 pub struct NonStdMeasPatternError(String);
 
 pub struct NonStdMeasRegexError {
-    pattern: String,
+    error: regex::Error,
     index: IndexFromOne,
 }
 
@@ -546,8 +552,8 @@ impl fmt::Display for NonStdMeasRegexError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
-            "Could not make regexp using pattern '{}' for measurement {}",
-            self.pattern, self.index,
+            "Regexp error for measurement {}: {}",
+            self.index, self.error
         )
     }
 }

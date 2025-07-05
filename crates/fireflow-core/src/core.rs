@@ -2628,14 +2628,17 @@ where
         // them.
         let tnt = if let Some(pat) = conf.nonstandard_measurement_pattern.as_ref() {
             let res = (0..par.0)
-                .map(|n| pat.from_index(n.into()))
+                .map(|n| pat.apply_index(n.into()))
                 .collect::<Result<Vec<_>, _>>();
             match res {
                 Ok(ps) => {
                     let mut meta_nonstd = vec![];
                     let mut meas_nonstds = vec![vec![]; par.0];
                     for (k, v) in nonstd {
-                        if let Some(j) = ps.iter().position(|p| p.is_match(k.as_ref().as_ref())) {
+                        if let Some(j) = ps
+                            .iter()
+                            .position(|p| p.as_ref().is_match(k.as_ref().as_ref()))
+                        {
                             meas_nonstds[j].push((k, v));
                         } else {
                             meta_nonstd.push((k, v));

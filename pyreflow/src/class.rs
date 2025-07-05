@@ -177,9 +177,12 @@ fn py_fcs_read_header(
         allow_missing_nextdata=false,
         trim_value_whitespace=false,
         date_pattern=None,
-        promote_to_standard=vec![],
-        demote_from_standard=vec![],
-        ignore_keys=vec![],
+        promote_keys_to_standard=vec![],
+        promote_patterns_to_standard=vec![],
+        demote_keys_from_standard=vec![],
+        demote_patterns_from_standard=vec![],
+        ignore_literal_keys=vec![],
+        ignore_pattern_keys=vec![],
         rename_keys=vec![],
         replace_key_values=vec![],
     )
@@ -219,9 +222,12 @@ fn py_fcs_read_raw_text(
     allow_missing_nextdata: bool,
     trim_value_whitespace: bool,
     date_pattern: Option<String>,
-    promote_to_standard: Vec<String>,
-    demote_from_standard: Vec<String>,
-    ignore_keys: Vec<String>,
+    promote_keys_to_standard: Vec<String>,
+    promote_patterns_to_standard: Vec<String>,
+    demote_keys_from_standard: Vec<String>,
+    demote_patterns_from_standard: Vec<String>,
+    ignore_literal_keys: Vec<String>,
+    ignore_pattern_keys: Vec<String>,
     rename_keys: Vec<(String, String)>,
     replace_key_values: Vec<(String, String)>,
 ) -> PyResult<(PyVersion, Bound<'_, PyDict>, Bound<'_, PyDict>, PyParseData)> {
@@ -259,9 +265,12 @@ fn py_fcs_read_raw_text(
         allow_missing_nextdata,
         trim_value_whitespace,
         date_pattern,
-        promote_to_standard,
-        demote_from_standard,
-        ignore_keys,
+        promote_keys_to_standard,
+        promote_patterns_to_standard,
+        demote_keys_from_standard,
+        demote_patterns_from_standard,
+        ignore_literal_keys,
+        ignore_pattern_keys,
         rename_keys,
         replace_key_values,
     )?;
@@ -320,9 +329,12 @@ fn py_fcs_read_raw_text(
         allow_missing_nextdata=false,
         trim_value_whitespace=false,
         date_pattern=None,
-        promote_to_standard=vec![],
-        demote_from_standard=vec![],
-        ignore_keys=vec![],
+        promote_keys_to_standard=vec![],
+        promote_patterns_to_standard=vec![],
+        demote_keys_from_standard=vec![],
+        demote_patterns_from_standard=vec![],
+        ignore_literal_keys=vec![],
+        ignore_pattern_keys=vec![],
         rename_keys=vec![],
         replace_key_values=vec![],
 
@@ -377,9 +389,12 @@ fn py_fcs_read_std_text(
     allow_missing_nextdata: bool,
     trim_value_whitespace: bool,
     date_pattern: Option<String>,
-    promote_to_standard: Vec<String>,
-    demote_from_standard: Vec<String>,
-    ignore_keys: Vec<String>,
+    promote_keys_to_standard: Vec<String>,
+    promote_patterns_to_standard: Vec<String>,
+    demote_keys_from_standard: Vec<String>,
+    demote_patterns_from_standard: Vec<String>,
+    ignore_literal_keys: Vec<String>,
+    ignore_pattern_keys: Vec<String>,
     rename_keys: Vec<(String, String)>,
     replace_key_values: Vec<(String, String)>,
 
@@ -432,9 +447,12 @@ fn py_fcs_read_std_text(
         allow_missing_nextdata,
         trim_value_whitespace,
         date_pattern,
-        promote_to_standard,
-        demote_from_standard,
-        ignore_keys,
+        promote_keys_to_standard,
+        promote_patterns_to_standard,
+        demote_keys_from_standard,
+        demote_patterns_from_standard,
+        ignore_literal_keys,
+        ignore_pattern_keys,
         rename_keys,
         replace_key_values,
     )?;
@@ -517,9 +535,12 @@ fn py_fcs_read_std_text(
         allow_missing_nextdata=false,
         trim_value_whitespace=false,
         date_pattern=None,
-        promote_to_standard=vec![],
-        demote_from_standard=vec![],
-        ignore_keys=vec![],
+        promote_keys_to_standard=vec![],
+        promote_patterns_to_standard=vec![],
+        demote_keys_from_standard=vec![],
+        demote_patterns_from_standard=vec![],
+        ignore_literal_keys=vec![],
+        ignore_pattern_keys=vec![],
         rename_keys=vec![],
         replace_key_values=vec![],
 
@@ -578,9 +599,12 @@ fn py_fcs_read_std_dataset(
     allow_missing_nextdata: bool,
     trim_value_whitespace: bool,
     date_pattern: Option<String>,
-    promote_to_standard: Vec<String>,
-    demote_from_standard: Vec<String>,
-    ignore_keys: Vec<String>,
+    promote_keys_to_standard: Vec<String>,
+    promote_patterns_to_standard: Vec<String>,
+    demote_keys_from_standard: Vec<String>,
+    demote_patterns_from_standard: Vec<String>,
+    ignore_literal_keys: Vec<String>,
+    ignore_pattern_keys: Vec<String>,
     rename_keys: Vec<(String, String)>,
     replace_key_values: Vec<(String, String)>,
 
@@ -637,9 +661,12 @@ fn py_fcs_read_std_dataset(
         allow_missing_nextdata,
         trim_value_whitespace,
         date_pattern,
-        promote_to_standard,
-        demote_from_standard,
-        ignore_keys,
+        promote_keys_to_standard,
+        promote_patterns_to_standard,
+        demote_keys_from_standard,
+        demote_patterns_from_standard,
+        ignore_literal_keys,
+        ignore_pattern_keys,
         rename_keys,
         replace_key_values,
     )?;
@@ -752,29 +779,18 @@ fn raw_config(
     allow_missing_nextdata: bool,
     trim_value_whitespace: bool,
     date_pattern: Option<String>,
-    promote_to_standard: Vec<String>,
-    demote_from_standard: Vec<String>,
-    ignore_keys: Vec<String>,
+    promote_keys_to_standard: Vec<String>,
+    promote_patterns_to_standard: Vec<String>,
+    demote_keys_from_standard: Vec<String>,
+    demote_patterns_from_standard: Vec<String>,
+    ignore_literal_keys: Vec<String>,
+    ignore_pattern_keys: Vec<String>,
     rename_keys: Vec<(String, String)>,
     replace_key_values: Vec<(String, String)>,
 ) -> PyResult<RawTextReadConfig> {
-    let pss = promote_to_standard
-        .into_iter()
-        .map(|x| x.parse::<NonStdKey>())
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-
-    let dss = demote_from_standard
-        .into_iter()
-        .map(|x| x.parse::<StdKey>())
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-
-    let iss = ignore_keys
-        .into_iter()
-        .map(|x| x.parse::<KeyString>())
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+    let pss = strs_to_key_patterns(promote_keys_to_standard, promote_patterns_to_standard)?;
+    let dss = strs_to_key_patterns(demote_keys_from_standard, demote_patterns_from_standard)?;
+    let iss = strs_to_key_patterns(ignore_literal_keys, ignore_pattern_keys)?;
 
     let rss = rename_keys
         .into_iter()
@@ -782,13 +798,13 @@ fn raw_config(
             x.parse::<KeyString>()
                 .and_then(|a| y.parse::<KeyString>().map(|b| (a, b)))
         })
-        .collect::<Result<Vec<_>, _>>()
+        .collect::<Result<HashMap<_, _>, _>>()
         .map_err(|e| PyreflowException::new_err(e.to_string()))?;
 
     let rvs = replace_key_values
         .into_iter()
         .map(|(k, v)| k.parse::<KeyString>().map(|x| (x, v)))
-        .collect::<Result<Vec<_>, _>>()
+        .collect::<Result<HashMap<_, _>, _>>()
         .map_err(|e| PyreflowException::new_err(e.to_string()))?;
 
     let out = RawTextReadConfig {
@@ -3736,6 +3752,15 @@ fn str_to_time_pat(s: String) -> PyResult<TimePattern> {
 fn str_to_date_pat(s: String) -> PyResult<DatePattern> {
     s.parse::<DatePattern>()
         .map_err(|e| PyreflowException::new_err(e.to_string()))
+}
+
+fn strs_to_key_patterns(lits: Vec<String>, pats: Vec<String>) -> PyResult<KeyPatterns> {
+    let mut ls = KeyPatterns::try_from_literals(lits)
+        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+    let ps = KeyPatterns::try_from_patterns(pats)
+        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+    ls.extend(ps);
+    Ok(ls)
 }
 
 // fn vec_to_byteord(xs: Vec<u8>) -> PyResult<ByteOrd> {

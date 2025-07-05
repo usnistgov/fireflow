@@ -2,7 +2,8 @@ use crate::config::RawTextReadConfig;
 use crate::error::*;
 use crate::text::index::IndexFromOne;
 
-use derive_more::{AsRef, Display, From};
+use derive_more::{AsRef, Display, From, FromStr, TryInto};
+use itertools::Itertools;
 use regex::Regex;
 use serde::Serialize;
 use std::collections::hash_map::Entry;
@@ -46,6 +47,26 @@ pub struct KeyString(Ascii<String>);
 #[as_ref(str)]
 pub struct NonStdMeasPattern(String);
 
+/// A list of patterns that match standard or non-standard keys.
+#[derive(Clone, Default)]
+pub struct KeyPatterns(Vec<KeyStringOrPattern>);
+
+/// Either a literal string or regexp which matches a standard/non-standard key.
+///
+/// This exists for performance and ergononic reasons; if the goal is simply to
+/// match lots of strings literally, it is faster and easier to use a hash
+/// table, otherwise we need to search linearly through an array of patterns.
+#[derive(Clone, From, TryInto)]
+pub enum KeyStringOrPattern {
+    Pattern(KeyPattern),
+    Literal(KeyString),
+}
+
+/// A regular expression which matches any standard or non-standard key.
+#[derive(FromStr, Clone, AsRef)]
+#[as_ref(Regex)]
+pub struct KeyPattern(CaseInsRegex);
+
 /// A collection dump for parsed keywords of varying quality
 #[derive(Default)]
 pub struct ParsedKeywords {
@@ -66,7 +87,7 @@ pub type StdKeywords = HashMap<StdKey, String>;
 pub type NonAsciiPairs = Vec<(String, String)>;
 pub type BytesPairs = Vec<(Vec<u8>, Vec<u8>)>;
 
-/// 'ParsedKeywords' without the bad stuff
+/// ['ParsedKeywords'] without the bad stuff
 #[derive(Clone, Default, Serialize)]
 pub struct ValidKeywords {
     pub std: StdKeywords,
@@ -85,8 +106,14 @@ pub struct MeasHeader(pub String);
 pub(crate) struct NonStdMeasRegex(CaseInsRegex);
 
 /// A regex which ignores case when matching
-#[derive(AsRef)]
-pub(crate) struct CaseInsRegex(Regex);
+#[derive(Clone, AsRef)]
+pub struct CaseInsRegex(Regex);
+
+/// A "compiled" object to match keys efficiently.
+struct KeyMatcher<'a> {
+    literal: HashSet<&'a KeyString>,
+    pattern: Vec<&'a KeyPattern>,
+}
 
 /// A standard key
 ///
@@ -335,6 +362,48 @@ impl str::FromStr for CaseInsRegex {
     }
 }
 
+impl KeyPatterns {
+    pub fn extend(&mut self, other: Self) {
+        self.0.extend(other.0)
+    }
+
+    pub fn try_from_literals(ss: Vec<String>) -> Result<Self, AsciiStringError> {
+        ss.into_iter()
+            .map(|s| s.parse::<KeyString>().map(KeyStringOrPattern::Literal))
+            .collect::<Result<Vec<_>, _>>()
+            .map(Self)
+    }
+
+    pub fn try_from_patterns(ss: Vec<String>) -> Result<Self, regex::Error> {
+        ss.into_iter()
+            .map(|s| s.parse::<KeyPattern>().map(KeyStringOrPattern::Pattern))
+            .collect::<Result<Vec<_>, _>>()
+            .map(Self)
+    }
+
+    fn as_matcher(&self) -> KeyMatcher {
+        let (literal, pattern): (HashSet<_>, Vec<_>) = self
+            .0
+            .iter()
+            .map(|x| match x {
+                KeyStringOrPattern::Literal(l) => Ok(l),
+                KeyStringOrPattern::Pattern(p) => Err(p),
+            })
+            .partition_result();
+        KeyMatcher { literal, pattern }
+    }
+}
+
+impl KeyMatcher<'_> {
+    fn is_match(&self, other: &KeyString) -> bool {
+        self.literal.contains(other)
+            || self
+                .pattern
+                .iter()
+                .any(|p| p.as_ref().is_match(other.as_ref()))
+    }
+}
+
 impl ParsedKeywords {
     pub(crate) fn insert(
         &mut self,
@@ -346,44 +415,25 @@ impl ParsedKeywords {
         // calling this. The FCS standards do not allow either to be blank.
         let n = k.len();
 
-        let to_std: HashSet<_> = conf.promote_to_standard.iter().collect();
-        let to_nonstd: HashSet<_> = conf.demote_from_standard.iter().collect();
-        let ignore: HashSet<_> = conf.ignore_keys.iter().collect();
-        let to_rename: HashMap<_, _> = conf
-            .rename_keys
-            .iter()
-            .filter(|(x, y)| x != y)
-            .map(|x| (&x.0, &x.1))
-            .collect();
-        let to_replace: HashMap<_, _> = conf
-            .replace_key_values
-            .iter()
-            .map(|x| (&x.0, x.1.as_str()))
-            .collect();
+        let to_std = conf.promote_to_standard.as_matcher();
+        let to_nonstd = conf.demote_from_standard.as_matcher();
+        let ignore = conf.ignore_keys.as_matcher();
 
         // make a new key from a slice, possibly ignoring it or renaming it
         let new_key = |xs: &[u8]| -> Option<KeyString> {
             let kk = KeyString::from_bytes(xs);
-            if ignore.contains(&kk) {
+            if ignore.is_match(&kk) {
                 None
             } else {
-                Some(to_rename.get(&kk).map_or(kk, |&x| x.clone()))
+                Some(conf.rename_keys.get(&kk).map_or(kk, |x| x.clone()))
             }
         };
 
-        let mut ins_std = |kk: StdKey, value: String| {
-            insert_nonunique(&mut self.std, kk, value, &to_replace, conf.allow_nonunique)
-        };
+        let mut ins_std =
+            |kk: StdKey, value: String| insert_nonunique(&mut self.std, kk, value, conf);
 
-        let mut ins_nonstd = |kk: NonStdKey, value: String| {
-            insert_nonunique(
-                &mut self.nonstd,
-                kk,
-                value,
-                &to_replace,
-                conf.allow_nonunique,
-            )
-        };
+        let mut ins_nonstd =
+            |kk: NonStdKey, value: String| insert_nonunique(&mut self.nonstd, kk, value, conf);
 
         match std::str::from_utf8(v) {
             Ok(vv) => {
@@ -404,11 +454,10 @@ impl ParsedKeywords {
                     // Standard key: starts with '$', check that remaining chars
                     // are ASCII
                     if let Some(kk) = new_key(&k[1..]) {
-                        let std_kk = StdKey(kk);
-                        if to_nonstd.contains(&std_kk) {
-                            ins_nonstd(NonStdKey(std_kk.0), value)
+                        if to_nonstd.is_match(&kk) {
+                            ins_nonstd(NonStdKey(kk), value)
                         } else {
-                            ins_std(std_kk, value)
+                            ins_std(StdKey(kk), value)
                         }
                     } else {
                         Ok(())
@@ -417,11 +466,10 @@ impl ParsedKeywords {
                     // Non-standard key: does not start with '$' but is still
                     // ASCII
                     if let Some(kk) = new_key(k) {
-                        let nonstd_kk = NonStdKey(kk);
-                        if to_std.contains(&nonstd_kk) {
-                            ins_std(StdKey(nonstd_kk.0), value)
+                        if to_std.is_match(&kk) {
+                            ins_std(StdKey(kk), value)
                         } else {
-                            ins_nonstd(nonstd_kk, value)
+                            ins_nonstd(NonStdKey(kk), value)
                         }
                     } else {
                         Ok(())
@@ -574,8 +622,7 @@ fn insert_nonunique<K>(
     kws: &mut HashMap<K, String>,
     k: K,
     value: String,
-    to_replace: &HashMap<&KeyString, &str>,
-    allow_nonunique: bool,
+    conf: &RawTextReadConfig,
 ) -> Result<(), Leveled<KeywordInsertError>>
 where
     K: std::hash::Hash + Eq + Clone + AsRef<KeyString>,
@@ -585,10 +632,11 @@ where
         Entry::Occupied(e) => {
             let key = e.key().clone();
             let w = KeyPresent { key, value };
-            Err(Leveled::new(w.into(), !allow_nonunique))
+            Err(Leveled::new(w.into(), !conf.allow_nonunique))
         }
         Entry::Vacant(e) => {
-            let v = to_replace
+            let v = conf
+                .replace_key_values
                 .get(e.key().as_ref())
                 .map(|v| v.to_string())
                 .unwrap_or(value);

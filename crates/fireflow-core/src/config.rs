@@ -13,13 +13,14 @@ use crate::header::Version;
 use crate::segment::*;
 use crate::text::byteord::ByteOrd;
 use crate::validated::datepattern::DatePattern;
-use crate::validated::keys::{KeyString, NonStdKey, NonStdMeasPattern, StdKey};
+use crate::validated::keys::{KeyPatterns, KeyString, NonStdMeasPattern};
 use crate::validated::other_width::OtherWidth;
 use crate::validated::shortname::*;
 use crate::validated::textdelim::TEXTDelim;
 
 use derive_more::{Display, FromStr};
 use regex::Regex;
+use std::collections::{HashMap, HashSet};
 
 /// Instructions for reading the DATA segment.
 #[derive(Default, Clone)]
@@ -324,21 +325,22 @@ pub struct RawTextReadConfig {
     ///
     /// Comparisons will be case-insensitive. This takes precedence over
     /// ['rename_keys'], ['promote_to_standard'], and ['demote_from_standard'].
-    pub ignore_keys: Vec<KeyString>,
+    pub ignore_keys: KeyPatterns,
 
     /// Rename keys in TEXT.
     ///
     /// Keys matching the first part of the pair will be replaced by the second.
     /// Comparisons are case-insensitive. Keys are renamed before
     /// ['promote_to_standard'] and ['demote_from_standard'] are applied.
-    pub rename_keys: Vec<(KeyString, KeyString)>,
+    // TODO ensure src and dest are different
+    pub rename_keys: HashMap<KeyString, KeyString>,
 
     /// A list of nonstandard keywords to be "promoted" to standard.
     ///
     /// All matching keywords will be prefixed with a "$" and added to the pool
     /// of standard keywords to be processed downstream when deriving data
     /// layouts, measurement metadata, etc. Matching will be case-insensitive.
-    pub promote_to_standard: Vec<NonStdKey>,
+    pub promote_to_standard: KeyPatterns,
 
     /// A list of standard keywords to be "demoted" to non-standard.
     ///
@@ -349,12 +351,12 @@ pub struct RawTextReadConfig {
     ///
     /// Useful for surgically correcting "pseudostandard" keywords without
     /// using ['allow_pseudostandard'], which is a crude sledgehammer.
-    pub demote_from_standard: Vec<StdKey>,
+    pub demote_from_standard: KeyPatterns,
 
     /// Replace values of the given keys.
     ///
     /// Keys will be matched in case-insensitive manner.
-    pub replace_key_values: Vec<(KeyString, String)>,
+    pub replace_key_values: HashMap<KeyString, String>,
 }
 
 /// Instructions for validating time-related properties.
@@ -377,18 +379,6 @@ pub struct TimeConfig {
 
     // /// If true, will ensure PnG is absent for time measurement.
     // pub allow_nontime_keywords: bool,
-}
-
-/// A pattern to match the $PnN for the time measurement.
-///
-/// Defaults to matching "TIME" or "Time".
-#[derive(Clone, FromStr, Display)]
-pub struct TimePattern(pub Regex);
-
-impl Default for TimePattern {
-    fn default() -> Self {
-        Self(Regex::new("^(TIME|Time)$").unwrap())
-    }
 }
 
 /// Instructions for reading the TEXT segment in a standardized structure.
@@ -520,6 +510,18 @@ pub struct StdTextReadConfig {
 pub struct SharedConfig {
     /// If true, all warnings are considered to be fatal errors.
     pub warnings_are_errors: bool,
+}
+
+/// A pattern to match the $PnN for the time measurement.
+///
+/// Defaults to matching "TIME" or "Time".
+#[derive(Clone, FromStr, Display)]
+pub struct TimePattern(pub Regex);
+
+impl Default for TimePattern {
+    fn default() -> Self {
+        Self(Regex::new("^(TIME|Time)$").unwrap())
+    }
 }
 
 /// State pertinent to reading a file

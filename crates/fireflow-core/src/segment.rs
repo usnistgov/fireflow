@@ -8,6 +8,8 @@ use crate::validated::keys::*;
 use derive_more::{Display, From};
 use itertools::Itertools;
 use nonempty::NonEmpty;
+use num_traits::identities::{One, Zero};
+use num_traits::ops::checked::CheckedSub;
 use serde::Serialize;
 use std::fmt;
 use std::io;
@@ -32,7 +34,7 @@ pub struct NonEmptySegment<T> {
 }
 
 /// A segment that is specific to a region in the FCS file.
-#[derive(Clone, Copy, Serialize, Default)]
+#[derive(Clone, Copy, Serialize)]
 pub struct SpecificSegment<I, S, T> {
     pub inner: Segment<T>,
     _id: PhantomData<I>,
@@ -530,6 +532,16 @@ impl<I, S> From<(i32, i32)> for OffsetCorrection<I, S> {
     }
 }
 
+impl<I, S, T> Default for SpecificSegment<I, S, T> {
+    fn default() -> Self {
+        Self {
+            inner: Segment::Empty,
+            _id: PhantomData,
+            _src: PhantomData,
+        }
+    }
+}
+
 impl<I, S, T> SpecificSegment<I, S, T> {
     pub fn try_new(
         begin: T,
@@ -541,7 +553,7 @@ impl<I, S, T> SpecificSegment<I, S, T> {
     where
         I: HasRegion,
         S: HasSource,
-        T: Default + Into<u64> + Into<i128> + TryFrom<i128> + Ord + Copy,
+        T: Zero + One + CheckedSub + Into<u64> + Into<i128> + TryFrom<i128> + Ord + Copy,
         u64: From<T>,
     {
         Segment::try_new::<I, S>(begin, end, corr, file_len, force_truncate).map(|inner| Self {
@@ -728,7 +740,7 @@ impl<I: Copy> HeaderSegment<I> {
         let (b, e) = self
             .inner
             .try_coords()
-            .unwrap_or((Uint8Digit::default(), Uint8Digit::default()));
+            .unwrap_or((Uint8Digit::zero(), Uint8Digit::zero()));
         format!("{:>8}{:>8}", b, e)
     }
 
@@ -773,8 +785,8 @@ impl<I: Copy> HeaderSegment<I> {
         // TODO this might produce really weird errors if run on a 2.0
         // file, so in those cases, this should never be true
         let conf = &st.conf;
-        let (b, e) = if conf.squish_offsets && end == Uint8Digit::default() && begin > end {
-            (Uint8Digit::default(), Uint8Digit::default())
+        let (b, e) = if conf.squish_offsets && end == Uint8Digit::zero() && begin > end {
+            (Uint8Digit::zero(), Uint8Digit::zero())
         } else {
             (begin, end)
         };
@@ -801,7 +813,7 @@ impl OtherSegment {
                         .map_err(ParseFixedUintError::Int)?;
                     if x < 0 {
                         if allow_negative {
-                            Ok(Uint20Char::default())
+                            Ok(Uint20Char::zero())
                         } else {
                             Err(ParseFixedUintError::Negative(NegativeOffsetError(x)))
                         }
@@ -835,7 +847,7 @@ impl OtherSegment {
         let (b, e) = self
             .inner
             .try_coords()
-            .unwrap_or((Uint20Char::default(), Uint20Char::default()));
+            .unwrap_or((Uint20Char::zero(), Uint20Char::zero()));
         let mut s = String::new();
         s.push_str(&b.to_string());
         s.push_str(&e.to_string());
@@ -858,7 +870,7 @@ impl<I> TEXTSegment<I> {
     {
         let i = self.inner;
         let (b, e) = match i {
-            Segment::Empty => (Uint20Char::default(), Uint20Char::default()),
+            Segment::Empty => (Uint20Char::zero(), Uint20Char::zero()),
             Segment::NonEmpty(x) => (x.begin, x.end),
         };
         [
@@ -889,7 +901,7 @@ impl<T> Segment<T> {
         force_truncate: bool,
     ) -> Result<Self, SegmentError<T>>
     where
-        T: Default + Into<i128> + TryFrom<i128> + Ord + Copy,
+        T: Zero + One + CheckedSub + Into<i128> + TryFrom<i128> + Ord + Copy,
         u64: From<T>,
     {
         let x = Into::<i128>::into(begin) + i128::from(corr.begin);
@@ -907,7 +919,7 @@ impl<T> Segment<T> {
             (Ok(new_begin), Ok(new_end)) => {
                 if new_begin > new_end {
                     Err(err(SegmentErrorKind::Inverted))
-                } else if new_begin == T::default() && new_end == T::default() {
+                } else if new_begin == T::zero() && new_end == T::zero() {
                     Ok(Self::Empty)
                 } else {
                     // file length is optional because it might exceed the max
@@ -917,7 +929,7 @@ impl<T> Segment<T> {
                         if new_end >= fl && !force_truncate {
                             Err(err(SegmentErrorKind::Truncated(u64::from(fl))))
                         } else {
-                            Ok(new_end.min(fl))
+                            Ok(new_end.min(fl.checked_sub(&T::one()).unwrap_or(T::zero())))
                         }
                     } else {
                         Ok(new_end)
@@ -960,11 +972,11 @@ impl<T> Segment<T> {
     where
         S: HasSource,
         I: HasRegion,
-        T: Copy + Default + TryFrom<i128> + Into<i128> + Ord,
+        T: Copy + Zero + One + CheckedSub + TryFrom<i128> + Into<i128> + Ord,
         u64: From<T>,
     {
         let (b, e) = match self {
-            Self::Empty => (T::default(), T::default()),
+            Self::Empty => (T::zero(), T::zero()),
             Self::NonEmpty(s) => s.coords(),
         };
         Self::try_new::<I, S>(b, e, corr, file_len, force_truncate)

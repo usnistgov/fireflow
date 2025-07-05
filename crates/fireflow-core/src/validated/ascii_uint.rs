@@ -2,7 +2,9 @@
 
 use crate::header::MAX_HEADER_OFFSET;
 
-use derive_more::{Display, From, FromStr, Into};
+use derive_more::{Add, Display, From, FromStr, Into, Mul, Sub};
+use num_traits::identities::{One, Zero};
+use num_traits::ops::checked::CheckedSub;
 use serde::Serialize;
 use std::fmt;
 use std::num::{ParseIntError, TryFromIntError};
@@ -16,8 +18,11 @@ use std::str::FromStr;
 ///
 /// This is used for the offsets in TEXT which must be formatted in a fixed
 /// width.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Default, FromStr, Into, From)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, FromStr, Into, From, Add, Sub, Mul,
+)]
 #[into(u64, i128)]
+#[mul(forward)]
 pub struct Uint20Char(pub u64);
 
 impl fmt::Display for Uint20Char {
@@ -33,13 +38,35 @@ impl TryFrom<i128> for Uint20Char {
     }
 }
 
+impl Zero for Uint20Char {
+    fn zero() -> Self {
+        Self(0)
+    }
+
+    fn is_zero(&self) -> bool {
+        self.0 == 0
+    }
+}
+
+impl One for Uint20Char {
+    fn one() -> Self {
+        Self(1)
+    }
+}
+
+impl CheckedSub for Uint20Char {
+    fn checked_sub(&self, v: &Self) -> Option<Self> {
+        self.0.checked_sub(v.0).map(Self)
+    }
+}
+
 /// An unsigned int which may only be 8 chars wide (ie less than 99,999,999)
 ///
 /// This will always be formatted as a right-aligned 0-padded integer 8 chars
 /// wide.
 ///
 /// This is used for $NEXTDATA.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct Uint8Char(pub Uint8Digit);
 
 impl fmt::Display for Uint8Char {
@@ -54,10 +81,35 @@ impl fmt::Display for Uint8Char {
 ///
 /// This is used as-is for HEADER offsets, and used in a wrapper for $NEXTDATA,
 /// both of which have this constraint.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Default, Display, Into, From)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Display, Into, From, Add, Mul, Sub,
+)]
 #[into(u32, u64, i128)]
 #[from(u8, u16)] // ASSUME these will never fail
+#[mul(forward)]
 pub struct Uint8Digit(u32);
+
+impl Zero for Uint8Digit {
+    fn zero() -> Self {
+        Self(0)
+    }
+
+    fn is_zero(&self) -> bool {
+        self.0 == 0
+    }
+}
+
+impl One for Uint8Digit {
+    fn one() -> Self {
+        Self(1)
+    }
+}
+
+impl CheckedSub for Uint8Digit {
+    fn checked_sub(&self, v: &Self) -> Option<Self> {
+        self.0.checked_sub(v.0).map(Self)
+    }
+}
 
 impl Uint8Digit {
     /// Parse from a buffer that contains 8 bytes.
@@ -69,12 +121,12 @@ impl Uint8Digit {
         let s = ascii_str_from_bytes(bs).map_err(ParseFixedUintError::NotAscii)?;
         let trimmed = s.trim_start();
         if allow_blank && trimmed.is_empty() {
-            return Ok(Uint8Digit::default());
+            return Ok(Uint8Digit::zero());
         }
         let x = trimmed.parse::<i32>().map_err(ParseFixedUintError::Int)?;
         if x < 0 {
             if allow_negative {
-                Ok(Self::default())
+                Ok(Self::zero())
             } else {
                 Err(ParseFixedUintError::Negative(NegativeOffsetError(x)))
             }

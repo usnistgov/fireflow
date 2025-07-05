@@ -12,7 +12,7 @@ use fireflow_core::text::ranged_float::*;
 use fireflow_core::text::scale::*;
 use fireflow_core::validated::dataframe::*;
 use fireflow_core::validated::datepattern::DatePattern;
-use fireflow_core::validated::nonstandard::*;
+use fireflow_core::validated::keys::*;
 use fireflow_core::validated::other_width::*;
 use fireflow_core::validated::pattern::*;
 use fireflow_core::validated::shortname::*;

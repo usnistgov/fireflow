@@ -1,6 +1,5 @@
 use crate::error::*;
-use crate::validated::standard::BiIndexedKey;
-use crate::validated::standard::*;
+use crate::validated::keys::{BiIndexedKey, StdKey, StdKeywords};
 
 use super::index::MeasIndex;
 use super::keywords::{Dfc, Par};

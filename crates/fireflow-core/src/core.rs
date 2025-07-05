@@ -19,9 +19,8 @@ use crate::text::timestamps::*;
 use crate::text::unstainedcenters::*;
 use crate::validated::ascii_uint::Uint8DigitOverflow;
 use crate::validated::dataframe::*;
-use crate::validated::nonstandard::*;
+use crate::validated::keys::*;
 use crate::validated::shortname::*;
-use crate::validated::standard::*;
 
 use chrono::Timelike;
 use derive_more::{Display, From};

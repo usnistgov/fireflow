@@ -1151,16 +1151,6 @@ impl fmt::Display for BlankKeyError {
     }
 }
 
-impl fmt::Display for BlankValueError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "skipping key with blank value, keys bytes were {}",
-            self.0.iter().join(",")
-        )
-    }
-}
-
 impl fmt::Display for UnevenWordsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "TEXT segment has uneven number of words",)

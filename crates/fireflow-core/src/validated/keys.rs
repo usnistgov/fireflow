@@ -10,6 +10,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
+use std::str;
 use std::str::FromStr;
 use unicase::Ascii;
 
@@ -653,6 +654,16 @@ impl fmt::Display for NonStdMeasRegexError {
             "Regexp error for measurement {}: {}",
             self.index, self.error
         )
+    }
+}
+
+impl fmt::Display for BlankValueError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let s = str::from_utf8(&self.0[..]).map_or_else(
+            |_| format!("key's bytes were {}", self.0.iter().join(",")),
+            |s| format!("key was {s}"),
+        );
+        write!(f, "skipping key with blank value, {s}")
     }
 }
 

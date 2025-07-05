@@ -37,13 +37,8 @@ pub struct Terminal<V, W> {
 /// Final failed result with either one error or multiple errors with a summary.
 pub struct TerminalFailure<W, E, T> {
     warnings: Vec<W>,
-    failure: Failure<E, T>,
-}
-
-/// Final failure message, either with one error or many errors with a summary.
-pub enum Failure<E, T> {
-    Single(T),
-    Many(T, Box<NonEmpty<E>>),
+    errors: NonEmpty<E>,
+    reason: T,
 }
 
 /// Result which may have at least one error
@@ -189,7 +184,8 @@ impl<V, W> Terminal<V, W> {
                 self.warnings.extend(e.warnings);
                 Err(TerminalFailure {
                     warnings: self.warnings,
-                    failure: e.failure,
+                    errors: e.errors,
+                    reason: e.reason,
                 })
             }
         }
@@ -251,101 +247,75 @@ impl<V> Terminal<V, ()> {
     }
 }
 
-impl<E, T> Failure<E, T> {
-    pub fn map_errors<F, X>(self, f: F) -> Failure<X, T>
-    where
-        F: Fn(E) -> X,
-    {
-        match self {
-            Failure::Many(t, es) => Failure::Many(t, Box::new(es.map(f))),
-            Failure::Single(t) => Failure::Single(t),
-        }
-    }
-
-    pub fn map_terminal<F, X>(self, f: F) -> Failure<E, X>
-    where
-        F: FnOnce(T) -> X,
-    {
-        match self {
-            Failure::Many(t, es) => Failure::Many(f(t), es),
-            Failure::Single(t) => Failure::Single(f(t)),
-        }
-    }
-}
-
 impl<W, E, T> TerminalFailure<W, E, T> {
-    pub fn new(errors: Failure<E, T>) -> Self {
+    pub fn new(errors: NonEmpty<E>, reason: T) -> Self {
         TerminalFailure {
             warnings: vec![],
-            failure: errors,
+            errors,
+            reason,
         }
     }
 
-    pub fn new_single(t: T) -> Self {
-        Self::new(Failure::Single(t))
-    }
+    // pub fn map_warnings<F, X>(self, f: F) -> TerminalFailure<X, E, T>
+    // where
+    //     F: Fn(W) -> X,
+    // {
+    //     TerminalFailure {
+    //         warnings: self.warnings.into_iter().map(f).collect(),
+    //         errors: self.errors,
+    //         reason: self.reason,
+    //     }
+    // }
 
-    pub fn new_many(t: T, es: NonEmpty<E>) -> Self {
-        Self::new(Failure::Many(t, Box::new(es)))
-    }
+    // pub fn map_errors<F, X>(self, f: F) -> TerminalFailure<W, X, T>
+    // where
+    //     F: Fn(E) -> X,
+    // {
+    //     TerminalFailure {
+    //         warnings: self.warnings,
+    //         errors: self.errors.map(f),
+    //         reason: self.reason,
+    //     }
+    // }
 
-    pub fn warnings_map<F, X>(self, f: F) -> TerminalFailure<X, E, T>
-    where
-        F: Fn(W) -> X,
-    {
-        TerminalFailure {
-            warnings: self.warnings.into_iter().map(f).collect(),
-            failure: self.failure,
-        }
-    }
+    // pub fn map_reason<F, X>(self, f: F) -> TerminalFailure<W, E, X>
+    // where
+    //     F: FnOnce(T) -> X,
+    // {
+    //     TerminalFailure {
+    //         warnings: self.warnings,
+    //         errors: self.errors,
+    //         reason: f(self.reason),
+    //     }
+    // }
 
-    pub fn errors_map<F, X>(self, f: F) -> TerminalFailure<W, X, T>
-    where
-        F: Fn(E) -> X,
-    {
-        TerminalFailure {
-            warnings: self.warnings,
-            failure: self.failure.map_errors(f),
-        }
-    }
+    // pub fn warnings_into<X>(self) -> TerminalFailure<X, E, T>
+    // where
+    //     X: From<W>,
+    // {
+    //     self.map_warnings(|w| w.into())
+    // }
 
-    pub fn value_map<F, X>(self, f: F) -> TerminalFailure<W, E, X>
-    where
-        F: FnOnce(T) -> X,
-    {
-        TerminalFailure {
-            warnings: self.warnings,
-            failure: self.failure.map_terminal(f),
-        }
-    }
+    // pub fn errors_into<X>(self) -> TerminalFailure<W, X, T>
+    // where
+    //     X: From<E>,
+    // {
+    //     self.map_errors(|e| e.into())
+    // }
 
-    pub fn warnings_into<X>(self) -> TerminalFailure<X, E, T>
-    where
-        X: From<W>,
-    {
-        self.warnings_map(|w| w.into())
-    }
-
-    pub fn errors_into<X>(self) -> TerminalFailure<W, X, T>
-    where
-        X: From<E>,
-    {
-        self.errors_map(|e| e.into())
-    }
-
-    pub fn value_into<X>(self) -> TerminalFailure<W, E, X>
-    where
-        X: From<T>,
-    {
-        self.value_map(|e| e.into())
-    }
+    // pub fn value_into<X>(self) -> TerminalFailure<W, E, X>
+    // where
+    //     X: From<T>,
+    // {
+    //     self.map_reason(|e| e.into())
+    // }
 
     pub fn resolve<F, G, X, Y>(self, f: F, g: G) -> (X, Y)
     where
         F: FnOnce(Vec<W>) -> X,
-        G: FnOnce(Failure<E, T>) -> Y,
+        G: FnOnce(NonEmpty<E>, T) -> Y,
     {
-        (f(self.warnings), g(self.failure))
+        (f(self.warnings), g(self.errors, self.reason))
     }
 }
 
@@ -429,7 +399,8 @@ impl<V, W, E> Tentative<V, W, E> {
                 self.warnings.extend(e.warnings);
                 Err(TerminalFailure {
                     warnings: self.warnings,
-                    failure: e.failure,
+                    errors: e.errors,
+                    reason: e.reason,
                 })
             }
         }
@@ -576,7 +547,8 @@ impl<V, W, E> Tentative<V, W, E> {
         match NonEmpty::from_vec(self.errors) {
             Some(errors) => Err(TerminalFailure {
                 warnings: self.warnings,
-                failure: Failure::Many(reason, Box::new(errors)),
+                errors,
+                reason,
             }),
             None => Ok(Terminal {
                 value: self.value,
@@ -880,7 +852,8 @@ impl<W, E> DeferredFailure<(), W, E> {
     pub fn terminate<T>(self, reason: T) -> TerminalFailure<W, E, T> {
         TerminalFailure {
             warnings: self.warnings,
-            failure: Failure::Many(reason, Box::new(self.errors)),
+            errors: self.errors,
+            reason,
         }
     }
 

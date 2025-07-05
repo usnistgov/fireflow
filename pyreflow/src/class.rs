@@ -3212,20 +3212,17 @@ where
     f.resolve(|_| (), emit_failure).1
 }
 
-fn emit_failure<E, T>(e: Failure<E, T>) -> PyErr
+fn emit_failure<E, T>(es: NonEmpty<E>, r: T) -> PyErr
 where
     E: fmt::Display,
     T: fmt::Display,
 {
-    let s = match e {
-        Failure::Single(t) => t.to_string(),
-        Failure::Many(t, es) => {
-            let xs: Vec<_> = [format!("Toplevel Error: {t}")]
-                .into_iter()
-                .chain(es.into_iter().map(|x| x.to_string()))
-                .collect();
-            xs[..].join("\n").to_string()
-        }
+    let s = {
+        let xs: Vec<_> = [format!("Toplevel Error: {r}")]
+            .into_iter()
+            .chain(es.into_iter().map(|x| x.to_string()))
+            .collect();
+        xs[..].join("\n").to_string()
     };
     PyreflowException::new_err(s)
 }

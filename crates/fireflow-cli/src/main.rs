@@ -59,13 +59,10 @@ where
     T: Display,
     W: Display,
 {
-    f.resolve(print_warnings, |e| match e {
-        Failure::Single(t) => eprintln!("ERROR: {t}"),
-        Failure::Many(t, es) => {
-            eprintln!("TOPLEVEL ERROR: {t}");
-            for e in *es {
-                eprintln!("  ERROR: {e}");
-            }
+    f.resolve(print_warnings, |es, r| {
+        eprintln!("TOPLEVEL ERROR: {r}");
+        for e in es {
+            eprintln!("  ERROR: {e}");
         }
     });
 }
@@ -78,13 +75,10 @@ where
     // TODO not DRY
     f.resolve(
         |_| (),
-        |e| match e {
-            Failure::Single(t) => eprintln!("ERROR: {t}"),
-            Failure::Many(t, es) => {
-                eprintln!("TOPLEVEL ERROR: {t}");
-                for e in *es {
-                    eprintln!("  ERROR: {e}");
-                }
+        |es, r| {
+            eprintln!("TOPLEVEL ERROR: {r}");
+            for e in es {
+                eprintln!("  ERROR: {e}");
             }
         },
     );

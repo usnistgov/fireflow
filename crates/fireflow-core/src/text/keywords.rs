@@ -1629,7 +1629,7 @@ kw_req_meta!(ByteOrd, "BYTEORD"); // 3.1+
 // all versions
 kw_req_meas!(Width, "B");
 kw_opt_meas_string!(Filter, "F");
-kw_opt_meas_int!(Power, u32, "O");
+kw_opt_meas_int!(Power, NonNegFloat, "O");
 kw_opt_meas_string!(PercentEmitted, "P");
 kw_req_meas!(Range, "R");
 kw_opt_meas_string!(Longname, "S");

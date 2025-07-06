@@ -1603,7 +1603,6 @@ macro_rules! common_methods {
     ($pytype:ident) => {
         // common measurement keywords
         meas_get_set!(filters,           set_filters,           String,        $pytype);
-        meas_get_set!(powers,            set_powers,            u32,           $pytype);
         meas_get_set!(detector_types,    set_detector_types,    String,        $pytype);
         meas_get_set!(percents_emitted,  set_percents_emitted,  String,        $pytype);
 
@@ -1862,6 +1861,33 @@ macro_rules! common_methods {
                 }
                 self.0
                     .set_detector_voltages(ys)
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+            }
+
+            #[getter]
+            fn get_powers(&self) -> Vec<(usize, Option<f32>)> {
+                self.0
+                    .powers()
+                    .into_iter()
+                    .map(|(i, x)| (
+                        i.into(),
+                        x.as_ref().copied().map(|y| y.0.into())
+                    ))
+                    .collect()
+            }
+
+            #[setter]
+            fn set_powers(&mut self, xs: Vec<Option<f32>>) -> PyResult<()> {
+                let mut ys = vec![];
+                for x in xs {
+                    ys.push(
+                        x.map(f32_to_nonneg_float)
+                            .transpose()?
+                            .map(Power)
+                    );
+                }
+                self.0
+                    .set_powers(ys)
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
             }
         }
@@ -3486,8 +3512,6 @@ shared_meas_get_set!(
 
 macro_rules! optical_common {
     ($($pytype:ident),*) => {
-        get_set_copied!($($pytype,)* [], get_power, set_power, power, u32);
-
         get_set_str!($($pytype,)* [], get_filter,    set_filter,    filter);
         get_set_str!($($pytype,)* [], get_detector_type,    set_detector_type,    detector_type);
         get_set_str!($($pytype,)* [], get_percent_emitted,    set_percent_emitted,    percent_emitted);
@@ -3504,6 +3528,19 @@ macro_rules! optical_common {
                 fn set_detector_voltage(&mut self, x: Option<f32>) -> PyResult<()> {
                     let y = x.map(to_non_neg_float).transpose()?;
                     self.0.detector_voltage = y.map(|z| z.into()).into();
+                    Ok(())
+                }
+
+                // TODO not DRY
+                #[getter]
+                fn get_power(&self) -> Option<f32> {
+                    self.0.power.as_ref_opt().map(|x| x.0.into())
+                }
+
+                #[setter]
+                fn set_power(&mut self, x: Option<f32>) -> PyResult<()> {
+                    let y = x.map(to_non_neg_float).transpose()?;
+                    self.0.power = y.map(|z| z.into()).into();
                     Ok(())
                 }
             }

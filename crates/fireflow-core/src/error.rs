@@ -320,6 +320,18 @@ impl<W, E, T> TerminalFailure<W, E, T> {
     //     self.map_reason(|e| e.into())
     // }
 
+    fn warnings_to_errors<F>(mut self, f: F) -> Self
+    where
+        F: Fn(W) -> E,
+    {
+        self.errors.extend(self.warnings.into_iter().map(f));
+        Self {
+            warnings: vec![],
+            errors: self.errors,
+            reason: self.reason,
+        }
+    }
+
     pub fn resolve<F, G, X, Y>(self, f: F, g: G) -> (X, Y)
     where
         F: FnOnce(Vec<W>) -> X,
@@ -582,8 +594,10 @@ impl<V, W, E> Tentative<V, W, E> {
     where
         F: Fn(W) -> E,
     {
-        self.terminate_inner(reason)
-            .and_then(|(t, r)| t.warnings_to_errors(r, f))
+        match self.terminate_inner(reason) {
+            Ok((t, r)) => t.warnings_to_errors(r, f),
+            Err(e) => Err(e.warnings_to_errors(f)),
+        }
     }
 
     pub fn zip<A>(self, a: Tentative<A, W, E>) -> Tentative<(V, A), W, E> {

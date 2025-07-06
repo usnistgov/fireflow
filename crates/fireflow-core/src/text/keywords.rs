@@ -480,7 +480,7 @@ impl fmt::Display for CalibrationFormat3_2 {
 ///
 /// Starting in 3.1 this is a vector rather than a scaler.
 #[derive(Clone, From)]
-pub struct Wavelengths(pub NonEmpty<u32>);
+pub struct Wavelengths(pub NonEmpty<PositiveFloat>);
 
 impl Serialize for Wavelengths {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -503,7 +503,7 @@ impl FromStr for Wavelengths {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut ws = vec![];
         for x in s.split(",") {
-            ws.push(x.parse().map_err(WavelengthsError::Int)?);
+            ws.push(x.parse().map_err(WavelengthsError::Num)?);
         }
         NonEmpty::from_vec(ws)
             .ok_or(WavelengthsError::Empty)
@@ -539,14 +539,14 @@ impl fmt::Display for WavelengthsLossError {
 }
 
 pub enum WavelengthsError {
-    Int(ParseIntError),
+    Num(RangedFloatError),
     Empty,
 }
 
 impl fmt::Display for WavelengthsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            WavelengthsError::Int(i) => write!(f, "{}", i),
+            WavelengthsError::Num(i) => write!(f, "{}", i),
             WavelengthsError::Empty => write!(f, "list must not be empty"),
         }
     }
@@ -1661,7 +1661,7 @@ req_meas!(Scale); // required for 3.0+
 kw_opt_meas!(TemporalScale, "E"); // optional for 2.0
 req_meas!(TemporalScale); // required for 3.0+
 
-kw_opt_meas_int!(Wavelength, u32, "L"); // scaler in 2.0/3.0
+kw_opt_meas_int!(Wavelength, PositiveFloat, "L"); // scaler in 2.0/3.0
 kw_opt_meas!(Wavelengths, "L"); // vector in 3.1+
 
 kw_opt_meas!(Calibration3_1, "CALIBRATION"); // 3.1 doesn't have offset

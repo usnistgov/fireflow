@@ -2735,25 +2735,29 @@ timestep_methods!(
     PyCoreDataset3_2
 );
 
-// Get/set methods for scaler $PnL (3.1-3.2)
+// Get/set methods for scaler $PnL (2.0-3.0)
 macro_rules! wavelength_methods {
     ($($pytype:ident),*) => {
         $(
             #[pymethods]
             impl $pytype {
                 #[getter]
-                fn get_wavelengths(&self) -> Vec<(usize, Option<u32>)> {
+                fn get_wavelengths(&self) -> Vec<(usize, Option<f32>)> {
                     self.0
                         .wavelengths()
                         .into_iter()
-                        .map(|(i, x)| (i.into(), x.map(|y| y.0)))
+                        .map(|(i, x)| (i.into(), x.map(|y| y.0.into())))
                         .collect()
                 }
 
                 #[setter]
-                fn set_wavelengths(&mut self, xs: Vec<Option<u32>>) -> PyResult<()> {
+                fn set_wavelengths(&mut self, xs: Vec<Option<f32>>) -> PyResult<()> {
+                    let ys = xs
+                        .into_iter()
+                        .map(|x| x.map(|y| f32_to_positive_float(y).map(|z| z.into())).transpose())
+                        .collect::<Result<Vec<_>, _>>()?;
                     self.0
-                        .set_wavelengths(xs.into_iter().map(|x| x.map(|y| y.into())).collect())
+                        .set_wavelengths(ys)
                         .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
             }
@@ -2775,28 +2779,40 @@ macro_rules! wavelengths_methods {
             #[pymethods]
             impl $pytype {
                 #[getter]
-                fn get_wavelengths(&self) -> Vec<(usize, Vec<u32>)> {
+                fn get_wavelengths(&self) -> Vec<(usize, Vec<f32>)> {
                     self.0
                         .wavelengths()
                         .into_iter()
                         .map(|(i, x)| {
                             (
                                 i.into(),
-                                x.map(|y| y.0.iter().copied().collect()).unwrap_or_default(),
+                                x.map(
+                                    |y| y
+                                        .0
+                                        .iter()
+                                        .copied()
+                                        .map(|x| x.into()).collect()
+                                ).unwrap_or_default(),
                             )
                         })
                         .collect()
                 }
 
                 #[setter]
-                fn set_wavelengths(&mut self, xs: Vec<Vec<u32>>) -> PyResult<()> {
-                    // TODO throw error here if not empty
-                    self.0
-                        .set_wavelengths(
-                            xs.into_iter()
-                                .map(|x| NonEmpty::from_vec(x).map(Wavelengths))
-                                .collect(),
+                fn set_wavelengths(&mut self, xs: Vec<Vec<f32>>) -> PyResult<()> {
+                    let ys = xs
+                        .into_iter()
+                        .map(|ys| ys
+                             .into_iter()
+                             .map(f32_to_positive_float)
+                             .collect::<Result<Vec<_>, _>>()
+                             .map(
+                                 |zs| NonEmpty::from_vec(zs).map(Wavelengths)
+                             )
                         )
+                        .collect::<Result<Vec<_>, _>>()?;
+                    self.0
+                        .set_wavelengths(ys)
                         .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
             }
@@ -3499,15 +3515,15 @@ macro_rules! optical_common {
 optical_common!(PyOptical2_0, PyOptical3_0, PyOptical3_1, PyOptical3_2);
 
 // $PnL (2.0-3.0)
-get_set_copied!(
-    PyOptical2_0,
-    PyOptical3_0,
-    [specific],
-    get_wavelength,
-    set_wavelength,
-    wavelength,
-    u32
-);
+// get_set_copied!(
+//     PyOptical2_0,
+//     PyOptical3_0,
+//     [specific],
+//     get_wavelength,
+//     set_wavelength,
+//     wavelength,
+//     u32
+// );
 
 // $PnE (2.0)
 get_set_copied!(
@@ -3565,6 +3581,30 @@ macro_rules! meas_get_set_scale {
 
 meas_get_set_scale!(PyOptical3_0, PyOptical3_1, PyOptical3_2);
 
+// #PnL (2.0-3.0)
+macro_rules! meas_get_set_wavelengths {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                #[getter]
+                fn get_wavelength(&self) -> Option<f32> {
+                    self.0.specific.wavelength.as_ref_opt().map(|w| w.0.into())
+                }
+
+                #[setter]
+                fn set_wavelength(&mut self, x: Option<f32>) -> PyResult<()> {
+                    let y = x.map(f32_to_positive_float).transpose()?;
+                    self.0.specific.wavelength = y.map(|z| z.into()).into();
+                    Ok(())
+                }
+            }
+        )*
+    };
+}
+
+meas_get_set_wavelengths!(PyOptical2_0, PyOptical3_0);
+
 // #PnL (3.1-3.2)
 macro_rules! meas_get_set_wavelengths {
     ($($pytype:ident),*) => {
@@ -3572,23 +3612,28 @@ macro_rules! meas_get_set_wavelengths {
             #[pymethods]
             impl $pytype {
                 #[getter]
-                fn get_wavelengths(&self) -> Vec<u32> {
+                fn get_wavelengths(&self) -> Vec<f32> {
                     self.0
                         .specific
                         .wavelengths
                         .as_ref_opt()
-                        .map(|ws| ws.0.iter().copied().collect())
+                        .map(|ws| ws.0.iter().copied().map(|x| x.into()).collect())
                         .unwrap_or_default()
                 }
 
                 #[setter]
-                fn set_wavelengths(&mut self, xs: Vec<u32>) {
+                fn set_wavelengths(&mut self, xs: Vec<f32>) -> PyResult<()> {
                     if xs.is_empty() {
                         self.0.specific.wavelengths = None.into();
                     } else {
-                        let ws = Some(NonEmpty::from_vec(xs).unwrap().into()).into();
+                        let ys = xs
+                            .into_iter()
+                            .map(f32_to_positive_float)
+                            .collect::<Result<Vec<_>, _>>()?;
+                        let ws = Some(NonEmpty::from_vec(ys).unwrap().into()).into();
                         self.0.specific.wavelengths = ws;
                     }
+                    Ok(())
                 }
             }
         )*

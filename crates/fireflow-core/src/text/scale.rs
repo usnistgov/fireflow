@@ -1,3 +1,4 @@
+use crate::config::StdTextReadConfig;
 use crate::error::*;
 use crate::text::index::MeasIndex;
 use crate::text::optional::*;
@@ -98,11 +99,29 @@ impl Scale {
     pub(crate) fn lookup_fixed_opt<E>(
         kws: &mut StdKeywords,
         i: MeasIndex,
-        dep: bool,
-        try_fix: bool,
+        conf: &StdTextReadConfig,
     ) -> LookupTentative<OptionalValue<Scale>, E> {
+        let res = Self::lookup_fixed_opt_inner(kws, i, conf.fix_log_scale_offsets);
+        process_opt(res)
+    }
+
+    pub(crate) fn lookup_fixed_opt_dep(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+        conf: &StdTextReadConfig,
+    ) -> LookupTentative<OptionalValue<Scale>, DeprecatedError> {
+        let dd = conf.disallow_deprecated;
+        let res = Self::lookup_fixed_opt_inner(kws, i, conf.fix_log_scale_offsets);
+        process_opt_dep(res, Scale::std(i.into()), dd)
+    }
+
+    fn lookup_fixed_opt_inner(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+        try_fix: bool,
+    ) -> OptKwResult<Scale> {
         let res = Scale::remove_meas_opt(kws, i.into());
-        let fix_res = if try_fix {
+        if try_fix {
             res.map_or_else(
                 |e| {
                     e.with_error(|se| {
@@ -119,8 +138,7 @@ impl Scale {
             )
         } else {
             res
-        };
-        process_opt_dep(fix_res, Scale::std(i.into()), dep)
+        }
     }
 }
 

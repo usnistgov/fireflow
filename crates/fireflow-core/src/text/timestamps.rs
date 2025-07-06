@@ -154,16 +154,38 @@ where
         }
     }
 
-    pub(crate) fn lookup<E>(kws: &mut StdKeywords, dep: bool) -> LookupTentative<Self, E>
+    pub(crate) fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<Self, E>
     where
         Btim<X>: OptMetarootKey,
         Etim<X>: OptMetarootKey,
-        ParseOptKeyWarning: From<<Btim<X> as FromStr>::Err>,
-        ParseOptKeyWarning: From<<Etim<X> as FromStr>::Err>,
+        ParseOptKeyWarning: From<<Btim<X> as FromStr>::Err> + From<<Etim<X> as FromStr>::Err>,
     {
-        let b = Btim::lookup_opt(kws, dep);
-        let e = Etim::lookup_opt(kws, dep);
-        let d = FCSDate::lookup_opt(kws, dep);
+        let b = Btim::lookup_opt(kws);
+        let e = Etim::lookup_opt(kws);
+        let d = FCSDate::lookup_opt(kws);
+        Self::process_lookup(b, e, d)
+    }
+
+    pub(crate) fn lookup_dep(
+        kws: &mut StdKeywords,
+        disallow_dep: bool,
+    ) -> LookupTentative<Self, DeprecatedError>
+    where
+        Btim<X>: OptMetarootKey,
+        Etim<X>: OptMetarootKey,
+        ParseOptKeyWarning: From<<Btim<X> as FromStr>::Err> + From<<Etim<X> as FromStr>::Err>,
+    {
+        let b = Btim::lookup_opt_dep(kws, disallow_dep);
+        let e = Etim::lookup_opt_dep(kws, disallow_dep);
+        let d = FCSDate::lookup_opt_dep(kws, disallow_dep);
+        Self::process_lookup(b, e, d)
+    }
+
+    fn process_lookup<E>(
+        b: LookupTentative<OptionalValue<Btim<X>>, E>,
+        e: LookupTentative<OptionalValue<Etim<X>>, E>,
+        d: LookupTentative<OptionalValue<FCSDate>, E>,
+    ) -> LookupTentative<Self, E> {
         b.zip3(e, d).and_tentatively(|(btim, etim, date)| {
             Timestamps::new(btim, etim, date)
                 .map(Tentative::new1)

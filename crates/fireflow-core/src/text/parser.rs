@@ -151,15 +151,22 @@ where
         Self::remove_opt(kws, Self::std())
     }
 
-    fn lookup_opt<E>(kws: &mut StdKeywords, dep: bool) -> LookupTentative<OptionalValue<Self>, E>
+    fn lookup_opt<E>(kws: &mut StdKeywords) -> LookupTentative<OptionalValue<Self>, E>
     where
         ParseOptKeyWarning: From<<Self as FromStr>::Err>,
     {
-        let mut x = process_opt(Self::remove_metaroot_opt(kws));
-        // TODO toggle
-        if dep {
-            x.push_warning(DeprecatedError::Key(DepKeyWarning(Self::std())).into());
-        }
+        process_opt(Self::remove_metaroot_opt(kws))
+    }
+
+    fn lookup_opt_dep(
+        kws: &mut StdKeywords,
+        disallow_dep: bool,
+    ) -> LookupTentative<OptionalValue<Self>, DeprecatedError>
+    where
+        ParseOptKeyWarning: From<<Self as FromStr>::Err>,
+    {
+        let mut x = Self::lookup_opt(kws);
+        eval_dep_maybe(&mut x, Self::std(), disallow_dep);
         x
     }
 
@@ -194,15 +201,24 @@ where
     fn lookup_opt<E>(
         kws: &mut StdKeywords,
         i: IndexFromOne,
-        dep: bool,
+        // dep: bool,
     ) -> LookupTentative<OptionalValue<Self>, E>
     where
         ParseOptKeyWarning: From<<Self as FromStr>::Err>,
     {
-        let mut x = process_opt(Self::remove_meas_opt(kws, i));
-        if dep {
-            x.push_warning(DeprecatedError::Key(DepKeyWarning(Self::std(i))).into());
-        }
+        process_opt(Self::remove_meas_opt(kws, i))
+    }
+
+    fn lookup_opt_dep(
+        kws: &mut StdKeywords,
+        i: IndexFromOne,
+        disallow_dep: bool,
+    ) -> LookupTentative<OptionalValue<Self>, DeprecatedError>
+    where
+        ParseOptKeyWarning: From<<Self as FromStr>::Err>,
+    {
+        let mut x = Self::lookup_opt(kws, i);
+        eval_dep_maybe(&mut x, Self::std(i), disallow_dep);
         x
     }
 
@@ -365,7 +381,7 @@ pub(crate) fn lookup_temporal_gain_3_0(
     kws: &mut StdKeywords,
     i: IndexFromOne,
 ) -> LookupTentative<OptionalValue<Gain>, LookupKeysError> {
-    let mut tnt_gain = Gain::lookup_opt(kws, i, false);
+    let mut tnt_gain = Gain::lookup_opt(kws, i);
     tnt_gain.eval_error(|gain| {
         if gain.0.is_some() {
             Some(LookupKeysError::Misc(TemporalError::HasGain.into()))
@@ -376,19 +392,17 @@ pub(crate) fn lookup_temporal_gain_3_0(
     tnt_gain
 }
 
-pub(crate) fn process_opt_dep<V, E>(
+pub(crate) fn process_opt_dep<V>(
     res: Result<OptionalValue<V>, ParseKeyError<<V as FromStr>::Err>>,
     k: StdKey,
-    dep: bool,
-) -> Tentative<OptionalValue<V>, LookupKeysWarning, E>
+    disallow_dep: bool,
+) -> Tentative<OptionalValue<V>, LookupKeysWarning, DeprecatedError>
 where
     V: FromStr,
     ParseOptKeyWarning: From<<V as FromStr>::Err>,
 {
     let mut x = process_opt(res);
-    if dep {
-        x.push_warning(DeprecatedError::Key(DepKeyWarning(k)).into());
-    }
+    eval_dep_maybe(&mut x, k, disallow_dep);
     x
 }
 
@@ -419,13 +433,12 @@ pub(crate) type OptKwResult<T> = Result<OptionalValue<T>, ParseKeyError<<T as Fr
 
 pub(crate) type LookupResult<V> = DeferredResult<V, LookupKeysWarning, LookupKeysError>;
 pub(crate) type LookupTentative<V, E> = Tentative<V, LookupKeysWarning, E>;
+pub(crate) type LookupOptional<V, E> = Tentative<OptionalValue<V>, LookupKeysWarning, E>;
 
 // TODO this could be nested better
 #[derive(From, Display)]
 pub enum LookupKeysError {
     Parse(Box<ReqKeyError<ParseReqKeyError>>),
-    // TODO this currently does nothing, need to add a flag to toggle these to
-    // errors
     Dep(DeprecatedError),
     Misc(LookupMiscError),
 }
@@ -671,5 +684,25 @@ where
             ReqKeyError::Parse(x) => x.fmt(f),
             ReqKeyError::Missing(k) => write!(f, "missing required key: {k}"),
         }
+    }
+}
+
+fn eval_dep_maybe<T>(
+    x: &mut LookupTentative<OptionalValue<T>, DeprecatedError>,
+    key: StdKey,
+    disallow_dep: bool,
+) {
+    if disallow_dep {
+        x.eval_error(|v| eval_dep(v, key));
+    } else {
+        x.eval_error(|v| eval_dep(v, key));
+    }
+}
+
+fn eval_dep<T>(v: &OptionalValue<T>, key: StdKey) -> Option<DeprecatedError> {
+    if v.0.is_some() {
+        Some(DeprecatedError::Key(DepKeyWarning(key)))
+    } else {
+        None
     }
 }

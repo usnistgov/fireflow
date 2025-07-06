@@ -1152,7 +1152,11 @@ pub trait VersionedTemporal: Sized {
 }
 
 pub(crate) trait LookupTemporal: VersionedTemporal {
-    fn lookup_specific(kws: &mut StdKeywords, n: MeasIndex) -> LookupResult<Self>;
+    fn lookup_specific(
+        kws: &mut StdKeywords,
+        n: MeasIndex,
+        conf: &StdTextReadConfig,
+    ) -> LookupResult<Self>;
 }
 
 pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
@@ -1292,7 +1296,7 @@ impl CommonMeasurement {
         i: MeasIndex,
         nonstd: NonStdPairs,
     ) -> LookupTentative<Self, E> {
-        Longname::lookup_opt(kws, i.into(), false).map(|longname| Self {
+        Longname::lookup_opt(kws, i.into()).map(|longname| Self {
             longname,
             nonstandard_keywords: nonstd.into_iter().collect(),
         })
@@ -1314,12 +1318,13 @@ where
         kws: &mut StdKeywords,
         i: MeasIndex,
         nonstd: NonStdPairs,
+        conf: &StdTextReadConfig,
     ) -> LookupResult<Self>
     where
         T: LookupTemporal,
     {
         CommonMeasurement::lookup(kws, i, nonstd).and_maybe(|common| {
-            T::lookup_specific(kws, i).def_map_value(|specific| Temporal { common, specific })
+            T::lookup_specific(kws, i, conf).def_map_value(|specific| Temporal { common, specific })
         })
     }
 
@@ -1391,14 +1396,18 @@ where
         O: LookupOptical,
         Version: From<O::Ver>,
     {
+        let dd = conf.disallow_deprecated;
         let version = O::Ver::fcs_version();
-        let f = Filter::lookup_opt(kws, i.into(), false);
-        let p = Power::lookup_opt(kws, i.into(), false);
-        let d = DetectorType::lookup_opt(kws, i.into(), false);
-        let e =
-            PercentEmitted::lookup_opt(kws, i.into(), Version::from(version) == Version::FCS3_2);
-        let v = DetectorVoltage::lookup_opt(kws, i.into(), false);
-        f.zip5(p, d, e, v).and_maybe(
+        let f = Filter::lookup_opt(kws, i.into());
+        let p = Power::lookup_opt(kws, i.into());
+        let d = DetectorType::lookup_opt(kws, i.into());
+        let e = if Version::from(version) == Version::FCS3_2 {
+            PercentEmitted::lookup_opt_dep(kws, i.into(), dd)
+        } else {
+            PercentEmitted::lookup_opt(kws, i.into())
+        };
+        let v = DetectorVoltage::lookup_opt(kws, i.into());
+        f.zip5(p, d, e, v).errors_into().and_maybe(
             |(filter, power, detector_type, percent_emitted, detector_voltage)| {
                 CommonMeasurement::lookup(kws, i, nonstd).and_maybe(|common| {
                     O::lookup_specific(kws, i, conf).def_map_value(|specific| Optical {
@@ -1554,18 +1563,18 @@ where
     {
         let par = Par(ms.len());
         let names: HashSet<_> = ms.indexed_names().map(|(_, n)| n).collect();
-        let a = Abrt::lookup_opt(kws, false);
-        let co = Com::lookup_opt(kws, false);
-        let ce = Cells::lookup_opt(kws, false);
-        let e = Exp::lookup_opt(kws, false);
-        let f = Fil::lookup_opt(kws, false);
-        let i = Inst::lookup_opt(kws, false);
-        let l = Lost::lookup_opt(kws, false);
-        let o = Op::lookup_opt(kws, false);
-        let p = Proj::lookup_opt(kws, false);
-        let sm = Smno::lookup_opt(kws, false);
-        let sr = Src::lookup_opt(kws, false);
-        let sy = Sys::lookup_opt(kws, false);
+        let a = Abrt::lookup_opt(kws);
+        let co = Com::lookup_opt(kws);
+        let ce = Cells::lookup_opt(kws);
+        let e = Exp::lookup_opt(kws);
+        let f = Fil::lookup_opt(kws);
+        let i = Inst::lookup_opt(kws);
+        let l = Lost::lookup_opt(kws);
+        let o = Op::lookup_opt(kws);
+        let p = Proj::lookup_opt(kws);
+        let sm = Smno::lookup_opt(kws);
+        let sr = Src::lookup_opt(kws);
+        let sy = Sys::lookup_opt(kws);
         let t = Trigger::lookup_opt(kws, &names);
         a.zip5(co, ce, e, f)
             .zip5(i, l, o, p)
@@ -2688,7 +2697,7 @@ where
                         match key {
                             // TODO add switch to "downgrade" failed time
                             // channel to optical channel, which is more general
-                            Ok(name) => Temporal::lookup_temporal(kws, i, meas_nonstd)
+                            Ok(name) => Temporal::lookup_temporal(kws, i, meas_nonstd, conf)
                                 .def_map_value(|t| Element::Center((name, t))),
                             Err(k) => Optical::lookup_optical(kws, i, meas_nonstd, conf)
                                 .def_map_value(|m| Element::NonCenter((k, m))),
@@ -3762,7 +3771,7 @@ impl CoreDataset3_2 {
 impl UnstainedData {
     fn lookup<E>(kws: &mut StdKeywords, names: &HashSet<&Shortname>) -> LookupTentative<Self, E> {
         let c = UnstainedCenters::lookup_opt(kws, names);
-        let i = UnstainedInfo::lookup_opt(kws, false);
+        let i = UnstainedInfo::lookup_opt(kws);
         c.zip(i).map(|(unstainedcenters, unstainedinfo)| Self {
             unstainedcenters,
             unstainedinfo,
@@ -3786,12 +3795,42 @@ impl UnstainedData {
 }
 
 impl SubsetData {
-    fn lookup<E>(kws: &mut StdKeywords, dep: bool) -> LookupTentative<OptionalValue<Self>, E> {
-        CSMode::lookup_opt(kws, dep).and_tentatively(|m| {
+    fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<OptionalValue<Self>, E> {
+        Self::lookup_inner(
+            kws,
+            CSMode::lookup_opt,
+            CSVFlag::lookup_opt,
+            CSVBits::lookup_opt,
+        )
+        // CSMode::lookup_opt_dep(kws, is_dep, disallow_dep).and_tentatively(|m| {
+        //     if let Some(n) = m.0 {
+        //         let it = (0..n.0).map(|i| CSVFlag::lookup_opt(kws, i.into(), is_dep));
+        //         Tentative::mconcat_ne(NonEmpty::collect(it).unwrap()).and_tentatively(|flags| {
+        //             CSVBits::lookup_opt_dep(kws, is_dep, disallow_dep)
+        //                 .map(|bits| Some(Self { flags, bits }).into())
+        //         })
+        //     } else {
+        //         Tentative::new1(None.into())
+        //     }
+        // })
+    }
+
+    fn lookup_inner<E, F0, F1, F2>(
+        kws: &mut StdKeywords,
+        lookup_mode: F0,
+        lookup_flag: F1,
+        lookup_bits: F2,
+    ) -> LookupTentative<OptionalValue<Self>, E>
+    where
+        F0: FnOnce(&mut StdKeywords) -> LookupTentative<OptionalValue<CSMode>, E>,
+        F1: Fn(&mut StdKeywords, IndexFromOne) -> LookupTentative<OptionalValue<CSVFlag>, E>,
+        F2: Fn(&mut StdKeywords) -> LookupTentative<OptionalValue<CSVBits>, E>,
+    {
+        lookup_mode(kws).and_tentatively(|m| {
             if let Some(n) = m.0 {
-                let it = (0..n.0).map(|i| CSVFlag::lookup_opt(kws, i.into(), dep));
+                let it = (0..n.0).map(|i| lookup_flag(kws, i.into()));
                 Tentative::mconcat_ne(NonEmpty::collect(it).unwrap()).and_tentatively(|flags| {
-                    CSVBits::lookup_opt(kws, dep).map(|bits| Some(Self { flags, bits }).into())
+                    lookup_bits(kws).map(|bits| Some(Self { flags, bits }).into())
                 })
             } else {
                 Tentative::new1(None.into())
@@ -3897,12 +3936,12 @@ impl<I: Serialize> Serialize for BivariateRegion<I> {
 }
 
 impl AppliedGates2_0 {
-    fn lookup<E>(
+    fn lookup(
         kws: &mut StdKeywords,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<OptionalValue<Self>, E> {
-        let ag = GatingRegions::lookup(kws, false, |k, i| Region::lookup(k, i, false));
-        let gm = GatedMeasurements::lookup(kws, false, conf);
+    ) -> LookupTentative<OptionalValue<Self>, DeprecatedError> {
+        let ag = GatingRegions::lookup(kws, Gating::lookup_opt, Region::lookup);
+        let gm = GatedMeasurements::lookup(kws, conf);
         ag.zip(gm).and_tentatively(|(x, y)| {
             if let Some((applied, gated_measurements)) = x.0.zip(y.0) {
                 let ret = Self {
@@ -3949,11 +3988,44 @@ impl AppliedGates2_0 {
 impl AppliedGates3_0 {
     fn lookup<E>(
         kws: &mut StdKeywords,
-        dep: bool,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<OptionalValue<Self>, E> {
-        let ag = GatingRegions::lookup(kws, false, |k, i| Region::lookup(k, i, false));
-        let gm = GatedMeasurements::lookup(kws, dep, conf);
+        Self::lookup_inner(
+            kws,
+            |k| GatingRegions::lookup(k, Gating::lookup_opt, Region::lookup),
+            |k| GatedMeasurements::lookup(k, conf),
+        )
+    }
+
+    fn lookup_dep(
+        kws: &mut StdKeywords,
+        conf: &StdTextReadConfig,
+    ) -> LookupTentative<OptionalValue<Self>, DeprecatedError> {
+        let dd = conf.disallow_deprecated;
+        Self::lookup_inner(
+            kws,
+            |k| {
+                GatingRegions::lookup(
+                    k,
+                    |kk| Gating::lookup_opt_dep(kk, dd),
+                    |kk, i| Region::lookup_dep(kk, i, dd),
+                )
+            },
+            |k| GatedMeasurements::lookup_dep(k, conf),
+        )
+    }
+
+    fn lookup_inner<E, F0, F1>(
+        kws: &mut StdKeywords,
+        lookup_regions: F0,
+        lookup_meas: F1,
+    ) -> LookupTentative<OptionalValue<Self>, E>
+    where
+        F0: FnOnce(&mut StdKeywords) -> LookupOptional<GatingRegions<MeasOrGateIndex>, E>,
+        F1: FnOnce(&mut StdKeywords) -> LookupOptional<GatedMeasurements, E>,
+    {
+        let ag = lookup_regions(kws);
+        let gm = lookup_meas(kws);
         ag.zip(gm).and_tentatively(|(x, y)| {
             if let Some(applied) = x.0 {
                 let ret = Self {
@@ -4058,9 +4130,16 @@ impl AppliedGates3_0 {
 }
 
 impl AppliedGates3_2 {
-    fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<OptionalValue<Self>, E> {
-        GatingRegions::lookup(kws, true, |k, i| Region::lookup(k, i, true))
-            .map(|x| x.map(|regions| Self { regions }))
+    fn lookup(
+        kws: &mut StdKeywords,
+        disallow_deprecated: bool,
+    ) -> LookupTentative<OptionalValue<Self>, DeprecatedError> {
+        GatingRegions::lookup(
+            kws,
+            |k| Gating::lookup_opt_dep(k, disallow_deprecated),
+            |k, i| Region::lookup_dep(k, i, disallow_deprecated),
+        )
+        .map(|x| x.map(|regions| Self { regions }))
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -4072,18 +4151,74 @@ impl GatedMeasurement {
     fn lookup<E>(
         kws: &mut StdKeywords,
         i: GateIndex,
-        dep: bool,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self, E> {
+        Self::lookup_inner(
+            kws,
+            i,
+            |k, j| GateScale::lookup_fixed_opt(k, j, conf),
+            GateFilter::lookup_opt,
+            GateShortname::lookup_opt,
+            GatePercentEmitted::lookup_opt,
+            GateRange::lookup_opt,
+            GateLongname::lookup_opt,
+            GateDetectorType::lookup_opt,
+            GateDetectorVoltage::lookup_opt,
+        )
+    }
+
+    fn lookup_dep(
+        kws: &mut StdKeywords,
+        i: GateIndex,
+        conf: &StdTextReadConfig,
+    ) -> LookupTentative<Self, DeprecatedError> {
+        let dd = conf.disallow_deprecated;
+        Self::lookup_inner(
+            kws,
+            i,
+            |k, j| GateScale::lookup_fixed_opt_dep(k, j, conf),
+            |k, j| GateFilter::lookup_opt_dep(k, j, dd),
+            |k, j| GateShortname::lookup_opt_dep(k, j, dd),
+            |k, j| GatePercentEmitted::lookup_opt_dep(k, j, dd),
+            |k, j| GateRange::lookup_opt_dep(k, j, dd),
+            |k, j| GateLongname::lookup_opt_dep(k, j, dd),
+            |k, j| GateDetectorType::lookup_opt_dep(k, j, dd),
+            |k, j| GateDetectorVoltage::lookup_opt_dep(k, j, dd),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn lookup_inner<E, F0, F1, F2, F3, F4, F5, F6, F7>(
+        kws: &mut StdKeywords,
+        i: GateIndex,
+        lookup_scale: F0,
+        lookup_filter: F1,
+        lookup_shortname: F2,
+        lookup_pe: F3,
+        lookup_range: F4,
+        lookup_longname: F5,
+        lookup_det_type: F6,
+        lookup_det_volt: F7,
+    ) -> LookupTentative<Self, E>
+    where
+        F0: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateScale, E>,
+        F1: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GateFilter, E>,
+        F2: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GateShortname, E>,
+        F3: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GatePercentEmitted, E>,
+        F4: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GateRange, E>,
+        F5: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GateLongname, E>,
+        F6: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GateDetectorType, E>,
+        F7: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GateDetectorVoltage, E>,
+    {
         let j = i.into();
-        let e = GateScale::lookup_fixed_opt(kws, i, dep, conf.fix_log_scale_offsets);
-        let f = GateFilter::lookup_opt(kws, j, dep);
-        let n = GateShortname::lookup_opt(kws, j, dep);
-        let p = GatePercentEmitted::lookup_opt(kws, j, dep);
-        let r = GateRange::lookup_opt(kws, j, dep);
-        let s = GateLongname::lookup_opt(kws, j, dep);
-        let t = GateDetectorType::lookup_opt(kws, j, dep);
-        let v = GateDetectorVoltage::lookup_opt(kws, j, dep);
+        let e = lookup_scale(kws, i);
+        let f = lookup_filter(kws, j);
+        let n = lookup_shortname(kws, j);
+        let p = lookup_pe(kws, j);
+        let r = lookup_range(kws, j);
+        let s = lookup_longname(kws, j);
+        let t = lookup_det_type(kws, j);
+        let v = lookup_det_volt(kws, j);
         e.zip4(f, n, p).zip5(r, s, t, v).map(
             |(
                 (scale, filter, shortname, percent_emitted),
@@ -4124,19 +4259,20 @@ impl GatedMeasurement {
 }
 
 impl<I> GatingRegions<I> {
-    fn lookup<E, F>(
+    fn lookup<F0, F1, E>(
         kws: &mut StdKeywords,
-        dep: bool,
-        get_region: F,
+        lookup_gating: F0,
+        lookup_region: F1,
     ) -> LookupTentative<OptionalValue<Self>, E>
     where
-        F: Fn(&mut StdKeywords, RegionIndex) -> LookupTentative<OptionalValue<Region<I>>, E>,
+        F0: Fn(&mut StdKeywords) -> LookupTentative<OptionalValue<Gating>, E>,
+        F1: Fn(&mut StdKeywords, RegionIndex) -> LookupTentative<OptionalValue<Region<I>>, E>,
     {
-        Gating::lookup_opt(kws, dep)
+        lookup_gating(kws)
             .and_tentatively(|maybe| {
                 if let Some(gating) = maybe.0 {
                     let res = gating.flatten().try_map(|ri| {
-                        get_region(kws, ri)
+                        lookup_region(kws, ri)
                             .map(|x| x.0.map(|y| (ri, y)))
                             .transpose()
                             .ok_or(GateRegionLinkError.into())
@@ -4196,18 +4332,59 @@ impl<I> Region<I> {
         }
     }
 
-    fn lookup<E>(
-        kws: &mut StdKeywords,
-        i: RegionIndex,
-        dep: bool,
-    ) -> LookupTentative<OptionalValue<Self>, E>
+    fn lookup<E>(kws: &mut StdKeywords, i: RegionIndex) -> LookupTentative<OptionalValue<Self>, E>
     where
         I: FromStr,
         I: fmt::Display,
         ParseOptKeyWarning: From<<RegionGateIndex<I> as FromStr>::Err>,
     {
-        let n = RegionGateIndex::lookup_opt(kws, i.into(), dep);
-        let w = RegionWindow::lookup_opt(kws, i.into(), dep);
+        Self::lookup_inner(
+            kws,
+            i,
+            RegionGateIndex::lookup_opt,
+            RegionWindow::lookup_opt,
+        )
+    }
+
+    fn lookup_dep(
+        kws: &mut StdKeywords,
+        i: RegionIndex,
+        disallow_dep: bool,
+    ) -> LookupTentative<OptionalValue<Self>, DeprecatedError>
+    where
+        I: FromStr,
+        I: fmt::Display,
+        ParseOptKeyWarning: From<<RegionGateIndex<I> as FromStr>::Err>,
+    {
+        Self::lookup_inner(
+            kws,
+            i,
+            |k, j| RegionGateIndex::lookup_opt_dep(k, j, disallow_dep),
+            |k, j| RegionWindow::lookup_opt_dep(k, j, disallow_dep),
+        )
+    }
+
+    fn lookup_inner<F0, F1, E>(
+        kws: &mut StdKeywords,
+        i: RegionIndex,
+        lookup_index: F0,
+        lookup_window: F1,
+    ) -> LookupTentative<OptionalValue<Self>, E>
+    where
+        F0: FnOnce(
+            &mut StdKeywords,
+            IndexFromOne,
+        ) -> LookupTentative<OptionalValue<RegionGateIndex<I>>, E>,
+        F1: FnOnce(
+            &mut StdKeywords,
+            IndexFromOne,
+        ) -> LookupTentative<OptionalValue<RegionWindow>, E>,
+        I: FromStr,
+        I: fmt::Display,
+        ParseOptKeyWarning: From<<RegionGateIndex<I> as FromStr>::Err>,
+    {
+        let n = lookup_index(kws, i.into());
+        let w = lookup_window(kws, i.into());
         n.zip(w)
             .and_tentatively(|(_n, _y)| {
                 _n.0.zip(_y.0)
@@ -4349,17 +4526,44 @@ where
 impl GatedMeasurements {
     fn lookup<E>(
         kws: &mut StdKeywords,
-        dep: bool,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<OptionalValue<Self>, E> {
-        Gate::lookup_opt(kws, dep).and_tentatively(|maybe| {
+        Self::lookup_inner(kws, Gate::lookup_opt, GatedMeasurement::lookup, conf)
+    }
+
+    fn lookup_dep(
+        kws: &mut StdKeywords,
+        conf: &StdTextReadConfig,
+    ) -> LookupTentative<OptionalValue<Self>, DeprecatedError> {
+        let dd = conf.disallow_deprecated;
+        Self::lookup_inner(
+            kws,
+            |k| Gate::lookup_opt_dep(k, dd),
+            GatedMeasurement::lookup_dep,
+            conf,
+        )
+    }
+
+    fn lookup_inner<E, F0, F1>(
+        kws: &mut StdKeywords,
+        lookup_gate: F0,
+        lookup_meas: F1,
+        conf: &StdTextReadConfig,
+    ) -> LookupTentative<OptionalValue<Self>, E>
+    where
+        F0: FnOnce(&mut StdKeywords) -> LookupOptional<Gate, E>,
+        F1: Fn(
+            &mut StdKeywords,
+            GateIndex,
+            &StdTextReadConfig,
+        ) -> LookupTentative<GatedMeasurement, E>,
+    {
+        lookup_gate(kws).and_tentatively(|maybe| {
             if let Some(n) = maybe.0 {
                 // TODO this will be nicer with NonZeroUsize
                 if n.0 > 0 {
-                    let xs = NonEmpty::collect(
-                        (0..n.0).map(|i| GatedMeasurement::lookup(kws, i.into(), dep, conf)),
-                    )
-                    .unwrap();
+                    let xs = NonEmpty::collect((0..n.0).map(|i| lookup_meas(kws, i.into(), conf)))
+                        .unwrap();
                     return Tentative::mconcat_ne(xs).map(|x| Some(Self(x)).into());
                 }
             }
@@ -4397,9 +4601,9 @@ impl From<AppliedGates3_2> for AppliedGates3_0 {
 
 impl ModificationData {
     fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<Self, E> {
-        let lmr = LastModifier::lookup_opt(kws, false);
-        let lmd = ModifiedDateTime::lookup_opt(kws, false);
-        let ori = Originality::lookup_opt(kws, false);
+        let lmr = LastModifier::lookup_opt(kws);
+        let lmd = ModifiedDateTime::lookup_opt(kws);
+        let ori = Originality::lookup_opt(kws);
         lmr.zip3(lmd, ori)
             .map(|(last_modifier, last_modified, originality)| Self {
                 last_modifier,
@@ -4428,9 +4632,9 @@ impl ModificationData {
 
 impl CarrierData {
     fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<Self, E> {
-        let l = Locationid::lookup_opt(kws, false);
-        let i = Carrierid::lookup_opt(kws, false);
-        let t = Carriertype::lookup_opt(kws, false);
+        let l = Locationid::lookup_opt(kws);
+        let i = Carrierid::lookup_opt(kws);
+        let t = Carriertype::lookup_opt(kws);
         l.zip3(i, t)
             .map(|(locationid, carrierid, carriertype)| Self {
                 locationid,
@@ -4458,10 +4662,24 @@ impl CarrierData {
 }
 
 impl PlateData {
-    fn lookup<E>(kws: &mut StdKeywords, dep: bool) -> LookupTentative<Self, E> {
-        let w = Wellid::lookup_opt(kws, dep);
-        let n = Platename::lookup_opt(kws, dep);
-        let i = Plateid::lookup_opt(kws, dep);
+    fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<Self, E> {
+        let w = Wellid::lookup_opt(kws);
+        let n = Platename::lookup_opt(kws);
+        let i = Plateid::lookup_opt(kws);
+        w.zip3(n, i).map(|(wellid, platename, plateid)| Self {
+            wellid,
+            platename,
+            plateid,
+        })
+    }
+
+    fn lookup_dep(
+        kws: &mut StdKeywords,
+        disallow_dep: bool,
+    ) -> LookupTentative<Self, DeprecatedError> {
+        let w = Wellid::lookup_opt_dep(kws, disallow_dep);
+        let n = Platename::lookup_opt_dep(kws, disallow_dep);
+        let i = Plateid::lookup_opt_dep(kws, disallow_dep);
         w.zip3(n, i).map(|(wellid, platename, plateid)| Self {
             wellid,
             platename,
@@ -4488,9 +4706,19 @@ impl PlateData {
 }
 
 impl PeakData {
-    fn lookup<E>(kws: &mut StdKeywords, i: MeasIndex, dep: bool) -> LookupTentative<Self, E> {
-        let b = PeakBin::lookup_opt(kws, i.into(), dep);
-        let s = PeakNumber::lookup_opt(kws, i.into(), dep);
+    fn lookup<E>(kws: &mut StdKeywords, i: MeasIndex) -> LookupTentative<Self, E> {
+        let b = PeakBin::lookup_opt(kws, i.into());
+        let s = PeakNumber::lookup_opt(kws, i.into());
+        b.zip(s).map(|(bin, size)| Self { bin, size })
+    }
+
+    fn lookup_dep(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+        disallow_dep: bool,
+    ) -> LookupTentative<Self, DeprecatedError> {
+        let b = PeakBin::lookup_opt_dep(kws, i.into(), disallow_dep);
+        let s = PeakNumber::lookup_opt_dep(kws, i.into(), disallow_dep);
         b.zip(s).map(|(bin, size)| Self { bin, size })
     }
 
@@ -5699,9 +5927,9 @@ impl LookupOptical for InnerOptical2_0 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let s = Scale::lookup_fixed_opt(kws, i, false, conf.fix_log_scale_offsets);
-        let w = Wavelength::lookup_opt(kws, i.into(), false);
-        let p = PeakData::lookup(kws, i, false);
+        let s = Scale::lookup_fixed_opt(kws, i, conf);
+        let w = Wavelength::lookup_opt(kws, i.into());
+        let p = PeakData::lookup(kws, i);
         Ok(s.zip3(w, p).map(|(scale, wavelength, peak)| Self {
             scale,
             wavelength,
@@ -5716,9 +5944,9 @@ impl LookupOptical for InnerOptical3_0 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let g = Gain::lookup_opt(kws, i.into(), false);
-        let w = Wavelength::lookup_opt(kws, i.into(), false);
-        let p = PeakData::lookup(kws, i, false);
+        let g = Gain::lookup_opt(kws, i.into());
+        let w = Wavelength::lookup_opt(kws, i.into());
+        let p = PeakData::lookup(kws, i);
         g.zip3(w, p).and_maybe(|(gain, wavelength, peak)| {
             Scale::lookup_fixed_req(kws, i, conf.fix_log_scale_offsets).def_map_value(|scale| {
                 Self {
@@ -5738,13 +5966,13 @@ impl LookupOptical for InnerOptical3_1 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let g = Gain::lookup_opt(kws, i.into(), false);
-        let w = Wavelengths::lookup_opt(kws, i.into(), false);
-        let c = Calibration3_1::lookup_opt(kws, i.into(), false);
-        let d = Display::lookup_opt(kws, i.into(), false);
-        let p = PeakData::lookup(kws, i, true);
-        g.zip5(w, c, d, p)
-            .and_maybe(|(gain, wavelengths, calibration, display, peak)| {
+        let g = Gain::lookup_opt(kws, i.into());
+        let w = Wavelengths::lookup_opt(kws, i.into());
+        let c = Calibration3_1::lookup_opt(kws, i.into());
+        let d = Display::lookup_opt(kws, i.into());
+        let p = PeakData::lookup_dep(kws, i, conf.disallow_deprecated);
+        g.zip5(w, c, d, p).errors_into().and_maybe(
+            |(gain, wavelengths, calibration, display, peak)| {
                 Scale::lookup_fixed_req(kws, i, conf.fix_log_scale_offsets).def_map_value(|scale| {
                     Self {
                         scale,
@@ -5755,7 +5983,8 @@ impl LookupOptical for InnerOptical3_1 {
                         peak,
                     }
                 })
-            })
+            },
+        )
     }
 }
 
@@ -5765,15 +5994,15 @@ impl LookupOptical for InnerOptical3_2 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let g = Gain::lookup_opt(kws, i.into(), false);
-        let w = Wavelengths::lookup_opt(kws, i.into(), false);
-        let c = Calibration3_2::lookup_opt(kws, i.into(), false);
-        let d = Display::lookup_opt(kws, i.into(), false);
-        let de = DetectorName::lookup_opt(kws, i.into(), false);
-        let ta = Tag::lookup_opt(kws, i.into(), false);
-        let m = OpticalType::lookup_opt(kws, i.into(), false);
-        let f = Feature::lookup_opt(kws, i.into(), false);
-        let a = Analyte::lookup_opt(kws, i.into(), false);
+        let g = Gain::lookup_opt(kws, i.into());
+        let w = Wavelengths::lookup_opt(kws, i.into());
+        let c = Calibration3_2::lookup_opt(kws, i.into());
+        let d = Display::lookup_opt(kws, i.into());
+        let de = DetectorName::lookup_opt(kws, i.into());
+        let ta = Tag::lookup_opt(kws, i.into());
+        let m = OpticalType::lookup_opt(kws, i.into());
+        let f = Feature::lookup_opt(kws, i.into());
+        let a = Analyte::lookup_opt(kws, i.into());
         g.zip5(w, c, d, de).zip5(ta, m, f, a).and_maybe(
             |(
                 (gain, wavelengths, calibration, display, detector_name),
@@ -5802,17 +6031,25 @@ impl LookupOptical for InnerOptical3_2 {
 }
 
 impl LookupTemporal for InnerTemporal2_0 {
-    fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
+    fn lookup_specific(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+        _: &StdTextReadConfig,
+    ) -> LookupResult<Self> {
         // TODO push meas index with error
-        let s = TemporalScale::lookup_opt(kws, i.into(), false);
-        let p = PeakData::lookup(kws, i, false);
+        let s = TemporalScale::lookup_opt(kws, i.into());
+        let p = PeakData::lookup(kws, i);
         Ok(s.zip(p).map(|(scale, peak)| Self { peak, scale }))
     }
 }
 
 impl LookupTemporal for InnerTemporal3_0 {
-    fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
-        let mut tnt_gain = Gain::lookup_opt(kws, i.into(), false);
+    fn lookup_specific(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+        _: &StdTextReadConfig,
+    ) -> LookupResult<Self> {
+        let mut tnt_gain = Gain::lookup_opt(kws, i.into());
         tnt_gain.eval_error(|gain| {
             if gain.0.is_some() {
                 Some(LookupKeysError::Misc(TemporalError::HasGain.into()))
@@ -5820,7 +6057,7 @@ impl LookupTemporal for InnerTemporal3_0 {
                 None
             }
         });
-        let tnt_peak = PeakData::lookup(kws, i, false);
+        let tnt_peak = PeakData::lookup(kws, i);
         tnt_gain.zip(tnt_peak).and_maybe(|(_, peak)| {
             let s = TemporalScale::lookup_req(kws, i.into());
             let t = Timestep::lookup_req(kws);
@@ -5831,10 +6068,14 @@ impl LookupTemporal for InnerTemporal3_0 {
 }
 
 impl LookupTemporal for InnerTemporal3_1 {
-    fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
+    fn lookup_specific(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+        conf: &StdTextReadConfig,
+    ) -> LookupResult<Self> {
         let g = lookup_temporal_gain_3_0(kws, i.into());
-        let d = Display::lookup_opt(kws, i.into(), false);
-        let p = PeakData::lookup(kws, i, true);
+        let d = Display::lookup_opt(kws, i.into());
+        let p = PeakData::lookup_dep(kws, i, conf.disallow_deprecated).errors_into();
         g.zip3(d, p).and_maybe(|(_, display, peak)| {
             let s = TemporalScale::lookup_req(kws, i.into());
             let t = Timestep::lookup_req(kws);
@@ -5848,10 +6089,14 @@ impl LookupTemporal for InnerTemporal3_1 {
 }
 
 impl LookupTemporal for InnerTemporal3_2 {
-    fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
+    fn lookup_specific(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+        _: &StdTextReadConfig,
+    ) -> LookupResult<Self> {
         let g = lookup_temporal_gain_3_0(kws, i.into());
-        let di = Display::lookup_opt(kws, i.into(), false);
-        let m = TemporalType::lookup_opt(kws, i.into(), false);
+        let di = Display::lookup_opt(kws, i.into());
+        let m = TemporalType::lookup_opt(kws, i.into());
         g.zip3(di, m).and_maybe(|(_, display, measurement_type)| {
             let s = TemporalScale::lookup_req(kws, i.into());
             let t = Timestep::lookup_req(kws);
@@ -6511,7 +6756,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         kws: &mut StdKeywords,
         i: MeasIndex,
     ) -> LookupResult<<Self::Name as MightHave>::Wrapper<Shortname>> {
-        Ok(Shortname::lookup_opt(kws, i.into(), false))
+        Ok(Shortname::lookup_opt(kws, i.into()))
     }
 
     fn lookup_specific(
@@ -6521,10 +6766,11 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let co = Compensation2_0::lookup(kws, par);
-        let cy = Cyt::lookup_opt(kws, false);
-        let t = Timestamps::lookup(kws, false);
+        let cy = Cyt::lookup_opt(kws);
+        let t = Timestamps::lookup(kws);
         let g = AppliedGates2_0::lookup(kws, conf);
         co.zip4(cy, t, g)
+            .errors_into()
             .and_maybe(|(comp, cyt, timestamps, applied_gates)| {
                 Mode::lookup_req(kws).def_map_value(|mode| Self {
                     mode,
@@ -6542,7 +6788,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         kws: &mut StdKeywords,
         i: MeasIndex,
     ) -> LookupResult<<Self::Name as MightHave>::Wrapper<Shortname>> {
-        Ok(Shortname::lookup_opt(kws, i.into(), false))
+        Ok(Shortname::lookup_opt(kws, i.into()))
     }
 
     fn lookup_specific(
@@ -6551,13 +6797,13 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         _: &HashSet<&Shortname>,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let co = Compensation3_0::lookup_opt(kws, false);
-        let cy = Cyt::lookup_opt(kws, false);
-        let sn = Cytsn::lookup_opt(kws, false);
-        let su = SubsetData::lookup(kws, false);
-        let t = Timestamps::lookup(kws, false);
-        let u = Unicode::lookup_opt(kws, false);
-        let g = AppliedGates3_0::lookup(kws, false, conf);
+        let co = Compensation3_0::lookup_opt(kws);
+        let cy = Cyt::lookup_opt(kws);
+        let sn = Cytsn::lookup_opt(kws);
+        let su = SubsetData::lookup(kws);
+        let t = Timestamps::lookup(kws);
+        let u = Unicode::lookup_opt(kws);
+        let g = AppliedGates3_0::lookup(kws, conf);
         co.zip4(cy, sn, su).zip4(t, u, g).and_maybe(
             |((comp, cyt, cytsn, subset), timestamps, unicode, applied_gates)| {
                 Mode::lookup_req(kws).def_map_value(|mode| Self {
@@ -6589,15 +6835,15 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         names: &HashSet<&Shortname>,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let cy = Cyt::lookup_opt(kws, false);
+        let cy = Cyt::lookup_opt(kws);
         let sp = Spillover::lookup_opt(kws, names);
-        let sn = Cytsn::lookup_opt(kws, false);
-        let su = SubsetData::lookup(kws, true);
+        let sn = Cytsn::lookup_opt(kws);
+        let su = SubsetData::lookup(kws);
         let md = ModificationData::lookup(kws);
-        let p = PlateData::lookup(kws, false);
-        let t = Timestamps::lookup(kws, false);
-        let v = Vol::lookup_opt(kws, false);
-        let g = AppliedGates3_0::lookup(kws, true, conf);
+        let p = PlateData::lookup(kws);
+        let t = Timestamps::lookup(kws);
+        let v = Vol::lookup_opt(kws);
+        let g = AppliedGates3_0::lookup_dep(kws, conf).errors_into();
         cy.zip5(sp, sn, su, md).zip5(p, t, v, g).and_maybe(
             |(
                 (cyt, spillover, cytsn, subset, modification),
@@ -6645,26 +6891,28 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         kws: &mut StdKeywords,
         _: Par,
         names: &HashSet<&Shortname>,
-        _: &StdTextReadConfig,
+        conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
+        let dd = conf.disallow_deprecated;
         let ca = CarrierData::lookup(kws);
         let d = Datetimes::lookup(kws);
-        let f = Flowrate::lookup_opt(kws, false);
+        let f = Flowrate::lookup_opt(kws);
         let md = ModificationData::lookup(kws);
         // Only L is allowed as of 3.2, so pull the value and check it if given.
         // The only thing we care about is that the value is valid, since we
         // don't need to use it anywhere.
-        let mo = Mode3_2::lookup_opt(kws, true);
+        let mo = Mode3_2::lookup_opt_dep(kws, dd);
         let sp = Spillover::lookup_opt(kws, names);
-        let sn = Cytsn::lookup_opt(kws, false);
-        let p = PlateData::lookup(kws, true);
-        let t = Timestamps::lookup(kws, false);
+        let sn = Cytsn::lookup_opt(kws);
+        let p = PlateData::lookup_dep(kws, dd);
+        let t = Timestamps::lookup_dep(kws, dd);
         let u = UnstainedData::lookup(kws, names);
-        let v = Vol::lookup_opt(kws, false);
-        let g = AppliedGates3_2::lookup(kws);
+        let v = Vol::lookup_opt(kws);
+        let g = AppliedGates3_2::lookup(kws, dd);
         ca.zip6(d, f, md, mo, sp)
             .zip6(sn, p, t, u, v)
             .zip(g)
+            .errors_into()
             .and_maybe(
                 |(
                     (

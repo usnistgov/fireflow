@@ -1,3 +1,4 @@
+use crate::config::StdTextReadConfig;
 use crate::error::*;
 use crate::validated::ascii_uint::*;
 use crate::validated::keys::*;
@@ -1299,10 +1300,17 @@ impl GateScale {
     pub(crate) fn lookup_fixed_opt<E>(
         kws: &mut StdKeywords,
         i: GateIndex,
-        dep: bool,
-        try_fix: bool,
+        conf: &StdTextReadConfig,
     ) -> LookupTentative<OptionalValue<GateScale>, E> {
-        Scale::lookup_fixed_opt(kws, usize::from(i).into(), dep, try_fix).map(|x| x.map(GateScale))
+        Scale::lookup_fixed_opt(kws, usize::from(i).into(), conf).map(|x| x.map(GateScale))
+    }
+
+    pub(crate) fn lookup_fixed_opt_dep(
+        kws: &mut StdKeywords,
+        i: GateIndex,
+        conf: &StdTextReadConfig,
+    ) -> LookupTentative<OptionalValue<GateScale>, DeprecatedError> {
+        Scale::lookup_fixed_opt_dep(kws, usize::from(i).into(), conf).map(|x| x.map(GateScale))
     }
 }
 

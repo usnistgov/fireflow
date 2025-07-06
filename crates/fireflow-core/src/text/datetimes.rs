@@ -93,8 +93,8 @@ impl Datetimes {
     }
 
     pub(crate) fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<Self, E> {
-        let b = BeginDateTime::lookup_opt(kws, false);
-        let e = EndDateTime::lookup_opt(kws, false);
+        let b = BeginDateTime::lookup_opt(kws);
+        let e = EndDateTime::lookup_opt(kws);
         b.zip(e).and_tentatively(|(begin, end)| {
             Datetimes::try_new(begin, end)
                 .map(Tentative::new1)

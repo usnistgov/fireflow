@@ -2031,7 +2031,7 @@ impl VersionedColumnLayout for ColumnLayoutValues3_2 {
         let w = Width::lookup_req(kws, j);
         let r = Range::lookup_req(kws, j);
         w.def_zip(r).def_and_tentatively(|(width, range)| {
-            NumType::lookup_opt(kws, j, false)
+            NumType::lookup_opt(kws, j)
                 .map(|x| x.0)
                 .map(|datatype| Self {
                     width,

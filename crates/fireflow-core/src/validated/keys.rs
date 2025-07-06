@@ -437,7 +437,8 @@ impl ParsedKeywords {
                     } else if to_nonstd.is_match(&kk) {
                         insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
                     } else {
-                        insert_nonunique(&mut self.std, StdKey(kk), value, conf)
+                        let rk = conf.rename_standard_keys.get(&kk).cloned().unwrap_or(kk);
+                        insert_nonunique(&mut self.std, StdKey(rk), value, conf)
                     }
                 } else if n > 0 && is_printable_ascii(k) {
                     // Non-standard key: does not start with '$' but is still

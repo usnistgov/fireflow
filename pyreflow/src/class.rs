@@ -822,7 +822,7 @@ fn raw_config(
 
     let ass = append_standard_keywords
         .into_iter()
-        .map(|(k, v)| k.parse::<StdKey>().map(|x| (x, v)))
+        .map(|(k, v)| k.parse::<KeyString>().map(|x| (x, v)))
         .collect::<Result<HashMap<_, _>, _>>()
         .map_err(|e| PyreflowException::new_err(e.to_string()))?;
 
@@ -3768,17 +3768,11 @@ fn str_to_date_pat(s: String) -> PyResult<DatePattern> {
         .map_err(|e| PyreflowException::new_err(e.to_string()))
 }
 
-fn strs_to_key_patterns<L, P>(lits: Vec<String>, pats: Vec<String>) -> PyResult<KeyPatterns<L, P>>
-where
-    L: std::str::FromStr,
-    P: std::str::FromStr,
-    L::Err: std::fmt::Display,
-    P::Err: std::fmt::Display,
-{
+fn strs_to_key_patterns(lits: Vec<String>, pats: Vec<String>) -> PyResult<KeyPatterns> {
     let mut ls = KeyPatterns::try_from_literals(lits)
-        .map_err(|e: L::Err| PyreflowException::new_err(e.to_string()))?;
+        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
     let ps = KeyPatterns::try_from_patterns(pats)
-        .map_err(|e: P::Err| PyreflowException::new_err(e.to_string()))?;
+        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
     ls.extend(ps);
     Ok(ls)
 }

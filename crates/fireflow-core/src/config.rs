@@ -326,7 +326,7 @@ pub struct RawTextReadConfig {
     ///
     /// This will be applied before ['rename_standard_keys'],
     /// ['promote_to_standard'], and ['demote_from_standard'].
-    pub ignore_standard_keys: keys::StdKeyPatterns,
+    pub ignore_standard_keys: keys::KeyPatterns,
 
     /// Rename standard keys in TEXT.
     ///
@@ -344,7 +344,7 @@ pub struct RawTextReadConfig {
     /// All matching keywords will be prefixed with a "$" and added to the pool
     /// of standard keywords to be processed downstream when deriving data
     /// layouts, measurement metadata, etc. Matching will be case-insensitive.
-    pub promote_to_standard: keys::NonStdKeyPatterns,
+    pub promote_to_standard: keys::KeyPatterns,
 
     /// A list of standard keywords to be "demoted" to non-standard.
     ///
@@ -358,7 +358,7 @@ pub struct RawTextReadConfig {
     ///
     /// Useful for surgically correcting "pseudostandard" keywords without
     /// using ['allow_pseudostandard'], which is a crude sledgehammer.
-    pub demote_from_standard: keys::StdKeyPatterns,
+    pub demote_from_standard: keys::KeyPatterns,
 
     /// Replace values of standard keys.
     ///
@@ -370,11 +370,13 @@ pub struct RawTextReadConfig {
     ///
     /// This will be applied at the very end of TEXT processing, so no other
     /// key/value transformations will apply to it; they will be appended
-    /// literally as-is.
+    /// literally as-is. The "$" prefix is implied and should not be included.
     ///
     /// This will raise a warning or error if any keys are already present,
-    /// and existing value will not be overwritten in such cases.
-    pub append_standard_keywords: HashMap<keys::StdKey, String>,
+    /// and existing value will not be overwritten in such cases. This will also
+    /// trigger a deviant keyword warning/error if they do not belong in the
+    /// indicated version.
+    pub append_standard_keywords: HashMap<keys::KeyString, String>,
 
     /// If true, all warnings will become fatal errors.
     pub warnings_are_errors: bool,

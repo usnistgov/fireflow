@@ -714,7 +714,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
 
     let repair_res = kws_res.def_and_tentatively(|(delim, mut kws, supp_text_seg)| {
         repair_keywords(&mut kws.std, conf);
-        append_keywords(&mut kws.std, conf)
+        append_keywords(&mut kws, conf)
             .map_or_else(
                 |es| {
                     Leveled::many_to_tentative(es.into())
@@ -1076,22 +1076,10 @@ fn repair_keywords(kws: &mut StdKeywords, conf: &RawTextReadConfig) {
 }
 
 fn append_keywords(
-    kws: &mut StdKeywords,
+    kws: &mut ParsedKeywords,
     conf: &RawTextReadConfig,
 ) -> MultiResult<(), Leveled<StdPresent>> {
-    conf.append_standard_keywords
-        .iter()
-        .map(|(k, v)| {
-            if let Some(value) = kws.insert(k.clone(), v.clone()) {
-                let key = k.clone();
-                let w = KeyPresent { key, value };
-                Err(Leveled::new(w, !conf.allow_nonunique))
-            } else {
-                Ok(())
-            }
-        })
-        .gather()
-        .void()
+    kws.append_std(&conf.append_standard_keywords, conf.allow_nonunique)
 }
 
 fn lookup_stext_offsets(

@@ -50,11 +50,8 @@ pub struct KeyString(Ascii<String>);
 pub struct NonStdMeasPattern(String);
 
 /// A list of patterns that match standard or non-standard keys.
-#[derive(Clone)]
-pub struct KeyPatterns<L, P>(Vec<KeyStringOrPattern<L, P>>);
-
-pub type StdKeyPatterns = KeyPatterns<StdKey, StdKeyPattern>;
-pub type NonStdKeyPatterns = KeyPatterns<NonStdKey, NonStdKeyPattern>;
+#[derive(Clone, Default)]
+pub struct KeyPatterns(Vec<KeyStringOrPattern>);
 
 /// Either a literal string or regexp which matches a standard/non-standard key.
 ///
@@ -62,20 +59,10 @@ pub type NonStdKeyPatterns = KeyPatterns<NonStdKey, NonStdKeyPattern>;
 /// match lots of strings literally, it is faster and easier to use a hash
 /// table, otherwise we need to search linearly through an array of patterns.
 #[derive(Clone)]
-pub enum KeyStringOrPattern<L, P> {
-    Literal(L),
-    Pattern(P),
+pub enum KeyStringOrPattern {
+    Literal(KeyString),
+    Pattern(CaseInsRegex),
 }
-
-/// A regular expression which matches a standard key.
-#[derive(Clone, AsRef)]
-#[as_ref(Regex)]
-pub struct StdKeyPattern(CaseInsRegex);
-
-/// A regular expression which matches a non-standard key.
-#[derive(Clone, AsRef)]
-#[as_ref(Regex)]
-pub struct NonStdKeyPattern(CaseInsRegex);
 
 /// A collection dump for parsed keywords of varying quality
 #[derive(Default)]
@@ -120,9 +107,9 @@ pub(crate) struct NonStdMeasRegex(CaseInsRegex);
 pub struct CaseInsRegex(Regex);
 
 /// A "compiled" object to match keys efficiently.
-struct KeyMatcher<'a, L, P> {
-    literal: HashSet<&'a L>,
-    pattern: Vec<&'a P>,
+struct KeyMatcher<'a> {
+    literal: HashSet<&'a KeyString>,
+    pattern: Vec<&'a CaseInsRegex>,
 }
 
 /// A standard key
@@ -366,75 +353,28 @@ impl FromStr for CaseInsRegex {
     }
 }
 
-impl FromStr for StdKeyPattern {
-    type Err = KeyPatternError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.parse::<CaseInsRegex>()
-            .map_err(KeyPatternError::Regex)
-            .and_then(|p| {
-                if matches_std(p.as_ref()) {
-                    Ok(Self(p))
-                } else {
-                    Err(KeyPatternError::Prefix(true, p.0))
-                }
-            })
-    }
-}
-
-impl FromStr for NonStdKeyPattern {
-    type Err = KeyPatternError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.parse::<CaseInsRegex>()
-            .map_err(KeyPatternError::Regex)
-            .and_then(|p| {
-                if !matches_std(p.as_ref()) {
-                    Ok(Self(p))
-                } else {
-                    Err(KeyPatternError::Prefix(false, p.0))
-                }
-            })
-    }
-}
-
-impl<L, P> Default for KeyPatterns<L, P> {
-    fn default() -> Self {
-        Self(vec![])
-    }
-}
-
-impl<L, P> KeyPatterns<L, P> {
+impl KeyPatterns {
     pub fn extend(&mut self, other: Self) {
         self.0.extend(other.0)
     }
 
-    pub fn try_from_literals(ss: Vec<String>) -> Result<Self, L::Err>
-    where
-        L: FromStr,
-    {
+    pub fn try_from_literals(ss: Vec<String>) -> Result<Self, AsciiStringError> {
         ss.into_iter()
             .unique()
-            .map(|s| s.parse::<L>().map(KeyStringOrPattern::Literal))
+            .map(|s| s.parse::<KeyString>().map(KeyStringOrPattern::Literal))
             .collect::<Result<Vec<_>, _>>()
             .map(KeyPatterns)
     }
 
-    pub fn try_from_patterns(ss: Vec<String>) -> Result<Self, P::Err>
-    where
-        P: FromStr,
-    {
+    pub fn try_from_patterns(ss: Vec<String>) -> Result<Self, regex::Error> {
         ss.into_iter()
             .unique()
-            .map(|s| s.parse::<P>().map(KeyStringOrPattern::Pattern))
+            .map(|s| s.parse::<CaseInsRegex>().map(KeyStringOrPattern::Pattern))
             .collect::<Result<Vec<_>, _>>()
             .map(KeyPatterns)
     }
 
-    fn as_matcher<'a>(&'a self) -> KeyMatcher<'a, L, P>
-    where
-        HashSet<&'a L>: std::iter::Extend<&'a L>,
-    {
+    fn as_matcher(&self) -> KeyMatcher<'_> {
         let (literal, pattern): (HashSet<_>, Vec<_>) = self
             .0
             .iter()
@@ -447,12 +387,8 @@ impl<L, P> KeyPatterns<L, P> {
     }
 }
 
-impl<L, P> KeyMatcher<'_, L, P> {
-    fn is_match(&self, other: &L) -> bool
-    where
-        L: Hash + Eq + AsRef<str>,
-        P: AsRef<Regex>,
-    {
+impl KeyMatcher<'_> {
+    fn is_match(&self, other: &KeyString) -> bool {
         self.literal.contains(other)
             || self
                 .pattern
@@ -494,22 +430,22 @@ impl ParsedKeywords {
                 if n > 1 && k[0] == STD_PREFIX && is_printable_ascii(&k[1..]) {
                     // Standard key: starts with '$', check that remaining chars
                     // are ASCII
-                    let kk = StdKey(KeyString::from_bytes(&k[1..]));
+                    let kk = KeyString::from_bytes(&k[1..]);
                     if ignore.is_match(&kk) {
                         Ok(())
                     } else if to_nonstd.is_match(&kk) {
-                        insert_nonunique(&mut self.nonstd, NonStdKey(kk.0), value, conf)
+                        insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
                     } else {
-                        insert_nonunique(&mut self.std, kk, value, conf)
+                        insert_nonunique(&mut self.std, StdKey(kk), value, conf)
                     }
                 } else if n > 0 && is_printable_ascii(k) {
                     // Non-standard key: does not start with '$' but is still
                     // ASCII
-                    let kk = NonStdKey(KeyString::from_bytes(k));
+                    let kk = KeyString::from_bytes(k);
                     if to_std.is_match(&kk) {
-                        insert_nonunique(&mut self.std, StdKey(kk.0), value, conf)
+                        insert_nonunique(&mut self.std, StdKey(kk), value, conf)
                     } else {
-                        insert_nonunique(&mut self.nonstd, kk, value, conf)
+                        insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
                     }
                 } else if let Ok(kk) = String::from_utf8(k.to_vec()) {
                     // Non-ascii key: these are technically not allowed but save
@@ -527,6 +463,28 @@ impl ParsedKeywords {
                 Ok(())
             }
         }
+    }
+
+    pub(crate) fn append_std(
+        &mut self,
+        new: &HashMap<KeyString, String>,
+        allow_nonunique: bool,
+    ) -> MultiResult<(), Leveled<StdPresent>> {
+        new.iter()
+            .map(|(k, v)| match self.std.entry(StdKey(k.clone())) {
+                Entry::Occupied(e) => {
+                    let key = e.key().clone();
+                    let value = v.clone();
+                    let w = KeyPresent { key, value };
+                    Err(Leveled::new(w, !allow_nonunique))
+                }
+                Entry::Vacant(e) => {
+                    e.insert(v.clone());
+                    Ok(())
+                }
+            })
+            .gather()
+            .void()
     }
 }
 
@@ -555,11 +513,6 @@ pub struct AsciiStringError(String);
 pub enum KeyStringError {
     Ascii(AsciiStringError),
     Prefix(bool, String),
-}
-
-pub enum KeyPatternError {
-    Regex(regex::Error),
-    Prefix(bool, Regex),
 }
 
 pub struct NonStdMeasKeyError(String);
@@ -603,22 +556,6 @@ impl fmt::Display for KeyStringError {
                     "Non-standard key must not start with '$'"
                 };
                 write!(f, "{k}, found '{s}'")
-            }
-        }
-    }
-}
-
-impl fmt::Display for KeyPatternError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Regex(x) => x.fmt(f),
-            Self::Prefix(is_std, pat) => {
-                let k = if *is_std {
-                    "Pattern must match keywords starting with '$'"
-                } else {
-                    "Pattern must match keywords not starting with '$'"
-                };
-                write!(f, "{k}, got '{}'", pat.as_str())
             }
         }
     }
@@ -705,10 +642,6 @@ where
             Ok(())
         }
     }
-}
-
-fn matches_std(p: &Regex) -> bool {
-    p.is_match(str::from_utf8(&[STD_PREFIX]).unwrap())
 }
 
 const STD_PREFIX: u8 = 36; // '$'

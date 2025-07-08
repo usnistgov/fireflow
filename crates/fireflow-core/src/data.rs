@@ -493,7 +493,7 @@ where
     {
         ColumnWriter {
             column_type: self,
-            data: AnySource::new::<Self::Native>(c),
+            data: AnySource::new(c),
             byte_layout: PhantomData,
         }
     }
@@ -1477,10 +1477,7 @@ impl<'a> Writable<'a, Endian> for AnyWriterBitmask<'a> {
             Self,
             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
             c,
-            {
-                let x = c.data.next().unwrap();
-                c.column_type.h_write(h, x, byte_layout)
-            }
+            { c.h_write(h, byte_layout) }
         )
     }
 }
@@ -1561,15 +1558,15 @@ enum AnySource<'a, TargetType> {
 }
 
 impl<'a, T> AnySource<'a, T> {
-    fn new<TargetType>(c: &'a AnyFCSColumn) -> Self
+    fn new(c: &'a AnyFCSColumn) -> Self
     where
-        TargetType: AllFCSCast,
-        Self: From<FCSColIter<'a, u8, TargetType>>
-            + From<FCSColIter<'a, u16, TargetType>>
-            + From<FCSColIter<'a, u32, TargetType>>
-            + From<FCSColIter<'a, u64, TargetType>>
-            + From<FCSColIter<'a, f32, TargetType>>
-            + From<FCSColIter<'a, f64, TargetType>>,
+        T: AllFCSCast,
+        Self: From<FCSColIter<'a, u8, T>>
+            + From<FCSColIter<'a, u16, T>>
+            + From<FCSColIter<'a, u32, T>>
+            + From<FCSColIter<'a, u64, T>>
+            + From<FCSColIter<'a, f32, T>>
+            + From<FCSColIter<'a, f64, T>>,
     {
         match_many_to_one!(c, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
             FCSDataType::as_col_iter(xs).into()
@@ -2165,7 +2162,7 @@ impl<T> DelimAsciiLayout<T> {
         let ncols = df.ncols();
         let nrows = df.nrows();
         // ASSUME dataframe has correct number of columns
-        let mut column_srcs: Vec<_> = df.iter_columns().map(AnySource::new::<u64>).collect();
+        let mut column_srcs: Vec<_> = df.iter_columns().map(AnySource::<'_, u64>::new).collect();
         for row in 0..nrows {
             for (col, xs) in column_srcs.iter_mut().enumerate() {
                 let x = xs.next().unwrap();

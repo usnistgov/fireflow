@@ -311,27 +311,8 @@ trait TotDefinition {
     }
 }
 
-/// A version-specific data layout
-pub trait VersionedDataLayout: Sized {
-    type ByteLayout;
-    type ColDatatype;
-    type Tot;
-
-    fn try_new(
-        dt: AlphaNumType,
-        size: Self::ByteLayout,
-        cs: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
-        conf: &StdTextReadConfig,
-    ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError>;
-
-    fn lookup(
-        kws: &mut StdKeywords,
-        conf: &StdTextReadConfig,
-        par: Par,
-    ) -> LookupLayoutResult<Option<Self>>;
-
-    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>>;
-
+/// Standardized operations on layouts
+pub trait LayoutOps: Sized {
     // no need to check since this will be done after validating that the index
     // is within the measurement vector, which has its own check and should
     // always be the same length
@@ -351,6 +332,104 @@ pub trait VersionedDataLayout: Sized {
     fn ncols(&self) -> usize;
 
     fn nbytes(&self, df: &FCSDataFrame) -> u64;
+
+    // fn h_read_df<R: Read + Seek>(
+    //     &self,
+    //     h: &mut BufReader<R>,
+    //     tot: T::Tot,
+    //     seg: AnyDataSegment,
+    //     conf: &ReaderConfig,
+    // ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
+    //     seg.inner.as_u64().try_coords().map_or(
+    //         Ok(Tentative::new1(FCSDataFrame::default())),
+    //         |(begin, _)| {
+    //             h.seek(SeekFrom::Start(begin)).into_deferred()?;
+    //             self.h_read_df_inner(h, tot, seg, conf)
+    //         },
+    //     )
+    // }
+
+    // fn h_read_df_inner<R: Read>(
+    //     &self,
+    //     h: &mut BufReader<R>,
+    //     tot: T::Tot,
+    //     seg: AnyDataSegment,
+    //     conf: &ReaderConfig,
+    // ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError>;
+
+    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>>;
+
+    // fn h_write_df<W>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()>
+    // where
+    //     W: Write,
+    // {
+    //     // The dataframe should be encapsulated such that a) the column number
+    //     // matches the number of measurements. If these are not true, the code
+    //     // is wrong.
+    //     let par = self.ncols();
+    //     let ncols = df.ncols();
+    //     if ncols != par {
+    //         panic!("datafame columns ({ncols}) unequal to number of measurements ({par})");
+    //     }
+    //     self.h_write_df_inner(h, df)
+    // }
+
+    // fn h_write_df_inner<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame)
+    //     -> io::Result<()>;
+
+    fn req_keywords(&self) -> [(String, String); 2];
+
+    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]>;
+
+    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>>;
+
+    fn opt_meas_headers(&self) -> Vec<MeasHeader>;
+
+    fn widths(&self) -> Vec<BitsOrChars>;
+
+    fn ranges(&self) -> NonEmpty<FloatOrInt>;
+}
+
+/// A version-specific data layout
+pub trait VersionedDataLayout: Sized + LayoutOps {
+    type ByteLayout;
+    type ColDatatype;
+    type Tot;
+
+    fn try_new(
+        dt: AlphaNumType,
+        size: Self::ByteLayout,
+        cs: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
+        conf: &StdTextReadConfig,
+    ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError>;
+
+    fn lookup(
+        kws: &mut StdKeywords,
+        conf: &StdTextReadConfig,
+        par: Par,
+    ) -> LookupLayoutResult<Option<Self>>;
+
+    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>>;
+
+    // // no need to check since this will be done after validating that the index
+    // // is within the measurement vector, which has its own check and should
+    // // always be the same length
+    // fn insert_nocheck(
+    //     &mut self,
+    //     index: MeasIndex,
+    //     range: FloatOrInt,
+    //     notrunc: bool,
+    // ) -> BiTentative<(), LayoutInsertColumnWarning>;
+
+    // fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError>;
+
+    // fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>>;
+
+    // fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional>;
+
+    // fn ncols(&self) -> usize;
+
+    // fn nbytes(&self, df: &FCSDataFrame) -> u64;
 
     fn h_read_df<R: Read + Seek>(
         &self,
@@ -376,7 +455,7 @@ pub trait VersionedDataLayout: Sized {
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError>;
 
-    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>>;
+    // fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>>;
 
     fn h_write_df<W>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()>
     where
@@ -396,17 +475,17 @@ pub trait VersionedDataLayout: Sized {
     fn h_write_df_inner<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame)
         -> io::Result<()>;
 
-    fn req_keywords(&self) -> [(String, String); 2];
+    // fn req_keywords(&self) -> [(String, String); 2];
 
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]>;
+    // fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]>;
 
-    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>>;
+    // fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>>;
 
-    fn opt_meas_headers(&self) -> Vec<MeasHeader>;
+    // fn opt_meas_headers(&self) -> Vec<MeasHeader>;
 
-    fn widths(&self) -> Vec<BitsOrChars>;
+    // fn widths(&self) -> Vec<BitsOrChars>;
 
-    fn ranges(&self) -> NonEmpty<FloatOrInt>;
+    // fn ranges(&self) -> NonEmpty<FloatOrInt>;
 }
 
 pub trait HasNativeType: Sized {
@@ -3140,34 +3219,7 @@ impl<T> AnyAsciiLayout<T> {
     }
 }
 
-impl VersionedDataLayout for DataLayout2_0 {
-    type ByteLayout = ByteOrd;
-    type ColDatatype = ();
-    type Tot = Option<Tot>;
-
-    fn try_new(
-        datatype: AlphaNumType,
-        byteord: Self::ByteLayout,
-        columns: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
-        conf: &StdTextReadConfig,
-    ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
-        AnyOrderedLayout::try_new(datatype, byteord, columns, conf)
-            .def_map_value(|x| x.into())
-            .def_map_warnings(|e| e.inner_into())
-    }
-
-    fn lookup(
-        kws: &mut StdKeywords,
-        conf: &StdTextReadConfig,
-        par: Par,
-    ) -> LookupLayoutResult<Option<Self>> {
-        AnyOrderedLayout::lookup(kws, conf, par).def_map_value(|x| x.map(|y| y.into()))
-    }
-
-    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
-        AnyOrderedLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
-    }
-
+impl LayoutOps for DataLayout2_0 {
     fn insert_nocheck(
         &mut self,
         index: MeasIndex,
@@ -3197,26 +3249,8 @@ impl VersionedDataLayout for DataLayout2_0 {
         self.0.nbytes(df)
     }
 
-    fn h_read_df_inner<R: Read>(
-        &self,
-        h: &mut BufReader<R>,
-        tot: Self::Tot,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
-        self.0.h_read_checked_df(h, tot, seg, conf)
-    }
-
     fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
         self.0.check_writer(df)
-    }
-
-    fn h_write_df_inner<W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        df: &FCSDataFrame,
-    ) -> io::Result<()> {
-        self.0.h_write_df(h, df)
     }
 
     fn req_keywords(&self) -> [(String, String); 2] {
@@ -3241,6 +3275,290 @@ impl VersionedDataLayout for DataLayout2_0 {
 
     fn ranges(&self) -> NonEmpty<FloatOrInt> {
         self.0.ranges()
+    }
+}
+
+impl LayoutOps for DataLayout3_0 {
+    fn insert_nocheck(
+        &mut self,
+        index: MeasIndex,
+        range: FloatOrInt,
+        notrunc: bool,
+    ) -> BiTentative<(), LayoutInsertColumnWarning> {
+        self.0.insert_nocheck(index, range, notrunc)
+    }
+
+    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
+        self.0.push(range, notrunc)
+    }
+
+    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
+        self.0.remove(index)
+    }
+
+    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
+        self.0.remove_nocheck(index)
+    }
+
+    fn ncols(&self) -> usize {
+        self.0.ncols()
+    }
+
+    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
+        self.0.nbytes(df)
+    }
+
+    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
+        self.0.check_writer(df)
+    }
+
+    fn req_keywords(&self) -> [(String, String); 2] {
+        self.0.req_keywords()
+    }
+
+    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
+        self.0.req_meas_keywords()
+    }
+
+    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
+        self.0.req_meas_keywords().map(|_| vec![])
+    }
+
+    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
+        vec![]
+    }
+
+    fn widths(&self) -> Vec<BitsOrChars> {
+        self.0.widths()
+    }
+
+    fn ranges(&self) -> NonEmpty<FloatOrInt> {
+        self.0.ranges()
+    }
+}
+
+impl LayoutOps for DataLayout3_1 {
+    fn insert_nocheck(
+        &mut self,
+        index: MeasIndex,
+        range: FloatOrInt,
+        notrunc: bool,
+    ) -> BiTentative<(), LayoutInsertColumnWarning> {
+        self.0.insert_nocheck(index, range, notrunc)
+    }
+
+    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
+        self.0.push(range, notrunc)
+    }
+
+    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
+        self.0.remove(index)
+    }
+
+    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
+        self.0.remove_nocheck(index)
+    }
+
+    fn ncols(&self) -> usize {
+        self.0.ncols()
+    }
+
+    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
+        self.0.nbytes(df)
+    }
+
+    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
+        self.0.check_writer(df)
+    }
+
+    fn req_keywords(&self) -> [(String, String); 2] {
+        self.0.req_keywords()
+    }
+
+    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
+        self.0.req_meas_keywords()
+    }
+
+    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
+        self.0.req_meas_keywords().map(|_| vec![])
+    }
+
+    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
+        vec![]
+    }
+
+    fn widths(&self) -> Vec<BitsOrChars> {
+        self.0.widths()
+    }
+
+    fn ranges(&self) -> NonEmpty<FloatOrInt> {
+        self.0.ranges()
+    }
+}
+
+impl LayoutOps for DataLayout3_2 {
+    fn insert_nocheck(
+        &mut self,
+        index: MeasIndex,
+        range: FloatOrInt,
+        notrunc: bool,
+    ) -> BiTentative<(), LayoutInsertColumnWarning> {
+        match self {
+            Self::NonMixed(x) => x.insert_nocheck(index, range, notrunc),
+            Self::Mixed(x) => {
+                x.insert_inner_nocheck(index, MixedType::from_range(range));
+                Tentative::default()
+            }
+        }
+    }
+
+    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
+        match self {
+            Self::NonMixed(x) => x.push(range, notrunc),
+            Self::Mixed(x) => {
+                x.push_inner(MixedType::from_range(range));
+                Tentative::default()
+            }
+        }
+    }
+
+    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
+        match self {
+            Self::NonMixed(x) => x.remove(index),
+            Self::Mixed(x) => x.remove_inner(index),
+        }
+    }
+
+    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
+        match self {
+            Self::NonMixed(x) => x.remove_nocheck(index),
+            Self::Mixed(x) => x.remove_nocheck_inner(index),
+        }
+    }
+
+    fn ncols(&self) -> usize {
+        match self {
+            Self::NonMixed(x) => x.ncols(),
+            Self::Mixed(m) => m.ncols(),
+        }
+    }
+
+    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
+        match self {
+            Self::NonMixed(x) => x.nbytes(df),
+            Self::Mixed(m) => m.nbytes(df),
+        }
+    }
+
+    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
+        match self {
+            Self::NonMixed(x) => x.check_writer(df),
+            Self::Mixed(m) => m.check_writer::<WriterMixedType>(df),
+        }
+    }
+
+    fn req_keywords(&self) -> [(String, String); 2] {
+        match self {
+            Self::NonMixed(x) => x.req_keywords(),
+            Self::Mixed(x) => [x.primary_datatype().pair(), x.byte_layout.pair()],
+        }
+    }
+
+    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
+        match self {
+            Self::NonMixed(x) => x.req_meas_keywords(),
+            Self::Mixed(x) => x.req_meas_keywords(),
+        }
+    }
+
+    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
+        match self {
+            // dirty hack to get a nonempty
+            Self::NonMixed(x) => x
+                .req_meas_keywords()
+                .enumerate()
+                .map(|(i, _)| vec![(NumType::std(i.into()).to_string(), None)]),
+            Self::Mixed(x) => {
+                let dt = x.primary_datatype();
+                x.columns.as_ref().enumerate().map(|(i, c)| {
+                    c.as_num_type()
+                        .and_then(|y| {
+                            if AlphaNumType::from(y) != dt {
+                                None
+                            } else {
+                                Some(y)
+                            }
+                        })
+                        .map(|y| vec![NumType::pair_opt(&y.into(), i.into())])
+                        .unwrap_or_default()
+                })
+            }
+        }
+    }
+
+    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
+        vec![NumType::std_blank()]
+    }
+
+    fn widths(&self) -> Vec<BitsOrChars> {
+        match self {
+            Self::NonMixed(x) => x.widths(),
+            Self::Mixed(x) => x.widths().into(),
+        }
+    }
+
+    fn ranges(&self) -> NonEmpty<FloatOrInt> {
+        match self {
+            Self::NonMixed(x) => x.ranges(),
+            Self::Mixed(x) => x.ranges(),
+        }
+    }
+}
+
+impl VersionedDataLayout for DataLayout2_0 {
+    type ByteLayout = ByteOrd;
+    type ColDatatype = ();
+    type Tot = Option<Tot>;
+
+    fn try_new(
+        datatype: AlphaNumType,
+        byteord: Self::ByteLayout,
+        columns: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
+        conf: &StdTextReadConfig,
+    ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
+        AnyOrderedLayout::try_new(datatype, byteord, columns, conf)
+            .def_map_value(|x| x.into())
+            .def_map_warnings(|e| e.inner_into())
+    }
+
+    fn lookup(
+        kws: &mut StdKeywords,
+        conf: &StdTextReadConfig,
+        par: Par,
+    ) -> LookupLayoutResult<Option<Self>> {
+        AnyOrderedLayout::lookup(kws, conf, par).def_map_value(|x| x.map(|y| y.into()))
+    }
+
+    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
+        AnyOrderedLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
+    }
+
+    fn h_read_df_inner<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        tot: Self::Tot,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
+        self.0.h_read_checked_df(h, tot, seg, conf)
+    }
+
+    fn h_write_df_inner<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        df: &FCSDataFrame,
+    ) -> io::Result<()> {
+        self.0.h_write_df(h, df)
     }
 }
 
@@ -3272,34 +3590,34 @@ impl VersionedDataLayout for DataLayout3_0 {
         AnyOrderedLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
     }
 
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), LayoutInsertColumnWarning> {
-        self.0.insert_nocheck(index, range, notrunc)
-    }
+    // fn insert_nocheck(
+    //     &mut self,
+    //     index: MeasIndex,
+    //     range: FloatOrInt,
+    //     notrunc: bool,
+    // ) -> BiTentative<(), LayoutInsertColumnWarning> {
+    //     self.0.insert_nocheck(index, range, notrunc)
+    // }
 
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
-        self.0.push(range, notrunc)
-    }
+    // fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
+    //     self.0.push(range, notrunc)
+    // }
 
-    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-        self.0.remove(index)
-    }
+    // fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
+    //     self.0.remove(index)
+    // }
 
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-        self.0.remove_nocheck(index)
-    }
+    // fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
+    //     self.0.remove_nocheck(index)
+    // }
 
-    fn ncols(&self) -> usize {
-        self.0.ncols()
-    }
+    // fn ncols(&self) -> usize {
+    //     self.0.ncols()
+    // }
 
-    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
-        self.0.nbytes(df)
-    }
+    // fn nbytes(&self, df: &FCSDataFrame) -> u64 {
+    //     self.0.nbytes(df)
+    // }
 
     fn h_read_df_inner<R: Read>(
         &self,
@@ -3311,9 +3629,9 @@ impl VersionedDataLayout for DataLayout3_0 {
         self.0.h_read_checked_df(h, tot, seg, conf)
     }
 
-    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
-        self.0.check_writer(df)
-    }
+    // fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
+    //     self.0.check_writer(df)
+    // }
 
     fn h_write_df_inner<W: Write>(
         &self,
@@ -3323,29 +3641,29 @@ impl VersionedDataLayout for DataLayout3_0 {
         self.0.h_write_df(h, df)
     }
 
-    fn req_keywords(&self) -> [(String, String); 2] {
-        self.0.req_keywords()
-    }
+    // fn req_keywords(&self) -> [(String, String); 2] {
+    //     self.0.req_keywords()
+    // }
 
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-        self.0.req_meas_keywords()
-    }
+    // fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
+    //     self.0.req_meas_keywords()
+    // }
 
-    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-        self.0.req_meas_keywords().map(|_| vec![])
-    }
+    // fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
+    //     self.0.req_meas_keywords().map(|_| vec![])
+    // }
 
-    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-        vec![]
-    }
+    // fn opt_meas_headers(&self) -> Vec<MeasHeader> {
+    //     vec![]
+    // }
 
-    fn widths(&self) -> Vec<BitsOrChars> {
-        self.0.widths()
-    }
+    // fn widths(&self) -> Vec<BitsOrChars> {
+    //     self.0.widths()
+    // }
 
-    fn ranges(&self) -> NonEmpty<FloatOrInt> {
-        self.0.ranges()
-    }
+    // fn ranges(&self) -> NonEmpty<FloatOrInt> {
+    //     self.0.ranges()
+    // }
 }
 
 impl VersionedDataLayout for DataLayout3_1 {
@@ -3398,34 +3716,34 @@ impl VersionedDataLayout for DataLayout3_1 {
             })
     }
 
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), LayoutInsertColumnWarning> {
-        self.0.insert_nocheck(index, range, notrunc)
-    }
+    // fn insert_nocheck(
+    //     &mut self,
+    //     index: MeasIndex,
+    //     range: FloatOrInt,
+    //     notrunc: bool,
+    // ) -> BiTentative<(), LayoutInsertColumnWarning> {
+    //     self.0.insert_nocheck(index, range, notrunc)
+    // }
 
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
-        self.0.push(range, notrunc)
-    }
+    // fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
+    //     self.0.push(range, notrunc)
+    // }
 
-    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-        self.0.remove(index)
-    }
+    // fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
+    //     self.0.remove(index)
+    // }
 
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-        self.0.remove_nocheck(index)
-    }
+    // fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
+    //     self.0.remove_nocheck(index)
+    // }
 
-    fn ncols(&self) -> usize {
-        self.0.ncols()
-    }
+    // fn ncols(&self) -> usize {
+    //     self.0.ncols()
+    // }
 
-    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
-        self.0.nbytes(df)
-    }
+    // fn nbytes(&self, df: &FCSDataFrame) -> u64 {
+    //     self.0.nbytes(df)
+    // }
 
     fn h_read_df_inner<R: Read>(
         &self,
@@ -3437,9 +3755,9 @@ impl VersionedDataLayout for DataLayout3_1 {
         self.0.h_read_df(h, tot, seg, conf)
     }
 
-    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
-        self.0.check_writer(df)
-    }
+    // fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
+    //     self.0.check_writer(df)
+    // }
 
     fn h_write_df_inner<W: Write>(
         &self,
@@ -3449,29 +3767,29 @@ impl VersionedDataLayout for DataLayout3_1 {
         self.0.h_write_df(h, df)
     }
 
-    fn req_keywords(&self) -> [(String, String); 2] {
-        self.0.req_keywords()
-    }
+    // fn req_keywords(&self) -> [(String, String); 2] {
+    //     self.0.req_keywords()
+    // }
 
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-        self.0.req_meas_keywords()
-    }
+    // fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
+    //     self.0.req_meas_keywords()
+    // }
 
-    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-        self.0.req_meas_keywords().map(|_| vec![])
-    }
+    // fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
+    //     self.0.req_meas_keywords().map(|_| vec![])
+    // }
 
-    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-        vec![]
-    }
+    // fn opt_meas_headers(&self) -> Vec<MeasHeader> {
+    //     vec![]
+    // }
 
-    fn widths(&self) -> Vec<BitsOrChars> {
-        self.0.widths()
-    }
+    // fn widths(&self) -> Vec<BitsOrChars> {
+    //     self.0.widths()
+    // }
 
-    fn ranges(&self) -> NonEmpty<FloatOrInt> {
-        self.0.ranges()
-    }
+    // fn ranges(&self) -> NonEmpty<FloatOrInt> {
+    //     self.0.ranges()
+    // }
 }
 
 impl VersionedDataLayout for DataLayout3_2 {
@@ -3544,59 +3862,6 @@ impl VersionedDataLayout for DataLayout3_2 {
             })
     }
 
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), LayoutInsertColumnWarning> {
-        match self {
-            Self::NonMixed(x) => x.insert_nocheck(index, range, notrunc),
-            Self::Mixed(x) => {
-                x.insert_inner_nocheck(index, MixedType::from_range(range));
-                Tentative::default()
-            }
-        }
-    }
-
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
-        match self {
-            Self::NonMixed(x) => x.push(range, notrunc),
-            Self::Mixed(x) => {
-                x.push_inner(MixedType::from_range(range));
-                Tentative::default()
-            }
-        }
-    }
-
-    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-        match self {
-            Self::NonMixed(x) => x.remove(index),
-            Self::Mixed(x) => x.remove_inner(index),
-        }
-    }
-
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-        match self {
-            Self::NonMixed(x) => x.remove_nocheck(index),
-            Self::Mixed(x) => x.remove_nocheck_inner(index),
-        }
-    }
-
-    fn ncols(&self) -> usize {
-        match self {
-            Self::NonMixed(x) => x.ncols(),
-            Self::Mixed(m) => m.ncols(),
-        }
-    }
-
-    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
-        match self {
-            Self::NonMixed(x) => x.nbytes(df),
-            Self::Mixed(m) => m.nbytes(df),
-        }
-    }
-
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
@@ -3613,13 +3878,6 @@ impl VersionedDataLayout for DataLayout3_2 {
         }
     }
 
-    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
-        match self {
-            Self::NonMixed(x) => x.check_writer(df),
-            Self::Mixed(m) => m.check_writer::<WriterMixedType>(df),
-        }
-    }
-
     fn h_write_df_inner<W: Write>(
         &self,
         h: &mut BufWriter<W>,
@@ -3628,63 +3886,6 @@ impl VersionedDataLayout for DataLayout3_2 {
         match self {
             Self::NonMixed(x) => x.h_write_df(h, df),
             Self::Mixed(m) => m.h_write_df::<_, WriterMixedType>(h, df),
-        }
-    }
-
-    fn req_keywords(&self) -> [(String, String); 2] {
-        match self {
-            Self::NonMixed(x) => x.req_keywords(),
-            Self::Mixed(x) => [x.primary_datatype().pair(), x.byte_layout.pair()],
-        }
-    }
-
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-        match self {
-            Self::NonMixed(x) => x.req_meas_keywords(),
-            Self::Mixed(x) => x.req_meas_keywords(),
-        }
-    }
-
-    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-        match self {
-            // dirty hack to get a nonempty
-            Self::NonMixed(x) => x
-                .req_meas_keywords()
-                .enumerate()
-                .map(|(i, _)| vec![(NumType::std(i.into()).to_string(), None)]),
-            Self::Mixed(x) => {
-                let dt = x.primary_datatype();
-                x.columns.as_ref().enumerate().map(|(i, c)| {
-                    c.as_num_type()
-                        .and_then(|y| {
-                            if AlphaNumType::from(y) != dt {
-                                None
-                            } else {
-                                Some(y)
-                            }
-                        })
-                        .map(|y| vec![NumType::pair_opt(&y.into(), i.into())])
-                        .unwrap_or_default()
-                })
-            }
-        }
-    }
-
-    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-        vec![NumType::std_blank()]
-    }
-
-    fn widths(&self) -> Vec<BitsOrChars> {
-        match self {
-            Self::NonMixed(x) => x.widths(),
-            Self::Mixed(x) => x.widths().into(),
-        }
-    }
-
-    fn ranges(&self) -> NonEmpty<FloatOrInt> {
-        match self {
-            Self::NonMixed(x) => x.ranges(),
-            Self::Mixed(x) => x.ranges(),
         }
     }
 }

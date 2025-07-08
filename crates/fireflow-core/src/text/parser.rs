@@ -695,7 +695,7 @@ fn eval_dep_maybe<T>(
     if disallow_dep {
         x.eval_error(|v| eval_dep(v, key));
     } else {
-        x.eval_error(|v| eval_dep(v, key));
+        x.eval_warning(|v| eval_dep(v, key).map(|e| e.into()));
     }
 }
 

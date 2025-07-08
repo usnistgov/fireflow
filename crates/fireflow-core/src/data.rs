@@ -123,7 +123,8 @@ pub enum DataLayout3_2 {
 ///
 /// It is so named "Ordered" because the BYTEORD keyword represents any possible
 /// byte ordering that may occur rather than simply little or big endian.
-#[derive(Clone, Serialize, From)]
+#[derive(Clone, Serialize, From, Delegate)]
+#[delegate(LayoutOps)]
 pub enum AnyOrderedLayout<T> {
     Ascii(AnyAsciiLayout<T>),
     Integer(AnyOrderedUintLayout<T>),
@@ -133,7 +134,8 @@ pub enum AnyOrderedLayout<T> {
 
 // TODO make an integer layout which has only one width, which will cover the
 // vast majority of cases and make certain operations easier.
-#[derive(Clone, Serialize, From)]
+#[derive(Clone, Serialize, From, Delegate)]
+#[delegate(LayoutOps)]
 pub enum NonMixedEndianLayout {
     Ascii(AnyAsciiLayout<KnownTot>),
     Integer(EndianLayout<AnyNullBitmask>),
@@ -148,7 +150,8 @@ type EndianLayout<C> = FixedLayout<C, Endian, KnownTot>;
 /// This may either be fixed (ie columns have the same number of characters)
 /// or variable (ie columns have have different number of characters and are
 /// separated by delimiters).
-#[derive(Clone, Serialize, From)]
+#[derive(Clone, Serialize, From, Delegate)]
+#[delegate(LayoutOps)]
 pub enum AnyAsciiLayout<T> {
     Delimited(DelimAsciiLayout<T>),
     Fixed(FixedAsciiLayout<T>),
@@ -172,7 +175,8 @@ pub struct FixedLayout<C, L, T> {
 }
 
 /// Byte layout for integers that may be in any byte order.
-#[derive(Clone, Serialize, From)]
+#[derive(Clone, Serialize, From, Delegate)]
+#[delegate(LayoutOps)]
 pub enum AnyOrderedUintLayout<T> {
     // TODO the first two don't need to be ordered
     Uint08(OrderedLayout<Bitmask08, T>),
@@ -375,26 +379,6 @@ pub trait VersionedDataLayout: Sized + LayoutOps {
         conf: &StdTextReadConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError>;
 
-    // // no need to check since this will be done after validating that the index
-    // // is within the measurement vector, which has its own check and should
-    // // always be the same length
-    // fn insert_nocheck(
-    //     &mut self,
-    //     index: MeasIndex,
-    //     range: FloatOrInt,
-    //     notrunc: bool,
-    // ) -> BiTentative<(), LayoutInsertColumnWarning>;
-
-    // fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError>;
-
-    // fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>>;
-
-    // fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional>;
-
-    // fn ncols(&self) -> usize;
-
-    // fn nbytes(&self, df: &FCSDataFrame) -> u64;
-
     fn h_read_df<R: Read + Seek>(
         &self,
         h: &mut BufReader<R>,
@@ -419,8 +403,6 @@ pub trait VersionedDataLayout: Sized + LayoutOps {
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError>;
 
-    // fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>>;
-
     fn h_write_df<W>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()>
     where
         W: Write,
@@ -438,18 +420,6 @@ pub trait VersionedDataLayout: Sized + LayoutOps {
 
     fn h_write_df_inner<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame)
         -> io::Result<()>;
-
-    // fn req_keywords(&self) -> [(String, String); 2];
-
-    // fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]>;
-
-    // fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>>;
-
-    // fn opt_meas_headers(&self) -> Vec<MeasHeader>;
-
-    // fn widths(&self) -> Vec<BitsOrChars>;
-
-    // fn ranges(&self) -> NonEmpty<FloatOrInt>;
 }
 
 pub trait HasNativeType: Sized {
@@ -2117,6 +2087,24 @@ impl From<ColumnLayoutValues3_2> for ColumnLayoutValues2_0 {
     }
 }
 
+impl<T> LayoutOps for DelimAsciiLayout<T> {
+    fn ncols(&self) -> usize {
+        self.ranges.len()
+    }
+
+    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
+        df.ascii_nbytes()
+    }
+
+    fn widths(&self) -> Vec<BitsOrChars> {
+        vec![]
+    }
+
+    fn ranges(&self) -> NonEmpty<FloatOrInt> {
+        self.ranges.as_ref().map(|x| FloatOrInt::from(*x))
+    }
+}
+
 impl<T> DelimAsciiLayout<T> {
     fn new(ranges: NonEmpty<u64>) -> Self {
         Self {
@@ -2952,22 +2940,6 @@ impl<T> AnyOrderedUintLayout<T> {
         match_any_uint!(self, Self, l, { l.remove_nocheck_inner(index) })
     }
 
-    fn ncols(&self) -> usize {
-        match_any_uint!(self, Self, l, { l.columns.len() })
-    }
-
-    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
-        match_any_uint!(self, Self, l, { l.nbytes(df) })
-    }
-
-    fn widths(&self) -> Vec<BitsOrChars> {
-        match_any_uint!(self, Self, l, { l.widths() })
-    }
-
-    fn ranges(&self) -> NonEmpty<FloatOrInt> {
-        match_any_uint!(self, Self, l, { l.ranges() })
-    }
-
     pub fn byte_order(&self) -> ByteOrd {
         match_any_uint!(self, Self, l, { l.byte_layout.into() })
     }
@@ -3095,34 +3067,6 @@ impl<T> AnyAsciiLayout<T> {
 
     fn new_delim(ranges: NonEmpty<u64>) -> Self {
         Self::Delimited(DelimAsciiLayout::new(ranges))
-    }
-
-    fn ncols(&self) -> usize {
-        match self {
-            Self::Delimited(a) => a.ranges.len(),
-            Self::Fixed(l) => l.columns.len(),
-        }
-    }
-
-    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
-        match self {
-            Self::Delimited(_) => df.ascii_nbytes(),
-            Self::Fixed(l) => l.nbytes(df),
-        }
-    }
-
-    fn widths(&self) -> Vec<BitsOrChars> {
-        match self {
-            Self::Delimited(_) => vec![],
-            Self::Fixed(l) => l.widths(),
-        }
-    }
-
-    fn ranges(&self) -> NonEmpty<FloatOrInt> {
-        match self {
-            Self::Delimited(l) => l.ranges.as_ref().map(|x| FloatOrInt::from(*x)),
-            Self::Fixed(l) => l.ranges(),
-        }
     }
 
     fn h_read_checked_df<R: Read>(
@@ -3336,35 +3280,6 @@ impl VersionedDataLayout for DataLayout3_0 {
         self.0.check_writer(df)
     }
 
-    // fn insert_nocheck(
-    //     &mut self,
-    //     index: MeasIndex,
-    //     range: FloatOrInt,
-    //     notrunc: bool,
-    // ) -> BiTentative<(), LayoutInsertColumnWarning> {
-    //     self.0.insert_nocheck(index, range, notrunc)
-    // }
-
-    // fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
-    //     self.0.push(range, notrunc)
-    // }
-
-    // fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-    //     self.0.remove(index)
-    // }
-
-    // fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-    //     self.0.remove_nocheck(index)
-    // }
-
-    // fn ncols(&self) -> usize {
-    //     self.0.ncols()
-    // }
-
-    // fn nbytes(&self, df: &FCSDataFrame) -> u64 {
-    //     self.0.nbytes(df)
-    // }
-
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
@@ -3375,10 +3290,6 @@ impl VersionedDataLayout for DataLayout3_0 {
         self.0.h_read_checked_df(h, tot, seg, conf)
     }
 
-    // fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
-    //     self.0.check_writer(df)
-    // }
-
     fn h_write_df_inner<W: Write>(
         &self,
         h: &mut BufWriter<W>,
@@ -3386,30 +3297,6 @@ impl VersionedDataLayout for DataLayout3_0 {
     ) -> io::Result<()> {
         self.0.h_write_df(h, df)
     }
-
-    // fn req_keywords(&self) -> [(String, String); 2] {
-    //     self.0.req_keywords()
-    // }
-
-    // fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-    //     self.0.req_meas_keywords()
-    // }
-
-    // fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-    //     self.0.req_meas_keywords().map(|_| vec![])
-    // }
-
-    // fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-    //     vec![]
-    // }
-
-    // fn widths(&self) -> Vec<BitsOrChars> {
-    //     self.0.widths()
-    // }
-
-    // fn ranges(&self) -> NonEmpty<FloatOrInt> {
-    //     self.0.ranges()
-    // }
 }
 
 impl VersionedDataLayout for DataLayout3_1 {
@@ -3481,35 +3368,6 @@ impl VersionedDataLayout for DataLayout3_1 {
         self.0.check_writer(df)
     }
 
-    // fn insert_nocheck(
-    //     &mut self,
-    //     index: MeasIndex,
-    //     range: FloatOrInt,
-    //     notrunc: bool,
-    // ) -> BiTentative<(), LayoutInsertColumnWarning> {
-    //     self.0.insert_nocheck(index, range, notrunc)
-    // }
-
-    // fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
-    //     self.0.push(range, notrunc)
-    // }
-
-    // fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-    //     self.0.remove(index)
-    // }
-
-    // fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-    //     self.0.remove_nocheck(index)
-    // }
-
-    // fn ncols(&self) -> usize {
-    //     self.0.ncols()
-    // }
-
-    // fn nbytes(&self, df: &FCSDataFrame) -> u64 {
-    //     self.0.nbytes(df)
-    // }
-
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
@@ -3520,10 +3378,6 @@ impl VersionedDataLayout for DataLayout3_1 {
         self.0.h_read_df(h, tot, seg, conf)
     }
 
-    // fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
-    //     self.0.check_writer(df)
-    // }
-
     fn h_write_df_inner<W: Write>(
         &self,
         h: &mut BufWriter<W>,
@@ -3531,30 +3385,6 @@ impl VersionedDataLayout for DataLayout3_1 {
     ) -> io::Result<()> {
         self.0.h_write_df(h, df)
     }
-
-    // fn req_keywords(&self) -> [(String, String); 2] {
-    //     self.0.req_keywords()
-    // }
-
-    // fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-    //     self.0.req_meas_keywords()
-    // }
-
-    // fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-    //     self.0.req_meas_keywords().map(|_| vec![])
-    // }
-
-    // fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-    //     vec![]
-    // }
-
-    // fn widths(&self) -> Vec<BitsOrChars> {
-    //     self.0.widths()
-    // }
-
-    // fn ranges(&self) -> NonEmpty<FloatOrInt> {
-    //     self.0.ranges()
-    // }
 }
 
 impl VersionedDataLayout for DataLayout3_2 {
@@ -3787,29 +3617,6 @@ impl DataLayout3_2 {
             Self::NonMixed(x) => x.ranges().as_ref().map(|_| x.datatype()),
             Self::Mixed(x) => x.columns.as_ref().map(|y| y.as_alpha_num_type()),
         }
-    }
-}
-
-impl<T> LayoutOps for AnyOrderedLayout<T> {
-    fn ncols(&self) -> usize {
-        match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, { x.ncols() })
-    }
-
-    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
-        match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, { x.nbytes(df) })
-    }
-
-    fn widths(&self) -> Vec<BitsOrChars> {
-        match self {
-            Self::Ascii(a) => a.widths(),
-            Self::Integer(i) => i.widths(),
-            Self::F32(f) => f.widths(),
-            Self::F64(f) => f.widths(),
-        }
-    }
-
-    fn ranges(&self) -> NonEmpty<FloatOrInt> {
-        match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, { x.ranges() })
     }
 }
 
@@ -4067,29 +3874,6 @@ impl<T> AnyOrderedLayout<T> {
 
     pub(crate) fn into_3_2(self) -> LayoutConvertResult<DataLayout3_2> {
         self.into_unmixed().map(DataLayout3_2::NonMixed)
-    }
-}
-
-impl LayoutOps for NonMixedEndianLayout {
-    fn ncols(&self) -> usize {
-        match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, { x.ncols() })
-    }
-
-    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
-        match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, { x.nbytes(df) })
-    }
-
-    fn widths(&self) -> Vec<BitsOrChars> {
-        match self {
-            Self::Ascii(x) => x.widths(),
-            Self::Integer(x) => x.widths(),
-            Self::F32(x) => x.widths(),
-            Self::F64(x) => x.widths(),
-        }
-    }
-
-    fn ranges(&self) -> NonEmpty<FloatOrInt> {
-        match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, { x.ranges() })
     }
 }
 

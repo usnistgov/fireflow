@@ -313,6 +313,14 @@ trait TotDefinition {
 
 /// Standardized operations on layouts
 pub trait LayoutOps: Sized {
+    fn lookup(
+        kws: &mut StdKeywords,
+        conf: &StdTextReadConfig,
+        par: Par,
+    ) -> LookupLayoutResult<Option<Self>>;
+
+    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>>;
+
     // no need to check since this will be done after validating that the index
     // is within the measurement vector, which has its own check and should
     // always be the same length
@@ -402,14 +410,6 @@ pub trait VersionedDataLayout: Sized + LayoutOps {
         cs: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
         conf: &StdTextReadConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError>;
-
-    fn lookup(
-        kws: &mut StdKeywords,
-        conf: &StdTextReadConfig,
-        par: Par,
-    ) -> LookupLayoutResult<Option<Self>>;
-
-    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>>;
 
     // // no need to check since this will be done after validating that the index
     // // is within the measurement vector, which has its own check and should
@@ -3220,6 +3220,18 @@ impl<T> AnyAsciiLayout<T> {
 }
 
 impl LayoutOps for DataLayout2_0 {
+    fn lookup(
+        kws: &mut StdKeywords,
+        conf: &StdTextReadConfig,
+        par: Par,
+    ) -> LookupLayoutResult<Option<Self>> {
+        AnyOrderedLayout::lookup(kws, conf, par).def_map_value(|x| x.map(|y| y.into()))
+    }
+
+    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
+        AnyOrderedLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
+    }
+
     fn insert_nocheck(
         &mut self,
         index: MeasIndex,
@@ -3279,6 +3291,17 @@ impl LayoutOps for DataLayout2_0 {
 }
 
 impl LayoutOps for DataLayout3_0 {
+    fn lookup(
+        kws: &mut StdKeywords,
+        conf: &StdTextReadConfig,
+        par: Par,
+    ) -> LookupLayoutResult<Option<Self>> {
+        AnyOrderedLayout::lookup(kws, conf, par).def_map_value(|x| x.map(|y| y.into()))
+    }
+
+    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
+        AnyOrderedLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
+    }
     fn insert_nocheck(
         &mut self,
         index: MeasIndex,
@@ -3338,6 +3361,40 @@ impl LayoutOps for DataLayout3_0 {
 }
 
 impl LayoutOps for DataLayout3_1 {
+    fn lookup(
+        kws: &mut StdKeywords,
+        conf: &StdTextReadConfig,
+        par: Par,
+    ) -> LookupLayoutResult<Option<Self>> {
+        let cs = ColumnLayoutValues2_0::lookup_all(kws, par);
+        let d = AlphaNumType::lookup_req_check_ascii(kws);
+        let n = Endian::lookup_req(kws);
+        d.def_zip3(n, cs)
+            .def_inner_into()
+            .def_and_maybe(|(datatype, byteord, columns)| {
+                def_transpose(
+                    NonEmpty::from_vec(columns)
+                        .map(|xs| Self::try_new(datatype, byteord, xs, conf)),
+                )
+                .def_inner_into()
+            })
+    }
+
+    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
+        let cs = ColumnLayoutValues2_0::lookup_ro_all(kws);
+        let d = AlphaNumType::get_metaroot_req(kws).into_deferred();
+        let n = Endian::get_metaroot_req(kws).into_deferred();
+        d.def_zip3(n, cs)
+            .def_inner_into()
+            .def_and_maybe(|(datatype, byteord, columns)| {
+                def_transpose(
+                    NonEmpty::from_vec(columns)
+                        .map(|xs| Self::try_new(datatype, byteord, xs, conf)),
+                )
+                .def_inner_into()
+            })
+    }
+
     fn insert_nocheck(
         &mut self,
         index: MeasIndex,
@@ -3397,6 +3454,41 @@ impl LayoutOps for DataLayout3_1 {
 }
 
 impl LayoutOps for DataLayout3_2 {
+    fn lookup(
+        kws: &mut StdKeywords,
+        conf: &StdTextReadConfig,
+        par: Par,
+    ) -> LookupLayoutResult<Option<Self>> {
+        let d = AlphaNumType::lookup_req_check_ascii(kws);
+        let e = Endian::lookup_req(kws);
+        let cs = ColumnLayoutValues3_2::lookup_all(kws, par);
+        d.def_zip3(e, cs)
+            .def_inner_into()
+            .def_and_maybe(|(datatype, endian, columns)| {
+                def_transpose(
+                    NonEmpty::from_vec(columns).map(|xs| Self::try_new(datatype, endian, xs, conf)),
+                )
+                .def_inner_into()
+            })
+    }
+
+    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
+        let d = AlphaNumType::get_metaroot_req(kws)
+            .map_err(RawParsedError::from)
+            .into_deferred();
+        let e = Endian::get_metaroot_req(kws)
+            .map_err(RawParsedError::from)
+            .into_deferred();
+        let cs = ColumnLayoutValues3_2::lookup_ro_all(kws).def_inner_into();
+        d.def_zip3(e, cs)
+            .def_and_maybe(|(datatype, endian, columns)| {
+                def_transpose(
+                    NonEmpty::from_vec(columns).map(|xs| Self::try_new(datatype, endian, xs, conf)),
+                )
+                .def_inner_into()
+            })
+    }
+
     fn insert_nocheck(
         &mut self,
         index: MeasIndex,
@@ -3531,18 +3623,6 @@ impl VersionedDataLayout for DataLayout2_0 {
             .def_map_warnings(|e| e.inner_into())
     }
 
-    fn lookup(
-        kws: &mut StdKeywords,
-        conf: &StdTextReadConfig,
-        par: Par,
-    ) -> LookupLayoutResult<Option<Self>> {
-        AnyOrderedLayout::lookup(kws, conf, par).def_map_value(|x| x.map(|y| y.into()))
-    }
-
-    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
-        AnyOrderedLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
-    }
-
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
@@ -3576,18 +3656,6 @@ impl VersionedDataLayout for DataLayout3_0 {
         AnyOrderedLayout::try_new(datatype, byteord, columns, conf)
             .def_map_value(|x| x.into())
             .def_map_warnings(|e| e.inner_into())
-    }
-
-    fn lookup(
-        kws: &mut StdKeywords,
-        conf: &StdTextReadConfig,
-        par: Par,
-    ) -> LookupLayoutResult<Option<Self>> {
-        AnyOrderedLayout::lookup(kws, conf, par).def_map_value(|x| x.map(|y| y.into()))
-    }
-
-    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
-        AnyOrderedLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
     }
 
     // fn insert_nocheck(
@@ -3680,40 +3748,6 @@ impl VersionedDataLayout for DataLayout3_1 {
         NonMixedEndianLayout::try_new(datatype, endian, columns, conf)
             .def_map_value(|x| x.into())
             .def_map_warnings(|e| e.inner_into())
-    }
-
-    fn lookup(
-        kws: &mut StdKeywords,
-        conf: &StdTextReadConfig,
-        par: Par,
-    ) -> LookupLayoutResult<Option<Self>> {
-        let cs = ColumnLayoutValues2_0::lookup_all(kws, par);
-        let d = AlphaNumType::lookup_req_check_ascii(kws);
-        let n = Endian::lookup_req(kws);
-        d.def_zip3(n, cs)
-            .def_inner_into()
-            .def_and_maybe(|(datatype, byteord, columns)| {
-                def_transpose(
-                    NonEmpty::from_vec(columns)
-                        .map(|xs| Self::try_new(datatype, byteord, xs, conf)),
-                )
-                .def_inner_into()
-            })
-    }
-
-    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
-        let cs = ColumnLayoutValues2_0::lookup_ro_all(kws);
-        let d = AlphaNumType::get_metaroot_req(kws).into_deferred();
-        let n = Endian::get_metaroot_req(kws).into_deferred();
-        d.def_zip3(n, cs)
-            .def_inner_into()
-            .def_and_maybe(|(datatype, byteord, columns)| {
-                def_transpose(
-                    NonEmpty::from_vec(columns)
-                        .map(|xs| Self::try_new(datatype, byteord, xs, conf)),
-                )
-                .def_inner_into()
-            })
     }
 
     // fn insert_nocheck(
@@ -3825,41 +3859,6 @@ impl VersionedDataLayout for DataLayout3_2 {
             })
             .def_map_value(Self::Mixed),
         }
-    }
-
-    fn lookup(
-        kws: &mut StdKeywords,
-        conf: &StdTextReadConfig,
-        par: Par,
-    ) -> LookupLayoutResult<Option<Self>> {
-        let d = AlphaNumType::lookup_req_check_ascii(kws);
-        let e = Endian::lookup_req(kws);
-        let cs = ColumnLayoutValues3_2::lookup_all(kws, par);
-        d.def_zip3(e, cs)
-            .def_inner_into()
-            .def_and_maybe(|(datatype, endian, columns)| {
-                def_transpose(
-                    NonEmpty::from_vec(columns).map(|xs| Self::try_new(datatype, endian, xs, conf)),
-                )
-                .def_inner_into()
-            })
-    }
-
-    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
-        let d = AlphaNumType::get_metaroot_req(kws)
-            .map_err(RawParsedError::from)
-            .into_deferred();
-        let e = Endian::get_metaroot_req(kws)
-            .map_err(RawParsedError::from)
-            .into_deferred();
-        let cs = ColumnLayoutValues3_2::lookup_ro_all(kws).def_inner_into();
-        d.def_zip3(e, cs)
-            .def_and_maybe(|(datatype, endian, columns)| {
-                def_transpose(
-                    NonEmpty::from_vec(columns).map(|xs| Self::try_new(datatype, endian, xs, conf)),
-                )
-                .def_inner_into()
-            })
     }
 
     fn h_read_df_inner<R: Read>(

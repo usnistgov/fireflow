@@ -4,7 +4,7 @@ use fireflow_core::core::*;
 use fireflow_core::error::*;
 use fireflow_core::header::*;
 use fireflow_core::segment::*;
-use fireflow_core::text::byteord::ByteOrd;
+use fireflow_core::text::byteord::ByteOrd2_0;
 use fireflow_core::text::keywords::*;
 use fireflow_core::text::named_vec::Element;
 use fireflow_core::text::optional::*;
@@ -885,7 +885,7 @@ fn std_config(
     let bo = if xs.is_empty() {
         None
     } else {
-        Some(ByteOrd::try_from(xs).map_err(|e| PyreflowException::new_err(e.to_string()))?)
+        Some(ByteOrd2_0::try_from(xs).map_err(|e| PyreflowException::new_err(e.to_string()))?)
     };
 
     let out = StdTextReadConfig {

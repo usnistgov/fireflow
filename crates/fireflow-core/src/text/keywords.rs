@@ -1623,8 +1623,8 @@ kw_opt_meta!(Mode3_2, "MODE"); // for 3.2+
 kw_opt_meta_string!(Cyt, "CYT"); // optional for 2.0-3.1
 req_meta!(Cyt); // required for 3.2+
 
-kw_req_meta!(Endian, "BYTEORD"); // 2.0 to 3.0
-kw_req_meta!(ByteOrd, "BYTEORD"); // 3.1+
+kw_req_meta!(ByteOrd2_0, "BYTEORD"); // 2.0/3.0
+kw_req_meta!(ByteOrd3_1, "BYTEORD"); // 3.1+
 
 // all versions
 kw_req_meas!(Width, "B");

@@ -2868,7 +2868,7 @@ impl<T> AnyOrderedUintLayout<T> {
 
     fn try_new<D>(
         cs: NonEmpty<ColumnLayoutValues<D>>,
-        bo: ByteOrd,
+        bo: ByteOrd2_0,
         conf: &StdTextReadConfig,
     ) -> DeferredResult<Self, ColumnError<BitmaskError>, NewFixedIntLayoutError> {
         let notrunc = conf.disallow_range_truncation;
@@ -2905,7 +2905,7 @@ impl<T> AnyOrderedUintLayout<T> {
         // the bitmask won't necessarily fail even if it is larger than the
         // target type.
         width_res.mult_to_deferred().def_and_maybe(|_| {
-            match_many_to_one!(real_bo, ByteOrd, [O1, O2, O3, O4, O5, O6, O7, O8], o, {
+            match_many_to_one!(real_bo, ByteOrd2_0, [O1, O2, O3, O4, O5, O6, O7, O8], o, {
                 FixedLayout::try_new(cs, o, |c| {
                     // NOTE at this point $PnB doesn't matter, so assume we
                     // either ignored $PnB by way of $BYTEORD or checked to make
@@ -2944,7 +2944,7 @@ impl<T> AnyOrderedUintLayout<T> {
         match_any_uint!(self, Self, l, { l.remove_nocheck_inner(index) })
     }
 
-    pub fn byte_order(&self) -> ByteOrd {
+    pub fn byte_order(&self) -> ByteOrd2_0 {
         match_any_uint!(self, Self, l, { l.byte_layout.into() })
     }
 
@@ -2983,7 +2983,7 @@ impl<T> AnyOrderedUintLayout<T> {
 
     fn req_keywords(&self) -> [(String, String); 2] {
         match_any_uint!(self, Self, l, {
-            l.req_keywords(ByteOrd::from(l.byte_layout))
+            l.req_keywords(ByteOrd2_0::from(l.byte_layout))
         })
     }
 
@@ -3128,7 +3128,7 @@ impl<T> AnyAsciiLayout<T> {
 }
 
 impl VersionedDataLayout for DataLayout2_0 {
-    type ByteLayout = ByteOrd;
+    type ByteLayout = ByteOrd2_0;
     type ColDatatype = ();
     type TotDef = MaybeTot;
 
@@ -3200,7 +3200,7 @@ impl VersionedDataLayout for DataLayout2_0 {
 }
 
 impl VersionedDataLayout for DataLayout3_0 {
-    type ByteLayout = ByteOrd;
+    type ByteLayout = ByteOrd2_0;
     type ColDatatype = ();
     type TotDef = KnownTot;
 
@@ -3347,7 +3347,10 @@ impl LookupLayout for DataLayout3_2 {
     fn req_keywords(&self) -> [(String, String); 2] {
         match self {
             Self::NonMixed(x) => x.req_keywords(),
-            Self::Mixed(x) => [x.primary_datatype().pair(), x.byte_layout.pair()],
+            Self::Mixed(x) => [
+                x.primary_datatype().pair(),
+                ByteOrd3_1::from(x.byte_layout).pair(),
+            ],
         }
     }
 
@@ -3389,7 +3392,7 @@ impl LookupLayout for DataLayout3_2 {
 }
 
 impl VersionedDataLayout for DataLayout3_2 {
-    type ByteLayout = Endian;
+    type ByteLayout = ByteOrd3_1;
     type ColDatatype = Option<NumType>;
     type TotDef = KnownTot;
 
@@ -3399,7 +3402,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         par: Par,
     ) -> LookupLayoutResult<Option<Self>> {
         let d = AlphaNumType::lookup_req_check_ascii(kws);
-        let e = Endian::lookup_req(kws);
+        let e = ByteOrd3_1::lookup_req(kws);
         let cs = ColumnLayoutValues3_2::lookup_all(kws, par);
         d.def_zip3(e, cs)
             .def_inner_into()
@@ -3415,7 +3418,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         let d = AlphaNumType::get_metaroot_req(kws)
             .map_err(RawParsedError::from)
             .into_deferred();
-        let e = Endian::get_metaroot_req(kws)
+        let e = ByteOrd3_1::get_metaroot_req(kws)
             .map_err(RawParsedError::from)
             .into_deferred();
         let cs = ColumnLayoutValues3_2::lookup_ro_all(kws).def_inner_into();
@@ -3447,11 +3450,11 @@ impl VersionedDataLayout for DataLayout3_2 {
                     range: c.range,
                     datatype: (),
                 });
-                NonMixedEndianLayout::try_new(dt, endian, ds, conf)
+                NonMixedEndianLayout::try_new(dt, endian.0, ds, conf)
                     .def_map_value(Self::NonMixed)
                     .def_map_warnings(|e| e.inner_into())
             }
-            _ => FixedLayout::try_new(cs, endian, |c| {
+            _ => FixedLayout::try_new(cs, endian.0, |c| {
                 MixedType::from_width_and_range(c.width, c.range, c.datatype, notrunc)
             })
             .def_map_value(Self::Mixed),
@@ -3581,10 +3584,10 @@ impl DataLayout3_2 {
 impl<T> LookupLayout for AnyOrderedLayout<T> {
     fn req_keywords(&self) -> [(String, String); 2] {
         match self {
-            Self::Ascii(x) => x.req_keywords::<ByteOrd>(),
+            Self::Ascii(x) => x.req_keywords::<ByteOrd2_0>(),
             Self::Integer(x) => x.req_keywords(),
-            Self::F32(x) => x.req_keywords(ByteOrd::from(x.byte_layout)),
-            Self::F64(x) => x.req_keywords(ByteOrd::from(x.byte_layout)),
+            Self::F32(x) => x.req_keywords(ByteOrd2_0::from(x.byte_layout)),
+            Self::F64(x) => x.req_keywords(ByteOrd2_0::from(x.byte_layout)),
         }
     }
 
@@ -3614,7 +3617,7 @@ impl<T> AnyOrderedLayout<T> {
     ) -> LookupLayoutResult<Option<Self>> {
         let cs = ColumnLayoutValues2_0::lookup_all(kws, par);
         let d = AlphaNumType::lookup_req(kws);
-        let b = ByteOrd::lookup_req(kws);
+        let b = ByteOrd2_0::lookup_req(kws);
         d.def_zip3(b, cs)
             .def_inner_into()
             .def_and_maybe(|(datatype, byteord, columns)| {
@@ -3629,7 +3632,7 @@ impl<T> AnyOrderedLayout<T> {
     fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
         let cs = ColumnLayoutValues2_0::lookup_ro_all(kws);
         let d = AlphaNumType::get_metaroot_req(kws).into_deferred();
-        let b = ByteOrd::get_metaroot_req(kws).into_deferred();
+        let b = ByteOrd2_0::get_metaroot_req(kws).into_deferred();
         d.def_zip3(b, cs)
             .def_inner_into()
             .def_and_maybe(|(datatype, byteord, columns)| {
@@ -3727,7 +3730,7 @@ impl<T> AnyOrderedLayout<T> {
         }
     }
 
-    pub fn byte_order(&self) -> Option<ByteOrd> {
+    pub fn byte_order(&self) -> Option<ByteOrd2_0> {
         match self {
             Self::Ascii(_) => None,
             Self::Integer(x) => Some(x.byte_order()),
@@ -3747,7 +3750,7 @@ impl<T> AnyOrderedLayout<T> {
 
     fn try_new(
         datatype: AlphaNumType,
-        byteord: ByteOrd,
+        byteord: ByteOrd2_0,
         columns: NonEmpty<ColumnLayoutValues2_0>,
         conf: &StdTextReadConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
@@ -3840,10 +3843,10 @@ impl<T> AnyOrderedLayout<T> {
 impl LookupLayout for NonMixedEndianLayout {
     fn req_keywords(&self) -> [(String, String); 2] {
         match self {
-            Self::Ascii(x) => x.req_keywords::<Endian>(),
-            Self::Integer(x) => x.req_keywords(x.byte_layout),
-            Self::F32(x) => x.req_keywords(x.byte_layout),
-            Self::F64(x) => x.req_keywords(x.byte_layout),
+            Self::Ascii(x) => x.req_keywords::<ByteOrd3_1>(),
+            Self::Integer(x) => x.req_keywords(ByteOrd3_1::from(x.byte_layout)),
+            Self::F32(x) => x.req_keywords(ByteOrd3_1::from(x.byte_layout)),
+            Self::F64(x) => x.req_keywords(ByteOrd3_1::from(x.byte_layout)),
         }
     }
 
@@ -3873,13 +3876,13 @@ impl NonMixedEndianLayout {
     ) -> LookupLayoutResult<Option<Self>> {
         let cs = ColumnLayoutValues2_0::lookup_all(kws, par);
         let d = AlphaNumType::lookup_req_check_ascii(kws);
-        let n = Endian::lookup_req(kws);
+        let n = ByteOrd3_1::lookup_req(kws);
         d.def_zip3(n, cs)
             .def_inner_into()
             .def_and_maybe(|(datatype, byteord, columns)| {
                 def_transpose(
                     NonEmpty::from_vec(columns)
-                        .map(|xs| Self::try_new(datatype, byteord, xs, conf)),
+                        .map(|xs| Self::try_new(datatype, byteord.0, xs, conf)),
                 )
                 .def_inner_into()
             })
@@ -3888,13 +3891,13 @@ impl NonMixedEndianLayout {
     fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
         let cs = ColumnLayoutValues2_0::lookup_ro_all(kws);
         let d = AlphaNumType::get_metaroot_req(kws).into_deferred();
-        let n = Endian::get_metaroot_req(kws).into_deferred();
+        let n = ByteOrd3_1::get_metaroot_req(kws).into_deferred();
         d.def_zip3(n, cs)
             .def_inner_into()
             .def_and_maybe(|(datatype, byteord, columns)| {
                 def_transpose(
                     NonEmpty::from_vec(columns)
-                        .map(|xs| Self::try_new(datatype, byteord, xs, conf)),
+                        .map(|xs| Self::try_new(datatype, byteord.0, xs, conf)),
                 )
                 .def_inner_into()
             })
@@ -4095,7 +4098,7 @@ pub enum SingleFixedWidthError {
 }
 
 pub struct WidthMismatchError {
-    byteord: ByteOrd,
+    byteord: ByteOrd2_0,
     found: NonEmpty<Bytes>,
 }
 

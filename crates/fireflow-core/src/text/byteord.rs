@@ -1,13 +1,33 @@
 use crate::macros::match_many_to_one;
 use crate::validated::ascii_range::{Chars, CharsError};
 
-use derive_more::{Display, From, Into};
+use derive_more::{Display, From, FromStr, Into};
 use itertools::Itertools;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use serde::Serialize;
 use std::fmt;
 use std::num::ParseIntError;
 use std::str::FromStr;
+
+/// The byte order as shown in the $BYTEORD field in 2.0 and 3.0
+///
+/// This must be a list of integers belonging to the unordered set {1..N} where
+/// N is the total number of bytes. The numbers will be stored as one less the
+/// displayed integers to make array indexing easier.
+#[derive(Clone, Copy, Serialize, From, Display)]
+pub enum ByteOrd2_0 {
+    O1(SizedByteOrd<1>),
+    O2(SizedByteOrd<2>),
+    O3(SizedByteOrd<3>),
+    O4(SizedByteOrd<4>),
+    O5(SizedByteOrd<5>),
+    O6(SizedByteOrd<6>),
+    O7(SizedByteOrd<7>),
+    O8(SizedByteOrd<8>),
+}
+
+#[derive(Clone, Copy, Serialize, From, Display, FromStr, Default)]
+pub struct ByteOrd3_1(pub Endian);
 
 /// Endianness
 ///
@@ -17,23 +37,6 @@ pub enum Endian {
     Big,
     #[default]
     Little,
-}
-
-/// The byte order as shown in the $BYTEORD field in 2.0 and 3.0
-///
-/// This must be a list of integers belonging to the unordered set {1..N} where
-/// N is the total number of bytes. The numbers will be stored as one less the
-/// displayed integers to make array indexing easier.
-#[derive(Clone, Copy, Serialize, From, Display)]
-pub enum ByteOrd {
-    O1(SizedByteOrd<1>),
-    O2(SizedByteOrd<2>),
-    O3(SizedByteOrd<3>),
-    O4(SizedByteOrd<4>),
-    O5(SizedByteOrd<5>),
-    O6(SizedByteOrd<6>),
-    O7(SizedByteOrd<7>),
-    O8(SizedByteOrd<8>),
 }
 
 /// Marker type representing lack of byte order.
@@ -99,10 +102,10 @@ macro_rules! byteord_from_sized {
             }
         }
 
-        impl TryFrom<ByteOrd> for SizedByteOrd<$len> {
+        impl TryFrom<ByteOrd2_0> for SizedByteOrd<$len> {
             type Error = ByteOrdToSizedError;
-            fn try_from(value: ByteOrd) -> Result<Self, Self::Error> {
-                if let ByteOrd::$var(sized) = value {
+            fn try_from(value: ByteOrd2_0) -> Result<Self, Self::Error> {
+                if let ByteOrd2_0::$var(sized) = value {
                     Ok(sized)
                 } else {
                     Err(ByteOrdToSizedError {
@@ -223,7 +226,7 @@ impl<const LEN: usize> Serialize for SizedByteOrd<LEN> {
     }
 }
 
-impl TryFrom<&[u8]> for ByteOrd {
+impl TryFrom<&[u8]> for ByteOrd2_0 {
     type Error = NewByteOrdError;
     fn try_from(xs: &[u8]) -> Result<Self, Self::Error> {
         match xs {
@@ -246,13 +249,13 @@ impl<const LEN: usize> Default for SizedByteOrd<LEN> {
     }
 }
 
-impl Default for ByteOrd {
+impl Default for ByteOrd2_0 {
     fn default() -> Self {
         Self::O4(SizedByteOrd::default())
     }
 }
 
-impl ByteOrd {
+impl ByteOrd2_0 {
     // pub fn as_endian(&self) -> Option<Endian> {
     //     let mut it = self.as_slice().iter().map(|x| usize::from(*x));
     //     if it.by_ref().enumerate().all(|(i, x)| i == x) {
@@ -400,11 +403,11 @@ impl TryFrom<Width> for u8 {
     }
 }
 
-impl TryFrom<ByteOrd> for Endian {
+impl TryFrom<ByteOrd2_0> for Endian {
     type Error = OrderedToEndianError;
 
-    fn try_from(value: ByteOrd) -> Result<Self, Self::Error> {
-        match_many_to_one!(value, ByteOrd, [O1, O2, O3, O4, O5, O6, O7, O8], x, {
+    fn try_from(value: ByteOrd2_0) -> Result<Self, Self::Error> {
+        match_many_to_one!(value, ByteOrd2_0, [O1, O2, O3, O4, O5, O6, O7, O8], x, {
             x.try_into()
         })
     }
@@ -499,14 +502,14 @@ impl fmt::Display for Endian {
     }
 }
 
-impl FromStr for ByteOrd {
+impl FromStr for ByteOrd2_0 {
     type Err = ParseByteOrdError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let (pass, fail): (Vec<_>, Vec<_>) =
             s.split(",").map(|x| x.parse::<u8>()).partition_result();
         if fail.is_empty() {
-            ByteOrd::try_from(&pass[..]).map_err(ParseByteOrdError::Order)
+            ByteOrd2_0::try_from(&pass[..]).map_err(ParseByteOrdError::Order)
         } else {
             Err(ParseByteOrdError::Format)
         }

@@ -36,6 +36,12 @@ pub enum ByteOrd {
     O8(SizedByteOrd<8>),
 }
 
+/// Marker type representing lack of byte order.
+///
+/// This is used in ASCII layouts, for which $BYTEORD is meaningless.
+#[derive(Clone, Copy, Serialize)]
+pub struct NoByteOrd;
+
 /// The value for the $PnB key (all versions)
 ///
 /// The $PnB key actually stores bits. However, this library only supports

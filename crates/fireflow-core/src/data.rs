@@ -157,7 +157,7 @@ pub enum AnyAsciiLayout<T> {
     Fixed(FixedAsciiLayout<T>),
 }
 
-type FixedAsciiLayout<T> = FixedLayout<AsciiRange, (), T>;
+type FixedAsciiLayout<T> = FixedLayout<AsciiRange, NoByteOrd, T>;
 
 /// Byte layout for delimited ASCII.
 #[derive(Clone)]
@@ -193,7 +193,7 @@ type OrderedLayout<C, T> = FixedLayout<C, <C as HasNativeWidth>::Order, T>;
 
 /// The type of a non-delimited column in the DATA segment for 3.2
 pub enum MixedType<F: ColumnFamily> {
-    Ascii(F::ColumnWrapper<AsciiRange, u64, ()>),
+    Ascii(F::ColumnWrapper<AsciiRange, u64, NoByteOrd>),
     Uint(AnyBitmask<F>),
     F32(NativeWrapper<F, F32Range>),
     F64(NativeWrapper<F, F64Range>),
@@ -1166,13 +1166,13 @@ where
     }
 }
 
-impl NativeReadable<(), AsciiToUintError> for AsciiRange {
+impl NativeReadable<NoByteOrd, AsciiToUintError> for AsciiRange {
     type Buf = Vec<u8>;
 
     fn h_read<R: Read>(
         &self,
         h: &mut BufReader<R>,
-        _: (),
+        _: NoByteOrd,
         buf: &mut Vec<u8>,
     ) -> IOResult<Self::Native, AsciiToUintError> {
         buf.clear();
@@ -1240,7 +1240,7 @@ impl Readable<Endian, AsciiToUintError> for ReaderMixedType {
         buf: &mut Self::Buf,
     ) -> IOResult<(), AsciiToUintError> {
         match self {
-            MixedType::Ascii(c) => c.h_read_row(h, row, (), buf),
+            MixedType::Ascii(c) => c.h_read_row(h, row, NoByteOrd, buf),
             MixedType::Uint(c) => c
                 .h_read_row(h, row, byte_layout, &mut ())
                 .map_err(|e| e.infallible()),
@@ -1355,12 +1355,12 @@ where
     }
 }
 
-impl NativeWritable<()> for AsciiRange {
+impl NativeWritable<NoByteOrd> for AsciiRange {
     fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
         x: CastResult<Self::Native>,
-        _: (),
+        _: NoByteOrd,
     ) -> io::Result<()> {
         let s = x.new.to_string();
         let w: usize = u8::from(self.chars()).into();
@@ -1433,7 +1433,7 @@ impl<'a> Writable<'a, Endian> for WriterMixedType<'a> {
         match self {
             Self::Ascii(c) => {
                 let x = c.data.next().unwrap();
-                c.column_type.h_write(h, x, ())
+                c.column_type.h_write(h, x, NoByteOrd)
             }
             Self::Uint(c) => c.h_write(h, byte_layout),
             Self::F32(c) => {
@@ -1667,7 +1667,7 @@ impl EndianLayout<NullMixedType> {
                     })
                 })
                 .gather()
-                .map(|xs| AnyAsciiLayout::Fixed(FixedLayout::new1(x, xs, ())).into()),
+                .map(|xs| AnyAsciiLayout::Fixed(FixedLayout::new1(x, xs, NoByteOrd)).into()),
             MixedType::Uint(x) => x
                 .try_into_one_size(cs, endian, 1)
                 .map(|i| i.into())
@@ -1713,7 +1713,7 @@ impl EndianLayout<NullMixedType> {
                         .map_err(|e| (i, MixedToNonMixedConvertError::from(e)))
                 })
                 .gather()
-                .map(|xs| AnyAsciiLayout::Fixed(FixedLayout::new1(x, xs, ())).into()),
+                .map(|xs| AnyAsciiLayout::Fixed(FixedLayout::new1(x, xs, NoByteOrd)).into()),
             MixedType::Uint(x) => it
                 .map(|(i, c)| {
                     c.try_into()
@@ -3018,7 +3018,7 @@ impl<T> AnyAsciiLayout<T> {
                 .map_errors(|e| e.inner_into());
             Ok(ret)
         } else {
-            FixedLayout::try_new(cs, (), |c| {
+            FixedLayout::try_new(cs, NoByteOrd, |c| {
                 AsciiRange::from_width_and_range(c.width, c.range, notrunc)
             })
             .def_map_value(Self::Fixed)
@@ -3059,7 +3059,7 @@ impl<T> AnyAsciiLayout<T> {
     }
 
     fn new_fixed(columns: NonEmpty<AsciiRange>) -> Self {
-        Self::Fixed(FixedLayout::new(columns, ()))
+        Self::Fixed(FixedLayout::new(columns, NoByteOrd))
     }
 
     fn new_delim(ranges: NonEmpty<u64>) -> Self {

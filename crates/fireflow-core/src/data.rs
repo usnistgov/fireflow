@@ -2162,9 +2162,9 @@ impl<T> DelimAsciiLayout<T> {
         Ok(())
     }
 
-    fn req_keywords<X: Default + ReqMetarootKey>(&self) -> [(String, String); 2] {
+    fn req_keywords<X: ReqMetarootKey + From<NoByteOrd>>(&self) -> [(String, String); 2] {
         // NOTE BYTEORD is meaningless for delimited ASCII so use a dummy
-        [AlphaNumType::Ascii.pair(), X::default().pair()]
+        [AlphaNumType::Ascii.pair(), X::from(NoByteOrd).pair()]
     }
 
     fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
@@ -3125,7 +3125,7 @@ impl<T> AnyAsciiLayout<T> {
         }
     }
 
-    fn req_keywords<X: Default + ReqMetarootKey + From<NoByteOrd>>(&self) -> [(String, String); 2] {
+    fn req_keywords<X: ReqMetarootKey + From<NoByteOrd>>(&self) -> [(String, String); 2] {
         match self {
             Self::Fixed(l) => l.req_keywords::<X>(),
             Self::Delimited(l) => l.req_keywords::<X>(),

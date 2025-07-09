@@ -92,11 +92,13 @@ use std::str;
 /// is optional, which requires a different interface.
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps)]
+#[delegate(LookupLayout)]
 pub struct DataLayout2_0(pub AnyOrderedLayout<MaybeTot>);
 
 /// All possible byte layouts for the DATA segment in 2.0.
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps)]
+#[delegate(LookupLayout)]
 pub struct DataLayout3_0(pub AnyOrderedLayout<KnownTot>);
 
 /// All possible byte layouts for the DATA segment in 3.1.
@@ -106,6 +108,7 @@ pub struct DataLayout3_0(pub AnyOrderedLayout<KnownTot>);
 /// endian" and have nothing to do with number of bytes.
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps)]
+#[delegate(LookupLayout)]
 pub struct DataLayout3_1(pub NonMixedEndianLayout);
 
 /// All possible byte layouts for the DATA segment in 3.2.
@@ -332,8 +335,20 @@ pub trait LayoutOps: Sized {
     fn ranges(&self) -> NonEmpty<FloatOrInt>;
 }
 
+/// Standardized operations on layouts
+#[delegatable_trait]
+pub trait LookupLayout: Sized {
+    fn req_keywords(&self) -> [(String, String); 2];
+
+    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]>;
+
+    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>>;
+
+    fn opt_meas_headers(&self) -> Vec<MeasHeader>;
+}
+
 /// A version-specific data layout
-pub trait VersionedDataLayout: Sized + LayoutOps {
+pub trait VersionedDataLayout: Sized + LayoutOps + LookupLayout {
     type ByteLayout;
     type ColDatatype;
     type Tot;
@@ -345,14 +360,6 @@ pub trait VersionedDataLayout: Sized + LayoutOps {
     ) -> LookupLayoutResult<Option<Self>>;
 
     fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>>;
-
-    fn req_keywords(&self) -> [(String, String); 2];
-
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]>;
-
-    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>>;
-
-    fn opt_meas_headers(&self) -> Vec<MeasHeader>;
 
     // no need to check since this will be done after validating that the index
     // is within the measurement vector, which has its own check and should
@@ -3137,22 +3144,6 @@ impl VersionedDataLayout for DataLayout2_0 {
         AnyOrderedLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
     }
 
-    fn req_keywords(&self) -> [(String, String); 2] {
-        self.0.req_keywords()
-    }
-
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-        self.0.req_meas_keywords()
-    }
-
-    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-        self.0.req_meas_keywords().map(|_| vec![])
-    }
-
-    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-        vec![]
-    }
-
     fn try_new(
         datatype: AlphaNumType,
         byteord: Self::ByteLayout,
@@ -3223,22 +3214,6 @@ impl VersionedDataLayout for DataLayout3_0 {
 
     fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
         AnyOrderedLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
-    }
-
-    fn req_keywords(&self) -> [(String, String); 2] {
-        self.0.req_keywords()
-    }
-
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-        self.0.req_meas_keywords()
-    }
-
-    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-        self.0.req_meas_keywords().map(|_| vec![])
-    }
-
-    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-        vec![]
     }
 
     fn try_new(
@@ -3313,22 +3288,6 @@ impl VersionedDataLayout for DataLayout3_1 {
         NonMixedEndianLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
     }
 
-    fn req_keywords(&self) -> [(String, String); 2] {
-        self.0.req_keywords()
-    }
-
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-        self.0.req_meas_keywords()
-    }
-
-    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-        self.0.req_meas_keywords().map(|_| vec![])
-    }
-
-    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-        vec![]
-    }
-
     fn try_new(
         datatype: AlphaNumType,
         endian: Self::ByteLayout,
@@ -3384,46 +3343,7 @@ impl VersionedDataLayout for DataLayout3_1 {
     }
 }
 
-impl VersionedDataLayout for DataLayout3_2 {
-    type ByteLayout = Endian;
-    type ColDatatype = Option<NumType>;
-    type Tot = Tot;
-
-    fn lookup(
-        kws: &mut StdKeywords,
-        conf: &StdTextReadConfig,
-        par: Par,
-    ) -> LookupLayoutResult<Option<Self>> {
-        let d = AlphaNumType::lookup_req_check_ascii(kws);
-        let e = Endian::lookup_req(kws);
-        let cs = ColumnLayoutValues3_2::lookup_all(kws, par);
-        d.def_zip3(e, cs)
-            .def_inner_into()
-            .def_and_maybe(|(datatype, endian, columns)| {
-                def_transpose(
-                    NonEmpty::from_vec(columns).map(|xs| Self::try_new(datatype, endian, xs, conf)),
-                )
-                .def_inner_into()
-            })
-    }
-
-    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
-        let d = AlphaNumType::get_metaroot_req(kws)
-            .map_err(RawParsedError::from)
-            .into_deferred();
-        let e = Endian::get_metaroot_req(kws)
-            .map_err(RawParsedError::from)
-            .into_deferred();
-        let cs = ColumnLayoutValues3_2::lookup_ro_all(kws).def_inner_into();
-        d.def_zip3(e, cs)
-            .def_and_maybe(|(datatype, endian, columns)| {
-                def_transpose(
-                    NonEmpty::from_vec(columns).map(|xs| Self::try_new(datatype, endian, xs, conf)),
-                )
-                .def_inner_into()
-            })
-    }
-
+impl LookupLayout for DataLayout3_2 {
     fn req_keywords(&self) -> [(String, String); 2] {
         match self {
             Self::NonMixed(x) => x.req_keywords(),
@@ -3465,6 +3385,47 @@ impl VersionedDataLayout for DataLayout3_2 {
 
     fn opt_meas_headers(&self) -> Vec<MeasHeader> {
         vec![NumType::std_blank()]
+    }
+}
+
+impl VersionedDataLayout for DataLayout3_2 {
+    type ByteLayout = Endian;
+    type ColDatatype = Option<NumType>;
+    type Tot = Tot;
+
+    fn lookup(
+        kws: &mut StdKeywords,
+        conf: &StdTextReadConfig,
+        par: Par,
+    ) -> LookupLayoutResult<Option<Self>> {
+        let d = AlphaNumType::lookup_req_check_ascii(kws);
+        let e = Endian::lookup_req(kws);
+        let cs = ColumnLayoutValues3_2::lookup_all(kws, par);
+        d.def_zip3(e, cs)
+            .def_inner_into()
+            .def_and_maybe(|(datatype, endian, columns)| {
+                def_transpose(
+                    NonEmpty::from_vec(columns).map(|xs| Self::try_new(datatype, endian, xs, conf)),
+                )
+                .def_inner_into()
+            })
+    }
+
+    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
+        let d = AlphaNumType::get_metaroot_req(kws)
+            .map_err(RawParsedError::from)
+            .into_deferred();
+        let e = Endian::get_metaroot_req(kws)
+            .map_err(RawParsedError::from)
+            .into_deferred();
+        let cs = ColumnLayoutValues3_2::lookup_ro_all(kws).def_inner_into();
+        d.def_zip3(e, cs)
+            .def_and_maybe(|(datatype, endian, columns)| {
+                def_transpose(
+                    NonEmpty::from_vec(columns).map(|xs| Self::try_new(datatype, endian, xs, conf)),
+                )
+                .def_inner_into()
+            })
     }
 
     fn try_new(
@@ -3617,6 +3578,34 @@ impl DataLayout3_2 {
     }
 }
 
+impl<T> LookupLayout for AnyOrderedLayout<T> {
+    fn req_keywords(&self) -> [(String, String); 2] {
+        match self {
+            Self::Ascii(x) => x.req_keywords::<ByteOrd>(),
+            Self::Integer(x) => x.req_keywords(),
+            Self::F32(x) => x.req_keywords(ByteOrd::from(x.byte_layout)),
+            Self::F64(x) => x.req_keywords(ByteOrd::from(x.byte_layout)),
+        }
+    }
+
+    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
+        match self {
+            Self::Ascii(x) => x.req_meas_keywords(),
+            Self::Integer(x) => x.req_meas_keywords(),
+            Self::F32(x) => x.req_meas_keywords(),
+            Self::F64(x) => x.req_meas_keywords(),
+        }
+    }
+
+    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
+        vec![]
+    }
+
+    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
+        self.ranges().as_ref().map(|_| vec![])
+    }
+}
+
 impl<T> AnyOrderedLayout<T> {
     fn lookup(
         kws: &mut StdKeywords,
@@ -3650,24 +3639,6 @@ impl<T> AnyOrderedLayout<T> {
                 )
                 .def_inner_into()
             })
-    }
-
-    fn req_keywords(&self) -> [(String, String); 2] {
-        match self {
-            Self::Ascii(x) => x.req_keywords::<ByteOrd>(),
-            Self::Integer(x) => x.req_keywords(),
-            Self::F32(x) => x.req_keywords(ByteOrd::from(x.byte_layout)),
-            Self::F64(x) => x.req_keywords(ByteOrd::from(x.byte_layout)),
-        }
-    }
-
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-        match self {
-            Self::Ascii(x) => x.req_meas_keywords(),
-            Self::Integer(x) => x.req_meas_keywords(),
-            Self::F32(x) => x.req_meas_keywords(),
-            Self::F64(x) => x.req_meas_keywords(),
-        }
     }
 
     fn insert_nocheck(
@@ -3719,14 +3690,6 @@ impl<T> AnyOrderedLayout<T> {
             Self::F64(x) => x.check_writer::<ColumnWriter<_, _, _>>(df),
         }
     }
-
-    // fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-    //     vec![]
-    // }
-
-    // fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-    //     self.ranges().as_ref().map(|_| vec![])
-    // }
 
     pub fn new_ascii_fixed(ranges: NonEmpty<AsciiRange>) -> Self {
         AnyAsciiLayout::new_fixed(ranges).into()
@@ -3874,6 +3837,34 @@ impl<T> AnyOrderedLayout<T> {
     }
 }
 
+impl LookupLayout for NonMixedEndianLayout {
+    fn req_keywords(&self) -> [(String, String); 2] {
+        match self {
+            Self::Ascii(x) => x.req_keywords::<Endian>(),
+            Self::Integer(x) => x.req_keywords(x.byte_layout),
+            Self::F32(x) => x.req_keywords(x.byte_layout),
+            Self::F64(x) => x.req_keywords(x.byte_layout),
+        }
+    }
+
+    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
+        match self {
+            Self::Ascii(x) => x.req_meas_keywords(),
+            Self::Integer(x) => x.req_meas_keywords(),
+            Self::F32(x) => x.req_meas_keywords(),
+            Self::F64(x) => x.req_meas_keywords(),
+        }
+    }
+
+    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
+        vec![]
+    }
+
+    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
+        self.ranges().as_ref().map(|_| vec![])
+    }
+}
+
 impl NonMixedEndianLayout {
     fn lookup(
         kws: &mut StdKeywords,
@@ -3907,24 +3898,6 @@ impl NonMixedEndianLayout {
                 )
                 .def_inner_into()
             })
-    }
-
-    fn req_keywords(&self) -> [(String, String); 2] {
-        match self {
-            Self::Ascii(x) => x.req_keywords::<Endian>(),
-            Self::Integer(x) => x.req_keywords(x.byte_layout),
-            Self::F32(x) => x.req_keywords(x.byte_layout),
-            Self::F64(x) => x.req_keywords(x.byte_layout),
-        }
-    }
-
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-        match self {
-            Self::Ascii(x) => x.req_meas_keywords(),
-            Self::Integer(x) => x.req_meas_keywords(),
-            Self::F32(x) => x.req_meas_keywords(),
-            Self::F64(x) => x.req_meas_keywords(),
-        }
     }
 
     fn insert_nocheck(
@@ -3976,14 +3949,6 @@ impl NonMixedEndianLayout {
             Self::F64(x) => x.check_writer::<ColumnWriter<_, _, _>>(df),
         }
     }
-
-    // fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-    //     vec![]
-    // }
-
-    // fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-    //     self.ranges().as_ref().map(|_| vec![])
-    // }
 
     pub fn new_ascii_fixed(ranges: NonEmpty<AsciiRange>) -> Self {
         AnyAsciiLayout::new_fixed(ranges).into()

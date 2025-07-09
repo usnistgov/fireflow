@@ -923,7 +923,7 @@ pub struct OthersReader<'a> {
 
 pub trait Versioned {
     type Layout: VersionedDataLayout;
-    type Offsets: VersionedTEXTOffsets<Tot = <Self::Layout as VersionedDataLayout>::Tot>;
+    type Offsets: VersionedTEXTOffsets<TotDef = <Self::Layout as VersionedDataLayout>::TotDef>;
 
     fn fcs_version() -> Self;
 
@@ -1249,7 +1249,7 @@ pub trait OpticalFromTemporal<T: VersionedTemporal>: Sized {
 }
 
 pub trait VersionedTEXTOffsets: Sized {
-    type Tot;
+    type TotDef: TotDefinition;
 
     fn lookup(
         kws: &mut StdKeywords,
@@ -1270,7 +1270,7 @@ pub trait VersionedTEXTOffsets: Sized {
 
     fn analysis(&self) -> AnyAnalysisSegment;
 
-    fn tot(&self) -> Self::Tot;
+    fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot;
 
     fn into_common(self) -> TEXTOffsets<Option<Tot>>;
 }
@@ -6373,7 +6373,7 @@ impl VersionedTemporal for InnerTemporal3_2 {
 }
 
 impl VersionedTEXTOffsets for TEXTOffsets2_0 {
-    type Tot = Option<Tot>;
+    type TotDef = MaybeTot;
 
     fn lookup(
         kws: &mut StdKeywords,
@@ -6425,7 +6425,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
         self.0.analysis
     }
 
-    fn tot(&self) -> Self::Tot {
+    fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot {
         self.0.tot
     }
 
@@ -6440,7 +6440,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
 }
 
 impl VersionedTEXTOffsets for TEXTOffsets3_0 {
-    type Tot = Tot;
+    type TotDef = KnownTot;
 
     fn lookup(
         kws: &mut StdKeywords,
@@ -6521,7 +6521,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         self.0.analysis
     }
 
-    fn tot(&self) -> Self::Tot {
+    fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot {
         self.0.tot
     }
 
@@ -6536,7 +6536,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
 }
 
 impl VersionedTEXTOffsets for TEXTOffsets3_2 {
-    type Tot = Tot;
+    type TotDef = KnownTot;
 
     fn lookup(
         kws: &mut StdKeywords,
@@ -6624,7 +6624,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         self.0.analysis
     }
 
-    fn tot(&self) -> Self::Tot {
+    fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot {
         self.0.tot
     }
 

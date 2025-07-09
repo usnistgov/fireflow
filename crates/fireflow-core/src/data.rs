@@ -288,7 +288,7 @@ type NativeWrapper<F, C> =
     <F as ColumnFamily>::ColumnWrapper<C, <C as HasNativeType>::Native, Endian>;
 
 /// Methods for a type which may or may not have $TOT
-trait TotDefinition {
+pub trait TotDefinition {
     type Tot;
 
     fn with_tot<F, G, I, X>(input: I, tot: Self::Tot, tot_f: F, notot_f: G) -> X
@@ -351,7 +351,7 @@ pub trait LookupLayout: Sized {
 pub trait VersionedDataLayout: Sized + LayoutOps + LookupLayout {
     type ByteLayout;
     type ColDatatype;
-    type Tot;
+    type TotDef: TotDefinition;
 
     fn lookup(
         kws: &mut StdKeywords,
@@ -389,7 +389,7 @@ pub trait VersionedDataLayout: Sized + LayoutOps + LookupLayout {
     fn h_read_df<R: Read + Seek>(
         &self,
         h: &mut BufReader<R>,
-        tot: Self::Tot,
+        tot: <Self::TotDef as TotDefinition>::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
@@ -405,7 +405,7 @@ pub trait VersionedDataLayout: Sized + LayoutOps + LookupLayout {
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
-        tot: Self::Tot,
+        tot: <Self::TotDef as TotDefinition>::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError>;
@@ -3130,7 +3130,7 @@ impl<T> AnyAsciiLayout<T> {
 impl VersionedDataLayout for DataLayout2_0 {
     type ByteLayout = ByteOrd;
     type ColDatatype = ();
-    type Tot = Option<Tot>;
+    type TotDef = MaybeTot;
 
     fn lookup(
         kws: &mut StdKeywords,
@@ -3183,7 +3183,7 @@ impl VersionedDataLayout for DataLayout2_0 {
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
-        tot: Self::Tot,
+        tot: <Self::TotDef as TotDefinition>::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
@@ -3202,7 +3202,7 @@ impl VersionedDataLayout for DataLayout2_0 {
 impl VersionedDataLayout for DataLayout3_0 {
     type ByteLayout = ByteOrd;
     type ColDatatype = ();
-    type Tot = Tot;
+    type TotDef = KnownTot;
 
     fn lookup(
         kws: &mut StdKeywords,
@@ -3255,7 +3255,7 @@ impl VersionedDataLayout for DataLayout3_0 {
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
-        tot: Self::Tot,
+        tot: <Self::TotDef as TotDefinition>::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
@@ -3274,7 +3274,7 @@ impl VersionedDataLayout for DataLayout3_0 {
 impl VersionedDataLayout for DataLayout3_1 {
     type ByteLayout = Endian;
     type ColDatatype = ();
-    type Tot = Tot;
+    type TotDef = KnownTot;
 
     fn lookup(
         kws: &mut StdKeywords,
@@ -3327,7 +3327,7 @@ impl VersionedDataLayout for DataLayout3_1 {
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
-        tot: Self::Tot,
+        tot: <Self::TotDef as TotDefinition>::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
@@ -3391,7 +3391,7 @@ impl LookupLayout for DataLayout3_2 {
 impl VersionedDataLayout for DataLayout3_2 {
     type ByteLayout = Endian;
     type ColDatatype = Option<NumType>;
-    type Tot = Tot;
+    type TotDef = KnownTot;
 
     fn lookup(
         kws: &mut StdKeywords,
@@ -3507,7 +3507,7 @@ impl VersionedDataLayout for DataLayout3_2 {
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
-        tot: Self::Tot,
+        tot: <Self::TotDef as TotDefinition>::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {

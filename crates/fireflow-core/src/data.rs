@@ -447,8 +447,8 @@ pub trait HasNativeWidth: HasNativeType {
 }
 
 /// A column which has a $DATATYPE keyword
-pub trait HasDatatype {
-    const DATATYPE: AlphaNumType;
+pub trait HasDatatype: Sized {
+    fn datatype_from_columns(cs: &NonEmpty<Self>) -> AlphaNumType;
 }
 
 /// A type which has a width that may vary
@@ -1634,29 +1634,6 @@ impl EndianLayout<AnyNullBitmask> {
 }
 
 impl EndianLayout<NullMixedType> {
-    fn primary_datatype(&self) -> AlphaNumType {
-        // If any numeric types are none, then that means at least one column is
-        // ASCII, which means that $DATATYPE needs to be "A" since $PnDATATYPE
-        // cannot be "A".
-        if let Ok(mut ds) = self.columns.as_ref().try_map(|c| c.as_num_type().ok_or(())) {
-            // Determine which type appears the most, use that for $DATATYPE
-            ds.sort();
-            // TODO this should be a general non-empty function
-            let mut counts = NonEmpty::new((ds.head, 1));
-            for d in ds.tail {
-                if counts.last().0 == d {
-                    counts.last_mut().1 += 1;
-                } else {
-                    counts.push((d, 1));
-                }
-            }
-            let mode = counts.maximum_by_key(|x| x.1).0;
-            mode.into()
-        } else {
-            AlphaNumType::Ascii
-        }
-    }
-
     pub(crate) fn try_into_ordered<T>(
         self,
     ) -> MultiResult<AnyOrderedLayout<T>, MixedToOrderedLayoutError> {
@@ -2598,7 +2575,10 @@ impl<C, S, T> FixedLayout<C, S, T> {
         X: ReqMetarootKey + From<S>,
         C: HasDatatype,
     {
-        [X::from(self.byte_layout).pair(), C::DATATYPE.pair()]
+        [
+            X::from(self.byte_layout).pair(),
+            C::datatype_from_columns(&self.columns).pair(),
+        ]
     }
 
     fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]>
@@ -2682,23 +2662,58 @@ impl HasNativeType for AsciiRange {
 }
 
 impl HasDatatype for AsciiRange {
-    const DATATYPE: AlphaNumType = AlphaNumType::Ascii;
+    fn datatype_from_columns(_: &NonEmpty<Self>) -> AlphaNumType {
+        AlphaNumType::Ascii
+    }
 }
 
 impl<T, const LEN: usize> HasDatatype for Bitmask<T, LEN> {
-    const DATATYPE: AlphaNumType = AlphaNumType::Integer;
+    fn datatype_from_columns(_: &NonEmpty<Self>) -> AlphaNumType {
+        AlphaNumType::Integer
+    }
 }
 
 impl HasDatatype for F32Range {
-    const DATATYPE: AlphaNumType = AlphaNumType::Single;
+    fn datatype_from_columns(_: &NonEmpty<Self>) -> AlphaNumType {
+        AlphaNumType::Single
+    }
 }
 
 impl HasDatatype for F64Range {
-    const DATATYPE: AlphaNumType = AlphaNumType::Double;
+    fn datatype_from_columns(_: &NonEmpty<Self>) -> AlphaNumType {
+        AlphaNumType::Double
+    }
 }
 
 impl HasDatatype for AnyNullBitmask {
-    const DATATYPE: AlphaNumType = AlphaNumType::Integer;
+    fn datatype_from_columns(_: &NonEmpty<Self>) -> AlphaNumType {
+        AlphaNumType::Integer
+    }
+}
+
+impl HasDatatype for NullMixedType {
+    fn datatype_from_columns(cs: &NonEmpty<Self>) -> AlphaNumType {
+        // If any numeric types are none, then that means at least one column is
+        // ASCII, which means that $DATATYPE needs to be "A" since $PnDATATYPE
+        // cannot be "A".
+        if let Ok(mut ds) = cs.as_ref().try_map(|c| c.as_num_type().ok_or(())) {
+            // Determine which type appears the most, use that for $DATATYPE
+            ds.sort();
+            // TODO this should be a general non-empty function
+            let mut counts = NonEmpty::new((ds.head, 1));
+            for d in ds.tail {
+                if counts.last().0 == d {
+                    counts.last_mut().1 += 1;
+                } else {
+                    counts.push((d, 1));
+                }
+            }
+            let mode = counts.maximum_by_key(|x| x.1).0;
+            mode.into()
+        } else {
+            AlphaNumType::Ascii
+        }
+    }
 }
 
 impl<T, const LEN: usize> IsFixed for Bitmask<T, LEN>
@@ -3345,10 +3360,7 @@ impl LookupLayout for DataLayout3_2 {
     fn req_keywords(&self) -> [(String, String); 2] {
         match self {
             Self::NonMixed(x) => x.req_keywords(),
-            Self::Mixed(x) => [
-                x.primary_datatype().pair(),
-                ByteOrd3_1::from(x.byte_layout).pair(),
-            ],
+            Self::Mixed(x) => x.req_keywords::<ByteOrd3_1>(),
         }
     }
 
@@ -3367,7 +3379,7 @@ impl LookupLayout for DataLayout3_2 {
                 .enumerate()
                 .map(|(i, _)| vec![(NumType::std(i.into()).to_string(), None)]),
             Self::Mixed(x) => {
-                let dt = x.primary_datatype();
+                let dt = NullMixedType::datatype_from_columns(&x.columns);
                 x.columns.as_ref().enumerate().map(|(i, c)| {
                     c.as_num_type()
                         .and_then(|y| {

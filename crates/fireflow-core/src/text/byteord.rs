@@ -255,6 +255,18 @@ impl Default for ByteOrd2_0 {
     }
 }
 
+impl From<NoByteOrd> for ByteOrd2_0 {
+    fn from(_: NoByteOrd) -> Self {
+        Self::default()
+    }
+}
+
+impl From<NoByteOrd> for ByteOrd3_1 {
+    fn from(_: NoByteOrd) -> Self {
+        Self::default()
+    }
+}
+
 impl ByteOrd2_0 {
     // pub fn as_endian(&self) -> Option<Endian> {
     //     let mut it = self.as_slice().iter().map(|x| usize::from(*x));

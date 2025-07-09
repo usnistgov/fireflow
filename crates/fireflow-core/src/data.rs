@@ -2592,13 +2592,13 @@ impl<C, S, T> FixedLayout<C, S, T> {
         }
     }
 
-    fn req_keywords<X>(&self, byteord: X) -> [(String, String); 2]
+    fn req_keywords<X>(&self) -> [(String, String); 2]
     where
         S: Copy,
-        X: ReqMetarootKey,
+        X: ReqMetarootKey + From<S>,
         C: HasDatatype,
     {
-        [byteord.pair(), C::DATATYPE.pair()]
+        [X::from(self.byte_layout).pair(), C::DATATYPE.pair()]
     }
 
     fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]>
@@ -2982,9 +2982,7 @@ impl<T> AnyOrderedUintLayout<T> {
     }
 
     fn req_keywords(&self) -> [(String, String); 2] {
-        match_any_uint!(self, Self, l, {
-            l.req_keywords(ByteOrd2_0::from(l.byte_layout))
-        })
+        match_any_uint!(self, Self, l, { l.req_keywords::<ByteOrd2_0>() })
     }
 
     fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
@@ -3112,9 +3110,9 @@ impl<T> AnyAsciiLayout<T> {
         }
     }
 
-    fn req_keywords<X: Default + ReqMetarootKey>(&self) -> [(String, String); 2] {
+    fn req_keywords<X: Default + ReqMetarootKey + From<NoByteOrd>>(&self) -> [(String, String); 2] {
         match self {
-            Self::Fixed(l) => l.req_keywords(X::default()),
+            Self::Fixed(l) => l.req_keywords::<X>(),
             Self::Delimited(l) => l.req_keywords::<X>(),
         }
     }
@@ -3586,8 +3584,8 @@ impl<T> LookupLayout for AnyOrderedLayout<T> {
         match self {
             Self::Ascii(x) => x.req_keywords::<ByteOrd2_0>(),
             Self::Integer(x) => x.req_keywords(),
-            Self::F32(x) => x.req_keywords(ByteOrd2_0::from(x.byte_layout)),
-            Self::F64(x) => x.req_keywords(ByteOrd2_0::from(x.byte_layout)),
+            Self::F32(x) => x.req_keywords::<ByteOrd2_0>(),
+            Self::F64(x) => x.req_keywords::<ByteOrd2_0>(),
         }
     }
 
@@ -3844,9 +3842,9 @@ impl LookupLayout for NonMixedEndianLayout {
     fn req_keywords(&self) -> [(String, String); 2] {
         match self {
             Self::Ascii(x) => x.req_keywords::<ByteOrd3_1>(),
-            Self::Integer(x) => x.req_keywords(ByteOrd3_1::from(x.byte_layout)),
-            Self::F32(x) => x.req_keywords(ByteOrd3_1::from(x.byte_layout)),
-            Self::F64(x) => x.req_keywords(ByteOrd3_1::from(x.byte_layout)),
+            Self::Integer(x) => x.req_keywords::<ByteOrd3_1>(),
+            Self::F32(x) => x.req_keywords::<ByteOrd3_1>(),
+            Self::F64(x) => x.req_keywords::<ByteOrd3_1>(),
         }
     }
 

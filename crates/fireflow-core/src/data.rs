@@ -78,7 +78,6 @@ use nonempty::NonEmpty;
 use num_traits::float::Float;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
-use std::borrow::Borrow;
 use std::convert::Infallible;
 use std::fmt;
 use std::io;
@@ -310,12 +309,12 @@ pub trait MeasDatatypeDef {
 
     fn headers() -> Vec<MeasHeader>;
 
-    fn keywords<C>(
-        columns: &NonEmpty<C>,
+    fn keywords<'a, C>(
+        columns: &'a NonEmpty<C>,
         datatype: AlphaNumType,
     ) -> NonEmpty<Vec<(String, Option<String>)>>
     where
-        C: Borrow<Self::MeasDatatype>;
+        Self::MeasDatatype: From<&'a C>;
 }
 
 /// Methods for a type which may or may not have $TOT
@@ -889,12 +888,12 @@ impl MeasDatatypeDef for NoMeasDatatype {
         vec![]
     }
 
-    fn keywords<C>(
-        columns: &NonEmpty<C>,
+    fn keywords<'a, C>(
+        columns: &'a NonEmpty<C>,
         _: AlphaNumType,
     ) -> NonEmpty<Vec<(String, Option<String>)>>
     where
-        C: Borrow<Self::MeasDatatype>,
+        Self::MeasDatatype: From<&'a C>,
     {
         columns.as_ref().map(|_| vec![])
     }
@@ -907,15 +906,15 @@ impl MeasDatatypeDef for HasMeasDatatype {
         vec![NumType::std_blank()]
     }
 
-    fn keywords<C>(
-        columns: &NonEmpty<C>,
+    fn keywords<'a, C>(
+        columns: &'a NonEmpty<C>,
         datatype: AlphaNumType,
     ) -> NonEmpty<Vec<(String, Option<String>)>>
     where
-        C: Borrow<Self::MeasDatatype>,
+        Self::MeasDatatype: From<&'a C>,
     {
         columns.as_ref().enumerate().map(|(i, c)| {
-            c.borrow()
+            Self::MeasDatatype::from(c)
                 .and_then(|y| {
                     if AlphaNumType::from(y) != datatype {
                         None
@@ -969,68 +968,45 @@ impl<'a> ColumnFamily for ColumnWriterFamily<'a> {
     type ColumnWrapper<C, T, S> = ColumnWriter<'a, C, T, S>;
 }
 
-impl Borrow<NullMeasDatatype> for AsciiRange {
-    fn borrow(&self) -> &NullMeasDatatype {
-        &NullMeasDatatype
+impl<C> From<&C> for NullMeasDatatype {
+    fn from(_: &C) -> Self {
+        Self
     }
 }
 
-impl<T, const LEN: usize> Borrow<NullMeasDatatype> for Bitmask<T, LEN> {
-    fn borrow(&self) -> &NullMeasDatatype {
-        &NullMeasDatatype
+impl From<&NullMeasDatatype> for Option<NumType> {
+    fn from(_: &NullMeasDatatype) -> Self {
+        None
     }
 }
 
-impl<T, const LEN: usize> Borrow<NullMeasDatatype> for FloatRange<T, LEN> {
-    fn borrow(&self) -> &NullMeasDatatype {
-        &NullMeasDatatype
+impl From<&AsciiRange> for Option<NumType> {
+    fn from(_: &AsciiRange) -> Self {
+        None
     }
 }
 
-impl Borrow<NullMeasDatatype> for AnyNullBitmask {
-    fn borrow(&self) -> &NullMeasDatatype {
-        &NullMeasDatatype
+impl<T, const LEN: usize> From<&Bitmask<T, LEN>> for Option<NumType> {
+    fn from(_: &Bitmask<T, LEN>) -> Self {
+        None
     }
 }
 
-impl Borrow<Option<NumType>> for NullMeasDatatype {
-    fn borrow(&self) -> &Option<NumType> {
-        &None
+impl<T, const LEN: usize> From<&FloatRange<T, LEN>> for Option<NumType> {
+    fn from(_: &FloatRange<T, LEN>) -> Self {
+        None
     }
 }
 
-impl Borrow<Option<NumType>> for AsciiRange {
-    fn borrow(&self) -> &Option<NumType> {
-        &None
+impl From<&AnyNullBitmask> for Option<NumType> {
+    fn from(_: &AnyNullBitmask) -> Self {
+        None
     }
 }
 
-impl<T, const LEN: usize> Borrow<Option<NumType>> for Bitmask<T, LEN> {
-    fn borrow(&self) -> &Option<NumType> {
-        &None
-    }
-}
-
-impl<T, const LEN: usize> Borrow<Option<NumType>> for FloatRange<T, LEN> {
-    fn borrow(&self) -> &Option<NumType> {
-        &None
-    }
-}
-
-impl Borrow<Option<NumType>> for AnyNullBitmask {
-    fn borrow(&self) -> &Option<NumType> {
-        &None
-    }
-}
-
-impl Borrow<Option<NumType>> for NullMixedType {
-    fn borrow(&self) -> &Option<NumType> {
-        match self {
-            Self::Ascii(_) => &None,
-            Self::Uint(_) => &Some(NumType::Integer),
-            Self::F32(_) => &Some(NumType::Single),
-            Self::F64(_) => &Some(NumType::Double),
-        }
+impl From<&NullMixedType> for Option<NumType> {
+    fn from(value: &NullMixedType) -> Option<NumType> {
+        (*value).as_alpha_num_type().try_into().ok()
     }
 }
 
@@ -2084,11 +2060,6 @@ impl NullMixedType {
             Self::F64(_) => AlphaNumType::Double,
         }
     }
-
-    fn as_num_type(&self) -> Option<NumType> {
-        *self.borrow()
-        // self.as_alpha_num_type().try_into().ok()
-    }
 }
 
 impl AnyNullBitmask {
@@ -2260,8 +2231,8 @@ impl From<ColumnLayoutValues3_2> for ColumnLayoutValues2_0 {
 
 impl<T, D, const ORD: bool> LayoutOps<'_, T, D> for DelimAsciiLayout<T, D, ORD>
 where
-    NullMeasDatatype: Borrow<D::MeasDatatype>,
     D: MeasDatatypeDef,
+    for<'a> D::MeasDatatype: From<&'a NullMeasDatatype>,
     T: TotDefinition,
     NoByteOrd<ORD>: HasByteOrd,
 {
@@ -2531,8 +2502,9 @@ fn h_read_delim_without_rows<R: Read>(
 impl<'a, C, S, T, D> LayoutOps<'a, T, D> for FixedLayout<C, S, T, D>
 where
     D: MeasDatatypeDef,
+    for<'b> D::MeasDatatype: From<&'b C>,
     T: TotDefinition,
-    C: Copy + IsFixed + HasDatatype + IntoReader<S> + IntoWriter<'a, S> + Borrow<D::MeasDatatype>,
+    C: Copy + IsFixed + HasDatatype + IntoReader<S> + IntoWriter<'a, S>,
     S: Copy + HasByteOrd,
     FloatOrInt: From<C>,
     <C as IntoReader<S>>::Target: Readable<S>,
@@ -2906,7 +2878,7 @@ impl HasDatatype for NullMixedType {
         // ASCII, which means that $DATATYPE needs to be "A" since $PnDATATYPE
         // cannot be "A". Otherwise, find majority type.
         cs.as_ref()
-            .try_map(|c| c.as_num_type().ok_or(()))
+            .try_map(|c| <Option<NumType> as From<_>>::from(c).ok_or(()))
             .ok()
             .map_or(AlphaNumType::Ascii, |mut ds| {
                 ds.sort();

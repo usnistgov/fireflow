@@ -397,11 +397,12 @@ pub trait VersionedDataLayout: Sized + LayoutOps + LookupLayout {
         seg: AnyDataSegment,
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
+        let mut buf = vec![];
         seg.inner.as_u64().try_coords().map_or(
             Ok(Tentative::new1(FCSDataFrame::default())),
             |(begin, _)| {
                 h.seek(SeekFrom::Start(begin)).into_deferred()?;
-                self.h_read_df_inner(h, tot, seg, conf)
+                self.h_read_df_inner(h, &mut buf, tot, seg, conf)
             },
         )
     }
@@ -409,6 +410,7 @@ pub trait VersionedDataLayout: Sized + LayoutOps + LookupLayout {
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
+        buf: &mut Vec<u8>,
         tot: <Self::TotDef as TotDefinition>::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
@@ -2448,24 +2450,24 @@ impl<C, S, T> FixedLayout<C, S, T> {
         self.columns.remove_nocheck(index.into())
     }
 
-    fn h_read_df_numeric<R: Read, W, E>(
-        &self,
-        h: &mut BufReader<R>,
-        tot: T::Tot,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, W, E>
-    where
-        W: From<UnevenEventWidth> + From<TotEventMismatch>,
-        E: From<UnevenEventWidth> + From<TotEventMismatch>,
-        S: Copy,
-        C: IsFixed + Copy + ToReader<S, E>,
-        <C as ToReader<S, E>>::Target: Readable<S, E>,
-        T: TotDefinition,
-    {
-        let mut buf = vec![];
-        self.h_read_df::<_, _, E, E>(h, &mut buf, tot, seg, conf)
-    }
+    // fn h_read_df_numeric<R: Read, W, E>(
+    //     &self,
+    //     h: &mut BufReader<R>,
+    //     tot: T::Tot,
+    //     seg: AnyDataSegment,
+    //     conf: &ReaderConfig,
+    // ) -> IODeferredResult<FCSDataFrame, W, E>
+    // where
+    //     W: From<UnevenEventWidth> + From<TotEventMismatch>,
+    //     E: From<UnevenEventWidth> + From<TotEventMismatch>,
+    //     S: Copy,
+    //     C: IsFixed + Copy + ToReader<S, E>,
+    //     <C as ToReader<S, E>>::Target: Readable<S, E>,
+    //     T: TotDefinition,
+    // {
+    //     let mut buf = vec![];
+    //     self.h_read_df::<_, _, E, E>(h, &mut buf, tot, seg, conf)
+    // }
 
     fn h_read_df<R: Read, W, E, ReadErr>(
         &self,
@@ -3006,6 +3008,7 @@ impl<T> AnyOrderedUintLayout<T> {
     fn h_read_df<R: Read, W, E>(
         &self,
         h: &mut BufReader<R>,
+        buf: &mut Vec<u8>,
         tot: T::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
@@ -3016,7 +3019,7 @@ impl<T> AnyOrderedUintLayout<T> {
         T: TotDefinition,
     {
         match_any_uint!(self, Self, l, {
-            l.h_read_df_numeric::<_, _, E>(h, tot, seg, conf)
+            l.h_read_df::<_, _, E, E>(h, buf, tot, seg, conf)
         })
     }
 
@@ -3212,11 +3215,12 @@ impl VersionedDataLayout for DataLayout2_0 {
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
+        buf: &mut Vec<u8>,
         tot: <Self::TotDef as TotDefinition>::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
-        self.0.h_read_checked_df(h, tot, seg, conf)
+        self.0.h_read_checked_df(h, buf, tot, seg, conf)
     }
 
     fn h_write_df_inner<W: Write>(
@@ -3284,11 +3288,12 @@ impl VersionedDataLayout for DataLayout3_0 {
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
+        buf: &mut Vec<u8>,
         tot: <Self::TotDef as TotDefinition>::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
-        self.0.h_read_checked_df(h, tot, seg, conf)
+        self.0.h_read_checked_df(h, buf, tot, seg, conf)
     }
 
     fn h_write_df_inner<W: Write>(
@@ -3356,11 +3361,12 @@ impl VersionedDataLayout for DataLayout3_1 {
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
+        buf: &mut Vec<u8>,
         tot: <Self::TotDef as TotDefinition>::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
-        self.0.h_read_df(h, tot, seg, conf)
+        self.0.h_read_df(h, buf, tot, seg, conf)
     }
 
     fn h_write_df_inner<W: Write>(
@@ -3522,16 +3528,14 @@ impl VersionedDataLayout for DataLayout3_2 {
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
+        buf: &mut Vec<u8>,
         tot: <Self::TotDef as TotDefinition>::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
         match self {
-            Self::NonMixed(x) => x.h_read_df(h, tot, seg, conf),
-            Self::Mixed(m) => {
-                let mut buf = vec![];
-                m.h_read_df(h, &mut buf, tot, seg, conf)
-            }
+            Self::NonMixed(x) => x.h_read_df(h, buf, tot, seg, conf),
+            Self::Mixed(m) => m.h_read_df(h, buf, tot, seg, conf),
         }
     }
 
@@ -3772,6 +3776,7 @@ impl<T> AnyOrderedLayout<T> {
     fn h_read_checked_df<R: Read>(
         &self,
         h: &mut BufReader<R>,
+        buf: &mut Vec<u8>,
         tot: T::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
@@ -3783,9 +3788,9 @@ impl<T> AnyOrderedLayout<T> {
             Self::Ascii(x) => x
                 .h_read_checked_df(h, tot, seg, conf)
                 .def_map_errors(|e| e.inner_into()),
-            Self::Integer(x) => x.h_read_df(h, tot, seg, conf),
-            Self::F32(x) => x.h_read_df_numeric(h, tot, seg, conf),
-            Self::F64(x) => x.h_read_df_numeric(h, tot, seg, conf),
+            Self::Integer(x) => x.h_read_df(h, buf, tot, seg, conf),
+            Self::F32(x) => x.h_read_df::<_, _, _, ReadDataframeError>(h, buf, tot, seg, conf),
+            Self::F64(x) => x.h_read_df::<_, _, _, ReadDataframeError>(h, buf, tot, seg, conf),
         }
     }
 
@@ -3974,6 +3979,7 @@ impl NonMixedEndianLayout {
     fn h_read_df<R: Read>(
         &self,
         h: &mut BufReader<R>,
+        buf: &mut Vec<u8>,
         tot: Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
@@ -3982,9 +3988,9 @@ impl NonMixedEndianLayout {
             Self::Ascii(x) => x
                 .h_read_checked_df(h, tot, seg, conf)
                 .def_map_errors(|e| e.map_inner(ReadDataframeError::from)),
-            Self::Integer(x) => x.h_read_df_numeric(h, tot, seg, conf),
-            Self::F32(x) => x.h_read_df_numeric(h, tot, seg, conf),
-            Self::F64(x) => x.h_read_df_numeric(h, tot, seg, conf),
+            Self::Integer(x) => x.h_read_df::<_, _, _, ReadDataframeError>(h, buf, tot, seg, conf),
+            Self::F32(x) => x.h_read_df::<_, _, _, ReadDataframeError>(h, buf, tot, seg, conf),
+            Self::F64(x) => x.h_read_df::<_, _, _, ReadDataframeError>(h, buf, tot, seg, conf),
         }
     }
 

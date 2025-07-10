@@ -9,6 +9,8 @@ use std::fmt;
 use std::num::ParseIntError;
 use std::str::FromStr;
 
+use super::parser::ReqMetarootKey;
+
 /// The byte order as shown in the $BYTEORD field in 2.0 and 3.0
 ///
 /// This must be a list of integers belonging to the unordered set {1..N} where
@@ -43,7 +45,11 @@ pub enum Endian {
 ///
 /// This is used in ASCII layouts, for which $BYTEORD is meaningless.
 #[derive(Clone, Copy, Serialize)]
-pub struct NoByteOrd;
+pub struct NoByteOrd<const ORD: bool>;
+
+pub type NoByteOrd2_0 = NoByteOrd<true>;
+
+pub type NoByteOrd3_1 = NoByteOrd<false>;
 
 /// The value for the $PnB key (all versions)
 ///
@@ -88,6 +94,22 @@ pub enum SizedByteOrd<const LEN: usize> {
     #[from]
     Endian(Endian),
     Order([u8; LEN]),
+}
+
+pub(crate) trait HasByteOrd: Sized {
+    type ByteOrd: From<Self> + ReqMetarootKey;
+}
+
+impl HasByteOrd for NoByteOrd2_0 {
+    type ByteOrd = ByteOrd2_0;
+}
+
+impl HasByteOrd for NoByteOrd3_1 {
+    type ByteOrd = ByteOrd3_1;
+}
+
+impl HasByteOrd for Endian {
+    type ByteOrd = ByteOrd3_1;
 }
 
 macro_rules! byteord_from_sized {
@@ -187,6 +209,10 @@ macro_rules! byteord_from_sized {
                 Bytes::$bytes
             }
         }
+
+        impl HasByteOrd for SizedByteOrd<$len> {
+            type ByteOrd = ByteOrd2_0;
+        }
     };
 }
 
@@ -255,14 +281,14 @@ impl Default for ByteOrd2_0 {
     }
 }
 
-impl From<NoByteOrd> for ByteOrd2_0 {
-    fn from(_: NoByteOrd) -> Self {
+impl From<NoByteOrd<true>> for ByteOrd2_0 {
+    fn from(_: NoByteOrd<true>) -> Self {
         Self::default()
     }
 }
 
-impl From<NoByteOrd> for ByteOrd3_1 {
-    fn from(_: NoByteOrd) -> Self {
+impl From<NoByteOrd<false>> for ByteOrd3_1 {
+    fn from(_: NoByteOrd<false>) -> Self {
         Self::default()
     }
 }

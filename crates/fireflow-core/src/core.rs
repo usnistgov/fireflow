@@ -5812,7 +5812,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_2 {
 
 impl ConvertFromLayout<DataLayout3_0> for DataLayout2_0 {
     fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
-        Ok(Self(value.0.tot_into()))
+        Ok(Self(value.0.phantom_into()))
     }
 }
 
@@ -5830,7 +5830,7 @@ impl ConvertFromLayout<DataLayout3_2> for DataLayout2_0 {
 
 impl ConvertFromLayout<DataLayout2_0> for DataLayout3_0 {
     fn convert_from_layout(value: DataLayout2_0) -> LayoutConvertResult<Self> {
-        Ok(Self(value.0.tot_into()))
+        Ok(Self(value.0.phantom_into()))
     }
 }
 

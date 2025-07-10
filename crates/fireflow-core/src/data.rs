@@ -129,7 +129,7 @@ pub enum DataLayout3_2 {
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps)]
 pub enum AnyOrderedLayout<T> {
-    Ascii(AnyAsciiLayout<T>),
+    Ascii(AnyAsciiLayout<T, true>),
     Integer(AnyOrderedUintLayout<T>),
     F32(OrderedLayout<F32Range, T>),
     F64(OrderedLayout<F64Range, T>),
@@ -140,7 +140,7 @@ pub enum AnyOrderedLayout<T> {
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps)]
 pub enum NonMixedEndianLayout {
-    Ascii(AnyAsciiLayout<KnownTot>),
+    Ascii(AnyAsciiLayout<KnownTot, false>),
     Integer(EndianLayout<AnyNullBitmask>),
     F32(EndianLayout<F32Range>),
     F64(EndianLayout<F64Range>),
@@ -155,16 +155,16 @@ type EndianLayout<C> = FixedLayout<C, Endian, KnownTot>;
 /// separated by delimiters).
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps)]
-pub enum AnyAsciiLayout<T> {
-    Delimited(DelimAsciiLayout<T>),
-    Fixed(FixedAsciiLayout<T>),
+pub enum AnyAsciiLayout<T, const ORD: bool> {
+    Delimited(DelimAsciiLayout<T, ORD>),
+    Fixed(FixedAsciiLayout<T, ORD>),
 }
 
-type FixedAsciiLayout<T> = FixedLayout<AsciiRange, NoByteOrd, T>;
+type FixedAsciiLayout<T, const ORD: bool> = FixedLayout<AsciiRange, NoByteOrd<ORD>, T>;
 
 /// Byte layout for delimited ASCII.
 #[derive(Clone)]
-pub struct DelimAsciiLayout<T> {
+pub struct DelimAsciiLayout<T, const ORD: bool> {
     pub ranges: NonEmpty<u64>,
     tot_action: PhantomData<T>,
 }
@@ -196,7 +196,7 @@ type OrderedLayout<C, T> = FixedLayout<C, <C as HasNativeWidth>::Order, T>;
 
 /// The type of a non-delimited column in the DATA segment for 3.2
 pub enum MixedType<F: ColumnFamily> {
-    Ascii(F::ColumnWrapper<AsciiRange, u64, NoByteOrd>),
+    Ascii(F::ColumnWrapper<AsciiRange, u64, NoByteOrd3_1>),
     Uint(AnyBitmask<F>),
     F32(NativeWrapper<F, F32Range>),
     F64(NativeWrapper<F, F64Range>),
@@ -1169,11 +1169,11 @@ where
     }
 }
 
-impl NativeReadable<NoByteOrd, AsciiToUintError> for AsciiRange {
+impl<const ORD: bool> NativeReadable<NoByteOrd<ORD>, AsciiToUintError> for AsciiRange {
     fn h_read_native<R: Read>(
         &self,
         h: &mut BufReader<R>,
-        _: NoByteOrd,
+        _: NoByteOrd<ORD>,
         buf: &mut Vec<u8>,
     ) -> IOResult<Self::Native, AsciiToUintError> {
         buf.clear();
@@ -1365,12 +1365,12 @@ where
     }
 }
 
-impl NativeWritable<NoByteOrd> for AsciiRange {
+impl<const ORD: bool> NativeWritable<NoByteOrd<ORD>> for AsciiRange {
     fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
         x: CastResult<Self::Native>,
-        _: NoByteOrd,
+        _: NoByteOrd<ORD>,
     ) -> io::Result<()> {
         let s = x.new.to_string();
         let w: usize = u8::from(self.chars()).into();
@@ -1452,7 +1452,7 @@ impl<'a> IntoWriter<'a, Endian> for NullMixedType {
 
     fn check_writer(&self, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
         match self {
-            MixedType::Ascii(c) => c.check_writer(col),
+            MixedType::Ascii(c) => IntoWriter::<NoByteOrd3_1>::check_writer(c, col),
             MixedType::Uint(c) => c.check_writer(col),
             MixedType::F32(c) => c.check_native_writer(col).map_err(|e| e.into()),
             MixedType::F64(c) => c.check_native_writer(col).map_err(|e| e.into()),
@@ -1472,10 +1472,11 @@ where
 
 impl<'a> Writable<'a, Endian> for WriterMixedType<'a> {
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: Endian) -> io::Result<()> {
+        let nb: NoByteOrd3_1 = NoByteOrd;
         match self {
             Self::Ascii(c) => {
                 let x = c.data.next().unwrap();
-                c.column_type.h_write(h, x, NoByteOrd)
+                c.column_type.h_write(h, x, nb)
             }
             Self::Uint(c) => c.h_write(h, byte_layout),
             Self::F32(c) => {
@@ -1618,7 +1619,7 @@ impl<C: Serialize, L: Serialize, T> Serialize for FixedLayout<C, L, T> {
     }
 }
 
-impl<T> Serialize for DelimAsciiLayout<T> {
+impl<T, const ORD: bool> Serialize for DelimAsciiLayout<T, ORD> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut state = serializer.serialize_struct("DelimitedLayout", 1)?;
         state.serialize_field("ranges", Vec::from(self.ranges.as_ref()).as_slice())?;
@@ -2081,7 +2082,7 @@ impl From<ColumnLayoutValues3_2> for ColumnLayoutValues2_0 {
     }
 }
 
-impl<T> LayoutOps for DelimAsciiLayout<T> {
+impl<T, const ORD: bool> LayoutOps for DelimAsciiLayout<T, ORD> {
     fn ncols(&self) -> usize {
         self.ranges.len()
     }
@@ -2099,7 +2100,7 @@ impl<T> LayoutOps for DelimAsciiLayout<T> {
     }
 }
 
-impl<T> DelimAsciiLayout<T> {
+impl<T, const ORD: bool> DelimAsciiLayout<T, ORD> {
     fn new(ranges: NonEmpty<u64>) -> Self {
         Self {
             ranges,
@@ -2175,9 +2176,15 @@ impl<T> DelimAsciiLayout<T> {
         Ok(())
     }
 
-    fn req_keywords<X: ReqMetarootKey + From<NoByteOrd>>(&self) -> [(String, String); 2] {
+    fn req_keywords(&self) -> [(String, String); 2]
+    where
+        NoByteOrd<ORD>: HasByteOrd,
+    {
         // NOTE BYTEORD is meaningless for delimited ASCII so use a dummy
-        [AlphaNumType::Ascii.pair(), X::from(NoByteOrd).pair()]
+        [
+            AlphaNumType::Ascii.pair(),
+            <NoByteOrd<ORD> as HasByteOrd>::ByteOrd::from(NoByteOrd).pair(),
+        ]
     }
 
     fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
@@ -2545,7 +2552,7 @@ impl<C, S, T> FixedLayout<C, S, T> {
             .map(|byte_layout| FixedLayout::new(self.columns, byte_layout))
     }
 
-    fn tot_into<X>(self) -> FixedLayout<C, S, X> {
+    fn phantom_into<X>(self) -> FixedLayout<C, S, X> {
         FixedLayout::new(self.columns, self.byte_layout)
     }
 
@@ -2582,14 +2589,13 @@ impl<C, S, T> FixedLayout<C, S, T> {
     }
 
     // TODO get rid of this generic
-    fn req_keywords<X>(&self) -> [(String, String); 2]
+    fn req_keywords(&self) -> [(String, String); 2]
     where
-        S: Copy,
-        X: ReqMetarootKey + From<S>,
+        S: Copy + HasByteOrd,
         C: HasDatatype,
     {
         [
-            X::from(self.byte_layout).pair(),
+            S::ByteOrd::from(self.byte_layout).pair(),
             C::datatype_from_columns(&self.columns).pair(),
         ]
     }
@@ -2882,13 +2888,13 @@ source_from_iter!(f64, f32, FromF64);
 source_from_iter!(f64, f64, FromF64);
 
 impl<T> AnyOrderedUintLayout<T> {
-    fn tot_into<X>(self) -> AnyOrderedUintLayout<X> {
-        match_any_uint!(self, Self, l, { l.tot_into().into() })
+    fn phantom_into<X>(self) -> AnyOrderedUintLayout<X> {
+        match_any_uint!(self, Self, l, { l.phantom_into().into() })
     }
 
     fn into_endian(self) -> Result<EndianLayout<AnyNullBitmask>, OrderedToEndianError> {
         match_any_uint!(self, Self, l, {
-            l.tot_into()
+            l.phantom_into()
                 .byte_layout_try_into()
                 .map(|x| x.columns_into())
         })
@@ -3006,7 +3012,7 @@ impl<T> AnyOrderedUintLayout<T> {
     }
 
     fn req_keywords(&self) -> [(String, String); 2] {
-        match_any_uint!(self, Self, l, { l.req_keywords::<ByteOrd2_0>() })
+        match_any_uint!(self, Self, l, { l.req_keywords() })
     }
 
     fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
@@ -3014,11 +3020,11 @@ impl<T> AnyOrderedUintLayout<T> {
     }
 }
 
-impl<T> AnyAsciiLayout<T> {
-    fn tot_into<X>(self) -> AnyAsciiLayout<X> {
+impl<T, const ORD: bool> AnyAsciiLayout<T, ORD> {
+    fn phantom_into<X, const ORD_1: bool>(self) -> AnyAsciiLayout<X, ORD_1> {
         match self {
             Self::Delimited(x) => DelimAsciiLayout::new(x.ranges).into(),
-            Self::Fixed(x) => x.tot_into().into(),
+            Self::Fixed(x) => FixedLayout::new(x.columns, NoByteOrd).into(),
         }
     }
 
@@ -3132,10 +3138,13 @@ impl<T> AnyAsciiLayout<T> {
         }
     }
 
-    fn req_keywords<X: ReqMetarootKey + From<NoByteOrd>>(&self) -> [(String, String); 2] {
+    fn req_keywords(&self) -> [(String, String); 2]
+    where
+        NoByteOrd<ORD>: HasByteOrd,
+    {
         match self {
-            Self::Fixed(l) => l.req_keywords::<X>(),
-            Self::Delimited(l) => l.req_keywords::<X>(),
+            Self::Fixed(l) => l.req_keywords(),
+            Self::Delimited(l) => l.req_keywords(),
         }
     }
 
@@ -3367,7 +3376,7 @@ impl LookupLayout for DataLayout3_2 {
     fn req_keywords(&self) -> [(String, String); 2] {
         match self {
             Self::NonMixed(x) => x.req_keywords(),
-            Self::Mixed(x) => x.req_keywords::<ByteOrd3_1>(),
+            Self::Mixed(x) => x.req_keywords(),
         }
     }
 
@@ -3601,10 +3610,10 @@ impl DataLayout3_2 {
 impl<T> LookupLayout for AnyOrderedLayout<T> {
     fn req_keywords(&self) -> [(String, String); 2] {
         match self {
-            Self::Ascii(x) => x.req_keywords::<ByteOrd2_0>(),
+            Self::Ascii(x) => x.req_keywords(),
             Self::Integer(x) => x.req_keywords(),
-            Self::F32(x) => x.req_keywords::<ByteOrd2_0>(),
-            Self::F64(x) => x.req_keywords::<ByteOrd2_0>(),
+            Self::F32(x) => x.req_keywords(),
+            Self::F64(x) => x.req_keywords(),
         }
     }
 
@@ -3796,9 +3805,9 @@ impl<T> AnyOrderedLayout<T> {
         }
     }
 
-    pub(crate) fn tot_into<X>(self) -> AnyOrderedLayout<X> {
+    pub(crate) fn phantom_into<X>(self) -> AnyOrderedLayout<X> {
         match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, {
-            x.tot_into().into()
+            x.phantom_into().into()
         })
     }
 
@@ -3836,10 +3845,10 @@ impl<T> AnyOrderedLayout<T> {
 
     pub fn into_unmixed(self) -> LayoutConvertResult<NonMixedEndianLayout> {
         match self {
-            Self::Ascii(x) => Ok(NonMixedEndianLayout::Ascii(x.tot_into())),
+            Self::Ascii(x) => Ok(NonMixedEndianLayout::Ascii(x.phantom_into())),
             Self::Integer(x) => x.into_endian().map(NonMixedEndianLayout::Integer),
-            Self::F32(x) => x.tot_into().byte_layout_try_into().map(|y| y.into()),
-            Self::F64(x) => x.tot_into().byte_layout_try_into().map(|y| y.into()),
+            Self::F32(x) => x.phantom_into().byte_layout_try_into().map(|y| y.into()),
+            Self::F64(x) => x.phantom_into().byte_layout_try_into().map(|y| y.into()),
         }
         .into_mult()
     }
@@ -3856,10 +3865,10 @@ impl<T> AnyOrderedLayout<T> {
 impl LookupLayout for NonMixedEndianLayout {
     fn req_keywords(&self) -> [(String, String); 2] {
         match self {
-            Self::Ascii(x) => x.req_keywords::<ByteOrd3_1>(),
-            Self::Integer(x) => x.req_keywords::<ByteOrd3_1>(),
-            Self::F32(x) => x.req_keywords::<ByteOrd3_1>(),
-            Self::F64(x) => x.req_keywords::<ByteOrd3_1>(),
+            Self::Ascii(x) => x.req_keywords(),
+            Self::Integer(x) => x.req_keywords(),
+            Self::F32(x) => x.req_keywords(),
+            Self::F64(x) => x.req_keywords(),
         }
     }
 
@@ -4060,10 +4069,10 @@ impl NonMixedEndianLayout {
 
     pub(crate) fn into_ordered<T>(self) -> LayoutConvertResult<AnyOrderedLayout<T>> {
         match self {
-            Self::Ascii(x) => Ok(x.tot_into().into()),
+            Self::Ascii(x) => Ok(x.phantom_into().into()),
             Self::Integer(x) => x.uint_try_into_ordered().map(|i| i.into()),
-            Self::F32(x) => Ok(x.tot_into().byte_layout_into().into()),
-            Self::F64(x) => Ok(x.tot_into().byte_layout_into().into()),
+            Self::F32(x) => Ok(x.phantom_into().byte_layout_into().into()),
+            Self::F64(x) => Ok(x.phantom_into().byte_layout_into().into()),
         }
     }
 }

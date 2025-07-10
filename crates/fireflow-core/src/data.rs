@@ -2723,14 +2723,14 @@ impl HasDatatype for NullMixedType {
     fn datatype_from_columns(cs: &NonEmpty<Self>) -> AlphaNumType {
         // If any numeric types are none, then that means at least one column is
         // ASCII, which means that $DATATYPE needs to be "A" since $PnDATATYPE
-        // cannot be "A".
-        if let Ok(mut ds) = cs.as_ref().try_map(|c| c.as_num_type().ok_or(())) {
-            // Determine which type appears the most, use that for $DATATYPE
-            ds.sort();
-            (*ds.mode().0).into()
-        } else {
-            AlphaNumType::Ascii
-        }
+        // cannot be "A". Otherwise, find majority type.
+        cs.as_ref()
+            .try_map(|c| c.as_num_type().ok_or(()))
+            .ok()
+            .map_or(AlphaNumType::Ascii, |mut ds| {
+                ds.sort();
+                (*ds.mode().0).into()
+            })
     }
 }
 

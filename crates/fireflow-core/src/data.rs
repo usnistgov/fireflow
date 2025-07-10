@@ -337,15 +337,15 @@ pub trait LayoutOps: Sized {
     fn widths(&self) -> Vec<BitsOrChars>;
 
     fn ranges(&self) -> NonEmpty<FloatOrInt>;
+
+    fn req_keywords(&self) -> [(String, String); 2];
+
+    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]>;
 }
 
 /// Standardized operations on layouts
 #[delegatable_trait]
 pub trait LookupLayout: Sized {
-    fn req_keywords(&self) -> [(String, String); 2];
-
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]>;
-
     fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>>;
 
     fn opt_meas_headers(&self) -> Vec<MeasHeader>;
@@ -2086,7 +2086,10 @@ impl From<ColumnLayoutValues3_2> for ColumnLayoutValues2_0 {
     }
 }
 
-impl<T, const ORD: bool> LayoutOps for DelimAsciiLayout<T, ORD> {
+impl<T, const ORD: bool> LayoutOps for DelimAsciiLayout<T, ORD>
+where
+    NoByteOrd<ORD>: HasByteOrd,
+{
     fn ncols(&self) -> usize {
         self.ranges.len()
     }
@@ -2102,12 +2105,7 @@ impl<T, const ORD: bool> LayoutOps for DelimAsciiLayout<T, ORD> {
     fn ranges(&self) -> NonEmpty<FloatOrInt> {
         self.ranges.as_ref().map(|x| FloatOrInt::from(*x))
     }
-}
 
-impl<T, const ORD: bool> LookupLayout for DelimAsciiLayout<T, ORD>
-where
-    NoByteOrd<ORD>: HasByteOrd,
-{
     fn req_keywords(&self) -> [(String, String); 2] {
         // NOTE BYTEORD is meaningless for delimited ASCII so use a dummy
         [
@@ -2123,13 +2121,15 @@ where
             [x, y]
         })
     }
+}
 
+impl<T, const ORD: bool> LookupLayout for DelimAsciiLayout<T, ORD> {
     fn opt_meas_headers(&self) -> Vec<MeasHeader> {
         vec![]
     }
 
     fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-        self.ranges().as_ref().map(|_| vec![])
+        self.ranges.as_ref().map(|_| vec![])
     }
 }
 
@@ -2341,7 +2341,8 @@ fn h_read_delim_without_rows<R: Read>(
 
 impl<C, S, T> LayoutOps for FixedLayout<C, S, T>
 where
-    C: Copy + IsFixed,
+    C: Copy + IsFixed + HasDatatype,
+    S: Copy + HasByteOrd,
     FloatOrInt: From<C>,
 {
     fn widths(&self) -> Vec<BitsOrChars> {
@@ -2359,13 +2360,7 @@ where
     fn nbytes(&self, df: &FCSDataFrame) -> u64 {
         (self.event_width() * df.nrows()) as u64
     }
-}
 
-impl<C, S, T> LookupLayout for FixedLayout<C, S, T>
-where
-    S: Copy + HasByteOrd,
-    C: HasDatatype + IsFixed,
-{
     fn req_keywords(&self) -> [(String, String); 2] {
         [
             S::ByteOrd::from(self.byte_layout).pair(),
@@ -2379,7 +2374,9 @@ where
             .enumerate()
             .map(|(i, c)| c.req_meas_keywords(i.into()))
     }
+}
 
+impl<C, S, T> LookupLayout for FixedLayout<C, S, T> {
     fn opt_meas_headers(&self) -> Vec<MeasHeader> {
         vec![]
     }
@@ -3376,21 +3373,6 @@ impl VersionedDataLayout for DataLayout3_1 {
 }
 
 impl LookupLayout for DataLayout3_2 {
-    fn req_keywords(&self) -> [(String, String); 2] {
-        match self {
-            Self::NonMixed(x) => x.req_keywords(),
-            Self::Mixed(x) => x.req_keywords(),
-        }
-    }
-
-    // TODO control this with a generic
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-        match self {
-            Self::NonMixed(x) => x.req_meas_keywords(),
-            Self::Mixed(x) => x.req_meas_keywords(),
-        }
-    }
-
     fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
         match self {
             // dirty hack to get a nonempty

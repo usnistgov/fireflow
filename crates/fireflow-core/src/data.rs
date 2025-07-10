@@ -2727,17 +2727,7 @@ impl HasDatatype for NullMixedType {
         if let Ok(mut ds) = cs.as_ref().try_map(|c| c.as_num_type().ok_or(())) {
             // Determine which type appears the most, use that for $DATATYPE
             ds.sort();
-            // TODO this should be a general non-empty function
-            let mut counts = NonEmpty::new((ds.head, 1));
-            for d in ds.tail {
-                if counts.last().0 == d {
-                    counts.last_mut().1 += 1;
-                } else {
-                    counts.push((d, 1));
-                }
-            }
-            let mode = counts.maximum_by_key(|x| x.1).0;
-            mode.into()
+            (*ds.mode().0).into()
         } else {
             AlphaNumType::Ascii
         }

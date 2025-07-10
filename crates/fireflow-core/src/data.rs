@@ -128,6 +128,7 @@ pub enum DataLayout3_2 {
 /// byte ordering that may occur rather than simply little or big endian.
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps)]
+#[delegate(LookupLayout)]
 pub enum AnyOrderedLayout<T> {
     Ascii(AnyAsciiLayout<T, true>),
     Integer(AnyOrderedUintLayout<T>),
@@ -139,6 +140,7 @@ pub enum AnyOrderedLayout<T> {
 // vast majority of cases and make certain operations easier.
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps)]
+#[delegate(LookupLayout)]
 pub enum NonMixedEndianLayout {
     Ascii(AnyAsciiLayout<KnownTot, false>),
     Integer(EndianLayout<AnyNullBitmask>),
@@ -155,6 +157,7 @@ type EndianLayout<C> = FixedLayout<C, Endian, KnownTot>;
 /// separated by delimiters).
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps)]
+#[delegate(LookupLayout)]
 pub enum AnyAsciiLayout<T, const ORD: bool> {
     Delimited(DelimAsciiLayout<T, ORD>),
     Fixed(FixedAsciiLayout<T, ORD>),
@@ -180,6 +183,7 @@ pub struct FixedLayout<C, L, T> {
 /// Byte layout for integers that may be in any byte order.
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps)]
+#[delegate(LookupLayout)]
 pub enum AnyOrderedUintLayout<T> {
     // TODO the first two don't need to be ordered
     Uint08(OrderedLayout<Bitmask08, T>),
@@ -2100,6 +2104,35 @@ impl<T, const ORD: bool> LayoutOps for DelimAsciiLayout<T, ORD> {
     }
 }
 
+impl<T, const ORD: bool> LookupLayout for DelimAsciiLayout<T, ORD>
+where
+    NoByteOrd<ORD>: HasByteOrd,
+{
+    fn req_keywords(&self) -> [(String, String); 2] {
+        // NOTE BYTEORD is meaningless for delimited ASCII so use a dummy
+        [
+            AlphaNumType::Ascii.pair(),
+            <NoByteOrd<ORD> as HasByteOrd>::ByteOrd::from(NoByteOrd).pair(),
+        ]
+    }
+
+    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
+        self.ranges.as_ref().enumerate().map(|(i, r)| {
+            let x = Width::Variable.pair(i.into());
+            let y = Range((*r).into()).pair(i.into());
+            [x, y]
+        })
+    }
+
+    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
+        vec![]
+    }
+
+    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
+        self.ranges().as_ref().map(|_| vec![])
+    }
+}
+
 impl<T, const ORD: bool> DelimAsciiLayout<T, ORD> {
     fn new(ranges: NonEmpty<u64>) -> Self {
         Self {
@@ -2174,25 +2207,6 @@ impl<T, const ORD: bool> DelimAsciiLayout<T, ORD> {
             }
         }
         Ok(())
-    }
-
-    fn req_keywords(&self) -> [(String, String); 2]
-    where
-        NoByteOrd<ORD>: HasByteOrd,
-    {
-        // NOTE BYTEORD is meaningless for delimited ASCII so use a dummy
-        [
-            AlphaNumType::Ascii.pair(),
-            <NoByteOrd<ORD> as HasByteOrd>::ByteOrd::from(NoByteOrd).pair(),
-        ]
-    }
-
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-        self.ranges.as_ref().enumerate().map(|(i, r)| {
-            let x = Width::Variable.pair(i.into());
-            let y = Range((*r).into()).pair(i.into());
-            [x, y]
-        })
     }
 }
 
@@ -2344,6 +2358,34 @@ where
 
     fn nbytes(&self, df: &FCSDataFrame) -> u64 {
         (self.event_width() * df.nrows()) as u64
+    }
+}
+
+impl<C, S, T> LookupLayout for FixedLayout<C, S, T>
+where
+    S: Copy + HasByteOrd,
+    C: HasDatatype + IsFixed,
+{
+    fn req_keywords(&self) -> [(String, String); 2] {
+        [
+            S::ByteOrd::from(self.byte_layout).pair(),
+            C::datatype_from_columns(&self.columns).pair(),
+        ]
+    }
+
+    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
+        self.columns
+            .as_ref()
+            .enumerate()
+            .map(|(i, c)| c.req_meas_keywords(i.into()))
+    }
+
+    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
+        vec![]
+    }
+
+    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
+        self.columns.as_ref().map(|_| vec![])
     }
 }
 
@@ -2586,28 +2628,6 @@ impl<C, S, T> FixedLayout<C, S, T> {
         } else {
             Tentative::new1(total_events)
         }
-    }
-
-    // TODO get rid of this generic
-    fn req_keywords(&self) -> [(String, String); 2]
-    where
-        S: Copy + HasByteOrd,
-        C: HasDatatype,
-    {
-        [
-            S::ByteOrd::from(self.byte_layout).pair(),
-            C::datatype_from_columns(&self.columns).pair(),
-        ]
-    }
-
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]>
-    where
-        C: IsFixed,
-    {
-        self.columns
-            .as_ref()
-            .enumerate()
-            .map(|(i, c)| c.req_meas_keywords(i.into()))
     }
 }
 
@@ -3137,23 +3157,6 @@ impl<T, const ORD: bool> AnyAsciiLayout<T, ORD> {
             Self::Delimited(l) => l.h_write_df(h, df),
         }
     }
-
-    fn req_keywords(&self) -> [(String, String); 2]
-    where
-        NoByteOrd<ORD>: HasByteOrd,
-    {
-        match self {
-            Self::Fixed(l) => l.req_keywords(),
-            Self::Delimited(l) => l.req_keywords(),
-        }
-    }
-
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-        match self {
-            Self::Fixed(l) => l.req_meas_keywords(),
-            Self::Delimited(l) => l.req_meas_keywords(),
-        }
-    }
 }
 
 impl VersionedDataLayout for DataLayout2_0 {
@@ -3380,6 +3383,7 @@ impl LookupLayout for DataLayout3_2 {
         }
     }
 
+    // TODO control this with a generic
     fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
         match self {
             Self::NonMixed(x) => x.req_meas_keywords(),
@@ -3607,34 +3611,6 @@ impl DataLayout3_2 {
     }
 }
 
-impl<T> LookupLayout for AnyOrderedLayout<T> {
-    fn req_keywords(&self) -> [(String, String); 2] {
-        match self {
-            Self::Ascii(x) => x.req_keywords(),
-            Self::Integer(x) => x.req_keywords(),
-            Self::F32(x) => x.req_keywords(),
-            Self::F64(x) => x.req_keywords(),
-        }
-    }
-
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-        match self {
-            Self::Ascii(x) => x.req_meas_keywords(),
-            Self::Integer(x) => x.req_meas_keywords(),
-            Self::F32(x) => x.req_meas_keywords(),
-            Self::F64(x) => x.req_meas_keywords(),
-        }
-    }
-
-    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-        vec![]
-    }
-
-    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-        self.ranges().as_ref().map(|_| vec![])
-    }
-}
-
 impl<T> AnyOrderedLayout<T> {
     fn lookup(
         kws: &mut StdKeywords,
@@ -3859,34 +3835,6 @@ impl<T> AnyOrderedLayout<T> {
 
     pub(crate) fn into_3_2(self) -> LayoutConvertResult<DataLayout3_2> {
         self.into_unmixed().map(DataLayout3_2::NonMixed)
-    }
-}
-
-impl LookupLayout for NonMixedEndianLayout {
-    fn req_keywords(&self) -> [(String, String); 2] {
-        match self {
-            Self::Ascii(x) => x.req_keywords(),
-            Self::Integer(x) => x.req_keywords(),
-            Self::F32(x) => x.req_keywords(),
-            Self::F64(x) => x.req_keywords(),
-        }
-    }
-
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-        match self {
-            Self::Ascii(x) => x.req_meas_keywords(),
-            Self::Integer(x) => x.req_meas_keywords(),
-            Self::F32(x) => x.req_meas_keywords(),
-            Self::F64(x) => x.req_meas_keywords(),
-        }
-    }
-
-    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-        vec![]
-    }
-
-    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-        self.ranges().as_ref().map(|_| vec![])
     }
 }
 

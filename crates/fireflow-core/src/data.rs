@@ -354,6 +354,12 @@ pub trait LayoutOps<'a, T>: Sized {
         T: TotDefinition;
 
     fn check_writer(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>>;
+
+    fn h_write_df_inner<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        df: &'a FCSDataFrame,
+    ) -> io::Result<()>;
 }
 
 /// Standardized operations on layouts
@@ -435,9 +441,6 @@ where
         }
         self.h_write_df_inner(h, df)
     }
-
-    fn h_write_df_inner<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame)
-        -> io::Result<()>;
 }
 
 pub trait HasNativeType: Sized {
@@ -2154,6 +2157,30 @@ where
             .gather()
             .void()
     }
+
+    fn h_write_df_inner<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        df: &FCSDataFrame,
+    ) -> io::Result<()> {
+        let ncols = df.ncols();
+        let nrows = df.nrows();
+        // ASSUME dataframe has correct number of columns
+        let mut column_srcs: Vec<_> = df.iter_columns().map(AnySource::<'_, u64>::new).collect();
+        for row in 0..nrows {
+            for (col, xs) in column_srcs.iter_mut().enumerate() {
+                let x = xs.next().unwrap();
+                let s = x.new.to_string();
+                let buf = s.as_bytes();
+                h.write_all(buf)?;
+                // write delimiter after all but last value
+                if !(row == nrows - 1 && col == ncols - 1) {
+                    h.write_all(&[32])?; // 32 = space in ASCII
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl<T, const ORD: bool> LookupLayout for DelimAsciiLayout<T, ORD> {
@@ -2202,26 +2229,6 @@ impl<T, const ORD: bool> DelimAsciiLayout<T, ORD> {
             })
             .gather()
             .void()
-    }
-
-    fn h_write_df<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()> {
-        let ncols = df.ncols();
-        let nrows = df.nrows();
-        // ASSUME dataframe has correct number of columns
-        let mut column_srcs: Vec<_> = df.iter_columns().map(AnySource::<'_, u64>::new).collect();
-        for row in 0..nrows {
-            for (col, xs) in column_srcs.iter_mut().enumerate() {
-                let x = xs.next().unwrap();
-                let s = x.new.to_string();
-                let buf = s.as_bytes();
-                h.write_all(buf)?;
-                // write delimiter after all but last value
-                if !(row == nrows - 1 && col == ncols - 1) {
-                    h.write_all(&[32])?; // 32 = space in ASCII
-                }
-            }
-        }
-        Ok(())
     }
 }
 
@@ -2437,6 +2444,27 @@ where
             .gather()
             .void()
     }
+
+    fn h_write_df_inner<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        df: &'a FCSDataFrame,
+    ) -> io::Result<()> {
+        let nrows = df.nrows();
+        // ASSUME df has same number of columns as layout
+        let mut cs: Vec<_> = self
+            .columns
+            .iter()
+            .zip(df.iter_columns())
+            .map(|(col_type, col_data)| col_type.into_writer(col_data))
+            .collect();
+        for _ in 0..nrows {
+            for c in cs.iter_mut() {
+                c.h_write(h, self.byte_layout)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 impl<C, S, T> LookupLayout for FixedLayout<C, S, T> {
@@ -2509,28 +2537,6 @@ impl<C, S, T> FixedLayout<C, S, T> {
 
     fn remove_nocheck_inner(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
         self.columns.remove_nocheck(index.into())
-    }
-
-    fn h_write_df<'a, W: Write>(&self, h: &mut BufWriter<W>, df: &'a FCSDataFrame) -> io::Result<()>
-    where
-        S: Copy,
-        C: Copy + IntoWriter<'a, S>,
-        <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
-    {
-        let nrows = df.nrows();
-        // ASSUME df has same number of columns as layout
-        let mut cs: Vec<_> = self
-            .columns
-            .iter()
-            .zip(df.iter_columns())
-            .map(|(col_type, col_data)| col_type.into_writer(col_data))
-            .collect();
-        for _ in 0..nrows {
-            for c in cs.iter_mut() {
-                c.h_write(h, self.byte_layout)?;
-            }
-        }
-        Ok(())
     }
 
     fn h_read_unchecked_df<R: Read>(
@@ -2992,10 +2998,6 @@ impl<T> AnyOrderedUintLayout<T> {
     pub fn endiannness(&self) -> Option<Endian> {
         match_any_uint!(self, Self, l, { Endian::try_from(l.byte_layout).ok() })
     }
-
-    fn h_write_df<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()> {
-        match_any_uint!(self, Self, l, { l.h_write_df(h, df) })
-    }
 }
 
 impl<T, const ORD: bool> AnyAsciiLayout<T, ORD> {
@@ -3078,13 +3080,6 @@ impl<T, const ORD: bool> AnyAsciiLayout<T, ORD> {
     fn new_delim(ranges: NonEmpty<u64>) -> Self {
         Self::Delimited(DelimAsciiLayout::new(ranges))
     }
-
-    fn h_write_df<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()> {
-        match self {
-            Self::Fixed(l) => l.h_write_df(h, df),
-            Self::Delimited(l) => l.h_write_df(h, df),
-        }
-    }
 }
 
 impl VersionedDataLayout for DataLayout2_0 {
@@ -3134,14 +3129,6 @@ impl VersionedDataLayout for DataLayout2_0 {
 
     fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
         self.0.remove_nocheck(index)
-    }
-
-    fn h_write_df_inner<W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        df: &FCSDataFrame,
-    ) -> io::Result<()> {
-        self.0.h_write_df(h, df)
     }
 }
 
@@ -3193,14 +3180,6 @@ impl VersionedDataLayout for DataLayout3_0 {
     fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
         self.0.remove_nocheck(index)
     }
-
-    fn h_write_df_inner<W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        df: &FCSDataFrame,
-    ) -> io::Result<()> {
-        self.0.h_write_df(h, df)
-    }
 }
 
 impl VersionedDataLayout for DataLayout3_1 {
@@ -3250,14 +3229,6 @@ impl VersionedDataLayout for DataLayout3_1 {
 
     fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
         self.0.remove_nocheck(index)
-    }
-
-    fn h_write_df_inner<W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        df: &FCSDataFrame,
-    ) -> io::Result<()> {
-        self.0.h_write_df(h, df)
     }
 }
 
@@ -3398,17 +3369,6 @@ impl VersionedDataLayout for DataLayout3_2 {
         match self {
             Self::NonMixed(x) => x.remove_nocheck(index),
             Self::Mixed(x) => x.remove_nocheck_inner(index),
-        }
-    }
-
-    fn h_write_df_inner<W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        df: &FCSDataFrame,
-    ) -> io::Result<()> {
-        match self {
-            Self::NonMixed(x) => x.h_write_df(h, df),
-            Self::Mixed(m) => m.h_write_df(h, df),
         }
     }
 }
@@ -3626,18 +3586,6 @@ impl<T> AnyOrderedLayout<T> {
         })
     }
 
-    fn h_write_df<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()>
-    where
-        T: TotDefinition,
-    {
-        match self {
-            Self::Ascii(x) => x.h_write_df(h, df),
-            Self::Integer(x) => x.h_write_df(h, df),
-            Self::F32(x) => x.h_write_df(h, df),
-            Self::F64(x) => x.h_write_df(h, df),
-        }
-    }
-
     pub fn into_unmixed(self) -> LayoutConvertResult<NonMixedEndianLayout> {
         match self {
             Self::Ascii(x) => Ok(NonMixedEndianLayout::Ascii(x.phantom_into())),
@@ -3796,15 +3744,6 @@ impl NonMixedEndianLayout {
                 F64Range::from_width_and_range(c.width, c.range, notrunc).def_warnings_into()
             })
             .def_map_value(Self::F64),
-        }
-    }
-
-    fn h_write_df<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()> {
-        match self {
-            Self::Ascii(x) => x.h_write_df(h, df),
-            Self::Integer(x) => x.h_write_df(h, df),
-            Self::F32(x) => x.h_write_df(h, df),
-            Self::F64(x) => x.h_write_df(h, df),
         }
     }
 

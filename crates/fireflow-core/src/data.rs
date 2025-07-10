@@ -58,9 +58,9 @@ use crate::text::byteord::*;
 use crate::text::float_or_int::{
     FloatOrInt, FloatRangeError, IntRangeError, NonNanFloat, ParseFloatOrIntError, ToFloatError,
 };
-use crate::text::index::{IndexError, IndexFromOne, MeasIndex};
+use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::*;
-use crate::text::optional::{ClearOptional, ClearOptionalOr};
+use crate::text::optional::ClearOptional;
 use crate::text::parser::*;
 use crate::validated::ascii_range;
 use crate::validated::ascii_range::{AsciiRange, Chars};
@@ -399,8 +399,6 @@ where
 
     fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError>;
 
-    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>>;
-
     fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional>;
 
     fn try_new(
@@ -417,6 +415,12 @@ where
         seg: AnyDataSegment,
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
+        // The only purpose of this buffer is to read ASCII since we don't
+        // hardcode the buffer width into the type (unlike integers and floats).
+        // It's passed down to each layer of the read stack to avoid making the
+        // buffer argument generic, which would make this implementation much
+        // more complex. Good enough to pass the buffer and only use it when
+        // needed.
         let mut buf = vec![];
         seg.inner.as_u64().try_coords().map_or(
             Ok(Tentative::new1(FCSDataFrame::default())),
@@ -1227,10 +1231,10 @@ impl IntoReader<Endian> for NullMixedType {
 
     fn into_reader(self, nrows: usize) -> Self::Target {
         match self {
-            Self::Ascii(c) => MixedType::Ascii(c.into_native_reader(nrows)),
+            Self::Ascii(c) => MixedType::Ascii(c.into_reader(nrows)),
             Self::Uint(c) => MixedType::Uint(c.into_reader(nrows)),
-            Self::F32(c) => MixedType::F32(c.into_native_reader(nrows)),
-            Self::F64(c) => MixedType::F64(c.into_native_reader(nrows)),
+            Self::F32(c) => MixedType::F32(c.into_reader(nrows)),
+            Self::F64(c) => MixedType::F64(c.into_reader(nrows)),
         }
     }
 }
@@ -2209,10 +2213,6 @@ impl<T, const ORD: bool> DelimAsciiLayout<T, ORD> {
         self.ranges.push(range)
     }
 
-    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-        self.ranges.remove(index.into())
-    }
-
     fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
         self.ranges.remove_nocheck(index.into())
     }
@@ -2529,10 +2529,6 @@ impl<C, S, T> FixedLayout<C, S, T> {
 
     fn push_inner(&mut self, col: C) {
         self.columns.push(col)
-    }
-
-    fn remove_inner(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-        self.columns.remove(index.into())
     }
 
     fn remove_nocheck_inner(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
@@ -2983,10 +2979,6 @@ impl<T> AnyOrderedUintLayout<T> {
         })
     }
 
-    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-        match_any_uint!(self, Self, l, { l.remove_inner(index) })
-    }
-
     fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
         match_any_uint!(self, Self, l, { l.remove_nocheck_inner(index) })
     }
@@ -3059,13 +3051,6 @@ impl<T, const ORD: bool> AnyAsciiLayout<T, ORD> {
         })
     }
 
-    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-        match self {
-            Self::Fixed(l) => l.remove_inner(index),
-            Self::Delimited(l) => l.remove(index),
-        }
-    }
-
     fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
         match self {
             Self::Fixed(l) => l.remove_nocheck_inner(index),
@@ -3123,10 +3108,6 @@ impl VersionedDataLayout for DataLayout2_0 {
         self.0.push(range, notrunc)
     }
 
-    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-        self.0.remove(index)
-    }
-
     fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
         self.0.remove_nocheck(index)
     }
@@ -3173,10 +3154,6 @@ impl VersionedDataLayout for DataLayout3_0 {
         self.0.push(range, notrunc)
     }
 
-    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-        self.0.remove(index)
-    }
-
     fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
         self.0.remove_nocheck(index)
     }
@@ -3221,10 +3198,6 @@ impl VersionedDataLayout for DataLayout3_1 {
 
     fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
         self.0.push(range, notrunc)
-    }
-
-    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-        self.0.remove(index)
     }
 
     fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
@@ -3358,13 +3331,6 @@ impl VersionedDataLayout for DataLayout3_2 {
         }
     }
 
-    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-        match self {
-            Self::NonMixed(x) => x.remove(index),
-            Self::Mixed(x) => x.remove_inner(index),
-        }
-    }
-
     fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
         match self {
             Self::NonMixed(x) => x.remove_nocheck(index),
@@ -3474,15 +3440,6 @@ impl<T> AnyOrderedLayout<T> {
             Self::Integer(l) => l.push(range, notrunc).inner_into(),
             Self::F32(l) => l.push_float(range, notrunc).inner_into(),
             Self::F64(l) => l.push_float(range, notrunc).inner_into(),
-        }
-    }
-
-    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-        match self {
-            Self::Ascii(l) => l.remove(index),
-            Self::Integer(l) => l.remove(index),
-            Self::F32(l) => l.remove_inner(index),
-            Self::F64(l) => l.remove_inner(index),
         }
     }
 
@@ -3660,15 +3617,6 @@ impl NonMixedEndianLayout {
             Self::Integer(l) => l.push_uint(range, notrunc).inner_into(),
             Self::F32(l) => l.push_float(range, notrunc).inner_into(),
             Self::F64(l) => l.push_float(range, notrunc).inner_into(),
-        }
-    }
-
-    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-        match self {
-            Self::Ascii(l) => l.remove(index),
-            Self::Integer(l) => l.remove_inner(index),
-            Self::F32(l) => l.remove_inner(index),
-            Self::F64(l) => l.remove_inner(index),
         }
     }
 

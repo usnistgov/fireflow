@@ -488,7 +488,10 @@ where
 {
     type Error;
 
-    fn into_writer<'a, S>(self, c: &'a AnyFCSColumn) -> ColumnWriter<'a, Self, Self::Native, S>
+    fn into_native_writer<'a, S>(
+        self,
+        c: &'a AnyFCSColumn,
+    ) -> ColumnWriter<'a, Self, Self::Native, S>
     where
         Self::Native: Default + Copy + AllFCSCast,
         AnySource<'a, Self::Native>: From<FCSColIter<'a, u8, Self::Native>>
@@ -505,7 +508,7 @@ where
         }
     }
 
-    fn check_writer(&self, col: &AnyFCSColumn) -> Result<(), LossError<Self::Error>>
+    fn check_native_writer(&self, col: &AnyFCSColumn) -> Result<(), LossError<Self::Error>>
     where
         Self::Native: Default + Copy + AllFCSCast,
     {
@@ -553,13 +556,15 @@ trait NativeWritable<S>: HasNativeType {
     ) -> io::Result<()>;
 }
 
+trait IntoWriter<'a, S> {
+    type Target: Writable<'a, S>;
+
+    fn into_writer(self, col: &'a AnyFCSColumn) -> Self::Target;
+
+    fn check_writer(&self, col: &'a AnyFCSColumn) -> Result<(), AnyLossError>;
+}
+
 trait Writable<'a, S> {
-    type Inner;
-
-    fn new(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Self;
-
-    fn check_writer(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Result<(), AnyLossError>;
-
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: S) -> io::Result<()>;
 }
 
@@ -1387,28 +1392,80 @@ impl NativeWritable<NoByteOrd> for AsciiRange {
     }
 }
 
+impl<'a, C, S> IntoWriter<'a, S> for C
+where
+    C: ToNativeWriter,
+    ColumnWriter<'a, C, C::Native, S>: Writable<'a, S>,
+    C::Native: Default + Copy + AllFCSCast,
+    AnySource<'a, C::Native>: From<FCSColIter<'a, u8, C::Native>>
+        + From<FCSColIter<'a, u16, C::Native>>
+        + From<FCSColIter<'a, u32, C::Native>>
+        + From<FCSColIter<'a, u64, C::Native>>
+        + From<FCSColIter<'a, f32, C::Native>>
+        + From<FCSColIter<'a, f64, C::Native>>,
+    AnyLossError: From<LossError<C::Error>>,
+{
+    type Target = ColumnWriter<'a, C, C::Native, S>;
+
+    fn into_writer(self, col: &'a AnyFCSColumn) -> Self::Target {
+        self.into_native_writer(col)
+    }
+
+    fn check_writer(&self, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
+        self.check_native_writer(col).map_err(|e| e.into())
+    }
+}
+
+impl<'a> IntoWriter<'a, Endian> for AnyNullBitmask {
+    type Target = AnyWriterBitmask<'a>;
+
+    fn into_writer(self, col: &'a AnyFCSColumn) -> Self::Target {
+        match_many_to_one!(
+            self,
+            Self,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            c,
+            { c.into_native_writer(col).into() }
+        )
+    }
+
+    fn check_writer(&self, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
+        match_many_to_one!(
+            self,
+            Self,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            c,
+            { c.check_native_writer(col).map_err(|e| e.into()) }
+        )
+    }
+}
+
+impl<'a> IntoWriter<'a, Endian> for NullMixedType {
+    type Target = WriterMixedType<'a>;
+
+    fn into_writer(self, col: &'a AnyFCSColumn) -> Self::Target {
+        match self {
+            Self::Ascii(c) => MixedType::Ascii(c.into_native_writer(col)),
+            Self::Uint(c) => MixedType::Uint(c.into_writer(col)),
+            Self::F32(c) => MixedType::F32(c.into_native_writer(col)),
+            Self::F64(c) => MixedType::F64(c.into_native_writer(col)),
+        }
+    }
+
+    fn check_writer(&self, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
+        match self {
+            MixedType::Ascii(c) => c.check_writer(col),
+            MixedType::Uint(c) => c.check_writer(col),
+            MixedType::F32(c) => c.check_native_writer(col).map_err(|e| e.into()),
+            MixedType::F64(c) => c.check_native_writer(col).map_err(|e| e.into()),
+        }
+    }
+}
+
 impl<'a, C, T, S> Writable<'a, S> for ColumnWriter<'a, C, T, S>
 where
     C: NativeWritable<S> + HasNativeType<Native = T> + ToNativeWriter,
-    T: AllFCSCast + Copy + Default,
-    AnyLossError: From<LossError<<C as ToNativeWriter>::Error>>,
-    AnySource<'a, T>: From<FCSColIter<'a, u8, T>>
-        + From<FCSColIter<'a, u16, T>>
-        + From<FCSColIter<'a, u32, T>>
-        + From<FCSColIter<'a, u64, T>>
-        + From<FCSColIter<'a, f32, T>>
-        + From<FCSColIter<'a, f64, T>>,
 {
-    type Inner = C;
-
-    fn new(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Self {
-        column_type.into_writer(col)
-    }
-
-    fn check_writer(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
-        column_type.check_writer(col).map_err(|e| e.into())
-    }
-
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: S) -> io::Result<()> {
         let x = self.data.next().unwrap();
         self.column_type.h_write(h, x, byte_layout)
@@ -1416,26 +1473,6 @@ where
 }
 
 impl<'a> Writable<'a, Endian> for WriterMixedType<'a> {
-    type Inner = NullMixedType;
-
-    fn new(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Self {
-        match column_type {
-            MixedType::Ascii(c) => Self::Ascii(c.into_writer(col)),
-            MixedType::Uint(c) => Self::Uint(AnyWriterBitmask::new(c, col)),
-            MixedType::F32(c) => Self::F32(c.into_writer(col)),
-            MixedType::F64(c) => Self::F64(c.into_writer(col)),
-        }
-    }
-
-    fn check_writer(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
-        match column_type {
-            MixedType::Ascii(c) => c.check_writer(col).map_err(|e| e.into()),
-            MixedType::Uint(c) => AnyWriterBitmask::check_writer(c, col),
-            MixedType::F32(c) => c.check_writer(col).map_err(|e| e.into()),
-            MixedType::F64(c) => c.check_writer(col).map_err(|e| e.into()),
-        }
-    }
-
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: Endian) -> io::Result<()> {
         match self {
             Self::Ascii(c) => {
@@ -1456,28 +1493,6 @@ impl<'a> Writable<'a, Endian> for WriterMixedType<'a> {
 }
 
 impl<'a> Writable<'a, Endian> for AnyWriterBitmask<'a> {
-    type Inner = AnyNullBitmask;
-
-    fn new(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Self {
-        match_many_to_one!(
-            column_type,
-            AnyBitmask,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            c,
-            { c.into_writer(col).into() }
-        )
-    }
-
-    fn check_writer(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
-        match_many_to_one!(
-            column_type,
-            AnyBitmask,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            c,
-            { c.check_writer(col).map_err(|e| e.into()) }
-        )
-    }
-
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: Endian) -> io::Result<()> {
         match_many_to_one!(
             self,
@@ -2439,13 +2454,10 @@ impl<C, S, T> FixedLayout<C, S, T> {
             })
     }
 
-    fn check_writer<'a, I>(
-        &self,
-        df: &'a FCSDataFrame,
-    ) -> MultiResult<(), ColumnError<AnyLossError>>
+    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>>
     where
-        C: Copy,
-        I: Writable<'a, S, Inner = C>,
+        C: Copy + IntoWriter<'a, S>,
+        <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
     {
         // ASSUME df has same number of columns as layout
         self.columns
@@ -2453,24 +2465,22 @@ impl<C, S, T> FixedLayout<C, S, T> {
             .zip(df.iter_columns())
             .enumerate()
             .map(|(i, (col_type, col_data))| {
-                I::check_writer(*col_type, col_data).map_err(|error| ColumnError {
-                    error,
-                    index: i.into(),
-                })
+                col_type
+                    .check_writer(col_data)
+                    .map_err(|error| ColumnError {
+                        error,
+                        index: i.into(),
+                    })
             })
             .gather()
             .void()
     }
 
-    fn h_write_df<'a, W: Write, I>(
-        &self,
-        h: &mut BufWriter<W>,
-        df: &'a FCSDataFrame,
-    ) -> io::Result<()>
+    fn h_write_df<'a, W: Write>(&self, h: &mut BufWriter<W>, df: &'a FCSDataFrame) -> io::Result<()>
     where
         S: Copy,
-        C: Copy,
-        I: Writable<'a, S, Inner = C>,
+        C: Copy + IntoWriter<'a, S>,
+        <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
     {
         let nrows = df.nrows();
         // ASSUME df has same number of columns as layout
@@ -2478,7 +2488,7 @@ impl<C, S, T> FixedLayout<C, S, T> {
             .columns
             .iter()
             .zip(df.iter_columns())
-            .map(|(col_type, col_data)| I::new(*col_type, col_data))
+            .map(|(col_type, col_data)| col_type.into_writer(col_data))
             .collect();
         for _ in 0..nrows {
             for c in cs.iter_mut() {
@@ -2985,15 +2995,11 @@ impl<T> AnyOrderedUintLayout<T> {
     }
 
     fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
-        match_any_uint!(self, Self, l, {
-            l.check_writer::<ColumnWriter<_, _, _>>(df)
-        })
+        match_any_uint!(self, Self, l, { l.check_writer(df) })
     }
 
     fn h_write_df<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()> {
-        match_any_uint!(self, Self, l, {
-            l.h_write_df::<_, ColumnWriter<_, _, _>>(h, df)
-        })
+        match_any_uint!(self, Self, l, { l.h_write_df(h, df) })
     }
 
     fn req_keywords(&self) -> [(String, String); 2] {
@@ -3113,14 +3119,14 @@ impl<T> AnyAsciiLayout<T> {
 
     fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
         match self {
-            Self::Fixed(l) => l.check_writer::<ColumnWriter<_, _, _>>(df),
+            Self::Fixed(l) => l.check_writer(df),
             Self::Delimited(l) => l.check_writer(df),
         }
     }
 
     fn h_write_df<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()> {
         match self {
-            Self::Fixed(l) => l.h_write_df::<_, ColumnWriter<_, _, _>>(h, df),
+            Self::Fixed(l) => l.h_write_df(h, df),
             Self::Delimited(l) => l.h_write_df(h, df),
         }
     }
@@ -3513,7 +3519,7 @@ impl VersionedDataLayout for DataLayout3_2 {
     fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
         match self {
             Self::NonMixed(x) => x.check_writer(df),
-            Self::Mixed(m) => m.check_writer::<WriterMixedType>(df),
+            Self::Mixed(m) => m.check_writer(df),
         }
     }
 
@@ -3540,7 +3546,7 @@ impl VersionedDataLayout for DataLayout3_2 {
     ) -> io::Result<()> {
         match self {
             Self::NonMixed(x) => x.h_write_df(h, df),
-            Self::Mixed(m) => m.h_write_df::<_, WriterMixedType>(h, df),
+            Self::Mixed(m) => m.h_write_df(h, df),
         }
     }
 }
@@ -3699,8 +3705,8 @@ impl<T> AnyOrderedLayout<T> {
         match self {
             Self::Ascii(x) => x.check_writer(df),
             Self::Integer(x) => x.check_writer(df),
-            Self::F32(x) => x.check_writer::<ColumnWriter<_, _, _>>(df),
-            Self::F64(x) => x.check_writer::<ColumnWriter<_, _, _>>(df),
+            Self::F32(x) => x.check_writer(df),
+            Self::F64(x) => x.check_writer(df),
         }
     }
 
@@ -3826,8 +3832,8 @@ impl<T> AnyOrderedLayout<T> {
         match self {
             Self::Ascii(x) => x.h_write_df(h, df),
             Self::Integer(x) => x.h_write_df(h, df),
-            Self::F32(x) => x.h_write_df::<_, ColumnWriter<_, _, _>>(h, df),
-            Self::F64(x) => x.h_write_df::<_, ColumnWriter<_, _, _>>(h, df),
+            Self::F32(x) => x.h_write_df(h, df),
+            Self::F64(x) => x.h_write_df(h, df),
         }
     }
 
@@ -3957,9 +3963,9 @@ impl NonMixedEndianLayout {
     fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
         match self {
             Self::Ascii(x) => x.check_writer(df),
-            Self::Integer(x) => x.check_writer::<AnyWriterBitmask>(df),
-            Self::F32(x) => x.check_writer::<ColumnWriter<_, _, _>>(df),
-            Self::F64(x) => x.check_writer::<ColumnWriter<_, _, _>>(df),
+            Self::Integer(x) => x.check_writer(df),
+            Self::F32(x) => x.check_writer(df),
+            Self::F64(x) => x.check_writer(df),
         }
     }
 
@@ -4053,9 +4059,9 @@ impl NonMixedEndianLayout {
     fn h_write_df<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()> {
         match self {
             Self::Ascii(x) => x.h_write_df(h, df),
-            Self::Integer(x) => x.h_write_df::<_, AnyWriterBitmask>(h, df),
-            Self::F32(x) => x.h_write_df::<_, ColumnWriter<_, _, _>>(h, df),
-            Self::F64(x) => x.h_write_df::<_, ColumnWriter<_, _, _>>(h, df),
+            Self::Integer(x) => x.h_write_df(h, df),
+            Self::F32(x) => x.h_write_df(h, df),
+            Self::F64(x) => x.h_write_df(h, df),
         }
     }
 

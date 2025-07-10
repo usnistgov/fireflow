@@ -467,9 +467,9 @@ pub trait IsFixed {
     }
 }
 
-/// A column which may be transformed into a reader for a rust numeric type
-trait ToNativeReader: HasNativeType {
-    fn into_native_reader<S>(self, nrows: usize) -> ColumnReader<Self, Self::Native, S>
+// TODO can't this just be with the native reader type?
+trait NativeReadable<S, E>: HasNativeType {
+    fn into_native_reader(self, nrows: usize) -> ColumnReader<Self, Self::Native, S>
     where
         Self::Native: Default + Copy,
     {
@@ -479,10 +479,7 @@ trait ToNativeReader: HasNativeType {
             byte_layout: PhantomData,
         }
     }
-}
 
-// TODO can't this just be with the native reader type?
-trait NativeReadable<S, E>: HasNativeType {
     fn h_read_native<R: Read>(
         &self,
         h: &mut BufReader<R>,
@@ -1098,13 +1095,6 @@ impl fmt::Display for MixedToDoubleError {
     }
 }
 
-impl<T, const LEN: usize> ToNativeReader for Bitmask<T, LEN> where Self: HasNativeType<Native = T> {}
-
-impl<T, const LEN: usize> ToNativeReader for FloatRange<T, LEN> where Self: HasNativeType<Native = T>
-{}
-
-impl ToNativeReader for AsciiRange {}
-
 impl<T, const LEN: usize, E> NativeReadable<Endian, E> for Bitmask<T, LEN>
 where
     Bitmask<T, LEN>: HasNativeType<Native = T>,
@@ -1185,7 +1175,7 @@ impl NativeReadable<NoByteOrd, AsciiToUintError> for AsciiRange {
 impl<C, S, E> ToReader<S, E> for C
 where
     AnyFCSColumn: From<FCSColumn<C::Native>>,
-    C: NativeReadable<S, E> + ToNativeReader,
+    C: NativeReadable<S, E>,
 {
     type Target = ColumnReader<C, C::Native, S>;
 
@@ -1203,7 +1193,7 @@ impl<E> ToReader<Endian, E> for AnyNullBitmask {
             Self,
             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
             c,
-            { c.into_native_reader(nrows).into() }
+            { ToReader::<_, E>::into_reader(c, nrows).into() }
         )
     }
 }
@@ -1213,12 +1203,12 @@ impl ToReader<Endian, AsciiToUintError> for NullMixedType {
 
     fn into_reader(self, nrows: usize) -> Self::Target {
         match self {
-            Self::Ascii(c) => MixedType::Ascii(c.into_native_reader(nrows)),
+            Self::Ascii(c) => MixedType::Ascii(c.into_reader(nrows)),
             Self::Uint(c) => {
                 MixedType::Uint(ToReader::<_, AsciiToUintError>::into_reader(c, nrows))
             }
-            Self::F32(c) => MixedType::F32(c.into_native_reader(nrows)),
-            Self::F64(c) => MixedType::F64(c.into_native_reader(nrows)),
+            Self::F32(c) => MixedType::F32(ToReader::<_, AsciiToUintError>::into_reader(c, nrows)),
+            Self::F64(c) => MixedType::F64(ToReader::<_, AsciiToUintError>::into_reader(c, nrows)),
         }
     }
 }
@@ -1226,7 +1216,7 @@ impl ToReader<Endian, AsciiToUintError> for NullMixedType {
 impl<C, T, S, E> Readable<S, E> for ColumnReader<C, T, S>
 where
     T: Copy + Default,
-    C: NativeReadable<S, E> + HasNativeType<Native = T> + ToNativeReader,
+    C: NativeReadable<S, E> + HasNativeType<Native = T>,
     AnyFCSColumn: From<FCSColumn<T>>,
 {
     fn into_dataframe_column(self) -> AnyFCSColumn {

@@ -3533,7 +3533,7 @@ impl<T> AnyOrderedLayout<T> {
 
     pub fn into_unmixed(self) -> LayoutConvertResult<NonMixedEndianLayout> {
         match self {
-            Self::Ascii(x) => Ok(NonMixedEndianLayout::Ascii(x.phantom_into())),
+            Self::Ascii(x) => Ok(x.phantom_into().into()),
             Self::Integer(x) => x.into_endian().map(NonMixedEndianLayout::Integer),
             Self::F32(x) => x.phantom_into().byte_layout_try_into().map(|y| y.into()),
             Self::F64(x) => x.phantom_into().byte_layout_try_into().map(|y| y.into()),
@@ -3635,16 +3635,6 @@ impl NonMixedEndianLayout {
 
     pub fn new_f64(ranges: NonEmpty<F64Range>, endian: Endian) -> Self {
         FixedLayout::new(ranges, endian).into()
-    }
-
-    // TODO this doesn't feel dry
-    pub fn datatype(&self) -> AlphaNumType {
-        match self {
-            Self::Ascii(_) => AlphaNumType::Ascii,
-            Self::Integer(_) => AlphaNumType::Integer,
-            Self::F32(_) => AlphaNumType::Single,
-            Self::F64(_) => AlphaNumType::Double,
-        }
     }
 
     pub fn endianness(&self) -> Option<Endian> {

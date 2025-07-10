@@ -1,6 +1,6 @@
 use fireflow_core::data::{
     AnyNullBitmask, AnyOrderedLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
-    FloatRange, LayoutOps, NonMixedEndianLayout, NullMixedType, VersionedDataLayout,
+    EndianLayoutOps, FloatRange, LayoutOps, NonMixedEndianLayout, NullMixedType, OrderedLayoutOps,
 };
 use fireflow_core::text::byteord::{Endian, SizedByteOrd};
 use fireflow_core::text::float_or_int::{NonNanF32, NonNanF64, NonNanFloat};

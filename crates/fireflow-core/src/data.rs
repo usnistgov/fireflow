@@ -92,12 +92,14 @@ use std::str;
 /// is optional, which requires a different interface.
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
+#[delegate(OrderedLayoutOps)]
 #[delegate(LookupLayout)]
 pub struct DataLayout2_0(pub AnyOrderedLayout<MaybeTot>);
 
 /// All possible byte layouts for the DATA segment in 2.0.
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
+#[delegate(OrderedLayoutOps)]
 #[delegate(LookupLayout)]
 pub struct DataLayout3_0(pub AnyOrderedLayout<KnownTot>);
 
@@ -108,6 +110,7 @@ pub struct DataLayout3_0(pub AnyOrderedLayout<KnownTot>);
 /// endian" and have nothing to do with number of bytes.
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
+#[delegate(EndianLayoutOps)]
 #[delegate(LookupLayout)]
 pub struct DataLayout3_1(pub NonMixedEndianLayout);
 
@@ -117,6 +120,7 @@ pub struct DataLayout3_1(pub NonMixedEndianLayout);
 /// each column to have a different type and size (hence "Mixed").
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
+#[delegate(EndianLayoutOps)]
 pub enum DataLayout3_2 {
     Mixed(EndianLayout<NullMixedType>),
     NonMixed(NonMixedEndianLayout),
@@ -128,6 +132,7 @@ pub enum DataLayout3_2 {
 /// byte ordering that may occur rather than simply little or big endian.
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
+#[delegate(OrderedLayoutOps)]
 #[delegate(LookupLayout)]
 pub enum AnyOrderedLayout<T> {
     Ascii(AnyAsciiLayout<T, true>),
@@ -140,6 +145,7 @@ pub enum AnyOrderedLayout<T> {
 // vast majority of cases and make certain operations easier.
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
+#[delegate(EndianLayoutOps)]
 #[delegate(LookupLayout)]
 pub enum NonMixedEndianLayout {
     Ascii(AnyAsciiLayout<KnownTot, false>),
@@ -183,6 +189,7 @@ pub struct FixedLayout<C, L, T> {
 /// Byte layout for integers that may be in any byte order.
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
+#[delegate(OrderedLayoutOps)]
 #[delegate(LookupLayout)]
 pub enum AnyOrderedUintLayout<T> {
     // TODO the first two don't need to be ordered
@@ -366,6 +373,22 @@ pub trait LayoutOps<'a, T>: Sized {
         h: &mut BufWriter<W>,
         df: &'a FCSDataFrame,
     ) -> io::Result<()>;
+}
+
+/// Standardized operations on layouts
+#[delegatable_trait]
+pub trait OrderedLayoutOps: Sized {
+    fn byte_order(&self) -> Option<ByteOrd2_0>;
+
+    fn endianness(&self) -> Option<Endian> {
+        self.byte_order().and_then(|x| x.try_into().ok())
+    }
+}
+
+/// Standardized operations on layouts
+#[delegatable_trait]
+pub trait EndianLayoutOps: Sized {
+    fn endianness(&self) -> Option<Endian>;
 }
 
 /// Standardized operations on layouts
@@ -2475,6 +2498,22 @@ where
     }
 }
 
+impl<C, S, T> OrderedLayoutOps for FixedLayout<C, S, T>
+where
+    S: Copy,
+    ByteOrd2_0: From<S>,
+{
+    fn byte_order(&self) -> Option<ByteOrd2_0> {
+        Some(self.byte_layout.into())
+    }
+}
+
+impl<C, T> EndianLayoutOps for FixedLayout<C, Endian, T> {
+    fn endianness(&self) -> Option<Endian> {
+        Some(self.byte_layout)
+    }
+}
+
 impl<C, S, T> LookupLayout for FixedLayout<C, S, T> {
     fn opt_meas_headers(&self) -> Vec<MeasHeader> {
         vec![]
@@ -2980,13 +3019,17 @@ impl<T> AnyOrderedUintLayout<T> {
     fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
         match_any_uint!(self, Self, l, { l.remove_nocheck_inner(index) })
     }
+}
 
-    pub fn byte_order(&self) -> ByteOrd2_0 {
-        match_any_uint!(self, Self, l, { l.byte_layout.into() })
+impl<T> OrderedLayoutOps for AnyAsciiLayout<T, true> {
+    fn byte_order(&self) -> Option<ByteOrd2_0> {
+        None
     }
+}
 
-    pub fn endiannness(&self) -> Option<Endian> {
-        match_any_uint!(self, Self, l, { Endian::try_from(l.byte_layout).ok() })
+impl<T> EndianLayoutOps for AnyAsciiLayout<T, false> {
+    fn endianness(&self) -> Option<Endian> {
+        None
     }
 }
 
@@ -3351,13 +3394,6 @@ impl DataLayout3_2 {
         }
     }
 
-    pub fn endianness(&self) -> Option<Endian> {
-        match self {
-            Self::NonMixed(x) => x.endianness(),
-            Self::Mixed(x) => Some(x.byte_layout),
-        }
-    }
-
     pub fn new_mixed(ranges: NonEmpty<NullMixedType>, endian: Endian) -> Self {
         // check if the mixed types are all the same, in which case we can use a
         // simpler layout
@@ -3474,24 +3510,6 @@ impl<T> AnyOrderedLayout<T> {
 
     pub fn new_f64(ranges: NonEmpty<F64Range>, byte_layout: SizedByteOrd<8>) -> Self {
         FixedLayout::new(ranges, byte_layout).into()
-    }
-
-    pub fn byte_order(&self) -> Option<ByteOrd2_0> {
-        match self {
-            Self::Ascii(_) => None,
-            Self::Integer(x) => Some(x.byte_order()),
-            Self::F32(x) => Some(x.byte_layout.into()),
-            Self::F64(x) => Some(x.byte_layout.into()),
-        }
-    }
-
-    pub fn endianness(&self) -> Option<Endian> {
-        match self {
-            Self::Ascii(_) => None,
-            Self::Integer(x) => x.endiannness(),
-            Self::F32(x) => x.byte_layout.try_into().ok(),
-            Self::F64(x) => x.byte_layout.try_into().ok(),
-        }
     }
 
     fn try_new(
@@ -3635,15 +3653,6 @@ impl NonMixedEndianLayout {
 
     pub fn new_f64(ranges: NonEmpty<F64Range>, endian: Endian) -> Self {
         FixedLayout::new(ranges, endian).into()
-    }
-
-    pub fn endianness(&self) -> Option<Endian> {
-        match self {
-            Self::Ascii(_) => None,
-            Self::Integer(x) => Some(x.byte_layout),
-            Self::F32(x) => Some(x.byte_layout),
-            Self::F64(x) => Some(x.byte_layout),
-        }
     }
 
     fn try_new(

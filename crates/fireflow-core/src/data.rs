@@ -469,7 +469,7 @@ pub trait IsFixed {
 
 /// A column which may be transformed into a reader for a rust numeric type
 trait ToNativeReader: HasNativeType {
-    fn into_reader<S>(self, nrows: usize) -> ColumnReader<Self, Self::Native, S>
+    fn into_native_reader<S>(self, nrows: usize) -> ColumnReader<Self, Self::Native, S>
     where
         Self::Native: Default + Copy,
     {
@@ -530,13 +530,16 @@ trait NativeReadable<S, E>: HasNativeType {
     ) -> IOResult<Self::Native, E>;
 }
 
+trait ToReader<S, E> {
+    type Target: Readable<S, E>;
+
+    fn into_reader(self, nrows: usize) -> Self::Target;
+}
+
 trait Readable<S, E> {
-    type Inner;
     type Buf;
 
-    fn new(column_type: Self::Inner, nrows: usize) -> Self;
-
-    fn into_column(self) -> AnyFCSColumn;
+    fn into_dataframe_column(self) -> AnyFCSColumn;
 
     fn h_read_row<R: Read>(
         &mut self,
@@ -1193,20 +1196,57 @@ impl NativeReadable<NoByteOrd, AsciiToUintError> for AsciiRange {
     }
 }
 
+impl<C, S, E> ToReader<S, E> for C
+where
+    C: ToNativeReader,
+    AnyFCSColumn: From<FCSColumn<C::Native>>,
+    C: NativeReadable<S, E>,
+{
+    type Target = ColumnReader<C, C::Native, S>;
+
+    fn into_reader(self, nrows: usize) -> Self::Target {
+        self.into_native_reader(nrows)
+    }
+}
+
+impl<E> ToReader<Endian, E> for AnyNullBitmask {
+    type Target = AnyReaderBitmask;
+
+    fn into_reader(self, nrows: usize) -> Self::Target {
+        match_many_to_one!(
+            self,
+            Self,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            c,
+            { c.into_native_reader(nrows).into() }
+        )
+    }
+}
+
+impl ToReader<Endian, AsciiToUintError> for NullMixedType {
+    type Target = ReaderMixedType;
+
+    fn into_reader(self, nrows: usize) -> Self::Target {
+        match self {
+            Self::Ascii(c) => MixedType::Ascii(c.into_native_reader(nrows)),
+            Self::Uint(c) => {
+                MixedType::Uint(ToReader::<_, AsciiToUintError>::into_reader(c, nrows))
+            }
+            Self::F32(c) => MixedType::F32(c.into_native_reader(nrows)),
+            Self::F64(c) => MixedType::F64(c.into_native_reader(nrows)),
+        }
+    }
+}
+
 impl<C, T, S, E> Readable<S, E> for ColumnReader<C, T, S>
 where
     T: Copy + Default,
     C: NativeReadable<S, E> + HasNativeType<Native = T> + ToNativeReader,
     AnyFCSColumn: From<FCSColumn<T>>,
 {
-    type Inner = C;
     type Buf = <C as NativeReadable<S, E>>::Buf;
 
-    fn new(column_type: Self::Inner, nrows: usize) -> Self {
-        column_type.into_reader(nrows)
-    }
-
-    fn into_column(self) -> AnyFCSColumn {
+    fn into_dataframe_column(self) -> AnyFCSColumn {
         FCSColumn::from(self.data).into()
     }
 
@@ -1223,24 +1263,14 @@ where
 }
 
 impl Readable<Endian, AsciiToUintError> for ReaderMixedType {
-    type Inner = NullMixedType;
     type Buf = Vec<u8>;
 
-    fn new(column_type: Self::Inner, nrows: usize) -> Self {
-        match column_type {
-            MixedType::Ascii(c) => Self::Ascii(c.into_reader(nrows)),
-            MixedType::Uint(c) => Self::Uint(Readable::<_, AsciiToUintError>::new(c, nrows)),
-            MixedType::F32(c) => Self::F32(c.into_reader(nrows)),
-            MixedType::F64(c) => Self::F64(c.into_reader(nrows)),
-        }
-    }
-
-    fn into_column(self) -> AnyFCSColumn {
+    fn into_dataframe_column(self) -> AnyFCSColumn {
         match self {
-            MixedType::Ascii(c) => c.into_column(),
-            MixedType::Uint(c) => Readable::<_, AsciiToUintError>::into_column(c),
-            MixedType::F32(c) => Readable::<_, AsciiToUintError>::into_column(c),
-            MixedType::F64(c) => Readable::<_, AsciiToUintError>::into_column(c),
+            MixedType::Ascii(c) => c.into_dataframe_column(),
+            MixedType::Uint(c) => Readable::<_, AsciiToUintError>::into_dataframe_column(c),
+            MixedType::F32(c) => Readable::<_, AsciiToUintError>::into_dataframe_column(c),
+            MixedType::F64(c) => Readable::<_, AsciiToUintError>::into_dataframe_column(c),
         }
     }
 
@@ -1267,26 +1297,15 @@ impl Readable<Endian, AsciiToUintError> for ReaderMixedType {
 }
 
 impl<E> Readable<Endian, E> for AnyReaderBitmask {
-    type Inner = AnyNullBitmask;
     type Buf = ();
 
-    fn new(column_type: Self::Inner, nrows: usize) -> Self {
-        match_many_to_one!(
-            column_type,
-            AnyBitmask,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            c,
-            { c.into_reader(nrows).into() }
-        )
-    }
-
-    fn into_column(self) -> AnyFCSColumn {
+    fn into_dataframe_column(self) -> AnyFCSColumn {
         match_many_to_one!(
             self,
             AnyBitmask,
             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
             c,
-            { Readable::<_, E>::into_column(c) }
+            { Readable::<_, E>::into_dataframe_column(c) }
         )
     }
 
@@ -2404,7 +2423,7 @@ impl<C, S, T> FixedLayout<C, S, T> {
         self.columns.remove_nocheck(index.into())
     }
 
-    fn h_read_df_numeric<R: Read, I, W, E>(
+    fn h_read_df_numeric<R: Read, W, E>(
         &self,
         h: &mut BufReader<R>,
         tot: T::Tot,
@@ -2415,14 +2434,14 @@ impl<C, S, T> FixedLayout<C, S, T> {
         W: From<UnevenEventWidth> + From<TotEventMismatch>,
         E: From<UnevenEventWidth> + From<TotEventMismatch>,
         S: Copy,
-        C: IsFixed + Copy,
-        I: Readable<S, E, Inner = C, Buf = ()>,
+        C: IsFixed + Copy + ToReader<S, E>,
+        <C as ToReader<S, E>>::Target: Readable<S, E, Buf = ()>,
         T: TotDefinition,
     {
-        self.h_read_df::<_, I, _, _, E, E>(h, &mut (), tot, seg, conf)
+        self.h_read_df::<_, _, _, E, E>(h, &mut (), tot, seg, conf)
     }
 
-    fn h_read_df<R: Read, I, B, W, E, ReadErr>(
+    fn h_read_df<R: Read, B, W, E, ReadErr>(
         &self,
         h: &mut BufReader<R>,
         buf: &mut B,
@@ -2434,8 +2453,8 @@ impl<C, S, T> FixedLayout<C, S, T> {
         W: From<UnevenEventWidth> + From<TotEventMismatch>,
         E: From<ReadErr> + From<UnevenEventWidth> + From<TotEventMismatch>,
         S: Copy,
-        C: IsFixed + Copy,
-        I: Readable<S, ReadErr, Inner = C, Buf = B>,
+        C: IsFixed + Copy + ToReader<S, ReadErr>,
+        <C as ToReader<S, ReadErr>>::Target: Readable<S, ReadErr, Buf = B>,
         T: TotDefinition,
     {
         self.compute_nrows(seg, conf)
@@ -2448,7 +2467,7 @@ impl<C, S, T> FixedLayout<C, S, T> {
                     .errors_liftio()
             })
             .and_maybe(|nrows| {
-                self.h_read_unchecked_df::<R, I, B, ReadErr>(h, nrows, buf)
+                self.h_read_unchecked_df::<R, B, ReadErr>(h, nrows, buf)
                     .map_err(|e| e.inner_into())
                     .into_deferred()
             })
@@ -2498,7 +2517,7 @@ impl<C, S, T> FixedLayout<C, S, T> {
         Ok(())
     }
 
-    fn h_read_unchecked_df<R: Read, I, B, E>(
+    fn h_read_unchecked_df<R: Read, B, E>(
         &self,
         h: &mut BufReader<R>,
         nrows: usize,
@@ -2506,17 +2525,20 @@ impl<C, S, T> FixedLayout<C, S, T> {
     ) -> IOResult<FCSDataFrame, E>
     where
         S: Copy,
-        C: IsFixed + Copy,
-        I: Readable<S, E, Inner = C, Buf = B>,
+        C: IsFixed + Copy + ToReader<S, E>,
+        <C as ToReader<S, E>>::Target: Readable<S, E, Buf = B>,
     {
-        let mut col_readers: Vec<_> = self.columns.iter().map(|c| I::new(*c, nrows)).collect();
+        let mut col_readers: Vec<_> = self.columns.iter().map(|c| c.into_reader(nrows)).collect();
         for row in 0..nrows {
             for c in col_readers.iter_mut() {
                 c.h_read_row(h, row, self.byte_layout, buf)
                     .map_err(|e| e.inner_into())?;
             }
         }
-        let data = col_readers.into_iter().map(|c| c.into_column()).collect();
+        let data = col_readers
+            .into_iter()
+            .map(|c| c.into_dataframe_column())
+            .collect();
         Ok(FCSDataFrame::try_new(data).unwrap())
     }
 
@@ -2579,6 +2601,7 @@ impl<C, S, T> FixedLayout<C, S, T> {
         }
     }
 
+    // TODO get rid of this generic
     fn req_keywords<X>(&self) -> [(String, String); 2]
     where
         S: Copy,
@@ -2990,7 +3013,7 @@ impl<T> AnyOrderedUintLayout<T> {
         T: TotDefinition,
     {
         match_any_uint!(self, Self, l, {
-            l.h_read_df_numeric::<_, ColumnReader<_, _, _>, _, E>(h, tot, seg, conf)
+            l.h_read_df_numeric::<_, _, E>(h, tot, seg, conf)
         })
     }
 
@@ -3105,10 +3128,8 @@ impl<T> AnyAsciiLayout<T> {
         match self {
             Self::Fixed(c) => {
                 let mut buf = vec![];
-                c.h_read_df::<_, ColumnReader<_, _, _>, _, _, ReadFixedAsciiError, _>(
-                    h, &mut buf, tot, seg, conf,
-                )
-                .def_map_errors(|e| e.inner_into())
+                c.h_read_df::<_, _, _, ReadFixedAsciiError, _>(h, &mut buf, tot, seg, conf)
+                    .def_map_errors(|e| e.inner_into())
             }
             Self::Delimited(l) => l
                 .h_read_df(h, tot, seg.inner.len() as usize)
@@ -3534,7 +3555,7 @@ impl VersionedDataLayout for DataLayout3_2 {
             Self::NonMixed(x) => x.h_read_df(h, tot, seg, conf),
             Self::Mixed(m) => {
                 let mut buf = vec![];
-                m.h_read_df::<_, ReaderMixedType, _, _, _, _>(h, &mut buf, tot, seg, conf)
+                m.h_read_df(h, &mut buf, tot, seg, conf)
             }
         }
     }
@@ -3816,12 +3837,8 @@ impl<T> AnyOrderedLayout<T> {
                 .h_read_checked_df(h, tot, seg, conf)
                 .def_map_errors(|e| e.inner_into()),
             Self::Integer(x) => x.h_read_df(h, tot, seg, conf),
-            Self::F32(x) => {
-                x.h_read_df_numeric::<_, ColumnReader<_, _, _>, _, _>(h, tot, seg, conf)
-            }
-            Self::F64(x) => {
-                x.h_read_df_numeric::<_, ColumnReader<_, _, _>, _, _>(h, tot, seg, conf)
-            }
+            Self::F32(x) => x.h_read_df_numeric(h, tot, seg, conf),
+            Self::F64(x) => x.h_read_df_numeric(h, tot, seg, conf),
         }
     }
 
@@ -4045,14 +4062,10 @@ impl NonMixedEndianLayout {
         match self {
             Self::Ascii(x) => x
                 .h_read_checked_df(h, tot, seg, conf)
-                .def_map_errors(|e| e.inner_into()),
-            Self::Integer(x) => x.h_read_df_numeric::<_, AnyReaderBitmask, _, _>(h, tot, seg, conf),
-            Self::F32(x) => {
-                x.h_read_df_numeric::<_, ColumnReader<_, _, _>, _, _>(h, tot, seg, conf)
-            }
-            Self::F64(x) => {
-                x.h_read_df_numeric::<_, ColumnReader<_, _, _>, _, _>(h, tot, seg, conf)
-            }
+                .def_map_errors(|e| e.map_inner(ReadDataframeError::from)),
+            Self::Integer(x) => x.h_read_df_numeric(h, tot, seg, conf),
+            Self::F32(x) => x.h_read_df_numeric(h, tot, seg, conf),
+            Self::F64(x) => x.h_read_df_numeric(h, tot, seg, conf),
         }
     }
 

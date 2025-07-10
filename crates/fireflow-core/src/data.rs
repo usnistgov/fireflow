@@ -481,6 +481,16 @@ trait ToNativeReader: HasNativeType {
     }
 }
 
+// TODO can't this just be with the native reader type?
+trait NativeReadable<S, E>: HasNativeType {
+    fn h_read_native<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        byte_layout: S,
+        buf: &mut Vec<u8>,
+    ) -> IOResult<Self::Native, E>;
+}
+
 /// A column which may be transformed into a writer for a rust numeric type
 trait ToNativeWriter
 where
@@ -518,18 +528,6 @@ where
     fn check_other_loss(&self, x: Self::Native) -> Option<Self::Error>;
 }
 
-// TODO can't this just be with the native reader type?
-trait NativeReadable<S, E>: HasNativeType {
-    type Buf;
-
-    fn h_read<R: Read>(
-        &self,
-        h: &mut BufReader<R>,
-        byte_layout: S,
-        buf: &mut Self::Buf,
-    ) -> IOResult<Self::Native, E>;
-}
-
 trait ToReader<S, E> {
     type Target: Readable<S, E>;
 
@@ -537,16 +535,14 @@ trait ToReader<S, E> {
 }
 
 trait Readable<S, E> {
-    type Buf;
-
     fn into_dataframe_column(self) -> AnyFCSColumn;
 
-    fn h_read_row<R: Read>(
+    fn h_read<R: Read>(
         &mut self,
         h: &mut BufReader<R>,
         row: usize,
         byte_layout: S,
-        buf: &mut Self::Buf,
+        buf: &mut Vec<u8>,
     ) -> IOResult<(), E>;
 }
 
@@ -1114,13 +1110,11 @@ where
     Bitmask<T, LEN>: HasNativeType<Native = T>,
     T: Ord + Copy + IntFromBytes<LEN>,
 {
-    type Buf = ();
-
-    fn h_read<R: Read>(
+    fn h_read_native<R: Read>(
         &self,
         h: &mut BufReader<R>,
         byte_layout: Endian,
-        _: &mut (),
+        _: &mut Vec<u8>,
     ) -> IOResult<T, E> {
         let x = T::h_read_endian(h, byte_layout)?;
         Ok(x)
@@ -1132,13 +1126,11 @@ where
     Bitmask<T, LEN>: HasNativeType<Native = T>,
     T: Ord + Copy + IntFromBytes<LEN>,
 {
-    type Buf = ();
-
-    fn h_read<R: Read>(
+    fn h_read_native<R: Read>(
         &self,
         h: &mut BufReader<R>,
         byte_layout: SizedByteOrd<LEN>,
-        _: &mut (),
+        _: &mut Vec<u8>,
     ) -> IOResult<T, E> {
         let x = T::h_read_ordered(h, byte_layout)?;
         Ok(x)
@@ -1150,13 +1142,11 @@ where
     FloatRange<T, LEN>: HasNativeType<Native = T>,
     T: Copy + FloatFromBytes<LEN>,
 {
-    type Buf = ();
-
-    fn h_read<R: Read>(
+    fn h_read_native<R: Read>(
         &self,
         h: &mut BufReader<R>,
         byte_layout: Endian,
-        _: &mut (),
+        _: &mut Vec<u8>,
     ) -> IOResult<T, E> {
         let x = T::h_read_endian(h, byte_layout)?;
         Ok(x)
@@ -1168,13 +1158,11 @@ where
     FloatRange<T, LEN>: HasNativeType<Native = T>,
     T: Copy + FloatFromBytes<LEN>,
 {
-    type Buf = ();
-
-    fn h_read<R: Read>(
+    fn h_read_native<R: Read>(
         &self,
         h: &mut BufReader<R>,
         byte_layout: SizedByteOrd<LEN>,
-        _: &mut (),
+        _: &mut Vec<u8>,
     ) -> IOResult<T, E> {
         let x = T::h_read_ordered(h, byte_layout)?;
         Ok(x)
@@ -1182,9 +1170,7 @@ where
 }
 
 impl NativeReadable<NoByteOrd, AsciiToUintError> for AsciiRange {
-    type Buf = Vec<u8>;
-
-    fn h_read<R: Read>(
+    fn h_read_native<R: Read>(
         &self,
         h: &mut BufReader<R>,
         _: NoByteOrd,
@@ -1198,9 +1184,8 @@ impl NativeReadable<NoByteOrd, AsciiToUintError> for AsciiRange {
 
 impl<C, S, E> ToReader<S, E> for C
 where
-    C: ToNativeReader,
     AnyFCSColumn: From<FCSColumn<C::Native>>,
-    C: NativeReadable<S, E>,
+    C: NativeReadable<S, E> + ToNativeReader,
 {
     type Target = ColumnReader<C, C::Native, S>;
 
@@ -1244,27 +1229,23 @@ where
     C: NativeReadable<S, E> + HasNativeType<Native = T> + ToNativeReader,
     AnyFCSColumn: From<FCSColumn<T>>,
 {
-    type Buf = <C as NativeReadable<S, E>>::Buf;
-
     fn into_dataframe_column(self) -> AnyFCSColumn {
         FCSColumn::from(self.data).into()
     }
 
-    fn h_read_row<R: Read>(
+    fn h_read<R: Read>(
         &mut self,
         h: &mut BufReader<R>,
         row: usize,
         byte_layout: S,
-        buf: &mut Self::Buf,
+        buf: &mut Vec<u8>,
     ) -> IOResult<(), E> {
-        self.data[row] = self.column_type.h_read(h, byte_layout, buf)?;
+        self.data[row] = self.column_type.h_read_native(h, byte_layout, buf)?;
         Ok(())
     }
 }
 
 impl Readable<Endian, AsciiToUintError> for ReaderMixedType {
-    type Buf = Vec<u8>;
-
     fn into_dataframe_column(self) -> AnyFCSColumn {
         match self {
             MixedType::Ascii(c) => c.into_dataframe_column(),
@@ -1274,31 +1255,29 @@ impl Readable<Endian, AsciiToUintError> for ReaderMixedType {
         }
     }
 
-    fn h_read_row<R: Read>(
+    fn h_read<R: Read>(
         &mut self,
         h: &mut BufReader<R>,
         row: usize,
         byte_layout: Endian,
-        buf: &mut Self::Buf,
+        buf: &mut Vec<u8>,
     ) -> IOResult<(), AsciiToUintError> {
         match self {
-            MixedType::Ascii(c) => c.h_read_row(h, row, NoByteOrd, buf),
+            MixedType::Ascii(c) => c.h_read(h, row, NoByteOrd, buf),
             MixedType::Uint(c) => c
-                .h_read_row(h, row, byte_layout, &mut ())
+                .h_read(h, row, byte_layout, buf)
                 .map_err(|e| e.infallible()),
             MixedType::F32(c) => c
-                .h_read_row(h, row, byte_layout, &mut ())
+                .h_read(h, row, byte_layout, buf)
                 .map_err(|e| e.infallible()),
             MixedType::F64(c) => c
-                .h_read_row(h, row, byte_layout, &mut ())
+                .h_read(h, row, byte_layout, buf)
                 .map_err(|e| e.infallible()),
         }
     }
 }
 
 impl<E> Readable<Endian, E> for AnyReaderBitmask {
-    type Buf = ();
-
     fn into_dataframe_column(self) -> AnyFCSColumn {
         match_many_to_one!(
             self,
@@ -1309,19 +1288,19 @@ impl<E> Readable<Endian, E> for AnyReaderBitmask {
         )
     }
 
-    fn h_read_row<R: Read>(
+    fn h_read<R: Read>(
         &mut self,
         h: &mut BufReader<R>,
         row: usize,
         byte_layout: Endian,
-        buf: &mut Self::Buf,
+        buf: &mut Vec<u8>,
     ) -> IOResult<(), E> {
         match_many_to_one!(
             self,
             AnyBitmask,
             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
             c,
-            { c.h_read_row(h, row, byte_layout, buf) }
+            { c.h_read(h, row, byte_layout, buf) }
         )
     }
 }
@@ -2435,16 +2414,17 @@ impl<C, S, T> FixedLayout<C, S, T> {
         E: From<UnevenEventWidth> + From<TotEventMismatch>,
         S: Copy,
         C: IsFixed + Copy + ToReader<S, E>,
-        <C as ToReader<S, E>>::Target: Readable<S, E, Buf = ()>,
+        <C as ToReader<S, E>>::Target: Readable<S, E>,
         T: TotDefinition,
     {
-        self.h_read_df::<_, _, _, E, E>(h, &mut (), tot, seg, conf)
+        let mut buf = vec![];
+        self.h_read_df::<_, _, E, E>(h, &mut buf, tot, seg, conf)
     }
 
-    fn h_read_df<R: Read, B, W, E, ReadErr>(
+    fn h_read_df<R: Read, W, E, ReadErr>(
         &self,
         h: &mut BufReader<R>,
-        buf: &mut B,
+        buf: &mut Vec<u8>,
         tot: T::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
@@ -2454,7 +2434,7 @@ impl<C, S, T> FixedLayout<C, S, T> {
         E: From<ReadErr> + From<UnevenEventWidth> + From<TotEventMismatch>,
         S: Copy,
         C: IsFixed + Copy + ToReader<S, ReadErr>,
-        <C as ToReader<S, ReadErr>>::Target: Readable<S, ReadErr, Buf = B>,
+        <C as ToReader<S, ReadErr>>::Target: Readable<S, ReadErr>,
         T: TotDefinition,
     {
         self.compute_nrows(seg, conf)
@@ -2467,7 +2447,7 @@ impl<C, S, T> FixedLayout<C, S, T> {
                     .errors_liftio()
             })
             .and_maybe(|nrows| {
-                self.h_read_unchecked_df::<R, B, ReadErr>(h, nrows, buf)
+                self.h_read_unchecked_df::<R, ReadErr>(h, nrows, buf)
                     .map_err(|e| e.inner_into())
                     .into_deferred()
             })
@@ -2517,21 +2497,21 @@ impl<C, S, T> FixedLayout<C, S, T> {
         Ok(())
     }
 
-    fn h_read_unchecked_df<R: Read, B, E>(
+    fn h_read_unchecked_df<R: Read, E>(
         &self,
         h: &mut BufReader<R>,
         nrows: usize,
-        buf: &mut B,
+        buf: &mut Vec<u8>,
     ) -> IOResult<FCSDataFrame, E>
     where
         S: Copy,
         C: IsFixed + Copy + ToReader<S, E>,
-        <C as ToReader<S, E>>::Target: Readable<S, E, Buf = B>,
+        <C as ToReader<S, E>>::Target: Readable<S, E>,
     {
         let mut col_readers: Vec<_> = self.columns.iter().map(|c| c.into_reader(nrows)).collect();
         for row in 0..nrows {
             for c in col_readers.iter_mut() {
-                c.h_read_row(h, row, self.byte_layout, buf)
+                c.h_read(h, row, self.byte_layout, buf)
                     .map_err(|e| e.inner_into())?;
             }
         }
@@ -3128,7 +3108,7 @@ impl<T> AnyAsciiLayout<T> {
         match self {
             Self::Fixed(c) => {
                 let mut buf = vec![];
-                c.h_read_df::<_, _, _, ReadFixedAsciiError, _>(h, &mut buf, tot, seg, conf)
+                c.h_read_df::<_, _, ReadFixedAsciiError, _>(h, &mut buf, tot, seg, conf)
                     .def_map_errors(|e| e.inner_into())
             }
             Self::Delimited(l) => l

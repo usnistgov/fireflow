@@ -338,7 +338,13 @@ pub trait LayoutOps<'a, T>: Sized {
 
     fn ranges(&self) -> NonEmpty<FloatOrInt>;
 
-    fn req_keywords(&self) -> [(String, String); 2];
+    fn datatype(&self) -> AlphaNumType;
+
+    fn byteord_keyword(&self) -> (String, String);
+
+    fn req_keywords(&self) -> [(String, String); 2] {
+        [self.datatype().pair(), self.byteord_keyword()]
+    }
 
     fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]>;
 
@@ -2113,12 +2119,13 @@ where
         self.ranges.as_ref().map(|x| FloatOrInt::from(*x))
     }
 
-    fn req_keywords(&self) -> [(String, String); 2] {
+    fn datatype(&self) -> AlphaNumType {
+        AlphaNumType::Ascii
+    }
+
+    fn byteord_keyword(&self) -> (String, String) {
         // NOTE BYTEORD is meaningless for delimited ASCII so use a dummy
-        [
-            AlphaNumType::Ascii.pair(),
-            <NoByteOrd<ORD> as HasByteOrd>::ByteOrd::from(NoByteOrd).pair(),
-        ]
+        <NoByteOrd<ORD> as HasByteOrd>::ByteOrd::from(NoByteOrd).pair()
     }
 
     fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
@@ -2386,11 +2393,12 @@ where
         (self.event_width() * df.nrows()) as u64
     }
 
-    fn req_keywords(&self) -> [(String, String); 2] {
-        [
-            S::ByteOrd::from(self.byte_layout).pair(),
-            C::datatype_from_columns(&self.columns).pair(),
-        ]
+    fn datatype(&self) -> AlphaNumType {
+        C::datatype_from_columns(&self.columns)
+    }
+
+    fn byteord_keyword(&self) -> (String, String) {
+        S::ByteOrd::from(self.byte_layout).pair()
     }
 
     fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
@@ -3466,16 +3474,6 @@ impl<T> AnyOrderedLayout<T> {
 
     pub fn new_f64(ranges: NonEmpty<F64Range>, byte_layout: SizedByteOrd<8>) -> Self {
         FixedLayout::new(ranges, byte_layout).into()
-    }
-
-    // TODO this doesn't feel dry
-    pub fn datatype(&self) -> AlphaNumType {
-        match self {
-            Self::Ascii(_) => AlphaNumType::Ascii,
-            Self::Integer(_) => AlphaNumType::Integer,
-            Self::F32(_) => AlphaNumType::Single,
-            Self::F64(_) => AlphaNumType::Double,
-        }
     }
 
     pub fn byte_order(&self) -> Option<ByteOrd2_0> {

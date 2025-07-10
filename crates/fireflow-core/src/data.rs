@@ -2523,7 +2523,7 @@ impl<C, S, T> FixedLayout<C, S, T> {
             .def_map_value(|columns| Self::new(columns, byte_layout))
     }
 
-    fn insert_inner_nocheck(&mut self, index: MeasIndex, col: C) {
+    fn insert_nocheck_inner(&mut self, index: MeasIndex, col: C) {
         self.columns.insert(index.into(), col)
     }
 
@@ -2633,7 +2633,7 @@ impl<C, const LEN: usize, S, T> FixedLayout<FloatRange<C, LEN>, S, T> {
     {
         FloatRange::from_range(range, notrunc)
             .errors_into()
-            .map(|t| self.insert_inner_nocheck(index, t))
+            .map(|t| self.insert_nocheck_inner(index, t))
     }
 
     fn push_float(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), FloatRangeError>
@@ -2652,7 +2652,7 @@ impl<T> FixedLayout<AnyNullBitmask, Endian, T> {
         range: FloatOrInt,
         notrunc: bool,
     ) -> BiTentative<(), IntRangeError> {
-        AnyBitmask::from_range(range, notrunc).map(|t| self.insert_inner_nocheck(index, t))
+        AnyBitmask::from_range(range, notrunc).map(|t| self.insert_nocheck_inner(index, t))
     }
 
     fn push_uint(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), IntRangeError> {
@@ -2967,7 +2967,7 @@ impl<T> AnyOrderedUintLayout<T> {
         notrunc: bool,
     ) -> BiTentative<(), BitmaskError> {
         match_any_uint!(self, Self, l, {
-            Bitmask::from_range(range, notrunc).map(|t| l.insert_inner_nocheck(index, t))
+            Bitmask::from_range(range, notrunc).map(|t| l.insert_nocheck_inner(index, t))
         })
     }
 
@@ -3039,7 +3039,7 @@ impl<T, const ORD: bool> AnyAsciiLayout<T, ORD> {
         notrunc: bool,
     ) -> BiTentative<(), IntRangeError> {
         range.as_uint::<u64>(notrunc).map(|x| match self {
-            Self::Fixed(l) => l.insert_inner_nocheck(index, x.into()),
+            Self::Fixed(l) => l.insert_nocheck_inner(index, x.into()),
             Self::Delimited(l) => l.insert_unchecked(index, x),
         })
     }
@@ -3315,7 +3315,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         match self {
             Self::NonMixed(x) => x.insert_nocheck(index, range, notrunc),
             Self::Mixed(x) => {
-                x.insert_inner_nocheck(index, MixedType::from_range(range));
+                x.insert_nocheck_inner(index, MixedType::from_range(range));
                 Tentative::default()
             }
         }

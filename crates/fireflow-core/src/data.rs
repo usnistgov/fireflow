@@ -91,13 +91,13 @@ use std::str;
 /// This is identical to 3.0 in every way except that the $TOT keyword in 2.0
 /// is optional, which requires a different interface.
 #[derive(Clone, Serialize, From, Delegate)]
-#[delegate(LayoutOps<T>, generics = "T")]
+#[delegate(LayoutOps<'a, T>, generics = "'a, T")]
 #[delegate(LookupLayout)]
 pub struct DataLayout2_0(pub AnyOrderedLayout<MaybeTot>);
 
 /// All possible byte layouts for the DATA segment in 2.0.
 #[derive(Clone, Serialize, From, Delegate)]
-#[delegate(LayoutOps<T>, generics = "T")]
+#[delegate(LayoutOps<'a, T>, generics = "'a, T")]
 #[delegate(LookupLayout)]
 pub struct DataLayout3_0(pub AnyOrderedLayout<KnownTot>);
 
@@ -107,7 +107,7 @@ pub struct DataLayout3_0(pub AnyOrderedLayout<KnownTot>);
 /// different. This is a consequence of making BYTEORD only mean "big or little
 /// endian" and have nothing to do with number of bytes.
 #[derive(Clone, Serialize, From, Delegate)]
-#[delegate(LayoutOps<T>, generics = "T")]
+#[delegate(LayoutOps<'a, T>, generics = "'a, T")]
 #[delegate(LookupLayout)]
 pub struct DataLayout3_1(pub NonMixedEndianLayout);
 
@@ -116,7 +116,7 @@ pub struct DataLayout3_1(pub NonMixedEndianLayout);
 /// In addition to the loosened integer layouts in 3.1, 3.2 additionally allows
 /// each column to have a different type and size (hence "Mixed").
 #[derive(Clone, Serialize, From, Delegate)]
-#[delegate(LayoutOps<T>, generics = "T")]
+#[delegate(LayoutOps<'a, T>, generics = "'a, T")]
 pub enum DataLayout3_2 {
     Mixed(EndianLayout<NullMixedType>),
     NonMixed(NonMixedEndianLayout),
@@ -127,7 +127,7 @@ pub enum DataLayout3_2 {
 /// It is so named "Ordered" because the BYTEORD keyword represents any possible
 /// byte ordering that may occur rather than simply little or big endian.
 #[derive(Clone, Serialize, From, Delegate)]
-#[delegate(LayoutOps<Tot>, generics = "Tot")]
+#[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
 #[delegate(LookupLayout)]
 pub enum AnyOrderedLayout<T> {
     Ascii(AnyAsciiLayout<T, true>),
@@ -139,7 +139,7 @@ pub enum AnyOrderedLayout<T> {
 // TODO make an integer layout which has only one width, which will cover the
 // vast majority of cases and make certain operations easier.
 #[derive(Clone, Serialize, From, Delegate)]
-#[delegate(LayoutOps<T>, generics = "T")]
+#[delegate(LayoutOps<'a, T>, generics = "'a, T")]
 #[delegate(LookupLayout)]
 pub enum NonMixedEndianLayout {
     Ascii(AnyAsciiLayout<KnownTot, false>),
@@ -156,7 +156,7 @@ type EndianLayout<C> = FixedLayout<C, Endian, KnownTot>;
 /// or variable (ie columns have have different number of characters and are
 /// separated by delimiters).
 #[derive(Clone, Serialize, From, Delegate)]
-#[delegate(LayoutOps<Tot>, generics = "Tot")]
+#[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
 #[delegate(LookupLayout)]
 pub enum AnyAsciiLayout<T, const ORD: bool> {
     Delimited(DelimAsciiLayout<T, ORD>),
@@ -182,7 +182,7 @@ pub struct FixedLayout<C, L, T> {
 
 /// Byte layout for integers that may be in any byte order.
 #[derive(Clone, Serialize, From, Delegate)]
-#[delegate(LayoutOps<Tot>, generics = "Tot")]
+#[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
 #[delegate(LookupLayout)]
 pub enum AnyOrderedUintLayout<T> {
     // TODO the first two don't need to be ordered
@@ -329,7 +329,7 @@ pub trait TotDefinition {
 
 /// Standardized operations on layouts
 #[delegatable_trait]
-pub trait LayoutOps<T>: Sized {
+pub trait LayoutOps<'a, T>: Sized {
     fn ncols(&self) -> usize;
 
     fn nbytes(&self, df: &FCSDataFrame) -> u64;
@@ -352,6 +352,8 @@ pub trait LayoutOps<T>: Sized {
     ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError>
     where
         T: TotDefinition;
+
+    fn check_writer(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>>;
 }
 
 /// Standardized operations on layouts
@@ -363,7 +365,10 @@ pub trait LookupLayout: Sized {
 }
 
 /// A version-specific data layout
-pub trait VersionedDataLayout: Sized + LayoutOps<Self::TotDef> + LookupLayout {
+pub trait VersionedDataLayout
+where
+    for<'a> Self: Sized + LayoutOps<'a, Self::TotDef> + LookupLayout,
+{
     type ByteLayout;
     type ColDatatype;
     type TotDef: TotDefinition;
@@ -391,8 +396,6 @@ pub trait VersionedDataLayout: Sized + LayoutOps<Self::TotDef> + LookupLayout {
     fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>>;
 
     fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional>;
-
-    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>>;
 
     fn try_new(
         dt: AlphaNumType,
@@ -2082,7 +2085,7 @@ impl From<ColumnLayoutValues3_2> for ColumnLayoutValues2_0 {
     }
 }
 
-impl<T, const ORD: bool> LayoutOps<T> for DelimAsciiLayout<T, ORD>
+impl<T, const ORD: bool> LayoutOps<'_, T> for DelimAsciiLayout<T, ORD>
 where
     T: TotDefinition,
     NoByteOrd<ORD>: HasByteOrd,
@@ -2136,6 +2139,20 @@ where
             |_h| h_read_delim_without_rows(rs, _h, nbytes).map_err(|e| e.inner_into()),
         )
         .into_deferred()
+    }
+
+    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
+        df.iter_columns()
+            .enumerate()
+            .map(|(i, c)| {
+                c.check_writer::<_, _, u64>(|_| None)
+                    .map_err(|error| ColumnError {
+                        error: AnyLossError::Int(error),
+                        index: i.into(),
+                    })
+            })
+            .gather()
+            .void()
     }
 }
 
@@ -2337,13 +2354,14 @@ fn h_read_delim_without_rows<R: Read>(
     Ok(FCSDataFrame::try_new(cs).unwrap())
 }
 
-impl<C, S, T> LayoutOps<T> for FixedLayout<C, S, T>
+impl<'a, C, S, T> LayoutOps<'a, T> for FixedLayout<C, S, T>
 where
     T: TotDefinition,
-    C: Copy + IsFixed + HasDatatype + ToReader<S>,
+    C: Copy + IsFixed + HasDatatype + ToReader<S> + IntoWriter<'a, S>,
     S: Copy + HasByteOrd,
     FloatOrInt: From<C>,
     <C as ToReader<S>>::Target: Readable<S>,
+    <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
 {
     fn widths(&self) -> Vec<BitsOrChars> {
         self.columns.as_ref().map(|x| x.fixed_width()).into()
@@ -2400,6 +2418,24 @@ where
                     .map_err(|e| e.inner_into())
                     .into_deferred()
             })
+    }
+
+    fn check_writer(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
+        // ASSUME df has same number of columns as layout
+        self.columns
+            .iter()
+            .zip(df.iter_columns())
+            .enumerate()
+            .map(|(i, (col_type, col_data))| {
+                col_type
+                    .check_writer(col_data)
+                    .map_err(|error| ColumnError {
+                        error,
+                        index: i.into(),
+                    })
+            })
+            .gather()
+            .void()
     }
 }
 
@@ -2473,28 +2509,6 @@ impl<C, S, T> FixedLayout<C, S, T> {
 
     fn remove_nocheck_inner(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
         self.columns.remove_nocheck(index.into())
-    }
-
-    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>>
-    where
-        C: Copy + IntoWriter<'a, S>,
-        <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
-    {
-        // ASSUME df has same number of columns as layout
-        self.columns
-            .iter()
-            .zip(df.iter_columns())
-            .enumerate()
-            .map(|(i, (col_type, col_data))| {
-                col_type
-                    .check_writer(col_data)
-                    .map_err(|error| ColumnError {
-                        error,
-                        index: i.into(),
-                    })
-            })
-            .gather()
-            .void()
     }
 
     fn h_write_df<'a, W: Write>(&self, h: &mut BufWriter<W>, df: &'a FCSDataFrame) -> io::Result<()>
@@ -2979,10 +2993,6 @@ impl<T> AnyOrderedUintLayout<T> {
         match_any_uint!(self, Self, l, { Endian::try_from(l.byte_layout).ok() })
     }
 
-    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
-        match_any_uint!(self, Self, l, { l.check_writer(df) })
-    }
-
     fn h_write_df<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()> {
         match_any_uint!(self, Self, l, { l.h_write_df(h, df) })
     }
@@ -3069,13 +3079,6 @@ impl<T, const ORD: bool> AnyAsciiLayout<T, ORD> {
         Self::Delimited(DelimAsciiLayout::new(ranges))
     }
 
-    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
-        match self {
-            Self::Fixed(l) => l.check_writer(df),
-            Self::Delimited(l) => l.check_writer(df),
-        }
-    }
-
     fn h_write_df<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()> {
         match self {
             Self::Fixed(l) => l.h_write_df(h, df),
@@ -3131,10 +3134,6 @@ impl VersionedDataLayout for DataLayout2_0 {
 
     fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
         self.0.remove_nocheck(index)
-    }
-
-    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
-        self.0.check_writer(df)
     }
 
     fn h_write_df_inner<W: Write>(
@@ -3195,10 +3194,6 @@ impl VersionedDataLayout for DataLayout3_0 {
         self.0.remove_nocheck(index)
     }
 
-    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
-        self.0.check_writer(df)
-    }
-
     fn h_write_df_inner<W: Write>(
         &self,
         h: &mut BufWriter<W>,
@@ -3255,10 +3250,6 @@ impl VersionedDataLayout for DataLayout3_1 {
 
     fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
         self.0.remove_nocheck(index)
-    }
-
-    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
-        self.0.check_writer(df)
     }
 
     fn h_write_df_inner<W: Write>(
@@ -3410,13 +3401,6 @@ impl VersionedDataLayout for DataLayout3_2 {
         }
     }
 
-    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
-        match self {
-            Self::NonMixed(x) => x.check_writer(df),
-            Self::Mixed(m) => m.check_writer(df),
-        }
-    }
-
     fn h_write_df_inner<W: Write>(
         &self,
         h: &mut BufWriter<W>,
@@ -3548,15 +3532,6 @@ impl<T> AnyOrderedLayout<T> {
             Self::Integer(l) => l.remove_nocheck(index),
             Self::F32(l) => l.remove_nocheck_inner(index),
             Self::F64(l) => l.remove_nocheck_inner(index),
-        }
-    }
-
-    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
-        match self {
-            Self::Ascii(x) => x.check_writer(df),
-            Self::Integer(x) => x.check_writer(df),
-            Self::F32(x) => x.check_writer(df),
-            Self::F64(x) => x.check_writer(df),
         }
     }
 
@@ -3755,15 +3730,6 @@ impl NonMixedEndianLayout {
             Self::Integer(l) => l.remove_nocheck_inner(index),
             Self::F32(l) => l.remove_nocheck_inner(index),
             Self::F64(l) => l.remove_nocheck_inner(index),
-        }
-    }
-
-    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
-        match self {
-            Self::Ascii(x) => x.check_writer(df),
-            Self::Integer(x) => x.check_writer(df),
-            Self::F32(x) => x.check_writer(df),
-            Self::F64(x) => x.check_writer(df),
         }
     }
 

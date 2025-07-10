@@ -315,6 +315,84 @@ pub trait MeasDatatypeDef {
     ) -> NonEmpty<Vec<(String, Option<String>)>>
     where
         Self::MeasDatatype: From<&'a C>;
+
+    fn lookup_datatype(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+    ) -> LookupTentative<Self::MeasDatatype, LookupKeysError>;
+
+    fn lookup_datatype_ro(
+        kws: &StdKeywords,
+        i: MeasIndex,
+    ) -> Tentative<Self::MeasDatatype, ParseKeyError<NumTypeError>, RawParsedError>;
+
+    fn lookup_all(
+        kws: &mut StdKeywords,
+        par: Par,
+    ) -> LookupResult<Vec<ColumnLayoutValues<Self::MeasDatatype>>> {
+        (0..par.0)
+            .map(|i| Self::lookup_one(kws, i.into()))
+            .gather()
+            .map(Tentative::mconcat)
+            .map_err(DeferredFailure::mconcat)
+    }
+
+    fn lookup_ro_all(
+        kws: &StdKeywords,
+    ) -> DeferredResult<
+        Vec<ColumnLayoutValues<Self::MeasDatatype>>,
+        ParseKeyError<NumTypeError>,
+        RawParsedError,
+    > {
+        Par::get_metaroot_req(kws)
+            .into_deferred()
+            .def_and_maybe(|par| {
+                (0..par.0)
+                    .map(|i| Self::lookup_one_ro(kws, i.into()))
+                    .gather()
+                    .map(Tentative::mconcat)
+                    .map_err(DeferredFailure::mconcat)
+            })
+    }
+
+    fn lookup_one(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+    ) -> LookupResult<ColumnLayoutValues<Self::MeasDatatype>> {
+        let j = i.into();
+        let w = Width::lookup_req(kws, j);
+        let r = Range::lookup_req(kws, j);
+        w.def_zip(r).def_and_tentatively(|(width, range)| {
+            Self::lookup_datatype(kws, i).map(|datatype| ColumnLayoutValues {
+                width,
+                range,
+                datatype,
+            })
+        })
+    }
+
+    fn lookup_one_ro(
+        kws: &StdKeywords,
+        i: MeasIndex,
+    ) -> DeferredResult<
+        ColumnLayoutValues<Self::MeasDatatype>,
+        ParseKeyError<NumTypeError>,
+        RawParsedError,
+    > {
+        let j = i.into();
+        let w = Width::get_meas_req(kws, j).map_err(|e| e.into());
+        let r = Range::get_meas_req(kws, j).map_err(|e| e.into());
+        w.zip(r)
+            .map(Tentative::new1)
+            .map_err(DeferredFailure::new2)
+            .def_and_tentatively(|(width, range)| {
+                Self::lookup_datatype_ro(kws, i).map(|datatype| ColumnLayoutValues {
+                    width,
+                    range,
+                    datatype,
+                })
+            })
+    }
 }
 
 /// Methods for a type which may or may not have $TOT
@@ -782,38 +860,6 @@ trait FloatFromBytes<const LEN: usize>: NumProps + OrderedFromBytes<LEN> {
     }
 }
 
-/// Methods for converting between FCS TEXT keywords and column layouts.
-pub(crate) trait VersionedColumnLayout: Sized {
-    fn lookup_all(kws: &mut StdKeywords, par: Par) -> LookupResult<Vec<Self>> {
-        (0..par.0)
-            .map(|i| Self::lookup(kws, i.into()))
-            .gather()
-            .map(Tentative::mconcat)
-            .map_err(DeferredFailure::mconcat)
-    }
-
-    fn lookup_ro_all(
-        kws: &StdKeywords,
-    ) -> DeferredResult<Vec<Self>, ParseKeyError<NumTypeError>, RawParsedError> {
-        Par::get_metaroot_req(kws)
-            .into_deferred()
-            .def_and_maybe(|par| {
-                (0..par.0)
-                    .map(|i| Self::get(kws, i.into()))
-                    .gather()
-                    .map(Tentative::mconcat)
-                    .map_err(DeferredFailure::mconcat)
-            })
-    }
-
-    fn lookup(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self>;
-
-    fn get(
-        kws: &StdKeywords,
-        i: MeasIndex,
-    ) -> DeferredResult<Self, ParseKeyError<NumTypeError>, RawParsedError>;
-}
-
 macro_rules! impl_null_layout {
     ($t:path, $($var:ident),*) => {
         impl Copy for $t {}
@@ -897,6 +943,20 @@ impl MeasDatatypeDef for NoMeasDatatype {
     {
         columns.as_ref().map(|_| vec![])
     }
+
+    fn lookup_datatype(
+        _: &mut StdKeywords,
+        _: MeasIndex,
+    ) -> LookupTentative<Self::MeasDatatype, LookupKeysError> {
+        Tentative::new1(NullMeasDatatype)
+    }
+
+    fn lookup_datatype_ro(
+        _: &StdKeywords,
+        _: MeasIndex,
+    ) -> Tentative<Self::MeasDatatype, ParseKeyError<NumTypeError>, RawParsedError> {
+        Tentative::new1(NullMeasDatatype)
+    }
 }
 
 impl MeasDatatypeDef for HasMeasDatatype {
@@ -925,6 +985,22 @@ impl MeasDatatypeDef for HasMeasDatatype {
                 .map(|y| vec![NumType::pair_opt(&y.into(), i.into())])
                 .unwrap_or_default()
         })
+    }
+
+    fn lookup_datatype(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+    ) -> LookupTentative<Self::MeasDatatype, LookupKeysError> {
+        NumType::lookup_opt(kws, i.into()).map(|x| x.0)
+    }
+
+    fn lookup_datatype_ro(
+        kws: &StdKeywords,
+        i: MeasIndex,
+    ) -> Tentative<Self::MeasDatatype, ParseKeyError<NumTypeError>, RawParsedError> {
+        NumType::get_meas_opt(kws, i.into())
+            .map(|x| x.0)
+            .map_or_else(|e| Tentative::new(None, vec![e], vec![]), Tentative::new1)
     }
 }
 
@@ -2150,75 +2226,6 @@ fn ascii_to_uint(buf: &[u8]) -> Result<u64, AsciiToUintError> {
     }
 }
 
-impl VersionedColumnLayout for ColumnLayoutValues2_0 {
-    fn lookup(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
-        let j = i.into();
-        let w = Width::lookup_req(kws, j);
-        let r = Range::lookup_req(kws, j);
-        w.def_zip(r).def_map_value(|(width, range)| Self {
-            width,
-            range,
-            datatype: NullMeasDatatype,
-        })
-    }
-
-    fn get(
-        kws: &StdKeywords,
-        i: MeasIndex,
-    ) -> DeferredResult<Self, ParseKeyError<NumTypeError>, RawParsedError> {
-        let j = i.into();
-        let w = Width::get_meas_req(kws, j).map_err(|e| e.into());
-        let r = Range::get_meas_req(kws, j).map_err(|e| e.into());
-        w.zip(r)
-            .map(|(width, range)| Self {
-                width,
-                range,
-                datatype: NullMeasDatatype,
-            })
-            .map(Tentative::new1)
-            .map_err(DeferredFailure::new2)
-    }
-}
-
-impl VersionedColumnLayout for ColumnLayoutValues3_2 {
-    fn lookup(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
-        let j = i.into();
-        let w = Width::lookup_req(kws, j);
-        let r = Range::lookup_req(kws, j);
-        w.def_zip(r).def_and_tentatively(|(width, range)| {
-            NumType::lookup_opt(kws, j)
-                .map(|x| x.0)
-                .map(|datatype| Self {
-                    width,
-                    range,
-                    datatype,
-                })
-        })
-    }
-
-    fn get(
-        kws: &StdKeywords,
-        i: MeasIndex,
-    ) -> DeferredResult<Self, ParseKeyError<NumTypeError>, RawParsedError> {
-        let j = i.into();
-        let w = Width::get_meas_req(kws, j).map_err(|e| e.into());
-        let r = Range::get_meas_req(kws, j).map_err(|e| e.into());
-        w.zip(r)
-            .map(Tentative::new1)
-            .map_err(DeferredFailure::new2)
-            .def_and_tentatively(|(width, range)| {
-                NumType::get_meas_opt(kws, j)
-                    .map(|x| x.0)
-                    .map_or_else(|e| Tentative::new(None, vec![e], vec![]), Tentative::new1)
-                    .map(|datatype| Self {
-                        width,
-                        range,
-                        datatype,
-                    })
-            })
-    }
-}
-
 impl From<ColumnLayoutValues3_2> for ColumnLayoutValues2_0 {
     fn from(value: ColumnLayoutValues3_2) -> Self {
         Self {
@@ -3367,7 +3374,7 @@ impl VersionedDataLayout for DataLayout3_2 {
     ) -> LookupLayoutResult<Option<Self>> {
         let d = AlphaNumType::lookup_req_check_ascii(kws);
         let e = ByteOrd3_1::lookup_req(kws);
-        let cs = ColumnLayoutValues3_2::lookup_all(kws, par);
+        let cs = HasMeasDatatype::lookup_all(kws, par);
         d.def_zip3(e, cs)
             .def_inner_into()
             .def_and_maybe(|(datatype, endian, columns)| {
@@ -3385,7 +3392,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         let e = ByteOrd3_1::get_metaroot_req(kws)
             .map_err(RawParsedError::from)
             .into_deferred();
-        let cs = ColumnLayoutValues3_2::lookup_ro_all(kws).def_inner_into();
+        let cs = HasMeasDatatype::lookup_ro_all(kws).def_inner_into();
         d.def_zip3(e, cs)
             .def_and_maybe(|(datatype, endian, columns)| {
                 def_transpose(
@@ -3505,7 +3512,7 @@ impl<T> AnyOrderedLayout<T> {
         conf: &StdTextReadConfig,
         par: Par,
     ) -> LookupLayoutResult<Option<Self>> {
-        let cs = ColumnLayoutValues2_0::lookup_all(kws, par);
+        let cs = NoMeasDatatype::lookup_all(kws, par);
         let d = AlphaNumType::lookup_req(kws);
         let b = ByteOrd2_0::lookup_req(kws);
         d.def_zip3(b, cs)
@@ -3520,7 +3527,7 @@ impl<T> AnyOrderedLayout<T> {
     }
 
     fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
-        let cs = ColumnLayoutValues2_0::lookup_ro_all(kws);
+        let cs = NoMeasDatatype::lookup_ro_all(kws);
         let d = AlphaNumType::get_metaroot_req(kws).into_deferred();
         let b = ByteOrd2_0::get_metaroot_req(kws).into_deferred();
         d.def_zip3(b, cs)
@@ -3655,7 +3662,7 @@ impl NonMixedEndianLayout<NoMeasDatatype> {
         conf: &StdTextReadConfig,
         par: Par,
     ) -> LookupLayoutResult<Option<Self>> {
-        let cs = ColumnLayoutValues2_0::lookup_all(kws, par);
+        let cs = NoMeasDatatype::lookup_all(kws, par);
         let d = AlphaNumType::lookup_req_check_ascii(kws);
         let n = ByteOrd3_1::lookup_req(kws);
         d.def_zip3(n, cs)
@@ -3670,7 +3677,7 @@ impl NonMixedEndianLayout<NoMeasDatatype> {
     }
 
     fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
-        let cs = ColumnLayoutValues2_0::lookup_ro_all(kws);
+        let cs = NoMeasDatatype::lookup_ro_all(kws);
         let d = AlphaNumType::get_metaroot_req(kws).into_deferred();
         let n = ByteOrd3_1::get_metaroot_req(kws).into_deferred();
         d.def_zip3(n, cs)

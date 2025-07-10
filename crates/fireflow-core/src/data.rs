@@ -539,7 +539,7 @@ where
     fn check_other_loss(&self, x: Self::Native) -> Option<Self::Error>;
 }
 
-trait ToReader<S> {
+trait IntoReader<S> {
     type Target: Readable<S>;
 
     fn into_reader(self, nrows: usize) -> Self::Target;
@@ -1193,7 +1193,7 @@ impl<const ORD: bool> NativeReadable<NoByteOrd<ORD>> for AsciiRange {
     }
 }
 
-impl<C, S> ToReader<S> for C
+impl<C, S> IntoReader<S> for C
 where
     AnyFCSColumn: From<FCSColumn<C::Native>>,
     C: NativeReadable<S> + ToNativeReader,
@@ -1205,7 +1205,7 @@ where
     }
 }
 
-impl ToReader<Endian> for AnyNullBitmask {
+impl IntoReader<Endian> for AnyNullBitmask {
     type Target = AnyReaderBitmask;
 
     fn into_reader(self, nrows: usize) -> Self::Target {
@@ -1219,7 +1219,7 @@ impl ToReader<Endian> for AnyNullBitmask {
     }
 }
 
-impl ToReader<Endian> for NullMixedType {
+impl IntoReader<Endian> for NullMixedType {
     type Target = ReaderMixedType;
 
     fn into_reader(self, nrows: usize) -> Self::Target {
@@ -2357,10 +2357,10 @@ fn h_read_delim_without_rows<R: Read>(
 impl<'a, C, S, T> LayoutOps<'a, T> for FixedLayout<C, S, T>
 where
     T: TotDefinition,
-    C: Copy + IsFixed + HasDatatype + ToReader<S> + IntoWriter<'a, S>,
+    C: Copy + IsFixed + HasDatatype + IntoReader<S> + IntoWriter<'a, S>,
     S: Copy + HasByteOrd,
     FloatOrInt: From<C>,
-    <C as ToReader<S>>::Target: Readable<S>,
+    <C as IntoReader<S>>::Target: Readable<S>,
     <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
 {
     fn widths(&self) -> Vec<BitsOrChars> {
@@ -2541,8 +2541,8 @@ impl<C, S, T> FixedLayout<C, S, T> {
     ) -> IOResult<FCSDataFrame, ReadDataframeError>
     where
         S: Copy,
-        C: IsFixed + Copy + ToReader<S>,
-        <C as ToReader<S>>::Target: Readable<S>,
+        C: IsFixed + Copy + IntoReader<S>,
+        <C as IntoReader<S>>::Target: Readable<S>,
     {
         let mut col_readers: Vec<_> = self.columns.iter().map(|c| c.into_reader(nrows)).collect();
         for row in 0..nrows {

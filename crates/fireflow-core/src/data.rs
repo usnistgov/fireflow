@@ -78,6 +78,7 @@ use nonempty::NonEmpty;
 use num_traits::float::Float;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
+use std::borrow::Borrow;
 use std::convert::Infallible;
 use std::fmt;
 use std::io;
@@ -91,16 +92,14 @@ use std::str;
 /// This is identical to 3.0 in every way except that the $TOT keyword in 2.0
 /// is optional, which requires a different interface.
 #[derive(Clone, Serialize, From, Delegate)]
-#[delegate(LayoutOps<'a, T>, generics = "'a, T")]
+#[delegate(LayoutOps<'a, T, D>, generics = "'a, T, D")]
 #[delegate(OrderedLayoutOps)]
-#[delegate(LookupLayout)]
 pub struct DataLayout2_0(pub AnyOrderedLayout<MaybeTot>);
 
 /// All possible byte layouts for the DATA segment in 2.0.
 #[derive(Clone, Serialize, From, Delegate)]
-#[delegate(LayoutOps<'a, T>, generics = "'a, T")]
+#[delegate(LayoutOps<'a, T, D>, generics = "'a, T, D")]
 #[delegate(OrderedLayoutOps)]
-#[delegate(LookupLayout)]
 pub struct DataLayout3_0(pub AnyOrderedLayout<KnownTot>);
 
 /// All possible byte layouts for the DATA segment in 3.1.
@@ -109,21 +108,20 @@ pub struct DataLayout3_0(pub AnyOrderedLayout<KnownTot>);
 /// different. This is a consequence of making BYTEORD only mean "big or little
 /// endian" and have nothing to do with number of bytes.
 #[derive(Clone, Serialize, From, Delegate)]
-#[delegate(LayoutOps<'a, T>, generics = "'a, T")]
+#[delegate(LayoutOps<'a, T, D>, generics = "'a, T, D")]
 #[delegate(EndianLayoutOps)]
-#[delegate(LookupLayout)]
-pub struct DataLayout3_1(pub NonMixedEndianLayout);
+pub struct DataLayout3_1(pub NonMixedEndianLayout<NoMeasDatatype>);
 
 /// All possible byte layouts for the DATA segment in 3.2.
 ///
 /// In addition to the loosened integer layouts in 3.1, 3.2 additionally allows
 /// each column to have a different type and size (hence "Mixed").
 #[derive(Clone, Serialize, From, Delegate)]
-#[delegate(LayoutOps<'a, T>, generics = "'a, T")]
+#[delegate(LayoutOps<'a, T, D>, generics = "'a, T, D")]
 #[delegate(EndianLayoutOps)]
 pub enum DataLayout3_2 {
-    Mixed(EndianLayout<NullMixedType>),
-    NonMixed(NonMixedEndianLayout),
+    Mixed(EndianLayout<NullMixedType, HasMeasDatatype>),
+    NonMixed(NonMixedEndianLayout<HasMeasDatatype>),
 }
 
 /// All possible byte layouts for the DATA segment in 2.0 and 3.0.
@@ -131,11 +129,10 @@ pub enum DataLayout3_2 {
 /// It is so named "Ordered" because the BYTEORD keyword represents any possible
 /// byte ordering that may occur rather than simply little or big endian.
 #[derive(Clone, Serialize, From, Delegate)]
-#[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
+#[delegate(LayoutOps<'a, Tot, DT>, generics = "'a, Tot, DT")]
 #[delegate(OrderedLayoutOps)]
-#[delegate(LookupLayout)]
 pub enum AnyOrderedLayout<T> {
-    Ascii(AnyAsciiLayout<T, true>),
+    Ascii(AnyAsciiLayout<T, NoMeasDatatype, true>),
     Integer(AnyOrderedUintLayout<T>),
     F32(OrderedLayout<F32Range, T>),
     F64(OrderedLayout<F64Range, T>),
@@ -144,17 +141,16 @@ pub enum AnyOrderedLayout<T> {
 // TODO make an integer layout which has only one width, which will cover the
 // vast majority of cases and make certain operations easier.
 #[derive(Clone, Serialize, From, Delegate)]
-#[delegate(LayoutOps<'a, T>, generics = "'a, T")]
+#[delegate(LayoutOps<'a, T, DT>, generics = "'a, T, DT")]
 #[delegate(EndianLayoutOps)]
-#[delegate(LookupLayout)]
-pub enum NonMixedEndianLayout {
-    Ascii(AnyAsciiLayout<KnownTot, false>),
-    Integer(EndianLayout<AnyNullBitmask>),
-    F32(EndianLayout<F32Range>),
-    F64(EndianLayout<F64Range>),
+pub enum NonMixedEndianLayout<D> {
+    Ascii(AnyAsciiLayout<KnownTot, D, false>),
+    Integer(EndianLayout<AnyNullBitmask, D>),
+    F32(EndianLayout<F32Range, D>),
+    F64(EndianLayout<F64Range, D>),
 }
 
-type EndianLayout<C> = FixedLayout<C, Endian, KnownTot>;
+type EndianLayout<C, D> = FixedLayout<C, Endian, KnownTot, D>;
 
 /// Byte layouts for ASCII data.
 ///
@@ -162,35 +158,35 @@ type EndianLayout<C> = FixedLayout<C, Endian, KnownTot>;
 /// or variable (ie columns have have different number of characters and are
 /// separated by delimiters).
 #[derive(Clone, Serialize, From, Delegate)]
-#[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
-#[delegate(LookupLayout)]
-pub enum AnyAsciiLayout<T, const ORD: bool> {
-    Delimited(DelimAsciiLayout<T, ORD>),
-    Fixed(FixedAsciiLayout<T, ORD>),
+#[delegate(LayoutOps<'a, Tot, DT>, generics = "'a, Tot, DT")]
+pub enum AnyAsciiLayout<T, D, const ORD: bool> {
+    Delimited(DelimAsciiLayout<T, D, ORD>),
+    Fixed(FixedAsciiLayout<T, D, ORD>),
 }
 
-type FixedAsciiLayout<T, const ORD: bool> = FixedLayout<AsciiRange, NoByteOrd<ORD>, T>;
+type FixedAsciiLayout<T, D, const ORD: bool> = FixedLayout<AsciiRange, NoByteOrd<ORD>, T, D>;
 
 /// Byte layout for delimited ASCII.
 #[derive(Clone)]
-pub struct DelimAsciiLayout<T, const ORD: bool> {
+pub struct DelimAsciiLayout<T, D, const ORD: bool> {
     pub ranges: NonEmpty<u64>,
-    tot_action: PhantomData<T>,
+    _tot_def: PhantomData<T>,
+    _meas_data_def: PhantomData<D>,
 }
 
 /// Byte layout where each column has a fixed width.
 #[derive(Clone)]
-pub struct FixedLayout<C, L, T> {
+pub struct FixedLayout<C, L, T, D> {
     byte_layout: L,
     columns: NonEmpty<C>,
-    tot_action: PhantomData<T>,
+    _tot_def: PhantomData<T>,
+    _meas_data_def: PhantomData<D>,
 }
 
 /// Byte layout for integers that may be in any byte order.
 #[derive(Clone, Serialize, From, Delegate)]
-#[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
+#[delegate(LayoutOps<'a, Tot, DT>, generics = "'a, Tot, DT")]
 #[delegate(OrderedLayoutOps)]
-#[delegate(LookupLayout)]
 pub enum AnyOrderedUintLayout<T> {
     // TODO the first two don't need to be ordered
     Uint08(OrderedLayout<Bitmask08, T>),
@@ -203,7 +199,7 @@ pub enum AnyOrderedUintLayout<T> {
     Uint64(OrderedLayout<Bitmask64, T>),
 }
 
-type OrderedLayout<C, T> = FixedLayout<C, <C as HasNativeWidth>::Order, T>;
+type OrderedLayout<C, T> = FixedLayout<C, <C as HasNativeWidth>::Order, T, NoMeasDatatype>;
 
 /// The type of a non-delimited column in the DATA segment for 3.2
 pub enum MixedType<F: ColumnFamily> {
@@ -277,6 +273,17 @@ pub struct MaybeTot;
 #[derive(Clone, Serialize)]
 pub struct KnownTot;
 
+/// Marker type for layouts without $PnDATATYPE.
+#[derive(Clone, Serialize)]
+pub struct NoMeasDatatype;
+
+/// Marker type for layouts with $PnDATATYPE.
+#[derive(Clone, Serialize)]
+pub struct HasMeasDatatype;
+
+/// Marker type representing absence of column datatype.
+pub struct NullMeasDatatype;
+
 /// A struct whose fields map 1-1 with keyword values in one data column
 pub struct ColumnLayoutValues<D> {
     width: Width,
@@ -284,7 +291,7 @@ pub struct ColumnLayoutValues<D> {
     datatype: D,
 }
 
-type ColumnLayoutValues2_0 = ColumnLayoutValues<()>;
+type ColumnLayoutValues2_0 = ColumnLayoutValues<NullMeasDatatype>;
 type ColumnLayoutValues3_2 = ColumnLayoutValues<Option<NumType>>;
 
 /// A type which represents a column which may have associated data.
@@ -297,6 +304,19 @@ pub trait ColumnFamily {
 
 type NativeWrapper<F, C> =
     <F as ColumnFamily>::ColumnWrapper<C, <C as HasNativeType>::Native, Endian>;
+
+pub trait MeasDatatypeDef {
+    type MeasDatatype;
+
+    fn headers() -> Vec<MeasHeader>;
+
+    fn keywords<C>(
+        columns: &NonEmpty<C>,
+        datatype: AlphaNumType,
+    ) -> NonEmpty<Vec<(String, Option<String>)>>
+    where
+        C: Borrow<Self::MeasDatatype>;
+}
 
 /// Methods for a type which may or may not have $TOT
 pub trait TotDefinition {
@@ -336,7 +356,7 @@ pub trait TotDefinition {
 
 /// Standardized operations on layouts
 #[delegatable_trait]
-pub trait LayoutOps<'a, T>: Sized {
+pub trait LayoutOps<'a, T, D>: Sized {
     fn ncols(&self) -> usize;
 
     fn nbytes(&self, df: &FCSDataFrame) -> u64;
@@ -354,6 +374,15 @@ pub trait LayoutOps<'a, T>: Sized {
     }
 
     fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]>;
+
+    fn opt_meas_headers(&self) -> Vec<MeasHeader>
+    where
+        D: MeasDatatypeDef,
+    {
+        <D as MeasDatatypeDef>::headers()
+    }
+
+    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>>;
 
     fn h_read_df_inner<R: Read>(
         &self,
@@ -391,21 +420,13 @@ pub trait EndianLayoutOps: Sized {
     fn endianness(&self) -> Option<Endian>;
 }
 
-/// Standardized operations on layouts
-#[delegatable_trait]
-pub trait LookupLayout: Sized {
-    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>>;
-
-    fn opt_meas_headers(&self) -> Vec<MeasHeader>;
-}
-
 /// A version-specific data layout
 pub trait VersionedDataLayout
 where
-    for<'a> Self: Sized + LayoutOps<'a, Self::TotDef> + LookupLayout,
+    for<'a> Self: Sized + LayoutOps<'a, Self::TotDef, Self::MeasDTDef>,
 {
     type ByteLayout;
-    type ColDatatype;
+    type MeasDTDef: MeasDatatypeDef;
     type TotDef: TotDefinition;
 
     fn lookup(
@@ -433,7 +454,7 @@ where
     fn try_new(
         dt: AlphaNumType,
         size: Self::ByteLayout,
-        cs: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
+        columns: NonEmpty<ColumnLayoutValues<<Self::MeasDTDef as MeasDatatypeDef>::MeasDatatype>>,
         conf: &StdTextReadConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError>;
 
@@ -861,6 +882,53 @@ any_uint_from!(Uint48, Bitmask48);
 any_uint_from!(Uint56, Bitmask56);
 any_uint_from!(Uint64, Bitmask64);
 
+impl MeasDatatypeDef for NoMeasDatatype {
+    type MeasDatatype = NullMeasDatatype;
+
+    fn headers() -> Vec<MeasHeader> {
+        vec![]
+    }
+
+    fn keywords<C>(
+        columns: &NonEmpty<C>,
+        _: AlphaNumType,
+    ) -> NonEmpty<Vec<(String, Option<String>)>>
+    where
+        C: Borrow<Self::MeasDatatype>,
+    {
+        columns.as_ref().map(|_| vec![])
+    }
+}
+
+impl MeasDatatypeDef for HasMeasDatatype {
+    type MeasDatatype = Option<NumType>;
+
+    fn headers() -> Vec<MeasHeader> {
+        vec![NumType::std_blank()]
+    }
+
+    fn keywords<C>(
+        columns: &NonEmpty<C>,
+        datatype: AlphaNumType,
+    ) -> NonEmpty<Vec<(String, Option<String>)>>
+    where
+        C: Borrow<Self::MeasDatatype>,
+    {
+        columns.as_ref().enumerate().map(|(i, c)| {
+            c.borrow()
+                .and_then(|y| {
+                    if AlphaNumType::from(y) != datatype {
+                        None
+                    } else {
+                        Some(y)
+                    }
+                })
+                .map(|y| vec![NumType::pair_opt(&y.into(), i.into())])
+                .unwrap_or_default()
+        })
+    }
+}
+
 impl TotDefinition for MaybeTot {
     type Tot = Option<Tot>;
 
@@ -899,6 +967,71 @@ impl ColumnFamily for ColumnReaderFamily {
 
 impl<'a> ColumnFamily for ColumnWriterFamily<'a> {
     type ColumnWrapper<C, T, S> = ColumnWriter<'a, C, T, S>;
+}
+
+impl Borrow<NullMeasDatatype> for AsciiRange {
+    fn borrow(&self) -> &NullMeasDatatype {
+        &NullMeasDatatype
+    }
+}
+
+impl<T, const LEN: usize> Borrow<NullMeasDatatype> for Bitmask<T, LEN> {
+    fn borrow(&self) -> &NullMeasDatatype {
+        &NullMeasDatatype
+    }
+}
+
+impl<T, const LEN: usize> Borrow<NullMeasDatatype> for FloatRange<T, LEN> {
+    fn borrow(&self) -> &NullMeasDatatype {
+        &NullMeasDatatype
+    }
+}
+
+impl Borrow<NullMeasDatatype> for AnyNullBitmask {
+    fn borrow(&self) -> &NullMeasDatatype {
+        &NullMeasDatatype
+    }
+}
+
+impl Borrow<Option<NumType>> for NullMeasDatatype {
+    fn borrow(&self) -> &Option<NumType> {
+        &None
+    }
+}
+
+impl Borrow<Option<NumType>> for AsciiRange {
+    fn borrow(&self) -> &Option<NumType> {
+        &None
+    }
+}
+
+impl<T, const LEN: usize> Borrow<Option<NumType>> for Bitmask<T, LEN> {
+    fn borrow(&self) -> &Option<NumType> {
+        &None
+    }
+}
+
+impl<T, const LEN: usize> Borrow<Option<NumType>> for FloatRange<T, LEN> {
+    fn borrow(&self) -> &Option<NumType> {
+        &None
+    }
+}
+
+impl Borrow<Option<NumType>> for AnyNullBitmask {
+    fn borrow(&self) -> &Option<NumType> {
+        &None
+    }
+}
+
+impl Borrow<Option<NumType>> for NullMixedType {
+    fn borrow(&self) -> &Option<NumType> {
+        match self {
+            Self::Ascii(_) => &None,
+            Self::Uint(_) => &Some(NumType::Integer),
+            Self::F32(_) => &Some(NumType::Single),
+            Self::F64(_) => &Some(NumType::Double),
+        }
+    }
 }
 
 macro_rules! any_uint_to_width {
@@ -1649,7 +1782,7 @@ fn is_ascii_delim(x: u8) -> bool {
     x == 9 || x == 10 || x == 13 || x == 32 || x == 44
 }
 
-impl<C: Serialize, L: Serialize, T> Serialize for FixedLayout<C, L, T> {
+impl<C: Serialize, L: Serialize, T, D> Serialize for FixedLayout<C, L, T, D> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut state = serializer.serialize_struct("FixedLayout", 2)?;
         state.serialize_field("columns", Vec::from(self.columns.as_ref()).as_slice())?;
@@ -1658,7 +1791,7 @@ impl<C: Serialize, L: Serialize, T> Serialize for FixedLayout<C, L, T> {
     }
 }
 
-impl<T, const ORD: bool> Serialize for DelimAsciiLayout<T, ORD> {
+impl<T, D, const ORD: bool> Serialize for DelimAsciiLayout<T, D, ORD> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut state = serializer.serialize_struct("DelimitedLayout", 1)?;
         state.serialize_field("ranges", Vec::from(self.ranges.as_ref()).as_slice())?;
@@ -1666,12 +1799,15 @@ impl<T, const ORD: bool> Serialize for DelimAsciiLayout<T, ORD> {
     }
 }
 
-impl EndianLayout<AnyNullBitmask> {
-    pub(crate) fn endian_uint_try_new<D>(
-        cs: NonEmpty<ColumnLayoutValues<D>>,
+impl<D> EndianLayout<AnyNullBitmask, D> {
+    pub(crate) fn endian_uint_try_new(
+        cs: NonEmpty<ColumnLayoutValues<D::MeasDatatype>>,
         e: Endian,
         notrunc: bool,
-    ) -> DeferredResult<Self, ColumnError<BitmaskError>, ColumnError<NewUintTypeError>> {
+    ) -> DeferredResult<Self, ColumnError<BitmaskError>, ColumnError<NewUintTypeError>>
+    where
+        D: MeasDatatypeDef,
+    {
         FixedLayout::try_new(cs, e, |c| {
             AnyBitmask::from_width_and_range(c.width, c.range, notrunc).def_errors_into()
         })
@@ -1686,7 +1822,7 @@ impl EndianLayout<AnyNullBitmask> {
     }
 }
 
-impl EndianLayout<NullMixedType> {
+impl<D> EndianLayout<NullMixedType, D> {
     pub(crate) fn try_into_ordered<T>(
         self,
     ) -> MultiResult<AnyOrderedLayout<T>, MixedToOrderedLayoutError> {
@@ -1739,7 +1875,7 @@ impl EndianLayout<NullMixedType> {
 
     pub(crate) fn try_into_non_mixed(
         self,
-    ) -> MultiResult<NonMixedEndianLayout, MixedToNonMixedLayoutError> {
+    ) -> MultiResult<NonMixedEndianLayout<NoMeasDatatype>, MixedToNonMixedLayoutError> {
         let c0 = self.columns.head;
         let it = self.columns.tail.into_iter().enumerate();
         let byte_layout = self.byte_layout;
@@ -1950,7 +2086,8 @@ impl NullMixedType {
     }
 
     fn as_num_type(&self) -> Option<NumType> {
-        self.as_alpha_num_type().try_into().ok()
+        *self.borrow()
+        // self.as_alpha_num_type().try_into().ok()
     }
 }
 
@@ -2050,7 +2187,7 @@ impl VersionedColumnLayout for ColumnLayoutValues2_0 {
         w.def_zip(r).def_map_value(|(width, range)| Self {
             width,
             range,
-            datatype: (),
+            datatype: NullMeasDatatype,
         })
     }
 
@@ -2065,7 +2202,7 @@ impl VersionedColumnLayout for ColumnLayoutValues2_0 {
             .map(|(width, range)| Self {
                 width,
                 range,
-                datatype: (),
+                datatype: NullMeasDatatype,
             })
             .map(Tentative::new1)
             .map_err(DeferredFailure::new2)
@@ -2116,13 +2253,15 @@ impl From<ColumnLayoutValues3_2> for ColumnLayoutValues2_0 {
         Self {
             width: value.width,
             range: value.range,
-            datatype: (),
+            datatype: NullMeasDatatype,
         }
     }
 }
 
-impl<T, const ORD: bool> LayoutOps<'_, T> for DelimAsciiLayout<T, ORD>
+impl<T, D, const ORD: bool> LayoutOps<'_, T, D> for DelimAsciiLayout<T, D, ORD>
 where
+    NullMeasDatatype: Borrow<D::MeasDatatype>,
+    D: MeasDatatypeDef,
     T: TotDefinition,
     NoByteOrd<ORD>: HasByteOrd,
 {
@@ -2157,6 +2296,13 @@ where
             let y = Range((*r).into()).pair(i.into());
             [x, y]
         })
+    }
+
+    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
+        D::keywords(
+            &self.ranges.as_ref().map(|_| NullMeasDatatype),
+            LayoutOps::<T, D>::datatype(self),
+        )
     }
 
     fn h_read_df_inner<R: Read>(
@@ -2217,21 +2363,12 @@ where
     }
 }
 
-impl<T, const ORD: bool> LookupLayout for DelimAsciiLayout<T, ORD> {
-    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-        vec![]
-    }
-
-    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-        self.ranges.as_ref().map(|_| vec![])
-    }
-}
-
-impl<T, const ORD: bool> DelimAsciiLayout<T, ORD> {
+impl<T, D, const ORD: bool> DelimAsciiLayout<T, D, ORD> {
     fn new(ranges: NonEmpty<u64>) -> Self {
         Self {
             ranges,
-            tot_action: PhantomData,
+            _tot_def: PhantomData,
+            _meas_data_def: PhantomData,
         }
     }
 
@@ -2391,10 +2528,11 @@ fn h_read_delim_without_rows<R: Read>(
     Ok(FCSDataFrame::try_new(cs).unwrap())
 }
 
-impl<'a, C, S, T> LayoutOps<'a, T> for FixedLayout<C, S, T>
+impl<'a, C, S, T, D> LayoutOps<'a, T, D> for FixedLayout<C, S, T, D>
 where
+    D: MeasDatatypeDef,
     T: TotDefinition,
-    C: Copy + IsFixed + HasDatatype + IntoReader<S> + IntoWriter<'a, S>,
+    C: Copy + IsFixed + HasDatatype + IntoReader<S> + IntoWriter<'a, S> + Borrow<D::MeasDatatype>,
     S: Copy + HasByteOrd,
     FloatOrInt: From<C>,
     <C as IntoReader<S>>::Target: Readable<S>,
@@ -2429,6 +2567,10 @@ where
             .as_ref()
             .enumerate()
             .map(|(i, c)| c.req_meas_keywords(i.into()))
+    }
+
+    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
+        D::keywords(&self.columns, LayoutOps::<T, D>::datatype(self))
     }
 
     fn h_read_df_inner<R: Read>(
@@ -2498,7 +2640,7 @@ where
     }
 }
 
-impl<C, S, T> OrderedLayoutOps for FixedLayout<C, S, T>
+impl<C, S, T, D> OrderedLayoutOps for FixedLayout<C, S, T, D>
 where
     S: Copy,
     ByteOrd2_0: From<S>,
@@ -2508,28 +2650,19 @@ where
     }
 }
 
-impl<C, T> EndianLayoutOps for FixedLayout<C, Endian, T> {
+impl<C, T, D> EndianLayoutOps for FixedLayout<C, Endian, T, D> {
     fn endianness(&self) -> Option<Endian> {
         Some(self.byte_layout)
     }
 }
 
-impl<C, S, T> LookupLayout for FixedLayout<C, S, T> {
-    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-        vec![]
-    }
-
-    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-        self.columns.as_ref().map(|_| vec![])
-    }
-}
-
-impl<C, S, T> FixedLayout<C, S, T> {
+impl<C, S, T, D> FixedLayout<C, S, T, D> {
     fn new(columns: NonEmpty<C>, byte_layout: S) -> Self {
         Self {
             columns,
             byte_layout,
-            tot_action: PhantomData,
+            _tot_def: PhantomData,
+            _meas_data_def: PhantomData,
         }
     }
 
@@ -2537,15 +2670,16 @@ impl<C, S, T> FixedLayout<C, S, T> {
         Self::new((head, tail).into(), byte_layout)
     }
 
-    fn try_new<D, F, W, E, CW, CE>(
-        cs: NonEmpty<ColumnLayoutValues<D>>,
+    fn try_new<F, W, E, CW, CE>(
+        cs: NonEmpty<ColumnLayoutValues<D::MeasDatatype>>,
         byte_layout: S,
         new_col_f: F,
     ) -> DeferredResult<Self, W, E>
     where
+        D: MeasDatatypeDef,
         W: From<ColumnError<CW>>,
         E: From<ColumnError<CE>>,
-        F: Fn(ColumnLayoutValues<D>) -> DeferredResult<C, CW, CE>,
+        F: Fn(ColumnLayoutValues<D::MeasDatatype>) -> DeferredResult<C, CW, CE>,
     {
         cs.enumerate()
             .map_results(|(i, c)| {
@@ -2607,21 +2741,21 @@ impl<C, S, T> FixedLayout<C, S, T> {
         Ok(FCSDataFrame::try_new(data).unwrap())
     }
 
-    fn columns_into<X>(self) -> FixedLayout<X, S, T>
+    fn columns_into<X>(self) -> FixedLayout<X, S, T, D>
     where
         X: From<C>,
     {
         FixedLayout::new(self.columns.map(|c| c.into()), self.byte_layout)
     }
 
-    fn byte_layout_into<X>(self) -> FixedLayout<C, X, T>
+    fn byte_layout_into<X>(self) -> FixedLayout<C, X, T, D>
     where
         X: From<S>,
     {
         FixedLayout::new(self.columns, self.byte_layout.into())
     }
 
-    fn byte_layout_try_into<X>(self) -> Result<FixedLayout<C, X, T>, X::Error>
+    fn byte_layout_try_into<X>(self) -> Result<FixedLayout<C, X, T, D>, X::Error>
     where
         X: TryFrom<S>,
     {
@@ -2630,7 +2764,7 @@ impl<C, S, T> FixedLayout<C, S, T> {
             .map(|byte_layout| FixedLayout::new(self.columns, byte_layout))
     }
 
-    fn phantom_into<X>(self) -> FixedLayout<C, S, X> {
+    fn phantom_into<T1, D1>(self) -> FixedLayout<C, S, T1, D1> {
         FixedLayout::new(self.columns, self.byte_layout)
     }
 
@@ -2667,7 +2801,7 @@ impl<C, S, T> FixedLayout<C, S, T> {
     }
 }
 
-impl<C, const LEN: usize, S, T> FixedLayout<FloatRange<C, LEN>, S, T> {
+impl<C, const LEN: usize, S, T, D> FixedLayout<FloatRange<C, LEN>, S, T, D> {
     fn insert_float_nocheck(
         &mut self,
         index: MeasIndex,
@@ -2692,7 +2826,7 @@ impl<C, const LEN: usize, S, T> FixedLayout<FloatRange<C, LEN>, S, T> {
     }
 }
 
-impl<T> FixedLayout<AnyNullBitmask, Endian, T> {
+impl<T, D> FixedLayout<AnyNullBitmask, Endian, T, D> {
     fn insert_uint_nocheck(
         &mut self,
         index: MeasIndex,
@@ -2938,7 +3072,7 @@ impl<T> AnyOrderedUintLayout<T> {
         match_any_uint!(self, Self, l, { l.phantom_into().into() })
     }
 
-    fn into_endian(self) -> Result<EndianLayout<AnyNullBitmask>, OrderedToEndianError> {
+    fn into_endian<D>(self) -> Result<EndianLayout<AnyNullBitmask, D>, OrderedToEndianError> {
         match_any_uint!(self, Self, l, {
             l.phantom_into()
                 .byte_layout_try_into()
@@ -2946,8 +3080,8 @@ impl<T> AnyOrderedUintLayout<T> {
         })
     }
 
-    fn try_new<D>(
-        cs: NonEmpty<ColumnLayoutValues<D>>,
+    fn try_new(
+        cs: NonEmpty<ColumnLayoutValues<NullMeasDatatype>>,
         bo: ByteOrd2_0,
         conf: &StdTextReadConfig,
     ) -> DeferredResult<Self, ColumnError<BitmaskError>, NewFixedIntLayoutError> {
@@ -3021,34 +3155,37 @@ impl<T> AnyOrderedUintLayout<T> {
     }
 }
 
-impl<T> OrderedLayoutOps for AnyAsciiLayout<T, true> {
+impl<T, D> OrderedLayoutOps for AnyAsciiLayout<T, D, true> {
     fn byte_order(&self) -> Option<ByteOrd2_0> {
         None
     }
 }
 
-impl<T> EndianLayoutOps for AnyAsciiLayout<T, false> {
+impl<T, D> EndianLayoutOps for AnyAsciiLayout<T, D, false> {
     fn endianness(&self) -> Option<Endian> {
         None
     }
 }
 
-impl<T, const ORD: bool> AnyAsciiLayout<T, ORD> {
-    fn phantom_into<X, const ORD_1: bool>(self) -> AnyAsciiLayout<X, ORD_1> {
+impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
+    fn phantom_into<T1, D1, const ORD_1: bool>(self) -> AnyAsciiLayout<T1, D1, ORD_1> {
         match self {
             Self::Delimited(x) => DelimAsciiLayout::new(x.ranges).into(),
             Self::Fixed(x) => FixedLayout::new(x.columns, NoByteOrd).into(),
         }
     }
 
-    pub(crate) fn try_new<D>(
-        cs: NonEmpty<ColumnLayoutValues<D>>,
+    pub(crate) fn try_new(
+        cs: NonEmpty<ColumnLayoutValues<D::MeasDatatype>>,
         notrunc: bool,
     ) -> DeferredResult<
         Self,
         ColumnError<IntRangeError>,
         ColumnError<ascii_range::NewAsciiRangeError>,
-    > {
+    >
+    where
+        D: MeasDatatypeDef,
+    {
         let go = |error: IntRangeError, i: usize| ColumnError {
             error,
             index: i.into(),
@@ -3110,7 +3247,7 @@ impl<T, const ORD: bool> AnyAsciiLayout<T, ORD> {
 
 impl VersionedDataLayout for DataLayout2_0 {
     type ByteLayout = ByteOrd2_0;
-    type ColDatatype = ();
+    type MeasDTDef = NoMeasDatatype;
     type TotDef = MaybeTot;
 
     fn lookup(
@@ -3128,7 +3265,7 @@ impl VersionedDataLayout for DataLayout2_0 {
     fn try_new(
         datatype: AlphaNumType,
         byteord: Self::ByteLayout,
-        columns: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
+        columns: NonEmpty<ColumnLayoutValues<<Self::MeasDTDef as MeasDatatypeDef>::MeasDatatype>>,
         conf: &StdTextReadConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
         AnyOrderedLayout::try_new(datatype, byteord, columns, conf)
@@ -3156,7 +3293,7 @@ impl VersionedDataLayout for DataLayout2_0 {
 
 impl VersionedDataLayout for DataLayout3_0 {
     type ByteLayout = ByteOrd2_0;
-    type ColDatatype = ();
+    type MeasDTDef = NoMeasDatatype;
     type TotDef = KnownTot;
 
     fn lookup(
@@ -3174,7 +3311,7 @@ impl VersionedDataLayout for DataLayout3_0 {
     fn try_new(
         datatype: AlphaNumType,
         byteord: Self::ByteLayout,
-        columns: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
+        columns: NonEmpty<ColumnLayoutValues<NullMeasDatatype>>,
         conf: &StdTextReadConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
         AnyOrderedLayout::try_new(datatype, byteord, columns, conf)
@@ -3202,7 +3339,7 @@ impl VersionedDataLayout for DataLayout3_0 {
 
 impl VersionedDataLayout for DataLayout3_1 {
     type ByteLayout = Endian;
-    type ColDatatype = ();
+    type MeasDTDef = NoMeasDatatype;
     type TotDef = KnownTot;
 
     fn lookup(
@@ -3220,7 +3357,7 @@ impl VersionedDataLayout for DataLayout3_1 {
     fn try_new(
         datatype: AlphaNumType,
         endian: Self::ByteLayout,
-        columns: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
+        columns: NonEmpty<ColumnLayoutValues<NullMeasDatatype>>,
         conf: &StdTextReadConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
         NonMixedEndianLayout::try_new(datatype, endian, columns, conf)
@@ -3246,40 +3383,9 @@ impl VersionedDataLayout for DataLayout3_1 {
     }
 }
 
-impl LookupLayout for DataLayout3_2 {
-    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-        match self {
-            // dirty hack to get a nonempty
-            Self::NonMixed(x) => x
-                .req_meas_keywords()
-                .enumerate()
-                .map(|(i, _)| vec![(NumType::std(i.into()).to_string(), None)]),
-            Self::Mixed(x) => {
-                let dt = NullMixedType::datatype_from_columns(&x.columns);
-                x.columns.as_ref().enumerate().map(|(i, c)| {
-                    c.as_num_type()
-                        .and_then(|y| {
-                            if AlphaNumType::from(y) != dt {
-                                None
-                            } else {
-                                Some(y)
-                            }
-                        })
-                        .map(|y| vec![NumType::pair_opt(&y.into(), i.into())])
-                        .unwrap_or_default()
-                })
-            }
-        }
-    }
-
-    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-        vec![NumType::std_blank()]
-    }
-}
-
 impl VersionedDataLayout for DataLayout3_2 {
     type ByteLayout = ByteOrd3_1;
-    type ColDatatype = Option<NumType>;
+    type MeasDTDef = HasMeasDatatype;
     type TotDef = KnownTot;
 
     fn lookup(
@@ -3320,7 +3426,7 @@ impl VersionedDataLayout for DataLayout3_2 {
     fn try_new(
         datatype: AlphaNumType,
         endian: Self::ByteLayout,
-        cs: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
+        cs: NonEmpty<ColumnLayoutValues<Option<NumType>>>,
         conf: &StdTextReadConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
         let notrunc = conf.disallow_range_truncation;
@@ -3334,10 +3440,10 @@ impl VersionedDataLayout for DataLayout3_2 {
                 let ds = cs.map(|c| ColumnLayoutValues {
                     width: c.width,
                     range: c.range,
-                    datatype: (),
+                    datatype: NullMeasDatatype,
                 });
                 NonMixedEndianLayout::try_new(dt, endian.0, ds, conf)
-                    .def_map_value(Self::NonMixed)
+                    .def_map_value(|x| Self::NonMixed(x.phantom_into::<HasMeasDatatype>()))
                     .def_map_warnings(|e| e.inner_into())
             }
             _ => FixedLayout::try_new(cs, endian.0, |c| {
@@ -3413,7 +3519,9 @@ impl DataLayout3_2 {
     pub fn datatypes(&self) -> NonEmpty<AlphaNumType> {
         match self {
             // somewhat hacky way of getting a nonempty in a type-safe way
-            Self::NonMixed(x) => x.ranges().as_ref().map(|_| x.datatype()),
+            Self::NonMixed(x) => LayoutOps::<_, HasMeasDatatype>::ranges(x)
+                .as_ref()
+                .map(|_| LayoutOps::<_, HasMeasDatatype>::datatype(x)),
             Self::Mixed(x) => x.columns.as_ref().map(|y| y.as_alpha_num_type()),
         }
     }
@@ -3499,7 +3607,8 @@ impl<T> AnyOrderedLayout<T> {
         byte_layout: SizedByteOrd<LEN>,
     ) -> Self
     where
-        AnyOrderedUintLayout<T>: From<FixedLayout<Bitmask<U, LEN>, SizedByteOrd<LEN>, T>>,
+        AnyOrderedUintLayout<T>:
+            From<FixedLayout<Bitmask<U, LEN>, SizedByteOrd<LEN>, T, NoMeasDatatype>>,
     {
         Self::Integer(FixedLayout::new(columns, byte_layout).into())
     }
@@ -3549,7 +3658,7 @@ impl<T> AnyOrderedLayout<T> {
         })
     }
 
-    pub fn into_unmixed(self) -> LayoutConvertResult<NonMixedEndianLayout> {
+    pub fn into_unmixed<D>(self) -> LayoutConvertResult<NonMixedEndianLayout<D>> {
         match self {
             Self::Ascii(x) => Ok(x.phantom_into().into()),
             Self::Integer(x) => x.into_endian().map(NonMixedEndianLayout::Integer),
@@ -3568,7 +3677,7 @@ impl<T> AnyOrderedLayout<T> {
     }
 }
 
-impl NonMixedEndianLayout {
+impl NonMixedEndianLayout<NoMeasDatatype> {
     fn lookup(
         kws: &mut StdKeywords,
         conf: &StdTextReadConfig,
@@ -3603,6 +3712,35 @@ impl NonMixedEndianLayout {
             })
     }
 
+    fn try_new(
+        datatype: AlphaNumType,
+        endian: Endian,
+        columns: NonEmpty<ColumnLayoutValues<NullMeasDatatype>>,
+        conf: &StdTextReadConfig,
+    ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
+        let notrunc = conf.disallow_range_truncation;
+        match datatype {
+            AlphaNumType::Ascii => AnyAsciiLayout::try_new(columns, notrunc)
+                .def_map_value(Self::Ascii)
+                .def_errors_into()
+                .def_map_warnings(|w| w.inner_into()),
+            AlphaNumType::Integer => FixedLayout::endian_uint_try_new(columns, endian, notrunc)
+                .def_map_value(Self::Integer)
+                .def_map_warnings(|e| e.inner_into())
+                .def_inner_into(),
+            AlphaNumType::Single => FixedLayout::try_new(columns, endian, |c| {
+                F32Range::from_width_and_range(c.width, c.range, notrunc).def_warnings_into()
+            })
+            .def_map_value(Self::F32),
+            AlphaNumType::Double => FixedLayout::try_new(columns, endian, |c| {
+                F64Range::from_width_and_range(c.width, c.range, notrunc).def_warnings_into()
+            })
+            .def_map_value(Self::F64),
+        }
+    }
+}
+
+impl<D> NonMixedEndianLayout<D> {
     fn insert_nocheck(
         &mut self,
         index: MeasIndex,
@@ -3655,39 +3793,21 @@ impl NonMixedEndianLayout {
         FixedLayout::new(ranges, endian).into()
     }
 
-    fn try_new(
-        datatype: AlphaNumType,
-        endian: Endian,
-        columns: NonEmpty<ColumnLayoutValues<()>>,
-        conf: &StdTextReadConfig,
-    ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
-        let notrunc = conf.disallow_range_truncation;
-        match datatype {
-            AlphaNumType::Ascii => AnyAsciiLayout::try_new(columns, notrunc)
-                .def_map_value(Self::Ascii)
-                .def_errors_into()
-                .def_map_warnings(|w| w.inner_into()),
-            AlphaNumType::Integer => FixedLayout::endian_uint_try_new(columns, endian, notrunc)
-                .def_map_value(Self::Integer)
-                .def_map_warnings(|e| e.inner_into())
-                .def_inner_into(),
-            AlphaNumType::Single => FixedLayout::try_new(columns, endian, |c| {
-                F32Range::from_width_and_range(c.width, c.range, notrunc).def_warnings_into()
-            })
-            .def_map_value(Self::F32),
-            AlphaNumType::Double => FixedLayout::try_new(columns, endian, |c| {
-                F64Range::from_width_and_range(c.width, c.range, notrunc).def_warnings_into()
-            })
-            .def_map_value(Self::F64),
-        }
-    }
-
     pub(crate) fn into_ordered<T>(self) -> LayoutConvertResult<AnyOrderedLayout<T>> {
         match self {
             Self::Ascii(x) => Ok(x.phantom_into().into()),
             Self::Integer(x) => x.uint_try_into_ordered().map(|i| i.into()),
             Self::F32(x) => Ok(x.phantom_into().byte_layout_into().into()),
             Self::F64(x) => Ok(x.phantom_into().byte_layout_into().into()),
+        }
+    }
+
+    pub(crate) fn phantom_into<D1>(self) -> NonMixedEndianLayout<D1> {
+        match self {
+            Self::Ascii(x) => x.phantom_into().into(),
+            Self::Integer(x) => x.phantom_into().into(),
+            Self::F32(x) => x.phantom_into().into(),
+            Self::F64(x) => x.phantom_into().into(),
         }
     }
 }

@@ -5861,7 +5861,7 @@ impl ConvertFromLayout<DataLayout3_0> for DataLayout3_1 {
 impl ConvertFromLayout<DataLayout3_2> for DataLayout3_1 {
     fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
         match value {
-            DataLayout3_2::NonMixed(x) => Ok(Self(x)),
+            DataLayout3_2::NonMixed(x) => Ok(Self(x.phantom_into())),
             DataLayout3_2::Mixed(x) => x.try_into_non_mixed().map(Self).mult_errors_into(),
         }
     }
@@ -5881,7 +5881,7 @@ impl ConvertFromLayout<DataLayout3_0> for DataLayout3_2 {
 
 impl ConvertFromLayout<DataLayout3_1> for DataLayout3_2 {
     fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
-        Ok(DataLayout3_2::NonMixed(value.0))
+        Ok(DataLayout3_2::NonMixed(value.0.phantom_into()))
     }
 }
 

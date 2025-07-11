@@ -2301,7 +2301,7 @@ where
         m: Temporal<M::Temporal>,
         r: FloatOrInt,
         notrunc: bool,
-    ) -> DeferredResult<(), LayoutPushColumnError, PushTemporalError> {
+    ) -> DeferredResult<(), AnyRangeError, PushTemporalError> {
         self.measurements
             .push_center(n, m)
             .into_deferred()
@@ -2322,7 +2322,7 @@ where
         m: Temporal<M::Temporal>,
         r: FloatOrInt,
         notrunc: bool,
-    ) -> DeferredResult<(), LayoutInsertColumnWarning, InsertTemporalError> {
+    ) -> DeferredResult<(), AnyRangeError, InsertTemporalError> {
         self.measurements
             .insert_center(i, n, m)
             .into_deferred()
@@ -2342,7 +2342,7 @@ where
         m: Optical<M::Optical>,
         r: FloatOrInt,
         notrunc: bool,
-    ) -> DeferredResult<Shortname, LayoutPushColumnError, PushOpticalError> {
+    ) -> DeferredResult<Shortname, AnyRangeError, PushOpticalError> {
         self.measurements
             .push(n, m)
             .into_deferred()
@@ -2364,7 +2364,7 @@ where
         m: Optical<M::Optical>,
         r: FloatOrInt,
         notrunc: bool,
-    ) -> DeferredResult<Shortname, LayoutInsertColumnWarning, InsertOpticalError> {
+    ) -> DeferredResult<Shortname, AnyRangeError, InsertOpticalError> {
         self.measurements
             .insert(i, n, m)
             .into_deferred()
@@ -2857,7 +2857,7 @@ where
         m: Temporal<M::Temporal>,
         r: FloatOrInt,
         notrunc: bool,
-    ) -> DeferredResult<(), LayoutPushColumnError, PushTemporalError> {
+    ) -> DeferredResult<(), AnyRangeError, PushTemporalError> {
         self.push_temporal_inner(n, m, r, notrunc)
     }
 
@@ -2872,7 +2872,7 @@ where
         m: Temporal<M::Temporal>,
         r: FloatOrInt,
         notrunc: bool,
-    ) -> DeferredResult<(), LayoutInsertColumnWarning, InsertTemporalError> {
+    ) -> DeferredResult<(), AnyRangeError, InsertTemporalError> {
         self.insert_temporal_inner(i, n, m, r, notrunc)
     }
 
@@ -2885,7 +2885,7 @@ where
         m: Optical<M::Optical>,
         r: FloatOrInt,
         notrunc: bool,
-    ) -> DeferredResult<Shortname, LayoutPushColumnError, PushOpticalError> {
+    ) -> DeferredResult<Shortname, AnyRangeError, PushOpticalError> {
         self.push_optical_inner(n, m, r, notrunc)
     }
 
@@ -2899,7 +2899,7 @@ where
         m: Optical<M::Optical>,
         r: FloatOrInt,
         notrunc: bool,
-    ) -> DeferredResult<Shortname, LayoutInsertColumnWarning, InsertOpticalError> {
+    ) -> DeferredResult<Shortname, AnyRangeError, InsertOpticalError> {
         self.insert_optical_inner(i, n, m, r, notrunc)
     }
 
@@ -3144,7 +3144,7 @@ where
         col: AnyFCSColumn,
         r: FloatOrInt,
         notrunc: bool,
-    ) -> DeferredResult<(), LayoutPushColumnError, PushTemporalToDatasetError> {
+    ) -> DeferredResult<(), AnyRangeError, PushTemporalToDatasetError> {
         self.push_temporal_inner(n, m, r, notrunc)
             .def_errors_into()
             .def_and_maybe(|_| self.data.push_column(col).into_deferred())
@@ -3162,7 +3162,7 @@ where
         col: AnyFCSColumn,
         r: FloatOrInt,
         notrunc: bool,
-    ) -> DeferredResult<(), LayoutInsertColumnWarning, InsertTemporalToDatasetError> {
+    ) -> DeferredResult<(), AnyRangeError, InsertTemporalToDatasetError> {
         self.insert_temporal_inner(i, n, m, r, notrunc)
             .def_errors_into()
             .def_and_maybe(|_| {
@@ -3183,7 +3183,7 @@ where
         col: AnyFCSColumn,
         r: FloatOrInt,
         notrunc: bool,
-    ) -> DeferredResult<Shortname, LayoutPushColumnError, PushOpticalToDatasetError> {
+    ) -> DeferredResult<Shortname, AnyRangeError, PushOpticalToDatasetError> {
         self.push_optical_inner(n, m, r, notrunc)
             .def_errors_into()
             .def_and_maybe(|k| {
@@ -3205,7 +3205,7 @@ where
         col: AnyFCSColumn,
         r: FloatOrInt,
         notrunc: bool,
-    ) -> DeferredResult<Shortname, LayoutInsertColumnWarning, InsertOpticalInDatasetError> {
+    ) -> DeferredResult<Shortname, AnyRangeError, InsertOpticalInDatasetError> {
         self.insert_optical_inner(i, n, m, r, notrunc)
             .def_errors_into()
             .def_and_maybe(|k| {
@@ -7688,28 +7688,29 @@ pub enum SetMeasurementsOnlyError {
     Mismatch(MeasDataMismatchError),
 }
 
+// TODO redundant
 #[derive(From, Display)]
 pub enum PushTemporalError {
     Center(InsertCenterError),
-    Layout(LayoutPushColumnError),
+    Layout(AnyRangeError),
 }
 
 #[derive(From, Display)]
 pub enum InsertTemporalError {
     Center(InsertCenterError),
-    Layout(LayoutInsertColumnWarning),
+    Layout(AnyRangeError),
 }
 
 #[derive(From, Display)]
 pub enum PushOpticalError {
     Unique(NonUniqueKeyError),
-    Layout(LayoutPushColumnError),
+    Layout(AnyRangeError),
 }
 
 #[derive(From, Display)]
 pub enum InsertOpticalError {
     Insert(InsertError),
-    Layout(LayoutInsertColumnWarning),
+    Layout(AnyRangeError),
 }
 
 #[derive(From, Display)]

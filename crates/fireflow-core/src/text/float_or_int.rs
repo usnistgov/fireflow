@@ -76,20 +76,12 @@ impl<T> NonNanFloat<T> {
 
 impl NonNanF64 {
     pub(crate) fn try_as_f32(self) -> Option<NonNanF32> {
-        // TODO, this actually isn't as intuitive as one would hope. For
-        // example, "1.1" as input will fail this test, since the f64->f32-f64
-        // conversion will result in "1.100000023841858" and thus return false.
-        // Apparently the "as" cast will not try to force the result to be as
-        // close numerically to the original as possible; in this case
-        // it will merely add 0s to the end of the f32, which is different than
-        // the starting value
         let x = f64::from(self);
-        let y = x as f32;
-        let z = y as f64;
-        if x == z {
-            Some(NonNanFloat(y))
-        } else {
+        let m = f32::MAX as f64;
+        if (x < -m || m < x) && !x.is_infinite() {
             None
+        } else {
+            Some(NonNanFloat(x as f32))
         }
     }
 }

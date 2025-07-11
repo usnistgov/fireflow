@@ -16,6 +16,7 @@
 
 use itertools::Itertools;
 use nonempty::NonEmpty;
+use std::convert::Infallible;
 use std::fmt;
 use std::io;
 
@@ -1414,7 +1415,7 @@ impl<E> ImpureError<E> {
     }
 }
 
-impl ImpureError<std::convert::Infallible> {
+impl ImpureError<Infallible> {
     pub fn infallible<E>(self) -> ImpureError<E> {
         match self {
             ImpureError::IO(e) => ImpureError::IO(e),

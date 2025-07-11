@@ -210,31 +210,20 @@ pub struct Optical<X> {
 }
 
 /// Minimal TEXT data for any supported FCS version
-#[derive(Clone)]
+#[derive(Clone, From)]
 pub enum AnyCore<A, D, O> {
+    #[from(Core2_0<A, D, O>)]
     FCS2_0(Box<Core2_0<A, D, O>>),
+    #[from(Core3_0<A, D, O>)]
     FCS3_0(Box<Core3_0<A, D, O>>),
+    #[from(Core3_1<A, D, O>)]
     FCS3_1(Box<Core3_1<A, D, O>>),
+    #[from(Core3_2<A, D, O>)]
     FCS3_2(Box<Core3_2<A, D, O>>),
 }
 
 pub type AnyCoreTEXT = AnyCore<(), (), ()>;
 pub type AnyCoreDataset = AnyCore<Analysis, FCSDataFrame, Others>;
-
-macro_rules! from_anycoretext {
-    ($anyvar:ident, $coretype:ident) => {
-        impl<A, D, O> From<$coretype<A, D, O>> for AnyCore<A, D, O> {
-            fn from(value: $coretype<A, D, O>) -> Self {
-                Self::$anyvar(Box::new(value))
-            }
-        }
-    };
-}
-
-from_anycoretext!(FCS2_0, Core2_0);
-from_anycoretext!(FCS3_0, Core3_0);
-from_anycoretext!(FCS3_1, Core3_1);
-from_anycoretext!(FCS3_2, Core3_2);
 
 impl<A, D, O> Serialize for AnyCore<A, D, O>
 where

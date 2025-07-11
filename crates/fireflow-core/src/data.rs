@@ -1418,13 +1418,7 @@ impl IntoReader<Endian> for AnyNullBitmask {
     type Target = AnyReaderBitmask;
 
     fn into_reader(self, nrows: usize) -> Self::Target {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            c,
-            { c.into_native_reader(nrows).into() }
-        )
+        match_any_uint!(self, Self, c, { c.into_native_reader(nrows).into() })
     }
 }
 
@@ -1465,12 +1459,7 @@ where
 
 impl Readable<Endian> for ReaderMixedType {
     fn into_dataframe_column(self) -> AnyFCSColumn {
-        match self {
-            MixedType::Ascii(c) => c.into_dataframe_column(),
-            MixedType::Uint(c) => c.into_dataframe_column(),
-            MixedType::F32(c) => c.into_dataframe_column(),
-            MixedType::F64(c) => c.into_dataframe_column(),
-        }
+        match_any_mixed!(self, c, { c.into_dataframe_column() })
     }
 
     fn h_read<R: Read>(
@@ -1491,13 +1480,7 @@ impl Readable<Endian> for ReaderMixedType {
 
 impl Readable<Endian> for AnyReaderBitmask {
     fn into_dataframe_column(self) -> AnyFCSColumn {
-        match_many_to_one!(
-            self,
-            AnyBitmask,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            c,
-            { c.into_dataframe_column() }
-        )
+        match_any_uint!(self, AnyBitmask, c, { c.into_dataframe_column() })
     }
 
     fn h_read<R: Read>(
@@ -1507,13 +1490,7 @@ impl Readable<Endian> for AnyReaderBitmask {
         byte_layout: Endian,
         buf: &mut Vec<u8>,
     ) -> IOResult<(), ReadDataframeError> {
-        match_many_to_one!(
-            self,
-            AnyBitmask,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            c,
-            { c.h_read(h, row, byte_layout, buf) }
-        )
+        match_any_uint!(self, AnyBitmask, c, { c.h_read(h, row, byte_layout, buf) })
     }
 }
 
@@ -1630,23 +1607,13 @@ impl<'a> IntoWriter<'a, Endian> for AnyNullBitmask {
     type Target = AnyWriterBitmask<'a>;
 
     fn into_writer(self, col: &'a AnyFCSColumn) -> Self::Target {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            c,
-            { c.into_native_writer(col).into() }
-        )
+        match_any_uint!(self, Self, c, { c.into_native_writer(col).into() })
     }
 
     fn check_writer(&self, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            c,
-            { c.check_native_writer(col).map_err(|e| e.into()) }
-        )
+        match_any_uint!(self, Self, c, {
+            c.check_native_writer(col).map_err(|e| e.into())
+        })
     }
 }
 
@@ -1655,10 +1622,10 @@ impl<'a> IntoWriter<'a, Endian> for NullMixedType {
 
     fn into_writer(self, col: &'a AnyFCSColumn) -> Self::Target {
         match self {
-            Self::Ascii(c) => MixedType::Ascii(c.into_native_writer(col)),
+            Self::Ascii(c) => MixedType::Ascii(c.into_writer(col)),
             Self::Uint(c) => MixedType::Uint(c.into_writer(col)),
-            Self::F32(c) => MixedType::F32(c.into_native_writer(col)),
-            Self::F64(c) => MixedType::F64(c.into_native_writer(col)),
+            Self::F32(c) => MixedType::F32(c.into_writer(col)),
+            Self::F64(c) => MixedType::F64(c.into_writer(col)),
         }
     }
 
@@ -1705,13 +1672,7 @@ impl<'a> Writable<'a, Endian> for WriterMixedType<'a> {
 
 impl<'a> Writable<'a, Endian> for AnyWriterBitmask<'a> {
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: Endian) -> io::Result<()> {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            c,
-            { c.h_write(h, byte_layout) }
-        )
+        match_any_uint!(self, Self, c, { c.h_write(h, byte_layout) })
     }
 }
 
@@ -2907,38 +2868,6 @@ where
     }
 }
 
-impl IsFixed for AnyNullBitmask {
-    fn nbytes(&self) -> u8 {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            x,
-            { x.nbytes() }
-        )
-    }
-
-    fn fixed_width(&self) -> BitsOrChars {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            x,
-            { x.fixed_width() }
-        )
-    }
-
-    fn range(&self) -> Range {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            x,
-            { x.range() }
-        )
-    }
-}
-
 impl<T, const LEN: usize> IsFixed for FloatRange<T, LEN>
 where
     Self: HasNativeWidth,
@@ -2972,17 +2901,31 @@ impl IsFixed for AsciiRange {
     }
 }
 
-impl IsFixed for NullMixedType {
+impl IsFixed for AnyNullBitmask {
     fn nbytes(&self) -> u8 {
-        match_many_to_one!(self, Self, [Ascii, Uint, F32, F64], x, { x.nbytes() })
+        match_any_uint!(self, Self, x, { x.nbytes() })
     }
 
     fn fixed_width(&self) -> BitsOrChars {
-        match_many_to_one!(self, Self, [Ascii, Uint, F32, F64], x, { x.fixed_width() })
+        match_any_uint!(self, Self, x, { x.fixed_width() })
     }
 
     fn range(&self) -> Range {
-        match_many_to_one!(self, Self, [Ascii, Uint, F32, F64], x, { x.range() })
+        match_any_uint!(self, Self, x, { x.range() })
+    }
+}
+
+impl IsFixed for NullMixedType {
+    fn nbytes(&self) -> u8 {
+        match_any_mixed!(self, x, { x.nbytes() })
+    }
+
+    fn fixed_width(&self) -> BitsOrChars {
+        match_any_mixed!(self, x, { x.fixed_width() })
+    }
+
+    fn range(&self) -> Range {
+        match_any_mixed!(self, x, { x.range() })
     }
 }
 

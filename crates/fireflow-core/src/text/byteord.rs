@@ -60,7 +60,7 @@ pub type NoByteOrd3_1 = NoByteOrd<false>;
 /// This may also be '*' which means "delimited ASCII" which is only valid when
 /// $DATATYPE=A.
 #[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash, From)]
-#[from(Bytes, Chars)]
+#[from(Chars)]
 pub enum Width {
     Fixed(BitsOrChars),
     Variable,
@@ -85,7 +85,7 @@ pub enum Bytes {
 /// Subsequent operations can be used to use it as "bytes" or "characters"
 /// depending on what is needed by the column.
 #[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash, From, Into)]
-#[from(Chars, Bytes)]
+#[from(Chars)]
 pub struct BitsOrChars(u8);
 
 /// $BYTEORD (ordered) with known size in bytes
@@ -411,6 +411,12 @@ impl TryFrom<BitsOrChars> for Bytes {
             return (x >> 3).try_into().or(Err(BytesError(x)));
         }
         Err(BytesError(x))
+    }
+}
+
+impl From<Bytes> for BitsOrChars {
+    fn from(value: Bytes) -> BitsOrChars {
+        Self(u8::from(value) * 8)
     }
 }
 

@@ -3594,18 +3594,6 @@ pub enum NewUintTypeError {
 }
 
 #[derive(From, Display)]
-pub enum NewOrderedUintLayoutError {
-    Column(ColumnError<OrderedFloatError>),
-    ByteOrd(ByteOrdToSizedError),
-}
-
-#[derive(From, Display)]
-pub enum OrderedFloatError {
-    Order(ByteOrdToSizedError),
-    WrongWidth(FloatWidthError),
-}
-
-#[derive(From, Display)]
 pub enum FloatWidthError {
     Bytes(WidthToBytesError),
     WrongWidth(WrongFloatWidth),
@@ -3647,9 +3635,6 @@ pub struct UnevenEventWidth {
     nbytes: usize,
     remainder: usize,
 }
-
-#[derive(Display)]
-pub struct ColumnWriterError(ColumnError<AnyLossError>);
 
 #[derive(From, Display)]
 pub enum AnyLossError {
@@ -3997,22 +3982,6 @@ impl<E: fmt::Display> fmt::Display for MixedColumnConvertError<E> {
             f,
             "mixed conversion error in column {}: {}",
             self.index, self.error
-        )
-    }
-}
-
-#[derive(Debug)]
-pub struct ColumnNumberError {
-    this_len: usize,
-    other_len: usize,
-}
-
-impl fmt::Display for ColumnNumberError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "number of columns is {}, input should match but got {}",
-            self.this_len, self.other_len,
         )
     }
 }

@@ -2301,7 +2301,7 @@ where
         m: Temporal<M::Temporal>,
         r: FloatOrInt,
         notrunc: bool,
-    ) -> DeferredResult<(), AnyRangeError, PushTemporalError> {
+    ) -> DeferredResult<(), AnyRangeError, InsertTemporalError> {
         self.measurements
             .push_center(n, m)
             .into_deferred()
@@ -2857,7 +2857,7 @@ where
         m: Temporal<M::Temporal>,
         r: FloatOrInt,
         notrunc: bool,
-    ) -> DeferredResult<(), AnyRangeError, PushTemporalError> {
+    ) -> DeferredResult<(), AnyRangeError, InsertTemporalError> {
         self.push_temporal_inner(n, m, r, notrunc)
     }
 
@@ -7688,13 +7688,6 @@ pub enum SetMeasurementsOnlyError {
     Mismatch(MeasDataMismatchError),
 }
 
-// TODO redundant
-#[derive(From, Display)]
-pub enum PushTemporalError {
-    Center(InsertCenterError),
-    Layout(AnyRangeError),
-}
-
 #[derive(From, Display)]
 pub enum InsertTemporalError {
     Center(InsertCenterError),
@@ -7715,7 +7708,7 @@ pub enum InsertOpticalError {
 
 #[derive(From, Display)]
 pub enum PushTemporalToDatasetError {
-    Measurement(PushTemporalError),
+    Measurement(InsertTemporalError),
     Column(ColumnLengthError),
 }
 

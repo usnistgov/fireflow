@@ -76,7 +76,6 @@ use ambassador::{delegatable_trait, Delegate};
 use derive_more::{Display, From};
 use itertools::Itertools;
 use nonempty::NonEmpty;
-use num_traits::float::Float;
 use num_traits::PrimInt;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
@@ -463,6 +462,20 @@ pub trait LayoutOps<'a, T, D>: Sized {
 
     fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>>;
 
+    // no need to check since this will be done after validating that the index
+    // is within the measurement vector, which has its own check and should
+    // always be the same length
+    fn insert_nocheck(
+        &mut self,
+        index: MeasIndex,
+        range: FloatOrInt,
+        notrunc: bool,
+    ) -> BiTentative<(), AnyRangeError>;
+
+    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), AnyRangeError>;
+
+    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional>;
+
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
@@ -515,20 +528,6 @@ where
     ) -> LookupLayoutResult<Option<Self>>;
 
     fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>>;
-
-    // no need to check since this will be done after validating that the index
-    // is within the measurement vector, which has its own check and should
-    // always be the same length
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), AnyRangeError>;
-
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), AnyRangeError>;
-
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional>;
 
     fn try_new(
         dt: AlphaNumType,
@@ -2258,6 +2257,29 @@ where
         )
     }
 
+    fn insert_nocheck(
+        &mut self,
+        index: MeasIndex,
+        range: FloatOrInt,
+        notrunc: bool,
+    ) -> BiTentative<(), AnyRangeError> {
+        range
+            .as_uint(notrunc)
+            .inner_into()
+            .map(|r| self.ranges.insert(index.into(), r))
+    }
+
+    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), AnyRangeError> {
+        range
+            .as_uint(notrunc)
+            .inner_into()
+            .map(|r| self.ranges.push(r))
+    }
+
+    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
+        self.ranges.remove_nocheck(index.into())
+    }
+
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
@@ -2323,29 +2345,6 @@ impl<T, D, const ORD: bool> DelimAsciiLayout<T, D, ORD> {
             _tot_def: PhantomData,
             _meas_data_def: PhantomData,
         }
-    }
-
-    fn insert_unchecked(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), AnyRangeError> {
-        range
-            .as_uint(notrunc)
-            .inner_into()
-            .map(|r| self.ranges.insert(index.into(), r))
-    }
-
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), AnyRangeError> {
-        range
-            .as_uint(notrunc)
-            .inner_into()
-            .map(|r| self.ranges.push(r))
-    }
-
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-        self.ranges.remove_nocheck(index.into())
     }
 
     fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
@@ -2497,11 +2496,12 @@ where
     D: MeasDatatypeDef,
     for<'b> D::MeasDatatype: From<&'b C>,
     T: TotDefinition,
-    C: Copy + IsFixed + HasDatatype + IntoReader<S> + IntoWriter<'a, S>,
+    C: Copy + IsFixed + HasDatatype + IntoReader<S> + IntoWriter<'a, S> + FromRange,
     S: Copy + HasByteOrd,
     FloatOrInt: From<C>,
     <C as IntoReader<S>>::Target: Readable<S>,
     <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
+    AnyRangeError: From<<C as FromRange>::Error>,
 {
     fn widths(&self) -> Vec<BitsOrChars> {
         self.columns.as_ref().map(|x| x.fixed_width()).into()
@@ -2536,6 +2536,27 @@ where
 
     fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
         D::keywords(&self.columns, LayoutOps::<T, D>::datatype(self))
+    }
+
+    fn insert_nocheck(
+        &mut self,
+        index: MeasIndex,
+        range: FloatOrInt,
+        notrunc: bool,
+    ) -> BiTentative<(), AnyRangeError> {
+        C::from_range(range, notrunc).inner_into().map(|col| {
+            self.columns.insert(index.into(), col);
+        })
+    }
+
+    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), AnyRangeError> {
+        C::from_range(range, notrunc)
+            .inner_into()
+            .map(|col| self.columns.push(col))
+    }
+
+    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
+        self.columns.remove_nocheck(index.into())
     }
 
     fn h_read_df_inner<R: Read>(
@@ -2669,35 +2690,6 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             .def_map_value(|columns| Self::new(columns, byte_layout))
     }
 
-    fn insert_nocheck_inner(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), AnyRangeError>
-    where
-        C: FromRange,
-        AnyRangeError: From<<C as FromRange>::Error>,
-    {
-        C::from_range(range, notrunc).inner_into().map(|col| {
-            self.columns.insert(index.into(), col);
-        })
-    }
-
-    fn push_inner(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), AnyRangeError>
-    where
-        C: FromRange,
-        AnyRangeError: From<<C as FromRange>::Error>,
-    {
-        C::from_range(range, notrunc)
-            .inner_into()
-            .map(|col| self.columns.push(col))
-    }
-
-    fn remove_nocheck_inner(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-        self.columns.remove_nocheck(index.into())
-    }
-
     fn h_read_unchecked_df<R: Read>(
         &self,
         h: &mut BufReader<R>,
@@ -2780,44 +2772,6 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         } else {
             Tentative::new1(total_events)
         }
-    }
-}
-
-impl<C, const LEN: usize, S, T, D> FixedLayout<FloatRange<C, LEN>, S, T, D> {
-    fn insert_float_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), AnyRangeError>
-    where
-        C: Float,
-        NonNanFloat<C>: TryFrom<FloatOrInt, Error = ToFloatError<C>>,
-    {
-        self.insert_nocheck_inner(index, range, notrunc)
-    }
-
-    fn push_float(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), AnyRangeError>
-    where
-        C: Float,
-        NonNanFloat<C>: TryFrom<FloatOrInt, Error = ToFloatError<C>>,
-    {
-        self.push_inner(range, notrunc)
-    }
-}
-
-impl<T, D> FixedLayout<AnyNullBitmask, Endian, T, D> {
-    fn insert_uint_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), AnyRangeError> {
-        self.insert_nocheck_inner(index, range, notrunc)
-    }
-
-    fn push_uint(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), AnyRangeError> {
-        self.push_inner(range, notrunc)
     }
 }
 
@@ -3184,25 +3138,6 @@ impl<T> AnyOrderedUintLayout<T> {
             })
         })
     }
-
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), AnyRangeError> {
-        match_any_uint!(self, Self, l, {
-            l.insert_nocheck_inner(index, range, notrunc)
-        })
-    }
-
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), AnyRangeError> {
-        match_any_uint!(self, Self, l, { l.push_inner(range, notrunc) })
-    }
-
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-        match_any_uint!(self, Self, l, { l.remove_nocheck_inner(index) })
-    }
 }
 
 impl<T, D> OrderedLayoutOps for AnyAsciiLayout<T, D, true> {
@@ -3260,32 +3195,6 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
         }
     }
 
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), AnyRangeError> {
-        match self {
-            Self::Fixed(l) => l.insert_nocheck_inner(index, range, notrunc),
-            Self::Delimited(l) => l.insert_unchecked(index, range, notrunc),
-        }
-    }
-
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), AnyRangeError> {
-        match self {
-            Self::Fixed(l) => l.push_inner(range, notrunc),
-            Self::Delimited(l) => l.push(range, notrunc),
-        }
-    }
-
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-        match self {
-            Self::Fixed(l) => l.remove_nocheck_inner(index),
-            Self::Delimited(l) => l.remove_nocheck(index),
-        }
-    }
-
     fn new_fixed(columns: NonEmpty<AsciiRange>) -> Self {
         Self::Fixed(FixedLayout::new(columns, NoByteOrd))
     }
@@ -3322,23 +3231,6 @@ impl VersionedDataLayout for DataLayout2_0 {
             .def_map_value(|x| x.into())
             .def_map_warnings(|e| e.inner_into())
     }
-
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), AnyRangeError> {
-        self.0.insert_nocheck(index, range, notrunc)
-    }
-
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), AnyRangeError> {
-        self.0.push(range, notrunc)
-    }
-
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-        self.0.remove_nocheck(index)
-    }
 }
 
 impl VersionedDataLayout for DataLayout3_0 {
@@ -3368,23 +3260,6 @@ impl VersionedDataLayout for DataLayout3_0 {
             .def_map_value(|x| x.into())
             .def_map_warnings(|e| e.inner_into())
     }
-
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), AnyRangeError> {
-        self.0.insert_nocheck(index, range, notrunc)
-    }
-
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), AnyRangeError> {
-        self.0.push(range, notrunc)
-    }
-
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-        self.0.remove_nocheck(index)
-    }
 }
 
 impl VersionedDataLayout for DataLayout3_1 {
@@ -3413,23 +3288,6 @@ impl VersionedDataLayout for DataLayout3_1 {
         NonMixedEndianLayout::try_new(datatype, endian, columns, conf)
             .def_map_value(|x| x.into())
             .def_map_warnings(|e| e.inner_into())
-    }
-
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), AnyRangeError> {
-        self.0.insert_nocheck(index, range, notrunc)
-    }
-
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), AnyRangeError> {
-        self.0.push(range, notrunc)
-    }
-
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-        self.0.remove_nocheck(index)
     }
 }
 
@@ -3500,32 +3358,6 @@ impl VersionedDataLayout for DataLayout3_2 {
                 MixedType::from_width_and_range(c.width, c.range, c.datatype, notrunc)
             })
             .def_map_value(Self::Mixed),
-        }
-    }
-
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), AnyRangeError> {
-        match self {
-            Self::NonMixed(x) => x.insert_nocheck(index, range, notrunc),
-            Self::Mixed(x) => x.insert_nocheck_inner(index, range, notrunc),
-        }
-    }
-
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), AnyRangeError> {
-        match self {
-            Self::NonMixed(x) => x.push(range, notrunc),
-            Self::Mixed(x) => x.push_inner(range, notrunc),
-        }
-    }
-
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-        match self {
-            Self::NonMixed(x) => x.remove_nocheck(index),
-            Self::Mixed(x) => x.remove_nocheck_inner(index),
         }
     }
 }
@@ -3604,38 +3436,6 @@ impl<T> AnyOrderedLayout<T> {
                 )
                 .def_inner_into()
             })
-    }
-
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), AnyRangeError> {
-        match self {
-            Self::Ascii(l) => l.insert_nocheck(index, range, notrunc),
-            Self::Integer(l) => l.insert_nocheck(index, range, notrunc),
-            Self::F32(l) => l.insert_float_nocheck(index, range, notrunc),
-            Self::F64(l) => l.insert_float_nocheck(index, range, notrunc),
-        }
-    }
-
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), AnyRangeError> {
-        match self {
-            Self::Ascii(l) => l.push(range, notrunc),
-            Self::Integer(l) => l.push(range, notrunc),
-            Self::F32(l) => l.push_float(range, notrunc),
-            Self::F64(l) => l.push_float(range, notrunc),
-        }
-    }
-
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-        match self {
-            Self::Ascii(l) => l.remove_nocheck(index),
-            Self::Integer(l) => l.remove_nocheck(index),
-            Self::F32(l) => l.remove_nocheck_inner(index),
-            Self::F64(l) => l.remove_nocheck_inner(index),
-        }
     }
 
     pub fn new_ascii_fixed(ranges: NonEmpty<AsciiRange>) -> Self {
@@ -3785,38 +3585,6 @@ impl NonMixedEndianLayout<NoMeasDatatype> {
 }
 
 impl<D> NonMixedEndianLayout<D> {
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), AnyRangeError> {
-        match self {
-            Self::Ascii(l) => l.insert_nocheck(index, range, notrunc),
-            Self::Integer(l) => l.insert_uint_nocheck(index, range, notrunc),
-            Self::F32(l) => l.insert_float_nocheck(index, range, notrunc),
-            Self::F64(l) => l.insert_float_nocheck(index, range, notrunc),
-        }
-    }
-
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), AnyRangeError> {
-        match self {
-            Self::Ascii(l) => l.push(range, notrunc),
-            Self::Integer(l) => l.push_uint(range, notrunc),
-            Self::F32(l) => l.push_float(range, notrunc),
-            Self::F64(l) => l.push_float(range, notrunc),
-        }
-    }
-
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-        match self {
-            Self::Ascii(l) => l.remove_nocheck(index),
-            Self::Integer(l) => l.remove_nocheck_inner(index),
-            Self::F32(l) => l.remove_nocheck_inner(index),
-            Self::F64(l) => l.remove_nocheck_inner(index),
-        }
-    }
-
     pub fn new_ascii_fixed(ranges: NonEmpty<AsciiRange>) -> Self {
         AnyAsciiLayout::new_fixed(ranges).into()
     }
@@ -4307,22 +4075,6 @@ pub enum MixedToNonMixedConvertError {
 
 #[derive(From, Display)]
 pub enum AnyRangeError {
-    Ascii(IntRangeError),
-    Int(BitmaskError),
-    Float(FloatRangeError),
-}
-
-// TODO redundant
-#[derive(From, Display)]
-pub enum LayoutPushColumnError {
-    Ascii(IntRangeError),
-    Int(BitmaskError),
-    Float(FloatRangeError),
-}
-
-// TODO redundant
-#[derive(From, Display)]
-pub enum LayoutInsertColumnWarning {
     Ascii(IntRangeError),
     Int(BitmaskError),
     Float(FloatRangeError),

@@ -1651,21 +1651,11 @@ where
 
 impl<'a> Writable<'a, Endian> for WriterMixedType<'a> {
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: Endian) -> io::Result<()> {
-        let nb: NoByteOrd3_1 = NoByteOrd;
         match self {
-            Self::Ascii(c) => {
-                let x = c.data.next().unwrap();
-                c.column_type.h_write(h, x, nb)
-            }
+            Self::Ascii(c) => c.h_write(h, NoByteOrd),
             Self::Uint(c) => c.h_write(h, byte_layout),
-            Self::F32(c) => {
-                let x = c.data.next().unwrap();
-                c.column_type.h_write(h, x, byte_layout)
-            }
-            Self::F64(c) => {
-                let x = c.data.next().unwrap();
-                c.column_type.h_write(h, x, byte_layout)
-            }
+            Self::F32(c) => c.h_write(h, byte_layout),
+            Self::F64(c) => c.h_write(h, byte_layout),
         }
     }
 }
@@ -3521,12 +3511,9 @@ impl<D> NonMixedEndianLayout<D> {
     }
 
     pub(crate) fn phantom_into<D1>(self) -> NonMixedEndianLayout<D1> {
-        match self {
-            Self::Ascii(x) => x.phantom_into().into(),
-            Self::Integer(x) => x.phantom_into().into(),
-            Self::F32(x) => x.phantom_into().into(),
-            Self::F64(x) => x.phantom_into().into(),
-        }
+        match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, {
+            x.phantom_into().into()
+        })
     }
 }
 

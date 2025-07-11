@@ -903,36 +903,80 @@ impl_null_layout!(
     Uint64
 );
 
-macro_rules! any_uint_from {
-    ($var:ident, $inner:path) => {
-        impl From<$inner> for AnyNullBitmask {
-            fn from(value: $inner) -> Self {
+macro_rules! impl_any_uint {
+    ($var:ident, $bitmask:path) => {
+        impl From<$bitmask> for AnyNullBitmask {
+            fn from(value: $bitmask) -> Self {
                 Self::$var(value)
             }
         }
 
-        impl From<UintColumnReader<$inner>> for AnyReaderBitmask {
-            fn from(value: UintColumnReader<$inner>) -> Self {
+        impl From<UintColumnReader<$bitmask>> for AnyReaderBitmask {
+            fn from(value: UintColumnReader<$bitmask>) -> Self {
                 Self::$var(value)
             }
         }
 
-        impl<'a> From<UintColumnWriter<'a, $inner>> for AnyWriterBitmask<'a> {
-            fn from(value: UintColumnWriter<'a, $inner>) -> Self {
+        impl<'a> From<UintColumnWriter<'a, $bitmask>> for AnyWriterBitmask<'a> {
+            fn from(value: UintColumnWriter<'a, $bitmask>) -> Self {
                 Self::$var(value)
+            }
+        }
+
+        impl TryFrom<AnyNullBitmask> for $bitmask {
+            type Error = UintToUintError;
+            fn try_from(value: AnyNullBitmask) -> Result<Self, Self::Error> {
+                let w = value.nbytes();
+                if let AnyBitmask::$var(x) = value {
+                    Ok(x)
+                } else {
+                    Err(UintToUintError {
+                        from: w,
+                        to: Self::BYTES.into(),
+                    })
+                }
+            }
+        }
+
+        impl TryFrom<NullMixedType> for $bitmask {
+            type Error = MixedToOrderedUintError;
+            fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
+                let w = value.nbytes();
+                match value {
+                    MixedType::Uint(x) => {
+                        if let AnyBitmask::$var(y) = x {
+                            Ok(y)
+                        } else {
+                            Err(UintToUintError {
+                                from: w,
+                                to: Self::BYTES.into(),
+                            }
+                            .into())
+                        }
+                    }
+                    MixedType::Ascii(_) => Err(MixedIsAscii.into()),
+                    MixedType::F32(_) => Err(MixedIsFloat.into()),
+                    MixedType::F64(_) => Err(MixedIsDouble.into()),
+                }
+            }
+        }
+
+        impl From<$bitmask> for NullMixedType {
+            fn from(value: $bitmask) -> Self {
+                MixedType::Uint(value.into())
             }
         }
     };
 }
 
-any_uint_from!(Uint08, Bitmask08);
-any_uint_from!(Uint16, Bitmask16);
-any_uint_from!(Uint24, Bitmask24);
-any_uint_from!(Uint32, Bitmask32);
-any_uint_from!(Uint40, Bitmask40);
-any_uint_from!(Uint48, Bitmask48);
-any_uint_from!(Uint56, Bitmask56);
-any_uint_from!(Uint64, Bitmask64);
+impl_any_uint!(Uint08, Bitmask08);
+impl_any_uint!(Uint16, Bitmask16);
+impl_any_uint!(Uint24, Bitmask24);
+impl_any_uint!(Uint32, Bitmask32);
+impl_any_uint!(Uint40, Bitmask40);
+impl_any_uint!(Uint48, Bitmask48);
+impl_any_uint!(Uint56, Bitmask56);
+impl_any_uint!(Uint64, Bitmask64);
 
 impl MeasDatatypeDef for NoMeasDatatype {
     type MeasDatatype = NullMeasDatatype;
@@ -1093,69 +1137,17 @@ impl From<&NullMixedType> for Option<NumType> {
     }
 }
 
-macro_rules! any_uint_to_width {
-    ($from:ident, $to:ident) => {
-        impl TryFrom<AnyNullBitmask> for $to {
-            type Error = UintToUintError;
-            fn try_from(value: AnyNullBitmask) -> Result<Self, Self::Error> {
-                let w = value.nbytes();
-                if let AnyBitmask::$from(x) = value {
-                    Ok(x)
-                } else {
-                    Err(UintToUintError {
-                        from: w,
-                        to: Self::BYTES.into(),
-                    })
-                }
-            }
+impl TryFrom<NullMixedType> for AsciiRange {
+    type Error = MixedToAsciiError;
+    fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
+        match value {
+            MixedType::Ascii(x) => Ok(x),
+            MixedType::Uint(x) => Err(MixedIsInteger { width: x.nbytes() }.into()),
+            MixedType::F32(_) => Err(MixedIsFloat.into()),
+            MixedType::F64(_) => Err(MixedIsDouble.into()),
         }
-    };
+    }
 }
-
-any_uint_to_width!(Uint08, Bitmask08);
-any_uint_to_width!(Uint16, Bitmask16);
-any_uint_to_width!(Uint24, Bitmask24);
-any_uint_to_width!(Uint32, Bitmask32);
-any_uint_to_width!(Uint40, Bitmask40);
-any_uint_to_width!(Uint48, Bitmask48);
-any_uint_to_width!(Uint56, Bitmask56);
-any_uint_to_width!(Uint64, Bitmask64);
-
-macro_rules! mixed_to_width {
-    ($from:ident, $to:ident) => {
-        impl TryFrom<NullMixedType> for $to {
-            type Error = MixedToOrderedUintError;
-            fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
-                let w = value.nbytes();
-                match value {
-                    MixedType::Uint(x) => {
-                        if let AnyBitmask::$from(y) = x {
-                            Ok(y)
-                        } else {
-                            Err(UintToUintError {
-                                from: w,
-                                to: Self::BYTES.into(),
-                            }
-                            .into())
-                        }
-                    }
-                    MixedType::Ascii(_) => Err(MixedIsAscii.into()),
-                    MixedType::F32(_) => Err(MixedIsFloat.into()),
-                    MixedType::F64(_) => Err(MixedIsDouble.into()),
-                }
-            }
-        }
-    };
-}
-
-mixed_to_width!(Uint08, Bitmask08);
-mixed_to_width!(Uint16, Bitmask16);
-mixed_to_width!(Uint24, Bitmask24);
-mixed_to_width!(Uint32, Bitmask32);
-mixed_to_width!(Uint40, Bitmask40);
-mixed_to_width!(Uint48, Bitmask48);
-mixed_to_width!(Uint56, Bitmask56);
-mixed_to_width!(Uint64, Bitmask64);
 
 macro_rules! match_any_uint {
     ($value:expr, $root:ident, $inner:ident, $action:block) => {
@@ -1169,16 +1161,10 @@ macro_rules! match_any_uint {
     };
 }
 
-impl TryFrom<NullMixedType> for AsciiRange {
-    type Error = MixedToAsciiError;
-    fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
-        match value {
-            MixedType::Ascii(x) => Ok(x),
-            MixedType::Uint(x) => Err(MixedIsInteger { width: x.nbytes() }.into()),
-            MixedType::F32(_) => Err(MixedIsFloat.into()),
-            MixedType::F64(_) => Err(MixedIsDouble.into()),
-        }
-    }
+macro_rules! match_any_mixed {
+    ($value:expr, $inner:ident, $action:block) => {
+        match_many_to_one!($value, MixedType, [Ascii, Uint, F32, F64], $inner, $action)
+    };
 }
 
 impl TryFrom<NullMixedType> for AnyNullBitmask {
@@ -1219,9 +1205,7 @@ impl TryFrom<NullMixedType> for F64Range {
 
 impl From<NullMixedType> for FloatOrInt {
     fn from(value: NullMixedType) -> Self {
-        match_many_to_one!(value, NullMixedType, [Ascii, Uint, F32, F64], x, {
-            x.into()
-        })
+        match_any_mixed!(value, x, { x.into() })
     }
 }
 
@@ -1231,14 +1215,11 @@ impl From<AnyNullBitmask> for FloatOrInt {
     }
 }
 
-impl From<F32Range> for FloatOrInt {
-    fn from(value: F32Range) -> Self {
-        value.range.into()
-    }
-}
-
-impl From<F64Range> for FloatOrInt {
-    fn from(value: F64Range) -> Self {
+impl<T, const LEN: usize> From<FloatRange<T, LEN>> for FloatOrInt
+where
+    FloatOrInt: From<NonNanFloat<T>>,
+{
+    fn from(value: FloatRange<T, LEN>) -> Self {
         value.range.into()
     }
 }
@@ -1777,25 +1758,6 @@ impl ToNativeWriter for AsciiRange {
     }
 }
 
-macro_rules! uint_to_mixed {
-    ($uint:ident, $wrap:ident) => {
-        impl From<$uint> for NullMixedType {
-            fn from(value: $uint) -> Self {
-                MixedType::Uint(AnyBitmask::$wrap(value))
-            }
-        }
-    };
-}
-
-uint_to_mixed!(Bitmask08, Uint08);
-uint_to_mixed!(Bitmask16, Uint16);
-uint_to_mixed!(Bitmask24, Uint24);
-uint_to_mixed!(Bitmask32, Uint32);
-uint_to_mixed!(Bitmask40, Uint40);
-uint_to_mixed!(Bitmask48, Uint48);
-uint_to_mixed!(Bitmask56, Uint56);
-uint_to_mixed!(Bitmask64, Uint64);
-
 /// A wrapper for any of the 6 source types that can be written.
 ///
 /// Each inner type is an iterator from a different source type which emit
@@ -1975,6 +1937,7 @@ impl<D> EndianLayout<NullMixedType, D> {
     }
 }
 
+// TODO doesn't num_traits have this?
 macro_rules! impl_num_props {
     ($size:expr, $t:ty) => {
         impl NumProps for $t {

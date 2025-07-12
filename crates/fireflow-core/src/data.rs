@@ -309,10 +309,7 @@ pub trait MeasDatatypeDef {
 
     fn headers() -> Vec<MeasHeader>;
 
-    fn keywords<'a, C>(
-        columns: &'a NonEmpty<C>,
-        datatype: AlphaNumType,
-    ) -> NonEmpty<Vec<(String, Option<String>)>>
+    fn keywords<'a, C>(columns: &'a NonEmpty<C>) -> NonEmpty<Vec<(String, Option<String>)>>
     where
         Self::MeasDatatype: From<&'a C>;
 
@@ -988,10 +985,7 @@ impl MeasDatatypeDef for NoMeasDatatype {
         vec![]
     }
 
-    fn keywords<'a, C>(
-        columns: &'a NonEmpty<C>,
-        _: AlphaNumType,
-    ) -> NonEmpty<Vec<(String, Option<String>)>>
+    fn keywords<'a, C>(columns: &'a NonEmpty<C>) -> NonEmpty<Vec<(String, Option<String>)>>
     where
         Self::MeasDatatype: From<&'a C>,
     {
@@ -1020,22 +1014,12 @@ impl MeasDatatypeDef for HasMeasDatatype {
         vec![NumType::std_blank()]
     }
 
-    fn keywords<'a, C>(
-        columns: &'a NonEmpty<C>,
-        datatype: AlphaNumType,
-    ) -> NonEmpty<Vec<(String, Option<String>)>>
+    fn keywords<'a, C>(columns: &'a NonEmpty<C>) -> NonEmpty<Vec<(String, Option<String>)>>
     where
         Self::MeasDatatype: From<&'a C>,
     {
         columns.as_ref().enumerate().map(|(i, c)| {
             Self::MeasDatatype::from(c)
-                .and_then(|y| {
-                    if AlphaNumType::from(y) != datatype {
-                        None
-                    } else {
-                        Some(y)
-                    }
-                })
                 .map(|y| vec![NumType::pair_opt(&y.into(), i.into())])
                 .unwrap_or_default()
         })
@@ -2172,10 +2156,7 @@ where
     }
 
     fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-        D::keywords(
-            &self.ranges.as_ref().map(|_| NullMeasDatatype),
-            LayoutOps::<T, D>::datatype(self),
-        )
+        D::keywords(&self.ranges.as_ref().map(|_| NullMeasDatatype))
     }
 
     fn insert_nocheck(
@@ -2456,7 +2437,7 @@ where
     }
 
     fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-        D::keywords(&self.columns, LayoutOps::<T, D>::datatype(self))
+        D::keywords(&self.columns)
     }
 
     fn insert_nocheck(
@@ -2770,7 +2751,8 @@ impl HasDatatype for NullMixedType {
             .ok()
             .map_or(AlphaNumType::Ascii, |mut ds| {
                 ds.sort();
-                (*ds.mode().0).into()
+                let x = (*ds.mode().0).into();
+                x
             })
     }
 }

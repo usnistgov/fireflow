@@ -55,10 +55,7 @@ use crate::macros::match_many_to_one;
 use crate::nonempty::NonEmptyExt;
 use crate::segment::*;
 use crate::text::byteord::*;
-use crate::text::float_or_int::{
-    FloatOrInt, FloatRangeError, IntRangeError, NonNanFloat, ParseFloatOrIntError, ToFloatError,
-    ToIntError,
-};
+use crate::text::float_or_int::{FloatDecimal, FloatToDecimalError, HasFloatBounds};
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::*;
 use crate::text::optional::ClearOptional;
@@ -73,6 +70,7 @@ use crate::validated::dataframe::*;
 use crate::validated::keys::*;
 
 use ambassador::{delegatable_trait, Delegate};
+use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use derive_more::{Display, From};
 use itertools::Itertools;
 use nonempty::NonEmpty;
@@ -230,9 +228,10 @@ type AnyReaderBitmask = AnyBitmask<ColumnReaderFamily>;
 type AnyWriterBitmask<'a> = AnyBitmask<ColumnWriterFamily<'a>>;
 
 /// The type of any floating point column in all versions
-#[derive(PartialEq, Clone, Copy, Serialize)]
+#[derive(PartialEq, Clone, Serialize)]
 pub struct FloatRange<T, const LEN: usize> {
-    pub range: NonNanFloat<T>,
+    pub range: FloatDecimal<T>,
+    _t: PhantomData<T>,
 }
 
 pub type F32Range = FloatRange<f32, 4>;
@@ -441,7 +440,7 @@ pub trait LayoutOps<'a, T, D>: Sized {
 
     fn widths(&self) -> Vec<BitsOrChars>;
 
-    fn ranges(&self) -> NonEmpty<FloatOrInt>;
+    fn ranges(&self) -> NonEmpty<Range>;
 
     fn datatype(&self) -> AlphaNumType;
 
@@ -468,11 +467,11 @@ pub trait LayoutOps<'a, T, D>: Sized {
     fn insert_nocheck(
         &mut self,
         index: MeasIndex,
-        range: FloatOrInt,
+        range: Range,
         notrunc: bool,
     ) -> BiTentative<(), AnyRangeError>;
 
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), AnyRangeError>;
+    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), AnyRangeError>;
 
     fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional>;
 
@@ -600,7 +599,7 @@ pub trait HasDatatype: Sized {
 trait FromRange: Sized {
     type Error;
 
-    fn from_range(range: FloatOrInt, notrunc: bool) -> BiTentative<Self, Self::Error>;
+    fn from_range(range: Range, notrunc: bool) -> BiTentative<Self, Self::Error>;
 }
 
 /// A type which has a width that may vary
@@ -868,12 +867,16 @@ trait FloatFromBytes<const LEN: usize>: NumProps + OrderedFromBytes<LEN> {
 }
 
 macro_rules! impl_null_layout {
-    ($t:path, $($var:ident),*) => {
-        impl Copy for $t {}
+    ($t:ident, $($var:ident),*) => {
+        // impl Copy for $t {}
 
         impl Clone for $t {
             fn clone(&self) -> Self {
-                *self
+                match self {
+                    $(
+                        Self::$var(x) => $t::$var(x.clone()),
+                    )*
+                }
             }
         }
 
@@ -1203,24 +1206,21 @@ impl TryFrom<NullMixedType> for F64Range {
     }
 }
 
-impl From<NullMixedType> for FloatOrInt {
-    fn from(value: NullMixedType) -> Self {
+impl From<&NullMixedType> for Range {
+    fn from(value: &NullMixedType) -> Self {
         match_any_mixed!(value, x, { x.into() })
     }
 }
 
-impl From<AnyNullBitmask> for FloatOrInt {
-    fn from(value: AnyNullBitmask) -> Self {
+impl From<&AnyNullBitmask> for Range {
+    fn from(value: &AnyNullBitmask) -> Self {
         match_any_uint!(value, AnyNullBitmask, x, { x.into() })
     }
 }
 
-impl<T, const LEN: usize> From<FloatRange<T, LEN>> for FloatOrInt
-where
-    FloatOrInt: From<NonNanFloat<T>>,
-{
-    fn from(value: FloatRange<T, LEN>) -> Self {
-        value.range.into()
+impl<T: Clone, const LEN: usize> From<&FloatRange<T, LEN>> for Range {
+    fn from(value: &FloatRange<T, LEN>) -> Self {
+        value.range.clone().into()
     }
 }
 
@@ -1967,6 +1967,13 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
 }
 
 impl<T, const LEN: usize> FloatRange<T, LEN> {
+    pub fn new(range: FloatDecimal<T>) -> Self {
+        Self {
+            range,
+            _t: PhantomData,
+        }
+    }
+
     /// Make new float range from $PnB and $PnR values.
     ///
     /// Will return an error if $PnB is the incorrect size.
@@ -1974,16 +1981,16 @@ impl<T, const LEN: usize> FloatRange<T, LEN> {
         width: Width,
         range: Range,
         notrunc: bool,
-    ) -> DeferredResult<Self, FloatRangeError, FloatWidthError>
+    ) -> DeferredResult<Self, FloatToDecimalError, FloatWidthError>
     where
-        NonNanFloat<T>: TryFrom<FloatOrInt, Error = ToFloatError<T>>,
-        T: num_traits::float::Float,
+        FloatDecimal<T>: TryFrom<BigDecimal, Error = FloatToDecimalError>,
+        T: HasFloatBounds,
     {
         Bytes::try_from(width)
             .into_deferred()
             .def_and_maybe(|bytes| {
                 if usize::from(u8::from(bytes)) == LEN {
-                    Ok(Self::from_range(range.0, notrunc).errors_into())
+                    Ok(Self::from_range(range, notrunc).errors_into())
                 } else {
                     Err(DeferredFailure::new1(FloatWidthError::WrongWidth(
                         WrongFloatWidth {
@@ -2047,11 +2054,11 @@ impl AnyNullBitmask {
         width
             .try_into()
             .into_deferred()
-            .def_and_tentatively(|bytes| Self::new1(bytes, range.0, notrunc).errors_into())
+            .def_and_tentatively(|bytes| Self::new1(bytes, range, notrunc).errors_into())
     }
 
     /// Make a new bitmask with a given width (in bytes) using a float/int.
-    fn new1(width: Bytes, range: FloatOrInt, notrunc: bool) -> BiTentative<Self, BitmaskError> {
+    fn new1(width: Bytes, range: Range, notrunc: bool) -> BiTentative<Self, BitmaskError> {
         match width {
             Bytes::B1 => Bitmask08::from_range(range, notrunc).map(|b| b.into()),
             Bytes::B2 => Bitmask16::from_range(range, notrunc).map(|b| b.into()),
@@ -2143,8 +2150,8 @@ where
         vec![]
     }
 
-    fn ranges(&self) -> NonEmpty<FloatOrInt> {
-        self.ranges.as_ref().map(|x| FloatOrInt::from(*x))
+    fn ranges(&self) -> NonEmpty<Range> {
+        self.ranges.as_ref().map(|x| Range::from(*x))
     }
 
     fn datatype(&self) -> AlphaNumType {
@@ -2174,18 +2181,18 @@ where
     fn insert_nocheck(
         &mut self,
         index: MeasIndex,
-        range: FloatOrInt,
+        range: Range,
         notrunc: bool,
     ) -> BiTentative<(), AnyRangeError> {
         range
-            .as_uint(notrunc)
+            .into_uint(notrunc)
             .inner_into()
             .map(|r| self.ranges.insert(index.into(), r))
     }
 
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), AnyRangeError> {
+    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), AnyRangeError> {
         range
-            .as_uint(notrunc)
+            .into_uint(notrunc)
             .inner_into()
             .map(|r| self.ranges.push(r))
     }
@@ -2410,9 +2417,9 @@ where
     D: MeasDatatypeDef,
     for<'b> D::MeasDatatype: From<&'b C>,
     T: TotDefinition,
-    C: Copy + IsFixed + HasDatatype + IntoReader<S> + IntoWriter<'a, S> + FromRange,
+    C: Clone + IsFixed + HasDatatype + IntoReader<S> + IntoWriter<'a, S> + FromRange,
     S: Copy + HasByteOrd,
-    FloatOrInt: From<C>,
+    for<'c> Range: From<&'c C>,
     <C as IntoReader<S>>::Target: Readable<S>,
     <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
     AnyRangeError: From<<C as FromRange>::Error>,
@@ -2421,8 +2428,8 @@ where
         self.columns.as_ref().map(|x| x.fixed_width()).into()
     }
 
-    fn ranges(&self) -> NonEmpty<FloatOrInt> {
-        self.columns.as_ref().map(|x| (*x).into())
+    fn ranges(&self) -> NonEmpty<Range> {
+        self.columns.as_ref().map(|x| x.into())
     }
 
     fn ncols(&self) -> usize {
@@ -2455,7 +2462,7 @@ where
     fn insert_nocheck(
         &mut self,
         index: MeasIndex,
-        range: FloatOrInt,
+        range: Range,
         notrunc: bool,
     ) -> BiTentative<(), AnyRangeError> {
         C::from_range(range, notrunc).inner_into().map(|col| {
@@ -2463,7 +2470,7 @@ where
         })
     }
 
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), AnyRangeError> {
+    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), AnyRangeError> {
         C::from_range(range, notrunc)
             .inner_into()
             .map(|col| self.columns.push(col))
@@ -2529,7 +2536,7 @@ where
             .columns
             .iter()
             .zip(df.iter_columns())
-            .map(|(col_type, col_data)| col_type.into_writer(col_data))
+            .map(|(col_type, col_data)| col_type.clone().into_writer(col_data))
             .collect();
         for _ in 0..nrows {
             for c in cs.iter_mut() {
@@ -2612,10 +2619,15 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
     ) -> IOResult<FCSDataFrame, ReadDataframeError>
     where
         S: Copy,
-        C: IsFixed + Copy + IntoReader<S>,
+        C: IsFixed + Clone + IntoReader<S>,
         <C as IntoReader<S>>::Target: Readable<S>,
     {
-        let mut col_readers: Vec<_> = self.columns.iter().map(|c| c.into_reader(nrows)).collect();
+        // TODO to clone
+        let mut col_readers: Vec<_> = self
+            .columns
+            .iter()
+            .map(|c| c.clone().into_reader(nrows))
+            .collect();
         for row in 0..nrows {
             for c in col_readers.iter_mut() {
                 c.h_read(h, row, self.byte_layout, buf)
@@ -2765,56 +2777,55 @@ impl HasDatatype for NullMixedType {
 
 impl<T, const LEN: usize> FromRange for Bitmask<T, LEN>
 where
-    T: TryFrom<FloatOrInt, Error = ToIntError<T>> + PrimInt,
+    T: TryFrom<Range, Error = IntRangeError<T>> + PrimInt,
     u64: From<T>,
 {
     type Error = BitmaskError;
 
-    fn from_range(range: FloatOrInt, notrunc: bool) -> BiTentative<Self, Self::Error> {
-        // TODO useless delegation
-        Bitmask::from_range(range, notrunc)
+    fn from_range(range: Range, notrunc: bool) -> BiTentative<Self, Self::Error> {
+        range
+            .into_uint(notrunc)
+            .inner_into()
+            .and_tentatively(|x| Bitmask::from_native_tnt(x, notrunc).inner_into())
     }
 }
 
 impl<T, const LEN: usize> FromRange for FloatRange<T, LEN>
 where
-    NonNanFloat<T>: TryFrom<FloatOrInt, Error = ToFloatError<T>>,
-    T: num_traits::float::Float,
+    T: HasFloatBounds,
 {
-    type Error = FloatRangeError;
+    type Error = FloatToDecimalError;
 
-    fn from_range(range: FloatOrInt, notrunc: bool) -> BiTentative<Self, Self::Error> {
-        range.as_float(notrunc).map(|x| Self { range: x })
+    fn from_range(range: Range, notrunc: bool) -> BiTentative<Self, Self::Error> {
+        range.into_float(notrunc).map(Self::new)
     }
 }
 
 impl FromRange for AsciiRange {
-    type Error = IntRangeError;
+    type Error = IntRangeError<()>;
 
     /// Make new AsciiRange from a float or integer.
     ///
     /// The number of chars will be automatically selected as the minimum
     /// required to express the range.
-    fn from_range(range: FloatOrInt, notrunc: bool) -> BiTentative<Self, Self::Error> {
-        range.as_uint::<u64>(notrunc).map(AsciiRange::from)
+    fn from_range(range: Range, notrunc: bool) -> BiTentative<Self, Self::Error> {
+        range.into_uint::<u64>(notrunc).map(AsciiRange::from)
     }
 }
 
 impl FromRange for AnyNullBitmask {
-    type Error = IntRangeError;
+    type Error = IntRangeError<()>;
 
     /// make a new bitmask from a float or integer.
     ///
     /// The size will be determined by the input and will be kept as small as
     /// possible.
-    fn from_range(range: FloatOrInt, notrunc: bool) -> BiTentative<Self, Self::Error> {
-        range.as_uint(notrunc).map(Self::from_u64)
+    fn from_range(range: Range, notrunc: bool) -> BiTentative<Self, Self::Error> {
+        range.into_uint(notrunc).map(Self::from_u64)
     }
 }
 
 impl FromRange for NullMixedType {
-    // this is a dummy error to make type conversion easier, this method will
-    // never actually fail
     type Error = AnyRangeError;
 
     /// Create a mixed type based on the range.
@@ -2824,16 +2835,31 @@ impl FromRange for NullMixedType {
     /// otherwise use f32 (note that precision is not taken into consideration).
     ///
     /// ASCII will never be returned. This method will never fail.
-    fn from_range(range: FloatOrInt, _: bool) -> BiTentative<Self, Self::Error> {
-        let ret = match range {
-            FloatOrInt::Int(x) => Self::Uint(AnyBitmask::from_u64(x)),
-            FloatOrInt::Float(x) => x
-                .try_as_f32()
-                .map_or(Self::F64(FloatRange { range: x }), |y| {
-                    Self::F32(FloatRange { range: y })
-                }),
-        };
-        Tentative::new1(ret)
+    fn from_range(range: Range, notrunc: bool) -> BiTentative<Self, Self::Error> {
+        if range.0.is_integer() {
+            AnyBitmask::from_range(range, notrunc)
+                .map(Self::Uint)
+                .inner_into()
+        } else {
+            let (x, e) = FloatDecimal::<f32>::try_from(range.0)
+                .map_or_else(
+                    |e| FloatDecimal::<f64>::try_from(e.src).map(|r| Self::F64(FloatRange::new(r))),
+                    |r| Ok(Self::F32(FloatRange::new(r))),
+                )
+                .map_or_else(
+                    |e| {
+                        // TODO kinda not dry
+                        let m = if e.over {
+                            f64::max_decimal()
+                        } else {
+                            f64::min_decimal()
+                        };
+                        (Self::F64(FloatRange::new(m)), Some(e))
+                    },
+                    |x| (x, None),
+                );
+            BiTentative::new_either1(x, e, notrunc).inner_into()
+        }
     }
 }
 
@@ -2873,7 +2899,8 @@ where
     }
 
     fn range(&self) -> Range {
-        Range(FloatOrInt::Float(self.range.inner_into()))
+        // TODO clone?
+        self.range.clone().into()
     }
 }
 
@@ -3028,7 +3055,7 @@ impl<T> AnyOrderedUintLayout<T> {
                     // NOTE at this point $PnB doesn't matter, so assume we
                     // either ignored $PnB by way of $BYTEORD or checked to make
                     // sure they match.
-                    Ok(Bitmask::from_range(c.range.0, notrunc).errors_into())
+                    Ok(Bitmask::from_range(c.range, notrunc).errors_into())
                 })
                 .def_map_value(|x| x.into())
             })
@@ -3061,21 +3088,20 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
         notrunc: bool,
     ) -> DeferredResult<
         Self,
-        ColumnError<IntRangeError>,
+        ColumnError<IntRangeError<()>>,
         ColumnError<ascii_range::NewAsciiRangeError>,
     >
     where
         D: MeasDatatypeDef,
     {
-        let go = |error: IntRangeError, i: usize| ColumnError {
+        let go = |error: IntRangeError<()>, i: usize| ColumnError {
             error,
             index: i.into(),
         };
         if cs.iter().all(|c| c.width == Width::Variable) {
             let ts = cs.enumerate().map(|(i, c)| {
                 c.range
-                    .0
-                    .as_uint(notrunc)
+                    .into_uint(notrunc)
                     .map_errors(|e| go(e, i))
                     .map_warnings(|e| go(e, i))
             });
@@ -3273,15 +3299,20 @@ impl DataLayout3_2 {
     }
 
     pub fn new_mixed(ranges: NonEmpty<NullMixedType>, endian: Endian) -> Self {
-        // check if the mixed types are all the same, in which case we can use a
-        // simpler layout
-        if let Ok(rs) = ranges.as_ref().try_map(|x| AsciiRange::try_from(*x)) {
+        // Check if the mixed types are all the same, in which case we can use a
+        // simpler layout. This clone thing is not ideal but it will only be
+        // cloning big-decimals for floats and will use Copy for everything else
+        // (not a huge deal).
+        if let Ok(rs) = ranges.as_ref().try_map(|x| AsciiRange::try_from(x.clone())) {
             NonMixedEndianLayout::new_ascii_fixed(rs).into()
-        } else if let Ok(rs) = ranges.as_ref().try_map(|x| AnyNullBitmask::try_from(*x)) {
+        } else if let Ok(rs) = ranges
+            .as_ref()
+            .try_map(|x| AnyNullBitmask::try_from(x.clone()))
+        {
             NonMixedEndianLayout::new_uint(rs, endian).into()
-        } else if let Ok(rs) = ranges.as_ref().try_map(|x| F32Range::try_from(*x)) {
+        } else if let Ok(rs) = ranges.as_ref().try_map(|x| F32Range::try_from(x.clone())) {
             NonMixedEndianLayout::new_f32(rs, endian).into()
-        } else if let Ok(rs) = ranges.as_ref().try_map(|x| F64Range::try_from(*x)) {
+        } else if let Ok(rs) = ranges.as_ref().try_map(|x| F64Range::try_from(x.clone())) {
             NonMixedEndianLayout::new_f64(rs, endian).into()
         } else {
             FixedLayout::new(ranges, endian).into()
@@ -3569,9 +3600,9 @@ pub enum NewMixedTypeError {
 
 #[derive(From, Display)]
 pub enum NewMixedTypeWarning {
-    Ascii(IntRangeError),
+    Ascii(IntRangeError<()>),
     Uint(BitmaskError),
-    Float(FloatRangeError),
+    Float(FloatToDecimalError),
 }
 
 #[derive(From, Display)]
@@ -3584,7 +3615,7 @@ pub enum NewUintTypeError {
 pub enum FloatWidthError {
     Bytes(WidthToBytesError),
     WrongWidth(WrongFloatWidth),
-    Range(FloatRangeError),
+    Range(FloatToDecimalError),
 }
 
 pub struct WrongFloatWidth {
@@ -3607,7 +3638,7 @@ pub enum NewDataReaderError {
 pub enum NewDataReaderWarning {
     TotMismatch(TotEventMismatch),
     ParseTot(ParseKeyError<ParseIntError>),
-    Layout(ColumnError<IntRangeError>),
+    Layout(ColumnError<IntRangeError<()>>),
     Width(UnevenEventWidth),
     Segment(ReqSegmentWithDefaultWarning<DataSegmentId>),
 }
@@ -3705,7 +3736,7 @@ pub enum RawParsedError {
     Endian(ReqKeyError<NewEndianError>),
     ByteOrd(ReqKeyError<ParseByteOrdError>),
     Int(ReqKeyError<ParseIntError>),
-    Range(ReqKeyError<ParseFloatOrIntError>),
+    Range(ReqKeyError<ParseBigDecimalError>),
 }
 
 #[derive(From, Display)]
@@ -3953,9 +3984,9 @@ pub enum MixedToNonMixedConvertError {
 
 #[derive(From, Display)]
 pub enum AnyRangeError {
-    Ascii(IntRangeError),
+    Ascii(IntRangeError<()>),
     Int(BitmaskError),
-    Float(FloatRangeError),
+    Float(FloatToDecimalError),
 }
 
 pub struct MixedColumnConvertError<E> {

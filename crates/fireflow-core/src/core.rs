@@ -7,7 +7,6 @@ use crate::segment::*;
 use crate::text::byteord::*;
 use crate::text::compensation::*;
 use crate::text::datetimes::*;
-use crate::text::float_or_int::*;
 use crate::text::index::*;
 use crate::text::keywords::*;
 use crate::text::named_vec::*;
@@ -2288,7 +2287,7 @@ where
         &mut self,
         n: Shortname,
         m: Temporal<M::Temporal>,
-        r: FloatOrInt,
+        r: Range,
         notrunc: bool,
     ) -> DeferredResult<(), AnyRangeError, InsertTemporalError> {
         self.measurements
@@ -2309,7 +2308,7 @@ where
         i: MeasIndex,
         n: Shortname,
         m: Temporal<M::Temporal>,
-        r: FloatOrInt,
+        r: Range,
         notrunc: bool,
     ) -> DeferredResult<(), AnyRangeError, InsertTemporalError> {
         self.measurements
@@ -2329,7 +2328,7 @@ where
         &mut self,
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
-        r: FloatOrInt,
+        r: Range,
         notrunc: bool,
     ) -> DeferredResult<Shortname, AnyRangeError, PushOpticalError> {
         self.measurements
@@ -2351,7 +2350,7 @@ where
         i: MeasIndex,
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
-        r: FloatOrInt,
+        r: Range,
         notrunc: bool,
     ) -> DeferredResult<Shortname, AnyRangeError, InsertOpticalError> {
         self.measurements
@@ -2844,7 +2843,7 @@ where
         &mut self,
         n: Shortname,
         m: Temporal<M::Temporal>,
-        r: FloatOrInt,
+        r: Range,
         notrunc: bool,
     ) -> DeferredResult<(), AnyRangeError, InsertTemporalError> {
         self.push_temporal_inner(n, m, r, notrunc)
@@ -2859,7 +2858,7 @@ where
         i: MeasIndex,
         n: Shortname,
         m: Temporal<M::Temporal>,
-        r: FloatOrInt,
+        r: Range,
         notrunc: bool,
     ) -> DeferredResult<(), AnyRangeError, InsertTemporalError> {
         self.insert_temporal_inner(i, n, m, r, notrunc)
@@ -2872,7 +2871,7 @@ where
         &mut self,
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
-        r: FloatOrInt,
+        r: Range,
         notrunc: bool,
     ) -> DeferredResult<Shortname, AnyRangeError, PushOpticalError> {
         self.push_optical_inner(n, m, r, notrunc)
@@ -2886,7 +2885,7 @@ where
         i: MeasIndex,
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
-        r: FloatOrInt,
+        r: Range,
         notrunc: bool,
     ) -> DeferredResult<Shortname, AnyRangeError, InsertOpticalError> {
         self.insert_optical_inner(i, n, m, r, notrunc)
@@ -3013,7 +3012,7 @@ where
         &self,
         h: &mut BufWriter<W>,
         conf: &WriteConfig,
-    ) -> IODeferredResult<(), ColumnError<IntRangeError>, StdWriterError>
+    ) -> IODeferredResult<(), ColumnError<IntRangeError<()>>, StdWriterError>
     where
         Version: From<M::Ver>,
     {
@@ -3131,7 +3130,7 @@ where
         n: Shortname,
         m: Temporal<M::Temporal>,
         col: AnyFCSColumn,
-        r: FloatOrInt,
+        r: Range,
         notrunc: bool,
     ) -> DeferredResult<(), AnyRangeError, PushTemporalToDatasetError> {
         self.push_temporal_inner(n, m, r, notrunc)
@@ -3149,7 +3148,7 @@ where
         n: Shortname,
         m: Temporal<M::Temporal>,
         col: AnyFCSColumn,
-        r: FloatOrInt,
+        r: Range,
         notrunc: bool,
     ) -> DeferredResult<(), AnyRangeError, InsertTemporalToDatasetError> {
         self.insert_temporal_inner(i, n, m, r, notrunc)
@@ -3170,7 +3169,7 @@ where
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
         col: AnyFCSColumn,
-        r: FloatOrInt,
+        r: Range,
         notrunc: bool,
     ) -> DeferredResult<Shortname, AnyRangeError, PushOpticalToDatasetError> {
         self.push_optical_inner(n, m, r, notrunc)
@@ -3192,7 +3191,7 @@ where
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
         col: AnyFCSColumn,
-        r: FloatOrInt,
+        r: Range,
         notrunc: bool,
     ) -> DeferredResult<Shortname, AnyRangeError, InsertOpticalInDatasetError> {
         self.insert_optical_inner(i, n, m, r, notrunc)
@@ -8180,12 +8179,6 @@ impl fmt::Display for ModeNotListError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "$MODE is not L")
     }
-}
-
-#[derive(From, Display)]
-pub enum SetFloatError {
-    Nan(NanFloatError),
-    Column(ColumnNumberError),
 }
 
 #[derive(Debug)]

@@ -18,11 +18,15 @@ use super::spillover::*;
 use super::timestamps::*;
 use super::unstainedcenters::*;
 
+use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use chrono::{NaiveDateTime, NaiveTime, Timelike};
 use derive_more::{Display, From, FromStr, Into};
 use itertools::Itertools;
 use nonempty::NonEmpty;
+use num_traits::cast::ToPrimitive;
+use num_traits::PrimInt;
 use serde::Serialize;
+use std::any::type_name;
 use std::collections::HashSet;
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
@@ -979,14 +983,14 @@ pub(crate) enum RegionWindow {
 
 #[derive(Clone, Serialize)]
 pub struct Vertex {
-    pub x: FloatOrInt,
-    pub y: FloatOrInt,
+    pub x: BigDecimal,
+    pub y: BigDecimal,
 }
 
 #[derive(Clone, Serialize)]
 pub struct UniGate {
-    pub lower: FloatOrInt,
-    pub upper: FloatOrInt,
+    pub lower: BigDecimal,
+    pub upper: BigDecimal,
 }
 
 impl FromStr for RegionWindow {
@@ -1028,7 +1032,7 @@ impl FromStr for Vertex {
     }
 }
 
-fn parse_pair(s: &str) -> Result<(FloatOrInt, FloatOrInt), GatePairError> {
+fn parse_pair(s: &str) -> Result<(BigDecimal, BigDecimal), GatePairError> {
     match s.split(",").collect::<Vec<_>>()[..] {
         [a, b] => a
             .parse()
@@ -1051,7 +1055,7 @@ impl fmt::Display for Vertex {
 }
 
 pub enum GatePairError {
-    Num(ParseFloatOrIntError),
+    Num(ParseBigDecimalError),
     Format,
 }
 
@@ -1260,28 +1264,129 @@ impl fmt::Display for GatingError {
 }
 
 /// The value of the $PnR key.
-#[derive(Clone, Copy, Serialize, From, Display, FromStr)]
-#[from(u64, FloatOrInt)]
-pub struct Range(pub FloatOrInt);
+#[derive(Clone, Serialize, From, Display, FromStr)]
+#[from(u8, u16, u32, u64, BigDecimal)]
+pub struct Range(pub BigDecimal);
+
+impl Range {
+    pub(crate) fn into_uint<T>(self, notrunc: bool) -> BiTentative<T, IntRangeError<()>>
+    where
+        T: TryFrom<Self, Error = IntRangeError<T>> + PrimInt,
+    {
+        let (b, e) = self.try_into().map_or_else(
+            |e| match e {
+                IntRangeError::Overrange(x) => (T::max_value(), Some(IntRangeError::Overrange(x))),
+                IntRangeError::Underrange(x) => (T::zero(), Some(IntRangeError::Underrange(x))),
+                IntRangeError::PrecisionLoss(x, y) => {
+                    (y, Some(IntRangeError::PrecisionLoss(x, ())))
+                }
+            },
+            |x| (x, None),
+        );
+        BiTentative::new_either1(b, e, notrunc)
+    }
+
+    pub(crate) fn into_float<T>(
+        self,
+        notrunc: bool,
+    ) -> BiTentative<FloatDecimal<T>, FloatToDecimalError>
+    where
+        FloatDecimal<T>: TryFrom<BigDecimal, Error = FloatToDecimalError>,
+        T: HasFloatBounds,
+    {
+        let (x, e) = FloatDecimal::try_from(self.0).map_or_else(
+            |e| {
+                let m = if e.over {
+                    T::max_decimal()
+                } else {
+                    T::min_decimal()
+                };
+                (m, Some(e))
+            },
+            |x| (x, None),
+        );
+        BiTentative::new_either1(x, e, notrunc)
+    }
+}
+
+macro_rules! try_from_range_int {
+    ($inttype:ident, $to:ident) => {
+        impl TryFrom<Range> for $inttype {
+            type Error = IntRangeError<$inttype>;
+
+            fn try_from(value: Range) -> Result<Self, Self::Error> {
+                let x = &value.0;
+                if let Some(y) = x.$to() {
+                    if x.fractional_digit_count() < 0 {
+                        Ok(y)
+                    } else {
+                        Err(IntRangeError::PrecisionLoss(x.clone(), y))
+                    }
+                } else {
+                    if BigDecimal::from($inttype::MAX) < *x {
+                        Err(IntRangeError::Overrange(x.clone()))
+                    } else {
+                        Err(IntRangeError::Underrange(x.clone()))
+                    }
+                }
+            }
+        }
+    };
+}
+
+try_from_range_int!(u8, to_u8);
+try_from_range_int!(u16, to_u16);
+try_from_range_int!(u32, to_u32);
+try_from_range_int!(u64, to_u64);
+
+pub enum IntRangeError<T> {
+    Overrange(BigDecimal),
+    Underrange(BigDecimal),
+    PrecisionLoss(BigDecimal, T),
+}
+
+impl<T> fmt::Display for IntRangeError<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let t = type_name::<T>();
+        match self {
+            Self::Overrange(x) => {
+                write!(f, "{x} is larger than {t} can hold")
+            }
+            Self::Underrange(x) => {
+                write!(f, "{x} is less than zero and could not be converted to {t}")
+            }
+            Self::PrecisionLoss(x, _) => {
+                write!(f, "{x} lost precision when converting to {t}")
+            }
+        }
+    }
+}
+
+impl TryFrom<f32> for Range {
+    type Error = ParseBigDecimalError;
+    fn try_from(value: f32) -> Result<Self, Self::Error> {
+        value.try_into().map(Self)
+    }
+}
 
 impl TryFrom<f64> for Range {
-    type Error = NanFloatError;
+    type Error = ParseBigDecimalError;
     fn try_from(value: f64) -> Result<Self, Self::Error> {
-        NonNanF64::try_from(value).map(|x| FloatOrInt::Float(x).into())
+        value.try_into().map(Self)
     }
 }
 
 /// The value of the $GmR key
-#[derive(Clone, Copy, Serialize, From, Display, FromStr)]
-#[from(u64, FloatOrInt)]
-pub struct GateRange(pub FloatOrInt);
+#[derive(Clone, Serialize, From, Display, FromStr)]
+#[from(u64)]
+pub struct GateRange(pub Range);
 
-impl TryFrom<f64> for GateRange {
-    type Error = NanFloatError;
-    fn try_from(value: f64) -> Result<Self, Self::Error> {
-        NonNanF64::try_from(value).map(|x| FloatOrInt::Float(x).into())
-    }
-}
+// impl TryFrom<f64> for GateRange {
+//     type Error = NanFloatError;
+//     fn try_from(value: f64) -> Result<Self, Self::Error> {
+//         NonNanF64::try_from(value).map(|x| FloatOrInt::Float(x).into())
+//     }
+// }
 
 /// The value of the $PnV key
 #[derive(Clone, Copy, Serialize, From, Display, FromStr)]

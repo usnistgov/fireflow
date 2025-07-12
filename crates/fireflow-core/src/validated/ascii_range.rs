@@ -2,8 +2,7 @@
 
 use crate::error::{DeferredExt, DeferredResult, ResultExt};
 use crate::text::byteord::{Width, WidthToCharsError};
-use crate::text::float_or_int::{FloatOrInt, IntRangeError};
-use crate::text::keywords::Range;
+use crate::text::keywords::{IntRangeError, Range};
 
 use derive_more::{Display, From, Into};
 use serde::Serialize;
@@ -29,6 +28,14 @@ pub struct Chars(u8);
 
 const MAX_CHARS: u8 = 20;
 
+impl TryFrom<Range> for Chars {
+    type Error = IntRangeError<u64>;
+
+    fn try_from(value: Range) -> Result<Self, Self::Error> {
+        u64::try_from(value).map(Chars::from_u64)
+    }
+}
+
 impl From<u64> for AsciiRange {
     fn from(value: u64) -> Self {
         let chars = Chars::from_u64(value);
@@ -36,9 +43,9 @@ impl From<u64> for AsciiRange {
     }
 }
 
-impl From<AsciiRange> for FloatOrInt {
-    fn from(value: AsciiRange) -> Self {
-        FloatOrInt::Int(value.value)
+impl From<&AsciiRange> for Range {
+    fn from(value: &AsciiRange) -> Self {
+        value.value.into()
     }
 }
 
@@ -67,13 +74,12 @@ impl AsciiRange {
         width: Width,
         range: Range,
         notrunc: bool,
-    ) -> DeferredResult<Self, IntRangeError, NewAsciiRangeError> {
+    ) -> DeferredResult<Self, IntRangeError<()>, NewAsciiRangeError> {
         Chars::try_from(width)
             .into_deferred()
             .def_and_maybe(|chars| {
                 range
-                    .0
-                    .as_uint(notrunc)
+                    .into_uint(notrunc)
                     .inner_into()
                     .and_maybe(|value| Self::try_new(value, chars).into_deferred())
             })
@@ -127,7 +133,7 @@ impl fmt::Display for CharsError {
 pub enum NewAsciiRangeError {
     New(NotEnoughCharsError),
     Width(WidthToCharsError),
-    Range(IntRangeError),
+    Range(IntRangeError<()>),
 }
 
 pub struct NotEnoughCharsError {

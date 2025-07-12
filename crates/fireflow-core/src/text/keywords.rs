@@ -7,7 +7,7 @@ use crate::validated::shortname::*;
 use super::byteord::*;
 use super::compensation::*;
 use super::datetimes::*;
-use super::float_or_int::*;
+use super::float_decimal::{FloatDecimal, FloatToDecimalError, HasFloatBounds};
 use super::index::*;
 use super::named_vec::NameMapping;
 use super::optional::*;

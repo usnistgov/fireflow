@@ -3,7 +3,7 @@ use fireflow_core::data::{
     EndianLayoutOps, FloatRange, LayoutOps, NonMixedEndianLayout, NullMixedType, OrderedLayoutOps,
 };
 use fireflow_core::text::byteord::{Endian, SizedByteOrd};
-use fireflow_core::text::float_or_int::{FloatDecimal, HasFloatBounds};
+use fireflow_core::text::float_decimal::{FloatDecimal, HasFloatBounds};
 use fireflow_core::text::keywords::AlphaNumType;
 use fireflow_core::validated::ascii_range::{AsciiRange, Chars};
 use fireflow_core::validated::bitmask::Bitmask;

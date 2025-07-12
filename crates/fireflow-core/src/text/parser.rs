@@ -7,7 +7,6 @@ use crate::validated::shortname::*;
 use super::byteord::*;
 use super::compensation::*;
 use super::datetimes::*;
-use super::float_or_int::*;
 use super::index::*;
 use super::keywords::*;
 use super::named_vec::*;
@@ -18,6 +17,7 @@ use super::spillover::*;
 use super::timestamps::*;
 use super::unstainedcenters::*;
 
+use bigdecimal::ParseBigDecimalError;
 use derive_more::{Display, From};
 use itertools::Itertools;
 use nonempty::NonEmpty;
@@ -460,7 +460,7 @@ pub enum DeprecatedError {
 /// Error encountered when parsing a required key from a string
 #[derive(From, Display)]
 pub enum ParseReqKeyError {
-    FloatOrInt(ParseFloatOrIntError),
+    Range(ParseBigDecimalError),
     AlphaNumType(AlphaNumTypeError),
     String(Infallible),
     Int(ParseIntError),
@@ -504,7 +504,7 @@ pub enum ParseOptKeyWarning {
     Unicode(UnicodeError),
     Spillover(ParseSpilloverError),
     Compensation(ParseCompError),
-    FloatOrInt(ParseFloatOrIntError),
+    GateRange(ParseBigDecimalError),
     GateRegionIndex2_0(RegionGateIndexError<ParseIntError>),
     GateRegionIndex3_0(RegionGateIndexError<MeasOrGateIndexError>),
     GateRegionIndex3_2(RegionGateIndexError<PrefixedMeasIndexError>),

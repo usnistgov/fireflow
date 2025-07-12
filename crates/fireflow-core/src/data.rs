@@ -55,12 +55,10 @@ use crate::macros::match_many_to_one;
 use crate::nonempty::NonEmptyExt;
 use crate::segment::*;
 use crate::text::byteord::*;
-use crate::text::float_or_int::{
-    FloatOrInt, FloatRangeError, IntRangeError, NonNanFloat, ParseFloatOrIntError, ToFloatError,
-};
-use crate::text::index::{IndexError, IndexFromOne, MeasIndex};
+use crate::text::float_decimal::{FloatDecimal, FloatToDecimalError, HasFloatBounds};
+use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::*;
-use crate::text::optional::{ClearOptional, ClearOptionalOr};
+use crate::text::optional::ClearOptional;
 use crate::text::parser::*;
 use crate::validated::ascii_range;
 use crate::validated::ascii_range::{AsciiRange, Chars};
@@ -71,10 +69,12 @@ use crate::validated::bitmask::{
 use crate::validated::dataframe::*;
 use crate::validated::keys::*;
 
+use ambassador::{delegatable_trait, Delegate};
+use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use derive_more::{Display, From};
 use itertools::Itertools;
 use nonempty::NonEmpty;
-use num_traits::float::Float;
+use num_traits::PrimInt;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
 use std::convert::Infallible;
@@ -89,11 +89,15 @@ use std::str;
 ///
 /// This is identical to 3.0 in every way except that the $TOT keyword in 2.0
 /// is optional, which requires a different interface.
-#[derive(Clone, Serialize, From)]
+#[derive(Clone, Serialize, From, Delegate)]
+#[delegate(LayoutOps<'a, T, D>, generics = "'a, T, D")]
+#[delegate(OrderedLayoutOps)]
 pub struct DataLayout2_0(pub AnyOrderedLayout<MaybeTot>);
 
 /// All possible byte layouts for the DATA segment in 2.0.
-#[derive(Clone, Serialize, From)]
+#[derive(Clone, Serialize, From, Delegate)]
+#[delegate(LayoutOps<'a, T, D>, generics = "'a, T, D")]
+#[delegate(OrderedLayoutOps)]
 pub struct DataLayout3_0(pub AnyOrderedLayout<KnownTot>);
 
 /// All possible byte layouts for the DATA segment in 3.1.
@@ -101,26 +105,32 @@ pub struct DataLayout3_0(pub AnyOrderedLayout<KnownTot>);
 /// Unlike 2.0 and 3.0, the integer layout allows the column widths to be
 /// different. This is a consequence of making BYTEORD only mean "big or little
 /// endian" and have nothing to do with number of bytes.
-#[derive(Clone, Serialize, From)]
-pub struct DataLayout3_1(pub NonMixedEndianLayout);
+#[derive(Clone, Serialize, From, Delegate)]
+#[delegate(LayoutOps<'a, T, D>, generics = "'a, T, D")]
+#[delegate(EndianLayoutOps)]
+pub struct DataLayout3_1(pub NonMixedEndianLayout<NoMeasDatatype>);
 
 /// All possible byte layouts for the DATA segment in 3.2.
 ///
 /// In addition to the loosened integer layouts in 3.1, 3.2 additionally allows
 /// each column to have a different type and size (hence "Mixed").
-#[derive(Clone, Serialize, From)]
+#[derive(Clone, Serialize, From, Delegate)]
+#[delegate(LayoutOps<'a, T, D>, generics = "'a, T, D")]
+#[delegate(EndianLayoutOps)]
 pub enum DataLayout3_2 {
-    Mixed(EndianLayout<NullMixedType>),
-    NonMixed(NonMixedEndianLayout),
+    Mixed(EndianLayout<NullMixedType, HasMeasDatatype>),
+    NonMixed(NonMixedEndianLayout<HasMeasDatatype>),
 }
 
 /// All possible byte layouts for the DATA segment in 2.0 and 3.0.
 ///
 /// It is so named "Ordered" because the BYTEORD keyword represents any possible
 /// byte ordering that may occur rather than simply little or big endian.
-#[derive(Clone, Serialize, From)]
+#[derive(Clone, Serialize, From, Delegate)]
+#[delegate(LayoutOps<'a, Tot, DT>, generics = "'a, Tot, DT")]
+#[delegate(OrderedLayoutOps)]
 pub enum AnyOrderedLayout<T> {
-    Ascii(AnyAsciiLayout<T>),
+    Ascii(AnyAsciiLayout<T, NoMeasDatatype, true>),
     Integer(AnyOrderedUintLayout<T>),
     F32(OrderedLayout<F32Range, T>),
     F64(OrderedLayout<F64Range, T>),
@@ -128,46 +138,53 @@ pub enum AnyOrderedLayout<T> {
 
 // TODO make an integer layout which has only one width, which will cover the
 // vast majority of cases and make certain operations easier.
-#[derive(Clone, Serialize, From)]
-pub enum NonMixedEndianLayout {
-    Ascii(AnyAsciiLayout<KnownTot>),
-    Integer(EndianLayout<AnyNullBitmask>),
-    F32(EndianLayout<F32Range>),
-    F64(EndianLayout<F64Range>),
+#[derive(Clone, Serialize, From, Delegate)]
+#[delegate(LayoutOps<'a, T, DT>, generics = "'a, T, DT")]
+#[delegate(EndianLayoutOps)]
+pub enum NonMixedEndianLayout<D> {
+    Ascii(AnyAsciiLayout<KnownTot, D, false>),
+    Integer(EndianLayout<AnyNullBitmask, D>),
+    F32(EndianLayout<F32Range, D>),
+    F64(EndianLayout<F64Range, D>),
 }
 
-type EndianLayout<C> = FixedLayout<C, Endian, KnownTot>;
+type EndianLayout<C, D> = FixedLayout<C, Endian, KnownTot, D>;
 
 /// Byte layouts for ASCII data.
 ///
 /// This may either be fixed (ie columns have the same number of characters)
 /// or variable (ie columns have have different number of characters and are
 /// separated by delimiters).
-#[derive(Clone, Serialize, From)]
-pub enum AnyAsciiLayout<T> {
-    Delimited(DelimAsciiLayout<T>),
-    Fixed(FixedAsciiLayout<T>),
+#[derive(Clone, Serialize, From, Delegate)]
+#[delegate(LayoutOps<'a, Tot, DT>, generics = "'a, Tot, DT")]
+pub enum AnyAsciiLayout<T, D, const ORD: bool> {
+    Delimited(DelimAsciiLayout<T, D, ORD>),
+    Fixed(FixedAsciiLayout<T, D, ORD>),
 }
 
-type FixedAsciiLayout<T> = FixedLayout<AsciiRange, (), T>;
+type FixedAsciiLayout<T, D, const ORD: bool> = FixedLayout<AsciiRange, NoByteOrd<ORD>, T, D>;
 
 /// Byte layout for delimited ASCII.
 #[derive(Clone)]
-pub struct DelimAsciiLayout<T> {
+pub struct DelimAsciiLayout<T, D, const ORD: bool> {
     pub ranges: NonEmpty<u64>,
-    tot_action: PhantomData<T>,
+    _tot_def: PhantomData<T>,
+    _meas_data_def: PhantomData<D>,
 }
 
 /// Byte layout where each column has a fixed width.
 #[derive(Clone)]
-pub struct FixedLayout<C, L, T> {
+pub struct FixedLayout<C, L, T, D> {
     byte_layout: L,
     columns: NonEmpty<C>,
-    tot_action: PhantomData<T>,
+    _tot_def: PhantomData<T>,
+    _meas_data_def: PhantomData<D>,
 }
 
 /// Byte layout for integers that may be in any byte order.
-#[derive(Clone, Serialize, From)]
+#[derive(Clone, Serialize, From, Delegate)]
+#[delegate(LayoutOps<'a, Tot, DT>, generics = "'a, Tot, DT")]
+#[delegate(OrderedLayoutOps)]
 pub enum AnyOrderedUintLayout<T> {
     // TODO the first two don't need to be ordered
     Uint08(OrderedLayout<Bitmask08, T>),
@@ -180,11 +197,11 @@ pub enum AnyOrderedUintLayout<T> {
     Uint64(OrderedLayout<Bitmask64, T>),
 }
 
-type OrderedLayout<C, T> = FixedLayout<C, <C as HasNativeWidth>::Order, T>;
+type OrderedLayout<C, T> = FixedLayout<C, <C as HasNativeWidth>::Order, T, NoMeasDatatype>;
 
 /// The type of a non-delimited column in the DATA segment for 3.2
 pub enum MixedType<F: ColumnFamily> {
-    Ascii(F::ColumnWrapper<AsciiRange, u64, ()>),
+    Ascii(F::ColumnWrapper<AsciiRange, u64, NoByteOrd3_1>),
     Uint(AnyBitmask<F>),
     F32(NativeWrapper<F, F32Range>),
     F64(NativeWrapper<F, F64Range>),
@@ -211,9 +228,10 @@ type AnyReaderBitmask = AnyBitmask<ColumnReaderFamily>;
 type AnyWriterBitmask<'a> = AnyBitmask<ColumnWriterFamily<'a>>;
 
 /// The type of any floating point column in all versions
-#[derive(PartialEq, Clone, Copy, Serialize)]
+#[derive(PartialEq, Clone, Serialize)]
 pub struct FloatRange<T, const LEN: usize> {
-    pub range: NonNanFloat<T>,
+    pub range: FloatDecimal<T>,
+    _t: PhantomData<T>,
 }
 
 pub type F32Range = FloatRange<f32, 4>;
@@ -254,6 +272,17 @@ pub struct MaybeTot;
 #[derive(Clone, Serialize)]
 pub struct KnownTot;
 
+/// Marker type for layouts without $PnDATATYPE.
+#[derive(Clone, Serialize)]
+pub struct NoMeasDatatype;
+
+/// Marker type for layouts with $PnDATATYPE.
+#[derive(Clone, Serialize)]
+pub struct HasMeasDatatype;
+
+/// Marker type representing absence of column datatype.
+pub struct NullMeasDatatype;
+
 /// A struct whose fields map 1-1 with keyword values in one data column
 pub struct ColumnLayoutValues<D> {
     width: Width,
@@ -261,7 +290,7 @@ pub struct ColumnLayoutValues<D> {
     datatype: D,
 }
 
-type ColumnLayoutValues2_0 = ColumnLayoutValues<()>;
+type ColumnLayoutValues2_0 = ColumnLayoutValues<NullMeasDatatype>;
 type ColumnLayoutValues3_2 = ColumnLayoutValues<Option<NumType>>;
 
 /// A type which represents a column which may have associated data.
@@ -275,8 +304,96 @@ pub trait ColumnFamily {
 type NativeWrapper<F, C> =
     <F as ColumnFamily>::ColumnWrapper<C, <C as HasNativeType>::Native, Endian>;
 
+pub trait MeasDatatypeDef {
+    type MeasDatatype;
+
+    fn headers() -> Vec<MeasHeader>;
+
+    fn keywords<'a, C>(columns: &'a NonEmpty<C>) -> NonEmpty<Vec<(String, Option<String>)>>
+    where
+        Self::MeasDatatype: From<&'a C>;
+
+    fn lookup_datatype(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+    ) -> LookupTentative<Self::MeasDatatype, LookupKeysError>;
+
+    fn lookup_datatype_ro(
+        kws: &StdKeywords,
+        i: MeasIndex,
+    ) -> Tentative<Self::MeasDatatype, ParseKeyError<NumTypeError>, RawParsedError>;
+
+    fn lookup_all(
+        kws: &mut StdKeywords,
+        par: Par,
+    ) -> LookupResult<Vec<ColumnLayoutValues<Self::MeasDatatype>>> {
+        (0..par.0)
+            .map(|i| Self::lookup_one(kws, i.into()))
+            .gather()
+            .map(Tentative::mconcat)
+            .map_err(DeferredFailure::mconcat)
+    }
+
+    fn lookup_ro_all(
+        kws: &StdKeywords,
+    ) -> DeferredResult<
+        Vec<ColumnLayoutValues<Self::MeasDatatype>>,
+        ParseKeyError<NumTypeError>,
+        RawParsedError,
+    > {
+        Par::get_metaroot_req(kws)
+            .into_deferred()
+            .def_and_maybe(|par| {
+                (0..par.0)
+                    .map(|i| Self::lookup_one_ro(kws, i.into()))
+                    .gather()
+                    .map(Tentative::mconcat)
+                    .map_err(DeferredFailure::mconcat)
+            })
+    }
+
+    fn lookup_one(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+    ) -> LookupResult<ColumnLayoutValues<Self::MeasDatatype>> {
+        let j = i.into();
+        let w = Width::lookup_req(kws, j);
+        let r = Range::lookup_req(kws, j);
+        w.def_zip(r).def_and_tentatively(|(width, range)| {
+            Self::lookup_datatype(kws, i).map(|datatype| ColumnLayoutValues {
+                width,
+                range,
+                datatype,
+            })
+        })
+    }
+
+    fn lookup_one_ro(
+        kws: &StdKeywords,
+        i: MeasIndex,
+    ) -> DeferredResult<
+        ColumnLayoutValues<Self::MeasDatatype>,
+        ParseKeyError<NumTypeError>,
+        RawParsedError,
+    > {
+        let j = i.into();
+        let w = Width::get_meas_req(kws, j).map_err(|e| e.into());
+        let r = Range::get_meas_req(kws, j).map_err(|e| e.into());
+        w.zip(r)
+            .map(Tentative::new1)
+            .map_err(DeferredFailure::new2)
+            .def_and_tentatively(|(width, range)| {
+                Self::lookup_datatype_ro(kws, i).map(|datatype| ColumnLayoutValues {
+                    width,
+                    range,
+                    datatype,
+                })
+            })
+    }
+}
+
 /// Methods for a type which may or may not have $TOT
-trait TotDefinition {
+pub trait TotDefinition {
     type Tot;
 
     fn with_tot<F, G, I, X>(input: I, tot: Self::Tot, tot_f: F, notot_f: G) -> X
@@ -311,18 +428,94 @@ trait TotDefinition {
     }
 }
 
-/// A version-specific data layout
-pub trait VersionedDataLayout: Sized {
-    type ByteLayout;
-    type ColDatatype;
-    type Tot;
+/// Standardized operations on layouts
+#[delegatable_trait]
+pub trait LayoutOps<'a, T, D>: Sized {
+    fn ncols(&self) -> usize;
 
-    fn try_new(
-        dt: AlphaNumType,
-        size: Self::ByteLayout,
-        cs: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
-        conf: &StdTextReadConfig,
-    ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError>;
+    fn nbytes(&self, df: &FCSDataFrame) -> u64;
+
+    fn widths(&self) -> Vec<BitsOrChars>;
+
+    fn ranges(&self) -> NonEmpty<Range>;
+
+    fn datatype(&self) -> AlphaNumType;
+
+    fn byteord_keyword(&self) -> (String, String);
+
+    fn req_keywords(&self) -> [(String, String); 2] {
+        [self.datatype().pair(), self.byteord_keyword()]
+    }
+
+    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]>;
+
+    fn opt_meas_headers(&self) -> Vec<MeasHeader>
+    where
+        D: MeasDatatypeDef,
+    {
+        <D as MeasDatatypeDef>::headers()
+    }
+
+    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>>;
+
+    // no need to check since this will be done after validating that the index
+    // is within the measurement vector, which has its own check and should
+    // always be the same length
+    fn insert_nocheck(
+        &mut self,
+        index: MeasIndex,
+        range: Range,
+        notrunc: bool,
+    ) -> BiTentative<(), AnyRangeError>;
+
+    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), AnyRangeError>;
+
+    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional>;
+
+    fn h_read_df_inner<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        buf: &mut Vec<u8>,
+        tot: <T as TotDefinition>::Tot,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError>
+    where
+        T: TotDefinition;
+
+    fn check_writer(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>>;
+
+    fn h_write_df_inner<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        df: &'a FCSDataFrame,
+    ) -> io::Result<()>;
+}
+
+/// Standardized operations on layouts
+#[delegatable_trait]
+pub trait OrderedLayoutOps: Sized {
+    fn byte_order(&self) -> Option<ByteOrd2_0>;
+
+    fn endianness(&self) -> Option<Endian> {
+        self.byte_order().and_then(|x| x.try_into().ok())
+    }
+}
+
+/// Standardized operations on layouts
+#[delegatable_trait]
+pub trait EndianLayoutOps: Sized {
+    fn endianness(&self) -> Option<Endian>;
+}
+
+/// A version-specific data layout
+pub trait VersionedDataLayout
+where
+    for<'a> Self: Sized + LayoutOps<'a, Self::TotDef, Self::MeasDTDef>,
+{
+    type ByteLayout;
+    type MeasDTDef: MeasDatatypeDef;
+    type TotDef: TotDefinition;
 
     fn lookup(
         kws: &mut StdKeywords,
@@ -332,51 +525,35 @@ pub trait VersionedDataLayout: Sized {
 
     fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>>;
 
-    // no need to check since this will be done after validating that the index
-    // is within the measurement vector, which has its own check and should
-    // always be the same length
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), LayoutInsertColumnWarning>;
-
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError>;
-
-    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>>;
-
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional>;
-
-    fn ncols(&self) -> usize;
-
-    fn nbytes(&self, df: &FCSDataFrame) -> u64;
+    fn try_new(
+        dt: AlphaNumType,
+        size: Self::ByteLayout,
+        columns: NonEmpty<ColumnLayoutValues<<Self::MeasDTDef as MeasDatatypeDef>::MeasDatatype>>,
+        conf: &StdTextReadConfig,
+    ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError>;
 
     fn h_read_df<R: Read + Seek>(
         &self,
         h: &mut BufReader<R>,
-        tot: Self::Tot,
+        tot: <Self::TotDef as TotDefinition>::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
+        // The only purpose of this buffer is to read ASCII since we don't
+        // hardcode the buffer width into the type (unlike integers and floats).
+        // It's passed down to each layer of the read stack to avoid making the
+        // buffer argument generic, which would make this implementation much
+        // more complex. Good enough to pass the buffer and only use it when
+        // needed.
+        let mut buf = vec![];
         seg.inner.as_u64().try_coords().map_or(
             Ok(Tentative::new1(FCSDataFrame::default())),
             |(begin, _)| {
                 h.seek(SeekFrom::Start(begin)).into_deferred()?;
-                self.h_read_df_inner(h, tot, seg, conf)
+                self.h_read_df_inner(h, &mut buf, tot, seg, conf)
             },
         )
     }
-
-    fn h_read_df_inner<R: Read>(
-        &self,
-        h: &mut BufReader<R>,
-        tot: Self::Tot,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError>;
-
-    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>>;
 
     fn h_write_df<W>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()>
     where
@@ -392,21 +569,6 @@ pub trait VersionedDataLayout: Sized {
         }
         self.h_write_df_inner(h, df)
     }
-
-    fn h_write_df_inner<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame)
-        -> io::Result<()>;
-
-    fn req_keywords(&self) -> [(String, String); 2];
-
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]>;
-
-    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>>;
-
-    fn opt_meas_headers(&self) -> Vec<MeasHeader>;
-
-    fn widths(&self) -> Vec<BitsOrChars>;
-
-    fn ranges(&self) -> NonEmpty<FloatOrInt>;
 }
 
 pub trait HasNativeType: Sized {
@@ -427,8 +589,14 @@ pub trait HasNativeWidth: HasNativeType {
 }
 
 /// A column which has a $DATATYPE keyword
-pub trait HasDatatype {
-    const DATATYPE: AlphaNumType;
+pub trait HasDatatype: Sized {
+    fn datatype_from_columns(cs: &NonEmpty<Self>) -> AlphaNumType;
+}
+
+trait FromRange: Sized {
+    type Error;
+
+    fn from_range(range: Range, notrunc: bool) -> BiTentative<Self, Self::Error>;
 }
 
 /// A type which has a width that may vary
@@ -449,7 +617,7 @@ pub trait IsFixed {
 
 /// A column which may be transformed into a reader for a rust numeric type
 trait ToNativeReader: HasNativeType {
-    fn into_reader<S>(self, nrows: usize) -> ColumnReader<Self, Self::Native, S>
+    fn into_native_reader<S>(self, nrows: usize) -> ColumnReader<Self, Self::Native, S>
     where
         Self::Native: Default + Copy,
     {
@@ -461,6 +629,16 @@ trait ToNativeReader: HasNativeType {
     }
 }
 
+// TODO can't this just be with the native reader type?
+trait NativeReadable<S>: HasNativeType {
+    fn h_read_native<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        byte_layout: S,
+        buf: &mut Vec<u8>,
+    ) -> IOResult<Self::Native, ReadDataframeError>;
+}
+
 /// A column which may be transformed into a writer for a rust numeric type
 trait ToNativeWriter
 where
@@ -468,7 +646,10 @@ where
 {
     type Error;
 
-    fn into_writer<'a, S>(self, c: &'a AnyFCSColumn) -> ColumnWriter<'a, Self, Self::Native, S>
+    fn into_native_writer<'a, S>(
+        self,
+        c: &'a AnyFCSColumn,
+    ) -> ColumnWriter<'a, Self, Self::Native, S>
     where
         Self::Native: Default + Copy + AllFCSCast,
         AnySource<'a, Self::Native>: From<FCSColIter<'a, u8, Self::Native>>
@@ -480,12 +661,12 @@ where
     {
         ColumnWriter {
             column_type: self,
-            data: AnySource::new::<Self::Native>(c),
+            data: AnySource::new(c),
             byte_layout: PhantomData,
         }
     }
 
-    fn check_writer(&self, col: &AnyFCSColumn) -> Result<(), LossError<Self::Error>>
+    fn check_native_writer(&self, col: &AnyFCSColumn) -> Result<(), LossError<Self::Error>>
     where
         Self::Native: Default + Copy + AllFCSCast,
     {
@@ -495,33 +676,22 @@ where
     fn check_other_loss(&self, x: Self::Native) -> Option<Self::Error>;
 }
 
-// TODO can't this just be with the native reader type?
-trait NativeReadable<S, E>: HasNativeType {
-    type Buf;
+trait IntoReader<S> {
+    type Target: Readable<S>;
 
-    fn h_read<R: Read>(
-        &self,
-        h: &mut BufReader<R>,
-        byte_layout: S,
-        buf: &mut Self::Buf,
-    ) -> IOResult<Self::Native, E>;
+    fn into_reader(self, nrows: usize) -> Self::Target;
 }
 
-trait Readable<S, E> {
-    type Inner;
-    type Buf;
+trait Readable<S> {
+    fn into_dataframe_column(self) -> AnyFCSColumn;
 
-    fn new(column_type: Self::Inner, nrows: usize) -> Self;
-
-    fn into_column(self) -> AnyFCSColumn;
-
-    fn h_read_row<R: Read>(
+    fn h_read<R: Read>(
         &mut self,
         h: &mut BufReader<R>,
         row: usize,
         byte_layout: S,
-        buf: &mut Self::Buf,
-    ) -> IOResult<(), E>;
+        buf: &mut Vec<u8>,
+    ) -> IOResult<(), ReadDataframeError>;
 }
 
 trait NativeWritable<S>: HasNativeType {
@@ -533,13 +703,15 @@ trait NativeWritable<S>: HasNativeType {
     ) -> io::Result<()>;
 }
 
+trait IntoWriter<'a, S> {
+    type Target: Writable<'a, S>;
+
+    fn into_writer(self, col: &'a AnyFCSColumn) -> Self::Target;
+
+    fn check_writer(&self, col: &'a AnyFCSColumn) -> Result<(), AnyLossError>;
+}
+
 trait Writable<'a, S> {
-    type Inner;
-
-    fn new(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Self;
-
-    fn check_writer(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Result<(), AnyLossError>;
-
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: S) -> io::Result<()>;
 }
 
@@ -691,45 +863,17 @@ trait FloatFromBytes<const LEN: usize>: NumProps + OrderedFromBytes<LEN> {
     }
 }
 
-/// Methods for converting between FCS TEXT keywords and column layouts.
-pub(crate) trait VersionedColumnLayout: Sized {
-    fn lookup_all(kws: &mut StdKeywords, par: Par) -> LookupResult<Vec<Self>> {
-        (0..par.0)
-            .map(|i| Self::lookup(kws, i.into()))
-            .gather()
-            .map(Tentative::mconcat)
-            .map_err(DeferredFailure::mconcat)
-    }
-
-    fn lookup_ro_all(
-        kws: &StdKeywords,
-    ) -> DeferredResult<Vec<Self>, ParseKeyError<NumTypeError>, RawParsedError> {
-        Par::get_metaroot_req(kws)
-            .into_deferred()
-            .def_and_maybe(|par| {
-                (0..par.0)
-                    .map(|i| Self::get(kws, i.into()))
-                    .gather()
-                    .map(Tentative::mconcat)
-                    .map_err(DeferredFailure::mconcat)
-            })
-    }
-
-    fn lookup(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self>;
-
-    fn get(
-        kws: &StdKeywords,
-        i: MeasIndex,
-    ) -> DeferredResult<Self, ParseKeyError<NumTypeError>, RawParsedError>;
-}
-
 macro_rules! impl_null_layout {
-    ($t:path, $($var:ident),*) => {
-        impl Copy for $t {}
+    ($t:ident, $($var:ident),*) => {
+        // impl Copy for $t {}
 
         impl Clone for $t {
             fn clone(&self) -> Self {
-                *self
+                match self {
+                    $(
+                        Self::$var(x) => $t::$var(x.clone()),
+                    )*
+                }
             }
         }
 
@@ -759,36 +903,144 @@ impl_null_layout!(
     Uint64
 );
 
-macro_rules! any_uint_from {
-    ($var:ident, $inner:path) => {
-        impl From<$inner> for AnyNullBitmask {
-            fn from(value: $inner) -> Self {
+macro_rules! impl_any_uint {
+    ($var:ident, $bitmask:path) => {
+        impl From<$bitmask> for AnyNullBitmask {
+            fn from(value: $bitmask) -> Self {
                 Self::$var(value)
             }
         }
 
-        impl From<UintColumnReader<$inner>> for AnyReaderBitmask {
-            fn from(value: UintColumnReader<$inner>) -> Self {
+        impl From<UintColumnReader<$bitmask>> for AnyReaderBitmask {
+            fn from(value: UintColumnReader<$bitmask>) -> Self {
                 Self::$var(value)
             }
         }
 
-        impl<'a> From<UintColumnWriter<'a, $inner>> for AnyWriterBitmask<'a> {
-            fn from(value: UintColumnWriter<'a, $inner>) -> Self {
+        impl<'a> From<UintColumnWriter<'a, $bitmask>> for AnyWriterBitmask<'a> {
+            fn from(value: UintColumnWriter<'a, $bitmask>) -> Self {
                 Self::$var(value)
+            }
+        }
+
+        impl TryFrom<AnyNullBitmask> for $bitmask {
+            type Error = UintToUintError;
+            fn try_from(value: AnyNullBitmask) -> Result<Self, Self::Error> {
+                let w = value.nbytes();
+                if let AnyBitmask::$var(x) = value {
+                    Ok(x)
+                } else {
+                    Err(UintToUintError {
+                        from: w,
+                        to: Self::BYTES.into(),
+                    })
+                }
+            }
+        }
+
+        impl TryFrom<NullMixedType> for $bitmask {
+            type Error = MixedToOrderedUintError;
+            fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
+                let w = value.nbytes();
+                match value {
+                    MixedType::Uint(x) => {
+                        if let AnyBitmask::$var(y) = x {
+                            Ok(y)
+                        } else {
+                            Err(UintToUintError {
+                                from: w,
+                                to: Self::BYTES.into(),
+                            }
+                            .into())
+                        }
+                    }
+                    MixedType::Ascii(_) => Err(MixedIsAscii.into()),
+                    MixedType::F32(_) => Err(MixedIsFloat.into()),
+                    MixedType::F64(_) => Err(MixedIsDouble.into()),
+                }
+            }
+        }
+
+        impl From<$bitmask> for NullMixedType {
+            fn from(value: $bitmask) -> Self {
+                MixedType::Uint(value.into())
             }
         }
     };
 }
 
-any_uint_from!(Uint08, Bitmask08);
-any_uint_from!(Uint16, Bitmask16);
-any_uint_from!(Uint24, Bitmask24);
-any_uint_from!(Uint32, Bitmask32);
-any_uint_from!(Uint40, Bitmask40);
-any_uint_from!(Uint48, Bitmask48);
-any_uint_from!(Uint56, Bitmask56);
-any_uint_from!(Uint64, Bitmask64);
+impl_any_uint!(Uint08, Bitmask08);
+impl_any_uint!(Uint16, Bitmask16);
+impl_any_uint!(Uint24, Bitmask24);
+impl_any_uint!(Uint32, Bitmask32);
+impl_any_uint!(Uint40, Bitmask40);
+impl_any_uint!(Uint48, Bitmask48);
+impl_any_uint!(Uint56, Bitmask56);
+impl_any_uint!(Uint64, Bitmask64);
+
+impl MeasDatatypeDef for NoMeasDatatype {
+    type MeasDatatype = NullMeasDatatype;
+
+    fn headers() -> Vec<MeasHeader> {
+        vec![]
+    }
+
+    fn keywords<'a, C>(columns: &'a NonEmpty<C>) -> NonEmpty<Vec<(String, Option<String>)>>
+    where
+        Self::MeasDatatype: From<&'a C>,
+    {
+        columns.as_ref().map(|_| vec![])
+    }
+
+    fn lookup_datatype(
+        _: &mut StdKeywords,
+        _: MeasIndex,
+    ) -> LookupTentative<Self::MeasDatatype, LookupKeysError> {
+        Tentative::new1(NullMeasDatatype)
+    }
+
+    fn lookup_datatype_ro(
+        _: &StdKeywords,
+        _: MeasIndex,
+    ) -> Tentative<Self::MeasDatatype, ParseKeyError<NumTypeError>, RawParsedError> {
+        Tentative::new1(NullMeasDatatype)
+    }
+}
+
+impl MeasDatatypeDef for HasMeasDatatype {
+    type MeasDatatype = Option<NumType>;
+
+    fn headers() -> Vec<MeasHeader> {
+        vec![NumType::std_blank()]
+    }
+
+    fn keywords<'a, C>(columns: &'a NonEmpty<C>) -> NonEmpty<Vec<(String, Option<String>)>>
+    where
+        Self::MeasDatatype: From<&'a C>,
+    {
+        columns.as_ref().enumerate().map(|(i, c)| {
+            Self::MeasDatatype::from(c)
+                .map(|y| vec![NumType::pair_opt(&y.into(), i.into())])
+                .unwrap_or_default()
+        })
+    }
+
+    fn lookup_datatype(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+    ) -> LookupTentative<Self::MeasDatatype, LookupKeysError> {
+        NumType::lookup_opt(kws, i.into()).map(|x| x.0)
+    }
+
+    fn lookup_datatype_ro(
+        kws: &StdKeywords,
+        i: MeasIndex,
+    ) -> Tentative<Self::MeasDatatype, ParseKeyError<NumTypeError>, RawParsedError> {
+        NumType::get_meas_opt(kws, i.into())
+            .map(|x| x.0)
+            .map_or_else(|e| Tentative::new(None, vec![e], vec![]), Tentative::new1)
+    }
+}
 
 impl TotDefinition for MaybeTot {
     type Tot = Option<Tot>;
@@ -830,69 +1082,59 @@ impl<'a> ColumnFamily for ColumnWriterFamily<'a> {
     type ColumnWrapper<C, T, S> = ColumnWriter<'a, C, T, S>;
 }
 
-macro_rules! any_uint_to_width {
-    ($from:ident, $to:ident) => {
-        impl TryFrom<AnyNullBitmask> for $to {
-            type Error = UintToUintError;
-            fn try_from(value: AnyNullBitmask) -> Result<Self, Self::Error> {
-                let w = value.nbytes();
-                if let AnyBitmask::$from(x) = value {
-                    Ok(x)
-                } else {
-                    Err(UintToUintError {
-                        from: w,
-                        to: Self::BYTES.into(),
-                    })
-                }
-            }
-        }
-    };
+impl<C> From<&C> for NullMeasDatatype {
+    fn from(_: &C) -> Self {
+        Self
+    }
 }
 
-any_uint_to_width!(Uint08, Bitmask08);
-any_uint_to_width!(Uint16, Bitmask16);
-any_uint_to_width!(Uint24, Bitmask24);
-any_uint_to_width!(Uint32, Bitmask32);
-any_uint_to_width!(Uint40, Bitmask40);
-any_uint_to_width!(Uint48, Bitmask48);
-any_uint_to_width!(Uint56, Bitmask56);
-any_uint_to_width!(Uint64, Bitmask64);
-
-macro_rules! mixed_to_width {
-    ($from:ident, $to:ident) => {
-        impl TryFrom<NullMixedType> for $to {
-            type Error = MixedToOrderedUintError;
-            fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
-                let w = value.nbytes();
-                match value {
-                    MixedType::Uint(x) => {
-                        if let AnyBitmask::$from(y) = x {
-                            Ok(y)
-                        } else {
-                            Err(UintToUintError {
-                                from: w,
-                                to: Self::BYTES.into(),
-                            }
-                            .into())
-                        }
-                    }
-                    MixedType::Ascii(_) => Err(MixedIsAscii.into()),
-                    MixedType::F32(_) => Err(MixedIsFloat.into()),
-                    MixedType::F64(_) => Err(MixedIsDouble.into()),
-                }
-            }
-        }
-    };
+impl From<&NullMeasDatatype> for Option<NumType> {
+    fn from(_: &NullMeasDatatype) -> Self {
+        None
+    }
 }
 
-mixed_to_width!(Uint08, Bitmask08);
-mixed_to_width!(Uint16, Bitmask16);
-mixed_to_width!(Uint24, Bitmask24);
-mixed_to_width!(Uint32, Bitmask32);
-mixed_to_width!(Uint40, Bitmask40);
-mixed_to_width!(Uint48, Bitmask48);
-mixed_to_width!(Uint56, Bitmask56);
-mixed_to_width!(Uint64, Bitmask64);
+impl From<&AsciiRange> for Option<NumType> {
+    fn from(_: &AsciiRange) -> Self {
+        None
+    }
+}
+
+impl<T, const LEN: usize> From<&Bitmask<T, LEN>> for Option<NumType> {
+    fn from(_: &Bitmask<T, LEN>) -> Self {
+        None
+    }
+}
+
+impl<T, const LEN: usize> From<&FloatRange<T, LEN>> for Option<NumType> {
+    fn from(_: &FloatRange<T, LEN>) -> Self {
+        None
+    }
+}
+
+impl From<&AnyNullBitmask> for Option<NumType> {
+    fn from(_: &AnyNullBitmask) -> Self {
+        None
+    }
+}
+
+impl From<&NullMixedType> for Option<NumType> {
+    fn from(value: &NullMixedType) -> Option<NumType> {
+        (*value).as_alpha_num_type().try_into().ok()
+    }
+}
+
+impl TryFrom<NullMixedType> for AsciiRange {
+    type Error = MixedToAsciiError;
+    fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
+        match value {
+            MixedType::Ascii(x) => Ok(x),
+            MixedType::Uint(x) => Err(MixedIsInteger { width: x.nbytes() }.into()),
+            MixedType::F32(_) => Err(MixedIsFloat.into()),
+            MixedType::F64(_) => Err(MixedIsDouble.into()),
+        }
+    }
+}
 
 macro_rules! match_any_uint {
     ($value:expr, $root:ident, $inner:ident, $action:block) => {
@@ -906,16 +1148,10 @@ macro_rules! match_any_uint {
     };
 }
 
-impl TryFrom<NullMixedType> for AsciiRange {
-    type Error = MixedToAsciiError;
-    fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
-        match value {
-            MixedType::Ascii(x) => Ok(x),
-            MixedType::Uint(x) => Err(MixedIsInteger { width: x.nbytes() }.into()),
-            MixedType::F32(_) => Err(MixedIsFloat.into()),
-            MixedType::F64(_) => Err(MixedIsDouble.into()),
-        }
-    }
+macro_rules! match_any_mixed {
+    ($value:expr, $inner:ident, $action:block) => {
+        match_many_to_one!($value, MixedType, [Ascii, Uint, F32, F64], $inner, $action)
+    };
 }
 
 impl TryFrom<NullMixedType> for AnyNullBitmask {
@@ -954,29 +1190,21 @@ impl TryFrom<NullMixedType> for F64Range {
     }
 }
 
-impl From<NullMixedType> for FloatOrInt {
-    fn from(value: NullMixedType) -> Self {
-        match_many_to_one!(value, NullMixedType, [Ascii, Uint, F32, F64], x, {
-            x.into()
-        })
+impl From<&NullMixedType> for Range {
+    fn from(value: &NullMixedType) -> Self {
+        match_any_mixed!(value, x, { x.into() })
     }
 }
 
-impl From<AnyNullBitmask> for FloatOrInt {
-    fn from(value: AnyNullBitmask) -> Self {
+impl From<&AnyNullBitmask> for Range {
+    fn from(value: &AnyNullBitmask) -> Self {
         match_any_uint!(value, AnyNullBitmask, x, { x.into() })
     }
 }
 
-impl From<F32Range> for FloatOrInt {
-    fn from(value: F32Range) -> Self {
-        value.range.into()
-    }
-}
-
-impl From<F64Range> for FloatOrInt {
-    fn from(value: F64Range) -> Self {
-        value.range.into()
+impl<T: Clone, const LEN: usize> From<&FloatRange<T, LEN>> for Range {
+    fn from(value: &FloatRange<T, LEN>) -> Self {
+        value.range.clone().into()
     }
 }
 
@@ -1081,204 +1309,172 @@ impl<T, const LEN: usize> ToNativeReader for FloatRange<T, LEN> where Self: HasN
 
 impl ToNativeReader for AsciiRange {}
 
-impl<T, const LEN: usize, E> NativeReadable<Endian, E> for Bitmask<T, LEN>
+impl<T, const LEN: usize> NativeReadable<Endian> for Bitmask<T, LEN>
 where
     Bitmask<T, LEN>: HasNativeType<Native = T>,
     T: Ord + Copy + IntFromBytes<LEN>,
 {
-    type Buf = ();
-
-    fn h_read<R: Read>(
+    fn h_read_native<R: Read>(
         &self,
         h: &mut BufReader<R>,
         byte_layout: Endian,
-        _: &mut (),
-    ) -> IOResult<T, E> {
+        _: &mut Vec<u8>,
+    ) -> IOResult<T, ReadDataframeError> {
         let x = T::h_read_endian(h, byte_layout)?;
         Ok(x)
     }
 }
 
-impl<T, const LEN: usize, E> NativeReadable<SizedByteOrd<LEN>, E> for Bitmask<T, LEN>
+impl<T, const LEN: usize> NativeReadable<SizedByteOrd<LEN>> for Bitmask<T, LEN>
 where
     Bitmask<T, LEN>: HasNativeType<Native = T>,
     T: Ord + Copy + IntFromBytes<LEN>,
 {
-    type Buf = ();
-
-    fn h_read<R: Read>(
+    fn h_read_native<R: Read>(
         &self,
         h: &mut BufReader<R>,
         byte_layout: SizedByteOrd<LEN>,
-        _: &mut (),
-    ) -> IOResult<T, E> {
+        _: &mut Vec<u8>,
+    ) -> IOResult<T, ReadDataframeError> {
         let x = T::h_read_ordered(h, byte_layout)?;
         Ok(x)
     }
 }
 
-impl<T, const LEN: usize, E> NativeReadable<Endian, E> for FloatRange<T, LEN>
+impl<T, const LEN: usize> NativeReadable<Endian> for FloatRange<T, LEN>
 where
     FloatRange<T, LEN>: HasNativeType<Native = T>,
     T: Copy + FloatFromBytes<LEN>,
 {
-    type Buf = ();
-
-    fn h_read<R: Read>(
+    fn h_read_native<R: Read>(
         &self,
         h: &mut BufReader<R>,
         byte_layout: Endian,
-        _: &mut (),
-    ) -> IOResult<T, E> {
+        _: &mut Vec<u8>,
+    ) -> IOResult<T, ReadDataframeError> {
         let x = T::h_read_endian(h, byte_layout)?;
         Ok(x)
     }
 }
 
-impl<T, const LEN: usize, E> NativeReadable<SizedByteOrd<LEN>, E> for FloatRange<T, LEN>
+impl<T, const LEN: usize> NativeReadable<SizedByteOrd<LEN>> for FloatRange<T, LEN>
 where
     FloatRange<T, LEN>: HasNativeType<Native = T>,
     T: Copy + FloatFromBytes<LEN>,
 {
-    type Buf = ();
-
-    fn h_read<R: Read>(
+    fn h_read_native<R: Read>(
         &self,
         h: &mut BufReader<R>,
         byte_layout: SizedByteOrd<LEN>,
-        _: &mut (),
-    ) -> IOResult<T, E> {
+        _: &mut Vec<u8>,
+    ) -> IOResult<T, ReadDataframeError> {
         let x = T::h_read_ordered(h, byte_layout)?;
         Ok(x)
     }
 }
 
-impl NativeReadable<(), AsciiToUintError> for AsciiRange {
-    type Buf = Vec<u8>;
-
-    fn h_read<R: Read>(
+impl<const ORD: bool> NativeReadable<NoByteOrd<ORD>> for AsciiRange {
+    fn h_read_native<R: Read>(
         &self,
         h: &mut BufReader<R>,
-        _: (),
+        _: NoByteOrd<ORD>,
         buf: &mut Vec<u8>,
-    ) -> IOResult<Self::Native, AsciiToUintError> {
+    ) -> IOResult<Self::Native, ReadDataframeError> {
         buf.clear();
         h.take(u8::from(self.chars()).into()).read_to_end(buf)?;
-        ascii_to_uint(buf).map_err(ImpureError::Pure)
+        ascii_to_uint(buf).map_err(|e| ImpureError::Pure(e.into()))
     }
 }
 
-impl<C, T, S, E> Readable<S, E> for ColumnReader<C, T, S>
+impl<C, S> IntoReader<S> for C
+where
+    AnyFCSColumn: From<FCSColumn<C::Native>>,
+    C: NativeReadable<S> + ToNativeReader,
+{
+    type Target = ColumnReader<C, C::Native, S>;
+
+    fn into_reader(self, nrows: usize) -> Self::Target {
+        self.into_native_reader(nrows)
+    }
+}
+
+impl IntoReader<Endian> for AnyNullBitmask {
+    type Target = AnyReaderBitmask;
+
+    fn into_reader(self, nrows: usize) -> Self::Target {
+        match_any_uint!(self, Self, c, { c.into_native_reader(nrows).into() })
+    }
+}
+
+impl IntoReader<Endian> for NullMixedType {
+    type Target = ReaderMixedType;
+
+    fn into_reader(self, nrows: usize) -> Self::Target {
+        match self {
+            Self::Ascii(c) => MixedType::Ascii(c.into_reader(nrows)),
+            Self::Uint(c) => MixedType::Uint(c.into_reader(nrows)),
+            Self::F32(c) => MixedType::F32(c.into_reader(nrows)),
+            Self::F64(c) => MixedType::F64(c.into_reader(nrows)),
+        }
+    }
+}
+
+impl<C, T, S> Readable<S> for ColumnReader<C, T, S>
 where
     T: Copy + Default,
-    C: NativeReadable<S, E> + HasNativeType<Native = T> + ToNativeReader,
+    C: NativeReadable<S> + HasNativeType<Native = T> + ToNativeReader,
     AnyFCSColumn: From<FCSColumn<T>>,
 {
-    type Inner = C;
-    type Buf = <C as NativeReadable<S, E>>::Buf;
-
-    fn new(column_type: Self::Inner, nrows: usize) -> Self {
-        column_type.into_reader(nrows)
-    }
-
-    fn into_column(self) -> AnyFCSColumn {
+    fn into_dataframe_column(self) -> AnyFCSColumn {
         FCSColumn::from(self.data).into()
     }
 
-    fn h_read_row<R: Read>(
+    fn h_read<R: Read>(
         &mut self,
         h: &mut BufReader<R>,
         row: usize,
         byte_layout: S,
-        buf: &mut Self::Buf,
-    ) -> IOResult<(), E> {
-        self.data[row] = self.column_type.h_read(h, byte_layout, buf)?;
+        buf: &mut Vec<u8>,
+    ) -> IOResult<(), ReadDataframeError> {
+        self.data[row] = self.column_type.h_read_native(h, byte_layout, buf)?;
         Ok(())
     }
 }
 
-impl Readable<Endian, AsciiToUintError> for ReaderMixedType {
-    type Inner = NullMixedType;
-    type Buf = Vec<u8>;
-
-    fn new(column_type: Self::Inner, nrows: usize) -> Self {
-        match column_type {
-            MixedType::Ascii(c) => Self::Ascii(c.into_reader(nrows)),
-            MixedType::Uint(c) => Self::Uint(Readable::<_, AsciiToUintError>::new(c, nrows)),
-            MixedType::F32(c) => Self::F32(c.into_reader(nrows)),
-            MixedType::F64(c) => Self::F64(c.into_reader(nrows)),
-        }
+impl Readable<Endian> for ReaderMixedType {
+    fn into_dataframe_column(self) -> AnyFCSColumn {
+        match_any_mixed!(self, c, { c.into_dataframe_column() })
     }
 
-    fn into_column(self) -> AnyFCSColumn {
-        match self {
-            MixedType::Ascii(c) => c.into_column(),
-            MixedType::Uint(c) => Readable::<_, AsciiToUintError>::into_column(c),
-            MixedType::F32(c) => Readable::<_, AsciiToUintError>::into_column(c),
-            MixedType::F64(c) => Readable::<_, AsciiToUintError>::into_column(c),
-        }
-    }
-
-    fn h_read_row<R: Read>(
+    fn h_read<R: Read>(
         &mut self,
         h: &mut BufReader<R>,
         row: usize,
         byte_layout: Endian,
-        buf: &mut Self::Buf,
-    ) -> IOResult<(), AsciiToUintError> {
+        buf: &mut Vec<u8>,
+    ) -> IOResult<(), ReadDataframeError> {
         match self {
-            MixedType::Ascii(c) => c.h_read_row(h, row, (), buf),
-            MixedType::Uint(c) => c
-                .h_read_row(h, row, byte_layout, &mut ())
-                .map_err(|e| e.infallible()),
-            MixedType::F32(c) => c
-                .h_read_row(h, row, byte_layout, &mut ())
-                .map_err(|e| e.infallible()),
-            MixedType::F64(c) => c
-                .h_read_row(h, row, byte_layout, &mut ())
-                .map_err(|e| e.infallible()),
+            MixedType::Ascii(c) => c.h_read(h, row, NoByteOrd, buf),
+            MixedType::Uint(c) => c.h_read(h, row, byte_layout, buf),
+            MixedType::F32(c) => c.h_read(h, row, byte_layout, buf),
+            MixedType::F64(c) => c.h_read(h, row, byte_layout, buf),
         }
     }
 }
 
-impl<E> Readable<Endian, E> for AnyReaderBitmask {
-    type Inner = AnyNullBitmask;
-    type Buf = ();
-
-    fn new(column_type: Self::Inner, nrows: usize) -> Self {
-        match_many_to_one!(
-            column_type,
-            AnyBitmask,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            c,
-            { c.into_reader(nrows).into() }
-        )
+impl Readable<Endian> for AnyReaderBitmask {
+    fn into_dataframe_column(self) -> AnyFCSColumn {
+        match_any_uint!(self, AnyBitmask, c, { c.into_dataframe_column() })
     }
 
-    fn into_column(self) -> AnyFCSColumn {
-        match_many_to_one!(
-            self,
-            AnyBitmask,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            c,
-            { Readable::<_, E>::into_column(c) }
-        )
-    }
-
-    fn h_read_row<R: Read>(
+    fn h_read<R: Read>(
         &mut self,
         h: &mut BufReader<R>,
         row: usize,
         byte_layout: Endian,
-        buf: &mut Self::Buf,
-    ) -> IOResult<(), E> {
-        match_many_to_one!(
-            self,
-            AnyBitmask,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            c,
-            { c.h_read_row(h, row, byte_layout, buf) }
-        )
+        buf: &mut Vec<u8>,
+    ) -> IOResult<(), ReadDataframeError> {
+        match_any_uint!(self, AnyBitmask, c, { c.h_read(h, row, byte_layout, buf) })
     }
 }
 
@@ -1342,12 +1538,12 @@ where
     }
 }
 
-impl NativeWritable<()> for AsciiRange {
+impl<const ORD: bool> NativeWritable<NoByteOrd<ORD>> for AsciiRange {
     fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
         x: CastResult<Self::Native>,
-        _: (),
+        _: NoByteOrd<ORD>,
     ) -> io::Result<()> {
         let s = x.new.to_string();
         let w: usize = u8::from(self.chars()).into();
@@ -1367,28 +1563,70 @@ impl NativeWritable<()> for AsciiRange {
     }
 }
 
+impl<'a, C, S> IntoWriter<'a, S> for C
+where
+    C: ToNativeWriter,
+    ColumnWriter<'a, C, C::Native, S>: Writable<'a, S>,
+    C::Native: Default + Copy + AllFCSCast,
+    AnySource<'a, C::Native>: From<FCSColIter<'a, u8, C::Native>>
+        + From<FCSColIter<'a, u16, C::Native>>
+        + From<FCSColIter<'a, u32, C::Native>>
+        + From<FCSColIter<'a, u64, C::Native>>
+        + From<FCSColIter<'a, f32, C::Native>>
+        + From<FCSColIter<'a, f64, C::Native>>,
+    AnyLossError: From<LossError<C::Error>>,
+{
+    type Target = ColumnWriter<'a, C, C::Native, S>;
+
+    fn into_writer(self, col: &'a AnyFCSColumn) -> Self::Target {
+        self.into_native_writer(col)
+    }
+
+    fn check_writer(&self, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
+        self.check_native_writer(col).map_err(|e| e.into())
+    }
+}
+
+impl<'a> IntoWriter<'a, Endian> for AnyNullBitmask {
+    type Target = AnyWriterBitmask<'a>;
+
+    fn into_writer(self, col: &'a AnyFCSColumn) -> Self::Target {
+        match_any_uint!(self, Self, c, { c.into_native_writer(col).into() })
+    }
+
+    fn check_writer(&self, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
+        match_any_uint!(self, Self, c, {
+            c.check_native_writer(col).map_err(|e| e.into())
+        })
+    }
+}
+
+impl<'a> IntoWriter<'a, Endian> for NullMixedType {
+    type Target = WriterMixedType<'a>;
+
+    fn into_writer(self, col: &'a AnyFCSColumn) -> Self::Target {
+        match self {
+            Self::Ascii(c) => MixedType::Ascii(c.into_writer(col)),
+            Self::Uint(c) => MixedType::Uint(c.into_writer(col)),
+            Self::F32(c) => MixedType::F32(c.into_writer(col)),
+            Self::F64(c) => MixedType::F64(c.into_writer(col)),
+        }
+    }
+
+    fn check_writer(&self, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
+        match self {
+            MixedType::Ascii(c) => IntoWriter::<NoByteOrd3_1>::check_writer(c, col),
+            MixedType::Uint(c) => c.check_writer(col),
+            MixedType::F32(c) => c.check_native_writer(col).map_err(|e| e.into()),
+            MixedType::F64(c) => c.check_native_writer(col).map_err(|e| e.into()),
+        }
+    }
+}
+
 impl<'a, C, T, S> Writable<'a, S> for ColumnWriter<'a, C, T, S>
 where
     C: NativeWritable<S> + HasNativeType<Native = T> + ToNativeWriter,
-    T: AllFCSCast + Copy + Default,
-    AnyLossError: From<LossError<<C as ToNativeWriter>::Error>>,
-    AnySource<'a, T>: From<FCSColIter<'a, u8, T>>
-        + From<FCSColIter<'a, u16, T>>
-        + From<FCSColIter<'a, u32, T>>
-        + From<FCSColIter<'a, u64, T>>
-        + From<FCSColIter<'a, f32, T>>
-        + From<FCSColIter<'a, f64, T>>,
 {
-    type Inner = C;
-
-    fn new(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Self {
-        column_type.into_writer(col)
-    }
-
-    fn check_writer(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
-        column_type.check_writer(col).map_err(|e| e.into())
-    }
-
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: S) -> io::Result<()> {
         let x = self.data.next().unwrap();
         self.column_type.h_write(h, x, byte_layout)
@@ -1396,79 +1634,19 @@ where
 }
 
 impl<'a> Writable<'a, Endian> for WriterMixedType<'a> {
-    type Inner = NullMixedType;
-
-    fn new(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Self {
-        match column_type {
-            MixedType::Ascii(c) => Self::Ascii(c.into_writer(col)),
-            MixedType::Uint(c) => Self::Uint(AnyWriterBitmask::new(c, col)),
-            MixedType::F32(c) => Self::F32(c.into_writer(col)),
-            MixedType::F64(c) => Self::F64(c.into_writer(col)),
-        }
-    }
-
-    fn check_writer(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
-        match column_type {
-            MixedType::Ascii(c) => c.check_writer(col).map_err(|e| e.into()),
-            MixedType::Uint(c) => AnyWriterBitmask::check_writer(c, col),
-            MixedType::F32(c) => c.check_writer(col).map_err(|e| e.into()),
-            MixedType::F64(c) => c.check_writer(col).map_err(|e| e.into()),
-        }
-    }
-
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: Endian) -> io::Result<()> {
         match self {
-            Self::Ascii(c) => {
-                let x = c.data.next().unwrap();
-                c.column_type.h_write(h, x, ())
-            }
+            Self::Ascii(c) => c.h_write(h, NoByteOrd),
             Self::Uint(c) => c.h_write(h, byte_layout),
-            Self::F32(c) => {
-                let x = c.data.next().unwrap();
-                c.column_type.h_write(h, x, byte_layout)
-            }
-            Self::F64(c) => {
-                let x = c.data.next().unwrap();
-                c.column_type.h_write(h, x, byte_layout)
-            }
+            Self::F32(c) => c.h_write(h, byte_layout),
+            Self::F64(c) => c.h_write(h, byte_layout),
         }
     }
 }
 
 impl<'a> Writable<'a, Endian> for AnyWriterBitmask<'a> {
-    type Inner = AnyNullBitmask;
-
-    fn new(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Self {
-        match_many_to_one!(
-            column_type,
-            AnyBitmask,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            c,
-            { c.into_writer(col).into() }
-        )
-    }
-
-    fn check_writer(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
-        match_many_to_one!(
-            column_type,
-            AnyBitmask,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            c,
-            { c.check_writer(col).map_err(|e| e.into()) }
-        )
-    }
-
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: Endian) -> io::Result<()> {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            c,
-            {
-                let x = c.data.next().unwrap();
-                c.column_type.h_write(h, x, byte_layout)
-            }
-        )
+        match_any_uint!(self, Self, c, { c.h_write(h, byte_layout) })
     }
 }
 
@@ -1515,25 +1693,6 @@ impl ToNativeWriter for AsciiRange {
     }
 }
 
-macro_rules! uint_to_mixed {
-    ($uint:ident, $wrap:ident) => {
-        impl From<$uint> for NullMixedType {
-            fn from(value: $uint) -> Self {
-                MixedType::Uint(AnyBitmask::$wrap(value))
-            }
-        }
-    };
-}
-
-uint_to_mixed!(Bitmask08, Uint08);
-uint_to_mixed!(Bitmask16, Uint16);
-uint_to_mixed!(Bitmask24, Uint24);
-uint_to_mixed!(Bitmask32, Uint32);
-uint_to_mixed!(Bitmask40, Uint40);
-uint_to_mixed!(Bitmask48, Uint48);
-uint_to_mixed!(Bitmask56, Uint56);
-uint_to_mixed!(Bitmask64, Uint64);
-
 /// A wrapper for any of the 6 source types that can be written.
 ///
 /// Each inner type is an iterator from a different source type which emit
@@ -1548,15 +1707,15 @@ enum AnySource<'a, TargetType> {
 }
 
 impl<'a, T> AnySource<'a, T> {
-    fn new<TargetType>(c: &'a AnyFCSColumn) -> Self
+    fn new(c: &'a AnyFCSColumn) -> Self
     where
-        TargetType: AllFCSCast,
-        Self: From<FCSColIter<'a, u8, TargetType>>
-            + From<FCSColIter<'a, u16, TargetType>>
-            + From<FCSColIter<'a, u32, TargetType>>
-            + From<FCSColIter<'a, u64, TargetType>>
-            + From<FCSColIter<'a, f32, TargetType>>
-            + From<FCSColIter<'a, f64, TargetType>>,
+        T: AllFCSCast,
+        Self: From<FCSColIter<'a, u8, T>>
+            + From<FCSColIter<'a, u16, T>>
+            + From<FCSColIter<'a, u32, T>>
+            + From<FCSColIter<'a, u64, T>>
+            + From<FCSColIter<'a, f32, T>>
+            + From<FCSColIter<'a, f64, T>>,
     {
         match_many_to_one!(c, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
             FCSDataType::as_col_iter(xs).into()
@@ -1579,7 +1738,7 @@ fn is_ascii_delim(x: u8) -> bool {
     x == 9 || x == 10 || x == 13 || x == 32 || x == 44
 }
 
-impl<C: Serialize, L: Serialize, T> Serialize for FixedLayout<C, L, T> {
+impl<C: Serialize, L: Serialize, T, D> Serialize for FixedLayout<C, L, T, D> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut state = serializer.serialize_struct("FixedLayout", 2)?;
         state.serialize_field("columns", Vec::from(self.columns.as_ref()).as_slice())?;
@@ -1588,7 +1747,7 @@ impl<C: Serialize, L: Serialize, T> Serialize for FixedLayout<C, L, T> {
     }
 }
 
-impl<T> Serialize for DelimAsciiLayout<T> {
+impl<T, D, const ORD: bool> Serialize for DelimAsciiLayout<T, D, ORD> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut state = serializer.serialize_struct("DelimitedLayout", 1)?;
         state.serialize_field("ranges", Vec::from(self.ranges.as_ref()).as_slice())?;
@@ -1596,12 +1755,15 @@ impl<T> Serialize for DelimAsciiLayout<T> {
     }
 }
 
-impl EndianLayout<AnyNullBitmask> {
-    pub(crate) fn endian_uint_try_new<D>(
-        cs: NonEmpty<ColumnLayoutValues<D>>,
+impl<D> EndianLayout<AnyNullBitmask, D> {
+    pub(crate) fn endian_uint_try_new(
+        cs: NonEmpty<ColumnLayoutValues<D::MeasDatatype>>,
         e: Endian,
         notrunc: bool,
-    ) -> DeferredResult<Self, ColumnError<BitmaskError>, ColumnError<NewUintTypeError>> {
+    ) -> DeferredResult<Self, ColumnError<BitmaskError>, ColumnError<NewUintTypeError>>
+    where
+        D: MeasDatatypeDef,
+    {
         FixedLayout::try_new(cs, e, |c| {
             AnyBitmask::from_width_and_range(c.width, c.range, notrunc).def_errors_into()
         })
@@ -1616,30 +1778,7 @@ impl EndianLayout<AnyNullBitmask> {
     }
 }
 
-impl EndianLayout<NullMixedType> {
-    fn primary_datatype(&self) -> AlphaNumType {
-        // If any numeric types are none, then that means at least one column is
-        // ASCII, which means that $DATATYPE needs to be "A" since $PnDATATYPE
-        // cannot be "A".
-        if let Ok(mut ds) = self.columns.as_ref().try_map(|c| c.as_num_type().ok_or(())) {
-            // Determine which type appears the most, use that for $DATATYPE
-            ds.sort();
-            // TODO this should be a general non-empty function
-            let mut counts = NonEmpty::new((ds.head, 1));
-            for d in ds.tail {
-                if counts.last().0 == d {
-                    counts.last_mut().1 += 1;
-                } else {
-                    counts.push((d, 1));
-                }
-            }
-            let mode = counts.maximum_by_key(|x| x.1).0;
-            mode.into()
-        } else {
-            AlphaNumType::Ascii
-        }
-    }
-
+impl<D> EndianLayout<NullMixedType, D> {
     pub(crate) fn try_into_ordered<T>(
         self,
     ) -> MultiResult<AnyOrderedLayout<T>, MixedToOrderedLayoutError> {
@@ -1657,7 +1796,7 @@ impl EndianLayout<NullMixedType> {
                     })
                 })
                 .gather()
-                .map(|xs| AnyAsciiLayout::Fixed(FixedLayout::new1(x, xs, ())).into()),
+                .map(|xs| AnyAsciiLayout::Fixed(FixedLayout::new1(x, xs, NoByteOrd)).into()),
             MixedType::Uint(x) => x
                 .try_into_one_size(cs, endian, 1)
                 .map(|i| i.into())
@@ -1692,7 +1831,7 @@ impl EndianLayout<NullMixedType> {
 
     pub(crate) fn try_into_non_mixed(
         self,
-    ) -> MultiResult<NonMixedEndianLayout, MixedToNonMixedLayoutError> {
+    ) -> MultiResult<NonMixedEndianLayout<NoMeasDatatype>, MixedToNonMixedLayoutError> {
         let c0 = self.columns.head;
         let it = self.columns.tail.into_iter().enumerate();
         let byte_layout = self.byte_layout;
@@ -1703,7 +1842,7 @@ impl EndianLayout<NullMixedType> {
                         .map_err(|e| (i, MixedToNonMixedConvertError::from(e)))
                 })
                 .gather()
-                .map(|xs| AnyAsciiLayout::Fixed(FixedLayout::new1(x, xs, ())).into()),
+                .map(|xs| AnyAsciiLayout::Fixed(FixedLayout::new1(x, xs, NoByteOrd)).into()),
             MixedType::Uint(x) => it
                 .map(|(i, c)| {
                     c.try_into()
@@ -1733,6 +1872,7 @@ impl EndianLayout<NullMixedType> {
     }
 }
 
+// TODO doesn't num_traits have this?
 macro_rules! impl_num_props {
     ($size:expr, $t:ty) => {
         impl NumProps for $t {
@@ -1811,13 +1951,11 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
 }
 
 impl<T, const LEN: usize> FloatRange<T, LEN> {
-    /// Create a new float range from an integer or float.
-    pub(crate) fn from_range(range: FloatOrInt, notrunc: bool) -> BiTentative<Self, FloatRangeError>
-    where
-        NonNanFloat<T>: TryFrom<FloatOrInt, Error = ToFloatError<T>>,
-        T: num_traits::float::Float,
-    {
-        range.as_float(notrunc).map(|x| Self { range: x })
+    pub fn new(range: FloatDecimal<T>) -> Self {
+        Self {
+            range,
+            _t: PhantomData,
+        }
     }
 
     /// Make new float range from $PnB and $PnR values.
@@ -1827,16 +1965,16 @@ impl<T, const LEN: usize> FloatRange<T, LEN> {
         width: Width,
         range: Range,
         notrunc: bool,
-    ) -> DeferredResult<Self, FloatRangeError, FloatWidthError>
+    ) -> DeferredResult<Self, FloatToDecimalError, FloatWidthError>
     where
-        NonNanFloat<T>: TryFrom<FloatOrInt, Error = ToFloatError<T>>,
-        T: num_traits::float::Float,
+        FloatDecimal<T>: TryFrom<BigDecimal, Error = FloatToDecimalError>,
+        T: HasFloatBounds,
     {
         Bytes::try_from(width)
             .into_deferred()
             .def_and_maybe(|bytes| {
                 if usize::from(u8::from(bytes)) == LEN {
-                    Ok(Self::from_range(range.0, notrunc).errors_into())
+                    Ok(Self::from_range(range, notrunc).errors_into())
                 } else {
                     Err(DeferredFailure::new1(FloatWidthError::WrongWidth(
                         WrongFloatWidth {
@@ -1877,22 +2015,6 @@ impl NullMixedType {
         }
     }
 
-    /// Infer the mixed type from the type of the range.
-    ///
-    /// If int is supplied, return one of the uint types depending on size.
-    /// If float is supplied, return f32 or f64 depending on size. This will
-    /// never return ASCII.
-    fn from_range(range: FloatOrInt) -> Self {
-        match range {
-            FloatOrInt::Int(x) => Self::Uint(AnyBitmask::from_u64(x)),
-            FloatOrInt::Float(x) => x
-                .try_as_f32()
-                .map_or(Self::F64(FloatRange { range: x }), |y| {
-                    Self::F32(FloatRange { range: y })
-                }),
-        }
-    }
-
     fn as_alpha_num_type(&self) -> AlphaNumType {
         match self {
             Self::Ascii(_) => AlphaNumType::Ascii,
@@ -1900,10 +2022,6 @@ impl NullMixedType {
             Self::F32(_) => AlphaNumType::Single,
             Self::F64(_) => AlphaNumType::Double,
         }
-    }
-
-    fn as_num_type(&self) -> Option<NumType> {
-        self.as_alpha_num_type().try_into().ok()
     }
 }
 
@@ -1920,19 +2038,11 @@ impl AnyNullBitmask {
         width
             .try_into()
             .into_deferred()
-            .def_and_tentatively(|bytes| Self::new1(bytes, range.0, notrunc).errors_into())
-    }
-
-    /// make a new bitmask from a float or integer.
-    ///
-    /// The size will be determined by the input and will be kept as small as
-    /// possible.
-    fn from_range(range: FloatOrInt, notrunc: bool) -> BiTentative<Self, IntRangeError> {
-        range.as_uint(notrunc).map(Self::from_u64)
+            .def_and_tentatively(|bytes| Self::new1(bytes, range, notrunc).errors_into())
     }
 
     /// Make a new bitmask with a given width (in bytes) using a float/int.
-    fn new1(width: Bytes, range: FloatOrInt, notrunc: bool) -> BiTentative<Self, BitmaskError> {
+    fn new1(width: Bytes, range: Range, notrunc: bool) -> BiTentative<Self, BitmaskError> {
         match width {
             Bytes::B1 => Bitmask08::from_range(range, notrunc).map(|b| b.into()),
             Bytes::B2 => Bitmask16::from_range(range, notrunc).map(|b| b.into()),
@@ -1995,125 +2105,100 @@ fn ascii_to_uint(buf: &[u8]) -> Result<u64, AsciiToUintError> {
     }
 }
 
-impl VersionedColumnLayout for ColumnLayoutValues2_0 {
-    fn lookup(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
-        let j = i.into();
-        let w = Width::lookup_req(kws, j);
-        let r = Range::lookup_req(kws, j);
-        w.def_zip(r).def_map_value(|(width, range)| Self {
-            width,
-            range,
-            datatype: (),
-        })
-    }
-
-    fn get(
-        kws: &StdKeywords,
-        i: MeasIndex,
-    ) -> DeferredResult<Self, ParseKeyError<NumTypeError>, RawParsedError> {
-        let j = i.into();
-        let w = Width::get_meas_req(kws, j).map_err(|e| e.into());
-        let r = Range::get_meas_req(kws, j).map_err(|e| e.into());
-        w.zip(r)
-            .map(|(width, range)| Self {
-                width,
-                range,
-                datatype: (),
-            })
-            .map(Tentative::new1)
-            .map_err(DeferredFailure::new2)
-    }
-}
-
-impl VersionedColumnLayout for ColumnLayoutValues3_2 {
-    fn lookup(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
-        let j = i.into();
-        let w = Width::lookup_req(kws, j);
-        let r = Range::lookup_req(kws, j);
-        w.def_zip(r).def_and_tentatively(|(width, range)| {
-            NumType::lookup_opt(kws, j)
-                .map(|x| x.0)
-                .map(|datatype| Self {
-                    width,
-                    range,
-                    datatype,
-                })
-        })
-    }
-
-    fn get(
-        kws: &StdKeywords,
-        i: MeasIndex,
-    ) -> DeferredResult<Self, ParseKeyError<NumTypeError>, RawParsedError> {
-        let j = i.into();
-        let w = Width::get_meas_req(kws, j).map_err(|e| e.into());
-        let r = Range::get_meas_req(kws, j).map_err(|e| e.into());
-        w.zip(r)
-            .map(Tentative::new1)
-            .map_err(DeferredFailure::new2)
-            .def_and_tentatively(|(width, range)| {
-                NumType::get_meas_opt(kws, j)
-                    .map(|x| x.0)
-                    .map_or_else(|e| Tentative::new(None, vec![e], vec![]), Tentative::new1)
-                    .map(|datatype| Self {
-                        width,
-                        range,
-                        datatype,
-                    })
-            })
-    }
-}
-
 impl From<ColumnLayoutValues3_2> for ColumnLayoutValues2_0 {
     fn from(value: ColumnLayoutValues3_2) -> Self {
         Self {
             width: value.width,
             range: value.range,
-            datatype: (),
+            datatype: NullMeasDatatype,
         }
     }
 }
 
-impl<T> DelimAsciiLayout<T> {
-    fn new(ranges: NonEmpty<u64>) -> Self {
-        Self {
-            ranges,
-            tot_action: PhantomData,
-        }
+impl<T, D, const ORD: bool> LayoutOps<'_, T, D> for DelimAsciiLayout<T, D, ORD>
+where
+    D: MeasDatatypeDef,
+    for<'a> D::MeasDatatype: From<&'a NullMeasDatatype>,
+    T: TotDefinition,
+    NoByteOrd<ORD>: HasByteOrd,
+{
+    fn ncols(&self) -> usize {
+        self.ranges.len()
     }
 
-    fn insert_unchecked(&mut self, index: MeasIndex, range: u64) {
-        self.ranges.insert(index.into(), range)
+    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
+        df.ascii_nbytes()
     }
 
-    fn push(&mut self, range: u64) {
-        self.ranges.push(range)
+    fn widths(&self) -> Vec<BitsOrChars> {
+        vec![]
     }
 
-    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-        self.ranges.remove(index.into())
+    fn ranges(&self) -> NonEmpty<Range> {
+        self.ranges.as_ref().map(|x| Range::from(*x))
+    }
+
+    fn datatype(&self) -> AlphaNumType {
+        AlphaNumType::Ascii
+    }
+
+    fn byteord_keyword(&self) -> (String, String) {
+        // NOTE BYTEORD is meaningless for delimited ASCII so use a dummy
+        <NoByteOrd<ORD> as HasByteOrd>::ByteOrd::from(NoByteOrd).pair()
+    }
+
+    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
+        self.ranges.as_ref().enumerate().map(|(i, r)| {
+            let x = Width::Variable.pair(i.into());
+            let y = Range((*r).into()).pair(i.into());
+            [x, y]
+        })
+    }
+
+    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
+        D::keywords(&self.ranges.as_ref().map(|_| NullMeasDatatype))
+    }
+
+    fn insert_nocheck(
+        &mut self,
+        index: MeasIndex,
+        range: Range,
+        notrunc: bool,
+    ) -> BiTentative<(), AnyRangeError> {
+        range
+            .into_uint(notrunc)
+            .inner_into()
+            .map(|r| self.ranges.insert(index.into(), r))
+    }
+
+    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), AnyRangeError> {
+        range
+            .into_uint(notrunc)
+            .inner_into()
+            .map(|r| self.ranges.push(r))
     }
 
     fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
         self.ranges.remove_nocheck(index.into())
     }
 
-    fn h_read_df<R: Read>(
+    fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
+        _: &mut Vec<u8>,
         tot: T::Tot,
-        nbytes: usize,
-    ) -> IOResult<FCSDataFrame, ReadDelimAsciiError>
-    where
-        T: TotDefinition,
-    {
+        seg: AnyDataSegment,
+        _: &ReaderConfig,
+    ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
         let rs = &self.ranges;
+        let nbytes = seg.inner.len() as usize;
         T::with_tot(
             h,
             tot,
             |_h, t| h_read_delim_with_rows(rs, _h, t, nbytes).map_err(|e| e.inner_into()),
             |_h| h_read_delim_without_rows(rs, _h, nbytes).map_err(|e| e.inner_into()),
         )
+        .into_deferred()
     }
 
     fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
@@ -2130,11 +2215,15 @@ impl<T> DelimAsciiLayout<T> {
             .void()
     }
 
-    fn h_write_df<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()> {
+    fn h_write_df_inner<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        df: &FCSDataFrame,
+    ) -> io::Result<()> {
         let ncols = df.ncols();
         let nrows = df.nrows();
         // ASSUME dataframe has correct number of columns
-        let mut column_srcs: Vec<_> = df.iter_columns().map(AnySource::new::<u64>).collect();
+        let mut column_srcs: Vec<_> = df.iter_columns().map(AnySource::<'_, u64>::new).collect();
         for row in 0..nrows {
             for (col, xs) in column_srcs.iter_mut().enumerate() {
                 let x = xs.next().unwrap();
@@ -2149,18 +2238,29 @@ impl<T> DelimAsciiLayout<T> {
         }
         Ok(())
     }
+}
 
-    fn req_keywords<X: Default + ReqMetarootKey>(&self) -> [(String, String); 2] {
-        // NOTE BYTEORD is meaningless for delimited ASCII so use a dummy
-        [AlphaNumType::Ascii.pair(), X::default().pair()]
+impl<T, D, const ORD: bool> DelimAsciiLayout<T, D, ORD> {
+    fn new(ranges: NonEmpty<u64>) -> Self {
+        Self {
+            ranges,
+            _tot_def: PhantomData,
+            _meas_data_def: PhantomData,
+        }
     }
 
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-        self.ranges.as_ref().enumerate().map(|(i, r)| {
-            let x = Width::Variable.pair(i.into());
-            let y = Range((*r).into()).pair(i.into());
-            [x, y]
-        })
+    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
+        df.iter_columns()
+            .enumerate()
+            .map(|(i, c)| {
+                c.check_writer::<_, _, u64>(|_| None)
+                    .map_err(|error| ColumnError {
+                        error: AnyLossError::Int(error),
+                        index: i.into(),
+                    })
+            })
+            .gather()
+            .void()
     }
 }
 
@@ -2293,12 +2393,164 @@ fn h_read_delim_without_rows<R: Read>(
     Ok(FCSDataFrame::try_new(cs).unwrap())
 }
 
-impl<C, S, T> FixedLayout<C, S, T> {
+impl<'a, C, S, T, D> LayoutOps<'a, T, D> for FixedLayout<C, S, T, D>
+where
+    D: MeasDatatypeDef,
+    for<'b> D::MeasDatatype: From<&'b C>,
+    T: TotDefinition,
+    C: Clone + IsFixed + HasDatatype + IntoReader<S> + IntoWriter<'a, S> + FromRange,
+    S: Copy + HasByteOrd,
+    for<'c> Range: From<&'c C>,
+    <C as IntoReader<S>>::Target: Readable<S>,
+    <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
+    AnyRangeError: From<<C as FromRange>::Error>,
+{
+    fn widths(&self) -> Vec<BitsOrChars> {
+        self.columns.as_ref().map(|x| x.fixed_width()).into()
+    }
+
+    fn ranges(&self) -> NonEmpty<Range> {
+        self.columns.as_ref().map(|x| x.into())
+    }
+
+    fn ncols(&self) -> usize {
+        self.columns.len()
+    }
+
+    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
+        (self.event_width() * df.nrows()) as u64
+    }
+
+    fn datatype(&self) -> AlphaNumType {
+        C::datatype_from_columns(&self.columns)
+    }
+
+    fn byteord_keyword(&self) -> (String, String) {
+        S::ByteOrd::from(self.byte_layout).pair()
+    }
+
+    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
+        self.columns
+            .as_ref()
+            .enumerate()
+            .map(|(i, c)| c.req_meas_keywords(i.into()))
+    }
+
+    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
+        D::keywords(&self.columns)
+    }
+
+    fn insert_nocheck(
+        &mut self,
+        index: MeasIndex,
+        range: Range,
+        notrunc: bool,
+    ) -> BiTentative<(), AnyRangeError> {
+        C::from_range(range, notrunc).inner_into().map(|col| {
+            self.columns.insert(index.into(), col);
+        })
+    }
+
+    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), AnyRangeError> {
+        C::from_range(range, notrunc)
+            .inner_into()
+            .map(|col| self.columns.push(col))
+    }
+
+    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
+        self.columns.remove_nocheck(index.into())
+    }
+
+    fn h_read_df_inner<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        buf: &mut Vec<u8>,
+        tot: T::Tot,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError>
+    where
+        T: TotDefinition,
+    {
+        self.compute_nrows(seg, conf)
+            .inner_into()
+            .errors_liftio()
+            .and_tentatively(|nrows| {
+                T::check_tot(nrows, tot, conf.allow_tot_mismatch)
+                    .map(|_| nrows)
+                    .inner_into()
+                    .errors_liftio()
+            })
+            .and_maybe(|nrows| {
+                self.h_read_unchecked_df(h, nrows, buf)
+                    .map_err(|e| e.inner_into())
+                    .into_deferred()
+            })
+    }
+
+    fn check_writer(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
+        // ASSUME df has same number of columns as layout
+        self.columns
+            .iter()
+            .zip(df.iter_columns())
+            .enumerate()
+            .map(|(i, (col_type, col_data))| {
+                col_type
+                    .check_writer(col_data)
+                    .map_err(|error| ColumnError {
+                        error,
+                        index: i.into(),
+                    })
+            })
+            .gather()
+            .void()
+    }
+
+    fn h_write_df_inner<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        df: &'a FCSDataFrame,
+    ) -> io::Result<()> {
+        let nrows = df.nrows();
+        // ASSUME df has same number of columns as layout
+        let mut cs: Vec<_> = self
+            .columns
+            .iter()
+            .zip(df.iter_columns())
+            .map(|(col_type, col_data)| col_type.clone().into_writer(col_data))
+            .collect();
+        for _ in 0..nrows {
+            for c in cs.iter_mut() {
+                c.h_write(h, self.byte_layout)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<C, S, T, D> OrderedLayoutOps for FixedLayout<C, S, T, D>
+where
+    S: Copy,
+    ByteOrd2_0: From<S>,
+{
+    fn byte_order(&self) -> Option<ByteOrd2_0> {
+        Some(self.byte_layout.into())
+    }
+}
+
+impl<C, T, D> EndianLayoutOps for FixedLayout<C, Endian, T, D> {
+    fn endianness(&self) -> Option<Endian> {
+        Some(self.byte_layout)
+    }
+}
+
+impl<C, S, T, D> FixedLayout<C, S, T, D> {
     fn new(columns: NonEmpty<C>, byte_layout: S) -> Self {
         Self {
             columns,
             byte_layout,
-            tot_action: PhantomData,
+            _tot_def: PhantomData,
+            _meas_data_def: PhantomData,
         }
     }
 
@@ -2306,15 +2558,16 @@ impl<C, S, T> FixedLayout<C, S, T> {
         Self::new((head, tail).into(), byte_layout)
     }
 
-    fn try_new<D, F, W, E, CW, CE>(
-        cs: NonEmpty<ColumnLayoutValues<D>>,
+    fn try_new<F, W, E, CW, CE>(
+        cs: NonEmpty<ColumnLayoutValues<D::MeasDatatype>>,
         byte_layout: S,
         new_col_f: F,
     ) -> DeferredResult<Self, W, E>
     where
+        D: MeasDatatypeDef,
         W: From<ColumnError<CW>>,
         E: From<ColumnError<CE>>,
-        F: Fn(ColumnLayoutValues<D>) -> DeferredResult<C, CW, CE>,
+        F: Fn(ColumnLayoutValues<D::MeasDatatype>) -> DeferredResult<C, CW, CE>,
     {
         cs.enumerate()
             .map_results(|(i, c)| {
@@ -2339,158 +2592,51 @@ impl<C, S, T> FixedLayout<C, S, T> {
             .def_map_value(|columns| Self::new(columns, byte_layout))
     }
 
-    fn insert_inner_nocheck(&mut self, index: MeasIndex, col: C) {
-        self.columns.insert(index.into(), col)
-    }
-
-    fn push_inner(&mut self, col: C) {
-        self.columns.push(col)
-    }
-
-    fn remove_inner(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-        self.columns.remove(index.into())
-    }
-
-    fn remove_nocheck_inner(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-        self.columns.remove_nocheck(index.into())
-    }
-
-    fn h_read_df_numeric<R: Read, I, W, E>(
-        &self,
-        h: &mut BufReader<R>,
-        tot: T::Tot,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, W, E>
-    where
-        W: From<UnevenEventWidth> + From<TotEventMismatch>,
-        E: From<UnevenEventWidth> + From<TotEventMismatch>,
-        S: Copy,
-        C: IsFixed + Copy,
-        I: Readable<S, E, Inner = C, Buf = ()>,
-        T: TotDefinition,
-    {
-        self.h_read_df::<_, I, _, _, E, E>(h, &mut (), tot, seg, conf)
-    }
-
-    fn h_read_df<R: Read, I, B, W, E, ReadErr>(
-        &self,
-        h: &mut BufReader<R>,
-        buf: &mut B,
-        tot: T::Tot,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, W, E>
-    where
-        W: From<UnevenEventWidth> + From<TotEventMismatch>,
-        E: From<ReadErr> + From<UnevenEventWidth> + From<TotEventMismatch>,
-        S: Copy,
-        C: IsFixed + Copy,
-        I: Readable<S, ReadErr, Inner = C, Buf = B>,
-        T: TotDefinition,
-    {
-        self.compute_nrows(seg, conf)
-            .inner_into()
-            .errors_liftio()
-            .and_tentatively(|nrows| {
-                T::check_tot(nrows, tot, conf.allow_tot_mismatch)
-                    .map(|_| nrows)
-                    .inner_into()
-                    .errors_liftio()
-            })
-            .and_maybe(|nrows| {
-                self.h_read_unchecked_df::<R, I, B, ReadErr>(h, nrows, buf)
-                    .map_err(|e| e.inner_into())
-                    .into_deferred()
-            })
-    }
-
-    fn check_writer<'a, I>(
-        &self,
-        df: &'a FCSDataFrame,
-    ) -> MultiResult<(), ColumnError<AnyLossError>>
-    where
-        C: Copy,
-        I: Writable<'a, S, Inner = C>,
-    {
-        // ASSUME df has same number of columns as layout
-        self.columns
-            .iter()
-            .zip(df.iter_columns())
-            .enumerate()
-            .map(|(i, (col_type, col_data))| {
-                I::check_writer(*col_type, col_data).map_err(|error| ColumnError {
-                    error,
-                    index: i.into(),
-                })
-            })
-            .gather()
-            .void()
-    }
-
-    fn h_write_df<'a, W: Write, I>(
-        &self,
-        h: &mut BufWriter<W>,
-        df: &'a FCSDataFrame,
-    ) -> io::Result<()>
-    where
-        S: Copy,
-        C: Copy,
-        I: Writable<'a, S, Inner = C>,
-    {
-        let nrows = df.nrows();
-        // ASSUME df has same number of columns as layout
-        let mut cs: Vec<_> = self
-            .columns
-            .iter()
-            .zip(df.iter_columns())
-            .map(|(col_type, col_data)| I::new(*col_type, col_data))
-            .collect();
-        for _ in 0..nrows {
-            for c in cs.iter_mut() {
-                c.h_write(h, self.byte_layout)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn h_read_unchecked_df<R: Read, I, B, E>(
+    fn h_read_unchecked_df<R: Read>(
         &self,
         h: &mut BufReader<R>,
         nrows: usize,
-        buf: &mut B,
-    ) -> IOResult<FCSDataFrame, E>
+        buf: &mut Vec<u8>,
+    ) -> IOResult<FCSDataFrame, ReadDataframeError>
     where
         S: Copy,
-        C: IsFixed + Copy,
-        I: Readable<S, E, Inner = C, Buf = B>,
+        C: IsFixed + Clone + IntoReader<S>,
+        <C as IntoReader<S>>::Target: Readable<S>,
     {
-        let mut col_readers: Vec<_> = self.columns.iter().map(|c| I::new(*c, nrows)).collect();
+        // TODO to clone
+        let mut col_readers: Vec<_> = self
+            .columns
+            .iter()
+            .map(|c| c.clone().into_reader(nrows))
+            .collect();
         for row in 0..nrows {
             for c in col_readers.iter_mut() {
-                c.h_read_row(h, row, self.byte_layout, buf)
+                c.h_read(h, row, self.byte_layout, buf)
                     .map_err(|e| e.inner_into())?;
             }
         }
-        let data = col_readers.into_iter().map(|c| c.into_column()).collect();
+        let data = col_readers
+            .into_iter()
+            .map(|c| c.into_dataframe_column())
+            .collect();
         Ok(FCSDataFrame::try_new(data).unwrap())
     }
 
-    fn columns_into<X>(self) -> FixedLayout<X, S, T>
+    fn columns_into<X>(self) -> FixedLayout<X, S, T, D>
     where
         X: From<C>,
     {
         FixedLayout::new(self.columns.map(|c| c.into()), self.byte_layout)
     }
 
-    fn byte_layout_into<X>(self) -> FixedLayout<C, X, T>
+    fn byte_layout_into<X>(self) -> FixedLayout<C, X, T, D>
     where
         X: From<S>,
     {
         FixedLayout::new(self.columns, self.byte_layout.into())
     }
 
-    fn byte_layout_try_into<X>(self) -> Result<FixedLayout<C, X, T>, X::Error>
+    fn byte_layout_try_into<X>(self) -> Result<FixedLayout<C, X, T, D>, X::Error>
     where
         X: TryFrom<S>,
     {
@@ -2499,7 +2645,7 @@ impl<C, S, T> FixedLayout<C, S, T> {
             .map(|byte_layout| FixedLayout::new(self.columns, byte_layout))
     }
 
-    fn tot_into<X>(self) -> FixedLayout<C, S, X> {
+    fn phantom_into<T1, D1>(self) -> FixedLayout<C, S, T1, D1> {
         FixedLayout::new(self.columns, self.byte_layout)
     }
 
@@ -2508,32 +2654,6 @@ impl<C, S, T> FixedLayout<C, S, T> {
         C: IsFixed,
     {
         self.columns.iter().map(|c| usize::from(c.nbytes())).sum()
-    }
-
-    fn widths(&self) -> NonEmpty<BitsOrChars>
-    where
-        C: IsFixed,
-    {
-        self.columns.as_ref().map(|x| x.fixed_width())
-    }
-
-    fn ranges(&self) -> NonEmpty<FloatOrInt>
-    where
-        C: Copy,
-        FloatOrInt: From<C>,
-    {
-        self.columns.as_ref().map(|x| (*x).into())
-    }
-
-    fn ncols(&self) -> usize {
-        self.columns.len()
-    }
-
-    fn nbytes(&self, df: &FCSDataFrame) -> u64
-    where
-        C: IsFixed,
-    {
-        (self.event_width() * df.nrows()) as u64
     }
 
     pub fn compute_nrows(
@@ -2559,65 +2679,6 @@ impl<C, S, T> FixedLayout<C, S, T> {
         } else {
             Tentative::new1(total_events)
         }
-    }
-
-    fn req_keywords<X>(&self, byteord: X) -> [(String, String); 2]
-    where
-        S: Copy,
-        X: ReqMetarootKey,
-        C: HasDatatype,
-    {
-        [byteord.pair(), C::DATATYPE.pair()]
-    }
-
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]>
-    where
-        C: IsFixed,
-    {
-        self.columns
-            .as_ref()
-            .enumerate()
-            .map(|(i, c)| c.req_meas_keywords(i.into()))
-    }
-}
-
-impl<C, const LEN: usize, S, T> FixedLayout<FloatRange<C, LEN>, S, T> {
-    fn insert_float_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), FloatRangeError>
-    where
-        C: Float,
-        NonNanFloat<C>: TryFrom<FloatOrInt, Error = ToFloatError<C>>,
-    {
-        FloatRange::from_range(range, notrunc)
-            .errors_into()
-            .map(|t| self.insert_inner_nocheck(index, t))
-    }
-
-    fn push_float(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), FloatRangeError>
-    where
-        C: Float,
-        NonNanFloat<C>: TryFrom<FloatOrInt, Error = ToFloatError<C>>,
-    {
-        FloatRange::from_range(range, notrunc).map(|t| self.push_inner(t))
-    }
-}
-
-impl<T> FixedLayout<AnyNullBitmask, Endian, T> {
-    fn insert_uint_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), IntRangeError> {
-        AnyBitmask::from_range(range, notrunc).map(|t| self.insert_inner_nocheck(index, t))
-    }
-
-    fn push_uint(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), IntRangeError> {
-        AnyBitmask::from_range(range, notrunc).map(|t| self.push_inner(t))
     }
 }
 
@@ -2651,23 +2712,137 @@ impl HasNativeType for AsciiRange {
 }
 
 impl HasDatatype for AsciiRange {
-    const DATATYPE: AlphaNumType = AlphaNumType::Ascii;
+    fn datatype_from_columns(_: &NonEmpty<Self>) -> AlphaNumType {
+        AlphaNumType::Ascii
+    }
 }
 
 impl<T, const LEN: usize> HasDatatype for Bitmask<T, LEN> {
-    const DATATYPE: AlphaNumType = AlphaNumType::Integer;
+    fn datatype_from_columns(_: &NonEmpty<Self>) -> AlphaNumType {
+        AlphaNumType::Integer
+    }
 }
 
 impl HasDatatype for F32Range {
-    const DATATYPE: AlphaNumType = AlphaNumType::Single;
+    fn datatype_from_columns(_: &NonEmpty<Self>) -> AlphaNumType {
+        AlphaNumType::Single
+    }
 }
 
 impl HasDatatype for F64Range {
-    const DATATYPE: AlphaNumType = AlphaNumType::Double;
+    fn datatype_from_columns(_: &NonEmpty<Self>) -> AlphaNumType {
+        AlphaNumType::Double
+    }
 }
 
 impl HasDatatype for AnyNullBitmask {
-    const DATATYPE: AlphaNumType = AlphaNumType::Integer;
+    fn datatype_from_columns(_: &NonEmpty<Self>) -> AlphaNumType {
+        AlphaNumType::Integer
+    }
+}
+
+impl HasDatatype for NullMixedType {
+    fn datatype_from_columns(cs: &NonEmpty<Self>) -> AlphaNumType {
+        // If any numeric types are none, then that means at least one column is
+        // ASCII, which means that $DATATYPE needs to be "A" since $PnDATATYPE
+        // cannot be "A". Otherwise, find majority type.
+        cs.as_ref()
+            .try_map(|c| <Option<NumType> as From<_>>::from(c).ok_or(()))
+            .ok()
+            .map_or(AlphaNumType::Ascii, |mut ds| {
+                ds.sort();
+                let x = (*ds.mode().0).into();
+                x
+            })
+    }
+}
+
+impl<T, const LEN: usize> FromRange for Bitmask<T, LEN>
+where
+    T: TryFrom<Range, Error = IntRangeError<T>> + PrimInt,
+    u64: From<T>,
+{
+    type Error = BitmaskError;
+
+    fn from_range(range: Range, notrunc: bool) -> BiTentative<Self, Self::Error> {
+        range
+            .into_uint(notrunc)
+            .inner_into()
+            .and_tentatively(|x| Bitmask::from_native_tnt(x, notrunc).inner_into())
+    }
+}
+
+impl<T, const LEN: usize> FromRange for FloatRange<T, LEN>
+where
+    T: HasFloatBounds,
+{
+    type Error = FloatToDecimalError;
+
+    fn from_range(range: Range, notrunc: bool) -> BiTentative<Self, Self::Error> {
+        range.into_float(notrunc).map(Self::new)
+    }
+}
+
+impl FromRange for AsciiRange {
+    type Error = IntRangeError<()>;
+
+    /// Make new AsciiRange from a float or integer.
+    ///
+    /// The number of chars will be automatically selected as the minimum
+    /// required to express the range.
+    fn from_range(range: Range, notrunc: bool) -> BiTentative<Self, Self::Error> {
+        range.into_uint::<u64>(notrunc).map(AsciiRange::from)
+    }
+}
+
+impl FromRange for AnyNullBitmask {
+    type Error = IntRangeError<()>;
+
+    /// make a new bitmask from a float or integer.
+    ///
+    /// The size will be determined by the input and will be kept as small as
+    /// possible.
+    fn from_range(range: Range, notrunc: bool) -> BiTentative<Self, Self::Error> {
+        range.into_uint(notrunc).map(Self::from_u64)
+    }
+}
+
+impl FromRange for NullMixedType {
+    type Error = AnyRangeError;
+
+    /// Create a mixed type based on the range.
+    ///
+    /// If int is supplied, return one of the uint types depending on size. If
+    /// float is supplied, return f64 if range extends beyond the bounds of f32,
+    /// otherwise use f32 (note that precision is not taken into consideration).
+    ///
+    /// ASCII will never be returned. This method will never fail.
+    fn from_range(range: Range, notrunc: bool) -> BiTentative<Self, Self::Error> {
+        if range.0.is_integer() {
+            AnyBitmask::from_range(range, notrunc)
+                .map(Self::Uint)
+                .inner_into()
+        } else {
+            let (x, e) = FloatDecimal::<f32>::try_from(range.0)
+                .map_or_else(
+                    |e| FloatDecimal::<f64>::try_from(e.src).map(|r| Self::F64(FloatRange::new(r))),
+                    |r| Ok(Self::F32(FloatRange::new(r))),
+                )
+                .map_or_else(
+                    |e| {
+                        // TODO kinda not dry
+                        let m = if e.over {
+                            f64::max_decimal()
+                        } else {
+                            f64::min_decimal()
+                        };
+                        (Self::F64(FloatRange::new(m)), Some(e))
+                    },
+                    |x| (x, None),
+                );
+            BiTentative::new_either1(x, e, notrunc).inner_into()
+        }
+    }
 }
 
 impl<T, const LEN: usize> IsFixed for Bitmask<T, LEN>
@@ -2691,38 +2866,6 @@ where
     }
 }
 
-impl IsFixed for AnyNullBitmask {
-    fn nbytes(&self) -> u8 {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            x,
-            { x.nbytes() }
-        )
-    }
-
-    fn fixed_width(&self) -> BitsOrChars {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            x,
-            { x.fixed_width() }
-        )
-    }
-
-    fn range(&self) -> Range {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            x,
-            { x.range() }
-        )
-    }
-}
-
 impl<T, const LEN: usize> IsFixed for FloatRange<T, LEN>
 where
     Self: HasNativeWidth,
@@ -2738,7 +2881,8 @@ where
     }
 
     fn range(&self) -> Range {
-        Range(FloatOrInt::Float(self.range.inner_into()))
+        // TODO clone?
+        self.range.clone().into()
     }
 }
 
@@ -2756,17 +2900,31 @@ impl IsFixed for AsciiRange {
     }
 }
 
-impl IsFixed for NullMixedType {
+impl IsFixed for AnyNullBitmask {
     fn nbytes(&self) -> u8 {
-        match_many_to_one!(self, Self, [Ascii, Uint, F32, F64], x, { x.nbytes() })
+        match_any_uint!(self, Self, x, { x.nbytes() })
     }
 
     fn fixed_width(&self) -> BitsOrChars {
-        match_many_to_one!(self, Self, [Ascii, Uint, F32, F64], x, { x.fixed_width() })
+        match_any_uint!(self, Self, x, { x.fixed_width() })
     }
 
     fn range(&self) -> Range {
-        match_many_to_one!(self, Self, [Ascii, Uint, F32, F64], x, { x.range() })
+        match_any_uint!(self, Self, x, { x.range() })
+    }
+}
+
+impl IsFixed for NullMixedType {
+    fn nbytes(&self) -> u8 {
+        match_any_mixed!(self, x, { x.nbytes() })
+    }
+
+    fn fixed_width(&self) -> BitsOrChars {
+        match_any_mixed!(self, x, { x.fixed_width() })
+    }
+
+    fn range(&self) -> Range {
+        match_any_mixed!(self, x, { x.range() })
     }
 }
 
@@ -2823,21 +2981,21 @@ source_from_iter!(f64, f32, FromF64);
 source_from_iter!(f64, f64, FromF64);
 
 impl<T> AnyOrderedUintLayout<T> {
-    fn tot_into<X>(self) -> AnyOrderedUintLayout<X> {
-        match_any_uint!(self, Self, l, { l.tot_into().into() })
+    fn phantom_into<X>(self) -> AnyOrderedUintLayout<X> {
+        match_any_uint!(self, Self, l, { l.phantom_into().into() })
     }
 
-    fn into_endian(self) -> Result<EndianLayout<AnyNullBitmask>, OrderedToEndianError> {
+    fn into_endian<D>(self) -> Result<EndianLayout<AnyNullBitmask, D>, OrderedToEndianError> {
         match_any_uint!(self, Self, l, {
-            l.tot_into()
+            l.phantom_into()
                 .byte_layout_try_into()
                 .map(|x| x.columns_into())
         })
     }
 
-    fn try_new<D>(
-        cs: NonEmpty<ColumnLayoutValues<D>>,
-        bo: ByteOrd,
+    fn try_new(
+        cs: NonEmpty<ColumnLayoutValues<NullMeasDatatype>>,
+        bo: ByteOrd2_0,
         conf: &StdTextReadConfig,
     ) -> DeferredResult<Self, ColumnError<BitmaskError>, NewFixedIntLayoutError> {
         let notrunc = conf.disallow_range_truncation;
@@ -2874,134 +3032,58 @@ impl<T> AnyOrderedUintLayout<T> {
         // the bitmask won't necessarily fail even if it is larger than the
         // target type.
         width_res.mult_to_deferred().def_and_maybe(|_| {
-            match_many_to_one!(real_bo, ByteOrd, [O1, O2, O3, O4, O5, O6, O7, O8], o, {
+            match_many_to_one!(real_bo, ByteOrd2_0, [O1, O2, O3, O4, O5, O6, O7, O8], o, {
                 FixedLayout::try_new(cs, o, |c| {
                     // NOTE at this point $PnB doesn't matter, so assume we
                     // either ignored $PnB by way of $BYTEORD or checked to make
                     // sure they match.
-                    Ok(Bitmask::from_range(c.range.0, notrunc).errors_into())
+                    Ok(Bitmask::from_range(c.range, notrunc).errors_into())
                 })
                 .def_map_value(|x| x.into())
             })
         })
     }
+}
 
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), BitmaskError> {
-        match_any_uint!(self, Self, l, {
-            Bitmask::from_range(range, notrunc).map(|t| l.insert_inner_nocheck(index, t))
-        })
-    }
-
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), BitmaskError> {
-        match_any_uint!(self, Self, l, {
-            Bitmask::from_range(range, notrunc)
-                .map(|t| l.push_inner(t))
-                .void()
-        })
-    }
-
-    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-        match_any_uint!(self, Self, l, { l.remove_inner(index) })
-    }
-
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-        match_any_uint!(self, Self, l, { l.remove_nocheck_inner(index) })
-    }
-
-    fn ncols(&self) -> usize {
-        match_any_uint!(self, Self, l, { l.columns.len() })
-    }
-
-    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
-        match_any_uint!(self, Self, l, { l.nbytes(df) })
-    }
-
-    fn widths(&self) -> NonEmpty<BitsOrChars> {
-        match_any_uint!(self, Self, l, { l.widths() })
-    }
-
-    fn ranges(&self) -> NonEmpty<FloatOrInt> {
-        match_any_uint!(self, Self, l, { l.ranges() })
-    }
-
-    pub fn byte_order(&self) -> ByteOrd {
-        match_any_uint!(self, Self, l, { l.byte_layout.into() })
-    }
-
-    pub fn endiannness(&self) -> Option<Endian> {
-        match_any_uint!(self, Self, l, { Endian::try_from(l.byte_layout).ok() })
-    }
-
-    fn h_read_df<R: Read, W, E>(
-        &self,
-        h: &mut BufReader<R>,
-        tot: T::Tot,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, W, E>
-    where
-        W: From<UnevenEventWidth> + From<TotEventMismatch>,
-        E: From<UnevenEventWidth> + From<TotEventMismatch>,
-        T: TotDefinition,
-    {
-        match_any_uint!(self, Self, l, {
-            l.h_read_df_numeric::<_, ColumnReader<_, _, _>, _, E>(h, tot, seg, conf)
-        })
-    }
-
-    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
-        match_any_uint!(self, Self, l, {
-            l.check_writer::<ColumnWriter<_, _, _>>(df)
-        })
-    }
-
-    fn h_write_df<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()> {
-        match_any_uint!(self, Self, l, {
-            l.h_write_df::<_, ColumnWriter<_, _, _>>(h, df)
-        })
-    }
-
-    fn req_keywords(&self) -> [(String, String); 2] {
-        match_any_uint!(self, Self, l, {
-            l.req_keywords(ByteOrd::from(l.byte_layout))
-        })
-    }
-
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-        match_any_uint!(self, Self, l, { l.req_meas_keywords() })
+impl<T, D> OrderedLayoutOps for AnyAsciiLayout<T, D, true> {
+    fn byte_order(&self) -> Option<ByteOrd2_0> {
+        None
     }
 }
 
-impl<T> AnyAsciiLayout<T> {
-    fn tot_into<X>(self) -> AnyAsciiLayout<X> {
+impl<T, D> EndianLayoutOps for AnyAsciiLayout<T, D, false> {
+    fn endianness(&self) -> Option<Endian> {
+        None
+    }
+}
+
+impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
+    fn phantom_into<T1, D1, const ORD_1: bool>(self) -> AnyAsciiLayout<T1, D1, ORD_1> {
         match self {
             Self::Delimited(x) => DelimAsciiLayout::new(x.ranges).into(),
-            Self::Fixed(x) => x.tot_into().into(),
+            Self::Fixed(x) => FixedLayout::new(x.columns, NoByteOrd).into(),
         }
     }
 
-    pub(crate) fn try_new<D>(
-        cs: NonEmpty<ColumnLayoutValues<D>>,
+    pub(crate) fn try_new(
+        cs: NonEmpty<ColumnLayoutValues<D::MeasDatatype>>,
         notrunc: bool,
     ) -> DeferredResult<
         Self,
-        ColumnError<IntRangeError>,
+        ColumnError<IntRangeError<()>>,
         ColumnError<ascii_range::NewAsciiRangeError>,
-    > {
-        let go = |error: IntRangeError, i: usize| ColumnError {
+    >
+    where
+        D: MeasDatatypeDef,
+    {
+        let go = |error: IntRangeError<()>, i: usize| ColumnError {
             error,
             index: i.into(),
         };
         if cs.iter().all(|c| c.width == Width::Variable) {
             let ts = cs.enumerate().map(|(i, c)| {
                 c.range
-                    .0
-                    .as_uint(notrunc)
+                    .into_uint(notrunc)
                     .map_errors(|e| go(e, i))
                     .map_warnings(|e| go(e, i))
             });
@@ -3010,151 +3092,26 @@ impl<T> AnyAsciiLayout<T> {
                 .map_errors(|e| e.inner_into());
             Ok(ret)
         } else {
-            FixedLayout::try_new(cs, (), |c| {
+            FixedLayout::try_new(cs, NoByteOrd, |c| {
                 AsciiRange::from_width_and_range(c.width, c.range, notrunc)
             })
             .def_map_value(Self::Fixed)
         }
     }
 
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), IntRangeError> {
-        range.as_uint::<u64>(notrunc).map(|x| match self {
-            Self::Fixed(l) => l.insert_inner_nocheck(index, x.into()),
-            Self::Delimited(l) => l.insert_unchecked(index, x),
-        })
-    }
-
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), IntRangeError> {
-        range.as_uint::<u64>(notrunc).map(|x| match self {
-            Self::Fixed(l) => l.push_inner(x.into()),
-            Self::Delimited(l) => l.push(x),
-        })
-    }
-
-    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-        match self {
-            Self::Fixed(l) => l.remove_inner(index),
-            Self::Delimited(l) => l.remove(index),
-        }
-    }
-
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-        match self {
-            Self::Fixed(l) => l.remove_nocheck_inner(index),
-            Self::Delimited(l) => l.remove_nocheck(index),
-        }
-    }
-
     fn new_fixed(columns: NonEmpty<AsciiRange>) -> Self {
-        Self::Fixed(FixedLayout::new(columns, ()))
+        Self::Fixed(FixedLayout::new(columns, NoByteOrd))
     }
 
     fn new_delim(ranges: NonEmpty<u64>) -> Self {
         Self::Delimited(DelimAsciiLayout::new(ranges))
     }
-
-    fn ncols(&self) -> usize {
-        match self {
-            Self::Delimited(a) => a.ranges.len(),
-            Self::Fixed(l) => l.columns.len(),
-        }
-    }
-
-    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
-        match self {
-            Self::Delimited(_) => df.ascii_nbytes(),
-            Self::Fixed(l) => l.nbytes(df),
-        }
-    }
-
-    fn widths(&self) -> Vec<BitsOrChars> {
-        match self {
-            Self::Delimited(_) => vec![],
-            Self::Fixed(l) => l.widths().into(),
-        }
-    }
-
-    fn ranges(&self) -> NonEmpty<FloatOrInt> {
-        match self {
-            Self::Delimited(l) => l.ranges.as_ref().map(|x| FloatOrInt::from(*x)),
-            Self::Fixed(l) => l.ranges(),
-        }
-    }
-
-    fn h_read_checked_df<R: Read>(
-        &self,
-        h: &mut BufReader<R>,
-        tot: T::Tot,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadAsciiError>
-    where
-        T: TotDefinition,
-    {
-        match self {
-            Self::Fixed(c) => {
-                let mut buf = vec![];
-                c.h_read_df::<_, ColumnReader<_, _, _>, _, _, ReadFixedAsciiError, _>(
-                    h, &mut buf, tot, seg, conf,
-                )
-                .def_map_errors(|e| e.inner_into())
-            }
-            Self::Delimited(l) => l
-                .h_read_df(h, tot, seg.inner.len() as usize)
-                .map_err(|e| e.inner_into::<ReadDelimAsciiError>().inner_into())
-                .into_deferred(),
-        }
-    }
-
-    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
-        match self {
-            Self::Fixed(l) => l.check_writer::<ColumnWriter<_, _, _>>(df),
-            Self::Delimited(l) => l.check_writer(df),
-        }
-    }
-
-    fn h_write_df<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()> {
-        match self {
-            Self::Fixed(l) => l.h_write_df::<_, ColumnWriter<_, _, _>>(h, df),
-            Self::Delimited(l) => l.h_write_df(h, df),
-        }
-    }
-
-    fn req_keywords<X: Default + ReqMetarootKey>(&self) -> [(String, String); 2] {
-        match self {
-            Self::Fixed(l) => l.req_keywords(X::default()),
-            Self::Delimited(l) => l.req_keywords::<X>(),
-        }
-    }
-
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-        match self {
-            Self::Fixed(l) => l.req_meas_keywords(),
-            Self::Delimited(l) => l.req_meas_keywords(),
-        }
-    }
 }
 
 impl VersionedDataLayout for DataLayout2_0 {
-    type ByteLayout = ByteOrd;
-    type ColDatatype = ();
-    type Tot = Option<Tot>;
-
-    fn try_new(
-        datatype: AlphaNumType,
-        byteord: Self::ByteLayout,
-        columns: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
-        conf: &StdTextReadConfig,
-    ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
-        AnyOrderedLayout::try_new(datatype, byteord, columns, conf)
-            .def_map_value(|x| x.into())
-            .def_map_warnings(|e| e.inner_into())
-    }
+    type ByteLayout = ByteOrd2_0;
+    type MeasDTDef = NoMeasDatatype;
+    type TotDef = MaybeTot;
 
     fn lookup(
         kws: &mut StdKeywords,
@@ -3168,97 +3125,22 @@ impl VersionedDataLayout for DataLayout2_0 {
         AnyOrderedLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
     }
 
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), LayoutInsertColumnWarning> {
-        self.0.insert_nocheck(index, range, notrunc)
-    }
-
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
-        self.0.push(range, notrunc)
-    }
-
-    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-        self.0.remove(index)
-    }
-
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-        self.0.remove_nocheck(index)
-    }
-
-    fn ncols(&self) -> usize {
-        self.0.ncols()
-    }
-
-    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
-        self.0.nbytes(df)
-    }
-
-    fn h_read_df_inner<R: Read>(
-        &self,
-        h: &mut BufReader<R>,
-        tot: Self::Tot,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
-        self.0.h_read_checked_df(h, tot, seg, conf)
-    }
-
-    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
-        self.0.check_writer(df)
-    }
-
-    fn h_write_df_inner<W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        df: &FCSDataFrame,
-    ) -> io::Result<()> {
-        self.0.h_write_df(h, df)
-    }
-
-    fn req_keywords(&self) -> [(String, String); 2] {
-        self.0.req_keywords()
-    }
-
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-        self.0.req_meas_keywords()
-    }
-
-    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-        self.0.req_meas_keywords().map(|_| vec![])
-    }
-
-    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-        vec![]
-    }
-
-    fn widths(&self) -> Vec<BitsOrChars> {
-        self.0.widths()
-    }
-
-    fn ranges(&self) -> NonEmpty<FloatOrInt> {
-        self.0.ranges()
+    fn try_new(
+        datatype: AlphaNumType,
+        byteord: Self::ByteLayout,
+        columns: NonEmpty<ColumnLayoutValues<<Self::MeasDTDef as MeasDatatypeDef>::MeasDatatype>>,
+        conf: &StdTextReadConfig,
+    ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
+        AnyOrderedLayout::try_new(datatype, byteord, columns, conf)
+            .def_map_value(|x| x.into())
+            .def_map_warnings(|e| e.inner_into())
     }
 }
 
 impl VersionedDataLayout for DataLayout3_0 {
-    type ByteLayout = ByteOrd;
-    type ColDatatype = ();
-    type Tot = Tot;
-
-    fn try_new(
-        datatype: AlphaNumType,
-        byteord: Self::ByteLayout,
-        columns: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
-        conf: &StdTextReadConfig,
-    ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
-        AnyOrderedLayout::try_new(datatype, byteord, columns, conf)
-            .def_map_value(|x| x.into())
-            .def_map_warnings(|e| e.inner_into())
-    }
+    type ByteLayout = ByteOrd2_0;
+    type MeasDTDef = NoMeasDatatype;
+    type TotDef = KnownTot;
 
     fn lookup(
         kws: &mut StdKeywords,
@@ -3272,242 +3154,51 @@ impl VersionedDataLayout for DataLayout3_0 {
         AnyOrderedLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
     }
 
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), LayoutInsertColumnWarning> {
-        self.0.insert_nocheck(index, range, notrunc)
-    }
-
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
-        self.0.push(range, notrunc)
-    }
-
-    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-        self.0.remove(index)
-    }
-
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-        self.0.remove_nocheck(index)
-    }
-
-    fn ncols(&self) -> usize {
-        self.0.ncols()
-    }
-
-    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
-        self.0.nbytes(df)
-    }
-
-    fn h_read_df_inner<R: Read>(
-        &self,
-        h: &mut BufReader<R>,
-        tot: Self::Tot,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
-        self.0.h_read_checked_df(h, tot, seg, conf)
-    }
-
-    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
-        self.0.check_writer(df)
-    }
-
-    fn h_write_df_inner<W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        df: &FCSDataFrame,
-    ) -> io::Result<()> {
-        self.0.h_write_df(h, df)
-    }
-
-    fn req_keywords(&self) -> [(String, String); 2] {
-        self.0.req_keywords()
-    }
-
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-        self.0.req_meas_keywords()
-    }
-
-    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-        self.0.req_meas_keywords().map(|_| vec![])
-    }
-
-    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-        vec![]
-    }
-
-    fn widths(&self) -> Vec<BitsOrChars> {
-        self.0.widths()
-    }
-
-    fn ranges(&self) -> NonEmpty<FloatOrInt> {
-        self.0.ranges()
+    fn try_new(
+        datatype: AlphaNumType,
+        byteord: Self::ByteLayout,
+        columns: NonEmpty<ColumnLayoutValues<NullMeasDatatype>>,
+        conf: &StdTextReadConfig,
+    ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
+        AnyOrderedLayout::try_new(datatype, byteord, columns, conf)
+            .def_map_value(|x| x.into())
+            .def_map_warnings(|e| e.inner_into())
     }
 }
 
 impl VersionedDataLayout for DataLayout3_1 {
     type ByteLayout = Endian;
-    type ColDatatype = ();
-    type Tot = Tot;
+    type MeasDTDef = NoMeasDatatype;
+    type TotDef = KnownTot;
+
+    fn lookup(
+        kws: &mut StdKeywords,
+        conf: &StdTextReadConfig,
+        par: Par,
+    ) -> LookupLayoutResult<Option<Self>> {
+        NonMixedEndianLayout::lookup(kws, conf, par).def_map_value(|x| x.map(|y| y.into()))
+    }
+
+    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
+        NonMixedEndianLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
+    }
 
     fn try_new(
         datatype: AlphaNumType,
         endian: Self::ByteLayout,
-        columns: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
+        columns: NonEmpty<ColumnLayoutValues<NullMeasDatatype>>,
         conf: &StdTextReadConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
         NonMixedEndianLayout::try_new(datatype, endian, columns, conf)
             .def_map_value(|x| x.into())
             .def_map_warnings(|e| e.inner_into())
     }
-
-    fn lookup(
-        kws: &mut StdKeywords,
-        conf: &StdTextReadConfig,
-        par: Par,
-    ) -> LookupLayoutResult<Option<Self>> {
-        let cs = ColumnLayoutValues2_0::lookup_all(kws, par);
-        let d = AlphaNumType::lookup_req_check_ascii(kws);
-        let n = Endian::lookup_req(kws);
-        d.def_zip3(n, cs)
-            .def_inner_into()
-            .def_and_maybe(|(datatype, byteord, columns)| {
-                def_transpose(
-                    NonEmpty::from_vec(columns)
-                        .map(|xs| Self::try_new(datatype, byteord, xs, conf)),
-                )
-                .def_inner_into()
-            })
-    }
-
-    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
-        let cs = ColumnLayoutValues2_0::lookup_ro_all(kws);
-        let d = AlphaNumType::get_metaroot_req(kws).into_deferred();
-        let n = Endian::get_metaroot_req(kws).into_deferred();
-        d.def_zip3(n, cs)
-            .def_inner_into()
-            .def_and_maybe(|(datatype, byteord, columns)| {
-                def_transpose(
-                    NonEmpty::from_vec(columns)
-                        .map(|xs| Self::try_new(datatype, byteord, xs, conf)),
-                )
-                .def_inner_into()
-            })
-    }
-
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), LayoutInsertColumnWarning> {
-        self.0.insert_nocheck(index, range, notrunc)
-    }
-
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
-        self.0.push(range, notrunc)
-    }
-
-    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-        self.0.remove(index)
-    }
-
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-        self.0.remove_nocheck(index)
-    }
-
-    fn ncols(&self) -> usize {
-        self.0.ncols()
-    }
-
-    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
-        self.0.nbytes(df)
-    }
-
-    fn h_read_df_inner<R: Read>(
-        &self,
-        h: &mut BufReader<R>,
-        tot: Self::Tot,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
-        self.0.h_read_df(h, tot, seg, conf)
-    }
-
-    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
-        self.0.check_writer(df)
-    }
-
-    fn h_write_df_inner<W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        df: &FCSDataFrame,
-    ) -> io::Result<()> {
-        self.0.h_write_df(h, df)
-    }
-
-    fn req_keywords(&self) -> [(String, String); 2] {
-        self.0.req_keywords()
-    }
-
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-        self.0.req_meas_keywords()
-    }
-
-    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-        self.0.req_meas_keywords().map(|_| vec![])
-    }
-
-    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-        vec![]
-    }
-
-    fn widths(&self) -> Vec<BitsOrChars> {
-        self.0.widths()
-    }
-
-    fn ranges(&self) -> NonEmpty<FloatOrInt> {
-        self.0.ranges()
-    }
 }
 
 impl VersionedDataLayout for DataLayout3_2 {
-    type ByteLayout = Endian;
-    type ColDatatype = Option<NumType>;
-    type Tot = Tot;
-
-    fn try_new(
-        datatype: AlphaNumType,
-        endian: Self::ByteLayout,
-        cs: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
-        conf: &StdTextReadConfig,
-    ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
-        let notrunc = conf.disallow_range_truncation;
-        let unique_dt: Vec<_> = cs
-            .iter()
-            .map(|c| c.datatype.map(|x| x.into()).unwrap_or(datatype))
-            .unique()
-            .collect();
-        match unique_dt[..] {
-            [dt] => {
-                let ds = cs.map(|c| ColumnLayoutValues {
-                    width: c.width,
-                    range: c.range,
-                    datatype: (),
-                });
-                NonMixedEndianLayout::try_new(dt, endian, ds, conf)
-                    .def_map_value(Self::NonMixed)
-                    .def_map_warnings(|e| e.inner_into())
-            }
-            _ => FixedLayout::try_new(cs, endian, |c| {
-                MixedType::from_width_and_range(c.width, c.range, c.datatype, notrunc)
-            })
-            .def_map_value(Self::Mixed),
-        }
-    }
+    type ByteLayout = ByteOrd3_1;
+    type MeasDTDef = HasMeasDatatype;
+    type TotDef = KnownTot;
 
     fn lookup(
         kws: &mut StdKeywords,
@@ -3515,8 +3206,8 @@ impl VersionedDataLayout for DataLayout3_2 {
         par: Par,
     ) -> LookupLayoutResult<Option<Self>> {
         let d = AlphaNumType::lookup_req_check_ascii(kws);
-        let e = Endian::lookup_req(kws);
-        let cs = ColumnLayoutValues3_2::lookup_all(kws, par);
+        let e = ByteOrd3_1::lookup_req(kws);
+        let cs = HasMeasDatatype::lookup_all(kws, par);
         d.def_zip3(e, cs)
             .def_inner_into()
             .def_and_maybe(|(datatype, endian, columns)| {
@@ -3531,10 +3222,10 @@ impl VersionedDataLayout for DataLayout3_2 {
         let d = AlphaNumType::get_metaroot_req(kws)
             .map_err(RawParsedError::from)
             .into_deferred();
-        let e = Endian::get_metaroot_req(kws)
+        let e = ByteOrd3_1::get_metaroot_req(kws)
             .map_err(RawParsedError::from)
             .into_deferred();
-        let cs = ColumnLayoutValues3_2::lookup_ro_all(kws).def_inner_into();
+        let cs = HasMeasDatatype::lookup_ro_all(kws).def_inner_into();
         d.def_zip3(e, cs)
             .def_and_maybe(|(datatype, endian, columns)| {
                 def_transpose(
@@ -3544,147 +3235,33 @@ impl VersionedDataLayout for DataLayout3_2 {
             })
     }
 
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), LayoutInsertColumnWarning> {
-        match self {
-            Self::NonMixed(x) => x.insert_nocheck(index, range, notrunc),
-            Self::Mixed(x) => {
-                x.insert_inner_nocheck(index, MixedType::from_range(range));
-                Tentative::default()
+    fn try_new(
+        datatype: AlphaNumType,
+        endian: Self::ByteLayout,
+        cs: NonEmpty<ColumnLayoutValues<Option<NumType>>>,
+        conf: &StdTextReadConfig,
+    ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
+        let notrunc = conf.disallow_range_truncation;
+        let unique_dt: Vec<_> = cs
+            .iter()
+            .map(|c| c.datatype.map(|x| x.into()).unwrap_or(datatype))
+            .unique()
+            .collect();
+        match unique_dt[..] {
+            [dt] => {
+                let ds = cs.map(|c| ColumnLayoutValues {
+                    width: c.width,
+                    range: c.range,
+                    datatype: NullMeasDatatype,
+                });
+                NonMixedEndianLayout::try_new(dt, endian.0, ds, conf)
+                    .def_map_value(|x| Self::NonMixed(x.phantom_into::<HasMeasDatatype>()))
+                    .def_map_warnings(|e| e.inner_into())
             }
-        }
-    }
-
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
-        match self {
-            Self::NonMixed(x) => x.push(range, notrunc),
-            Self::Mixed(x) => {
-                x.push_inner(MixedType::from_range(range));
-                Tentative::default()
-            }
-        }
-    }
-
-    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-        match self {
-            Self::NonMixed(x) => x.remove(index),
-            Self::Mixed(x) => x.remove_inner(index),
-        }
-    }
-
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-        match self {
-            Self::NonMixed(x) => x.remove_nocheck(index),
-            Self::Mixed(x) => x.remove_nocheck_inner(index),
-        }
-    }
-
-    fn ncols(&self) -> usize {
-        match self {
-            Self::NonMixed(x) => x.ncols(),
-            Self::Mixed(m) => m.ncols(),
-        }
-    }
-
-    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
-        match self {
-            Self::NonMixed(x) => x.nbytes(df),
-            Self::Mixed(m) => m.nbytes(df),
-        }
-    }
-
-    fn h_read_df_inner<R: Read>(
-        &self,
-        h: &mut BufReader<R>,
-        tot: Self::Tot,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
-        match self {
-            Self::NonMixed(x) => x.h_read_df(h, tot, seg, conf),
-            Self::Mixed(m) => {
-                let mut buf = vec![];
-                m.h_read_df::<_, ReaderMixedType, _, _, _, _>(h, &mut buf, tot, seg, conf)
-            }
-        }
-    }
-
-    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
-        match self {
-            Self::NonMixed(x) => x.check_writer(df),
-            Self::Mixed(m) => m.check_writer::<WriterMixedType>(df),
-        }
-    }
-
-    fn h_write_df_inner<W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        df: &FCSDataFrame,
-    ) -> io::Result<()> {
-        match self {
-            Self::NonMixed(x) => x.h_write_df(h, df),
-            Self::Mixed(m) => m.h_write_df::<_, WriterMixedType>(h, df),
-        }
-    }
-
-    fn req_keywords(&self) -> [(String, String); 2] {
-        match self {
-            Self::NonMixed(x) => x.req_keywords(),
-            Self::Mixed(x) => [x.primary_datatype().pair(), x.byte_layout.pair()],
-        }
-    }
-
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-        match self {
-            Self::NonMixed(x) => x.req_meas_keywords(),
-            Self::Mixed(x) => x.req_meas_keywords(),
-        }
-    }
-
-    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-        match self {
-            // dirty hack to get a nonempty
-            Self::NonMixed(x) => x
-                .req_meas_keywords()
-                .enumerate()
-                .map(|(i, _)| vec![(NumType::std(i.into()).to_string(), None)]),
-            Self::Mixed(x) => {
-                let dt = x.primary_datatype();
-                x.columns.as_ref().enumerate().map(|(i, c)| {
-                    c.as_num_type()
-                        .and_then(|y| {
-                            if AlphaNumType::from(y) != dt {
-                                None
-                            } else {
-                                Some(y)
-                            }
-                        })
-                        .map(|y| vec![NumType::pair_opt(&y.into(), i.into())])
-                        .unwrap_or_default()
-                })
-            }
-        }
-    }
-
-    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-        vec![NumType::std_blank()]
-    }
-
-    fn widths(&self) -> Vec<BitsOrChars> {
-        match self {
-            Self::NonMixed(x) => x.widths(),
-            Self::Mixed(x) => x.widths().into(),
-        }
-    }
-
-    fn ranges(&self) -> NonEmpty<FloatOrInt> {
-        match self {
-            Self::NonMixed(x) => x.ranges(),
-            Self::Mixed(x) => x.ranges(),
+            _ => FixedLayout::try_new(cs, endian.0, |c| {
+                MixedType::from_width_and_range(c.width, c.range, c.datatype, notrunc)
+            })
+            .def_map_value(Self::Mixed),
         }
     }
 }
@@ -3703,23 +3280,21 @@ impl DataLayout3_2 {
         }
     }
 
-    pub fn endianness(&self) -> Option<Endian> {
-        match self {
-            Self::NonMixed(x) => x.endianness(),
-            Self::Mixed(x) => Some(x.byte_layout),
-        }
-    }
-
     pub fn new_mixed(ranges: NonEmpty<NullMixedType>, endian: Endian) -> Self {
-        // check if the mixed types are all the same, in which case we can use a
-        // simpler layout
-        if let Ok(rs) = ranges.as_ref().try_map(|x| AsciiRange::try_from(*x)) {
+        // Check if the mixed types are all the same, in which case we can use a
+        // simpler layout. This clone thing is not ideal but it will only be
+        // cloning big-decimals for floats and will use Copy for everything else
+        // (not a huge deal).
+        if let Ok(rs) = ranges.as_ref().try_map(|x| AsciiRange::try_from(x.clone())) {
             NonMixedEndianLayout::new_ascii_fixed(rs).into()
-        } else if let Ok(rs) = ranges.as_ref().try_map(|x| AnyNullBitmask::try_from(*x)) {
+        } else if let Ok(rs) = ranges
+            .as_ref()
+            .try_map(|x| AnyNullBitmask::try_from(x.clone()))
+        {
             NonMixedEndianLayout::new_uint(rs, endian).into()
-        } else if let Ok(rs) = ranges.as_ref().try_map(|x| F32Range::try_from(*x)) {
+        } else if let Ok(rs) = ranges.as_ref().try_map(|x| F32Range::try_from(x.clone())) {
             NonMixedEndianLayout::new_f32(rs, endian).into()
-        } else if let Ok(rs) = ranges.as_ref().try_map(|x| F64Range::try_from(*x)) {
+        } else if let Ok(rs) = ranges.as_ref().try_map(|x| F64Range::try_from(x.clone())) {
             NonMixedEndianLayout::new_f64(rs, endian).into()
         } else {
             FixedLayout::new(ranges, endian).into()
@@ -3729,13 +3304,49 @@ impl DataLayout3_2 {
     pub fn datatypes(&self) -> NonEmpty<AlphaNumType> {
         match self {
             // somewhat hacky way of getting a nonempty in a type-safe way
-            Self::NonMixed(x) => x.ranges().as_ref().map(|_| x.datatype()),
+            Self::NonMixed(x) => LayoutOps::<_, HasMeasDatatype>::ranges(x)
+                .as_ref()
+                .map(|_| LayoutOps::<_, HasMeasDatatype>::datatype(x)),
             Self::Mixed(x) => x.columns.as_ref().map(|y| y.as_alpha_num_type()),
         }
     }
 }
 
 impl<T> AnyOrderedLayout<T> {
+    fn lookup(
+        kws: &mut StdKeywords,
+        conf: &StdTextReadConfig,
+        par: Par,
+    ) -> LookupLayoutResult<Option<Self>> {
+        let cs = NoMeasDatatype::lookup_all(kws, par);
+        let d = AlphaNumType::lookup_req(kws);
+        let b = ByteOrd2_0::lookup_req(kws);
+        d.def_zip3(b, cs)
+            .def_inner_into()
+            .def_and_maybe(|(datatype, byteord, columns)| {
+                def_transpose(
+                    NonEmpty::from_vec(columns)
+                        .map(|xs| Self::try_new(datatype, byteord, xs, conf)),
+                )
+                .def_inner_into()
+            })
+    }
+
+    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
+        let cs = NoMeasDatatype::lookup_ro_all(kws);
+        let d = AlphaNumType::get_metaroot_req(kws).into_deferred();
+        let b = ByteOrd2_0::get_metaroot_req(kws).into_deferred();
+        d.def_zip3(b, cs)
+            .def_inner_into()
+            .def_and_maybe(|(datatype, byteord, columns)| {
+                def_transpose(
+                    NonEmpty::from_vec(columns)
+                        .map(|xs| Self::try_new(datatype, byteord, xs, conf)),
+                )
+                .def_inner_into()
+            })
+    }
+
     pub fn new_ascii_fixed(ranges: NonEmpty<AsciiRange>) -> Self {
         AnyAsciiLayout::new_fixed(ranges).into()
     }
@@ -3749,7 +3360,8 @@ impl<T> AnyOrderedLayout<T> {
         byte_layout: SizedByteOrd<LEN>,
     ) -> Self
     where
-        AnyOrderedUintLayout<T>: From<FixedLayout<Bitmask<U, LEN>, SizedByteOrd<LEN>, T>>,
+        AnyOrderedUintLayout<T>:
+            From<FixedLayout<Bitmask<U, LEN>, SizedByteOrd<LEN>, T, NoMeasDatatype>>,
     {
         Self::Integer(FixedLayout::new(columns, byte_layout).into())
     }
@@ -3762,37 +3374,9 @@ impl<T> AnyOrderedLayout<T> {
         FixedLayout::new(ranges, byte_layout).into()
     }
 
-    // TODO this doesn't feel dry
-    pub fn datatype(&self) -> AlphaNumType {
-        match self {
-            Self::Ascii(_) => AlphaNumType::Ascii,
-            Self::Integer(_) => AlphaNumType::Integer,
-            Self::F32(_) => AlphaNumType::Single,
-            Self::F64(_) => AlphaNumType::Double,
-        }
-    }
-
-    pub fn byte_order(&self) -> Option<ByteOrd> {
-        match self {
-            Self::Ascii(_) => None,
-            Self::Integer(x) => Some(x.byte_order()),
-            Self::F32(x) => Some(x.byte_layout.into()),
-            Self::F64(x) => Some(x.byte_layout.into()),
-        }
-    }
-
-    pub fn endianness(&self) -> Option<Endian> {
-        match self {
-            Self::Ascii(_) => None,
-            Self::Integer(x) => x.endiannness(),
-            Self::F32(x) => x.byte_layout.try_into().ok(),
-            Self::F64(x) => x.byte_layout.try_into().ok(),
-        }
-    }
-
     fn try_new(
         datatype: AlphaNumType,
-        byteord: ByteOrd,
+        byteord: ByteOrd2_0,
         columns: NonEmpty<ColumnLayoutValues2_0>,
         conf: &StdTextReadConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
@@ -3821,182 +3405,20 @@ impl<T> AnyOrderedLayout<T> {
         }
     }
 
-    fn lookup(
-        kws: &mut StdKeywords,
-        conf: &StdTextReadConfig,
-        par: Par,
-    ) -> LookupLayoutResult<Option<Self>> {
-        let cs = ColumnLayoutValues2_0::lookup_all(kws, par);
-        let d = AlphaNumType::lookup_req(kws);
-        let b = ByteOrd::lookup_req(kws);
-        d.def_zip3(b, cs)
-            .def_inner_into()
-            .def_and_maybe(|(datatype, byteord, columns)| {
-                def_transpose(
-                    NonEmpty::from_vec(columns)
-                        .map(|xs| Self::try_new(datatype, byteord, xs, conf)),
-                )
-                .def_inner_into()
-            })
-    }
-
-    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
-        let cs = ColumnLayoutValues2_0::lookup_ro_all(kws);
-        let d = AlphaNumType::get_metaroot_req(kws).into_deferred();
-        let b = ByteOrd::get_metaroot_req(kws).into_deferred();
-        d.def_zip3(b, cs)
-            .def_inner_into()
-            .def_and_maybe(|(datatype, byteord, columns)| {
-                def_transpose(
-                    NonEmpty::from_vec(columns)
-                        .map(|xs| Self::try_new(datatype, byteord, xs, conf)),
-                )
-                .def_inner_into()
-            })
-    }
-
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), LayoutInsertColumnWarning> {
-        match self {
-            Self::Ascii(l) => l.insert_nocheck(index, range, notrunc).inner_into(),
-            Self::Integer(l) => l.insert_nocheck(index, range, notrunc).inner_into(),
-            Self::F32(l) => l.insert_float_nocheck(index, range, notrunc).inner_into(),
-            Self::F64(l) => l.insert_float_nocheck(index, range, notrunc).inner_into(),
-        }
-    }
-
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
-        match self {
-            Self::Ascii(l) => l.push(range, notrunc).inner_into(),
-            Self::Integer(l) => l.push(range, notrunc).inner_into(),
-            Self::F32(l) => l.push_float(range, notrunc).inner_into(),
-            Self::F64(l) => l.push_float(range, notrunc).inner_into(),
-        }
-    }
-
-    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-        match self {
-            Self::Ascii(l) => l.remove(index),
-            Self::Integer(l) => l.remove(index),
-            Self::F32(l) => l.remove_inner(index),
-            Self::F64(l) => l.remove_inner(index),
-        }
-    }
-
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-        match self {
-            Self::Ascii(l) => l.remove_nocheck(index),
-            Self::Integer(l) => l.remove_nocheck(index),
-            Self::F32(l) => l.remove_nocheck_inner(index),
-            Self::F64(l) => l.remove_nocheck_inner(index),
-        }
-    }
-
-    fn ncols(&self) -> usize {
-        match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, { x.ncols() })
-    }
-
-    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
-        match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, { x.nbytes(df) })
-    }
-
-    fn widths(&self) -> Vec<BitsOrChars> {
-        match self {
-            Self::Ascii(a) => a.widths(),
-            Self::Integer(i) => i.widths().into(),
-            Self::F32(f) => f.widths().into(),
-            Self::F64(f) => f.widths().into(),
-        }
-    }
-
-    fn ranges(&self) -> NonEmpty<FloatOrInt> {
-        match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, { x.ranges() })
-    }
-
-    pub(crate) fn tot_into<X>(self) -> AnyOrderedLayout<X> {
+    pub(crate) fn phantom_into<X>(self) -> AnyOrderedLayout<X> {
         match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, {
-            x.tot_into().into()
+            x.phantom_into().into()
         })
     }
 
-    fn h_read_checked_df<R: Read>(
-        &self,
-        h: &mut BufReader<R>,
-        tot: T::Tot,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError>
-    where
-        T: TotDefinition,
-    {
+    pub fn into_unmixed<D>(self) -> LayoutConvertResult<NonMixedEndianLayout<D>> {
         match self {
-            Self::Ascii(x) => x
-                .h_read_checked_df(h, tot, seg, conf)
-                .def_map_errors(|e| e.inner_into()),
-            Self::Integer(x) => x.h_read_df(h, tot, seg, conf),
-            Self::F32(x) => {
-                x.h_read_df_numeric::<_, ColumnReader<_, _, _>, _, _>(h, tot, seg, conf)
-            }
-            Self::F64(x) => {
-                x.h_read_df_numeric::<_, ColumnReader<_, _, _>, _, _>(h, tot, seg, conf)
-            }
-        }
-    }
-
-    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>>
-    where
-        T: TotDefinition,
-    {
-        match self {
-            Self::Ascii(x) => x.check_writer(df),
-            Self::Integer(x) => x.check_writer(df),
-            Self::F32(x) => x.check_writer::<ColumnWriter<_, _, _>>(df),
-            Self::F64(x) => x.check_writer::<ColumnWriter<_, _, _>>(df),
-        }
-    }
-
-    fn h_write_df<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()>
-    where
-        T: TotDefinition,
-    {
-        match self {
-            Self::Ascii(x) => x.h_write_df(h, df),
-            Self::Integer(x) => x.h_write_df(h, df),
-            Self::F32(x) => x.h_write_df::<_, ColumnWriter<_, _, _>>(h, df),
-            Self::F64(x) => x.h_write_df::<_, ColumnWriter<_, _, _>>(h, df),
-        }
-    }
-
-    pub fn into_unmixed(self) -> LayoutConvertResult<NonMixedEndianLayout> {
-        match self {
-            Self::Ascii(x) => Ok(NonMixedEndianLayout::Ascii(x.tot_into())),
+            Self::Ascii(x) => Ok(x.phantom_into().into()),
             Self::Integer(x) => x.into_endian().map(NonMixedEndianLayout::Integer),
-            Self::F32(x) => x.tot_into().byte_layout_try_into().map(|y| y.into()),
-            Self::F64(x) => x.tot_into().byte_layout_try_into().map(|y| y.into()),
+            Self::F32(x) => x.phantom_into().byte_layout_try_into().map(|y| y.into()),
+            Self::F64(x) => x.phantom_into().byte_layout_try_into().map(|y| y.into()),
         }
         .into_mult()
-    }
-
-    fn req_keywords(&self) -> [(String, String); 2] {
-        match self {
-            Self::Ascii(x) => x.req_keywords::<ByteOrd>(),
-            Self::Integer(x) => x.req_keywords(),
-            Self::F32(x) => x.req_keywords(ByteOrd::from(x.byte_layout)),
-            Self::F64(x) => x.req_keywords(ByteOrd::from(x.byte_layout)),
-        }
-    }
-
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-        match self {
-            Self::Ascii(x) => x.req_meas_keywords(),
-            Self::Integer(x) => x.req_meas_keywords(),
-            Self::F32(x) => x.req_meas_keywords(),
-            Self::F64(x) => x.req_meas_keywords(),
-        }
     }
 
     pub(crate) fn into_3_1(self) -> LayoutConvertResult<DataLayout3_1> {
@@ -4008,50 +3430,45 @@ impl<T> AnyOrderedLayout<T> {
     }
 }
 
-impl NonMixedEndianLayout {
-    pub fn new_ascii_fixed(ranges: NonEmpty<AsciiRange>) -> Self {
-        AnyAsciiLayout::new_fixed(ranges).into()
+impl NonMixedEndianLayout<NoMeasDatatype> {
+    fn lookup(
+        kws: &mut StdKeywords,
+        conf: &StdTextReadConfig,
+        par: Par,
+    ) -> LookupLayoutResult<Option<Self>> {
+        let cs = NoMeasDatatype::lookup_all(kws, par);
+        let d = AlphaNumType::lookup_req_check_ascii(kws);
+        let n = ByteOrd3_1::lookup_req(kws);
+        d.def_zip3(n, cs)
+            .def_inner_into()
+            .def_and_maybe(|(datatype, byteord, columns)| {
+                def_transpose(
+                    NonEmpty::from_vec(columns)
+                        .map(|xs| Self::try_new(datatype, byteord.0, xs, conf)),
+                )
+                .def_inner_into()
+            })
     }
 
-    pub fn new_ascii_delim(ranges: NonEmpty<u64>) -> Self {
-        AnyAsciiLayout::new_delim(ranges).into()
-    }
-
-    pub fn new_uint(columns: NonEmpty<AnyNullBitmask>, endian: Endian) -> Self {
-        FixedLayout::new(columns, endian).into()
-    }
-
-    pub fn new_f32(ranges: NonEmpty<F32Range>, endian: Endian) -> Self {
-        FixedLayout::new(ranges, endian).into()
-    }
-
-    pub fn new_f64(ranges: NonEmpty<F64Range>, endian: Endian) -> Self {
-        FixedLayout::new(ranges, endian).into()
-    }
-
-    // TODO this doesn't feel dry
-    pub fn datatype(&self) -> AlphaNumType {
-        match self {
-            Self::Ascii(_) => AlphaNumType::Ascii,
-            Self::Integer(_) => AlphaNumType::Integer,
-            Self::F32(_) => AlphaNumType::Single,
-            Self::F64(_) => AlphaNumType::Double,
-        }
-    }
-
-    pub fn endianness(&self) -> Option<Endian> {
-        match self {
-            Self::Ascii(_) => None,
-            Self::Integer(x) => Some(x.byte_layout),
-            Self::F32(x) => Some(x.byte_layout),
-            Self::F64(x) => Some(x.byte_layout),
-        }
+    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
+        let cs = NoMeasDatatype::lookup_ro_all(kws);
+        let d = AlphaNumType::get_metaroot_req(kws).into_deferred();
+        let n = ByteOrd3_1::get_metaroot_req(kws).into_deferred();
+        d.def_zip3(n, cs)
+            .def_inner_into()
+            .def_and_maybe(|(datatype, byteord, columns)| {
+                def_transpose(
+                    NonEmpty::from_vec(columns)
+                        .map(|xs| Self::try_new(datatype, byteord.0, xs, conf)),
+                )
+                .def_inner_into()
+            })
     }
 
     fn try_new(
         datatype: AlphaNumType,
         endian: Endian,
-        columns: NonEmpty<ColumnLayoutValues<()>>,
+        columns: NonEmpty<ColumnLayoutValues<NullMeasDatatype>>,
         conf: &StdTextReadConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
         let notrunc = conf.disallow_range_truncation;
@@ -4074,133 +3491,42 @@ impl NonMixedEndianLayout {
             .def_map_value(Self::F64),
         }
     }
+}
 
-    fn h_read_df<R: Read>(
-        &self,
-        h: &mut BufReader<R>,
-        tot: Tot,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
-        match self {
-            Self::Ascii(x) => x
-                .h_read_checked_df(h, tot, seg, conf)
-                .def_map_errors(|e| e.inner_into()),
-            Self::Integer(x) => x.h_read_df_numeric::<_, AnyReaderBitmask, _, _>(h, tot, seg, conf),
-            Self::F32(x) => {
-                x.h_read_df_numeric::<_, ColumnReader<_, _, _>, _, _>(h, tot, seg, conf)
-            }
-            Self::F64(x) => {
-                x.h_read_df_numeric::<_, ColumnReader<_, _, _>, _, _>(h, tot, seg, conf)
-            }
-        }
+impl<D> NonMixedEndianLayout<D> {
+    pub fn new_ascii_fixed(ranges: NonEmpty<AsciiRange>) -> Self {
+        AnyAsciiLayout::new_fixed(ranges).into()
     }
 
-    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
-        match self {
-            Self::Ascii(x) => x.check_writer(df),
-            Self::Integer(x) => x.check_writer::<AnyWriterBitmask>(df),
-            Self::F32(x) => x.check_writer::<ColumnWriter<_, _, _>>(df),
-            Self::F64(x) => x.check_writer::<ColumnWriter<_, _, _>>(df),
-        }
+    pub fn new_ascii_delim(ranges: NonEmpty<u64>) -> Self {
+        AnyAsciiLayout::new_delim(ranges).into()
     }
 
-    fn h_write_df<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()> {
-        match self {
-            Self::Ascii(x) => x.h_write_df(h, df),
-            Self::Integer(x) => x.h_write_df::<_, AnyWriterBitmask>(h, df),
-            Self::F32(x) => x.h_write_df::<_, ColumnWriter<_, _, _>>(h, df),
-            Self::F64(x) => x.h_write_df::<_, ColumnWriter<_, _, _>>(h, df),
-        }
+    pub fn new_uint(columns: NonEmpty<AnyNullBitmask>, endian: Endian) -> Self {
+        FixedLayout::new(columns, endian).into()
     }
 
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: FloatOrInt,
-        notrunc: bool,
-    ) -> BiTentative<(), LayoutInsertColumnWarning> {
-        match self {
-            Self::Ascii(l) => l.insert_nocheck(index, range, notrunc).inner_into(),
-            Self::Integer(l) => l.insert_uint_nocheck(index, range, notrunc).inner_into(),
-            Self::F32(l) => l.insert_float_nocheck(index, range, notrunc).inner_into(),
-            Self::F64(l) => l.insert_float_nocheck(index, range, notrunc).inner_into(),
-        }
+    pub fn new_f32(ranges: NonEmpty<F32Range>, endian: Endian) -> Self {
+        FixedLayout::new(ranges, endian).into()
     }
 
-    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
-        match self {
-            Self::Ascii(l) => l.push(range, notrunc).inner_into(),
-            Self::Integer(l) => l.push_uint(range, notrunc).inner_into(),
-            Self::F32(l) => l.push_float(range, notrunc).inner_into(),
-            Self::F64(l) => l.push_float(range, notrunc).inner_into(),
-        }
-    }
-
-    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-        match self {
-            Self::Ascii(l) => l.remove(index),
-            Self::Integer(l) => l.remove_inner(index),
-            Self::F32(l) => l.remove_inner(index),
-            Self::F64(l) => l.remove_inner(index),
-        }
-    }
-
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-        match self {
-            Self::Ascii(l) => l.remove_nocheck(index),
-            Self::Integer(l) => l.remove_nocheck_inner(index),
-            Self::F32(l) => l.remove_nocheck_inner(index),
-            Self::F64(l) => l.remove_nocheck_inner(index),
-        }
-    }
-
-    fn ncols(&self) -> usize {
-        match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, { x.ncols() })
-    }
-
-    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
-        match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, { x.nbytes(df) })
-    }
-
-    fn widths(&self) -> Vec<BitsOrChars> {
-        match self {
-            Self::Ascii(x) => x.widths(),
-            Self::Integer(x) => x.widths().into(),
-            Self::F32(x) => x.widths().into(),
-            Self::F64(x) => x.widths().into(),
-        }
-    }
-
-    fn ranges(&self) -> NonEmpty<FloatOrInt> {
-        match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, { x.ranges() })
+    pub fn new_f64(ranges: NonEmpty<F64Range>, endian: Endian) -> Self {
+        FixedLayout::new(ranges, endian).into()
     }
 
     pub(crate) fn into_ordered<T>(self) -> LayoutConvertResult<AnyOrderedLayout<T>> {
         match self {
-            Self::Ascii(x) => Ok(x.tot_into().into()),
+            Self::Ascii(x) => Ok(x.phantom_into().into()),
             Self::Integer(x) => x.uint_try_into_ordered().map(|i| i.into()),
-            Self::F32(x) => Ok(x.tot_into().byte_layout_into().into()),
-            Self::F64(x) => Ok(x.tot_into().byte_layout_into().into()),
+            Self::F32(x) => Ok(x.phantom_into().byte_layout_into().into()),
+            Self::F64(x) => Ok(x.phantom_into().byte_layout_into().into()),
         }
     }
 
-    fn req_keywords(&self) -> [(String, String); 2] {
-        match self {
-            Self::Ascii(x) => x.req_keywords::<Endian>(),
-            Self::Integer(x) => x.req_keywords(x.byte_layout),
-            Self::F32(x) => x.req_keywords(x.byte_layout),
-            Self::F64(x) => x.req_keywords(x.byte_layout),
-        }
-    }
-
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-        match self {
-            Self::Ascii(x) => x.req_meas_keywords(),
-            Self::Integer(x) => x.req_meas_keywords(),
-            Self::F32(x) => x.req_meas_keywords(),
-            Self::F64(x) => x.req_meas_keywords(),
-        }
+    pub(crate) fn phantom_into<D1>(self) -> NonMixedEndianLayout<D1> {
+        match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, {
+            x.phantom_into().into()
+        })
     }
 }
 
@@ -4243,7 +3569,7 @@ pub enum SingleFixedWidthError {
 }
 
 pub struct WidthMismatchError {
-    byteord: ByteOrd,
+    byteord: ByteOrd2_0,
     found: NonEmpty<Bytes>,
 }
 
@@ -4256,9 +3582,9 @@ pub enum NewMixedTypeError {
 
 #[derive(From, Display)]
 pub enum NewMixedTypeWarning {
-    Ascii(IntRangeError),
+    Ascii(IntRangeError<()>),
     Uint(BitmaskError),
-    Float(FloatRangeError),
+    Float(FloatToDecimalError),
 }
 
 #[derive(From, Display)]
@@ -4268,22 +3594,10 @@ pub enum NewUintTypeError {
 }
 
 #[derive(From, Display)]
-pub enum NewOrderedUintLayoutError {
-    Column(ColumnError<OrderedFloatError>),
-    ByteOrd(ByteOrdToSizedError),
-}
-
-#[derive(From, Display)]
-pub enum OrderedFloatError {
-    Order(ByteOrdToSizedError),
-    WrongWidth(FloatWidthError),
-}
-
-#[derive(From, Display)]
 pub enum FloatWidthError {
     Bytes(WidthToBytesError),
     WrongWidth(WrongFloatWidth),
-    Range(FloatRangeError),
+    Range(FloatToDecimalError),
 }
 
 pub struct WrongFloatWidth {
@@ -4306,7 +3620,7 @@ pub enum NewDataReaderError {
 pub enum NewDataReaderWarning {
     TotMismatch(TotEventMismatch),
     ParseTot(ParseKeyError<ParseIntError>),
-    Layout(ColumnError<IntRangeError>),
+    Layout(ColumnError<IntRangeError<()>>),
     Width(UnevenEventWidth),
     Segment(ReqSegmentWithDefaultWarning<DataSegmentId>),
 }
@@ -4321,9 +3635,6 @@ pub struct UnevenEventWidth {
     nbytes: usize,
     remainder: usize,
 }
-
-#[derive(Display)]
-pub struct ColumnWriterError(ColumnError<AnyLossError>);
 
 #[derive(From, Display)]
 pub enum AnyLossError {
@@ -4407,7 +3718,7 @@ pub enum RawParsedError {
     Endian(ReqKeyError<NewEndianError>),
     ByteOrd(ReqKeyError<ParseByteOrdError>),
     Int(ReqKeyError<ParseIntError>),
-    Range(ReqKeyError<ParseFloatOrIntError>),
+    Range(ReqKeyError<ParseBigDecimalError>),
 }
 
 #[derive(From, Display)]
@@ -4654,17 +3965,10 @@ pub enum MixedToNonMixedConvertError {
 }
 
 #[derive(From, Display)]
-pub enum LayoutPushColumnError {
-    Ascii(IntRangeError),
+pub enum AnyRangeError {
+    Ascii(IntRangeError<()>),
     Int(BitmaskError),
-    Float(FloatRangeError),
-}
-
-#[derive(From, Display)]
-pub enum LayoutInsertColumnWarning {
-    Ascii(IntRangeError),
-    Int(BitmaskError),
-    Float(FloatRangeError),
+    Float(FloatToDecimalError),
 }
 
 pub struct MixedColumnConvertError<E> {
@@ -4678,22 +3982,6 @@ impl<E: fmt::Display> fmt::Display for MixedColumnConvertError<E> {
             f,
             "mixed conversion error in column {}: {}",
             self.index, self.error
-        )
-    }
-}
-
-#[derive(Debug)]
-pub struct ColumnNumberError {
-    this_len: usize,
-    other_len: usize,
-}
-
-impl fmt::Display for ColumnNumberError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "number of columns is {}, input should match but got {}",
-            self.this_len, self.other_len,
         )
     }
 }

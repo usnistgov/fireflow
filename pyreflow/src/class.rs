@@ -4,7 +4,7 @@ use fireflow_core::core::*;
 use fireflow_core::error::*;
 use fireflow_core::header::*;
 use fireflow_core::segment::*;
-use fireflow_core::text::byteord::ByteOrd;
+use fireflow_core::text::byteord::ByteOrd2_0;
 use fireflow_core::text::keywords::*;
 use fireflow_core::text::named_vec::Element;
 use fireflow_core::text::optional::*;
@@ -20,8 +20,8 @@ use super::layout::{
     PyAlphaNumType, PyDataLayout2_0, PyDataLayout3_0, PyDataLayout3_1, PyDataLayout3_2,
 };
 use super::macros::{py_disp, py_enum, py_eq, py_ord, py_parse, py_wrap};
-use super::utils;
 
+use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use nonempty::NonEmpty;
 use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
@@ -885,7 +885,7 @@ fn std_config(
     let bo = if xs.is_empty() {
         None
     } else {
-        Some(ByteOrd::try_from(xs).map_err(|e| PyreflowException::new_err(e.to_string()))?)
+        Some(ByteOrd2_0::try_from(xs).map_err(|e| PyreflowException::new_err(e.to_string()))?)
     };
 
     let out = StdTextReadConfig {
@@ -2149,13 +2149,12 @@ macro_rules! common_coretext_meas_get_set {
                     &mut self,
                     name: String,
                     t: $timetype,
-                    r: Bound<'_, PyAny>,
+                    r: BigDecimal,
                     notrunc: bool,
                 ) -> PyResult<()> {
-                    let x = utils::any_to_float_or_int(r)?;
                     let n = str_to_shortname(name)?;
                     self.0
-                        .push_temporal(n, t.into(), x, notrunc)
+                        .push_temporal(n, t.into(), Range(r), notrunc)
                         .def_terminate(PushTemporalFailure)
                         .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
                 }
@@ -2165,13 +2164,12 @@ macro_rules! common_coretext_meas_get_set {
                     i: usize,
                     name: String,
                     t: $timetype,
-                    r: Bound<'_, PyAny>,
+                    r: BigDecimal,
                     notrunc: bool,
                 ) -> PyResult<()> {
-                    let x = utils::any_to_float_or_int(r)?;
                     let n = str_to_shortname(name)?;
                     self.0
-                        .insert_temporal(i.into(), n, t.into(), x, notrunc)
+                        .insert_temporal(i.into(), n, t.into(), Range(r), notrunc)
                         .def_terminate(InsertTemporalFailure)
                         .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
                 }
@@ -2202,14 +2200,13 @@ macro_rules! coredata_meas_get_set {
                     name: String,
                     t: $timetype,
                     xs: PySeries,
-                    r: Bound<'_, PyAny>,
+                    r: BigDecimal,
                     notrunc: bool,
                 ) -> PyResult<()> {
-                    let x = utils::any_to_float_or_int(r)?;
                     let n = str_to_shortname(name)?;
                     let col = series_to_fcs(xs.into()).map_err(PyreflowException::new_err)?;
                     self.0
-                        .push_temporal(n, t.into(), col, x, notrunc)
+                        .push_temporal(n, t.into(), col, Range(r), notrunc)
                         .def_terminate(PushTemporalFailure)
                         .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
                 }
@@ -2220,14 +2217,13 @@ macro_rules! coredata_meas_get_set {
                     name: String,
                     t: $timetype,
                     xs: PySeries,
-                    r: Bound<'_, PyAny>,
+                    r: BigDecimal,
                     notrunc: bool,
                 ) -> PyResult<()> {
-                    let x = utils::any_to_float_or_int(r)?;
                     let n = str_to_shortname(name)?;
                     let col = series_to_fcs(xs.into()).map_err(PyreflowException::new_err)?;
                     self.0
-                        .insert_temporal(i.into(), n, t.into(), col, x, notrunc)
+                        .insert_temporal(i.into(), n, t.into(), col, Range(r), notrunc)
                         .def_terminate(InsertTemporalFailure)
                         .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
                 }
@@ -2321,14 +2317,13 @@ macro_rules! coretext2_0_meas_methods {
                 fn push_measurement(
                     &mut self,
                     m: $opttype,
-                    r: Bound<'_, PyAny>,
+                    r: BigDecimal,
                     notrunc: bool,
                     name: Option<String>,
                 ) -> PyResult<String> {
-                    let x = utils::any_to_float_or_int(r)?;
                     let n = name.map(str_to_shortname).transpose()?;
                     self.0
-                        .push_optical(n.into(), m.into(), x, notrunc)
+                        .push_optical(n.into(), m.into(), Range(r), notrunc)
                         .def_map_value(|x| x.to_string())
                         .def_terminate(InsertOpticalFailure)
                         .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
@@ -2339,14 +2334,13 @@ macro_rules! coretext2_0_meas_methods {
                     &mut self,
                     i: usize,
                     m: $opttype,
-                    r: Bound<'_, PyAny>,
+                    r: BigDecimal,
                     notrunc: bool,
                     name: Option<String>,
                 ) -> PyResult<String> {
-                    let x = utils::any_to_float_or_int(r)?;
                     let n = name.map(str_to_shortname).transpose()?;
                     self.0
-                        .insert_optical(i.into(), n.into(), m.into(), x, notrunc)
+                        .insert_optical(i.into(), n.into(), m.into(), Range(r), notrunc)
                         .def_map_value(|x| x.to_string())
                         .def_terminate(InsertOpticalFailure)
                         .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
@@ -2390,13 +2384,12 @@ macro_rules! coretext3_1_meas_methods {
                     &mut self,
                     m: $opttype,
                     name: String,
-                    r: Bound<'_, PyAny>,
+                    r: BigDecimal,
                     notrunc: bool,
                 ) -> PyResult<()> {
-                    let x = utils::any_to_float_or_int(r)?;
                     let n = str_to_shortname(name)?;
                     self.0
-                        .push_optical(Identity(n), m.into(), x, notrunc)
+                        .push_optical(Identity(n), m.into(), Range(r), notrunc)
                         .def_map_value(|_| ())
                         .def_terminate(PushOpticalFailure)
                         .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
@@ -2407,13 +2400,12 @@ macro_rules! coretext3_1_meas_methods {
                     i: usize,
                     m: $opttype,
                     name: String,
-                    r: Bound<'_, PyAny>,
+                    r: BigDecimal,
                     notrunc: bool,
                 ) -> PyResult<()> {
-                    let x = utils::any_to_float_or_int(r)?;
                     let n = str_to_shortname(name)?;
                     self.0
-                        .insert_optical(i.into(), Identity(n), m.into(), x, notrunc)
+                        .insert_optical(i.into(), Identity(n), m.into(), Range(r), notrunc)
                         .def_map_value(|_| ())
                         .def_terminate(InsertOpticalFailure)
                         .map_or_else(|e| Err(handle_failure(e)), handle_warnings)

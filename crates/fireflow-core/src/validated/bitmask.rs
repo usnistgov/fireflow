@@ -1,7 +1,7 @@
 //! Types to represent the $PnB and $PnR values for a uint column.
 
 use crate::error::BiTentative;
-use crate::text::float_or_int::{FloatOrInt, IntRangeError, ToIntError};
+use crate::text::keywords::{IntRangeError, Range};
 
 use derive_more::{Display, From};
 use num_traits::PrimInt;
@@ -28,9 +28,9 @@ macro_rules! bitmask_type {
     ($name:ident, $wrapper:ident, $native:ty, $size:expr) => {
         pub type $name = $wrapper<$native, $size>;
 
-        impl From<$name> for FloatOrInt {
-            fn from(value: $name) -> Self {
-                FloatOrInt::from(u64::from(value.value))
+        impl From<&$name> for Range {
+            fn from(value: &$name) -> Self {
+                Range::from(u64::from(value.value))
             }
         }
     };
@@ -46,19 +46,6 @@ bitmask_type!(Bitmask56, Bitmask, u64, 7);
 bitmask_type!(Bitmask64, Bitmask, u64, 8);
 
 impl<T, const LEN: usize> Bitmask<T, LEN> {
-    /// Make new bitmask from float or integer.
-    pub(crate) fn from_range(range: FloatOrInt, notrunc: bool) -> BiTentative<Self, BitmaskError>
-    where
-        T: TryFrom<FloatOrInt, Error = ToIntError<T>> + PrimInt,
-        u64: From<T>,
-    {
-        // TODO subtract 1 from here (or somewhere)
-        range
-            .as_uint(notrunc)
-            .inner_into()
-            .and_tentatively(|x| Bitmask::from_native_tnt(x, notrunc).inner_into())
-    }
-
     pub(crate) fn value(&self) -> T
     where
         T: Copy,
@@ -184,6 +171,6 @@ impl fmt::Display for BitmaskTruncationError {
 
 #[derive(Display, From)]
 pub enum BitmaskError {
-    ToInt(IntRangeError),
+    ToInt(IntRangeError<()>),
     Trunc(BitmaskTruncationError),
 }

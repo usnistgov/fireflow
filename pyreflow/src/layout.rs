@@ -1,18 +1,18 @@
 use fireflow_core::data::{
     AnyNullBitmask, AnyOrderedLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
-    FloatRange, NonMixedEndianLayout, NullMixedType, VersionedDataLayout,
+    EndianLayoutOps, FloatRange, LayoutOps, NonMixedEndianLayout, NullMixedType, OrderedLayoutOps,
 };
 use fireflow_core::text::byteord::{Endian, SizedByteOrd};
-use fireflow_core::text::float_or_int::{NonNanF32, NonNanF64, NonNanFloat};
+use fireflow_core::text::float_decimal::{FloatDecimal, HasFloatBounds};
 use fireflow_core::text::keywords::AlphaNumType;
 use fireflow_core::validated::ascii_range::{AsciiRange, Chars};
 use fireflow_core::validated::bitmask::Bitmask;
 
-use super::utils;
 use crate::class::PyreflowException;
 
 use super::macros::{py_disp, py_enum, py_eq, py_parse, py_wrap};
 
+use bigdecimal::BigDecimal;
 use nonempty::NonEmpty;
 use pyo3::prelude::*;
 use pyo3::types::PyType;
@@ -56,12 +56,8 @@ macro_rules! common_methods {
             /// The elements of the list will be either a float or int and
             /// will depend on the underlying layout structure.
             #[getter]
-            fn ranges<'a>(&self, py: Python<'a>) -> PyResult<Vec<Bound<'a, PyAny>>> {
-                self.0
-                    .ranges()
-                    .into_iter()
-                    .map(|x| utils::float_or_int_to_any(x, py))
-                    .collect()
+            fn ranges(&self) -> Vec<BigDecimal> {
+                self.0.ranges().into_iter().map(|r| r.0).collect()
             }
         }
     };
@@ -382,11 +378,12 @@ impl PyDataLayout3_2 {
 
 fn vec_to_float_ranges<T, const LEN: usize>(xs: Vec<T>) -> PyResult<NonEmpty<FloatRange<T, LEN>>>
 where
-    NonNanFloat<T>: TryFrom<T>,
-    <NonNanFloat<T> as TryFrom<T>>::Error: std::fmt::Display,
+    T: HasFloatBounds,
+    FloatDecimal<T>: TryFrom<T>,
+    <FloatDecimal<T> as TryFrom<T>>::Error: std::fmt::Display,
 {
     let ns = vec_to_ne(xs)?;
-    ns.try_map(|r| NonNanFloat::try_from(r).map(|range| FloatRange { range }))
+    ns.try_map(|r| FloatDecimal::try_from(r).map(FloatRange::new))
         .map_err(|e| PyreflowException::new_err(e.to_string()))
 }
 
@@ -417,13 +414,13 @@ fn any_to_mixed_type(x: Bound<'_, PyAny>) -> PyResult<NullMixedType> {
             "F" => value
                 .extract::<f32>()
                 .map_err(|e| e.to_string())
-                .and_then(|y| NonNanF32::try_from(y).map_err(|e| e.to_string()))
-                .map(|range| NullMixedType::F32(FloatRange { range })),
+                .and_then(|y| FloatDecimal::<f32>::try_from(y).map_err(|e| e.to_string()))
+                .map(|range| NullMixedType::F32(FloatRange::new(range))),
             "D" => value
                 .extract::<f64>()
                 .map_err(|e| e.to_string())
-                .and_then(|y| NonNanF64::try_from(y).map_err(|e| e.to_string()))
-                .map(|range| NullMixedType::F64(FloatRange { range })),
+                .and_then(|y| FloatDecimal::<f64>::try_from(y).map_err(|e| e.to_string()))
+                .map(|range| NullMixedType::F64(FloatRange::new(range))),
             "I" => value
                 .extract()
                 .map(|y| NullMixedType::Uint(AnyNullBitmask::from_u64(y)))

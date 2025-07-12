@@ -7,7 +7,6 @@ use crate::segment::*;
 use crate::text::byteord::*;
 use crate::text::compensation::*;
 use crate::text::datetimes::*;
-use crate::text::float_or_int::*;
 use crate::text::index::*;
 use crate::text::keywords::*;
 use crate::text::named_vec::*;
@@ -210,31 +209,20 @@ pub struct Optical<X> {
 }
 
 /// Minimal TEXT data for any supported FCS version
-#[derive(Clone)]
+#[derive(Clone, From)]
 pub enum AnyCore<A, D, O> {
+    #[from(Core2_0<A, D, O>)]
     FCS2_0(Box<Core2_0<A, D, O>>),
+    #[from(Core3_0<A, D, O>)]
     FCS3_0(Box<Core3_0<A, D, O>>),
+    #[from(Core3_1<A, D, O>)]
     FCS3_1(Box<Core3_1<A, D, O>>),
+    #[from(Core3_2<A, D, O>)]
     FCS3_2(Box<Core3_2<A, D, O>>),
 }
 
 pub type AnyCoreTEXT = AnyCore<(), (), ()>;
 pub type AnyCoreDataset = AnyCore<Analysis, FCSDataFrame, Others>;
-
-macro_rules! from_anycoretext {
-    ($anyvar:ident, $coretype:ident) => {
-        impl<A, D, O> From<$coretype<A, D, O>> for AnyCore<A, D, O> {
-            fn from(value: $coretype<A, D, O>) -> Self {
-                Self::$anyvar(Box::new(value))
-            }
-        }
-    };
-}
-
-from_anycoretext!(FCS2_0, Core2_0);
-from_anycoretext!(FCS3_0, Core3_0);
-from_anycoretext!(FCS3_1, Core3_1);
-from_anycoretext!(FCS3_2, Core3_2);
 
 impl<A, D, O> Serialize for AnyCore<A, D, O>
 where
@@ -923,7 +911,7 @@ pub struct OthersReader<'a> {
 
 pub trait Versioned {
     type Layout: VersionedDataLayout;
-    type Offsets: VersionedTEXTOffsets<Tot = <Self::Layout as VersionedDataLayout>::Tot>;
+    type Offsets: VersionedTEXTOffsets<TotDef = <Self::Layout as VersionedDataLayout>::TotDef>;
 
     fn fcs_version() -> Self;
 
@@ -1249,7 +1237,7 @@ pub trait OpticalFromTemporal<T: VersionedTemporal>: Sized {
 }
 
 pub trait VersionedTEXTOffsets: Sized {
-    type Tot;
+    type TotDef: TotDefinition;
 
     fn lookup(
         kws: &mut StdKeywords,
@@ -1270,7 +1258,7 @@ pub trait VersionedTEXTOffsets: Sized {
 
     fn analysis(&self) -> AnyAnalysisSegment;
 
-    fn tot(&self) -> Self::Tot;
+    fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot;
 
     fn into_common(self) -> TEXTOffsets<Option<Tot>>;
 }
@@ -2299,9 +2287,9 @@ where
         &mut self,
         n: Shortname,
         m: Temporal<M::Temporal>,
-        r: FloatOrInt,
+        r: Range,
         notrunc: bool,
-    ) -> DeferredResult<(), LayoutPushColumnError, PushTemporalError> {
+    ) -> DeferredResult<(), AnyRangeError, InsertTemporalError> {
         self.measurements
             .push_center(n, m)
             .into_deferred()
@@ -2320,9 +2308,9 @@ where
         i: MeasIndex,
         n: Shortname,
         m: Temporal<M::Temporal>,
-        r: FloatOrInt,
+        r: Range,
         notrunc: bool,
-    ) -> DeferredResult<(), LayoutInsertColumnWarning, InsertTemporalError> {
+    ) -> DeferredResult<(), AnyRangeError, InsertTemporalError> {
         self.measurements
             .insert_center(i, n, m)
             .into_deferred()
@@ -2340,9 +2328,9 @@ where
         &mut self,
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
-        r: FloatOrInt,
+        r: Range,
         notrunc: bool,
-    ) -> DeferredResult<Shortname, LayoutPushColumnError, PushOpticalError> {
+    ) -> DeferredResult<Shortname, AnyRangeError, PushOpticalError> {
         self.measurements
             .push(n, m)
             .into_deferred()
@@ -2362,9 +2350,9 @@ where
         i: MeasIndex,
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
-        r: FloatOrInt,
+        r: Range,
         notrunc: bool,
-    ) -> DeferredResult<Shortname, LayoutInsertColumnWarning, InsertOpticalError> {
+    ) -> DeferredResult<Shortname, AnyRangeError, InsertOpticalError> {
         self.measurements
             .insert(i, n, m)
             .into_deferred()
@@ -2855,9 +2843,9 @@ where
         &mut self,
         n: Shortname,
         m: Temporal<M::Temporal>,
-        r: FloatOrInt,
+        r: Range,
         notrunc: bool,
-    ) -> DeferredResult<(), LayoutPushColumnError, PushTemporalError> {
+    ) -> DeferredResult<(), AnyRangeError, InsertTemporalError> {
         self.push_temporal_inner(n, m, r, notrunc)
     }
 
@@ -2870,9 +2858,9 @@ where
         i: MeasIndex,
         n: Shortname,
         m: Temporal<M::Temporal>,
-        r: FloatOrInt,
+        r: Range,
         notrunc: bool,
-    ) -> DeferredResult<(), LayoutInsertColumnWarning, InsertTemporalError> {
+    ) -> DeferredResult<(), AnyRangeError, InsertTemporalError> {
         self.insert_temporal_inner(i, n, m, r, notrunc)
     }
 
@@ -2883,9 +2871,9 @@ where
         &mut self,
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
-        r: FloatOrInt,
+        r: Range,
         notrunc: bool,
-    ) -> DeferredResult<Shortname, LayoutPushColumnError, PushOpticalError> {
+    ) -> DeferredResult<Shortname, AnyRangeError, PushOpticalError> {
         self.push_optical_inner(n, m, r, notrunc)
     }
 
@@ -2897,9 +2885,9 @@ where
         i: MeasIndex,
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
-        r: FloatOrInt,
+        r: Range,
         notrunc: bool,
-    ) -> DeferredResult<Shortname, LayoutInsertColumnWarning, InsertOpticalError> {
+    ) -> DeferredResult<Shortname, AnyRangeError, InsertOpticalError> {
         self.insert_optical_inner(i, n, m, r, notrunc)
     }
 
@@ -3024,7 +3012,7 @@ where
         &self,
         h: &mut BufWriter<W>,
         conf: &WriteConfig,
-    ) -> IODeferredResult<(), ColumnError<IntRangeError>, StdWriterError>
+    ) -> IODeferredResult<(), ColumnError<IntRangeError<()>>, StdWriterError>
     where
         Version: From<M::Ver>,
     {
@@ -3142,9 +3130,9 @@ where
         n: Shortname,
         m: Temporal<M::Temporal>,
         col: AnyFCSColumn,
-        r: FloatOrInt,
+        r: Range,
         notrunc: bool,
-    ) -> DeferredResult<(), LayoutPushColumnError, PushTemporalToDatasetError> {
+    ) -> DeferredResult<(), AnyRangeError, PushTemporalToDatasetError> {
         self.push_temporal_inner(n, m, r, notrunc)
             .def_errors_into()
             .def_and_maybe(|_| self.data.push_column(col).into_deferred())
@@ -3160,9 +3148,9 @@ where
         n: Shortname,
         m: Temporal<M::Temporal>,
         col: AnyFCSColumn,
-        r: FloatOrInt,
+        r: Range,
         notrunc: bool,
-    ) -> DeferredResult<(), LayoutInsertColumnWarning, InsertTemporalToDatasetError> {
+    ) -> DeferredResult<(), AnyRangeError, InsertTemporalToDatasetError> {
         self.insert_temporal_inner(i, n, m, r, notrunc)
             .def_errors_into()
             .def_and_maybe(|_| {
@@ -3181,9 +3169,9 @@ where
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
         col: AnyFCSColumn,
-        r: FloatOrInt,
+        r: Range,
         notrunc: bool,
-    ) -> DeferredResult<Shortname, LayoutPushColumnError, PushOpticalToDatasetError> {
+    ) -> DeferredResult<Shortname, AnyRangeError, PushOpticalToDatasetError> {
         self.push_optical_inner(n, m, r, notrunc)
             .def_errors_into()
             .def_and_maybe(|k| {
@@ -3203,9 +3191,9 @@ where
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
         col: AnyFCSColumn,
-        r: FloatOrInt,
+        r: Range,
         notrunc: bool,
-    ) -> DeferredResult<Shortname, LayoutInsertColumnWarning, InsertOpticalInDatasetError> {
+    ) -> DeferredResult<Shortname, AnyRangeError, InsertOpticalInDatasetError> {
         self.insert_optical_inner(i, n, m, r, notrunc)
             .def_errors_into()
             .def_and_maybe(|k| {
@@ -5812,7 +5800,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_2 {
 
 impl ConvertFromLayout<DataLayout3_0> for DataLayout2_0 {
     fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
-        Ok(Self(value.0.tot_into()))
+        Ok(Self(value.0.phantom_into()))
     }
 }
 
@@ -5830,7 +5818,7 @@ impl ConvertFromLayout<DataLayout3_2> for DataLayout2_0 {
 
 impl ConvertFromLayout<DataLayout2_0> for DataLayout3_0 {
     fn convert_from_layout(value: DataLayout2_0) -> LayoutConvertResult<Self> {
-        Ok(Self(value.0.tot_into()))
+        Ok(Self(value.0.phantom_into()))
     }
 }
 
@@ -5861,7 +5849,7 @@ impl ConvertFromLayout<DataLayout3_0> for DataLayout3_1 {
 impl ConvertFromLayout<DataLayout3_2> for DataLayout3_1 {
     fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
         match value {
-            DataLayout3_2::NonMixed(x) => Ok(Self(x)),
+            DataLayout3_2::NonMixed(x) => Ok(Self(x.phantom_into())),
             DataLayout3_2::Mixed(x) => x.try_into_non_mixed().map(Self).mult_errors_into(),
         }
     }
@@ -5881,7 +5869,7 @@ impl ConvertFromLayout<DataLayout3_0> for DataLayout3_2 {
 
 impl ConvertFromLayout<DataLayout3_1> for DataLayout3_2 {
     fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
-        Ok(DataLayout3_2::NonMixed(value.0))
+        Ok(DataLayout3_2::NonMixed(value.0.phantom_into()))
     }
 }
 
@@ -6373,7 +6361,7 @@ impl VersionedTemporal for InnerTemporal3_2 {
 }
 
 impl VersionedTEXTOffsets for TEXTOffsets2_0 {
-    type Tot = Option<Tot>;
+    type TotDef = MaybeTot;
 
     fn lookup(
         kws: &mut StdKeywords,
@@ -6425,7 +6413,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
         self.0.analysis
     }
 
-    fn tot(&self) -> Self::Tot {
+    fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot {
         self.0.tot
     }
 
@@ -6440,7 +6428,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
 }
 
 impl VersionedTEXTOffsets for TEXTOffsets3_0 {
-    type Tot = Tot;
+    type TotDef = KnownTot;
 
     fn lookup(
         kws: &mut StdKeywords,
@@ -6521,7 +6509,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         self.0.analysis
     }
 
-    fn tot(&self) -> Self::Tot {
+    fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot {
         self.0.tot
     }
 
@@ -6536,7 +6524,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
 }
 
 impl VersionedTEXTOffsets for TEXTOffsets3_2 {
-    type Tot = Tot;
+    type TotDef = KnownTot;
 
     fn lookup(
         kws: &mut StdKeywords,
@@ -6624,7 +6612,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         self.0.analysis
     }
 
-    fn tot(&self) -> Self::Tot {
+    fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot {
         self.0.tot
     }
 
@@ -7689,32 +7677,26 @@ pub enum SetMeasurementsOnlyError {
 }
 
 #[derive(From, Display)]
-pub enum PushTemporalError {
-    Center(InsertCenterError),
-    Layout(LayoutPushColumnError),
-}
-
-#[derive(From, Display)]
 pub enum InsertTemporalError {
     Center(InsertCenterError),
-    Layout(LayoutInsertColumnWarning),
+    Layout(AnyRangeError),
 }
 
 #[derive(From, Display)]
 pub enum PushOpticalError {
     Unique(NonUniqueKeyError),
-    Layout(LayoutPushColumnError),
+    Layout(AnyRangeError),
 }
 
 #[derive(From, Display)]
 pub enum InsertOpticalError {
     Insert(InsertError),
-    Layout(LayoutInsertColumnWarning),
+    Layout(AnyRangeError),
 }
 
 #[derive(From, Display)]
 pub enum PushTemporalToDatasetError {
-    Measurement(PushTemporalError),
+    Measurement(InsertTemporalError),
     Column(ColumnLengthError),
 }
 
@@ -8197,12 +8179,6 @@ impl fmt::Display for ModeNotListError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "$MODE is not L")
     }
-}
-
-#[derive(From, Display)]
-pub enum SetFloatError {
-    Nan(NanFloatError),
-    Column(ColumnNumberError),
 }
 
 #[derive(Debug)]

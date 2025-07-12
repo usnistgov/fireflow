@@ -11,7 +11,7 @@
 /// standard is unclear.
 use crate::header::Version;
 use crate::segment::*;
-use crate::text::byteord::ByteOrd;
+use crate::text::byteord::ByteOrd2_0;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::keys;
 use crate::validated::other_width::OtherWidth;
@@ -482,7 +482,7 @@ pub struct StdTextReadConfig {
     /// Obviously this must match the actual layout of the numbers in DATA. If
     /// $PnB is also incorrect, use ['integer_widths_from_byteord'] to override
     /// those values as well.
-    pub integer_byteord_override: Option<ByteOrd>,
+    pub integer_byteord_override: Option<ByteOrd2_0>,
 
     /// Corrections for DATA offsets in TEXT segment
     pub data: TEXTCorrection<DataSegmentId>,

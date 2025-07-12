@@ -3,7 +3,8 @@
 use crate::header::MAX_HEADER_OFFSET;
 
 use derive_more::{Add, Display, From, FromStr, Into, Mul, Sub};
-use num_traits::identities::{One, Zero};
+use num_derive::{One, Zero};
+use num_traits::identities::Zero;
 use num_traits::ops::checked::CheckedSub;
 use serde::Serialize;
 use std::fmt;
@@ -19,7 +20,21 @@ use std::str::FromStr;
 /// This is used for the offsets in TEXT which must be formatted in a fixed
 /// width.
 #[derive(
-    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, FromStr, Into, From, Add, Sub, Mul,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Serialize,
+    FromStr,
+    Into,
+    From,
+    Add,
+    Sub,
+    Mul,
+    Zero,
+    One,
 )]
 #[into(u64, i128)]
 #[mul(forward)]
@@ -35,22 +50,6 @@ impl TryFrom<i128> for Uint20Char {
     type Error = TryFromIntError;
     fn try_from(value: i128) -> Result<Self, Self::Error> {
         value.try_into().map(Self)
-    }
-}
-
-impl Zero for Uint20Char {
-    fn zero() -> Self {
-        Self(0)
-    }
-
-    fn is_zero(&self) -> bool {
-        self.0 == 0
-    }
-}
-
-impl One for Uint20Char {
-    fn one() -> Self {
-        Self(1)
     }
 }
 
@@ -82,28 +81,26 @@ impl fmt::Display for Uint8Char {
 /// This is used as-is for HEADER offsets, and used in a wrapper for $NEXTDATA,
 /// both of which have this constraint.
 #[derive(
-    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Display, Into, From, Add, Mul, Sub,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Display,
+    Into,
+    From,
+    Add,
+    Mul,
+    Sub,
+    Zero,
+    One,
 )]
 #[into(u32, u64, i128)]
 #[from(u8, u16)] // ASSUME these will never fail
 #[mul(forward)]
 pub struct Uint8Digit(u32);
-
-impl Zero for Uint8Digit {
-    fn zero() -> Self {
-        Self(0)
-    }
-
-    fn is_zero(&self) -> bool {
-        self.0 == 0
-    }
-}
-
-impl One for Uint8Digit {
-    fn one() -> Self {
-        Self(1)
-    }
-}
 
 impl CheckedSub for Uint8Digit {
     fn checked_sub(&self, v: &Self) -> Option<Self> {

@@ -942,21 +942,23 @@ macro_rules! impl_any_uint {
             type Error = MixedToOrderedUintError;
             fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
                 let w = value.nbytes();
-                match value {
-                    MixedType::Uint(x) => {
-                        if let AnyBitmask::$var(y) = x {
-                            Ok(y)
-                        } else {
-                            Err(UintToUintError {
-                                from: w,
-                                to: Self::BYTES.into(),
-                            }
-                            .into())
+                if let MixedType::Uint(x) = value {
+                    if let AnyBitmask::$var(y) = x {
+                        Ok(y)
+                    } else {
+                        Err(UintToUintError {
+                            from: w,
+                            to: Self::BYTES.into(),
                         }
+                        .into())
                     }
-                    MixedType::Ascii(_) => Err(MixedIsAscii.into()),
-                    MixedType::F32(_) => Err(MixedIsFloat.into()),
-                    MixedType::F64(_) => Err(MixedIsDouble.into()),
+                } else {
+                    let dest_type = value.as_alpha_num_type();
+                    Err(MixedToInnerError {
+                        dest_type,
+                        src: value,
+                    }
+                    .into())
                 }
             }
         }
@@ -1713,31 +1715,19 @@ impl<D> EndianLayout<NullMixedType, D> {
         let byte_layout = self.byte_layout;
         match c0 {
             MixedType::Ascii(x) => it
-                .map(|(i, c)| {
-                    c.try_into()
-                        .map_err(|e| (i, MixedToNonMixedConvertError::from(e)))
-                })
+                .map(|(i, c)| c.try_into().map_err(|e| (i, e)))
                 .gather()
                 .map(|xs| AnyAsciiLayout::Fixed(FixedLayout::new1(x, xs, NoByteOrd)).into()),
             MixedType::Uint(x) => it
-                .map(|(i, c)| {
-                    c.try_into()
-                        .map_err(|e| (i, MixedToNonMixedConvertError::from(e)))
-                })
+                .map(|(i, c)| c.try_into().map_err(|e| (i, e)))
                 .gather()
                 .map(|xs| FixedLayout::new1(x, xs, byte_layout).into()),
             MixedType::F32(x) => it
-                .map(|(i, c)| {
-                    c.try_into()
-                        .map_err(|e| (i, MixedToNonMixedConvertError::from(e)))
-                })
+                .map(|(i, c)| c.try_into().map_err(|e| (i, e)))
                 .gather()
                 .map(|xs| FixedLayout::new1(x, xs, byte_layout).into()),
             MixedType::F64(x) => it
-                .map(|(i, c)| {
-                    c.try_into()
-                        .map_err(|e| (i, MixedToNonMixedConvertError::from(e)))
-                })
+                .map(|(i, c)| c.try_into().map_err(|e| (i, e)))
                 .gather()
                 .map(|xs| FixedLayout::new1(x, xs, byte_layout).into()),
         }
@@ -3922,52 +3912,12 @@ impl fmt::Display for ConvertWidthError {
     }
 }
 
-pub struct MixedIsInteger {
-    width: u8,
-}
-
-pub struct MixedIsAscii;
-
-pub struct MixedIsFloat;
-
-pub struct MixedIsDouble;
-
-impl fmt::Display for MixedIsInteger {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}-byte integer", self.width)
-    }
-}
-
-impl fmt::Display for MixedIsAscii {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "fixed-width ASCII")
-    }
-}
-
-impl fmt::Display for MixedIsFloat {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "32-bit float")
-    }
-}
-
-impl fmt::Display for MixedIsDouble {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "64-bit float")
-    }
-}
-
 pub type MixedToOrderedLayoutError = MixedColumnConvertError<MixedToOrderedConvertError>;
-pub type MixedToNonMixedLayoutError = MixedColumnConvertError<MixedToNonMixedConvertError>;
+pub type MixedToNonMixedLayoutError = MixedColumnConvertError<MixedToInnerError>;
 
 #[derive(From, Display)]
 pub enum MixedToOrderedConvertError {
     Integer(MixedToOrderedUintError),
-    Other(MixedToInnerError),
-}
-
-#[derive(From, Display)]
-pub enum MixedToNonMixedConvertError {
-    Integer(MixedToEndianUintError),
     Other(MixedToInnerError),
 }
 
@@ -3993,44 +3943,10 @@ impl<E: fmt::Display> fmt::Display for MixedColumnConvertError<E> {
     }
 }
 
-#[derive(From)]
+#[derive(From, Display)]
 pub enum MixedToOrderedUintError {
-    IsAscii(MixedIsAscii),
     IsWrongInteger(UintToUintError),
-    IsFloat(MixedIsFloat),
-    IsDouble(MixedIsDouble),
-}
-
-impl fmt::Display for MixedToOrderedUintError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::IsWrongInteger(e) => write!(
-                f,
-                "could not convert mixed from {}- to {}-byte integer",
-                e.from, e.to
-            ),
-            Self::IsAscii(e) => write!(f, "could not convert mixed from {e} to integer"),
-            Self::IsFloat(e) => write!(f, "could not convert mixed from {e} to integer"),
-            Self::IsDouble(e) => write!(f, "could not convert mixed from {e} to integer"),
-        }
-    }
-}
-
-#[derive(From)]
-pub enum MixedToEndianUintError {
-    IsAscii(MixedIsAscii),
-    IsFloat(MixedIsFloat),
-    IsDouble(MixedIsDouble),
-}
-
-impl fmt::Display for MixedToEndianUintError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::IsAscii(e) => write!(f, "could not convert mixed from {e} to integer"),
-            Self::IsFloat(e) => write!(f, "could not convert mixed from {e} to integer"),
-            Self::IsDouble(e) => write!(f, "could not convert mixed from {e} to integer"),
-        }
-    }
+    Other(MixedToInnerError),
 }
 
 pub struct UintToUintError {

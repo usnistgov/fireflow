@@ -1128,18 +1128,6 @@ impl<'a> ColumnFamily for ColumnWriterFamily<'a> {
     type ColumnWrapper<C, T, S> = ColumnWriter<'a, C, T, S>;
 }
 
-impl TryFrom<NullMixedType> for AsciiRange {
-    type Error = MixedToAsciiError;
-    fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
-        match value {
-            MixedType::Ascii(x) => Ok(x),
-            MixedType::Uint(x) => Err(MixedIsInteger { width: x.nbytes() }.into()),
-            MixedType::F32(_) => Err(MixedIsFloat.into()),
-            MixedType::F64(_) => Err(MixedIsDouble.into()),
-        }
-    }
-}
-
 macro_rules! match_any_uint {
     ($value:expr, $root:ident, $inner:ident, $action:block) => {
         match_many_to_one!(
@@ -1156,42 +1144,6 @@ macro_rules! match_any_mixed {
     ($value:expr, $inner:ident, $action:block) => {
         match_many_to_one!($value, MixedType, [Ascii, Uint, F32, F64], $inner, $action)
     };
-}
-
-impl TryFrom<NullMixedType> for AnyNullBitmask {
-    type Error = MixedToEndianUintError;
-    fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
-        match value {
-            MixedType::Ascii(_) => Err(MixedIsAscii.into()),
-            MixedType::Uint(x) => Ok(x),
-            MixedType::F32(_) => Err(MixedIsFloat.into()),
-            MixedType::F64(_) => Err(MixedIsDouble.into()),
-        }
-    }
-}
-
-impl TryFrom<NullMixedType> for F32Range {
-    type Error = MixedToFloatError;
-    fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
-        match value {
-            MixedType::Ascii(_) => Err(MixedIsAscii.into()),
-            MixedType::Uint(x) => Err(MixedIsInteger { width: x.nbytes() }.into()),
-            MixedType::F32(x) => Ok(x),
-            MixedType::F64(_) => Err(MixedIsDouble.into()),
-        }
-    }
-}
-
-impl TryFrom<NullMixedType> for F64Range {
-    type Error = MixedToDoubleError;
-    fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
-        match value {
-            MixedType::Ascii(_) => Err(MixedIsAscii.into()),
-            MixedType::Uint(x) => Err(MixedIsInteger { width: x.nbytes() }.into()),
-            MixedType::F32(_) => Err(MixedIsFloat.into()),
-            MixedType::F64(x) => Ok(x),
-        }
-    }
 }
 
 impl From<&NullMixedType> for Range {
@@ -1212,99 +1164,29 @@ impl<T: Clone, const LEN: usize> From<&FloatRange<T, LEN>> for Range {
     }
 }
 
-#[derive(From)]
-pub enum MixedToOrderedUintError {
-    IsAscii(MixedIsAscii),
-    IsWrongInteger(UintToUintError),
-    IsFloat(MixedIsFloat),
-    IsDouble(MixedIsDouble),
-}
-
-impl fmt::Display for MixedToOrderedUintError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::IsWrongInteger(e) => write!(
-                f,
-                "could not convert mixed from {}- to {}-byte integer",
-                e.from, e.to
-            ),
-            Self::IsAscii(e) => write!(f, "could not convert mixed from {e} to integer"),
-            Self::IsFloat(e) => write!(f, "could not convert mixed from {e} to integer"),
-            Self::IsDouble(e) => write!(f, "could not convert mixed from {e} to integer"),
+macro_rules! mixed_to_inner {
+    ($inner:ident, $var:ident) => {
+        impl TryFrom<NullMixedType> for $inner {
+            type Error = MixedToInnerError;
+            fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
+                let dest_type = value.as_alpha_num_type();
+                if let MixedType::$var(x) = value {
+                    Ok(x)
+                } else {
+                    Err(MixedToInnerError {
+                        dest_type,
+                        src: value,
+                    })
+                }
+            }
         }
-    }
+    };
 }
 
-#[derive(From)]
-pub enum MixedToEndianUintError {
-    IsAscii(MixedIsAscii),
-    IsFloat(MixedIsFloat),
-    IsDouble(MixedIsDouble),
-}
-
-impl fmt::Display for MixedToEndianUintError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::IsAscii(e) => write!(f, "could not convert mixed from {e} to integer"),
-            Self::IsFloat(e) => write!(f, "could not convert mixed from {e} to integer"),
-            Self::IsDouble(e) => write!(f, "could not convert mixed from {e} to integer"),
-        }
-    }
-}
-
-#[derive(From)]
-pub enum MixedToAsciiError {
-    IsInteger(MixedIsInteger),
-    IsFloat(MixedIsFloat),
-    IsDouble(MixedIsDouble),
-}
-
-impl fmt::Display for MixedToAsciiError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let e = match self {
-            Self::IsInteger(e) => e.to_string(),
-            Self::IsFloat(e) => e.to_string(),
-            Self::IsDouble(e) => e.to_string(),
-        };
-        write!(f, "could not convert mixed from {e} to ASCII")
-    }
-}
-
-#[derive(From)]
-pub enum MixedToFloatError {
-    IsAscii(MixedIsAscii),
-    IsInteger(MixedIsInteger),
-    IsDouble(MixedIsDouble),
-}
-
-impl fmt::Display for MixedToFloatError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let e = match self {
-            Self::IsAscii(e) => e.to_string(),
-            Self::IsInteger(e) => e.to_string(),
-            Self::IsDouble(e) => e.to_string(),
-        };
-        write!(f, "could not convert mixed from {e} to float")
-    }
-}
-
-#[derive(From)]
-pub enum MixedToDoubleError {
-    IsAscii(MixedIsAscii),
-    IsInteger(MixedIsInteger),
-    IsFloat(MixedIsFloat),
-}
-
-impl fmt::Display for MixedToDoubleError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let e = match self {
-            Self::IsAscii(e) => e.to_string(),
-            Self::IsInteger(e) => e.to_string(),
-            Self::IsFloat(e) => e.to_string(),
-        };
-        write!(f, "could not convert mixed from {e} to double")
-    }
-}
+mixed_to_inner!(AsciiRange, Ascii);
+mixed_to_inner!(AnyNullBitmask, Uint);
+mixed_to_inner!(F32Range, F32);
+mixed_to_inner!(F64Range, F64);
 
 impl<T, const LEN: usize> ToNativeReader for Bitmask<T, LEN> where Self: HasNativeType<Native = T> {}
 
@@ -2702,6 +2584,55 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
     }
 }
 
+impl<C> EndianLayout<C, HasMeasDatatype> {
+    fn insert_mixed(
+        mut self,
+        index: MeasIndex,
+        range: Range,
+        notrunc: bool,
+    ) -> BiTentative<DataLayout3_2, AnyRangeError>
+    where
+        C: TryFrom<NullMixedType, Error = MixedToInnerError>,
+        NullMixedType: From<C>,
+        NonMixedEndianLayout<HasMeasDatatype>: From<EndianLayout<C, HasMeasDatatype>>,
+    {
+        NullMixedType::from_range(range, notrunc).map(|col| match col.try_into() {
+            Ok(c) => {
+                self.insert_column(index, c);
+                DataLayout3_2::NonMixed(self.into())
+            }
+            Err(e) => {
+                let mut z = self.columns_into();
+                z.insert_column(index, e.src);
+                z.into()
+            }
+        })
+    }
+
+    fn push_mixed(
+        mut self,
+        range: Range,
+        notrunc: bool,
+    ) -> BiTentative<DataLayout3_2, AnyRangeError>
+    where
+        C: TryFrom<NullMixedType, Error = MixedToInnerError>,
+        NullMixedType: From<C>,
+        NonMixedEndianLayout<HasMeasDatatype>: From<EndianLayout<C, HasMeasDatatype>>,
+    {
+        NullMixedType::from_range(range, notrunc).map(|col| match col.try_into() {
+            Ok(c) => {
+                self.push_column(c);
+                DataLayout3_2::NonMixed(self.into())
+            }
+            Err(e) => {
+                let mut z = self.columns_into();
+                z.push_column(e.src);
+                z.into()
+            }
+        })
+    }
+}
+
 macro_rules! def_native_wrapper {
     ($name:path, $native:ty, $size:expr, $native_size:expr, $bytes:ident) => {
         impl HasNativeType for $name {
@@ -3312,60 +3243,22 @@ impl InterLayoutOps<HasMeasDatatype> for DataLayout3_2 {
         range: Range,
         notrunc: bool,
     ) -> BiTentative<(), AnyRangeError> {
-        let dummy = NonMixedEndianLayout::from(AnyAsciiLayout::from(DelimAsciiLayout::new(
-            NonEmpty::new(0),
-        )))
-        .into();
-        // TODO clean this up
-        match mem::replace(self, dummy) {
+        match mem::replace(self, Self::mixed_dummy()) {
+            // If layout is mixed, interpret range as a mixed type
             Self::Mixed(mut x) => x
                 .insert_nocheck(index, range, notrunc)
                 .map(|_| Self::Mixed(x)),
+            // If layout is non-mixed, interpret range as an ASCII range and
+            // keep the layout as ASCII. Otherwise, interpret as a mixed range
+            // and convert the layout to a mixed layout if the interpreted
+            // result is different from the rest of the types in the layout.
             Self::NonMixed(x) => match x {
                 NonMixedEndianLayout::Ascii(mut y) => y
                     .insert_nocheck(index, range, notrunc)
                     .map(|_| Self::NonMixed(y.into())),
-
-                NonMixedEndianLayout::Integer(mut y) => NullMixedType::from_range(range, notrunc)
-                    .map(|col| match col {
-                        MixedType::Uint(z) => {
-                            y.insert_column(index, z);
-                            Self::NonMixed(y.into())
-                        }
-                        c => {
-                            let mut z = y.columns_into();
-                            z.insert_column(index, c);
-                            z.into()
-                        }
-                    }),
-
-                NonMixedEndianLayout::F32(mut y) => {
-                    NullMixedType::from_range(range, notrunc).map(|col| match col {
-                        MixedType::F32(z) => {
-                            y.insert_column(index, z);
-                            Self::NonMixed(y.into())
-                        }
-                        c => {
-                            let mut z = y.columns_into();
-                            z.insert_column(index, c);
-                            z.into()
-                        }
-                    })
-                }
-
-                NonMixedEndianLayout::F64(mut y) => {
-                    NullMixedType::from_range(range, notrunc).map(|col| match col {
-                        MixedType::F64(z) => {
-                            y.insert_column(index, z);
-                            Self::NonMixed(y.into())
-                        }
-                        c => {
-                            let mut z = y.columns_into();
-                            z.insert_column(index, c);
-                            z.into()
-                        }
-                    })
-                }
+                NonMixedEndianLayout::Integer(y) => y.insert_mixed(index, range, notrunc),
+                NonMixedEndianLayout::F32(y) => y.insert_mixed(index, range, notrunc),
+                NonMixedEndianLayout::F64(y) => y.insert_mixed(index, range, notrunc),
             },
         }
         .map(|newself| {
@@ -3374,59 +3267,15 @@ impl InterLayoutOps<HasMeasDatatype> for DataLayout3_2 {
     }
 
     fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), AnyRangeError> {
-        let dummy = NonMixedEndianLayout::from(AnyAsciiLayout::from(DelimAsciiLayout::new(
-            NonEmpty::new(0),
-        )))
-        .into();
-
-        // TODO clean this up
-        match mem::replace(self, dummy) {
+        match mem::replace(self, Self::mixed_dummy()) {
             Self::Mixed(mut x) => x.push(range, notrunc).map(|_| Self::Mixed(x)),
             Self::NonMixed(x) => match x {
                 NonMixedEndianLayout::Ascii(mut y) => {
                     y.push(range, notrunc).map(|_| Self::NonMixed(y.into()))
                 }
-
-                NonMixedEndianLayout::Integer(mut y) => NullMixedType::from_range(range, notrunc)
-                    .map(|col| match col {
-                        MixedType::Uint(c) => {
-                            y.push_column(c);
-                            Self::NonMixed(y.into())
-                        }
-                        c => {
-                            let mut z = y.columns_into();
-                            z.push_column(c);
-                            z.into()
-                        }
-                    }),
-
-                NonMixedEndianLayout::F32(mut y) => {
-                    NullMixedType::from_range(range, notrunc).map(|col| match col {
-                        MixedType::F32(c) => {
-                            y.push_column(c);
-                            Self::NonMixed(y.into())
-                        }
-                        c => {
-                            let mut z = y.columns_into();
-                            z.push_column(c);
-                            z.into()
-                        }
-                    })
-                }
-
-                NonMixedEndianLayout::F64(mut y) => {
-                    NullMixedType::from_range(range, notrunc).map(|col| match col {
-                        MixedType::F64(c) => {
-                            y.push_column(c);
-                            Self::NonMixed(y.into())
-                        }
-                        c => {
-                            let mut z = y.columns_into();
-                            z.push_column(c);
-                            z.into()
-                        }
-                    })
-                }
+                NonMixedEndianLayout::Integer(y) => y.push_mixed(range, notrunc),
+                NonMixedEndianLayout::F32(y) => y.push_mixed(range, notrunc),
+                NonMixedEndianLayout::F64(y) => y.push_mixed(range, notrunc),
             },
         }
         .map(|newself| {
@@ -3434,12 +3283,6 @@ impl InterLayoutOps<HasMeasDatatype> for DataLayout3_2 {
         })
     }
 }
-
-// fn insert_mixed(l: FixedLayout<C, S, T, D>) -> (FixedLayout<NullMixedType, S, T, D>) {
-//     let mut z = l.columns_into();
-//     let ret = z.insert_column(index, c);
-//     (z.into(), ret)
-// }
 
 impl DataLayout3_1 {
     pub(crate) fn into_ordered<T>(self) -> LayoutConvertResult<AnyOrderedLayout<T>> {
@@ -3484,6 +3327,14 @@ impl DataLayout3_2 {
                 .map(|_| LayoutOps::datatype(x)),
             Self::Mixed(x) => x.columns.as_ref().map(|y| y.as_alpha_num_type()),
         }
+    }
+
+    /// A dummy layout, used to make ['std::mem::replace'] work; not meaninful.
+    fn mixed_dummy() -> Self {
+        NonMixedEndianLayout::from(AnyAsciiLayout::from(DelimAsciiLayout::new(NonEmpty::new(
+            0,
+        ))))
+        .into()
     }
 }
 
@@ -4071,21 +3922,6 @@ impl fmt::Display for ConvertWidthError {
     }
 }
 
-pub struct UintToUintError {
-    from: u8,
-    to: u8,
-}
-
-impl fmt::Display for UintToUintError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "could not convert integer from {} bytes to {} bytes",
-            self.from, self.to,
-        )
-    }
-}
-
 pub struct MixedIsInteger {
     width: u8,
 }
@@ -4125,18 +3961,14 @@ pub type MixedToNonMixedLayoutError = MixedColumnConvertError<MixedToNonMixedCon
 
 #[derive(From, Display)]
 pub enum MixedToOrderedConvertError {
-    Ascii(MixedToAsciiError),
     Integer(MixedToOrderedUintError),
-    Float(MixedToFloatError),
-    Double(MixedToDoubleError),
+    Other(MixedToInnerError),
 }
 
 #[derive(From, Display)]
 pub enum MixedToNonMixedConvertError {
-    Ascii(MixedToAsciiError),
     Integer(MixedToEndianUintError),
-    Float(MixedToFloatError),
-    Double(MixedToDoubleError),
+    Other(MixedToInnerError),
 }
 
 #[derive(From, Display)]
@@ -4157,6 +3989,77 @@ impl<E: fmt::Display> fmt::Display for MixedColumnConvertError<E> {
             f,
             "mixed conversion error in column {}: {}",
             self.index, self.error
+        )
+    }
+}
+
+#[derive(From)]
+pub enum MixedToOrderedUintError {
+    IsAscii(MixedIsAscii),
+    IsWrongInteger(UintToUintError),
+    IsFloat(MixedIsFloat),
+    IsDouble(MixedIsDouble),
+}
+
+impl fmt::Display for MixedToOrderedUintError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::IsWrongInteger(e) => write!(
+                f,
+                "could not convert mixed from {}- to {}-byte integer",
+                e.from, e.to
+            ),
+            Self::IsAscii(e) => write!(f, "could not convert mixed from {e} to integer"),
+            Self::IsFloat(e) => write!(f, "could not convert mixed from {e} to integer"),
+            Self::IsDouble(e) => write!(f, "could not convert mixed from {e} to integer"),
+        }
+    }
+}
+
+#[derive(From)]
+pub enum MixedToEndianUintError {
+    IsAscii(MixedIsAscii),
+    IsFloat(MixedIsFloat),
+    IsDouble(MixedIsDouble),
+}
+
+impl fmt::Display for MixedToEndianUintError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::IsAscii(e) => write!(f, "could not convert mixed from {e} to integer"),
+            Self::IsFloat(e) => write!(f, "could not convert mixed from {e} to integer"),
+            Self::IsDouble(e) => write!(f, "could not convert mixed from {e} to integer"),
+        }
+    }
+}
+
+pub struct UintToUintError {
+    from: u8,
+    to: u8,
+}
+
+impl fmt::Display for UintToUintError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "could not convert integer from {} bytes to {} bytes",
+            self.from, self.to,
+        )
+    }
+}
+
+pub struct MixedToInnerError {
+    dest_type: AlphaNumType,
+    src: NullMixedType,
+}
+
+impl fmt::Display for MixedToInnerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "could not convert mixed from {} to {}",
+            self.src.as_alpha_num_type(),
+            self.dest_type
         )
     }
 }

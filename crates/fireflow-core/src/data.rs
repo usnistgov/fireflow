@@ -315,12 +315,6 @@ type NativeWrapper<F, C> =
 pub trait MeasDatatypeDef {
     type MeasDatatype;
 
-    fn headers() -> Vec<MeasHeader>;
-
-    fn keywords<'a, C>(columns: &'a NonEmpty<C>) -> NonEmpty<Vec<(String, Option<String>)>>
-    where
-        Self::MeasDatatype: From<&'a C>;
-
     fn lookup_datatype(
         kws: &mut StdKeywords,
         i: MeasIndex,
@@ -481,12 +475,7 @@ pub trait LayoutOps<'a, T>: Sized {
 
 #[delegatable_trait]
 pub trait InterLayoutOps<D> {
-    fn opt_meas_headers(&self) -> Vec<MeasHeader>
-    where
-        D: MeasDatatypeDef,
-    {
-        <D as MeasDatatypeDef>::headers()
-    }
+    fn opt_meas_headers(&self) -> Vec<MeasHeader>;
 
     fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>>;
 
@@ -1064,17 +1053,6 @@ impl<'a> From<ColumnWriter<'a, F64Range, f64, Endian>> for WriterMixedType<'a> {
 impl MeasDatatypeDef for NoMeasDatatype {
     type MeasDatatype = NullMeasDatatype;
 
-    fn headers() -> Vec<MeasHeader> {
-        vec![]
-    }
-
-    fn keywords<'a, C>(columns: &'a NonEmpty<C>) -> NonEmpty<Vec<(String, Option<String>)>>
-    where
-        Self::MeasDatatype: From<&'a C>,
-    {
-        columns.as_ref().map(|_| vec![])
-    }
-
     fn lookup_datatype(
         _: &mut StdKeywords,
         _: MeasIndex,
@@ -1092,21 +1070,6 @@ impl MeasDatatypeDef for NoMeasDatatype {
 
 impl MeasDatatypeDef for HasMeasDatatype {
     type MeasDatatype = Option<NumType>;
-
-    fn headers() -> Vec<MeasHeader> {
-        vec![NumType::std_blank()]
-    }
-
-    fn keywords<'a, C>(columns: &'a NonEmpty<C>) -> NonEmpty<Vec<(String, Option<String>)>>
-    where
-        Self::MeasDatatype: From<&'a C>,
-    {
-        columns.as_ref().enumerate().map(|(i, c)| {
-            Self::MeasDatatype::from(c)
-                .map(|y| vec![NumType::pair_opt(&y.into(), i.into())])
-                .unwrap_or_default()
-        })
-    }
 
     fn lookup_datatype(
         kws: &mut StdKeywords,
@@ -1163,48 +1126,6 @@ impl ColumnFamily for ColumnReaderFamily {
 
 impl<'a> ColumnFamily for ColumnWriterFamily<'a> {
     type ColumnWrapper<C, T, S> = ColumnWriter<'a, C, T, S>;
-}
-
-impl<C> From<&C> for NullMeasDatatype {
-    fn from(_: &C) -> Self {
-        Self
-    }
-}
-
-impl From<&NullMeasDatatype> for Option<NumType> {
-    fn from(_: &NullMeasDatatype) -> Self {
-        None
-    }
-}
-
-impl From<&AsciiRange> for Option<NumType> {
-    fn from(_: &AsciiRange) -> Self {
-        None
-    }
-}
-
-impl<T, const LEN: usize> From<&Bitmask<T, LEN>> for Option<NumType> {
-    fn from(_: &Bitmask<T, LEN>) -> Self {
-        None
-    }
-}
-
-impl<T, const LEN: usize> From<&FloatRange<T, LEN>> for Option<NumType> {
-    fn from(_: &FloatRange<T, LEN>) -> Self {
-        None
-    }
-}
-
-impl From<&AnyNullBitmask> for Option<NumType> {
-    fn from(_: &AnyNullBitmask) -> Self {
-        None
-    }
-}
-
-impl From<&NullMixedType> for Option<NumType> {
-    fn from(value: &NullMixedType) -> Option<NumType> {
-        (*value).as_alpha_num_type().try_into().ok()
-    }
 }
 
 impl TryFrom<NullMixedType> for AsciiRange {
@@ -2288,13 +2209,13 @@ where
     }
 }
 
-impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD>
-where
-    D: MeasDatatypeDef,
-    for<'a> D::MeasDatatype: From<&'a NullMeasDatatype>,
-{
+impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
+    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
+        vec![]
+    }
+
     fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-        D::keywords(&self.ranges.as_ref().map(|_| NullMeasDatatype))
+        self.ranges.as_ref().map(|_| vec![])
     }
 
     fn insert_nocheck(
@@ -2473,7 +2394,6 @@ fn h_read_delim_without_rows<R: Read>(
 impl<'a, C, S, T, D> LayoutOps<'a, T> for FixedLayout<C, S, T, D>
 where
     D: MeasDatatypeDef,
-    for<'b> D::MeasDatatype: From<&'b C>,
     T: TotDefinition,
     C: Clone + IsFixed + HasDatatype + IntoReader<S> + IntoWriter<'a, S> + FromRange,
     S: Copy + HasByteOrd,
@@ -2586,8 +2506,6 @@ where
 
 impl<'a, C, S, T, D> InterLayoutOps<D> for FixedLayout<C, S, T, D>
 where
-    D: MeasDatatypeDef,
-    for<'b> D::MeasDatatype: From<&'b C>,
     T: TotDefinition,
     C: Clone + IsFixed + HasDatatype + IntoReader<S> + IntoWriter<'a, S> + FromRange,
     S: Copy + HasByteOrd,
@@ -2596,8 +2514,12 @@ where
     <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
     AnyRangeError: From<<C as FromRange>::Error>,
 {
+    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
+        vec![]
+    }
+
     fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-        D::keywords(&self.columns)
+        self.columns.as_ref().map(|_| vec![])
     }
 
     fn insert_nocheck(
@@ -2845,7 +2767,7 @@ impl HasDatatype for NullMixedType {
         // ASCII, which means that $DATATYPE needs to be "A" since $PnDATATYPE
         // cannot be "A". Otherwise, find majority type.
         cs.as_ref()
-            .try_map(|c| <Option<NumType> as From<_>>::from(c).ok_or(()))
+            .try_map(|c| NumType::try_from(c.as_alpha_num_type()))
             .ok()
             .map_or(AlphaNumType::Ascii, |mut ds| {
                 ds.sort();
@@ -3365,6 +3287,10 @@ impl VersionedDataLayout for DataLayout3_2 {
 }
 
 impl InterLayoutOps<HasMeasDatatype> for DataLayout3_2 {
+    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
+        vec![NumType::std_blank()]
+    }
+
     // TODO add a way to remove keys which match $DATATYPE so we don't have
     // lots of redundant $PnDATATYPE keys
     fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {

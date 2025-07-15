@@ -31,6 +31,7 @@ pub struct LogScale {
     offset: PositiveFloat,
 }
 
+
 impl Scale {
     pub fn try_new_log(decades: f32, offset: f32) -> Result<Self, LogRangeError> {
         let d = PositiveFloat::try_from(decades);
@@ -100,7 +101,7 @@ impl Scale {
         kws: &mut StdKeywords,
         i: MeasIndex,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<OptionalValue<Scale>, E> {
+    ) -> LookupTentative<MaybeValue<Scale>, E> {
         let res = Self::lookup_fixed_opt_inner(kws, i, conf.fix_log_scale_offsets);
         process_opt(res)
     }
@@ -109,7 +110,7 @@ impl Scale {
         kws: &mut StdKeywords,
         i: MeasIndex,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<OptionalValue<Scale>, DeprecatedError> {
+    ) -> LookupTentative<MaybeValue<Scale>, DeprecatedError> {
         let dd = conf.disallow_deprecated;
         let res = Self::lookup_fixed_opt_inner(kws, i, conf.fix_log_scale_offsets);
         process_opt_dep(res, Scale::std(i.into()), dd)

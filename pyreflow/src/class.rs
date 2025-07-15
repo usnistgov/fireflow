@@ -2389,7 +2389,7 @@ macro_rules! coretext3_1_meas_methods {
                 ) -> PyResult<()> {
                     let n = str_to_shortname(name)?;
                     self.0
-                        .push_optical(Identity(n), m.into(), Range(r), notrunc)
+                        .push_optical(AlwaysValue(n), m.into(), Range(r), notrunc)
                         .def_map_value(|_| ())
                         .def_terminate(PushOpticalFailure)
                         .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
@@ -2405,7 +2405,7 @@ macro_rules! coretext3_1_meas_methods {
                 ) -> PyResult<()> {
                     let n = str_to_shortname(name)?;
                     self.0
-                        .insert_optical(i.into(), Identity(n), m.into(), Range(r), notrunc)
+                        .insert_optical(i.into(), AlwaysValue(n), m.into(), Range(r), notrunc)
                         .def_map_value(|_| ())
                         .def_terminate(InsertOpticalFailure)
                         .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
@@ -2469,7 +2469,7 @@ macro_rules! set_measurements3_1 {
                     let mut ys = vec![];
                     for x in xs {
                         let y = if let Ok((n, m)) = any_to_named_pair::<$opttype>(x.clone()) {
-                            Element::NonCenter((Identity(n), m.into()))
+                            Element::NonCenter((AlwaysValue(n), m.into()))
                         } else {
                             let (n, t) = any_to_named_pair::<$timetype>(x)?;
                             Element::Center((n, t.into()))
@@ -2545,7 +2545,7 @@ macro_rules! coredata3_1_meas_methods {
                     let mut ys = vec![];
                     for x in xs {
                         let y = if let Ok((n, m)) = any_to_named_pair::<$opttype>(x.clone()) {
-                            Element::NonCenter((Identity(n), m.into()))
+                            Element::NonCenter((AlwaysValue(n), m.into()))
                         } else {
                             let (n, t) = any_to_named_pair::<$timetype>(x)?;
                             Element::Center((n, t.into()))
@@ -2676,44 +2676,44 @@ shortnames_methods!(
 // );
 
 // Get/set methods for $PnE (3.0-3.2)
-macro_rules! scales_methods {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn get_all_scales(&self) -> Vec<PyScale> {
-                    self.0.all_scales().into_iter().map(|x| x.into()).collect()
-                }
+// macro_rules! scales_methods {
+//     ($($pytype:ident),*) => {
+//         $(
+//             #[pymethods]
+//             impl $pytype {
+//                 #[getter]
+//                 fn get_all_scales(&self) -> Vec<PyScale> {
+//                     self.0.all_scales().into_iter().map(|x| x.into()).collect()
+//                 }
 
-                #[getter]
-                fn get_scales(&self) -> Vec<(usize, PyScale)> {
-                    self.0
-                        .scales()
-                        .into_iter()
-                        .map(|(i, x)| (i.into(), x.into()))
-                        .collect()
-                }
+//                 #[getter]
+//                 fn get_scales(&self) -> Vec<(usize, PyScale)> {
+//                     self.0
+//                         .scales()
+//                         .into_iter()
+//                         .map(|(i, x)| (i.into(), x.into()))
+//                         .collect()
+//                 }
 
-                #[setter]
-                fn set_scales(&mut self, xs: Vec<PyScale>) -> PyResult<()> {
-                    self.0
-                        .set_scales(xs.into_iter().map(|x| x.into()).collect())
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))
-                }
-            }
-        )*
-    };
-}
+//                 #[setter]
+//                 fn set_scales(&mut self, xs: Vec<PyScale>) -> PyResult<()> {
+//                     self.0
+//                         .set_scales(xs.into_iter().map(|x| x.into()).collect())
+//                         .map_err(|e| PyreflowException::new_err(e.to_string()))
+//                 }
+//             }
+//         )*
+//     };
+// }
 
-scales_methods!(
-    PyCoreTEXT3_0,
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_0,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2
-);
+// scales_methods!(
+//     PyCoreTEXT3_0,
+//     PyCoreTEXT3_1,
+//     PyCoreTEXT3_2,
+//     PyCoreDataset3_0,
+//     PyCoreDataset3_1,
+//     PyCoreDataset3_2
+// );
 
 // Get/set methods for $TIMESTEP (3.0-3.2)
 macro_rules! timestep_methods {
@@ -3029,46 +3029,46 @@ vol_methods!(
 );
 
 // Get/set methods for $PnG (3.0-3.2)
-macro_rules! gain_methods {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn get_gains(&self) -> Vec<(usize, Option<f32>)> {
-                    self.0
-                        .gains()
-                        .into_iter()
-                        .map(|(i, x)| (
-                            i.into(),
-                            x.as_ref().copied().map(|y| y.0.into())
-                        ))
-                        .collect()
-                }
+// macro_rules! gain_methods {
+//     ($($pytype:ident),*) => {
+//         $(
+//             #[pymethods]
+//             impl $pytype {
+//                 #[getter]
+//                 fn get_gains(&self) -> Vec<(usize, Option<f32>)> {
+//                     self.0
+//                         .gains()
+//                         .into_iter()
+//                         .map(|(i, x)| (
+//                             i.into(),
+//                             x.as_ref().copied().map(|y| y.0.into())
+//                         ))
+//                         .collect()
+//                 }
 
-                #[setter]
-                fn set_gains(&mut self, xs: Vec<Option<f32>>) -> PyResult<()> {
-                    let mut ys = vec![];
-                    for x in xs {
-                        ys.push(x.map(f32_to_positive_float).transpose()?.map(Gain));
-                    }
-                    self.0
-                        .set_gains(ys)
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))
-                }
-            }
-        )*
-    };
-}
+//                 #[setter]
+//                 fn set_gains(&mut self, xs: Vec<Option<f32>>) -> PyResult<()> {
+//                     let mut ys = vec![];
+//                     for x in xs {
+//                         ys.push(x.map(f32_to_positive_float).transpose()?.map(Gain));
+//                     }
+//                     self.0
+//                         .set_gains(ys)
+//                         .map_err(|e| PyreflowException::new_err(e.to_string()))
+//                 }
+//             }
+//         )*
+//     };
+// }
 
-gain_methods!(
-    PyCoreTEXT3_0,
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_0,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2
-);
+// gain_methods!(
+//     PyCoreTEXT3_0,
+//     PyCoreTEXT3_1,
+//     PyCoreTEXT3_2,
+//     PyCoreDataset3_0,
+//     PyCoreDataset3_1,
+//     PyCoreDataset3_2
+// );
 
 // Get/set methods for (optional) $CYT (2.0-3.1)
 //
@@ -3565,50 +3565,50 @@ get_set_copied!(
 );
 
 // $PnG (3.0-3.2)
-macro_rules! meas_get_set_gain {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn get_gain(&self) -> Option<f32> {
-                    self.0.specific.gain.as_ref_opt().map(|x| x.0.into())
-                }
+// macro_rules! meas_get_set_gain {
+//     ($($pytype:ident),*) => {
+//         $(
+//             #[pymethods]
+//             impl $pytype {
+//                 #[getter]
+//                 fn get_gain(&self) -> Option<f32> {
+//                     self.0.specific.gain.as_ref_opt().map(|x| x.0.into())
+//                 }
 
-                #[setter]
-                fn set_gain(&mut self, x: Option<f32>) -> PyResult<()> {
-                    let y = x.map(to_positive_float).transpose()?;
-                    self.0.specific.gain = y.map(|z| z.into()).into();
-                    Ok(())
-                }
-            }
-        )*
-    };
-}
+//                 #[setter]
+//                 fn set_gain(&mut self, x: Option<f32>) -> PyResult<()> {
+//                     let y = x.map(to_positive_float).transpose()?;
+//                     self.0.specific.gain = y.map(|z| z.into()).into();
+//                     Ok(())
+//                 }
+//             }
+//         )*
+//     };
+// }
 
-meas_get_set_gain!(PyOptical3_0, PyOptical3_1, PyOptical3_2);
+// meas_get_set_gain!(PyOptical3_0, PyOptical3_1, PyOptical3_2);
 
-// $PnE (3.0-3.2)
-macro_rules! meas_get_set_scale {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn get_scale(&self) -> PyScale {
-                    self.0.specific.scale.into()
-                }
+// // $PnE (3.0-3.2)
+// macro_rules! meas_get_set_scale {
+//     ($($pytype:ident),*) => {
+//         $(
+//             #[pymethods]
+//             impl $pytype {
+//                 #[getter]
+//                 fn get_scale(&self) -> PyScale {
+//                     self.0.specific.scale.into()
+//                 }
 
-                #[setter]
-                fn set_scale(&mut self, x: PyScale) {
-                    self.0.specific.scale = x.into();
-                }
-            }
-        )*
-    };
-}
+//                 #[setter]
+//                 fn set_scale(&mut self, x: PyScale) {
+//                     self.0.specific.scale = x.into();
+//                 }
+//             }
+//         )*
+//     };
+// }
 
-meas_get_set_scale!(PyOptical3_0, PyOptical3_1, PyOptical3_2);
+// meas_get_set_scale!(PyOptical3_0, PyOptical3_1, PyOptical3_2);
 
 // #PnL (2.0-3.0)
 macro_rules! meas_get_set_wavelengths {
@@ -3773,7 +3773,7 @@ get_set_cloned!(
     PyCalibration3_2
 );
 
-fn any_to_opt_named_pair<'py, X>(a: Bound<'py, PyAny>) -> PyResult<(OptionalValue<Shortname>, X)>
+fn any_to_opt_named_pair<'py, X>(a: Bound<'py, PyAny>) -> PyResult<(MaybeValue<Shortname>, X)>
 where
     X: FromPyObject<'py>,
 {

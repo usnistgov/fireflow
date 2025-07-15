@@ -978,9 +978,9 @@ pub trait ResultExt {
     where
         F: From<Self::E>;
 
-    fn into_deferred<F, W>(self) -> DeferredResult<Self::V, W, F>
+    fn into_deferred<W, E1>(self) -> DeferredResult<Self::V, W, E1>
     where
-        F: From<Self::E>;
+        E1: From<Self::E>;
 
     fn zip<A>(self, a: Result<A, Self::E>) -> MultiResult<(Self::V, A), Self::E>;
 
@@ -1004,9 +1004,9 @@ impl<V, E> ResultExt for Result<V, E> {
         self.map_err(|e| NonEmpty::new(e.into()))
     }
 
-    fn into_deferred<F, W>(self) -> DeferredResult<Self::V, W, F>
+    fn into_deferred<W, E1>(self) -> DeferredResult<Self::V, W, E1>
     where
-        F: From<Self::E>,
+        E1: From<Self::E>,
     {
         self.map(Tentative::new1)
             .map_err(|e| DeferredFailure::new1(e.into()))

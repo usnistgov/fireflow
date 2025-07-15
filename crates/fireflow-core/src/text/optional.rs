@@ -1,3 +1,4 @@
+use derive_more::{AsMut, AsRef};
 use serde::Serialize;
 use std::convert::Infallible;
 use std::fmt;
@@ -8,7 +9,7 @@ use std::mem;
 ///
 /// This is basically [`Option`] but more obvious in what it indicates. It also
 /// allows some nice methods to be built on top of [`Option`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, AsRef, AsMut)]
 pub struct MaybeValue<T>(pub Option<T>);
 
 /// A value that always exists.

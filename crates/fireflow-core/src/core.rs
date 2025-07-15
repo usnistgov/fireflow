@@ -23,7 +23,7 @@ use crate::validated::keys::*;
 use crate::validated::shortname::*;
 
 use chrono::Timelike;
-use derive_more::{Display, From};
+use derive_more::{AsMut, AsRef, Display, From};
 use itertools::Itertools;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
@@ -565,12 +565,14 @@ pub struct InnerTemporal3_2 {
 }
 
 /// Optical measurement fields specific to version 2.0
-#[derive(Clone, Serialize, Default)]
+#[derive(Clone, Serialize, Default, AsRef, AsMut)]
 pub struct InnerOptical2_0 {
     /// Value for $PnE
     pub scale: MaybeValue<Scale>,
 
     /// Value for $PnL
+    #[as_ref(Option<Wavelength>)]
+    #[as_mut(Option<Wavelength>)]
     pub wavelength: MaybeValue<Wavelength>,
 
     /// Values of $Pkn/$PKNn
@@ -578,12 +580,14 @@ pub struct InnerOptical2_0 {
 }
 
 /// Optical measurement fields specific to version 3.0
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerOptical3_0 {
     /// Value for $PnE/$PnG
     pub scale: ScaleTransform,
 
     /// Value for $PnL
+    #[as_ref(Option<Wavelength>)]
+    #[as_mut(Option<Wavelength>)]
     pub wavelength: MaybeValue<Wavelength>,
 
     /// Values of $Pkn/$PKNn
@@ -2161,6 +2165,37 @@ where
         self.measurements.as_center_mut()
     }
 
+    pub fn get_non_temporal<'a, X: 'a>(&'a self) -> impl Iterator<Item = (MeasIndex, &'a X)>
+    where
+        M::Optical: AsRef<X>,
+    {
+        self.measurements
+            .iter_non_center_values()
+            .map(|(i, m)| (i, m.specific.as_ref()))
+    }
+
+    pub fn get_non_temporal_opt<'a, X: 'a>(
+        &'a self,
+    ) -> impl Iterator<Item = (MeasIndex, Option<&'a X>)>
+    where
+        M::Optical: AsRef<Option<X>>,
+    {
+        self.measurements
+            .iter_non_center_values()
+            .map(|(i, m)| (i, m.specific.as_ref().as_ref()))
+    }
+
+    pub fn set_non_temporal<X>(&mut self, xs: Vec<X>) -> Result<(), KeyLengthError>
+    where
+        M::Optical: AsMut<X>,
+    {
+        self.measurements
+            .alter_non_center_values_zip(xs, |m, x| {
+                *m.specific.as_mut() = x;
+            })
+            .map(|_| ())
+    }
+
     non_time_get_set!(filters, set_filters, Filter, [], filter, PnF);
 
     non_time_get_set!(powers, set_powers, Power, [], power, PnO);
@@ -3427,14 +3462,14 @@ impl<A, D, O> Core2_0<A, D, O> {
 
     timestamp_methods!(FCSTime);
 
-    non_time_get_set!(
-        wavelengths,
-        set_wavelengths,
-        Wavelength,
-        [specific],
-        wavelength,
-        PnL
-    );
+    // non_time_get_set!(
+    //     wavelengths,
+    //     set_wavelengths,
+    //     Wavelength,
+    //     [specific],
+    //     wavelength,
+    //     PnL
+    // );
 }
 
 impl<A, D, O> Core3_0<A, D, O> {

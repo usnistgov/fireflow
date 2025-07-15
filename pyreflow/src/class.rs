@@ -2765,9 +2765,7 @@ macro_rules! wavelength_methods {
             impl $pytype {
                 #[getter]
                 fn get_wavelengths(&self) -> Vec<(usize, Option<f32>)> {
-                    self.0
-                        .wavelengths()
-                        .into_iter()
+                    self.0.get_non_temporal_opt::<Wavelength>()
                         .map(|(i, x)| (i.into(), x.map(|y| y.0.into())))
                         .collect()
                 }
@@ -2779,7 +2777,7 @@ macro_rules! wavelength_methods {
                         .map(|x| x.map(|y| f32_to_positive_float(y).map(|z| z.into())).transpose())
                         .collect::<Result<Vec<_>, _>>()?;
                     self.0
-                        .set_wavelengths(ys)
+                        .set_non_temporal(ys)
                         .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
             }

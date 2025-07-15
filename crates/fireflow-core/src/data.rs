@@ -59,6 +59,7 @@ use crate::text::float_decimal::{FloatDecimal, FloatToDecimalError, HasFloatBoun
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::*;
 use crate::text::optional::ClearOptional;
+use crate::text::optional::MightHave;
 use crate::text::parser::*;
 use crate::validated::ascii_range;
 use crate::validated::ascii_range::{AsciiRange, Chars};
@@ -443,6 +444,8 @@ pub trait LayoutOps<'a, T>: Sized {
 
     fn datatype(&self) -> AlphaNumType;
 
+    fn datatypes(&self) -> NonEmpty<AlphaNumType>;
+
     fn byteord_keyword(&self) -> (String, String);
 
     fn req_keywords(&self) -> [(String, String); 2] {
@@ -471,6 +474,38 @@ pub trait LayoutOps<'a, T>: Sized {
         h: &mut BufWriter<W>,
         df: &'a FCSDataFrame,
     ) -> io::Result<()>;
+
+    // TODO this should be private
+    fn check_transforms<N: MightHave, Tm, Om: HasScaleTransform>(
+        &self,
+        meas: &Measurements<N, Tm, Om>,
+    ) -> MultiResult<(), ColumnError<ScaleMismatchTransformError>> {
+        // ASSUME measurements and layout columns are the same length
+        self.datatypes()
+            .iter()
+            .zip(meas.iter_with(&|_, t| t.value.as_transform(), &|_, m| {
+                m.value.as_transform()
+            }))
+            .enumerate()
+            .map(|(i, (&datatype, scale))| {
+                // Only integers are allowed to have gain and log scaling, so
+                // everything else should be a "noop" transform (ie a linear
+                // transform with slope of 1.0). NOTE the standard itself is
+                // vague about what should happen to ASCII values (presumably
+                // since nobody cares) so here we just treat them like we treat
+                // floating point types to keep the logic simple.
+                if datatype != AlphaNumType::Integer && !scale.is_noop() {
+                    Err(ColumnError {
+                        error: ScaleMismatchTransformError { datatype, scale },
+                        index: i.into(),
+                    })
+                } else {
+                    Ok(())
+                }
+            })
+            .gather()
+            .void()
+    }
 }
 
 #[delegatable_trait]
@@ -569,6 +604,19 @@ where
         }
         self.h_write_df_inner(h, df)
     }
+
+    fn check_measurement_vector<N: MightHave, T, O: HasScaleTransform>(
+        &self,
+        meas: &Measurements<N, T, O>,
+    ) -> MultiResult<(), MeasLayoutMismatchError> {
+        let meas_n = meas.len();
+        let layout_n = self.ncols();
+        if meas_n != layout_n {
+            return Err(MeasLayoutLengthsError { meas_n, layout_n }).into_mult();
+        }
+        self.check_transforms(meas).mult_errors_into()?;
+        Ok(())
+    }
 }
 
 pub trait HasNativeType: Sized {
@@ -590,6 +638,8 @@ pub trait HasNativeWidth: HasNativeType {
 
 /// A column which has a $DATATYPE keyword
 pub trait HasDatatype: Sized {
+    fn datatype(&self) -> AlphaNumType;
+
     fn datatype_from_columns(cs: &NonEmpty<Self>) -> AlphaNumType;
 }
 
@@ -2009,6 +2059,10 @@ where
         AlphaNumType::Ascii
     }
 
+    fn datatypes(&self) -> NonEmpty<AlphaNumType> {
+        self.ranges.as_ref().map(|_| self.datatype())
+    }
+
     fn byteord_keyword(&self) -> (String, String) {
         // NOTE BYTEORD is meaningless for delimited ASCII so use a dummy
         <NoByteOrd<ORD> as HasByteOrd>::ByteOrd::from(NoByteOrd).pair()
@@ -2295,6 +2349,10 @@ where
 
     fn datatype(&self) -> AlphaNumType {
         C::datatype_from_columns(&self.columns)
+    }
+
+    fn datatypes(&self) -> NonEmpty<AlphaNumType> {
+        self.columns.as_ref().map(|c| c.datatype())
     }
 
     fn byteord_keyword(&self) -> (String, String) {
@@ -2656,42 +2714,71 @@ impl HasNativeType for AsciiRange {
 }
 
 impl HasDatatype for AsciiRange {
-    fn datatype_from_columns(_: &NonEmpty<Self>) -> AlphaNumType {
+    fn datatype(&self) -> AlphaNumType {
         AlphaNumType::Ascii
+    }
+
+    fn datatype_from_columns(cs: &NonEmpty<Self>) -> AlphaNumType {
+        cs.head.datatype()
     }
 }
 
 impl<T, const LEN: usize> HasDatatype for Bitmask<T, LEN> {
-    fn datatype_from_columns(_: &NonEmpty<Self>) -> AlphaNumType {
+    fn datatype(&self) -> AlphaNumType {
         AlphaNumType::Integer
+    }
+
+    fn datatype_from_columns(cs: &NonEmpty<Self>) -> AlphaNumType {
+        cs.head.datatype()
     }
 }
 
 impl HasDatatype for F32Range {
-    fn datatype_from_columns(_: &NonEmpty<Self>) -> AlphaNumType {
+    fn datatype(&self) -> AlphaNumType {
         AlphaNumType::Single
+    }
+
+    fn datatype_from_columns(cs: &NonEmpty<Self>) -> AlphaNumType {
+        cs.head.datatype()
     }
 }
 
 impl HasDatatype for F64Range {
-    fn datatype_from_columns(_: &NonEmpty<Self>) -> AlphaNumType {
+    fn datatype(&self) -> AlphaNumType {
         AlphaNumType::Double
+    }
+
+    fn datatype_from_columns(cs: &NonEmpty<Self>) -> AlphaNumType {
+        cs.head.datatype()
     }
 }
 
 impl HasDatatype for AnyNullBitmask {
-    fn datatype_from_columns(_: &NonEmpty<Self>) -> AlphaNumType {
+    fn datatype(&self) -> AlphaNumType {
         AlphaNumType::Integer
+    }
+
+    fn datatype_from_columns(cs: &NonEmpty<Self>) -> AlphaNumType {
+        cs.head.datatype()
     }
 }
 
 impl HasDatatype for NullMixedType {
+    fn datatype(&self) -> AlphaNumType {
+        match self {
+            Self::Ascii(_) => AlphaNumType::Ascii,
+            Self::Uint(_) => AlphaNumType::Integer,
+            Self::F32(_) => AlphaNumType::Single,
+            Self::F64(_) => AlphaNumType::Double,
+        }
+    }
+
     fn datatype_from_columns(cs: &NonEmpty<Self>) -> AlphaNumType {
         // If any numeric types are none, then that means at least one column is
         // ASCII, which means that $DATATYPE needs to be "A" since $PnDATATYPE
         // cannot be "A". Otherwise, find majority type.
         cs.as_ref()
-            .try_map(|c| NumType::try_from(c.as_alpha_num_type()))
+            .try_map(|c| NumType::try_from(c.datatype()))
             .ok()
             .map_or(AlphaNumType::Ascii, |mut ds| {
                 ds.sort();
@@ -3224,7 +3311,7 @@ impl InterLayoutOps<HasMeasDatatype> for DataLayout3_2 {
                 .enumerate()
                 .map(|(i, _)| vec![NumType::pair_opt(&None.into(), i.into())]),
             Self::Mixed(x) => x.columns.as_ref().enumerate().map(|(i, c)| {
-                let y = NumType::try_from(c.as_alpha_num_type()).ok();
+                let y = NumType::try_from(c.datatype()).ok();
                 vec![NumType::pair_opt(&y.into(), i.into())]
             }),
         }
@@ -3312,15 +3399,15 @@ impl DataLayout3_2 {
         }
     }
 
-    pub fn datatypes(&self) -> NonEmpty<AlphaNumType> {
-        match self {
-            // somewhat hacky way of getting a nonempty in a type-safe way
-            Self::NonMixed(x) => LayoutOps::ranges(x)
-                .as_ref()
-                .map(|_| LayoutOps::datatype(x)),
-            Self::Mixed(x) => x.columns.as_ref().map(|y| y.as_alpha_num_type()),
-        }
-    }
+    // pub fn datatypes(&self) -> NonEmpty<AlphaNumType> {
+    //     match self {
+    //         // somewhat hacky way of getting a nonempty in a type-safe way
+    //         Self::NonMixed(x) => LayoutOps::ranges(x)
+    //             .as_ref()
+    //             .map(|_| LayoutOps::datatype(x)),
+    //         Self::Mixed(x) => x.columns.as_ref().map(|y| y.datatype()),
+    //     }
+    // }
 
     /// A dummy layout, used to make ['std::mem::replace'] work; not meaninful.
     fn mixed_dummy() -> Self {
@@ -3979,6 +4066,43 @@ impl fmt::Display for MixedToInnerError {
             "could not convert mixed from {} to {}",
             self.src.as_alpha_num_type(),
             self.dest_type
+        )
+    }
+}
+
+#[derive(From, Display)]
+pub enum MeasLayoutMismatchError {
+    Lengths(MeasLayoutLengthsError),
+    Scale(ColumnError<ScaleMismatchTransformError>),
+}
+
+pub struct MeasLayoutLengthsError {
+    meas_n: usize,
+    layout_n: usize,
+}
+
+impl fmt::Display for MeasLayoutLengthsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "measurement number ({}) does not match layout column number ({})",
+            self.meas_n, self.layout_n
+        )
+    }
+}
+
+pub struct ScaleMismatchTransformError {
+    datatype: AlphaNumType,
+    scale: ScaleTransform,
+}
+
+impl fmt::Display for ScaleMismatchTransformError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "only integer columns may have non-unitary scale transforms, \
+             column was '{}' and its scale transform was '{}'",
+            self.datatype, self.scale
         )
     }
 }

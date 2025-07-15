@@ -1070,6 +1070,8 @@ pub trait MultiResultExt: Sized {
     fn mult_map_errors<F, X>(self, f: F) -> MultiResult<Self::V, X>
     where
         F: Fn(Self::E) -> X;
+
+    fn mult_terminate<T>(self, reason: T) -> TerminalResult<Self::V, (), Self::E, T>;
 }
 
 impl<V, E> MultiResultExt for MultiResult<V, E> {
@@ -1102,6 +1104,11 @@ impl<V, E> MultiResultExt for MultiResult<V, E> {
         F: Fn(Self::E) -> X,
     {
         self.map_err(|es| es.map(f))
+    }
+
+    fn mult_terminate<T>(self, reason: T) -> TerminalResult<Self::V, (), Self::E, T> {
+        self.map(Terminal::new)
+            .map_err(|es| DeferredFailure::new2(es).terminate(reason))
     }
 }
 

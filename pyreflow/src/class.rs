@@ -2443,7 +2443,9 @@ macro_rules! set_measurements2_0 {
                     }
                     self.0
                         .set_measurements(ys, sp)
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))
+                        .mult_terminate(SetMeasurementsFailure)
+                        .map_err(handle_failure_nowarn)
+                        .void()
                 }
             }
         )*
@@ -2478,7 +2480,9 @@ macro_rules! set_measurements3_1 {
                     }
                     self.0
                         .set_measurements(ys)
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))
+                        .mult_terminate(SetMeasurementsFailure)
+                        .map_err(handle_failure_nowarn)
+                        .void()
                 }
             }
         )*
@@ -2514,13 +2518,13 @@ macro_rules! coredata2_0_meas_methods {
                         };
                         ys.push(y);
                     };
-                    let go = || {
-                        let cols = dataframe_to_fcs(df.into())
-                            .map_err(|e| e.to_string())?;
-                        self.0.set_measurements_and_data(ys, cols, sp)
-                            .map_err(|e| e.to_string())
-                    };
-                    go().map_err(PyreflowException::new_err)
+                    let cols = dataframe_to_fcs(df.into())
+                        .map_err(|e| e.to_string())
+                        .map_err(PyreflowException::new_err)?;
+                    self.0.set_measurements_and_data(ys, cols, sp)
+                        .mult_terminate(SetMeasurementsFailure)
+                        .map_err(handle_failure_nowarn)
+                        .void()
                 }
             }
         )*
@@ -2552,13 +2556,13 @@ macro_rules! coredata3_1_meas_methods {
                         };
                         ys.push(y);
                     };
-                    let go = || {
-                        let cols = dataframe_to_fcs(df.into())
-                        .map_err(|e| e.to_string())?;
-                        self.0.set_measurements_and_data(ys, cols)
+                    let cols = dataframe_to_fcs(df.into())
                         .map_err(|e| e.to_string())
-                    };
-                    go().map_err(PyreflowException::new_err)
+                        .map_err(PyreflowException::new_err)?;
+                    self.0.set_measurements_and_data(ys, cols)
+                        .mult_terminate(SetMeasurementsFailure)
+                        .map_err(handle_failure_nowarn)
+                        .void()
                 }
             }
         )*
@@ -3958,5 +3962,13 @@ struct InsertOpticalFailure;
 impl fmt::Display for InsertOpticalFailure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "could not push optical measurement")
+    }
+}
+
+struct SetMeasurementsFailure;
+
+impl fmt::Display for SetMeasurementsFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "could not set measurements/layout")
     }
 }

@@ -31,6 +31,11 @@ pub struct LogScale {
     offset: PositiveFloat,
 }
 
+impl fmt::Display for LogScale {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{},{}", self.decades, self.offset)
+    }
+}
 
 impl Scale {
     pub fn try_new_log(decades: f32, offset: f32) -> Result<Self, LogRangeError> {
@@ -146,7 +151,7 @@ impl Scale {
 impl fmt::Display for Scale {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            Scale::Log(LogScale { decades, offset }) => write!(f, "{decades},{offset}"),
+            Scale::Log(x) => x.fmt(f),
             Scale::Linear => write!(f, "0,0"),
         }
     }

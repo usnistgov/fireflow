@@ -960,6 +960,10 @@ pub trait Versioned {
     }
 }
 
+pub trait HasScaleTransform {
+    fn as_transform(&self) -> ScaleTransform;
+}
+
 pub(crate) trait LookupMetaroot: Sized + VersionedMetaroot {
     fn lookup_shortname(
         kws: &mut StdKeywords,
@@ -1292,10 +1296,7 @@ impl CommonMeasurement {
     }
 }
 
-impl<T> Temporal<T>
-where
-    T: VersionedTemporal,
-{
+impl<T> Temporal<T> {
     fn new_common(specific: T) -> Self {
         Self {
             common: CommonMeasurement::default(),
@@ -1327,26 +1328,36 @@ where
         })
     }
 
-    fn req_meas_keywords(&self, _: MeasIndex) -> impl Iterator<Item = (String, String)> {
+    fn req_meas_keywords(&self, _: MeasIndex) -> impl Iterator<Item = (String, String)>
+    where
+        T: VersionedTemporal,
+    {
         [].into_iter()
     }
 
-    fn req_meta_keywords(&self) -> impl Iterator<Item = (String, String)> {
+    fn req_meta_keywords(&self) -> impl Iterator<Item = (String, String)>
+    where
+        T: VersionedTemporal,
+    {
         self.specific.req_meta_keywords_inner()
     }
 
-    fn opt_meas_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
+    fn opt_meas_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)>
+    where
+        T: VersionedTemporal,
+    {
         [OptIndexedKey::pair_opt(&self.common.longname, i.into())]
             .into_iter()
             .flat_map(|(k, v)| v.map(|x| (k, x)))
             .chain(self.specific.opt_meas_keywords_inner(i))
     }
+
+    pub(crate) fn as_transform(&self) -> ScaleTransform {
+        ScaleTransform::default()
+    }
 }
 
-impl<O> Optical<O>
-where
-    O: VersionedOptical,
-{
+impl<O> Optical<O> {
     fn new_common(specific: O) -> Self {
         Self {
             common: CommonMeasurement::default(),
@@ -1413,14 +1424,20 @@ where
         )
     }
 
-    fn req_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (MeasHeader, String, String)> {
+    fn req_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (MeasHeader, String, String)>
+    where
+        O: VersionedOptical,
+    {
         self.specific.req_suffixes_inner(i)
     }
 
     fn opt_keywords(
         &self,
         i: MeasIndex,
-    ) -> impl Iterator<Item = (MeasHeader, String, Option<String>)> {
+    ) -> impl Iterator<Item = (MeasHeader, String, Option<String>)>
+    where
+        O: VersionedOptical,
+    {
         [
             OptIndexedKey::triple(&self.common.longname, i.into()),
             OptIndexedKey::triple(&self.filter, i.into()),
@@ -1435,7 +1452,10 @@ where
 
     // TODO move out, this is specific to the CLI interface
     // for table
-    fn table_pairs(&self) -> impl Iterator<Item = (MeasHeader, Option<String>)> {
+    fn table_pairs(&self) -> impl Iterator<Item = (MeasHeader, Option<String>)>
+    where
+        O: VersionedOptical,
+    {
         // zero is a dummy and not meaningful here
         let n = 0.into();
         self.req_keywords(n)
@@ -1443,7 +1463,10 @@ where
             .chain(self.opt_keywords(n).map(|(k, _, v)| (k, v)))
     }
 
-    fn table_header(&self, opt_layout: Vec<MeasHeader>) -> Vec<String> {
+    fn table_header(&self, opt_layout: Vec<MeasHeader>) -> Vec<String>
+    where
+        O: VersionedOptical,
+    {
         let req_layout = req_meas_headers();
         [MeasHeader("index".into()), Shortname::std_blank()]
             .into_iter()
@@ -1460,7 +1483,10 @@ where
         n: Option<&Shortname>,
         req_layout: [String; 2],
         opt_layout: Vec<Option<String>>,
-    ) -> Vec<String> {
+    ) -> Vec<String>
+    where
+        O: VersionedOptical,
+    {
         let na = || "NA".into();
         [i.to_string(), n.map_or(na(), |x| x.to_string())]
             .into_iter()
@@ -1476,11 +1502,17 @@ where
 
     // TODO this name is weird, this is standard+nonstandard keywords
     // after filtering out None values
-    fn all_req_keywords(&self, n: MeasIndex) -> impl Iterator<Item = (String, String)> {
+    fn all_req_keywords(&self, n: MeasIndex) -> impl Iterator<Item = (String, String)>
+    where
+        O: VersionedOptical,
+    {
         self.req_keywords(n).map(|(_, k, v)| (k, v))
     }
 
-    fn all_opt_keywords(&self, n: MeasIndex) -> impl Iterator<Item = (String, String)> {
+    fn all_opt_keywords(&self, n: MeasIndex) -> impl Iterator<Item = (String, String)>
+    where
+        O: VersionedOptical,
+    {
         self.opt_keywords(n)
             .filter_map(|(_, k, v)| v.map(|x| (k, x)))
             .chain(
@@ -1489,6 +1521,13 @@ where
                     .iter()
                     .map(|(k, v)| (k.to_string(), v.clone())),
             )
+    }
+
+    pub(crate) fn as_transform(&self) -> ScaleTransform
+    where
+        O: HasScaleTransform,
+    {
+        self.specific.as_transform()
     }
 }
 
@@ -1687,8 +1726,8 @@ where
     }
 }
 
-pub(crate) type Measurements<N, T, P> =
-    NamedVec<N, <N as MightHave>::Wrapper<Shortname>, Temporal<T>, Optical<P>>;
+pub(crate) type Measurements<N, T, O> =
+    NamedVec<N, <N as MightHave>::Wrapper<Shortname>, Temporal<T>, Optical<O>>;
 
 pub(crate) type VersionedCore<A, D, O, M> = Core<
     A,
@@ -2390,27 +2429,29 @@ where
         &mut self,
         xs: RawInput<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         prefix: ShortnamePrefix,
-    ) -> Result<(), SetMeasurementsError> {
-        let meas_n = xs.len();
-        let layout_n = self.layout_len();
-        if meas_n != layout_n {
-            return Err(MeasLayoutMismatchError { meas_n, layout_n }.into());
+    ) -> MultiResult<(), SetMeasurementsError>
+    where
+        M::Optical: HasScaleTransform,
+    {
+        self.check_existing_links().into_mult()?;
+        let ms = NamedVec::try_new(xs, prefix).into_mult()?;
+        if let Some(l) = self.layout.as_ref_opt() {
+            l.check_measurement_vector(&ms).mult_errors_into()?;
+            self.measurements = ms;
+            Ok(())
+        } else {
+            Err(EmptyLayoutError).into_mult()
         }
-        self.check_existing_links()?;
-        let ms = NamedVec::try_new(xs, prefix)?;
-        self.measurements = ms;
-        Ok(())
     }
 
     fn set_layout_inner(
         &mut self,
         layout: <M::Ver as Versioned>::Layout,
-    ) -> Result<(), MeasLayoutMismatchError> {
-        let meas_n = self.measurements.len();
-        let layout_n = layout.ncols();
-        if meas_n != layout_n {
-            return Err(MeasLayoutMismatchError { meas_n, layout_n });
-        }
+    ) -> MultiResult<(), MeasLayoutMismatchError>
+    where
+        M::Optical: HasScaleTransform,
+    {
+        layout.check_measurement_vector(&self.measurements)?;
         self.layout = Some(layout).into();
         Ok(())
     }
@@ -2420,14 +2461,13 @@ where
         measurements: RawInput<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         layout: <M::Ver as Versioned>::Layout,
         prefix: ShortnamePrefix,
-    ) -> Result<(), SetMeasurementsError> {
-        let meas_n = measurements.len();
-        let layout_n = layout.ncols();
-        if meas_n != layout_n {
-            return Err(MeasLayoutMismatchError { meas_n, layout_n }.into());
-        }
-        self.check_existing_links()?;
-        let ms = NamedVec::try_new(measurements, prefix)?;
+    ) -> MultiResult<(), SetMeasurementsError>
+    where
+        M::Optical: HasScaleTransform,
+    {
+        self.check_existing_links().into_mult()?;
+        let ms = NamedVec::try_new(measurements, prefix).into_mult()?;
+        layout.check_measurement_vector(&ms).mult_errors_into()?;
         self.measurements = ms;
         self.layout = Some(layout).into();
         Ok(())
@@ -2438,13 +2478,6 @@ where
         self.measurements = NamedVec::default();
         self.layout = None.into();
         Ok(())
-    }
-
-    fn layout_len(&self) -> usize {
-        self.layout
-            .as_ref_opt()
-            .map(|x| x.ncols())
-            .unwrap_or_default()
     }
 
     fn header_and_raw_keywords(
@@ -2899,7 +2932,10 @@ where
     pub fn set_layout(
         &mut self,
         layout: <M::Ver as Versioned>::Layout,
-    ) -> Result<(), MeasLayoutMismatchError> {
+    ) -> MultiResult<(), MeasLayoutMismatchError>
+    where
+        M::Optical: HasScaleTransform,
+    {
         self.set_layout_inner(layout)
     }
 
@@ -3578,7 +3614,7 @@ macro_rules! coretext_set_measurements2_0 {
             &mut self,
             xs: $rawinput,
             prefix: ShortnamePrefix,
-        ) -> Result<(), SetMeasurementsError> {
+        ) -> MultiResult<(), SetMeasurementsError> {
             self.set_measurements_inner(xs, prefix)
         }
 
@@ -3592,7 +3628,7 @@ macro_rules! coretext_set_measurements2_0 {
             xs: $rawinput,
             layout: $layout,
             prefix: ShortnamePrefix,
-        ) -> Result<(), SetMeasurementsError> {
+        ) -> MultiResult<(), SetMeasurementsError> {
             self.set_measurements_and_layout_inner(xs, layout, prefix)
         }
     };
@@ -3605,7 +3641,7 @@ macro_rules! coretext_set_measurements3_1 {
         /// Return error if names are not unique, if there is more than one
         /// time measurement, or if the measurement length doesn't match the
         /// layout length.
-        pub fn set_measurements(&mut self, xs: $rawinput) -> Result<(), SetMeasurementsError> {
+        pub fn set_measurements(&mut self, xs: $rawinput) -> MultiResult<(), SetMeasurementsError> {
             self.set_measurements_inner(xs, ShortnamePrefix::default())
         }
 
@@ -3618,7 +3654,7 @@ macro_rules! coretext_set_measurements3_1 {
             &mut self,
             xs: $rawinput,
             layout: $layout,
-        ) -> Result<(), SetMeasurementsError> {
+        ) -> MultiResult<(), SetMeasurementsError> {
             self.set_measurements_and_layout_inner(xs, layout, ShortnamePrefix::default())
         }
     };
@@ -3674,14 +3710,14 @@ macro_rules! coredataset_set_measurements2_0 {
             xs: $rawinput,
             cs: Vec<AnyFCSColumn>,
             prefix: ShortnamePrefix,
-        ) -> Result<(), SetMeasurementsAndDataError> {
+        ) -> MultiResult<(), SetMeasurementsAndDataError> {
             let meas_n = xs.len();
             let data_n = cs.len();
             if meas_n != data_n {
-                return Err(MeasDataMismatchError { meas_n, data_n }.into());
+                return Err(MeasDataMismatchError { meas_n, data_n }).into_mult();
             }
-            let df = FCSDataFrame::try_new(cs)?;
-            self.set_measurements_inner(xs, prefix)?;
+            let df = FCSDataFrame::try_new(cs).into_mult()?;
+            self.set_measurements_inner(xs, prefix).mult_errors_into()?;
             self.data = df;
             Ok(())
         }
@@ -3693,13 +3729,13 @@ macro_rules! coredataset_set_measurements2_0 {
             &mut self,
             xs: $rawinput,
             prefix: ShortnamePrefix,
-        ) -> Result<(), SetMeasurementsOnlyError> {
+        ) -> MultiResult<(), SetMeasurementsOnlyError> {
             let meas_n = xs.len();
             let data_n = self.par().0;
             if meas_n != data_n {
-                return Err(MeasDataMismatchError { meas_n, data_n }.into());
+                return Err(MeasDataMismatchError { meas_n, data_n }).into_mult();
             }
-            self.set_measurements_inner(xs, prefix)?;
+            self.set_measurements_inner(xs, prefix).mult_errors_into()?;
             Ok(())
         }
     };
@@ -3714,14 +3750,15 @@ macro_rules! coredataset_set_measurements3_1 {
             &mut self,
             xs: $rawinput,
             cs: Vec<AnyFCSColumn>,
-        ) -> Result<(), SetMeasurementsAndDataError> {
+        ) -> MultiResult<(), SetMeasurementsAndDataError> {
             let meas_n = xs.len();
             let data_n = cs.len();
             if meas_n != data_n {
-                return Err(MeasDataMismatchError { meas_n, data_n }.into());
+                return Err(MeasDataMismatchError { meas_n, data_n }).into_mult();
             }
-            let df = FCSDataFrame::try_new(cs)?;
-            self.set_measurements_inner(xs, ShortnamePrefix::default())?;
+            let df = FCSDataFrame::try_new(cs).into_mult()?;
+            self.set_measurements_inner(xs, ShortnamePrefix::default())
+                .mult_errors_into()?;
             self.data = df;
             Ok(())
         }
@@ -3729,13 +3766,17 @@ macro_rules! coredataset_set_measurements3_1 {
         /// Set measurements.
         ///
         /// Length of measurements must match the current width of the dataframe.
-        pub fn set_measurements(&mut self, xs: $rawinput) -> Result<(), SetMeasurementsOnlyError> {
+        pub fn set_measurements(
+            &mut self,
+            xs: $rawinput,
+        ) -> MultiResult<(), SetMeasurementsOnlyError> {
             let meas_n = xs.len();
             let data_n = self.par().0;
             if meas_n != data_n {
-                return Err(MeasDataMismatchError { meas_n, data_n }.into());
+                return Err(MeasDataMismatchError { meas_n, data_n }).into_mult();
             }
-            self.set_measurements_inner(xs, ShortnamePrefix::default())?;
+            self.set_measurements_inner(xs, ShortnamePrefix::default())
+                .mult_errors_into()?;
             Ok(())
         }
     };
@@ -5590,7 +5631,7 @@ impl ScaleTransform {
         [OptIndexedKey::triple(&gain, i.into())].into_iter()
     }
 
-    fn is_noop(&self) -> bool {
+    pub(crate) fn is_noop(&self) -> bool {
         *self == Self::default()
     }
 }
@@ -5643,6 +5684,15 @@ impl TryFrom<(Scale, MaybeValue<Gain>)> for ScaleTransform {
 impl Default for ScaleTransform {
     fn default() -> Self {
         Self::Lin(PositiveFloat::one())
+    }
+}
+
+impl fmt::Display for ScaleTransform {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Lin(x) => write!(f, "Lin({x})"),
+            Self::Log(x) => write!(f, "Log({x})"),
+        }
     }
 }
 
@@ -5938,6 +5988,30 @@ impl Versioned for Version3_2 {
 
     fn fcs_version() -> Self {
         Version3_2
+    }
+}
+
+impl HasScaleTransform for InnerOptical2_0 {
+    fn as_transform(&self) -> ScaleTransform {
+        self.scale.0.map(|s| s.into()).unwrap_or_default()
+    }
+}
+
+impl HasScaleTransform for InnerOptical3_0 {
+    fn as_transform(&self) -> ScaleTransform {
+        self.scale
+    }
+}
+
+impl HasScaleTransform for InnerOptical3_1 {
+    fn as_transform(&self) -> ScaleTransform {
+        self.scale
+    }
+}
+
+impl HasScaleTransform for InnerOptical3_2 {
+    fn as_transform(&self) -> ScaleTransform {
+        self.scale
     }
 }
 
@@ -7650,7 +7724,8 @@ impl fmt::Display for SpilloverLinkError {
 pub enum SetMeasurementsError {
     New(NewNamedVecError),
     Link(ExistingLinkError),
-    MeasNumber(MeasLayoutMismatchError),
+    Layout(MeasLayoutMismatchError),
+    Empty(EmptyLayoutError),
 }
 
 #[derive(From, Display)]
@@ -7712,21 +7787,6 @@ pub enum PushOpticalToDatasetError {
 pub enum InsertOpticalInDatasetError {
     Measurement(InsertOpticalError),
     Column(ColumnLengthError),
-}
-
-pub struct MeasLayoutMismatchError {
-    meas_n: usize,
-    layout_n: usize,
-}
-
-impl fmt::Display for MeasLayoutMismatchError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "measurement number ({}) does not match layout column number ({})",
-            self.meas_n, self.layout_n
-        )
-    }
 }
 
 pub struct MeasDataMismatchError {
@@ -8208,5 +8268,13 @@ impl fmt::Display for ScaleTransformError {
             "could not make scale transform with log scale '{}' and non-unit gain '{}'",
             self.scale, self.gain
         )
+    }
+}
+
+pub struct EmptyLayoutError;
+
+impl fmt::Display for EmptyLayoutError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "tried to set measurements with an empty data layout",)
     }
 }

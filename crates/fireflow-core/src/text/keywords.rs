@@ -20,7 +20,7 @@ use super::unstainedcenters::*;
 
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use chrono::{NaiveDateTime, NaiveTime, Timelike};
-use derive_more::{Display, From, FromStr, Into};
+use derive_more::{Add, Display, From, FromStr, Into, Sub};
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use num_traits::cast::ToPrimitive;
@@ -1264,7 +1264,7 @@ impl fmt::Display for GatingError {
 }
 
 /// The value of the $PnR key.
-#[derive(Clone, Serialize, From, Display, FromStr)]
+#[derive(Clone, Serialize, From, Display, FromStr, Add, Sub)]
 #[from(u8, u16, u32, u64, BigDecimal)]
 pub struct Range(pub BigDecimal);
 

@@ -1906,7 +1906,6 @@ impl<T, const LEN: usize> FloatRange<T, LEN> {
     }
 }
 
-// TODO also check scale here?
 impl NullMixedType {
     /// Make a new mixed range from $PnB and $PnR, and $PnDATATYPE values
     pub(crate) fn from_width_and_range(
@@ -2796,7 +2795,8 @@ where
     type Error = BitmaskError;
 
     fn from_range(range: Range, notrunc: bool) -> BiTentative<Self, Self::Error> {
-        range
+        // TODO there is probably a better place to do this subtraction
+        (range - Range::from(1_u8))
             .into_uint(notrunc)
             .inner_into()
             .and_tentatively(|x| Bitmask::from_native_tnt(x, notrunc).inner_into())
@@ -2834,7 +2834,10 @@ impl FromRange for AnyNullBitmask {
     /// The size will be determined by the input and will be kept as small as
     /// possible.
     fn from_range(range: Range, notrunc: bool) -> BiTentative<Self, Self::Error> {
-        range.into_uint(notrunc).map(Self::from_u64)
+        // TODO there is probably a better place to do this subtraction
+        (range - Range::from(1_u8))
+            .into_uint(notrunc)
+            .map(Self::from_u64)
     }
 }
 
@@ -2891,9 +2894,7 @@ where
     }
 
     fn range(&self) -> Range {
-        let x = u64::from(self.value());
-        // TODO fix u64 max
-        Range(if x == u64::MAX { x } else { x + 1 }.into())
+        self.into()
     }
 }
 

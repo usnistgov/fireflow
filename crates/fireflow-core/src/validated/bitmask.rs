@@ -24,26 +24,26 @@ pub struct Bitmask<T, const LEN: usize> {
     bitmask: T,
 }
 
-macro_rules! bitmask_type {
-    ($name:ident, $wrapper:ident, $native:ty, $size:expr) => {
-        pub type $name = $wrapper<$native, $size>;
+pub type Bitmask08 = Bitmask<u8, 1>;
+pub type Bitmask16 = Bitmask<u16, 2>;
+pub type Bitmask24 = Bitmask<u32, 3>;
+pub type Bitmask32 = Bitmask<u32, 4>;
+pub type Bitmask40 = Bitmask<u64, 5>;
+pub type Bitmask48 = Bitmask<u64, 6>;
+pub type Bitmask56 = Bitmask<u64, 7>;
+pub type Bitmask64 = Bitmask<u64, 8>;
 
-        impl From<&$name> for Range {
-            fn from(value: &$name) -> Self {
-                Range::from(u64::from(value.value))
-            }
-        }
-    };
+impl<T, const LEN: usize> From<&Bitmask<T, LEN>> for Range
+where
+    T: Copy,
+    u64: From<T>,
+{
+    fn from(value: &Bitmask<T, LEN>) -> Self {
+        // NOTE add 1 since the spec treats int ranges as one less than they
+        // appear in TEXT
+        Range::from(u64::from(value.value))
+    }
 }
-
-bitmask_type!(Bitmask08, Bitmask, u8, 1);
-bitmask_type!(Bitmask16, Bitmask, u16, 2);
-bitmask_type!(Bitmask24, Bitmask, u32, 3);
-bitmask_type!(Bitmask32, Bitmask, u32, 4);
-bitmask_type!(Bitmask40, Bitmask, u64, 5);
-bitmask_type!(Bitmask48, Bitmask, u64, 6);
-bitmask_type!(Bitmask56, Bitmask, u64, 7);
-bitmask_type!(Bitmask64, Bitmask, u64, 8);
 
 impl<T, const LEN: usize> Bitmask<T, LEN> {
     pub(crate) fn value(&self) -> T

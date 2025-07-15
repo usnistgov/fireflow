@@ -962,12 +962,6 @@ macro_rules! impl_any_uint {
                 }
             }
         }
-
-        impl From<$bitmask> for NullMixedType {
-            fn from(value: $bitmask) -> Self {
-                MixedType::Uint(value.into())
-            }
-        }
     };
 }
 
@@ -989,6 +983,15 @@ impl From<AsciiRange> for NullMixedType {
 impl From<AnyNullBitmask> for NullMixedType {
     fn from(value: AnyNullBitmask) -> Self {
         Self::Uint(value)
+    }
+}
+
+impl<T, const LEN: usize> From<Bitmask<T, LEN>> for NullMixedType
+where
+    AnyNullBitmask: From<Bitmask<T, LEN>>,
+{
+    fn from(value: Bitmask<T, LEN>) -> Self {
+        Self::Uint(value.into())
     }
 }
 

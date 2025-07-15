@@ -978,9 +978,9 @@ pub trait ResultExt {
     where
         F: From<Self::E>;
 
-    fn into_deferred<F, W>(self) -> DeferredResult<Self::V, W, F>
+    fn into_deferred<W, E1>(self) -> DeferredResult<Self::V, W, E1>
     where
-        F: From<Self::E>;
+        E1: From<Self::E>;
 
     fn zip<A>(self, a: Result<A, Self::E>) -> MultiResult<(Self::V, A), Self::E>;
 
@@ -1004,9 +1004,9 @@ impl<V, E> ResultExt for Result<V, E> {
         self.map_err(|e| NonEmpty::new(e.into()))
     }
 
-    fn into_deferred<F, W>(self) -> DeferredResult<Self::V, W, F>
+    fn into_deferred<W, E1>(self) -> DeferredResult<Self::V, W, E1>
     where
-        F: From<Self::E>,
+        E1: From<Self::E>,
     {
         self.map(Tentative::new1)
             .map_err(|e| DeferredFailure::new1(e.into()))
@@ -1070,6 +1070,8 @@ pub trait MultiResultExt: Sized {
     fn mult_map_errors<F, X>(self, f: F) -> MultiResult<Self::V, X>
     where
         F: Fn(Self::E) -> X;
+
+    fn mult_terminate<T>(self, reason: T) -> TerminalResult<Self::V, (), Self::E, T>;
 }
 
 impl<V, E> MultiResultExt for MultiResult<V, E> {
@@ -1102,6 +1104,11 @@ impl<V, E> MultiResultExt for MultiResult<V, E> {
         F: Fn(Self::E) -> X,
     {
         self.map_err(|es| es.map(f))
+    }
+
+    fn mult_terminate<T>(self, reason: T) -> TerminalResult<Self::V, (), Self::E, T> {
+        self.map(Terminal::new)
+            .map_err(|es| DeferredFailure::new2(es).terminate(reason))
     }
 }
 

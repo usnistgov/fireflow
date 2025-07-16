@@ -5497,7 +5497,11 @@ impl_ref_specific!(
     Option<Plateid>,
     Option<Wellid>,
     Option<Platename>,
-    Option<Vol>
+    Option<Carrierid>,
+    Option<Carriertype>,
+    Option<Locationid>,
+    Option<Vol>,
+    Option<Flowrate>
 );
 
 impl_ref_specific!(

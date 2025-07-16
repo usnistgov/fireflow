@@ -2856,30 +2856,28 @@ wavelengths_methods!(
 // Get/set methods for $LAST_MODIFIER/$LAST_MODIFIED/$ORIGINALITY (3.1-3.2)
 macro_rules! modification_methods {
     ($($pytype:ident),+) => {
-        get_set_copied!(
-            $($pytype,)*
-            [metaroot, specific, modification],
+        get_set_metaroot_opt!(
             get_originality,
             set_originality,
-            originality,
-            PyOriginality
+            Originality,
+            PyOriginality,
+            $($pytype),*
         );
 
-        get_set_copied!(
-            $($pytype,)*
-            [metaroot, specific, modification],
+        get_set_metaroot_opt!(
             get_last_modified,
             set_last_modified,
-            last_modified,
-            NaiveDateTime
+            ModifiedDateTime,
+            NaiveDateTime,
+            $($pytype),*
         );
 
-        get_set_str!(
-            $($pytype,)*
-            [metaroot, specific, modification],
+        get_set_metaroot_opt!(
             get_last_modifier,
             set_last_modifier,
-            last_modifier
+            LastModifier,
+            String,
+            $($pytype),*
         );
     };
 }
@@ -2894,9 +2892,9 @@ modification_methods!(
 // Get/set methods for $CARRIERID/$CARRIERTYPE/$LOCATIONID (3.2)
 macro_rules! carrier_methods {
     ($($pytype:ident),*) => {
-        get_set_str!($($pytype,)* [metaroot, specific, carrier], get_carriertype, set_carriertype, carriertype);
-        get_set_str!($($pytype,)* [metaroot, specific, carrier], get_carrierid,   set_carrierid,   carrierid);
-        get_set_str!($($pytype,)* [metaroot, specific, carrier], get_locationid,  set_locationid,  locationid);
+        get_set_metaroot_opt!(get_carriertype, set_carriertype, Carriertype, String, $($pytype),*);
+        get_set_metaroot_opt!(get_carrierid,   set_carrierid,   Carrierid,   String, $($pytype),*);
+        get_set_metaroot_opt!(get_locationid,  set_locationid,  Locationid,  String, $($pytype),*);
     };
 }
 
@@ -2905,9 +2903,9 @@ carrier_methods!(PyCoreTEXT3_2, PyCoreDataset3_2);
 // Get/set methods for $PLATEID/$WELLID/$PLATENAME (3.1-3.2)
 macro_rules! plate_methods {
     ($($pytype:ident),*) => {
-        get_set_str!($($pytype,)* [metaroot, specific, plate], get_wellid,    set_wellid,    wellid);
-        get_set_str!($($pytype,)* [metaroot, specific, plate], get_plateid,   set_plateid,   plateid);
-        get_set_str!($($pytype,)* [metaroot, specific, plate], get_platename, set_platename, platename);
+        get_set_metaroot_opt!(get_wellid,    set_wellid,    Wellid,    String, $($pytype),*);
+        get_set_metaroot_opt!(get_plateid,   set_plateid,   Plateid,   String, $($pytype),*);
+        get_set_metaroot_opt!(get_platename, set_platename, Platename, String, $($pytype),*);
     };
 }
 
@@ -3081,41 +3079,41 @@ vol_methods!(
 // Get/set methods for (optional) $CYT (2.0-3.1)
 //
 // 3.2 is required which is why it is not included here
-get_set_str!(
+get_set_metaroot_opt!(
+    get_cyt,
+    set_cyt,
+    Cyt,
+    String,
     PyCoreTEXT2_0,
     PyCoreTEXT3_0,
     PyCoreTEXT3_1,
     PyCoreDataset2_0,
     PyCoreDataset3_0,
-    PyCoreDataset3_1,
-    [metaroot, specific],
-    get_cyt,
-    set_cyt,
-    cyt
+    PyCoreDataset3_1
 );
 
 // Get/set methods for $FLOWRATE (3.2)
-get_set_str!(
-    PyCoreTEXT3_2,
-    PyCoreDataset3_2,
-    [metaroot, specific],
+get_set_metaroot_opt!(
     get_flowrate,
     set_flowrate,
-    flowrate
+    Flowrate,
+    String,
+    PyCoreTEXT3_2,
+    PyCoreDataset3_2
 );
 
 // Get/set methods for $CYTSN (3.0-3.2)
-get_set_str!(
+get_set_metaroot_opt!(
+    get_cytsn,
+    set_cytsn,
+    Cytsn,
+    String,
     PyCoreTEXT3_0,
     PyCoreTEXT3_1,
     PyCoreTEXT3_2,
     PyCoreDataset3_0,
     PyCoreDataset3_1,
-    PyCoreDataset3_2,
-    [metaroot, specific],
-    get_cytsn,
-    set_cytsn,
-    cytsn
+    PyCoreDataset3_2
 );
 
 // Get/set methods for $PnDET (3.2)

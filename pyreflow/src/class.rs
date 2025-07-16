@@ -23,6 +23,7 @@ use super::macros::{py_disp, py_enum, py_eq, py_ord, py_parse, py_wrap};
 
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
+use derive_more::{Display, From};
 use nonempty::NonEmpty;
 use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
 use polars::prelude::*;
@@ -1066,9 +1067,9 @@ py_parse!(PyCalibration3_1);
 #[pymethods]
 impl PyCalibration3_1 {
     #[new]
-    fn new(slope: f32, unit: String) -> PyResult<Self> {
+    fn new(slope: f32, unit: String) -> Result<Self, PyRangedFloatError> {
         let ret = Calibration3_1 {
-            slope: f32_to_positive_float(slope)?,
+            slope: slope.try_into()?,
             unit,
         };
         Ok(ret.into())
@@ -1085,8 +1086,8 @@ impl PyCalibration3_1 {
     }
 
     #[setter]
-    fn set_slope(&mut self, slope: f32) -> PyResult<()> {
-        self.0.slope = f32_to_positive_float(slope)?;
+    fn set_slope(&mut self, slope: f32) -> Result<(), PyRangedFloatError> {
+        self.0.slope = slope.try_into()?;
         Ok(())
     }
 
@@ -1105,9 +1106,9 @@ py_parse!(PyCalibration3_2);
 #[pymethods]
 impl PyCalibration3_2 {
     #[new]
-    fn new(slope: f32, offset: f32, unit: String) -> PyResult<Self> {
+    fn new(slope: f32, offset: f32, unit: String) -> Result<Self, PyRangedFloatError> {
         let ret = Calibration3_2 {
-            slope: f32_to_positive_float(slope)?,
+            slope: slope.try_into()?,
             offset,
             unit,
         };
@@ -1130,8 +1131,8 @@ impl PyCalibration3_2 {
     }
 
     #[setter]
-    fn set_slope(&mut self, slope: f32) -> PyResult<()> {
-        self.0.slope = f32_to_positive_float(slope)?;
+    fn set_slope(&mut self, slope: f32) -> Result<(), PyRangedFloatError> {
+        self.0.slope = slope.try_into()?;
         Ok(())
     }
 
@@ -1831,30 +1832,6 @@ macro_rules! common_methods {
                     .map(|_| ())
             }
 
-            // fn set_data_f32(&mut self, ranges: Vec<f32>) -> PyResult<()> {
-            //     self.0
-            //         .set_data_f32(ranges)
-            //         .map_err(|e| PyreflowException::new_err(e.to_string()))
-            // }
-
-            // fn set_data_f64(&mut self, ranges: Vec<f64>) -> PyResult<()> {
-            //     self.0
-            //         .set_data_f64(ranges)
-            //         .map_err(|e| PyreflowException::new_err(e.to_string()))
-            // }
-
-            // fn set_data_ascii(&mut self, rs: Vec<PyAsciiRangeSetter>) -> PyResult<()> {
-            //     self.0
-            //         .set_data_ascii(rs.into_iter().map(|x| x.into()).collect())
-            //         .map_err(|e| PyreflowException::new_err(e.to_string()))
-            // }
-
-            // fn set_data_delimited(&mut self, ranges: Vec<u64>) -> PyResult<()> {
-            //     self.0
-            //         .set_data_delimited(ranges)
-            //         .map_err(|e| PyreflowException::new_err(e.to_string()))
-            // }
-
             #[getter]
             fn get_detector_voltages(&self) -> Vec<(usize, Option<f32>)> {
                 self.0.get_optical_opt::<DetectorVoltage>()
@@ -1867,16 +1844,12 @@ macro_rules! common_methods {
 
             #[setter]
             fn set_detector_voltages(&mut self, xs: Vec<Option<f32>>) -> PyResult<()> {
-                let mut ys = vec![];
-                for x in xs {
-                    ys.push(
-                        x.map(f32_to_nonneg_float)
-                            .transpose()?
-                            .map(DetectorVoltage)
-                    );
-                }
-                self.0
-                    .set_detector_voltages(ys)
+                let ys = xs
+                    .into_iter()
+                    .map(|x| x.map(DetectorVoltage::try_from).transpose())
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(PyRangedFloatError::from)?;
+                self.0.set_optical(ys)
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
             }
 
@@ -1892,14 +1865,11 @@ macro_rules! common_methods {
 
             #[setter]
             fn set_powers(&mut self, xs: Vec<Option<f32>>) -> PyResult<()> {
-                let mut ys = vec![];
-                for x in xs {
-                    ys.push(
-                        x.map(f32_to_nonneg_float)
-                            .transpose()?
-                            .map(Power)
-                    );
-                }
+                let ys = xs
+                    .into_iter()
+                    .map(|x| x.map(Power::try_from).transpose())
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(PyRangedFloatError::from)?;
                 self.0
                     .set_optical(ys)
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
@@ -1972,7 +1942,7 @@ macro_rules! temporal_get_set_3_0 {
                     force: bool
                 ) -> PyResult<bool> {
                     let n = str_to_shortname(name)?;
-                    let ts = f32_to_positive_float(timestep).map(Timestep)?;
+                    let ts = timestep.try_into().map_err(PyRangedFloatError::from)?;
                     self.0
                         .set_temporal(&n, ts, force)
                         .def_terminate(SetTemporalFailure)
@@ -1985,7 +1955,7 @@ macro_rules! temporal_get_set_3_0 {
                     timestep: f32,
                     force: bool
                 ) -> PyResult<bool> {
-                    let ts = f32_to_positive_float(timestep).map(Timestep)?;
+                    let ts = timestep.try_into().map_err(PyRangedFloatError::from)?;
                     self.0
                         .set_temporal_at(index.into(), ts, force)
                         .def_terminate(SetTemporalFailure)
@@ -2750,7 +2720,7 @@ macro_rules! timestep_methods {
 
                 #[setter]
                 fn set_timestep(&mut self, x: f32) -> PyResult<bool> {
-                    let ts = Timestep(f32_to_positive_float(x)?);
+                    let ts = x.try_into().map_err(PyRangedFloatError::from)?;
                     let res = self.0
                         .temporal_mut()
                         .map(|y| y.value.specific.set_timestep(ts))
@@ -2788,8 +2758,9 @@ macro_rules! wavelength_methods {
                 fn set_wavelengths(&mut self, xs: Vec<Option<f32>>) -> PyResult<()> {
                     let ys = xs
                         .into_iter()
-                        .map(|x| x.map(|y| f32_to_positive_float(y).map(Wavelength::from)).transpose())
-                        .collect::<Result<Vec<_>, _>>()?;
+                        .map(|x| x.map(|y| Wavelength::try_from(y)).transpose())
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(PyRangedFloatError::from)?;
                     self.0
                         .set_optical(ys)
                         .map_err(|e| PyreflowException::new_err(e.to_string()))
@@ -2828,15 +2799,9 @@ macro_rules! wavelengths_methods {
                 fn set_wavelengths(&mut self, xs: Vec<Vec<f32>>) -> PyResult<()> {
                     let ys = xs
                         .into_iter()
-                        .map(|ys| ys
-                             .into_iter()
-                             .map(f32_to_positive_float)
-                             .collect::<Result<Vec<_>, _>>()
-                             .map(
-                                 |zs| NonEmpty::from_vec(zs).map(Wavelengths)
-                             )
-                        )
-                        .collect::<Result<Vec<_>, _>>()?;
+                        .map(|ys| NonEmpty::from_vec(ys).map(Wavelengths::try_from).transpose())
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(PyRangedFloatError::from)?;
                     self.0
                         .set_optical(ys)
                         .map_err(|e| PyreflowException::new_err(e.to_string()))
@@ -3013,13 +2978,14 @@ macro_rules! vol_methods {
             impl $pytype {
                 #[getter]
                 fn get_vol(&self) -> Option<f32> {
-                    self.0.metaroot.specific.vol.as_ref_opt().copied().map(|x| x.0.into())
+                    self.0.get_metaroot_opt::<Vol>().map(|x| x.clone().into())
                 }
 
+                // TODO this can be generalized with try_from
                 #[setter]
-                fn set_vol(&mut self, vol: Option<f32>) -> PyResult<()> {
-                    let x = vol.map(f32_to_nonneg_float).transpose()?.map(Vol);
-                    self.0.metaroot.specific.vol = x.into();
+                fn set_vol(&mut self, vol: Option<f32>) -> Result<(), PyRangedFloatError> {
+                    let x = vol.map(Vol::try_from).transpose()?;
+                    self.0.set_metaroot(x);
                     Ok(())
                 }
             }
@@ -3384,24 +3350,24 @@ impl PyTemporal2_0 {
 #[pymethods]
 impl PyTemporal3_0 {
     #[new]
-    fn new(timestep: f32) -> PyResult<Self> {
-        to_positive_float(timestep).map(|ts| Temporal3_0::new(ts.into()).into())
+    fn new(timestep: f32) -> Result<Self, PyRangedFloatError> {
+        Ok(Temporal3_0::new(timestep.try_into()?).into())
     }
 }
 
 #[pymethods]
 impl PyTemporal3_1 {
     #[new]
-    fn new(timestep: f32) -> PyResult<Self> {
-        to_positive_float(timestep).map(|ts| Temporal3_1::new(ts.into()).into())
+    fn new(timestep: f32) -> Result<Self, PyRangedFloatError> {
+        Ok(Temporal3_1::new(timestep.try_into()?).into())
     }
 }
 
 #[pymethods]
 impl PyTemporal3_2 {
     #[new]
-    fn new(timestep: f32) -> PyResult<Self> {
-        to_positive_float(timestep).map(|ts| Temporal3_2::new(ts.into()).into())
+    fn new(timestep: f32) -> Result<Self, PyRangedFloatError> {
+        Ok(Temporal3_2::new(timestep.try_into()?).into())
     }
 
     #[getter]
@@ -3628,9 +3594,9 @@ macro_rules! meas_get_set_wavelengths {
                 }
 
                 #[setter]
-                fn set_wavelength(&mut self, x: Option<f32>) -> PyResult<()> {
-                    let y = x.map(f32_to_positive_float).transpose()?;
-                    self.0.specific.wavelength = y.map(|z| z.into()).into();
+                fn set_wavelength(&mut self, x: Option<f32>) -> Result<(), PyRangedFloatError> {
+                    let y = x.map(|y| y.try_into()).transpose()?;
+                    self.0.specific.wavelength = y.into();
                     Ok(())
                 }
             }
@@ -3648,26 +3614,19 @@ macro_rules! meas_get_set_wavelengths {
             impl $pytype {
                 #[getter]
                 fn get_wavelengths(&self) -> Vec<f32> {
-                    self.0
-                        .specific
-                        .wavelengths
-                        .as_ref_opt()
-                        .map(|ws| ws.0.iter().copied().map(|x| x.into()).collect())
-                        .unwrap_or_default()
+                    let ws: &Option<Wavelengths> = self.0.as_ref();
+                    ws.as_ref().map(|xs: &Wavelengths| xs.clone().into()).unwrap_or_default()
                 }
 
                 #[setter]
-                fn set_wavelengths(&mut self, xs: Vec<f32>) -> PyResult<()> {
-                    if xs.is_empty() {
-                        self.0.specific.wavelengths = None.into();
+                fn set_wavelengths(&mut self, xs: Vec<f32>) -> Result<(), PyRangedFloatError> {
+                    let ws = if let Some(ys) = NonEmpty::from_vec(xs) {
+                        let ws = Wavelengths::try_from(ys)?;
+                        Some(ws)
                     } else {
-                        let ys = xs
-                            .into_iter()
-                            .map(f32_to_positive_float)
-                            .collect::<Result<Vec<_>, _>>()?;
-                        let ws = Some(NonEmpty::from_vec(ys).unwrap().into()).into();
-                        self.0.specific.wavelengths = ws;
-                    }
+                        None.into()
+                    };
+                    *self.0.as_mut() = ws;
                     Ok(())
                 }
             }
@@ -3689,8 +3648,8 @@ macro_rules! meas_get_set_timestep {
                 }
 
                 #[setter]
-                fn set_timestep(&mut self, x: f32) -> PyResult<()> {
-                    self.0.specific.timestep = to_positive_float(x)?.into();
+                fn set_timestep(&mut self, x: f32) -> Result<(), PyRangedFloatError> {
+                    self.0.specific.timestep = x.try_into()?;
                     Ok(())
                 }
             }
@@ -3806,14 +3765,6 @@ where
     Ok((sn, m))
 }
 
-// fn any_to_range(a: Bound<'_, PyAny>) -> PyResult<Range> {
-//     any_to_float_or_int(a).map(Range)
-// }
-
-fn to_positive_float(x: f32) -> PyResult<PositiveFloat> {
-    PositiveFloat::try_from(x).map_err(|e| PyreflowException::new_err(e.to_string()))
-}
-
 fn to_non_neg_float(x: f32) -> PyResult<NonNegFloat> {
     NonNegFloat::try_from(x).map_err(|e| PyreflowException::new_err(e.to_string()))
 }
@@ -3855,18 +3806,6 @@ fn strs_to_key_patterns(lits: Vec<String>, pats: Vec<String>) -> PyResult<KeyPat
         .map_err(|e| PyreflowException::new_err(e.to_string()))?;
     ls.extend(ps);
     Ok(ls)
-}
-
-// fn vec_to_byteord(xs: Vec<u8>) -> PyResult<ByteOrd> {
-//     ByteOrd::try_from(xs).map_err(|e| PyreflowException::new_err(e.to_string()))
-// }
-
-fn f32_to_positive_float(x: f32) -> PyResult<PositiveFloat> {
-    PositiveFloat::try_from(x).map_err(|e| PyreflowException::new_err(e.to_string()))
-}
-
-fn f32_to_nonneg_float(x: f32) -> PyResult<NonNegFloat> {
-    NonNegFloat::try_from(x).map_err(|e| PyreflowException::new_err(e.to_string()))
 }
 
 macro_rules! column_to_buf {
@@ -3972,5 +3911,14 @@ struct SetMeasurementsFailure;
 impl fmt::Display for SetMeasurementsFailure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "could not set measurements/layout")
+    }
+}
+
+#[derive(Display, From)]
+struct PyRangedFloatError(RangedFloatError);
+
+impl From<PyRangedFloatError> for PyErr {
+    fn from(value: PyRangedFloatError) -> Self {
+        PyreflowException::new_err(value.to_string())
     }
 }

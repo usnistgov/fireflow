@@ -1,5 +1,6 @@
 use crate::config::StdTextReadConfig;
 use crate::error::*;
+use crate::macros::impl_newtype_try_from;
 use crate::validated::ascii_uint::*;
 use crate::validated::keys::*;
 use crate::validated::shortname::*;
@@ -44,6 +45,8 @@ pub struct Gain(pub PositiveFloat);
 #[derive(Clone, Copy, PartialEq, Serialize, From, Display, FromStr)]
 pub struct Timestep(pub PositiveFloat);
 
+impl_newtype_try_from!(Timestep, PositiveFloat, f32, RangedFloatError);
+
 impl Default for Timestep {
     fn default() -> Self {
         // ASSUME this will never panic...1.0 is still a positive number, right?
@@ -52,8 +55,11 @@ impl Default for Timestep {
 }
 
 /// The value of the $VOL keyword
-#[derive(Clone, Copy, Serialize, From, Display, FromStr)]
+#[derive(Clone, Copy, Serialize, From, Display, FromStr, Into)]
+#[into(f32)]
 pub struct Vol(pub NonNegFloat);
+
+impl_newtype_try_from!(Vol, NonNegFloat, f32, RangedFloatError);
 
 /// The value of the $TR field (all versions)
 ///
@@ -480,11 +486,25 @@ impl fmt::Display for CalibrationFormat3_2 {
     }
 }
 
+/// The value for the $PnL key (2.0/3.0).
+#[derive(Clone, From, FromStr, Display, Serialize)]
+pub struct Wavelength(pub PositiveFloat);
+
+impl_newtype_try_from!(Wavelength, PositiveFloat, f32, RangedFloatError);
+
 /// The value for the $PnL key (3.1).
 ///
 /// Starting in 3.1 this is a vector rather than a scaler.
 #[derive(Clone, From)]
 pub struct Wavelengths(pub NonEmpty<PositiveFloat>);
+
+impl TryFrom<NonEmpty<f32>> for Wavelengths {
+    type Error = RangedFloatError;
+
+    fn try_from(value: NonEmpty<f32>) -> Result<Self, Self::Error> {
+        value.try_map(|x| x.try_into()).map(Self)
+    }
+}
 
 impl From<Wavelengths> for Vec<f32> {
     fn from(value: Wavelengths) -> Self {
@@ -1399,15 +1419,21 @@ pub struct GateRange(pub Range);
 #[into(f32)]
 pub struct Power(pub NonNegFloat);
 
+impl_newtype_try_from!(Power, NonNegFloat, f32, RangedFloatError);
+
 /// The value of the $PnV key
 #[derive(Clone, Copy, Serialize, From, Display, FromStr, Into)]
 #[into(f32)]
 pub struct DetectorVoltage(pub NonNegFloat);
 
+impl_newtype_try_from!(DetectorVoltage, NonNegFloat, f32, RangedFloatError);
+
 /// The value of the $GmV key
 #[derive(Clone, Copy, Serialize, Display, FromStr, Into)]
 #[into(f32)]
 pub struct GateDetectorVoltage(pub NonNegFloat);
+
+impl_newtype_try_from!(GateDetectorVoltage, NonNegFloat, f32, RangedFloatError);
 
 /// The value of the $GmE key
 #[derive(Clone, Copy, Serialize, Display, FromStr)]
@@ -1485,13 +1511,6 @@ macro_rules! kw_meta_string {
         impl Key for $t {
             const C: &'static str = $kw;
         }
-    };
-}
-
-macro_rules! kw_meas_int {
-    ($t:ident, $type:ident, $sfx:expr) => {
-        newtype_int!($t, $type);
-        kw_meas!($t, $sfx);
     };
 }
 
@@ -1593,13 +1612,6 @@ macro_rules! kw_opt_meta_int {
     ($t:ident, $type:ident, $sfx:expr) => {
         kw_meta_int!($t, $type, $sfx);
         opt_meta!($t);
-    };
-}
-
-macro_rules! kw_opt_meas_int {
-    ($t:ident, $type:ident, $sfx:expr) => {
-        kw_meas_int!($t, $type, $sfx);
-        opt_meas!($t);
     };
 }
 
@@ -1782,7 +1794,7 @@ req_meas!(Scale); // required for 3.0+
 kw_opt_meas!(TemporalScale, "E"); // optional for 2.0
 req_meas!(TemporalScale); // required for 3.0+
 
-kw_opt_meas_int!(Wavelength, PositiveFloat, "L"); // scaler in 2.0/3.0
+kw_opt_meas!(Wavelength, "L"); // scaler in 2.0/3.0
 kw_opt_meas!(Wavelengths, "L"); // vector in 3.1+
 
 kw_opt_meas!(Calibration3_1, "CALIBRATION"); // 3.1 doesn't have offset

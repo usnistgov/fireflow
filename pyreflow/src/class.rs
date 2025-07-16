@@ -827,6 +827,13 @@ fn raw_config(
         .collect::<Result<HashMap<_, _>, _>>()
         .map_err(|e| PyreflowException::new_err(e.to_string()))?;
 
+    let dp = date_pattern
+        .map(|s| {
+            s.parse::<DatePattern>()
+                .map_err(|e| PyreflowException::new_err(e.to_string()))
+        })
+        .transpose()?;
+
     let out = RawTextReadConfig {
         header,
         supp_text_correction: OffsetCorrection::from(supp_text_correction),
@@ -847,7 +854,7 @@ fn raw_config(
         allow_stext_own_delim,
         allow_missing_nextdata,
         trim_value_whitespace,
-        date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
+        date_pattern: dp,
         promote_to_standard: pss,
         demote_from_standard: dss,
         ignore_standard_keys: iss,
@@ -882,9 +889,17 @@ fn std_config(
         .transpose()
         .map_err(PyShortnameError)?;
     let nsmp = nonstandard_measurement_pattern
-        .map(str_to_nonstd_meas_pat)
+        .map(|s| {
+            s.parse::<NonStdMeasPattern>()
+                .map_err(|e| PyreflowException::new_err(e.to_string()))
+        })
         .transpose()?;
-    let tp = time_pattern.map(str_to_time_pat).transpose()?;
+    let tp = time_pattern
+        .map(|s| {
+            s.parse::<TimePattern>()
+                .map_err(|e| PyreflowException::new_err(e.to_string()))
+        })
+        .transpose()?;
     let xs = &integer_byteord_override[..];
     let bo = if xs.is_empty() {
         None
@@ -3728,21 +3743,6 @@ where
     let n: PyShortname = tup.0.extract()?;
     let m: X = tup.1.extract()?;
     Ok((n.0, m))
-}
-
-fn str_to_nonstd_meas_pat(s: String) -> PyResult<NonStdMeasPattern> {
-    s.parse::<NonStdMeasPattern>()
-        .map_err(|e| PyreflowException::new_err(e.to_string()))
-}
-
-fn str_to_time_pat(s: String) -> PyResult<TimePattern> {
-    s.parse::<TimePattern>()
-        .map_err(|e| PyreflowException::new_err(e.to_string()))
-}
-
-fn str_to_date_pat(s: String) -> PyResult<DatePattern> {
-    s.parse::<DatePattern>()
-        .map_err(|e| PyreflowException::new_err(e.to_string()))
 }
 
 fn strs_to_key_patterns(lits: Vec<String>, pats: Vec<String>) -> PyResult<KeyPatterns> {

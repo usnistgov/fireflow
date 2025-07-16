@@ -486,6 +486,12 @@ impl fmt::Display for CalibrationFormat3_2 {
 #[derive(Clone, From)]
 pub struct Wavelengths(pub NonEmpty<PositiveFloat>);
 
+impl From<Wavelengths> for Vec<f32> {
+    fn from(value: Wavelengths) -> Self {
+        Vec::from(value.0).into_iter().map(|x| x.into()).collect()
+    }
+}
+
 impl Serialize for Wavelengths {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -1388,12 +1394,19 @@ pub struct GateRange(pub Range);
 //     }
 // }
 
+/// The value of the $PnO key
+#[derive(Clone, Copy, Serialize, From, Display, FromStr, Into)]
+#[into(f32)]
+pub struct Power(pub NonNegFloat);
+
 /// The value of the $PnV key
-#[derive(Clone, Copy, Serialize, From, Display, FromStr)]
+#[derive(Clone, Copy, Serialize, From, Display, FromStr, Into)]
+#[into(f32)]
 pub struct DetectorVoltage(pub NonNegFloat);
 
 /// The value of the $GmV key
-#[derive(Clone, Copy, Serialize, Display, FromStr)]
+#[derive(Clone, Copy, Serialize, Display, FromStr, Into)]
+#[into(f32)]
 pub struct GateDetectorVoltage(pub NonNegFloat);
 
 /// The value of the $GmE key
@@ -1420,15 +1433,18 @@ impl GateScale {
 }
 
 /// The value of the $CSVnFLAG key (2.0-3.0)
-#[derive(Clone, Copy, Serialize, Display, FromStr)]
+#[derive(Clone, Copy, Serialize, Display, FromStr, Into)]
+#[into(u32)]
 pub struct CSVFlag(pub u32);
 
 /// The value of the $PKn key (2.0-3.1)
-#[derive(Clone, Copy, Serialize, Display, FromStr)]
+#[derive(Clone, Copy, Serialize, Display, FromStr, Into)]
+#[into(u32)]
 pub struct PeakBin(pub u32);
 
 /// The value of the $PKNn key (2.0-3.1)
-#[derive(Clone, Copy, Serialize, Display, FromStr)]
+#[derive(Clone, Copy, Serialize, Display, FromStr, Into)]
+#[into(u32)]
 pub struct PeakNumber(pub u32);
 
 macro_rules! newtype_string {
@@ -1734,7 +1750,7 @@ kw_req_meta!(ByteOrd3_1, "BYTEORD"); // 3.1+
 // all versions
 kw_req_meas!(Width, "B");
 kw_opt_meas_string!(Filter, "F");
-kw_opt_meas_int!(Power, NonNegFloat, "O");
+kw_opt_meas!(Power, "O");
 kw_opt_meas_string!(PercentEmitted, "P");
 kw_req_meas!(Range, "R");
 kw_opt_meas_string!(Longname, "S");

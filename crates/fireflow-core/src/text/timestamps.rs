@@ -51,20 +51,16 @@ pub struct FCSDate(pub NaiveDate);
 
 macro_rules! get_set {
     ($fn_get_naive:ident, $fn:ident, $fn_naive:ident, $in:path, $in_naive:path, $field:ident) => {
-        pub fn $field(&self) -> MaybeValue<$in> {
-            MaybeValue(self.$field)
-        }
-
         pub fn $fn_get_naive(&self) -> Option<$in_naive>
         where
             $in_naive: From<$in>,
         {
-            self.$field().0.map(|x| x.into())
+            self.$field.map(|x| x.into())
         }
 
-        pub fn $fn(&mut self, x: MaybeValue<$in>) -> TimestampsResult<()> {
+        fn $fn(&mut self, x: Option<$in>) -> TimestampsResult<()> {
             let tmp = self.$field;
-            self.$field = x.0;
+            self.$field = x;
             if self.valid() {
                 Ok(())
             } else {
@@ -202,9 +198,9 @@ where
         Etim<X>: OptMetarootKey,
     {
         [
-            OptMetarootKey::pair_opt(&self.btim()),
-            OptMetarootKey::pair_opt(&self.etim()),
-            OptMetarootKey::pair_opt(&self.date()),
+            OptMetarootKey::pair_opt(&MaybeValue(self.btim)),
+            OptMetarootKey::pair_opt(&MaybeValue(self.etim)),
+            OptMetarootKey::pair_opt(&MaybeValue(self.date)),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))

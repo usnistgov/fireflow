@@ -1315,6 +1315,25 @@ macro_rules! get_set_str {
     };
 }
 
+macro_rules! get_set_metaroot_opt {
+    ($get:ident, $set:ident, $inner:ident, $outer:ident, $($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                #[getter]
+                fn $get(&self) -> Option<$outer> {
+                    self.0.get_metaroot_opt::<$inner>().map(|x| x.clone().into())
+                }
+
+                #[setter]
+                fn $set(&mut self, s: Option<$outer>) {
+                    self.0.set_metaroot::<Option<$inner>>(s.map(|x| x.into()))
+                }
+            }
+        )*
+    };
+}
+
 macro_rules! get_set_copied {
     ($pytype:ident, $($rest:ident,)+ [$($root:ident),*], $get:ident, $set:ident, $field:ident, $out:ty) => {
         get_set_copied!($pytype, [$($root),*], $get, $set, $field, $out);
@@ -1606,19 +1625,18 @@ macro_rules! common_methods {
         meas_get_set!(detector_types,    set_detector_types,    String,        $pytype);
         meas_get_set!(percents_emitted,  set_percents_emitted,  String,        $pytype);
 
-        get_set_copied!($pytype, [metaroot], get_abrt, set_abrt, abrt, u32);
-        get_set_copied!($pytype, [metaroot], get_lost, set_lost, lost, u32);
-
-        get_set_str!($pytype, [metaroot], get_cells, set_cells, cells);
-        get_set_str!($pytype, [metaroot], get_com,   set_com,   com);
-        get_set_str!($pytype, [metaroot], get_exp,   set_exp,   exp);
-        get_set_str!($pytype, [metaroot], get_fil,   set_fil,   fil);
-        get_set_str!($pytype, [metaroot], get_inst,  set_inst,  inst);
-        get_set_str!($pytype, [metaroot], get_op,    set_op,    op);
-        get_set_str!($pytype, [metaroot], get_proj,  set_proj,  proj);
-        get_set_str!($pytype, [metaroot], get_smno,  set_smno,  smno);
-        get_set_str!($pytype, [metaroot], get_src,   set_src,   src);
-        get_set_str!($pytype, [metaroot], get_sys,   set_sys,   sys);
+        get_set_metaroot_opt!(get_abrt, set_abrt, Abrt, u32, $pytype);
+        get_set_metaroot_opt!(get_cells, set_cells, Cells, String, $pytype);
+        get_set_metaroot_opt!(get_com, set_com, Com, String, $pytype);
+        get_set_metaroot_opt!(get_exp, set_exp, Exp, String, $pytype);
+        get_set_metaroot_opt!(get_fil, set_fil, Fil, String, $pytype);
+        get_set_metaroot_opt!(get_inst, set_inst, Inst, String, $pytype);
+        get_set_metaroot_opt!(get_lost, set_lost, Lost, u32, $pytype);
+        get_set_metaroot_opt!(get_op, set_op, Op, String, $pytype);
+        get_set_metaroot_opt!(get_proj, set_proj, Proj, String, $pytype);
+        get_set_metaroot_opt!(get_smno, set_smno, Smno, String, $pytype);
+        get_set_metaroot_opt!(get_src, set_src, Src, String, $pytype);
+        get_set_metaroot_opt!(get_sys, set_sys, Sys, String, $pytype);
 
         #[pymethods]
         impl $pytype {
@@ -1839,12 +1857,10 @@ macro_rules! common_methods {
 
             #[getter]
             fn get_detector_voltages(&self) -> Vec<(usize, Option<f32>)> {
-                self.0
-                    .detector_voltages()
-                    .into_iter()
+                self.0.get_optical_opt::<DetectorVoltage>()
                     .map(|(i, x)| (
                         i.into(),
-                        x.as_ref().copied().map(|y| y.0.into())
+                        x.copied().map(|x| x.into())
                     ))
                     .collect()
             }
@@ -1866,12 +1882,10 @@ macro_rules! common_methods {
 
             #[getter]
             fn get_powers(&self) -> Vec<(usize, Option<f32>)> {
-                self.0
-                    .powers()
-                    .into_iter()
+                self.0.get_optical_opt::<Power>()
                     .map(|(i, x)| (
                         i.into(),
-                        x.as_ref().copied().map(|y| y.0.into())
+                        x.copied().map(|x| x.into())
                     ))
                     .collect()
             }
@@ -1887,7 +1901,7 @@ macro_rules! common_methods {
                     );
                 }
                 self.0
-                    .set_powers(ys)
+                    .set_optical(ys)
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
             }
         }
@@ -2765,7 +2779,7 @@ macro_rules! wavelength_methods {
             impl $pytype {
                 #[getter]
                 fn get_wavelengths(&self) -> Vec<(usize, Option<f32>)> {
-                    self.0.get_non_temporal_opt::<Wavelength>()
+                    self.0.get_optical_opt::<Wavelength>()
                         .map(|(i, x)| (i.into(), x.map(|y| y.0.into())))
                         .collect()
                 }
@@ -2774,10 +2788,10 @@ macro_rules! wavelength_methods {
                 fn set_wavelengths(&mut self, xs: Vec<Option<f32>>) -> PyResult<()> {
                     let ys = xs
                         .into_iter()
-                        .map(|x| x.map(|y| f32_to_positive_float(y).map(|z| z.into())).transpose())
+                        .map(|x| x.map(|y| f32_to_positive_float(y).map(Wavelength::from)).transpose())
                         .collect::<Result<Vec<_>, _>>()?;
                     self.0
-                        .set_non_temporal(ys)
+                        .set_optical(ys)
                         .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
             }
@@ -2800,19 +2814,11 @@ macro_rules! wavelengths_methods {
             impl $pytype {
                 #[getter]
                 fn get_wavelengths(&self) -> Vec<(usize, Vec<f32>)> {
-                    self.0
-                        .wavelengths()
-                        .into_iter()
+                    self.0.get_optical_opt::<Wavelengths>()
                         .map(|(i, x)| {
                             (
                                 i.into(),
-                                x.map(
-                                    |y| y
-                                        .0
-                                        .iter()
-                                        .copied()
-                                        .map(|x| x.into()).collect()
-                                ).unwrap_or_default(),
+                                x.map(|y| y.clone().into()).unwrap_or_default(),
                             )
                         })
                         .collect()
@@ -2832,7 +2838,7 @@ macro_rules! wavelengths_methods {
                         )
                         .collect::<Result<Vec<_>, _>>()?;
                     self.0
-                        .set_wavelengths(ys)
+                        .set_optical(ys)
                         .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
             }

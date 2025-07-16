@@ -102,42 +102,66 @@ pub struct Others(pub Vec<Other>);
 /// Explicit fields are common to all FCS versions.
 ///
 /// The generic type parameter allows version-specific data to be encoded.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct Metaroot<X> {
     /// Value of $ABRT
+    #[as_ref(Option<Abrt>)]
+    #[as_mut(Option<Abrt>)]
     pub abrt: MaybeValue<Abrt>,
 
     /// Value of $COM
+    #[as_ref(Option<Com>)]
+    #[as_mut(Option<Com>)]
     pub com: MaybeValue<Com>,
 
     /// Value of $CELLS
+    #[as_ref(Option<Cells>)]
+    #[as_mut(Option<Cells>)]
     pub cells: MaybeValue<Cells>,
 
     /// Value of $EXP
+    #[as_ref(Option<Exp>)]
+    #[as_mut(Option<Exp>)]
     pub exp: MaybeValue<Exp>,
 
     /// Value of $FIL
+    #[as_ref(Option<Fil>)]
+    #[as_mut(Option<Fil>)]
     pub fil: MaybeValue<Fil>,
 
     /// Value of $INST
+    #[as_ref(Option<Inst>)]
+    #[as_mut(Option<Inst>)]
     pub inst: MaybeValue<Inst>,
 
     /// Value of $LOST
+    #[as_ref(Option<Lost>)]
+    #[as_mut(Option<Lost>)]
     pub lost: MaybeValue<Lost>,
 
     /// Value of $OP
+    #[as_ref(Option<Op>)]
+    #[as_mut(Option<Op>)]
     pub op: MaybeValue<Op>,
 
     /// Value of $PROJ
+    #[as_ref(Option<Proj>)]
+    #[as_mut(Option<Proj>)]
     pub proj: MaybeValue<Proj>,
 
     /// Value of $SMNO
+    #[as_ref(Option<Smno>)]
+    #[as_mut(Option<Smno>)]
     pub smno: MaybeValue<Smno>,
 
     /// Value of $SRC
+    #[as_ref(Option<Src>)]
+    #[as_mut(Option<Src>)]
     pub src: MaybeValue<Src>,
 
     /// Value of $SYS
+    #[as_ref(Option<Sys>)]
+    #[as_mut(Option<Sys>)]
     pub sys: MaybeValue<Sys>,
 
     /// Value of $TR
@@ -157,14 +181,18 @@ pub struct Metaroot<X> {
     pub nonstandard_keywords: NonStdKeywords,
 }
 
-#[derive(Clone, Serialize, Default)]
+#[derive(Clone, Serialize, Default, AsRef, AsMut)]
 pub struct CommonMeasurement {
     /// Value for $PnS
+    #[as_ref(Option<Longname>)]
+    #[as_mut(Option<Longname>)]
     pub longname: MaybeValue<Longname>,
 
     /// Non standard keywords that belong to this measurement.
     ///
     /// These are found using a configurable pattern to filter matching keys.
+    #[as_ref(HashMap<NonStdKey, String>)]
+    #[as_mut(HashMap<NonStdKey, String>)]
     pub nonstandard_keywords: NonStdKeywords,
 }
 
@@ -172,9 +200,11 @@ pub struct CommonMeasurement {
 ///
 /// Explicit fields are common to all versions. The generic type parameter
 /// allows for version-specific information to be encoded.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct Temporal<X> {
     /// Fields shared with optical measurements
+    #[as_ref(forward)]
+    #[as_mut(forward)]
     pub common: CommonMeasurement,
 
     /// Version specific data
@@ -185,24 +215,36 @@ pub struct Temporal<X> {
 ///
 /// Explicit fields are common to all versions. The generic type parameter
 /// allows for version-specific information to be encoded.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct Optical<X> {
     /// Fields shared with optical measurements
+    #[as_ref(forward)]
+    #[as_mut(forward)]
     pub common: CommonMeasurement,
 
     /// Value for $PnF
+    #[as_ref(Option<Filter>)]
+    #[as_mut(Option<Filter>)]
     pub filter: MaybeValue<Filter>,
 
     /// Value for $PnO
+    #[as_ref(Option<Power>)]
+    #[as_mut(Option<Power>)]
     pub power: MaybeValue<Power>,
 
     /// Value for $PnD
+    #[as_ref(Option<DetectorType>)]
+    #[as_mut(Option<DetectorType>)]
     pub detector_type: MaybeValue<DetectorType>,
 
     /// Value for $PnP
+    #[as_ref(Option<PercentEmitted>)]
+    #[as_mut(Option<PercentEmitted>)]
     pub percent_emitted: MaybeValue<PercentEmitted>,
 
     /// Value for $PnV
+    #[as_ref(Option<DetectorVoltage>)]
+    #[as_mut(Option<DetectorVoltage>)]
     pub detector_voltage: MaybeValue<DetectorVoltage>,
 
     /// Version specific data
@@ -380,14 +422,16 @@ impl AnyCoreDataset {
 }
 
 /// Metaroot fields specific to version 2.0
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerMetaroot2_0 {
     /// Value of $MODE
+    #[as_ref(Mode)]
+    #[as_mut(Mode)]
     pub mode: Mode,
 
-    // /// Value of $BYTEORD
-    // byteord: ByteOrd,
     /// Value of $CYT
+    #[as_ref(Option<Cyt>)]
+    #[as_mut(Option<Cyt>)]
     pub cyt: MaybeValue<Cyt>,
 
     /// Compensation matrix derived from 'DFCnTOm' key/value pairs
@@ -401,14 +445,16 @@ pub struct InnerMetaroot2_0 {
 }
 
 /// Metaroot fields specific to version 3.0
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerMetaroot3_0 {
     /// Value of $MODE
+    #[as_ref(Mode)]
+    #[as_mut(Mode)]
     pub mode: Mode,
 
-    // /// Value of $BYTEORD
-    // byteord: ByteOrd,
     /// Value of $CYT
+    #[as_ref(Option<Cyt>)]
+    #[as_mut(Option<Cyt>)]
     pub cyt: MaybeValue<Cyt>,
 
     /// Value of $COMP
@@ -418,9 +464,13 @@ pub struct InnerMetaroot3_0 {
     pub timestamps: Timestamps3_0,
 
     /// Value of $CYTSN
+    #[as_ref(Option<Cytsn>)]
+    #[as_mut(Option<Cytsn>)]
     pub cytsn: MaybeValue<Cytsn>,
 
     /// Value of $UNICODE
+    #[as_ref(Option<Unicode>)]
+    #[as_mut(Option<Unicode>)]
     pub unicode: MaybeValue<Unicode>,
 
     /// Aggregated values for $CS* keywords
@@ -431,32 +481,50 @@ pub struct InnerMetaroot3_0 {
 }
 
 /// Metaroot fields specific to version 3.1
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerMetaroot3_1 {
     /// Value of $MODE
+    #[as_ref(Mode)]
+    #[as_mut(Mode)]
     pub mode: Mode,
 
-    // /// Value of $BYTEORD
-    // pub byteord: Endian,
     /// Value of $CYT
+    #[as_ref(Option<Cyt>)]
+    #[as_mut(Option<Cyt>)]
     pub cyt: MaybeValue<Cyt>,
 
     /// Values of $BTIM/ETIM/$DATE
     pub timestamps: Timestamps3_1,
 
     /// Value of $CYTSN
+    #[as_ref(Option<Cytsn>)]
+    #[as_mut(Option<Cytsn>)]
     pub cytsn: MaybeValue<Cytsn>,
 
     /// Value of $SPILLOVER
     spillover: MaybeValue<Spillover>,
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
+    #[as_ref(Option<LastModifier>)]
+    #[as_ref(Option<ModifiedDateTime>)]
+    #[as_ref(Option<Originality>)]
+    #[as_mut(Option<LastModifier>)]
+    #[as_mut(Option<ModifiedDateTime>)]
+    #[as_mut(Option<Originality>)]
     pub modification: ModificationData,
 
     /// Values of $PLATEID/$PLATENAME/$WELLID
+    #[as_ref(Option<Plateid>)]
+    #[as_ref(Option<Wellid>)]
+    #[as_ref(Option<Platename>)]
+    #[as_mut(Option<Plateid>)]
+    #[as_mut(Option<Wellid>)]
+    #[as_mut(Option<Platename>)]
     pub plate: PlateData,
 
     /// Value of $VOL
+    #[as_ref(Option<Vol>)]
+    #[as_mut(Option<Vol>)]
     pub vol: MaybeValue<Vol>,
 
     /// Aggregated values for $CS* keywords
@@ -467,10 +535,8 @@ pub struct InnerMetaroot3_1 {
 }
 
 /// Metaroot fields specific to version 3.2
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerMetaroot3_2 {
-    // /// Value of $BYTEORD
-    // pub byteord: Endian,
     /// Values of $BTIM/ETIM/$DATE
     pub timestamps: Timestamps3_1,
 
@@ -478,31 +544,57 @@ pub struct InnerMetaroot3_2 {
     pub datetimes: Datetimes,
 
     /// Value of $CYT
+    #[as_ref(Cyt)]
+    #[as_mut(Cyt)]
     pub cyt: Cyt,
 
     /// Value of $SPILLOVER
     spillover: MaybeValue<Spillover>,
 
     /// Value of $CYTSN
+    #[as_ref(Option<Cytsn>)]
+    #[as_mut(Option<Cytsn>)]
     pub cytsn: MaybeValue<Cytsn>,
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
     // TODO it makes sense to verify this isn't before the file was created
+    #[as_ref(Option<LastModifier>)]
+    #[as_ref(Option<ModifiedDateTime>)]
+    #[as_ref(Option<Originality>)]
+    #[as_mut(Option<LastModifier>)]
+    #[as_mut(Option<ModifiedDateTime>)]
+    #[as_mut(Option<Originality>)]
     pub modification: ModificationData,
 
     /// Values of $PLATEID/$PLATENAME/$WELLID
+    #[as_ref(Option<Plateid>)]
+    #[as_ref(Option<Wellid>)]
+    #[as_ref(Option<Platename>)]
+    #[as_mut(Option<Plateid>)]
+    #[as_mut(Option<Wellid>)]
+    #[as_mut(Option<Platename>)]
     pub plate: PlateData,
 
     /// Value of $VOL
+    #[as_ref(Option<Vol>)]
+    #[as_mut(Option<Vol>)]
     pub vol: MaybeValue<Vol>,
 
     /// Values of $CARRIERID/$CARRIERTYPE/$LOCATIONID
+    #[as_ref(Option<Carrierid>)]
+    #[as_mut(Option<Carrierid>)]
+    #[as_ref(Option<Carriertype>)]
+    #[as_mut(Option<Carriertype>)]
+    #[as_ref(Option<Locationid>)]
+    #[as_mut(Option<Locationid>)]
     pub carrier: CarrierData,
 
     /// Values of $UNSTAINEDINFO/$UNSTAINEDCENTERS
     pub unstained: UnstainedData,
 
     /// Value of $FLOWRATE
+    #[as_ref(Option<Flowrate>)]
+    #[as_mut(Option<Flowrate>)]
     pub flowrate: MaybeValue<Flowrate>,
 
     /// Values of $RnI/$RnW/$GATING
@@ -510,57 +602,78 @@ pub struct InnerMetaroot3_2 {
 }
 
 /// Temporal measurement fields specific to version 2.0
-#[derive(Clone, Serialize, Default)]
+#[derive(Clone, Serialize, Default, AsRef, AsMut)]
 pub struct InnerTemporal2_0 {
     /// Value of $PnE
     ///
     /// Unlike subsequent versions, included here because it is optional rather
     /// than required and constant.
+    // TODO this can just be a bool
     pub scale: MaybeValue<TemporalScale>,
 
     /// Values of $Pkn/$PKNn
+    #[as_ref(Option<PeakBin>)]
+    #[as_ref(Option<PeakNumber>)]
+    #[as_mut(Option<PeakBin>)]
+    #[as_mut(Option<PeakNumber>)]
     pub peak: PeakData,
 }
 
 /// Temporal measurement fields specific to version 3.0
 ///
 /// $PnE is implied as linear but not included since it only has one value
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerTemporal3_0 {
     /// Value for $TIMESTEP
+    #[as_ref(Timestep)]
     pub timestep: Timestep,
 
     /// Values of $Pkn/$PKNn
+    #[as_ref(Option<PeakBin>)]
+    #[as_ref(Option<PeakNumber>)]
+    #[as_mut(Option<PeakBin>)]
+    #[as_mut(Option<PeakNumber>)]
     pub peak: PeakData,
 }
 
 /// Temporal measurement fields specific to version 3.1
 ///
 /// $PnE is implied as linear but not included since it only has one value
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerTemporal3_1 {
     /// Value for $TIMESTEP
+    #[as_ref(Timestep)]
     pub timestep: Timestep,
 
     /// Value for $PnDISPLAY
+    #[as_ref(Option<Display>)]
     pub display: MaybeValue<Display>,
 
     /// Values of $Pkn/$PKNn
+    #[as_ref(Option<PeakBin>)]
+    #[as_ref(Option<PeakNumber>)]
+    #[as_mut(Option<PeakBin>)]
+    #[as_mut(Option<PeakNumber>)]
     pub peak: PeakData,
 }
 
 /// Temporal measurement fields specific to version 3.2
 ///
 /// $PnE is implied as linear but not included since it only has one value
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerTemporal3_2 {
     /// Value for $TIMESTEP
+    #[as_ref(Timestep)]
+    #[as_mut(Timestep)]
     pub timestep: Timestep,
 
     /// Value for $PnDISPLAY
+    #[as_ref(Option<Display>)]
+    #[as_mut(Option<Display>)]
     pub display: MaybeValue<Display>,
 
     /// Value for $PnTYPE
+    // TODO this can just be a bool
     pub measurement_type: MaybeValue<TemporalType>,
 }
 
@@ -576,6 +689,10 @@ pub struct InnerOptical2_0 {
     pub wavelength: MaybeValue<Wavelength>,
 
     /// Values of $Pkn/$PKNn
+    #[as_ref(Option<PeakBin>)]
+    #[as_ref(Option<PeakNumber>)]
+    #[as_mut(Option<PeakBin>)]
+    #[as_mut(Option<PeakNumber>)]
     pub peak: PeakData,
 }
 
@@ -591,56 +708,86 @@ pub struct InnerOptical3_0 {
     pub wavelength: MaybeValue<Wavelength>,
 
     /// Values of $Pkn/$PKNn
+    #[as_ref(Option<PeakBin>)]
+    #[as_ref(Option<PeakNumber>)]
+    #[as_mut(Option<PeakBin>)]
+    #[as_mut(Option<PeakNumber>)]
     pub peak: PeakData,
 }
 
 /// Optical measurement fields specific to version 3.1
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerOptical3_1 {
     /// Value for $PnE/$PnG
     pub scale: ScaleTransform,
 
     /// Value for $PnL
+    #[as_ref(Option<Wavelengths>)]
+    #[as_mut(Option<Wavelengths>)]
     pub wavelengths: MaybeValue<Wavelengths>,
 
     /// Value for $PnCALIBRATION
+    #[as_ref(Option<Calibration3_1>)]
+    #[as_mut(Option<Calibration3_1>)]
     pub calibration: MaybeValue<Calibration3_1>,
 
     /// Value for $PnDISPLAY
+    #[as_ref(Option<Display>)]
+    #[as_mut(Option<Display>)]
     pub display: MaybeValue<Display>,
 
     /// Values of $Pkn/$PKNn
+    #[as_ref(Option<PeakBin>)]
+    #[as_ref(Option<PeakNumber>)]
+    #[as_mut(Option<PeakBin>)]
+    #[as_mut(Option<PeakNumber>)]
     pub peak: PeakData,
 }
 
 /// Optical measurement fields specific to version 3.2
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerOptical3_2 {
     /// Value for $PnE/$PnG
     pub scale: ScaleTransform,
 
     /// Value for $PnL
+    #[as_ref(Option<Wavelengths>)]
+    #[as_mut(Option<Wavelengths>)]
     pub wavelengths: MaybeValue<Wavelengths>,
 
     /// Value for $PnCALIBRATION
+    #[as_ref(Option<Calibration3_2>)]
+    #[as_mut(Option<Calibration3_2>)]
     pub calibration: MaybeValue<Calibration3_2>,
 
     /// Value for $PnDISPLAY
+    #[as_ref(Option<Display>)]
+    #[as_mut(Option<Display>)]
     pub display: MaybeValue<Display>,
 
     /// Value for $PnANALYTE
+    #[as_ref(Option<Analyte>)]
+    #[as_mut(Option<Analyte>)]
     pub analyte: MaybeValue<Analyte>,
 
     /// Value for $PnFEATURE
+    #[as_ref(Option<Feature>)]
+    #[as_mut(Option<Feature>)]
     pub feature: MaybeValue<Feature>,
 
     /// Value for $PnTYPE
+    #[as_ref(Option<OpticalType>)]
+    #[as_mut(Option<OpticalType>)]
     pub measurement_type: MaybeValue<OpticalType>,
 
     /// Value for $PnTAG
+    #[as_ref(Option<Tag>)]
+    #[as_mut(Option<Tag>)]
     pub tag: MaybeValue<Tag>,
 
     /// Value for $PnDET
+    #[as_ref(Option<DetectorName>)]
+    #[as_mut(Option<DetectorName>)]
     pub detector_name: MaybeValue<DetectorName>,
 }
 
@@ -761,12 +908,16 @@ pub struct BivariateRegion<I> {
 /// It makes little sense to have only one of these since they both collectively
 /// describe a histogram peak. This currently is not enforced since these keys
 /// are likely not used much and it is easy for users to check these themselves.
-#[derive(Clone, Default, Serialize)]
+#[derive(Clone, Default, Serialize, AsRef, AsMut)]
 pub struct PeakData {
     /// Value of $Pkn
+    #[as_ref(Option<PeakBin>)]
+    #[as_mut(Option<PeakBin>)]
     pub bin: MaybeValue<PeakBin>,
 
     /// Value of $PkNn
+    #[as_ref(Option<PeakNumber>)]
+    #[as_mut(Option<PeakNumber>)]
     pub size: MaybeValue<PeakNumber>,
 }
 
@@ -788,33 +939,59 @@ pub struct SubsetData {
 }
 
 /// A bundle for $ORIGINALITY, $LAST_MODIFIER, and $LAST_MODIFIED (3.1+)
-#[derive(Clone, Serialize, Default)]
+#[derive(Clone, Serialize, Default, AsRef, AsMut)]
 pub struct ModificationData {
+    #[as_ref(Option<LastModifier>)]
+    #[as_mut(Option<LastModifier>)]
     pub last_modifier: MaybeValue<LastModifier>,
+
+    #[as_ref(Option<ModifiedDateTime>)]
+    #[as_mut(Option<ModifiedDateTime>)]
     pub last_modified: MaybeValue<ModifiedDateTime>,
+
+    #[as_ref(Option<Originality>)]
+    #[as_mut(Option<Originality>)]
     pub originality: MaybeValue<Originality>,
 }
 
 /// A bundle for $PLATEID, $PLATENAME, and $WELLID (3.1+)
-#[derive(Clone, Serialize, Default)]
+#[derive(Clone, Serialize, Default, AsRef, AsMut)]
 pub struct PlateData {
+    #[as_ref(Option<Plateid>)]
+    #[as_mut(Option<Plateid>)]
     pub plateid: MaybeValue<Plateid>,
+
+    #[as_ref(Option<Platename>)]
+    #[as_mut(Option<Platename>)]
     pub platename: MaybeValue<Platename>,
+
+    #[as_ref(Option<Wellid>)]
+    #[as_mut(Option<Wellid>)]
     pub wellid: MaybeValue<Wellid>,
 }
 
 /// A bundle for $UNSTAINEDCENTERS and $UNSTAINEDINFO (3.2+)
-#[derive(Clone, Serialize, Default)]
+#[derive(Clone, Serialize, Default, AsRef, AsMut)]
 pub struct UnstainedData {
     unstainedcenters: MaybeValue<UnstainedCenters>,
+    #[as_ref(Option<UnstainedInfo>)]
+    #[as_mut(Option<UnstainedInfo>)]
     pub unstainedinfo: MaybeValue<UnstainedInfo>,
 }
 
 /// A bundle for $CARRIERID, $CARRIERTYPE, $LOCATIONID (3.2+)
-#[derive(Clone, Serialize, Default)]
+#[derive(Clone, Serialize, Default, AsRef, AsMut)]
 pub struct CarrierData {
+    #[as_ref(Option<Carrierid>)]
+    #[as_mut(Option<Carrierid>)]
     pub carrierid: MaybeValue<Carrierid>,
+
+    #[as_ref(Option<Carriertype>)]
+    #[as_mut(Option<Carriertype>)]
     pub carriertype: MaybeValue<Carriertype>,
+
+    #[as_ref(Option<Locationid>)]
+    #[as_mut(Option<Locationid>)]
     pub locationid: MaybeValue<Locationid>,
 }
 
@@ -1993,8 +2170,10 @@ where
         &mut self,
         xs: Vec<(NonStdKey, String)>,
     ) -> Result<Vec<Option<String>>, KeyLengthError> {
+        // TODO use a newtype for this so it can't be confused with a different
+        // hashmap
         self.measurements
-            .alter_common_values_zip(xs, |_, x, (k, v)| x.nonstandard_keywords.insert(k, v))
+            .alter_common_values_zip(xs, |_, x: &mut HashMap<_, _>, (k, v)| x.insert(k, v))
     }
 
     /// Remove a key from nonstandard key/value pairs for each measurement.
@@ -2007,7 +2186,7 @@ where
         xs: Vec<&NonStdKey>,
     ) -> Result<Vec<Option<String>>, KeyLengthError> {
         self.measurements
-            .alter_common_values_zip(xs, |_, x, k| x.nonstandard_keywords.remove(k))
+            .alter_common_values_zip(xs, |_, x: &mut HashMap<_, _>, k| x.remove(k))
     }
 
     /// Read a key from nonstandard key/value pairs for each measurement.
@@ -2023,7 +2202,7 @@ where
             let res = ms
                 .iter_common_values()
                 .zip(ks)
-                .map(|((_, x), k)| x.nonstandard_keywords.get(k))
+                .map(|((_, x), k): ((_, &HashMap<_, _>), _)| x.get(k))
                 .collect();
             Some(res)
         }
@@ -2165,33 +2344,69 @@ where
         self.measurements.as_center_mut()
     }
 
-    pub fn get_non_temporal<'a, X: 'a>(&'a self) -> impl Iterator<Item = (MeasIndex, &'a X)>
+    pub fn get_metaroot<X>(&self) -> &X
     where
-        M::Optical: AsRef<X>,
+        Metaroot<M>: AsRef<X>,
+    {
+        self.metaroot.as_ref()
+    }
+
+    pub fn get_metaroot_opt<X>(&self) -> Option<&X>
+    where
+        Metaroot<M>: AsRef<Option<X>>,
+    {
+        self.get_metaroot().as_ref()
+    }
+
+    pub fn set_metaroot<X>(&mut self, x: X)
+    where
+        Metaroot<M>: AsMut<X>,
+    {
+        *self.metaroot.as_mut() = x
+    }
+
+    pub fn get_optical<'a, X: 'a>(&'a self) -> impl Iterator<Item = (MeasIndex, &'a X)>
+    where
+        Optical<M::Optical>: AsRef<X>,
     {
         self.measurements
             .iter_non_center_values()
-            .map(|(i, m)| (i, m.specific.as_ref()))
+            .map(|(i, m)| (i, m.as_ref()))
     }
 
-    pub fn get_non_temporal_opt<'a, X: 'a>(
-        &'a self,
-    ) -> impl Iterator<Item = (MeasIndex, Option<&'a X>)>
+    pub fn get_optical_opt<'a, X: 'a>(&'a self) -> impl Iterator<Item = (MeasIndex, Option<&'a X>)>
     where
-        M::Optical: AsRef<Option<X>>,
+        Optical<M::Optical>: AsRef<Option<X>>,
     {
-        self.measurements
-            .iter_non_center_values()
-            .map(|(i, m)| (i, m.specific.as_ref().as_ref()))
+        self.get_optical().map(|(i, m)| (i, m.as_ref()))
     }
 
-    pub fn set_non_temporal<X>(&mut self, xs: Vec<X>) -> Result<(), KeyLengthError>
+    pub fn get_optical2<'a, X, Y>(&'a self) -> impl Iterator<Item = (MeasIndex, &'a Y)>
     where
-        M::Optical: AsMut<X>,
+        Optical<M::Optical>: AsRef<X>,
+        X: AsRef<Y> + 'a,
+        Y: 'a,
+    {
+        self.get_optical().map(|(i, m)| (i, m.as_ref()))
+    }
+
+    pub fn get_optical_opt2<'a, X, Y>(&'a self) -> impl Iterator<Item = (MeasIndex, Option<&'a Y>)>
+    where
+        Optical<M::Optical>: AsRef<Option<X>>,
+        X: AsRef<Y> + 'a,
+        Y: 'a,
+    {
+        self.get_optical_opt()
+            .map(|(i, m)| (i, m.map(|x| x.as_ref())))
+    }
+
+    pub fn set_optical<X>(&mut self, xs: Vec<X>) -> Result<(), KeyLengthError>
+    where
+        Optical<M::Optical>: AsMut<X>,
     {
         self.measurements
             .alter_non_center_values_zip(xs, |m, x| {
-                *m.specific.as_mut() = x;
+                *m.as_mut() = x;
             })
             .map(|_| ())
     }
@@ -2234,7 +2449,7 @@ where
     pub fn longnames(&self) -> Vec<Option<&Longname>> {
         self.measurements
             .iter_common_values()
-            .map(|(_, x)| x.longname.as_ref_opt())
+            .map(|(_, x): (_, &Option<Longname>)| x.as_ref())
             .collect()
     }
 
@@ -2246,7 +2461,7 @@ where
     /// keyword.
     pub fn set_longnames(&mut self, ns: Vec<Option<String>>) -> Result<(), KeyLengthError> {
         self.measurements
-            .alter_common_values_zip(ns, |_, x, n| x.longname = n.map(Longname).into())
+            .alter_common_values_zip(ns, |_, x: &mut Option<Longname>, n| *x = n.map(Longname))
             .map(|_| ())
     }
 
@@ -5195,6 +5410,134 @@ impl fmt::Display for TimestepLossError {
         )
     }
 }
+
+macro_rules! impl_ref {
+    ($outer:ident, $inner:ident) => {
+        impl AsRef<$inner> for $outer<$inner> {
+            fn as_ref(&self) -> &$inner {
+                &self.specific
+            }
+        }
+
+        impl AsMut<$inner> for $outer<$inner> {
+            fn as_mut(&mut self) -> &mut $inner {
+                &mut self.specific
+            }
+        }
+    };
+}
+
+impl_ref!(Metaroot, InnerMetaroot2_0);
+impl_ref!(Metaroot, InnerMetaroot3_0);
+impl_ref!(Metaroot, InnerMetaroot3_1);
+impl_ref!(Metaroot, InnerMetaroot3_2);
+
+impl_ref!(Optical, InnerOptical2_0);
+impl_ref!(Optical, InnerOptical3_0);
+impl_ref!(Optical, InnerOptical3_1);
+impl_ref!(Optical, InnerOptical3_2);
+
+impl_ref!(Temporal, InnerTemporal2_0);
+impl_ref!(Temporal, InnerTemporal3_0);
+impl_ref!(Temporal, InnerTemporal3_1);
+impl_ref!(Temporal, InnerTemporal3_2);
+
+macro_rules! impl_ref_specific {
+    ($outer:ident, $inner:ident, $($ref:path),*) => {
+        $(
+            impl AsRef<$ref> for $outer<$inner> {
+                fn as_ref(&self) -> &$ref {
+                    self.specific.as_ref()
+                }
+            }
+
+            impl AsMut<$ref> for $outer<$inner> {
+                fn as_mut(&mut self) -> &mut $ref {
+                    self.specific.as_mut()
+                }
+            }
+        )*
+    };
+}
+
+impl_ref_specific!(Metaroot, InnerMetaroot2_0, Mode, Option<Cyt>);
+
+impl_ref_specific!(
+    Metaroot,
+    InnerMetaroot3_0,
+    Mode,
+    Option<Cyt>,
+    Option<Cytsn>,
+    Option<Unicode>
+);
+
+impl_ref_specific!(
+    Metaroot,
+    InnerMetaroot3_1,
+    Mode,
+    Option<Cyt>,
+    Option<Cytsn>,
+    Option<LastModifier>,
+    Option<ModifiedDateTime>,
+    Option<Originality>,
+    Option<Plateid>,
+    Option<Wellid>,
+    Option<Platename>,
+    Option<Vol>
+);
+
+impl_ref_specific!(
+    Metaroot,
+    InnerMetaroot3_2,
+    Cyt,
+    Option<Cytsn>,
+    Option<LastModifier>,
+    Option<ModifiedDateTime>,
+    Option<Originality>,
+    Option<Plateid>,
+    Option<Wellid>,
+    Option<Platename>,
+    Option<Vol>
+);
+
+impl_ref_specific!(
+    Optical,
+    InnerOptical2_0,
+    Option<Wavelength>,
+    Option<PeakBin>,
+    Option<PeakNumber>
+);
+
+impl_ref_specific!(
+    Optical,
+    InnerOptical3_0,
+    Option<Wavelength>,
+    Option<PeakBin>,
+    Option<PeakNumber>
+);
+
+impl_ref_specific!(
+    Optical,
+    InnerOptical3_1,
+    Option<Wavelengths>,
+    Option<PeakBin>,
+    Option<PeakNumber>,
+    Option<Calibration3_1>,
+    Option<Display>
+);
+
+impl_ref_specific!(
+    Optical,
+    InnerOptical3_2,
+    Option<Wavelengths>,
+    Option<Calibration3_2>,
+    Option<Display>,
+    Option<Analyte>,
+    Option<Feature>,
+    Option<OpticalType>,
+    Option<Tag>,
+    Option<DetectorName>
+);
 
 impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
     fn convert_from_metaroot(

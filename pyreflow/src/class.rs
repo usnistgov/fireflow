@@ -3485,26 +3485,26 @@ macro_rules! optical_common {
             impl $pytype {
                 #[getter]
                 fn get_detector_voltage(&self) -> Option<f32> {
-                    self.0.detector_voltage.as_ref_opt().map(|x| x.0.into())
+                    let x: &Option<DetectorVoltage> = self.0.as_ref();
+                    x.as_ref().map(|y| y.clone().into())
                 }
 
                 #[setter]
-                fn set_detector_voltage(&mut self, x: Option<f32>) -> PyResult<()> {
-                    let y = x.map(to_non_neg_float).transpose()?;
-                    self.0.detector_voltage = y.map(|z| z.into()).into();
+                fn set_detector_voltage(&mut self, x: Option<f32>) -> Result<(), PyRangedFloatError> {
+                    *self.0.as_mut() = x.map(DetectorVoltage::try_from).transpose()?;
                     Ok(())
                 }
 
                 // TODO not DRY
                 #[getter]
                 fn get_power(&self) -> Option<f32> {
-                    self.0.power.as_ref_opt().map(|x| x.0.into())
+                    let x: &Option<Power> = self.0.as_ref();
+                    x.as_ref().map(|y| y.clone().into())
                 }
 
                 #[setter]
-                fn set_power(&mut self, x: Option<f32>) -> PyResult<()> {
-                    let y = x.map(to_non_neg_float).transpose()?;
-                    self.0.power = y.map(|z| z.into()).into();
+                fn set_power(&mut self, x: Option<f32>) -> Result<(), PyRangedFloatError> {
+                    *self.0.as_mut() = x.map(Power::try_from).transpose()?;
                     Ok(())
                 }
             }
@@ -3763,10 +3763,6 @@ where
     let m: X = tup.1.extract()?;
     let sn = str_to_shortname(n)?;
     Ok((sn, m))
-}
-
-fn to_non_neg_float(x: f32) -> PyResult<NonNegFloat> {
-    NonNegFloat::try_from(x).map_err(|e| PyreflowException::new_err(e.to_string()))
 }
 
 fn str_to_shortname(s: String) -> PyResult<Shortname> {

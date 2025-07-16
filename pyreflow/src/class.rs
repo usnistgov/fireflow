@@ -23,7 +23,7 @@ use super::macros::{py_disp, py_enum, py_eq, py_ord, py_parse, py_wrap};
 
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
-use derive_more::{Display, From};
+use derive_more::{Display, From, Into};
 use nonempty::NonEmpty;
 use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
 use polars::prelude::*;
@@ -1845,12 +1845,11 @@ macro_rules! common_methods {
             }
 
             #[setter]
-            fn set_detector_voltages(&mut self, xs: Vec<Option<f32>>) -> PyResult<()> {
+            fn set_detector_voltages(&mut self, xs: Vec<Option<PyNonNegFloat>>) -> PyResult<()> {
                 let ys = xs
                     .into_iter()
-                    .map(|x| x.map(DetectorVoltage::try_from).transpose())
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(PyRangedFloatError::from)?;
+                    .map(|x| x.map(|x| DetectorVoltage::from(x)))
+                    .collect();
                 self.0.set_optical(ys)
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
             }
@@ -1866,12 +1865,11 @@ macro_rules! common_methods {
             }
 
             #[setter]
-            fn set_powers(&mut self, xs: Vec<Option<f32>>) -> PyResult<()> {
+            fn set_powers(&mut self, xs: Vec<Option<PyNonNegFloat>>) -> PyResult<()> {
                 let ys = xs
                     .into_iter()
-                    .map(|x| x.map(Power::try_from).transpose())
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(PyRangedFloatError::from)?;
+                    .map(|x| x.map(|y| Power::from(y)))
+                    .collect();
                 self.0
                     .set_optical(ys)
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
@@ -1939,12 +1937,11 @@ macro_rules! temporal_get_set_3_0 {
                 fn set_temporal(
                     &mut self,
                     name: PyShortname,
-                    timestep: f32,
+                    timestep: PyPositiveFloat,
                     force: bool
                 ) -> PyResult<bool> {
-                    let ts = timestep.try_into().map_err(PyRangedFloatError::from)?;
                     self.0
-                        .set_temporal(&name.0, ts, force)
+                        .set_temporal(&name.0, timestep.into(), force)
                         .def_terminate(SetTemporalFailure)
                         .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
                 }
@@ -1952,12 +1949,11 @@ macro_rules! temporal_get_set_3_0 {
                 fn set_temporal_at(
                     &mut self,
                     index: usize,
-                    timestep: f32,
+                    timestep: PyPositiveFloat,
                     force: bool
                 ) -> PyResult<bool> {
-                    let ts = timestep.try_into().map_err(PyRangedFloatError::from)?;
                     self.0
-                        .set_temporal_at(index.into(), ts, force)
+                        .set_temporal_at(index.into(), timestep.into(), force)
                         .def_terminate(SetTemporalFailure)
                         .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
                 }
@@ -2704,11 +2700,10 @@ macro_rules! timestep_methods {
                 }
 
                 #[setter]
-                fn set_timestep(&mut self, x: f32) -> PyResult<bool> {
-                    let ts = x.try_into().map_err(PyRangedFloatError::from)?;
+                fn set_timestep(&mut self, ts: PyPositiveFloat) -> PyResult<bool> {
                     let res = self.0
                         .temporal_mut()
-                        .map(|y| y.value.specific.set_timestep(ts))
+                        .map(|y| y.value.specific.set_timestep(ts.into()))
                         .is_some();
                     Ok(res)
                 }
@@ -2740,12 +2735,11 @@ macro_rules! wavelength_methods {
                 }
 
                 #[setter]
-                fn set_wavelengths(&mut self, xs: Vec<Option<f32>>) -> PyResult<()> {
+                fn set_wavelengths(&mut self, xs: Vec<Option<PyPositiveFloat>>) -> PyResult<()> {
                     let ys = xs
                         .into_iter()
-                        .map(|x| x.map(|y| Wavelength::try_from(y)).transpose())
-                        .collect::<Result<Vec<_>, _>>()
-                        .map_err(PyRangedFloatError::from)?;
+                        .map(|x| x.map(|y| Wavelength::from(y.0)))
+                        .collect();
                     self.0
                         .set_optical(ys)
                         .map_err(|e| PyreflowException::new_err(e.to_string()))
@@ -2781,12 +2775,13 @@ macro_rules! wavelengths_methods {
                 }
 
                 #[setter]
-                fn set_wavelengths(&mut self, xs: Vec<Vec<f32>>) -> PyResult<()> {
+                fn set_wavelengths(&mut self, xs: Vec<Vec<PyPositiveFloat>>) -> PyResult<()> {
+                    // TODO cleanme
                     let ys = xs
                         .into_iter()
-                        .map(|ys| NonEmpty::from_vec(ys).map(Wavelengths::try_from).transpose())
-                        .collect::<Result<Vec<_>, _>>()
-                        .map_err(PyRangedFloatError::from)?;
+                        .map(|ys| NonEmpty::from_vec(ys).map(|zs| zs.map(|z| z.0)))
+                        .map(|ys| ys.map(Wavelengths::from))
+                        .collect();
                     self.0
                         .set_optical(ys)
                         .map_err(|e| PyreflowException::new_err(e.to_string()))
@@ -2963,12 +2958,9 @@ macro_rules! vol_methods {
                     self.0.get_metaroot_opt::<Vol>().map(|x| x.clone().into())
                 }
 
-                // TODO this can be generalized with try_from
                 #[setter]
-                fn set_vol(&mut self, vol: Option<f32>) -> Result<(), PyRangedFloatError> {
-                    let x = vol.map(Vol::try_from).transpose()?;
-                    self.0.set_metaroot(x);
-                    Ok(())
+                fn set_vol(&mut self, vol: Option<PyNonNegFloat>) {
+                    self.0.set_metaroot(vol.map(|v| Vol::from(v.0)))
                 }
             }
         )*
@@ -3335,24 +3327,24 @@ impl PyTemporal2_0 {
 #[pymethods]
 impl PyTemporal3_0 {
     #[new]
-    fn new(timestep: f32) -> Result<Self, PyRangedFloatError> {
-        Ok(Temporal3_0::new(timestep.try_into()?).into())
+    fn new(timestep: PyPositiveFloat) -> Self {
+        Temporal3_0::new(timestep.into()).into()
     }
 }
 
 #[pymethods]
 impl PyTemporal3_1 {
     #[new]
-    fn new(timestep: f32) -> Result<Self, PyRangedFloatError> {
-        Ok(Temporal3_1::new(timestep.try_into()?).into())
+    fn new(timestep: PyPositiveFloat) -> Self {
+        Temporal3_1::new(timestep.into()).into()
     }
 }
 
 #[pymethods]
 impl PyTemporal3_2 {
     #[new]
-    fn new(timestep: f32) -> Result<Self, PyRangedFloatError> {
-        Ok(Temporal3_2::new(timestep.try_into()?).into())
+    fn new(timestep: PyPositiveFloat) -> Self {
+        Temporal3_2::new(timestep.into()).into()
     }
 
     #[getter]
@@ -3472,9 +3464,8 @@ macro_rules! optical_common {
                 }
 
                 #[setter]
-                fn set_detector_voltage(&mut self, x: Option<f32>) -> Result<(), PyRangedFloatError> {
-                    *self.0.as_mut() = x.map(DetectorVoltage::try_from).transpose()?;
-                    Ok(())
+                fn set_detector_voltage(&mut self, x: Option<PyNonNegFloat>) {
+                    *self.0.as_mut() = x.map(|y| DetectorVoltage::from(y))
                 }
 
                 // TODO not DRY
@@ -3485,9 +3476,8 @@ macro_rules! optical_common {
                 }
 
                 #[setter]
-                fn set_power(&mut self, x: Option<f32>) -> Result<(), PyRangedFloatError> {
-                    *self.0.as_mut() = x.map(Power::try_from).transpose()?;
-                    Ok(())
+                fn set_power(&mut self, x: Option<PyNonNegFloat>) {
+                    *self.0.as_mut() = x.map(|y| Power::from(y))
                 }
             }
         )*
@@ -3572,14 +3562,13 @@ macro_rules! meas_get_set_wavelengths {
             impl $pytype {
                 #[getter]
                 fn get_wavelength(&self) -> Option<f32> {
-                    self.0.specific.wavelength.as_ref_opt().map(|w| w.0.into())
+                    let x: &Option<Wavelength> = self.0.as_ref();
+                    x.as_ref().map(|x| x.clone().into())
                 }
 
                 #[setter]
-                fn set_wavelength(&mut self, x: Option<f32>) -> Result<(), PyRangedFloatError> {
-                    let y = x.map(|y| y.try_into()).transpose()?;
-                    self.0.specific.wavelength = y.into();
-                    Ok(())
+                fn set_wavelength(&mut self, x: Option<PyPositiveFloat>)  {
+                    *self.0.as_mut() = x.map(|y| Wavelength::from(y.0))
                 }
             }
         )*
@@ -3601,15 +3590,14 @@ macro_rules! meas_get_set_wavelengths {
                 }
 
                 #[setter]
-                fn set_wavelengths(&mut self, xs: Vec<f32>) -> Result<(), PyRangedFloatError> {
+                fn set_wavelengths(&mut self, xs: Vec<PyPositiveFloat>) {
                     let ws = if let Some(ys) = NonEmpty::from_vec(xs) {
-                        let ws = Wavelengths::try_from(ys)?;
+                        let ws = Wavelengths::from(ys.map(|y| y.0));
                         Some(ws)
                     } else {
                         None.into()
                     };
                     *self.0.as_mut() = ws;
-                    Ok(())
                 }
             }
         )*
@@ -3630,9 +3618,8 @@ macro_rules! meas_get_set_timestep {
                 }
 
                 #[setter]
-                fn set_timestep(&mut self, x: f32) -> Result<(), PyRangedFloatError> {
-                    self.0.specific.timestep = x.try_into()?;
-                    Ok(())
+                fn set_timestep(&mut self, x: PyPositiveFloat) {
+                    self.0.specific.timestep = x.into()
                 }
             }
         )*
@@ -3867,6 +3854,14 @@ struct PyShortnamePrefix(ShortnamePrefix);
 
 struct PyNonStdKey(NonStdKey);
 
+#[derive(Into)]
+#[into(Timestep)]
+struct PyPositiveFloat(PositiveFloat);
+
+#[derive(Into)]
+#[into(DetectorVoltage, Power)]
+struct PyNonNegFloat(NonNegFloat);
+
 impl<'py> FromPyObject<'py> for PyShortname {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let s: String = ob.extract()?;
@@ -3888,6 +3883,22 @@ impl<'py> FromPyObject<'py> for PyNonStdKey {
         let s: String = ob.extract()?;
         let n = s.parse().map_err(PyKeyStringError)?;
         Ok(PyNonStdKey(n))
+    }
+}
+
+impl<'py> FromPyObject<'py> for PyPositiveFloat {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let x: f32 = ob.extract()?;
+        let y = x.try_into().map_err(PyRangedFloatError)?;
+        Ok(PyPositiveFloat(y))
+    }
+}
+
+impl<'py> FromPyObject<'py> for PyNonNegFloat {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let x: f32 = ob.extract()?;
+        let y = x.try_into().map_err(PyRangedFloatError)?;
+        Ok(PyNonNegFloat(y))
     }
 }
 

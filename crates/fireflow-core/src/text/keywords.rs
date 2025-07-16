@@ -487,7 +487,8 @@ impl fmt::Display for CalibrationFormat3_2 {
 }
 
 /// The value for the $PnL key (2.0/3.0).
-#[derive(Clone, From, FromStr, Display, Serialize)]
+#[derive(Clone, From, FromStr, Display, Serialize, Into)]
+#[into(f32)]
 pub struct Wavelength(pub PositiveFloat);
 
 impl_newtype_try_from!(Wavelength, PositiveFloat, f32, RangedFloatError);
@@ -498,13 +499,13 @@ impl_newtype_try_from!(Wavelength, PositiveFloat, f32, RangedFloatError);
 #[derive(Clone, From)]
 pub struct Wavelengths(pub NonEmpty<PositiveFloat>);
 
-impl TryFrom<NonEmpty<f32>> for Wavelengths {
-    type Error = RangedFloatError;
+// impl TryFrom<NonEmpty<f32>> for Wavelengths {
+//     type Error = RangedFloatError;
 
-    fn try_from(value: NonEmpty<f32>) -> Result<Self, Self::Error> {
-        value.try_map(|x| x.try_into()).map(Self)
-    }
-}
+//     fn try_from(value: NonEmpty<f32>) -> Result<Self, Self::Error> {
+//         value.try_map(|x| x.try_into()).map(Self)
+//     }
+// }
 
 impl From<Wavelengths> for Vec<f32> {
     fn from(value: Wavelengths) -> Self {

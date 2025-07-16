@@ -1642,19 +1642,16 @@ macro_rules! common_methods {
 
         #[pymethods]
         impl $pytype {
-            fn insert_nonstandard(&mut self, key: String, v: String) -> PyResult<Option<String>> {
-                let k = str_to_nonstd_key(key)?;
-                Ok(self.0.metaroot.nonstandard_keywords.insert(k, v))
+            fn insert_nonstandard(&mut self, key: PyNonStdKey, v: String) -> Option<String> {
+                self.0.metaroot.nonstandard_keywords.insert(key.0, v)
             }
 
-            fn remove_nonstandard(&mut self, key: String) -> PyResult<Option<String>> {
-                let k = str_to_nonstd_key(key)?;
-                Ok(self.0.metaroot.nonstandard_keywords.remove(&k.into()))
+            fn remove_nonstandard(&mut self, key: PyNonStdKey) -> Option<String> {
+                self.0.metaroot.nonstandard_keywords.remove(&key.0)
             }
 
-            fn get_nonstandard(&mut self, key: String) -> PyResult<Option<String>> {
-                let k = str_to_nonstd_key(key)?;
-                Ok(self.0.metaroot.nonstandard_keywords.get(&k.into()).cloned())
+            fn get_nonstandard(&mut self, key: PyNonStdKey) -> Option<String> {
+                self.0.metaroot.nonstandard_keywords.get(&key.0).cloned()
             }
 
             // TODO add way to remove nonstandard
@@ -1675,12 +1672,9 @@ macro_rules! common_methods {
 
             fn insert_meas_nonstandard(
                 &mut self,
-                keyvals: Vec<(String, String)>,
+                keyvals: Vec<(PyNonStdKey, String)>,
             ) -> PyResult<Vec<Option<String>>> {
-                let mut xs = vec![];
-                for (k, v) in keyvals {
-                    xs.push((str_to_nonstd_key(k)?, v));
-                }
+                let xs = keyvals.into_iter().map(|(k, v)| (k.0, v)).collect();
                 self.0
                     .insert_meas_nonstandard(xs)
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
@@ -1689,25 +1683,19 @@ macro_rules! common_methods {
 
             fn remove_meas_nonstandard(
                 &mut self,
-                keys: Vec<String>
+                keys: Vec<PyNonStdKey>
             ) -> PyResult<Vec<Option<String>>> {
-                let mut xs = vec![];
-                for k in keys {
-                    xs.push(str_to_nonstd_key(k)?);
-                }
+                let xs = keys.iter().map(|k| &k.0).collect();
                 self.0
-                    .remove_meas_nonstandard(xs.iter().collect())
+                    .remove_meas_nonstandard(xs)
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
             }
 
             fn get_meas_nonstandard(
                 &mut self,
-                keys: Vec<String>
+                keys: Vec<PyNonStdKey>
             ) -> PyResult<Option<Vec<Option<String>>>> {
-                let mut xs = vec![];
-                for k in keys {
-                    xs.push(str_to_nonstd_key(k)?);
-                }
+                let xs: Vec<_> = keys.into_iter().map(|k| k.0).collect();
                 let res = self.0
                     .get_meas_nonstandard(&xs[..])
                     .map(|rs| rs.into_iter().map(|r| r.cloned()).collect());
@@ -3424,21 +3412,18 @@ macro_rules! shared_meas_get_set {
 
                 fn nonstandard_insert(
                     &mut self,
-                    key: String,
+                    key: PyNonStdKey,
                     value: String
-                ) -> PyResult<Option<String>> {
-                    let k = str_to_nonstd_key(key)?;
-                    Ok(self.0.common.nonstandard_keywords.insert(k, value))
+                ) -> Option<String> {
+                    self.0.common.nonstandard_keywords.insert(key.0, value)
                 }
 
-                fn nonstandard_get(&self, key: String) -> PyResult<Option<String>> {
-                    let k = str_to_nonstd_key(key)?;
-                    Ok(self.0.common.nonstandard_keywords.get(&k).map(|x| x.clone()))
+                fn nonstandard_get(&self, key: PyNonStdKey) -> Option<String> {
+                    self.0.common.nonstandard_keywords.get(&key.0).map(|x| x.clone())
                 }
 
-                fn nonstandard_remove(&mut self, key: String) -> PyResult<Option<String>> {
-                    let k = str_to_nonstd_key(key)?;
-                    Ok(self.0.common.nonstandard_keywords.remove(&k))
+                fn nonstandard_remove(&mut self, key: PyNonStdKey) -> Option<String> {
+                    self.0.common.nonstandard_keywords.remove(&key.0)
                 }
             }
         )*
@@ -3745,11 +3730,6 @@ where
     Ok((n.0, m))
 }
 
-fn str_to_nonstd_key(s: String) -> PyResult<NonStdKey> {
-    s.parse::<NonStdKey>()
-        .map_err(|e| PyreflowException::new_err(e.to_string()))
-}
-
 fn str_to_nonstd_meas_pat(s: String) -> PyResult<NonStdMeasPattern> {
     s.parse::<NonStdMeasPattern>()
         .map_err(|e| PyreflowException::new_err(e.to_string()))
@@ -3880,6 +3860,37 @@ impl fmt::Display for SetMeasurementsFailure {
     }
 }
 
+// TODO deref for stuff like this?
+struct PyShortname(Shortname);
+
+struct PyShortnamePrefix(ShortnamePrefix);
+
+struct PyNonStdKey(NonStdKey);
+
+impl<'py> FromPyObject<'py> for PyShortname {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let s: String = ob.extract()?;
+        let n = s.parse().map_err(PyShortnameError)?;
+        Ok(PyShortname(n))
+    }
+}
+
+impl<'py> FromPyObject<'py> for PyShortnamePrefix {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let s: String = ob.extract()?;
+        let n = s.parse().map_err(PyShortnameError)?;
+        Ok(PyShortnamePrefix(n))
+    }
+}
+
+impl<'py> FromPyObject<'py> for PyNonStdKey {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let s: String = ob.extract()?;
+        let n = s.parse().map_err(PyKeyStringError)?;
+        Ok(PyNonStdKey(n))
+    }
+}
+
 #[derive(Display, From)]
 struct PyShortnameError(ShortnameError);
 
@@ -3898,24 +3909,11 @@ impl From<PyRangedFloatError> for PyErr {
     }
 }
 
-// TODO deref for stuff like this?
-struct PyShortname(Shortname);
+#[derive(Display, From)]
+struct PyKeyStringError(KeyStringError);
 
-// TODO deref for stuff like this?
-struct PyShortnamePrefix(ShortnamePrefix);
-
-impl<'py> FromPyObject<'py> for PyShortname {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let s: String = ob.extract()?;
-        let n = s.parse().map_err(PyShortnameError)?;
-        Ok(PyShortname(n))
-    }
-}
-
-impl<'py> FromPyObject<'py> for PyShortnamePrefix {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let s: String = ob.extract()?;
-        let n = s.parse().map_err(PyShortnameError)?;
-        Ok(PyShortnamePrefix(n))
+impl From<PyKeyStringError> for PyErr {
+    fn from(value: PyKeyStringError) -> Self {
+        PyreflowException::new_err(value.to_string())
     }
 }

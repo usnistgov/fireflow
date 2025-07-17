@@ -10,6 +10,7 @@ use fireflow_core::text::named_vec::{Element, KeyLengthError};
 use fireflow_core::text::optional::*;
 use fireflow_core::text::ranged_float::*;
 use fireflow_core::text::scale::*;
+use fireflow_core::text::timestamps::ReversedTimestamps;
 use fireflow_core::validated::dataframe::*;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::keys::*;
@@ -1678,41 +1679,35 @@ macro_rules! common_methods {
 
             #[getter]
             fn get_btim(&self) -> Option<NaiveTime> {
-                self.0.timestamps().btim_naive()
+                self.0.btim_naive()
             }
 
             #[setter]
-            fn set_btim(&mut self, x: Option<NaiveTime>) -> PyResult<()> {
-                self.0
-                    .timestamps_mut()
-                    .set_btim_naive(x)
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+            fn set_btim(&mut self, x: Option<NaiveTime>) -> Result<(), PyReversedTimestamps> {
+                self.0.set_btim_naive(x)?;
+                Ok(())
             }
 
             #[getter]
             fn get_etim(&self) -> Option<NaiveTime> {
-                self.0.timestamps().etim_naive()
+                self.0.etim_naive()
             }
 
             #[setter]
-            fn set_etim(&mut self, x: Option<NaiveTime>) -> PyResult<()> {
-                self.0
-                    .timestamps_mut()
-                    .set_etim_naive(x)
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+            fn set_etim(&mut self, x: Option<NaiveTime>) -> Result<(), PyReversedTimestamps> {
+                self.0.set_etim_naive(x)?;
+                Ok(())
             }
 
             #[getter]
             fn get_date(&self) -> Option<NaiveDate> {
-                self.0.timestamps().date_naive()
+                self.0.date_naive()
             }
 
             #[setter]
-            fn set_date(&mut self, x: Option<NaiveDate>) -> PyResult<()> {
-                self.0
-                    .timestamps_mut()
-                    .set_date_naive(x)
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+            fn set_date(&mut self, x: Option<NaiveDate>) -> Result<(), PyReversedTimestamps> {
+                self.0.set_date_naive(x)?;
+                Ok(())
             }
 
             #[getter]
@@ -3843,6 +3838,15 @@ struct PyKeyLengthError(KeyLengthError);
 
 impl From<PyKeyLengthError> for PyErr {
     fn from(value: PyKeyLengthError) -> Self {
+        PyreflowException::new_err(value.to_string())
+    }
+}
+
+#[derive(Display, From)]
+struct PyReversedTimestamps(ReversedTimestamps);
+
+impl From<PyReversedTimestamps> for PyErr {
+    fn from(value: PyReversedTimestamps) -> Self {
         PyreflowException::new_err(value.to_string())
     }
 }

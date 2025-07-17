@@ -1625,7 +1625,7 @@ macro_rules! kw_time {
 
         impl From<NaiveTime> for $outer {
             fn from(value: NaiveTime) -> Self {
-                $wrap($inner(value))
+                Xtim($inner(value))
             }
         }
     };

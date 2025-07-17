@@ -5,11 +5,12 @@ use super::optional::*;
 use super::parser::*;
 
 use chrono::{NaiveDate, NaiveTime, Timelike};
-use derive_more::{Display, From, FromStr, Into};
+use derive_more::{AsRef, Display, From, FromStr, Into};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Serialize;
 use std::fmt;
+use std::mem;
 use std::str::FromStr;
 
 /// A convenient bundle holding data/time keyword values.
@@ -17,15 +18,18 @@ use std::str::FromStr;
 /// The generic type parameter is meant to account for the fact that the time
 /// types for different versions are all slightly different in their treatment
 /// of sub-second time.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef)]
 pub struct Timestamps<X> {
     /// The value of the $BTIM key
+    #[as_ref(Option<Btim<X>>)]
     btim: Option<Btim<X>>,
 
     /// The value of the $ETIM key
+    #[as_ref(Option<Etim<X>>)]
     etim: Option<Etim<X>>,
 
     /// The value of the $DATE key
+    #[as_ref(Option<FCSDate>)]
     date: Option<FCSDate>,
 }
 
@@ -39,55 +43,25 @@ impl<X> Default for Timestamps<X> {
     }
 }
 
-#[derive(Clone, Copy, Serialize, Display, FromStr, From)]
-pub struct Btim<T>(pub T);
+pub type Btim<T> = Xtim<false, T>;
+pub type Etim<T> = Xtim<true, T>;
 
 #[derive(Clone, Copy, Serialize, Display, FromStr, From)]
-pub struct Etim<T>(pub T);
+pub struct Xtim<const IS_ETIM: bool, T>(pub T);
 
 /// A date as used in the $DATE key
-#[derive(Clone, Copy, Serialize, From, Into)]
+#[derive(Clone, Copy, Serialize, From, Into, AsRef)]
 pub struct FCSDate(pub NaiveDate);
 
-macro_rules! get_set {
-    ($fn_get_naive:ident, $fn:ident, $fn_naive:ident, $in:path, $in_naive:path, $field:ident) => {
-        pub fn $fn_get_naive(&self) -> Option<$in_naive>
-        where
-            $in_naive: From<$in>,
-        {
-            self.$field.map(|x| x.into())
-        }
-
-        fn $fn(&mut self, x: Option<$in>) -> TimestampsResult<()> {
-            let tmp = self.$field;
-            self.$field = x;
-            if self.valid() {
-                Ok(())
-            } else {
-                self.$field = tmp;
-                Err(ReversedTimestamps)
-            }
-        }
-
-        pub fn $fn_naive(&mut self, x: Option<$in_naive>) -> TimestampsResult<()>
-        where
-            $in: From<$in_naive>,
-        {
-            self.$fn(x.map(|y| y.into()).into())
-        }
-    };
-}
-
-impl<X> Timestamps<X>
-where
-    X: PartialOrd,
-    X: Copy,
-{
+impl<X> Timestamps<X> {
     pub fn new(
         btim: MaybeValue<Btim<X>>,
         etim: MaybeValue<Etim<X>>,
         date: MaybeValue<FCSDate>,
-    ) -> TimestampsResult<Self> {
+    ) -> TimestampsResult<Self>
+    where
+        X: PartialOrd,
+    {
         let ret = Self {
             btim: btim.0,
             etim: etim.0,
@@ -100,45 +74,57 @@ where
         }
     }
 
-    get_set!(
-        btim_naive,
-        set_btim,
-        set_btim_naive,
-        Btim<X>,
-        NaiveTime,
-        btim
-    );
+    pub fn set_btim(&mut self, time: Option<Btim<X>>) -> TimestampsResult<()>
+    where
+        X: PartialOrd,
+    {
+        let tmp = mem::replace(&mut self.btim, time);
+        if !self.valid() {
+            self.btim = tmp;
+            return Err(ReversedTimestamps);
+        }
+        Ok(())
+    }
 
-    get_set!(
-        etim_naive,
-        set_etim,
-        set_etim_naive,
-        Etim<X>,
-        NaiveTime,
-        etim
-    );
+    pub fn set_etim(&mut self, time: Option<Etim<X>>) -> TimestampsResult<()>
+    where
+        X: PartialOrd,
+    {
+        let tmp = mem::replace(&mut self.etim, time);
+        if !self.valid() {
+            self.etim = tmp;
+            return Err(ReversedTimestamps);
+        }
+        Ok(())
+    }
 
-    get_set!(
-        date_naive,
-        set_date,
-        set_date_naive,
-        FCSDate,
-        NaiveDate,
-        date
-    );
+    pub fn set_date(&mut self, date: Option<FCSDate>) -> TimestampsResult<()>
+    where
+        X: PartialOrd,
+    {
+        let tmp = mem::replace(&mut self.date, date);
+        if !self.valid() {
+            self.date = tmp;
+            return Err(ReversedTimestamps);
+        }
+        Ok(())
+    }
 
     pub fn map<F, Y>(self, f: F) -> Timestamps<Y>
     where
         F: Fn(X) -> Y,
     {
         Timestamps {
-            btim: self.btim.map(|x| Btim(f(x.0))),
-            etim: self.etim.map(|x| Etim(f(x.0))),
+            btim: self.btim.map(|x| Xtim(f(x.0))),
+            etim: self.etim.map(|x| Xtim(f(x.0))),
             date: self.date,
         }
     }
 
-    pub fn valid(&self) -> bool {
+    pub fn valid(&self) -> bool
+    where
+        X: PartialOrd,
+    {
         if self.date.is_some() {
             if let (Some(b), Some(e)) = (&self.btim, &self.etim) {
                 b.0 < e.0
@@ -155,6 +141,7 @@ where
         Btim<X>: OptMetarootKey,
         Etim<X>: OptMetarootKey,
         ParseOptKeyWarning: From<<Btim<X> as FromStr>::Err> + From<<Etim<X> as FromStr>::Err>,
+        X: PartialOrd,
     {
         let b = Btim::lookup_opt(kws);
         let e = Etim::lookup_opt(kws);
@@ -170,6 +157,7 @@ where
         Btim<X>: OptMetarootKey,
         Etim<X>: OptMetarootKey,
         ParseOptKeyWarning: From<<Btim<X> as FromStr>::Err> + From<<Etim<X> as FromStr>::Err>,
+        X: PartialOrd,
     {
         let b = Btim::lookup_opt_dep(kws, disallow_dep);
         let e = Etim::lookup_opt_dep(kws, disallow_dep);
@@ -181,7 +169,10 @@ where
         b: LookupTentative<MaybeValue<Btim<X>>, E>,
         e: LookupTentative<MaybeValue<Etim<X>>, E>,
         d: LookupTentative<MaybeValue<FCSDate>, E>,
-    ) -> LookupTentative<Self, E> {
+    ) -> LookupTentative<Self, E>
+    where
+        X: PartialOrd,
+    {
         b.zip3(e, d).and_tentatively(|(btim, etim, date)| {
             Timestamps::new(btim, etim, date)
                 .map(Tentative::new1)
@@ -196,6 +187,7 @@ where
     where
         Btim<X>: OptMetarootKey,
         Etim<X>: OptMetarootKey,
+        X: Copy,
     {
         [
             OptMetarootKey::pair_opt(&MaybeValue(self.btim)),
@@ -214,24 +206,6 @@ type TimestampsResult<T> = Result<T, ReversedTimestamps>;
 impl fmt::Display for ReversedTimestamps {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "$ETIM is before $BTIM and $DATE is given")
-    }
-}
-
-impl<T> From<Btim<T>> for NaiveTime
-where
-    NaiveTime: From<T>,
-{
-    fn from(value: Btim<T>) -> Self {
-        value.0.into()
-    }
-}
-
-impl<T> From<Etim<T>> for NaiveTime
-where
-    NaiveTime: From<T>,
-{
-    fn from(value: Etim<T>) -> Self {
-        value.0.into()
     }
 }
 

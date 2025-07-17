@@ -1317,10 +1317,6 @@ pub(crate) trait LookupOptical: Sized + VersionedOptical {
 pub trait VersionedTemporal: Sized {
     type Ver: Versioned;
 
-    fn timestep(&self) -> Option<Timestep>;
-
-    fn set_timestep(&mut self, ts: Timestep);
-
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)>;
 
     fn opt_meas_keywords_inner(&self, _: MeasIndex) -> impl Iterator<Item = (String, String)>;
@@ -6614,11 +6610,6 @@ impl VersionedOptical for InnerOptical3_2 {
 
 impl VersionedTemporal for InnerTemporal2_0 {
     type Ver = Version2_0;
-    fn timestep(&self) -> Option<Timestep> {
-        None
-    }
-
-    fn set_timestep(&mut self, _: Timestep) {}
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
         [].into_iter()
@@ -6637,13 +6628,6 @@ impl VersionedTemporal for InnerTemporal2_0 {
 
 impl VersionedTemporal for InnerTemporal3_0 {
     type Ver = Version3_0;
-    fn timestep(&self) -> Option<Timestep> {
-        Some(self.timestep)
-    }
-
-    fn set_timestep(&mut self, ts: Timestep) {
-        self.timestep = ts;
-    }
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
         [ReqMetarootKey::pair(&self.timestep)].into_iter()
@@ -6662,13 +6646,6 @@ impl VersionedTemporal for InnerTemporal3_0 {
 
 impl VersionedTemporal for InnerTemporal3_1 {
     type Ver = Version3_1;
-    fn timestep(&self) -> Option<Timestep> {
-        Some(self.timestep)
-    }
-
-    fn set_timestep(&mut self, ts: Timestep) {
-        self.timestep = ts;
-    }
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
         [ReqMetarootKey::pair(&self.timestep)].into_iter()
@@ -6689,13 +6666,6 @@ impl VersionedTemporal for InnerTemporal3_1 {
 
 impl VersionedTemporal for InnerTemporal3_2 {
     type Ver = Version3_2;
-    fn timestep(&self) -> Option<Timestep> {
-        Some(self.timestep)
-    }
-
-    fn set_timestep(&mut self, ts: Timestep) {
-        self.timestep = ts;
-    }
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
         [self.timestep.pair()].into_iter()

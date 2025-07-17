@@ -1247,7 +1247,7 @@ impl PyOpticalType {
     }
 }
 
-// $PnE (all versions)
+// $PnE (2.0)
 py_wrap!(PyScale, Scale, "Scale");
 py_eq!(PyScale);
 py_disp!(PyScale);
@@ -1272,6 +1272,11 @@ impl PyScale {
         self.0 == Scale::Linear
     }
 }
+
+// $PnE (3.0+)
+py_wrap!(PyScaleTransform, ScaleTransform, "ScaleTransform");
+py_eq!(PyScaleTransform);
+py_disp!(PyScaleTransform);
 
 py_wrap!(PyDisplay, Display, "Display");
 py_eq!(PyDisplay);
@@ -2508,119 +2513,84 @@ shortnames_methods!(
     PyCoreDataset3_0
 );
 
-// Get/set methods for setting integer measurement types (2.0-3.0)
-// macro_rules! integer_2_0_methods {
-//     ($($pytype:ident),*) => {
-//         $(
-//             #[pymethods]
-//             impl $pytype {
-//                 fn set_data_integer(&mut self, rs: Vec<u64>, byteord: Vec<u8>) -> PyResult<()> {
-//                     let o = vec_to_byteord(byteord)?;
-//                     self.0
-//                         .set_data_integer(rs, o)
-//                         .map_err(|e| PyreflowException::new_err(e.to_string()))
-//                 }
-//             }
-//         )*
-//     };
-// }
+// Get/set methods for $PnE (2.0)
+macro_rules! scales_methods {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                #[getter]
+                fn get_all_scales(&self) -> Vec<Option<PyScale>> {
+                    self.0.get_all_scales().map(|x| x.map(|y| y.into())).collect()
+                }
 
-// integer_2_0_methods!(
-//     PyCoreTEXT2_0,
-//     PyCoreTEXT3_0,
-//     PyCoreDataset2_0,
-//     PyCoreDataset3_0
-// );
+                #[getter]
+                fn get_scales(&self) -> Vec<(usize, Option<PyScale>)> {
+                    self.0
+                        .get_optical_opt::<Scale>()
+                        .map(|(i, s)| (i.into(), s.map(|&x| x.into())))
+                        .collect()
+                }
 
-// Get/set methods for setting integer measurement types (3.1-3.2)
-// macro_rules! integer_methods {
-//     ($($pytype:ident),*) => {
-//         $(
-//             #[pymethods]
-//             impl $pytype {
-//                 fn set_data_integer(&mut self, rs: Vec<PyNumRangeSetter>) -> PyResult<()> {
-//                     self.0
-//                         .set_data_integer(rs.into_iter().map(|x| x.into()).collect())
-//                         .map_err(|e| PyreflowException::new_err(e.to_string()))
-//                 }
-//             }
-//         )*
-//     };
-// }
+                #[setter]
+                fn set_scales(&mut self, xs: Vec<Option<PyScale>>) -> PyResult<()> {
+                    let ys = xs.into_iter().map(|x| x.map(|y| y.into())).collect();
+                    self.0
+                        .set_scales(ys)
+                        // TODO handle this better
+                        .mult_terminate(SetMeasurementsFailure)
+                        .map_err(handle_failure_nowarn)
+                        .void()
+                }
+            }
+        )*
+    };
+}
 
-// integer_methods!(
-//     PyCoreTEXT3_1,
-//     PyCoreTEXT3_2,
-//     PyCoreDataset3_1,
-//     PyCoreDataset3_2
-// );
-
-// Get/set methods for $BYTEORD (3.1-3.2)
-// macro_rules! endian_methods {
-//     ($($pytype:ident),*) => {
-//         $(
-//             #[pymethods]
-//             impl $pytype {
-//                 #[getter]
-//                 fn get_big_endian(&self) -> bool {
-//                     self.0.get_big_endian()
-//                 }
-
-//                 #[setter]
-//                 fn set_big_endian(&mut self, is_big: bool) {
-//                     self.0.set_big_endian(is_big)
-//                 }
-//             }
-//         )*
-//     };
-// }
-
-// endian_methods!(
-//     PyCoreTEXT3_1,
-//     PyCoreTEXT3_2,
-//     PyCoreDataset3_1,
-//     PyCoreDataset3_2
-// );
+scales_methods!(PyCoreTEXT2_0, PyCoreDataset2_0);
 
 // Get/set methods for $PnE (3.0-3.2)
-// macro_rules! scales_methods {
-//     ($($pytype:ident),*) => {
-//         $(
-//             #[pymethods]
-//             impl $pytype {
-//                 #[getter]
-//                 fn get_all_scales(&self) -> Vec<PyScale> {
-//                     self.0.all_scales().into_iter().map(|x| x.into()).collect()
-//                 }
+macro_rules! transforms_methods {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                #[getter]
+                fn get_all_transforms(&self) -> Vec<PyScaleTransform> {
+                    self.0.get_all_transforms().map(|x| x.into()).collect()
+                }
 
-//                 #[getter]
-//                 fn get_scales(&self) -> Vec<(usize, PyScale)> {
-//                     self.0
-//                         .scales()
-//                         .into_iter()
-//                         .map(|(i, x)| (i.into(), x.into()))
-//                         .collect()
-//                 }
+                #[getter]
+                fn get_transforms(&self) -> Vec<(usize, PyScaleTransform)> {
+                    self.0
+                        .get_optical::<ScaleTransform>()
+                        .map(|(i, &s)| (i.into(), s.into()))
+                        .collect()
+                }
 
-//                 #[setter]
-//                 fn set_scales(&mut self, xs: Vec<PyScale>) -> PyResult<()> {
-//                     self.0
-//                         .set_scales(xs.into_iter().map(|x| x.into()).collect())
-//                         .map_err(|e| PyreflowException::new_err(e.to_string()))
-//                 }
-//             }
-//         )*
-//     };
-// }
+                #[setter]
+                fn set_transforms(&mut self, xs: Vec<PyScaleTransform>) -> PyResult<()> {
+                    let ys = xs.into_iter().map(|x| x.into()).collect();
+                    self.0
+                        .set_transforms(ys)
+                        // TODO handle this better
+                        .mult_terminate(SetMeasurementsFailure)
+                        .map_err(handle_failure_nowarn)
+                        .void()
+                }
+            }
+        )*
+    };
+}
 
-// scales_methods!(
-//     PyCoreTEXT3_0,
-//     PyCoreTEXT3_1,
-//     PyCoreTEXT3_2,
-//     PyCoreDataset3_0,
-//     PyCoreDataset3_1,
-//     PyCoreDataset3_2
-// );
+transforms_methods!(
+    PyCoreTEXT3_0,
+    PyCoreTEXT3_1,
+    PyCoreTEXT3_2,
+    PyCoreDataset3_0,
+    PyCoreDataset3_1,
+    PyCoreDataset3_2
+);
 
 // Get/set methods for $TIMESTEP (3.0-3.2)
 macro_rules! timestep_methods {

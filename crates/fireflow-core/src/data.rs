@@ -475,19 +475,30 @@ pub trait LayoutOps<'a, T>: Sized {
         df: &'a FCSDataFrame,
     ) -> io::Result<()>;
 
-    // TODO this should be private
-    fn check_transforms<N: MightHave, Tm, Om: HasScaleTransform>(
+    fn check_transforms_and_len(
         &self,
-        meas: &Measurements<N, Tm, Om>,
+        xforms: &[ScaleTransform],
+    ) -> MultiResult<(), MeasLayoutMismatchError> {
+        let meas_n = xforms.len();
+        let layout_n = self.ncols();
+        if meas_n != layout_n {
+            return Err(MeasLayoutLengthsError { meas_n, layout_n }).into_mult();
+        }
+        self.check_transforms(xforms).mult_errors_into()?;
+        Ok(())
+    }
+
+    // TODO this should be private
+    fn check_transforms(
+        &self,
+        xforms: &[ScaleTransform],
     ) -> MultiResult<(), ColumnError<ScaleMismatchTransformError>> {
         // ASSUME measurements and layout columns are the same length
         self.datatypes()
             .iter()
-            .zip(meas.iter_with(&|_, t| t.value.as_transform(), &|_, m| {
-                m.value.as_transform()
-            }))
+            .zip(xforms)
             .enumerate()
-            .map(|(i, (&datatype, scale))| {
+            .map(|(i, (&datatype, &scale))| {
                 // Only integers are allowed to have gain and log scaling, so
                 // everything else should be a "noop" transform (ie a linear
                 // transform with slope of 1.0). NOTE the standard itself is
@@ -605,17 +616,17 @@ where
         self.h_write_df_inner(h, df)
     }
 
-    fn check_measurement_vector<N: MightHave, T, O: HasScaleTransform>(
+    fn check_measurement_vector<N: MightHave, T, O: AsScaleTransform>(
         &self,
         meas: &Measurements<N, T, O>,
     ) -> MultiResult<(), MeasLayoutMismatchError> {
-        let meas_n = meas.len();
-        let layout_n = self.ncols();
-        if meas_n != layout_n {
-            return Err(MeasLayoutLengthsError { meas_n, layout_n }).into_mult();
-        }
-        self.check_transforms(meas).mult_errors_into()?;
-        Ok(())
+        let xforms: Vec<_> = meas
+            .iter_with(&|_, t| t.value.as_transform(), &|_, m| {
+                m.value.as_transform()
+            })
+            .collect();
+        self.check_transforms_and_len(&xforms[..])
+            .mult_errors_into()
     }
 }
 

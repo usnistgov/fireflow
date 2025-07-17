@@ -704,6 +704,7 @@ pub struct InnerTemporal3_2 {
 #[derive(Clone, Serialize, Default, AsRef, AsMut)]
 pub struct InnerOptical2_0 {
     /// Value for $PnE
+    #[as_ref(Option<Scale>)]
     scale: MaybeValue<Scale>,
 
     /// Value for $PnL
@@ -723,6 +724,7 @@ pub struct InnerOptical2_0 {
 #[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerOptical3_0 {
     /// Value for $PnE/$PnG
+    #[as_ref(ScaleTransform)]
     scale: ScaleTransform,
 
     /// Value for $PnL
@@ -742,6 +744,7 @@ pub struct InnerOptical3_0 {
 #[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerOptical3_1 {
     /// Value for $PnE/$PnG
+    #[as_ref(ScaleTransform)]
     scale: ScaleTransform,
 
     /// Value for $PnL
@@ -771,6 +774,7 @@ pub struct InnerOptical3_1 {
 #[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerOptical3_2 {
     /// Value for $PnE/$PnG
+    #[as_ref(ScaleTransform)]
     scale: ScaleTransform,
 
     /// Value for $PnL
@@ -1140,6 +1144,21 @@ pub trait HasSpillover {
     // private as_mut
     fn spill_mut(&mut self, _: private::NoTouchy) -> &mut Option<Spillover>;
 }
+
+pub trait HasScale {
+    // private as_mut
+    fn scale_mut(&mut self, _: private::NoTouchy) -> &mut Option<Scale>;
+}
+
+pub trait HasScaleTransform {
+    // private as_mut
+    fn transform_mut(&mut self, _: private::NoTouchy) -> &mut ScaleTransform;
+}
+
+pub trait AsScaleTransform {
+    fn as_transform(&self) -> ScaleTransform;
+}
+
 pub trait Versioned {
     type Layout: VersionedDataLayout;
     type Offsets: VersionedTEXTOffsets<TotDef = <Self::Layout as VersionedDataLayout>::TotDef>;
@@ -1188,10 +1207,6 @@ pub trait Versioned {
                     })
             })
     }
-}
-
-pub trait HasScaleTransform {
-    fn as_transform(&self) -> ScaleTransform;
 }
 
 pub(crate) trait LookupMetaroot: Sized + VersionedMetaroot {
@@ -1751,7 +1766,7 @@ impl<O> Optical<O> {
 
     pub(crate) fn as_transform(&self) -> ScaleTransform
     where
-        O: HasScaleTransform,
+        O: AsScaleTransform,
     {
         self.specific.as_transform()
     }
@@ -2588,6 +2603,97 @@ where
         *self.metaroot.specific.spill_mut(private::NoTouchy) = None;
     }
 
+    pub fn get_all_scales(&self) -> impl Iterator<Item = Option<Scale>>
+    where
+        Optical<M::Optical>: AsRef<Option<Scale>>,
+    {
+        self.measurements.iter().map(|(_, x)| {
+            x.both(
+                |_| Some(Scale::Linear),
+                |m| m.value.as_ref().as_ref().copied(),
+            )
+        })
+    }
+
+    pub fn get_all_transforms(&self) -> impl Iterator<Item = ScaleTransform>
+    where
+        Optical<M::Optical>: AsRef<ScaleTransform>,
+    {
+        self.measurements
+            .iter()
+            .map(|(_, x)| x.both(|_| ScaleTransform::default(), |m| *m.value.as_ref()))
+    }
+
+    pub fn set_scales(
+        &mut self,
+        scales: Vec<Option<Scale>>,
+    ) -> MultiResult<(), SetMeasurementsError>
+    where
+        M::Optical: HasScale,
+    {
+        if let Some(l) = self.layout.0.as_ref() {
+            let mut xforms: Vec<_> = scales
+                .iter()
+                .copied()
+                .map(|s| s.map(ScaleTransform::from).unwrap_or_default())
+                .collect();
+            // If there is a center index and the input is too short, just let
+            // it pass; the next check will throw an error if the final length
+            // is incorrect
+            if let Some(i) = self.measurements.center_index().map(|i| i.into()) {
+                if i <= xforms.len() {
+                    xforms.insert(i, ScaleTransform::default())
+                }
+            }
+            l.check_transforms_and_len(&xforms[..]).mult_errors_into()?;
+            // ASSUME this won't fail because we checked the length first
+            self.measurements
+                .alter_non_center_values_zip(scales, |m, x| {
+                    *m.specific.scale_mut(private::NoTouchy) = x
+                })
+                .map(|_| ())
+                .unwrap();
+            Ok(())
+        } else if scales.is_empty() {
+            Ok(())
+        } else {
+            Err(EmptyLayoutError).into_mult()
+        }
+    }
+
+    pub fn set_transforms(
+        &mut self,
+        mut xforms: Vec<ScaleTransform>,
+    ) -> MultiResult<(), SetMeasurementsError>
+    where
+        M::Optical: HasScaleTransform,
+    {
+        // TODO very not DRY
+        if let Some(l) = self.layout.0.as_ref() {
+            // If there is a center index and the input is too short, just let
+            // it pass; the next check will throw an error if the final length
+            // is incorrect
+            if let Some(i) = self.measurements.center_index().map(|i| i.into()) {
+                if i <= xforms.len() {
+                    xforms.insert(i, ScaleTransform::default())
+                }
+            }
+            l.check_transforms_and_len(&xforms[..]).mult_errors_into()?;
+            // ASSUME this won't fail because we checked the length first
+            self.measurements
+                .alter_non_center_values_zip(xforms, |m, x| {
+                    *m.specific.transform_mut(private::NoTouchy) = x
+                })
+                .map(|_| ())
+                .unwrap();
+            Ok(())
+        } else if xforms.is_empty() {
+            Ok(())
+        } else {
+            Err(EmptyLayoutError).into_mult()
+        }
+    }
+
     pub fn get_metaroot_opt<X>(&self) -> Option<&X>
     where
         Metaroot<M>: AsRef<Option<X>>,
@@ -2927,7 +3033,7 @@ where
         prefix: ShortnamePrefix,
     ) -> MultiResult<(), SetMeasurementsError>
     where
-        M::Optical: HasScaleTransform,
+        M::Optical: AsScaleTransform,
     {
         self.check_existing_links().into_mult()?;
         let ms = NamedVec::try_new(xs, prefix).into_mult()?;
@@ -2945,7 +3051,7 @@ where
         layout: <M::Ver as Versioned>::Layout,
     ) -> MultiResult<(), MeasLayoutMismatchError>
     where
-        M::Optical: HasScaleTransform,
+        M::Optical: AsScaleTransform,
     {
         layout.check_measurement_vector(&self.measurements)?;
         self.layout = Some(layout).into();
@@ -2959,7 +3065,7 @@ where
         prefix: ShortnamePrefix,
     ) -> MultiResult<(), SetMeasurementsError>
     where
-        M::Optical: HasScaleTransform,
+        M::Optical: AsScaleTransform,
     {
         self.check_existing_links().into_mult()?;
         let ms = NamedVec::try_new(measurements, prefix).into_mult()?;
@@ -3430,7 +3536,7 @@ where
         layout: <M::Ver as Versioned>::Layout,
     ) -> MultiResult<(), MeasLayoutMismatchError>
     where
-        M::Optical: HasScaleTransform,
+        M::Optical: AsScaleTransform,
     {
         self.set_layout_inner(layout)
     }
@@ -3803,34 +3909,29 @@ impl HasSpillover for InnerMetaroot3_2 {
     }
 }
 
-// macro_rules! scale_get_set {
-//     ($t:path, $time_default:expr) => {
-//         /// Show $PnE for all measurements
-//         pub fn all_scales(&self) -> Vec<$t> {
-//             self.measurements
-//                 .iter()
-//                 .map(|(_, x)| x.both(|_| $time_default, |p| p.value.specific.scale.into()))
-//                 .collect()
-//         }
+impl HasScale for InnerOptical2_0 {
+    fn scale_mut(&mut self, _: private::NoTouchy) -> &mut Option<Scale> {
+        &mut self.scale.0
+    }
+}
 
-//         /// Show $PnE for optical measurements
-//         pub fn scales(&self) -> Vec<(MeasIndex, $t)> {
-//             self.measurements
-//                 .iter_non_center_values()
-//                 .map(|(i, m)| (i, m.specific.scale.into()))
-//                 .collect()
-//         }
+impl HasScaleTransform for InnerOptical3_0 {
+    fn transform_mut(&mut self, _: private::NoTouchy) -> &mut ScaleTransform {
+        &mut self.scale
+    }
+}
 
-//         /// Set $PnE for for all optical measurements
-//         pub fn set_scales(&mut self, xs: Vec<$t>) -> Result<(), KeyLengthError> {
-//             self.measurements
-//                 .alter_non_center_values_zip(xs, |m, x| {
-//                     m.specific.scale = x.into();
-//                 })
-//                 .map(|_| ())
-//         }
-//     };
-// }
+impl HasScaleTransform for InnerOptical3_1 {
+    fn transform_mut(&mut self, _: private::NoTouchy) -> &mut ScaleTransform {
+        &mut self.scale
+    }
+}
+
+impl HasScaleTransform for InnerOptical3_2 {
+    fn transform_mut(&mut self, _: private::NoTouchy) -> &mut ScaleTransform {
+        &mut self.scale
+    }
+}
 
 macro_rules! set_shortnames_2_0 {
     () => {
@@ -5641,6 +5742,14 @@ impl_ref_specific_ro!(
     Option<EndDateTime>
 );
 
+impl_ref_specific_ro!(Optical, InnerOptical2_0, Option<Scale>);
+
+impl_ref_specific_ro!(Optical, InnerOptical3_0, ScaleTransform);
+
+impl_ref_specific_ro!(Optical, InnerOptical3_1, ScaleTransform);
+
+impl_ref_specific_ro!(Optical, InnerOptical3_2, ScaleTransform);
+
 impl<X, M, const IS_ETIM: bool> AsRef<Option<Xtim<IS_ETIM, X>>> for Metaroot<M>
 where
     Metaroot<M>: AsRef<Timestamps<X>>,
@@ -6481,25 +6590,25 @@ impl Versioned for Version3_2 {
     }
 }
 
-impl HasScaleTransform for InnerOptical2_0 {
+impl AsScaleTransform for InnerOptical2_0 {
     fn as_transform(&self) -> ScaleTransform {
         self.scale.0.map(|s| s.into()).unwrap_or_default()
     }
 }
 
-impl HasScaleTransform for InnerOptical3_0 {
+impl AsScaleTransform for InnerOptical3_0 {
     fn as_transform(&self) -> ScaleTransform {
         self.scale
     }
 }
 
-impl HasScaleTransform for InnerOptical3_1 {
+impl AsScaleTransform for InnerOptical3_1 {
     fn as_transform(&self) -> ScaleTransform {
         self.scale
     }
 }
 
-impl HasScaleTransform for InnerOptical3_2 {
+impl AsScaleTransform for InnerOptical3_2 {
     fn as_transform(&self) -> ScaleTransform {
         self.scale
     }

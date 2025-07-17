@@ -1328,6 +1328,32 @@ macro_rules! get_set_metaroot_opt {
     };
 }
 
+macro_rules! get_set_all_meas {
+    ($get:ident, $set:ident, $outer:ident, $inner:ident, $($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                #[getter]
+                fn $get(&self) -> Vec<(usize, Option<$outer>)> {
+                    self.0.get_meas_opt::<$inner>()
+                        .map(|(i, x)| (
+                            i.into(),
+                            x.map(|y| y.clone().into())
+                        ))
+                        .collect()
+                }
+
+                #[setter]
+                fn $set(&mut self, xs: Vec<Option<$outer>>) -> Result<(), PyKeyLengthError> {
+                    let ys = xs.into_iter().map(|x| x.map($inner::from)).collect();
+                    self.0.set_meas(ys)?;
+                    Ok(())
+                }
+            }
+        )*
+    };
+}
+
 macro_rules! get_set_all_optical {
     ($get:ident, $set:ident, $outer:ident, $inner:ident, $($pytype:ident),*) => {
         $(
@@ -2939,6 +2965,20 @@ get_set_metaroot_opt!(
     PyCoreTEXT3_2,
     PyCoreDataset3_0,
     PyCoreDataset3_1,
+    PyCoreDataset3_2
+);
+
+// Get/set methods for $PnD (3.1+)
+//
+// This is valid for the time channel so don't set on just optical
+get_set_all_meas!(
+    get_displays,
+    set_displays,
+    PyDisplay,
+    Display,
+    PyCoreTEXT3_1,
+    PyCoreDataset3_1,
+    PyCoreTEXT3_2,
     PyCoreDataset3_2
 );
 

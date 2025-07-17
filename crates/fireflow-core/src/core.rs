@@ -2602,6 +2602,38 @@ where
         *self.metaroot.as_mut() = x
     }
 
+    pub fn get_meas<'a, X: 'a>(&'a self) -> impl Iterator<Item = (MeasIndex, &'a X)>
+    where
+        Temporal<M::Temporal>: AsRef<X>,
+        Optical<M::Optical>: AsRef<X>,
+    {
+        self.measurements
+            .iter()
+            .map(|(i, x)| (i, x.both(|t| t.value.as_ref(), |m| m.value.as_ref())))
+    }
+
+    pub fn get_meas_opt<'a, X: 'a>(&'a self) -> impl Iterator<Item = (MeasIndex, Option<&'a X>)>
+    where
+        Temporal<M::Temporal>: AsRef<Option<X>>,
+        Optical<M::Optical>: AsRef<Option<X>>,
+    {
+        self.get_meas::<Option<X>>().map(|(i, x)| (i, x.as_ref()))
+    }
+
+    pub fn set_meas<X>(&mut self, xs: Vec<X>) -> Result<(), KeyLengthError>
+    where
+        Temporal<M::Temporal>: AsMut<X>,
+        Optical<M::Optical>: AsMut<X>,
+    {
+        self.measurements
+            .alter_values_zip(
+                xs,
+                |m, x| *m.value.as_mut() = x,
+                |m, x| *m.value.as_mut() = x,
+            )
+            .map(|_| ())
+    }
+
     pub fn get_optical<'a, X: 'a>(&'a self) -> impl Iterator<Item = (MeasIndex, &'a X)>
     where
         Optical<M::Optical>: AsRef<X>,
@@ -2642,9 +2674,7 @@ where
         Optical<M::Optical>: AsMut<X>,
     {
         self.measurements
-            .alter_non_center_values_zip(xs, |m, x| {
-                *m.as_mut() = x;
-            })
+            .alter_non_center_values_zip(xs, |m, x| *m.as_mut() = x)
             .map(|_| ())
     }
 
@@ -3773,32 +3803,6 @@ impl HasSpillover for InnerMetaroot3_2 {
     }
 }
 
-macro_rules! display_methods {
-    () => {
-        pub fn displays(&self) -> Vec<Option<&Display>> {
-            self.measurements
-                .iter()
-                .map(|x| {
-                    x.1.both(
-                        |t| t.value.specific.display.as_ref_opt(),
-                        |m| m.value.specific.display.as_ref_opt(),
-                    )
-                })
-                .collect()
-        }
-
-        pub fn set_displays(&mut self, ns: Vec<Option<Display>>) -> Result<(), KeyLengthError> {
-            self.measurements
-                .alter_values_zip(
-                    ns,
-                    |x, n| x.value.specific.display = n.into(),
-                    |x, n| x.value.specific.display = n.into(),
-                )
-                .map(|_| ())
-        }
-    };
-}
-
 // macro_rules! scale_get_set {
 //     ($t:path, $time_default:expr) => {
 //         /// Show $PnE for all measurements
@@ -3844,24 +3848,11 @@ macro_rules! set_shortnames_2_0 {
 }
 
 impl<A, D, O> Core2_0<A, D, O> {
-    // comp_methods!();
-    // scale_get_set!(Option<Scale>, Some(Scale::Linear));
-
     set_shortnames_2_0!();
 }
 
 impl<A, D, O> Core3_0<A, D, O> {
-    // comp_methods!();
-    // scale_get_set!(Scale, Scale::Linear);
-
     set_shortnames_2_0!();
-}
-
-impl<A, D, O> Core3_1<A, D, O> {
-    // scale_get_set!(Scale, Scale::Linear);
-    // spillover_methods!();
-
-    display_methods!();
 }
 
 impl<A, D, O> Core3_2<A, D, O> {
@@ -3914,11 +3905,6 @@ impl<A, D, O> Core3_2<A, D, O> {
     pub fn clear_unstained_centers(&mut self) {
         self.metaroot.specific.unstained.unstainedcenters = None.into()
     }
-
-    // scale_get_set!(Scale, Scale::Linear);
-    // spillover_methods!();
-
-    display_methods!();
 }
 
 macro_rules! coretext_set_measurements2_0 {

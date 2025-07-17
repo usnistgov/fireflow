@@ -2626,20 +2626,12 @@ macro_rules! timestep_methods {
             impl $pytype {
                 #[getter]
                 fn get_timestep(&self) -> Option<f32> {
-                    self.0
-                        .measurements_named_vec()
-                        .as_center()
-                        .and_then(|x| x.value.specific.timestep())
-                        .map(|x| x.0.into())
+                    self.0.timestep().map(|&x| x.into())
                 }
 
                 #[setter]
-                fn set_timestep(&mut self, ts: PyPositiveFloat) -> PyResult<bool> {
-                    let res = self.0
-                        .temporal_mut()
-                        .map(|y| y.value.specific.set_timestep(ts.into()))
-                        .is_some();
-                    Ok(res)
+                fn set_timestep(&mut self, ts: PyPositiveFloat) -> bool {
+                    self.0.set_timestep(ts.into())
                 }
             }
         )*

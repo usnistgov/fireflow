@@ -2354,6 +2354,28 @@ where
         self.metaroot.as_ref()
     }
 
+    /// Get $TIMESTEP value if the time measurement exists.
+    pub fn timestep(&self) -> Option<&Timestep>
+    where
+        Temporal<M::Temporal>: AsRef<Timestep>,
+    {
+        self.measurements.as_center().map(|x| x.value.as_ref())
+    }
+
+    /// Set $TIMESTEP value if the time measurement exists.
+    ///
+    /// Return `true` if the time measurement exist (which means its $TIMESTEP
+    /// was updated) and `false` otherwise.
+    pub fn set_timestep(&mut self, timestep: Timestep) -> bool
+    where
+        Temporal<M::Temporal>: AsMut<Timestep>,
+    {
+        self.measurements
+            .as_center_mut()
+            .map(|x| *x.value.as_mut() = timestep)
+            .is_some()
+    }
+
     pub fn get_metaroot_opt<X>(&self) -> Option<&X>
     where
         Metaroot<M>: AsRef<Option<X>>,

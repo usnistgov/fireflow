@@ -435,6 +435,7 @@ pub struct InnerMetaroot2_0 {
     pub cyt: MaybeValue<Cyt>,
 
     /// Compensation matrix derived from 'DFCnTOm' key/value pairs
+    #[as_ref(Option<Compensation2_0>)]
     comp: MaybeValue<Compensation2_0>,
 
     /// Values of $BTIM/ETIM/$DATE
@@ -461,6 +462,7 @@ pub struct InnerMetaroot3_0 {
     pub cyt: MaybeValue<Cyt>,
 
     /// Value of $COMP
+    #[as_ref(Option<Compensation3_0>)]
     comp: MaybeValue<Compensation3_0>,
 
     /// Values of $BTIM/ETIM/$DATE
@@ -1228,11 +1230,11 @@ pub trait VersionedMetaroot: Sized {
     where
         F: Fn(&mut Spillover) -> Result<X, ClearOptional>;
 
-    fn as_compensation(&self) -> Option<&Compensation>;
+    // fn as_compensation(&self) -> Option<&Compensation>;
 
-    fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
-    where
-        F: Fn(&mut Compensation) -> Result<X, ClearOptional>;
+    // fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
+    // where
+    //     F: Fn(&mut Compensation) -> Result<X, ClearOptional>;
 
     fn timestamps_valid(&self) -> bool;
 
@@ -1889,7 +1891,8 @@ where
         let s = &mut self.specific;
         s.with_spillover(|x| x.remove_by_name(n));
         s.with_unstainedcenters(|u| u.remove(n));
-        s.with_compensation(|c| c.remove_by_index(i));
+        // TODO fixme
+        // s.with_compensation(|c| c.remove_by_index(i));
     }
 }
 
@@ -2771,9 +2774,10 @@ where
         if s.as_unstainedcenters().is_some() {
             return Err(ExistingLinkError::UnstainedCenters);
         }
-        if s.as_compensation().is_some() {
-            return Err(ExistingLinkError::Comp);
-        }
+        // TODO fixme
+        // if s.as_compensation().is_some() {
+        //     return Err(ExistingLinkError::Comp);
+        // }
         if s.as_spillover().is_some() {
             return Err(ExistingLinkError::Spillover);
         }
@@ -3634,29 +3638,85 @@ impl<M, T, P, N, W, L> CoreTEXT<M, T, P, N, W, L> {
     }
 }
 
-macro_rules! comp_methods {
-    () => {
-        /// Return matrix for $COMP
-        pub fn compensation(&self) -> Option<&Compensation> {
-            self.metaroot.specific.comp.as_ref_opt().map(|x| x.as_ref())
-        }
-
-        /// Set matrix for $COMP
-        ///
-        /// Return true if successfully set. Return false if matrix is either not
-        /// square or rows/columns are not the same length as $PAR.
-        pub fn set_compensation(&mut self, matrix: DMatrix<f32>) -> Result<(), NewCompError> {
-            Compensation::try_new(matrix).map(|comp| {
-                self.metaroot.specific.comp = Some(comp.into()).into();
-            })
-        }
-
-        /// Clear $COMP
-        pub fn unset_compensation(&mut self) {
-            self.metaroot.specific.comp = None.into();
-        }
-    };
+mod private {
+    pub struct Token;
 }
+
+pub trait HasCompensation {
+    type Comp: From<Compensation> + AsRef<DMatrix<f32>>;
+
+    fn compensation(&self) -> Option<&DMatrix<f32>> {
+        self.comp(private::Token).as_ref().map(|x| x.as_ref())
+    }
+
+    /// Set matrix for $COMP
+    ///
+    /// Return true if successfully set. Return false if matrix is either not
+    /// square or rows/columns are not the same length as $PAR.
+    fn set_compensation(&mut self, matrix: DMatrix<f32>) -> Result<(), NewCompError> {
+        Compensation::try_new(matrix).map(|comp| {
+            *self.comp_mut(private::Token) = Some(comp.into());
+        })
+    }
+
+    /// Clear $COMP
+    fn unset_compensation(&mut self) {
+        *self.comp_mut(private::Token) = None;
+    }
+
+    // TODO this is basically as_ref which doesn't need to be private
+    fn comp(&self, _: private::Token) -> &Option<Self::Comp>;
+
+    fn comp_mut(&mut self, _: private::Token) -> &mut Option<Self::Comp>;
+}
+
+impl<A, D, O> HasCompensation for Core2_0<A, D, O> {
+    type Comp = Compensation2_0;
+
+    fn comp(&self, _: private::Token) -> &Option<Self::Comp> {
+        &self.metaroot.specific.comp.0
+    }
+
+    fn comp_mut(&mut self, _: private::Token) -> &mut Option<Self::Comp> {
+        &mut self.metaroot.specific.comp.0
+    }
+}
+
+impl<A, D, O> HasCompensation for Core3_0<A, D, O> {
+    type Comp = Compensation3_0;
+
+    fn comp(&self, _: private::Token) -> &Option<Self::Comp> {
+        &self.metaroot.specific.comp.0
+    }
+
+    fn comp_mut(&mut self, _: private::Token) -> &mut Option<Self::Comp> {
+        &mut self.metaroot.specific.comp.0
+    }
+}
+
+// macro_rules! comp_methods {
+//     () => {
+//         /// Return matrix for $COMP
+//         pub fn compensation(&self) -> Option<&Compensation> {
+//             self.metaroot.specific.comp.as_ref_opt().map(|x| x.as_ref())
+//         }
+
+//         /// Set matrix for $COMP
+//         ///
+//         /// Return true if successfully set. Return false if matrix is either not
+//         /// square or rows/columns are not the same length as $PAR.
+//         pub fn set_compensation(&mut self, matrix: DMatrix<f32>) -> Result<(), NewCompError> {
+//             Compensation::try_new(matrix).map(|comp| {
+//                 self.metaroot.specific.comp = Some(comp.into()).into();
+//             })
+//         }
+
+//         /// Clear $COMP
+//         pub fn unset_compensation(&mut self) {
+//             self.metaroot.specific.comp = None.into();
+//         }
+//     };
+// }
 
 macro_rules! spillover_methods {
     () => {
@@ -3763,14 +3823,14 @@ macro_rules! set_shortnames_2_0 {
 }
 
 impl<A, D, O> Core2_0<A, D, O> {
-    comp_methods!();
+    // comp_methods!();
     // scale_get_set!(Option<Scale>, Some(Scale::Linear));
 
     set_shortnames_2_0!();
 }
 
 impl<A, D, O> Core3_0<A, D, O> {
-    comp_methods!();
+    // comp_methods!();
     // scale_get_set!(Scale, Scale::Linear);
 
     set_shortnames_2_0!();
@@ -5550,9 +5610,19 @@ impl_ref_specific_rw!(Temporal, InnerTemporal3_1, Timestep, Option<Display>);
 
 impl_ref_specific_rw!(Temporal, InnerTemporal3_2, Timestep, Option<Display>);
 
-impl_ref_specific_ro!(Metaroot, InnerMetaroot2_0, Option<FCSDate>);
+impl_ref_specific_ro!(
+    Metaroot,
+    InnerMetaroot2_0,
+    Option<FCSDate>,
+    Option<Compensation2_0>
+);
 
-impl_ref_specific_ro!(Metaroot, InnerMetaroot3_0, Option<FCSDate>);
+impl_ref_specific_ro!(
+    Metaroot,
+    InnerMetaroot3_0,
+    Option<FCSDate>,
+    Option<Compensation3_0>
+);
 
 impl_ref_specific_ro!(Metaroot, InnerMetaroot3_1, Option<FCSDate>);
 
@@ -7431,16 +7501,16 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
         None
     }
 
-    fn as_compensation(&self) -> Option<&Compensation> {
-        self.comp.as_ref_opt().map(|x| x.as_ref())
-    }
+    // fn as_compensation(&self) -> Option<&Compensation> {
+    //     self.comp.as_ref_opt().map(|x| x.as_ref())
+    // }
 
-    fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
-    where
-        F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
-    {
-        self.comp.mut_or_unset_nofail(|c| f(&mut c.0))
-    }
+    // fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
+    // where
+    //     F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
+    // {
+    //     self.comp.mut_or_unset_nofail(|c| f(&mut c.0))
+    // }
 
     fn timestamps_valid(&self) -> bool {
         self.timestamps.valid()
@@ -7514,16 +7584,16 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
         None
     }
 
-    fn as_compensation(&self) -> Option<&Compensation> {
-        self.comp.as_ref_opt().map(|x| x.as_ref())
-    }
+    // fn as_compensation(&self) -> Option<&Compensation> {
+    //     self.comp.as_ref_opt().map(|x| x.as_ref())
+    // }
 
-    fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
-    where
-        F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
-    {
-        self.comp.mut_or_unset_nofail(|c| f(&mut c.0))
-    }
+    // fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
+    // where
+    //     F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
+    // {
+    //     self.comp.mut_or_unset_nofail(|c| f(&mut c.0))
+    // }
 
     fn timestamps_valid(&self) -> bool {
         self.timestamps.valid()
@@ -7608,16 +7678,16 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
         self.spillover.mut_or_unset_nofail(f)
     }
 
-    fn as_compensation(&self) -> Option<&Compensation> {
-        None
-    }
+    // fn as_compensation(&self) -> Option<&Compensation> {
+    //     None
+    // }
 
-    fn with_compensation<F, X>(&mut self, _: F) -> Option<X>
-    where
-        F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
-    {
-        None
-    }
+    // fn with_compensation<F, X>(&mut self, _: F) -> Option<X>
+    // where
+    //     F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
+    // {
+    //     None
+    // }
 
     fn timestamps_valid(&self) -> bool {
         self.timestamps.valid()
@@ -7707,16 +7777,16 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
         self.spillover.mut_or_unset_nofail(f)
     }
 
-    fn as_compensation(&self) -> Option<&Compensation> {
-        None
-    }
+    // fn as_compensation(&self) -> Option<&Compensation> {
+    //     None
+    // }
 
-    fn with_compensation<F, X>(&mut self, _: F) -> Option<X>
-    where
-        F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
-    {
-        None
-    }
+    // fn with_compensation<F, X>(&mut self, _: F) -> Option<X>
+    // where
+    //     F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
+    // {
+    //     None
+    // }
 
     fn timestamps_valid(&self) -> bool {
         self.timestamps.valid()

@@ -14,22 +14,20 @@ use std::fmt;
 use std::num::ParseFloatError;
 use std::str::FromStr;
 
-/// The aggregated values of the DFCiTOj keywords (2.0)
+/// The aggregated values of the $DFCiTOj keywords (2.0)
 #[derive(Clone, Serialize, From, Into, AsRef)]
+#[as_ref(DMatrix<f32>)]
 pub struct Compensation2_0(pub Compensation);
-
-// newtype_borrow!(Compensation2_0, Compensation);
 
 /// The value of the $COMP keyword (3.0)
 #[derive(Clone, Serialize, From, Into, Display, FromStr, AsRef)]
+#[as_ref(DMatrix<f32>)]
 pub struct Compensation3_0(pub Compensation);
-
-// newtype_borrow!(Compensation3_0, Compensation);
 
 /// A compensation matrix.
 ///
 /// This is encoded in the $DFCmTOn keywords in 2.0 and $COMP in 3.0.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef)]
 pub struct Compensation {
     /// Values in the comp matrix in row-major order. Assumed to be the
     /// same width and height as $PAR
@@ -117,10 +115,6 @@ impl Compensation {
         } else {
             Ok(false)
         }
-    }
-
-    pub fn matrix(&self) -> &DMatrix<f32> {
-        &self.matrix
     }
 }
 

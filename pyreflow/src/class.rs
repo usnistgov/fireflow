@@ -2773,7 +2773,7 @@ macro_rules! comp_methods {
             impl $pytype {
                 #[getter]
                 fn get_compensation<'a>(&self, py: Python<'a>) -> Option<Bound<'a, PyArray2<f32>>> {
-                    self.0.compensation().map(|x| x.matrix().to_pyarray(py))
+                    self.0.compensation().map(|x| x.to_pyarray(py))
                 }
 
 

@@ -1,6 +1,6 @@
 use crate::text::index::MeasIndex;
 
-use derive_more::{AsRef, Display, FromStr};
+use derive_more::{AsRef, Display, FromStr, Into};
 use serde::Serialize;
 use std::fmt;
 use std::str::FromStr;
@@ -8,7 +8,7 @@ use std::str::FromStr;
 /// The value for the $PnN key (all versions).
 ///
 /// This cannot contain commas.
-#[derive(Clone, Serialize, Eq, PartialEq, Hash, Debug, AsRef, Display)]
+#[derive(Clone, Serialize, Eq, PartialEq, Hash, Debug, AsRef, Display, Into)]
 #[as_ref(str)]
 pub struct Shortname(String);
 

@@ -4,6 +4,7 @@ use super::named_vec::NameMapping;
 use super::optional::ClearOptional;
 use super::parser::OptLinkedKey;
 
+use derive_more::AsRef;
 use itertools::Itertools;
 use nalgebra::DMatrix;
 use serde::Serialize;
@@ -12,14 +13,16 @@ use std::fmt;
 use std::str::FromStr;
 
 /// The spillover matrix from the $SPILLOVER keyword (3.1+)
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef)]
 pub struct Spillover {
     /// The measurements in the spillover matrix.
     ///
     /// Assumed to be a subset of the values in the $PnN keys and unique.
+    #[as_ref([Shortname])]
     measurements: Vec<Shortname>,
 
     /// Numeric values in the spillover matrix in row-major order.
+    #[as_ref]
     matrix: DMatrix<f32>,
 }
 
@@ -47,14 +50,6 @@ impl Spillover {
         }
     }
 
-    pub fn measurements(&self) -> Vec<&Shortname> {
-        self.measurements.iter().collect()
-    }
-
-    pub fn matrix(&self) -> &DMatrix<f32> {
-        &self.matrix
-    }
-
     pub(crate) fn remove_by_name(&mut self, n: &Shortname) -> Result<bool, ClearOptional> {
         if let Some(i) = self.measurements.iter().position(|m| m == n) {
             if self.measurements.len() < 3 {
@@ -76,10 +71,10 @@ impl Spillover {
         let header0 = vec!["[-]"];
         let header = header0
             .into_iter()
-            .chain(self.measurements().iter().map(|m| m.as_ref()))
+            .chain(self.measurements.iter().map(|m| m.as_ref()))
             .join(delim);
         let lines = vec![header];
-        let rows = self.matrix().row_iter().map(|xs| xs.iter().join(delim));
+        let rows = self.matrix.row_iter().map(|xs| xs.iter().join(delim));
         lines.into_iter().chain(rows).collect()
     }
 

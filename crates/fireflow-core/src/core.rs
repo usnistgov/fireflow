@@ -513,6 +513,7 @@ pub struct InnerMetaroot3_1 {
     pub cytsn: MaybeValue<Cytsn>,
 
     /// Value of $SPILLOVER
+    #[as_ref(Option<Spillover>)]
     spillover: MaybeValue<Spillover>,
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
@@ -567,6 +568,7 @@ pub struct InnerMetaroot3_2 {
     pub cyt: Cyt,
 
     /// Value of $SPILLOVER
+    #[as_ref(Option<Spillover>)]
     spillover: MaybeValue<Spillover>,
 
     /// Value of $CYTSN
@@ -1112,6 +1114,32 @@ pub struct OthersReader<'a> {
     pub segs: &'a [OtherSegment],
 }
 
+mod private {
+    pub struct NoTouchy;
+}
+
+pub trait HasCompensation: AsRef<Option<Self::Comp>> {
+    type Comp: From<Compensation> + AsRef<Compensation>;
+
+    // set wrapped inner type with common outer type (Compensation)
+    fn set_comp(&mut self, comp: Option<Compensation>, _: private::NoTouchy) {
+        *self.comp_mut(private::NoTouchy) = comp.map(|c| c.into());
+    }
+
+    // almost like as_ref, except the reference needs to go on the inside since
+    // the newtype wrapper needs to be removed
+    fn comp(&self, _: private::NoTouchy) -> Option<&Compensation> {
+        self.as_ref().as_ref().map(|x| x.as_ref())
+    }
+
+    // private as_mut
+    fn comp_mut(&mut self, _: private::NoTouchy) -> &mut Option<Self::Comp>;
+}
+
+pub trait HasSpillover {
+    // private as_mut
+    fn spill_mut(&mut self, _: private::NoTouchy) -> &mut Option<Spillover>;
+}
 pub trait Versioned {
     type Layout: VersionedDataLayout;
     type Offsets: VersionedTEXTOffsets<TotDef = <Self::Layout as VersionedDataLayout>::TotDef>;
@@ -2479,6 +2507,87 @@ where
             .is_some()
     }
 
+    pub fn compensation(&self) -> Option<&DMatrix<f32>>
+    where
+        M: HasCompensation,
+    {
+        self.metaroot
+            .specific
+            .comp(private::NoTouchy)
+            .map(|x| x.as_ref())
+    }
+
+    /// Set matrix for $COMP
+    ///
+    /// Return true if successfully set. Return false if matrix is either not
+    /// square or rows/columns are not the same length as $PAR.
+    pub fn set_compensation(&mut self, matrix: DMatrix<f32>) -> Result<(), NewCompError>
+    where
+        M: HasCompensation,
+    {
+        // TODO also check $PAR
+        Compensation::try_new(matrix).map(|comp| {
+            self.metaroot
+                .specific
+                .set_comp(Some(comp), private::NoTouchy)
+        })
+    }
+
+    /// Clear $COMP
+    pub fn unset_compensation(&mut self)
+    where
+        M: HasCompensation,
+    {
+        self.metaroot.specific.set_comp(None, private::NoTouchy);
+    }
+
+    /// Show $SPILLOVER matrix
+    pub fn spillover_matrix(&self) -> Option<&DMatrix<f32>>
+    where
+        M: AsRef<Option<Spillover>>,
+    {
+        self.metaroot.specific.as_ref().as_ref().map(|x| x.as_ref())
+    }
+
+    /// Show $SPILLOVER measurement names
+    pub fn spillover_names(&self) -> Option<&[Shortname]>
+    where
+        M: AsRef<Option<Spillover>>,
+    {
+        self.metaroot.specific.as_ref().as_ref().map(|x| x.as_ref())
+    }
+
+    /// Set names and matrix for $SPILLOVER
+    ///
+    /// Names must match number of rows/columns in matrix and also must be a
+    /// subset of the measurement names (ie $PnN). Matrix must be square and
+    /// at least 2x2.
+    pub fn set_spillover(
+        &mut self,
+        names: Vec<Shortname>,
+        matrix: DMatrix<f32>,
+    ) -> Result<(), SetSpilloverError>
+    where
+        M: HasSpillover,
+    {
+        let current = self.all_shortnames();
+        let ns: HashSet<_> = names.iter().collect();
+        if !ns.is_subset(&current.iter().collect()) {
+            return Err(SpilloverLinkError.into());
+        }
+        let m = Spillover::try_new(names, matrix)?;
+        *self.metaroot.specific.spill_mut(private::NoTouchy) = Some(m);
+        Ok(())
+    }
+
+    /// Clear $SPILLOVER
+    pub fn unset_spillover(&mut self)
+    where
+        M: HasSpillover,
+    {
+        *self.metaroot.specific.spill_mut(private::NoTouchy) = None;
+    }
+
     pub fn get_metaroot_opt<X>(&self) -> Option<&X>
     where
         Metaroot<M>: AsRef<Option<X>>,
@@ -3636,118 +3745,32 @@ impl<M, T, P, N, W, L> CoreTEXT<M, T, P, N, W, L> {
     }
 }
 
-mod private {
-    pub struct Token;
-}
-
-pub trait HasCompensation {
-    type Comp: From<Compensation> + AsRef<DMatrix<f32>>;
-
-    fn compensation(&self) -> Option<&DMatrix<f32>> {
-        self.comp(private::Token).as_ref().map(|x| x.as_ref())
-    }
-
-    /// Set matrix for $COMP
-    ///
-    /// Return true if successfully set. Return false if matrix is either not
-    /// square or rows/columns are not the same length as $PAR.
-    fn set_compensation(&mut self, matrix: DMatrix<f32>) -> Result<(), NewCompError> {
-        Compensation::try_new(matrix).map(|comp| {
-            *self.comp_mut(private::Token) = Some(comp.into());
-        })
-    }
-
-    /// Clear $COMP
-    fn unset_compensation(&mut self) {
-        *self.comp_mut(private::Token) = None;
-    }
-
-    // TODO this is basically as_ref which doesn't need to be private
-    fn comp(&self, _: private::Token) -> &Option<Self::Comp>;
-
-    fn comp_mut(&mut self, _: private::Token) -> &mut Option<Self::Comp>;
-}
-
-impl<A, D, O> HasCompensation for Core2_0<A, D, O> {
+impl HasCompensation for InnerMetaroot2_0 {
     type Comp = Compensation2_0;
 
-    fn comp(&self, _: private::Token) -> &Option<Self::Comp> {
-        &self.metaroot.specific.comp.0
-    }
-
-    fn comp_mut(&mut self, _: private::Token) -> &mut Option<Self::Comp> {
-        &mut self.metaroot.specific.comp.0
+    fn comp_mut(&mut self, _: private::NoTouchy) -> &mut Option<Self::Comp> {
+        &mut self.comp.0
     }
 }
 
-impl<A, D, O> HasCompensation for Core3_0<A, D, O> {
+impl HasCompensation for InnerMetaroot3_0 {
     type Comp = Compensation3_0;
 
-    fn comp(&self, _: private::Token) -> &Option<Self::Comp> {
-        &self.metaroot.specific.comp.0
-    }
-
-    fn comp_mut(&mut self, _: private::Token) -> &mut Option<Self::Comp> {
-        &mut self.metaroot.specific.comp.0
+    fn comp_mut(&mut self, _: private::NoTouchy) -> &mut Option<Self::Comp> {
+        &mut self.comp.0
     }
 }
 
-// macro_rules! comp_methods {
-//     () => {
-//         /// Return matrix for $COMP
-//         pub fn compensation(&self) -> Option<&Compensation> {
-//             self.metaroot.specific.comp.as_ref_opt().map(|x| x.as_ref())
-//         }
+impl HasSpillover for InnerMetaroot3_1 {
+    fn spill_mut(&mut self, _: private::NoTouchy) -> &mut Option<Spillover> {
+        &mut self.spillover.0
+    }
+}
 
-//         /// Set matrix for $COMP
-//         ///
-//         /// Return true if successfully set. Return false if matrix is either not
-//         /// square or rows/columns are not the same length as $PAR.
-//         pub fn set_compensation(&mut self, matrix: DMatrix<f32>) -> Result<(), NewCompError> {
-//             Compensation::try_new(matrix).map(|comp| {
-//                 self.metaroot.specific.comp = Some(comp.into()).into();
-//             })
-//         }
-
-//         /// Clear $COMP
-//         pub fn unset_compensation(&mut self) {
-//             self.metaroot.specific.comp = None.into();
-//         }
-//     };
-// }
-
-macro_rules! spillover_methods {
-    () => {
-        /// Show $SPILLOVER
-        pub fn spillover(&self) -> Option<&Spillover> {
-            self.metaroot.specific.spillover.as_ref_opt()
-        }
-
-        /// Set names and matrix for $SPILLOVER
-        ///
-        /// Names must match number of rows/columns in matrix and also must be a
-        /// subset of the measurement names (ie $PnN). Matrix must be square and
-        /// at least 2x2.
-        pub fn set_spillover(
-            &mut self,
-            ns: Vec<Shortname>,
-            m: DMatrix<f32>,
-        ) -> Result<(), SetSpilloverError> {
-            let current = self.all_shortnames();
-            let new: HashSet<_> = ns.iter().collect();
-            if !new.is_subset(&current.iter().collect()) {
-                return Err(SpilloverLinkError.into());
-            }
-            let m = Spillover::try_new(ns, m)?;
-            self.metaroot.specific.spillover = Some(m).into();
-            Ok(())
-        }
-
-        /// Clear $SPILLOVER
-        pub fn unset_spillover(&mut self) {
-            self.metaroot.specific.spillover = None.into();
-        }
-    };
+impl HasSpillover for InnerMetaroot3_2 {
+    fn spill_mut(&mut self, _: private::NoTouchy) -> &mut Option<Spillover> {
+        &mut self.spillover.0
+    }
 }
 
 macro_rules! display_methods {
@@ -3836,7 +3859,7 @@ impl<A, D, O> Core3_0<A, D, O> {
 
 impl<A, D, O> Core3_1<A, D, O> {
     // scale_get_set!(Scale, Scale::Linear);
-    spillover_methods!();
+    // spillover_methods!();
 
     display_methods!();
 }
@@ -3893,7 +3916,7 @@ impl<A, D, O> Core3_2<A, D, O> {
     }
 
     // scale_get_set!(Scale, Scale::Linear);
-    spillover_methods!();
+    // spillover_methods!();
 
     display_methods!();
 }

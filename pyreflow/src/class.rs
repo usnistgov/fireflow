@@ -2810,18 +2810,15 @@ macro_rules! spillover_methods {
             impl $pytype {
                 #[getter]
                 fn get_spillover_matrix<'a>(&self, py: Python<'a>) -> Option<Bound<'a, PyArray2<f32>>> {
-                    self.0.spillover().map(|x| x.matrix().to_pyarray(py))
+                    self.0.spillover_matrix().map(|x| x.to_pyarray(py))
                 }
 
                 #[getter]
                 fn get_spillover_names(&self) -> Vec<String> {
                     self.0
-                        .spillover()
-                        .map(|x| x.measurements())
+                        .spillover_names()
+                        .map(|x| x.iter().map(|y| y.clone().into()).collect())
                         .unwrap_or_default()
-                        .iter()
-                        .map(|x| x.as_ref().to_string())
-                        .collect()
                 }
 
                 fn set_spillover(
@@ -2833,6 +2830,7 @@ macro_rules! spillover_methods {
                     let m = a.as_matrix().into_owned();
                     self.0
                         .set_spillover(ns, m)
+                        // TODO handle error better
                         .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
 

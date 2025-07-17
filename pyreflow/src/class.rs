@@ -1326,45 +1326,6 @@ macro_rules! get_set_metaroot_opt {
     };
 }
 
-macro_rules! get_set_copied {
-    ($pytype:ident, $($rest:ident,)+ [$($root:ident),*], $get:ident, $set:ident, $field:ident, $out:ty) => {
-        get_set_copied!($pytype, [$($root),*], $get, $set, $field, $out);
-        get_set_copied!($($rest,)+ [$($root),*], $get, $set, $field, $out);
-    };
-
-    ($pytype:ident, [$($root:ident),*], $get:ident, $set:ident, $field:ident, $out:ty) => {
-        #[pymethods]
-        impl $pytype {
-            #[getter]
-            fn $get(&self) -> Option<$out> {
-                self.0.$($root.)*$field.0.map(|x| x.into())
-            }
-
-            #[setter]
-            fn $set(&mut self, s: Option<$out>) {
-                self.0.$($root.)*$field = s.map(|x| x.into()).into()
-            }
-        }
-    };
-
-    ($($pytype:ident),*; $get:ident, $set:ident, $out:ty) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn $get(&self) -> Option<$out> {
-                    self.0.$get().map(|x| (*x).into())
-                }
-
-                #[setter]
-                fn $set(&mut self, s: Option<$out>) {
-                    self.0.$set(s.map(|x| x.into()).into())
-                }
-            }
-        )*
-    };
-}
-
 macro_rules! meas_get_set {
     ($get:ident, $set:ident, $t:path, $($pytype:ident),*) => {
         $(
@@ -3472,26 +3433,8 @@ macro_rules! optical_common {
 
 optical_common!(PyOptical2_0, PyOptical3_0, PyOptical3_1, PyOptical3_2);
 
-// $PnL (2.0-3.0)
-// get_set_copied!(
-//     PyOptical2_0,
-//     PyOptical3_0,
-//     [specific],
-//     get_wavelength,
-//     set_wavelength,
-//     wavelength,
-//     u32
-// );
-
 // $PnE (2.0)
-get_set_copied!(
-    PyOptical2_0,
-    [specific],
-    get_scale,
-    set_scale,
-    scale,
-    PyScale
-);
+// get_set_meas!(get_scale, set_scale, PyScale, Scale, PyOptical2_0);
 
 // $PnG (3.0-3.2)
 // macro_rules! meas_get_set_gain {

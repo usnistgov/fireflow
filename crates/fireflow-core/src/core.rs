@@ -684,7 +684,7 @@ pub struct InnerTemporal3_2 {
 #[derive(Clone, Serialize, Default, AsRef, AsMut)]
 pub struct InnerOptical2_0 {
     /// Value for $PnE
-    pub scale: MaybeValue<Scale>,
+    scale: MaybeValue<Scale>,
 
     /// Value for $PnL
     #[as_ref(Option<Wavelength>)]
@@ -703,7 +703,7 @@ pub struct InnerOptical2_0 {
 #[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerOptical3_0 {
     /// Value for $PnE/$PnG
-    pub scale: ScaleTransform,
+    scale: ScaleTransform,
 
     /// Value for $PnL
     #[as_ref(Option<Wavelength>)]
@@ -722,7 +722,7 @@ pub struct InnerOptical3_0 {
 #[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerOptical3_1 {
     /// Value for $PnE/$PnG
-    pub scale: ScaleTransform,
+    scale: ScaleTransform,
 
     /// Value for $PnL
     #[as_ref(Option<Wavelengths>)]
@@ -751,7 +751,7 @@ pub struct InnerOptical3_1 {
 #[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerOptical3_2 {
     /// Value for $PnE/$PnG
-    pub scale: ScaleTransform,
+    scale: ScaleTransform,
 
     /// Value for $PnL
     #[as_ref(Option<Wavelengths>)]

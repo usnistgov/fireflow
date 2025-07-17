@@ -5,6 +5,7 @@ use fireflow_core::error::*;
 use fireflow_core::header::*;
 use fireflow_core::segment::*;
 use fireflow_core::text::byteord::ByteOrd2_0;
+use fireflow_core::text::datetimes::ReversedDatetimes;
 use fireflow_core::text::keywords::*;
 use fireflow_core::text::named_vec::{Element, KeyLengthError};
 use fireflow_core::text::optional::*;
@@ -1472,33 +1473,31 @@ impl PyCoreTEXT3_2 {
     }
 
     #[getter]
-    fn get_datetime_begin(&self) -> Option<DateTime<FixedOffset>> {
-        self.0.metaroot.specific.datetimes.begin_naive()
+    fn get_begindatetime(&self) -> Option<DateTime<FixedOffset>> {
+        self.0.get_begindatetime()
     }
 
     #[setter]
-    fn set_datetime_begin(&mut self, x: Option<DateTime<FixedOffset>>) -> PyResult<()> {
-        self.0
-            .metaroot
-            .specific
-            .datetimes
-            .set_begin_naive(x)
-            .map_err(|e| PyreflowException::new_err(e.to_string()))
+    fn set_begindatetime(
+        &mut self,
+        x: Option<DateTime<FixedOffset>>,
+    ) -> Result<(), PyReversedDatetimes> {
+        self.0.set_begindatetime(x)?;
+        Ok(())
     }
 
     #[getter]
-    fn get_datetime_end(&self) -> Option<DateTime<FixedOffset>> {
-        self.0.metaroot.specific.datetimes.end_naive()
+    fn get_enddatetime(&self) -> Option<DateTime<FixedOffset>> {
+        self.0.get_enddatetime()
     }
 
     #[setter]
-    fn set_datetime_end(&mut self, x: Option<DateTime<FixedOffset>>) -> PyResult<()> {
-        self.0
-            .metaroot
-            .specific
-            .datetimes
-            .set_end_naive(x)
-            .map_err(|e| PyreflowException::new_err(e.to_string()))
+    fn set_enddatetime(
+        &mut self,
+        x: Option<DateTime<FixedOffset>>,
+    ) -> Result<(), PyReversedDatetimes> {
+        self.0.set_enddatetime(x)?;
+        Ok(())
     }
 
     // #[getter]
@@ -3847,6 +3846,15 @@ struct PyReversedTimestamps(ReversedTimestamps);
 
 impl From<PyReversedTimestamps> for PyErr {
     fn from(value: PyReversedTimestamps) -> Self {
+        PyreflowException::new_err(value.to_string())
+    }
+}
+
+#[derive(Display, From)]
+struct PyReversedDatetimes(ReversedDatetimes);
+
+impl From<PyReversedDatetimes> for PyErr {
+    fn from(value: PyReversedDatetimes) -> Self {
         PyreflowException::new_err(value.to_string())
     }
 }

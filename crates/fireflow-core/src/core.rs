@@ -22,7 +22,7 @@ use crate::validated::dataframe::*;
 use crate::validated::keys::*;
 use crate::validated::shortname::*;
 
-use chrono::{NaiveDate, NaiveTime, Timelike};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, Timelike};
 use derive_more::{AsMut, AsRef, Display, From};
 use itertools::Itertools;
 use nalgebra::DMatrix;
@@ -466,6 +466,7 @@ pub struct InnerMetaroot3_0 {
     /// Values of $BTIM/ETIM/$DATE
     #[as_ref(Timestamps3_0)]
     #[as_mut(Timestamps3_0)]
+    #[as_ref(Option<FCSDate>)]
     pub timestamps: Timestamps3_0,
 
     /// Value of $CYTSN
@@ -501,6 +502,7 @@ pub struct InnerMetaroot3_1 {
     /// Values of $BTIM/ETIM/$DATE
     #[as_ref(Timestamps3_1)]
     #[as_mut(Timestamps3_1)]
+    #[as_ref(Option<FCSDate>)]
     pub timestamps: Timestamps3_1,
 
     /// Value of $CYTSN
@@ -547,9 +549,14 @@ pub struct InnerMetaroot3_2 {
     /// Values of $BTIM/ETIM/$DATE
     #[as_ref(Timestamps3_1)]
     #[as_mut(Timestamps3_1)]
+    #[as_ref(Option<FCSDate>)]
     pub timestamps: Timestamps3_1,
 
     /// Values of $BEGINDATETIME/$ENDDATETIME
+    #[as_ref(Option<BeginDateTime>)]
+    #[as_ref(Option<EndDateTime>)]
+    #[as_ref(Datetimes)]
+    #[as_mut(Datetimes)]
     pub datetimes: Datetimes,
 
     /// Value of $CYT
@@ -2386,16 +2393,6 @@ where
         t.set_etim(time.map(|x| Xtim(x.into())))
     }
 
-    fn time_naive<const IS_ETIM: bool, X>(&self) -> Option<NaiveTime>
-    where
-        X: Copy,
-        NaiveTime: From<X>,
-        Metaroot<M>: AsRef<Option<Xtim<IS_ETIM, X>>>,
-    {
-        let t: &Option<Xtim<IS_ETIM, X>> = self.metaroot.as_ref();
-        t.as_ref().map(|&x| x.0.into())
-    }
-
     /// Get $DATE as a [`NaiveDate`]
     pub fn date_naive(&self) -> Option<NaiveDate>
     where
@@ -2414,6 +2411,48 @@ where
         Metaroot<M>: AsMut<Timestamps<X>>,
     {
         self.metaroot.as_mut().set_date(date.map(|x| x.into()))
+    }
+
+    /// Get $BEGINDATETIME as a [`DateTime<FixedOffset>`]
+    pub fn get_begindatetime(&self) -> Option<DateTime<FixedOffset>>
+    where
+        Metaroot<M>: AsRef<Option<BeginDateTime>>,
+    {
+        self.metaroot.as_ref().as_ref().map(|&x| x.into())
+    }
+
+    /// Get $ENDDATETIME as a [`DateTime<FixedOffset>`]
+    pub fn get_enddatetime(&self) -> Option<DateTime<FixedOffset>>
+    where
+        Metaroot<M>: AsRef<Option<EndDateTime>>,
+    {
+        self.metaroot.as_ref().as_ref().map(|&x| x.into())
+    }
+
+    /// Set $BEGINDATETIME as a [`DateTime<FixedOffset>`]
+    ///
+    /// Return error if resulting $BEGINDATETIME is after $ENDDATETIME.
+    pub fn set_begindatetime(
+        &mut self,
+        date: Option<DateTime<FixedOffset>>,
+    ) -> Result<(), ReversedDatetimes>
+    where
+        Metaroot<M>: AsMut<Datetimes>,
+    {
+        self.metaroot.as_mut().set_begin(date.map(|x| x.into()))
+    }
+
+    /// Set $ENDDATETIME as a [`DateTime<FixedOffset>`]
+    ///
+    /// Return error if resulting $BEGINDATETIME is after $ENDDATETIME.
+    pub fn set_enddatetime(
+        &mut self,
+        date: Option<DateTime<FixedOffset>>,
+    ) -> Result<(), ReversedDatetimes>
+    where
+        Metaroot<M>: AsMut<Datetimes>,
+    {
+        self.metaroot.as_mut().set_end(date.map(|x| x.into()))
     }
 
     /// Get $TIMESTEP value if the time measurement exists.
@@ -2594,6 +2633,16 @@ where
                 to: ToM::Ver::fcs_version().into(),
                 inner: error,
             })
+    }
+
+    fn time_naive<const IS_ETIM: bool, X>(&self) -> Option<NaiveTime>
+    where
+        X: Copy,
+        NaiveTime: From<X>,
+        Metaroot<M>: AsRef<Option<Xtim<IS_ETIM, X>>>,
+    {
+        let t: &Option<Xtim<IS_ETIM, X>> = self.metaroot.as_ref();
+        t.as_ref().map(|&x| x.0.into())
     }
 
     #[allow(clippy::type_complexity)]
@@ -5380,7 +5429,7 @@ impl_ref!(Temporal, InnerTemporal3_0);
 impl_ref!(Temporal, InnerTemporal3_1);
 impl_ref!(Temporal, InnerTemporal3_2);
 
-macro_rules! impl_ref_specific {
+macro_rules! impl_ref_specific_ro {
     ($outer:ident, $inner:ident, $($ref:path),*) => {
         $(
             impl AsRef<$ref> for $outer<$inner> {
@@ -5388,19 +5437,27 @@ macro_rules! impl_ref_specific {
                     self.specific.as_ref()
                 }
             }
+        )*
+    };
+}
 
+macro_rules! impl_ref_specific_rw {
+    ($outer:ident, $inner:ident, $($ref:path),*) => {
+        $(
             impl AsMut<$ref> for $outer<$inner> {
                 fn as_mut(&mut self) -> &mut $ref {
                     self.specific.as_mut()
                 }
             }
+
+            impl_ref_specific_ro!($outer, $inner, $ref);
         )*
     };
 }
 
-impl_ref_specific!(Metaroot, InnerMetaroot2_0, Mode, Option<Cyt>, Timestamps2_0);
+impl_ref_specific_rw!(Metaroot, InnerMetaroot2_0, Mode, Option<Cyt>, Timestamps2_0);
 
-impl_ref_specific!(
+impl_ref_specific_rw!(
     Metaroot,
     InnerMetaroot3_0,
     Mode,
@@ -5410,7 +5467,7 @@ impl_ref_specific!(
     Timestamps3_0
 );
 
-impl_ref_specific!(
+impl_ref_specific_rw!(
     Metaroot,
     InnerMetaroot3_1,
     Mode,
@@ -5426,10 +5483,11 @@ impl_ref_specific!(
     Timestamps3_1
 );
 
-impl_ref_specific!(
+impl_ref_specific_rw!(
     Metaroot,
     InnerMetaroot3_2,
     Cyt,
+    Datetimes,
     Option<Cytsn>,
     Option<LastModifier>,
     Option<ModifiedDateTime>,
@@ -5445,7 +5503,7 @@ impl_ref_specific!(
     Timestamps3_1
 );
 
-impl_ref_specific!(
+impl_ref_specific_rw!(
     Optical,
     InnerOptical2_0,
     Option<Wavelength>,
@@ -5453,7 +5511,7 @@ impl_ref_specific!(
     Option<PeakNumber>
 );
 
-impl_ref_specific!(
+impl_ref_specific_rw!(
     Optical,
     InnerOptical3_0,
     Option<Wavelength>,
@@ -5461,7 +5519,7 @@ impl_ref_specific!(
     Option<PeakNumber>
 );
 
-impl_ref_specific!(
+impl_ref_specific_rw!(
     Optical,
     InnerOptical3_1,
     Option<Wavelengths>,
@@ -5471,7 +5529,7 @@ impl_ref_specific!(
     Option<Display>
 );
 
-impl_ref_specific!(
+impl_ref_specific_rw!(
     Optical,
     InnerOptical3_2,
     Option<Wavelengths>,
@@ -5486,11 +5544,25 @@ impl_ref_specific!(
 
 // impl_ref_specific!(Temporal, InnerTemporal2_0,);
 
-impl_ref_specific!(Temporal, InnerTemporal3_0, Timestep);
+impl_ref_specific_rw!(Temporal, InnerTemporal3_0, Timestep);
 
-impl_ref_specific!(Temporal, InnerTemporal3_1, Timestep, Option<Display>);
+impl_ref_specific_rw!(Temporal, InnerTemporal3_1, Timestep, Option<Display>);
 
-impl_ref_specific!(Temporal, InnerTemporal3_2, Timestep, Option<Display>);
+impl_ref_specific_rw!(Temporal, InnerTemporal3_2, Timestep, Option<Display>);
+
+impl_ref_specific_ro!(Metaroot, InnerMetaroot2_0, Option<FCSDate>);
+
+impl_ref_specific_ro!(Metaroot, InnerMetaroot3_0, Option<FCSDate>);
+
+impl_ref_specific_ro!(Metaroot, InnerMetaroot3_1, Option<FCSDate>);
+
+impl_ref_specific_ro!(
+    Metaroot,
+    InnerMetaroot3_2,
+    Option<FCSDate>,
+    Option<BeginDateTime>,
+    Option<EndDateTime>
+);
 
 impl<X, M, const IS_ETIM: bool> AsRef<Option<Xtim<IS_ETIM, X>>> for Metaroot<M>
 where
@@ -5499,30 +5571,6 @@ where
 {
     fn as_ref(&self) -> &Option<Xtim<IS_ETIM, X>> {
         self.as_ref().as_ref()
-    }
-}
-
-impl AsRef<Option<FCSDate>> for Metaroot2_0 {
-    fn as_ref(&self) -> &Option<FCSDate> {
-        self.specific.timestamps.as_ref()
-    }
-}
-
-impl AsRef<Option<FCSDate>> for Metaroot3_0 {
-    fn as_ref(&self) -> &Option<FCSDate> {
-        self.specific.timestamps.as_ref()
-    }
-}
-
-impl AsRef<Option<FCSDate>> for Metaroot3_1 {
-    fn as_ref(&self) -> &Option<FCSDate> {
-        self.specific.timestamps.as_ref()
-    }
-}
-
-impl AsRef<Option<FCSDate>> for Metaroot3_2 {
-    fn as_ref(&self) -> &Option<FCSDate> {
-        self.specific.timestamps.as_ref()
     }
 }
 

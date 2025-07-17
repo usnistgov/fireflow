@@ -6,57 +6,37 @@ use super::optional::*;
 use super::parser::*;
 
 use chrono::{DateTime, FixedOffset};
-use derive_more::{Display, From, FromStr, Into};
+use derive_more::{AsRef, Display, From, FromStr, Into};
 use serde::Serialize;
 use std::fmt;
+use std::mem;
 use std::str::FromStr;
 
 /// A convenient bundle for the $BEGINDATETIME and $ENDDATETIME keys (3.2+)
-#[derive(Clone, Serialize, Default)]
+#[derive(Clone, Serialize, Default, AsRef)]
 pub struct Datetimes {
     /// Value for the $BEGINDATETIME key.
+    #[as_ref(Option<BeginDateTime>)]
     begin: Option<BeginDateTime>,
 
     /// Value for the $ENDDATETIME key.
+    #[as_ref(Option<EndDateTime>)]
     end: Option<EndDateTime>,
 }
 
 #[derive(Clone, Copy, Serialize, From, Into, Display, FromStr)]
+#[from(DateTime<FixedOffset>, FCSDateTime)]
+#[into(DateTime<FixedOffset>, FCSDateTime)]
 pub struct BeginDateTime(pub FCSDateTime);
 
 #[derive(Clone, Copy, Serialize, From, Into, Display, FromStr)]
+#[from(DateTime<FixedOffset>, FCSDateTime)]
+#[into(DateTime<FixedOffset>, FCSDateTime)]
 pub struct EndDateTime(pub FCSDateTime);
 
 /// A datetime as used in the $(BEGIN|END)DATETIME keys (3.2+ only)
 #[derive(Clone, Copy, Serialize, From, Into)]
 pub struct FCSDateTime(pub DateTime<FixedOffset>);
-
-macro_rules! get_set {
-    ($fn_get_naive:ident, $fn:ident, $fn_naive:ident, $in:path, $field:ident) => {
-        pub fn $field(&self) -> MaybeValue<$in> {
-            MaybeValue(self.$field)
-        }
-
-        pub fn $fn_get_naive(&self) -> Option<DateTime<FixedOffset>> {
-            self.$field().0.map(|x| x.0.into())
-        }
-
-        pub fn $fn(&mut self, x: MaybeValue<$in>) -> DatetimesResult<()> {
-            let tmp = self.$field;
-            self.$field = x.0;
-            if self.valid() {
-                Ok(())
-            } else {
-                self.$field = tmp;
-                Err(ReversedDatetimes)
-            }
-        }
-
-        pub fn $fn_naive(&mut self, x: Option<DateTime<FixedOffset>>) -> DatetimesResult<()> {
-            self.$fn(x.map(|y| FCSDateTime(y).into()).into())
-        }
-    };
-}
 
 impl Datetimes {
     pub fn try_new(
@@ -74,15 +54,23 @@ impl Datetimes {
         }
     }
 
-    get_set!(
-        begin_naive,
-        set_begin,
-        set_begin_naive,
-        BeginDateTime,
-        begin
-    );
+    pub fn set_begin(&mut self, time: Option<BeginDateTime>) -> Result<(), ReversedDatetimes> {
+        let tmp = mem::replace(&mut self.begin, time);
+        if !self.valid() {
+            self.begin = tmp;
+            return Err(ReversedDatetimes);
+        }
+        Ok(())
+    }
 
-    get_set!(end_naive, set_end, set_end_naive, EndDateTime, end);
+    pub fn set_end(&mut self, time: Option<EndDateTime>) -> Result<(), ReversedDatetimes> {
+        let tmp = mem::replace(&mut self.end, time);
+        if !self.valid() {
+            self.end = tmp;
+            return Err(ReversedDatetimes);
+        }
+        Ok(())
+    }
 
     pub fn valid(&self) -> bool {
         if let (Some(b), Some(e)) = (&self.begin, &self.end) {
@@ -107,8 +95,8 @@ impl Datetimes {
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
-            OptMetarootKey::pair_opt(&self.begin()),
-            OptMetarootKey::pair_opt(&self.end()),
+            OptMetarootKey::pair_opt(&MaybeValue(self.begin)),
+            OptMetarootKey::pair_opt(&MaybeValue(self.end)),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
@@ -116,10 +104,10 @@ impl Datetimes {
 
     pub(crate) fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
         let mut tnt = Tentative::new1(());
-        if self.begin_naive().is_some() {
+        if self.begin.is_some() {
             tnt.push_error_or_warning(UnitaryKeyLossError::<BeginDateTime>::default(), lossless);
         }
-        if self.end_naive().is_some() {
+        if self.end.is_some() {
             tnt.push_error_or_warning(UnitaryKeyLossError::<EndDateTime>::default(), lossless);
         }
         tnt

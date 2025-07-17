@@ -1935,25 +1935,6 @@ pub(crate) type VersionedConvertError<N, ToN> = ConvertError<
     >>::Error,
 >;
 
-macro_rules! non_time_get_set {
-    ($get:ident, $set:ident, $ty:ident, [$($root:ident)*], $field:ident, $kw:ident) => {
-        /// Get $$kw value for optical measurements
-        pub fn $get(&self) -> Vec<(MeasIndex, Option<&$ty>)> {
-            self.measurements
-                .iter_non_center_values()
-                .map(|(i, m)| (i, m.$($root.)*$field.as_ref_opt()))
-                .collect()
-        }
-
-        /// Set $$kw value for for optical measurements
-        pub fn $set(&mut self, xs: Vec<Option<$ty>>) -> Result<(), KeyLengthError> {
-            self.measurements.alter_non_center_values_zip(xs, |m, x| {
-                m.$($root.)*$field = x.into();
-            }).map(|_| ())
-        }
-    };
-}
-
 impl<M, A, D, O> VersionedCore<A, D, O, M>
 where
     M: VersionedMetaroot,
@@ -2435,37 +2416,6 @@ where
             })
             .map(|_| ())
     }
-
-    non_time_get_set!(filters, set_filters, Filter, [], filter, PnF);
-
-    non_time_get_set!(powers, set_powers, Power, [], power, PnO);
-
-    non_time_get_set!(
-        detector_types,
-        set_detector_types,
-        DetectorType,
-        [],
-        detector_type,
-        PnD
-    );
-
-    non_time_get_set!(
-        percents_emitted,
-        set_percents_emitted,
-        PercentEmitted,
-        [],
-        percent_emitted,
-        PnP
-    );
-
-    non_time_get_set!(
-        detector_voltages,
-        set_detector_voltages,
-        DetectorVoltage,
-        [],
-        detector_voltage,
-        PnV
-    );
 
     /// Return a list of measurement names as stored in $PnS
     ///
@@ -3701,15 +3651,6 @@ impl<A, D, O> Core2_0<A, D, O> {
     set_shortnames_2_0!();
 
     timestamp_methods!(FCSTime);
-
-    // non_time_get_set!(
-    //     wavelengths,
-    //     set_wavelengths,
-    //     Wavelength,
-    //     [specific],
-    //     wavelength,
-    //     PnL
-    // );
 }
 
 impl<A, D, O> Core3_0<A, D, O> {
@@ -3719,17 +3660,6 @@ impl<A, D, O> Core3_0<A, D, O> {
     set_shortnames_2_0!();
 
     timestamp_methods!(FCSTime60);
-
-    // non_time_get_set!(gains, set_gains, Gain, [specific], gain, PnG);
-
-    non_time_get_set!(
-        wavelengths,
-        set_wavelengths,
-        Wavelength,
-        [specific],
-        wavelength,
-        PnL
-    );
 }
 
 impl<A, D, O> Core3_1<A, D, O> {
@@ -3739,26 +3669,6 @@ impl<A, D, O> Core3_1<A, D, O> {
     timestamp_methods!(FCSTime100);
 
     display_methods!();
-
-    // non_time_get_set!(gains, set_gains, Gain, [specific], gain, PnG);
-
-    non_time_get_set!(
-        calibrations,
-        set_calibrations,
-        Calibration3_1,
-        [specific],
-        calibration,
-        PnCALIBRATION
-    );
-
-    non_time_get_set!(
-        wavelengths,
-        set_wavelengths,
-        Wavelengths,
-        [specific],
-        wavelengths,
-        PnL
-    );
 }
 
 impl<A, D, O> Core3_2<A, D, O> {
@@ -3818,64 +3728,6 @@ impl<A, D, O> Core3_2<A, D, O> {
     timestamp_methods!(FCSTime100);
 
     display_methods!();
-
-    // non_time_get_set!(gains, set_gains, Gain, [specific], gain, PnG);
-
-    non_time_get_set!(
-        wavelengths,
-        set_wavelengths,
-        Wavelengths,
-        [specific],
-        wavelengths,
-        PnL
-    );
-
-    non_time_get_set!(
-        det_names,
-        set_det_names,
-        DetectorName,
-        [specific],
-        detector_name,
-        PnDET
-    );
-
-    non_time_get_set!(
-        calibrations,
-        set_calibrations,
-        Calibration3_2,
-        [specific],
-        calibration,
-        PnCALIBRATION
-    );
-
-    non_time_get_set!(tags, set_tags, Tag, [specific], tag, PnTAG);
-
-    non_time_get_set!(
-        measurement_types,
-        set_measurement_types,
-        OpticalType,
-        [specific],
-        measurement_type,
-        PnTYPE
-    );
-
-    non_time_get_set!(
-        features,
-        set_features,
-        Feature,
-        [specific],
-        feature,
-        PnFEATURE
-    );
-
-    non_time_get_set!(
-        analytes,
-        set_analytes,
-        Analyte,
-        [specific],
-        analyte,
-        PnANALYTE
-    );
 }
 
 macro_rules! coretext_set_measurements2_0 {

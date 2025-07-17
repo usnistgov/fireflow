@@ -6,7 +6,7 @@ use fireflow_core::header::*;
 use fireflow_core::segment::*;
 use fireflow_core::text::byteord::ByteOrd2_0;
 use fireflow_core::text::keywords::*;
-use fireflow_core::text::named_vec::Element;
+use fireflow_core::text::named_vec::{Element, KeyLengthError};
 use fireflow_core::text::optional::*;
 use fireflow_core::text::ranged_float::*;
 use fireflow_core::text::scale::*;
@@ -1326,25 +1326,26 @@ macro_rules! get_set_metaroot_opt {
     };
 }
 
-macro_rules! meas_get_set {
-    ($get:ident, $set:ident, $t:path, $($pytype:ident),*) => {
+macro_rules! get_set_all_optical {
+    ($get:ident, $set:ident, $outer:ident, $inner:ident, $($pytype:ident),*) => {
         $(
             #[pymethods]
             impl $pytype {
                 #[getter]
-                fn $get(&self) -> Vec<(usize, Option<$t>)> {
-                    self.0
-                        .$get()
-                        .into_iter()
-                        .map(|(i, x)| (i.into(), x.map(|y| y.clone().into())))
+                fn $get(&self) -> Vec<(usize, Option<$outer>)> {
+                    self.0.get_optical_opt::<$inner>()
+                        .map(|(i, x)| (
+                            i.into(),
+                            x.map(|y| y.clone().into())
+                        ))
                         .collect()
                 }
 
                 #[setter]
-                fn $set(&mut self, xs: Vec<Option<$t>>) -> PyResult<()> {
-                    self.0
-                        .$set(xs.into_iter().map(|x| x.map(|y| y.into())).collect())
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))
+                fn $set(&mut self, xs: Vec<Option<$outer>>) -> Result<(), PyKeyLengthError> {
+                    let ys = xs.into_iter().map(|x| x.map($inner::from)).collect();
+                    self.0.set_optical(ys)?;
+                    Ok(())
                 }
             }
         )*
@@ -1571,11 +1572,6 @@ macro_rules! common_methods {
     };
 
     ($pytype:ident) => {
-        // common measurement keywords
-        meas_get_set!(filters,           set_filters,           String,        $pytype);
-        meas_get_set!(detector_types,    set_detector_types,    String,        $pytype);
-        meas_get_set!(percents_emitted,  set_percents_emitted,  String,        $pytype);
-
         get_set_metaroot_opt!(get_abrt, set_abrt, Abrt, u32, $pytype);
         get_set_metaroot_opt!(get_cells, set_cells, Cells, String, $pytype);
         get_set_metaroot_opt!(get_com, set_com, Com, String, $pytype);
@@ -1588,6 +1584,35 @@ macro_rules! common_methods {
         get_set_metaroot_opt!(get_smno, set_smno, Smno, String, $pytype);
         get_set_metaroot_opt!(get_src, set_src, Src, String, $pytype);
         get_set_metaroot_opt!(get_sys, set_sys, Sys, String, $pytype);
+
+        // common measurement keywords
+        get_set_all_optical!(get_filters, set_filters, String, Filter, $pytype);
+        get_set_all_optical!(get_powers, set_powers, PyNonNegFloat, Power, $pytype);
+
+        get_set_all_optical!(
+            get_percents_emitted,
+            set_percents_emitted,
+            String,
+            PercentEmitted,
+            $pytype
+        );
+
+        get_set_all_optical!(
+            get_detector_types,
+            set_detector_types,
+            String,
+            DetectorType,
+            $pytype
+        );
+
+        get_set_all_optical!(
+            get_detector_voltages,
+            set_detector_voltages,
+            PyNonNegFloat,
+            DetectorVoltage,
+            $pytype
+        );
+
 
         #[pymethods]
         impl $pytype {
@@ -1766,47 +1791,6 @@ macro_rules! common_methods {
                     // TODO this is a setkeyserror, could be more generalized
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
                     .map(|_| ())
-            }
-
-            #[getter]
-            fn get_detector_voltages(&self) -> Vec<(usize, Option<f32>)> {
-                self.0.get_optical_opt::<DetectorVoltage>()
-                    .map(|(i, x)| (
-                        i.into(),
-                        x.copied().map(|x| x.into())
-                    ))
-                    .collect()
-            }
-
-            #[setter]
-            fn set_detector_voltages(&mut self, xs: Vec<Option<PyNonNegFloat>>) -> PyResult<()> {
-                let ys = xs
-                    .into_iter()
-                    .map(|x| x.map(|x| DetectorVoltage::from(x)))
-                    .collect();
-                self.0.set_optical(ys)
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
-            }
-
-            #[getter]
-            fn get_powers(&self) -> Vec<(usize, Option<f32>)> {
-                self.0.get_optical_opt::<Power>()
-                    .map(|(i, x)| (
-                        i.into(),
-                        x.copied().map(|x| x.into())
-                    ))
-                    .collect()
-            }
-
-            #[setter]
-            fn set_powers(&mut self, xs: Vec<Option<PyNonNegFloat>>) -> PyResult<()> {
-                let ys = xs
-                    .into_iter()
-                    .map(|x| x.map(|y| Power::from(y)))
-                    .collect();
-                self.0
-                    .set_optical(ys)
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
             }
         }
     };
@@ -2967,58 +2951,71 @@ get_set_metaroot_opt!(
 );
 
 // Get/set methods for $PnDET (3.2)
-meas_get_set!(
-    det_names,
-    set_det_names,
+get_set_all_optical!(
+    get_detector_names,
+    set_detector_names,
     String,
+    DetectorName,
     PyCoreTEXT3_2,
     PyCoreDataset3_2
 );
 
 // Get/set methods for $PnCALIBRATION (3.1)
-meas_get_set!(
-    calibrations,
+get_set_all_optical!(
+    get_calibrations,
     set_calibrations,
     PyCalibration3_1,
+    Calibration3_1,
     PyCoreTEXT3_1,
     PyCoreDataset3_1
 );
 
 // Get/set methods for $PnCALIBRATION (3.2)
-meas_get_set!(
-    calibrations,
+get_set_all_optical!(
+    get_calibrations,
     set_calibrations,
     PyCalibration3_2,
+    Calibration3_2,
     PyCoreTEXT3_2,
     PyCoreDataset3_2
 );
 
 // Get/set methods for $PnTAG (3.2)
-meas_get_set!(tags, set_tags, String, PyCoreTEXT3_2, PyCoreDataset3_2);
+get_set_all_optical!(
+    get_tags,
+    set_tags,
+    String,
+    Tag,
+    PyCoreTEXT3_2,
+    PyCoreDataset3_2
+);
 
 // Get/set methods for $PnTYPE (3.2)
-meas_get_set!(
-    measurement_types,
+get_set_all_optical!(
+    get_measurement_types,
     set_measurement_types,
     PyOpticalType,
+    OpticalType,
     PyCoreTEXT3_2,
     PyCoreDataset3_2
 );
 
 // Get/set methods for $PnFEATURE (3.2)
-meas_get_set!(
-    features,
+get_set_all_optical!(
+    get_features,
     set_features,
     PyFeature,
+    Feature,
     PyCoreTEXT3_2,
     PyCoreDataset3_2
 );
 
 // Get/set methods for $PnANALYTE (3.2)
-meas_get_set!(
-    analytes,
+get_set_all_optical!(
+    get_analytes,
     set_analytes,
     String,
+    Analyte,
     PyCoreTEXT3_2,
     PyCoreDataset3_2
 );
@@ -3837,6 +3834,15 @@ struct PyKeyStringError(KeyStringError);
 
 impl From<PyKeyStringError> for PyErr {
     fn from(value: PyKeyStringError) -> Self {
+        PyreflowException::new_err(value.to_string())
+    }
+}
+
+#[derive(Display, From)]
+struct PyKeyLengthError(KeyLengthError);
+
+impl From<PyKeyLengthError> for PyErr {
+    fn from(value: PyKeyLengthError) -> Self {
         PyreflowException::new_err(value.to_string())
     }
 }

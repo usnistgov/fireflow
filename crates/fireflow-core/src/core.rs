@@ -1230,11 +1230,11 @@ pub trait VersionedMetaroot: Sized {
     where
         F: Fn(&mut Spillover) -> Result<X, ClearOptional>;
 
-    // fn as_compensation(&self) -> Option<&Compensation>;
+    fn as_compensation(&self) -> Option<&Compensation>;
 
-    // fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
-    // where
-    //     F: Fn(&mut Compensation) -> Result<X, ClearOptional>;
+    fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
+    where
+        F: Fn(&mut Compensation) -> Result<X, ClearOptional>;
 
     fn timestamps_valid(&self) -> bool;
 
@@ -1891,8 +1891,7 @@ where
         let s = &mut self.specific;
         s.with_spillover(|x| x.remove_by_name(n));
         s.with_unstainedcenters(|u| u.remove(n));
-        // TODO fixme
-        // s.with_compensation(|c| c.remove_by_index(i));
+        s.with_compensation(|c| c.remove_by_index(i));
     }
 }
 
@@ -2774,10 +2773,9 @@ where
         if s.as_unstainedcenters().is_some() {
             return Err(ExistingLinkError::UnstainedCenters);
         }
-        // TODO fixme
-        // if s.as_compensation().is_some() {
-        //     return Err(ExistingLinkError::Comp);
-        // }
+        if s.as_compensation().is_some() {
+            return Err(ExistingLinkError::Comp);
+        }
         if s.as_spillover().is_some() {
             return Err(ExistingLinkError::Spillover);
         }
@@ -7501,16 +7499,16 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
         None
     }
 
-    // fn as_compensation(&self) -> Option<&Compensation> {
-    //     self.comp.as_ref_opt().map(|x| x.as_ref())
-    // }
+    fn as_compensation(&self) -> Option<&Compensation> {
+        self.comp.as_ref_opt().map(|x| x.as_ref())
+    }
 
-    // fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
-    // where
-    //     F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
-    // {
-    //     self.comp.mut_or_unset_nofail(|c| f(&mut c.0))
-    // }
+    fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
+    where
+        F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
+    {
+        self.comp.mut_or_unset_nofail(|c| f(&mut c.0))
+    }
 
     fn timestamps_valid(&self) -> bool {
         self.timestamps.valid()
@@ -7584,16 +7582,16 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
         None
     }
 
-    // fn as_compensation(&self) -> Option<&Compensation> {
-    //     self.comp.as_ref_opt().map(|x| x.as_ref())
-    // }
+    fn as_compensation(&self) -> Option<&Compensation> {
+        self.comp.as_ref_opt().map(|x| x.as_ref())
+    }
 
-    // fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
-    // where
-    //     F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
-    // {
-    //     self.comp.mut_or_unset_nofail(|c| f(&mut c.0))
-    // }
+    fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
+    where
+        F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
+    {
+        self.comp.mut_or_unset_nofail(|c| f(&mut c.0))
+    }
 
     fn timestamps_valid(&self) -> bool {
         self.timestamps.valid()
@@ -7678,16 +7676,16 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
         self.spillover.mut_or_unset_nofail(f)
     }
 
-    // fn as_compensation(&self) -> Option<&Compensation> {
-    //     None
-    // }
+    fn as_compensation(&self) -> Option<&Compensation> {
+        None
+    }
 
-    // fn with_compensation<F, X>(&mut self, _: F) -> Option<X>
-    // where
-    //     F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
-    // {
-    //     None
-    // }
+    fn with_compensation<F, X>(&mut self, _: F) -> Option<X>
+    where
+        F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
+    {
+        None
+    }
 
     fn timestamps_valid(&self) -> bool {
         self.timestamps.valid()
@@ -7777,16 +7775,16 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
         self.spillover.mut_or_unset_nofail(f)
     }
 
-    // fn as_compensation(&self) -> Option<&Compensation> {
-    //     None
-    // }
+    fn as_compensation(&self) -> Option<&Compensation> {
+        None
+    }
 
-    // fn with_compensation<F, X>(&mut self, _: F) -> Option<X>
-    // where
-    //     F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
-    // {
-    //     None
-    // }
+    fn with_compensation<F, X>(&mut self, _: F) -> Option<X>
+    where
+        F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
+    {
+        None
+    }
 
     fn timestamps_valid(&self) -> bool {
         self.timestamps.valid()

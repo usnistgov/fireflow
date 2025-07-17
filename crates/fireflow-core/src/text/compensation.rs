@@ -16,12 +16,12 @@ use std::str::FromStr;
 
 /// The aggregated values of the $DFCiTOj keywords (2.0)
 #[derive(Clone, Serialize, From, Into, AsRef)]
-#[as_ref(DMatrix<f32>)]
+#[as_ref(DMatrix<f32>, Compensation)]
 pub struct Compensation2_0(pub Compensation);
 
 /// The value of the $COMP keyword (3.0)
 #[derive(Clone, Serialize, From, Into, Display, FromStr, AsRef)]
-#[as_ref(DMatrix<f32>)]
+#[as_ref(DMatrix<f32>, Compensation)]
 pub struct Compensation3_0(pub Compensation);
 
 /// A compensation matrix.

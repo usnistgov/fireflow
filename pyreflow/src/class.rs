@@ -2355,7 +2355,7 @@ macro_rules! set_measurements2_0 {
                         ys.push(y);
                     }
                     self.0
-                        .set_measurements(ys, prefix.0)
+                        .set_measurements_maybenames(ys, prefix.0)
                         .mult_terminate(SetMeasurementsFailure)
                         .map_err(handle_failure_nowarn)
                         .void()

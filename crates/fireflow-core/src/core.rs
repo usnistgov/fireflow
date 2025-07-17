@@ -4001,61 +4001,78 @@ impl<A, D, O> Core3_2<A, D, O> {
     }
 }
 
-macro_rules! coretext_set_measurements2_0 {
-    ($rawinput:path, $layout:path) => {
-        /// Set measurements.
-        ///
-        /// Return error if names are not unique, if there is more than one
-        /// time measurement, or if the measurement length doesn't match the
-        /// layout length.
-        pub fn set_measurements(
-            &mut self,
-            xs: $rawinput,
-            prefix: ShortnamePrefix,
-        ) -> MultiResult<(), SetMeasurementsError> {
-            self.set_measurements_inner(xs, prefix)
-        }
+impl<M> VersionedCoreTEXT<M>
+where
+    M: VersionedMetaroot<Name = MaybeFamily>,
+{
+    /// Set measurements.
+    ///
+    /// Return error if names are not unique, if there is more than one
+    /// time measurement, or if the measurement length doesn't match the
+    /// layout length.
+    pub fn set_measurements_maybenames(
+        &mut self,
+        xs: RawInput<MaybeFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
+        prefix: ShortnamePrefix,
+    ) -> MultiResult<(), SetMeasurementsError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        self.set_measurements_inner(xs, prefix)
+    }
 
-        /// Set measurements and layout
-        ///
-        /// Return error if measurement names are not unique, there is more
-        /// than one time measurement, or the layout and measurements have
-        /// different lengths.
-        pub fn set_measurements_and_layout(
-            &mut self,
-            xs: $rawinput,
-            layout: $layout,
-            prefix: ShortnamePrefix,
-        ) -> MultiResult<(), SetMeasurementsError> {
-            self.set_measurements_and_layout_inner(xs, layout, prefix)
-        }
-    };
+    /// Set measurements and layout
+    ///
+    /// Return error if measurement names are not unique, there is more
+    /// than one time measurement, or the layout and measurements have
+    /// different lengths.
+    pub fn set_measurements_and_layout_maybenames(
+        &mut self,
+        xs: RawInput<MaybeFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
+        layout: <M::Ver as Versioned>::Layout,
+        prefix: ShortnamePrefix,
+    ) -> MultiResult<(), SetMeasurementsError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        self.set_measurements_and_layout_inner(xs, layout, prefix)
+    }
 }
 
-macro_rules! coretext_set_measurements3_1 {
-    ($rawinput:path, $layout:path) => {
-        /// Set measurements.
-        ///
-        /// Return error if names are not unique, if there is more than one
-        /// time measurement, or if the measurement length doesn't match the
-        /// layout length.
-        pub fn set_measurements(&mut self, xs: $rawinput) -> MultiResult<(), SetMeasurementsError> {
-            self.set_measurements_inner(xs, ShortnamePrefix::default())
-        }
+impl<M> VersionedCoreTEXT<M>
+where
+    M: VersionedMetaroot<Name = AlwaysFamily>,
+{
+    /// Set measurements.
+    ///
+    /// Return error if names are not unique, if there is more than one
+    /// time measurement, or if the measurement length doesn't match the
+    /// layout length.
+    pub fn set_measurements(
+        &mut self,
+        xs: RawInput<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
+    ) -> MultiResult<(), SetMeasurementsError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        self.set_measurements_inner(xs, ShortnamePrefix::default())
+    }
 
-        /// Set measurements and layout.
-        ///
-        /// Return error if measurement names are not unique, there is more
-        /// than one time measurement, or the layout and measurements have
-        /// different lengths.
-        pub fn set_measurements_and_layout(
-            &mut self,
-            xs: $rawinput,
-            layout: $layout,
-        ) -> MultiResult<(), SetMeasurementsError> {
-            self.set_measurements_and_layout_inner(xs, layout, ShortnamePrefix::default())
-        }
-    };
+    /// Set measurements and layout
+    ///
+    /// Return error if measurement names are not unique, there is more
+    /// than one time measurement, or the layout and measurements have
+    /// different lengths.
+    pub fn set_measurements_and_layout(
+        &mut self,
+        xs: RawInput<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
+        layout: <M::Ver as Versioned>::Layout,
+    ) -> MultiResult<(), SetMeasurementsError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        self.set_measurements_and_layout_inner(xs, layout, ShortnamePrefix::default())
+    }
 }
 
 impl CoreTEXT2_0 {
@@ -4064,8 +4081,6 @@ impl CoreTEXT2_0 {
         let metaroot = Metaroot::new(specific);
         CoreTEXT::new_nomeas(metaroot)
     }
-
-    coretext_set_measurements2_0!(RawInput2_0, DataLayout2_0);
 }
 
 impl CoreTEXT3_0 {
@@ -4074,8 +4089,6 @@ impl CoreTEXT3_0 {
         let metaroot = Metaroot::new(specific);
         CoreTEXT::new_nomeas(metaroot)
     }
-
-    coretext_set_measurements2_0!(RawInput3_0, DataLayout3_0);
 }
 
 impl CoreTEXT3_1 {
@@ -4084,8 +4097,6 @@ impl CoreTEXT3_1 {
         let metaroot = Metaroot::new(specific);
         CoreTEXT::new_nomeas(metaroot)
     }
-
-    coretext_set_measurements3_1!(RawInput3_1, DataLayout3_1);
 }
 
 impl CoreTEXT3_2 {
@@ -4094,8 +4105,6 @@ impl CoreTEXT3_2 {
         let metaroot = Metaroot::new(specific);
         CoreTEXT::new_nomeas(metaroot)
     }
-
-    coretext_set_measurements3_1!(RawInput3_2, DataLayout3_2);
 }
 
 macro_rules! coredataset_set_measurements2_0 {

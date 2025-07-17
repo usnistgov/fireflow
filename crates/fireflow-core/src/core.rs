@@ -626,6 +626,7 @@ pub struct InnerTemporal2_0 {
 pub struct InnerTemporal3_0 {
     /// Value for $TIMESTEP
     #[as_ref(Timestep)]
+    #[as_mut(Timestep)]
     pub timestep: Timestep,
 
     /// Values of $Pkn/$PKNn
@@ -643,10 +644,12 @@ pub struct InnerTemporal3_0 {
 pub struct InnerTemporal3_1 {
     /// Value for $TIMESTEP
     #[as_ref(Timestep)]
+    #[as_mut(Timestep)]
     pub timestep: Timestep,
 
     /// Value for $PnDISPLAY
     #[as_ref(Option<Display>)]
+    #[as_mut(Option<Display>)]
     pub display: MaybeValue<Display>,
 
     /// Values of $Pkn/$PKNn
@@ -5542,6 +5545,14 @@ impl_ref_specific!(
     Option<Tag>,
     Option<DetectorName>
 );
+
+// impl_ref_specific!(Temporal, InnerTemporal2_0,);
+
+impl_ref_specific!(Temporal, InnerTemporal3_0, Timestep);
+
+impl_ref_specific!(Temporal, InnerTemporal3_1, Timestep, Option<Display>);
+
+impl_ref_specific!(Temporal, InnerTemporal3_2, Timestep, Option<Display>);
 
 impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
     fn convert_from_metaroot(

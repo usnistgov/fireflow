@@ -42,7 +42,8 @@ pub struct Nextdata(pub Uint20Char);
 pub struct Gain(pub PositiveFloat);
 
 /// The value of the $TIMESTEP keyword
-#[derive(Clone, Copy, PartialEq, Serialize, From, Display, FromStr)]
+#[derive(Clone, Copy, PartialEq, Serialize, From, Display, FromStr, Into)]
+#[into(f32, PositiveFloat)]
 pub struct Timestep(pub PositiveFloat);
 
 impl_newtype_try_from!(Timestep, PositiveFloat, f32, RangedFloatError);
@@ -56,7 +57,7 @@ impl Default for Timestep {
 
 /// The value of the $VOL keyword
 #[derive(Clone, Copy, Serialize, From, Display, FromStr, Into)]
-#[into(f32)]
+#[into(NonNegFloat, f32)]
 pub struct Vol(pub NonNegFloat);
 
 impl_newtype_try_from!(Vol, NonNegFloat, f32, RangedFloatError);
@@ -488,7 +489,7 @@ impl fmt::Display for CalibrationFormat3_2 {
 
 /// The value for the $PnL key (2.0/3.0).
 #[derive(Clone, From, FromStr, Display, Serialize, Into)]
-#[into(f32)]
+#[into(f32, PositiveFloat)]
 pub struct Wavelength(pub PositiveFloat);
 
 impl_newtype_try_from!(Wavelength, PositiveFloat, f32, RangedFloatError);
@@ -1417,14 +1418,14 @@ pub struct GateRange(pub Range);
 
 /// The value of the $PnO key
 #[derive(Clone, Copy, Serialize, From, Display, FromStr, Into)]
-#[into(f32)]
+#[into(NonNegFloat, f32)]
 pub struct Power(pub NonNegFloat);
 
 impl_newtype_try_from!(Power, NonNegFloat, f32, RangedFloatError);
 
 /// The value of the $PnV key
 #[derive(Clone, Copy, Serialize, From, Display, FromStr, Into)]
-#[into(f32)]
+#[into(NonNegFloat, f32)]
 pub struct DetectorVoltage(pub NonNegFloat);
 
 impl_newtype_try_from!(DetectorVoltage, NonNegFloat, f32, RangedFloatError);

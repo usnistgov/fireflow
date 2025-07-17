@@ -32,11 +32,12 @@ use pyo3::class::basic::CompareOp;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyWarning};
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyDict, PyType};
+use pyo3::types::{IntoPyDict, PyDict, PyFloat, PyType};
 use pyo3::IntoPyObjectExt;
 use pyo3_polars::{PyDataFrame, PySeries};
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::ffi::CString;
 use std::fmt;
 use std::path;
@@ -1085,12 +1086,12 @@ py_parse!(PyCalibration3_1);
 #[pymethods]
 impl PyCalibration3_1 {
     #[new]
-    fn new(slope: f32, unit: String) -> Result<Self, PyRangedFloatError> {
-        let ret = Calibration3_1 {
-            slope: slope.try_into()?,
+    fn new(slope: PyPositiveFloat, unit: String) -> Self {
+        Calibration3_1 {
+            slope: slope.0,
             unit,
-        };
-        Ok(ret.into())
+        }
+        .into()
     }
 
     #[getter]
@@ -1124,13 +1125,13 @@ py_parse!(PyCalibration3_2);
 #[pymethods]
 impl PyCalibration3_2 {
     #[new]
-    fn new(slope: f32, offset: f32, unit: String) -> Result<Self, PyRangedFloatError> {
-        let ret = Calibration3_2 {
-            slope: slope.try_into()?,
+    fn new(slope: PyPositiveFloat, offset: f32, unit: String) -> Self {
+        Calibration3_2 {
+            slope: slope.0,
             offset,
             unit,
-        };
-        Ok(ret.into())
+        }
+        .into()
     }
 
     #[getter]
@@ -1304,34 +1305,6 @@ impl PyUnicode {
     fn new(page: u32, kws: Vec<String>) -> Self {
         Unicode { page, kws }.into()
     }
-}
-
-macro_rules! get_set_cloned {
-    ($pytype:ident, $($rest:ident,)+ [$($root:ident),*], $get:ident, $set:ident, $field:ident, $out:path) => {
-        get_set_cloned!($pytype, [$($root),*], $get, $set, $field, $out);
-        get_set_cloned!($($rest,)+ [$($root),*], $get, $set, $field, $out);
-    };
-
-    ($pytype:ident, [$($root:ident),*], $get:ident, $set:ident, $field:ident, $out:path) => {
-        #[pymethods]
-        impl $pytype {
-            #[getter]
-            fn $get(&self) -> Option<$out> {
-                self.0.$($root.)*$field.as_ref_opt().map(|x| x.clone().into())
-            }
-
-            #[setter]
-            fn $set(&mut self, s: Option<$out>) {
-                self.0.$($root.)*$field = s.map(|x| x.into()).into()
-            }
-        }
-    };
-}
-
-macro_rules! get_set_str {
-    ($($pytype:ident,)* [$($root:ident),*], $get:ident, $set:ident, $field:ident) => {
-        get_set_cloned!($($pytype,)* [$($root),*], $get, $set, $field, String);
-    };
 }
 
 macro_rules! get_set_metaroot_opt {
@@ -2947,27 +2920,11 @@ spillover_methods!(
     PyCoreDataset3_2
 );
 
-// Get/set methods for $VOL (3.1-3.2)
-macro_rules! vol_methods {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn get_vol(&self) -> Option<f32> {
-                    self.0.get_metaroot_opt::<Vol>().map(|x| x.clone().into())
-                }
-
-                #[setter]
-                fn set_vol(&mut self, vol: Option<PyNonNegFloat>) {
-                    self.0.set_metaroot(vol.map(|v| Vol::from(v.0)))
-                }
-            }
-        )*
-    };
-}
-
-vol_methods!(
+get_set_metaroot_opt!(
+    get_vol,
+    set_vol,
+    Vol,
+    PyNonNegFloat,
     PyCoreTEXT3_1,
     PyCoreTEXT3_2,
     PyCoreDataset3_1,
@@ -3448,40 +3405,68 @@ shared_meas_get_set!(
     PyTemporal3_2
 );
 
-macro_rules! optical_common {
-    ($($pytype:ident),*) => {
-        get_set_str!($($pytype,)* [], get_filter,    set_filter,    filter);
-        get_set_str!($($pytype,)* [], get_detector_type,    set_detector_type,    detector_type);
-        get_set_str!($($pytype,)* [], get_percent_emitted,    set_percent_emitted,    percent_emitted);
-
+macro_rules! get_set_meas {
+    ($get:ident, $set:ident, $outer:ident, $inner:ident, $($pytype:ident),*) => {
         $(
             #[pymethods]
             impl $pytype {
                 #[getter]
-                fn get_detector_voltage(&self) -> Option<f32> {
-                    let x: &Option<DetectorVoltage> = self.0.as_ref();
+                fn $get(&self) -> Option<$outer> {
+                    let x: &Option<$inner> = self.0.as_ref();
                     x.as_ref().map(|y| y.clone().into())
                 }
 
                 #[setter]
-                fn set_detector_voltage(&mut self, x: Option<PyNonNegFloat>) {
-                    *self.0.as_mut() = x.map(|y| DetectorVoltage::from(y))
-                }
-
-                // TODO not DRY
-                #[getter]
-                fn get_power(&self) -> Option<f32> {
-                    let x: &Option<Power> = self.0.as_ref();
-                    x.as_ref().map(|y| y.clone().into())
-                }
-
-                #[setter]
-                fn set_power(&mut self, x: Option<PyNonNegFloat>) {
-                    *self.0.as_mut() = x.map(|y| Power::from(y))
+                fn $set(&mut self, x: Option<$outer>) {
+                    *self.0.as_mut() = x.map(|y| $inner::from(y))
                 }
             }
         )*
 
+    };
+}
+
+macro_rules! optical_common {
+    ($($pytype:ident),*) => {
+        get_set_meas!(
+            get_filter,
+            set_filter,
+            String,
+            Filter,
+            $($pytype),*
+        );
+
+        get_set_meas!(
+            get_detector_type,
+            set_detector_type,
+            String,
+            DetectorType,
+            $($pytype),*
+        );
+
+        get_set_meas!(
+            get_percent_emitted,
+            set_percent_emitted,
+            String,
+            PercentEmitted,
+            $($pytype),*
+        );
+
+        get_set_meas!(
+            get_detector_voltage,
+            set_detector_voltage,
+            PyNonNegFloat,
+            DetectorVoltage,
+            $($pytype),*
+        );
+
+        get_set_meas!(
+            get_power,
+            set_power,
+            PyNonNegFloat,
+            Power,
+            $($pytype),*
+        );
     };
 }
 
@@ -3554,28 +3539,15 @@ get_set_copied!(
 
 // meas_get_set_scale!(PyOptical3_0, PyOptical3_1, PyOptical3_2);
 
-// #PnL (2.0-3.0)
-macro_rules! meas_get_set_wavelengths {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn get_wavelength(&self) -> Option<f32> {
-                    let x: &Option<Wavelength> = self.0.as_ref();
-                    x.as_ref().map(|x| x.clone().into())
-                }
-
-                #[setter]
-                fn set_wavelength(&mut self, x: Option<PyPositiveFloat>)  {
-                    *self.0.as_mut() = x.map(|y| Wavelength::from(y.0))
-                }
-            }
-        )*
-    };
-}
-
-meas_get_set_wavelengths!(PyOptical2_0, PyOptical3_0);
+// $PnL (2.0/3.0)
+get_set_meas!(
+    get_wavelength,
+    set_wavelength,
+    PyPositiveFloat,
+    Wavelength,
+    PyOptical2_0,
+    PyOptical3_0
+);
 
 // #PnL (3.1-3.2)
 macro_rules! meas_get_set_wavelengths {
@@ -3629,26 +3601,24 @@ macro_rules! meas_get_set_timestep {
 meas_get_set_timestep!(PyTemporal3_0, PyTemporal3_1, PyTemporal3_2);
 
 // $PnCalibration (3.1)
-get_set_cloned!(
-    PyOptical3_1,
-    [specific],
+get_set_meas!(
     get_calibration,
     set_calibration,
-    calibration,
-    PyCalibration3_1
+    PyCalibration3_1,
+    Calibration3_1,
+    PyOptical3_1
 );
 
 // $PnD (3.1-3.2)
-get_set_copied!(
+get_set_meas!(
+    get_display,
+    set_display,
+    PyDisplay,
+    Display,
     PyOptical3_1,
     PyOptical3_2,
     PyTemporal3_1,
-    PyTemporal3_2,
-    [specific],
-    get_display,
-    set_display,
-    display,
-    PyDisplay
+    PyTemporal3_2
 );
 
 // $PnDATATYPE (3.2)
@@ -3663,48 +3633,33 @@ get_set_copied!(
 // );
 
 // $PnDET (3.2)
-get_set_str!(
-    PyOptical3_2,
-    [specific],
-    get_detector_name,
-    set_detector_name,
-    detector_name
-);
+get_set_meas!(get_det, set_det, String, DetectorName, PyOptical3_2);
 
 // $PnTAG (3.2)
-get_set_str!(PyOptical3_2, [specific], get_tag, set_tag, tag);
+get_set_meas!(get_tag, set_tag, String, Tag, PyOptical3_2);
 
 // $PnTYPE (3.2)
-get_set_cloned!(
-    PyOptical3_2,
-    [specific],
+get_set_meas!(
     get_measurement_type,
     set_measurement_type,
-    measurement_type,
-    PyOpticalType
+    PyOpticalType,
+    OpticalType,
+    PyOptical3_2
 );
 
-// $PnTYPE (3.2)
-get_set_copied!(
-    PyOptical3_2,
-    [specific],
-    get_feature,
-    set_feature,
-    feature,
-    PyFeature
-);
+// $PnFEATURE (3.2)
+get_set_meas!(get_feature, set_feature, PyFeature, Feature, PyOptical3_2);
 
-// $PnTYPE (3.2)
-get_set_str!(PyOptical3_2, [specific], get_analyte, set_analyte, analyte);
+// $PnANALYTE (3.2)
+get_set_meas!(get_analyte, set_analyte, String, Analyte, PyOptical3_2);
 
 // $PnCalibration (3.2)
-get_set_cloned!(
-    PyOptical3_2,
-    [specific],
+get_set_meas!(
     get_calibration,
     set_calibration,
-    calibration,
-    PyCalibration3_2
+    PyCalibration3_2,
+    Calibration3_2,
+    PyOptical3_2
 );
 
 fn any_to_opt_named_pair<'py, X>(a: Bound<'py, PyAny>) -> PyResult<(MaybeValue<Shortname>, X)>
@@ -3854,12 +3809,14 @@ struct PyShortnamePrefix(ShortnamePrefix);
 
 struct PyNonStdKey(NonStdKey);
 
-#[derive(Into)]
-#[into(Timestep)]
+#[derive(Into, From)]
+#[into(Timestep, Wavelength)]
+#[from(Timestep, Wavelength)]
 struct PyPositiveFloat(PositiveFloat);
 
-#[derive(Into)]
-#[into(DetectorVoltage, Power)]
+#[derive(Into, From)]
+#[into(DetectorVoltage, Power, Vol)]
+#[from(DetectorVoltage, Power, Vol)]
 struct PyNonNegFloat(NonNegFloat);
 
 impl<'py> FromPyObject<'py> for PyShortname {
@@ -3899,6 +3856,26 @@ impl<'py> FromPyObject<'py> for PyNonNegFloat {
         let x: f32 = ob.extract()?;
         let y = x.try_into().map_err(PyRangedFloatError)?;
         Ok(PyNonNegFloat(y))
+    }
+}
+
+impl<'py> IntoPyObject<'py> for PyNonNegFloat {
+    type Target = PyFloat;
+    type Output = Bound<'py, <f32 as IntoPyObject<'py>>::Target>;
+    type Error = Infallible;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        f32::from(self.0).into_pyobject(py)
+    }
+}
+
+impl<'py> IntoPyObject<'py> for PyPositiveFloat {
+    type Target = PyFloat;
+    type Output = Bound<'py, <f32 as IntoPyObject<'py>>::Target>;
+    type Error = Infallible;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        f32::from(self.0).into_pyobject(py)
     }
 }
 

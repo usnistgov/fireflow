@@ -3017,6 +3017,7 @@ where
         if s.as_unstainedcenters().is_some() {
             return Err(ExistingLinkError::UnstainedCenters);
         }
+        // TODO these two are mutually exclusive and can be combined
         if s.as_compensation().is_some() {
             return Err(ExistingLinkError::Comp);
         }
@@ -3932,27 +3933,20 @@ impl HasScaleTransform for InnerOptical3_2 {
     }
 }
 
-macro_rules! set_shortnames_2_0 {
-    () => {
-        /// Set all optical $PnN keywords to list of names.
-        pub fn set_measurement_shortnames_maybe(
-            &mut self,
-            ns: Vec<Option<Shortname>>,
-        ) -> Result<NameMapping, SetKeysError> {
-            let ks = ns.into_iter().map(|n| n.into()).collect();
-            let mapping = self.measurements.set_non_center_keys(ks)?;
-            self.metaroot.reassign_all(&mapping);
-            Ok(mapping)
-        }
-    };
-}
-
-impl<A, D, O> Core2_0<A, D, O> {
-    set_shortnames_2_0!();
-}
-
-impl<A, D, O> Core3_0<A, D, O> {
-    set_shortnames_2_0!();
+impl<M, A, D, O> VersionedCore<A, D, O, M>
+where
+    M: VersionedMetaroot<Name = MaybeFamily>,
+{
+    /// Set all optical $PnN keywords to list of names.
+    pub fn set_measurement_shortnames_maybe(
+        &mut self,
+        ns: Vec<Option<Shortname>>,
+    ) -> Result<NameMapping, SetKeysError> {
+        let ks = ns.into_iter().map(|n| n.into()).collect();
+        let mapping = self.measurements.set_non_center_keys(ks)?;
+        self.metaroot.reassign_all(&mapping);
+        Ok(mapping)
+    }
 }
 
 impl<A, D, O> Core3_2<A, D, O> {

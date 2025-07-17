@@ -2339,6 +2339,8 @@ macro_rules! set_measurements2_0 {
             impl $pytype {
                 fn set_measurements(
                     &mut self,
+                    // TODO clean this up by making a py<->rust type which
+                    // represents an optical or temporal measurement
                     xs: Vec<Bound<'_, PyAny>>,
                     prefix: PyShortnamePrefix,
                 ) -> PyResult<()> {

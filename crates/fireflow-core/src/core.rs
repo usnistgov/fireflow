@@ -705,7 +705,7 @@ pub struct InnerTemporal3_2 {
 pub struct InnerOptical2_0 {
     /// Value for $PnE
     #[as_ref(Option<Scale>)]
-    scale: MaybeValue<Scale>,
+    pub scale: MaybeValue<Scale>,
 
     /// Value for $PnL
     #[as_ref(Option<Wavelength>)]
@@ -725,7 +725,7 @@ pub struct InnerOptical2_0 {
 pub struct InnerOptical3_0 {
     /// Value for $PnE/$PnG
     #[as_ref(ScaleTransform)]
-    scale: ScaleTransform,
+    pub scale: ScaleTransform,
 
     /// Value for $PnL
     #[as_ref(Option<Wavelength>)]
@@ -745,7 +745,7 @@ pub struct InnerOptical3_0 {
 pub struct InnerOptical3_1 {
     /// Value for $PnE/$PnG
     #[as_ref(ScaleTransform)]
-    scale: ScaleTransform,
+    pub scale: ScaleTransform,
 
     /// Value for $PnL
     #[as_ref(Option<Wavelengths>)]
@@ -775,7 +775,8 @@ pub struct InnerOptical3_1 {
 pub struct InnerOptical3_2 {
     /// Value for $PnE/$PnG
     #[as_ref(ScaleTransform)]
-    scale: ScaleTransform,
+    // TODO explain why this is pub and not as_mut
+    pub scale: ScaleTransform,
 
     /// Value for $PnL
     #[as_ref(Option<Wavelengths>)]
@@ -1146,12 +1147,10 @@ pub trait HasSpillover {
 }
 
 pub trait HasScale {
-    // private as_mut
     fn scale_mut(&mut self, _: private::NoTouchy) -> &mut Option<Scale>;
 }
 
 pub trait HasScaleTransform {
-    // private as_mut
     fn transform_mut(&mut self, _: private::NoTouchy) -> &mut ScaleTransform;
 }
 

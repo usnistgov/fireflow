@@ -3199,6 +3199,16 @@ impl PyOptical2_0 {
     fn new() -> Self {
         Optical2_0::default().into()
     }
+
+    #[getter]
+    fn get_scale(&self) -> Option<PyScale> {
+        self.0.specific.scale.0.as_ref().map(|&x| x.into())
+    }
+
+    #[setter]
+    fn set_scale(&mut self, x: Option<PyScale>) {
+        self.0.specific.scale = x.map(|y| y.into()).into()
+    }
 }
 
 #[pymethods]
@@ -3425,53 +3435,39 @@ macro_rules! optical_common {
 optical_common!(PyOptical2_0, PyOptical3_0, PyOptical3_1, PyOptical3_2);
 
 // $PnE (2.0)
-// get_set_meas!(get_scale, set_scale, PyScale, Scale, PyOptical2_0);
+macro_rules! get_set_meas_scale {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+            }
+        )*
+    };
+}
 
-// $PnG (3.0-3.2)
-// macro_rules! meas_get_set_gain {
-//     ($($pytype:ident),*) => {
-//         $(
-//             #[pymethods]
-//             impl $pytype {
-//                 #[getter]
-//                 fn get_gain(&self) -> Option<f32> {
-//                     self.0.specific.gain.as_ref_opt().map(|x| x.0.into())
-//                 }
+get_set_meas_scale!(PyOptical2_0);
 
-//                 #[setter]
-//                 fn set_gain(&mut self, x: Option<f32>) -> PyResult<()> {
-//                     let y = x.map(to_positive_float).transpose()?;
-//                     self.0.specific.gain = y.map(|z| z.into()).into();
-//                     Ok(())
-//                 }
-//             }
-//         )*
-//     };
-// }
+// $PnE (3.0-3.2)
+macro_rules! get_set_meas_transform {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                #[getter]
+                fn get_transform(&self) -> PyScaleTransform {
+                    self.0.specific.scale.into()
+                }
 
-// meas_get_set_gain!(PyOptical3_0, PyOptical3_1, PyOptical3_2);
+                #[setter]
+                fn set_transform(&mut self, x: PyScaleTransform) {
+                    self.0.specific.scale = x.into();
+                }
+            }
+        )*
+    };
+}
 
-// // $PnE (3.0-3.2)
-// macro_rules! meas_get_set_scale {
-//     ($($pytype:ident),*) => {
-//         $(
-//             #[pymethods]
-//             impl $pytype {
-//                 #[getter]
-//                 fn get_scale(&self) -> PyScale {
-//                     self.0.specific.scale.into()
-//                 }
-
-//                 #[setter]
-//                 fn set_scale(&mut self, x: PyScale) {
-//                     self.0.specific.scale = x.into();
-//                 }
-//             }
-//         )*
-//     };
-// }
-
-// meas_get_set_scale!(PyOptical3_0, PyOptical3_1, PyOptical3_2);
+get_set_meas_transform!(PyOptical3_0, PyOptical3_1, PyOptical3_2);
 
 // $PnL (2.0/3.0)
 get_set_meas!(

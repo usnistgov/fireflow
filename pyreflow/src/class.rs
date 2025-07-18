@@ -86,7 +86,6 @@ fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyAlphaNumType>()?;
     m.add_class::<PyNumType>()?;
     m.add_class::<PyOpticalType>()?;
-    m.add_class::<PyDisplay>()?;
     m.add_class::<PyUnicode>()?;
 
     m.add_function(wrap_pyfunction!(py_fcs_read_header, m)?)?;
@@ -1246,27 +1245,27 @@ impl PyOpticalType {
     }
 }
 
-py_wrap!(PyDisplay, Display, "Display");
-py_eq!(PyDisplay);
-py_disp!(PyDisplay);
-py_parse!(PyDisplay);
+// py_wrap!(PyDisplay, Display, "Display");
+// py_eq!(PyDisplay);
+// py_disp!(PyDisplay);
+// py_parse!(PyDisplay);
 
-#[pymethods]
-impl PyDisplay {
-    #[classmethod]
-    fn lin(_: &Bound<'_, PyType>, lower: f32, upper: f32) -> Self {
-        Display::Lin { lower, upper }.into()
-    }
+// #[pymethods]
+// impl PyDisplay {
+//     #[classmethod]
+//     fn lin(_: &Bound<'_, PyType>, lower: f32, upper: f32) -> Self {
+//         Display::Lin { lower, upper }.into()
+//     }
 
-    #[classmethod]
-    fn log(_: &Bound<'_, PyType>, decades: f32, offset: f32) -> Self {
-        Display::Log { offset, decades }.into()
-    }
+//     #[classmethod]
+//     fn log(_: &Bound<'_, PyType>, decades: f32, offset: f32) -> Self {
+//         Display::Log { offset, decades }.into()
+//     }
 
-    fn is_linear(&self) -> bool {
-        matches!(self.0, Display::Lin { lower: _, upper: _ })
-    }
-}
+//     fn is_linear(&self) -> bool {
+//         matches!(self.0, Display::Lin { lower: _, upper: _ })
+//     }
+// }
 
 // $UNICODE (3.0)
 py_wrap!(PyUnicode, Unicode, "Unicode");
@@ -3651,6 +3650,9 @@ struct PyScale(Scale);
 #[derive(Into, From)]
 struct PyScaleTransform(ScaleTransform);
 
+#[derive(Into, From)]
+struct PyDisplay(Display);
+
 struct PyShortname(Shortname);
 
 struct PyShortnamePrefix(ShortnamePrefix);
@@ -3694,6 +3696,24 @@ impl<'py> FromPyObject<'py> for PyScaleTransform {
                      float or a 2-tuple of positive floats",
             ))
         }
+    }
+}
+
+impl<'py> FromPyObject<'py> for PyDisplay {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let (is_log, x0, x1): (bool, f32, f32) = ob.extract()?;
+        let ret = if is_log {
+            Display::Log {
+                offset: x0,
+                decades: x1,
+            }
+        } else {
+            Display::Lin {
+                lower: x0,
+                upper: x1,
+            }
+        };
+        Ok(ret.into())
     }
 }
 
@@ -3777,6 +3797,20 @@ impl<'py> IntoPyObject<'py> for PyScaleTransform {
                 (f32::from(l.decades), f32::from(l.offset)).into_bound_py_any(py)
             }
         }
+    }
+}
+
+impl<'py> IntoPyObject<'py> for PyDisplay {
+    type Target = PyTuple;
+    type Output = Bound<'py, <(bool, f32, f32) as IntoPyObject<'py>>::Target>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        let ret = match self.0 {
+            Display::Lin { lower, upper } => (false, lower, upper),
+            Display::Log { offset, decades } => (true, offset, decades),
+        };
+        ret.into_pyobject(py)
     }
 }
 

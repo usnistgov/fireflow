@@ -4010,7 +4010,7 @@ where
     /// Return error if names are not unique, if there is more than one
     /// time measurement, or if the measurement length doesn't match the
     /// layout length.
-    pub fn set_measurements_maybenames(
+    pub fn set_measurements_optnames(
         &mut self,
         xs: RawInput<MaybeFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
         prefix: ShortnamePrefix,
@@ -4026,7 +4026,7 @@ where
     /// Return error if measurement names are not unique, there is more
     /// than one time measurement, or the layout and measurements have
     /// different lengths.
-    pub fn set_measurements_and_layout_maybenames(
+    pub fn set_measurements_and_layout_optnames(
         &mut self,
         xs: RawInput<MaybeFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
         layout: <M::Ver as Versioned>::Layout,
@@ -4107,102 +4107,100 @@ impl CoreTEXT3_2 {
     }
 }
 
-macro_rules! coredataset_set_measurements2_0 {
-    ($rawinput:path) => {
-        /// Set measurements and dataframe together
-        ///
-        /// Length of measurements must match the width of the input dataframe.
-        pub fn set_measurements_and_data(
-            &mut self,
-            xs: $rawinput,
-            cs: Vec<AnyFCSColumn>,
-            prefix: ShortnamePrefix,
-        ) -> MultiResult<(), SetMeasurementsAndDataError> {
-            let meas_n = xs.len();
-            let data_n = cs.len();
-            if meas_n != data_n {
-                return Err(MeasDataMismatchError { meas_n, data_n }).into_mult();
-            }
-            let df = FCSDataFrame::try_new(cs).into_mult()?;
-            self.set_measurements_inner(xs, prefix).mult_errors_into()?;
-            self.data = df;
-            Ok(())
+impl<M> VersionedCoreDataset<M>
+where
+    M: VersionedMetaroot<Name = MaybeFamily>,
+{
+    /// Set measurements and dataframe together
+    ///
+    /// Length of measurements must match the width of the input dataframe.
+    pub fn set_measurements_and_data_optnames(
+        &mut self,
+        xs: RawInput<MaybeFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
+        cs: Vec<AnyFCSColumn>,
+        prefix: ShortnamePrefix,
+    ) -> MultiResult<(), SetMeasurementsAndDataError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        let meas_n = xs.len();
+        let data_n = cs.len();
+        if meas_n != data_n {
+            return Err(MeasDataMismatchError { meas_n, data_n }).into_mult();
         }
+        let df = FCSDataFrame::try_new(cs).into_mult()?;
+        self.set_measurements_inner(xs, prefix).mult_errors_into()?;
+        self.data = df;
+        Ok(())
+    }
 
-        /// Set measurements.
-        ///
-        /// Length of measurements must match the current width of the dataframe.
-        pub fn set_measurements(
-            &mut self,
-            xs: $rawinput,
-            prefix: ShortnamePrefix,
-        ) -> MultiResult<(), SetMeasurementsOnlyError> {
-            let meas_n = xs.len();
-            let data_n = self.par().0;
-            if meas_n != data_n {
-                return Err(MeasDataMismatchError { meas_n, data_n }).into_mult();
-            }
-            self.set_measurements_inner(xs, prefix).mult_errors_into()?;
-            Ok(())
+    /// Set measurements.
+    ///
+    /// Length of measurements must match the current width of the dataframe.
+    pub fn set_measurements_optnames(
+        &mut self,
+        xs: RawInput<MaybeFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
+        prefix: ShortnamePrefix,
+    ) -> MultiResult<(), SetMeasurementsOnlyError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        let meas_n = xs.len();
+        let data_n = self.par().0;
+        if meas_n != data_n {
+            return Err(MeasDataMismatchError { meas_n, data_n }).into_mult();
         }
-    };
+        self.set_measurements_inner(xs, prefix).mult_errors_into()?;
+        Ok(())
+    }
 }
 
-macro_rules! coredataset_set_measurements3_1 {
-    ($rawinput:path) => {
-        /// Set measurements and dataframe together
-        ///
-        /// Length of measurements must match the width of the input dataframe.
-        pub fn set_measurements_and_data(
-            &mut self,
-            xs: $rawinput,
-            cs: Vec<AnyFCSColumn>,
-        ) -> MultiResult<(), SetMeasurementsAndDataError> {
-            let meas_n = xs.len();
-            let data_n = cs.len();
-            if meas_n != data_n {
-                return Err(MeasDataMismatchError { meas_n, data_n }).into_mult();
-            }
-            let df = FCSDataFrame::try_new(cs).into_mult()?;
-            self.set_measurements_inner(xs, ShortnamePrefix::default())
-                .mult_errors_into()?;
-            self.data = df;
-            Ok(())
+impl<M> VersionedCoreDataset<M>
+where
+    M: VersionedMetaroot<Name = AlwaysFamily>,
+{
+    /// Set measurements and dataframe together
+    ///
+    /// Length of measurements must match the width of the input dataframe.
+    pub fn set_measurements_and_data(
+        &mut self,
+        xs: RawInput<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
+        cs: Vec<AnyFCSColumn>,
+    ) -> MultiResult<(), SetMeasurementsAndDataError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        let meas_n = xs.len();
+        let data_n = cs.len();
+        if meas_n != data_n {
+            return Err(MeasDataMismatchError { meas_n, data_n }).into_mult();
         }
+        let df = FCSDataFrame::try_new(cs).into_mult()?;
+        self.set_measurements_inner(xs, ShortnamePrefix::default())
+            .mult_errors_into()?;
+        self.data = df;
+        Ok(())
+    }
 
-        /// Set measurements.
-        ///
-        /// Length of measurements must match the current width of the dataframe.
-        pub fn set_measurements(
-            &mut self,
-            xs: $rawinput,
-        ) -> MultiResult<(), SetMeasurementsOnlyError> {
-            let meas_n = xs.len();
-            let data_n = self.par().0;
-            if meas_n != data_n {
-                return Err(MeasDataMismatchError { meas_n, data_n }).into_mult();
-            }
-            self.set_measurements_inner(xs, ShortnamePrefix::default())
-                .mult_errors_into()?;
-            Ok(())
+    /// Set measurements.
+    ///
+    /// Length of measurements must match the current width of the dataframe.
+    pub fn set_measurements(
+        &mut self,
+        xs: RawInput<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
+    ) -> MultiResult<(), SetMeasurementsOnlyError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        let meas_n = xs.len();
+        let data_n = self.par().0;
+        if meas_n != data_n {
+            return Err(MeasDataMismatchError { meas_n, data_n }).into_mult();
         }
-    };
-}
-
-impl CoreDataset2_0 {
-    coredataset_set_measurements2_0!(RawInput2_0);
-}
-
-impl CoreDataset3_0 {
-    coredataset_set_measurements2_0!(RawInput3_0);
-}
-
-impl CoreDataset3_1 {
-    coredataset_set_measurements3_1!(RawInput3_1);
-}
-
-impl CoreDataset3_2 {
-    coredataset_set_measurements3_1!(RawInput3_2);
+        self.set_measurements_inner(xs, ShortnamePrefix::default())
+            .mult_errors_into()?;
+        Ok(())
+    }
 }
 
 impl UnstainedData {

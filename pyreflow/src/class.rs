@@ -2355,7 +2355,7 @@ macro_rules! set_measurements2_0 {
                         ys.push(y);
                     }
                     self.0
-                        .set_measurements_maybenames(ys, prefix.0)
+                        .set_measurements_optnames(ys, prefix.0)
                         .mult_terminate(SetMeasurementsFailure)
                         .map_err(handle_failure_nowarn)
                         .void()
@@ -2433,7 +2433,7 @@ macro_rules! coredata2_0_meas_methods {
                     let cols = dataframe_to_fcs(df.into())
                         .map_err(|e| e.to_string())
                         .map_err(PyreflowException::new_err)?;
-                    self.0.set_measurements_and_data(ys, cols, prefix.0)
+                    self.0.set_measurements_and_data_optnames(ys, cols, prefix.0)
                         .mult_terminate(SetMeasurementsFailure)
                         .map_err(handle_failure_nowarn)
                         .void()

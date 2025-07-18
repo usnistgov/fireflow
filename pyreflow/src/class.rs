@@ -18,9 +18,7 @@ use fireflow_core::validated::keys::*;
 use fireflow_core::validated::other_width::*;
 use fireflow_core::validated::shortname::*;
 
-use super::layout::{
-    PyAlphaNumType, PyDataLayout2_0, PyDataLayout3_0, PyDataLayout3_1, PyDataLayout3_2,
-};
+use super::layout::{PyDataLayout2_0, PyDataLayout3_0, PyDataLayout3_1, PyDataLayout3_2};
 use super::macros::py_wrap;
 
 use bigdecimal::BigDecimal;
@@ -71,8 +69,6 @@ fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDataLayout3_0>()?;
     m.add_class::<PyDataLayout3_1>()?;
     m.add_class::<PyDataLayout3_2>()?;
-
-    m.add_class::<PyAlphaNumType>()?;
 
     m.add_function(wrap_pyfunction!(py_fcs_read_header, m)?)?;
     m.add_function(wrap_pyfunction!(py_fcs_read_raw_text, m)?)?;
@@ -3367,7 +3363,7 @@ struct PyNonNegFloat(NonNegFloat);
 macro_rules! impl_pystring {
     ($outer:ident, $inner:ident) => {
         #[derive(Into, From)]
-        struct $outer($inner);
+        pub(crate) struct $outer(pub(crate) $inner);
 
         impl<'py> FromPyObject<'py> for $outer {
             fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
@@ -3392,6 +3388,7 @@ macro_rules! impl_pystring {
 
 impl_pystring!(PyVersion, Version);
 impl_pystring!(PyOriginality, Originality);
+impl_pystring!(PyAlphaNumType, AlphaNumType);
 impl_pystring!(PyNumType, NumType);
 impl_pystring!(PyFeature, Feature);
 impl_pystring!(PyMode, Mode);

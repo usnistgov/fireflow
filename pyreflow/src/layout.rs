@@ -4,32 +4,17 @@ use fireflow_core::data::{
 };
 use fireflow_core::text::byteord::{Endian, SizedByteOrd};
 use fireflow_core::text::float_decimal::{FloatDecimal, HasFloatBounds};
-use fireflow_core::text::keywords::AlphaNumType;
 use fireflow_core::validated::ascii_range::{AsciiRange, Chars};
 use fireflow_core::validated::bitmask::Bitmask;
 
-use crate::class::PyreflowException;
+use crate::class::{PyAlphaNumType, PyreflowException};
 
-use super::macros::{py_disp, py_enum, py_eq, py_parse, py_wrap};
+use super::macros::py_wrap;
 
 use bigdecimal::BigDecimal;
 use nonempty::NonEmpty;
 use pyo3::prelude::*;
 use pyo3::types::PyType;
-
-// $DATATYPE (all versions)
-py_wrap!(pub(crate) PyAlphaNumType, AlphaNumType, "AlphaNumType");
-py_eq!(PyAlphaNumType);
-py_disp!(PyAlphaNumType);
-py_parse!(PyAlphaNumType);
-py_enum!(
-    PyAlphaNumType,
-    AlphaNumType,
-    [Ascii, ASCII],
-    [Integer, INTEGER],
-    [Single, SINGLE],
-    [Double, DOUBLE]
-);
 
 // All layouts
 py_wrap!(pub(crate) PyDataLayout2_0, DataLayout2_0, "DataLayout2_0");

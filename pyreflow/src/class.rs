@@ -32,7 +32,7 @@ use polars::prelude::*;
 use polars_arrow::array::PrimitiveArray;
 use pyo3::class::basic::CompareOp;
 use pyo3::create_exception;
-use pyo3::exceptions::{PyException, PyWarning};
+use pyo3::exceptions::{PyException, PyValueError, PyWarning};
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyDict, PyFloat, PyTuple, PyType};
 use pyo3::IntoPyObjectExt;
@@ -1245,11 +1245,6 @@ impl PyOpticalType {
         OpticalType::Other(s).into()
     }
 }
-
-// $PnE (3.0+)
-py_wrap!(PyScaleTransform, ScaleTransform, "ScaleTransform");
-py_eq!(PyScaleTransform);
-py_disp!(PyScaleTransform);
 
 py_wrap!(PyDisplay, Display, "Display");
 py_eq!(PyDisplay);
@@ -3653,6 +3648,9 @@ impl fmt::Display for SetMeasurementsFailure {
 #[derive(Into, From)]
 struct PyScale(Scale);
 
+#[derive(Into, From)]
+struct PyScaleTransform(ScaleTransform);
+
 struct PyShortname(Shortname);
 
 struct PyShortnamePrefix(ShortnamePrefix);
@@ -3679,6 +3677,22 @@ impl<'py> FromPyObject<'py> for PyScale {
             let (decades, offset): (f32, f32) = ob.extract()?;
             let log = Scale::try_new_log(decades, offset).map_err(PyLogRangeError)?;
             Ok(Self(log))
+        }
+    }
+}
+
+impl<'py> FromPyObject<'py> for PyScaleTransform {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        if let Ok(gain) = ob.extract::<PyPositiveFloat>() {
+            Ok(ScaleTransform::Lin(gain.0).into())
+        } else if let Ok(log) = ob.extract::<(f32, f32)>()?.try_into() {
+            Ok(ScaleTransform::Log(log).into())
+        } else {
+            // TODO make this into a general "argument value error"
+            Err(PyValueError::new_err(
+                "scale transform must be a positive \
+                     float or a 2-tuple of positive floats",
+            ))
         }
     }
 }
@@ -3747,6 +3761,21 @@ impl<'py> IntoPyObject<'py> for PyScale {
         match self.0 {
             Scale::Linear => Ok(PyTuple::empty(py).into_any()),
             Scale::Log(l) => (f32::from(l.decades), f32::from(l.offset)).into_bound_py_any(py),
+        }
+    }
+}
+
+impl<'py> IntoPyObject<'py> for PyScaleTransform {
+    type Target = PyAny;
+    type Output = Bound<'py, Self::Target>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        match self.0 {
+            ScaleTransform::Lin(gain) => f32::from(gain).into_bound_py_any(py),
+            ScaleTransform::Log(l) => {
+                (f32::from(l.decades), f32::from(l.offset)).into_bound_py_any(py)
+            }
         }
     }
 }

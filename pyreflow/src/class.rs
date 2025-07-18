@@ -7,7 +7,7 @@ use fireflow_core::segment::*;
 use fireflow_core::text::byteord::ByteOrd2_0;
 use fireflow_core::text::datetimes::ReversedDatetimes;
 use fireflow_core::text::keywords::*;
-use fireflow_core::text::named_vec::{Element, KeyLengthError};
+use fireflow_core::text::named_vec::{Element, KeyLengthError, RawInput};
 use fireflow_core::text::optional::*;
 use fireflow_core::text::ranged_float::*;
 use fireflow_core::text::scale::*;
@@ -1729,13 +1729,12 @@ macro_rules! coredata_meas_get_set {
                     &mut self,
                     name: PyShortname,
                     t: $timetype,
-                    xs: PySeries,
+                    col: PyFCSColumn,
                     r: BigDecimal,
                     notrunc: bool,
                 ) -> PyResult<()> {
-                    let col = series_to_fcs(xs.into()).map_err(PyreflowException::new_err)?;
                     self.0
-                        .push_temporal(name.0, t.into(), col, Range(r), notrunc)
+                        .push_temporal(name.0, t.into(), col.0, Range(r), notrunc)
                         .py_def_terminate(PushTemporalFailure)
                 }
 
@@ -1744,13 +1743,12 @@ macro_rules! coredata_meas_get_set {
                     i: usize,
                     name: PyShortname,
                     t: $timetype,
-                    xs: PySeries,
+                    col: PyFCSColumn,
                     r: BigDecimal,
                     notrunc: bool,
                 ) -> PyResult<()> {
-                    let col = series_to_fcs(xs.into()).map_err(PyreflowException::new_err)?;
                     self.0
-                        .insert_temporal(i.into(), name.0, t.into(), col, Range(r), notrunc)
+                        .insert_temporal(i.into(), name.0, t.into(), col.0, Range(r), notrunc)
                         .py_def_terminate(InsertTemporalFailure)
                 }
 
@@ -1940,148 +1938,89 @@ coretext3_1_meas_methods!(
 );
 
 macro_rules! set_measurements2_0 {
-    ($([$pytype:ident, $opttype:ident, $timetype:ident]),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                fn set_measurements(
-                    &mut self,
-                    // TODO clean this up by making a py<->rust type which
-                    // represents an optical or temporal measurement
-                    xs: Vec<Bound<'_, PyAny>>,
-                    prefix: PyShortnamePrefix,
-                ) -> PyResult<()> {
-                    let mut ys = vec![];
-                    for x in xs {
-                        let y = if let Ok((n, m)) = any_to_opt_named_pair::<$opttype>(x.clone()) {
-                            Element::NonCenter((n, m.into()))
-                        } else {
-                            let (n, t) = any_to_named_pair::<$timetype>(x)?;
-                            Element::Center((n, t.into()))
-                        };
-                        ys.push(y);
-                    }
-                    self.0
-                        .set_measurements(ys, prefix.0)
-                        .py_mult_terminate(SetMeasurementsFailure)
-                        .void()
-                }
+    ($pytype:ident, $t:ident, $o:ident) => {
+        #[pymethods]
+        impl $pytype {
+            fn set_measurements(
+                &mut self,
+                xs: PyRawMaybeInput<$t, $o>,
+                prefix: PyShortnamePrefix,
+            ) -> PyResult<()> {
+                self.0
+                    .set_measurements(xs.0.inner_into(), prefix.0)
+                    .py_mult_terminate(SetMeasurementsFailure)
+                    .void()
             }
-        )*
-    }
+        }
+    };
 }
 
-set_measurements2_0!(
-    [PyCoreTEXT2_0, PyOptical2_0, PyTemporal2_0],
-    [PyCoreTEXT3_0, PyOptical3_0, PyTemporal3_0],
-    [PyCoreDataset2_0, PyOptical2_0, PyTemporal2_0],
-    [PyCoreDataset3_0, PyOptical3_0, PyTemporal3_0]
-);
+set_measurements2_0!(PyCoreTEXT2_0, PyTemporal2_0, PyOptical2_0);
+set_measurements2_0!(PyCoreTEXT3_0, PyTemporal3_0, PyOptical3_0);
+set_measurements2_0!(PyCoreDataset2_0, PyTemporal2_0, PyOptical2_0);
+set_measurements2_0!(PyCoreDataset3_0, PyTemporal3_0, PyOptical3_0);
 
 macro_rules! set_measurements3_1 {
-    ($([$pytype:ident, $opttype:ident, $timetype:ident]),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                pub fn set_measurements(
-                    &mut self,
-                    xs: Vec<Bound<'_, PyAny>>,
-                ) -> PyResult<()> {
-                    let mut ys = vec![];
-                    for x in xs {
-                        let y = if let Ok((n, m)) = any_to_named_pair::<$opttype>(x.clone()) {
-                            Element::NonCenter((AlwaysValue(n), m.into()))
-                        } else {
-                            let (n, t) = any_to_named_pair::<$timetype>(x)?;
-                            Element::Center((n, t.into()))
-                        };
-                        ys.push(y);
-                    }
-                    self.0
-                        .set_measurements_noprefix(ys)
-                        .py_mult_terminate(SetMeasurementsFailure)
-                        .void()
-                }
+    ($pytype:ident, $t:ident, $o:ident) => {
+        #[pymethods]
+        impl $pytype {
+            pub fn set_measurements(&mut self, xs: PyRawAlwaysInput<$t, $o>) -> PyResult<()> {
+                self.0
+                    .set_measurements_noprefix(xs.0.inner_into())
+                    .py_mult_terminate(SetMeasurementsFailure)
+                    .void()
             }
-        )*
-    }
+        }
+    };
 }
 
-set_measurements3_1!(
-    [PyCoreTEXT3_1, PyOptical3_1, PyTemporal3_1],
-    [PyCoreTEXT3_2, PyOptical3_2, PyTemporal3_2],
-    [PyCoreDataset3_1, PyOptical3_1, PyTemporal3_1],
-    [PyCoreDataset3_2, PyOptical3_2, PyTemporal3_2]
-);
+set_measurements3_1!(PyCoreTEXT3_1, PyTemporal3_1, PyOptical3_1);
+set_measurements3_1!(PyCoreTEXT3_2, PyTemporal3_2, PyOptical3_2);
+set_measurements3_1!(PyCoreDataset3_1, PyTemporal3_1, PyOptical3_1);
+set_measurements3_1!(PyCoreDataset3_2, PyTemporal3_2, PyOptical3_2);
 
 macro_rules! coredata2_0_meas_methods {
-    ($([$pytype:ident, $opttype:ident, $timetype:ident]),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                fn set_measurements_and_data(
-                    &mut self,
-                    xs: Vec<Bound<'_, PyAny>>,
-                    cols: PyFCSColumns,
-                    prefix: PyShortnamePrefix,
-                ) -> PyResult<()> {
-                    let mut ys = vec![];
-                    for x in xs {
-                        let y = if let Ok((n, m)) = any_to_opt_named_pair::<$opttype>(x.clone()) {
-                            Element::NonCenter((n, m.into()))
-                        } else {
-                            let (n, t) = any_to_named_pair::<$timetype>(x)?;
-                            Element::Center((n, t.into()))
-                        };
-                        ys.push(y);
-                    };
-                    self.0.set_measurements_and_data(ys, cols.0, prefix.0)
-                        .py_mult_terminate(SetMeasurementsFailure)
-                        .void()
-                }
+    ($pytype:ident, $t:ident, $o:ident) => {
+        #[pymethods]
+        impl $pytype {
+            fn set_measurements_and_data(
+                &mut self,
+                xs: PyRawMaybeInput<$t, $o>,
+                cols: PyFCSColumns,
+                prefix: PyShortnamePrefix,
+            ) -> PyResult<()> {
+                self.0
+                    .set_measurements_and_data(xs.0.inner_into(), cols.0, prefix.0)
+                    .py_mult_terminate(SetMeasurementsFailure)
+                    .void()
             }
-        )*
-    }
+        }
+    };
 }
 
-coredata2_0_meas_methods!(
-    [PyCoreDataset2_0, PyOptical2_0, PyTemporal2_0],
-    [PyCoreDataset3_0, PyOptical3_0, PyTemporal3_0]
-);
+coredata2_0_meas_methods!(PyCoreDataset2_0, PyTemporal2_0, PyOptical2_0);
+coredata2_0_meas_methods!(PyCoreDataset3_0, PyTemporal3_0, PyOptical3_0);
 
 macro_rules! coredata3_1_meas_methods {
-    ($([$pytype:ident, $opttype:ident, $timetype:ident]),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                fn set_measurements_and_data(
-                    &mut self,
-                    xs: Vec<Bound<'_, PyAny>>,
-                    cols: PyFCSColumns,
-                ) -> PyResult<()> {
-                    let mut ys = vec![];
-                    for x in xs {
-                        let y = if let Ok((n, m)) = any_to_named_pair::<$opttype>(x.clone()) {
-                            Element::NonCenter((AlwaysValue(n), m.into()))
-                        } else {
-                            let (n, t) = any_to_named_pair::<$timetype>(x)?;
-                            Element::Center((n, t.into()))
-                        };
-                        ys.push(y);
-                    };
-                    self.0.set_measurements_and_data_noprefix(ys, cols.0)
-                        .py_mult_terminate(SetMeasurementsFailure)
-                        .void()
-                }
+    ($pytype:ident, $t:ident, $o:ident) => {
+        #[pymethods]
+        impl $pytype {
+            fn set_measurements_and_data(
+                &mut self,
+                xs: PyRawAlwaysInput<$t, $o>,
+                cols: PyFCSColumns,
+            ) -> PyResult<()> {
+                self.0
+                    .set_measurements_and_data_noprefix(xs.0.inner_into(), cols.0)
+                    .py_mult_terminate(SetMeasurementsFailure)
+                    .void()
             }
-        )*
-    }
+        }
+    };
 }
 
-coredata3_1_meas_methods!(
-    [PyCoreDataset3_1, PyOptical3_1, PyTemporal3_1],
-    [PyCoreDataset3_2, PyOptical3_2, PyTemporal3_2]
-);
+coredata3_1_meas_methods!(PyCoreDataset3_1, PyTemporal3_1, PyOptical3_1);
+coredata3_1_meas_methods!(PyCoreDataset3_2, PyTemporal3_2, PyOptical3_2);
 
 // Get/set methods for setting $PnN (2.0-3.0)
 macro_rules! shortnames_methods {
@@ -3083,31 +3022,6 @@ get_set_meas!(
     PyOptical3_2
 );
 
-fn any_to_opt_named_pair<'py, X>(a: Bound<'py, PyAny>) -> PyResult<(MaybeValue<Shortname>, X)>
-where
-    X: FromPyObject<'py>,
-{
-    let tup: (Bound<'py, PyAny>, Bound<'py, PyAny>) = a.extract()?;
-    let n_maybe: Option<Bound<'py, PyAny>> = tup.0.extract()?;
-    let n: Option<PyShortname> = if let Some(nn) = n_maybe {
-        Some(nn.extract()?)
-    } else {
-        None
-    };
-    let m: X = tup.1.extract()?;
-    Ok((n.map(|x| x.0).into(), m))
-}
-
-fn any_to_named_pair<'py, X>(a: Bound<'py, PyAny>) -> PyResult<(Shortname, X)>
-where
-    X: FromPyObject<'py>,
-{
-    let tup: (Bound<'py, PyAny>, Bound<'py, PyAny>) = a.extract()?;
-    let n: PyShortname = tup.0.extract()?;
-    let m: X = tup.1.extract()?;
-    Ok((n.0, m))
-}
-
 fn strs_to_key_patterns(lits: Vec<String>, pats: Vec<String>) -> PyResult<KeyPatterns> {
     let mut ls = KeyPatterns::try_from_literals(lits)
         .map_err(|e| PyreflowException::new_err(e.to_string()))?;
@@ -3274,6 +3188,12 @@ struct PyNonStdKey(NonStdKey);
 
 struct PyFCSColumns(Vec<AnyFCSColumn>);
 
+struct PyFCSColumn(AnyFCSColumn);
+
+struct PyRawMaybeInput<T, O>(RawInput<MaybeFamily, T, O>);
+
+struct PyRawAlwaysInput<T, O>(RawInput<AlwaysFamily, T, O>);
+
 #[derive(Into, From)]
 #[into(Timestep, Wavelength)]
 #[from(Timestep, Wavelength)]
@@ -3317,6 +3237,53 @@ impl_pystring!(PyNumType, NumType);
 impl_pystring!(PyFeature, Feature);
 impl_pystring!(PyMode, Mode);
 impl_pystring!(PyOpticalType, OpticalType);
+
+impl<'py, T, O> FromPyObject<'py> for PyRawMaybeInput<T, O>
+where
+    T: FromPyObject<'py>,
+    O: FromPyObject<'py>,
+{
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let xs: Vec<(Bound<'py, PyAny>, Bound<'py, PyAny>)> = ob.extract()?;
+        xs.into_iter()
+            .map(|(name, meas)| {
+                if let Ok(t) = meas.extract::<T>() {
+                    let n: PyShortname = name.extract()?;
+                    Ok(Element::Center((n.0, t)))
+                } else if let Ok(o) = meas.extract::<O>() {
+                    let n: Option<PyShortname> = name.extract()?;
+                    Ok(Element::NonCenter((n.map(|m| m.0).into(), o)))
+                } else {
+                    Err(PyValueError::new_err("could not parse measurement"))
+                }
+            })
+            .collect::<Result<_, _>>()
+            .map(|ret| Self(RawInput(ret)))
+    }
+}
+
+impl<'py, T, O> FromPyObject<'py> for PyRawAlwaysInput<T, O>
+where
+    T: FromPyObject<'py>,
+    O: FromPyObject<'py>,
+{
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let xs: Vec<(PyShortname, Bound<'py, PyAny>)> = ob.extract()?;
+        xs.into_iter()
+            .map(|(name, meas)| {
+                if let Ok(t) = meas.extract::<T>() {
+                    Ok(Element::Center((name.0, t)))
+                } else if let Ok(o) = meas.extract::<O>() {
+                    Ok(Element::NonCenter((name.0.into(), o)))
+                } else {
+                    // TODO fix this lame error message
+                    Err(PyValueError::new_err("could not parse measurement"))
+                }
+            })
+            .collect::<Result<_, _>>()
+            .map(|ret| Self(RawInput(ret)))
+    }
+}
 
 impl<'py> FromPyObject<'py> for PyScale {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
@@ -3443,6 +3410,16 @@ impl<'py> FromPyObject<'py> for PyFCSColumns {
                 .collect::<Result<Vec<_>, _>>()
                 // TODO make better error
                 .map_err(PyreflowException::new_err)?;
+        Ok(Self(ret))
+    }
+}
+
+impl<'py> FromPyObject<'py> for PyFCSColumn {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let ser: PySeries = ob.extract()?;
+        let ret = series_to_fcs(ser.0)
+            // TODO make better error
+            .map_err(PyreflowException::new_err)?;
         Ok(Self(ret))
     }
 }

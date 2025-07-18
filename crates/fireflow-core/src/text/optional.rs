@@ -56,6 +56,11 @@ pub trait MightHave {
     fn as_opt<T>(x: &Self::Wrapper<T>) -> Option<&T> {
         Self::to_opt(Self::as_ref(x))
     }
+
+    /// Apply function to inner value.
+    fn map<T, T0, F>(x: Self::Wrapper<T>, f: F) -> Self::Wrapper<T0>
+    where
+        F: FnOnce(T) -> T0;
 }
 
 #[derive(Clone, Serialize)]
@@ -72,6 +77,13 @@ impl MightHave for MaybeFamily {
     fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T> {
         x.as_ref()
     }
+
+    fn map<T, T0, F>(x: Self::Wrapper<T>, f: F) -> Self::Wrapper<T0>
+    where
+        F: FnOnce(T) -> T0,
+    {
+        x.0.map(f).into()
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -87,6 +99,13 @@ impl MightHave for AlwaysFamily {
 
     fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T> {
         AlwaysValue(&x.0)
+    }
+
+    fn map<T, T0, F>(x: Self::Wrapper<T>, f: F) -> Self::Wrapper<T0>
+    where
+        F: FnOnce(T) -> T0,
+    {
+        AlwaysValue(f(x.0))
     }
 }
 

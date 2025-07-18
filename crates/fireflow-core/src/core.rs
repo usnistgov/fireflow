@@ -3353,7 +3353,7 @@ where
                     // into a named vector, which will have a special element
                     // for the time measurement if it exists, and will scream if
                     // we have more than one time measurement.
-                    NamedVec::try_new(xs, conf.shortname_prefix.clone())
+                    NamedVec::try_new(xs.into(), conf.shortname_prefix.clone())
                         .map(|ms| (ms, meta_nonstd))
                         .map_err(|e| LookupKeysError::Misc(e.into()))
                         .into_deferred()
@@ -3869,7 +3869,7 @@ where
     where
         M::Optical: AsScaleTransform,
     {
-        let meas_n = xs.len();
+        let meas_n = xs.0.len();
         let data_n = cs.len();
         if meas_n != data_n {
             return Err(MeasDataMismatchError { meas_n, data_n }).into_mult();

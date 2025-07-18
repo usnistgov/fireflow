@@ -18,7 +18,7 @@ use fireflow_core::validated::keys::*;
 use fireflow_core::validated::other_width::*;
 use fireflow_core::validated::shortname::*;
 
-use super::layout::{PyDataLayout2_0, PyDataLayout3_0, PyDataLayout3_1, PyDataLayout3_2};
+use super::layout::{self, PyLayout3_2, PyNonMixedLayout, PyOrderedLayout};
 use super::macros::py_wrap;
 
 use bigdecimal::BigDecimal;
@@ -65,10 +65,22 @@ fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTemporal3_1>()?;
     m.add_class::<PyTemporal3_2>()?;
 
-    m.add_class::<PyDataLayout2_0>()?;
-    m.add_class::<PyDataLayout3_0>()?;
-    m.add_class::<PyDataLayout3_1>()?;
-    m.add_class::<PyDataLayout3_2>()?;
+    m.add_class::<layout::PyAsciiFixedLayout>()?;
+    m.add_class::<layout::PyAsciiDelimLayout>()?;
+    m.add_class::<layout::PyOrderedUint08Layout>()?;
+    m.add_class::<layout::PyOrderedUint16Layout>()?;
+    m.add_class::<layout::PyOrderedUint24Layout>()?;
+    m.add_class::<layout::PyOrderedUint32Layout>()?;
+    m.add_class::<layout::PyOrderedUint40Layout>()?;
+    m.add_class::<layout::PyOrderedUint48Layout>()?;
+    m.add_class::<layout::PyOrderedUint56Layout>()?;
+    m.add_class::<layout::PyOrderedUint64Layout>()?;
+    m.add_class::<layout::PyOrderedF32Layout>()?;
+    m.add_class::<layout::PyOrderedF64Layout>()?;
+    m.add_class::<layout::PyEndianF32Layout>()?;
+    m.add_class::<layout::PyEndianF64Layout>()?;
+    m.add_class::<layout::PyEndianUintLayout>()?;
+    m.add_class::<layout::PyMixedLayout>()?;
 
     m.add_function(wrap_pyfunction!(py_fcs_read_header, m)?)?;
     m.add_function(wrap_pyfunction!(py_fcs_read_raw_text, m)?)?;

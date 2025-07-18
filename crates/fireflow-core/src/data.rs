@@ -72,7 +72,7 @@ use crate::validated::keys::*;
 
 use ambassador::{delegatable_trait, Delegate};
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
-use derive_more::{Display, From};
+use derive_more::{AsRef, Display, From};
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use num_traits::PrimInt;
@@ -94,14 +94,12 @@ use std::str;
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
 #[delegate(InterLayoutOps<D>, generics = "D")]
-#[delegate(OrderedLayoutOps)]
 pub struct DataLayout2_0(pub AnyOrderedLayout<MaybeTot>);
 
 /// All possible byte layouts for the DATA segment in 2.0.
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
 #[delegate(InterLayoutOps<D>, generics = "D")]
-#[delegate(OrderedLayoutOps)]
 pub struct DataLayout3_0(pub AnyOrderedLayout<KnownTot>);
 
 /// All possible byte layouts for the DATA segment in 3.1.
@@ -112,7 +110,6 @@ pub struct DataLayout3_0(pub AnyOrderedLayout<KnownTot>);
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
 #[delegate(InterLayoutOps<D>, generics = "D")]
-#[delegate(EndianLayoutOps)]
 pub struct DataLayout3_1(pub NonMixedEndianLayout<NoMeasDatatype>);
 
 /// All possible byte layouts for the DATA segment in 3.2.
@@ -121,11 +118,12 @@ pub struct DataLayout3_1(pub NonMixedEndianLayout<NoMeasDatatype>);
 /// each column to have a different type and size (hence "Mixed").
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
-#[delegate(EndianLayoutOps)]
 pub enum DataLayout3_2 {
-    Mixed(EndianLayout<NullMixedType, HasMeasDatatype>),
+    Mixed(MixedLayout),
     NonMixed(NonMixedEndianLayout<HasMeasDatatype>),
 }
+
+pub type MixedLayout = EndianLayout<NullMixedType, HasMeasDatatype>;
 
 /// All possible byte layouts for the DATA segment in 2.0 and 3.0.
 ///
@@ -134,7 +132,6 @@ pub enum DataLayout3_2 {
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
 #[delegate(InterLayoutOps<DT>, generics = "DT")]
-#[delegate(OrderedLayoutOps)]
 pub enum AnyOrderedLayout<T> {
     Ascii(AnyAsciiLayout<T, NoMeasDatatype, true>),
     Integer(AnyOrderedUintLayout<T>),
@@ -147,7 +144,6 @@ pub enum AnyOrderedLayout<T> {
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
 #[delegate(InterLayoutOps<DT>, generics = "DT")]
-#[delegate(EndianLayoutOps)]
 pub enum NonMixedEndianLayout<D> {
     Ascii(AnyAsciiLayout<KnownTot, D, false>),
     Integer(EndianLayout<AnyNullBitmask, D>),
@@ -155,7 +151,7 @@ pub enum NonMixedEndianLayout<D> {
     F64(EndianLayout<F64Range, D>),
 }
 
-type EndianLayout<C, D> = FixedLayout<C, Endian, KnownTot, D>;
+pub type EndianLayout<C, D> = FixedLayout<C, Endian, KnownTot, D>;
 
 /// Byte layouts for ASCII data.
 ///
@@ -170,7 +166,7 @@ pub enum AnyAsciiLayout<T, D, const ORD: bool> {
     Fixed(FixedAsciiLayout<T, D, ORD>),
 }
 
-type FixedAsciiLayout<T, D, const ORD: bool> = FixedLayout<AsciiRange, NoByteOrd<ORD>, T, D>;
+pub type FixedAsciiLayout<T, D, const ORD: bool> = FixedLayout<AsciiRange, NoByteOrd<ORD>, T, D>;
 
 /// Byte layout for delimited ASCII.
 #[derive(Clone)]
@@ -181,8 +177,9 @@ pub struct DelimAsciiLayout<T, D, const ORD: bool> {
 }
 
 /// Byte layout where each column has a fixed width.
-#[derive(Clone)]
+#[derive(Clone, AsRef)]
 pub struct FixedLayout<C, L, T, D> {
+    #[as_ref(L)]
     byte_layout: L,
     columns: NonEmpty<C>,
     _tot_def: PhantomData<T>,
@@ -206,7 +203,7 @@ pub enum AnyOrderedUintLayout<T> {
     Uint64(OrderedLayout<Bitmask64, T>),
 }
 
-type OrderedLayout<C, T> = FixedLayout<C, <C as HasNativeWidth>::Order, T, NoMeasDatatype>;
+pub type OrderedLayout<C, T> = FixedLayout<C, <C as HasNativeWidth>::Order, T, NoMeasDatatype>;
 
 /// The type of a non-delimited column in the DATA segment for 3.2
 pub enum MixedType<F: ColumnFamily> {
@@ -541,17 +538,11 @@ pub trait InterLayoutOps<D> {
 /// Standardized operations on layouts
 #[delegatable_trait]
 pub trait OrderedLayoutOps: Sized {
-    fn byte_order(&self) -> Option<ByteOrd2_0>;
+    fn byte_order(&self) -> ByteOrd2_0;
 
     fn endianness(&self) -> Option<Endian> {
-        self.byte_order().and_then(|x| x.try_into().ok())
+        self.byte_order().try_into().ok()
     }
-}
-
-/// Standardized operations on layouts
-#[delegatable_trait]
-pub trait EndianLayoutOps: Sized {
-    fn endianness(&self) -> Option<Endian>;
 }
 
 /// A version-specific data layout
@@ -2178,7 +2169,7 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
 }
 
 impl<T, D, const ORD: bool> DelimAsciiLayout<T, D, ORD> {
-    fn new(ranges: NonEmpty<u64>) -> Self {
+    pub fn new(ranges: NonEmpty<u64>) -> Self {
         Self {
             ranges,
             _tot_def: PhantomData,
@@ -2488,19 +2479,13 @@ where
     S: Copy,
     ByteOrd2_0: From<S>,
 {
-    fn byte_order(&self) -> Option<ByteOrd2_0> {
-        Some(self.byte_layout.into())
-    }
-}
-
-impl<C, T, D> EndianLayoutOps for FixedLayout<C, Endian, T, D> {
-    fn endianness(&self) -> Option<Endian> {
-        Some(self.byte_layout)
+    fn byte_order(&self) -> ByteOrd2_0 {
+        self.byte_layout.into()
     }
 }
 
 impl<C, S, T, D> FixedLayout<C, S, T, D> {
-    fn new(columns: NonEmpty<C>, byte_layout: S) -> Self {
+    pub fn new(columns: NonEmpty<C>, byte_layout: S) -> Self {
         Self {
             columns,
             byte_layout,
@@ -3088,18 +3073,6 @@ impl<T> AnyOrderedUintLayout<T> {
     }
 }
 
-impl<T, D> OrderedLayoutOps for AnyAsciiLayout<T, D, true> {
-    fn byte_order(&self) -> Option<ByteOrd2_0> {
-        None
-    }
-}
-
-impl<T, D> EndianLayoutOps for AnyAsciiLayout<T, D, false> {
-    fn endianness(&self) -> Option<Endian> {
-        None
-    }
-}
-
 impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
     fn phantom_into<T1, D1, const ORD_1: bool>(self) -> AnyAsciiLayout<T1, D1, ORD_1> {
         match self {
@@ -3148,6 +3121,35 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
 
     fn new_delim(ranges: NonEmpty<u64>) -> Self {
         Self::Delimited(DelimAsciiLayout::new(ranges))
+    }
+}
+
+impl<T, D, const ORD: bool> FixedAsciiLayout<T, D, ORD> {
+    pub fn new_ascii_u64(ranges: NonEmpty<u64>) -> Self {
+        let rs = ranges.map(AsciiRange::from);
+        Self::new_ascii(rs)
+    }
+
+    pub fn new_ascii(ranges: NonEmpty<AsciiRange>) -> Self {
+        Self::new(ranges, NoByteOrd)
+    }
+}
+
+impl<T, const LEN: usize, Tot> OrderedLayout<Bitmask<T, LEN>, Tot>
+where
+    Bitmask<T, LEN>: HasNativeWidth<Order = SizedByteOrd<LEN>>,
+{
+    pub fn new_endian_uint(ranges: NonEmpty<Bitmask<T, LEN>>, endian: Endian) -> Self {
+        Self::new(ranges, SizedByteOrd::Endian(endian))
+    }
+}
+
+impl<T, const LEN: usize, Tot> OrderedLayout<FloatRange<T, LEN>, Tot>
+where
+    FloatRange<T, LEN>: HasNativeWidth<Order = SizedByteOrd<LEN>>,
+{
+    pub fn new_endian_float(ranges: NonEmpty<FloatRange<T, LEN>>, endian: Endian) -> Self {
+        Self::new(ranges, SizedByteOrd::Endian(endian))
     }
 }
 

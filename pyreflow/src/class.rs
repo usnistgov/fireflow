@@ -244,7 +244,65 @@ fn py_fcs_read_raw_text(
 
 #[allow(clippy::too_many_arguments)]
 #[pyfunction]
-#[pyo3(name = "fcs_read_std_text")]
+#[pyo3(
+    name = "fcs_read_std_text",
+    signature = (
+        p,
+
+        version_override=None,
+        prim_text_correction=(0,0),
+        data_correction=(0,0),
+        analysis_correction=(0,0),
+        other_corrections=vec![],
+        other_width=None,
+        max_other=None,
+        allow_negative=false,
+        squish_offsets=false,
+        truncate_offsets=false,
+
+        supp_text_correction=(0,0),
+        use_literal_delims=false,
+        allow_non_ascii_delim=false,
+        ignore_supp_text=false,
+        ignore_text_data_offsets=false,
+        ignore_text_analysis_offsets=false,
+        allow_duplicated_stext=false,
+        allow_missing_final_delim=false,
+        allow_nonunique=false,
+        allow_odd=false,
+        allow_delim_at_boundary=false,
+        allow_empty=false,
+        allow_non_utf8=false,
+        allow_non_ascii_keywords=false,
+        allow_missing_stext=false,
+        allow_stext_own_delim=false,
+        allow_missing_nextdata=false,
+        trim_value_whitespace=false,
+        date_pattern=None,
+        promote_to_standard=PyKeyPatterns::default(),
+        demote_from_standard=PyKeyPatterns::default(),
+        ignore_standard_keys=PyKeyPatterns::default(),
+        rename_standard_keys=vec![],
+        replace_standard_key_values=vec![],
+        append_standard_keywords=vec![],
+        warnings_are_errors=false,
+
+        disallow_deprecated=false,
+        time_ensure=false,
+        allow_pseudostandard=false,
+        fix_log_scale_offsets=false,
+        shortname_prefix=None,
+        allow_header_text_offset_mismatch=false,
+        allow_missing_required_offsets=false,
+        text_data_correction=(0,0),
+        text_analysis_correction=(0,0),
+        disallow_range_truncation=false,
+        nonstandard_measurement_pattern=None,
+        time_pattern=None,
+        integer_widths_from_byteord=false,
+        integer_byteord_override=vec![],
+    )
+)]
 fn py_fcs_read_std_text(
     py: Python<'_>,
 
@@ -389,7 +447,68 @@ fn py_fcs_read_std_text(
 
 #[allow(clippy::too_many_arguments)]
 #[pyfunction]
-#[pyo3(name = "fcs_read_std_dataset")]
+#[pyo3(
+    name = "fcs_read_std_dataset",
+    signature = (
+        p,
+
+        version_override=None,
+        prim_text_correction=(0,0),
+        data_correction=(0,0),
+        analysis_correction=(0,0),
+        other_corrections=vec![],
+        other_width=None,
+        max_other=None,
+        allow_negative=false,
+        squish_offsets=false,
+        truncate_offsets=false,
+
+        supp_text_correction=(0,0),
+        use_literal_delims=false,
+        allow_non_ascii_delim=false,
+        ignore_supp_text=false,
+        ignore_text_data_offsets=false,
+        ignore_text_analysis_offsets=false,
+        allow_duplicated_stext=false,
+        allow_missing_final_delim=false,
+        allow_nonunique=false,
+        allow_odd=false,
+        allow_delim_at_boundary=false,
+        allow_empty=false,
+        allow_non_utf8=false,
+        allow_non_ascii_keywords=false,
+        allow_missing_stext=false,
+        allow_stext_own_delim=false,
+        allow_missing_nextdata=false,
+        trim_value_whitespace=false,
+        date_pattern=None,
+        promote_to_standard=PyKeyPatterns::default(),
+        demote_from_standard=PyKeyPatterns::default(),
+        ignore_standard_keys=PyKeyPatterns::default(),
+        rename_standard_keys=vec![],
+        replace_standard_key_values=vec![],
+        append_standard_keywords=vec![],
+        warnings_are_errors=false,
+
+        disallow_deprecated=false,
+        time_ensure=false,
+        allow_pseudostandard=false,
+        fix_log_scale_offsets=false,
+        shortname_prefix=None,
+        allow_header_text_offset_mismatch=false,
+        allow_missing_required_offsets=false,
+        text_data_correction=(0,0),
+        text_analysis_correction=(0,0),
+        disallow_range_truncation=false,
+        nonstandard_measurement_pattern=None,
+        time_pattern=None,
+        integer_widths_from_byteord=false,
+        integer_byteord_override=vec![],
+
+        allow_uneven_event_width=false,
+        allow_tot_mismatch=false,
+    )
+)]
 fn py_fcs_read_std_dataset(
     py: Python<'_>,
 
@@ -2989,6 +3108,7 @@ struct PyRawMaybeInput<T, O>(RawInput<MaybeFamily, T, O>);
 
 struct PyRawAlwaysInput<T, O>(RawInput<AlwaysFamily, T, O>);
 
+#[derive(Default)]
 struct PyKeyPatterns(KeyPatterns);
 
 #[derive(Into, From)]

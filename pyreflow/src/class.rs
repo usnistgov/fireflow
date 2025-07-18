@@ -34,7 +34,7 @@ use pyo3::class::basic::CompareOp;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyWarning};
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyDict, PyFloat, PyType};
+use pyo3::types::{IntoPyDict, PyDict, PyFloat, PyTuple, PyType};
 use pyo3::IntoPyObjectExt;
 use pyo3_polars::{PyDataFrame, PySeries};
 use std::cmp::Ordering;
@@ -86,7 +86,6 @@ fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyAlphaNumType>()?;
     m.add_class::<PyNumType>()?;
     m.add_class::<PyOpticalType>()?;
-    m.add_class::<PyScale>()?;
     m.add_class::<PyDisplay>()?;
     m.add_class::<PyUnicode>()?;
 
@@ -1244,32 +1243,6 @@ impl PyOpticalType {
     #[classmethod]
     fn other(_: &Bound<'_, PyType>, s: String) -> Self {
         OpticalType::Other(s).into()
-    }
-}
-
-// $PnE (2.0)
-py_wrap!(PyScale, Scale, "Scale");
-py_eq!(PyScale);
-py_disp!(PyScale);
-py_parse!(PyScale);
-
-#[pymethods]
-impl PyScale {
-    #[classattr]
-    #[allow(non_snake_case)]
-    fn LINEAR() -> Self {
-        Scale::Linear.into()
-    }
-
-    #[classmethod]
-    fn log(_: &Bound<'_, PyType>, decades: f32, offset: f32) -> PyResult<Self> {
-        Scale::try_new_log(decades, offset)
-            .map_err(|e| PyreflowException::new_err(e.to_string()))
-            .map(|x| x.into())
-    }
-
-    fn is_linear(&self) -> bool {
-        self.0 == Scale::Linear
     }
 }
 
@@ -3677,13 +3650,15 @@ impl fmt::Display for SetMeasurementsFailure {
 }
 
 // TODO deref for stuff like this?
+#[derive(Into, From)]
+struct PyScale(Scale);
+
 struct PyShortname(Shortname);
 
 struct PyShortnamePrefix(ShortnamePrefix);
 
 struct PyNonStdKey(NonStdKey);
 
-#[derive(Into, From)]
 struct PyFCSColumns(Vec<AnyFCSColumn>);
 
 #[derive(Into, From)]
@@ -3695,6 +3670,18 @@ struct PyPositiveFloat(PositiveFloat);
 #[into(DetectorVoltage, Power, Vol)]
 #[from(DetectorVoltage, Power, Vol)]
 struct PyNonNegFloat(NonNegFloat);
+
+impl<'py> FromPyObject<'py> for PyScale {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        if ob.is_instance_of::<PyTuple>() && ob.len()? == 0 {
+            Ok(Self(Scale::Linear))
+        } else {
+            let (decades, offset): (f32, f32) = ob.extract()?;
+            let log = Scale::try_new_log(decades, offset).map_err(PyLogRangeError)?;
+            Ok(Self(log))
+        }
+    }
+}
 
 impl<'py> FromPyObject<'py> for PyShortname {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
@@ -3748,6 +3735,19 @@ impl<'py> FromPyObject<'py> for PyFCSColumns {
                 // TODO make better error
                 .map_err(PyreflowException::new_err)?;
         Ok(Self(ret))
+    }
+}
+
+impl<'py> IntoPyObject<'py> for PyScale {
+    type Target = PyAny;
+    type Output = Bound<'py, Self::Target>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        match self.0 {
+            Scale::Linear => Ok(PyTuple::empty(py).into_any()),
+            Scale::Log(l) => (f32::from(l.decades), f32::from(l.offset)).into_bound_py_any(py),
+        }
     }
 }
 
@@ -3861,6 +3861,15 @@ struct PyReversedDatetimes(ReversedDatetimes);
 
 impl From<PyReversedDatetimes> for PyErr {
     fn from(value: PyReversedDatetimes) -> Self {
+        PyreflowException::new_err(value.to_string())
+    }
+}
+
+#[derive(Display, From)]
+struct PyLogRangeError(LogRangeError);
+
+impl From<PyLogRangeError> for PyErr {
+    fn from(value: PyLogRangeError) -> Self {
         PyreflowException::new_err(value.to_string())
     }
 }

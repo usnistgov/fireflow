@@ -27,8 +27,8 @@ pub enum Scale {
 
 #[derive(Clone, Copy, PartialEq, Serialize)]
 pub struct LogScale {
-    decades: PositiveFloat,
-    offset: PositiveFloat,
+    pub decades: PositiveFloat,
+    pub offset: PositiveFloat,
 }
 
 impl fmt::Display for LogScale {

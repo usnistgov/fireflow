@@ -1963,7 +1963,7 @@ macro_rules! set_measurements2_0 {
                     }
                     self.0
                         .set_measurements(ys, prefix.0)
-                        .py_mult_terminate_nowarn(SetMeasurementsFailure)
+                        .py_mult_terminate(SetMeasurementsFailure)
                         .void()
                 }
             }
@@ -1999,7 +1999,7 @@ macro_rules! set_measurements3_1 {
                     }
                     self.0
                         .set_measurements_noprefix(ys)
-                        .py_mult_terminate_nowarn(SetMeasurementsFailure)
+                        .py_mult_terminate(SetMeasurementsFailure)
                         .void()
                 }
             }
@@ -2036,7 +2036,7 @@ macro_rules! coredata2_0_meas_methods {
                         ys.push(y);
                     };
                     self.0.set_measurements_and_data(ys, cols.0, prefix.0)
-                        .py_mult_terminate_nowarn(SetMeasurementsFailure)
+                        .py_mult_terminate(SetMeasurementsFailure)
                         .void()
                 }
             }
@@ -2070,7 +2070,7 @@ macro_rules! coredata3_1_meas_methods {
                         ys.push(y);
                     };
                     self.0.set_measurements_and_data_noprefix(ys, cols.0)
-                        .py_mult_terminate_nowarn(SetMeasurementsFailure)
+                        .py_mult_terminate(SetMeasurementsFailure)
                         .void()
                 }
             }
@@ -2136,7 +2136,7 @@ macro_rules! scales_methods {
                     let ys = xs.into_iter().map(|x| x.map(|y| y.into())).collect();
                     self.0
                         .set_scales(ys)
-                        .py_mult_terminate_nowarn(SetMeasurementsFailure)
+                        .py_mult_terminate(SetMeasurementsFailure)
                         .void()
                 }
             }
@@ -2170,7 +2170,7 @@ macro_rules! transforms_methods {
                     let ys = xs.into_iter().map(|x| x.into()).collect();
                     self.0
                         .set_transforms(ys)
-                        .py_mult_terminate_nowarn(SetMeasurementsFailure)
+                        .py_mult_terminate(SetMeasurementsFailure)
                         .void()
                 }
             }
@@ -3646,20 +3646,14 @@ trait PyMultResultExt {
     type V;
     type E;
 
-    fn py_mult_terminate<W: fmt::Display, T: fmt::Display>(self, reason: T) -> PyResult<Self::V>;
-
-    fn py_mult_terminate_nowarn<T: fmt::Display>(self, reason: T) -> PyResult<Self::V>;
+    fn py_mult_terminate<T: fmt::Display>(self, reason: T) -> PyResult<Self::V>;
 }
 
 impl<V, E: fmt::Display> PyMultResultExt for MultiResult<V, E> {
     type V = V;
     type E = E;
 
-    fn py_mult_terminate<W: fmt::Display, T: fmt::Display>(self, reason: T) -> PyResult<Self::V> {
-        self.mult_to_deferred::<E, W>().py_def_terminate(reason)
-    }
-
-    fn py_mult_terminate_nowarn<T: fmt::Display>(self, reason: T) -> PyResult<Self::V> {
+    fn py_mult_terminate<T: fmt::Display>(self, reason: T) -> PyResult<Self::V> {
         self.mult_to_deferred::<E, ()>()
             .py_def_terminate_nowarn(reason)
     }

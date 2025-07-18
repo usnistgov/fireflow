@@ -123,17 +123,14 @@ macro_rules! new_ascii_methods {
         #[pymethods]
         impl $t {
             #[classmethod]
-            fn new_ascii_delim(_: &Bound<'_, PyType>, ranges: PyNonEmpty<u64>) -> PyResult<Self> {
-                Ok($wrap($subwrap::new_ascii_delim(ranges.0)).into())
+            fn new_ascii_delim(_: &Bound<'_, PyType>, ranges: PyNonEmpty<u64>) -> Self {
+                $wrap($subwrap::new_ascii_delim(ranges.0)).into()
             }
 
             #[classmethod]
-            fn new_ascii_fixed_u64(
-                _: &Bound<'_, PyType>,
-                ranges: PyNonEmpty<u64>,
-            ) -> PyResult<Self> {
+            fn new_ascii_fixed_u64(_: &Bound<'_, PyType>, ranges: PyNonEmpty<u64>) -> Self {
                 let rs = ranges.0.map(AsciiRange::from);
-                Ok($wrap($subwrap::new_ascii_fixed(rs)).into())
+                $wrap($subwrap::new_ascii_fixed(rs)).into()
             }
 
             #[classmethod]
@@ -308,14 +305,10 @@ macro_rules! new_uint_3_1 {
             /// Make a new Uint layout with a given endian-ness.
             ///
             /// Width of each column (in bytes) will depend in the input range.
-            fn new_uint(
-                _: &Bound<'_, PyType>,
-                ranges: PyNonEmpty<u64>,
-                is_big: bool,
-            ) -> PyResult<Self> {
+            fn new_uint(_: &Bound<'_, PyType>, ranges: PyNonEmpty<u64>, is_big: bool) -> Self {
                 let e = Endian::is_big(is_big);
                 let rs = ranges.0.map(AnyNullBitmask::from_u64);
-                Ok($wrap(NonMixedEndianLayout::new_uint(rs, e)).into())
+                $wrap(NonMixedEndianLayout::new_uint(rs, e)).into()
             }
         }
     };

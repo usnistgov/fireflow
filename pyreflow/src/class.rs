@@ -47,9 +47,6 @@ fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("PyreflowException", py.get_type::<PyreflowException>())?;
     m.add("PyreflowWarning", py.get_type::<PyreflowWarning>())?;
 
-    m.add_class::<PySegment>()?;
-    m.add_class::<PyHeader>()?;
-
     m.add_class::<PyCoreTEXT2_0>()?;
     m.add_class::<PyCoreTEXT3_0>()?;
     m.add_class::<PyCoreTEXT3_1>()?;
@@ -936,104 +933,6 @@ fn data_config(
     }
 }
 
-py_wrap!(PySegment, Segment<u64>, "Segment");
-
-#[pymethods]
-impl PySegment {
-    fn coords(&self) -> (u64, u64) {
-        self.0.try_coords().unwrap_or((0, 0))
-    }
-
-    fn nbytes(&self) -> u64 {
-        self.0.len()
-    }
-
-    fn __repr__(&self) -> String {
-        format!("({})", self.0.fmt_pair())
-    }
-}
-
-py_wrap!(PyHeader, Header, "Header");
-
-#[pymethods]
-impl PyHeader {
-    #[getter]
-    fn version(&self) -> PyVersion {
-        self.0.version.into()
-    }
-
-    #[getter]
-    fn text(&self) -> PySegment {
-        self.0.segments.text.inner.as_u64().into()
-    }
-
-    #[getter]
-    fn data(&self) -> PySegment {
-        self.0.segments.data.inner.as_u64().into()
-    }
-
-    #[getter]
-    fn analysis(&self) -> PySegment {
-        self.0.segments.analysis.inner.as_u64().into()
-    }
-
-    #[getter]
-    fn other(&self) -> Vec<PySegment> {
-        self.0
-            .segments
-            .other
-            .iter()
-            .copied()
-            .map(|x| x.inner.as_u64().into())
-            .collect()
-    }
-}
-
-py_wrap!(PyParseData, RawTEXTParseData, "ParseData");
-
-#[pymethods]
-impl PyParseData {
-    #[getter]
-    fn prim_text(&self) -> PySegment {
-        self.0.header_segments.text.inner.as_u64().into()
-    }
-
-    #[getter]
-    fn supp_text(&self) -> Option<PySegment> {
-        self.0.supp_text.map(|x| x.inner.as_u64().into())
-    }
-
-    #[getter]
-    fn data(&self) -> PySegment {
-        self.0.header_segments.data.inner.as_u64().into()
-    }
-
-    #[getter]
-    fn analysis(&self) -> PySegment {
-        self.0.header_segments.analysis.inner.as_u64().into()
-    }
-
-    #[getter]
-    fn nextdata(&self) -> Option<u32> {
-        self.0.nextdata
-    }
-
-    #[getter]
-    fn delimiter(&self) -> u8 {
-        self.0.delimiter
-    }
-
-    #[getter]
-    fn non_ascii_keywords(&self) -> Vec<(String, String)> {
-        self.0.non_ascii.clone()
-    }
-
-    #[getter]
-    fn byte_pairs(&self) -> Vec<(Vec<u8>, Vec<u8>)> {
-        self.0.byte_pairs.clone()
-    }
-}
-
 // core* objects
 py_wrap!(PyCoreTEXT2_0, CoreTEXT2_0, "CoreTEXT2_0");
 py_wrap!(PyCoreTEXT3_0, CoreTEXT3_0, "CoreTEXT3_0");
@@ -1054,28 +953,6 @@ py_wrap!(PyTemporal2_0, Temporal2_0, "Temporal2_0");
 py_wrap!(PyTemporal3_0, Temporal3_0, "Temporal3_0");
 py_wrap!(PyTemporal3_1, Temporal3_1, "Temporal3_1");
 py_wrap!(PyTemporal3_2, Temporal3_2, "Temporal3_2");
-
-// py_wrap!(PyDisplay, Display, "Display");
-// py_eq!(PyDisplay);
-// py_disp!(PyDisplay);
-// py_parse!(PyDisplay);
-
-// #[pymethods]
-// impl PyDisplay {
-//     #[classmethod]
-//     fn lin(_: &Bound<'_, PyType>, lower: f32, upper: f32) -> Self {
-//         Display::Lin { lower, upper }.into()
-//     }
-
-//     #[classmethod]
-//     fn log(_: &Bound<'_, PyType>, decades: f32, offset: f32) -> Self {
-//         Display::Log { offset, decades }.into()
-//     }
-
-//     fn is_linear(&self) -> bool {
-//         matches!(self.0, Display::Lin { lower: _, upper: _ })
-//     }
-// }
 
 // $UNICODE (3.0)
 py_wrap!(PyUnicode, Unicode, "Unicode");
@@ -1308,11 +1185,6 @@ impl PyCoreTEXT3_2 {
         Ok(())
     }
 
-    // #[getter]
-    // fn get_datatypes(&self) -> Vec<PyAlphaNumType> {
-    //     self.0.datatypes().into_iter().map(|x| x.into()).collect()
-    // }
-
     #[getter]
     fn get_cyt(&self) -> String {
         self.0.metaroot.specific.cyt.0.clone()
@@ -1363,12 +1235,6 @@ impl PyCoreTEXT3_2 {
     fn clear_unstained_centers(&mut self) {
         self.0.clear_unstained_centers()
     }
-
-    // fn set_data_mixed(&mut self, cs: Vec<PyMixedColumnSetter>) -> PyResult<()> {
-    //     self.0
-    //         .set_data_mixed(cs.into_iter().map(|x| x.into()).collect())
-    //         .map_err(|e| PyreflowException::new_err(e.to_string()))
-    // }
 }
 
 // Get/set methods for all versions
@@ -1540,15 +1406,6 @@ macro_rules! common_methods {
             fn clear_trigger(&mut self) -> bool {
                 self.0.clear_trigger()
             }
-
-            // #[getter]
-            // fn get_ranges<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyAny>>> {
-            //     let mut rs = vec![];
-            //     for r in self.0.ranges() {
-            //         rs.push(float_or_int_to_any(r.0, py)?);
-            //     }
-            //     Ok(rs)
-            // }
 
             #[getter]
             fn get_longnames(&self) -> Vec<Option<String>> {
@@ -2629,48 +2486,6 @@ get_set_metaroot_opt!(
     PyCoreDataset3_2
 );
 
-// Get/set methods for $PnG (3.0-3.2)
-// macro_rules! gain_methods {
-//     ($($pytype:ident),*) => {
-//         $(
-//             #[pymethods]
-//             impl $pytype {
-//                 #[getter]
-//                 fn get_gains(&self) -> Vec<(usize, Option<f32>)> {
-//                     self.0
-//                         .gains()
-//                         .into_iter()
-//                         .map(|(i, x)| (
-//                             i.into(),
-//                             x.as_ref().copied().map(|y| y.0.into())
-//                         ))
-//                         .collect()
-//                 }
-
-//                 #[setter]
-//                 fn set_gains(&mut self, xs: Vec<Option<f32>>) -> PyResult<()> {
-//                     let mut ys = vec![];
-//                     for x in xs {
-//                         ys.push(x.map(f32_to_positive_float).transpose()?.map(Gain));
-//                     }
-//                     self.0
-//                         .set_gains(ys)
-//                         .map_err(|e| PyreflowException::new_err(e.to_string()))
-//                 }
-//             }
-//         )*
-//     };
-// }
-
-// gain_methods!(
-//     PyCoreTEXT3_0,
-//     PyCoreTEXT3_1,
-//     PyCoreTEXT3_2,
-//     PyCoreDataset3_0,
-//     PyCoreDataset3_1,
-//     PyCoreDataset3_2
-// );
-
 // Get/set methods for (optional) $CYT (2.0-3.1)
 //
 // 3.2 is required which is why it is not included here
@@ -3454,6 +3269,79 @@ impl fmt::Display for SetMeasurementsFailure {
 }
 
 // TODO deref for stuff like this?
+#[derive(From)]
+struct PySegment(Segment<u64>);
+
+impl<'py> IntoPyObject<'py> for PySegment {
+    type Target = PyTuple;
+    type Output = Bound<'py, <(u64, u64) as IntoPyObject<'py>>::Target>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        self.0.try_coords().unwrap_or((0, 0)).into_pyobject(py)
+    }
+}
+
+// TODO deref for stuff like this?
+#[derive(IntoPyObject)]
+struct PyHeader {
+    version: PyVersion,
+    text: PySegment,
+    data: PySegment,
+    analysis: PySegment,
+    other: Vec<PySegment>,
+}
+
+impl From<Header> for PyHeader {
+    fn from(value: Header) -> Self {
+        let s = value.segments;
+        Self {
+            version: value.version.into(),
+            text: s.text.inner.as_u64().into(),
+            data: s.data.inner.as_u64().into(),
+            analysis: s.analysis.inner.as_u64().into(),
+            other: s
+                .other
+                .into_iter()
+                .map(|x| x.inner.as_u64().into())
+                .collect(),
+        }
+    }
+}
+
+#[derive(IntoPyObject)]
+struct PyParseData {
+    prim_text: PySegment,
+    supp_text: Option<PySegment>,
+    data: PySegment,
+    analysis: PySegment,
+    other: Vec<PySegment>,
+    nextdata: Option<u32>,
+    delimiter: u8,
+    non_ascii_keywords: Vec<(String, String)>,
+    byte_pairs: Vec<(Vec<u8>, Vec<u8>)>,
+}
+
+impl From<RawTEXTParseData> for PyParseData {
+    fn from(value: RawTEXTParseData) -> Self {
+        let h = value.header_segments;
+        Self {
+            prim_text: h.text.inner.as_u64().into(),
+            supp_text: value.supp_text.map(|s| s.inner.as_u64().into()),
+            data: h.data.inner.as_u64().into(),
+            analysis: h.analysis.inner.as_u64().into(),
+            other: h
+                .other
+                .into_iter()
+                .map(|x| x.inner.as_u64().into())
+                .collect(),
+            nextdata: value.nextdata,
+            delimiter: value.delimiter,
+            non_ascii_keywords: value.non_ascii,
+            byte_pairs: value.byte_pairs,
+        }
+    }
+}
 
 #[derive(Into, From)]
 struct PyScale(Scale);

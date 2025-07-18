@@ -1039,9 +1039,7 @@ macro_rules! convert_methods {
             $(
                 fn $fn(&self, lossless: bool) -> PyResult<$to> {
                     let new = self.0.clone().try_convert(lossless);
-                    new.def_map_value(|x| x.into())
-                        .def_terminate(ConvertFailure)
-                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                    new.py_def_terminate(ConvertFailure).map(|x| x.into())
                 }
             )*
         }
@@ -1442,7 +1440,7 @@ macro_rules! common_methods {
                     .set_all_shortnames(ns)
                     // TODO this is a setkeyserror, could be more generalized
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
-                    .map(|_| ())
+                    .void()
             }
         }
     };
@@ -1471,8 +1469,7 @@ macro_rules! temporal_get_set_2_0 {
                 ) -> PyResult<bool> {
                     self.0
                         .set_temporal(&name.0, (), force)
-                        .def_terminate(SetTemporalFailure)
-                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                        .py_def_terminate(SetTemporalFailure)
                 }
 
                 fn set_temporal_at(
@@ -1482,15 +1479,12 @@ macro_rules! temporal_get_set_2_0 {
                 ) -> PyResult<bool> {
                     self.0
                         .set_temporal_at(index.into(), (), force)
-                        .def_terminate(SetTemporalFailure)
-                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                        .py_def_terminate(SetTemporalFailure)
                 }
 
                 fn unset_temporal(&mut self, force: bool) -> PyResult<bool> {
                     let out = self.0.unset_temporal(force).map(|x| x.is_some());
-                    Ok(out)
-                        .def_terminate(SetTemporalFailure)
-                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                    Ok(out).py_def_terminate(SetTemporalFailure)
                 }
             }
         )*
@@ -1512,8 +1506,7 @@ macro_rules! temporal_get_set_3_0 {
                 ) -> PyResult<bool> {
                     self.0
                         .set_temporal(&name.0, timestep.into(), force)
-                        .def_terminate(SetTemporalFailure)
-                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                        .py_def_terminate(SetTemporalFailure)
                 }
 
                 fn set_temporal_at(
@@ -1524,15 +1517,12 @@ macro_rules! temporal_get_set_3_0 {
                 ) -> PyResult<bool> {
                     self.0
                         .set_temporal_at(index.into(), timestep.into(), force)
-                        .def_terminate(SetTemporalFailure)
-                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                        .py_def_terminate(SetTemporalFailure)
                 }
 
                 fn unset_temporal(&mut self, force: bool) -> PyResult<Option<f32>> {
                     let out = self.0.unset_temporal(force).map(|x| x.map(|y| y.0.into()));
-                    Ok(out)
-                        .def_terminate(SetTemporalFailure)
-                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                    Ok(out).py_def_terminate(SetTemporalFailure)
                 }
             }
         )*
@@ -1625,8 +1615,7 @@ macro_rules! common_meas_get_set {
                 ) -> PyResult<Bound<'py, PyAny>> {
                     let r = self.0
                         .replace_temporal_at(i.into(), m.into(), force)
-                        .def_terminate(SetTemporalFailure)
-                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
+                        .py_def_terminate(SetTemporalFailure)?;
                     r.both(
                         |l| $timetype::from(l).into_bound_py_any(py),
                         |r| $opttype::from(r).into_bound_py_any(py),
@@ -1642,8 +1631,7 @@ macro_rules! common_meas_get_set {
                 ) -> PyResult<Option<Bound<'py, PyAny>>> {
                     let r = self.0
                         .replace_temporal_named(&name.0, m.into(), force)
-                        .def_terminate(SetTemporalFailure)
-                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
+                        .py_def_terminate(SetTemporalFailure)?;
                     r.map(|x| x.both(
                         |l| $timetype::from(l).into_bound_py_any(py),
                         |r| $opttype::from(r).into_bound_py_any(py),
@@ -1700,8 +1688,7 @@ macro_rules! common_coretext_meas_get_set {
                 ) -> PyResult<()> {
                     self.0
                         .push_temporal(name.0, t.into(), Range(r), notrunc)
-                        .def_terminate(PushTemporalFailure)
-                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                        .py_def_terminate(PushTemporalFailure)
                 }
 
                 fn insert_time_channel(
@@ -1714,8 +1701,7 @@ macro_rules! common_coretext_meas_get_set {
                 ) -> PyResult<()> {
                     self.0
                         .insert_temporal(i.into(), name.0, t.into(), Range(r), notrunc)
-                        .def_terminate(InsertTemporalFailure)
-                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                        .py_def_terminate(InsertTemporalFailure)
                 }
 
                 fn unset_measurements(
@@ -1750,8 +1736,7 @@ macro_rules! coredata_meas_get_set {
                     let col = series_to_fcs(xs.into()).map_err(PyreflowException::new_err)?;
                     self.0
                         .push_temporal(name.0, t.into(), col, Range(r), notrunc)
-                        .def_terminate(PushTemporalFailure)
-                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                        .py_def_terminate(PushTemporalFailure)
                 }
 
                 fn insert_time_channel(
@@ -1766,8 +1751,7 @@ macro_rules! coredata_meas_get_set {
                     let col = series_to_fcs(xs.into()).map_err(PyreflowException::new_err)?;
                     self.0
                         .insert_temporal(i.into(), name.0, t.into(), col, Range(r), notrunc)
-                        .def_terminate(InsertTemporalFailure)
-                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                        .py_def_terminate(InsertTemporalFailure)
                 }
 
                 fn unset_data(
@@ -1865,9 +1849,8 @@ macro_rules! coretext2_0_meas_methods {
                 ) -> PyResult<String> {
                     self.0
                         .push_optical(name.map(|n| n.0).into(), m.into(), Range(r), notrunc)
-                        .def_map_value(|x| x.to_string())
-                        .def_terminate(InsertOpticalFailure)
-                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                        .py_def_terminate(InsertOpticalFailure)
+                        .map(|x| x.to_string())
                 }
 
                 #[pyo3(signature = (i, m, r, notrunc=false, name=None))]
@@ -1882,9 +1865,8 @@ macro_rules! coretext2_0_meas_methods {
                     let n = name.map(|n| n.0).into();
                     self.0
                         .insert_optical(i.into(), n, m.into(), Range(r), notrunc)
-                        .def_map_value(|x| x.to_string())
-                        .def_terminate(InsertOpticalFailure)
-                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                        .py_def_terminate(InsertOpticalFailure)
+                        .map(|x| x.to_string())
                 }
             }
         )*
@@ -1930,9 +1912,8 @@ macro_rules! coretext3_1_meas_methods {
                 ) -> PyResult<()> {
                     self.0
                         .push_optical(AlwaysValue(name.0), m.into(), Range(r), notrunc)
-                        .def_map_value(|_| ())
-                        .def_terminate(PushOpticalFailure)
-                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                        .py_def_terminate(PushOpticalFailure)
+                        .void()
                 }
 
                 fn insert_optical(
@@ -1945,9 +1926,8 @@ macro_rules! coretext3_1_meas_methods {
                 ) -> PyResult<()> {
                     self.0
                         .insert_optical(i.into(), AlwaysValue(name.0), m.into(), Range(r), notrunc)
-                        .def_map_value(|_| ())
-                        .def_terminate(InsertOpticalFailure)
-                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                        .py_def_terminate(InsertOpticalFailure)
+                        .void()
                 }
             }
         )*
@@ -1983,8 +1963,7 @@ macro_rules! set_measurements2_0 {
                     }
                     self.0
                         .set_measurements(ys, prefix.0)
-                        .mult_terminate(SetMeasurementsFailure)
-                        .map_err(handle_failure_nowarn)
+                        .py_mult_terminate_nowarn(SetMeasurementsFailure)
                         .void()
                 }
             }
@@ -2020,8 +1999,7 @@ macro_rules! set_measurements3_1 {
                     }
                     self.0
                         .set_measurements_noprefix(ys)
-                        .mult_terminate(SetMeasurementsFailure)
-                        .map_err(handle_failure_nowarn)
+                        .py_mult_terminate_nowarn(SetMeasurementsFailure)
                         .void()
                 }
             }
@@ -2058,8 +2036,7 @@ macro_rules! coredata2_0_meas_methods {
                         ys.push(y);
                     };
                     self.0.set_measurements_and_data(ys, cols.0, prefix.0)
-                        .mult_terminate(SetMeasurementsFailure)
-                        .map_err(handle_failure_nowarn)
+                        .py_mult_terminate_nowarn(SetMeasurementsFailure)
                         .void()
                 }
             }
@@ -2093,8 +2070,7 @@ macro_rules! coredata3_1_meas_methods {
                         ys.push(y);
                     };
                     self.0.set_measurements_and_data_noprefix(ys, cols.0)
-                        .mult_terminate(SetMeasurementsFailure)
-                        .map_err(handle_failure_nowarn)
+                        .py_mult_terminate_nowarn(SetMeasurementsFailure)
                         .void()
                 }
             }
@@ -2122,7 +2098,7 @@ macro_rules! shortnames_methods {
                     self.0
                         .set_measurement_shortnames_maybe(ns)
                         .map_err(|e| PyreflowException::new_err(e.to_string()))
-                        .map(|_| ())
+                        .void()
                 }
             }
         )*
@@ -2160,9 +2136,7 @@ macro_rules! scales_methods {
                     let ys = xs.into_iter().map(|x| x.map(|y| y.into())).collect();
                     self.0
                         .set_scales(ys)
-                        // TODO handle this better
-                        .mult_terminate(SetMeasurementsFailure)
-                        .map_err(handle_failure_nowarn)
+                        .py_mult_terminate_nowarn(SetMeasurementsFailure)
                         .void()
                 }
             }
@@ -2196,9 +2170,7 @@ macro_rules! transforms_methods {
                     let ys = xs.into_iter().map(|x| x.into()).collect();
                     self.0
                         .set_transforms(ys)
-                        // TODO handle this better
-                        .mult_terminate(SetMeasurementsFailure)
-                        .map_err(handle_failure_nowarn)
+                        .py_mult_terminate_nowarn(SetMeasurementsFailure)
                         .void()
                 }
             }
@@ -2697,66 +2669,6 @@ where
     };
     PyreflowException::new_err(s)
 }
-
-// fn handle_errors<E, X, Y>(res: error::ImpureResult<X, E>) -> PyResult<Y>
-// where
-//     E: fmt::Display,
-//     Y: From<X>,
-// {
-//     handle_pure(res.map_err(PyImpureError)?)
-// }
-
-// fn handle_pure<E, X, Y>(succ: error::PureSuccess<X, E>) -> PyResult<Y>
-// where
-//     E: fmt::Display,
-//     Y: From<X>,
-// {
-//     let (err, warn) = succ.deferred.split();
-//     Python::with_gil(|py| -> PyResult<()> {
-//         let wt = py.get_type::<PyreflowWarning>();
-//         for w in warn {
-//             let s = CString::new(w.to_string())?;
-//             PyErr::warn(py, &wt, &s, 0)?;
-//         }
-//         Ok(())
-//     })?;
-//     if err.is_empty() {
-//         Ok(succ.data.into())
-//     } else {
-//         let es: Vec<_> = err.iter().map(|e| e.to_string()).collect();
-//         let deferred = &es[..].join("\n");
-//         let msg = format!("Errors encountered:\n{deferred}");
-//         Err(PyreflowException::new_err(msg))
-//     }
-// }
-
-// impl<E> From<error::ImpureFailure<E>> for PyImpureError<E> {
-//     fn from(value: error::ImpureFailure<E>) -> Self {
-//         Self(value)
-//     }
-// }
-
-// impl<E> From<PyImpureError<E>> for PyErr
-// where
-//     E: fmt::Display,
-// {
-//     fn from(err: PyImpureError<E>) -> Self {
-//         let inner = err.0;
-//         let reason = match inner.reason {
-//             error::ImpureError::IO(e) => format!("IO ERROR: {e}"),
-//             error::ImpureError::Pure(e) => format!("CRITICAL PYREFLOW ERROR: {e}"),
-//         };
-//         let es: Vec<_> = inner
-//             .deferred
-//             .into_errors()
-//             .iter()
-//             .map(|e| e.to_string())
-//             .collect();
-//         let deferred = &es[..].join("\n");
-//         let msg = format!("{reason}\n\nOther errors encountered:\n{deferred}");
-//         PyreflowException::new_err(msg)
-//     }
-// }
 
 create_exception!(
     pyreflow,
@@ -3727,5 +3639,65 @@ struct PyLogRangeError(LogRangeError);
 impl From<PyLogRangeError> for PyErr {
     fn from(value: PyLogRangeError) -> Self {
         PyreflowException::new_err(value.to_string())
+    }
+}
+
+trait PyMultResultExt {
+    type V;
+    type E;
+
+    fn py_mult_terminate<W: fmt::Display, T: fmt::Display>(self, reason: T) -> PyResult<Self::V>;
+
+    fn py_mult_terminate_nowarn<T: fmt::Display>(self, reason: T) -> PyResult<Self::V>;
+}
+
+impl<V, E: fmt::Display> PyMultResultExt for MultiResult<V, E> {
+    type V = V;
+    type E = E;
+
+    fn py_mult_terminate<W: fmt::Display, T: fmt::Display>(self, reason: T) -> PyResult<Self::V> {
+        self.mult_to_deferred::<E, W>().py_def_terminate(reason)
+    }
+
+    fn py_mult_terminate_nowarn<T: fmt::Display>(self, reason: T) -> PyResult<Self::V> {
+        self.mult_to_deferred::<E, ()>()
+            .py_def_terminate_nowarn(reason)
+    }
+}
+
+trait PyDefResultExt {
+    type V;
+    type W;
+    type E;
+
+    fn py_def_terminate<T: fmt::Display>(self, reason: T) -> PyResult<Self::V>;
+}
+
+impl<V, W: fmt::Display, E: fmt::Display> PyDefResultExt for DeferredResult<V, W, E> {
+    type V = V;
+    type W = W;
+    type E = E;
+
+    fn py_def_terminate<T: fmt::Display>(self, reason: T) -> PyResult<Self::V> {
+        self.def_terminate(reason)
+            .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+    }
+}
+
+trait PyDefNoWarnResultExt {
+    type V;
+    type E;
+
+    fn py_def_terminate_nowarn<T: fmt::Display>(self, reason: T) -> PyResult<Self::V>;
+}
+
+impl<V, E: fmt::Display> PyDefNoWarnResultExt for DeferredResult<V, (), E> {
+    type V = V;
+    type E = E;
+
+    fn py_def_terminate_nowarn<T: fmt::Display>(self, reason: T) -> PyResult<Self::V> {
+        self.def_terminate(reason)
+            .map_err(handle_failure_nowarn)
+            .map(|x| x.inner())
     }
 }

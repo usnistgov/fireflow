@@ -21,7 +21,7 @@ use fireflow_core::validated::shortname::*;
 use super::layout::{
     PyAlphaNumType, PyDataLayout2_0, PyDataLayout3_0, PyDataLayout3_1, PyDataLayout3_2,
 };
-use super::macros::{py_disp, py_enum, py_eq, py_ord, py_parse, py_wrap};
+use super::macros::{py_disp, py_eq, py_parse, py_wrap};
 
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
@@ -30,14 +30,12 @@ use nonempty::NonEmpty;
 use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
 use polars::prelude::*;
 use polars_arrow::array::PrimitiveArray;
-use pyo3::class::basic::CompareOp;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyValueError, PyWarning};
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyDict, PyFloat, PyTuple, PyType};
+use pyo3::types::{IntoPyDict, PyDict, PyFloat, PyString, PyTuple, PyType};
 use pyo3::IntoPyObjectExt;
 use pyo3_polars::{PyDataFrame, PySeries};
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::ffi::CString;
@@ -49,7 +47,6 @@ fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("PyreflowException", py.get_type::<PyreflowException>())?;
     m.add("PyreflowWarning", py.get_type::<PyreflowWarning>())?;
 
-    m.add_class::<PyVersion>()?;
     m.add_class::<PySegment>()?;
     m.add_class::<PyHeader>()?;
 
@@ -78,12 +75,7 @@ fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDataLayout3_1>()?;
     m.add_class::<PyDataLayout3_2>()?;
 
-    m.add_class::<PyFeature>()?;
-    m.add_class::<PyMode>()?;
-    m.add_class::<PyOriginality>()?;
     m.add_class::<PyAlphaNumType>()?;
-    m.add_class::<PyNumType>()?;
-    m.add_class::<PyOpticalType>()?;
     m.add_class::<PyUnicode>()?;
 
     m.add_function(wrap_pyfunction!(py_fcs_read_header, m)?)?;
@@ -944,18 +936,6 @@ fn data_config(
     }
 }
 
-py_wrap!(PyVersion, Version, "Version");
-py_ord!(PyVersion);
-py_disp!(PyVersion);
-py_enum!(
-    PyVersion,
-    Version,
-    [FCS2_0, FCS2_0],
-    [FCS3_0, FCS3_0],
-    [FCS3_1, FCS3_1],
-    [FCS3_2, FCS3_2]
-);
-
 py_wrap!(PySegment, Segment<u64>, "Segment");
 
 #[pymethods]
@@ -1074,85 +1054,6 @@ py_wrap!(PyTemporal2_0, Temporal2_0, "Temporal2_0");
 py_wrap!(PyTemporal3_0, Temporal3_0, "Temporal3_0");
 py_wrap!(PyTemporal3_1, Temporal3_1, "Temporal3_1");
 py_wrap!(PyTemporal3_2, Temporal3_2, "Temporal3_2");
-
-// $PnFEATURE (3.2)
-py_wrap!(PyFeature, Feature, "Feature");
-py_eq!(PyFeature);
-py_disp!(PyFeature);
-py_parse!(PyFeature);
-py_enum!(
-    PyFeature,
-    Feature,
-    [Area, AREA],
-    [Width, WIDTH],
-    [Height, HEIGHT]
-);
-
-// $MODE (2.0-3.0)
-py_wrap!(PyMode, Mode, "Mode");
-py_eq!(PyMode);
-py_disp!(PyMode);
-py_parse!(PyMode);
-py_enum!(
-    PyMode,
-    Mode,
-    [List, LIST],
-    [Uncorrelated, UNCORRELATED],
-    [Correlated, CORRELATED]
-);
-
-// $ORIGINALITY (3.1-3.2)
-py_wrap!(PyOriginality, Originality, "Originality");
-py_eq!(PyOriginality);
-py_disp!(PyOriginality);
-py_parse!(PyOriginality);
-py_enum!(
-    PyOriginality,
-    Originality,
-    [Original, ORIGINAL],
-    [NonDataModified, NON_DATA_MODIFIED],
-    [Appended, APPENDED],
-    [DataModified, DATA_MODIFIED]
-);
-
-// $PnDATATYPE (3.2)
-py_wrap!(PyNumType, NumType, "NumType");
-py_eq!(PyNumType);
-py_disp!(PyNumType);
-py_parse!(PyNumType);
-py_enum!(
-    PyNumType,
-    NumType,
-    [Integer, INTEGER],
-    [Single, SINGLE],
-    [Double, DOUBLE]
-);
-
-// $PnTYPE (3.2)
-py_wrap!(PyOpticalType, OpticalType, "OpticalType");
-py_eq!(PyOpticalType);
-py_disp!(PyOpticalType);
-py_parse!(PyOpticalType);
-py_enum!(
-    PyOpticalType,
-    OpticalType,
-    [ForwardScatter, FORWARD_SCATTER],
-    [SideScatter, SIDE_SCATTER],
-    [RawFluorescence, RAW_FLUORESCENCE],
-    [UnmixedFluorescence, UNMIXED_FLUORESCENCE],
-    [Mass, MASS],
-    [ElectronicVolume, ELECTRONIC_VOLUME],
-    [Classification, CLASSIFICATION],
-    [Index, INDEX]
-);
-
-#[pymethods]
-impl PyOpticalType {
-    #[classmethod]
-    fn other(_: &Bound<'_, PyType>, s: String) -> Self {
-        OpticalType::Other(s).into()
-    }
-}
 
 // py_wrap!(PyDisplay, Display, "Display");
 // py_eq!(PyDisplay);
@@ -3553,6 +3454,7 @@ impl fmt::Display for SetMeasurementsFailure {
 }
 
 // TODO deref for stuff like this?
+
 #[derive(Into, From)]
 struct PyScale(Scale);
 
@@ -3585,6 +3487,39 @@ struct PyPositiveFloat(PositiveFloat);
 #[into(DetectorVoltage, Power, Vol)]
 #[from(DetectorVoltage, Power, Vol)]
 struct PyNonNegFloat(NonNegFloat);
+
+macro_rules! impl_pystring {
+    ($outer:ident, $inner:ident) => {
+        #[derive(Into, From)]
+        struct $outer($inner);
+
+        impl<'py> FromPyObject<'py> for $outer {
+            fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+                let s: String = ob.extract()?;
+                s.parse()
+                    .map(Self)
+                    .map_err(|e| PyValueError::new_err(e.to_string()))
+            }
+        }
+
+        impl<'py> IntoPyObject<'py> for $outer {
+            type Target = PyString;
+            type Output = Bound<'py, Self::Target>;
+            type Error = Infallible;
+
+            fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+                self.0.to_string().into_pyobject(py)
+            }
+        }
+    };
+}
+
+impl_pystring!(PyVersion, Version);
+impl_pystring!(PyOriginality, Originality);
+impl_pystring!(PyNumType, NumType);
+impl_pystring!(PyFeature, Feature);
+impl_pystring!(PyMode, Mode);
+impl_pystring!(PyOpticalType, OpticalType);
 
 impl<'py> FromPyObject<'py> for PyScale {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {

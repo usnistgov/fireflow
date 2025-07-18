@@ -1149,6 +1149,12 @@ impl PyCoreTEXT3_2 {
     fn clear_unstained_centers(&mut self) {
         self.0.clear_unstained_centers()
     }
+
+    fn set_layout(&mut self, layout: PyLayout3_2) -> PyResult<()> {
+        self.0
+            .set_layout(layout.into())
+            .py_mult_terminate(SetLayoutFailure)
+    }
 }
 
 // Get/set methods for all versions
@@ -2958,6 +2964,14 @@ struct SetTemporalFailure;
 impl fmt::Display for SetTemporalFailure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "could not convert to/from temporal measurement")
+    }
+}
+
+struct SetLayoutFailure;
+
+impl fmt::Display for SetLayoutFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "could not set data layout")
     }
 }
 

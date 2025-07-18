@@ -1,7 +1,7 @@
 use fireflow_core::data::{
-    self, AnyNullBitmask, AnyOrderedLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1,
-    DataLayout3_2, FixedLayout, FloatRange, KnownTot, LayoutOps, NoMeasDatatype,
-    NonMixedEndianLayout, NullMixedType, OrderedLayout, OrderedLayoutOps,
+    self, AnyNullBitmask, DataLayout3_2, EndianLayout, F32Range, F64Range, FixedLayout, FloatRange,
+    KnownTot, LayoutOps, NoMeasDatatype, NonMixedEndianLayout, NullMixedType, OrderedLayout,
+    OrderedLayoutOps,
 };
 use fireflow_core::text::byteord::{Endian, SizedByteOrd, VecToSizedError};
 use fireflow_core::text::float_decimal::{FloatDecimal, HasFloatBounds};
@@ -35,19 +35,80 @@ pub(crate) enum PyOrderedLayout {
     F64(PyOrderedF64Layout),
 }
 
-#[derive(FromPyObject, IntoPyObject)]
+#[derive(FromPyObject, IntoPyObject, From)]
 pub(crate) enum PyNonMixedLayout {
+    #[from(
+        PyAsciiFixedLayout,
+        data::FixedAsciiLayout<KnownTot, NoMeasDatatype, false>
+    )]
     AsciiFixed(PyAsciiFixedLayout),
+
+    #[from(
+        PyAsciiDelimLayout,
+        data::DelimAsciiLayout<KnownTot, NoMeasDatatype, false>
+    )]
     AsciiDelim(PyAsciiDelimLayout),
+
+    #[from(PyEndianUintLayout, EndianLayout<AnyNullBitmask, NoMeasDatatype>)]
     Uint(PyEndianUintLayout),
+
+    #[from(PyEndianF32Layout, EndianLayout<F32Range, NoMeasDatatype>)]
     F32(PyEndianF32Layout),
+
+    #[from(PyEndianF64Layout, EndianLayout<F64Range, NoMeasDatatype>)]
     F64(PyEndianF64Layout),
 }
 
-#[derive(FromPyObject, IntoPyObject)]
+#[derive(FromPyObject, IntoPyObject, From)]
 pub(crate) enum PyLayout3_2 {
     NonMixed(PyNonMixedLayout),
     Mixed(PyMixedLayout),
+}
+
+impl From<NonMixedEndianLayout<NoMeasDatatype>> for PyNonMixedLayout {
+    fn from(value: NonMixedEndianLayout<NoMeasDatatype>) -> Self {
+        match value {
+            NonMixedEndianLayout::Ascii(x) => match x {
+                data::AnyAsciiLayout::Fixed(y) => y.into(),
+                data::AnyAsciiLayout::Delimited(y) => y.into(),
+            },
+            NonMixedEndianLayout::Integer(x) => x.into(),
+            NonMixedEndianLayout::F32(x) => x.into(),
+            NonMixedEndianLayout::F64(x) => x.into(),
+        }
+    }
+}
+
+impl From<PyNonMixedLayout> for NonMixedEndianLayout<NoMeasDatatype> {
+    fn from(value: PyNonMixedLayout) -> Self {
+        match value {
+            PyNonMixedLayout::AsciiFixed(x) => data::AnyAsciiLayout::Fixed(x.into()).into(),
+            PyNonMixedLayout::AsciiDelim(x) => data::AnyAsciiLayout::Delimited(x.into()).into(),
+            PyNonMixedLayout::Uint(x) => Self::Integer(x.into()),
+            PyNonMixedLayout::F32(x) => Self::F32(x.into()),
+            PyNonMixedLayout::F64(x) => Self::F64(x.into()),
+        }
+    }
+}
+
+impl From<DataLayout3_2> for PyLayout3_2 {
+    fn from(value: DataLayout3_2) -> Self {
+        match value {
+            DataLayout3_2::Mixed(x) => Self::Mixed(x.into()),
+            DataLayout3_2::NonMixed(x) => Self::NonMixed(x.phantom_into().into()),
+        }
+    }
+}
+
+impl From<PyLayout3_2> for DataLayout3_2 {
+    fn from(value: PyLayout3_2) -> Self {
+        match value {
+            PyLayout3_2::Mixed(x) => Self::Mixed(x.into()),
+            PyLayout3_2::NonMixed(x) => {
+                Self::NonMixed(NonMixedEndianLayout::from(x).phantom_into())
+            }
+        }
+    }
 }
 
 #[derive(Clone, From, Into)]
@@ -92,23 +153,23 @@ pub(crate) struct PyOrderedUint64Layout(OrderedLayout<bitmask::Bitmask64, KnownT
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "OrderedF32Layout")]
-pub(crate) struct PyOrderedF32Layout(OrderedLayout<data::F32Range, KnownTot>);
+pub(crate) struct PyOrderedF32Layout(OrderedLayout<F32Range, KnownTot>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "OrderedF64Layout")]
-pub(crate) struct PyOrderedF64Layout(OrderedLayout<data::F64Range, KnownTot>);
+pub(crate) struct PyOrderedF64Layout(OrderedLayout<F64Range, KnownTot>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "EndianF32Layout")]
-pub(crate) struct PyEndianF32Layout(data::EndianLayout<data::F32Range, NoMeasDatatype>);
+pub(crate) struct PyEndianF32Layout(EndianLayout<F32Range, NoMeasDatatype>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "EndianF64Layout")]
-pub(crate) struct PyEndianF64Layout(data::EndianLayout<data::F64Range, NoMeasDatatype>);
+pub(crate) struct PyEndianF64Layout(EndianLayout<F64Range, NoMeasDatatype>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "EndianUintLayout")]
-pub(crate) struct PyEndianUintLayout(data::EndianLayout<data::AnyNullBitmask, NoMeasDatatype>);
+pub(crate) struct PyEndianUintLayout(EndianLayout<AnyNullBitmask, NoMeasDatatype>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "MixedLayout")]

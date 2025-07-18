@@ -2593,7 +2593,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             .map(|byte_layout| FixedLayout::new(self.columns, byte_layout))
     }
 
-    fn phantom_into<T1, D1>(self) -> FixedLayout<C, S, T1, D1> {
+    pub fn phantom_into<T1, D1>(self) -> FixedLayout<C, S, T1, D1> {
         FixedLayout::new(self.columns, self.byte_layout)
     }
 
@@ -3009,7 +3009,7 @@ source_from_iter!(f64, f32, FromF64);
 source_from_iter!(f64, f64, FromF64);
 
 impl<T> AnyOrderedUintLayout<T> {
-    fn phantom_into<X>(self) -> AnyOrderedUintLayout<X> {
+    pub fn phantom_into<X>(self) -> AnyOrderedUintLayout<X> {
         match_any_uint!(self, Self, l, { l.phantom_into().into() })
     }
 
@@ -3074,7 +3074,7 @@ impl<T> AnyOrderedUintLayout<T> {
 }
 
 impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
-    fn phantom_into<T1, D1, const ORD_1: bool>(self) -> AnyAsciiLayout<T1, D1, ORD_1> {
+    pub fn phantom_into<T1, D1, const ORD_1: bool>(self) -> AnyAsciiLayout<T1, D1, ORD_1> {
         match self {
             Self::Delimited(x) => DelimAsciiLayout::new(x.ranges).into(),
             Self::Fixed(x) => FixedLayout::new(x.columns, NoByteOrd).into(),
@@ -3643,7 +3643,7 @@ impl<D> NonMixedEndianLayout<D> {
         }
     }
 
-    pub(crate) fn phantom_into<D1>(self) -> NonMixedEndianLayout<D1> {
+    pub fn phantom_into<D1>(self) -> NonMixedEndianLayout<D1> {
         match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, {
             x.phantom_into().into()
         })

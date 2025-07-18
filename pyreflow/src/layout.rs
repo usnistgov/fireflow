@@ -2,7 +2,7 @@ use fireflow_core::data::{
     AnyNullBitmask, AnyOrderedLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
     EndianLayoutOps, FloatRange, LayoutOps, NonMixedEndianLayout, NullMixedType, OrderedLayoutOps,
 };
-use fireflow_core::text::byteord::{Endian, SizedByteOrd};
+use fireflow_core::text::byteord::{Endian, SizedByteOrd, VecToSizedError};
 use fireflow_core::text::float_decimal::{FloatDecimal, HasFloatBounds};
 use fireflow_core::text::keywords::AlphaNumType;
 use fireflow_core::validated::ascii_range::{AsciiRange, Chars};
@@ -174,10 +174,9 @@ macro_rules! new_uint_2_0 {
             fn $fn_ordered(
                 _: &Bound<'_, PyType>,
                 ranges: PyNonEmpty<PyBitmask<$uint, $size>>,
-                byteord: Vec<u8>,
-            ) -> PyResult<Self> {
-                let b = vec_to_byteord(byteord)?;
-                Ok($wrap(AnyOrderedLayout::new_uint(ranges.0.map(|r| r.0), b)).into())
+                byteord: PySizedByteOrd<$size>,
+            ) -> Self {
+                $wrap(AnyOrderedLayout::new_uint(ranges.0.map(|r| r.0), byteord.0)).into()
             }
 
             /// Make a new layout for $size-byte Uints with a given endian-ness.
@@ -186,9 +185,9 @@ macro_rules! new_uint_2_0 {
                 _: &Bound<'_, PyType>,
                 ranges: PyNonEmpty<PyBitmask<$uint, $size>>,
                 is_big: bool,
-            ) -> PyResult<Self> {
+            ) -> Self {
                 let b = SizedByteOrd::Endian(Endian::is_big(is_big));
-                Ok($wrap(AnyOrderedLayout::new_uint(ranges.0.map(|r| r.0), b)).into())
+                $wrap(AnyOrderedLayout::new_uint(ranges.0.map(|r| r.0), b)).into()
             }
         }
     };
@@ -220,10 +219,9 @@ macro_rules! new_float_2_0 {
             fn $fn_ordered(
                 _: &Bound<'_, PyType>,
                 ranges: PyNonEmpty<PyFloatRange<$num, $size>>,
-                byteord: Vec<u8>,
-            ) -> PyResult<Self> {
-                let b = vec_to_byteord(byteord)?;
-                Ok($wrap(AnyOrderedLayout::$subfn(ranges.0.map(|r| r.0), b)).into())
+                byteord: PySizedByteOrd<$size>,
+            ) -> Self {
+                $wrap(AnyOrderedLayout::$subfn(ranges.0.map(|r| r.0), byteord.0)).into()
             }
 
             #[classmethod]
@@ -232,9 +230,9 @@ macro_rules! new_float_2_0 {
                 _: &Bound<'_, PyType>,
                 ranges: PyNonEmpty<PyFloatRange<$num, $size>>,
                 is_big: bool,
-            ) -> PyResult<Self> {
+            ) -> Self {
                 let e = SizedByteOrd::Endian(Endian::is_big(is_big));
-                Ok($wrap(AnyOrderedLayout::$subfn(ranges.0.map(|r| r.0), e)).into())
+                $wrap(AnyOrderedLayout::$subfn(ranges.0.map(|r| r.0), e)).into()
             }
         }
     };
@@ -445,6 +443,19 @@ impl<'py> FromPyObject<'py> for PyMixedType {
     }
 }
 
+struct PySizedByteOrd<const LEN: usize>(SizedByteOrd<LEN>);
+
+impl<'py, const LEN: usize> FromPyObject<'py> for PySizedByteOrd<LEN>
+where
+    SizedByteOrd<LEN>: TryFrom<Vec<u8>, Error = VecToSizedError>,
+{
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let xs: Vec<u8> = ob.extract()?;
+        let ret = SizedByteOrd::<LEN>::try_from(xs).map_err(PyVecToSizedError)?;
+        Ok(Self(ret))
+    }
+}
+
 #[derive(Display, From)]
 struct PyParseBigDecimalError(ParseBigDecimalError);
 
@@ -454,10 +465,11 @@ impl From<PyParseBigDecimalError> for PyErr {
     }
 }
 
-fn vec_to_byteord<const LEN: usize>(xs: Vec<u8>) -> PyResult<SizedByteOrd<LEN>>
-where
-    SizedByteOrd<LEN>: TryFrom<Vec<u8>>,
-    <SizedByteOrd<LEN> as TryFrom<Vec<u8>>>::Error: std::fmt::Display,
-{
-    SizedByteOrd::<LEN>::try_from(xs).map_err(|e| PyreflowException::new_err(e.to_string()))
+#[derive(Display, From)]
+struct PyVecToSizedError(VecToSizedError);
+
+impl From<PyVecToSizedError> for PyErr {
+    fn from(value: PyVecToSizedError) -> Self {
+        PyreflowException::new_err(value.to_string())
+    }
 }

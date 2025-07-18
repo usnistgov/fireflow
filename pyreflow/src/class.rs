@@ -78,8 +78,6 @@ fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDataLayout3_1>()?;
     m.add_class::<PyDataLayout3_2>()?;
 
-    m.add_class::<PyCalibration3_1>()?;
-    m.add_class::<PyCalibration3_2>()?;
     m.add_class::<PyFeature>()?;
     m.add_class::<PyMode>()?;
     m.add_class::<PyOriginality>()?;
@@ -1076,95 +1074,6 @@ py_wrap!(PyTemporal2_0, Temporal2_0, "Temporal2_0");
 py_wrap!(PyTemporal3_0, Temporal3_0, "Temporal3_0");
 py_wrap!(PyTemporal3_1, Temporal3_1, "Temporal3_1");
 py_wrap!(PyTemporal3_2, Temporal3_2, "Temporal3_2");
-
-// PnCALIBRATION (3.1)
-py_wrap!(PyCalibration3_1, Calibration3_1, "Calibration3_1");
-py_eq!(PyCalibration3_1);
-py_disp!(PyCalibration3_1);
-py_parse!(PyCalibration3_1);
-
-#[pymethods]
-impl PyCalibration3_1 {
-    #[new]
-    fn new(slope: PyPositiveFloat, unit: String) -> Self {
-        Calibration3_1 {
-            slope: slope.0,
-            unit,
-        }
-        .into()
-    }
-
-    #[getter]
-    fn get_slope(&self) -> f32 {
-        self.0.slope.into()
-    }
-
-    #[getter]
-    fn get_unit(&self) -> String {
-        self.0.unit.clone()
-    }
-
-    #[setter]
-    fn set_slope(&mut self, slope: f32) -> Result<(), PyRangedFloatError> {
-        self.0.slope = slope.try_into()?;
-        Ok(())
-    }
-
-    #[setter]
-    fn set_unit(&mut self, unit: String) {
-        self.0.unit = unit;
-    }
-}
-
-// PnCALIBRATION (3.2)
-py_wrap!(PyCalibration3_2, Calibration3_2, "Calibration3_2");
-py_eq!(PyCalibration3_2);
-py_disp!(PyCalibration3_2);
-py_parse!(PyCalibration3_2);
-
-#[pymethods]
-impl PyCalibration3_2 {
-    #[new]
-    fn new(slope: PyPositiveFloat, offset: f32, unit: String) -> Self {
-        Calibration3_2 {
-            slope: slope.0,
-            offset,
-            unit,
-        }
-        .into()
-    }
-
-    #[getter]
-    fn get_slope(&self) -> f32 {
-        self.0.slope.into()
-    }
-
-    #[getter]
-    fn get_offset(&self) -> f32 {
-        self.0.offset
-    }
-
-    #[getter]
-    fn get_unit(&self) -> String {
-        self.0.unit.clone()
-    }
-
-    #[setter]
-    fn set_slope(&mut self, slope: f32) -> Result<(), PyRangedFloatError> {
-        self.0.slope = slope.try_into()?;
-        Ok(())
-    }
-
-    #[setter]
-    fn set_offset(&mut self, offset: f32) {
-        self.0.offset = offset;
-    }
-
-    #[setter]
-    fn set_unit(&mut self, unit: String) {
-        self.0.unit = unit;
-    }
-}
 
 // $PnFEATURE (3.2)
 py_wrap!(PyFeature, Feature, "Feature");
@@ -3653,6 +3562,12 @@ struct PyScaleTransform(ScaleTransform);
 #[derive(Into, From)]
 struct PyDisplay(Display);
 
+#[derive(Into, From)]
+struct PyCalibration3_1(Calibration3_1);
+
+#[derive(Into, From)]
+struct PyCalibration3_2(Calibration3_2);
+
 struct PyShortname(Shortname);
 
 struct PyShortnamePrefix(ShortnamePrefix);
@@ -3714,6 +3629,27 @@ impl<'py> FromPyObject<'py> for PyDisplay {
             }
         };
         Ok(ret.into())
+    }
+}
+
+impl<'py> FromPyObject<'py> for PyCalibration3_1 {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let (slope, unit): (PyPositiveFloat, String) = ob.extract()?;
+        Ok(Self(Calibration3_1 {
+            slope: slope.0,
+            unit,
+        }))
+    }
+}
+
+impl<'py> FromPyObject<'py> for PyCalibration3_2 {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let (slope, offset, unit): (PyPositiveFloat, f32, String) = ob.extract()?;
+        Ok(Self(Calibration3_2 {
+            slope: slope.0,
+            offset,
+            unit,
+        }))
     }
 }
 
@@ -3811,6 +3747,26 @@ impl<'py> IntoPyObject<'py> for PyDisplay {
             Display::Log { offset, decades } => (true, offset, decades),
         };
         ret.into_pyobject(py)
+    }
+}
+
+impl<'py> IntoPyObject<'py> for PyCalibration3_1 {
+    type Target = PyTuple;
+    type Output = Bound<'py, <(PyPositiveFloat, String) as IntoPyObject<'py>>::Target>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        (PyPositiveFloat(self.0.slope), self.0.unit).into_pyobject(py)
+    }
+}
+
+impl<'py> IntoPyObject<'py> for PyCalibration3_2 {
+    type Target = PyTuple;
+    type Output = Bound<'py, <(PyPositiveFloat, f32, String) as IntoPyObject<'py>>::Target>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        (PyPositiveFloat(self.0.slope), self.0.offset, self.0.unit).into_pyobject(py)
     }
 }
 

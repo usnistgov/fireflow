@@ -21,7 +21,7 @@ use fireflow_core::validated::shortname::*;
 use super::layout::{
     PyAlphaNumType, PyDataLayout2_0, PyDataLayout3_0, PyDataLayout3_1, PyDataLayout3_2,
 };
-use super::macros::{py_disp, py_eq, py_parse, py_wrap};
+use super::macros::py_wrap;
 
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
@@ -33,7 +33,7 @@ use polars_arrow::array::PrimitiveArray;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyValueError, PyWarning};
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyDict, PyFloat, PyString, PyTuple, PyType};
+use pyo3::types::{IntoPyDict, PyDict, PyFloat, PyString, PyTuple};
 use pyo3::IntoPyObjectExt;
 use pyo3_polars::{PyDataFrame, PySeries};
 use std::collections::HashMap;
@@ -73,7 +73,6 @@ fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDataLayout3_2>()?;
 
     m.add_class::<PyAlphaNumType>()?;
-    m.add_class::<PyUnicode>()?;
 
     m.add_function(wrap_pyfunction!(py_fcs_read_header, m)?)?;
     m.add_function(wrap_pyfunction!(py_fcs_read_raw_text, m)?)?;
@@ -953,20 +952,6 @@ py_wrap!(PyTemporal2_0, Temporal2_0, "Temporal2_0");
 py_wrap!(PyTemporal3_0, Temporal3_0, "Temporal3_0");
 py_wrap!(PyTemporal3_1, Temporal3_1, "Temporal3_1");
 py_wrap!(PyTemporal3_2, Temporal3_2, "Temporal3_2");
-
-// $UNICODE (3.0)
-py_wrap!(PyUnicode, Unicode, "Unicode");
-py_eq!(PyUnicode);
-py_disp!(PyUnicode);
-py_parse!(PyUnicode);
-
-#[pymethods]
-impl PyUnicode {
-    #[new]
-    fn new(page: u32, kws: Vec<String>) -> Self {
-        Unicode { page, kws }.into()
-    }
-}
 
 macro_rules! get_set_metaroot_opt {
     ($get:ident, $set:ident, $inner:ident, $outer:ident, $($pytype:ident),*) => {
@@ -3347,6 +3332,9 @@ impl From<RawTEXTParseData> for PyParseData {
 struct PyScale(Scale);
 
 #[derive(Into, From)]
+struct PyUnicode(Unicode);
+
+#[derive(Into, From)]
 struct PyScaleTransform(ScaleTransform);
 
 #[derive(Into, From)]
@@ -3418,6 +3406,13 @@ impl<'py> FromPyObject<'py> for PyScale {
             let log = Scale::try_new_log(decades, offset).map_err(PyLogRangeError)?;
             Ok(Self(log))
         }
+    }
+}
+
+impl<'py> FromPyObject<'py> for PyUnicode {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let (page, kws): (u32, Vec<String>) = ob.extract()?;
+        Ok(Self(Unicode { page, kws }))
     }
 }
 
@@ -3541,6 +3536,16 @@ impl<'py> IntoPyObject<'py> for PyScale {
             Scale::Linear => Ok(PyTuple::empty(py).into_any()),
             Scale::Log(l) => (f32::from(l.decades), f32::from(l.offset)).into_bound_py_any(py),
         }
+    }
+}
+
+impl<'py> IntoPyObject<'py> for PyUnicode {
+    type Target = PyTuple;
+    type Output = Bound<'py, <(u32, Vec<String>) as IntoPyObject<'py>>::Target>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        (self.0.page, self.0.kws).into_pyobject(py)
     }
 }
 

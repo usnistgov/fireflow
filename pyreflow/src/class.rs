@@ -2417,7 +2417,7 @@ macro_rules! coredata2_0_meas_methods {
                 fn set_measurements_and_data(
                     &mut self,
                     xs: Vec<Bound<'_, PyAny>>,
-                    df: PyDataFrame,
+                    cols: PyFCSColumns,
                     prefix: PyShortnamePrefix,
                 ) -> PyResult<()> {
                     let mut ys = vec![];
@@ -2430,10 +2430,7 @@ macro_rules! coredata2_0_meas_methods {
                         };
                         ys.push(y);
                     };
-                    let cols = dataframe_to_fcs(df.into())
-                        .map_err(|e| e.to_string())
-                        .map_err(PyreflowException::new_err)?;
-                    self.0.set_measurements_and_data(ys, cols, prefix.0)
+                    self.0.set_measurements_and_data(ys, cols.0, prefix.0)
                         .mult_terminate(SetMeasurementsFailure)
                         .map_err(handle_failure_nowarn)
                         .void()
@@ -2456,7 +2453,7 @@ macro_rules! coredata3_1_meas_methods {
                 fn set_measurements_and_data(
                     &mut self,
                     xs: Vec<Bound<'_, PyAny>>,
-                    df: PyDataFrame,
+                    cols: PyFCSColumns,
                 ) -> PyResult<()> {
                     let mut ys = vec![];
                     for x in xs {
@@ -2468,10 +2465,7 @@ macro_rules! coredata3_1_meas_methods {
                         };
                         ys.push(y);
                     };
-                    let cols = dataframe_to_fcs(df.into())
-                        .map_err(|e| e.to_string())
-                        .map_err(PyreflowException::new_err)?;
-                    self.0.set_measurements_and_data_noprefix(ys, cols)
+                    self.0.set_measurements_and_data_noprefix(ys, cols.0)
                         .mult_terminate(SetMeasurementsFailure)
                         .map_err(handle_failure_nowarn)
                         .void()
@@ -3032,16 +3026,14 @@ macro_rules! to_dataset_method {
         impl $from {
             fn to_dataset(
                 &self,
-                df: PyDataFrame,
+                cols: PyFCSColumns,
                 analysis: Vec<u8>,
                 others: Vec<Vec<u8>>,
             ) -> PyResult<$to> {
-                let cols = dataframe_to_fcs(df.into())
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))?;
                 self.0
                     .clone()
                     .into_coredataset(
-                        cols,
+                        cols.0,
                         analysis.into(),
                         Others(others.into_iter().map(|x| x.into()).collect()),
                     )
@@ -3628,56 +3620,6 @@ fn strs_to_key_patterns(lits: Vec<String>, pats: Vec<String>) -> PyResult<KeyPat
     Ok(ls)
 }
 
-macro_rules! column_to_buf {
-    ($col:expr, $prim:ident) => {
-        let ca = $col.$prim().unwrap();
-        if ca.first_non_null().is_some() {
-            return Err(format!("column {} has null values", $col.name()));
-        }
-        let buf = ca.chunks()[0]
-            .as_any()
-            .downcast_ref::<PrimitiveArray<$prim>>()
-            .unwrap()
-            .values()
-            .clone();
-        return Ok(FCSColumn(buf).into());
-    };
-}
-
-fn series_to_fcs(ser: Series) -> Result<AnyFCSColumn, String> {
-    match ser.dtype() {
-        DataType::UInt8 => {
-            column_to_buf!(ser, u8);
-        }
-        DataType::UInt16 => {
-            column_to_buf!(ser, u16);
-        }
-        DataType::UInt32 => {
-            column_to_buf!(ser, u32);
-        }
-        DataType::UInt64 => {
-            column_to_buf!(ser, u64);
-        }
-        DataType::Float32 => {
-            column_to_buf!(ser, f32);
-        }
-        DataType::Float64 => {
-            column_to_buf!(ser, f64);
-        }
-        t => Err(format!("invalid datatype: {t}")),
-    }
-}
-
-fn dataframe_to_fcs(mut df: DataFrame) -> Result<Vec<AnyFCSColumn>, String> {
-    // make sure data is contiguous
-    df.rechunk_mut();
-    let mut cols = Vec::with_capacity(df.width());
-    for c in df.iter() {
-        cols.push(series_to_fcs(c.clone())?);
-    }
-    Ok(cols)
-}
-
 struct ConvertFailure;
 
 impl fmt::Display for ConvertFailure {
@@ -3742,6 +3684,9 @@ struct PyShortnamePrefix(ShortnamePrefix);
 struct PyNonStdKey(NonStdKey);
 
 #[derive(Into, From)]
+struct PyFCSColumns(Vec<AnyFCSColumn>);
+
+#[derive(Into, From)]
 #[into(Timestep, Wavelength)]
 #[from(Timestep, Wavelength)]
 struct PyPositiveFloat(PositiveFloat);
@@ -3791,6 +3736,21 @@ impl<'py> FromPyObject<'py> for PyNonNegFloat {
     }
 }
 
+impl<'py> FromPyObject<'py> for PyFCSColumns {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let mut df: PyDataFrame = ob.extract()?;
+        df.0.rechunk_mut();
+        let ret =
+            df.0.take_columns()
+                .into_iter()
+                .map(|col| series_to_fcs(col.take_materialized_series()))
+                .collect::<Result<Vec<_>, _>>()
+                // TODO make better error
+                .map_err(PyreflowException::new_err)?;
+        Ok(Self(ret))
+    }
+}
+
 impl<'py> IntoPyObject<'py> for PyNonNegFloat {
     type Target = PyFloat;
     type Output = Bound<'py, <f32 as IntoPyObject<'py>>::Target>;
@@ -3808,6 +3768,46 @@ impl<'py> IntoPyObject<'py> for PyPositiveFloat {
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         f32::from(self.0).into_pyobject(py)
+    }
+}
+
+macro_rules! column_to_buf {
+    ($col:expr, $prim:ident) => {
+        let ca = $col.$prim().unwrap();
+        if ca.first_non_null().is_some() {
+            return Err(format!("column {} has null values", $col.name()));
+        }
+        let buf = ca.chunks()[0]
+            .as_any()
+            .downcast_ref::<PrimitiveArray<$prim>>()
+            .unwrap()
+            .values()
+            .clone();
+        return Ok(FCSColumn(buf).into());
+    };
+}
+
+fn series_to_fcs(ser: Series) -> Result<AnyFCSColumn, String> {
+    match ser.dtype() {
+        DataType::UInt8 => {
+            column_to_buf!(ser, u8);
+        }
+        DataType::UInt16 => {
+            column_to_buf!(ser, u16);
+        }
+        DataType::UInt32 => {
+            column_to_buf!(ser, u32);
+        }
+        DataType::UInt64 => {
+            column_to_buf!(ser, u64);
+        }
+        DataType::Float32 => {
+            column_to_buf!(ser, f32);
+        }
+        DataType::Float64 => {
+            column_to_buf!(ser, f64);
+        }
+        t => Err(format!("invalid datatype: {t}")),
     }
 }
 

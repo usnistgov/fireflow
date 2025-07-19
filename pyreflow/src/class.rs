@@ -1567,267 +1567,233 @@ common_meas_get_set!(PyCoreDataset3_1, PyOptical3_1, PyTemporal3_1);
 common_meas_get_set!(PyCoreDataset3_2, PyOptical3_2, PyTemporal3_2);
 
 macro_rules! common_coretext_meas_get_set {
-    ($([$pytype:ident, $timetype:ident]),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                fn push_temporal(
-                    &mut self,
-                    name: PyShortname,
-                    t: $timetype,
-                    r: BigDecimal,
-                    notrunc: bool,
-                ) -> PyResult<()> {
-                    self.0
-                        .push_temporal(name.0, t.into(), Range(r), notrunc)
-                        .py_def_terminate(PushTemporalFailure)
-                }
-
-                fn insert_time_channel(
-                    &mut self,
-                    i: usize,
-                    name: PyShortname,
-                    t: $timetype,
-                    r: BigDecimal,
-                    notrunc: bool,
-                ) -> PyResult<()> {
-                    self.0
-                        .insert_temporal(i.into(), name.0, t.into(), Range(r), notrunc)
-                        .py_def_terminate(InsertTemporalFailure)
-                }
-
-                fn unset_measurements(
-                    &mut self,
-                ) -> PyResult<()> {
-                    self.0.unset_measurements()
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))
-                }
+    ($pytype:ident, $timetype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            fn push_temporal(
+                &mut self,
+                name: PyShortname,
+                t: $timetype,
+                r: BigDecimal,
+                notrunc: bool,
+            ) -> PyResult<()> {
+                self.0
+                    .push_temporal(name.0, t.into(), Range(r), notrunc)
+                    .py_def_terminate(PushTemporalFailure)
             }
-        )*
+
+            fn insert_temporal(
+                &mut self,
+                i: usize,
+                name: PyShortname,
+                t: $timetype,
+                r: BigDecimal,
+                notrunc: bool,
+            ) -> PyResult<()> {
+                self.0
+                    .insert_temporal(i.into(), name.0, t.into(), Range(r), notrunc)
+                    .py_def_terminate(InsertTemporalFailure)
+            }
+
+            fn unset_measurements(&mut self) -> PyResult<()> {
+                self.0
+                    .unset_measurements()
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+            }
+        }
     };
 }
 
-common_coretext_meas_get_set!(
-    [PyCoreTEXT2_0, PyTemporal2_0],
-    [PyCoreTEXT3_0, PyTemporal3_0]
-);
+common_coretext_meas_get_set!(PyCoreTEXT2_0, PyTemporal2_0);
+common_coretext_meas_get_set!(PyCoreTEXT3_0, PyTemporal3_0);
+common_coretext_meas_get_set!(PyCoreTEXT3_1, PyTemporal3_1);
+common_coretext_meas_get_set!(PyCoreTEXT3_2, PyTemporal3_2);
 
 macro_rules! coredata_meas_get_set {
-    ($([$pytype:ident, $timetype:ident]),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                fn push_temporal(
-                    &mut self,
-                    name: PyShortname,
-                    t: $timetype,
-                    col: PyFCSColumn,
-                    r: BigDecimal,
-                    notrunc: bool,
-                ) -> PyResult<()> {
-                    self.0
-                        .push_temporal(name.0, t.into(), col.0, Range(r), notrunc)
-                        .py_def_terminate(PushTemporalFailure)
-                }
-
-                fn insert_time_channel(
-                    &mut self,
-                    i: usize,
-                    name: PyShortname,
-                    t: $timetype,
-                    col: PyFCSColumn,
-                    r: BigDecimal,
-                    notrunc: bool,
-                ) -> PyResult<()> {
-                    self.0
-                        .insert_temporal(i.into(), name.0, t.into(), col.0, Range(r), notrunc)
-                        .py_def_terminate(InsertTemporalFailure)
-                }
-
-                fn unset_data(
-                    &mut self,
-                ) -> PyResult<()> {
-                    self.0.unset_data()
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))
-                }
-
-                #[getter]
-                fn data(&self) -> PyDataFrame {
-                    let ns = self.0.all_shortnames();
-                    let columns = self
-                        .0
-                        .data()
-                        .iter_columns()
-                        .zip(ns)
-                        .map(|(c, n)| {
-                            // ASSUME this will not fail because the we know the types and
-                            // we don't have a validity array
-                            Series::from_arrow(n.as_ref().into(), c.as_array())
-                                .unwrap()
-                                .into()
-                        })
-                        .collect();
-                    // ASSUME this will not fail because all columns should have unique
-                    // names and the same length
-                    PyDataFrame(DataFrame::new(columns).unwrap())
-                }
-
-                #[getter]
-                fn analysis(&self) -> Vec<u8> {
-                    self.0.analysis.0.clone()
-                }
-
-                #[setter]
-                fn set_analysis(&mut self, xs: Vec<u8>) {
-                    self.0.analysis = xs.into();
-                }
-
-                #[getter]
-                fn others(&self) -> Vec<Vec<u8>> {
-                    self.0.others.0.clone().into_iter().map(|x| x.0).collect()
-                }
-
-                #[setter]
-                fn set_others(&mut self, xs: Vec<Vec<u8>>) {
-                    self.0.others = Others(xs.into_iter().map(Other).collect());
-                }
+    ($pytype:ident, $timetype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            fn push_temporal(
+                &mut self,
+                name: PyShortname,
+                t: $timetype,
+                col: PyFCSColumn,
+                r: BigDecimal,
+                notrunc: bool,
+            ) -> PyResult<()> {
+                self.0
+                    .push_temporal(name.0, t.into(), col.0, Range(r), notrunc)
+                    .py_def_terminate(PushTemporalFailure)
             }
-        )*
 
+            fn insert_time_channel(
+                &mut self,
+                i: usize,
+                name: PyShortname,
+                t: $timetype,
+                col: PyFCSColumn,
+                r: BigDecimal,
+                notrunc: bool,
+            ) -> PyResult<()> {
+                self.0
+                    .insert_temporal(i.into(), name.0, t.into(), col.0, Range(r), notrunc)
+                    .py_def_terminate(InsertTemporalFailure)
+            }
+
+            fn unset_data(&mut self) -> PyResult<()> {
+                self.0
+                    .unset_data()
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+            }
+
+            #[getter]
+            fn data(&self) -> PyDataFrame {
+                let ns = self.0.all_shortnames();
+                let df: &FCSDataFrame = self.0.as_ref();
+                let columns = df
+                    .iter_columns()
+                    .zip(ns)
+                    .map(|(c, n)| {
+                        // ASSUME this will not fail because the we know the types and
+                        // we don't have a validity array
+                        Series::from_arrow(n.as_ref().into(), c.as_array())
+                            .unwrap()
+                            .into()
+                    })
+                    .collect();
+                // ASSUME this will not fail because all columns should have unique
+                // names and the same length
+                PyDataFrame(DataFrame::new(columns).unwrap())
+            }
+
+            #[getter]
+            fn analysis(&self) -> Vec<u8> {
+                self.0.analysis.0.clone()
+            }
+
+            #[setter]
+            fn set_analysis(&mut self, xs: Vec<u8>) {
+                self.0.analysis = xs.into();
+            }
+
+            #[getter]
+            fn others(&self) -> Vec<Vec<u8>> {
+                self.0.others.0.clone().into_iter().map(|x| x.0).collect()
+            }
+
+            #[setter]
+            fn set_others(&mut self, xs: Vec<Vec<u8>>) {
+                self.0.others = Others(xs.into_iter().map(Other).collect());
+            }
+        }
     };
 }
 
-coredata_meas_get_set!(
-    [PyCoreDataset2_0, PyTemporal2_0],
-    [PyCoreDataset3_0, PyTemporal3_0],
-    [PyCoreDataset3_1, PyTemporal3_1],
-    [PyCoreDataset3_2, PyTemporal3_2]
-);
+coredata_meas_get_set!(PyCoreDataset2_0, PyTemporal2_0);
+coredata_meas_get_set!(PyCoreDataset3_0, PyTemporal3_0);
+coredata_meas_get_set!(PyCoreDataset3_1, PyTemporal3_1);
+coredata_meas_get_set!(PyCoreDataset3_2, PyTemporal3_2);
 
 macro_rules! coretext2_0_meas_methods {
-    ($([$pytype:ident, $opttype:ident, $timetype:ident]),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                fn remove_measurement_by_index<'py>(
-                    &mut self,
-                    index: usize,
-                    py: Python<'py>,
-                ) -> PyResult<(Option<String>, Bound<'py, PyAny>)> {
-                    let r = self.0
-                        .remove_measurement_by_index(index.into())
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-                    r.both(
-                        |p| {
-                            let a = $timetype::from(p.value).into_bound_py_any(py)?;
-                            Ok((Some(p.key.to_string()), a))
-                        },
-                        |p| {
-                            let a = $opttype::from(p.value).into_bound_py_any(py)?;
-                            Ok((p.key.0.map(|n| n.to_string()), a))
-                        },
-                    )
-                }
-
-                #[pyo3(signature = (m, r, notrunc=false, name=None))]
-                fn push_measurement(
-                    &mut self,
-                    m: $opttype,
-                    r: BigDecimal,
-                    notrunc: bool,
-                    name: Option<PyShortname>,
-                ) -> PyResult<String> {
-                    self.0
-                        .push_optical(name.map(|n| n.0).into(), m.into(), Range(r), notrunc)
-                        .py_def_terminate(InsertOpticalFailure)
-                        .map(|x| x.to_string())
-                }
-
-                #[pyo3(signature = (i, m, r, notrunc=false, name=None))]
-                fn insert_optical(
-                    &mut self,
-                    i: usize,
-                    m: $opttype,
-                    r: BigDecimal,
-                    notrunc: bool,
-                    name: Option<PyShortname>,
-                ) -> PyResult<String> {
-                    let n = name.map(|n| n.0).into();
-                    self.0
-                        .insert_optical(i.into(), n, m.into(), Range(r), notrunc)
-                        .py_def_terminate(InsertOpticalFailure)
-                        .map(|x| x.to_string())
-                }
+    ($pytype:ident, $o:ident, $t:ident) => {
+        #[pymethods]
+        impl $pytype {
+            fn remove_measurement_by_index(
+                &mut self,
+                index: usize,
+            ) -> PyResult<(Option<PyShortname>, PyElement<$t, $o>)> {
+                let r = self
+                    .0
+                    .remove_measurement_by_index(index.into())
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+                let (n, v) = Element::unzip::<MaybeFamily>(r);
+                Ok((n.0.map(|x| x.into()), v.inner_into().into()))
             }
-        )*
-    }
-}
 
-coretext2_0_meas_methods!(
-    [PyCoreTEXT2_0, PyOptical2_0, PyTemporal2_0],
-    [PyCoreTEXT3_0, PyOptical3_0, PyTemporal3_0]
-);
-
-macro_rules! coretext3_1_meas_methods {
-    ($([$pytype:ident, $opttype:ident, $timetype:ident]),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                fn remove_measurement_by_index<'py>(
-                    &mut self,
-                    index: usize,
-                    py: Python<'py>,
-                ) -> PyResult<(String, Bound<'py, PyAny>)> {
-                    let r = self.0
-                        .remove_measurement_by_index(index.into())
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-                    r.both(
-                        |p| {
-                            let a = $timetype::from(p.value).into_bound_py_any(py)?;
-                            Ok((p.key.to_string(), a))
-                        },
-                        |p| {
-                            let a = $opttype::from(p.value).into_bound_py_any(py)?;
-                            Ok((p.key.0.to_string(), a))
-                        },
-                    )
-                }
-
-                fn push_optical(
-                    &mut self,
-                    m: $opttype,
-                    name: PyShortname,
-                    r: BigDecimal,
-                    notrunc: bool,
-                ) -> PyResult<()> {
-                    self.0
-                        .push_optical(AlwaysValue(name.0), m.into(), Range(r), notrunc)
-                        .py_def_terminate(PushOpticalFailure)
-                        .void()
-                }
-
-                fn insert_optical(
-                    &mut self,
-                    i: usize,
-                    m: $opttype,
-                    name: PyShortname,
-                    r: BigDecimal,
-                    notrunc: bool,
-                ) -> PyResult<()> {
-                    self.0
-                        .insert_optical(i.into(), AlwaysValue(name.0), m.into(), Range(r), notrunc)
-                        .py_def_terminate(InsertOpticalFailure)
-                        .void()
-                }
+            #[pyo3(signature = (m, r, notrunc=false, name=None))]
+            fn push_measurement(
+                &mut self,
+                m: $o,
+                r: BigDecimal,
+                notrunc: bool,
+                name: Option<PyShortname>,
+            ) -> PyResult<PyShortname> {
+                self.0
+                    .push_optical(name.map(|n| n.0).into(), m.into(), r.into(), notrunc)
+                    .py_def_terminate(InsertOpticalFailure)
+                    .map(|x| x.into())
             }
-        )*
+
+            #[pyo3(signature = (i, m, r, notrunc=false, name=None))]
+            fn insert_optical(
+                &mut self,
+                i: usize,
+                m: $o,
+                r: BigDecimal,
+                notrunc: bool,
+                name: Option<PyShortname>,
+            ) -> PyResult<PyShortname> {
+                let n = name.map(|n| n.0).into();
+                self.0
+                    .insert_optical(i.into(), n, m.into(), Range(r), notrunc)
+                    .py_def_terminate(InsertOpticalFailure)
+                    .map(|x| x.into())
+            }
+        }
     };
 }
 
-coretext3_1_meas_methods!(
-    [PyCoreTEXT3_1, PyOptical3_1, PyTemporal3_1],
-    [PyCoreTEXT3_2, PyOptical3_2, PyTemporal3_2]
-);
+coretext2_0_meas_methods!(PyCoreTEXT2_0, PyOptical2_0, PyTemporal2_0);
+coretext2_0_meas_methods!(PyCoreTEXT3_0, PyOptical3_0, PyTemporal3_0);
+
+macro_rules! coretext3_1_meas_methods {
+    ($pytype:ident, $o:ident, $t:ident) => {
+        #[pymethods]
+        impl $pytype {
+            fn remove_measurement_by_index(
+                &mut self,
+                index: usize,
+            ) -> PyResult<(PyShortname, PyElement<$t, $o>)> {
+                let r = self
+                    .0
+                    .remove_measurement_by_index(index.into())
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+                let (n, v) = Element::unzip::<AlwaysFamily>(r);
+                Ok((n.0.into(), v.inner_into().into()))
+            }
+
+            fn push_optical(
+                &mut self,
+                m: $o,
+                name: PyShortname,
+                r: BigDecimal,
+                notrunc: bool,
+            ) -> PyResult<()> {
+                self.0
+                    .push_optical(AlwaysValue(name.0), m.into(), Range(r), notrunc)
+                    .py_def_terminate(PushOpticalFailure)
+                    .void()
+            }
+
+            fn insert_optical(
+                &mut self,
+                i: usize,
+                m: $o,
+                name: PyShortname,
+                r: BigDecimal,
+                notrunc: bool,
+            ) -> PyResult<()> {
+                self.0
+                    .insert_optical(i.into(), AlwaysValue(name.0), m.into(), Range(r), notrunc)
+                    .py_def_terminate(InsertOpticalFailure)
+                    .void()
+            }
+        }
+    };
+}
+
+coretext3_1_meas_methods!(PyCoreTEXT3_1, PyOptical3_1, PyTemporal3_1);
+coretext3_1_meas_methods!(PyCoreTEXT3_2, PyOptical3_2, PyTemporal3_2);
 
 macro_rules! set_measurements2_0 {
     ($pytype:ident, $t:ident, $o:ident) => {
@@ -3088,6 +3054,7 @@ struct PyCalibration3_1(Calibration3_1);
 #[derive(Into, From)]
 struct PyCalibration3_2(Calibration3_2);
 
+#[derive(Into, From)]
 struct PyShortname(Shortname);
 
 struct PyShortnamePrefix(ShortnamePrefix);
@@ -3425,6 +3392,16 @@ impl<'py> IntoPyObject<'py> for PyCalibration3_1 {
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         (PyPositiveFloat(self.0.slope), self.0.unit).into_pyobject(py)
+    }
+}
+
+impl<'py> IntoPyObject<'py> for PyShortname {
+    type Target = PyString;
+    type Output = Bound<'py, Self::Target>;
+    type Error = Infallible;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        self.0.to_string().into_pyobject(py)
     }
 }
 

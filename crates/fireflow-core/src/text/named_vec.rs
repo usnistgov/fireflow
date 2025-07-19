@@ -1644,6 +1644,13 @@ impl<U, V> Element<U, V> {
         self.bimap(|y| y.into(), |y| y.into())
     }
 
+    pub fn unzip<K: MightHave>(e: EitherPair<K, U, V>) -> (K::Wrapper<Shortname>, Self) {
+        e.both(
+            |p| (K::wrap(p.key), Self::Center(p.value)),
+            |p| (p.key, Self::NonCenter(p.value)),
+        )
+    }
+
     pub fn bimap<F, G, X, Y>(self, f: F, g: G) -> Element<X, Y>
     where
         F: Fn(U) -> X,

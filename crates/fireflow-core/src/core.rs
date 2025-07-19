@@ -3705,11 +3705,6 @@ where
             })
     }
 
-    /// Return reference to dataframe representing DATA
-    pub fn data(&self) -> &FCSDataFrame {
-        &self.data
-    }
-
     /// Add columns to this dataset.
     ///
     /// Return error if columns are not all the same length or number of columns

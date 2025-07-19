@@ -7,7 +7,7 @@ use fireflow_core::segment::*;
 use fireflow_core::text::byteord::ByteOrd2_0;
 use fireflow_core::text::datetimes::ReversedDatetimes;
 use fireflow_core::text::keywords::*;
-use fireflow_core::text::named_vec::{Element, KeyLengthError, RawInput};
+use fireflow_core::text::named_vec::{Element, KeyLengthError, NamedVec, RawInput};
 use fireflow_core::text::optional::*;
 use fireflow_core::text::ranged_float::*;
 use fireflow_core::text::scale::*;
@@ -1494,9 +1494,8 @@ macro_rules! common_meas_get_set {
                 ) -> PyResult<Bound<'py, PyAny>> {
                     // TODO this is basically going to emit an "index out of
                     // bounds" error, which python already has
-                    let m = self.0
-                        .measurements_named_vec().get(i.into())
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+                    let ms: &NamedVec<_, _, _, _> = self.0.as_ref();
+                    let m = ms.get(i.into()).map_err(|e| PyreflowException::new_err(e.to_string()))?;
                     m.both(
                         |(_, l)| $timetype::from(l.clone()).into_bound_py_any(py),
                         |(_, r)| $opttype::from(r.clone()).into_bound_py_any(py)
@@ -1574,9 +1573,9 @@ macro_rules! common_meas_get_set {
                     // function over the measurements we would need to to do
                     // this anyways, so simply returnig a copied list doesn't
                     // lose anything and keeps this API simpler.
+                    let ms: &NamedVec<_, _, _, _> = self.0.as_ref();
                     let mut ret = vec![];
-                    for x in self.0
-                        .measurements_named_vec()
+                    for x in ms
                         .iter()
                         .map(|(_, x)| x.both(
                             |l| $timetype::from(l.value.clone()).into_bound_py_any(py),

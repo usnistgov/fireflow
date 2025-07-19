@@ -53,7 +53,7 @@ use std::str::FromStr;
 /// These are not included because this struct will also be used to encode the
 /// TEXT data when writing a new FCS file, and the keywords that are not
 /// included can be computed on the fly when writing.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef)]
 pub struct Core<A, D, O, M, T, P, N, W, L> {
     /// Metaroot TEXT keywords.
     ///
@@ -66,12 +66,14 @@ pub struct Core<A, D, O, M, T, P, N, W, L> {
     /// Specifically these are denoted by "$Pn*" keywords where "n" is the index
     /// of the measurement which also corresponds to its column in the DATA
     /// segment. The index of each measurement in this vector is n - 1.
+    #[as_ref(NamedVec<N, W, Temporal<T>, Optical<P>>)]
     measurements: NamedVec<N, W, Temporal<T>, Optical<P>>,
 
     /// The byte layout of the DATA segment
     ///
     /// This is derived from $BYTEORD, $DATATYPE, $PnB, $PnR and maybe
     /// $PnDATATYPE for version 3.2.
+    #[as_ref(Option<L>)]
     layout: MaybeValue<L>,
 
     /// DATA segment (if applicable)
@@ -2241,11 +2243,6 @@ where
                 .collect();
             Some(res)
         }
-    }
-
-    /// Return read-only reference to measurement vector
-    pub fn measurements_named_vec(&self) -> &Measurements<M::Name, M::Temporal, M::Optical> {
-        &self.measurements
     }
 
     /// Replace optical measurement at index.
@@ -5666,6 +5663,24 @@ impl_ref_specific_ro!(Optical, InnerOptical3_0, ScaleTransform);
 impl_ref_specific_ro!(Optical, InnerOptical3_1, ScaleTransform);
 
 impl_ref_specific_ro!(Optical, InnerOptical3_2, ScaleTransform);
+
+impl<M, T, P, N, W, L> AsRef<FCSDataFrame> for CoreDataset<M, T, P, N, W, L> {
+    fn as_ref(&self) -> &FCSDataFrame {
+        &self.data
+    }
+}
+
+impl<M, T, P, N, W, L> AsRef<Analysis> for CoreDataset<M, T, P, N, W, L> {
+    fn as_ref(&self) -> &Analysis {
+        &self.analysis
+    }
+}
+
+impl<M, T, P, N, W, L> AsRef<Others> for CoreDataset<M, T, P, N, W, L> {
+    fn as_ref(&self) -> &Others {
+        &self.others
+    }
+}
 
 impl<X, M, const IS_ETIM: bool> AsRef<Option<Xtim<IS_ETIM, X>>> for Metaroot<M>
 where

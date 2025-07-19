@@ -66,6 +66,7 @@ pub struct UnsplitVec<K, V> {
     prefix: ShortnamePrefix,
 }
 
+#[derive(Clone)]
 pub enum Element<U, V> {
     Center(U),
     NonCenter(V),
@@ -1635,6 +1636,14 @@ impl<K: MightHave, U, V> RawInput<K, U, V> {
 }
 
 impl<U, V> Element<U, V> {
+    pub fn inner_into<U1, V1>(self) -> Element<U1, V1>
+    where
+        U1: From<U>,
+        V1: From<V>,
+    {
+        self.bimap(|y| y.into(), |y| y.into())
+    }
+
     pub fn bimap<F, G, X, Y>(self, f: F, g: G) -> Element<X, Y>
     where
         F: Fn(U) -> X,

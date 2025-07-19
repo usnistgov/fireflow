@@ -1468,139 +1468,103 @@ temporal_get_set_3_0!(
 );
 
 macro_rules! common_meas_get_set {
-    ($([$pytype:ident, $opttype:ident, $timetype:ident]),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                fn remove_measurement_by_name<'py>(
-                    &mut self,
-                    name: PyShortname,
-                    py: Python<'py>,
-                ) -> PyResult<Option<(usize, Bound<'py, PyAny>)>> {
-                    self.0
-                        .remove_measurement_by_name(&name.0)
-                        .map(|(i, x)| {
-                            x.both(
-                                |l| $timetype::from(l).into_bound_py_any(py),
-                                |r| $opttype::from(r).into_bound_py_any(py)
-                            ).map(|x| (usize::from(i), x))
-                        }).transpose()
-                }
-
-                fn measurement_at<'py>(
-                    &self,
-                    i: usize,
-                    py: Python<'py>
-                ) -> PyResult<Bound<'py, PyAny>> {
-                    // TODO this is basically going to emit an "index out of
-                    // bounds" error, which python already has
-                    let ms: &NamedVec<_, _, _, _> = self.0.as_ref();
-                    let m = ms.get(i.into()).map_err(|e| PyreflowException::new_err(e.to_string()))?;
-                    m.both(
-                        |(_, l)| $timetype::from(l.clone()).into_bound_py_any(py),
-                        |(_, r)| $opttype::from(r.clone()).into_bound_py_any(py)
-                    )
-                }
-
-                fn replace_optical_at<'py>(
-                    &mut self,
-                    i: usize,
-                    m: $opttype,
-                    py: Python<'py>
-                ) -> PyResult<Bound<'py, PyAny>> {
-                    let r = self.0
-                        .replace_optical_at(i.into(), m.into())
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-                    r.both(
-                        |l| $timetype::from(l).into_bound_py_any(py),
-                        |r| $opttype::from(r).into_bound_py_any(py),
-                    )
-                }
-
-                fn replace_optical_named<'py>(
-                    &mut self,
-                    name: PyShortname,
-                    m: $opttype,
-                    py: Python<'py>
-                ) -> PyResult<Option<Bound<'py, PyAny>>> {
-                    let r = self.0.replace_optical_named(&name.0, m.into());
-                    r.map(|x| x.both(
-                        |l| $timetype::from(l).into_bound_py_any(py),
-                        |r| $opttype::from(r).into_bound_py_any(py),
-                    )).transpose()
-                }
-
-                fn rename_temporal(&mut self, name: PyShortname) -> Option<String> {
-                    self.0.rename_temporal(name.0).map(|n| n.to_string())
-                }
-
-                fn replace_temporal_at<'py>(
-                    &mut self,
-                    i: usize,
-                    m: $timetype,
-                    force: bool,
-                    py: Python<'py>
-                ) -> PyResult<Bound<'py, PyAny>> {
-                    let r = self.0
-                        .replace_temporal_at(i.into(), m.into(), force)
-                        .py_def_terminate(SetTemporalFailure)?;
-                    r.both(
-                        |l| $timetype::from(l).into_bound_py_any(py),
-                        |r| $opttype::from(r).into_bound_py_any(py),
-                    )
-                }
-
-                fn replace_temporal_named<'py>(
-                    &mut self,
-                    name: PyShortname,
-                    m: $timetype,
-                    force: bool,
-                    py: Python<'py>
-                ) -> PyResult<Option<Bound<'py, PyAny>>> {
-                    let r = self.0
-                        .replace_temporal_named(&name.0, m.into(), force)
-                        .py_def_terminate(SetTemporalFailure)?;
-                    r.map(|x| x.both(
-                        |l| $timetype::from(l).into_bound_py_any(py),
-                        |r| $opttype::from(r).into_bound_py_any(py),
-                    )).transpose()
-                }
-
-                #[getter]
-                fn measurements<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyAny>>> {
-                    // This might seem inefficient since we are cloning
-                    // everything, but if we want to map a python lambda
-                    // function over the measurements we would need to to do
-                    // this anyways, so simply returnig a copied list doesn't
-                    // lose anything and keeps this API simpler.
-                    let ms: &NamedVec<_, _, _, _> = self.0.as_ref();
-                    let mut ret = vec![];
-                    for x in ms
-                        .iter()
-                        .map(|(_, x)| x.both(
-                            |l| $timetype::from(l.value.clone()).into_bound_py_any(py),
-                            |r| $opttype::from(r.value.clone()).into_bound_py_any(py)
-                        ))
-                    {
-                        ret.push(x?);
-                    }
-                    Ok(ret)
-                }
+    ($pytype:ident, $o:ident, $t:ident) => {
+        #[pymethods]
+        impl $pytype {
+            fn remove_measurement_by_name(
+                &mut self,
+                name: PyShortname,
+            ) -> Option<(usize, PyElement<$t, $o>)> {
+                self.0
+                    .remove_measurement_by_name(&name.0)
+                    .map(|(i, x)| (i.into(), x.inner_into().into()))
             }
-        )*
+
+            fn measurement_at(&self, i: usize) -> PyResult<PyElement<$t, $o>> {
+                // TODO this is basically going to emit an "index out of
+                // bounds" error, which python already has
+                let ms: &NamedVec<_, _, _, _> = self.0.as_ref();
+                let m = ms
+                    .get(i.into())
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+                Ok(m.bimap(|x| x.1.clone(), |x| x.1.clone())
+                    .inner_into()
+                    .into())
+            }
+
+            fn replace_optical_at(&mut self, i: usize, m: $o) -> PyResult<PyElement<$t, $o>> {
+                let ret = self
+                    .0
+                    .replace_optical_at(i.into(), m.into())
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+                Ok(ret.inner_into().into())
+            }
+
+            fn replace_optical_named(
+                &mut self,
+                name: PyShortname,
+                m: $o,
+            ) -> Option<PyElement<$t, $o>> {
+                self.0
+                    .replace_optical_named(&name.0, m.into())
+                    .map(|r| r.inner_into().into())
+            }
+
+            fn rename_temporal(&mut self, name: PyShortname) -> Option<String> {
+                self.0.rename_temporal(name.0).map(|n| n.to_string())
+            }
+
+            fn replace_temporal_at(
+                &mut self,
+                i: usize,
+                m: $t,
+                force: bool,
+            ) -> PyResult<PyElement<$t, $o>> {
+                let ret = self
+                    .0
+                    .replace_temporal_at(i.into(), m.into(), force)
+                    .py_def_terminate(SetTemporalFailure)?;
+                Ok(ret.inner_into().into())
+            }
+
+            fn replace_temporal_named(
+                &mut self,
+                name: PyShortname,
+                m: $t,
+                force: bool,
+            ) -> PyResult<Option<PyElement<$t, $o>>> {
+                let ret = self
+                    .0
+                    .replace_temporal_named(&name.0, m.into(), force)
+                    .py_def_terminate(SetTemporalFailure)?;
+                Ok(ret.map(|r| r.inner_into().into()))
+            }
+
+            #[getter]
+            fn measurements(&self) -> Vec<PyElement<$t, $o>> {
+                // This might seem inefficient since we are cloning
+                // everything, but if we want to map a python lambda
+                // function over the measurements we would need to to do
+                // this anyways, so simply returnig a copied list doesn't
+                // lose anything and keeps this API simpler.
+                let ms: &NamedVec<_, _, _, _> = self.0.as_ref();
+                ms.iter()
+                    .map(|(_, e)| e.bimap(|t| t.value.clone(), |o| o.value.clone()))
+                    .map(|v| v.inner_into().into())
+                    .collect()
+            }
+        }
     };
 }
 
-common_meas_get_set!(
-    [PyCoreTEXT2_0, PyOptical2_0, PyTemporal2_0],
-    [PyCoreTEXT3_0, PyOptical3_0, PyTemporal3_0],
-    [PyCoreTEXT3_1, PyOptical3_1, PyTemporal3_1],
-    [PyCoreTEXT3_2, PyOptical3_2, PyTemporal3_2],
-    [PyCoreDataset2_0, PyOptical2_0, PyTemporal2_0],
-    [PyCoreDataset3_0, PyOptical3_0, PyTemporal3_0],
-    [PyCoreDataset3_1, PyOptical3_1, PyTemporal3_1],
-    [PyCoreDataset3_2, PyOptical3_2, PyTemporal3_2]
-);
+common_meas_get_set!(PyCoreTEXT2_0, PyOptical2_0, PyTemporal2_0);
+common_meas_get_set!(PyCoreTEXT3_0, PyOptical3_0, PyTemporal3_0);
+common_meas_get_set!(PyCoreTEXT3_1, PyOptical3_1, PyTemporal3_1);
+common_meas_get_set!(PyCoreTEXT3_2, PyOptical3_2, PyTemporal3_2);
+common_meas_get_set!(PyCoreDataset2_0, PyOptical2_0, PyTemporal2_0);
+common_meas_get_set!(PyCoreDataset3_0, PyOptical3_0, PyTemporal3_0);
+common_meas_get_set!(PyCoreDataset3_1, PyOptical3_1, PyTemporal3_1);
+common_meas_get_set!(PyCoreDataset3_2, PyOptical3_2, PyTemporal3_2);
 
 macro_rules! common_coretext_meas_get_set {
     ($([$pytype:ident, $timetype:ident]),*) => {
@@ -3018,6 +2982,23 @@ impl fmt::Display for SetMeasurementsFailure {
 #[derive(From)]
 struct PySegment(Segment<u64>);
 
+impl<'py, T, O> IntoPyObject<'py> for PyElement<T, O>
+where
+    T: IntoPyObject<'py>,
+    O: IntoPyObject<'py>,
+{
+    type Target = PyAny;
+    type Output = Bound<'py, Self::Target>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        match self.0 {
+            Element::Center(x) => x.into_bound_py_any(py),
+            Element::NonCenter(x) => x.into_bound_py_any(py),
+        }
+    }
+}
+
 impl<'py> IntoPyObject<'py> for PySegment {
     type Target = PyTuple;
     type Output = Bound<'py, <(u64, u64) as IntoPyObject<'py>>::Target>;
@@ -3121,6 +3102,9 @@ struct PyRawMaybeInput<T, O>(RawInput<MaybeFamily, T, O>);
 
 struct PyRawAlwaysInput<T, O>(RawInput<AlwaysFamily, T, O>);
 
+#[derive(From, Into)]
+struct PyElement<T, O>(Element<T, O>);
+
 #[derive(Default)]
 struct PyKeyPatterns(KeyPatterns);
 
@@ -3177,6 +3161,22 @@ impl<'py> FromPyObject<'py> for PyKeyPatterns {
             .map_err(|e| PyreflowException::new_err(e.to_string()))?;
         ret.extend(ps);
         Ok(Self(ret))
+    }
+}
+
+impl<'py, T, O> FromPyObject<'py> for PyElement<T, O>
+where
+    T: FromPyObject<'py>,
+    O: FromPyObject<'py>,
+{
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        // TODO misleading error
+        if let Ok(t) = ob.extract::<T>() {
+            Ok(Self(Element::Center(t)))
+        } else {
+            let o = ob.extract::<O>()?;
+            Ok(Self(Element::NonCenter(o)))
+        }
     }
 }
 

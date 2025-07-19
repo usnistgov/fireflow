@@ -2947,25 +2947,12 @@ impl fmt::Display for SetMeasurementsFailure {
 }
 
 // TODO deref for stuff like this?
+/// A python value for a segment.
+///
+/// This is represented as a tuple like `(u64, u64)` where the two numbers
+/// are exactly as they appear in the FCS file.
 #[derive(From)]
 struct PySegment(Segment<u64>);
-
-impl<'py, T, O> IntoPyObject<'py> for PyElement<T, O>
-where
-    T: IntoPyObject<'py>,
-    O: IntoPyObject<'py>,
-{
-    type Target = PyAny;
-    type Output = Bound<'py, Self::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        match self.0 {
-            Element::Center(x) => x.into_bound_py_any(py),
-            Element::NonCenter(x) => x.into_bound_py_any(py),
-        }
-    }
-}
 
 impl<'py> IntoPyObject<'py> for PySegment {
     type Target = PyTuple;
@@ -2977,7 +2964,7 @@ impl<'py> IntoPyObject<'py> for PySegment {
     }
 }
 
-// TODO deref for stuff like this?
+/// A python value for the values in the HEADER as a dictionary.
 #[derive(IntoPyObject)]
 struct PyHeader {
     version: PyVersion,
@@ -3004,6 +2991,7 @@ impl From<Header> for PyHeader {
     }
 }
 
+/// A python value for various values in HEADER and TEXT as a dictionary.
 #[derive(IntoPyObject)]
 struct PyParseData {
     prim_text: PySegment,
@@ -3038,54 +3026,424 @@ impl From<RawTEXTParseData> for PyParseData {
     }
 }
 
+/// A python value for $PnE (2.0).
+///
+/// This is either a unit tuple or a 2-tuple of positive floats.
 #[derive(Into, From)]
 struct PyScale(Scale);
 
-#[derive(Into, From)]
-struct PyUnicode(Unicode);
+impl<'py> FromPyObject<'py> for PyScale {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        if ob.is_instance_of::<PyTuple>() && ob.len()? == 0 {
+            Ok(Self(Scale::Linear))
+        } else {
+            let (decades, offset): (f32, f32) = ob.extract()?;
+            let log = Scale::try_new_log(decades, offset).map_err(PyLogRangeError)?;
+            Ok(Self(log))
+        }
+    }
+}
 
+impl<'py> IntoPyObject<'py> for PyScale {
+    type Target = PyAny;
+    type Output = Bound<'py, Self::Target>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        match self.0 {
+            Scale::Linear => Ok(PyTuple::empty(py).into_any()),
+            Scale::Log(l) => (f32::from(l.decades), f32::from(l.offset)).into_bound_py_any(py),
+        }
+    }
+}
+
+/// A python value for $PnE/$PnG (2.0).
+///
+/// This is either a 1-tuple representing gain ($PnG) or a 2-tuple representing
+/// a log transform with decades and offset respectively ($PnE). All numbers are
+/// positive floats.
 #[derive(Into, From)]
 struct PyScaleTransform(ScaleTransform);
 
+impl<'py> FromPyObject<'py> for PyScaleTransform {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        if let Ok(gain) = ob.extract::<PyPositiveFloat>() {
+            Ok(ScaleTransform::Lin(gain.0).into())
+        } else if let Ok(log) = ob.extract::<(f32, f32)>()?.try_into() {
+            Ok(ScaleTransform::Log(log).into())
+        } else {
+            // TODO make this into a general "argument value error"
+            Err(PyValueError::new_err(
+                "scale transform must be a positive \
+                     float or a 2-tuple of positive floats",
+            ))
+        }
+    }
+}
+
+impl<'py> IntoPyObject<'py> for PyScaleTransform {
+    type Target = PyAny;
+    type Output = Bound<'py, Self::Target>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        match self.0 {
+            ScaleTransform::Lin(gain) => f32::from(gain).into_bound_py_any(py),
+            ScaleTransform::Log(l) => {
+                (f32::from(l.decades), f32::from(l.offset)).into_bound_py_any(py)
+            }
+        }
+    }
+}
+
+/// A python value for $UNICODE (3.0).
+///
+/// This is a tuple like `(u32, Vec<String>)` representing the unicode page
+/// and keywords respectively.
+#[derive(Into, From)]
+struct PyUnicode(Unicode);
+
+impl<'py> FromPyObject<'py> for PyUnicode {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let (page, kws): (u32, Vec<String>) = ob.extract()?;
+        Ok(Self(Unicode { page, kws }))
+    }
+}
+
+impl<'py> IntoPyObject<'py> for PyUnicode {
+    type Target = PyTuple;
+    type Output = Bound<'py, <(u32, Vec<String>) as IntoPyObject<'py>>::Target>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        (self.0.page, self.0.kws).into_pyobject(py)
+    }
+}
+
+/// A python value for $PnD (3.1+)
+///
+/// This is a tuple like `(bool, f32, f32)` where the first boolean is `false`
+/// for linear and `true` for log display. The two floats are the values for
+/// either display setting (lower/upper or decades/offset).
 #[derive(Into, From)]
 struct PyDisplay(Display);
 
+impl<'py> FromPyObject<'py> for PyDisplay {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let (is_log, x0, x1): (bool, f32, f32) = ob.extract()?;
+        let ret = if is_log {
+            Display::Log {
+                offset: x0,
+                decades: x1,
+            }
+        } else {
+            Display::Lin {
+                lower: x0,
+                upper: x1,
+            }
+        };
+        Ok(ret.into())
+    }
+}
+
+impl<'py> IntoPyObject<'py> for PyDisplay {
+    type Target = PyTuple;
+    type Output = Bound<'py, <(bool, f32, f32) as IntoPyObject<'py>>::Target>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        let ret = match self.0 {
+            Display::Lin { lower, upper } => (false, lower, upper),
+            Display::Log { offset, decades } => (true, offset, decades),
+        };
+        ret.into_pyobject(py)
+    }
+}
+
+/// A python value for $PnCALIBRATION (3.1).
+///
+/// This is a tuple like `(f32, String)` where the first float is positive and
+/// represents the slope and the string represents the unit.
 #[derive(Into, From)]
 struct PyCalibration3_1(Calibration3_1);
 
+impl<'py> FromPyObject<'py> for PyCalibration3_1 {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let (slope, unit): (PyPositiveFloat, String) = ob.extract()?;
+        Ok(Self(Calibration3_1 {
+            slope: slope.0,
+            unit,
+        }))
+    }
+}
+
+impl<'py> IntoPyObject<'py> for PyCalibration3_1 {
+    type Target = PyTuple;
+    type Output = Bound<'py, <(PyPositiveFloat, String) as IntoPyObject<'py>>::Target>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        (PyPositiveFloat(self.0.slope), self.0.unit).into_pyobject(py)
+    }
+}
+
+/// A python value for $PnCALIBRATION (3.2).
+///
+/// This is a tuple like `(f32, f32, String)` where the first float is positive
+/// and represents the slope, the second float represents the intercept, and the
+/// string represents the unit.
 #[derive(Into, From)]
 struct PyCalibration3_2(Calibration3_2);
 
+impl<'py> FromPyObject<'py> for PyCalibration3_2 {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let (slope, offset, unit): (PyPositiveFloat, f32, String) = ob.extract()?;
+        Ok(Self(Calibration3_2 {
+            slope: slope.0,
+            offset,
+            unit,
+        }))
+    }
+}
+
+impl<'py> IntoPyObject<'py> for PyCalibration3_2 {
+    type Target = PyTuple;
+    type Output = Bound<'py, <(PyPositiveFloat, f32, String) as IntoPyObject<'py>>::Target>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        (PyPositiveFloat(self.0.slope), self.0.offset, self.0.unit).into_pyobject(py)
+    }
+}
+
+/// A python value for $PnN (all versions).
 #[derive(Into, From)]
 struct PyShortname(Shortname);
 
-struct PyShortnamePrefix(ShortnamePrefix);
+impl<'py> FromPyObject<'py> for PyShortname {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let s: String = ob.extract()?;
+        let n = s.parse().map_err(PyShortnameError)?;
+        Ok(PyShortname(n))
+    }
+}
 
+impl<'py> IntoPyObject<'py> for PyShortname {
+    type Target = PyString;
+    type Output = Bound<'py, Self::Target>;
+    type Error = Infallible;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        self.0.to_string().into_pyobject(py)
+    }
+}
+
+/// A python value for a non-standard keyword.
 struct PyNonStdKey(NonStdKey);
 
+impl<'py> FromPyObject<'py> for PyNonStdKey {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let s: String = ob.extract()?;
+        let n = s.parse().map_err(PyKeyStringError)?;
+        Ok(PyNonStdKey(n))
+    }
+}
+
+/// A python value for a vector of input columns from a polars dataframe.
 struct PyFCSColumns(Vec<AnyFCSColumn>);
 
+impl<'py> FromPyObject<'py> for PyFCSColumns {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let mut df: PyDataFrame = ob.extract()?;
+        df.0.rechunk_mut();
+        let ret =
+            df.0.take_columns()
+                .into_iter()
+                .map(|col| series_to_fcs(col.take_materialized_series()))
+                .collect::<Result<Vec<_>, _>>()
+                // TODO make better error
+                .map_err(PyreflowException::new_err)?;
+        Ok(Self(ret))
+    }
+}
+
+/// A python value for a single input column from a polars series.
 struct PyFCSColumn(AnyFCSColumn);
 
+impl<'py> FromPyObject<'py> for PyFCSColumn {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let ser: PySeries = ob.extract()?;
+        let ret = series_to_fcs(ser.0)
+            // TODO make better error
+            .map_err(PyreflowException::new_err)?;
+        Ok(Self(ret))
+    }
+}
+
+/// A python value for a vector of temporal and optical measurements (2.0/3.0)
 struct PyRawMaybeInput<T, O>(RawInput<MaybeFamily, T, O>);
 
+impl<'py, T, O> FromPyObject<'py> for PyRawMaybeInput<T, O>
+where
+    T: FromPyObject<'py>,
+    O: FromPyObject<'py>,
+{
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let xs: Vec<(Bound<'py, PyAny>, Bound<'py, PyAny>)> = ob.extract()?;
+        xs.into_iter()
+            .map(|(name, meas)| {
+                if let Ok(t) = meas.extract::<T>() {
+                    let n: PyShortname = name.extract()?;
+                    Ok(Element::Center((n.0, t)))
+                } else if let Ok(o) = meas.extract::<O>() {
+                    let n: Option<PyShortname> = name.extract()?;
+                    Ok(Element::NonCenter((n.map(|m| m.0).into(), o)))
+                } else {
+                    Err(PyValueError::new_err("could not parse measurement"))
+                }
+            })
+            .collect::<Result<_, _>>()
+            .map(|ret| Self(RawInput(ret)))
+    }
+}
+
+/// A python value for a vector of temporal and optical measurements (3.1/3.2)
 struct PyRawAlwaysInput<T, O>(RawInput<AlwaysFamily, T, O>);
 
+impl<'py, T, O> FromPyObject<'py> for PyRawAlwaysInput<T, O>
+where
+    T: FromPyObject<'py>,
+    O: FromPyObject<'py>,
+{
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let xs: Vec<(PyShortname, Bound<'py, PyAny>)> = ob.extract()?;
+        xs.into_iter()
+            .map(|(name, meas)| {
+                if let Ok(t) = meas.extract::<T>() {
+                    Ok(Element::Center((name.0, t)))
+                } else if let Ok(o) = meas.extract::<O>() {
+                    Ok(Element::NonCenter((name.0.into(), o)))
+                } else {
+                    // TODO fix this lame error message
+                    Err(PyValueError::new_err("could not parse measurement"))
+                }
+            })
+            .collect::<Result<_, _>>()
+            .map(|ret| Self(RawInput(ret)))
+    }
+}
+
+/// A python value for a temporal or optical measurement
 #[derive(From, Into)]
 struct PyElement<T, O>(Element<T, O>);
 
+impl<'py, T, O> FromPyObject<'py> for PyElement<T, O>
+where
+    T: FromPyObject<'py>,
+    O: FromPyObject<'py>,
+{
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        // TODO misleading error
+        if let Ok(t) = ob.extract::<T>() {
+            Ok(Self(Element::Center(t)))
+        } else {
+            let o = ob.extract::<O>()?;
+            Ok(Self(Element::NonCenter(o)))
+        }
+    }
+}
+
+impl<'py, T, O> IntoPyObject<'py> for PyElement<T, O>
+where
+    T: IntoPyObject<'py>,
+    O: IntoPyObject<'py>,
+{
+    type Target = PyAny;
+    type Output = Bound<'py, Self::Target>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        match self.0 {
+            Element::Center(x) => x.into_bound_py_any(py),
+            Element::NonCenter(x) => x.into_bound_py_any(py),
+        }
+    }
+}
+
+/// A python value for the shortname prefix config parameter.
+struct PyShortnamePrefix(ShortnamePrefix);
+
+impl<'py> FromPyObject<'py> for PyShortnamePrefix {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let s: String = ob.extract()?;
+        let n = s.parse().map_err(PyShortnameError)?;
+        Ok(PyShortnamePrefix(n))
+    }
+}
+
+/// A python value for the key patterns configuration option.
 #[derive(Default)]
 struct PyKeyPatterns(KeyPatterns);
 
+impl<'py> FromPyObject<'py> for PyKeyPatterns {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let (lits, pats): (Vec<String>, Vec<String>) = ob.extract()?;
+        let mut ret = KeyPatterns::try_from_literals(lits)
+            .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+        let ps = KeyPatterns::try_from_patterns(pats)
+            .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+        ret.extend(ps);
+        Ok(Self(ret))
+    }
+}
+
+/// A python value for a positive float as used in many keyword values.
 #[derive(Into, From)]
 #[into(Timestep, Wavelength)]
 #[from(Timestep, Wavelength)]
 struct PyPositiveFloat(PositiveFloat);
 
+impl<'py> FromPyObject<'py> for PyPositiveFloat {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let x: f32 = ob.extract()?;
+        let y = x.try_into().map_err(PyRangedFloatError)?;
+        Ok(PyPositiveFloat(y))
+    }
+}
+
+impl<'py> IntoPyObject<'py> for PyPositiveFloat {
+    type Target = PyFloat;
+    type Output = Bound<'py, <f32 as IntoPyObject<'py>>::Target>;
+    type Error = Infallible;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        f32::from(self.0).into_pyobject(py)
+    }
+}
+
+/// A python value for a non-negative float as used in many keyword values.
 #[derive(Into, From)]
 #[into(DetectorVoltage, Power, Vol)]
 #[from(DetectorVoltage, Power, Vol)]
 struct PyNonNegFloat(NonNegFloat);
+
+impl<'py> FromPyObject<'py> for PyNonNegFloat {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let x: f32 = ob.extract()?;
+        let y = x.try_into().map_err(PyRangedFloatError)?;
+        Ok(PyNonNegFloat(y))
+    }
+}
+
+impl<'py> IntoPyObject<'py> for PyNonNegFloat {
+    type Target = PyFloat;
+    type Output = Bound<'py, <f32 as IntoPyObject<'py>>::Target>;
+    type Error = Infallible;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        f32::from(self.0).into_pyobject(py)
+    }
+}
 
 macro_rules! impl_pystring {
     ($outer:ident, $inner:ident) => {
@@ -3120,322 +3478,6 @@ impl_pystring!(PyNumType, NumType);
 impl_pystring!(PyFeature, Feature);
 impl_pystring!(PyMode, Mode);
 impl_pystring!(PyOpticalType, OpticalType);
-
-impl<'py> FromPyObject<'py> for PyKeyPatterns {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let (lits, pats): (Vec<String>, Vec<String>) = ob.extract()?;
-        let mut ret = KeyPatterns::try_from_literals(lits)
-            .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-        let ps = KeyPatterns::try_from_patterns(pats)
-            .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-        ret.extend(ps);
-        Ok(Self(ret))
-    }
-}
-
-impl<'py, T, O> FromPyObject<'py> for PyElement<T, O>
-where
-    T: FromPyObject<'py>,
-    O: FromPyObject<'py>,
-{
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        // TODO misleading error
-        if let Ok(t) = ob.extract::<T>() {
-            Ok(Self(Element::Center(t)))
-        } else {
-            let o = ob.extract::<O>()?;
-            Ok(Self(Element::NonCenter(o)))
-        }
-    }
-}
-
-impl<'py, T, O> FromPyObject<'py> for PyRawMaybeInput<T, O>
-where
-    T: FromPyObject<'py>,
-    O: FromPyObject<'py>,
-{
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let xs: Vec<(Bound<'py, PyAny>, Bound<'py, PyAny>)> = ob.extract()?;
-        xs.into_iter()
-            .map(|(name, meas)| {
-                if let Ok(t) = meas.extract::<T>() {
-                    let n: PyShortname = name.extract()?;
-                    Ok(Element::Center((n.0, t)))
-                } else if let Ok(o) = meas.extract::<O>() {
-                    let n: Option<PyShortname> = name.extract()?;
-                    Ok(Element::NonCenter((n.map(|m| m.0).into(), o)))
-                } else {
-                    Err(PyValueError::new_err("could not parse measurement"))
-                }
-            })
-            .collect::<Result<_, _>>()
-            .map(|ret| Self(RawInput(ret)))
-    }
-}
-
-impl<'py, T, O> FromPyObject<'py> for PyRawAlwaysInput<T, O>
-where
-    T: FromPyObject<'py>,
-    O: FromPyObject<'py>,
-{
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let xs: Vec<(PyShortname, Bound<'py, PyAny>)> = ob.extract()?;
-        xs.into_iter()
-            .map(|(name, meas)| {
-                if let Ok(t) = meas.extract::<T>() {
-                    Ok(Element::Center((name.0, t)))
-                } else if let Ok(o) = meas.extract::<O>() {
-                    Ok(Element::NonCenter((name.0.into(), o)))
-                } else {
-                    // TODO fix this lame error message
-                    Err(PyValueError::new_err("could not parse measurement"))
-                }
-            })
-            .collect::<Result<_, _>>()
-            .map(|ret| Self(RawInput(ret)))
-    }
-}
-
-impl<'py> FromPyObject<'py> for PyScale {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        if ob.is_instance_of::<PyTuple>() && ob.len()? == 0 {
-            Ok(Self(Scale::Linear))
-        } else {
-            let (decades, offset): (f32, f32) = ob.extract()?;
-            let log = Scale::try_new_log(decades, offset).map_err(PyLogRangeError)?;
-            Ok(Self(log))
-        }
-    }
-}
-
-impl<'py> FromPyObject<'py> for PyUnicode {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let (page, kws): (u32, Vec<String>) = ob.extract()?;
-        Ok(Self(Unicode { page, kws }))
-    }
-}
-
-impl<'py> FromPyObject<'py> for PyScaleTransform {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        if let Ok(gain) = ob.extract::<PyPositiveFloat>() {
-            Ok(ScaleTransform::Lin(gain.0).into())
-        } else if let Ok(log) = ob.extract::<(f32, f32)>()?.try_into() {
-            Ok(ScaleTransform::Log(log).into())
-        } else {
-            // TODO make this into a general "argument value error"
-            Err(PyValueError::new_err(
-                "scale transform must be a positive \
-                     float or a 2-tuple of positive floats",
-            ))
-        }
-    }
-}
-
-impl<'py> FromPyObject<'py> for PyDisplay {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let (is_log, x0, x1): (bool, f32, f32) = ob.extract()?;
-        let ret = if is_log {
-            Display::Log {
-                offset: x0,
-                decades: x1,
-            }
-        } else {
-            Display::Lin {
-                lower: x0,
-                upper: x1,
-            }
-        };
-        Ok(ret.into())
-    }
-}
-
-impl<'py> FromPyObject<'py> for PyCalibration3_1 {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let (slope, unit): (PyPositiveFloat, String) = ob.extract()?;
-        Ok(Self(Calibration3_1 {
-            slope: slope.0,
-            unit,
-        }))
-    }
-}
-
-impl<'py> FromPyObject<'py> for PyCalibration3_2 {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let (slope, offset, unit): (PyPositiveFloat, f32, String) = ob.extract()?;
-        Ok(Self(Calibration3_2 {
-            slope: slope.0,
-            offset,
-            unit,
-        }))
-    }
-}
-
-impl<'py> FromPyObject<'py> for PyShortname {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let s: String = ob.extract()?;
-        let n = s.parse().map_err(PyShortnameError)?;
-        Ok(PyShortname(n))
-    }
-}
-
-impl<'py> FromPyObject<'py> for PyShortnamePrefix {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let s: String = ob.extract()?;
-        let n = s.parse().map_err(PyShortnameError)?;
-        Ok(PyShortnamePrefix(n))
-    }
-}
-
-impl<'py> FromPyObject<'py> for PyNonStdKey {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let s: String = ob.extract()?;
-        let n = s.parse().map_err(PyKeyStringError)?;
-        Ok(PyNonStdKey(n))
-    }
-}
-
-impl<'py> FromPyObject<'py> for PyPositiveFloat {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let x: f32 = ob.extract()?;
-        let y = x.try_into().map_err(PyRangedFloatError)?;
-        Ok(PyPositiveFloat(y))
-    }
-}
-
-impl<'py> FromPyObject<'py> for PyNonNegFloat {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let x: f32 = ob.extract()?;
-        let y = x.try_into().map_err(PyRangedFloatError)?;
-        Ok(PyNonNegFloat(y))
-    }
-}
-
-impl<'py> FromPyObject<'py> for PyFCSColumns {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let mut df: PyDataFrame = ob.extract()?;
-        df.0.rechunk_mut();
-        let ret =
-            df.0.take_columns()
-                .into_iter()
-                .map(|col| series_to_fcs(col.take_materialized_series()))
-                .collect::<Result<Vec<_>, _>>()
-                // TODO make better error
-                .map_err(PyreflowException::new_err)?;
-        Ok(Self(ret))
-    }
-}
-
-impl<'py> FromPyObject<'py> for PyFCSColumn {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let ser: PySeries = ob.extract()?;
-        let ret = series_to_fcs(ser.0)
-            // TODO make better error
-            .map_err(PyreflowException::new_err)?;
-        Ok(Self(ret))
-    }
-}
-
-impl<'py> IntoPyObject<'py> for PyScale {
-    type Target = PyAny;
-    type Output = Bound<'py, Self::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        match self.0 {
-            Scale::Linear => Ok(PyTuple::empty(py).into_any()),
-            Scale::Log(l) => (f32::from(l.decades), f32::from(l.offset)).into_bound_py_any(py),
-        }
-    }
-}
-
-impl<'py> IntoPyObject<'py> for PyUnicode {
-    type Target = PyTuple;
-    type Output = Bound<'py, <(u32, Vec<String>) as IntoPyObject<'py>>::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        (self.0.page, self.0.kws).into_pyobject(py)
-    }
-}
-
-impl<'py> IntoPyObject<'py> for PyScaleTransform {
-    type Target = PyAny;
-    type Output = Bound<'py, Self::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        match self.0 {
-            ScaleTransform::Lin(gain) => f32::from(gain).into_bound_py_any(py),
-            ScaleTransform::Log(l) => {
-                (f32::from(l.decades), f32::from(l.offset)).into_bound_py_any(py)
-            }
-        }
-    }
-}
-
-impl<'py> IntoPyObject<'py> for PyDisplay {
-    type Target = PyTuple;
-    type Output = Bound<'py, <(bool, f32, f32) as IntoPyObject<'py>>::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        let ret = match self.0 {
-            Display::Lin { lower, upper } => (false, lower, upper),
-            Display::Log { offset, decades } => (true, offset, decades),
-        };
-        ret.into_pyobject(py)
-    }
-}
-
-impl<'py> IntoPyObject<'py> for PyCalibration3_1 {
-    type Target = PyTuple;
-    type Output = Bound<'py, <(PyPositiveFloat, String) as IntoPyObject<'py>>::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        (PyPositiveFloat(self.0.slope), self.0.unit).into_pyobject(py)
-    }
-}
-
-impl<'py> IntoPyObject<'py> for PyShortname {
-    type Target = PyString;
-    type Output = Bound<'py, Self::Target>;
-    type Error = Infallible;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        self.0.to_string().into_pyobject(py)
-    }
-}
-
-impl<'py> IntoPyObject<'py> for PyCalibration3_2 {
-    type Target = PyTuple;
-    type Output = Bound<'py, <(PyPositiveFloat, f32, String) as IntoPyObject<'py>>::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        (PyPositiveFloat(self.0.slope), self.0.offset, self.0.unit).into_pyobject(py)
-    }
-}
-
-impl<'py> IntoPyObject<'py> for PyNonNegFloat {
-    type Target = PyFloat;
-    type Output = Bound<'py, <f32 as IntoPyObject<'py>>::Target>;
-    type Error = Infallible;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        f32::from(self.0).into_pyobject(py)
-    }
-}
-
-impl<'py> IntoPyObject<'py> for PyPositiveFloat {
-    type Target = PyFloat;
-    type Output = Bound<'py, <f32 as IntoPyObject<'py>>::Target>;
-    type Error = Infallible;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        f32::from(self.0).into_pyobject(py)
-    }
-}
 
 macro_rules! column_to_buf {
     ($col:expr, $prim:ident) => {

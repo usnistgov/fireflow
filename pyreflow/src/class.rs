@@ -7,7 +7,9 @@ use fireflow_core::segment::*;
 use fireflow_core::text::byteord::ByteOrd2_0;
 use fireflow_core::text::datetimes::ReversedDatetimes;
 use fireflow_core::text::keywords::*;
-use fireflow_core::text::named_vec::{Element, KeyLengthError, NamedVec, RawInput};
+use fireflow_core::text::named_vec::{
+    Element, ElementIndexError, KeyLengthError, NamedVec, RawInput,
+};
 use fireflow_core::text::optional::*;
 use fireflow_core::text::ranged_float::*;
 use fireflow_core::text::scale::*;
@@ -29,7 +31,7 @@ use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
 use polars::prelude::*;
 use polars_arrow::array::PrimitiveArray;
 use pyo3::create_exception;
-use pyo3::exceptions::{PyException, PyValueError, PyWarning};
+use pyo3::exceptions::{PyException, PyIndexError, PyValueError, PyWarning};
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyDict, PyFloat, PyString, PyTuple};
 use pyo3::IntoPyObjectExt;
@@ -1480,23 +1482,23 @@ macro_rules! common_meas_get_set {
                     .map(|(i, x)| (i.into(), x.inner_into().into()))
             }
 
-            fn measurement_at(&self, i: usize) -> PyResult<PyElement<$t, $o>> {
-                // TODO this is basically going to emit an "index out of
-                // bounds" error, which python already has
+            fn measurement_at(&self, i: usize) -> Result<PyElement<$t, $o>, PyElementIndexError> {
                 let ms: &NamedVec<_, _, _, _> = self.0.as_ref();
-                let m = ms
-                    .get(i.into())
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+                let m = ms.get(i.into()).map_err(PyElementIndexError)?;
                 Ok(m.bimap(|x| x.1.clone(), |x| x.1.clone())
                     .inner_into()
                     .into())
             }
 
-            fn replace_optical_at(&mut self, i: usize, m: $o) -> PyResult<PyElement<$t, $o>> {
+            fn replace_optical_at(
+                &mut self,
+                i: usize,
+                m: $o,
+            ) -> Result<PyElement<$t, $o>, PyElementIndexError> {
                 let ret = self
                     .0
                     .replace_optical_at(i.into(), m.into())
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+                    .map_err(PyElementIndexError)?;
                 Ok(ret.inner_into().into())
             }
 
@@ -1701,11 +1703,11 @@ macro_rules! coretext2_0_meas_methods {
             fn remove_measurement_by_index(
                 &mut self,
                 index: usize,
-            ) -> PyResult<(Option<PyShortname>, PyElement<$t, $o>)> {
+            ) -> Result<(Option<PyShortname>, PyElement<$t, $o>), PyElementIndexError> {
                 let r = self
                     .0
                     .remove_measurement_by_index(index.into())
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+                    .map_err(PyElementIndexError)?;
                 let (n, v) = Element::unzip::<MaybeFamily>(r);
                 Ok((n.0.map(|x| x.into()), v.inner_into().into()))
             }
@@ -1753,11 +1755,11 @@ macro_rules! coretext3_1_meas_methods {
             fn remove_measurement_by_index(
                 &mut self,
                 index: usize,
-            ) -> PyResult<(PyShortname, PyElement<$t, $o>)> {
+            ) -> Result<(PyShortname, PyElement<$t, $o>), PyElementIndexError> {
                 let r = self
                     .0
                     .remove_measurement_by_index(index.into())
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+                    .map_err(PyElementIndexError)?;
                 let (n, v) = Element::unzip::<AlwaysFamily>(r);
                 Ok((n.0.into(), v.inner_into().into()))
             }
@@ -3535,6 +3537,15 @@ struct PyLogRangeError(LogRangeError);
 impl From<PyLogRangeError> for PyErr {
     fn from(value: PyLogRangeError) -> Self {
         PyreflowException::new_err(value.to_string())
+    }
+}
+
+#[derive(Display, From)]
+struct PyElementIndexError(ElementIndexError);
+
+impl From<PyElementIndexError> for PyErr {
+    fn from(value: PyElementIndexError) -> Self {
+        PyIndexError::new_err(value.to_string())
     }
 }
 

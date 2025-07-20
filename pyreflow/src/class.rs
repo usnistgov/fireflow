@@ -28,6 +28,7 @@ use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use derive_more::{Display, From, Into};
 use nonempty::NonEmpty;
 use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
+use polars::datatypes::NumericNative;
 use polars::prelude::*;
 use polars_arrow::array::PrimitiveArray;
 use pyo3::create_exception;
@@ -3461,42 +3462,33 @@ impl_pystring!(PyFeature, Feature);
 impl_pystring!(PyMode, Mode);
 impl_pystring!(PyOpticalType, OpticalType);
 
-macro_rules! column_to_buf {
-    ($col:expr, $prim:ident) => {
-        let ca = $col.$prim().unwrap();
-        if ca.first_non_null().is_some() {
-            return Err(format!("column {} has null values", $col.name()));
-        }
-        let buf = ca.chunks()[0]
+fn column_to_buf<T>(ser: Series) -> Result<AnyFCSColumn, String>
+where
+    T: NumericNative,
+    AnyFCSColumn: From<FCSColumn<T>>,
+{
+    if ser.null_count() > 0 {
+        // TODO make this not a string
+        Err(format!("column {} has null values", ser.name()))
+    } else {
+        let buf = ser.into_chunks()[0]
             .as_any()
-            .downcast_ref::<PrimitiveArray<$prim>>()
+            .downcast_ref::<PrimitiveArray<T>>()
             .unwrap()
             .values()
             .clone();
-        return Ok(FCSColumn(buf).into());
-    };
+        Ok(FCSColumn(buf).into())
+    }
 }
 
 fn series_to_fcs(ser: Series) -> Result<AnyFCSColumn, String> {
     match ser.dtype() {
-        DataType::UInt8 => {
-            column_to_buf!(ser, u8);
-        }
-        DataType::UInt16 => {
-            column_to_buf!(ser, u16);
-        }
-        DataType::UInt32 => {
-            column_to_buf!(ser, u32);
-        }
-        DataType::UInt64 => {
-            column_to_buf!(ser, u64);
-        }
-        DataType::Float32 => {
-            column_to_buf!(ser, f32);
-        }
-        DataType::Float64 => {
-            column_to_buf!(ser, f64);
-        }
+        DataType::UInt8 => column_to_buf::<u8>(ser),
+        DataType::UInt16 => column_to_buf::<u16>(ser),
+        DataType::UInt32 => column_to_buf::<u32>(ser),
+        DataType::UInt64 => column_to_buf::<u64>(ser),
+        DataType::Float32 => column_to_buf::<f32>(ser),
+        DataType::Float64 => column_to_buf::<f64>(ser),
         t => Err(format!("invalid datatype: {t}")),
     }
 }

@@ -308,8 +308,6 @@ macro_rules! match_anycore {
     };
 }
 
-pub(crate) use match_anycore;
-
 impl<A, D, O> AnyCore<A, D, O> {
     pub fn version(&self) -> Version {
         match_many_to_one!(self, Self, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
@@ -1360,7 +1358,8 @@ pub trait VersionedMetaroot: Sized {
         };
         let t_res = o.specific.can_convert_to_temporal(i).mult_errors_into();
         let o_specific_res = t.specific.can_convert_to_optical(i).mult_errors_into();
-        let o_common_res = check_optical_keys_transfer(&o, i)
+        let o_common_res = o
+            .check_keys_transfer(i)
             .mult_errors_into::<OpticalToTemporalError>()
             .mult_errors_into();
         match t_res.mult_zip3(o_specific_res, o_common_res) {
@@ -1437,7 +1436,7 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
         OpticalToTemporalError,
         OpticalToTemporalError,
     > {
-        let opt_common_res = check_optical_keys_transfer(&o, i).mult_errors_into();
+        let opt_common_res = o.check_keys_transfer(i).mult_errors_into();
         let opt_specific_res = o.specific.can_convert_to_temporal(i).mult_errors_into();
         match opt_common_res.mult_zip(opt_specific_res) {
             Ok(_) => Ok(Tentative::new1(Self::from_optical_unchecked(o, d))),
@@ -1800,6 +1799,19 @@ impl<O> Optical<O> {
         O: AsScaleTransform,
     {
         self.specific.as_transform()
+    }
+
+    fn check_keys_transfer(
+        &self,
+        i: MeasIndex,
+    ) -> MultiResult<(), AnyOpticalToTemporalKeyLossError> {
+        let j = i.into();
+        let f = check_indexed_key_transfer(&self.filter, j);
+        let o = check_indexed_key_transfer(&self.power, j);
+        let t = check_indexed_key_transfer(&self.detector_type, j);
+        let p = check_indexed_key_transfer(&self.percent_emitted, j);
+        let v = check_indexed_key_transfer(&self.detector_voltage, j);
+        f.zip3(o, t).mult_zip(p.zip(v)).map(|_| ())
     }
 }
 
@@ -6093,19 +6105,6 @@ where
     }
 }
 
-fn check_optical_keys_transfer<X>(
-    x: &Optical<X>,
-    i: MeasIndex,
-) -> MultiResult<(), AnyOpticalToTemporalKeyLossError> {
-    let j = i.into();
-    let f = check_indexed_key_transfer(&x.filter, j);
-    let o = check_indexed_key_transfer(&x.power, j);
-    let t = check_indexed_key_transfer(&x.detector_type, j);
-    let p = check_indexed_key_transfer(&x.percent_emitted, j);
-    let v = check_indexed_key_transfer(&x.detector_voltage, j);
-    f.zip3(o, t).mult_zip(p.zip(v)).map(|_| ())
-}
-
 fn check_indexed_key_transfer_own<T, E>(
     x: MaybeValue<T>,
     i: IndexFromOne,
@@ -6680,7 +6679,6 @@ impl LookupTemporal for InnerTemporal2_0 {
         i: MeasIndex,
         _: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        // TODO push meas index with error
         let s = TemporalScale::lookup_opt(kws, i.into());
         let p = PeakData::lookup(kws, i);
         Ok(s.zip(p).map(|(scale, peak)| Self { peak, scale }))

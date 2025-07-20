@@ -3462,26 +3462,26 @@ impl_pystring!(PyFeature, Feature);
 impl_pystring!(PyMode, Mode);
 impl_pystring!(PyOpticalType, OpticalType);
 
-fn column_to_buf<T>(ser: Series) -> Result<AnyFCSColumn, String>
-where
-    T: NumericNative,
-    AnyFCSColumn: From<FCSColumn<T>>,
-{
-    if ser.null_count() > 0 {
-        // TODO make this not a string
-        Err(format!("column {} has null values", ser.name()))
-    } else {
-        let buf = ser.into_chunks()[0]
-            .as_any()
-            .downcast_ref::<PrimitiveArray<T>>()
-            .unwrap()
-            .values()
-            .clone();
-        Ok(FCSColumn(buf).into())
-    }
-}
-
 fn series_to_fcs(ser: Series) -> Result<AnyFCSColumn, String> {
+    fn column_to_buf<T>(ser: Series) -> Result<AnyFCSColumn, String>
+    where
+        T: NumericNative,
+        AnyFCSColumn: From<FCSColumn<T>>,
+    {
+        if ser.null_count() > 0 {
+            // TODO make this not a string
+            Err(format!("column {} has null values", ser.name()))
+        } else {
+            let buf = ser.into_chunks()[0]
+                .as_any()
+                .downcast_ref::<PrimitiveArray<T>>()
+                .unwrap()
+                .values()
+                .clone();
+            Ok(FCSColumn(buf).into())
+        }
+    }
+
     match ser.dtype() {
         DataType::UInt8 => column_to_buf::<u8>(ser),
         DataType::UInt16 => column_to_buf::<u16>(ser),

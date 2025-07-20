@@ -1202,7 +1202,10 @@ pub trait Versioned {
         (FCSDataFrame, Analysis, AnyDataSegment, AnyAnalysisSegment),
         LookupAndReadDataAnalysisWarning,
         LookupAndReadDataAnalysisError,
-    > {
+    >
+    where
+        Self::Offsets: AsRef<AnyDataSegment> + AsRef<AnyAnalysisSegment>,
+    {
         let layout_res = Self::Layout::lookup_ro(kws, &st.conf.standard)
             .def_inner_into()
             .def_errors_liftio();
@@ -1218,11 +1221,11 @@ pub trait Versioned {
             .def_zip(offset_res)
             .def_and_maybe(|(layout, offsets)| {
                 let ar = AnalysisReader {
-                    seg: offsets.analysis(),
+                    seg: *offsets.as_ref(),
                 };
                 // TODO what if data seg is non empty and layout is empty?
                 let data_res = layout.map_or(Ok(Tentative::new1(FCSDataFrame::default())), |l| {
-                    l.h_read_df(h, offsets.tot(), offsets.data(), &st.conf.reader)
+                    l.h_read_df(h, offsets.tot(), *offsets.as_ref(), &st.conf.reader)
                         .def_warnings_into()
                         .def_map_errors(|e| e.inner_into())
                 });
@@ -1230,7 +1233,7 @@ pub trait Versioned {
                 data_res
                     .def_zip(analysis_res)
                     .def_map_value(|(data, analysis)| {
-                        (data, analysis, offsets.data(), offsets.analysis())
+                        (data, analysis, *offsets.as_ref(), *offsets.as_ref())
                     })
             })
     }
@@ -1526,29 +1529,30 @@ pub trait VersionedTEXTOffsets: Sized {
         conf: &ReadState<StdTextReadConfig>,
     ) -> LookupTEXTOffsetsResult<Self>;
 
-    // TODO this doesn't seem necessary
-    fn data(&self) -> AnyDataSegment;
-
-    fn analysis(&self) -> AnyAnalysisSegment;
-
     fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot;
 
     fn into_common(self) -> TEXTOffsets<Option<Tot>>;
 }
 
+#[derive(AsRef)]
 pub struct TEXTOffsets<T> {
+    #[as_ref(AnyDataSegment)]
     pub data: AnyDataSegment,
+    #[as_ref(AnyAnalysisSegment)]
     pub analysis: AnyAnalysisSegment,
     pub tot: T,
 }
 
-#[derive(From)]
+#[derive(From, AsRef)]
+#[as_ref(AnyDataSegment, AnyAnalysisSegment)]
 pub struct TEXTOffsets2_0(pub TEXTOffsets<Option<Tot>>);
 
-#[derive(From)]
+#[derive(From, AsRef)]
+#[as_ref(AnyDataSegment, AnyAnalysisSegment)]
 pub struct TEXTOffsets3_0(pub TEXTOffsets<Tot>);
 
-#[derive(From)]
+#[derive(From, AsRef)]
+#[as_ref(AnyDataSegment, AnyAnalysisSegment)]
 pub struct TEXTOffsets3_2(pub TEXTOffsets<Tot>);
 
 impl CommonMeasurement {
@@ -3633,6 +3637,7 @@ where
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical,
         Version: From<M::Ver>,
+        <M::Ver as Versioned>::Offsets: AsRef<AnyDataSegment> + AsRef<AnyAnalysisSegment>,
     {
         VersionedCoreTEXT::<M>::lookup(
             kws,
@@ -3647,14 +3652,14 @@ where
         .def_and_maybe(|(text, offsets)| {
             let or = OthersReader { segs: other_segs };
             let ar = AnalysisReader {
-                seg: offsets.analysis(),
+                seg: *offsets.as_ref(),
             };
             // TODO what happens if the layout is empty but the segment
             // isn't?
             let data_res = text.layout.as_ref_opt().map_or(
                 Ok(Tentative::new1(FCSDataFrame::default())),
                 |l: &<M::Ver as Versioned>::Layout| {
-                    l.h_read_df(h, offsets.tot(), offsets.data(), &st.conf.reader)
+                    l.h_read_df(h, offsets.tot(), *offsets.as_ref(), &st.conf.reader)
                         .def_warnings_into()
                         .def_map_errors(|e| e.inner_into())
                 },
@@ -3672,7 +3677,7 @@ where
                         analysis,
                         others,
                     };
-                    (c, offsets.data(), offsets.analysis())
+                    (c, *offsets.as_ref(), *offsets.as_ref())
                 })
         })
     }
@@ -7023,14 +7028,6 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
             }))
     }
 
-    fn data(&self) -> AnyDataSegment {
-        self.0.data
-    }
-
-    fn analysis(&self) -> AnyAnalysisSegment {
-        self.0.analysis
-    }
-
     fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot {
         self.0.tot
     }
@@ -7117,14 +7114,6 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
                 }
                 .into()
             })
-    }
-
-    fn data(&self) -> AnyDataSegment {
-        self.0.data
-    }
-
-    fn analysis(&self) -> AnyAnalysisSegment {
-        self.0.analysis
     }
 
     fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot {
@@ -7220,14 +7209,6 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
                     .into()
                 })
             })
-    }
-
-    fn data(&self) -> AnyDataSegment {
-        self.0.data
-    }
-
-    fn analysis(&self) -> AnyAnalysisSegment {
-        self.0.analysis
     }
 
     fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot {

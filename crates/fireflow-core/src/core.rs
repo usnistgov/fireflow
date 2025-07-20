@@ -706,6 +706,14 @@ pub struct InnerTemporal3_2 {
 #[derive(Clone, Serialize, Default, AsRef, AsMut)]
 pub struct InnerOptical2_0 {
     /// Value for $PnE
+    ///
+    /// This does not accessible via [`AsMut`] since this would expose this
+    /// value to modification via [`Core::set_optical`] which we do not want
+    /// since [`ScaleTransform`] needs to be synced with [`Core::layout`]. Consequently,
+    /// the measurement array in `Core` is also private.
+    ///
+    /// There is no harm in modifying `scale` when this struct is on its own,
+    /// however, so it is still public.
     #[as_ref(Option<Scale>)]
     pub scale: MaybeValue<Scale>,
 
@@ -726,6 +734,14 @@ pub struct InnerOptical2_0 {
 #[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerOptical3_0 {
     /// Value for $PnE/$PnG
+    ///
+    /// This does not accessible via [`AsMut`] since this would expose this
+    /// value to modification via [`Core::set_optical`] which we do not want
+    /// since [`ScaleTransform`] needs to be synced with [`Core::layout`]. Consequently,
+    /// the measurement array in `Core` is also private.
+    ///
+    /// There is no harm in modifying `scale` when this struct is on its own,
+    /// however, so it is still public.
     #[as_ref(ScaleTransform)]
     pub scale: ScaleTransform,
 
@@ -746,6 +762,14 @@ pub struct InnerOptical3_0 {
 #[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerOptical3_1 {
     /// Value for $PnE/$PnG
+    ///
+    /// This does not accessible via [`AsMut`] since this would expose this
+    /// value to modification via [`Core::set_optical`] which we do not want
+    /// since [`ScaleTransform`] needs to be synced with [`Core::layout`]. Consequently,
+    /// the measurement array in `Core` is also private.
+    ///
+    /// There is no harm in modifying `scale` when this struct is on its own,
+    /// however, so it is still public.
     #[as_ref(ScaleTransform)]
     pub scale: ScaleTransform,
 
@@ -776,8 +800,15 @@ pub struct InnerOptical3_1 {
 #[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerOptical3_2 {
     /// Value for $PnE/$PnG
+    ///
+    /// This does not accessible via [`AsMut`] since this would expose this
+    /// value to modification via [`Core::set_optical`] which we do not want
+    /// since [`ScaleTransform`] needs to be synced with [`Core::layout`]. Consequently,
+    /// the measurement array in `Core` is also private.
+    ///
+    /// There is no harm in modifying `scale` when this struct is on its own,
+    /// however, so it is still public.
     #[as_ref(ScaleTransform)]
-    // TODO explain why this is pub and not as_mut
     pub scale: ScaleTransform,
 
     /// Value for $PnL

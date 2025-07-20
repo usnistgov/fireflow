@@ -2479,6 +2479,8 @@ where
 }
 
 // TODO use warnings_are_errors flag
+// TODO python has a way of handling multiple exceptions (ExceptionGroup)
+// starting in 3.11
 fn handle_failure<W, E, T>(f: TerminalFailure<W, E, T>) -> PyErr
 where
     E: fmt::Display,

@@ -2928,70 +2928,6 @@ get_set_meas!(
     PyOptical3_2
 );
 
-struct ConvertFailure;
-
-impl fmt::Display for ConvertFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "could not change FCS version")
-    }
-}
-
-struct SetTemporalFailure;
-
-impl fmt::Display for SetTemporalFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "could not convert to/from temporal measurement")
-    }
-}
-
-struct SetLayoutFailure;
-
-impl fmt::Display for SetLayoutFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "could not set data layout")
-    }
-}
-
-struct PushTemporalFailure;
-
-impl fmt::Display for PushTemporalFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "could not push temporal measurement")
-    }
-}
-
-struct InsertTemporalFailure;
-
-impl fmt::Display for InsertTemporalFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "could not push temporal measurement")
-    }
-}
-
-struct PushOpticalFailure;
-
-impl fmt::Display for PushOpticalFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "could not push optical measurement")
-    }
-}
-
-struct InsertOpticalFailure;
-
-impl fmt::Display for InsertOpticalFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "could not push optical measurement")
-    }
-}
-
-struct SetMeasurementsFailure;
-
-impl fmt::Display for SetMeasurementsFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "could not set measurements/layout")
-    }
-}
-
 // TODO deref for stuff like this?
 /// A python value for a segment.
 ///
@@ -3690,3 +3626,34 @@ impl<V, E: fmt::Display> PyDefNoWarnResultExt for DeferredResult<V, (), E> {
             .map(|x| x.inner())
     }
 }
+
+macro_rules! def_failure {
+    ($failname:ident, $msg:expr) => {
+        struct $failname;
+
+        impl fmt::Display for $failname {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+                write!(f, $msg)
+            }
+        }
+    };
+}
+
+def_failure!(ConvertFailure, "could not change FCS version");
+
+def_failure!(
+    SetTemporalFailure,
+    "could not convert to/from temporal measurement"
+);
+
+def_failure!(SetLayoutFailure, "could not set data layout");
+
+def_failure!(PushTemporalFailure, "could not push temporal measurement");
+
+def_failure!(InsertTemporalFailure, "could not push temporal measurement");
+
+def_failure!(PushOpticalFailure, "could not push optical measurement");
+
+def_failure!(InsertOpticalFailure, "could not push optical measurement");
+
+def_failure!(SetMeasurementsFailure, "could not set measurements/layout");

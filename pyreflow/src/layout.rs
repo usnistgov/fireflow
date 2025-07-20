@@ -567,17 +567,6 @@ where
 
 struct PyMixedType(NullMixedType);
 
-pub(crate) struct PyNonEmpty<T>(pub(crate) NonEmpty<T>);
-
-impl<'py, T: FromPyObject<'py>> FromPyObject<'py> for PyNonEmpty<T> {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let xs: Vec<_> = ob.extract()?;
-        NonEmpty::from_vec(xs)
-            .ok_or(PyValueError::new_err("list must not be empty"))
-            .map(Self)
-    }
-}
-
 impl<'py> FromPyObject<'py> for PyMixedType {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let (datatype, value): (PyAlphaNumType, Bound<'py, PyAny>) = ob.extract()?;
@@ -614,6 +603,17 @@ where
         let xs: Vec<u8> = ob.extract()?;
         let ret = SizedByteOrd::<LEN>::try_from(xs).map_err(PyVecToSizedError)?;
         Ok(Self(ret))
+    }
+}
+
+pub(crate) struct PyNonEmpty<T>(pub(crate) NonEmpty<T>);
+
+impl<'py, T: FromPyObject<'py>> FromPyObject<'py> for PyNonEmpty<T> {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let xs: Vec<_> = ob.extract()?;
+        NonEmpty::from_vec(xs)
+            .ok_or(PyValueError::new_err("list must not be empty"))
+            .map(Self)
     }
 }
 

@@ -55,6 +55,28 @@ impl Default for Timestep {
     }
 }
 
+impl Timestep {
+    pub(crate) fn check_conversion(&self, force: bool) -> BiTentative<(), TimestepLossError> {
+        let mut tnt = Tentative::default();
+        if f32::from(self.0) != 1.0 {
+            tnt.push_error_or_warning(TimestepLossError(*self), !force);
+        }
+        tnt
+    }
+}
+
+pub struct TimestepLossError(Timestep);
+
+impl fmt::Display for TimestepLossError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "$TIMESTEP is {} and will be 1.0 after conversion",
+            self.0
+        )
+    }
+}
+
 /// The value of the $VOL keyword
 #[derive(Clone, Copy, Serialize, From, Display, FromStr, Into)]
 #[into(NonNegFloat, f32)]

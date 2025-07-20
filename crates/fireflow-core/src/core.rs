@@ -5511,18 +5511,6 @@ pub enum LayoutConvertError {
     MixedToNonMixed(MixedToNonMixedLayoutError),
 }
 
-pub struct TimestepLossError(Timestep);
-
-impl fmt::Display for TimestepLossError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "$TIMESTEP is {} and will be 1.0 after conversion",
-            self.0
-        )
-    }
-}
-
 macro_rules! impl_ref {
     ($outer:ident, $inner:ident) => {
         impl AsRef<$inner> for $outer<$inner> {
@@ -6134,14 +6122,6 @@ where
     tnt
 }
 
-fn check_timestep(x: Timestep, force: bool) -> TemporalConvertTentative<()> {
-    let mut tnt = Tentative::new1(());
-    if f32::from(x.0) != 1.0 {
-        tnt.push_error_or_warning(TimestepLossError(x), !force);
-    }
-    tnt
-}
-
 impl ScaleTransform {
     /// Convert to a simple scale value (just $PnE, no $PnG).
     ///
@@ -6263,10 +6243,14 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal2_0 {
         _: MeasIndex,
         force: bool,
     ) -> TemporalConvertTentative<Self> {
-        check_timestep(value.timestep, force).map(|_| Self {
-            peak: value.peak,
-            scale: Some(TemporalScale).into(),
-        })
+        value
+            .timestep
+            .check_conversion(force)
+            .map(|_| Self {
+                peak: value.peak,
+                scale: Some(TemporalScale).into(),
+            })
+            .inner_into()
     }
 }
 
@@ -6276,7 +6260,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal2_0 {
         i: MeasIndex,
         force: bool,
     ) -> TemporalConvertTentative<Self> {
-        let t = check_timestep(value.timestep, force);
+        let t = value.timestep.check_conversion(force).inner_into();
         let d = check_indexed_key_transfer_own::<_, AnyMeasKeyLossError>(
             value.display,
             i.into(),
@@ -6299,7 +6283,7 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal2_0 {
         let j = i.into();
         let di = check_indexed_key_transfer_own::<_, AnyMeasKeyLossError>(value.display, j, !force);
         let m = check_indexed_key_transfer_own(value.measurement_type, j, !force);
-        let t = check_timestep(value.timestep, force);
+        let t = value.timestep.check_conversion(force).inner_into();
         di.zip(m).inner_into().zip(t).map(|_| Self {
             peak: PeakData::default(),
             scale: Some(TemporalScale).into(),

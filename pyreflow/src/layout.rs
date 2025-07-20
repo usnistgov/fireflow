@@ -1,12 +1,13 @@
 use fireflow_core::data::{
-    self, AnyNullBitmask, DataLayout3_2, EndianLayout, F32Range, F64Range, FixedLayout, FloatRange,
-    KnownTot, LayoutOps, NoMeasDatatype, NonMixedEndianLayout, NullMixedType, OrderedLayout,
-    OrderedLayoutOps,
+    self, AnyAsciiLayout, AnyNullBitmask, AnyOrderedLayout, AnyOrderedUintLayout, DataLayout2_0,
+    DataLayout3_0, DataLayout3_1, DataLayout3_2, EndianLayout, F32Range, F64Range, FixedLayout,
+    FloatRange, KnownTot, LayoutOps, NoMeasDatatype, NonMixedEndianLayout, NullMixedType,
+    OrderedLayout, OrderedLayoutOps,
 };
 use fireflow_core::text::byteord::{Endian, SizedByteOrd, VecToSizedError};
 use fireflow_core::text::float_decimal::{FloatDecimal, HasFloatBounds};
 use fireflow_core::text::keywords::AlphaNumType;
-use fireflow_core::validated::ascii_range::{AsciiRange, Chars};
+use fireflow_core::validated::ascii_range::AsciiRange;
 use fireflow_core::validated::bitmask::{self, Bitmask};
 use pyo3::conversion::FromPyObjectBound;
 use pyo3::exceptions::PyValueError;
@@ -65,98 +66,64 @@ pub(crate) enum PyLayout3_2 {
     Mixed(PyMixedLayout),
 }
 
-impl From<NonMixedEndianLayout<NoMeasDatatype>> for PyNonMixedLayout {
-    fn from(value: NonMixedEndianLayout<NoMeasDatatype>) -> Self {
-        match value {
-            NonMixedEndianLayout::Ascii(x) => match x {
-                data::AnyAsciiLayout::Fixed(y) => y.into(),
-                data::AnyAsciiLayout::Delimited(y) => y.into(),
-            },
-            NonMixedEndianLayout::Integer(x) => x.into(),
-            NonMixedEndianLayout::F32(x) => x.into(),
-            NonMixedEndianLayout::F64(x) => x.into(),
-        }
-    }
-}
-
-impl From<PyNonMixedLayout> for NonMixedEndianLayout<NoMeasDatatype> {
-    fn from(value: PyNonMixedLayout) -> Self {
-        match value {
-            PyNonMixedLayout::AsciiFixed(x) => data::AnyAsciiLayout::Fixed(x.into()).into(),
-            PyNonMixedLayout::AsciiDelim(x) => data::AnyAsciiLayout::Delimited(x.into()).into(),
-            PyNonMixedLayout::Uint(x) => Self::Integer(x.into()),
-            PyNonMixedLayout::F32(x) => Self::F32(x.into()),
-            PyNonMixedLayout::F64(x) => Self::F64(x.into()),
-        }
-    }
-}
-
-impl From<DataLayout3_2> for PyLayout3_2 {
-    fn from(value: DataLayout3_2) -> Self {
-        match value {
-            DataLayout3_2::Mixed(x) => Self::Mixed(x.into()),
-            DataLayout3_2::NonMixed(x) => Self::NonMixed(x.phantom_into().into()),
-        }
-    }
-}
-
-impl From<PyLayout3_2> for DataLayout3_2 {
-    fn from(value: PyLayout3_2) -> Self {
-        match value {
-            PyLayout3_2::Mixed(x) => Self::Mixed(x.into()),
-            PyLayout3_2::NonMixed(x) => {
-                Self::NonMixed(NonMixedEndianLayout::from(x).phantom_into())
-            }
-        }
-    }
-}
-
 #[derive(Clone, From, Into)]
 #[pyclass(name = "AsciiFixedLayout")]
+#[into(AnyAsciiLayout<KnownTot, NoMeasDatatype, false>)]
 pub(crate) struct PyAsciiFixedLayout(data::FixedAsciiLayout<KnownTot, NoMeasDatatype, false>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "AsciiDelimLayout")]
+#[into(AnyAsciiLayout<KnownTot, NoMeasDatatype, false>)]
 pub(crate) struct PyAsciiDelimLayout(data::DelimAsciiLayout<KnownTot, NoMeasDatatype, false>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "OrderedUint08Layout")]
+#[into(AnyOrderedUintLayout<KnownTot>)]
 pub(crate) struct PyOrderedUint08Layout(OrderedLayout<bitmask::Bitmask08, KnownTot>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "OrderedUint16Layout")]
+#[into(AnyOrderedUintLayout<KnownTot>)]
 pub(crate) struct PyOrderedUint16Layout(OrderedLayout<bitmask::Bitmask16, KnownTot>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "OrderedUint24Layout")]
+#[into(AnyOrderedUintLayout<KnownTot>)]
 pub(crate) struct PyOrderedUint24Layout(OrderedLayout<bitmask::Bitmask24, KnownTot>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "OrderedUint32Layout")]
+#[into(AnyOrderedUintLayout<KnownTot>)]
 pub(crate) struct PyOrderedUint32Layout(OrderedLayout<bitmask::Bitmask32, KnownTot>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "OrderedUint40Layout")]
+#[into(AnyOrderedUintLayout<KnownTot>)]
 pub(crate) struct PyOrderedUint40Layout(OrderedLayout<bitmask::Bitmask40, KnownTot>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "OrderedUint48Layout")]
+#[into(AnyOrderedUintLayout<KnownTot>)]
 pub(crate) struct PyOrderedUint48Layout(OrderedLayout<bitmask::Bitmask48, KnownTot>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "OrderedUint56Layout")]
+#[into(AnyOrderedUintLayout<KnownTot>)]
 pub(crate) struct PyOrderedUint56Layout(OrderedLayout<bitmask::Bitmask56, KnownTot>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "OrderedUint64Layout")]
+#[into(AnyOrderedUintLayout<KnownTot>)]
 pub(crate) struct PyOrderedUint64Layout(OrderedLayout<bitmask::Bitmask64, KnownTot>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "OrderedF32Layout")]
+#[into(AnyOrderedLayout<KnownTot>)]
 pub(crate) struct PyOrderedF32Layout(OrderedLayout<F32Range, KnownTot>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "OrderedF64Layout")]
+#[into(AnyOrderedLayout<KnownTot>)]
 pub(crate) struct PyOrderedF64Layout(OrderedLayout<F64Range, KnownTot>);
 
 #[derive(Clone, From, Into)]
@@ -174,6 +141,130 @@ pub(crate) struct PyEndianUintLayout(EndianLayout<AnyNullBitmask, NoMeasDatatype
 #[derive(Clone, From, Into)]
 #[pyclass(name = "MixedLayout")]
 pub(crate) struct PyMixedLayout(data::MixedLayout);
+
+impl From<PyOrderedLayout> for DataLayout2_0 {
+    fn from(value: PyOrderedLayout) -> Self {
+        Self(AnyOrderedLayout::from(value).phantom_into())
+    }
+}
+
+impl From<PyOrderedLayout> for DataLayout3_0 {
+    fn from(value: PyOrderedLayout) -> Self {
+        Self(AnyOrderedLayout::from(value))
+    }
+}
+
+impl From<PyNonMixedLayout> for DataLayout3_1 {
+    fn from(value: PyNonMixedLayout) -> Self {
+        Self(NonMixedEndianLayout::from(value))
+    }
+}
+
+impl From<PyLayout3_2> for DataLayout3_2 {
+    fn from(value: PyLayout3_2) -> Self {
+        match value {
+            PyLayout3_2::Mixed(x) => Self::Mixed(x.into()),
+            PyLayout3_2::NonMixed(x) => {
+                Self::NonMixed(NonMixedEndianLayout::from(x).phantom_into())
+            }
+        }
+    }
+}
+
+impl From<DataLayout2_0> for PyOrderedLayout {
+    fn from(value: DataLayout2_0) -> Self {
+        value.0.phantom_into().into()
+    }
+}
+
+impl From<DataLayout3_0> for PyOrderedLayout {
+    fn from(value: DataLayout3_0) -> Self {
+        value.0.into()
+    }
+}
+
+impl From<DataLayout3_1> for PyNonMixedLayout {
+    fn from(value: DataLayout3_1) -> Self {
+        value.0.into()
+    }
+}
+
+impl From<DataLayout3_2> for PyLayout3_2 {
+    fn from(value: DataLayout3_2) -> Self {
+        match value {
+            DataLayout3_2::Mixed(x) => Self::Mixed(x.into()),
+            DataLayout3_2::NonMixed(x) => Self::NonMixed(x.phantom_into().into()),
+        }
+    }
+}
+
+impl From<PyOrderedLayout> for AnyOrderedLayout<KnownTot> {
+    fn from(value: PyOrderedLayout) -> Self {
+        match value {
+            PyOrderedLayout::AsciiFixed(x) => AnyAsciiLayout::from(x).phantom_into().into(),
+            PyOrderedLayout::AsciiDelim(x) => AnyAsciiLayout::from(x).phantom_into().into(),
+            PyOrderedLayout::Uint08(x) => AnyOrderedUintLayout::from(x).into(),
+            PyOrderedLayout::Uint16(x) => AnyOrderedUintLayout::from(x).into(),
+            PyOrderedLayout::Uint24(x) => AnyOrderedUintLayout::from(x).into(),
+            PyOrderedLayout::Uint32(x) => AnyOrderedUintLayout::from(x).into(),
+            PyOrderedLayout::Uint40(x) => AnyOrderedUintLayout::from(x).into(),
+            PyOrderedLayout::Uint48(x) => AnyOrderedUintLayout::from(x).into(),
+            PyOrderedLayout::Uint56(x) => AnyOrderedUintLayout::from(x).into(),
+            PyOrderedLayout::Uint64(x) => AnyOrderedUintLayout::from(x).into(),
+            PyOrderedLayout::F32(x) => x.into(),
+            PyOrderedLayout::F64(x) => x.into(),
+        }
+    }
+}
+
+impl From<AnyOrderedLayout<KnownTot>> for PyOrderedLayout {
+    fn from(value: AnyOrderedLayout<KnownTot>) -> Self {
+        match value {
+            AnyOrderedLayout::Ascii(x) => match x.phantom_into() {
+                AnyAsciiLayout::Delimited(y) => Self::AsciiDelim(y.into()),
+                AnyAsciiLayout::Fixed(y) => Self::AsciiFixed(y.into()),
+            },
+            AnyOrderedLayout::Integer(x) => match x {
+                AnyOrderedUintLayout::Uint08(y) => Self::Uint08(y.into()),
+                AnyOrderedUintLayout::Uint16(y) => Self::Uint16(y.into()),
+                AnyOrderedUintLayout::Uint24(y) => Self::Uint24(y.into()),
+                AnyOrderedUintLayout::Uint32(y) => Self::Uint32(y.into()),
+                AnyOrderedUintLayout::Uint40(y) => Self::Uint40(y.into()),
+                AnyOrderedUintLayout::Uint48(y) => Self::Uint48(y.into()),
+                AnyOrderedUintLayout::Uint56(y) => Self::Uint56(y.into()),
+                AnyOrderedUintLayout::Uint64(y) => Self::Uint64(y.into()),
+            },
+            AnyOrderedLayout::F32(x) => Self::F32(x.into()),
+            AnyOrderedLayout::F64(x) => Self::F64(x.into()),
+        }
+    }
+}
+
+impl From<NonMixedEndianLayout<NoMeasDatatype>> for PyNonMixedLayout {
+    fn from(value: NonMixedEndianLayout<NoMeasDatatype>) -> Self {
+        match value {
+            NonMixedEndianLayout::Ascii(x) => match x {
+                data::AnyAsciiLayout::Fixed(y) => y.into(),
+                data::AnyAsciiLayout::Delimited(y) => y.into(),
+            },
+            NonMixedEndianLayout::Integer(x) => x.into(),
+            NonMixedEndianLayout::F32(x) => x.into(),
+            NonMixedEndianLayout::F64(x) => x.into(),
+        }
+    }
+}
+
+impl From<PyNonMixedLayout> for NonMixedEndianLayout<NoMeasDatatype> {
+    fn from(value: PyNonMixedLayout) -> Self {
+        match value {
+            PyNonMixedLayout::AsciiFixed(x) => Self::Ascii(x.0.into()),
+            PyNonMixedLayout::AsciiDelim(x) => Self::Ascii(x.0.into()),
+            PyNonMixedLayout::Uint(x) => Self::Integer(x.into()),
+            PyNonMixedLayout::F32(x) => Self::F32(x.into()),
+            PyNonMixedLayout::F64(x) => Self::F64(x.into()),
+        }
+    }
+}
 
 macro_rules! common_methods {
     ($($t:ident),*) => {

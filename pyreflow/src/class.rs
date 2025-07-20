@@ -1151,12 +1151,6 @@ impl PyCoreTEXT3_2 {
     fn clear_unstained_centers(&mut self) {
         self.0.clear_unstained_centers()
     }
-
-    fn set_layout(&mut self, layout: PyLayout3_2) -> PyResult<()> {
-        self.0
-            .set_layout(layout.into())
-            .py_mult_terminate(SetLayoutFailure)
-    }
 }
 
 // Get/set methods for all versions
@@ -1797,7 +1791,7 @@ macro_rules! coretext3_1_meas_methods {
 coretext3_1_meas_methods!(PyCoreTEXT3_1, PyOptical3_1, PyTemporal3_1);
 coretext3_1_meas_methods!(PyCoreTEXT3_2, PyOptical3_2, PyTemporal3_2);
 
-macro_rules! set_measurements2_0 {
+macro_rules! set_measurements_ordered {
     ($pytype:ident, $t:ident, $o:ident) => {
         #[pymethods]
         impl $pytype {
@@ -1811,17 +1805,41 @@ macro_rules! set_measurements2_0 {
                     .py_mult_terminate(SetMeasurementsFailure)
                     .void()
             }
+
+            fn set_measurements_and_layout(
+                &mut self,
+                xs: PyRawMaybeInput<$t, $o>,
+                layout: PyOrderedLayout,
+                prefix: PyShortnamePrefix,
+            ) -> PyResult<()> {
+                self.0
+                    .set_measurements_and_layout(xs.0.inner_into(), layout.into(), prefix.0)
+                    .py_mult_terminate(SetMeasurementsFailure)
+                    .void()
+            }
+
+            #[getter]
+            fn get_layout(&self) -> Option<PyOrderedLayout> {
+                let x: &Option<_> = self.0.as_ref();
+                x.as_ref().map(|y| y.clone().into())
+            }
+
+            fn set_layout(&mut self, layout: PyOrderedLayout) -> PyResult<()> {
+                self.0
+                    .set_layout(layout.into())
+                    .py_mult_terminate(SetLayoutFailure)
+            }
         }
     };
 }
 
-set_measurements2_0!(PyCoreTEXT2_0, PyTemporal2_0, PyOptical2_0);
-set_measurements2_0!(PyCoreTEXT3_0, PyTemporal3_0, PyOptical3_0);
-set_measurements2_0!(PyCoreDataset2_0, PyTemporal2_0, PyOptical2_0);
-set_measurements2_0!(PyCoreDataset3_0, PyTemporal3_0, PyOptical3_0);
+set_measurements_ordered!(PyCoreTEXT2_0, PyTemporal2_0, PyOptical2_0);
+set_measurements_ordered!(PyCoreTEXT3_0, PyTemporal3_0, PyOptical3_0);
+set_measurements_ordered!(PyCoreDataset2_0, PyTemporal2_0, PyOptical2_0);
+set_measurements_ordered!(PyCoreDataset3_0, PyTemporal3_0, PyOptical3_0);
 
-macro_rules! set_measurements3_1 {
-    ($pytype:ident, $t:ident, $o:ident) => {
+macro_rules! set_measurements_endian {
+    ($pytype:ident, $t:ident, $o:ident, $l:ident) => {
         #[pymethods]
         impl $pytype {
             pub fn set_measurements(&mut self, xs: PyRawAlwaysInput<$t, $o>) -> PyResult<()> {
@@ -1830,14 +1848,42 @@ macro_rules! set_measurements3_1 {
                     .py_mult_terminate(SetMeasurementsFailure)
                     .void()
             }
+
+            fn set_measurements_and_layout(
+                &mut self,
+                xs: PyRawAlwaysInput<$t, $o>,
+                layout: $l,
+            ) -> PyResult<()> {
+                self.0
+                    .set_measurements_and_layout_noprefix(xs.0.inner_into(), layout.into())
+                    .py_mult_terminate(SetMeasurementsFailure)
+                    .void()
+            }
+
+            #[getter]
+            fn get_layout(&self) -> Option<$l> {
+                let x: &Option<_> = self.0.as_ref();
+                x.as_ref().map(|y| y.clone().into())
+            }
+
+            fn set_layout(&mut self, layout: $l) -> PyResult<()> {
+                self.0
+                    .set_layout(layout.into())
+                    .py_mult_terminate(SetLayoutFailure)
+            }
         }
     };
 }
 
-set_measurements3_1!(PyCoreTEXT3_1, PyTemporal3_1, PyOptical3_1);
-set_measurements3_1!(PyCoreTEXT3_2, PyTemporal3_2, PyOptical3_2);
-set_measurements3_1!(PyCoreDataset3_1, PyTemporal3_1, PyOptical3_1);
-set_measurements3_1!(PyCoreDataset3_2, PyTemporal3_2, PyOptical3_2);
+set_measurements_endian!(PyCoreTEXT3_1, PyTemporal3_1, PyOptical3_1, PyNonMixedLayout);
+set_measurements_endian!(PyCoreTEXT3_2, PyTemporal3_2, PyOptical3_2, PyLayout3_2);
+set_measurements_endian!(
+    PyCoreDataset3_1,
+    PyTemporal3_1,
+    PyOptical3_1,
+    PyNonMixedLayout
+);
+set_measurements_endian!(PyCoreDataset3_2, PyTemporal3_2, PyOptical3_2, PyLayout3_2);
 
 macro_rules! coredata2_0_meas_methods {
     ($pytype:ident, $t:ident, $o:ident) => {

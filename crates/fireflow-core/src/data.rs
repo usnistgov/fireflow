@@ -3525,7 +3525,7 @@ impl<T> AnyOrderedLayout<T> {
         }
     }
 
-    pub(crate) fn phantom_into<X>(self) -> AnyOrderedLayout<X> {
+    pub fn phantom_into<X>(self) -> AnyOrderedLayout<X> {
         match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, {
             x.phantom_into().into()
         })

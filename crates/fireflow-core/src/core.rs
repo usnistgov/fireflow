@@ -3072,7 +3072,7 @@ where
     /// For FCS versions where $PnN is mandatory, the `prefix` argument will
     /// do nothing; for these cases use [`Core::set_measurements_noprefix`]
     /// which takes no prefix.
-    fn set_measurements_and_layout(
+    pub fn set_measurements_and_layout(
         &mut self,
         measurements: RawInput<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         layout: <M::Ver as Versioned>::Layout,

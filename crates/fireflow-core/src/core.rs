@@ -1270,8 +1270,6 @@ pub trait VersionedMetaroot: Sized {
     type Optical: VersionedOptical<Ver = Self::Ver>;
     type Temporal: VersionedTemporal<Ver = Self::Ver>;
     type Name: MightHave;
-    // type Layout: VersionedDataLayout;
-    // type Offsets: VersionedTEXTOffsets<Tot = <Self::Layout as VersionedDataLayout>::Tot>;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters>;
 
@@ -1290,10 +1288,6 @@ pub trait VersionedMetaroot: Sized {
     fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
     where
         F: Fn(&mut Compensation) -> Result<X, ClearOptional>;
-
-    fn timestamps_valid(&self) -> bool;
-
-    fn datetimes_valid(&self) -> bool;
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)>;
 
@@ -7540,14 +7534,6 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
         self.comp.mut_or_unset_nofail(|c| f(&mut c.0))
     }
 
-    fn timestamps_valid(&self) -> bool {
-        self.timestamps.valid()
-    }
-
-    fn datetimes_valid(&self) -> bool {
-        true
-    }
-
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {
         [self.mode.pair()].into_iter()
     }
@@ -7621,14 +7607,6 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
         F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
     {
         self.comp.mut_or_unset_nofail(|c| f(&mut c.0))
-    }
-
-    fn timestamps_valid(&self) -> bool {
-        self.timestamps.valid()
-    }
-
-    fn datetimes_valid(&self) -> bool {
-        true
     }
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {
@@ -7715,14 +7693,6 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
         F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
     {
         None
-    }
-
-    fn timestamps_valid(&self) -> bool {
-        self.timestamps.valid()
-    }
-
-    fn datetimes_valid(&self) -> bool {
-        true
     }
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {
@@ -7814,14 +7784,6 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
         F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
     {
         None
-    }
-
-    fn timestamps_valid(&self) -> bool {
-        self.timestamps.valid()
-    }
-
-    fn datetimes_valid(&self) -> bool {
-        self.datetimes.valid()
     }
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {

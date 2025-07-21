@@ -90,7 +90,8 @@ fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_fcs_read_header, m)?)?;
     m.add_function(wrap_pyfunction!(py_fcs_read_raw_text, m)?)?;
     m.add_function(wrap_pyfunction!(py_fcs_read_std_text, m)?)?;
-    m.add_function(wrap_pyfunction!(py_fcs_read_std_dataset, m)?)
+    m.add_function(wrap_pyfunction!(py_fcs_read_std_dataset, m)?)?;
+    m.add_function(wrap_pyfunction!(py_fcs_read_raw_dataset, m)?)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -147,8 +148,6 @@ fn py_fcs_read_header(
 fn py_fcs_read_raw_text(
     p: path::PathBuf,
 
-    py: Python<'_>,
-
     version_override: Option<PyVersion>,
     prim_text_correction: (i32, i32),
     data_correction: (i32, i32),
@@ -186,7 +185,7 @@ fn py_fcs_read_raw_text(
     replace_standard_key_values: Vec<(String, String)>,
     append_standard_keywords: Vec<(String, String)>,
     warnings_are_errors: bool,
-) -> PyResult<(PyVersion, Bound<'_, PyDict>, Bound<'_, PyDict>, PyParseData)> {
+) -> PyResult<(PyVersion, PyStdKeywords, PyNonStdKeywords, PyParseData)> {
     let header = header_config(
         version_override,
         prim_text_correction,
@@ -232,19 +231,12 @@ fn py_fcs_read_raw_text(
 
     let raw: RawTEXTOutput =
         fcs_read_raw_text(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
-    let std = raw
-        .keywords
-        .std
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v))
-        .into_py_dict(py)?;
-    let nonstd = raw
-        .keywords
-        .nonstd
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v))
-        .into_py_dict(py)?;
-    Ok((raw.version.into(), std, nonstd, raw.parse.into()))
+    Ok((
+        raw.version.into(),
+        raw.keywords.std.into(),
+        raw.keywords.nonstd.into(),
+        raw.parse.into(),
+    ))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -309,8 +301,6 @@ fn py_fcs_read_raw_text(
     )
 )]
 fn py_fcs_read_std_text(
-    py: Python<'_>,
-
     p: path::PathBuf,
 
     version_override: Option<PyVersion>,
@@ -365,7 +355,7 @@ fn py_fcs_read_std_text(
     time_pattern: Option<String>,
     integer_widths_from_byteord: bool,
     integer_byteord_override: Vec<NonZeroU8>,
-) -> PyResult<(Bound<'_, PyAny>, PyParseData, Bound<'_, PyDict>)> {
+) -> PyResult<(PyAnyCoreTEXT, PyParseData, PyStdKeywords)> {
     let header = header_config(
         version_override,
         prim_text_correction,
@@ -430,23 +420,226 @@ fn py_fcs_read_std_text(
     let out: StdTEXTOutput =
         fcs_read_std_text(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
 
-    let text = match &out.standardized {
-        // TODO this copies all data from the "union type" into a new
-        // version-specific type. This might not be a big deal, but these
-        // types might be rather large with lots of strings.
-        AnyCoreTEXT::FCS2_0(x) => PyCoreTEXT2_0::from((**x).clone()).into_bound_py_any(py),
-        AnyCoreTEXT::FCS3_0(x) => PyCoreTEXT3_0::from((**x).clone()).into_bound_py_any(py),
-        AnyCoreTEXT::FCS3_1(x) => PyCoreTEXT3_1::from((**x).clone()).into_bound_py_any(py),
-        AnyCoreTEXT::FCS3_2(x) => PyCoreTEXT3_2::from((**x).clone()).into_bound_py_any(py),
-    }?;
+    Ok((
+        out.standardized.clone().into(),
+        out.parse.into(),
+        out.pseudostandard.clone().into(),
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
+#[pyfunction]
+#[pyo3(
+    name = "fcs_read_raw_dataset",
+    signature = (
+        p,
+
+        version_override=None,
+        prim_text_correction=(0,0),
+        data_correction=(0,0),
+        analysis_correction=(0,0),
+        other_corrections=vec![],
+        other_width=None,
+        max_other=None,
+        allow_negative=false,
+        squish_offsets=false,
+        truncate_offsets=false,
+
+        supp_text_correction=(0,0),
+        use_literal_delims=false,
+        allow_non_ascii_delim=false,
+        ignore_supp_text=false,
+        ignore_text_data_offsets=false,
+        ignore_text_analysis_offsets=false,
+        allow_duplicated_stext=false,
+        allow_missing_final_delim=false,
+        allow_nonunique=false,
+        allow_odd=false,
+        allow_delim_at_boundary=false,
+        allow_empty=false,
+        allow_non_utf8=false,
+        allow_non_ascii_keywords=false,
+        allow_missing_stext=false,
+        allow_stext_own_delim=false,
+        allow_missing_nextdata=false,
+        trim_value_whitespace=false,
+        date_pattern=None,
+        promote_to_standard=PyKeyPatterns::default(),
+        demote_from_standard=PyKeyPatterns::default(),
+        ignore_standard_keys=PyKeyPatterns::default(),
+        rename_standard_keys=vec![],
+        replace_standard_key_values=vec![],
+        append_standard_keywords=vec![],
+        warnings_are_errors=false,
+
+        disallow_deprecated=false,
+        time_ensure=false,
+        allow_pseudostandard=false,
+        fix_log_scale_offsets=false,
+        shortname_prefix=None,
+        allow_header_text_offset_mismatch=false,
+        allow_missing_required_offsets=false,
+        text_data_correction=(0,0),
+        text_analysis_correction=(0,0),
+        disallow_range_truncation=false,
+        nonstandard_measurement_pattern=None,
+        time_pattern=None,
+        integer_widths_from_byteord=false,
+        integer_byteord_override=vec![],
+
+        allow_uneven_event_width=false,
+        allow_tot_mismatch=false,
+        allow_data_par_mismatch=false,
+    )
+)]
+fn py_fcs_read_raw_dataset(
+    p: path::PathBuf,
+
+    version_override: Option<PyVersion>,
+    prim_text_correction: (i32, i32),
+    data_correction: (i32, i32),
+    analysis_correction: (i32, i32),
+    other_corrections: Vec<(i32, i32)>,
+    other_width: Option<PyChars>,
+    max_other: Option<usize>,
+    allow_negative: bool,
+    squish_offsets: bool,
+    truncate_offsets: bool,
+
+    supp_text_correction: (i32, i32),
+    use_literal_delims: bool,
+    allow_non_ascii_delim: bool,
+    ignore_supp_text: bool,
+    ignore_text_data_offsets: bool,
+    ignore_text_analysis_offsets: bool,
+    allow_duplicated_stext: bool,
+    allow_missing_final_delim: bool,
+    allow_nonunique: bool,
+    allow_odd: bool,
+    allow_delim_at_boundary: bool,
+    allow_empty: bool,
+    allow_non_utf8: bool,
+    allow_non_ascii_keywords: bool,
+    allow_missing_stext: bool,
+    allow_stext_own_delim: bool,
+    allow_missing_nextdata: bool,
+    trim_value_whitespace: bool,
+    date_pattern: Option<String>,
+    promote_to_standard: PyKeyPatterns,
+    demote_from_standard: PyKeyPatterns,
+    ignore_standard_keys: PyKeyPatterns,
+    rename_standard_keys: Vec<(String, String)>,
+    replace_standard_key_values: Vec<(String, String)>,
+    append_standard_keywords: Vec<(String, String)>,
+    warnings_are_errors: bool,
+
+    disallow_deprecated: bool,
+    time_ensure: bool,
+    allow_pseudostandard: bool,
+    fix_log_scale_offsets: bool,
+    shortname_prefix: Option<String>,
+    allow_header_text_offset_mismatch: bool,
+    allow_missing_required_offsets: bool,
+    text_data_correction: (i32, i32),
+    text_analysis_correction: (i32, i32),
+    disallow_range_truncation: bool,
+    nonstandard_measurement_pattern: Option<String>,
+    time_pattern: Option<String>,
+    integer_widths_from_byteord: bool,
+    integer_byteord_override: Vec<NonZeroU8>,
+
+    allow_uneven_event_width: bool,
+    allow_tot_mismatch: bool,
+    allow_data_par_mismatch: bool,
+) -> PyResult<(
+    PyVersion,
+    PyStdKeywords,
+    PyNonStdKeywords,
+    PyParseData,
+    PyDataFrame,
+    Vec<u8>,
+    Vec<Vec<u8>>,
+)> {
+    let header = header_config(
+        version_override,
+        prim_text_correction,
+        data_correction,
+        analysis_correction,
+        other_corrections,
+        other_width,
+        max_other,
+        allow_negative,
+        squish_offsets,
+        truncate_offsets,
+    )?;
+
+    let raw = raw_config(
+        header,
+        supp_text_correction,
+        use_literal_delims,
+        allow_non_ascii_delim,
+        ignore_supp_text,
+        ignore_text_data_offsets,
+        ignore_text_analysis_offsets,
+        allow_duplicated_stext,
+        allow_missing_final_delim,
+        allow_nonunique,
+        allow_odd,
+        allow_delim_at_boundary,
+        allow_empty,
+        allow_non_utf8,
+        allow_non_ascii_keywords,
+        allow_missing_stext,
+        allow_stext_own_delim,
+        allow_missing_nextdata,
+        trim_value_whitespace,
+        date_pattern,
+        promote_to_standard,
+        demote_from_standard,
+        ignore_standard_keys,
+        rename_standard_keys,
+        replace_standard_key_values,
+        append_standard_keywords,
+        warnings_are_errors,
+    )?;
+
+    let standard = std_config(
+        raw,
+        disallow_deprecated,
+        time_ensure,
+        allow_pseudostandard,
+        fix_log_scale_offsets,
+        shortname_prefix,
+        allow_header_text_offset_mismatch,
+        allow_missing_required_offsets,
+        text_data_correction,
+        text_analysis_correction,
+        disallow_range_truncation,
+        nonstandard_measurement_pattern,
+        time_pattern,
+        integer_widths_from_byteord,
+        integer_byteord_override,
+    )?;
+
+    let conf = data_config(
+        standard,
+        allow_uneven_event_width,
+        allow_tot_mismatch,
+        allow_data_par_mismatch,
+    );
+
+    let out: RawDatasetOutput =
+        fcs_read_raw_dataset(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
 
     Ok((
-        text,
-        out.parse.into(),
-        out.pseudostandard
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v.clone()))
-            .into_py_dict(py)?,
+        out.text.version.into(),
+        out.text.keywords.std.into(),
+        out.text.keywords.nonstd.into(),
+        out.text.parse.into(),
+        PyFCSDataFrame::from(out.dataset.data).into(),
+        out.dataset.analysis.0,
+        out.dataset.others.0.into_iter().map(|x| x.0).collect(),
     ))
 }
 
@@ -516,8 +709,6 @@ fn py_fcs_read_std_text(
     )
 )]
 fn py_fcs_read_std_dataset(
-    py: Python<'_>,
-
     p: path::PathBuf,
 
     version_override: Option<PyVersion>,
@@ -576,7 +767,7 @@ fn py_fcs_read_std_dataset(
     allow_uneven_event_width: bool,
     allow_tot_mismatch: bool,
     allow_data_par_mismatch: bool,
-) -> PyResult<(Bound<'_, PyAny>, PyParseData, Bound<'_, PyDict>)> {
+) -> PyResult<(PyAnyCoreDataset, PyParseData, PyStdKeywords)> {
     let header = header_config(
         version_override,
         prim_text_correction,
@@ -648,24 +839,10 @@ fn py_fcs_read_std_dataset(
     let out: StdDatasetOutput =
         fcs_read_std_dataset(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
 
-    let dataset = match &out.dataset.standardized.core {
-        // TODO this copies all data from the "union type" into a new
-        // version-specific type. This might not be a big deal, but these
-        // types might be rather large with lots of strings.
-        AnyCoreDataset::FCS2_0(x) => PyCoreDataset2_0::from((**x).clone()).into_bound_py_any(py),
-        AnyCoreDataset::FCS3_0(x) => PyCoreDataset3_0::from((**x).clone()).into_bound_py_any(py),
-        AnyCoreDataset::FCS3_1(x) => PyCoreDataset3_1::from((**x).clone()).into_bound_py_any(py),
-        AnyCoreDataset::FCS3_2(x) => PyCoreDataset3_2::from((**x).clone()).into_bound_py_any(py),
-    }?;
-
     Ok((
-        dataset,
+        out.dataset.standardized.core.clone().into(),
         out.parse.into(),
-        out.dataset
-            .pseudostandard
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v.clone()))
-            .into_py_dict(py)?,
+        out.dataset.pseudostandard.clone().into(),
     ))
 }
 
@@ -882,6 +1059,52 @@ py_wrap!(PyCoreDataset2_0, CoreDataset2_0, "CoreDataset2_0");
 py_wrap!(PyCoreDataset3_0, CoreDataset3_0, "CoreDataset3_0");
 py_wrap!(PyCoreDataset3_1, CoreDataset3_1, "CoreDataset3_1");
 py_wrap!(PyCoreDataset3_2, CoreDataset3_2, "CoreDataset3_2");
+
+#[derive(IntoPyObject, From)]
+enum PyAnyCoreTEXT {
+    #[from(CoreTEXT2_0)]
+    FCS2_0(PyCoreTEXT2_0),
+    #[from(CoreTEXT3_0)]
+    FCS3_0(PyCoreTEXT3_0),
+    #[from(CoreTEXT3_1)]
+    FCS3_1(PyCoreTEXT3_1),
+    #[from(CoreTEXT3_2)]
+    FCS3_2(PyCoreTEXT3_2),
+}
+
+impl From<AnyCoreTEXT> for PyAnyCoreTEXT {
+    fn from(value: AnyCoreTEXT) -> PyAnyCoreTEXT {
+        match value {
+            AnyCoreTEXT::FCS2_0(x) => (*x).into(),
+            AnyCoreTEXT::FCS3_0(x) => (*x).into(),
+            AnyCoreTEXT::FCS3_1(x) => (*x).into(),
+            AnyCoreTEXT::FCS3_2(x) => (*x).into(),
+        }
+    }
+}
+
+#[derive(IntoPyObject, From)]
+enum PyAnyCoreDataset {
+    #[from(CoreDataset2_0)]
+    FCS2_0(PyCoreDataset2_0),
+    #[from(CoreDataset3_0)]
+    FCS3_0(PyCoreDataset3_0),
+    #[from(CoreDataset3_1)]
+    FCS3_1(PyCoreDataset3_1),
+    #[from(CoreDataset3_2)]
+    FCS3_2(PyCoreDataset3_2),
+}
+
+impl From<AnyCoreDataset> for PyAnyCoreDataset {
+    fn from(value: AnyCoreDataset) -> PyAnyCoreDataset {
+        match value {
+            AnyCoreDataset::FCS2_0(x) => (*x).into(),
+            AnyCoreDataset::FCS3_0(x) => (*x).into(),
+            AnyCoreDataset::FCS3_1(x) => (*x).into(),
+            AnyCoreDataset::FCS3_2(x) => (*x).into(),
+        }
+    }
+}
 
 py_wrap!(PyOptical2_0, Optical2_0, "Optical2_0");
 py_wrap!(PyOptical3_0, Optical3_0, "Optical3_0");
@@ -3014,6 +3237,62 @@ impl From<RawTEXTParseData> for PyParseData {
             non_ascii_keywords: value.non_ascii,
             byte_pairs: value.byte_pairs,
         }
+    }
+}
+
+/// A python value for returned (pseudo)standard keywords.
+#[derive(From)]
+struct PyStdKeywords(StdKeywords);
+
+impl<'py> IntoPyObject<'py> for PyStdKeywords {
+    type Target = PyDict;
+    type Output = Bound<'py, Self::Target>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        self.0
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .into_py_dict(py)
+    }
+}
+
+/// A python value for returned (pseudo)standard keywords.
+#[derive(From)]
+struct PyNonStdKeywords(NonStdKeywords);
+
+impl<'py> IntoPyObject<'py> for PyNonStdKeywords {
+    type Target = PyDict;
+    type Output = Bound<'py, Self::Target>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        self.0
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .into_py_dict(py)
+    }
+}
+
+/// A python value for a vector of input columns from a polars dataframe.
+#[derive(From)]
+struct PyFCSDataFrame(FCSDataFrame);
+
+impl From<PyFCSDataFrame> for PyDataFrame {
+    fn from(value: PyFCSDataFrame) -> Self {
+        let columns = value
+            .0
+            .iter_columns()
+            .enumerate()
+            .map(|(i, c)| {
+                Series::from_arrow(PlSmallStr::from(format!("X{i}")), c.as_array())
+                    .unwrap()
+                    .into()
+            })
+            .collect();
+        // ASSUME this will not fail because all columns should have unique
+        // names and the same length
+        PyDataFrame(DataFrame::new(columns).unwrap())
     }
 }
 

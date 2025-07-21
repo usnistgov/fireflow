@@ -1246,6 +1246,12 @@ impl fmt::Display for StdDatasetFailure {
     }
 }
 
+impl fmt::Display for RawDatasetFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "could not read DATA with raw TEXT")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

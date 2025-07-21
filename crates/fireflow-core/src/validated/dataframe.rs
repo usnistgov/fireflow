@@ -3,6 +3,7 @@ use crate::text::index::BoundaryIndexError;
 use crate::validated::ascii_range::Chars;
 
 use derive_more::{Display, From};
+use polars::prelude::{DataFrame, PolarsError, Series};
 use polars_arrow::array::{Array, PrimitiveArray};
 use polars_arrow::buffer::Buffer;
 use polars_arrow::datatypes::ArrowDataType;
@@ -138,6 +139,15 @@ impl FCSDataFrame {
         } else {
             Ok(Self::default())
         }
+    }
+
+    pub fn as_dataframe(&self, names: Vec<String>) -> Result<DataFrame, PolarsError> {
+        let columns = self
+            .iter_columns()
+            .zip(names)
+            .map(|(c, n)| Series::from_arrow(n.into(), c.as_array()).unwrap().into())
+            .collect();
+        DataFrame::new(columns)
     }
 
     pub fn clear(&mut self) {

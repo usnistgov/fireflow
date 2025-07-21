@@ -14,6 +14,7 @@ use fireflow_core::text::optional::*;
 use fireflow_core::text::ranged_float::*;
 use fireflow_core::text::scale::*;
 use fireflow_core::text::timestamps::ReversedTimestamps;
+use fireflow_core::text::unstainedcenters::UnstainedCenters;
 use fireflow_core::validated::dataframe::*;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::keys::*;
@@ -1131,8 +1132,8 @@ impl PyCoreTEXT3_2 {
 
     #[getter]
     fn get_unstained_centers(&self) -> Option<HashMap<String, f32>> {
-        self.0.unstained_centers().map(|x| {
-            <HashMap<Shortname, f32>>::from(x.clone())
+        self.0.get_metaroot_opt::<UnstainedCenters>().map(|y| {
+            <HashMap<Shortname, f32>>::from(y.clone())
                 .into_iter()
                 .map(|(k, v)| (k.to_string(), v))
                 .collect()

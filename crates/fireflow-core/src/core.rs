@@ -439,9 +439,8 @@ pub struct InnerMetaroot2_0 {
     comp: MaybeValue<Compensation2_0>,
 
     /// Values of $BTIM/ETIM/$DATE
-    #[as_ref(Timestamps2_0)]
+    #[as_ref(Timestamps2_0, Option<FCSDate>)]
     #[as_mut(Timestamps2_0)]
-    #[as_ref(Option<FCSDate>)]
     pub timestamps: Timestamps2_0,
 
     /// Values of $Gm*/$RnI/$RnW/$GATING/$GATE
@@ -466,9 +465,8 @@ pub struct InnerMetaroot3_0 {
     comp: MaybeValue<Compensation3_0>,
 
     /// Values of $BTIM/ETIM/$DATE
-    #[as_ref(Timestamps3_0)]
+    #[as_ref(Timestamps3_0, Option<FCSDate>)]
     #[as_mut(Timestamps3_0)]
-    #[as_ref(Option<FCSDate>)]
     pub timestamps: Timestamps3_0,
 
     /// Value of $CYTSN
@@ -502,9 +500,8 @@ pub struct InnerMetaroot3_1 {
     pub cyt: MaybeValue<Cyt>,
 
     /// Values of $BTIM/ETIM/$DATE
-    #[as_ref(Timestamps3_1)]
+    #[as_ref(Timestamps3_1, Option<FCSDate>)]
     #[as_mut(Timestamps3_1)]
-    #[as_ref(Option<FCSDate>)]
     pub timestamps: Timestamps3_1,
 
     /// Value of $CYTSN
@@ -517,21 +514,13 @@ pub struct InnerMetaroot3_1 {
     spillover: MaybeValue<Spillover>,
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
-    #[as_ref(Option<LastModifier>)]
-    #[as_ref(Option<ModifiedDateTime>)]
-    #[as_ref(Option<Originality>)]
-    #[as_mut(Option<LastModifier>)]
-    #[as_mut(Option<ModifiedDateTime>)]
-    #[as_mut(Option<Originality>)]
+    #[as_ref(Option<LastModifier>, Option<ModifiedDateTime>, Option<Originality>)]
+    #[as_mut(Option<LastModifier>, Option<ModifiedDateTime>, Option<Originality>)]
     pub modification: ModificationData,
 
     /// Values of $PLATEID/$PLATENAME/$WELLID
-    #[as_ref(Option<Plateid>)]
-    #[as_ref(Option<Wellid>)]
-    #[as_ref(Option<Platename>)]
-    #[as_mut(Option<Plateid>)]
-    #[as_mut(Option<Wellid>)]
-    #[as_mut(Option<Platename>)]
+    #[as_ref(Option<Plateid>, Option<Wellid>, Option<Platename>)]
+    #[as_mut(Option<Plateid>, Option<Wellid>, Option<Platename>)]
     pub plate: PlateData,
 
     /// Value of $VOL
@@ -550,15 +539,12 @@ pub struct InnerMetaroot3_1 {
 #[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerMetaroot3_2 {
     /// Values of $BTIM/ETIM/$DATE
-    #[as_ref(Timestamps3_1)]
+    #[as_ref(Timestamps3_1, Option<FCSDate>)]
     #[as_mut(Timestamps3_1)]
-    #[as_ref(Option<FCSDate>)]
     pub timestamps: Timestamps3_1,
 
     /// Values of $BEGINDATETIME/$ENDDATETIME
-    #[as_ref(Option<BeginDateTime>)]
-    #[as_ref(Option<EndDateTime>)]
-    #[as_ref(Datetimes)]
+    #[as_ref(Option<BeginDateTime>, Option<EndDateTime>, Datetimes)]
     #[as_mut(Datetimes)]
     pub datetimes: Datetimes,
 
@@ -578,21 +564,13 @@ pub struct InnerMetaroot3_2 {
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
     // TODO it makes sense to verify this isn't before the file was created
-    #[as_ref(Option<LastModifier>)]
-    #[as_ref(Option<ModifiedDateTime>)]
-    #[as_ref(Option<Originality>)]
-    #[as_mut(Option<LastModifier>)]
-    #[as_mut(Option<ModifiedDateTime>)]
-    #[as_mut(Option<Originality>)]
+    #[as_ref(Option<LastModifier>, Option<ModifiedDateTime>, Option<Originality>)]
+    #[as_mut(Option<LastModifier>, Option<ModifiedDateTime>, Option<Originality>)]
     pub modification: ModificationData,
 
     /// Values of $PLATEID/$PLATENAME/$WELLID
-    #[as_ref(Option<Plateid>)]
-    #[as_ref(Option<Wellid>)]
-    #[as_ref(Option<Platename>)]
-    #[as_mut(Option<Plateid>)]
-    #[as_mut(Option<Wellid>)]
-    #[as_mut(Option<Platename>)]
+    #[as_ref(Option<Plateid>, Option<Wellid>, Option<Platename>)]
+    #[as_mut(Option<Plateid>, Option<Wellid>, Option<Platename>)]
     pub plate: PlateData,
 
     /// Value of $VOL
@@ -601,15 +579,13 @@ pub struct InnerMetaroot3_2 {
     pub vol: MaybeValue<Vol>,
 
     /// Values of $CARRIERID/$CARRIERTYPE/$LOCATIONID
-    #[as_ref(Option<Carrierid>)]
-    #[as_mut(Option<Carrierid>)]
-    #[as_ref(Option<Carriertype>)]
-    #[as_mut(Option<Carriertype>)]
-    #[as_ref(Option<Locationid>)]
-    #[as_mut(Option<Locationid>)]
+    #[as_ref(Option<Carrierid>, Option<Carriertype>, Option<Locationid>)]
+    #[as_mut(Option<Carrierid>, Option<Carriertype>, Option<Locationid>)]
     pub carrier: CarrierData,
 
     /// Values of $UNSTAINEDINFO/$UNSTAINEDCENTERS
+    #[as_ref(Option<UnstainedCenters>, Option<UnstainedInfo>)]
+    #[as_mut(Option<UnstainedInfo>)]
     pub unstained: UnstainedData,
 
     /// Value of $FLOWRATE
@@ -1032,7 +1008,9 @@ pub struct PlateData {
 /// A bundle for $UNSTAINEDCENTERS and $UNSTAINEDINFO (3.2+)
 #[derive(Clone, Serialize, Default, AsRef, AsMut)]
 pub struct UnstainedData {
+    #[as_ref(Option<UnstainedCenters>)]
     unstainedcenters: MaybeValue<UnstainedCenters>,
+
     #[as_ref(Option<UnstainedInfo>)]
     #[as_mut(Option<UnstainedInfo>)]
     pub unstainedinfo: MaybeValue<UnstainedInfo>,
@@ -1173,11 +1151,17 @@ pub trait HasSpillover {
 }
 
 pub trait HasScale {
+    // private as_mut
     fn scale_mut(&mut self, _: private::NoTouchy) -> &mut Option<Scale>;
 }
 
 pub trait HasScaleTransform {
     fn transform_mut(&mut self, _: private::NoTouchy) -> &mut ScaleTransform;
+}
+
+pub trait HasUnstainedCenters {
+    // private as_mut
+    fn unstainedcenters_mut(&mut self, _: private::NoTouchy) -> &mut Option<UnstainedCenters>;
 }
 
 pub trait AsScaleTransform {
@@ -2641,6 +2625,65 @@ where
         *self.metaroot.specific.spill_mut(private::NoTouchy) = None;
     }
 
+    /// Insert an unstained center
+    pub fn insert_unstained_center(
+        &mut self,
+        k: Shortname,
+        v: f32,
+    ) -> Result<Option<f32>, MissingMeasurementNameError>
+    where
+        M: HasUnstainedCenters,
+    {
+        if !self.measurement_names().contains(&k) {
+            Err(MissingMeasurementNameError(k))
+        } else {
+            let us = self
+                .metaroot
+                .specific
+                .unstainedcenters_mut(private::NoTouchy);
+            let ret = if let Some(u) = us.as_mut() {
+                u.insert(k, v)
+            } else {
+                *us = Some(UnstainedCenters::new_1(k, v));
+                None
+            };
+            Ok(ret)
+        }
+    }
+
+    /// Remove an unstained center
+    pub fn remove_unstained_center(&mut self, k: &Shortname) -> Option<f32>
+    where
+        M: HasUnstainedCenters,
+    {
+        let us = self
+            .metaroot
+            .specific
+            .unstainedcenters_mut(private::NoTouchy);
+        if let Some(u) = us.as_mut() {
+            match u.remove(k) {
+                Ok(ret) => ret,
+                Err(_) => {
+                    *us = None;
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Remove all unstained center
+    pub fn clear_unstained_centers(&mut self)
+    where
+        M: HasUnstainedCenters,
+    {
+        *self
+            .metaroot
+            .specific
+            .unstainedcenters_mut(private::NoTouchy) = None;
+    }
+
     pub fn get_all_scales(&self) -> impl Iterator<Item = Option<Scale>>
     where
         Optical<M::Optical>: AsRef<Option<Scale>>,
@@ -3977,6 +4020,12 @@ impl HasSpillover for InnerMetaroot3_2 {
     }
 }
 
+impl HasUnstainedCenters for InnerMetaroot3_2 {
+    fn unstainedcenters_mut(&mut self, _: private::NoTouchy) -> &mut Option<UnstainedCenters> {
+        &mut self.unstained.unstainedcenters.0
+    }
+}
+
 impl HasScale for InnerOptical2_0 {
     fn scale_mut(&mut self, _: private::NoTouchy) -> &mut Option<Scale> {
         &mut self.scale.0
@@ -4014,58 +4063,6 @@ where
         let mapping = self.measurements.set_non_center_keys(ks)?;
         self.metaroot.reassign_all(&mapping);
         Ok(mapping)
-    }
-}
-
-impl<A, D, O> Core3_2<A, D, O> {
-    /// Show $UNSTAINEDCENTERS
-    pub fn unstained_centers(&self) -> Option<&UnstainedCenters> {
-        self.metaroot
-            .specific
-            .unstained
-            .unstainedcenters
-            .as_ref_opt()
-    }
-
-    /// Insert an unstained center
-    pub fn insert_unstained_center(
-        &mut self,
-        k: Shortname,
-        v: f32,
-    ) -> Result<Option<f32>, MissingMeasurementNameError> {
-        if !self.measurement_names().contains(&k) {
-            Err(MissingMeasurementNameError(k))
-        } else {
-            let us = &mut self.metaroot.specific.unstained;
-            let ret = if let Some(u) = us.unstainedcenters.0.as_mut() {
-                u.insert(k, v)
-            } else {
-                us.unstainedcenters = Some(UnstainedCenters::new_1(k, v)).into();
-                None
-            };
-            Ok(ret)
-        }
-    }
-
-    /// Remove an unstained center
-    pub fn remove_unstained_center(&mut self, k: &Shortname) -> Option<f32> {
-        let us = &mut self.metaroot.specific.unstained;
-        if let Some(u) = us.unstainedcenters.0.as_mut() {
-            match u.remove(k) {
-                Ok(ret) => ret,
-                Err(_) => {
-                    us.unstainedcenters = None.into();
-                    None
-                }
-            }
-        } else {
-            None
-        }
-    }
-
-    /// Remove all unstained center
-    pub fn clear_unstained_centers(&mut self) {
-        self.metaroot.specific.unstained.unstainedcenters = None.into()
     }
 }
 
@@ -5200,7 +5197,7 @@ impl From<Calibration3_2> for Calibration3_1 {
 fn convert_wavelengths(
     w: MaybeValue<Wavelengths>,
     force: bool,
-) -> Tentative<MaybeValue<Wavelength>, WavelengthsLossError, WavelengthsLossError> {
+) -> BiTentative<MaybeValue<Wavelength>, WavelengthsLossError> {
     w.0.map(|x| x.into_wavelength(!force))
         .map_or(Tentative::new1(None), |tnt| tnt.map(Some))
         .map(|x| x.into())
@@ -5701,7 +5698,8 @@ impl_ref_specific_ro!(
     InnerMetaroot3_2,
     Option<FCSDate>,
     Option<BeginDateTime>,
-    Option<EndDateTime>
+    Option<EndDateTime>,
+    Option<UnstainedCenters>
 );
 
 impl_ref_specific_ro!(Optical, InnerOptical2_0, Option<Scale>);

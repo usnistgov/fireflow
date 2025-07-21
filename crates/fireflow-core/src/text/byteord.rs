@@ -307,16 +307,25 @@ impl ByteOrd2_0 {
         }
     }
 
-    pub fn as_vec(&self) -> Vec<u8> {
+    pub fn as_vec(&self) -> Vec<NonZeroU8> {
+        fn go<const LEN: usize>(s: &SizedByteOrd<LEN>) -> Vec<NonZeroU8>
+        where
+            [u8; LEN]: From<SizedByteOrd<LEN>>,
+        {
+            <[u8; LEN]>::from(*s)
+                .iter()
+                .map(|&x| NonZeroU8::MIN.saturating_add(x))
+                .collect()
+        }
         match self {
-            Self::O1(x) => <[u8; 1]>::from(*x).to_vec(),
-            Self::O2(x) => <[u8; 2]>::from(*x).to_vec(),
-            Self::O3(x) => <[u8; 3]>::from(*x).to_vec(),
-            Self::O4(x) => <[u8; 4]>::from(*x).to_vec(),
-            Self::O5(x) => <[u8; 5]>::from(*x).to_vec(),
-            Self::O6(x) => <[u8; 6]>::from(*x).to_vec(),
-            Self::O7(x) => <[u8; 7]>::from(*x).to_vec(),
-            Self::O8(x) => <[u8; 8]>::from(*x).to_vec(),
+            Self::O1(x) => go::<1>(x),
+            Self::O2(x) => go::<2>(x),
+            Self::O3(x) => go::<3>(x),
+            Self::O4(x) => go::<4>(x),
+            Self::O5(x) => go::<5>(x),
+            Self::O6(x) => go::<6>(x),
+            Self::O7(x) => go::<7>(x),
+            Self::O8(x) => go::<8>(x),
         }
     }
 }

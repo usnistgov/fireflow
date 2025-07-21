@@ -331,7 +331,7 @@ macro_rules! byte_order_methods {
             impl $t {
                 #[getter]
                 /// Return the byte order of the layout.
-                fn byte_order(&self) -> Vec<u8> {
+                fn byte_order(&self) -> Vec<NonZeroU8> {
                     self.0.byte_order().as_vec()
                 }
 

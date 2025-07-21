@@ -136,7 +136,7 @@ fn py_fcs_read_header(
         allow_negative,
         squish_offsets,
         truncate_offsets,
-    )?;
+    );
     fcs_read_header(&p, &conf)
         .map_err(handle_failure_nowarn)
         .map(|x| x.inner().into())
@@ -177,13 +177,13 @@ fn py_fcs_read_raw_text(
     allow_stext_own_delim: bool,
     allow_missing_nextdata: bool,
     trim_value_whitespace: bool,
-    date_pattern: Option<String>,
+    date_pattern: Option<PyDatePattern>,
     promote_to_standard: PyKeyPatterns,
     demote_from_standard: PyKeyPatterns,
     ignore_standard_keys: PyKeyPatterns,
-    rename_standard_keys: Vec<(String, String)>,
-    replace_standard_key_values: Vec<(String, String)>,
-    append_standard_keywords: Vec<(String, String)>,
+    rename_standard_keys: PyKeyPairs,
+    replace_standard_key_values: PyKeyValues,
+    append_standard_keywords: PyKeyValues,
     warnings_are_errors: bool,
 ) -> PyResult<(PyVersion, PyStdKeywords, PyNonStdKeywords, PyParseData)> {
     let header = header_config(
@@ -197,7 +197,7 @@ fn py_fcs_read_raw_text(
         allow_negative,
         squish_offsets,
         truncate_offsets,
-    )?;
+    );
 
     let conf = raw_config(
         header,
@@ -227,7 +227,7 @@ fn py_fcs_read_raw_text(
         replace_standard_key_values,
         append_standard_keywords,
         warnings_are_errors,
-    )?;
+    );
 
     let raw: RawTEXTOutput =
         fcs_read_raw_text(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
@@ -279,9 +279,9 @@ fn py_fcs_read_raw_text(
         promote_to_standard=PyKeyPatterns::default(),
         demote_from_standard=PyKeyPatterns::default(),
         ignore_standard_keys=PyKeyPatterns::default(),
-        rename_standard_keys=vec![],
-        replace_standard_key_values=vec![],
-        append_standard_keywords=vec![],
+        rename_standard_keys=PyKeyPairs::default(),
+        replace_standard_key_values=PyKeyValues::default(),
+        append_standard_keywords=PyKeyValues::default(),
         warnings_are_errors=false,
 
         disallow_deprecated=false,
@@ -297,7 +297,7 @@ fn py_fcs_read_raw_text(
         nonstandard_measurement_pattern=None,
         time_pattern=None,
         integer_widths_from_byteord=false,
-        integer_byteord_override=vec![],
+        integer_byteord_override=PyByteOrd::default(),
     )
 )]
 fn py_fcs_read_std_text(
@@ -332,13 +332,13 @@ fn py_fcs_read_std_text(
     allow_stext_own_delim: bool,
     allow_missing_nextdata: bool,
     trim_value_whitespace: bool,
-    date_pattern: Option<String>,
+    date_pattern: Option<PyDatePattern>,
     promote_to_standard: PyKeyPatterns,
     demote_from_standard: PyKeyPatterns,
     ignore_standard_keys: PyKeyPatterns,
-    rename_standard_keys: Vec<(String, String)>,
-    replace_standard_key_values: Vec<(String, String)>,
-    append_standard_keywords: Vec<(String, String)>,
+    rename_standard_keys: PyKeyPairs,
+    replace_standard_key_values: PyKeyValues,
+    append_standard_keywords: PyKeyValues,
     warnings_are_errors: bool,
 
     disallow_deprecated: bool,
@@ -351,10 +351,10 @@ fn py_fcs_read_std_text(
     text_data_correction: (i32, i32),
     text_analysis_correction: (i32, i32),
     disallow_range_truncation: bool,
-    nonstandard_measurement_pattern: Option<String>,
-    time_pattern: Option<String>,
+    nonstandard_measurement_pattern: Option<PyNonStdMeasPattern>,
+    time_pattern: Option<PyTimePattern>,
     integer_widths_from_byteord: bool,
-    integer_byteord_override: Vec<NonZeroU8>,
+    integer_byteord_override: PyByteOrd,
 ) -> PyResult<(PyAnyCoreTEXT, PyParseData, PyStdKeywords)> {
     let header = header_config(
         version_override,
@@ -367,7 +367,7 @@ fn py_fcs_read_std_text(
         allow_negative,
         squish_offsets,
         truncate_offsets,
-    )?;
+    );
 
     let raw = raw_config(
         header,
@@ -397,7 +397,7 @@ fn py_fcs_read_std_text(
         replace_standard_key_values,
         append_standard_keywords,
         warnings_are_errors,
-    )?;
+    );
 
     let conf = std_config(
         raw,
@@ -415,7 +415,7 @@ fn py_fcs_read_std_text(
         time_pattern,
         integer_widths_from_byteord,
         integer_byteord_override,
-    )?;
+    );
 
     let out: StdTEXTOutput =
         fcs_read_std_text(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
@@ -468,9 +468,9 @@ fn py_fcs_read_std_text(
         promote_to_standard=PyKeyPatterns::default(),
         demote_from_standard=PyKeyPatterns::default(),
         ignore_standard_keys=PyKeyPatterns::default(),
-        rename_standard_keys=vec![],
-        replace_standard_key_values=vec![],
-        append_standard_keywords=vec![],
+        rename_standard_keys=PyKeyPairs::default(),
+        replace_standard_key_values=PyKeyValues::default(),
+        append_standard_keywords=PyKeyValues::default(),
         warnings_are_errors=false,
 
         disallow_deprecated=false,
@@ -486,7 +486,7 @@ fn py_fcs_read_std_text(
         nonstandard_measurement_pattern=None,
         time_pattern=None,
         integer_widths_from_byteord=false,
-        integer_byteord_override=vec![],
+        integer_byteord_override=PyByteOrd::default(),
 
         allow_uneven_event_width=false,
         allow_tot_mismatch=false,
@@ -525,13 +525,13 @@ fn py_fcs_read_raw_dataset(
     allow_stext_own_delim: bool,
     allow_missing_nextdata: bool,
     trim_value_whitespace: bool,
-    date_pattern: Option<String>,
+    date_pattern: Option<PyDatePattern>,
     promote_to_standard: PyKeyPatterns,
     demote_from_standard: PyKeyPatterns,
     ignore_standard_keys: PyKeyPatterns,
-    rename_standard_keys: Vec<(String, String)>,
-    replace_standard_key_values: Vec<(String, String)>,
-    append_standard_keywords: Vec<(String, String)>,
+    rename_standard_keys: PyKeyPairs,
+    replace_standard_key_values: PyKeyValues,
+    append_standard_keywords: PyKeyValues,
     warnings_are_errors: bool,
 
     disallow_deprecated: bool,
@@ -544,10 +544,10 @@ fn py_fcs_read_raw_dataset(
     text_data_correction: (i32, i32),
     text_analysis_correction: (i32, i32),
     disallow_range_truncation: bool,
-    nonstandard_measurement_pattern: Option<String>,
-    time_pattern: Option<String>,
+    nonstandard_measurement_pattern: Option<PyNonStdMeasPattern>,
+    time_pattern: Option<PyTimePattern>,
     integer_widths_from_byteord: bool,
-    integer_byteord_override: Vec<NonZeroU8>,
+    integer_byteord_override: PyByteOrd,
 
     allow_uneven_event_width: bool,
     allow_tot_mismatch: bool,
@@ -572,7 +572,7 @@ fn py_fcs_read_raw_dataset(
         allow_negative,
         squish_offsets,
         truncate_offsets,
-    )?;
+    );
 
     let raw = raw_config(
         header,
@@ -602,7 +602,7 @@ fn py_fcs_read_raw_dataset(
         replace_standard_key_values,
         append_standard_keywords,
         warnings_are_errors,
-    )?;
+    );
 
     let standard = std_config(
         raw,
@@ -620,7 +620,7 @@ fn py_fcs_read_raw_dataset(
         time_pattern,
         integer_widths_from_byteord,
         integer_byteord_override,
-    )?;
+    );
 
     let conf = data_config(
         standard,
@@ -683,9 +683,9 @@ fn py_fcs_read_raw_dataset(
         promote_to_standard=PyKeyPatterns::default(),
         demote_from_standard=PyKeyPatterns::default(),
         ignore_standard_keys=PyKeyPatterns::default(),
-        rename_standard_keys=vec![],
-        replace_standard_key_values=vec![],
-        append_standard_keywords=vec![],
+        rename_standard_keys=PyKeyPairs::default(),
+        replace_standard_key_values=PyKeyValues::default(),
+        append_standard_keywords=PyKeyValues::default(),
         warnings_are_errors=false,
 
         disallow_deprecated=false,
@@ -701,7 +701,7 @@ fn py_fcs_read_raw_dataset(
         nonstandard_measurement_pattern=None,
         time_pattern=None,
         integer_widths_from_byteord=false,
-        integer_byteord_override=vec![],
+        integer_byteord_override=PyByteOrd::default(),
 
         allow_uneven_event_width=false,
         allow_tot_mismatch=false,
@@ -740,13 +740,13 @@ fn py_fcs_read_std_dataset(
     allow_stext_own_delim: bool,
     allow_missing_nextdata: bool,
     trim_value_whitespace: bool,
-    date_pattern: Option<String>,
+    date_pattern: Option<PyDatePattern>,
     promote_to_standard: PyKeyPatterns,
     demote_from_standard: PyKeyPatterns,
     ignore_standard_keys: PyKeyPatterns,
-    rename_standard_keys: Vec<(String, String)>,
-    replace_standard_key_values: Vec<(String, String)>,
-    append_standard_keywords: Vec<(String, String)>,
+    rename_standard_keys: PyKeyPairs,
+    replace_standard_key_values: PyKeyValues,
+    append_standard_keywords: PyKeyValues,
     warnings_are_errors: bool,
 
     disallow_deprecated: bool,
@@ -759,10 +759,10 @@ fn py_fcs_read_std_dataset(
     text_data_correction: (i32, i32),
     text_analysis_correction: (i32, i32),
     disallow_range_truncation: bool,
-    nonstandard_measurement_pattern: Option<String>,
-    time_pattern: Option<String>,
+    nonstandard_measurement_pattern: Option<PyNonStdMeasPattern>,
+    time_pattern: Option<PyTimePattern>,
     integer_widths_from_byteord: bool,
-    integer_byteord_override: Vec<NonZeroU8>,
+    integer_byteord_override: PyByteOrd,
 
     allow_uneven_event_width: bool,
     allow_tot_mismatch: bool,
@@ -779,7 +779,7 @@ fn py_fcs_read_std_dataset(
         allow_negative,
         squish_offsets,
         truncate_offsets,
-    )?;
+    );
 
     let raw = raw_config(
         header,
@@ -809,7 +809,7 @@ fn py_fcs_read_std_dataset(
         replace_standard_key_values,
         append_standard_keywords,
         warnings_are_errors,
-    )?;
+    );
 
     let standard = std_config(
         raw,
@@ -827,7 +827,7 @@ fn py_fcs_read_std_dataset(
         time_pattern,
         integer_widths_from_byteord,
         integer_byteord_override,
-    )?;
+    );
 
     let conf = data_config(
         standard,
@@ -858,12 +858,9 @@ fn header_config(
     allow_negative: bool,
     squish_offsets: bool,
     truncate_offsets: bool,
-) -> PyResult<HeaderConfig> {
-    let os = other_corrections
-        .into_iter()
-        .map(OffsetCorrection::from)
-        .collect();
-    let out = HeaderConfig {
+) -> HeaderConfig {
+    let os = other_corrections.into_iter().map(|x| x.into()).collect();
+    HeaderConfig {
         version_override: version_override.map(|x| x.0),
         text_correction: OffsetCorrection::from(prim_text_correction),
         data_correction: OffsetCorrection::from(data_correction),
@@ -874,8 +871,7 @@ fn header_config(
         allow_negative,
         squish_offsets,
         truncate_offsets,
-    };
-    Ok(out)
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -899,44 +895,16 @@ fn raw_config(
     allow_stext_own_delim: bool,
     allow_missing_nextdata: bool,
     trim_value_whitespace: bool,
-    date_pattern: Option<String>,
+    date_pattern: Option<PyDatePattern>,
     promote_to_standard: PyKeyPatterns,
     demote_from_standard: PyKeyPatterns,
     ignore_standard_keys: PyKeyPatterns,
-    rename_standard_keys: Vec<(String, String)>,
-    replace_standard_key_values: Vec<(String, String)>,
-    append_standard_keywords: Vec<(String, String)>,
+    rename_standard_keys: PyKeyPairs,
+    replace_standard_key_values: PyKeyValues,
+    append_standard_keywords: PyKeyValues,
     warnings_are_errors: bool,
-) -> PyResult<RawTextReadConfig> {
-    let rss = rename_standard_keys
-        .into_iter()
-        .map(|(x, y)| {
-            x.parse::<KeyString>()
-                .and_then(|a| y.parse::<KeyString>().map(|b| (a, b)))
-        })
-        .collect::<Result<HashMap<_, _>, _>>()
-        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-
-    let rvs = replace_standard_key_values
-        .into_iter()
-        .map(|(k, v)| k.parse::<KeyString>().map(|x| (x, v)))
-        .collect::<Result<HashMap<_, _>, _>>()
-        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-
-    let ass = append_standard_keywords
-        .into_iter()
-        .map(|(k, v)| k.parse::<KeyString>().map(|x| (x, v)))
-        .collect::<Result<HashMap<_, _>, _>>()
-        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-
-    let dp = date_pattern
-        .map(|s| {
-            s.parse::<DatePattern>()
-                .map_err(|e| PyreflowException::new_err(e.to_string()))
-        })
-        .transpose()?;
-
-    let out = RawTextReadConfig {
+) -> RawTextReadConfig {
+    RawTextReadConfig {
         header,
         supp_text_correction: OffsetCorrection::from(supp_text_correction),
         use_literal_delims,
@@ -956,16 +924,15 @@ fn raw_config(
         allow_stext_own_delim,
         allow_missing_nextdata,
         trim_value_whitespace,
-        date_pattern: dp,
+        date_pattern: date_pattern.map(|x| x.0),
         promote_to_standard: promote_to_standard.0,
         demote_from_standard: demote_from_standard.0,
         ignore_standard_keys: ignore_standard_keys.0,
-        rename_standard_keys: rss,
-        replace_standard_key_values: rvs,
-        append_standard_keywords: ass,
+        rename_standard_keys: rename_standard_keys.0,
+        replace_standard_key_values: replace_standard_key_values.0,
+        append_standard_keywords: append_standard_keywords.0,
         warnings_are_errors,
-    };
-    Ok(out)
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -981,35 +948,16 @@ fn std_config(
     text_data_correction: (i32, i32),
     text_analysis_correction: (i32, i32),
     disallow_range_truncation: bool,
-    nonstandard_measurement_pattern: Option<String>,
-    time_pattern: Option<String>,
+    nonstandard_measurement_pattern: Option<PyNonStdMeasPattern>,
+    time_pattern: Option<PyTimePattern>,
     integer_widths_from_byteord: bool,
-    integer_byteord_override: Vec<NonZeroU8>,
-) -> PyResult<StdTextReadConfig> {
-    let nsmp = nonstandard_measurement_pattern
-        .map(|s| {
-            s.parse::<NonStdMeasPattern>()
-                .map_err(|e| PyreflowException::new_err(e.to_string()))
-        })
-        .transpose()?;
-    let tp = time_pattern
-        .map(|s| {
-            s.parse::<TimePattern>()
-                .map_err(|e| PyreflowException::new_err(e.to_string()))
-        })
-        .transpose()?;
-    let xs = &integer_byteord_override[..];
-    let bo = if xs.is_empty() {
-        None
-    } else {
-        Some(ByteOrd2_0::try_from(xs).map_err(|e| PyreflowException::new_err(e.to_string()))?)
-    };
-
-    let out = StdTextReadConfig {
+    integer_byteord_override: PyByteOrd,
+) -> StdTextReadConfig {
+    StdTextReadConfig {
         raw,
         shortname_prefix: shortname_prefix.map(|x| x.0).unwrap_or_default(),
         time: TimeConfig {
-            pattern: tp,
+            pattern: time_pattern.map(|x| x.0),
             allow_missing: time_ensure,
             // allow_nonlinear_scale: time_ensure_linear,
             // allow_nontime_keywords: time_ensure_nogain,
@@ -1022,11 +970,10 @@ fn std_config(
         data: OffsetCorrection::from(text_data_correction),
         analysis: OffsetCorrection::from(text_analysis_correction),
         disallow_range_truncation,
-        nonstandard_measurement_pattern: nsmp,
+        nonstandard_measurement_pattern: nonstandard_measurement_pattern.map(|x| x.0),
         integer_widths_from_byteord,
-        integer_byteord_override: bo,
-    };
-    Ok(out)
+        integer_byteord_override: integer_byteord_override.0,
+    }
 }
 
 fn data_config(
@@ -3655,7 +3602,97 @@ impl<'py> FromPyObject<'py> for PyShortnamePrefix {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let s: String = ob.extract()?;
         let n = s.parse().map_err(PyShortnameError)?;
-        Ok(PyShortnamePrefix(n))
+        Ok(Self(n))
+    }
+}
+
+/// A python value for the non-standard meas pattern config parameter.
+struct PyNonStdMeasPattern(NonStdMeasPattern);
+
+impl<'py> FromPyObject<'py> for PyNonStdMeasPattern {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let s: String = ob.extract()?;
+        let n = s
+            .parse::<NonStdMeasPattern>()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Self(n))
+    }
+}
+
+/// A python value for the byteord override config parameter
+#[derive(Default)]
+struct PyByteOrd(Option<ByteOrd2_0>);
+
+impl<'py> FromPyObject<'py> for PyByteOrd {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let xs: Vec<NonZeroU8> = ob.extract()?;
+        let ret = if xs.is_empty() {
+            None
+        } else {
+            Some(ByteOrd2_0::try_from(&xs[..]).map_err(|e| PyValueError::new_err(e.to_string()))?)
+        };
+        Ok(Self(ret))
+    }
+}
+
+/// A python value for the time pattern config parameter.
+struct PyTimePattern(TimePattern);
+
+impl<'py> FromPyObject<'py> for PyTimePattern {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let s: String = ob.extract()?;
+        let n = s
+            .parse::<TimePattern>()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Self(n))
+    }
+}
+
+/// A python value for the date pattern config parameter.
+struct PyDatePattern(DatePattern);
+
+impl<'py> FromPyObject<'py> for PyDatePattern {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let s: String = ob.extract()?;
+        let n = s
+            .parse::<DatePattern>()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Self(n))
+    }
+}
+
+/// A python value for config parameters that take [`KeyString`] pairs.
+#[derive(Default)]
+struct PyKeyPairs(HashMap<KeyString, KeyString>);
+
+impl<'py> FromPyObject<'py> for PyKeyPairs {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let xs: HashMap<String, String> = ob.extract()?;
+        let ret = xs
+            .into_iter()
+            .map(|(x, y)| {
+                x.parse::<KeyString>()
+                    .and_then(|a| y.parse::<KeyString>().map(|b| (a, b)))
+            })
+            .collect::<Result<HashMap<_, _>, _>>()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Self(ret))
+    }
+}
+
+/// A python value for config parameters that take keystrings with strings.
+#[derive(Default)]
+struct PyKeyValues(HashMap<KeyString, String>);
+
+impl<'py> FromPyObject<'py> for PyKeyValues {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let xs: HashMap<String, String> = ob.extract()?;
+        let ret = xs
+            .into_iter()
+            .map(|(k, v)| k.parse::<KeyString>().map(|x| (x, v)))
+            .collect::<Result<HashMap<_, _>, _>>()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Self(ret))
     }
 }
 

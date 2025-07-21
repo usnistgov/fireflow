@@ -345,7 +345,7 @@ fn py_fcs_read_std_text(
     time_ensure: bool,
     allow_pseudostandard: bool,
     fix_log_scale_offsets: bool,
-    shortname_prefix: Option<String>,
+    shortname_prefix: Option<PyShortnamePrefix>,
     allow_header_text_offset_mismatch: bool,
     allow_missing_required_offsets: bool,
     text_data_correction: (i32, i32),
@@ -538,7 +538,7 @@ fn py_fcs_read_raw_dataset(
     time_ensure: bool,
     allow_pseudostandard: bool,
     fix_log_scale_offsets: bool,
-    shortname_prefix: Option<String>,
+    shortname_prefix: Option<PyShortnamePrefix>,
     allow_header_text_offset_mismatch: bool,
     allow_missing_required_offsets: bool,
     text_data_correction: (i32, i32),
@@ -753,7 +753,7 @@ fn py_fcs_read_std_dataset(
     time_ensure: bool,
     allow_pseudostandard: bool,
     fix_log_scale_offsets: bool,
-    shortname_prefix: Option<String>,
+    shortname_prefix: Option<PyShortnamePrefix>,
     allow_header_text_offset_mismatch: bool,
     allow_missing_required_offsets: bool,
     text_data_correction: (i32, i32),
@@ -975,7 +975,7 @@ fn std_config(
     time_ensure: bool,
     allow_pseudostandard: bool,
     fix_log_scale_offsets: bool,
-    shortname_prefix: Option<String>,
+    shortname_prefix: Option<PyShortnamePrefix>,
     allow_header_text_offset_mismatch: bool,
     allow_missing_required_offsets: bool,
     text_data_correction: (i32, i32),
@@ -986,10 +986,6 @@ fn std_config(
     integer_widths_from_byteord: bool,
     integer_byteord_override: Vec<NonZeroU8>,
 ) -> PyResult<StdTextReadConfig> {
-    let sp = shortname_prefix
-        .map(|x| x.parse())
-        .transpose()
-        .map_err(PyShortnameError)?;
     let nsmp = nonstandard_measurement_pattern
         .map(|s| {
             s.parse::<NonStdMeasPattern>()
@@ -1011,7 +1007,7 @@ fn std_config(
 
     let out = StdTextReadConfig {
         raw,
-        shortname_prefix: sp.unwrap_or_default(),
+        shortname_prefix: shortname_prefix.map(|x| x.0).unwrap_or_default(),
         time: TimeConfig {
             pattern: tp,
             allow_missing: time_ensure,

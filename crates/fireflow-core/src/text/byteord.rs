@@ -189,9 +189,9 @@ macro_rules! byteord_from_sized {
             }
         }
 
-        impl From<SizedByteOrd<$len>> for [u8; $len] {
-            fn from(value: SizedByteOrd<$len>) -> [u8; $len] {
-                match value {
+        impl From<SizedByteOrd<$len>> for [NonZeroU8; $len] {
+            fn from(value: SizedByteOrd<$len>) -> [NonZeroU8; $len] {
+                let arr = match value {
                     SizedByteOrd::Endian(e) => {
                         let mut o = std::array::from_fn(|i| i as u8);
                         if e == Endian::Big {
@@ -200,7 +200,8 @@ macro_rules! byteord_from_sized {
                         o
                     }
                     SizedByteOrd::Order(o) => o,
-                }
+                };
+                arr.map(|x| NonZeroU8::MIN.saturating_add(x))
             }
         }
 
@@ -308,24 +309,15 @@ impl ByteOrd2_0 {
     }
 
     pub fn as_vec(&self) -> Vec<NonZeroU8> {
-        fn go<const LEN: usize>(s: &SizedByteOrd<LEN>) -> Vec<NonZeroU8>
-        where
-            [u8; LEN]: From<SizedByteOrd<LEN>>,
-        {
-            <[u8; LEN]>::from(*s)
-                .iter()
-                .map(|&x| NonZeroU8::MIN.saturating_add(x))
-                .collect()
-        }
         match self {
-            Self::O1(x) => go::<1>(x),
-            Self::O2(x) => go::<2>(x),
-            Self::O3(x) => go::<3>(x),
-            Self::O4(x) => go::<4>(x),
-            Self::O5(x) => go::<5>(x),
-            Self::O6(x) => go::<6>(x),
-            Self::O7(x) => go::<7>(x),
-            Self::O8(x) => go::<8>(x),
+            Self::O1(x) => <[NonZeroU8; 1]>::from(*x).to_vec(),
+            Self::O2(x) => <[NonZeroU8; 2]>::from(*x).to_vec(),
+            Self::O3(x) => <[NonZeroU8; 3]>::from(*x).to_vec(),
+            Self::O4(x) => <[NonZeroU8; 4]>::from(*x).to_vec(),
+            Self::O5(x) => <[NonZeroU8; 5]>::from(*x).to_vec(),
+            Self::O6(x) => <[NonZeroU8; 6]>::from(*x).to_vec(),
+            Self::O7(x) => <[NonZeroU8; 7]>::from(*x).to_vec(),
+            Self::O8(x) => <[NonZeroU8; 8]>::from(*x).to_vec(),
         }
     }
 }

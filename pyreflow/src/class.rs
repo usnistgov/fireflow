@@ -42,6 +42,7 @@ use std::collections::HashMap;
 use std::convert::Infallible;
 use std::ffi::CString;
 use std::fmt;
+use std::num::NonZeroU8;
 use std::path;
 
 #[pymodule]
@@ -363,7 +364,7 @@ fn py_fcs_read_std_text(
     nonstandard_measurement_pattern: Option<String>,
     time_pattern: Option<String>,
     integer_widths_from_byteord: bool,
-    integer_byteord_override: Vec<u8>,
+    integer_byteord_override: Vec<NonZeroU8>,
 ) -> PyResult<(Bound<'_, PyAny>, PyParseData, Bound<'_, PyDict>)> {
     let header = header_config(
         version_override,
@@ -570,7 +571,7 @@ fn py_fcs_read_std_dataset(
     nonstandard_measurement_pattern: Option<String>,
     time_pattern: Option<String>,
     integer_widths_from_byteord: bool,
-    integer_byteord_override: Vec<u8>,
+    integer_byteord_override: Vec<NonZeroU8>,
 
     allow_uneven_event_width: bool,
     allow_tot_mismatch: bool,
@@ -811,7 +812,7 @@ fn std_config(
     nonstandard_measurement_pattern: Option<String>,
     time_pattern: Option<String>,
     integer_widths_from_byteord: bool,
-    integer_byteord_override: Vec<u8>,
+    integer_byteord_override: Vec<NonZeroU8>,
 ) -> PyResult<StdTextReadConfig> {
     let sp = shortname_prefix
         .map(|x| x.parse())

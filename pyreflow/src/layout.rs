@@ -19,6 +19,7 @@ use derive_more::{Display, From, Into};
 use nonempty::NonEmpty;
 use pyo3::prelude::*;
 use pyo3::types::PyType;
+use std::num::NonZeroU8;
 
 #[derive(FromPyObject, IntoPyObject)]
 pub(crate) enum PyOrderedLayout {
@@ -429,7 +430,7 @@ macro_rules! new_ordered_uint {
             #[new]
             fn new(ranges: PyNonEmpty<PyBitmask<$uint, $size>>, is_big: bool) -> Self {
                 let rs = ranges.0.map(|r| r.0);
-                FixedLayout::new_endian_uint(rs, Endian::is_big(is_big)).into()
+                FixedLayout::new_endian_uint(rs, is_big.into()).into()
             }
 
             #[classmethod]
@@ -462,7 +463,7 @@ macro_rules! new_ordered_float {
             #[new]
             fn new(ranges: PyNonEmpty<PyFloatRange<$num, $size>>, is_big: bool) -> Self {
                 let rs = ranges.0.map(|r| r.0);
-                FixedLayout::new_endian_float(rs, Endian::is_big(is_big)).into()
+                FixedLayout::new_endian_float(rs, is_big.into()).into()
             }
 
             #[classmethod]
@@ -489,8 +490,7 @@ macro_rules! new_endian_float {
             #[new]
             /// Make a new $num layout with a given endian-ness.
             fn new(ranges: PyNonEmpty<PyFloatRange<$num, $size>>, is_big: bool) -> Self {
-                let e = Endian::is_big(is_big);
-                FixedLayout::new(ranges.0.map(|r| r.0), e).into()
+                FixedLayout::new(ranges.0.map(|r| r.0), is_big.into()).into()
             }
         }
     };
@@ -506,9 +506,8 @@ impl PyEndianUintLayout {
     /// Width of each column (in bytes) will depend in the input range.
     #[new]
     fn new(ranges: PyNonEmpty<u64>, is_big: bool) -> Self {
-        let e = Endian::is_big(is_big);
         let rs = ranges.0.map(AnyNullBitmask::from_u64);
-        FixedLayout::new(rs, e).into()
+        FixedLayout::new(rs, is_big.into()).into()
     }
 }
 
@@ -522,8 +521,7 @@ impl PyMixedLayout {
     /// or Double datatypes. The 'value' field should be an integer for "A" or
     /// "I" and a float for "F" or "D".
     fn new_mixed(ranges: PyNonEmpty<PyMixedType>, is_big: bool) -> Self {
-        let e = Endian::is_big(is_big);
-        FixedLayout::new(ranges.0.map(|r| r.0), e).into()
+        FixedLayout::new(ranges.0.map(|r| r.0), is_big.into()).into()
     }
 }
 
@@ -597,10 +595,10 @@ struct PySizedByteOrd<const LEN: usize>(SizedByteOrd<LEN>);
 
 impl<'py, const LEN: usize> FromPyObject<'py> for PySizedByteOrd<LEN>
 where
-    SizedByteOrd<LEN>: TryFrom<Vec<u8>, Error = VecToSizedError>,
+    SizedByteOrd<LEN>: TryFrom<Vec<NonZeroU8>, Error = VecToSizedError>,
 {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let xs: Vec<u8> = ob.extract()?;
+        let xs: Vec<NonZeroU8> = ob.extract()?;
         let ret = SizedByteOrd::<LEN>::try_from(xs).map_err(PyVecToSizedError)?;
         Ok(Self(ret))
     }

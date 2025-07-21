@@ -15,10 +15,10 @@ use fireflow_core::text::ranged_float::*;
 use fireflow_core::text::scale::*;
 use fireflow_core::text::timestamps::ReversedTimestamps;
 use fireflow_core::text::unstainedcenters::UnstainedCenters;
+use fireflow_core::validated::ascii_range::Chars;
 use fireflow_core::validated::dataframe::*;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::keys::*;
-use fireflow_core::validated::other_width::*;
 use fireflow_core::validated::shortname::*;
 
 use super::layout::{self, PyLayout3_2, PyNonMixedLayout, PyOrderedLayout};
@@ -118,7 +118,7 @@ fn py_fcs_read_header(
     data_correction: (i32, i32),
     analysis_correction: (i32, i32),
     other_corrections: Vec<(i32, i32)>,
-    other_width: Option<u8>,
+    other_width: Option<PyChars>,
     max_other: Option<usize>,
     allow_negative: bool,
     squish_offsets: bool,
@@ -154,7 +154,7 @@ fn py_fcs_read_raw_text(
     data_correction: (i32, i32),
     analysis_correction: (i32, i32),
     other_corrections: Vec<(i32, i32)>,
-    other_width: Option<u8>,
+    other_width: Option<PyChars>,
     max_other: Option<usize>,
     allow_negative: bool,
     squish_offsets: bool,
@@ -318,7 +318,7 @@ fn py_fcs_read_std_text(
     data_correction: (i32, i32),
     analysis_correction: (i32, i32),
     other_corrections: Vec<(i32, i32)>,
-    other_width: Option<u8>,
+    other_width: Option<PyChars>,
     max_other: Option<usize>,
     allow_negative: bool,
     squish_offsets: bool,
@@ -525,7 +525,7 @@ fn py_fcs_read_std_dataset(
     data_correction: (i32, i32),
     analysis_correction: (i32, i32),
     other_corrections: Vec<(i32, i32)>,
-    other_width: Option<u8>,
+    other_width: Option<PyChars>,
     max_other: Option<usize>,
     allow_negative: bool,
     squish_offsets: bool,
@@ -676,7 +676,7 @@ fn header_config(
     data_correction: (i32, i32),
     analysis_correction: (i32, i32),
     other_corrections: Vec<(i32, i32)>,
-    other_width: Option<u8>,
+    other_width: Option<PyChars>,
     max_other: Option<usize>,
     allow_negative: bool,
     squish_offsets: bool,
@@ -686,18 +686,13 @@ fn header_config(
         .into_iter()
         .map(OffsetCorrection::from)
         .collect();
-    let ow = other_width
-        .map(OtherWidth::try_from)
-        .transpose()
-        .map_err(|e| PyreflowException::new_err(e.to_string()))?
-        .unwrap_or_default();
     let out = HeaderConfig {
         version_override: version_override.map(|x| x.0),
         text_correction: OffsetCorrection::from(prim_text_correction),
         data_correction: OffsetCorrection::from(data_correction),
         analysis_correction: OffsetCorrection::from(analysis_correction),
         other_corrections: os,
-        other_width: ow,
+        other_width: other_width.map(|x| x.0.into()).unwrap_or_default(),
         max_other,
         allow_negative,
         squish_offsets,
@@ -3363,6 +3358,18 @@ where
             Element::Center(x) => x.into_bound_py_any(py),
             Element::NonCenter(x) => x.into_bound_py_any(py),
         }
+    }
+}
+
+/// A python value for any configuration parameter requiring [`Chars`].
+struct PyChars(Chars);
+
+impl<'py> FromPyObject<'py> for PyChars {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let x: u8 = ob.extract()?;
+        Chars::try_from(x)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+            .map(Self)
     }
 }
 

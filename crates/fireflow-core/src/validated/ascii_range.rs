@@ -23,10 +23,19 @@ pub struct AsciiRange {
     chars: Chars,
 }
 
-/// The number of chars or an ASCII measurement
+/// The number of chars for an ASCII measurement
+///
+/// Must be an integer between 1 and 20.
 #[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Hash, Display, Into)]
 #[into(NonZeroU8, u8)]
 pub struct Chars(NonZeroU8);
+
+/// Width to use when parsing OTHER segments.
+///
+/// Must be an integer between 1 and 20.
+#[derive(Clone, Copy, Into, From)]
+#[into(u8, Chars)]
+pub struct OtherWidth(pub Chars);
 
 const MAX_CHARS: u8 = 20;
 
@@ -138,6 +147,22 @@ impl TryFrom<NonZeroU8> for Chars {
     }
 }
 
+impl Default for OtherWidth {
+    fn default() -> OtherWidth {
+        OtherWidth(Chars(NonZeroU8::new(8).unwrap()))
+    }
+}
+
+impl TryFrom<u8> for OtherWidth {
+    type Error = OtherWidthError;
+
+    fn try_from(x: u8) -> Result<Self, Self::Error> {
+        Chars::try_from(x)
+            .map_err(|e| OtherWidthError(e.0))
+            .map(Self)
+    }
+}
+
 pub struct CharsError(u8);
 
 impl fmt::Display for CharsError {
@@ -168,6 +193,19 @@ impl fmt::Display for NotEnoughCharsError {
             f,
             "not enough chars to hold {}, got {}",
             self.value, self.chars
+        )
+    }
+}
+
+#[derive(Debug)]
+pub struct OtherWidthError(u8);
+
+impl fmt::Display for OtherWidthError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "OTHER width should be integer b/t 1 and 20, got {}",
+            self.0
         )
     }
 }

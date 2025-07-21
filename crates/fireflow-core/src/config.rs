@@ -12,9 +12,9 @@
 use crate::header::Version;
 use crate::segment::*;
 use crate::text::byteord::ByteOrd2_0;
+use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::keys;
-use crate::validated::other_width::OtherWidth;
 use crate::validated::shortname::*;
 use crate::validated::textdelim::TEXTDelim;
 

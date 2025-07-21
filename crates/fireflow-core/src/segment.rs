@@ -15,6 +15,7 @@ use std::fmt;
 use std::io;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::marker::PhantomData;
+use std::num::NonZeroU64;
 use std::num::ParseIntError;
 use std::str;
 use std::str::FromStr;
@@ -568,9 +569,7 @@ impl<I, S, T> SpecificSegment<I, S, T> {
         length: u64,
     ) -> Result<Self, <T as TryFrom<u64>>::Error>
     where
-        T: Into<u64>,
-        T: TryFrom<u64>,
-        T: Copy,
+        T: Into<u64> + TryFrom<u64> + Copy,
     {
         if length == 0 {
             Ok(Segment::default())
@@ -590,8 +589,7 @@ impl<I, S, T> SpecificSegment<I, S, T> {
     where
         I: HasRegion,
         S: HasSource,
-        T: Copy,
-        T: Into<u64>,
+        T: Copy + Into<u64>,
     {
         self.inner.try_as_nonempty().map(|x| {
             let (begin, end) = x.as_u64().coords();
@@ -947,14 +945,13 @@ impl<T> Segment<T> {
         buf: &mut Vec<u8>,
     ) -> io::Result<()>
     where
-        T: Into<u64>,
-        T: Copy,
+        T: Into<u64> + Copy,
     {
         match self {
             Self::Empty => Ok(()),
             Self::NonEmpty(s) => {
                 let begin = s.begin.into();
-                let nbytes = s.nbytes();
+                let nbytes = u64::from(s.nbytes());
 
                 h.seek(SeekFrom::Start(begin))?;
                 h.take(nbytes).read_to_end(buf)?;
@@ -991,10 +988,9 @@ impl<T> Segment<T> {
     }
 
     /// Return byte after end of segment if applicable
-    pub fn try_next_byte(&self) -> Option<u64>
+    pub fn try_next_byte(&self) -> Option<NonZeroU64>
     where
-        T: Copy,
-        T: Into<u64>,
+        T: Copy + Into<u64>,
     {
         self.try_as_nonempty().map(|x| x.next_byte())
     }
@@ -1002,15 +998,14 @@ impl<T> Segment<T> {
     /// Return the number of bytes in this segment
     pub fn len(&self) -> u64
     where
-        T: Copy,
-        T: Into<u64>,
+        T: Copy + Into<u64>,
     {
         // NOTE In FCS a 0,0 means "empty" but this also means one byte
         // according to the spec's on definitions. The first number points to
         // the first byte in a segment, and the second number points to the last
         // byte, therefore 0,0 means "0 is both the first and last byte, which
         // also means there is one byte".
-        self.try_as_nonempty().map_or(0, |s| s.nbytes())
+        self.try_as_nonempty().map_or(0, |s| u64::from(s.nbytes()))
     }
 
     /// Return true if segment has 0 bytes
@@ -1020,9 +1015,7 @@ impl<T> Segment<T> {
 
     pub fn fmt_pair(&self) -> String
     where
-        T: Default,
-        T: Copy,
-        T: fmt::Display,
+        T: Default + Copy + fmt::Display,
     {
         let (b, e) = self.try_coords().unwrap_or((T::default(), T::default()));
         format!("{},{}", b, e)
@@ -1030,8 +1023,7 @@ impl<T> Segment<T> {
 
     pub fn as_u64(&self) -> Segment<u64>
     where
-        T: Into<u64>,
-        T: Copy,
+        T: Into<u64> + Copy,
     {
         match self {
             Self::Empty => Segment::Empty,
@@ -1052,12 +1044,11 @@ impl<T> Segment<T> {
 
 impl<T> NonEmptySegment<T> {
     /// Return the number of bytes in this segment
-    pub fn nbytes(&self) -> u64
+    pub fn nbytes(&self) -> NonZeroU64
     where
-        T: Into<u64>,
-        T: Copy,
+        T: Into<u64> + Copy,
     {
-        self.end.into() - self.begin.into() + 1
+        NonZeroU64::MIN.saturating_add(self.end.into() - self.begin.into())
     }
 
     /// Return the first and last byte or this segment
@@ -1069,14 +1060,13 @@ impl<T> NonEmptySegment<T> {
     }
 
     /// Return the next byte after this segment
-    pub fn next_byte(&self) -> u64
+    pub fn next_byte(&self) -> NonZeroU64
     where
-        T: Into<u64>,
-        T: Copy,
+        T: Into<u64> + Copy,
     {
         // TODO technically this should return option since it isn't guaranteed
         // that the next byte won't wrap
-        self.begin.into() + self.nbytes()
+        NonZeroU64::MIN.saturating_add(self.begin.into())
     }
 
     fn new_unchecked(begin: T, end: T) -> Self {
@@ -1085,8 +1075,7 @@ impl<T> NonEmptySegment<T> {
 
     pub fn as_u64(&self) -> NonEmptySegment<u64>
     where
-        T: Into<u64>,
-        T: Copy,
+        T: Into<u64> + Copy,
     {
         NonEmptySegment {
             begin: self.begin.into(),

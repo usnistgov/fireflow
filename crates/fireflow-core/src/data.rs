@@ -85,6 +85,7 @@ use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::marker::PhantomData;
 use std::mem;
 use std::num::ParseIntError;
+use std::num::{NonZeroU64, NonZeroU8, NonZeroUsize};
 use std::str;
 
 /// All possible byte layouts for the DATA segment in 2.0.
@@ -402,7 +403,7 @@ pub trait TotDefinition {
         G: FnOnce(I) -> X;
 
     fn check_tot(
-        total_events: usize,
+        total_events: u64,
         tot: Self::Tot,
         allow_mismatch: bool,
     ) -> BiTentative<(), TotEventMismatch> {
@@ -415,11 +416,11 @@ pub trait TotDefinition {
     }
 
     fn check_tot_inner(
-        total_events: usize,
+        total_events: u64,
         tot: Tot,
         allow_mismatch: bool,
     ) -> BiTentative<(), TotEventMismatch> {
-        if tot.0 != total_events {
+        if tot.0 != (total_events as usize) {
             let i = TotEventMismatch { tot, total_events };
             Tentative::new_either((), vec![i], !allow_mismatch)
         } else {
@@ -431,7 +432,7 @@ pub trait TotDefinition {
 /// Standardized operations on layouts
 #[delegatable_trait]
 pub trait LayoutOps<'a, T>: Sized {
-    fn ncols(&self) -> usize;
+    fn ncols(&self) -> NonZeroUsize;
 
     fn nbytes(&self, df: &FCSDataFrame) -> u64;
 
@@ -478,7 +479,7 @@ pub trait LayoutOps<'a, T>: Sized {
     ) -> MultiResult<(), MeasLayoutMismatchError> {
         let meas_n = xforms.len();
         let layout_n = self.ncols();
-        if meas_n != layout_n {
+        if meas_n != usize::from(layout_n) {
             return Err(MeasLayoutLengthsError { meas_n, layout_n }).into_mult();
         }
         self.check_transforms(xforms).mult_errors_into()?;
@@ -601,7 +602,7 @@ where
         // is wrong.
         let par = self.ncols();
         let ncols = df.ncols();
-        if ncols != par {
+        if ncols != usize::from(par) {
             panic!("datafame columns ({ncols}) unequal to number of measurements ({par})");
         }
         self.h_write_df_inner(h, df)
@@ -653,7 +654,7 @@ trait FromRange: Sized {
 
 /// A type which has a width that may vary
 pub trait IsFixed {
-    fn nbytes(&self) -> u8;
+    fn nbytes(&self) -> NonZeroU8;
 
     fn fixed_width(&self) -> BitsOrChars;
 
@@ -2040,8 +2041,8 @@ where
     T: TotDefinition,
     NoByteOrd<ORD>: HasByteOrd,
 {
-    fn ncols(&self) -> usize {
-        self.ranges.len()
+    fn ncols(&self) -> NonZeroUsize {
+        self.ranges.len_nonzero()
     }
 
     fn nbytes(&self, df: &FCSDataFrame) -> u64 {
@@ -2340,12 +2341,12 @@ where
         self.columns.as_ref().map(|x| x.into())
     }
 
-    fn ncols(&self) -> usize {
-        self.columns.len()
+    fn ncols(&self) -> NonZeroUsize {
+        self.columns.len_nonzero()
     }
 
     fn nbytes(&self, df: &FCSDataFrame) -> u64 {
-        (self.event_width() * df.nrows()) as u64
+        u64::from(self.event_width()) * (df.nrows() as u64)
     }
 
     fn datatype(&self) -> AlphaNumType {
@@ -2392,7 +2393,7 @@ where
                     .errors_liftio()
             })
             .and_maybe(|nrows| {
-                self.h_read_unchecked_df(h, nrows, buf)
+                self.h_read_unchecked_df(h, nrows as usize, buf)
                     .map_err(|e| e.inner_into())
                     .into_deferred()
             })
@@ -2597,23 +2598,28 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         FixedLayout::new(self.columns, self.byte_layout)
     }
 
-    fn event_width(&self) -> usize
+    fn event_width(&self) -> NonZeroU64
     where
         C: IsFixed,
     {
-        self.columns.iter().map(|c| usize::from(c.nbytes())).sum()
+        let cs = &self.columns;
+        let mut acc = NonZeroU64::from(cs.head.nbytes());
+        for x in cs.tail.iter() {
+            acc = acc.saturating_add(u64::from(u8::from(x.nbytes())))
+        }
+        acc
     }
 
     pub fn compute_nrows(
         &self,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> BiTentative<usize, UnevenEventWidth>
+    ) -> BiTentative<u64, UnevenEventWidth>
     where
         S: Clone,
         C: IsFixed,
     {
-        let n = seg.inner.len() as usize;
+        let n = seg.inner.len();
         let w = self.event_width();
         let total_events = n / w;
         let remainder = n % w;
@@ -2881,7 +2887,7 @@ where
     u64: From<T>,
     T: Copy,
 {
-    fn nbytes(&self) -> u8 {
+    fn nbytes(&self) -> NonZeroU8 {
         Self::BYTES.into()
     }
 
@@ -2900,7 +2906,7 @@ where
     T: Copy,
     f64: From<T>,
 {
-    fn nbytes(&self) -> u8 {
+    fn nbytes(&self) -> NonZeroU8 {
         Self::BYTES.into()
     }
 
@@ -2915,7 +2921,7 @@ where
 }
 
 impl IsFixed for AsciiRange {
-    fn nbytes(&self) -> u8 {
+    fn nbytes(&self) -> NonZeroU8 {
         self.chars().into()
     }
 
@@ -2929,7 +2935,7 @@ impl IsFixed for AsciiRange {
 }
 
 impl IsFixed for AnyNullBitmask {
-    fn nbytes(&self) -> u8 {
+    fn nbytes(&self) -> NonZeroU8 {
         match_any_uint!(self, Self, x, { x.nbytes() })
     }
 
@@ -2943,7 +2949,7 @@ impl IsFixed for AnyNullBitmask {
 }
 
 impl IsFixed for NullMixedType {
-    fn nbytes(&self) -> u8 {
+    fn nbytes(&self) -> NonZeroU8 {
         match_any_mixed!(self, x, { x.nbytes() })
     }
 
@@ -3747,13 +3753,13 @@ pub enum NewDataReaderWarning {
 
 pub struct TotEventMismatch {
     tot: Tot,
-    total_events: usize,
+    total_events: u64,
 }
 
 pub struct UnevenEventWidth {
-    event_width: usize,
-    nbytes: usize,
-    remainder: usize,
+    event_width: NonZeroU64,
+    nbytes: u64,
+    remainder: u64,
 }
 
 #[derive(From, Display)]
@@ -4054,7 +4060,7 @@ pub enum MixedToOrderedUintError {
 }
 
 pub struct UintToUintError {
-    from: u8,
+    from: NonZeroU8,
     to: u8,
 }
 
@@ -4092,7 +4098,7 @@ pub enum MeasLayoutMismatchError {
 
 pub struct MeasLayoutLengthsError {
     meas_n: usize,
-    layout_n: usize,
+    layout_n: NonZeroUsize,
 }
 
 impl fmt::Display for MeasLayoutLengthsError {

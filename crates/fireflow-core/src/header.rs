@@ -422,19 +422,20 @@ pub(crate) fn make_data_offset_keywords_2_0(
     let data_begin = text_seg
         .inner
         .try_next_byte()
-        .map_or(Ok(text_begin), |x| x.try_into())?;
+        .map_or(Ok(text_begin), |x| u64::from(x).try_into())?;
     let data_seg = HeaderDataSegment::try_new_with_len(data_begin, data_len)?;
 
     let analysis_begin = data_seg
         .inner
         .try_next_byte()
-        .map_or(Ok(text_begin), |x| x.try_into())?;
+        .map_or(Ok(text_begin), |x| u64::from(x).try_into())?;
     let analysis_seg = HeaderAnalysisSegment::try_new_with_len(analysis_begin, analysis_len)?;
 
     let nextdata = Nextdata(Uint20Char(
         analysis_seg
             .inner
             .try_next_byte()
+            .map(u64::from)
             .unwrap_or(u64::from(analysis_begin)),
     ));
 
@@ -493,7 +494,7 @@ pub(crate) fn make_data_offset_keywords_3_0(
                     let supp_text_begin = p
                         .inner
                         .try_next_byte()
-                        .map_or(u64::from(prim_text_begin).into(), |x| x.into());
+                        .map_or(u64::from(prim_text_begin).into(), |x| u64::from(x).into());
                     let s = SupplementalTextSegment::new_with_len(supp_text_begin, supp_text_len);
                     (p, s)
                 }),
@@ -503,6 +504,7 @@ pub(crate) fn make_data_offset_keywords_3_0(
         .inner
         .try_next_byte()
         .or(prim_text_seg.inner.try_next_byte())
+        .map(u64::from)
         .unwrap_or(u64::from(prim_text_begin))
         .into();
 
@@ -511,7 +513,7 @@ pub(crate) fn make_data_offset_keywords_3_0(
     let analysis_begin = data_seg
         .inner
         .try_next_byte()
-        .map(|x| x.into())
+        .map(|x| u64::from(x).into())
         .unwrap_or(data_begin);
     let analysis_seg = TEXTAnalysisSegment::new_with_len(analysis_begin, analysis_len);
 
@@ -522,6 +524,7 @@ pub(crate) fn make_data_offset_keywords_3_0(
         analysis_seg
             .inner
             .try_next_byte()
+            .map(u64::from)
             .unwrap_or(u64::from(analysis_begin)),
     ));
 

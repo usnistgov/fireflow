@@ -8,7 +8,7 @@ use num_traits::identities::Zero;
 use num_traits::ops::checked::CheckedSub;
 use serde::Serialize;
 use std::fmt;
-use std::num::{ParseIntError, TryFromIntError};
+use std::num::{NonZeroU64, ParseIntError, TryFromIntError};
 use std::str;
 use std::str::FromStr;
 
@@ -38,6 +38,7 @@ use std::str::FromStr;
 )]
 #[into(u64, i128)]
 #[mul(forward)]
+#[from(u64, NonZeroU64)]
 pub struct Uint20Char(pub u64);
 
 impl fmt::Display for Uint20Char {

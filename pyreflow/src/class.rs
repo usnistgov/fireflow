@@ -511,6 +511,7 @@ fn py_fcs_read_std_text(
 
         allow_uneven_event_width=false,
         allow_tot_mismatch=false,
+        allow_data_par_mismatch=false,
     )
 )]
 fn py_fcs_read_std_dataset(
@@ -573,6 +574,7 @@ fn py_fcs_read_std_dataset(
 
     allow_uneven_event_width: bool,
     allow_tot_mismatch: bool,
+    allow_data_par_mismatch: bool,
 ) -> PyResult<(Bound<'_, PyAny>, PyParseData, Bound<'_, PyDict>)> {
     let header = header_config(
         version_override,
@@ -635,7 +637,12 @@ fn py_fcs_read_std_dataset(
         integer_byteord_override,
     )?;
 
-    let conf = data_config(standard, allow_uneven_event_width, allow_tot_mismatch);
+    let conf = data_config(
+        standard,
+        allow_uneven_event_width,
+        allow_tot_mismatch,
+        allow_data_par_mismatch,
+    );
 
     let out: StdDatasetOutput =
         fcs_read_std_dataset(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
@@ -857,12 +864,14 @@ fn data_config(
     standard: StdTextReadConfig,
     allow_uneven_event_width: bool,
     allow_tot_mismatch: bool,
+    allow_data_par_mismatch: bool,
 ) -> DataReadConfig {
     DataReadConfig {
         standard,
         reader: ReaderConfig {
             allow_uneven_event_width,
             allow_tot_mismatch,
+            allow_data_par_mismatch,
         },
     }
 }

@@ -37,7 +37,7 @@ pub struct DataReadConfig {
 /// Instructions for reading the DATA/ANALYSIS segments
 #[derive(Default, Clone)]
 pub struct ReaderConfig {
-    /// If true, allow event width to not perfectly divide DATA.
+    /// If `true`, allow event width to not perfectly divide DATA.
     ///
     /// In practice, having such a mismatch likely means either PnB or the DATA
     /// offsets are incorrect.
@@ -45,13 +45,23 @@ pub struct ReaderConfig {
     /// Does not apply to delimited ASCII, which does not have a fixed width.
     pub allow_uneven_event_width: bool,
 
-    /// If true, allow $TOT to not match number of events in DATA.
+    /// If `true`, allow $TOT to not match number of events in DATA.
     ///
     /// For all but delimited ASCII layouts, $TOT is unnecessary and can be
     /// computed by dividing the bytes in DATA by the event width computed from
-    /// all $PnB. If $TOT does not match this, it may indicate an issue. If false,
-    /// throw an error on mismatch, and warning otherwise.
+    /// all $PnB. If $TOT does not match this, it may indicate an issue. If
+    /// `false`, throw an error on mismatch, and warning otherwise.
     pub allow_tot_mismatch: bool,
+
+    /// If `true`, allow $PAR to be zero when DATA segment is non-empty.
+    ///
+    /// This will catch situations where $TOT > 0, DATA segment is non-empty,
+    /// and $PAR = 0 or the measurement layout ($PnB, $PnR, etc) was deleted for
+    /// some reason.
+    ///
+    /// Setting this to `true` will turn this situation into a warning rather
+    /// than an error.
+    pub allow_data_par_mismatch: bool,
 }
 
 /// Configuration for writing an FCS file

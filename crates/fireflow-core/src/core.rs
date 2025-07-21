@@ -1205,12 +1205,21 @@ pub trait Versioned {
                 let ar = AnalysisReader {
                     seg: *offsets.as_ref(),
                 };
-                // TODO what if data seg is non empty and layout is empty?
-                let data_res = layout.map_or(Ok(Tentative::new1(FCSDataFrame::default())), |l| {
-                    l.h_read_df(h, offsets.tot(), *offsets.as_ref(), &st.conf.reader)
+                let any_data_seg: AnyDataSegment = *offsets.as_ref();
+                let data_res = match layout {
+                    None => {
+                        let mut tnt = Tentative::default();
+                        if !any_data_seg.inner.is_empty() {
+                            let is_err = !st.conf.reader.allow_data_par_mismatch;
+                            tnt.push_error_or_warning(DataSegmentMismatchError, is_err);
+                        }
+                        Ok(tnt.errors_liftio())
+                    }
+                    Some(l) => l
+                        .h_read_df(h, offsets.tot(), *offsets.as_ref(), &st.conf.reader)
                         .def_warnings_into()
-                        .def_map_errors(|e| e.inner_into())
-                });
+                        .def_map_errors(|e| e.inner_into()),
+                };
                 let analysis_res = ar.h_read(h).into_deferred();
                 data_res
                     .def_zip(analysis_res)
@@ -3703,16 +3712,22 @@ where
             let ar = AnalysisReader {
                 seg: *offsets.as_ref(),
             };
-            // TODO what happens if the layout is empty but the segment
-            // isn't?
-            let data_res = text.layout.as_ref_opt().map_or(
-                Ok(Tentative::new1(FCSDataFrame::default())),
-                |l: &<M::Ver as Versioned>::Layout| {
-                    l.h_read_df(h, offsets.tot(), *offsets.as_ref(), &st.conf.reader)
-                        .def_warnings_into()
-                        .def_map_errors(|e| e.inner_into())
-                },
-            );
+            // TODO not DRY
+            let any_data_seg: AnyDataSegment = *offsets.as_ref();
+            let data_res = match text.layout.0.as_ref() {
+                None => {
+                    let mut tnt = Tentative::default();
+                    if !any_data_seg.inner.is_empty() {
+                        let is_err = !st.conf.reader.allow_data_par_mismatch;
+                        tnt.push_error_or_warning(DataSegmentMismatchError, is_err);
+                    }
+                    Ok(tnt.errors_liftio())
+                }
+                Some(l) => l
+                    .h_read_df(h, offsets.tot(), *offsets.as_ref(), &st.conf.reader)
+                    .def_warnings_into()
+                    .def_map_errors(|e| e.inner_into()),
+            };
             let analysis_res = ar.h_read(h).into_deferred();
             let others_res = or.h_read(h).into_deferred();
             data_res
@@ -8282,6 +8297,7 @@ pub enum StdDatasetFromRawError {
     Dataframe(ReadDataframeError),
     Offsets(LookupTEXTOffsetsError),
     Warn(StdDatasetFromRawWarning),
+    Mismatch(DataSegmentMismatchError),
 }
 
 #[derive(From, Display)]
@@ -8289,6 +8305,7 @@ pub enum StdDatasetFromRawWarning {
     TEXT(StdTEXTFromRawWarning),
     Offsets(LookupTEXTOffsetsWarning),
     Layout(ReadDataframeWarning),
+    Mismatch(DataSegmentMismatchError),
 }
 
 #[derive(From, Display)]
@@ -8538,6 +8555,7 @@ pub enum LookupAndReadDataAnalysisError {
     Layout(RawToLayoutError),
     Dataframe(ReadDataframeError),
     Warn(LookupAndReadDataAnalysisWarning),
+    Mismatch(DataSegmentMismatchError),
 }
 
 #[derive(From, Display)]
@@ -8545,6 +8563,7 @@ pub enum LookupAndReadDataAnalysisWarning {
     Offsets(LookupTEXTOffsetsWarning),
     Layout(RawToLayoutWarning),
     Data(ReadDataframeWarning),
+    Mismatch(DataSegmentMismatchError),
 }
 
 #[derive(From, Display)]
@@ -8723,5 +8742,13 @@ pub struct EmptyLayoutError;
 impl fmt::Display for EmptyLayoutError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "tried to set measurements with an empty data layout",)
+    }
+}
+
+pub struct DataSegmentMismatchError;
+
+impl fmt::Display for DataSegmentMismatchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        f.write_str("$PAR = 0 but DATA segment is not empty")
     }
 }

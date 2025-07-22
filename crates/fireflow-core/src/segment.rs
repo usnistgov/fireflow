@@ -138,14 +138,9 @@ where
 /// Operations to obtain required segment from TEXT keywords
 pub(crate) trait KeyedReqSegment
 where
-    Self: KeyedSegment,
-    Self: HasRegion,
-    Self::B: Into<Uint20Char>,
-    Self::E: Into<Uint20Char>,
-    Self::B: ReqMetarootKey,
-    Self::E: ReqMetarootKey,
-    Self::B: FromStr<Err = ParseIntError>,
-    Self::E: FromStr<Err = ParseIntError>,
+    Self: KeyedSegment + HasRegion,
+    Self::B: Into<Uint20Char> + ReqMetarootKey + FromStr<Err = ParseIntError>,
+    Self::E: Into<Uint20Char> + ReqMetarootKey + FromStr<Err = ParseIntError>,
 {
     fn get_or(
         kws: &StdKeywords,
@@ -277,14 +272,9 @@ where
 /// Operations to obtain optional segment from TEXT keywords
 pub(crate) trait KeyedOptSegment
 where
-    Self: KeyedSegment,
-    Self: HasRegion,
-    Self::B: Into<Uint20Char>,
-    Self::E: Into<Uint20Char>,
-    Self::B: OptMetarootKey,
-    Self::E: OptMetarootKey,
-    Self::B: FromStr<Err = ParseIntError>,
-    Self::E: FromStr<Err = ParseIntError>,
+    Self: KeyedSegment + HasRegion,
+    Self::B: Into<Uint20Char> + OptMetarootKey + FromStr<Err = ParseIntError>,
+    Self::E: Into<Uint20Char> + OptMetarootKey + FromStr<Err = ParseIntError>,
 {
     fn get_or(
         kws: &StdKeywords,

@@ -216,6 +216,23 @@ pub struct RawTextReadConfig {
     /// the offsets in HEADER are correct.
     pub ignore_text_analysis_offsets: bool,
 
+    /// If true, throw error if offsets in HEADER and TEXT differ.
+    ///
+    /// Only applies to DATA and ANALYSIS offsets
+    pub allow_header_text_offset_mismatch: bool,
+
+    /// If true, throw error if required TEXT offsets are missing.
+    ///
+    /// Only applies to DATA and ANALYSIS offsets in versions 3.0 and 3.1. If
+    /// missing these will be taken from HEADER.
+    pub allow_missing_required_offsets: bool,
+
+    /// Corrections for DATA offsets in TEXT segment
+    pub data: TEXTCorrection<DataSegmentId>,
+
+    /// Corrections for ANALYSIS offsets in TEXT segment
+    pub analysis: TEXTCorrection<AnalysisSegmentId>,
+
     /// If true, treat every delimiter as literal.
     ///
     /// The standard allows delimiters to be included in keys or values (words)
@@ -455,17 +472,6 @@ pub struct StdTextReadConfig {
     /// becomes 'X,1.0'.
     pub fix_log_scale_offsets: bool,
 
-    /// If true, throw error if offsets in HEADER and TEXT differ.
-    ///
-    /// Only applies to DATA and ANALYSIS offsets
-    pub allow_header_text_offset_mismatch: bool,
-
-    /// If true, throw error if required TEXT offsets are missing.
-    ///
-    /// Only applies to DATA and ANALYSIS offsets in versions 3.0 and 3.1. If
-    /// missing these will be taken from HEADER.
-    pub allow_missing_required_offsets: bool,
-
     /// If given, override $PnB with the number of bytes in $BYTEORD.
     ///
     /// Some files set $PnB to match the bitmask. For example, a 16-bit column
@@ -493,12 +499,6 @@ pub struct StdTextReadConfig {
     /// $PnB is also incorrect, use ['integer_widths_from_byteord'] to override
     /// those values as well.
     pub integer_byteord_override: Option<ByteOrd2_0>,
-
-    /// Corrections for DATA offsets in TEXT segment
-    pub data: TEXTCorrection<DataSegmentId>,
-
-    /// Corrections for ANALYSIS offsets in TEXT segment
-    pub analysis: TEXTCorrection<AnalysisSegmentId>,
 
     /// If true, disallow bitmask to be truncated when converting from native type.
     ///

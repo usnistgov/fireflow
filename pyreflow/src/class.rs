@@ -35,11 +35,10 @@ use polars_arrow::array::PrimitiveArray;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyIndexError, PyValueError, PyWarning};
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyDict, PyFloat, PyString, PyTuple};
+use pyo3::types::{IntoPyDict, PyDict, PyTuple};
 use pyo3::IntoPyObjectExt;
 use pyo3_polars::{PyDataFrame, PySeries};
 use std::collections::HashMap;
-use std::convert::Infallible;
 use std::ffi::CString;
 use std::fmt;
 use std::num::NonZeroU8;
@@ -114,12 +113,12 @@ fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
 )]
 fn py_fcs_read_header(
     p: path::PathBuf,
-    version_override: Option<PyVersion>,
+    version_override: Option<Version>,
     prim_text_correction: (i32, i32),
     data_correction: (i32, i32),
     analysis_correction: (i32, i32),
     other_corrections: Vec<(i32, i32)>,
-    other_width: Option<PyChars>,
+    other_width: Option<Chars>,
     max_other: Option<usize>,
     allow_negative: bool,
     squish_offsets: bool,
@@ -148,12 +147,12 @@ fn py_fcs_read_header(
 fn py_fcs_read_raw_text(
     p: path::PathBuf,
 
-    version_override: Option<PyVersion>,
+    version_override: Option<Version>,
     prim_text_correction: (i32, i32),
     data_correction: (i32, i32),
     analysis_correction: (i32, i32),
     other_corrections: Vec<(i32, i32)>,
-    other_width: Option<PyChars>,
+    other_width: Option<Chars>,
     max_other: Option<usize>,
     allow_negative: bool,
     squish_offsets: bool,
@@ -181,7 +180,7 @@ fn py_fcs_read_raw_text(
     allow_stext_own_delim: bool,
     allow_missing_nextdata: bool,
     trim_value_whitespace: bool,
-    date_pattern: Option<PyDatePattern>,
+    date_pattern: Option<DatePattern>,
     promote_to_standard: PyKeyPatterns,
     demote_from_standard: PyKeyPatterns,
     ignore_standard_keys: PyKeyPatterns,
@@ -189,7 +188,7 @@ fn py_fcs_read_raw_text(
     replace_standard_key_values: PyKeyValues,
     append_standard_keywords: PyKeyValues,
     warnings_are_errors: bool,
-) -> PyResult<(PyVersion, PyStdKeywords, PyNonStdKeywords, PyParseData)> {
+) -> PyResult<(Version, PyStdKeywords, PyNonStdKeywords, PyParseData)> {
     let header = header_config(
         version_override,
         prim_text_correction,
@@ -240,7 +239,7 @@ fn py_fcs_read_raw_text(
     let raw: RawTEXTOutput =
         fcs_read_raw_text(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
     Ok((
-        raw.version.into(),
+        raw.version,
         raw.keywords.std.into(),
         raw.keywords.nonstd.into(),
         raw.parse.into(),
@@ -311,12 +310,12 @@ fn py_fcs_read_raw_text(
 fn py_fcs_read_std_text(
     p: path::PathBuf,
 
-    version_override: Option<PyVersion>,
+    version_override: Option<Version>,
     prim_text_correction: (i32, i32),
     data_correction: (i32, i32),
     analysis_correction: (i32, i32),
     other_corrections: Vec<(i32, i32)>,
-    other_width: Option<PyChars>,
+    other_width: Option<Chars>,
     max_other: Option<usize>,
     allow_negative: bool,
     squish_offsets: bool,
@@ -342,7 +341,7 @@ fn py_fcs_read_std_text(
     allow_stext_own_delim: bool,
     allow_missing_nextdata: bool,
     trim_value_whitespace: bool,
-    date_pattern: Option<PyDatePattern>,
+    date_pattern: Option<DatePattern>,
     promote_to_standard: PyKeyPatterns,
     demote_from_standard: PyKeyPatterns,
     ignore_standard_keys: PyKeyPatterns,
@@ -355,12 +354,12 @@ fn py_fcs_read_std_text(
     time_ensure: bool,
     allow_pseudostandard: bool,
     fix_log_scale_offsets: bool,
-    shortname_prefix: Option<PyShortnamePrefix>,
+    shortname_prefix: Option<ShortnamePrefix>,
     text_data_correction: (i32, i32),
     text_analysis_correction: (i32, i32),
     disallow_range_truncation: bool,
-    nonstandard_measurement_pattern: Option<PyNonStdMeasPattern>,
-    time_pattern: Option<PyTimePattern>,
+    nonstandard_measurement_pattern: Option<NonStdMeasPattern>,
+    time_pattern: Option<TimePattern>,
     integer_widths_from_byteord: bool,
     integer_byteord_override: PyByteOrd,
 ) -> PyResult<(PyAnyCoreTEXT, PyParseData, PyStdKeywords)> {
@@ -504,12 +503,12 @@ fn py_fcs_read_std_text(
 fn py_fcs_read_raw_dataset(
     p: path::PathBuf,
 
-    version_override: Option<PyVersion>,
+    version_override: Option<Version>,
     prim_text_correction: (i32, i32),
     data_correction: (i32, i32),
     analysis_correction: (i32, i32),
     other_corrections: Vec<(i32, i32)>,
-    other_width: Option<PyChars>,
+    other_width: Option<Chars>,
     max_other: Option<usize>,
     allow_negative: bool,
     squish_offsets: bool,
@@ -535,7 +534,7 @@ fn py_fcs_read_raw_dataset(
     allow_stext_own_delim: bool,
     allow_missing_nextdata: bool,
     trim_value_whitespace: bool,
-    date_pattern: Option<PyDatePattern>,
+    date_pattern: Option<DatePattern>,
     promote_to_standard: PyKeyPatterns,
     demote_from_standard: PyKeyPatterns,
     ignore_standard_keys: PyKeyPatterns,
@@ -548,12 +547,12 @@ fn py_fcs_read_raw_dataset(
     time_ensure: bool,
     allow_pseudostandard: bool,
     fix_log_scale_offsets: bool,
-    shortname_prefix: Option<PyShortnamePrefix>,
+    shortname_prefix: Option<ShortnamePrefix>,
     text_data_correction: (i32, i32),
     text_analysis_correction: (i32, i32),
     disallow_range_truncation: bool,
-    nonstandard_measurement_pattern: Option<PyNonStdMeasPattern>,
-    time_pattern: Option<PyTimePattern>,
+    nonstandard_measurement_pattern: Option<NonStdMeasPattern>,
+    time_pattern: Option<TimePattern>,
     integer_widths_from_byteord: bool,
     integer_byteord_override: PyByteOrd,
 
@@ -561,7 +560,7 @@ fn py_fcs_read_raw_dataset(
     allow_tot_mismatch: bool,
     allow_data_par_mismatch: bool,
 ) -> PyResult<(
-    PyVersion,
+    Version,
     PyStdKeywords,
     PyNonStdKeywords,
     PyParseData,
@@ -641,7 +640,7 @@ fn py_fcs_read_raw_dataset(
         fcs_read_raw_dataset(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
 
     Ok((
-        out.text.version.into(),
+        out.text.version,
         out.text.keywords.std.into(),
         out.text.keywords.nonstd.into(),
         out.text.parse.into(),
@@ -719,12 +718,12 @@ fn py_fcs_read_raw_dataset(
 fn py_fcs_read_std_dataset(
     p: path::PathBuf,
 
-    version_override: Option<PyVersion>,
+    version_override: Option<Version>,
     prim_text_correction: (i32, i32),
     data_correction: (i32, i32),
     analysis_correction: (i32, i32),
     other_corrections: Vec<(i32, i32)>,
-    other_width: Option<PyChars>,
+    other_width: Option<Chars>,
     max_other: Option<usize>,
     allow_negative: bool,
     squish_offsets: bool,
@@ -750,7 +749,7 @@ fn py_fcs_read_std_dataset(
     allow_stext_own_delim: bool,
     allow_missing_nextdata: bool,
     trim_value_whitespace: bool,
-    date_pattern: Option<PyDatePattern>,
+    date_pattern: Option<DatePattern>,
     promote_to_standard: PyKeyPatterns,
     demote_from_standard: PyKeyPatterns,
     ignore_standard_keys: PyKeyPatterns,
@@ -763,12 +762,12 @@ fn py_fcs_read_std_dataset(
     time_ensure: bool,
     allow_pseudostandard: bool,
     fix_log_scale_offsets: bool,
-    shortname_prefix: Option<PyShortnamePrefix>,
+    shortname_prefix: Option<ShortnamePrefix>,
     text_data_correction: (i32, i32),
     text_analysis_correction: (i32, i32),
     disallow_range_truncation: bool,
-    nonstandard_measurement_pattern: Option<PyNonStdMeasPattern>,
-    time_pattern: Option<PyTimePattern>,
+    nonstandard_measurement_pattern: Option<NonStdMeasPattern>,
+    time_pattern: Option<TimePattern>,
     integer_widths_from_byteord: bool,
     integer_byteord_override: PyByteOrd,
 
@@ -856,12 +855,12 @@ fn py_fcs_read_std_dataset(
 
 #[allow(clippy::too_many_arguments)]
 fn header_config(
-    version_override: Option<PyVersion>,
+    version_override: Option<Version>,
     prim_text_correction: (i32, i32),
     data_correction: (i32, i32),
     analysis_correction: (i32, i32),
     other_corrections: Vec<(i32, i32)>,
-    other_width: Option<PyChars>,
+    other_width: Option<Chars>,
     max_other: Option<usize>,
     allow_negative: bool,
     squish_offsets: bool,
@@ -869,12 +868,12 @@ fn header_config(
 ) -> HeaderConfig {
     let os = other_corrections.into_iter().map(|x| x.into()).collect();
     HeaderConfig {
-        version_override: version_override.map(|x| x.0),
+        version_override,
         text_correction: OffsetCorrection::from(prim_text_correction),
         data_correction: OffsetCorrection::from(data_correction),
         analysis_correction: OffsetCorrection::from(analysis_correction),
         other_corrections: os,
-        other_width: other_width.map(|x| x.0.into()).unwrap_or_default(),
+        other_width: other_width.map(|x| x.into()).unwrap_or_default(),
         max_other,
         allow_negative,
         squish_offsets,
@@ -907,7 +906,7 @@ fn raw_config(
     allow_stext_own_delim: bool,
     allow_missing_nextdata: bool,
     trim_value_whitespace: bool,
-    date_pattern: Option<PyDatePattern>,
+    date_pattern: Option<DatePattern>,
     promote_to_standard: PyKeyPatterns,
     demote_from_standard: PyKeyPatterns,
     ignore_standard_keys: PyKeyPatterns,
@@ -940,7 +939,7 @@ fn raw_config(
         allow_stext_own_delim,
         allow_missing_nextdata,
         trim_value_whitespace,
-        date_pattern: date_pattern.map(|x| x.0),
+        date_pattern,
         promote_to_standard: promote_to_standard.0,
         demote_from_standard: demote_from_standard.0,
         ignore_standard_keys: ignore_standard_keys.0,
@@ -958,18 +957,18 @@ fn std_config(
     time_ensure: bool,
     allow_pseudostandard: bool,
     fix_log_scale_offsets: bool,
-    shortname_prefix: Option<PyShortnamePrefix>,
+    shortname_prefix: Option<ShortnamePrefix>,
     disallow_range_truncation: bool,
-    nonstandard_measurement_pattern: Option<PyNonStdMeasPattern>,
-    time_pattern: Option<PyTimePattern>,
+    nonstandard_measurement_pattern: Option<NonStdMeasPattern>,
+    time_pattern: Option<TimePattern>,
     integer_widths_from_byteord: bool,
     integer_byteord_override: PyByteOrd,
 ) -> StdTextReadConfig {
     StdTextReadConfig {
         raw,
-        shortname_prefix: shortname_prefix.map(|x| x.0).unwrap_or_default(),
+        shortname_prefix: shortname_prefix.unwrap_or_default(),
         time: TimeConfig {
-            pattern: time_pattern.map(|x| x.0),
+            time_pattern,
             allow_missing: time_ensure,
             // allow_nonlinear_scale: time_ensure_linear,
             // allow_nontime_keywords: time_ensure_nogain,
@@ -978,7 +977,7 @@ fn std_config(
         fix_log_scale_offsets,
         disallow_deprecated,
         disallow_range_truncation,
-        nonstandard_measurement_pattern: nonstandard_measurement_pattern.map(|x| x.0),
+        nonstandard_measurement_pattern,
         integer_widths_from_byteord,
         integer_byteord_override: integer_byteord_override.0,
     }
@@ -1211,39 +1210,34 @@ convert_methods!(
 #[pymethods]
 impl PyCoreTEXT2_0 {
     #[new]
-    fn new(mode: PyMode) -> PyResult<Self> {
-        Ok(CoreTEXT2_0::new(mode.into()).into())
+    fn new(mode: Mode) -> PyResult<Self> {
+        Ok(CoreTEXT2_0::new(mode).into())
     }
 }
 
 #[pymethods]
 impl PyCoreTEXT3_0 {
     #[new]
-    fn new(mode: PyMode) -> PyResult<Self> {
-        Ok(CoreTEXT3_0::new(mode.into()).into())
+    fn new(mode: Mode) -> PyResult<Self> {
+        Ok(CoreTEXT3_0::new(mode).into())
     }
 
     #[getter]
-    fn get_unicode(&self) -> Option<PyUnicode> {
-        self.0
-            .metaroot
-            .specific
-            .unicode
-            .as_ref_opt()
-            .map(|x| x.clone().into())
+    fn get_unicode(&self) -> Option<Unicode> {
+        self.0.metaroot.specific.unicode.as_ref_opt().cloned()
     }
 
     #[setter]
-    fn set_unicode(&mut self, x: Option<PyUnicode>) {
-        self.0.metaroot.specific.unicode = x.map(|y| y.into()).into();
+    fn set_unicode(&mut self, x: Option<Unicode>) {
+        self.0.metaroot.specific.unicode = x.into();
     }
 }
 
 #[pymethods]
 impl PyCoreTEXT3_1 {
     #[new]
-    fn new(mode: PyMode) -> Self {
-        CoreTEXT3_1::new(mode.into()).into()
+    fn new(mode: Mode) -> Self {
+        CoreTEXT3_1::new(mode).into()
     }
 }
 
@@ -1319,14 +1313,14 @@ impl PyCoreTEXT3_2 {
         })
     }
 
-    fn insert_unstained_center(&mut self, k: PyShortname, v: f32) -> PyResult<Option<f32>> {
+    fn insert_unstained_center(&mut self, k: Shortname, v: f32) -> PyResult<Option<f32>> {
         self.0
-            .insert_unstained_center(k.0, v)
+            .insert_unstained_center(k, v)
             .map_err(|e| PyreflowException::new_err(e.to_string()))
     }
 
-    fn remove_unstained_center(&mut self, k: PyShortname) -> Option<f32> {
-        self.0.remove_unstained_center(&k.0)
+    fn remove_unstained_center(&mut self, k: Shortname) -> Option<f32> {
+        self.0.remove_unstained_center(&k)
     }
 
     fn clear_unstained_centers(&mut self) {
@@ -1358,7 +1352,7 @@ macro_rules! common_methods {
 
         // common measurement keywords
         get_set_all_optical!(get_filters, set_filters, String, Filter, $pytype);
-        get_set_all_optical!(get_powers, set_powers, PyNonNegFloat, Power, $pytype);
+        get_set_all_optical!(get_powers, set_powers, NonNegFloat, Power, $pytype);
 
         get_set_all_optical!(
             get_percents_emitted,
@@ -1379,7 +1373,7 @@ macro_rules! common_methods {
         get_set_all_optical!(
             get_detector_voltages,
             set_detector_voltages,
-            PyNonNegFloat,
+            NonNegFloat,
             DetectorVoltage,
             $pytype
         );
@@ -1491,8 +1485,8 @@ macro_rules! common_methods {
             }
 
             #[setter]
-            fn set_trigger_name(&mut self, name: PyShortname) -> bool {
-                self.0.set_trigger_name(name.0)
+            fn set_trigger_name(&mut self, name: Shortname) -> bool {
+                self.0.set_trigger_name(name)
             }
 
             #[setter]
@@ -1539,11 +1533,9 @@ macro_rules! common_methods {
             }
 
             #[setter]
-            fn set_all_shortnames(&mut self, names: Vec<PyShortname>) -> PyResult<()> {
-                // TODO this shouldn't be necessary
-                let ns = names.into_iter().map(|s| s.0).collect();
+            fn set_all_shortnames(&mut self, names: Vec<Shortname>) -> PyResult<()> {
                 self.0
-                    .set_all_shortnames(ns)
+                    .set_all_shortnames(names)
                     // TODO this is a setkeyserror, could be more generalized
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
                     .void()
@@ -1570,11 +1562,11 @@ macro_rules! temporal_get_set_2_0 {
             impl $pytype {
                 fn set_temporal(
                     &mut self,
-                    name: PyShortname,
+                    name: Shortname,
                     force: bool
                 ) -> PyResult<bool> {
                     self.0
-                        .set_temporal(&name.0, (), force)
+                        .set_temporal(&name, (), force)
                         .py_def_terminate(SetTemporalFailure)
                 }
 
@@ -1606,19 +1598,19 @@ macro_rules! temporal_get_set_3_0 {
             impl $pytype {
                 fn set_temporal(
                     &mut self,
-                    name: PyShortname,
-                    timestep: PyPositiveFloat,
+                    name: Shortname,
+                    timestep: PositiveFloat,
                     force: bool
                 ) -> PyResult<bool> {
                     self.0
-                        .set_temporal(&name.0, timestep.into(), force)
+                        .set_temporal(&name, timestep.into(), force)
                         .py_def_terminate(SetTemporalFailure)
                 }
 
                 fn set_temporal_at(
                     &mut self,
                     index: usize,
-                    timestep: PyPositiveFloat,
+                    timestep: PositiveFloat,
                     force: bool
                 ) -> PyResult<bool> {
                     self.0
@@ -1650,10 +1642,10 @@ macro_rules! common_meas_get_set {
         impl $pytype {
             fn remove_measurement_by_name(
                 &mut self,
-                name: PyShortname,
+                name: Shortname,
             ) -> Option<(usize, PyElement<$t, $o>)> {
                 self.0
-                    .remove_measurement_by_name(&name.0)
+                    .remove_measurement_by_name(&name)
                     .map(|(i, x)| (i.into(), x.inner_into().into()))
             }
 
@@ -1679,16 +1671,16 @@ macro_rules! common_meas_get_set {
 
             fn replace_optical_named(
                 &mut self,
-                name: PyShortname,
+                name: Shortname,
                 m: $o,
             ) -> Option<PyElement<$t, $o>> {
                 self.0
-                    .replace_optical_named(&name.0, m.into())
+                    .replace_optical_named(&name, m.into())
                     .map(|r| r.inner_into().into())
             }
 
-            fn rename_temporal(&mut self, name: PyShortname) -> Option<String> {
-                self.0.rename_temporal(name.0).map(|n| n.to_string())
+            fn rename_temporal(&mut self, name: Shortname) -> Option<String> {
+                self.0.rename_temporal(name).map(|n| n.to_string())
             }
 
             fn replace_temporal_at(
@@ -1706,13 +1698,13 @@ macro_rules! common_meas_get_set {
 
             fn replace_temporal_named(
                 &mut self,
-                name: PyShortname,
+                name: Shortname,
                 m: $t,
                 force: bool,
             ) -> PyResult<Option<PyElement<$t, $o>>> {
                 let ret = self
                     .0
-                    .replace_temporal_named(&name.0, m.into(), force)
+                    .replace_temporal_named(&name, m.into(), force)
                     .py_def_terminate(SetTemporalFailure)?;
                 Ok(ret.map(|r| r.inner_into().into()))
             }
@@ -1749,26 +1741,26 @@ macro_rules! common_coretext_meas_get_set {
         impl $pytype {
             fn push_temporal(
                 &mut self,
-                name: PyShortname,
+                name: Shortname,
                 t: $timetype,
                 r: BigDecimal,
                 notrunc: bool,
             ) -> PyResult<()> {
                 self.0
-                    .push_temporal(name.0, t.into(), Range(r), notrunc)
+                    .push_temporal(name, t.into(), Range(r), notrunc)
                     .py_def_terminate(PushTemporalFailure)
             }
 
             fn insert_temporal(
                 &mut self,
                 i: usize,
-                name: PyShortname,
+                name: Shortname,
                 t: $timetype,
                 r: BigDecimal,
                 notrunc: bool,
             ) -> PyResult<()> {
                 self.0
-                    .insert_temporal(i.into(), name.0, t.into(), Range(r), notrunc)
+                    .insert_temporal(i.into(), name, t.into(), Range(r), notrunc)
                     .py_def_terminate(InsertTemporalFailure)
             }
 
@@ -1792,28 +1784,28 @@ macro_rules! coredata_meas_get_set {
         impl $pytype {
             fn push_temporal(
                 &mut self,
-                name: PyShortname,
+                name: Shortname,
                 t: $timetype,
                 col: PyFCSColumn,
                 r: BigDecimal,
                 notrunc: bool,
             ) -> PyResult<()> {
                 self.0
-                    .push_temporal(name.0, t.into(), col.0, Range(r), notrunc)
+                    .push_temporal(name, t.into(), col.0, Range(r), notrunc)
                     .py_def_terminate(PushTemporalFailure)
             }
 
             fn insert_time_channel(
                 &mut self,
                 i: usize,
-                name: PyShortname,
+                name: Shortname,
                 t: $timetype,
                 col: PyFCSColumn,
                 r: BigDecimal,
                 notrunc: bool,
             ) -> PyResult<()> {
                 self.0
-                    .insert_temporal(i.into(), name.0, t.into(), col.0, Range(r), notrunc)
+                    .insert_temporal(i.into(), name, t.into(), col.0, Range(r), notrunc)
                     .py_def_terminate(InsertTemporalFailure)
             }
 
@@ -1878,7 +1870,7 @@ macro_rules! coretext2_0_meas_methods {
             fn remove_measurement_by_index(
                 &mut self,
                 index: usize,
-            ) -> Result<(Option<PyShortname>, PyElement<$t, $o>), PyElementIndexError> {
+            ) -> Result<(Option<Shortname>, PyElement<$t, $o>), PyElementIndexError> {
                 let r = self
                     .0
                     .remove_measurement_by_index(index.into())
@@ -1893,10 +1885,10 @@ macro_rules! coretext2_0_meas_methods {
                 m: $o,
                 r: BigDecimal,
                 notrunc: bool,
-                name: Option<PyShortname>,
-            ) -> PyResult<PyShortname> {
+                name: Option<Shortname>,
+            ) -> PyResult<Shortname> {
                 self.0
-                    .push_optical(name.map(|n| n.0).into(), m.into(), r.into(), notrunc)
+                    .push_optical(name.into(), m.into(), r.into(), notrunc)
                     .py_def_terminate(InsertOpticalFailure)
                     .map(|x| x.into())
             }
@@ -1908,11 +1900,10 @@ macro_rules! coretext2_0_meas_methods {
                 m: $o,
                 r: BigDecimal,
                 notrunc: bool,
-                name: Option<PyShortname>,
-            ) -> PyResult<PyShortname> {
-                let n = name.map(|n| n.0).into();
+                name: Option<Shortname>,
+            ) -> PyResult<Shortname> {
                 self.0
-                    .insert_optical(i.into(), n, m.into(), Range(r), notrunc)
+                    .insert_optical(i.into(), name.into(), m.into(), Range(r), notrunc)
                     .py_def_terminate(InsertOpticalFailure)
                     .map(|x| x.into())
             }
@@ -1930,7 +1921,7 @@ macro_rules! coretext3_1_meas_methods {
             fn remove_measurement_by_index(
                 &mut self,
                 index: usize,
-            ) -> Result<(PyShortname, PyElement<$t, $o>), PyElementIndexError> {
+            ) -> Result<(Shortname, PyElement<$t, $o>), PyElementIndexError> {
                 let r = self
                     .0
                     .remove_measurement_by_index(index.into())
@@ -1942,12 +1933,12 @@ macro_rules! coretext3_1_meas_methods {
             fn push_optical(
                 &mut self,
                 m: $o,
-                name: PyShortname,
+                name: Shortname,
                 r: BigDecimal,
                 notrunc: bool,
             ) -> PyResult<()> {
                 self.0
-                    .push_optical(AlwaysValue(name.0), m.into(), Range(r), notrunc)
+                    .push_optical(name.into(), m.into(), Range(r), notrunc)
                     .py_def_terminate(PushOpticalFailure)
                     .void()
             }
@@ -1956,12 +1947,12 @@ macro_rules! coretext3_1_meas_methods {
                 &mut self,
                 i: usize,
                 m: $o,
-                name: PyShortname,
+                name: Shortname,
                 r: BigDecimal,
                 notrunc: bool,
             ) -> PyResult<()> {
                 self.0
-                    .insert_optical(i.into(), AlwaysValue(name.0), m.into(), Range(r), notrunc)
+                    .insert_optical(i.into(), name.into(), m.into(), Range(r), notrunc)
                     .py_def_terminate(InsertOpticalFailure)
                     .void()
             }
@@ -1979,10 +1970,10 @@ macro_rules! set_measurements_ordered {
             fn set_measurements(
                 &mut self,
                 xs: PyRawMaybeInput<$t, $o>,
-                prefix: PyShortnamePrefix,
+                prefix: ShortnamePrefix,
             ) -> PyResult<()> {
                 self.0
-                    .set_measurements(xs.0.inner_into(), prefix.0)
+                    .set_measurements(xs.0.inner_into(), prefix)
                     .py_mult_terminate(SetMeasurementsFailure)
                     .void()
             }
@@ -1991,10 +1982,10 @@ macro_rules! set_measurements_ordered {
                 &mut self,
                 xs: PyRawMaybeInput<$t, $o>,
                 layout: PyOrderedLayout,
-                prefix: PyShortnamePrefix,
+                prefix: ShortnamePrefix,
             ) -> PyResult<()> {
                 self.0
-                    .set_measurements_and_layout(xs.0.inner_into(), layout.into(), prefix.0)
+                    .set_measurements_and_layout(xs.0.inner_into(), layout.into(), prefix)
                     .py_mult_terminate(SetMeasurementsFailure)
                     .void()
             }
@@ -2074,10 +2065,10 @@ macro_rules! coredata2_0_meas_methods {
                 &mut self,
                 xs: PyRawMaybeInput<$t, $o>,
                 cols: PyFCSColumns,
-                prefix: PyShortnamePrefix,
+                prefix: ShortnamePrefix,
             ) -> PyResult<()> {
                 self.0
-                    .set_measurements_and_data(xs.0.inner_into(), cols.0, prefix.0)
+                    .set_measurements_and_data(xs.0.inner_into(), cols.0, prefix)
                     .py_mult_terminate(SetMeasurementsFailure)
                     .void()
             }
@@ -2117,12 +2108,10 @@ macro_rules! shortnames_methods {
             impl $pytype {
                 fn set_measurement_shortnames_maybe(
                     &mut self,
-                    names: Vec<Option<PyShortname>>,
+                    names: Vec<Option<Shortname>>,
                 ) -> PyResult<()> {
-                    // TODO do this better
-                    let ns = names.into_iter().map(|n| n.map(|x| x.0)).collect();
                     self.0
-                        .set_measurement_shortnames_maybe(ns)
+                        .set_measurement_shortnames_maybe(names)
                         .map_err(|e| PyreflowException::new_err(e.to_string()))
                         .void()
                 }
@@ -2145,20 +2134,20 @@ macro_rules! scales_methods {
             #[pymethods]
             impl $pytype {
                 #[getter]
-                fn get_all_scales(&self) -> Vec<Option<PyScale>> {
-                    self.0.get_all_scales().map(|x| x.map(|y| y.into())).collect()
+                fn get_all_scales(&self) -> Vec<Option<Scale>> {
+                    self.0.get_all_scales().collect()
                 }
 
                 #[getter]
-                fn get_scales(&self) -> Vec<(usize, Option<PyScale>)> {
+                fn get_scales(&self) -> Vec<(usize, Option<Scale>)> {
                     self.0
                         .get_optical_opt::<Scale>()
-                        .map(|(i, s)| (i.into(), s.map(|&x| x.into())))
+                        .map(|(i, s)| (i.into(), s.map(|&x| x)))
                         .collect()
                 }
 
                 #[setter]
-                fn set_scales(&mut self, xs: Vec<Option<PyScale>>) -> PyResult<()> {
+                fn set_scales(&mut self, xs: Vec<Option<Scale>>) -> PyResult<()> {
                     let ys = xs.into_iter().map(|x| x.map(|y| y.into())).collect();
                     self.0
                         .set_scales(ys)
@@ -2179,23 +2168,22 @@ macro_rules! transforms_methods {
             #[pymethods]
             impl $pytype {
                 #[getter]
-                fn get_all_transforms(&self) -> Vec<PyScaleTransform> {
-                    self.0.get_all_transforms().map(|x| x.into()).collect()
+                fn get_all_transforms(&self) -> Vec<ScaleTransform> {
+                    self.0.get_all_transforms().collect()
                 }
 
                 #[getter]
-                fn get_transforms(&self) -> Vec<(usize, PyScaleTransform)> {
+                fn get_transforms(&self) -> Vec<(usize, ScaleTransform)> {
                     self.0
                         .get_optical::<ScaleTransform>()
-                        .map(|(i, &s)| (i.into(), s.into()))
+                        .map(|(i, &s)| (i.into(), s))
                         .collect()
                 }
 
                 #[setter]
-                fn set_transforms(&mut self, xs: Vec<PyScaleTransform>) -> PyResult<()> {
-                    let ys = xs.into_iter().map(|x| x.into()).collect();
+                fn set_transforms(&mut self, xs: Vec<ScaleTransform>) -> PyResult<()> {
                     self.0
-                        .set_transforms(ys)
+                        .set_transforms(xs)
                         .py_mult_terminate(SetMeasurementsFailure)
                         .void()
                 }
@@ -2225,7 +2213,7 @@ macro_rules! timestep_methods {
                 }
 
                 #[setter]
-                fn set_timestep(&mut self, ts: PyPositiveFloat) -> bool {
+                fn set_timestep(&mut self, ts: PositiveFloat) -> bool {
                     self.0.set_timestep(ts.into())
                 }
             }
@@ -2256,10 +2244,10 @@ macro_rules! wavelength_methods {
                 }
 
                 #[setter]
-                fn set_wavelengths(&mut self, xs: Vec<Option<PyPositiveFloat>>) -> PyResult<()> {
+                fn set_wavelengths(&mut self, xs: Vec<Option<PositiveFloat>>) -> PyResult<()> {
                     let ys = xs
                         .into_iter()
-                        .map(|x| x.map(|y| Wavelength::from(y.0)))
+                        .map(|x| x.map(Wavelength::from))
                         .collect();
                     self.0
                         .set_optical(ys)
@@ -2296,12 +2284,11 @@ macro_rules! wavelengths_methods {
                 }
 
                 #[setter]
-                fn set_wavelengths(&mut self, xs: Vec<Vec<PyPositiveFloat>>) -> PyResult<()> {
+                fn set_wavelengths(&mut self, xs: Vec<Vec<PositiveFloat>>) -> PyResult<()> {
                     // TODO cleanme
                     let ys = xs
                         .into_iter()
-                        .map(|ys| NonEmpty::from_vec(ys).map(|zs| zs.map(|z| z.0)))
-                        .map(|ys| ys.map(Wavelengths::from))
+                        .map(|ys| NonEmpty::from_vec(ys).map(Wavelengths::from))
                         .collect();
                     self.0
                         .set_optical(ys)
@@ -2326,7 +2313,7 @@ macro_rules! modification_methods {
             get_originality,
             set_originality,
             Originality,
-            PyOriginality,
+            Originality,
             $($pytype),*
         );
 
@@ -2440,13 +2427,12 @@ macro_rules! spillover_methods {
 
                 fn set_spillover(
                     &mut self,
-                    names: Vec<PyShortname>,
+                    names: Vec<Shortname>,
                     a: PyReadonlyArray2<f32>,
                 ) -> Result<(), PyErr> {
-                    let ns = names.into_iter().map(|n| n.0).collect();
                     let m = a.as_matrix().into_owned();
                     self.0
-                        .set_spillover(ns, m)
+                        .set_spillover(names, m)
                         // TODO handle error better
                         .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
@@ -2470,7 +2456,7 @@ get_set_metaroot_opt!(
     get_vol,
     set_vol,
     Vol,
-    PyNonNegFloat,
+    NonNegFloat,
     PyCoreTEXT3_1,
     PyCoreTEXT3_2,
     PyCoreDataset3_1,
@@ -2523,7 +2509,7 @@ get_set_metaroot_opt!(
 get_set_all_meas!(
     get_displays,
     set_displays,
-    PyDisplay,
+    Display,
     Display,
     PyCoreTEXT3_1,
     PyCoreDataset3_1,
@@ -2545,7 +2531,7 @@ get_set_all_optical!(
 get_set_all_optical!(
     get_calibrations,
     set_calibrations,
-    PyCalibration3_1,
+    Calibration3_1,
     Calibration3_1,
     PyCoreTEXT3_1,
     PyCoreDataset3_1
@@ -2555,7 +2541,7 @@ get_set_all_optical!(
 get_set_all_optical!(
     get_calibrations,
     set_calibrations,
-    PyCalibration3_2,
+    Calibration3_2,
     Calibration3_2,
     PyCoreTEXT3_2,
     PyCoreDataset3_2
@@ -2575,7 +2561,7 @@ get_set_all_optical!(
 get_set_all_optical!(
     get_measurement_types,
     set_measurement_types,
-    PyOpticalType,
+    OpticalType,
     OpticalType,
     PyCoreTEXT3_2,
     PyCoreDataset3_2
@@ -2585,7 +2571,7 @@ get_set_all_optical!(
 get_set_all_optical!(
     get_features,
     set_features,
-    PyFeature,
+    Feature,
     Feature,
     PyCoreTEXT3_2,
     PyCoreDataset3_2
@@ -2720,37 +2706,37 @@ impl PyOptical2_0 {
     }
 
     #[getter]
-    fn get_scale(&self) -> Option<PyScale> {
-        self.0.specific.scale.0.as_ref().map(|&x| x.into())
+    fn get_scale(&self) -> Option<Scale> {
+        self.0.specific.scale.0.as_ref().map(|&x| x)
     }
 
     #[setter]
-    fn set_scale(&mut self, x: Option<PyScale>) {
-        self.0.specific.scale = x.map(|y| y.into()).into()
+    fn set_scale(&mut self, x: Option<Scale>) {
+        self.0.specific.scale = x.into()
     }
 }
 
 #[pymethods]
 impl PyOptical3_0 {
     #[new]
-    fn new(scale: PyScale) -> Self {
-        Optical3_0::new(scale.into()).into()
+    fn new(scale: Scale) -> Self {
+        Optical3_0::new(scale).into()
     }
 }
 
 #[pymethods]
 impl PyOptical3_1 {
     #[new]
-    fn new(scale: PyScale) -> Self {
-        Optical3_1::new(scale.into()).into()
+    fn new(scale: Scale) -> Self {
+        Optical3_1::new(scale).into()
     }
 }
 
 #[pymethods]
 impl PyOptical3_2 {
     #[new]
-    fn new(scale: PyScale) -> Self {
-        Optical3_2::new(scale.into()).into()
+    fn new(scale: Scale) -> Self {
+        Optical3_2::new(scale).into()
     }
 }
 
@@ -2765,7 +2751,7 @@ impl PyTemporal2_0 {
 #[pymethods]
 impl PyTemporal3_0 {
     #[new]
-    fn new(timestep: PyPositiveFloat) -> Self {
+    fn new(timestep: PositiveFloat) -> Self {
         Temporal3_0::new(timestep.into()).into()
     }
 }
@@ -2773,7 +2759,7 @@ impl PyTemporal3_0 {
 #[pymethods]
 impl PyTemporal3_1 {
     #[new]
-    fn new(timestep: PyPositiveFloat) -> Self {
+    fn new(timestep: PositiveFloat) -> Self {
         Temporal3_1::new(timestep.into()).into()
     }
 }
@@ -2781,7 +2767,7 @@ impl PyTemporal3_1 {
 #[pymethods]
 impl PyTemporal3_2 {
     #[new]
-    fn new(timestep: PyPositiveFloat) -> Self {
+    fn new(timestep: PositiveFloat) -> Self {
         Temporal3_2::new(timestep.into()).into()
     }
 
@@ -2936,7 +2922,7 @@ macro_rules! optical_common {
         get_set_meas!(
             get_detector_voltage,
             set_detector_voltage,
-            PyNonNegFloat,
+            NonNegFloat,
             DetectorVoltage,
             $($pytype),*
         );
@@ -2944,7 +2930,7 @@ macro_rules! optical_common {
         get_set_meas!(
             get_power,
             set_power,
-            PyNonNegFloat,
+            NonNegFloat,
             Power,
             $($pytype),*
         );
@@ -2973,13 +2959,13 @@ macro_rules! get_set_meas_transform {
             #[pymethods]
             impl $pytype {
                 #[getter]
-                fn get_transform(&self) -> PyScaleTransform {
-                    self.0.specific.scale.into()
+                fn get_transform(&self) -> ScaleTransform {
+                    self.0.specific.scale
                 }
 
                 #[setter]
-                fn set_transform(&mut self, x: PyScaleTransform) {
-                    self.0.specific.scale = x.into();
+                fn set_transform(&mut self, x: ScaleTransform) {
+                    self.0.specific.scale = x;
                 }
             }
         )*
@@ -2992,7 +2978,7 @@ get_set_meas_transform!(PyOptical3_0, PyOptical3_1, PyOptical3_2);
 get_set_meas!(
     get_wavelength,
     set_wavelength,
-    PyPositiveFloat,
+    PositiveFloat,
     Wavelength,
     PyOptical2_0,
     PyOptical3_0
@@ -3011,9 +2997,9 @@ macro_rules! meas_get_set_wavelengths {
                 }
 
                 #[setter]
-                fn set_wavelengths(&mut self, xs: Vec<PyPositiveFloat>) {
+                fn set_wavelengths(&mut self, xs: Vec<PositiveFloat>) {
                     let ws = if let Some(ys) = NonEmpty::from_vec(xs) {
-                        let ws = Wavelengths::from(ys.map(|y| y.0));
+                        let ws = Wavelengths::from(ys);
                         Some(ws)
                     } else {
                         None.into()
@@ -3039,7 +3025,7 @@ macro_rules! meas_get_set_timestep {
                 }
 
                 #[setter]
-                fn set_timestep(&mut self, x: PyPositiveFloat) {
+                fn set_timestep(&mut self, x: PositiveFloat) {
                     self.0.specific.timestep = x.into()
                 }
             }
@@ -3053,7 +3039,7 @@ meas_get_set_timestep!(PyTemporal3_0, PyTemporal3_1, PyTemporal3_2);
 get_set_meas!(
     get_calibration,
     set_calibration,
-    PyCalibration3_1,
+    Calibration3_1,
     Calibration3_1,
     PyOptical3_1
 );
@@ -3062,24 +3048,13 @@ get_set_meas!(
 get_set_meas!(
     get_display,
     set_display,
-    PyDisplay,
+    Display,
     Display,
     PyOptical3_1,
     PyOptical3_2,
     PyTemporal3_1,
     PyTemporal3_2
 );
-
-// $PnDATATYPE (3.2)
-// get_set_copied!(
-//     PyOptical3_2,
-//     PyTemporal3_2,
-//     [specific],
-//     get_datatype,
-//     set_datatype,
-//     datatype,
-//     PyNumType
-// );
 
 // $PnDET (3.2)
 get_set_meas!(get_det, set_det, String, DetectorName, PyOptical3_2);
@@ -3091,13 +3066,13 @@ get_set_meas!(get_tag, set_tag, String, Tag, PyOptical3_2);
 get_set_meas!(
     get_measurement_type,
     set_measurement_type,
-    PyOpticalType,
+    OpticalType,
     OpticalType,
     PyOptical3_2
 );
 
 // $PnFEATURE (3.2)
-get_set_meas!(get_feature, set_feature, PyFeature, Feature, PyOptical3_2);
+get_set_meas!(get_feature, set_feature, Feature, Feature, PyOptical3_2);
 
 // $PnANALYTE (3.2)
 get_set_meas!(get_analyte, set_analyte, String, Analyte, PyOptical3_2);
@@ -3106,7 +3081,7 @@ get_set_meas!(get_analyte, set_analyte, String, Analyte, PyOptical3_2);
 get_set_meas!(
     get_calibration,
     set_calibration,
-    PyCalibration3_2,
+    Calibration3_2,
     Calibration3_2,
     PyOptical3_2
 );
@@ -3132,7 +3107,7 @@ impl<'py> IntoPyObject<'py> for PySegment {
 /// A python value for the values in the HEADER as a dictionary.
 #[derive(IntoPyObject)]
 struct PyHeader {
-    version: PyVersion,
+    version: Version,
     text: PySegment,
     data: PySegment,
     analysis: PySegment,
@@ -3143,7 +3118,7 @@ impl From<Header> for PyHeader {
     fn from(value: Header) -> Self {
         let s = value.segments;
         Self {
-            version: value.version.into(),
+            version: value.version,
             text: s.text.inner.as_u64().into(),
             data: s.data.inner.as_u64().into(),
             analysis: s.analysis.inner.as_u64().into(),
@@ -3208,7 +3183,7 @@ impl<'py> IntoPyObject<'py> for PyStdKeywords {
     }
 }
 
-/// A python value for returned (pseudo)standard keywords.
+/// A python value for returned non-standard keywords.
 #[derive(From)]
 struct PyNonStdKeywords(NonStdKeywords);
 
@@ -3244,218 +3219,6 @@ impl From<PyFCSDataFrame> for PyDataFrame {
         // ASSUME this will not fail because all columns should have unique
         // names and the same length
         PyDataFrame(DataFrame::new(columns).unwrap())
-    }
-}
-
-/// A python value for $PnE (2.0).
-///
-/// This is either a unit tuple or a 2-tuple of positive floats.
-#[derive(Into, From)]
-struct PyScale(Scale);
-
-impl<'py> FromPyObject<'py> for PyScale {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        if ob.is_instance_of::<PyTuple>() && ob.len()? == 0 {
-            Ok(Self(Scale::Linear))
-        } else {
-            let (decades, offset): (f32, f32) = ob.extract()?;
-            let log = Scale::try_new_log(decades, offset).map_err(PyLogRangeError)?;
-            Ok(Self(log))
-        }
-    }
-}
-
-impl<'py> IntoPyObject<'py> for PyScale {
-    type Target = PyAny;
-    type Output = Bound<'py, Self::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        match self.0 {
-            Scale::Linear => Ok(PyTuple::empty(py).into_any()),
-            Scale::Log(l) => (f32::from(l.decades), f32::from(l.offset)).into_bound_py_any(py),
-        }
-    }
-}
-
-/// A python value for $PnE/$PnG (2.0).
-///
-/// This is either a 1-tuple representing gain ($PnG) or a 2-tuple representing
-/// a log transform with decades and offset respectively ($PnE). All numbers are
-/// positive floats.
-#[derive(Into, From)]
-struct PyScaleTransform(ScaleTransform);
-
-impl<'py> FromPyObject<'py> for PyScaleTransform {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        if let Ok(gain) = ob.extract::<PyPositiveFloat>() {
-            Ok(ScaleTransform::Lin(gain.0).into())
-        } else if let Ok(log) = ob.extract::<(f32, f32)>()?.try_into() {
-            Ok(ScaleTransform::Log(log).into())
-        } else {
-            // TODO make this into a general "argument value error"
-            Err(PyValueError::new_err(
-                "scale transform must be a positive \
-                     float or a 2-tuple of positive floats",
-            ))
-        }
-    }
-}
-
-impl<'py> IntoPyObject<'py> for PyScaleTransform {
-    type Target = PyAny;
-    type Output = Bound<'py, Self::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        match self.0 {
-            ScaleTransform::Lin(gain) => f32::from(gain).into_bound_py_any(py),
-            ScaleTransform::Log(l) => {
-                (f32::from(l.decades), f32::from(l.offset)).into_bound_py_any(py)
-            }
-        }
-    }
-}
-
-/// A python value for $UNICODE (3.0).
-///
-/// This is a tuple like `(u32, Vec<String>)` representing the unicode page
-/// and keywords respectively.
-#[derive(Into, From)]
-struct PyUnicode(Unicode);
-
-impl<'py> FromPyObject<'py> for PyUnicode {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let (page, kws): (u32, Vec<String>) = ob.extract()?;
-        Ok(Self(Unicode { page, kws }))
-    }
-}
-
-impl<'py> IntoPyObject<'py> for PyUnicode {
-    type Target = PyTuple;
-    type Output = Bound<'py, <(u32, Vec<String>) as IntoPyObject<'py>>::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        (self.0.page, self.0.kws).into_pyobject(py)
-    }
-}
-
-/// A python value for $PnD (3.1+)
-///
-/// This is a tuple like `(bool, f32, f32)` where the first boolean is `false`
-/// for linear and `true` for log display. The two floats are the values for
-/// either display setting (lower/upper or decades/offset).
-#[derive(Into, From)]
-struct PyDisplay(Display);
-
-impl<'py> FromPyObject<'py> for PyDisplay {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let (is_log, x0, x1): (bool, f32, f32) = ob.extract()?;
-        let ret = if is_log {
-            Display::Log {
-                offset: x0,
-                decades: x1,
-            }
-        } else {
-            Display::Lin {
-                lower: x0,
-                upper: x1,
-            }
-        };
-        Ok(ret.into())
-    }
-}
-
-impl<'py> IntoPyObject<'py> for PyDisplay {
-    type Target = PyTuple;
-    type Output = Bound<'py, <(bool, f32, f32) as IntoPyObject<'py>>::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        let ret = match self.0 {
-            Display::Lin { lower, upper } => (false, lower, upper),
-            Display::Log { offset, decades } => (true, offset, decades),
-        };
-        ret.into_pyobject(py)
-    }
-}
-
-/// A python value for $PnCALIBRATION (3.1).
-///
-/// This is a tuple like `(f32, String)` where the first float is positive and
-/// represents the slope and the string represents the unit.
-#[derive(Into, From)]
-struct PyCalibration3_1(Calibration3_1);
-
-impl<'py> FromPyObject<'py> for PyCalibration3_1 {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let (slope, unit): (PyPositiveFloat, String) = ob.extract()?;
-        Ok(Self(Calibration3_1 {
-            slope: slope.0,
-            unit,
-        }))
-    }
-}
-
-impl<'py> IntoPyObject<'py> for PyCalibration3_1 {
-    type Target = PyTuple;
-    type Output = Bound<'py, <(PyPositiveFloat, String) as IntoPyObject<'py>>::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        (PyPositiveFloat(self.0.slope), self.0.unit).into_pyobject(py)
-    }
-}
-
-/// A python value for $PnCALIBRATION (3.2).
-///
-/// This is a tuple like `(f32, f32, String)` where the first float is positive
-/// and represents the slope, the second float represents the intercept, and the
-/// string represents the unit.
-#[derive(Into, From)]
-struct PyCalibration3_2(Calibration3_2);
-
-impl<'py> FromPyObject<'py> for PyCalibration3_2 {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let (slope, offset, unit): (PyPositiveFloat, f32, String) = ob.extract()?;
-        Ok(Self(Calibration3_2 {
-            slope: slope.0,
-            offset,
-            unit,
-        }))
-    }
-}
-
-impl<'py> IntoPyObject<'py> for PyCalibration3_2 {
-    type Target = PyTuple;
-    type Output = Bound<'py, <(PyPositiveFloat, f32, String) as IntoPyObject<'py>>::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        (PyPositiveFloat(self.0.slope), self.0.offset, self.0.unit).into_pyobject(py)
-    }
-}
-
-/// A python value for $PnN (all versions).
-#[derive(Into, From)]
-struct PyShortname(Shortname);
-
-impl<'py> FromPyObject<'py> for PyShortname {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let s: String = ob.extract()?;
-        let n = s.parse().map_err(PyShortnameError)?;
-        Ok(PyShortname(n))
-    }
-}
-
-impl<'py> IntoPyObject<'py> for PyShortname {
-    type Target = PyString;
-    type Output = Bound<'py, Self::Target>;
-    type Error = Infallible;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        self.0.to_string().into_pyobject(py)
     }
 }
 
@@ -3514,11 +3277,11 @@ where
         xs.into_iter()
             .map(|(name, meas)| {
                 if let Ok(t) = meas.extract::<T>() {
-                    let n: PyShortname = name.extract()?;
-                    Ok(Element::Center((n.0, t)))
+                    let n: Shortname = name.extract()?;
+                    Ok(Element::Center((n, t)))
                 } else if let Ok(o) = meas.extract::<O>() {
-                    let n: Option<PyShortname> = name.extract()?;
-                    Ok(Element::NonCenter((n.map(|m| m.0).into(), o)))
+                    let n: Option<Shortname> = name.extract()?;
+                    Ok(Element::NonCenter((n.into(), o)))
                 } else {
                     Err(PyValueError::new_err("could not parse measurement"))
                 }
@@ -3537,13 +3300,13 @@ where
     O: FromPyObject<'py>,
 {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let xs: Vec<(PyShortname, Bound<'py, PyAny>)> = ob.extract()?;
+        let xs: Vec<(Shortname, Bound<'py, PyAny>)> = ob.extract()?;
         xs.into_iter()
             .map(|(name, meas)| {
                 if let Ok(t) = meas.extract::<T>() {
-                    Ok(Element::Center((name.0, t)))
+                    Ok(Element::Center((name, t)))
                 } else if let Ok(o) = meas.extract::<O>() {
-                    Ok(Element::NonCenter((name.0.into(), o)))
+                    Ok(Element::NonCenter((name.into(), o)))
                 } else {
                     // TODO fix this lame error message
                     Err(PyValueError::new_err("could not parse measurement"))
@@ -3591,42 +3354,6 @@ where
     }
 }
 
-/// A python value for any configuration parameter requiring [`Chars`].
-struct PyChars(Chars);
-
-impl<'py> FromPyObject<'py> for PyChars {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let x: u8 = ob.extract()?;
-        Chars::try_from(x)
-            .map_err(|e| PyValueError::new_err(e.to_string()))
-            .map(Self)
-    }
-}
-
-/// A python value for the shortname prefix config parameter.
-struct PyShortnamePrefix(ShortnamePrefix);
-
-impl<'py> FromPyObject<'py> for PyShortnamePrefix {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let s: String = ob.extract()?;
-        let n = s.parse().map_err(PyShortnameError)?;
-        Ok(Self(n))
-    }
-}
-
-/// A python value for the non-standard meas pattern config parameter.
-struct PyNonStdMeasPattern(NonStdMeasPattern);
-
-impl<'py> FromPyObject<'py> for PyNonStdMeasPattern {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let s: String = ob.extract()?;
-        let n = s
-            .parse::<NonStdMeasPattern>()
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        Ok(Self(n))
-    }
-}
-
 /// A python value for the byteord override config parameter
 #[derive(Default)]
 struct PyByteOrd(Option<ByteOrd2_0>);
@@ -3640,32 +3367,6 @@ impl<'py> FromPyObject<'py> for PyByteOrd {
             Some(ByteOrd2_0::try_from(&xs[..]).map_err(|e| PyValueError::new_err(e.to_string()))?)
         };
         Ok(Self(ret))
-    }
-}
-
-/// A python value for the time pattern config parameter.
-struct PyTimePattern(TimePattern);
-
-impl<'py> FromPyObject<'py> for PyTimePattern {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let s: String = ob.extract()?;
-        let n = s
-            .parse::<TimePattern>()
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        Ok(Self(n))
-    }
-}
-
-/// A python value for the date pattern config parameter.
-struct PyDatePattern(DatePattern);
-
-impl<'py> FromPyObject<'py> for PyDatePattern {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let s: String = ob.extract()?;
-        let n = s
-            .parse::<DatePattern>()
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        Ok(Self(n))
     }
 }
 
@@ -3720,88 +3421,6 @@ impl<'py> FromPyObject<'py> for PyKeyPatterns {
     }
 }
 
-/// A python value for a positive float as used in many keyword values.
-#[derive(Into, From)]
-#[into(Timestep, Wavelength)]
-#[from(Timestep, Wavelength)]
-struct PyPositiveFloat(PositiveFloat);
-
-impl<'py> FromPyObject<'py> for PyPositiveFloat {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let x: f32 = ob.extract()?;
-        let y = x.try_into().map_err(PyRangedFloatError)?;
-        Ok(PyPositiveFloat(y))
-    }
-}
-
-impl<'py> IntoPyObject<'py> for PyPositiveFloat {
-    type Target = PyFloat;
-    type Output = Bound<'py, <f32 as IntoPyObject<'py>>::Target>;
-    type Error = Infallible;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        f32::from(self.0).into_pyobject(py)
-    }
-}
-
-/// A python value for a non-negative float as used in many keyword values.
-#[derive(Into, From)]
-#[into(DetectorVoltage, Power, Vol)]
-#[from(DetectorVoltage, Power, Vol)]
-struct PyNonNegFloat(NonNegFloat);
-
-impl<'py> FromPyObject<'py> for PyNonNegFloat {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let x: f32 = ob.extract()?;
-        let y = x.try_into().map_err(PyRangedFloatError)?;
-        Ok(PyNonNegFloat(y))
-    }
-}
-
-impl<'py> IntoPyObject<'py> for PyNonNegFloat {
-    type Target = PyFloat;
-    type Output = Bound<'py, <f32 as IntoPyObject<'py>>::Target>;
-    type Error = Infallible;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        f32::from(self.0).into_pyobject(py)
-    }
-}
-
-macro_rules! impl_pystring {
-    ($outer:ident, $inner:ident) => {
-        #[derive(Into, From)]
-        pub(crate) struct $outer(pub(crate) $inner);
-
-        impl<'py> FromPyObject<'py> for $outer {
-            fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-                let s: String = ob.extract()?;
-                s.parse()
-                    .map(Self)
-                    .map_err(|e| PyValueError::new_err(e.to_string()))
-            }
-        }
-
-        impl<'py> IntoPyObject<'py> for $outer {
-            type Target = PyString;
-            type Output = Bound<'py, Self::Target>;
-            type Error = Infallible;
-
-            fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-                self.0.to_string().into_pyobject(py)
-            }
-        }
-    };
-}
-
-impl_pystring!(PyVersion, Version);
-impl_pystring!(PyOriginality, Originality);
-impl_pystring!(PyAlphaNumType, AlphaNumType);
-impl_pystring!(PyNumType, NumType);
-impl_pystring!(PyFeature, Feature);
-impl_pystring!(PyMode, Mode);
-impl_pystring!(PyOpticalType, OpticalType);
-
 fn series_to_fcs(ser: Series) -> Result<AnyFCSColumn, String> {
     fn column_to_buf<T>(ser: Series) -> Result<AnyFCSColumn, String>
     where
@@ -3830,15 +3449,6 @@ fn series_to_fcs(ser: Series) -> Result<AnyFCSColumn, String> {
         DataType::Float32 => column_to_buf::<f32>(ser),
         DataType::Float64 => column_to_buf::<f64>(ser),
         t => Err(format!("invalid datatype: {t}")),
-    }
-}
-
-#[derive(Display, From)]
-struct PyShortnameError(ShortnameError);
-
-impl From<PyShortnameError> for PyErr {
-    fn from(value: PyShortnameError) -> Self {
-        PyreflowException::new_err(value.to_string())
     }
 }
 

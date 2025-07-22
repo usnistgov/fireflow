@@ -10,13 +10,14 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace.dependencies]
-chrono = { version = "0.4.40" }
+chrono = "0.4.40"
 itertools = "0.14.0"
 num_enum = "0.7.4"
 num-traits = "0.2.19"
 num-derive = "0.4.2"
-bigdecimal = { version = "0.4.8" }
-derive_more = { version = "2.0.1", features = ["from", "into", "display", "from_str", "as_ref", "add", "mul"] }
-nalgebra = { version = "0.33.2" }
-nonempty = { version = "0.11.0" }
+bigdecimal = "0.4.8"
+derive_more = "2.0.1"
+nalgebra = "0.33.2"
+nonempty = "0.11.0"
 polars = { version = "0.49.0", features = ["dtype-u8", "dtype-u16", "fmt"] }
+pyo3 = "0.25.1"

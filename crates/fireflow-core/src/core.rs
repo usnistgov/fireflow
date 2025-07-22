@@ -3409,7 +3409,7 @@ where
                         // will know it is trying to find $TIMESTEP in a
                         // nonsense measurement.
                         let key = M::Name::unwrap(wrapped).and_then(|name| {
-                            if let Some(tp) = conf.time.pattern.as_ref() {
+                            if let Some(tp) = conf.time.time_pattern.as_ref() {
                                 if tp.0.is_match(name.as_ref()) {
                                     return Ok(name);
                                 }
@@ -3521,7 +3521,7 @@ where
                     .map(|mut tnt_core| {
                         // Check that the time measurement is present if we want it
                         tnt_core.eval_error(|core| {
-                            if let Some(pat) = conf.time.pattern.as_ref() {
+                            if let Some(pat) = conf.time.time_pattern.as_ref() {
                                 if !conf.time.allow_missing
                                     && core.measurements.as_center().is_none()
                                 {

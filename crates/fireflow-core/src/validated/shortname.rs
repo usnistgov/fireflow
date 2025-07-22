@@ -7,11 +7,15 @@ use std::str::FromStr;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
 /// The value for the $PnN key (all versions).
 ///
 /// This cannot contain commas.
 #[derive(Clone, Eq, PartialEq, Hash, Debug, AsRef, Display, Into)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[as_ref(str)]
 pub struct Shortname(String);
 
@@ -20,6 +24,7 @@ pub struct Shortname(String);
 /// This cannot contain commas.
 #[derive(Clone, Eq, PartialEq, Hash, AsRef, Display, FromStr)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyObject))]
 #[as_ref(str)]
 pub struct ShortnamePrefix(Shortname);
 

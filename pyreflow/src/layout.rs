@@ -12,7 +12,7 @@ use fireflow_core::validated::bitmask::{self, Bitmask};
 use pyo3::conversion::FromPyObjectBound;
 use pyo3::exceptions::PyValueError;
 
-use crate::class::{PyAlphaNumType, PyreflowException};
+use crate::class::PyreflowException;
 
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use derive_more::{Display, From, Into};
@@ -292,12 +292,12 @@ macro_rules! common_methods {
                 }
 
                 /// Return the datatype.
-                fn datatype(&self) -> PyAlphaNumType {
+                fn datatype(&self) -> AlphaNumType {
                     self.0.datatype().into()
                 }
 
                 /// Return a list of datatypes corresponding to each column.
-                fn datatypes(&self) -> Vec<PyAlphaNumType> {
+                fn datatypes(&self) -> Vec<AlphaNumType> {
                     self.0.datatypes().map(|d| d.into()).into()
                 }
             }
@@ -567,8 +567,8 @@ struct PyMixedType(NullMixedType);
 
 impl<'py> FromPyObject<'py> for PyMixedType {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let (datatype, value): (PyAlphaNumType, Bound<'py, PyAny>) = ob.extract()?;
-        match datatype.0 {
+        let (datatype, value): (AlphaNumType, Bound<'py, PyAny>) = ob.extract()?;
+        match datatype {
             AlphaNumType::Single => {
                 let x = value.extract::<f32>()?;
                 let y = FloatDecimal::try_from(x).map_err(PyParseBigDecimalError)?;

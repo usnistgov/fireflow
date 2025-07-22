@@ -9,6 +9,8 @@ pub mod error;
 pub mod header;
 mod macros;
 mod nonempty;
+#[cfg(feature = "python")]
+pub mod python;
 pub mod segment;
 pub mod text;
 pub mod validated;

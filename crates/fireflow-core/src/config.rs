@@ -417,7 +417,7 @@ pub struct TimeConfig {
     /// If matched, the time measurement must conform to the requirements of the
     /// target FCS version, such as having $TIMESTEP present and having a PnE
     /// set to '0,0'.
-    pub pattern: Option<TimePattern>,
+    pub time_pattern: Option<TimePattern>,
 
     /// If true, allow time to not be present even if we specify ['pattern'].
     pub allow_missing: bool,

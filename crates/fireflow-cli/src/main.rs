@@ -351,7 +351,7 @@ fn main() -> Result<(), ()> {
             }
 
             if let Some(m) = sargs.get_one::<String>("time-name").cloned() {
-                conf.time.pattern = Some(m.parse::<config::TimePattern>().unwrap());
+                conf.time.time_pattern = Some(m.parse::<config::TimePattern>().unwrap());
             }
 
             conf.time.allow_missing = sargs.get_flag("ensure-time");

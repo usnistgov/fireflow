@@ -5,14 +5,17 @@ use crate::text::byteord::{Width, WidthToCharsError};
 use crate::text::keywords::{IntRangeError, Range};
 
 use derive_more::{Display, From, Into};
-use serde::Serialize;
 use std::fmt;
 use std::num::{NonZero, NonZeroU8};
+
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 /// The type of an ASCII column in all versions
 ///
 /// Fields are private to guarantee they are always in sync.
-#[derive(PartialEq, Clone, Copy, Serialize)]
+#[derive(PartialEq, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AsciiRange {
     /// The maximum value of the ASCII column
     value: u64,
@@ -26,7 +29,8 @@ pub struct AsciiRange {
 /// The number of chars for an ASCII measurement
 ///
 /// Must be an integer between 1 and 20.
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Hash, Display, Into)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Hash, Display, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(NonZeroU8, u8)]
 pub struct Chars(NonZeroU8);
 

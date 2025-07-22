@@ -6,13 +6,16 @@ use super::parser::OptLinkedKey;
 
 use derive_more::Into;
 use itertools::Itertools;
-use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::str::FromStr;
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
 /// The value for the $UNSTAINEDCENTERS key (3.2+)
-#[derive(Clone, Serialize, Into)]
+#[derive(Clone, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct UnstainedCenters(HashMap<Shortname, f32>);
 
 pub enum UnstainedCenterError {

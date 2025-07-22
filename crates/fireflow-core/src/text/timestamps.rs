@@ -8,17 +8,20 @@ use chrono::{NaiveDate, NaiveTime, Timelike};
 use derive_more::{AsRef, Display, From, FromStr, Into};
 use once_cell::sync::Lazy;
 use regex::Regex;
-use serde::Serialize;
 use std::fmt;
 use std::mem;
 use std::str::FromStr;
+
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 /// A convenient bundle holding data/time keyword values.
 ///
 /// The generic type parameter is meant to account for the fact that the time
 /// types for different versions are all slightly different in their treatment
 /// of sub-second time.
-#[derive(Clone, Serialize, AsRef)]
+#[derive(Clone, AsRef)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Timestamps<X> {
     /// The value of the $BTIM key
     #[as_ref(Option<Btim<X>>)]
@@ -46,11 +49,13 @@ impl<X> Default for Timestamps<X> {
 pub type Btim<T> = Xtim<false, T>;
 pub type Etim<T> = Xtim<true, T>;
 
-#[derive(Clone, Copy, Serialize, Display, FromStr, From)]
+#[derive(Clone, Copy, Display, FromStr, From)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Xtim<const IS_ETIM: bool, T>(pub T);
 
 /// A date as used in the $DATE key
-#[derive(Clone, Copy, Serialize, From, Into, AsRef)]
+#[derive(Clone, Copy, From, Into, AsRef)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FCSDate(pub NaiveDate);
 
 impl<X> Timestamps<X> {
@@ -238,7 +243,8 @@ impl fmt::Display for FCSDateError {
 }
 
 /// A time as used in the $BTIM/ETIM keys without seconds (2.0 only)
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, From, Into)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FCSTime(pub NaiveTime);
 
 impl FromStr for FCSTime {
@@ -266,7 +272,8 @@ impl fmt::Display for FCSTimeError {
 }
 
 /// A time as used in the $BTIM/ETIM keys with 1/60 seconds (3.0 only)
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, From, Into)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FCSTime60(pub NaiveTime);
 
 impl FromStr for FCSTime60 {
@@ -309,7 +316,8 @@ impl fmt::Display for FCSTime60Error {
 }
 
 /// A time as used in the $BTIM/ETIM keys with centiseconds (3.1+ only)
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, From, Into)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FCSTime100(pub NaiveTime);
 
 impl FromStr for FCSTime100 {

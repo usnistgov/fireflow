@@ -4,11 +4,13 @@ use crate::validated::ascii_range::{Chars, CharsError};
 use derive_more::{Display, From, FromStr, Into};
 use itertools::Itertools;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-use serde::Serialize;
 use std::fmt;
 use std::num::NonZeroU8;
 use std::num::ParseIntError;
 use std::str::FromStr;
+
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 use super::parser::ReqMetarootKey;
 
@@ -17,7 +19,8 @@ use super::parser::ReqMetarootKey;
 /// This must be a list of integers belonging to the unordered set {1..N} where
 /// N is the total number of bytes. The numbers will be stored as one less the
 /// displayed integers to make array indexing easier.
-#[derive(Clone, Copy, Serialize, From, Display)]
+#[derive(Clone, Copy, From, Display)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum ByteOrd2_0 {
     O1(SizedByteOrd<1>),
     O2(SizedByteOrd<2>),
@@ -29,13 +32,15 @@ pub enum ByteOrd2_0 {
     O8(SizedByteOrd<8>),
 }
 
-#[derive(Clone, Copy, Serialize, From, Display, FromStr, Default)]
+#[derive(Clone, Copy, From, Display, FromStr, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ByteOrd3_1(pub Endian);
 
 /// Endianness
 ///
 /// This is also stored in the $BYTEORD key in 3.1+
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Endian {
     Big,
     #[default]
@@ -45,7 +50,8 @@ pub enum Endian {
 /// Marker type representing lack of byte order.
 ///
 /// This is used in ASCII layouts, for which $BYTEORD is meaningless.
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct NoByteOrd<const ORD: bool>;
 
 pub type NoByteOrd2_0 = NoByteOrd<true>;
@@ -60,7 +66,8 @@ pub type NoByteOrd3_1 = NoByteOrd<false>;
 ///
 /// This may also be '*' which means "delimited ASCII" which is only valid when
 /// $DATATYPE=A.
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash, From)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(Chars)]
 pub enum Width {
     Fixed(BitsOrChars),
@@ -68,7 +75,8 @@ pub enum Width {
 }
 
 /// The number of bytes for a numeric measurement
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[repr(u8)]
 pub enum Bytes {
     B1 = 1,
@@ -85,7 +93,8 @@ pub enum Bytes {
 ///
 /// Subsequent operations can be used to use it as "bytes" or "characters"
 /// depending on what is needed by the column.
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash, From, Into)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(Chars)]
 #[into(NonZeroU8, u8)]
 pub struct BitsOrChars(NonZeroU8);
@@ -239,6 +248,7 @@ impl Bytes {
     }
 }
 
+#[cfg(feature = "serde")]
 impl<const LEN: usize> Serialize for SizedByteOrd<LEN> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where

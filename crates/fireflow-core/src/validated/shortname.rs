@@ -1,21 +1,25 @@
 use crate::text::index::MeasIndex;
 
 use derive_more::{AsRef, Display, FromStr, Into};
-use serde::Serialize;
 use std::fmt;
 use std::str::FromStr;
+
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 /// The value for the $PnN key (all versions).
 ///
 /// This cannot contain commas.
-#[derive(Clone, Serialize, Eq, PartialEq, Hash, Debug, AsRef, Display, Into)]
+#[derive(Clone, Eq, PartialEq, Hash, Debug, AsRef, Display, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[as_ref(str)]
 pub struct Shortname(String);
 
 /// A prefix that can be made into a shortname by appending an index
 ///
 /// This cannot contain commas.
-#[derive(Clone, Serialize, Eq, PartialEq, Hash, AsRef, Display, FromStr)]
+#[derive(Clone, Eq, PartialEq, Hash, AsRef, Display, FromStr)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[as_ref(str)]
 pub struct ShortnamePrefix(Shortname);
 

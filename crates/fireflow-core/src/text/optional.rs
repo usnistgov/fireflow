@@ -4,25 +4,30 @@ use crate::error::{BiTentative, Tentative};
 use super::index::IndexFromOne;
 
 use derive_more::{AsMut, AsRef};
-use serde::Serialize;
 use std::convert::Infallible;
 use std::fmt;
 use std::marker::PhantomData;
 use std::mem;
+
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 /// A value that might exist.
 ///
 /// This is basically [`Option`] but more obvious in what it indicates. It also
 /// allows some nice methods to be built on top of [`Option`].
 #[derive(Debug, Clone, PartialEq, Eq, AsRef, AsMut)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct MaybeValue<T>(pub Option<T>);
 
 /// A value that always exists.
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AlwaysValue<T>(pub T);
 
 /// A value that always exists.
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct NeverValue<T>(pub PhantomData<T>);
 
 /// Encodes a type which might have something in it.
@@ -68,7 +73,8 @@ pub trait MightHave {
         F: FnOnce(T) -> T0;
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct MaybeFamily;
 
 impl MightHave for MaybeFamily {
@@ -91,7 +97,8 @@ impl MightHave for MaybeFamily {
     }
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AlwaysFamily;
 
 impl MightHave for AlwaysFamily {
@@ -265,17 +272,17 @@ impl<V: fmt::Display> MaybeValue<V> {
     }
 }
 
-impl<T: Serialize> Serialize for MaybeValue<T> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self.0.as_ref() {
-            Some(x) => serializer.serialize_some(x),
-            None => serializer.serialize_none(),
-        }
-    }
-}
+// impl<T: Serialize> Serialize for MaybeValue<T> {
+//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+//     where
+//         S: serde::Serializer,
+//     {
+//         match self.0.as_ref() {
+//             Some(x) => serializer.serialize_some(x),
+//             None => serializer.serialize_none(),
+//         }
+//     }
+// }
 
 pub struct MaybeToAlwaysError;
 

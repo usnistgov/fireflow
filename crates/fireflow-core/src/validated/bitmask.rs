@@ -5,11 +5,14 @@ use crate::text::keywords::{IntRangeError, Range};
 
 use derive_more::{Display, From};
 use num_traits::PrimInt;
-use serde::Serialize;
 use std::fmt;
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
 /// A number representing a value with bitmask up to LEN bits
-#[derive(PartialEq, Clone, Copy, Serialize, PartialOrd)]
+#[derive(PartialEq, Clone, Copy, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Bitmask<T, const LEN: usize> {
     /// The value to be masked.
     ///

@@ -13,12 +13,14 @@ use crate::validated::keys::*;
 use chrono::NaiveDate;
 use derive_more::{Display, From};
 use itertools::Itertools;
-use serde::Serialize;
 use std::fmt;
 use std::fs;
 use std::io::{BufReader, Read, Seek};
 use std::num::ParseIntError;
 use std::path;
+
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 /// Read HEADER from an FCS file.
 pub fn fcs_read_header(
@@ -200,7 +202,7 @@ pub fn fcs_read_std_dataset_with_keywords(
 }
 
 /// Output from parsing the TEXT segment.
-#[derive(Serialize)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct RawTEXTOutput {
     /// FCS version
     pub version: Version,
@@ -284,7 +286,8 @@ pub struct RawDatasetWithKwsOutput {
 }
 
 /// Data pertaining to parsing the TEXT segment.
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct RawTEXTParseData {
     /// Offsets read from HEADER
     pub header_segments: HeaderSegments,

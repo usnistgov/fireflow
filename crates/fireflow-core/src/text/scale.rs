@@ -6,17 +6,20 @@ use crate::text::parser::*;
 use crate::text::ranged_float::*;
 use crate::validated::keys::*;
 
-use serde::Serialize;
+use super::parser::LookupTentative;
+
 use std::fmt;
 use std::num::ParseFloatError;
 use std::str::FromStr;
 
-use super::parser::LookupTentative;
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 /// The value for the $PnE key (all versions).
 ///
 /// Format is assumed to be 'f1,f2'
-#[derive(Clone, Copy, PartialEq, Serialize)]
+#[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Scale {
     /// Linear scale (ie '0,0')
     Linear,
@@ -25,7 +28,8 @@ pub enum Scale {
     Log(LogScale),
 }
 
-#[derive(Clone, Copy, PartialEq, Serialize)]
+#[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct LogScale {
     pub decades: PositiveFloat,
     pub offset: PositiveFloat,

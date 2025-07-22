@@ -1,10 +1,13 @@
 use derive_more::{Display, From, FromStr, Into};
-use serde::Serialize;
 use std::fmt;
 use std::num::NonZeroUsize;
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
 /// An index starting at 1, used as the basis for keyword indices
-#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug, Serialize, Display, FromStr)]
+#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug, Display, FromStr)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct IndexFromOne(NonZeroUsize);
 
 impl From<usize> for IndexFromOne {
@@ -22,7 +25,8 @@ impl From<IndexFromOne> for usize {
 macro_rules! newtype_index {
     ($(#[$attr:meta])* $t:ident) => {
         $(#[$attr])*
-        #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug, Serialize,
+        #[cfg_attr(feature = "serde", derive(Serialize))]
+        #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug,
                  FromStr, Display, From, Into)]
         pub struct $t(pub IndexFromOne);
 

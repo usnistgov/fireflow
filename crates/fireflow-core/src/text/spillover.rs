@@ -7,13 +7,16 @@ use super::parser::OptLinkedKey;
 use derive_more::AsRef;
 use itertools::Itertools;
 use nalgebra::DMatrix;
-use serde::Serialize;
 use std::collections::HashSet;
 use std::fmt;
 use std::str::FromStr;
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
 /// The spillover matrix from the $SPILLOVER keyword (3.1+)
-#[derive(Clone, Serialize, AsRef)]
+#[derive(Clone, AsRef)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Spillover {
     /// The measurements in the spillover matrix.
     ///

@@ -8,12 +8,14 @@ use crate::validated::keys::*;
 
 use derive_more::{Display, From};
 use nonempty::NonEmpty;
-use serde::Serialize;
 use std::fmt;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::iter::repeat;
 use std::str;
+
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 /// The length of the HEADER.
 ///
@@ -24,7 +26,8 @@ pub const HEADER_LEN: u8 = 58;
 /// All FCS versions this library supports.
 ///
 /// This appears as the first 6 bytes of any valid FCS file.
-#[derive(Clone, Copy, Eq, PartialEq, Serialize, PartialOrd, Ord)]
+#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Version {
     FCS2_0,
     FCS3_0,
@@ -34,7 +37,8 @@ pub enum Version {
 
 macro_rules! impl_version {
     ($name:ident, $var:ident) => {
-        #[derive(Clone, Copy, Eq, PartialEq, Serialize)]
+        #[derive(Clone, Copy, Eq, PartialEq)]
+        #[cfg_attr(feature = "serde", derive(Serialize))]
         pub struct $name;
 
         impl From<$name> for Version {
@@ -51,7 +55,8 @@ impl_version!(Version3_1, FCS3_1);
 impl_version!(Version3_2, FCS3_2);
 
 /// The three segments from the HEADER
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct HeaderSegments {
     pub text: PrimaryTextSegment,
     pub data: HeaderDataSegment,
@@ -172,7 +177,8 @@ impl HeaderSegments {
 /// any OTHER segments after the first 58 bytes.
 ///
 /// Only valid segments are to be put in this struct (ie begin <= end).
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Header {
     pub version: Version,
     pub segments: HeaderSegments,

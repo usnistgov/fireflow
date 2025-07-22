@@ -5,13 +5,15 @@ use crate::validated::shortname::{Shortname, ShortnamePrefix};
 use super::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
 
 use derive_more::{From, Into};
-use serde::Serialize;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::mem;
+
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 use Ordering::*;
 
@@ -29,7 +31,8 @@ use Ordering::*;
 ///
 /// All elements, including the center if it exists, are stored in a defined
 /// order.
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum NamedVec<K, W, U, V> {
     // W is an associated type constructor defined by K, so we need to bind K
     // but won't actually use it, hence phantom hack thing
@@ -52,7 +55,8 @@ pub struct IndexedElement<K, V> {
     pub value: V,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SplitVec<K, U, V> {
     left: PairedVec<K, V>,
     center: Box<Center<U>>,
@@ -60,7 +64,8 @@ pub struct SplitVec<K, U, V> {
     prefix: ShortnamePrefix,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct UnsplitVec<K, V> {
     members: PairedVec<K, V>,
     prefix: ShortnamePrefix,
@@ -74,7 +79,8 @@ pub enum Element<U, V> {
 
 type PairedVec<K, V> = Vec<Pair<K, V>>;
 
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Pair<K, V> {
     pub key: K,
     pub value: V,

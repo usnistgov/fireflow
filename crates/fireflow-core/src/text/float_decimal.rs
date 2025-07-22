@@ -3,13 +3,16 @@ use crate::text::keywords::Range;
 use bigdecimal::num_bigint::{BigUint, Sign};
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use derive_more::Into;
-use serde::Serialize;
 use std::any::type_name;
 use std::fmt;
 use std::marker::PhantomData;
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
 /// A big decimal which has been validated to be within the range of a float.
-#[derive(Clone, Serialize, Into, PartialEq)]
+#[derive(Clone, Into, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FloatDecimal<T> {
     #[into]
     value: BigDecimal,

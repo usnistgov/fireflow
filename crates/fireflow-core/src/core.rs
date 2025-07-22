@@ -28,14 +28,15 @@ use itertools::Itertools;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
 use num_traits::identities::One;
-use serde::ser::SerializeStruct;
-use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, Write};
 use std::marker::PhantomData;
 use std::str::FromStr;
+
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 /// Represents the minimal data required to write an FCS file.
 ///
@@ -53,7 +54,8 @@ use std::str::FromStr;
 /// These are not included because this struct will also be used to encode the
 /// TEXT data when writing a new FCS file, and the keywords that are not
 /// included can be computed on the fly when writing.
-#[derive(Clone, Serialize, AsRef)]
+#[derive(Clone, AsRef)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Core<A, D, O, M, T, P, N, W, L> {
     /// Metaroot TEXT keywords.
     ///
@@ -104,7 +106,8 @@ pub struct Others(pub Vec<Other>);
 /// Explicit fields are common to all FCS versions.
 ///
 /// The generic type parameter allows version-specific data to be encoded.
-#[derive(Clone, Serialize, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Metaroot<X> {
     /// Value of $ABRT
     #[as_ref(Option<Abrt>)]
@@ -183,7 +186,8 @@ pub struct Metaroot<X> {
     pub nonstandard_keywords: NonStdKeywords,
 }
 
-#[derive(Clone, Serialize, Default, AsRef, AsMut)]
+#[derive(Clone, Default, AsRef, AsMut)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct CommonMeasurement {
     /// Value for $PnS
     #[as_ref(Option<Longname>)]
@@ -202,7 +206,8 @@ pub struct CommonMeasurement {
 ///
 /// Explicit fields are common to all versions. The generic type parameter
 /// allows for version-specific information to be encoded.
-#[derive(Clone, Serialize, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Temporal<X> {
     /// Fields shared with optical measurements
     #[as_ref(forward)]
@@ -217,7 +222,8 @@ pub struct Temporal<X> {
 ///
 /// Explicit fields are common to all versions. The generic type parameter
 /// allows for version-specific information to be encoded.
-#[derive(Clone, Serialize, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Optical<X> {
     /// Fields shared with optical measurements
     #[as_ref(forward)]
@@ -268,39 +274,6 @@ pub enum AnyCore<A, D, O> {
 
 pub type AnyCoreTEXT = AnyCore<(), (), ()>;
 pub type AnyCoreDataset = AnyCore<Analysis, FCSDataFrame, Others>;
-
-impl<A, D, O> Serialize for AnyCore<A, D, O>
-where
-    A: Serialize,
-    D: Serialize,
-    O: Serialize,
-{
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("AnyCore", 2)?;
-        match self {
-            Self::FCS2_0(x) => {
-                state.serialize_field("version", &x.fcs_version())?;
-                state.serialize_field("data", &x)?;
-            }
-            Self::FCS3_0(x) => {
-                state.serialize_field("version", &x.fcs_version())?;
-                state.serialize_field("data", &x)?;
-            }
-            Self::FCS3_1(x) => {
-                state.serialize_field("version", &x.fcs_version())?;
-                state.serialize_field("data", &x)?;
-            }
-            Self::FCS3_2(x) => {
-                state.serialize_field("version", &x.fcs_version())?;
-                state.serialize_field("data", &x)?;
-            }
-        }
-        state.end()
-    }
-}
 
 macro_rules! match_anycore {
     ($self:expr, $bind:ident, $stuff:block) => {
@@ -422,7 +395,8 @@ impl AnyCoreDataset {
 }
 
 /// Metaroot fields specific to version 2.0
-#[derive(Clone, Serialize, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerMetaroot2_0 {
     /// Value of $MODE
     #[as_ref(Mode)]
@@ -448,7 +422,8 @@ pub struct InnerMetaroot2_0 {
 }
 
 /// Metaroot fields specific to version 3.0
-#[derive(Clone, Serialize, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerMetaroot3_0 {
     /// Value of $MODE
     #[as_ref(Mode)]
@@ -487,7 +462,8 @@ pub struct InnerMetaroot3_0 {
 }
 
 /// Metaroot fields specific to version 3.1
-#[derive(Clone, Serialize, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerMetaroot3_1 {
     /// Value of $MODE
     #[as_ref(Mode)]
@@ -536,7 +512,8 @@ pub struct InnerMetaroot3_1 {
 }
 
 /// Metaroot fields specific to version 3.2
-#[derive(Clone, Serialize, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerMetaroot3_2 {
     /// Values of $BTIM/ETIM/$DATE
     #[as_ref(Timestamps3_1, Option<FCSDate>)]
@@ -598,7 +575,8 @@ pub struct InnerMetaroot3_2 {
 }
 
 /// Temporal measurement fields specific to version 2.0
-#[derive(Clone, Serialize, Default, AsRef, AsMut)]
+#[derive(Clone, Default, AsRef, AsMut)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerTemporal2_0 {
     /// Value of $PnE
     ///
@@ -618,7 +596,8 @@ pub struct InnerTemporal2_0 {
 /// Temporal measurement fields specific to version 3.0
 ///
 /// $PnE is implied as linear but not included since it only has one value
-#[derive(Clone, Serialize, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerTemporal3_0 {
     /// Value for $TIMESTEP
     #[as_ref(Timestep)]
@@ -636,7 +615,8 @@ pub struct InnerTemporal3_0 {
 /// Temporal measurement fields specific to version 3.1
 ///
 /// $PnE is implied as linear but not included since it only has one value
-#[derive(Clone, Serialize, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerTemporal3_1 {
     /// Value for $TIMESTEP
     #[as_ref(Timestep)]
@@ -659,7 +639,8 @@ pub struct InnerTemporal3_1 {
 /// Temporal measurement fields specific to version 3.2
 ///
 /// $PnE is implied as linear but not included since it only has one value
-#[derive(Clone, Serialize, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerTemporal3_2 {
     /// Value for $TIMESTEP
     #[as_ref(Timestep)]
@@ -677,7 +658,8 @@ pub struct InnerTemporal3_2 {
 }
 
 /// Optical measurement fields specific to version 2.0
-#[derive(Clone, Serialize, Default, AsRef, AsMut)]
+#[derive(Clone, Default, AsRef, AsMut)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerOptical2_0 {
     /// Value for $PnE
     ///
@@ -705,7 +687,8 @@ pub struct InnerOptical2_0 {
 }
 
 /// Optical measurement fields specific to version 3.0
-#[derive(Clone, Serialize, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerOptical3_0 {
     /// Value for $PnE/$PnG
     ///
@@ -733,7 +716,8 @@ pub struct InnerOptical3_0 {
 }
 
 /// Optical measurement fields specific to version 3.1
-#[derive(Clone, Serialize, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerOptical3_1 {
     /// Value for $PnE/$PnG
     ///
@@ -771,7 +755,8 @@ pub struct InnerOptical3_1 {
 }
 
 /// Optical measurement fields specific to version 3.2
-#[derive(Clone, Serialize, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerOptical3_2 {
     /// Value for $PnE/$PnG
     ///
@@ -827,7 +812,8 @@ pub struct InnerOptical3_2 {
 }
 
 /// The values for $Gm* keywords (2.0-3.1)
-#[derive(Clone, Default, Serialize)]
+#[derive(Clone, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct GatedMeasurement {
     /// Value for $GmE
     pub scale: MaybeValue<GateScale>,
@@ -857,7 +843,8 @@ pub struct GatedMeasurement {
 }
 
 /// A scale transform derived from $PnE/$PnG.
-#[derive(Clone, Copy, Serialize, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum ScaleTransform {
     /// A linear transform ($PnE=0,0 and $PnG=1.0 or is null)
     Lin(PositiveFloat),
@@ -869,7 +856,8 @@ pub enum ScaleTransform {
 ///
 /// Each region is assumed to point to a member of ['gated_measurements'].
 // TODO updates to these are currently not validated
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AppliedGates2_0 {
     pub gated_measurements: GatedMeasurements,
     pub regions: GatingRegions<GateIndex>,
@@ -880,7 +868,8 @@ pub struct AppliedGates2_0 {
 /// Each region is assumed to point to a member of ['gated_measurements'] or
 /// a measurement in the ['Core'] struct
 // TODO updates to these are currently not validated
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AppliedGates3_0 {
     pub gated_measurements: Vec<GatedMeasurement>,
     pub regions: GatingRegions<MeasOrGateIndex>,
@@ -890,7 +879,8 @@ pub struct AppliedGates3_0 {
 ///
 /// Each region is assumed to point to a measurement in the ['Core'] struct
 // TODO updates to these are currently not validated
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AppliedGates3_2 {
     pub regions: GatingRegions<PrefixedMeasIndex>,
 }
@@ -913,7 +903,8 @@ pub struct GatingRegions<I> {
 pub struct GatedMeasurements(pub NonEmpty<GatedMeasurement>);
 
 /// A uni/bivariate region corresponding to an $RnI/$RnW keyword pair
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Region<I> {
     Univariate(UnivariateRegion<I>),
     Bivariate(BivariateRegion<I>),
@@ -924,7 +915,8 @@ pub type Region3_0 = Region<MeasOrGateIndex>;
 pub type Region3_2 = Region<PrefixedMeasIndex>;
 
 /// A univariate region corresponding to an $RnI/$RnW keyword pair
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct UnivariateRegion<I> {
     pub gate: UniGate,
     pub index: I,
@@ -943,7 +935,8 @@ pub struct BivariateRegion<I> {
 /// It makes little sense to have only one of these since they both collectively
 /// describe a histogram peak. This currently is not enforced since these keys
 /// are likely not used much and it is easy for users to check these themselves.
-#[derive(Clone, Default, Serialize, AsRef, AsMut)]
+#[derive(Clone, Default, AsRef, AsMut)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PeakData {
     /// Value of $Pkn
     #[as_ref(Option<PeakBin>)]
@@ -974,7 +967,8 @@ pub struct SubsetData {
 }
 
 /// A bundle for $ORIGINALITY, $LAST_MODIFIER, and $LAST_MODIFIED (3.1+)
-#[derive(Clone, Serialize, Default, AsRef, AsMut)]
+#[derive(Clone, Default, AsRef, AsMut)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ModificationData {
     #[as_ref(Option<LastModifier>)]
     #[as_mut(Option<LastModifier>)]
@@ -990,7 +984,8 @@ pub struct ModificationData {
 }
 
 /// A bundle for $PLATEID, $PLATENAME, and $WELLID (3.1+)
-#[derive(Clone, Serialize, Default, AsRef, AsMut)]
+#[derive(Clone, Default, AsRef, AsMut)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PlateData {
     #[as_ref(Option<Plateid>)]
     #[as_mut(Option<Plateid>)]
@@ -1006,7 +1001,8 @@ pub struct PlateData {
 }
 
 /// A bundle for $UNSTAINEDCENTERS and $UNSTAINEDINFO (3.2+)
-#[derive(Clone, Serialize, Default, AsRef, AsMut)]
+#[derive(Clone, Default, AsRef, AsMut)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct UnstainedData {
     #[as_ref(Option<UnstainedCenters>)]
     unstainedcenters: MaybeValue<UnstainedCenters>,
@@ -1017,7 +1013,8 @@ pub struct UnstainedData {
 }
 
 /// A bundle for $CARRIERID, $CARRIERTYPE, $LOCATIONID (3.2+)
-#[derive(Clone, Serialize, Default, AsRef, AsMut)]
+#[derive(Clone, Default, AsRef, AsMut)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct CarrierData {
     #[as_ref(Option<Carrierid>)]
     #[as_mut(Option<Carrierid>)]
@@ -4263,18 +4260,6 @@ impl SubsetData {
     }
 }
 
-impl Serialize for SubsetData {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("SubsetData", 2)?;
-        state.serialize_field("bits", &self.bits)?;
-        state.serialize_field("flags", &self.flags.iter().collect::<Vec<_>>())?;
-        state.end()
-    }
-}
-
 impl<I> UnivariateRegion<I> {
     fn map<F, J>(self, f: F) -> UnivariateRegion<J>
     where
@@ -4318,19 +4303,6 @@ impl<I> BivariateRegion<I> {
             x_index: f(self.x_index)?,
             y_index: f(self.y_index)?,
         })
-    }
-}
-
-impl<I: Serialize> Serialize for BivariateRegion<I> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("BivariateRegion", 2)?;
-        state.serialize_field("vertices", &self.vertices.iter().collect::<Vec<_>>())?;
-        state.serialize_field("x_index", &self.x_index)?;
-        state.serialize_field("y_index", &self.y_index)?;
-        state.end()
     }
 }
 
@@ -4904,21 +4876,6 @@ impl TryFrom<PrefixedMeasIndex> for GateIndex {
     }
 }
 
-impl<I> Serialize for GatingRegions<I>
-where
-    I: Serialize,
-{
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("AppliedGates", 2)?;
-        state.serialize_field("gating", &self.gating)?;
-        state.serialize_field("regions", &self.regions.iter().collect::<Vec<_>>())?;
-        state.end()
-    }
-}
-
 impl GatedMeasurements {
     fn lookup<E>(
         kws: &mut StdKeywords,
@@ -4965,15 +4922,6 @@ impl GatedMeasurements {
             }
             Tentative::new1(None.into())
         })
-    }
-}
-
-impl Serialize for GatedMeasurements {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.0.iter().collect::<Vec<_>>().serialize(serializer)
     }
 }
 
@@ -8792,5 +8740,93 @@ pub struct DataSegmentMismatchError;
 impl fmt::Display for DataSegmentMismatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         f.write_str("$PAR = 0 but DATA segment is not empty")
+    }
+}
+
+#[cfg(feature = "serde")]
+mod serialize {
+    use crate::core::{AnyCore, BivariateRegion, GatedMeasurements, GatingRegions, SubsetData};
+    use serde::{ser::SerializeStruct, Serialize};
+
+    impl Serialize for GatedMeasurements {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            self.0.iter().collect::<Vec<_>>().serialize(serializer)
+        }
+    }
+
+    impl<I> Serialize for GatingRegions<I>
+    where
+        I: Serialize,
+    {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            let mut state = serializer.serialize_struct("AppliedGates", 2)?;
+            state.serialize_field("gating", &self.gating)?;
+            state.serialize_field("regions", &self.regions.iter().collect::<Vec<_>>())?;
+            state.end()
+        }
+    }
+
+    impl<I: Serialize> Serialize for BivariateRegion<I> {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            let mut state = serializer.serialize_struct("BivariateRegion", 2)?;
+            state.serialize_field("vertices", &self.vertices.iter().collect::<Vec<_>>())?;
+            state.serialize_field("x_index", &self.x_index)?;
+            state.serialize_field("y_index", &self.y_index)?;
+            state.end()
+        }
+    }
+
+    impl Serialize for SubsetData {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            let mut state = serializer.serialize_struct("SubsetData", 2)?;
+            state.serialize_field("bits", &self.bits)?;
+            state.serialize_field("flags", &self.flags.iter().collect::<Vec<_>>())?;
+            state.end()
+        }
+    }
+
+    impl<A, D, O> Serialize for AnyCore<A, D, O>
+    where
+        A: Serialize,
+        D: Serialize,
+        O: Serialize,
+    {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            let mut state = serializer.serialize_struct("AnyCore", 2)?;
+            match self {
+                Self::FCS2_0(x) => {
+                    state.serialize_field("version", &x.fcs_version())?;
+                    state.serialize_field("data", &x)?;
+                }
+                Self::FCS3_0(x) => {
+                    state.serialize_field("version", &x.fcs_version())?;
+                    state.serialize_field("data", &x)?;
+                }
+                Self::FCS3_1(x) => {
+                    state.serialize_field("version", &x.fcs_version())?;
+                    state.serialize_field("data", &x)?;
+                }
+                Self::FCS3_2(x) => {
+                    state.serialize_field("version", &x.fcs_version())?;
+                    state.serialize_field("data", &x)?;
+                }
+            }
+            state.end()
+        }
     }
 }

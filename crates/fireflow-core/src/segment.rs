@@ -9,7 +9,6 @@ use itertools::Itertools;
 use nonempty::NonEmpty;
 use num_traits::identities::{One, Zero};
 use num_traits::ops::checked::CheckedSub;
-use serde::Serialize;
 use std::fmt;
 use std::io;
 use std::io::{BufReader, Read, Seek, SeekFrom};
@@ -19,22 +18,28 @@ use std::num::ParseIntError;
 use std::str;
 use std::str::FromStr;
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
 /// A segment in an FCS file which is denoted by a pair of offsets
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Segment<T> {
     NonEmpty(NonEmptySegment<T>),
     #[default]
     Empty,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct NonEmptySegment<T> {
     begin: T,
     end: T,
 }
 
 /// A segment that is specific to a region in the FCS file.
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SpecificSegment<I, S, T> {
     pub inner: Segment<T>,
     _id: PhantomData<I>,
@@ -63,11 +68,13 @@ pub(crate) struct GenericSegment {
 }
 
 /// Denotes a segment came from HEADER
-#[derive(Default, Debug, Clone, Copy, Serialize)]
+#[derive(Default, Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SegmentFromHeader;
 
 /// Denotes a segment came from TEXT
-#[derive(Default, Debug, Clone, Copy, Serialize)]
+#[derive(Default, Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SegmentFromTEXT;
 
 /// Denotes a segment came from either TEXT or HEADER
@@ -75,23 +82,28 @@ pub struct SegmentFromTEXT;
 pub struct SegmentFromAnywhere;
 
 /// Denotes the segment pertains to primary TEXT
-#[derive(Default, Debug, Clone, Copy, Serialize)]
+#[derive(Default, Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PrimaryTextSegmentId;
 
 /// Denotes the segment pertains to supplemental TEXT
-#[derive(Default, Debug, Clone, Copy, Serialize)]
+#[derive(Default, Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SupplementalTextSegmentId;
 
 /// Denotes the segment pertains to DATA
-#[derive(Default, Debug, Clone, Copy, Serialize)]
+#[derive(Default, Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DataSegmentId;
 
 /// Denotes the segment pertains to ANALYSIS
-#[derive(Default, Debug, Clone, Copy, Serialize)]
+#[derive(Default, Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AnalysisSegmentId;
 
 /// Denotes the segment pertains to OTHER (indexed from 0)
-#[derive(Default, Debug, Clone, Copy, Serialize)]
+#[derive(Default, Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct OtherSegmentId;
 
 pub type PrimaryTextSegment = SpecificSegment<PrimaryTextSegmentId, SegmentFromHeader, Uint8Digit>;

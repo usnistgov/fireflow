@@ -76,8 +76,6 @@ use derive_more::{AsRef, Display, From};
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use num_traits::PrimInt;
-use serde::ser::SerializeStruct;
-use serde::Serialize;
 use std::convert::Infallible;
 use std::fmt;
 use std::io;
@@ -88,17 +86,22 @@ use std::num::ParseIntError;
 use std::num::{NonZeroU64, NonZeroU8, NonZeroUsize};
 use std::str;
 
+#[cfg(feature = "serde")]
+use serde::{ser::SerializeStruct, Serialize};
+
 /// All possible byte layouts for the DATA segment in 2.0.
 ///
 /// This is identical to 3.0 in every way except that the $TOT keyword in 2.0
 /// is optional, which requires a different interface.
-#[derive(Clone, Serialize, From, Delegate)]
+#[derive(Clone, From, Delegate)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
 #[delegate(InterLayoutOps<D>, generics = "D")]
 pub struct DataLayout2_0(pub AnyOrderedLayout<MaybeTot>);
 
 /// All possible byte layouts for the DATA segment in 2.0.
-#[derive(Clone, Serialize, From, Delegate)]
+#[derive(Clone, From, Delegate)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
 #[delegate(InterLayoutOps<D>, generics = "D")]
 pub struct DataLayout3_0(pub AnyOrderedLayout<KnownTot>);
@@ -108,7 +111,8 @@ pub struct DataLayout3_0(pub AnyOrderedLayout<KnownTot>);
 /// Unlike 2.0 and 3.0, the integer layout allows the column widths to be
 /// different. This is a consequence of making BYTEORD only mean "big or little
 /// endian" and have nothing to do with number of bytes.
-#[derive(Clone, Serialize, From, Delegate)]
+#[derive(Clone, From, Delegate)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
 #[delegate(InterLayoutOps<D>, generics = "D")]
 pub struct DataLayout3_1(pub NonMixedEndianLayout<NoMeasDatatype>);
@@ -117,7 +121,8 @@ pub struct DataLayout3_1(pub NonMixedEndianLayout<NoMeasDatatype>);
 ///
 /// In addition to the loosened integer layouts in 3.1, 3.2 additionally allows
 /// each column to have a different type and size (hence "Mixed").
-#[derive(Clone, Serialize, From, Delegate)]
+#[derive(Clone, From, Delegate)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
 pub enum DataLayout3_2 {
     Mixed(MixedLayout),
@@ -130,7 +135,8 @@ pub type MixedLayout = EndianLayout<NullMixedType, HasMeasDatatype>;
 ///
 /// It is so named "Ordered" because the BYTEORD keyword represents any possible
 /// byte ordering that may occur rather than simply little or big endian.
-#[derive(Clone, Serialize, From, Delegate)]
+#[derive(Clone, From, Delegate)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
 #[delegate(InterLayoutOps<DT>, generics = "DT")]
 pub enum AnyOrderedLayout<T> {
@@ -142,7 +148,8 @@ pub enum AnyOrderedLayout<T> {
 
 // TODO make an integer layout which has only one width, which will cover the
 // vast majority of cases and make certain operations easier.
-#[derive(Clone, Serialize, From, Delegate)]
+#[derive(Clone, From, Delegate)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
 #[delegate(InterLayoutOps<DT>, generics = "DT")]
 pub enum NonMixedEndianLayout<D> {
@@ -159,7 +166,8 @@ pub type EndianLayout<C, D> = FixedLayout<C, Endian, KnownTot, D>;
 /// This may either be fixed (ie columns have the same number of characters)
 /// or variable (ie columns have have different number of characters and are
 /// separated by delimiters).
-#[derive(Clone, Serialize, From, Delegate)]
+#[derive(Clone, From, Delegate)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
 #[delegate(InterLayoutOps<DT>, generics = "DT")]
 pub enum AnyAsciiLayout<T, D, const ORD: bool> {
@@ -188,7 +196,8 @@ pub struct FixedLayout<C, L, T, D> {
 }
 
 /// Byte layout for integers that may be in any byte order.
-#[derive(Clone, Serialize, From, Delegate)]
+#[derive(Clone, From, Delegate)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
 #[delegate(InterLayoutOps<DT>, generics = "DT")]
 #[delegate(OrderedLayoutOps)]
@@ -235,7 +244,8 @@ type AnyReaderBitmask = AnyBitmask<ColumnReaderFamily>;
 type AnyWriterBitmask<'a> = AnyBitmask<ColumnWriterFamily<'a>>;
 
 /// The type of any floating point column in all versions
-#[derive(PartialEq, Clone, Serialize)]
+#[derive(PartialEq, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FloatRange<T, const LEN: usize> {
     pub range: FloatDecimal<T>,
     _t: PhantomData<T>,
@@ -272,19 +282,23 @@ struct ColumnReaderFamily;
 struct ColumnWriterFamily<'a>(std::marker::PhantomData<&'a ()>);
 
 /// Marker type for layouts that might have $TOT
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct MaybeTot;
 
 /// Marker type for layouts that always have $TOT
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct KnownTot;
 
 /// Marker type for layouts without $PnDATATYPE.
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct NoMeasDatatype;
 
 /// Marker type for layouts with $PnDATATYPE.
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct HasMeasDatatype;
 
 /// Marker type representing absence of column datatype.
@@ -930,6 +944,7 @@ macro_rules! impl_null_layout {
             }
         }
 
+        #[cfg(feature = "serde")]
         impl Serialize for $t {
             fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 match self {
@@ -1672,6 +1687,7 @@ fn is_ascii_delim(x: u8) -> bool {
     x == 9 || x == 10 || x == 13 || x == 32 || x == 44
 }
 
+#[cfg(feature = "serde")]
 impl<C: Serialize, L: Serialize, T, D> Serialize for FixedLayout<C, L, T, D> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut state = serializer.serialize_struct("FixedLayout", 2)?;
@@ -1681,6 +1697,7 @@ impl<C: Serialize, L: Serialize, T, D> Serialize for FixedLayout<C, L, T, D> {
     }
 }
 
+#[cfg(feature = "serde")]
 impl<T, D, const ORD: bool> Serialize for DelimAsciiLayout<T, D, ORD> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut state = serializer.serialize_struct("DelimitedLayout", 1)?;

@@ -7,13 +7,16 @@ use super::parser::*;
 
 use chrono::{DateTime, FixedOffset};
 use derive_more::{AsRef, Display, From, FromStr, Into};
-use serde::Serialize;
 use std::fmt;
 use std::mem;
 use std::str::FromStr;
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
 /// A convenient bundle for the $BEGINDATETIME and $ENDDATETIME keys (3.2+)
-#[derive(Clone, Serialize, Default, AsRef)]
+#[derive(Clone, Default, AsRef)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Datetimes {
     /// Value for the $BEGINDATETIME key.
     #[as_ref(Option<BeginDateTime>)]
@@ -24,18 +27,21 @@ pub struct Datetimes {
     end: Option<EndDateTime>,
 }
 
-#[derive(Clone, Copy, Serialize, From, Into, Display, FromStr)]
+#[derive(Clone, Copy, From, Into, Display, FromStr)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(DateTime<FixedOffset>, FCSDateTime)]
 #[into(DateTime<FixedOffset>, FCSDateTime)]
 pub struct BeginDateTime(pub FCSDateTime);
 
-#[derive(Clone, Copy, Serialize, From, Into, Display, FromStr)]
+#[derive(Clone, Copy, From, Into, Display, FromStr)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(DateTime<FixedOffset>, FCSDateTime)]
 #[into(DateTime<FixedOffset>, FCSDateTime)]
 pub struct EndDateTime(pub FCSDateTime);
 
 /// A datetime as used in the $(BEGIN|END)DATETIME keys (3.2+ only)
-#[derive(Clone, Copy, Serialize, From, Into)]
+#[derive(Clone, Copy, From, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FCSDateTime(pub DateTime<FixedOffset>);
 
 impl Datetimes {

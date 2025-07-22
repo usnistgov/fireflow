@@ -1,17 +1,21 @@
 use derive_more::{Add, Display, Into, Mul};
 use num_derive::{One, Zero};
-use serde::Serialize;
 use std::fmt;
 use std::num::ParseFloatError;
 use std::str::FromStr;
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
 /// A non-negative float
-#[derive(Clone, Copy, Serialize, PartialEq, Display, Into, Add, Mul, One, Zero)]
+#[derive(Clone, Copy, PartialEq, Display, Into, Add, Mul, One, Zero)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[mul(forward)]
 pub struct NonNegFloat(f32);
 
 /// A positive float
-#[derive(Clone, Copy, Serialize, PartialEq, Display, Into, Mul, One)]
+#[derive(Clone, Copy, PartialEq, Display, Into, Mul, One)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[mul(forward)]
 pub struct PositiveFloat(f32);
 

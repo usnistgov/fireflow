@@ -26,23 +26,27 @@ use itertools::Itertools;
 use nonempty::NonEmpty;
 use num_traits::cast::ToPrimitive;
 use num_traits::PrimInt;
-use serde::Serialize;
 use std::any::type_name;
 use std::collections::HashSet;
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
 /// Value for $NEXTDATA (all versions)
 #[derive(From, Into, FromStr, Display)]
 pub struct Nextdata(pub Uint20Char);
 
 /// The value of the $PnG keyword
-#[derive(Clone, Copy, Serialize, PartialEq, From, Display, FromStr)]
+#[derive(Clone, Copy, PartialEq, From, Display, FromStr)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Gain(pub PositiveFloat);
 
 /// The value of the $TIMESTEP keyword
-#[derive(Clone, Copy, PartialEq, Serialize, From, Display, FromStr, Into)]
+#[derive(Clone, Copy, PartialEq, From, Display, FromStr, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(f32, PositiveFloat)]
 pub struct Timestep(pub PositiveFloat);
 
@@ -78,7 +82,8 @@ impl fmt::Display for TimestepLossError {
 }
 
 /// The value of the $VOL keyword
-#[derive(Clone, Copy, Serialize, From, Display, FromStr, Into)]
+#[derive(Clone, Copy, From, Display, FromStr, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(NonNegFloat, f32)]
 pub struct Vol(pub NonNegFloat);
 
@@ -87,7 +92,8 @@ impl_newtype_try_from!(Vol, NonNegFloat, f32, RangedFloatError);
 /// The value of the $TR field (all versions)
 ///
 /// This is formatted as 'string,f' where 'string' is a measurement name.
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub(crate) struct Trigger {
     /// The measurement name (assumed to match a '$PnN' value).
     pub measurement: Shortname,
@@ -134,7 +140,8 @@ impl fmt::Display for TriggerError {
 }
 
 /// The values used for the $MODE key (up to 3.1)
-#[derive(Clone, PartialEq, Eq, Serialize)]
+#[derive(Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Mode {
     List,
     Uncorrelated,
@@ -201,7 +208,8 @@ impl fmt::Display for Mode3_2Error {
 }
 
 /// The value for the $PnDISPLAY key (3.1+)
-#[derive(Clone, Copy, Serialize, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Display {
     /// Linear display (value like 'Linear,<lower>,<upper>')
     Lin { lower: f32, upper: f32 },
@@ -262,7 +270,8 @@ impl fmt::Display for DisplayError {
 }
 
 /// The three values for the $PnDATATYPE keyword (3.2+)
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum NumType {
     Integer,
     Single,
@@ -301,7 +310,8 @@ impl fmt::Display for NumTypeError {
 }
 
 /// The four allowed values for the $DATATYPE keyword.
-#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash, Serialize)]
+#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AlphaNumType {
     Ascii,
     Integer,
@@ -383,7 +393,8 @@ impl TryFrom<AlphaNumType> for NumType {
 /// The value of the $PnE key for temporal measurements (all versions)
 ///
 /// This can only be linear (0,0)
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct TemporalScale;
 
 impl FromStr for TemporalScale {
@@ -414,7 +425,8 @@ impl fmt::Display for TemporalScaleError {
 /// The value for the $PnCALIBRATION key (3.1 only)
 ///
 /// This should be formatted like '<value>,<unit>'
-#[derive(Clone, Serialize, PartialEq)]
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Calibration3_1 {
     pub slope: PositiveFloat,
     pub unit: String,
@@ -468,7 +480,8 @@ impl<C: fmt::Display> fmt::Display for CalibrationError<C> {
 ///
 /// This should be formatted like '<value>,[<offset>,]<unit>' and differs from
 /// 3.1 with the optional inclusion of "offset" (assumed 0 if not included).
-#[derive(Clone, Serialize, PartialEq)]
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Calibration3_2 {
     pub slope: PositiveFloat,
     pub offset: f32,
@@ -510,7 +523,8 @@ impl fmt::Display for CalibrationFormat3_2 {
 }
 
 /// The value for the $PnL key (2.0/3.0).
-#[derive(Clone, From, FromStr, Display, Serialize, Into)]
+#[derive(Clone, From, FromStr, Display, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(f32, PositiveFloat)]
 pub struct Wavelength(pub PositiveFloat);
 
@@ -536,6 +550,7 @@ impl From<Wavelengths> for Vec<f32> {
     }
 }
 
+#[cfg(feature = "serde")]
 impl Serialize for Wavelengths {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -610,7 +625,8 @@ impl fmt::Display for WavelengthsError {
 ///
 /// Inner value is private to ensure it always gets parsed/printed using the
 /// correct format
-#[derive(Clone, Copy, Serialize, From, Into)]
+#[derive(Clone, Copy, From, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ModifiedDateTime(pub NaiveDateTime);
 
 const DATETIME_FMT: &str = "%d-%b-%Y %H:%M:%S";
@@ -651,7 +667,8 @@ impl fmt::Display for ModifiedDateTimeError {
 }
 
 /// The value for the $ORIGINALITY key (3.1+)
-#[derive(Clone, Copy, Serialize, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Originality {
     Original,
     NonDataModified,
@@ -703,7 +720,8 @@ impl fmt::Display for OriginalityError {
 /// in this library and is present to be complete. The original purpose was to
 /// indicate keywords which supported UTF-8, but these days it is hard to
 /// write a library that does NOT support UTF-8 ;)
-#[derive(Clone, Serialize, PartialEq)]
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Unicode {
     pub page: u32,
     pub kws: Vec<String>,
@@ -748,7 +766,8 @@ impl fmt::Display for UnicodeError {
 }
 
 /// The value of the $PnTYPE key in optical channels (3.2+)
-#[derive(Clone, Serialize, PartialEq)]
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum OpticalType {
     ForwardScatter,
     SideScatter,
@@ -809,7 +828,8 @@ impl fmt::Display for OpticalTypeError {
 }
 
 /// The value of the $PnTYPE key in temporal channels (3.2+)
-#[derive(Clone, Serialize, PartialEq)]
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct TemporalType;
 
 pub struct TemporalTypeError;
@@ -838,7 +858,8 @@ impl fmt::Display for TemporalTypeError {
 }
 
 /// The value of the $PnFEATURE key (3.2+)
-#[derive(Clone, Copy, Serialize, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Feature {
     Area,
     Width,
@@ -877,7 +898,8 @@ impl fmt::Display for FeatureError {
 }
 
 /// The value of the $RnI key (all versions)
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub(crate) enum RegionGateIndex<I> {
     Univariate(I),
     Bivariate(I, I),
@@ -933,7 +955,8 @@ where
     }
 }
 
-#[derive(Clone, Copy, Serialize, From)]
+#[derive(Clone, Copy, From)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum MeasOrGateIndex {
     Meas(MeasIndex),
     Gate(GateIndex),
@@ -984,7 +1007,8 @@ impl fmt::Display for MeasOrGateIndexError {
     }
 }
 
-#[derive(Clone, Copy, Serialize, From)]
+#[derive(Clone, Copy, From)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PrefixedMeasIndex(pub MeasIndex);
 
 impl FromStr for PrefixedMeasIndex {
@@ -1031,13 +1055,15 @@ pub(crate) enum RegionWindow {
     Bivariate(NonEmpty<Vertex>),
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Vertex {
     pub x: BigDecimal,
     pub y: BigDecimal,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct UniGate {
     pub lower: BigDecimal,
     pub upper: BigDecimal,
@@ -1119,7 +1145,8 @@ impl fmt::Display for GatePairError {
 }
 
 /// The value of the $GATING key (3.0-3.2)
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Gating {
     Region(RegionIndex),
     Not(Box<Gating>),
@@ -1314,7 +1341,8 @@ impl fmt::Display for GatingError {
 }
 
 /// The value of the $PnR key.
-#[derive(Clone, Serialize, From, Display, FromStr, Add, Sub)]
+#[derive(Clone, From, Display, FromStr, Add, Sub)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(u8, u16, u32, u64, BigDecimal)]
 pub struct Range(pub BigDecimal);
 
@@ -1427,7 +1455,8 @@ impl TryFrom<f64> for Range {
 }
 
 /// The value of the $GmR key
-#[derive(Clone, Serialize, From, Display, FromStr)]
+#[derive(Clone, From, Display, FromStr)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(u64)]
 pub struct GateRange(pub Range);
 
@@ -1439,28 +1468,32 @@ pub struct GateRange(pub Range);
 // }
 
 /// The value of the $PnO key
-#[derive(Clone, Copy, Serialize, From, Display, FromStr, Into)]
+#[derive(Clone, Copy, From, Display, FromStr, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(NonNegFloat, f32)]
 pub struct Power(pub NonNegFloat);
 
 impl_newtype_try_from!(Power, NonNegFloat, f32, RangedFloatError);
 
 /// The value of the $PnV key
-#[derive(Clone, Copy, Serialize, From, Display, FromStr, Into)]
+#[derive(Clone, Copy, From, Display, FromStr, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(NonNegFloat, f32)]
 pub struct DetectorVoltage(pub NonNegFloat);
 
 impl_newtype_try_from!(DetectorVoltage, NonNegFloat, f32, RangedFloatError);
 
 /// The value of the $GmV key
-#[derive(Clone, Copy, Serialize, Display, FromStr, Into)]
+#[derive(Clone, Copy, Display, FromStr, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(f32)]
 pub struct GateDetectorVoltage(pub NonNegFloat);
 
 impl_newtype_try_from!(GateDetectorVoltage, NonNegFloat, f32, RangedFloatError);
 
 /// The value of the $GmE key
-#[derive(Clone, Copy, Serialize, Display, FromStr)]
+#[derive(Clone, Copy, Display, FromStr)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct GateScale(pub Scale);
 
 // use the same fix we use for PnE here
@@ -1483,30 +1516,35 @@ impl GateScale {
 }
 
 /// The value of the $CSVnFLAG key (2.0-3.0)
-#[derive(Clone, Copy, Serialize, Display, FromStr, Into)]
+#[derive(Clone, Copy, Display, FromStr, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(u32)]
 pub struct CSVFlag(pub u32);
 
 /// The value of the $PKn key (2.0-3.1)
-#[derive(Clone, Copy, Serialize, Display, FromStr, Into)]
+#[derive(Clone, Copy, Display, FromStr, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(u32)]
 pub struct PeakBin(pub u32);
 
 /// The value of the $PKNn key (2.0-3.1)
-#[derive(Clone, Copy, Serialize, Display, FromStr, Into)]
+#[derive(Clone, Copy, Display, FromStr, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(u32)]
 pub struct PeakNumber(pub u32);
 
 macro_rules! newtype_string {
     ($t:ident) => {
-        #[derive(Clone, Serialize, Display, FromStr, From, Into)]
+        #[derive(Clone, Display, FromStr, From, Into)]
+        #[cfg_attr(feature = "serde", derive(Serialize))]
         pub struct $t(pub String);
     };
 }
 
 macro_rules! newtype_int {
     ($t:ident, $type:ident) => {
-        #[derive(Clone, Copy, Serialize, Display, FromStr, From, Into)]
+        #[derive(Clone, Copy, Display, FromStr, From, Into)]
+        #[cfg_attr(feature = "serde", derive(Serialize))]
         pub struct $t(pub $type);
     };
 }

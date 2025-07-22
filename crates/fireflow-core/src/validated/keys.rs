@@ -5,7 +5,6 @@ use crate::text::index::IndexFromOne;
 use derive_more::{AsRef, Display, From};
 use itertools::Itertools;
 use regex::Regex;
-use serde::Serialize;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -13,6 +12,9 @@ use std::hash::Hash;
 use std::str;
 use std::str::FromStr;
 use unicase::Ascii;
+
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 /// A standard key.
 ///
@@ -85,7 +87,8 @@ pub type NonAsciiPairs = Vec<(String, String)>;
 pub type BytesPairs = Vec<(Vec<u8>, Vec<u8>)>;
 
 /// ['ParsedKeywords'] without the bad stuff
-#[derive(Clone, Default, Serialize)]
+#[derive(Clone, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ValidKeywords {
     pub std: StdKeywords,
     pub nonstd: NonStdKeywords,
@@ -248,6 +251,7 @@ impl NonStdKey {
     }
 }
 
+#[cfg(feature = "serde")]
 impl Serialize for StdKey {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -257,6 +261,7 @@ impl Serialize for StdKey {
     }
 }
 
+#[cfg(feature = "serde")]
 impl Serialize for NonStdKey {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where

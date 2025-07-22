@@ -1,3 +1,9 @@
+use crate::core::{AnyMetarootKeyLossError, IndexedKeyLossError, UnitaryKeyLossError};
+use crate::error::{BiTentative, Tentative};
+
+use super::index::IndexFromOne;
+
+use derive_more::{AsMut, AsRef};
 use serde::Serialize;
 use std::convert::Infallible;
 use std::fmt;
@@ -8,7 +14,7 @@ use std::mem;
 ///
 /// This is basically [`Option`] but more obvious in what it indicates. It also
 /// allows some nice methods to be built on top of [`Option`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, AsRef, AsMut)]
 pub struct MaybeValue<T>(pub Option<T>);
 
 /// A value that always exists.
@@ -55,6 +61,11 @@ pub trait MightHave {
     fn as_opt<T>(x: &Self::Wrapper<T>) -> Option<&T> {
         Self::to_opt(Self::as_ref(x))
     }
+
+    /// Apply function to inner value.
+    fn map<T, T0, F>(x: Self::Wrapper<T>, f: F) -> Self::Wrapper<T0>
+    where
+        F: FnOnce(T) -> T0;
 }
 
 #[derive(Clone, Serialize)]
@@ -71,6 +82,13 @@ impl MightHave for MaybeFamily {
     fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T> {
         x.as_ref()
     }
+
+    fn map<T, T0, F>(x: Self::Wrapper<T>, f: F) -> Self::Wrapper<T0>
+    where
+        F: FnOnce(T) -> T0,
+    {
+        x.0.map(f).into()
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -86,6 +104,13 @@ impl MightHave for AlwaysFamily {
 
     fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T> {
         AlwaysValue(&x.0)
+    }
+
+    fn map<T, T0, F>(x: Self::Wrapper<T>, f: F) -> Self::Wrapper<T0>
+    where
+        F: FnOnce(T) -> T0,
+    {
+        AlwaysValue(f(x.0))
     }
 }
 
@@ -176,6 +201,46 @@ impl<V> MaybeValue<V> {
     {
         let Ok(x) = self.mut_or_unset(f);
         x
+    }
+
+    pub(crate) fn check_indexed_key_transfer<E>(&self, i: IndexFromOne) -> Result<(), E>
+    where
+        E: From<IndexedKeyLossError<V>>,
+    {
+        if self.0.is_some() {
+            Err(IndexedKeyLossError::<V>::new(i).into())
+        } else {
+            Ok(())
+        }
+    }
+
+    pub(crate) fn check_indexed_key_transfer_own<E>(
+        self,
+        i: IndexFromOne,
+        lossless: bool,
+    ) -> BiTentative<(), E>
+    where
+        E: From<IndexedKeyLossError<V>>,
+    {
+        let mut tnt = Tentative::default();
+        if self.0.is_some() {
+            tnt.push_error_or_warning(IndexedKeyLossError::<V>::new(i), lossless);
+        }
+        tnt
+    }
+
+    pub(crate) fn check_key_transfer(
+        self,
+        lossless: bool,
+    ) -> BiTentative<(), AnyMetarootKeyLossError>
+    where
+        AnyMetarootKeyLossError: From<UnitaryKeyLossError<V>>,
+    {
+        let mut tnt = Tentative::default();
+        if self.0.is_some() {
+            tnt.push_error_or_warning(UnitaryKeyLossError::<V>::default(), lossless);
+        }
+        tnt
     }
 }
 

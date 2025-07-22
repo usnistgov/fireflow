@@ -22,8 +22,8 @@ use crate::validated::dataframe::*;
 use crate::validated::keys::*;
 use crate::validated::shortname::*;
 
-use chrono::Timelike;
-use derive_more::{Display, From};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, Timelike};
+use derive_more::{AsMut, AsRef, Display, From};
 use itertools::Itertools;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
@@ -53,7 +53,7 @@ use std::str::FromStr;
 /// These are not included because this struct will also be used to encode the
 /// TEXT data when writing a new FCS file, and the keywords that are not
 /// included can be computed on the fly when writing.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef)]
 pub struct Core<A, D, O, M, T, P, N, W, L> {
     /// Metaroot TEXT keywords.
     ///
@@ -66,12 +66,14 @@ pub struct Core<A, D, O, M, T, P, N, W, L> {
     /// Specifically these are denoted by "$Pn*" keywords where "n" is the index
     /// of the measurement which also corresponds to its column in the DATA
     /// segment. The index of each measurement in this vector is n - 1.
+    #[as_ref(NamedVec<N, W, Temporal<T>, Optical<P>>)]
     measurements: NamedVec<N, W, Temporal<T>, Optical<P>>,
 
     /// The byte layout of the DATA segment
     ///
     /// This is derived from $BYTEORD, $DATATYPE, $PnB, $PnR and maybe
     /// $PnDATATYPE for version 3.2.
+    #[as_ref(Option<L>)]
     layout: MaybeValue<L>,
 
     /// DATA segment (if applicable)
@@ -102,42 +104,66 @@ pub struct Others(pub Vec<Other>);
 /// Explicit fields are common to all FCS versions.
 ///
 /// The generic type parameter allows version-specific data to be encoded.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct Metaroot<X> {
     /// Value of $ABRT
+    #[as_ref(Option<Abrt>)]
+    #[as_mut(Option<Abrt>)]
     pub abrt: MaybeValue<Abrt>,
 
     /// Value of $COM
+    #[as_ref(Option<Com>)]
+    #[as_mut(Option<Com>)]
     pub com: MaybeValue<Com>,
 
     /// Value of $CELLS
+    #[as_ref(Option<Cells>)]
+    #[as_mut(Option<Cells>)]
     pub cells: MaybeValue<Cells>,
 
     /// Value of $EXP
+    #[as_ref(Option<Exp>)]
+    #[as_mut(Option<Exp>)]
     pub exp: MaybeValue<Exp>,
 
     /// Value of $FIL
+    #[as_ref(Option<Fil>)]
+    #[as_mut(Option<Fil>)]
     pub fil: MaybeValue<Fil>,
 
     /// Value of $INST
+    #[as_ref(Option<Inst>)]
+    #[as_mut(Option<Inst>)]
     pub inst: MaybeValue<Inst>,
 
     /// Value of $LOST
+    #[as_ref(Option<Lost>)]
+    #[as_mut(Option<Lost>)]
     pub lost: MaybeValue<Lost>,
 
     /// Value of $OP
+    #[as_ref(Option<Op>)]
+    #[as_mut(Option<Op>)]
     pub op: MaybeValue<Op>,
 
     /// Value of $PROJ
+    #[as_ref(Option<Proj>)]
+    #[as_mut(Option<Proj>)]
     pub proj: MaybeValue<Proj>,
 
     /// Value of $SMNO
+    #[as_ref(Option<Smno>)]
+    #[as_mut(Option<Smno>)]
     pub smno: MaybeValue<Smno>,
 
     /// Value of $SRC
+    #[as_ref(Option<Src>)]
+    #[as_mut(Option<Src>)]
     pub src: MaybeValue<Src>,
 
     /// Value of $SYS
+    #[as_ref(Option<Sys>)]
+    #[as_mut(Option<Sys>)]
     pub sys: MaybeValue<Sys>,
 
     /// Value of $TR
@@ -157,14 +183,18 @@ pub struct Metaroot<X> {
     pub nonstandard_keywords: NonStdKeywords,
 }
 
-#[derive(Clone, Serialize, Default)]
+#[derive(Clone, Serialize, Default, AsRef, AsMut)]
 pub struct CommonMeasurement {
     /// Value for $PnS
+    #[as_ref(Option<Longname>)]
+    #[as_mut(Option<Longname>)]
     pub longname: MaybeValue<Longname>,
 
     /// Non standard keywords that belong to this measurement.
     ///
     /// These are found using a configurable pattern to filter matching keys.
+    #[as_ref(HashMap<NonStdKey, String>)]
+    #[as_mut(HashMap<NonStdKey, String>)]
     pub nonstandard_keywords: NonStdKeywords,
 }
 
@@ -172,9 +202,11 @@ pub struct CommonMeasurement {
 ///
 /// Explicit fields are common to all versions. The generic type parameter
 /// allows for version-specific information to be encoded.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct Temporal<X> {
     /// Fields shared with optical measurements
+    #[as_ref(forward)]
+    #[as_mut(forward)]
     pub common: CommonMeasurement,
 
     /// Version specific data
@@ -185,24 +217,36 @@ pub struct Temporal<X> {
 ///
 /// Explicit fields are common to all versions. The generic type parameter
 /// allows for version-specific information to be encoded.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct Optical<X> {
     /// Fields shared with optical measurements
+    #[as_ref(forward)]
+    #[as_mut(forward)]
     pub common: CommonMeasurement,
 
     /// Value for $PnF
+    #[as_ref(Option<Filter>)]
+    #[as_mut(Option<Filter>)]
     pub filter: MaybeValue<Filter>,
 
     /// Value for $PnO
+    #[as_ref(Option<Power>)]
+    #[as_mut(Option<Power>)]
     pub power: MaybeValue<Power>,
 
     /// Value for $PnD
+    #[as_ref(Option<DetectorType>)]
+    #[as_mut(Option<DetectorType>)]
     pub detector_type: MaybeValue<DetectorType>,
 
     /// Value for $PnP
+    #[as_ref(Option<PercentEmitted>)]
+    #[as_mut(Option<PercentEmitted>)]
     pub percent_emitted: MaybeValue<PercentEmitted>,
 
     /// Value for $PnV
+    #[as_ref(Option<DetectorVoltage>)]
+    #[as_mut(Option<DetectorVoltage>)]
     pub detector_voltage: MaybeValue<DetectorVoltage>,
 
     /// Version specific data
@@ -263,8 +307,6 @@ macro_rules! match_anycore {
         match_many_to_one!($self, Self, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], $bind, $stuff)
     };
 }
-
-pub(crate) use match_anycore;
 
 impl<A, D, O> AnyCore<A, D, O> {
     pub fn version(&self) -> Version {
@@ -380,20 +422,25 @@ impl AnyCoreDataset {
 }
 
 /// Metaroot fields specific to version 2.0
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerMetaroot2_0 {
     /// Value of $MODE
+    #[as_ref(Mode)]
+    #[as_mut(Mode)]
     pub mode: Mode,
 
-    // /// Value of $BYTEORD
-    // byteord: ByteOrd,
     /// Value of $CYT
+    #[as_ref(Option<Cyt>)]
+    #[as_mut(Option<Cyt>)]
     pub cyt: MaybeValue<Cyt>,
 
     /// Compensation matrix derived from 'DFCnTOm' key/value pairs
+    #[as_ref(Option<Compensation2_0>)]
     comp: MaybeValue<Compensation2_0>,
 
     /// Values of $BTIM/ETIM/$DATE
+    #[as_ref(Timestamps2_0, Option<FCSDate>)]
+    #[as_mut(Timestamps2_0)]
     pub timestamps: Timestamps2_0,
 
     /// Values of $Gm*/$RnI/$RnW/$GATING/$GATE
@@ -401,26 +448,35 @@ pub struct InnerMetaroot2_0 {
 }
 
 /// Metaroot fields specific to version 3.0
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerMetaroot3_0 {
     /// Value of $MODE
+    #[as_ref(Mode)]
+    #[as_mut(Mode)]
     pub mode: Mode,
 
-    // /// Value of $BYTEORD
-    // byteord: ByteOrd,
     /// Value of $CYT
+    #[as_ref(Option<Cyt>)]
+    #[as_mut(Option<Cyt>)]
     pub cyt: MaybeValue<Cyt>,
 
     /// Value of $COMP
+    #[as_ref(Option<Compensation3_0>)]
     comp: MaybeValue<Compensation3_0>,
 
     /// Values of $BTIM/ETIM/$DATE
+    #[as_ref(Timestamps3_0, Option<FCSDate>)]
+    #[as_mut(Timestamps3_0)]
     pub timestamps: Timestamps3_0,
 
     /// Value of $CYTSN
+    #[as_ref(Option<Cytsn>)]
+    #[as_mut(Option<Cytsn>)]
     pub cytsn: MaybeValue<Cytsn>,
 
     /// Value of $UNICODE
+    #[as_ref(Option<Unicode>)]
+    #[as_mut(Option<Unicode>)]
     pub unicode: MaybeValue<Unicode>,
 
     /// Aggregated values for $CS* keywords
@@ -431,32 +487,45 @@ pub struct InnerMetaroot3_0 {
 }
 
 /// Metaroot fields specific to version 3.1
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerMetaroot3_1 {
     /// Value of $MODE
+    #[as_ref(Mode)]
+    #[as_mut(Mode)]
     pub mode: Mode,
 
-    // /// Value of $BYTEORD
-    // pub byteord: Endian,
     /// Value of $CYT
+    #[as_ref(Option<Cyt>)]
+    #[as_mut(Option<Cyt>)]
     pub cyt: MaybeValue<Cyt>,
 
     /// Values of $BTIM/ETIM/$DATE
+    #[as_ref(Timestamps3_1, Option<FCSDate>)]
+    #[as_mut(Timestamps3_1)]
     pub timestamps: Timestamps3_1,
 
     /// Value of $CYTSN
+    #[as_ref(Option<Cytsn>)]
+    #[as_mut(Option<Cytsn>)]
     pub cytsn: MaybeValue<Cytsn>,
 
     /// Value of $SPILLOVER
+    #[as_ref(Option<Spillover>)]
     spillover: MaybeValue<Spillover>,
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
+    #[as_ref(Option<LastModifier>, Option<ModifiedDateTime>, Option<Originality>)]
+    #[as_mut(Option<LastModifier>, Option<ModifiedDateTime>, Option<Originality>)]
     pub modification: ModificationData,
 
     /// Values of $PLATEID/$PLATENAME/$WELLID
+    #[as_ref(Option<Plateid>, Option<Wellid>, Option<Platename>)]
+    #[as_mut(Option<Plateid>, Option<Wellid>, Option<Platename>)]
     pub plate: PlateData,
 
     /// Value of $VOL
+    #[as_ref(Option<Vol>)]
+    #[as_mut(Option<Vol>)]
     pub vol: MaybeValue<Vol>,
 
     /// Aggregated values for $CS* keywords
@@ -467,42 +536,61 @@ pub struct InnerMetaroot3_1 {
 }
 
 /// Metaroot fields specific to version 3.2
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerMetaroot3_2 {
-    // /// Value of $BYTEORD
-    // pub byteord: Endian,
     /// Values of $BTIM/ETIM/$DATE
+    #[as_ref(Timestamps3_1, Option<FCSDate>)]
+    #[as_mut(Timestamps3_1)]
     pub timestamps: Timestamps3_1,
 
     /// Values of $BEGINDATETIME/$ENDDATETIME
+    #[as_ref(Option<BeginDateTime>, Option<EndDateTime>, Datetimes)]
+    #[as_mut(Datetimes)]
     pub datetimes: Datetimes,
 
     /// Value of $CYT
+    #[as_ref(Cyt)]
+    #[as_mut(Cyt)]
     pub cyt: Cyt,
 
     /// Value of $SPILLOVER
+    #[as_ref(Option<Spillover>)]
     spillover: MaybeValue<Spillover>,
 
     /// Value of $CYTSN
+    #[as_ref(Option<Cytsn>)]
+    #[as_mut(Option<Cytsn>)]
     pub cytsn: MaybeValue<Cytsn>,
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
     // TODO it makes sense to verify this isn't before the file was created
+    #[as_ref(Option<LastModifier>, Option<ModifiedDateTime>, Option<Originality>)]
+    #[as_mut(Option<LastModifier>, Option<ModifiedDateTime>, Option<Originality>)]
     pub modification: ModificationData,
 
     /// Values of $PLATEID/$PLATENAME/$WELLID
+    #[as_ref(Option<Plateid>, Option<Wellid>, Option<Platename>)]
+    #[as_mut(Option<Plateid>, Option<Wellid>, Option<Platename>)]
     pub plate: PlateData,
 
     /// Value of $VOL
+    #[as_ref(Option<Vol>)]
+    #[as_mut(Option<Vol>)]
     pub vol: MaybeValue<Vol>,
 
     /// Values of $CARRIERID/$CARRIERTYPE/$LOCATIONID
+    #[as_ref(Option<Carrierid>, Option<Carriertype>, Option<Locationid>)]
+    #[as_mut(Option<Carrierid>, Option<Carriertype>, Option<Locationid>)]
     pub carrier: CarrierData,
 
     /// Values of $UNSTAINEDINFO/$UNSTAINEDCENTERS
+    #[as_ref(Option<UnstainedCenters>, Option<UnstainedInfo>)]
+    #[as_mut(Option<UnstainedInfo>)]
     pub unstained: UnstainedData,
 
     /// Value of $FLOWRATE
+    #[as_ref(Option<Flowrate>)]
+    #[as_mut(Option<Flowrate>)]
     pub flowrate: MaybeValue<Flowrate>,
 
     /// Values of $RnI/$RnW/$GATING
@@ -510,133 +598,231 @@ pub struct InnerMetaroot3_2 {
 }
 
 /// Temporal measurement fields specific to version 2.0
-#[derive(Clone, Serialize, Default)]
+#[derive(Clone, Serialize, Default, AsRef, AsMut)]
 pub struct InnerTemporal2_0 {
     /// Value of $PnE
     ///
     /// Unlike subsequent versions, included here because it is optional rather
     /// than required and constant.
+    // TODO this can just be a bool
     pub scale: MaybeValue<TemporalScale>,
 
     /// Values of $Pkn/$PKNn
+    #[as_ref(Option<PeakBin>)]
+    #[as_ref(Option<PeakNumber>)]
+    #[as_mut(Option<PeakBin>)]
+    #[as_mut(Option<PeakNumber>)]
     pub peak: PeakData,
 }
 
 /// Temporal measurement fields specific to version 3.0
 ///
 /// $PnE is implied as linear but not included since it only has one value
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerTemporal3_0 {
     /// Value for $TIMESTEP
+    #[as_ref(Timestep)]
+    #[as_mut(Timestep)]
     pub timestep: Timestep,
 
     /// Values of $Pkn/$PKNn
+    #[as_ref(Option<PeakBin>)]
+    #[as_ref(Option<PeakNumber>)]
+    #[as_mut(Option<PeakBin>)]
+    #[as_mut(Option<PeakNumber>)]
     pub peak: PeakData,
 }
 
 /// Temporal measurement fields specific to version 3.1
 ///
 /// $PnE is implied as linear but not included since it only has one value
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerTemporal3_1 {
     /// Value for $TIMESTEP
+    #[as_ref(Timestep)]
+    #[as_mut(Timestep)]
     pub timestep: Timestep,
 
     /// Value for $PnDISPLAY
+    #[as_ref(Option<Display>)]
+    #[as_mut(Option<Display>)]
     pub display: MaybeValue<Display>,
 
     /// Values of $Pkn/$PKNn
+    #[as_ref(Option<PeakBin>)]
+    #[as_ref(Option<PeakNumber>)]
+    #[as_mut(Option<PeakBin>)]
+    #[as_mut(Option<PeakNumber>)]
     pub peak: PeakData,
 }
 
 /// Temporal measurement fields specific to version 3.2
 ///
 /// $PnE is implied as linear but not included since it only has one value
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerTemporal3_2 {
     /// Value for $TIMESTEP
+    #[as_ref(Timestep)]
+    #[as_mut(Timestep)]
     pub timestep: Timestep,
 
     /// Value for $PnDISPLAY
+    #[as_ref(Option<Display>)]
+    #[as_mut(Option<Display>)]
     pub display: MaybeValue<Display>,
 
     /// Value for $PnTYPE
+    // TODO this can just be a bool
     pub measurement_type: MaybeValue<TemporalType>,
 }
 
 /// Optical measurement fields specific to version 2.0
-#[derive(Clone, Serialize, Default)]
+#[derive(Clone, Serialize, Default, AsRef, AsMut)]
 pub struct InnerOptical2_0 {
     /// Value for $PnE
+    ///
+    /// This does not accessible via [`AsMut`] since this would expose this
+    /// value to modification via [`Core::set_optical`] which we do not want
+    /// since [`ScaleTransform`] needs to be synced with [`Core::layout`]. Consequently,
+    /// the measurement array in `Core` is also private.
+    ///
+    /// There is no harm in modifying `scale` when this struct is on its own,
+    /// however, so it is still public.
+    #[as_ref(Option<Scale>)]
     pub scale: MaybeValue<Scale>,
 
     /// Value for $PnL
+    #[as_ref(Option<Wavelength>)]
+    #[as_mut(Option<Wavelength>)]
     pub wavelength: MaybeValue<Wavelength>,
 
     /// Values of $Pkn/$PKNn
+    #[as_ref(Option<PeakBin>)]
+    #[as_ref(Option<PeakNumber>)]
+    #[as_mut(Option<PeakBin>)]
+    #[as_mut(Option<PeakNumber>)]
     pub peak: PeakData,
 }
 
 /// Optical measurement fields specific to version 3.0
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerOptical3_0 {
     /// Value for $PnE/$PnG
+    ///
+    /// This does not accessible via [`AsMut`] since this would expose this
+    /// value to modification via [`Core::set_optical`] which we do not want
+    /// since [`ScaleTransform`] needs to be synced with [`Core::layout`]. Consequently,
+    /// the measurement array in `Core` is also private.
+    ///
+    /// There is no harm in modifying `scale` when this struct is on its own,
+    /// however, so it is still public.
+    #[as_ref(ScaleTransform)]
     pub scale: ScaleTransform,
 
     /// Value for $PnL
+    #[as_ref(Option<Wavelength>)]
+    #[as_mut(Option<Wavelength>)]
     pub wavelength: MaybeValue<Wavelength>,
 
     /// Values of $Pkn/$PKNn
+    #[as_ref(Option<PeakBin>)]
+    #[as_ref(Option<PeakNumber>)]
+    #[as_mut(Option<PeakBin>)]
+    #[as_mut(Option<PeakNumber>)]
     pub peak: PeakData,
 }
 
 /// Optical measurement fields specific to version 3.1
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerOptical3_1 {
     /// Value for $PnE/$PnG
+    ///
+    /// This does not accessible via [`AsMut`] since this would expose this
+    /// value to modification via [`Core::set_optical`] which we do not want
+    /// since [`ScaleTransform`] needs to be synced with [`Core::layout`]. Consequently,
+    /// the measurement array in `Core` is also private.
+    ///
+    /// There is no harm in modifying `scale` when this struct is on its own,
+    /// however, so it is still public.
+    #[as_ref(ScaleTransform)]
     pub scale: ScaleTransform,
 
     /// Value for $PnL
+    #[as_ref(Option<Wavelengths>)]
+    #[as_mut(Option<Wavelengths>)]
     pub wavelengths: MaybeValue<Wavelengths>,
 
     /// Value for $PnCALIBRATION
+    #[as_ref(Option<Calibration3_1>)]
+    #[as_mut(Option<Calibration3_1>)]
     pub calibration: MaybeValue<Calibration3_1>,
 
     /// Value for $PnDISPLAY
+    #[as_ref(Option<Display>)]
+    #[as_mut(Option<Display>)]
     pub display: MaybeValue<Display>,
 
     /// Values of $Pkn/$PKNn
+    #[as_ref(Option<PeakBin>)]
+    #[as_ref(Option<PeakNumber>)]
+    #[as_mut(Option<PeakBin>)]
+    #[as_mut(Option<PeakNumber>)]
     pub peak: PeakData,
 }
 
 /// Optical measurement fields specific to version 3.2
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, AsRef, AsMut)]
 pub struct InnerOptical3_2 {
     /// Value for $PnE/$PnG
+    ///
+    /// This does not accessible via [`AsMut`] since this would expose this
+    /// value to modification via [`Core::set_optical`] which we do not want
+    /// since [`ScaleTransform`] needs to be synced with [`Core::layout`]. Consequently,
+    /// the measurement array in `Core` is also private.
+    ///
+    /// There is no harm in modifying `scale` when this struct is on its own,
+    /// however, so it is still public.
+    #[as_ref(ScaleTransform)]
     pub scale: ScaleTransform,
 
     /// Value for $PnL
+    #[as_ref(Option<Wavelengths>)]
+    #[as_mut(Option<Wavelengths>)]
     pub wavelengths: MaybeValue<Wavelengths>,
 
     /// Value for $PnCALIBRATION
+    #[as_ref(Option<Calibration3_2>)]
+    #[as_mut(Option<Calibration3_2>)]
     pub calibration: MaybeValue<Calibration3_2>,
 
     /// Value for $PnDISPLAY
+    #[as_ref(Option<Display>)]
+    #[as_mut(Option<Display>)]
     pub display: MaybeValue<Display>,
 
     /// Value for $PnANALYTE
+    #[as_ref(Option<Analyte>)]
+    #[as_mut(Option<Analyte>)]
     pub analyte: MaybeValue<Analyte>,
 
     /// Value for $PnFEATURE
+    #[as_ref(Option<Feature>)]
+    #[as_mut(Option<Feature>)]
     pub feature: MaybeValue<Feature>,
 
     /// Value for $PnTYPE
+    #[as_ref(Option<OpticalType>)]
+    #[as_mut(Option<OpticalType>)]
     pub measurement_type: MaybeValue<OpticalType>,
 
     /// Value for $PnTAG
+    #[as_ref(Option<Tag>)]
+    #[as_mut(Option<Tag>)]
     pub tag: MaybeValue<Tag>,
 
     /// Value for $PnDET
+    #[as_ref(Option<DetectorName>)]
+    #[as_mut(Option<DetectorName>)]
     pub detector_name: MaybeValue<DetectorName>,
 }
 
@@ -757,12 +943,16 @@ pub struct BivariateRegion<I> {
 /// It makes little sense to have only one of these since they both collectively
 /// describe a histogram peak. This currently is not enforced since these keys
 /// are likely not used much and it is easy for users to check these themselves.
-#[derive(Clone, Default, Serialize)]
+#[derive(Clone, Default, Serialize, AsRef, AsMut)]
 pub struct PeakData {
     /// Value of $Pkn
+    #[as_ref(Option<PeakBin>)]
+    #[as_mut(Option<PeakBin>)]
     pub bin: MaybeValue<PeakBin>,
 
     /// Value of $PkNn
+    #[as_ref(Option<PeakNumber>)]
+    #[as_mut(Option<PeakNumber>)]
     pub size: MaybeValue<PeakNumber>,
 }
 
@@ -784,33 +974,61 @@ pub struct SubsetData {
 }
 
 /// A bundle for $ORIGINALITY, $LAST_MODIFIER, and $LAST_MODIFIED (3.1+)
-#[derive(Clone, Serialize, Default)]
+#[derive(Clone, Serialize, Default, AsRef, AsMut)]
 pub struct ModificationData {
+    #[as_ref(Option<LastModifier>)]
+    #[as_mut(Option<LastModifier>)]
     pub last_modifier: MaybeValue<LastModifier>,
+
+    #[as_ref(Option<ModifiedDateTime>)]
+    #[as_mut(Option<ModifiedDateTime>)]
     pub last_modified: MaybeValue<ModifiedDateTime>,
+
+    #[as_ref(Option<Originality>)]
+    #[as_mut(Option<Originality>)]
     pub originality: MaybeValue<Originality>,
 }
 
 /// A bundle for $PLATEID, $PLATENAME, and $WELLID (3.1+)
-#[derive(Clone, Serialize, Default)]
+#[derive(Clone, Serialize, Default, AsRef, AsMut)]
 pub struct PlateData {
+    #[as_ref(Option<Plateid>)]
+    #[as_mut(Option<Plateid>)]
     pub plateid: MaybeValue<Plateid>,
+
+    #[as_ref(Option<Platename>)]
+    #[as_mut(Option<Platename>)]
     pub platename: MaybeValue<Platename>,
+
+    #[as_ref(Option<Wellid>)]
+    #[as_mut(Option<Wellid>)]
     pub wellid: MaybeValue<Wellid>,
 }
 
 /// A bundle for $UNSTAINEDCENTERS and $UNSTAINEDINFO (3.2+)
-#[derive(Clone, Serialize, Default)]
+#[derive(Clone, Serialize, Default, AsRef, AsMut)]
 pub struct UnstainedData {
+    #[as_ref(Option<UnstainedCenters>)]
     unstainedcenters: MaybeValue<UnstainedCenters>,
+
+    #[as_ref(Option<UnstainedInfo>)]
+    #[as_mut(Option<UnstainedInfo>)]
     pub unstainedinfo: MaybeValue<UnstainedInfo>,
 }
 
 /// A bundle for $CARRIERID, $CARRIERTYPE, $LOCATIONID (3.2+)
-#[derive(Clone, Serialize, Default)]
+#[derive(Clone, Serialize, Default, AsRef, AsMut)]
 pub struct CarrierData {
+    #[as_ref(Option<Carrierid>)]
+    #[as_mut(Option<Carrierid>)]
     pub carrierid: MaybeValue<Carrierid>,
+
+    #[as_ref(Option<Carriertype>)]
+    #[as_mut(Option<Carriertype>)]
     pub carriertype: MaybeValue<Carriertype>,
+
+    #[as_ref(Option<Locationid>)]
+    #[as_mut(Option<Locationid>)]
     pub locationid: MaybeValue<Locationid>,
 }
 
@@ -895,11 +1113,6 @@ pub type CoreDataset3_0 = Core3_0<Analysis, FCSDataFrame, Others>;
 pub type CoreDataset3_1 = Core3_1<Analysis, FCSDataFrame, Others>;
 pub type CoreDataset3_2 = Core3_2<Analysis, FCSDataFrame, Others>;
 
-type RawInput2_0 = RawInput<MaybeFamily, Temporal2_0, Optical2_0>;
-type RawInput3_0 = RawInput<MaybeFamily, Temporal3_0, Optical3_0>;
-type RawInput3_1 = RawInput<AlwaysFamily, Temporal3_1, Optical3_1>;
-type RawInput3_2 = RawInput<AlwaysFamily, Temporal3_2, Optical3_2>;
-
 /// Reader for ANALYSIS segment
 pub struct AnalysisReader {
     pub seg: AnyAnalysisSegment,
@@ -908,6 +1121,51 @@ pub struct AnalysisReader {
 /// Reader for OTHER segments
 pub struct OthersReader<'a> {
     pub segs: &'a [OtherSegment],
+}
+
+mod private {
+    pub struct NoTouchy;
+}
+
+pub trait HasCompensation: AsRef<Option<Self::Comp>> {
+    type Comp: From<Compensation> + AsRef<Compensation>;
+
+    // set wrapped inner type with common outer type (Compensation)
+    fn set_comp(&mut self, comp: Option<Compensation>, _: private::NoTouchy) {
+        *self.comp_mut(private::NoTouchy) = comp.map(|c| c.into());
+    }
+
+    // almost like as_ref, except the reference needs to go on the inside since
+    // the newtype wrapper needs to be removed
+    fn comp(&self, _: private::NoTouchy) -> Option<&Compensation> {
+        self.as_ref().as_ref().map(|x| x.as_ref())
+    }
+
+    // private as_mut
+    fn comp_mut(&mut self, _: private::NoTouchy) -> &mut Option<Self::Comp>;
+}
+
+pub trait HasSpillover {
+    // private as_mut
+    fn spill_mut(&mut self, _: private::NoTouchy) -> &mut Option<Spillover>;
+}
+
+pub trait HasScale {
+    // private as_mut
+    fn scale_mut(&mut self, _: private::NoTouchy) -> &mut Option<Scale>;
+}
+
+pub trait HasScaleTransform {
+    fn transform_mut(&mut self, _: private::NoTouchy) -> &mut ScaleTransform;
+}
+
+pub trait HasUnstainedCenters {
+    // private as_mut
+    fn unstainedcenters_mut(&mut self, _: private::NoTouchy) -> &mut Option<UnstainedCenters>;
+}
+
+pub trait AsScaleTransform {
+    fn as_transform(&self) -> ScaleTransform;
 }
 
 pub trait Versioned {
@@ -926,7 +1184,10 @@ pub trait Versioned {
         (FCSDataFrame, Analysis, AnyDataSegment, AnyAnalysisSegment),
         LookupAndReadDataAnalysisWarning,
         LookupAndReadDataAnalysisError,
-    > {
+    >
+    where
+        Self::Offsets: AsRef<AnyDataSegment> + AsRef<AnyAnalysisSegment>,
+    {
         let layout_res = Self::Layout::lookup_ro(kws, &st.conf.standard)
             .def_inner_into()
             .def_errors_liftio();
@@ -934,7 +1195,7 @@ pub trait Versioned {
             kws,
             data_seg,
             analysis_seg,
-            &st.map_inner(|conf| &conf.standard),
+            &st.map_inner(|conf| &conf.standard.raw),
         )
         .def_inner_into()
         .def_errors_liftio();
@@ -942,26 +1203,31 @@ pub trait Versioned {
             .def_zip(offset_res)
             .def_and_maybe(|(layout, offsets)| {
                 let ar = AnalysisReader {
-                    seg: offsets.analysis(),
+                    seg: *offsets.as_ref(),
                 };
-                // TODO what if data seg is non empty and layout is empty?
-                let data_res = layout.map_or(Ok(Tentative::new1(FCSDataFrame::default())), |l| {
-                    l.h_read_df(h, offsets.tot(), offsets.data(), &st.conf.reader)
+                let any_data_seg: AnyDataSegment = *offsets.as_ref();
+                let data_res = match layout {
+                    None => {
+                        let mut tnt = Tentative::default();
+                        if !any_data_seg.inner.is_empty() {
+                            let is_err = !st.conf.reader.allow_data_par_mismatch;
+                            tnt.push_error_or_warning(DataSegmentMismatchError, is_err);
+                        }
+                        Ok(tnt.errors_liftio())
+                    }
+                    Some(l) => l
+                        .h_read_df(h, offsets.tot(), *offsets.as_ref(), &st.conf.reader)
                         .def_warnings_into()
-                        .def_map_errors(|e| e.inner_into())
-                });
+                        .def_map_errors(|e| e.inner_into()),
+                };
                 let analysis_res = ar.h_read(h).into_deferred();
                 data_res
                     .def_zip(analysis_res)
                     .def_map_value(|(data, analysis)| {
-                        (data, analysis, offsets.data(), offsets.analysis())
+                        (data, analysis, *offsets.as_ref(), *offsets.as_ref())
                     })
             })
     }
-}
-
-pub trait HasScaleTransform {
-    fn as_transform(&self) -> ScaleTransform;
 }
 
 pub(crate) trait LookupMetaroot: Sized + VersionedMetaroot {
@@ -1013,8 +1279,6 @@ pub trait VersionedMetaroot: Sized {
     type Optical: VersionedOptical<Ver = Self::Ver>;
     type Temporal: VersionedTemporal<Ver = Self::Ver>;
     type Name: MightHave;
-    // type Layout: VersionedDataLayout;
-    // type Offsets: VersionedTEXTOffsets<Tot = <Self::Layout as VersionedDataLayout>::Tot>;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters>;
 
@@ -1033,10 +1297,6 @@ pub trait VersionedMetaroot: Sized {
     fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
     where
         F: Fn(&mut Compensation) -> Result<X, ClearOptional>;
-
-    fn timestamps_valid(&self) -> bool;
-
-    fn datetimes_valid(&self) -> bool;
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)>;
 
@@ -1085,7 +1345,8 @@ pub trait VersionedMetaroot: Sized {
         };
         let t_res = o.specific.can_convert_to_temporal(i).mult_errors_into();
         let o_specific_res = t.specific.can_convert_to_optical(i).mult_errors_into();
-        let o_common_res = check_optical_keys_transfer(&o, i)
+        let o_common_res = o
+            .check_keys_transfer(i)
             .mult_errors_into::<OpticalToTemporalError>()
             .mult_errors_into();
         match t_res.mult_zip3(o_specific_res, o_common_res) {
@@ -1133,10 +1394,6 @@ pub(crate) trait LookupOptical: Sized + VersionedOptical {
 pub trait VersionedTemporal: Sized {
     type Ver: Versioned;
 
-    fn timestep(&self) -> Option<Timestep>;
-
-    fn set_timestep(&mut self, ts: Timestep);
-
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)>;
 
     fn opt_meas_keywords_inner(&self, _: MeasIndex) -> impl Iterator<Item = (String, String)>;
@@ -1166,7 +1423,7 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
         OpticalToTemporalError,
         OpticalToTemporalError,
     > {
-        let opt_common_res = check_optical_keys_transfer(&o, i).mult_errors_into();
+        let opt_common_res = o.check_keys_transfer(i).mult_errors_into();
         let opt_specific_res = o.specific.can_convert_to_temporal(i).mult_errors_into();
         match opt_common_res.mult_zip(opt_specific_res) {
             Ok(_) => Ok(Tentative::new1(Self::from_optical_unchecked(o, d))),
@@ -1248,39 +1505,40 @@ pub trait VersionedTEXTOffsets: Sized {
         kws: &mut StdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
-        conf: &ReadState<StdTextReadConfig>,
+        conf: &ReadState<RawTextReadConfig>,
     ) -> LookupTEXTOffsetsResult<Self>;
 
     fn lookup_ro(
         kws: &StdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
-        conf: &ReadState<StdTextReadConfig>,
+        conf: &ReadState<RawTextReadConfig>,
     ) -> LookupTEXTOffsetsResult<Self>;
-
-    // TODO this doesn't seem necessary
-    fn data(&self) -> AnyDataSegment;
-
-    fn analysis(&self) -> AnyAnalysisSegment;
 
     fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot;
 
     fn into_common(self) -> TEXTOffsets<Option<Tot>>;
 }
 
+#[derive(AsRef)]
 pub struct TEXTOffsets<T> {
+    #[as_ref(AnyDataSegment)]
     pub data: AnyDataSegment,
+    #[as_ref(AnyAnalysisSegment)]
     pub analysis: AnyAnalysisSegment,
     pub tot: T,
 }
 
-#[derive(From)]
+#[derive(From, AsRef)]
+#[as_ref(AnyDataSegment, AnyAnalysisSegment)]
 pub struct TEXTOffsets2_0(pub TEXTOffsets<Option<Tot>>);
 
-#[derive(From)]
+#[derive(From, AsRef)]
+#[as_ref(AnyDataSegment, AnyAnalysisSegment)]
 pub struct TEXTOffsets3_0(pub TEXTOffsets<Tot>);
 
-#[derive(From)]
+#[derive(From, AsRef)]
+#[as_ref(AnyDataSegment, AnyAnalysisSegment)]
 pub struct TEXTOffsets3_2(pub TEXTOffsets<Tot>);
 
 impl CommonMeasurement {
@@ -1525,9 +1783,22 @@ impl<O> Optical<O> {
 
     pub(crate) fn as_transform(&self) -> ScaleTransform
     where
-        O: HasScaleTransform,
+        O: AsScaleTransform,
     {
         self.specific.as_transform()
+    }
+
+    fn check_keys_transfer(
+        &self,
+        i: MeasIndex,
+    ) -> MultiResult<(), AnyOpticalToTemporalKeyLossError> {
+        let j = i.into();
+        let f = self.filter.check_indexed_key_transfer(j);
+        let o = self.power.check_indexed_key_transfer(j);
+        let t = self.detector_type.check_indexed_key_transfer(j);
+        let p = self.percent_emitted.check_indexed_key_transfer(j);
+        let v = self.detector_voltage.check_indexed_key_transfer(j);
+        f.zip3(o, t).mult_zip(p.zip(v)).map(|_| ())
     }
 }
 
@@ -1751,25 +2022,6 @@ pub(crate) type VersionedConvertError<N, ToN> = ConvertError<
     >>::Error,
 >;
 
-macro_rules! non_time_get_set {
-    ($get:ident, $set:ident, $ty:ident, [$($root:ident)*], $field:ident, $kw:ident) => {
-        /// Get $$kw value for optical measurements
-        pub fn $get(&self) -> Vec<(MeasIndex, Option<&$ty>)> {
-            self.measurements
-                .iter_non_center_values()
-                .map(|(i, m)| (i, m.$($root.)*$field.as_ref_opt()))
-                .collect()
-        }
-
-        /// Set $$kw value for for optical measurements
-        pub fn $set(&mut self, xs: Vec<Option<$ty>>) -> Result<(), KeyLengthError> {
-            self.measurements.alter_non_center_values_zip(xs, |m, x| {
-                m.$($root.)*$field = x.into();
-            }).map(|_| ())
-        }
-    };
-}
-
 impl<M, A, D, O> VersionedCore<A, D, O, M>
 where
     M: VersionedMetaroot,
@@ -1989,8 +2241,10 @@ where
         &mut self,
         xs: Vec<(NonStdKey, String)>,
     ) -> Result<Vec<Option<String>>, KeyLengthError> {
+        // TODO use a newtype for this so it can't be confused with a different
+        // hashmap
         self.measurements
-            .alter_common_values_zip(xs, |_, x, (k, v)| x.nonstandard_keywords.insert(k, v))
+            .alter_common_values_zip(xs, |_, x: &mut HashMap<_, _>, (k, v)| x.insert(k, v))
     }
 
     /// Remove a key from nonstandard key/value pairs for each measurement.
@@ -2003,7 +2257,7 @@ where
         xs: Vec<&NonStdKey>,
     ) -> Result<Vec<Option<String>>, KeyLengthError> {
         self.measurements
-            .alter_common_values_zip(xs, |_, x, k| x.nonstandard_keywords.remove(k))
+            .alter_common_values_zip(xs, |_, x: &mut HashMap<_, _>, k| x.remove(k))
     }
 
     /// Read a key from nonstandard key/value pairs for each measurement.
@@ -2019,15 +2273,10 @@ where
             let res = ms
                 .iter_common_values()
                 .zip(ks)
-                .map(|((_, x), k)| x.nonstandard_keywords.get(k))
+                .map(|((_, x), k): ((_, &HashMap<_, _>), _)| x.get(k))
                 .collect();
             Some(res)
         }
-    }
-
-    /// Return read-only reference to measurement vector
-    pub fn measurements_named_vec(&self) -> &Measurements<M::Name, M::Temporal, M::Optical> {
-        &self.measurements
     }
 
     /// Replace optical measurement at index.
@@ -2161,36 +2410,463 @@ where
         self.measurements.as_center_mut()
     }
 
-    non_time_get_set!(filters, set_filters, Filter, [], filter, PnF);
+    pub fn get_metaroot<X>(&self) -> &X
+    where
+        Metaroot<M>: AsRef<X>,
+    {
+        self.metaroot.as_ref()
+    }
 
-    non_time_get_set!(powers, set_powers, Power, [], power, PnO);
+    /// Get value for $BTIM as a [`NaiveTime`]
+    pub fn btim_naive<X>(&self) -> Option<NaiveTime>
+    where
+        X: Copy,
+        NaiveTime: From<X>,
+        Metaroot<M>: AsRef<Option<Btim<X>>>,
+    {
+        self.time_naive()
+    }
 
-    non_time_get_set!(
-        detector_types,
-        set_detector_types,
-        DetectorType,
-        [],
-        detector_type,
-        PnD
-    );
+    /// Get value for $ETIM as a [`NaiveTime`]
+    pub fn etim_naive<X>(&self) -> Option<NaiveTime>
+    where
+        X: Copy,
+        NaiveTime: From<X>,
+        Metaroot<M>: AsRef<Option<Etim<X>>>,
+    {
+        self.time_naive()
+    }
 
-    non_time_get_set!(
-        percents_emitted,
-        set_percents_emitted,
-        PercentEmitted,
-        [],
-        percent_emitted,
-        PnP
-    );
+    /// Set value for $BTIM as a [`NaiveTime`]
+    ///
+    /// Return error if resulting $BTIM starts after $ETIM and $DATE is
+    /// specified.
+    pub fn set_btim_naive<X>(&mut self, time: Option<NaiveTime>) -> Result<(), ReversedTimestamps>
+    where
+        X: PartialOrd + From<NaiveTime>,
+        Metaroot<M>: AsMut<Timestamps<X>>,
+    {
+        let t = self.metaroot.as_mut();
+        t.set_btim(time.map(|x| Xtim(x.into())))
+    }
 
-    non_time_get_set!(
-        detector_voltages,
-        set_detector_voltages,
-        DetectorVoltage,
-        [],
-        detector_voltage,
-        PnV
-    );
+    /// Set value for $ETIM as a [`NaiveTime`]
+    ///
+    /// Return error if resulting $BTIM starts after $ETIM and $DATE is
+    /// specified.
+    pub fn set_etim_naive<X>(&mut self, time: Option<NaiveTime>) -> Result<(), ReversedTimestamps>
+    where
+        X: PartialOrd + From<NaiveTime>,
+        Metaroot<M>: AsMut<Timestamps<X>>,
+    {
+        let t = self.metaroot.as_mut();
+        t.set_etim(time.map(|x| Xtim(x.into())))
+    }
+
+    /// Get $DATE as a [`NaiveDate`]
+    pub fn date_naive(&self) -> Option<NaiveDate>
+    where
+        Metaroot<M>: AsRef<Option<FCSDate>>,
+    {
+        self.metaroot.as_ref().as_ref().map(|&x| x.into())
+    }
+
+    /// Set $DATE as a [`NaiveDate`]
+    ///
+    /// Return error if resulting $BTIM starts after $ETIM and $DATE is
+    /// specified.
+    pub fn set_date_naive<X>(&mut self, date: Option<NaiveDate>) -> Result<(), ReversedTimestamps>
+    where
+        X: PartialOrd,
+        Metaroot<M>: AsMut<Timestamps<X>>,
+    {
+        self.metaroot.as_mut().set_date(date.map(|x| x.into()))
+    }
+
+    /// Get $BEGINDATETIME as a [`DateTime<FixedOffset>`]
+    pub fn get_begindatetime(&self) -> Option<DateTime<FixedOffset>>
+    where
+        Metaroot<M>: AsRef<Option<BeginDateTime>>,
+    {
+        self.metaroot.as_ref().as_ref().map(|&x| x.into())
+    }
+
+    /// Get $ENDDATETIME as a [`DateTime<FixedOffset>`]
+    pub fn get_enddatetime(&self) -> Option<DateTime<FixedOffset>>
+    where
+        Metaroot<M>: AsRef<Option<EndDateTime>>,
+    {
+        self.metaroot.as_ref().as_ref().map(|&x| x.into())
+    }
+
+    /// Set $BEGINDATETIME as a [`DateTime<FixedOffset>`]
+    ///
+    /// Return error if resulting $BEGINDATETIME is after $ENDDATETIME.
+    pub fn set_begindatetime(
+        &mut self,
+        date: Option<DateTime<FixedOffset>>,
+    ) -> Result<(), ReversedDatetimes>
+    where
+        Metaroot<M>: AsMut<Datetimes>,
+    {
+        self.metaroot.as_mut().set_begin(date.map(|x| x.into()))
+    }
+
+    /// Set $ENDDATETIME as a [`DateTime<FixedOffset>`]
+    ///
+    /// Return error if resulting $BEGINDATETIME is after $ENDDATETIME.
+    pub fn set_enddatetime(
+        &mut self,
+        date: Option<DateTime<FixedOffset>>,
+    ) -> Result<(), ReversedDatetimes>
+    where
+        Metaroot<M>: AsMut<Datetimes>,
+    {
+        self.metaroot.as_mut().set_end(date.map(|x| x.into()))
+    }
+
+    /// Get $TIMESTEP value if the time measurement exists.
+    pub fn timestep(&self) -> Option<&Timestep>
+    where
+        Temporal<M::Temporal>: AsRef<Timestep>,
+    {
+        self.measurements.as_center().map(|x| x.value.as_ref())
+    }
+
+    /// Set $TIMESTEP value if the time measurement exists.
+    ///
+    /// Return `true` if the time measurement exist (which means its $TIMESTEP
+    /// was updated) and `false` otherwise.
+    pub fn set_timestep(&mut self, timestep: Timestep) -> bool
+    where
+        Temporal<M::Temporal>: AsMut<Timestep>,
+    {
+        self.measurements
+            .as_center_mut()
+            .map(|x| *x.value.as_mut() = timestep)
+            .is_some()
+    }
+
+    pub fn compensation(&self) -> Option<&DMatrix<f32>>
+    where
+        M: HasCompensation,
+    {
+        self.metaroot
+            .specific
+            .comp(private::NoTouchy)
+            .map(|x| x.as_ref())
+    }
+
+    /// Set matrix for $COMP
+    ///
+    /// Return true if successfully set. Return false if matrix is either not
+    /// square or rows/columns are not the same length as $PAR.
+    pub fn set_compensation(&mut self, matrix: DMatrix<f32>) -> Result<(), NewCompError>
+    where
+        M: HasCompensation,
+    {
+        // TODO also check $PAR
+        Compensation::try_new(matrix).map(|comp| {
+            self.metaroot
+                .specific
+                .set_comp(Some(comp), private::NoTouchy)
+        })
+    }
+
+    /// Clear $COMP
+    pub fn unset_compensation(&mut self)
+    where
+        M: HasCompensation,
+    {
+        self.metaroot.specific.set_comp(None, private::NoTouchy);
+    }
+
+    /// Show $SPILLOVER matrix
+    pub fn spillover_matrix(&self) -> Option<&DMatrix<f32>>
+    where
+        M: AsRef<Option<Spillover>>,
+    {
+        self.metaroot.specific.as_ref().as_ref().map(|x| x.as_ref())
+    }
+
+    /// Show $SPILLOVER measurement names
+    pub fn spillover_names(&self) -> Option<&[Shortname]>
+    where
+        M: AsRef<Option<Spillover>>,
+    {
+        self.metaroot.specific.as_ref().as_ref().map(|x| x.as_ref())
+    }
+
+    /// Set names and matrix for $SPILLOVER
+    ///
+    /// Names must match number of rows/columns in matrix and also must be a
+    /// subset of the measurement names (ie $PnN). Matrix must be square and
+    /// at least 2x2.
+    pub fn set_spillover(
+        &mut self,
+        names: Vec<Shortname>,
+        matrix: DMatrix<f32>,
+    ) -> Result<(), SetSpilloverError>
+    where
+        M: HasSpillover,
+    {
+        let current = self.all_shortnames();
+        let ns: HashSet<_> = names.iter().collect();
+        if !ns.is_subset(&current.iter().collect()) {
+            return Err(SpilloverLinkError.into());
+        }
+        let m = Spillover::try_new(names, matrix)?;
+        *self.metaroot.specific.spill_mut(private::NoTouchy) = Some(m);
+        Ok(())
+    }
+
+    /// Clear $SPILLOVER
+    pub fn unset_spillover(&mut self)
+    where
+        M: HasSpillover,
+    {
+        *self.metaroot.specific.spill_mut(private::NoTouchy) = None;
+    }
+
+    /// Insert an unstained center
+    pub fn insert_unstained_center(
+        &mut self,
+        k: Shortname,
+        v: f32,
+    ) -> Result<Option<f32>, MissingMeasurementNameError>
+    where
+        M: HasUnstainedCenters,
+    {
+        if !self.measurement_names().contains(&k) {
+            Err(MissingMeasurementNameError(k))
+        } else {
+            let us = self
+                .metaroot
+                .specific
+                .unstainedcenters_mut(private::NoTouchy);
+            let ret = if let Some(u) = us.as_mut() {
+                u.insert(k, v)
+            } else {
+                *us = Some(UnstainedCenters::new_1(k, v));
+                None
+            };
+            Ok(ret)
+        }
+    }
+
+    /// Remove an unstained center
+    pub fn remove_unstained_center(&mut self, k: &Shortname) -> Option<f32>
+    where
+        M: HasUnstainedCenters,
+    {
+        let us = self
+            .metaroot
+            .specific
+            .unstainedcenters_mut(private::NoTouchy);
+        if let Some(u) = us.as_mut() {
+            match u.remove(k) {
+                Ok(ret) => ret,
+                Err(_) => {
+                    *us = None;
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Remove all unstained center
+    pub fn clear_unstained_centers(&mut self)
+    where
+        M: HasUnstainedCenters,
+    {
+        *self
+            .metaroot
+            .specific
+            .unstainedcenters_mut(private::NoTouchy) = None;
+    }
+
+    pub fn get_all_scales(&self) -> impl Iterator<Item = Option<Scale>>
+    where
+        Optical<M::Optical>: AsRef<Option<Scale>>,
+    {
+        self.measurements.iter().map(|(_, x)| {
+            x.both(
+                |_| Some(Scale::Linear),
+                |m| m.value.as_ref().as_ref().copied(),
+            )
+        })
+    }
+
+    pub fn get_all_transforms(&self) -> impl Iterator<Item = ScaleTransform>
+    where
+        Optical<M::Optical>: AsRef<ScaleTransform>,
+    {
+        self.measurements
+            .iter()
+            .map(|(_, x)| x.both(|_| ScaleTransform::default(), |m| *m.value.as_ref()))
+    }
+
+    pub fn set_scales(
+        &mut self,
+        scales: Vec<Option<Scale>>,
+    ) -> MultiResult<(), SetMeasurementsError>
+    where
+        M::Optical: HasScale,
+    {
+        if let Some(l) = self.layout.0.as_ref() {
+            let mut xforms: Vec<_> = scales
+                .iter()
+                .copied()
+                .map(|s| s.map(ScaleTransform::from).unwrap_or_default())
+                .collect();
+            // If there is a center index and the input is too short, just let
+            // it pass; the next check will throw an error if the final length
+            // is incorrect
+            if let Some(i) = self.measurements.center_index().map(|i| i.into()) {
+                if i <= xforms.len() {
+                    xforms.insert(i, ScaleTransform::default())
+                }
+            }
+            l.check_transforms_and_len(&xforms[..]).mult_errors_into()?;
+            // ASSUME this won't fail because we checked the length first
+            self.measurements
+                .alter_non_center_values_zip(scales, |m, x| {
+                    *m.specific.scale_mut(private::NoTouchy) = x
+                })
+                .map(|_| ())
+                .unwrap();
+            Ok(())
+        } else if scales.is_empty() {
+            Ok(())
+        } else {
+            Err(EmptyLayoutError).into_mult()
+        }
+    }
+
+    pub fn set_transforms(
+        &mut self,
+        mut xforms: Vec<ScaleTransform>,
+    ) -> MultiResult<(), SetMeasurementsError>
+    where
+        M::Optical: HasScaleTransform,
+    {
+        // TODO very not DRY
+        if let Some(l) = self.layout.0.as_ref() {
+            // If there is a center index and the input is too short, just let
+            // it pass; the next check will throw an error if the final length
+            // is incorrect
+            if let Some(i) = self.measurements.center_index().map(|i| i.into()) {
+                if i <= xforms.len() {
+                    xforms.insert(i, ScaleTransform::default())
+                }
+            }
+            l.check_transforms_and_len(&xforms[..]).mult_errors_into()?;
+            // ASSUME this won't fail because we checked the length first
+            self.measurements
+                .alter_non_center_values_zip(xforms, |m, x| {
+                    *m.specific.transform_mut(private::NoTouchy) = x
+                })
+                .map(|_| ())
+                .unwrap();
+            Ok(())
+        } else if xforms.is_empty() {
+            Ok(())
+        } else {
+            Err(EmptyLayoutError).into_mult()
+        }
+    }
+
+    pub fn get_metaroot_opt<X>(&self) -> Option<&X>
+    where
+        Metaroot<M>: AsRef<Option<X>>,
+    {
+        self.get_metaroot().as_ref()
+    }
+
+    pub fn set_metaroot<X>(&mut self, x: X)
+    where
+        Metaroot<M>: AsMut<X>,
+    {
+        *self.metaroot.as_mut() = x
+    }
+
+    pub fn get_meas<'a, X: 'a>(&'a self) -> impl Iterator<Item = (MeasIndex, &'a X)>
+    where
+        Temporal<M::Temporal>: AsRef<X>,
+        Optical<M::Optical>: AsRef<X>,
+    {
+        self.measurements
+            .iter()
+            .map(|(i, x)| (i, x.both(|t| t.value.as_ref(), |m| m.value.as_ref())))
+    }
+
+    pub fn get_meas_opt<'a, X: 'a>(&'a self) -> impl Iterator<Item = (MeasIndex, Option<&'a X>)>
+    where
+        Temporal<M::Temporal>: AsRef<Option<X>>,
+        Optical<M::Optical>: AsRef<Option<X>>,
+    {
+        self.get_meas::<Option<X>>().map(|(i, x)| (i, x.as_ref()))
+    }
+
+    pub fn set_meas<X>(&mut self, xs: Vec<X>) -> Result<(), KeyLengthError>
+    where
+        Temporal<M::Temporal>: AsMut<X>,
+        Optical<M::Optical>: AsMut<X>,
+    {
+        self.measurements
+            .alter_values_zip(
+                xs,
+                |m, x| *m.value.as_mut() = x,
+                |m, x| *m.value.as_mut() = x,
+            )
+            .map(|_| ())
+    }
+
+    pub fn get_optical<'a, X: 'a>(&'a self) -> impl Iterator<Item = (MeasIndex, &'a X)>
+    where
+        Optical<M::Optical>: AsRef<X>,
+    {
+        self.measurements
+            .iter_non_center_values()
+            .map(|(i, m)| (i, m.as_ref()))
+    }
+
+    pub fn get_optical_opt<'a, X: 'a>(&'a self) -> impl Iterator<Item = (MeasIndex, Option<&'a X>)>
+    where
+        Optical<M::Optical>: AsRef<Option<X>>,
+    {
+        self.get_optical().map(|(i, m)| (i, m.as_ref()))
+    }
+
+    pub fn get_optical2<'a, X, Y>(&'a self) -> impl Iterator<Item = (MeasIndex, &'a Y)>
+    where
+        Optical<M::Optical>: AsRef<X>,
+        X: AsRef<Y> + 'a,
+        Y: 'a,
+    {
+        self.get_optical().map(|(i, m)| (i, m.as_ref()))
+    }
+
+    pub fn get_optical_opt2<'a, X, Y>(&'a self) -> impl Iterator<Item = (MeasIndex, Option<&'a Y>)>
+    where
+        Optical<M::Optical>: AsRef<Option<X>>,
+        X: AsRef<Y> + 'a,
+        Y: 'a,
+    {
+        self.get_optical_opt()
+            .map(|(i, m)| (i, m.map(|x| x.as_ref())))
+    }
+
+    pub fn set_optical<X>(&mut self, xs: Vec<X>) -> Result<(), KeyLengthError>
+    where
+        Optical<M::Optical>: AsMut<X>,
+    {
+        self.measurements
+            .alter_non_center_values_zip(xs, |m, x| *m.as_mut() = x)
+            .map(|_| ())
+    }
 
     /// Return a list of measurement names as stored in $PnS
     ///
@@ -2199,7 +2875,7 @@ where
     pub fn longnames(&self) -> Vec<Option<&Longname>> {
         self.measurements
             .iter_common_values()
-            .map(|(_, x)| x.longname.as_ref_opt())
+            .map(|(_, x): (_, &Option<Longname>)| x.as_ref())
             .collect()
     }
 
@@ -2211,7 +2887,7 @@ where
     /// keyword.
     pub fn set_longnames(&mut self, ns: Vec<Option<String>>) -> Result<(), KeyLengthError> {
         self.measurements
-            .alter_common_values_zip(ns, |_, x, n| x.longname = n.map(Longname).into())
+            .alter_common_values_zip(ns, |_, x: &mut Option<Longname>, n| *x = n.map(Longname))
             .map(|_| ())
     }
 
@@ -2288,6 +2964,16 @@ where
                 to: ToM::Ver::fcs_version().into(),
                 inner: error,
             })
+    }
+
+    fn time_naive<const IS_ETIM: bool, X>(&self) -> Option<NaiveTime>
+    where
+        X: Copy,
+        NaiveTime: From<X>,
+        Metaroot<M>: AsRef<Option<Xtim<IS_ETIM, X>>>,
+    {
+        let t: &Option<Xtim<IS_ETIM, X>> = self.metaroot.as_ref();
+        t.as_ref().map(|&x| x.0.into())
     }
 
     #[allow(clippy::type_complexity)]
@@ -2416,6 +3102,7 @@ where
         if s.as_unstainedcenters().is_some() {
             return Err(ExistingLinkError::UnstainedCenters);
         }
+        // TODO these two are mutually exclusive and can be combined
         if s.as_compensation().is_some() {
             return Err(ExistingLinkError::Comp);
         }
@@ -2425,13 +3112,22 @@ where
         Ok(())
     }
 
-    fn set_measurements_inner(
+    /// Set measurements.
+    ///
+    /// Return error if names are not unique, if there is more than one
+    /// time measurement, or if the measurement length doesn't match the
+    /// layout length.
+    ///
+    /// For FCS versions where $PnN is mandatory, the `prefix` argument will
+    /// do nothing; for these cases use [`Core::set_measurements_noprefix`]
+    /// which takes no prefix.
+    pub fn set_measurements(
         &mut self,
         xs: RawInput<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         prefix: ShortnamePrefix,
     ) -> MultiResult<(), SetMeasurementsError>
     where
-        M::Optical: HasScaleTransform,
+        M::Optical: AsScaleTransform,
     {
         self.check_existing_links().into_mult()?;
         let ms = NamedVec::try_new(xs, prefix).into_mult()?;
@@ -2444,26 +3140,39 @@ where
         }
     }
 
-    fn set_layout_inner(
+    /// Set data layout
+    ///
+    /// Will return error if layout does not have same number of columns as
+    /// measurements.
+    pub fn set_layout(
         &mut self,
         layout: <M::Ver as Versioned>::Layout,
     ) -> MultiResult<(), MeasLayoutMismatchError>
     where
-        M::Optical: HasScaleTransform,
+        M::Optical: AsScaleTransform,
     {
         layout.check_measurement_vector(&self.measurements)?;
         self.layout = Some(layout).into();
         Ok(())
     }
 
-    fn set_measurements_and_layout_inner(
+    /// Set measurements and layout
+    ///
+    /// Return error if measurement names are not unique, there is more
+    /// than one time measurement, or the layout and measurements have
+    /// different lengths.
+    ///
+    /// For FCS versions where $PnN is mandatory, the `prefix` argument will
+    /// do nothing; for these cases use [`Core::set_measurements_noprefix`]
+    /// which takes no prefix.
+    pub fn set_measurements_and_layout(
         &mut self,
         measurements: RawInput<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         layout: <M::Ver as Versioned>::Layout,
         prefix: ShortnamePrefix,
     ) -> MultiResult<(), SetMeasurementsError>
     where
-        M::Optical: HasScaleTransform,
+        M::Optical: AsScaleTransform,
     {
         self.check_existing_links().into_mult()?;
         let ms = NamedVec::try_new(measurements, prefix).into_mult()?;
@@ -2734,7 +3443,7 @@ where
                     // into a named vector, which will have a special element
                     // for the time measurement if it exists, and will scream if
                     // we have more than one time measurement.
-                    NamedVec::try_new(xs, conf.shortname_prefix.clone())
+                    NamedVec::try_new(xs.into(), conf.shortname_prefix.clone())
                         .map(|ms| (ms, meta_nonstd))
                         .map_err(|e| LookupKeysError::Misc(e.into()))
                         .into_deferred()
@@ -2792,7 +3501,8 @@ where
         // ANALYSIS, and processing these keywords now will make it easier to
         // determine if TEXT is totally standardized or not.
         let offsets_res =
-            <M::Ver as Versioned>::Offsets::lookup(kws, data, analysis, st).def_inner_into();
+            <M::Ver as Versioned>::Offsets::lookup(kws, data, analysis, &st.map_inner(|c| &c.raw))
+                .def_inner_into();
 
         par_res
             .def_and_maybe(|par| {
@@ -2925,20 +3635,6 @@ where
         self.insert_optical_inner(i, n, m, r, notrunc)
     }
 
-    /// Set data layout
-    ///
-    /// Will return error if layout does not have same number of columns as
-    /// measurements.
-    pub fn set_layout(
-        &mut self,
-        layout: <M::Ver as Versioned>::Layout,
-    ) -> MultiResult<(), MeasLayoutMismatchError>
-    where
-        M::Optical: HasScaleTransform,
-    {
-        self.set_layout_inner(layout)
-    }
-
     /// Remove measurements
     pub fn unset_measurements(&mut self) -> Result<(), ExistingLinkError> {
         self.unset_measurements_inner()
@@ -3000,6 +3696,7 @@ where
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical,
         Version: From<M::Ver>,
+        <M::Ver as Versioned>::Offsets: AsRef<AnyDataSegment> + AsRef<AnyAnalysisSegment>,
     {
         VersionedCoreTEXT::<M>::lookup(
             kws,
@@ -3014,18 +3711,24 @@ where
         .def_and_maybe(|(text, offsets)| {
             let or = OthersReader { segs: other_segs };
             let ar = AnalysisReader {
-                seg: offsets.analysis(),
+                seg: *offsets.as_ref(),
             };
-            // TODO what happens if the layout is empty but the segment
-            // isn't?
-            let data_res = text.layout.as_ref_opt().map_or(
-                Ok(Tentative::new1(FCSDataFrame::default())),
-                |l: &<M::Ver as Versioned>::Layout| {
-                    l.h_read_df(h, offsets.tot(), offsets.data(), &st.conf.reader)
-                        .def_warnings_into()
-                        .def_map_errors(|e| e.inner_into())
-                },
-            );
+            // TODO not DRY
+            let any_data_seg: AnyDataSegment = *offsets.as_ref();
+            let data_res = match text.layout.0.as_ref() {
+                None => {
+                    let mut tnt = Tentative::default();
+                    if !any_data_seg.inner.is_empty() {
+                        let is_err = !st.conf.reader.allow_data_par_mismatch;
+                        tnt.push_error_or_warning(DataSegmentMismatchError, is_err);
+                    }
+                    Ok(tnt.errors_liftio())
+                }
+                Some(l) => l
+                    .h_read_df(h, offsets.tot(), *offsets.as_ref(), &st.conf.reader)
+                    .def_warnings_into()
+                    .def_map_errors(|e| e.inner_into()),
+            };
             let analysis_res = ar.h_read(h).into_deferred();
             let others_res = or.h_read(h).into_deferred();
             data_res
@@ -3039,7 +3742,7 @@ where
                         analysis,
                         others,
                     };
-                    (c, offsets.data(), offsets.analysis())
+                    (c, *offsets.as_ref(), *offsets.as_ref())
                 })
         })
     }
@@ -3103,11 +3806,6 @@ where
             })
     }
 
-    /// Return reference to dataframe representing DATA
-    pub fn data(&self) -> &FCSDataFrame {
-        &self.data
-    }
-
     /// Add columns to this dataset.
     ///
     /// Return error if columns are not all the same length or number of columns
@@ -3123,8 +3821,6 @@ where
         self.data.clear();
         Ok(())
     }
-
-    // TODO add function to set measurements/data/layout all at once
 
     // TODO add function to append event(s)
 
@@ -3249,6 +3945,33 @@ where
     pub fn into_coretext(self) -> VersionedCoreTEXT<M> {
         CoreTEXT::new_unchecked(self.metaroot, self.measurements, self.layout)
     }
+
+    /// Set measurements and dataframe together
+    ///
+    /// Length of measurements must match the width of the input dataframe.
+    ///
+    /// For FCS versions where $PnN is mandatory, the `prefix` argument will
+    /// do nothing; for these cases use [`Core::set_measurements_noprefix`]
+    /// which takes no prefix.
+    pub fn set_measurements_and_data(
+        &mut self,
+        xs: RawInput<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        cs: Vec<AnyFCSColumn>,
+        prefix: ShortnamePrefix,
+    ) -> MultiResult<(), SetMeasurementsAndDataError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        let meas_n = xs.0.len();
+        let data_n = cs.len();
+        if meas_n != data_n {
+            return Err(MeasDataMismatchError { meas_n, data_n }).into_mult();
+        }
+        let df = FCSDataFrame::try_new(cs).into_mult()?;
+        self.set_measurements(xs, prefix).mult_errors_into()?;
+        self.data = df;
+        Ok(())
+    }
 }
 
 impl<M, T, P, N, W, L> CoreTEXT<M, T, P, N, W, L> {
@@ -3279,385 +4002,137 @@ impl<M, T, P, N, W, L> CoreTEXT<M, T, P, N, W, L> {
     }
 }
 
-macro_rules! comp_methods {
-    () => {
-        /// Return matrix for $COMP
-        pub fn compensation(&self) -> Option<&Compensation> {
-            self.metaroot.specific.comp.as_ref_opt().map(|x| x.as_ref())
-        }
+impl HasCompensation for InnerMetaroot2_0 {
+    type Comp = Compensation2_0;
 
-        /// Set matrix for $COMP
-        ///
-        /// Return true if successfully set. Return false if matrix is either not
-        /// square or rows/columns are not the same length as $PAR.
-        pub fn set_compensation(&mut self, matrix: DMatrix<f32>) -> Result<(), NewCompError> {
-            Compensation::try_new(matrix).map(|comp| {
-                self.metaroot.specific.comp = Some(comp.into()).into();
-            })
-        }
-
-        /// Clear $COMP
-        pub fn unset_compensation(&mut self) {
-            self.metaroot.specific.comp = None.into();
-        }
-    };
-}
-
-macro_rules! timestamp_methods {
-    ($timetype:ident) => {
-        pub fn timestamps(&self) -> &Timestamps<$timetype> {
-            &self.metaroot.specific.timestamps
-        }
-
-        pub fn timestamps_mut(&mut self) -> &mut Timestamps<$timetype> {
-            &mut self.metaroot.specific.timestamps
-        }
-    };
-}
-
-macro_rules! spillover_methods {
-    () => {
-        /// Show $SPILLOVER
-        pub fn spillover(&self) -> Option<&Spillover> {
-            self.metaroot.specific.spillover.as_ref_opt()
-        }
-
-        /// Set names and matrix for $SPILLOVER
-        ///
-        /// Names must match number of rows/columns in matrix and also must be a
-        /// subset of the measurement names (ie $PnN). Matrix must be square and
-        /// at least 2x2.
-        pub fn set_spillover(
-            &mut self,
-            ns: Vec<Shortname>,
-            m: DMatrix<f32>,
-        ) -> Result<(), SetSpilloverError> {
-            let current = self.all_shortnames();
-            let new: HashSet<_> = ns.iter().collect();
-            if !new.is_subset(&current.iter().collect()) {
-                return Err(SpilloverLinkError.into());
-            }
-            let m = Spillover::try_new(ns, m)?;
-            self.metaroot.specific.spillover = Some(m).into();
-            Ok(())
-        }
-
-        /// Clear $SPILLOVER
-        pub fn unset_spillover(&mut self) {
-            self.metaroot.specific.spillover = None.into();
-        }
-    };
-}
-
-macro_rules! display_methods {
-    () => {
-        pub fn displays(&self) -> Vec<Option<&Display>> {
-            self.measurements
-                .iter()
-                .map(|x| {
-                    x.1.both(
-                        |t| t.value.specific.display.as_ref_opt(),
-                        |m| m.value.specific.display.as_ref_opt(),
-                    )
-                })
-                .collect()
-        }
-
-        pub fn set_displays(&mut self, ns: Vec<Option<Display>>) -> Result<(), KeyLengthError> {
-            self.measurements
-                .alter_values_zip(
-                    ns,
-                    |x, n| x.value.specific.display = n.into(),
-                    |x, n| x.value.specific.display = n.into(),
-                )
-                .map(|_| ())
-        }
-    };
-}
-
-// macro_rules! scale_get_set {
-//     ($t:path, $time_default:expr) => {
-//         /// Show $PnE for all measurements
-//         pub fn all_scales(&self) -> Vec<$t> {
-//             self.measurements
-//                 .iter()
-//                 .map(|(_, x)| x.both(|_| $time_default, |p| p.value.specific.scale.into()))
-//                 .collect()
-//         }
-
-//         /// Show $PnE for optical measurements
-//         pub fn scales(&self) -> Vec<(MeasIndex, $t)> {
-//             self.measurements
-//                 .iter_non_center_values()
-//                 .map(|(i, m)| (i, m.specific.scale.into()))
-//                 .collect()
-//         }
-
-//         /// Set $PnE for for all optical measurements
-//         pub fn set_scales(&mut self, xs: Vec<$t>) -> Result<(), KeyLengthError> {
-//             self.measurements
-//                 .alter_non_center_values_zip(xs, |m, x| {
-//                     m.specific.scale = x.into();
-//                 })
-//                 .map(|_| ())
-//         }
-//     };
-// }
-
-macro_rules! set_shortnames_2_0 {
-    () => {
-        /// Set all optical $PnN keywords to list of names.
-        pub fn set_measurement_shortnames_maybe(
-            &mut self,
-            ns: Vec<Option<Shortname>>,
-        ) -> Result<NameMapping, SetKeysError> {
-            let ks = ns.into_iter().map(|n| n.into()).collect();
-            let mapping = self.measurements.set_non_center_keys(ks)?;
-            self.metaroot.reassign_all(&mapping);
-            Ok(mapping)
-        }
-    };
-}
-
-impl<A, D, O> Core2_0<A, D, O> {
-    comp_methods!();
-    // scale_get_set!(Option<Scale>, Some(Scale::Linear));
-
-    set_shortnames_2_0!();
-
-    timestamp_methods!(FCSTime);
-
-    non_time_get_set!(
-        wavelengths,
-        set_wavelengths,
-        Wavelength,
-        [specific],
-        wavelength,
-        PnL
-    );
-}
-
-impl<A, D, O> Core3_0<A, D, O> {
-    comp_methods!();
-    // scale_get_set!(Scale, Scale::Linear);
-
-    set_shortnames_2_0!();
-
-    timestamp_methods!(FCSTime60);
-
-    // non_time_get_set!(gains, set_gains, Gain, [specific], gain, PnG);
-
-    non_time_get_set!(
-        wavelengths,
-        set_wavelengths,
-        Wavelength,
-        [specific],
-        wavelength,
-        PnL
-    );
-}
-
-impl<A, D, O> Core3_1<A, D, O> {
-    // scale_get_set!(Scale, Scale::Linear);
-    spillover_methods!();
-
-    timestamp_methods!(FCSTime100);
-
-    display_methods!();
-
-    // non_time_get_set!(gains, set_gains, Gain, [specific], gain, PnG);
-
-    non_time_get_set!(
-        calibrations,
-        set_calibrations,
-        Calibration3_1,
-        [specific],
-        calibration,
-        PnCALIBRATION
-    );
-
-    non_time_get_set!(
-        wavelengths,
-        set_wavelengths,
-        Wavelengths,
-        [specific],
-        wavelengths,
-        PnL
-    );
-}
-
-impl<A, D, O> Core3_2<A, D, O> {
-    /// Show $UNSTAINEDCENTERS
-    pub fn unstained_centers(&self) -> Option<&UnstainedCenters> {
-        self.metaroot
-            .specific
-            .unstained
-            .unstainedcenters
-            .as_ref_opt()
+    fn comp_mut(&mut self, _: private::NoTouchy) -> &mut Option<Self::Comp> {
+        &mut self.comp.0
     }
+}
 
-    /// Insert an unstained center
-    pub fn insert_unstained_center(
+impl HasCompensation for InnerMetaroot3_0 {
+    type Comp = Compensation3_0;
+
+    fn comp_mut(&mut self, _: private::NoTouchy) -> &mut Option<Self::Comp> {
+        &mut self.comp.0
+    }
+}
+
+impl HasSpillover for InnerMetaroot3_1 {
+    fn spill_mut(&mut self, _: private::NoTouchy) -> &mut Option<Spillover> {
+        &mut self.spillover.0
+    }
+}
+
+impl HasSpillover for InnerMetaroot3_2 {
+    fn spill_mut(&mut self, _: private::NoTouchy) -> &mut Option<Spillover> {
+        &mut self.spillover.0
+    }
+}
+
+impl HasUnstainedCenters for InnerMetaroot3_2 {
+    fn unstainedcenters_mut(&mut self, _: private::NoTouchy) -> &mut Option<UnstainedCenters> {
+        &mut self.unstained.unstainedcenters.0
+    }
+}
+
+impl HasScale for InnerOptical2_0 {
+    fn scale_mut(&mut self, _: private::NoTouchy) -> &mut Option<Scale> {
+        &mut self.scale.0
+    }
+}
+
+impl HasScaleTransform for InnerOptical3_0 {
+    fn transform_mut(&mut self, _: private::NoTouchy) -> &mut ScaleTransform {
+        &mut self.scale
+    }
+}
+
+impl HasScaleTransform for InnerOptical3_1 {
+    fn transform_mut(&mut self, _: private::NoTouchy) -> &mut ScaleTransform {
+        &mut self.scale
+    }
+}
+
+impl HasScaleTransform for InnerOptical3_2 {
+    fn transform_mut(&mut self, _: private::NoTouchy) -> &mut ScaleTransform {
+        &mut self.scale
+    }
+}
+
+impl<M, A, D, O> VersionedCore<A, D, O, M>
+where
+    M: VersionedMetaroot<Name = MaybeFamily>,
+{
+    /// Set all optical $PnN keywords to list of names.
+    pub fn set_measurement_shortnames_maybe(
         &mut self,
-        k: Shortname,
-        v: f32,
-    ) -> Result<Option<f32>, MissingMeasurementNameError> {
-        if !self.measurement_names().contains(&k) {
-            Err(MissingMeasurementNameError(k))
-        } else {
-            let us = &mut self.metaroot.specific.unstained;
-            let ret = if let Some(u) = us.unstainedcenters.0.as_mut() {
-                u.insert(k, v)
-            } else {
-                us.unstainedcenters = Some(UnstainedCenters::new_1(k, v)).into();
-                None
-            };
-            Ok(ret)
-        }
+        ns: Vec<Option<Shortname>>,
+    ) -> Result<NameMapping, SetKeysError> {
+        let ks = ns.into_iter().map(|n| n.into()).collect();
+        let mapping = self.measurements.set_non_center_keys(ks)?;
+        self.metaroot.reassign_all(&mapping);
+        Ok(mapping)
     }
-
-    /// Remove an unstained center
-    pub fn remove_unstained_center(&mut self, k: &Shortname) -> Option<f32> {
-        let us = &mut self.metaroot.specific.unstained;
-        if let Some(u) = us.unstainedcenters.0.as_mut() {
-            match u.remove(k) {
-                Ok(ret) => ret,
-                Err(_) => {
-                    us.unstainedcenters = None.into();
-                    None
-                }
-            }
-        } else {
-            None
-        }
-    }
-
-    /// Remove all unstained center
-    pub fn clear_unstained_centers(&mut self) {
-        self.metaroot.specific.unstained.unstainedcenters = None.into()
-    }
-
-    // scale_get_set!(Scale, Scale::Linear);
-    spillover_methods!();
-
-    timestamp_methods!(FCSTime100);
-
-    display_methods!();
-
-    // non_time_get_set!(gains, set_gains, Gain, [specific], gain, PnG);
-
-    non_time_get_set!(
-        wavelengths,
-        set_wavelengths,
-        Wavelengths,
-        [specific],
-        wavelengths,
-        PnL
-    );
-
-    non_time_get_set!(
-        det_names,
-        set_det_names,
-        DetectorName,
-        [specific],
-        detector_name,
-        PnDET
-    );
-
-    non_time_get_set!(
-        calibrations,
-        set_calibrations,
-        Calibration3_2,
-        [specific],
-        calibration,
-        PnCALIBRATION
-    );
-
-    non_time_get_set!(tags, set_tags, Tag, [specific], tag, PnTAG);
-
-    non_time_get_set!(
-        measurement_types,
-        set_measurement_types,
-        OpticalType,
-        [specific],
-        measurement_type,
-        PnTYPE
-    );
-
-    non_time_get_set!(
-        features,
-        set_features,
-        Feature,
-        [specific],
-        feature,
-        PnFEATURE
-    );
-
-    non_time_get_set!(
-        analytes,
-        set_analytes,
-        Analyte,
-        [specific],
-        analyte,
-        PnANALYTE
-    );
 }
 
-macro_rules! coretext_set_measurements2_0 {
-    ($rawinput:path, $layout:path) => {
-        /// Set measurements.
-        ///
-        /// Return error if names are not unique, if there is more than one
-        /// time measurement, or if the measurement length doesn't match the
-        /// layout length.
-        pub fn set_measurements(
-            &mut self,
-            xs: $rawinput,
-            prefix: ShortnamePrefix,
-        ) -> MultiResult<(), SetMeasurementsError> {
-            self.set_measurements_inner(xs, prefix)
-        }
+impl<M, A, D, O> VersionedCore<A, D, O, M>
+where
+    M: VersionedMetaroot<Name = AlwaysFamily>,
+{
+    /// Set measurements.
+    ///
+    /// This is a more convenient version of [`Core::set_measurements`] for
+    /// FCS versions where $PnN is mandatory, and thus the `prefix` argument
+    /// is meaningless.
+    pub fn set_measurements_noprefix(
+        &mut self,
+        xs: RawInput<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
+    ) -> MultiResult<(), SetMeasurementsError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        self.set_measurements(xs, ShortnamePrefix::default())
+    }
 
-        /// Set measurements and layout
-        ///
-        /// Return error if measurement names are not unique, there is more
-        /// than one time measurement, or the layout and measurements have
-        /// different lengths.
-        pub fn set_measurements_and_layout(
-            &mut self,
-            xs: $rawinput,
-            layout: $layout,
-            prefix: ShortnamePrefix,
-        ) -> MultiResult<(), SetMeasurementsError> {
-            self.set_measurements_and_layout_inner(xs, layout, prefix)
-        }
-    };
+    /// Set measurements and layout
+    ///
+    /// This is a more convenient version of
+    /// [`Core::set_measurements_and_layout`] for FCS versions where $PnN is
+    /// mandatory, and thus the `prefix` argument is meaningless.
+    pub fn set_measurements_and_layout_noprefix(
+        &mut self,
+        xs: RawInput<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
+        layout: <M::Ver as Versioned>::Layout,
+    ) -> MultiResult<(), SetMeasurementsError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        self.set_measurements_and_layout(xs, layout, ShortnamePrefix::default())
+    }
 }
 
-macro_rules! coretext_set_measurements3_1 {
-    ($rawinput:path, $layout:path) => {
-        /// Set measurements.
-        ///
-        /// Return error if names are not unique, if there is more than one
-        /// time measurement, or if the measurement length doesn't match the
-        /// layout length.
-        pub fn set_measurements(&mut self, xs: $rawinput) -> MultiResult<(), SetMeasurementsError> {
-            self.set_measurements_inner(xs, ShortnamePrefix::default())
-        }
-
-        /// Set measurements and layout.
-        ///
-        /// Return error if measurement names are not unique, there is more
-        /// than one time measurement, or the layout and measurements have
-        /// different lengths.
-        pub fn set_measurements_and_layout(
-            &mut self,
-            xs: $rawinput,
-            layout: $layout,
-        ) -> MultiResult<(), SetMeasurementsError> {
-            self.set_measurements_and_layout_inner(xs, layout, ShortnamePrefix::default())
-        }
-    };
+impl<M> VersionedCoreDataset<M>
+where
+    M: VersionedMetaroot<Name = AlwaysFamily>,
+{
+    /// Set measurements and dataframe together
+    ///
+    /// Length of measurements must match the width of the input dataframe.
+    ///
+    /// This is a more convenient version of
+    /// [`Core::set_measurements_and_layout`] for FCS versions where $PnN is
+    /// mandatory, and thus the `prefix` argument is meaningless.
+    pub fn set_measurements_and_data_noprefix(
+        &mut self,
+        xs: RawInput<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
+        cs: Vec<AnyFCSColumn>,
+    ) -> MultiResult<(), SetMeasurementsAndDataError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        self.set_measurements_and_data(xs, cs, ShortnamePrefix::default())
+    }
 }
 
 impl CoreTEXT2_0 {
@@ -3666,8 +4141,6 @@ impl CoreTEXT2_0 {
         let metaroot = Metaroot::new(specific);
         CoreTEXT::new_nomeas(metaroot)
     }
-
-    coretext_set_measurements2_0!(RawInput2_0, DataLayout2_0);
 }
 
 impl CoreTEXT3_0 {
@@ -3676,8 +4149,6 @@ impl CoreTEXT3_0 {
         let metaroot = Metaroot::new(specific);
         CoreTEXT::new_nomeas(metaroot)
     }
-
-    coretext_set_measurements2_0!(RawInput3_0, DataLayout3_0);
 }
 
 impl CoreTEXT3_1 {
@@ -3686,8 +4157,6 @@ impl CoreTEXT3_1 {
         let metaroot = Metaroot::new(specific);
         CoreTEXT::new_nomeas(metaroot)
     }
-
-    coretext_set_measurements3_1!(RawInput3_1, DataLayout3_1);
 }
 
 impl CoreTEXT3_2 {
@@ -3696,106 +4165,6 @@ impl CoreTEXT3_2 {
         let metaroot = Metaroot::new(specific);
         CoreTEXT::new_nomeas(metaroot)
     }
-
-    coretext_set_measurements3_1!(RawInput3_2, DataLayout3_2);
-}
-
-macro_rules! coredataset_set_measurements2_0 {
-    ($rawinput:path) => {
-        /// Set measurements and dataframe together
-        ///
-        /// Length of measurements must match the width of the input dataframe.
-        pub fn set_measurements_and_data(
-            &mut self,
-            xs: $rawinput,
-            cs: Vec<AnyFCSColumn>,
-            prefix: ShortnamePrefix,
-        ) -> MultiResult<(), SetMeasurementsAndDataError> {
-            let meas_n = xs.len();
-            let data_n = cs.len();
-            if meas_n != data_n {
-                return Err(MeasDataMismatchError { meas_n, data_n }).into_mult();
-            }
-            let df = FCSDataFrame::try_new(cs).into_mult()?;
-            self.set_measurements_inner(xs, prefix).mult_errors_into()?;
-            self.data = df;
-            Ok(())
-        }
-
-        /// Set measurements.
-        ///
-        /// Length of measurements must match the current width of the dataframe.
-        pub fn set_measurements(
-            &mut self,
-            xs: $rawinput,
-            prefix: ShortnamePrefix,
-        ) -> MultiResult<(), SetMeasurementsOnlyError> {
-            let meas_n = xs.len();
-            let data_n = self.par().0;
-            if meas_n != data_n {
-                return Err(MeasDataMismatchError { meas_n, data_n }).into_mult();
-            }
-            self.set_measurements_inner(xs, prefix).mult_errors_into()?;
-            Ok(())
-        }
-    };
-}
-
-macro_rules! coredataset_set_measurements3_1 {
-    ($rawinput:path) => {
-        /// Set measurements and dataframe together
-        ///
-        /// Length of measurements must match the width of the input dataframe.
-        pub fn set_measurements_and_data(
-            &mut self,
-            xs: $rawinput,
-            cs: Vec<AnyFCSColumn>,
-        ) -> MultiResult<(), SetMeasurementsAndDataError> {
-            let meas_n = xs.len();
-            let data_n = cs.len();
-            if meas_n != data_n {
-                return Err(MeasDataMismatchError { meas_n, data_n }).into_mult();
-            }
-            let df = FCSDataFrame::try_new(cs).into_mult()?;
-            self.set_measurements_inner(xs, ShortnamePrefix::default())
-                .mult_errors_into()?;
-            self.data = df;
-            Ok(())
-        }
-
-        /// Set measurements.
-        ///
-        /// Length of measurements must match the current width of the dataframe.
-        pub fn set_measurements(
-            &mut self,
-            xs: $rawinput,
-        ) -> MultiResult<(), SetMeasurementsOnlyError> {
-            let meas_n = xs.len();
-            let data_n = self.par().0;
-            if meas_n != data_n {
-                return Err(MeasDataMismatchError { meas_n, data_n }).into_mult();
-            }
-            self.set_measurements_inner(xs, ShortnamePrefix::default())
-                .mult_errors_into()?;
-            Ok(())
-        }
-    };
-}
-
-impl CoreDataset2_0 {
-    coredataset_set_measurements2_0!(RawInput2_0);
-}
-
-impl CoreDataset3_0 {
-    coredataset_set_measurements2_0!(RawInput3_0);
-}
-
-impl CoreDataset3_1 {
-    coredataset_set_measurements3_1!(RawInput3_1);
-}
-
-impl CoreDataset3_2 {
-    coredataset_set_measurements3_1!(RawInput3_2);
 }
 
 impl UnstainedData {
@@ -3818,8 +4187,8 @@ impl UnstainedData {
     }
 
     fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
-        let c = check_key_transfer(self.unstainedcenters, lossless);
-        let i = check_key_transfer(self.unstainedinfo, lossless);
+        let c = self.unstainedcenters.check_key_transfer(lossless);
+        let i = self.unstainedinfo.check_key_transfer(lossless);
         c.zip(i).void()
     }
 }
@@ -3880,12 +4249,12 @@ impl SubsetData {
     }
 
     fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
-        let b = check_key_transfer(self.bits, lossless);
+        let b = self.bits.check_key_transfer(lossless);
         let xs = self
             .flags
             .into_iter()
             .enumerate()
-            .map(|(i, f)| check_indexed_key_transfer_own(f, i.into(), lossless))
+            .map(|(i, f)| f.check_indexed_key_transfer_own(i.into(), lossless))
             .collect();
         let fs = Tentative::mconcat(xs);
         let mut tnt = b.zip(fs).void();
@@ -4650,9 +5019,9 @@ impl ModificationData {
     }
 
     fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
-        let d = check_key_transfer(self.last_modified, lossless);
-        let r = check_key_transfer(self.last_modifier, lossless);
-        let o = check_key_transfer(self.originality, lossless);
+        let d = self.last_modified.check_key_transfer(lossless);
+        let r = self.last_modifier.check_key_transfer(lossless);
+        let o = self.originality.check_key_transfer(lossless);
         d.zip3(r, o).void()
     }
 }
@@ -4681,9 +5050,9 @@ impl CarrierData {
     }
 
     fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
-        let i = check_key_transfer(self.carrierid, lossless);
-        let t = check_key_transfer(self.carriertype, lossless);
-        let l = check_key_transfer(self.locationid, lossless);
+        let i = self.carrierid.check_key_transfer(lossless);
+        let t = self.carriertype.check_key_transfer(lossless);
+        let l = self.locationid.check_key_transfer(lossless);
         i.zip3(t, l).void()
     }
 }
@@ -4725,9 +5094,9 @@ impl PlateData {
     }
 
     fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
-        let n = check_key_transfer(self.platename, lossless);
-        let i = check_key_transfer(self.plateid, lossless);
-        let w = check_key_transfer(self.wellid, lossless);
+        let n = self.platename.check_key_transfer(lossless);
+        let i = self.plateid.check_key_transfer(lossless);
+        let w = self.wellid.check_key_transfer(lossless);
         n.zip3(i, w).void()
     }
 }
@@ -4762,8 +5131,8 @@ impl PeakData {
 
     fn check_loss(self, i: MeasIndex, lossless: bool) -> BiTentative<(), AnyMeasKeyLossError> {
         let j = i.into();
-        let b = check_indexed_key_transfer_own(self.bin, j, lossless);
-        let s = check_indexed_key_transfer_own(self.size, j, lossless);
+        let b = self.bin.check_indexed_key_transfer_own(j, lossless);
+        let s = self.size.check_indexed_key_transfer_own(j, lossless);
         b.zip(s).void()
     }
 }
@@ -4834,10 +5203,11 @@ impl From<Calibration3_2> for Calibration3_1 {
     }
 }
 
+// TODO this is awkward
 fn convert_wavelengths(
     w: MaybeValue<Wavelengths>,
     force: bool,
-) -> Tentative<MaybeValue<Wavelength>, WavelengthsLossError, WavelengthsLossError> {
+) -> BiTentative<MaybeValue<Wavelength>, WavelengthsLossError> {
     w.0.map(|x| x.into_wavelength(!force))
         .map_or(Tentative::new1(None), |tnt| tnt.map(Some))
         .map(|x| x.into())
@@ -4868,8 +5238,8 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical2_0 {
     ) -> OpticalConvertResult<Self> {
         let j = i.into();
         let s = ScaleTransform::try_convert_to_scale(value.scale, i, force);
-        let c = check_indexed_key_transfer_own(value.calibration, j, !force);
-        let d = check_indexed_key_transfer_own(value.display, j, !force);
+        let c = value.calibration.check_indexed_key_transfer_own(j, !force);
+        let d = value.display.check_indexed_key_transfer_own(j, !force);
         let w = convert_wavelengths(value.wavelengths, force).inner_into();
         let out = s
             .zip3(c, d)
@@ -4892,13 +5262,17 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical2_0 {
     ) -> OpticalConvertResult<Self> {
         let j = i.into();
         let s = ScaleTransform::try_convert_to_scale(value.scale, i, force);
-        let c = check_indexed_key_transfer_own(value.calibration, j, !force);
-        let d = check_indexed_key_transfer_own(value.display, j, !force);
-        let a = check_indexed_key_transfer_own(value.analyte, j, !force);
-        let f = check_indexed_key_transfer_own(value.feature, j, !force);
-        let m = check_indexed_key_transfer_own(value.measurement_type, j, !force);
-        let t = check_indexed_key_transfer_own(value.tag, j, !force);
-        let n = check_indexed_key_transfer_own(value.detector_name, j, !force);
+        let c = value.calibration.check_indexed_key_transfer_own(j, !force);
+        let d = value.display.check_indexed_key_transfer_own(j, !force);
+        let a = value.analyte.check_indexed_key_transfer_own(j, !force);
+        let f = value.feature.check_indexed_key_transfer_own(j, !force);
+        let m = value
+            .measurement_type
+            .check_indexed_key_transfer_own(j, !force);
+        let t = value.tag.check_indexed_key_transfer_own(j, !force);
+        let n = value
+            .detector_name
+            .check_indexed_key_transfer_own(j, !force);
         let w = convert_wavelengths(value.wavelengths, force).inner_into();
         let out = n.zip6(c, d, a, f, m).zip3(t, s).inner_into().zip(w).map(
             |((_, _, scale), wavelength)| Self {
@@ -4937,9 +5311,10 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_0 {
         force: bool,
     ) -> OpticalConvertResult<Self> {
         let j = i.into();
-        let c =
-            check_indexed_key_transfer_own::<_, AnyMeasKeyLossError>(value.calibration, j, !force);
-        let d = check_indexed_key_transfer_own(value.display, j, !force);
+        let c = value
+            .calibration
+            .check_indexed_key_transfer_own::<AnyMeasKeyLossError>(j, !force);
+        let d = value.display.check_indexed_key_transfer_own(j, !force);
         let w = convert_wavelengths(value.wavelengths, force).inner_into();
         let out = c.zip(d).inner_into().zip(w).map(|(_, wavelength)| Self {
             scale: value.scale,
@@ -4957,14 +5332,19 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_0 {
         force: bool,
     ) -> OpticalConvertResult<Self> {
         let j = i.into();
-        let c =
-            check_indexed_key_transfer_own::<_, AnyMeasKeyLossError>(value.calibration, j, !force);
-        let d = check_indexed_key_transfer_own(value.display, j, !force);
-        let a = check_indexed_key_transfer_own(value.analyte, j, !force);
-        let f = check_indexed_key_transfer_own(value.feature, j, !force);
-        let m = check_indexed_key_transfer_own(value.measurement_type, j, !force);
-        let t = check_indexed_key_transfer_own(value.tag, j, !force);
-        let n = check_indexed_key_transfer_own(value.detector_name, j, !force);
+        let c = value
+            .calibration
+            .check_indexed_key_transfer_own::<AnyMeasKeyLossError>(j, !force);
+        let d = value.display.check_indexed_key_transfer_own(j, !force);
+        let a = value.analyte.check_indexed_key_transfer_own(j, !force);
+        let f = value.feature.check_indexed_key_transfer_own(j, !force);
+        let m = value
+            .measurement_type
+            .check_indexed_key_transfer_own(j, !force);
+        let t = value.tag.check_indexed_key_transfer_own(j, !force);
+        let n = value
+            .detector_name
+            .check_indexed_key_transfer_own(j, !force);
         let w = convert_wavelengths(value.wavelengths, force).inner_into();
         let out = c
             .zip5(d, a, f, m)
@@ -5024,11 +5404,17 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_1 {
         force: bool,
     ) -> OpticalConvertResult<Self> {
         let j = i.into();
-        let a = check_indexed_key_transfer_own::<_, AnyMeasKeyLossError>(value.analyte, j, !force);
-        let f = check_indexed_key_transfer_own(value.feature, j, !force);
-        let m = check_indexed_key_transfer_own(value.measurement_type, j, !force);
-        let t = check_indexed_key_transfer_own(value.tag, j, !force);
-        let n = check_indexed_key_transfer_own(value.detector_name, j, !force);
+        let a = value
+            .analyte
+            .check_indexed_key_transfer_own::<AnyMeasKeyLossError>(j, !force);
+        let f = value.feature.check_indexed_key_transfer_own(j, !force);
+        let m = value
+            .measurement_type
+            .check_indexed_key_transfer_own(j, !force);
+        let t = value.tag.check_indexed_key_transfer_own(j, !force);
+        let n = value
+            .detector_name
+            .check_indexed_key_transfer_own(j, !force);
         let out = a.zip3(f, m).zip3(t, n).inner_into().map(|_| Self {
             scale: value.scale,
             wavelengths: value.wavelengths,
@@ -5149,15 +5535,216 @@ pub enum LayoutConvertError {
     MixedToNonMixed(MixedToNonMixedLayoutError),
 }
 
-pub struct TimestepLossError(Timestep);
+macro_rules! impl_ref {
+    ($outer:ident, $inner:ident) => {
+        impl AsRef<$inner> for $outer<$inner> {
+            fn as_ref(&self) -> &$inner {
+                &self.specific
+            }
+        }
 
-impl fmt::Display for TimestepLossError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "$TIMESTEP is {} and will be 1.0 after conversion",
-            self.0
-        )
+        impl AsMut<$inner> for $outer<$inner> {
+            fn as_mut(&mut self) -> &mut $inner {
+                &mut self.specific
+            }
+        }
+    };
+}
+
+impl_ref!(Metaroot, InnerMetaroot2_0);
+impl_ref!(Metaroot, InnerMetaroot3_0);
+impl_ref!(Metaroot, InnerMetaroot3_1);
+impl_ref!(Metaroot, InnerMetaroot3_2);
+
+impl_ref!(Optical, InnerOptical2_0);
+impl_ref!(Optical, InnerOptical3_0);
+impl_ref!(Optical, InnerOptical3_1);
+impl_ref!(Optical, InnerOptical3_2);
+
+impl_ref!(Temporal, InnerTemporal2_0);
+impl_ref!(Temporal, InnerTemporal3_0);
+impl_ref!(Temporal, InnerTemporal3_1);
+impl_ref!(Temporal, InnerTemporal3_2);
+
+macro_rules! impl_ref_specific_ro {
+    ($outer:ident, $inner:ident, $($ref:path),*) => {
+        $(
+            impl AsRef<$ref> for $outer<$inner> {
+                fn as_ref(&self) -> &$ref {
+                    self.specific.as_ref()
+                }
+            }
+        )*
+    };
+}
+
+macro_rules! impl_ref_specific_rw {
+    ($outer:ident, $inner:ident, $($ref:path),*) => {
+        $(
+            impl AsMut<$ref> for $outer<$inner> {
+                fn as_mut(&mut self) -> &mut $ref {
+                    self.specific.as_mut()
+                }
+            }
+
+            impl_ref_specific_ro!($outer, $inner, $ref);
+        )*
+    };
+}
+
+impl_ref_specific_rw!(Metaroot, InnerMetaroot2_0, Mode, Option<Cyt>, Timestamps2_0);
+
+impl_ref_specific_rw!(
+    Metaroot,
+    InnerMetaroot3_0,
+    Mode,
+    Option<Cyt>,
+    Option<Cytsn>,
+    Option<Unicode>,
+    Timestamps3_0
+);
+
+impl_ref_specific_rw!(
+    Metaroot,
+    InnerMetaroot3_1,
+    Mode,
+    Option<Cyt>,
+    Option<Cytsn>,
+    Option<LastModifier>,
+    Option<ModifiedDateTime>,
+    Option<Originality>,
+    Option<Plateid>,
+    Option<Wellid>,
+    Option<Platename>,
+    Option<Vol>,
+    Timestamps3_1
+);
+
+impl_ref_specific_rw!(
+    Metaroot,
+    InnerMetaroot3_2,
+    Cyt,
+    Datetimes,
+    Option<Cytsn>,
+    Option<LastModifier>,
+    Option<ModifiedDateTime>,
+    Option<Originality>,
+    Option<Plateid>,
+    Option<Wellid>,
+    Option<Platename>,
+    Option<Carrierid>,
+    Option<Carriertype>,
+    Option<Locationid>,
+    Option<Vol>,
+    Option<Flowrate>,
+    Timestamps3_1
+);
+
+impl_ref_specific_rw!(
+    Optical,
+    InnerOptical2_0,
+    Option<Wavelength>,
+    Option<PeakBin>,
+    Option<PeakNumber>
+);
+
+impl_ref_specific_rw!(
+    Optical,
+    InnerOptical3_0,
+    Option<Wavelength>,
+    Option<PeakBin>,
+    Option<PeakNumber>
+);
+
+impl_ref_specific_rw!(
+    Optical,
+    InnerOptical3_1,
+    Option<Wavelengths>,
+    Option<PeakBin>,
+    Option<PeakNumber>,
+    Option<Calibration3_1>,
+    Option<Display>
+);
+
+impl_ref_specific_rw!(
+    Optical,
+    InnerOptical3_2,
+    Option<Wavelengths>,
+    Option<Calibration3_2>,
+    Option<Display>,
+    Option<Analyte>,
+    Option<Feature>,
+    Option<OpticalType>,
+    Option<Tag>,
+    Option<DetectorName>
+);
+
+// impl_ref_specific!(Temporal, InnerTemporal2_0,);
+
+impl_ref_specific_rw!(Temporal, InnerTemporal3_0, Timestep);
+
+impl_ref_specific_rw!(Temporal, InnerTemporal3_1, Timestep, Option<Display>);
+
+impl_ref_specific_rw!(Temporal, InnerTemporal3_2, Timestep, Option<Display>);
+
+impl_ref_specific_ro!(
+    Metaroot,
+    InnerMetaroot2_0,
+    Option<FCSDate>,
+    Option<Compensation2_0>
+);
+
+impl_ref_specific_ro!(
+    Metaroot,
+    InnerMetaroot3_0,
+    Option<FCSDate>,
+    Option<Compensation3_0>
+);
+
+impl_ref_specific_ro!(Metaroot, InnerMetaroot3_1, Option<FCSDate>);
+
+impl_ref_specific_ro!(
+    Metaroot,
+    InnerMetaroot3_2,
+    Option<FCSDate>,
+    Option<BeginDateTime>,
+    Option<EndDateTime>,
+    Option<UnstainedCenters>
+);
+
+impl_ref_specific_ro!(Optical, InnerOptical2_0, Option<Scale>);
+
+impl_ref_specific_ro!(Optical, InnerOptical3_0, ScaleTransform);
+
+impl_ref_specific_ro!(Optical, InnerOptical3_1, ScaleTransform);
+
+impl_ref_specific_ro!(Optical, InnerOptical3_2, ScaleTransform);
+
+impl<M, T, P, N, W, L> AsRef<FCSDataFrame> for CoreDataset<M, T, P, N, W, L> {
+    fn as_ref(&self) -> &FCSDataFrame {
+        &self.data
+    }
+}
+
+impl<M, T, P, N, W, L> AsRef<Analysis> for CoreDataset<M, T, P, N, W, L> {
+    fn as_ref(&self) -> &Analysis {
+        &self.analysis
+    }
+}
+
+impl<M, T, P, N, W, L> AsRef<Others> for CoreDataset<M, T, P, N, W, L> {
+    fn as_ref(&self) -> &Others {
+        &self.others
+    }
+}
+
+impl<X, M, const IS_ETIM: bool> AsRef<Option<Xtim<IS_ETIM, X>>> for Metaroot<M>
+where
+    Metaroot<M>: AsRef<Timestamps<X>>,
+    Timestamps<X>: AsRef<Option<Xtim<IS_ETIM, X>>>,
+{
+    fn as_ref(&self) -> &Option<Xtim<IS_ETIM, X>> {
+        self.as_ref().as_ref()
     }
 }
 
@@ -5166,8 +5753,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
         value: InnerMetaroot3_0,
         lossless: bool,
     ) -> MetarootConvertResult<Self> {
-        let c = check_key_transfer(value.cytsn, lossless);
-        let u = check_key_transfer(value.unicode, lossless);
+        let c = value.cytsn.check_key_transfer(lossless);
+        let u = value.unicode.check_key_transfer(lossless);
         let s = value
             .subset
             .0
@@ -5197,9 +5784,9 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
         value: InnerMetaroot3_1,
         lossless: bool,
     ) -> MetarootConvertResult<Self> {
-        let c = check_key_transfer(value.cytsn, lossless);
-        let v = check_key_transfer(value.vol, lossless);
-        let s = check_key_transfer(value.spillover, lossless);
+        let c = value.cytsn.check_key_transfer(lossless);
+        let v = value.vol.check_key_transfer(lossless);
+        let s = value.spillover.check_key_transfer(lossless);
         let m = value.modification.check_loss(lossless);
         let p = value.plate.check_loss(lossless);
         let ss = value
@@ -5231,10 +5818,10 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
         value: InnerMetaroot3_2,
         lossless: bool,
     ) -> MetarootConvertResult<Self> {
-        let cy = check_key_transfer(value.cytsn, lossless);
-        let v = check_key_transfer(value.vol, lossless);
-        let s = check_key_transfer(value.spillover, lossless);
-        let f = check_key_transfer(value.flowrate, lossless);
+        let cy = value.cytsn.check_key_transfer(lossless);
+        let v = value.vol.check_key_transfer(lossless);
+        let s = value.spillover.check_key_transfer(lossless);
+        let f = value.flowrate.check_key_transfer(lossless);
         let m = value.modification.check_loss(lossless);
         let p = value.plate.check_loss(lossless);
         let d = value.datetimes.check_loss(lossless);
@@ -5280,7 +5867,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_0 {
     ) -> MetarootConvertResult<Self> {
         let p = value.plate.check_loss(lossless);
         let m = value.modification.check_loss(lossless);
-        let v = check_key_transfer(value.vol, lossless);
+        let v = value.vol.check_key_transfer(lossless);
         let out = p.zip3(m, v).inner_into().map(|_| Self {
             mode: value.mode,
             cyt: value.cyt,
@@ -5300,8 +5887,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
         value: InnerMetaroot3_2,
         lossless: bool,
     ) -> MetarootConvertResult<Self> {
-        let v = check_key_transfer(value.vol, lossless);
-        let f = check_key_transfer(value.flowrate, lossless);
+        let v = value.vol.check_key_transfer(lossless);
+        let f = value.flowrate.check_key_transfer(lossless);
         let m = value.modification.check_loss(lossless);
         let p = value.plate.check_loss(lossless);
         let d = value.datetimes.check_loss(lossless);
@@ -5350,8 +5937,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_1 {
         value: InnerMetaroot3_0,
         lossless: bool,
     ) -> MetarootConvertResult<Self> {
-        let c = check_key_transfer(value.comp, lossless);
-        let u = check_key_transfer(value.unicode, lossless);
+        let c = value.comp.check_key_transfer(lossless);
+        let u = value.unicode.check_key_transfer(lossless);
         let out = c.zip(u).inner_into().map(|_| Self {
             mode: value.mode,
             cyt: value.cyt,
@@ -5376,7 +5963,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
         let d = value.datetimes.check_loss(lossless);
         let ca = value.carrier.check_loss(lossless);
         let u = value.unstained.check_loss(lossless);
-        let f = check_key_transfer(value.flowrate, lossless);
+        let f = value.flowrate.check_key_transfer(lossless);
         let ret = d.zip4(ca, u, f).inner_into().map(|_| Self {
             mode: Mode::List,
             cyt: Some(value.cyt).into(),
@@ -5435,8 +6022,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
         value: InnerMetaroot3_0,
         lossless: bool,
     ) -> MetarootConvertResult<Self> {
-        let u = check_key_transfer(value.unicode, lossless);
-        let co = check_key_transfer(value.comp, lossless);
+        let u = value.unicode.check_key_transfer(lossless);
+        let co = value.comp.check_key_transfer(lossless);
         let ss = value
             .subset
             .0
@@ -5518,67 +6105,6 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
         }
         res
     }
-}
-
-fn check_indexed_key_transfer<T, E>(x: &MaybeValue<T>, i: IndexFromOne) -> Result<(), E>
-where
-    E: From<IndexedKeyLossError<T>>,
-{
-    if x.0.is_some() {
-        Err(IndexedKeyLossError::<T>::new(i).into())
-    } else {
-        Ok(())
-    }
-}
-
-fn check_optical_keys_transfer<X>(
-    x: &Optical<X>,
-    i: MeasIndex,
-) -> MultiResult<(), AnyOpticalToTemporalKeyLossError> {
-    let j = i.into();
-    let f = check_indexed_key_transfer(&x.filter, j);
-    let o = check_indexed_key_transfer(&x.power, j);
-    let t = check_indexed_key_transfer(&x.detector_type, j);
-    let p = check_indexed_key_transfer(&x.percent_emitted, j);
-    let v = check_indexed_key_transfer(&x.detector_voltage, j);
-    f.zip3(o, t).mult_zip(p.zip(v)).map(|_| ())
-}
-
-fn check_indexed_key_transfer_own<T, E>(
-    x: MaybeValue<T>,
-    i: IndexFromOne,
-    lossless: bool,
-) -> BiTentative<(), E>
-where
-    E: From<IndexedKeyLossError<T>>,
-{
-    let mut tnt = Tentative::new1(());
-    if x.0.is_some() {
-        tnt.push_error_or_warning(IndexedKeyLossError::<T>::new(i), lossless);
-    }
-    tnt
-}
-
-fn check_key_transfer<T>(
-    x: MaybeValue<T>,
-    lossless: bool,
-) -> BiTentative<(), AnyMetarootKeyLossError>
-where
-    AnyMetarootKeyLossError: From<UnitaryKeyLossError<T>>,
-{
-    let mut tnt = Tentative::new1(());
-    if x.0.is_some() {
-        tnt.push_error_or_warning(UnitaryKeyLossError::<T>::default(), lossless);
-    }
-    tnt
-}
-
-fn check_timestep(x: Timestep, force: bool) -> TemporalConvertTentative<()> {
-    let mut tnt = Tentative::new1(());
-    if f32::from(x.0) != 1.0 {
-        tnt.push_error_or_warning(TimestepLossError(x), !force);
-    }
-    tnt
 }
 
 impl ScaleTransform {
@@ -5702,10 +6228,14 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal2_0 {
         _: MeasIndex,
         force: bool,
     ) -> TemporalConvertTentative<Self> {
-        check_timestep(value.timestep, force).map(|_| Self {
-            peak: value.peak,
-            scale: Some(TemporalScale).into(),
-        })
+        value
+            .timestep
+            .check_conversion(force)
+            .map(|_| Self {
+                peak: value.peak,
+                scale: Some(TemporalScale).into(),
+            })
+            .inner_into()
     }
 }
 
@@ -5715,13 +6245,11 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal2_0 {
         i: MeasIndex,
         force: bool,
     ) -> TemporalConvertTentative<Self> {
-        let t = check_timestep(value.timestep, force);
-        let d = check_indexed_key_transfer_own::<_, AnyMeasKeyLossError>(
-            value.display,
-            i.into(),
-            !force,
-        )
-        .inner_into();
+        let t = value.timestep.check_conversion(force).inner_into();
+        let d = value
+            .display
+            .check_indexed_key_transfer_own::<AnyMeasKeyLossError>(i.into(), !force)
+            .inner_into();
         t.zip(d).map(|_| Self {
             peak: value.peak,
             scale: Some(TemporalScale).into(),
@@ -5736,9 +6264,13 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal2_0 {
         force: bool,
     ) -> TemporalConvertTentative<Self> {
         let j = i.into();
-        let di = check_indexed_key_transfer_own::<_, AnyMeasKeyLossError>(value.display, j, !force);
-        let m = check_indexed_key_transfer_own(value.measurement_type, j, !force);
-        let t = check_timestep(value.timestep, force);
+        let di = value
+            .display
+            .check_indexed_key_transfer_own::<AnyMeasKeyLossError>(j, !force);
+        let m = value
+            .measurement_type
+            .check_indexed_key_transfer_own(j, !force);
+        let t = value.timestep.check_conversion(force).inner_into();
         di.zip(m).inner_into().zip(t).map(|_| Self {
             peak: PeakData::default(),
             scale: Some(TemporalScale).into(),
@@ -5765,7 +6297,9 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_0 {
         i: MeasIndex,
         force: bool,
     ) -> TemporalConvertTentative<Self> {
-        check_indexed_key_transfer_own::<_, AnyMeasKeyLossError>(value.display, i.into(), !force)
+        value
+            .display
+            .check_indexed_key_transfer_own::<AnyMeasKeyLossError>(i.into(), !force)
             .inner_into()
             .map(|_| Self {
                 timestep: value.timestep,
@@ -5781,8 +6315,12 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_0 {
         force: bool,
     ) -> TemporalConvertTentative<Self> {
         let j = i.into();
-        let di = check_indexed_key_transfer_own::<_, AnyMeasKeyLossError>(value.display, j, !force);
-        let m = check_indexed_key_transfer_own(value.measurement_type, j, !force);
+        let di = value
+            .display
+            .check_indexed_key_transfer_own::<AnyMeasKeyLossError>(j, !force);
+        let m = value
+            .measurement_type
+            .check_indexed_key_transfer_own(j, !force);
         di.zip(m).inner_into().map(|_| Self {
             timestep: value.timestep,
             peak: PeakData::default(),
@@ -5824,17 +6362,15 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_1 {
         i: MeasIndex,
         force: bool,
     ) -> TemporalConvertTentative<Self> {
-        check_indexed_key_transfer_own::<_, AnyMeasKeyLossError>(
-            value.measurement_type,
-            i.into(),
-            !force,
-        )
-        .inner_into()
-        .map(|_| Self {
-            timestep: value.timestep,
-            display: value.display,
-            peak: PeakData::default(),
-        })
+        value
+            .measurement_type
+            .check_indexed_key_transfer_own::<AnyMeasKeyLossError>(i.into(), !force)
+            .inner_into()
+            .map(|_| Self {
+                timestep: value.timestep,
+                display: value.display,
+                peak: PeakData::default(),
+            })
     }
 }
 
@@ -5991,25 +6527,25 @@ impl Versioned for Version3_2 {
     }
 }
 
-impl HasScaleTransform for InnerOptical2_0 {
+impl AsScaleTransform for InnerOptical2_0 {
     fn as_transform(&self) -> ScaleTransform {
         self.scale.0.map(|s| s.into()).unwrap_or_default()
     }
 }
 
-impl HasScaleTransform for InnerOptical3_0 {
+impl AsScaleTransform for InnerOptical3_0 {
     fn as_transform(&self) -> ScaleTransform {
         self.scale
     }
 }
 
-impl HasScaleTransform for InnerOptical3_1 {
+impl AsScaleTransform for InnerOptical3_1 {
     fn as_transform(&self) -> ScaleTransform {
         self.scale
     }
 }
 
-impl HasScaleTransform for InnerOptical3_2 {
+impl AsScaleTransform for InnerOptical3_2 {
     fn as_transform(&self) -> ScaleTransform {
         self.scale
     }
@@ -6118,7 +6654,6 @@ impl LookupTemporal for InnerTemporal2_0 {
         i: MeasIndex,
         _: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        // TODO push meas index with error
         let s = TemporalScale::lookup_opt(kws, i.into());
         let p = PeakData::lookup(kws, i);
         Ok(s.zip(p).map(|(scale, peak)| Self { peak, scale }))
@@ -6213,7 +6748,9 @@ impl VersionedOptical for InnerOptical2_0 {
     }
 
     fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
-        let mut res = check_indexed_key_transfer(&self.wavelength, i.into())
+        let mut res = self
+            .wavelength
+            .check_indexed_key_transfer(i.into())
             .map_err(OpticalToTemporalError::Loss)
             .into_mult();
         if let Err(err) = res.as_mut() {
@@ -6246,8 +6783,10 @@ impl VersionedOptical for InnerOptical3_0 {
 
     fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
         let j = i.into();
-        let w =
-            check_indexed_key_transfer(&self.wavelength, j).map_err(OpticalToTemporalError::Loss);
+        let w = self
+            .wavelength
+            .check_indexed_key_transfer(j)
+            .map_err(OpticalToTemporalError::Loss);
         let s = if !self.scale.is_noop() {
             Err(OpticalNonLinearError.into())
         } else {
@@ -6282,10 +6821,14 @@ impl VersionedOptical for InnerOptical3_1 {
 
     fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
         let j = i.into();
-        let c =
-            check_indexed_key_transfer(&self.calibration, j).map_err(OpticalToTemporalError::Loss);
-        let w =
-            check_indexed_key_transfer(&self.wavelengths, j).map_err(OpticalToTemporalError::Loss);
+        let c = self
+            .calibration
+            .check_indexed_key_transfer(j)
+            .map_err(OpticalToTemporalError::Loss);
+        let w = self
+            .wavelengths
+            .check_indexed_key_transfer(j)
+            .map_err(OpticalToTemporalError::Loss);
         let s = if !self.scale.is_noop() {
             Err(OpticalNonLinearError.into())
         } else {
@@ -6324,14 +6867,15 @@ impl VersionedOptical for InnerOptical3_2 {
 
     fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
         let j = i.into();
-        let c =
-            check_indexed_key_transfer::<_, AnyOpticalToTemporalKeyLossError>(&self.calibration, j);
-        let w = check_indexed_key_transfer(&self.wavelengths, j);
-        let m = check_indexed_key_transfer(&self.measurement_type, j);
-        let a = check_indexed_key_transfer(&self.analyte, j);
-        let t = check_indexed_key_transfer(&self.tag, j);
-        let n = check_indexed_key_transfer(&self.detector_name, j);
-        let f = check_indexed_key_transfer(&self.feature, j);
+        let c = self
+            .calibration
+            .check_indexed_key_transfer::<AnyOpticalToTemporalKeyLossError>(j);
+        let w = self.wavelengths.check_indexed_key_transfer(j);
+        let m = self.measurement_type.check_indexed_key_transfer(j);
+        let a = self.analyte.check_indexed_key_transfer(j);
+        let t = self.tag.check_indexed_key_transfer(j);
+        let n = self.detector_name.check_indexed_key_transfer(j);
+        let f = self.feature.check_indexed_key_transfer(j);
         let res = c
             .zip3(w, m)
             .mult_zip3(a.zip(t), n.zip(f))
@@ -6347,11 +6891,6 @@ impl VersionedOptical for InnerOptical3_2 {
 
 impl VersionedTemporal for InnerTemporal2_0 {
     type Ver = Version2_0;
-    fn timestep(&self) -> Option<Timestep> {
-        None
-    }
-
-    fn set_timestep(&mut self, _: Timestep) {}
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
         [].into_iter()
@@ -6370,13 +6909,6 @@ impl VersionedTemporal for InnerTemporal2_0 {
 
 impl VersionedTemporal for InnerTemporal3_0 {
     type Ver = Version3_0;
-    fn timestep(&self) -> Option<Timestep> {
-        Some(self.timestep)
-    }
-
-    fn set_timestep(&mut self, ts: Timestep) {
-        self.timestep = ts;
-    }
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
         [ReqMetarootKey::pair(&self.timestep)].into_iter()
@@ -6395,13 +6927,6 @@ impl VersionedTemporal for InnerTemporal3_0 {
 
 impl VersionedTemporal for InnerTemporal3_1 {
     type Ver = Version3_1;
-    fn timestep(&self) -> Option<Timestep> {
-        Some(self.timestep)
-    }
-
-    fn set_timestep(&mut self, ts: Timestep) {
-        self.timestep = ts;
-    }
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
         [ReqMetarootKey::pair(&self.timestep)].into_iter()
@@ -6422,13 +6947,6 @@ impl VersionedTemporal for InnerTemporal3_1 {
 
 impl VersionedTemporal for InnerTemporal3_2 {
     type Ver = Version3_2;
-    fn timestep(&self) -> Option<Timestep> {
-        Some(self.timestep)
-    }
-
-    fn set_timestep(&mut self, ts: Timestep) {
-        self.timestep = ts;
-    }
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
         [self.timestep.pair()].into_iter()
@@ -6441,7 +6959,8 @@ impl VersionedTemporal for InnerTemporal3_2 {
     }
 
     fn can_convert_to_optical(&self, i: MeasIndex) -> MultiResult<(), TemporalToOpticalError> {
-        check_indexed_key_transfer(&self.measurement_type, i.into())
+        self.measurement_type
+            .check_indexed_key_transfer(i.into())
             .map_err(TemporalToOpticalError::Loss)
             .map_err(NonEmpty::new)
     }
@@ -6454,7 +6973,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
         kws: &mut StdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
-        _: &ReadState<StdTextReadConfig>,
+        _: &ReadState<RawTextReadConfig>,
     ) -> LookupTEXTOffsetsResult<Self> {
         Ok(Tot::remove_metaroot_opt(kws)
             .map_or_else(
@@ -6475,7 +6994,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
         kws: &StdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
-        _: &ReadState<StdTextReadConfig>,
+        _: &ReadState<RawTextReadConfig>,
     ) -> LookupTEXTOffsetsResult<Self> {
         Ok(Tot::get_metaroot_opt(kws)
             .map_or_else(
@@ -6490,14 +7009,6 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
                 }
                 .into()
             }))
-    }
-
-    fn data(&self) -> AnyDataSegment {
-        self.0.data
-    }
-
-    fn analysis(&self) -> AnyAnalysisSegment {
-        self.0.analysis
     }
 
     fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot {
@@ -6521,23 +7032,34 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         kws: &mut StdKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
-        st: &ReadState<StdTextReadConfig>,
+        st: &ReadState<RawTextReadConfig>,
     ) -> LookupTEXTOffsetsResult<Self> {
         let tot_res = Tot::remove_metaroot_req(kws).into_deferred();
+        let file_len = Some(st.file_len.into());
         let data_res = KeyedReqSegment::remove_or(
             kws,
-            st.conf.data,
             data_seg,
-            st.conf.raw.ignore_text_data_offsets,
-            st,
+            st.conf.ignore_text_data_offsets,
+            st.conf.allow_header_text_offset_mismatch,
+            st.conf.allow_missing_required_offsets,
+            &NewSegmentConfig {
+                corr: st.conf.data,
+                file_len,
+                truncate_offsets: st.conf.header.truncate_offsets,
+            },
         )
         .def_inner_into();
         let analysis_res = KeyedReqSegment::remove_or(
             kws,
-            st.conf.analysis,
             analysis_seg,
-            st.conf.raw.ignore_text_analysis_offsets,
-            st,
+            st.conf.ignore_text_analysis_offsets,
+            st.conf.allow_header_text_offset_mismatch,
+            st.conf.allow_missing_required_offsets,
+            &NewSegmentConfig {
+                corr: st.conf.analysis,
+                file_len,
+                truncate_offsets: st.conf.header.truncate_offsets,
+            },
         )
         .def_inner_into();
         tot_res
@@ -6556,24 +7078,34 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         kws: &StdKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
-        st: &ReadState<StdTextReadConfig>,
+        st: &ReadState<RawTextReadConfig>,
     ) -> LookupTEXTOffsetsResult<Self> {
-        let conf = &st.conf;
         let tot_res = Tot::get_metaroot_req(kws).into_deferred();
+        let file_len = Some(st.file_len.into());
         let data_res = KeyedReqSegment::get_or(
             kws,
-            conf.data,
             data_seg,
-            conf.raw.ignore_text_data_offsets,
-            st,
+            st.conf.ignore_text_data_offsets,
+            st.conf.allow_header_text_offset_mismatch,
+            st.conf.allow_missing_required_offsets,
+            &NewSegmentConfig {
+                corr: st.conf.data,
+                file_len,
+                truncate_offsets: st.conf.header.truncate_offsets,
+            },
         )
         .def_inner_into();
         let analysis_res = KeyedReqSegment::get_or(
             kws,
-            conf.analysis,
             analysis_seg,
-            conf.raw.ignore_text_analysis_offsets,
-            st,
+            st.conf.ignore_text_analysis_offsets,
+            st.conf.allow_header_text_offset_mismatch,
+            st.conf.allow_missing_required_offsets,
+            &NewSegmentConfig {
+                corr: st.conf.analysis,
+                file_len,
+                truncate_offsets: st.conf.header.truncate_offsets,
+            },
         )
         .def_inner_into();
         tot_res
@@ -6586,14 +7118,6 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
                 }
                 .into()
             })
-    }
-
-    fn data(&self) -> AnyDataSegment {
-        self.0.data
-    }
-
-    fn analysis(&self) -> AnyAnalysisSegment {
-        self.0.analysis
     }
 
     fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot {
@@ -6617,16 +7141,22 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         kws: &mut StdKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
-        st: &ReadState<StdTextReadConfig>,
+        st: &ReadState<RawTextReadConfig>,
     ) -> LookupTEXTOffsetsResult<Self> {
         let conf = &st.conf;
         let tot_res = Tot::remove_metaroot_req(kws).into_deferred();
+        let file_len = Some(st.file_len.into());
         let data_res = KeyedReqSegment::remove_or(
             kws,
-            conf.data,
             data_seg,
-            conf.raw.ignore_text_data_offsets,
-            st,
+            conf.ignore_text_data_offsets,
+            conf.allow_header_text_offset_mismatch,
+            conf.allow_missing_required_offsets,
+            &NewSegmentConfig {
+                corr: st.conf.data,
+                file_len,
+                truncate_offsets: st.conf.header.truncate_offsets,
+            },
         )
         .def_inner_into();
         tot_res
@@ -6635,10 +7165,14 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
                 {
                     KeyedOptSegment::remove_or(
                         kws,
-                        conf.analysis,
                         analysis_seg,
-                        conf.raw.ignore_text_analysis_offsets,
-                        st,
+                        conf.ignore_text_analysis_offsets,
+                        conf.allow_header_text_offset_mismatch,
+                        &NewSegmentConfig {
+                            corr: st.conf.analysis,
+                            file_len,
+                            truncate_offsets: st.conf.header.truncate_offsets,
+                        },
                     )
                     .inner_into()
                     .map(|analysis| {
@@ -6657,16 +7191,22 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         kws: &StdKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
-        st: &ReadState<StdTextReadConfig>,
+        st: &ReadState<RawTextReadConfig>,
     ) -> LookupTEXTOffsetsResult<Self> {
         let conf = &st.conf;
         let tot_res = Tot::get_metaroot_req(kws).into_deferred();
+        let file_len = Some(st.file_len.into());
         let data_res = KeyedReqSegment::get_or(
             kws,
-            conf.data,
             data_seg,
-            conf.raw.ignore_text_data_offsets,
-            st,
+            conf.ignore_text_data_offsets,
+            conf.allow_header_text_offset_mismatch,
+            conf.allow_missing_required_offsets,
+            &NewSegmentConfig {
+                corr: st.conf.data,
+                file_len,
+                truncate_offsets: st.conf.header.truncate_offsets,
+            },
         )
         .def_inner_into();
         tot_res
@@ -6674,10 +7214,14 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
             .def_and_tentatively(|(tot, data)| {
                 KeyedOptSegment::get_or(
                     kws,
-                    conf.analysis,
                     analysis_seg,
-                    conf.raw.ignore_text_analysis_offsets,
-                    st,
+                    conf.ignore_text_analysis_offsets,
+                    conf.allow_header_text_offset_mismatch,
+                    &NewSegmentConfig {
+                        corr: st.conf.analysis,
+                        file_len,
+                        truncate_offsets: st.conf.header.truncate_offsets,
+                    },
                 )
                 .inner_into()
                 .map(|analysis| {
@@ -6689,14 +7233,6 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
                     .into()
                 })
             })
-    }
-
-    fn data(&self) -> AnyDataSegment {
-        self.0.data
-    }
-
-    fn analysis(&self) -> AnyAnalysisSegment {
-        self.0.analysis
     }
 
     fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot {
@@ -7055,14 +7591,6 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
         self.comp.mut_or_unset_nofail(|c| f(&mut c.0))
     }
 
-    fn timestamps_valid(&self) -> bool {
-        self.timestamps.valid()
-    }
-
-    fn datetimes_valid(&self) -> bool {
-        true
-    }
-
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {
         [self.mode.pair()].into_iter()
     }
@@ -7136,14 +7664,6 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
         F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
     {
         self.comp.mut_or_unset_nofail(|c| f(&mut c.0))
-    }
-
-    fn timestamps_valid(&self) -> bool {
-        self.timestamps.valid()
-    }
-
-    fn datetimes_valid(&self) -> bool {
-        true
     }
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {
@@ -7230,14 +7750,6 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
         F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
     {
         None
-    }
-
-    fn timestamps_valid(&self) -> bool {
-        self.timestamps.valid()
-    }
-
-    fn datetimes_valid(&self) -> bool {
-        true
     }
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {
@@ -7329,14 +7841,6 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
         F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
     {
         None
-    }
-
-    fn timestamps_valid(&self) -> bool {
-        self.timestamps.valid()
-    }
-
-    fn datetimes_valid(&self) -> bool {
-        self.datetimes.valid()
     }
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {
@@ -7835,6 +8339,7 @@ pub enum StdDatasetFromRawError {
     Dataframe(ReadDataframeError),
     Offsets(LookupTEXTOffsetsError),
     Warn(StdDatasetFromRawWarning),
+    Mismatch(DataSegmentMismatchError),
 }
 
 #[derive(From, Display)]
@@ -7842,6 +8347,7 @@ pub enum StdDatasetFromRawWarning {
     TEXT(StdTEXTFromRawWarning),
     Offsets(LookupTEXTOffsetsWarning),
     Layout(ReadDataframeWarning),
+    Mismatch(DataSegmentMismatchError),
 }
 
 #[derive(From, Display)]
@@ -8091,6 +8597,7 @@ pub enum LookupAndReadDataAnalysisError {
     Layout(RawToLayoutError),
     Dataframe(ReadDataframeError),
     Warn(LookupAndReadDataAnalysisWarning),
+    Mismatch(DataSegmentMismatchError),
 }
 
 #[derive(From, Display)]
@@ -8098,6 +8605,7 @@ pub enum LookupAndReadDataAnalysisWarning {
     Offsets(LookupTEXTOffsetsWarning),
     Layout(RawToLayoutWarning),
     Data(ReadDataframeWarning),
+    Mismatch(DataSegmentMismatchError),
 }
 
 #[derive(From, Display)]
@@ -8206,7 +8714,7 @@ where
 pub struct IndexedKeyLossError<T>(PhantomData<T>, IndexFromOne);
 
 impl<T> IndexedKeyLossError<T> {
-    fn new(i: IndexFromOne) -> Self {
+    pub(crate) fn new(i: IndexFromOne) -> Self {
         Self(PhantomData, i)
     }
 }
@@ -8276,5 +8784,13 @@ pub struct EmptyLayoutError;
 impl fmt::Display for EmptyLayoutError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "tried to set measurements with an empty data layout",)
+    }
+}
+
+pub struct DataSegmentMismatchError;
+
+impl fmt::Display for DataSegmentMismatchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        f.write_str("$PAR = 0 but DATA segment is not empty")
     }
 }

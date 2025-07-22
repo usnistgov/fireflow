@@ -9,6 +9,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 fireflow-core = { version = "0.1.0", path = "../crates/fireflow-core" }
+derive_more = { workspace = true }
 pyo3 = { version = "0.25.1", features = ["extension-module", "multiple-pymethods", "chrono", "bigdecimal"] }
 bigdecimal = { workspace = true }
 num-traits = { workspace = true }

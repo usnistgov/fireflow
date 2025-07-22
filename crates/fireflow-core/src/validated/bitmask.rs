@@ -46,13 +46,6 @@ where
 }
 
 impl<T, const LEN: usize> Bitmask<T, LEN> {
-    pub(crate) fn value(&self) -> T
-    where
-        T: Copy,
-    {
-        self.value
-    }
-
     pub(crate) fn bitmask(&self) -> T
     where
         T: Copy,

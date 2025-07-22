@@ -12,9 +12,9 @@
 use crate::header::Version;
 use crate::segment::*;
 use crate::text::byteord::ByteOrd2_0;
+use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::keys;
-use crate::validated::other_width::OtherWidth;
 use crate::validated::shortname::*;
 use crate::validated::textdelim::TEXTDelim;
 
@@ -37,7 +37,7 @@ pub struct DataReadConfig {
 /// Instructions for reading the DATA/ANALYSIS segments
 #[derive(Default, Clone)]
 pub struct ReaderConfig {
-    /// If true, allow event width to not perfectly divide DATA.
+    /// If `true`, allow event width to not perfectly divide DATA.
     ///
     /// In practice, having such a mismatch likely means either PnB or the DATA
     /// offsets are incorrect.
@@ -45,13 +45,23 @@ pub struct ReaderConfig {
     /// Does not apply to delimited ASCII, which does not have a fixed width.
     pub allow_uneven_event_width: bool,
 
-    /// If true, allow $TOT to not match number of events in DATA.
+    /// If `true`, allow $TOT to not match number of events in DATA.
     ///
     /// For all but delimited ASCII layouts, $TOT is unnecessary and can be
     /// computed by dividing the bytes in DATA by the event width computed from
-    /// all $PnB. If $TOT does not match this, it may indicate an issue. If false,
-    /// throw an error on mismatch, and warning otherwise.
+    /// all $PnB. If $TOT does not match this, it may indicate an issue. If
+    /// `false`, throw an error on mismatch, and warning otherwise.
     pub allow_tot_mismatch: bool,
+
+    /// If `true`, allow $PAR to be zero when DATA segment is non-empty.
+    ///
+    /// This will catch situations where $TOT > 0, DATA segment is non-empty,
+    /// and $PAR = 0 or the measurement layout ($PnB, $PnR, etc) was deleted for
+    /// some reason.
+    ///
+    /// Setting this to `true` will turn this situation into a warning rather
+    /// than an error.
+    pub allow_data_par_mismatch: bool,
 }
 
 /// Configuration for writing an FCS file
@@ -205,6 +215,23 @@ pub struct RawTextReadConfig {
     /// HEADER, either inherently or after a correction. This obviously assumes
     /// the offsets in HEADER are correct.
     pub ignore_text_analysis_offsets: bool,
+
+    /// If true, throw error if offsets in HEADER and TEXT differ.
+    ///
+    /// Only applies to DATA and ANALYSIS offsets
+    pub allow_header_text_offset_mismatch: bool,
+
+    /// If true, throw error if required TEXT offsets are missing.
+    ///
+    /// Only applies to DATA and ANALYSIS offsets in versions 3.0 and 3.1. If
+    /// missing these will be taken from HEADER.
+    pub allow_missing_required_offsets: bool,
+
+    /// Corrections for DATA offsets in TEXT segment
+    pub data: TEXTCorrection<DataSegmentId>,
+
+    /// Corrections for ANALYSIS offsets in TEXT segment
+    pub analysis: TEXTCorrection<AnalysisSegmentId>,
 
     /// If true, treat every delimiter as literal.
     ///
@@ -445,17 +472,6 @@ pub struct StdTextReadConfig {
     /// becomes 'X,1.0'.
     pub fix_log_scale_offsets: bool,
 
-    /// If true, throw error if offsets in HEADER and TEXT differ.
-    ///
-    /// Only applies to DATA and ANALYSIS offsets
-    pub allow_header_text_offset_mismatch: bool,
-
-    /// If true, throw error if required TEXT offsets are missing.
-    ///
-    /// Only applies to DATA and ANALYSIS offsets in versions 3.0 and 3.1. If
-    /// missing these will be taken from HEADER.
-    pub allow_missing_required_offsets: bool,
-
     /// If given, override $PnB with the number of bytes in $BYTEORD.
     ///
     /// Some files set $PnB to match the bitmask. For example, a 16-bit column
@@ -483,12 +499,6 @@ pub struct StdTextReadConfig {
     /// $PnB is also incorrect, use ['integer_widths_from_byteord'] to override
     /// those values as well.
     pub integer_byteord_override: Option<ByteOrd2_0>,
-
-    /// Corrections for DATA offsets in TEXT segment
-    pub data: TEXTCorrection<DataSegmentId>,
-
-    /// Corrections for ANALYSIS offsets in TEXT segment
-    pub analysis: TEXTCorrection<AnalysisSegmentId>,
 
     /// If true, disallow bitmask to be truncated when converting from native type.
     ///

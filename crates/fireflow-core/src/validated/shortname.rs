@@ -1,6 +1,6 @@
 use crate::text::index::MeasIndex;
 
-use derive_more::{AsRef, Display};
+use derive_more::{AsRef, Display, FromStr, Into};
 use serde::Serialize;
 use std::fmt;
 use std::str::FromStr;
@@ -8,14 +8,14 @@ use std::str::FromStr;
 /// The value for the $PnN key (all versions).
 ///
 /// This cannot contain commas.
-#[derive(Clone, Serialize, Eq, PartialEq, Hash, Debug, AsRef, Display)]
+#[derive(Clone, Serialize, Eq, PartialEq, Hash, Debug, AsRef, Display, Into)]
 #[as_ref(str)]
 pub struct Shortname(String);
 
 /// A prefix that can be made into a shortname by appending an index
 ///
 /// This cannot contain commas.
-#[derive(Clone, Serialize, Eq, PartialEq, Hash, AsRef, Display)]
+#[derive(Clone, Serialize, Eq, PartialEq, Hash, AsRef, Display, FromStr)]
 #[as_ref(str)]
 pub struct ShortnamePrefix(Shortname);
 
@@ -37,14 +37,6 @@ impl FromStr for Shortname {
     }
 }
 
-impl FromStr for ShortnamePrefix {
-    type Err = ShortnameError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.parse::<Shortname>().map(ShortnamePrefix)
-    }
-}
-
 impl ShortnamePrefix {
     pub fn as_indexed(&self, i: MeasIndex) -> Shortname {
         Shortname(format!("{}{i}", self))
@@ -52,8 +44,8 @@ impl ShortnamePrefix {
 }
 
 impl Default for ShortnamePrefix {
-    fn default() -> ShortnamePrefix {
-        ShortnamePrefix(Shortname("P".into()))
+    fn default() -> Self {
+        Self(Shortname("P".into()))
     }
 }
 

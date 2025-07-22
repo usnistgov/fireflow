@@ -234,9 +234,9 @@ fn h_read_required_header<R: Read>(
         .map_err(NonEmpty::new)
         .mult_map_errors(|e| e.map_inner(HeaderError::Version));
     let space_res = h_read_spaces(h).map_err(NonEmpty::new);
-    let text_res = PrimaryTextSegment::h_read_offsets(h, false, st, conf.text_correction);
-    let data_res = HeaderDataSegment::h_read_offsets(h, true, st, conf.data_correction);
-    let anal_res = HeaderAnalysisSegment::h_read_offsets(h, true, st, conf.analysis_correction);
+    let text_res = h_read_primary_segment(h, false, conf.text_correction, st);
+    let data_res = h_read_primary_segment(h, true, conf.data_correction, st);
+    let anal_res = h_read_primary_segment(h, true, conf.analysis_correction, st);
     let offset_res = text_res
         .mult_zip3(data_res, anal_res)
         .mult_map_errors(|e| e.map_inner(HeaderError::Segment));
@@ -260,6 +260,29 @@ fn h_read_spaces<R: Read>(h: &mut BufReader<R>) -> Result<(), ImpureError<Header
     } else {
         Err(ImpureError::Pure(HeaderError::Space))
     }
+}
+
+fn h_read_primary_segment<R: Read, I>(
+    h: &mut BufReader<R>,
+    allow_blank: bool,
+    corr: HeaderCorrection<I>,
+    st: &ReadState<HeaderConfig>,
+) -> MultiResult<HeaderSegment<I>, ImpureError<HeaderSegmentError>>
+where
+    I: HasRegion + Copy,
+{
+    let seg_conf = NewSegmentConfig {
+        corr,
+        file_len: st.file_len.try_into().ok(),
+        truncate_offsets: st.conf.truncate_offsets,
+    };
+    HeaderSegment::<I>::h_read_offsets(
+        h,
+        allow_blank,
+        st.conf.allow_negative,
+        st.conf.squish_offsets,
+        &seg_conf,
+    )
 }
 
 fn h_read_other_segments<R: Read>(
@@ -286,11 +309,16 @@ fn h_read_other_segments<R: Read>(
             buf1.clear();
             h.take(u64::from(w)).read_to_end(&mut buf0).into_mult()?;
             h.take(u64::from(w)).read_to_end(&mut buf1).into_mult()?;
+            let seg_conf = NewSegmentConfig {
+                corr,
+                file_len: Some(st.file_len.into()),
+                truncate_offsets: conf.truncate_offsets,
+            };
             // If any regions are entirely blank, just ignore them
             if buf0.iter().chain(buf1.iter()).all(|x| *x == 32) {
                 Ok(None)
             } else {
-                OtherSegment::parse(&buf0, &buf1, conf.allow_negative, corr, st)
+                OtherSegment::parse(&buf0, &buf1, conf.allow_negative, &seg_conf)
                     .map(Some)
                     .mult_map_errors(HeaderError::Segment)
                     .mult_map_errors(ImpureError::Pure)
@@ -422,19 +450,20 @@ pub(crate) fn make_data_offset_keywords_2_0(
     let data_begin = text_seg
         .inner
         .try_next_byte()
-        .map_or(Ok(text_begin), |x| x.try_into())?;
+        .map_or(Ok(text_begin), |x| u64::from(x).try_into())?;
     let data_seg = HeaderDataSegment::try_new_with_len(data_begin, data_len)?;
 
     let analysis_begin = data_seg
         .inner
         .try_next_byte()
-        .map_or(Ok(text_begin), |x| x.try_into())?;
+        .map_or(Ok(text_begin), |x| u64::from(x).try_into())?;
     let analysis_seg = HeaderAnalysisSegment::try_new_with_len(analysis_begin, analysis_len)?;
 
     let nextdata = Nextdata(Uint20Char(
         analysis_seg
             .inner
             .try_next_byte()
+            .map(u64::from)
             .unwrap_or(u64::from(analysis_begin)),
     ));
 
@@ -493,7 +522,7 @@ pub(crate) fn make_data_offset_keywords_3_0(
                     let supp_text_begin = p
                         .inner
                         .try_next_byte()
-                        .map_or(u64::from(prim_text_begin).into(), |x| x.into());
+                        .map_or(u64::from(prim_text_begin).into(), |x| u64::from(x).into());
                     let s = SupplementalTextSegment::new_with_len(supp_text_begin, supp_text_len);
                     (p, s)
                 }),
@@ -503,6 +532,7 @@ pub(crate) fn make_data_offset_keywords_3_0(
         .inner
         .try_next_byte()
         .or(prim_text_seg.inner.try_next_byte())
+        .map(u64::from)
         .unwrap_or(u64::from(prim_text_begin))
         .into();
 
@@ -511,7 +541,7 @@ pub(crate) fn make_data_offset_keywords_3_0(
     let analysis_begin = data_seg
         .inner
         .try_next_byte()
-        .map(|x| x.into())
+        .map(|x| u64::from(x).into())
         .unwrap_or(data_begin);
     let analysis_seg = TEXTAnalysisSegment::new_with_len(analysis_begin, analysis_len);
 
@@ -522,6 +552,7 @@ pub(crate) fn make_data_offset_keywords_3_0(
         analysis_seg
             .inner
             .try_next_byte()
+            .map(u64::from)
             .unwrap_or(u64::from(analysis_begin)),
     ));
 

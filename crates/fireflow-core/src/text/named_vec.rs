@@ -4,6 +4,7 @@ use crate::validated::shortname::{Shortname, ShortnamePrefix};
 
 use super::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
 
+use derive_more::{From, Into};
 use serde::Serialize;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -65,6 +66,7 @@ pub struct UnsplitVec<K, V> {
     prefix: ShortnamePrefix,
 }
 
+#[derive(Clone)]
 pub enum Element<U, V> {
     Center(U),
     NonCenter(V),
@@ -91,7 +93,8 @@ type Either<K, U, V> = Element<(Shortname, U), (<K as MightHave>::Wrapper<Shortn
 pub type EitherPair<K, U, V> =
     Element<Pair<Shortname, U>, Pair<<K as MightHave>::Wrapper<Shortname>, V>>;
 
-pub type RawInput<K, U, V> = Vec<Either<K, U, V>>;
+#[derive(From, Into)]
+pub struct RawInput<K: MightHave, U, V>(pub Vec<Either<K, U, V>>);
 
 pub type NameMapping = HashMap<Shortname, Shortname>;
 
@@ -104,17 +107,17 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         xs: RawInput<K, U, V>,
         prefix: ShortnamePrefix,
     ) -> Result<WrappedNamedVec<K, U, V>, NewNamedVecError> {
-        let names: Vec<_> = xs
-            .iter()
-            .map(|x| x.as_ref().both(|e| K::wrap(&e.0), |o| K::as_ref(&o.0)))
-            .collect();
+        let names: Vec<_> =
+            xs.0.iter()
+                .map(|x| x.as_ref().both(|e| K::wrap(&e.0), |o| K::as_ref(&o.0)))
+                .collect();
         if !prefix.all_unique::<K>(names) {
             return Err(NewNamedVecError::NonUnique);
         }
         let mut left = vec![];
         let mut center = None;
         let mut right = vec![];
-        for x in xs {
+        for x in xs.0 {
             match x {
                 Element::NonCenter(y) => {
                     let p = Pair {
@@ -1617,7 +1620,37 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 }
 
+impl<K: MightHave, U, V> RawInput<K, U, V> {
+    pub fn inner_into<U0, V0>(self) -> RawInput<K, U0, V0>
+    where
+        U0: From<U>,
+        V0: From<V>,
+    {
+        RawInput(
+            self.0
+                .into_iter()
+                .map(|e| e.bimap(|(n, y)| (n, y.into()), |(n, y)| (n, y.into())))
+                .collect(),
+        )
+    }
+}
+
 impl<U, V> Element<U, V> {
+    pub fn inner_into<U1, V1>(self) -> Element<U1, V1>
+    where
+        U1: From<U>,
+        V1: From<V>,
+    {
+        self.bimap(|y| y.into(), |y| y.into())
+    }
+
+    pub fn unzip<K: MightHave>(e: EitherPair<K, U, V>) -> (K::Wrapper<Shortname>, Self) {
+        e.both(
+            |p| (K::wrap(p.key), Self::Center(p.value)),
+            |p| (p.key, Self::NonCenter(p.value)),
+        )
+    }
+
     pub fn bimap<F, G, X, Y>(self, f: F, g: G) -> Element<X, Y>
     where
         F: Fn(U) -> X,

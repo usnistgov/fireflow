@@ -72,7 +72,7 @@ use crate::validated::keys::*;
 
 use ambassador::{delegatable_trait, Delegate};
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
-use derive_more::{Display, From};
+use derive_more::{AsRef, Display, From};
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use num_traits::PrimInt;
@@ -85,6 +85,7 @@ use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::marker::PhantomData;
 use std::mem;
 use std::num::ParseIntError;
+use std::num::{NonZeroU64, NonZeroU8, NonZeroUsize};
 use std::str;
 
 /// All possible byte layouts for the DATA segment in 2.0.
@@ -94,14 +95,12 @@ use std::str;
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
 #[delegate(InterLayoutOps<D>, generics = "D")]
-#[delegate(OrderedLayoutOps)]
 pub struct DataLayout2_0(pub AnyOrderedLayout<MaybeTot>);
 
 /// All possible byte layouts for the DATA segment in 2.0.
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
 #[delegate(InterLayoutOps<D>, generics = "D")]
-#[delegate(OrderedLayoutOps)]
 pub struct DataLayout3_0(pub AnyOrderedLayout<KnownTot>);
 
 /// All possible byte layouts for the DATA segment in 3.1.
@@ -112,7 +111,6 @@ pub struct DataLayout3_0(pub AnyOrderedLayout<KnownTot>);
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
 #[delegate(InterLayoutOps<D>, generics = "D")]
-#[delegate(EndianLayoutOps)]
 pub struct DataLayout3_1(pub NonMixedEndianLayout<NoMeasDatatype>);
 
 /// All possible byte layouts for the DATA segment in 3.2.
@@ -121,11 +119,12 @@ pub struct DataLayout3_1(pub NonMixedEndianLayout<NoMeasDatatype>);
 /// each column to have a different type and size (hence "Mixed").
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
-#[delegate(EndianLayoutOps)]
 pub enum DataLayout3_2 {
-    Mixed(EndianLayout<NullMixedType, HasMeasDatatype>),
+    Mixed(MixedLayout),
     NonMixed(NonMixedEndianLayout<HasMeasDatatype>),
 }
+
+pub type MixedLayout = EndianLayout<NullMixedType, HasMeasDatatype>;
 
 /// All possible byte layouts for the DATA segment in 2.0 and 3.0.
 ///
@@ -134,7 +133,6 @@ pub enum DataLayout3_2 {
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
 #[delegate(InterLayoutOps<DT>, generics = "DT")]
-#[delegate(OrderedLayoutOps)]
 pub enum AnyOrderedLayout<T> {
     Ascii(AnyAsciiLayout<T, NoMeasDatatype, true>),
     Integer(AnyOrderedUintLayout<T>),
@@ -147,7 +145,6 @@ pub enum AnyOrderedLayout<T> {
 #[derive(Clone, Serialize, From, Delegate)]
 #[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
 #[delegate(InterLayoutOps<DT>, generics = "DT")]
-#[delegate(EndianLayoutOps)]
 pub enum NonMixedEndianLayout<D> {
     Ascii(AnyAsciiLayout<KnownTot, D, false>),
     Integer(EndianLayout<AnyNullBitmask, D>),
@@ -155,7 +152,7 @@ pub enum NonMixedEndianLayout<D> {
     F64(EndianLayout<F64Range, D>),
 }
 
-type EndianLayout<C, D> = FixedLayout<C, Endian, KnownTot, D>;
+pub type EndianLayout<C, D> = FixedLayout<C, Endian, KnownTot, D>;
 
 /// Byte layouts for ASCII data.
 ///
@@ -170,7 +167,7 @@ pub enum AnyAsciiLayout<T, D, const ORD: bool> {
     Fixed(FixedAsciiLayout<T, D, ORD>),
 }
 
-type FixedAsciiLayout<T, D, const ORD: bool> = FixedLayout<AsciiRange, NoByteOrd<ORD>, T, D>;
+pub type FixedAsciiLayout<T, D, const ORD: bool> = FixedLayout<AsciiRange, NoByteOrd<ORD>, T, D>;
 
 /// Byte layout for delimited ASCII.
 #[derive(Clone)]
@@ -181,8 +178,9 @@ pub struct DelimAsciiLayout<T, D, const ORD: bool> {
 }
 
 /// Byte layout where each column has a fixed width.
-#[derive(Clone)]
+#[derive(Clone, AsRef)]
 pub struct FixedLayout<C, L, T, D> {
+    #[as_ref(L)]
     byte_layout: L,
     columns: NonEmpty<C>,
     _tot_def: PhantomData<T>,
@@ -206,7 +204,7 @@ pub enum AnyOrderedUintLayout<T> {
     Uint64(OrderedLayout<Bitmask64, T>),
 }
 
-type OrderedLayout<C, T> = FixedLayout<C, <C as HasNativeWidth>::Order, T, NoMeasDatatype>;
+pub type OrderedLayout<C, T> = FixedLayout<C, <C as HasNativeWidth>::Order, T, NoMeasDatatype>;
 
 /// The type of a non-delimited column in the DATA segment for 3.2
 pub enum MixedType<F: ColumnFamily> {
@@ -405,7 +403,7 @@ pub trait TotDefinition {
         G: FnOnce(I) -> X;
 
     fn check_tot(
-        total_events: usize,
+        total_events: u64,
         tot: Self::Tot,
         allow_mismatch: bool,
     ) -> BiTentative<(), TotEventMismatch> {
@@ -418,11 +416,11 @@ pub trait TotDefinition {
     }
 
     fn check_tot_inner(
-        total_events: usize,
+        total_events: u64,
         tot: Tot,
         allow_mismatch: bool,
     ) -> BiTentative<(), TotEventMismatch> {
-        if tot.0 != total_events {
+        if tot.0 != (total_events as usize) {
             let i = TotEventMismatch { tot, total_events };
             Tentative::new_either((), vec![i], !allow_mismatch)
         } else {
@@ -434,7 +432,7 @@ pub trait TotDefinition {
 /// Standardized operations on layouts
 #[delegatable_trait]
 pub trait LayoutOps<'a, T>: Sized {
-    fn ncols(&self) -> usize;
+    fn ncols(&self) -> NonZeroUsize;
 
     fn nbytes(&self, df: &FCSDataFrame) -> u64;
 
@@ -475,19 +473,30 @@ pub trait LayoutOps<'a, T>: Sized {
         df: &'a FCSDataFrame,
     ) -> io::Result<()>;
 
-    // TODO this should be private
-    fn check_transforms<N: MightHave, Tm, Om: HasScaleTransform>(
+    fn check_transforms_and_len(
         &self,
-        meas: &Measurements<N, Tm, Om>,
+        xforms: &[ScaleTransform],
+    ) -> MultiResult<(), MeasLayoutMismatchError> {
+        let meas_n = xforms.len();
+        let layout_n = self.ncols();
+        if meas_n != usize::from(layout_n) {
+            return Err(MeasLayoutLengthsError { meas_n, layout_n }).into_mult();
+        }
+        self.check_transforms(xforms).mult_errors_into()?;
+        Ok(())
+    }
+
+    // TODO this should be private
+    fn check_transforms(
+        &self,
+        xforms: &[ScaleTransform],
     ) -> MultiResult<(), ColumnError<ScaleMismatchTransformError>> {
         // ASSUME measurements and layout columns are the same length
         self.datatypes()
             .iter()
-            .zip(meas.iter_with(&|_, t| t.value.as_transform(), &|_, m| {
-                m.value.as_transform()
-            }))
+            .zip(xforms)
             .enumerate()
-            .map(|(i, (&datatype, scale))| {
+            .map(|(i, (&datatype, &scale))| {
                 // Only integers are allowed to have gain and log scaling, so
                 // everything else should be a "noop" transform (ie a linear
                 // transform with slope of 1.0). NOTE the standard itself is
@@ -530,17 +539,11 @@ pub trait InterLayoutOps<D> {
 /// Standardized operations on layouts
 #[delegatable_trait]
 pub trait OrderedLayoutOps: Sized {
-    fn byte_order(&self) -> Option<ByteOrd2_0>;
+    fn byte_order(&self) -> ByteOrd2_0;
 
     fn endianness(&self) -> Option<Endian> {
-        self.byte_order().and_then(|x| x.try_into().ok())
+        self.byte_order().try_into().ok()
     }
-}
-
-/// Standardized operations on layouts
-#[delegatable_trait]
-pub trait EndianLayoutOps: Sized {
-    fn endianness(&self) -> Option<Endian>;
 }
 
 /// A version-specific data layout
@@ -599,23 +602,23 @@ where
         // is wrong.
         let par = self.ncols();
         let ncols = df.ncols();
-        if ncols != par {
+        if ncols != usize::from(par) {
             panic!("datafame columns ({ncols}) unequal to number of measurements ({par})");
         }
         self.h_write_df_inner(h, df)
     }
 
-    fn check_measurement_vector<N: MightHave, T, O: HasScaleTransform>(
+    fn check_measurement_vector<N: MightHave, T, O: AsScaleTransform>(
         &self,
         meas: &Measurements<N, T, O>,
     ) -> MultiResult<(), MeasLayoutMismatchError> {
-        let meas_n = meas.len();
-        let layout_n = self.ncols();
-        if meas_n != layout_n {
-            return Err(MeasLayoutLengthsError { meas_n, layout_n }).into_mult();
-        }
-        self.check_transforms(meas).mult_errors_into()?;
-        Ok(())
+        let xforms: Vec<_> = meas
+            .iter_with(&|_, t| t.value.as_transform(), &|_, m| {
+                m.value.as_transform()
+            })
+            .collect();
+        self.check_transforms_and_len(&xforms[..])
+            .mult_errors_into()
     }
 }
 
@@ -651,7 +654,7 @@ trait FromRange: Sized {
 
 /// A type which has a width that may vary
 pub trait IsFixed {
-    fn nbytes(&self) -> u8;
+    fn nbytes(&self) -> NonZeroU8;
 
     fn fixed_width(&self) -> BitsOrChars;
 
@@ -2038,8 +2041,8 @@ where
     T: TotDefinition,
     NoByteOrd<ORD>: HasByteOrd,
 {
-    fn ncols(&self) -> usize {
-        self.ranges.len()
+    fn ncols(&self) -> NonZeroUsize {
+        self.ranges.len_nonzero()
     }
 
     fn nbytes(&self, df: &FCSDataFrame) -> u64 {
@@ -2167,7 +2170,7 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
 }
 
 impl<T, D, const ORD: bool> DelimAsciiLayout<T, D, ORD> {
-    fn new(ranges: NonEmpty<u64>) -> Self {
+    pub fn new(ranges: NonEmpty<u64>) -> Self {
         Self {
             ranges,
             _tot_def: PhantomData,
@@ -2338,12 +2341,12 @@ where
         self.columns.as_ref().map(|x| x.into())
     }
 
-    fn ncols(&self) -> usize {
-        self.columns.len()
+    fn ncols(&self) -> NonZeroUsize {
+        self.columns.len_nonzero()
     }
 
     fn nbytes(&self, df: &FCSDataFrame) -> u64 {
-        (self.event_width() * df.nrows()) as u64
+        u64::from(self.event_width()) * (df.nrows() as u64)
     }
 
     fn datatype(&self) -> AlphaNumType {
@@ -2390,7 +2393,7 @@ where
                     .errors_liftio()
             })
             .and_maybe(|nrows| {
-                self.h_read_unchecked_df(h, nrows, buf)
+                self.h_read_unchecked_df(h, nrows as usize, buf)
                     .map_err(|e| e.inner_into())
                     .into_deferred()
             })
@@ -2477,19 +2480,13 @@ where
     S: Copy,
     ByteOrd2_0: From<S>,
 {
-    fn byte_order(&self) -> Option<ByteOrd2_0> {
-        Some(self.byte_layout.into())
-    }
-}
-
-impl<C, T, D> EndianLayoutOps for FixedLayout<C, Endian, T, D> {
-    fn endianness(&self) -> Option<Endian> {
-        Some(self.byte_layout)
+    fn byte_order(&self) -> ByteOrd2_0 {
+        self.byte_layout.into()
     }
 }
 
 impl<C, S, T, D> FixedLayout<C, S, T, D> {
-    fn new(columns: NonEmpty<C>, byte_layout: S) -> Self {
+    pub fn new(columns: NonEmpty<C>, byte_layout: S) -> Self {
         Self {
             columns,
             byte_layout,
@@ -2597,27 +2594,32 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             .map(|byte_layout| FixedLayout::new(self.columns, byte_layout))
     }
 
-    fn phantom_into<T1, D1>(self) -> FixedLayout<C, S, T1, D1> {
+    pub fn phantom_into<T1, D1>(self) -> FixedLayout<C, S, T1, D1> {
         FixedLayout::new(self.columns, self.byte_layout)
     }
 
-    fn event_width(&self) -> usize
+    fn event_width(&self) -> NonZeroU64
     where
         C: IsFixed,
     {
-        self.columns.iter().map(|c| usize::from(c.nbytes())).sum()
+        let cs = &self.columns;
+        let mut acc = NonZeroU64::from(cs.head.nbytes());
+        for x in cs.tail.iter() {
+            acc = acc.saturating_add(u64::from(u8::from(x.nbytes())))
+        }
+        acc
     }
 
     pub fn compute_nrows(
         &self,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> BiTentative<usize, UnevenEventWidth>
+    ) -> BiTentative<u64, UnevenEventWidth>
     where
         S: Clone,
         C: IsFixed,
     {
-        let n = seg.inner.len() as usize;
+        let n = seg.inner.len();
         let w = self.event_width();
         let total_events = n / w;
         let remainder = n % w;
@@ -2885,7 +2887,7 @@ where
     u64: From<T>,
     T: Copy,
 {
-    fn nbytes(&self) -> u8 {
+    fn nbytes(&self) -> NonZeroU8 {
         Self::BYTES.into()
     }
 
@@ -2904,7 +2906,7 @@ where
     T: Copy,
     f64: From<T>,
 {
-    fn nbytes(&self) -> u8 {
+    fn nbytes(&self) -> NonZeroU8 {
         Self::BYTES.into()
     }
 
@@ -2919,7 +2921,7 @@ where
 }
 
 impl IsFixed for AsciiRange {
-    fn nbytes(&self) -> u8 {
+    fn nbytes(&self) -> NonZeroU8 {
         self.chars().into()
     }
 
@@ -2933,7 +2935,7 @@ impl IsFixed for AsciiRange {
 }
 
 impl IsFixed for AnyNullBitmask {
-    fn nbytes(&self) -> u8 {
+    fn nbytes(&self) -> NonZeroU8 {
         match_any_uint!(self, Self, x, { x.nbytes() })
     }
 
@@ -2947,7 +2949,7 @@ impl IsFixed for AnyNullBitmask {
 }
 
 impl IsFixed for NullMixedType {
-    fn nbytes(&self) -> u8 {
+    fn nbytes(&self) -> NonZeroU8 {
         match_any_mixed!(self, x, { x.nbytes() })
     }
 
@@ -3013,7 +3015,7 @@ source_from_iter!(f64, f32, FromF64);
 source_from_iter!(f64, f64, FromF64);
 
 impl<T> AnyOrderedUintLayout<T> {
-    fn phantom_into<X>(self) -> AnyOrderedUintLayout<X> {
+    pub fn phantom_into<X>(self) -> AnyOrderedUintLayout<X> {
         match_any_uint!(self, Self, l, { l.phantom_into().into() })
     }
 
@@ -3077,20 +3079,8 @@ impl<T> AnyOrderedUintLayout<T> {
     }
 }
 
-impl<T, D> OrderedLayoutOps for AnyAsciiLayout<T, D, true> {
-    fn byte_order(&self) -> Option<ByteOrd2_0> {
-        None
-    }
-}
-
-impl<T, D> EndianLayoutOps for AnyAsciiLayout<T, D, false> {
-    fn endianness(&self) -> Option<Endian> {
-        None
-    }
-}
-
 impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
-    fn phantom_into<T1, D1, const ORD_1: bool>(self) -> AnyAsciiLayout<T1, D1, ORD_1> {
+    pub fn phantom_into<T1, D1, const ORD_1: bool>(self) -> AnyAsciiLayout<T1, D1, ORD_1> {
         match self {
             Self::Delimited(x) => DelimAsciiLayout::new(x.ranges).into(),
             Self::Fixed(x) => FixedLayout::new(x.columns, NoByteOrd).into(),
@@ -3137,6 +3127,35 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
 
     fn new_delim(ranges: NonEmpty<u64>) -> Self {
         Self::Delimited(DelimAsciiLayout::new(ranges))
+    }
+}
+
+impl<T, D, const ORD: bool> FixedAsciiLayout<T, D, ORD> {
+    pub fn new_ascii_u64(ranges: NonEmpty<u64>) -> Self {
+        let rs = ranges.map(AsciiRange::from);
+        Self::new_ascii(rs)
+    }
+
+    pub fn new_ascii(ranges: NonEmpty<AsciiRange>) -> Self {
+        Self::new(ranges, NoByteOrd)
+    }
+}
+
+impl<T, const LEN: usize, Tot> OrderedLayout<Bitmask<T, LEN>, Tot>
+where
+    Bitmask<T, LEN>: HasNativeWidth<Order = SizedByteOrd<LEN>>,
+{
+    pub fn new_endian_uint(ranges: NonEmpty<Bitmask<T, LEN>>, endian: Endian) -> Self {
+        Self::new(ranges, SizedByteOrd::Endian(endian))
+    }
+}
+
+impl<T, const LEN: usize, Tot> OrderedLayout<FloatRange<T, LEN>, Tot>
+where
+    FloatRange<T, LEN>: HasNativeWidth<Order = SizedByteOrd<LEN>>,
+{
+    pub fn new_endian_float(ranges: NonEmpty<FloatRange<T, LEN>>, endian: Endian) -> Self {
+        Self::new(ranges, SizedByteOrd::Endian(endian))
     }
 }
 
@@ -3512,7 +3531,7 @@ impl<T> AnyOrderedLayout<T> {
         }
     }
 
-    pub(crate) fn phantom_into<X>(self) -> AnyOrderedLayout<X> {
+    pub fn phantom_into<X>(self) -> AnyOrderedLayout<X> {
         match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, {
             x.phantom_into().into()
         })
@@ -3630,7 +3649,7 @@ impl<D> NonMixedEndianLayout<D> {
         }
     }
 
-    pub(crate) fn phantom_into<D1>(self) -> NonMixedEndianLayout<D1> {
+    pub fn phantom_into<D1>(self) -> NonMixedEndianLayout<D1> {
         match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, {
             x.phantom_into().into()
         })
@@ -3734,13 +3753,13 @@ pub enum NewDataReaderWarning {
 
 pub struct TotEventMismatch {
     tot: Tot,
-    total_events: usize,
+    total_events: u64,
 }
 
 pub struct UnevenEventWidth {
-    event_width: usize,
-    nbytes: usize,
-    remainder: usize,
+    event_width: NonZeroU64,
+    nbytes: u64,
+    remainder: u64,
 }
 
 #[derive(From, Display)]
@@ -4041,7 +4060,7 @@ pub enum MixedToOrderedUintError {
 }
 
 pub struct UintToUintError {
-    from: u8,
+    from: NonZeroU8,
     to: u8,
 }
 
@@ -4079,7 +4098,7 @@ pub enum MeasLayoutMismatchError {
 
 pub struct MeasLayoutLengthsError {
     meas_n: usize,
-    layout_n: usize,
+    layout_n: NonZeroUsize,
 }
 
 impl fmt::Display for MeasLayoutLengthsError {

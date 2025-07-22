@@ -7,6 +7,7 @@ use crate::text::keywords::{IntRangeError, Range};
 use derive_more::{Display, From, Into};
 use serde::Serialize;
 use std::fmt;
+use std::num::{NonZero, NonZeroU8};
 
 /// The type of an ASCII column in all versions
 ///
@@ -22,9 +23,19 @@ pub struct AsciiRange {
     chars: Chars,
 }
 
-/// The number of chars or an ASCII measurement
+/// The number of chars for an ASCII measurement
+///
+/// Must be an integer between 1 and 20.
 #[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Hash, Display, Into)]
-pub struct Chars(u8);
+#[into(NonZeroU8, u8)]
+pub struct Chars(NonZeroU8);
+
+/// Width to use when parsing OTHER segments.
+///
+/// Must be an integer between 1 and 20.
+#[derive(Clone, Copy, Into, From)]
+#[into(u8, Chars)]
+pub struct OtherWidth(pub Chars);
 
 const MAX_CHARS: u8 = 20;
 
@@ -98,7 +109,12 @@ impl Chars {
     /// Return number of chars needed to express the given u64.
     pub(crate) fn from_u64(x: u64) -> Self {
         // ASSUME the max possible value is 20 thus will always fit in u8
-        Chars(x.checked_ilog10().map(|y| y + 1).unwrap_or(1) as u8)
+        Chars(
+            x.checked_ilog10()
+                .map(|y| y as u8)
+                .and_then(|y| NonZero::new(y + 1))
+                .unwrap_or(NonZeroU8::MIN),
+        )
     }
 }
 
@@ -109,11 +125,41 @@ impl TryFrom<u8> for Chars {
     /// 20 is the maximum number of digits representable by an unsigned integer,
     /// which is the numeric type used to back ASCII data.
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        if !(1..=MAX_CHARS).contains(&value) {
-            Err(CharsError(value))
-        } else {
-            Ok(Self(value))
+        match NonZeroU8::try_from(value) {
+            Ok(x) => x.try_into(),
+            _ => Err(CharsError(value)),
         }
+    }
+}
+
+impl TryFrom<NonZeroU8> for Chars {
+    type Error = CharsError;
+    /// Return the number of chars represented by this if 20 or less.
+    ///
+    /// 20 is the maximum number of digits representable by an unsigned integer,
+    /// which is the numeric type used to back ASCII data.
+    fn try_from(value: NonZeroU8) -> Result<Self, Self::Error> {
+        if u8::from(value) <= MAX_CHARS {
+            Ok(Self(value))
+        } else {
+            Err(CharsError(u8::from(value)))
+        }
+    }
+}
+
+impl Default for OtherWidth {
+    fn default() -> OtherWidth {
+        OtherWidth(Chars(NonZeroU8::new(8).unwrap()))
+    }
+}
+
+impl TryFrom<u8> for OtherWidth {
+    type Error = OtherWidthError;
+
+    fn try_from(x: u8) -> Result<Self, Self::Error> {
+        Chars::try_from(x)
+            .map_err(|e| OtherWidthError(e.0))
+            .map(Self)
     }
 }
 
@@ -147,6 +193,19 @@ impl fmt::Display for NotEnoughCharsError {
             f,
             "not enough chars to hold {}, got {}",
             self.value, self.chars
+        )
+    }
+}
+
+#[derive(Debug)]
+pub struct OtherWidthError(u8);
+
+impl fmt::Display for OtherWidthError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "OTHER width should be integer b/t 1 and 20, got {}",
+            self.0
         )
     }
 }

@@ -27,8 +27,8 @@ pub enum Scale {
 
 #[derive(Clone, Copy, PartialEq, Serialize)]
 pub struct LogScale {
-    decades: PositiveFloat,
-    offset: PositiveFloat,
+    pub decades: PositiveFloat,
+    pub offset: PositiveFloat,
 }
 
 impl fmt::Display for LogScale {
@@ -39,16 +39,22 @@ impl fmt::Display for LogScale {
 
 impl Scale {
     pub fn try_new_log(decades: f32, offset: f32) -> Result<Self, LogRangeError> {
-        let d = PositiveFloat::try_from(decades);
-        let o = PositiveFloat::try_from(offset);
-        d.zip(o)
-            .map(|(dx, ox)| {
-                Scale::Log(LogScale {
-                    decades: dx,
-                    offset: ox,
-                })
+        (decades, offset).try_into().map(Self::Log)
+    }
+}
+
+impl TryFrom<(f32, f32)> for LogScale {
+    type Error = LogRangeError;
+
+    fn try_from(value: (f32, f32)) -> Result<Self, Self::Error> {
+        let (d0, o0) = value;
+        PositiveFloat::try_from(d0)
+            .zip(PositiveFloat::try_from(o0))
+            .map(|(decades, offset)| Self { decades, offset })
+            .map_err(|_| LogRangeError {
+                decades: d0,
+                offset: o0,
             })
-            .map_err(|_| LogRangeError { decades, offset })
     }
 }
 

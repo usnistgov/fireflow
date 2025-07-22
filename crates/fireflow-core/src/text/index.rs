@@ -1,20 +1,21 @@
 use derive_more::{Display, From, FromStr, Into};
 use serde::Serialize;
 use std::fmt;
+use std::num::NonZeroUsize;
 
 /// An index starting at 1, used as the basis for keyword indices
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug, Serialize, Display, FromStr)]
-pub struct IndexFromOne(usize);
+pub struct IndexFromOne(NonZeroUsize);
 
 impl From<usize> for IndexFromOne {
     fn from(value: usize) -> Self {
-        IndexFromOne(value + 1)
+        IndexFromOne(NonZeroUsize::MIN.saturating_add(value))
     }
 }
 
 impl From<IndexFromOne> for usize {
     fn from(value: IndexFromOne) -> Self {
-        value.0 - 1
+        usize::from(value.0) - 1
     }
 }
 

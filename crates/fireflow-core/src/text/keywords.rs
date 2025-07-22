@@ -1,5 +1,6 @@
 use crate::config::StdTextReadConfig;
 use crate::error::*;
+use crate::macros::impl_newtype_try_from;
 use crate::validated::ascii_uint::*;
 use crate::validated::keys::*;
 use crate::validated::shortname::*;
@@ -41,8 +42,11 @@ pub struct Nextdata(pub Uint20Char);
 pub struct Gain(pub PositiveFloat);
 
 /// The value of the $TIMESTEP keyword
-#[derive(Clone, Copy, PartialEq, Serialize, From, Display, FromStr)]
+#[derive(Clone, Copy, PartialEq, Serialize, From, Display, FromStr, Into)]
+#[into(f32, PositiveFloat)]
 pub struct Timestep(pub PositiveFloat);
+
+impl_newtype_try_from!(Timestep, PositiveFloat, f32, RangedFloatError);
 
 impl Default for Timestep {
     fn default() -> Self {
@@ -51,9 +55,34 @@ impl Default for Timestep {
     }
 }
 
+impl Timestep {
+    pub(crate) fn check_conversion(&self, force: bool) -> BiTentative<(), TimestepLossError> {
+        let mut tnt = Tentative::default();
+        if f32::from(self.0) != 1.0 {
+            tnt.push_error_or_warning(TimestepLossError(*self), !force);
+        }
+        tnt
+    }
+}
+
+pub struct TimestepLossError(Timestep);
+
+impl fmt::Display for TimestepLossError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "$TIMESTEP is {} and will be 1.0 after conversion",
+            self.0
+        )
+    }
+}
+
 /// The value of the $VOL keyword
-#[derive(Clone, Copy, Serialize, From, Display, FromStr)]
+#[derive(Clone, Copy, Serialize, From, Display, FromStr, Into)]
+#[into(NonNegFloat, f32)]
 pub struct Vol(pub NonNegFloat);
+
+impl_newtype_try_from!(Vol, NonNegFloat, f32, RangedFloatError);
 
 /// The value of the $TR field (all versions)
 ///
@@ -480,11 +509,32 @@ impl fmt::Display for CalibrationFormat3_2 {
     }
 }
 
+/// The value for the $PnL key (2.0/3.0).
+#[derive(Clone, From, FromStr, Display, Serialize, Into)]
+#[into(f32, PositiveFloat)]
+pub struct Wavelength(pub PositiveFloat);
+
+impl_newtype_try_from!(Wavelength, PositiveFloat, f32, RangedFloatError);
+
 /// The value for the $PnL key (3.1).
 ///
 /// Starting in 3.1 this is a vector rather than a scaler.
 #[derive(Clone, From)]
 pub struct Wavelengths(pub NonEmpty<PositiveFloat>);
+
+// impl TryFrom<NonEmpty<f32>> for Wavelengths {
+//     type Error = RangedFloatError;
+
+//     fn try_from(value: NonEmpty<f32>) -> Result<Self, Self::Error> {
+//         value.try_map(|x| x.try_into()).map(Self)
+//     }
+// }
+
+impl From<Wavelengths> for Vec<f32> {
+    fn from(value: Wavelengths) -> Self {
+        Vec::from(value.0).into_iter().map(|x| x.into()).collect()
+    }
+}
 
 impl Serialize for Wavelengths {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -1388,13 +1438,26 @@ pub struct GateRange(pub Range);
 //     }
 // }
 
+/// The value of the $PnO key
+#[derive(Clone, Copy, Serialize, From, Display, FromStr, Into)]
+#[into(NonNegFloat, f32)]
+pub struct Power(pub NonNegFloat);
+
+impl_newtype_try_from!(Power, NonNegFloat, f32, RangedFloatError);
+
 /// The value of the $PnV key
-#[derive(Clone, Copy, Serialize, From, Display, FromStr)]
+#[derive(Clone, Copy, Serialize, From, Display, FromStr, Into)]
+#[into(NonNegFloat, f32)]
 pub struct DetectorVoltage(pub NonNegFloat);
 
+impl_newtype_try_from!(DetectorVoltage, NonNegFloat, f32, RangedFloatError);
+
 /// The value of the $GmV key
-#[derive(Clone, Copy, Serialize, Display, FromStr)]
+#[derive(Clone, Copy, Serialize, Display, FromStr, Into)]
+#[into(f32)]
 pub struct GateDetectorVoltage(pub NonNegFloat);
+
+impl_newtype_try_from!(GateDetectorVoltage, NonNegFloat, f32, RangedFloatError);
 
 /// The value of the $GmE key
 #[derive(Clone, Copy, Serialize, Display, FromStr)]
@@ -1420,15 +1483,18 @@ impl GateScale {
 }
 
 /// The value of the $CSVnFLAG key (2.0-3.0)
-#[derive(Clone, Copy, Serialize, Display, FromStr)]
+#[derive(Clone, Copy, Serialize, Display, FromStr, Into)]
+#[into(u32)]
 pub struct CSVFlag(pub u32);
 
 /// The value of the $PKn key (2.0-3.1)
-#[derive(Clone, Copy, Serialize, Display, FromStr)]
+#[derive(Clone, Copy, Serialize, Display, FromStr, Into)]
+#[into(u32)]
 pub struct PeakBin(pub u32);
 
 /// The value of the $PKNn key (2.0-3.1)
-#[derive(Clone, Copy, Serialize, Display, FromStr)]
+#[derive(Clone, Copy, Serialize, Display, FromStr, Into)]
+#[into(u32)]
 pub struct PeakNumber(pub u32);
 
 macro_rules! newtype_string {
@@ -1469,13 +1535,6 @@ macro_rules! kw_meta_string {
         impl Key for $t {
             const C: &'static str = $kw;
         }
-    };
-}
-
-macro_rules! kw_meas_int {
-    ($t:ident, $type:ident, $sfx:expr) => {
-        newtype_int!($t, $type);
-        kw_meas!($t, $sfx);
     };
 }
 
@@ -1580,13 +1639,6 @@ macro_rules! kw_opt_meta_int {
     };
 }
 
-macro_rules! kw_opt_meas_int {
-    ($t:ident, $type:ident, $sfx:expr) => {
-        kw_meas_int!($t, $type, $sfx);
-        opt_meas!($t);
-    };
-}
-
 macro_rules! kw_time {
     ($outer:ident, $wrap:ident, $inner:ident, $err:ident, $key:expr) => {
         type $outer = $wrap<$inner>;
@@ -1595,7 +1647,7 @@ macro_rules! kw_time {
 
         impl From<NaiveTime> for $outer {
             fn from(value: NaiveTime) -> Self {
-                $wrap($inner(value))
+                Xtim($inner(value))
             }
         }
     };
@@ -1734,7 +1786,7 @@ kw_req_meta!(ByteOrd3_1, "BYTEORD"); // 3.1+
 // all versions
 kw_req_meas!(Width, "B");
 kw_opt_meas_string!(Filter, "F");
-kw_opt_meas_int!(Power, NonNegFloat, "O");
+kw_opt_meas!(Power, "O");
 kw_opt_meas_string!(PercentEmitted, "P");
 kw_req_meas!(Range, "R");
 kw_opt_meas_string!(Longname, "S");
@@ -1766,7 +1818,7 @@ req_meas!(Scale); // required for 3.0+
 kw_opt_meas!(TemporalScale, "E"); // optional for 2.0
 req_meas!(TemporalScale); // required for 3.0+
 
-kw_opt_meas_int!(Wavelength, PositiveFloat, "L"); // scaler in 2.0/3.0
+kw_opt_meas!(Wavelength, "L"); // scaler in 2.0/3.0
 kw_opt_meas!(Wavelengths, "L"); // vector in 3.1+
 
 kw_opt_meas!(Calibration3_1, "CALIBRATION"); // 3.1 doesn't have offset

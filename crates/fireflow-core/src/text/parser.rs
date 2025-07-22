@@ -198,11 +198,7 @@ where
         Self::remove_opt(kws, Self::std(i))
     }
 
-    fn lookup_opt<E>(
-        kws: &mut StdKeywords,
-        i: IndexFromOne,
-        // dep: bool,
-    ) -> LookupTentative<MaybeValue<Self>, E>
+    fn lookup_opt<E>(kws: &mut StdKeywords, i: IndexFromOne) -> LookupTentative<MaybeValue<Self>, E>
     where
         ParseOptKeyWarning: From<<Self as FromStr>::Err>,
     {

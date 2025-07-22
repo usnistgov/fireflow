@@ -1089,18 +1089,18 @@ fn lookup_stext_offsets(
     st: &ReadState<RawTextReadConfig>,
 ) -> Tentative<Option<SupplementalTextSegment>, STextSegmentWarning, STextSegmentError> {
     let conf = &st.conf;
-    let hst = st.map_inner(|c| &c.header);
+    let seg_conf = NewSegmentConfig {
+        corr: conf.supp_text_correction,
+        file_len: Some(st.file_len.into()),
+        truncate_offsets: conf.header.truncate_offsets,
+    };
     match version {
         Version::FCS2_0 => Tentative::new1(None),
-        Version::FCS3_0 | Version::FCS3_1 => {
-            KeyedReqSegment::get_mult(kws, conf.supp_text_correction, &hst).map_or_else(
-                |es| Tentative::new_either(None, es.into(), conf.allow_missing_stext),
-                |t| Tentative::new1(Some(t)),
-            )
-        }
-        Version::FCS3_2 => {
-            KeyedOptSegment::get(kws, conf.supp_text_correction, &hst).warnings_into()
-        }
+        Version::FCS3_0 | Version::FCS3_1 => KeyedReqSegment::get_mult(kws, &seg_conf).map_or_else(
+            |es| Tentative::new_either(None, es.into(), conf.allow_missing_stext),
+            |t| Tentative::new1(Some(t)),
+        ),
+        Version::FCS3_2 => KeyedOptSegment::get(kws, &seg_conf).warnings_into(),
     }
     .and_tentatively(|x| {
         x.map(|seg| {

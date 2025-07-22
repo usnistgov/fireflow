@@ -1,4 +1,3 @@
-use crate::config::{HeaderConfig, ReadState, StdTextReadConfig};
 use crate::error::*;
 use crate::text::keywords::*;
 use crate::text::parser::*;
@@ -42,18 +41,6 @@ pub struct SpecificSegment<I, S, T> {
     _src: PhantomData<S>,
 }
 
-/// A non-empty segment that still has regional/src data but is type-agnostic.
-///
-/// Useful for bulk operations on lots of segments at once that wouldn't work
-/// if they segments were all different types.
-#[derive(Clone)]
-pub struct GenericSegment {
-    pub begin: u64,
-    pub end: u64,
-    pub region: &'static str,
-    pub src: &'static str,
-}
-
 /// Denotes a correction for a segment
 #[derive(Default, Clone, Copy)]
 pub struct OffsetCorrection<I, S> {
@@ -61,6 +48,18 @@ pub struct OffsetCorrection<I, S> {
     pub end: i32,
     _id: PhantomData<I>,
     _src: PhantomData<S>,
+}
+
+/// A non-empty segment that still has regional/src data but is type-agnostic.
+///
+/// Useful for bulk operations on lots of segments at once that wouldn't work
+/// if they segments were all different types.
+#[derive(Clone)]
+pub(crate) struct GenericSegment {
+    pub(crate) begin: u64,
+    pub(crate) end: u64,
+    pub(crate) region: &'static str,
+    pub(crate) src: &'static str,
 }
 
 /// Denotes a segment came from HEADER
@@ -150,10 +149,11 @@ where
 {
     fn get_or(
         kws: &StdKeywords,
-        corr: TEXTCorrection<Self>,
         default: HeaderSegment<Self>,
         force_default: bool,
-        st: &ReadState<StdTextReadConfig>,
+        allow_mismatch: bool,
+        allow_missing: bool,
+        conf: &NewSegmentConfig<Uint20Char, Self, SegmentFromTEXT>,
     ) -> ReqSegResult<Self>
     where
         Self: Copy,
@@ -161,45 +161,36 @@ where
         if force_default {
             Ok(Tentative::new1(default.into_any()))
         } else {
-            let res = Self::get(kws, corr, &st.map_inner(|c| &c.raw.header))
-                .def_map_errors(ReqSegmentWithDefaultError::Req);
-            Self::default_or(res, default, st.conf)
+            let res = Self::get(kws, conf).def_map_errors(ReqSegmentWithDefaultError::Req);
+            Self::default_or(res, default, allow_mismatch, allow_missing)
         }
     }
 
     fn get<W>(
         kws: &StdKeywords,
-        corr: TEXTCorrection<Self>,
-        st: &ReadState<HeaderConfig>,
+        conf: &NewSegmentConfig<Uint20Char, Self, SegmentFromTEXT>,
     ) -> DeferredResult<TEXTSegment<Self>, W, ReqSegmentError> {
-        Self::get_mult(kws, corr, st).mult_to_deferred()
+        Self::get_mult(kws, conf).mult_to_deferred()
     }
 
     fn get_mult(
         kws: &StdKeywords,
-        corr: TEXTCorrection<Self>,
-        st: &ReadState<HeaderConfig>,
+        conf: &NewSegmentConfig<Uint20Char, Self, SegmentFromTEXT>,
     ) -> MultiResult<TEXTSegment<Self>, ReqSegmentError> {
         Self::get_pair(kws)
             .map_err(|es| es.map(|e| e.into()))
             .and_then(|(y0, y1)| {
-                SpecificSegment::try_new(
-                    y0.into(),
-                    y1.into(),
-                    corr,
-                    Some(st.file_len.into()),
-                    st.conf.truncate_offsets,
-                )
-                .into_mult::<ReqSegmentError>()
+                SpecificSegment::try_new(y0.into(), y1.into(), conf).into_mult::<ReqSegmentError>()
             })
     }
 
     fn remove_or(
         kws: &mut StdKeywords,
-        corr: TEXTCorrection<Self>,
         default: HeaderSegment<Self>,
         force_default: bool,
-        st: &ReadState<StdTextReadConfig>,
+        allow_mismatch: bool,
+        allow_missing: bool,
+        conf: &NewSegmentConfig<Uint20Char, Self, SegmentFromTEXT>,
     ) -> ReqSegResult<Self>
     where
         Self: Copy,
@@ -211,36 +202,26 @@ where
             let _ = Self::remove_pair(kws);
             Ok(Tentative::new1(default.into_any()))
         } else {
-            let res = Self::remove(kws, corr, &st.map_inner(|c| &c.raw.header))
-                .def_map_errors(ReqSegmentWithDefaultError::Req);
-            Self::default_or(res, default, st.conf)
+            let res = Self::remove(kws, conf).def_map_errors(ReqSegmentWithDefaultError::Req);
+            Self::default_or(res, default, allow_mismatch, allow_missing)
         }
     }
 
     fn remove<W>(
         kws: &mut StdKeywords,
-        corr: TEXTCorrection<Self>,
-        st: &ReadState<HeaderConfig>,
+        conf: &NewSegmentConfig<Uint20Char, Self, SegmentFromTEXT>,
     ) -> DeferredResult<TEXTSegment<Self>, W, ReqSegmentError> {
-        Self::remove_mult(kws, corr, st).mult_to_deferred()
+        Self::remove_mult(kws, conf).mult_to_deferred()
     }
 
     fn remove_mult(
         kws: &mut StdKeywords,
-        corr: TEXTCorrection<Self>,
-        st: &ReadState<HeaderConfig>,
+        conf: &NewSegmentConfig<Uint20Char, Self, SegmentFromTEXT>,
     ) -> MultiResult<TEXTSegment<Self>, ReqSegmentError> {
         Self::remove_pair(kws)
             .map_err(|es| es.map(|e| e.into()))
             .and_then(|(y0, y1)| {
-                SpecificSegment::try_new(
-                    y0.into(),
-                    y1.into(),
-                    corr,
-                    Some(st.file_len.into()),
-                    st.conf.truncate_offsets,
-                )
-                .into_mult::<ReqSegmentError>()
+                SpecificSegment::try_new(y0.into(), y1.into(), conf).into_mult::<ReqSegmentError>()
             })
     }
 
@@ -251,13 +232,12 @@ where
             ReqSegmentWithDefaultError<Self>,
         >,
         default: HeaderSegment<Self>,
-        conf: &StdTextReadConfig,
+        allow_mismatch: bool,
+        allow_missing: bool,
     ) -> ReqSegResult<Self>
     where
         Self: Copy,
     {
-        let allow_mismatch = conf.allow_header_text_offset_mismatch;
-        let allow_missing = conf.allow_missing_required_offsets;
         res.map_or_else(
             |f| {
                 if allow_missing {
@@ -308,10 +288,10 @@ where
 {
     fn get_or(
         kws: &StdKeywords,
-        corr: TEXTCorrection<Self>,
         default: HeaderSegment<Self>,
         force_default: bool,
-        st: &ReadState<StdTextReadConfig>,
+        allow_mismatch: bool,
+        conf: &NewSegmentConfig<Uint20Char, Self, SegmentFromTEXT>,
     ) -> OptSegTentative<Self>
     where
         Self: Copy,
@@ -321,31 +301,20 @@ where
         if force_default {
             Tentative::new1(default.into_any())
         } else {
-            let res = Self::get(kws, corr, &st.map_inner(|c| &c.raw.header))
-                .map_warnings(OptSegmentWithDefaultWarning::Opt);
-            Self::default_or(res, default, st.conf)
+            let res = Self::get(kws, conf).map_warnings(OptSegmentWithDefaultWarning::Opt);
+            Self::default_or(res, default, allow_mismatch)
         }
     }
 
     fn get<E>(
         kws: &StdKeywords,
-        corr: TEXTCorrection<Self>,
-        st: &ReadState<HeaderConfig>,
+        conf: &NewSegmentConfig<Uint20Char, Self, SegmentFromTEXT>,
     ) -> Tentative<Option<TEXTSegment<Self>>, OptSegmentError, E> {
         Self::get_pair(kws)
             .map_err(|es| es.map(|e| e.into()))
             .and_then(|x| {
-                x.map(|(z0, z1)| {
-                    SpecificSegment::try_new(
-                        z0.into(),
-                        z1.into(),
-                        corr,
-                        Some(st.file_len.into()),
-                        st.conf.truncate_offsets,
-                    )
-                    .into_mult()
-                })
-                .transpose()
+                x.map(|(z0, z1)| SpecificSegment::try_new(z0.into(), z1.into(), conf).into_mult())
+                    .transpose()
             })
             .map_or_else(
                 |ws| Tentative::new(None, ws.into(), vec![]),
@@ -355,10 +324,10 @@ where
 
     fn remove_or(
         kws: &mut StdKeywords,
-        corr: TEXTCorrection<Self>,
         default: HeaderSegment<Self>,
         force_default: bool,
-        st: &ReadState<StdTextReadConfig>,
+        allow_mismatch: bool,
+        conf: &NewSegmentConfig<Uint20Char, Self, SegmentFromTEXT>,
     ) -> OptSegTentative<Self>
     where
         Self: Copy,
@@ -367,31 +336,20 @@ where
             let _ = Self::remove_pair(kws);
             Tentative::new1(default.into_any())
         } else {
-            let res = Self::remove(kws, corr, &st.map_inner(|c| &c.raw.header))
-                .map_warnings(OptSegmentWithDefaultWarning::Opt);
-            Self::default_or(res, default, st.conf)
+            let res = Self::remove(kws, conf).map_warnings(OptSegmentWithDefaultWarning::Opt);
+            Self::default_or(res, default, allow_mismatch)
         }
     }
 
     fn remove<E>(
         kws: &mut StdKeywords,
-        corr: TEXTCorrection<Self>,
-        st: &ReadState<HeaderConfig>,
+        conf: &NewSegmentConfig<Uint20Char, Self, SegmentFromTEXT>,
     ) -> Tentative<Option<TEXTSegment<Self>>, OptSegmentError, E> {
         Self::remove_pair(kws)
             .map_err(|es| es.map(|e| e.into()))
             .and_then(|x| {
-                x.map(|(z0, z1)| {
-                    SpecificSegment::try_new(
-                        z0.into(),
-                        z1.into(),
-                        corr,
-                        Some(st.file_len.into()),
-                        st.conf.truncate_offsets,
-                    )
-                    .into_mult()
-                })
-                .transpose()
+                x.map(|(z0, z1)| SpecificSegment::try_new(z0.into(), z1.into(), conf).into_mult())
+                    .transpose()
             })
             .map_or_else(
                 |ws| Tentative::new(None, ws.into(), vec![]),
@@ -406,12 +364,11 @@ where
             SegmentMismatchWarning<Self>,
         >,
         default: HeaderSegment<Self>,
-        conf: &StdTextReadConfig,
+        allow_mismatch: bool,
     ) -> OptSegTentative<Self>
     where
         Self: Copy,
     {
-        let allow_mismatch = conf.allow_header_text_offset_mismatch;
         res.and_tentatively(|other| {
             other.map_or(Tentative::new1(default.into_any()), |o| {
                 default.unless(o).map_or_else(
@@ -442,12 +399,12 @@ where
 }
 
 /// Denotes that a type comes from a specific part of the FCS file
-pub trait HasSource {
+pub(crate) trait HasSource {
     const SRC: &'static str;
 }
 
 /// Denotes that a type pertains to a region of the FCS file
-pub trait HasRegion {
+pub(crate) trait HasRegion {
     const REGION: &'static str;
 }
 
@@ -517,7 +474,7 @@ pub enum OptSegmentError {
 }
 
 impl<I, S> OffsetCorrection<I, S> {
-    pub fn new(begin: i32, end: i32) -> Self {
+    fn new(begin: i32, end: i32) -> Self {
         Self {
             begin,
             end,
@@ -544,20 +501,14 @@ impl<I, S, T> Default for SpecificSegment<I, S, T> {
 }
 
 impl<I, S, T> SpecificSegment<I, S, T> {
-    pub fn try_new(
-        begin: T,
-        end: T,
-        corr: OffsetCorrection<I, S>,
-        file_len: Option<T>,
-        force_truncate: bool,
-    ) -> Result<Self, SegmentError<T>>
+    fn try_new(begin: T, end: T, conf: &NewSegmentConfig<T, I, S>) -> Result<Self, SegmentError<T>>
     where
         I: HasRegion,
         S: HasSource,
         T: Zero + One + CheckedSub + Into<u64> + Into<i128> + TryFrom<i128> + Ord + Copy,
         u64: From<T>,
     {
-        Segment::try_new::<I, S>(begin, end, corr, file_len, force_truncate).map(|inner| Self {
+        Segment::try_new::<I, S>(begin, end, conf).map(|inner| Self {
             inner,
             _id: PhantomData,
             _src: PhantomData,
@@ -585,7 +536,8 @@ impl<I, S, T> SpecificSegment<I, S, T> {
         })
     }
 
-    pub fn try_as_generic(&self) -> Option<GenericSegment>
+    // TODO this is just tryfrom
+    pub(crate) fn try_as_generic(&self) -> Option<GenericSegment>
     where
         I: HasRegion,
         S: HasSource,
@@ -604,7 +556,7 @@ impl<I, S, T> SpecificSegment<I, S, T> {
 }
 
 impl GenericSegment {
-    pub fn overlaps(&self, other: &GenericSegment) -> Result<(), SegmentOverlapError> {
+    pub(crate) fn overlaps(&self, other: &GenericSegment) -> Result<(), SegmentOverlapError> {
         if (self.begin < other.begin && self.end < other.begin)
             || (other.begin < self.begin && other.end < self.begin)
         {
@@ -617,7 +569,7 @@ impl GenericSegment {
         }
     }
 
-    pub fn find_overlaps(mut xs: Vec<Self>) -> MultiResult<(), SegmentOverlapError> {
+    pub(crate) fn find_overlaps(mut xs: Vec<Self>) -> MultiResult<(), SegmentOverlapError> {
         xs.sort_by_key(|x| x.begin);
         if let Some(ys) = NonEmpty::from_vec(xs) {
             let mut prev = ys.head;
@@ -687,8 +639,9 @@ impl<I: Copy> HeaderSegment<I> {
     pub(crate) fn h_read_offsets<R: Read>(
         h: &mut BufReader<R>,
         allow_blank: bool,
-        st: &ReadState<HeaderConfig>,
-        corr: OffsetCorrection<I, SegmentFromHeader>,
+        allow_negative: bool,
+        squish_offsets: bool,
+        conf: &NewSegmentConfig<Uint8Digit, I, SegmentFromHeader>,
     ) -> MultiResult<Self, ImpureError<HeaderSegmentError>>
     where
         I: HasRegion,
@@ -697,21 +650,30 @@ impl<I: Copy> HeaderSegment<I> {
         let mut buf1 = [0_u8; 8];
         h.read_exact(&mut buf0).into_mult()?;
         h.read_exact(&mut buf1).into_mult()?;
-        Self::parse(&buf0, &buf1, allow_blank, corr, st).mult_map_errors(ImpureError::Pure)
+        Self::parse(
+            &buf0,
+            &buf1,
+            allow_blank,
+            allow_negative,
+            squish_offsets,
+            conf,
+        )
+        .mult_map_errors(ImpureError::Pure)
     }
 
     pub(crate) fn parse(
         bs0: &[u8; 8],
         bs1: &[u8; 8],
         allow_blank: bool,
-        corr: OffsetCorrection<I, SegmentFromHeader>,
-        st: &ReadState<HeaderConfig>,
+        allow_negative: bool,
+        squish_offsets: bool,
+        conf: &NewSegmentConfig<Uint8Digit, I, SegmentFromHeader>,
     ) -> MultiResult<Self, HeaderSegmentError>
     where
         I: HasRegion,
     {
         let parse_one = |bs, is_begin| {
-            Uint8Digit::from_bytes(bs, allow_blank, st.conf.allow_negative).map_err(|error| {
+            Uint8Digit::from_bytes(bs, allow_blank, allow_negative).map_err(|error| {
                 ParseOffsetError {
                     error,
                     is_begin,
@@ -727,7 +689,7 @@ impl<I: Copy> HeaderSegment<I> {
             .zip(end_res)
             .mult_errors_into()
             .and_then(|(begin, end)| {
-                SpecificSegment::try_new_squish(begin, end, corr, st).into_mult()
+                SpecificSegment::try_new_squish(begin, end, squish_offsets, conf).into_mult()
             })
     }
 
@@ -774,22 +736,20 @@ impl<I: Copy> HeaderSegment<I> {
     fn try_new_squish(
         begin: Uint8Digit,
         end: Uint8Digit,
-        corr: OffsetCorrection<I, SegmentFromHeader>,
-        st: &ReadState<HeaderConfig>,
+        squish_offsets: bool,
+        conf: &NewSegmentConfig<Uint8Digit, I, SegmentFromHeader>,
     ) -> Result<Self, SegmentError<Uint8Digit>>
     where
         I: HasRegion,
     {
         // TODO this might produce really weird errors if run on a 2.0
         // file, so in those cases, this should never be true
-        let conf = &st.conf;
-        let (b, e) = if conf.squish_offsets && end == Uint8Digit::zero() && begin > end {
+        let (b, e) = if squish_offsets && end == Uint8Digit::zero() && begin > end {
             (Uint8Digit::zero(), Uint8Digit::zero())
         } else {
             (begin, end)
         };
-        let file_len = st.file_len.try_into().ok();
-        SpecificSegment::try_new(b, e, corr, file_len, conf.truncate_offsets)
+        SpecificSegment::try_new(b, e, conf)
     }
 }
 
@@ -798,8 +758,7 @@ impl OtherSegment {
         bs0: &[u8],
         bs1: &[u8],
         allow_negative: bool,
-        corr: OffsetCorrection<OtherSegmentId, SegmentFromHeader>,
-        st: &ReadState<HeaderConfig>,
+        conf: &NewSegmentConfig<Uint20Char, OtherSegmentId, SegmentFromHeader>,
     ) -> MultiResult<Self, HeaderSegmentError> {
         let parse_one = |bs: &[u8], is_begin| {
             ascii_str_from_bytes(bs)
@@ -831,14 +790,10 @@ impl OtherSegment {
 
         let begin_res = parse_one(bs0, true);
         let end_res = parse_one(bs1, false);
-        let file_len = Some(st.file_len.into());
         begin_res
             .zip(end_res)
             .mult_errors_into()
-            .and_then(|(begin, end)| {
-                SpecificSegment::try_new(begin, end, corr, file_len, st.conf.truncate_offsets)
-                    .into_mult()
-            })
+            .and_then(|(begin, end)| SpecificSegment::try_new(begin, end, conf).into_mult())
     }
 
     pub(crate) fn header_string(&self) -> String {
@@ -891,17 +846,16 @@ impl<T> Segment<T> {
     /// As a consequence of the above, "unset segments" given as (0,0) are
     /// actually 1 byte long. There is no way to represent a zero-length segment
     /// starting at 0 unless we use signed ints.
-    pub fn try_new<I: HasRegion, S: HasSource>(
+    pub(crate) fn try_new<I: HasRegion, S: HasSource>(
         begin: T,
         end: T,
-        corr: OffsetCorrection<I, S>,
-        file_len: Option<T>,
-        force_truncate: bool,
+        conf: &NewSegmentConfig<T, I, S>,
     ) -> Result<Self, SegmentError<T>>
     where
         T: Zero + One + CheckedSub + Into<i128> + TryFrom<i128> + Ord + Copy,
         u64: From<T>,
     {
+        let corr = &conf.corr;
         let x = Into::<i128>::into(begin) + i128::from(corr.begin);
         let y = Into::<i128>::into(end) + i128::from(corr.end);
         let err = |kind| SegmentError {
@@ -923,8 +877,8 @@ impl<T> Segment<T> {
                     // file length is optional because it might exceed the max
                     // of whatever type is used in this segment, in which case
                     // truncation is impossible.
-                    if let Some(fl) = file_len {
-                        if new_end >= fl && !force_truncate {
+                    if let Some(fl) = conf.file_len {
+                        if new_end >= fl && !conf.truncate_offsets {
                             Err(err(SegmentErrorKind::Truncated(u64::from(fl))))
                         } else {
                             Ok(new_end.min(fl.checked_sub(&T::one()).unwrap_or(T::zero())))
@@ -939,7 +893,7 @@ impl<T> Segment<T> {
         }
     }
 
-    pub fn h_read_contents<R: Read + Seek>(
+    pub(crate) fn h_read_contents<R: Read + Seek>(
         &self,
         h: &mut BufReader<R>,
         buf: &mut Vec<u8>,
@@ -960,24 +914,22 @@ impl<T> Segment<T> {
         }
     }
 
-    pub fn try_adjust<I, S>(
-        self,
-        corr: OffsetCorrection<I, S>,
-        file_len: Option<T>,
-        force_truncate: bool,
-    ) -> Result<Self, SegmentError<T>>
-    where
-        S: HasSource,
-        I: HasRegion,
-        T: Copy + Zero + One + CheckedSub + TryFrom<i128> + Into<i128> + Ord,
-        u64: From<T>,
-    {
-        let (b, e) = match self {
-            Self::Empty => (T::zero(), T::zero()),
-            Self::NonEmpty(s) => s.coords(),
-        };
-        Self::try_new::<I, S>(b, e, corr, file_len, force_truncate)
-    }
+    // pub(crate) fn try_adjust<I, S>(
+    //     self,
+    //     conf: &NewSegmentConfig<T, I, S>,
+    // ) -> Result<Self, SegmentError<T>>
+    // where
+    //     S: HasSource,
+    //     I: HasRegion,
+    //     T: Copy + Zero + One + CheckedSub + TryFrom<i128> + Into<i128> + Ord,
+    //     u64: From<T>,
+    // {
+    //     let (b, e) = match self {
+    //         Self::Empty => (T::zero(), T::zero()),
+    //         Self::NonEmpty(s) => s.coords(),
+    //     };
+    //     Self::try_new::<I, S>(b, e, conf)
+    // }
 
     /// Return the first and last byte if applicable
     pub fn try_coords(&self) -> Option<(T, T)>
@@ -988,7 +940,7 @@ impl<T> Segment<T> {
     }
 
     /// Return byte after end of segment if applicable
-    pub fn try_next_byte(&self) -> Option<NonZeroU64>
+    pub(crate) fn try_next_byte(&self) -> Option<NonZeroU64>
     where
         T: Copy + Into<u64>,
     {
@@ -996,7 +948,7 @@ impl<T> Segment<T> {
     }
 
     /// Return the number of bytes in this segment
-    pub fn len(&self) -> u64
+    pub(crate) fn len(&self) -> u64
     where
         T: Copy + Into<u64>,
     {
@@ -1009,11 +961,11 @@ impl<T> Segment<T> {
     }
 
     /// Return true if segment has 0 bytes
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         matches!(self, Self::Empty)
     }
 
-    pub fn fmt_pair(&self) -> String
+    fn fmt_pair(&self) -> String
     where
         T: Default + Copy + fmt::Display,
     {
@@ -1031,7 +983,8 @@ impl<T> Segment<T> {
         }
     }
 
-    pub fn try_as_nonempty(&self) -> Option<NonEmptySegment<T>>
+    // TODO this is just tryfrom
+    fn try_as_nonempty(&self) -> Option<NonEmptySegment<T>>
     where
         T: Copy,
     {
@@ -1295,4 +1248,10 @@ where
             Self::Opt(e) => e.fmt(f),
         }
     }
+}
+
+pub(crate) struct NewSegmentConfig<T, I, S> {
+    pub(crate) corr: OffsetCorrection<I, S>,
+    pub(crate) file_len: Option<T>,
+    pub(crate) truncate_offsets: bool,
 }

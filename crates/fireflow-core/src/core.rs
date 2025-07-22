@@ -7034,20 +7034,31 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         st: &ReadState<StdTextReadConfig>,
     ) -> LookupTEXTOffsetsResult<Self> {
         let tot_res = Tot::remove_metaroot_req(kws).into_deferred();
+        let file_len = Some(st.file_len.into());
         let data_res = KeyedReqSegment::remove_or(
             kws,
-            st.conf.data,
             data_seg,
             st.conf.raw.ignore_text_data_offsets,
-            st,
+            st.conf.allow_header_text_offset_mismatch,
+            st.conf.allow_missing_required_offsets,
+            &NewSegmentConfig {
+                corr: st.conf.data,
+                file_len,
+                truncate_offsets: st.conf.raw.header.truncate_offsets,
+            },
         )
         .def_inner_into();
         let analysis_res = KeyedReqSegment::remove_or(
             kws,
-            st.conf.analysis,
             analysis_seg,
             st.conf.raw.ignore_text_analysis_offsets,
-            st,
+            st.conf.allow_header_text_offset_mismatch,
+            st.conf.allow_missing_required_offsets,
+            &NewSegmentConfig {
+                corr: st.conf.analysis,
+                file_len,
+                truncate_offsets: st.conf.raw.header.truncate_offsets,
+            },
         )
         .def_inner_into();
         tot_res
@@ -7068,22 +7079,32 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         analysis_seg: HeaderAnalysisSegment,
         st: &ReadState<StdTextReadConfig>,
     ) -> LookupTEXTOffsetsResult<Self> {
-        let conf = &st.conf;
         let tot_res = Tot::get_metaroot_req(kws).into_deferred();
+        let file_len = Some(st.file_len.into());
         let data_res = KeyedReqSegment::get_or(
             kws,
-            conf.data,
             data_seg,
-            conf.raw.ignore_text_data_offsets,
-            st,
+            st.conf.raw.ignore_text_data_offsets,
+            st.conf.allow_header_text_offset_mismatch,
+            st.conf.allow_missing_required_offsets,
+            &NewSegmentConfig {
+                corr: st.conf.data,
+                file_len,
+                truncate_offsets: st.conf.raw.header.truncate_offsets,
+            },
         )
         .def_inner_into();
         let analysis_res = KeyedReqSegment::get_or(
             kws,
-            conf.analysis,
             analysis_seg,
-            conf.raw.ignore_text_analysis_offsets,
-            st,
+            st.conf.raw.ignore_text_analysis_offsets,
+            st.conf.allow_header_text_offset_mismatch,
+            st.conf.allow_missing_required_offsets,
+            &NewSegmentConfig {
+                corr: st.conf.analysis,
+                file_len,
+                truncate_offsets: st.conf.raw.header.truncate_offsets,
+            },
         )
         .def_inner_into();
         tot_res
@@ -7123,12 +7144,18 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
     ) -> LookupTEXTOffsetsResult<Self> {
         let conf = &st.conf;
         let tot_res = Tot::remove_metaroot_req(kws).into_deferred();
+        let file_len = Some(st.file_len.into());
         let data_res = KeyedReqSegment::remove_or(
             kws,
-            conf.data,
             data_seg,
             conf.raw.ignore_text_data_offsets,
-            st,
+            conf.allow_header_text_offset_mismatch,
+            conf.allow_missing_required_offsets,
+            &NewSegmentConfig {
+                corr: st.conf.data,
+                file_len,
+                truncate_offsets: st.conf.raw.header.truncate_offsets,
+            },
         )
         .def_inner_into();
         tot_res
@@ -7137,10 +7164,14 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
                 {
                     KeyedOptSegment::remove_or(
                         kws,
-                        conf.analysis,
                         analysis_seg,
                         conf.raw.ignore_text_analysis_offsets,
-                        st,
+                        conf.allow_header_text_offset_mismatch,
+                        &NewSegmentConfig {
+                            corr: st.conf.analysis,
+                            file_len,
+                            truncate_offsets: st.conf.raw.header.truncate_offsets,
+                        },
                     )
                     .inner_into()
                     .map(|analysis| {
@@ -7163,12 +7194,18 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
     ) -> LookupTEXTOffsetsResult<Self> {
         let conf = &st.conf;
         let tot_res = Tot::get_metaroot_req(kws).into_deferred();
+        let file_len = Some(st.file_len.into());
         let data_res = KeyedReqSegment::get_or(
             kws,
-            conf.data,
             data_seg,
             conf.raw.ignore_text_data_offsets,
-            st,
+            conf.allow_header_text_offset_mismatch,
+            conf.allow_missing_required_offsets,
+            &NewSegmentConfig {
+                corr: st.conf.data,
+                file_len,
+                truncate_offsets: st.conf.raw.header.truncate_offsets,
+            },
         )
         .def_inner_into();
         tot_res
@@ -7176,10 +7213,14 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
             .def_and_tentatively(|(tot, data)| {
                 KeyedOptSegment::get_or(
                     kws,
-                    conf.analysis,
                     analysis_seg,
                     conf.raw.ignore_text_analysis_offsets,
-                    st,
+                    conf.allow_header_text_offset_mismatch,
+                    &NewSegmentConfig {
+                        corr: st.conf.analysis,
+                        file_len,
+                        truncate_offsets: st.conf.raw.header.truncate_offsets,
+                    },
                 )
                 .inner_into()
                 .map(|analysis| {

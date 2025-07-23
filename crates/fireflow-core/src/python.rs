@@ -2,6 +2,7 @@ use crate::config::TimePattern;
 use crate::core::ScaleTransform;
 use crate::header::{Version, VersionError};
 use crate::segment::Segment;
+use crate::text::byteord::{ByteOrd2_0, NewByteOrdError};
 use crate::text::keywords::{
     AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Display, Feature,
     FeatureError, Mode, ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError,
@@ -26,6 +27,7 @@ use pyo3::IntoPyObjectExt;
 use pyo3_polars::{PyDataFrame, PySeries};
 use std::convert::Infallible;
 use std::fmt;
+use std::num::NonZeroU8;
 
 // TODO some of these value errors might be too general
 
@@ -413,10 +415,20 @@ impl fmt::Display for SeriesToColumnError {
                 "Datatype must be u8/16/32/64 or f32/64, got {t} for series '{n}'"
             ),
             Self::HasNull(n) => {
-                write!(f, "Series {n} contains null vlaues which are not allowed")
+                write!(f, "Series {n} contains null values which are not allowed")
             }
         }
     }
 }
 
 impl_value_err!(SeriesToColumnError);
+
+impl<'py> FromPyObject<'py> for ByteOrd2_0 {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let xs: Vec<NonZeroU8> = ob.extract()?;
+        let ret = ByteOrd2_0::try_from(&xs[..])?;
+        Ok(ret)
+    }
+}
+
+impl_value_err!(NewByteOrdError);

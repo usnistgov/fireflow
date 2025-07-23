@@ -301,7 +301,7 @@ fn py_fcs_read_raw_text(
         nonstandard_measurement_pattern=None,
         time_pattern=None,
         integer_widths_from_byteord=false,
-        integer_byteord_override=PyByteOrd::default(),
+        integer_byteord_override=None,
     )
 )]
 fn py_fcs_read_std_text(
@@ -358,7 +358,7 @@ fn py_fcs_read_std_text(
     nonstandard_measurement_pattern: Option<NonStdMeasPattern>,
     time_pattern: Option<TimePattern>,
     integer_widths_from_byteord: bool,
-    integer_byteord_override: PyByteOrd,
+    integer_byteord_override: Option<ByteOrd2_0>,
 ) -> PyResult<(PyAnyCoreTEXT, RawTEXTParseData, StdKeywords)> {
     let header = header_config(
         version_override,
@@ -490,7 +490,7 @@ fn py_fcs_read_std_text(
         nonstandard_measurement_pattern=None,
         time_pattern=None,
         integer_widths_from_byteord=false,
-        integer_byteord_override=PyByteOrd::default(),
+        integer_byteord_override=None,
 
         allow_uneven_event_width=false,
         allow_tot_mismatch=false,
@@ -551,7 +551,7 @@ fn py_fcs_read_raw_dataset(
     nonstandard_measurement_pattern: Option<NonStdMeasPattern>,
     time_pattern: Option<TimePattern>,
     integer_widths_from_byteord: bool,
-    integer_byteord_override: PyByteOrd,
+    integer_byteord_override: Option<ByteOrd2_0>,
 
     allow_uneven_event_width: bool,
     allow_tot_mismatch: bool,
@@ -705,7 +705,7 @@ fn py_fcs_read_raw_dataset(
         nonstandard_measurement_pattern=None,
         time_pattern=None,
         integer_widths_from_byteord=false,
-        integer_byteord_override=PyByteOrd::default(),
+        integer_byteord_override=None,
 
         allow_uneven_event_width=false,
         allow_tot_mismatch=false,
@@ -766,7 +766,7 @@ fn py_fcs_read_std_dataset(
     nonstandard_measurement_pattern: Option<NonStdMeasPattern>,
     time_pattern: Option<TimePattern>,
     integer_widths_from_byteord: bool,
-    integer_byteord_override: PyByteOrd,
+    integer_byteord_override: Option<ByteOrd2_0>,
 
     allow_uneven_event_width: bool,
     allow_tot_mismatch: bool,
@@ -959,7 +959,7 @@ fn std_config(
     nonstandard_measurement_pattern: Option<NonStdMeasPattern>,
     time_pattern: Option<TimePattern>,
     integer_widths_from_byteord: bool,
-    integer_byteord_override: PyByteOrd,
+    integer_byteord_override: Option<ByteOrd2_0>,
 ) -> StdTextReadConfig {
     StdTextReadConfig {
         raw,
@@ -976,7 +976,7 @@ fn std_config(
         disallow_range_truncation,
         nonstandard_measurement_pattern,
         integer_widths_from_byteord,
-        integer_byteord_override: integer_byteord_override.0,
+        integer_byteord_override,
     }
 }
 
@@ -3076,22 +3076,6 @@ get_set_meas!(
     Calibration3_2,
     PyOptical3_2
 );
-
-/// A python value for the byteord override config parameter
-#[derive(Default)]
-struct PyByteOrd(Option<ByteOrd2_0>);
-
-impl<'py> FromPyObject<'py> for PyByteOrd {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let xs: Vec<NonZeroU8> = ob.extract()?;
-        let ret = if xs.is_empty() {
-            None
-        } else {
-            Some(ByteOrd2_0::try_from(&xs[..]).map_err(|e| PyValueError::new_err(e.to_string()))?)
-        };
-        Ok(Self(ret))
-    }
-}
 
 /// A python value for config parameters that take [`KeyString`] pairs.
 #[derive(Default)]

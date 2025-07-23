@@ -3077,15 +3077,6 @@ get_set_meas!(
 );
 
 #[derive(Display, From)]
-struct PyRangedFloatError(RangedFloatError);
-
-impl From<PyRangedFloatError> for PyErr {
-    fn from(value: PyRangedFloatError) -> Self {
-        PyreflowException::new_err(value.to_string())
-    }
-}
-
-#[derive(Display, From)]
 struct PyKeyLengthError(KeyLengthError);
 
 impl From<PyKeyLengthError> for PyErr {
@@ -3108,15 +3099,6 @@ struct PyReversedDatetimes(ReversedDatetimes);
 
 impl From<PyReversedDatetimes> for PyErr {
     fn from(value: PyReversedDatetimes) -> Self {
-        PyreflowException::new_err(value.to_string())
-    }
-}
-
-#[derive(Display, From)]
-struct PyLogRangeError(LogRangeError);
-
-impl From<PyLogRangeError> for PyErr {
-    fn from(value: PyLogRangeError) -> Self {
         PyreflowException::new_err(value.to_string())
     }
 }

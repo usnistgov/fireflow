@@ -1,7 +1,7 @@
 use crate::config::TimePattern;
 use crate::core::ScaleTransform;
 use crate::header::{Version, VersionError};
-use crate::segment::Segment;
+use crate::segment::{OffsetCorrection, Segment};
 use crate::text::byteord::{ByteOrd2_0, NewByteOrdError};
 use crate::text::keywords::{
     AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Display, Feature,
@@ -461,3 +461,11 @@ impl<'py> FromPyObject<'py> for KeyStringPairs {
 }
 
 impl_value_err!(KeyStringPairsError);
+
+// offset corrections will be tuples like (i32, i32)
+impl<'py, I, S> FromPyObject<'py> for OffsetCorrection<I, S> {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let t: (i32, i32) = ob.extract()?;
+        Ok(Self::from(t))
+    }
+}

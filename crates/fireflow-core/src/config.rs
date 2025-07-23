@@ -20,10 +20,14 @@ use crate::validated::textdelim::TEXTDelim;
 
 use derive_more::{Display, FromStr};
 use regex::Regex;
-use std::collections::HashMap;
+
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
 
 /// Instructions for reading the DATA segment.
 #[derive(Default, Clone)]
+#[cfg_attr(feature = "python", derive(FromPyObject))]
+#[pyo3(from_item_all)]
 pub struct DataReadConfig {
     /// Instructions to read and standardize TEXT.
     pub standard: StdTextReadConfig,
@@ -36,6 +40,8 @@ pub struct DataReadConfig {
 
 /// Instructions for reading the DATA/ANALYSIS segments
 #[derive(Default, Clone)]
+#[cfg_attr(feature = "python", derive(FromPyObject))]
+#[pyo3(from_item_all)]
 pub struct ReaderConfig {
     /// If `true`, allow event width to not perfectly divide DATA.
     ///
@@ -101,6 +107,8 @@ pub struct WriteConfig {
 }
 
 #[derive(Default, Clone)]
+#[cfg_attr(feature = "python", derive(FromPyObject))]
+#[pyo3(from_item_all)]
 pub struct HeaderConfig {
     /// Override the version
     pub version_override: Option<Version>,
@@ -178,6 +186,8 @@ pub struct HeaderConfig {
 /// Instructions for reading the TEXT segment as raw key/value pairs.
 // TODO add correction for $NEXTDATA
 #[derive(Default, Clone)]
+#[cfg_attr(feature = "python", derive(FromPyObject))]
+#[pyo3(from_item_all)]
 pub struct RawTextReadConfig {
     /// Config for reading HEADER
     pub header: HeaderConfig,
@@ -410,6 +420,8 @@ pub struct RawTextReadConfig {
 
 /// Instructions for validating time-related properties.
 #[derive(Default, Clone)]
+#[cfg_attr(feature = "python", derive(FromPyObject))]
+#[pyo3(from_item_all)]
 pub struct TimeConfig {
     /// If given, a pattern to find/match the $PnN of the time measurement.
     ///
@@ -432,6 +444,8 @@ pub struct TimeConfig {
 
 /// Instructions for reading the TEXT segment in a standardized structure.
 #[derive(Default, Clone)]
+#[cfg_attr(feature = "python", derive(FromPyObject))]
+#[pyo3(from_item_all)]
 pub struct StdTextReadConfig {
     /// Instructions to read HEADER and TEXT.
     pub raw: RawTextReadConfig,

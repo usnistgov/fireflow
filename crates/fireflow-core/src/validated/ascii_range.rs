@@ -11,6 +11,9 @@ use std::num::{NonZero, NonZeroU8};
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
 /// The type of an ASCII column in all versions
 ///
 /// Fields are private to guarantee they are always in sync.
@@ -32,12 +35,14 @@ pub struct AsciiRange {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Hash, Display, Into)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(NonZeroU8, u8)]
+// no FromPyObject since this needs to be validated
 pub struct Chars(NonZeroU8);
 
 /// Width to use when parsing OTHER segments.
 ///
 /// Must be an integer between 1 and 20.
 #[derive(Clone, Copy, Into, From)]
+#[cfg_attr(feature = "python", derive(FromPyObject))]
 #[into(u8, Chars)]
 pub struct OtherWidth(pub Chars);
 

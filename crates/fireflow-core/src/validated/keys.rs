@@ -504,17 +504,17 @@ impl ParsedKeywords {
     }
 }
 
-#[derive(Debug, Display, From)]
+#[derive(Debug, Display, From, PartialEq)]
 pub enum KeywordInsertError {
     StdPresent(StdPresent),
     NonStdPresent(NonStdPresent),
     Blank(BlankValueError),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct BlankValueError(pub Vec<u8>);
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct KeyPresent<T> {
     pub key: T,
     pub value: String,
@@ -686,6 +686,19 @@ mod tests {
         assert_eq!(StdKey(KeyString(Ascii::new("MAJESTY".into()))), k);
         // reverse process should give back original string
         assert_eq!(k.to_string(), s.to_string());
+        // and such a valid key should behave the same when inserted into
+        // the hash table
+        let mut p = ParsedKeywords::default();
+        let res = p.insert(
+            s.as_bytes(),
+            b"of_the_night_sky",
+            &RawTextReadConfig::default(),
+        );
+        assert_eq!(Ok(()), res);
+        assert_eq!(
+            s.to_string(),
+            p.std.into_iter().next().unwrap().0.to_string()
+        );
     }
 
     #[test]
@@ -729,6 +742,19 @@ mod tests {
         assert_eq!(NonStdKey(KeyString(Ascii::new("YTSEJAM".into()))), k);
         // reverse process should give back original string
         assert_eq!(k.to_string(), s.to_string());
+        // and such a valid key should behave the same when inserted into
+        // the hash table
+        let mut p = ParsedKeywords::default();
+        let res = p.insert(
+            s.as_bytes(),
+            b"the cake is a lie",
+            &RawTextReadConfig::default(),
+        );
+        assert_eq!(Ok(()), res);
+        assert_eq!(
+            s.to_string(),
+            p.nonstd.into_iter().next().unwrap().0.to_string()
+        );
     }
 
     #[test]

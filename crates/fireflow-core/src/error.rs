@@ -64,6 +64,7 @@ pub struct Tentative<V, W, E> {
 ///
 /// Useful for functions which only return one error or warning for which
 /// using a tentative would be unnecessary.
+#[derive(Debug, PartialEq)]
 pub enum Leveled<T> {
     Error(T),
     Warning(T),

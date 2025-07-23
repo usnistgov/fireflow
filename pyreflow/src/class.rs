@@ -3414,15 +3414,6 @@ impl From<PyRangedFloatError> for PyErr {
 }
 
 #[derive(Display, From)]
-struct PyKeyStringError(KeyStringError);
-
-impl From<PyKeyStringError> for PyErr {
-    fn from(value: PyKeyStringError) -> Self {
-        PyreflowException::new_err(value.to_string())
-    }
-}
-
-#[derive(Display, From)]
 struct PyKeyLengthError(KeyLengthError);
 
 impl From<PyKeyLengthError> for PyErr {

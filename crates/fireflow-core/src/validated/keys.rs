@@ -281,41 +281,50 @@ impl FromStr for KeyString {
     type Err = AsciiStringError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if is_printable_ascii(s.as_ref()) {
-            Ok(Self(Ascii::new(s.to_string())))
+        if s.is_empty() {
+            Err(AsciiStringError::Empty)
+        } else if !is_printable_ascii(s.as_ref()) {
+            Err(AsciiStringError::Ascii(s.to_string()))
         } else {
-            Err(AsciiStringError(s.to_string()))
+            Ok(Self(Ascii::new(s.to_string())))
         }
     }
 }
 
 impl FromStr for StdKey {
-    type Err = KeyStringError;
+    type Err = StdKeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         s.parse::<KeyString>()
-            .map_err(KeyStringError::Ascii)
-            .and_then(|x| {
-                if has_std_prefix(x.as_ref().as_bytes()) {
-                    Ok(Self::new(x.to_string()))
+            .map_err(StdKeyError::Ascii)
+            .and_then(|ks| {
+                // ASSUME this will not fail because we know the string is
+                // non-empty
+                let (y, ys) = ks.as_ref().as_bytes().split_first().unwrap();
+                if ys.is_empty() {
+                    Err(StdKeyError::Empty)
+                } else if *y != STD_PREFIX {
+                    Err(StdKeyError::Prefix(ks))
                 } else {
-                    Err(KeyStringError::Prefix(true, x.to_string()))
+                    // ASSUME this will not fail because we know the string has
+                    // only ASCII bytes
+                    Ok(Self(KeyString::from_bytes(ys)))
                 }
             })
     }
 }
 
 impl FromStr for NonStdKey {
-    type Err = KeyStringError;
+    type Err = NonStdKeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         s.parse::<KeyString>()
-            .map_err(KeyStringError::Ascii)
-            .and_then(|x| {
-                if has_no_std_prefix(x.as_ref().as_bytes()) {
-                    Ok(Self::new(x.to_string()))
+            .map_err(NonStdKeyError::Ascii)
+            .and_then(|ks| {
+                if has_no_std_prefix(ks.as_ref().as_bytes()) {
+                    Ok(Self::new(ks.to_string()))
                 } else {
-                    Err(KeyStringError::Prefix(false, x.to_string()))
+                    Err(NonStdKeyError::Prefix(ks))
                 }
             })
     }
@@ -514,12 +523,23 @@ pub struct KeyPresent<T> {
 pub type StdPresent = KeyPresent<StdKey>;
 pub type NonStdPresent = KeyPresent<NonStdKey>;
 
-pub struct AsciiStringError(String);
+#[derive(PartialEq, Debug)]
+pub enum AsciiStringError {
+    Ascii(String),
+    Empty,
+}
 
-#[derive(From)]
-pub enum KeyStringError {
+#[derive(From, PartialEq, Debug)]
+pub enum StdKeyError {
     Ascii(AsciiStringError),
-    Prefix(bool, String),
+    Prefix(KeyString),
+    Empty,
+}
+
+#[derive(From, PartialEq, Debug)]
+pub enum NonStdKeyError {
+    Ascii(AsciiStringError),
+    Prefix(KeyString),
 }
 
 pub struct NonStdMeasKeyError(String);
@@ -544,25 +564,31 @@ impl<T: fmt::Display> fmt::Display for KeyPresent<T> {
 
 impl fmt::Display for AsciiStringError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "string should only have ASCII characters and not be empty, found '{}'",
-            self.0
-        )
+        match self {
+            Self::Empty => f.write_str("Key string must not be empty"),
+            Self::Ascii(s) => write!(f, "string should only have ASCII characters, found '{s}'",),
+        }
     }
 }
 
-impl fmt::Display for KeyStringError {
+impl fmt::Display for StdKeyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             Self::Ascii(x) => x.fmt(f),
-            Self::Prefix(is_std, s) => {
-                let k = if *is_std {
-                    "Standard key must start with '$'"
-                } else {
-                    "Non-standard key must not start with '$'"
-                };
-                write!(f, "{k}, found '{s}'")
+            Self::Prefix(s) => {
+                write!(f, "Standard key must start with '$', found '{s}'")
+            }
+            Self::Empty => f.write_str("Standard key must not be empty, got '$'"),
+        }
+    }
+}
+
+impl fmt::Display for NonStdKeyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Ascii(x) => x.fmt(f),
+            Self::Prefix(s) => {
+                write!(f, "Non-standard key must not start with '$', found '{s}'")
             }
         }
     }
@@ -615,10 +641,6 @@ fn is_printable_ascii(xs: &[u8]) -> bool {
     xs.iter().all(|x| 32 <= *x && *x <= 126)
 }
 
-fn has_std_prefix(xs: &[u8]) -> bool {
-    xs.first().is_some_and(|x| *x == STD_PREFIX)
-}
-
 fn has_no_std_prefix(xs: &[u8]) -> bool {
     xs.first().is_some_and(|x| *x != STD_PREFIX)
 }
@@ -652,3 +674,87 @@ where
 }
 
 const STD_PREFIX: u8 = 36; // '$'
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fromstr_std_key() {
+        let s = "$MAJESTY";
+        let k = s.parse::<StdKey>().unwrap();
+        assert_eq!(StdKey(KeyString(Ascii::new("MAJESTY".into()))), k);
+        // reverse process should give back original string
+        assert_eq!(k.to_string(), s.to_string());
+    }
+
+    #[test]
+    fn fromstr_std_key_nonascii() {
+        let s = "$花冷え。"; // sugarsugarsugarsugarsugarsugarrrrrrrrr...
+        let k = s.parse::<StdKey>();
+        assert_eq!(
+            Err(StdKeyError::Ascii(AsciiStringError::Ascii(s.into()))),
+            k
+        );
+    }
+
+    #[test]
+    fn fromstr_std_key_noprefix() {
+        let s = "IMBROKE";
+        let k = s.parse::<StdKey>();
+        assert_eq!(
+            Err(StdKeyError::Prefix(KeyString(Ascii::new(s.to_string())))),
+            k
+        );
+    }
+
+    #[test]
+    fn fromstr_std_key_blank() {
+        let s = "";
+        let k = s.parse::<StdKey>();
+        assert_eq!(Err(StdKeyError::Ascii(AsciiStringError::Empty)), k);
+    }
+
+    #[test]
+    fn fromstr_std_key_onlyprefix() {
+        let s = "$";
+        let k = s.parse::<StdKey>();
+        assert_eq!(Err(StdKeyError::Empty), k);
+    }
+
+    #[test]
+    fn fromstr_nonstd_key() {
+        let s = "YTSEJAM";
+        let k = s.parse::<NonStdKey>().unwrap();
+        assert_eq!(NonStdKey(KeyString(Ascii::new("YTSEJAM".into()))), k);
+        // reverse process should give back original string
+        assert_eq!(k.to_string(), s.to_string());
+    }
+
+    #[test]
+    fn fromstr_nonstd_key_nonascii() {
+        let s = "サイ";
+        let k = s.parse::<NonStdKey>();
+        assert_eq!(
+            Err(NonStdKeyError::Ascii(AsciiStringError::Ascii(s.into()))),
+            k
+        );
+    }
+
+    #[test]
+    fn fromstr_nonstd_key_hasprefix() {
+        let s = "$IMRICH";
+        let k = s.parse::<NonStdKey>();
+        assert_eq!(
+            Err(NonStdKeyError::Prefix(KeyString(Ascii::new(s.to_string())))),
+            k
+        );
+    }
+
+    #[test]
+    fn fromstr_nonstd_key_blank() {
+        let s = "";
+        let k = s.parse::<NonStdKey>();
+        assert_eq!(Err(NonStdKeyError::Ascii(AsciiStringError::Empty)), k);
+    }
+}

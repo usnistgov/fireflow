@@ -11,7 +11,7 @@ use crate::text::scale::{LogRangeError, Scale};
 use crate::validated::ascii_range::{Chars, CharsError};
 use crate::validated::datepattern::{DatePattern, DatePatternError};
 use crate::validated::keys::{
-    KeyStringError, NonStdKey, NonStdMeasPattern, NonStdMeasPatternError, StdKey,
+    NonStdKey, NonStdKeyError, NonStdMeasPattern, NonStdMeasPatternError, StdKey, StdKeyError,
 };
 use crate::validated::shortname::{Shortname, ShortnameError};
 
@@ -111,8 +111,10 @@ impl_str_to_from_py!(OpticalType);
 impl_value_err!(OpticalTypeError);
 
 impl_str_to_from_py!(StdKey);
+impl_value_err!(StdKeyError);
+
 impl_str_to_from_py!(NonStdKey);
-impl_value_err!(KeyStringError);
+impl_value_err!(NonStdKeyError);
 
 impl_value_err!(CharsError);
 

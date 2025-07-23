@@ -38,6 +38,9 @@ use std::str::FromStr;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
 /// Represents the minimal data required to write an FCS file.
 ///
 /// At minimum, this contains the TEXT keywords in a version-specific structure
@@ -91,14 +94,17 @@ pub struct Core<A, D, O, M, T, P, N, W, L> {
 
 /// The ANALYSIS segment, which is just a string of bytes
 #[derive(Clone, From)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct Analysis(pub Vec<u8>);
 
 /// An OTHER segment, which is just a string of bytes
 #[derive(Clone, From)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct Other(pub Vec<u8>);
 
 /// All OTHER segments
 #[derive(Clone, Default, From)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct Others(pub Vec<Other>);
 
 /// Root of the metadata hierarchy.

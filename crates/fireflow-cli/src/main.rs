@@ -1,5 +1,6 @@
 use fireflow_core::api::*;
 use fireflow_core::config;
+use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::error::*;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::keys::NonStdMeasPattern;
@@ -13,15 +14,15 @@ fn print_json<T: Serialize>(j: &T) {
     println!("{}", serde_json::to_string(j).unwrap());
 }
 
-pub fn print_parsed_data(s: &StdDatasetOutput, _delim: &str) {
-    let df = s.dataset.standardized.core.as_data();
+pub fn print_parsed_data(core: &AnyCoreDataset, _delim: &str) {
+    let df = core.as_data();
     let nrows = df.nrows();
     let cols: Vec<_> = df.iter_columns().collect();
     let ncols = cols.len();
     if ncols == 0 {
         return;
     }
-    let mut ns = s.dataset.standardized.core.shortnames().into_iter();
+    let mut ns = core.shortnames().into_iter();
     print!("{}", ns.next().unwrap());
     for n in ns {
         print!("\t{n}");
@@ -295,7 +296,7 @@ fn main() -> Result<(), ()> {
 
             fcs_read_std_text(filepath, &conf)
                 .map(handle_warnings)
-                .map(|std| std.standardized.print_spillover_table(delim))
+                .map(|(core, _)| core.print_spillover_table(delim))
                 .map_err(handle_failure)
         }
 
@@ -320,7 +321,7 @@ fn main() -> Result<(), ()> {
 
             fcs_read_std_text(filepath, &conf)
                 .map(handle_warnings)
-                .map(|std| std.standardized.print_meas_table(delim))
+                .map(|(core, _)| core.print_meas_table(delim))
                 .map_err(handle_failure)
         }
 
@@ -365,9 +366,7 @@ fn main() -> Result<(), ()> {
 
             fcs_read_std_text(filepath, &conf)
                 .map(handle_warnings)
-                .map(|std| {
-                    print_json(&std.standardized);
-                })
+                .map(|(core, _)| print_json(&core))
                 .map_err(handle_failure)
         }
 
@@ -395,7 +394,7 @@ fn main() -> Result<(), ()> {
 
             fcs_read_std_dataset(filepath, &conf)
                 .map(handle_warnings)
-                .map(|res| print_parsed_data(&res, delim))
+                .map(|(core, _)| print_parsed_data(&core, delim))
                 .map_err(handle_failure)
         }
 

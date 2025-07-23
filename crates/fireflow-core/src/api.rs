@@ -58,7 +58,7 @@ pub fn fcs_read_raw_text(
 pub fn fcs_read_std_text(
     p: &path::PathBuf,
     conf: &StdTextReadConfig,
-) -> IOTerminalResult<StdTEXTOutput, StdTEXTWarning, StdTEXTError, StdTEXTFailure> {
+) -> IOTerminalResult<(AnyCoreTEXT, StdTEXTOutput), StdTEXTWarning, StdTEXTError, StdTEXTFailure> {
     read_fcs_raw_text_inner(p, &conf.raw)
         .def_map_value(|(x, _, st)| (x, st))
         .def_io_into()
@@ -103,7 +103,12 @@ pub fn fcs_read_raw_dataset(
 pub fn fcs_read_std_dataset(
     p: &path::PathBuf,
     conf: &DataReadConfig,
-) -> IOTerminalResult<StdDatasetOutput, StdDatasetWarning, StdDatasetError, StdDatasetFailure> {
+) -> IOTerminalResult<
+    (AnyCoreDataset, StdDatasetOutput),
+    StdDatasetWarning,
+    StdDatasetError,
+    StdDatasetFailure,
+> {
     read_fcs_raw_text_inner(p, &conf.standard.raw)
         .def_io_into()
         .def_and_maybe(|(raw, mut h, st)| {
@@ -166,7 +171,7 @@ pub fn fcs_read_std_dataset_with_keywords(
     other_segs: Vec<OtherSegment>,
     conf: &DataReadConfig,
 ) -> IOTerminalResult<
-    StdDatasetWithKwsOutput,
+    (AnyCoreDataset, StdDatasetWithKwsOutput),
     StdDatasetFromRawWarning,
     StdDatasetFromRawError,
     StdDatasetWithKwsFailure,
@@ -188,13 +193,17 @@ pub fn fcs_read_std_dataset_with_keywords(
                 &other_segs[..],
                 &st,
             )
-            .def_map_value(|(core, d_seg, a_seg)| StdDatasetWithKwsOutput {
-                standardized: DatasetWithSegments {
+            .def_map_value(|(core, d_seg, a_seg)| {
+                (
                     core,
-                    data_seg: d_seg,
-                    analysis_seg: a_seg,
-                },
-                pseudostandard: kws.std,
+                    StdDatasetWithKwsOutput {
+                        standardized: DatasetSegments {
+                            data_seg: d_seg,
+                            analysis_seg: a_seg,
+                        },
+                        pseudostandard: kws.std,
+                    },
+                )
             })
         })
         .def_terminate_maybe_warn(
@@ -206,6 +215,7 @@ pub fn fcs_read_std_dataset_with_keywords(
 
 /// Output from parsing the TEXT segment.
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct RawTEXTOutput {
     /// FCS version
     pub version: Version,
@@ -218,10 +228,8 @@ pub struct RawTEXTOutput {
 }
 
 /// Output of parsing the TEXT segment and standardizing keywords.
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct StdTEXTOutput {
-    /// Standardized data from TEXT
-    pub standardized: AnyCoreTEXT,
-
     /// TEXT value for $TOT
     ///
     /// This should always be Some for 3.0+ and might be None for 2.0.
@@ -244,6 +252,7 @@ pub struct StdTEXTOutput {
 }
 
 /// Output of parsing one raw dataset (TEXT+DATA) from an FCS file.
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct RawDatasetOutput {
     /// Output from parsing HEADER+TEXT
     pub text: RawTEXTOutput,
@@ -253,6 +262,7 @@ pub struct RawDatasetOutput {
 }
 
 /// Output of parsing one standardized dataset (TEXT+DATA) from an FCS file.
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct StdDatasetOutput {
     /// Standardized data from one FCS dataset
     pub dataset: StdDatasetWithKwsOutput,
@@ -262,15 +272,17 @@ pub struct StdDatasetOutput {
 }
 
 /// Output of using keywords to read standardized TEXT+DATA
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct StdDatasetWithKwsOutput {
     /// DATA+ANALYSIS
-    pub standardized: DatasetWithSegments,
+    pub standardized: DatasetSegments,
 
     /// Keywords that start with '$' that are not part of the standard
     pub pseudostandard: StdKeywords,
 }
 
 /// Output of using keywords to read raw TEXT+DATA
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct RawDatasetWithKwsOutput {
     /// DATA output
     pub data: FCSDataFrame,
@@ -333,10 +345,10 @@ pub struct RawTEXTParseData {
 // }
 
 /// Standardized TEXT+DATA+ANALYSIS with DATA+ANALYSIS offsets
-pub struct DatasetWithSegments {
-    /// Standardized dataset
-    pub core: AnyCoreDataset,
-
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct DatasetSegments {
+    // /// Standardized dataset
+    // pub core: AnyCoreDataset,
     /// offsets used to parse DATA
     pub data_seg: AnyDataSegment,
 
@@ -585,7 +597,8 @@ impl RawTEXTOutput {
     fn into_std_text(
         self,
         st: &ReadState<StdTextReadConfig>,
-    ) -> DeferredResult<StdTEXTOutput, StdTEXTFromRawWarning, StdTEXTFromRawError> {
+    ) -> DeferredResult<(AnyCoreTEXT, StdTEXTOutput), StdTEXTFromRawWarning, StdTEXTFromRawError>
+    {
         let mut kws = self.keywords;
         let header = &self.parse.header_segments;
         AnyCoreTEXT::parse_raw(
@@ -598,15 +611,17 @@ impl RawTEXTOutput {
         )
         .def_map_value(|(standardized, offsets)| {
             let timestep = kws.std.remove(&Timestep::std());
-            StdTEXTOutput {
-                parse: self.parse,
+            (
                 standardized,
-                tot: offsets.tot,
-                timestep,
-                data: offsets.data,
-                analysis: offsets.analysis,
-                pseudostandard: kws.std,
-            }
+                StdTEXTOutput {
+                    parse: self.parse,
+                    tot: offsets.tot,
+                    timestep,
+                    data: offsets.data,
+                    analysis: offsets.analysis,
+                    pseudostandard: kws.std,
+                },
+            )
         })
     }
 
@@ -615,7 +630,7 @@ impl RawTEXTOutput {
         h: &mut BufReader<R>,
         st: &ReadState<DataReadConfig>,
     ) -> DeferredResult<
-        StdDatasetOutput,
+        (AnyCoreDataset, StdDatasetOutput),
         StdDatasetFromRawWarning,
         ImpureError<StdDatasetFromRawError>,
     > {
@@ -630,16 +645,20 @@ impl RawTEXTOutput {
             &self.parse.header_segments.other[..],
             st,
         )
-        .def_map_value(|(core, data_seg, analysis_seg)| StdDatasetOutput {
-            dataset: StdDatasetWithKwsOutput {
-                standardized: DatasetWithSegments {
-                    core,
-                    data_seg,
-                    analysis_seg,
+        .def_map_value(|(core, data_seg, analysis_seg)| {
+            (
+                core,
+                StdDatasetOutput {
+                    dataset: StdDatasetWithKwsOutput {
+                        standardized: DatasetSegments {
+                            data_seg,
+                            analysis_seg,
+                        },
+                        pseudostandard: kws.std,
+                    },
+                    parse: self.parse,
                 },
-                pseudostandard: kws.std,
-            },
-            parse: self.parse,
+            )
         })
     }
 }

@@ -6,7 +6,7 @@ use crate::text::byteord::{ByteOrd2_0, NewByteOrdError};
 use crate::text::keywords::{
     AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Display, Feature,
     FeatureError, Mode, ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError,
-    Originality, OriginalityError, Unicode,
+    Originality, OriginalityError, Tot, Unicode,
 };
 use crate::text::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use crate::text::scale::{LogRangeError, Scale};
@@ -23,7 +23,7 @@ use polars::prelude::*;
 use polars_arrow::array::PrimitiveArray;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyFloat, PyString, PyTuple};
+use pyo3::types::{PyFloat, PyInt, PyString, PyTuple};
 use pyo3::IntoPyObjectExt;
 use pyo3_polars::{PyDataFrame, PySeries};
 use std::collections::HashMap;
@@ -467,5 +467,15 @@ impl<'py, I, S> FromPyObject<'py> for OffsetCorrection<I, S> {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let t: (i32, i32) = ob.extract()?;
         Ok(Self::from(t))
+    }
+}
+
+impl<'py> IntoPyObject<'py> for Tot {
+    type Target = PyInt;
+    type Output = Bound<'py, PyInt>;
+    type Error = Infallible;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        self.0.into_pyobject(py)
     }
 }

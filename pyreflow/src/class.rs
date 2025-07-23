@@ -95,18 +95,10 @@ fn py_fcs_read_header(p: path::PathBuf, conf: HeaderConfig) -> PyResult<Header> 
 
 #[pyfunction]
 #[pyo3(name = "fcs_read_raw_text")]
-fn py_fcs_read_raw_text(
-    p: path::PathBuf,
-    conf: RawTextReadConfig,
-) -> PyResult<(Version, StdKeywords, NonStdKeywords, RawTEXTParseData)> {
-    let raw: RawTEXTOutput =
+fn py_fcs_read_raw_text(p: path::PathBuf, conf: RawTextReadConfig) -> PyResult<RawTEXTOutput> {
+    let ret =
         fcs_read_raw_text(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
-    Ok((
-        raw.version,
-        raw.keywords.std,
-        raw.keywords.nonstd,
-        raw.parse,
-    ))
+    Ok(ret)
 }
 
 #[pyfunction]
@@ -114,42 +106,18 @@ fn py_fcs_read_raw_text(
 fn py_fcs_read_std_text(
     p: path::PathBuf,
     conf: StdTextReadConfig,
-) -> PyResult<(PyAnyCoreTEXT, RawTEXTParseData, StdKeywords)> {
-    let out: StdTEXTOutput =
+) -> PyResult<(PyAnyCoreTEXT, StdTEXTOutput)> {
+    let (core, data) =
         fcs_read_std_text(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
-    Ok((
-        out.standardized.clone().into(),
-        out.parse,
-        out.pseudostandard.clone(),
-    ))
+    Ok((core.into(), data))
 }
 
 #[pyfunction]
 #[pyo3(name = "fcs_read_raw_dataset")]
-fn py_fcs_read_raw_dataset(
-    p: path::PathBuf,
-    conf: DataReadConfig,
-) -> PyResult<(
-    Version,
-    StdKeywords,
-    NonStdKeywords,
-    RawTEXTParseData,
-    FCSDataFrame,
-    Vec<u8>,
-    Vec<Vec<u8>>,
-)> {
-    let out: RawDatasetOutput =
+fn py_fcs_read_raw_dataset(p: path::PathBuf, conf: DataReadConfig) -> PyResult<RawDatasetOutput> {
+    let ret =
         fcs_read_raw_dataset(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
-
-    Ok((
-        out.text.version,
-        out.text.keywords.std,
-        out.text.keywords.nonstd,
-        out.text.parse,
-        out.dataset.data,
-        out.dataset.analysis.0,
-        out.dataset.others.0.into_iter().map(|x| x.0).collect(),
-    ))
+    Ok(ret)
 }
 
 #[pyfunction]
@@ -157,15 +125,10 @@ fn py_fcs_read_raw_dataset(
 fn py_fcs_read_std_dataset(
     p: path::PathBuf,
     conf: DataReadConfig,
-) -> PyResult<(PyAnyCoreDataset, RawTEXTParseData, StdKeywords)> {
-    let out: StdDatasetOutput =
+) -> PyResult<(PyAnyCoreDataset, StdDatasetOutput)> {
+    let (core, data) =
         fcs_read_std_dataset(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
-
-    Ok((
-        out.dataset.standardized.core.clone().into(),
-        out.parse,
-        out.dataset.pseudostandard.clone(),
-    ))
+    Ok((core.into(), data))
 }
 
 // core* objects

@@ -17,6 +17,9 @@ use unicase::Ascii;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
 /// A standard key.
 ///
 /// These may only contain ASCII and must start with "$". The "$" is not
@@ -106,6 +109,7 @@ pub type BytesPairs = Vec<(Vec<u8>, Vec<u8>)>;
 /// ['ParsedKeywords'] without the bad stuff
 #[derive(Clone, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ValidKeywords {
     pub std: StdKeywords,
     pub nonstd: NonStdKeywords,

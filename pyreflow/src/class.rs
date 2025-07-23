@@ -31,14 +31,13 @@ use nonempty::NonEmpty;
 use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
 use polars::prelude::*;
 use pyo3::create_exception;
-use pyo3::exceptions::{PyException, PyIndexError, PyValueError, PyWarning};
+use pyo3::exceptions::{PyException, PyIndexError, PyWarning};
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyDict};
 use pyo3_polars::PyDataFrame;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fmt;
-use std::num::NonZeroU8;
 use std::path;
 
 #[pymodule]
@@ -178,12 +177,12 @@ fn py_fcs_read_raw_text(
     allow_missing_nextdata: bool,
     trim_value_whitespace: bool,
     date_pattern: Option<DatePattern>,
-    promote_to_standard: PyKeyPatterns,
-    demote_from_standard: PyKeyPatterns,
-    ignore_standard_keys: PyKeyPatterns,
-    rename_standard_keys: PyKeyPairs,
-    replace_standard_key_values: PyKeyValues,
-    append_standard_keywords: PyKeyValues,
+    promote_to_standard: KeyPatterns,
+    demote_from_standard: KeyPatterns,
+    ignore_standard_keys: KeyPatterns,
+    rename_standard_keys: KeyStringPairs,
+    replace_standard_key_values: KeyStringValues,
+    append_standard_keywords: KeyStringValues,
     warnings_are_errors: bool,
 ) -> PyResult<(Version, StdKeywords, NonStdKeywords, RawTEXTParseData)> {
     let header = header_config(
@@ -282,12 +281,12 @@ fn py_fcs_read_raw_text(
         allow_missing_nextdata=false,
         trim_value_whitespace=false,
         date_pattern=None,
-        promote_to_standard=PyKeyPatterns::default(),
-        demote_from_standard=PyKeyPatterns::default(),
-        ignore_standard_keys=PyKeyPatterns::default(),
-        rename_standard_keys=PyKeyPairs::default(),
-        replace_standard_key_values=PyKeyValues::default(),
-        append_standard_keywords=PyKeyValues::default(),
+        promote_to_standard=KeyPatterns::default(),
+        demote_from_standard=KeyPatterns::default(),
+        ignore_standard_keys=KeyPatterns::default(),
+        rename_standard_keys=KeyStringPairs::default(),
+        replace_standard_key_values=KeyStringValues::default(),
+        append_standard_keywords=KeyStringValues::default(),
         warnings_are_errors=false,
 
         disallow_deprecated=false,
@@ -339,12 +338,12 @@ fn py_fcs_read_std_text(
     allow_missing_nextdata: bool,
     trim_value_whitespace: bool,
     date_pattern: Option<DatePattern>,
-    promote_to_standard: PyKeyPatterns,
-    demote_from_standard: PyKeyPatterns,
-    ignore_standard_keys: PyKeyPatterns,
-    rename_standard_keys: PyKeyPairs,
-    replace_standard_key_values: PyKeyValues,
-    append_standard_keywords: PyKeyValues,
+    promote_to_standard: KeyPatterns,
+    demote_from_standard: KeyPatterns,
+    ignore_standard_keys: KeyPatterns,
+    rename_standard_keys: KeyStringPairs,
+    replace_standard_key_values: KeyStringValues,
+    append_standard_keywords: KeyStringValues,
     warnings_are_errors: bool,
 
     disallow_deprecated: bool,
@@ -471,12 +470,12 @@ fn py_fcs_read_std_text(
         allow_missing_nextdata=false,
         trim_value_whitespace=false,
         date_pattern=None,
-        promote_to_standard=PyKeyPatterns::default(),
-        demote_from_standard=PyKeyPatterns::default(),
-        ignore_standard_keys=PyKeyPatterns::default(),
-        rename_standard_keys=PyKeyPairs::default(),
-        replace_standard_key_values=PyKeyValues::default(),
-        append_standard_keywords=PyKeyValues::default(),
+        promote_to_standard=KeyPatterns::default(),
+        demote_from_standard=KeyPatterns::default(),
+        ignore_standard_keys=KeyPatterns::default(),
+        rename_standard_keys=KeyStringPairs::default(),
+        replace_standard_key_values=KeyStringValues::default(),
+        append_standard_keywords=KeyStringValues::default(),
         warnings_are_errors=false,
 
         disallow_deprecated=false,
@@ -532,12 +531,12 @@ fn py_fcs_read_raw_dataset(
     allow_missing_nextdata: bool,
     trim_value_whitespace: bool,
     date_pattern: Option<DatePattern>,
-    promote_to_standard: PyKeyPatterns,
-    demote_from_standard: PyKeyPatterns,
-    ignore_standard_keys: PyKeyPatterns,
-    rename_standard_keys: PyKeyPairs,
-    replace_standard_key_values: PyKeyValues,
-    append_standard_keywords: PyKeyValues,
+    promote_to_standard: KeyPatterns,
+    demote_from_standard: KeyPatterns,
+    ignore_standard_keys: KeyPatterns,
+    rename_standard_keys: KeyStringPairs,
+    replace_standard_key_values: KeyStringValues,
+    append_standard_keywords: KeyStringValues,
     warnings_are_errors: bool,
 
     disallow_deprecated: bool,
@@ -686,12 +685,12 @@ fn py_fcs_read_raw_dataset(
         allow_missing_nextdata=false,
         trim_value_whitespace=false,
         date_pattern=None,
-        promote_to_standard=PyKeyPatterns::default(),
-        demote_from_standard=PyKeyPatterns::default(),
-        ignore_standard_keys=PyKeyPatterns::default(),
-        rename_standard_keys=PyKeyPairs::default(),
-        replace_standard_key_values=PyKeyValues::default(),
-        append_standard_keywords=PyKeyValues::default(),
+        promote_to_standard=KeyPatterns::default(),
+        demote_from_standard=KeyPatterns::default(),
+        ignore_standard_keys=KeyPatterns::default(),
+        rename_standard_keys=KeyStringPairs::default(),
+        replace_standard_key_values=KeyStringValues::default(),
+        append_standard_keywords=KeyStringValues::default(),
         warnings_are_errors=false,
 
         disallow_deprecated=false,
@@ -747,12 +746,12 @@ fn py_fcs_read_std_dataset(
     allow_missing_nextdata: bool,
     trim_value_whitespace: bool,
     date_pattern: Option<DatePattern>,
-    promote_to_standard: PyKeyPatterns,
-    demote_from_standard: PyKeyPatterns,
-    ignore_standard_keys: PyKeyPatterns,
-    rename_standard_keys: PyKeyPairs,
-    replace_standard_key_values: PyKeyValues,
-    append_standard_keywords: PyKeyValues,
+    promote_to_standard: KeyPatterns,
+    demote_from_standard: KeyPatterns,
+    ignore_standard_keys: KeyPatterns,
+    rename_standard_keys: KeyStringPairs,
+    replace_standard_key_values: KeyStringValues,
+    append_standard_keywords: KeyStringValues,
     warnings_are_errors: bool,
 
     disallow_deprecated: bool,
@@ -904,12 +903,12 @@ fn raw_config(
     allow_missing_nextdata: bool,
     trim_value_whitespace: bool,
     date_pattern: Option<DatePattern>,
-    promote_to_standard: PyKeyPatterns,
-    demote_from_standard: PyKeyPatterns,
-    ignore_standard_keys: PyKeyPatterns,
-    rename_standard_keys: PyKeyPairs,
-    replace_standard_key_values: PyKeyValues,
-    append_standard_keywords: PyKeyValues,
+    promote_to_standard: KeyPatterns,
+    demote_from_standard: KeyPatterns,
+    ignore_standard_keys: KeyPatterns,
+    rename_standard_keys: KeyStringPairs,
+    replace_standard_key_values: KeyStringValues,
+    append_standard_keywords: KeyStringValues,
     warnings_are_errors: bool,
 ) -> RawTextReadConfig {
     RawTextReadConfig {
@@ -937,12 +936,12 @@ fn raw_config(
         allow_missing_nextdata,
         trim_value_whitespace,
         date_pattern,
-        promote_to_standard: promote_to_standard.0,
-        demote_from_standard: demote_from_standard.0,
-        ignore_standard_keys: ignore_standard_keys.0,
-        rename_standard_keys: rename_standard_keys.0,
-        replace_standard_key_values: replace_standard_key_values.0,
-        append_standard_keywords: append_standard_keywords.0,
+        promote_to_standard,
+        demote_from_standard,
+        ignore_standard_keys,
+        rename_standard_keys,
+        replace_standard_key_values,
+        append_standard_keywords,
         warnings_are_errors,
     }
 }
@@ -3076,57 +3075,6 @@ get_set_meas!(
     Calibration3_2,
     PyOptical3_2
 );
-
-/// A python value for config parameters that take [`KeyString`] pairs.
-#[derive(Default)]
-struct PyKeyPairs(HashMap<KeyString, KeyString>);
-
-impl<'py> FromPyObject<'py> for PyKeyPairs {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let xs: HashMap<String, String> = ob.extract()?;
-        let ret = xs
-            .into_iter()
-            .map(|(x, y)| {
-                x.parse::<KeyString>()
-                    .and_then(|a| y.parse::<KeyString>().map(|b| (a, b)))
-            })
-            .collect::<Result<HashMap<_, _>, _>>()
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        Ok(Self(ret))
-    }
-}
-
-/// A python value for config parameters that take keystrings with strings.
-#[derive(Default)]
-struct PyKeyValues(HashMap<KeyString, String>);
-
-impl<'py> FromPyObject<'py> for PyKeyValues {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let xs: HashMap<String, String> = ob.extract()?;
-        let ret = xs
-            .into_iter()
-            .map(|(k, v)| k.parse::<KeyString>().map(|x| (x, v)))
-            .collect::<Result<HashMap<_, _>, _>>()
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        Ok(Self(ret))
-    }
-}
-
-/// A python value for the key patterns configuration option.
-#[derive(Default)]
-struct PyKeyPatterns(KeyPatterns);
-
-impl<'py> FromPyObject<'py> for PyKeyPatterns {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let (lits, pats): (Vec<String>, Vec<String>) = ob.extract()?;
-        let mut ret = KeyPatterns::try_from_literals(lits)
-            .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-        let ps = KeyPatterns::try_from_patterns(pats)
-            .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-        ret.extend(ps);
-        Ok(Self(ret))
-    }
-}
 
 #[derive(Display, From)]
 struct PyRangedFloatError(RangedFloatError);

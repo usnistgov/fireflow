@@ -14,7 +14,8 @@ use crate::validated::ascii_range::{Chars, CharsError};
 use crate::validated::dataframe::{AnyFCSColumn, FCSColumn, FCSDataFrame};
 use crate::validated::datepattern::{DatePattern, DatePatternError};
 use crate::validated::keys::{
-    NonStdKey, NonStdKeyError, NonStdMeasPattern, NonStdMeasPatternError, StdKey, StdKeyError,
+    AsciiStringError, KeyPatterns, KeyString, KeyStringPairs, KeyStringPairsError, NonStdKey,
+    NonStdKeyError, NonStdMeasPattern, NonStdMeasPatternError, StdKey, StdKeyError,
 };
 use crate::validated::shortname::{Shortname, ShortnameError};
 
@@ -25,6 +26,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyFloat, PyString, PyTuple};
 use pyo3::IntoPyObjectExt;
 use pyo3_polars::{PyDataFrame, PySeries};
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::fmt;
 use std::num::NonZeroU8;
@@ -125,6 +127,9 @@ impl_value_err!(StdKeyError);
 
 impl_str_to_from_py!(NonStdKey);
 impl_value_err!(NonStdKeyError);
+
+impl_str_to_from_py!(KeyString);
+impl_value_err!(AsciiStringError);
 
 impl_value_err!(CharsError);
 
@@ -432,3 +437,27 @@ impl<'py> FromPyObject<'py> for ByteOrd2_0 {
 }
 
 impl_value_err!(NewByteOrdError);
+
+// pass keypatterns via config as a tuple like ([String], [String]) where the
+// first member is literal strings and the second is regex patterns
+impl<'py> FromPyObject<'py> for KeyPatterns {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let (lits, pats): (Vec<String>, Vec<String>) = ob.extract()?;
+        let mut ret = KeyPatterns::try_from_literals(lits)?;
+        // this is just a regexp error
+        let ps = KeyPatterns::try_from_patterns(pats)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        ret.extend(ps);
+        Ok(ret)
+    }
+}
+
+impl<'py> FromPyObject<'py> for KeyStringPairs {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let xs: HashMap<KeyString, KeyString> = ob.extract()?;
+        let ret = xs.try_into()?;
+        Ok(ret)
+    }
+}
+
+impl_value_err!(KeyStringPairsError);

@@ -4,6 +4,7 @@ use crate::text::index::IndexFromOne;
 
 use derive_more::{AsRef, Display, From};
 use itertools::Itertools;
+use nonempty::NonEmpty;
 use regex::Regex;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -21,6 +22,7 @@ use serde::Serialize;
 /// These may only contain ASCII and must start with "$". The "$" is not
 /// actually stored but will be appended when converting to a ['String'].
 #[derive(Clone, Debug, PartialEq, Eq, Hash, AsRef)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[as_ref(KeyString, str)]
 pub struct StdKey(KeyString);
 
@@ -28,6 +30,7 @@ pub struct StdKey(KeyString);
 ///
 /// This cannot start with '$' and may only contain ASCII characters.
 #[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[as_ref(KeyString, str)]
 pub struct NonStdKey(KeyString);
 
@@ -41,6 +44,20 @@ pub type NonStdKeywords = HashMap<NonStdKey, String>;
 #[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash)]
 #[as_ref(str)]
 pub struct KeyString(Ascii<String>);
+
+/// A map of keystring-keystring pairs.
+///
+/// The main use case for this is to rename keys.
+///
+/// This will be validated such that no pair has matching source and
+/// destination.
+#[derive(Clone, Debug, Default)]
+pub struct KeyStringPairs(HashMap<KeyString, KeyString>);
+
+/// A map of keystrings and strings.
+///
+/// The main use case for this is to replace or add key values.
+pub type KeyStringValues = HashMap<KeyString, String>;
 
 /// A String that matches part of a non-standard measurement key.
 ///
@@ -239,6 +256,34 @@ impl KeyString {
     }
 }
 
+#[cfg(feature = "serde")]
+impl Serialize for KeyString {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.as_ref().serialize(serializer)
+    }
+}
+
+impl TryFrom<HashMap<KeyString, KeyString>> for KeyStringPairs {
+    type Error = KeyStringPairsError;
+
+    fn try_from(value: HashMap<KeyString, KeyString>) -> Result<Self, Self::Error> {
+        let mut names = vec![];
+        for (k, v) in value.iter() {
+            if k == v {
+                names.push(k.clone());
+            }
+        }
+        if let Some(ns) = NonEmpty::from_vec(names) {
+            Err(KeyStringPairsError(ns))
+        } else {
+            Ok(Self(value))
+        }
+    }
+}
+
 impl StdKey {
     fn new(s: String) -> Self {
         Self(KeyString::new(s))
@@ -248,26 +293,6 @@ impl StdKey {
 impl NonStdKey {
     fn new(s: String) -> Self {
         Self(KeyString::new(s))
-    }
-}
-
-#[cfg(feature = "serde")]
-impl Serialize for StdKey {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.0.as_ref().serialize(serializer)
-    }
-}
-
-#[cfg(feature = "serde")]
-impl Serialize for NonStdKey {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.0.as_ref().serialize(serializer)
     }
 }
 
@@ -451,7 +476,7 @@ impl ParsedKeywords {
                     } else if to_nonstd.is_match(&kk) {
                         insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
                     } else {
-                        let rk = conf.rename_standard_keys.get(&kk).cloned().unwrap_or(kk);
+                        let rk = conf.rename_standard_keys.0.get(&kk).cloned().unwrap_or(kk);
                         insert_nonunique(&mut self.std, StdKey(rk), value, conf)
                     }
                 } else if n > 0 && is_printable_ascii(k) {
@@ -552,6 +577,8 @@ pub struct NonStdMeasRegexError {
     index: IndexFromOne,
 }
 
+pub struct KeyStringPairsError(NonEmpty<KeyString>);
+
 impl<T: fmt::Display> fmt::Display for KeyPresent<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
@@ -634,6 +661,16 @@ impl fmt::Display for BlankValueError {
             |s| format!("key was {s}"),
         );
         write!(f, "skipping key with blank value, {s}")
+    }
+}
+
+impl fmt::Display for KeyStringPairsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "The following keys are paired with themselves: {}",
+            self.0.iter().join(",")
+        )
     }
 }
 

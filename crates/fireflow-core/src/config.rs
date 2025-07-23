@@ -363,8 +363,7 @@ pub struct RawTextReadConfig {
     ///
     /// Keys are renamed before ['promote_to_standard'] and
     /// ['demote_from_standard'] are applied.
-    // TODO ensure src and dest are different
-    pub rename_standard_keys: HashMap<keys::KeyString, keys::KeyString>,
+    pub rename_standard_keys: keys::KeyStringPairs,
 
     /// A list of nonstandard keywords to be "promoted" to standard.
     ///
@@ -391,7 +390,7 @@ pub struct RawTextReadConfig {
     ///
     /// Keys will be matched in case-insensitive manner. The leading "$" is
     /// implied, so keys in this table should not include it.
-    pub replace_standard_key_values: HashMap<keys::KeyString, String>,
+    pub replace_standard_key_values: keys::KeyStringValues,
 
     /// Append standard key/value pairs to those read from TEXT.
     ///
@@ -403,7 +402,7 @@ pub struct RawTextReadConfig {
     /// and existing value will not be overwritten in such cases. This will also
     /// trigger a deviant keyword warning/error if they do not belong in the
     /// indicated version.
-    pub append_standard_keywords: HashMap<keys::KeyString, String>,
+    pub append_standard_keywords: keys::KeyStringValues,
 
     /// If true, all warnings will become fatal errors.
     pub warnings_are_errors: bool,

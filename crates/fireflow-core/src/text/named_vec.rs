@@ -75,7 +75,7 @@ pub struct UnsplitVec<K, V> {
 }
 
 #[derive(Clone)]
-#[cfg_attr(feature = "python", derive(FromPyObject))]
+#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 pub enum Element<U, V> {
     Center(U),
     NonCenter(V),

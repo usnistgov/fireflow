@@ -26,7 +26,7 @@ use super::macros::py_wrap;
 
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
-use derive_more::{Display, From, Into};
+use derive_more::{Display, From};
 use nonempty::NonEmpty;
 use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
 use polars::prelude::*;
@@ -34,7 +34,6 @@ use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyIndexError, PyValueError, PyWarning};
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyDict};
-use pyo3::IntoPyObjectExt;
 use pyo3_polars::PyDataFrame;
 use std::collections::HashMap;
 use std::ffi::CString;
@@ -1638,13 +1637,13 @@ macro_rules! common_meas_get_set {
             fn remove_measurement_by_name(
                 &mut self,
                 name: Shortname,
-            ) -> Option<(usize, PyElement<$t, $o>)> {
+            ) -> Option<(usize, Element<$t, $o>)> {
                 self.0
                     .remove_measurement_by_name(&name)
                     .map(|(i, x)| (i.into(), x.inner_into().into()))
             }
 
-            fn measurement_at(&self, i: usize) -> Result<PyElement<$t, $o>, PyElementIndexError> {
+            fn measurement_at(&self, i: usize) -> Result<Element<$t, $o>, PyElementIndexError> {
                 let ms: &NamedVec<_, _, _, _> = self.0.as_ref();
                 let m = ms.get(i.into()).map_err(PyElementIndexError)?;
                 Ok(m.bimap(|x| x.1.clone(), |x| x.1.clone())
@@ -1656,7 +1655,7 @@ macro_rules! common_meas_get_set {
                 &mut self,
                 i: usize,
                 m: $o,
-            ) -> Result<PyElement<$t, $o>, PyElementIndexError> {
+            ) -> Result<Element<$t, $o>, PyElementIndexError> {
                 let ret = self
                     .0
                     .replace_optical_at(i.into(), m.into())
@@ -1664,11 +1663,7 @@ macro_rules! common_meas_get_set {
                 Ok(ret.inner_into().into())
             }
 
-            fn replace_optical_named(
-                &mut self,
-                name: Shortname,
-                m: $o,
-            ) -> Option<PyElement<$t, $o>> {
+            fn replace_optical_named(&mut self, name: Shortname, m: $o) -> Option<Element<$t, $o>> {
                 self.0
                     .replace_optical_named(&name, m.into())
                     .map(|r| r.inner_into().into())
@@ -1683,7 +1678,7 @@ macro_rules! common_meas_get_set {
                 i: usize,
                 m: $t,
                 force: bool,
-            ) -> PyResult<PyElement<$t, $o>> {
+            ) -> PyResult<Element<$t, $o>> {
                 let ret = self
                     .0
                     .replace_temporal_at(i.into(), m.into(), force)
@@ -1696,7 +1691,7 @@ macro_rules! common_meas_get_set {
                 name: Shortname,
                 m: $t,
                 force: bool,
-            ) -> PyResult<Option<PyElement<$t, $o>>> {
+            ) -> PyResult<Option<Element<$t, $o>>> {
                 let ret = self
                     .0
                     .replace_temporal_named(&name, m.into(), force)
@@ -1705,7 +1700,7 @@ macro_rules! common_meas_get_set {
             }
 
             #[getter]
-            fn measurements(&self) -> Vec<PyElement<$t, $o>> {
+            fn measurements(&self) -> Vec<Element<$t, $o>> {
                 // This might seem inefficient since we are cloning
                 // everything, but if we want to map a python lambda
                 // function over the measurements we would need to to do
@@ -1865,7 +1860,7 @@ macro_rules! coretext2_0_meas_methods {
             fn remove_measurement_by_index(
                 &mut self,
                 index: usize,
-            ) -> Result<(Option<Shortname>, PyElement<$t, $o>), PyElementIndexError> {
+            ) -> Result<(Option<Shortname>, Element<$t, $o>), PyElementIndexError> {
                 let r = self
                     .0
                     .remove_measurement_by_index(index.into())
@@ -1916,7 +1911,7 @@ macro_rules! coretext3_1_meas_methods {
             fn remove_measurement_by_index(
                 &mut self,
                 index: usize,
-            ) -> Result<(Shortname, PyElement<$t, $o>), PyElementIndexError> {
+            ) -> Result<(Shortname, Element<$t, $o>), PyElementIndexError> {
                 let r = self
                     .0
                     .remove_measurement_by_index(index.into())
@@ -3081,43 +3076,6 @@ get_set_meas!(
     Calibration3_2,
     PyOptical3_2
 );
-
-/// A python value for a temporal or optical measurement
-#[derive(From, Into)]
-struct PyElement<T, O>(Element<T, O>);
-
-impl<'py, T, O> FromPyObject<'py> for PyElement<T, O>
-where
-    T: FromPyObject<'py>,
-    O: FromPyObject<'py>,
-{
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        // TODO misleading error
-        if let Ok(t) = ob.extract::<T>() {
-            Ok(Self(Element::Center(t)))
-        } else {
-            let o = ob.extract::<O>()?;
-            Ok(Self(Element::NonCenter(o)))
-        }
-    }
-}
-
-impl<'py, T, O> IntoPyObject<'py> for PyElement<T, O>
-where
-    T: IntoPyObject<'py>,
-    O: IntoPyObject<'py>,
-{
-    type Target = PyAny;
-    type Output = Bound<'py, Self::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        match self.0 {
-            Element::Center(x) => x.into_bound_py_any(py),
-            Element::NonCenter(x) => x.into_bound_py_any(py),
-        }
-    }
-}
 
 /// A python value for the byteord override config parameter
 #[derive(Default)]

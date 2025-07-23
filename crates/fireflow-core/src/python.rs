@@ -1,6 +1,7 @@
 use crate::config::TimePattern;
 use crate::core::ScaleTransform;
 use crate::header::{Version, VersionError};
+use crate::segment::Segment;
 use crate::text::keywords::{
     AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Display, Feature,
     FeatureError, Mode, ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError,
@@ -308,5 +309,24 @@ impl<'py> IntoPyObject<'py> for Display {
             Self::Log { offset, decades } => (true, offset, decades),
         };
         ret.into_pyobject(py)
+    }
+}
+
+// segments will be returned as tuples like (u32, u32) reflecting their
+// exact representation in an FCS file
+impl<'py, T> IntoPyObject<'py> for Segment<T>
+where
+    T: Copy,
+    u64: From<T>,
+{
+    type Target = PyTuple;
+    type Output = Bound<'py, <(u64, u64) as IntoPyObject<'py>>::Target>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        self.as_u64()
+            .try_coords()
+            .unwrap_or((0, 0))
+            .into_pyobject(py)
     }
 }

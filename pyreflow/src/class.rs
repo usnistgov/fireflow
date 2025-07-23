@@ -35,7 +35,7 @@ use polars_arrow::array::PrimitiveArray;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyIndexError, PyValueError, PyWarning};
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyDict, PyTuple};
+use pyo3::types::{IntoPyDict, PyDict};
 use pyo3::IntoPyObjectExt;
 use pyo3_polars::{PyDataFrame, PySeries};
 use std::collections::HashMap;
@@ -123,7 +123,7 @@ fn py_fcs_read_header(
     allow_negative: bool,
     squish_offsets: bool,
     truncate_offsets: bool,
-) -> PyResult<PyHeader> {
+) -> PyResult<Header> {
     let conf = header_config(
         version_override,
         prim_text_correction,
@@ -138,7 +138,7 @@ fn py_fcs_read_header(
     );
     fcs_read_header(&p, &conf)
         .map_err(handle_failure_nowarn)
-        .map(|x| x.inner().into())
+        .map(|x| x.inner())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -188,7 +188,7 @@ fn py_fcs_read_raw_text(
     replace_standard_key_values: PyKeyValues,
     append_standard_keywords: PyKeyValues,
     warnings_are_errors: bool,
-) -> PyResult<(Version, StdKeywords, NonStdKeywords, PyParseData)> {
+) -> PyResult<(Version, StdKeywords, NonStdKeywords, RawTEXTParseData)> {
     let header = header_config(
         version_override,
         prim_text_correction,
@@ -242,7 +242,7 @@ fn py_fcs_read_raw_text(
         raw.version,
         raw.keywords.std,
         raw.keywords.nonstd,
-        raw.parse.into(),
+        raw.parse,
     ))
 }
 
@@ -362,7 +362,7 @@ fn py_fcs_read_std_text(
     time_pattern: Option<TimePattern>,
     integer_widths_from_byteord: bool,
     integer_byteord_override: PyByteOrd,
-) -> PyResult<(PyAnyCoreTEXT, PyParseData, StdKeywords)> {
+) -> PyResult<(PyAnyCoreTEXT, RawTEXTParseData, StdKeywords)> {
     let header = header_config(
         version_override,
         prim_text_correction,
@@ -429,7 +429,7 @@ fn py_fcs_read_std_text(
 
     Ok((
         out.standardized.clone().into(),
-        out.parse.into(),
+        out.parse,
         out.pseudostandard.clone(),
     ))
 }
@@ -563,7 +563,7 @@ fn py_fcs_read_raw_dataset(
     Version,
     StdKeywords,
     NonStdKeywords,
-    PyParseData,
+    RawTEXTParseData,
     PyDataFrame,
     Vec<u8>,
     Vec<Vec<u8>>,
@@ -643,7 +643,7 @@ fn py_fcs_read_raw_dataset(
         out.text.version,
         out.text.keywords.std,
         out.text.keywords.nonstd,
-        out.text.parse.into(),
+        out.text.parse,
         PyFCSDataFrame::from(out.dataset.data).into(),
         out.dataset.analysis.0,
         out.dataset.others.0.into_iter().map(|x| x.0).collect(),
@@ -774,7 +774,7 @@ fn py_fcs_read_std_dataset(
     allow_uneven_event_width: bool,
     allow_tot_mismatch: bool,
     allow_data_par_mismatch: bool,
-) -> PyResult<(PyAnyCoreDataset, PyParseData, StdKeywords)> {
+) -> PyResult<(PyAnyCoreDataset, RawTEXTParseData, StdKeywords)> {
     let header = header_config(
         version_override,
         prim_text_correction,
@@ -848,7 +848,7 @@ fn py_fcs_read_std_dataset(
 
     Ok((
         out.dataset.standardized.core.clone().into(),
-        out.parse.into(),
+        out.parse,
         out.dataset.pseudostandard.clone(),
     ))
 }
@@ -3082,86 +3082,6 @@ get_set_meas!(
     Calibration3_2,
     PyOptical3_2
 );
-
-// TODO deref for stuff like this?
-/// A python value for a segment.
-///
-/// This is represented as a tuple like `(u64, u64)` where the two numbers
-/// are exactly as they appear in the FCS file.
-#[derive(From)]
-struct PySegment(Segment<u64>);
-
-impl<'py> IntoPyObject<'py> for PySegment {
-    type Target = PyTuple;
-    type Output = Bound<'py, <(u64, u64) as IntoPyObject<'py>>::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        self.0.try_coords().unwrap_or((0, 0)).into_pyobject(py)
-    }
-}
-
-/// A python value for the values in the HEADER as a dictionary.
-#[derive(IntoPyObject)]
-struct PyHeader {
-    version: Version,
-    text: PySegment,
-    data: PySegment,
-    analysis: PySegment,
-    other: Vec<PySegment>,
-}
-
-impl From<Header> for PyHeader {
-    fn from(value: Header) -> Self {
-        let s = value.segments;
-        Self {
-            version: value.version,
-            text: s.text.inner.as_u64().into(),
-            data: s.data.inner.as_u64().into(),
-            analysis: s.analysis.inner.as_u64().into(),
-            other: s
-                .other
-                .into_iter()
-                .map(|x| x.inner.as_u64().into())
-                .collect(),
-        }
-    }
-}
-
-/// A python value for various values in HEADER and TEXT as a dictionary.
-#[derive(IntoPyObject)]
-struct PyParseData {
-    prim_text: PySegment,
-    supp_text: Option<PySegment>,
-    data: PySegment,
-    analysis: PySegment,
-    other: Vec<PySegment>,
-    nextdata: Option<u32>,
-    delimiter: u8,
-    non_ascii_keywords: Vec<(String, String)>,
-    byte_pairs: Vec<(Vec<u8>, Vec<u8>)>,
-}
-
-impl From<RawTEXTParseData> for PyParseData {
-    fn from(value: RawTEXTParseData) -> Self {
-        let h = value.header_segments;
-        Self {
-            prim_text: h.text.inner.as_u64().into(),
-            supp_text: value.supp_text.map(|s| s.inner.as_u64().into()),
-            data: h.data.inner.as_u64().into(),
-            analysis: h.analysis.inner.as_u64().into(),
-            other: h
-                .other
-                .into_iter()
-                .map(|x| x.inner.as_u64().into())
-                .collect(),
-            nextdata: value.nextdata,
-            delimiter: value.delimiter,
-            non_ascii_keywords: value.non_ascii,
-            byte_pairs: value.byte_pairs,
-        }
-    }
-}
 
 /// A python value for a vector of input columns from a polars dataframe.
 #[derive(From)]

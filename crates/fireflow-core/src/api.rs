@@ -22,6 +22,9 @@ use std::path;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
 /// Read HEADER from an FCS file.
 pub fn fcs_read_header(
     p: &path::PathBuf,
@@ -288,6 +291,7 @@ pub struct RawDatasetWithKwsOutput {
 /// Data pertaining to parsing the TEXT segment.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct RawTEXTParseData {
     /// Offsets read from HEADER
     pub header_segments: HeaderSegments,

@@ -1257,3 +1257,26 @@ pub(crate) struct NewSegmentConfig<T, I, S> {
     pub(crate) file_len: Option<T>,
     pub(crate) truncate_offsets: bool,
 }
+
+#[cfg(feature = "python")]
+mod python {
+    use super::*;
+    use pyo3::prelude::*;
+
+    // pyo3 apparently can't deal with phantomdata, this is basically just
+    // converting the inner segment which already has this trait
+    impl<'py, I, S, T> IntoPyObject<'py> for SpecificSegment<I, S, T>
+    where
+        T: Copy,
+        u64: From<T>,
+        Segment<T>: IntoPyObject<'py>,
+    {
+        type Target = <Segment<T> as IntoPyObject<'py>>::Target;
+        type Output = <Segment<T> as IntoPyObject<'py>>::Output;
+        type Error = <Segment<T> as IntoPyObject<'py>>::Error;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            self.inner.into_pyobject(py)
+        }
+    }
+}

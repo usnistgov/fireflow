@@ -17,6 +17,9 @@ use std::str;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
 /// The length of the HEADER.
 ///
 /// This should always be the same. This also assumes that there are no OTHER
@@ -57,6 +60,7 @@ impl_version!(Version3_2, FCS3_2);
 /// The three segments from the HEADER
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct HeaderSegments {
     pub text: PrimaryTextSegment,
     pub data: HeaderDataSegment,
@@ -179,6 +183,7 @@ impl HeaderSegments {
 /// Only valid segments are to be put in this struct (ie begin <= end).
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct Header {
     pub version: Version,
     pub segments: HeaderSegments,

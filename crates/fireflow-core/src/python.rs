@@ -10,7 +10,9 @@ use crate::text::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use crate::text::scale::{LogRangeError, Scale};
 use crate::validated::ascii_range::{Chars, CharsError};
 use crate::validated::datepattern::{DatePattern, DatePatternError};
-use crate::validated::keys::{NonStdMeasPattern, NonStdMeasPatternError};
+use crate::validated::keys::{
+    KeyStringError, NonStdKey, NonStdMeasPattern, NonStdMeasPatternError, StdKey,
+};
 use crate::validated::shortname::{Shortname, ShortnameError};
 
 use pyo3::exceptions::PyValueError;
@@ -56,11 +58,9 @@ macro_rules! impl_str_from_py {
     };
 }
 
-// Convert b/t string and rust enum
-macro_rules! impl_py_enum {
+// Convert rust type to python type using its Display trait
+macro_rules! impl_str_to_py {
     ($t:ident) => {
-        impl_str_from_py!($t);
-
         impl<'py> IntoPyObject<'py> for $t {
             type Target = PyString;
             type Output = Bound<'py, Self::Target>;
@@ -73,6 +73,13 @@ macro_rules! impl_py_enum {
     };
 }
 
+macro_rules! impl_str_to_from_py {
+    ($t:ident) => {
+        impl_str_from_py!($t);
+        impl_str_to_py!($t);
+    };
+}
+
 impl_str_from_py!(NonStdMeasPattern);
 impl_value_err!(NonStdMeasPatternError);
 
@@ -82,26 +89,30 @@ impl_value_err!(DatePatternError);
 impl_str_from_py!(Shortname);
 impl_value_err!(ShortnameError);
 
-impl_py_enum!(Version);
+impl_str_to_from_py!(Version);
 impl_value_err!(VersionError);
 
-impl_py_enum!(Originality);
+impl_str_to_from_py!(Originality);
 impl_value_err!(OriginalityError);
 
-impl_py_enum!(AlphaNumType);
+impl_str_to_from_py!(AlphaNumType);
 impl_value_err!(AlphaNumTypeError);
 
-impl_py_enum!(NumType);
+impl_str_to_from_py!(NumType);
 impl_value_err!(NumTypeError);
 
-impl_py_enum!(Feature);
+impl_str_to_from_py!(Feature);
 impl_value_err!(FeatureError);
 
-impl_py_enum!(Mode);
+impl_str_to_from_py!(Mode);
 impl_value_err!(ModeError);
 
-impl_py_enum!(OpticalType);
+impl_str_to_from_py!(OpticalType);
 impl_value_err!(OpticalTypeError);
+
+impl_str_to_from_py!(StdKey);
+impl_str_to_from_py!(NonStdKey);
+impl_value_err!(KeyStringError);
 
 impl_value_err!(CharsError);
 

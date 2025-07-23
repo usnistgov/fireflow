@@ -188,7 +188,7 @@ fn py_fcs_read_raw_text(
     replace_standard_key_values: PyKeyValues,
     append_standard_keywords: PyKeyValues,
     warnings_are_errors: bool,
-) -> PyResult<(Version, PyStdKeywords, PyNonStdKeywords, PyParseData)> {
+) -> PyResult<(Version, StdKeywords, NonStdKeywords, PyParseData)> {
     let header = header_config(
         version_override,
         prim_text_correction,
@@ -240,8 +240,8 @@ fn py_fcs_read_raw_text(
         fcs_read_raw_text(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
     Ok((
         raw.version,
-        raw.keywords.std.into(),
-        raw.keywords.nonstd.into(),
+        raw.keywords.std,
+        raw.keywords.nonstd,
         raw.parse.into(),
     ))
 }
@@ -362,7 +362,7 @@ fn py_fcs_read_std_text(
     time_pattern: Option<TimePattern>,
     integer_widths_from_byteord: bool,
     integer_byteord_override: PyByteOrd,
-) -> PyResult<(PyAnyCoreTEXT, PyParseData, PyStdKeywords)> {
+) -> PyResult<(PyAnyCoreTEXT, PyParseData, StdKeywords)> {
     let header = header_config(
         version_override,
         prim_text_correction,
@@ -430,7 +430,7 @@ fn py_fcs_read_std_text(
     Ok((
         out.standardized.clone().into(),
         out.parse.into(),
-        out.pseudostandard.clone().into(),
+        out.pseudostandard.clone(),
     ))
 }
 
@@ -561,8 +561,8 @@ fn py_fcs_read_raw_dataset(
     allow_data_par_mismatch: bool,
 ) -> PyResult<(
     Version,
-    PyStdKeywords,
-    PyNonStdKeywords,
+    StdKeywords,
+    NonStdKeywords,
     PyParseData,
     PyDataFrame,
     Vec<u8>,
@@ -641,8 +641,8 @@ fn py_fcs_read_raw_dataset(
 
     Ok((
         out.text.version,
-        out.text.keywords.std.into(),
-        out.text.keywords.nonstd.into(),
+        out.text.keywords.std,
+        out.text.keywords.nonstd,
         out.text.parse.into(),
         PyFCSDataFrame::from(out.dataset.data).into(),
         out.dataset.analysis.0,
@@ -774,7 +774,7 @@ fn py_fcs_read_std_dataset(
     allow_uneven_event_width: bool,
     allow_tot_mismatch: bool,
     allow_data_par_mismatch: bool,
-) -> PyResult<(PyAnyCoreDataset, PyParseData, PyStdKeywords)> {
+) -> PyResult<(PyAnyCoreDataset, PyParseData, StdKeywords)> {
     let header = header_config(
         version_override,
         prim_text_correction,
@@ -849,7 +849,7 @@ fn py_fcs_read_std_dataset(
     Ok((
         out.dataset.standardized.core.clone().into(),
         out.parse.into(),
-        out.dataset.pseudostandard.clone().into(),
+        out.dataset.pseudostandard.clone(),
     ))
 }
 
@@ -1381,16 +1381,16 @@ macro_rules! common_methods {
 
         #[pymethods]
         impl $pytype {
-            fn insert_nonstandard(&mut self, key: PyNonStdKey, v: String) -> Option<String> {
-                self.0.metaroot.nonstandard_keywords.insert(key.0, v)
+            fn insert_nonstandard(&mut self, key: NonStdKey, v: String) -> Option<String> {
+                self.0.metaroot.nonstandard_keywords.insert(key, v)
             }
 
-            fn remove_nonstandard(&mut self, key: PyNonStdKey) -> Option<String> {
-                self.0.metaroot.nonstandard_keywords.remove(&key.0)
+            fn remove_nonstandard(&mut self, key: NonStdKey) -> Option<String> {
+                self.0.metaroot.nonstandard_keywords.remove(&key)
             }
 
-            fn get_nonstandard(&mut self, key: PyNonStdKey) -> Option<String> {
-                self.0.metaroot.nonstandard_keywords.get(&key.0).cloned()
+            fn get_nonstandard(&mut self, key: NonStdKey) -> Option<String> {
+                self.0.metaroot.nonstandard_keywords.get(&key).cloned()
             }
 
             // TODO add way to remove nonstandard
@@ -1411,32 +1411,29 @@ macro_rules! common_methods {
 
             fn insert_meas_nonstandard(
                 &mut self,
-                keyvals: Vec<(PyNonStdKey, String)>,
+                keyvals: Vec<(NonStdKey, String)>,
             ) -> PyResult<Vec<Option<String>>> {
-                let xs = keyvals.into_iter().map(|(k, v)| (k.0, v)).collect();
                 self.0
-                    .insert_meas_nonstandard(xs)
+                    .insert_meas_nonstandard(keyvals)
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
 
             }
 
             fn remove_meas_nonstandard(
                 &mut self,
-                keys: Vec<PyNonStdKey>
+                keys: Vec<NonStdKey>
             ) -> PyResult<Vec<Option<String>>> {
-                let xs = keys.iter().map(|k| &k.0).collect();
                 self.0
-                    .remove_meas_nonstandard(xs)
+                    .remove_meas_nonstandard(keys.iter().collect())
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
             }
 
             fn get_meas_nonstandard(
                 &mut self,
-                keys: Vec<PyNonStdKey>
+                keys: Vec<NonStdKey>
             ) -> PyResult<Option<Vec<Option<String>>>> {
-                let xs: Vec<_> = keys.into_iter().map(|k| k.0).collect();
                 let res = self.0
-                    .get_meas_nonstandard(&xs[..])
+                    .get_meas_nonstandard(&keys[..])
                     .map(|rs| rs.into_iter().map(|r| r.cloned()).collect());
                 Ok(res)
             }
@@ -2843,18 +2840,18 @@ macro_rules! shared_meas_get_set {
 
                 fn nonstandard_insert(
                     &mut self,
-                    key: PyNonStdKey,
+                    key: NonStdKey,
                     value: String
                 ) -> Option<String> {
-                    self.0.common.nonstandard_keywords.insert(key.0, value)
+                    self.0.common.nonstandard_keywords.insert(key, value)
                 }
 
-                fn nonstandard_get(&self, key: PyNonStdKey) -> Option<String> {
-                    self.0.common.nonstandard_keywords.get(&key.0).map(|x| x.clone())
+                fn nonstandard_get(&self, key: NonStdKey) -> Option<String> {
+                    self.0.common.nonstandard_keywords.get(&key).map(|x| x.clone())
                 }
 
-                fn nonstandard_remove(&mut self, key: PyNonStdKey) -> Option<String> {
-                    self.0.common.nonstandard_keywords.remove(&key.0)
+                fn nonstandard_remove(&mut self, key: NonStdKey) -> Option<String> {
+                    self.0.common.nonstandard_keywords.remove(&key)
                 }
             }
         )*
@@ -3166,40 +3163,6 @@ impl From<RawTEXTParseData> for PyParseData {
     }
 }
 
-/// A python value for returned (pseudo)standard keywords.
-#[derive(From)]
-struct PyStdKeywords(StdKeywords);
-
-impl<'py> IntoPyObject<'py> for PyStdKeywords {
-    type Target = PyDict;
-    type Output = Bound<'py, Self::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        self.0
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v))
-            .into_py_dict(py)
-    }
-}
-
-/// A python value for returned non-standard keywords.
-#[derive(From)]
-struct PyNonStdKeywords(NonStdKeywords);
-
-impl<'py> IntoPyObject<'py> for PyNonStdKeywords {
-    type Target = PyDict;
-    type Output = Bound<'py, Self::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        self.0
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v))
-            .into_py_dict(py)
-    }
-}
-
 /// A python value for a vector of input columns from a polars dataframe.
 #[derive(From)]
 struct PyFCSDataFrame(FCSDataFrame);
@@ -3219,17 +3182,6 @@ impl From<PyFCSDataFrame> for PyDataFrame {
         // ASSUME this will not fail because all columns should have unique
         // names and the same length
         PyDataFrame(DataFrame::new(columns).unwrap())
-    }
-}
-
-/// A python value for a non-standard keyword.
-struct PyNonStdKey(NonStdKey);
-
-impl<'py> FromPyObject<'py> for PyNonStdKey {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let s: String = ob.extract()?;
-        let n = s.parse().map_err(PyKeyStringError)?;
-        Ok(PyNonStdKey(n))
     }
 }
 

@@ -359,23 +359,6 @@ impl<'py> IntoPyObject<'py> for FCSDataFrame {
     }
 }
 
-impl From<FCSDataFrame> for PyDataFrame {
-    fn from(value: FCSDataFrame) -> Self {
-        let columns = value
-            .iter_columns()
-            .enumerate()
-            .map(|(i, c)| {
-                Series::from_arrow(PlSmallStr::from(format!("X{i}")), c.as_array())
-                    .unwrap()
-                    .into()
-            })
-            .collect();
-        // ASSUME this will not fail because all columns should have unique
-        // names and the same length
-        PyDataFrame(DataFrame::new(columns).unwrap())
-    }
-}
-
 impl<'py> FromPyObject<'py> for AnyFCSColumn {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let ser: PySeries = ob.extract()?;

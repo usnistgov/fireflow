@@ -1964,23 +1964,23 @@ macro_rules! set_measurements_ordered {
         impl $pytype {
             fn set_measurements(
                 &mut self,
-                xs: PyRawMaybeInput<$t, $o>,
+                xs: RawInput<MaybeFamily, $t, $o>,
                 prefix: ShortnamePrefix,
             ) -> PyResult<()> {
                 self.0
-                    .set_measurements(xs.0.inner_into(), prefix)
+                    .set_measurements(xs.inner_into(), prefix)
                     .py_mult_terminate(SetMeasurementsFailure)
                     .void()
             }
 
             fn set_measurements_and_layout(
                 &mut self,
-                xs: PyRawMaybeInput<$t, $o>,
+                xs: RawInput<MaybeFamily, $t, $o>,
                 layout: PyOrderedLayout,
                 prefix: ShortnamePrefix,
             ) -> PyResult<()> {
                 self.0
-                    .set_measurements_and_layout(xs.0.inner_into(), layout.into(), prefix)
+                    .set_measurements_and_layout(xs.inner_into(), layout.into(), prefix)
                     .py_mult_terminate(SetMeasurementsFailure)
                     .void()
             }
@@ -2009,20 +2009,20 @@ macro_rules! set_measurements_endian {
     ($pytype:ident, $t:ident, $o:ident, $l:ident) => {
         #[pymethods]
         impl $pytype {
-            pub fn set_measurements(&mut self, xs: PyRawAlwaysInput<$t, $o>) -> PyResult<()> {
+            pub fn set_measurements(&mut self, xs: RawInput<AlwaysFamily, $t, $o>) -> PyResult<()> {
                 self.0
-                    .set_measurements_noprefix(xs.0.inner_into())
+                    .set_measurements_noprefix(xs.inner_into())
                     .py_mult_terminate(SetMeasurementsFailure)
                     .void()
             }
 
             fn set_measurements_and_layout(
                 &mut self,
-                xs: PyRawAlwaysInput<$t, $o>,
+                xs: RawInput<AlwaysFamily, $t, $o>,
                 layout: $l,
             ) -> PyResult<()> {
                 self.0
-                    .set_measurements_and_layout_noprefix(xs.0.inner_into(), layout.into())
+                    .set_measurements_and_layout_noprefix(xs.inner_into(), layout.into())
                     .py_mult_terminate(SetMeasurementsFailure)
                     .void()
             }
@@ -2052,18 +2052,19 @@ set_measurements_endian!(
 );
 set_measurements_endian!(PyCoreDataset3_2, PyTemporal3_2, PyOptical3_2, PyLayout3_2);
 
+// TODO use a real dataframe here rather than a list of series
 macro_rules! coredata2_0_meas_methods {
     ($pytype:ident, $t:ident, $o:ident) => {
         #[pymethods]
         impl $pytype {
             fn set_measurements_and_data(
                 &mut self,
-                xs: PyRawMaybeInput<$t, $o>,
+                xs: RawInput<MaybeFamily, $t, $o>,
                 cols: Vec<AnyFCSColumn>,
                 prefix: ShortnamePrefix,
             ) -> PyResult<()> {
                 self.0
-                    .set_measurements_and_data(xs.0.inner_into(), cols, prefix)
+                    .set_measurements_and_data(xs.inner_into(), cols, prefix)
                     .py_mult_terminate(SetMeasurementsFailure)
                     .void()
             }
@@ -2080,11 +2081,11 @@ macro_rules! coredata3_1_meas_methods {
         impl $pytype {
             fn set_measurements_and_data(
                 &mut self,
-                xs: PyRawAlwaysInput<$t, $o>,
+                xs: RawInput<AlwaysFamily, $t, $o>,
                 cols: Vec<AnyFCSColumn>,
             ) -> PyResult<()> {
                 self.0
-                    .set_measurements_and_data_noprefix(xs.0.inner_into(), cols)
+                    .set_measurements_and_data_noprefix(xs.inner_into(), cols)
                     .py_mult_terminate(SetMeasurementsFailure)
                     .void()
             }
@@ -3080,59 +3081,6 @@ get_set_meas!(
     Calibration3_2,
     PyOptical3_2
 );
-
-/// A python value for a vector of temporal and optical measurements (2.0/3.0)
-struct PyRawMaybeInput<T, O>(RawInput<MaybeFamily, T, O>);
-
-impl<'py, T, O> FromPyObject<'py> for PyRawMaybeInput<T, O>
-where
-    T: FromPyObject<'py>,
-    O: FromPyObject<'py>,
-{
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let xs: Vec<(Bound<'py, PyAny>, Bound<'py, PyAny>)> = ob.extract()?;
-        xs.into_iter()
-            .map(|(name, meas)| {
-                if let Ok(t) = meas.extract::<T>() {
-                    let n: Shortname = name.extract()?;
-                    Ok(Element::Center((n, t)))
-                } else if let Ok(o) = meas.extract::<O>() {
-                    let n: Option<Shortname> = name.extract()?;
-                    Ok(Element::NonCenter((n.into(), o)))
-                } else {
-                    Err(PyValueError::new_err("could not parse measurement"))
-                }
-            })
-            .collect::<Result<_, _>>()
-            .map(|ret| Self(RawInput(ret)))
-    }
-}
-
-/// A python value for a vector of temporal and optical measurements (3.1/3.2)
-struct PyRawAlwaysInput<T, O>(RawInput<AlwaysFamily, T, O>);
-
-impl<'py, T, O> FromPyObject<'py> for PyRawAlwaysInput<T, O>
-where
-    T: FromPyObject<'py>,
-    O: FromPyObject<'py>,
-{
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let xs: Vec<(Shortname, Bound<'py, PyAny>)> = ob.extract()?;
-        xs.into_iter()
-            .map(|(name, meas)| {
-                if let Ok(t) = meas.extract::<T>() {
-                    Ok(Element::Center((name, t)))
-                } else if let Ok(o) = meas.extract::<O>() {
-                    Ok(Element::NonCenter((name.into(), o)))
-                } else {
-                    // TODO fix this lame error message
-                    Err(PyValueError::new_err("could not parse measurement"))
-                }
-            })
-            .collect::<Result<_, _>>()
-            .map(|ret| Self(RawInput(ret)))
-    }
-}
 
 /// A python value for a temporal or optical measurement
 #[derive(From, Into)]

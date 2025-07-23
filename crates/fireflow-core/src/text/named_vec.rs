@@ -15,6 +15,9 @@ use std::mem;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
 use Ordering::*;
 
 /// A list of potentially named values with an optional "center value".
@@ -72,6 +75,7 @@ pub struct UnsplitVec<K, V> {
 }
 
 #[derive(Clone)]
+#[cfg_attr(feature = "python", derive(FromPyObject))]
 pub enum Element<U, V> {
     Center(U),
     NonCenter(V),
@@ -1626,6 +1630,17 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 }
 
+impl<K: MightHave, U, V> Clone for RawInput<K, U, V>
+where
+    K::Wrapper<Shortname>: Clone,
+    U: Clone,
+    V: Clone,
+{
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
 impl<K: MightHave, U, V> RawInput<K, U, V> {
     pub fn inner_into<U0, V0>(self) -> RawInput<K, U0, V0>
     where
@@ -1980,6 +1995,28 @@ impl fmt::Display for SetKeysError {
         match self {
             SetKeysError::Length(x) => x.fmt(f),
             SetKeysError::NonUnique => write!(f, "not all supplied keys are unique"),
+        }
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::RawInput;
+    use crate::text::optional::MightHave;
+    use crate::validated::shortname::Shortname;
+    use pyo3::prelude::*;
+
+    // derive(FromPyObject) will get confused by the wrapper; this is trivial
+    // otherwise
+    impl<'py, K, U, V> FromPyObject<'py> for RawInput<K, U, V>
+    where
+        K: MightHave,
+        K::Wrapper<Shortname>: FromPyObject<'py>,
+        U: FromPyObject<'py>,
+        V: FromPyObject<'py>,
+    {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            ob.extract::<RawInput<K, U, V>>()
         }
     }
 }

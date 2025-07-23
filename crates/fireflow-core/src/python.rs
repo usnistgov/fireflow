@@ -10,17 +10,24 @@ use crate::text::keywords::{
 use crate::text::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use crate::text::scale::{LogRangeError, Scale};
 use crate::validated::ascii_range::{Chars, CharsError};
+use crate::validated::dataframe::{AnyFCSColumn, FCSColumn, FCSDataFrame};
 use crate::validated::datepattern::{DatePattern, DatePatternError};
 use crate::validated::keys::{
     NonStdKey, NonStdKeyError, NonStdMeasPattern, NonStdMeasPatternError, StdKey, StdKeyError,
 };
 use crate::validated::shortname::{Shortname, ShortnameError};
 
+use polars::prelude::*;
+use polars_arrow::array::PrimitiveArray;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyFloat, PyString, PyTuple};
 use pyo3::IntoPyObjectExt;
+use pyo3_polars::{PyDataFrame, PySeries};
 use std::convert::Infallible;
+use std::fmt;
+
+// TODO some of these value errors might be too general
 
 // Convert any error to a python ValueError using its display trait
 macro_rules! impl_value_err {
@@ -330,3 +337,103 @@ where
             .into_pyobject(py)
     }
 }
+
+impl<'py> IntoPyObject<'py> for FCSDataFrame {
+    type Target = PyAny;
+    type Output = Bound<'py, PyAny>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        let columns = self
+            .iter_columns()
+            .enumerate()
+            .map(|(i, c)| {
+                Series::from_arrow(PlSmallStr::from(format!("X{i}")), c.as_array())
+                    .unwrap()
+                    .into()
+            })
+            .collect();
+        // ASSUME this will not fail because all columns should have unique
+        // names and the same length
+        PyDataFrame(DataFrame::new(columns).unwrap()).into_pyobject(py)
+    }
+}
+
+impl From<FCSDataFrame> for PyDataFrame {
+    fn from(value: FCSDataFrame) -> Self {
+        let columns = value
+            .iter_columns()
+            .enumerate()
+            .map(|(i, c)| {
+                Series::from_arrow(PlSmallStr::from(format!("X{i}")), c.as_array())
+                    .unwrap()
+                    .into()
+            })
+            .collect();
+        // ASSUME this will not fail because all columns should have unique
+        // names and the same length
+        PyDataFrame(DataFrame::new(columns).unwrap())
+    }
+}
+
+impl<'py> FromPyObject<'py> for AnyFCSColumn {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let ser: PySeries = ob.extract()?;
+        let ret = series_to_fcs(ser.0)?;
+        Ok(ret)
+    }
+}
+
+fn series_to_fcs(ser: Series) -> Result<AnyFCSColumn, SeriesToColumnError> {
+    fn column_to_buf<T>(ser: Series) -> Result<AnyFCSColumn, SeriesToColumnError>
+    where
+        T: NumericNative,
+        AnyFCSColumn: From<FCSColumn<T>>,
+    {
+        if ser.null_count() > 0 {
+            Err(SeriesToColumnError::HasNull(ser.name().clone()))
+        } else {
+            let buf = ser.into_chunks()[0]
+                .as_any()
+                .downcast_ref::<PrimitiveArray<T>>()
+                .unwrap()
+                .values()
+                .clone();
+            Ok(FCSColumn(buf).into())
+        }
+    }
+
+    match ser.dtype() {
+        DataType::UInt8 => column_to_buf::<u8>(ser),
+        DataType::UInt16 => column_to_buf::<u16>(ser),
+        DataType::UInt32 => column_to_buf::<u32>(ser),
+        DataType::UInt64 => column_to_buf::<u64>(ser),
+        DataType::Float32 => column_to_buf::<f32>(ser),
+        DataType::Float64 => column_to_buf::<f64>(ser),
+        t => Err(SeriesToColumnError::InvalidDatatype(
+            ser.name().clone(),
+            t.clone(),
+        )),
+    }
+}
+
+pub enum SeriesToColumnError {
+    InvalidDatatype(PlSmallStr, DataType),
+    HasNull(PlSmallStr),
+}
+
+impl fmt::Display for SeriesToColumnError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::InvalidDatatype(n, t) => write!(
+                f,
+                "Datatype must be u8/16/32/64 or f32/64, got {t} for series '{n}'"
+            ),
+            Self::HasNull(n) => {
+                write!(f, "Series {n} contains null vlaues which are not allowed")
+            }
+        }
+    }
+}
+
+impl_value_err!(SeriesToColumnError);

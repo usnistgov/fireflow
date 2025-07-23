@@ -29,15 +29,13 @@ use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use derive_more::{Display, From, Into};
 use nonempty::NonEmpty;
 use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
-use polars::datatypes::NumericNative;
 use polars::prelude::*;
-use polars_arrow::array::PrimitiveArray;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyIndexError, PyValueError, PyWarning};
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyDict};
 use pyo3::IntoPyObjectExt;
-use pyo3_polars::{PyDataFrame, PySeries};
+use pyo3_polars::PyDataFrame;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fmt;
@@ -564,7 +562,7 @@ fn py_fcs_read_raw_dataset(
     StdKeywords,
     NonStdKeywords,
     RawTEXTParseData,
-    PyDataFrame,
+    FCSDataFrame,
     Vec<u8>,
     Vec<Vec<u8>>,
 )> {
@@ -644,7 +642,7 @@ fn py_fcs_read_raw_dataset(
         out.text.keywords.std,
         out.text.keywords.nonstd,
         out.text.parse,
-        PyFCSDataFrame::from(out.dataset.data).into(),
+        out.dataset.data,
         out.dataset.analysis.0,
         out.dataset.others.0.into_iter().map(|x| x.0).collect(),
     ))
@@ -1783,12 +1781,12 @@ macro_rules! coredata_meas_get_set {
                 &mut self,
                 name: Shortname,
                 t: $timetype,
-                col: PyFCSColumn,
+                col: AnyFCSColumn,
                 r: BigDecimal,
                 notrunc: bool,
             ) -> PyResult<()> {
                 self.0
-                    .push_temporal(name, t.into(), col.0, Range(r), notrunc)
+                    .push_temporal(name, t.into(), col, Range(r), notrunc)
                     .py_def_terminate(PushTemporalFailure)
             }
 
@@ -1797,12 +1795,12 @@ macro_rules! coredata_meas_get_set {
                 i: usize,
                 name: Shortname,
                 t: $timetype,
-                col: PyFCSColumn,
+                col: AnyFCSColumn,
                 r: BigDecimal,
                 notrunc: bool,
             ) -> PyResult<()> {
                 self.0
-                    .insert_temporal(i.into(), name, t.into(), col.0, Range(r), notrunc)
+                    .insert_temporal(i.into(), name, t.into(), col, Range(r), notrunc)
                     .py_def_terminate(InsertTemporalFailure)
             }
 
@@ -2061,11 +2059,11 @@ macro_rules! coredata2_0_meas_methods {
             fn set_measurements_and_data(
                 &mut self,
                 xs: PyRawMaybeInput<$t, $o>,
-                cols: PyFCSColumns,
+                cols: Vec<AnyFCSColumn>,
                 prefix: ShortnamePrefix,
             ) -> PyResult<()> {
                 self.0
-                    .set_measurements_and_data(xs.0.inner_into(), cols.0, prefix)
+                    .set_measurements_and_data(xs.0.inner_into(), cols, prefix)
                     .py_mult_terminate(SetMeasurementsFailure)
                     .void()
             }
@@ -2083,10 +2081,10 @@ macro_rules! coredata3_1_meas_methods {
             fn set_measurements_and_data(
                 &mut self,
                 xs: PyRawAlwaysInput<$t, $o>,
-                cols: PyFCSColumns,
+                cols: Vec<AnyFCSColumn>,
             ) -> PyResult<()> {
                 self.0
-                    .set_measurements_and_data_noprefix(xs.0.inner_into(), cols.0)
+                    .set_measurements_and_data_noprefix(xs.0.inner_into(), cols)
                     .py_mult_terminate(SetMeasurementsFailure)
                     .void()
             }
@@ -2592,14 +2590,14 @@ macro_rules! to_dataset_method {
         impl $from {
             fn to_dataset(
                 &self,
-                cols: PyFCSColumns,
+                cols: Vec<AnyFCSColumn>,
                 analysis: Vec<u8>,
                 others: Vec<Vec<u8>>,
             ) -> PyResult<$to> {
                 self.0
                     .clone()
                     .into_coredataset(
-                        cols.0,
+                        cols,
                         analysis.into(),
                         Others(others.into_iter().map(|x| x.into()).collect()),
                     )
@@ -3083,59 +3081,6 @@ get_set_meas!(
     PyOptical3_2
 );
 
-/// A python value for a vector of input columns from a polars dataframe.
-#[derive(From)]
-struct PyFCSDataFrame(FCSDataFrame);
-
-impl From<PyFCSDataFrame> for PyDataFrame {
-    fn from(value: PyFCSDataFrame) -> Self {
-        let columns = value
-            .0
-            .iter_columns()
-            .enumerate()
-            .map(|(i, c)| {
-                Series::from_arrow(PlSmallStr::from(format!("X{i}")), c.as_array())
-                    .unwrap()
-                    .into()
-            })
-            .collect();
-        // ASSUME this will not fail because all columns should have unique
-        // names and the same length
-        PyDataFrame(DataFrame::new(columns).unwrap())
-    }
-}
-
-/// A python value for a vector of input columns from a polars dataframe.
-struct PyFCSColumns(Vec<AnyFCSColumn>);
-
-impl<'py> FromPyObject<'py> for PyFCSColumns {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let mut df: PyDataFrame = ob.extract()?;
-        df.0.rechunk_mut();
-        let ret =
-            df.0.take_columns()
-                .into_iter()
-                .map(|col| series_to_fcs(col.take_materialized_series()))
-                .collect::<Result<Vec<_>, _>>()
-                // TODO make better error
-                .map_err(PyreflowException::new_err)?;
-        Ok(Self(ret))
-    }
-}
-
-/// A python value for a single input column from a polars series.
-struct PyFCSColumn(AnyFCSColumn);
-
-impl<'py> FromPyObject<'py> for PyFCSColumn {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let ser: PySeries = ob.extract()?;
-        let ret = series_to_fcs(ser.0)
-            // TODO make better error
-            .map_err(PyreflowException::new_err)?;
-        Ok(Self(ret))
-    }
-}
-
 /// A python value for a vector of temporal and optical measurements (2.0/3.0)
 struct PyRawMaybeInput<T, O>(RawInput<MaybeFamily, T, O>);
 
@@ -3290,37 +3235,6 @@ impl<'py> FromPyObject<'py> for PyKeyPatterns {
             .map_err(|e| PyreflowException::new_err(e.to_string()))?;
         ret.extend(ps);
         Ok(Self(ret))
-    }
-}
-
-fn series_to_fcs(ser: Series) -> Result<AnyFCSColumn, String> {
-    fn column_to_buf<T>(ser: Series) -> Result<AnyFCSColumn, String>
-    where
-        T: NumericNative,
-        AnyFCSColumn: From<FCSColumn<T>>,
-    {
-        if ser.null_count() > 0 {
-            // TODO make this not a string
-            Err(format!("column {} has null values", ser.name()))
-        } else {
-            let buf = ser.into_chunks()[0]
-                .as_any()
-                .downcast_ref::<PrimitiveArray<T>>()
-                .unwrap()
-                .values()
-                .clone();
-            Ok(FCSColumn(buf).into())
-        }
-    }
-
-    match ser.dtype() {
-        DataType::UInt8 => column_to_buf::<u8>(ser),
-        DataType::UInt16 => column_to_buf::<u16>(ser),
-        DataType::UInt32 => column_to_buf::<u32>(ser),
-        DataType::UInt64 => column_to_buf::<u64>(ser),
-        DataType::Float32 => column_to_buf::<f32>(ser),
-        DataType::Float64 => column_to_buf::<f64>(ser),
-        t => Err(format!("invalid datatype: {t}")),
     }
 }
 

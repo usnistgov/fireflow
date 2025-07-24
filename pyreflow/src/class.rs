@@ -235,6 +235,25 @@ py_wrap!(PyTemporal3_0, Temporal3_0, "Temporal3_0");
 py_wrap!(PyTemporal3_1, Temporal3_1, "Temporal3_1");
 py_wrap!(PyTemporal3_2, Temporal3_2, "Temporal3_2");
 
+macro_rules! get_set_metaroot {
+    ($get:ident, $set:ident, $t:ident, $($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                #[getter]
+                fn $get(&self) -> $t {
+                    self.0.get_metaroot::<$t>().clone()
+                }
+
+                #[setter]
+                fn $set(&mut self, x: $t) {
+                    self.0.set_metaroot(x)
+                }
+            }
+        )*
+    };
+}
+
 macro_rules! get_set_metaroot_opt {
     ($get:ident, $set:ident, $outer:ident, $($pytype:ident),*) => {
         $(
@@ -439,38 +458,10 @@ impl PyCoreTEXT3_2 {
     }
 
     #[getter]
-    fn get_cyt(&self) -> String {
-        self.0.metaroot.specific.cyt.0.clone()
-    }
-
-    #[setter]
-    fn set_cyt(&mut self, x: String) {
-        self.0.metaroot.specific.cyt = x.into()
-    }
-
-    #[getter]
-    fn get_unstainedinfo(&self) -> Option<String> {
-        self.0
-            .metaroot
-            .specific
-            .unstained
-            .unstainedinfo
-            .0
-            .as_ref()
-            .map(|x| x.clone().into())
-    }
-
-    #[setter]
-    fn set_unstainedinfo(&mut self, x: Option<String>) {
-        self.0.metaroot.specific.unstained.unstainedinfo = x.map(|x| x.into()).into()
-    }
-
-    #[getter]
-    fn get_unstained_centers(&self) -> Option<HashMap<String, f32>> {
+    fn get_unstained_centers(&self) -> Option<HashMap<Shortname, f32>> {
         self.0.get_metaroot_opt::<UnstainedCenters>().map(|y| {
             <HashMap<Shortname, f32>>::from(y.clone())
                 .into_iter()
-                .map(|(k, v)| (k.to_string(), v))
                 .collect()
         })
     }
@@ -1526,6 +1517,18 @@ get_set_metaroot_opt!(
     PyCoreTEXT3_2,
     PyCoreDataset3_0,
     PyCoreDataset3_1,
+    PyCoreDataset3_2
+);
+
+// Get/set methods for $CYT (required) (3.2)
+get_set_metaroot!(get_cyt, set_cyt, Cyt, PyCoreTEXT3_2, PyCoreDataset3_2);
+
+// Get/set methods for $UNSTAINEDINFO (3.2)
+get_set_metaroot_opt!(
+    get_unstainedinfo,
+    set_unstainedinfo,
+    UnstainedInfo,
+    PyCoreTEXT3_2,
     PyCoreDataset3_2
 );
 

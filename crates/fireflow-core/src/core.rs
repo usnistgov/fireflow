@@ -5657,6 +5657,7 @@ impl_ref_specific_rw!(
     Option<Locationid>,
     Option<Vol>,
     Option<Flowrate>,
+    Option<UnstainedInfo>,
     Timestamps3_1
 );
 

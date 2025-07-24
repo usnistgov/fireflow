@@ -11,6 +11,7 @@ use crate::text::keywords::{
 use crate::text::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use crate::text::scale::{LogRangeError, Scale};
 use crate::validated::ascii_range::{Chars, CharsError};
+use crate::validated::ascii_uint::{Uint8Digit, Uint8DigitOverflow};
 use crate::validated::dataframe::{AnyFCSColumn, FCSColumn, FCSDataFrame};
 use crate::validated::datepattern::{DatePattern, DatePatternError};
 use crate::validated::keys::{
@@ -326,25 +327,6 @@ impl<'py> IntoPyObject<'py> for Display {
     }
 }
 
-// segments will be returned as tuples like (u32, u32) reflecting their
-// exact representation in an FCS file
-impl<'py, T> IntoPyObject<'py> for Segment<T>
-where
-    T: Copy,
-    u64: From<T>,
-{
-    type Target = PyTuple;
-    type Output = Bound<'py, <(u64, u64) as IntoPyObject<'py>>::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        self.as_u64()
-            .try_coords()
-            .unwrap_or((0, 0))
-            .into_pyobject(py)
-    }
-}
-
 impl<'py> IntoPyObject<'py> for FCSDataFrame {
     type Target = PyAny;
     type Output = Bound<'py, PyAny>;
@@ -479,3 +461,13 @@ impl<'py> IntoPyObject<'py> for Tot {
         self.0.into_pyobject(py)
     }
 }
+
+impl<'py> FromPyObject<'py> for Uint8Digit {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let t: u64 = ob.extract()?;
+        let ret = t.try_into()?;
+        Ok(ret)
+    }
+}
+
+impl_value_err!(Uint8DigitOverflow);

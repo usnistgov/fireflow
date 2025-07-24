@@ -3,6 +3,7 @@ use fireflow_core::config::*;
 use fireflow_core::core::*;
 use fireflow_core::error::*;
 use fireflow_core::header::*;
+use fireflow_core::segment::{HeaderAnalysisSegment, HeaderDataSegment, OtherSegment};
 use fireflow_core::text::datetimes::ReversedDatetimes;
 use fireflow_core::text::keywords::*;
 use fireflow_core::text::named_vec::{
@@ -82,7 +83,9 @@ fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_fcs_read_raw_text, m)?)?;
     m.add_function(wrap_pyfunction!(py_fcs_read_std_text, m)?)?;
     m.add_function(wrap_pyfunction!(py_fcs_read_std_dataset, m)?)?;
-    m.add_function(wrap_pyfunction!(py_fcs_read_raw_dataset, m)?)
+    m.add_function(wrap_pyfunction!(py_fcs_read_raw_dataset, m)?)?;
+    m.add_function(wrap_pyfunction!(py_fcs_read_raw_dataset_with_keywords, m)?)?;
+    m.add_function(wrap_pyfunction!(py_fcs_read_std_dataset_with_keywords, m)?)
 }
 
 #[pyfunction]
@@ -131,6 +134,54 @@ fn py_fcs_read_std_dataset(
 ) -> PyResult<(PyAnyCoreDataset, StdDatasetOutput)> {
     let (core, data) =
         fcs_read_std_dataset(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
+    Ok((core.into(), data))
+}
+
+#[pyfunction]
+#[pyo3(name = "fcs_read_raw_dataset_with_keywords")]
+fn py_fcs_read_raw_dataset_with_keywords(
+    p: path::PathBuf,
+    version: Version,
+    std: StdKeywords,
+    data_seg: HeaderDataSegment,
+    analysis_seg: HeaderAnalysisSegment,
+    other_segs: Vec<OtherSegment>,
+    conf: ReadRawDatasetFromKeywordsConfig,
+) -> PyResult<RawDatasetWithKwsOutput> {
+    let ret = fcs_read_raw_dataset_with_keywords(
+        p,
+        version,
+        &std,
+        data_seg,
+        analysis_seg,
+        other_segs,
+        &conf,
+    )
+    .map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
+    Ok(ret)
+}
+
+#[pyfunction]
+#[pyo3(name = "fcs_read_std_dataset_with_keywords")]
+fn py_fcs_read_std_dataset_with_keywords(
+    p: path::PathBuf,
+    version: Version,
+    kws: ValidKeywords,
+    data_seg: HeaderDataSegment,
+    analysis_seg: HeaderAnalysisSegment,
+    other_segs: Vec<OtherSegment>,
+    conf: ReadStdDatasetFromKeywordsConfig,
+) -> PyResult<(PyAnyCoreDataset, StdDatasetWithKwsOutput)> {
+    let (core, data) = fcs_read_std_dataset_with_keywords(
+        &p,
+        version,
+        kws,
+        data_seg,
+        analysis_seg,
+        other_segs,
+        &conf,
+    )
+    .map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
     Ok((core.into(), data))
 }
 

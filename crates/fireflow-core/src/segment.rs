@@ -916,23 +916,6 @@ impl<T> Segment<T> {
         }
     }
 
-    // pub(crate) fn try_adjust<I, S>(
-    //     self,
-    //     conf: &NewSegmentConfig<T, I, S>,
-    // ) -> Result<Self, SegmentError<T>>
-    // where
-    //     S: HasSource,
-    //     I: HasRegion,
-    //     T: Copy + Zero + One + CheckedSub + TryFrom<i128> + Into<i128> + Ord,
-    //     u64: From<T>,
-    // {
-    //     let (b, e) = match self {
-    //         Self::Empty => (T::zero(), T::zero()),
-    //         Self::NonEmpty(s) => s.coords(),
-    //     };
-    //     Self::try_new::<I, S>(b, e, conf)
-    // }
-
     /// Return the first and last byte if applicable
     pub fn try_coords(&self) -> Option<(T, T)>
     where
@@ -1252,6 +1235,7 @@ where
     }
 }
 
+#[derive(Default)]
 pub(crate) struct NewSegmentConfig<T, I, S> {
     pub(crate) corr: OffsetCorrection<I, S>,
     pub(crate) file_len: Option<T>,
@@ -1261,10 +1245,61 @@ pub(crate) struct NewSegmentConfig<T, I, S> {
 #[cfg(feature = "python")]
 mod python {
     use super::*;
+    use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
+    use pyo3::types::PyTuple;
+
+    // segments will be returned as tuples like (u32, u32) reflecting their
+    // exact representation in an FCS file
+    impl<'py, T> FromPyObject<'py> for Segment<T>
+    where
+        T: FromPyObject<'py> + Zero + Ord,
+        u64: From<T>,
+    {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (begin, end): (T, T) = ob.extract()?;
+            if begin > end {
+                Err(PyValueError::new_err("offset begin is greater than end"))
+            } else if begin == T::zero() && end == T::zero() {
+                Ok(Self::Empty)
+            } else {
+                Ok(Self::NonEmpty(NonEmptySegment::new_unchecked(begin, end)))
+            }
+        }
+    }
+
+    impl<'py, T> IntoPyObject<'py> for Segment<T>
+    where
+        T: Copy,
+        u64: From<T>,
+    {
+        type Target = PyTuple;
+        type Output = Bound<'py, <(u64, u64) as IntoPyObject<'py>>::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            self.as_u64()
+                .try_coords()
+                .unwrap_or((0, 0))
+                .into_pyobject(py)
+        }
+    }
 
     // pyo3 apparently can't deal with phantomdata, this is basically just
     // converting the inner segment which already has this trait
+    impl<'py, I, S, T> FromPyObject<'py> for SpecificSegment<I, S, T>
+    where
+        Segment<T>: FromPyObject<'py>,
+    {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            Ok(Self {
+                inner: ob.extract()?,
+                _id: PhantomData,
+                _src: PhantomData,
+            })
+        }
+    }
+
     impl<'py, I, S, T> IntoPyObject<'py> for SpecificSegment<I, S, T>
     where
         T: Copy,

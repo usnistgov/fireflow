@@ -1294,6 +1294,18 @@ impl fmt::Display for RawDatasetFailure {
     }
 }
 
+impl fmt::Display for RawDatasetWithKwsFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "could not read raw dataset from keywords")
+    }
+}
+
+impl fmt::Display for StdDatasetWithKwsFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "could not read standardized dataset from keywords")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

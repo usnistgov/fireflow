@@ -14,6 +14,9 @@ use std::str::FromStr;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
 /// An unsigned int which may only be 20 chars wide.
 ///
 /// This will always be formatted as a right-aligned 0-padded integer 20 chars
@@ -25,6 +28,7 @@ use serde::Serialize;
     Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromStr, Into, From, Add, Sub, Mul, Zero, One,
 )]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyObject))]
 #[into(u64, i128)]
 #[mul(forward)]
 #[from(u64, NonZeroU64)]

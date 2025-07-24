@@ -1,13 +1,14 @@
 use crate::config::TimePattern;
 use crate::core::ScaleTransform;
 use crate::header::{Version, VersionError};
-use crate::segment::{OffsetCorrection, Segment};
+use crate::segment::OffsetCorrection;
 use crate::text::byteord::{ByteOrd2_0, NewByteOrdError};
 use crate::text::keywords::{
     AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Display, Feature,
     FeatureError, Mode, ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError,
-    Originality, OriginalityError, Tot, Unicode,
+    Originality, OriginalityError, Unicode,
 };
+use crate::text::named_vec::ElementIndexError;
 use crate::text::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use crate::text::scale::{LogRangeError, Scale};
 use crate::validated::ascii_range::{Chars, CharsError};
@@ -22,9 +23,9 @@ use crate::validated::shortname::{Shortname, ShortnameError};
 
 use polars::prelude::*;
 use polars_arrow::array::PrimitiveArray;
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyIndexError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyFloat, PyInt, PyString, PyTuple};
+use pyo3::types::{PyFloat, PyString, PyTuple};
 use pyo3::IntoPyObjectExt;
 use pyo3_polars::{PyDataFrame, PySeries};
 use std::collections::HashMap;
@@ -40,6 +41,16 @@ macro_rules! impl_value_err {
         impl From<$t> for PyErr {
             fn from(value: $t) -> Self {
                 PyValueError::new_err(value.to_string())
+            }
+        }
+    };
+}
+
+macro_rules! impl_index_err {
+    ($t:ident) => {
+        impl From<$t> for PyErr {
+            fn from(value: $t) -> Self {
+                PyIndexError::new_err(value.to_string())
             }
         }
     };
@@ -92,6 +103,8 @@ macro_rules! impl_str_to_from_py {
         impl_str_to_py!($t);
     };
 }
+
+impl_index_err!(ElementIndexError);
 
 impl_str_from_py!(NonStdMeasPattern);
 impl_value_err!(NonStdMeasPatternError);

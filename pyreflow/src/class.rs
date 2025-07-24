@@ -7,9 +7,7 @@ use fireflow_core::segment::{HeaderAnalysisSegment, HeaderDataSegment, OtherSegm
 use fireflow_core::text::datetimes::ReversedDatetimes;
 use fireflow_core::text::index::MeasIndex;
 use fireflow_core::text::keywords::*;
-use fireflow_core::text::named_vec::{
-    Element, ElementIndexError, KeyLengthError, NamedVec, RawInput,
-};
+use fireflow_core::text::named_vec::{Element, KeyLengthError, NamedVec, RawInput};
 use fireflow_core::text::optional::*;
 use fireflow_core::text::scale::*;
 use fireflow_core::text::timestamps::ReversedTimestamps;
@@ -28,7 +26,7 @@ use nonempty::NonEmpty;
 use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
 use polars::prelude::*;
 use pyo3::create_exception;
-use pyo3::exceptions::{PyException, PyIndexError, PyWarning};
+use pyo3::exceptions::{PyException, PyWarning};
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyDict};
 use pyo3_polars::PyDataFrame;
@@ -780,21 +778,14 @@ macro_rules! common_meas_get_set {
                     .map(|(i, x)| (i, x.inner_into()))
             }
 
-            fn measurement_at(&self, i: MeasIndex) -> Result<Element<$t, $o>, PyElementIndexError> {
+            fn measurement_at(&self, i: MeasIndex) -> PyResult<Element<$t, $o>> {
                 let ms: &NamedVec<_, _, _, _> = self.0.as_ref();
-                let m = ms.get(i).map_err(PyElementIndexError)?;
+                let m = ms.get(i)?;
                 Ok(m.bimap(|x| x.1.clone(), |x| x.1.clone()).inner_into())
             }
 
-            fn replace_optical_at(
-                &mut self,
-                i: MeasIndex,
-                m: $o,
-            ) -> Result<Element<$t, $o>, PyElementIndexError> {
-                let ret = self
-                    .0
-                    .replace_optical_at(i, m.into())
-                    .map_err(PyElementIndexError)?;
+            fn replace_optical_at(&mut self, i: MeasIndex, m: $o) -> PyResult<Element<$t, $o>> {
+                let ret = self.0.replace_optical_at(i, m.into())?;
                 Ok(ret.inner_into())
             }
 
@@ -995,11 +986,8 @@ macro_rules! coretext2_0_meas_methods {
             fn remove_measurement_by_index(
                 &mut self,
                 index: MeasIndex,
-            ) -> Result<(Option<Shortname>, Element<$t, $o>), PyElementIndexError> {
-                let r = self
-                    .0
-                    .remove_measurement_by_index(index)
-                    .map_err(PyElementIndexError)?;
+            ) -> PyResult<(Option<Shortname>, Element<$t, $o>)> {
+                let r = self.0.remove_measurement_by_index(index)?;
                 let (n, v) = Element::unzip::<MaybeFamily>(r);
                 Ok((n.0, v.inner_into()))
             }
@@ -1044,13 +1032,10 @@ macro_rules! coretext3_1_meas_methods {
             fn remove_measurement_by_index(
                 &mut self,
                 index: MeasIndex,
-            ) -> Result<(Shortname, Element<$t, $o>), PyElementIndexError> {
-                let r = self
-                    .0
-                    .remove_measurement_by_index(index)
-                    .map_err(PyElementIndexError)?;
+            ) -> PyResult<(Shortname, Element<$t, $o>)> {
+                let r = self.0.remove_measurement_by_index(index)?;
                 let (n, v) = Element::unzip::<AlwaysFamily>(r);
-                Ok((n.0, v.inner_into().into()))
+                Ok((n.0, v.inner_into()))
             }
 
             fn push_optical(
@@ -2007,15 +1992,6 @@ struct PyReversedDatetimes(ReversedDatetimes);
 impl From<PyReversedDatetimes> for PyErr {
     fn from(value: PyReversedDatetimes) -> Self {
         PyreflowException::new_err(value.to_string())
-    }
-}
-
-#[derive(Display, From)]
-struct PyElementIndexError(ElementIndexError);
-
-impl From<PyElementIndexError> for PyErr {
-    fn from(value: PyElementIndexError) -> Self {
-        PyIndexError::new_err(value.to_string())
     }
 }
 

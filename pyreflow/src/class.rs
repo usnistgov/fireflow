@@ -392,16 +392,6 @@ impl PyCoreTEXT3_0 {
     fn new(mode: Mode) -> PyResult<Self> {
         Ok(CoreTEXT3_0::new(mode).into())
     }
-
-    #[getter]
-    fn get_unicode(&self) -> Option<Unicode> {
-        self.0.metaroot.specific.unicode.as_ref_opt().cloned()
-    }
-
-    #[setter]
-    fn set_unicode(&mut self, x: Option<Unicode>) {
-        self.0.metaroot.specific.unicode = x.into();
-    }
 }
 
 #[pymethods]
@@ -1383,6 +1373,14 @@ spillover_methods!(PyCoreDataset3_1);
 spillover_methods!(PyCoreDataset3_2);
 
 get_set_metaroot_opt!(
+    get_unicode,
+    set_unicode,
+    Unicode,
+    PyCoreTEXT3_0,
+    PyCoreDataset3_0
+);
+
+get_set_metaroot_opt!(
     get_vol,
     set_vol,
     Vol,
@@ -1534,72 +1532,6 @@ to_dataset_method!(PyCoreTEXT2_0, PyCoreDataset2_0);
 to_dataset_method!(PyCoreTEXT3_0, PyCoreDataset3_0);
 to_dataset_method!(PyCoreTEXT3_1, PyCoreDataset3_1);
 to_dataset_method!(PyCoreTEXT3_2, PyCoreDataset3_2);
-
-// TODO there might a more natural way to emit all these warnings when
-// converting from a rust type to a python type, that way I don't need to call
-// this repeatedly
-fn handle_warnings<X, W>(t: Terminal<X, W>) -> PyResult<X>
-where
-    W: fmt::Display,
-{
-    let (x, warn_res) = t.resolve(emit_warnings);
-    warn_res?;
-    Ok(x)
-}
-
-fn emit_warnings<W>(ws: Vec<W>) -> PyResult<()>
-where
-    W: fmt::Display,
-{
-    Python::with_gil(|py| -> PyResult<()> {
-        let wt = py.get_type::<PyreflowWarning>();
-        for w in ws {
-            let s = CString::new(w.to_string())?;
-            PyErr::warn(py, &wt, &s, 0)?;
-        }
-        Ok(())
-    })
-}
-
-// TODO use warnings_are_errors flag
-// TODO python has a way of handling multiple exceptions (ExceptionGroup)
-// starting in 3.11
-fn handle_failure<W, E, T>(f: TerminalFailure<W, E, T>) -> PyErr
-where
-    E: fmt::Display,
-    T: fmt::Display,
-    W: fmt::Display,
-{
-    let (warn_res, e) = f.resolve(emit_warnings, emit_failure);
-    if let Err(w) = warn_res {
-        w
-    } else {
-        e
-    }
-}
-
-fn handle_failure_nowarn<E, T>(f: TerminalFailure<(), E, T>) -> PyErr
-where
-    E: fmt::Display,
-    T: fmt::Display,
-{
-    f.resolve(|_| (), emit_failure).1
-}
-
-fn emit_failure<E, T>(es: NonEmpty<E>, r: T) -> PyErr
-where
-    E: fmt::Display,
-    T: fmt::Display,
-{
-    let s = {
-        let xs: Vec<_> = [format!("Toplevel Error: {r}")]
-            .into_iter()
-            .chain(es.into_iter().map(|x| x.to_string()))
-            .collect();
-        xs[..].join("\n").to_string()
-    };
-    PyreflowException::new_err(s)
-}
 
 #[pymethods]
 impl PyOptical2_0 {
@@ -1897,4 +1829,66 @@ impl<V, E: fmt::Display, T: fmt::Display> PyTerminalNoWarnResultExt
     fn py_term_resolve_nowarn(self) -> PyResult<Self::V> {
         self.map_err(handle_failure_nowarn).map(|x| x.inner())
     }
+}
+
+fn handle_warnings<X, W>(t: Terminal<X, W>) -> PyResult<X>
+where
+    W: fmt::Display,
+{
+    let (x, warn_res) = t.resolve(emit_warnings);
+    warn_res?;
+    Ok(x)
+}
+
+fn emit_warnings<W>(ws: Vec<W>) -> PyResult<()>
+where
+    W: fmt::Display,
+{
+    Python::with_gil(|py| -> PyResult<()> {
+        let wt = py.get_type::<PyreflowWarning>();
+        for w in ws {
+            let s = CString::new(w.to_string())?;
+            PyErr::warn(py, &wt, &s, 0)?;
+        }
+        Ok(())
+    })
+}
+
+// TODO python has a way of handling multiple exceptions (ExceptionGroup)
+// starting in 3.11
+fn handle_failure<W, E, T>(f: TerminalFailure<W, E, T>) -> PyErr
+where
+    E: fmt::Display,
+    T: fmt::Display,
+    W: fmt::Display,
+{
+    let (warn_res, e) = f.resolve(emit_warnings, emit_failure);
+    if let Err(w) = warn_res {
+        w
+    } else {
+        e
+    }
+}
+
+fn handle_failure_nowarn<E, T>(f: TerminalFailure<(), E, T>) -> PyErr
+where
+    E: fmt::Display,
+    T: fmt::Display,
+{
+    f.resolve(|_| (), emit_failure).1
+}
+
+fn emit_failure<E, T>(es: NonEmpty<E>, r: T) -> PyErr
+where
+    E: fmt::Display,
+    T: fmt::Display,
+{
+    let s = {
+        let xs: Vec<_> = [format!("Toplevel Error: {r}")]
+            .into_iter()
+            .chain(es.into_iter().map(|x| x.to_string()))
+            .collect();
+        xs[..].join("\n").to_string()
+    };
+    PyreflowException::new_err(s)
 }

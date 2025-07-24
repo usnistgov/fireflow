@@ -91,17 +91,13 @@ fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[pyfunction]
 #[pyo3(name = "fcs_read_header")]
 fn py_fcs_read_header(p: path::PathBuf, conf: ReadHeaderConfig) -> PyResult<Header> {
-    fcs_read_header(&p, &conf)
-        .map_err(handle_failure_nowarn)
-        .map(|x| x.inner())
+    fcs_read_header(&p, &conf).py_term_resolve_nowarn()
 }
 
 #[pyfunction]
 #[pyo3(name = "fcs_read_raw_text")]
 fn py_fcs_read_raw_text(p: path::PathBuf, conf: ReadRawTEXTConfig) -> PyResult<RawTEXTOutput> {
-    let ret =
-        fcs_read_raw_text(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
-    Ok(ret)
+    fcs_read_raw_text(&p, &conf).py_term_resolve()
 }
 
 #[pyfunction]
@@ -110,8 +106,7 @@ fn py_fcs_read_std_text(
     p: path::PathBuf,
     conf: ReadStdTEXTConfig,
 ) -> PyResult<(PyAnyCoreTEXT, StdTEXTOutput)> {
-    let (core, data) =
-        fcs_read_std_text(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
+    let (core, data) = fcs_read_std_text(&p, &conf).py_term_resolve()?;
     Ok((core.into(), data))
 }
 
@@ -121,9 +116,7 @@ fn py_fcs_read_raw_dataset(
     p: path::PathBuf,
     conf: ReadRawDatasetConfig,
 ) -> PyResult<RawDatasetOutput> {
-    let ret =
-        fcs_read_raw_dataset(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
-    Ok(ret)
+    fcs_read_raw_dataset(&p, &conf).py_term_resolve()
 }
 
 #[pyfunction]
@@ -132,8 +125,7 @@ fn py_fcs_read_std_dataset(
     p: path::PathBuf,
     conf: ReadStdDatasetConfig,
 ) -> PyResult<(PyAnyCoreDataset, StdDatasetOutput)> {
-    let (core, data) =
-        fcs_read_std_dataset(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
+    let (core, data) = fcs_read_std_dataset(&p, &conf).py_term_resolve()?;
     Ok((core.into(), data))
 }
 
@@ -148,17 +140,8 @@ fn py_fcs_read_raw_dataset_with_keywords(
     other_segs: Vec<OtherSegment>,
     conf: ReadRawDatasetFromKeywordsConfig,
 ) -> PyResult<RawDatasetWithKwsOutput> {
-    let ret = fcs_read_raw_dataset_with_keywords(
-        p,
-        version,
-        &std,
-        data_seg,
-        analysis_seg,
-        other_segs,
-        &conf,
-    )
-    .map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
-    Ok(ret)
+    fcs_read_raw_dataset_with_keywords(p, version, &std, data_seg, analysis_seg, other_segs, &conf)
+        .py_term_resolve()
 }
 
 #[pyfunction]
@@ -181,7 +164,7 @@ fn py_fcs_read_std_dataset_with_keywords(
         other_segs,
         &conf,
     )
-    .map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
+    .py_term_resolve()?;
     Ok((core.into(), data))
 }
 
@@ -329,8 +312,7 @@ macro_rules! convert_methods {
         impl $pytype {
             $(
                 fn $fn(&self, lossless: bool) -> PyResult<$to> {
-                    let new = self.0.clone().try_convert(lossless);
-                    new.py_def_terminate(ConvertFailure).map(|x| x.into())
+                    self.0.clone().try_convert(lossless).py_term_resolve().map(|x| x.into())
                 }
             )*
         }
@@ -739,85 +721,71 @@ common_methods!(
 );
 
 macro_rules! temporal_get_set_2_0 {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                fn set_temporal(
-                    &mut self,
-                    name: Shortname,
-                    force: bool
-                ) -> PyResult<bool> {
-                    self.0
-                        .set_temporal(&name, (), force)
-                        .py_def_terminate(SetTemporalFailure)
-                }
-
-                fn set_temporal_at(
-                    &mut self,
-                    index: usize,
-                    force: bool
-                ) -> PyResult<bool> {
-                    self.0
-                        .set_temporal_at(index.into(), (), force)
-                        .py_def_terminate(SetTemporalFailure)
-                }
-
-                fn unset_temporal(&mut self, force: bool) -> PyResult<bool> {
-                    let out = self.0.unset_temporal(force).map(|x| x.is_some());
-                    Ok(out).py_def_terminate(SetTemporalFailure)
-                }
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            fn set_temporal(&mut self, name: Shortname, force: bool) -> PyResult<bool> {
+                self.0.set_temporal(&name, (), force).py_term_resolve()
             }
-        )*
-    }
+
+            fn set_temporal_at(&mut self, index: usize, force: bool) -> PyResult<bool> {
+                self.0
+                    .set_temporal_at(index.into(), (), force)
+                    .py_term_resolve()
+            }
+
+            fn unset_temporal(&mut self, force: bool) -> PyResult<bool> {
+                self.0
+                    .unset_temporal(force)
+                    .py_term_resolve()
+                    .map(|x| x.is_some())
+            }
+        }
+    };
 }
 
-temporal_get_set_2_0!(PyCoreTEXT2_0, PyCoreDataset2_0);
+temporal_get_set_2_0!(PyCoreTEXT2_0);
+temporal_get_set_2_0!(PyCoreDataset2_0);
 
 macro_rules! temporal_get_set_3_0 {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                fn set_temporal(
-                    &mut self,
-                    name: Shortname,
-                    timestep: PositiveFloat,
-                    force: bool
-                ) -> PyResult<bool> {
-                    self.0
-                        .set_temporal(&name, timestep.into(), force)
-                        .py_def_terminate(SetTemporalFailure)
-                }
-
-                fn set_temporal_at(
-                    &mut self,
-                    index: usize,
-                    timestep: PositiveFloat,
-                    force: bool
-                ) -> PyResult<bool> {
-                    self.0
-                        .set_temporal_at(index.into(), timestep.into(), force)
-                        .py_def_terminate(SetTemporalFailure)
-                }
-
-                fn unset_temporal(&mut self, force: bool) -> PyResult<Option<f32>> {
-                    let out = self.0.unset_temporal(force).map(|x| x.map(|y| y.0.into()));
-                    Ok(out).py_def_terminate(SetTemporalFailure)
-                }
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            fn set_temporal(
+                &mut self,
+                name: Shortname,
+                timestep: PositiveFloat,
+                force: bool,
+            ) -> PyResult<bool> {
+                self.0
+                    .set_temporal(&name, timestep.into(), force)
+                    .py_term_resolve()
             }
-        )*
-    }
+
+            fn set_temporal_at(
+                &mut self,
+                index: usize,
+                timestep: PositiveFloat,
+                force: bool,
+            ) -> PyResult<bool> {
+                self.0
+                    .set_temporal_at(index.into(), timestep.into(), force)
+                    .py_term_resolve()
+            }
+
+            fn unset_temporal(&mut self, force: bool) -> PyResult<Option<Timestep>> {
+                self.0.unset_temporal(force).py_term_resolve()
+            }
+        }
+    };
 }
 
-temporal_get_set_3_0!(
-    PyCoreTEXT3_0,
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_0,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2
-);
+temporal_get_set_3_0!(PyCoreTEXT3_0);
+temporal_get_set_3_0!(PyCoreTEXT3_1);
+temporal_get_set_3_0!(PyCoreTEXT3_2);
+temporal_get_set_3_0!(PyCoreDataset3_0);
+temporal_get_set_3_0!(PyCoreDataset3_1);
+temporal_get_set_3_0!(PyCoreDataset3_2);
 
 macro_rules! common_meas_get_set {
     ($pytype:ident, $o:ident, $t:ident) => {
@@ -871,7 +839,7 @@ macro_rules! common_meas_get_set {
                 let ret = self
                     .0
                     .replace_temporal_at(i.into(), m.into(), force)
-                    .py_def_terminate(SetTemporalFailure)?;
+                    .py_term_resolve()?;
                 Ok(ret.inner_into().into())
             }
 
@@ -884,7 +852,7 @@ macro_rules! common_meas_get_set {
                 let ret = self
                     .0
                     .replace_temporal_named(&name, m.into(), force)
-                    .py_def_terminate(SetTemporalFailure)?;
+                    .py_term_resolve()?;
                 Ok(ret.map(|r| r.inner_into().into()))
             }
 
@@ -927,7 +895,7 @@ macro_rules! common_coretext_meas_get_set {
             ) -> PyResult<()> {
                 self.0
                     .push_temporal(name, t.into(), Range(r), notrunc)
-                    .py_def_terminate(PushTemporalFailure)
+                    .py_term_resolve()
             }
 
             fn insert_temporal(
@@ -940,7 +908,7 @@ macro_rules! common_coretext_meas_get_set {
             ) -> PyResult<()> {
                 self.0
                     .insert_temporal(i.into(), name, t.into(), Range(r), notrunc)
-                    .py_def_terminate(InsertTemporalFailure)
+                    .py_term_resolve()
             }
 
             fn unset_measurements(&mut self) -> PyResult<()> {
@@ -971,10 +939,10 @@ macro_rules! coredata_meas_get_set {
             ) -> PyResult<()> {
                 self.0
                     .push_temporal(name, t.into(), col, Range(r), notrunc)
-                    .py_def_terminate(PushTemporalFailure)
+                    .py_term_resolve()
             }
 
-            fn insert_time_channel(
+            fn insert_temporal(
                 &mut self,
                 i: usize,
                 name: Shortname,
@@ -985,7 +953,7 @@ macro_rules! coredata_meas_get_set {
             ) -> PyResult<()> {
                 self.0
                     .insert_temporal(i.into(), name, t.into(), col, Range(r), notrunc)
-                    .py_def_terminate(InsertTemporalFailure)
+                    .py_term_resolve()
             }
 
             fn unset_data(&mut self) -> PyResult<()> {
@@ -1055,11 +1023,11 @@ macro_rules! coretext2_0_meas_methods {
                     .remove_measurement_by_index(index.into())
                     .map_err(PyElementIndexError)?;
                 let (n, v) = Element::unzip::<MaybeFamily>(r);
-                Ok((n.0.map(|x| x.into()), v.inner_into().into()))
+                Ok((n.0, v.inner_into()))
             }
 
             #[pyo3(signature = (m, r, notrunc=false, name=None))]
-            fn push_measurement(
+            fn push_optical(
                 &mut self,
                 m: $o,
                 r: BigDecimal,
@@ -1068,8 +1036,7 @@ macro_rules! coretext2_0_meas_methods {
             ) -> PyResult<Shortname> {
                 self.0
                     .push_optical(name.into(), m.into(), r.into(), notrunc)
-                    .py_def_terminate(InsertOpticalFailure)
-                    .map(|x| x.into())
+                    .py_term_resolve()
             }
 
             #[pyo3(signature = (i, m, r, notrunc=false, name=None))]
@@ -1083,8 +1050,7 @@ macro_rules! coretext2_0_meas_methods {
             ) -> PyResult<Shortname> {
                 self.0
                     .insert_optical(i.into(), name.into(), m.into(), Range(r), notrunc)
-                    .py_def_terminate(InsertOpticalFailure)
-                    .map(|x| x.into())
+                    .py_term_resolve()
             }
         }
     };
@@ -1118,7 +1084,7 @@ macro_rules! coretext3_1_meas_methods {
             ) -> PyResult<()> {
                 self.0
                     .push_optical(name.into(), m.into(), Range(r), notrunc)
-                    .py_def_terminate(PushOpticalFailure)
+                    .py_term_resolve()
                     .void()
             }
 
@@ -1132,7 +1098,7 @@ macro_rules! coretext3_1_meas_methods {
             ) -> PyResult<()> {
                 self.0
                     .insert_optical(i.into(), name.into(), m.into(), Range(r), notrunc)
-                    .py_def_terminate(InsertOpticalFailure)
+                    .py_term_resolve()
                     .void()
             }
         }
@@ -1153,8 +1119,7 @@ macro_rules! set_measurements_ordered {
             ) -> PyResult<()> {
                 self.0
                     .set_measurements(xs.inner_into(), prefix)
-                    .py_mult_terminate(SetMeasurementsFailure)
-                    .void()
+                    .py_term_resolve_nowarn()
             }
 
             fn set_measurements_and_layout(
@@ -1165,8 +1130,7 @@ macro_rules! set_measurements_ordered {
             ) -> PyResult<()> {
                 self.0
                     .set_measurements_and_layout(xs.inner_into(), layout.into(), prefix)
-                    .py_mult_terminate(SetMeasurementsFailure)
-                    .void()
+                    .py_term_resolve_nowarn()
             }
 
             #[getter]
@@ -1176,9 +1140,7 @@ macro_rules! set_measurements_ordered {
             }
 
             fn set_layout(&mut self, layout: PyOrderedLayout) -> PyResult<()> {
-                self.0
-                    .set_layout(layout.into())
-                    .py_mult_terminate(SetLayoutFailure)
+                self.0.set_layout(layout.into()).py_term_resolve_nowarn()
             }
         }
     };
@@ -1196,8 +1158,7 @@ macro_rules! set_measurements_endian {
             pub fn set_measurements(&mut self, xs: RawInput<AlwaysFamily, $t, $o>) -> PyResult<()> {
                 self.0
                     .set_measurements_noprefix(xs.inner_into())
-                    .py_mult_terminate(SetMeasurementsFailure)
-                    .void()
+                    .py_term_resolve_nowarn()
             }
 
             fn set_measurements_and_layout(
@@ -1207,8 +1168,7 @@ macro_rules! set_measurements_endian {
             ) -> PyResult<()> {
                 self.0
                     .set_measurements_and_layout_noprefix(xs.inner_into(), layout.into())
-                    .py_mult_terminate(SetMeasurementsFailure)
-                    .void()
+                    .py_term_resolve_nowarn()
             }
 
             #[getter]
@@ -1218,9 +1178,7 @@ macro_rules! set_measurements_endian {
             }
 
             fn set_layout(&mut self, layout: $l) -> PyResult<()> {
-                self.0
-                    .set_layout(layout.into())
-                    .py_mult_terminate(SetLayoutFailure)
+                self.0.set_layout(layout.into()).py_term_resolve_nowarn()
             }
         }
     };
@@ -1249,8 +1207,7 @@ macro_rules! coredata2_0_meas_methods {
             ) -> PyResult<()> {
                 self.0
                     .set_measurements_and_data(xs.inner_into(), cols, prefix)
-                    .py_mult_terminate(SetMeasurementsFailure)
-                    .void()
+                    .py_term_resolve_nowarn()
             }
         }
     };
@@ -1270,8 +1227,7 @@ macro_rules! coredata3_1_meas_methods {
             ) -> PyResult<()> {
                 self.0
                     .set_measurements_and_data_noprefix(xs.inner_into(), cols)
-                    .py_mult_terminate(SetMeasurementsFailure)
-                    .void()
+                    .py_term_resolve_nowarn()
             }
         }
     };
@@ -1309,77 +1265,65 @@ shortnames_methods!(
 
 // Get/set methods for $PnE (2.0)
 macro_rules! scales_methods {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn get_all_scales(&self) -> Vec<Option<Scale>> {
-                    self.0.get_all_scales().collect()
-                }
-
-                #[getter]
-                fn get_scales(&self) -> Vec<(usize, Option<Scale>)> {
-                    self.0
-                        .get_optical_opt::<Scale>()
-                        .map(|(i, s)| (i.into(), s.map(|&x| x)))
-                        .collect()
-                }
-
-                #[setter]
-                fn set_scales(&mut self, xs: Vec<Option<Scale>>) -> PyResult<()> {
-                    let ys = xs.into_iter().map(|x| x.map(|y| y.into())).collect();
-                    self.0
-                        .set_scales(ys)
-                        .py_mult_terminate(SetMeasurementsFailure)
-                        .void()
-                }
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            #[getter]
+            fn get_all_scales(&self) -> Vec<Option<Scale>> {
+                self.0.get_all_scales().collect()
             }
-        )*
+
+            #[getter]
+            fn get_scales(&self) -> Vec<(usize, Option<Scale>)> {
+                self.0
+                    .get_optical_opt::<Scale>()
+                    .map(|(i, s)| (i.into(), s.map(|&x| x)))
+                    .collect()
+            }
+
+            #[setter]
+            fn set_scales(&mut self, xs: Vec<Option<Scale>>) -> PyResult<()> {
+                self.0.set_scales(xs).py_term_resolve_nowarn()
+            }
+        }
     };
 }
 
-scales_methods!(PyCoreTEXT2_0, PyCoreDataset2_0);
+scales_methods!(PyCoreTEXT2_0);
+scales_methods!(PyCoreDataset2_0);
 
 // Get/set methods for $PnE (3.0-3.2)
 macro_rules! transforms_methods {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn get_all_transforms(&self) -> Vec<ScaleTransform> {
-                    self.0.get_all_transforms().collect()
-                }
-
-                #[getter]
-                fn get_transforms(&self) -> Vec<(usize, ScaleTransform)> {
-                    self.0
-                        .get_optical::<ScaleTransform>()
-                        .map(|(i, &s)| (i.into(), s))
-                        .collect()
-                }
-
-                #[setter]
-                fn set_transforms(&mut self, xs: Vec<ScaleTransform>) -> PyResult<()> {
-                    self.0
-                        .set_transforms(xs)
-                        .py_mult_terminate(SetMeasurementsFailure)
-                        .void()
-                }
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            #[getter]
+            fn get_all_transforms(&self) -> Vec<ScaleTransform> {
+                self.0.get_all_transforms().collect()
             }
-        )*
+
+            #[getter]
+            fn get_transforms(&self) -> Vec<(usize, ScaleTransform)> {
+                self.0
+                    .get_optical::<ScaleTransform>()
+                    .map(|(i, &s)| (i.into(), s))
+                    .collect()
+            }
+
+            #[setter]
+            fn set_transforms(&mut self, xs: Vec<ScaleTransform>) -> PyResult<()> {
+                self.0.set_transforms(xs).py_term_resolve_nowarn()
+            }
+        }
     };
 }
 
-transforms_methods!(
-    PyCoreTEXT3_0,
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_0,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2
-);
+transforms_methods!(PyCoreTEXT3_0);
+transforms_methods!(PyCoreTEXT3_1);
+transforms_methods!(PyCoreTEXT3_2);
+transforms_methods!(PyCoreDataset3_0);
+transforms_methods!(PyCoreDataset3_1);
+transforms_methods!(PyCoreDataset3_2);
 
 // Get/set methods for $TIMESTEP (3.0-3.2)
 macro_rules! timestep_methods {
@@ -2302,87 +2246,34 @@ impl From<PyElementIndexError> for PyErr {
     }
 }
 
-trait PyMultResultExt {
+trait PyTerminalResultExt {
     type V;
-    type E;
 
-    fn py_mult_terminate<T: fmt::Display>(self, reason: T) -> PyResult<Self::V>;
+    fn py_term_resolve(self) -> PyResult<Self::V>;
 }
 
-impl<V, E: fmt::Display> PyMultResultExt for MultiResult<V, E> {
+impl<V, W: fmt::Display, E: fmt::Display, T: fmt::Display> PyTerminalResultExt
+    for TerminalResult<V, W, E, T>
+{
     type V = V;
-    type E = E;
 
-    fn py_mult_terminate<T: fmt::Display>(self, reason: T) -> PyResult<Self::V> {
-        self.mult_to_deferred::<E, ()>()
-            .py_def_terminate_nowarn(reason)
+    fn py_term_resolve(self) -> PyResult<Self::V> {
+        self.map_or_else(|e| Err(handle_failure(e)), handle_warnings)
     }
 }
 
-trait PyDefResultExt {
+trait PyTerminalNoWarnResultExt {
     type V;
-    type W;
-    type E;
 
-    fn py_def_terminate<T: fmt::Display>(self, reason: T) -> PyResult<Self::V>;
+    fn py_term_resolve_nowarn(self) -> PyResult<Self::V>;
 }
 
-impl<V, W: fmt::Display, E: fmt::Display> PyDefResultExt for DeferredResult<V, W, E> {
+impl<V, E: fmt::Display, T: fmt::Display> PyTerminalNoWarnResultExt
+    for TerminalResult<V, (), E, T>
+{
     type V = V;
-    type W = W;
-    type E = E;
 
-    fn py_def_terminate<T: fmt::Display>(self, reason: T) -> PyResult<Self::V> {
-        self.def_terminate(reason)
-            .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+    fn py_term_resolve_nowarn(self) -> PyResult<Self::V> {
+        self.map_err(handle_failure_nowarn).map(|x| x.inner())
     }
 }
-
-trait PyDefNoWarnResultExt {
-    type V;
-    type E;
-
-    fn py_def_terminate_nowarn<T: fmt::Display>(self, reason: T) -> PyResult<Self::V>;
-}
-
-impl<V, E: fmt::Display> PyDefNoWarnResultExt for DeferredResult<V, (), E> {
-    type V = V;
-    type E = E;
-
-    fn py_def_terminate_nowarn<T: fmt::Display>(self, reason: T) -> PyResult<Self::V> {
-        self.def_terminate(reason)
-            .map_err(handle_failure_nowarn)
-            .map(|x| x.inner())
-    }
-}
-
-macro_rules! def_failure {
-    ($failname:ident, $msg:expr) => {
-        struct $failname;
-
-        impl fmt::Display for $failname {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-                write!(f, $msg)
-            }
-        }
-    };
-}
-
-def_failure!(ConvertFailure, "could not change FCS version");
-
-def_failure!(
-    SetTemporalFailure,
-    "could not convert to/from temporal measurement"
-);
-
-def_failure!(SetLayoutFailure, "could not set data layout");
-
-def_failure!(PushTemporalFailure, "could not push temporal measurement");
-
-def_failure!(InsertTemporalFailure, "could not push temporal measurement");
-
-def_failure!(PushOpticalFailure, "could not push optical measurement");
-
-def_failure!(InsertOpticalFailure, "could not push optical measurement");
-
-def_failure!(SetMeasurementsFailure, "could not set measurements/layout");

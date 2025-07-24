@@ -717,6 +717,12 @@ impl<V: Default, W, E> Default for Tentative<V, W, E> {
     }
 }
 
+impl<V: Default, W> Default for Terminal<V, W> {
+    fn default() -> Self {
+        Self::new(V::default())
+    }
+}
+
 impl<P, W, E> DeferredFailure<P, W, E> {
     pub fn new(warnings: Vec<W>, errors: NonEmpty<E>, passthru: P) -> Self {
         Self {

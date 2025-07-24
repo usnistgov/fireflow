@@ -3,6 +3,7 @@ use crate::core::*;
 use crate::data::*;
 use crate::error::*;
 use crate::header::*;
+use crate::macros::def_failure;
 use crate::segment::*;
 use crate::text::keywords::*;
 use crate::text::parser::*;
@@ -327,37 +328,15 @@ pub struct RawTEXTParseData {
     pub byte_pairs: BytesPairs,
 }
 
-// /// Raw TEXT values for $BEGIN/END* keywords
-// pub struct SegmentKeywords {
-//     pub begin: Option<String>,
-//     pub end: Option<String>,
-// }
-
 /// Standardized TEXT+DATA+ANALYSIS with DATA+ANALYSIS offsets
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct DatasetSegments {
-    // /// Standardized dataset
-    // pub core: AnyCoreDataset,
     /// offsets used to parse DATA
     pub data_seg: AnyDataSegment,
 
     /// offsets used to parse ANALYSIS
     pub analysis_seg: AnyAnalysisSegment,
 }
-
-pub struct HeaderFailure;
-
-pub struct RawTEXTFailure;
-
-pub struct RawDatasetFailure;
-
-pub struct RawDatasetWithKwsFailure;
-
-pub struct StdTEXTFailure;
-
-pub struct StdDatasetFailure;
-
-pub struct StdDatasetWithKwsFailure;
 
 #[derive(From, Display)]
 pub enum StdTEXTWarning {
@@ -1264,47 +1243,28 @@ impl fmt::Display for NonstandardError {
     }
 }
 
-impl fmt::Display for HeaderFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "could not parse HEADER")
-    }
-}
+def_failure!(HeaderFailure, "could not parse HEADER");
 
-impl fmt::Display for RawTEXTFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "could not parse TEXT segment")
-    }
-}
+def_failure!(RawTEXTFailure, "could not parse TEXT segment");
 
-impl fmt::Display for StdTEXTFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "could not standardize TEXT segment")
-    }
-}
+def_failure!(StdTEXTFailure, "could not standardize TEXT segment");
 
-impl fmt::Display for StdDatasetFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "could not read DATA with standardized TEXT")
-    }
-}
+def_failure!(
+    StdDatasetFailure,
+    "could not read DATA with standardized TEXT"
+);
 
-impl fmt::Display for RawDatasetFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "could not read DATA with raw TEXT")
-    }
-}
+def_failure!(RawDatasetFailure, "could not read DATA with raw TEXT");
 
-impl fmt::Display for RawDatasetWithKwsFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "could not read raw dataset from keywords")
-    }
-}
+def_failure!(
+    RawDatasetWithKwsFailure,
+    "could not read raw dataset from keywords"
+);
 
-impl fmt::Display for StdDatasetWithKwsFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "could not read standardized dataset from keywords")
-    }
-}
+def_failure!(
+    StdDatasetWithKwsFailure,
+    "could not read standardized dataset from keywords"
+);
 
 #[cfg(test)]
 mod tests {

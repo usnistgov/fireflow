@@ -24,3 +24,19 @@ macro_rules! impl_newtype_try_from {
 }
 
 pub(crate) use impl_newtype_try_from;
+
+macro_rules! def_failure {
+    ($failname:ident, $msg:expr) => {
+        // make these pub no matter what since they will be in public error
+        // interfaces
+        pub struct $failname;
+
+        impl fmt::Display for $failname {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+                write!(f, $msg)
+            }
+        }
+    };
+}
+
+pub(crate) use def_failure;

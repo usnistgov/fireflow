@@ -2,7 +2,7 @@ use crate::config::*;
 use crate::data::*;
 use crate::error::*;
 use crate::header::*;
-use crate::macros::match_many_to_one;
+use crate::macros::{def_failure, match_many_to_one};
 use crate::segment::*;
 use crate::text::byteord::*;
 use crate::text::compensation::*;
@@ -2182,22 +2182,26 @@ where
         n: &Shortname,
         timestep: <M::Temporal as TemporalFromOptical<M::Optical>>::TData,
         force: bool,
-    ) -> DeferredResult<bool, SetTemporalError, SetTemporalError>
+    ) -> TerminalResult<bool, SetTemporalError, SetTemporalError, SetTemporalFailure>
     where
         M::Temporal: TemporalFromOptical<M::Optical>,
     {
         let lossless = !force;
-        self.measurements.set_center_by_name(
-            n,
-            |i, old_o, old_t| M::swap_optical_temporal(old_o, old_t, i, lossless).def_inner_into(),
-            |i, old_o| {
-                <M::Temporal as TemporalFromOptical<M::Optical>>::from_optical(
-                    old_o, i, timestep, lossless,
-                )
-                .def_inner_into::<SwapOpticalTemporalError, SwapOpticalTemporalError>()
-                .def_inner_into()
-            },
-        )
+        self.measurements
+            .set_center_by_name(
+                n,
+                |i, old_o, old_t| {
+                    M::swap_optical_temporal(old_o, old_t, i, lossless).def_inner_into()
+                },
+                |i, old_o| {
+                    <M::Temporal as TemporalFromOptical<M::Optical>>::from_optical(
+                        old_o, i, timestep, lossless,
+                    )
+                    .def_inner_into::<SwapOpticalTemporalError, SwapOpticalTemporalError>()
+                    .def_inner_into()
+                },
+            )
+            .def_terminate(SetTemporalFailure)
     }
 
     /// Set the measurement at given index to the time measurement.
@@ -2206,22 +2210,26 @@ where
         index: MeasIndex,
         timestep: <M::Temporal as TemporalFromOptical<M::Optical>>::TData,
         force: bool,
-    ) -> DeferredResult<bool, SetTemporalError, SetTemporalError>
+    ) -> TerminalResult<bool, SetTemporalError, SetTemporalError, SetTemporalFailure>
     where
         M::Temporal: TemporalFromOptical<M::Optical>,
     {
         let lossless = !force;
-        self.measurements.set_center_by_index(
-            index,
-            |i, old_o, old_t| M::swap_optical_temporal(old_o, old_t, i, lossless).def_inner_into(),
-            |i, old_o| {
-                <M::Temporal as TemporalFromOptical<M::Optical>>::from_optical(
-                    old_o, i, timestep, lossless,
-                )
-                .def_inner_into::<SwapOpticalTemporalError, SwapOpticalTemporalError>()
-                .def_inner_into()
-            },
-        )
+        self.measurements
+            .set_center_by_index(
+                index,
+                |i, old_o, old_t| {
+                    M::swap_optical_temporal(old_o, old_t, i, lossless).def_inner_into()
+                },
+                |i, old_o| {
+                    <M::Temporal as TemporalFromOptical<M::Optical>>::from_optical(
+                        old_o, i, timestep, lossless,
+                    )
+                    .def_inner_into::<SwapOpticalTemporalError, SwapOpticalTemporalError>()
+                    .def_inner_into()
+                },
+            )
+            .def_terminate(SetTemporalFailure)
     }
 
     /// Convert time measurement to optical measurement.
@@ -2232,17 +2240,20 @@ where
     pub fn unset_temporal(
         &mut self,
         force: bool,
-    ) -> Tentative<
+    ) -> TerminalResult<
         Option<<M::Optical as OpticalFromTemporal<M::Temporal>>::TData>,
         TemporalToOpticalError,
         TemporalToOpticalError,
+        UnsetTemporalFailure,
     >
     where
         M::Optical: OpticalFromTemporal<M::Temporal>,
     {
-        self.measurements.unset_center(|i, old_t| {
-            <M::Optical as OpticalFromTemporal<M::Temporal>>::from_temporal(old_t, i, !force)
-        })
+        self.measurements
+            .unset_center(|i, old_t| {
+                <M::Optical as OpticalFromTemporal<M::Temporal>>::from_temporal(old_t, i, !force)
+            })
+            .terminate(UnsetTemporalFailure)
     }
 
     /// Insert a nonstandard key/value pair for each measurement.
@@ -2328,19 +2339,22 @@ where
         index: MeasIndex,
         m: Temporal<M::Temporal>,
         force: bool,
-    ) -> DeferredResult<
+    ) -> TerminalResult<
         Element<Temporal<M::Temporal>, Optical<M::Optical>>,
         ReplaceTemporalError,
         ReplaceTemporalError,
+        ReplaceTemporalFailure,
     >
     where
         M::Optical: OpticalFromTemporal<M::Temporal>,
     {
-        self.measurements.replace_center_at(index, m, |i, old_t| {
-            <M::Optical as OpticalFromTemporal<M::Temporal>>::from_temporal(old_t, i, !force)
-                .def_inner_into()
-                .def_map_value(|(x, _)| x)
-        })
+        self.measurements
+            .replace_center_at(index, m, |i, old_t| {
+                <M::Optical as OpticalFromTemporal<M::Temporal>>::from_temporal(old_t, i, !force)
+                    .def_inner_into()
+                    .def_map_value(|(x, _)| x)
+            })
+            .def_terminate(ReplaceTemporalFailure)
     }
 
     /// Replace temporal measurement at index.
@@ -2350,10 +2364,11 @@ where
         name: &Shortname,
         m: Temporal<M::Temporal>,
         force: bool,
-    ) -> DeferredResult<
+    ) -> TerminalResult<
         Option<Element<Temporal<M::Temporal>, Optical<M::Optical>>>,
         ReplaceTemporalError,
         ReplaceTemporalError,
+        ReplaceTemporalFailure,
     >
     where
         M::Optical: OpticalFromTemporal<M::Temporal>,
@@ -2364,6 +2379,7 @@ where
                     .def_inner_into()
                     .def_map_value(|(x, _)| x)
             })
+            .def_terminate(ReplaceTemporalFailure)
     }
 
     /// Rename a measurement
@@ -2725,71 +2741,77 @@ where
     pub fn set_scales(
         &mut self,
         scales: Vec<Option<Scale>>,
-    ) -> MultiResult<(), SetMeasurementsError>
+    ) -> TerminalResult<(), (), SetMeasurementsError, SetScalesFailure>
     where
         M::Optical: HasScale,
     {
-        if let Some(l) = self.layout.0.as_ref() {
-            let mut xforms: Vec<_> = scales
-                .iter()
-                .copied()
-                .map(|s| s.map(ScaleTransform::from).unwrap_or_default())
-                .collect();
-            // If there is a center index and the input is too short, just let
-            // it pass; the next check will throw an error if the final length
-            // is incorrect
-            if let Some(i) = self.measurements.center_index().map(|i| i.into()) {
-                if i <= xforms.len() {
-                    xforms.insert(i, ScaleTransform::default())
+        let go = || {
+            if let Some(l) = self.layout.0.as_ref() {
+                let mut xforms: Vec<_> = scales
+                    .iter()
+                    .copied()
+                    .map(|s| s.map(ScaleTransform::from).unwrap_or_default())
+                    .collect();
+                // If there is a center index and the input is too short, just let
+                // it pass; the next check will throw an error if the final length
+                // is incorrect
+                if let Some(i) = self.measurements.center_index().map(|i| i.into()) {
+                    if i <= xforms.len() {
+                        xforms.insert(i, ScaleTransform::default())
+                    }
                 }
+                l.check_transforms_and_len(&xforms[..]).mult_errors_into()?;
+                // ASSUME this won't fail because we checked the length first
+                self.measurements
+                    .alter_non_center_values_zip(scales, |m, x| {
+                        *m.specific.scale_mut(private::NoTouchy) = x
+                    })
+                    .map(|_| ())
+                    .unwrap();
+                Ok(())
+            } else if scales.is_empty() {
+                Ok(())
+            } else {
+                Err(EmptyLayoutError).into_mult()
             }
-            l.check_transforms_and_len(&xforms[..]).mult_errors_into()?;
-            // ASSUME this won't fail because we checked the length first
-            self.measurements
-                .alter_non_center_values_zip(scales, |m, x| {
-                    *m.specific.scale_mut(private::NoTouchy) = x
-                })
-                .map(|_| ())
-                .unwrap();
-            Ok(())
-        } else if scales.is_empty() {
-            Ok(())
-        } else {
-            Err(EmptyLayoutError).into_mult()
-        }
+        };
+        go().mult_terminate(SetScalesFailure)
     }
 
     pub fn set_transforms(
         &mut self,
         mut xforms: Vec<ScaleTransform>,
-    ) -> MultiResult<(), SetMeasurementsError>
+    ) -> TerminalResult<(), (), SetMeasurementsError, SetScaleTransformsFailure>
     where
         M::Optical: HasScaleTransform,
     {
         // TODO very not DRY
-        if let Some(l) = self.layout.0.as_ref() {
-            // If there is a center index and the input is too short, just let
-            // it pass; the next check will throw an error if the final length
-            // is incorrect
-            if let Some(i) = self.measurements.center_index().map(|i| i.into()) {
-                if i <= xforms.len() {
-                    xforms.insert(i, ScaleTransform::default())
+        let go = || {
+            if let Some(l) = self.layout.0.as_ref() {
+                // If there is a center index and the input is too short, just let
+                // it pass; the next check will throw an error if the final length
+                // is incorrect
+                if let Some(i) = self.measurements.center_index().map(|i| i.into()) {
+                    if i <= xforms.len() {
+                        xforms.insert(i, ScaleTransform::default())
+                    }
                 }
+                l.check_transforms_and_len(&xforms[..]).mult_errors_into()?;
+                // ASSUME this won't fail because we checked the length first
+                self.measurements
+                    .alter_non_center_values_zip(xforms, |m, x| {
+                        *m.specific.transform_mut(private::NoTouchy) = x
+                    })
+                    .map(|_| ())
+                    .unwrap();
+                Ok(())
+            } else if xforms.is_empty() {
+                Ok(())
+            } else {
+                Err(EmptyLayoutError).into_mult()
             }
-            l.check_transforms_and_len(&xforms[..]).mult_errors_into()?;
-            // ASSUME this won't fail because we checked the length first
-            self.measurements
-                .alter_non_center_values_zip(xforms, |m, x| {
-                    *m.specific.transform_mut(private::NoTouchy) = x
-                })
-                .map(|_| ())
-                .unwrap();
-            Ok(())
-        } else if xforms.is_empty() {
-            Ok(())
-        } else {
-            Err(EmptyLayoutError).into_mult()
-        }
+        };
+        go().mult_terminate(SetScaleTransformsFailure)
     }
 
     pub fn get_metaroot_opt<X>(&self) -> Option<&X>
@@ -2918,10 +2940,11 @@ where
     pub fn try_convert<ToM>(
         self,
         force: bool,
-    ) -> DeferredResult<
+    ) -> TerminalResult<
         VersionedCore<A, D, O, ToM>,
         MetarootConvertWarning,
         VersionedConvertError<M::Name, ToM::Name>,
+        ConvertFailure,
     >
     where
         Version: From<M::Ver>,
@@ -2978,6 +3001,7 @@ where
                 to: ToM::Ver::fcs_version().into(),
                 inner: error,
             })
+            .def_terminate(ConvertFailure)
     }
 
     fn time_naive<const IS_ETIM: bool, X>(&self) -> Option<NaiveTime>
@@ -3139,19 +3163,12 @@ where
         &mut self,
         xs: RawInput<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         prefix: ShortnamePrefix,
-    ) -> MultiResult<(), SetMeasurementsError>
+    ) -> TerminalResult<(), (), SetMeasurementsError, SetMeasurementsFailure>
     where
         M::Optical: AsScaleTransform,
     {
-        self.check_existing_links().into_mult()?;
-        let ms = NamedVec::try_new(xs, prefix).into_mult()?;
-        if let Some(l) = self.layout.as_ref_opt() {
-            l.check_measurement_vector(&ms).mult_errors_into()?;
-            self.measurements = ms;
-            Ok(())
-        } else {
-            Err(EmptyLayoutError).into_mult()
-        }
+        self.set_measurements_inner(xs, prefix)
+            .mult_terminate(SetMeasurementsFailure)
     }
 
     /// Set data layout
@@ -3161,13 +3178,15 @@ where
     pub fn set_layout(
         &mut self,
         layout: <M::Ver as Versioned>::Layout,
-    ) -> MultiResult<(), MeasLayoutMismatchError>
+    ) -> TerminalResult<(), (), MeasLayoutMismatchError, SetLayoutFailure>
     where
         M::Optical: AsScaleTransform,
     {
-        layout.check_measurement_vector(&self.measurements)?;
+        layout
+            .check_measurement_vector(&self.measurements)
+            .mult_terminate(SetLayoutFailure)?;
         self.layout = Some(layout).into();
-        Ok(())
+        Ok(Terminal::default())
     }
 
     /// Set measurements and layout
@@ -3184,16 +3203,38 @@ where
         measurements: RawInput<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         layout: <M::Ver as Versioned>::Layout,
         prefix: ShortnamePrefix,
+    ) -> TerminalResult<(), (), SetMeasurementsError, SetMeasurementsAndLayoutFailure>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        let go = || {
+            self.check_existing_links().into_mult()?;
+            let ms = NamedVec::try_new(measurements, prefix).into_mult()?;
+            layout.check_measurement_vector(&ms).mult_errors_into()?;
+            self.measurements = ms;
+            self.layout = Some(layout).into();
+            Ok(())
+        };
+        go().mult_terminate(SetMeasurementsAndLayoutFailure)
+    }
+
+    pub fn set_measurements_inner(
+        &mut self,
+        xs: RawInput<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        prefix: ShortnamePrefix,
     ) -> MultiResult<(), SetMeasurementsError>
     where
         M::Optical: AsScaleTransform,
     {
         self.check_existing_links().into_mult()?;
-        let ms = NamedVec::try_new(measurements, prefix).into_mult()?;
-        layout.check_measurement_vector(&ms).mult_errors_into()?;
-        self.measurements = ms;
-        self.layout = Some(layout).into();
-        Ok(())
+        let ms = NamedVec::try_new(xs, prefix).into_mult()?;
+        if let Some(l) = self.layout.as_ref_opt() {
+            l.check_measurement_vector(&ms).mult_errors_into()?;
+            self.measurements = ms;
+            Ok(())
+        } else {
+            Err(EmptyLayoutError).into_mult()
+        }
     }
 
     fn unset_measurements_inner(&mut self) -> Result<(), ExistingLinkError> {
@@ -3603,8 +3644,9 @@ where
         m: Temporal<M::Temporal>,
         r: Range,
         notrunc: bool,
-    ) -> DeferredResult<(), AnyRangeError, InsertTemporalError> {
+    ) -> TerminalResult<(), AnyRangeError, InsertTemporalError, PushTemporalFailure> {
         self.push_temporal_inner(n, m, r, notrunc)
+            .def_terminate(PushTemporalFailure)
     }
 
     /// Add time measurement at the given position
@@ -3618,8 +3660,9 @@ where
         m: Temporal<M::Temporal>,
         r: Range,
         notrunc: bool,
-    ) -> DeferredResult<(), AnyRangeError, InsertTemporalError> {
+    ) -> TerminalResult<(), AnyRangeError, InsertTemporalError, InsertTemporalFailure> {
         self.insert_temporal_inner(i, n, m, r, notrunc)
+            .def_terminate(InsertTemporalFailure)
     }
 
     /// Add optical measurement to the end of the measurement vector
@@ -3631,8 +3674,9 @@ where
         m: Optical<M::Optical>,
         r: Range,
         notrunc: bool,
-    ) -> DeferredResult<Shortname, AnyRangeError, PushOpticalError> {
+    ) -> TerminalResult<Shortname, AnyRangeError, PushOpticalError, PushOpticalFailure> {
         self.push_optical_inner(n, m, r, notrunc)
+            .def_terminate(PushOpticalFailure)
     }
 
     /// Add optical measurement at a given position
@@ -3645,8 +3689,9 @@ where
         m: Optical<M::Optical>,
         r: Range,
         notrunc: bool,
-    ) -> DeferredResult<Shortname, AnyRangeError, InsertOpticalError> {
+    ) -> TerminalResult<Shortname, AnyRangeError, InsertOpticalError, InsertOpticalFailure> {
         self.insert_optical_inner(i, n, m, r, notrunc)
+            .def_terminate(InsertOpticalFailure)
     }
 
     /// Remove measurements
@@ -3879,10 +3924,11 @@ where
         col: AnyFCSColumn,
         r: Range,
         notrunc: bool,
-    ) -> DeferredResult<(), AnyRangeError, PushTemporalToDatasetError> {
+    ) -> TerminalResult<(), AnyRangeError, PushTemporalToDatasetError, PushTemporalFailure> {
         self.push_temporal_inner(n, m, r, notrunc)
             .def_errors_into()
             .def_and_maybe(|_| self.data.push_column(col).into_deferred())
+            .def_terminate(PushTemporalFailure)
     }
 
     /// Add time measurement at the given position
@@ -3897,7 +3943,8 @@ where
         col: AnyFCSColumn,
         r: Range,
         notrunc: bool,
-    ) -> DeferredResult<(), AnyRangeError, InsertTemporalToDatasetError> {
+    ) -> TerminalResult<(), AnyRangeError, InsertTemporalToDatasetError, InsertTemporalFailure>
+    {
         self.insert_temporal_inner(i, n, m, r, notrunc)
             .def_errors_into()
             .def_and_maybe(|_| {
@@ -3906,6 +3953,7 @@ where
                     .insert_column_nocheck(i.into(), col)
                     .into_deferred()
             })
+            .def_terminate(InsertTemporalFailure)
     }
 
     /// Add measurement to the end of the measurement vector
@@ -3918,7 +3966,8 @@ where
         col: AnyFCSColumn,
         r: Range,
         notrunc: bool,
-    ) -> DeferredResult<Shortname, AnyRangeError, PushOpticalToDatasetError> {
+    ) -> TerminalResult<Shortname, AnyRangeError, PushOpticalToDatasetError, PushOpticalFailure>
+    {
         self.push_optical_inner(n, m, r, notrunc)
             .def_errors_into()
             .def_and_maybe(|k| {
@@ -3927,6 +3976,7 @@ where
                     .into_deferred()
                     .def_map_value(|_| k)
             })
+            .def_terminate(PushOpticalFailure)
     }
 
     /// Add measurement at a given position
@@ -3940,7 +3990,8 @@ where
         col: AnyFCSColumn,
         r: Range,
         notrunc: bool,
-    ) -> DeferredResult<Shortname, AnyRangeError, InsertOpticalInDatasetError> {
+    ) -> TerminalResult<Shortname, AnyRangeError, InsertOpticalInDatasetError, InsertOpticalFailure>
+    {
         self.insert_optical_inner(i, n, m, r, notrunc)
             .def_errors_into()
             .def_and_maybe(|k| {
@@ -3950,6 +4001,7 @@ where
                     .into_deferred()
                     .def_map_value(|_| k)
             })
+            .def_terminate(InsertOpticalFailure)
     }
 
     /// Convert this struct into a CoreTEXT.
@@ -3972,19 +4024,22 @@ where
         xs: RawInput<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         cs: Vec<AnyFCSColumn>,
         prefix: ShortnamePrefix,
-    ) -> MultiResult<(), SetMeasurementsAndDataError>
+    ) -> TerminalResult<(), (), SetMeasurementsAndDataError, SetMeasurementsAndDataFailure>
     where
         M::Optical: AsScaleTransform,
     {
-        let meas_n = xs.0.len();
-        let data_n = cs.len();
-        if meas_n != data_n {
-            return Err(MeasDataMismatchError { meas_n, data_n }).into_mult();
-        }
-        let df = FCSDataFrame::try_new(cs).into_mult()?;
-        self.set_measurements(xs, prefix).mult_errors_into()?;
-        self.data = df;
-        Ok(())
+        let go = || {
+            let meas_n = xs.0.len();
+            let data_n = cs.len();
+            if meas_n != data_n {
+                return Err(MeasDataMismatchError { meas_n, data_n }).into_mult();
+            }
+            let df = FCSDataFrame::try_new(cs).into_mult()?;
+            self.set_measurements_inner(xs, prefix).mult_errors_into()?;
+            self.data = df;
+            Ok(())
+        };
+        go().mult_terminate(SetMeasurementsAndDataFailure)
     }
 }
 
@@ -4102,7 +4157,7 @@ where
     pub fn set_measurements_noprefix(
         &mut self,
         xs: RawInput<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
-    ) -> MultiResult<(), SetMeasurementsError>
+    ) -> TerminalResult<(), (), SetMeasurementsError, SetMeasurementsFailure>
     where
         M::Optical: AsScaleTransform,
     {
@@ -4118,7 +4173,7 @@ where
         &mut self,
         xs: RawInput<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
         layout: <M::Ver as Versioned>::Layout,
-    ) -> MultiResult<(), SetMeasurementsError>
+    ) -> TerminalResult<(), (), SetMeasurementsError, SetMeasurementsAndLayoutFailure>
     where
         M::Optical: AsScaleTransform,
     {
@@ -4141,7 +4196,7 @@ where
         &mut self,
         xs: RawInput<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
         cs: Vec<AnyFCSColumn>,
-    ) -> MultiResult<(), SetMeasurementsAndDataError>
+    ) -> TerminalResult<(), (), SetMeasurementsAndDataError, SetMeasurementsAndDataFailure>
     where
         M::Optical: AsScaleTransform,
     {
@@ -8779,6 +8834,49 @@ impl fmt::Display for DataSegmentMismatchError {
         f.write_str("$PAR = 0 but DATA segment is not empty")
     }
 }
+
+def_failure!(ConvertFailure, "could not change FCS version");
+
+def_failure!(SetLayoutFailure, "could not set data layout");
+
+def_failure!(PushTemporalFailure, "could not push temporal measurement");
+
+def_failure!(
+    SetScalesFailure,
+    "could not set scales for optical measurements"
+);
+
+def_failure!(
+    SetScaleTransformsFailure,
+    "could not set scale transforms for optical measurements"
+);
+
+def_failure!(SetTemporalFailure, "could not set temporal measurement");
+
+def_failure!(
+    ReplaceTemporalFailure,
+    "could not replace temporal measurement"
+);
+
+def_failure!(UnsetTemporalFailure, "could not unset temporal measurement");
+
+def_failure!(InsertTemporalFailure, "could not push temporal measurement");
+
+def_failure!(PushOpticalFailure, "could not push optical measurement");
+
+def_failure!(InsertOpticalFailure, "could not push optical measurement");
+
+def_failure!(SetMeasurementsFailure, "could not set measurements");
+
+def_failure!(
+    SetMeasurementsAndLayoutFailure,
+    "could not set measurements and layout"
+);
+
+def_failure!(
+    SetMeasurementsAndDataFailure,
+    "could not set measurements and data"
+);
 
 #[cfg(feature = "serde")]
 mod serialize {

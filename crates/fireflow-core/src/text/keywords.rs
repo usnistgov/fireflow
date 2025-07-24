@@ -35,6 +35,9 @@ use std::str::FromStr;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
 /// Value for $NEXTDATA (all versions)
 #[derive(From, Into, FromStr, Display)]
 pub struct Nextdata(pub Uint20Char);
@@ -47,6 +50,7 @@ pub struct Gain(pub PositiveFloat);
 /// The value of the $TIMESTEP keyword
 #[derive(Clone, Copy, PartialEq, From, Display, FromStr, Into)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 #[into(f32, PositiveFloat)]
 pub struct Timestep(pub PositiveFloat);
 

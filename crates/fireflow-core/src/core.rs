@@ -2051,7 +2051,7 @@ where
     pub(crate) fn try_cols_to_dataframe(
         &self,
         cols: Vec<AnyFCSColumn>,
-    ) -> Result<FCSDataFrame, ColumsnToDataframeError> {
+    ) -> Result<FCSDataFrame, ColumnsToDataframeError> {
         let data_n = cols.len();
         let meas_n = self.par().0;
         if data_n != meas_n {
@@ -2828,22 +2828,22 @@ where
         *self.metaroot.as_mut() = x
     }
 
-    pub fn get_meas<'a, X: 'a>(&'a self) -> impl Iterator<Item = (MeasIndex, &'a X)>
+    pub fn get_meas<'a, X: 'a>(&'a self) -> impl Iterator<Item = &'a X>
     where
         Temporal<M::Temporal>: AsRef<X>,
         Optical<M::Optical>: AsRef<X>,
     {
         self.measurements
             .iter()
-            .map(|(i, x)| (i, x.both(|t| t.value.as_ref(), |m| m.value.as_ref())))
+            .map(|(_, x)| x.both(|t| t.value.as_ref(), |m| m.value.as_ref()))
     }
 
-    pub fn get_meas_opt<'a, X: 'a>(&'a self) -> impl Iterator<Item = (MeasIndex, Option<&'a X>)>
+    pub fn get_meas_opt<'a, X: 'a>(&'a self) -> impl Iterator<Item = Option<&'a X>>
     where
         Temporal<M::Temporal>: AsRef<Option<X>>,
         Optical<M::Optical>: AsRef<Option<X>>,
     {
-        self.get_meas::<Option<X>>().map(|(i, x)| (i, x.as_ref()))
+        self.get_meas::<Option<X>>().map(|x| x.as_ref())
     }
 
     pub fn set_meas<X>(&mut self, xs: Vec<X>) -> Result<(), KeyLengthError>
@@ -2901,29 +2901,6 @@ where
     {
         self.measurements
             .alter_non_center_values_zip(xs, |m, x| *m.as_mut() = x)
-            .map(|_| ())
-    }
-
-    /// Return a list of measurement names as stored in $PnS
-    ///
-    /// If not given, will be replaced by "Mn" where "n" is the measurement
-    /// index starting at 1.
-    pub fn longnames(&self) -> Vec<Option<&Longname>> {
-        self.measurements
-            .iter_common_values()
-            .map(|(_, x): (_, &Option<Longname>)| x.as_ref())
-            .collect()
-    }
-
-    /// Set all $PnS keywords to list of names.
-    ///
-    /// Will return false if length of supplied list does not match length
-    /// of measurements; true otherwise. Since $PnS is an optional keyword for
-    /// all versions, any name in the list may be None which will blank the
-    /// keyword.
-    pub fn set_longnames(&mut self, ns: Vec<Option<String>>) -> Result<(), KeyLengthError> {
-        self.measurements
-            .alter_common_values_zip(ns, |_, x: &mut Option<Longname>, n| *x = n.map(Longname))
             .map(|_| ())
     }
 
@@ -3708,7 +3685,7 @@ where
         columns: Vec<AnyFCSColumn>,
         analysis: Analysis,
         others: Others,
-    ) -> Result<VersionedCoreDataset<M>, ColumsnToDataframeError> {
+    ) -> Result<VersionedCoreDataset<M>, ColumnsToDataframeError> {
         let data = self.try_cols_to_dataframe(columns)?;
         Ok(self.into_coredataset_unchecked(data, analysis, others))
     }
@@ -3869,7 +3846,7 @@ where
     ///
     /// Return error if columns are not all the same length or number of columns
     /// doesn't match the number of measurement.
-    pub fn set_data(&mut self, cols: Vec<AnyFCSColumn>) -> Result<(), ColumsnToDataframeError> {
+    pub fn set_data(&mut self, cols: Vec<AnyFCSColumn>) -> Result<(), ColumnsToDataframeError> {
         self.data = self.try_cols_to_dataframe(cols)?;
         Ok(())
     }
@@ -8281,7 +8258,7 @@ pub enum SetMeasurementsAndDataError {
 }
 
 #[derive(From, Display)]
-pub enum ColumsnToDataframeError {
+pub enum ColumnsToDataframeError {
     New(NewDataframeError),
     Mismatch(MeasDataMismatchError),
 }

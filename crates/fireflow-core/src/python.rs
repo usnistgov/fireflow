@@ -1,16 +1,22 @@
 use crate::config::TimePattern;
-use crate::core::ScaleTransform;
+use crate::core::{
+    ColumnsToDataframeError, ExistingLinkError, MissingMeasurementNameError, ScaleTransform,
+    SetSpilloverError,
+};
 use crate::header::{Version, VersionError};
 use crate::segment::OffsetCorrection;
 use crate::text::byteord::{ByteOrd2_0, NewByteOrdError};
+use crate::text::compensation::NewCompError;
+use crate::text::datetimes::ReversedDatetimes;
 use crate::text::keywords::{
     AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Display, Feature,
     FeatureError, Mode, ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError,
     Originality, OriginalityError, Unicode,
 };
-use crate::text::named_vec::ElementIndexError;
+use crate::text::named_vec::{ElementIndexError, KeyLengthError, SetKeysError};
 use crate::text::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use crate::text::scale::{LogRangeError, Scale};
+use crate::text::timestamps::ReversedTimestamps;
 use crate::validated::ascii_range::{Chars, CharsError};
 use crate::validated::ascii_uint::{Uint8Digit, Uint8DigitOverflow};
 use crate::validated::dataframe::{AnyFCSColumn, FCSColumn, FCSDataFrame};
@@ -23,7 +29,8 @@ use crate::validated::shortname::{Shortname, ShortnameError};
 
 use polars::prelude::*;
 use polars_arrow::array::PrimitiveArray;
-use pyo3::exceptions::{PyIndexError, PyValueError};
+use pyo3::create_exception;
+use pyo3::exceptions::{PyException, PyIndexError, PyValueError, PyWarning};
 use pyo3::prelude::*;
 use pyo3::types::{PyFloat, PyString, PyTuple};
 use pyo3::IntoPyObjectExt;
@@ -51,6 +58,16 @@ macro_rules! impl_index_err {
         impl From<$t> for PyErr {
             fn from(value: $t) -> Self {
                 PyIndexError::new_err(value.to_string())
+            }
+        }
+    };
+}
+
+macro_rules! impl_pyreflow_err {
+    ($t:ident) => {
+        impl From<$t> for PyErr {
+            fn from(value: $t) -> Self {
+                PyreflowException::new_err(value.to_string())
             }
         }
     };
@@ -103,6 +120,17 @@ macro_rules! impl_str_to_from_py {
         impl_str_to_py!($t);
     };
 }
+
+impl_pyreflow_err!(KeyLengthError);
+impl_pyreflow_err!(SetKeysError);
+impl_pyreflow_err!(ReversedTimestamps);
+impl_pyreflow_err!(ReversedDatetimes);
+impl_pyreflow_err!(ExistingLinkError);
+impl_pyreflow_err!(MissingMeasurementNameError);
+impl_pyreflow_err!(SetSpilloverError);
+impl_pyreflow_err!(ColumnsToDataframeError);
+
+impl_value_err!(NewCompError);
 
 impl_index_err!(ElementIndexError);
 
@@ -474,3 +502,17 @@ impl<'py> FromPyObject<'py> for Uint8Digit {
 }
 
 impl_value_err!(Uint8DigitOverflow);
+
+create_exception!(
+    pyreflow,
+    PyreflowException,
+    PyException,
+    "Exception created by internal pyreflow."
+);
+
+create_exception!(
+    pyreflow,
+    PyreflowWarning,
+    PyWarning,
+    "Warning created by internal pyreflow."
+);

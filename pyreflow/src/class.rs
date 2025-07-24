@@ -3,14 +3,13 @@ use fireflow_core::config::*;
 use fireflow_core::core::*;
 use fireflow_core::error::*;
 use fireflow_core::header::*;
+use fireflow_core::python::{PyreflowException, PyreflowWarning};
 use fireflow_core::segment::{HeaderAnalysisSegment, HeaderDataSegment, OtherSegment};
-use fireflow_core::text::datetimes::ReversedDatetimes;
 use fireflow_core::text::index::MeasIndex;
 use fireflow_core::text::keywords::*;
-use fireflow_core::text::named_vec::{Element, KeyLengthError, NamedVec, RawInput};
+use fireflow_core::text::named_vec::{Element, NamedVec, RawInput};
 use fireflow_core::text::optional::*;
 use fireflow_core::text::scale::*;
-use fireflow_core::text::timestamps::ReversedTimestamps;
 use fireflow_core::text::unstainedcenters::UnstainedCenters;
 use fireflow_core::validated::dataframe::*;
 use fireflow_core::validated::keys::*;
@@ -21,12 +20,10 @@ use super::macros::py_wrap;
 
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
-use derive_more::{Display, From};
+use derive_more::From;
 use nonempty::NonEmpty;
 use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
 use polars::prelude::*;
-use pyo3::create_exception;
-use pyo3::exceptions::{PyException, PyWarning};
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyDict};
 use pyo3_polars::PyDataFrame;
@@ -272,22 +269,18 @@ macro_rules! get_set_metaroot_opt {
 }
 
 macro_rules! get_set_all_meas {
-    ($get:ident, $set:ident, $outer:ident, $($pytype:ident),*) => {
+    ($get:ident, $set:ident, $t:ident, $($pytype:ident),*) => {
         $(
             #[pymethods]
             impl $pytype {
                 #[getter]
-                fn $get(&self) -> Vec<(MeasIndex, Option<$outer>)> {
-                    self.0
-                        .get_meas_opt()
-                        .map(|(i, x)| (i, x.cloned()))
-                        .collect()
+                fn $get(&self) -> Vec<Option<$t>> {
+                    self.0.get_meas_opt().map(|x| x.cloned()).collect()
                 }
 
                 #[setter]
-                fn $set(&mut self, xs: Vec<Option<$outer>>) -> Result<(), PyKeyLengthError> {
-                    self.0.set_meas(xs)?;
-                    Ok(())
+                fn $set(&mut self, xs: Vec<Option<$t>>) -> PyResult<()> {
+                    Ok(self.0.set_meas(xs)?)
                 }
             }
         )*
@@ -308,9 +301,8 @@ macro_rules! get_set_all_optical {
                 }
 
                 #[setter]
-                fn $set(&mut self, xs: Vec<Option<$outer>>) -> Result<(), PyKeyLengthError> {
-                    self.0.set_optical(xs)?;
-                    Ok(())
+                fn $set(&mut self, xs: Vec<Option<$outer>>) -> PyResult<()> {
+                    Ok(self.0.set_optical(xs)?)
                 }
             }
         )*
@@ -433,12 +425,8 @@ impl PyCoreTEXT3_2 {
     }
 
     #[setter]
-    fn set_begindatetime(
-        &mut self,
-        x: Option<DateTime<FixedOffset>>,
-    ) -> Result<(), PyReversedDatetimes> {
-        self.0.set_begindatetime(x)?;
-        Ok(())
+    fn set_begindatetime(&mut self, x: Option<DateTime<FixedOffset>>) -> PyResult<()> {
+        Ok(self.0.set_begindatetime(x)?)
     }
 
     #[getter]
@@ -447,12 +435,8 @@ impl PyCoreTEXT3_2 {
     }
 
     #[setter]
-    fn set_enddatetime(
-        &mut self,
-        x: Option<DateTime<FixedOffset>>,
-    ) -> Result<(), PyReversedDatetimes> {
-        self.0.set_enddatetime(x)?;
-        Ok(())
+    fn set_enddatetime(&mut self, x: Option<DateTime<FixedOffset>>) -> PyResult<()> {
+        Ok(self.0.set_enddatetime(x)?)
     }
 
     #[getter]
@@ -465,9 +449,7 @@ impl PyCoreTEXT3_2 {
     }
 
     fn insert_unstained_center(&mut self, k: Shortname, v: f32) -> PyResult<Option<f32>> {
-        self.0
-            .insert_unstained_center(k, v)
-            .map_err(|e| PyreflowException::new_err(e.to_string()))
+        Ok(self.0.insert_unstained_center(k, v)?)
     }
 
     fn remove_unstained_center(&mut self, k: Shortname) -> Option<f32> {
@@ -502,6 +484,8 @@ macro_rules! common_methods {
         get_set_metaroot_opt!(get_sys, set_sys, Sys, $pytype);
 
         // common measurement keywords
+        get_set_all_meas!(get_longnames, set_longnames, Longname, $pytype);
+
         get_set_all_optical!(get_filters, set_filters, Filter, $pytype);
         get_set_all_optical!(get_powers, set_powers, Power, $pytype);
 
@@ -561,9 +545,7 @@ macro_rules! common_methods {
                 &mut self,
                 keyvals: Vec<(NonStdKey, String)>,
             ) -> PyResult<Vec<Option<String>>> {
-                self.0
-                    .insert_meas_nonstandard(keyvals)
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+                Ok(self.0.insert_meas_nonstandard(keyvals)?)
 
             }
 
@@ -571,19 +553,16 @@ macro_rules! common_methods {
                 &mut self,
                 keys: Vec<NonStdKey>
             ) -> PyResult<Vec<Option<String>>> {
-                self.0
-                    .remove_meas_nonstandard(keys.iter().collect())
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+                Ok(self.0.remove_meas_nonstandard(keys.iter().collect())?)
             }
 
             fn get_meas_nonstandard(
                 &mut self,
                 keys: Vec<NonStdKey>
-            ) -> PyResult<Option<Vec<Option<String>>>> {
-                let res = self.0
+            ) -> Option<Vec<Option<String>>> {
+                self.0
                     .get_meas_nonstandard(&keys[..])
-                    .map(|rs| rs.into_iter().map(|r| r.cloned()).collect());
-                Ok(res)
+                    .map(|rs| rs.into_iter().map(|r| r.cloned()).collect())
             }
 
             #[getter]
@@ -592,9 +571,8 @@ macro_rules! common_methods {
             }
 
             #[setter]
-            fn set_btim(&mut self, x: Option<NaiveTime>) -> Result<(), PyReversedTimestamps> {
-                self.0.set_btim_naive(x)?;
-                Ok(())
+            fn set_btim(&mut self, x: Option<NaiveTime>) -> PyResult<()> {
+                Ok(self.0.set_btim_naive(x)?)
             }
 
             #[getter]
@@ -603,9 +581,8 @@ macro_rules! common_methods {
             }
 
             #[setter]
-            fn set_etim(&mut self, x: Option<NaiveTime>) -> Result<(), PyReversedTimestamps> {
-                self.0.set_etim_naive(x)?;
-                Ok(())
+            fn set_etim(&mut self, x: Option<NaiveTime>) -> PyResult<()> {
+                Ok(self.0.set_etim_naive(x)?)
             }
 
             #[getter]
@@ -614,14 +591,13 @@ macro_rules! common_methods {
             }
 
             #[setter]
-            fn set_date(&mut self, x: Option<NaiveDate>) -> Result<(), PyReversedTimestamps> {
-                self.0.set_date_naive(x)?;
-                Ok(())
+            fn set_date(&mut self, x: Option<NaiveDate>) -> PyResult<()> {
+                Ok(self.0.set_date_naive(x)?)
             }
 
             #[getter]
-            fn trigger_name(&self) -> Option<String> {
-                self.0.trigger_name().map(|x| x.to_string())
+            fn trigger_name(&self) -> Option<Shortname> {
+                self.0.trigger_name().cloned()
             }
 
             #[getter]
@@ -644,46 +620,18 @@ macro_rules! common_methods {
             }
 
             #[getter]
-            fn get_longnames(&self) -> Vec<Option<String>> {
-                self.0
-                    .longnames()
-                    .into_iter()
-                    .map(|x| x.map(|y| y.0.to_string()))
-                    .collect()
-            }
-
-            #[setter]
-            fn set_longnames(&mut self, ns: Vec<Option<String>>) -> PyResult<()> {
-                self.0
-                    .set_longnames(ns)
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+            fn shortnames_maybe(&self) -> Vec<Option<Shortname>> {
+                self.0.shortnames_maybe().into_iter().map(|x| x.cloned()).collect()
             }
 
             #[getter]
-            fn shortnames_maybe(&self) -> Vec<Option<String>> {
-                self.0
-                    .shortnames_maybe()
-                    .into_iter()
-                    .map(|x| x.map(|y| y.to_string()))
-                    .collect()
-            }
-
-            #[getter]
-            fn all_shortnames(&self) -> Vec<String> {
-                self.0
-                    .all_shortnames()
-                    .into_iter()
-                    .map(|x| x.to_string())
-                    .collect()
+            fn all_shortnames(&self) -> Vec<Shortname> {
+                self.0.all_shortnames()
             }
 
             #[setter]
             fn set_all_shortnames(&mut self, names: Vec<Shortname>) -> PyResult<()> {
-                self.0
-                    .set_all_shortnames(names)
-                    // TODO this is a setkeyserror, could be more generalized
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
-                    .void()
+                Ok(self.0.set_all_shortnames(names).void()?)
             }
         }
     };
@@ -881,9 +829,7 @@ macro_rules! common_coretext_meas_get_set {
             }
 
             fn unset_measurements(&mut self) -> PyResult<()> {
-                self.0
-                    .unset_measurements()
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+                Ok(self.0.unset_measurements()?)
             }
         }
     };
@@ -926,9 +872,7 @@ macro_rules! coredata_meas_get_set {
             }
 
             fn unset_data(&mut self) -> PyResult<()> {
-                self.0
-                    .unset_data()
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+                Ok(self.0.unset_data()?)
             }
 
             #[getter]
@@ -1201,30 +1145,23 @@ coredata3_1_meas_methods!(PyCoreDataset3_2, PyTemporal3_2, PyOptical3_2);
 
 // Get/set methods for setting $PnN (2.0-3.0)
 macro_rules! shortnames_methods {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                fn set_measurement_shortnames_maybe(
-                    &mut self,
-                    names: Vec<Option<Shortname>>,
-                ) -> PyResult<()> {
-                    self.0
-                        .set_measurement_shortnames_maybe(names)
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))
-                        .void()
-                }
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            fn set_measurement_shortnames_maybe(
+                &mut self,
+                names: Vec<Option<Shortname>>,
+            ) -> PyResult<()> {
+                Ok(self.0.set_measurement_shortnames_maybe(names).void()?)
             }
-        )*
+        }
     };
 }
 
-shortnames_methods!(
-    PyCoreTEXT2_0,
-    PyCoreTEXT3_0,
-    PyCoreDataset2_0,
-    PyCoreDataset3_0
-);
+shortnames_methods!(PyCoreTEXT2_0);
+shortnames_methods!(PyCoreTEXT3_0);
+shortnames_methods!(PyCoreDataset2_0);
+shortnames_methods!(PyCoreDataset3_0);
 
 // Get/set methods for $PnE (2.0)
 macro_rules! scales_methods {
@@ -1381,40 +1318,30 @@ plate_methods!(
 
 // get/set methods for $COMP (2.0-3.0)
 macro_rules! comp_methods {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn get_compensation<'a>(&self, py: Python<'a>) -> Option<Bound<'a, PyArray2<f32>>> {
-                    self.0.compensation().map(|x| x.to_pyarray(py))
-                }
-
-
-                fn set_compensation(
-                    &mut self,
-                    a: PyReadonlyArray2<f32>,
-                ) -> Result<(), PyErr> {
-                    let m = a.as_matrix().into_owned();
-                    self.0
-                        .set_compensation(m)
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))
-                }
-
-                fn unset_compensation(&mut self) {
-                    self.0.unset_compensation()
-                }
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            #[getter]
+            fn get_compensation<'a>(&self, py: Python<'a>) -> Option<Bound<'a, PyArray2<f32>>> {
+                self.0.compensation().map(|x| x.to_pyarray(py))
             }
-        )*
+
+            fn set_compensation(&mut self, a: PyReadonlyArray2<f32>) -> Result<(), PyErr> {
+                let m = a.as_matrix().into_owned();
+                Ok(self.0.set_compensation(m)?)
+            }
+
+            fn unset_compensation(&mut self) {
+                self.0.unset_compensation()
+            }
+        }
     };
 }
 
-comp_methods!(
-    PyCoreTEXT2_0,
-    PyCoreTEXT3_0,
-    PyCoreDataset2_0,
-    PyCoreDataset3_0
-);
+comp_methods!(PyCoreTEXT2_0);
+comp_methods!(PyCoreTEXT3_0);
+comp_methods!(PyCoreDataset2_0);
+comp_methods!(PyCoreDataset3_0);
 
 // Get/set methods for $SPILLOVER (3.1-3.2)
 macro_rules! spillover_methods {
@@ -1438,12 +1365,9 @@ macro_rules! spillover_methods {
                 &mut self,
                 names: Vec<Shortname>,
                 a: PyReadonlyArray2<f32>,
-            ) -> Result<(), PyErr> {
+            ) -> PyResult<()> {
                 let m = a.as_matrix().into_owned();
-                self.0
-                    .set_spillover(names, m)
-                    // TODO handle error better
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+                Ok(self.0.set_spillover(names, m)?)
             }
 
             fn unset_spillover(&mut self) {
@@ -1599,11 +1523,8 @@ macro_rules! to_dataset_method {
                 analysis: Analysis,
                 others: Others,
             ) -> PyResult<$to> {
-                self.0
-                    .clone()
-                    .into_coredataset(cols, analysis, others)
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
-                    .map(|df| df.into())
+                let df = self.0.clone().into_coredataset(cols, analysis, others)?;
+                Ok(df.into())
             }
         }
     };
@@ -1679,20 +1600,6 @@ where
     };
     PyreflowException::new_err(s)
 }
-
-create_exception!(
-    pyreflow,
-    PyreflowException,
-    PyException,
-    "Exception created by internal pyreflow."
-);
-
-create_exception!(
-    pyreflow,
-    PyreflowWarning,
-    PyWarning,
-    "Warning created by internal pyreflow."
-);
 
 #[pymethods]
 impl PyOptical2_0 {
@@ -1778,20 +1685,33 @@ impl PyTemporal3_2 {
     }
 }
 
+macro_rules! get_set_meas {
+    ($get:ident, $set:ident, $t:ident, $($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                #[getter]
+                fn $get(&self) -> Option<$t> {
+                    let x: &Option<$t> = self.0.as_ref();
+                    x.as_ref().cloned()
+                }
+
+                #[setter]
+                fn $set(&mut self, x: Option<$t>) {
+                    *self.0.as_mut() = x
+                }
+            }
+        )*
+
+    };
+}
+
 macro_rules! shared_meas_get_set {
     ($pytype:ident) => {
+        get_set_meas!(get_longname, set_longname, Longname, $pytype);
+
         #[pymethods]
         impl $pytype {
-            #[getter]
-            fn longname(&self) -> Option<Longname> {
-                self.0.common.longname.0.as_ref().cloned()
-            }
-
-            #[setter]
-            fn set_longname(&mut self, x: Option<Longname>) {
-                self.0.common.longname = x.into();
-            }
-
             #[getter]
             fn nonstandard_keywords(&self) -> HashMap<NonStdKey, String> {
                 self.0.common.nonstandard_keywords.clone()
@@ -1825,27 +1745,6 @@ shared_meas_get_set!(PyTemporal2_0);
 shared_meas_get_set!(PyTemporal3_0);
 shared_meas_get_set!(PyTemporal3_1);
 shared_meas_get_set!(PyTemporal3_2);
-
-macro_rules! get_set_meas {
-    ($get:ident, $set:ident, $t:ident, $($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn $get(&self) -> Option<$t> {
-                    let x: &Option<$t> = self.0.as_ref();
-                    x.as_ref().cloned()
-                }
-
-                #[setter]
-                fn $set(&mut self, x: Option<$t>) {
-                    *self.0.as_mut() = x
-                }
-            }
-        )*
-
-    };
-}
 
 macro_rules! optical_common {
     ($($pytype:ident),*) => {
@@ -1967,33 +1866,6 @@ get_set_meas!(
     Calibration3_2,
     PyOptical3_2
 );
-
-#[derive(Display, From)]
-struct PyKeyLengthError(KeyLengthError);
-
-impl From<PyKeyLengthError> for PyErr {
-    fn from(value: PyKeyLengthError) -> Self {
-        PyreflowException::new_err(value.to_string())
-    }
-}
-
-#[derive(Display, From)]
-struct PyReversedTimestamps(ReversedTimestamps);
-
-impl From<PyReversedTimestamps> for PyErr {
-    fn from(value: PyReversedTimestamps) -> Self {
-        PyreflowException::new_err(value.to_string())
-    }
-}
-
-#[derive(Display, From)]
-struct PyReversedDatetimes(ReversedDatetimes);
-
-impl From<PyReversedDatetimes> for PyErr {
-    fn from(value: PyReversedDatetimes) -> Self {
-        PyreflowException::new_err(value.to_string())
-    }
-}
 
 trait PyTerminalResultExt {
     type V;

@@ -4,6 +4,7 @@ use fireflow_core::data::{
     FloatRange, KnownTot, LayoutOps, NoMeasDatatype, NonMixedEndianLayout, NullMixedType,
     OrderedLayout, OrderedLayoutOps,
 };
+use fireflow_core::python::PyreflowException;
 use fireflow_core::text::byteord::{Endian, SizedByteOrd, VecToSizedError};
 use fireflow_core::text::float_decimal::{FloatDecimal, HasFloatBounds};
 use fireflow_core::text::keywords::AlphaNumType;
@@ -11,8 +12,6 @@ use fireflow_core::validated::ascii_range::AsciiRange;
 use fireflow_core::validated::bitmask::{self, Bitmask};
 use pyo3::conversion::FromPyObjectBound;
 use pyo3::exceptions::PyValueError;
-
-use crate::class::PyreflowException;
 
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use derive_more::{Display, From, Into};

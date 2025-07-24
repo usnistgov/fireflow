@@ -518,11 +518,11 @@ pub struct NonUtf8KeywordError {
 pub struct NonstandardError;
 
 #[allow(clippy::type_complexity)]
-fn read_fcs_raw_text_inner<'a, C>(
+fn read_fcs_raw_text_inner<C>(
     p: &path::PathBuf,
-    conf: &'a C,
+    conf: C,
 ) -> DeferredResult<
-    (RawTEXTOutput, BufReader<fs::File>, ReadState<'a, C>),
+    (RawTEXTOutput, BufReader<fs::File>, ReadState<C>),
     ParseRawTEXTWarning,
     ImpureError<HeaderOrRawError>,
 >
@@ -582,7 +582,7 @@ impl RawTEXTOutput {
         R: Read + Seek,
         C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<HeaderConfigInner>,
     {
-        Header::h_read(h, &st)
+        Header::h_read(h, st)
             .mult_to_deferred()
             .def_map_errors(|e: ImpureError<HeaderError>| e.inner_into())
             .def_and_maybe(|header| {

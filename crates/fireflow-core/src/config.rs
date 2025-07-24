@@ -698,13 +698,13 @@ impl Default for TimePattern {
 }
 
 /// State pertinent to reading a file
-pub struct ReadState<'a, C> {
+pub struct ReadState<C> {
     pub(crate) file_len: u64,
-    pub(crate) conf: &'a C,
+    pub(crate) conf: C,
 }
 
-impl<'a, C> ReadState<'a, C> {
-    pub(crate) fn init(f: &std::fs::File, conf: &'a C) -> std::io::Result<Self> {
+impl<C> ReadState<C> {
+    pub(crate) fn init(f: &std::fs::File, conf: C) -> std::io::Result<Self> {
         f.metadata().map(|m| Self {
             file_len: m.len(),
             conf,

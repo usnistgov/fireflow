@@ -1,4 +1,4 @@
-use crate::config::RawTextReadConfig;
+use crate::config::ReadHeaderAndTEXTConfig;
 use crate::error::*;
 use crate::text::index::IndexFromOne;
 
@@ -445,7 +445,7 @@ impl ParsedKeywords {
         &mut self,
         k: &[u8],
         v: &[u8],
-        conf: &RawTextReadConfig,
+        conf: &ReadHeaderAndTEXTConfig,
     ) -> Result<(), Leveled<KeywordInsertError>> {
         // ASSUME key and value are never blank since we checked both prior to
         // calling this. The FCS standards do not allow either to be blank.
@@ -690,7 +690,7 @@ fn insert_nonunique<K>(
     kws: &mut HashMap<K, String>,
     k: K,
     value: String,
-    conf: &RawTextReadConfig,
+    conf: &ReadHeaderAndTEXTConfig,
 ) -> Result<(), Leveled<KeywordInsertError>>
 where
     K: std::hash::Hash + Eq + Clone + AsRef<KeyString>,
@@ -733,7 +733,7 @@ mod tests {
         let res = p.insert(
             s.as_bytes(),
             b"of_the_night_sky",
-            &RawTextReadConfig::default(),
+            &ReadHeaderAndTEXTConfig::default(),
         );
         assert_eq!(Ok(()), res);
         assert_eq!(
@@ -789,7 +789,7 @@ mod tests {
         let res = p.insert(
             s.as_bytes(),
             b"the cake is a lie",
-            &RawTextReadConfig::default(),
+            &ReadHeaderAndTEXTConfig::default(),
         );
         assert_eq!(Ok(()), res);
         assert_eq!(

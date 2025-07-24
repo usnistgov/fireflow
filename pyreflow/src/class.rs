@@ -87,7 +87,7 @@ fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[pyfunction]
 #[pyo3(name = "fcs_read_header")]
-fn py_fcs_read_header(p: path::PathBuf, conf: HeaderConfig) -> PyResult<Header> {
+fn py_fcs_read_header(p: path::PathBuf, conf: ReadHeaderConfig) -> PyResult<Header> {
     fcs_read_header(&p, &conf)
         .map_err(handle_failure_nowarn)
         .map(|x| x.inner())
@@ -95,7 +95,7 @@ fn py_fcs_read_header(p: path::PathBuf, conf: HeaderConfig) -> PyResult<Header> 
 
 #[pyfunction]
 #[pyo3(name = "fcs_read_raw_text")]
-fn py_fcs_read_raw_text(p: path::PathBuf, conf: RawTextReadConfig) -> PyResult<RawTEXTOutput> {
+fn py_fcs_read_raw_text(p: path::PathBuf, conf: ReadRawTEXTConfig) -> PyResult<RawTEXTOutput> {
     let ret =
         fcs_read_raw_text(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
     Ok(ret)
@@ -105,7 +105,7 @@ fn py_fcs_read_raw_text(p: path::PathBuf, conf: RawTextReadConfig) -> PyResult<R
 #[pyo3(name = "fcs_read_std_text")]
 fn py_fcs_read_std_text(
     p: path::PathBuf,
-    conf: StdTextReadConfig,
+    conf: ReadStdTEXTConfig,
 ) -> PyResult<(PyAnyCoreTEXT, StdTEXTOutput)> {
     let (core, data) =
         fcs_read_std_text(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
@@ -114,7 +114,10 @@ fn py_fcs_read_std_text(
 
 #[pyfunction]
 #[pyo3(name = "fcs_read_raw_dataset")]
-fn py_fcs_read_raw_dataset(p: path::PathBuf, conf: DataReadConfig) -> PyResult<RawDatasetOutput> {
+fn py_fcs_read_raw_dataset(
+    p: path::PathBuf,
+    conf: ReadRawDatasetConfig,
+) -> PyResult<RawDatasetOutput> {
     let ret =
         fcs_read_raw_dataset(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
     Ok(ret)
@@ -124,7 +127,7 @@ fn py_fcs_read_raw_dataset(p: path::PathBuf, conf: DataReadConfig) -> PyResult<R
 #[pyo3(name = "fcs_read_std_dataset")]
 fn py_fcs_read_std_dataset(
     p: path::PathBuf,
-    conf: DataReadConfig,
+    conf: ReadStdDatasetConfig,
 ) -> PyResult<(PyAnyCoreDataset, StdDatasetOutput)> {
     let (core, data) =
         fcs_read_std_dataset(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;

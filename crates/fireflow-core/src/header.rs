@@ -1,4 +1,4 @@
-use crate::config::{HeaderConfig, ReadState};
+use crate::config::{HeaderConfigInner, ReadState};
 use crate::error::*;
 use crate::segment::*;
 use crate::text::keywords::*;
@@ -190,11 +190,15 @@ pub struct Header {
 }
 
 impl Header {
-    pub fn h_read<R: Read>(
+    pub fn h_read<C, R>(
         h: &mut BufReader<R>,
-        conf: &ReadState<HeaderConfig>,
-    ) -> MultiResult<Self, ImpureError<HeaderError>> {
-        h_read_required_header(h, conf).and_then(|(version, text, data, analysis)| {
+        st: &ReadState<C>,
+    ) -> MultiResult<Self, ImpureError<HeaderError>>
+    where
+        C: AsRef<HeaderConfigInner>,
+        R: Read,
+    {
+        h_read_required_header(h, st).and_then(|(version, text, data, analysis)| {
             [
                 text.inner.try_coords(),
                 data.inner.try_coords(),
@@ -205,7 +209,7 @@ impl Header {
             .map(|(x, _)| x)
             .min()
             .map_or(Ok(vec![]), |earliest_begin| {
-                h_read_other_segments(h, *earliest_begin, conf)
+                h_read_other_segments(h, *earliest_begin, st)
             })
             .map(|other| Self {
                 version,
@@ -228,9 +232,9 @@ impl Header {
     }
 }
 
-fn h_read_required_header<R: Read>(
+fn h_read_required_header<C, R>(
     h: &mut BufReader<R>,
-    st: &ReadState<HeaderConfig>,
+    st: &ReadState<C>,
 ) -> MultiResult<
     (
         Version,
@@ -239,8 +243,12 @@ fn h_read_required_header<R: Read>(
         HeaderAnalysisSegment,
     ),
     ImpureError<HeaderError>,
-> {
-    let conf = &st.conf;
+>
+where
+    R: Read,
+    C: AsRef<HeaderConfigInner>,
+{
+    let conf = &st.conf.as_ref();
     let vers_res = Version::h_read(h)
         .map_err(NonEmpty::new)
         .mult_map_errors(|e| e.map_inner(HeaderError::Version));
@@ -273,37 +281,44 @@ fn h_read_spaces<R: Read>(h: &mut BufReader<R>) -> Result<(), ImpureError<Header
     }
 }
 
-fn h_read_primary_segment<R: Read, I>(
+fn h_read_primary_segment<C, R, I>(
     h: &mut BufReader<R>,
     allow_blank: bool,
     corr: HeaderCorrection<I>,
-    st: &ReadState<HeaderConfig>,
+    st: &ReadState<C>,
 ) -> MultiResult<HeaderSegment<I>, ImpureError<HeaderSegmentError>>
 where
+    R: Read,
+    C: AsRef<HeaderConfigInner>,
     I: HasRegion + Copy,
 {
+    let conf = st.conf.as_ref();
     let seg_conf = NewSegmentConfig {
         corr,
         file_len: st.file_len.try_into().ok(),
-        truncate_offsets: st.conf.truncate_offsets,
+        truncate_offsets: conf.truncate_offsets,
     };
     HeaderSegment::<I>::h_read_offsets(
         h,
         allow_blank,
-        st.conf.allow_negative,
-        st.conf.squish_offsets,
+        conf.allow_negative,
+        conf.squish_offsets,
         &seg_conf,
     )
 }
 
-fn h_read_other_segments<R: Read>(
+fn h_read_other_segments<C, R>(
     h: &mut BufReader<R>,
     text_begin: Uint8Digit,
-    st: &ReadState<HeaderConfig>,
-) -> MultiResult<Vec<OtherSegment>, ImpureError<HeaderError>> {
+    st: &ReadState<C>,
+) -> MultiResult<Vec<OtherSegment>, ImpureError<HeaderError>>
+where
+    R: Read,
+    C: AsRef<HeaderConfigInner>,
+{
     // ASSUME this won't fail because we checked that each offset is greater
     // than this
-    let conf = &st.conf;
+    let conf = st.conf.as_ref();
     let n = u64::from(text_begin) - u64::from(HEADER_LEN);
     let w = u8::from(conf.other_width);
     let mut buf0 = vec![];

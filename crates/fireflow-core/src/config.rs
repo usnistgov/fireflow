@@ -18,11 +18,121 @@ use crate::validated::keys;
 use crate::validated::shortname::*;
 use crate::validated::textdelim::TEXTDelim;
 
-use derive_more::{Display, FromStr};
+use derive_more::{AsRef, Display, From, FromStr};
 use regex::Regex;
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
+
+#[derive(Default, Clone, AsRef, From)]
+#[cfg_attr(feature = "python", derive(FromPyObject))]
+pub struct ReadHeaderConfig(pub HeaderConfigInner);
+
+/// Instructions for reading the DATA segment.
+#[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "python", derive(FromPyObject))]
+#[pyo3(from_item_all)]
+pub struct ReadRawTEXTConfig {
+    #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
+    pub raw: ReadHeaderAndTEXTConfig,
+
+    pub shared: SharedConfig,
+}
+
+#[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "python", derive(FromPyObject))]
+#[pyo3(from_item_all)]
+pub struct ReadStdTEXTConfig {
+    #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
+    pub raw: ReadHeaderAndTEXTConfig,
+
+    #[as_ref(StdTextReadConfig)]
+    pub standard: StdTextReadConfig,
+
+    #[as_ref(ReadTEXTOffsetsConfig)]
+    pub offsets: ReadTEXTOffsetsConfig,
+
+    #[as_ref(ReadLayoutConfig)]
+    pub layout: ReadLayoutConfig,
+
+    pub shared: SharedConfig,
+}
+
+#[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "python", derive(FromPyObject))]
+#[pyo3(from_item_all)]
+pub struct ReadRawDatasetConfig {
+    #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
+    pub raw: ReadHeaderAndTEXTConfig,
+
+    #[as_ref(ReadLayoutConfig)]
+    pub layout: ReadLayoutConfig,
+
+    #[as_ref(ReadTEXTOffsetsConfig)]
+    pub offsets: ReadTEXTOffsetsConfig,
+
+    #[as_ref(ReaderConfig)]
+    pub data: ReaderConfig,
+
+    pub shared: SharedConfig,
+}
+
+#[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "python", derive(FromPyObject))]
+#[pyo3(from_item_all)]
+pub struct ReadStdDatasetConfig {
+    #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
+    pub raw: ReadHeaderAndTEXTConfig,
+
+    #[as_ref(StdTextReadConfig)]
+    pub standard: StdTextReadConfig,
+
+    #[as_ref(ReadLayoutConfig)]
+    pub layout: ReadLayoutConfig,
+
+    #[as_ref(ReadTEXTOffsetsConfig)]
+    pub offsets: ReadTEXTOffsetsConfig,
+
+    #[as_ref(ReaderConfig)]
+    pub data: ReaderConfig,
+
+    pub shared: SharedConfig,
+}
+
+#[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "python", derive(FromPyObject))]
+#[pyo3(from_item_all)]
+pub struct ReadRawDatasetFromKeywordsConfig {
+    #[as_ref(ReadLayoutConfig)]
+    pub layout: ReadLayoutConfig,
+
+    #[as_ref(ReaderConfig)]
+    pub data: ReaderConfig,
+
+    #[as_ref(ReadTEXTOffsetsConfig)]
+    pub offsets: ReadTEXTOffsetsConfig,
+
+    pub shared: SharedConfig,
+}
+
+#[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "python", derive(FromPyObject))]
+#[pyo3(from_item_all)]
+pub struct ReadStdDatasetFromKeywordsConfig {
+    #[as_ref(StdTextReadConfig)]
+    pub standard: StdTextReadConfig,
+
+    #[as_ref(ReadLayoutConfig)]
+    pub layout: ReadLayoutConfig,
+
+    #[as_ref(ReadTEXTOffsetsConfig)]
+    pub offsets: ReadTEXTOffsetsConfig,
+
+    #[as_ref(ReaderConfig)]
+    pub data: ReaderConfig,
+
+    pub shared: SharedConfig,
+}
 
 /// Instructions for reading the DATA segment.
 #[derive(Default, Clone)]
@@ -109,7 +219,7 @@ pub struct WriteConfig {
 #[derive(Default, Clone)]
 #[cfg_attr(feature = "python", derive(FromPyObject))]
 #[pyo3(from_item_all)]
-pub struct HeaderConfig {
+pub struct HeaderConfigInner {
     /// Override the version
     pub version_override: Option<Version>,
 
@@ -185,12 +295,13 @@ pub struct HeaderConfig {
 
 /// Instructions for reading the TEXT segment as raw key/value pairs.
 // TODO add correction for $NEXTDATA
-#[derive(Default, Clone)]
+#[derive(Default, Clone, AsRef)]
 #[cfg_attr(feature = "python", derive(FromPyObject))]
 #[pyo3(from_item_all)]
-pub struct RawTextReadConfig {
+pub struct ReadHeaderAndTEXTConfig {
     /// Config for reading HEADER
-    pub header: HeaderConfig,
+    #[as_ref(HeaderConfigInner)]
+    pub header: HeaderConfigInner,
 
     /// Corrections for supplemental TEXT segment
     pub supp_text_correction: TEXTCorrection<SupplementalTextSegmentId>,
@@ -211,37 +322,6 @@ pub struct RawTextReadConfig {
     /// This may be useful if STEXT is duplicated (or partly overlaps) with
     /// primary TEXT.
     pub ignore_supp_text: bool,
-
-    /// If true, ignore DATA offsets in TEXT.
-    ///
-    /// This may be useful if DATA offsets are different from those in HEADER,
-    /// either inherently or after a correction. This obviously assumes the
-    /// offsets in HEADER are correct.
-    pub ignore_text_data_offsets: bool,
-
-    /// If true, ignore ANALYSIS offsets in TEXT.
-    ///
-    /// This may be useful if ANALYSIS offsets are different from those in
-    /// HEADER, either inherently or after a correction. This obviously assumes
-    /// the offsets in HEADER are correct.
-    pub ignore_text_analysis_offsets: bool,
-
-    /// If true, throw error if offsets in HEADER and TEXT differ.
-    ///
-    /// Only applies to DATA and ANALYSIS offsets
-    pub allow_header_text_offset_mismatch: bool,
-
-    /// If true, throw error if required TEXT offsets are missing.
-    ///
-    /// Only applies to DATA and ANALYSIS offsets in versions 3.0 and 3.1. If
-    /// missing these will be taken from HEADER.
-    pub allow_missing_required_offsets: bool,
-
-    /// Corrections for DATA offsets in TEXT segment
-    pub data: TEXTCorrection<DataSegmentId>,
-
-    /// Corrections for ANALYSIS offsets in TEXT segment
-    pub analysis: TEXTCorrection<AnalysisSegmentId>,
 
     /// If true, treat every delimiter as literal.
     ///
@@ -418,6 +498,49 @@ pub struct RawTextReadConfig {
     pub warnings_are_errors: bool,
 }
 
+#[derive(Default, Clone)]
+#[cfg_attr(feature = "python", derive(FromPyObject))]
+#[pyo3(from_item_all)]
+pub struct ReadTEXTOffsetsConfig {
+    /// Corrections for DATA offsets in TEXT segment
+    pub data_correction: TEXTCorrection<DataSegmentId>,
+
+    /// Corrections for ANALYSIS offsets in TEXT segment
+    pub analysis_correction: TEXTCorrection<AnalysisSegmentId>,
+
+    /// If true, ignore DATA offsets in TEXT.
+    ///
+    /// This may be useful if DATA offsets are different from those in HEADER,
+    /// either inherently or after a correction. This obviously assumes the
+    /// offsets in HEADER are correct.
+    pub ignore_text_data_offsets: bool,
+
+    /// If true, ignore ANALYSIS offsets in TEXT.
+    ///
+    /// This may be useful if ANALYSIS offsets are different from those in
+    /// HEADER, either inherently or after a correction. This obviously assumes
+    /// the offsets in HEADER are correct.
+    pub ignore_text_analysis_offsets: bool,
+
+    /// If true, throw error if offsets in HEADER and TEXT differ.
+    ///
+    /// Only applies to DATA and ANALYSIS offsets
+    pub allow_header_text_offset_mismatch: bool,
+
+    /// If true, throw error if required TEXT offsets are missing.
+    ///
+    /// Only applies to DATA and ANALYSIS offsets in versions 3.0 and 3.1. If
+    /// missing these will be taken from HEADER.
+    pub allow_missing_required_offsets: bool,
+
+    /// If true, truncate TEXT offsets that exceed the end of the file.
+    ///
+    /// In many cases, such offsets likely mean the file was incompletely
+    /// written, which is a larger problem itself. Setting this to true will at
+    /// least allow these files to be read.
+    pub truncate_text_offsets: bool,
+}
+
 /// Instructions for validating time-related properties.
 #[derive(Default, Clone)]
 #[cfg_attr(feature = "python", derive(FromPyObject))]
@@ -447,9 +570,8 @@ pub struct TimeConfig {
 #[cfg_attr(feature = "python", derive(FromPyObject))]
 #[pyo3(from_item_all)]
 pub struct StdTextReadConfig {
-    /// Instructions to read HEADER and TEXT.
-    pub raw: RawTextReadConfig,
-
+    // /// Instructions to read HEADER and TEXT.
+    // pub raw: ReadHeaderAndTEXTConfig,
     /// Time-related options.
     pub time: TimeConfig,
 
@@ -485,6 +607,23 @@ pub struct StdTextReadConfig {
     /// becomes 'X,1.0'.
     pub fix_log_scale_offsets: bool,
 
+    /// If supplied, this pattern will be used to group "nonstandard" keywords
+    /// with matching measurements.
+    ///
+    /// Usually this will be something like '^P%n.+' where '%n' will be
+    /// substituted with the measurement index before using it as a regular
+    /// expression to match keywords. It should not start with a "$" and must
+    /// contain a literal '%n'.
+    ///
+    /// This will matching something like 'P7FOO' which would be 'FOO' for
+    /// measurement 7. These may be used when converting between different
+    /// FCS versions.
+    pub nonstandard_measurement_pattern: Option<keys::NonStdMeasPattern>,
+}
+
+#[derive(Default, Clone)]
+#[cfg_attr(feature = "python", derive(FromPyObject))]
+pub struct ReadLayoutConfig {
     /// If given, override $PnB with the number of bytes in $BYTEORD.
     ///
     /// Some files set $PnB to match the bitmask. For example, a 16-bit column
@@ -535,27 +674,16 @@ pub struct StdTextReadConfig {
     /// Note: this flag has nothing to do with the bitmask being applied to the
     /// actual data being read. This will happen regardless.
     pub disallow_range_truncation: bool,
-
-    /// If supplied, this pattern will be used to group "nonstandard" keywords
-    /// with matching measurements.
-    ///
-    /// Usually this will be something like '^P%n.+' where '%n' will be
-    /// substituted with the measurement index before using it as a regular
-    /// expression to match keywords. It should not start with a "$" and must
-    /// contain a literal '%n'.
-    ///
-    /// This will matching something like 'P7FOO' which would be 'FOO' for
-    /// measurement 7. These may be used when converting between different
-    /// FCS versions.
-    pub nonstandard_measurement_pattern: Option<keys::NonStdMeasPattern>,
 }
 
-// /// Configuration options for both reading and writing
-// #[derive(Default, Clone)]
-// pub struct SharedConfig {
-//     /// If true, all warnings are considered to be fatal errors.
-//     pub warnings_are_errors: bool,
-// }
+/// Configuration options for both reading and writing
+#[derive(Default, Clone)]
+#[cfg_attr(feature = "python", derive(FromPyObject))]
+#[pyo3(from_item_all)]
+pub struct SharedConfig {
+    /// If true, all warnings are considered to be fatal errors.
+    pub warnings_are_errors: bool,
+}
 
 /// A pattern to match the $PnN for the time measurement.
 ///
@@ -581,22 +709,5 @@ impl<'a, C> ReadState<'a, C> {
             file_len: m.len(),
             conf,
         })
-    }
-
-    pub(crate) fn map_inner<D, F>(&self, f: F) -> ReadState<D>
-    where
-        F: FnOnce(&C) -> &D,
-    {
-        ReadState {
-            file_len: self.file_len,
-            conf: f(self.conf),
-        }
-    }
-
-    pub(crate) fn replace_inner<D>(&self, conf: &'a D) -> ReadState<D> {
-        ReadState {
-            file_len: self.file_len,
-            conf,
-        }
     }
 }

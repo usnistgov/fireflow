@@ -313,14 +313,16 @@ impl<A, D, O> AnyCore<A, D, O> {
 }
 
 impl AnyCoreTEXT {
-    pub(crate) fn parse_raw(
+    pub(crate) fn parse_raw<C>(
         version: Version,
         std: &mut StdKeywords,
         nonstd: NonStdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
-        st: &ReadState<StdTextReadConfig>,
+        st: &ReadState<C>,
     ) -> DeferredResult<(Self, TEXTOffsets<Option<Tot>>), StdTEXTFromRawWarning, StdTEXTFromRawError>
+    where
+        C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
     {
         match version {
             Version::FCS2_0 => CoreTEXT2_0::lookup(std, nonstd, data, analysis, st)
@@ -341,7 +343,7 @@ impl AnyCoreDataset {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn parse_raw<R: Read + Seek>(
+    pub(crate) fn parse_raw<C, R>(
         h: &mut BufReader<R>,
         version: Version,
         kws: &mut StdKeywords,
@@ -349,12 +351,19 @@ impl AnyCoreDataset {
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
         other_segs: &[OtherSegment],
-        conf: &ReadState<DataReadConfig>,
+        conf: &ReadState<C>,
     ) -> IODeferredResult<
         (Self, AnyDataSegment, AnyAnalysisSegment),
         StdDatasetFromRawWarning,
         StdDatasetFromRawError,
-    > {
+    >
+    where
+        R: Read + Seek,
+        C: AsRef<StdTextReadConfig>
+            + AsRef<ReadLayoutConfig>
+            + AsRef<ReaderConfig>
+            + AsRef<ReadTEXTOffsetsConfig>,
+    {
         match version {
             Version::FCS2_0 => CoreDataset2_0::new_dataset_from_raw(
                 h,
@@ -1177,49 +1186,47 @@ pub trait Versioned {
 
     fn fcs_version() -> Self;
 
-    fn h_lookup_and_read<R: Read + Seek>(
+    fn h_lookup_and_read<C, R>(
         h: &mut BufReader<R>,
         kws: &StdKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
-        st: &ReadState<DataReadConfig>,
+        st: &ReadState<C>,
     ) -> IODeferredResult<
         (FCSDataFrame, Analysis, AnyDataSegment, AnyAnalysisSegment),
         LookupAndReadDataAnalysisWarning,
         LookupAndReadDataAnalysisError,
     >
     where
+        R: Read + Seek,
         Self::Offsets: AsRef<AnyDataSegment> + AsRef<AnyAnalysisSegment>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReaderConfig> + AsRef<ReadTEXTOffsetsConfig>,
     {
-        let layout_res = Self::Layout::lookup_ro(kws, &st.conf.standard)
+        let layout_res = Self::Layout::lookup_ro(kws, st.conf.as_ref())
             .def_inner_into()
             .def_errors_liftio();
-        let offset_res = Self::Offsets::lookup_ro(
-            kws,
-            data_seg,
-            analysis_seg,
-            &st.map_inner(|conf| &conf.standard.raw),
-        )
-        .def_inner_into()
-        .def_errors_liftio();
+        let offset_res = Self::Offsets::lookup_ro(kws, data_seg, analysis_seg, st)
+            .def_inner_into()
+            .def_errors_liftio();
         layout_res
             .def_zip(offset_res)
             .def_and_maybe(|(layout, offsets)| {
                 let ar = AnalysisReader {
                     seg: *offsets.as_ref(),
                 };
+                let read_conf: &ReaderConfig = st.conf.as_ref();
                 let any_data_seg: AnyDataSegment = *offsets.as_ref();
                 let data_res = match layout {
                     None => {
                         let mut tnt = Tentative::default();
                         if !any_data_seg.inner.is_empty() {
-                            let is_err = !st.conf.reader.allow_data_par_mismatch;
+                            let is_err = !read_conf.allow_data_par_mismatch;
                             tnt.push_error_or_warning(DataSegmentMismatchError, is_err);
                         }
                         Ok(tnt.errors_liftio())
                     }
                     Some(l) => l
-                        .h_read_df(h, offsets.tot(), *offsets.as_ref(), &st.conf.reader)
+                        .h_read_df(h, offsets.tot(), *offsets.as_ref(), read_conf)
                         .def_warnings_into()
                         .def_map_errors(|e| e.inner_into()),
                 };
@@ -1504,19 +1511,23 @@ pub trait OpticalFromTemporal<T: VersionedTemporal>: Sized {
 pub trait VersionedTEXTOffsets: Sized {
     type TotDef: TotDefinition;
 
-    fn lookup(
+    fn lookup<C>(
         kws: &mut StdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
-        conf: &ReadState<RawTextReadConfig>,
-    ) -> LookupTEXTOffsetsResult<Self>;
+        conf: &ReadState<C>,
+    ) -> LookupTEXTOffsetsResult<Self>
+    where
+        C: AsRef<ReadTEXTOffsetsConfig>;
 
-    fn lookup_ro(
+    fn lookup_ro<C>(
         kws: &StdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
-        conf: &ReadState<RawTextReadConfig>,
-    ) -> LookupTEXTOffsetsResult<Self>;
+        conf: &ReadState<C>,
+    ) -> LookupTEXTOffsetsResult<Self>
+    where
+        C: AsRef<ReadTEXTOffsetsConfig>;
 
     fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot;
 
@@ -3469,12 +3480,12 @@ where
     ///
     /// Return any errors encountered, including missing required keywords,
     /// parse errors, and/or deprecation warnings.
-    pub(crate) fn lookup(
+    pub(crate) fn lookup<C>(
         kws: &mut StdKeywords,
         nonstd: NonStdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
-        st: &ReadState<StdTextReadConfig>,
+        st: &ReadState<C>,
     ) -> DeferredResult<
         (Self, <M::Ver as Versioned>::Offsets),
         StdTEXTFromRawWarning,
@@ -3486,6 +3497,7 @@ where
         M::Optical: LookupOptical,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
+        C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
     {
         // $NEXTDATA/$BEGINSTEXT/$ENDSTEXT should have already been
         // processed when we read the TEXT; remove them so they don't
@@ -3493,8 +3505,6 @@ where
         let _ = kws.remove(&Nextdata::std());
         let _ = kws.remove(&Beginstext::std());
         let _ = kws.remove(&Endstext::std());
-
-        let conf = &st.conf;
 
         // Lookup $PAR first since we need this to get the measurements
         let par_res = Par::lookup_req(kws).def_inner_into();
@@ -3504,21 +3514,22 @@ where
         // ANALYSIS, and processing these keywords now will make it easier to
         // determine if TEXT is totally standardized or not.
         let offsets_res =
-            <M::Ver as Versioned>::Offsets::lookup(kws, data, analysis, &st.map_inner(|c| &c.raw))
-                .def_inner_into();
+            <M::Ver as Versioned>::Offsets::lookup(kws, data, analysis, st).def_inner_into();
+
+        let std_conf = st.conf.as_ref();
 
         par_res
             .def_and_maybe(|par| {
                 // Lookup measurements/layout/metaroot with $PAR
                 let ns: Vec<_> = nonstd.into_iter().collect();
-                let meas_res = Self::lookup_measurements(kws, par, ns, conf).def_inner_into();
-                let layout_res = <M::Ver as Versioned>::Layout::lookup(kws, conf, par)
+                let meas_res = Self::lookup_measurements(kws, par, ns, std_conf).def_inner_into();
+                let layout_res = <M::Ver as Versioned>::Layout::lookup(kws, st.conf.as_ref(), par)
                     .def_map_errors(Box::new)
                     .def_inner_into();
                 meas_res
                     .def_zip(layout_res)
                     .def_and_maybe(|((ms, meta_ns), layout)| {
-                        Metaroot::lookup_metaroot(kws, &ms, meta_ns, conf)
+                        Metaroot::lookup_metaroot(kws, &ms, meta_ns, std_conf)
                             .def_map_value(|metaroot| {
                                 CoreTEXT::new_unchecked(metaroot, ms, layout.into())
                             })
@@ -3527,8 +3538,8 @@ where
                     .map(|mut tnt_core| {
                         // Check that the time measurement is present if we want it
                         tnt_core.eval_error(|core| {
-                            if let Some(pat) = conf.time.time_pattern.as_ref() {
-                                if !conf.time.allow_missing
+                            if let Some(pat) = std_conf.time.time_pattern.as_ref() {
+                                if !std_conf.time.allow_missing
                                     && core.measurements.as_center().is_none()
                                 {
                                     let e = MissingTime(pat.clone());
@@ -3543,7 +3554,7 @@ where
                         for k in kws.keys() {
                             if k != &Timestep::std() {
                                 let e = PseudostandardError(k.clone());
-                                if conf.allow_pseudostandard {
+                                if std_conf.allow_pseudostandard {
                                     tnt_core.push_warning(e.into());
                                 } else {
                                     tnt_core.push_error(e.into());
@@ -3680,14 +3691,14 @@ where
     M::Name: Clone,
     <M::Ver as Versioned>::Layout: VersionedDataLayout,
 {
-    pub(crate) fn new_dataset_from_raw<R: Read + Seek>(
+    pub(crate) fn new_dataset_from_raw<C, R>(
         h: &mut BufReader<R>,
         kws: &mut StdKeywords,
         nonstd: NonStdKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
         other_segs: &[OtherSegment],
-        st: &ReadState<DataReadConfig>,
+        st: &ReadState<C>,
         // TODO wrap this in a nice struct
     ) -> IODeferredResult<
         (Self, AnyDataSegment, AnyAnalysisSegment),
@@ -3695,59 +3706,59 @@ where
         StdDatasetFromRawError,
     >
     where
+        R: Read + Seek,
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Offsets: AsRef<AnyDataSegment> + AsRef<AnyAnalysisSegment>,
+        C: AsRef<StdTextReadConfig>
+            + AsRef<ReadLayoutConfig>
+            + AsRef<ReaderConfig>
+            + AsRef<ReadTEXTOffsetsConfig>,
     {
-        VersionedCoreTEXT::<M>::lookup(
-            kws,
-            nonstd,
-            data_seg,
-            analysis_seg,
-            &st.map_inner(|conf| &conf.standard),
-        )
-        .def_map_errors(Box::new)
-        .def_inner_into()
-        .def_errors_liftio()
-        .def_and_maybe(|(text, offsets)| {
-            let or = OthersReader { segs: other_segs };
-            let ar = AnalysisReader {
-                seg: *offsets.as_ref(),
-            };
-            // TODO not DRY
-            let any_data_seg: AnyDataSegment = *offsets.as_ref();
-            let data_res = match text.layout.0.as_ref() {
-                None => {
-                    let mut tnt = Tentative::default();
-                    if !any_data_seg.inner.is_empty() {
-                        let is_err = !st.conf.reader.allow_data_par_mismatch;
-                        tnt.push_error_or_warning(DataSegmentMismatchError, is_err);
+        VersionedCoreTEXT::<M>::lookup(kws, nonstd, data_seg, analysis_seg, st)
+            .def_map_errors(Box::new)
+            .def_inner_into()
+            .def_errors_liftio()
+            .def_and_maybe(|(text, offsets)| {
+                let or = OthersReader { segs: other_segs };
+                let ar = AnalysisReader {
+                    seg: *offsets.as_ref(),
+                };
+                // TODO not DRY
+                let read_conf: &ReaderConfig = st.conf.as_ref();
+                let any_data_seg: AnyDataSegment = *offsets.as_ref();
+                let data_res = match text.layout.0.as_ref() {
+                    None => {
+                        let mut tnt = Tentative::default();
+                        if !any_data_seg.inner.is_empty() {
+                            let is_err = !read_conf.allow_data_par_mismatch;
+                            tnt.push_error_or_warning(DataSegmentMismatchError, is_err);
+                        }
+                        Ok(tnt.errors_liftio())
                     }
-                    Ok(tnt.errors_liftio())
-                }
-                Some(l) => l
-                    .h_read_df(h, offsets.tot(), *offsets.as_ref(), &st.conf.reader)
-                    .def_warnings_into()
-                    .def_map_errors(|e| e.inner_into()),
-            };
-            let analysis_res = ar.h_read(h).into_deferred();
-            let others_res = or.h_read(h).into_deferred();
-            data_res
-                .def_zip3(analysis_res, others_res)
-                .def_map_value(|(data, analysis, others)| {
-                    let c = Core {
-                        metaroot: text.metaroot,
-                        measurements: text.measurements,
-                        layout: text.layout,
-                        data,
-                        analysis,
-                        others,
-                    };
-                    (c, *offsets.as_ref(), *offsets.as_ref())
-                })
-        })
+                    Some(l) => l
+                        .h_read_df(h, offsets.tot(), *offsets.as_ref(), read_conf)
+                        .def_warnings_into()
+                        .def_map_errors(|e| e.inner_into()),
+                };
+                let analysis_res = ar.h_read(h).into_deferred();
+                let others_res = or.h_read(h).into_deferred();
+                data_res.def_zip3(analysis_res, others_res).def_map_value(
+                    |(data, analysis, others)| {
+                        let c = Core {
+                            metaroot: text.metaroot,
+                            measurements: text.measurements,
+                            layout: text.layout,
+                            data,
+                            analysis,
+                            others,
+                        };
+                        (c, *offsets.as_ref(), *offsets.as_ref())
+                    },
+                )
+            })
     }
 
     /// Write this dataset (HEADER+TEXT+DATA+ANALYSIS+OTHER) to a handle
@@ -6923,12 +6934,15 @@ impl VersionedTemporal for InnerTemporal3_2 {
 impl VersionedTEXTOffsets for TEXTOffsets2_0 {
     type TotDef = MaybeTot;
 
-    fn lookup(
+    fn lookup<C>(
         kws: &mut StdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
-        _: &ReadState<RawTextReadConfig>,
-    ) -> LookupTEXTOffsetsResult<Self> {
+        _: &ReadState<C>,
+    ) -> LookupTEXTOffsetsResult<Self>
+    where
+        C: AsRef<ReadTEXTOffsetsConfig>,
+    {
         Ok(Tot::remove_metaroot_opt(kws)
             .map_or_else(
                 |w| Tentative::new(None, vec![w.into()], vec![]),
@@ -6944,12 +6958,15 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
             }))
     }
 
-    fn lookup_ro(
+    fn lookup_ro<C>(
         kws: &StdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
-        _: &ReadState<RawTextReadConfig>,
-    ) -> LookupTEXTOffsetsResult<Self> {
+        _: &ReadState<C>,
+    ) -> LookupTEXTOffsetsResult<Self>
+    where
+        C: AsRef<ReadTEXTOffsetsConfig>,
+    {
         Ok(Tot::get_metaroot_opt(kws)
             .map_or_else(
                 |w| Tentative::new(None, vec![w.into()], vec![]),
@@ -6982,37 +6999,41 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
 impl VersionedTEXTOffsets for TEXTOffsets3_0 {
     type TotDef = KnownTot;
 
-    fn lookup(
+    fn lookup<C>(
         kws: &mut StdKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
-        st: &ReadState<RawTextReadConfig>,
-    ) -> LookupTEXTOffsetsResult<Self> {
+        st: &ReadState<C>,
+    ) -> LookupTEXTOffsetsResult<Self>
+    where
+        C: AsRef<ReadTEXTOffsetsConfig>,
+    {
         let tot_res = Tot::remove_metaroot_req(kws).into_deferred();
         let file_len = Some(st.file_len.into());
+        let conf = st.conf.as_ref();
         let data_res = KeyedReqSegment::remove_or(
             kws,
             data_seg,
-            st.conf.ignore_text_data_offsets,
-            st.conf.allow_header_text_offset_mismatch,
-            st.conf.allow_missing_required_offsets,
+            conf.ignore_text_data_offsets,
+            conf.allow_header_text_offset_mismatch,
+            conf.allow_missing_required_offsets,
             &NewSegmentConfig {
-                corr: st.conf.data,
+                corr: conf.data_correction,
                 file_len,
-                truncate_offsets: st.conf.header.truncate_offsets,
+                truncate_offsets: conf.truncate_text_offsets,
             },
         )
         .def_inner_into();
         let analysis_res = KeyedReqSegment::remove_or(
             kws,
             analysis_seg,
-            st.conf.ignore_text_analysis_offsets,
-            st.conf.allow_header_text_offset_mismatch,
-            st.conf.allow_missing_required_offsets,
+            conf.ignore_text_analysis_offsets,
+            conf.allow_header_text_offset_mismatch,
+            conf.allow_missing_required_offsets,
             &NewSegmentConfig {
-                corr: st.conf.analysis,
+                corr: conf.analysis_correction,
                 file_len,
-                truncate_offsets: st.conf.header.truncate_offsets,
+                truncate_offsets: conf.truncate_text_offsets,
             },
         )
         .def_inner_into();
@@ -7028,37 +7049,41 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
             })
     }
 
-    fn lookup_ro(
+    fn lookup_ro<C>(
         kws: &StdKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
-        st: &ReadState<RawTextReadConfig>,
-    ) -> LookupTEXTOffsetsResult<Self> {
+        st: &ReadState<C>,
+    ) -> LookupTEXTOffsetsResult<Self>
+    where
+        C: AsRef<ReadTEXTOffsetsConfig>,
+    {
         let tot_res = Tot::get_metaroot_req(kws).into_deferred();
         let file_len = Some(st.file_len.into());
+        let conf = st.conf.as_ref();
         let data_res = KeyedReqSegment::get_or(
             kws,
             data_seg,
-            st.conf.ignore_text_data_offsets,
-            st.conf.allow_header_text_offset_mismatch,
-            st.conf.allow_missing_required_offsets,
+            conf.ignore_text_data_offsets,
+            conf.allow_header_text_offset_mismatch,
+            conf.allow_missing_required_offsets,
             &NewSegmentConfig {
-                corr: st.conf.data,
+                corr: conf.data_correction,
                 file_len,
-                truncate_offsets: st.conf.header.truncate_offsets,
+                truncate_offsets: conf.truncate_text_offsets,
             },
         )
         .def_inner_into();
         let analysis_res = KeyedReqSegment::get_or(
             kws,
             analysis_seg,
-            st.conf.ignore_text_analysis_offsets,
-            st.conf.allow_header_text_offset_mismatch,
-            st.conf.allow_missing_required_offsets,
+            conf.ignore_text_analysis_offsets,
+            conf.allow_header_text_offset_mismatch,
+            conf.allow_missing_required_offsets,
             &NewSegmentConfig {
-                corr: st.conf.analysis,
+                corr: conf.analysis_correction,
                 file_len,
-                truncate_offsets: st.conf.header.truncate_offsets,
+                truncate_offsets: conf.truncate_text_offsets,
             },
         )
         .def_inner_into();
@@ -7091,15 +7116,18 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
 impl VersionedTEXTOffsets for TEXTOffsets3_2 {
     type TotDef = KnownTot;
 
-    fn lookup(
+    fn lookup<C>(
         kws: &mut StdKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
-        st: &ReadState<RawTextReadConfig>,
-    ) -> LookupTEXTOffsetsResult<Self> {
-        let conf = &st.conf;
+        st: &ReadState<C>,
+    ) -> LookupTEXTOffsetsResult<Self>
+    where
+        C: AsRef<ReadTEXTOffsetsConfig>,
+    {
         let tot_res = Tot::remove_metaroot_req(kws).into_deferred();
         let file_len = Some(st.file_len.into());
+        let conf = st.conf.as_ref();
         let data_res = KeyedReqSegment::remove_or(
             kws,
             data_seg,
@@ -7107,9 +7135,9 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
             conf.allow_header_text_offset_mismatch,
             conf.allow_missing_required_offsets,
             &NewSegmentConfig {
-                corr: st.conf.data,
+                corr: conf.data_correction,
                 file_len,
-                truncate_offsets: st.conf.header.truncate_offsets,
+                truncate_offsets: conf.truncate_text_offsets,
             },
         )
         .def_inner_into();
@@ -7123,9 +7151,9 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
                         conf.ignore_text_analysis_offsets,
                         conf.allow_header_text_offset_mismatch,
                         &NewSegmentConfig {
-                            corr: st.conf.analysis,
+                            corr: conf.analysis_correction,
                             file_len,
-                            truncate_offsets: st.conf.header.truncate_offsets,
+                            truncate_offsets: conf.truncate_text_offsets,
                         },
                     )
                     .inner_into()
@@ -7141,13 +7169,16 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
             })
     }
 
-    fn lookup_ro(
+    fn lookup_ro<C>(
         kws: &StdKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
-        st: &ReadState<RawTextReadConfig>,
-    ) -> LookupTEXTOffsetsResult<Self> {
-        let conf = &st.conf;
+        st: &ReadState<C>,
+    ) -> LookupTEXTOffsetsResult<Self>
+    where
+        C: AsRef<ReadTEXTOffsetsConfig>,
+    {
+        let conf = &st.conf.as_ref();
         let tot_res = Tot::get_metaroot_req(kws).into_deferred();
         let file_len = Some(st.file_len.into());
         let data_res = KeyedReqSegment::get_or(
@@ -7157,9 +7188,9 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
             conf.allow_header_text_offset_mismatch,
             conf.allow_missing_required_offsets,
             &NewSegmentConfig {
-                corr: st.conf.data,
+                corr: conf.data_correction,
                 file_len,
-                truncate_offsets: st.conf.header.truncate_offsets,
+                truncate_offsets: conf.truncate_text_offsets,
             },
         )
         .def_inner_into();
@@ -7172,9 +7203,9 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
                     conf.ignore_text_analysis_offsets,
                     conf.allow_header_text_offset_mismatch,
                     &NewSegmentConfig {
-                        corr: st.conf.analysis,
+                        corr: conf.analysis_correction,
                         file_len,
-                        truncate_offsets: st.conf.header.truncate_offsets,
+                        truncate_offsets: conf.truncate_text_offsets,
                     },
                 )
                 .inner_into()

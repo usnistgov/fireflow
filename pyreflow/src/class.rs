@@ -5,12 +5,12 @@ use fireflow_core::error::*;
 use fireflow_core::header::*;
 use fireflow_core::segment::{HeaderAnalysisSegment, HeaderDataSegment, OtherSegment};
 use fireflow_core::text::datetimes::ReversedDatetimes;
+use fireflow_core::text::index::MeasIndex;
 use fireflow_core::text::keywords::*;
 use fireflow_core::text::named_vec::{
     Element, ElementIndexError, KeyLengthError, NamedVec, RawInput,
 };
 use fireflow_core::text::optional::*;
-use fireflow_core::text::ranged_float::*;
 use fireflow_core::text::scale::*;
 use fireflow_core::text::timestamps::ReversedTimestamps;
 use fireflow_core::text::unstainedcenters::UnstainedCenters;
@@ -22,7 +22,7 @@ use super::layout::{self, PyLayout3_2, PyNonMixedLayout, PyOrderedLayout};
 use super::macros::py_wrap;
 
 use bigdecimal::BigDecimal;
-use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
 use derive_more::{Display, From};
 use nonempty::NonEmpty;
 use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
@@ -236,18 +236,18 @@ py_wrap!(PyTemporal3_1, Temporal3_1, "Temporal3_1");
 py_wrap!(PyTemporal3_2, Temporal3_2, "Temporal3_2");
 
 macro_rules! get_set_metaroot_opt {
-    ($get:ident, $set:ident, $inner:ident, $outer:ident, $($pytype:ident),*) => {
+    ($get:ident, $set:ident, $outer:ident, $($pytype:ident),*) => {
         $(
             #[pymethods]
             impl $pytype {
                 #[getter]
                 fn $get(&self) -> Option<$outer> {
-                    self.0.get_metaroot_opt::<$inner>().map(|x| x.clone().into())
+                    self.0.get_metaroot_opt().cloned()
                 }
 
                 #[setter]
                 fn $set(&mut self, s: Option<$outer>) {
-                    self.0.set_metaroot::<Option<$inner>>(s.map(|x| x.into()))
+                    self.0.set_metaroot::<Option<$outer>>(s.map(|x| x.into()))
                 }
             }
         )*
@@ -255,24 +255,21 @@ macro_rules! get_set_metaroot_opt {
 }
 
 macro_rules! get_set_all_meas {
-    ($get:ident, $set:ident, $outer:ident, $inner:ident, $($pytype:ident),*) => {
+    ($get:ident, $set:ident, $outer:ident, $($pytype:ident),*) => {
         $(
             #[pymethods]
             impl $pytype {
                 #[getter]
-                fn $get(&self) -> Vec<(usize, Option<$outer>)> {
-                    self.0.get_meas_opt::<$inner>()
-                        .map(|(i, x)| (
-                            i.into(),
-                            x.map(|y| y.clone().into())
-                        ))
+                fn $get(&self) -> Vec<(MeasIndex, Option<$outer>)> {
+                    self.0
+                        .get_meas_opt()
+                        .map(|(i, x)| (i, x.cloned()))
                         .collect()
                 }
 
                 #[setter]
                 fn $set(&mut self, xs: Vec<Option<$outer>>) -> Result<(), PyKeyLengthError> {
-                    let ys = xs.into_iter().map(|x| x.map($inner::from)).collect();
-                    self.0.set_meas(ys)?;
+                    self.0.set_meas(xs)?;
                     Ok(())
                 }
             }
@@ -281,24 +278,21 @@ macro_rules! get_set_all_meas {
 }
 
 macro_rules! get_set_all_optical {
-    ($get:ident, $set:ident, $outer:ident, $inner:ident, $($pytype:ident),*) => {
+    ($get:ident, $set:ident, $outer:ident, $($pytype:ident),*) => {
         $(
             #[pymethods]
             impl $pytype {
                 #[getter]
-                fn $get(&self) -> Vec<(usize, Option<$outer>)> {
-                    self.0.get_optical_opt::<$inner>()
-                        .map(|(i, x)| (
-                            i.into(),
-                            x.map(|y| y.clone().into())
-                        ))
+                fn $get(&self) -> Vec<(MeasIndex, Option<$outer>)> {
+                    self.0
+                        .get_optical_opt()
+                        .map(|(i, x)| (i, x.cloned()))
                         .collect()
                 }
 
                 #[setter]
                 fn $set(&mut self, xs: Vec<Option<$outer>>) -> Result<(), PyKeyLengthError> {
-                    let ys = xs.into_iter().map(|x| x.map($inner::from)).collect();
-                    self.0.set_optical(ys)?;
+                    self.0.set_optical(xs)?;
                     Ok(())
                 }
             }
@@ -505,27 +499,26 @@ macro_rules! common_methods {
     };
 
     ($pytype:ident) => {
-        get_set_metaroot_opt!(get_abrt, set_abrt, Abrt, u32, $pytype);
-        get_set_metaroot_opt!(get_cells, set_cells, Cells, String, $pytype);
-        get_set_metaroot_opt!(get_com, set_com, Com, String, $pytype);
-        get_set_metaroot_opt!(get_exp, set_exp, Exp, String, $pytype);
-        get_set_metaroot_opt!(get_fil, set_fil, Fil, String, $pytype);
-        get_set_metaroot_opt!(get_inst, set_inst, Inst, String, $pytype);
-        get_set_metaroot_opt!(get_lost, set_lost, Lost, u32, $pytype);
-        get_set_metaroot_opt!(get_op, set_op, Op, String, $pytype);
-        get_set_metaroot_opt!(get_proj, set_proj, Proj, String, $pytype);
-        get_set_metaroot_opt!(get_smno, set_smno, Smno, String, $pytype);
-        get_set_metaroot_opt!(get_src, set_src, Src, String, $pytype);
-        get_set_metaroot_opt!(get_sys, set_sys, Sys, String, $pytype);
+        get_set_metaroot_opt!(get_abrt, set_abrt, Abrt,  $pytype);
+        get_set_metaroot_opt!(get_cells, set_cells, Cells,  $pytype);
+        get_set_metaroot_opt!(get_com, set_com, Com,  $pytype);
+        get_set_metaroot_opt!(get_exp, set_exp, Exp,  $pytype);
+        get_set_metaroot_opt!(get_fil, set_fil, Fil,  $pytype);
+        get_set_metaroot_opt!(get_inst, set_inst, Inst,  $pytype);
+        get_set_metaroot_opt!(get_lost, set_lost, Lost,  $pytype);
+        get_set_metaroot_opt!(get_op, set_op, Op,  $pytype);
+        get_set_metaroot_opt!(get_proj, set_proj, Proj, $pytype);
+        get_set_metaroot_opt!(get_smno, set_smno, Smno, $pytype);
+        get_set_metaroot_opt!(get_src, set_src, Src, $pytype);
+        get_set_metaroot_opt!(get_sys, set_sys, Sys, $pytype);
 
         // common measurement keywords
-        get_set_all_optical!(get_filters, set_filters, String, Filter, $pytype);
-        get_set_all_optical!(get_powers, set_powers, NonNegFloat, Power, $pytype);
+        get_set_all_optical!(get_filters, set_filters, Filter, $pytype);
+        get_set_all_optical!(get_powers, set_powers, Power, $pytype);
 
         get_set_all_optical!(
             get_percents_emitted,
             set_percents_emitted,
-            String,
             PercentEmitted,
             $pytype
         );
@@ -533,7 +526,6 @@ macro_rules! common_methods {
         get_set_all_optical!(
             get_detector_types,
             set_detector_types,
-            String,
             DetectorType,
             $pytype
         );
@@ -541,7 +533,6 @@ macro_rules! common_methods {
         get_set_all_optical!(
             get_detector_voltages,
             set_detector_voltages,
-            NonNegFloat,
             DetectorVoltage,
             $pytype
         );
@@ -728,10 +719,8 @@ macro_rules! temporal_get_set_2_0 {
                 self.0.set_temporal(&name, (), force).py_term_resolve()
             }
 
-            fn set_temporal_at(&mut self, index: usize, force: bool) -> PyResult<bool> {
-                self.0
-                    .set_temporal_at(index.into(), (), force)
-                    .py_term_resolve()
+            fn set_temporal_at(&mut self, index: MeasIndex, force: bool) -> PyResult<bool> {
+                self.0.set_temporal_at(index, (), force).py_term_resolve()
             }
 
             fn unset_temporal(&mut self, force: bool) -> PyResult<bool> {
@@ -754,22 +743,22 @@ macro_rules! temporal_get_set_3_0 {
             fn set_temporal(
                 &mut self,
                 name: Shortname,
-                timestep: PositiveFloat,
+                timestep: Timestep,
                 force: bool,
             ) -> PyResult<bool> {
                 self.0
-                    .set_temporal(&name, timestep.into(), force)
+                    .set_temporal(&name, timestep, force)
                     .py_term_resolve()
             }
 
             fn set_temporal_at(
                 &mut self,
-                index: usize,
-                timestep: PositiveFloat,
+                index: MeasIndex,
+                timestep: Timestep,
                 force: bool,
             ) -> PyResult<bool> {
                 self.0
-                    .set_temporal_at(index.into(), timestep.into(), force)
+                    .set_temporal_at(index, timestep, force)
                     .py_term_resolve()
             }
 
@@ -794,53 +783,51 @@ macro_rules! common_meas_get_set {
             fn remove_measurement_by_name(
                 &mut self,
                 name: Shortname,
-            ) -> Option<(usize, Element<$t, $o>)> {
+            ) -> Option<(MeasIndex, Element<$t, $o>)> {
                 self.0
                     .remove_measurement_by_name(&name)
-                    .map(|(i, x)| (i.into(), x.inner_into().into()))
+                    .map(|(i, x)| (i, x.inner_into()))
             }
 
-            fn measurement_at(&self, i: usize) -> Result<Element<$t, $o>, PyElementIndexError> {
+            fn measurement_at(&self, i: MeasIndex) -> Result<Element<$t, $o>, PyElementIndexError> {
                 let ms: &NamedVec<_, _, _, _> = self.0.as_ref();
-                let m = ms.get(i.into()).map_err(PyElementIndexError)?;
-                Ok(m.bimap(|x| x.1.clone(), |x| x.1.clone())
-                    .inner_into()
-                    .into())
+                let m = ms.get(i).map_err(PyElementIndexError)?;
+                Ok(m.bimap(|x| x.1.clone(), |x| x.1.clone()).inner_into())
             }
 
             fn replace_optical_at(
                 &mut self,
-                i: usize,
+                i: MeasIndex,
                 m: $o,
             ) -> Result<Element<$t, $o>, PyElementIndexError> {
                 let ret = self
                     .0
-                    .replace_optical_at(i.into(), m.into())
+                    .replace_optical_at(i, m.into())
                     .map_err(PyElementIndexError)?;
-                Ok(ret.inner_into().into())
+                Ok(ret.inner_into())
             }
 
             fn replace_optical_named(&mut self, name: Shortname, m: $o) -> Option<Element<$t, $o>> {
                 self.0
                     .replace_optical_named(&name, m.into())
-                    .map(|r| r.inner_into().into())
+                    .map(|r| r.inner_into())
             }
 
-            fn rename_temporal(&mut self, name: Shortname) -> Option<String> {
-                self.0.rename_temporal(name).map(|n| n.to_string())
+            fn rename_temporal(&mut self, name: Shortname) -> Option<Shortname> {
+                self.0.rename_temporal(name)
             }
 
             fn replace_temporal_at(
                 &mut self,
-                i: usize,
+                i: MeasIndex,
                 m: $t,
                 force: bool,
             ) -> PyResult<Element<$t, $o>> {
                 let ret = self
                     .0
-                    .replace_temporal_at(i.into(), m.into(), force)
+                    .replace_temporal_at(i, m.into(), force)
                     .py_term_resolve()?;
-                Ok(ret.inner_into().into())
+                Ok(ret.inner_into())
             }
 
             fn replace_temporal_named(
@@ -853,7 +840,7 @@ macro_rules! common_meas_get_set {
                     .0
                     .replace_temporal_named(&name, m.into(), force)
                     .py_term_resolve()?;
-                Ok(ret.map(|r| r.inner_into().into()))
+                Ok(ret.map(|r| r.inner_into()))
             }
 
             #[getter]
@@ -866,7 +853,7 @@ macro_rules! common_meas_get_set {
                 let ms: &NamedVec<_, _, _, _> = self.0.as_ref();
                 ms.iter()
                     .map(|(_, e)| e.bimap(|t| t.value.clone(), |o| o.value.clone()))
-                    .map(|v| v.inner_into().into())
+                    .map(|v| v.inner_into())
                     .collect()
             }
         }
@@ -900,14 +887,14 @@ macro_rules! common_coretext_meas_get_set {
 
             fn insert_temporal(
                 &mut self,
-                i: usize,
+                i: MeasIndex,
                 name: Shortname,
                 t: $timetype,
                 r: BigDecimal,
                 notrunc: bool,
             ) -> PyResult<()> {
                 self.0
-                    .insert_temporal(i.into(), name, t.into(), Range(r), notrunc)
+                    .insert_temporal(i, name, t.into(), Range(r), notrunc)
                     .py_term_resolve()
             }
 
@@ -944,7 +931,7 @@ macro_rules! coredata_meas_get_set {
 
             fn insert_temporal(
                 &mut self,
-                i: usize,
+                i: MeasIndex,
                 name: Shortname,
                 t: $timetype,
                 col: AnyFCSColumn,
@@ -952,7 +939,7 @@ macro_rules! coredata_meas_get_set {
                 notrunc: bool,
             ) -> PyResult<()> {
                 self.0
-                    .insert_temporal(i.into(), name, t.into(), col, Range(r), notrunc)
+                    .insert_temporal(i, name, t.into(), col, Range(r), notrunc)
                     .py_term_resolve()
             }
 
@@ -983,23 +970,23 @@ macro_rules! coredata_meas_get_set {
             }
 
             #[getter]
-            fn analysis(&self) -> Vec<u8> {
-                self.0.analysis.0.clone()
+            fn analysis(&self) -> Analysis {
+                self.0.analysis.clone()
             }
 
             #[setter]
-            fn set_analysis(&mut self, xs: Vec<u8>) {
+            fn set_analysis(&mut self, xs: Analysis) {
                 self.0.analysis = xs.into();
             }
 
             #[getter]
-            fn others(&self) -> Vec<Vec<u8>> {
-                self.0.others.0.clone().into_iter().map(|x| x.0).collect()
+            fn others(&self) -> Others {
+                self.0.others.clone()
             }
 
             #[setter]
-            fn set_others(&mut self, xs: Vec<Vec<u8>>) {
-                self.0.others = Others(xs.into_iter().map(Other).collect());
+            fn set_others(&mut self, xs: Others) {
+                self.0.others = xs
             }
         }
     };
@@ -1016,11 +1003,11 @@ macro_rules! coretext2_0_meas_methods {
         impl $pytype {
             fn remove_measurement_by_index(
                 &mut self,
-                index: usize,
+                index: MeasIndex,
             ) -> Result<(Option<Shortname>, Element<$t, $o>), PyElementIndexError> {
                 let r = self
                     .0
-                    .remove_measurement_by_index(index.into())
+                    .remove_measurement_by_index(index)
                     .map_err(PyElementIndexError)?;
                 let (n, v) = Element::unzip::<MaybeFamily>(r);
                 Ok((n.0, v.inner_into()))
@@ -1042,14 +1029,14 @@ macro_rules! coretext2_0_meas_methods {
             #[pyo3(signature = (i, m, r, notrunc=false, name=None))]
             fn insert_optical(
                 &mut self,
-                i: usize,
+                i: MeasIndex,
                 m: $o,
                 r: BigDecimal,
                 notrunc: bool,
                 name: Option<Shortname>,
             ) -> PyResult<Shortname> {
                 self.0
-                    .insert_optical(i.into(), name.into(), m.into(), Range(r), notrunc)
+                    .insert_optical(i, name.into(), m.into(), Range(r), notrunc)
                     .py_term_resolve()
             }
         }
@@ -1065,14 +1052,14 @@ macro_rules! coretext3_1_meas_methods {
         impl $pytype {
             fn remove_measurement_by_index(
                 &mut self,
-                index: usize,
+                index: MeasIndex,
             ) -> Result<(Shortname, Element<$t, $o>), PyElementIndexError> {
                 let r = self
                     .0
-                    .remove_measurement_by_index(index.into())
+                    .remove_measurement_by_index(index)
                     .map_err(PyElementIndexError)?;
                 let (n, v) = Element::unzip::<AlwaysFamily>(r);
-                Ok((n.0.into(), v.inner_into().into()))
+                Ok((n.0, v.inner_into().into()))
             }
 
             fn push_optical(
@@ -1090,14 +1077,14 @@ macro_rules! coretext3_1_meas_methods {
 
             fn insert_optical(
                 &mut self,
-                i: usize,
+                i: MeasIndex,
                 m: $o,
                 name: Shortname,
                 r: BigDecimal,
                 notrunc: bool,
             ) -> PyResult<()> {
                 self.0
-                    .insert_optical(i.into(), name.into(), m.into(), Range(r), notrunc)
+                    .insert_optical(i, name.into(), m.into(), Range(r), notrunc)
                     .py_term_resolve()
                     .void()
             }
@@ -1274,10 +1261,10 @@ macro_rules! scales_methods {
             }
 
             #[getter]
-            fn get_scales(&self) -> Vec<(usize, Option<Scale>)> {
+            fn get_scales(&self) -> Vec<(MeasIndex, Option<Scale>)> {
                 self.0
                     .get_optical_opt::<Scale>()
-                    .map(|(i, s)| (i.into(), s.map(|&x| x)))
+                    .map(|(i, s)| (i, s.map(|&x| x)))
                     .collect()
             }
 
@@ -1303,11 +1290,8 @@ macro_rules! transforms_methods {
             }
 
             #[getter]
-            fn get_transforms(&self) -> Vec<(usize, ScaleTransform)> {
-                self.0
-                    .get_optical::<ScaleTransform>()
-                    .map(|(i, &s)| (i.into(), s))
-                    .collect()
+            fn get_transforms(&self) -> Vec<(MeasIndex, ScaleTransform)> {
+                self.0.get_optical().map(|(i, &s)| (i, s)).collect()
             }
 
             #[setter]
@@ -1332,13 +1316,13 @@ macro_rules! timestep_methods {
             #[pymethods]
             impl $pytype {
                 #[getter]
-                fn get_timestep(&self) -> Option<f32> {
-                    self.0.timestep().map(|&x| x.into())
+                fn get_timestep(&self) -> Option<Timestep> {
+                    self.0.timestep().copied()
                 }
 
                 #[setter]
-                fn set_timestep(&mut self, ts: PositiveFloat) -> bool {
-                    self.0.set_timestep(ts.into())
+                fn set_timestep(&mut self, ts: Timestep) -> bool {
+                    self.0.set_timestep(ts)
                 }
             }
         )*
@@ -1355,34 +1339,10 @@ timestep_methods!(
 );
 
 // Get/set methods for scaler $PnL (2.0-3.0)
-macro_rules! wavelength_methods {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn get_wavelengths(&self) -> Vec<(usize, Option<f32>)> {
-                    self.0.get_optical_opt::<Wavelength>()
-                        .map(|(i, x)| (i.into(), x.map(|y| y.0.into())))
-                        .collect()
-                }
-
-                #[setter]
-                fn set_wavelengths(&mut self, xs: Vec<Option<PositiveFloat>>) -> PyResult<()> {
-                    let ys = xs
-                        .into_iter()
-                        .map(|x| x.map(Wavelength::from))
-                        .collect();
-                    self.0
-                        .set_optical(ys)
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))
-                }
-            }
-        )*
-    };
-}
-
-wavelength_methods!(
+get_set_all_optical!(
+    get_wavelengths,
+    set_wavelengths,
+    Wavelength,
     PyCoreTEXT2_0,
     PyCoreTEXT3_0,
     PyCoreDataset2_0,
@@ -1390,40 +1350,10 @@ wavelength_methods!(
 );
 
 // Get/set methods for vector $PnL (3.1-3.2)
-macro_rules! wavelengths_methods {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn get_wavelengths(&self) -> Vec<(usize, Vec<f32>)> {
-                    self.0.get_optical_opt::<Wavelengths>()
-                        .map(|(i, x)| {
-                            (
-                                i.into(),
-                                x.map(|y| y.clone().into()).unwrap_or_default(),
-                            )
-                        })
-                        .collect()
-                }
-
-                #[setter]
-                fn set_wavelengths(&mut self, xs: Vec<Vec<PositiveFloat>>) -> PyResult<()> {
-                    // TODO cleanme
-                    let ys = xs
-                        .into_iter()
-                        .map(|ys| NonEmpty::from_vec(ys).map(Wavelengths::from))
-                        .collect();
-                    self.0
-                        .set_optical(ys)
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))
-                }
-            }
-        )*
-    };
-}
-
-wavelengths_methods!(
+get_set_all_optical!(
+    get_wavelengths,
+    set_wavelengths,
+    Wavelengths,
     PyCoreTEXT3_1,
     PyCoreTEXT3_2,
     PyCoreDataset3_1,
@@ -1433,29 +1363,9 @@ wavelengths_methods!(
 // Get/set methods for $LAST_MODIFIER/$LAST_MODIFIED/$ORIGINALITY (3.1-3.2)
 macro_rules! modification_methods {
     ($($pytype:ident),+) => {
-        get_set_metaroot_opt!(
-            get_originality,
-            set_originality,
-            Originality,
-            Originality,
-            $($pytype),*
-        );
-
-        get_set_metaroot_opt!(
-            get_last_modified,
-            set_last_modified,
-            ModifiedDateTime,
-            NaiveDateTime,
-            $($pytype),*
-        );
-
-        get_set_metaroot_opt!(
-            get_last_modifier,
-            set_last_modifier,
-            LastModifier,
-            String,
-            $($pytype),*
-        );
+        get_set_metaroot_opt!(get_originality,   set_originality,   Originality,      $($pytype),*);
+        get_set_metaroot_opt!(get_last_modified, set_last_modified, ModifiedDateTime, $($pytype),*);
+        get_set_metaroot_opt!(get_last_modifier, set_last_modifier, LastModifier,     $($pytype),*);
     };
 }
 
@@ -1469,9 +1379,9 @@ modification_methods!(
 // Get/set methods for $CARRIERID/$CARRIERTYPE/$LOCATIONID (3.2)
 macro_rules! carrier_methods {
     ($($pytype:ident),*) => {
-        get_set_metaroot_opt!(get_carriertype, set_carriertype, Carriertype, String, $($pytype),*);
-        get_set_metaroot_opt!(get_carrierid,   set_carrierid,   Carrierid,   String, $($pytype),*);
-        get_set_metaroot_opt!(get_locationid,  set_locationid,  Locationid,  String, $($pytype),*);
+        get_set_metaroot_opt!(get_carriertype, set_carriertype, Carriertype, $($pytype),*);
+        get_set_metaroot_opt!(get_carrierid,   set_carrierid,   Carrierid,   $($pytype),*);
+        get_set_metaroot_opt!(get_locationid,  set_locationid,  Locationid,  $($pytype),*);
     };
 }
 
@@ -1480,9 +1390,9 @@ carrier_methods!(PyCoreTEXT3_2, PyCoreDataset3_2);
 // Get/set methods for $PLATEID/$WELLID/$PLATENAME (3.1-3.2)
 macro_rules! plate_methods {
     ($($pytype:ident),*) => {
-        get_set_metaroot_opt!(get_wellid,    set_wellid,    Wellid,    String, $($pytype),*);
-        get_set_metaroot_opt!(get_plateid,   set_plateid,   Plateid,   String, $($pytype),*);
-        get_set_metaroot_opt!(get_platename, set_platename, Platename, String, $($pytype),*);
+        get_set_metaroot_opt!(get_wellid,    set_wellid,    Wellid,    $($pytype),*);
+        get_set_metaroot_opt!(get_plateid,   set_plateid,   Plateid,   $($pytype),*);
+        get_set_metaroot_opt!(get_platename, set_platename, Platename, $($pytype),*);
     };
 }
 
@@ -1532,55 +1442,50 @@ comp_methods!(
 
 // Get/set methods for $SPILLOVER (3.1-3.2)
 macro_rules! spillover_methods {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn get_spillover_matrix<'a>(&self, py: Python<'a>) -> Option<Bound<'a, PyArray2<f32>>> {
-                    self.0.spillover_matrix().map(|x| x.to_pyarray(py))
-                }
-
-                #[getter]
-                fn get_spillover_names(&self) -> Vec<String> {
-                    self.0
-                        .spillover_names()
-                        .map(|x| x.iter().map(|y| y.clone().into()).collect())
-                        .unwrap_or_default()
-                }
-
-                fn set_spillover(
-                    &mut self,
-                    names: Vec<Shortname>,
-                    a: PyReadonlyArray2<f32>,
-                ) -> Result<(), PyErr> {
-                    let m = a.as_matrix().into_owned();
-                    self.0
-                        .set_spillover(names, m)
-                        // TODO handle error better
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))
-                }
-
-                fn unset_spillover(&mut self) {
-                    self.0.unset_spillover()
-                }
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            #[getter]
+            fn get_spillover_matrix<'a>(&self, py: Python<'a>) -> Option<Bound<'a, PyArray2<f32>>> {
+                self.0.spillover_matrix().map(|x| x.to_pyarray(py))
             }
-        )*
+
+            #[getter]
+            fn get_spillover_names(&self) -> Vec<Shortname> {
+                self.0
+                    .spillover_names()
+                    .map(|x| x.to_vec())
+                    .unwrap_or_default()
+            }
+
+            fn set_spillover(
+                &mut self,
+                names: Vec<Shortname>,
+                a: PyReadonlyArray2<f32>,
+            ) -> Result<(), PyErr> {
+                let m = a.as_matrix().into_owned();
+                self.0
+                    .set_spillover(names, m)
+                    // TODO handle error better
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+            }
+
+            fn unset_spillover(&mut self) {
+                self.0.unset_spillover()
+            }
+        }
     };
 }
 
-spillover_methods!(
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2
-);
+spillover_methods!(PyCoreTEXT3_1);
+spillover_methods!(PyCoreTEXT3_2);
+spillover_methods!(PyCoreDataset3_1);
+spillover_methods!(PyCoreDataset3_2);
 
 get_set_metaroot_opt!(
     get_vol,
     set_vol,
     Vol,
-    NonNegFloat,
     PyCoreTEXT3_1,
     PyCoreTEXT3_2,
     PyCoreDataset3_1,
@@ -1594,7 +1499,6 @@ get_set_metaroot_opt!(
     get_cyt,
     set_cyt,
     Cyt,
-    String,
     PyCoreTEXT2_0,
     PyCoreTEXT3_0,
     PyCoreTEXT3_1,
@@ -1608,7 +1512,6 @@ get_set_metaroot_opt!(
     get_flowrate,
     set_flowrate,
     Flowrate,
-    String,
     PyCoreTEXT3_2,
     PyCoreDataset3_2
 );
@@ -1618,7 +1521,6 @@ get_set_metaroot_opt!(
     get_cytsn,
     set_cytsn,
     Cytsn,
-    String,
     PyCoreTEXT3_0,
     PyCoreTEXT3_1,
     PyCoreTEXT3_2,
@@ -1634,7 +1536,6 @@ get_set_all_meas!(
     get_displays,
     set_displays,
     Display,
-    Display,
     PyCoreTEXT3_1,
     PyCoreDataset3_1,
     PyCoreTEXT3_2,
@@ -1645,7 +1546,6 @@ get_set_all_meas!(
 get_set_all_optical!(
     get_detector_names,
     set_detector_names,
-    String,
     DetectorName,
     PyCoreTEXT3_2,
     PyCoreDataset3_2
@@ -1656,7 +1556,6 @@ get_set_all_optical!(
     get_calibrations,
     set_calibrations,
     Calibration3_1,
-    Calibration3_1,
     PyCoreTEXT3_1,
     PyCoreDataset3_1
 );
@@ -1666,26 +1565,17 @@ get_set_all_optical!(
     get_calibrations,
     set_calibrations,
     Calibration3_2,
-    Calibration3_2,
     PyCoreTEXT3_2,
     PyCoreDataset3_2
 );
 
 // Get/set methods for $PnTAG (3.2)
-get_set_all_optical!(
-    get_tags,
-    set_tags,
-    String,
-    Tag,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_2
-);
+get_set_all_optical!(get_tags, set_tags, Tag, PyCoreTEXT3_2, PyCoreDataset3_2);
 
 // Get/set methods for $PnTYPE (3.2)
 get_set_all_optical!(
     get_measurement_types,
     set_measurement_types,
-    OpticalType,
     OpticalType,
     PyCoreTEXT3_2,
     PyCoreDataset3_2
@@ -1696,7 +1586,6 @@ get_set_all_optical!(
     get_features,
     set_features,
     Feature,
-    Feature,
     PyCoreTEXT3_2,
     PyCoreDataset3_2
 );
@@ -1705,7 +1594,6 @@ get_set_all_optical!(
 get_set_all_optical!(
     get_analytes,
     set_analytes,
-    String,
     Analyte,
     PyCoreTEXT3_2,
     PyCoreDataset3_2
@@ -1720,16 +1608,12 @@ macro_rules! to_dataset_method {
             fn to_dataset(
                 &self,
                 cols: Vec<AnyFCSColumn>,
-                analysis: Vec<u8>,
-                others: Vec<Vec<u8>>,
+                analysis: Analysis,
+                others: Others,
             ) -> PyResult<$to> {
                 self.0
                     .clone()
-                    .into_coredataset(
-                        cols,
-                        analysis.into(),
-                        Others(others.into_iter().map(|x| x.into()).collect()),
-                    )
+                    .into_coredataset(cols, analysis, others)
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
                     .map(|df| df.into())
             }
@@ -1875,24 +1759,24 @@ impl PyTemporal2_0 {
 #[pymethods]
 impl PyTemporal3_0 {
     #[new]
-    fn new(timestep: PositiveFloat) -> Self {
-        Temporal3_0::new(timestep.into()).into()
+    fn new(timestep: Timestep) -> Self {
+        Temporal3_0::new(timestep).into()
     }
 }
 
 #[pymethods]
 impl PyTemporal3_1 {
     #[new]
-    fn new(timestep: PositiveFloat) -> Self {
-        Temporal3_1::new(timestep.into()).into()
+    fn new(timestep: Timestep) -> Self {
+        Temporal3_1::new(timestep).into()
     }
 }
 
 #[pymethods]
 impl PyTemporal3_2 {
     #[new]
-    fn new(timestep: PositiveFloat) -> Self {
-        Temporal3_2::new(timestep.into()).into()
+    fn new(timestep: Timestep) -> Self {
+        Temporal3_2::new(timestep).into()
     }
 
     #[getter]
@@ -1907,109 +1791,67 @@ impl PyTemporal3_2 {
 }
 
 macro_rules! shared_meas_get_set {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                // #[getter]
-                // fn width(&self) -> Option<u8> {
-                //     self.0.common.width.into()
-                // }
-
-                // #[setter]
-                // fn set_width(&mut self, x: Option<u8>) {
-                //     self.0.common.width = x.into();
-                // }
-
-                // #[getter]
-                // fn range<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-                //     float_or_int_to_any(self.0.common.range.0, py)
-                // }
-
-                // #[setter]
-                // fn set_range(&mut self, x: Bound<'_, PyAny>) -> PyResult<()> {
-                //     self.0.common.range = any_to_range(x)?;
-                //     Ok(())
-                // }
-
-                #[getter]
-                fn longname(&self) -> Option<String> {
-                    self.0.common.longname.as_ref_opt().map(|x| x.clone().into())
-                }
-
-                #[setter]
-                fn set_longname(&mut self, x: Option<String>) {
-                    self.0.common.longname = x.map(|y| y.into()).into();
-                }
-
-                #[getter]
-                fn nonstandard_keywords(&self) -> HashMap<String, String> {
-                    self.0
-                        .common
-                        .nonstandard_keywords
-                        .iter()
-                        .map(|(k, v)| (k.to_string(), v.clone()))
-                        .collect()
-                }
-
-                #[setter]
-                fn set_nonstandard_keywords(&mut self, xs: HashMap<String, String>) -> PyResult<()> {
-                    let mut ys = HashMap::new();
-                    for (k, v) in xs {
-                        let kk = k
-                            .parse::<NonStdKey>()
-                            .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-                        ys.insert(kk, v);
-                    }
-                    self.0.common.nonstandard_keywords = ys;
-                    Ok(())
-                }
-
-                fn nonstandard_insert(
-                    &mut self,
-                    key: NonStdKey,
-                    value: String
-                ) -> Option<String> {
-                    self.0.common.nonstandard_keywords.insert(key, value)
-                }
-
-                fn nonstandard_get(&self, key: NonStdKey) -> Option<String> {
-                    self.0.common.nonstandard_keywords.get(&key).map(|x| x.clone())
-                }
-
-                fn nonstandard_remove(&mut self, key: NonStdKey) -> Option<String> {
-                    self.0.common.nonstandard_keywords.remove(&key)
-                }
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            #[getter]
+            fn longname(&self) -> Option<Longname> {
+                self.0.common.longname.0.as_ref().cloned()
             }
-        )*
+
+            #[setter]
+            fn set_longname(&mut self, x: Option<Longname>) {
+                self.0.common.longname = x.into();
+            }
+
+            #[getter]
+            fn nonstandard_keywords(&self) -> HashMap<NonStdKey, String> {
+                self.0.common.nonstandard_keywords.clone()
+            }
+
+            #[setter]
+            fn set_nonstandard_keywords(&mut self, xs: HashMap<NonStdKey, String>) {
+                self.0.common.nonstandard_keywords = xs;
+            }
+
+            fn nonstandard_insert(&mut self, key: NonStdKey, value: String) -> Option<String> {
+                self.0.common.nonstandard_keywords.insert(key, value)
+            }
+
+            fn nonstandard_get(&self, key: NonStdKey) -> Option<String> {
+                self.0.common.nonstandard_keywords.get(&key).cloned()
+            }
+
+            fn nonstandard_remove(&mut self, key: NonStdKey) -> Option<String> {
+                self.0.common.nonstandard_keywords.remove(&key)
+            }
+        }
     };
 }
 
-shared_meas_get_set!(
-    PyOptical2_0,
-    PyOptical3_0,
-    PyOptical3_1,
-    PyOptical3_2,
-    PyTemporal2_0,
-    PyTemporal3_0,
-    PyTemporal3_1,
-    PyTemporal3_2
-);
+shared_meas_get_set!(PyOptical2_0);
+shared_meas_get_set!(PyOptical3_0);
+shared_meas_get_set!(PyOptical3_1);
+shared_meas_get_set!(PyOptical3_2);
+shared_meas_get_set!(PyTemporal2_0);
+shared_meas_get_set!(PyTemporal3_0);
+shared_meas_get_set!(PyTemporal3_1);
+shared_meas_get_set!(PyTemporal3_2);
 
 macro_rules! get_set_meas {
-    ($get:ident, $set:ident, $outer:ident, $inner:ident, $($pytype:ident),*) => {
+    ($get:ident, $set:ident, $t:ident, $($pytype:ident),*) => {
         $(
             #[pymethods]
             impl $pytype {
                 #[getter]
-                fn $get(&self) -> Option<$outer> {
-                    let x: &Option<$inner> = self.0.as_ref();
-                    x.as_ref().map(|y| y.clone().into())
+                fn $get(&self) -> Option<$t> {
+                    let x: &Option<$t> = self.0.as_ref();
+                    x.as_ref().cloned()
                 }
 
                 #[setter]
-                fn $set(&mut self, x: Option<$outer>) {
-                    *self.0.as_mut() = x.map(|y| $inner::from(y))
+                fn $set(&mut self, x: Option<$t>) {
+                    *self.0.as_mut() = x
                 }
             }
         )*
@@ -2019,62 +1861,15 @@ macro_rules! get_set_meas {
 
 macro_rules! optical_common {
     ($($pytype:ident),*) => {
-        get_set_meas!(
-            get_filter,
-            set_filter,
-            String,
-            Filter,
-            $($pytype),*
-        );
-
-        get_set_meas!(
-            get_detector_type,
-            set_detector_type,
-            String,
-            DetectorType,
-            $($pytype),*
-        );
-
-        get_set_meas!(
-            get_percent_emitted,
-            set_percent_emitted,
-            String,
-            PercentEmitted,
-            $($pytype),*
-        );
-
-        get_set_meas!(
-            get_detector_voltage,
-            set_detector_voltage,
-            NonNegFloat,
-            DetectorVoltage,
-            $($pytype),*
-        );
-
-        get_set_meas!(
-            get_power,
-            set_power,
-            NonNegFloat,
-            Power,
-            $($pytype),*
-        );
+        get_set_meas!(get_filter,           set_filter,           Filter,          $($pytype),*);
+        get_set_meas!(get_detector_type,    set_detector_type,    DetectorType,    $($pytype),*);
+        get_set_meas!(get_percent_emitted,  set_percent_emitted,  PercentEmitted,  $($pytype),*);
+        get_set_meas!(get_detector_voltage, set_detector_voltage, DetectorVoltage, $($pytype),*);
+        get_set_meas!(get_power,            set_power,            Power,           $($pytype),*);
     };
 }
 
 optical_common!(PyOptical2_0, PyOptical3_0, PyOptical3_1, PyOptical3_2);
-
-// $PnE (2.0)
-macro_rules! get_set_meas_scale {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-            }
-        )*
-    };
-}
-
-get_set_meas_scale!(PyOptical2_0);
 
 // $PnE (3.0-3.2)
 macro_rules! get_set_meas_transform {
@@ -2102,40 +1897,19 @@ get_set_meas_transform!(PyOptical3_0, PyOptical3_1, PyOptical3_2);
 get_set_meas!(
     get_wavelength,
     set_wavelength,
-    PositiveFloat,
     Wavelength,
     PyOptical2_0,
     PyOptical3_0
 );
 
 // #PnL (3.1-3.2)
-macro_rules! meas_get_set_wavelengths {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn get_wavelengths(&self) -> Vec<f32> {
-                    let ws: &Option<Wavelengths> = self.0.as_ref();
-                    ws.as_ref().map(|xs: &Wavelengths| xs.clone().into()).unwrap_or_default()
-                }
-
-                #[setter]
-                fn set_wavelengths(&mut self, xs: Vec<PositiveFloat>) {
-                    let ws = if let Some(ys) = NonEmpty::from_vec(xs) {
-                        let ws = Wavelengths::from(ys);
-                        Some(ws)
-                    } else {
-                        None.into()
-                    };
-                    *self.0.as_mut() = ws;
-                }
-            }
-        )*
-    };
-}
-
-meas_get_set_wavelengths!(PyOptical3_1, PyOptical3_2);
+get_set_meas!(
+    get_wavelength,
+    set_wavelength,
+    Wavelengths,
+    PyOptical3_1,
+    PyOptical3_2
+);
 
 // #TIMESTEP (3.0-3.2)
 macro_rules! meas_get_set_timestep {
@@ -2144,13 +1918,13 @@ macro_rules! meas_get_set_timestep {
             #[pymethods]
             impl $pytype {
                 #[getter]
-                fn get_timestep(&self) -> f32 {
-                    self.0.specific.timestep.0.into()
+                fn get_timestep(&self) -> Timestep {
+                    self.0.specific.timestep
                 }
 
                 #[setter]
-                fn set_timestep(&mut self, x: PositiveFloat) {
-                    self.0.specific.timestep = x.into()
+                fn set_timestep(&mut self, x: Timestep) {
+                    self.0.specific.timestep = x
                 }
             }
         )*
@@ -2164,7 +1938,6 @@ get_set_meas!(
     get_calibration,
     set_calibration,
     Calibration3_1,
-    Calibration3_1,
     PyOptical3_1
 );
 
@@ -2173,7 +1946,6 @@ get_set_meas!(
     get_display,
     set_display,
     Display,
-    Display,
     PyOptical3_1,
     PyOptical3_2,
     PyTemporal3_1,
@@ -2181,31 +1953,29 @@ get_set_meas!(
 );
 
 // $PnDET (3.2)
-get_set_meas!(get_det, set_det, String, DetectorName, PyOptical3_2);
+get_set_meas!(get_det, set_det, DetectorName, PyOptical3_2);
 
 // $PnTAG (3.2)
-get_set_meas!(get_tag, set_tag, String, Tag, PyOptical3_2);
+get_set_meas!(get_tag, set_tag, Tag, PyOptical3_2);
 
 // $PnTYPE (3.2)
 get_set_meas!(
     get_measurement_type,
     set_measurement_type,
     OpticalType,
-    OpticalType,
     PyOptical3_2
 );
 
 // $PnFEATURE (3.2)
-get_set_meas!(get_feature, set_feature, Feature, Feature, PyOptical3_2);
+get_set_meas!(get_feature, set_feature, Feature, PyOptical3_2);
 
 // $PnANALYTE (3.2)
-get_set_meas!(get_analyte, set_analyte, String, Analyte, PyOptical3_2);
+get_set_meas!(get_analyte, set_analyte, Analyte, PyOptical3_2);
 
 // $PnCalibration (3.2)
 get_set_meas!(
     get_calibration,
     set_calibration,
-    Calibration3_2,
     Calibration3_2,
     PyOptical3_2
 );

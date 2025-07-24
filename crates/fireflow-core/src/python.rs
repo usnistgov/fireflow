@@ -452,16 +452,6 @@ impl<'py, I, S> FromPyObject<'py> for OffsetCorrection<I, S> {
     }
 }
 
-impl<'py> IntoPyObject<'py> for Tot {
-    type Target = PyInt;
-    type Output = Bound<'py, PyInt>;
-    type Error = Infallible;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        self.0.into_pyobject(py)
-    }
-}
-
 impl<'py> FromPyObject<'py> for Uint8Digit {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let t: u64 = ob.extract()?;

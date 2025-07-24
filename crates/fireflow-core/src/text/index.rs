@@ -5,6 +5,9 @@ use std::num::NonZeroUsize;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
 /// An index starting at 1, used as the basis for keyword indices
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug, Display, FromStr)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -26,21 +29,12 @@ macro_rules! newtype_index {
     ($(#[$attr:meta])* $t:ident) => {
         $(#[$attr])*
         #[cfg_attr(feature = "serde", derive(Serialize))]
+        #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
         #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug,
                  FromStr, Display, From, Into)]
+        #[from(IndexFromOne, usize)]
+        #[into(IndexFromOne, usize)]
         pub struct $t(pub IndexFromOne);
-
-        impl From<usize> for $t {
-            fn from(value: usize) -> Self {
-                Self(value.into())
-            }
-        }
-
-        impl From<$t> for usize {
-            fn from(value: $t) -> Self {
-                value.0.into()
-            }
-        }
     };
 }
 
@@ -104,5 +98,30 @@ impl fmt::Display for BoundaryIndexError {
             "index must be 0 <= i <= {}, got {}",
             self.len, self.index
         )
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::IndexFromOne;
+    use pyo3::prelude::*;
+    use pyo3::types::PyInt;
+    use std::convert::Infallible;
+
+    impl<'py> FromPyObject<'py> for IndexFromOne {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let x: usize = ob.extract()?;
+            Ok(x.into())
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for IndexFromOne {
+        type Target = PyInt;
+        type Output = Bound<'py, PyInt>;
+        type Error = Infallible;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            usize::from(self.0).into_pyobject(py)
+        }
     }
 }

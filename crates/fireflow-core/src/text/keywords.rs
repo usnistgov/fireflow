@@ -88,6 +88,7 @@ impl fmt::Display for TimestepLossError {
 /// The value of the $VOL keyword
 #[derive(Clone, Copy, From, Display, FromStr, Into)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 #[into(NonNegFloat, f32)]
 pub struct Vol(pub NonNegFloat);
 
@@ -527,8 +528,9 @@ impl fmt::Display for CalibrationFormat3_2 {
 }
 
 /// The value for the $PnL key (2.0/3.0).
-#[derive(Clone, From, FromStr, Display, Into)]
+#[derive(Clone, Copy, From, FromStr, Display, Into)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 #[into(f32, PositiveFloat)]
 pub struct Wavelength(pub PositiveFloat);
 
@@ -539,14 +541,6 @@ impl_newtype_try_from!(Wavelength, PositiveFloat, f32, RangedFloatError);
 /// Starting in 3.1 this is a vector rather than a scaler.
 #[derive(Clone, From)]
 pub struct Wavelengths(pub NonEmpty<PositiveFloat>);
-
-// impl TryFrom<NonEmpty<f32>> for Wavelengths {
-//     type Error = RangedFloatError;
-
-//     fn try_from(value: NonEmpty<f32>) -> Result<Self, Self::Error> {
-//         value.try_map(|x| x.try_into()).map(Self)
-//     }
-// }
 
 impl From<Wavelengths> for Vec<f32> {
     fn from(value: Wavelengths) -> Self {
@@ -631,6 +625,7 @@ impl fmt::Display for WavelengthsError {
 /// correct format
 #[derive(Clone, Copy, From, Into)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 pub struct ModifiedDateTime(pub NaiveDateTime);
 
 const DATETIME_FMT: &str = "%d-%b-%Y %H:%M:%S";
@@ -1474,6 +1469,7 @@ pub struct GateRange(pub Range);
 /// The value of the $PnO key
 #[derive(Clone, Copy, From, Display, FromStr, Into)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 #[into(NonNegFloat, f32)]
 pub struct Power(pub NonNegFloat);
 
@@ -1482,6 +1478,7 @@ impl_newtype_try_from!(Power, NonNegFloat, f32, RangedFloatError);
 /// The value of the $PnV key
 #[derive(Clone, Copy, From, Display, FromStr, Into)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 #[into(NonNegFloat, f32)]
 pub struct DetectorVoltage(pub NonNegFloat);
 
@@ -1541,14 +1538,16 @@ macro_rules! newtype_string {
     ($t:ident) => {
         #[derive(Clone, Display, FromStr, From, Into)]
         #[cfg_attr(feature = "serde", derive(Serialize))]
+        #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
         pub struct $t(pub String);
     };
 }
 
 macro_rules! newtype_int {
-    ($t:ident, $type:ident) => {
+    ($t:ident, $type:ty) => {
         #[derive(Clone, Copy, Display, FromStr, From, Into)]
         #[cfg_attr(feature = "serde", derive(Serialize))]
+        #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
         pub struct $t(pub $type);
     };
 }
@@ -1956,3 +1955,35 @@ opt_meta!(Beginanalysis);
 opt_meta!(Endanalysis);
 opt_meta!(Beginstext);
 opt_meta!(Endstext);
+
+#[cfg(feature = "python")]
+mod python {
+    use super::Wavelengths;
+    use crate::text::ranged_float::PositiveFloat;
+
+    use nonempty::NonEmpty;
+    use pyo3::exceptions::PyValueError;
+    use pyo3::prelude::*;
+    use pyo3::types::PyList;
+
+    impl<'py> FromPyObject<'py> for Wavelengths {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let xs: Vec<PositiveFloat> = ob.extract()?;
+            if let Some(ys) = NonEmpty::from_vec(xs) {
+                Ok(ys.into())
+            } else {
+                Err(PyValueError::new_err("wavelengths must not be empty"))
+            }
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for Wavelengths {
+        type Target = PyList;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            PyList::new(py, Vec::from(self.0))
+        }
+    }
+}

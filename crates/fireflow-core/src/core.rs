@@ -94,17 +94,17 @@ pub struct Core<A, D, O, M, T, P, N, W, L> {
 
 /// The ANALYSIS segment, which is just a string of bytes
 #[derive(Clone, From)]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
 pub struct Analysis(pub Vec<u8>);
 
 /// An OTHER segment, which is just a string of bytes
 #[derive(Clone, From)]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
 pub struct Other(pub Vec<u8>);
 
 /// All OTHER segments
 #[derive(Clone, Default, From)]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
 pub struct Others(pub Vec<Other>);
 
 /// Root of the metadata hierarchy.

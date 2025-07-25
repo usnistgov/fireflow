@@ -1,8 +1,8 @@
 use crate::data::{
-    self, AnyAsciiLayout, AnyNullBitmask, AnyOrderedLayout, AnyOrderedUintLayout, DataLayout2_0,
-    DataLayout3_0, DataLayout3_1, DataLayout3_2, EndianLayout, F32Range, F64Range, FixedLayout,
-    FloatRange, KnownTot, LayoutOps, NoMeasDatatype, NonMixedEndianLayout, NullMixedType,
-    OrderedLayout, OrderedLayoutOps,
+    AnyAsciiLayout, AnyNullBitmask, AnyOrderedLayout, AnyOrderedUintLayout, DataLayout2_0,
+    DataLayout3_0, DataLayout3_1, DataLayout3_2, DelimAsciiLayout, EndianLayout, F32Range,
+    F64Range, FixedAsciiLayout, FixedLayout, FloatRange, KnownTot, LayoutOps, MixedLayout,
+    NoMeasDatatype, NonMixedEndianLayout, NullMixedType, OrderedLayout, OrderedLayoutOps,
 };
 use crate::text::byteord::{Endian, SizedByteOrd};
 use crate::text::keywords::{AlphaNumType, Range};
@@ -36,13 +36,13 @@ pub enum PyOrderedLayout {
 pub enum PyNonMixedLayout {
     #[from(
         PyAsciiFixedLayout,
-        data::FixedAsciiLayout<KnownTot, NoMeasDatatype, false>
+        FixedAsciiLayout<KnownTot, NoMeasDatatype, false>
     )]
     AsciiFixed(PyAsciiFixedLayout),
 
     #[from(
         PyAsciiDelimLayout,
-        data::DelimAsciiLayout<KnownTot, NoMeasDatatype, false>
+        DelimAsciiLayout<KnownTot, NoMeasDatatype, false>
     )]
     AsciiDelim(PyAsciiDelimLayout),
 
@@ -70,10 +70,10 @@ macro_rules! py_wrap {
     };
 }
 
-type AsciiDelim = data::FixedAsciiLayout<KnownTot, NoMeasDatatype, false>;
+type AsciiDelim = FixedAsciiLayout<KnownTot, NoMeasDatatype, false>;
 py_wrap!(PyAsciiFixedLayout, AsciiDelim, "AsciiFixedLayout");
 
-type AsciiFixed = data::DelimAsciiLayout<KnownTot, NoMeasDatatype, false>;
+type AsciiFixed = DelimAsciiLayout<KnownTot, NoMeasDatatype, false>;
 py_wrap!(PyAsciiDelimLayout, AsciiFixed, "AsciiDelimLayout");
 
 py_wrap!(PyOrderedUint08Layout, OrderedLayout<bm::Bitmask08, KnownTot>, "OrderedUint08Layout");
@@ -93,7 +93,7 @@ py_wrap!(PyEndianF64Layout, EndianLayout<F64Range, NoMeasDatatype>, "EndianF64La
 
 py_wrap!(PyEndianUintLayout, EndianLayout<AnyNullBitmask, NoMeasDatatype>, "EndianUintLayout");
 
-py_wrap!(PyMixedLayout, data::MixedLayout, "MixedLayout");
+py_wrap!(PyMixedLayout, MixedLayout, "MixedLayout");
 
 impl From<PyOrderedLayout> for DataLayout2_0 {
     fn from(value: PyOrderedLayout) -> Self {
@@ -197,8 +197,8 @@ impl From<NonMixedEndianLayout<NoMeasDatatype>> for PyNonMixedLayout {
     fn from(value: NonMixedEndianLayout<NoMeasDatatype>) -> Self {
         match value {
             NonMixedEndianLayout::Ascii(x) => match x {
-                data::AnyAsciiLayout::Fixed(y) => y.into(),
-                data::AnyAsciiLayout::Delimited(y) => y.into(),
+                AnyAsciiLayout::Fixed(y) => y.into(),
+                AnyAsciiLayout::Delimited(y) => y.into(),
             },
             NonMixedEndianLayout::Integer(x) => x.into(),
             NonMixedEndianLayout::F32(x) => x.into(),
@@ -327,7 +327,7 @@ endianness_methods!(PyMixedLayout);
 impl PyAsciiDelimLayout {
     #[new]
     fn new(ranges: PyNonEmpty<u64>) -> Self {
-        data::DelimAsciiLayout::new(ranges.0).into()
+        DelimAsciiLayout::new(ranges.0).into()
     }
 }
 

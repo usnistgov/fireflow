@@ -12,6 +12,7 @@ use fireflow_core::header::{Header, Version};
 use fireflow_core::python::exceptions::{PyTerminalNoWarnResultExt, PyTerminalResultExt};
 use fireflow_core::segment::{HeaderAnalysisSegment, HeaderDataSegment, OtherSegment};
 use fireflow_core::text::byteord::{Endian, SizedByteOrd};
+use fireflow_core::text::compensation::Compensation;
 use fireflow_core::text::index::MeasIndex;
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::{Element, NamedVec, RawInput};
@@ -1488,17 +1489,12 @@ macro_rules! comp_methods {
         #[pymethods]
         impl $pytype {
             #[getter]
-            fn get_compensation<'a>(&self, py: Python<'a>) -> Option<Bound<'a, PyArray2<f32>>> {
-                self.0.compensation().map(|x| x.to_pyarray(py))
+            fn get_compensation(&self) -> Option<Compensation> {
+                self.0.compensation().cloned()
             }
 
-            fn set_compensation(&mut self, a: PyReadonlyArray2<f32>) -> Result<(), PyErr> {
-                let m = a.as_matrix().into_owned();
+            fn set_compensation(&mut self, m: Option<Compensation>) -> PyResult<()> {
                 Ok(self.0.set_compensation(m)?)
-            }
-
-            fn unset_compensation(&mut self) {
-                self.0.unset_compensation()
             }
         }
     };

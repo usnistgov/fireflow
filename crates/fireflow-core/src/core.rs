@@ -2577,38 +2577,33 @@ where
             .is_some()
     }
 
-    pub fn compensation(&self) -> Option<&DMatrix<f32>>
+    pub fn compensation(&self) -> Option<&Compensation>
     where
         M: HasCompensation,
     {
-        self.metaroot
-            .specific
-            .comp(private::NoTouchy)
-            .map(|x| x.as_ref())
+        self.metaroot.specific.comp(private::NoTouchy)
     }
 
     /// Set matrix for $COMP
     ///
     /// Return true if successfully set. Return false if matrix is either not
     /// square or rows/columns are not the same length as $PAR.
-    pub fn set_compensation(&mut self, matrix: DMatrix<f32>) -> Result<(), NewCompError>
+    pub fn set_compensation(
+        &mut self,
+        matrix: Option<Compensation>,
+    ) -> Result<(), CompParMismatchError>
     where
         M: HasCompensation,
     {
-        // TODO also check $PAR
-        Compensation::try_new(matrix).map(|comp| {
-            self.metaroot
-                .specific
-                .set_comp(Some(comp), private::NoTouchy)
-        })
-    }
-
-    /// Clear $COMP
-    pub fn unset_compensation(&mut self)
-    where
-        M: HasCompensation,
-    {
-        self.metaroot.specific.set_comp(None, private::NoTouchy);
+        if let Some(m) = matrix.as_ref() {
+            let comp = m.as_ref().ncols();
+            let par = self.measurements.len();
+            if comp != par {
+                return Err(CompParMismatchError { comp, par });
+            }
+        }
+        self.metaroot.specific.set_comp(matrix, private::NoTouchy);
+        Ok(())
     }
 
     /// Show $SPILLOVER matrix
@@ -8805,6 +8800,21 @@ impl fmt::Display for EmptyLayoutError {
     }
 }
 
+pub struct CompParMismatchError {
+    par: usize,
+    comp: usize,
+}
+
+impl fmt::Display for CompParMismatchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "$COMP must have same row/column number as $PAR ({}), got {}",
+            self.par, self.comp
+        )
+    }
+}
+
 pub struct DataSegmentMismatchError;
 
 impl fmt::Display for DataSegmentMismatchError {
@@ -8950,8 +8960,8 @@ mod python {
     use crate::text::ranged_float::PositiveFloat;
 
     use super::{
-        ColumnsToDataframeError, ExistingLinkError, MissingMeasurementNameError, ScaleTransform,
-        SetSpilloverError,
+        ColumnsToDataframeError, CompParMismatchError, ExistingLinkError,
+        MissingMeasurementNameError, ScaleTransform, SetSpilloverError,
     };
 
     use pyo3::exceptions::PyValueError;
@@ -8992,4 +9002,5 @@ mod python {
     impl_pyreflow_err!(MissingMeasurementNameError);
     impl_pyreflow_err!(ExistingLinkError);
     impl_pyreflow_err!(SetSpilloverError);
+    impl_pyreflow_err!(CompParMismatchError);
 }

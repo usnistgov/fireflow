@@ -31,7 +31,7 @@ pub struct Compensation3_0(pub Compensation);
 /// A compensation matrix.
 ///
 /// This is encoded in the $DFCmTOn keywords in 2.0 and $COMP in 3.0.
-#[derive(Clone, AsRef)]
+#[derive(Clone, AsRef, From)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Compensation {
     /// Values in the comp matrix in row-major order. Assumed to be the
@@ -217,8 +217,29 @@ pub(crate) fn lookup_dfc(
 
 #[cfg(feature = "python")]
 mod python {
-    use super::NewCompError;
     use crate::python::macros::impl_value_err;
 
+    use super::{Compensation, NewCompError};
+
+    use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
+    use pyo3::prelude::*;
+
     impl_value_err!(NewCompError);
+
+    impl<'py> FromPyObject<'py> for Compensation {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let x: PyReadonlyArray2<f32> = ob.extract()?;
+            Ok(x.as_matrix().into_owned().into())
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for Compensation {
+        type Target = PyArray2<f32>;
+        type Output = Bound<'py, Self::Target>;
+        type Error = std::convert::Infallible;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            Ok(self.matrix.to_pyarray(py))
+        }
+    }
 }

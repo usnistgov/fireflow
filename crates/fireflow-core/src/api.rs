@@ -64,7 +64,7 @@ pub fn fcs_read_std_text(
         .def_map_value(|(x, _, st)| (x, st))
         .def_io_into()
         .def_and_maybe(|(raw, st)| raw.into_std_text(&st).def_inner_into().def_errors_liftio())
-        .def_terminate_maybe_warn(StdTEXTFailure, conf.raw.warnings_are_errors, |w| {
+        .def_terminate_maybe_warn(StdTEXTFailure, conf.shared.warnings_are_errors, |w| {
             ImpureError::Pure(StdTEXTError::from(w))
         })
 }

@@ -49,6 +49,7 @@ FCSVersion = (
 
 Segment = tuple[int, int]
 OffsetCorrection = tuple[int, int]
+KeyPatterns = tuple[list[str], list[str]]
 
 
 def fcs_read_header(
@@ -84,6 +85,100 @@ def fcs_read_header(
         segments["data"],
         segments["analysis"],
         segments["other"],
+    )
+
+
+def fcs_read_raw_text(
+    p: Path,
+    # header args
+    version_override: FCSVersion | None = None,
+    text_correction: OffsetCorrection = (0, 0),
+    data_correction: OffsetCorrection = (0, 0),
+    analysis_correction: OffsetCorrection = (0, 0),
+    other_corrections: list[OffsetCorrection] = [],
+    max_other: int | None = None,
+    other_width: int = 8,
+    squish_offsets: bool = False,
+    allow_negative: bool = False,
+    truncate_offsets: bool = False,
+    # raw text args
+    supp_text_correction: OffsetCorrection = (0, 0),
+    allow_duplicated_stext: bool = False,
+    ignore_supp_text: bool = False,
+    use_literal_delims: bool = False,
+    allow_non_ascii_delim: bool = False,
+    allow_missing_final_delim: bool = False,
+    allow_nonunique: bool = False,
+    allow_odd: bool = False,
+    allow_empty: bool = False,
+    allow_delim_at_boundary: bool = False,
+    allow_non_utf8: bool = False,
+    allow_non_ascii_keywords: bool = False,
+    allow_missing_stext: bool = False,
+    allow_stext_own_delim: bool = False,
+    allow_missing_nextdata: bool = False,
+    trim_value_whitespace: bool = False,
+    date_pattern: str | None = None,
+    ignore_standard_keys: KeyPatterns = ([], []),
+    rename_standard_keys: dict[str, str] = {},
+    promote_to_standard: KeyPatterns = ([], []),
+    demote_from_standard: KeyPatterns = ([], []),
+    replace_standard_key_values: dict[str, str] = {},
+    append_standard_keywords: dict[str, str] = {},
+    # shared args
+    warnings_are_errors: bool = False,
+) -> tuple[FCSVersion, dict[str, str], dict[str, str]]:
+    header_conf = {
+        "version_override": version_override,
+        "text_correction": text_correction,
+        "data_correction": data_correction,
+        "analysis_correction": analysis_correction,
+        "other_corrections": other_corrections,
+        "max_other": max_other,
+        "other_width": other_width,
+        "squish_offsets": squish_offsets,
+        "allow_negative": allow_negative,
+        "truncate_offsets": truncate_offsets,
+    }
+    raw_conf = {
+        "header": header_conf,
+        "supp_text_correction": supp_text_correction,
+        "allow_duplicated_stext": allow_duplicated_stext,
+        "ignore_supp_text": ignore_supp_text,
+        "use_literal_delims": use_literal_delims,
+        "allow_non_ascii_delim": allow_non_ascii_delim,
+        "allow_missing_final_delim": allow_missing_final_delim,
+        "allow_nonunique": allow_nonunique,
+        "allow_odd": allow_odd,
+        "allow_empty": allow_empty,
+        "allow_delim_at_boundary": allow_delim_at_boundary,
+        "allow_non_utf8": allow_non_utf8,
+        "allow_non_ascii_keywords": allow_non_ascii_keywords,
+        "allow_missing_stext": allow_missing_stext,
+        "allow_stext_own_delim": allow_stext_own_delim,
+        "allow_missing_nextdata": allow_missing_nextdata,
+        "trim_value_whitespace": trim_value_whitespace,
+        "date_pattern": date_pattern,
+        "ignore_standard_keys": ignore_standard_keys,
+        "rename_standard_keys": rename_standard_keys,
+        "promote_to_standard": promote_to_standard,
+        "demote_from_standard": demote_from_standard,
+        "replace_standard_key_values": replace_standard_key_values,
+        "append_standard_keywords": append_standard_keywords,
+    }
+    shared_conf = {
+        "warnings_are_errors": warnings_are_errors,
+    }
+    conf = {
+        "raw": raw_conf,
+        "shared": shared_conf,
+    }
+    ret = _fcs_read_raw_text(p, conf)
+    keywords = ret["keywords"]
+    return (
+        ret["version"],
+        keywords["std"],
+        keywords["nonstd"],
     )
 
 

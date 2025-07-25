@@ -493,9 +493,6 @@ pub struct ReadHeaderAndTEXTConfig {
     /// trigger a deviant keyword warning/error if they do not belong in the
     /// indicated version.
     pub append_standard_keywords: keys::KeyStringValues,
-
-    /// If true, all warnings will become fatal errors.
-    pub warnings_are_errors: bool,
 }
 
 #[derive(Default, Clone)]

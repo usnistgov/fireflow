@@ -21,7 +21,7 @@ create_exception!(
     "Warning created by internal pyreflow."
 );
 
-pub(crate) trait PyTerminalResultExt {
+pub trait PyTerminalResultExt {
     type V;
 
     fn py_term_resolve(self) -> PyResult<Self::V>;
@@ -37,7 +37,7 @@ impl<V, W: fmt::Display, E: fmt::Display, T: fmt::Display> PyTerminalResultExt
     }
 }
 
-pub(crate) trait PyTerminalNoWarnResultExt {
+pub trait PyTerminalNoWarnResultExt {
     type V;
 
     fn py_term_resolve_nowarn(self) -> PyResult<Self::V>;

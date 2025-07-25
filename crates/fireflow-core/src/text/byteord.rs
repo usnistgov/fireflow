@@ -665,7 +665,7 @@ impl fmt::Display for VecToArrayError {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{ByteOrd2_0, NewByteOrdError};
+    use super::{ByteOrd2_0, NewByteOrdError, SizedByteOrd, VecToSizedError};
     use crate::python::macros::impl_value_err;
 
     use pyo3::prelude::*;
@@ -679,5 +679,17 @@ mod python {
         }
     }
 
+    impl<'py, const LEN: usize> FromPyObject<'py> for SizedByteOrd<LEN>
+    where
+        SizedByteOrd<LEN>: TryFrom<Vec<NonZeroU8>, Error = VecToSizedError>,
+    {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let xs: Vec<NonZeroU8> = ob.extract()?;
+            let ret = SizedByteOrd::<LEN>::try_from(xs)?;
+            Ok(ret)
+        }
+    }
+
     impl_value_err!(NewByteOrdError);
+    impl_value_err!(VecToSizedError);
 }

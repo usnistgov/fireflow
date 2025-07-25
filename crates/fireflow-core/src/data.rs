@@ -4148,3 +4148,55 @@ impl fmt::Display for ScaleMismatchTransformError {
 pub(crate) fn req_meas_headers() -> [MeasHeader; 2] {
     [Width::std_blank(), Range::std_blank()]
 }
+
+#[cfg(feature = "python")]
+mod python {
+    use crate::text::float_decimal::FloatDecimal;
+    use crate::text::float_decimal::HasFloatBounds;
+    use crate::text::keywords::AlphaNumType;
+    use crate::validated::ascii_range::AsciiRange;
+
+    use super::{AnyNullBitmask, FloatRange, NullMixedType};
+
+    use pyo3::conversion::FromPyObjectBound;
+    use pyo3::exceptions::PyValueError;
+    use pyo3::prelude::*;
+
+    impl<'py, T, const LEN: usize> FromPyObject<'py> for FloatRange<T, LEN>
+    where
+        for<'a> T: FromPyObjectBound<'a, 'py>,
+        T: HasFloatBounds,
+        FloatDecimal<T>: TryFrom<T>,
+        <FloatDecimal<T> as TryFrom<T>>::Error: std::fmt::Display,
+    {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let x = ob.extract::<T>()?;
+            FloatDecimal::try_from(x)
+                .map(FloatRange::new)
+                // this is a ParseBigDecimalError
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        }
+    }
+
+    impl<'py> FromPyObject<'py> for NullMixedType {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (datatype, value): (AlphaNumType, Bound<'py, PyAny>) = ob.extract()?;
+            match datatype {
+                AlphaNumType::Single => {
+                    let x = value.extract::<f32>()?;
+                    let y = FloatDecimal::try_from(x)
+                        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                    Ok(FloatRange::new(y).into())
+                }
+                AlphaNumType::Double => {
+                    let x = value.extract::<f64>()?;
+                    let y = FloatDecimal::try_from(x)
+                        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                    Ok(FloatRange::new(y).into())
+                }
+                AlphaNumType::Integer => Ok(AnyNullBitmask::from_u64(value.extract()?).into()),
+                AlphaNumType::Ascii => Ok(AsciiRange::from(value.extract::<u64>()?).into()),
+            }
+        }
+    }
+}

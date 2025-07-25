@@ -170,3 +170,29 @@ pub enum BitmaskError {
     ToInt(IntRangeError<()>),
     Trunc(BitmaskTruncationError),
 }
+
+#[cfg(feature = "python")]
+mod python {
+    use super::Bitmask;
+
+    use pyo3::conversion::FromPyObjectBound;
+    use pyo3::exceptions::PyValueError;
+    use pyo3::prelude::*;
+
+    impl<'py, T, const LEN: usize> FromPyObject<'py> for super::Bitmask<T, LEN>
+    where
+        for<'a> T: FromPyObjectBound<'a, 'py>,
+        T: num_traits::PrimInt + std::fmt::Display,
+    {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let x = ob.extract::<T>()?;
+            let (ret, trunc) = Bitmask::from_native(x);
+            if trunc {
+                let e = format!("could not make {LEN}-byte bitmask from {x}");
+                Err(PyValueError::new_err(e))
+            } else {
+                Ok(ret)
+            }
+        }
+    }
+}

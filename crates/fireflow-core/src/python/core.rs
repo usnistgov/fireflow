@@ -14,7 +14,7 @@ use super::data::{PyLayout3_2, PyNonMixedLayout, PyOrderedLayout};
 use super::exceptions::{PyTerminalNoWarnResultExt, PyTerminalResultExt};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
-use derive_more::From;
+use derive_more::{From, Into};
 use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
 use polars::prelude::*;
 use pyo3::prelude::*;
@@ -25,21 +25,8 @@ use std::collections::HashMap;
 macro_rules! py_wrap {
     ($pytype:ident, $rstype:path, $name:expr) => {
         #[pyclass(name = $name)]
-        #[derive(Clone)]
-        #[repr(transparent)]
+        #[derive(Clone, From, Into)]
         pub struct $pytype($rstype);
-
-        impl From<$rstype> for $pytype {
-            fn from(value: $rstype) -> Self {
-                Self(value)
-            }
-        }
-
-        impl From<$pytype> for $rstype {
-            fn from(value: $pytype) -> Self {
-                value.0
-            }
-        }
     };
 }
 

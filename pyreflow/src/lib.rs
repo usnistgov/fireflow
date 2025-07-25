@@ -4,7 +4,7 @@ use fireflow_python as ff;
 use pyo3::prelude::*;
 
 #[pymodule]
-fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("PyreflowException", py.get_type::<PyreflowException>())?;
     m.add("PyreflowWarning", py.get_type::<PyreflowWarning>())?;
 

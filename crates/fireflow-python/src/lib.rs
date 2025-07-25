@@ -38,13 +38,13 @@ use std::num::NonZeroU8;
 use std::path::PathBuf;
 
 #[pyfunction]
-#[pyo3(name = "fcs_read_header")]
+#[pyo3(name = "_fcs_read_header")]
 pub fn py_fcs_read_header(p: PathBuf, conf: cfg::ReadHeaderConfig) -> PyResult<Header> {
     api::fcs_read_header(&p, &conf).py_term_resolve_nowarn()
 }
 
 #[pyfunction]
-#[pyo3(name = "fcs_read_raw_text")]
+#[pyo3(name = "_fcs_read_raw_text")]
 pub fn py_fcs_read_raw_text(
     p: PathBuf,
     conf: cfg::ReadRawTEXTConfig,
@@ -53,7 +53,7 @@ pub fn py_fcs_read_raw_text(
 }
 
 #[pyfunction]
-#[pyo3(name = "fcs_read_std_text")]
+#[pyo3(name = "_fcs_read_std_text")]
 pub fn py_fcs_read_std_text(
     p: PathBuf,
     conf: cfg::ReadStdTEXTConfig,
@@ -63,7 +63,7 @@ pub fn py_fcs_read_std_text(
 }
 
 #[pyfunction]
-#[pyo3(name = "fcs_read_raw_dataset")]
+#[pyo3(name = "_fcs_read_raw_dataset")]
 pub fn py_fcs_read_raw_dataset(
     p: PathBuf,
     conf: cfg::ReadRawDatasetConfig,
@@ -72,7 +72,7 @@ pub fn py_fcs_read_raw_dataset(
 }
 
 #[pyfunction]
-#[pyo3(name = "fcs_read_std_dataset")]
+#[pyo3(name = "_fcs_read_std_dataset")]
 pub fn py_fcs_read_std_dataset(
     p: PathBuf,
     conf: cfg::ReadStdDatasetConfig,
@@ -82,7 +82,7 @@ pub fn py_fcs_read_std_dataset(
 }
 
 #[pyfunction]
-#[pyo3(name = "fcs_read_raw_dataset_with_keywords")]
+#[pyo3(name = "_fcs_read_raw_dataset_with_keywords")]
 pub fn py_fcs_read_raw_dataset_with_keywords(
     p: PathBuf,
     version: Version,
@@ -105,7 +105,7 @@ pub fn py_fcs_read_raw_dataset_with_keywords(
 }
 
 #[pyfunction]
-#[pyo3(name = "fcs_read_std_dataset_with_keywords")]
+#[pyo3(name = "_fcs_read_std_dataset_with_keywords")]
 pub fn py_fcs_read_std_dataset_with_keywords(
     p: PathBuf,
     version: Version,

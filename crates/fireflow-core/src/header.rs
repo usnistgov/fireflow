@@ -7,6 +7,7 @@ use crate::validated::ascii_uint::*;
 use crate::validated::keys::*;
 
 use derive_more::{Display, From};
+use itertools::Itertools;
 use nonempty::NonEmpty;
 use std::fmt;
 use std::io;
@@ -363,7 +364,7 @@ impl Version {
             let s = unsafe { str::from_utf8_unchecked(&buf) };
             s.parse().map_err(ImpureError::Pure)
         } else {
-            Err(ImpureError::Pure(VersionError))
+            Err(ImpureError::Pure(VersionError(buf.to_vec())))
         }
     }
 }
@@ -377,7 +378,7 @@ impl str::FromStr for Version {
             "FCS3.0" => Ok(Self::FCS3_0),
             "FCS3.1" => Ok(Self::FCS3_1),
             "FCS3.2" => Ok(Self::FCS3_2),
-            _ => Err(VersionError),
+            _ => Err(VersionError(s.as_bytes().to_vec())),
         }
     }
 }
@@ -426,11 +427,19 @@ impl fmt::Display for InHeaderError {
     }
 }
 
-pub struct VersionError;
+pub struct VersionError(Vec<u8>);
 
 impl fmt::Display for VersionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "could not parse FCS Version")
+        if let Ok(s) = str::from_utf8(&self.0) {
+            write!(f, "'{s}' is not a valid or supported FCS version")
+        } else {
+            write!(
+                f,
+                "could not read FCS version, got bytes [{}]",
+                self.0.iter().join(",")
+            )
+        }
     }
 }
 

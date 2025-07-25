@@ -17,7 +17,8 @@ requirements: .venv
 	@unset CONDA_PREFIX \
 	&& $(VENV_BIN)/python -m pip install --upgrade uv \
 	&& $(VENV_BIN)/uv pip install --upgrade --compile-bytecode --no-build \
-	   -r pyreflow/requirements-dev.txt
+	   -r pyreflow/requirements-dev.txt \
+	   -r pyreflow/requirements-lint.txt
 
 # build pyreflow for development
 .PHONY: build

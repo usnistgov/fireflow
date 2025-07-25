@@ -8,14 +8,14 @@ use std::ffi::CString;
 use std::fmt;
 
 create_exception!(
-    pyreflow,
+    exceptions,
     PyreflowException,
     PyException,
     "Exception created by internal pyreflow."
 );
 
 create_exception!(
-    pyreflow,
+    exceptions,
     PyreflowWarning,
     PyWarning,
     "Warning created by internal pyreflow."

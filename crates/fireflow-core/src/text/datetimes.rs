@@ -163,3 +163,11 @@ impl fmt::Display for FCSDateTimeError {
         write!(f, "must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'")
     }
 }
+
+#[cfg(feature = "python")]
+mod python {
+    use super::ReversedDatetimes;
+    use crate::python::macros::impl_pyreflow_err;
+
+    impl_pyreflow_err!(ReversedDatetimes);
+}

@@ -717,6 +717,58 @@ where
 
 const STD_PREFIX: u8 = 36; // '$'
 
+#[cfg(feature = "python")]
+mod python {
+    use super::{
+        AsciiStringError, KeyPatterns, KeyString, KeyStringPairs, KeyStringPairsError, NonStdKey,
+        NonStdKeyError, NonStdMeasPattern, NonStdMeasPatternError, StdKey, StdKeyError,
+    };
+    use crate::python::macros::{impl_from_py_via_fromstr, impl_to_py_via_display, impl_value_err};
+
+    use pyo3::exceptions::PyValueError;
+    use pyo3::prelude::*;
+    use std::collections::HashMap;
+
+    impl_from_py_via_fromstr!(NonStdMeasPattern);
+    impl_value_err!(NonStdMeasPatternError);
+
+    impl_from_py_via_fromstr!(StdKey);
+    impl_to_py_via_display!(StdKey);
+    impl_value_err!(StdKeyError);
+
+    impl_from_py_via_fromstr!(NonStdKey);
+    impl_to_py_via_display!(NonStdKey);
+    impl_value_err!(NonStdKeyError);
+
+    impl_from_py_via_fromstr!(KeyString);
+    impl_to_py_via_display!(KeyString);
+    impl_value_err!(AsciiStringError);
+
+    // pass keypatterns via config as a tuple like ([String], [String]) where the
+    // first member is literal strings and the second is regex patterns
+    impl<'py> FromPyObject<'py> for KeyPatterns {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (lits, pats): (Vec<String>, Vec<String>) = ob.extract()?;
+            let mut ret = KeyPatterns::try_from_literals(lits)?;
+            // this is just a regexp error
+            let ps = KeyPatterns::try_from_patterns(pats)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            ret.extend(ps);
+            Ok(ret)
+        }
+    }
+
+    impl<'py> FromPyObject<'py> for KeyStringPairs {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let xs: HashMap<KeyString, KeyString> = ob.extract()?;
+            let ret = xs.try_into()?;
+            Ok(ret)
+        }
+    }
+
+    impl_value_err!(KeyStringPairsError);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

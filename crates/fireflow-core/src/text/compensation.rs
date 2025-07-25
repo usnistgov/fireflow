@@ -214,3 +214,11 @@ pub(crate) fn lookup_dfc(
             .map(Some)
     })
 }
+
+#[cfg(feature = "python")]
+mod python {
+    use super::NewCompError;
+    use crate::python::macros::impl_value_err;
+
+    impl_value_err!(NewCompError);
+}

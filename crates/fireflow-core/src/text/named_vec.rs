@@ -2001,10 +2001,13 @@ impl fmt::Display for SetKeysError {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::RawInput;
+    use super::{ElementIndexError, KeyLengthError, RawInput, SetKeysError};
+    use crate::python::macros::{impl_index_err, impl_pyreflow_err};
     use crate::text::optional::MightHave;
     use crate::validated::shortname::Shortname;
     use pyo3::prelude::*;
+
+    impl_index_err!(ElementIndexError);
 
     // derive(FromPyObject) will get confused by the wrapper; this is trivial
     // otherwise
@@ -2019,4 +2022,7 @@ mod python {
             ob.extract::<RawInput<K, U, V>>()
         }
     }
+
+    impl_pyreflow_err!(KeyLengthError);
+    impl_pyreflow_err!(SetKeysError);
 }

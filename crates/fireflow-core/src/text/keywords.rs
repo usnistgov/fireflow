@@ -1342,6 +1342,7 @@ impl fmt::Display for GatingError {
 /// The value of the $PnR key.
 #[derive(Clone, From, Display, FromStr, Add, Sub)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 #[from(u8, u16, u32, u64, BigDecimal)]
 pub struct Range(pub BigDecimal);
 
@@ -1958,14 +1959,37 @@ opt_meta!(Endstext);
 
 #[cfg(feature = "python")]
 mod python {
-    use super::Wavelengths;
+    use crate::python::macros::{impl_from_py_via_fromstr, impl_to_py_via_display, impl_value_err};
     use crate::text::ranged_float::PositiveFloat;
+
+    use super::{
+        AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Display, Feature,
+        FeatureError, Mode, ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError,
+        Originality, OriginalityError, Unicode, Wavelengths,
+    };
 
     use nonempty::NonEmpty;
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
-    use pyo3::types::PyList;
+    use pyo3::types::{PyList, PyTuple};
 
+    macro_rules! impl_str_py {
+        ($type:ident, $err:ident) => {
+            impl_from_py_via_fromstr!($type);
+            impl_to_py_via_display!($type);
+            impl_value_err!($err);
+        };
+    }
+
+    // these should all be interpreted as validated/literal python strings
+    impl_str_py!(Originality, OriginalityError);
+    impl_str_py!(AlphaNumType, AlphaNumTypeError);
+    impl_str_py!(NumType, NumTypeError);
+    impl_str_py!(Feature, FeatureError);
+    impl_str_py!(Mode, ModeError);
+    impl_str_py!(OpticalType, OpticalTypeError);
+
+    // $PnL (3.1+) should be represented as a list of floats
     impl<'py> FromPyObject<'py> for Wavelengths {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let xs: Vec<PositiveFloat> = ob.extract()?;
@@ -1984,6 +2008,98 @@ mod python {
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             PyList::new(py, Vec::from(self.0))
+        }
+    }
+
+    // $PnCALIBRATION (3.1) as (f32, String) tuple in python
+    impl<'py> FromPyObject<'py> for Calibration3_1 {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (slope, unit): (PositiveFloat, String) = ob.extract()?;
+            Ok(Self { slope, unit })
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for Calibration3_1 {
+        type Target = PyTuple;
+        type Output = Bound<'py, <(PositiveFloat, String) as IntoPyObject<'py>>::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            (self.slope, self.unit).into_pyobject(py)
+        }
+    }
+
+    // $PnCALIBRATION (3.2) as (f32, f32, String) tuple in python
+    impl<'py> FromPyObject<'py> for Calibration3_2 {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (slope, offset, unit): (PositiveFloat, f32, String) = ob.extract()?;
+            Ok(Self {
+                slope,
+                offset,
+                unit,
+            })
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for Calibration3_2 {
+        type Target = PyTuple;
+        type Output = Bound<'py, <(PositiveFloat, f32, String) as IntoPyObject<'py>>::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            (self.slope, self.offset, self.unit).into_pyobject(py)
+        }
+    }
+
+    // $UNICODE (3.0) as a tuple like (f32, [String]) in python
+    impl<'py> FromPyObject<'py> for Unicode {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (page, kws): (u32, Vec<String>) = ob.extract()?;
+            Ok(Self { page, kws })
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for Unicode {
+        type Target = PyTuple;
+        type Output = Bound<'py, <(u32, Vec<String>) as IntoPyObject<'py>>::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            (self.page, self.kws).into_pyobject(py)
+        }
+    }
+
+    // $PnD (3.1+) as a tuple like (bool, f32, f32) in python where 'bool' is true
+    // if linear
+    impl<'py> FromPyObject<'py> for Display {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (is_log, x0, x1): (bool, f32, f32) = ob.extract()?;
+            let ret = if is_log {
+                Self::Log {
+                    offset: x0,
+                    decades: x1,
+                }
+            } else {
+                Self::Lin {
+                    lower: x0,
+                    upper: x1,
+                }
+            };
+            Ok(ret)
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for Display {
+        type Target = PyTuple;
+        type Output = Bound<'py, <(bool, f32, f32) as IntoPyObject<'py>>::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            let ret = match self {
+                Self::Lin { lower, upper } => (false, lower, upper),
+                Self::Log { offset, decades } => (true, offset, decades),
+            };
+            ret.into_pyobject(py)
         }
     }
 }

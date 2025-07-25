@@ -711,3 +711,29 @@ impl<C> ReadState<C> {
         })
     }
 }
+
+#[cfg(feature = "python")]
+mod python {
+    use super::{OffsetCorrection, TimePattern};
+    use pyo3::exceptions::PyValueError;
+    use pyo3::prelude::*;
+
+    impl<'py> FromPyObject<'py> for TimePattern {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let s: String = ob.extract()?;
+            let n = s
+                .parse::<TimePattern>()
+                // this should be an error from regexp parsing
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            Ok(n)
+        }
+    }
+
+    // offset corrections will be tuples like (i32, i32)
+    impl<'py, I, S> FromPyObject<'py> for OffsetCorrection<I, S> {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let t: (i32, i32) = ob.extract()?;
+            Ok(Self::from(t))
+        }
+    }
+}

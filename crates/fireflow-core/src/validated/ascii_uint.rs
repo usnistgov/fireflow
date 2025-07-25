@@ -194,3 +194,12 @@ impl fmt::Display for NegativeOffsetError {
         write!(f, "HEADER offset is negative: {}", self.0)
     }
 }
+
+#[cfg(feature = "python")]
+mod python {
+    use super::{Uint8Digit, Uint8DigitOverflow};
+    use crate::python::macros::{impl_try_from_py, impl_value_err};
+
+    impl_try_from_py!(Uint8Digit, u64);
+    impl_value_err!(Uint8DigitOverflow);
+}

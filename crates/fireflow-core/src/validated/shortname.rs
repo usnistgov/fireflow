@@ -65,3 +65,12 @@ impl fmt::Display for ShortnameError {
         write!(f, "commas are not allowed in name '{}'", self.0)
     }
 }
+
+#[cfg(feature = "python")]
+mod python {
+    use super::{Shortname, ShortnameError};
+    use crate::python::macros::{impl_from_py_via_fromstr, impl_value_err};
+
+    impl_from_py_via_fromstr!(Shortname);
+    impl_value_err!(ShortnameError);
+}

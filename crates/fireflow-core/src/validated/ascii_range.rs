@@ -218,3 +218,20 @@ impl fmt::Display for OtherWidthError {
         )
     }
 }
+
+#[cfg(feature = "python")]
+mod python {
+    use super::{Chars, CharsError};
+    use crate::python::macros::impl_value_err;
+    use pyo3::prelude::*;
+
+    impl<'py> FromPyObject<'py> for Chars {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let x: u8 = ob.extract()?;
+            let ret = Chars::try_from(x)?;
+            Ok(ret)
+        }
+    }
+
+    impl_value_err!(CharsError);
+}

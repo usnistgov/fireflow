@@ -1,15 +1,16 @@
-use fireflow_core::data::{
+use crate::data::{
     self, AnyAsciiLayout, AnyNullBitmask, AnyOrderedLayout, AnyOrderedUintLayout, DataLayout2_0,
     DataLayout3_0, DataLayout3_1, DataLayout3_2, EndianLayout, F32Range, F64Range, FixedLayout,
     FloatRange, KnownTot, LayoutOps, NoMeasDatatype, NonMixedEndianLayout, NullMixedType,
     OrderedLayout, OrderedLayoutOps,
 };
-use fireflow_core::python::PyreflowException;
-use fireflow_core::text::byteord::{Endian, SizedByteOrd, VecToSizedError};
-use fireflow_core::text::float_decimal::{FloatDecimal, HasFloatBounds};
-use fireflow_core::text::keywords::AlphaNumType;
-use fireflow_core::validated::ascii_range::AsciiRange;
-use fireflow_core::validated::bitmask::{self, Bitmask};
+use crate::python::exceptions::PyreflowException;
+use crate::text::byteord::{Endian, SizedByteOrd, VecToSizedError};
+use crate::text::float_decimal::{FloatDecimal, HasFloatBounds};
+use crate::text::keywords::AlphaNumType;
+use crate::validated::ascii_range::AsciiRange;
+use crate::validated::bitmask::{self, Bitmask};
+
 use pyo3::conversion::FromPyObjectBound;
 use pyo3::exceptions::PyValueError;
 
@@ -21,7 +22,7 @@ use pyo3::types::PyType;
 use std::num::NonZeroU8;
 
 #[derive(FromPyObject, IntoPyObject)]
-pub(crate) enum PyOrderedLayout {
+pub enum PyOrderedLayout {
     AsciiFixed(PyAsciiFixedLayout),
     AsciiDelim(PyAsciiDelimLayout),
     Uint08(PyOrderedUint08Layout),
@@ -37,7 +38,7 @@ pub(crate) enum PyOrderedLayout {
 }
 
 #[derive(FromPyObject, IntoPyObject, From)]
-pub(crate) enum PyNonMixedLayout {
+pub enum PyNonMixedLayout {
     #[from(
         PyAsciiFixedLayout,
         data::FixedAsciiLayout<KnownTot, NoMeasDatatype, false>
@@ -61,7 +62,7 @@ pub(crate) enum PyNonMixedLayout {
 }
 
 #[derive(FromPyObject, IntoPyObject, From)]
-pub(crate) enum PyLayout3_2 {
+pub enum PyLayout3_2 {
     NonMixed(PyNonMixedLayout),
     Mixed(PyMixedLayout),
 }
@@ -69,78 +70,78 @@ pub(crate) enum PyLayout3_2 {
 #[derive(Clone, From, Into)]
 #[pyclass(name = "AsciiFixedLayout")]
 #[into(AnyAsciiLayout<KnownTot, NoMeasDatatype, false>)]
-pub(crate) struct PyAsciiFixedLayout(data::FixedAsciiLayout<KnownTot, NoMeasDatatype, false>);
+pub struct PyAsciiFixedLayout(data::FixedAsciiLayout<KnownTot, NoMeasDatatype, false>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "AsciiDelimLayout")]
 #[into(AnyAsciiLayout<KnownTot, NoMeasDatatype, false>)]
-pub(crate) struct PyAsciiDelimLayout(data::DelimAsciiLayout<KnownTot, NoMeasDatatype, false>);
+pub struct PyAsciiDelimLayout(data::DelimAsciiLayout<KnownTot, NoMeasDatatype, false>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "OrderedUint08Layout")]
 #[into(AnyOrderedUintLayout<KnownTot>)]
-pub(crate) struct PyOrderedUint08Layout(OrderedLayout<bitmask::Bitmask08, KnownTot>);
+pub struct PyOrderedUint08Layout(OrderedLayout<bitmask::Bitmask08, KnownTot>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "OrderedUint16Layout")]
 #[into(AnyOrderedUintLayout<KnownTot>)]
-pub(crate) struct PyOrderedUint16Layout(OrderedLayout<bitmask::Bitmask16, KnownTot>);
+pub struct PyOrderedUint16Layout(OrderedLayout<bitmask::Bitmask16, KnownTot>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "OrderedUint24Layout")]
 #[into(AnyOrderedUintLayout<KnownTot>)]
-pub(crate) struct PyOrderedUint24Layout(OrderedLayout<bitmask::Bitmask24, KnownTot>);
+pub struct PyOrderedUint24Layout(OrderedLayout<bitmask::Bitmask24, KnownTot>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "OrderedUint32Layout")]
 #[into(AnyOrderedUintLayout<KnownTot>)]
-pub(crate) struct PyOrderedUint32Layout(OrderedLayout<bitmask::Bitmask32, KnownTot>);
+pub struct PyOrderedUint32Layout(OrderedLayout<bitmask::Bitmask32, KnownTot>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "OrderedUint40Layout")]
 #[into(AnyOrderedUintLayout<KnownTot>)]
-pub(crate) struct PyOrderedUint40Layout(OrderedLayout<bitmask::Bitmask40, KnownTot>);
+pub struct PyOrderedUint40Layout(OrderedLayout<bitmask::Bitmask40, KnownTot>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "OrderedUint48Layout")]
 #[into(AnyOrderedUintLayout<KnownTot>)]
-pub(crate) struct PyOrderedUint48Layout(OrderedLayout<bitmask::Bitmask48, KnownTot>);
+pub struct PyOrderedUint48Layout(OrderedLayout<bitmask::Bitmask48, KnownTot>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "OrderedUint56Layout")]
 #[into(AnyOrderedUintLayout<KnownTot>)]
-pub(crate) struct PyOrderedUint56Layout(OrderedLayout<bitmask::Bitmask56, KnownTot>);
+pub struct PyOrderedUint56Layout(OrderedLayout<bitmask::Bitmask56, KnownTot>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "OrderedUint64Layout")]
 #[into(AnyOrderedUintLayout<KnownTot>)]
-pub(crate) struct PyOrderedUint64Layout(OrderedLayout<bitmask::Bitmask64, KnownTot>);
+pub struct PyOrderedUint64Layout(OrderedLayout<bitmask::Bitmask64, KnownTot>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "OrderedF32Layout")]
 #[into(AnyOrderedLayout<KnownTot>)]
-pub(crate) struct PyOrderedF32Layout(OrderedLayout<F32Range, KnownTot>);
+pub struct PyOrderedF32Layout(OrderedLayout<F32Range, KnownTot>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "OrderedF64Layout")]
 #[into(AnyOrderedLayout<KnownTot>)]
-pub(crate) struct PyOrderedF64Layout(OrderedLayout<F64Range, KnownTot>);
+pub struct PyOrderedF64Layout(OrderedLayout<F64Range, KnownTot>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "EndianF32Layout")]
-pub(crate) struct PyEndianF32Layout(EndianLayout<F32Range, NoMeasDatatype>);
+pub struct PyEndianF32Layout(EndianLayout<F32Range, NoMeasDatatype>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "EndianF64Layout")]
-pub(crate) struct PyEndianF64Layout(EndianLayout<F64Range, NoMeasDatatype>);
+pub struct PyEndianF64Layout(EndianLayout<F64Range, NoMeasDatatype>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "EndianUintLayout")]
-pub(crate) struct PyEndianUintLayout(EndianLayout<AnyNullBitmask, NoMeasDatatype>);
+pub struct PyEndianUintLayout(EndianLayout<AnyNullBitmask, NoMeasDatatype>);
 
 #[derive(Clone, From, Into)]
 #[pyclass(name = "MixedLayout")]
-pub(crate) struct PyMixedLayout(data::MixedLayout);
+pub struct PyMixedLayout(data::MixedLayout);
 
 impl From<PyOrderedLayout> for DataLayout2_0 {
     fn from(value: PyOrderedLayout) -> Self {

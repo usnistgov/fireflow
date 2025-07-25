@@ -47,3 +47,13 @@ impl fmt::Display for DatePatternError {
         )
     }
 }
+
+#[cfg(feature = "python")]
+mod python {
+    use super::{DatePattern, DatePatternError};
+    use crate::python::macros::{impl_from_py_via_fromstr, impl_to_py_via_display, impl_value_err};
+
+    impl_from_py_via_fromstr!(DatePattern);
+    impl_to_py_via_display!(DatePattern);
+    impl_value_err!(DatePatternError);
+}

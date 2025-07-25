@@ -8943,3 +8943,53 @@ mod serialize {
         }
     }
 }
+
+#[cfg(feature = "python")]
+mod python {
+    use crate::python::macros::impl_pyreflow_err;
+    use crate::text::ranged_float::PositiveFloat;
+
+    use super::{
+        ColumnsToDataframeError, ExistingLinkError, MissingMeasurementNameError, ScaleTransform,
+        SetSpilloverError,
+    };
+
+    use pyo3::exceptions::PyValueError;
+    use pyo3::prelude::*;
+    use pyo3::IntoPyObjectExt;
+
+    // $PnE/$PnG (3.0+) as a tuple like (f32) or (f32, f32) in python
+    impl<'py> FromPyObject<'py> for ScaleTransform {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            if let Ok(gain) = ob.extract::<PositiveFloat>() {
+                Ok(Self::Lin(gain))
+            } else if let Ok(log) = ob.extract::<(f32, f32)>()?.try_into() {
+                Ok(Self::Log(log))
+            } else {
+                // TODO make this into a general "argument value error"
+                Err(PyValueError::new_err(
+                    "scale transform must be a positive \
+                     float or a 2-tuple of positive floats",
+                ))
+            }
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for ScaleTransform {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            match self {
+                Self::Lin(gain) => f32::from(gain).into_bound_py_any(py),
+                Self::Log(l) => (f32::from(l.decades), f32::from(l.offset)).into_bound_py_any(py),
+            }
+        }
+    }
+
+    impl_pyreflow_err!(ColumnsToDataframeError);
+    impl_pyreflow_err!(MissingMeasurementNameError);
+    impl_pyreflow_err!(ExistingLinkError);
+    impl_pyreflow_err!(SetSpilloverError);
+}

@@ -668,3 +668,13 @@ fn supp_text_len() -> u64 {
 fn offsets_len() -> u64 {
     data_len() + analysis_len() + supp_text_len() + nextdata_len()
 }
+
+#[cfg(feature = "python")]
+mod python {
+    use super::{Version, VersionError};
+    use crate::python::macros::{impl_from_py_via_fromstr, impl_to_py_via_display, impl_value_err};
+
+    impl_to_py_via_display!(Version);
+    impl_from_py_via_fromstr!(Version);
+    impl_value_err!(VersionError);
+}

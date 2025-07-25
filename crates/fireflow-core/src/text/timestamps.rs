@@ -357,3 +357,11 @@ impl fmt::Display for FCSTime100Error {
         write!(f, "must be like 'hh:mm:ss[.cc]'")
     }
 }
+
+#[cfg(feature = "python")]
+mod python {
+    use super::ReversedTimestamps;
+    use crate::python::macros::impl_pyreflow_err;
+
+    impl_pyreflow_err!(ReversedTimestamps);
+}

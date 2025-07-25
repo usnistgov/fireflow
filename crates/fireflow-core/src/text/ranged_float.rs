@@ -7,15 +7,20 @@ use std::str::FromStr;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
 /// A non-negative float
 #[derive(Clone, Copy, PartialEq, Display, Into, Add, Mul, One, Zero)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[mul(forward)]
 pub struct NonNegFloat(f32);
 
 /// A positive float
 #[derive(Clone, Copy, PartialEq, Display, Into, Mul, One)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[mul(forward)]
 pub struct PositiveFloat(f32);
 
@@ -51,12 +56,6 @@ macro_rules! impl_ranged_float {
 impl_ranged_float!(PositiveFloat, <, false);
 impl_ranged_float!(NonNegFloat, <=, true);
 
-impl PositiveFloat {
-    pub fn unit() -> Self {
-        Self(1.0)
-    }
-}
-
 pub enum RangedFloatError {
     Parse(ParseFloatError),
     Range { x: f32, include_zero: bool },
@@ -76,4 +75,14 @@ impl fmt::Display for RangedFloatError {
             }
         }
     }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::{NonNegFloat, PositiveFloat, RangedFloatError};
+    use crate::python::macros::{impl_try_from_py, impl_value_err};
+
+    impl_value_err!(RangedFloatError);
+    impl_try_from_py!(PositiveFloat, f32);
+    impl_try_from_py!(NonNegFloat, f32);
 }

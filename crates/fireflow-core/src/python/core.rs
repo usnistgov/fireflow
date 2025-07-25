@@ -1,237 +1,117 @@
-use fireflow_core::api::*;
-use fireflow_core::config::*;
-use fireflow_core::core::*;
-use fireflow_core::error::*;
-use fireflow_core::header::*;
-use fireflow_core::python::{PyreflowException, PyreflowWarning};
-use fireflow_core::segment::{HeaderAnalysisSegment, HeaderDataSegment, OtherSegment};
-use fireflow_core::text::index::MeasIndex;
-use fireflow_core::text::keywords::*;
-use fireflow_core::text::named_vec::{Element, NamedVec, RawInput};
-use fireflow_core::text::optional::*;
-use fireflow_core::text::scale::*;
-use fireflow_core::text::unstainedcenters::UnstainedCenters;
-use fireflow_core::validated::dataframe::*;
-use fireflow_core::validated::keys::*;
-use fireflow_core::validated::shortname::*;
+use crate::core;
+use crate::error::ResultExt;
+use crate::text::index::MeasIndex;
+use crate::text::keywords as kws;
+use crate::text::named_vec::{Element, NamedVec, RawInput};
+use crate::text::optional::{AlwaysFamily, MaybeFamily};
+use crate::text::scale::Scale;
+use crate::text::unstainedcenters::UnstainedCenters;
+use crate::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
+use crate::validated::keys::NonStdKey;
+use crate::validated::shortname::{Shortname, ShortnamePrefix};
 
-use super::layout::{self, PyLayout3_2, PyNonMixedLayout, PyOrderedLayout};
-use super::macros::py_wrap;
+use super::data::{PyLayout3_2, PyNonMixedLayout, PyOrderedLayout};
+use super::exceptions::{PyTerminalNoWarnResultExt, PyTerminalResultExt};
 
-use bigdecimal::BigDecimal;
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
 use derive_more::From;
-use nonempty::NonEmpty;
 use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
 use polars::prelude::*;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyDict};
 use pyo3_polars::PyDataFrame;
 use std::collections::HashMap;
-use std::ffi::CString;
-use std::fmt;
-use std::path;
 
-#[pymodule]
-fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add("PyreflowException", py.get_type::<PyreflowException>())?;
-    m.add("PyreflowWarning", py.get_type::<PyreflowWarning>())?;
+macro_rules! py_wrap {
+    ($pytype:ident, $rstype:path, $name:expr) => {
+        #[pyclass(name = $name)]
+        #[derive(Clone)]
+        #[repr(transparent)]
+        pub struct $pytype($rstype);
 
-    m.add_class::<PyCoreTEXT2_0>()?;
-    m.add_class::<PyCoreTEXT3_0>()?;
-    m.add_class::<PyCoreTEXT3_1>()?;
-    m.add_class::<PyCoreTEXT3_2>()?;
+        impl From<$rstype> for $pytype {
+            fn from(value: $rstype) -> Self {
+                Self(value)
+            }
+        }
 
-    m.add_class::<PyCoreDataset2_0>()?;
-    m.add_class::<PyCoreDataset3_0>()?;
-    m.add_class::<PyCoreDataset3_1>()?;
-    m.add_class::<PyCoreDataset3_2>()?;
-
-    m.add_class::<PyOptical2_0>()?;
-    m.add_class::<PyOptical3_0>()?;
-    m.add_class::<PyOptical3_1>()?;
-    m.add_class::<PyOptical3_2>()?;
-
-    m.add_class::<PyTemporal2_0>()?;
-    m.add_class::<PyTemporal3_0>()?;
-    m.add_class::<PyTemporal3_1>()?;
-    m.add_class::<PyTemporal3_2>()?;
-
-    m.add_class::<layout::PyAsciiFixedLayout>()?;
-    m.add_class::<layout::PyAsciiDelimLayout>()?;
-    m.add_class::<layout::PyOrderedUint08Layout>()?;
-    m.add_class::<layout::PyOrderedUint16Layout>()?;
-    m.add_class::<layout::PyOrderedUint24Layout>()?;
-    m.add_class::<layout::PyOrderedUint32Layout>()?;
-    m.add_class::<layout::PyOrderedUint40Layout>()?;
-    m.add_class::<layout::PyOrderedUint48Layout>()?;
-    m.add_class::<layout::PyOrderedUint56Layout>()?;
-    m.add_class::<layout::PyOrderedUint64Layout>()?;
-    m.add_class::<layout::PyOrderedF32Layout>()?;
-    m.add_class::<layout::PyOrderedF64Layout>()?;
-    m.add_class::<layout::PyEndianF32Layout>()?;
-    m.add_class::<layout::PyEndianF64Layout>()?;
-    m.add_class::<layout::PyEndianUintLayout>()?;
-    m.add_class::<layout::PyMixedLayout>()?;
-
-    m.add_function(wrap_pyfunction!(py_fcs_read_header, m)?)?;
-    m.add_function(wrap_pyfunction!(py_fcs_read_raw_text, m)?)?;
-    m.add_function(wrap_pyfunction!(py_fcs_read_std_text, m)?)?;
-    m.add_function(wrap_pyfunction!(py_fcs_read_std_dataset, m)?)?;
-    m.add_function(wrap_pyfunction!(py_fcs_read_raw_dataset, m)?)?;
-    m.add_function(wrap_pyfunction!(py_fcs_read_raw_dataset_with_keywords, m)?)?;
-    m.add_function(wrap_pyfunction!(py_fcs_read_std_dataset_with_keywords, m)?)
-}
-
-#[pyfunction]
-#[pyo3(name = "fcs_read_header")]
-fn py_fcs_read_header(p: path::PathBuf, conf: ReadHeaderConfig) -> PyResult<Header> {
-    fcs_read_header(&p, &conf).py_term_resolve_nowarn()
-}
-
-#[pyfunction]
-#[pyo3(name = "fcs_read_raw_text")]
-fn py_fcs_read_raw_text(p: path::PathBuf, conf: ReadRawTEXTConfig) -> PyResult<RawTEXTOutput> {
-    fcs_read_raw_text(&p, &conf).py_term_resolve()
-}
-
-#[pyfunction]
-#[pyo3(name = "fcs_read_std_text")]
-fn py_fcs_read_std_text(
-    p: path::PathBuf,
-    conf: ReadStdTEXTConfig,
-) -> PyResult<(PyAnyCoreTEXT, StdTEXTOutput)> {
-    let (core, data) = fcs_read_std_text(&p, &conf).py_term_resolve()?;
-    Ok((core.into(), data))
-}
-
-#[pyfunction]
-#[pyo3(name = "fcs_read_raw_dataset")]
-fn py_fcs_read_raw_dataset(
-    p: path::PathBuf,
-    conf: ReadRawDatasetConfig,
-) -> PyResult<RawDatasetOutput> {
-    fcs_read_raw_dataset(&p, &conf).py_term_resolve()
-}
-
-#[pyfunction]
-#[pyo3(name = "fcs_read_std_dataset")]
-fn py_fcs_read_std_dataset(
-    p: path::PathBuf,
-    conf: ReadStdDatasetConfig,
-) -> PyResult<(PyAnyCoreDataset, StdDatasetOutput)> {
-    let (core, data) = fcs_read_std_dataset(&p, &conf).py_term_resolve()?;
-    Ok((core.into(), data))
-}
-
-#[pyfunction]
-#[pyo3(name = "fcs_read_raw_dataset_with_keywords")]
-fn py_fcs_read_raw_dataset_with_keywords(
-    p: path::PathBuf,
-    version: Version,
-    std: StdKeywords,
-    data_seg: HeaderDataSegment,
-    analysis_seg: HeaderAnalysisSegment,
-    other_segs: Vec<OtherSegment>,
-    conf: ReadRawDatasetFromKeywordsConfig,
-) -> PyResult<RawDatasetWithKwsOutput> {
-    fcs_read_raw_dataset_with_keywords(p, version, &std, data_seg, analysis_seg, other_segs, &conf)
-        .py_term_resolve()
-}
-
-#[pyfunction]
-#[pyo3(name = "fcs_read_std_dataset_with_keywords")]
-fn py_fcs_read_std_dataset_with_keywords(
-    p: path::PathBuf,
-    version: Version,
-    kws: ValidKeywords,
-    data_seg: HeaderDataSegment,
-    analysis_seg: HeaderAnalysisSegment,
-    other_segs: Vec<OtherSegment>,
-    conf: ReadStdDatasetFromKeywordsConfig,
-) -> PyResult<(PyAnyCoreDataset, StdDatasetWithKwsOutput)> {
-    let (core, data) = fcs_read_std_dataset_with_keywords(
-        &p,
-        version,
-        kws,
-        data_seg,
-        analysis_seg,
-        other_segs,
-        &conf,
-    )
-    .py_term_resolve()?;
-    Ok((core.into(), data))
+        impl From<$pytype> for $rstype {
+            fn from(value: $pytype) -> Self {
+                value.0
+            }
+        }
+    };
 }
 
 // core* objects
-py_wrap!(PyCoreTEXT2_0, CoreTEXT2_0, "CoreTEXT2_0");
-py_wrap!(PyCoreTEXT3_0, CoreTEXT3_0, "CoreTEXT3_0");
-py_wrap!(PyCoreTEXT3_1, CoreTEXT3_1, "CoreTEXT3_1");
-py_wrap!(PyCoreTEXT3_2, CoreTEXT3_2, "CoreTEXT3_2");
+py_wrap!(PyCoreTEXT2_0, core::CoreTEXT2_0, "CoreTEXT2_0");
+py_wrap!(PyCoreTEXT3_0, core::CoreTEXT3_0, "CoreTEXT3_0");
+py_wrap!(PyCoreTEXT3_1, core::CoreTEXT3_1, "CoreTEXT3_1");
+py_wrap!(PyCoreTEXT3_2, core::CoreTEXT3_2, "CoreTEXT3_2");
 
-py_wrap!(PyCoreDataset2_0, CoreDataset2_0, "CoreDataset2_0");
-py_wrap!(PyCoreDataset3_0, CoreDataset3_0, "CoreDataset3_0");
-py_wrap!(PyCoreDataset3_1, CoreDataset3_1, "CoreDataset3_1");
-py_wrap!(PyCoreDataset3_2, CoreDataset3_2, "CoreDataset3_2");
+py_wrap!(PyCoreDataset2_0, core::CoreDataset2_0, "CoreDataset2_0");
+py_wrap!(PyCoreDataset3_0, core::CoreDataset3_0, "CoreDataset3_0");
+py_wrap!(PyCoreDataset3_1, core::CoreDataset3_1, "CoreDataset3_1");
+py_wrap!(PyCoreDataset3_2, core::CoreDataset3_2, "CoreDataset3_2");
+
+py_wrap!(PyOptical2_0, core::Optical2_0, "Optical2_0");
+py_wrap!(PyOptical3_0, core::Optical3_0, "Optical3_0");
+py_wrap!(PyOptical3_1, core::Optical3_1, "Optical3_1");
+py_wrap!(PyOptical3_2, core::Optical3_2, "Optical3_2");
+
+py_wrap!(PyTemporal2_0, core::Temporal2_0, "Temporal2_0");
+py_wrap!(PyTemporal3_0, core::Temporal3_0, "Temporal3_0");
+py_wrap!(PyTemporal3_1, core::Temporal3_1, "Temporal3_1");
+py_wrap!(PyTemporal3_2, core::Temporal3_2, "Temporal3_2");
 
 #[derive(IntoPyObject, From)]
-enum PyAnyCoreTEXT {
-    #[from(CoreTEXT2_0)]
+pub enum PyAnyCoreTEXT {
+    #[from(core::CoreTEXT2_0)]
     FCS2_0(PyCoreTEXT2_0),
-    #[from(CoreTEXT3_0)]
+    #[from(core::CoreTEXT3_0)]
     FCS3_0(PyCoreTEXT3_0),
-    #[from(CoreTEXT3_1)]
+    #[from(core::CoreTEXT3_1)]
     FCS3_1(PyCoreTEXT3_1),
-    #[from(CoreTEXT3_2)]
+    #[from(core::CoreTEXT3_2)]
     FCS3_2(PyCoreTEXT3_2),
 }
 
-impl From<AnyCoreTEXT> for PyAnyCoreTEXT {
-    fn from(value: AnyCoreTEXT) -> PyAnyCoreTEXT {
+impl From<core::AnyCoreTEXT> for PyAnyCoreTEXT {
+    fn from(value: core::AnyCoreTEXT) -> PyAnyCoreTEXT {
         match value {
-            AnyCoreTEXT::FCS2_0(x) => (*x).into(),
-            AnyCoreTEXT::FCS3_0(x) => (*x).into(),
-            AnyCoreTEXT::FCS3_1(x) => (*x).into(),
-            AnyCoreTEXT::FCS3_2(x) => (*x).into(),
+            core::AnyCoreTEXT::FCS2_0(x) => (*x).into(),
+            core::AnyCoreTEXT::FCS3_0(x) => (*x).into(),
+            core::AnyCoreTEXT::FCS3_1(x) => (*x).into(),
+            core::AnyCoreTEXT::FCS3_2(x) => (*x).into(),
         }
     }
 }
 
 #[derive(IntoPyObject, From)]
-enum PyAnyCoreDataset {
-    #[from(CoreDataset2_0)]
+pub enum PyAnyCoreDataset {
+    #[from(core::CoreDataset2_0)]
     FCS2_0(PyCoreDataset2_0),
-    #[from(CoreDataset3_0)]
+    #[from(core::CoreDataset3_0)]
     FCS3_0(PyCoreDataset3_0),
-    #[from(CoreDataset3_1)]
+    #[from(core::CoreDataset3_1)]
     FCS3_1(PyCoreDataset3_1),
-    #[from(CoreDataset3_2)]
+    #[from(core::CoreDataset3_2)]
     FCS3_2(PyCoreDataset3_2),
 }
 
-impl From<AnyCoreDataset> for PyAnyCoreDataset {
-    fn from(value: AnyCoreDataset) -> PyAnyCoreDataset {
+impl From<core::AnyCoreDataset> for PyAnyCoreDataset {
+    fn from(value: core::AnyCoreDataset) -> PyAnyCoreDataset {
         match value {
-            AnyCoreDataset::FCS2_0(x) => (*x).into(),
-            AnyCoreDataset::FCS3_0(x) => (*x).into(),
-            AnyCoreDataset::FCS3_1(x) => (*x).into(),
-            AnyCoreDataset::FCS3_2(x) => (*x).into(),
+            core::AnyCoreDataset::FCS2_0(x) => (*x).into(),
+            core::AnyCoreDataset::FCS3_0(x) => (*x).into(),
+            core::AnyCoreDataset::FCS3_1(x) => (*x).into(),
+            core::AnyCoreDataset::FCS3_2(x) => (*x).into(),
         }
     }
 }
 
-py_wrap!(PyOptical2_0, Optical2_0, "Optical2_0");
-py_wrap!(PyOptical3_0, Optical3_0, "Optical3_0");
-py_wrap!(PyOptical3_1, Optical3_1, "Optical3_1");
-py_wrap!(PyOptical3_2, Optical3_2, "Optical3_2");
-
-py_wrap!(PyTemporal2_0, Temporal2_0, "Temporal2_0");
-py_wrap!(PyTemporal3_0, Temporal3_0, "Temporal3_0");
-py_wrap!(PyTemporal3_1, Temporal3_1, "Temporal3_1");
-py_wrap!(PyTemporal3_2, Temporal3_2, "Temporal3_2");
-
 macro_rules! get_set_metaroot {
-    ($get:ident, $set:ident, $t:ident, $($pytype:ident),*) => {
+    ($get:ident, $set:ident, $t:path, $($pytype:ident),*) => {
         $(
             #[pymethods]
             impl $pytype {
@@ -250,18 +130,18 @@ macro_rules! get_set_metaroot {
 }
 
 macro_rules! get_set_metaroot_opt {
-    ($get:ident, $set:ident, $outer:ident, $($pytype:ident),*) => {
+    ($get:ident, $set:ident, $t:path, $($pytype:ident),*) => {
         $(
             #[pymethods]
             impl $pytype {
                 #[getter]
-                fn $get(&self) -> Option<$outer> {
+                fn $get(&self) -> Option<$t> {
                     self.0.get_metaroot_opt().cloned()
                 }
 
                 #[setter]
-                fn $set(&mut self, s: Option<$outer>) {
-                    self.0.set_metaroot::<Option<$outer>>(s.map(|x| x.into()))
+                fn $set(&mut self, s: Option<$t>) {
+                    self.0.set_metaroot(s)
                 }
             }
         )*
@@ -269,7 +149,7 @@ macro_rules! get_set_metaroot_opt {
 }
 
 macro_rules! get_set_all_meas {
-    ($get:ident, $set:ident, $t:ident, $($pytype:ident),*) => {
+    ($get:ident, $set:ident, $t:path, $($pytype:ident),*) => {
         $(
             #[pymethods]
             impl $pytype {
@@ -288,12 +168,12 @@ macro_rules! get_set_all_meas {
 }
 
 macro_rules! get_set_all_optical {
-    ($get:ident, $set:ident, $outer:ident, $($pytype:ident),*) => {
+    ($get:ident, $set:ident, $t:path, $($pytype:ident),*) => {
         $(
             #[pymethods]
             impl $pytype {
                 #[getter]
-                fn $get(&self) -> Vec<(MeasIndex, Option<$outer>)> {
+                fn $get(&self) -> Vec<(MeasIndex, Option<$t>)> {
                     self.0
                         .get_optical_opt()
                         .map(|(i, x)| (i, x.cloned()))
@@ -301,7 +181,7 @@ macro_rules! get_set_all_optical {
                 }
 
                 #[setter]
-                fn $set(&mut self, xs: Vec<Option<$outer>>) -> PyResult<()> {
+                fn $set(&mut self, xs: Vec<Option<$t>>) -> PyResult<()> {
                     Ok(self.0.set_optical(xs)?)
                 }
             }
@@ -381,24 +261,24 @@ convert_methods!(
 #[pymethods]
 impl PyCoreTEXT2_0 {
     #[new]
-    fn new(mode: Mode) -> PyResult<Self> {
-        Ok(CoreTEXT2_0::new(mode).into())
+    fn new(mode: kws::Mode) -> PyResult<Self> {
+        Ok(core::CoreTEXT2_0::new(mode).into())
     }
 }
 
 #[pymethods]
 impl PyCoreTEXT3_0 {
     #[new]
-    fn new(mode: Mode) -> PyResult<Self> {
-        Ok(CoreTEXT3_0::new(mode).into())
+    fn new(mode: kws::Mode) -> PyResult<Self> {
+        Ok(core::CoreTEXT3_0::new(mode).into())
     }
 }
 
 #[pymethods]
 impl PyCoreTEXT3_1 {
     #[new]
-    fn new(mode: Mode) -> Self {
-        CoreTEXT3_1::new(mode).into()
+    fn new(mode: kws::Mode) -> Self {
+        core::CoreTEXT3_1::new(mode).into()
     }
 }
 
@@ -406,7 +286,7 @@ impl PyCoreTEXT3_1 {
 impl PyCoreTEXT3_2 {
     #[new]
     fn new(cyt: String) -> Self {
-        CoreTEXT3_2::new(cyt).into()
+        core::CoreTEXT3_2::new(cyt).into()
     }
 
     #[getter]
@@ -460,43 +340,43 @@ macro_rules! common_methods {
     };
 
     ($pytype:ident) => {
-        get_set_metaroot_opt!(get_abrt, set_abrt, Abrt,  $pytype);
-        get_set_metaroot_opt!(get_cells, set_cells, Cells,  $pytype);
-        get_set_metaroot_opt!(get_com, set_com, Com,  $pytype);
-        get_set_metaroot_opt!(get_exp, set_exp, Exp,  $pytype);
-        get_set_metaroot_opt!(get_fil, set_fil, Fil,  $pytype);
-        get_set_metaroot_opt!(get_inst, set_inst, Inst,  $pytype);
-        get_set_metaroot_opt!(get_lost, set_lost, Lost,  $pytype);
-        get_set_metaroot_opt!(get_op, set_op, Op,  $pytype);
-        get_set_metaroot_opt!(get_proj, set_proj, Proj, $pytype);
-        get_set_metaroot_opt!(get_smno, set_smno, Smno, $pytype);
-        get_set_metaroot_opt!(get_src, set_src, Src, $pytype);
-        get_set_metaroot_opt!(get_sys, set_sys, Sys, $pytype);
+        get_set_metaroot_opt!(get_abrt,  set_abrt,  kws::Abrt,  $pytype);
+        get_set_metaroot_opt!(get_cells, set_cells, kws::Cells, $pytype);
+        get_set_metaroot_opt!(get_com,   set_com,   kws::Com,   $pytype);
+        get_set_metaroot_opt!(get_exp,   set_exp,   kws::Exp,   $pytype);
+        get_set_metaroot_opt!(get_fil,   set_fil,   kws::Fil,   $pytype);
+        get_set_metaroot_opt!(get_inst,  set_inst,  kws::Inst,  $pytype);
+        get_set_metaroot_opt!(get_lost,  set_lost,  kws::Lost,  $pytype);
+        get_set_metaroot_opt!(get_op,    set_op,    kws::Op,    $pytype);
+        get_set_metaroot_opt!(get_proj,  set_proj,  kws::Proj,  $pytype);
+        get_set_metaroot_opt!(get_smno,  set_smno,  kws::Smno,  $pytype);
+        get_set_metaroot_opt!(get_src,   set_src,   kws::Src,   $pytype);
+        get_set_metaroot_opt!(get_sys,   set_sys,   kws::Sys,   $pytype);
 
         // common measurement keywords
-        get_set_all_meas!(get_longnames, set_longnames, Longname, $pytype);
+        get_set_all_meas!(get_longnames, set_longnames, kws::Longname, $pytype);
 
-        get_set_all_optical!(get_filters, set_filters, Filter, $pytype);
-        get_set_all_optical!(get_powers, set_powers, Power, $pytype);
+        get_set_all_optical!(get_filters, set_filters, kws::Filter, $pytype);
+        get_set_all_optical!(get_powers,  set_powers,  kws::Power,  $pytype);
 
         get_set_all_optical!(
             get_percents_emitted,
             set_percents_emitted,
-            PercentEmitted,
+            kws::PercentEmitted,
             $pytype
         );
 
         get_set_all_optical!(
             get_detector_types,
             set_detector_types,
-            DetectorType,
+            kws::DetectorType,
             $pytype
         );
 
         get_set_all_optical!(
             get_detector_voltages,
             set_detector_voltages,
-            DetectorVoltage,
+            kws::DetectorVoltage,
             $pytype
         );
 
@@ -670,7 +550,7 @@ macro_rules! temporal_get_set_3_0 {
             fn set_temporal(
                 &mut self,
                 name: Shortname,
-                timestep: Timestep,
+                timestep: kws::Timestep,
                 force: bool,
             ) -> PyResult<bool> {
                 self.0
@@ -681,7 +561,7 @@ macro_rules! temporal_get_set_3_0 {
             fn set_temporal_at(
                 &mut self,
                 index: MeasIndex,
-                timestep: Timestep,
+                timestep: kws::Timestep,
                 force: bool,
             ) -> PyResult<bool> {
                 self.0
@@ -689,7 +569,7 @@ macro_rules! temporal_get_set_3_0 {
                     .py_term_resolve()
             }
 
-            fn unset_temporal(&mut self, force: bool) -> PyResult<Option<Timestep>> {
+            fn unset_temporal(&mut self, force: bool) -> PyResult<Option<kws::Timestep>> {
                 self.0.unset_temporal(force).py_term_resolve()
             }
         }
@@ -797,11 +677,11 @@ macro_rules! common_coretext_meas_get_set {
                 &mut self,
                 name: Shortname,
                 t: $timetype,
-                r: BigDecimal,
+                r: kws::Range,
                 notrunc: bool,
             ) -> PyResult<()> {
                 self.0
-                    .push_temporal(name, t.into(), Range(r), notrunc)
+                    .push_temporal(name, t.into(), r, notrunc)
                     .py_term_resolve()
             }
 
@@ -810,11 +690,11 @@ macro_rules! common_coretext_meas_get_set {
                 i: MeasIndex,
                 name: Shortname,
                 t: $timetype,
-                r: BigDecimal,
+                r: kws::Range,
                 notrunc: bool,
             ) -> PyResult<()> {
                 self.0
-                    .insert_temporal(i, name, t.into(), Range(r), notrunc)
+                    .insert_temporal(i, name, t.into(), r, notrunc)
                     .py_term_resolve()
             }
 
@@ -839,11 +719,11 @@ macro_rules! coredata_meas_get_set {
                 name: Shortname,
                 t: $timetype,
                 col: AnyFCSColumn,
-                r: BigDecimal,
+                r: kws::Range,
                 notrunc: bool,
             ) -> PyResult<()> {
                 self.0
-                    .push_temporal(name, t.into(), col, Range(r), notrunc)
+                    .push_temporal(name, t.into(), col, r, notrunc)
                     .py_term_resolve()
             }
 
@@ -853,11 +733,11 @@ macro_rules! coredata_meas_get_set {
                 name: Shortname,
                 t: $timetype,
                 col: AnyFCSColumn,
-                r: BigDecimal,
+                r: kws::Range,
                 notrunc: bool,
             ) -> PyResult<()> {
                 self.0
-                    .insert_temporal(i, name, t.into(), col, Range(r), notrunc)
+                    .insert_temporal(i, name, t.into(), col, r, notrunc)
                     .py_term_resolve()
             }
 
@@ -886,22 +766,22 @@ macro_rules! coredata_meas_get_set {
             }
 
             #[getter]
-            fn analysis(&self) -> Analysis {
+            fn analysis(&self) -> core::Analysis {
                 self.0.analysis.clone()
             }
 
             #[setter]
-            fn set_analysis(&mut self, xs: Analysis) {
+            fn set_analysis(&mut self, xs: core::Analysis) {
                 self.0.analysis = xs.into();
             }
 
             #[getter]
-            fn others(&self) -> Others {
+            fn others(&self) -> core::Others {
                 self.0.others.clone()
             }
 
             #[setter]
-            fn set_others(&mut self, xs: Others) {
+            fn set_others(&mut self, xs: core::Others) {
                 self.0.others = xs
             }
         }
@@ -930,12 +810,12 @@ macro_rules! coretext2_0_meas_methods {
             fn push_optical(
                 &mut self,
                 m: $o,
-                r: BigDecimal,
+                r: kws::Range,
                 notrunc: bool,
                 name: Option<Shortname>,
             ) -> PyResult<Shortname> {
                 self.0
-                    .push_optical(name.into(), m.into(), r.into(), notrunc)
+                    .push_optical(name.into(), m.into(), r, notrunc)
                     .py_term_resolve()
             }
 
@@ -944,12 +824,12 @@ macro_rules! coretext2_0_meas_methods {
                 &mut self,
                 i: MeasIndex,
                 m: $o,
-                r: BigDecimal,
+                r: kws::Range,
                 notrunc: bool,
                 name: Option<Shortname>,
             ) -> PyResult<Shortname> {
                 self.0
-                    .insert_optical(i, name.into(), m.into(), Range(r), notrunc)
+                    .insert_optical(i, name.into(), m.into(), r, notrunc)
                     .py_term_resolve()
             }
         }
@@ -976,11 +856,11 @@ macro_rules! coretext3_1_meas_methods {
                 &mut self,
                 m: $o,
                 name: Shortname,
-                r: BigDecimal,
+                r: kws::Range,
                 notrunc: bool,
             ) -> PyResult<()> {
                 self.0
-                    .push_optical(name.into(), m.into(), Range(r), notrunc)
+                    .push_optical(name.into(), m.into(), r, notrunc)
                     .py_term_resolve()
                     .void()
             }
@@ -990,11 +870,11 @@ macro_rules! coretext3_1_meas_methods {
                 i: MeasIndex,
                 m: $o,
                 name: Shortname,
-                r: BigDecimal,
+                r: kws::Range,
                 notrunc: bool,
             ) -> PyResult<()> {
                 self.0
-                    .insert_optical(i, name.into(), m.into(), Range(r), notrunc)
+                    .insert_optical(i, name.into(), m.into(), r, notrunc)
                     .py_term_resolve()
                     .void()
             }
@@ -1188,17 +1068,17 @@ macro_rules! transforms_methods {
         #[pymethods]
         impl $pytype {
             #[getter]
-            fn get_all_transforms(&self) -> Vec<ScaleTransform> {
+            fn get_all_transforms(&self) -> Vec<core::ScaleTransform> {
                 self.0.get_all_transforms().collect()
             }
 
             #[getter]
-            fn get_transforms(&self) -> Vec<(MeasIndex, ScaleTransform)> {
+            fn get_transforms(&self) -> Vec<(MeasIndex, core::ScaleTransform)> {
                 self.0.get_optical().map(|(i, &s)| (i, s)).collect()
             }
 
             #[setter]
-            fn set_transforms(&mut self, xs: Vec<ScaleTransform>) -> PyResult<()> {
+            fn set_transforms(&mut self, xs: Vec<core::ScaleTransform>) -> PyResult<()> {
                 self.0.set_transforms(xs).py_term_resolve_nowarn()
             }
         }
@@ -1219,12 +1099,12 @@ macro_rules! timestep_methods {
             #[pymethods]
             impl $pytype {
                 #[getter]
-                fn get_timestep(&self) -> Option<Timestep> {
+                fn get_timestep(&self) -> Option<kws::Timestep> {
                     self.0.timestep().copied()
                 }
 
                 #[setter]
-                fn set_timestep(&mut self, ts: Timestep) -> bool {
+                fn set_timestep(&mut self, ts: kws::Timestep) -> bool {
                     self.0.set_timestep(ts)
                 }
             }
@@ -1245,7 +1125,7 @@ timestep_methods!(
 get_set_all_optical!(
     get_wavelengths,
     set_wavelengths,
-    Wavelength,
+    kws::Wavelength,
     PyCoreTEXT2_0,
     PyCoreTEXT3_0,
     PyCoreDataset2_0,
@@ -1256,7 +1136,7 @@ get_set_all_optical!(
 get_set_all_optical!(
     get_wavelengths,
     set_wavelengths,
-    Wavelengths,
+    kws::Wavelengths,
     PyCoreTEXT3_1,
     PyCoreTEXT3_2,
     PyCoreDataset3_1,
@@ -1265,46 +1145,55 @@ get_set_all_optical!(
 
 // Get/set methods for $LAST_MODIFIER/$LAST_MODIFIED/$ORIGINALITY (3.1-3.2)
 macro_rules! modification_methods {
-    ($($pytype:ident),+) => {
-        get_set_metaroot_opt!(get_originality,   set_originality,   Originality,      $($pytype),*);
-        get_set_metaroot_opt!(get_last_modified, set_last_modified, ModifiedDateTime, $($pytype),*);
-        get_set_metaroot_opt!(get_last_modifier, set_last_modifier, LastModifier,     $($pytype),*);
+    ($pytype:ident) => {
+        get_set_metaroot_opt!(get_originality, set_originality, kws::Originality, $pytype);
+
+        get_set_metaroot_opt!(
+            get_last_modified,
+            set_last_modified,
+            kws::ModifiedDateTime,
+            $pytype
+        );
+
+        get_set_metaroot_opt!(
+            get_last_modifier,
+            set_last_modifier,
+            kws::LastModifier,
+            $pytype
+        );
     };
 }
 
-modification_methods!(
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2
-);
+modification_methods!(PyCoreTEXT3_1);
+modification_methods!(PyCoreTEXT3_2);
+modification_methods!(PyCoreDataset3_1);
+modification_methods!(PyCoreDataset3_2);
 
 // Get/set methods for $CARRIERID/$CARRIERTYPE/$LOCATIONID (3.2)
 macro_rules! carrier_methods {
-    ($($pytype:ident),*) => {
-        get_set_metaroot_opt!(get_carriertype, set_carriertype, Carriertype, $($pytype),*);
-        get_set_metaroot_opt!(get_carrierid,   set_carrierid,   Carrierid,   $($pytype),*);
-        get_set_metaroot_opt!(get_locationid,  set_locationid,  Locationid,  $($pytype),*);
+    ($pytype:ident) => {
+        get_set_metaroot_opt!(get_carriertype, set_carriertype, kws::Carriertype, $pytype);
+        get_set_metaroot_opt!(get_carrierid, set_carrierid, kws::Carrierid, $pytype);
+        get_set_metaroot_opt!(get_locationid, set_locationid, kws::Locationid, $pytype);
     };
 }
 
-carrier_methods!(PyCoreTEXT3_2, PyCoreDataset3_2);
+carrier_methods!(PyCoreTEXT3_2);
+carrier_methods!(PyCoreDataset3_2);
 
 // Get/set methods for $PLATEID/$WELLID/$PLATENAME (3.1-3.2)
 macro_rules! plate_methods {
-    ($($pytype:ident),*) => {
-        get_set_metaroot_opt!(get_wellid,    set_wellid,    Wellid,    $($pytype),*);
-        get_set_metaroot_opt!(get_plateid,   set_plateid,   Plateid,   $($pytype),*);
-        get_set_metaroot_opt!(get_platename, set_platename, Platename, $($pytype),*);
+    ($pytype:ident) => {
+        get_set_metaroot_opt!(get_wellid, set_wellid, kws::Wellid, $pytype);
+        get_set_metaroot_opt!(get_plateid, set_plateid, kws::Plateid, $pytype);
+        get_set_metaroot_opt!(get_platename, set_platename, kws::Platename, $pytype);
     };
 }
 
-plate_methods!(
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2
-);
+plate_methods!(PyCoreTEXT3_1);
+plate_methods!(PyCoreTEXT3_2);
+plate_methods!(PyCoreDataset3_1);
+plate_methods!(PyCoreDataset3_2);
 
 // get/set methods for $COMP (2.0-3.0)
 macro_rules! comp_methods {
@@ -1375,7 +1264,7 @@ spillover_methods!(PyCoreDataset3_2);
 get_set_metaroot_opt!(
     get_unicode,
     set_unicode,
-    Unicode,
+    kws::Unicode,
     PyCoreTEXT3_0,
     PyCoreDataset3_0
 );
@@ -1383,7 +1272,7 @@ get_set_metaroot_opt!(
 get_set_metaroot_opt!(
     get_vol,
     set_vol,
-    Vol,
+    kws::Vol,
     PyCoreTEXT3_1,
     PyCoreTEXT3_2,
     PyCoreDataset3_1,
@@ -1396,7 +1285,7 @@ get_set_metaroot_opt!(
 get_set_metaroot_opt!(
     get_cyt,
     set_cyt,
-    Cyt,
+    kws::Cyt,
     PyCoreTEXT2_0,
     PyCoreTEXT3_0,
     PyCoreTEXT3_1,
@@ -1409,7 +1298,7 @@ get_set_metaroot_opt!(
 get_set_metaroot_opt!(
     get_flowrate,
     set_flowrate,
-    Flowrate,
+    kws::Flowrate,
     PyCoreTEXT3_2,
     PyCoreDataset3_2
 );
@@ -1418,7 +1307,7 @@ get_set_metaroot_opt!(
 get_set_metaroot_opt!(
     get_cytsn,
     set_cytsn,
-    Cytsn,
+    kws::Cytsn,
     PyCoreTEXT3_0,
     PyCoreTEXT3_1,
     PyCoreTEXT3_2,
@@ -1428,13 +1317,13 @@ get_set_metaroot_opt!(
 );
 
 // Get/set methods for $CYT (required) (3.2)
-get_set_metaroot!(get_cyt, set_cyt, Cyt, PyCoreTEXT3_2, PyCoreDataset3_2);
+get_set_metaroot!(get_cyt, set_cyt, kws::Cyt, PyCoreTEXT3_2, PyCoreDataset3_2);
 
 // Get/set methods for $UNSTAINEDINFO (3.2)
 get_set_metaroot_opt!(
     get_unstainedinfo,
     set_unstainedinfo,
-    UnstainedInfo,
+    kws::UnstainedInfo,
     PyCoreTEXT3_2,
     PyCoreDataset3_2
 );
@@ -1445,7 +1334,7 @@ get_set_metaroot_opt!(
 get_set_all_meas!(
     get_displays,
     set_displays,
-    Display,
+    kws::Display,
     PyCoreTEXT3_1,
     PyCoreDataset3_1,
     PyCoreTEXT3_2,
@@ -1456,7 +1345,7 @@ get_set_all_meas!(
 get_set_all_optical!(
     get_detector_names,
     set_detector_names,
-    DetectorName,
+    kws::DetectorName,
     PyCoreTEXT3_2,
     PyCoreDataset3_2
 );
@@ -1465,7 +1354,7 @@ get_set_all_optical!(
 get_set_all_optical!(
     get_calibrations,
     set_calibrations,
-    Calibration3_1,
+    kws::Calibration3_1,
     PyCoreTEXT3_1,
     PyCoreDataset3_1
 );
@@ -1474,19 +1363,25 @@ get_set_all_optical!(
 get_set_all_optical!(
     get_calibrations,
     set_calibrations,
-    Calibration3_2,
+    kws::Calibration3_2,
     PyCoreTEXT3_2,
     PyCoreDataset3_2
 );
 
 // Get/set methods for $PnTAG (3.2)
-get_set_all_optical!(get_tags, set_tags, Tag, PyCoreTEXT3_2, PyCoreDataset3_2);
+get_set_all_optical!(
+    get_tags,
+    set_tags,
+    kws::Tag,
+    PyCoreTEXT3_2,
+    PyCoreDataset3_2
+);
 
 // Get/set methods for $PnTYPE (3.2)
 get_set_all_optical!(
     get_measurement_types,
     set_measurement_types,
-    OpticalType,
+    kws::OpticalType,
     PyCoreTEXT3_2,
     PyCoreDataset3_2
 );
@@ -1495,7 +1390,7 @@ get_set_all_optical!(
 get_set_all_optical!(
     get_features,
     set_features,
-    Feature,
+    kws::Feature,
     PyCoreTEXT3_2,
     PyCoreDataset3_2
 );
@@ -1504,7 +1399,7 @@ get_set_all_optical!(
 get_set_all_optical!(
     get_analytes,
     set_analytes,
-    Analyte,
+    kws::Analyte,
     PyCoreTEXT3_2,
     PyCoreDataset3_2
 );
@@ -1518,8 +1413,8 @@ macro_rules! to_dataset_method {
             fn to_dataset(
                 &self,
                 cols: Vec<AnyFCSColumn>,
-                analysis: Analysis,
-                others: Others,
+                analysis: core::Analysis,
+                others: core::Others,
             ) -> PyResult<$to> {
                 let df = self.0.clone().into_coredataset(cols, analysis, others)?;
                 Ok(df.into())
@@ -1537,7 +1432,7 @@ to_dataset_method!(PyCoreTEXT3_2, PyCoreDataset3_2);
 impl PyOptical2_0 {
     #[new]
     fn new() -> Self {
-        Optical2_0::default().into()
+        core::Optical2_0::default().into()
     }
 
     #[getter]
@@ -1555,7 +1450,7 @@ impl PyOptical2_0 {
 impl PyOptical3_0 {
     #[new]
     fn new(scale: Scale) -> Self {
-        Optical3_0::new(scale).into()
+        core::Optical3_0::new(scale).into()
     }
 }
 
@@ -1563,7 +1458,7 @@ impl PyOptical3_0 {
 impl PyOptical3_1 {
     #[new]
     fn new(scale: Scale) -> Self {
-        Optical3_1::new(scale).into()
+        core::Optical3_1::new(scale).into()
     }
 }
 
@@ -1571,7 +1466,7 @@ impl PyOptical3_1 {
 impl PyOptical3_2 {
     #[new]
     fn new(scale: Scale) -> Self {
-        Optical3_2::new(scale).into()
+        core::Optical3_2::new(scale).into()
     }
 }
 
@@ -1579,31 +1474,31 @@ impl PyOptical3_2 {
 impl PyTemporal2_0 {
     #[new]
     fn new() -> Self {
-        Temporal2_0::default().into()
+        core::Temporal2_0::default().into()
     }
 }
 
 #[pymethods]
 impl PyTemporal3_0 {
     #[new]
-    fn new(timestep: Timestep) -> Self {
-        Temporal3_0::new(timestep).into()
+    fn new(timestep: kws::Timestep) -> Self {
+        core::Temporal3_0::new(timestep).into()
     }
 }
 
 #[pymethods]
 impl PyTemporal3_1 {
     #[new]
-    fn new(timestep: Timestep) -> Self {
-        Temporal3_1::new(timestep).into()
+    fn new(timestep: kws::Timestep) -> Self {
+        core::Temporal3_1::new(timestep).into()
     }
 }
 
 #[pymethods]
 impl PyTemporal3_2 {
     #[new]
-    fn new(timestep: Timestep) -> Self {
-        Temporal3_2::new(timestep).into()
+    fn new(timestep: kws::Timestep) -> Self {
+        core::Temporal3_2::new(timestep).into()
     }
 
     #[getter]
@@ -1613,12 +1508,12 @@ impl PyTemporal3_2 {
 
     #[setter]
     fn set_measurement_type(&mut self, x: bool) {
-        self.0.specific.measurement_type = if x { Some(TemporalType) } else { None }.into();
+        self.0.specific.measurement_type = if x { Some(kws::TemporalType) } else { None }.into();
     }
 }
 
 macro_rules! get_set_meas {
-    ($get:ident, $set:ident, $t:ident, $($pytype:ident),*) => {
+    ($get:ident, $set:ident, $t:path, $($pytype:ident),*) => {
         $(
             #[pymethods]
             impl $pytype {
@@ -1634,13 +1529,12 @@ macro_rules! get_set_meas {
                 }
             }
         )*
-
     };
 }
 
 macro_rules! shared_meas_get_set {
     ($pytype:ident) => {
-        get_set_meas!(get_longname, set_longname, Longname, $pytype);
+        get_set_meas!(get_longname, set_longname, kws::Longname, $pytype);
 
         #[pymethods]
         impl $pytype {
@@ -1679,44 +1573,62 @@ shared_meas_get_set!(PyTemporal3_1);
 shared_meas_get_set!(PyTemporal3_2);
 
 macro_rules! optical_common {
-    ($($pytype:ident),*) => {
-        get_set_meas!(get_filter,           set_filter,           Filter,          $($pytype),*);
-        get_set_meas!(get_detector_type,    set_detector_type,    DetectorType,    $($pytype),*);
-        get_set_meas!(get_percent_emitted,  set_percent_emitted,  PercentEmitted,  $($pytype),*);
-        get_set_meas!(get_detector_voltage, set_detector_voltage, DetectorVoltage, $($pytype),*);
-        get_set_meas!(get_power,            set_power,            Power,           $($pytype),*);
+    ($pytype:ident) => {
+        get_set_meas!(get_filter, set_filter, kws::Filter, $pytype);
+        get_set_meas!(
+            get_detector_type,
+            set_detector_type,
+            kws::DetectorType,
+            $pytype
+        );
+        get_set_meas!(
+            get_percent_emitted,
+            set_percent_emitted,
+            kws::PercentEmitted,
+            $pytype
+        );
+        get_set_meas!(
+            get_detector_voltage,
+            set_detector_voltage,
+            kws::DetectorVoltage,
+            $pytype
+        );
+        get_set_meas!(get_power, set_power, kws::Power, $pytype);
     };
 }
 
-optical_common!(PyOptical2_0, PyOptical3_0, PyOptical3_1, PyOptical3_2);
+optical_common!(PyOptical2_0);
+optical_common!(PyOptical3_0);
+optical_common!(PyOptical3_1);
+optical_common!(PyOptical3_2);
 
 // $PnE (3.0-3.2)
 macro_rules! get_set_meas_transform {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn get_transform(&self) -> ScaleTransform {
-                    self.0.specific.scale
-                }
-
-                #[setter]
-                fn set_transform(&mut self, x: ScaleTransform) {
-                    self.0.specific.scale = x;
-                }
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            #[getter]
+            fn get_transform(&self) -> core::ScaleTransform {
+                self.0.specific.scale
             }
-        )*
+
+            #[setter]
+            fn set_transform(&mut self, x: core::ScaleTransform) {
+                self.0.specific.scale = x;
+            }
+        }
     };
 }
 
-get_set_meas_transform!(PyOptical3_0, PyOptical3_1, PyOptical3_2);
+get_set_meas_transform!(PyOptical3_0);
+get_set_meas_transform!(PyOptical3_1);
+get_set_meas_transform!(PyOptical3_2);
 
 // $PnL (2.0/3.0)
 get_set_meas!(
     get_wavelength,
     set_wavelength,
-    Wavelength,
+    kws::Wavelength,
     PyOptical2_0,
     PyOptical3_0
 );
@@ -1725,38 +1637,38 @@ get_set_meas!(
 get_set_meas!(
     get_wavelength,
     set_wavelength,
-    Wavelengths,
+    kws::Wavelengths,
     PyOptical3_1,
     PyOptical3_2
 );
 
 // #TIMESTEP (3.0-3.2)
 macro_rules! meas_get_set_timestep {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn get_timestep(&self) -> Timestep {
-                    self.0.specific.timestep
-                }
-
-                #[setter]
-                fn set_timestep(&mut self, x: Timestep) {
-                    self.0.specific.timestep = x
-                }
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            #[getter]
+            fn get_timestep(&self) -> kws::Timestep {
+                self.0.specific.timestep
             }
-        )*
+
+            #[setter]
+            fn set_timestep(&mut self, x: kws::Timestep) {
+                self.0.specific.timestep = x
+            }
+        }
     };
 }
 
-meas_get_set_timestep!(PyTemporal3_0, PyTemporal3_1, PyTemporal3_2);
+meas_get_set_timestep!(PyTemporal3_0);
+meas_get_set_timestep!(PyTemporal3_1);
+meas_get_set_timestep!(PyTemporal3_2);
 
 // $PnCalibration (3.1)
 get_set_meas!(
     get_calibration,
     set_calibration,
-    Calibration3_1,
+    kws::Calibration3_1,
     PyOptical3_1
 );
 
@@ -1764,7 +1676,7 @@ get_set_meas!(
 get_set_meas!(
     get_display,
     set_display,
-    Display,
+    kws::Display,
     PyOptical3_1,
     PyOptical3_2,
     PyTemporal3_1,
@@ -1772,123 +1684,29 @@ get_set_meas!(
 );
 
 // $PnDET (3.2)
-get_set_meas!(get_det, set_det, DetectorName, PyOptical3_2);
+get_set_meas!(get_det, set_det, kws::DetectorName, PyOptical3_2);
 
 // $PnTAG (3.2)
-get_set_meas!(get_tag, set_tag, Tag, PyOptical3_2);
+get_set_meas!(get_tag, set_tag, kws::Tag, PyOptical3_2);
 
 // $PnTYPE (3.2)
 get_set_meas!(
     get_measurement_type,
     set_measurement_type,
-    OpticalType,
+    kws::OpticalType,
     PyOptical3_2
 );
 
 // $PnFEATURE (3.2)
-get_set_meas!(get_feature, set_feature, Feature, PyOptical3_2);
+get_set_meas!(get_feature, set_feature, kws::Feature, PyOptical3_2);
 
 // $PnANALYTE (3.2)
-get_set_meas!(get_analyte, set_analyte, Analyte, PyOptical3_2);
+get_set_meas!(get_analyte, set_analyte, kws::Analyte, PyOptical3_2);
 
 // $PnCalibration (3.2)
 get_set_meas!(
     get_calibration,
     set_calibration,
-    Calibration3_2,
+    kws::Calibration3_2,
     PyOptical3_2
 );
-
-trait PyTerminalResultExt {
-    type V;
-
-    fn py_term_resolve(self) -> PyResult<Self::V>;
-}
-
-impl<V, W: fmt::Display, E: fmt::Display, T: fmt::Display> PyTerminalResultExt
-    for TerminalResult<V, W, E, T>
-{
-    type V = V;
-
-    fn py_term_resolve(self) -> PyResult<Self::V> {
-        self.map_or_else(|e| Err(handle_failure(e)), handle_warnings)
-    }
-}
-
-trait PyTerminalNoWarnResultExt {
-    type V;
-
-    fn py_term_resolve_nowarn(self) -> PyResult<Self::V>;
-}
-
-impl<V, E: fmt::Display, T: fmt::Display> PyTerminalNoWarnResultExt
-    for TerminalResult<V, (), E, T>
-{
-    type V = V;
-
-    fn py_term_resolve_nowarn(self) -> PyResult<Self::V> {
-        self.map_err(handle_failure_nowarn).map(|x| x.inner())
-    }
-}
-
-fn handle_warnings<X, W>(t: Terminal<X, W>) -> PyResult<X>
-where
-    W: fmt::Display,
-{
-    let (x, warn_res) = t.resolve(emit_warnings);
-    warn_res?;
-    Ok(x)
-}
-
-fn emit_warnings<W>(ws: Vec<W>) -> PyResult<()>
-where
-    W: fmt::Display,
-{
-    Python::with_gil(|py| -> PyResult<()> {
-        let wt = py.get_type::<PyreflowWarning>();
-        for w in ws {
-            let s = CString::new(w.to_string())?;
-            PyErr::warn(py, &wt, &s, 0)?;
-        }
-        Ok(())
-    })
-}
-
-// TODO python has a way of handling multiple exceptions (ExceptionGroup)
-// starting in 3.11
-fn handle_failure<W, E, T>(f: TerminalFailure<W, E, T>) -> PyErr
-where
-    E: fmt::Display,
-    T: fmt::Display,
-    W: fmt::Display,
-{
-    let (warn_res, e) = f.resolve(emit_warnings, emit_failure);
-    if let Err(w) = warn_res {
-        w
-    } else {
-        e
-    }
-}
-
-fn handle_failure_nowarn<E, T>(f: TerminalFailure<(), E, T>) -> PyErr
-where
-    E: fmt::Display,
-    T: fmt::Display,
-{
-    f.resolve(|_| (), emit_failure).1
-}
-
-fn emit_failure<E, T>(es: NonEmpty<E>, r: T) -> PyErr
-where
-    E: fmt::Display,
-    T: fmt::Display,
-{
-    let s = {
-        let xs: Vec<_> = [format!("Toplevel Error: {r}")]
-            .into_iter()
-            .chain(es.into_iter().map(|x| x.to_string()))
-            .collect();
-        xs[..].join("\n").to_string()
-    };
-    PyreflowException::new_err(s)
-}

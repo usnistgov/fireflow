@@ -55,7 +55,7 @@ use crate::macros::match_many_to_one;
 use crate::nonempty::NonEmptyExt;
 use crate::segment::*;
 use crate::text::byteord::*;
-use crate::text::float_decimal::{FloatDecimal, FloatToDecimalError, HasFloatBounds};
+use crate::text::float_decimal::{FloatDecimal, DecimalToFloatError, HasFloatBounds};
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::*;
 use crate::text::optional::ClearOptional;
@@ -1904,9 +1904,9 @@ impl<T, const LEN: usize> FloatRange<T, LEN> {
         width: Width,
         range: Range,
         notrunc: bool,
-    ) -> DeferredResult<Self, FloatToDecimalError, FloatWidthError>
+    ) -> DeferredResult<Self, DecimalToFloatError, FloatWidthError>
     where
-        FloatDecimal<T>: TryFrom<BigDecimal, Error = FloatToDecimalError>,
+        FloatDecimal<T>: TryFrom<BigDecimal, Error = DecimalToFloatError>,
         T: HasFloatBounds,
     {
         Bytes::try_from(width)
@@ -2826,7 +2826,7 @@ impl<T, const LEN: usize> FromRange for FloatRange<T, LEN>
 where
     T: HasFloatBounds,
 {
-    type Error = FloatToDecimalError;
+    type Error = DecimalToFloatError;
 
     fn from_range(range: Range, notrunc: bool) -> BiTentative<Self, Self::Error> {
         range.into_float(notrunc).map(Self::new)
@@ -3727,7 +3727,7 @@ pub enum NewMixedTypeError {
 pub enum NewMixedTypeWarning {
     Ascii(IntRangeError<()>),
     Uint(BitmaskError),
-    Float(FloatToDecimalError),
+    Float(DecimalToFloatError),
 }
 
 #[derive(From, Display)]
@@ -3740,7 +3740,7 @@ pub enum NewUintTypeError {
 pub enum FloatWidthError {
     Bytes(WidthToBytesError),
     WrongWidth(WrongFloatWidth),
-    Range(FloatToDecimalError),
+    Range(DecimalToFloatError),
 }
 
 pub struct WrongFloatWidth {
@@ -4052,7 +4052,7 @@ pub enum MixedToOrderedConvertError {
 pub enum AnyRangeError {
     Ascii(IntRangeError<()>),
     Int(BitmaskError),
-    Float(FloatToDecimalError),
+    Float(DecimalToFloatError),
 }
 
 pub struct MixedColumnConvertError<E> {

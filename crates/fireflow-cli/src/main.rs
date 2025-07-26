@@ -353,10 +353,10 @@ fn main() -> Result<(), ()> {
             }
 
             if let Some(m) = sargs.get_one::<String>("time-name").cloned() {
-                conf.standard.time.time_pattern = Some(m.parse::<config::TimePattern>().unwrap());
+                conf.standard.time_pattern = Some(m.parse::<config::TimePattern>().unwrap());
             }
 
-            conf.standard.time.allow_missing = sargs.get_flag("ensure-time");
+            conf.standard.allow_missing_time = sargs.get_flag("ensure-time");
             conf.raw.allow_duplicated_stext = sargs.get_flag("allow-dup-stext");
             conf.raw.ignore_supp_text = sargs.get_flag("ignore-stext");
             // conf.time.allow_nonlinear_scale = sargs.get_flag("ensure-time-linear");

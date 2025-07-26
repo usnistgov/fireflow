@@ -500,10 +500,10 @@ pub struct ReadHeaderAndTEXTConfig {
 #[pyo3(from_item_all)]
 pub struct ReadTEXTOffsetsConfig {
     /// Corrections for DATA offsets in TEXT segment
-    pub data_correction: TEXTCorrection<DataSegmentId>,
+    pub text_data_correction: TEXTCorrection<DataSegmentId>,
 
     /// Corrections for ANALYSIS offsets in TEXT segment
-    pub analysis_correction: TEXTCorrection<AnalysisSegmentId>,
+    pub text_analysis_correction: TEXTCorrection<AnalysisSegmentId>,
 
     /// If true, ignore DATA offsets in TEXT.
     ///
@@ -538,11 +538,11 @@ pub struct ReadTEXTOffsetsConfig {
     pub truncate_text_offsets: bool,
 }
 
-/// Instructions for validating time-related properties.
+/// Instructions for reading the TEXT segment in a standardized structure.
 #[derive(Default, Clone)]
 #[cfg_attr(feature = "python", derive(FromPyObject))]
 #[pyo3(from_item_all)]
-pub struct TimeConfig {
+pub struct StdTextReadConfig {
     /// If given, a pattern to find/match the $PnN of the time measurement.
     ///
     /// If matched, the time measurement must conform to the requirements of the
@@ -551,26 +551,7 @@ pub struct TimeConfig {
     pub time_pattern: Option<TimePattern>,
 
     /// If true, allow time to not be present even if we specify ['pattern'].
-    pub allow_missing: bool,
-    // /// If true, will allow $PnE to not be linear (ie "0,0").
-    // ///
-    // /// $PnE will not be used regardless. This will merely throw an error if
-    // /// scale is non-linear
-    // pub allow_nonlinear_scale: bool,
-
-    // /// If true, will ensure PnG is absent for time measurement.
-    // pub allow_nontime_keywords: bool,
-}
-
-/// Instructions for reading the TEXT segment in a standardized structure.
-#[derive(Default, Clone)]
-#[cfg_attr(feature = "python", derive(FromPyObject))]
-#[pyo3(from_item_all)]
-pub struct StdTextReadConfig {
-    // /// Instructions to read HEADER and TEXT.
-    // pub raw: ReadHeaderAndTEXTConfig,
-    /// Time-related options.
-    pub time: TimeConfig,
+    pub allow_missing_time: bool,
 
     /// Prefix to use when filling in missing $PnN values.
     ///
@@ -620,6 +601,7 @@ pub struct StdTextReadConfig {
 
 #[derive(Default, Clone)]
 #[cfg_attr(feature = "python", derive(FromPyObject))]
+#[pyo3(from_item_all)]
 pub struct ReadLayoutConfig {
     /// If given, override $PnB with the number of bytes in $BYTEORD.
     ///

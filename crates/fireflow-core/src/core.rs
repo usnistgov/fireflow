@@ -3439,7 +3439,7 @@ where
                         // will know it is trying to find $TIMESTEP in a
                         // nonsense measurement.
                         let key = M::Name::unwrap(wrapped).and_then(|name| {
-                            if let Some(tp) = conf.time.time_pattern.as_ref() {
+                            if let Some(tp) = conf.time_pattern.as_ref() {
                                 if tp.0.is_match(name.as_ref()) {
                                     return Ok(name);
                                 }
@@ -3551,8 +3551,8 @@ where
                     .map(|mut tnt_core| {
                         // Check that the time measurement is present if we want it
                         tnt_core.eval_error(|core| {
-                            if let Some(pat) = std_conf.time.time_pattern.as_ref() {
-                                if !std_conf.time.allow_missing
+                            if let Some(pat) = std_conf.time_pattern.as_ref() {
+                                if !std_conf.allow_missing_time
                                     && core.measurements.as_center().is_none()
                                 {
                                     let e = MissingTime(pat.clone());
@@ -7046,7 +7046,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
             conf.allow_header_text_offset_mismatch,
             conf.allow_missing_required_offsets,
             &NewSegmentConfig {
-                corr: conf.data_correction,
+                corr: conf.text_data_correction,
                 file_len,
                 truncate_offsets: conf.truncate_text_offsets,
             },
@@ -7059,7 +7059,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
             conf.allow_header_text_offset_mismatch,
             conf.allow_missing_required_offsets,
             &NewSegmentConfig {
-                corr: conf.analysis_correction,
+                corr: conf.text_analysis_correction,
                 file_len,
                 truncate_offsets: conf.truncate_text_offsets,
             },
@@ -7096,7 +7096,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
             conf.allow_header_text_offset_mismatch,
             conf.allow_missing_required_offsets,
             &NewSegmentConfig {
-                corr: conf.data_correction,
+                corr: conf.text_data_correction,
                 file_len,
                 truncate_offsets: conf.truncate_text_offsets,
             },
@@ -7109,7 +7109,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
             conf.allow_header_text_offset_mismatch,
             conf.allow_missing_required_offsets,
             &NewSegmentConfig {
-                corr: conf.analysis_correction,
+                corr: conf.text_analysis_correction,
                 file_len,
                 truncate_offsets: conf.truncate_text_offsets,
             },
@@ -7163,7 +7163,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
             conf.allow_header_text_offset_mismatch,
             conf.allow_missing_required_offsets,
             &NewSegmentConfig {
-                corr: conf.data_correction,
+                corr: conf.text_data_correction,
                 file_len,
                 truncate_offsets: conf.truncate_text_offsets,
             },
@@ -7179,7 +7179,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
                         conf.ignore_text_analysis_offsets,
                         conf.allow_header_text_offset_mismatch,
                         &NewSegmentConfig {
-                            corr: conf.analysis_correction,
+                            corr: conf.text_analysis_correction,
                             file_len,
                             truncate_offsets: conf.truncate_text_offsets,
                         },
@@ -7216,7 +7216,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
             conf.allow_header_text_offset_mismatch,
             conf.allow_missing_required_offsets,
             &NewSegmentConfig {
-                corr: conf.data_correction,
+                corr: conf.text_data_correction,
                 file_len,
                 truncate_offsets: conf.truncate_text_offsets,
             },
@@ -7231,7 +7231,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
                     conf.ignore_text_analysis_offsets,
                     conf.allow_header_text_offset_mismatch,
                     &NewSegmentConfig {
-                        corr: conf.analysis_correction,
+                        corr: conf.text_analysis_correction,
                         file_len,
                         truncate_offsets: conf.truncate_text_offsets,
                     },

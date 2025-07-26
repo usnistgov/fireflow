@@ -50,8 +50,9 @@ impl<T> From<FloatDecimal<T>> for Range {
     }
 }
 
+// TODO testme
 impl<T: HasFloatBounds> TryFrom<BigDecimal> for FloatDecimal<T> {
-    type Error = FloatToDecimalError;
+    type Error = DecimalToFloatError;
 
     fn try_from(value: BigDecimal) -> Result<Self, Self::Error> {
         let over = match value.sign() {
@@ -63,14 +64,14 @@ impl<T: HasFloatBounds> TryFrom<BigDecimal> for FloatDecimal<T> {
         u64::try_from(n)
             .ok()
             .and_then(|x| {
-                if x <= T::DIGITS && s >= -i64::from(T::ZEROS) {
-                    Some(x)
-                } else {
+                if x > T::DIGITS && s <= -i64::from(T::ZEROS) {
                     None
+                } else {
+                    Some(x)
                 }
             })
             .map_or(
-                Err(FloatToDecimalError {
+                Err(DecimalToFloatError {
                     src: value,
                     over,
                     typename: type_name::<T>(),
@@ -105,13 +106,13 @@ impl HasFloatBounds for f64 {
     const ZEROS: u16 = 292;
 }
 
-pub struct FloatToDecimalError {
+pub struct DecimalToFloatError {
     pub(crate) src: BigDecimal,
     pub(crate) over: bool,
     pub(crate) typename: &'static str,
 }
 
-impl fmt::Display for FloatToDecimalError {
+impl fmt::Display for DecimalToFloatError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let o = if self.over {
             "over the maximum"

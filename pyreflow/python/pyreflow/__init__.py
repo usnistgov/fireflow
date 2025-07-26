@@ -31,18 +31,12 @@ from ._pyreflow import (  # type: ignore
     EndianF64Layout,
     EndianUintLayout,
     MixedLayout,
-    _fcs_read_header,
-    _fcs_read_raw_text,
-    _fcs_read_std_text,
-    _fcs_read_std_dataset,
-    _fcs_read_raw_dataset,
-    _fcs_read_raw_dataset_with_keywords,
-    _fcs_read_std_dataset_with_keywords,
 )
+import pyreflow._pyreflow as pf
 
 
 from pathlib import Path
-from typing import Literal, Any, TypedDict, Union
+from typing import Literal, Any, Union, NamedTuple, NewType
 import polars as pl
 
 
@@ -54,64 +48,123 @@ Segment = tuple[int, int]
 OffsetCorrection = tuple[int, int]
 KeyPatterns = tuple[list[str], list[str]]
 
-HeaderSegments = TypedDict(
-    "HeaderSegments",
-    {"text": Segment, "data": Segment, "analysis": Segment, "other": list[Segment]},
-)
+StdKey = NewType("StdKey", str)
+NonStdKey = NewType("NonStdKey", str)
 
-ParseData = TypedDict(
-    "ParseData",
-    {
-        "header_segments": HeaderSegments,
-        "supp_text": Segment | None,
-        "nextdata": int | None,
-        "delimiter": int,
-        "non_ascii": dict[str, str],
-        "byte_pairs": dict[bytes, bytes],
-    },
-)
+StdKeywords = dict[StdKey, str]
+NonStdKeywords = dict[NonStdKey, str]
 
-StdTEXTOutput = TypedDict(
-    "StdTEXTOutput",
-    {
-        "tot": int | None,
-        "timestep": float | None,
-        "data": Segment,
-        "analysis": Segment,
-        "pseudostandard": dict[str, str],
-        "parse": ParseData,
-    },
-)
 
-StdTEXTSegments = TypedDict(
-    "StdTEXTSegments",
-    {
-        "data_seg": Segment,
-        "analysis_seg": Segment,
-    },
-)
+class HeaderSegments(NamedTuple):
+    text: Segment
+    data: Segment
+    analysis: Segment
+    other: list[Segment]
 
-StdDatasetData = TypedDict(
-    "StdDatasetData",
-    {
-        "standardized": StdTEXTSegments,
-        "pseudostandard": dict[str, str],
-    },
-)
 
-StdDatasetOutput = TypedDict(
-    "StdDatasetOutput",
-    {
-        "dataset": StdDatasetData,
-        "parse": ParseData,
-    },
-)
+class ParseData(NamedTuple):
+    header_segments: HeaderSegments
+    supp_text: Segment | None
+    nextdata: int | None
+    delimiter: int
+    non_ascii: dict[str, str]
+    byte_pairs: dict[bytes, bytes]
+
+
+class StdTEXTData(NamedTuple):
+    tot: int | None
+    timestep: float | None
+    data: Segment
+    analysis: Segment
+    pseudostandard: dict[str, str]
+    parse: ParseData
+
+
+class StdDatasetData(NamedTuple):
+    parse: ParseData
+    pseudostandard: dict[str, str]
+    data_seg: Segment
+    analysis_seg: Segment
+
 
 AnyCoreTEXT = Union[CoreTEXT2_0 | CoreTEXT3_0 | CoreTEXT3_1 | CoreTEXT3_2]
 
 AnyCoreDataset = Union[
     CoreDataset2_0 | CoreDataset3_0 | CoreDataset3_1 | CoreDataset3_2
 ]
+
+AnalysisBytes = NewType("AnalysisBytes", bytes)
+OtherBytes = NewType("OtherBytes", bytes)
+
+
+class ReadHeaderOutput(NamedTuple):
+    version: FCSVersion
+    segments: HeaderSegments
+
+
+# TODO use newtype wrappers for std and nonstd to prevent mixing downstream
+class ReadRawTEXTOutput(NamedTuple):
+    version: FCSVersion
+    std: StdKeywords
+    nonstd: NonStdKeywords
+    parse: ParseData
+
+
+class ReadStdTEXTOutput(NamedTuple):
+    core: AnyCoreTEXT
+    uncore: StdTEXTData
+
+
+class ReadRawDatasetOutput(NamedTuple):
+    text: ReadRawTEXTOutput
+    data: pl.DataFrame
+    analysis: AnalysisBytes
+    others: list[OtherBytes]
+    data_seg: Segment
+    analysis_seg: Segment
+
+
+class ReadStdDatasetOutput(NamedTuple):
+    core: AnyCoreDataset
+    uncore: StdDatasetData
+
+
+class ReadRawDatasetFromKwsOutput(NamedTuple):
+    data: pl.DataFrame
+    analysis: AnalysisBytes
+    others: list[OtherBytes]
+    data_seg: Segment
+    analysis_seg: Segment
+
+
+class ReadStdDatasetFromKwsOutput(NamedTuple):
+    core: AnyCoreDataset
+    pseudostandard: dict[str, str]
+    data_seg: Segment
+    analysis_seg: Segment
+
+
+def to_parse_data(xs: dict[str, Any]) -> ParseData:
+    args: dict[str, Any] = {
+        k: HeaderSegments(**v) if k == "header_segments" else v for k, v in xs.items()
+    }
+    return ParseData(**args)
+
+
+def to_std_text_data(xs: dict[str, Any]) -> StdTEXTData:
+    args: dict[str, Any] = {
+        k: to_parse_data(v) if k == "parse" else v for k, v in xs.items()
+    }
+    return StdTEXTData(**args)
+
+
+def to_raw_output(xs: dict[str, Any]) -> ReadRawTEXTOutput:
+    return ReadRawTEXTOutput(
+        version=xs["version"],
+        **xs["keywords"],
+        parse=to_parse_data(xs["parse"]),
+    )
+
 
 HEADER_ARGS = [
     "version_override",
@@ -189,48 +242,63 @@ SHARED_ARGS = [
 ]
 
 
-def assign_args(keys: list[str], src: dict[str, Any]) -> dict[str, Any]:
+def _assign_args(keys: list[str], src: dict[str, Any]) -> dict[str, Any]:
     acc: dict[str, Any] = {}
     for k in keys:
         acc[k] = src.pop(k)
     return acc
 
 
+def _assign_raw_args(src: dict[str, Any]) -> dict[str, Any]:
+    raw_conf = _assign_args(RAW_ARGS, src)
+    raw_conf["header"] = _assign_args(HEADER_ARGS, src)
+    return raw_conf
+
+
+DEFAULT_CORRECTION = (0, 0)
+DEFAULT_KEY_PATTERNS: tuple[list[str], list[str]] = ([], [])
+DEFAULT_OTHER_WIDTH = 8
+DEFAULT_SHORTNAME_PREFIX = "P"
+DEFAULT_TIME_PATTERN = "^(TIME|Time)$"
+
+
 def fcs_read_header(
     p: Path,
     version_override: FCSVersion | None = None,
-    text_correction: OffsetCorrection = (0, 0),
-    data_correction: OffsetCorrection = (0, 0),
-    analysis_correction: OffsetCorrection = (0, 0),
+    text_correction: OffsetCorrection = DEFAULT_CORRECTION,
+    data_correction: OffsetCorrection = DEFAULT_CORRECTION,
+    analysis_correction: OffsetCorrection = DEFAULT_CORRECTION,
     other_corrections: list[OffsetCorrection] = [],
     max_other: int | None = None,
-    other_width: int = 8,
+    other_width: int = DEFAULT_OTHER_WIDTH,
     squish_offsets: bool = False,
     allow_negative: bool = False,
     truncate_offsets: bool = False,
-) -> tuple[FCSVersion, HeaderSegments]:
+) -> ReadHeaderOutput:
     args = {k: v for k, v in locals().items() if k != "p"}
-    conf = assign_args(HEADER_ARGS, args)
+    conf = _assign_args(HEADER_ARGS, args)
     assert len(args) == 0, False
-    ret = _fcs_read_header(p, conf)
-    return (ret["version"], ret["segments"])
+    ret = pf._fcs_read_header(p, conf)
+    return ReadHeaderOutput(
+        version=ret["version"], segments=HeaderSegments(**ret["segments"])
+    )
 
 
 def fcs_read_raw_text(
     p: Path,
     # header args
     version_override: FCSVersion | None = None,
-    text_correction: OffsetCorrection = (0, 0),
-    data_correction: OffsetCorrection = (0, 0),
-    analysis_correction: OffsetCorrection = (0, 0),
+    text_correction: OffsetCorrection = DEFAULT_CORRECTION,
+    data_correction: OffsetCorrection = DEFAULT_CORRECTION,
+    analysis_correction: OffsetCorrection = DEFAULT_CORRECTION,
     other_corrections: list[OffsetCorrection] = [],
     max_other: int | None = None,
-    other_width: int = 8,
+    other_width: int = DEFAULT_OTHER_WIDTH,
     squish_offsets: bool = False,
     allow_negative: bool = False,
     truncate_offsets: bool = False,
     # raw text args
-    supp_text_correction: OffsetCorrection = (0, 0),
+    supp_text_correction: OffsetCorrection = DEFAULT_CORRECTION,
     allow_duplicated_stext: bool = False,
     ignore_supp_text: bool = False,
     use_literal_delims: bool = False,
@@ -247,45 +315,45 @@ def fcs_read_raw_text(
     allow_missing_nextdata: bool = False,
     trim_value_whitespace: bool = False,
     date_pattern: str | None = None,
-    ignore_standard_keys: KeyPatterns = ([], []),
+    ignore_standard_keys: KeyPatterns = DEFAULT_KEY_PATTERNS,
     rename_standard_keys: dict[str, str] = {},
-    promote_to_standard: KeyPatterns = ([], []),
-    demote_from_standard: KeyPatterns = ([], []),
+    promote_to_standard: KeyPatterns = DEFAULT_KEY_PATTERNS,
+    demote_from_standard: KeyPatterns = DEFAULT_KEY_PATTERNS,
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
     # shared args
     warnings_are_errors: bool = False,
-) -> tuple[FCSVersion, dict[str, str], dict[str, str], ParseData]:
+) -> ReadRawTEXTOutput:
     args = {k: v for k, v in locals().items() if k != "p"}
-    header_conf = assign_args(HEADER_ARGS, args)
-    raw_conf = assign_args(RAW_ARGS, args)
-    shared_conf = assign_args(SHARED_ARGS, args)
-    raw_conf["header"] = header_conf
     conf = {
-        "raw": raw_conf,
-        "shared": shared_conf,
+        "raw": _assign_raw_args(args),
+        "shared": _assign_args(SHARED_ARGS, args),
     }
     assert len(args) == 0, False
-    ret = _fcs_read_raw_text(p, conf)
+    ret = pf._fcs_read_raw_text(p, conf)
     keywords = ret["keywords"]
-    return (ret["version"], keywords["std"], keywords["nonstd"], ret["parse"])
+    return ReadRawTEXTOutput(
+        version=ret["version"],
+        **keywords,
+        parse=to_parse_data(ret["parse"]),
+    )
 
 
 def fcs_read_std_text(
     p: Path,
     # header args
     version_override: FCSVersion | None = None,
-    text_correction: OffsetCorrection = (0, 0),
-    data_correction: OffsetCorrection = (0, 0),
-    analysis_correction: OffsetCorrection = (0, 0),
+    text_correction: OffsetCorrection = DEFAULT_CORRECTION,
+    data_correction: OffsetCorrection = DEFAULT_CORRECTION,
+    analysis_correction: OffsetCorrection = DEFAULT_CORRECTION,
     other_corrections: list[OffsetCorrection] = [],
     max_other: int | None = None,
-    other_width: int = 8,
+    other_width: int = DEFAULT_OTHER_WIDTH,
     squish_offsets: bool = False,
     allow_negative: bool = False,
     truncate_offsets: bool = False,
     # raw text args
-    supp_text_correction: OffsetCorrection = (0, 0),
+    supp_text_correction: OffsetCorrection = DEFAULT_CORRECTION,
     allow_duplicated_stext: bool = False,
     ignore_supp_text: bool = False,
     use_literal_delims: bool = False,
@@ -302,23 +370,23 @@ def fcs_read_std_text(
     allow_missing_nextdata: bool = False,
     trim_value_whitespace: bool = False,
     date_pattern: str | None = None,
-    ignore_standard_keys: KeyPatterns = ([], []),
+    ignore_standard_keys: KeyPatterns = DEFAULT_KEY_PATTERNS,
     rename_standard_keys: dict[str, str] = {},
-    promote_to_standard: KeyPatterns = ([], []),
-    demote_from_standard: KeyPatterns = ([], []),
+    promote_to_standard: KeyPatterns = DEFAULT_KEY_PATTERNS,
+    demote_from_standard: KeyPatterns = DEFAULT_KEY_PATTERNS,
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
     # standard args
-    time_pattern: str | None = None,
+    time_pattern: str | None = DEFAULT_TIME_PATTERN,
     allow_missing_time: bool = False,
-    shortname_prefix: str = "P",
+    shortname_prefix: str = DEFAULT_SHORTNAME_PREFIX,
     allow_pseudostandard: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = None,
     # offset args
-    text_data_correction: OffsetCorrection = (0, 0),
-    text_analysis_correction: OffsetCorrection = (0, 0),
+    text_data_correction: OffsetCorrection = DEFAULT_CORRECTION,
+    text_analysis_correction: OffsetCorrection = DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
     allow_header_text_offset_mismatch: bool = False,
@@ -330,36 +398,35 @@ def fcs_read_std_text(
     disallow_range_truncation: bool = False,
     # shared args
     warnings_are_errors: bool = False,
-) -> tuple[AnyCoreTEXT, StdTEXTOutput]:
+) -> ReadStdTEXTOutput:
     args = {k: v for k, v in locals().items() if k != "p"}
-    raw_conf = assign_args(RAW_ARGS, args)
-    raw_conf["header"] = assign_args(HEADER_ARGS, args)
     conf = {
-        "raw": raw_conf,
-        "standard": assign_args(STD_ARGS, args),
-        "offsets": assign_args(OFFSET_ARGS, args),
-        "layout": assign_args(LAYOUT_ARGS, args),
-        "shared": assign_args(SHARED_ARGS, args),
+        "raw": _assign_raw_args(args),
+        "standard": _assign_args(STD_ARGS, args),
+        "offsets": _assign_args(OFFSET_ARGS, args),
+        "layout": _assign_args(LAYOUT_ARGS, args),
+        "shared": _assign_args(SHARED_ARGS, args),
     }
     assert len(args) == 0, False
-    return _fcs_read_std_text(p, conf)
+    core, uncore = pf._fcs_read_std_text(p, conf)
+    return ReadStdTEXTOutput(core=core, uncore=to_std_text_data(uncore))
 
 
 def fcs_read_raw_dataset(
     p: Path,
     # header args
     version_override: FCSVersion | None = None,
-    text_correction: OffsetCorrection = (0, 0),
-    data_correction: OffsetCorrection = (0, 0),
-    analysis_correction: OffsetCorrection = (0, 0),
+    text_correction: OffsetCorrection = DEFAULT_CORRECTION,
+    data_correction: OffsetCorrection = DEFAULT_CORRECTION,
+    analysis_correction: OffsetCorrection = DEFAULT_CORRECTION,
     other_corrections: list[OffsetCorrection] = [],
     max_other: int | None = None,
-    other_width: int = 8,
+    other_width: int = DEFAULT_OTHER_WIDTH,
     squish_offsets: bool = False,
     allow_negative: bool = False,
     truncate_offsets: bool = False,
     # raw text args
-    supp_text_correction: OffsetCorrection = (0, 0),
+    supp_text_correction: OffsetCorrection = DEFAULT_CORRECTION,
     allow_duplicated_stext: bool = False,
     ignore_supp_text: bool = False,
     use_literal_delims: bool = False,
@@ -376,15 +443,15 @@ def fcs_read_raw_dataset(
     allow_missing_nextdata: bool = False,
     trim_value_whitespace: bool = False,
     date_pattern: str | None = None,
-    ignore_standard_keys: KeyPatterns = ([], []),
+    ignore_standard_keys: KeyPatterns = DEFAULT_KEY_PATTERNS,
     rename_standard_keys: dict[str, str] = {},
-    promote_to_standard: KeyPatterns = ([], []),
-    demote_from_standard: KeyPatterns = ([], []),
+    promote_to_standard: KeyPatterns = DEFAULT_KEY_PATTERNS,
+    demote_from_standard: KeyPatterns = DEFAULT_KEY_PATTERNS,
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
     # offset args
-    text_data_correction: OffsetCorrection = (0, 0),
-    text_analysis_correction: OffsetCorrection = (0, 0),
+    text_data_correction: OffsetCorrection = DEFAULT_CORRECTION,
+    text_analysis_correction: OffsetCorrection = DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
     allow_header_text_offset_mismatch: bool = False,
@@ -400,40 +467,21 @@ def fcs_read_raw_dataset(
     allow_data_par_mismatch: bool = False,
     # shared args
     warnings_are_errors: bool = False,
-) -> tuple[
-    FCSVersion,
-    dict[str, str],
-    dict[str, str],
-    pl.DataFrame,
-    bytes,
-    list[bytes],
-    Segment,
-    Segment,
-]:
+) -> ReadRawDatasetOutput:
     args = {k: v for k, v in locals().items() if k != "p"}
-    raw_conf = assign_args(RAW_ARGS, args)
-    raw_conf["header"] = assign_args(HEADER_ARGS, args)
     conf = {
-        "raw": raw_conf,
-        "offsets": assign_args(OFFSET_ARGS, args),
-        "layout": assign_args(LAYOUT_ARGS, args),
-        "data": assign_args(DATA_ARGS, args),
-        "shared": assign_args(SHARED_ARGS, args),
+        "raw": _assign_raw_args(args),
+        "offsets": _assign_args(OFFSET_ARGS, args),
+        "layout": _assign_args(LAYOUT_ARGS, args),
+        "data": _assign_args(DATA_ARGS, args),
+        "shared": _assign_args(SHARED_ARGS, args),
     }
     assert len(args) == 0, False
-    ret = _fcs_read_raw_dataset(p, conf)
+    ret = pf._fcs_read_raw_dataset(p, conf)
     text = ret["text"]
-    kws = text["keywords"]
-    data = ret["dataset"]
-    return (
-        text["version"],
-        kws["std"],
-        kws["nonstd"],
-        data["data"],
-        data["analysis"],
-        data["others"],
-        data["data_seg"],
-        data["analysis_seg"],
+    return ReadRawDatasetOutput(
+        text=to_raw_output(ret["text"]),
+        **ret["dataset"],
     )
 
 
@@ -441,17 +489,17 @@ def fcs_read_std_dataset(
     p: Path,
     # header args
     version_override: FCSVersion | None = None,
-    text_correction: OffsetCorrection = (0, 0),
-    data_correction: OffsetCorrection = (0, 0),
-    analysis_correction: OffsetCorrection = (0, 0),
+    text_correction: OffsetCorrection = DEFAULT_CORRECTION,
+    data_correction: OffsetCorrection = DEFAULT_CORRECTION,
+    analysis_correction: OffsetCorrection = DEFAULT_CORRECTION,
     other_corrections: list[OffsetCorrection] = [],
     max_other: int | None = None,
-    other_width: int = 8,
+    other_width: int = DEFAULT_OTHER_WIDTH,
     squish_offsets: bool = False,
     allow_negative: bool = False,
     truncate_offsets: bool = False,
     # raw text args
-    supp_text_correction: OffsetCorrection = (0, 0),
+    supp_text_correction: OffsetCorrection = DEFAULT_CORRECTION,
     allow_duplicated_stext: bool = False,
     ignore_supp_text: bool = False,
     use_literal_delims: bool = False,
@@ -468,23 +516,23 @@ def fcs_read_std_dataset(
     allow_missing_nextdata: bool = False,
     trim_value_whitespace: bool = False,
     date_pattern: str | None = None,
-    ignore_standard_keys: KeyPatterns = ([], []),
+    ignore_standard_keys: KeyPatterns = DEFAULT_KEY_PATTERNS,
     rename_standard_keys: dict[str, str] = {},
-    promote_to_standard: KeyPatterns = ([], []),
-    demote_from_standard: KeyPatterns = ([], []),
+    promote_to_standard: KeyPatterns = DEFAULT_KEY_PATTERNS,
+    demote_from_standard: KeyPatterns = DEFAULT_KEY_PATTERNS,
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
     # standard args
-    time_pattern: str | None = None,
+    time_pattern: str | None = DEFAULT_TIME_PATTERN,
     allow_missing_time: bool = False,
-    shortname_prefix: str = "P",
+    shortname_prefix: str = DEFAULT_SHORTNAME_PREFIX,
     allow_pseudostandard: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = None,
     # offset args
-    text_data_correction: OffsetCorrection = (0, 0),
-    text_analysis_correction: OffsetCorrection = (0, 0),
+    text_data_correction: OffsetCorrection = DEFAULT_CORRECTION,
+    text_analysis_correction: OffsetCorrection = DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
     allow_header_text_offset_mismatch: bool = False,
@@ -500,20 +548,27 @@ def fcs_read_std_dataset(
     allow_data_par_mismatch: bool = False,
     # shared args
     warnings_are_errors: bool = False,
-) -> tuple[AnyCoreDataset, StdDatasetOutput]:
+) -> ReadStdDatasetOutput:
     args = {k: v for k, v in locals().items() if k != "p"}
-    raw_conf = assign_args(RAW_ARGS, args)
-    raw_conf["header"] = assign_args(HEADER_ARGS, args)
     conf = {
-        "raw": raw_conf,
-        "offsets": assign_args(OFFSET_ARGS, args),
-        "layout": assign_args(LAYOUT_ARGS, args),
-        "standard": assign_args(STD_ARGS, args),
-        "data": assign_args(DATA_ARGS, args),
-        "shared": assign_args(SHARED_ARGS, args),
+        "raw": _assign_raw_args(args),
+        "offsets": _assign_args(OFFSET_ARGS, args),
+        "layout": _assign_args(LAYOUT_ARGS, args),
+        "standard": _assign_args(STD_ARGS, args),
+        "data": _assign_args(DATA_ARGS, args),
+        "shared": _assign_args(SHARED_ARGS, args),
     }
     assert len(args) == 0, False
-    return _fcs_read_std_dataset(p, conf)
+    core, uncore = pf._fcs_read_std_dataset(p, conf)
+    return ReadStdDatasetOutput(
+        core=core,
+        uncore=StdDatasetData(
+            parse=to_parse_data(uncore["parse"]),
+            pseudostandard=uncore["dataset"]["pseudostandard"],
+            data_seg=uncore["dataset"]["standardized"]["data_seg"],
+            analysis_seg=uncore["dataset"]["standardized"]["analysis_seg"],
+        ),
+    )
 
 
 def fcs_read_raw_dataset_with_keywords(
@@ -524,8 +579,8 @@ def fcs_read_raw_dataset_with_keywords(
     analysis_seg: Segment,
     other_segs: list[Segment],
     # offset args
-    text_data_correction: OffsetCorrection = (0, 0),
-    text_analysis_correction: OffsetCorrection = (0, 0),
+    text_data_correction: OffsetCorrection = DEFAULT_CORRECTION,
+    text_analysis_correction: OffsetCorrection = DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
     allow_header_text_offset_mismatch: bool = False,
@@ -541,43 +596,41 @@ def fcs_read_raw_dataset_with_keywords(
     allow_data_par_mismatch: bool = False,
     # shared args
     warnings_are_errors: bool = False,
-) -> tuple[pl.DataFrame, bytes, list[bytes], Segment, Segment]:
-    args = {k: v for k, v in locals().items() if k != "p"}
+) -> ReadRawDatasetFromKwsOutput:
+    omit = ["p", "version", "std", "data_seg", "analysis_seg", "other_segs"]
+    args = {k: v for k, v in locals().items() if k not in omit}
     conf = {
-        "offsets": assign_args(OFFSET_ARGS, args),
-        "layout": assign_args(LAYOUT_ARGS, args),
-        "data": assign_args(DATA_ARGS, args),
-        "shared": assign_args(SHARED_ARGS, args),
+        "offsets": _assign_args(OFFSET_ARGS, args),
+        "layout": _assign_args(LAYOUT_ARGS, args),
+        "data": _assign_args(DATA_ARGS, args),
+        "shared": _assign_args(SHARED_ARGS, args),
     }
     assert len(args) == 0, False
-    ret = _fcs_read_raw_dataset_with_keywords(p, conf)
-    return (
-        ret["data"],
-        ret["analysis"],
-        ret["others"],
-        ret["data_seg"],
-        ret["analysis_seg"],
+    ret = pf._fcs_read_raw_dataset_with_keywords(
+        p, version, std, data_seg, analysis_seg, other_segs, conf
     )
+    return ReadRawDatasetFromKwsOutput(**ret)
 
 
 def fcs_read_std_dataset_with_keywords(
     p: Path,
     version: FCSVersion,
     std: dict[str, str],
+    nonstd: dict[str, str],
     data_seg: Segment,
     analysis_seg: Segment,
     other_segs: list[Segment],
     # standard args
-    time_pattern: str | None = None,
+    time_pattern: str | None = DEFAULT_TIME_PATTERN,
     allow_missing_time: bool = False,
-    shortname_prefix: str = "P",
+    shortname_prefix: str = DEFAULT_SHORTNAME_PREFIX,
     allow_pseudostandard: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = None,
     # offset args
-    text_data_correction: OffsetCorrection = (0, 0),
-    text_analysis_correction: OffsetCorrection = (0, 0),
+    text_data_correction: OffsetCorrection = DEFAULT_CORRECTION,
+    text_analysis_correction: OffsetCorrection = DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
     allow_header_text_offset_mismatch: bool = False,
@@ -593,52 +646,78 @@ def fcs_read_std_dataset_with_keywords(
     allow_data_par_mismatch: bool = False,
     # shared args
     warnings_are_errors: bool = False,
-) -> tuple[AnyCoreDataset, StdDatasetData]:
-    args = {k: v for k, v in locals().items() if k != "p"}
+) -> ReadStdDatasetFromKwsOutput:
+    omit = ["p", "version", "std", "nonstd", "data_seg", "analysis_seg", "other_segs"]
+    args = {k: v for k, v in locals().items() if k not in omit}
     conf = {
-        "std": assign_args(STD_ARGS, args),
-        "offsets": assign_args(OFFSET_ARGS, args),
-        "layout": assign_args(LAYOUT_ARGS, args),
-        "data": assign_args(DATA_ARGS, args),
-        "shared": assign_args(SHARED_ARGS, args),
+        "std": _assign_args(STD_ARGS, args),
+        "offsets": _assign_args(OFFSET_ARGS, args),
+        "layout": _assign_args(LAYOUT_ARGS, args),
+        "data": _assign_args(DATA_ARGS, args),
+        "shared": _assign_args(SHARED_ARGS, args),
     }
     assert len(args) == 0, False
-    return _fcs_read_std_dataset_with_keywords(p, conf)
+    core, uncore = pf._fcs_read_std_dataset_with_keywords(
+        p,
+        version,
+        {"std": std, "nonstd": nonstd},
+        data_seg,
+        analysis_seg,
+        other_segs,
+        conf,
+    )
+    return ReadStdDatasetFromKwsOutput(
+        core=core,
+        pseudostandard=uncore["pseudostandard"],
+        data_seg=uncore["standardized"]["data_seg"],
+        analysis_seg=uncore["standardized"]["analysis_seg"],
+    )
 
 
 __all__ = [
     "__version__",
-    CoreTEXT2_0.__name__,
-    CoreTEXT3_0.__name__,
-    CoreTEXT3_1.__name__,
-    CoreTEXT3_2.__name__,
-    CoreDataset2_0.__name__,
-    CoreDataset3_0.__name__,
-    CoreDataset3_1.__name__,
-    CoreDataset3_2.__name__,
-    Optical2_0.__name__,
-    Optical3_0.__name__,
-    Optical3_1.__name__,
-    Optical3_2.__name__,
-    Temporal2_0.__name__,
-    Temporal3_0.__name__,
-    Temporal3_1.__name__,
-    Temporal3_2.__name__,
-    AsciiFixedLayout.__name__,
-    AsciiDelimLayout.__name__,
-    OrderedUint08Layout.__name__,
-    OrderedUint16Layout.__name__,
-    OrderedUint24Layout.__name__,
-    OrderedUint32Layout.__name__,
-    OrderedUint40Layout.__name__,
-    OrderedUint48Layout.__name__,
-    OrderedUint56Layout.__name__,
-    OrderedUint64Layout.__name__,
-    OrderedF32Layout.__name__,
-    OrderedF64Layout.__name__,
-    EndianF32Layout.__name__,
-    EndianF64Layout.__name__,
-    EndianUintLayout.__name__,
-    MixedLayout.__name__,
-    fcs_read_header.__name__,
+    *[
+        obj.__name__
+        for obj in [
+            CoreTEXT2_0,
+            CoreTEXT3_0,
+            CoreTEXT3_1,
+            CoreTEXT3_2,
+            CoreDataset2_0,
+            CoreDataset3_0,
+            CoreDataset3_1,
+            CoreDataset3_2,
+            Optical2_0,
+            Optical3_0,
+            Optical3_1,
+            Optical3_2,
+            Temporal2_0,
+            Temporal3_0,
+            Temporal3_1,
+            Temporal3_2,
+            AsciiFixedLayout,
+            AsciiDelimLayout,
+            OrderedUint08Layout,
+            OrderedUint16Layout,
+            OrderedUint24Layout,
+            OrderedUint32Layout,
+            OrderedUint40Layout,
+            OrderedUint48Layout,
+            OrderedUint56Layout,
+            OrderedUint64Layout,
+            OrderedF32Layout,
+            OrderedF64Layout,
+            EndianF32Layout,
+            EndianF64Layout,
+            EndianUintLayout,
+            MixedLayout,
+            fcs_read_header,
+            fcs_read_raw_text,
+            fcs_read_std_text,
+            fcs_read_raw_dataset,
+            fcs_read_std_dataset,
+            fcs_read_raw_dataset_with_keywords,
+            fcs_read_std_dataset_with_keywords,
+        ]
+    ],
 ]

@@ -516,6 +516,96 @@ def fcs_read_std_dataset(
     return _fcs_read_std_dataset(p, conf)
 
 
+def fcs_read_raw_dataset_with_keywords(
+    p: Path,
+    version: FCSVersion,
+    std: dict[str, str],
+    data_seg: Segment,
+    analysis_seg: Segment,
+    other_segs: list[Segment],
+    # offset args
+    text_data_correction: OffsetCorrection = (0, 0),
+    text_analysis_correction: OffsetCorrection = (0, 0),
+    ignore_text_data_offsets: bool = False,
+    ignore_text_analysis_offsets: bool = False,
+    allow_header_text_offset_mismatch: bool = False,
+    allow_missing_required_offsets: bool = False,
+    truncate_text_offsets: bool = False,
+    # layout args
+    integer_widths_from_byteord: bool = False,
+    integer_byteord_override: list[int] | None = None,
+    disallow_range_truncation: bool = False,
+    # data args
+    allow_uneven_event_width: bool = False,
+    allow_tot_mismatch: bool = False,
+    allow_data_par_mismatch: bool = False,
+    # shared args
+    warnings_are_errors: bool = False,
+) -> tuple[pl.DataFrame, bytes, list[bytes], Segment, Segment]:
+    args = {k: v for k, v in locals().items() if k != "p"}
+    conf = {
+        "offsets": assign_args(OFFSET_ARGS, args),
+        "layout": assign_args(LAYOUT_ARGS, args),
+        "data": assign_args(DATA_ARGS, args),
+        "shared": assign_args(SHARED_ARGS, args),
+    }
+    assert len(args) == 0, False
+    ret = _fcs_read_raw_dataset_with_keywords(p, conf)
+    return (
+        ret["data"],
+        ret["analysis"],
+        ret["others"],
+        ret["data_seg"],
+        ret["analysis_seg"],
+    )
+
+
+def fcs_read_std_dataset_with_keywords(
+    p: Path,
+    version: FCSVersion,
+    std: dict[str, str],
+    data_seg: Segment,
+    analysis_seg: Segment,
+    other_segs: list[Segment],
+    # standard args
+    time_pattern: str | None = None,
+    allow_missing_time: bool = False,
+    shortname_prefix: str = "P",
+    allow_pseudostandard: bool = False,
+    disallow_deprecated: bool = False,
+    fix_log_scale_offsets: bool = False,
+    nonstandard_measurement_pattern: str | None = None,
+    # offset args
+    text_data_correction: OffsetCorrection = (0, 0),
+    text_analysis_correction: OffsetCorrection = (0, 0),
+    ignore_text_data_offsets: bool = False,
+    ignore_text_analysis_offsets: bool = False,
+    allow_header_text_offset_mismatch: bool = False,
+    allow_missing_required_offsets: bool = False,
+    truncate_text_offsets: bool = False,
+    # layout args
+    integer_widths_from_byteord: bool = False,
+    integer_byteord_override: list[int] | None = None,
+    disallow_range_truncation: bool = False,
+    # data args
+    allow_uneven_event_width: bool = False,
+    allow_tot_mismatch: bool = False,
+    allow_data_par_mismatch: bool = False,
+    # shared args
+    warnings_are_errors: bool = False,
+) -> tuple[AnyCoreDataset, StdDatasetData]:
+    args = {k: v for k, v in locals().items() if k != "p"}
+    conf = {
+        "std": assign_args(STD_ARGS, args),
+        "offsets": assign_args(OFFSET_ARGS, args),
+        "layout": assign_args(LAYOUT_ARGS, args),
+        "data": assign_args(DATA_ARGS, args),
+        "shared": assign_args(SHARED_ARGS, args),
+    }
+    assert len(args) == 0, False
+    return _fcs_read_std_dataset_with_keywords(p, conf)
+
+
 __all__ = [
     "__version__",
     CoreTEXT2_0.__name__,

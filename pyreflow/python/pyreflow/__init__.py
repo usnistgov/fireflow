@@ -44,6 +44,9 @@ FCSVersion = (
     Literal["FCS2.0"] | Literal["FCS3.0"] | Literal["FCS3.1"] | Literal["FCS3.2"]
 )
 
+Trigger = tuple[str, int]
+Shortname = NewType("Shortname", str)
+
 Segment = tuple[int, int]
 OffsetCorrection = tuple[int, int]
 KeyPatterns = tuple[list[str], list[str]]

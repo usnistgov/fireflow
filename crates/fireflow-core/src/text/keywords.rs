@@ -99,7 +99,7 @@ impl_newtype_try_from!(Vol, NonNegFloat, f32, RangedFloatError);
 /// This is formatted as 'string,f' where 'string' is a measurement name.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub(crate) struct Trigger {
+pub struct Trigger {
     /// The measurement name (assumed to match a '$PnN' value).
     pub measurement: Shortname,
 
@@ -1985,11 +1985,12 @@ opt_meta!(Endstext);
 mod python {
     use crate::python::macros::{impl_from_py_via_fromstr, impl_to_py_via_display, impl_value_err};
     use crate::text::ranged_float::PositiveFloat;
+    use crate::validated::shortname::Shortname;
 
     use super::{
         AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Display, Feature,
         FeatureError, Mode, ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError,
-        Originality, OriginalityError, Unicode, Wavelengths,
+        Originality, OriginalityError, Trigger, Unicode, Wavelengths,
     };
 
     use nonempty::NonEmpty;
@@ -2124,6 +2125,27 @@ mod python {
                 Self::Log { offset, decades } => (true, offset, decades),
             };
             ret.into_pyobject(py)
+        }
+    }
+
+    // $TR as a tuple like (String, u32) in python
+    impl<'py> FromPyObject<'py> for Trigger {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (measurement, threshold): (Shortname, u32) = ob.extract()?;
+            Ok(Trigger {
+                measurement,
+                threshold,
+            })
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for Trigger {
+        type Target = PyTuple;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            (self.measurement, self.threshold).into_pyobject(py)
         }
     }
 }

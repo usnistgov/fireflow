@@ -176,6 +176,7 @@ pub struct Metaroot<X> {
     pub sys: MaybeValue<Sys>,
 
     /// Value of $TR
+    #[as_ref(Option<Trigger>)]
     tr: MaybeValue<Trigger>,
 
     /// Version-specific data
@@ -2097,33 +2098,16 @@ where
             .collect()
     }
 
-    /// Get measurement name for $TR keyword
-    pub fn trigger_name(&self) -> Option<&Shortname> {
-        self.metaroot.tr.as_ref_opt().map(|x| &x.measurement)
-    }
-
-    /// Get threshold for $TR keyword
-    pub fn trigger_threshold(&self) -> Option<u32> {
-        self.metaroot.tr.as_ref_opt().map(|x| x.threshold)
-    }
-
-    /// Set measurement name for $TR keyword.
+    /// Set the $TR keyword.
     ///
-    /// Return true if trigger exists and was renamed, false otherwise.
-    pub fn set_trigger_name(&mut self, n: Shortname) -> bool {
-        if !self.measurement_names().contains(&n) {
-            return false;
-        }
-        if let Some(tr) = self.metaroot.tr.0.as_mut() {
-            tr.measurement = n;
-        } else {
-            self.metaroot.tr = Some(Trigger {
-                measurement: n,
-                threshold: 0,
-            })
-            .into();
-        }
-        true
+    /// Return error if supplied name is not a measurement name (a $PnN).
+    pub fn set_trigger(&mut self, tr: Option<Trigger>) -> Result<(), TriggerLinkError> {
+        let ns = self.measurement_names();
+        if tr.as_ref().is_some_and(|t| !ns.contains(&t.measurement)) {
+            return Err(TriggerLinkError);
+        };
+        self.metaroot.tr = tr.into();
+        Ok(())
     }
 
     /// Set threshold for $TR keyword
@@ -2136,16 +2120,6 @@ where
         } else {
             false
         }
-    }
-
-    /// Remove $TR keyword
-    ///
-    /// Return true if trigger existed and was removed, false if it did not
-    /// already exist.
-    pub fn clear_trigger(&mut self) -> bool {
-        let ret = self.metaroot.tr.0.is_some();
-        self.metaroot.tr = None.into();
-        ret
     }
 
     /// Return a list of measurement names as stored in $PnN.
@@ -2256,53 +2230,56 @@ where
             .terminate(UnsetTemporalFailure)
     }
 
-    /// Insert a nonstandard key/value pair for each measurement.
-    ///
-    /// Return a vector of elements corresponding to each measurement, where
-    /// each element is the value of the inserted key if already present.
-    ///
-    /// This includes the time measurement if present.
-    pub fn insert_meas_nonstandard(
-        &mut self,
-        xs: Vec<(NonStdKey, String)>,
-    ) -> Result<Vec<Option<String>>, KeyLengthError> {
-        // TODO use a newtype for this so it can't be confused with a different
-        // hashmap
-        self.measurements
-            .alter_common_values_zip(xs, |_, x: &mut HashMap<_, _>, (k, v)| x.insert(k, v))
-    }
+    // TODO these functions could be improved, add functions that operate on
+    // one measurement at a time and change these to accept hashtables for
+    // each measurement
+    // /// Insert a nonstandard key/value pair for each measurement.
+    // ///
+    // /// Return a vector of elements corresponding to each measurement, where
+    // /// each element is the value of the inserted key if already present.
+    // ///
+    // /// This includes the time measurement if present.
+    // pub fn insert_meas_nonstandard(
+    //     &mut self,
+    //     xs: Vec<(NonStdKey, String)>,
+    // ) -> Result<Vec<Option<String>>, KeyLengthError> {
+    //     // TODO use a newtype for this so it can't be confused with a different
+    //     // hashmap
+    //     self.measurements
+    //         .alter_common_values_zip(xs, |_, x: &mut HashMap<_, _>, (k, v)| x.insert(k, v))
+    // }
 
-    /// Remove a key from nonstandard key/value pairs for each measurement.
-    ///
-    /// Return a vector with removed values for each measurement if present.
-    ///
-    /// This includes the time measurement if present.
-    pub fn remove_meas_nonstandard(
-        &mut self,
-        xs: Vec<&NonStdKey>,
-    ) -> Result<Vec<Option<String>>, KeyLengthError> {
-        self.measurements
-            .alter_common_values_zip(xs, |_, x: &mut HashMap<_, _>, k| x.remove(k))
-    }
+    // /// Remove a key from nonstandard key/value pairs for each measurement.
+    // ///
+    // /// Return a vector with removed values for each measurement if present.
+    // ///
+    // /// This includes the time measurement if present.
+    // pub fn remove_meas_nonstandard(
+    //     &mut self,
+    //     xs: Vec<&NonStdKey>,
+    // ) -> Result<Vec<Option<String>>, KeyLengthError> {
+    //     self.measurements
+    //         .alter_common_values_zip(xs, |_, x: &mut HashMap<_, _>, k| x.remove(k))
+    // }
 
-    /// Read a key from nonstandard key/value pairs for each measurement.
-    ///
-    /// Return a vector with each successfully found value.
-    ///
-    /// This includes the time measurement if present.
-    pub fn get_meas_nonstandard(&self, ks: &[NonStdKey]) -> Option<Vec<Option<&String>>> {
-        let ms = &self.measurements;
-        if ks.len() != ms.len() {
-            None
-        } else {
-            let res = ms
-                .iter_common_values()
-                .zip(ks)
-                .map(|((_, x), k): ((_, &HashMap<_, _>), _)| x.get(k))
-                .collect();
-            Some(res)
-        }
-    }
+    // /// Read a key from nonstandard key/value pairs for each measurement.
+    // ///
+    // /// Return a vector with each successfully found value.
+    // ///
+    // /// This includes the time measurement if present.
+    // pub fn get_meas_nonstandard(&self, ks: &[NonStdKey]) -> Option<Vec<Option<&String>>> {
+    //     let ms = &self.measurements;
+    //     if ks.len() != ms.len() {
+    //         None
+    //     } else {
+    //         let res = ms
+    //             .iter_common_values()
+    //             .zip(ks)
+    //             .map(|((_, x), k): ((_, &HashMap<_, _>), _)| x.get(k))
+    //             .collect();
+    //         Some(res)
+    //     }
+    // }
 
     /// Replace optical measurement at index.
     ///
@@ -3104,7 +3081,7 @@ where
     }
 
     fn check_existing_links(&mut self) -> Result<(), ExistingLinkError> {
-        if self.trigger_name().is_some() {
+        if self.metaroot.tr.0.is_some() {
             return Err(ExistingLinkError::Trigger);
         }
         let m = &self.metaroot;
@@ -8237,6 +8214,14 @@ impl fmt::Display for SpilloverLinkError {
     }
 }
 
+pub struct TriggerLinkError;
+
+impl fmt::Display for TriggerLinkError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "$TR measurement must match a $PnN")
+    }
+}
+
 #[derive(From, Display)]
 pub enum SetMeasurementsError {
     New(NewNamedVecError),
@@ -8961,7 +8946,7 @@ mod python {
 
     use super::{
         ColumnsToDataframeError, CompParMismatchError, ExistingLinkError,
-        MissingMeasurementNameError, ScaleTransform, SetSpilloverError,
+        MissingMeasurementNameError, ScaleTransform, SetSpilloverError, TriggerLinkError,
     };
 
     use pyo3::exceptions::PyValueError;
@@ -9003,4 +8988,5 @@ mod python {
     impl_pyreflow_err!(ExistingLinkError);
     impl_pyreflow_err!(SetSpilloverError);
     impl_pyreflow_err!(CompParMismatchError);
+    impl_pyreflow_err!(TriggerLinkError);
 }

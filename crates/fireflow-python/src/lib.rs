@@ -31,7 +31,7 @@ use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
 use polars::prelude::*;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyDict, PyType};
+use pyo3::types::PyType;
 use pyo3_polars::PyDataFrame;
 use std::collections::HashMap;
 use std::num::NonZeroU8;
@@ -621,31 +621,25 @@ impl PyCoreTEXT3_2 {
 
 // Get/set methods for all versions
 macro_rules! common_methods {
-    ($pytype:ident, $($rest:ident),*) => {
-        common_methods!($pytype);
-        common_methods!($($rest),+);
-
-    };
-
     ($pytype:ident) => {
-        get_set_metaroot_opt!(get_abrt,  set_abrt,  kws::Abrt,  $pytype);
+        get_set_metaroot_opt!(get_abrt, set_abrt, kws::Abrt, $pytype);
         get_set_metaroot_opt!(get_cells, set_cells, kws::Cells, $pytype);
-        get_set_metaroot_opt!(get_com,   set_com,   kws::Com,   $pytype);
-        get_set_metaroot_opt!(get_exp,   set_exp,   kws::Exp,   $pytype);
-        get_set_metaroot_opt!(get_fil,   set_fil,   kws::Fil,   $pytype);
-        get_set_metaroot_opt!(get_inst,  set_inst,  kws::Inst,  $pytype);
-        get_set_metaroot_opt!(get_lost,  set_lost,  kws::Lost,  $pytype);
-        get_set_metaroot_opt!(get_op,    set_op,    kws::Op,    $pytype);
-        get_set_metaroot_opt!(get_proj,  set_proj,  kws::Proj,  $pytype);
-        get_set_metaroot_opt!(get_smno,  set_smno,  kws::Smno,  $pytype);
-        get_set_metaroot_opt!(get_src,   set_src,   kws::Src,   $pytype);
-        get_set_metaroot_opt!(get_sys,   set_sys,   kws::Sys,   $pytype);
+        get_set_metaroot_opt!(get_com, set_com, kws::Com, $pytype);
+        get_set_metaroot_opt!(get_exp, set_exp, kws::Exp, $pytype);
+        get_set_metaroot_opt!(get_fil, set_fil, kws::Fil, $pytype);
+        get_set_metaroot_opt!(get_inst, set_inst, kws::Inst, $pytype);
+        get_set_metaroot_opt!(get_lost, set_lost, kws::Lost, $pytype);
+        get_set_metaroot_opt!(get_op, set_op, kws::Op, $pytype);
+        get_set_metaroot_opt!(get_proj, set_proj, kws::Proj, $pytype);
+        get_set_metaroot_opt!(get_smno, set_smno, kws::Smno, $pytype);
+        get_set_metaroot_opt!(get_src, set_src, kws::Src, $pytype);
+        get_set_metaroot_opt!(get_sys, set_sys, kws::Sys, $pytype);
 
         // common measurement keywords
         get_set_all_meas!(get_longnames, set_longnames, kws::Longname, $pytype);
 
         get_set_all_optical!(get_filters, set_filters, kws::Filter, $pytype);
-        get_set_all_optical!(get_powers,  set_powers,  kws::Power,  $pytype);
+        get_set_all_optical!(get_powers, set_powers, kws::Power, $pytype);
 
         get_set_all_optical!(
             get_percents_emitted,
@@ -668,7 +662,6 @@ macro_rules! common_methods {
             $pytype
         );
 
-
         #[pymethods]
         impl $pytype {
             fn insert_nonstandard(&mut self, key: NonStdKey, v: String) -> Option<String> {
@@ -683,15 +676,14 @@ macro_rules! common_methods {
                 self.0.metaroot.nonstandard_keywords.get(&key).cloned()
             }
 
-            // TODO add way to remove nonstandard
+            // TODO add way to remove nonstandard from the returned dict
             #[pyo3(signature = (want_req=None, want_meta=None))]
-            fn raw_keywords<'py>(
+            fn raw_keywords(
                 &self,
-                py: Python<'py>,
                 want_req: Option<bool>,
                 want_meta: Option<bool>,
-            ) -> PyResult<Bound<'py, PyDict>> {
-                self.0.raw_keywords(want_req, want_meta).clone().into_py_dict(py)
+            ) -> HashMap<String, String> {
+                self.0.raw_keywords(want_req, want_meta).clone()
             }
 
             #[getter]
@@ -699,29 +691,28 @@ macro_rules! common_methods {
                 self.0.par().0
             }
 
-            fn insert_meas_nonstandard(
-                &mut self,
-                keyvals: Vec<(NonStdKey, String)>,
-            ) -> PyResult<Vec<Option<String>>> {
-                Ok(self.0.insert_meas_nonstandard(keyvals)?)
+            // fn insert_meas_nonstandard(
+            //     &mut self,
+            //     keyvals: Vec<(NonStdKey, String)>,
+            // ) -> PyResult<Vec<Option<String>>> {
+            //     Ok(self.0.insert_meas_nonstandard(keyvals)?)
+            // }
 
-            }
+            // fn remove_meas_nonstandard(
+            //     &mut self,
+            //     keys: Vec<NonStdKey>,
+            // ) -> PyResult<Vec<Option<String>>> {
+            //     Ok(self.0.remove_meas_nonstandard(keys.iter().collect())?)
+            // }
 
-            fn remove_meas_nonstandard(
-                &mut self,
-                keys: Vec<NonStdKey>
-            ) -> PyResult<Vec<Option<String>>> {
-                Ok(self.0.remove_meas_nonstandard(keys.iter().collect())?)
-            }
-
-            fn get_meas_nonstandard(
-                &mut self,
-                keys: Vec<NonStdKey>
-            ) -> Option<Vec<Option<String>>> {
-                self.0
-                    .get_meas_nonstandard(&keys[..])
-                    .map(|rs| rs.into_iter().map(|r| r.cloned()).collect())
-            }
+            // fn get_meas_nonstandard(
+            //     &mut self,
+            //     keys: Vec<NonStdKey>,
+            // ) -> Option<Vec<Option<String>>> {
+            //     self.0
+            //         .get_meas_nonstandard(&keys[..])
+            //         .map(|rs| rs.into_iter().map(|r| r.cloned()).collect())
+            // }
 
             #[getter]
             fn get_btim(&self) -> Option<NaiveTime> {
@@ -754,18 +745,13 @@ macro_rules! common_methods {
             }
 
             #[getter]
-            fn trigger_name(&self) -> Option<Shortname> {
-                self.0.trigger_name().cloned()
-            }
-
-            #[getter]
-            fn trigger_threshold(&self) -> Option<u32> {
-                self.0.trigger_threshold()
+            fn trigger(&self) -> Option<kws::Trigger> {
+                self.0.get_metaroot_opt().cloned()
             }
 
             #[setter]
-            fn set_trigger_name(&mut self, name: Shortname) -> bool {
-                self.0.set_trigger_name(name)
+            fn set_trigger(&mut self, tr: Option<kws::Trigger>) -> PyResult<()> {
+                Ok(self.0.set_trigger(tr)?)
             }
 
             #[setter]
@@ -773,13 +759,13 @@ macro_rules! common_methods {
                 self.0.set_trigger_threshold(x)
             }
 
-            fn clear_trigger(&mut self) -> bool {
-                self.0.clear_trigger()
-            }
-
             #[getter]
             fn shortnames_maybe(&self) -> Vec<Option<Shortname>> {
-                self.0.shortnames_maybe().into_iter().map(|x| x.cloned()).collect()
+                self.0
+                    .shortnames_maybe()
+                    .into_iter()
+                    .map(|x| x.cloned())
+                    .collect()
             }
 
             #[getter]
@@ -795,16 +781,14 @@ macro_rules! common_methods {
     };
 }
 
-common_methods!(
-    PyCoreTEXT2_0,
-    PyCoreTEXT3_0,
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset2_0,
-    PyCoreDataset3_0,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2
-);
+common_methods!(PyCoreTEXT2_0);
+common_methods!(PyCoreTEXT3_0);
+common_methods!(PyCoreTEXT3_1);
+common_methods!(PyCoreTEXT3_2);
+common_methods!(PyCoreDataset2_0);
+common_methods!(PyCoreDataset3_0);
+common_methods!(PyCoreDataset3_1);
+common_methods!(PyCoreDataset3_2);
 
 macro_rules! temporal_get_set_2_0 {
     ($pytype:ident) => {
@@ -872,9 +856,10 @@ temporal_get_set_3_0!(PyCoreDataset3_1);
 temporal_get_set_3_0!(PyCoreDataset3_2);
 
 macro_rules! common_meas_get_set {
-    ($pytype:ident, $o:ident, $t:ident) => {
+    ($pytype:ident, $o:ident, $t:ident, $n:path, $fam:ident) => {
         #[pymethods]
         impl $pytype {
+            // TODO this seems like it should return a key error
             fn remove_measurement_by_name(
                 &mut self,
                 name: Shortname,
@@ -944,27 +929,112 @@ macro_rules! common_meas_get_set {
                     .map(|v| v.inner_into())
                     .collect()
             }
+
+            fn remove_measurement_by_index(
+                &mut self,
+                index: MeasIndex,
+            ) -> PyResult<($n, Element<$t, $o>)> {
+                let r = self.0.remove_measurement_by_index(index)?;
+                let (n, v) = Element::unzip::<$fam>(r);
+                Ok((n.0, v.inner_into()))
+            }
         }
     };
 }
 
-common_meas_get_set!(PyCoreTEXT2_0, PyOptical2_0, PyTemporal2_0);
-common_meas_get_set!(PyCoreTEXT3_0, PyOptical3_0, PyTemporal3_0);
-common_meas_get_set!(PyCoreTEXT3_1, PyOptical3_1, PyTemporal3_1);
-common_meas_get_set!(PyCoreTEXT3_2, PyOptical3_2, PyTemporal3_2);
-common_meas_get_set!(PyCoreDataset2_0, PyOptical2_0, PyTemporal2_0);
-common_meas_get_set!(PyCoreDataset3_0, PyOptical3_0, PyTemporal3_0);
-common_meas_get_set!(PyCoreDataset3_1, PyOptical3_1, PyTemporal3_1);
-common_meas_get_set!(PyCoreDataset3_2, PyOptical3_2, PyTemporal3_2);
+common_meas_get_set!(
+    PyCoreTEXT2_0,
+    PyOptical2_0,
+    PyTemporal2_0,
+    Option<Shortname>,
+    MaybeFamily
+);
+common_meas_get_set!(
+    PyCoreTEXT3_0,
+    PyOptical3_0,
+    PyTemporal3_0,
+    Option<Shortname>,
+    MaybeFamily
+);
+common_meas_get_set!(
+    PyCoreTEXT3_1,
+    PyOptical3_1,
+    PyTemporal3_1,
+    Shortname,
+    AlwaysFamily
+);
+common_meas_get_set!(
+    PyCoreTEXT3_2,
+    PyOptical3_2,
+    PyTemporal3_2,
+    Shortname,
+    AlwaysFamily
+);
+
+common_meas_get_set!(
+    PyCoreDataset2_0,
+    PyOptical2_0,
+    PyTemporal2_0,
+    Option<Shortname>,
+    MaybeFamily
+);
+common_meas_get_set!(
+    PyCoreDataset3_0,
+    PyOptical3_0,
+    PyTemporal3_0,
+    Option<Shortname>,
+    MaybeFamily
+);
+common_meas_get_set!(
+    PyCoreDataset3_1,
+    PyOptical3_1,
+    PyTemporal3_1,
+    Shortname,
+    AlwaysFamily
+);
+common_meas_get_set!(
+    PyCoreDataset3_2,
+    PyOptical3_2,
+    PyTemporal3_2,
+    Shortname,
+    AlwaysFamily
+);
 
 macro_rules! common_coretext_meas_get_set {
-    ($pytype:ident, $timetype:ident) => {
+    ($pytype:ident, $o:ident, $t:ident, $n:path, $fam:ident) => {
         #[pymethods]
         impl $pytype {
+            fn push_optical(
+                &mut self,
+                name: $n,
+                m: $o,
+                r: kws::Range,
+                notrunc: bool,
+            ) -> PyResult<()> {
+                self.0
+                    .push_optical(name.into(), m.into(), r, notrunc)
+                    .py_term_resolve()
+                    .void()
+            }
+
+            fn insert_optical(
+                &mut self,
+                i: MeasIndex,
+                m: $o,
+                name: $n,
+                r: kws::Range,
+                notrunc: bool,
+            ) -> PyResult<()> {
+                self.0
+                    .insert_optical(i, name.into(), m.into(), r, notrunc)
+                    .py_term_resolve()
+                    .void()
+            }
+
             fn push_temporal(
                 &mut self,
+                t: $t,
                 name: Shortname,
-                t: $timetype,
                 r: kws::Range,
                 notrunc: bool,
             ) -> PyResult<()> {
@@ -977,7 +1047,7 @@ macro_rules! common_coretext_meas_get_set {
                 &mut self,
                 i: MeasIndex,
                 name: Shortname,
-                t: $timetype,
+                t: $t,
                 r: kws::Range,
                 notrunc: bool,
             ) -> PyResult<()> {
@@ -993,10 +1063,34 @@ macro_rules! common_coretext_meas_get_set {
     };
 }
 
-common_coretext_meas_get_set!(PyCoreTEXT2_0, PyTemporal2_0);
-common_coretext_meas_get_set!(PyCoreTEXT3_0, PyTemporal3_0);
-common_coretext_meas_get_set!(PyCoreTEXT3_1, PyTemporal3_1);
-common_coretext_meas_get_set!(PyCoreTEXT3_2, PyTemporal3_2);
+common_coretext_meas_get_set!(
+    PyCoreTEXT2_0,
+    PyOptical2_0,
+    PyTemporal2_0,
+    Option<Shortname>,
+    MaybeFamily
+);
+common_coretext_meas_get_set!(
+    PyCoreTEXT3_0,
+    PyOptical3_0,
+    PyTemporal3_0,
+    Option<Shortname>,
+    MaybeFamily
+);
+common_coretext_meas_get_set!(
+    PyCoreTEXT3_1,
+    PyOptical3_1,
+    PyTemporal3_1,
+    Shortname,
+    AlwaysFamily
+);
+common_coretext_meas_get_set!(
+    PyCoreTEXT3_2,
+    PyOptical3_2,
+    PyTemporal3_2,
+    Shortname,
+    AlwaysFamily
+);
 
 macro_rules! coredata_meas_get_set {
     ($pytype:ident, $timetype:ident) => {
@@ -1080,98 +1174,6 @@ coredata_meas_get_set!(PyCoreDataset2_0, PyTemporal2_0);
 coredata_meas_get_set!(PyCoreDataset3_0, PyTemporal3_0);
 coredata_meas_get_set!(PyCoreDataset3_1, PyTemporal3_1);
 coredata_meas_get_set!(PyCoreDataset3_2, PyTemporal3_2);
-
-macro_rules! coretext2_0_meas_methods {
-    ($pytype:ident, $o:ident, $t:ident) => {
-        #[pymethods]
-        impl $pytype {
-            fn remove_measurement_by_index(
-                &mut self,
-                index: MeasIndex,
-            ) -> PyResult<(Option<Shortname>, Element<$t, $o>)> {
-                let r = self.0.remove_measurement_by_index(index)?;
-                let (n, v) = Element::unzip::<MaybeFamily>(r);
-                Ok((n.0, v.inner_into()))
-            }
-
-            #[pyo3(signature = (m, r, notrunc=false, name=None))]
-            fn push_optical(
-                &mut self,
-                m: $o,
-                r: kws::Range,
-                notrunc: bool,
-                name: Option<Shortname>,
-            ) -> PyResult<Shortname> {
-                self.0
-                    .push_optical(name.into(), m.into(), r, notrunc)
-                    .py_term_resolve()
-            }
-
-            #[pyo3(signature = (i, m, r, notrunc=false, name=None))]
-            fn insert_optical(
-                &mut self,
-                i: MeasIndex,
-                m: $o,
-                r: kws::Range,
-                notrunc: bool,
-                name: Option<Shortname>,
-            ) -> PyResult<Shortname> {
-                self.0
-                    .insert_optical(i, name.into(), m.into(), r, notrunc)
-                    .py_term_resolve()
-            }
-        }
-    };
-}
-
-coretext2_0_meas_methods!(PyCoreTEXT2_0, PyOptical2_0, PyTemporal2_0);
-coretext2_0_meas_methods!(PyCoreTEXT3_0, PyOptical3_0, PyTemporal3_0);
-
-macro_rules! coretext3_1_meas_methods {
-    ($pytype:ident, $o:ident, $t:ident) => {
-        #[pymethods]
-        impl $pytype {
-            fn remove_measurement_by_index(
-                &mut self,
-                index: MeasIndex,
-            ) -> PyResult<(Shortname, Element<$t, $o>)> {
-                let r = self.0.remove_measurement_by_index(index)?;
-                let (n, v) = Element::unzip::<AlwaysFamily>(r);
-                Ok((n.0, v.inner_into()))
-            }
-
-            fn push_optical(
-                &mut self,
-                m: $o,
-                name: Shortname,
-                r: kws::Range,
-                notrunc: bool,
-            ) -> PyResult<()> {
-                self.0
-                    .push_optical(name.into(), m.into(), r, notrunc)
-                    .py_term_resolve()
-                    .void()
-            }
-
-            fn insert_optical(
-                &mut self,
-                i: MeasIndex,
-                m: $o,
-                name: Shortname,
-                r: kws::Range,
-                notrunc: bool,
-            ) -> PyResult<()> {
-                self.0
-                    .insert_optical(i, name.into(), m.into(), r, notrunc)
-                    .py_term_resolve()
-                    .void()
-            }
-        }
-    };
-}
-
-coretext3_1_meas_methods!(PyCoreTEXT3_1, PyOptical3_1, PyTemporal3_1);
-coretext3_1_meas_methods!(PyCoreTEXT3_2, PyOptical3_2, PyTemporal3_2);
 
 macro_rules! set_measurements_ordered {
     ($pytype:ident, $t:ident, $o:ident) => {
@@ -1994,7 +1996,7 @@ get_set_meas!(
     PyOptical3_2
 );
 
-macro_rules! common_methods {
+macro_rules! common_layout_methods {
     ($t:ident) => {
         #[pymethods]
         impl $t {
@@ -2030,22 +2032,22 @@ macro_rules! common_methods {
     };
 }
 
-common_methods!(PyAsciiFixedLayout);
-common_methods!(PyAsciiDelimLayout);
-common_methods!(PyOrderedUint08Layout);
-common_methods!(PyOrderedUint16Layout);
-common_methods!(PyOrderedUint24Layout);
-common_methods!(PyOrderedUint32Layout);
-common_methods!(PyOrderedUint40Layout);
-common_methods!(PyOrderedUint48Layout);
-common_methods!(PyOrderedUint56Layout);
-common_methods!(PyOrderedUint64Layout);
-common_methods!(PyOrderedF32Layout);
-common_methods!(PyOrderedF64Layout);
-common_methods!(PyEndianF32Layout);
-common_methods!(PyEndianF64Layout);
-common_methods!(PyEndianUintLayout);
-common_methods!(PyMixedLayout);
+common_layout_methods!(PyAsciiFixedLayout);
+common_layout_methods!(PyAsciiDelimLayout);
+common_layout_methods!(PyOrderedUint08Layout);
+common_layout_methods!(PyOrderedUint16Layout);
+common_layout_methods!(PyOrderedUint24Layout);
+common_layout_methods!(PyOrderedUint32Layout);
+common_layout_methods!(PyOrderedUint40Layout);
+common_layout_methods!(PyOrderedUint48Layout);
+common_layout_methods!(PyOrderedUint56Layout);
+common_layout_methods!(PyOrderedUint64Layout);
+common_layout_methods!(PyOrderedF32Layout);
+common_layout_methods!(PyOrderedF64Layout);
+common_layout_methods!(PyEndianF32Layout);
+common_layout_methods!(PyEndianF64Layout);
+common_layout_methods!(PyEndianUintLayout);
+common_layout_methods!(PyMixedLayout);
 
 macro_rules! byte_order_methods {
     ($t:ident) => {

@@ -1,3 +1,4 @@
+from __future__ import annotations
 from pyreflow import (
     NonStdKey,
     Trigger,
@@ -5,12 +6,21 @@ from pyreflow import (
     NonStdKeywords,
     AnalysisBytes,
     OtherBytes,
+    Datatype,
+    MixedType,
+    Originality,
+    Feature,
+    Calibration3_1,
+    Calibration3_2,
 )
-from datetime import time, date
+from datetime import time, date, datetime
 from typing import TypeVar, Self, Generic, Union
 from polars import Series, DataFrame
+import numpy as np
+import numpy.typing as npt
 
 X = TypeVar("X")
+C = TypeVar("C")
 N = TypeVar("N")
 L = TypeVar("L")
 
@@ -19,22 +29,80 @@ Scale = tuple[float, float] | tuple[()]
 ScaleTransform = tuple[float, float] | tuple[float]
 Display = tuple[bool, float, float]
 
-class AsciiFixedLayout: ...
-class AsciiDelimLayout: ...
-class OrderedUint08Layout: ...
-class OrderedUint16Layout: ...
-class OrderedUint24Layout: ...
-class OrderedUint32Layout: ...
-class OrderedUint40Layout: ...
-class OrderedUint48Layout: ...
-class OrderedUint56Layout: ...
-class OrderedUint64Layout: ...
-class OrderedF32Layout: ...
-class OrderedF64Layout: ...
-class EndianF32Layout: ...
-class EndianF64Layout: ...
-class EndianUintLayout: ...
-class MixedLayout: ...
+class _LayoutCommon:
+    @property
+    def widths(self) -> list[int]: ...
+    @property
+    def ranges(self) -> list[float]: ...
+    @property
+    def datatype(self) -> Datatype: ...
+    @property
+    def datatypes(self) -> list[Datatype]: ...
+
+class _LayoutOrderedCommon:
+    @property
+    def byte_order(self) -> list[int]: ...
+    @property
+    def is_big_endian(self) -> bool | None: ...
+
+class _LayoutEndianCommon:
+    @property
+    def is_big_endian(self) -> bool: ...
+
+class _LayoutAsciiCommon:
+    def __new__(cls, ranges: list[int]) -> Self: ...
+
+class _LayoutOrderedUintCommon:
+    def __new__(cls, ranges: list[int], is_big: bool) -> Self: ...
+    def new_ordered(cls, ranges: list[int], byteord: list[int]) -> Self: ...
+
+class _LayoutOrderedFloatCommon:
+    def __new__(cls, ranges: list[float], is_big: bool) -> Self: ...
+    def new_ordered(cls, ranges: list[float], byteord: list[int]) -> Self: ...
+
+class _LayoutEndianFloatCommon:
+    def __new__(cls, ranges: list[float], is_big: bool) -> Self: ...
+
+class AsciiFixedLayout(_LayoutCommon, _LayoutAsciiCommon): ...
+class AsciiDelimLayout(_LayoutCommon, _LayoutAsciiCommon): ...
+class OrderedUint08Layout(
+    _LayoutCommon, _LayoutOrderedCommon, _LayoutOrderedUintCommon
+): ...
+class OrderedUint16Layout(
+    _LayoutCommon, _LayoutOrderedCommon, _LayoutOrderedUintCommon
+): ...
+class OrderedUint24Layout(
+    _LayoutCommon, _LayoutOrderedCommon, _LayoutOrderedUintCommon
+): ...
+class OrderedUint32Layout(
+    _LayoutCommon, _LayoutOrderedCommon, _LayoutOrderedUintCommon
+): ...
+class OrderedUint40Layout(
+    _LayoutCommon, _LayoutOrderedCommon, _LayoutOrderedUintCommon
+): ...
+class OrderedUint48Layout(
+    _LayoutCommon, _LayoutOrderedCommon, _LayoutOrderedUintCommon
+): ...
+class OrderedUint56Layout(
+    _LayoutCommon, _LayoutOrderedCommon, _LayoutOrderedUintCommon
+): ...
+class OrderedUint64Layout(
+    _LayoutCommon, _LayoutOrderedCommon, _LayoutOrderedUintCommon
+): ...
+class OrderedF32Layout(
+    _LayoutCommon, _LayoutOrderedCommon, _LayoutOrderedFloatCommon
+): ...
+class OrderedF64Layout(
+    _LayoutCommon, _LayoutOrderedCommon, _LayoutOrderedFloatCommon
+): ...
+class EndianF32Layout(_LayoutCommon, _LayoutEndianCommon, _LayoutEndianFloatCommon): ...
+class EndianF64Layout(_LayoutCommon, _LayoutEndianCommon, _LayoutEndianFloatCommon): ...
+
+class EndianUintLayout(_LayoutCommon, _LayoutEndianCommon):
+    def __new__(cls, ranges: list[int], is_big: bool) -> Self: ...
+
+class MixedLayout(_LayoutCommon, _LayoutEndianCommon):
+    def __new__(cls, ranges: list[MixedType], is_big: bool) -> Self: ...
 
 AnyOrderedLayout = Union[
     AsciiFixedLayout
@@ -117,7 +185,7 @@ class Optical3_1(
     _OpticalWavelengths,
     _MeasDisplay,
 ):
-    calibration: tuple[float, str] | None
+    calibration: Calibration3_1 | None
 
 class Optical3_2(
     _MeasCommon,
@@ -126,7 +194,7 @@ class Optical3_2(
     _OpticalWavelengths,
     _MeasDisplay,
 ):
-    calibration: tuple[float, float, str] | None
+    calibration: Calibration3_2 | None
     detector_name: str | None
     tag: str | None
     # TODO literal string
@@ -259,20 +327,125 @@ class _CoreGetSetMeasEndian(Generic[L, O, T]):
         self, raw_input: RawInput[Shortname, O, T], layout: L
     ): ...
 
-# class _CoreDatasetGetSetMeasOrdered(Generic[O, T]):
-#     def set_measurements_and_data(
-#         self,
-#         raw_input: RawInput[Shortname | None, O, T],
-#         layout: AnyOrderedLayout,
-#         prefix: str,
-#     ): ...
+class _CoreDatasetGetSetMeasOrdered(Generic[O, T]):
+    def set_measurements_and_data(
+        self,
+        raw_input: RawInput[Shortname | None, O, T],
+        cols: list[Series],
+        prefix: str,
+    ): ...
 
+class _CoreDatasetGetSetMeasEndian(Generic[O, T]):
+    def set_measurements_and_data(
+        self,
+        raw_input: RawInput[Shortname | None, O, T],
+        cols: list[Series],
+        prefix: str,
+    ): ...
+
+class _CoreSetShortnamesMaybe:
+    def set_measurement_shortnames_maybe(self, names: list[Shortname | None]): ...
+
+class _CoreScaleMethods:
+    scales: list[Scale | None]
+
+    @property
+    def all_scales(self) -> list[Scale | None]: ...
+
+class _CoreScaleTransformMethods:
+    scale_transforms: list[ScaleTransform]
+
+    @property
+    def all_scale_transforms(self) -> list[ScaleTransform]: ...
+
+class _CoreTimestepMethods:
+    @property
+    def get_timestep(self) -> float | None: ...
+    def set_timestep(self, float) -> bool: ...
+
+class _CoreModified:
+    originality: Originality | None
+    last_modified: datetime | None
+    last_modifier: str | None
+
+class _CorePlate:
+    platename: str | None
+    plateid: str | None
+    wellid: str | None
+
+class _CoreCompensation:
+    compensation: npt.NDArray[np.float32] | None
+
+class _CoreSpillover:
+    @property
+    def spillover_matrix(self) -> npt.NDArray[np.float32]: ...
+    @property
+    def spillover_names(self) -> list[Shortname]: ...
+    def set_spillover(
+        self, names: list[Shortname], matrix: npt.NDArray[np.float32]
+    ): ...
+    def unset_spillover(self): ...
+
+class _CoreUnicode:
+    unicode: tuple[int, list[str]] | None
+
+class _CoreVol:
+    vol: float | None
+
+class _CoreCytOpt:
+    cyt: str | None
+
+class _CoreCytsn:
+    cytsn: str | None
+
+class _CoreMeasWavelength:
+    wavelength: OpticalKeyVals[float]
+
+class _CoreMeasWavelengths:
+    wavelengths: OpticalKeyVals[list[float]]
+
+class _CoreMeasDisplay:
+    display: list[Display | None]
+
+class _Core3_2:
+    flowrate: str | None
+    cyt: str
+    detector_names: OpticalKeyVals[str]
+    tags: OpticalKeyVals[str]
+    feature: OpticalKeyVals[Feature]
+    unstainedinfo: str | None
+    carriertype: str | None
+    carrierid: str | None
+    locationid: str | None
+
+    @property
+    def unstained_centers(self) -> dict[Shortname, float] | None: ...
+    def insert_unstained_center(self, name: Shortname, value: float): ...
+    def remove_unstained_center(self, name: Shortname) -> float | None: ...
+    def clear_unstained_centers(self): ...
+
+class _CoreMeasCalibration(Generic[C]):
+    calibrations: OpticalKeyVals[C]
+
+class _CoreToDataset(Generic[X]):
+    def to_dataset(
+        self, cols: list[Series], analysis: AnalysisBytes, others: list[OtherBytes]
+    ) -> X: ...
+
+# TODO need to add version converters and constructors
+# TODO add datetimes
 class CoreTEXT2_0(
     _CoreCommon,
     _CoreTemporal2_0,
     _CoreGetSetMeas[Shortname | None, Optical2_0, Temporal2_0],
     _CoreTEXTGetSetMeas[Shortname | None, Temporal2_0, Optical2_0],
     _CoreGetSetMeasOrdered[Optical2_0, Temporal2_0],
+    _CoreSetShortnamesMaybe,
+    _CoreScaleMethods,
+    _CoreToDataset[CoreDataset2_0],
+    _CoreCompensation,
+    _CoreCytOpt,
+    _CoreMeasWavelength,
 ): ...
 class CoreTEXT3_0(
     _CoreCommon,
@@ -280,6 +453,15 @@ class CoreTEXT3_0(
     _CoreGetSetMeas[Shortname | None, Optical3_0, Temporal3_0],
     _CoreTEXTGetSetMeas[Shortname | None, Temporal3_0, Optical3_0],
     _CoreGetSetMeasOrdered[Optical3_0, Temporal3_0],
+    _CoreSetShortnamesMaybe,
+    _CoreScaleTransformMethods,
+    _CoreTimestepMethods,
+    _CoreToDataset[CoreDataset3_0],
+    _CoreCompensation,
+    _CoreUnicode,
+    _CoreCytOpt,
+    _CoreCytsn,
+    _CoreMeasWavelength,
 ): ...
 class CoreTEXT3_1(
     _CoreCommon,
@@ -287,6 +469,18 @@ class CoreTEXT3_1(
     _CoreGetSetMeas[Shortname, Optical3_1, Temporal3_1],
     _CoreTEXTGetSetMeas[Shortname, Temporal3_1, Optical3_1],
     _CoreGetSetMeasEndian[AnyNonMixedLayout, Optical3_1, Temporal3_1],
+    _CoreScaleTransformMethods,
+    _CoreTimestepMethods,
+    _CoreToDataset[CoreDataset3_1],
+    _CoreModified,
+    _CorePlate,
+    _CoreSpillover,
+    _CoreVol,
+    _CoreCytOpt,
+    _CoreCytsn,
+    _CoreMeasWavelengths,
+    _CoreMeasDisplay,
+    _CoreMeasCalibration[Calibration3_1],
 ): ...
 class CoreTEXT3_2(
     _CoreCommon,
@@ -294,6 +488,19 @@ class CoreTEXT3_2(
     _CoreGetSetMeas[Shortname, Optical3_2, Temporal3_2],
     _CoreTEXTGetSetMeas[Shortname, Temporal3_2, Optical3_2],
     _CoreGetSetMeasEndian[AnyMixedLayout, Optical3_2, Temporal3_2],
+    _CoreScaleMethods,
+    _CoreScaleTransformMethods,
+    _CoreTimestepMethods,
+    _CoreToDataset[CoreDataset3_2],
+    _CoreModified,
+    _CorePlate,
+    _CoreSpillover,
+    _CoreVol,
+    _CoreCytsn,
+    _CoreMeasWavelengths,
+    _CoreMeasDisplay,
+    _Core3_2,
+    _CoreMeasCalibration[Calibration3_2],
 ): ...
 class CoreDataset2_0(
     _CoreCommon,
@@ -301,6 +508,11 @@ class CoreDataset2_0(
     _CoreGetSetMeas[Shortname | None, Optical2_0, Temporal2_0],
     _CoreDatasetGetSetMeas[Temporal2_0],
     _CoreGetSetMeasOrdered[Optical2_0, Temporal2_0],
+    _CoreDatasetGetSetMeasOrdered[Optical2_0, Temporal2_0],
+    _CoreSetShortnamesMaybe,
+    _CoreCompensation,
+    _CoreCytOpt,
+    _CoreMeasWavelength,
 ): ...
 class CoreDataset3_0(
     _CoreCommon,
@@ -308,6 +520,15 @@ class CoreDataset3_0(
     _CoreGetSetMeas[Shortname | None, Optical3_0, Temporal3_0],
     _CoreDatasetGetSetMeas[Temporal3_0],
     _CoreGetSetMeasOrdered[Optical3_0, Temporal3_0],
+    _CoreDatasetGetSetMeasOrdered[Optical3_0, Temporal3_0],
+    _CoreSetShortnamesMaybe,
+    _CoreScaleTransformMethods,
+    _CoreTimestepMethods,
+    _CoreCompensation,
+    _CoreUnicode,
+    _CoreCytOpt,
+    _CoreCytsn,
+    _CoreMeasWavelength,
 ): ...
 class CoreDataset3_1(
     _CoreCommon,
@@ -315,6 +536,18 @@ class CoreDataset3_1(
     _CoreGetSetMeas[Shortname, Optical3_1, Temporal3_1],
     _CoreDatasetGetSetMeas[Temporal3_1],
     _CoreGetSetMeasEndian[AnyNonMixedLayout, Optical3_1, Temporal3_1],
+    _CoreDatasetGetSetMeasEndian[Optical3_1, Temporal3_1],
+    _CoreScaleTransformMethods,
+    _CoreTimestepMethods,
+    _CoreModified,
+    _CorePlate,
+    _CoreSpillover,
+    _CoreVol,
+    _CoreCytOpt,
+    _CoreCytsn,
+    _CoreMeasWavelengths,
+    _CoreMeasDisplay,
+    _CoreMeasCalibration[Calibration3_1],
 ): ...
 class CoreDataset3_2(
     _CoreCommon,
@@ -322,4 +555,16 @@ class CoreDataset3_2(
     _CoreGetSetMeas[Shortname, Optical3_2, Temporal3_2],
     _CoreDatasetGetSetMeas[Temporal3_2],
     _CoreGetSetMeasEndian[AnyMixedLayout, Optical3_2, Temporal3_2],
+    _CoreDatasetGetSetMeasEndian[Optical3_2, Temporal3_2],
+    _CoreScaleTransformMethods,
+    _CoreTimestepMethods,
+    _CoreModified,
+    _CorePlate,
+    _CoreSpillover,
+    _CoreVol,
+    _CoreCytsn,
+    _CoreMeasWavelengths,
+    _CoreMeasDisplay,
+    _Core3_2,
+    _CoreMeasCalibration[Calibration3_2],
 ): ...

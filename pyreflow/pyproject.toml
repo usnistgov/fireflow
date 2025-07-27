@@ -24,3 +24,6 @@ dynamic = ["version"]
 [tool.maturin]
 python-source = "python"
 module-name = "pyreflow._pyreflow"
+
+[tool.mypy]
+plugins = "numpy.typing.mypy_plugin"

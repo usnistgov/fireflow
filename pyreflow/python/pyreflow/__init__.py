@@ -39,11 +39,31 @@ from pathlib import Path
 from typing import Literal, Any, Union, NamedTuple, NewType
 import polars as pl
 
+Calibration3_1 = tuple[float, str]
+Calibration3_2 = tuple[float, float, str]
+
+Originality = Union[
+    Literal["Original"]
+    | Literal["NonDataModified"]
+    | Literal["Appended"]
+    | Literal["DataModified"]
+]
+
+Feature = Union[Literal["Area"] | Literal["Width"] | Literal["Height"]]
 
 FCSVersion = (
     Literal["FCS2.0"] | Literal["FCS3.0"] | Literal["FCS3.1"] | Literal["FCS3.2"]
 )
 
+FloatType = Literal["F"]
+DoubleType = Literal["D"]
+IntegerType = Literal["I"]
+AsciiType = Literal["A"]
+
+Datatype = Union[FloatType | DoubleType | IntegerType | AsciiType]
+MixedType = Union[
+    tuple[FloatType | DoubleType, float], tuple[AsciiType | IntegerType, int]
+]
 Trigger = tuple[str, int]
 Shortname = NewType("Shortname", str)
 

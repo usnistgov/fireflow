@@ -31,7 +31,6 @@ use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
 use polars::prelude::*;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::PyType;
 use pyo3_polars::PyDataFrame;
 use std::collections::HashMap;
 use std::num::NonZeroU8;
@@ -1388,12 +1387,10 @@ macro_rules! timestep_methods {
         $(
             #[pymethods]
             impl $pytype {
-                #[getter]
                 fn get_timestep(&self) -> Option<kws::Timestep> {
                     self.0.timestep().copied()
                 }
 
-                #[setter]
                 fn set_timestep(&mut self, ts: kws::Timestep) -> bool {
                     self.0.set_timestep(ts)
                 }
@@ -1495,6 +1492,7 @@ macro_rules! comp_methods {
                 self.0.compensation().cloned()
             }
 
+            #[setter]
             fn set_compensation(&mut self, m: Option<Compensation>) -> PyResult<()> {
                 Ok(self.0.set_compensation(m)?)
             }
@@ -2019,11 +2017,13 @@ macro_rules! common_layout_methods {
                 self.0.ranges().into()
             }
 
+            #[getter]
             /// Return the datatype.
             fn datatype(&self) -> kws::AlphaNumType {
                 self.0.datatype().into()
             }
 
+            #[getter]
             /// Return a list of datatypes corresponding to each column.
             fn datatypes(&self) -> Vec<kws::AlphaNumType> {
                 self.0.datatypes().map(|d| d.into()).into()
@@ -2064,7 +2064,7 @@ macro_rules! byte_order_methods {
             ///
             /// Return true for big endian, false for little endian, and
             /// None if byte order is mixed.
-            fn endianness(&self) -> Option<bool> {
+            fn is_big_endian(&self) -> Option<bool> {
                 self.0.endianness().map(|x| x == Endian::Big)
             }
         }
@@ -2148,10 +2148,9 @@ macro_rules! new_ordered_uint {
                 FixedLayout::new_endian_uint(ranges.0, is_big.into()).into()
             }
 
-            #[classmethod]
+            #[staticmethod]
             /// Make a new layout for $size-byte Uints with a given byte order.
             fn new_ordered(
-                _: &Bound<'_, PyType>,
                 ranges: PyNonEmpty<bm::Bitmask<$uint, $size>>,
                 byteord: SizedByteOrd<$size>,
             ) -> Self {
@@ -2180,10 +2179,9 @@ macro_rules! new_ordered_float {
                 FixedLayout::new_endian_float(ranges.0, is_big.into()).into()
             }
 
-            #[classmethod]
+            #[staticmethod]
             /// Make a new $num layout with a given byte order.
             fn new_ordered(
-                _: &Bound<'_, PyType>,
                 ranges: PyNonEmpty<FloatRange<$num, $size>>,
                 byteord: SizedByteOrd<$size>,
             ) -> Self {
@@ -2234,7 +2232,7 @@ impl PyMixedLayout {
     /// is one of "A", "I", "F", or "D" corresponding to Ascii, Integer, Float,
     /// or Double datatypes. The 'value' field should be an integer for "A" or
     /// "I" and a float for "F" or "D".
-    fn new_mixed(ranges: PyNonEmpty<NullMixedType>, is_big: bool) -> Self {
+    fn new(ranges: PyNonEmpty<NullMixedType>, is_big: bool) -> Self {
         FixedLayout::new(ranges.0, is_big.into()).into()
     }
 }

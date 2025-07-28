@@ -77,6 +77,25 @@ impl fmt::Display for RangedFloatError {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_positive_float() {
+        assert_eq!(PositiveFloat::try_from(1.0_f32).is_ok(), true);
+        assert_eq!(PositiveFloat::try_from(0.0_f32).is_ok(), false);
+        assert_eq!(PositiveFloat::try_from(-1.0_f32).is_ok(), false);
+    }
+
+    #[test]
+    fn test_non_neg_float() {
+        assert_eq!(NonNegFloat::try_from(1.0_f32).is_ok(), true);
+        assert_eq!(NonNegFloat::try_from(0.0_f32).is_ok(), true);
+        assert_eq!(NonNegFloat::try_from(-1.0_f32).is_ok(), false);
+    }
+}
+
 #[cfg(feature = "python")]
 mod python {
     use super::{NonNegFloat, PositiveFloat, RangedFloatError};

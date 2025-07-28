@@ -131,9 +131,9 @@ mod tests {
     use super::*;
     use crate::test::*;
 
+    // TODO this is hard(er) to test since the order will be random
     #[test]
     fn test_unstained_centers() {
-        assert_from_to_str::<UnstainedCenters>("2,X,Y,0,0");
         assert_from_to_str::<UnstainedCenters>("1,X,0");
     }
 

@@ -300,7 +300,7 @@ impl fmt::Display for FCSTime60 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let base = self.0.format("%H:%M:%S");
         let cc = u64::from(self.0.nanosecond()) * 60 / 1_000_000_000;
-        write!(f, "{}.{}", base, cc)
+        write!(f, "{base}:{cc:02}")
     }
 }
 
@@ -327,7 +327,7 @@ impl FromStr for FCSTime100 {
         NaiveTime::parse_from_str(s, "%H:%M:%S")
             .or_else(|_| {
                 static RE: Lazy<Regex> = Lazy::new(|| {
-                    Regex::new(r"([0-9]){2}:([0-9]){2}:([0-9]){2}.([0-9]){2}").unwrap()
+                    Regex::new(r"([0-9]{2}):([0-9]{2}):([0-9]{2})\.([0-9]{2})").unwrap()
                 });
                 let cap = RE.captures(s).ok_or(FCSTime100Error)?;
                 let [s1, s2, s3, s4] = cap.extract().1;
@@ -346,7 +346,7 @@ impl fmt::Display for FCSTime100 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let base = self.0.format("%H:%M:%S");
         let cc = self.0.nanosecond() / 10_000_000;
-        write!(f, "{}.{}", base, cc)
+        write!(f, "{base}.{cc:02}")
     }
 }
 
@@ -355,6 +355,31 @@ pub struct FCSTime100Error;
 impl fmt::Display for FCSTime100Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "must be like 'hh:mm:ss[.cc]'")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test::*;
+
+    #[test]
+    fn test_str_timestamps2_0() {
+        assert_from_to_str::<FCSTime>("23:58:00");
+    }
+
+    #[test]
+    fn test_str_timestamps3_0() {
+        assert_from_to_str_almost::<FCSTime60>("23:58:00", "23:58:00:00");
+        assert_from_to_str::<FCSTime60>("23:58:00:30");
+        // TODO should probably avoid stuff like this
+        assert_from_to_str_almost::<FCSTime60>("23:58:00:13", "23:58:00:12");
+    }
+
+    #[test]
+    fn test_str_timestamps3_1() {
+        assert_from_to_str_almost::<FCSTime100>("23:58:00", "23:58:00.00");
+        assert_from_to_str::<FCSTime100>("23:58:00.30");
     }
 }
 

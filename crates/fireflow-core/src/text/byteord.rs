@@ -66,7 +66,7 @@ pub type NoByteOrd3_1 = NoByteOrd<false>;
 ///
 /// This may also be '*' which means "delimited ASCII" which is only valid when
 /// $DATATYPE=A.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(Chars)]
 pub enum Width {
@@ -75,7 +75,7 @@ pub enum Width {
 }
 
 /// The number of bytes for a numeric measurement
-#[derive(Clone, Copy, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[repr(u8)]
 pub enum Bytes {
@@ -93,7 +93,7 @@ pub enum Bytes {
 ///
 /// Subsequent operations can be used to use it as "bytes" or "characters"
 /// depending on what is needed by the column.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(Chars)]
 #[into(NonZeroU8, u8)]
@@ -660,6 +660,104 @@ impl fmt::Display for VecToArrayError {
             "could not convert vector to array, was {} long, needed {}",
             self.vec_len, self.req_len
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_str_to_byteord_valid() {
+        assert_eq!("1".parse::<ByteOrd2_0>().is_ok(), true);
+        assert_eq!("1,2,3,4".parse::<ByteOrd2_0>().is_ok(), true);
+        assert_eq!("4,3,2,1".parse::<ByteOrd2_0>().is_ok(), true);
+        assert_eq!("3,4,2,1".parse::<ByteOrd2_0>().is_ok(), true);
+        assert_eq!("1,2,3,4,5,6,7,8".parse::<ByteOrd2_0>().is_ok(), true);
+    }
+
+    #[test]
+    fn test_str_to_byteord_tolong() {
+        assert_eq!("1,2,3,4,5,6,7,8,9".parse::<ByteOrd2_0>().is_ok(), false);
+    }
+
+    #[test]
+    fn test_str_to_byteord_bad_digits() {
+        assert_eq!("0".parse::<ByteOrd2_0>().is_ok(), false);
+        assert_eq!("2".parse::<ByteOrd2_0>().is_ok(), false);
+    }
+
+    #[test]
+    fn test_str_to_byteord_skipped() {
+        assert_eq!("1,3".parse::<ByteOrd2_0>().is_ok(), false);
+    }
+
+    #[test]
+    fn test_str_to_byteord_repeat() {
+        assert_eq!("1,1".parse::<ByteOrd2_0>().is_ok(), false);
+    }
+
+    #[test]
+    fn test_str_to_byteord_garbage() {
+        assert_eq!("fortytwo".parse::<ByteOrd2_0>().is_ok(), false);
+        assert_eq!("".parse::<ByteOrd2_0>().is_ok(), false);
+        assert_eq!("one,two,three".parse::<ByteOrd2_0>().is_ok(), false);
+    }
+
+    #[test]
+    fn test_str_to_endian() {
+        assert_eq!("1,2,3,4".parse::<ByteOrd3_1>().is_ok(), true);
+        assert_eq!("4,3,2,1".parse::<ByteOrd3_1>().is_ok(), true);
+        assert_eq!("1,2,3".parse::<ByteOrd3_1>().is_ok(), false);
+        assert_eq!("5,4,3,2,1".parse::<ByteOrd3_1>().is_ok(), false);
+    }
+
+    #[test]
+    fn test_str_to_width() {
+        assert_eq!("*".parse::<Width>(), Ok(Width::Variable));
+        assert_eq!("1".parse::<Width>().is_ok(), true);
+        assert_eq!("255".parse::<Width>().is_ok(), true);
+        assert_eq!("0".parse::<Width>().is_ok(), false);
+        assert_eq!("256".parse::<Width>().is_ok(), false);
+    }
+
+    #[test]
+    fn test_str_to_width_as_bytes() {
+        assert_eq!(Bytes::try_from("8".parse::<Width>().unwrap()).is_ok(), true);
+        assert_eq!(
+            Bytes::try_from("16".parse::<Width>().unwrap()).is_ok(),
+            true
+        );
+        assert_eq!(
+            Bytes::try_from("64".parse::<Width>().unwrap()).is_ok(),
+            true
+        );
+        assert_eq!(
+            Bytes::try_from("7".parse::<Width>().unwrap()).is_ok(),
+            false
+        );
+        assert_eq!(
+            Bytes::try_from("63".parse::<Width>().unwrap()).is_ok(),
+            false
+        );
+        assert_eq!(
+            Bytes::try_from("65".parse::<Width>().unwrap()).is_ok(),
+            false
+        );
+        assert_eq!(
+            Bytes::try_from("72".parse::<Width>().unwrap()).is_ok(),
+            false
+        );
+    }
+
+    #[test]
+    fn test_bytes_from_u64() {
+        assert_eq!(Bytes::B1, Bytes::from_u64(0));
+        assert_eq!(Bytes::B1, Bytes::from_u64(255));
+        assert_eq!(Bytes::B2, Bytes::from_u64(256));
+        assert_eq!(Bytes::B2, Bytes::from_u64(65535));
+        assert_eq!(Bytes::B3, Bytes::from_u64(65536));
+        assert_eq!(Bytes::B8, Bytes::from_u64(18446744073709551615));
     }
 }
 

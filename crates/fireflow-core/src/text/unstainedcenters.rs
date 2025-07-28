@@ -75,7 +75,7 @@ impl FromStr for UnstainedCenters {
             let remainder = xs.by_ref().count();
             let total = values.len() + measurements.len() + remainder;
             let expected = 2 * n;
-            if total != expected {
+            if total == expected {
                 let fvalues: Vec<_> = values
                     .into_iter()
                     .filter_map(|x| x.parse::<f32>().ok())
@@ -123,6 +123,28 @@ impl fmt::Display for ParseUnstainedCenterError {
             ParseUnstainedCenterError::BadN => write!(f, "Could not parse N"),
             ParseUnstainedCenterError::New(n) => n.fmt(f),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test::*;
+
+    #[test]
+    fn test_unstained_centers() {
+        assert_from_to_str::<UnstainedCenters>("2,X,Y,0,0");
+        assert_from_to_str::<UnstainedCenters>("1,X,0");
+    }
+
+    #[test]
+    fn test_unstained_centers_wrong_len() {
+        assert_eq!("2,X,0".parse::<UnstainedCenters>().is_ok(), false);
+    }
+
+    #[test]
+    fn test_unstained_centers_nonunique() {
+        assert_eq!("3,Y,Y,Z,0,0,0".parse::<UnstainedCenters>().is_ok(), false);
     }
 }
 

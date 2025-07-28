@@ -101,6 +101,21 @@ impl fmt::Display for BoundaryIndexError {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::num::NonZero;
+
+    #[test]
+    fn test_zero() {
+        let i = 0_usize;
+        let i0 = IndexFromOne::from(i);
+        let i1 = usize::from(i0);
+        assert_eq!(i, i1);
+        assert_eq!(i0, IndexFromOne(NonZero::new(1).unwrap()));
+    }
+}
+
 #[cfg(feature = "python")]
 mod python {
     use super::IndexFromOne;

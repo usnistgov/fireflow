@@ -66,6 +66,17 @@ impl fmt::Display for ShortnameError {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_str_to_shortname() {
+        assert_eq!("Thunderfist Chronicles".parse::<Shortname>().is_ok(), true);
+        assert_eq!("Thunderfist,Chronicles".parse::<Shortname>().is_ok(), false);
+    }
+}
+
 #[cfg(feature = "python")]
 mod python {
     use super::{Shortname, ShortnameError};

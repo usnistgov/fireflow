@@ -114,7 +114,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
         } else if bits == native_bits {
             T::max_value()
         } else {
-            (T::one() << usize::from(value_bits)) - T::one()
+            (T::one() << usize::from(bits)) - T::one()
         };
         (
             Self {
@@ -169,6 +169,64 @@ impl fmt::Display for BitmaskTruncationError {
 pub enum BitmaskError {
     ToInt(IntRangeError<()>),
     Trunc(BitmaskTruncationError),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_int_to_bitmask() {
+        let x = 255;
+        let (b, trunc) = Bitmask::<u16, 1>::from_native(x);
+        assert_eq!((b.value, b.bitmask(), trunc), (255, 255, false));
+    }
+
+    #[test]
+    fn test_int_to_bitmask_roundup() {
+        let x = 254;
+        let (b, trunc) = Bitmask::<u16, 1>::from_native(x);
+        assert_eq!((b.value, b.bitmask(), trunc), (254, 255, false));
+    }
+
+    #[test]
+    fn test_int_to_bitmask_trunc() {
+        let x = 256;
+        let (b, trunc) = Bitmask::<u16, 1>::from_native(x);
+        assert_eq!((b.value, b.bitmask(), trunc), (255, 255, true));
+    }
+
+    #[test]
+    fn test_int_to_bitmask_max_native() {
+        let x = 65535;
+        let (b, trunc) = Bitmask::<u16, 2>::from_native(x);
+        assert_eq!((b.value, b.bitmask(), trunc), (65535, 65535, false));
+    }
+
+    #[test]
+    fn test_int_to_bitmask_zero() {
+        let x = 0;
+        let (b, trunc) = Bitmask::<u16, 2>::from_native(x);
+        assert_eq!((b.value, b.bitmask(), trunc), (0, 0, false));
+    }
+
+    #[test]
+    fn test_max_1_byte() {
+        let b = Bitmask::<u8, 1>::max();
+        assert_eq!((b.value, b.bitmask()), (255, 255));
+    }
+
+    #[test]
+    fn test_max_2_byte() {
+        let b = Bitmask::<u16, 2>::max();
+        assert_eq!((b.value, b.bitmask()), (65535, 65535));
+    }
+
+    #[test]
+    fn test_max_3_byte() {
+        let b = Bitmask::<u32, 3>::max();
+        assert_eq!((b.value, b.bitmask()), (16777215, 16777215));
+    }
 }
 
 #[cfg(feature = "python")]

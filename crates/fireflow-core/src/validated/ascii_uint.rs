@@ -195,6 +195,26 @@ impl fmt::Display for NegativeOffsetError {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_u32_to_uint8digit() {
+        assert_eq!(Uint8Digit::try_from(0_u64).is_ok(), true);
+        assert_eq!(Uint8Digit::try_from(1_u64).is_ok(), true);
+        assert_eq!(Uint8Digit::try_from(99_999_999_u64).is_ok(), true);
+        assert_eq!(Uint8Digit::try_from(100_000_000_u64).is_ok(), false);
+    }
+
+    #[test]
+    fn test_str_to_uint8digit() {
+        assert_eq!("0".parse::<Uint8Digit>().is_ok(), true);
+        assert_eq!("99999999".parse::<Uint8Digit>().is_ok(), true);
+        assert_eq!("100000000".parse::<Uint8Digit>().is_ok(), false);
+    }
+}
+
 #[cfg(feature = "python")]
 mod python {
     use super::{Uint8Digit, Uint8DigitOverflow};

@@ -3767,7 +3767,7 @@ where
         let df = &self.data;
         let layout = self.layout.as_ref_opt();
         let others = &self.others;
-        let delim = conf.delim.inner();
+        let delim = conf.delim.into();
         let tot = Tot(df.nrows());
         let analysis_len = self.analysis.0.len() as u64;
         let other_lens = others.0.iter().map(|o| o.0.len() as u64).collect();

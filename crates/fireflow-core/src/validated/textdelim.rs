@@ -1,7 +1,8 @@
+use derive_more::Into;
 use std::fmt;
 
 /// The delimiter used when writing TEXT
-#[derive(Clone)]
+#[derive(Clone, Copy, Into)]
 pub struct TEXTDelim(u8);
 
 impl Default for TEXTDelim {
@@ -10,17 +11,14 @@ impl Default for TEXTDelim {
     }
 }
 
-impl TEXTDelim {
-    pub fn try_new(x: u8) -> Result<TEXTDelim, TEXTDelimError> {
-        if (1..=126).contains(&x) {
-            Err(TEXTDelimError(x))
+impl TryFrom<u8> for TEXTDelim {
+    type Error = TEXTDelimError;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        if (1..127).contains(&value) {
+            Ok(Self(value))
         } else {
-            Ok(TEXTDelim(x))
+            Err(TEXTDelimError(value))
         }
-    }
-
-    pub fn inner(&self) -> u8 {
-        self.0
     }
 }
 
@@ -29,5 +27,18 @@ pub struct TEXTDelimError(u8);
 impl fmt::Display for TEXTDelimError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "delimiter should be char b/t 1 and 126, got {}", self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_u8_to_delim() {
+        assert_eq!(TEXTDelim::try_from(1_u8).is_ok(), true);
+        assert_eq!(TEXTDelim::try_from(126_u8).is_ok(), true);
+        assert_eq!(TEXTDelim::try_from(0_u8).is_ok(), false);
+        assert_eq!(TEXTDelim::try_from(127_u8).is_ok(), false);
     }
 }

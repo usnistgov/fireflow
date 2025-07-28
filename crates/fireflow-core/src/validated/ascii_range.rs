@@ -35,7 +35,6 @@ pub struct AsciiRange {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Hash, Display, Into)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(NonZeroU8, u8)]
-// no FromPyObject since this needs to be validated
 pub struct Chars(NonZeroU8);
 
 /// Width to use when parsing OTHER segments.
@@ -216,6 +215,19 @@ impl fmt::Display for OtherWidthError {
             "OTHER width should be integer b/t 1 and 20, got {}",
             self.0
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_u8_to_chars() {
+        assert_eq!(Chars::try_from(1_u8).is_ok(), true);
+        assert_eq!(Chars::try_from(0_u8).is_ok(), false);
+        assert_eq!(Chars::try_from(20_u8).is_ok(), true);
+        assert_eq!(Chars::try_from(21_u8).is_ok(), false);
     }
 }
 

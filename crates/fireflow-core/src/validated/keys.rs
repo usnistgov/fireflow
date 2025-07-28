@@ -109,8 +109,11 @@ pub type BytesPairs = Vec<(Vec<u8>, Vec<u8>)>;
 /// ['ParsedKeywords'] without the bad stuff
 #[derive(Clone, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
-#[pyo3(from_item_all)]
+#[cfg_attr(
+    feature = "python",
+    derive(FromPyObject, IntoPyObject),
+    pyo3(from_item_all)
+)]
 pub struct ValidKeywords {
     pub std: StdKeywords,
     pub nonstd: NonStdKeywords,

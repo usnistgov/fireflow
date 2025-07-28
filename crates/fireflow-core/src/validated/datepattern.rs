@@ -48,6 +48,23 @@ impl fmt::Display for DatePatternError {
     }
 }
 
+// TODO property tests would likely be useful here
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_str_to_pattern() {
+        assert_eq!("%y%m%d".parse::<DatePattern>().is_ok(), true);
+        assert_eq!(
+            "%yrandom%mmorerandom%d".parse::<DatePattern>().is_ok(),
+            true
+        );
+        assert_eq!("%y%y%m%d".parse::<DatePattern>().is_ok(), false);
+        assert_eq!("%m%d".parse::<DatePattern>().is_ok(), false);
+    }
+}
+
 #[cfg(feature = "python")]
 mod python {
     use super::{DatePattern, DatePatternError};

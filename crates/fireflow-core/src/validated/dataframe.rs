@@ -332,9 +332,17 @@ impl FCSDataType for u64 {}
 impl FCSDataType for f32 {}
 impl FCSDataType for f64 {}
 
+#[cfg_attr(test, derive(Debug, PartialEq))]
 pub(crate) struct CastResult<T> {
     pub(crate) new: T,
     pub(crate) lossy: bool,
+}
+
+impl<T> CastResult<T> {
+    #[cfg(test)]
+    fn new(new: T, lossy: bool) -> Self {
+        Self { new, lossy }
+    }
 }
 
 pub(crate) trait NumCast<T>: Sized {
@@ -358,10 +366,9 @@ macro_rules! impl_cast_int_lossy {
     ($from:ident, $to:ident) => {
         impl NumCast<$from> for $to {
             fn from_truncated(x: $from) -> CastResult<Self> {
-                CastResult {
-                    new: x as $to,
-                    lossy: $to::try_from(x).is_err(),
-                }
+                let lossy = $to::try_from(x).is_err();
+                let new = if lossy { $to::MAX } else { x as $to };
+                CastResult { new, lossy }
             }
         }
     };
@@ -385,13 +392,13 @@ macro_rules! impl_cast_float_to_int_lossy {
 }
 
 macro_rules! impl_cast_int_to_float_lossy {
-    ($from:ident, $to:ident, $bits:expr) => {
+    ($from:ident, $to:ident) => {
         impl NumCast<$from> for $to {
             fn from_truncated(x: $from) -> CastResult<Self> {
-                CastResult {
-                    new: x as $to,
-                    lossy: x > 2 ^ $bits,
-                }
+                let new = x as $to;
+                let old = new as $from;
+                let lossy = old != x;
+                CastResult { new, lossy }
             }
         }
     };
@@ -415,21 +422,23 @@ impl_cast_int_lossy!(u32, u8);
 impl_cast_int_lossy!(u32, u16);
 impl_cast_noloss!(u32, u32);
 impl_cast_noloss!(u32, u64);
-impl_cast_int_to_float_lossy!(u32, f32, 24);
+impl_cast_int_to_float_lossy!(u32, f32);
 impl_cast_noloss!(u32, f64);
 
 impl_cast_int_lossy!(u64, u8);
 impl_cast_int_lossy!(u64, u16);
 impl_cast_int_lossy!(u64, u32);
 impl_cast_noloss!(u64, u64);
-impl_cast_int_to_float_lossy!(u64, f32, 24);
-impl_cast_int_to_float_lossy!(u64, f64, 53);
+impl_cast_int_to_float_lossy!(u64, f32);
+impl_cast_int_to_float_lossy!(u64, f64);
 
 impl_cast_float_to_int_lossy!(f32, u8);
 impl_cast_float_to_int_lossy!(f32, u16);
 impl_cast_float_to_int_lossy!(f32, u32);
 impl_cast_float_to_int_lossy!(f32, u64);
 impl_cast_noloss!(f32, f32);
+// this will always be lossless, see
+// https://doc.rust-lang.org/reference/expressions/operator-expr.html#r-expr.as.numeric.float-widening
 impl_cast_noloss!(f32, f64);
 
 impl_cast_float_to_int_lossy!(f64, u8);
@@ -437,12 +446,14 @@ impl_cast_float_to_int_lossy!(f64, u16);
 impl_cast_float_to_int_lossy!(f64, u32);
 impl_cast_float_to_int_lossy!(f64, u64);
 
+// TODO there are plenty of cases where this isn't lossy, but it's not clear
+// where the line should be drawn
 impl NumCast<f64> for f32 {
     fn from_truncated(x: f64) -> CastResult<Self> {
-        CastResult {
-            new: x as f32,
-            lossy: true,
-        }
+        let new = x as f32;
+        let old = new as f64;
+        let lossy = old != x;
+        CastResult { new, lossy }
     }
 }
 
@@ -460,6 +471,200 @@ pub(crate) trait AllFCSCast:
 impl<T> AllFCSCast for T where
     T: NumCast<u8> + NumCast<u16> + NumCast<u32> + NumCast<u64> + NumCast<f32> + NumCast<f64>
 {
+}
+
+// TODO this seems like a good place for property testing
+// (https://github.com/proptest-rs/proptest)
+#[cfg(test)]
+mod tests {
+    use core::f32;
+
+    use super::*;
+
+    // only test lossy cases, assume the others will simply noop
+
+    #[test]
+    fn test_u16_to_u8() {
+        assert_eq!(u8::from_truncated(1_u16).lossy, false);
+        assert_eq!(u8::from_truncated(256_u16), CastResult::new(255, true));
+    }
+
+    #[test]
+    fn test_u32_to_u8() {
+        assert_eq!(u8::from_truncated(1_u32).lossy, false);
+        assert_eq!(u8::from_truncated(256_u32), CastResult::new(255, true));
+    }
+
+    #[test]
+    fn test_u64_to_u8() {
+        assert_eq!(u8::from_truncated(1_u64).lossy, false);
+        assert_eq!(u8::from_truncated(256_u64), CastResult::new(255, true));
+    }
+
+    #[test]
+    fn test_u32_to_u16() {
+        assert_eq!(u16::from_truncated(1_u32).lossy, false);
+        assert_eq!(u16::from_truncated(65536_u32), CastResult::new(65535, true));
+    }
+
+    #[test]
+    fn test_u64_to_u16() {
+        assert_eq!(u16::from_truncated(1_u64).lossy, false);
+        assert_eq!(u16::from_truncated(65536_u64), CastResult::new(65535, true));
+    }
+
+    #[test]
+    fn test_u64_to_u32() {
+        assert_eq!(u32::from_truncated(1_u64).lossy, false);
+        assert_eq!(
+            u32::from_truncated(4294967296_u64),
+            CastResult::new(4294967295, true)
+        );
+    }
+
+    // uint should map exactly to f32 if less than 2^24, above this it will
+    // start rounding to nearest even number (and beyond as we get higher)
+
+    #[test]
+    fn test_u32_to_f32() {
+        assert_eq!(f32::from_truncated(1_u32), CastResult::new(1.0, false));
+        assert_eq!(
+            f32::from_truncated(16777216_u32),
+            CastResult::new(16777216.0, false)
+        );
+        assert_eq!(
+            f32::from_truncated(16777217_u32),
+            CastResult::new(16777216.0, true)
+        );
+        assert_eq!(
+            f32::from_truncated(16777218_u32),
+            CastResult::new(16777218.0, false)
+        );
+    }
+
+    #[test]
+    fn test_u64_to_f32() {
+        assert_eq!(f32::from_truncated(1_u64), CastResult::new(1.0, false));
+        assert_eq!(
+            f32::from_truncated(16777216_u64),
+            CastResult::new(16777216.0, false)
+        );
+        assert_eq!(
+            f32::from_truncated(16777217_u64),
+            CastResult::new(16777216.0, true)
+        );
+        assert_eq!(
+            f32::from_truncated(16777218_u64),
+            CastResult::new(16777218.0, false)
+        );
+    }
+
+    // uint should map exactly to f64 if less than 2^53, above this it will
+    // start rounding to nearest even number (and beyond as we get higher)
+
+    #[test]
+    fn test_u64_to_f64() {
+        assert_eq!(f64::from_truncated(1_u64), CastResult::new(1.0, false));
+        assert_eq!(
+            f64::from_truncated(9007199254740992_u64),
+            CastResult::new(9007199254740992.0, false)
+        );
+        assert_eq!(
+            f64::from_truncated(9007199254740993_u64),
+            CastResult::new(9007199254740992.0, true)
+        );
+        assert_eq!(
+            f64::from_truncated(9007199254740994_u64),
+            CastResult::new(9007199254740994.0, false)
+        );
+    }
+
+    macro_rules! test_float_to_int {
+        ($float:ident, $int:ident) => {
+            let zero: $float = 0.0;
+            let nonzero: $float = 1.5;
+            let neg: $float = -1.0;
+
+            assert_eq!($int::from_truncated(zero), CastResult::new(0, false));
+            assert_eq!(
+                $int::from_truncated($int::MAX as $float),
+                CastResult::new($int::MAX, false)
+            );
+            assert_eq!($int::from_truncated(nonzero), CastResult::new(1, true));
+            assert_eq!($int::from_truncated(neg), CastResult::new(0, true));
+            assert_eq!($int::from_truncated($float::NAN), CastResult::new(0, true));
+            assert_eq!(
+                $int::from_truncated($float::NEG_INFINITY),
+                CastResult::new(0, true)
+            );
+            assert_eq!(
+                $int::from_truncated($float::INFINITY),
+                CastResult::new($int::MAX, true)
+            );
+        };
+    }
+
+    #[test]
+    fn test_f32_to_u8() {
+        test_float_to_int!(f32, u8);
+    }
+
+    #[test]
+    fn test_f32_to_u16() {
+        test_float_to_int!(f32, u16);
+    }
+
+    #[test]
+    fn test_f32_to_u32() {
+        test_float_to_int!(f32, u32);
+    }
+
+    #[test]
+    fn test_f32_to_u64() {
+        test_float_to_int!(f32, u64);
+    }
+
+    #[test]
+    fn test_f64_to_u8() {
+        test_float_to_int!(f64, u8);
+    }
+
+    #[test]
+    fn test_f64_to_u16() {
+        test_float_to_int!(f64, u16);
+    }
+
+    #[test]
+    fn test_f64_to_u32() {
+        test_float_to_int!(f64, u32);
+    }
+
+    #[test]
+    fn test_f64_to_u64() {
+        test_float_to_int!(f64, u64);
+    }
+
+    #[test]
+    fn test_f64_to_f32() {
+        // this should obviously pass
+        assert_eq!(f32::from_truncated(0.0_f64), CastResult::new(0.0, false));
+        // this is the upper limit of ints that an f32 can represent exactly,
+        // going above this will start to induce rounding errors that don't
+        // happen in f64
+        assert_eq!(
+            f32::from_truncated(16777216.0_f64),
+            CastResult::new(16777216.0, false)
+        );
+        assert_eq!(
+            f32::from_truncated(16777217.0_f64),
+            CastResult::new(16777216.0, true)
+        );
+        // this is a decimal that can be represented perfectly in both
+        assert_eq!(f32::from_truncated(0.5_f64), CastResult::new(0.5, false));
+        // this is a repeating decimal which will have different representations
+        // in f32 and f64, thus it will be lossy
+        assert_eq!(f32::from_truncated(0.2_f64), CastResult::new(0.2, true));
+    }
 }
 
 #[cfg(feature = "python")]

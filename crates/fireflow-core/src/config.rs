@@ -30,8 +30,7 @@ pub struct ReadHeaderConfig(pub HeaderConfigInner);
 
 /// Instructions for reading the DATA segment.
 #[derive(Default, Clone, AsRef)]
-#[cfg_attr(feature = "python", derive(FromPyObject))]
-#[pyo3(from_item_all)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ReadRawTEXTConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
     pub raw: ReadHeaderAndTEXTConfig,
@@ -40,8 +39,7 @@ pub struct ReadRawTEXTConfig {
 }
 
 #[derive(Default, Clone, AsRef)]
-#[cfg_attr(feature = "python", derive(FromPyObject))]
-#[pyo3(from_item_all)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ReadStdTEXTConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
     pub raw: ReadHeaderAndTEXTConfig,
@@ -59,8 +57,7 @@ pub struct ReadStdTEXTConfig {
 }
 
 #[derive(Default, Clone, AsRef)]
-#[cfg_attr(feature = "python", derive(FromPyObject))]
-#[pyo3(from_item_all)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ReadRawDatasetConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
     pub raw: ReadHeaderAndTEXTConfig,
@@ -78,8 +75,7 @@ pub struct ReadRawDatasetConfig {
 }
 
 #[derive(Default, Clone, AsRef)]
-#[cfg_attr(feature = "python", derive(FromPyObject))]
-#[pyo3(from_item_all)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ReadStdDatasetConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
     pub raw: ReadHeaderAndTEXTConfig,
@@ -100,8 +96,7 @@ pub struct ReadStdDatasetConfig {
 }
 
 #[derive(Default, Clone, AsRef)]
-#[cfg_attr(feature = "python", derive(FromPyObject))]
-#[pyo3(from_item_all)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ReadRawDatasetFromKeywordsConfig {
     #[as_ref(ReadLayoutConfig)]
     pub layout: ReadLayoutConfig,
@@ -116,8 +111,7 @@ pub struct ReadRawDatasetFromKeywordsConfig {
 }
 
 #[derive(Default, Clone, AsRef)]
-#[cfg_attr(feature = "python", derive(FromPyObject))]
-#[pyo3(from_item_all)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ReadStdDatasetFromKeywordsConfig {
     #[as_ref(StdTextReadConfig)]
     pub standard: StdTextReadConfig,
@@ -136,8 +130,7 @@ pub struct ReadStdDatasetFromKeywordsConfig {
 
 /// Instructions for reading the DATA segment.
 #[derive(Default, Clone)]
-#[cfg_attr(feature = "python", derive(FromPyObject))]
-#[pyo3(from_item_all)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct DataReadConfig {
     /// Instructions to read and standardize TEXT.
     pub standard: StdTextReadConfig,
@@ -150,8 +143,7 @@ pub struct DataReadConfig {
 
 /// Instructions for reading the DATA/ANALYSIS segments
 #[derive(Default, Clone)]
-#[cfg_attr(feature = "python", derive(FromPyObject))]
-#[pyo3(from_item_all)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ReaderConfig {
     /// If `true`, allow event width to not perfectly divide DATA.
     ///
@@ -217,8 +209,7 @@ pub struct WriteConfig {
 }
 
 #[derive(Default, Clone)]
-#[cfg_attr(feature = "python", derive(FromPyObject))]
-#[pyo3(from_item_all)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct HeaderConfigInner {
     /// Override the version
     pub version_override: Option<Version>,
@@ -296,8 +287,7 @@ pub struct HeaderConfigInner {
 /// Instructions for reading the TEXT segment as raw key/value pairs.
 // TODO add correction for $NEXTDATA
 #[derive(Default, Clone, AsRef)]
-#[cfg_attr(feature = "python", derive(FromPyObject))]
-#[pyo3(from_item_all)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ReadHeaderAndTEXTConfig {
     /// Config for reading HEADER
     #[as_ref(HeaderConfigInner)]
@@ -496,8 +486,7 @@ pub struct ReadHeaderAndTEXTConfig {
 }
 
 #[derive(Default, Clone)]
-#[cfg_attr(feature = "python", derive(FromPyObject))]
-#[pyo3(from_item_all)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ReadTEXTOffsetsConfig {
     /// Corrections for DATA offsets in TEXT segment
     pub text_data_correction: TEXTCorrection<DataSegmentId>,
@@ -540,8 +529,7 @@ pub struct ReadTEXTOffsetsConfig {
 
 /// Instructions for reading the TEXT segment in a standardized structure.
 #[derive(Default, Clone)]
-#[cfg_attr(feature = "python", derive(FromPyObject))]
-#[pyo3(from_item_all)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct StdTextReadConfig {
     /// If given, a pattern to find/match the $PnN of the time measurement.
     ///
@@ -600,8 +588,7 @@ pub struct StdTextReadConfig {
 }
 
 #[derive(Default, Clone)]
-#[cfg_attr(feature = "python", derive(FromPyObject))]
-#[pyo3(from_item_all)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ReadLayoutConfig {
     /// If given, override $PnB with the number of bytes in $BYTEORD.
     ///
@@ -657,8 +644,7 @@ pub struct ReadLayoutConfig {
 
 /// Configuration options for both reading and writing
 #[derive(Default, Clone)]
-#[cfg_attr(feature = "python", derive(FromPyObject))]
-#[pyo3(from_item_all)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct SharedConfig {
     /// If true, all warnings are considered to be fatal errors.
     pub warnings_are_errors: bool,

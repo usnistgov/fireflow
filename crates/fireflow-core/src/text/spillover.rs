@@ -91,10 +91,11 @@ impl Spillover {
 impl fmt::Display for Spillover {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let n = self.measurements.len();
+        let names = self.measurements.iter().join(",");
         // DMatrix slices are column major, so transpose first to output
         // row-major
         let xs = self.matrix.transpose().as_slice().iter().join(",");
-        write!(f, "{n},{xs}")
+        write!(f, "{n},{names},{xs}")
     }
 }
 
@@ -171,6 +172,42 @@ impl fmt::Display for SpilloverError {
             SpilloverError::TooSmall => "Matrix is less than 2x2",
         };
         write!(f, "{}", s)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test::*;
+
+    #[test]
+    fn test_str_compensation() {
+        assert_from_to_str::<Spillover>("2,X,Y,0,0,0,0");
+        assert_from_to_str::<Spillover>("3,X,Y,Z,0,0,0,0,0,0,0,0,0");
+        assert_from_to_str::<Spillover>("2,X,Y,1.1,1,0,-1.5");
+    }
+
+    #[test]
+    fn test_str_compensation_unique() {
+        assert_eq!(
+            "3,Y,Y,Z,0,0,0,0,0,0,0,0,0".parse::<Spillover>().is_ok(),
+            false,
+        );
+    }
+
+    #[test]
+    fn test_str_compensation_toosmall() {
+        assert_eq!("1,potato,0".parse::<Spillover>().is_ok(), false,);
+    }
+
+    #[test]
+    fn test_str_compensation_name_length() {
+        assert_eq!(
+            "2,moody,padfoot,prongs,0,0,0,0"
+                .parse::<Spillover>()
+                .is_ok(),
+            false,
+        );
     }
 }
 

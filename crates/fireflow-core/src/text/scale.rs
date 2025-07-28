@@ -218,6 +218,23 @@ impl fmt::Display for LogRangeError {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test::*;
+
+    #[test]
+    fn test_scale() {
+        assert_from_to_str::<Scale>("0,0");
+        assert_from_to_str::<Scale>("4.5,0.01");
+    }
+
+    #[test]
+    fn test_scale_invalid() {
+        assert_eq!("4.5,0".parse::<Scale>().is_ok(), false);
+    }
+}
+
 #[cfg(feature = "python")]
 mod python {
     use super::{LogRangeError, Scale};

@@ -5,7 +5,7 @@ use crate::validated::keys::*;
 use super::optional::*;
 use super::parser::*;
 
-use chrono::{DateTime, FixedOffset};
+use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeZone};
 use derive_more::{AsRef, Display, From, FromStr, Into};
 use std::fmt;
 use std::mem;
@@ -134,19 +134,35 @@ impl FromStr for FCSDateTime {
     type Err = FCSDateTimeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let formats = [
-            "%Y-%m-%dT%H:%M:%S%.f",
-            "%Y-%m-%dT%H:%M:%S%.f%#z",
-            "%Y-%m-%dT%H:%M:%S%.f%:z",
-            "%Y-%m-%dT%H:%M:%S%.f%::z",
-            "%Y-%m-%dT%H:%M:%S%.f%:::z",
-        ];
-        for f in formats {
-            if let Ok(t) = DateTime::parse_from_str(s, f) {
-                return Ok(FCSDateTime(t));
+        // first, try to parse without a timezone, defaulting to localtime and
+        // converting to a fixed offset
+        // TODO this should probably be a warning since it is ambiguous to
+        // parse a timezone based solely on localtime
+        if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f") {
+            Local::now()
+                .timezone()
+                .from_local_datetime(&naive)
+                .single()
+                .map_or_else(
+                    || Err(FCSDateTimeError::Unmapped(s.to_string())),
+                    |t| Ok(FCSDateTime(t.fixed_offset())),
+                )
+        } else {
+            // If zone information is present, try any number of formats which
+            // are valid and mostly equivalent which contain the timezone
+            let formats = [
+                "%Y-%m-%dT%H:%M:%S%.f",
+                "%Y-%m-%dT%H:%M:%S%.f%#z",
+                "%Y-%m-%dT%H:%M:%S%.f%:z",
+                "%Y-%m-%dT%H:%M:%S%.f%:::z",
+            ];
+            for f in formats {
+                if let Ok(t) = DateTime::parse_from_str(s, f) {
+                    return Ok(FCSDateTime(t));
+                }
             }
+            Err(FCSDateTimeError::Other)
         }
-        Err(FCSDateTimeError)
     }
 }
 
@@ -156,11 +172,57 @@ impl fmt::Display for FCSDateTime {
     }
 }
 
-pub struct FCSDateTimeError;
+#[derive(Debug)]
+pub enum FCSDateTimeError {
+    Unmapped(String),
+    Other,
+}
 
 impl fmt::Display for FCSDateTimeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_str_to_datetime_local() {
+        assert_eq!("2112-01-01T00:00:00.0".parse::<FCSDateTime>().is_ok(), true);
+    }
+
+    #[test]
+    fn test_datetime_utc() {
+        let s0 = "2112-01-01T00:00:00.0Z";
+        let x = s0.parse::<FCSDateTime>().unwrap();
+        let s1 = x.to_string();
+        assert_eq!(s1.as_str(), "2112-01-01T00:00:00+00:00");
+    }
+
+    #[test]
+    fn test_datetime_hh() {
+        let s0 = "2112-01-01T00:00:00.0+01";
+        let x = s0.parse::<FCSDateTime>().unwrap();
+        let s1 = x.to_string();
+        assert_eq!(s1.as_str(), "2112-01-01T00:00:00+01:00");
+    }
+
+    #[test]
+    fn test_datetime_hh_mm() {
+        let s0 = "2112-01-01T00:00:00.0+00:01";
+        let x = s0.parse::<FCSDateTime>().unwrap();
+        let s1 = x.to_string();
+        assert_eq!(s1.as_str(), "2112-01-01T00:00:00+00:01");
+    }
+
+    #[test]
+    fn test_datetime_hhmm() {
+        let s0 = "2112-01-01T00:00:00.0+0001";
+        let x = s0.parse::<FCSDateTime>().unwrap();
+        let s1 = x.to_string();
+        assert_eq!(s1.as_str(), "2112-01-01T00:00:00+00:01");
     }
 }
 

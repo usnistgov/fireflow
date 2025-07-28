@@ -7,7 +7,7 @@ Core library code for fireflow.
 """
 
 [dependencies]
-chrono = { workspace = true }
+chrono = { workspace = true, features = ["clock"] }
 regex = "1.11.1"
 derive_more = { workspace = true, features = ["from", "into", "display", "from_str", "as_ref", "add", "mul"] }
 itertools = { workspace = true }

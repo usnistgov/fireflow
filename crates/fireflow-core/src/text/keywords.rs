@@ -206,6 +206,7 @@ impl fmt::Display for Mode3_2 {
         write!(f, "L")
     }
 }
+
 impl fmt::Display for Mode3_2Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "can only be 'L'")
@@ -253,7 +254,7 @@ impl fmt::Display for Display {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             Display::Lin { lower, upper } => write!(f, "Linear,{lower},{upper}"),
-            Display::Log { offset, decades } => write!(f, "Log,{offset},{decades}"),
+            Display::Log { offset, decades } => write!(f, "Logarithmic,{decades},{offset}"),
         }
     }
 }
@@ -634,26 +635,35 @@ impl FromStr for ModifiedDateTime {
     type Err = ModifiedDateTimeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (dt, cc) =
-            NaiveDateTime::parse_and_remainder(s, DATETIME_FMT).or(Err(ModifiedDateTimeError))?;
-        if cc.is_empty() {
-            Ok(ModifiedDateTime(dt))
-        } else if cc.len() == 3 && cc.starts_with(".") {
-            let tt: u32 = cc[1..3].parse().or(Err(ModifiedDateTimeError))?;
-            dt.with_nanosecond(tt * 10000000)
-                .map(ModifiedDateTime)
-                .ok_or(ModifiedDateTimeError)
-        } else {
-            Err(ModifiedDateTimeError)
-        }
+        let (t, cc) = match &s.split(".").collect::<Vec<_>>()[..] {
+            [t] => (*t, ""),
+            [t, cc] => (*t, *cc),
+            _ => return Err(ModifiedDateTimeError),
+        };
+        NaiveDateTime::parse_from_str(t, DATETIME_FMT)
+            .or(Err(ModifiedDateTimeError))
+            .and_then(|dt| {
+                if cc.is_empty() {
+                    Ok(dt)
+                } else {
+                    let tt = cc.parse::<u32>().or(Err(ModifiedDateTimeError))?;
+                    if tt > 100 {
+                        Err(ModifiedDateTimeError)
+                    } else {
+                        dt.with_nanosecond(tt * 10_000_000)
+                            .ok_or(ModifiedDateTimeError)
+                    }
+                }
+            })
+            .map(Self)
     }
 }
 
 impl fmt::Display for ModifiedDateTime {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let dt = self.0.format(DATETIME_FMT);
-        let cc = self.0.nanosecond() / 10000000;
-        write!(f, "{dt}.{cc}")
+        let cc = self.0.nanosecond() / 10_000_000;
+        write!(f, "{dt}.{cc:02}")
     }
 }
 
@@ -782,20 +792,30 @@ pub enum OpticalType {
 
 pub struct OpticalTypeError;
 
+const FORWARD_SCATTER: &str = "Forward Scatter";
+const SIDE_SCATTER: &str = "Side Scatter";
+const RAW_FLUORESCENCE: &str = "Raw Fluorescence";
+const UNMIXED_FLUORESCENCE: &str = "Unmixed Fluorescence";
+const MASS: &str = "Mass";
+const INDEX: &str = "Index";
+const ELECTRONIC_VOLUME: &str = "Electronic Volume";
+const CLASSIFICATION: &str = "Classification";
+const TIME: &str = "Time";
+
 impl FromStr for OpticalType {
     type Err = OpticalTypeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "Time" => Err(OpticalTypeError),
-            "Forward Scatter" => Ok(OpticalType::ForwardScatter),
-            "Side Scatter" => Ok(OpticalType::SideScatter),
-            "Raw Fluorescence" => Ok(OpticalType::RawFluorescence),
-            "Unmixed Fluorescence" => Ok(OpticalType::UnmixedFluorescence),
-            "Mass" => Ok(OpticalType::Mass),
-            "Electronic Volume" => Ok(OpticalType::ElectronicVolume),
-            "Index" => Ok(OpticalType::Index),
-            "Classification" => Ok(OpticalType::Classification),
+            TIME => Err(OpticalTypeError),
+            FORWARD_SCATTER => Ok(OpticalType::ForwardScatter),
+            SIDE_SCATTER => Ok(OpticalType::SideScatter),
+            RAW_FLUORESCENCE => Ok(OpticalType::RawFluorescence),
+            UNMIXED_FLUORESCENCE => Ok(OpticalType::UnmixedFluorescence),
+            MASS => Ok(OpticalType::Mass),
+            ELECTRONIC_VOLUME => Ok(OpticalType::ElectronicVolume),
+            INDEX => Ok(OpticalType::Index),
+            CLASSIFICATION => Ok(OpticalType::Classification),
             s => Ok(OpticalType::Other(String::from(s))),
         }
     }
@@ -804,14 +824,14 @@ impl FromStr for OpticalType {
 impl fmt::Display for OpticalType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            OpticalType::ForwardScatter => write!(f, "Foward Scatter"),
-            OpticalType::SideScatter => write!(f, "Side Scatter"),
-            OpticalType::RawFluorescence => write!(f, "Raw Fluorescence"),
-            OpticalType::UnmixedFluorescence => write!(f, "Unmixed Fluorescence"),
-            OpticalType::Mass => write!(f, "Mass"),
-            OpticalType::ElectronicVolume => write!(f, "Electronic Volume"),
-            OpticalType::Classification => write!(f, "Classification"),
-            OpticalType::Index => write!(f, "Index"),
+            OpticalType::ForwardScatter => f.write_str(FORWARD_SCATTER),
+            OpticalType::SideScatter => f.write_str(SIDE_SCATTER),
+            OpticalType::RawFluorescence => f.write_str(RAW_FLUORESCENCE),
+            OpticalType::UnmixedFluorescence => f.write_str(UNMIXED_FLUORESCENCE),
+            OpticalType::Mass => f.write_str(MASS),
+            OpticalType::ElectronicVolume => f.write_str(ELECTRONIC_VOLUME),
+            OpticalType::Classification => f.write_str(CLASSIFICATION),
+            OpticalType::Index => f.write_str(INDEX),
             OpticalType::Other(s) => write!(f, "{}", s),
         }
     }
@@ -838,7 +858,7 @@ impl FromStr for TemporalType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "Time" => Ok(TemporalType),
+            TIME => Ok(TemporalType),
             _ => Err(TemporalTypeError),
         }
     }
@@ -846,7 +866,7 @@ impl FromStr for TemporalType {
 
 impl fmt::Display for TemporalType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "Time")
+        f.write_str(TIME)
     }
 }
 
@@ -865,14 +885,18 @@ pub enum Feature {
     Height,
 }
 
+const AREA: &str = "Area";
+const WIDTH: &str = "Width";
+const HEIGHT: &str = "Height";
+
 impl FromStr for Feature {
     type Err = FeatureError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "Area" => Ok(Feature::Area),
-            "Width" => Ok(Feature::Width),
-            "Height" => Ok(Feature::Height),
+            AREA => Ok(Feature::Area),
+            WIDTH => Ok(Feature::Width),
+            HEIGHT => Ok(Feature::Height),
             _ => Err(FeatureError),
         }
     }
@@ -880,11 +904,12 @@ impl FromStr for Feature {
 
 impl fmt::Display for Feature {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Feature::Area => write!(f, "Area"),
-            Feature::Width => write!(f, "Width"),
-            Feature::Height => write!(f, "Height"),
-        }
+        let s = match self {
+            Feature::Area => AREA,
+            Feature::Width => WIDTH,
+            Feature::Height => HEIGHT,
+        };
+        f.write_str(s)
     }
 }
 
@@ -1191,15 +1216,15 @@ fn match_tokens(
 ) -> Result<Gating, GatingError> {
     if let Some(this) = rest.next() {
         match this {
-            GatingToken::LParen => match_tokens_depth(rest, depth + 1),
+            GatingToken::LParen => match_tokens_new_expr(rest, depth + 1),
             GatingToken::Not => {
-                let inner = match_tokens_depth(rest, depth)?;
+                let inner = match_tokens_new_expr(rest, depth)?;
                 let new = Gating::Not(Box::new(inner));
-                match_tokens_acc(new, rest, depth)
+                match_tokens_extend_expr(new, rest, depth)
             }
             GatingToken::Region(r) => {
                 let new = Gating::Region(r);
-                match_tokens_acc(new, rest, depth)
+                match_tokens_extend_expr(new, rest, depth)
             }
             _ => Err(GatingError::InvalidExprToken),
         }
@@ -1208,18 +1233,24 @@ fn match_tokens(
     }
 }
 
-fn match_tokens_depth(
+/// Start a new expression if next token is valid.
+///
+/// This inclues:
+/// - (blabla...
+/// - NOT blabla...
+/// - RX blabla...
+fn match_tokens_new_expr(
     rest: &mut impl Iterator<Item = GatingToken>,
     depth: u32,
 ) -> Result<Gating, GatingError> {
     if let Some(this) = rest.next() {
         match this {
             GatingToken::LParen => {
-                let inner = match_tokens_depth(rest, depth + 1)?;
-                match_tokens_acc(inner, rest, depth)
+                let inner = match_tokens_new_expr(rest, depth + 1)?;
+                match_tokens_extend_expr(inner, rest, depth + 1)
             }
             GatingToken::Not => {
-                let inner = match_tokens_depth(rest, depth)?;
+                let inner = match_tokens_new_expr(rest, depth)?;
                 Ok(Gating::Not(Box::new(inner)))
             }
             GatingToken::Region(r) => Ok(Gating::Region(r)),
@@ -1230,7 +1261,8 @@ fn match_tokens_depth(
     }
 }
 
-fn match_tokens_acc(
+/// Extend current expression
+fn match_tokens_extend_expr(
     acc: Gating,
     rest: &mut impl Iterator<Item = GatingToken>,
     depth: u32,
@@ -1238,18 +1270,18 @@ fn match_tokens_acc(
     if let Some(this) = rest.next() {
         match this {
             GatingToken::And => {
-                let right = match_tokens_depth(rest, depth)?;
+                let right = match_tokens_new_expr(rest, depth)?;
                 let new = Gating::And(Box::new(acc), Box::new(right));
-                match_tokens_acc(new, rest, depth)
+                match_tokens_extend_expr(new, rest, depth)
             }
             GatingToken::Or => {
-                let right = match_tokens_depth(rest, depth)?;
+                let right = match_tokens_new_expr(rest, depth)?;
                 let new = Gating::Or(Box::new(acc), Box::new(right));
-                match_tokens_acc(new, rest, depth)
+                match_tokens_extend_expr(new, rest, depth)
             }
             GatingToken::RParen => {
                 if depth > 0 {
-                    match_tokens_acc(acc, rest, depth - 1)
+                    match_tokens_extend_expr(acc, rest, depth - 1)
                 } else {
                     Err(GatingError::ExtraParen)
                 }
@@ -1264,7 +1296,7 @@ fn match_tokens_acc(
 }
 
 fn tokenize_gating(s: &str) -> impl Iterator<Item = GatingToken> {
-    s.split(['.', ' ']).filter(|x| x.is_empty()).flat_map(|x| {
+    s.split(['.', ' ']).filter(|x| !x.is_empty()).flat_map(|x| {
         x.split('(').flat_map(|y| {
             if y.is_empty() {
                 vec![GatingToken::LParen]
@@ -1304,6 +1336,7 @@ impl fmt::Display for Gating {
     }
 }
 
+#[derive(Debug)]
 enum GatingToken {
     RParen,
     LParen,
@@ -1483,13 +1516,6 @@ impl TryFrom<f64> for Range {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(u64)]
 pub struct GateRange(pub Range);
-
-// impl TryFrom<f64> for GateRange {
-//     type Error = NanFloatError;
-//     fn try_from(value: f64) -> Result<Self, Self::Error> {
-//         NonNanF64::try_from(value).map(|x| FloatOrInt::Float(x).into())
-//     }
-// }
 
 /// The value of the $PnO key
 #[derive(Clone, Copy, From, Display, FromStr, Into)]
@@ -1980,6 +2006,157 @@ opt_meta!(Beginanalysis);
 opt_meta!(Endanalysis);
 opt_meta!(Beginstext);
 opt_meta!(Endstext);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test::*;
+
+    #[test]
+    fn test_tr() {
+        assert_from_to_str::<Trigger>("Wooden Leg Pt 3,456");
+    }
+
+    #[test]
+    fn test_mode() {
+        assert_from_to_str::<Mode>("C");
+        assert_from_to_str::<Mode>("L");
+        assert_from_to_str::<Mode>("U");
+    }
+
+    #[test]
+    fn test_mode_3_2() {
+        assert_from_to_str::<Mode3_2>("L");
+    }
+
+    #[test]
+    fn test_pnd() {
+        assert_from_to_str::<Display>("Linear,0,1");
+        // TODO seems like this shouldn't be allowed
+        assert_from_to_str::<Display>("Linear,1,0");
+        assert_from_to_str::<Display>("Logarithmic,1,1");
+        // TODO this also seems like nonsense
+        assert_from_to_str::<Display>("Logarithmic,1,0");
+    }
+
+    #[test]
+    fn test_datatype() {
+        assert_from_to_str::<NumType>("I");
+        assert_from_to_str::<NumType>("F");
+        assert_from_to_str::<NumType>("D");
+    }
+
+    #[test]
+    fn test_pndatetype() {
+        assert_from_to_str::<AlphaNumType>("I");
+        assert_from_to_str::<AlphaNumType>("F");
+        assert_from_to_str::<AlphaNumType>("D");
+        assert_from_to_str::<AlphaNumType>("A");
+    }
+
+    #[test]
+    fn test_pne_time() {
+        assert_from_to_str::<TemporalScale>("0,0");
+    }
+
+    #[test]
+    fn test_pncalibration_3_1() {
+        assert_from_to_str::<Calibration3_1>("0.1,cubic imperial lightyears");
+    }
+
+    #[test]
+    fn test_pncalibration_3_2() {
+        assert_from_to_str::<Calibration3_2>("1.1,3.5813,progressive metal albums");
+    }
+
+    #[test]
+    fn test_pnl_3_1() {
+        assert_from_to_str::<Wavelengths>("1");
+        assert_from_to_str::<Wavelengths>("1,2");
+    }
+
+    #[test]
+    fn test_last_modified() {
+        assert_from_to_str_almost::<ModifiedDateTime>(
+            "01-Jan-2112 00:00:00",
+            "01-Jan-2112 00:00:00.00",
+        );
+        assert_from_to_str::<ModifiedDateTime>("01-Jan-2112 00:00:00.01");
+    }
+
+    #[test]
+    fn test_originality() {
+        assert_from_to_str::<Originality>("Original");
+        assert_from_to_str::<Originality>("NonDataModified");
+        assert_from_to_str::<Originality>("Appended");
+        assert_from_to_str::<Originality>("DataModified");
+    }
+
+    #[test]
+    fn test_unicode() {
+        assert_from_to_str::<Unicode>("42,$BYTEORD");
+        // we don't actually check that the keyword is valid, likely nobody
+        // will notice ;)
+        assert_from_to_str::<Unicode>("42,$40DOLLARBILL");
+    }
+
+    #[test]
+    fn test_pntype_optical() {
+        assert_from_to_str::<OpticalType>("Forward Scatter");
+        assert_from_to_str::<OpticalType>("Side Scatter");
+        assert_from_to_str::<OpticalType>("Raw Fluorescence");
+        assert_from_to_str::<OpticalType>("Unmixed Fluorescence");
+        assert_from_to_str::<OpticalType>("Mass");
+        assert_from_to_str::<OpticalType>("Electronic Volume");
+        assert_from_to_str::<OpticalType>("Index");
+        assert_from_to_str::<OpticalType>("Classification");
+    }
+
+    #[test]
+    fn test_pntype_time() {
+        assert_from_to_str::<TemporalType>("Time");
+    }
+
+    #[test]
+    fn test_pnfeature() {
+        assert_from_to_str::<Feature>("Area");
+        assert_from_to_str::<Feature>("Width");
+        assert_from_to_str::<Feature>("Height");
+    }
+
+    #[test]
+    fn test_rni_2_0() {
+        assert_from_to_str::<RegionGateIndex<GateIndex>>("1");
+        assert_from_to_str::<RegionGateIndex<GateIndex>>("1,2");
+    }
+
+    #[test]
+    fn test_rni_3_0() {
+        assert_from_to_str::<RegionGateIndex<MeasOrGateIndex>>("P1");
+        assert_from_to_str::<RegionGateIndex<MeasOrGateIndex>>("P1,P2");
+        assert_from_to_str::<RegionGateIndex<MeasOrGateIndex>>("G1");
+        assert_from_to_str::<RegionGateIndex<MeasOrGateIndex>>("G1,G2");
+    }
+
+    #[test]
+    fn test_rni_3_2() {
+        assert_from_to_str::<RegionGateIndex<PrefixedMeasIndex>>("P1");
+        assert_from_to_str::<RegionGateIndex<PrefixedMeasIndex>>("P1,P2");
+    }
+
+    #[test]
+    fn test_rnw() {
+        assert_from_to_str::<RegionWindow>("1,1");
+        assert_from_to_str::<RegionWindow>("1,1;2,3;5,8;13,21");
+    }
+
+    #[test]
+    fn test_gating() {
+        assert_from_to_str::<Gating>("R1");
+        assert_from_to_str_almost::<Gating>("R1 AND (R2.OR.R3)", "(R1 AND (R2 OR R3))");
+        assert_from_to_str::<Gating>("((NOT R1) AND R2)");
+    }
+}
 
 #[cfg(feature = "python")]
 mod python {

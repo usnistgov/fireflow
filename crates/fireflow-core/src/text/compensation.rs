@@ -6,7 +6,7 @@ use super::keywords::{Dfc, Par};
 use super::optional::*;
 use super::parser::*;
 
-use derive_more::{AsRef, Display, From, FromStr, Into};
+use derive_more::{AsRef, Display, From, Into};
 use itertools::Itertools;
 use nalgebra::DMatrix;
 use std::fmt;
@@ -23,7 +23,7 @@ use serde::Serialize;
 pub struct Compensation2_0(pub Compensation);
 
 /// The value of the $COMP keyword (3.0)
-#[derive(Clone, From, Into, Display, FromStr, AsRef)]
+#[derive(Clone, From, Into, Display, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[as_ref(DMatrix<f32>, Compensation)]
 pub struct Compensation3_0(pub Compensation);
@@ -31,7 +31,7 @@ pub struct Compensation3_0(pub Compensation);
 /// A compensation matrix.
 ///
 /// This is encoded in the $DFCmTOn keywords in 2.0 and $COMP in 3.0.
-#[derive(Clone, AsRef, From)]
+#[derive(Clone, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Compensation {
     /// Values in the comp matrix in row-major order. Assumed to be the
@@ -63,7 +63,7 @@ impl Compensation2_0 {
             }
         }
         if warnings.is_empty() {
-            Compensation::try_new(matrix).map_or_else(
+            Compensation::try_from(matrix).map_or_else(
                 |w| {
                     Tentative::new(
                         None.into(),
@@ -96,17 +96,23 @@ impl Compensation2_0 {
     }
 }
 
-impl Compensation {
-    pub fn try_new(matrix: DMatrix<f32>) -> Result<Self, NewCompError> {
+impl TryFrom<DMatrix<f32>> for Compensation {
+    type Error = NewCompError;
+
+    fn try_from(matrix: DMatrix<f32>) -> Result<Self, Self::Error> {
         if !matrix.is_square() {
             Err(NewCompError::NotSquare)
         } else if matrix.ncols() < 2 {
             Err(NewCompError::TooSmall)
+        } else if !matrix.iter().all(|x| x.is_finite()) {
+            Err(NewCompError::NotFinite)
         } else {
             Ok(Self { matrix })
         }
     }
+}
 
+impl Compensation {
     pub(crate) fn remove_by_index(&mut self, index: MeasIndex) -> Result<bool, ClearOptional> {
         let i: usize = index.into();
         let n = self.matrix.ncols();
@@ -123,7 +129,7 @@ impl Compensation {
     }
 }
 
-impl FromStr for Compensation {
+impl FromStr for Compensation3_0 {
     type Err = ParseCompError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -148,7 +154,7 @@ impl FromStr for Compensation {
                     Err(ParseCompError::BadFloat)
                 } else {
                     let matrix = DMatrix::from_row_iterator(n, n, fvalues);
-                    Ok(Compensation { matrix })
+                    Ok(Compensation::try_from(matrix).map(Self)?)
                 }
             }
         } else {
@@ -157,15 +163,22 @@ impl FromStr for Compensation {
     }
 }
 
+#[derive(From)]
 pub enum ParseCompError {
-    WrongLength { total: usize, expected: usize },
+    WrongLength {
+        total: usize,
+        expected: usize,
+    },
     BadLength,
     BadFloat,
+    #[from]
+    New(NewCompError),
 }
 
 pub enum NewCompError {
     NotSquare,
     TooSmall,
+    NotFinite,
 }
 
 impl fmt::Display for NewCompError {
@@ -173,6 +186,7 @@ impl fmt::Display for NewCompError {
         let s = match self {
             Self::NotSquare => "compensation matrix must be square",
             Self::TooSmall => "compensation matrix must be 2x2 or bigger",
+            Self::NotFinite => "compensation matrix may not have Nan, +Inf, or -Inf",
         };
         write!(f, "{s}")
     }
@@ -196,6 +210,7 @@ impl fmt::Display for ParseCompError {
                 write!(f, "Expected {expected} entries, found {total}")
             }
             ParseCompError::BadLength => write!(f, "Could not determine length"),
+            ParseCompError::New(x) => x.fmt(f),
         }
     }
 }
@@ -215,6 +230,49 @@ pub(crate) fn lookup_dfc(
     })
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nalgebra::DMatrix;
+
+    #[test]
+    fn test_str_compensation() {
+        assert_eq!("2,0,0,0,0".parse::<Compensation3_0>().is_ok(), true);
+        assert_eq!("2,1.0,0,2.0,-1.0".parse::<Compensation3_0>().is_ok(), true);
+        assert_eq!(
+            "3,0,0,0,0,0,0,0,0,0".parse::<Compensation3_0>().is_ok(),
+            true
+        );
+    }
+
+    #[test]
+    fn test_str_compensation_too_small() {
+        assert_eq!("1,0".parse::<Compensation3_0>().is_ok(), false);
+    }
+
+    #[test]
+    fn test_str_compensation_mismatch() {
+        assert_eq!("2,0,0,0".parse::<Compensation3_0>().is_ok(), false);
+    }
+
+    #[test]
+    fn test_str_compensation_badfloats() {
+        assert_eq!("2,zero,0,coconut".parse::<Compensation3_0>().is_ok(), false);
+    }
+
+    #[test]
+    fn test_str_compensation_not_finite() {
+        let m = DMatrix::from_row_slice(2, 2, &[0.0, 0.0, 0.0, f32::NAN]);
+        assert_eq!(Compensation::try_from(m).is_ok(), false);
+    }
+
+    #[test]
+    fn test_str_compensation_not_square() {
+        let m = DMatrix::from_row_slice(2, 3, &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+        assert_eq!(Compensation::try_from(m).is_ok(), false);
+    }
+}
+
 #[cfg(feature = "python")]
 mod python {
     use crate::python::macros::impl_value_err;
@@ -229,7 +287,7 @@ mod python {
     impl<'py> FromPyObject<'py> for Compensation {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let x: PyReadonlyArray2<f32> = ob.extract()?;
-            Ok(x.as_matrix().into_owned().into())
+            Ok(Self::try_from(x.as_matrix().into_owned())?)
         }
     }
 

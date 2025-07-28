@@ -14,7 +14,7 @@ where
 }
 
 /// Assert that Display and FromStr are near-perfect inverses for given input
-pub(crate) fn assert_to_from_str_almost<T>(s0: &str, s1: &str)
+pub(crate) fn assert_from_to_str_almost<T>(s0: &str, s1: &str)
 where
     T: std::str::FromStr + std::fmt::Display,
     <T as std::str::FromStr>::Err: std::fmt::Display,

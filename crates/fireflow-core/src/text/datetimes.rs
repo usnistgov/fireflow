@@ -195,7 +195,7 @@ mod tests {
 
     #[test]
     fn test_datetime_utc() {
-        assert_to_from_str_almost::<FCSDateTime>(
+        assert_from_to_str_almost::<FCSDateTime>(
             "2112-01-01T00:00:00.0Z",
             "2112-01-01T00:00:00+00:00",
         );
@@ -203,7 +203,7 @@ mod tests {
 
     #[test]
     fn test_datetime_hh() {
-        assert_to_from_str_almost::<FCSDateTime>(
+        assert_from_to_str_almost::<FCSDateTime>(
             "2112-01-01T00:00:00.0+01",
             "2112-01-01T00:00:00+01:00",
         );
@@ -211,7 +211,7 @@ mod tests {
 
     #[test]
     fn test_datetime_hh_mm() {
-        assert_to_from_str_almost::<FCSDateTime>(
+        assert_from_to_str_almost::<FCSDateTime>(
             "2112-01-01T00:00:00.0+00:01",
             "2112-01-01T00:00:00+00:01",
         );
@@ -219,7 +219,7 @@ mod tests {
 
     #[test]
     fn test_datetime_hhmm() {
-        assert_to_from_str_almost::<FCSDateTime>(
+        assert_from_to_str_almost::<FCSDateTime>(
             "2112-01-01T00:00:00.0+0001",
             "2112-01-01T00:00:00+00:01",
         );

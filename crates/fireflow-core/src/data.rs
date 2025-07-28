@@ -55,7 +55,7 @@ use crate::macros::match_many_to_one;
 use crate::nonempty::NonEmptyExt;
 use crate::segment::*;
 use crate::text::byteord::*;
-use crate::text::float_decimal::{FloatDecimal, DecimalToFloatError, HasFloatBounds};
+use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::*;
 use crate::text::optional::ClearOptional;

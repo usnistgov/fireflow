@@ -66,8 +66,9 @@ pub type NoByteOrd3_1 = NoByteOrd<false>;
 ///
 /// This may also be '*' which means "delimited ASCII" which is only valid when
 /// $DATATYPE=A.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(test, derive(Debug))]
 #[from(Chars)]
 pub enum Width {
     Fixed(BitsOrChars),
@@ -75,8 +76,9 @@ pub enum Width {
 }
 
 /// The number of bytes for a numeric measurement
-#[derive(Clone, Copy, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(test, derive(Debug))]
 #[repr(u8)]
 pub enum Bytes {
     B1 = 1,
@@ -93,8 +95,9 @@ pub enum Bytes {
 ///
 /// Subsequent operations can be used to use it as "bytes" or "characters"
 /// depending on what is needed by the column.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(test, derive(Debug))]
 #[from(Chars)]
 #[into(NonZeroU8, u8)]
 pub struct BitsOrChars(NonZeroU8);
@@ -482,12 +485,12 @@ impl FromStr for ByteOrd2_0 {
     }
 }
 
-impl<const LEN: usize> fmt::Display for SizedByteOrd<LEN> {
+impl<const LEN: usize> fmt::Display for SizedByteOrd<LEN>
+where
+    [NonZeroU8; LEN]: From<SizedByteOrd<LEN>>,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Endian(e) => e.fmt(f),
-            Self::Order(o) => write!(f, "{}", o.iter().map(|x| *x + 1).join(",")),
-        }
+        write!(f, "{}", <[NonZeroU8; LEN]>::from(*self).iter().join(","))
     }
 }
 
@@ -513,11 +516,13 @@ impl fmt::Display for Width {
 
 pub struct BitsError(u8);
 
+#[cfg_attr(test, derive(Debug))]
 pub enum ParseByteOrdError {
     Order(NewByteOrdError),
     Format,
 }
 
+#[cfg_attr(test, derive(Debug))]
 pub struct NewByteOrdError(usize);
 
 pub struct NewEndianError;
@@ -666,14 +671,16 @@ impl fmt::Display for VecToArrayError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test::*;
 
     #[test]
     fn test_str_to_byteord_valid() {
-        assert_eq!("1".parse::<ByteOrd2_0>().is_ok(), true);
-        assert_eq!("1,2,3,4".parse::<ByteOrd2_0>().is_ok(), true);
-        assert_eq!("4,3,2,1".parse::<ByteOrd2_0>().is_ok(), true);
-        assert_eq!("3,4,2,1".parse::<ByteOrd2_0>().is_ok(), true);
-        assert_eq!("1,2,3,4,5,6,7,8".parse::<ByteOrd2_0>().is_ok(), true);
+        assert_from_to_str::<ByteOrd2_0>("1");
+        assert_from_to_str::<ByteOrd2_0>("1,2,3,4");
+        assert_from_to_str::<ByteOrd2_0>("1,2,3,4");
+        assert_from_to_str::<ByteOrd2_0>("4,3,2,1");
+        assert_from_to_str::<ByteOrd2_0>("3,4,2,1");
+        assert_from_to_str::<ByteOrd2_0>("1,2,3,4,5,6,7,8");
     }
 
     #[test]

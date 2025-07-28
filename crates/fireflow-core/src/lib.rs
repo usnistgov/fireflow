@@ -12,5 +12,7 @@ mod nonempty;
 #[cfg(feature = "python")]
 pub mod python;
 pub mod segment;
+#[cfg(test)]
+mod test;
 pub mod text;
 pub mod validated;

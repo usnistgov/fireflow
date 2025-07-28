@@ -194,7 +194,7 @@ impl fmt::Display for NewCompError {
 
 impl fmt::Display for Compensation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let n = self.matrix.len();
+        let n = self.matrix.ncols();
         // DMatrix slices are column major, so transpose first to output
         // row-major
         let xs = self.matrix.transpose().as_slice().iter().join(",");
@@ -233,16 +233,14 @@ pub(crate) fn lookup_dfc(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test::*;
     use nalgebra::DMatrix;
 
     #[test]
     fn test_str_compensation() {
-        assert_eq!("2,0,0,0,0".parse::<Compensation3_0>().is_ok(), true);
-        assert_eq!("2,1.0,0,2.0,-1.0".parse::<Compensation3_0>().is_ok(), true);
-        assert_eq!(
-            "3,0,0,0,0,0,0,0,0,0".parse::<Compensation3_0>().is_ok(),
-            true
-        );
+        assert_from_to_str::<Compensation3_0>("2,0,0,0,0");
+        assert_from_to_str::<Compensation3_0>("3,0,0,0,0,0,0,0,0,0");
+        assert_from_to_str::<Compensation3_0>("2,1.1,1,0,-1.5");
     }
 
     #[test]

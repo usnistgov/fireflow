@@ -172,7 +172,6 @@ impl fmt::Display for FCSDateTime {
     }
 }
 
-#[derive(Debug)]
 pub enum FCSDateTimeError {
     Unmapped(String),
     Other,
@@ -187,6 +186,7 @@ impl fmt::Display for FCSDateTimeError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test::*;
 
     #[test]
     fn test_str_to_datetime_local() {
@@ -195,34 +195,34 @@ mod tests {
 
     #[test]
     fn test_datetime_utc() {
-        let s0 = "2112-01-01T00:00:00.0Z";
-        let x = s0.parse::<FCSDateTime>().unwrap();
-        let s1 = x.to_string();
-        assert_eq!(s1.as_str(), "2112-01-01T00:00:00+00:00");
+        assert_to_from_str_almost::<FCSDateTime>(
+            "2112-01-01T00:00:00.0Z",
+            "2112-01-01T00:00:00+00:00",
+        );
     }
 
     #[test]
     fn test_datetime_hh() {
-        let s0 = "2112-01-01T00:00:00.0+01";
-        let x = s0.parse::<FCSDateTime>().unwrap();
-        let s1 = x.to_string();
-        assert_eq!(s1.as_str(), "2112-01-01T00:00:00+01:00");
+        assert_to_from_str_almost::<FCSDateTime>(
+            "2112-01-01T00:00:00.0+01",
+            "2112-01-01T00:00:00+01:00",
+        );
     }
 
     #[test]
     fn test_datetime_hh_mm() {
-        let s0 = "2112-01-01T00:00:00.0+00:01";
-        let x = s0.parse::<FCSDateTime>().unwrap();
-        let s1 = x.to_string();
-        assert_eq!(s1.as_str(), "2112-01-01T00:00:00+00:01");
+        assert_to_from_str_almost::<FCSDateTime>(
+            "2112-01-01T00:00:00.0+00:01",
+            "2112-01-01T00:00:00+00:01",
+        );
     }
 
     #[test]
     fn test_datetime_hhmm() {
-        let s0 = "2112-01-01T00:00:00.0+0001";
-        let x = s0.parse::<FCSDateTime>().unwrap();
-        let s1 = x.to_string();
-        assert_eq!(s1.as_str(), "2112-01-01T00:00:00+00:01");
+        assert_to_from_str_almost::<FCSDateTime>(
+            "2112-01-01T00:00:00.0+0001",
+            "2112-01-01T00:00:00+00:01",
+        );
     }
 }
 

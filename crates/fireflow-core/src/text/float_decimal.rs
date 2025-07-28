@@ -50,7 +50,6 @@ impl<T> From<FloatDecimal<T>> for Range {
     }
 }
 
-// TODO testme
 impl<T: HasFloatBounds> TryFrom<BigDecimal> for FloatDecimal<T> {
     type Error = DecimalToFloatError;
 

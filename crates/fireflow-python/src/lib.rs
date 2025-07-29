@@ -31,6 +31,7 @@ use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
 use polars::prelude::*;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::PyType;
 use pyo3_polars::PyDataFrame;
 use std::collections::HashMap;
 use std::num::NonZeroU8;
@@ -605,12 +606,12 @@ impl PyCoreTEXT3_2 {
         })
     }
 
-    fn insert_unstained_center(&mut self, k: Shortname, v: f32) -> PyResult<Option<f32>> {
-        Ok(self.0.insert_unstained_center(k, v)?)
+    fn insert_unstained_center(&mut self, name: Shortname, value: f32) -> PyResult<Option<f32>> {
+        Ok(self.0.insert_unstained_center(name, value)?)
     }
 
-    fn remove_unstained_center(&mut self, k: Shortname) -> Option<f32> {
-        self.0.remove_unstained_center(&k)
+    fn remove_unstained_center(&mut self, name: Shortname) -> Option<f32> {
+        self.0.remove_unstained_center(&name)
     }
 
     fn clear_unstained_centers(&mut self) {
@@ -663,8 +664,8 @@ macro_rules! common_methods {
 
         #[pymethods]
         impl $pytype {
-            fn insert_nonstandard(&mut self, key: NonStdKey, v: String) -> Option<String> {
-                self.0.metaroot.nonstandard_keywords.insert(key, v)
+            fn insert_nonstandard(&mut self, key: NonStdKey, value: String) -> Option<String> {
+                self.0.metaroot.nonstandard_keywords.insert(key, value)
             }
 
             fn remove_nonstandard(&mut self, key: NonStdKey) -> Option<String> {
@@ -753,9 +754,8 @@ macro_rules! common_methods {
                 Ok(self.0.set_trigger(tr)?)
             }
 
-            #[setter]
-            fn set_trigger_threshold(&mut self, x: u32) -> bool {
-                self.0.set_trigger_threshold(x)
+            fn set_trigger_threshold(&mut self, threshold: u32) -> bool {
+                self.0.set_trigger_threshold(threshold)
             }
 
             #[getter]
@@ -868,20 +868,28 @@ macro_rules! common_meas_get_set {
                     .map(|(i, x)| (i, x.inner_into()))
             }
 
-            fn measurement_at(&self, i: MeasIndex) -> PyResult<Element<$t, $o>> {
+            fn measurement_at(&self, index: MeasIndex) -> PyResult<Element<$t, $o>> {
                 let ms: &NamedVec<_, _, _, _> = self.0.as_ref();
-                let m = ms.get(i)?;
+                let m = ms.get(index)?;
                 Ok(m.bimap(|x| x.1.clone(), |x| x.1.clone()).inner_into())
             }
 
-            fn replace_optical_at(&mut self, i: MeasIndex, m: $o) -> PyResult<Element<$t, $o>> {
-                let ret = self.0.replace_optical_at(i, m.into())?;
+            fn replace_optical_at(
+                &mut self,
+                index: MeasIndex,
+                meas: $o,
+            ) -> PyResult<Element<$t, $o>> {
+                let ret = self.0.replace_optical_at(index, meas.into())?;
                 Ok(ret.inner_into())
             }
 
-            fn replace_optical_named(&mut self, name: Shortname, m: $o) -> Option<Element<$t, $o>> {
+            fn replace_optical_named(
+                &mut self,
+                name: Shortname,
+                meas: $o,
+            ) -> Option<Element<$t, $o>> {
                 self.0
-                    .replace_optical_named(&name, m.into())
+                    .replace_optical_named(&name, meas.into())
                     .map(|r| r.inner_into())
             }
 
@@ -891,13 +899,13 @@ macro_rules! common_meas_get_set {
 
             fn replace_temporal_at(
                 &mut self,
-                i: MeasIndex,
-                m: $t,
+                index: MeasIndex,
+                meas: $t,
                 force: bool,
             ) -> PyResult<Element<$t, $o>> {
                 let ret = self
                     .0
-                    .replace_temporal_at(i, m.into(), force)
+                    .replace_temporal_at(index, meas.into(), force)
                     .py_term_resolve()?;
                 Ok(ret.inner_into())
             }
@@ -905,12 +913,12 @@ macro_rules! common_meas_get_set {
             fn replace_temporal_named(
                 &mut self,
                 name: Shortname,
-                m: $t,
+                meas: $t,
                 force: bool,
             ) -> PyResult<Option<Element<$t, $o>>> {
                 let ret = self
                     .0
-                    .replace_temporal_named(&name, m.into(), force)
+                    .replace_temporal_named(&name, meas.into(), force)
                     .py_term_resolve()?;
                 Ok(ret.map(|r| r.inner_into()))
             }
@@ -1006,52 +1014,52 @@ macro_rules! common_coretext_meas_get_set {
             fn push_optical(
                 &mut self,
                 name: $n,
-                m: $o,
-                r: kws::Range,
+                meas: $o,
+                range: kws::Range,
                 notrunc: bool,
             ) -> PyResult<()> {
                 self.0
-                    .push_optical(name.into(), m.into(), r, notrunc)
+                    .push_optical(name.into(), meas.into(), range, notrunc)
                     .py_term_resolve()
                     .void()
             }
 
             fn insert_optical(
                 &mut self,
-                i: MeasIndex,
-                m: $o,
+                index: MeasIndex,
+                meas: $o,
                 name: $n,
-                r: kws::Range,
+                range: kws::Range,
                 notrunc: bool,
             ) -> PyResult<()> {
                 self.0
-                    .insert_optical(i, name.into(), m.into(), r, notrunc)
+                    .insert_optical(index, name.into(), meas.into(), range, notrunc)
                     .py_term_resolve()
                     .void()
             }
 
             fn push_temporal(
                 &mut self,
-                t: $t,
+                meas: $t,
                 name: Shortname,
-                r: kws::Range,
+                range: kws::Range,
                 notrunc: bool,
             ) -> PyResult<()> {
                 self.0
-                    .push_temporal(name, t.into(), r, notrunc)
+                    .push_temporal(name, meas.into(), range, notrunc)
                     .py_term_resolve()
             }
 
             fn insert_temporal(
                 &mut self,
-                i: MeasIndex,
+                index: MeasIndex,
                 name: Shortname,
-                t: $t,
-                r: kws::Range,
+                meas: $t,
+                range: kws::Range,
                 notrunc: bool,
             ) -> PyResult<()> {
                 self.0
-                    .insert_temporal(i, name, t.into(), r, notrunc)
+                    .insert_temporal(index, name, meas.into(), range, notrunc)
                     .py_term_resolve()
             }
 
@@ -1098,27 +1106,27 @@ macro_rules! coredata_meas_get_set {
             fn push_temporal(
                 &mut self,
                 name: Shortname,
-                t: $timetype,
+                meas: $timetype,
                 col: AnyFCSColumn,
-                r: kws::Range,
+                range: kws::Range,
                 notrunc: bool,
             ) -> PyResult<()> {
                 self.0
-                    .push_temporal(name, t.into(), col, r, notrunc)
+                    .push_temporal(name, meas.into(), col, range, notrunc)
                     .py_term_resolve()
             }
 
             fn insert_temporal(
                 &mut self,
-                i: MeasIndex,
+                index: MeasIndex,
                 name: Shortname,
-                t: $timetype,
+                meas: $timetype,
                 col: AnyFCSColumn,
-                r: kws::Range,
+                range: kws::Range,
                 notrunc: bool,
             ) -> PyResult<()> {
                 self.0
-                    .insert_temporal(i, name, t.into(), col, r, notrunc)
+                    .insert_temporal(index, name, meas.into(), col, range, notrunc)
                     .py_term_resolve()
             }
 
@@ -1180,22 +1188,22 @@ macro_rules! set_measurements_ordered {
         impl $pytype {
             fn set_measurements(
                 &mut self,
-                xs: RawInput<MaybeFamily, $t, $o>,
+                measurements: RawInput<MaybeFamily, $t, $o>,
                 prefix: ShortnamePrefix,
             ) -> PyResult<()> {
                 self.0
-                    .set_measurements(xs.inner_into(), prefix)
+                    .set_measurements(measurements.inner_into(), prefix)
                     .py_term_resolve_nowarn()
             }
 
             fn set_measurements_and_layout(
                 &mut self,
-                xs: RawInput<MaybeFamily, $t, $o>,
+                measurements: RawInput<MaybeFamily, $t, $o>,
                 layout: PyOrderedLayout,
                 prefix: ShortnamePrefix,
             ) -> PyResult<()> {
                 self.0
-                    .set_measurements_and_layout(xs.inner_into(), layout.into(), prefix)
+                    .set_measurements_and_layout(measurements.inner_into(), layout.into(), prefix)
                     .py_term_resolve_nowarn()
             }
 
@@ -1221,19 +1229,22 @@ macro_rules! set_measurements_endian {
     ($pytype:ident, $t:ident, $o:ident, $l:ident) => {
         #[pymethods]
         impl $pytype {
-            pub fn set_measurements(&mut self, xs: RawInput<AlwaysFamily, $t, $o>) -> PyResult<()> {
+            pub fn set_measurements(
+                &mut self,
+                measurements: RawInput<AlwaysFamily, $t, $o>,
+            ) -> PyResult<()> {
                 self.0
-                    .set_measurements_noprefix(xs.inner_into())
+                    .set_measurements_noprefix(measurements.inner_into())
                     .py_term_resolve_nowarn()
             }
 
             fn set_measurements_and_layout(
                 &mut self,
-                xs: RawInput<AlwaysFamily, $t, $o>,
+                measurements: RawInput<AlwaysFamily, $t, $o>,
                 layout: $l,
             ) -> PyResult<()> {
                 self.0
-                    .set_measurements_and_layout_noprefix(xs.inner_into(), layout.into())
+                    .set_measurements_and_layout_noprefix(measurements.inner_into(), layout.into())
                     .py_term_resolve_nowarn()
             }
 
@@ -1267,12 +1278,12 @@ macro_rules! coredata2_0_meas_methods {
         impl $pytype {
             fn set_measurements_and_data(
                 &mut self,
-                xs: RawInput<MaybeFamily, $t, $o>,
+                measurements: RawInput<MaybeFamily, $t, $o>,
                 cols: Vec<AnyFCSColumn>,
                 prefix: ShortnamePrefix,
             ) -> PyResult<()> {
                 self.0
-                    .set_measurements_and_data(xs.inner_into(), cols, prefix)
+                    .set_measurements_and_data(measurements.inner_into(), cols, prefix)
                     .py_term_resolve_nowarn()
             }
         }
@@ -1288,11 +1299,11 @@ macro_rules! coredata3_1_meas_methods {
         impl $pytype {
             fn set_measurements_and_data(
                 &mut self,
-                xs: RawInput<AlwaysFamily, $t, $o>,
+                measurements: RawInput<AlwaysFamily, $t, $o>,
                 cols: Vec<AnyFCSColumn>,
             ) -> PyResult<()> {
                 self.0
-                    .set_measurements_and_data_noprefix(xs.inner_into(), cols)
+                    .set_measurements_and_data_noprefix(measurements.inner_into(), cols)
                     .py_term_resolve_nowarn()
             }
         }
@@ -1341,8 +1352,8 @@ macro_rules! scales_methods {
             }
 
             #[setter]
-            fn set_scales(&mut self, xs: Vec<Option<Scale>>) -> PyResult<()> {
-                self.0.set_scales(xs).py_term_resolve_nowarn()
+            fn set_scales(&mut self, scales: Vec<Option<Scale>>) -> PyResult<()> {
+                self.0.set_scales(scales).py_term_resolve_nowarn()
             }
         }
     };
@@ -1367,8 +1378,8 @@ macro_rules! transforms_methods {
             }
 
             #[setter]
-            fn set_transforms(&mut self, xs: Vec<core::ScaleTransform>) -> PyResult<()> {
-                self.0.set_transforms(xs).py_term_resolve_nowarn()
+            fn set_transforms(&mut self, transforms: Vec<core::ScaleTransform>) -> PyResult<()> {
+                self.0.set_transforms(transforms).py_term_resolve_nowarn()
             }
         }
     };
@@ -1387,12 +1398,13 @@ macro_rules! timestep_methods {
         $(
             #[pymethods]
             impl $pytype {
+                #[getter]
                 fn get_timestep(&self) -> Option<kws::Timestep> {
                     self.0.timestep().copied()
                 }
 
-                fn set_timestep(&mut self, ts: kws::Timestep) -> bool {
-                    self.0.set_timestep(ts)
+                fn set_timestep(&mut self, timestep: kws::Timestep) -> bool {
+                    self.0.set_timestep(timestep)
                 }
             }
         )*
@@ -1526,9 +1538,9 @@ macro_rules! spillover_methods {
             fn set_spillover(
                 &mut self,
                 names: Vec<Shortname>,
-                a: PyReadonlyArray2<f32>,
+                matrix: PyReadonlyArray2<f32>,
             ) -> PyResult<()> {
-                let m = a.as_matrix().into_owned();
+                let m = matrix.as_matrix().into_owned();
                 Ok(self.0.set_spillover(names, m)?)
             }
 
@@ -1827,8 +1839,8 @@ macro_rules! shared_meas_get_set {
             }
 
             #[setter]
-            fn set_nonstandard_keywords(&mut self, xs: HashMap<NonStdKey, String>) {
-                self.0.common.nonstandard_keywords = xs;
+            fn set_nonstandard_keywords(&mut self, keyvals: HashMap<NonStdKey, String>) {
+                self.0.common.nonstandard_keywords = keyvals;
             }
 
             fn nonstandard_insert(&mut self, key: NonStdKey, value: String) -> Option<String> {
@@ -1896,8 +1908,8 @@ macro_rules! get_set_meas_transform {
             }
 
             #[setter]
-            fn set_transform(&mut self, x: core::ScaleTransform) {
-                self.0.specific.scale = x;
+            fn set_transform(&mut self, transform: core::ScaleTransform) {
+                self.0.specific.scale = transform;
             }
         }
     };
@@ -1936,8 +1948,8 @@ macro_rules! meas_get_set_timestep {
             }
 
             #[setter]
-            fn set_timestep(&mut self, x: kws::Timestep) {
-                self.0.specific.timestep = x
+            fn set_timestep(&mut self, timestep: kws::Timestep) {
+                self.0.specific.timestep = timestep
             }
         }
     };
@@ -1967,7 +1979,12 @@ get_set_meas!(
 );
 
 // $PnDET (3.2)
-get_set_meas!(get_det, set_det, kws::DetectorName, PyOptical3_2);
+get_set_meas!(
+    get_detector_name,
+    set_detector_name,
+    kws::DetectorName,
+    PyOptical3_2
+);
 
 // $PnTAG (3.2)
 get_set_meas!(get_tag, set_tag, kws::Tag, PyOptical3_2);
@@ -2088,7 +2105,7 @@ macro_rules! endianness_methods {
         impl $t {
             #[getter]
             /// Return true if big endian, false otherwise.
-            fn endianness(&self) -> bool {
+            fn is_big_endian(&self) -> bool {
                 *self.0.as_ref() == Endian::Big
             }
         }
@@ -2148,9 +2165,10 @@ macro_rules! new_ordered_uint {
                 FixedLayout::new_endian_uint(ranges.0, is_big.into()).into()
             }
 
-            #[staticmethod]
+            #[classmethod]
             /// Make a new layout for $size-byte Uints with a given byte order.
             fn new_ordered(
+                _: &Bound<'_, PyType>,
                 ranges: PyNonEmpty<bm::Bitmask<$uint, $size>>,
                 byteord: SizedByteOrd<$size>,
             ) -> Self {
@@ -2179,9 +2197,10 @@ macro_rules! new_ordered_float {
                 FixedLayout::new_endian_float(ranges.0, is_big.into()).into()
             }
 
-            #[staticmethod]
+            #[classmethod]
             /// Make a new $num layout with a given byte order.
             fn new_ordered(
+                _: &Bound<'_, PyType>,
                 ranges: PyNonEmpty<FloatRange<$num, $size>>,
                 byteord: SizedByteOrd<$size>,
             ) -> Self {

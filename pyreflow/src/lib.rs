@@ -2,9 +2,12 @@ use fireflow_core::python::exceptions::{PyreflowException, PyreflowWarning};
 use fireflow_python as ff;
 
 use pyo3::prelude::*;
+use pyo3::wrap_pymodule;
 
 #[pymodule]
 fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
+
     m.add("PyreflowException", py.get_type::<PyreflowException>())?;
     m.add("PyreflowWarning", py.get_type::<PyreflowWarning>())?;
 
@@ -45,6 +48,13 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ff::PyEndianUintLayout>()?;
     m.add_class::<ff::PyMixedLayout>()?;
 
+    m.add_wrapped(wrap_pymodule!(_api))?;
+
+    Ok(())
+}
+
+#[pymodule]
+fn _api(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(ff::py_fcs_read_header, m)?)?;
     m.add_function(wrap_pyfunction!(ff::py_fcs_read_raw_text, m)?)?;
     m.add_function(wrap_pyfunction!(ff::py_fcs_read_std_text, m)?)?;
@@ -57,5 +67,7 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(
         ff::py_fcs_read_std_dataset_with_keywords,
         m
-    )?)
+    )?)?;
+
+    Ok(())
 }

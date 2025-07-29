@@ -1,12 +1,8 @@
-[build-system]
-requires = ["maturin>=1,<2"]
-build-backend = "maturin"
-
 [project]
 name = "pyreflow"
 description = "Fully-compliant Flow Cytometry Standard (FCS) read/write library"
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.11"
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Environment :: Console",
@@ -20,6 +16,26 @@ classifiers = [
     "Typing :: Typed",
 ]
 dynamic = ["version"]
+dependencies = [
+    "polars==1.26.0",
+    "numpy==2.3.2",
+]
+
+[build-system]
+requires = ["maturin>=1,<2"]
+build-backend = "maturin"
+
+[dependency-groups]
+all = [
+    { include-group = "dev" },
+    { include-group = "lint" },
+]
+dev = ["maturin[patchelf]"]
+lint = [
+    { include-group = "dev" },
+    "mypy[faster-cache]",
+    "ruff",
+]
 
 [tool.maturin]
 python-source = "python"

@@ -42,6 +42,8 @@ import polars as pl
 Calibration3_1 = tuple[float, str]
 Calibration3_2 = tuple[float, float, str]
 
+Mode = Union[Literal["L"] | Literal["C"] | Literal["U"]]
+
 Originality = Union[
     Literal["Original"]
     | Literal["NonDataModified"]

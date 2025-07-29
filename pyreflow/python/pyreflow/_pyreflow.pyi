@@ -1,6 +1,7 @@
 from __future__ import annotations
 from pyreflow import (
     NonStdKey,
+    Mode,
     Trigger,
     Shortname,
     NonStdKeywords,
@@ -392,9 +393,6 @@ class _CoreUnicode:
 class _CoreVol:
     vol: float | None
 
-class _CoreCytOpt:
-    cyt: str | None
-
 class _CoreCytsn:
     cytsn: str | None
 
@@ -407,6 +405,11 @@ class _CoreMeasWavelengths:
 class _CoreMeasDisplay:
     display: list[Display | None]
 
+class _CorePre3_2:
+    cyt: str | None
+
+    def __new__(cls, mode: Mode) -> Self: ...
+
 class _Core3_2:
     flowrate: str | None
     cyt: str
@@ -417,7 +420,10 @@ class _Core3_2:
     carriertype: str | None
     carrierid: str | None
     locationid: str | None
+    begindatetime: datetime | None
+    enddatetime: datetime | None
 
+    def __new__(cls, cyt: str) -> Self: ...
     @property
     def unstained_centers(self) -> dict[Shortname, float] | None: ...
     def insert_unstained_center(self, name: Shortname, value: float): ...
@@ -432,10 +438,21 @@ class _CoreToDataset(Generic[X]):
         self, cols: list[Series], analysis: AnalysisBytes, others: list[OtherBytes]
     ) -> X: ...
 
-# TODO need to add version converters and constructors
-# TODO add datetimes
+class _CoreTo2_0(Generic[X]):
+    def version_2_0(self, lossless: bool) -> X: ...
+
+class _CoreTo3_0(Generic[X]):
+    def version_3_0(self, lossless: bool) -> X: ...
+
+class _CoreTo3_1(Generic[X]):
+    def version_3_1(self, lossless: bool) -> X: ...
+
+class _CoreTo3_2(Generic[X]):
+    def version_3_2(self, lossless: bool) -> X: ...
+
 class CoreTEXT2_0(
     _CoreCommon,
+    _CorePre3_2,
     _CoreTemporal2_0,
     _CoreGetSetMeas[Shortname | None, Optical2_0, Temporal2_0],
     _CoreTEXTGetSetMeas[Shortname | None, Temporal2_0, Optical2_0],
@@ -444,11 +461,14 @@ class CoreTEXT2_0(
     _CoreScaleMethods,
     _CoreToDataset[CoreDataset2_0],
     _CoreCompensation,
-    _CoreCytOpt,
     _CoreMeasWavelength,
+    _CoreTo3_0[CoreTEXT3_0],
+    _CoreTo3_1[CoreTEXT3_1],
+    _CoreTo3_2[CoreTEXT3_2],
 ): ...
 class CoreTEXT3_0(
     _CoreCommon,
+    _CorePre3_2,
     _CoreTemporal3_0,
     _CoreGetSetMeas[Shortname | None, Optical3_0, Temporal3_0],
     _CoreTEXTGetSetMeas[Shortname | None, Temporal3_0, Optical3_0],
@@ -459,12 +479,15 @@ class CoreTEXT3_0(
     _CoreToDataset[CoreDataset3_0],
     _CoreCompensation,
     _CoreUnicode,
-    _CoreCytOpt,
     _CoreCytsn,
     _CoreMeasWavelength,
+    _CoreTo2_0[CoreTEXT2_0],
+    _CoreTo3_1[CoreTEXT3_1],
+    _CoreTo3_2[CoreTEXT3_2],
 ): ...
 class CoreTEXT3_1(
     _CoreCommon,
+    _CorePre3_2,
     _CoreTemporal3_0,
     _CoreGetSetMeas[Shortname, Optical3_1, Temporal3_1],
     _CoreTEXTGetSetMeas[Shortname, Temporal3_1, Optical3_1],
@@ -476,14 +499,17 @@ class CoreTEXT3_1(
     _CorePlate,
     _CoreSpillover,
     _CoreVol,
-    _CoreCytOpt,
     _CoreCytsn,
     _CoreMeasWavelengths,
     _CoreMeasDisplay,
     _CoreMeasCalibration[Calibration3_1],
+    _CoreTo2_0[CoreTEXT2_0],
+    _CoreTo3_0[CoreTEXT3_0],
+    _CoreTo3_2[CoreTEXT3_2],
 ): ...
 class CoreTEXT3_2(
     _CoreCommon,
+    _Core3_2,
     _CoreTemporal3_0,
     _CoreGetSetMeas[Shortname, Optical3_2, Temporal3_2],
     _CoreTEXTGetSetMeas[Shortname, Temporal3_2, Optical3_2],
@@ -499,11 +525,14 @@ class CoreTEXT3_2(
     _CoreCytsn,
     _CoreMeasWavelengths,
     _CoreMeasDisplay,
-    _Core3_2,
     _CoreMeasCalibration[Calibration3_2],
+    _CoreTo2_0[CoreTEXT2_0],
+    _CoreTo3_0[CoreTEXT3_0],
+    _CoreTo3_1[CoreTEXT3_1],
 ): ...
 class CoreDataset2_0(
     _CoreCommon,
+    _CorePre3_2,
     _CoreTemporal2_0,
     _CoreGetSetMeas[Shortname | None, Optical2_0, Temporal2_0],
     _CoreDatasetGetSetMeas[Temporal2_0],
@@ -511,8 +540,10 @@ class CoreDataset2_0(
     _CoreDatasetGetSetMeasOrdered[Optical2_0, Temporal2_0],
     _CoreSetShortnamesMaybe,
     _CoreCompensation,
-    _CoreCytOpt,
     _CoreMeasWavelength,
+    _CoreTo3_0[CoreDataset3_0],
+    _CoreTo3_1[CoreDataset3_1],
+    _CoreTo3_2[CoreDataset3_2],
 ): ...
 class CoreDataset3_0(
     _CoreCommon,
@@ -526,12 +557,15 @@ class CoreDataset3_0(
     _CoreTimestepMethods,
     _CoreCompensation,
     _CoreUnicode,
-    _CoreCytOpt,
     _CoreCytsn,
     _CoreMeasWavelength,
+    _CoreTo2_0[CoreDataset2_0],
+    _CoreTo3_1[CoreDataset3_1],
+    _CoreTo3_2[CoreDataset3_2],
 ): ...
 class CoreDataset3_1(
     _CoreCommon,
+    _CorePre3_2,
     _CoreTemporal3_0,
     _CoreGetSetMeas[Shortname, Optical3_1, Temporal3_1],
     _CoreDatasetGetSetMeas[Temporal3_1],
@@ -543,14 +577,17 @@ class CoreDataset3_1(
     _CorePlate,
     _CoreSpillover,
     _CoreVol,
-    _CoreCytOpt,
     _CoreCytsn,
     _CoreMeasWavelengths,
     _CoreMeasDisplay,
     _CoreMeasCalibration[Calibration3_1],
+    _CoreTo2_0[CoreDataset2_0],
+    _CoreTo3_0[CoreDataset3_0],
+    _CoreTo3_2[CoreDataset3_2],
 ): ...
 class CoreDataset3_2(
     _CoreCommon,
+    _Core3_2,
     _CoreTemporal3_0,
     _CoreGetSetMeas[Shortname, Optical3_2, Temporal3_2],
     _CoreDatasetGetSetMeas[Temporal3_2],
@@ -565,6 +602,8 @@ class CoreDataset3_2(
     _CoreCytsn,
     _CoreMeasWavelengths,
     _CoreMeasDisplay,
-    _Core3_2,
     _CoreMeasCalibration[Calibration3_2],
+    _CoreTo2_0[CoreDataset2_0],
+    _CoreTo3_0[CoreDataset3_0],
+    _CoreTo3_1[CoreDataset3_1],
 ): ...

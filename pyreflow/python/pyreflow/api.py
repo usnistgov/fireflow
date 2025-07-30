@@ -1,5 +1,6 @@
 from ._pyreflow import _api  # type: ignore
 from pyreflow.typing import (
+    ByteOrd,
     StdKey,
     Timestep,
     AnyCoreTEXT,
@@ -347,7 +348,7 @@ def fcs_read_std_text(
     truncate_text_offsets: bool = False,
     # layout args
     integer_widths_from_byteord: bool = False,
-    integer_byteord_override: list[int] | None = None,
+    integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: bool = False,
     # shared args
     warnings_are_errors: bool = False,
@@ -412,7 +413,7 @@ def fcs_read_raw_dataset(
     truncate_text_offsets: bool = False,
     # layout args
     integer_widths_from_byteord: bool = False,
-    integer_byteord_override: list[int] | None = None,
+    integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: bool = False,
     # data args
     allow_uneven_event_width: bool = False,
@@ -493,7 +494,7 @@ def fcs_read_std_dataset(
     truncate_text_offsets: bool = False,
     # layout args
     integer_widths_from_byteord: bool = False,
-    integer_byteord_override: list[int] | None = None,
+    integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: bool = False,
     # data args
     allow_uneven_event_width: bool = False,
@@ -541,7 +542,7 @@ def fcs_read_raw_dataset_with_keywords(
     truncate_text_offsets: bool = False,
     # layout args
     integer_widths_from_byteord: bool = False,
-    integer_byteord_override: list[int] | None = None,
+    integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: bool = False,
     # data args
     allow_uneven_event_width: bool = False,
@@ -591,7 +592,7 @@ def fcs_read_std_dataset_with_keywords(
     truncate_text_offsets: bool = False,
     # layout args
     integer_widths_from_byteord: bool = False,
-    integer_byteord_override: list[int] | None = None,
+    integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: bool = False,
     # data args
     allow_uneven_event_width: bool = False,

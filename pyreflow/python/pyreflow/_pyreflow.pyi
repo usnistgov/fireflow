@@ -3,7 +3,7 @@ from pyreflow import (
     PyreflowWarning,
     PyreflowException,
 )
-from pyreflow.typing import (
+from pyreflow._typing import (
     NonStdKey,
     Mode,
     Trigger,

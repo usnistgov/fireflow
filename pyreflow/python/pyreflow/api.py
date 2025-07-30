@@ -9,7 +9,7 @@ from ._pyreflow import (
     CoreDataset3_2,
 )
 from ._pyreflow import _api  # type: ignore
-from .typing import (
+from ._typing import (
     Segment,
     FCSVersion,
     StdKeywords,

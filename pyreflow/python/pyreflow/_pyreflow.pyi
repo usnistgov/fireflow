@@ -4,6 +4,9 @@ from pyreflow import (
     PyreflowException,
 )
 from pyreflow.typing import (
+    Display,
+    Scale,
+    ScaleTransform,
     NonStdKey,
     Mode,
     Trigger,
@@ -30,9 +33,6 @@ _N = TypeVar("_N")
 _L = TypeVar("_L")
 
 _OpticalKeyVals = list[tuple[int, _X | None]]
-_Scale = tuple[float, float] | tuple[()]
-_ScaleTransform = tuple[float, float] | tuple[float]
-_Display = tuple[bool, float, float]
 
 class _LayoutCommon:
     @property
@@ -187,7 +187,7 @@ class _OpticalWavelengths:
     wavelength: list[float] | None
 
 class _MeasDisplay:
-    display: _Display
+    display: Display
 
 class _OpticalCommon:
     filter: str | None
@@ -197,9 +197,9 @@ class _OpticalCommon:
     percent_emitted: str | None
 
 class _OpticalScaleTransform:
-    transform: _ScaleTransform
+    transform: ScaleTransform
 
-    def __new__(cls, scale: _Scale) -> Self: ...
+    def __new__(cls, scale: Scale) -> Self: ...
 
 class _TemporalTimestep:
     timestep: float
@@ -208,7 +208,7 @@ class _TemporalTimestep:
 
 @final
 class Optical2_0(_MeasCommon, _OpticalCommon, _OpticalWavelength):
-    scale: _Scale | None
+    scale: Scale | None
 
     def __new__(cls) -> Self: ...
 
@@ -402,16 +402,16 @@ class _CoreSetShortnamesMaybe:
     def set_measurement_shortnames_maybe(self, names: list[Shortname | None]): ...
 
 class _CoreScaleMethods:
-    scales: list[_Scale | None]
+    scales: list[Scale | None]
 
     @property
-    def all_scales(self) -> list[_Scale | None]: ...
+    def all_scales(self) -> list[Scale | None]: ...
 
 class _CoreScaleTransformMethods:
-    transforms: list[_ScaleTransform]
+    transforms: list[ScaleTransform]
 
     @property
-    def all_transforms(self) -> list[_ScaleTransform]: ...
+    def all_transforms(self) -> list[ScaleTransform]: ...
 
 class _CoreTimestepMethods:
     @property
@@ -457,7 +457,7 @@ class _CoreMeasWavelengths:
     wavelengths: _OpticalKeyVals[list[float]]
 
 class _CoreMeasDisplay:
-    displays: list[_Display | None]
+    displays: list[Display | None]
 
 class _CorePre3_2:
     cyt: str | None

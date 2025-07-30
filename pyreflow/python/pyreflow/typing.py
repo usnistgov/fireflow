@@ -1,44 +1,46 @@
-from typing import Literal, Union, NewType
+from typing import Literal, NewType, TypeAlias
 
-Calibration3_1 = tuple[float, str]
-Calibration3_2 = tuple[float, float, str]
+Shortname = NewType("Shortname", str)
 
-Mode = Union[Literal["L"] | Literal["C"] | Literal["U"]]
+StdKey = NewType("StdKey", str)
+NonStdKey = NewType("NonStdKey", str)
 
-Originality = Union[
-    Literal["Original"]
-    | Literal["NonDataModified"]
-    | Literal["Appended"]
-    | Literal["DataModified"]
-]
+AnalysisBytes = NewType("AnalysisBytes", bytes)
+OtherBytes = NewType("OtherBytes", bytes)
 
-Feature = Union[Literal["Area"] | Literal["Width"] | Literal["Height"]]
+Trigger: TypeAlias = tuple[Shortname, int]
 
-FCSVersion = (
-    Literal["FCS2.0"] | Literal["FCS3.0"] | Literal["FCS3.1"] | Literal["FCS3.2"]
-)
+Segment: TypeAlias = tuple[int, int]
+
+OffsetCorrection: TypeAlias = tuple[int, int]
+
+KeyPatterns: TypeAlias = tuple[list[str], list[str]]
+
+StdKeywords: TypeAlias = dict[StdKey, str]
+NonStdKeywords: TypeAlias = dict[NonStdKey, str]
+
+Calibration3_1: TypeAlias = tuple[float, str]
+Calibration3_2: TypeAlias = tuple[float, float, str]
+
+Scale: TypeAlias = tuple[float, float] | tuple[()]
+ScaleTransform: TypeAlias = tuple[float, float] | tuple[float]
+
+Display: TypeAlias = tuple[bool, float, float]
+
+Mode = Literal["L", "C", "U"]
+
+Originality = Literal["Original", "NonDataModified", "Appended", "DataModified"]
+
+Feature = Literal["Area", "Width", "Height"]
+
+FCSVersion = Literal["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"]
 
 FloatType = Literal["F"]
 DoubleType = Literal["D"]
 IntegerType = Literal["I"]
 AsciiType = Literal["A"]
 
-Datatype = Union[FloatType | DoubleType | IntegerType | AsciiType]
-MixedType = Union[
-    tuple[FloatType | DoubleType, float], tuple[AsciiType | IntegerType, int]
-]
-Trigger = tuple[str, int]
-Shortname = NewType("Shortname", str)
-
-Segment = tuple[int, int]
-OffsetCorrection = tuple[int, int]
-KeyPatterns = tuple[list[str], list[str]]
-
-StdKey = NewType("StdKey", str)
-NonStdKey = NewType("NonStdKey", str)
-
-StdKeywords = dict[StdKey, str]
-NonStdKeywords = dict[NonStdKey, str]
-
-AnalysisBytes = NewType("AnalysisBytes", bytes)
-OtherBytes = NewType("OtherBytes", bytes)
+Datatype: TypeAlias = FloatType | DoubleType | IntegerType | AsciiType
+MixedType: TypeAlias = (
+    tuple[FloatType | DoubleType, float] | tuple[AsciiType | IntegerType, int]
+)

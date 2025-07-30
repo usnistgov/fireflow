@@ -121,7 +121,6 @@ def _to_raw_output(xs: dict[str, Any]) -> ReadRawTEXTOutput:
 
 
 _HEADER_ARGS = [
-    "version_override",
     "text_correction",
     "data_correction",
     "analysis_correction",
@@ -134,6 +133,7 @@ _HEADER_ARGS = [
 ]
 
 _RAW_ARGS = [
+    "version_override",
     "supp_text_correction",
     "allow_duplicated_stext",
     "ignore_supp_text",
@@ -218,7 +218,6 @@ DEFAULT_TIME_PATTERN = "^(TIME|Time)$"
 
 def fcs_read_header(
     p: Path,
-    version_override: FCSVersion | None = None,
     text_correction: OffsetCorrection = DEFAULT_CORRECTION,
     data_correction: OffsetCorrection = DEFAULT_CORRECTION,
     analysis_correction: OffsetCorrection = DEFAULT_CORRECTION,
@@ -241,7 +240,6 @@ def fcs_read_header(
 def fcs_read_raw_text(
     p: Path,
     # header args
-    version_override: FCSVersion | None = None,
     text_correction: OffsetCorrection = DEFAULT_CORRECTION,
     data_correction: OffsetCorrection = DEFAULT_CORRECTION,
     analysis_correction: OffsetCorrection = DEFAULT_CORRECTION,
@@ -252,6 +250,7 @@ def fcs_read_raw_text(
     allow_negative: bool = False,
     truncate_offsets: bool = False,
     # raw text args
+    version_override: FCSVersion | None = None,
     supp_text_correction: OffsetCorrection = DEFAULT_CORRECTION,
     allow_duplicated_stext: bool = False,
     ignore_supp_text: bool = False,

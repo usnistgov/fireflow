@@ -262,14 +262,7 @@ where
         .mult_map_errors(|e| e.map_inner(HeaderError::Segment));
     vers_res
         .mult_zip3(space_res, offset_res)
-        .map(|(version, (), (text, data, analysis))| {
-            (
-                conf.version_override.unwrap_or(version),
-                text,
-                data,
-                analysis,
-            )
-        })
+        .map(|(version, (), (text, data, analysis))| (version, text, data, analysis))
 }
 
 fn h_read_spaces<R: Read>(h: &mut BufReader<R>) -> Result<(), ImpureError<HeaderError>> {

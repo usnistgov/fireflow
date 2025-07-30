@@ -211,9 +211,6 @@ pub struct WriteConfig {
 #[derive(Default, Clone)]
 #[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct HeaderConfigInner {
-    /// Override the version
-    pub version_override: Option<Version>,
-
     /// Corrections for primary TEXT segment
     pub text_correction: HeaderCorrection<PrimaryTextSegmentId>,
 
@@ -292,6 +289,9 @@ pub struct ReadHeaderAndTEXTConfig {
     /// Config for reading HEADER
     #[as_ref(HeaderConfigInner)]
     pub header: HeaderConfigInner,
+
+    /// Override the version
+    pub version_override: Option<Version>,
 
     /// Corrections for supplemental TEXT segment
     pub supp_text_correction: TEXTCorrection<SupplementalTextSegmentId>,

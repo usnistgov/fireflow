@@ -564,7 +564,11 @@ impl RawTEXTOutput {
         Header::h_read(h, st)
             .mult_to_deferred()
             .def_map_errors(|e: ImpureError<HeaderError>| e.inner_into())
-            .def_and_maybe(|header| {
+            .def_and_maybe(|mut header| {
+                let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
+                if let Some(v) = conf.version_override {
+                    header.version = v
+                }
                 h_read_raw_text_from_header(h, header, st).def_map_errors(|e| e.inner_into())
             })
     }

@@ -244,7 +244,7 @@ class Optical3_2(
     tag: str | None
     # TODO literal string
     measurement_type: str | None
-    feature: str | None
+    feature: Feature | None
     analyte: str | None
 
 @final

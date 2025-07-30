@@ -180,7 +180,7 @@ impl FCSDataFrame {
     pub(crate) fn push_column(&mut self, col: AnyFCSColumn) -> Result<(), ColumnLengthError> {
         let df_len = self.nrows();
         let col_len = col.len();
-        if col_len == df_len {
+        if col_len == df_len || self.is_empty() {
             self.columns.push(col);
             Ok(())
         } else {

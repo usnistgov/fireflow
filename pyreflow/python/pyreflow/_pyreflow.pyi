@@ -290,12 +290,21 @@ class _CoreCommon:
     all_shortnames: list[Shortname]
     longnames: list[str | None]
 
-    filters: _OpticalKeyVals[str]
-    powers: _OpticalKeyVals[float]
-    percents_emitted: _OpticalKeyVals[int]
-    detector_types: _OpticalKeyVals[str]
-    detector_voltages: _OpticalKeyVals[float]
-
+    @property
+    def filters(self) -> _OpticalKeyVals[str]: ...
+    def set_filters(self, xs: list[str | None]): ...
+    @property
+    def powers(self) -> _OpticalKeyVals[float]: ...
+    def set_powers(self, xs: list[float | None]): ...
+    @property
+    def percents_emitted(self) -> _OpticalKeyVals[int]: ...
+    def set_percents_emitted(self, xs: list[str | None]): ...
+    @property
+    def detector_types(self) -> _OpticalKeyVals[str]: ...
+    def set_detector_types(self, xs: list[str | None]): ...
+    @property
+    def detector_voltages(self) -> _OpticalKeyVals[float]: ...
+    def set_detector_voltages(self, xs: list[float | None]): ...
     @property
     def shortnames_maybe(self) -> list[Shortname | None]: ...
     def insert_nonstandard(self, key: NonStdKey, value: str) -> str | None: ...
@@ -345,31 +354,55 @@ class _CoreGetSetMeas(Generic[_N, _O, _T]):
     ) -> tuple[_N, _O | _T] | None: ...
 
 class _CoreTEXTGetSetMeas(Generic[_N, _T, _O]):
-    def push_optical(self, name: _N, meas: _O, range: Range, notrunc: bool): ...
+    def push_optical(self, meas: _O, name: _N, range: Range, notrunc: bool = False): ...
     def insert_optical(
-        self, index: MeasIndex, meas: _O, name: _N, range: Range, notrunc: bool
+        self, index: MeasIndex, meas: _O, name: _N, range: Range, notrunc: bool = False
     ): ...
-    def push_temporal(self, meas: _T, name: Shortname, range: Range, notrunc: bool): ...
-    def insert_temporal(
-        self, index: MeasIndex, name: Shortname, meas: _T, range: Range, notrunc: bool
-    ): ...
-    def unset_measurements(self): ...
-
-class _CoreDatasetGetSetMeas(Generic[_T]):
-    analysis: AnalysisBytes
-    others: list[OtherBytes]
-
     def push_temporal(
-        self, name: Shortname, meas: _T, col: Series, range: Range, notrunc: bool
+        self, meas: _T, name: Shortname, range: Range, notrunc: bool = False
     ): ...
     def insert_temporal(
         self,
         index: MeasIndex,
+        meas: _T,
         name: Shortname,
+        range: Range,
+        notrunc: bool = False,
+    ): ...
+    def unset_measurements(self): ...
+
+class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
+    analysis: AnalysisBytes
+    others: list[OtherBytes]
+
+    def push_optical(
+        self, meas: _O, col: Series, name: _N, range: Range, notrunc: bool = False
+    ): ...
+    def insert_optical(
+        self,
+        index: MeasIndex,
+        meas: _O,
+        col: Series,
+        name: _N,
+        range: Range,
+        notrunc: bool = False,
+    ): ...
+    def push_temporal(
+        self,
         meas: _T,
         col: Series,
+        name: Shortname,
         range: Range,
-        notrunc: bool,
+        notrunc: bool = False,
+    ): ...
+    def insert_temporal(
+        self,
+        index: MeasIndex,
+        meas: _T,
+        col: Series,
+        name: Shortname,
+        range: Range,
+        notrunc: bool = False,
     ): ...
     def unset_data(self): ...
     @property
@@ -466,10 +499,14 @@ class _CoreCytsn:
     cytsn: str | None
 
 class _CoreMeasWavelength:
-    wavelengths: _OpticalKeyVals[float]
+    @property
+    def wavelengths(self) -> _OpticalKeyVals[float]: ...
+    def set_wavelengths(self, xs: list[float | None]): ...
 
 class _CoreMeasWavelengths:
-    wavelengths: _OpticalKeyVals[list[float]]
+    @property
+    def wavelengths(self) -> _OpticalKeyVals[list[float]]: ...
+    def set_wavelengths(self, xs: list[list[float]]): ...
 
 class _CoreMeasDisplay:
     displays: list[Display | None]
@@ -491,21 +528,32 @@ class _Core3_2:
     begindatetime: datetime | None
     enddatetime: datetime | None
 
-    detector_names: _OpticalKeyVals[str]
-    tags: _OpticalKeyVals[str]
-    features: _OpticalKeyVals[Feature]
-    analytes: _OpticalKeyVals[str]
-    measurement_types: _OpticalKeyVals[str]
-
     def __new__(cls, cyt: str) -> Self: ...
     @property
     def unstained_centers(self) -> dict[Shortname, float] | None: ...
     def insert_unstained_center(self, name: Shortname, value: float): ...
     def remove_unstained_center(self, name: Shortname) -> float | None: ...
     def clear_unstained_centers(self): ...
+    @property
+    def detector_names(self) -> _OpticalKeyVals[str]: ...
+    def set_detector_names(self, xs: list[str]): ...
+    @property
+    def tags(self) -> _OpticalKeyVals[str]: ...
+    def set_tags(self, xs: list[str]): ...
+    @property
+    def features(self) -> _OpticalKeyVals[Feature]: ...
+    def set_features(self, xs: list[Feature]): ...
+    @property
+    def analytes(self) -> _OpticalKeyVals[str]: ...
+    def set_analytes(self, xs: list[str]): ...
+    @property
+    def measurement_types(self) -> _OpticalKeyVals[str]: ...
+    def set_measurement_types(self, xs: list[str]): ...
 
 class _CoreMeasCalibration(Generic[_C]):
-    calibrations: _OpticalKeyVals[_C]
+    @property
+    def calibrations(self) -> _OpticalKeyVals[_C]: ...
+    def set_calibrations(self, xs: list[_C | None]): ...
 
 class _CoreToDataset(Generic[_X]):
     def to_dataset(
@@ -617,7 +665,7 @@ class CoreDataset2_0(
     _CorePre3_2,
     _CoreTemporal2_0,
     _CoreGetSetMeas[Shortname | None, Optical2_0, Temporal2_0],
-    _CoreDatasetGetSetMeas[Temporal2_0],
+    _CoreDatasetGetSetMeas[Shortname | None, Temporal2_0, Optical2_0],
     _CoreGetSetMeasOrdered[Optical2_0, Temporal2_0],
     _CoreDatasetGetSetMeasOrdered[Optical2_0, Temporal2_0],
     _CoreScaleMethods,
@@ -635,7 +683,7 @@ class CoreDataset3_0(
     _CorePre3_2,
     _CoreTemporal3_0,
     _CoreGetSetMeas[Shortname | None, Optical3_0, Temporal3_0],
-    _CoreDatasetGetSetMeas[Temporal3_0],
+    _CoreDatasetGetSetMeas[Shortname | None, Temporal3_0, Optical3_0],
     _CoreGetSetMeasOrdered[Optical3_0, Temporal3_0],
     _CoreDatasetGetSetMeasOrdered[Optical3_0, Temporal3_0],
     _CoreSetShortnamesMaybe,
@@ -656,7 +704,7 @@ class CoreDataset3_1(
     _CorePre3_2,
     _CoreTemporal3_0,
     _CoreGetSetMeas[Shortname, Optical3_1, Temporal3_1],
-    _CoreDatasetGetSetMeas[Temporal3_1],
+    _CoreDatasetGetSetMeas[Shortname, Temporal3_1, Optical3_1],
     _CoreGetSetMeasEndian[_AnyNonMixedLayout, Optical3_1, Temporal3_1],
     _CoreDatasetGetSetMeasEndian[Optical3_1, Temporal3_1],
     _CoreScaleTransformMethods,
@@ -680,7 +728,7 @@ class CoreDataset3_2(
     _Core3_2,
     _CoreTemporal3_0,
     _CoreGetSetMeas[Shortname, Optical3_2, Temporal3_2],
-    _CoreDatasetGetSetMeas[Temporal3_2],
+    _CoreDatasetGetSetMeas[Shortname, Temporal3_2, Optical3_2],
     _CoreGetSetMeasEndian[_AnyMixedLayout, Optical3_2, Temporal3_2],
     _CoreDatasetGetSetMeasEndian[Optical3_2, Temporal3_2],
     _CoreScaleTransformMethods,

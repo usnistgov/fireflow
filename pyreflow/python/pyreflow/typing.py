@@ -76,3 +76,5 @@ AnyCoreTEXT: TypeAlias = CoreTEXT2_0 | CoreTEXT3_0 | CoreTEXT3_1 | CoreTEXT3_2
 AnyCoreDataset: TypeAlias = (
     CoreDataset2_0 | CoreDataset3_0 | CoreDataset3_1 | CoreDataset3_2
 )
+
+AnyCore: TypeAlias = AnyCoreTEXT | AnyCoreDataset

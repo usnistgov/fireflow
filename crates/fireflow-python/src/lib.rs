@@ -468,7 +468,6 @@ macro_rules! get_set_all_optical {
                         .collect()
                 }
 
-                #[setter]
                 fn $set(&mut self, xs: Vec<Option<$t>>) -> PyResult<()> {
                     Ok(self.0.set_optical(xs)?)
                 }
@@ -1008,13 +1007,14 @@ common_meas_get_set!(
 );
 
 macro_rules! common_coretext_meas_get_set {
-    ($pytype:ident, $o:ident, $t:ident, $n:path, $fam:ident) => {
+    ($pytype:ident, $o:ident, $t:ident, $n:path) => {
         #[pymethods]
         impl $pytype {
+            #[pyo3(signature = (meas, name, range, notrunc = false))]
             fn push_optical(
                 &mut self,
-                name: $n,
                 meas: $o,
+                name: $n,
                 range: kws::Range,
                 notrunc: bool,
             ) -> PyResult<()> {
@@ -1024,6 +1024,7 @@ macro_rules! common_coretext_meas_get_set {
                     .void()
             }
 
+            #[pyo3(signature = (index, meas, name, range, notrunc = false))]
             fn insert_optical(
                 &mut self,
                 index: MeasIndex,
@@ -1038,6 +1039,7 @@ macro_rules! common_coretext_meas_get_set {
                     .void()
             }
 
+            #[pyo3(signature = (meas, name, range, notrunc = false))]
             fn push_temporal(
                 &mut self,
                 meas: $t,
@@ -1050,11 +1052,12 @@ macro_rules! common_coretext_meas_get_set {
                     .py_term_resolve()
             }
 
+            #[pyo3(signature = (index, meas, name, range, notrunc = false))]
             fn insert_temporal(
                 &mut self,
                 index: MeasIndex,
-                name: Shortname,
                 meas: $t,
+                name: Shortname,
                 range: kws::Range,
                 notrunc: bool,
             ) -> PyResult<()> {
@@ -1074,40 +1077,58 @@ common_coretext_meas_get_set!(
     PyCoreTEXT2_0,
     PyOptical2_0,
     PyTemporal2_0,
-    Option<Shortname>,
-    MaybeFamily
+    Option<Shortname>
 );
 common_coretext_meas_get_set!(
     PyCoreTEXT3_0,
     PyOptical3_0,
     PyTemporal3_0,
-    Option<Shortname>,
-    MaybeFamily
+    Option<Shortname>
 );
-common_coretext_meas_get_set!(
-    PyCoreTEXT3_1,
-    PyOptical3_1,
-    PyTemporal3_1,
-    Shortname,
-    AlwaysFamily
-);
-common_coretext_meas_get_set!(
-    PyCoreTEXT3_2,
-    PyOptical3_2,
-    PyTemporal3_2,
-    Shortname,
-    AlwaysFamily
-);
+common_coretext_meas_get_set!(PyCoreTEXT3_1, PyOptical3_1, PyTemporal3_1, Shortname);
+common_coretext_meas_get_set!(PyCoreTEXT3_2, PyOptical3_2, PyTemporal3_2, Shortname);
 
 macro_rules! coredata_meas_get_set {
-    ($pytype:ident, $timetype:ident) => {
+    ($pytype:ident, $o:ident, $t:ident, $n:path) => {
         #[pymethods]
         impl $pytype {
+            #[pyo3(signature = (meas, col, name, range, notrunc = false))]
+            fn push_optical(
+                &mut self,
+                meas: $o,
+                col: AnyFCSColumn,
+                name: $n,
+                range: kws::Range,
+                notrunc: bool,
+            ) -> PyResult<()> {
+                self.0
+                    .push_optical(name.into(), meas.into(), col, range, notrunc)
+                    .py_term_resolve()
+                    .void()
+            }
+
+            #[pyo3(signature = (index, meas, col, name, range, notrunc = false))]
+            fn insert_optical(
+                &mut self,
+                index: MeasIndex,
+                meas: $o,
+                col: AnyFCSColumn,
+                name: $n,
+                range: kws::Range,
+                notrunc: bool,
+            ) -> PyResult<()> {
+                self.0
+                    .insert_optical(index, name.into(), meas.into(), col, range, notrunc)
+                    .py_term_resolve()
+                    .void()
+            }
+
+            #[pyo3(signature = (meas, col, name, range, notrunc = false))]
             fn push_temporal(
                 &mut self,
-                name: Shortname,
-                meas: $timetype,
+                meas: $t,
                 col: AnyFCSColumn,
+                name: Shortname,
                 range: kws::Range,
                 notrunc: bool,
             ) -> PyResult<()> {
@@ -1116,12 +1137,13 @@ macro_rules! coredata_meas_get_set {
                     .py_term_resolve()
             }
 
+            #[pyo3(signature = (index, meas, col, name, range, notrunc = false))]
             fn insert_temporal(
                 &mut self,
                 index: MeasIndex,
-                name: Shortname,
-                meas: $timetype,
+                meas: $t,
                 col: AnyFCSColumn,
+                name: Shortname,
                 range: kws::Range,
                 notrunc: bool,
             ) -> PyResult<()> {
@@ -1177,10 +1199,20 @@ macro_rules! coredata_meas_get_set {
     };
 }
 
-coredata_meas_get_set!(PyCoreDataset2_0, PyTemporal2_0);
-coredata_meas_get_set!(PyCoreDataset3_0, PyTemporal3_0);
-coredata_meas_get_set!(PyCoreDataset3_1, PyTemporal3_1);
-coredata_meas_get_set!(PyCoreDataset3_2, PyTemporal3_2);
+coredata_meas_get_set!(
+    PyCoreDataset2_0,
+    PyOptical2_0,
+    PyTemporal2_0,
+    Option<Shortname>
+);
+coredata_meas_get_set!(
+    PyCoreDataset3_0,
+    PyOptical3_0,
+    PyTemporal3_0,
+    Option<Shortname>
+);
+coredata_meas_get_set!(PyCoreDataset3_1, PyOptical3_1, PyTemporal3_1, Shortname);
+coredata_meas_get_set!(PyCoreDataset3_2, PyOptical3_2, PyTemporal3_2, Shortname);
 
 macro_rules! set_measurements_ordered {
     ($pytype:ident, $t:ident, $o:ident) => {

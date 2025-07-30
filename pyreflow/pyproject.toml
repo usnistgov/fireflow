@@ -18,6 +18,8 @@ classifiers = [
 dynamic = ["version"]
 dependencies = [
     "polars==1.26.0",
+    # TODO see https://docs.pola.rs/user-guide/misc/arrow/#for-library-maintainers
+    "pyarrow>7.0.0",
     "numpy==2.3.2",
 ]
 
@@ -39,7 +41,7 @@ lint = [
 ]
 testing = [
     { include-group = "dev" },
-    "pytest",
+    "pytest==8.4.1",
 ]
 
 [tool.maturin]

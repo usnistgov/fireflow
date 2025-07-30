@@ -145,9 +145,10 @@ impl fmt::Display for TriggerError {
 }
 
 /// The values used for the $MODE key (up to 3.1)
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Mode {
+    #[default]
     List,
     Uncorrelated,
     Correlated,
@@ -186,6 +187,8 @@ impl fmt::Display for ModeError {
 }
 
 /// The value for the $MODE key, which can only contain 'L' (3.2)
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Mode3_2;
 
 pub struct Mode3_2Error;
@@ -210,6 +213,25 @@ impl fmt::Display for Mode3_2 {
 impl fmt::Display for Mode3_2Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "can only be 'L'")
+    }
+}
+
+impl TryFrom<Mode> for Mode3_2 {
+    type Error = ModeUpgradeError;
+
+    fn try_from(value: Mode) -> Result<Self, Self::Error> {
+        match value {
+            Mode::List => Ok(Mode3_2),
+            _ => Err(ModeUpgradeError),
+        }
+    }
+}
+
+pub struct ModeUpgradeError;
+
+impl fmt::Display for ModeUpgradeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "pre-3.2 $MODE must be 'L' to upgrade to 3.2 $MODE")
     }
 }
 
@@ -2166,8 +2188,8 @@ mod python {
 
     use super::{
         AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Display, Feature,
-        FeatureError, Mode, ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError,
-        Originality, OriginalityError, Trigger, Unicode, Wavelengths,
+        FeatureError, Mode, Mode3_2, Mode3_2Error, ModeError, NumType, NumTypeError, OpticalType,
+        OpticalTypeError, Originality, OriginalityError, Trigger, Unicode, Wavelengths,
     };
 
     use nonempty::NonEmpty;
@@ -2189,6 +2211,7 @@ mod python {
     impl_str_py!(NumType, NumTypeError);
     impl_str_py!(Feature, FeatureError);
     impl_str_py!(Mode, ModeError);
+    impl_str_py!(Mode3_2, Mode3_2Error);
     impl_str_py!(OpticalType, OpticalTypeError);
 
     // $PnL (3.1+) should be represented as a list of floats

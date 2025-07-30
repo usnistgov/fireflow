@@ -531,6 +531,11 @@ pub struct InnerMetaroot3_1 {
 #[derive(Clone, AsRef, AsMut)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerMetaroot3_2 {
+    /// Value of $MODE
+    #[as_ref(Option<Mode3_2>)]
+    #[as_mut(Option<Mode3_2>)]
+    pub mode: MaybeValue<Mode3_2>,
+
     /// Values of $BTIM/ETIM/$DATE
     #[as_ref(Timestamps3_1, Option<FCSDate>)]
     #[as_mut(Timestamps3_1)]
@@ -5594,6 +5599,7 @@ impl_ref_specific_rw!(
     InnerMetaroot3_2,
     Cyt,
     Datetimes,
+    Option<Mode3_2>,
     Option<Cytsn>,
     Option<LastModifier>,
     Option<ModifiedDateTime>,
@@ -5960,28 +5966,31 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
             .0
             .ok_or(NoCytError)
             .into_deferred()
-            .def_map_value(|cyt| Self {
-                cyt,
-                timestamps: value.timestamps.map(|d| d.into()),
-                cytsn: None.into(),
-                modification: ModificationData::default(),
-                spillover: None.into(),
-                plate: PlateData::default(),
-                vol: None.into(),
-                flowrate: None.into(),
-                carrier: CarrierData::default(),
-                unstained: UnstainedData::default(),
-                datetimes: Datetimes::default(),
-                applied_gates: None.into(),
+            .def_and_tentatively(|cyt| {
+                Mode3_2::try_from(value.mode)
+                    .into_tentative_opt(lossless)
+                    .inner_into()
+                    .map(|mode| Self {
+                        cyt,
+                        mode: mode.into(),
+                        timestamps: value.timestamps.map(|d| d.into()),
+                        cytsn: None.into(),
+                        modification: ModificationData::default(),
+                        spillover: None.into(),
+                        plate: PlateData::default(),
+                        vol: None.into(),
+                        flowrate: None.into(),
+                        carrier: CarrierData::default(),
+                        unstained: UnstainedData::default(),
+                        datetimes: Datetimes::default(),
+                        applied_gates: None.into(),
+                    })
             });
         if value.applied_gates.0.is_some() {
             res.def_push_error_or_warning(AppliedGates2_0To3_2Error, lossless);
         }
         if value.comp.0.is_some() {
             res.def_push_error_or_warning(Comp2_0TransferError, lossless);
-        }
-        if value.mode != Mode::List {
-            res.def_push_error_or_warning(ModeNotListError, lossless);
         }
         res
     }
@@ -5998,8 +6007,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
             .subset
             .0
             .map(|ss| ss.check_loss(lossless))
-            .unwrap_or(Tentative::new1(()));
-        let mut res = u.zip3(co, ss).inner_into().and_maybe(|_| {
+            .unwrap_or_default();
+        u.zip3(co, ss).inner_into().and_maybe(|_| {
             value
                 .applied_gates
                 .0
@@ -6012,26 +6021,28 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
                         .0
                         .ok_or(NoCytError)
                         .into_deferred()
-                        .def_map_value(|cyt| Self {
-                            cyt,
-                            cytsn: value.cytsn,
-                            timestamps: value.timestamps.map(|d| d.into()),
-                            modification: ModificationData::default(),
-                            spillover: None.into(),
-                            plate: PlateData::default(),
-                            vol: None.into(),
-                            flowrate: None.into(),
-                            carrier: CarrierData::default(),
-                            unstained: UnstainedData::default(),
-                            datetimes: Datetimes::default(),
-                            applied_gates: ag.into(),
+                        .def_and_tentatively(|cyt| {
+                            Mode3_2::try_from(value.mode)
+                                .into_tentative_opt(lossless)
+                                .inner_into()
+                                .map(|mode| Self {
+                                    cyt,
+                                    mode: mode.into(),
+                                    cytsn: value.cytsn,
+                                    timestamps: value.timestamps.map(|d| d.into()),
+                                    modification: ModificationData::default(),
+                                    spillover: None.into(),
+                                    plate: PlateData::default(),
+                                    vol: None.into(),
+                                    flowrate: None.into(),
+                                    carrier: CarrierData::default(),
+                                    unstained: UnstainedData::default(),
+                                    datetimes: Datetimes::default(),
+                                    applied_gates: ag.into(),
+                                })
                         })
                 })
-        });
-        if value.mode != Mode::List {
-            res.def_push_error_or_warning(ModeNotListError, lossless);
-        }
-        res
+        })
     }
 }
 
@@ -6044,36 +6055,38 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
             .subset
             .0
             .map(|ss| ss.check_loss(lossless))
-            .unwrap_or(Tentative::new1(()))
+            .unwrap_or_default()
             .inner_into();
         let a = value.applied_gates.0.map_or(Tentative::new1(None), |x| {
             x.try_into_3_2(lossless).def_unfail().inner_into()
         });
-        let mut res = ss.zip(a).and_maybe(|(_, ag)| {
+        ss.zip(a).and_maybe(|(_, ag)| {
             value
                 .cyt
                 .0
                 .ok_or(NoCytError)
                 .into_deferred()
-                .def_map_value(|cyt| Self {
-                    cyt,
-                    cytsn: value.cytsn,
-                    timestamps: value.timestamps,
-                    spillover: value.spillover,
-                    modification: value.modification,
-                    plate: value.plate,
-                    vol: value.vol,
-                    flowrate: None.into(),
-                    carrier: CarrierData::default(),
-                    unstained: UnstainedData::default(),
-                    datetimes: Datetimes::default(),
-                    applied_gates: ag.into(),
+                .def_and_tentatively(|cyt| {
+                    Mode3_2::try_from(value.mode)
+                        .into_tentative_opt(lossless)
+                        .inner_into()
+                        .map(|mode| Self {
+                            cyt,
+                            mode: mode.into(),
+                            cytsn: value.cytsn,
+                            timestamps: value.timestamps,
+                            spillover: value.spillover,
+                            modification: value.modification,
+                            plate: value.plate,
+                            vol: value.vol,
+                            flowrate: None.into(),
+                            carrier: CarrierData::default(),
+                            unstained: UnstainedData::default(),
+                            datetimes: Datetimes::default(),
+                            applied_gates: ag.into(),
+                        })
                 })
-        });
-        if value.mode != Mode::List {
-            res.def_push_error_or_warning(ModeNotListError, lossless);
-        }
-        res
+        })
     }
 }
 
@@ -7514,7 +7527,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
             .and_maybe(
                 |(
                     (
-                        (carrier, datetimes, flowrate, modification, _, spillover),
+                        (carrier, datetimes, flowrate, modification, mode, spillover),
                         cytsn,
                         plate,
                         timestamps,
@@ -7525,6 +7538,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
                 )| {
                     Cyt::lookup_req(kws).def_map_value(|cyt| Self {
                         cyt,
+                        mode,
                         cytsn,
                         vol,
                         spillover,
@@ -8000,6 +8014,7 @@ impl InnerMetaroot3_2 {
     pub(crate) fn new(cyt: String) -> Self {
         Self {
             cyt: cyt.into(),
+            mode: None.into(),
             carrier: CarrierData::default(),
             plate: PlateData::default(),
             datetimes: Datetimes::default(),
@@ -8486,7 +8501,7 @@ impl fmt::Display for OpticalNonLinearError {
 #[derive(From, Display)]
 pub enum MetarootConvertError {
     NoCyt(NoCytError),
-    Mode(ModeNotListError),
+    Mode(ModeUpgradeError),
     GateLink(RegionToGateIndexError),
     MeasLink(RegionToMeasIndexError),
     GateToMeas(GateToMeasIndexError),
@@ -8501,7 +8516,7 @@ pub enum MetarootConvertError {
 
 #[derive(From, Display)]
 pub enum MetarootConvertWarning {
-    Mode(ModeNotListError),
+    Mode(ModeUpgradeError),
     Gates3_0To2_0(AppliedGates3_0To2_0Error),
     Gates3_0To3_2(AppliedGates3_0To3_2Error),
     Gates3_2To2_0(AppliedGates3_2To2_0Error),
@@ -8735,14 +8750,6 @@ pub struct NoCytError;
 impl fmt::Display for NoCytError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "$CYT is missing")
-    }
-}
-
-pub struct ModeNotListError;
-
-impl fmt::Display for ModeNotListError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "$MODE is not L")
     }
 }
 

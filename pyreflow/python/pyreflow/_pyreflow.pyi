@@ -15,6 +15,7 @@ from pyreflow.typing import (
     ScaleTransform,
     NonStdKey,
     Mode,
+    Mode3_2,
     Trigger,
     Shortname,
     NonStdKeywords,
@@ -474,11 +475,13 @@ class _CoreMeasDisplay:
     displays: list[Display | None]
 
 class _CorePre3_2:
+    mode: Mode
     cyt: str | None
 
     def __new__(cls, mode: Mode) -> Self: ...
 
 class _Core3_2:
+    mode: Mode3_2 | None
     flowrate: str | None
     cyt: str
     unstainedinfo: str | None

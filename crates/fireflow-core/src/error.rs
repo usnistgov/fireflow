@@ -998,6 +998,14 @@ pub trait ResultExt {
     ) -> MultiResult<(Self::V, A, B), Self::E>;
 
     fn void(self) -> Result<(), Self::E>;
+
+    fn into_tentative(
+        self,
+        default: Self::V,
+        is_error: bool,
+    ) -> Tentative<Self::V, Self::E, Self::E>;
+
+    fn into_tentative_opt(self, is_error: bool) -> Tentative<Option<Self::V>, Self::E, Self::E>;
 }
 
 impl<V, E> ResultExt for Result<V, E> {
@@ -1048,6 +1056,17 @@ impl<V, E> ResultExt for Result<V, E> {
 
     fn void(self) -> Result<(), Self::E> {
         self.map(|_| ())
+    }
+
+    fn into_tentative(self, default: V, is_error: bool) -> Tentative<Self::V, Self::E, Self::E> {
+        self.map_or_else(
+            |e| Tentative::new_either(default, vec![e], is_error),
+            Tentative::new1,
+        )
+    }
+
+    fn into_tentative_opt(self, is_error: bool) -> Tentative<Option<Self::V>, Self::E, Self::E> {
+        self.map(Some).into_tentative(None, is_error)
     }
 }
 

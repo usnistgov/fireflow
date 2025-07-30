@@ -53,6 +53,8 @@ Display: TypeAlias = tuple[bool, float, float]
 
 Mode = Literal["L", "C", "U"]
 
+Mode3_2 = Literal["L"]
+
 Originality = Literal["Original", "NonDataModified", "Appended", "DataModified"]
 
 Feature = Literal["Area", "Width", "Height"]

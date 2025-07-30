@@ -1,5 +1,7 @@
 from typing import Literal, NewType, TypeAlias
 
+MeasIndex = NewType("MeasIndex", int)
+
 Range = NewType("Range", float)
 
 FloatRange = NewType("FloatRange", float)

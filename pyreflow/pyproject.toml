@@ -29,12 +29,17 @@ build-backend = "maturin"
 all = [
     { include-group = "dev" },
     { include-group = "lint" },
+    { include-group = "testing" },
 ]
 dev = ["maturin[patchelf]"]
 lint = [
     { include-group = "dev" },
     "mypy[faster-cache]",
     "ruff",
+]
+testing = [
+    { include-group = "dev" },
+    "pytest",
 ]
 
 [tool.maturin]

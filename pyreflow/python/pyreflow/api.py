@@ -1,5 +1,7 @@
 from ._pyreflow import _api  # type: ignore
 from pyreflow.typing import (
+    StdKey,
+    Timestep,
     AnyCoreTEXT,
     AnyCoreDataset,
     Segment,
@@ -11,10 +13,8 @@ from pyreflow.typing import (
     AnalysisBytes,
     OtherBytes,
 )
-
-
 from pathlib import Path
-from typing import Any, Union, NamedTuple
+from typing import Any, NamedTuple
 import polars as pl
 
 
@@ -36,7 +36,7 @@ class ParseData(NamedTuple):
 
 class StdTEXTData(NamedTuple):
     tot: int | None
-    timestep: float | None
+    timestep: Timestep | None
     data: Segment
     analysis: Segment
     pseudostandard: dict[str, str]
@@ -92,7 +92,7 @@ class ReadRawDatasetFromKwsOutput(NamedTuple):
 
 class ReadStdDatasetFromKwsOutput(NamedTuple):
     core: AnyCoreDataset
-    pseudostandard: dict[str, str]
+    pseudostandard: dict[StdKey, str]
     data_seg: Segment
     analysis_seg: Segment
 

@@ -4,6 +4,7 @@ from pyreflow import (
     PyreflowException,
 )
 from pyreflow.typing import (
+    Timestep,
     Display,
     Scale,
     ScaleTransform,
@@ -202,9 +203,9 @@ class _OpticalScaleTransform:
     def __new__(cls, scale: Scale) -> Self: ...
 
 class _TemporalTimestep:
-    timestep: float
+    timestep: Timestep
 
-    def __new__(cls, timestep: float) -> Self: ...
+    def __new__(cls, timestep: Timestep) -> Self: ...
 
 @final
 class Optical2_0(_MeasCommon, _OpticalCommon, _OpticalWavelength):
@@ -309,8 +310,10 @@ class _CoreTemporal2_0:
     def unset_temporal(self, force: bool) -> bool: ...
 
 class _CoreTemporal3_0:
-    def set_temporal(self, name: Shortname, timestep: float, force: bool) -> bool: ...
-    def set_temporal_at(self, index: int, timestep: float, force: bool) -> bool: ...
+    def set_temporal(
+        self, name: Shortname, timestep: Timestep, force: bool
+    ) -> bool: ...
+    def set_temporal_at(self, index: int, timestep: Timestep, force: bool) -> bool: ...
     def unset_temporal(self, force: bool) -> float | None: ...
 
 class _CoreGetSetMeas(Generic[_N, _O, _T]):
@@ -415,8 +418,8 @@ class _CoreScaleTransformMethods:
 
 class _CoreTimestepMethods:
     @property
-    def timestep(self) -> float | None: ...
-    def set_timestep(self, timestep: float) -> bool: ...
+    def timestep(self) -> Timestep | None: ...
+    def set_timestep(self, timestep: Timestep) -> bool: ...
 
 class _CoreModified:
     originality: Originality | None

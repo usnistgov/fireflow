@@ -2,6 +2,8 @@ from typing import Literal, NewType, TypeAlias
 
 Shortname = NewType("Shortname", str)
 
+Timestep = NewType("Timestep", float)
+
 StdKey = NewType("StdKey", str)
 NonStdKey = NewType("NonStdKey", str)
 

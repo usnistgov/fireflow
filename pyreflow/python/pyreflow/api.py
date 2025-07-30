@@ -1,15 +1,7 @@
-from ._pyreflow import (
-    CoreTEXT2_0,
-    CoreTEXT3_0,
-    CoreTEXT3_1,
-    CoreTEXT3_2,
-    CoreDataset2_0,
-    CoreDataset3_0,
-    CoreDataset3_1,
-    CoreDataset3_2,
-)
 from ._pyreflow import _api  # type: ignore
 from pyreflow.typing import (
+    AnyCoreTEXT,
+    AnyCoreDataset,
     Segment,
     FCSVersion,
     StdKeywords,
@@ -24,12 +16,6 @@ from pyreflow.typing import (
 from pathlib import Path
 from typing import Any, Union, NamedTuple
 import polars as pl
-
-AnyCoreTEXT = Union[CoreTEXT2_0 | CoreTEXT3_0 | CoreTEXT3_1 | CoreTEXT3_2]
-
-AnyCoreDataset = Union[
-    CoreDataset2_0 | CoreDataset3_0 | CoreDataset3_1 | CoreDataset3_2
-]
 
 
 class HeaderSegments(NamedTuple):

@@ -1,3 +1,13 @@
+from ._pyreflow import (
+    CoreTEXT2_0,
+    CoreTEXT3_0,
+    CoreTEXT3_1,
+    CoreTEXT3_2,
+    CoreDataset2_0,
+    CoreDataset3_0,
+    CoreDataset3_1,
+    CoreDataset3_2,
+)
 from typing import Literal, NewType, TypeAlias
 
 MeasIndex = NewType("MeasIndex", int)
@@ -57,4 +67,10 @@ AsciiType = Literal["A"]
 Datatype: TypeAlias = FloatType | DoubleType | IntegerType | AsciiType
 MixedType: TypeAlias = (
     tuple[FloatType | DoubleType, FloatRange] | tuple[AsciiType | IntegerType, IntRange]
+)
+
+AnyCoreTEXT: TypeAlias = CoreTEXT2_0 | CoreTEXT3_0 | CoreTEXT3_1 | CoreTEXT3_2
+
+AnyCoreDataset: TypeAlias = (
+    CoreDataset2_0 | CoreDataset3_0 | CoreDataset3_1 | CoreDataset3_2
 )

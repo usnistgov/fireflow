@@ -1,13 +1,21 @@
 from typing import Literal, NewType, TypeAlias
 
+Range = NewType("Range", float)
+
+FloatRange = NewType("FloatRange", float)
+
+IntRange = NewType("IntRange", int)
+
 Shortname = NewType("Shortname", str)
 
 Timestep = NewType("Timestep", float)
 
 StdKey = NewType("StdKey", str)
+
 NonStdKey = NewType("NonStdKey", str)
 
 AnalysisBytes = NewType("AnalysisBytes", bytes)
+
 OtherBytes = NewType("OtherBytes", bytes)
 
 Trigger: TypeAlias = tuple[Shortname, int]
@@ -44,5 +52,5 @@ AsciiType = Literal["A"]
 
 Datatype: TypeAlias = FloatType | DoubleType | IntegerType | AsciiType
 MixedType: TypeAlias = (
-    tuple[FloatType | DoubleType, float] | tuple[AsciiType | IntegerType, int]
+    tuple[FloatType | DoubleType, FloatRange] | tuple[AsciiType | IntegerType, IntRange]
 )

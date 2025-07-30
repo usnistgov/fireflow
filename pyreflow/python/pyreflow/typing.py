@@ -2,6 +2,8 @@ from typing import Literal, NewType, TypeAlias
 
 MeasIndex = NewType("MeasIndex", int)
 
+ByteOrd = NewType("ByteOrd", list[int])
+
 Range = NewType("Range", float)
 
 FloatRange = NewType("FloatRange", float)

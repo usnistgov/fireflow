@@ -453,3 +453,10 @@ class TestCore:
         core.set_temporal_at(MeasIndex(0), ts, False)
         assert core.temporal is not None
         assert core.temporal[1] == LINK_NAME
+
+    @all_core
+    def test_remove_meas_by_name(self, core: AnyCore) -> None:
+        assert len(core.measurements) == 1
+        assert core.remove_measurement_by_name(LINK_NAME) is not None
+        assert len(core.measurements) == 0
+        assert core.remove_measurement_by_name(LINK_NAME) is None

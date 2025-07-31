@@ -122,13 +122,13 @@ impl fmt::Display for ColumnLengthError {
         write!(
             f,
             "column length ({}) is different from number of rows in dataframe ({})",
-            self.df_len, self.col_len
+            self.col_len, self.df_len
         )
     }
 }
 
 impl FCSDataFrame {
-    pub(crate) fn try_new(columns: Vec<AnyFCSColumn>) -> Result<Self, NewDataframeError> {
+    pub fn try_new(columns: Vec<AnyFCSColumn>) -> Result<Self, NewDataframeError> {
         if let Some(nrows) = columns.first().map(|c| c.len()) {
             if columns.iter().all(|c| c.len() == nrows) {
                 Ok(Self { columns, nrows })
@@ -137,6 +137,13 @@ impl FCSDataFrame {
             }
         } else {
             Ok(Self::default())
+        }
+    }
+
+    pub fn new1(column: AnyFCSColumn) -> Self {
+        Self {
+            nrows: column.len(),
+            columns: vec![column],
         }
     }
 
@@ -178,9 +185,13 @@ impl FCSDataFrame {
     }
 
     pub(crate) fn push_column(&mut self, col: AnyFCSColumn) -> Result<(), ColumnLengthError> {
+        if self.is_empty() {
+            *self = Self::new1(col);
+            return Ok(());
+        }
         let df_len = self.nrows();
         let col_len = col.len();
-        if col_len == df_len || self.is_empty() {
+        if col_len == df_len {
             self.columns.push(col);
             Ok(())
         } else {
@@ -194,13 +205,20 @@ impl FCSDataFrame {
         i: usize,
         col: AnyFCSColumn,
     ) -> Result<(), ColumnLengthError> {
+        // don't use Self::new1 here since we want to panic if i is out of
+        // bounds
+        if self.is_empty() {
+            self.nrows = col.len();
+            self.columns.insert(i, col);
+            return Ok(());
+        }
         let df_len = self.nrows();
         let col_len = col.len();
-        if col_len != df_len {
-            Err(ColumnLengthError { df_len, col_len })
-        } else {
+        if col_len == df_len {
             self.columns.insert(i, col);
             Ok(())
+        } else {
+            Err(ColumnLengthError { df_len, col_len })
         }
     }
 

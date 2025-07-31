@@ -368,9 +368,12 @@ class TestCore:
         temporal: type,
     ) -> None:
         assert isinstance(core.measurement_at(MeasIndex(0)), optical)
+        assert len(core.measurements) == 1
+        assert isinstance(core.measurements[0], optical)
         assert core.temporal is None
         core.set_temporal(LINK_NAME, False)
         assert isinstance(core.measurement_at(MeasIndex(0)), temporal)
+        assert isinstance(core.measurements[0], temporal)
         assert core.temporal is not None
         assert core.temporal[1] == LINK_NAME
         assert core.unset_temporal(False) is True
@@ -400,10 +403,13 @@ class TestCore:
         temporal: type,
     ) -> None:
         assert isinstance(core.measurement_at(MeasIndex(0)), optical)
+        assert len(core.measurements) == 1
+        assert isinstance(core.measurements[0], optical)
         assert core.temporal is None
         ts = Timestep(1.0)
         core.set_temporal(LINK_NAME, ts, False)
         assert isinstance(core.measurement_at(MeasIndex(0)), temporal)
+        assert isinstance(core.measurements[0], temporal)
         assert core.temporal is not None
         assert core.temporal[1] == LINK_NAME
         assert core.unset_temporal(False) == ts

@@ -572,7 +572,7 @@ class TestCore:
         ln = "I am not living"
         optical.longname = ln
         core.replace_optical_at(MeasIndex(0), optical)
-        core.measurement_at(MeasIndex(1)).longname == ln
+        core.measurement_at(MeasIndex(0)).longname == ln
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -594,7 +594,7 @@ class TestCore:
         ln = "I'm asleep"
         optical.longname = ln
         core.replace_optical_named(LINK_NAME1, optical)
-        core.measurement_at(MeasIndex(1)).longname == ln
+        core.measurement_at(MeasIndex(0)).longname == ln
 
     @pytest.mark.parametrize(
         "core, temporal",

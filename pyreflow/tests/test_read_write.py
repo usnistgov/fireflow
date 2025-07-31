@@ -458,3 +458,10 @@ class TestCore:
         assert core.remove_measurement_by_name(LINK_NAME) is not None
         assert len(core.measurements) == 0
         assert core.remove_measurement_by_name(LINK_NAME) is None
+
+    @all_core
+    def test_remove_meas_by_index(self, core: AnyCore) -> None:
+        assert len(core.measurements) == 1
+        core.remove_measurement_by_index(MeasIndex(0))
+        with pytest.raises(IndexError):
+            core.remove_measurement_by_index(MeasIndex(0))

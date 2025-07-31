@@ -1,27 +1,27 @@
 import pyreflow._pyreflow as pf
-from typing import Literal, NewType, TypeAlias
+from typing import Literal, TypeAlias
 
-MeasIndex = NewType("MeasIndex", int)
+MeasIndex: TypeAlias = int
 
-ByteOrd = NewType("ByteOrd", list[int])
+ByteOrd: TypeAlias = list[int]
 
-Range = NewType("Range", float)
+Range: TypeAlias = float
 
-FloatRange = NewType("FloatRange", float)
+FloatRange: TypeAlias = float
 
-IntRange = NewType("IntRange", int)
+IntRange: TypeAlias = int
 
-Shortname = NewType("Shortname", str)
+Shortname: TypeAlias = str
 
-Timestep = NewType("Timestep", float)
+Timestep: TypeAlias = float
 
-StdKey = NewType("StdKey", str)
+StdKey: TypeAlias = str
 
-NonStdKey = NewType("NonStdKey", str)
+NonStdKey: TypeAlias = str
 
-AnalysisBytes = NewType("AnalysisBytes", bytes)
+AnalysisBytes: TypeAlias = bytes
 
-OtherBytes = NewType("OtherBytes", bytes)
+OtherBytes: TypeAlias = bytes
 
 Trigger: TypeAlias = tuple[Shortname, int]
 

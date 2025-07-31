@@ -3,19 +3,7 @@ from datetime import date, datetime, time
 
 import pytest
 
-from pyreflow.typing import (
-    MeasIndex,
-    Range,
-    Trigger,
-    Timestep,
-    Shortname,
-    NonStdKey,
-    AnyCoreTEXT,
-    AnyCoreDataset,
-    AnyOptical,
-    AnyCore,
-    AnalysisBytes,
-)
+from pyreflow.typing import Trigger, AnyCoreTEXT, AnyCoreDataset, AnyOptical, AnyCore
 import pyreflow as pf
 import polars as pl
 
@@ -44,22 +32,22 @@ def blank_text_3_2() -> pf.CoreTEXT3_2:
 
 @pytest.fixture
 def blank_dataset_2_0(blank_text_2_0: pf.CoreTEXT2_0) -> pf.CoreDataset2_0:
-    return blank_text_2_0.to_dataset([], AnalysisBytes(b""), [])
+    return blank_text_2_0.to_dataset([], b"", [])
 
 
 @pytest.fixture
 def blank_dataset_3_0(blank_text_3_0: pf.CoreTEXT3_0) -> pf.CoreDataset3_0:
-    return blank_text_3_0.to_dataset([], AnalysisBytes(b""), [])
+    return blank_text_3_0.to_dataset([], b"", [])
 
 
 @pytest.fixture
 def blank_dataset_3_1(blank_text_3_1: pf.CoreTEXT3_1) -> pf.CoreDataset3_1:
-    return blank_text_3_1.to_dataset([], AnalysisBytes(b""), [])
+    return blank_text_3_1.to_dataset([], b"", [])
 
 
 @pytest.fixture
 def blank_dataset_3_2(blank_text_3_2: pf.CoreTEXT3_2) -> pf.CoreDataset3_2:
-    return blank_text_3_2.to_dataset([], AnalysisBytes(b""), [])
+    return blank_text_3_2.to_dataset([], b"", [])
 
 
 @pytest.fixture
@@ -89,21 +77,21 @@ def blank_temporal_2_0() -> pf.Temporal2_0:
 
 @pytest.fixture
 def blank_temporal_3_0() -> pf.Temporal3_0:
-    return pf.Temporal3_0(Timestep(1.0))
+    return pf.Temporal3_0(1.0)
 
 
 @pytest.fixture
 def blank_temporal_3_1() -> pf.Temporal3_1:
-    return pf.Temporal3_1(Timestep(1.0))
+    return pf.Temporal3_1(1.0)
 
 
 @pytest.fixture
 def blank_temporal_3_2() -> pf.Temporal3_2:
-    return pf.Temporal3_2(Timestep(1.0))
+    return pf.Temporal3_2(1.0)
 
 
-LINK_NAME1 = Shortname("wubbalubbadubdub")
-LINK_NAME2 = Shortname("maple latte")
+LINK_NAME1 = "wubbalubbadubdub"
+LINK_NAME2 = "maple latte"
 
 
 @pytest.fixture
@@ -120,7 +108,7 @@ def series2() -> pl.Series:
 def text_2_0(
     blank_text_2_0: pf.CoreTEXT2_0, blank_optical_2_0: pf.Optical2_0
 ) -> pf.CoreTEXT2_0:
-    blank_text_2_0.push_optical(blank_optical_2_0, LINK_NAME1, Range(9001))
+    blank_text_2_0.push_optical(blank_optical_2_0, LINK_NAME1, 9001)
     return blank_text_2_0
 
 
@@ -128,7 +116,7 @@ def text_2_0(
 def text_3_0(
     blank_text_3_0: pf.CoreTEXT3_0, blank_optical_3_0: pf.Optical3_0
 ) -> pf.CoreTEXT3_0:
-    blank_text_3_0.push_optical(blank_optical_3_0, LINK_NAME1, Range(9001))
+    blank_text_3_0.push_optical(blank_optical_3_0, LINK_NAME1, 9001)
     return blank_text_3_0
 
 
@@ -136,7 +124,7 @@ def text_3_0(
 def text_3_1(
     blank_text_3_1: pf.CoreTEXT3_1, blank_optical_3_1: pf.Optical3_1
 ) -> pf.CoreTEXT3_1:
-    blank_text_3_1.push_optical(blank_optical_3_1, LINK_NAME1, Range(9001))
+    blank_text_3_1.push_optical(blank_optical_3_1, LINK_NAME1, 9001)
     return blank_text_3_1
 
 
@@ -144,7 +132,7 @@ def text_3_1(
 def text_3_2(
     blank_text_3_2: pf.CoreTEXT3_2, blank_optical_3_2: pf.Optical3_2
 ) -> pf.CoreTEXT3_2:
-    blank_text_3_2.push_optical(blank_optical_3_2, LINK_NAME1, Range(9001))
+    blank_text_3_2.push_optical(blank_optical_3_2, LINK_NAME1, 9001)
     return blank_text_3_2
 
 
@@ -154,7 +142,7 @@ def dataset_2_0(
     blank_optical_2_0: pf.Optical2_0,
     series1: pl.Series,
 ) -> pf.CoreDataset2_0:
-    blank_dataset_2_0.push_optical(blank_optical_2_0, series1, LINK_NAME1, Range(9001))
+    blank_dataset_2_0.push_optical(blank_optical_2_0, series1, LINK_NAME1, 9001)
     return blank_dataset_2_0
 
 
@@ -164,7 +152,7 @@ def dataset_3_0(
     blank_optical_3_0: pf.Optical3_0,
     series1: pl.Series,
 ) -> pf.CoreDataset3_0:
-    blank_dataset_3_0.push_optical(blank_optical_3_0, series1, LINK_NAME1, Range(9001))
+    blank_dataset_3_0.push_optical(blank_optical_3_0, series1, LINK_NAME1, 9001)
     return blank_dataset_3_0
 
 
@@ -174,7 +162,7 @@ def dataset_3_1(
     blank_optical_3_1: pf.Optical3_1,
     series1: pl.Series,
 ) -> pf.CoreDataset3_1:
-    blank_dataset_3_1.push_optical(blank_optical_3_1, series1, LINK_NAME1, Range(9001))
+    blank_dataset_3_1.push_optical(blank_optical_3_1, series1, LINK_NAME1, 9001)
     return blank_dataset_3_1
 
 
@@ -184,7 +172,7 @@ def dataset_3_2(
     blank_optical_3_2: pf.Optical3_2,
     series1: pl.Series,
 ) -> pf.CoreDataset3_2:
-    blank_dataset_3_2.push_optical(blank_optical_3_2, series1, LINK_NAME1, Range(9001))
+    blank_dataset_3_2.push_optical(blank_optical_3_2, series1, LINK_NAME1, 9001)
     return blank_dataset_3_2
 
 
@@ -192,7 +180,7 @@ def dataset_3_2(
 def text2_2_0(
     text_2_0: pf.CoreTEXT2_0, blank_temporal_2_0: pf.Temporal2_0
 ) -> pf.CoreTEXT2_0:
-    text_2_0.push_temporal(blank_temporal_2_0, LINK_NAME2, Range(9001))
+    text_2_0.push_temporal(blank_temporal_2_0, LINK_NAME2, 9001)
     return text_2_0
 
 
@@ -200,7 +188,7 @@ def text2_2_0(
 def text2_3_0(
     text_3_0: pf.CoreTEXT3_0, blank_temporal_3_0: pf.Temporal3_0
 ) -> pf.CoreTEXT3_0:
-    text_3_0.push_temporal(blank_temporal_3_0, LINK_NAME2, Range(9001))
+    text_3_0.push_temporal(blank_temporal_3_0, LINK_NAME2, 9001)
     return text_3_0
 
 
@@ -208,7 +196,7 @@ def text2_3_0(
 def text2_3_1(
     text_3_1: pf.CoreTEXT3_1, blank_temporal_3_1: pf.Temporal3_1
 ) -> pf.CoreTEXT3_1:
-    text_3_1.push_temporal(blank_temporal_3_1, LINK_NAME2, Range(9001))
+    text_3_1.push_temporal(blank_temporal_3_1, LINK_NAME2, 9001)
     return text_3_1
 
 
@@ -216,7 +204,7 @@ def text2_3_1(
 def text2_3_2(
     text_3_2: pf.CoreTEXT3_2, blank_temporal_3_2: pf.Temporal3_2
 ) -> pf.CoreTEXT3_2:
-    text_3_2.push_temporal(blank_temporal_3_2, LINK_NAME2, Range(9001))
+    text_3_2.push_temporal(blank_temporal_3_2, LINK_NAME2, 9001)
     return text_3_2
 
 
@@ -226,7 +214,7 @@ def dataset2_2_0(
     blank_temporal_2_0: pf.Temporal2_0,
     series2: pl.Series,
 ) -> pf.CoreDataset2_0:
-    dataset_2_0.push_temporal(blank_temporal_2_0, series2, LINK_NAME2, Range(9001))
+    dataset_2_0.push_temporal(blank_temporal_2_0, series2, LINK_NAME2, 9001)
     return dataset_2_0
 
 
@@ -236,7 +224,7 @@ def dataset2_3_0(
     blank_temporal_3_0: pf.Temporal3_0,
     series2: pl.Series,
 ) -> pf.CoreDataset3_0:
-    dataset_3_0.push_temporal(blank_temporal_3_0, series2, LINK_NAME2, Range(9001))
+    dataset_3_0.push_temporal(blank_temporal_3_0, series2, LINK_NAME2, 9001)
     return dataset_3_0
 
 
@@ -246,7 +234,7 @@ def dataset2_3_1(
     blank_temporal_3_1: pf.Temporal3_1,
     series2: pl.Series,
 ) -> pf.CoreDataset3_1:
-    dataset_3_1.push_temporal(blank_temporal_3_1, series2, LINK_NAME2, Range(9001))
+    dataset_3_1.push_temporal(blank_temporal_3_1, series2, LINK_NAME2, 9001)
     return dataset_3_1
 
 
@@ -256,7 +244,7 @@ def dataset2_3_2(
     blank_temporal_3_2: pf.Temporal3_2,
     series2: pl.Series,
 ) -> pf.CoreDataset3_2:
-    dataset_3_2.push_temporal(blank_temporal_3_2, series2, LINK_NAME2, Range(9001))
+    dataset_3_2.push_temporal(blank_temporal_3_2, series2, LINK_NAME2, 9001)
     return dataset_3_2
 
 
@@ -374,7 +362,7 @@ class TestCore:
     @all_blank_core
     def test_trigger_nolink(self, core: AnyCore) -> None:
         with pytest.raises(pf.PyreflowException):
-            core.trigger = (Shortname("harold"), 0)
+            core.trigger = ("harold", 0)
 
     @all_core
     def test_par(self, core: AnyCore) -> None:
@@ -383,11 +371,11 @@ class TestCore:
     @all_core
     def test_shortnames(self, core: AnyCore) -> None:
         assert core.all_shortnames == [LINK_NAME1]
-        new_name = Shortname("I can haz IP")
+        new_name = "I can haz IP"
         core.all_shortnames = [new_name]
         assert core.all_shortnames == [new_name]
         with pytest.raises(ValueError):
-            core.all_shortnames = [Shortname("I,can,haz,IP")]
+            core.all_shortnames = ["I,can,haz,IP"]
 
     @all_core
     def test_shortnames_maybe(self, core: AnyCore) -> None:
@@ -439,7 +427,7 @@ class TestCore:
 
     @all_core
     def test_nonstandard(self, core: AnyCore) -> None:
-        k = NonStdKey("midnight")
+        k = "midnight"
         v = "rowhammer"
         # trying to get key from empty list should return None
         assert core.get_nonstandard(k) is None
@@ -492,7 +480,7 @@ class TestCore:
         | pf.CoreDataset3_2,
     ) -> None:
         assert core.temporal is None
-        ts = Timestep(1.0)
+        ts = 1.0
         core.set_temporal(LINK_NAME1, ts, False)
         assert core.temporal is not None
         assert core.temporal[1] == LINK_NAME1
@@ -508,7 +496,7 @@ class TestCore:
         self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0
     ) -> None:
         assert core.temporal is None
-        core.set_temporal_at(MeasIndex(0), False)
+        core.set_temporal_at(0, False)
         assert core.temporal is not None
         assert core.temporal[1] == LINK_NAME1
 
@@ -533,8 +521,8 @@ class TestCore:
         | pf.CoreDataset3_2,
     ) -> None:
         assert core.temporal is None
-        ts = Timestep(1.0)
-        core.set_temporal_at(MeasIndex(0), ts, False)
+        ts = 1.0
+        core.set_temporal_at(0, ts, False)
         assert core.temporal is not None
         assert core.temporal[1] == LINK_NAME1
 
@@ -548,9 +536,9 @@ class TestCore:
     @all_core
     def test_remove_meas_by_index(self, core: AnyCore) -> None:
         assert len(core.measurements) == 1
-        core.remove_measurement_by_index(MeasIndex(0))
+        core.remove_measurement_by_index(0)
         with pytest.raises(IndexError):
-            core.remove_measurement_by_index(MeasIndex(0))
+            core.remove_measurement_by_index(0)
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -571,8 +559,8 @@ class TestCore:
     def test_replace_optical_at(self, core: AnyCore, optical) -> None:
         ln = "I am not living"
         optical.longname = ln
-        core.replace_optical_at(MeasIndex(0), optical)
-        core.measurement_at(MeasIndex(0)).longname == ln
+        core.replace_optical_at(0, optical)
+        core.measurement_at(0).longname == ln
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -594,7 +582,7 @@ class TestCore:
         ln = "I'm asleep"
         optical.longname = ln
         core.replace_optical_named(LINK_NAME1, optical)
-        core.measurement_at(MeasIndex(0)).longname == ln
+        core.measurement_at(0).longname == ln
 
     @pytest.mark.parametrize(
         "core, temporal",
@@ -615,8 +603,8 @@ class TestCore:
     def test_replace_temporal_at(self, core: AnyCore, temporal) -> None:
         ln = "show me wut u got"
         temporal.longname = ln
-        core.replace_temporal_at(MeasIndex(1), temporal, False)
-        core.measurement_at(MeasIndex(1)).longname == ln
+        core.replace_temporal_at(1, temporal, False)
+        core.measurement_at(1).longname == ln
 
     @pytest.mark.parametrize(
         "core, temporal",
@@ -638,11 +626,11 @@ class TestCore:
         ln = "the combination is... 1. 2. 3. 4. 5."
         temporal.longname = ln
         core.replace_temporal_named(LINK_NAME2, temporal, False)
-        core.measurement_at(MeasIndex(1)).longname == ln
+        core.measurement_at(1).longname == ln
 
     @all_text2
     def test_rename_temporal(self, core: AnyCore) -> None:
-        new = Shortname("they've gone plaid")
+        new = "they've gone plaid"
         assert core.rename_temporal(new) == LINK_NAME2
 
     @pytest.mark.parametrize(
@@ -677,8 +665,8 @@ class TestCore:
         ],
     )
     def test_measurement_at(self, core: AnyCore, optical: type, temporal: type) -> None:
-        assert isinstance(core.measurement_at(MeasIndex(0)), optical)
-        assert isinstance(core.measurement_at(MeasIndex(1)), temporal)
+        assert isinstance(core.measurement_at(0), optical)
+        assert isinstance(core.measurement_at(1), temporal)
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -693,8 +681,8 @@ class TestCore:
         ],
     )
     def test_text_insert_optical(self, core: AnyCoreTEXT, optical) -> None:
-        core.insert_optical(MeasIndex(0), optical, LINK_NAME1, Range(9001))
-        assert isinstance(core.measurement_at(MeasIndex(0)), type(optical))
+        core.insert_optical(0, optical, LINK_NAME1, 9001)
+        assert isinstance(core.measurement_at(0), type(optical))
 
     @pytest.mark.parametrize(
         "core, temporal",
@@ -709,8 +697,8 @@ class TestCore:
         ],
     )
     def test_text_insert_temporal(self, core: AnyCoreTEXT, temporal) -> None:
-        core.insert_temporal(MeasIndex(0), temporal, LINK_NAME1, Range(9001))
-        assert isinstance(core.measurement_at(MeasIndex(0)), type(temporal))
+        core.insert_temporal(0, temporal, LINK_NAME1, 9001)
+        assert isinstance(core.measurement_at(0), type(temporal))
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -727,8 +715,8 @@ class TestCore:
     def test_dataset_insert_optical(
         self, core: AnyCoreDataset, optical, series1: pl.Series
     ) -> None:
-        core.insert_optical(MeasIndex(0), optical, series1, LINK_NAME1, Range(9001))
-        assert isinstance(core.measurement_at(MeasIndex(0)), type(optical))
+        core.insert_optical(0, optical, series1, LINK_NAME1, 9001)
+        assert isinstance(core.measurement_at(0), type(optical))
 
     @pytest.mark.parametrize(
         "core, temporal",
@@ -745,8 +733,8 @@ class TestCore:
     def test_dataset_insert_temporal(
         self, core: AnyCoreDataset, temporal, series1: pl.Series
     ) -> None:
-        core.insert_temporal(MeasIndex(0), temporal, series1, LINK_NAME1, Range(9001))
-        assert isinstance(core.measurement_at(MeasIndex(0)), type(temporal))
+        core.insert_temporal(0, temporal, series1, LINK_NAME1, 9001)
+        assert isinstance(core.measurement_at(0), type(temporal))
 
     @pytest.mark.parametrize(
         "core",

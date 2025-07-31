@@ -117,7 +117,7 @@ def series2() -> pl.Series:
 
 
 @pytest.fixture
-def core_2_0(
+def text_2_0(
     blank_text_2_0: pf.CoreTEXT2_0, blank_optical_2_0: pf.Optical2_0
 ) -> pf.CoreTEXT2_0:
     blank_text_2_0.push_optical(blank_optical_2_0, LINK_NAME1, Range(9001))
@@ -125,7 +125,7 @@ def core_2_0(
 
 
 @pytest.fixture
-def core_3_0(
+def text_3_0(
     blank_text_3_0: pf.CoreTEXT3_0, blank_optical_3_0: pf.Optical3_0
 ) -> pf.CoreTEXT3_0:
     blank_text_3_0.push_optical(blank_optical_3_0, LINK_NAME1, Range(9001))
@@ -133,7 +133,7 @@ def core_3_0(
 
 
 @pytest.fixture
-def core_3_1(
+def text_3_1(
     blank_text_3_1: pf.CoreTEXT3_1, blank_optical_3_1: pf.Optical3_1
 ) -> pf.CoreTEXT3_1:
     blank_text_3_1.push_optical(blank_optical_3_1, LINK_NAME1, Range(9001))
@@ -141,7 +141,7 @@ def core_3_1(
 
 
 @pytest.fixture
-def core_3_2(
+def text_3_2(
     blank_text_3_2: pf.CoreTEXT3_2, blank_optical_3_2: pf.Optical3_2
 ) -> pf.CoreTEXT3_2:
     blank_text_3_2.push_optical(blank_optical_3_2, LINK_NAME1, Range(9001))
@@ -190,34 +190,34 @@ def dataset_3_2(
 
 @pytest.fixture
 def text2_2_0(
-    core_2_0: pf.CoreTEXT2_0, blank_temporal_2_0: pf.Temporal2_0
+    text_2_0: pf.CoreTEXT2_0, blank_temporal_2_0: pf.Temporal2_0
 ) -> pf.CoreTEXT2_0:
-    core_2_0.push_temporal(blank_temporal_2_0, LINK_NAME2, Range(9001))
-    return core_2_0
+    text_2_0.push_temporal(blank_temporal_2_0, LINK_NAME2, Range(9001))
+    return text_2_0
 
 
 @pytest.fixture
 def text2_3_0(
-    core_3_0: pf.CoreTEXT3_0, blank_temporal_3_0: pf.Temporal3_0
+    text_3_0: pf.CoreTEXT3_0, blank_temporal_3_0: pf.Temporal3_0
 ) -> pf.CoreTEXT3_0:
-    core_3_0.push_temporal(blank_temporal_3_0, LINK_NAME2, Range(9001))
-    return core_3_0
+    text_3_0.push_temporal(blank_temporal_3_0, LINK_NAME2, Range(9001))
+    return text_3_0
 
 
 @pytest.fixture
 def text2_3_1(
-    core_3_1: pf.CoreTEXT3_1, blank_temporal_3_1: pf.Temporal3_1
+    text_3_1: pf.CoreTEXT3_1, blank_temporal_3_1: pf.Temporal3_1
 ) -> pf.CoreTEXT3_1:
-    core_3_1.push_temporal(blank_temporal_3_1, LINK_NAME2, Range(9001))
-    return core_3_1
+    text_3_1.push_temporal(blank_temporal_3_1, LINK_NAME2, Range(9001))
+    return text_3_1
 
 
 @pytest.fixture
 def text2_3_2(
-    core_3_2: pf.CoreTEXT3_2, blank_temporal_3_2: pf.Temporal3_2
+    text_3_2: pf.CoreTEXT3_2, blank_temporal_3_2: pf.Temporal3_2
 ) -> pf.CoreTEXT3_2:
-    core_3_2.push_temporal(blank_temporal_3_2, LINK_NAME2, Range(9001))
-    return core_3_2
+    text_3_2.push_temporal(blank_temporal_3_2, LINK_NAME2, Range(9001))
+    return text_3_2
 
 
 @pytest.fixture
@@ -277,10 +277,10 @@ all_blank_core = pytest.mark.parametrize(
 all_core = pytest.mark.parametrize(
     "core",
     [
-        lazy_fixture("core_2_0"),
-        lazy_fixture("core_3_0"),
-        lazy_fixture("core_3_1"),
-        lazy_fixture("core_3_2"),
+        lazy_fixture("text_2_0"),
+        lazy_fixture("text_3_0"),
+        lazy_fixture("text_3_1"),
+        lazy_fixture("text_3_2"),
         lazy_fixture("dataset_2_0"),
         lazy_fixture("dataset_3_0"),
         lazy_fixture("dataset_3_1"),
@@ -458,7 +458,7 @@ class TestCore:
 
     @pytest.mark.parametrize(
         "core",
-        [lazy_fixture("core_2_0"), lazy_fixture("dataset_2_0")],
+        [lazy_fixture("text_2_0"), lazy_fixture("dataset_2_0")],
     )
     def test_temporal_no_timestep(
         self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0
@@ -474,9 +474,9 @@ class TestCore:
     @pytest.mark.parametrize(
         "core",
         [
-            lazy_fixture("core_3_0"),
-            lazy_fixture("core_3_1"),
-            lazy_fixture("core_3_2"),
+            lazy_fixture("text_3_0"),
+            lazy_fixture("text_3_1"),
+            lazy_fixture("text_3_2"),
             lazy_fixture("dataset_3_0"),
             lazy_fixture("dataset_3_1"),
             lazy_fixture("dataset_3_2"),
@@ -502,7 +502,7 @@ class TestCore:
 
     @pytest.mark.parametrize(
         "core",
-        [lazy_fixture("core_2_0"), lazy_fixture("dataset_2_0")],
+        [lazy_fixture("text_2_0"), lazy_fixture("dataset_2_0")],
     )
     def test_temporal_no_timestep_at(
         self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0
@@ -515,9 +515,9 @@ class TestCore:
     @pytest.mark.parametrize(
         "core",
         [
-            lazy_fixture("core_3_0"),
-            lazy_fixture("core_3_1"),
-            lazy_fixture("core_3_2"),
+            lazy_fixture("text_3_0"),
+            lazy_fixture("text_3_1"),
+            lazy_fixture("text_3_2"),
             lazy_fixture("dataset_3_0"),
             lazy_fixture("dataset_3_1"),
             lazy_fixture("dataset_3_2"),
@@ -557,10 +557,10 @@ class TestCore:
         [
             (lazy_fixture(c), lazy_fixture(o))
             for c, o in [
-                ("core_2_0", "blank_optical_2_0"),
-                ("core_3_0", "blank_optical_3_0"),
-                ("core_3_1", "blank_optical_3_1"),
-                ("core_3_2", "blank_optical_3_2"),
+                ("text_2_0", "blank_optical_2_0"),
+                ("text_3_0", "blank_optical_3_0"),
+                ("text_3_1", "blank_optical_3_1"),
+                ("text_3_2", "blank_optical_3_2"),
                 ("dataset_2_0", "blank_optical_2_0"),
                 ("dataset_3_0", "blank_optical_3_0"),
                 ("dataset_3_1", "blank_optical_3_1"),
@@ -579,10 +579,10 @@ class TestCore:
         [
             (lazy_fixture(c), lazy_fixture(o))
             for c, o in [
-                ("core_2_0", "blank_optical_2_0"),
-                ("core_3_0", "blank_optical_3_0"),
-                ("core_3_1", "blank_optical_3_1"),
-                ("core_3_2", "blank_optical_3_2"),
+                ("text_2_0", "blank_optical_2_0"),
+                ("text_3_0", "blank_optical_3_0"),
+                ("text_3_1", "blank_optical_3_1"),
+                ("text_3_2", "blank_optical_3_2"),
                 ("dataset_2_0", "blank_optical_2_0"),
                 ("dataset_3_0", "blank_optical_3_0"),
                 ("dataset_3_1", "blank_optical_3_1"),

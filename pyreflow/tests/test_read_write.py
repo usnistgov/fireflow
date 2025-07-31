@@ -287,6 +287,10 @@ class TestCore:
             core.all_shortnames = [Shortname("I,can,haz,IP")]
 
     @all_core
+    def test_shortnames_maybe(self, core: AnyCore) -> None:
+        assert core.shortnames_maybe == [LINK_NAME]
+
+    @all_core
     def test_longnames(self, core: AnyCore) -> None:
         assert core.longnames == [None]
         new_name = "I can haz IP"

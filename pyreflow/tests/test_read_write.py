@@ -955,3 +955,5 @@ class TestCore:
         # never None
         core.set_measurement_shortnames_maybe([None])
         assert core.shortnames_maybe == [None, "maple latte"]
+        with pytest.raises(pf.PyreflowException):
+            core.set_measurement_shortnames_maybe([None, None])

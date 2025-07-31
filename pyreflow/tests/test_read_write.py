@@ -1095,3 +1095,33 @@ class TestCore:
         assert core.vol == 1.0
         with pytest.raises(TypeError):
             core.vol = -1.0
+
+    @pytest.mark.parametrize(
+        "core",
+        [
+            lazy_fixture(c)
+            for c in [
+                "text2_3_0",
+                "text2_3_1",
+                "text2_3_2",
+                "dataset2_3_0",
+                "dataset2_3_1",
+                "dataset2_3_2",
+            ]
+        ],
+    )
+    def test_cytsn(
+        self,
+        core: pf.CoreTEXT3_0
+        | pf.CoreTEXT3_1
+        | pf.CoreTEXT3_2
+        | pf.CoreDataset3_0
+        | pf.CoreDataset3_1
+        | pf.CoreDataset3_2,
+    ) -> None:
+        assert core.cytsn is None
+        new = "12345"
+        core.cytsn = new
+        assert core.cytsn == new
+        with pytest.raises(TypeError):
+            core.cytsn = cast(str, 0.0)

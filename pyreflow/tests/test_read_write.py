@@ -270,6 +270,20 @@ all_core = pytest.mark.parametrize(
     ],
 )
 
+all_core2 = pytest.mark.parametrize(
+    "core",
+    [
+        lazy_fixture("core2_2_0"),
+        lazy_fixture("core2_3_0"),
+        lazy_fixture("core2_3_1"),
+        lazy_fixture("core2_3_2"),
+        lazy_fixture("dataset2_2_0"),
+        lazy_fixture("dataset2_3_0"),
+        lazy_fixture("dataset2_3_1"),
+        lazy_fixture("dataset2_3_2"),
+    ],
+)
+
 
 class TestCore:
     # all of these attributes should be either None or a positive integer
@@ -619,3 +633,8 @@ class TestCore:
         ln = "the combination is... 1. 2. 3. 4. 5."
         temporal.longname = ln
         core.replace_temporal_named(LINK_NAME2, temporal, False)
+
+    @all_core2
+    def test_rename_temporal(self, core: AnyCore) -> None:
+        new = Shortname("they've gone plaid")
+        assert core.rename_temporal(new) == LINK_NAME2

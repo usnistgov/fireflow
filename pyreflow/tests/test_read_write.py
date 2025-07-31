@@ -1051,3 +1051,23 @@ class TestCore:
         assert getattr(core, attr) == value
         with pytest.raises(TypeError):
             setattr(core, attr, 1.61)
+
+    # TODO add comp
+    # TODO add spillover
+
+    @pytest.mark.parametrize(
+        "core",
+        [lazy_fixture(c) for c in ["text2_3_0", "dataset2_3_0"]],
+    )
+    def test_unicode(
+        self,
+        core: pf.CoreTEXT3_0 | pf.CoreDataset3_0,
+    ) -> None:
+        assert core.unicode is None
+        # the actual contents arent' checked, presumably because nobody really
+        # cares about this
+        new = (666, ["$$$$"])
+        core.unicode = new
+        assert core.unicode == new
+        with pytest.raises(TypeError):
+            core.unicode = "latin_minus_20"

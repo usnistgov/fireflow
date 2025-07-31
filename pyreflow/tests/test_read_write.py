@@ -747,3 +747,43 @@ class TestCore:
     ) -> None:
         core.insert_temporal(MeasIndex(0), temporal, series1, LINK_NAME1, Range(9001))
         assert isinstance(core.measurement_at(MeasIndex(0)), type(temporal))
+
+    @pytest.mark.parametrize(
+        "core",
+        [
+            lazy_fixture(c)
+            for c in [
+                "text2_2_0",
+                "text2_3_0",
+                "text2_3_1",
+                "text2_3_2",
+            ]
+        ],
+    )
+    def test_unset_measurements(self, core: AnyCoreTEXT) -> None:
+        assert len(core.measurements) == 2
+        core.unset_measurements()
+        assert len(core.measurements) == 0
+
+    @pytest.mark.parametrize(
+        "core",
+        [
+            lazy_fixture(c)
+            for c in [
+                "dataset2_2_0",
+                "dataset2_3_0",
+                "dataset2_3_1",
+                "dataset2_3_2",
+            ]
+        ],
+    )
+    def test_unset_data(self, core: AnyCoreDataset) -> None:
+        df0 = core.data
+        assert df0.height == 3
+        assert df0.width == 2
+        assert len(core.measurements) == 2
+        core.unset_data()
+        df1 = core.data
+        assert df1.height == 0
+        assert df1.width == 0
+        assert len(core.measurements) == 0

@@ -189,7 +189,7 @@ def dataset_3_2(
 
 
 @pytest.fixture
-def core2_2_0(
+def text2_2_0(
     core_2_0: pf.CoreTEXT2_0, blank_temporal_2_0: pf.Temporal2_0
 ) -> pf.CoreTEXT2_0:
     core_2_0.push_temporal(blank_temporal_2_0, LINK_NAME2, Range(9001))
@@ -197,7 +197,7 @@ def core2_2_0(
 
 
 @pytest.fixture
-def core2_3_0(
+def text2_3_0(
     core_3_0: pf.CoreTEXT3_0, blank_temporal_3_0: pf.Temporal3_0
 ) -> pf.CoreTEXT3_0:
     core_3_0.push_temporal(blank_temporal_3_0, LINK_NAME2, Range(9001))
@@ -205,7 +205,7 @@ def core2_3_0(
 
 
 @pytest.fixture
-def core2_3_1(
+def text2_3_1(
     core_3_1: pf.CoreTEXT3_1, blank_temporal_3_1: pf.Temporal3_1
 ) -> pf.CoreTEXT3_1:
     core_3_1.push_temporal(blank_temporal_3_1, LINK_NAME2, Range(9001))
@@ -213,7 +213,7 @@ def core2_3_1(
 
 
 @pytest.fixture
-def core2_3_2(
+def text2_3_2(
     core_3_2: pf.CoreTEXT3_2, blank_temporal_3_2: pf.Temporal3_2
 ) -> pf.CoreTEXT3_2:
     core_3_2.push_temporal(blank_temporal_3_2, LINK_NAME2, Range(9001))
@@ -288,13 +288,13 @@ all_core = pytest.mark.parametrize(
     ],
 )
 
-all_core2 = pytest.mark.parametrize(
+all_text2 = pytest.mark.parametrize(
     "core",
     [
-        lazy_fixture("core2_2_0"),
-        lazy_fixture("core2_3_0"),
-        lazy_fixture("core2_3_1"),
-        lazy_fixture("core2_3_2"),
+        lazy_fixture("text2_2_0"),
+        lazy_fixture("text2_3_0"),
+        lazy_fixture("text2_3_1"),
+        lazy_fixture("text2_3_2"),
         lazy_fixture("dataset2_2_0"),
         lazy_fixture("dataset2_3_0"),
         lazy_fixture("dataset2_3_1"),
@@ -601,10 +601,10 @@ class TestCore:
         [
             (lazy_fixture(c), lazy_fixture(t))
             for c, t in [
-                ("core2_2_0", "blank_temporal_2_0"),
-                ("core2_3_0", "blank_temporal_3_0"),
-                ("core2_3_1", "blank_temporal_3_1"),
-                ("core2_3_2", "blank_temporal_3_2"),
+                ("text2_2_0", "blank_temporal_2_0"),
+                ("text2_3_0", "blank_temporal_3_0"),
+                ("text2_3_1", "blank_temporal_3_1"),
+                ("text2_3_2", "blank_temporal_3_2"),
                 ("dataset2_2_0", "blank_temporal_2_0"),
                 ("dataset2_3_0", "blank_temporal_3_0"),
                 ("dataset2_3_1", "blank_temporal_3_1"),
@@ -623,10 +623,10 @@ class TestCore:
         [
             (lazy_fixture(c), lazy_fixture(t))
             for c, t in [
-                ("core2_2_0", "blank_temporal_2_0"),
-                ("core2_3_0", "blank_temporal_3_0"),
-                ("core2_3_1", "blank_temporal_3_1"),
-                ("core2_3_2", "blank_temporal_3_2"),
+                ("text2_2_0", "blank_temporal_2_0"),
+                ("text2_3_0", "blank_temporal_3_0"),
+                ("text2_3_1", "blank_temporal_3_1"),
+                ("text2_3_2", "blank_temporal_3_2"),
                 ("dataset2_2_0", "blank_temporal_2_0"),
                 ("dataset2_3_0", "blank_temporal_3_0"),
                 ("dataset2_3_1", "blank_temporal_3_1"),
@@ -640,7 +640,7 @@ class TestCore:
         core.replace_temporal_named(LINK_NAME2, temporal, False)
         core.measurement_at(MeasIndex(1)).longname == ln
 
-    @all_core2
+    @all_text2
     def test_rename_temporal(self, core: AnyCore) -> None:
         new = Shortname("they've gone plaid")
         assert core.rename_temporal(new) == LINK_NAME2
@@ -648,10 +648,10 @@ class TestCore:
     @pytest.mark.parametrize(
         "core, optical, temporal",
         [
-            (lazy_fixture("core2_2_0"), pf.Optical2_0, pf.Temporal2_0),
-            (lazy_fixture("core2_3_0"), pf.Optical3_0, pf.Temporal3_0),
-            (lazy_fixture("core2_3_1"), pf.Optical3_1, pf.Temporal3_1),
-            (lazy_fixture("core2_3_2"), pf.Optical3_2, pf.Temporal3_2),
+            (lazy_fixture("text2_2_0"), pf.Optical2_0, pf.Temporal2_0),
+            (lazy_fixture("text2_3_0"), pf.Optical3_0, pf.Temporal3_0),
+            (lazy_fixture("text2_3_1"), pf.Optical3_1, pf.Temporal3_1),
+            (lazy_fixture("text2_3_2"), pf.Optical3_2, pf.Temporal3_2),
             (lazy_fixture("dataset2_2_0"), pf.Optical2_0, pf.Temporal2_0),
             (lazy_fixture("dataset2_3_0"), pf.Optical3_0, pf.Temporal3_0),
             (lazy_fixture("dataset2_3_1"), pf.Optical3_1, pf.Temporal3_1),
@@ -666,10 +666,10 @@ class TestCore:
     @pytest.mark.parametrize(
         "core, optical, temporal",
         [
-            (lazy_fixture("core2_2_0"), pf.Optical2_0, pf.Temporal2_0),
-            (lazy_fixture("core2_3_0"), pf.Optical3_0, pf.Temporal3_0),
-            (lazy_fixture("core2_3_1"), pf.Optical3_1, pf.Temporal3_1),
-            (lazy_fixture("core2_3_2"), pf.Optical3_2, pf.Temporal3_2),
+            (lazy_fixture("text2_2_0"), pf.Optical2_0, pf.Temporal2_0),
+            (lazy_fixture("text2_3_0"), pf.Optical3_0, pf.Temporal3_0),
+            (lazy_fixture("text2_3_1"), pf.Optical3_1, pf.Temporal3_1),
+            (lazy_fixture("text2_3_2"), pf.Optical3_2, pf.Temporal3_2),
             (lazy_fixture("dataset2_2_0"), pf.Optical2_0, pf.Temporal2_0),
             (lazy_fixture("dataset2_3_0"), pf.Optical3_0, pf.Temporal3_0),
             (lazy_fixture("dataset2_3_1"), pf.Optical3_1, pf.Temporal3_1),

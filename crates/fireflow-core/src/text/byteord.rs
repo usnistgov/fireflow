@@ -50,7 +50,7 @@ pub enum Endian {
 /// Marker type representing lack of byte order.
 ///
 /// This is used in ASCII layouts, for which $BYTEORD is meaningless.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct NoByteOrd<const ORD: bool>;
 

@@ -1404,18 +1404,37 @@ pub fn def_transpose<X, W, E>(
     x.map_or(Ok(Tentative::new1(None)), |y| y.def_map_value(Some))
 }
 
-pub trait IODeferredExt: Sized + PassthruExt {
-    fn def_io_into<FromE, ToE, ToW>(self) -> IODeferredResult<Self::V, ToW, ToE>
+pub trait IODeferredExt: Sized + PassthruExt
+where
+    Self: PassthruExt<E = ImpureError<Self::InnerE>>,
+{
+    type InnerE;
+
+    fn def_io_into<ToE, ToW>(self) -> IODeferredResult<Self::V, ToW, ToE>
     where
-        Self: PassthruExt<E = ImpureError<FromE>, P = ()>,
-        ToE: From<FromE>,
+        Self: PassthruExt<P = ()>,
+        ToE: From<Self::InnerE>,
         ToW: From<Self::W>,
     {
         self.def_map_errors(|e| e.inner_into()).def_warnings_into()
     }
+
+    fn def_io_push_error_or_warning<X>(&mut self, x: X, is_error: bool)
+    where
+        X: Into<Self::W>,
+        X: Into<Self::InnerE>,
+    {
+        if is_error {
+            self.def_push_error(ImpureError::Pure(x.into()))
+        } else {
+            self.def_push_warning(x.into())
+        }
+    }
 }
 
-impl<V, W, E> IODeferredExt for IODeferredResult<V, W, E> {}
+impl<V, W, E> IODeferredExt for IODeferredResult<V, W, E> {
+    type InnerE = E;
+}
 
 impl<E> fmt::Display for ImpureError<E>
 where

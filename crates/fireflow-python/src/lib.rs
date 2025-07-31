@@ -26,10 +26,8 @@ use fireflow_core::validated::shortname::{Shortname, ShortnamePrefix};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
 use derive_more::{From, Into};
-use nonempty::NonEmpty;
 use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
 use polars::prelude::*;
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyType;
 use pyo3_polars::PyDataFrame;
@@ -548,32 +546,32 @@ convert_methods!(
 #[pymethods]
 impl PyCoreTEXT2_0 {
     #[new]
-    fn new(mode: kws::Mode) -> PyResult<Self> {
-        Ok(core::CoreTEXT2_0::new(mode).into())
+    fn new(mode: kws::Mode, datatype: kws::AlphaNumType) -> PyResult<Self> {
+        Ok(core::CoreTEXT2_0::new(mode, datatype).into())
     }
 }
 
 #[pymethods]
 impl PyCoreTEXT3_0 {
     #[new]
-    fn new(mode: kws::Mode) -> PyResult<Self> {
-        Ok(core::CoreTEXT3_0::new(mode).into())
+    fn new(mode: kws::Mode, datatype: kws::AlphaNumType) -> PyResult<Self> {
+        Ok(core::CoreTEXT3_0::new(mode, datatype).into())
     }
 }
 
 #[pymethods]
 impl PyCoreTEXT3_1 {
     #[new]
-    fn new(mode: kws::Mode) -> Self {
-        core::CoreTEXT3_1::new(mode).into()
+    fn new(mode: kws::Mode, datatype: kws::AlphaNumType) -> Self {
+        core::CoreTEXT3_1::new(mode, datatype).into()
     }
 }
 
 #[pymethods]
 impl PyCoreTEXT3_2 {
     #[new]
-    fn new(cyt: String) -> Self {
-        core::CoreTEXT3_2::new(cyt).into()
+    fn new(cyt: String, datatype: kws::AlphaNumType) -> Self {
+        core::CoreTEXT3_2::new(cyt, datatype).into()
     }
 
     #[getter]
@@ -1247,9 +1245,8 @@ macro_rules! set_measurements_ordered {
             }
 
             #[getter]
-            fn get_layout(&self) -> Option<PyOrderedLayout> {
-                let x: &Option<_> = self.0.as_ref();
-                x.as_ref().map(|y| y.clone().into())
+            fn get_layout(&self) -> PyOrderedLayout {
+                self.0.layout().clone().into()
             }
 
             fn set_layout(&mut self, layout: PyOrderedLayout) -> PyResult<()> {
@@ -1288,9 +1285,8 @@ macro_rules! set_measurements_endian {
             }
 
             #[getter]
-            fn get_layout(&self) -> Option<$l> {
-                let x: &Option<_> = self.0.as_ref();
-                x.as_ref().map(|y| y.clone().into())
+            fn get_layout(&self) -> $l {
+                self.0.layout().clone().into()
             }
 
             fn set_layout(&mut self, layout: $l) -> PyResult<()> {
@@ -2082,8 +2078,10 @@ macro_rules! common_layout_methods {
             /// or an empty list if the layout is delimited Ascii (in which case
             /// it has no column widths).
             #[getter]
-            fn widths(&self) -> Vec<u8> {
-                self.0.widths().into_iter().map(u8::from).collect()
+            fn widths(&self) -> Option<Vec<u8>> {
+                self.0
+                    .widths()
+                    .map(|ws| ws.into_iter().map(u8::from).collect())
             }
 
             /// Return a list of ranges for each column.
@@ -2104,7 +2102,7 @@ macro_rules! common_layout_methods {
             #[getter]
             /// Return a list of datatypes corresponding to each column.
             fn datatypes(&self) -> Vec<kws::AlphaNumType> {
-                self.0.datatypes().map(|d| d.into()).into()
+                self.0.datatypes().into_iter().map(|d| d.into()).collect()
             }
         }
     };
@@ -2181,16 +2179,16 @@ endianness_methods!(PyMixedLayout);
 #[pymethods]
 impl PyAsciiDelimLayout {
     #[new]
-    fn new(ranges: PyNonEmpty<u64>) -> Self {
-        DelimAsciiLayout::new(ranges.0).into()
+    fn new(ranges: Vec<u64>) -> Self {
+        DelimAsciiLayout::new(ranges).into()
     }
 }
 
 #[pymethods]
 impl PyAsciiFixedLayout {
     #[new]
-    fn new(ranges: PyNonEmpty<u64>) -> Self {
-        FixedLayout::new_ascii_u64(ranges.0).into()
+    fn new(ranges: Vec<u64>) -> Self {
+        FixedLayout::new_ascii_u64(ranges).into()
     }
 
     // TODO make a constructor that takes char/range pairs
@@ -2222,18 +2220,18 @@ macro_rules! new_ordered_uint {
         impl $t {
             /// Make a new layout for $size-byte Uints with a given endian-ness.
             #[new]
-            fn new(ranges: PyNonEmpty<bm::Bitmask<$uint, $size>>, is_big: bool) -> Self {
-                FixedLayout::new_endian_uint(ranges.0, is_big.into()).into()
+            fn new(ranges: Vec<bm::Bitmask<$uint, $size>>, is_big: bool) -> Self {
+                FixedLayout::new_endian_uint(ranges, is_big.into()).into()
             }
 
             #[classmethod]
             /// Make a new layout for $size-byte Uints with a given byte order.
             fn new_ordered(
                 _: &Bound<'_, PyType>,
-                ranges: PyNonEmpty<bm::Bitmask<$uint, $size>>,
+                ranges: Vec<bm::Bitmask<$uint, $size>>,
                 byteord: SizedByteOrd<$size>,
             ) -> Self {
-                FixedLayout::new(ranges.0, byteord).into()
+                FixedLayout::new(ranges, byteord).into()
             }
         }
     };
@@ -2254,18 +2252,18 @@ macro_rules! new_ordered_float {
         impl $t {
             /// Make a new $num layout with a given endian-ness.
             #[new]
-            fn new(ranges: PyNonEmpty<FloatRange<$num, $size>>, is_big: bool) -> Self {
-                FixedLayout::new_endian_float(ranges.0, is_big.into()).into()
+            fn new(ranges: Vec<FloatRange<$num, $size>>, is_big: bool) -> Self {
+                FixedLayout::new_endian_float(ranges, is_big.into()).into()
             }
 
             #[classmethod]
             /// Make a new $num layout with a given byte order.
             fn new_ordered(
                 _: &Bound<'_, PyType>,
-                ranges: PyNonEmpty<FloatRange<$num, $size>>,
+                ranges: Vec<FloatRange<$num, $size>>,
                 byteord: SizedByteOrd<$size>,
             ) -> Self {
-                FixedLayout::new(ranges.0, byteord).into()
+                FixedLayout::new(ranges, byteord).into()
             }
         }
     };
@@ -2281,8 +2279,8 @@ macro_rules! new_endian_float {
         impl $t {
             #[new]
             /// Make a new $num layout with a given endian-ness.
-            fn new(ranges: PyNonEmpty<FloatRange<$num, $size>>, is_big: bool) -> Self {
-                FixedLayout::new(ranges.0, is_big.into()).into()
+            fn new(ranges: Vec<FloatRange<$num, $size>>, is_big: bool) -> Self {
+                FixedLayout::new(ranges, is_big.into()).into()
             }
         }
     };
@@ -2297,8 +2295,8 @@ impl PyEndianUintLayout {
     ///
     /// Width of each column (in bytes) will depend in the input range.
     #[new]
-    fn new(ranges: PyNonEmpty<u64>, is_big: bool) -> Self {
-        let rs = ranges.0.map(AnyNullBitmask::from_u64);
+    fn new(ranges: Vec<u64>, is_big: bool) -> Self {
+        let rs = ranges.into_iter().map(AnyNullBitmask::from_u64).collect();
         FixedLayout::new(rs, is_big.into()).into()
     }
 }
@@ -2312,18 +2310,18 @@ impl PyMixedLayout {
     /// is one of "A", "I", "F", or "D" corresponding to Ascii, Integer, Float,
     /// or Double datatypes. The 'value' field should be an integer for "A" or
     /// "I" and a float for "F" or "D".
-    fn new(ranges: PyNonEmpty<NullMixedType>, is_big: bool) -> Self {
-        FixedLayout::new(ranges.0, is_big.into()).into()
+    fn new(ranges: Vec<NullMixedType>, is_big: bool) -> Self {
+        FixedLayout::new(ranges, is_big.into()).into()
     }
 }
 
-pub(crate) struct PyNonEmpty<T>(pub(crate) NonEmpty<T>);
+// pub(crate) struct PyNonEmpty<T>(pub(crate) NonEmpty<T>);
 
-impl<'py, T: FromPyObject<'py>> FromPyObject<'py> for PyNonEmpty<T> {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let xs: Vec<_> = ob.extract()?;
-        NonEmpty::from_vec(xs)
-            .ok_or(PyValueError::new_err("list must not be empty"))
-            .map(Self)
-    }
-}
+// impl<'py, T: FromPyObject<'py>> FromPyObject<'py> for PyNonEmpty<T> {
+//     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+//         let xs: Vec<_> = ob.extract()?;
+//         NonEmpty::from_vec(xs)
+//             .ok_or(PyValueError::new_err("list must not be empty"))
+//             .map(Self)
+//     }
+// }

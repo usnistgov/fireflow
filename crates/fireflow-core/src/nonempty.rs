@@ -1,18 +1,14 @@
-use crate::error::{ErrorIter, MultiResult};
-use crate::text::index::IndexFromOne;
-use crate::text::optional::{ClearOptional, ClearOptionalOr};
-
 use itertools::Itertools;
 use nonempty::NonEmpty;
 
 pub(crate) trait NonEmptyExt {
     type X;
 
-    fn enumerate(self) -> NonEmpty<(usize, Self::X)>;
+    // fn enumerate(self) -> NonEmpty<(usize, Self::X)>;
 
-    fn map_results<F, E, Y>(self, f: F) -> MultiResult<NonEmpty<Y>, E>
-    where
-        F: Fn(Self::X) -> Result<Y, E>;
+    // fn map_results<F, E, Y>(self, f: F) -> MultiResult<NonEmpty<Y>, E>
+    // where
+    //     F: Fn(Self::X) -> Result<Y, E>;
 
     fn unique(self) -> Self
     where
@@ -20,7 +16,7 @@ pub(crate) trait NonEmptyExt {
 
     // fn remove(&mut self, index: IndexFromOne) -> Result<(), ClearOptionalOr<IndexError>>;
 
-    fn remove_nocheck(&mut self, index: IndexFromOne) -> Result<(), ClearOptional>;
+    // fn remove_nocheck(&mut self, index: IndexFromOne) -> Result<(), ClearOptional>;
 
     /// Return highest-occurring element with its count.
     ///
@@ -33,19 +29,19 @@ pub(crate) trait NonEmptyExt {
 impl<X> NonEmptyExt for NonEmpty<X> {
     type X = X;
 
-    fn enumerate(self) -> NonEmpty<(usize, Self::X)> {
-        NonEmpty::collect(self.into_iter().enumerate()).unwrap()
-    }
+    // fn enumerate(self) -> NonEmpty<(usize, Self::X)> {
+    //     NonEmpty::collect(self.into_iter().enumerate()).unwrap()
+    // }
 
-    fn map_results<F, E, Y>(self, f: F) -> MultiResult<NonEmpty<Y>, E>
-    where
-        F: Fn(Self::X) -> Result<Y, E>,
-    {
-        self.map(f)
-            .into_iter()
-            .gather()
-            .map(|ys| NonEmpty::from_vec(ys).unwrap())
-    }
+    // fn map_results<F, E, Y>(self, f: F) -> MultiResult<NonEmpty<Y>, E>
+    // where
+    //     F: Fn(Self::X) -> Result<Y, E>,
+    // {
+    //     self.map(f)
+    //         .into_iter()
+    //         .gather()
+    //         .map(|ys| NonEmpty::from_vec(ys).unwrap())
+    // }
 
     fn unique(self) -> Self
     where
@@ -64,20 +60,20 @@ impl<X> NonEmptyExt for NonEmpty<X> {
     //     )
     // }
 
-    fn remove_nocheck(&mut self, index: IndexFromOne) -> Result<(), ClearOptional> {
-        let i: usize = index.into();
-        if i == 0 {
-            let tail = std::mem::take(&mut self.tail);
-            if let Some(xs) = NonEmpty::from_vec(tail) {
-                *self = xs
-            } else {
-                return Err(ClearOptionalOr::Clear);
-            }
-        } else {
-            self.tail.remove(i + 1);
-        }
-        Ok(())
-    }
+    // fn remove_nocheck(&mut self, index: IndexFromOne) -> Result<(), ClearOptional> {
+    //     let i: usize = index.into();
+    //     if i == 0 {
+    //         let tail = std::mem::take(&mut self.tail);
+    //         if let Some(xs) = NonEmpty::from_vec(tail) {
+    //             *self = xs
+    //         } else {
+    //             return Err(ClearOptionalOr::Clear);
+    //         }
+    //     } else {
+    //         self.tail.remove(i + 1);
+    //     }
+    //     Ok(())
+    // }
 
     fn mode(&self) -> (&Self::X, usize)
     where

@@ -58,7 +58,6 @@ use crate::text::byteord::*;
 use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::*;
-use crate::text::optional::ClearOptional;
 use crate::text::optional::MightHave;
 use crate::text::parser::*;
 use crate::validated::ascii_range;
@@ -82,12 +81,12 @@ use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::marker::PhantomData;
 use std::mem;
+use std::num::NonZeroU8;
 use std::num::ParseIntError;
-use std::num::{NonZeroU64, NonZeroU8, NonZeroUsize};
 use std::str;
 
 #[cfg(feature = "serde")]
-use serde::{ser::SerializeStruct, Serialize};
+use serde::Serialize;
 
 /// All possible byte layouts for the DATA segment in 2.0.
 ///
@@ -178,19 +177,21 @@ pub enum AnyAsciiLayout<T, D, const ORD: bool> {
 pub type FixedAsciiLayout<T, D, const ORD: bool> = FixedLayout<AsciiRange, NoByteOrd<ORD>, T, D>;
 
 /// Byte layout for delimited ASCII.
-#[derive(Clone)]
+#[derive(Clone, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DelimAsciiLayout<T, D, const ORD: bool> {
-    pub ranges: NonEmpty<u64>,
+    pub ranges: Vec<u64>,
     _tot_def: PhantomData<T>,
     _meas_data_def: PhantomData<D>,
 }
 
 /// Byte layout where each column has a fixed width.
 #[derive(Clone, AsRef)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FixedLayout<C, L, T, D> {
     #[as_ref(L)]
     byte_layout: L,
-    columns: NonEmpty<C>,
+    columns: Vec<C>,
     _tot_def: PhantomData<T>,
     _meas_data_def: PhantomData<D>,
 }
@@ -446,17 +447,17 @@ pub trait TotDefinition {
 /// Standardized operations on layouts
 #[delegatable_trait]
 pub trait LayoutOps<'a, T>: Sized {
-    fn ncols(&self) -> NonZeroUsize;
+    fn ncols(&self) -> usize;
 
     fn nbytes(&self, df: &FCSDataFrame) -> u64;
 
-    fn widths(&self) -> Vec<BitsOrChars>;
+    fn widths(&self) -> Option<Vec<BitsOrChars>>;
 
-    fn ranges(&self) -> NonEmpty<Range>;
+    fn ranges(&self) -> Vec<Range>;
 
     fn datatype(&self) -> AlphaNumType;
 
-    fn datatypes(&self) -> NonEmpty<AlphaNumType>;
+    fn datatypes(&self) -> Vec<AlphaNumType>;
 
     fn byteord_keyword(&self) -> (String, String);
 
@@ -464,9 +465,12 @@ pub trait LayoutOps<'a, T>: Sized {
         [self.datatype().pair(), self.byteord_keyword()]
     }
 
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]>;
+    fn req_meas_keywords(&self) -> Vec<[(String, String); 2]>;
 
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional>;
+    // TODO in theory this could return the thing we removed, but it doesn't
+    // seem like we have a use for it now and it would likely make this trait
+    // more more complex as we would need an associated type
+    fn remove_nocheck(&mut self, index: MeasIndex);
 
     fn h_read_df_inner<R: Read>(
         &self,
@@ -493,7 +497,7 @@ pub trait LayoutOps<'a, T>: Sized {
     ) -> MultiResult<(), MeasLayoutMismatchError> {
         let meas_n = xforms.len();
         let layout_n = self.ncols();
-        if meas_n != usize::from(layout_n) {
+        if meas_n != layout_n {
             return Err(MeasLayoutLengthsError { meas_n, layout_n }).into_mult();
         }
         self.check_transforms(xforms).mult_errors_into()?;
@@ -535,7 +539,7 @@ pub trait LayoutOps<'a, T>: Sized {
 pub trait InterLayoutOps<D> {
     fn opt_meas_headers(&self) -> Vec<MeasHeader>;
 
-    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>>;
+    fn opt_meas_keywords(&self) -> Vec<Vec<(String, Option<String>)>>;
 
     // no need to check since this will be done after validating that the index
     // is within the measurement vector, which has its own check and should
@@ -548,6 +552,8 @@ pub trait InterLayoutOps<D> {
     ) -> BiTentative<(), AnyRangeError>;
 
     fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), AnyRangeError>;
+
+    fn clear(&mut self);
 }
 
 /// Standardized operations on layouts
@@ -569,18 +575,17 @@ where
     type MeasDTDef: MeasDatatypeDef;
     type TotDef: TotDefinition;
 
-    fn lookup(
-        kws: &mut StdKeywords,
-        conf: &ReadLayoutConfig,
-        par: Par,
-    ) -> LookupLayoutResult<Option<Self>>;
+    fn lookup(kws: &mut StdKeywords, conf: &ReadLayoutConfig, par: Par)
+        -> LookupLayoutResult<Self>;
 
-    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Option<Self>>;
+    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self>;
+
+    fn new_empty(dt: AlphaNumType) -> Self;
 
     fn try_new(
         dt: AlphaNumType,
         size: Self::ByteLayout,
-        columns: NonEmpty<ColumnLayoutValues<<Self::MeasDTDef as MeasDatatypeDef>::MeasDatatype>>,
+        columns: Vec<ColumnLayoutValues<<Self::MeasDTDef as MeasDatatypeDef>::MeasDatatype>>,
         conf: &ReadLayoutConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError>;
 
@@ -616,7 +621,7 @@ where
         // is wrong.
         let par = self.ncols();
         let ncols = df.ncols();
-        if ncols != usize::from(par) {
+        if ncols != par {
             panic!("datafame columns ({ncols}) unequal to number of measurements ({par})");
         }
         self.h_write_df_inner(h, df)
@@ -657,7 +662,7 @@ pub trait HasNativeWidth: HasNativeType {
 pub trait HasDatatype: Sized {
     fn datatype(&self) -> AlphaNumType;
 
-    fn datatype_from_columns(cs: &NonEmpty<Self>) -> AlphaNumType;
+    fn datatype_from_columns(cs: &[Self]) -> AlphaNumType;
 }
 
 trait FromRange: Sized {
@@ -1687,28 +1692,28 @@ fn is_ascii_delim(x: u8) -> bool {
     x == 9 || x == 10 || x == 13 || x == 32 || x == 44
 }
 
-#[cfg(feature = "serde")]
-impl<C: Serialize, L: Serialize, T, D> Serialize for FixedLayout<C, L, T, D> {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut state = serializer.serialize_struct("FixedLayout", 2)?;
-        state.serialize_field("columns", Vec::from(self.columns.as_ref()).as_slice())?;
-        state.serialize_field("byte_layout", &self.byte_layout)?;
-        state.end()
-    }
-}
+// #[cfg(feature = "serde")]
+// impl<C: Serialize, L: Serialize, T, D> Serialize for FixedLayout<C, L, T, D> {
+//     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+//         let mut state = serializer.serialize_struct("FixedLayout", 2)?;
+//         state.serialize_field("columns", Vec::from(self.columns.as_ref()).as_slice())?;
+//         state.serialize_field("byte_layout", &self.byte_layout)?;
+//         state.end()
+//     }
+// }
 
-#[cfg(feature = "serde")]
-impl<T, D, const ORD: bool> Serialize for DelimAsciiLayout<T, D, ORD> {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut state = serializer.serialize_struct("DelimitedLayout", 1)?;
-        state.serialize_field("ranges", Vec::from(self.ranges.as_ref()).as_slice())?;
-        state.end()
-    }
-}
+// #[cfg(feature = "serde")]
+// impl<T, D, const ORD: bool> Serialize for DelimAsciiLayout<T, D, ORD> {
+//     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+//         let mut state = serializer.serialize_struct("DelimitedLayout", 1)?;
+//         state.serialize_field("ranges", Vec::from(self.ranges.as_ref()).as_slice())?;
+//         state.end()
+//     }
+// }
 
 impl<D> EndianLayout<AnyNullBitmask, D> {
     pub(crate) fn endian_uint_try_new(
-        cs: NonEmpty<ColumnLayoutValues<D::MeasDatatype>>,
+        cs: Vec<ColumnLayoutValues<D::MeasDatatype>>,
         e: Endian,
         notrunc: bool,
     ) -> DeferredResult<Self, ColumnError<BitmaskError>, ColumnError<NewUintTypeError>>
@@ -1721,11 +1726,15 @@ impl<D> EndianLayout<AnyNullBitmask, D> {
     }
 
     pub(crate) fn uint_try_into_ordered<T>(self) -> LayoutConvertResult<AnyOrderedUintLayout<T>> {
-        let cs = self.columns;
-        cs.head
-            .try_into_one_size(cs.tail, self.byte_layout, 1)
-            .mult_map_errors(|(index, error)| ConvertWidthError { index, error })
-            .mult_errors_into()
+        if let Some(cs) = NonEmpty::from_vec(self.columns) {
+            cs.head
+                .try_into_one_size(cs.tail, self.byte_layout, 1)
+                .mult_map_errors(|(index, error)| ConvertWidthError { index, error })
+                .mult_errors_into()
+        } else {
+            let b: SizedByteOrd<4> = self.byte_layout.into();
+            Ok(FixedLayout::new(vec![], b).into())
+        }
     }
 }
 
@@ -1733,81 +1742,93 @@ impl<D> EndianLayout<NullMixedType, D> {
     pub(crate) fn try_into_ordered<T>(
         self,
     ) -> MultiResult<AnyOrderedLayout<T>, MixedToOrderedLayoutError> {
-        let c0 = self.columns.head;
-        let cs = self.columns.tail;
-        let endian = self.byte_layout;
-        match c0 {
-            MixedType::Ascii(x) => cs
-                .into_iter()
-                .enumerate()
-                .map(|(i, c)| {
-                    c.try_into().map_err(|e| MixedColumnConvertError {
-                        error: MixedToOrderedConvertError::from(e),
-                        index: (i + 1).into(),
+        if let Some(ne_cols) = NonEmpty::from_vec(self.columns) {
+            let c0 = ne_cols.head;
+            let cs = ne_cols.tail;
+            let endian = self.byte_layout;
+            match c0 {
+                MixedType::Ascii(x) => cs
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, c)| {
+                        c.try_into().map_err(|e| MixedColumnConvertError {
+                            error: MixedToOrderedConvertError::from(e),
+                            index: (i + 1).into(),
+                        })
                     })
-                })
-                .gather()
-                .map(|xs| AnyAsciiLayout::Fixed(FixedLayout::new1(x, xs, NoByteOrd)).into()),
-            MixedType::Uint(x) => x
-                .try_into_one_size(cs, endian, 1)
-                .map(|i| i.into())
-                .mult_map_errors(|(index, error)| MixedColumnConvertError {
-                    index,
-                    error: error.into(),
-                }),
-            MixedType::F32(x) => cs
-                .into_iter()
-                .enumerate()
-                .map(|(i, c)| {
-                    c.try_into().map_err(|e| MixedColumnConvertError {
-                        error: MixedToOrderedConvertError::from(e),
-                        index: (i + 1).into(),
+                    .gather()
+                    .map(|xs| AnyAsciiLayout::Fixed(FixedLayout::new1(x, xs, NoByteOrd)).into()),
+                MixedType::Uint(x) => x
+                    .try_into_one_size(cs, endian, 1)
+                    .map(|i| i.into())
+                    .mult_map_errors(|(index, error)| MixedColumnConvertError {
+                        index,
+                        error: error.into(),
+                    }),
+                MixedType::F32(x) => cs
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, c)| {
+                        c.try_into().map_err(|e| MixedColumnConvertError {
+                            error: MixedToOrderedConvertError::from(e),
+                            index: (i + 1).into(),
+                        })
                     })
-                })
-                .gather()
-                .map(|xs| FixedLayout::new1(x, xs, endian.into()).into()),
-            MixedType::F64(x) => cs
-                .into_iter()
-                .enumerate()
-                .map(|(i, c)| {
-                    c.try_into().map_err(|e| MixedColumnConvertError {
-                        error: MixedToOrderedConvertError::from(e),
-                        index: (i + 1).into(),
+                    .gather()
+                    .map(|xs| FixedLayout::new1(x, xs, endian.into()).into()),
+                MixedType::F64(x) => cs
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, c)| {
+                        c.try_into().map_err(|e| MixedColumnConvertError {
+                            error: MixedToOrderedConvertError::from(e),
+                            index: (i + 1).into(),
+                        })
                     })
-                })
-                .gather()
-                .map(|xs| FixedLayout::new1(x, xs, endian.into()).into()),
+                    .gather()
+                    .map(|xs| FixedLayout::new1(x, xs, endian.into()).into()),
+            }
+        } else {
+            let b: SizedByteOrd<4> = self.byte_layout.into();
+            Ok(FixedLayout::new(vec![], b).into())
         }
     }
 
     pub(crate) fn try_into_non_mixed(
         self,
     ) -> MultiResult<NonMixedEndianLayout<NoMeasDatatype>, MixedToNonMixedLayoutError> {
-        let c0 = self.columns.head;
-        let it = self.columns.tail.into_iter().enumerate();
-        let byte_layout = self.byte_layout;
-        match c0 {
-            MixedType::Ascii(x) => it
-                .map(|(i, c)| c.try_into().map_err(|e| (i, e)))
-                .gather()
-                .map(|xs| AnyAsciiLayout::Fixed(FixedLayout::new1(x, xs, NoByteOrd)).into()),
-            MixedType::Uint(x) => it
-                .map(|(i, c)| c.try_into().map_err(|e| (i, e)))
-                .gather()
-                .map(|xs| FixedLayout::new1(x, xs, byte_layout).into()),
-            MixedType::F32(x) => it
-                .map(|(i, c)| c.try_into().map_err(|e| (i, e)))
-                .gather()
-                .map(|xs| FixedLayout::new1(x, xs, byte_layout).into()),
-            MixedType::F64(x) => it
-                .map(|(i, c)| c.try_into().map_err(|e| (i, e)))
-                .gather()
-                .map(|xs| FixedLayout::new1(x, xs, byte_layout).into()),
+        if let Some(ne_cols) = NonEmpty::from_vec(self.columns) {
+            let c0 = ne_cols.head;
+            let it = ne_cols.tail.into_iter().enumerate();
+            let byte_layout = self.byte_layout;
+            match c0 {
+                MixedType::Ascii(x) => it
+                    .map(|(i, c)| c.try_into().map_err(|e| (i, e)))
+                    .gather()
+                    .map(|xs| AnyAsciiLayout::Fixed(FixedLayout::new1(x, xs, NoByteOrd)).into()),
+                MixedType::Uint(x) => it
+                    .map(|(i, c)| c.try_into().map_err(|e| (i, e)))
+                    .gather()
+                    .map(|xs| FixedLayout::new1(x, xs, byte_layout).into()),
+                MixedType::F32(x) => it
+                    .map(|(i, c)| c.try_into().map_err(|e| (i, e)))
+                    .gather()
+                    .map(|xs| FixedLayout::new1(x, xs, byte_layout).into()),
+                MixedType::F64(x) => it
+                    .map(|(i, c)| c.try_into().map_err(|e| (i, e)))
+                    .gather()
+                    .map(|xs| FixedLayout::new1(x, xs, byte_layout).into()),
+            }
+            .mult_map_errors(|(i, error)| MixedColumnConvertError {
+                index: (i + 1).into(),
+                error,
+            })
+        } else {
+            Ok(NonMixedEndianLayout::Integer(FixedLayout::new(
+                vec![],
+                self.byte_layout,
+            )))
         }
-        .mult_map_errors(|(i, error)| MixedColumnConvertError {
-            index: (i + 1).into(),
-            error,
-        })
     }
 }
 
@@ -2058,28 +2079,28 @@ where
     T: TotDefinition,
     NoByteOrd<ORD>: HasByteOrd,
 {
-    fn ncols(&self) -> NonZeroUsize {
-        self.ranges.len_nonzero()
+    fn ncols(&self) -> usize {
+        self.ranges.len()
     }
 
     fn nbytes(&self, df: &FCSDataFrame) -> u64 {
         df.ascii_nbytes()
     }
 
-    fn widths(&self) -> Vec<BitsOrChars> {
-        vec![]
+    fn widths(&self) -> Option<Vec<BitsOrChars>> {
+        None
     }
 
-    fn ranges(&self) -> NonEmpty<Range> {
-        self.ranges.as_ref().map(|x| Range::from(*x))
+    fn ranges(&self) -> Vec<Range> {
+        self.ranges.iter().map(|x| Range::from(*x)).collect()
     }
 
     fn datatype(&self) -> AlphaNumType {
         AlphaNumType::Ascii
     }
 
-    fn datatypes(&self) -> NonEmpty<AlphaNumType> {
-        self.ranges.as_ref().map(|_| self.datatype())
+    fn datatypes(&self) -> Vec<AlphaNumType> {
+        self.ranges.iter().map(|_| self.datatype()).collect()
     }
 
     fn byteord_keyword(&self) -> (String, String) {
@@ -2087,16 +2108,20 @@ where
         <NoByteOrd<ORD> as HasByteOrd>::ByteOrd::from(NoByteOrd).pair()
     }
 
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
-        self.ranges.as_ref().enumerate().map(|(i, r)| {
-            let x = Width::Variable.pair(i.into());
-            let y = Range((*r).into()).pair(i.into());
-            [x, y]
-        })
+    fn req_meas_keywords(&self) -> Vec<[(String, String); 2]> {
+        self.ranges
+            .iter()
+            .enumerate()
+            .map(|(i, r)| {
+                let x = Width::Variable.pair(i.into());
+                let y = Range((*r).into()).pair(i.into());
+                [x, y]
+            })
+            .collect()
     }
 
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-        self.ranges.remove_nocheck(index.into())
+    fn remove_nocheck(&mut self, index: MeasIndex) {
+        self.ranges.remove(index.into());
     }
 
     fn h_read_df_inner<R: Read>(
@@ -2162,8 +2187,8 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
         vec![]
     }
 
-    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-        self.ranges.as_ref().map(|_| vec![])
+    fn opt_meas_keywords(&self) -> Vec<Vec<(String, Option<String>)>> {
+        self.ranges.iter().map(|_| vec![]).collect()
     }
 
     fn insert_nocheck(
@@ -2184,10 +2209,14 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
             .inner_into()
             .map(|r| self.ranges.push(r))
     }
+
+    fn clear(&mut self) {
+        self.ranges.clear()
+    }
 }
 
 impl<T, D, const ORD: bool> DelimAsciiLayout<T, D, ORD> {
-    pub fn new(ranges: NonEmpty<u64>) -> Self {
+    pub fn new(ranges: Vec<u64>) -> Self {
         Self {
             ranges,
             _tot_def: PhantomData,
@@ -2211,7 +2240,7 @@ impl<T, D, const ORD: bool> DelimAsciiLayout<T, D, ORD> {
 }
 
 fn h_read_delim_with_rows<R: Read>(
-    ranges: &NonEmpty<u64>,
+    ranges: &[u64],
     h: &mut BufReader<R>,
     tot: Tot,
     nbytes: usize,
@@ -2220,8 +2249,13 @@ fn h_read_delim_with_rows<R: Read>(
     let mut last_was_delim = false;
     let nrows = tot.0;
     let ncols = ranges.len();
+    // TODO emit a real error here since this means something is probably
+    // screwy with the file
+    if (nrows == 0 || ncols == 0) && nbytes > 0 {
+        return Ok(FCSDataFrame::default());
+    }
     // Here we have $TOT so initialize vectors to required length
-    let mut data = ranges.as_ref().map(|_| vec![0; nrows]);
+    let mut data = vec![vec![0; nrows]; ncols];
     // let mut data = self.0.columns;
     // let nrows = data.head.len();
     // let ncols = data.len();
@@ -2280,17 +2314,22 @@ fn h_read_delim_with_rows<R: Read>(
 }
 
 fn h_read_delim_without_rows<R: Read>(
-    ranges: &NonEmpty<u64>,
+    ranges: &[u64],
     h: &mut BufReader<R>,
     nbytes: usize,
 ) -> IOResult<FCSDataFrame, ReadDelimAsciiWithoutRowsError> {
     let mut buf = Vec::new();
     // Here we don't have $TOT so init to empty vectors
-    let mut data = ranges.as_ref().map(|_| vec![]);
+    let mut data: Vec<_> = ranges.iter().map(|_| vec![]).collect();
     let ncols = data.len();
+    // TODO emit a real error here since this means something is probably
+    // screwy with the file
+    if ncols == 0 && nbytes > 0 {
+        return Ok(FCSDataFrame::default());
+    }
     let mut col = 0;
     let mut last_was_delim = false;
-    let go = |_data: &mut NonEmpty<Vec<u64>>, _col, _buf: &[u8]| {
+    let go = |_data: &mut Vec<Vec<u64>>, _col: usize, _buf: &[u8]| {
         ascii_to_uint(_buf)
             .map_err(ReadDelimAsciiWithoutRowsError::Parse)
             .map_err(ImpureError::Pure)
@@ -2339,6 +2378,12 @@ fn h_read_delim_without_rows<R: Read>(
     Ok(FCSDataFrame::try_new(cs).unwrap())
 }
 
+impl<C, S: Default, T, D> Default for FixedLayout<C, S, T, D> {
+    fn default() -> Self {
+        Self::new(vec![], S::default())
+    }
+}
+
 impl<'a, C, S, T, D> LayoutOps<'a, T> for FixedLayout<C, S, T, D>
 where
     D: MeasDatatypeDef,
@@ -2350,43 +2395,44 @@ where
     <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
     AnyRangeError: From<<C as FromRange>::Error>,
 {
-    fn widths(&self) -> Vec<BitsOrChars> {
-        self.columns.as_ref().map(|x| x.fixed_width()).into()
+    fn widths(&self) -> Option<Vec<BitsOrChars>> {
+        Some(self.columns.iter().map(|x| x.fixed_width()).collect())
     }
 
-    fn ranges(&self) -> NonEmpty<Range> {
-        self.columns.as_ref().map(|x| x.into())
+    fn ranges(&self) -> Vec<Range> {
+        self.columns.iter().map(|x| x.into()).collect()
     }
 
-    fn ncols(&self) -> NonZeroUsize {
-        self.columns.len_nonzero()
+    fn ncols(&self) -> usize {
+        self.columns.len()
     }
 
     fn nbytes(&self, df: &FCSDataFrame) -> u64 {
-        u64::from(self.event_width()) * (df.nrows() as u64)
+        self.event_width() * (df.nrows() as u64)
     }
 
     fn datatype(&self) -> AlphaNumType {
         C::datatype_from_columns(&self.columns)
     }
 
-    fn datatypes(&self) -> NonEmpty<AlphaNumType> {
-        self.columns.as_ref().map(|c| c.datatype())
+    fn datatypes(&self) -> Vec<AlphaNumType> {
+        self.columns.iter().map(|c| c.datatype()).collect()
     }
 
     fn byteord_keyword(&self) -> (String, String) {
         S::ByteOrd::from(self.byte_layout).pair()
     }
 
-    fn req_meas_keywords(&self) -> NonEmpty<[(String, String); 2]> {
+    fn req_meas_keywords(&self) -> Vec<[(String, String); 2]> {
         self.columns
-            .as_ref()
+            .iter()
             .enumerate()
             .map(|(i, c)| c.req_meas_keywords(i.into()))
+            .collect()
     }
 
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Result<(), ClearOptional> {
-        self.columns.remove_nocheck(index.into())
+    fn remove_nocheck(&mut self, index: MeasIndex) {
+        self.columns.remove(index.into());
     }
 
     fn h_read_df_inner<R: Read>(
@@ -2403,16 +2449,19 @@ where
         self.compute_nrows(seg, conf)
             .inner_into()
             .errors_liftio()
-            .and_tentatively(|nrows| {
-                T::check_tot(nrows, tot, conf.allow_tot_mismatch)
-                    .map(|_| nrows)
-                    .inner_into()
-                    .errors_liftio()
-            })
             .and_maybe(|nrows| {
-                self.h_read_unchecked_df(h, nrows as usize, buf)
-                    .map_err(|e| e.inner_into())
-                    .into_deferred()
+                if let Some(n) = nrows {
+                    T::check_tot(n, tot, conf.allow_tot_mismatch)
+                        .inner_into()
+                        .errors_liftio()
+                        .and_maybe(|_| {
+                            self.h_read_unchecked_df(h, n as usize, buf)
+                                .map_err(|e| e.inner_into())
+                                .into_deferred()
+                        })
+                } else {
+                    Ok(Tentative::new1(FCSDataFrame::default()))
+                }
             })
     }
 
@@ -2470,8 +2519,8 @@ where
         vec![]
     }
 
-    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
-        self.columns.as_ref().map(|_| vec![])
+    fn opt_meas_keywords(&self) -> Vec<Vec<(String, Option<String>)>> {
+        self.columns.iter().map(|_| vec![]).collect()
     }
 
     fn insert_nocheck(
@@ -2490,6 +2539,10 @@ where
             .inner_into()
             .map(|col| self.push_column(col))
     }
+
+    fn clear(&mut self) {
+        self.columns.clear()
+    }
 }
 
 impl<C, S, T, D> OrderedLayoutOps for FixedLayout<C, S, T, D>
@@ -2503,7 +2556,7 @@ where
 }
 
 impl<C, S, T, D> FixedLayout<C, S, T, D> {
-    pub fn new(columns: NonEmpty<C>, byte_layout: S) -> Self {
+    pub fn new(columns: Vec<C>, byte_layout: S) -> Self {
         Self {
             columns,
             byte_layout,
@@ -2513,11 +2566,11 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
     }
 
     fn new1(head: C, tail: Vec<C>, byte_layout: S) -> Self {
-        Self::new((head, tail).into(), byte_layout)
+        Self::new(NonEmpty::from((head, tail)).into(), byte_layout)
     }
 
     fn try_new<F, W, E, CW, CE>(
-        cs: NonEmpty<ColumnLayoutValues<D::MeasDatatype>>,
+        cs: Vec<ColumnLayoutValues<D::MeasDatatype>>,
         byte_layout: S,
         new_col_f: F,
     ) -> DeferredResult<Self, W, E>
@@ -2527,8 +2580,9 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         E: From<ColumnError<CE>>,
         F: Fn(ColumnLayoutValues<D::MeasDatatype>) -> DeferredResult<C, CW, CE>,
     {
-        cs.enumerate()
-            .map_results(|(i, c)| {
+        cs.into_iter()
+            .enumerate()
+            .map(|(i, c)| {
                 new_col_f(c)
                     .def_map_errors(|error| {
                         ColumnError {
@@ -2545,8 +2599,9 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
                         .into()
                     })
             })
+            .gather()
             .map_err(DeferredFailure::mconcat)
-            .map(Tentative::mconcat_ne)
+            .map(Tentative::mconcat)
             .def_map_value(|columns| Self::new(columns, byte_layout))
     }
 
@@ -2592,7 +2647,10 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
     where
         X: From<C>,
     {
-        FixedLayout::new(self.columns.map(|c| c.into()), self.byte_layout)
+        FixedLayout::new(
+            self.columns.into_iter().map(|c| c.into()).collect(),
+            self.byte_layout,
+        )
     }
 
     fn byte_layout_into<X>(self) -> FixedLayout<C, X, T, D>
@@ -2615,41 +2673,48 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         FixedLayout::new(self.columns, self.byte_layout)
     }
 
-    fn event_width(&self) -> NonZeroU64
+    fn event_width(&self) -> u64
     where
         C: IsFixed,
     {
-        let cs = &self.columns;
-        let mut acc = NonZeroU64::from(cs.head.nbytes());
-        for x in cs.tail.iter() {
-            acc = acc.saturating_add(u64::from(u8::from(x.nbytes())))
-        }
-        acc
+        self.columns
+            .iter()
+            .map(|c| u64::from(u8::from(c.nbytes())))
+            .sum()
     }
 
     pub fn compute_nrows(
         &self,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> BiTentative<u64, UnevenEventWidth>
+    ) -> BiTentative<Option<u64>, UnevenEventWidth>
     where
         S: Clone,
         C: IsFixed,
     {
         let n = seg.inner.len();
         let w = self.event_width();
-        let total_events = n / w;
-        let remainder = n % w;
-        if remainder > 0 {
-            let i = UnevenEventWidth {
-                event_width: w,
-                nbytes: n,
-                remainder,
-            };
-            Tentative::new_either(total_events, vec![i], !conf.allow_uneven_event_width)
+        let (t, e) = if w == 0 {
+            (None, Some(UnevenEventWidth::ZeroWidth(n)))
         } else {
-            Tentative::new1(total_events)
+            let total_events = n / w;
+            let remainder = n % w;
+            let e = if remainder > 0 {
+                Some(UnevenEventWidth::Remainder {
+                    event_width: w,
+                    nbytes: n,
+                    remainder,
+                })
+            } else {
+                None
+            };
+            (Some(total_events), e)
+        };
+        let mut tnt = Tentative::new1(t);
+        if let Some(err) = e {
+            tnt.push_error_or_warning(err, !conf.allow_uneven_event_width)
         }
+        tnt
     }
 }
 
@@ -2736,8 +2801,8 @@ impl HasDatatype for AsciiRange {
         AlphaNumType::Ascii
     }
 
-    fn datatype_from_columns(cs: &NonEmpty<Self>) -> AlphaNumType {
-        cs.head.datatype()
+    fn datatype_from_columns(_: &[Self]) -> AlphaNumType {
+        AlphaNumType::Ascii
     }
 }
 
@@ -2746,8 +2811,8 @@ impl<T, const LEN: usize> HasDatatype for Bitmask<T, LEN> {
         AlphaNumType::Integer
     }
 
-    fn datatype_from_columns(cs: &NonEmpty<Self>) -> AlphaNumType {
-        cs.head.datatype()
+    fn datatype_from_columns(_: &[Self]) -> AlphaNumType {
+        AlphaNumType::Integer
     }
 }
 
@@ -2756,8 +2821,8 @@ impl HasDatatype for F32Range {
         AlphaNumType::Single
     }
 
-    fn datatype_from_columns(cs: &NonEmpty<Self>) -> AlphaNumType {
-        cs.head.datatype()
+    fn datatype_from_columns(_: &[Self]) -> AlphaNumType {
+        AlphaNumType::Single
     }
 }
 
@@ -2766,8 +2831,8 @@ impl HasDatatype for F64Range {
         AlphaNumType::Double
     }
 
-    fn datatype_from_columns(cs: &NonEmpty<Self>) -> AlphaNumType {
-        cs.head.datatype()
+    fn datatype_from_columns(_: &[Self]) -> AlphaNumType {
+        AlphaNumType::Double
     }
 }
 
@@ -2776,8 +2841,8 @@ impl HasDatatype for AnyNullBitmask {
         AlphaNumType::Integer
     }
 
-    fn datatype_from_columns(cs: &NonEmpty<Self>) -> AlphaNumType {
-        cs.head.datatype()
+    fn datatype_from_columns(_: &[Self]) -> AlphaNumType {
+        AlphaNumType::Integer
     }
 }
 
@@ -2791,18 +2856,23 @@ impl HasDatatype for NullMixedType {
         }
     }
 
-    fn datatype_from_columns(cs: &NonEmpty<Self>) -> AlphaNumType {
+    fn datatype_from_columns(cs: &[Self]) -> AlphaNumType {
         // If any numeric types are none, then that means at least one column is
         // ASCII, which means that $DATATYPE needs to be "A" since $PnDATATYPE
         // cannot be "A". Otherwise, find majority type.
-        cs.as_ref()
-            .try_map(|c| NumType::try_from(c.datatype()))
-            .ok()
-            .map_or(AlphaNumType::Ascii, |mut ds| {
-                ds.sort();
-                let x = (*ds.mode().0).into();
-                x
-            })
+        if let Some(xs) = NonEmpty::collect(cs.iter()) {
+            xs.as_ref()
+                .try_map(|c| NumType::try_from(c.datatype()))
+                .ok()
+                .map_or(AlphaNumType::Ascii, |mut ds| {
+                    ds.sort();
+                    let x = (*ds.mode().0).into();
+                    x
+                })
+        } else {
+            // TODO sensible default?
+            AlphaNumType::Integer
+        }
     }
 }
 
@@ -3031,6 +3101,12 @@ source_from_iter!(f64, u64, FromF64);
 source_from_iter!(f64, f32, FromF64);
 source_from_iter!(f64, f64, FromF64);
 
+impl<T> Default for AnyOrderedUintLayout<T> {
+    fn default() -> Self {
+        Self::Uint32(FixedLayout::default())
+    }
+}
+
 impl<T> AnyOrderedUintLayout<T> {
     pub fn phantom_into<X>(self) -> AnyOrderedUintLayout<X> {
         match_any_uint!(self, Self, l, { l.phantom_into().into() })
@@ -3045,7 +3121,7 @@ impl<T> AnyOrderedUintLayout<T> {
     }
 
     fn try_new(
-        cs: NonEmpty<ColumnLayoutValues<NullMeasDatatype>>,
+        cs: Vec<ColumnLayoutValues<NullMeasDatatype>>,
         bo: ByteOrd2_0,
         conf: &ReadLayoutConfig,
     ) -> DeferredResult<Self, ColumnError<BitmaskError>, NewFixedIntLayoutError> {
@@ -3058,22 +3134,27 @@ impl<T> AnyOrderedUintLayout<T> {
         let width_res = if conf.integer_widths_from_byteord {
             Ok(())
         } else {
-            cs.as_ref()
+            cs.iter()
                 .map(|c| c.width)
-                .map_results(Bytes::try_from)
+                .map(Bytes::try_from)
+                .gather()
                 .mult_map_errors(SingleFixedWidthError::Bytes)
                 .and_then(|widths| {
-                    let us = widths.unique();
-                    if us.tail.is_empty() && us.head == n {
-                        Ok(())
+                    if let Some(ws) = NonEmpty::from_vec(widths) {
+                        let us = ws.unique();
+                        if us.tail.is_empty() && us.head == n {
+                            Ok(())
+                        } else {
+                            Err(NonEmpty::new(
+                                WidthMismatchError {
+                                    byteord: real_bo,
+                                    found: us,
+                                }
+                                .into(),
+                            ))
+                        }
                     } else {
-                        Err(NonEmpty::new(
-                            WidthMismatchError {
-                                byteord: real_bo,
-                                found: us,
-                            }
-                            .into(),
-                        ))
+                        Ok(())
                     }
                 })
                 .void()
@@ -3096,6 +3177,12 @@ impl<T> AnyOrderedUintLayout<T> {
     }
 }
 
+impl<T, D, const ORD: bool> Default for AnyAsciiLayout<T, D, ORD> {
+    fn default() -> Self {
+        Self::Fixed(FixedLayout::default())
+    }
+}
+
 impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
     pub fn phantom_into<T1, D1, const ORD_1: bool>(self) -> AnyAsciiLayout<T1, D1, ORD_1> {
         match self {
@@ -3105,7 +3192,7 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
     }
 
     pub(crate) fn try_new(
-        cs: NonEmpty<ColumnLayoutValues<D::MeasDatatype>>,
+        cs: Vec<ColumnLayoutValues<D::MeasDatatype>>,
         notrunc: bool,
     ) -> DeferredResult<
         Self,
@@ -3120,13 +3207,17 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
             index: i.into(),
         };
         if cs.iter().all(|c| c.width == Width::Variable) {
-            let ts = cs.enumerate().map(|(i, c)| {
-                c.range
-                    .into_uint(notrunc)
-                    .map_errors(|e| go(e, i))
-                    .map_warnings(|e| go(e, i))
-            });
-            let ret = Tentative::mconcat_ne(ts)
+            let ts = cs
+                .into_iter()
+                .enumerate()
+                .map(|(i, c)| {
+                    c.range
+                        .into_uint(notrunc)
+                        .map_errors(|e| go(e, i))
+                        .map_warnings(|e| go(e, i))
+                })
+                .collect();
+            let ret = Tentative::mconcat(ts)
                 .map(|ranges| DelimAsciiLayout::new(ranges).into())
                 .map_errors(|e| e.inner_into());
             Ok(ret)
@@ -3138,22 +3229,22 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
         }
     }
 
-    fn new_fixed(columns: NonEmpty<AsciiRange>) -> Self {
+    fn new_fixed(columns: Vec<AsciiRange>) -> Self {
         Self::Fixed(FixedLayout::new(columns, NoByteOrd))
     }
 
-    fn new_delim(ranges: NonEmpty<u64>) -> Self {
+    fn new_delim(ranges: Vec<u64>) -> Self {
         Self::Delimited(DelimAsciiLayout::new(ranges))
     }
 }
 
 impl<T, D, const ORD: bool> FixedAsciiLayout<T, D, ORD> {
-    pub fn new_ascii_u64(ranges: NonEmpty<u64>) -> Self {
-        let rs = ranges.map(AsciiRange::from);
+    pub fn new_ascii_u64(ranges: Vec<u64>) -> Self {
+        let rs = ranges.into_iter().map(AsciiRange::from).collect();
         Self::new_ascii(rs)
     }
 
-    pub fn new_ascii(ranges: NonEmpty<AsciiRange>) -> Self {
+    pub fn new_ascii(ranges: Vec<AsciiRange>) -> Self {
         Self::new(ranges, NoByteOrd)
     }
 }
@@ -3162,7 +3253,7 @@ impl<T, const LEN: usize, Tot> OrderedLayout<Bitmask<T, LEN>, Tot>
 where
     Bitmask<T, LEN>: HasNativeWidth<Order = SizedByteOrd<LEN>>,
 {
-    pub fn new_endian_uint(ranges: NonEmpty<Bitmask<T, LEN>>, endian: Endian) -> Self {
+    pub fn new_endian_uint(ranges: Vec<Bitmask<T, LEN>>, endian: Endian) -> Self {
         Self::new(ranges, SizedByteOrd::Endian(endian))
     }
 }
@@ -3171,7 +3262,7 @@ impl<T, const LEN: usize, Tot> OrderedLayout<FloatRange<T, LEN>, Tot>
 where
     FloatRange<T, LEN>: HasNativeWidth<Order = SizedByteOrd<LEN>>,
 {
-    pub fn new_endian_float(ranges: NonEmpty<FloatRange<T, LEN>>, endian: Endian) -> Self {
+    pub fn new_endian_float(ranges: Vec<FloatRange<T, LEN>>, endian: Endian) -> Self {
         Self::new(ranges, SizedByteOrd::Endian(endian))
     }
 }
@@ -3185,18 +3276,22 @@ impl VersionedDataLayout for DataLayout2_0 {
         kws: &mut StdKeywords,
         conf: &ReadLayoutConfig,
         par: Par,
-    ) -> LookupLayoutResult<Option<Self>> {
-        AnyOrderedLayout::lookup(kws, conf, par).def_map_value(|x| x.map(|y| y.into()))
+    ) -> LookupLayoutResult<Self> {
+        AnyOrderedLayout::lookup(kws, conf, par).def_map_value(|x| x.into())
     }
 
-    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Option<Self>> {
-        AnyOrderedLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
+    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self> {
+        AnyOrderedLayout::lookup_ro(kws, conf).def_map_value(|x| x.into())
+    }
+
+    fn new_empty(datatype: AlphaNumType) -> Self {
+        AnyOrderedLayout::new_empty(datatype).into()
     }
 
     fn try_new(
         datatype: AlphaNumType,
         byteord: Self::ByteLayout,
-        columns: NonEmpty<ColumnLayoutValues<<Self::MeasDTDef as MeasDatatypeDef>::MeasDatatype>>,
+        columns: Vec<ColumnLayoutValues<<Self::MeasDTDef as MeasDatatypeDef>::MeasDatatype>>,
         conf: &ReadLayoutConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
         AnyOrderedLayout::try_new(datatype, byteord, columns, conf)
@@ -3214,18 +3309,22 @@ impl VersionedDataLayout for DataLayout3_0 {
         kws: &mut StdKeywords,
         conf: &ReadLayoutConfig,
         par: Par,
-    ) -> LookupLayoutResult<Option<Self>> {
-        AnyOrderedLayout::lookup(kws, conf, par).def_map_value(|x| x.map(|y| y.into()))
+    ) -> LookupLayoutResult<Self> {
+        AnyOrderedLayout::lookup(kws, conf, par).def_map_value(|x| x.into())
     }
 
-    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Option<Self>> {
-        AnyOrderedLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
+    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self> {
+        AnyOrderedLayout::lookup_ro(kws, conf).def_map_value(|x| x.into())
+    }
+
+    fn new_empty(datatype: AlphaNumType) -> Self {
+        AnyOrderedLayout::new_empty(datatype).into()
     }
 
     fn try_new(
         datatype: AlphaNumType,
         byteord: Self::ByteLayout,
-        columns: NonEmpty<ColumnLayoutValues<NullMeasDatatype>>,
+        columns: Vec<ColumnLayoutValues<NullMeasDatatype>>,
         conf: &ReadLayoutConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
         AnyOrderedLayout::try_new(datatype, byteord, columns, conf)
@@ -3243,18 +3342,22 @@ impl VersionedDataLayout for DataLayout3_1 {
         kws: &mut StdKeywords,
         conf: &ReadLayoutConfig,
         par: Par,
-    ) -> LookupLayoutResult<Option<Self>> {
-        NonMixedEndianLayout::lookup(kws, conf, par).def_map_value(|x| x.map(|y| y.into()))
+    ) -> LookupLayoutResult<Self> {
+        NonMixedEndianLayout::lookup(kws, conf, par).def_map_value(|x| x.into())
     }
 
-    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Option<Self>> {
-        NonMixedEndianLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
+    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self> {
+        NonMixedEndianLayout::lookup_ro(kws, conf).def_map_value(|x| x.into())
+    }
+
+    fn new_empty(datatype: AlphaNumType) -> Self {
+        NonMixedEndianLayout::new_empty(datatype).into()
     }
 
     fn try_new(
         datatype: AlphaNumType,
         endian: Self::ByteLayout,
-        columns: NonEmpty<ColumnLayoutValues<NullMeasDatatype>>,
+        columns: Vec<ColumnLayoutValues<NullMeasDatatype>>,
         conf: &ReadLayoutConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
         NonMixedEndianLayout::try_new(datatype, endian, columns, conf)
@@ -3272,21 +3375,18 @@ impl VersionedDataLayout for DataLayout3_2 {
         kws: &mut StdKeywords,
         conf: &ReadLayoutConfig,
         par: Par,
-    ) -> LookupLayoutResult<Option<Self>> {
+    ) -> LookupLayoutResult<Self> {
         let d = AlphaNumType::lookup_req_check_ascii(kws);
         let e = ByteOrd3_1::lookup_req(kws);
         let cs = HasMeasDatatype::lookup_all(kws, par);
         d.def_zip3(e, cs)
             .def_inner_into()
             .def_and_maybe(|(datatype, endian, columns)| {
-                def_transpose(
-                    NonEmpty::from_vec(columns).map(|xs| Self::try_new(datatype, endian, xs, conf)),
-                )
-                .def_inner_into()
+                Self::try_new(datatype, endian, columns, conf).def_inner_into()
             })
     }
 
-    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Option<Self>> {
+    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self> {
         let d = AlphaNumType::get_metaroot_req(kws)
             .map_err(RawParsedError::from)
             .into_deferred();
@@ -3296,17 +3396,18 @@ impl VersionedDataLayout for DataLayout3_2 {
         let cs = HasMeasDatatype::lookup_ro_all(kws).def_inner_into();
         d.def_zip3(e, cs)
             .def_and_maybe(|(datatype, endian, columns)| {
-                def_transpose(
-                    NonEmpty::from_vec(columns).map(|xs| Self::try_new(datatype, endian, xs, conf)),
-                )
-                .def_inner_into()
+                Self::try_new(datatype, endian, columns, conf).def_inner_into()
             })
+    }
+
+    fn new_empty(datatype: AlphaNumType) -> Self {
+        NonMixedEndianLayout::new_empty(datatype).into()
     }
 
     fn try_new(
         datatype: AlphaNumType,
         endian: Self::ByteLayout,
-        cs: NonEmpty<ColumnLayoutValues<Option<NumType>>>,
+        cs: Vec<ColumnLayoutValues<Option<NumType>>>,
         conf: &ReadLayoutConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
         let notrunc = conf.disallow_range_truncation;
@@ -3317,11 +3418,14 @@ impl VersionedDataLayout for DataLayout3_2 {
             .collect();
         match unique_dt[..] {
             [dt] => {
-                let ds = cs.map(|c| ColumnLayoutValues {
-                    width: c.width,
-                    range: c.range,
-                    datatype: NullMeasDatatype,
-                });
+                let ds = cs
+                    .into_iter()
+                    .map(|c| ColumnLayoutValues {
+                        width: c.width,
+                        range: c.range,
+                        datatype: NullMeasDatatype,
+                    })
+                    .collect();
                 NonMixedEndianLayout::try_new(dt, endian.0, ds, conf)
                     .def_map_value(|x| Self::NonMixed(x.phantom_into::<HasMeasDatatype>()))
                     .def_map_warnings(|e| e.inner_into())
@@ -3341,16 +3445,20 @@ impl InterLayoutOps<HasMeasDatatype> for DataLayout3_2 {
 
     // TODO add a way to remove keys which match $DATATYPE so we don't have
     // lots of redundant $PnDATATYPE keys
-    fn opt_meas_keywords(&self) -> NonEmpty<Vec<(String, Option<String>)>> {
+    fn opt_meas_keywords(&self) -> Vec<Vec<(String, Option<String>)>> {
         match self {
-            Self::NonMixed(x) => x
-                .ranges()
+            Self::NonMixed(x) => (0..x.ncols())
+                .map(|i| vec![NumType::pair_opt(&None.into(), i.into())])
+                .collect(),
+            Self::Mixed(x) => x
+                .columns
+                .iter()
                 .enumerate()
-                .map(|(i, _)| vec![NumType::pair_opt(&None.into(), i.into())]),
-            Self::Mixed(x) => x.columns.as_ref().enumerate().map(|(i, c)| {
-                let y = NumType::try_from(c.datatype()).ok();
-                vec![NumType::pair_opt(&y.into(), i.into())]
-            }),
+                .map(|(i, c)| {
+                    let y = NumType::try_from(c.datatype()).ok();
+                    vec![NumType::pair_opt(&y.into(), i.into())]
+                })
+                .collect(),
         }
     }
 
@@ -3399,6 +3507,16 @@ impl InterLayoutOps<HasMeasDatatype> for DataLayout3_2 {
             *self = newself;
         })
     }
+
+    fn clear(&mut self) {
+        *self = match mem::replace(self, Self::mixed_dummy()) {
+            Self::Mixed(x) => NonMixedEndianLayout::new_empty(x.datatype()).into(),
+            Self::NonMixed(mut x) => {
+                x.clear();
+                Self::NonMixed(x)
+            }
+        }
+    }
 }
 
 impl DataLayout3_1 {
@@ -3415,24 +3533,25 @@ impl DataLayout3_2 {
         }
     }
 
-    pub fn new_mixed(ranges: NonEmpty<NullMixedType>, endian: Endian) -> Self {
+    pub fn new_mixed(ranges: Vec<NullMixedType>, endian: Endian) -> Self {
         // Check if the mixed types are all the same, in which case we can use a
         // simpler layout. This clone thing is not ideal but it will only be
         // cloning big-decimals for floats and will use Copy for everything else
         // (not a huge deal).
-        if let Ok(rs) = ranges.as_ref().try_map(|x| AsciiRange::try_from(x.clone())) {
-            NonMixedEndianLayout::new_ascii_fixed(rs).into()
-        } else if let Ok(rs) = ranges
-            .as_ref()
-            .try_map(|x| AnyNullBitmask::try_from(x.clone()))
-        {
-            NonMixedEndianLayout::new_uint(rs, endian).into()
-        } else if let Ok(rs) = ranges.as_ref().try_map(|x| F32Range::try_from(x.clone())) {
-            NonMixedEndianLayout::new_f32(rs, endian).into()
-        } else if let Ok(rs) = ranges.as_ref().try_map(|x| F64Range::try_from(x.clone())) {
-            NonMixedEndianLayout::new_f64(rs, endian).into()
+        if let Some(xs) = NonEmpty::from_vec(ranges) {
+            if let Ok(rs) = xs.as_ref().try_map(|x| AsciiRange::try_from(x.clone())) {
+                NonMixedEndianLayout::new_ascii_fixed(rs.into()).into()
+            } else if let Ok(rs) = xs.as_ref().try_map(|x| AnyNullBitmask::try_from(x.clone())) {
+                NonMixedEndianLayout::new_uint(rs.into(), endian).into()
+            } else if let Ok(rs) = xs.as_ref().try_map(|x| F32Range::try_from(x.clone())) {
+                NonMixedEndianLayout::new_f32(rs.into(), endian).into()
+            } else if let Ok(rs) = xs.as_ref().try_map(|x| F64Range::try_from(x.clone())) {
+                NonMixedEndianLayout::new_f64(rs.into(), endian).into()
+            } else {
+                FixedLayout::new(xs.into(), endian).into()
+            }
         } else {
-            FixedLayout::new(ranges, endian).into()
+            FixedLayout::new(vec![], endian).into()
         }
     }
 
@@ -3448,10 +3567,13 @@ impl DataLayout3_2 {
 
     /// A dummy layout, used to make ['std::mem::replace'] work; not meaninful.
     fn mixed_dummy() -> Self {
-        NonMixedEndianLayout::from(AnyAsciiLayout::from(DelimAsciiLayout::new(NonEmpty::new(
-            0,
-        ))))
-        .into()
+        NonMixedEndianLayout::from(AnyAsciiLayout::from(DelimAsciiLayout::new(vec![]))).into()
+    }
+}
+
+impl<T> Default for AnyOrderedLayout<T> {
+    fn default() -> Self {
+        Self::Integer(AnyOrderedUintLayout::default())
     }
 }
 
@@ -3460,46 +3582,38 @@ impl<T> AnyOrderedLayout<T> {
         kws: &mut StdKeywords,
         conf: &ReadLayoutConfig,
         par: Par,
-    ) -> LookupLayoutResult<Option<Self>> {
+    ) -> LookupLayoutResult<Self> {
         let cs = NoMeasDatatype::lookup_all(kws, par);
         let d = AlphaNumType::lookup_req(kws);
         let b = ByteOrd2_0::lookup_req(kws);
         d.def_zip3(b, cs)
             .def_inner_into()
             .def_and_maybe(|(datatype, byteord, columns)| {
-                def_transpose(
-                    NonEmpty::from_vec(columns)
-                        .map(|xs| Self::try_new(datatype, byteord, xs, conf)),
-                )
-                .def_inner_into()
+                Self::try_new(datatype, byteord, columns, conf).def_inner_into()
             })
     }
 
-    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Option<Self>> {
+    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self> {
         let cs = NoMeasDatatype::lookup_ro_all(kws);
         let d = AlphaNumType::get_metaroot_req(kws).into_deferred();
         let b = ByteOrd2_0::get_metaroot_req(kws).into_deferred();
         d.def_zip3(b, cs)
             .def_inner_into()
             .def_and_maybe(|(datatype, byteord, columns)| {
-                def_transpose(
-                    NonEmpty::from_vec(columns)
-                        .map(|xs| Self::try_new(datatype, byteord, xs, conf)),
-                )
-                .def_inner_into()
+                Self::try_new(datatype, byteord, columns, conf).def_inner_into()
             })
     }
 
-    pub fn new_ascii_fixed(ranges: NonEmpty<AsciiRange>) -> Self {
+    pub fn new_ascii_fixed(ranges: Vec<AsciiRange>) -> Self {
         AnyAsciiLayout::new_fixed(ranges).into()
     }
 
-    pub fn new_ascii_delim(ranges: NonEmpty<u64>) -> Self {
+    pub fn new_ascii_delim(ranges: Vec<u64>) -> Self {
         AnyAsciiLayout::new_delim(ranges).into()
     }
 
     pub fn new_uint<U, const LEN: usize>(
-        columns: NonEmpty<Bitmask<U, LEN>>,
+        columns: Vec<Bitmask<U, LEN>>,
         byte_layout: SizedByteOrd<LEN>,
     ) -> Self
     where
@@ -3509,18 +3623,27 @@ impl<T> AnyOrderedLayout<T> {
         Self::Integer(FixedLayout::new(columns, byte_layout).into())
     }
 
-    pub fn new_f32(ranges: NonEmpty<F32Range>, byte_layout: SizedByteOrd<4>) -> Self {
+    pub fn new_f32(ranges: Vec<F32Range>, byte_layout: SizedByteOrd<4>) -> Self {
         FixedLayout::new(ranges, byte_layout).into()
     }
 
-    pub fn new_f64(ranges: NonEmpty<F64Range>, byte_layout: SizedByteOrd<8>) -> Self {
+    pub fn new_f64(ranges: Vec<F64Range>, byte_layout: SizedByteOrd<8>) -> Self {
         FixedLayout::new(ranges, byte_layout).into()
+    }
+
+    fn new_empty(datatype: AlphaNumType) -> Self {
+        match datatype {
+            AlphaNumType::Ascii => AnyAsciiLayout::default().into(),
+            AlphaNumType::Integer => AnyOrderedUintLayout::default().into(),
+            AlphaNumType::Single => Self::F32(FixedLayout::default()),
+            AlphaNumType::Double => Self::F64(FixedLayout::default()),
+        }
     }
 
     fn try_new(
         datatype: AlphaNumType,
         byteord: ByteOrd2_0,
-        columns: NonEmpty<ColumnLayoutValues2_0>,
+        columns: Vec<ColumnLayoutValues2_0>,
         conf: &ReadLayoutConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
         let notrunc = conf.disallow_range_truncation;
@@ -3578,40 +3701,32 @@ impl NonMixedEndianLayout<NoMeasDatatype> {
         kws: &mut StdKeywords,
         conf: &ReadLayoutConfig,
         par: Par,
-    ) -> LookupLayoutResult<Option<Self>> {
+    ) -> LookupLayoutResult<Self> {
         let cs = NoMeasDatatype::lookup_all(kws, par);
         let d = AlphaNumType::lookup_req_check_ascii(kws);
         let n = ByteOrd3_1::lookup_req(kws);
         d.def_zip3(n, cs)
             .def_inner_into()
             .def_and_maybe(|(datatype, byteord, columns)| {
-                def_transpose(
-                    NonEmpty::from_vec(columns)
-                        .map(|xs| Self::try_new(datatype, byteord.0, xs, conf)),
-                )
-                .def_inner_into()
+                Self::try_new(datatype, byteord.0, columns, conf).def_inner_into()
             })
     }
 
-    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Option<Self>> {
+    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self> {
         let cs = NoMeasDatatype::lookup_ro_all(kws);
         let d = AlphaNumType::get_metaroot_req(kws).into_deferred();
         let n = ByteOrd3_1::get_metaroot_req(kws).into_deferred();
         d.def_zip3(n, cs)
             .def_inner_into()
             .def_and_maybe(|(datatype, byteord, columns)| {
-                def_transpose(
-                    NonEmpty::from_vec(columns)
-                        .map(|xs| Self::try_new(datatype, byteord.0, xs, conf)),
-                )
-                .def_inner_into()
+                Self::try_new(datatype, byteord.0, columns, conf).def_inner_into()
             })
     }
 
     fn try_new(
         datatype: AlphaNumType,
         endian: Endian,
-        columns: NonEmpty<ColumnLayoutValues<NullMeasDatatype>>,
+        columns: Vec<ColumnLayoutValues<NullMeasDatatype>>,
         conf: &ReadLayoutConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
         let notrunc = conf.disallow_range_truncation;
@@ -3637,23 +3752,32 @@ impl NonMixedEndianLayout<NoMeasDatatype> {
 }
 
 impl<D> NonMixedEndianLayout<D> {
-    pub fn new_ascii_fixed(ranges: NonEmpty<AsciiRange>) -> Self {
+    fn new_empty(datatype: AlphaNumType) -> Self {
+        match datatype {
+            AlphaNumType::Ascii => AnyAsciiLayout::default().into(),
+            AlphaNumType::Integer => Self::Integer(FixedLayout::default()),
+            AlphaNumType::Single => Self::F32(FixedLayout::default()),
+            AlphaNumType::Double => Self::F64(FixedLayout::default()),
+        }
+    }
+
+    pub fn new_ascii_fixed(ranges: Vec<AsciiRange>) -> Self {
         AnyAsciiLayout::new_fixed(ranges).into()
     }
 
-    pub fn new_ascii_delim(ranges: NonEmpty<u64>) -> Self {
+    pub fn new_ascii_delim(ranges: Vec<u64>) -> Self {
         AnyAsciiLayout::new_delim(ranges).into()
     }
 
-    pub fn new_uint(columns: NonEmpty<AnyNullBitmask>, endian: Endian) -> Self {
+    pub fn new_uint(columns: Vec<AnyNullBitmask>, endian: Endian) -> Self {
         FixedLayout::new(columns, endian).into()
     }
 
-    pub fn new_f32(ranges: NonEmpty<F32Range>, endian: Endian) -> Self {
+    pub fn new_f32(ranges: Vec<F32Range>, endian: Endian) -> Self {
         FixedLayout::new(ranges, endian).into()
     }
 
-    pub fn new_f64(ranges: NonEmpty<F64Range>, endian: Endian) -> Self {
+    pub fn new_f64(ranges: Vec<F64Range>, endian: Endian) -> Self {
         FixedLayout::new(ranges, endian).into()
     }
 
@@ -3773,10 +3897,13 @@ pub struct TotEventMismatch {
     total_events: u64,
 }
 
-pub struct UnevenEventWidth {
-    event_width: NonZeroU64,
-    nbytes: u64,
-    remainder: u64,
+pub enum UnevenEventWidth {
+    Remainder {
+        event_width: u64,
+        nbytes: u64,
+        remainder: u64,
+    },
+    ZeroWidth(u64),
 }
 
 #[derive(From, Display)]
@@ -4014,13 +4141,19 @@ impl fmt::Display for TotEventMismatch {
 
 impl fmt::Display for UnevenEventWidth {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "Events are {} bytes wide, but this does not evenly \
-             divide DATA segment which is {} bytes long \
-             (remainder of {})",
-            self.event_width, self.nbytes, self.remainder,
-        )
+        match self {
+            Self::ZeroWidth(n) => write!(f, "DATA segment is {n} bytes but event width is zero"),
+            Self::Remainder {
+                event_width,
+                nbytes,
+                remainder,
+            } => write!(
+                f,
+                "Events are {event_width} bytes wide, but this does not evenly \
+                 divide DATA segment which is {nbytes} bytes long \
+                 (remainder of {remainder})",
+            ),
+        }
     }
 }
 
@@ -4115,7 +4248,7 @@ pub enum MeasLayoutMismatchError {
 
 pub struct MeasLayoutLengthsError {
     meas_n: usize,
-    layout_n: NonZeroUsize,
+    layout_n: usize,
 }
 
 impl fmt::Display for MeasLayoutLengthsError {

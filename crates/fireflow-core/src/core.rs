@@ -78,8 +78,7 @@ pub struct Core<A, D, O, M, T, P, N, W, L> {
     ///
     /// This is derived from $BYTEORD, $DATATYPE, $PnB, $PnR and maybe
     /// $PnDATATYPE for version 3.2.
-    #[as_ref(Option<L>)]
-    layout: MaybeValue<L>,
+    layout: L,
 
     /// DATA segment (if applicable)
     data: D,
@@ -1221,21 +1220,10 @@ pub trait Versioned {
                     seg: *offsets.as_ref(),
                 };
                 let read_conf: &ReaderConfig = st.conf.as_ref();
-                let any_data_seg: AnyDataSegment = *offsets.as_ref();
-                let data_res = match layout {
-                    None => {
-                        let mut tnt = Tentative::default();
-                        if !any_data_seg.inner.is_empty() {
-                            let is_err = !read_conf.allow_data_par_mismatch;
-                            tnt.push_error_or_warning(DataSegmentMismatchError, is_err);
-                        }
-                        Ok(tnt.errors_liftio())
-                    }
-                    Some(l) => l
-                        .h_read_df(h, offsets.tot(), *offsets.as_ref(), read_conf)
-                        .def_warnings_into()
-                        .def_map_errors(|e| e.inner_into()),
-                };
+                let data_res = layout
+                    .h_read_df(h, offsets.tot(), *offsets.as_ref(), read_conf)
+                    .def_warnings_into()
+                    .def_map_errors(|e| e.inner_into());
                 let analysis_res = ar.h_read(h).into_deferred();
                 data_res
                     .def_zip(analysis_res)
@@ -2807,37 +2795,31 @@ where
     where
         M::Optical: HasScale,
     {
-        let go = || {
-            if let Some(l) = self.layout.0.as_ref() {
-                let mut xforms: Vec<_> = scales
-                    .iter()
-                    .copied()
-                    .map(|s| s.map(ScaleTransform::from).unwrap_or_default())
-                    .collect();
-                // If there is a center index and the input is too short, just let
-                // it pass; the next check will throw an error if the final length
-                // is incorrect
-                if let Some(i) = self.measurements.center_index().map(|i| i.into()) {
-                    if i <= xforms.len() {
-                        xforms.insert(i, ScaleTransform::default())
-                    }
-                }
-                l.check_transforms_and_len(&xforms[..]).mult_errors_into()?;
-                // ASSUME this won't fail because we checked the length first
-                self.measurements
-                    .alter_non_center_values_zip(scales, |m, x| {
-                        *m.specific.scale_mut(private::NoTouchy) = x
-                    })
-                    .map(|_| ())
-                    .unwrap();
-                Ok(())
-            } else if scales.is_empty() {
-                Ok(())
-            } else {
-                Err(EmptyLayoutError).into_mult()
+        let l = &self.layout;
+        let mut xforms: Vec<_> = scales
+            .iter()
+            .copied()
+            .map(|s| s.map(ScaleTransform::from).unwrap_or_default())
+            .collect();
+        // If there is a center index and the input is too short, just let
+        // it pass; the next check will throw an error if the final length
+        // is incorrect
+        if let Some(i) = self.measurements.center_index().map(|i| i.into()) {
+            if i <= xforms.len() {
+                xforms.insert(i, ScaleTransform::default())
             }
-        };
-        go().mult_terminate(SetScalesFailure)
+        }
+        l.check_transforms_and_len(&xforms[..])
+            .mult_errors_into()
+            .mult_terminate(SetScalesFailure)?;
+        // ASSUME this won't fail because we checked the length first
+        self.measurements
+            .alter_non_center_values_zip(scales, |m, x| {
+                *m.specific.scale_mut(private::NoTouchy) = x
+            })
+            .map(|_| ())
+            .unwrap();
+        Ok(Terminal::default())
     }
 
     pub fn set_transforms(
@@ -2847,33 +2829,26 @@ where
     where
         M::Optical: HasScaleTransform,
     {
-        // TODO very not DRY
-        let go = || {
-            if let Some(l) = self.layout.0.as_ref() {
-                // If there is a center index and the input is too short, just let
-                // it pass; the next check will throw an error if the final length
-                // is incorrect
-                if let Some(i) = self.measurements.center_index().map(|i| i.into()) {
-                    if i <= xforms.len() {
-                        xforms.insert(i, ScaleTransform::default())
-                    }
-                }
-                l.check_transforms_and_len(&xforms[..]).mult_errors_into()?;
-                // ASSUME this won't fail because we checked the length first
-                self.measurements
-                    .alter_non_center_values_zip(xforms, |m, x| {
-                        *m.specific.transform_mut(private::NoTouchy) = x
-                    })
-                    .map(|_| ())
-                    .unwrap();
-                Ok(())
-            } else if xforms.is_empty() {
-                Ok(())
-            } else {
-                Err(EmptyLayoutError).into_mult()
+        let l = &self.layout;
+        // If there is a center index and the input is too short, just let
+        // it pass; the next check will throw an error if the final length
+        // is incorrect
+        if let Some(i) = self.measurements.center_index().map(|i| i.into()) {
+            if i <= xforms.len() {
+                xforms.insert(i, ScaleTransform::default())
             }
-        };
-        go().mult_terminate(SetScaleTransformsFailure)
+        }
+        l.check_transforms_and_len(&xforms[..])
+            .mult_errors_into()
+            .mult_terminate(SetScaleTransformsFailure)?;
+        // ASSUME this won't fail because we checked the length first
+        self.measurements
+            .alter_non_center_values_zip(xforms, |m, x| {
+                *m.specific.transform_mut(private::NoTouchy) = x
+            })
+            .map(|_| ())
+            .unwrap();
+        Ok(Terminal::default())
     }
 
     /// Return $PAR, which is simply the number of measurements in this struct
@@ -2930,10 +2905,7 @@ where
                     .mult_map_errors(ConvertErrorInner::Rewrap)
                     .mult_to_deferred()
             });
-        let lres = self
-            .layout
-            .map(ConvertFromLayout::convert_from_layout)
-            .transpose()
+        let lres = ConvertFromLayout::convert_from_layout(self.layout)
             .mult_map_errors(ConvertErrorInner::Layout)
             .mult_to_deferred();
         m.def_zip3(ps, lres)
@@ -2963,6 +2935,7 @@ where
         t.as_ref().map(|&x| x.0.into())
     }
 
+    // TODO also return the removed layout
     #[allow(clippy::type_complexity)]
     fn remove_measurement_by_name_inner(
         &mut self,
@@ -2973,7 +2946,7 @@ where
     )> {
         if let Some(e @ (i, _)) = self.measurements.remove_name(n) {
             self.metaroot.remove_name_index(n, i);
-            self.layout.mut_or_unset_nofail(|l| l.remove_nocheck(i));
+            self.layout.remove_nocheck(i);
             Some(e)
         } else {
             None
@@ -2990,7 +2963,7 @@ where
         if let Element::NonCenter(left) = &res {
             if let Some(n) = M::Name::as_opt(&left.key) {
                 self.metaroot.remove_name_index(n, index);
-                self.layout.mut_or_unset_nofail(|l| l.remove_nocheck(index));
+                self.layout.remove_nocheck(index);
             }
         }
         Ok(res)
@@ -3006,14 +2979,7 @@ where
         self.measurements
             .push_center(n, m)
             .into_deferred()
-            .def_and_tentatively(|_| {
-                self.layout
-                    .0
-                    .as_mut()
-                    .map(|l| l.push(r, notrunc))
-                    .unwrap_or_default()
-                    .errors_into()
-            })
+            .def_and_tentatively(|_| self.layout.push(r, notrunc).inner_into())
     }
 
     fn insert_temporal_inner(
@@ -3027,14 +2993,7 @@ where
         self.measurements
             .insert_center(i, n, m)
             .into_deferred()
-            .def_and_tentatively(|_| {
-                self.layout
-                    .0
-                    .as_mut()
-                    .map(|l| l.insert_nocheck(i, r, notrunc))
-                    .unwrap_or_default()
-                    .inner_into()
-            })
+            .def_and_tentatively(|_| self.layout.insert_nocheck(i, r, notrunc).inner_into())
     }
 
     fn push_optical_inner(
@@ -3047,15 +3006,7 @@ where
         self.measurements
             .push(n, m)
             .into_deferred()
-            .def_and_tentatively(|ret| {
-                self.layout
-                    .0
-                    .as_mut()
-                    .map(|l| l.push(r, notrunc))
-                    .unwrap_or_default()
-                    .errors_into()
-                    .map(|_| ret)
-            })
+            .def_and_tentatively(|ret| self.layout.push(r, notrunc).errors_into().map(|_| ret))
     }
 
     fn insert_optical_inner(
@@ -3071,12 +3022,9 @@ where
             .into_deferred()
             .def_and_tentatively(|ret| {
                 self.layout
-                    .0
-                    .as_mut()
-                    .map(|l| l.insert_nocheck(i, r, notrunc))
-                    .unwrap_or_default()
-                    .inner_into()
+                    .insert_nocheck(i, r, notrunc)
                     .map(|_| ret)
+                    .errors_into()
             })
     }
 
@@ -3120,6 +3068,11 @@ where
             .mult_terminate(SetMeasurementsFailure)
     }
 
+    /// Get reference to data layout
+    pub fn layout(&self) -> &<M::Ver as Versioned>::Layout {
+        &self.layout
+    }
+
     /// Set data layout
     ///
     /// Will return error if layout does not have same number of columns as
@@ -3134,7 +3087,7 @@ where
         layout
             .check_measurement_vector(&self.measurements)
             .mult_terminate(SetLayoutFailure)?;
-        self.layout = Some(layout).into();
+        self.layout = layout;
         Ok(Terminal::default())
     }
 
@@ -3161,7 +3114,7 @@ where
             let ms = NamedVec::try_new(measurements, prefix).into_mult()?;
             layout.check_measurement_vector(&ms).mult_errors_into()?;
             self.measurements = ms;
-            self.layout = Some(layout).into();
+            self.layout = layout;
             Ok(())
         };
         go().mult_terminate(SetMeasurementsAndLayoutFailure)
@@ -3177,19 +3130,16 @@ where
     {
         self.check_existing_links().into_mult()?;
         let ms = NamedVec::try_new(xs, prefix).into_mult()?;
-        if let Some(l) = self.layout.as_ref_opt() {
-            l.check_measurement_vector(&ms).mult_errors_into()?;
-            self.measurements = ms;
-            Ok(())
-        } else {
-            Err(EmptyLayoutError).into_mult()
-        }
+        let l = &self.layout;
+        l.check_measurement_vector(&ms).mult_errors_into()?;
+        self.measurements = ms;
+        Ok(())
     }
 
     fn unset_measurements_inner(&mut self) -> Result<(), ExistingLinkError> {
         self.check_existing_links()?;
         self.measurements = NamedVec::default();
-        self.layout = None.into();
+        self.layout.clear();
         Ok(())
     }
 
@@ -3225,11 +3175,7 @@ where
         } else {
             None
         };
-        let lv = self
-            .layout
-            .as_ref_opt()
-            .map(|l| l.opt_meas_keywords())
-            .unwrap_or_default();
+        let lv = self.layout.opt_meas_keywords();
         self.measurements
             .iter_with(
                 &|i, x| Temporal::opt_meas_keywords(&x.value, i).collect::<Vec<_>>(),
@@ -3250,11 +3196,7 @@ where
         } else {
             None
         };
-        let lv = self
-            .layout
-            .as_ref_opt()
-            .map(|l| Vec::from(l.req_meas_keywords()))
-            .unwrap_or_default();
+        let lv = self.layout.req_meas_keywords();
         self.measurements
             .iter_with(
                 &|i, x| Temporal::req_meas_keywords(&x.value, i).collect::<Vec<_>>(),
@@ -3270,11 +3212,7 @@ where
             .measurements
             .as_center()
             .map(|tc| Temporal::req_meta_keywords(tc.value));
-        let lv = self
-            .layout
-            .as_ref_opt()
-            .into_iter()
-            .flat_map(|l| l.req_keywords().into_iter());
+        let lv = self.layout.req_keywords();
         Metaroot::all_req_keywords(&self.metaroot, self.par())
             .chain(time_meta.into_iter().flatten())
             .chain(lv)
@@ -3297,8 +3235,7 @@ where
     {
         let ms = &self.measurements;
         if let Some(m0) = ms.get(0.into()).ok().and_then(|x| x.non_center()) {
-            // ASSUME if there is one measurement then this won't be None
-            let lt = self.layout.as_ref_opt().unwrap();
+            let lt = &self.layout;
             let req_layout: Vec<_> = lt
                 .req_meas_keywords()
                 .into_iter()
@@ -3520,9 +3457,7 @@ where
                     .def_zip(layout_res)
                     .def_and_maybe(|((ms, meta_ns), layout)| {
                         Metaroot::lookup_metaroot(kws, &ms, meta_ns, std_conf)
-                            .def_map_value(|metaroot| {
-                                CoreTEXT::new_unchecked(metaroot, ms, layout.into())
-                            })
+                            .def_map_value(|metaroot| CoreTEXT::new_unchecked(metaroot, ms, layout))
                             .def_inner_into()
                     })
                     .map(|mut tnt_core| {
@@ -3720,23 +3655,12 @@ where
                 let ar = AnalysisReader {
                     seg: *offsets.as_ref(),
                 };
-                // TODO not DRY
                 let read_conf: &ReaderConfig = st.conf.as_ref();
-                let any_data_seg: AnyDataSegment = *offsets.as_ref();
-                let data_res = match text.layout.0.as_ref() {
-                    None => {
-                        let mut tnt = Tentative::default();
-                        if !any_data_seg.inner.is_empty() {
-                            let is_err = !read_conf.allow_data_par_mismatch;
-                            tnt.push_error_or_warning(DataSegmentMismatchError, is_err);
-                        }
-                        Ok(tnt.errors_liftio())
-                    }
-                    Some(l) => l
-                        .h_read_df(h, offsets.tot(), *offsets.as_ref(), read_conf)
-                        .def_warnings_into()
-                        .def_map_errors(|e| e.inner_into()),
-                };
+                let data_res = text
+                    .layout
+                    .h_read_df(h, offsets.tot(), *offsets.as_ref(), read_conf)
+                    .def_warnings_into()
+                    .def_map_errors(|e| e.inner_into());
                 let analysis_res = ar.h_read(h).into_deferred();
                 let others_res = or.h_read(h).into_deferred();
                 data_res.def_zip3(analysis_res, others_res).def_map_value(
@@ -3765,7 +3689,7 @@ where
         Version: From<M::Ver>,
     {
         let df = &self.data;
-        let layout = self.layout.as_ref_opt();
+        let layout = &self.layout;
         let others = &self.others;
         let delim = conf.delim.into();
         let tot = Tot(df.nrows());
@@ -3773,11 +3697,11 @@ where
         let other_lens = others.0.iter().map(|o| o.0.len() as u64).collect();
 
         layout
-            .map_or(Ok(()), |l| l.check_writer(df))
+            .check_writer(df)
             .mult_to_deferred()
             .def_errors_liftio()
             .def_and_maybe(|()| {
-                let data_len = layout.map(|l| l.nbytes(df)).unwrap_or_default();
+                let data_len = layout.nbytes(df);
                 let hdr_kws = self
                     .header_and_raw_keywords(tot, data_len, analysis_len, other_lens)
                     .map_err(ImpureError::Pure)
@@ -3802,9 +3726,7 @@ where
                     }
 
                     // write DATA
-                    if let Some(l) = layout {
-                        l.h_write_df(h, df)?;
-                    }
+                    layout.h_write_df(h, df)?;
 
                     // write ANALYSIS
                     h.write_all(&self.analysis.0)
@@ -3992,12 +3914,12 @@ where
     }
 }
 
-impl<M, T, P, N, W, L> CoreTEXT<M, T, P, N, W, L> {
-    pub(crate) fn new_nomeas(metaroot: Metaroot<M>) -> Self {
+impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
+    pub(crate) fn new_nomeas(metaroot: Metaroot<M>, datatype: AlphaNumType) -> Self {
         Self {
             metaroot,
             measurements: NamedVec::default(),
-            layout: None.into(),
+            layout: <M::Ver as Versioned>::Layout::new_empty(datatype),
             data: (),
             analysis: (),
             others: (),
@@ -4006,8 +3928,8 @@ impl<M, T, P, N, W, L> CoreTEXT<M, T, P, N, W, L> {
 
     pub(crate) fn new_unchecked(
         metaroot: Metaroot<M>,
-        measurements: NamedVec<N, W, Temporal<T>, Optical<P>>,
-        layout: MaybeValue<L>,
+        measurements: Measurements<M::Name, M::Temporal, M::Optical>,
+        layout: <M::Ver as Versioned>::Layout,
     ) -> Self {
         Self {
             metaroot,
@@ -4154,34 +4076,34 @@ where
 }
 
 impl CoreTEXT2_0 {
-    pub fn new(mode: Mode) -> Self {
+    pub fn new(mode: Mode, datatype: AlphaNumType) -> Self {
         let specific = InnerMetaroot2_0::new(mode);
         let metaroot = Metaroot::new(specific);
-        CoreTEXT::new_nomeas(metaroot)
+        CoreTEXT::new_nomeas(metaroot, datatype)
     }
 }
 
 impl CoreTEXT3_0 {
-    pub fn new(mode: Mode) -> Self {
+    pub fn new(mode: Mode, datatype: AlphaNumType) -> Self {
         let specific = InnerMetaroot3_0::new(mode);
         let metaroot = Metaroot::new(specific);
-        CoreTEXT::new_nomeas(metaroot)
+        CoreTEXT::new_nomeas(metaroot, datatype)
     }
 }
 
 impl CoreTEXT3_1 {
-    pub fn new(mode: Mode) -> Self {
+    pub fn new(mode: Mode, datatype: AlphaNumType) -> Self {
         let specific = InnerMetaroot3_1::new(mode);
         let metaroot = Metaroot::new(specific);
-        CoreTEXT::new_nomeas(metaroot)
+        CoreTEXT::new_nomeas(metaroot, datatype)
     }
 }
 
 impl CoreTEXT3_2 {
-    pub fn new(cyt: String) -> Self {
+    pub fn new(cyt: String, datatype: AlphaNumType) -> Self {
         let specific = InnerMetaroot3_2::new(cyt);
         let metaroot = Metaroot::new(specific);
-        CoreTEXT::new_nomeas(metaroot)
+        CoreTEXT::new_nomeas(metaroot, datatype)
     }
 }
 
@@ -5649,8 +5571,6 @@ impl_ref_specific_rw!(
     Option<Tag>,
     Option<DetectorName>
 );
-
-// impl_ref_specific!(Temporal, InnerTemporal2_0,);
 
 impl_ref_specific_rw!(Temporal, InnerTemporal3_0, Timestep);
 
@@ -8237,7 +8157,7 @@ pub enum SetMeasurementsError {
     New(NewNamedVecError),
     Link(ExistingLinkError),
     Layout(MeasLayoutMismatchError),
-    Empty(EmptyLayoutError),
+    // Empty(EmptyLayoutError),
 }
 
 #[derive(From, Display)]
@@ -8347,7 +8267,7 @@ pub enum StdDatasetFromRawError {
     Dataframe(ReadDataframeError),
     Offsets(LookupTEXTOffsetsError),
     Warn(StdDatasetFromRawWarning),
-    Mismatch(DataSegmentMismatchError),
+    // Mismatch(DataSegmentMismatchError),
 }
 
 #[derive(From, Display)]
@@ -8355,7 +8275,7 @@ pub enum StdDatasetFromRawWarning {
     TEXT(StdTEXTFromRawWarning),
     Offsets(LookupTEXTOffsetsWarning),
     Layout(ReadDataframeWarning),
-    Mismatch(DataSegmentMismatchError),
+    // Mismatch(DataSegmentMismatchError),
 }
 
 #[derive(From, Display)]
@@ -8605,7 +8525,7 @@ pub enum LookupAndReadDataAnalysisError {
     Layout(RawToLayoutError),
     Dataframe(ReadDataframeError),
     Warn(LookupAndReadDataAnalysisWarning),
-    Mismatch(DataSegmentMismatchError),
+    // Mismatch(DataSegmentMismatchError),
 }
 
 #[derive(From, Display)]
@@ -8613,7 +8533,7 @@ pub enum LookupAndReadDataAnalysisWarning {
     Offsets(LookupTEXTOffsetsWarning),
     Layout(RawToLayoutWarning),
     Data(ReadDataframeWarning),
-    Mismatch(DataSegmentMismatchError),
+    // Mismatch(DataSegmentMismatchError),
 }
 
 #[derive(From, Display)]
@@ -8779,13 +8699,13 @@ impl fmt::Display for ScaleTransformError {
     }
 }
 
-pub struct EmptyLayoutError;
+// pub struct EmptyLayoutError;
 
-impl fmt::Display for EmptyLayoutError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "tried to set measurements with an empty data layout",)
-    }
-}
+// impl fmt::Display for EmptyLayoutError {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+//         write!(f, "tried to set measurements with an empty data layout",)
+//     }
+// }
 
 pub struct CompParMismatchError {
     par: usize,
@@ -8802,13 +8722,13 @@ impl fmt::Display for CompParMismatchError {
     }
 }
 
-pub struct DataSegmentMismatchError;
+// pub struct DataSegmentMismatchError;
 
-impl fmt::Display for DataSegmentMismatchError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str("$PAR = 0 but DATA segment is not empty")
-    }
-}
+// impl fmt::Display for DataSegmentMismatchError {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+//         f.write_str("$PAR = 0 but DATA segment is not empty")
+//     }
+// }
 
 def_failure!(ConvertFailure, "could not change FCS version");
 

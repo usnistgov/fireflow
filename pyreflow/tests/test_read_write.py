@@ -1071,3 +1071,27 @@ class TestCore:
         assert core.unicode == new
         with pytest.raises(TypeError):
             core.unicode = "latin_minus_20"
+
+    @pytest.mark.parametrize(
+        "core",
+        [
+            lazy_fixture(c)
+            for c in [
+                "text2_3_1",
+                "text2_3_2",
+                "dataset2_3_1",
+                "dataset2_3_2",
+            ]
+        ],
+    )
+    def test_vol(
+        self,
+        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
+    ) -> None:
+        assert core.vol is None
+        core.vol = 0.0
+        assert core.vol == 0.0
+        core.vol = 1.0
+        assert core.vol == 1.0
+        with pytest.raises(TypeError):
+            core.vol = -1.0

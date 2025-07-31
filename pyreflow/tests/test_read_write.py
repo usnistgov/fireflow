@@ -9,6 +9,7 @@ from pyreflow.typing import (
     Trigger,
     Timestep,
     Shortname,
+    NonStdKey,
     AnyCoreTEXT,
     AnyCoreDataset,
     AnyCore,
@@ -331,3 +332,22 @@ class TestCore:
             getattr(core, set)([-1.0])
         with pytest.raises(TypeError):
             getattr(core, set)(["pickle rick"])
+
+    @all_core
+    def test_nonstandard(self, core: AnyCore) -> None:
+        k = NonStdKey("midnight")
+        v = "rowhammer"
+        # trying to get key from empty list should return None
+        assert core.get_nonstandard(k) is None
+        # ditto if we try to remove it
+        assert core.remove_nonstandard(k) is None
+        # insert should succeed
+        core.insert_nonstandard(k, v)
+        # now the key should be present
+        assert core.get_nonstandard(k) == v
+        # if we remove it we should also get the key
+        assert core.remove_nonstandard(k) == v
+        # no the key shouldn't be present again
+        assert core.get_nonstandard(k) is None
+        # and it shouldn't return anything if we try to remove it a 2nd time
+        assert core.remove_nonstandard(k) is None

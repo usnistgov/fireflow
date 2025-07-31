@@ -897,3 +897,39 @@ class TestCore:
     ) -> None:
         new = pf.EndianF32Layout([1], False)
         core.set_measurements_and_layout([(LINK_NAME1, optical)], new)
+
+    @pytest.mark.parametrize(
+        "core, optical",
+        [
+            (lazy_fixture(c), lazy_fixture(o))
+            for c, o in [
+                ("dataset_2_0", "blank_optical_2_0"),
+                ("dataset_3_0", "blank_optical_3_0"),
+            ]
+        ],
+    )
+    def test_ordered_set_measurements_and_data(
+        self,
+        core: pf.CoreDataset2_0 | pf.CoreDataset3_0,
+        optical,
+        series2: pl.Series,
+    ) -> None:
+        core.set_measurements_and_data([(LINK_NAME1, optical)], [series2], prefix="_")
+
+    @pytest.mark.parametrize(
+        "core, optical",
+        [
+            (lazy_fixture(c), lazy_fixture(o))
+            for c, o in [
+                ("dataset_3_1", "blank_optical_3_1"),
+                ("dataset_3_2", "blank_optical_3_2"),
+            ]
+        ],
+    )
+    def test_endian_set_measurements_and_data(
+        self,
+        core: pf.CoreDataset3_1 | pf.CoreDataset3_2,
+        optical,
+        series2: pl.Series,
+    ) -> None:
+        core.set_measurements_and_data([(LINK_NAME1, optical)], [series2])

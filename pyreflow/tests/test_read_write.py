@@ -290,11 +290,36 @@ def test_longnames(core: AnyCore) -> None:
         core.longnames = [cast(str, 42)]
 
 
+# each of these should be strings or None
 @all_core
-def test_filters(core: AnyCore) -> None:
-    assert core.filters == [(1, None)]
+@pytest.mark.parametrize(
+    "get, set",
+    [(x, f"set_{x}") for x in ["filters", "percents_emitted", "detector_types"]],
+)
+def test_core_meas_opt_strs(get: str, set: str, core: AnyCore) -> None:
+    assert getattr(core, get) == [(1, None)]
     new = "bla"
-    core.set_filters([new])
-    assert core.filters == [(1, new)]
+    getattr(core, set)([new])
+    assert getattr(core, get) == [(1, new)]
     with pytest.raises(TypeError):
-        core.set_filters([cast(str, 42)])
+        getattr(core, set)([42])
+
+
+# each of these should be a non-negative float
+@all_core
+@pytest.mark.parametrize(
+    "get, set",
+    [(x, f"set_{x}") for x in ["powers", "detector_voltages"]],
+)
+def test_core_meas_opt_floats(get: str, set: str, core: AnyCore) -> None:
+    assert getattr(core, get) == [(1, None)]
+    new = 0.5
+    getattr(core, set)([new])
+    assert getattr(core, get) == [(1, new)]
+    newer = 0.0
+    getattr(core, set)([newer])
+    assert getattr(core, get) == [(1, newer)]
+    with pytest.raises(TypeError):
+        getattr(core, set)([-1.0])
+    with pytest.raises(TypeError):
+        getattr(core, set)(["pickle rick"])

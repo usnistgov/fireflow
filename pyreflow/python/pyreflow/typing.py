@@ -1,13 +1,4 @@
-from ._pyreflow import (
-    CoreTEXT2_0,
-    CoreTEXT3_0,
-    CoreTEXT3_1,
-    CoreTEXT3_2,
-    CoreDataset2_0,
-    CoreDataset3_0,
-    CoreDataset3_1,
-    CoreDataset3_2,
-)
+import pyreflow._pyreflow as pf
 from typing import Literal, NewType, TypeAlias
 
 MeasIndex = NewType("MeasIndex", int)
@@ -71,10 +62,19 @@ MixedType: TypeAlias = (
     tuple[FloatType | DoubleType, FloatRange] | tuple[AsciiType | IntegerType, IntRange]
 )
 
-AnyCoreTEXT: TypeAlias = CoreTEXT2_0 | CoreTEXT3_0 | CoreTEXT3_1 | CoreTEXT3_2
+AnyCoreTEXT: TypeAlias = (
+    pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreTEXT3_1 | pf.CoreTEXT3_2
+)
 
 AnyCoreDataset: TypeAlias = (
-    CoreDataset2_0 | CoreDataset3_0 | CoreDataset3_1 | CoreDataset3_2
+    pf.CoreDataset2_0 | pf.CoreDataset3_0 | pf.CoreDataset3_1 | pf.CoreDataset3_2
 )
 
 AnyCore: TypeAlias = AnyCoreTEXT | AnyCoreDataset
+
+
+AnyOptical: TypeAlias = pf.Optical2_0 | pf.Optical3_0 | pf.Optical3_1 | pf.Optical3_2
+
+AnyTemporal: TypeAlias = (
+    pf.Temporal2_0 | pf.Temporal3_0 | pf.Temporal3_1 | pf.Temporal3_2
+)

@@ -12,6 +12,7 @@ from pyreflow.typing import (
     NonStdKey,
     AnyCoreTEXT,
     AnyCoreDataset,
+    AnyOptical,
     AnyCore,
     AnalysisBytes,
 )
@@ -465,3 +466,45 @@ class TestCore:
         core.remove_measurement_by_index(MeasIndex(0))
         with pytest.raises(IndexError):
             core.remove_measurement_by_index(MeasIndex(0))
+
+    @pytest.mark.parametrize(
+        "core, optical",
+        [
+            (lazy_fixture(c), lazy_fixture(o))
+            for c, o in [
+                ("core_2_0", "blank_optical_2_0"),
+                ("core_3_0", "blank_optical_3_0"),
+                ("core_3_1", "blank_optical_3_1"),
+                ("core_3_2", "blank_optical_3_2"),
+                ("dataset_2_0", "blank_optical_2_0"),
+                ("dataset_3_0", "blank_optical_3_0"),
+                ("dataset_3_1", "blank_optical_3_1"),
+                ("dataset_3_2", "blank_optical_3_2"),
+            ]
+        ],
+    )
+    def test_replace_optical_at(self, core: AnyCore, optical) -> None:
+        ln = "I am not living"
+        optical.longname = ln
+        core.replace_optical_at(MeasIndex(0), optical)
+
+    @pytest.mark.parametrize(
+        "core, optical",
+        [
+            (lazy_fixture(c), lazy_fixture(o))
+            for c, o in [
+                ("core_2_0", "blank_optical_2_0"),
+                ("core_3_0", "blank_optical_3_0"),
+                ("core_3_1", "blank_optical_3_1"),
+                ("core_3_2", "blank_optical_3_2"),
+                ("dataset_2_0", "blank_optical_2_0"),
+                ("dataset_3_0", "blank_optical_3_0"),
+                ("dataset_3_1", "blank_optical_3_1"),
+                ("dataset_3_2", "blank_optical_3_2"),
+            ]
+        ],
+    )
+    def test_replace_optical_named(self, core: AnyCore, optical) -> None:
+        ln = "I'm asleep"
+        optical.longname = ln
+        core.replace_optical_named(LINK_NAME, optical)

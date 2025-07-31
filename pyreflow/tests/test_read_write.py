@@ -258,6 +258,15 @@ def test_trigger(core: AnyCore) -> None:
     assert core.trigger == tr
 
 
+@all_core
+def test_trigger_threshold(core: AnyCore) -> None:
+    tr = (LINK_NAME, 0)
+    core.trigger = tr
+    assert core.trigger == tr
+    core.set_trigger_threshold(1)
+    assert core.trigger == (LINK_NAME, 1)
+
+
 @all_blank_core
 def test_trigger_bad(core: AnyCore) -> None:
     with pytest.raises(TypeError):
@@ -268,6 +277,11 @@ def test_trigger_bad(core: AnyCore) -> None:
 def test_trigger_nolink(core: AnyCore) -> None:
     with pytest.raises(pf.PyreflowException):
         core.trigger = (Shortname("harold"), 0)
+
+
+@all_core
+def test_par(core: AnyCore) -> None:
+    assert core.par == 1
 
 
 @all_core

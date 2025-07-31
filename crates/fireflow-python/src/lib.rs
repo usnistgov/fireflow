@@ -1249,6 +1249,7 @@ macro_rules! set_measurements_ordered {
                 self.0.layout().clone().into()
             }
 
+            #[setter]
             fn set_layout(&mut self, layout: PyOrderedLayout) -> PyResult<()> {
                 self.0.set_layout(layout.into()).py_term_resolve_nowarn()
             }
@@ -1289,6 +1290,7 @@ macro_rules! set_measurements_endian {
                 self.0.layout().clone().into()
             }
 
+            #[setter]
             fn set_layout(&mut self, layout: $l) -> PyResult<()> {
                 self.0.set_layout(layout.into()).py_term_resolve_nowarn()
             }

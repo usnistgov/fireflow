@@ -23,43 +23,43 @@ from .conftest import lazy_fixture
 
 
 @pytest.fixture
-def blank_core_2_0() -> pf.CoreTEXT2_0:
+def blank_text_2_0() -> pf.CoreTEXT2_0:
     return pf.CoreTEXT2_0("L")
 
 
 @pytest.fixture
-def blank_core_3_0() -> pf.CoreTEXT3_0:
+def blank_text_3_0() -> pf.CoreTEXT3_0:
     return pf.CoreTEXT3_0("L")
 
 
 @pytest.fixture
-def blank_core_3_1() -> pf.CoreTEXT3_1:
+def blank_text_3_1() -> pf.CoreTEXT3_1:
     return pf.CoreTEXT3_1("L")
 
 
 @pytest.fixture
-def blank_core_3_2() -> pf.CoreTEXT3_2:
+def blank_text_3_2() -> pf.CoreTEXT3_2:
     return pf.CoreTEXT3_2("Moca Emporium")
 
 
 @pytest.fixture
-def blank_dataset_2_0(blank_core_2_0: pf.CoreTEXT2_0) -> pf.CoreDataset2_0:
-    return blank_core_2_0.to_dataset([], AnalysisBytes(b""), [])
+def blank_dataset_2_0(blank_text_2_0: pf.CoreTEXT2_0) -> pf.CoreDataset2_0:
+    return blank_text_2_0.to_dataset([], AnalysisBytes(b""), [])
 
 
 @pytest.fixture
-def blank_dataset_3_0(blank_core_3_0: pf.CoreTEXT3_0) -> pf.CoreDataset3_0:
-    return blank_core_3_0.to_dataset([], AnalysisBytes(b""), [])
+def blank_dataset_3_0(blank_text_3_0: pf.CoreTEXT3_0) -> pf.CoreDataset3_0:
+    return blank_text_3_0.to_dataset([], AnalysisBytes(b""), [])
 
 
 @pytest.fixture
-def blank_dataset_3_1(blank_core_3_1: pf.CoreTEXT3_1) -> pf.CoreDataset3_1:
-    return blank_core_3_1.to_dataset([], AnalysisBytes(b""), [])
+def blank_dataset_3_1(blank_text_3_1: pf.CoreTEXT3_1) -> pf.CoreDataset3_1:
+    return blank_text_3_1.to_dataset([], AnalysisBytes(b""), [])
 
 
 @pytest.fixture
-def blank_dataset_3_2(blank_core_3_2: pf.CoreTEXT3_2) -> pf.CoreDataset3_2:
-    return blank_core_3_2.to_dataset([], AnalysisBytes(b""), [])
+def blank_dataset_3_2(blank_text_3_2: pf.CoreTEXT3_2) -> pf.CoreDataset3_2:
+    return blank_text_3_2.to_dataset([], AnalysisBytes(b""), [])
 
 
 @pytest.fixture
@@ -107,70 +107,84 @@ LINK_NAME2 = Shortname("maple latte")
 
 
 @pytest.fixture
+def series1() -> pl.Series:
+    return pl.Series("blub", [1, 2, 3], dtype=pl.UInt64)
+
+
+@pytest.fixture
+def series2() -> pl.Series:
+    return pl.Series("blubby", [1, 2, 3], dtype=pl.UInt64)
+
+
+@pytest.fixture
 def core_2_0(
-    blank_core_2_0: pf.CoreTEXT2_0, blank_optical_2_0: pf.Optical2_0
+    blank_text_2_0: pf.CoreTEXT2_0, blank_optical_2_0: pf.Optical2_0
 ) -> pf.CoreTEXT2_0:
-    blank_core_2_0.push_optical(blank_optical_2_0, LINK_NAME1, Range(9001))
-    return blank_core_2_0
+    blank_text_2_0.push_optical(blank_optical_2_0, LINK_NAME1, Range(9001))
+    return blank_text_2_0
 
 
 @pytest.fixture
 def core_3_0(
-    blank_core_3_0: pf.CoreTEXT3_0, blank_optical_3_0: pf.Optical3_0
+    blank_text_3_0: pf.CoreTEXT3_0, blank_optical_3_0: pf.Optical3_0
 ) -> pf.CoreTEXT3_0:
-    blank_core_3_0.push_optical(blank_optical_3_0, LINK_NAME1, Range(9001))
-    return blank_core_3_0
+    blank_text_3_0.push_optical(blank_optical_3_0, LINK_NAME1, Range(9001))
+    return blank_text_3_0
 
 
 @pytest.fixture
 def core_3_1(
-    blank_core_3_1: pf.CoreTEXT3_1, blank_optical_3_1: pf.Optical3_1
+    blank_text_3_1: pf.CoreTEXT3_1, blank_optical_3_1: pf.Optical3_1
 ) -> pf.CoreTEXT3_1:
-    blank_core_3_1.push_optical(blank_optical_3_1, LINK_NAME1, Range(9001))
-    return blank_core_3_1
+    blank_text_3_1.push_optical(blank_optical_3_1, LINK_NAME1, Range(9001))
+    return blank_text_3_1
 
 
 @pytest.fixture
 def core_3_2(
-    blank_core_3_2: pf.CoreTEXT3_2, blank_optical_3_2: pf.Optical3_2
+    blank_text_3_2: pf.CoreTEXT3_2, blank_optical_3_2: pf.Optical3_2
 ) -> pf.CoreTEXT3_2:
-    blank_core_3_2.push_optical(blank_optical_3_2, LINK_NAME1, Range(9001))
-    return blank_core_3_2
+    blank_text_3_2.push_optical(blank_optical_3_2, LINK_NAME1, Range(9001))
+    return blank_text_3_2
 
 
 @pytest.fixture
 def dataset_2_0(
-    blank_dataset_2_0: pf.CoreDataset2_0, blank_optical_2_0: pf.Optical2_0
+    blank_dataset_2_0: pf.CoreDataset2_0,
+    blank_optical_2_0: pf.Optical2_0,
+    series1: pl.Series,
 ) -> pf.CoreDataset2_0:
-    ser = pl.Series("blub", [1, 2, 3], dtype=pl.UInt64)
-    blank_dataset_2_0.push_optical(blank_optical_2_0, ser, LINK_NAME1, Range(9001))
+    blank_dataset_2_0.push_optical(blank_optical_2_0, series1, LINK_NAME1, Range(9001))
     return blank_dataset_2_0
 
 
 @pytest.fixture
 def dataset_3_0(
-    blank_dataset_3_0: pf.CoreDataset3_0, blank_optical_3_0: pf.Optical3_0
+    blank_dataset_3_0: pf.CoreDataset3_0,
+    blank_optical_3_0: pf.Optical3_0,
+    series1: pl.Series,
 ) -> pf.CoreDataset3_0:
-    ser = pl.Series("blub", [1, 2, 3], dtype=pl.UInt64)
-    blank_dataset_3_0.push_optical(blank_optical_3_0, ser, LINK_NAME1, Range(9001))
+    blank_dataset_3_0.push_optical(blank_optical_3_0, series1, LINK_NAME1, Range(9001))
     return blank_dataset_3_0
 
 
 @pytest.fixture
 def dataset_3_1(
-    blank_dataset_3_1: pf.CoreDataset3_1, blank_optical_3_1: pf.Optical3_1
+    blank_dataset_3_1: pf.CoreDataset3_1,
+    blank_optical_3_1: pf.Optical3_1,
+    series1: pl.Series,
 ) -> pf.CoreDataset3_1:
-    ser = pl.Series("blub", [1, 2, 3], dtype=pl.UInt64)
-    blank_dataset_3_1.push_optical(blank_optical_3_1, ser, LINK_NAME1, Range(9001))
+    blank_dataset_3_1.push_optical(blank_optical_3_1, series1, LINK_NAME1, Range(9001))
     return blank_dataset_3_1
 
 
 @pytest.fixture
 def dataset_3_2(
-    blank_dataset_3_2: pf.CoreDataset3_2, blank_optical_3_2: pf.Optical3_2
+    blank_dataset_3_2: pf.CoreDataset3_2,
+    blank_optical_3_2: pf.Optical3_2,
+    series1: pl.Series,
 ) -> pf.CoreDataset3_2:
-    ser = pl.Series("blub", [1, 2, 3], dtype=pl.UInt64)
-    blank_dataset_3_2.push_optical(blank_optical_3_2, ser, LINK_NAME1, Range(9001))
+    blank_dataset_3_2.push_optical(blank_optical_3_2, series1, LINK_NAME1, Range(9001))
     return blank_dataset_3_2
 
 
@@ -208,47 +222,51 @@ def core2_3_2(
 
 @pytest.fixture
 def dataset2_2_0(
-    dataset_2_0: pf.CoreDataset2_0, blank_temporal_2_0: pf.Temporal2_0
+    dataset_2_0: pf.CoreDataset2_0,
+    blank_temporal_2_0: pf.Temporal2_0,
+    series2: pl.Series,
 ) -> pf.CoreDataset2_0:
-    ser = pl.Series("blubby", [1, 2, 3], dtype=pl.UInt64)
-    dataset_2_0.push_temporal(blank_temporal_2_0, ser, LINK_NAME2, Range(9001))
+    dataset_2_0.push_temporal(blank_temporal_2_0, series2, LINK_NAME2, Range(9001))
     return dataset_2_0
 
 
 @pytest.fixture
 def dataset2_3_0(
-    dataset_3_0: pf.CoreDataset3_0, blank_temporal_3_0: pf.Temporal3_0
+    dataset_3_0: pf.CoreDataset3_0,
+    blank_temporal_3_0: pf.Temporal3_0,
+    series2: pl.Series,
 ) -> pf.CoreDataset3_0:
-    ser = pl.Series("blubby", [1, 2, 3], dtype=pl.UInt64)
-    dataset_3_0.push_temporal(blank_temporal_3_0, ser, LINK_NAME2, Range(9001))
+    dataset_3_0.push_temporal(blank_temporal_3_0, series2, LINK_NAME2, Range(9001))
     return dataset_3_0
 
 
 @pytest.fixture
 def dataset2_3_1(
-    dataset_3_1: pf.CoreDataset3_1, blank_temporal_3_1: pf.Temporal3_1
+    dataset_3_1: pf.CoreDataset3_1,
+    blank_temporal_3_1: pf.Temporal3_1,
+    series2: pl.Series,
 ) -> pf.CoreDataset3_1:
-    ser = pl.Series("blubby", [1, 2, 3], dtype=pl.UInt64)
-    dataset_3_1.push_temporal(blank_temporal_3_1, ser, LINK_NAME2, Range(9001))
+    dataset_3_1.push_temporal(blank_temporal_3_1, series2, LINK_NAME2, Range(9001))
     return dataset_3_1
 
 
 @pytest.fixture
 def dataset2_3_2(
-    dataset_3_2: pf.CoreDataset3_2, blank_temporal_3_2: pf.Temporal3_2
+    dataset_3_2: pf.CoreDataset3_2,
+    blank_temporal_3_2: pf.Temporal3_2,
+    series2: pl.Series,
 ) -> pf.CoreDataset3_2:
-    ser = pl.Series("blubby", [1, 2, 3], dtype=pl.UInt64)
-    dataset_3_2.push_temporal(blank_temporal_3_2, ser, LINK_NAME2, Range(9001))
+    dataset_3_2.push_temporal(blank_temporal_3_2, series2, LINK_NAME2, Range(9001))
     return dataset_3_2
 
 
 all_blank_core = pytest.mark.parametrize(
     "core",
     [
-        lazy_fixture("blank_core_2_0"),
-        lazy_fixture("blank_core_3_0"),
-        lazy_fixture("blank_core_3_1"),
-        lazy_fixture("blank_core_3_2"),
+        lazy_fixture("blank_text_2_0"),
+        lazy_fixture("blank_text_3_0"),
+        lazy_fixture("blank_text_3_1"),
+        lazy_fixture("blank_text_3_2"),
         lazy_fixture("blank_dataset_2_0"),
         lazy_fixture("blank_dataset_3_0"),
         lazy_fixture("blank_dataset_3_1"),
@@ -640,3 +658,84 @@ class TestCore:
         assert len(core.measurements) == 2
         assert isinstance(core.measurements[0], optical)
         assert isinstance(core.measurements[1], temporal)
+
+    @pytest.mark.parametrize(
+        "core, optical, temporal",
+        [
+            (lazy_fixture("core2_2_0"), pf.Optical2_0, pf.Temporal2_0),
+            (lazy_fixture("core2_3_0"), pf.Optical3_0, pf.Temporal3_0),
+            (lazy_fixture("core2_3_1"), pf.Optical3_1, pf.Temporal3_1),
+            (lazy_fixture("core2_3_2"), pf.Optical3_2, pf.Temporal3_2),
+            (lazy_fixture("dataset2_2_0"), pf.Optical2_0, pf.Temporal2_0),
+            (lazy_fixture("dataset2_3_0"), pf.Optical3_0, pf.Temporal3_0),
+            (lazy_fixture("dataset2_3_1"), pf.Optical3_1, pf.Temporal3_1),
+            (lazy_fixture("dataset2_3_2"), pf.Optical3_2, pf.Temporal3_2),
+        ],
+    )
+    def test_measurement_at(self, core: AnyCore, optical: type, temporal: type) -> None:
+        assert isinstance(core.measurement_at(MeasIndex(0)), optical)
+        assert isinstance(core.measurement_at(MeasIndex(1)), temporal)
+
+    @pytest.mark.parametrize(
+        "core, optical",
+        [
+            (lazy_fixture(c), lazy_fixture(o))
+            for c, o in [
+                ("blank_text_2_0", "blank_optical_2_0"),
+                ("blank_text_3_0", "blank_optical_3_0"),
+                ("blank_text_3_1", "blank_optical_3_1"),
+                ("blank_text_3_2", "blank_optical_3_2"),
+            ]
+        ],
+    )
+    def test_text_insert_optical(self, core: AnyCoreTEXT, optical) -> None:
+        core.insert_optical(MeasIndex(0), optical, LINK_NAME1, Range(9001))
+
+    @pytest.mark.parametrize(
+        "core, temporal",
+        [
+            (lazy_fixture(c), lazy_fixture(o))
+            for c, o in [
+                ("blank_text_2_0", "blank_temporal_2_0"),
+                ("blank_text_3_0", "blank_temporal_3_0"),
+                ("blank_text_3_1", "blank_temporal_3_1"),
+                ("blank_text_3_2", "blank_temporal_3_2"),
+            ]
+        ],
+    )
+    def test_text_insert_temporal(self, core: AnyCoreTEXT, temporal) -> None:
+        core.insert_temporal(MeasIndex(0), temporal, LINK_NAME1, Range(9001))
+
+    @pytest.mark.parametrize(
+        "core, optical",
+        [
+            (lazy_fixture(c), lazy_fixture(o))
+            for c, o in [
+                ("blank_dataset_2_0", "blank_optical_2_0"),
+                ("blank_dataset_3_0", "blank_optical_3_0"),
+                ("blank_dataset_3_1", "blank_optical_3_1"),
+                ("blank_dataset_3_2", "blank_optical_3_2"),
+            ]
+        ],
+    )
+    def test_dataset_insert_optical(
+        self, core: AnyCoreDataset, optical, series1: pl.Series
+    ) -> None:
+        core.insert_optical(MeasIndex(0), optical, series1, LINK_NAME1, Range(9001))
+
+    @pytest.mark.parametrize(
+        "core, temporal",
+        [
+            (lazy_fixture(c), lazy_fixture(o))
+            for c, o in [
+                ("blank_dataset_2_0", "blank_temporal_2_0"),
+                ("blank_dataset_3_0", "blank_temporal_3_0"),
+                ("blank_dataset_3_1", "blank_temporal_3_1"),
+                ("blank_dataset_3_2", "blank_temporal_3_2"),
+            ]
+        ],
+    )
+    def test_dataset_insert_temporal(
+        self, core: AnyCoreDataset, temporal, series1: pl.Series
+    ) -> None:
+        core.insert_temporal(MeasIndex(0), temporal, series1, LINK_NAME1, Range(9001))

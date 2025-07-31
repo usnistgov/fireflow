@@ -1070,7 +1070,7 @@ class TestCore:
         core.unicode = new
         assert core.unicode == new
         with pytest.raises(TypeError):
-            core.unicode = "latin_minus_20"
+            core.unicode = "latin_minus_20"  # type: ignore
 
     @pytest.mark.parametrize(
         "core",

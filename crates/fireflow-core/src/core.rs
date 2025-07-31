@@ -2415,6 +2415,11 @@ where
         self.measurements.alter_values_zip(xs, f, g)
     }
 
+    /// Return reference to time measurement as a name/value pair.
+    pub fn temporal(&self) -> Option<IndexedElement<&Shortname, &Temporal<M::Temporal>>> {
+        self.measurements.as_center()
+    }
+
     /// Return mutable reference to time measurement as a name/value pair.
     pub fn temporal_mut(
         &mut self,

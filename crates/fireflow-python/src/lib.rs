@@ -857,6 +857,13 @@ macro_rules! common_meas_get_set {
     ($pytype:ident, $o:ident, $t:ident, $n:path, $fam:ident) => {
         #[pymethods]
         impl $pytype {
+            #[getter]
+            fn get_temporal(&self) -> Option<(MeasIndex, Shortname, $t)> {
+                self.0
+                    .temporal()
+                    .map(|t| (t.index, t.key.clone(), t.value.clone().into()))
+            }
+
             // TODO this seems like it should return a key error
             fn remove_measurement_by_name(
                 &mut self,

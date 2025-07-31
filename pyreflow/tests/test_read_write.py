@@ -819,3 +819,81 @@ class TestCore:
         assert isinstance(core.layout, pf.EndianF32Layout)
         with pytest.raises(TypeError):
             core.layout = pf.OrderedUint64Layout([9002, 9003], False)  # type: ignore
+
+    @pytest.mark.parametrize(
+        "core, optical",
+        [
+            (lazy_fixture(c), lazy_fixture(o))
+            for c, o in [
+                ("text_2_0", "blank_optical_2_0"),
+                ("text_3_0", "blank_optical_3_0"),
+                ("dataset_2_0", "blank_optical_2_0"),
+                ("dataset_3_0", "blank_optical_3_0"),
+            ]
+        ],
+    )
+    def test_ordered_set_measurements(
+        self,
+        core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
+        optical,
+    ) -> None:
+        core.set_measurements([(LINK_NAME1, optical)], prefix="_")
+
+    @pytest.mark.parametrize(
+        "core, optical",
+        [
+            (lazy_fixture(c), lazy_fixture(o))
+            for c, o in [
+                ("text_3_1", "blank_optical_3_1"),
+                ("text_3_2", "blank_optical_3_2"),
+                ("dataset_3_1", "blank_optical_3_1"),
+                ("dataset_3_2", "blank_optical_3_2"),
+            ]
+        ],
+    )
+    def test_endian_set_measurements(
+        self,
+        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
+        optical,
+    ) -> None:
+        core.set_measurements([(LINK_NAME1, optical)])
+
+    @pytest.mark.parametrize(
+        "core, optical",
+        [
+            (lazy_fixture(c), lazy_fixture(o))
+            for c, o in [
+                ("text_2_0", "blank_optical_2_0"),
+                ("text_3_0", "blank_optical_3_0"),
+                ("dataset_2_0", "blank_optical_2_0"),
+                ("dataset_3_0", "blank_optical_3_0"),
+            ]
+        ],
+    )
+    def test_ordered_set_measurements_and_layout(
+        self,
+        core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
+        optical,
+    ) -> None:
+        new = pf.OrderedUint64Layout([1], False)
+        core.set_measurements_and_layout([(LINK_NAME1, optical)], new, prefix="_")
+
+    @pytest.mark.parametrize(
+        "core, optical",
+        [
+            (lazy_fixture(c), lazy_fixture(o))
+            for c, o in [
+                ("text_3_1", "blank_optical_3_1"),
+                ("text_3_2", "blank_optical_3_2"),
+                ("dataset_3_1", "blank_optical_3_1"),
+                ("dataset_3_2", "blank_optical_3_2"),
+            ]
+        ],
+    )
+    def test_endian_set_measurements_and_layout(
+        self,
+        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
+        optical,
+    ) -> None:
+        new = pf.EndianF32Layout([1], False)
+        core.set_measurements_and_layout([(LINK_NAME1, optical)], new)

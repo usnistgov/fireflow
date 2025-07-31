@@ -572,6 +572,7 @@ class TestCore:
         ln = "I am not living"
         optical.longname = ln
         core.replace_optical_at(MeasIndex(0), optical)
+        core.measurement_at(MeasIndex(1)).longname == ln
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -593,6 +594,7 @@ class TestCore:
         ln = "I'm asleep"
         optical.longname = ln
         core.replace_optical_named(LINK_NAME1, optical)
+        core.measurement_at(MeasIndex(1)).longname == ln
 
     @pytest.mark.parametrize(
         "core, temporal",
@@ -614,6 +616,7 @@ class TestCore:
         ln = "show me wut u got"
         temporal.longname = ln
         core.replace_temporal_at(MeasIndex(1), temporal, False)
+        core.measurement_at(MeasIndex(1)).longname == ln
 
     @pytest.mark.parametrize(
         "core, temporal",
@@ -635,6 +638,7 @@ class TestCore:
         ln = "the combination is... 1. 2. 3. 4. 5."
         temporal.longname = ln
         core.replace_temporal_named(LINK_NAME2, temporal, False)
+        core.measurement_at(MeasIndex(1)).longname == ln
 
     @all_core2
     def test_rename_temporal(self, core: AnyCore) -> None:
@@ -690,6 +694,7 @@ class TestCore:
     )
     def test_text_insert_optical(self, core: AnyCoreTEXT, optical) -> None:
         core.insert_optical(MeasIndex(0), optical, LINK_NAME1, Range(9001))
+        assert isinstance(core.measurement_at(MeasIndex(0)), type(optical))
 
     @pytest.mark.parametrize(
         "core, temporal",
@@ -705,6 +710,7 @@ class TestCore:
     )
     def test_text_insert_temporal(self, core: AnyCoreTEXT, temporal) -> None:
         core.insert_temporal(MeasIndex(0), temporal, LINK_NAME1, Range(9001))
+        assert isinstance(core.measurement_at(MeasIndex(0)), type(temporal))
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -722,6 +728,7 @@ class TestCore:
         self, core: AnyCoreDataset, optical, series1: pl.Series
     ) -> None:
         core.insert_optical(MeasIndex(0), optical, series1, LINK_NAME1, Range(9001))
+        assert isinstance(core.measurement_at(MeasIndex(0)), type(optical))
 
     @pytest.mark.parametrize(
         "core, temporal",
@@ -739,3 +746,4 @@ class TestCore:
         self, core: AnyCoreDataset, temporal, series1: pl.Series
     ) -> None:
         core.insert_temporal(MeasIndex(0), temporal, series1, LINK_NAME1, Range(9001))
+        assert isinstance(core.measurement_at(MeasIndex(0)), type(temporal))

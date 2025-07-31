@@ -24,22 +24,22 @@ from .conftest import lazy_fixture
 
 @pytest.fixture
 def blank_text_2_0() -> pf.CoreTEXT2_0:
-    return pf.CoreTEXT2_0("L")
+    return pf.CoreTEXT2_0("L", "I")
 
 
 @pytest.fixture
 def blank_text_3_0() -> pf.CoreTEXT3_0:
-    return pf.CoreTEXT3_0("L")
+    return pf.CoreTEXT3_0("L", "I")
 
 
 @pytest.fixture
 def blank_text_3_1() -> pf.CoreTEXT3_1:
-    return pf.CoreTEXT3_1("L")
+    return pf.CoreTEXT3_1("L", "I")
 
 
 @pytest.fixture
 def blank_text_3_2() -> pf.CoreTEXT3_2:
-    return pf.CoreTEXT3_2("Moca Emporium")
+    return pf.CoreTEXT3_2("Moca Emporium", "I")
 
 
 @pytest.fixture
@@ -787,3 +787,39 @@ class TestCore:
         assert df1.height == 0
         assert df1.width == 0
         assert len(core.measurements) == 0
+
+    @pytest.mark.parametrize(
+        "core",
+        [
+            lazy_fixture(c)
+            for c in [
+                "text2_2_0",
+                "text2_3_0",
+                "dataset2_2_0",
+                "dataset2_3_0",
+            ]
+        ],
+    )
+    def test_ordered_layout(
+        self,
+        core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
+    ) -> None:
+        assert isinstance(core.layout, pf.OrderedUint32Layout)
+
+    @pytest.mark.parametrize(
+        "core",
+        [
+            lazy_fixture(c)
+            for c in [
+                "text2_3_1",
+                "text2_3_2",
+                "dataset2_3_1",
+                "dataset2_3_2",
+            ]
+        ],
+    )
+    def test_endian_layout(
+        self,
+        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
+    ) -> None:
+        assert isinstance(core.layout, pf.EndianUintLayout)

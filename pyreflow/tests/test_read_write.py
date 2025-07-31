@@ -964,3 +964,55 @@ class TestCore:
     )
     def test_all_scales(self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0) -> None:
         assert core.all_scales == [None, ()]
+
+    @pytest.mark.parametrize(
+        "core",
+        [
+            lazy_fixture(c)
+            for c in [
+                "text2_3_0",
+                "text2_3_1",
+                "text2_3_2",
+                "dataset2_3_0",
+                "dataset2_3_1",
+                "dataset2_3_2",
+            ]
+        ],
+    )
+    def test_all_transforms(
+        self,
+        core: pf.CoreTEXT3_0
+        | pf.CoreTEXT3_1
+        | pf.CoreTEXT3_2
+        | pf.CoreDataset3_0
+        | pf.CoreDataset3_1
+        | pf.CoreDataset3_2,
+    ) -> None:
+        assert core.all_transforms == [1.0, 1.0]
+
+    @pytest.mark.parametrize(
+        "core",
+        [
+            lazy_fixture(c)
+            for c in [
+                "text2_3_0",
+                "text2_3_1",
+                "text2_3_2",
+                "dataset2_3_0",
+                "dataset2_3_1",
+                "dataset2_3_2",
+            ]
+        ],
+    )
+    def test_timestep(
+        self,
+        core: pf.CoreTEXT3_0
+        | pf.CoreTEXT3_1
+        | pf.CoreTEXT3_2
+        | pf.CoreDataset3_0
+        | pf.CoreDataset3_1
+        | pf.CoreDataset3_2,
+    ) -> None:
+        assert core.timestep == 1.0
+        core.set_timestep(2.0)
+        assert core.timestep == 2.0

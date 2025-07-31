@@ -1016,3 +1016,38 @@ class TestCore:
         assert core.timestep == 1.0
         core.set_timestep(2.0)
         assert core.timestep == 2.0
+
+    @pytest.mark.parametrize(
+        "core",
+        [
+            lazy_fixture(c)
+            for c in [
+                "text2_3_1",
+                "text2_3_2",
+                "dataset2_3_1",
+                "dataset2_3_2",
+            ]
+        ],
+    )
+    @pytest.mark.parametrize(
+        "attr,value",
+        [
+            ("originality", "Original"),
+            ("last_modified", datetime(2112, 1, 1, 0, 0)),
+            ("last_modifier", "you, obviously"),
+            ("platename", "juice malouse"),
+            ("plateid", "666"),
+            ("wellid", "9.75"),
+        ],
+    )
+    def test_modified_plate(
+        self,
+        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
+        attr: str,
+        value,
+    ) -> None:
+        assert getattr(core, attr) is None
+        setattr(core, attr, value)
+        assert getattr(core, attr) == value
+        with pytest.raises(TypeError):
+            setattr(core, attr, 1.61)

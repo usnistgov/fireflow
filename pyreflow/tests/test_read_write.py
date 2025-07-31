@@ -365,6 +365,9 @@ class TestCore:
         core.set_temporal(LINK_NAME, False)
         assert core.temporal is not None
         assert core.temporal[1] == LINK_NAME
+        assert core.unset_temporal(False) is True
+        assert core.temporal is None
+        assert core.unset_temporal(False) is False
 
     @pytest.mark.parametrize(
         "core",
@@ -387,9 +390,13 @@ class TestCore:
         | pf.CoreDataset3_2,
     ) -> None:
         assert core.temporal is None
-        core.set_temporal(LINK_NAME, Timestep(1.0), False)
+        ts = Timestep(1.0)
+        core.set_temporal(LINK_NAME, ts, False)
         assert core.temporal is not None
         assert core.temporal[1] == LINK_NAME
+        assert core.unset_temporal(False) == ts
+        assert core.temporal is None
+        assert core.unset_temporal(False) is None
 
     @pytest.mark.parametrize(
         "core",
@@ -424,6 +431,7 @@ class TestCore:
         | pf.CoreDataset3_2,
     ) -> None:
         assert core.temporal is None
-        core.set_temporal_at(MeasIndex(0), Timestep(1.0), False)
+        ts = Timestep(1.0)
+        core.set_temporal_at(MeasIndex(0), ts, False)
         assert core.temporal is not None
         assert core.temporal[1] == LINK_NAME

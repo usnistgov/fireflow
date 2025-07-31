@@ -864,6 +864,20 @@ macro_rules! common_meas_get_set {
                     .map(|t| (t.index, t.key.clone(), t.value.clone().into()))
             }
 
+            #[getter]
+            fn measurements(&self) -> Vec<Element<$t, $o>> {
+                // This might seem inefficient since we are cloning
+                // everything, but if we want to map a python lambda
+                // function over the measurements we would need to to do
+                // this anyways, so simply returnig a copied list doesn't
+                // lose anything and keeps this API simpler.
+                let ms: &NamedVec<_, _, _, _> = self.0.as_ref();
+                ms.iter()
+                    .map(|(_, e)| e.bimap(|t| t.value.clone(), |o| o.value.clone()))
+                    .map(|v| v.inner_into())
+                    .collect()
+            }
+
             // TODO this seems like it should return a key error
             fn remove_measurement_by_name(
                 &mut self,
@@ -872,6 +886,15 @@ macro_rules! common_meas_get_set {
                 self.0
                     .remove_measurement_by_name(&name)
                     .map(|(i, x)| (i, x.inner_into()))
+            }
+
+            fn remove_measurement_by_index(
+                &mut self,
+                index: MeasIndex,
+            ) -> PyResult<($n, Element<$t, $o>)> {
+                let r = self.0.remove_measurement_by_index(index)?;
+                let (n, v) = Element::unzip::<$fam>(r);
+                Ok((n.0, v.inner_into()))
             }
 
             fn measurement_at(&self, index: MeasIndex) -> PyResult<Element<$t, $o>> {
@@ -927,29 +950,6 @@ macro_rules! common_meas_get_set {
                     .replace_temporal_named(&name, meas.into(), force)
                     .py_term_resolve()?;
                 Ok(ret.map(|r| r.inner_into()))
-            }
-
-            #[getter]
-            fn measurements(&self) -> Vec<Element<$t, $o>> {
-                // This might seem inefficient since we are cloning
-                // everything, but if we want to map a python lambda
-                // function over the measurements we would need to to do
-                // this anyways, so simply returnig a copied list doesn't
-                // lose anything and keeps this API simpler.
-                let ms: &NamedVec<_, _, _, _> = self.0.as_ref();
-                ms.iter()
-                    .map(|(_, e)| e.bimap(|t| t.value.clone(), |o| o.value.clone()))
-                    .map(|v| v.inner_into())
-                    .collect()
-            }
-
-            fn remove_measurement_by_index(
-                &mut self,
-                index: MeasIndex,
-            ) -> PyResult<($n, Element<$t, $o>)> {
-                let r = self.0.remove_measurement_by_index(index)?;
-                let (n, v) = Element::unzip::<$fam>(r);
-                Ok((n.0, v.inner_into()))
             }
         }
     };

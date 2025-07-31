@@ -2422,11 +2422,91 @@ where
         self.measurements.as_center_mut()
     }
 
-    pub fn get_metaroot<X>(&self) -> &X
+    /// Return a reference to a field in metaroot
+    pub fn metaroot<X>(&self) -> &X
     where
         Metaroot<M>: AsRef<X>,
     {
         self.metaroot.as_ref()
+    }
+
+    /// Return a reference to an optional field in metaroot
+    pub fn metaroot_opt<X>(&self) -> Option<&X>
+    where
+        Metaroot<M>: AsRef<Option<X>>,
+    {
+        self.metaroot().as_ref()
+    }
+
+    /// Set a field in metaroot
+    pub fn set_metaroot<X>(&mut self, x: X)
+    where
+        Metaroot<M>: AsMut<X>,
+    {
+        *self.metaroot.as_mut() = x
+    }
+
+    /// Get a field from all measurements as an interator
+    pub fn meas<'a, X: 'a>(&'a self) -> impl Iterator<Item = &'a X>
+    where
+        Temporal<M::Temporal>: AsRef<X>,
+        Optical<M::Optical>: AsRef<X>,
+    {
+        self.measurements
+            .iter()
+            .map(|(_, x)| x.both(|t| t.value.as_ref(), |m| m.value.as_ref()))
+    }
+
+    /// Get an optional field from all measurements as an interator
+    pub fn meas_opt<'a, X: 'a>(&'a self) -> impl Iterator<Item = Option<&'a X>>
+    where
+        Temporal<M::Temporal>: AsRef<Option<X>>,
+        Optical<M::Optical>: AsRef<Option<X>>,
+    {
+        self.meas::<Option<X>>().map(|x| x.as_ref())
+    }
+
+    /// Set the field on all measurements to values in a vector
+    pub fn set_meas<X>(&mut self, xs: Vec<X>) -> Result<(), KeyLengthError>
+    where
+        Temporal<M::Temporal>: AsMut<X>,
+        Optical<M::Optical>: AsMut<X>,
+    {
+        self.measurements
+            .alter_values_zip(
+                xs,
+                |m, x| *m.value.as_mut() = x,
+                |m, x| *m.value.as_mut() = x,
+            )
+            .map(|_| ())
+    }
+
+    /// Return field from all optical measurements as an indexed iterator
+    pub fn optical<'a, X: 'a>(&'a self) -> impl Iterator<Item = (MeasIndex, &'a X)>
+    where
+        Optical<M::Optical>: AsRef<X>,
+    {
+        self.measurements
+            .iter_non_center_values()
+            .map(|(i, m)| (i, m.as_ref()))
+    }
+
+    /// Return optional field from all optical measurements as an indexed iterator
+    pub fn optical_opt<'a, X: 'a>(&'a self) -> impl Iterator<Item = (MeasIndex, Option<&'a X>)>
+    where
+        Optical<M::Optical>: AsRef<Option<X>>,
+    {
+        self.optical().map(|(i, m)| (i, m.as_ref()))
+    }
+
+    /// Set fields on all optical measurements to values in a vector
+    pub fn set_optical<X>(&mut self, xs: Vec<X>) -> Result<(), KeyLengthError>
+    where
+        Optical<M::Optical>: AsMut<X>,
+    {
+        self.measurements
+            .alter_non_center_values_zip(xs, |m, x| *m.as_mut() = x)
+            .map(|_| ())
     }
 
     /// Get value for $BTIM as a [`NaiveTime`]
@@ -2496,7 +2576,7 @@ where
     }
 
     /// Get $BEGINDATETIME as a [`DateTime<FixedOffset>`]
-    pub fn get_begindatetime(&self) -> Option<DateTime<FixedOffset>>
+    pub fn begindatetime(&self) -> Option<DateTime<FixedOffset>>
     where
         Metaroot<M>: AsRef<Option<BeginDateTime>>,
     {
@@ -2504,7 +2584,7 @@ where
     }
 
     /// Get $ENDDATETIME as a [`DateTime<FixedOffset>`]
-    pub fn get_enddatetime(&self) -> Option<DateTime<FixedOffset>>
+    pub fn enddatetime(&self) -> Option<DateTime<FixedOffset>>
     where
         Metaroot<M>: AsRef<Option<EndDateTime>>,
     {
@@ -2694,7 +2774,7 @@ where
             .unstainedcenters_mut(private::NoTouchy) = None;
     }
 
-    pub fn get_all_scales(&self) -> impl Iterator<Item = Option<Scale>>
+    pub fn all_scales(&self) -> impl Iterator<Item = Option<Scale>>
     where
         Optical<M::Optical>: AsRef<Option<Scale>>,
     {
@@ -2706,7 +2786,7 @@ where
         })
     }
 
-    pub fn get_all_transforms(&self) -> impl Iterator<Item = ScaleTransform>
+    pub fn all_transforms(&self) -> impl Iterator<Item = ScaleTransform>
     where
         Optical<M::Optical>: AsRef<ScaleTransform>,
     {
@@ -2789,96 +2869,6 @@ where
             }
         };
         go().mult_terminate(SetScaleTransformsFailure)
-    }
-
-    pub fn get_metaroot_opt<X>(&self) -> Option<&X>
-    where
-        Metaroot<M>: AsRef<Option<X>>,
-    {
-        self.get_metaroot().as_ref()
-    }
-
-    pub fn set_metaroot<X>(&mut self, x: X)
-    where
-        Metaroot<M>: AsMut<X>,
-    {
-        *self.metaroot.as_mut() = x
-    }
-
-    pub fn get_meas<'a, X: 'a>(&'a self) -> impl Iterator<Item = &'a X>
-    where
-        Temporal<M::Temporal>: AsRef<X>,
-        Optical<M::Optical>: AsRef<X>,
-    {
-        self.measurements
-            .iter()
-            .map(|(_, x)| x.both(|t| t.value.as_ref(), |m| m.value.as_ref()))
-    }
-
-    pub fn get_meas_opt<'a, X: 'a>(&'a self) -> impl Iterator<Item = Option<&'a X>>
-    where
-        Temporal<M::Temporal>: AsRef<Option<X>>,
-        Optical<M::Optical>: AsRef<Option<X>>,
-    {
-        self.get_meas::<Option<X>>().map(|x| x.as_ref())
-    }
-
-    pub fn set_meas<X>(&mut self, xs: Vec<X>) -> Result<(), KeyLengthError>
-    where
-        Temporal<M::Temporal>: AsMut<X>,
-        Optical<M::Optical>: AsMut<X>,
-    {
-        self.measurements
-            .alter_values_zip(
-                xs,
-                |m, x| *m.value.as_mut() = x,
-                |m, x| *m.value.as_mut() = x,
-            )
-            .map(|_| ())
-    }
-
-    pub fn get_optical<'a, X: 'a>(&'a self) -> impl Iterator<Item = (MeasIndex, &'a X)>
-    where
-        Optical<M::Optical>: AsRef<X>,
-    {
-        self.measurements
-            .iter_non_center_values()
-            .map(|(i, m)| (i, m.as_ref()))
-    }
-
-    pub fn get_optical_opt<'a, X: 'a>(&'a self) -> impl Iterator<Item = (MeasIndex, Option<&'a X>)>
-    where
-        Optical<M::Optical>: AsRef<Option<X>>,
-    {
-        self.get_optical().map(|(i, m)| (i, m.as_ref()))
-    }
-
-    pub fn get_optical2<'a, X, Y>(&'a self) -> impl Iterator<Item = (MeasIndex, &'a Y)>
-    where
-        Optical<M::Optical>: AsRef<X>,
-        X: AsRef<Y> + 'a,
-        Y: 'a,
-    {
-        self.get_optical().map(|(i, m)| (i, m.as_ref()))
-    }
-
-    pub fn get_optical_opt2<'a, X, Y>(&'a self) -> impl Iterator<Item = (MeasIndex, Option<&'a Y>)>
-    where
-        Optical<M::Optical>: AsRef<Option<X>>,
-        X: AsRef<Y> + 'a,
-        Y: 'a,
-    {
-        self.get_optical_opt()
-            .map(|(i, m)| (i, m.map(|x| x.as_ref())))
-    }
-
-    pub fn set_optical<X>(&mut self, xs: Vec<X>) -> Result<(), KeyLengthError>
-    where
-        Optical<M::Optical>: AsMut<X>,
-    {
-        self.measurements
-            .alter_non_center_values_zip(xs, |m, x| *m.as_mut() = x)
-            .map(|_| ())
     }
 
     /// Return $PAR, which is simply the number of measurements in this struct

@@ -405,7 +405,7 @@ macro_rules! get_set_metaroot {
             impl $pytype {
                 #[getter]
                 fn $get(&self) -> $t {
-                    self.0.get_metaroot::<$t>().clone()
+                    self.0.metaroot::<$t>().clone()
                 }
 
                 #[setter]
@@ -424,7 +424,7 @@ macro_rules! get_set_metaroot_opt {
             impl $pytype {
                 #[getter]
                 fn $get(&self) -> Option<$t> {
-                    self.0.get_metaroot_opt().cloned()
+                    self.0.metaroot_opt().cloned()
                 }
 
                 #[setter]
@@ -443,7 +443,7 @@ macro_rules! get_set_all_meas {
             impl $pytype {
                 #[getter]
                 fn $get(&self) -> Vec<Option<$t>> {
-                    self.0.get_meas_opt().map(|x| x.cloned()).collect()
+                    self.0.meas_opt().map(|x| x.cloned()).collect()
                 }
 
                 #[setter]
@@ -463,7 +463,7 @@ macro_rules! get_set_all_optical {
                 #[getter]
                 fn $get(&self) -> Vec<(MeasIndex, Option<$t>)> {
                     self.0
-                        .get_optical_opt()
+                        .optical_opt()
                         .map(|(i, x)| (i, x.cloned()))
                         .collect()
                 }
@@ -578,7 +578,7 @@ impl PyCoreTEXT3_2 {
 
     #[getter]
     fn get_begindatetime(&self) -> Option<DateTime<FixedOffset>> {
-        self.0.get_begindatetime()
+        self.0.begindatetime()
     }
 
     #[setter]
@@ -588,7 +588,7 @@ impl PyCoreTEXT3_2 {
 
     #[getter]
     fn get_enddatetime(&self) -> Option<DateTime<FixedOffset>> {
-        self.0.get_enddatetime()
+        self.0.enddatetime()
     }
 
     #[setter]
@@ -598,7 +598,7 @@ impl PyCoreTEXT3_2 {
 
     #[getter]
     fn get_unstained_centers(&self) -> Option<HashMap<Shortname, f32>> {
-        self.0.get_metaroot_opt::<UnstainedCenters>().map(|y| {
+        self.0.metaroot_opt::<UnstainedCenters>().map(|y| {
             <HashMap<Shortname, f32>>::from(y.clone())
                 .into_iter()
                 .collect()
@@ -745,7 +745,7 @@ macro_rules! common_methods {
 
             #[getter]
             fn trigger(&self) -> Option<kws::Trigger> {
-                self.0.get_metaroot_opt().cloned()
+                self.0.metaroot_opt().cloned()
             }
 
             #[setter]
@@ -1372,13 +1372,13 @@ macro_rules! scales_methods {
         impl $pytype {
             #[getter]
             fn get_all_scales(&self) -> Vec<Option<Scale>> {
-                self.0.get_all_scales().collect()
+                self.0.all_scales().collect()
             }
 
             #[getter]
             fn get_scales(&self) -> Vec<(MeasIndex, Option<Scale>)> {
                 self.0
-                    .get_optical_opt::<Scale>()
+                    .optical_opt::<Scale>()
                     .map(|(i, s)| (i, s.map(|&x| x)))
                     .collect()
             }
@@ -1401,12 +1401,12 @@ macro_rules! transforms_methods {
         impl $pytype {
             #[getter]
             fn get_all_transforms(&self) -> Vec<core::ScaleTransform> {
-                self.0.get_all_transforms().collect()
+                self.0.all_transforms().collect()
             }
 
             #[getter]
             fn get_transforms(&self) -> Vec<(MeasIndex, core::ScaleTransform)> {
-                self.0.get_optical().map(|(i, &s)| (i, s)).collect()
+                self.0.optical().map(|(i, &s)| (i, s)).collect()
             }
 
             #[setter]

@@ -933,3 +933,25 @@ class TestCore:
         series2: pl.Series,
     ) -> None:
         core.set_measurements_and_data([(LINK_NAME1, optical)], [series2])
+
+    @pytest.mark.parametrize(
+        "core",
+        [
+            lazy_fixture(c)
+            for c in [
+                "text2_2_0",
+                "text2_3_0",
+                "dataset2_2_0",
+                "dataset2_3_0",
+            ]
+        ],
+    )
+    def test_set_shortnames_maybe(
+        self,
+        core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
+    ) -> None:
+        assert len(core.measurements) == 2
+        # note this will only set the measurements, since the time name is
+        # never None
+        core.set_measurement_shortnames_maybe([None])
+        assert core.shortnames_maybe == [None, "maple latte"]

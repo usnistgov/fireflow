@@ -793,6 +793,10 @@ class TestCore:
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
     ) -> None:
         assert isinstance(core.layout, pf.OrderedUint32Layout)
+        core.layout = pf.OrderedUint64Layout([9002, 9003], False)
+        assert isinstance(core.layout, pf.OrderedUint64Layout)
+        with pytest.raises(TypeError):
+            core.layout = pf.EndianUintLayout([9002, 9003], False)  # type: ignore
 
     @pytest.mark.parametrize(
         "core",
@@ -811,3 +815,7 @@ class TestCore:
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
     ) -> None:
         assert isinstance(core.layout, pf.EndianUintLayout)
+        core.layout = pf.EndianF32Layout([9002, 9003], False)
+        assert isinstance(core.layout, pf.EndianF32Layout)
+        with pytest.raises(TypeError):
+            core.layout = pf.OrderedUint64Layout([9002, 9003], False)  # type: ignore

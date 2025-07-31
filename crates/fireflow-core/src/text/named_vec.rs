@@ -1871,16 +1871,6 @@ pub struct KeyLengthError {
     include_center: bool,
 }
 
-impl KeyLengthError {
-    pub fn empty(this_len: usize) -> Self {
-        KeyLengthError {
-            this_len,
-            other_len: 0,
-            include_center: true,
-        }
-    }
-}
-
 pub enum NewNamedVecError {
     NonUnique,
     MultiCenter,
@@ -1977,15 +1967,15 @@ impl fmt::Display for NonUniqueKeyError {
 
 impl fmt::Display for KeyLengthError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let n = if self.include_center {
-            self.this_len
+        let s = if self.include_center {
+            "including"
         } else {
-            self.this_len - 1
+            "not including"
         };
         write!(
             f,
-            "supplied list must be {n} elements long, got {}",
-            self.other_len
+            "supplied list must be {} ({} center) elements long, got {}",
+            self.this_len, s, self.other_len
         )
     }
 }

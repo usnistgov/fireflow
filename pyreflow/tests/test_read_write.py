@@ -241,15 +241,13 @@ def test_time(attr: str, core: AnyCore) -> None:
 
 
 @all_blank_core
-@pytest.mark.parametrize(
-    "good, bad", [(date(1976, 4, 1), "should have been a real joke")]
-)
-def test_date(core: AnyCore, good: date, bad: str) -> None:
+def test_date(core: AnyCore) -> None:
+    good = date(1991, 8, 25)
     assert core.date is None
     core.date = good
     assert core.date == good
     with pytest.raises(TypeError):
-        core.date = cast(date, bad)
+        core.date = cast(date, "Apr 1, 1976")
 
 
 @all_core

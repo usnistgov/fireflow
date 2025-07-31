@@ -390,3 +390,40 @@ class TestCore:
         core.set_temporal(LINK_NAME, Timestep(1.0), False)
         assert core.temporal is not None
         assert core.temporal[1] == LINK_NAME
+
+    @pytest.mark.parametrize(
+        "core",
+        [lazy_fixture("core_2_0"), lazy_fixture("dataset_2_0")],
+    )
+    def test_temporal_no_timestep_at(
+        self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0
+    ) -> None:
+        assert core.temporal is None
+        core.set_temporal_at(MeasIndex(0), False)
+        assert core.temporal is not None
+        assert core.temporal[1] == LINK_NAME
+
+    @pytest.mark.parametrize(
+        "core",
+        [
+            lazy_fixture("core_3_0"),
+            lazy_fixture("core_3_1"),
+            lazy_fixture("core_3_2"),
+            lazy_fixture("dataset_3_0"),
+            lazy_fixture("dataset_3_1"),
+            lazy_fixture("dataset_3_2"),
+        ],
+    )
+    def test_temporal_timestep_at(
+        self,
+        core: pf.CoreTEXT3_0
+        | pf.CoreTEXT3_1
+        | pf.CoreTEXT3_2
+        | pf.CoreDataset3_0
+        | pf.CoreDataset3_1
+        | pf.CoreDataset3_2,
+    ) -> None:
+        assert core.temporal is None
+        core.set_temporal_at(MeasIndex(0), Timestep(1.0), False)
+        assert core.temporal is not None
+        assert core.temporal[1] == LINK_NAME

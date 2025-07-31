@@ -242,7 +242,7 @@ def test_time(attr: str, core: AnyCore) -> None:
 
 @all_blank_core
 @pytest.mark.parametrize(
-    "good, bad", [(date(1974, 4, 1), "should have been a real joke")]
+    "good, bad", [(date(1976, 4, 1), "should have been a real joke")]
 )
 def test_date(core: AnyCore, good: date, bad: str) -> None:
     assert core.date is None

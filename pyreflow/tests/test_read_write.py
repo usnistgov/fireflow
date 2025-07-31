@@ -439,24 +439,14 @@ class TestCore:
         assert core.remove_nonstandard(k) is None
 
     @pytest.mark.parametrize(
-        "core, optical, temporal",
-        [
-            (lazy_fixture("core_2_0"), pf.Optical2_0, pf.Temporal2_0),
-            (lazy_fixture("dataset_2_0"), pf.Optical2_0, pf.Temporal2_0),
-        ],
+        "core",
+        [lazy_fixture("core_2_0"), lazy_fixture("dataset_2_0")],
     )
     def test_temporal_no_timestep(
-        self,
-        core: pf.CoreTEXT2_0 | pf.CoreDataset2_0,
-        optical: type,
-        temporal: type,
+        self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0
     ) -> None:
-        assert isinstance(core.measurement_at(MeasIndex(0)), optical)
-        assert isinstance(core.measurements[0], optical)
         assert core.temporal is None
         core.set_temporal(LINK_NAME1, False)
-        assert isinstance(core.measurement_at(MeasIndex(0)), temporal)
-        assert isinstance(core.measurements[0], temporal)
         assert core.temporal is not None
         assert core.temporal[1] == LINK_NAME1
         assert core.unset_temporal(False) is True
@@ -464,14 +454,14 @@ class TestCore:
         assert core.unset_temporal(False) is False
 
     @pytest.mark.parametrize(
-        "core, optical, temporal",
+        "core",
         [
-            (lazy_fixture("core_3_0"), pf.Optical3_0, pf.Temporal3_0),
-            (lazy_fixture("core_3_1"), pf.Optical3_1, pf.Temporal3_1),
-            (lazy_fixture("core_3_2"), pf.Optical3_2, pf.Temporal3_2),
-            (lazy_fixture("dataset_3_0"), pf.Optical3_0, pf.Temporal3_0),
-            (lazy_fixture("dataset_3_1"), pf.Optical3_1, pf.Temporal3_1),
-            (lazy_fixture("dataset_3_2"), pf.Optical3_2, pf.Temporal3_2),
+            lazy_fixture("core_3_0"),
+            lazy_fixture("core_3_1"),
+            lazy_fixture("core_3_2"),
+            lazy_fixture("dataset_3_0"),
+            lazy_fixture("dataset_3_1"),
+            lazy_fixture("dataset_3_2"),
         ],
     )
     def test_temporal_timestep(
@@ -482,16 +472,10 @@ class TestCore:
         | pf.CoreDataset3_0
         | pf.CoreDataset3_1
         | pf.CoreDataset3_2,
-        optical: type,
-        temporal: type,
     ) -> None:
-        assert isinstance(core.measurement_at(MeasIndex(0)), optical)
-        assert isinstance(core.measurements[0], optical)
         assert core.temporal is None
         ts = Timestep(1.0)
         core.set_temporal(LINK_NAME1, ts, False)
-        assert isinstance(core.measurement_at(MeasIndex(0)), temporal)
-        assert isinstance(core.measurements[0], temporal)
         assert core.temporal is not None
         assert core.temporal[1] == LINK_NAME1
         assert core.unset_temporal(False) == ts
@@ -638,3 +622,21 @@ class TestCore:
     def test_rename_temporal(self, core: AnyCore) -> None:
         new = Shortname("they've gone plaid")
         assert core.rename_temporal(new) == LINK_NAME2
+
+    @pytest.mark.parametrize(
+        "core, optical, temporal",
+        [
+            (lazy_fixture("core2_2_0"), pf.Optical2_0, pf.Temporal2_0),
+            (lazy_fixture("core2_3_0"), pf.Optical3_0, pf.Temporal3_0),
+            (lazy_fixture("core2_3_1"), pf.Optical3_1, pf.Temporal3_1),
+            (lazy_fixture("core2_3_2"), pf.Optical3_2, pf.Temporal3_2),
+            (lazy_fixture("dataset2_2_0"), pf.Optical2_0, pf.Temporal2_0),
+            (lazy_fixture("dataset2_3_0"), pf.Optical3_0, pf.Temporal3_0),
+            (lazy_fixture("dataset2_3_1"), pf.Optical3_1, pf.Temporal3_1),
+            (lazy_fixture("dataset2_3_2"), pf.Optical3_2, pf.Temporal3_2),
+        ],
+    )
+    def test_measurements(self, core: AnyCore, optical: type, temporal: type) -> None:
+        assert len(core.measurements) == 2
+        assert isinstance(core.measurements[0], optical)
+        assert isinstance(core.measurements[1], temporal)

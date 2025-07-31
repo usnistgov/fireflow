@@ -200,144 +200,44 @@ all_core = pytest.mark.parametrize(
 )
 
 
+# all of these attributes should be either None or a positive integer
 @all_blank_core
-@pytest.mark.parametrize("good, bad", [(420, "420")])
-def test_abrt(core: AnyCore, good: int, bad: str) -> None:
-    assert core.abrt is None
-    core.abrt = good
-    assert core.abrt == good
+@pytest.mark.parametrize("attr", ["abrt", "lost"])
+def test_core_metaroot_opt_int(attr: str, core: AnyCore) -> None:
+    good = 420
+    assert getattr(core, attr) is None
+    setattr(core, attr, good)
+    assert getattr(core, attr) == good
     with pytest.raises(TypeError):
-        core.abrt = cast(int, bad)
+        setattr(core, attr, "420")
+    with pytest.raises(TypeError):
+        setattr(core, attr, -420)
 
 
+# all of these attributes should be either None or a string
 @all_blank_core
-@pytest.mark.parametrize("good, bad", [("spongebob", 3.14)])
-def test_cells(core: AnyCore, good: str, bad: float) -> None:
-    assert core.cells is None
-    core.cells = good
-    assert core.cells == good
+@pytest.mark.parametrize(
+    "attr", ["cells", "com", "exp", "fil", "inst", "op", "proj", "smno", "src", "sys"]
+)
+def test_core_metaroot_opt_str(attr: str, core: AnyCore) -> None:
+    good = "spongebob"
+    assert getattr(core, attr) is None
+    setattr(core, attr, good)
+    assert getattr(core, attr) == good
     with pytest.raises(TypeError):
-        core.cells = cast(str, bad)
+        setattr(core, attr, 3.14)
 
 
+# these should be time objects
 @all_blank_core
-@pytest.mark.parametrize("good, bad", [("pickle rick", 3.14)])
-def test_com(core: AnyCore, good: str, bad: float) -> None:
-    assert core.com is None
-    core.com = good
-    assert core.com == good
+@pytest.mark.parametrize("attr", ["btim", "etim"])
+def test_time(attr: str, core: AnyCore) -> None:
+    good = time(23, 58)
+    assert getattr(core, attr) is None
+    setattr(core, attr, good)
+    assert getattr(core, attr) == good
     with pytest.raises(TypeError):
-        core.com = cast(str, bad)
-
-
-@all_blank_core
-@pytest.mark.parametrize("good, bad", [("juice malouse", 3.14)])
-def test_exp(core: AnyCore, good: str, bad: float) -> None:
-    assert core.exp is None
-    core.exp = good
-    assert core.exp == good
-    with pytest.raises(TypeError):
-        core.exp = cast(str, bad)
-
-
-@all_blank_core
-@pytest.mark.parametrize("good, bad", [("forkbomb", 3.14)])
-def test_fil(core: AnyCore, good: str, bad: float) -> None:
-    assert core.fil is None
-    core.fil = good
-    assert core.fil == good
-    with pytest.raises(TypeError):
-        core.fil = cast(str, bad)
-
-
-@all_blank_core
-@pytest.mark.parametrize("good, bad", [("utube university", 3.14)])
-def test_inst(core: AnyCore, good: str, bad: float) -> None:
-    assert core.inst is None
-    core.inst = good
-    assert core.inst == good
-    with pytest.raises(TypeError):
-        core.inst = cast(str, bad)
-
-
-@all_blank_core
-@pytest.mark.parametrize("good, bad", [(2112, "YYZ")])
-def test_lost(core: AnyCore, good: int, bad: str) -> None:
-    assert core.lost is None
-    core.lost = good
-    assert core.lost == good
-    with pytest.raises(TypeError):
-        core.lost = cast(int, bad)
-
-
-@all_blank_core
-@pytest.mark.parametrize("good, bad", [("pop == soda", 0.1)])
-def test_op(core: AnyCore, good: str, bad: float) -> None:
-    assert core.op is None
-    core.op = good
-    assert core.op == good
-    with pytest.raises(TypeError):
-        core.op = cast(str, bad)
-
-
-@all_blank_core
-@pytest.mark.parametrize("good, bad", [("midnight rowhammer", 0.1)])
-def test_proj(core: AnyCore, good: str, bad: float) -> None:
-    assert core.proj is None
-    core.proj = good
-    assert core.proj == good
-    with pytest.raises(TypeError):
-        core.proj = cast(str, bad)
-
-
-@all_blank_core
-@pytest.mark.parametrize("good, bad", [("cereal killer", 0.1)])
-def test_smno(core: AnyCore, good: str, bad: float) -> None:
-    assert core.smno is None
-    core.smno = good
-    assert core.smno == good
-    with pytest.raises(TypeError):
-        core.smno = cast(str, bad)
-
-
-@all_blank_core
-@pytest.mark.parametrize("good, bad", [("dst", 0.1)])
-def test_src(core: AnyCore, good: str, bad: float) -> None:
-    assert core.src is None
-    core.src = good
-    assert core.src == good
-    with pytest.raises(TypeError):
-        core.src = cast(str, bad)
-
-
-@all_blank_core
-@pytest.mark.parametrize("good, bad", [("arch (btw)", 0.1)])
-def test_sys(core: AnyCore, good: str, bad: float) -> None:
-    assert core.sys is None
-    core.sys = good
-    assert core.sys == good
-    with pytest.raises(TypeError):
-        core.sys = cast(str, bad)
-
-
-@all_blank_core
-@pytest.mark.parametrize("good, bad", [(time(23, 58), 0.1)])
-def test_btim(core: AnyCore, good: time, bad: float) -> None:
-    assert core.btim is None
-    core.btim = good
-    assert core.btim == good
-    with pytest.raises(TypeError):
-        core.btim = cast(time, bad)
-
-
-@all_blank_core
-@pytest.mark.parametrize("good, bad", [(time(23, 58), 0.1)])
-def test_etim(core: AnyCore, good: time, bad: float) -> None:
-    assert core.etim is None
-    core.etim = good
-    assert core.etim == good
-    with pytest.raises(TypeError):
-        core.etim = cast(time, bad)
+        setattr(core, attr, "thermonuclear war")
 
 
 @all_blank_core

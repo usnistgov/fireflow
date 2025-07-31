@@ -3130,8 +3130,9 @@ where
     {
         self.check_existing_links().into_mult()?;
         let ms = NamedVec::try_new(xs, prefix).into_mult()?;
-        let l = &self.layout;
-        l.check_measurement_vector(&ms).mult_errors_into()?;
+        self.layout
+            .check_measurement_vector(&ms)
+            .mult_errors_into()?;
         self.measurements = ms;
         Ok(())
     }

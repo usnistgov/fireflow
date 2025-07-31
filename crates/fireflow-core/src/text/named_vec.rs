@@ -2001,7 +2001,7 @@ impl fmt::Display for SetKeysError {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{ElementIndexError, KeyLengthError, RawInput, SetKeysError};
+    use super::{Either, ElementIndexError, KeyLengthError, RawInput, SetKeysError};
     use crate::python::macros::{impl_index_err, impl_pyreflow_err};
     use crate::text::optional::MightHave;
     use crate::validated::shortname::Shortname;
@@ -2019,7 +2019,8 @@ mod python {
         V: FromPyObject<'py>,
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            ob.extract::<RawInput<K, U, V>>()
+            let ret: Vec<Either<K, U, V>> = ob.extract()?;
+            Ok(Self(ret))
         }
     }
 

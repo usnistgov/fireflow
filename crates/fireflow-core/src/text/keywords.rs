@@ -553,7 +553,7 @@ impl fmt::Display for CalibrationFormat3_2 {
 /// The value for the $PnL key (2.0/3.0).
 #[derive(Clone, Copy, From, FromStr, Display, Into)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(f32, PositiveFloat)]
 pub struct Wavelength(pub PositiveFloat);
 
@@ -2189,7 +2189,7 @@ mod python {
     use super::{
         AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Display, Feature,
         FeatureError, Mode, Mode3_2, Mode3_2Error, ModeError, NumType, NumTypeError, OpticalType,
-        OpticalTypeError, Originality, OriginalityError, Trigger, Unicode, Wavelengths,
+        OpticalTypeError, Originality, OriginalityError, Trigger, Unicode, Wavelength, Wavelengths,
     };
 
     use nonempty::NonEmpty;
@@ -2213,6 +2213,12 @@ mod python {
     impl_str_py!(Mode, ModeError);
     impl_str_py!(Mode3_2, Mode3_2Error);
     impl_str_py!(OpticalType, OpticalTypeError);
+
+    impl<'py> FromPyObject<'py> for Wavelength {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            Ok(Self(ob.extract()?))
+        }
+    }
 
     // $PnL (3.1+) should be represented as a list of floats
     impl<'py> FromPyObject<'py> for Wavelengths {

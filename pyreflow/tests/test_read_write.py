@@ -1,5 +1,5 @@
 from typing import cast
-from datetime import date, datetime, time
+from datetime import date, datetime, time, tzinfo, timezone, timedelta
 
 import pytest
 
@@ -1130,10 +1130,131 @@ class TestCore:
         "core",
         [
             lazy_fixture(c)
+            for c in [
+                "text2_2_0",
+                "text2_3_0",
+                "text2_3_1",
+                "dataset2_2_0",
+                "dataset2_3_0",
+                "dataset2_3_1",
+            ]
+        ],
+    )
+    def test_mode(
+        self,
+        core: pf.CoreTEXT2_0
+        | pf.CoreTEXT3_0
+        | pf.CoreTEXT3_1
+        | pf.CoreDataset2_0
+        | pf.CoreDataset3_0
+        | pf.CoreDataset3_1,
+    ) -> None:
+        assert core.mode == "L"
+        core.mode = "U"
+        assert core.mode == "U"
+        with pytest.raises(ValueError):
+            core.mode = "fart"  # type: ignore
+
+    @pytest.mark.parametrize(
+        "core",
+        [
+            lazy_fixture(c)
+            for c in [
+                "text2_2_0",
+                "text2_3_0",
+                "text2_3_1",
+                "dataset2_2_0",
+                "dataset2_3_0",
+                "dataset2_3_1",
+            ]
+        ],
+    )
+    def test_cyt(
+        self,
+        core: pf.CoreTEXT2_0
+        | pf.CoreTEXT3_0
+        | pf.CoreTEXT3_1
+        | pf.CoreDataset2_0
+        | pf.CoreDataset3_0
+        | pf.CoreDataset3_1,
+    ) -> None:
+        assert core.cyt is None
+        core.cyt = "meat grinder"
+        assert core.cyt == "meat grinder"
+
+    @pytest.mark.parametrize(
+        "core",
+        [lazy_fixture(c) for c in ["text2_3_2", "dataset2_3_2"]],
+    )
+    @pytest.mark.parametrize(
+        "attr, good, bad",
+        [
+            ("flowrate", "plaid", 0.5),
+            ("unstainedinfo", "(redacted)", 1.61),
+            ("carriertype", "pigeon", -39),
+            ("carrierid", "bloodwing", 0xDEADBEEF),
+            ("locationid", "0", 3),
+            (
+                "begindatetime",
+                datetime(2112, 1, 1, tzinfo=timezone(timedelta(hours=-5))),
+                "root",
+            ),
+            (
+                "enddatetime",
+                datetime(2112, 1, 2, tzinfo=timezone(timedelta(hours=-5))),
+                "octave",
+            ),
+        ],
+    )
+    def test_metaroot_3_2_opt(
+        self,
+        core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
+        attr: str,
+        good,
+        bad,
+    ) -> None:
+        assert getattr(core, attr) is None
+        setattr(core, attr, good)
+        assert getattr(core, attr) == good
+        with pytest.raises(TypeError):
+            setattr(core, attr, bad)
+
+    @pytest.mark.parametrize(
+        "core",
+        [lazy_fixture(c) for c in ["text2_3_2", "dataset2_3_2"]],
+    )
+    def test_metaroot_3_2_mode(
+        self,
+        core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
+    ) -> None:
+        assert core.mode is None
+        core.mode = "L"
+        assert core.mode == "L"
+        with pytest.raises(ValueError):
+            core.mode = "bear"  # type: ignore
+
+    @pytest.mark.parametrize(
+        "core",
+        [lazy_fixture(c) for c in ["text2_3_2", "dataset2_3_2"]],
+    )
+    def test_metaroot_3_2_cyt(
+        self,
+        core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
+    ) -> None:
+        new = "meat grinder"
+        core.cyt = new
+        assert core.cyt == new
+        with pytest.raises(TypeError):
+            core.cyt = cast(str, None)
+
+    @pytest.mark.parametrize(
+        "core",
+        [
+            lazy_fixture(c)
             for c in ["text2_2_0", "text2_3_0", "dataset2_2_0", "dataset2_3_0"]
         ],
     )
-    def test_wavelengths_singleton(
+    def test_meas_wavelengths_singleton(
         self,
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
     ) -> None:
@@ -1152,7 +1273,7 @@ class TestCore:
             for c in ["text2_3_1", "text2_3_2", "dataset2_3_1", "dataset2_3_2"]
         ],
     )
-    def test_wavelengths_vector(
+    def test_meas_wavelengths_vector(
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
     ) -> None:
@@ -1174,7 +1295,7 @@ class TestCore:
             for c in ["text2_3_1", "text2_3_2", "dataset2_3_1", "dataset2_3_2"]
         ],
     )
-    def test_displays(
+    def test_meas_displays(
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
     ) -> None:

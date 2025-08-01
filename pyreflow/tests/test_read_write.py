@@ -1422,7 +1422,7 @@ class TestCore:
         assert isinstance(new, target)
 
 
-class TestOptical:
+class TestMeas:
     @all_blank_meas
     def test_longname(self, meas: AnyMeas) -> None:
         assert meas.longname is None

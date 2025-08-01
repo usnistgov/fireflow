@@ -1249,7 +1249,35 @@ class TestCore:
         core.set_features(["Area"])
         core.features == [(0, "Area")]
         with pytest.raises(ValueError):
-            core.set_features(["Earth Minutes"])
+            core.set_features(["Earth Minutes"])  # type: ignore
+
+    @pytest.mark.parametrize(
+        "core",
+        [lazy_fixture(c) for c in ["text2_3_1", "dataset2_3_1"]],
+    )
+    def test_meas_3_1_calibration(
+        self, core: pf.CoreTEXT3_1 | pf.CoreDataset3_1
+    ) -> None:
+        new = (0.5, "NVidia A100 Heat Output")
+        core.calibrations == [(0, None)]
+        core.set_calibrations([new])
+        core.calibrations == [(0, new)]
+        with pytest.raises(TypeError):
+            core.set_calibrations(["AMD Threadripper Power Conumptions"])  # type: ignore
+
+    @pytest.mark.parametrize(
+        "core",
+        [lazy_fixture(c) for c in ["text2_3_2", "dataset2_3_2"]],
+    )
+    def test_meas_3_2_calibration(
+        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2
+    ) -> None:
+        new = (0.5, 0.25, "Gouda Cheese Wheels")
+        core.calibrations == [(0, None)]
+        core.set_calibrations([new])
+        core.calibrations == [(0, new)]
+        with pytest.raises(TypeError):
+            core.set_calibrations(["Sacred Cows"])  # type: ignore
 
     @pytest.mark.parametrize(
         "core",

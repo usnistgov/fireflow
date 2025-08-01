@@ -302,7 +302,7 @@ class TestCore:
         assert getattr(core, attr) == good
         with pytest.raises(TypeError):
             setattr(core, attr, "420")
-        with pytest.raises(TypeError):
+        with pytest.raises(OverflowError):
             setattr(core, attr, -420)
 
     # all of these attributes should be either None or a string
@@ -418,7 +418,7 @@ class TestCore:
         newer = 0.0
         getattr(core, set)([newer])
         assert getattr(core, get) == [(0, newer)]
-        with pytest.raises(TypeError):
+        with pytest.raises(ValueError):
             getattr(core, set)([-1.0])
         with pytest.raises(TypeError):
             getattr(core, set)(["pickle rick"])
@@ -1093,7 +1093,7 @@ class TestCore:
         assert core.vol == 0.0
         core.vol = 1.0
         assert core.vol == 1.0
-        with pytest.raises(TypeError):
+        with pytest.raises(ValueError):
             core.vol = -1.0
 
     @pytest.mark.parametrize(

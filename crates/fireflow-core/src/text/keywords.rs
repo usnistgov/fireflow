@@ -36,6 +36,9 @@ use std::str::FromStr;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
+use crate::python::macros::impl_from_py_transparent;
+
+#[cfg(feature = "python")]
 use pyo3::prelude::*;
 
 /// Value for $NEXTDATA (all versions)
@@ -50,7 +53,7 @@ pub struct Gain(pub PositiveFloat);
 /// The value of the $TIMESTEP keyword
 #[derive(Clone, Copy, PartialEq, From, Display, FromStr, Into)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(f32, PositiveFloat)]
 pub struct Timestep(pub PositiveFloat);
 
@@ -88,7 +91,7 @@ impl fmt::Display for TimestepLossError {
 /// The value of the $VOL keyword
 #[derive(Clone, Copy, From, Display, FromStr, Into)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(NonNegFloat, f32)]
 pub struct Vol(pub NonNegFloat);
 
@@ -648,7 +651,7 @@ impl fmt::Display for WavelengthsError {
 /// correct format
 #[derive(Clone, Copy, From, Into)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ModifiedDateTime(pub NaiveDateTime);
 
 const DATETIME_FMT: &str = "%d-%b-%Y %H:%M:%S";
@@ -1397,7 +1400,7 @@ impl fmt::Display for GatingError {
 /// The value of the $PnR key.
 #[derive(Clone, From, Display, FromStr, Add, Sub)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[from(u8, u16, u32, u64, BigDecimal)]
 pub struct Range(pub BigDecimal);
 
@@ -1542,7 +1545,7 @@ pub struct GateRange(pub Range);
 /// The value of the $PnO key
 #[derive(Clone, Copy, From, Display, FromStr, Into)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(NonNegFloat, f32)]
 pub struct Power(pub NonNegFloat);
 
@@ -1551,7 +1554,7 @@ impl_newtype_try_from!(Power, NonNegFloat, f32, RangedFloatError);
 /// The value of the $PnV key
 #[derive(Clone, Copy, From, Display, FromStr, Into)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(NonNegFloat, f32)]
 pub struct DetectorVoltage(pub NonNegFloat);
 
@@ -1620,8 +1623,11 @@ macro_rules! newtype_int {
     ($t:ident, $type:ty) => {
         #[derive(Clone, Copy, Display, FromStr, From, Into)]
         #[cfg_attr(feature = "serde", derive(Serialize))]
-        #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+        #[cfg_attr(feature = "python", derive(IntoPyObject))]
         pub struct $t(pub $type);
+
+        #[cfg(feature = "python")]
+        impl_from_py_transparent!($t);
     };
 }
 
@@ -2182,14 +2188,17 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::{impl_from_py_via_fromstr, impl_to_py_via_display, impl_value_err};
+    use crate::python::macros::{
+        impl_from_py_transparent, impl_from_py_via_fromstr, impl_to_py_via_display, impl_value_err,
+    };
     use crate::text::ranged_float::PositiveFloat;
     use crate::validated::shortname::Shortname;
 
     use super::{
-        AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Display, Feature,
-        FeatureError, Mode, Mode3_2, Mode3_2Error, ModeError, NumType, NumTypeError, OpticalType,
-        OpticalTypeError, Originality, OriginalityError, Trigger, Unicode, Wavelength, Wavelengths,
+        AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, DetectorVoltage, Display,
+        Feature, FeatureError, Mode, Mode3_2, Mode3_2Error, ModeError, ModifiedDateTime, NumType,
+        NumTypeError, OpticalType, OpticalTypeError, Originality, OriginalityError, Power, Range,
+        Timestep, Trigger, Unicode, Vol, Wavelength, Wavelengths,
     };
 
     use nonempty::NonEmpty;
@@ -2214,11 +2223,13 @@ mod python {
     impl_str_py!(Mode3_2, Mode3_2Error);
     impl_str_py!(OpticalType, OpticalTypeError);
 
-    impl<'py> FromPyObject<'py> for Wavelength {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            Ok(Self(ob.extract()?))
-        }
-    }
+    impl_from_py_transparent!(Wavelength);
+    impl_from_py_transparent!(Vol);
+    impl_from_py_transparent!(Timestep);
+    impl_from_py_transparent!(ModifiedDateTime);
+    impl_from_py_transparent!(Range);
+    impl_from_py_transparent!(DetectorVoltage);
+    impl_from_py_transparent!(Power);
 
     // $PnL (3.1+) should be represented as a list of floats
     impl<'py> FromPyObject<'py> for Wavelengths {

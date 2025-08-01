@@ -93,17 +93,17 @@ pub struct Core<A, D, O, M, T, P, N, W, L> {
 
 /// The ANALYSIS segment, which is just a string of bytes
 #[derive(Clone, From)]
-#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct Analysis(pub Vec<u8>);
 
 /// An OTHER segment, which is just a string of bytes
 #[derive(Clone, From)]
-#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct Other(pub Vec<u8>);
 
 /// All OTHER segments
 #[derive(Clone, Default, From)]
-#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct Others(pub Vec<Other>);
 
 /// Root of the metadata hierarchy.
@@ -8864,17 +8864,22 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::impl_pyreflow_err;
+    use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
     use crate::text::ranged_float::PositiveFloat;
 
     use super::{
-        ColumnsToDataframeError, CompParMismatchError, ExistingLinkError,
-        MissingMeasurementNameError, ScaleTransform, SetSpilloverError, TriggerLinkError,
+        Analysis, ColumnsToDataframeError, CompParMismatchError, ExistingLinkError,
+        MissingMeasurementNameError, Other, Others, ScaleTransform, SetSpilloverError,
+        TriggerLinkError,
     };
 
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
     use pyo3::IntoPyObjectExt;
+
+    impl_from_py_transparent!(Analysis);
+    impl_from_py_transparent!(Other);
+    impl_from_py_transparent!(Others);
 
     // $PnE/$PnG (3.0+) as a tuple like (f32) or (f32, f32) in python
     impl<'py> FromPyObject<'py> for ScaleTransform {

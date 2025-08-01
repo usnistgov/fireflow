@@ -8,6 +8,9 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
+#[cfg(feature = "python")]
+use crate::python::macros::impl_from_py_transparent;
+
 /// An index starting at 1, used as the basis for keyword indices
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug, Display, FromStr)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -29,12 +32,15 @@ macro_rules! newtype_index {
     ($(#[$attr:meta])* $t:ident) => {
         $(#[$attr])*
         #[cfg_attr(feature = "serde", derive(Serialize))]
-        #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+        #[cfg_attr(feature = "python", derive(IntoPyObject))]
         #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug,
                  FromStr, Display, From, Into)]
         #[from(IndexFromOne, usize)]
         #[into(IndexFromOne, usize)]
         pub struct $t(pub IndexFromOne);
+
+        #[cfg(feature = "python")]
+        impl_from_py_transparent!($t);
     };
 }
 

@@ -12,22 +12,17 @@ use std::mem;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-#[cfg(feature = "python")]
-use pyo3::prelude::*;
-
 /// A value that might exist.
 ///
 /// This is basically [`Option`] but more obvious in what it indicates. It also
 /// allows some nice methods to be built on top of [`Option`].
 #[derive(Debug, Clone, PartialEq, Eq, AsRef, AsMut)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyObject))]
 pub struct MaybeValue<T>(pub Option<T>);
 
 /// A value that always exists.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyObject))]
 pub struct AlwaysValue<T>(pub T);
 
 /// A value that always exists.
@@ -294,5 +289,30 @@ pub struct MaybeToAlwaysError;
 impl fmt::Display for MaybeToAlwaysError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "optional keyword value is blank",)
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::{AlwaysValue, MaybeValue};
+
+    use pyo3::prelude::*;
+
+    impl<'py, T> FromPyObject<'py> for AlwaysValue<T>
+    where
+        T: FromPyObject<'py>,
+    {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            Ok(Self(ob.extract()?))
+        }
+    }
+
+    impl<'py, T> FromPyObject<'py> for MaybeValue<T>
+    where
+        T: FromPyObject<'py>,
+    {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            Ok(Self(ob.extract()?))
+        }
     }
 }

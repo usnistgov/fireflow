@@ -11,9 +11,6 @@ use std::num::{NonZero, NonZeroU8};
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-#[cfg(feature = "python")]
-use pyo3::prelude::*;
-
 /// The type of an ASCII column in all versions
 ///
 /// Fields are private to guarantee they are always in sync.
@@ -41,7 +38,6 @@ pub struct Chars(NonZeroU8);
 ///
 /// Must be an integer between 1 and 20.
 #[derive(Clone, Copy, Into, From)]
-#[cfg_attr(feature = "python", derive(FromPyObject))]
 #[into(u8, Chars)]
 pub struct OtherWidth(pub Chars);
 
@@ -233,17 +229,10 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{Chars, CharsError};
-    use crate::python::macros::impl_value_err;
-    use pyo3::prelude::*;
+    use super::{Chars, CharsError, OtherWidth};
+    use crate::python::macros::{impl_from_py_transparent, impl_try_from_py, impl_value_err};
 
-    impl<'py> FromPyObject<'py> for Chars {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let x: u8 = ob.extract()?;
-            let ret = Chars::try_from(x)?;
-            Ok(ret)
-        }
-    }
-
+    impl_from_py_transparent!(OtherWidth);
+    impl_try_from_py!(Chars, u8);
     impl_value_err!(CharsError);
 }

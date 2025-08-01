@@ -1,10 +1,13 @@
 from typing import cast
 from datetime import date, datetime, time, tzinfo, timezone, timedelta
+from decimal import Decimal
 
 import pytest
 
 from pyreflow.typing import (
     Trigger,
+    MixedType,
+    Datatype,
     AnyCoreTEXT,
     AnyCoreDataset,
     AnyOptical,
@@ -1566,3 +1569,85 @@ class TestMeas:
         assert meas.nonstandard_get(k) == v1
         assert meas.nonstandard_remove(k) == v1
         assert meas.nonstandard_remove(k) is None
+
+
+class TestLayouts:
+    def test_ascii_fixed(self) -> None:
+        ranges = [9, 99, 999]
+        new = pf.AsciiFixedLayout(ranges)
+        assert new.widths == [1, 2, 3]
+        assert new.ranges == ranges
+        assert new.datatype == "A"
+        assert new.datatypes == ["A"] * 3
+        with pytest.raises(OverflowError):
+            ranges = [1 * 10**20]
+            new = pf.AsciiFixedLayout(ranges)
+
+    def test_ascii_delim(self) -> None:
+        ranges = [9, 99, 999]
+        new = pf.AsciiDelimLayout(ranges)
+        assert new.widths is None
+        assert new.ranges == ranges
+        assert new.datatype == "A"
+        assert new.datatypes == ["A"] * 3
+
+    @pytest.mark.parametrize(
+        "layout, width",
+        [
+            (pf.OrderedUint08Layout, 8),
+            (pf.OrderedUint16Layout, 16),
+            (pf.OrderedUint24Layout, 24),
+            (pf.OrderedUint32Layout, 32),
+            (pf.OrderedUint40Layout, 40),
+            (pf.OrderedUint48Layout, 48),
+            (pf.OrderedUint56Layout, 56),
+            (pf.OrderedUint64Layout, 64),
+        ],
+    )
+    def test_ordered_uint(self, layout: type, width: int) -> None:
+        n = int(width / 8)
+        bitmasks = [2 ** (8 * (b + 1)) - 1 for b in range(n)]
+        new = layout(bitmasks, False)
+        assert new.byte_order == [r + 1 for r in range(n)]
+        assert new.widths == [width] * len(bitmasks)
+        assert new.ranges == [Decimal(r) for r in bitmasks]
+        assert new.datatype == "I"
+        assert new.datatypes == ["I"] * len(bitmasks)
+        with pytest.raises(OverflowError):
+            layout([2**width], False)
+
+    @pytest.mark.parametrize(
+        "layout, width, datatype",
+        [
+            (pf.OrderedF32Layout, 32, "F"),
+            (pf.OrderedF64Layout, 64, "D"),
+            (pf.EndianF32Layout, 32, "F"),
+            (pf.EndianF64Layout, 64, "D"),
+        ],
+    )
+    def test_float(self, layout: type, width: int, datatype: Datatype) -> None:
+        n = 3
+        new = layout([1000.0] * n, False)
+        assert new.widths == [width] * n
+        assert new.ranges == [Decimal("1000.0")] * n
+        assert new.datatype == datatype
+        assert new.datatypes == [datatype] * n
+        with pytest.raises(ValueError):
+            layout([float("inf")], False)
+
+    def test_endian_uint(self) -> None:
+        ranges = [2**8 - 1, 2**16 - 1, 2**24 - 1]
+        new = pf.EndianUintLayout(ranges, False)
+        assert new.widths == [8, 16, 24]
+        assert new.ranges == ranges
+        assert new.datatype == "I"
+        assert new.datatypes == ["I"] * 3
+
+    def test_mixed(self) -> None:
+        ranges: list[MixedType] = [("F", 1000.0), ("D", 2000.0), ("I", 255)]
+        new = pf.MixedLayout(ranges, False)
+        assert new.widths == [32, 64, 8]
+        assert new.ranges == [Decimal(1000.0), Decimal(2000.0), Decimal(255)]
+        # TODO this is weird...why is the top-level type integer?
+        assert new.datatype == "I"
+        assert new.datatypes == ["F", "D", "I"]

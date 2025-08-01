@@ -1166,3 +1166,22 @@ class TestCore:
             core.set_wavelengths([[-1.0]])
         with pytest.raises(ValueError):
             core.set_wavelengths([[]])
+
+    @pytest.mark.parametrize(
+        "core",
+        [
+            lazy_fixture(c)
+            for c in ["text2_3_1", "text2_3_2", "dataset2_3_1", "dataset2_3_2"]
+        ],
+    )
+    def test_displays(
+        self,
+        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
+    ) -> None:
+        assert core.displays == [None, None]
+        new: list[tuple[bool, float, float] | None] = [
+            (False, -1.0, 2.0),
+            (True, 4.0, 0.5),
+        ]
+        core.displays = new
+        assert core.displays == new

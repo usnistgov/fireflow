@@ -23,6 +23,7 @@ use fireflow_core::validated::bitmask as bm;
 use fireflow_core::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
 use fireflow_core::validated::keys::{NonStdKey, StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::{Shortname, ShortnamePrefix};
+use fireflow_core::validated::textdelim::TEXTDelim;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
 use derive_more::{From, Into};
@@ -32,6 +33,8 @@ use pyo3::prelude::*;
 use pyo3::types::PyType;
 use pyo3_polars::PyDataFrame;
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::BufWriter;
 use std::num::NonZeroU8;
 use std::path::PathBuf;
 
@@ -731,6 +734,12 @@ macro_rules! common_methods {
             #[setter]
             fn set_all_shortnames(&mut self, names: Vec<Shortname>) -> PyResult<()> {
                 Ok(self.0.set_all_shortnames(names).void()?)
+            }
+
+            fn write_text(&self, path: PathBuf, delim: TEXTDelim) -> PyResult<()> {
+                let f = File::options().write(true).open(path)?;
+                let mut h = BufWriter::new(f);
+                self.0.h_write_text(&mut h, delim).py_term_resolve_nowarn()
             }
         }
     };

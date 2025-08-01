@@ -30,6 +30,16 @@ impl fmt::Display for TEXTDelimError {
     }
 }
 
+#[cfg(feature = "python")]
+mod python {
+    use crate::python::macros::{impl_try_from_py, impl_value_err};
+
+    use super::{TEXTDelim, TEXTDelimError};
+
+    impl_value_err!(TEXTDelimError);
+    impl_try_from_py!(TEXTDelim, u8);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

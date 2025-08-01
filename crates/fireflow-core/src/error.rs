@@ -1006,6 +1006,8 @@ pub trait ResultExt {
     ) -> Tentative<Self::V, Self::E, Self::E>;
 
     fn into_tentative_opt(self, is_error: bool) -> Tentative<Option<Self::V>, Self::E, Self::E>;
+
+    fn terminate<T, W>(self, reason: T) -> TerminalResult<Self::V, W, Self::E, T>;
 }
 
 impl<V, E> ResultExt for Result<V, E> {
@@ -1067,6 +1069,11 @@ impl<V, E> ResultExt for Result<V, E> {
 
     fn into_tentative_opt(self, is_error: bool) -> Tentative<Option<Self::V>, Self::E, Self::E> {
         self.map(Some).into_tentative(None, is_error)
+    }
+
+    fn terminate<T, W>(self, reason: T) -> TerminalResult<Self::V, W, Self::E, T> {
+        self.map_err(|e| TerminalFailure::new(NonEmpty::new(e), reason))
+            .map(Terminal::new)
     }
 }
 

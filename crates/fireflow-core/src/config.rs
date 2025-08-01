@@ -204,8 +204,6 @@ pub struct WriteConfig {
     /// any lossy conversion will halt immediately and return an error to the
     /// user.
     pub disallow_lossy_conversions: bool,
-    // /// Shared configuration options
-    // pub shared: SharedConfig,
 }
 
 #[derive(Default, Clone)]

@@ -21,6 +21,7 @@ use crate::validated::ascii_uint::Uint8DigitOverflow;
 use crate::validated::dataframe::*;
 use crate::validated::keys::*;
 use crate::validated::shortname::*;
+use crate::validated::textdelim::TEXTDelim;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, Timelike};
 use derive_more::{AsMut, AsRef, Display, From};
@@ -2035,24 +2036,32 @@ where
     M: VersionedMetaroot,
     M::Name: Clone,
 {
-    pub(crate) fn fcs_version(&self) -> Version
+    /// Write this core structure (HEADER+TEXT) to a handle
+    pub fn h_write_text<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        delim: TEXTDelim,
+    ) -> IOTerminalResult<(), (), Uint8DigitOverflow, WriteTEXTFailure>
     where
         Version: From<M::Ver>,
     {
-        M::Ver::fcs_version().into()
-    }
+        self.header_and_raw_keywords(Tot(0), 0, 0, vec![])
+            .map_err(ImpureError::Pure)
+            .and_then(|hdr_kws| {
+                // write HEADER
+                hdr_kws.header.h_write(h, M::Ver::fcs_version().into())?;
 
-    pub(crate) fn try_cols_to_dataframe(
-        &self,
-        cols: Vec<AnyFCSColumn>,
-    ) -> Result<FCSDataFrame, ColumnsToDataframeError> {
-        let data_n = cols.len();
-        let meas_n = self.par().0;
-        if data_n != meas_n {
-            return Err(MeasDataMismatchError { meas_n, data_n }.into());
-        }
-        let df = FCSDataFrame::try_new(cols)?;
-        Ok(df)
+                // write primary TEXT
+                hdr_kws.primary.h_write(h, delim.into())?;
+
+                // write supplemental TEXT
+                if !hdr_kws.supplemental.0.is_empty() {
+                    hdr_kws.supplemental.h_write(h, delim.into())?;
+                }
+
+                Ok(())
+            })
+            .terminate(WriteTEXTFailure)
     }
 
     /// Return all keywords as an ordered list of pairs
@@ -3395,6 +3404,26 @@ where
     fn measurement_names(&self) -> HashSet<&Shortname> {
         self.measurements.indexed_names().map(|(_, x)| x).collect()
     }
+
+    pub(crate) fn fcs_version(&self) -> Version
+    where
+        Version: From<M::Ver>,
+    {
+        M::Ver::fcs_version().into()
+    }
+
+    pub(crate) fn try_cols_to_dataframe(
+        &self,
+        cols: Vec<AnyFCSColumn>,
+    ) -> Result<FCSDataFrame, ColumnsToDataframeError> {
+        let data_n = cols.len();
+        let meas_n = self.par().0;
+        if data_n != meas_n {
+            return Err(MeasDataMismatchError { meas_n, data_n }.into());
+        }
+        let df = FCSDataFrame::try_new(cols)?;
+        Ok(df)
+    }
 }
 
 impl<M> VersionedCoreTEXT<M>
@@ -3679,7 +3708,7 @@ where
     }
 
     /// Write this dataset (HEADER+TEXT+DATA+ANALYSIS+OTHER) to a handle
-    pub fn h_write<W: Write>(
+    pub fn h_write_dataset<W: Write>(
         &self,
         h: &mut BufWriter<W>,
         conf: &WriteConfig,
@@ -8771,6 +8800,10 @@ def_failure!(
     SetMeasurementsAndDataFailure,
     "could not set measurements and data"
 );
+
+def_failure!(WriteTEXTFailure, "could not write HEADER and TEXT segments");
+
+def_failure!(WriteDatasetFailure, "could not write FCS file");
 
 #[cfg(feature = "serde")]
 mod serialize {

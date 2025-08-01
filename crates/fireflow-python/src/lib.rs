@@ -1402,7 +1402,6 @@ macro_rules! scales_methods {
                     .collect()
             }
 
-            #[setter]
             fn set_scales(&mut self, scales: Vec<Option<Scale>>) -> PyResult<()> {
                 self.0.set_scales(scales).py_term_resolve_nowarn()
             }

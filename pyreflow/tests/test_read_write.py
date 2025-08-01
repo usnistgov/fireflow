@@ -962,6 +962,15 @@ class TestCore:
         "core",
         [lazy_fixture(c) for c in ["text2_2_0", "dataset2_2_0"]],
     )
+    def test_scales(self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0) -> None:
+        assert core.scales == [(0, None)]
+        core.set_scales([()])
+        assert core.scales == [(0, ())]
+
+    @pytest.mark.parametrize(
+        "core",
+        [lazy_fixture(c) for c in ["text2_2_0", "dataset2_2_0"]],
+    )
     def test_all_scales(self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0) -> None:
         assert core.all_scales == [None, ()]
 

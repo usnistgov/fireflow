@@ -573,47 +573,6 @@ impl PyCoreTEXT3_2 {
     fn new(cyt: String, datatype: kws::AlphaNumType) -> Self {
         core::CoreTEXT3_2::new(cyt, datatype).into()
     }
-
-    #[getter]
-    fn get_begindatetime(&self) -> Option<DateTime<FixedOffset>> {
-        self.0.begindatetime()
-    }
-
-    #[setter]
-    fn set_begindatetime(&mut self, x: Option<DateTime<FixedOffset>>) -> PyResult<()> {
-        Ok(self.0.set_begindatetime(x)?)
-    }
-
-    #[getter]
-    fn get_enddatetime(&self) -> Option<DateTime<FixedOffset>> {
-        self.0.enddatetime()
-    }
-
-    #[setter]
-    fn set_enddatetime(&mut self, x: Option<DateTime<FixedOffset>>) -> PyResult<()> {
-        Ok(self.0.set_enddatetime(x)?)
-    }
-
-    #[getter]
-    fn get_unstained_centers(&self) -> Option<HashMap<Shortname, f32>> {
-        self.0.metaroot_opt::<UnstainedCenters>().map(|y| {
-            <HashMap<Shortname, f32>>::from(y.clone())
-                .into_iter()
-                .collect()
-        })
-    }
-
-    fn insert_unstained_center(&mut self, name: Shortname, value: f32) -> PyResult<Option<f32>> {
-        Ok(self.0.insert_unstained_center(name, value)?)
-    }
-
-    fn remove_unstained_center(&mut self, name: Shortname) -> Option<f32> {
-        self.0.remove_unstained_center(&name)
-    }
-
-    fn clear_unstained_centers(&mut self) {
-        self.0.clear_unstained_centers()
-    }
 }
 
 // Get/set methods for all versions
@@ -1369,6 +1328,61 @@ shortnames_methods!(PyCoreTEXT2_0);
 shortnames_methods!(PyCoreTEXT3_0);
 shortnames_methods!(PyCoreDataset2_0);
 shortnames_methods!(PyCoreDataset3_0);
+
+macro_rules! get_set_3_2 {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            #[getter]
+            fn get_begindatetime(&self) -> Option<DateTime<FixedOffset>> {
+                self.0.begindatetime()
+            }
+
+            #[setter]
+            fn set_begindatetime(&mut self, x: Option<DateTime<FixedOffset>>) -> PyResult<()> {
+                Ok(self.0.set_begindatetime(x)?)
+            }
+
+            #[getter]
+            fn get_enddatetime(&self) -> Option<DateTime<FixedOffset>> {
+                self.0.enddatetime()
+            }
+
+            #[setter]
+            fn set_enddatetime(&mut self, x: Option<DateTime<FixedOffset>>) -> PyResult<()> {
+                Ok(self.0.set_enddatetime(x)?)
+            }
+
+            #[getter]
+            fn get_unstained_centers(&self) -> Option<HashMap<Shortname, f32>> {
+                self.0.metaroot_opt::<UnstainedCenters>().map(|y| {
+                    <HashMap<Shortname, f32>>::from(y.clone())
+                        .into_iter()
+                        .collect()
+                })
+            }
+
+            fn insert_unstained_center(
+                &mut self,
+                name: Shortname,
+                value: f32,
+            ) -> PyResult<Option<f32>> {
+                Ok(self.0.insert_unstained_center(name, value)?)
+            }
+
+            fn remove_unstained_center(&mut self, name: Shortname) -> Option<f32> {
+                self.0.remove_unstained_center(&name)
+            }
+
+            fn clear_unstained_centers(&mut self) {
+                self.0.clear_unstained_centers()
+            }
+        }
+    };
+}
+
+get_set_3_2!(PyCoreTEXT3_2);
+get_set_3_2!(PyCoreDataset3_2);
 
 // Get/set methods for $PnE (2.0)
 macro_rules! scales_methods {

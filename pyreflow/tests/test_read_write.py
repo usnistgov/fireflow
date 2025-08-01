@@ -1249,6 +1249,28 @@ class TestCore:
 
     @pytest.mark.parametrize(
         "core",
+        [lazy_fixture(c) for c in ["text2_3_2", "dataset2_3_2"]],
+    )
+    def test_unstained_centers(
+        self,
+        core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
+    ) -> None:
+        # TODO this is a bit awkward, could just be an empty dict
+        core.unstained_centers is None
+        assert core.insert_unstained_center(LINK_NAME1, 42) is None
+        core.unstained_centers == {LINK_NAME1: 42}
+        assert core.insert_unstained_center(LINK_NAME1, 43) == 42
+        assert core.remove_unstained_center(LINK_NAME1) == 43
+        core.unstained_centers is None
+        core.insert_unstained_center(LINK_NAME1, 42)
+        core.unstained_centers is not None
+        core.clear_unstained_centers()
+        core.unstained_centers is None
+        core.clear_unstained_centers()
+        core.unstained_centers is None
+
+    @pytest.mark.parametrize(
+        "core",
         [
             lazy_fixture(c)
             for c in ["text2_2_0", "text2_3_0", "dataset2_2_0", "dataset2_3_0"]

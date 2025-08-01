@@ -229,17 +229,20 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             Element<&'a Pair<Shortname, U>, &'a WrappedPair<K, V>>,
         ),
     > + 'a {
-        let go = |xs: &'a [WrappedPair<K, V>]| {
+        let go = |xs: &'a [WrappedPair<K, V>], offset: usize| {
             xs.iter()
-                .enumerate()
-                .map(|(i, p)| (i.into(), Element::NonCenter(p)))
+                .zip(offset..)
+                .map(|(p, i)| (i.into(), Element::NonCenter(p)))
         };
         match self {
             NamedVec::Split(s, _) => {
-                let c = (s.left.len().into(), Element::Center(&(*s.center)));
-                go(&s.left).chain(vec![c]).chain(go(&s.right))
+                let ln = s.left.len();
+                let c = (ln.into(), Element::Center(&(*s.center)));
+                go(&s.left, 0).chain(vec![c]).chain(go(&s.right, ln + 1))
             }
-            NamedVec::Unsplit(u) => go(&u.members).chain(vec![]).chain(go(&u.members[0..0])),
+            NamedVec::Unsplit(u) => go(&u.members, 0)
+                .chain(vec![])
+                .chain(go(&u.members[0..0], 0)),
         }
     }
 

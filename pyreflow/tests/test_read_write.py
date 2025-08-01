@@ -248,46 +248,30 @@ def dataset2_3_2(
     return dataset_3_2
 
 
-all_blank_core = pytest.mark.parametrize(
+def parameterize_core(arg: str, versions: list[str], targets: list[str]):
+    return pytest.mark.parametrize(
+        arg,
+        [lazy_fixture(f"{t}_{v}") for v in versions for t in targets],
+    )
+
+
+all_blank_core = parameterize_core(
     "core",
-    [
-        lazy_fixture("blank_text_2_0"),
-        lazy_fixture("blank_text_3_0"),
-        lazy_fixture("blank_text_3_1"),
-        lazy_fixture("blank_text_3_2"),
-        lazy_fixture("blank_dataset_2_0"),
-        lazy_fixture("blank_dataset_3_0"),
-        lazy_fixture("blank_dataset_3_1"),
-        lazy_fixture("blank_dataset_3_2"),
-    ],
+    ["2_0", "3_0", "3_1", "3_2"],
+    ["blank_text", "blank_dataset"],
 )
 
-all_core = pytest.mark.parametrize(
+
+all_core = parameterize_core(
     "core",
-    [
-        lazy_fixture("text_2_0"),
-        lazy_fixture("text_3_0"),
-        lazy_fixture("text_3_1"),
-        lazy_fixture("text_3_2"),
-        lazy_fixture("dataset_2_0"),
-        lazy_fixture("dataset_3_0"),
-        lazy_fixture("dataset_3_1"),
-        lazy_fixture("dataset_3_2"),
-    ],
+    ["2_0", "3_0", "3_1", "3_2"],
+    ["text", "dataset"],
 )
 
-all_text2 = pytest.mark.parametrize(
+all_core2 = parameterize_core(
     "core",
-    [
-        lazy_fixture("text2_2_0"),
-        lazy_fixture("text2_3_0"),
-        lazy_fixture("text2_3_1"),
-        lazy_fixture("text2_3_2"),
-        lazy_fixture("dataset2_2_0"),
-        lazy_fixture("dataset2_3_0"),
-        lazy_fixture("dataset2_3_1"),
-        lazy_fixture("dataset2_3_2"),
-    ],
+    ["2_0", "3_0", "3_1", "3_2"],
+    ["text2", "dataset2"],
 )
 
 
@@ -390,6 +374,233 @@ class TestCore:
         with pytest.raises(TypeError):
             core.longnames = [cast(str, 42)]
 
+    # TODO add raw_keywords test
+
+    @parameterize_core("core", ["2_0", "3_0"], ["text2", "dataset2"])
+    def test_set_shortnames_maybe(
+        self,
+        core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
+    ) -> None:
+        assert len(core.measurements) == 2
+        # note this will only set the measurements, since the time name is
+        # never None
+        core.set_measurement_shortnames_maybe([None])
+        assert core.shortnames_maybe == [None, "maple latte"]
+        with pytest.raises(pf.PyreflowException):
+            core.set_measurement_shortnames_maybe([None, None])
+
+    @parameterize_core("core", ["3_0", "3_1", "3_2"], ["text2", "dataset2"])
+    def test_timestep(
+        self,
+        core: pf.CoreTEXT3_0
+        | pf.CoreTEXT3_1
+        | pf.CoreTEXT3_2
+        | pf.CoreDataset3_0
+        | pf.CoreDataset3_1
+        | pf.CoreDataset3_2,
+    ) -> None:
+        assert core.timestep == 1.0
+        core.set_timestep(2.0)
+        assert core.timestep == 2.0
+
+    @parameterize_core("core", ["3_1", "3_2"], ["text2", "dataset2"])
+    @pytest.mark.parametrize(
+        "attr,value",
+        [
+            ("originality", "Original"),
+            ("last_modified", datetime(2112, 1, 1, 0, 0)),
+            ("last_modifier", "you, obviously"),
+            ("platename", "juice malouse"),
+            ("plateid", "666"),
+            ("wellid", "9.75"),
+        ],
+    )
+    def test_modified_plate(
+        self,
+        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
+        attr: str,
+        value,
+    ) -> None:
+        assert getattr(core, attr) is None
+        setattr(core, attr, value)
+        assert getattr(core, attr) == value
+        with pytest.raises(TypeError):
+            setattr(core, attr, 1.61)
+
+    # TODO add comp
+    # TODO add spillover
+
+    @parameterize_core("core", ["3_0"], ["text2", "dataset2"])
+    def test_unicode(
+        self,
+        core: pf.CoreTEXT3_0 | pf.CoreDataset3_0,
+    ) -> None:
+        assert core.unicode is None
+        # the actual contents arent' checked, presumably because nobody really
+        # cares about this
+        new = (666, ["$$$$"])
+        core.unicode = new
+        assert core.unicode == new
+        with pytest.raises(TypeError):
+            core.unicode = "latin_minus_20"  # type: ignore
+
+    @parameterize_core("core", ["3_1", "3_2"], ["text2", "dataset2"])
+    def test_vol(
+        self,
+        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
+    ) -> None:
+        assert core.vol is None
+        core.vol = 0.0
+        assert core.vol == 0.0
+        core.vol = 1.0
+        assert core.vol == 1.0
+        with pytest.raises(ValueError):
+            core.vol = -1.0
+
+    @parameterize_core("core", ["3_0", "3_1", "3_2"], ["text2", "dataset2"])
+    def test_cytsn(
+        self,
+        core: pf.CoreTEXT3_0
+        | pf.CoreTEXT3_1
+        | pf.CoreTEXT3_2
+        | pf.CoreDataset3_0
+        | pf.CoreDataset3_1
+        | pf.CoreDataset3_2,
+    ) -> None:
+        assert core.cytsn is None
+        new = "12345"
+        core.cytsn = new
+        assert core.cytsn == new
+        with pytest.raises(TypeError):
+            core.cytsn = cast(str, 0.0)
+
+    @parameterize_core("core", ["2_0", "3_0", "3_1"], ["text2", "dataset2"])
+    def test_mode(
+        self,
+        core: pf.CoreTEXT2_0
+        | pf.CoreTEXT3_0
+        | pf.CoreTEXT3_1
+        | pf.CoreDataset2_0
+        | pf.CoreDataset3_0
+        | pf.CoreDataset3_1,
+    ) -> None:
+        assert core.mode == "L"
+        core.mode = "U"
+        assert core.mode == "U"
+        with pytest.raises(ValueError):
+            core.mode = "fart"  # type: ignore
+
+    @parameterize_core("core", ["3_2"], ["text2", "dataset2"])
+    def test_mode3_2(
+        self,
+        core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
+    ) -> None:
+        assert core.mode is None
+        core.mode = "L"
+        assert core.mode == "L"
+        with pytest.raises(ValueError):
+            core.mode = "bear"  # type: ignore
+
+    @parameterize_core("core", ["2_0", "3_0", "3_1"], ["text2", "dataset2"])
+    def test_cyt(
+        self,
+        core: pf.CoreTEXT2_0
+        | pf.CoreTEXT3_0
+        | pf.CoreTEXT3_1
+        | pf.CoreDataset2_0
+        | pf.CoreDataset3_0
+        | pf.CoreDataset3_1,
+    ) -> None:
+        assert core.cyt is None
+        core.cyt = "meat grinder"
+        assert core.cyt == "meat grinder"
+
+    @parameterize_core("core", ["3_2"], ["text2", "dataset2"])
+    def test_cyt3_2(
+        self,
+        core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
+    ) -> None:
+        new = "meat grinder"
+        core.cyt = new
+        assert core.cyt == new
+        with pytest.raises(TypeError):
+            core.cyt = cast(str, None)
+
+    @parameterize_core("core", ["3_2"], ["text2", "dataset2"])
+    @pytest.mark.parametrize(
+        "attr, good, bad",
+        [
+            ("flowrate", "plaid", 0.5),
+            ("unstainedinfo", "(redacted)", 1.61),
+            ("carriertype", "pigeon", -39),
+            ("carrierid", "bloodwing", 0xDEADBEEF),
+            ("locationid", "0", 3),
+            (
+                "begindatetime",
+                datetime(2112, 1, 1, tzinfo=timezone(timedelta(hours=-5))),
+                "root",
+            ),
+            (
+                "enddatetime",
+                datetime(2112, 1, 2, tzinfo=timezone(timedelta(hours=-5))),
+                "octave",
+            ),
+        ],
+    )
+    def test_metaroot_3_2_opt(
+        self,
+        core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
+        attr: str,
+        good,
+        bad,
+    ) -> None:
+        assert getattr(core, attr) is None
+        setattr(core, attr, good)
+        assert getattr(core, attr) == good
+        with pytest.raises(TypeError):
+            setattr(core, attr, bad)
+
+    @parameterize_core("core", ["3_2"], ["text2", "dataset2"])
+    def test_unstained_centers(
+        self,
+        core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
+    ) -> None:
+        # TODO this is a bit awkward, could just be an empty dict
+        core.unstained_centers is None
+        assert core.insert_unstained_center(LINK_NAME1, 42) is None
+        core.unstained_centers == {LINK_NAME1: 42}
+        assert core.insert_unstained_center(LINK_NAME1, 43) == 42
+        assert core.remove_unstained_center(LINK_NAME1) == 43
+        core.unstained_centers is None
+        core.insert_unstained_center(LINK_NAME1, 42)
+        core.unstained_centers is not None
+        core.clear_unstained_centers()
+        core.unstained_centers is None
+        core.clear_unstained_centers()
+        core.unstained_centers is None
+
+    @parameterize_core("core", ["2_0"], ["text2", "dataset2"])
+    def test_meas_scales(self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0) -> None:
+        assert core.scales == [(0, None)]
+        core.set_scales([()])
+        assert core.scales == [(0, ())]
+
+    @parameterize_core("core", ["2_0"], ["text2", "dataset2"])
+    def test_meas_all_scales(self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0) -> None:
+        assert core.all_scales == [None, ()]
+
+    @parameterize_core("core", ["3_0", "3_1", "3_2"], ["text2", "dataset2"])
+    def test_meas_all_transforms(
+        self,
+        core: pf.CoreTEXT3_0
+        | pf.CoreTEXT3_1
+        | pf.CoreTEXT3_2
+        | pf.CoreDataset3_0
+        | pf.CoreDataset3_1
+        | pf.CoreDataset3_2,
+    ) -> None:
+        assert core.all_transforms == [1.0, 1.0]
+
     # each of these should be strings or None
     @all_core
     @pytest.mark.parametrize(
@@ -423,7 +634,112 @@ class TestCore:
         with pytest.raises(TypeError):
             getattr(core, set)(["pickle rick"])
 
-    # TODO add raw_keywords test
+    @pytest.mark.parametrize(
+        "core, optical, temporal",
+        [
+            (lazy_fixture("text2_2_0"), pf.Optical2_0, pf.Temporal2_0),
+            (lazy_fixture("text2_3_0"), pf.Optical3_0, pf.Temporal3_0),
+            (lazy_fixture("text2_3_1"), pf.Optical3_1, pf.Temporal3_1),
+            (lazy_fixture("text2_3_2"), pf.Optical3_2, pf.Temporal3_2),
+            (lazy_fixture("dataset2_2_0"), pf.Optical2_0, pf.Temporal2_0),
+            (lazy_fixture("dataset2_3_0"), pf.Optical3_0, pf.Temporal3_0),
+            (lazy_fixture("dataset2_3_1"), pf.Optical3_1, pf.Temporal3_1),
+            (lazy_fixture("dataset2_3_2"), pf.Optical3_2, pf.Temporal3_2),
+        ],
+    )
+    def test_measurement_at(self, core: AnyCore, optical: type, temporal: type) -> None:
+        assert isinstance(core.measurement_at(0), optical)
+        assert isinstance(core.measurement_at(1), temporal)
+
+    @parameterize_core("core", ["3_2"], ["text2", "dataset2"])
+    @pytest.mark.parametrize(
+        "get, set",
+        [
+            (x, f"set_{x}")
+            for x in ["detector_names", "tags", "analytes", "measurement_types"]
+        ],
+    )
+    def test_meas_3_2_str(
+        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2, get: str, set: str
+    ) -> None:
+        new = "ziltoid"
+        getattr(core, get) == [(0, None)]
+        getattr(core, set)([new])
+        getattr(core, get) == [(0, new)]
+        with pytest.raises(TypeError):
+            getattr(core, set)([10000000000000000000000])
+
+    @parameterize_core("core", ["3_2"], ["text2", "dataset2"])
+    def test_meas_3_2_feature(self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2) -> None:
+        core.features == [(0, None)]
+        core.set_features(["Area"])
+        core.features == [(0, "Area")]
+        with pytest.raises(ValueError):
+            core.set_features(["Earth Minutes"])  # type: ignore
+
+    @parameterize_core("core", ["3_1"], ["text2", "dataset2"])
+    def test_meas_3_1_calibration(
+        self, core: pf.CoreTEXT3_1 | pf.CoreDataset3_1
+    ) -> None:
+        new = (0.5, "NVidia A100 Heat Output")
+        core.calibrations == [(0, None)]
+        core.set_calibrations([new])
+        core.calibrations == [(0, new)]
+        with pytest.raises(TypeError):
+            core.set_calibrations(["AMD Threadripper Power Conumptions"])  # type: ignore
+
+    @parameterize_core("core", ["3_2"], ["text2", "dataset2"])
+    def test_meas_3_2_calibration(
+        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2
+    ) -> None:
+        new = (0.5, 0.25, "Gouda Cheese Wheels")
+        core.calibrations == [(0, None)]
+        core.set_calibrations([new])
+        core.calibrations == [(0, new)]
+        with pytest.raises(TypeError):
+            core.set_calibrations(["Sacred Cows"])  # type: ignore
+
+    @parameterize_core("core", ["2_0", "3_0"], ["text2", "dataset2"])
+    def test_meas_wavelengths_singleton(
+        self,
+        core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
+    ) -> None:
+        assert core.wavelengths == [(0, None)]
+        core.set_wavelengths([1.0])
+        assert core.wavelengths == [(0, 1.0)]
+        with pytest.raises(ValueError):
+            core.set_wavelengths([0.0])
+        with pytest.raises(ValueError):
+            core.set_wavelengths([-1.0])
+
+    @parameterize_core("core", ["3_1", "3_2"], ["text2", "dataset2"])
+    def test_meas_wavelengths_vector(
+        self,
+        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
+    ) -> None:
+        assert core.wavelengths == [(0, None)]
+        new = [1.0, 2.0]
+        core.set_wavelengths([new])
+        assert core.wavelengths == [(0, new)]
+        with pytest.raises(ValueError):
+            core.set_wavelengths([[0.0]])
+        with pytest.raises(ValueError):
+            core.set_wavelengths([[-1.0]])
+        with pytest.raises(ValueError):
+            core.set_wavelengths([[]])
+
+    @parameterize_core("core", ["3_1", "3_2"], ["text2", "dataset2"])
+    def test_meas_displays(
+        self,
+        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
+    ) -> None:
+        assert core.displays == [None, None]
+        new: list[tuple[bool, float, float] | None] = [
+            (False, -1.0, 2.0),
+            (True, 4.0, 0.5),
+        ]
+        core.displays = new
+        assert core.displays == new
 
     @all_core
     def test_nonstandard(self, core: AnyCore) -> None:
@@ -444,10 +760,7 @@ class TestCore:
         # and it shouldn't return anything if we try to remove it a 2nd time
         assert core.remove_nonstandard(k) is None
 
-    @pytest.mark.parametrize(
-        "core",
-        [lazy_fixture("text_2_0"), lazy_fixture("dataset_2_0")],
-    )
+    @parameterize_core("core", ["2_0"], ["text", "dataset"])
     def test_temporal_no_timestep(
         self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0
     ) -> None:
@@ -459,17 +772,7 @@ class TestCore:
         assert core.temporal is None
         assert core.unset_temporal(False) is False
 
-    @pytest.mark.parametrize(
-        "core",
-        [
-            lazy_fixture("text_3_0"),
-            lazy_fixture("text_3_1"),
-            lazy_fixture("text_3_2"),
-            lazy_fixture("dataset_3_0"),
-            lazy_fixture("dataset_3_1"),
-            lazy_fixture("dataset_3_2"),
-        ],
-    )
+    @parameterize_core("core", ["3_0", "3_1", "3_2"], ["text", "dataset"])
     def test_temporal_timestep(
         self,
         core: pf.CoreTEXT3_0
@@ -488,10 +791,7 @@ class TestCore:
         assert core.temporal is None
         assert core.unset_temporal(False) is None
 
-    @pytest.mark.parametrize(
-        "core",
-        [lazy_fixture("text_2_0"), lazy_fixture("dataset_2_0")],
-    )
+    @parameterize_core("core", ["2_0"], ["text", "dataset"])
     def test_temporal_no_timestep_at(
         self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0
     ) -> None:
@@ -500,17 +800,7 @@ class TestCore:
         assert core.temporal is not None
         assert core.temporal[1] == LINK_NAME1
 
-    @pytest.mark.parametrize(
-        "core",
-        [
-            lazy_fixture("text_3_0"),
-            lazy_fixture("text_3_1"),
-            lazy_fixture("text_3_2"),
-            lazy_fixture("dataset_3_0"),
-            lazy_fixture("dataset_3_1"),
-            lazy_fixture("dataset_3_2"),
-        ],
-    )
+    @parameterize_core("core", ["3_0", "3_1", "3_2"], ["text", "dataset"])
     def test_temporal_timestep_at(
         self,
         core: pf.CoreTEXT3_0
@@ -628,45 +918,10 @@ class TestCore:
         core.replace_temporal_named(LINK_NAME2, temporal, False)
         core.measurement_at(1).longname == ln
 
-    @all_text2
+    @all_core2
     def test_rename_temporal(self, core: AnyCore) -> None:
         new = "they've gone plaid"
         assert core.rename_temporal(new) == LINK_NAME2
-
-    @pytest.mark.parametrize(
-        "core, optical, temporal",
-        [
-            (lazy_fixture("text2_2_0"), pf.Optical2_0, pf.Temporal2_0),
-            (lazy_fixture("text2_3_0"), pf.Optical3_0, pf.Temporal3_0),
-            (lazy_fixture("text2_3_1"), pf.Optical3_1, pf.Temporal3_1),
-            (lazy_fixture("text2_3_2"), pf.Optical3_2, pf.Temporal3_2),
-            (lazy_fixture("dataset2_2_0"), pf.Optical2_0, pf.Temporal2_0),
-            (lazy_fixture("dataset2_3_0"), pf.Optical3_0, pf.Temporal3_0),
-            (lazy_fixture("dataset2_3_1"), pf.Optical3_1, pf.Temporal3_1),
-            (lazy_fixture("dataset2_3_2"), pf.Optical3_2, pf.Temporal3_2),
-        ],
-    )
-    def test_measurements(self, core: AnyCore, optical: type, temporal: type) -> None:
-        assert len(core.measurements) == 2
-        assert isinstance(core.measurements[0], optical)
-        assert isinstance(core.measurements[1], temporal)
-
-    @pytest.mark.parametrize(
-        "core, optical, temporal",
-        [
-            (lazy_fixture("text2_2_0"), pf.Optical2_0, pf.Temporal2_0),
-            (lazy_fixture("text2_3_0"), pf.Optical3_0, pf.Temporal3_0),
-            (lazy_fixture("text2_3_1"), pf.Optical3_1, pf.Temporal3_1),
-            (lazy_fixture("text2_3_2"), pf.Optical3_2, pf.Temporal3_2),
-            (lazy_fixture("dataset2_2_0"), pf.Optical2_0, pf.Temporal2_0),
-            (lazy_fixture("dataset2_3_0"), pf.Optical3_0, pf.Temporal3_0),
-            (lazy_fixture("dataset2_3_1"), pf.Optical3_1, pf.Temporal3_1),
-            (lazy_fixture("dataset2_3_2"), pf.Optical3_2, pf.Temporal3_2),
-        ],
-    )
-    def test_measurement_at(self, core: AnyCore, optical: type, temporal: type) -> None:
-        assert isinstance(core.measurement_at(0), optical)
-        assert isinstance(core.measurement_at(1), temporal)
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -736,35 +991,13 @@ class TestCore:
         core.insert_temporal(0, temporal, series1, LINK_NAME1, 9001)
         assert isinstance(core.measurement_at(0), type(temporal))
 
-    @pytest.mark.parametrize(
-        "core",
-        [
-            lazy_fixture(c)
-            for c in [
-                "text2_2_0",
-                "text2_3_0",
-                "text2_3_1",
-                "text2_3_2",
-            ]
-        ],
-    )
+    @parameterize_core("core", ["2_0", "3_0", "3_1", "3_2"], ["text2"])
     def test_unset_measurements(self, core: AnyCoreTEXT) -> None:
         assert len(core.measurements) == 2
         core.unset_measurements()
         assert len(core.measurements) == 0
 
-    @pytest.mark.parametrize(
-        "core",
-        [
-            lazy_fixture(c)
-            for c in [
-                "dataset2_2_0",
-                "dataset2_3_0",
-                "dataset2_3_1",
-                "dataset2_3_2",
-            ]
-        ],
-    )
+    @parameterize_core("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
     def test_unset_data(self, core: AnyCoreDataset) -> None:
         df0 = core.data
         assert df0.height == 3
@@ -776,18 +1009,7 @@ class TestCore:
         assert df1.width == 0
         assert len(core.measurements) == 0
 
-    @pytest.mark.parametrize(
-        "core",
-        [
-            lazy_fixture(c)
-            for c in [
-                "text2_2_0",
-                "text2_3_0",
-                "dataset2_2_0",
-                "dataset2_3_0",
-            ]
-        ],
-    )
+    @parameterize_core("core", ["2_0", "3_0"], ["text2", "dataset2"])
     def test_ordered_layout(
         self,
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
@@ -798,18 +1020,7 @@ class TestCore:
         with pytest.raises(TypeError):
             core.layout = pf.EndianUintLayout([9002, 9003], False)  # type: ignore
 
-    @pytest.mark.parametrize(
-        "core",
-        [
-            lazy_fixture(c)
-            for c in [
-                "text2_3_1",
-                "text2_3_2",
-                "dataset2_3_1",
-                "dataset2_3_2",
-            ]
-        ],
-    )
+    @parameterize_core("core", ["3_1", "3_2"], ["text2", "dataset2"])
     def test_endian_layout(
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
@@ -935,468 +1146,22 @@ class TestCore:
         core.set_measurements_and_data([(LINK_NAME1, optical)], [series2])
 
     @pytest.mark.parametrize(
-        "core",
+        "core, optical, temporal",
         [
-            lazy_fixture(c)
-            for c in [
-                "text2_2_0",
-                "text2_3_0",
-                "dataset2_2_0",
-                "dataset2_3_0",
-            ]
+            (lazy_fixture("text2_2_0"), pf.Optical2_0, pf.Temporal2_0),
+            (lazy_fixture("text2_3_0"), pf.Optical3_0, pf.Temporal3_0),
+            (lazy_fixture("text2_3_1"), pf.Optical3_1, pf.Temporal3_1),
+            (lazy_fixture("text2_3_2"), pf.Optical3_2, pf.Temporal3_2),
+            (lazy_fixture("dataset2_2_0"), pf.Optical2_0, pf.Temporal2_0),
+            (lazy_fixture("dataset2_3_0"), pf.Optical3_0, pf.Temporal3_0),
+            (lazy_fixture("dataset2_3_1"), pf.Optical3_1, pf.Temporal3_1),
+            (lazy_fixture("dataset2_3_2"), pf.Optical3_2, pf.Temporal3_2),
         ],
     )
-    def test_set_shortnames_maybe(
-        self,
-        core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
-    ) -> None:
+    def test_measurements(self, core: AnyCore, optical: type, temporal: type) -> None:
         assert len(core.measurements) == 2
-        # note this will only set the measurements, since the time name is
-        # never None
-        core.set_measurement_shortnames_maybe([None])
-        assert core.shortnames_maybe == [None, "maple latte"]
-        with pytest.raises(pf.PyreflowException):
-            core.set_measurement_shortnames_maybe([None, None])
-
-    @pytest.mark.parametrize(
-        "core",
-        [lazy_fixture(c) for c in ["text2_2_0", "dataset2_2_0"]],
-    )
-    def test_scales(self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0) -> None:
-        assert core.scales == [(0, None)]
-        core.set_scales([()])
-        assert core.scales == [(0, ())]
-
-    @pytest.mark.parametrize(
-        "core",
-        [lazy_fixture(c) for c in ["text2_2_0", "dataset2_2_0"]],
-    )
-    def test_all_scales(self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0) -> None:
-        assert core.all_scales == [None, ()]
-
-    @pytest.mark.parametrize(
-        "core",
-        [
-            lazy_fixture(c)
-            for c in [
-                "text2_3_0",
-                "text2_3_1",
-                "text2_3_2",
-                "dataset2_3_0",
-                "dataset2_3_1",
-                "dataset2_3_2",
-            ]
-        ],
-    )
-    def test_all_transforms(
-        self,
-        core: pf.CoreTEXT3_0
-        | pf.CoreTEXT3_1
-        | pf.CoreTEXT3_2
-        | pf.CoreDataset3_0
-        | pf.CoreDataset3_1
-        | pf.CoreDataset3_2,
-    ) -> None:
-        assert core.all_transforms == [1.0, 1.0]
-
-    @pytest.mark.parametrize(
-        "core",
-        [
-            lazy_fixture(c)
-            for c in [
-                "text2_3_0",
-                "text2_3_1",
-                "text2_3_2",
-                "dataset2_3_0",
-                "dataset2_3_1",
-                "dataset2_3_2",
-            ]
-        ],
-    )
-    def test_timestep(
-        self,
-        core: pf.CoreTEXT3_0
-        | pf.CoreTEXT3_1
-        | pf.CoreTEXT3_2
-        | pf.CoreDataset3_0
-        | pf.CoreDataset3_1
-        | pf.CoreDataset3_2,
-    ) -> None:
-        assert core.timestep == 1.0
-        core.set_timestep(2.0)
-        assert core.timestep == 2.0
-
-    @pytest.mark.parametrize(
-        "core",
-        [
-            lazy_fixture(c)
-            for c in [
-                "text2_3_1",
-                "text2_3_2",
-                "dataset2_3_1",
-                "dataset2_3_2",
-            ]
-        ],
-    )
-    @pytest.mark.parametrize(
-        "attr,value",
-        [
-            ("originality", "Original"),
-            ("last_modified", datetime(2112, 1, 1, 0, 0)),
-            ("last_modifier", "you, obviously"),
-            ("platename", "juice malouse"),
-            ("plateid", "666"),
-            ("wellid", "9.75"),
-        ],
-    )
-    def test_modified_plate(
-        self,
-        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
-        attr: str,
-        value,
-    ) -> None:
-        assert getattr(core, attr) is None
-        setattr(core, attr, value)
-        assert getattr(core, attr) == value
-        with pytest.raises(TypeError):
-            setattr(core, attr, 1.61)
-
-    # TODO add comp
-    # TODO add spillover
-
-    @pytest.mark.parametrize(
-        "core",
-        [lazy_fixture(c) for c in ["text2_3_0", "dataset2_3_0"]],
-    )
-    def test_unicode(
-        self,
-        core: pf.CoreTEXT3_0 | pf.CoreDataset3_0,
-    ) -> None:
-        assert core.unicode is None
-        # the actual contents arent' checked, presumably because nobody really
-        # cares about this
-        new = (666, ["$$$$"])
-        core.unicode = new
-        assert core.unicode == new
-        with pytest.raises(TypeError):
-            core.unicode = "latin_minus_20"  # type: ignore
-
-    @pytest.mark.parametrize(
-        "core",
-        [
-            lazy_fixture(c)
-            for c in [
-                "text2_3_1",
-                "text2_3_2",
-                "dataset2_3_1",
-                "dataset2_3_2",
-            ]
-        ],
-    )
-    def test_vol(
-        self,
-        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
-    ) -> None:
-        assert core.vol is None
-        core.vol = 0.0
-        assert core.vol == 0.0
-        core.vol = 1.0
-        assert core.vol == 1.0
-        with pytest.raises(ValueError):
-            core.vol = -1.0
-
-    @pytest.mark.parametrize(
-        "core",
-        [
-            lazy_fixture(c)
-            for c in [
-                "text2_3_0",
-                "text2_3_1",
-                "text2_3_2",
-                "dataset2_3_0",
-                "dataset2_3_1",
-                "dataset2_3_2",
-            ]
-        ],
-    )
-    def test_cytsn(
-        self,
-        core: pf.CoreTEXT3_0
-        | pf.CoreTEXT3_1
-        | pf.CoreTEXT3_2
-        | pf.CoreDataset3_0
-        | pf.CoreDataset3_1
-        | pf.CoreDataset3_2,
-    ) -> None:
-        assert core.cytsn is None
-        new = "12345"
-        core.cytsn = new
-        assert core.cytsn == new
-        with pytest.raises(TypeError):
-            core.cytsn = cast(str, 0.0)
-
-    @pytest.mark.parametrize(
-        "core",
-        [
-            lazy_fixture(c)
-            for c in [
-                "text2_2_0",
-                "text2_3_0",
-                "text2_3_1",
-                "dataset2_2_0",
-                "dataset2_3_0",
-                "dataset2_3_1",
-            ]
-        ],
-    )
-    def test_mode(
-        self,
-        core: pf.CoreTEXT2_0
-        | pf.CoreTEXT3_0
-        | pf.CoreTEXT3_1
-        | pf.CoreDataset2_0
-        | pf.CoreDataset3_0
-        | pf.CoreDataset3_1,
-    ) -> None:
-        assert core.mode == "L"
-        core.mode = "U"
-        assert core.mode == "U"
-        with pytest.raises(ValueError):
-            core.mode = "fart"  # type: ignore
-
-    @pytest.mark.parametrize(
-        "core",
-        [
-            lazy_fixture(c)
-            for c in [
-                "text2_2_0",
-                "text2_3_0",
-                "text2_3_1",
-                "dataset2_2_0",
-                "dataset2_3_0",
-                "dataset2_3_1",
-            ]
-        ],
-    )
-    def test_cyt(
-        self,
-        core: pf.CoreTEXT2_0
-        | pf.CoreTEXT3_0
-        | pf.CoreTEXT3_1
-        | pf.CoreDataset2_0
-        | pf.CoreDataset3_0
-        | pf.CoreDataset3_1,
-    ) -> None:
-        assert core.cyt is None
-        core.cyt = "meat grinder"
-        assert core.cyt == "meat grinder"
-
-    @pytest.mark.parametrize(
-        "core",
-        [lazy_fixture(c) for c in ["text2_3_2", "dataset2_3_2"]],
-    )
-    @pytest.mark.parametrize(
-        "attr, good, bad",
-        [
-            ("flowrate", "plaid", 0.5),
-            ("unstainedinfo", "(redacted)", 1.61),
-            ("carriertype", "pigeon", -39),
-            ("carrierid", "bloodwing", 0xDEADBEEF),
-            ("locationid", "0", 3),
-            (
-                "begindatetime",
-                datetime(2112, 1, 1, tzinfo=timezone(timedelta(hours=-5))),
-                "root",
-            ),
-            (
-                "enddatetime",
-                datetime(2112, 1, 2, tzinfo=timezone(timedelta(hours=-5))),
-                "octave",
-            ),
-        ],
-    )
-    def test_metaroot_3_2_opt(
-        self,
-        core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
-        attr: str,
-        good,
-        bad,
-    ) -> None:
-        assert getattr(core, attr) is None
-        setattr(core, attr, good)
-        assert getattr(core, attr) == good
-        with pytest.raises(TypeError):
-            setattr(core, attr, bad)
-
-    @pytest.mark.parametrize(
-        "core",
-        [lazy_fixture(c) for c in ["text2_3_2", "dataset2_3_2"]],
-    )
-    @pytest.mark.parametrize(
-        "get, set",
-        [
-            (x, f"set_{x}")
-            for x in ["detector_names", "tags", "analytes", "measurement_types"]
-        ],
-    )
-    def test_meas_3_2_str(
-        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2, get: str, set: str
-    ) -> None:
-        new = "ziltoid"
-        getattr(core, get) == [(0, None)]
-        getattr(core, set)([new])
-        getattr(core, get) == [(0, new)]
-        with pytest.raises(TypeError):
-            getattr(core, set)([10000000000000000000000])
-
-    @pytest.mark.parametrize(
-        "core",
-        [lazy_fixture(c) for c in ["text2_3_2", "dataset2_3_2"]],
-    )
-    def test_meas_3_2_feature(self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2) -> None:
-        core.features == [(0, None)]
-        core.set_features(["Area"])
-        core.features == [(0, "Area")]
-        with pytest.raises(ValueError):
-            core.set_features(["Earth Minutes"])  # type: ignore
-
-    @pytest.mark.parametrize(
-        "core",
-        [lazy_fixture(c) for c in ["text2_3_1", "dataset2_3_1"]],
-    )
-    def test_meas_3_1_calibration(
-        self, core: pf.CoreTEXT3_1 | pf.CoreDataset3_1
-    ) -> None:
-        new = (0.5, "NVidia A100 Heat Output")
-        core.calibrations == [(0, None)]
-        core.set_calibrations([new])
-        core.calibrations == [(0, new)]
-        with pytest.raises(TypeError):
-            core.set_calibrations(["AMD Threadripper Power Conumptions"])  # type: ignore
-
-    @pytest.mark.parametrize(
-        "core",
-        [lazy_fixture(c) for c in ["text2_3_2", "dataset2_3_2"]],
-    )
-    def test_meas_3_2_calibration(
-        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2
-    ) -> None:
-        new = (0.5, 0.25, "Gouda Cheese Wheels")
-        core.calibrations == [(0, None)]
-        core.set_calibrations([new])
-        core.calibrations == [(0, new)]
-        with pytest.raises(TypeError):
-            core.set_calibrations(["Sacred Cows"])  # type: ignore
-
-    @pytest.mark.parametrize(
-        "core",
-        [lazy_fixture(c) for c in ["text2_3_2", "dataset2_3_2"]],
-    )
-    def test_metaroot_3_2_mode(
-        self,
-        core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
-    ) -> None:
-        assert core.mode is None
-        core.mode = "L"
-        assert core.mode == "L"
-        with pytest.raises(ValueError):
-            core.mode = "bear"  # type: ignore
-
-    @pytest.mark.parametrize(
-        "core",
-        [lazy_fixture(c) for c in ["text2_3_2", "dataset2_3_2"]],
-    )
-    def test_metaroot_3_2_cyt(
-        self,
-        core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
-    ) -> None:
-        new = "meat grinder"
-        core.cyt = new
-        assert core.cyt == new
-        with pytest.raises(TypeError):
-            core.cyt = cast(str, None)
-
-    @pytest.mark.parametrize(
-        "core",
-        [lazy_fixture(c) for c in ["text2_3_2", "dataset2_3_2"]],
-    )
-    def test_unstained_centers(
-        self,
-        core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
-    ) -> None:
-        # TODO this is a bit awkward, could just be an empty dict
-        core.unstained_centers is None
-        assert core.insert_unstained_center(LINK_NAME1, 42) is None
-        core.unstained_centers == {LINK_NAME1: 42}
-        assert core.insert_unstained_center(LINK_NAME1, 43) == 42
-        assert core.remove_unstained_center(LINK_NAME1) == 43
-        core.unstained_centers is None
-        core.insert_unstained_center(LINK_NAME1, 42)
-        core.unstained_centers is not None
-        core.clear_unstained_centers()
-        core.unstained_centers is None
-        core.clear_unstained_centers()
-        core.unstained_centers is None
-
-    @pytest.mark.parametrize(
-        "core",
-        [
-            lazy_fixture(c)
-            for c in ["text2_2_0", "text2_3_0", "dataset2_2_0", "dataset2_3_0"]
-        ],
-    )
-    def test_meas_wavelengths_singleton(
-        self,
-        core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
-    ) -> None:
-        assert core.wavelengths == [(0, None)]
-        core.set_wavelengths([1.0])
-        assert core.wavelengths == [(0, 1.0)]
-        with pytest.raises(ValueError):
-            core.set_wavelengths([0.0])
-        with pytest.raises(ValueError):
-            core.set_wavelengths([-1.0])
-
-    @pytest.mark.parametrize(
-        "core",
-        [
-            lazy_fixture(c)
-            for c in ["text2_3_1", "text2_3_2", "dataset2_3_1", "dataset2_3_2"]
-        ],
-    )
-    def test_meas_wavelengths_vector(
-        self,
-        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
-    ) -> None:
-        assert core.wavelengths == [(0, None)]
-        new = [1.0, 2.0]
-        core.set_wavelengths([new])
-        assert core.wavelengths == [(0, new)]
-        with pytest.raises(ValueError):
-            core.set_wavelengths([[0.0]])
-        with pytest.raises(ValueError):
-            core.set_wavelengths([[-1.0]])
-        with pytest.raises(ValueError):
-            core.set_wavelengths([[]])
-
-    @pytest.mark.parametrize(
-        "core",
-        [
-            lazy_fixture(c)
-            for c in ["text2_3_1", "text2_3_2", "dataset2_3_1", "dataset2_3_2"]
-        ],
-    )
-    def test_meas_displays(
-        self,
-        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
-    ) -> None:
-        assert core.displays == [None, None]
-        new: list[tuple[bool, float, float] | None] = [
-            (False, -1.0, 2.0),
-            (True, 4.0, 0.5),
-        ]
-        core.displays = new
-        assert core.displays == new
+        assert isinstance(core.measurements[0], optical)
+        assert isinstance(core.measurements[1], temporal)
 
     @pytest.mark.parametrize(
         "core, target",

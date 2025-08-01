@@ -1223,6 +1223,38 @@ class TestCore:
         "core",
         [lazy_fixture(c) for c in ["text2_3_2", "dataset2_3_2"]],
     )
+    @pytest.mark.parametrize(
+        "get, set",
+        [
+            (x, f"set_{x}")
+            for x in ["detector_names", "tags", "analytes", "measurement_types"]
+        ],
+    )
+    def test_meas_3_2_str(
+        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2, get: str, set: str
+    ) -> None:
+        new = "ziltoid"
+        getattr(core, get) == [(0, None)]
+        getattr(core, set)([new])
+        getattr(core, get) == [(0, new)]
+        with pytest.raises(TypeError):
+            getattr(core, set)([10000000000000000000000])
+
+    @pytest.mark.parametrize(
+        "core",
+        [lazy_fixture(c) for c in ["text2_3_2", "dataset2_3_2"]],
+    )
+    def test_meas_3_2_feature(self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2) -> None:
+        core.features == [(0, None)]
+        core.set_features(["Area"])
+        core.features == [(0, "Area")]
+        with pytest.raises(ValueError):
+            core.set_features(["Earth Minutes"])
+
+    @pytest.mark.parametrize(
+        "core",
+        [lazy_fixture(c) for c in ["text2_3_2", "dataset2_3_2"]],
+    )
     def test_metaroot_3_2_mode(
         self,
         core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,

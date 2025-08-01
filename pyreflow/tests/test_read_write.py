@@ -3,7 +3,14 @@ from datetime import date, datetime, time, tzinfo, timezone, timedelta
 
 import pytest
 
-from pyreflow.typing import Trigger, AnyCoreTEXT, AnyCoreDataset, AnyOptical, AnyCore
+from pyreflow.typing import (
+    Trigger,
+    AnyCoreTEXT,
+    AnyCoreDataset,
+    AnyOptical,
+    AnyCore,
+    AnyMeas,
+)
 import pyreflow as pf
 import polars as pl
 
@@ -248,30 +255,48 @@ def dataset2_3_2(
     return dataset_3_2
 
 
-def parameterize_core(arg: str, versions: list[str], targets: list[str]):
+def parameterize_versions(arg: str, versions: list[str], targets: list[str]):
     return pytest.mark.parametrize(
         arg,
         [lazy_fixture(f"{t}_{v}") for v in versions for t in targets],
     )
 
 
-all_blank_core = parameterize_core(
+all_blank_core = parameterize_versions(
     "core",
     ["2_0", "3_0", "3_1", "3_2"],
     ["blank_text", "blank_dataset"],
 )
 
 
-all_core = parameterize_core(
+all_core = parameterize_versions(
     "core",
     ["2_0", "3_0", "3_1", "3_2"],
     ["text", "dataset"],
 )
 
-all_core2 = parameterize_core(
+all_core2 = parameterize_versions(
     "core",
     ["2_0", "3_0", "3_1", "3_2"],
     ["text2", "dataset2"],
+)
+
+all_blank_optical = parameterize_versions(
+    "meas",
+    ["2_0", "3_0", "3_1", "3_2"],
+    ["blank_optical"],
+)
+
+all_blank_temporal = parameterize_versions(
+    "meas",
+    ["2_0", "3_0", "3_1", "3_2"],
+    ["blank_temporal"],
+)
+
+all_blank_meas = parameterize_versions(
+    "meas",
+    ["2_0", "3_0", "3_1", "3_2"],
+    ["blank_temporal", "blank_optical"],
 )
 
 
@@ -376,7 +401,7 @@ class TestCore:
 
     # TODO add raw_keywords test
 
-    @parameterize_core("core", ["2_0", "3_0"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["2_0", "3_0"], ["text2", "dataset2"])
     def test_set_shortnames_maybe(
         self,
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
@@ -389,7 +414,7 @@ class TestCore:
         with pytest.raises(pf.PyreflowException):
             core.set_measurement_shortnames_maybe([None, None])
 
-    @parameterize_core("core", ["3_0", "3_1", "3_2"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["text2", "dataset2"])
     def test_timestep(
         self,
         core: pf.CoreTEXT3_0
@@ -403,7 +428,7 @@ class TestCore:
         core.set_timestep(2.0)
         assert core.timestep == 2.0
 
-    @parameterize_core("core", ["3_1", "3_2"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["3_1", "3_2"], ["text2", "dataset2"])
     @pytest.mark.parametrize(
         "attr,value",
         [
@@ -430,7 +455,7 @@ class TestCore:
     # TODO add comp
     # TODO add spillover
 
-    @parameterize_core("core", ["3_0"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["3_0"], ["text2", "dataset2"])
     def test_unicode(
         self,
         core: pf.CoreTEXT3_0 | pf.CoreDataset3_0,
@@ -444,7 +469,7 @@ class TestCore:
         with pytest.raises(TypeError):
             core.unicode = "latin_minus_20"  # type: ignore
 
-    @parameterize_core("core", ["3_1", "3_2"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["3_1", "3_2"], ["text2", "dataset2"])
     def test_vol(
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
@@ -457,7 +482,7 @@ class TestCore:
         with pytest.raises(ValueError):
             core.vol = -1.0
 
-    @parameterize_core("core", ["3_0", "3_1", "3_2"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["text2", "dataset2"])
     def test_cytsn(
         self,
         core: pf.CoreTEXT3_0
@@ -474,7 +499,7 @@ class TestCore:
         with pytest.raises(TypeError):
             core.cytsn = cast(str, 0.0)
 
-    @parameterize_core("core", ["2_0", "3_0", "3_1"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["2_0", "3_0", "3_1"], ["text2", "dataset2"])
     def test_mode(
         self,
         core: pf.CoreTEXT2_0
@@ -490,7 +515,7 @@ class TestCore:
         with pytest.raises(ValueError):
             core.mode = "fart"  # type: ignore
 
-    @parameterize_core("core", ["3_2"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
     def test_mode3_2(
         self,
         core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
@@ -501,7 +526,7 @@ class TestCore:
         with pytest.raises(ValueError):
             core.mode = "bear"  # type: ignore
 
-    @parameterize_core("core", ["2_0", "3_0", "3_1"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["2_0", "3_0", "3_1"], ["text2", "dataset2"])
     def test_cyt(
         self,
         core: pf.CoreTEXT2_0
@@ -515,7 +540,7 @@ class TestCore:
         core.cyt = "meat grinder"
         assert core.cyt == "meat grinder"
 
-    @parameterize_core("core", ["3_2"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
     def test_cyt3_2(
         self,
         core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
@@ -526,7 +551,7 @@ class TestCore:
         with pytest.raises(TypeError):
             core.cyt = cast(str, None)
 
-    @parameterize_core("core", ["3_2"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
     @pytest.mark.parametrize(
         "attr, good, bad",
         [
@@ -560,7 +585,7 @@ class TestCore:
         with pytest.raises(TypeError):
             setattr(core, attr, bad)
 
-    @parameterize_core("core", ["3_2"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
     def test_unstained_centers(
         self,
         core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
@@ -579,17 +604,17 @@ class TestCore:
         core.clear_unstained_centers()
         core.unstained_centers is None
 
-    @parameterize_core("core", ["2_0"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["2_0"], ["text2", "dataset2"])
     def test_meas_scales(self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0) -> None:
         assert core.scales == [(0, None)]
         core.set_scales([()])
         assert core.scales == [(0, ())]
 
-    @parameterize_core("core", ["2_0"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["2_0"], ["text2", "dataset2"])
     def test_meas_all_scales(self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0) -> None:
         assert core.all_scales == [None, ()]
 
-    @parameterize_core("core", ["3_0", "3_1", "3_2"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["text2", "dataset2"])
     def test_meas_all_transforms(
         self,
         core: pf.CoreTEXT3_0
@@ -651,7 +676,7 @@ class TestCore:
         assert isinstance(core.measurement_at(0), optical)
         assert isinstance(core.measurement_at(1), temporal)
 
-    @parameterize_core("core", ["3_2"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
     @pytest.mark.parametrize(
         "get, set",
         [
@@ -669,7 +694,7 @@ class TestCore:
         with pytest.raises(TypeError):
             getattr(core, set)([10000000000000000000000])
 
-    @parameterize_core("core", ["3_2"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
     def test_meas_3_2_feature(self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2) -> None:
         core.features == [(0, None)]
         core.set_features(["Area"])
@@ -677,7 +702,7 @@ class TestCore:
         with pytest.raises(ValueError):
             core.set_features(["Earth Minutes"])  # type: ignore
 
-    @parameterize_core("core", ["3_1"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["3_1"], ["text2", "dataset2"])
     def test_meas_3_1_calibration(
         self, core: pf.CoreTEXT3_1 | pf.CoreDataset3_1
     ) -> None:
@@ -688,7 +713,7 @@ class TestCore:
         with pytest.raises(TypeError):
             core.set_calibrations(["AMD Threadripper Power Conumptions"])  # type: ignore
 
-    @parameterize_core("core", ["3_2"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
     def test_meas_3_2_calibration(
         self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2
     ) -> None:
@@ -699,7 +724,7 @@ class TestCore:
         with pytest.raises(TypeError):
             core.set_calibrations(["Sacred Cows"])  # type: ignore
 
-    @parameterize_core("core", ["2_0", "3_0"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["2_0", "3_0"], ["text2", "dataset2"])
     def test_meas_wavelengths_singleton(
         self,
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
@@ -712,7 +737,7 @@ class TestCore:
         with pytest.raises(ValueError):
             core.set_wavelengths([-1.0])
 
-    @parameterize_core("core", ["3_1", "3_2"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["3_1", "3_2"], ["text2", "dataset2"])
     def test_meas_wavelengths_vector(
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
@@ -728,7 +753,7 @@ class TestCore:
         with pytest.raises(ValueError):
             core.set_wavelengths([[]])
 
-    @parameterize_core("core", ["3_1", "3_2"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["3_1", "3_2"], ["text2", "dataset2"])
     def test_meas_displays(
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
@@ -760,7 +785,7 @@ class TestCore:
         # and it shouldn't return anything if we try to remove it a 2nd time
         assert core.remove_nonstandard(k) is None
 
-    @parameterize_core("core", ["2_0"], ["text", "dataset"])
+    @parameterize_versions("core", ["2_0"], ["text", "dataset"])
     def test_temporal_no_timestep(
         self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0
     ) -> None:
@@ -772,7 +797,7 @@ class TestCore:
         assert core.temporal is None
         assert core.unset_temporal(False) is False
 
-    @parameterize_core("core", ["3_0", "3_1", "3_2"], ["text", "dataset"])
+    @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["text", "dataset"])
     def test_temporal_timestep(
         self,
         core: pf.CoreTEXT3_0
@@ -791,7 +816,7 @@ class TestCore:
         assert core.temporal is None
         assert core.unset_temporal(False) is None
 
-    @parameterize_core("core", ["2_0"], ["text", "dataset"])
+    @parameterize_versions("core", ["2_0"], ["text", "dataset"])
     def test_temporal_no_timestep_at(
         self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0
     ) -> None:
@@ -800,7 +825,7 @@ class TestCore:
         assert core.temporal is not None
         assert core.temporal[1] == LINK_NAME1
 
-    @parameterize_core("core", ["3_0", "3_1", "3_2"], ["text", "dataset"])
+    @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["text", "dataset"])
     def test_temporal_timestep_at(
         self,
         core: pf.CoreTEXT3_0
@@ -991,13 +1016,13 @@ class TestCore:
         core.insert_temporal(0, temporal, series1, LINK_NAME1, 9001)
         assert isinstance(core.measurement_at(0), type(temporal))
 
-    @parameterize_core("core", ["2_0", "3_0", "3_1", "3_2"], ["text2"])
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text2"])
     def test_unset_measurements(self, core: AnyCoreTEXT) -> None:
         assert len(core.measurements) == 2
         core.unset_measurements()
         assert len(core.measurements) == 0
 
-    @parameterize_core("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
     def test_unset_data(self, core: AnyCoreDataset) -> None:
         df0 = core.data
         assert df0.height == 3
@@ -1009,7 +1034,7 @@ class TestCore:
         assert df1.width == 0
         assert len(core.measurements) == 0
 
-    @parameterize_core("core", ["2_0", "3_0"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["2_0", "3_0"], ["text2", "dataset2"])
     def test_ordered_layout(
         self,
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
@@ -1020,7 +1045,7 @@ class TestCore:
         with pytest.raises(TypeError):
             core.layout = pf.EndianUintLayout([9002, 9003], False)  # type: ignore
 
-    @parameterize_core("core", ["3_1", "3_2"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["3_1", "3_2"], ["text2", "dataset2"])
     def test_endian_layout(
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
@@ -1395,3 +1420,149 @@ class TestCore:
             core.to_dataset([series1], b"", [])
         new = core.to_dataset([series1, series2], b"", [])
         assert isinstance(new, target)
+
+
+class TestOptical:
+    @all_blank_meas
+    def test_longname(self, meas: AnyMeas) -> None:
+        assert meas.longname is None
+        new = "Headbangeeeeeeeeeeeerrrrrrrrrrrrrrrrrrrrrrrrrrr!!!!!!"
+        meas.longname = new
+        assert meas.longname == new
+        with pytest.raises(TypeError):
+            meas.longname = cast(str, 666666666666666666666666)
+
+    @all_blank_optical
+    @pytest.mark.parametrize("attr", ["filter", "detector_type", "percent_emitted"])
+    def test_optical_str(self, meas: AnyOptical, attr: str) -> None:
+        assert getattr(meas, attr) is None
+        new = "punky bruster"
+        setattr(meas, attr, new)
+        assert getattr(meas, attr) == new
+        with pytest.raises(TypeError):
+            meas.longname = cast(str, 13)
+
+    @parameterize_versions("meas", ["3_1", "3_2"], ["blank_optical", "blank_temporal"])
+    def test_display(
+        self, meas: pf.Optical3_1 | pf.Optical3_2 | pf.Temporal3_1 | pf.Temporal3_2
+    ) -> None:
+        assert meas.display is None
+        new = (False, 0.0, 1.0)
+        meas.display = new
+        assert meas.display == new
+        with pytest.raises(TypeError):
+            meas.display = 999  # type: ignore
+
+    @parameterize_versions("meas", ["2_0"], ["blank_optical"])
+    def test_scale(self, meas: pf.Optical2_0) -> None:
+        assert meas.scale is None
+        meas.scale = ()
+        assert meas.scale == ()
+        with pytest.raises(TypeError):
+            meas.scale = "the summit"  # type: ignore
+
+    @parameterize_versions("meas", ["3_0", "3_1", "3_2"], ["blank_optical"])
+    def test_transform(
+        self, meas: pf.Optical3_0 | pf.Optical3_1 | pf.Optical3_2
+    ) -> None:
+        assert meas.transform == 1.0
+        new = (4.0, 0.5)
+        meas.transform = new
+        assert meas.transform == new
+        with pytest.raises(ValueError):
+            meas.transform = 0.0
+        with pytest.raises(ValueError):
+            meas.transform = (0.0, 0.0)
+
+    @parameterize_versions("meas", ["3_0", "3_1", "3_2"], ["blank_temporal"])
+    def test_timestep(
+        self, meas: pf.Temporal3_0 | pf.Temporal3_1 | pf.Temporal3_2
+    ) -> None:
+        assert meas.timestep == 1.0
+        meas.timestep = 2.0
+        assert meas.timestep == 2.0
+        with pytest.raises(ValueError):
+            meas.timestep = 0.0
+
+    @parameterize_versions("meas", ["2_0", "3_0"], ["blank_optical"])
+    def test_wavelength_2_0(self, meas: pf.Optical2_0 | pf.Optical3_0) -> None:
+        assert meas.wavelength is None
+        new = 1.0
+        meas.wavelength = new
+        assert meas.wavelength == new
+        with pytest.raises(ValueError):
+            meas.wavelength = 0.0
+        with pytest.raises(ValueError):
+            meas.wavelength = -1.0
+
+    @parameterize_versions("meas", ["3_1", "3_2"], ["blank_optical"])
+    def test_wavelength_3_1(self, meas: pf.Optical3_1 | pf.Optical3_2) -> None:
+        assert meas.wavelength is None
+        new = [1.0, 2.0]
+        meas.wavelength = new
+        assert meas.wavelength == new
+        with pytest.raises(ValueError):
+            meas.wavelength = []
+        with pytest.raises(ValueError):
+            meas.wavelength = [-1.0]
+        with pytest.raises(ValueError):
+            meas.wavelength = [0.0]
+
+    @parameterize_versions("meas", ["3_1"], ["blank_optical"])
+    def test_calibration_3_1(self, meas: pf.Optical3_1) -> None:
+        assert meas.calibration is None
+        new = (4.0, "imperial mega-amperes")
+        meas.calibration = new
+        assert meas.calibration == new
+        with pytest.raises(TypeError):
+            meas.calibration = "OOOOOOOO"  # type: ignore
+
+    @parameterize_versions("meas", ["3_2"], ["blank_optical"])
+    def test_calibration_3_2(self, meas: pf.Optical3_2) -> None:
+        assert meas.calibration is None
+        new = (1.0, 0.0, "John Carmack Equivalents")
+        meas.calibration = new
+        assert meas.calibration == new
+        with pytest.raises(TypeError):
+            meas.calibration = "XYYXYXYYXYXYY"  # type: ignore
+
+    @parameterize_versions("meas", ["3_2"], ["blank_optical"])
+    def test_feature_3_2(self, meas: pf.Optical3_2) -> None:
+        assert meas.feature is None
+        meas.feature = "Area"
+        assert meas.feature == "Area"
+        with pytest.raises(ValueError):
+            meas.feature = "under da curv"  # type: ignore
+
+    @parameterize_versions("meas", ["3_2"], ["blank_optical"])
+    @pytest.mark.parametrize(
+        "attr", ["detector_name", "tag", "measurement_type", "analyte"]
+    )
+    def test_optical_3_2(self, meas: AnyOptical, attr: str) -> None:
+        assert getattr(meas, attr) is None
+        new = "heavy metal kitten pix"
+        setattr(meas, attr, new)
+        assert getattr(meas, attr) == new
+        with pytest.raises(TypeError):
+            meas.longname = cast(str, 555)
+
+    @parameterize_versions("meas", ["3_2"], ["blank_temporal"])
+    def test_temporal_type(self, meas: pf.Temporal3_2) -> None:
+        assert not meas.measurement_type
+        meas.measurement_type = True
+        assert meas.measurement_type
+
+    @all_blank_meas
+    def test_nonstandard(self, meas: AnyOptical) -> None:
+        assert meas.nonstandard_keywords == {}
+        with pytest.raises(ValueError):
+            meas.nonstandard_insert("$GOD", "MONEY")
+        k = "my bitwarden password"
+        v0 = "SSBzb2xlbW5seSBzd2VhciBJIGFtIHVwIHRvIG5vIGdvb2QK"
+        v1 = "TWlzY2hpZWYgbWFuYWdlZAo="
+        assert meas.nonstandard_insert(k, v0) is None
+        assert meas.nonstandard_insert(k, v1) == v0
+        assert meas.nonstandard_keywords == {k: v1}
+        assert meas.nonstandard_get(k) == v1
+        assert meas.nonstandard_remove(k) == v1
+        assert meas.nonstandard_remove(k) is None

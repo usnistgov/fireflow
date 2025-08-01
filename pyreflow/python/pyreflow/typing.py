@@ -38,7 +38,7 @@ Calibration3_1: TypeAlias = tuple[float, str]
 Calibration3_2: TypeAlias = tuple[float, float, str]
 
 Scale: TypeAlias = tuple[float, float] | tuple[()]
-ScaleTransform: TypeAlias = tuple[float, float] | tuple[float]
+ScaleTransform: TypeAlias = tuple[float, float] | float
 
 Display: TypeAlias = tuple[bool, float, float]
 
@@ -78,3 +78,5 @@ AnyOptical: TypeAlias = pf.Optical2_0 | pf.Optical3_0 | pf.Optical3_1 | pf.Optic
 AnyTemporal: TypeAlias = (
     pf.Temporal2_0 | pf.Temporal3_0 | pf.Temporal3_1 | pf.Temporal3_2
 )
+
+AnyMeas: TypeAlias = AnyOptical | AnyTemporal

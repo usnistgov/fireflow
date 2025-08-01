@@ -1610,3 +1610,23 @@ class TestCore:
     ) -> None:
         new = core.version_3_1(True)
         assert isinstance(new, target)
+
+    @pytest.mark.parametrize(
+        "core, target",
+        [
+            (lazy_fixture(c), t)
+            for c, t in [
+                ("text2_2_0", pf.CoreDataset2_0),
+                ("text2_3_0", pf.CoreDataset3_0),
+                ("text2_3_1", pf.CoreDataset3_1),
+                ("text2_3_2", pf.CoreDataset3_2),
+            ]
+        ],
+    )
+    def test_text_to_dataset(
+        self, core: AnyCoreTEXT, target: type, series1: pl.Series, series2: pl.Series
+    ) -> None:
+        with pytest.raises(pf.PyreflowException):
+            core.to_dataset([series1], b"", [])
+        new = core.to_dataset([series1, series2], b"", [])
+        assert isinstance(new, target)

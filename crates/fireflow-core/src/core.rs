@@ -1288,19 +1288,19 @@ pub trait VersionedMetaroot: Sized {
 
     fn with_unstainedcenters<F, X>(&mut self, f: F) -> Option<X>
     where
-        F: Fn(&mut UnstainedCenters) -> Result<X, ClearOptional>;
+        F: Fn(&mut UnstainedCenters) -> ClearMaybe<X>;
 
     fn as_spillover(&self) -> Option<&Spillover>;
 
     fn with_spillover<F, X>(&mut self, f: F) -> Option<X>
     where
-        F: Fn(&mut Spillover) -> Result<X, ClearOptional>;
+        F: Fn(&mut Spillover) -> ClearMaybe<X>;
 
     fn as_compensation(&self) -> Option<&Compensation>;
 
     fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
     where
-        F: Fn(&mut Compensation) -> Result<X, ClearOptional>;
+        F: Fn(&mut Compensation) -> ClearMaybe<X>;
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)>;
 
@@ -1950,11 +1950,11 @@ where
         self.reassign_trigger(mapping);
         self.specific.with_spillover(|s| {
             s.reassign(mapping);
-            Ok(())
+            ClearMaybe::new(())
         });
         self.specific.with_unstainedcenters(|u| {
             u.reassign(mapping);
-            Ok(())
+            ClearMaybe::new(())
         });
     }
 
@@ -2744,13 +2744,11 @@ where
             .specific
             .unstainedcenters_mut(private::NoTouchy);
         if let Some(u) = us.as_mut() {
-            match u.remove(k) {
-                Ok(ret) => ret,
-                Err(_) => {
-                    *us = None;
-                    None
-                }
+            let c = u.remove(k);
+            if c.clear.is_some() {
+                *us = None;
             }
+            c.value
         } else {
             None
         }
@@ -7484,7 +7482,7 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
 
     fn with_unstainedcenters<F, X>(&mut self, _: F) -> Option<X>
     where
-        F: Fn(&mut UnstainedCenters) -> Result<X, ClearOptional>,
+        F: Fn(&mut UnstainedCenters) -> ClearMaybe<X>,
     {
         None
     }
@@ -7495,7 +7493,7 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
 
     fn with_spillover<F, X>(&mut self, _: F) -> Option<X>
     where
-        F: Fn(&mut Spillover) -> Result<X, ClearOptional>,
+        F: Fn(&mut Spillover) -> ClearMaybe<X>,
     {
         None
     }
@@ -7506,7 +7504,7 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
 
     fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
     where
-        F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
+        F: Fn(&mut Compensation) -> ClearMaybe<X>,
     {
         self.comp.mut_or_unset_nofail(|c| f(&mut c.0))
     }
@@ -7559,7 +7557,7 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
 
     fn with_unstainedcenters<F, X>(&mut self, _: F) -> Option<X>
     where
-        F: Fn(&mut UnstainedCenters) -> Result<X, ClearOptional>,
+        F: Fn(&mut UnstainedCenters) -> ClearMaybe<X>,
     {
         None
     }
@@ -7570,7 +7568,7 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
 
     fn with_spillover<F, X>(&mut self, _: F) -> Option<X>
     where
-        F: Fn(&mut Spillover) -> Result<X, ClearOptional>,
+        F: Fn(&mut Spillover) -> ClearMaybe<X>,
     {
         None
     }
@@ -7581,7 +7579,7 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
 
     fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
     where
-        F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
+        F: Fn(&mut Compensation) -> ClearMaybe<X>,
     {
         self.comp.mut_or_unset_nofail(|c| f(&mut c.0))
     }
@@ -7645,7 +7643,7 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
 
     fn with_unstainedcenters<F, X>(&mut self, _: F) -> Option<X>
     where
-        F: Fn(&mut UnstainedCenters) -> Result<X, ClearOptional>,
+        F: Fn(&mut UnstainedCenters) -> ClearMaybe<X>,
     {
         None
     }
@@ -7656,7 +7654,7 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
 
     fn with_spillover<F, X>(&mut self, f: F) -> Option<X>
     where
-        F: Fn(&mut Spillover) -> Result<X, ClearOptional>,
+        F: Fn(&mut Spillover) -> ClearMaybe<X>,
     {
         self.spillover.mut_or_unset_nofail(f)
     }
@@ -7667,7 +7665,7 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
 
     fn with_compensation<F, X>(&mut self, _: F) -> Option<X>
     where
-        F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
+        F: Fn(&mut Compensation) -> ClearMaybe<X>,
     {
         None
     }
@@ -7736,7 +7734,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
 
     fn with_unstainedcenters<F, X>(&mut self, f: F) -> Option<X>
     where
-        F: Fn(&mut UnstainedCenters) -> Result<X, ClearOptional>,
+        F: Fn(&mut UnstainedCenters) -> ClearMaybe<X>,
     {
         self.unstained.unstainedcenters.mut_or_unset_nofail(f)
     }
@@ -7747,7 +7745,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
 
     fn with_spillover<F, X>(&mut self, f: F) -> Option<X>
     where
-        F: Fn(&mut Spillover) -> Result<X, ClearOptional>,
+        F: Fn(&mut Spillover) -> ClearMaybe<X>,
     {
         self.spillover.mut_or_unset_nofail(f)
     }
@@ -7758,7 +7756,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
 
     fn with_compensation<F, X>(&mut self, _: F) -> Option<X>
     where
-        F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
+        F: Fn(&mut Compensation) -> ClearMaybe<X>,
     {
         None
     }

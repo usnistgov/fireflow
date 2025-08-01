@@ -113,18 +113,18 @@ impl TryFrom<DMatrix<f32>> for Compensation {
 }
 
 impl Compensation {
-    pub(crate) fn remove_by_index(&mut self, index: MeasIndex) -> Result<bool, ClearOptional> {
+    pub(crate) fn remove_by_index(&mut self, index: MeasIndex) -> ClearMaybe<bool> {
         let i: usize = index.into();
         let n = self.matrix.ncols();
         if i <= n {
             if n < 3 {
-                Err(ClearOptional::default())
+                ClearMaybe::clear(true)
             } else {
                 self.matrix = self.matrix.clone().remove_row(i).remove_column(i);
-                Ok(true)
+                ClearMaybe::new(true)
             }
         } else {
-            Ok(false)
+            ClearMaybe::new(false)
         }
     }
 }

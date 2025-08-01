@@ -1,7 +1,7 @@
 use crate::validated::shortname::*;
 
 use super::named_vec::NameMapping;
-use super::optional::ClearOptional;
+use super::optional::ClearMaybe;
 use super::parser::OptLinkedKey;
 
 use derive_more::AsRef;
@@ -53,20 +53,20 @@ impl Spillover {
         }
     }
 
-    pub(crate) fn remove_by_name(&mut self, n: &Shortname) -> Result<bool, ClearOptional> {
+    pub(crate) fn remove_by_name(&mut self, n: &Shortname) -> ClearMaybe<bool> {
         if let Some(i) = self.measurements.iter().position(|m| m == n) {
             if self.measurements.len() < 3 {
-                Err(ClearOptional::default())
+                ClearMaybe::clear(true)
             } else {
                 // TODO this looks expensive; it copies almost everything 3x;
                 // good thing these matrices aren't that big (usually). The
                 // alternative is to iterate over the matrix and populate a new
                 // one while skipping certain elements.
                 self.matrix = self.matrix.clone().remove_row(i).remove_column(i);
-                Ok(true)
+                ClearMaybe::new(true)
             }
         } else {
-            Ok(false)
+            ClearMaybe::new(false)
         }
     }
 

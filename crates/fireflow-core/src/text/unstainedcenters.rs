@@ -1,7 +1,7 @@
 use crate::validated::shortname::*;
 
 use super::named_vec::NameMapping;
-use super::optional::ClearOptional;
+use super::optional::ClearMaybe;
 use super::parser::OptLinkedKey;
 
 use derive_more::Into;
@@ -54,11 +54,12 @@ impl UnstainedCenters {
         self.0.insert(k, v)
     }
 
-    pub(crate) fn remove(&mut self, n: &Shortname) -> Result<Option<f32>, ClearOptional> {
-        if self.0.len() == 1 {
-            Err(ClearOptional::default())
+    pub(crate) fn remove(&mut self, n: &Shortname) -> ClearMaybe<Option<f32>> {
+        let ret = self.0.remove(n);
+        if self.0.len() <= 1 {
+            ClearMaybe::clear(ret)
         } else {
-            Ok(self.0.remove(n))
+            ClearMaybe::new(ret)
         }
     }
 }

@@ -8884,8 +8884,8 @@ mod python {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             if let Ok(gain) = ob.extract::<PositiveFloat>() {
                 Ok(Self::Lin(gain))
-            } else if let Ok(log) = ob.extract::<(f32, f32)>()?.try_into() {
-                Ok(Self::Log(log))
+            } else if let Ok(log) = ob.extract::<(f32, f32)>() {
+                Ok(Self::Log(log.try_into()?))
             } else {
                 // TODO make this into a general "argument value error"
                 Err(PyValueError::new_err(

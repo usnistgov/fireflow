@@ -397,10 +397,10 @@ class TestCore:
         [(x, f"set_{x}") for x in ["filters", "percents_emitted", "detector_types"]],
     )
     def test_meas_opt_strs(self, get: str, set: str, core: AnyCore) -> None:
-        assert getattr(core, get) == [(1, None)]
+        assert getattr(core, get) == [(0, None)]
         new = "bla"
         getattr(core, set)([new])
-        assert getattr(core, get) == [(1, new)]
+        assert getattr(core, get) == [(0, new)]
         with pytest.raises(TypeError):
             getattr(core, set)([42])
 
@@ -411,13 +411,13 @@ class TestCore:
         [(x, f"set_{x}") for x in ["powers", "detector_voltages"]],
     )
     def test_meas_opt_floats(self, get: str, set: str, core: AnyCore) -> None:
-        assert getattr(core, get) == [(1, None)]
+        assert getattr(core, get) == [(0, None)]
         new = 0.5
         getattr(core, set)([new])
-        assert getattr(core, get) == [(1, new)]
+        assert getattr(core, get) == [(0, new)]
         newer = 0.0
         getattr(core, set)([newer])
-        assert getattr(core, get) == [(1, newer)]
+        assert getattr(core, get) == [(0, newer)]
         with pytest.raises(TypeError):
             getattr(core, set)([-1.0])
         with pytest.raises(TypeError):

@@ -1125,3 +1125,44 @@ class TestCore:
         assert core.cytsn == new
         with pytest.raises(TypeError):
             core.cytsn = cast(str, 0.0)
+
+    @pytest.mark.parametrize(
+        "core",
+        [
+            lazy_fixture(c)
+            for c in ["text2_2_0", "text2_3_0", "dataset2_2_0", "dataset2_3_0"]
+        ],
+    )
+    def test_wavelengths_singleton(
+        self,
+        core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
+    ) -> None:
+        assert core.wavelengths == [(0, None)]
+        core.set_wavelengths([1.0])
+        assert core.wavelengths == [(0, 1.0)]
+        with pytest.raises(ValueError):
+            core.set_wavelengths([0.0])
+        with pytest.raises(ValueError):
+            core.set_wavelengths([-1.0])
+
+    @pytest.mark.parametrize(
+        "core",
+        [
+            lazy_fixture(c)
+            for c in ["text2_3_1", "text2_3_2", "dataset2_3_1", "dataset2_3_2"]
+        ],
+    )
+    def test_wavelengths_vector(
+        self,
+        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
+    ) -> None:
+        assert core.wavelengths == [(0, None)]
+        new = [1.0, 2.0]
+        core.set_wavelengths([new])
+        assert core.wavelengths == [(0, new)]
+        with pytest.raises(ValueError):
+            core.set_wavelengths([[0.0]])
+        with pytest.raises(ValueError):
+            core.set_wavelengths([[-1.0]])
+        with pytest.raises(ValueError):
+            core.set_wavelengths([[]])

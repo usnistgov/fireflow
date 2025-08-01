@@ -15,7 +15,7 @@ pub struct IndexFromOne(NonZeroUsize);
 
 impl From<usize> for IndexFromOne {
     fn from(value: usize) -> Self {
-        IndexFromOne(NonZeroUsize::MIN.saturating_add(value))
+        Self(NonZeroUsize::MIN.saturating_add(value))
     }
 }
 
@@ -136,7 +136,7 @@ mod python {
         type Error = Infallible;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            usize::from(self.0).into_pyobject(py)
+            usize::from(self).into_pyobject(py)
         }
     }
 }

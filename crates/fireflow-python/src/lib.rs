@@ -2093,10 +2093,10 @@ macro_rules! common_layout_methods {
             /// or an empty list if the layout is delimited Ascii (in which case
             /// it has no column widths).
             #[getter]
-            fn widths(&self) -> Option<Vec<u8>> {
+            fn widths(&self) -> Option<Vec<u32>> {
                 self.0
                     .widths()
-                    .map(|ws| ws.into_iter().map(u8::from).collect())
+                    .map(|ws| ws.into_iter().map(|x| u32::from(u8::from(x))).collect())
             }
 
             /// Return a list of ranges for each column.

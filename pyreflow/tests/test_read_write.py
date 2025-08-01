@@ -1397,3 +1397,216 @@ class TestCore:
         ]
         core.displays = new
         assert core.displays == new
+
+    @pytest.mark.parametrize(
+        "core, target",
+        [
+            (lazy_fixture(c), t)
+            for c, t in [
+                ("text2_2_0", pf.CoreTEXT3_0),
+                ("dataset2_2_0", pf.CoreDataset3_0),
+            ]
+        ],
+    )
+    def test_2_0_to_3_0(
+        self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0, target: type
+    ) -> None:
+        # should fail if $PnE are missing
+        with pytest.raises(pf.PyreflowException):
+            core.version_3_0(True)
+        core.set_scales([()])
+        new = core.version_3_0(True)
+        assert isinstance(new, target)
+
+    @pytest.mark.parametrize(
+        "core, target",
+        [
+            (lazy_fixture(c), t)
+            for c, t in [
+                ("text2_2_0", pf.CoreTEXT3_1),
+                ("dataset2_2_0", pf.CoreDataset3_1),
+            ]
+        ],
+    )
+    def test_2_0_to_3_1(
+        self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0, target: type
+    ) -> None:
+        # should fail if $PnE are missing
+        with pytest.raises(pf.PyreflowException):
+            core.version_3_1(True)
+        core.set_scales([()])
+        new = core.version_3_1(True)
+        assert isinstance(new, target)
+
+    @pytest.mark.parametrize(
+        "core, target",
+        [
+            (lazy_fixture(c), t)
+            for c, t in [
+                ("text2_2_0", pf.CoreTEXT3_2),
+                ("dataset2_2_0", pf.CoreDataset3_2),
+            ]
+        ],
+    )
+    def test_2_0_to_3_2(
+        self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0, target: type
+    ) -> None:
+        # should fail if $PnE and $CYT are missing
+        with pytest.raises(pf.PyreflowException):
+            core.version_3_2(True)
+        core.set_scales([()])
+        core.cyt = "T cell incinerator"
+        new = core.version_3_2(True)
+        assert isinstance(new, target)
+
+    @pytest.mark.parametrize(
+        "core, target",
+        [
+            (lazy_fixture(c), t)
+            for c, t in [
+                ("text2_3_0", pf.CoreTEXT2_0),
+                ("dataset2_3_0", pf.CoreDataset2_0),
+            ]
+        ],
+    )
+    def test_3_0_to_2_0(
+        self, core: pf.CoreTEXT3_0 | pf.CoreDataset3_0, target: type
+    ) -> None:
+        new = core.version_2_0(True)
+        assert isinstance(new, target)
+
+    @pytest.mark.parametrize(
+        "core, target",
+        [
+            (lazy_fixture(c), t)
+            for c, t in [
+                ("text2_3_0", pf.CoreTEXT3_1),
+                ("dataset2_3_0", pf.CoreDataset3_1),
+            ]
+        ],
+    )
+    def test_3_0_to_3_1(
+        self, core: pf.CoreTEXT3_0 | pf.CoreDataset3_0, target: type
+    ) -> None:
+        new = core.version_3_1(True)
+        assert isinstance(new, target)
+
+    @pytest.mark.parametrize(
+        "core, target",
+        [
+            (lazy_fixture(c), t)
+            for c, t in [
+                ("text2_3_0", pf.CoreTEXT3_2),
+                ("dataset2_3_0", pf.CoreDataset3_2),
+            ]
+        ],
+    )
+    def test_3_0_to_3_2(
+        self, core: pf.CoreTEXT3_0 | pf.CoreDataset3_0, target: type
+    ) -> None:
+        # should fail if $CYT is missing
+        with pytest.raises(pf.PyreflowException):
+            core.version_3_2(True)
+        core.cyt = "the dark eternal void from which cells will never escape"
+        new = core.version_3_2(True)
+        assert isinstance(new, target)
+
+    @pytest.mark.parametrize(
+        "core, target",
+        [
+            (lazy_fixture(c), t)
+            for c, t in [
+                ("text2_3_1", pf.CoreTEXT2_0),
+                ("dataset2_3_1", pf.CoreDataset2_0),
+            ]
+        ],
+    )
+    def test_3_1_to_2_0(
+        self, core: pf.CoreTEXT3_1 | pf.CoreDataset3_1, target: type
+    ) -> None:
+        new = core.version_2_0(True)
+        assert isinstance(new, target)
+
+    @pytest.mark.parametrize(
+        "core, target",
+        [
+            (lazy_fixture(c), t)
+            for c, t in [
+                ("text2_3_1", pf.CoreTEXT3_0),
+                ("dataset2_3_1", pf.CoreDataset3_0),
+            ]
+        ],
+    )
+    def test_3_1_to_3_0(
+        self, core: pf.CoreTEXT3_1 | pf.CoreDataset3_1, target: type
+    ) -> None:
+        new = core.version_3_0(True)
+        assert isinstance(new, target)
+
+    @pytest.mark.parametrize(
+        "core, target",
+        [
+            (lazy_fixture(c), t)
+            for c, t in [
+                ("text2_3_1", pf.CoreTEXT3_2),
+                ("dataset2_3_1", pf.CoreDataset3_2),
+            ]
+        ],
+    )
+    def test_3_1_to_3_2(
+        self, core: pf.CoreTEXT3_1 | pf.CoreDataset3_1, target: type
+    ) -> None:
+        # should fail if $CYT is missing
+        with pytest.raises(pf.PyreflowException):
+            core.version_3_2(True)
+        core.cyt = "Cygnus X-1"
+        new = core.version_3_2(True)
+        assert isinstance(new, target)
+
+    @pytest.mark.parametrize(
+        "core, target",
+        [
+            (lazy_fixture(c), t)
+            for c, t in [
+                ("text2_3_2", pf.CoreTEXT2_0),
+                ("dataset2_3_2", pf.CoreDataset2_0),
+            ]
+        ],
+    )
+    def test_3_2_to_2_0(
+        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2, target: type
+    ) -> None:
+        new = core.version_2_0(True)
+        assert isinstance(new, target)
+
+    @pytest.mark.parametrize(
+        "core, target",
+        [
+            (lazy_fixture(c), t)
+            for c, t in [
+                ("text2_3_2", pf.CoreTEXT3_0),
+                ("dataset2_3_2", pf.CoreDataset3_0),
+            ]
+        ],
+    )
+    def test_3_2_to_3_0(
+        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2, target: type
+    ) -> None:
+        new = core.version_3_0(True)
+        assert isinstance(new, target)
+
+    @pytest.mark.parametrize(
+        "core, target",
+        [
+            (lazy_fixture(c), t)
+            for c, t in [
+                ("text2_3_2", pf.CoreTEXT3_1),
+                ("dataset2_3_2", pf.CoreDataset3_1),
+            ]
+        ],
+    )
+    def test_3_2_to_3_1(
+        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2, target: type
+    ) -> None:
+        new = core.version_3_1(True)
+        assert isinstance(new, target)

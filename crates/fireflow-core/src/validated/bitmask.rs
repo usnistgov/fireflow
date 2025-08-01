@@ -234,7 +234,7 @@ mod python {
     use super::Bitmask;
 
     use pyo3::conversion::FromPyObjectBound;
-    use pyo3::exceptions::PyValueError;
+    use pyo3::exceptions::PyOverflowError;
     use pyo3::prelude::*;
 
     impl<'py, T, const LEN: usize> FromPyObject<'py> for super::Bitmask<T, LEN>
@@ -247,7 +247,7 @@ mod python {
             let (ret, trunc) = Bitmask::from_native(x);
             if trunc {
                 let e = format!("could not make {LEN}-byte bitmask from {x}");
-                Err(PyValueError::new_err(e))
+                Err(PyOverflowError::new_err(e))
             } else {
                 Ok(ret)
             }

@@ -75,14 +75,17 @@ impl HeaderSegments {
         h: &mut BufWriter<W>,
         version: Version,
     ) -> io::Result<()> {
+        // ASSUME this is a total of 58 bytes long (sans OTHER)
         for s in [
-            version.to_string(),
-            "    ".to_string(),
-            self.text.header_string(),
-            self.data.header_string(),
-            self.analysis.header_string(),
+            version.to_string(),           // 6 bytes
+            "    ".to_string(),            // 4 bytes
+            self.text.header_string(),     // 16 bytes
+            self.data.header_string(),     // 16 bytes
+            self.analysis.header_string(), // 16 bytes
         ]
         .into_iter()
+        // TODO the other segments will each be 20 chars wide and padded with 0,
+        // which is probably overkill
         .chain(self.other.iter().map(|x| x.header_string()))
         {
             h.write_all(s.as_bytes())?;

@@ -77,6 +77,7 @@ impl HeaderSegments {
     ) -> io::Result<()> {
         for s in [
             version.to_string(),
+            "    ".to_string(),
             self.text.header_string(),
             self.data.header_string(),
             self.analysis.header_string(),

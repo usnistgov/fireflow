@@ -3505,11 +3505,13 @@ where
                             .def_inner_into()
                     })
                     .map(|mut tnt_core| {
-                        // Check that the time measurement is present if we want it
+                        // Check that the time measurement is present if we want
+                        // it and the measurement vector is non-empty
                         tnt_core.eval_error(|core| {
                             if let Some(pat) = std_conf.time_pattern.as_ref() {
                                 if !std_conf.allow_missing_time
                                     && core.measurements.as_center().is_none()
+                                    && !core.measurements.is_empty()
                                 {
                                     let e = MissingTime(pat.clone());
                                     return Some(LookupKeysError::Misc(e.into()).into());

@@ -1,4 +1,12 @@
 from __future__ import annotations
+from pathlib import Path
+from datetime import time, date, datetime
+from typing import TypeVar, Self, Generic, Union, final
+
+from polars import Series, DataFrame
+import numpy as np
+import numpy.typing as npt
+
 from pyreflow import (
     PyreflowWarning,
     PyreflowException,
@@ -28,11 +36,6 @@ from pyreflow.typing import (
     Calibration3_1,
     Calibration3_2,
 )
-from datetime import time, date, datetime
-from typing import TypeVar, Self, Generic, Union, final
-from polars import Series, DataFrame
-import numpy as np
-import numpy.typing as npt
 
 _X = TypeVar("_X")
 _C = TypeVar("_C")
@@ -318,6 +321,7 @@ class _CoreCommon:
     @property
     def par(self) -> int: ...
     def set_trigger_threshold(self, threshold: int) -> bool: ...
+    def write_text(self, path: Path, delim: int): ...
 
 class _CoreTemporal2_0:
     def set_temporal(self, name: Shortname, force: bool) -> bool: ...

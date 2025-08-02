@@ -736,8 +736,9 @@ macro_rules! common_methods {
                 Ok(self.0.set_all_shortnames(names).void()?)
             }
 
+            #[pyo3(signature = (path, delim = TEXTDelim::default()))]
             fn write_text(&self, path: PathBuf, delim: TEXTDelim) -> PyResult<()> {
-                let f = File::options().write(true).open(path)?;
+                let f = File::options().write(true).create(true).open(path)?;
                 let mut h = BufWriter::new(f);
                 self.0.h_write_text(&mut h, delim).py_term_resolve_nowarn()
             }

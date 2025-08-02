@@ -1,6 +1,7 @@
 from typing import cast
-from datetime import date, datetime, time, tzinfo, timezone, timedelta
+from datetime import date, datetime, time, timezone, timedelta
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
@@ -1648,6 +1649,16 @@ class TestLayouts:
         new = pf.MixedLayout(ranges, False)
         assert new.widths == [32, 64, 8]
         assert new.ranges == [Decimal(1000.0), Decimal(2000.0), Decimal(255)]
-        # TODO this is weird...why is the top-level type integer?
+        # TODO this doesn't make much sense
         assert new.datatype == "I"
         assert new.datatypes == ["F", "D", "I"]
+
+
+class TestReadWrite:
+    def test_empty(self, tmp_path: Path, blank_text_2_0: pf.CoreTEXT2_0) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "textonly.fcs"
+        blank_text_2_0.write_text(p, 30)
+        core, uncore = pf.fcs_read_std_text(p)
+        assert core == blank_text_2_0

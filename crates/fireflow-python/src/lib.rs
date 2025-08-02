@@ -131,8 +131,8 @@ pub fn py_fcs_read_std_dataset_with_keywords(
 
 macro_rules! py_wrap {
     ($pytype:ident, $rstype:path, $name:expr) => {
-        #[pyclass(name = $name)]
-        #[derive(Clone, From, Into)]
+        #[pyclass(name = $name, eq)]
+        #[derive(Clone, From, Into, PartialEq)]
         pub struct $pytype($rstype);
     };
 }

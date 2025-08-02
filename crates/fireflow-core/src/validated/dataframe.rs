@@ -12,14 +12,14 @@ use std::iter;
 use std::slice::Iter;
 
 /// A dataframe without NULL and only types that make sense for FCS files.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 pub struct FCSDataFrame {
     columns: Vec<AnyFCSColumn>,
     nrows: usize,
 }
 
 /// Any valid column from an FCS dataframe
-#[derive(Clone, From)]
+#[derive(Clone, From, PartialEq)]
 pub enum AnyFCSColumn {
     U08(U08Column),
     U16(U16Column),
@@ -29,7 +29,7 @@ pub enum AnyFCSColumn {
     F64(F64Column),
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct FCSColumn<T>(pub Buffer<T>);
 
 impl<T> From<Vec<T>> for FCSColumn<T> {

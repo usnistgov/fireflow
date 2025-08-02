@@ -34,7 +34,7 @@ use Ordering::*;
 ///
 /// All elements, including the center if it exists, are stored in a defined
 /// order.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum NamedVec<K, W, U, V> {
     // W is an associated type constructor defined by K, so we need to bind K
@@ -58,7 +58,7 @@ pub struct IndexedElement<K, V> {
     pub value: V,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SplitVec<K, U, V> {
     left: PairedVec<K, V>,
@@ -67,7 +67,7 @@ pub struct SplitVec<K, U, V> {
     prefix: ShortnamePrefix,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct UnsplitVec<K, V> {
     members: PairedVec<K, V>,
@@ -83,7 +83,7 @@ pub enum Element<U, V> {
 
 type PairedVec<K, V> = Vec<Pair<K, V>>;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Pair<K, V> {
     pub key: K,

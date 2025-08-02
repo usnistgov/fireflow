@@ -21,7 +21,7 @@ use serde::Serialize;
 pub struct MaybeValue<T>(pub Option<T>);
 
 /// A value that always exists.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AlwaysValue<T>(pub T);
 
@@ -73,7 +73,7 @@ pub trait MightHave {
         F: FnOnce(T) -> T0;
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct MaybeFamily;
 
@@ -97,7 +97,7 @@ impl MightHave for MaybeFamily {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AlwaysFamily;
 

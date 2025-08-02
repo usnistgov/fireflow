@@ -20,7 +20,7 @@ use serde::Serialize;
 /// The generic type parameter is meant to account for the fact that the time
 /// types for different versions are all slightly different in their treatment
 /// of sub-second time.
-#[derive(Clone, AsRef)]
+#[derive(Clone, AsRef, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Timestamps<X> {
     /// The value of the $BTIM key
@@ -49,12 +49,12 @@ impl<X> Default for Timestamps<X> {
 pub type Btim<T> = Xtim<false, T>;
 pub type Etim<T> = Xtim<true, T>;
 
-#[derive(Clone, Copy, Display, FromStr, From)]
+#[derive(Clone, Copy, Display, FromStr, From, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Xtim<const IS_ETIM: bool, T>(pub T);
 
 /// A date as used in the $DATE key
-#[derive(Clone, Copy, From, Into, AsRef)]
+#[derive(Clone, Copy, From, Into, AsRef, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FCSDate(pub NaiveDate);
 

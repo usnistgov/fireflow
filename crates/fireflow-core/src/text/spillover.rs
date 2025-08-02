@@ -15,7 +15,7 @@ use std::str::FromStr;
 use serde::Serialize;
 
 /// The spillover matrix from the $SPILLOVER keyword (3.1+)
-#[derive(Clone, AsRef)]
+#[derive(Clone, AsRef, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Spillover {
     /// The measurements in the spillover matrix.

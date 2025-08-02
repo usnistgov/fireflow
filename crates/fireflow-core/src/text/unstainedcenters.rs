@@ -14,7 +14,7 @@ use std::str::FromStr;
 use serde::Serialize;
 
 /// The value for the $UNSTAINEDCENTERS key (3.2+)
-#[derive(Clone, Into)]
+#[derive(Clone, Into, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct UnstainedCenters(HashMap<Shortname, f32>);
 

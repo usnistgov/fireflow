@@ -58,7 +58,7 @@ use pyo3::prelude::*;
 /// These are not included because this struct will also be used to encode the
 /// TEXT data when writing a new FCS file, and the keywords that are not
 /// included can be computed on the fly when writing.
-#[derive(Clone, AsRef)]
+#[derive(Clone, AsRef, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Core<A, D, O, M, T, P, N, W, L> {
     /// Metaroot TEXT keywords.
@@ -93,17 +93,17 @@ pub struct Core<A, D, O, M, T, P, N, W, L> {
 }
 
 /// The ANALYSIS segment, which is just a string of bytes
-#[derive(Clone, From)]
+#[derive(Clone, From, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct Analysis(pub Vec<u8>);
 
 /// An OTHER segment, which is just a string of bytes
-#[derive(Clone, From)]
+#[derive(Clone, From, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct Other(pub Vec<u8>);
 
 /// All OTHER segments
-#[derive(Clone, Default, From)]
+#[derive(Clone, Default, From, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct Others(pub Vec<Other>);
 
@@ -112,7 +112,7 @@ pub struct Others(pub Vec<Other>);
 /// Explicit fields are common to all FCS versions.
 ///
 /// The generic type parameter allows version-specific data to be encoded.
-#[derive(Clone, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Metaroot<X> {
     /// Value of $ABRT
@@ -193,7 +193,7 @@ pub struct Metaroot<X> {
     pub nonstandard_keywords: NonStdKeywords,
 }
 
-#[derive(Clone, Default, AsRef, AsMut)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct CommonMeasurement {
     /// Value for $PnS
@@ -213,7 +213,7 @@ pub struct CommonMeasurement {
 ///
 /// Explicit fields are common to all versions. The generic type parameter
 /// allows for version-specific information to be encoded.
-#[derive(Clone, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Temporal<X> {
     /// Fields shared with optical measurements
@@ -229,7 +229,7 @@ pub struct Temporal<X> {
 ///
 /// Explicit fields are common to all versions. The generic type parameter
 /// allows for version-specific information to be encoded.
-#[derive(Clone, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Optical<X> {
     /// Fields shared with optical measurements
@@ -411,7 +411,7 @@ impl AnyCoreDataset {
 }
 
 /// Metaroot fields specific to version 2.0
-#[derive(Clone, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerMetaroot2_0 {
     /// Value of $MODE
@@ -438,7 +438,7 @@ pub struct InnerMetaroot2_0 {
 }
 
 /// Metaroot fields specific to version 3.0
-#[derive(Clone, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerMetaroot3_0 {
     /// Value of $MODE
@@ -478,7 +478,7 @@ pub struct InnerMetaroot3_0 {
 }
 
 /// Metaroot fields specific to version 3.1
-#[derive(Clone, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerMetaroot3_1 {
     /// Value of $MODE
@@ -528,7 +528,7 @@ pub struct InnerMetaroot3_1 {
 }
 
 /// Metaroot fields specific to version 3.2
-#[derive(Clone, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerMetaroot3_2 {
     /// Value of $MODE
@@ -596,7 +596,7 @@ pub struct InnerMetaroot3_2 {
 }
 
 /// Temporal measurement fields specific to version 2.0
-#[derive(Clone, Default, AsRef, AsMut)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerTemporal2_0 {
     /// Value of $PnE
@@ -617,7 +617,7 @@ pub struct InnerTemporal2_0 {
 /// Temporal measurement fields specific to version 3.0
 ///
 /// $PnE is implied as linear but not included since it only has one value
-#[derive(Clone, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerTemporal3_0 {
     /// Value for $TIMESTEP
@@ -636,7 +636,7 @@ pub struct InnerTemporal3_0 {
 /// Temporal measurement fields specific to version 3.1
 ///
 /// $PnE is implied as linear but not included since it only has one value
-#[derive(Clone, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerTemporal3_1 {
     /// Value for $TIMESTEP
@@ -660,7 +660,7 @@ pub struct InnerTemporal3_1 {
 /// Temporal measurement fields specific to version 3.2
 ///
 /// $PnE is implied as linear but not included since it only has one value
-#[derive(Clone, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerTemporal3_2 {
     /// Value for $TIMESTEP
@@ -679,7 +679,7 @@ pub struct InnerTemporal3_2 {
 }
 
 /// Optical measurement fields specific to version 2.0
-#[derive(Clone, Default, AsRef, AsMut)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerOptical2_0 {
     /// Value for $PnE
@@ -708,7 +708,7 @@ pub struct InnerOptical2_0 {
 }
 
 /// Optical measurement fields specific to version 3.0
-#[derive(Clone, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerOptical3_0 {
     /// Value for $PnE/$PnG
@@ -737,7 +737,7 @@ pub struct InnerOptical3_0 {
 }
 
 /// Optical measurement fields specific to version 3.1
-#[derive(Clone, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerOptical3_1 {
     /// Value for $PnE/$PnG
@@ -776,7 +776,7 @@ pub struct InnerOptical3_1 {
 }
 
 /// Optical measurement fields specific to version 3.2
-#[derive(Clone, AsRef, AsMut)]
+#[derive(Clone, AsRef, AsMut, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerOptical3_2 {
     /// Value for $PnE/$PnG
@@ -833,7 +833,7 @@ pub struct InnerOptical3_2 {
 }
 
 /// The values for $Gm* keywords (2.0-3.1)
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct GatedMeasurement {
     /// Value for $GmE
@@ -877,7 +877,7 @@ pub enum ScaleTransform {
 ///
 /// Each region is assumed to point to a member of ['gated_measurements'].
 // TODO updates to these are currently not validated
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AppliedGates2_0 {
     pub gated_measurements: GatedMeasurements,
@@ -889,7 +889,7 @@ pub struct AppliedGates2_0 {
 /// Each region is assumed to point to a member of ['gated_measurements'] or
 /// a measurement in the ['Core'] struct
 // TODO updates to these are currently not validated
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AppliedGates3_0 {
     pub gated_measurements: Vec<GatedMeasurement>,
@@ -900,7 +900,7 @@ pub struct AppliedGates3_0 {
 ///
 /// Each region is assumed to point to a measurement in the ['Core'] struct
 // TODO updates to these are currently not validated
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AppliedGates3_2 {
     pub regions: GatingRegions<PrefixedMeasIndex>,
@@ -911,7 +911,7 @@ pub struct AppliedGates3_2 {
 /// All regions in $GATING are assumed to have corresponding $RnI/$RnW keywords,
 /// and each $RnI/$RnW pair is assumed to be consistent (ie both are univariate
 /// or bivariate)
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct GatingRegions<I> {
     pub gating: Gating,
     pub regions: NonEmpty<(RegionIndex, Region<I>)>,
@@ -920,11 +920,11 @@ pub struct GatingRegions<I> {
 /// A list of $Gn* keywords for indices 1-n.
 ///
 /// The maximum value of 'n' implies the $GATE keyword.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct GatedMeasurements(pub NonEmpty<GatedMeasurement>);
 
 /// A uni/bivariate region corresponding to an $RnI/$RnW keyword pair
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Region<I> {
     Univariate(UnivariateRegion<I>),
@@ -936,7 +936,7 @@ pub type Region3_0 = Region<MeasOrGateIndex>;
 pub type Region3_2 = Region<PrefixedMeasIndex>;
 
 /// A univariate region corresponding to an $RnI/$RnW keyword pair
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct UnivariateRegion<I> {
     pub gate: UniGate,
@@ -944,7 +944,7 @@ pub struct UnivariateRegion<I> {
 }
 
 /// A bivariate region corresponding to an $RnI/$RnW keyword pair
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct BivariateRegion<I> {
     pub vertices: NonEmpty<Vertex>,
     pub x_index: I,
@@ -956,7 +956,7 @@ pub struct BivariateRegion<I> {
 /// It makes little sense to have only one of these since they both collectively
 /// describe a histogram peak. This currently is not enforced since these keys
 /// are likely not used much and it is easy for users to check these themselves.
-#[derive(Clone, Default, AsRef, AsMut)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PeakData {
     /// Value of $Pkn
@@ -978,7 +978,7 @@ pub struct PeakData {
 /// bytestring. This library currently makes no attempt to interpret the
 /// ANALYSIS segment given the CS* keywords, but may add this in the future if
 /// the need arises.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 pub struct SubsetData {
     /// Value of $CSBITS if given
     pub bits: MaybeValue<CSVBits>,
@@ -988,7 +988,7 @@ pub struct SubsetData {
 }
 
 /// A bundle for $ORIGINALITY, $LAST_MODIFIER, and $LAST_MODIFIED (3.1+)
-#[derive(Clone, Default, AsRef, AsMut)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ModificationData {
     #[as_ref(Option<LastModifier>)]
@@ -1005,7 +1005,7 @@ pub struct ModificationData {
 }
 
 /// A bundle for $PLATEID, $PLATENAME, and $WELLID (3.1+)
-#[derive(Clone, Default, AsRef, AsMut)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PlateData {
     #[as_ref(Option<Plateid>)]
@@ -1022,7 +1022,7 @@ pub struct PlateData {
 }
 
 /// A bundle for $UNSTAINEDCENTERS and $UNSTAINEDINFO (3.2+)
-#[derive(Clone, Default, AsRef, AsMut)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct UnstainedData {
     #[as_ref(Option<UnstainedCenters>)]
@@ -1034,7 +1034,7 @@ pub struct UnstainedData {
 }
 
 /// A bundle for $CARRIERID, $CARRIERTYPE, $LOCATIONID (3.2+)
-#[derive(Clone, Default, AsRef, AsMut)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct CarrierData {
     #[as_ref(Option<Carrierid>)]

@@ -89,7 +89,7 @@ impl fmt::Display for TimestepLossError {
 }
 
 /// The value of the $VOL keyword
-#[derive(Clone, Copy, From, Display, FromStr, Into)]
+#[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(NonNegFloat, f32)]
@@ -100,7 +100,7 @@ impl_newtype_try_from!(Vol, NonNegFloat, f32, RangedFloatError);
 /// The value of the $TR field (all versions)
 ///
 /// This is formatted as 'string,f' where 'string' is a measurement name.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Trigger {
     /// The measurement name (assumed to match a '$PnN' value).
@@ -190,7 +190,7 @@ impl fmt::Display for ModeError {
 }
 
 /// The value for the $MODE key, which can only contain 'L' (3.2)
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Mode3_2;
 
@@ -424,7 +424,7 @@ impl TryFrom<AlphaNumType> for NumType {
 /// The value of the $PnE key for temporal measurements (all versions)
 ///
 /// This can only be linear (0,0)
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct TemporalScale;
 
@@ -554,7 +554,7 @@ impl fmt::Display for CalibrationFormat3_2 {
 }
 
 /// The value for the $PnL key (2.0/3.0).
-#[derive(Clone, Copy, From, FromStr, Display, Into)]
+#[derive(Clone, Copy, From, FromStr, Display, Into, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(f32, PositiveFloat)]
@@ -565,7 +565,7 @@ impl_newtype_try_from!(Wavelength, PositiveFloat, f32, RangedFloatError);
 /// The value for the $PnL key (3.1).
 ///
 /// Starting in 3.1 this is a vector rather than a scaler.
-#[derive(Clone, From)]
+#[derive(Clone, From, PartialEq)]
 pub struct Wavelengths(pub NonEmpty<PositiveFloat>);
 
 impl From<Wavelengths> for Vec<f32> {
@@ -649,7 +649,7 @@ impl fmt::Display for WavelengthsError {
 ///
 /// Inner value is private to ensure it always gets parsed/printed using the
 /// correct format
-#[derive(Clone, Copy, From, Into)]
+#[derive(Clone, Copy, From, Into, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ModifiedDateTime(pub NaiveDateTime);
@@ -1004,7 +1004,7 @@ where
     }
 }
 
-#[derive(Clone, Copy, From)]
+#[derive(Clone, Copy, From, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum MeasOrGateIndex {
     Meas(MeasIndex),
@@ -1056,7 +1056,7 @@ impl fmt::Display for MeasOrGateIndexError {
     }
 }
 
-#[derive(Clone, Copy, From)]
+#[derive(Clone, Copy, From, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PrefixedMeasIndex(pub MeasIndex);
 
@@ -1104,14 +1104,14 @@ pub(crate) enum RegionWindow {
     Bivariate(NonEmpty<Vertex>),
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Vertex {
     pub x: BigDecimal,
     pub y: BigDecimal,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct UniGate {
     pub lower: BigDecimal,
@@ -1194,7 +1194,7 @@ impl fmt::Display for GatePairError {
 }
 
 /// The value of the $GATING key (3.0-3.2)
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Gating {
     Region(RegionIndex),
@@ -1398,7 +1398,7 @@ impl fmt::Display for GatingError {
 }
 
 /// The value of the $PnR key.
-#[derive(Clone, From, Display, FromStr, Add, Sub)]
+#[derive(Clone, From, Display, FromStr, Add, Sub, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[from(u8, u16, u32, u64, BigDecimal)]
@@ -1537,13 +1537,13 @@ impl TryFrom<f64> for Range {
 }
 
 /// The value of the $GmR key
-#[derive(Clone, From, Display, FromStr)]
+#[derive(Clone, From, Display, FromStr, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(u64)]
 pub struct GateRange(pub Range);
 
 /// The value of the $PnO key
-#[derive(Clone, Copy, From, Display, FromStr, Into)]
+#[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(NonNegFloat, f32)]
@@ -1552,7 +1552,7 @@ pub struct Power(pub NonNegFloat);
 impl_newtype_try_from!(Power, NonNegFloat, f32, RangedFloatError);
 
 /// The value of the $PnV key
-#[derive(Clone, Copy, From, Display, FromStr, Into)]
+#[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(NonNegFloat, f32)]
@@ -1561,7 +1561,7 @@ pub struct DetectorVoltage(pub NonNegFloat);
 impl_newtype_try_from!(DetectorVoltage, NonNegFloat, f32, RangedFloatError);
 
 /// The value of the $GmV key
-#[derive(Clone, Copy, Display, FromStr, Into)]
+#[derive(Clone, Copy, Display, FromStr, Into, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(f32)]
 pub struct GateDetectorVoltage(pub NonNegFloat);
@@ -1569,7 +1569,7 @@ pub struct GateDetectorVoltage(pub NonNegFloat);
 impl_newtype_try_from!(GateDetectorVoltage, NonNegFloat, f32, RangedFloatError);
 
 /// The value of the $GmE key
-#[derive(Clone, Copy, Display, FromStr)]
+#[derive(Clone, Copy, Display, FromStr, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct GateScale(pub Scale);
 
@@ -1593,26 +1593,26 @@ impl GateScale {
 }
 
 /// The value of the $CSVnFLAG key (2.0-3.0)
-#[derive(Clone, Copy, Display, FromStr, Into)]
+#[derive(Clone, Copy, Display, FromStr, Into, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(u32)]
 pub struct CSVFlag(pub u32);
 
 /// The value of the $PKn key (2.0-3.1)
-#[derive(Clone, Copy, Display, FromStr, Into)]
+#[derive(Clone, Copy, Display, FromStr, Into, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(u32)]
 pub struct PeakBin(pub u32);
 
 /// The value of the $PKNn key (2.0-3.1)
-#[derive(Clone, Copy, Display, FromStr, Into)]
+#[derive(Clone, Copy, Display, FromStr, Into, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(u32)]
 pub struct PeakNumber(pub u32);
 
 macro_rules! newtype_string {
     ($t:ident) => {
-        #[derive(Clone, Display, FromStr, From, Into)]
+        #[derive(Clone, Display, FromStr, From, Into, PartialEq)]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
         pub struct $t(pub String);
@@ -1621,7 +1621,7 @@ macro_rules! newtype_string {
 
 macro_rules! newtype_int {
     ($t:ident, $type:ty) => {
-        #[derive(Clone, Copy, Display, FromStr, From, Into)]
+        #[derive(Clone, Copy, Display, FromStr, From, Into, PartialEq)]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(IntoPyObject))]
         pub struct $t(pub $type);

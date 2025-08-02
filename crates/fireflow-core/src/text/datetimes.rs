@@ -15,7 +15,7 @@ use std::str::FromStr;
 use serde::Serialize;
 
 /// A convenient bundle for the $BEGINDATETIME and $ENDDATETIME keys (3.2+)
-#[derive(Clone, Default, AsRef)]
+#[derive(Clone, Default, AsRef, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Datetimes {
     /// Value for the $BEGINDATETIME key.
@@ -27,20 +27,20 @@ pub struct Datetimes {
     end: Option<EndDateTime>,
 }
 
-#[derive(Clone, Copy, From, Into, Display, FromStr)]
+#[derive(Clone, Copy, From, Into, Display, FromStr, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(DateTime<FixedOffset>, FCSDateTime)]
 #[into(DateTime<FixedOffset>, FCSDateTime)]
 pub struct BeginDateTime(pub FCSDateTime);
 
-#[derive(Clone, Copy, From, Into, Display, FromStr)]
+#[derive(Clone, Copy, From, Into, Display, FromStr, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(DateTime<FixedOffset>, FCSDateTime)]
 #[into(DateTime<FixedOffset>, FCSDateTime)]
 pub struct EndDateTime(pub FCSDateTime);
 
 /// A datetime as used in the $(BEGIN|END)DATETIME keys (3.2+ only)
-#[derive(Clone, Copy, From, Into)]
+#[derive(Clone, Copy, From, Into, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FCSDateTime(pub DateTime<FixedOffset>);
 

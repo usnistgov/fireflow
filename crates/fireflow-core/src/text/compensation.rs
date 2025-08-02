@@ -17,13 +17,13 @@ use std::str::FromStr;
 use serde::Serialize;
 
 /// The aggregated values of the $DFCiTOj keywords (2.0)
-#[derive(Clone, From, Into, AsRef)]
+#[derive(Clone, From, Into, AsRef, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[as_ref(DMatrix<f32>, Compensation)]
 pub struct Compensation2_0(pub Compensation);
 
 /// The value of the $COMP keyword (3.0)
-#[derive(Clone, From, Into, Display, AsRef)]
+#[derive(Clone, From, Into, Display, AsRef, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[as_ref(DMatrix<f32>, Compensation)]
 pub struct Compensation3_0(pub Compensation);
@@ -31,7 +31,7 @@ pub struct Compensation3_0(pub Compensation);
 /// A compensation matrix.
 ///
 /// This is encoded in the $DFCmTOn keywords in 2.0 and $COMP in 3.0.
-#[derive(Clone, AsRef)]
+#[derive(Clone, AsRef, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Compensation {
     /// Values in the comp matrix in row-major order. Assumed to be the

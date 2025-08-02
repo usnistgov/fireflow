@@ -92,14 +92,14 @@ use serde::Serialize;
 ///
 /// This is identical to 3.0 in every way except that the $TOT keyword in 2.0
 /// is optional, which requires a different interface.
-#[derive(Clone, From, Delegate)]
+#[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
 #[delegate(InterLayoutOps<D>, generics = "D")]
 pub struct DataLayout2_0(pub AnyOrderedLayout<MaybeTot>);
 
 /// All possible byte layouts for the DATA segment in 2.0.
-#[derive(Clone, From, Delegate)]
+#[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
 #[delegate(InterLayoutOps<D>, generics = "D")]
@@ -110,7 +110,7 @@ pub struct DataLayout3_0(pub AnyOrderedLayout<KnownTot>);
 /// Unlike 2.0 and 3.0, the integer layout allows the column widths to be
 /// different. This is a consequence of making BYTEORD only mean "big or little
 /// endian" and have nothing to do with number of bytes.
-#[derive(Clone, From, Delegate)]
+#[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
 #[delegate(InterLayoutOps<D>, generics = "D")]
@@ -120,7 +120,7 @@ pub struct DataLayout3_1(pub NonMixedEndianLayout<NoMeasDatatype>);
 ///
 /// In addition to the loosened integer layouts in 3.1, 3.2 additionally allows
 /// each column to have a different type and size (hence "Mixed").
-#[derive(Clone, From, Delegate)]
+#[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
 pub enum DataLayout3_2 {
@@ -134,7 +134,7 @@ pub type MixedLayout = EndianLayout<NullMixedType, HasMeasDatatype>;
 ///
 /// It is so named "Ordered" because the BYTEORD keyword represents any possible
 /// byte ordering that may occur rather than simply little or big endian.
-#[derive(Clone, From, Delegate)]
+#[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
 #[delegate(InterLayoutOps<DT>, generics = "DT")]
@@ -147,7 +147,7 @@ pub enum AnyOrderedLayout<T> {
 
 // TODO make an integer layout which has only one width, which will cover the
 // vast majority of cases and make certain operations easier.
-#[derive(Clone, From, Delegate)]
+#[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
 #[delegate(InterLayoutOps<DT>, generics = "DT")]
@@ -165,7 +165,7 @@ pub type EndianLayout<C, D> = FixedLayout<C, Endian, KnownTot, D>;
 /// This may either be fixed (ie columns have the same number of characters)
 /// or variable (ie columns have have different number of characters and are
 /// separated by delimiters).
-#[derive(Clone, From, Delegate)]
+#[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
 #[delegate(InterLayoutOps<DT>, generics = "DT")]
@@ -177,7 +177,7 @@ pub enum AnyAsciiLayout<T, D, const ORD: bool> {
 pub type FixedAsciiLayout<T, D, const ORD: bool> = FixedLayout<AsciiRange, NoByteOrd<ORD>, T, D>;
 
 /// Byte layout for delimited ASCII.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DelimAsciiLayout<T, D, const ORD: bool> {
     pub ranges: Vec<u64>,
@@ -186,7 +186,7 @@ pub struct DelimAsciiLayout<T, D, const ORD: bool> {
 }
 
 /// Byte layout where each column has a fixed width.
-#[derive(Clone, AsRef)]
+#[derive(Clone, AsRef, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FixedLayout<C, L, T, D> {
     #[as_ref(L)]
@@ -197,7 +197,7 @@ pub struct FixedLayout<C, L, T, D> {
 }
 
 /// Byte layout for integers that may be in any byte order.
-#[derive(Clone, From, Delegate)]
+#[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
 #[delegate(InterLayoutOps<DT>, generics = "DT")]
@@ -220,8 +220,8 @@ pub type OrderedLayout<C, T> = FixedLayout<C, <C as HasNativeWidth>::Order, T, N
 pub enum MixedType<F: ColumnFamily> {
     Ascii(F::ColumnWrapper<AsciiRange, u64, NoByteOrd3_1>),
     Uint(AnyBitmask<F>),
-    F32(NativeWrapper<F, F32Range>),
-    F64(NativeWrapper<F, F64Range>),
+    F32(F::ColumnWrapper<F32Range, f32, Endian>),
+    F64(F::ColumnWrapper<F64Range, f64, Endian>),
 }
 
 pub type NullMixedType = MixedType<ColumnNullFamily>;
@@ -229,15 +229,17 @@ type ReaderMixedType = MixedType<ColumnReaderFamily>;
 type WriterMixedType<'a> = MixedType<ColumnWriterFamily<'a>>;
 
 /// A big or little-endian integer column of some size (1-8 bytes)
+#[derive(PartialEq, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyBitmask<F: ColumnFamily> {
-    Uint08(NativeWrapper<F, Bitmask08>),
-    Uint16(NativeWrapper<F, Bitmask16>),
-    Uint24(NativeWrapper<F, Bitmask24>),
-    Uint32(NativeWrapper<F, Bitmask32>),
-    Uint40(NativeWrapper<F, Bitmask40>),
-    Uint48(NativeWrapper<F, Bitmask48>),
-    Uint56(NativeWrapper<F, Bitmask56>),
-    Uint64(NativeWrapper<F, Bitmask64>),
+    Uint08(F::ColumnWrapper<Bitmask08, u8, Endian>),
+    Uint16(F::ColumnWrapper<Bitmask16, u16, Endian>),
+    Uint24(F::ColumnWrapper<Bitmask24, u32, Endian>),
+    Uint32(F::ColumnWrapper<Bitmask32, u32, Endian>),
+    Uint40(F::ColumnWrapper<Bitmask40, u64, Endian>),
+    Uint48(F::ColumnWrapper<Bitmask48, u64, Endian>),
+    Uint56(F::ColumnWrapper<Bitmask56, u64, Endian>),
+    Uint64(F::ColumnWrapper<Bitmask64, u64, Endian>),
 }
 
 pub type AnyNullBitmask = AnyBitmask<ColumnNullFamily>;
@@ -274,6 +276,7 @@ struct ColumnWriter<'a, C, T, S> {
 type UintColumnWriter<'a, C> = ColumnWriter<'a, C, <C as HasNativeType>::Native, Endian>;
 
 /// Marker type for columns which are used in a layout (non-reader/writer)
+#[derive(Clone, PartialEq)]
 pub struct ColumnNullFamily;
 
 /// Marker type for columns which are in a layout and have data for reading
@@ -283,22 +286,22 @@ struct ColumnReaderFamily;
 struct ColumnWriterFamily<'a>(std::marker::PhantomData<&'a ()>);
 
 /// Marker type for layouts that might have $TOT
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct MaybeTot;
 
 /// Marker type for layouts that always have $TOT
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct KnownTot;
 
 /// Marker type for layouts without $PnDATATYPE.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct NoMeasDatatype;
 
 /// Marker type for layouts with $PnDATATYPE.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct HasMeasDatatype;
 
@@ -322,9 +325,6 @@ type ColumnLayoutValues3_2 = ColumnLayoutValues<Option<NumType>>;
 pub trait ColumnFamily {
     type ColumnWrapper<C, T, S>;
 }
-
-type NativeWrapper<F, C> =
-    <F as ColumnFamily>::ColumnWrapper<C, <C as HasNativeType>::Native, Endian>;
 
 pub trait MeasDatatypeDef {
     type MeasDatatype;
@@ -935,46 +935,41 @@ trait FloatFromBytes<const LEN: usize>: NumProps + OrderedFromBytes<LEN> {
     }
 }
 
-macro_rules! impl_null_layout {
-    ($t:ident, $($var:ident),*) => {
-        // impl Copy for $t {}
-
-        impl Clone for $t {
-            fn clone(&self) -> Self {
-                match self {
-                    $(
-                        Self::$var(x) => $t::$var(x.clone()),
-                    )*
-                }
-            }
-        }
-
-        #[cfg(feature = "serde")]
-        impl Serialize for $t {
-            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-                match self {
-                    $(
-                        Self::$var(x) => x.serialize(serializer),
-                    )*
-                }
-            }
-        }
+macro_rules! match_any_mixed {
+    ($value:expr, $inner:ident, $action:block) => {
+        match_many_to_one!($value, MixedType, [Ascii, Uint, F32, F64], $inner, $action)
     };
 }
 
-impl_null_layout!(NullMixedType, Ascii, Uint, F32, F64);
+impl PartialEq for NullMixedType {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Ascii(x), Self::Ascii(y)) => x == y,
+            (Self::Uint(x), Self::Uint(y)) => x == y,
+            (Self::F32(x), Self::F32(y)) => x == y,
+            (Self::F64(x), Self::F64(y)) => x == y,
+            _ => false,
+        }
+    }
+}
 
-impl_null_layout!(
-    AnyNullBitmask,
-    Uint08,
-    Uint16,
-    Uint24,
-    Uint32,
-    Uint40,
-    Uint48,
-    Uint56,
-    Uint64
-);
+impl Clone for NullMixedType {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Ascii(x) => (*x).into(),
+            Self::Uint(x) => x.clone().into(),
+            Self::F32(x) => x.clone().into(),
+            Self::F64(x) => x.clone().into(),
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl Serialize for NullMixedType {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match_any_mixed!(self, x, { x.serialize(serializer) })
+    }
+}
 
 macro_rules! impl_any_uint {
     ($var:ident, $bitmask:path) => {
@@ -1215,12 +1210,6 @@ macro_rules! match_any_uint {
             $inner,
             $action
         )
-    };
-}
-
-macro_rules! match_any_mixed {
-    ($value:expr, $inner:ident, $action:block) => {
-        match_many_to_one!($value, MixedType, [Ascii, Uint, F32, F64], $inner, $action)
     };
 }
 

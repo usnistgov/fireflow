@@ -48,34 +48,28 @@ impl Compensation2_0 {
         // row = target measurement
         // These are "flipped" in 2.0, where "column" goes TO the "row"
         let n = par.0;
-        let mut matrix = DMatrix::<f32>::identity(n, n);
-        let mut warnings = vec![];
-        for r in 0..n {
-            for c in 0..n {
+        let (xs, warnings): (Vec<_>, Vec<_>) = (0..n)
+            .cartesian_product(0..n)
+            .map(|(r, c)| {
                 let k = Dfc::std(c.into(), r.into());
                 match lookup_dfc(kws, k) {
-                    Ok(Some(x)) => {
-                        matrix[(r, c)] = x;
-                    }
-                    Ok(None) => (),
-                    Err(w) => warnings.push(LookupKeysWarning::Parse(w.inner_into())),
+                    Ok(x) => (x, None),
+                    Err(w) => (None, Some(LookupKeysWarning::Parse(w.inner_into()))),
                 }
-            }
-        }
-        if warnings.is_empty() {
-            Compensation::try_from(matrix).map_or_else(
-                |w| {
-                    Tentative::new(
-                        None.into(),
-                        vec![LookupKeysWarning::Relation(w.into())],
-                        vec![],
-                    )
-                },
-                |x| Tentative::new1(Some(Self(x)).into()),
-            )
+            })
+            .unzip();
+        let mut tnt = if xs.iter().all(|x| x.is_none()) || xs.is_empty() {
+            Tentative::default()
         } else {
-            Tentative::new(None.into(), warnings, vec![])
-        }
+            let ys = xs.into_iter().map(|x| x.unwrap_or(0.0));
+            let matrix = DMatrix::from_row_iterator(n, n, ys);
+            Compensation::try_from(matrix)
+                .map(|x| Some(Self(x)))
+                .map_err(|e| LookupKeysWarning::Relation(e.into()))
+                .map_or(Tentative::default(), Tentative::new1)
+        };
+        tnt.extend_warnings(warnings.into_iter().flatten().collect());
+        tnt.map(MaybeValue)
     }
 
     pub fn opt_keywords(&self) -> Vec<(String, String)> {

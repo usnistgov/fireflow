@@ -2045,7 +2045,8 @@ where
     where
         Version: From<M::Ver>,
     {
-        self.header_and_raw_keywords(Tot(0), 0, 0, vec![])
+        // TODO do something useful with $NEXTDATA
+        self.header_and_raw_keywords(Tot(0), 0, 0, vec![], false)
             .map_err(ImpureError::Pure)
             .and_then(|hdr_kws| {
                 // write HEADER
@@ -3157,6 +3158,7 @@ where
         data_len: u64,
         analysis_len: u64,
         other_lens: Vec<u64>,
+        has_nextdata: bool,
     ) -> Result<HeaderKeywordsToWrite, Uint8DigitOverflow>
     where
         Version: From<M::Ver>,
@@ -3171,9 +3173,23 @@ where
             .chain(self.opt_meas_keywords())
             .collect();
         if Version::from(M::Ver::fcs_version()) == Version::FCS2_0 {
-            make_data_offset_keywords_2_0(req, opt, data_len, analysis_len, other_lens)
+            make_data_offset_keywords_2_0(
+                req,
+                opt,
+                data_len,
+                analysis_len,
+                other_lens,
+                has_nextdata,
+            )
         } else {
-            make_data_offset_keywords_3_0(req, opt, data_len, analysis_len, other_lens)
+            make_data_offset_keywords_3_0(
+                req,
+                opt,
+                data_len,
+                analysis_len,
+                other_lens,
+                has_nextdata,
+            )
         }
     }
 
@@ -3731,7 +3747,8 @@ where
             .def_and_maybe(|()| {
                 let data_len = layout.nbytes(df);
                 let hdr_kws = self
-                    .header_and_raw_keywords(tot, data_len, analysis_len, other_lens)
+                    // TODO do something useful with $NEXTDATA
+                    .header_and_raw_keywords(tot, data_len, analysis_len, other_lens, false)
                     .map_err(ImpureError::Pure)
                     .map_err(|e| e.inner_into())
                     .map_err(DeferredFailure::new1)?;

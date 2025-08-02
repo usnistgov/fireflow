@@ -465,6 +465,7 @@ pub(crate) fn make_data_offset_keywords_2_0(
     data_len: u64,
     analysis_len: u64,
     other_lens: Vec<u64>,
+    has_nextdata: bool,
 ) -> Result<HeaderKeywordsToWrite, Uint8DigitOverflow> {
     let (other_segs, other_header_len, other_segments_len) = other_segments(other_lens);
 
@@ -487,13 +488,17 @@ pub(crate) fn make_data_offset_keywords_2_0(
         .map_or(Ok(text_begin), |x| u64::from(x).try_into())?;
     let analysis_seg = HeaderAnalysisSegment::try_new_with_len(analysis_begin, analysis_len)?;
 
-    let nextdata = Nextdata(Uint20Char(
-        analysis_seg
-            .inner
-            .try_next_byte()
-            .map(u64::from)
-            .unwrap_or(u64::from(analysis_begin)),
-    ));
+    let nextdata = Nextdata(if !has_nextdata {
+        Uint20Char(0)
+    } else {
+        Uint20Char(
+            analysis_seg
+                .inner
+                .try_next_byte()
+                .map(u64::from)
+                .unwrap_or(u64::from(analysis_begin)),
+        )
+    });
 
     let header = HeaderSegments {
         text: text_seg,
@@ -528,6 +533,7 @@ pub(crate) fn make_data_offset_keywords_3_0(
     data_len: u64,
     analysis_len: u64,
     other_lens: Vec<u64>,
+    has_nextdata: bool,
 ) -> Result<HeaderKeywordsToWrite, Uint8DigitOverflow> {
     let (other_segs, other_header_len, other_segments_len) = other_segments(other_lens);
     let prim_text_begin: Uint8Digit =
@@ -576,13 +582,17 @@ pub(crate) fn make_data_offset_keywords_3_0(
     let h_analysis_seg = analysis_seg.as_header();
     let h_data_seg = data_seg.as_header();
 
-    let nextdata = Nextdata(Uint20Char(
-        analysis_seg
-            .inner
-            .try_next_byte()
-            .map(u64::from)
-            .unwrap_or(u64::from(analysis_begin)),
-    ));
+    let nextdata = Nextdata(if !has_nextdata {
+        Uint20Char(0)
+    } else {
+        Uint20Char(
+            analysis_seg
+                .inner
+                .try_next_byte()
+                .map(u64::from)
+                .unwrap_or(u64::from(analysis_begin)),
+        )
+    });
 
     // NOTE in 3.2 *DATA and *SDATA are technically optional, but it is much
     // easier just to include them in the "required" stuff regardless.

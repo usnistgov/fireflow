@@ -7471,9 +7471,6 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         let d = Datetimes::lookup(kws);
         let f = Flowrate::lookup_opt(kws);
         let md = ModificationData::lookup(kws);
-        // Only L is allowed as of 3.2, so pull the value and check it if given.
-        // The only thing we care about is that the value is valid, since we
-        // don't need to use it anywhere.
         let mo = Mode3_2::lookup_opt_dep(kws, dd);
         let sp = Spillover::lookup_opt(kws, names);
         let sn = Cytsn::lookup_opt(kws);

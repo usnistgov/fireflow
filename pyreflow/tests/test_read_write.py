@@ -1655,10 +1655,11 @@ class TestLayouts:
 
 
 class TestReadWrite:
-    def test_empty(self, tmp_path: Path, blank_text_2_0: pf.CoreTEXT2_0) -> None:
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["blank_text"])
+    def test_empty(self, tmp_path: Path, core: AnyCoreTEXT) -> None:
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "textonly.fcs"
-        blank_text_2_0.write_text(p, 30)
-        core, uncore = pf.fcs_read_std_text(p)
-        assert core == blank_text_2_0
+        core.write_text(p)
+        new_core, uncore = pf.fcs_read_std_text(p)
+        assert core == new_core

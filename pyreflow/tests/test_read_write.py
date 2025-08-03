@@ -1670,10 +1670,19 @@ class TestReadWrite:
         assert core == new_core
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text"])
-    def test_non_empty(self, tmp_path: Path, core: AnyCoreTEXT) -> None:
+    def test_non_empty1(self, tmp_path: Path, core: AnyCoreTEXT) -> None:
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "text1.fcs"
         core.write_text(p)
         new_core, uncore = pf.fcs_read_std_text(p, time_pattern=None)
+        assert core == new_core
+
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text2"])
+    def test_non_empty2(self, tmp_path: Path, core: AnyCoreTEXT) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "text2.fcs"
+        core.write_text(p)
+        new_core, uncore = pf.fcs_read_std_text(p, time_pattern=LINK_NAME2)
         assert core == new_core

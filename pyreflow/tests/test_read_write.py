@@ -1609,9 +1609,12 @@ class TestLayouts:
         n = int(width / 8)
         bitmasks = [2 ** (8 * (b + 1)) - 1 for b in range(n)]
         new = layout(bitmasks, False)
+        # NOTE ranges will be 1+ whatever we put in because the inputs to the
+        # the layout are literal ints and the output below is whatever the $PnR
+        # value will be, which is 1+ the actual number...thanks FCS
         assert new.byte_order == [r + 1 for r in range(n)]
         assert new.widths == [width] * len(bitmasks)
-        assert new.ranges == [Decimal(r) for r in bitmasks]
+        assert new.ranges == [Decimal(r + 1) for r in bitmasks]
         assert new.datatype == "I"
         assert new.datatypes == ["I"] * len(bitmasks)
         with pytest.raises(OverflowError):
@@ -1640,7 +1643,8 @@ class TestLayouts:
         ranges = [2**8 - 1, 2**16 - 1, 2**24 - 1]
         new = pf.EndianUintLayout(ranges, False)
         assert new.widths == [8, 16, 24]
-        assert new.ranges == ranges
+        # NOTE see ordered test for why this is 1+
+        assert new.ranges == [r + 1 for r in ranges]
         assert new.datatype == "I"
         assert new.datatypes == ["I"] * 3
 
@@ -1648,7 +1652,8 @@ class TestLayouts:
         ranges: list[MixedType] = [("F", 1000.0), ("D", 2000.0), ("I", 255)]
         new = pf.MixedLayout(ranges, False)
         assert new.widths == [32, 64, 8]
-        assert new.ranges == [Decimal(1000.0), Decimal(2000.0), Decimal(255)]
+        # NOTE see ordered test for why the int is 1+
+        assert new.ranges == [Decimal(1000.0), Decimal(2000.0), Decimal(256)]
         # TODO this doesn't make much sense
         assert new.datatype == "I"
         assert new.datatypes == ["F", "D", "I"]

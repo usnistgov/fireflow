@@ -3,7 +3,9 @@
 use crate::error::BiTentative;
 use crate::text::keywords::{IntRangeError, Range};
 
+use bigdecimal::BigDecimal;
 use derive_more::{Display, From};
+use num_traits::identities::One;
 use num_traits::PrimInt;
 use std::fmt;
 
@@ -44,7 +46,7 @@ where
     fn from(value: &Bitmask<T, LEN>) -> Self {
         // NOTE add 1 since the spec treats int ranges as one less than they
         // appear in TEXT
-        Range::from(u64::from(value.value))
+        Range::from(u64::from(value.value)) + Range::from(BigDecimal::one())
     }
 }
 

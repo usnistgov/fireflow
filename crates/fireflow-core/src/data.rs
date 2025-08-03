@@ -2554,6 +2554,10 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         }
     }
 
+    pub fn new_empty(byte_layout: S) -> Self {
+        Self::new(vec![], byte_layout)
+    }
+
     fn new1(head: C, tail: Vec<C>, byte_layout: S) -> Self {
         Self::new(NonEmpty::from((head, tail)).into(), byte_layout)
     }
@@ -3406,6 +3410,14 @@ impl VersionedDataLayout for DataLayout3_2 {
             .unique()
             .collect();
         match unique_dt[..] {
+            // no columns, therefore undetermined datatype, use whatever the
+            // default layout is
+            //
+            // ASSUME this matches with Self::new_empty above
+            [] => Ok(Tentative::new1(
+                NonMixedEndianLayout::new_empty1(datatype, endian.0).into(),
+            )),
+            // has columns with one datatype, use nonmixed layout
             [dt] => {
                 let ds = cs
                     .into_iter()
@@ -3419,6 +3431,7 @@ impl VersionedDataLayout for DataLayout3_2 {
                     .def_map_value(|x| Self::NonMixed(x.phantom_into::<HasMeasDatatype>()))
                     .def_map_warnings(|e| e.inner_into())
             }
+            // has columns with 1+ datatypes, use mixed layout
             _ => FixedLayout::try_new(cs, endian.0, |c| {
                 MixedType::from_width_and_range(c.width, c.range, c.datatype, notrunc)
             })
@@ -3742,11 +3755,15 @@ impl NonMixedEndianLayout<NoMeasDatatype> {
 
 impl<D> NonMixedEndianLayout<D> {
     fn new_empty(datatype: AlphaNumType) -> Self {
+        Self::new_empty1(datatype, Endian::default())
+    }
+
+    fn new_empty1(datatype: AlphaNumType, endian: Endian) -> Self {
         match datatype {
             AlphaNumType::Ascii => AnyAsciiLayout::default().into(),
-            AlphaNumType::Integer => Self::Integer(FixedLayout::default()),
-            AlphaNumType::Single => Self::F32(FixedLayout::default()),
-            AlphaNumType::Double => Self::F64(FixedLayout::default()),
+            AlphaNumType::Integer => Self::Integer(FixedLayout::new_empty(endian)),
+            AlphaNumType::Single => Self::F32(FixedLayout::new_empty(endian)),
+            AlphaNumType::Double => Self::F64(FixedLayout::new_empty(endian)),
         }
     }
 

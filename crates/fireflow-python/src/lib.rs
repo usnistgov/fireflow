@@ -1805,6 +1805,39 @@ to_dataset_method!(PyCoreTEXT3_0, PyCoreDataset3_0);
 to_dataset_method!(PyCoreTEXT3_1, PyCoreDataset3_1);
 to_dataset_method!(PyCoreTEXT3_2, PyCoreDataset3_2);
 
+macro_rules! write_dataset_method {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            // TODO make all flags default to false by convention
+            #[pyo3(signature =
+                   (path, delim = TEXTDelim::default(), check_conversion = true, disallow_lossy_conversions = false)
+            )]
+            fn write_dataset(
+                &self,
+                path: PathBuf,
+                delim: TEXTDelim,
+                check_conversion: bool,
+                disallow_lossy_conversions: bool,
+            ) -> PyResult<()> {
+                let f = File::options().write(true).create(true).open(path)?;
+                let mut h = BufWriter::new(f);
+                let conf = cfg::WriteConfig {
+                    delim,
+                    check_conversion,
+                    disallow_lossy_conversions,
+                };
+                self.0.h_write_dataset(&mut h, &conf).py_term_resolve()
+            }
+        }
+    };
+}
+
+write_dataset_method!(PyCoreDataset2_0);
+write_dataset_method!(PyCoreDataset3_0);
+write_dataset_method!(PyCoreDataset3_1);
+write_dataset_method!(PyCoreDataset3_2);
+
 #[pymethods]
 impl PyOptical2_0 {
     #[new]

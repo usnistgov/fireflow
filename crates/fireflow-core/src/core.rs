@@ -3730,7 +3730,7 @@ where
         &self,
         h: &mut BufWriter<W>,
         conf: &WriteConfig,
-    ) -> IODeferredResult<(), ColumnError<IntRangeError<()>>, StdWriterError>
+    ) -> IOTerminalResult<(), ColumnError<IntRangeError<()>>, StdWriterError, WriteDatasetFailure>
     where
         Version: From<M::Ver>,
     {
@@ -3781,6 +3781,7 @@ where
 
                 go().into_deferred()
             })
+            .def_terminate(WriteDatasetFailure)
     }
 
     /// Add columns to this dataset.

@@ -323,6 +323,15 @@ class _CoreCommon:
     def set_trigger_threshold(self, threshold: int) -> bool: ...
     def write_text(self, path: Path, delim: int = ...): ...
 
+class _CoreDatasetCommon:
+    def write_dataset(
+        self,
+        path: Path,
+        delim: int = ...,
+        check_conversion=True,
+        disallow_lossy_conversions=False,
+    ): ...
+
 class _CoreTemporal2_0:
     def set_temporal(self, name: Shortname, force: bool) -> bool: ...
     def set_temporal_at(self, index: MeasIndex, force: bool) -> bool: ...
@@ -678,6 +687,7 @@ class CoreDataset2_0(
     _CoreTo3_0[CoreDataset3_0],
     _CoreTo3_1[CoreDataset3_1],
     _CoreTo3_2[CoreDataset3_2],
+    _CoreDatasetCommon,
 ): ...
 
 @final
@@ -699,6 +709,7 @@ class CoreDataset3_0(
     _CoreTo2_0[CoreDataset2_0],
     _CoreTo3_1[CoreDataset3_1],
     _CoreTo3_2[CoreDataset3_2],
+    _CoreDatasetCommon,
 ): ...
 
 @final
@@ -723,6 +734,7 @@ class CoreDataset3_1(
     _CoreTo2_0[CoreDataset2_0],
     _CoreTo3_0[CoreDataset3_0],
     _CoreTo3_2[CoreDataset3_2],
+    _CoreDatasetCommon,
 ): ...
 
 @final
@@ -747,6 +759,7 @@ class CoreDataset3_2(
     _CoreTo2_0[CoreDataset2_0],
     _CoreTo3_0[CoreDataset3_0],
     _CoreTo3_1[CoreDataset3_1],
+    _CoreDatasetCommon,
 ): ...
 
 __version__: str

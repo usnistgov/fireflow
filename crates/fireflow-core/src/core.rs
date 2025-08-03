@@ -6844,7 +6844,9 @@ impl VersionedTemporal for InnerTemporal2_0 {
     fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
         self.peak
             .opt_keywords(i)
-            .flat_map(|(_, k, v)| v.map(|x| (k, x)))
+            .map(|(_, k, v)| (k, v))
+            .chain([OptIndexedKey::pair_opt(&self.scale, i.into())])
+            .flat_map(|(k, v)| v.map(|x| (k, x)))
     }
 
     fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult<(), TemporalToOpticalError> {

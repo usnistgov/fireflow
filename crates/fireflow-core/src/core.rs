@@ -6863,6 +6863,7 @@ impl VersionedTemporal for InnerTemporal3_0 {
         self.peak
             .opt_keywords(i)
             .flat_map(|(_, k, v)| v.map(|x| (k, x)))
+            .chain([TemporalScale::pair(i.into())])
     }
 
     fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult<(), TemporalToOpticalError> {
@@ -6883,6 +6884,7 @@ impl VersionedTemporal for InnerTemporal3_1 {
             .map(|(_, k, v)| (k, v))
             .chain([OptIndexedKey::pair_opt(&self.display, i.into())])
             .flat_map(|(k, v)| v.map(|x| (k, x)))
+            .chain([TemporalScale::pair(i.into())])
     }
 
     fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult<(), TemporalToOpticalError> {
@@ -6901,6 +6903,7 @@ impl VersionedTemporal for InnerTemporal3_2 {
         [OptIndexedKey::pair_opt(&self.display, i.into())]
             .into_iter()
             .flat_map(|(k, v)| v.map(|x| (k, x)))
+            .chain([TemporalScale::pair(i.into())])
     }
 
     fn can_convert_to_optical(&self, i: MeasIndex) -> MultiResult<(), TemporalToOpticalError> {

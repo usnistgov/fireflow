@@ -428,6 +428,12 @@ impl TryFrom<AlphaNumType> for NumType {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct TemporalScale;
 
+impl TemporalScale {
+    pub(crate) fn pair(i: IndexFromOne) -> (String, String) {
+        (Self::std(i).to_string(), Self.to_string())
+    }
+}
+
 impl FromStr for TemporalScale {
     type Err = TemporalScaleError;
 

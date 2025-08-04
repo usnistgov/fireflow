@@ -61,7 +61,6 @@ impl<T: HasFloatBounds> TryFrom<BigDecimal> for FloatDecimal<T> {
         };
         let (bi, s) = value.normalized().into_bigint_and_scale();
         let (_, n) = bi.into_parts();
-        println!("{:?}", value.normalized().sign());
         u64::try_from(n)
             .ok()
             .and_then(|x| {

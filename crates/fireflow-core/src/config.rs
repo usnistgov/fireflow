@@ -182,7 +182,7 @@ pub struct WriteConfig {
     /// (character 30).
     pub delim: TEXTDelim,
 
-    /// If true, check for conversion losses before writing data.
+    /// If true, skip check for conversion losses before writing data.
     ///
     /// Data in each column may be stored in several different types which may
     /// or may not totally coincide with the measurement type. For example, a
@@ -195,14 +195,16 @@ pub struct WriteConfig {
     /// Skipping this will result in slightly faster writing, as the data need
     /// to be enumerated once prior to writing in order to perform this check.
     /// Lossy conversion will be performed regardless, but warnings will be
-    /// emitted if this is true.
+    /// emitted if this is false.
     pub skip_conversion_check: bool,
 
-    /// If true, disallow lossy data conversions
+    /// If true, allow lossy data conversions
     ///
-    /// Only has an effect if `check_conversion` is true. If this is also true,
-    /// any lossy conversion will halt immediately and return an error to the
-    /// user.
+    /// Only has an effect if [`Self::skip_conversion_check`] is false and at
+    /// least one conversion error is detected. In such cases, setting this to
+    /// true will turn the error into a warning which will allow writing to
+    /// proceed despite data loss. If false, such an error will halt the writing
+    /// process immediately.
     pub allow_lossy_conversions: bool,
 }
 

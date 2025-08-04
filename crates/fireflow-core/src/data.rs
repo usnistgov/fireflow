@@ -1572,6 +1572,12 @@ where
 {
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: S) -> io::Result<()> {
         let x = self.data.next().unwrap();
+        // TODO need to warn user if conversion loss occurs and we did not check
+        // for conversion loss before. The tricky part will be only warning once
+        // per column (ie the first encounter) so that we don't flood the logs
+        // if the dataframe is millions of rows. The other hard part will be
+        // that we need to warn for native type loss (ie u64->u8) and for cases
+        // where a uint was truncated (ie 8 bit to 7 bit).
         self.column_type.h_write(h, x, byte_layout)
     }
 }

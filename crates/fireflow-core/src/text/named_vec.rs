@@ -860,27 +860,30 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
 
     /// Remove key/value pair by name of key.
     ///
-    /// Return None if name is not found.
-    pub fn remove_name(&mut self, n: &Shortname) -> Option<(MeasIndex, Element<U, V>)> {
+    /// Return error if name not found.
+    pub fn remove_name(
+        &mut self,
+        n: &Shortname,
+    ) -> Result<(MeasIndex, Element<U, V>), KeyNotFoundError> {
         let go = |xs: &mut Vec<_>| {
             if let Some(i) = Self::position_by_name(xs, n) {
                 let p = xs.remove(i);
-                Some((i.into(), p.value))
+                Ok((i.into(), p.value))
             } else {
-                None
+                Err(KeyNotFoundError(n.clone()))
             }
         };
         let (newself, ret) = match mem::replace(self, dummy()) {
             NamedVec::Split(mut s, p) => {
-                if let Some((i, v)) = go(&mut s.left).or(go(&mut s.right)) {
-                    (NamedVec::Split(s, p), Some((i, Element::NonCenter(v))))
+                if let Ok((i, v)) = go(&mut s.left).or(go(&mut s.right)) {
+                    (NamedVec::Split(s, p), Ok((i, Element::NonCenter(v))))
                 } else if &s.center.key == n {
                     let i = s.left.len().into();
                     let xs = s.left.into_iter().chain(s.right).collect();
                     let new = NamedVec::new_unsplit(xs, s.prefix);
-                    (new, Some((i, Element::Center(s.center.value))))
+                    (new, Ok((i, Element::Center(s.center.value))))
                 } else {
-                    (NamedVec::Split(s, p), None)
+                    (NamedVec::Split(s, p), Err(KeyNotFoundError(n.clone())))
                 }
             }
             NamedVec::Unsplit(mut u) => {
@@ -1827,6 +1830,8 @@ fn split_at_index<K: MightHave, U, V>(
     }
 }
 
+pub struct KeyNotFoundError(Shortname);
+
 #[derive(Debug)]
 pub enum InsertError {
     Index(BoundaryIndexError),
@@ -1887,6 +1892,12 @@ pub enum NewNamedVecError {
 pub struct IndexedElementError<E> {
     error: E,
     index: MeasIndex,
+}
+
+impl fmt::Display for KeyNotFoundError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "'{}' matches no measurement", self.0)
+    }
 }
 
 impl<E> fmt::Display for IndexedElementError<E>
@@ -1994,13 +2005,14 @@ impl fmt::Display for SetKeysError {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{ElementIndexError, KeyLengthError, RawInput, SetKeysError};
+    use super::{ElementIndexError, KeyLengthError, KeyNotFoundError, RawInput, SetKeysError};
     use crate::python::macros::{impl_index_err, impl_pyreflow_err};
     use crate::text::optional::MightHave;
     use crate::validated::shortname::Shortname;
     use pyo3::prelude::*;
 
     impl_index_err!(ElementIndexError);
+    impl_index_err!(KeyNotFoundError);
 
     // derive(FromPyObject) will get confused by the wrapper; this is trivial
     // otherwise

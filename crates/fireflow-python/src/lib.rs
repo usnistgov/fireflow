@@ -849,10 +849,11 @@ macro_rules! common_meas_get_set {
             fn remove_measurement_by_name(
                 &mut self,
                 name: Shortname,
-            ) -> Option<(MeasIndex, Element<$t, $o>)> {
-                self.0
+            ) -> PyResult<(MeasIndex, Element<$t, $o>)> {
+                Ok(self
+                    .0
                     .remove_measurement_by_name(&name)
-                    .map(|(i, x)| (i, x.inner_into()))
+                    .map(|(i, x)| (i, x.inner_into()))?)
             }
 
             fn remove_measurement_by_index(

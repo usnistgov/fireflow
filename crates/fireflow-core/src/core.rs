@@ -2948,17 +2948,19 @@ where
     fn remove_measurement_by_name_inner(
         &mut self,
         n: &Shortname,
-    ) -> Option<(
-        MeasIndex,
-        Element<Temporal<M::Temporal>, Optical<M::Optical>>,
-    )> {
-        if let Some(e @ (i, _)) = self.measurements.remove_name(n) {
+    ) -> Result<
+        (
+            MeasIndex,
+            Element<Temporal<M::Temporal>, Optical<M::Optical>>,
+        ),
+        KeyNotFoundError,
+    > {
+        let ret = self.measurements.remove_name(n);
+        if let Ok((i, _)) = ret {
             self.metaroot.remove_name_index(n, i);
             self.layout.remove_nocheck(i);
-            Some(e)
-        } else {
-            None
-        }
+        };
+        ret
     }
 
     #[allow(clippy::type_complexity)]
@@ -3546,10 +3548,13 @@ where
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> Option<(
-        MeasIndex,
-        Element<Temporal<M::Temporal>, Optical<M::Optical>>,
-    )> {
+    ) -> Result<
+        (
+            MeasIndex,
+            Element<Temporal<M::Temporal>, Optical<M::Optical>>,
+        ),
+        KeyNotFoundError,
+    > {
         self.remove_measurement_by_name_inner(n)
     }
 
@@ -3825,10 +3830,13 @@ where
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> Option<(
-        MeasIndex,
-        Element<Temporal<M::Temporal>, Optical<M::Optical>>,
-    )> {
+    ) -> Result<
+        (
+            MeasIndex,
+            Element<Temporal<M::Temporal>, Optical<M::Optical>>,
+        ),
+        KeyNotFoundError,
+    > {
         self.remove_measurement_by_name_inner(n).map(|(i, x)| {
             self.data.drop_in_place(i.into()).unwrap();
             (i, x)

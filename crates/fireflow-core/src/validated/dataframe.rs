@@ -19,7 +19,7 @@ pub struct FCSDataFrame {
 }
 
 /// Any valid column from an FCS dataframe
-#[derive(Clone, From, PartialEq)]
+#[derive(Clone, From)]
 pub enum AnyFCSColumn {
     U08(U08Column),
     U16(U16Column),
@@ -32,18 +32,82 @@ pub enum AnyFCSColumn {
 #[derive(Clone, PartialEq)]
 pub struct FCSColumn<T>(pub Buffer<T>);
 
-impl<T> From<Vec<T>> for FCSColumn<T> {
-    fn from(value: Vec<T>) -> Self {
-        FCSColumn(value.into())
-    }
-}
-
 pub type U08Column = FCSColumn<u8>;
 pub type U16Column = FCSColumn<u16>;
 pub type U32Column = FCSColumn<u32>;
 pub type U64Column = FCSColumn<u64>;
 pub type F32Column = FCSColumn<f32>;
 pub type F64Column = FCSColumn<f64>;
+
+impl PartialEq for AnyFCSColumn {
+    /// Test for numeric equality between two columns.
+    ///
+    /// This will attempt to convert b/t datatypes when testing equality; for
+    /// example, a `1` / `1.0` will be equal regardless of datatype because
+    /// it can be losslessly converted between all possible types for a column
+    /// (u8-64 and f32/f64).
+    fn eq(&self, other: &AnyFCSColumn) -> bool {
+        fn go<From, To>(xs: &FCSColumn<From>, ys: &FCSColumn<To>) -> bool
+        where
+            To: NumCast<From> + FCSDataType + PartialEq,
+            From: FCSDataType,
+        {
+            From::as_col_iter::<To>(xs)
+                .zip(ys.0.iter())
+                .all(|(x, y)| x.lossy.is_none() && &x.new == y)
+        }
+
+        match (self, other) {
+            (Self::U08(xs), Self::U08(ys)) => xs == ys,
+            (Self::U08(xs), Self::U16(ys)) => go(xs, ys),
+            (Self::U08(xs), Self::U32(ys)) => go(xs, ys),
+            (Self::U08(xs), Self::U64(ys)) => go(xs, ys),
+            (Self::U08(xs), Self::F32(ys)) => go(xs, ys),
+            (Self::U08(xs), Self::F64(ys)) => go(xs, ys),
+
+            (Self::U16(xs), Self::U08(ys)) => go(xs, ys),
+            (Self::U16(xs), Self::U16(ys)) => xs == ys,
+            (Self::U16(xs), Self::U32(ys)) => go(xs, ys),
+            (Self::U16(xs), Self::U64(ys)) => go(xs, ys),
+            (Self::U16(xs), Self::F32(ys)) => go(xs, ys),
+            (Self::U16(xs), Self::F64(ys)) => go(xs, ys),
+
+            (Self::U32(xs), Self::U08(ys)) => go(xs, ys),
+            (Self::U32(xs), Self::U16(ys)) => go(xs, ys),
+            (Self::U32(xs), Self::U32(ys)) => xs == ys,
+            (Self::U32(xs), Self::U64(ys)) => go(xs, ys),
+            (Self::U32(xs), Self::F32(ys)) => go(xs, ys),
+            (Self::U32(xs), Self::F64(ys)) => go(xs, ys),
+
+            (Self::U64(xs), Self::U08(ys)) => go(xs, ys),
+            (Self::U64(xs), Self::U16(ys)) => go(xs, ys),
+            (Self::U64(xs), Self::U32(ys)) => go(xs, ys),
+            (Self::U64(xs), Self::U64(ys)) => xs == ys,
+            (Self::U64(xs), Self::F32(ys)) => go(xs, ys),
+            (Self::U64(xs), Self::F64(ys)) => go(xs, ys),
+
+            (Self::F32(xs), Self::U08(ys)) => go(xs, ys),
+            (Self::F32(xs), Self::U16(ys)) => go(xs, ys),
+            (Self::F32(xs), Self::U32(ys)) => go(xs, ys),
+            (Self::F32(xs), Self::U64(ys)) => go(xs, ys),
+            (Self::F32(xs), Self::F32(ys)) => xs == ys,
+            (Self::F32(xs), Self::F64(ys)) => go(xs, ys),
+
+            (Self::F64(xs), Self::U08(ys)) => go(xs, ys),
+            (Self::F64(xs), Self::U16(ys)) => go(xs, ys),
+            (Self::F64(xs), Self::U32(ys)) => go(xs, ys),
+            (Self::F64(xs), Self::U64(ys)) => go(xs, ys),
+            (Self::F64(xs), Self::F32(ys)) => go(xs, ys),
+            (Self::F64(xs), Self::F64(ys)) => xs == ys,
+        }
+    }
+}
+
+impl<T> From<Vec<T>> for FCSColumn<T> {
+    fn from(value: Vec<T>) -> Self {
+        FCSColumn(value.into())
+    }
+}
 
 impl AnyFCSColumn {
     pub fn len(&self) -> usize {

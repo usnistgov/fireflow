@@ -36,7 +36,7 @@ build-prod: pyreflow/.venv
 	$(uv_at) run maturin develop --uv --release
 
 .PHONY: all-dev
-all-dev: rs-lint rs-test py-lint py-test build-dev
+all-dev: rs-lint rs-test build-dev py-lint py-test
 
 .PHONY: clean
 clean:  

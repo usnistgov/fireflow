@@ -274,6 +274,15 @@ struct ColumnWriter<'a, C, T, S> {
     loss: Option<AnyLossError>,
 }
 
+impl<C, T, S> ColumnWriter<'_, C, T, S> {
+    fn as_err(&self, i: MeasIndex) -> Option<ColumnError<AnyLossError>> {
+        self.loss.as_ref().map(|&error| ColumnError {
+            error,
+            index: i.into(),
+        })
+    }
+}
+
 type UintColumnWriter<'a, C> = ColumnWriter<'a, C, <C as HasNativeType>::Native, Endian>;
 
 /// Marker type for columns which are used in a layout (non-reader/writer)
@@ -486,11 +495,12 @@ pub trait LayoutOps<'a, T>: Sized {
 
     fn check_writer(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>>;
 
-    fn h_write_df_inner<W: Write>(
+    fn h_write_df_inner<W: Write, E>(
         &self,
         h: &mut BufWriter<W>,
         df: &'a FCSDataFrame,
-    ) -> io::Result<()>;
+        skip_conv_check: bool,
+    ) -> IODeferredResult<(), ColumnError<AnyLossError>, E>;
 
     fn check_transforms_and_len(
         &self,
@@ -613,7 +623,12 @@ where
         )
     }
 
-    fn h_write_df<W>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()>
+    fn h_write_df<W, E>(
+        &self,
+        h: &mut BufWriter<W>,
+        df: &FCSDataFrame,
+        skip_conv_check: bool,
+    ) -> IODeferredResult<(), ColumnError<AnyLossError>, E>
     where
         W: Write,
     {
@@ -625,7 +640,7 @@ where
         if ncols != par {
             panic!("datafame columns ({ncols}) unequal to number of measurements ({par})");
         }
-        self.h_write_df_inner(h, df)
+        self.h_write_df_inner(h, df, skip_conv_check)
     }
 
     fn check_measurement_vector<N: MightHave, T, O: AsScaleTransform>(
@@ -787,6 +802,8 @@ trait IntoWriter<'a, S> {
 
 trait Writable<'a, S> {
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: S) -> io::Result<()>;
+
+    fn as_err(&self, i: MeasIndex) -> Option<ColumnError<AnyLossError>>;
 }
 
 /// General methods for each numeric type.
@@ -1596,6 +1613,10 @@ where
         self.loss = std::mem::take(&mut self.loss).or(loss);
         Ok(())
     }
+
+    fn as_err(&self, i: MeasIndex) -> Option<ColumnError<AnyLossError>> {
+        self.as_err(i)
+    }
 }
 
 impl<'a> Writable<'a, Endian> for WriterMixedType<'a> {
@@ -1607,11 +1628,19 @@ impl<'a> Writable<'a, Endian> for WriterMixedType<'a> {
             Self::F64(c) => c.h_write(h, byte_layout),
         }
     }
+
+    fn as_err(&self, i: MeasIndex) -> Option<ColumnError<AnyLossError>> {
+        match_any_mixed!(self, x, { x.as_err(i) })
+    }
 }
 
 impl<'a> Writable<'a, Endian> for AnyWriterBitmask<'a> {
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: Endian) -> io::Result<()> {
         match_any_uint!(self, Self, c, { c.h_write(h, byte_layout) })
+    }
+
+    fn as_err(&self, i: MeasIndex) -> Option<ColumnError<AnyLossError>> {
+        match_any_uint!(self, Self, x, { x.as_err(i) })
     }
 }
 
@@ -2168,28 +2197,44 @@ where
             .void()
     }
 
-    fn h_write_df_inner<W: Write>(
+    fn h_write_df_inner<W: Write, E>(
         &self,
         h: &mut BufWriter<W>,
         df: &FCSDataFrame,
-    ) -> io::Result<()> {
+        skip_conv_check: bool,
+    ) -> IODeferredResult<(), ColumnError<AnyLossError>, E> {
         let ncols = df.ncols();
         let nrows = df.nrows();
         // ASSUME dataframe has correct number of columns
         let mut column_srcs: Vec<_> = df.iter_columns().map(AnySource::<'_, u64>::new).collect();
+        let mut loss_ws = vec![None; column_srcs.len()];
         for row in 0..nrows {
             for (col, xs) in column_srcs.iter_mut().enumerate() {
                 let x = xs.next().unwrap();
                 let s = x.new.to_string();
+                loss_ws[col] = std::mem::take(&mut loss_ws[col]).or(x.as_err());
                 let buf = s.as_bytes();
-                h.write_all(buf)?;
+                h.write_all(buf).into_deferred()?;
                 // write delimiter after all but last value
                 if !(row == nrows - 1 && col == ncols - 1) {
-                    h.write_all(&[32])?; // 32 = space in ASCII
+                    h.write_all(&[32]).into_deferred()?; // 32 = space in ASCII
                 }
             }
         }
-        Ok(())
+        let ws = if skip_conv_check {
+            vec![]
+        } else {
+            loss_ws
+                .into_iter()
+                .flatten()
+                .enumerate()
+                .map(|(i, w)| ColumnError {
+                    error: AnyLossError::Ascii(LossError::Cast(w)),
+                    index: i.into(),
+                })
+                .collect()
+        };
+        Ok(Tentative::new((), ws, vec![]))
     }
 }
 
@@ -2494,11 +2539,12 @@ where
             .void()
     }
 
-    fn h_write_df_inner<W: Write>(
+    fn h_write_df_inner<W: Write, E>(
         &self,
         h: &mut BufWriter<W>,
         df: &'a FCSDataFrame,
-    ) -> io::Result<()> {
+        skip_conv_check: bool,
+    ) -> IODeferredResult<(), ColumnError<AnyLossError>, E> {
         let nrows = df.nrows();
         // ASSUME df has same number of columns as layout
         let mut cs: Vec<_> = self
@@ -2509,10 +2555,24 @@ where
             .collect();
         for _ in 0..nrows {
             for c in cs.iter_mut() {
-                c.h_write(h, self.byte_layout)?;
+                c.h_write(h, self.byte_layout).into_deferred()?;
             }
         }
-        Ok(())
+        // TODO perhaps a microoptization, if we don't need conversion warnings
+        // might as well not check for them when writing each value in the first
+        // place. This may be optimized away by the compiler in case this flag
+        // is false, and if not it maybe doesn't make a different anyways since
+        // its mostly just a conditional check which will be fast with branch
+        // prediction. On the other hand, this is a very tight loop.
+        let ws = if skip_conv_check {
+            vec![]
+        } else {
+            cs.iter()
+                .enumerate()
+                .flat_map(|(i, c)| c.as_err(i.into()))
+                .collect()
+        };
+        Ok(Tentative::new((), ws, vec![]))
     }
 }
 

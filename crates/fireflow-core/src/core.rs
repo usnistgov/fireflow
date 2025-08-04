@@ -3767,31 +3767,35 @@ where
                     .map_err(|e| e.inner_into())
                     .map_err(DeferredFailure::new1)?;
 
-                let mut go = || {
-                    // write HEADER
-                    hdr_kws.header.h_write(h, M::Ver::fcs_version().into())?;
+                // write HEADER
+                hdr_kws
+                    .header
+                    .h_write(h, M::Ver::fcs_version().into())
+                    .into_deferred()?;
 
-                    // write OTHER
-                    for o in others.0.iter() {
-                        h.write_all(&o.0)?;
-                    }
+                // write OTHER
+                for o in others.0.iter() {
+                    h.write_all(&o.0).into_deferred()?;
+                }
 
-                    // write primary TEXT
-                    hdr_kws.primary.h_write(h, delim)?;
+                // write primary TEXT
+                hdr_kws.primary.h_write(h, delim).into_deferred()?;
 
-                    // write supplemental TEXT
-                    if !hdr_kws.supplemental.0.is_empty() {
-                        hdr_kws.supplemental.h_write(h, delim)?;
-                    }
+                // write supplemental TEXT
+                if !hdr_kws.supplemental.0.is_empty() {
+                    hdr_kws.supplemental.h_write(h, delim).into_deferred()?;
+                }
 
-                    // write DATA
-                    layout.h_write_df(h, df)?;
+                // write DATA; conversion check flag is flipped from above since
+                // we want to emit warnings as we are writing if we did not run
+                // through the data once at the beginning and check for
+                // conversion loss.
+                layout
+                    .h_write_df(h, df, !conf.skip_conversion_check)
+                    .def_warnings_into()?;
 
-                    // write ANALYSIS
-                    h.write_all(&self.analysis.0)
-                };
-
-                go().into_deferred()
+                // write ANALYSIS
+                h.write_all(&self.analysis.0).into_deferred()
             })
             .def_terminate(WriteDatasetFailure)
     }

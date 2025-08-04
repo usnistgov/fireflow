@@ -1150,6 +1150,10 @@ macro_rules! coredata_meas_get_set {
                 PyDataFrame(DataFrame::new(columns).unwrap())
             }
 
+            fn set_data(&mut self, cols: Vec<AnyFCSColumn>) -> PyResult<()> {
+                Ok(self.0.set_data(cols)?)
+            }
+
             #[getter]
             fn analysis(&self) -> core::Analysis {
                 self.0.analysis.clone()

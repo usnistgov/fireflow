@@ -1735,3 +1735,36 @@ class TestReadWrite:
         )
         self._assert_uncore_empty(un_core)
         assert core == nu_core
+
+    @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["dataset2"])
+    def test_dataset_supp_text(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "dataset_supp_text.fcs"
+        # store an absurdly large value in primary TEXT to force the file to
+        # be written with STEXT
+        k = "info_dump"
+        v = "I am a puppet." * 7500000
+        core.insert_nonstandard(k, v)
+        core.write_dataset(p)
+        nu_core, un_core = pf.fcs_read_std_dataset(
+            p,
+            time_pattern=LINK_NAME2,
+            warnings_are_errors=True,
+        )
+        self._assert_uncore_empty(un_core)
+        assert core == nu_core
+
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
+    def test_dataset_conversion(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "dataset_conversion.fcs"
+        ser = pl.Series("blub", [1.5, 2.5, 3.5], dtype=pl.Float32)
+        core.set_data([ser])
+        # this should fail because we are trying to write a non-integer float
+        # as an integer
+        with pytest.raises(pf.PyreflowException):
+            core.write_dataset(p)
+        # TODO shouldn't this emit a warning?
+        core.write_dataset(p, skip_conversion_check=True, allow_lossy_conversions=True)

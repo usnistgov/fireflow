@@ -575,40 +575,55 @@ mod tests {
 
     #[test]
     fn test_u16_to_u8() {
-        assert_eq!(u8::from_truncated(1_u16).lossy, false);
-        assert_eq!(u8::from_truncated(256_u16), CastResult::new(255, true));
+        assert_eq!(u8::from_truncated(1_u16).lossy, None);
+        assert_eq!(
+            u8::from_truncated(256_u16),
+            CastResult::new::<u16>(255, true)
+        );
     }
 
     #[test]
     fn test_u32_to_u8() {
-        assert_eq!(u8::from_truncated(1_u32).lossy, false);
-        assert_eq!(u8::from_truncated(256_u32), CastResult::new(255, true));
+        assert_eq!(u8::from_truncated(1_u32).lossy, None);
+        assert_eq!(
+            u8::from_truncated(256_u32),
+            CastResult::new::<u32>(255, true)
+        );
     }
 
     #[test]
     fn test_u64_to_u8() {
-        assert_eq!(u8::from_truncated(1_u64).lossy, false);
-        assert_eq!(u8::from_truncated(256_u64), CastResult::new(255, true));
+        assert_eq!(u8::from_truncated(1_u64).lossy, None);
+        assert_eq!(
+            u8::from_truncated(256_u64),
+            CastResult::new::<u64>(255, true)
+        );
     }
 
     #[test]
     fn test_u32_to_u16() {
-        assert_eq!(u16::from_truncated(1_u32).lossy, false);
-        assert_eq!(u16::from_truncated(65536_u32), CastResult::new(65535, true));
+        assert_eq!(u16::from_truncated(1_u32).lossy, None);
+        assert_eq!(
+            u16::from_truncated(65536_u32),
+            CastResult::new::<u32>(65535, true)
+        );
     }
 
     #[test]
     fn test_u64_to_u16() {
-        assert_eq!(u16::from_truncated(1_u64).lossy, false);
-        assert_eq!(u16::from_truncated(65536_u64), CastResult::new(65535, true));
+        assert_eq!(u16::from_truncated(1_u64).lossy, None);
+        assert_eq!(
+            u16::from_truncated(65536_u64),
+            CastResult::new::<u64>(65535, true)
+        );
     }
 
     #[test]
     fn test_u64_to_u32() {
-        assert_eq!(u32::from_truncated(1_u64).lossy, false);
+        assert_eq!(u32::from_truncated(1_u64).lossy, None);
         assert_eq!(
             u32::from_truncated(4294967296_u64),
-            CastResult::new(4294967295, true)
+            CastResult::new::<u64>(4294967295, true)
         );
     }
 
@@ -617,35 +632,41 @@ mod tests {
 
     #[test]
     fn test_u32_to_f32() {
-        assert_eq!(f32::from_truncated(1_u32), CastResult::new(1.0, false));
+        assert_eq!(
+            f32::from_truncated(1_u32),
+            CastResult::new::<u64>(1.0, false)
+        );
         assert_eq!(
             f32::from_truncated(16777216_u32),
-            CastResult::new(16777216.0, false)
+            CastResult::new::<u32>(16777216.0, false)
         );
         assert_eq!(
             f32::from_truncated(16777217_u32),
-            CastResult::new(16777216.0, true)
+            CastResult::new::<u32>(16777216.0, true)
         );
         assert_eq!(
             f32::from_truncated(16777218_u32),
-            CastResult::new(16777218.0, false)
+            CastResult::new::<u32>(16777218.0, false)
         );
     }
 
     #[test]
     fn test_u64_to_f32() {
-        assert_eq!(f32::from_truncated(1_u64), CastResult::new(1.0, false));
+        assert_eq!(
+            f32::from_truncated(1_u64),
+            CastResult::new::<u64>(1.0, false)
+        );
         assert_eq!(
             f32::from_truncated(16777216_u64),
-            CastResult::new(16777216.0, false)
+            CastResult::new::<u64>(16777216.0, false)
         );
         assert_eq!(
             f32::from_truncated(16777217_u64),
-            CastResult::new(16777216.0, true)
+            CastResult::new::<u64>(16777216.0, true)
         );
         assert_eq!(
             f32::from_truncated(16777218_u64),
-            CastResult::new(16777218.0, false)
+            CastResult::new::<u64>(16777218.0, false)
         );
     }
 
@@ -654,18 +675,21 @@ mod tests {
 
     #[test]
     fn test_u64_to_f64() {
-        assert_eq!(f64::from_truncated(1_u64), CastResult::new(1.0, false));
+        assert_eq!(
+            f64::from_truncated(1_u64),
+            CastResult::new::<u64>(1.0, false)
+        );
         assert_eq!(
             f64::from_truncated(9007199254740992_u64),
-            CastResult::new(9007199254740992.0, false)
+            CastResult::new::<u64>(9007199254740992.0, false)
         );
         assert_eq!(
             f64::from_truncated(9007199254740993_u64),
-            CastResult::new(9007199254740992.0, true)
+            CastResult::new::<u64>(9007199254740992.0, true)
         );
         assert_eq!(
             f64::from_truncated(9007199254740994_u64),
-            CastResult::new(9007199254740994.0, false)
+            CastResult::new::<u64>(9007199254740994.0, false)
         );
     }
 
@@ -675,21 +699,33 @@ mod tests {
             let nonzero: $float = 1.5;
             let neg: $float = -1.0;
 
-            assert_eq!($int::from_truncated(zero), CastResult::new(0, false));
+            assert_eq!(
+                $int::from_truncated(zero),
+                CastResult::new::<$float>(0, false)
+            );
             assert_eq!(
                 $int::from_truncated($int::MAX as $float),
-                CastResult::new($int::MAX, false)
+                CastResult::new::<$float>($int::MAX, false)
             );
-            assert_eq!($int::from_truncated(nonzero), CastResult::new(1, true));
-            assert_eq!($int::from_truncated(neg), CastResult::new(0, true));
-            assert_eq!($int::from_truncated($float::NAN), CastResult::new(0, true));
+            assert_eq!(
+                $int::from_truncated(nonzero),
+                CastResult::new::<$float>(1, true)
+            );
+            assert_eq!(
+                $int::from_truncated(neg),
+                CastResult::new::<$float>(0, true)
+            );
+            assert_eq!(
+                $int::from_truncated($float::NAN),
+                CastResult::new::<$float>(0, true)
+            );
             assert_eq!(
                 $int::from_truncated($float::NEG_INFINITY),
-                CastResult::new(0, true)
+                CastResult::new::<$float>(0, true)
             );
             assert_eq!(
                 $int::from_truncated($float::INFINITY),
-                CastResult::new($int::MAX, true)
+                CastResult::new::<$float>($int::MAX, true)
             );
         };
     }
@@ -737,23 +773,32 @@ mod tests {
     #[test]
     fn test_f64_to_f32() {
         // this should obviously pass
-        assert_eq!(f32::from_truncated(0.0_f64), CastResult::new(0.0, false));
+        assert_eq!(
+            f32::from_truncated(0.0_f64),
+            CastResult::new::<f64>(0.0, false)
+        );
         // this is the upper limit of ints that an f32 can represent exactly,
         // going above this will start to induce rounding errors that don't
         // happen in f64
         assert_eq!(
             f32::from_truncated(16777216.0_f64),
-            CastResult::new(16777216.0, false)
+            CastResult::new::<f64>(16777216.0, false)
         );
         assert_eq!(
             f32::from_truncated(16777217.0_f64),
-            CastResult::new(16777216.0, true)
+            CastResult::new::<f64>(16777216.0, true)
         );
         // this is a decimal that can be represented perfectly in both
-        assert_eq!(f32::from_truncated(0.5_f64), CastResult::new(0.5, false));
+        assert_eq!(
+            f32::from_truncated(0.5_f64),
+            CastResult::new::<f64>(0.5, false)
+        );
         // this is a repeating decimal which will have different representations
         // in f32 and f64, thus it will be lossy
-        assert_eq!(f32::from_truncated(0.2_f64), CastResult::new(0.2, true));
+        assert_eq!(
+            f32::from_truncated(0.2_f64),
+            CastResult::new::<f64>(0.2, true)
+        );
     }
 }
 

@@ -328,8 +328,8 @@ class _CoreDatasetCommon:
         self,
         path: Path,
         delim: int = ...,
-        check_conversion=True,
-        disallow_lossy_conversions=False,
+        skip_conversion_check=False,
+        allow_lossy_conversions=False,
     ): ...
 
 class _CoreTemporal2_0:

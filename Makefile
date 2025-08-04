@@ -1,38 +1,48 @@
 VENV=.venv
 
-ifeq ($(OS),Windows_NT)
-	VENV_BIN=$(VENV)/Scripts
-else
-	VENV_BIN=$(VENV)/bin
-endif
+uv_at = uv --directory pyreflow
 
-# set up python env
-.venv:
-	python3 -m venv $(VENV)
-	$(MAKE) requirements
+.PHONY: .uv
+.uv:
+	@uv -V || echo 'uv must be installed'
 
-# install python requirements to venv
-.PHONY: requirements
-requirements: .venv  
-	@unset CONDA_PREFIX \
-	&& $(VENV_BIN)/python -m pip install --upgrade uv \
-	&& $(VENV_BIN)/uv pip install --upgrade --compile-bytecode --no-build \
-	   -r pyreflow/requirements-dev.txt \
-	   -r pyreflow/requirements-lint.txt
+pyreflow/.venv: .uv
+	$(uv_at) sync --frozen --group all
 
-# build pyreflow for development
-.PHONY: build
-build: .venv  
-	@unset CONDA_PREFIX \
-	&& $(VENV_BIN)/maturin develop -m pyreflow/Cargo.toml $(ARGS)
-
-# invoke everyone's fav virtual assistant
-.PHONY: clippy
-clippy:
+# TODO add cargo fmt --all -- --check
+.PHONY: rs-lint
+rs-lint:
 	cargo clippy --all-targets --locked -- -D warnings -D clippy::dbg_macro
 
-# clean up caches/build stuff/venv
+.PHONY: rs-test
+rs-test:
+	cargo test -p fireflow-core
+
+.PHONY: py-lint
+py-lint: pyreflow/.venv
+	$(uv_at) run ruff format --check
+	$(uv_at) run python -m mypy.stubtest pyreflow._pyreflow --whitelist .mypy-stubtest-allowlist
+
+.PHONY: py-test
+py-test: pyreflow/.venv
+	$(uv_at) run pytest
+
+.PHONY: build-dev
+build-dev: pyreflow/.venv
+	$(uv_at) run maturin develop --uv
+
+.PHONY: build-prod
+build-prod: pyreflow/.venv
+	$(uv_at) run maturin develop --uv --release
+
+.PHONY: all-dev
+all-dev: rs-lint rs-test py-lint py-test build-dev
+
 .PHONY: clean
 clean:  
-	@rm -rf .venv/
-	@cargo clean
+	rm -rf `find pyreflow -name __pycache__`
+	rm -rf pyreflow/.venv
+	rm -rf pyreflow/.mypy_cache
+	rm -rf pyreflow/.pytest_cache
+	rm -rf pyreflow/.ruff_cache
+	cargo clean

@@ -1811,21 +1811,21 @@ macro_rules! write_dataset_method {
         impl $pytype {
             // TODO make all flags default to false by convention
             #[pyo3(signature =
-                   (path, delim = TEXTDelim::default(), check_conversion = true, disallow_lossy_conversions = false)
+                   (path, delim = TEXTDelim::default(), skip_conversion_check = false, allow_lossy_conversions = false)
             )]
             fn write_dataset(
                 &self,
                 path: PathBuf,
                 delim: TEXTDelim,
-                check_conversion: bool,
-                disallow_lossy_conversions: bool,
+                skip_conversion_check: bool,
+                allow_lossy_conversions: bool,
             ) -> PyResult<()> {
                 let f = File::options().write(true).create(true).open(path)?;
                 let mut h = BufWriter::new(f);
                 let conf = cfg::WriteConfig {
                     delim,
-                    check_conversion,
-                    disallow_lossy_conversions,
+                    skip_conversion_check,
+                    allow_lossy_conversions,
                 };
                 self.0.h_write_dataset(&mut h, &conf).py_term_resolve()
             }

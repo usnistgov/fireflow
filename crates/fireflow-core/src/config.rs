@@ -196,14 +196,14 @@ pub struct WriteConfig {
     /// to be enumerated once prior to writing in order to perform this check.
     /// Lossy conversion will be performed regardless, but warnings will be
     /// emitted if this is true.
-    pub check_conversion: bool,
+    pub skip_conversion_check: bool,
 
     /// If true, disallow lossy data conversions
     ///
     /// Only has an effect if `check_conversion` is true. If this is also true,
     /// any lossy conversion will halt immediately and return an error to the
     /// user.
-    pub disallow_lossy_conversions: bool,
+    pub allow_lossy_conversions: bool,
 }
 
 #[derive(Default, Clone)]

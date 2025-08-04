@@ -3730,7 +3730,7 @@ where
         &self,
         h: &mut BufWriter<W>,
         conf: &WriteConfig,
-    ) -> IOTerminalResult<(), ColumnError<IntRangeError<()>>, StdWriterError, WriteDatasetFailure>
+    ) -> IOTerminalResult<(), StdWriterWarning, StdWriterError, WriteDatasetFailure>
     where
         Version: From<M::Ver>,
     {
@@ -3742,10 +3742,22 @@ where
         let analysis_len = self.analysis.0.len() as u64;
         let other_lens = others.0.iter().map(|o| o.0.len() as u64).collect();
 
-        layout
-            .check_writer(df)
-            .mult_to_deferred()
-            .def_errors_liftio()
+        let check_res = if conf.skip_conversion_check {
+            Ok(Tentative::default())
+        } else {
+            match layout.check_writer(df) {
+                Ok(()) => Ok(Tentative::default()),
+                Err(es) => if conf.allow_lossy_conversions {
+                    Ok(Tentative::new((), es.into(), vec![]))
+                } else {
+                    Err(DeferredFailure::new2(es))
+                }
+                .def_inner_into()
+                .def_errors_liftio(),
+            }
+        };
+
+        check_res
             .def_and_maybe(|()| {
                 let data_len = layout.nbytes(df);
                 let hdr_kws = self
@@ -8159,6 +8171,12 @@ pub enum StdWriterError {
     Layout(NewDataLayoutError),
     Check(ColumnError<AnyLossError>),
     Overflow(Uint8DigitOverflow),
+}
+
+#[derive(From, Display)]
+pub enum StdWriterWarning {
+    Column(ColumnError<IntRangeError<()>>),
+    Check(ColumnError<AnyLossError>),
 }
 
 pub enum ExistingLinkError {

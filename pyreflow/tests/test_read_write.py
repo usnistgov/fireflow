@@ -1670,7 +1670,7 @@ class TestReadWrite:
         assert core == new_core
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text"])
-    def test_text_non_empty1(self, tmp_path: Path, core: AnyCoreTEXT) -> None:
+    def test_text_non_empty_1(self, tmp_path: Path, core: AnyCoreTEXT) -> None:
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "text1.fcs"
@@ -1679,7 +1679,7 @@ class TestReadWrite:
         assert core == new_core
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text2"])
-    def test_text_non_empty2(self, tmp_path: Path, core: AnyCoreTEXT) -> None:
+    def test_text_non_empty_2(self, tmp_path: Path, core: AnyCoreTEXT) -> None:
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "text2.fcs"
@@ -1704,6 +1704,24 @@ class TestReadWrite:
         core.write_dataset(p)
         nu_core, un_core = pf.fcs_read_std_dataset(
             p, time_pattern=None, warnings_are_errors=True
+        )
+        assert un_core.parse.nextdata == 0
+        assert un_core.parse.delimiter == 30
+        assert len(un_core.parse.non_ascii) == 0
+        assert len(un_core.parse.byte_pairs) == 0
+        assert len(un_core.pseudostandard) == 0
+        assert core == nu_core
+
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
+    def test_dataset_non_empty_2(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "dataset2.fcs"
+        core.write_dataset(p)
+        nu_core, un_core = pf.fcs_read_std_dataset(
+            p,
+            time_pattern=LINK_NAME2,
+            warnings_are_errors=True,
         )
         assert un_core.parse.nextdata == 0
         assert un_core.parse.delimiter == 30

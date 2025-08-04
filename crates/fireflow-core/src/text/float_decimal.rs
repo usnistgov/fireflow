@@ -130,14 +130,14 @@ mod tests {
     #[test]
     fn test_str_to_float_dec_zero() {
         let d = "0".parse::<BigDecimal>().unwrap();
-        assert_eq!(FloatDecimal::<f32>::try_from(d.clone()).is_ok(), true);
-        assert_eq!(FloatDecimal::<f64>::try_from(d).is_ok(), true);
+        assert!(FloatDecimal::<f32>::try_from(d.clone()).is_ok());
+        assert!(FloatDecimal::<f64>::try_from(d).is_ok());
     }
 
     #[test]
     fn test_str_to_f32_submax() {
         let d = "34028236".parse::<BigDecimal>().unwrap();
-        assert_eq!(FloatDecimal::<f32>::try_from(d).is_ok(), true);
+        assert!(FloatDecimal::<f32>::try_from(d).is_ok());
     }
 
     #[test]
@@ -145,7 +145,7 @@ mod tests {
         let d = "340282350000000000000000000000000000000"
             .parse::<BigDecimal>()
             .unwrap();
-        assert_eq!(FloatDecimal::<f32>::try_from(d).is_ok(), true);
+        assert!(FloatDecimal::<f32>::try_from(d).is_ok());
     }
 
     #[test]
@@ -153,7 +153,7 @@ mod tests {
         let d = "-340282350000000000000000000000000000000"
             .parse::<BigDecimal>()
             .unwrap();
-        assert_eq!(FloatDecimal::<f32>::try_from(d).is_ok(), true);
+        assert!(FloatDecimal::<f32>::try_from(d).is_ok());
     }
 
     #[test]
@@ -161,7 +161,7 @@ mod tests {
         let d = "340282350000000000000000000000000000001"
             .parse::<BigDecimal>()
             .unwrap();
-        assert_eq!(FloatDecimal::<f32>::try_from(d).is_ok(), false);
+        assert!(FloatDecimal::<f32>::try_from(d).is_err());
     }
 
     #[test]
@@ -169,13 +169,13 @@ mod tests {
         let d = "-340282350000000000000000000000000000001"
             .parse::<BigDecimal>()
             .unwrap();
-        assert_eq!(FloatDecimal::<f32>::try_from(d).is_ok(), false);
+        assert!(FloatDecimal::<f32>::try_from(d).is_err());
     }
 
     #[test]
     fn test_str_to_f64_submax() {
         let d = "17976931348623158".parse::<BigDecimal>().unwrap();
-        assert_eq!(FloatDecimal::<f64>::try_from(d).is_ok(), true);
+        assert!(FloatDecimal::<f64>::try_from(d).is_ok());
     }
 
     #[test]
@@ -183,7 +183,7 @@ mod tests {
         let d = "179769313486231570000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
             .parse::<BigDecimal>()
             .unwrap();
-        assert_eq!(FloatDecimal::<f64>::try_from(d).is_ok(), true);
+        assert!(FloatDecimal::<f64>::try_from(d).is_ok());
     }
 
     #[test]
@@ -191,7 +191,7 @@ mod tests {
         let d = "-179769313486231570000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
             .parse::<BigDecimal>()
             .unwrap();
-        assert_eq!(FloatDecimal::<f64>::try_from(d).is_ok(), true);
+        assert!(FloatDecimal::<f64>::try_from(d).is_ok());
     }
 
     #[test]
@@ -199,7 +199,7 @@ mod tests {
         let d = "179769313486231570000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001"
             .parse::<BigDecimal>()
             .unwrap();
-        assert_eq!(FloatDecimal::<f64>::try_from(d).is_ok(), false);
+        assert!(FloatDecimal::<f64>::try_from(d).is_err());
     }
 
     #[test]
@@ -207,6 +207,6 @@ mod tests {
         let d = "-179769313486231570000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001"
             .parse::<BigDecimal>()
             .unwrap();
-        assert_eq!(FloatDecimal::<f64>::try_from(d).is_ok(), false);
+        assert!(FloatDecimal::<f64>::try_from(d).is_err());
     }
 }

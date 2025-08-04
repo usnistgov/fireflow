@@ -46,9 +46,9 @@ mod tests {
 
     #[test]
     fn test_u8_to_delim() {
-        assert_eq!(TEXTDelim::try_from(1_u8).is_ok(), true);
-        assert_eq!(TEXTDelim::try_from(126_u8).is_ok(), true);
-        assert_eq!(TEXTDelim::try_from(0_u8).is_ok(), false);
-        assert_eq!(TEXTDelim::try_from(127_u8).is_ok(), false);
+        assert!(TEXTDelim::try_from(1_u8).is_ok());
+        assert!(TEXTDelim::try_from(126_u8).is_ok());
+        assert!(TEXTDelim::try_from(0_u8).is_err());
+        assert!(TEXTDelim::try_from(127_u8).is_err());
     }
 }

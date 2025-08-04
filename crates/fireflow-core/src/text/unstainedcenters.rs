@@ -127,28 +127,6 @@ impl fmt::Display for ParseUnstainedCenterError {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::test::*;
-
-    // TODO this is hard(er) to test since the order will be random
-    #[test]
-    fn test_unstained_centers() {
-        assert_from_to_str::<UnstainedCenters>("1,X,0");
-    }
-
-    #[test]
-    fn test_unstained_centers_wrong_len() {
-        assert_eq!("2,X,0".parse::<UnstainedCenters>().is_ok(), false);
-    }
-
-    #[test]
-    fn test_unstained_centers_nonunique() {
-        assert_eq!("3,Y,Y,Z,0,0,0".parse::<UnstainedCenters>().is_ok(), false);
-    }
-}
-
 // TODO define in same mode as type
 impl OptLinkedKey for UnstainedCenters {
     fn names(&self) -> HashSet<&Shortname> {
@@ -169,5 +147,27 @@ impl OptLinkedKey for UnstainedCenters {
             })
             .collect();
         self.0 = new;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test::*;
+
+    // TODO this is hard(er) to test since the order will be random
+    #[test]
+    fn test_unstained_centers() {
+        assert_from_to_str::<UnstainedCenters>("1,X,0");
+    }
+
+    #[test]
+    fn test_unstained_centers_wrong_len() {
+        assert!("2,X,0".parse::<UnstainedCenters>().is_err());
+    }
+
+    #[test]
+    fn test_unstained_centers_nonunique() {
+        assert!("3,Y,Y,Z,0,0,0".parse::<UnstainedCenters>().is_err());
     }
 }

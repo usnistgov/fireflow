@@ -71,8 +71,8 @@ mod tests {
 
     #[test]
     fn test_str_to_shortname() {
-        assert_eq!("Thunderfist Chronicles".parse::<Shortname>().is_ok(), true);
-        assert_eq!("Thunderfist,Chronicles".parse::<Shortname>().is_ok(), false);
+        assert!("Thunderfist Chronicles".parse::<Shortname>().is_ok());
+        assert!("Thunderfist,Chronicles".parse::<Shortname>().is_err());
     }
 }
 

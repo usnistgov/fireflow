@@ -9,7 +9,7 @@ where
             let ss = x.to_string();
             assert_eq!(s, ss.as_str());
         }
-        Err(e) => assert!(false, "could not parse {s}, got error: {}", e.to_string()),
+        Err(e) => panic!("could not parse {s}, got error: {e}"),
     }
 }
 
@@ -24,6 +24,6 @@ where
             let ss = x.to_string();
             assert_eq!(s1, ss.as_str());
         }
-        Err(e) => assert!(false, "could not parse {s0}, got error: {}", e.to_string()),
+        Err(e) => panic!("could not parse {s0}, got error: {e}"),
     }
 }

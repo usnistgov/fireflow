@@ -83,16 +83,16 @@ mod tests {
 
     #[test]
     fn test_positive_float() {
-        assert_eq!(PositiveFloat::try_from(1.0_f32).is_ok(), true);
-        assert_eq!(PositiveFloat::try_from(0.0_f32).is_ok(), false);
-        assert_eq!(PositiveFloat::try_from(-1.0_f32).is_ok(), false);
+        assert!(PositiveFloat::try_from(1.0_f32).is_ok());
+        assert!(PositiveFloat::try_from(0.0_f32).is_err());
+        assert!(PositiveFloat::try_from(-1.0_f32).is_err());
     }
 
     #[test]
     fn test_non_neg_float() {
-        assert_eq!(NonNegFloat::try_from(1.0_f32).is_ok(), true);
-        assert_eq!(NonNegFloat::try_from(0.0_f32).is_ok(), true);
-        assert_eq!(NonNegFloat::try_from(-1.0_f32).is_ok(), false);
+        assert!(NonNegFloat::try_from(1.0_f32).is_ok());
+        assert!(NonNegFloat::try_from(0.0_f32).is_ok());
+        assert!(NonNegFloat::try_from(-1.0_f32).is_err());
     }
 }
 

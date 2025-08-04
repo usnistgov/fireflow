@@ -231,7 +231,7 @@ mod tests {
 
     #[test]
     fn test_scale_invalid() {
-        assert_eq!("4.5,0".parse::<Scale>().is_ok(), false);
+        assert!("4.5,0".parse::<Scale>().is_err());
     }
 }
 

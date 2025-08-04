@@ -220,10 +220,10 @@ mod tests {
 
     #[test]
     fn test_u8_to_chars() {
-        assert_eq!(Chars::try_from(1_u8).is_ok(), true);
-        assert_eq!(Chars::try_from(0_u8).is_ok(), false);
-        assert_eq!(Chars::try_from(20_u8).is_ok(), true);
-        assert_eq!(Chars::try_from(21_u8).is_ok(), false);
+        assert!(Chars::try_from(1_u8).is_ok());
+        assert!(Chars::try_from(0_u8).is_err());
+        assert!(Chars::try_from(20_u8).is_ok());
+        assert!(Chars::try_from(21_u8).is_err());
     }
 }
 

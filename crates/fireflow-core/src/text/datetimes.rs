@@ -190,7 +190,7 @@ mod tests {
 
     #[test]
     fn test_str_to_datetime_local() {
-        assert_eq!("2112-01-01T00:00:00.0".parse::<FCSDateTime>().is_ok(), true);
+        assert!("2112-01-01T00:00:00.0".parse::<FCSDateTime>().is_ok());
     }
 
     #[test]

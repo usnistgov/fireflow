@@ -175,6 +175,21 @@ impl fmt::Display for SpilloverError {
     }
 }
 
+impl OptLinkedKey for Spillover {
+    fn names(&self) -> HashSet<&Shortname> {
+        self.measurements.iter().collect()
+    }
+
+    fn reassign(&mut self, mapping: &NameMapping) {
+        // ASSUME mapping is such that new names will be unique
+        for n in self.measurements.iter_mut() {
+            if let Some(new) = mapping.get(n) {
+                *n = (*new).clone();
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -189,39 +204,18 @@ mod tests {
 
     #[test]
     fn test_str_compensation_unique() {
-        assert_eq!(
-            "3,Y,Y,Z,0,0,0,0,0,0,0,0,0".parse::<Spillover>().is_ok(),
-            false,
-        );
+        assert!("3,Y,Y,Z,0,0,0,0,0,0,0,0,0".parse::<Spillover>().is_err());
     }
 
     #[test]
     fn test_str_compensation_toosmall() {
-        assert_eq!("1,potato,0".parse::<Spillover>().is_ok(), false,);
+        assert!("1,potato,0".parse::<Spillover>().is_err());
     }
 
     #[test]
     fn test_str_compensation_name_length() {
-        assert_eq!(
-            "2,moody,padfoot,prongs,0,0,0,0"
-                .parse::<Spillover>()
-                .is_ok(),
-            false,
-        );
-    }
-}
-
-impl OptLinkedKey for Spillover {
-    fn names(&self) -> HashSet<&Shortname> {
-        self.measurements.iter().collect()
-    }
-
-    fn reassign(&mut self, mapping: &NameMapping) {
-        // ASSUME mapping is such that new names will be unique
-        for n in self.measurements.iter_mut() {
-            if let Some(new) = mapping.get(n) {
-                *n = (*new).clone();
-            }
-        }
+        assert!("2,moody,padfoot,prongs,0,0,0,0"
+            .parse::<Spillover>()
+            .is_err());
     }
 }

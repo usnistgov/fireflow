@@ -239,29 +239,29 @@ mod tests {
 
     #[test]
     fn test_str_compensation_too_small() {
-        assert_eq!("1,0".parse::<Compensation3_0>().is_ok(), false);
+        assert!("1,0".parse::<Compensation3_0>().is_err());
     }
 
     #[test]
     fn test_str_compensation_mismatch() {
-        assert_eq!("2,0,0,0".parse::<Compensation3_0>().is_ok(), false);
+        assert!("2,0,0,0".parse::<Compensation3_0>().is_err());
     }
 
     #[test]
     fn test_str_compensation_badfloats() {
-        assert_eq!("2,zero,0,coconut".parse::<Compensation3_0>().is_ok(), false);
+        assert!("2,zero,0,coconut".parse::<Compensation3_0>().is_err());
     }
 
     #[test]
     fn test_str_compensation_not_finite() {
         let m = DMatrix::from_row_slice(2, 2, &[0.0, 0.0, 0.0, f32::NAN]);
-        assert_eq!(Compensation::try_from(m).is_ok(), false);
+        assert!(Compensation::try_from(m).is_err());
     }
 
     #[test]
     fn test_str_compensation_not_square() {
         let m = DMatrix::from_row_slice(2, 3, &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
-        assert_eq!(Compensation::try_from(m).is_ok(), false);
+        assert!(Compensation::try_from(m).is_err());
     }
 }
 

@@ -107,12 +107,12 @@ LINK_NAME2 = "maple latte"
 
 @pytest.fixture
 def series1() -> pl.Series:
-    return pl.Series("blub", [1, 2, 3], dtype=pl.UInt64)
+    return pl.Series("blub", [1, 2, 3], dtype=pl.UInt32)
 
 
 @pytest.fixture
 def series2() -> pl.Series:
-    return pl.Series("blubby", [1, 2, 3], dtype=pl.UInt64)
+    return pl.Series("blubby", [1, 2, 3], dtype=pl.UInt32)
 
 
 @pytest.fixture
@@ -1661,16 +1661,16 @@ class TestLayouts:
 
 class TestReadWrite:
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["blank_text"])
-    def test_empty(self, tmp_path: Path, core: AnyCoreTEXT) -> None:
+    def test_text_empty(self, tmp_path: Path, core: AnyCoreTEXT) -> None:
         d = tmp_path
         d.mkdir(exist_ok=True)
-        p = d / "textonly.fcs"
+        p = d / "empty_text.fcs"
         core.write_text(p)
         new_core, uncore = pf.fcs_read_std_text(p)
         assert core == new_core
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text"])
-    def test_non_empty1(self, tmp_path: Path, core: AnyCoreTEXT) -> None:
+    def test_text_non_empty1(self, tmp_path: Path, core: AnyCoreTEXT) -> None:
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "text1.fcs"
@@ -1679,10 +1679,35 @@ class TestReadWrite:
         assert core == new_core
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text2"])
-    def test_non_empty2(self, tmp_path: Path, core: AnyCoreTEXT) -> None:
+    def test_text_non_empty2(self, tmp_path: Path, core: AnyCoreTEXT) -> None:
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "text2.fcs"
         core.write_text(p)
         new_core, uncore = pf.fcs_read_std_text(p, time_pattern=LINK_NAME2)
         assert core == new_core
+
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["blank_dataset"])
+    def test_dataset_empty(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "empty_dataset.fcs"
+        core.write_dataset(p)
+        new_core, uncore = pf.fcs_read_std_dataset(p)
+        assert core == new_core
+
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
+    def test_dataset_non_empty_1(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "dataset1.fcs"
+        core.write_dataset(p)
+        nu_core, un_core = pf.fcs_read_std_dataset(
+            p, time_pattern=None, warnings_are_errors=True
+        )
+        assert un_core.parse.nextdata == 0
+        assert un_core.parse.delimiter == 30
+        assert len(un_core.parse.non_ascii) == 0
+        assert len(un_core.parse.byte_pairs) == 0
+        assert len(un_core.pseudostandard) == 0
+        assert core == nu_core

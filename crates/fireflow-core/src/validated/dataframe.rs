@@ -292,13 +292,7 @@ where
         f: F,
     ) -> Result<(), LossError<E>> {
         for x in Self::as_col_iter::<ToType>(c) {
-            if x.lossy {
-                let d = CastError {
-                    from: type_name::<Self>(),
-                    to: type_name::<ToType>(),
-                };
-                return Err(LossError::Cast(d));
-            }
+            x.resolve()?;
             if let Some(err) = f(x.new) {
                 return Err(LossError::Other(err));
             }
@@ -311,11 +305,14 @@ where
     }
 }
 
+#[derive(From, Clone, Copy)]
 pub enum LossError<E> {
+    #[from]
     Cast(CastError),
     Other(E),
 }
 
+#[derive(Clone, Copy)]
 pub struct CastError {
     from: &'static str,
     to: &'static str,
@@ -353,13 +350,28 @@ impl FCSDataType for f64 {}
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub(crate) struct CastResult<T> {
     pub(crate) new: T,
-    pub(crate) lossy: bool,
+    pub(crate) lossy: Option<&'static str>,
 }
 
 impl<T> CastResult<T> {
-    #[cfg(test)]
-    fn new(new: T, lossy: bool) -> Self {
+    fn new<FromT>(new: T, has_loss: bool) -> Self {
+        let lossy = if has_loss {
+            Some(type_name::<FromT>())
+        } else {
+            None
+        };
         Self { new, lossy }
+    }
+
+    pub(crate) fn as_err(&self) -> Option<CastError> {
+        self.lossy.map(|from| {
+            let to = type_name::<T>();
+            CastError { from, to }
+        })
+    }
+
+    pub(crate) fn resolve(&self) -> Result<(), CastError> {
+        self.as_err().map_or(Ok(()), Err)
     }
 }
 
@@ -373,7 +385,7 @@ macro_rules! impl_cast_noloss {
             fn from_truncated(x: $from) -> CastResult<Self> {
                 CastResult {
                     new: x.into(),
-                    lossy: false,
+                    lossy: None,
                 }
             }
         }
@@ -384,9 +396,9 @@ macro_rules! impl_cast_int_lossy {
     ($from:ident, $to:ident) => {
         impl NumCast<$from> for $to {
             fn from_truncated(x: $from) -> CastResult<Self> {
-                let lossy = $to::try_from(x).is_err();
-                let new = if lossy { $to::MAX } else { x as $to };
-                CastResult { new, lossy }
+                let has_loss = $to::try_from(x).is_err();
+                let new = if has_loss { $to::MAX } else { x as $to };
+                CastResult::new::<$from>(new, has_loss)
             }
         }
     };
@@ -396,14 +408,12 @@ macro_rules! impl_cast_float_to_int_lossy {
     ($from:ident, $to:ident) => {
         impl NumCast<$from> for $to {
             fn from_truncated(x: $from) -> CastResult<Self> {
-                CastResult {
-                    new: x as $to,
-                    lossy: x.is_nan()
-                        || x.is_infinite()
-                        || x.is_sign_negative()
-                        || x.floor() != x
-                        || x > $to::MAX as $from,
-                }
+                let has_loss = x.is_nan()
+                    || x.is_infinite()
+                    || x.is_sign_negative()
+                    || x.floor() != x
+                    || x > $to::MAX as $from;
+                CastResult::new::<$from>(x as $to, has_loss)
             }
         }
     };
@@ -415,8 +425,7 @@ macro_rules! impl_cast_int_to_float_lossy {
             fn from_truncated(x: $from) -> CastResult<Self> {
                 let new = x as $to;
                 let old = new as $from;
-                let lossy = old != x;
-                CastResult { new, lossy }
+                CastResult::new::<$from>(new, old != x)
             }
         }
     };
@@ -470,8 +479,7 @@ impl NumCast<f64> for f32 {
     fn from_truncated(x: f64) -> CastResult<Self> {
         let new = x as f32;
         let old = new as f64;
-        let lossy = old != x;
-        CastResult { new, lossy }
+        CastResult::new::<f64>(new, old != x)
     }
 }
 

@@ -64,7 +64,7 @@ use crate::validated::ascii_range;
 use crate::validated::ascii_range::{AsciiRange, Chars};
 use crate::validated::bitmask::{
     Bitmask, Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56,
-    Bitmask64, BitmaskError,
+    Bitmask64, BitmaskError, BitmaskLossError,
 };
 use crate::validated::dataframe::*;
 use crate::validated::keys::*;
@@ -271,6 +271,7 @@ struct ColumnWriter<'a, C, T, S> {
     column_type: C,
     data: AnySource<'a, T>,
     byte_layout: PhantomData<S>,
+    loss: Option<AnyLossError>,
 }
 
 type UintColumnWriter<'a, C> = ColumnWriter<'a, C, <C as HasNativeType>::Native, Endian>;
@@ -735,6 +736,7 @@ where
             column_type: self,
             data: AnySource::new(c),
             byte_layout: PhantomData,
+            loss: None,
         }
     }
 
@@ -772,7 +774,7 @@ trait NativeWritable<S>: HasNativeType {
         h: &mut BufWriter<W>,
         x: CastResult<Self::Native>,
         byte_layout: S,
-    ) -> io::Result<()>;
+    ) -> io::Result<Option<AnyLossError>>;
 }
 
 trait IntoWriter<'a, S> {
@@ -1430,14 +1432,20 @@ impl<T, const LEN: usize> NativeWritable<Endian> for Bitmask<T, LEN>
 where
     Bitmask<T, LEN>: HasNativeType<Native = T>,
     T: Ord + Copy + IntFromBytes<LEN>,
+    u64: From<T>,
 {
     fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
         x: CastResult<T>,
         byte_layout: Endian,
-    ) -> io::Result<()> {
-        self.apply(x.new).h_write_endian(h, byte_layout)
+    ) -> io::Result<Option<AnyLossError>> {
+        let (trunc, y) = self.apply(x.new);
+        y.h_write_endian(h, byte_layout)?;
+        Ok(trunc
+            .map(LossError::Other)
+            .or(x.as_err().map(LossError::Cast))
+            .map(AnyLossError::Int))
     }
 }
 
@@ -1445,14 +1453,20 @@ impl<T, const LEN: usize> NativeWritable<SizedByteOrd<LEN>> for Bitmask<T, LEN>
 where
     Bitmask<T, LEN>: HasNativeType<Native = T>,
     T: Ord + Copy + IntFromBytes<LEN>,
+    u64: From<T>,
 {
     fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
         x: CastResult<T>,
         byte_layout: SizedByteOrd<LEN>,
-    ) -> io::Result<()> {
-        self.apply(x.new).h_write_ordered(h, byte_layout)
+    ) -> io::Result<Option<AnyLossError>> {
+        let (trunc, y) = self.apply(x.new);
+        y.h_write_ordered(h, byte_layout)?;
+        Ok(trunc
+            .map(LossError::Other)
+            .or(x.as_err().map(LossError::Cast))
+            .map(AnyLossError::Int))
     }
 }
 
@@ -1466,8 +1480,9 @@ where
         h: &mut BufWriter<W>,
         x: CastResult<T>,
         byte_layout: Endian,
-    ) -> io::Result<()> {
-        x.new.h_write_endian(h, byte_layout)
+    ) -> io::Result<Option<AnyLossError>> {
+        x.new.h_write_endian(h, byte_layout)?;
+        Ok(x.as_err().map(LossError::Cast).map(AnyLossError::Float))
     }
 }
 
@@ -1481,8 +1496,9 @@ where
         h: &mut BufWriter<W>,
         x: CastResult<T>,
         byte_layout: SizedByteOrd<LEN>,
-    ) -> io::Result<()> {
-        x.new.h_write_ordered(h, byte_layout)
+    ) -> io::Result<Option<AnyLossError>> {
+        x.new.h_write_ordered(h, byte_layout)?;
+        Ok(x.as_err().map(LossError::Cast).map(AnyLossError::Float))
     }
 }
 
@@ -1492,22 +1508,26 @@ impl<const ORD: bool> NativeWritable<NoByteOrd<ORD>> for AsciiRange {
         h: &mut BufWriter<W>,
         x: CastResult<Self::Native>,
         _: NoByteOrd<ORD>,
-    ) -> io::Result<()> {
+    ) -> io::Result<Option<AnyLossError>> {
         let s = x.new.to_string();
         let w: usize = u8::from(self.chars()).into();
-        if s.len() > w {
+        let e = if s.len() > w {
             // if string is greater than allocated chars, only write a fraction
             // starting from the left
             let offset = s.len() - w;
-            h.write_all(&s.as_bytes()[offset..])
+            h.write_all(&s.as_bytes()[offset..])?;
+            Some(LossError::Other(AsciiLossError(self.chars())))
         } else {
             // if string less than allocated chars, pad left side with zero before
             // writing number
             for _ in 0..(w - s.len()) {
                 h.write_all(&[30])?;
             }
-            h.write_all(s.as_bytes())
-        }
+            h.write_all(s.as_bytes())?;
+            None
+        };
+        Ok(e.or(x.as_err().map(LossError::Cast))
+            .map(AnyLossError::Ascii))
     }
 }
 
@@ -1572,13 +1592,9 @@ where
 {
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: S) -> io::Result<()> {
         let x = self.data.next().unwrap();
-        // TODO need to warn user if conversion loss occurs and we did not check
-        // for conversion loss before. The tricky part will be only warning once
-        // per column (ie the first encounter) so that we don't flood the logs
-        // if the dataframe is millions of rows. The other hard part will be
-        // that we need to warn for native type loss (ie u64->u8) and for cases
-        // where a uint was truncated (ie 8 bit to 7 bit).
-        self.column_type.h_write(h, x, byte_layout)
+        let loss = self.column_type.h_write(h, x, byte_layout)?;
+        self.loss = std::mem::take(&mut self.loss).or(loss);
+        Ok(())
     }
 }
 
@@ -3918,13 +3934,14 @@ pub enum UnevenEventWidth {
     ZeroWidth(u64),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Clone, Copy)]
 pub enum AnyLossError {
     Int(LossError<BitmaskLossError>),
     Float(LossError<Infallible>),
     Ascii(LossError<AsciiLossError>),
 }
 
+#[derive(Clone, Copy)]
 pub struct AsciiLossError(Chars);
 
 impl fmt::Display for AsciiLossError {
@@ -3932,18 +3949,6 @@ impl fmt::Display for AsciiLossError {
         write!(
             f,
             "ASCII data was too big and truncated into {} chars",
-            self.0
-        )
-    }
-}
-
-pub struct BitmaskLossError(pub u64);
-
-impl fmt::Display for BitmaskLossError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "integer data was too big and truncated to bitmask {}",
             self.0
         )
     }

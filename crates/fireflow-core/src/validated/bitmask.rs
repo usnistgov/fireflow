@@ -58,11 +58,19 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
         self.bitmask
     }
 
-    pub(crate) fn apply(&self, value: T) -> T
+    pub(crate) fn apply(&self, value: T) -> (Option<BitmaskLossError>, T)
     where
         T: Ord + Copy,
+        u64: From<T>,
     {
-        self.bitmask.min(value)
+        let b = self.bitmask;
+        let trunc = value > b;
+        let e = if trunc {
+            Some(BitmaskLossError(u64::from(b)))
+        } else {
+            None
+        };
+        (e, b.min(value))
     }
 
     pub(crate) fn from_native_tnt(
@@ -171,6 +179,19 @@ impl fmt::Display for BitmaskTruncationError {
 pub enum BitmaskError {
     ToInt(IntRangeError<()>),
     Trunc(BitmaskTruncationError),
+}
+
+#[derive(Clone, Copy)]
+pub struct BitmaskLossError(pub u64);
+
+impl fmt::Display for BitmaskLossError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "integer data was too big and truncated to bitmask {}",
+            self.0
+        )
+    }
 }
 
 #[cfg(test)]

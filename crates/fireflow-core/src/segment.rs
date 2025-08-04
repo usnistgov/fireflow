@@ -1004,7 +1004,7 @@ impl<T> NonEmptySegment<T> {
     {
         // TODO technically this should return option since it isn't guaranteed
         // that the next byte won't wrap
-        NonZeroU64::MIN.saturating_add(self.begin.into())
+        NonZeroU64::MIN.saturating_add(self.end.into())
     }
 
     fn new_unchecked(begin: T, end: T) -> Self {

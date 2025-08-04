@@ -13,5 +13,5 @@ derive_more = { workspace = true, features = ["from", "into"] }
 nonempty = { workspace = true }
 pyo3 = { workspace = true }
 pyo3-polars = { version = "0.22.0" }
-polars = { version = "0.49.0" }
+polars = { workspace = true }
 numpy = { version = "0.25", features = ["nalgebra"] }

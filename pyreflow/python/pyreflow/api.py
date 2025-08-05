@@ -228,6 +228,9 @@ def fcs_read_header(
     allow_negative: bool = False,
     truncate_offsets: bool = False,
 ) -> ReadHeaderOutput:
+    """
+    Read the HEADER of an FCS file.
+    """
     args = {k: v for k, v in locals().items() if k != "p"}
     conf = _assign_args(_HEADER_ARGS, args)
     assert len(args) == 0, False
@@ -277,6 +280,9 @@ def fcs_read_raw_text(
     # shared args
     warnings_are_errors: bool = False,
 ) -> ReadRawTEXTOutput:
+    """
+    Read the HEADER and TEXT of an FCS file.
+    """
     args = {k: v for k, v in locals().items() if k != "p"}
     conf = {
         "raw": _assign_raw_args(args),
@@ -352,6 +358,9 @@ def fcs_read_std_text(
     # shared args
     warnings_are_errors: bool = False,
 ) -> ReadStdTEXTOutput:
+    """
+    Read the HEADER and standardized TEXT of an FCS file.
+    """
     args = {k: v for k, v in locals().items() if k != "p"}
     conf = {
         "raw": _assign_raw_args(args),
@@ -421,6 +430,9 @@ def fcs_read_raw_dataset(
     # shared args
     warnings_are_errors: bool = False,
 ) -> ReadRawDatasetOutput:
+    """
+    Read an FCS file with standardized TEXT.
+    """
     args = {k: v for k, v in locals().items() if k != "p"}
     conf = {
         "raw": _assign_raw_args(args),
@@ -502,6 +514,9 @@ def fcs_read_std_dataset(
     # shared args
     warnings_are_errors: bool = False,
 ) -> ReadStdDatasetOutput:
+    """
+    Read an FCS file with standardized TEXT.
+    """
     args = {k: v for k, v in locals().items() if k != "p"}
     conf = {
         "raw": _assign_raw_args(args),

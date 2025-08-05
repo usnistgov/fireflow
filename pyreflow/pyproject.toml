@@ -32,6 +32,7 @@ all = [
     { include-group = "dev" },
     { include-group = "lint" },
     { include-group = "testing" },
+    { include-group = "docs" },
 ]
 dev = ["maturin[patchelf]"]
 lint = [
@@ -42,6 +43,9 @@ lint = [
 testing = [
     { include-group = "dev" },
     "pytest==8.4.1",
+]
+docs = [
+    "sphinx",
 ]
 
 [tool.maturin]
@@ -63,3 +67,7 @@ strict_equality = true
 extra_checks = true
 
 check_untyped_defs = true
+
+[tool.ruff.format]
+docstring-code-format = true
+docstring-code-line-length = 20

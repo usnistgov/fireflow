@@ -4015,8 +4015,8 @@ impl fmt::Display for AsciiLossError {
 }
 
 pub struct ColumnError<E> {
-    index: IndexFromOne,
-    error: E,
+    pub index: IndexFromOne,
+    pub error: E,
 }
 
 impl<E> ColumnError<E> {

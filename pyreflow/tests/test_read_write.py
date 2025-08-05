@@ -610,13 +610,13 @@ class TestCore:
 
     @parameterize_versions("core", ["2_0"], ["text2", "dataset2"])
     def test_meas_scales(self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0) -> None:
-        assert core.scales == [(0, None)]
-        core.set_scales([()])
-        assert core.scales == [(0, ())]
+        assert core.scales == [None, ()]
+        core.scales = [(), ()]
+        assert core.scales == [(), ()]
 
     @parameterize_versions("core", ["2_0"], ["text2", "dataset2"])
     def test_meas_all_scales(self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0) -> None:
-        assert core.all_scales == [None, ()]
+        assert core.scales == [None, ()]
 
     @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["text2", "dataset2"])
     def test_meas_all_transforms(
@@ -628,40 +628,37 @@ class TestCore:
         | pf.CoreDataset3_1
         | pf.CoreDataset3_2,
     ) -> None:
-        assert core.all_transforms == [1.0, 1.0]
+        assert core.transforms == [1.0, 1.0]
 
     # each of these should be strings or None
-    @all_core
+    @all_core2
     @pytest.mark.parametrize(
-        "get, set",
-        [(x, f"set_{x}") for x in ["filters", "percents_emitted", "detector_types"]],
+        "attr",
+        ["filters", "percents_emitted", "detector_types"],
     )
-    def test_meas_opt_strs(self, get: str, set: str, core: AnyCore) -> None:
-        assert getattr(core, get) == [(0, None)]
-        new = "bla"
-        getattr(core, set)([new])
-        assert getattr(core, get) == [(0, new)]
+    def test_meas_opt_strs(self, attr: str, core: AnyCore) -> None:
+        assert getattr(core, attr) == [None, ()]
+        new = ["bla", ()]
+        setattr(core, attr, new)
+        assert getattr(core, attr) == new
         with pytest.raises(TypeError):
-            getattr(core, set)([42])
+            setattr(core, attr, [42, ()])
 
     # each of these should be a non-negative float
-    @all_core
-    @pytest.mark.parametrize(
-        "get, set",
-        [(x, f"set_{x}") for x in ["powers", "detector_voltages"]],
-    )
-    def test_meas_opt_floats(self, get: str, set: str, core: AnyCore) -> None:
-        assert getattr(core, get) == [(0, None)]
+    @all_core2
+    @pytest.mark.parametrize("attr", ["powers", "detector_voltages"])
+    def test_meas_opt_floats(self, attr: str, core: AnyCore) -> None:
+        assert getattr(core, attr) == [None, ()]
         new = 0.5
-        getattr(core, set)([new])
-        assert getattr(core, get) == [(0, new)]
+        setattr(core, attr, [new, ()])
+        assert getattr(core, attr) == [new, ()]
         newer = 0.0
-        getattr(core, set)([newer])
-        assert getattr(core, get) == [(0, newer)]
+        setattr(core, attr, [newer, ()])
+        assert getattr(core, attr) == [newer, ()]
         with pytest.raises(ValueError):
-            getattr(core, set)([-1.0])
+            setattr(core, attr, [-1.0, ()])
         with pytest.raises(TypeError):
-            getattr(core, set)(["pickle rick"])
+            setattr(core, attr, ["pickle rick", ()])
 
     @pytest.mark.parametrize(
         "core, optical, temporal",
@@ -682,80 +679,77 @@ class TestCore:
 
     @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
     @pytest.mark.parametrize(
-        "get, set",
-        [
-            (x, f"set_{x}")
-            for x in ["detector_names", "tags", "analytes", "measurement_types"]
-        ],
+        "attr",
+        ["detector_names", "tags", "analytes", "measurement_types"],
     )
     def test_meas_3_2_str(
-        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2, get: str, set: str
+        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2, attr: str
     ) -> None:
         new = "ziltoid"
-        getattr(core, get) == [(0, None)]
-        getattr(core, set)([new])
-        getattr(core, get) == [(0, new)]
+        getattr(core, attr) == [None, ()]
+        setattr(core, attr, [new, ()])
+        getattr(core, attr) == [new, ()]
         with pytest.raises(TypeError):
-            getattr(core, set)([10000000000000000000000])
+            setattr(core, attr, [10000000000000000000000, ()])
 
     @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
     def test_meas_3_2_feature(self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2) -> None:
-        core.features == [(0, None)]
-        core.set_features(["Area"])
-        core.features == [(0, "Area")]
+        core.features == [None, ()]
+        core.features = ["Area", ()]
+        assert core.features == ["Area", ()]
         with pytest.raises(ValueError):
-            core.set_features(["Earth Minutes"])  # type: ignore
+            core.features = ["Earth Minutes", ()]  # type: ignore
 
     @parameterize_versions("core", ["3_1"], ["text2", "dataset2"])
     def test_meas_3_1_calibration(
         self, core: pf.CoreTEXT3_1 | pf.CoreDataset3_1
     ) -> None:
         new = (0.5, "NVidia A100 Heat Output")
-        core.calibrations == [(0, None)]
-        core.set_calibrations([new])
-        core.calibrations == [(0, new)]
+        core.calibrations == [None, ()]
+        core.calibrations = [new, ()]
+        assert core.calibrations == [new, ()]
         with pytest.raises(TypeError):
-            core.set_calibrations(["AMD Threadripper Power Conumptions"])  # type: ignore
+            core.calibrations = ["AMD Threadripper Power Consumptions", ()]  # type: ignore
 
     @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
     def test_meas_3_2_calibration(
         self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2
     ) -> None:
         new = (0.5, 0.25, "Gouda Cheese Wheels")
-        core.calibrations == [(0, None)]
-        core.set_calibrations([new])
-        core.calibrations == [(0, new)]
+        core.calibrations == [None, ()]
+        core.calibrations = [new, ()]
+        assert core.calibrations == [new, ()]
         with pytest.raises(TypeError):
-            core.set_calibrations(["Sacred Cows"])  # type: ignore
+            core.calibrations = ["Sacred Cows", ()]  # type: ignore
 
     @parameterize_versions("core", ["2_0", "3_0"], ["text2", "dataset2"])
     def test_meas_wavelengths_singleton(
         self,
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
     ) -> None:
-        assert core.wavelengths == [(0, None)]
-        core.set_wavelengths([1.0])
-        assert core.wavelengths == [(0, 1.0)]
+        assert core.wavelengths == [None, ()]
+        core.wavelengths = [1.0, ()]
+        assert core.wavelengths == [1.0, ()]
         with pytest.raises(ValueError):
-            core.set_wavelengths([0.0])
+            core.wavelengths = [0.0, ()]
         with pytest.raises(ValueError):
-            core.set_wavelengths([-1.0])
+            core.wavelengths = [-1.0, ()]
 
     @parameterize_versions("core", ["3_1", "3_2"], ["text2", "dataset2"])
     def test_meas_wavelengths_vector(
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
     ) -> None:
-        assert core.wavelengths == [(0, None)]
+        assert core.wavelengths == [None, ()]
         new = [1.0, 2.0]
-        core.set_wavelengths([new])
-        assert core.wavelengths == [(0, new)]
+        core.wavelengths = [new, ()]
+        assert core.wavelengths == [new, ()]
         with pytest.raises(ValueError):
-            core.set_wavelengths([[0.0]])
+            core.wavelengths = [[0.0], ()]
         with pytest.raises(ValueError):
-            core.set_wavelengths([[-1.0]])
+            core.wavelengths = [[-1.0], ()]
         with pytest.raises(ValueError):
-            core.set_wavelengths([[]])
+            core.wavelengths = [[], ()]
 
     @parameterize_versions("core", ["3_1", "3_2"], ["text2", "dataset2"])
     def test_meas_displays(
@@ -1209,7 +1203,7 @@ class TestCore:
         # should fail if $PnE are missing
         with pytest.raises(pf.PyreflowException):
             core.version_3_0(True)
-        core.set_scales([()])
+        core.scales = [(), ()]
         new = core.version_3_0(True)
         assert isinstance(new, target)
 
@@ -1229,7 +1223,7 @@ class TestCore:
         # should fail if $PnE are missing
         with pytest.raises(pf.PyreflowException):
             core.version_3_1(True)
-        core.set_scales([()])
+        core.scales = [(), ()]
         new = core.version_3_1(True)
         assert isinstance(new, target)
 
@@ -1249,7 +1243,7 @@ class TestCore:
         # should fail if $PnE and $CYT are missing
         with pytest.raises(pf.PyreflowException):
             core.version_3_2(True)
-        core.set_scales([()])
+        core.scales = [(), ()]
         core.cyt = "T cell incinerator"
         new = core.version_3_2(True)
         assert isinstance(new, target)

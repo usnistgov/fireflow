@@ -15,7 +15,7 @@ use fireflow_core::text::byteord::{Endian, SizedByteOrd};
 use fireflow_core::text::compensation::Compensation;
 use fireflow_core::text::index::MeasIndex;
 use fireflow_core::text::keywords as kws;
-use fireflow_core::text::named_vec::{Element, NamedVec, RawInput};
+use fireflow_core::text::named_vec::{Element, NamedVec, NonCenterElement, RawInput};
 use fireflow_core::text::optional::{AlwaysFamily, MaybeFamily};
 use fireflow_core::text::scale::Scale;
 use fireflow_core::text::unstainedcenters::UnstainedCenters;
@@ -462,15 +462,16 @@ macro_rules! get_set_all_optical {
             #[pymethods]
             impl $pytype {
                 #[getter]
-                fn $get(&self) -> Vec<(MeasIndex, Option<$t>)> {
+                fn $get(&self) -> Vec<NonCenterElement<Option<$t>>> {
                     self.0
                         .optical_opt()
-                        .map(|(i, x)| (i, x.cloned()))
+                        .map(|e| e.0.map_non_center(|x| x.cloned()).into())
                         .collect()
                 }
 
-                fn $set(&mut self, xs: Vec<Option<$t>>) -> PyResult<()> {
-                    Ok(self.0.set_optical(xs)?)
+                #[setter]
+                fn $set(&mut self, xs: Vec<NonCenterElement<Option<$t>>>) -> PyResult<()> {
+                    self.0.set_optical(xs).py_term_resolve_nowarn()
                 }
             }
         )*
@@ -1405,18 +1406,11 @@ macro_rules! scales_methods {
         #[pymethods]
         impl $pytype {
             #[getter]
-            fn get_all_scales(&self) -> Vec<Option<Scale>> {
+            fn get_scales(&self) -> Vec<Option<Scale>> {
                 self.0.all_scales().collect()
             }
 
-            #[getter]
-            fn get_scales(&self) -> Vec<(MeasIndex, Option<Scale>)> {
-                self.0
-                    .optical_opt::<Scale>()
-                    .map(|(i, s)| (i, s.map(|&x| x)))
-                    .collect()
-            }
-
+            #[setter]
             fn set_scales(&mut self, scales: Vec<Option<Scale>>) -> PyResult<()> {
                 self.0.set_scales(scales).py_term_resolve_nowarn()
             }
@@ -1433,13 +1427,8 @@ macro_rules! transforms_methods {
         #[pymethods]
         impl $pytype {
             #[getter]
-            fn get_all_transforms(&self) -> Vec<core::ScaleTransform> {
+            fn get_transforms(&self) -> Vec<core::ScaleTransform> {
                 self.0.all_transforms().collect()
-            }
-
-            #[getter]
-            fn get_transforms(&self) -> Vec<(MeasIndex, core::ScaleTransform)> {
-                self.0.optical().map(|(i, &s)| (i, s)).collect()
             }
 
             #[setter]

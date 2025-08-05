@@ -21,7 +21,7 @@ rs-test:
 .PHONY: py-lint
 py-lint: pyreflow/.venv
 	$(uv_at) run ruff format --check
-	$(uv_at) run python -m mypy.stubtest pyreflow._pyreflow --whitelist .mypy-stubtest-allowlist
+	$(uv_at) run python -m mypy.stubtest pyreflow._pyreflow --whitelist .mypy-stubtest-whitelist
 
 .PHONY: py-test
 py-test: pyreflow/.venv

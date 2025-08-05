@@ -2484,32 +2484,62 @@ where
             .map(|_| ())
     }
 
-    /// Return field from all optical measurements as an indexed iterator
-    pub fn optical<'a, X: 'a>(&'a self) -> impl Iterator<Item = (MeasIndex, &'a X)>
+    /// Return field from all optical measurements as an iterator
+    pub fn optical<'a, X: 'a>(&'a self) -> impl Iterator<Item = NonCenterElement<&'a X>>
     where
         Optical<M::Optical>: AsRef<X>,
     {
         self.measurements
-            .iter_non_center_values()
-            .map(|(i, m)| (i, m.as_ref()))
+            .iter()
+            .map(|(_, e)| e.bimap(|_| (), |v| v.value.as_ref()).into())
     }
 
-    /// Return optional field from all optical measurements as an indexed iterator
-    pub fn optical_opt<'a, X: 'a>(&'a self) -> impl Iterator<Item = (MeasIndex, Option<&'a X>)>
+    /// Return optional field from all optical measurements as an iterator
+    pub fn optical_opt<'a, X: 'a>(&'a self) -> impl Iterator<Item = NonCenterElement<Option<&'a X>>>
     where
         Optical<M::Optical>: AsRef<Option<X>>,
     {
-        self.optical().map(|(i, m)| (i, m.as_ref()))
+        self.optical()
+            .map(|e| e.0.map_non_center(|x| x.as_ref()).into())
     }
 
     /// Set fields on all optical measurements to values in a vector
-    pub fn set_optical<X>(&mut self, xs: Vec<X>) -> Result<(), KeyLengthError>
+    pub fn set_optical<X>(
+        &mut self,
+        xs: Vec<NonCenterElement<X>>,
+    ) -> TerminalResult<(), (), SetOpticalError, SetOpticalFailure>
     where
         Optical<M::Optical>: AsMut<X>,
     {
         self.measurements
-            .alter_non_center_values_zip(xs, |m, x| *m.as_mut() = x)
-            .map(|_| ())
+            .alter_values_zip(
+                xs,
+                |m, x| {
+                    x.0.non_center()
+                        .map(|v| *m.value.as_mut() = v)
+                        .ok_or(ColumnError {
+                            error: OpticalMismatchError {
+                                new_is_optical: false,
+                            },
+                            index: m.index.into(),
+                        })
+                },
+                |m, x| {
+                    x.0.center().map(|_| ()).ok_or(ColumnError {
+                        error: OpticalMismatchError {
+                            new_is_optical: true,
+                        },
+                        index: m.index.into(),
+                    })
+                },
+            )
+            .into_mult()
+            .and_then(|rs| {
+                NonEmpty::collect(rs.into_iter().flat_map(|r| r.err()))
+                    .map_or(Ok(()), Err)
+                    .mult_errors_into()
+            })
+            .mult_terminate(SetOpticalFailure)
     }
 
     /// Get value for $BTIM as a [`NaiveTime`]
@@ -2799,64 +2829,67 @@ where
     pub fn set_scales(
         &mut self,
         scales: Vec<Option<Scale>>,
-    ) -> TerminalResult<(), (), SetMeasurementsError, SetScalesFailure>
+    ) -> TerminalResult<(), (), SetScalesError, SetScalesFailure>
     where
         M::Optical: HasScale,
     {
-        let l = &self.layout;
-        let mut xforms: Vec<_> = scales
-            .iter()
-            .copied()
-            .map(|s| s.map(ScaleTransform::from).unwrap_or_default())
-            .collect();
-        // If there is a center index and the input is too short, just let
-        // it pass; the next check will throw an error if the final length
-        // is incorrect
-        if let Some(i) = self.measurements.center_index().map(|i| i.into()) {
-            if i <= xforms.len() {
-                xforms.insert(i, ScaleTransform::default())
+        let go = || {
+            let l = &self.layout;
+            let xforms: Vec<_> = scales
+                .iter()
+                .copied()
+                .map(|s| s.map(ScaleTransform::from).unwrap_or_default())
+                .collect();
+            l.check_transforms_and_len(&xforms[..]).mult_errors_into()?;
+            // ASSUME this won't panic because we checked length above
+            if let Some(i) = self.measurements.center_index().map(usize::from) {
+                if scales[i] != Some(Scale::Linear) {
+                    return Err(NonEmpty::new(NonLinearTemporalScaleError.into()));
+                }
             }
-        }
-        l.check_transforms_and_len(&xforms[..])
-            .mult_errors_into()
-            .mult_terminate(SetScalesFailure)?;
-        // ASSUME this won't fail because we checked the length first
-        self.measurements
-            .alter_non_center_values_zip(scales, |m, x| {
-                *m.specific.scale_mut(private::NoTouchy) = x
-            })
-            .map(|_| ())
-            .unwrap();
-        Ok(Terminal::default())
+            // ASSUME this won't fail because we checked the length and time
+            // index first
+            self.measurements
+                .alter_values_zip(
+                    scales,
+                    |m, x| *m.value.specific.scale_mut(private::NoTouchy) = x,
+                    |_, _| (),
+                )
+                .map(|_| ())
+                .unwrap();
+            Ok(())
+        };
+        go().mult_terminate(SetScalesFailure)
     }
 
     pub fn set_transforms(
         &mut self,
-        mut xforms: Vec<ScaleTransform>,
-    ) -> TerminalResult<(), (), SetMeasurementsError, SetScaleTransformsFailure>
+        xforms: Vec<ScaleTransform>,
+    ) -> TerminalResult<(), (), SetTransformsError, SetTransformsFailure>
     where
         M::Optical: HasScaleTransform,
     {
-        let l = &self.layout;
-        // If there is a center index and the input is too short, just let
-        // it pass; the next check will throw an error if the final length
-        // is incorrect
-        if let Some(i) = self.measurements.center_index().map(|i| i.into()) {
-            if i <= xforms.len() {
-                xforms.insert(i, ScaleTransform::default())
+        let go = || {
+            let l = &self.layout;
+            l.check_transforms_and_len(&xforms[..]).mult_errors_into()?;
+            // ASSUME this won't panic because we checked length first
+            if let Some(i) = self.measurements.center_index().map(usize::from) {
+                if !xforms[i].is_noop() {
+                    return Err(NonEmpty::new(NonLinearTemporalTransformError.into()));
+                }
             }
-        }
-        l.check_transforms_and_len(&xforms[..])
-            .mult_errors_into()
-            .mult_terminate(SetScaleTransformsFailure)?;
-        // ASSUME this won't fail because we checked the length first
-        self.measurements
-            .alter_non_center_values_zip(xforms, |m, x| {
-                *m.specific.transform_mut(private::NoTouchy) = x
-            })
-            .map(|_| ())
-            .unwrap();
-        Ok(Terminal::default())
+            // ASSUME this won't fail because we checked the length first
+            self.measurements
+                .alter_values_zip(
+                    xforms,
+                    |m, x| *m.value.specific.transform_mut(private::NoTouchy) = x,
+                    |_, _| (),
+                )
+                .map(|_| ())
+                .unwrap();
+            Ok(())
+        };
+        go().mult_terminate(SetTransformsFailure)
     }
 
     /// Return $PAR, which is simply the number of measurements in this struct
@@ -8233,11 +8266,41 @@ impl fmt::Display for TriggerLinkError {
 }
 
 #[derive(From, Display)]
+pub enum SetOpticalError {
+    Length(KeyLengthError),
+    Mismatch(ColumnError<OpticalMismatchError>),
+}
+
+pub struct OpticalMismatchError {
+    new_is_optical: bool,
+}
+
+impl fmt::Display for OpticalMismatchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let o = "optical";
+        let t = "temporal";
+        let (x, y) = if self.new_is_optical { (o, t) } else { (t, o) };
+        write!(f, "tried to assign {x} value to {y} measurement")
+    }
+}
+
+#[derive(From, Display)]
 pub enum SetMeasurementsError {
     New(NewNamedVecError),
     Link(ExistingLinkError),
     Layout(MeasLayoutMismatchError),
-    // Empty(EmptyLayoutError),
+}
+
+#[derive(From, Display)]
+pub enum SetScalesError {
+    Layout(MeasLayoutMismatchError),
+    Temporal(NonLinearTemporalScaleError),
+}
+
+#[derive(From, Display)]
+pub enum SetTransformsError {
+    Layout(MeasLayoutMismatchError),
+    Temporal(NonLinearTemporalTransformError),
 }
 
 #[derive(From, Display)]
@@ -8321,6 +8384,22 @@ pub struct MissingMeasurementNameError(Shortname);
 impl fmt::Display for MissingMeasurementNameError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "name {} does not exist in measurements", self.0)
+    }
+}
+
+pub struct NonLinearTemporalScaleError;
+
+impl fmt::Display for NonLinearTemporalScaleError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        f.write_str("tried to set temporal $PnE to nonlinear scale")
+    }
+}
+
+pub struct NonLinearTemporalTransformError;
+
+impl fmt::Display for NonLinearTemporalTransformError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        f.write_str("tried to set temporal $PnE/$PnG to nonlinear transform")
     }
 }
 
@@ -8822,7 +8901,7 @@ def_failure!(
 );
 
 def_failure!(
-    SetScaleTransformsFailure,
+    SetTransformsFailure,
     "could not set scale transforms for optical measurements"
 );
 
@@ -8840,6 +8919,11 @@ def_failure!(InsertTemporalFailure, "could not push temporal measurement");
 def_failure!(PushOpticalFailure, "could not push optical measurement");
 
 def_failure!(InsertOpticalFailure, "could not push optical measurement");
+
+def_failure!(
+    SetOpticalFailure,
+    "could not set values for optical measurements"
+);
 
 def_failure!(SetMeasurementsFailure, "could not set measurements");
 

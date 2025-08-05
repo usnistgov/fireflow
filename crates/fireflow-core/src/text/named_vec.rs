@@ -81,6 +81,10 @@ pub enum Element<U, V> {
     NonCenter(V),
 }
 
+#[derive(Clone, From, Into)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct NonCenterElement<V>(pub Element<(), V>);
+
 type PairedVec<K, V> = Vec<Pair<K, V>>;
 
 #[derive(Clone, PartialEq)]
@@ -1689,6 +1693,26 @@ impl<U, V> Element<U, V> {
         }
     }
 
+    pub fn map_center<F, X>(self, f: F) -> Element<X, V>
+    where
+        F: Fn(U) -> X,
+    {
+        match self {
+            Element::Center(u) => Element::Center(f(u)),
+            Element::NonCenter(v) => Element::NonCenter(v),
+        }
+    }
+
+    pub fn map_non_center<F, X>(self, f: F) -> Element<U, X>
+    where
+        F: Fn(V) -> X,
+    {
+        match self {
+            Element::Center(u) => Element::Center(u),
+            Element::NonCenter(v) => Element::NonCenter(f(v)),
+        }
+    }
+
     pub fn both<F, G, X>(self, f: F, g: G) -> X
     where
         F: Fn(U) -> X,
@@ -2005,11 +2029,15 @@ impl fmt::Display for SetKeysError {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{ElementIndexError, KeyLengthError, KeyNotFoundError, RawInput, SetKeysError};
+    use super::{
+        Element, ElementIndexError, KeyLengthError, KeyNotFoundError, NonCenterElement, RawInput,
+        SetKeysError,
+    };
     use crate::python::macros::{impl_index_err, impl_pyreflow_err};
     use crate::text::optional::MightHave;
     use crate::validated::shortname::Shortname;
     use pyo3::prelude::*;
+    use pyo3::types::PyTuple;
 
     impl_index_err!(ElementIndexError);
     impl_index_err!(KeyNotFoundError);
@@ -2025,6 +2053,20 @@ mod python {
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             Ok(Self(ob.extract()?))
+        }
+    }
+
+    impl<'py, V> FromPyObject<'py> for NonCenterElement<V>
+    where
+        V: FromPyObject<'py>,
+    {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            if let Ok(t) = ob.downcast::<PyTuple>() {
+                if t.is_empty() {
+                    return Ok(Self(Element::Center(())));
+                }
+            };
+            Ok(Self(Element::NonCenter(ob.extract::<V>()?)))
         }
     }
 

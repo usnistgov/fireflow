@@ -1,7 +1,6 @@
 use crate::macros::match_many_to_one;
 use crate::text::index::BoundaryIndexError;
 use crate::validated::ascii_range::Chars;
-use crate::validated::shortname::Shortname;
 
 use derive_more::{Display, From};
 use polars_arrow::array::{Array, PrimitiveArray};
@@ -14,6 +13,9 @@ use std::slice::Iter;
 
 #[cfg(feature = "python")]
 use polars::prelude::*;
+
+#[cfg(feature = "python")]
+use crate::validated::shortname::Shortname;
 
 /// A dataframe without NULL and only types that make sense for FCS files.
 #[derive(Clone, Default, PartialEq)]

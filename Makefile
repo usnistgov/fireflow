@@ -22,6 +22,8 @@ rs-test:
 py-lint: pyreflow/.venv
 	$(uv_at) run ruff format --check
 	$(uv_at) run python -m mypy.stubtest pyreflow._pyreflow --whitelist .mypy-stubtest-whitelist
+	$(uv_at) run mypy --no-incremental --cache-dir=/dev/null python
+
 
 .PHONY: py-test
 py-test: pyreflow/.venv

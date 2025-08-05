@@ -7,10 +7,8 @@ from polars import Series, DataFrame
 import numpy as np
 import numpy.typing as npt
 
-from pyreflow import (
-    PyreflowWarning,
-    PyreflowException,
-)
+# TODO not sure why mypy complains about this
+from pyreflow import PyreflowWarning, PyreflowException  # type: ignore
 from pyreflow.typing import (
     MeasIndex,
     Range,
@@ -312,16 +310,16 @@ class _CoreCommon:
     @property
     def par(self) -> int: ...
     def set_trigger_threshold(self, threshold: int) -> bool: ...
-    def write_text(self, path: Path, delim: int = ...): ...
+    def write_text(self, path: Path, delim: int = ...) -> None: ...
 
 class _CoreDatasetCommon:
     def write_dataset(
         self,
         path: Path,
         delim: int = ...,
-        skip_conversion_check=False,
-        allow_lossy_conversions=False,
-    ): ...
+        skip_conversion_check: bool = False,
+        allow_lossy_conversions: bool = False,
+    ) -> None: ...
 
 class _CoreTemporal2_0:
     def set_temporal(self, name: Shortname, force: bool) -> bool: ...
@@ -358,13 +356,15 @@ class _CoreGetSetMeas(Generic[_N, _O, _T]):
     def rename_temporal(self, name: Shortname) -> Shortname | None: ...
 
 class _CoreTEXTGetSetMeas(Generic[_N, _T, _O]):
-    def push_optical(self, meas: _O, name: _N, range: Range, notrunc: bool = False): ...
+    def push_optical(
+        self, meas: _O, name: _N, range: Range, notrunc: bool = False
+    ) -> None: ...
     def insert_optical(
         self, index: MeasIndex, meas: _O, name: _N, range: Range, notrunc: bool = False
-    ): ...
+    ) -> None: ...
     def push_temporal(
         self, meas: _T, name: Shortname, range: Range, notrunc: bool = False
-    ): ...
+    ) -> None: ...
     def insert_temporal(
         self,
         index: MeasIndex,
@@ -372,8 +372,8 @@ class _CoreTEXTGetSetMeas(Generic[_N, _T, _O]):
         name: Shortname,
         range: Range,
         notrunc: bool = False,
-    ): ...
-    def unset_measurements(self): ...
+    ) -> None: ...
+    def unset_measurements(self) -> None: ...
 
 class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
     analysis: AnalysisBytes
@@ -381,7 +381,7 @@ class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
 
     def push_optical(
         self, meas: _O, col: Series, name: _N, range: Range, notrunc: bool = False
-    ): ...
+    ) -> None: ...
     def insert_optical(
         self,
         index: MeasIndex,
@@ -390,7 +390,7 @@ class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
         name: _N,
         range: Range,
         notrunc: bool = False,
-    ): ...
+    ) -> None: ...
     def push_temporal(
         self,
         meas: _T,
@@ -398,7 +398,7 @@ class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
         name: Shortname,
         range: Range,
         notrunc: bool = False,
-    ): ...
+    ) -> None: ...
     def insert_temporal(
         self,
         index: MeasIndex,
@@ -407,8 +407,8 @@ class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
         name: Shortname,
         range: Range,
         notrunc: bool = False,
-    ): ...
-    def unset_data(self): ...
+    ) -> None: ...
+    def unset_data(self) -> None: ...
     data: DataFrame
 
 class _CoreGetSetMeasOrdered(Generic[_O, _T]):
@@ -416,21 +416,21 @@ class _CoreGetSetMeasOrdered(Generic[_O, _T]):
 
     def set_measurements(
         self, measurements: _RawInput[Shortname | None, _O, _T], prefix: str
-    ): ...
+    ) -> None: ...
     def set_measurements_and_layout(
         self,
         measurements: _RawInput[Shortname | None, _O, _T],
         layout: _AnyOrderedLayout,
         prefix: str,
-    ): ...
+    ) -> None: ...
 
 class _CoreGetSetMeasEndian(Generic[_L, _O, _T]):
     layout: _L
 
-    def set_measurements(self, measurements: _RawInput[Shortname, _O, _T]): ...
+    def set_measurements(self, measurements: _RawInput[Shortname, _O, _T]) -> None: ...
     def set_measurements_and_layout(
         self, measurements: _RawInput[Shortname, _O, _T], layout: _L
-    ): ...
+    ) -> None: ...
 
 class _CoreDatasetGetSetMeasOrdered(Generic[_O, _T]):
     def set_measurements_and_data(
@@ -438,17 +438,19 @@ class _CoreDatasetGetSetMeasOrdered(Generic[_O, _T]):
         measurements: _RawInput[Shortname | None, _O, _T],
         cols: list[Series],
         prefix: str,
-    ): ...
+    ) -> None: ...
 
 class _CoreDatasetGetSetMeasEndian(Generic[_O, _T]):
     def set_measurements_and_data(
         self,
         measurements: _RawInput[Shortname | None, _O, _T],
         cols: list[Series],
-    ): ...
+    ) -> None: ...
 
 class _CoreSetShortnamesMaybe:
-    def set_measurement_shortnames_maybe(self, names: list[Shortname | None]): ...
+    def set_measurement_shortnames_maybe(
+        self, names: list[Shortname | None]
+    ) -> None: ...
 
 class _CoreScaleMethods:
     scales: list[Scale | None]
@@ -481,8 +483,8 @@ class _CoreSpillover:
     def spillover_names(self) -> list[Shortname]: ...
     def set_spillover(
         self, names: list[Shortname], matrix: npt.NDArray[np.float32]
-    ): ...
-    def unset_spillover(self): ...
+    ) -> None: ...
+    def unset_spillover(self) -> None: ...
 
 class _CoreUnicode:
     unicode: tuple[int, list[str]] | None

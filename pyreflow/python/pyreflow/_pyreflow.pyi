@@ -511,22 +511,19 @@ class _CorePre3_2:
     def __new__(cls, mode: Mode, datatype: Datatype) -> Self: ...
 
 class _Core3_2:
+    def __new__(cls, cyt: str, datatype: Datatype) -> Self: ...
+
     mode: Mode3_2 | None
     flowrate: str | None
     cyt: str
     unstainedinfo: str | None
+    unstained_centers: dict[Shortname, float] | None
     carriertype: str | None
     carrierid: str | None
     locationid: str | None
     begindatetime: datetime | None
     enddatetime: datetime | None
 
-    def __new__(cls, cyt: str, datatype: Datatype) -> Self: ...
-    @property
-    def unstained_centers(self) -> dict[Shortname, float] | None: ...
-    def insert_unstained_center(self, name: Shortname, value: float): ...
-    def remove_unstained_center(self, name: Shortname) -> float | None: ...
-    def clear_unstained_centers(self): ...
     detector_names: _OpticalKeyVals[str]
     tags: _OpticalKeyVals[str]
     features: _OpticalKeyVals[Feature]

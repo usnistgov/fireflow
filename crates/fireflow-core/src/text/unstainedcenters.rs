@@ -13,9 +13,13 @@ use std::str::FromStr;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
 /// The value for the $UNSTAINEDCENTERS key (3.2+)
 #[derive(Clone, Into, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct UnstainedCenters(HashMap<Shortname, f32>);
 
 pub enum UnstainedCenterError {
@@ -30,28 +34,28 @@ pub enum ParseUnstainedCenterError {
     New(UnstainedCenterError),
 }
 
-impl UnstainedCenters {
-    pub fn new(pairs: Vec<(Shortname, f32)>) -> Result<Self, UnstainedCenterError> {
-        let n = pairs.len();
-        if pairs.iter().map(|x| &x.0).unique().count() < n {
+impl TryFrom<Vec<(Shortname, f32)>> for UnstainedCenters {
+    type Error = UnstainedCenterError;
+
+    fn try_from(value: Vec<(Shortname, f32)>) -> Result<Self, Self::Error> {
+        let n = value.len();
+        if value.iter().map(|x| &x.0).unique().count() < n {
             Err(UnstainedCenterError::NonUnique)
         } else if n == 0 {
             Err(UnstainedCenterError::Empty)
         } else {
-            Ok(Self(pairs.into_iter().collect()))
+            Ok(Self(value.into_iter().collect()))
         }
     }
+}
 
+impl UnstainedCenters {
     pub fn new_1(k: Shortname, v: f32) -> Self {
         Self([(k, v)].into_iter().collect())
     }
 
     pub fn inner(&self) -> &HashMap<Shortname, f32> {
         &self.0
-    }
-
-    pub(crate) fn insert(&mut self, k: Shortname, v: f32) -> Option<f32> {
-        self.0.insert(k, v)
     }
 
     pub(crate) fn remove(&mut self, n: &Shortname) -> ClearMaybe<Option<f32>> {
@@ -84,8 +88,8 @@ impl FromStr for UnstainedCenters {
                 if fvalues.len() != n {
                     Err(ParseUnstainedCenterError::BadFloat)
                 } else {
-                    UnstainedCenters::new(measurements.into_iter().zip(fvalues).collect())
-                        .map_err(ParseUnstainedCenterError::New)
+                    let ys: Vec<_> = measurements.into_iter().zip(fvalues).collect();
+                    UnstainedCenters::try_from(ys).map_err(ParseUnstainedCenterError::New)
                 }
             } else {
                 Err(ParseUnstainedCenterError::BadLength { total, expected })
@@ -169,5 +173,24 @@ mod tests {
     #[test]
     fn test_unstained_centers_nonunique() {
         assert!("3,Y,Y,Z,0,0,0".parse::<UnstainedCenters>().is_err());
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::{UnstainedCenterError, UnstainedCenters};
+    use crate::python::macros::impl_pyreflow_err;
+    use crate::validated::shortname::Shortname;
+
+    use pyo3::prelude::*;
+    use std::collections::HashMap;
+
+    impl_pyreflow_err!(UnstainedCenterError);
+
+    impl<'py> FromPyObject<'py> for UnstainedCenters {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let us: HashMap<Shortname, f32> = ob.extract()?;
+            Ok(us.into_iter().collect::<Vec<_>>().try_into()?)
+        }
     }
 }

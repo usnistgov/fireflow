@@ -1370,28 +1370,13 @@ macro_rules! get_set_3_2 {
             }
 
             #[getter]
-            fn get_unstained_centers(&self) -> Option<HashMap<Shortname, f32>> {
-                self.0.metaroot_opt::<UnstainedCenters>().map(|y| {
-                    <HashMap<Shortname, f32>>::from(y.clone())
-                        .into_iter()
-                        .collect()
-                })
+            fn get_unstained_centers(&self) -> Option<UnstainedCenters> {
+                self.0.metaroot_opt::<UnstainedCenters>().map(|y| y.clone())
             }
 
-            fn insert_unstained_center(
-                &mut self,
-                name: Shortname,
-                value: f32,
-            ) -> PyResult<Option<f32>> {
-                Ok(self.0.insert_unstained_center(name, value)?)
-            }
-
-            fn remove_unstained_center(&mut self, name: Shortname) -> Option<f32> {
-                self.0.remove_unstained_center(&name)
-            }
-
-            fn clear_unstained_centers(&mut self) {
-                self.0.clear_unstained_centers()
+            #[setter]
+            fn set_unstained_centers(&mut self, us: Option<UnstainedCenters>) -> PyResult<()> {
+                self.0.set_unstained_centers(us).py_term_resolve_nowarn()
             }
         }
     };

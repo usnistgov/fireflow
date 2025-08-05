@@ -2749,60 +2749,27 @@ where
     }
 
     /// Insert an unstained center
-    pub fn insert_unstained_center(
+    pub fn set_unstained_centers(
         &mut self,
-        k: Shortname,
-        v: f32,
-    ) -> Result<Option<f32>, MissingMeasurementNameError>
+        us: Option<UnstainedCenters>,
+    ) -> TerminalResult<(), (), MissingMeasurementNameError, SetUnstainedFailure>
     where
         M: HasUnstainedCenters,
     {
-        if !self.measurement_names().contains(&k) {
-            Err(MissingMeasurementNameError(k))
-        } else {
-            let us = self
-                .metaroot
-                .specific
-                .unstainedcenters_mut(private::NoTouchy);
-            let ret = if let Some(u) = us.as_mut() {
-                u.insert(k, v)
-            } else {
-                *us = Some(UnstainedCenters::new_1(k, v));
-                None
-            };
-            Ok(ret)
+        let ms = self.measurement_names();
+        if let Some(es) = us.as_ref().map(|xs| xs.names()).and_then(|ns| {
+            NonEmpty::collect(
+                ns.difference(&ms)
+                    .map(|&n| MissingMeasurementNameError(n.clone())),
+            )
+        }) {
+            return Err(es).mult_terminate(SetUnstainedFailure);
         }
-    }
-
-    /// Remove an unstained center
-    pub fn remove_unstained_center(&mut self, k: &Shortname) -> Option<f32>
-    where
-        M: HasUnstainedCenters,
-    {
-        let us = self
-            .metaroot
-            .specific
-            .unstainedcenters_mut(private::NoTouchy);
-        if let Some(u) = us.as_mut() {
-            let c = u.remove(k);
-            if c.clear.is_some() {
-                *us = None;
-            }
-            c.value
-        } else {
-            None
-        }
-    }
-
-    /// Remove all unstained center
-    pub fn clear_unstained_centers(&mut self)
-    where
-        M: HasUnstainedCenters,
-    {
         *self
             .metaroot
             .specific
-            .unstainedcenters_mut(private::NoTouchy) = None;
+            .unstainedcenters_mut(private::NoTouchy) = us;
+        Ok(Terminal::default())
     }
 
     pub fn all_scales(&self) -> impl Iterator<Item = Option<Scale>>
@@ -8936,6 +8903,8 @@ def_failure!(
     SetMeasurementsAndDataFailure,
     "could not set measurements and data"
 );
+
+def_failure!(SetUnstainedFailure, "could not set $UNSTAINEDCENTERS");
 
 def_failure!(WriteTEXTFailure, "could not write HEADER and TEXT segments");
 

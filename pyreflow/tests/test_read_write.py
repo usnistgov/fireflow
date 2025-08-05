@@ -594,19 +594,11 @@ class TestCore:
         self,
         core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
     ) -> None:
-        # TODO this is a bit awkward, could just be an empty dict
-        core.unstained_centers is None
-        assert core.insert_unstained_center(LINK_NAME1, 42) is None
-        core.unstained_centers == {LINK_NAME1: 42}
-        assert core.insert_unstained_center(LINK_NAME1, 43) == 42
-        assert core.remove_unstained_center(LINK_NAME1) == 43
-        core.unstained_centers is None
-        core.insert_unstained_center(LINK_NAME1, 42)
-        core.unstained_centers is not None
-        core.clear_unstained_centers()
-        core.unstained_centers is None
-        core.clear_unstained_centers()
-        core.unstained_centers is None
+        assert core.unstained_centers is None
+        core.unstained_centers = {LINK_NAME1: 42}
+        assert core.unstained_centers == {LINK_NAME1: 42}
+        core.unstained_centers = None
+        assert core.unstained_centers is None
 
     @parameterize_versions("core", ["2_0"], ["text2", "dataset2"])
     def test_meas_scales(self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0) -> None:

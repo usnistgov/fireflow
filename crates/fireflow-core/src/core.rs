@@ -2748,7 +2748,9 @@ where
         *self.metaroot.specific.spill_mut(private::NoTouchy) = None;
     }
 
-    /// Insert an unstained center
+    /// Set $UNSTAINEDCENTERS
+    ///
+    /// Will return error for each name that is not in $PnN.
     pub fn set_unstained_centers(
         &mut self,
         us: Option<UnstainedCenters>,
@@ -2772,7 +2774,8 @@ where
         Ok(Terminal::default())
     }
 
-    pub fn all_scales(&self) -> impl Iterator<Item = Option<Scale>>
+    /// Return $PnE (2.0)
+    pub fn scales(&self) -> impl Iterator<Item = Option<Scale>>
     where
         Optical<M::Optical>: AsRef<Option<Scale>>,
     {
@@ -2784,7 +2787,8 @@ where
         })
     }
 
-    pub fn all_transforms(&self) -> impl Iterator<Item = ScaleTransform>
+    /// Return $PnE/$PnG (3.0+)
+    pub fn transforms(&self) -> impl Iterator<Item = ScaleTransform>
     where
         Optical<M::Optical>: AsRef<ScaleTransform>,
     {
@@ -2793,6 +2797,7 @@ where
             .map(|(_, x)| x.both(|_| ScaleTransform::default(), |m| *m.value.as_ref()))
     }
 
+    /// Set $PnE (2.0)
     pub fn set_scales(
         &mut self,
         scales: Vec<Option<Scale>>,
@@ -2829,6 +2834,7 @@ where
         go().mult_terminate(SetScalesFailure)
     }
 
+    /// Set $PnE/$PnG (3.0+)
     pub fn set_transforms(
         &mut self,
         xforms: Vec<ScaleTransform>,

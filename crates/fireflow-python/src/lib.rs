@@ -1392,7 +1392,7 @@ macro_rules! scales_methods {
         impl $pytype {
             #[getter]
             fn get_scales(&self) -> Vec<Option<Scale>> {
-                self.0.all_scales().collect()
+                self.0.scales().collect()
             }
 
             #[setter]
@@ -1406,14 +1406,14 @@ macro_rules! scales_methods {
 scales_methods!(PyCoreTEXT2_0);
 scales_methods!(PyCoreDataset2_0);
 
-// Get/set methods for $PnE (3.0-3.2)
+// Get/set methods for $PnE/$PnG (3.0-3.2)
 macro_rules! transforms_methods {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
             #[getter]
             fn get_transforms(&self) -> Vec<core::ScaleTransform> {
-                self.0.all_transforms().collect()
+                self.0.transforms().collect()
             }
 
             #[setter]

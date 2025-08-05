@@ -1748,7 +1748,7 @@ class TestReadWrite:
         d.mkdir(exist_ok=True)
         p = d / "dataset_conversion.fcs"
         ser = pl.Series("blub", [1.5, 2.5, 3.5], dtype=pl.Float32)
-        core.set_data([ser])
+        core.data = pl.DataFrame([ser])
         # this should fail because we are trying to write a non-integer float
         # as an integer
         with pytest.raises(pf.PyreflowException):

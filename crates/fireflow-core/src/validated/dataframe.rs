@@ -1,6 +1,7 @@
 use crate::macros::match_many_to_one;
 use crate::text::index::BoundaryIndexError;
 use crate::validated::ascii_range::Chars;
+use crate::validated::shortname::Shortname;
 
 use derive_more::{Display, From};
 use polars_arrow::array::{Array, PrimitiveArray};
@@ -10,6 +11,9 @@ use std::any::type_name;
 use std::fmt;
 use std::iter;
 use std::slice::Iter;
+
+#[cfg(feature = "python")]
+use polars::prelude::*;
 
 /// A dataframe without NULL and only types that make sense for FCS files.
 #[derive(Clone, Default, PartialEq)]
@@ -158,6 +162,15 @@ impl AnyFCSColumn {
             Self::F32(xs) => Box::new(PrimitiveArray::new(ArrowDataType::Float32, xs.0, None)),
             Self::F64(xs) => Box::new(PrimitiveArray::new(ArrowDataType::Float64, xs.0, None)),
         }
+    }
+
+    #[cfg(feature = "python")]
+    pub(crate) fn as_polars_column(&self, name: &Shortname) -> Column {
+        // ASSUME this will not fail because the we know the types and
+        // we don't have a validity array
+        Series::from_arrow(name.as_ref().into(), self.as_array())
+            .unwrap()
+            .into()
     }
 }
 
@@ -318,6 +331,19 @@ impl FCSDataFrame {
         let ndelim = n - 1;
         let ndigits: u32 = self.iter_columns().map(|c| c.ascii_nbytes()).sum();
         u64::from(ndigits) + ndelim
+    }
+
+    #[cfg(feature = "python")]
+    pub(crate) fn as_polars_dataframe(&self, names: &[Shortname]) -> DataFrame {
+        // ASSUME names is same length as columns
+        let columns = self
+            .iter_columns()
+            .zip(names)
+            .map(|(c, n)| c.as_polars_column(n))
+            .collect();
+        // ASSUME this will not fail because all columns should have unique
+        // names and the same length
+        DataFrame::new(columns).unwrap()
     }
 }
 
@@ -803,7 +829,7 @@ mod tests {
 }
 
 #[cfg(feature = "python")]
-mod python {
+pub(crate) mod python {
     use super::{AnyFCSColumn, FCSColumn, FCSDataFrame};
     use crate::python::macros::impl_value_err;
 
@@ -837,41 +863,60 @@ mod python {
     impl<'py> FromPyObject<'py> for AnyFCSColumn {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let ser: PySeries = ob.extract()?;
-            let ret = series_to_fcs(ser.0)?;
-            Ok(ret)
+            Ok(ser.0.try_into()?)
         }
     }
 
-    fn series_to_fcs(ser: Series) -> Result<AnyFCSColumn, SeriesToColumnError> {
-        fn column_to_buf<T>(ser: Series) -> Result<AnyFCSColumn, SeriesToColumnError>
-        where
-            T: NumericNative,
-            AnyFCSColumn: From<FCSColumn<T>>,
-        {
-            if ser.null_count() > 0 {
-                Err(SeriesToColumnError::HasNull(ser.name().clone()))
-            } else {
-                let buf = ser.into_chunks()[0]
-                    .as_any()
-                    .downcast_ref::<PrimitiveArray<T>>()
-                    .unwrap()
-                    .values()
-                    .clone();
-                Ok(FCSColumn(buf).into())
-            }
-        }
+    impl TryFrom<DataFrame> for FCSDataFrame {
+        type Error = SeriesToColumnError;
 
-        match ser.dtype() {
-            DataType::UInt8 => column_to_buf::<u8>(ser),
-            DataType::UInt16 => column_to_buf::<u16>(ser),
-            DataType::UInt32 => column_to_buf::<u32>(ser),
-            DataType::UInt64 => column_to_buf::<u64>(ser),
-            DataType::Float32 => column_to_buf::<f32>(ser),
-            DataType::Float64 => column_to_buf::<f64>(ser),
-            t => Err(SeriesToColumnError::InvalidDatatype(
-                ser.name().clone(),
-                t.clone(),
-            )),
+        fn try_from(df: DataFrame) -> Result<Self, Self::Error> {
+            let cs = df
+                .column_iter()
+                .map(|c| c.as_materialized_series().clone())
+                .map(AnyFCSColumn::try_from)
+                .collect::<Result<Vec<_>, _>>()?;
+            // ASSUME this won't fail because all columns will have the same
+            // length after pulling from a valid polars dataframe
+            Ok(Self::try_new(cs).unwrap())
+        }
+    }
+
+    impl TryFrom<Series> for AnyFCSColumn {
+        type Error = SeriesToColumnError;
+
+        fn try_from(ser: Series) -> Result<Self, Self::Error> {
+            fn column_to_buf<T>(ser: Series) -> Result<AnyFCSColumn, SeriesToColumnError>
+            where
+                T: NumericNative,
+                AnyFCSColumn: From<FCSColumn<T>>,
+            {
+                if ser.null_count() > 0 {
+                    Err(SeriesToColumnError::HasNull(ser.name().clone()))
+                } else {
+                    // ASSUME series only has one chunk
+                    let buf = ser.into_chunks()[0]
+                        .as_any()
+                        .downcast_ref::<PrimitiveArray<T>>()
+                        .unwrap()
+                        .values()
+                        .clone();
+                    Ok(FCSColumn(buf).into())
+                }
+            }
+
+            match ser.dtype() {
+                DataType::UInt8 => column_to_buf::<u8>(ser),
+                DataType::UInt16 => column_to_buf::<u16>(ser),
+                DataType::UInt32 => column_to_buf::<u32>(ser),
+                DataType::UInt64 => column_to_buf::<u64>(ser),
+                DataType::Float32 => column_to_buf::<f32>(ser),
+                DataType::Float64 => column_to_buf::<f64>(ser),
+                t => Err(SeriesToColumnError::InvalidDatatype(
+                    ser.name().clone(),
+                    t.clone(),
+                )),
+            }
         }
     }
 

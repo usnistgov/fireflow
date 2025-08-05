@@ -18,7 +18,8 @@ use crate::text::spillover::*;
 use crate::text::timestamps::*;
 use crate::text::unstainedcenters::*;
 use crate::validated::ascii_uint::Uint8DigitOverflow;
-use crate::validated::dataframe::*;
+use crate::validated::dataframe as df;
+use crate::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
 use crate::validated::keys::*;
 use crate::validated::shortname::*;
 use crate::validated::textdelim::TEXTDelim;
@@ -41,6 +42,9 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
+
+#[cfg(feature = "python")]
+use polars::prelude::*;
 
 /// Represents the minimal data required to write an FCS file.
 ///
@@ -3809,6 +3813,23 @@ where
                 h.write_all(&self.analysis.0).into_deferred()
             })
             .def_terminate(WriteDatasetFailure)
+    }
+
+    #[cfg(feature = "python")]
+    /// Return DATA as polars dataframe
+    pub fn dataframe(&self) -> DataFrame {
+        let ns = self.all_shortnames();
+        self.data.as_polars_dataframe(&ns[..])
+    }
+
+    #[cfg(feature = "python")]
+    /// Add columns to this dataset as a dataframe
+    ///
+    /// Return error if columns are not all the same length or number of columns
+    /// doesn't match the number of measurement.
+    pub fn set_dataframe(&mut self, df: DataFrame) -> Result<(), df::python::SeriesToColumnError> {
+        self.data = df.try_into()?;
+        Ok(())
     }
 
     /// Add columns to this dataset.
@@ -8279,13 +8300,13 @@ pub enum SetTransformsError {
 #[derive(From, Display)]
 pub enum SetMeasurementsAndDataError {
     Meas(SetMeasurementsError),
-    New(NewDataframeError),
+    New(df::NewDataframeError),
     Mismatch(MeasDataMismatchError),
 }
 
 #[derive(From, Display)]
 pub enum ColumnsToDataframeError {
-    New(NewDataframeError),
+    New(df::NewDataframeError),
     Mismatch(MeasDataMismatchError),
 }
 
@@ -8316,25 +8337,25 @@ pub enum InsertOpticalError {
 #[derive(From, Display)]
 pub enum PushTemporalToDatasetError {
     Measurement(InsertTemporalError),
-    Column(ColumnLengthError),
+    Column(df::ColumnLengthError),
 }
 
 #[derive(From, Display)]
 pub enum InsertTemporalToDatasetError {
     Measurement(InsertTemporalError),
-    Column(ColumnLengthError),
+    Column(df::ColumnLengthError),
 }
 
 #[derive(From, Display)]
 pub enum PushOpticalToDatasetError {
     Measurement(PushOpticalError),
-    Column(ColumnLengthError),
+    Column(df::ColumnLengthError),
 }
 
 #[derive(From, Display)]
 pub enum InsertOpticalInDatasetError {
     Measurement(InsertOpticalError),
-    Column(ColumnLengthError),
+    Column(df::ColumnLengthError),
 }
 
 pub struct MeasDataMismatchError {

@@ -20,7 +20,7 @@ use fireflow_core::text::optional::{AlwaysFamily, MaybeFamily};
 use fireflow_core::text::scale::Scale;
 use fireflow_core::text::unstainedcenters::UnstainedCenters;
 use fireflow_core::validated::bitmask as bm;
-use fireflow_core::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
+use fireflow_core::validated::dataframe::AnyFCSColumn;
 use fireflow_core::validated::keys::{NonStdKey, StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::{Shortname, ShortnamePrefix};
 use fireflow_core::validated::textdelim::TEXTDelim;
@@ -28,7 +28,6 @@ use fireflow_core::validated::textdelim::TEXTDelim;
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
 use derive_more::{From, Into};
 use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
-use polars::prelude::*;
 use pyo3::prelude::*;
 use pyo3::types::PyType;
 use pyo3_polars::PyDataFrame;
@@ -1134,26 +1133,12 @@ macro_rules! coredata_meas_get_set {
 
             #[getter]
             fn data(&self) -> PyDataFrame {
-                let ns = self.0.all_shortnames();
-                let df: &FCSDataFrame = self.0.as_ref();
-                let columns = df
-                    .iter_columns()
-                    .zip(ns)
-                    .map(|(c, n)| {
-                        // ASSUME this will not fail because the we know the types and
-                        // we don't have a validity array
-                        Series::from_arrow(n.as_ref().into(), c.as_array())
-                            .unwrap()
-                            .into()
-                    })
-                    .collect();
-                // ASSUME this will not fail because all columns should have unique
-                // names and the same length
-                PyDataFrame(DataFrame::new(columns).unwrap())
+                PyDataFrame(self.0.dataframe())
             }
 
-            fn set_data(&mut self, cols: Vec<AnyFCSColumn>) -> PyResult<()> {
-                Ok(self.0.set_data(cols)?)
+            #[setter]
+            fn set_data(&mut self, df: PyDataFrame) -> PyResult<()> {
+                Ok(self.0.set_dataframe(df.0)?)
             }
 
             #[getter]

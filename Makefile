@@ -40,6 +40,10 @@ build-prod: pyreflow/.venv
 .PHONY: all-dev
 all-dev: rs-lint rs-test build-dev py-lint py-test
 
+.PHONY: docs
+docs: 
+	$(uv_at) run sphinx-build -M html docs/source/ docs/build/
+
 .PHONY: clean
 clean:  
 	rm -rf `find pyreflow -name __pycache__`

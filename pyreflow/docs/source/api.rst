@@ -1,12 +1,6 @@
-API
-===
+Reference
+=========
 
-.. autofunction:: pyreflow.api.fcs_read_header
+.. automodule:: pyreflow.api
+   :members:
 
-.. autofunction:: pyreflow.api.fcs_read_raw_text
-
-.. autofunction:: pyreflow.api.fcs_read_std_text
-
-.. autofunction:: pyreflow.api.fcs_read_raw_dataset
-
-.. autofunction:: pyreflow.api.fcs_read_std_dataset

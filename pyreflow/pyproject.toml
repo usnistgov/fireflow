@@ -46,6 +46,7 @@ testing = [
 ]
 docs = [
     "sphinx",
+    "sphinx-toolbox",
 ]
 
 [tool.maturin]

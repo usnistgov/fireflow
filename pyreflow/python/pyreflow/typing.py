@@ -29,8 +29,6 @@ Segment: TypeAlias = tuple[int, int]
 
 OffsetCorrection: TypeAlias = tuple[int, int]
 
-KeyPatterns: TypeAlias = tuple[list[str], list[str]]
-
 StdKeywords: TypeAlias = dict[StdKey, str]
 NonStdKeywords: TypeAlias = dict[NonStdKey, str]
 

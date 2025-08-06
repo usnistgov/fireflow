@@ -27,3 +27,4 @@ html_theme = "alabaster"
 html_static_path = ["_static"]
 
 autodoc_typehints = "description"
+autodoc_member_order = "bysource"

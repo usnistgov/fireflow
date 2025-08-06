@@ -10,13 +10,13 @@ from pyreflow.typing import (
     StdKeywords,
     NonStdKeywords,
     OffsetCorrection,
-    KeyPatterns,
     AnalysisBytes,
     OtherBytes,
 )
 from pathlib import Path
 from typing import Any, NamedTuple
 import polars as pl
+import textwrap
 
 
 class HeaderSegments(NamedTuple):
@@ -317,106 +317,283 @@ def _to_raw_output(xs: dict[str, Any]) -> ReadRawTEXTOutput:
     )
 
 
-_HEADER_ARGS = {
-    "text_correction": "Offset correction to apply to *TEXT* segment.",
-    "data_correction": "Offset correction to apply to *DATA* segment.",
-    "analysis_correction": "Offset correction to apply to *ANALYSIS* segment.",
-    "other_corrections": "Offset corrections to apply to *OTHER* segments.",
-    "max_other": (
-        'Limit to number of *OTHER* segments to parse. ``None`` means "no limit".'
-    ),
-    "other_width": (
-        "Width to use when parsing *OTHER* segments. "
-        "The FCS standards do not specify a width for these, "
-        "and some vendors will use lenghts longer than 8 bytes "
-        "to hold larger offsets."
-    ),
-    "squish_offsets": (
-        "Force offsets to be empty if the start offset is greater than "
-        "zero and the end offset is zero. This sometimes happens if the ending "
-        "offset is greater than 8 digits, which means it must be stored in "
-        "*TEXT*. However, in such cases, both offsets should be stored in "
-        "*TEXT* and the analogue in *HEADER* should be empty. Some vendors "
-        "fail to do this, so setting this to `True` will correctly force the "
-        "*HEADER* offsets to be empty in these cases."
-    ),
-    "allow_negative": (
-        "Correct negative offsets to zero rather than throwing an error. "
-        "Since the ending offset of a segment points to the last byte "
-        "rather than the next byte, this means  that an empty segment should "
-        "be written as ``0,-1`` rather than ``0,0``. "
-        "Some vendors will do the former, which is incorrect according to the "
-        "standard, albeit quite logical."
-    ),
-    "truncate_offsets": (
-        "Truncate end of offsets if they exceed the size of the file."
-        "Such files are likely corrupted, so this should be used with caution."
-        "Setting this to ``True`` will allow such files to still be read even "
-        "thought their data may be nonsense."
-    ),
+_HEADER_ARGS: dict[str, list[str]] = {
+    "text_correction": ["Offset correction to apply to *TEXT* segment."],
+    "data_correction": ["Offset correction to apply to *DATA* segment."],
+    "analysis_correction": ["Offset correction to apply to *ANALYSIS* segment."],
+    "other_corrections": ["Offset corrections to apply to *OTHER* segments."],
+    "max_other": [
+        ("Limit to number of *OTHER* segments to parse. ``None`` means 'no limit'.")
+    ],
+    "other_width": [
+        (
+            "Width to use when parsing *OTHER* segments."
+            "In 3.2 this should be 8 bytes; In older versions this was unspecified. "
+            "In practice, vendors seem to use whatever width they want, presumably to "
+            "make 'large' numbers fit. This must be an integer between 1 and "
+            "20 (corresponding to a theoretical max of 2^64)."
+        )
+    ],
+    "squish_offsets": [
+        (
+            "If ``True``, force offsets to be ``0,0`` if they are ``X,0`` where "
+            "``X`` is non-zero. "
+            "This happens if the ending offset is greater than 8 digits and "
+            "must be stored in *TEXT*. In such cases, both offsets should be "
+            "stored in *TEXT* and the analogue in *HEADER* should be ``0,0``"
+        ),
+        (
+            "Some vendors fail to do this, so setting this to ``True`` will "
+            "correctly force the *HEADER* offsets to be empty in these cases. "
+            "This only applies to FCS 3.0 and greater since FCS 2.0 does not "
+            "allow offsets larger than 8 digits."
+        ),
+    ],
+    "allow_negative": [
+        (
+            "If ``True``, set negative offsets to zero rather than throwing an error. "
+            "Since the ending offset of a segment points to the last byte "
+            "rather than the next byte, this means  that an empty segment should "
+            "be written as ``0,-1`` rather than ``0,0``. "
+            "Some vendors will do the former, which is logic but technically wrong."
+        )
+    ],
+    "truncate_offsets": [
+        (
+            "If ``True``, truncate end of offsets if they exceed the size of the file."
+            "Such files are likely corrupted, so this should be used with caution."
+        )
+    ],
 }
 
-_RAW_ARGS = {
-    "version_override": "",
-    "supp_text_correction": "",
-    "allow_duplicated_stext": "",
-    "ignore_supp_text": "",
-    "use_literal_delims": "",
-    "allow_non_ascii_delim": "",
-    "allow_missing_final_delim": "",
-    "allow_nonunique": "",
-    "allow_odd": "",
-    "allow_empty": "",
-    "allow_delim_at_boundary": "",
-    "allow_non_utf8": "",
-    "allow_non_ascii_keywords": "",
-    "allow_missing_stext": "",
-    "allow_stext_own_delim": "",
-    "allow_missing_nextdata": "",
-    "trim_value_whitespace": "",
-    "date_pattern": "",
-    "ignore_standard_keys": "",
-    "rename_standard_keys": "",
-    "promote_to_standard": "",
-    "demote_from_standard": "",
-    "replace_standard_key_values": "",
-    "append_standard_keywords": "",
+_RAW_ARGS: dict[str, list[str]] = {
+    "version_override": ["Override the FCS version as seen in *HEADER*."],
+    "supp_text_correction": [
+        "Offset correction to apply to supplemental *TEXT* segment."
+    ],
+    "allow_duplicated_stext": [
+        (
+            "If ``True`` allow *sTEXT* offsets to match the *pTEXT* offsets "
+            "from *HEADER*. Some vendors will duplicate these two "
+            "segments despite *sTEXT* not being present, which is incorrect."
+        )
+    ],
+    "ignore_supp_text": ["If ``True``, ignore supplemental *TEXT* entirely."],
+    "use_literal_delims": [
+        (
+            "If ``True``, treat every delimiter as literal (turn off escaping). "
+            "Without escaping, delimiters cannot be included in keys or values, "
+            "but empty values become possible. Use this option for files where "
+            "unescaped delimiters results in the 'correct' interpretation of *TEXT*."
+        )
+    ],
+    "allow_non_ascii_delim": [
+        "If ``True`` allow non-ASCII delimiters (outside 1-126)."
+    ],
+    "allow_missing_final_delim": [
+        "If ``True`` allow *TEXT* to not end with a delimiter."
+    ],
+    "allow_nonunique": [
+        (
+            "If ``True`` allow non-unique keys in *TEXT*. In such cases, "
+            "only the first key will be used regardless of this setting; "
+        )
+    ],
+    "allow_odd": [
+        (
+            "If ``True``, allow *TEXT* to contain odd number of words. "
+            "The last 'dangling' word will be dropped independent of this flag."
+        )
+    ],
+    "allow_empty": [
+        (
+            "If ``True`` allow keys with blank values. "
+            "Only relevant if ``use_literal_delims`` is also ``True``."
+        )
+    ],
+    "allow_delim_at_boundary": [
+        (
+            "If ``True`` allow delimiters at word boundaries. "
+            "The FCS standard forbids this because it is impossible to tell if such "
+            "delimiters belong to the previous or the next word. "
+            "Consequently, delimiters at boundaries will be dropped regardless of this flag. "
+            "Setting this to ``True`` will turn this into a warning not an error. "
+            "Only relevant if ``use_literal_delims`` is ``False``."
+        )
+    ],
+    "allow_non_utf8": [
+        (
+            "If ``True`` allow non-UTF8 characters in *TEXT*. "
+            "Words with such characters will be dropped regardless; setting this to "
+            "``True`` will turn these cases into warnings not errors."
+        )
+    ],
+    "allow_non_ascii_keywords": [
+        (
+            "If ``True`` allow non-ASCII keys. "
+            "This only applies to non-standard keywords, as all standardized keywords "
+            "may only contain letters, numbers, and start with *$*. Regardless, all "
+            "compliant keys must only have ASCII. Setting this to true will emit "
+            "an error when encountering such a key. If false, the key will be kept "
+            "as a non-standard key."
+        )
+    ],
+    "allow_missing_stext": [
+        "If ``True`` allow *sTEXT* offsets to be missing from *pTEXT*."
+    ],
+    "allow_stext_own_delim": [
+        (
+            "If ``True`` allow *sTEXT* offsets to have a different "
+            "delimiter compared to *pTEXT*."
+        )
+    ],
+    "allow_missing_nextdata": [
+        (
+            "If ``True`` allow *$NEXTDATA* to be missing. "
+            "This is a required keyword in all versions. However, most files "
+            "only have one dataset in which case this keyword is meaningless."
+        )
+    ],
+    "trim_value_whitespace": [
+        (
+            "If ``True`` trim whitespace from all values. "
+            "If performed, trimming precedes all other repair steps."
+            "Any values which are entirely spaces will become blanks, in which case "
+            "it may also be sensible to enable ``allow_empty``."
+        )
+    ],
+    "date_pattern": [
+        (
+            "If supplied, will be used as an alternative pattern when parsing *$DATE*. "
+            "It should have specifiers for year, month, and day as outlined in "
+            "`chrono <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>`__. "
+            "If not supplied, *$DATE* will be parsed according to the standard pattern which "
+            "is ``%d-%b-%Y``."
+        )
+    ],
+    "ignore_standard_keys": [
+        (
+            "Remove standard keys from *TEXT*. "
+            "The leading *$* is implied so do not include it."
+        )
+    ],
+    "promote_to_standard": ["Promote nonstandard keys to standard keys in *TEXT*."],
+    "demote_from_standard": ["Denote standard keys to nonstandard keys in *TEXT*."],
+    "rename_standard_keys": [
+        (
+            "Rename standard keys in *TEXT*. "
+            "Keys matching the first part of the pair will be replaced by the second. "
+            "Comparisons are case insensitive. "
+            "The leading *$* is implied so do not include it."
+        )
+    ],
+    "replace_standard_key_values": [
+        (
+            "Replace values for standard keys in *TEXT*"
+            "Comparisons are case insensitive. "
+            "The leading *$* is implied so do not include it."
+        )
+    ],
+    "append_standard_keywords": [
+        (
+            "Append standard key/value pairs to *TEXT*."
+            "All keys and values will be included as they appear here. "
+            "The leading *$* is implied so do not include it."
+        )
+    ],
 }
 
-_STD_ARGS = {
-    "time_pattern": "",
-    "allow_missing_time": "",
-    "shortname_prefix": "",
-    "allow_pseudostandard": "",
-    "disallow_deprecated": "",
-    "fix_log_scale_offsets": "",
-    "nonstandard_measurement_pattern": "",
+_STD_ARGS: dict[str, list[str]] = {
+    "time_pattern": [
+        (
+            "A pattern to match the *$PnN* of the time measurement. "
+            "Must be a regular expression following syntax described in "
+            "`regexp-syntax <https://docs.rs/regex-syntax/latest/regex_syntax/>`__. "
+            "If ``None``, do not try to find a time measurement."
+        )
+    ],
+    "allow_missing_time": ["If ``True`` allow time measurement to be missing."],
+    "shortname_prefix": [
+        (
+            "Prefix to use when filling in missing *$PnN* values. "
+            "Missing *$PnN* will be written as ``<shortname_prefix>n`` where ``n`` "
+            "is the measurement index. "
+            "Only used for cases where a name is needed, for instance in dataframe headers. "
+            "Only applies to FCS 2.0/3.0 since *$PnN* became mandatory in later versions. "
+        )
+    ],
+    "allow_pseudostandard": [
+        "If ``True`` allow non-standard keywords with a leading *$*. "
+        "The presence of such keywords often means the version in *HEADER* is incorrect."
+    ],
+    "disallow_deprecated": [
+        "If ``True`` throw error if a deprecated key is encountered."
+    ],
+    # TODO expand upon this elsewhere
+    "fix_log_scale_offsets": ["If ``True`` fix log-scale *PnE* and *PnG* keywords."],
+    "nonstandard_measurement_pattern": [
+        (
+            "Pattern to use when matching nonstandard measurement keys. "
+            "Must be a regular expression pattern with ``%n`` which will "
+            "represent the measurement index and should not start with *$*. "
+            "Otherwise should be a normal regular expression as defined in "
+            "`regexp-syntax <https://docs.rs/regex-syntax/latest/regex_syntax/>`__. "
+        )
+    ],
 }
 
-_OFFSET_ARGS = {
-    "text_data_correction": "",
-    "text_analysis_correction": "",
-    "ignore_text_data_offsets": "",
-    "ignore_text_analysis_offsets": "",
-    "allow_header_text_offset_mismatch": "",
-    "allow_missing_required_offsets": "",
-    "truncate_text_offsets": "",
+_OFFSET_ARGS: dict[str, list[str]] = {
+    "text_data_correction": ["Corrections for *DATA* offsets in *TEXT*"],
+    "text_analysis_correction": ["Corrections for *ANALYSIS* offsets in *TEXT*"],
+    "ignore_text_data_offsets": ["If ``True`` ignore *DATA* offsets in *TEXT*"],
+    "ignore_text_analysis_offsets": ["If ``True`` ignore *ANALYSIS* offsets in *TEXT*"],
+    "allow_header_text_offset_mismatch": [
+        "If ``True`` allow *TEXT* and *HEADER* offsets to mismatch."
+    ],
+    "allow_missing_required_offsets": [
+        "If ``True`` allow required offsets in *TEXT* to be missing. "
+        "Only applies to *DATA* and *ANALYSIS* offsets in FCS 3.0/3.1. "
+        "If missing, fall back to offsets from *HEADER*."
+    ],
+    "truncate_text_offsets": ["If ``True`` truncate offsets that exceed end of file."],
 }
 
-_LAYOUT_ARGS = {
-    "integer_widths_from_byteord": "",
-    "integer_byteord_override": "",
-    "disallow_range_truncation": "",
+_LAYOUT_ARGS: dict[str, list[str]] = {
+    "integer_widths_from_byteord": [
+        (
+            "If ``True`` set all *$PnB* to the number of bytes from *$BYTEORD*. "
+            "Only has an effect for FCS 2.0/3.0 where *$DATATYPE* is ``I``."
+        )
+    ],
+    "integer_byteord_override": [
+        "Override *$BYTEORD* for integer layouts in FCS 2.0/3.0."
+    ],
+    "disallow_range_truncation": [
+        (
+            "If ``True`` throw error if *$PnR* values need to be truncated "
+            "to match the number of bytes specified by *$PnB* and *$DATATYPE*."
+        )
+    ],
 }
 
-_DATA_ARGS = {
-    "allow_uneven_event_width": "",
-    "allow_tot_mismatch": "",
-    "allow_data_par_mismatch": "",
+_DATA_ARGS: dict[str, list[str]] = {
+    "allow_uneven_event_width": [
+        (
+            "If ``True`` allow event width to not perfectly divide length of *DATA*. "
+            "Does not apply to delimited ASCII layouts. "
+        )
+    ],
+    "allow_tot_mismatch": [
+        "If ``True`` allow *$TOT* to not match number of events as "
+        "computed by the event width and length of *DATA*."
+        "Does not apply to delimited ASCII layouts."
+    ],
+    # TODO this arg is defunct
+    "allow_data_par_mismatch": [""],
 }
 
-_SHARED_ARGS = {
-    "warnings_are_errors": "",
+_SHARED_ARGS: dict[str, list[str]] = {
+    "warnings_are_errors": ["If ``True`` all warnings will be regarded as errors."],
 }
 
 
@@ -433,8 +610,24 @@ def _assign_raw_args(src: dict[str, Any]) -> dict[str, Any]:
     return raw_conf
 
 
+class KeyPatterns(NamedTuple):
+    """Patterns used to match keys in *TEXT*.
+
+    All comparisons will be case-insensitive.
+    """
+
+    literal: list[str]
+    """Strings to be matched literally and exactly."""
+
+    regexp: list[str]
+    """
+    Strings to be matched as regular expression patterns described in
+    `regexp-syntax <https://docs.rs/regex-syntax/latest/regex_syntax/>`__.
+    """
+
+
 DEFAULT_CORRECTION = (0, 0)
-DEFAULT_KEY_PATTERNS: tuple[list[str], list[str]] = ([], [])
+DEFAULT_KEY_PATTERNS: KeyPatterns = KeyPatterns([], [])
 DEFAULT_OTHER_WIDTH = 8
 DEFAULT_SHORTNAME_PREFIX = "P"
 DEFAULT_TIME_PATTERN = "^(TIME|Time)$"
@@ -869,17 +1062,118 @@ def fcs_read_std_dataset_with_keywords(
     )
 
 
-def _format_docstring(front: str, params: list[tuple[str, str]]) -> str:
+def _format_docstring(front: str, params: list[tuple[str, list[str]]]) -> str:
     # TODO actually indent these appropriately
-    def format_param(key: str, value: str) -> str:
-        return f":param {key}: {value}"
+    width = 76
+    indent = " " * 4
+
+    def format_param(key: str, value: list[str]) -> str:
+        v0 = textwrap.wrap(
+            f":param {key}: {value[0]}",
+            width=width,
+            subsequent_indent=indent,
+        )
+        vs = [
+            textwrap.wrap(v, width=76, initial_indent=indent, subsequent_indent=indent)
+            for v in value[1:]
+        ]
+        paras = ["\n".join(xs) for xs in [v0, *vs]]
+        return "\n\n".join(paras)
 
     ps = "\n".join([format_param(k, v) for k, v in params])
     return f"{front}\n\n{ps}"
 
 
 fcs_read_header.__doc__ = _format_docstring(
-    "Read the *HEADER* of an FCS file.", [*_HEADER_ARGS.items()]
+    "Read the *HEADER* of an FCS file.",
+    [
+        ("p", ["path to FCS file"]),
+        *_HEADER_ARGS.items(),
+    ],
+)
+
+fcs_read_raw_text.__doc__ = _format_docstring(
+    "Read the *TEXT* of an FCS file without standarization.",
+    [
+        ("p", ["path to FCS file"]),
+        *_HEADER_ARGS.items(),
+        *_RAW_ARGS.items(),
+        *_SHARED_ARGS.items(),
+    ],
+)
+
+fcs_read_std_text.__doc__ = _format_docstring(
+    "Read the *TEXT* of an FCS file with standardization.",
+    [
+        ("p", ["path to FCS file"]),
+        *_HEADER_ARGS.items(),
+        *_RAW_ARGS.items(),
+        *_STD_ARGS.items(),
+        *_OFFSET_ARGS.items(),
+        *_LAYOUT_ARGS.items(),
+        *_SHARED_ARGS.items(),
+    ],
+)
+
+fcs_read_raw_dataset.__doc__ = _format_docstring(
+    "Read dataset from FCS file without standardization.",
+    [
+        ("p", ["path to FCS file"]),
+        *_HEADER_ARGS.items(),
+        *_RAW_ARGS.items(),
+        *_OFFSET_ARGS.items(),
+        *_LAYOUT_ARGS.items(),
+        *_DATA_ARGS.items(),
+        *_SHARED_ARGS.items(),
+    ],
+)
+
+fcs_read_std_dataset.__doc__ = _format_docstring(
+    "Read dataset from FCS file with standardization.",
+    [
+        ("p", ["path to FCS file"]),
+        *_HEADER_ARGS.items(),
+        *_RAW_ARGS.items(),
+        *_STD_ARGS.items(),
+        *_OFFSET_ARGS.items(),
+        *_LAYOUT_ARGS.items(),
+        *_DATA_ARGS.items(),
+        *_SHARED_ARGS.items(),
+    ],
+)
+
+fcs_read_raw_dataset_with_keywords.__doc__ = _format_docstring(
+    "Read dataset from FCS file using given keywords without standardization.",
+    [
+        ("p", ["path to FCS file"]),
+        ("version", ["FCS version to use"]),
+        ("std", ["standard keywords"]),
+        ("data_seg", ["*DATA* segment from *HEADER*"]),
+        ("analysis_seg", ["*ANALYSIS* segment from *HEADER*"]),
+        ("other_segs", ["*OTHER* segments from *HEADER*"]),
+        *_OFFSET_ARGS.items(),
+        *_LAYOUT_ARGS.items(),
+        *_DATA_ARGS.items(),
+        *_SHARED_ARGS.items(),
+    ],
+)
+
+fcs_read_std_dataset_with_keywords.__doc__ = _format_docstring(
+    "Read dataset from FCS file using given keywords with standardization.",
+    [
+        ("p", ["path to FCS file"]),
+        ("version", ["FCS version to use"]),
+        ("std", ["standard keywords"]),
+        ("nonstd", ["non-standard keywords"]),
+        ("data_seg", ["*DATA* segment from *HEADER*"]),
+        ("analysis_seg", ["*ANALYSIS* segment from *HEADER*"]),
+        ("other_segs", ["*OTHER* segments from *HEADER*"]),
+        *_STD_ARGS.items(),
+        *_OFFSET_ARGS.items(),
+        *_LAYOUT_ARGS.items(),
+        *_DATA_ARGS.items(),
+        *_SHARED_ARGS.items(),
+    ],
 )
 
 del _format_docstring

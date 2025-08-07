@@ -623,16 +623,17 @@ macro_rules! common_methods {
 
         #[pymethods]
         impl $pytype {
-            fn insert_nonstandard(&mut self, key: NonStdKey, value: String) -> Option<String> {
-                self.0.metaroot.nonstandard_keywords.insert(key, value)
+            #[getter]
+            /// Get or set nonstandard keywords as a dictionary.
+            ///
+            /// Each key must not start with *$*.
+            fn get_nonstandard_keywords(&self) -> HashMap<NonStdKey, String> {
+                self.0.metaroot.nonstandard_keywords.clone()
             }
 
-            fn remove_nonstandard(&mut self, key: NonStdKey) -> Option<String> {
-                self.0.metaroot.nonstandard_keywords.remove(&key)
-            }
-
-            fn get_nonstandard(&mut self, key: NonStdKey) -> Option<String> {
-                self.0.metaroot.nonstandard_keywords.get(&key).cloned()
+            #[setter]
+            fn set_nonstandard_keywords(&mut self, ns: HashMap<NonStdKey, String>) {
+                self.0.metaroot.nonstandard_keywords = ns
             }
 
             // TODO add way to remove nonstandard from the returned dict

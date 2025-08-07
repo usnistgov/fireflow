@@ -296,12 +296,10 @@ class _CoreCommon:
     percents_emitted: _OpticalKeyVals[int]
     detector_types: _OpticalKeyVals[str]
     detector_voltages: _OpticalKeyVals[float]
+    nonstandard_keywords: dict[str, str]
 
     @property
     def shortnames_maybe(self) -> list[Shortname | None]: ...
-    def insert_nonstandard(self, key: NonStdKey, value: str) -> str | None: ...
-    def remove_nonstandard(self, key: NonStdKey) -> str | None: ...
-    def get_nonstandard(self, key: NonStdKey) -> str | None: ...
     def raw_keywords(
         self,
         want_req: bool | None = None,

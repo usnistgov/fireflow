@@ -760,20 +760,11 @@ class TestCore:
     def test_nonstandard(self, core: AnyCore) -> None:
         k = "midnight"
         v = "rowhammer"
-        # trying to get key from empty list should return None
-        assert core.get_nonstandard(k) is None
-        # ditto if we try to remove it
-        assert core.remove_nonstandard(k) is None
-        # insert should succeed
-        core.insert_nonstandard(k, v)
-        # now the key should be present
-        assert core.get_nonstandard(k) == v
-        # if we remove it we should also get the key
-        assert core.remove_nonstandard(k) == v
-        # no the key shouldn't be present again
-        assert core.get_nonstandard(k) is None
-        # and it shouldn't return anything if we try to remove it a 2nd time
-        assert core.remove_nonstandard(k) is None
+        assert core.nonstandard_keywords == {}
+        core.nonstandard_keywords = {k: v}
+        assert core.nonstandard_keywords == {k: v}
+        core.nonstandard_keywords = {}
+        assert core.nonstandard_keywords == {}
 
     @parameterize_versions("core", ["2_0"], ["text", "dataset"])
     def test_temporal_no_timestep(
@@ -1732,7 +1723,7 @@ class TestReadWrite:
         # be written with STEXT
         k = "info_dump"
         v = "I am a puppet." * 7500000
-        core.insert_nonstandard(k, v)
+        core.nonstandard_keywords = {k: v}
         core.write_dataset(p)
         nu_core, un_core = pf.fcs_read_std_dataset(
             p,

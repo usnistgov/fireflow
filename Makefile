@@ -42,7 +42,7 @@ all-dev: rs-lint rs-test build-dev py-lint py-test
 
 .PHONY: docs
 docs: 
-	$(uv_at) run sphinx-build -M html docs/source/ docs/build/ --fresh-env
+	$(uv_at) run sphinx-build -M html docs/source/ docs/build/
 
 .PHONY: clean
 clean:  

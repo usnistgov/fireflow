@@ -7,6 +7,7 @@ use fireflow_core::validated::keys::NonStdMeasPattern;
 
 use clap::{arg, value_parser, Command};
 use serde::ser::Serialize;
+use std::convert::Infallible;
 use std::fmt::Display;
 use std::path::PathBuf;
 
@@ -68,7 +69,7 @@ where
     });
 }
 
-fn handle_failure_nowarn<E, T>(f: TerminalFailure<(), E, T>)
+fn handle_failure_nowarn<E, T>(f: TerminalFailure<Infallible, E, T>)
 where
     E: Display,
     T: Display,

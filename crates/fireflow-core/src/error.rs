@@ -253,7 +253,7 @@ impl<V, W> Terminal<V, W> {
     }
 }
 
-impl<V> Terminal<V, ()> {
+impl<V> Terminal<V, Infallible> {
     pub fn inner(self) -> V {
         self.value
     }
@@ -1128,7 +1128,7 @@ pub trait MultiResultExt: Sized {
     where
         F: Fn(Self::E) -> X;
 
-    fn mult_terminate<T>(self, reason: T) -> TerminalResult<Self::V, (), Self::E, T>;
+    fn mult_terminate<T>(self, reason: T) -> TerminalResult<Self::V, Infallible, Self::E, T>;
 }
 
 impl<V, E> MultiResultExt for MultiResult<V, E> {
@@ -1163,7 +1163,7 @@ impl<V, E> MultiResultExt for MultiResult<V, E> {
         self.map_err(|es| es.map(f))
     }
 
-    fn mult_terminate<T>(self, reason: T) -> TerminalResult<Self::V, (), Self::E, T> {
+    fn mult_terminate<T>(self, reason: T) -> TerminalResult<Self::V, Infallible, Self::E, T> {
         self.map(Terminal::new)
             .map_err(|es| DeferredFailure::new2(es).terminate(reason))
     }

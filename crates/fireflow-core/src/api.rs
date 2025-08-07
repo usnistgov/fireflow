@@ -14,6 +14,7 @@ use crate::validated::keys::*;
 use chrono::NaiveDate;
 use derive_more::{Display, From};
 use itertools::Itertools;
+use std::convert::Infallible;
 use std::fmt;
 use std::fs;
 use std::io::{BufReader, Read, Seek};
@@ -30,7 +31,7 @@ use pyo3::prelude::*;
 pub fn fcs_read_header(
     p: &path::PathBuf,
     conf: &ReadHeaderConfig,
-) -> IOTerminalResult<Header, (), HeaderError, HeaderFailure> {
+) -> IOTerminalResult<Header, Infallible, HeaderError, HeaderFailure> {
     fs::File::options()
         .read(true)
         .open(p)

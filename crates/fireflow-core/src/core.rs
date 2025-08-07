@@ -2033,7 +2033,7 @@ where
         &self,
         h: &mut BufWriter<W>,
         delim: TEXTDelim,
-    ) -> IOTerminalResult<(), (), Uint8DigitOverflow, WriteTEXTFailure>
+    ) -> IOTerminalResult<(), Infallible, Uint8DigitOverflow, WriteTEXTFailure>
     where
         Version: From<M::Ver>,
     {
@@ -2551,7 +2551,7 @@ where
     pub fn set_optical<X>(
         &mut self,
         xs: Vec<NonCenterElement<X>>,
-    ) -> TerminalResult<(), (), SetOpticalError, SetOpticalFailure>
+    ) -> TerminalResult<(), Infallible, SetOpticalError, SetOpticalFailure>
     where
         Optical<M::Optical>: AsMut<X>,
     {
@@ -2798,7 +2798,7 @@ where
     pub fn set_unstained_centers(
         &mut self,
         us: Option<UnstainedCenters>,
-    ) -> TerminalResult<(), (), MissingMeasurementNameError, SetUnstainedFailure>
+    ) -> TerminalResult<(), Infallible, MissingMeasurementNameError, SetUnstainedFailure>
     where
         M: HasUnstainedCenters,
     {
@@ -2845,7 +2845,7 @@ where
     pub fn set_scales(
         &mut self,
         scales: Vec<Option<Scale>>,
-    ) -> TerminalResult<(), (), SetScalesError, SetScalesFailure>
+    ) -> TerminalResult<(), Infallible, SetScalesError, SetScalesFailure>
     where
         M::Optical: HasScale,
     {
@@ -2882,7 +2882,7 @@ where
     pub fn set_transforms(
         &mut self,
         xforms: Vec<ScaleTransform>,
-    ) -> TerminalResult<(), (), SetTransformsError, SetTransformsFailure>
+    ) -> TerminalResult<(), Infallible, SetTransformsError, SetTransformsFailure>
     where
         M::Optical: HasScaleTransform,
     {
@@ -3120,7 +3120,7 @@ where
         &mut self,
         xs: RawInput<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         prefix: ShortnamePrefix,
-    ) -> TerminalResult<(), (), SetMeasurementsError, SetMeasurementsFailure>
+    ) -> TerminalResult<(), Infallible, SetMeasurementsError, SetMeasurementsFailure>
     where
         M::Optical: AsScaleTransform,
     {
@@ -3140,7 +3140,7 @@ where
     pub fn set_layout(
         &mut self,
         layout: <M::Ver as Versioned>::Layout,
-    ) -> TerminalResult<(), (), MeasLayoutMismatchError, SetLayoutFailure>
+    ) -> TerminalResult<(), Infallible, MeasLayoutMismatchError, SetLayoutFailure>
     where
         M::Optical: AsScaleTransform,
     {
@@ -3165,7 +3165,7 @@ where
         measurements: RawInput<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         layout: <M::Ver as Versioned>::Layout,
         prefix: ShortnamePrefix,
-    ) -> TerminalResult<(), (), SetMeasurementsError, SetMeasurementsAndLayoutFailure>
+    ) -> TerminalResult<(), Infallible, SetMeasurementsError, SetMeasurementsAndLayoutFailure>
     where
         M::Optical: AsScaleTransform,
     {
@@ -4034,7 +4034,7 @@ where
         xs: RawInput<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         cs: Vec<AnyFCSColumn>,
         prefix: ShortnamePrefix,
-    ) -> TerminalResult<(), (), SetMeasurementsAndDataError, SetMeasurementsAndDataFailure>
+    ) -> TerminalResult<(), Infallible, SetMeasurementsAndDataError, SetMeasurementsAndDataFailure>
     where
         M::Optical: AsScaleTransform,
     {
@@ -4167,7 +4167,7 @@ where
     pub fn set_measurements_noprefix(
         &mut self,
         xs: RawInput<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
-    ) -> TerminalResult<(), (), SetMeasurementsError, SetMeasurementsFailure>
+    ) -> TerminalResult<(), Infallible, SetMeasurementsError, SetMeasurementsFailure>
     where
         M::Optical: AsScaleTransform,
     {
@@ -4183,7 +4183,7 @@ where
         &mut self,
         xs: RawInput<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
         layout: <M::Ver as Versioned>::Layout,
-    ) -> TerminalResult<(), (), SetMeasurementsError, SetMeasurementsAndLayoutFailure>
+    ) -> TerminalResult<(), Infallible, SetMeasurementsError, SetMeasurementsAndLayoutFailure>
     where
         M::Optical: AsScaleTransform,
     {
@@ -4206,7 +4206,7 @@ where
         &mut self,
         xs: RawInput<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
         cs: Vec<AnyFCSColumn>,
-    ) -> TerminalResult<(), (), SetMeasurementsAndDataError, SetMeasurementsAndDataFailure>
+    ) -> TerminalResult<(), Infallible, SetMeasurementsAndDataError, SetMeasurementsAndDataFailure>
     where
         M::Optical: AsScaleTransform,
     {

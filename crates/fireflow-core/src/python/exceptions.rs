@@ -4,6 +4,7 @@ use nonempty::NonEmpty;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyWarning};
 use pyo3::prelude::*;
+use std::convert::Infallible;
 use std::ffi::CString;
 use std::fmt;
 
@@ -44,7 +45,7 @@ pub trait PyTerminalNoWarnResultExt {
 }
 
 impl<V, E: fmt::Display, T: fmt::Display> PyTerminalNoWarnResultExt
-    for TerminalResult<V, (), E, T>
+    for TerminalResult<V, Infallible, E, T>
 {
     type V = V;
 
@@ -92,7 +93,7 @@ where
     }
 }
 
-fn handle_failure_nowarn<E, T>(f: TerminalFailure<(), E, T>) -> PyErr
+fn handle_failure_nowarn<E, T>(f: TerminalFailure<Infallible, E, T>) -> PyErr
 where
     E: fmt::Display,
     T: fmt::Display,

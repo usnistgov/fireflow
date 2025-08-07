@@ -41,8 +41,8 @@ build-prod: pyreflow/.venv
 all-dev: rs-lint rs-test build-dev py-lint py-test
 
 .PHONY: docs
-docs: 
-	$(uv_at) run sphinx-build -M html docs/source/ docs/build/
+docs: build-dev
+	$(uv_at) run sphinx-build -M html docs/source/ docs/build/ --fresh-env
 
 .PHONY: clean
 clean:  

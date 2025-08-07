@@ -2072,36 +2072,26 @@ where
     /// Return all keywords as an ordered list of pairs
     ///
     /// Thiw will only include keywords that can be directly derived from
-    /// [CoreTEXT]. This means it will not include $TOT, since this depends on
+    /// [`CoreTEXT`]. This means it will not include $TOT, since this depends on
     /// the DATA segment.
-    pub fn raw_keywords(&self, want_req: Option<bool>, want_meta: Option<bool>) -> RawKeywords {
-        let req_meta: Vec<_> = self.req_root_keywords().collect();
-        let opt_meta: Vec<_> = self.opt_root_keywords().collect();
-        let req_meas: Vec<_> = self.req_meas_keywords().collect();
-        let opt_meas: Vec<_> = self.opt_meas_keywords().collect();
+    pub fn standard_keywords(
+        &self,
+        exclude_req_root: bool,
+        exclude_opt_root: bool,
+        exclude_req_meas: bool,
+        exclude_opt_meas: bool,
+    ) -> RawKeywords {
+        fn go(
+            xs: impl Iterator<Item = (String, String)>,
+            exclude: bool,
+        ) -> impl Iterator<Item = (String, String)> {
+            if exclude { None } else { Some(xs) }.into_iter().flatten()
+        }
 
-        let triop = |op| match op {
-            None => (true, true),
-            Some(true) => (true, false),
-            Some(false) => (false, true),
-        };
-
-        let keep = |xs, t1, t2| {
-            if t1 && t2 {
-                xs
-            } else {
-                vec![]
-            }
-        };
-
-        let (keep_req, keep_opt) = triop(want_req);
-        let (keep_meta, keep_meas) = triop(want_meta);
-
-        keep(req_meta, keep_req, keep_meta)
-            .into_iter()
-            .chain(keep(req_meas, keep_req, keep_meas))
-            .chain(keep(opt_meta, keep_opt, keep_meta))
-            .chain(keep(opt_meas, keep_opt, keep_meas))
+        go(self.req_root_keywords(), exclude_req_root)
+            .chain(go(self.opt_root_keywords(), exclude_opt_root))
+            .chain(go(self.req_meas_keywords(), exclude_req_meas))
+            .chain(go(self.opt_meas_keywords(), exclude_opt_meas))
             .collect()
     }
 

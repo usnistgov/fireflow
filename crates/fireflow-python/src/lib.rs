@@ -623,26 +623,75 @@ macro_rules! common_methods {
 
         #[pymethods]
         impl $pytype {
+            /// Insert a nonstandard key.
+            ///
+            /// :param key: Key to insert. Must not start with *$*.
+            /// :type key: str
+            /// :param value: Value to insert.
+            /// :type value: str
+            ///
+            /// :returns: Previous value for ``key`` if it exists.
+            /// :rtype: str | None
             fn insert_nonstandard(&mut self, key: NonStdKey, value: String) -> Option<String> {
                 self.0.metaroot.nonstandard_keywords.insert(key, value)
             }
 
+            /// Remove a nonstandard key.
+            ///
+            /// :param key: Key to remove. Must not start with *$*.
+            /// :type key: str
+            ///
+            /// :returns: Value for ``key`` if it exists.
+            /// :rtype: str | None
             fn remove_nonstandard(&mut self, key: NonStdKey) -> Option<String> {
                 self.0.metaroot.nonstandard_keywords.remove(&key)
             }
 
+            /// Look up a nonstandard key.
+            ///
+            /// :param key: Key to find. Must not start with *$*.
+            /// :type key: str
+            ///
+            /// :returns: Value for ``key`` if it exists.
+            /// :rtype: str | None
             fn get_nonstandard(&mut self, key: NonStdKey) -> Option<String> {
                 self.0.metaroot.nonstandard_keywords.get(&key).cloned()
             }
 
-            // TODO add way to remove nonstandard from the returned dict
-            #[pyo3(signature = (want_req=None, want_meta=None))]
-            fn raw_keywords(
+            /// Return standard keywords as string pairs.
+            ///
+            /// Each key will be prefixed with *$*.
+            ///
+            /// This will not include *$TOT*, *$NEXTDATA* or any of the
+            /// offset keywords since these are not encoded in this class.
+            ///
+            /// :param exclude_req_root: Do not include required non-measurement keywords
+            /// :type exclude_req_root: bool
+            /// :param exclude_opt_root: Do not include optional non-measurement keywords
+            /// :type exclude_opt_root: bool
+            /// :param exclude_req_meas: Do not include required measurement keywords
+            /// :type exclude_req_meas: bool
+            /// :param exclude_opt_meas: Do not include optional measurement keywords
+            /// :type exclude_opt_meas: bool
+            ///
+            /// :returns: A list of standard keywords.
+            /// :rtype: dict[str, str]
+            #[pyo3(signature = (
+                exclude_req_root=false, exclude_opt_root=false, exclude_req_meas=false, exclude_opt_meas=false
+            ))]
+            fn standard_keywords(
                 &self,
-                want_req: Option<bool>,
-                want_meta: Option<bool>,
+                exclude_req_root: bool,
+                exclude_opt_root: bool,
+                exclude_req_meas: bool,
+                exclude_opt_meas: bool,
             ) -> HashMap<String, String> {
-                self.0.raw_keywords(want_req, want_meta).clone()
+                self.0.standard_keywords(
+                    exclude_req_root,
+                    exclude_opt_root,
+                    exclude_req_meas,
+                    exclude_opt_meas
+                )
             }
 
             #[getter]

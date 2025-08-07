@@ -630,7 +630,7 @@ macro_rules! common_methods {
             /// :param value: Value to insert.
             /// :type value: str
             ///
-            /// :returns: Previous value for ``key`` if it exists.
+            /// :return: Previous value for ``key`` if it exists.
             /// :rtype: str | None
             fn insert_nonstandard(&mut self, key: NonStdKey, value: String) -> Option<String> {
                 self.0.metaroot.nonstandard_keywords.insert(key, value)
@@ -641,7 +641,7 @@ macro_rules! common_methods {
             /// :param key: Key to remove. Must not start with *$*.
             /// :type key: str
             ///
-            /// :returns: Value for ``key`` if it exists.
+            /// :return: Value for ``key`` if it exists.
             /// :rtype: str | None
             fn remove_nonstandard(&mut self, key: NonStdKey) -> Option<String> {
                 self.0.metaroot.nonstandard_keywords.remove(&key)
@@ -652,7 +652,7 @@ macro_rules! common_methods {
             /// :param key: Key to find. Must not start with *$*.
             /// :type key: str
             ///
-            /// :returns: Value for ``key`` if it exists.
+            /// :return: Value for ``key`` if it exists.
             /// :rtype: str | None
             fn get_nonstandard(&mut self, key: NonStdKey) -> Option<String> {
                 self.0.metaroot.nonstandard_keywords.get(&key).cloned()
@@ -674,7 +674,7 @@ macro_rules! common_methods {
             /// :param exclude_opt_meas: Do not include optional measurement keywords
             /// :type exclude_opt_meas: bool
             ///
-            /// :returns: A list of standard keywords.
+            /// :return: A list of standard keywords.
             /// :rtype: dict[str, str]
             #[pyo3(signature = (
                 exclude_req_root=false, exclude_opt_root=false, exclude_req_meas=false, exclude_opt_meas=false
@@ -694,6 +694,9 @@ macro_rules! common_methods {
                 )
             }
 
+            /// The value for *$PAR*
+            ///
+            /// :type: int
             #[getter]
             fn par(&self) -> usize {
                 self.0.par().0
@@ -722,6 +725,12 @@ macro_rules! common_methods {
             //         .map(|rs| rs.into_iter().map(|r| r.cloned()).collect())
             // }
 
+            /// Get or set the value for *$BTIM*
+            ///
+            /// If ``date``, ``btim``, and ``etim`` are all not ``None`` then
+            /// ``btim`` must be before ``etim``.
+            ///
+            /// :type: datetime.time | None
             #[getter]
             fn get_btim(&self) -> Option<NaiveTime> {
                 self.0.btim_naive()
@@ -732,6 +741,12 @@ macro_rules! common_methods {
                 Ok(self.0.set_btim_naive(x)?)
             }
 
+            /// Get or set the value for *$ETIM*
+            ///
+            /// If ``date``, ``btim``, and ``etim`` are all not ``None`` then
+            /// ``btim`` must be before ``etim``.
+            ///
+            /// :type: datetime.time | None
             #[getter]
             fn get_etim(&self) -> Option<NaiveTime> {
                 self.0.etim_naive()
@@ -742,6 +757,12 @@ macro_rules! common_methods {
                 Ok(self.0.set_etim_naive(x)?)
             }
 
+            /// Get or set the value for *$DATE*
+            ///
+            /// If ``date``, ``btim``, and ``etim`` are all not ``None`` then
+            /// ``btim`` must be before ``etim``.
+            ///
+            /// :type: datetime.date | None
             #[getter]
             fn get_date(&self) -> Option<NaiveDate> {
                 self.0.date_naive()
@@ -752,6 +773,13 @@ macro_rules! common_methods {
                 Ok(self.0.set_date_naive(x)?)
             }
 
+            /// Get or set the value for *$TR*
+            ///
+            /// This is represented as a tuple where the first member is the
+            /// threshold and the second member is a measurement name which
+            /// must exist in the set of all *$PnN*.
+            ///
+            /// :type: (int, str) | None
             #[getter]
             fn trigger(&self) -> Option<kws::Trigger> {
                 self.0.metaroot_opt().cloned()
@@ -762,10 +790,23 @@ macro_rules! common_methods {
                 Ok(self.0.set_trigger(tr)?)
             }
 
+            /// Set the threshold for *$TR*
+            ///
+            /// :param threshold: The threshold to set
+            /// :type threshold: int
+            ///
+            /// :return: ``True`` if trigger is set and was updated
+            /// :rtype: bool
             fn set_trigger_threshold(&mut self, threshold: u32) -> bool {
                 self.0.set_trigger_threshold(threshold)
             }
 
+            // TODO this is only relevant for 2.0/3.0
+            /// Get *$PnN* for all measurements
+            ///
+            /// :return: List of strings or ``None`` if *$PnN* is not set, which
+            ///     is only possible in FCS 2.0/3.0.
+            /// :rtype: list[str | None]
             #[getter]
             fn shortnames_maybe(&self) -> Vec<Option<Shortname>> {
                 self.0
@@ -775,6 +816,20 @@ macro_rules! common_methods {
                     .collect()
             }
 
+            // TODO pretty sure there is no way to change prefix once a core
+            // object is created
+            // TODO docs should be specific to version
+            /// Get or set *$PnN* for all measurements
+            ///
+            /// When writing this attribute, must be a list of unique strings.
+            ///
+            /// When reading this attribute, will return list of strings of
+            /// either *$PnN* if present or an indexed identifier like
+            /// '<prefix>n' where 'n' is the measurement index starting at 1 and
+            /// '<prefix>' is a fixed prefix (usually 'P'). The latter is only
+            /// possible in FCS 2.0/3.0.
+            ///
+            /// :type: list[str]
             #[getter]
             fn all_shortnames(&self) -> Vec<Shortname> {
                 self.0.all_shortnames()
@@ -785,6 +840,17 @@ macro_rules! common_methods {
                 Ok(self.0.set_all_shortnames(names).void()?)
             }
 
+            /// Write data to path.
+            ///
+            /// Resulting FCS file will include *HEADER* and *TEXT*.
+            ///
+            /// For FCS2.0, will raise exception if *TEXT* cannot fit within
+            /// first 99,999,999 bytes.
+            ///
+            /// :param path: path to write
+            /// :type path: pathlib.Path
+            /// :param delim: Delimiter to use when writing *TEXT*.
+            ///     Defaults to 30 (record separator).
             #[pyo3(signature = (path, delim = TEXTDelim::default()))]
             fn write_text(&self, path: PathBuf, delim: TEXTDelim) -> PyResult<()> {
                 let f = File::options().write(true).create(true).open(path)?;

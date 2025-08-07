@@ -31,6 +31,7 @@ use nalgebra::DMatrix;
 use nonempty::NonEmpty;
 use num_traits::identities::One;
 use std::collections::{HashMap, HashSet};
+use std::convert::Infallible;
 use std::fmt;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, Write};
@@ -1353,7 +1354,7 @@ pub trait VersionedMetaroot: Sized {
             (new_o, new_t)
         };
         let t_res = o.specific.can_convert_to_temporal(i).mult_errors_into();
-        let o_specific_res = t.specific.can_convert_to_optical(i).mult_errors_into();
+        let o_specific_res = t.specific.can_convert_to_optical_swap(i);
         let o_common_res = o
             .check_keys_transfer(i)
             .mult_errors_into::<OpticalToTemporalError>()
@@ -1402,12 +1403,18 @@ pub(crate) trait LookupOptical: Sized + VersionedOptical {
 
 pub trait VersionedTemporal: Sized {
     type Ver: Versioned;
+    type Err;
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)>;
 
     fn opt_meas_keywords_inner(&self, _: MeasIndex) -> impl Iterator<Item = (String, String)>;
 
-    fn can_convert_to_optical(&self, i: MeasIndex) -> MultiResult<(), TemporalToOpticalError>;
+    fn can_convert_to_optical(&self, i: MeasIndex) -> MultiResult<(), Self::Err>;
+
+    fn can_convert_to_optical_swap(
+        &self,
+        i: MeasIndex,
+    ) -> MultiResult<(), SwapOpticalTemporalError>;
 }
 
 pub(crate) trait LookupTemporal: VersionedTemporal {
@@ -1462,33 +1469,14 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
 
 pub trait OpticalFromTemporal<T: VersionedTemporal>: Sized {
     type TData;
+    type Loss;
 
     #[allow(clippy::type_complexity)]
     fn from_temporal(
         t: Temporal<T>,
         i: MeasIndex,
-        lossless: bool,
-    ) -> PassthruResult<
-        (Optical<Self>, Self::TData),
-        Box<Temporal<T>>,
-        TemporalToOpticalError,
-        TemporalToOpticalError,
-    > {
-        match t.specific.can_convert_to_optical(i) {
-            Ok(()) => Ok(Tentative::new1(Self::from_temporal_unchecked(t))),
-            Err(es) => {
-                if lossless {
-                    Err(DeferredFailure::new(vec![], es, Box::new(t)))
-                } else {
-                    Ok(Tentative::new(
-                        Self::from_temporal_unchecked(t),
-                        es.into(),
-                        vec![],
-                    ))
-                }
-            }
-        }
-    }
+        lossless: Self::Loss,
+    ) -> PassthruResult<(Optical<Self>, Self::TData), Box<Temporal<T>>, T::Err, T::Err>;
 
     fn from_temporal_unchecked(t: Temporal<T>) -> (Optical<Self>, Self::TData) {
         let (specific, td) = Self::from_temporal_inner(t.specific);
@@ -2207,8 +2195,27 @@ where
     ///
     /// Return true if a time measurement existed and was converted, false
     /// otherwise.
-    #[allow(clippy::type_complexity)]
+    // TODO why not throw error if name not found?
     pub fn unset_temporal(
+        &mut self,
+    ) -> Option<<M::Optical as OpticalFromTemporal<M::Temporal>>::TData>
+    where
+        M::Optical: OpticalFromTemporal<M::Temporal, Loss = ()>,
+        M::Temporal: VersionedTemporal<Err = Infallible>,
+    {
+        self.measurements
+            .unset_center(|i, old_t| {
+                <M::Optical as OpticalFromTemporal<M::Temporal>>::from_temporal(old_t, i, ())
+            })
+            .unwrap_infallible()
+    }
+
+    /// Convert time measurement to optical measurement.
+    ///
+    /// Return true if a time measurement existed and was converted, false
+    /// otherwise.
+    #[allow(clippy::type_complexity)]
+    pub fn unset_temporal_lossy(
         &mut self,
         force: bool,
     ) -> TerminalResult<
@@ -2218,7 +2225,8 @@ where
         UnsetTemporalFailure,
     >
     where
-        M::Optical: OpticalFromTemporal<M::Temporal>,
+        M::Optical: OpticalFromTemporal<M::Temporal, Loss = bool>,
+        M::Temporal: VersionedTemporal<Err = TemporalToOpticalError>,
     {
         self.measurements
             .unset_center(|i, old_t| {
@@ -2312,6 +2320,26 @@ where
         &mut self,
         index: MeasIndex,
         m: Temporal<M::Temporal>,
+    ) -> Result<Element<Temporal<M::Temporal>, Optical<M::Optical>>, SetCenterError>
+    where
+        M::Optical: OpticalFromTemporal<M::Temporal, Loss = ()>,
+        M::Temporal: VersionedTemporal<Err = Infallible>,
+    {
+        self.measurements
+            .replace_center_at_nofail(index, m, |i, old_t| {
+                <M::Optical as OpticalFromTemporal<M::Temporal>>::from_temporal(old_t, i, ())
+                    .def_void_passthru()
+                    .def_unwrap_infallible()
+                    .0
+            })
+    }
+
+    /// Replace temporal measurement at index.
+    #[allow(clippy::type_complexity)]
+    pub fn replace_temporal_at_lossy(
+        &mut self,
+        index: MeasIndex,
+        m: Temporal<M::Temporal>,
         force: bool,
     ) -> TerminalResult<
         Element<Temporal<M::Temporal>, Optical<M::Optical>>,
@@ -2320,7 +2348,8 @@ where
         ReplaceTemporalFailure,
     >
     where
-        M::Optical: OpticalFromTemporal<M::Temporal>,
+        M::Optical: OpticalFromTemporal<M::Temporal, Loss = bool>,
+        M::Temporal: VersionedTemporal<Err = TemporalToOpticalError>,
     {
         self.measurements
             .replace_center_at(index, m, |i, old_t| {
@@ -2337,6 +2366,26 @@ where
         &mut self,
         name: &Shortname,
         m: Temporal<M::Temporal>,
+    ) -> Option<Element<Temporal<M::Temporal>, Optical<M::Optical>>>
+    where
+        M::Optical: OpticalFromTemporal<M::Temporal, Loss = ()>,
+        M::Temporal: VersionedTemporal<Err = Infallible>,
+    {
+        self.measurements
+            .replace_center_by_name_nofail(name, m, |i, old_t| {
+                <M::Optical as OpticalFromTemporal<M::Temporal>>::from_temporal(old_t, i, ())
+                    .def_void_passthru()
+                    .def_unwrap_infallible()
+                    .0
+            })
+    }
+
+    /// Replace temporal measurement at index.
+    #[allow(clippy::type_complexity)]
+    pub fn replace_temporal_named_lossy(
+        &mut self,
+        name: &Shortname,
+        m: Temporal<M::Temporal>,
         force: bool,
     ) -> TerminalResult<
         Option<Element<Temporal<M::Temporal>, Optical<M::Optical>>>,
@@ -2345,7 +2394,8 @@ where
         ReplaceTemporalFailure,
     >
     where
-        M::Optical: OpticalFromTemporal<M::Temporal>,
+        M::Optical: OpticalFromTemporal<M::Temporal, Loss = bool>,
+        M::Temporal: VersionedTemporal<Err = TemporalToOpticalError>,
     {
         self.measurements
             .replace_center_by_name(name, m, |i, old_t| {
@@ -6878,6 +6928,7 @@ impl VersionedOptical for InnerOptical3_2 {
 
 impl VersionedTemporal for InnerTemporal2_0 {
     type Ver = Version2_0;
+    type Err = Infallible;
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
         [].into_iter()
@@ -6891,13 +6942,22 @@ impl VersionedTemporal for InnerTemporal2_0 {
             .flat_map(|(k, v)| v.map(|x| (k, x)))
     }
 
-    fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult<(), TemporalToOpticalError> {
+    fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult<(), Self::Err> {
         Ok(())
+    }
+
+    fn can_convert_to_optical_swap(
+        &self,
+        i: MeasIndex,
+    ) -> MultiResult<(), SwapOpticalTemporalError> {
+        let Ok(ret) = self.can_convert_to_optical(i);
+        Ok(ret)
     }
 }
 
 impl VersionedTemporal for InnerTemporal3_0 {
     type Ver = Version3_0;
+    type Err = Infallible;
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
         [ReqMetarootKey::pair(&self.timestep)].into_iter()
@@ -6910,13 +6970,22 @@ impl VersionedTemporal for InnerTemporal3_0 {
             .chain([TemporalScale::pair(i.into())])
     }
 
-    fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult<(), TemporalToOpticalError> {
+    fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult<(), Self::Err> {
         Ok(())
+    }
+
+    fn can_convert_to_optical_swap(
+        &self,
+        i: MeasIndex,
+    ) -> MultiResult<(), SwapOpticalTemporalError> {
+        let Ok(ret) = self.can_convert_to_optical(i);
+        Ok(ret)
     }
 }
 
 impl VersionedTemporal for InnerTemporal3_1 {
     type Ver = Version3_1;
+    type Err = Infallible;
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
         [ReqMetarootKey::pair(&self.timestep)].into_iter()
@@ -6931,13 +7000,22 @@ impl VersionedTemporal for InnerTemporal3_1 {
             .chain([TemporalScale::pair(i.into())])
     }
 
-    fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult<(), TemporalToOpticalError> {
+    fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult<(), Self::Err> {
         Ok(())
+    }
+
+    fn can_convert_to_optical_swap(
+        &self,
+        i: MeasIndex,
+    ) -> MultiResult<(), SwapOpticalTemporalError> {
+        let Ok(ret) = self.can_convert_to_optical(i);
+        Ok(ret)
     }
 }
 
 impl VersionedTemporal for InnerTemporal3_2 {
     type Ver = Version3_2;
+    type Err = TemporalToOpticalError;
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
         [self.timestep.pair()].into_iter()
@@ -6950,11 +7028,18 @@ impl VersionedTemporal for InnerTemporal3_2 {
             .chain([TemporalScale::pair(i.into())])
     }
 
-    fn can_convert_to_optical(&self, i: MeasIndex) -> MultiResult<(), TemporalToOpticalError> {
+    fn can_convert_to_optical(&self, i: MeasIndex) -> MultiResult<(), Self::Err> {
         self.measurement_type
             .check_indexed_key_transfer(i.into())
             .map_err(TemporalToOpticalError::Loss)
             .map_err(NonEmpty::new)
+    }
+
+    fn can_convert_to_optical_swap(
+        &self,
+        i: MeasIndex,
+    ) -> MultiResult<(), SwapOpticalTemporalError> {
+        self.can_convert_to_optical(i).mult_errors_into()
     }
 }
 
@@ -7263,6 +7348,24 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
 
 impl OpticalFromTemporal<InnerTemporal2_0> for InnerOptical2_0 {
     type TData = ();
+    type Loss = ();
+
+    #[allow(clippy::type_complexity)]
+    fn from_temporal(
+        t: Temporal<InnerTemporal2_0>,
+        i: MeasIndex,
+        _: Self::Loss,
+    ) -> PassthruResult<
+        (Optical<Self>, Self::TData),
+        Box<Temporal<InnerTemporal2_0>>,
+        Infallible,
+        Infallible,
+    > {
+        t.specific
+            .can_convert_to_optical(i)
+            .unwrap_or_else(|e| match e {});
+        Ok(Tentative::new1(Self::from_temporal_unchecked(t)))
+    }
 
     fn from_temporal_inner(t: InnerTemporal2_0) -> (Self, Self::TData) {
         let new = Self {
@@ -7276,6 +7379,24 @@ impl OpticalFromTemporal<InnerTemporal2_0> for InnerOptical2_0 {
 
 impl OpticalFromTemporal<InnerTemporal3_0> for InnerOptical3_0 {
     type TData = Timestep;
+    type Loss = ();
+
+    #[allow(clippy::type_complexity)]
+    fn from_temporal(
+        t: Temporal<InnerTemporal3_0>,
+        i: MeasIndex,
+        _: Self::Loss,
+    ) -> PassthruResult<
+        (Optical<Self>, Self::TData),
+        Box<Temporal<InnerTemporal3_0>>,
+        Infallible,
+        Infallible,
+    > {
+        t.specific
+            .can_convert_to_optical(i)
+            .unwrap_or_else(|e| match e {});
+        Ok(Tentative::new1(Self::from_temporal_unchecked(t)))
+    }
 
     fn from_temporal_inner(t: InnerTemporal3_0) -> (Self, Self::TData) {
         let new = Self {
@@ -7289,6 +7410,24 @@ impl OpticalFromTemporal<InnerTemporal3_0> for InnerOptical3_0 {
 
 impl OpticalFromTemporal<InnerTemporal3_1> for InnerOptical3_1 {
     type TData = Timestep;
+    type Loss = ();
+
+    #[allow(clippy::type_complexity)]
+    fn from_temporal(
+        t: Temporal<InnerTemporal3_1>,
+        i: MeasIndex,
+        _: Self::Loss,
+    ) -> PassthruResult<
+        (Optical<Self>, Self::TData),
+        Box<Temporal<InnerTemporal3_1>>,
+        Infallible,
+        Infallible,
+    > {
+        t.specific
+            .can_convert_to_optical(i)
+            .unwrap_or_else(|e| match e {});
+        Ok(Tentative::new1(Self::from_temporal_unchecked(t)))
+    }
 
     fn from_temporal_inner(t: InnerTemporal3_1) -> (Self, Self::TData) {
         let new = Self {
@@ -7304,6 +7443,34 @@ impl OpticalFromTemporal<InnerTemporal3_1> for InnerOptical3_1 {
 
 impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
     type TData = Timestep;
+    type Loss = bool;
+
+    #[allow(clippy::type_complexity)]
+    fn from_temporal(
+        t: Temporal<InnerTemporal3_2>,
+        i: MeasIndex,
+        lossless: Self::Loss,
+    ) -> PassthruResult<
+        (Optical<Self>, Self::TData),
+        Box<Temporal<InnerTemporal3_2>>,
+        TemporalToOpticalError,
+        TemporalToOpticalError,
+    > {
+        match t.specific.can_convert_to_optical(i) {
+            Ok(()) => Ok(Tentative::new1(Self::from_temporal_unchecked(t))),
+            Err(es) => {
+                if lossless {
+                    Err(DeferredFailure::new(vec![], es, Box::new(t)))
+                } else {
+                    Ok(Tentative::new(
+                        Self::from_temporal_unchecked(t),
+                        es.into(),
+                        vec![],
+                    ))
+                }
+            }
+        }
+    }
 
     fn from_temporal_inner(t: InnerTemporal3_2) -> (Self, Self::TData) {
         let new = Self {

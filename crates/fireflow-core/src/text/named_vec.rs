@@ -1002,6 +1002,20 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         })
     }
 
+    /// Replace any value with a center value with name.
+    pub fn replace_center_by_name_nofail<F>(
+        &mut self,
+        n: &Shortname,
+        value: U,
+        to_v: F,
+    ) -> Option<Element<U, V>>
+    where
+        F: FnOnce(MeasIndex, U) -> V,
+    {
+        self.find_with_name(n)
+            .map(|index| self.replace_center_at_nofail(index, value, to_v).unwrap())
+    }
+
     /// Replace any value with a center value under index.
     ///
     /// If successful, return the replaced value. If index points to a center
@@ -1034,11 +1048,61 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             .check_element_index(index, true)
             .map_err(SetCenterError::Index)
             .into_deferred()?;
-        let res = tnt.and_maybe(|i| match mem::replace(self, dummy()) {
-            NamedVec::Split(s, _) => match split_at_index::<K, U, V>(s, i) {
+
+        tnt.and_maybe(|i| self.replace_center_at_inner(i.into(), value, to_v))
+    }
+
+    /// Replace any value with a center value under index.
+    ///
+    /// If successful, return the replaced value. If index points to a center
+    /// element, return the replaced center value. If index points to non-center,
+    /// convert the current center value to non-center value and replace/return
+    /// the non-center value under index.
+    ///
+    /// Fail if name at index to be converted is blank or
+    /// if the previous center value cannot be converted back to a non-center
+    /// value.
+    pub fn replace_center_at_nofail<F>(
+        &mut self,
+        index: MeasIndex,
+        value: U,
+        to_v: F,
+    ) -> Result<Element<U, V>, SetCenterError>
+    where
+        F: FnOnce(MeasIndex, U) -> V,
+    {
+        if !self
+            .get(index)
+            .unwrap()
+            .both(|_| true, |(n, _)| K::as_opt(n).is_some())
+        {
+            return Err(SetCenterError::NoName.into());
+        }
+
+        let index = self.check_element_index(index, true)?;
+
+        let ret = self
+            .replace_center_at_inner(index.into(), value, |i, u| {
+                Ok(Tentative::new_infallible(to_v(i, u)))
+            })
+            .def_unwrap_infallible();
+        Ok(ret)
+    }
+
+    fn replace_center_at_inner<F, W, E>(
+        &mut self,
+        index: MeasIndex,
+        value: U,
+        to_v: F,
+    ) -> DeferredResult<Element<U, V>, W, E>
+    where
+        F: FnOnce(MeasIndex, U) -> PassthruResult<V, Box<U>, W, E>,
+    {
+        let res = match mem::replace(self, dummy()) {
+            NamedVec::Split(s, _) => match split_at_index::<K, U, V>(s, index.into()) {
                 PartialSplit::Left(left, center, right, prefix) => {
                     let center_key = center.key;
-                    match to_v(i.into(), center.value) {
+                    match to_v(index.into(), center.value) {
                         Ok(pass) => Ok(pass.map(|old_center_value| {
                             let sp = Self::new_split_from_left(
                                 left.left,
@@ -1081,7 +1145,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
 
                 PartialSplit::Right(left, center, right, prefix) => {
                     let center_key = center.key;
-                    match to_v(i.into(), center.value) {
+                    match to_v(index, center.value) {
                         Ok(pass) => Ok(pass.map(|old_center_value| {
                             let sp = Self::new_split_from_right(
                                 left,
@@ -1113,7 +1177,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             },
 
             NamedVec::Unsplit(u) => {
-                let x = split_paired_vec::<K, V>(u.members, i);
+                let x = split_paired_vec::<K, V>(u.members, index.into());
                 let ret = x.selected.value;
                 let center = Pair {
                     key: K::to_opt(x.selected.key).unwrap(),
@@ -1124,7 +1188,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                     Element::NonCenter(ret),
                 )))
             }
-        });
+        };
 
         match res {
             Ok(pass) => Ok(pass.map(|(newself, ret)| {
@@ -1879,9 +1943,10 @@ pub enum SetKeysError {
     NonUnique,
 }
 
-#[derive(Debug)]
+#[derive(Debug, From)]
 pub enum SetCenterError {
     NoName,
+    #[from]
     Index(ElementIndexError),
 }
 
@@ -2031,7 +2096,7 @@ impl fmt::Display for SetKeysError {
 mod python {
     use super::{
         Element, ElementIndexError, KeyLengthError, KeyNotFoundError, NonCenterElement, RawInput,
-        SetKeysError,
+        SetCenterError, SetKeysError,
     };
     use crate::python::macros::{impl_index_err, impl_pyreflow_err};
     use crate::text::optional::MightHave;
@@ -2072,4 +2137,5 @@ mod python {
 
     impl_pyreflow_err!(KeyLengthError);
     impl_pyreflow_err!(SetKeysError);
+    impl_pyreflow_err!(SetCenterError);
 }

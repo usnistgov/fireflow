@@ -808,19 +808,47 @@ macro_rules! temporal_get_set_2_0 {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
+            /// Set the temporal measurement to a given name.
+            ///
+            /// :param name: Name to set. Must be a *$PnN* which is present.
+            /// :param type: str
+            /// :param force: If ``True`` remove any optical-specific metadata
+            ///     (detectors, lasers, etc) without raising an exception.
+            ///     Defauls to ``False``.
+            ///
+            /// :return: ``True`` if temporal measurement was set, which will
+            ///     happen for all cases except when the time measurement is
+            ///     already set to ``name``.
+            /// :rtype: bool
+            #[pyo3(signature = (name, force = false))]
             fn set_temporal(&mut self, name: Shortname, force: bool) -> PyResult<bool> {
                 self.0.set_temporal(&name, (), force).py_term_resolve()
             }
 
+            /// Set the temporal measurement to a given index.
+            ///
+            /// :param index: Index to set. Must be between 0 and ``par``.
+            /// :param type: int
+            /// :param force: If ``True`` remove any optical-specific metadata
+            ///     (detectors, lasers, etc) without raising an exception.
+            ///     Defauls to ``False``.
+            ///
+            /// :return: ``True`` if temporal measurement was set, which will
+            ///     happen for all cases except when the time measurement is
+            ///     already set to ``index``.
+            /// :rtype: bool
+            #[pyo3(signature = (index, force = false))]
             fn set_temporal_at(&mut self, index: MeasIndex, force: bool) -> PyResult<bool> {
                 self.0.set_temporal_at(index, (), force).py_term_resolve()
             }
 
-            fn unset_temporal(&mut self, force: bool) -> PyResult<bool> {
-                self.0
-                    .unset_temporal(force)
-                    .py_term_resolve()
-                    .map(|x| x.is_some())
+            /// Convert the temporal measurement to an optical measurement.
+            ///
+            /// :return: ``True`` if temporal measurement was present and
+            ///     converted, ``False`` if there was not a temporal measurement.
+            /// :rtype: bool
+            fn unset_temporal(&mut self) -> bool {
+                self.0.unset_temporal().is_some()
             }
         }
     };
@@ -855,8 +883,8 @@ macro_rules! temporal_get_set_3_0 {
                     .py_term_resolve()
             }
 
-            fn unset_temporal(&mut self, force: bool) -> PyResult<Option<kws::Timestep>> {
-                self.0.unset_temporal(force).py_term_resolve()
+            fn unset_temporal(&mut self) -> Option<kws::Timestep> {
+                self.0.unset_temporal()
             }
         }
     };
@@ -864,10 +892,44 @@ macro_rules! temporal_get_set_3_0 {
 
 temporal_get_set_3_0!(PyCoreTEXT3_0);
 temporal_get_set_3_0!(PyCoreTEXT3_1);
-temporal_get_set_3_0!(PyCoreTEXT3_2);
 temporal_get_set_3_0!(PyCoreDataset3_0);
 temporal_get_set_3_0!(PyCoreDataset3_1);
-temporal_get_set_3_0!(PyCoreDataset3_2);
+
+macro_rules! temporal_get_set_3_2 {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            fn set_temporal(
+                &mut self,
+                name: Shortname,
+                timestep: kws::Timestep,
+                force: bool,
+            ) -> PyResult<bool> {
+                self.0
+                    .set_temporal(&name, timestep, force)
+                    .py_term_resolve()
+            }
+
+            fn set_temporal_at(
+                &mut self,
+                index: MeasIndex,
+                timestep: kws::Timestep,
+                force: bool,
+            ) -> PyResult<bool> {
+                self.0
+                    .set_temporal_at(index, timestep, force)
+                    .py_term_resolve()
+            }
+
+            fn unset_temporal(&mut self, force: bool) -> PyResult<Option<kws::Timestep>> {
+                self.0.unset_temporal_lossy(force).py_term_resolve()
+            }
+        }
+    };
+}
+
+temporal_get_set_3_2!(PyCoreTEXT3_2);
+temporal_get_set_3_2!(PyCoreDataset3_2);
 
 macro_rules! common_meas_get_set {
     ($pytype:ident, $o:ident, $t:ident, $n:path, $fam:ident) => {
@@ -941,32 +1003,6 @@ macro_rules! common_meas_get_set {
 
             fn rename_temporal(&mut self, name: Shortname) -> Option<Shortname> {
                 self.0.rename_temporal(name)
-            }
-
-            fn replace_temporal_at(
-                &mut self,
-                index: MeasIndex,
-                meas: $t,
-                force: bool,
-            ) -> PyResult<Element<$t, $o>> {
-                let ret = self
-                    .0
-                    .replace_temporal_at(index, meas.into(), force)
-                    .py_term_resolve()?;
-                Ok(ret.inner_into())
-            }
-
-            fn replace_temporal_named(
-                &mut self,
-                name: Shortname,
-                meas: $t,
-                force: bool,
-            ) -> PyResult<Option<Element<$t, $o>>> {
-                let ret = self
-                    .0
-                    .replace_temporal_named(&name, meas.into(), force)
-                    .py_term_resolve()?;
-                Ok(ret.map(|r| r.inner_into()))
             }
         }
     };
@@ -1111,6 +1147,74 @@ common_coretext_meas_get_set!(
 );
 common_coretext_meas_get_set!(PyCoreTEXT3_1, PyOptical3_1, PyTemporal3_1, Shortname);
 common_coretext_meas_get_set!(PyCoreTEXT3_2, PyOptical3_2, PyTemporal3_2, Shortname);
+
+macro_rules! set_temporal_2_0 {
+    ($pytype:ident, $o:ident, $t:ident) => {
+        #[pymethods]
+        impl $pytype {
+            fn replace_temporal_at(
+                &mut self,
+                index: MeasIndex,
+                meas: $t,
+            ) -> PyResult<Element<$t, $o>> {
+                Ok(self.0.replace_temporal_at(index, meas.into())?.inner_into())
+            }
+
+            fn replace_temporal_named(
+                &mut self,
+                name: Shortname,
+                meas: $t,
+            ) -> Option<Element<$t, $o>> {
+                self.0
+                    .replace_temporal_named(&name, meas.into())
+                    .map(|r| r.inner_into())
+            }
+        }
+    };
+}
+
+set_temporal_2_0!(PyCoreTEXT2_0, PyOptical2_0, PyTemporal2_0);
+set_temporal_2_0!(PyCoreTEXT3_0, PyOptical3_0, PyTemporal3_0);
+set_temporal_2_0!(PyCoreTEXT3_1, PyOptical3_1, PyTemporal3_1);
+set_temporal_2_0!(PyCoreDataset2_0, PyOptical2_0, PyTemporal2_0);
+set_temporal_2_0!(PyCoreDataset3_0, PyOptical3_0, PyTemporal3_0);
+set_temporal_2_0!(PyCoreDataset3_1, PyOptical3_1, PyTemporal3_1);
+
+macro_rules! set_temporal_3_2 {
+    ($pytype:ident, $o:ident, $t:ident) => {
+        #[pymethods]
+        impl $pytype {
+            fn replace_temporal_at(
+                &mut self,
+                index: MeasIndex,
+                meas: $t,
+                force: bool,
+            ) -> PyResult<Element<$t, $o>> {
+                let ret = self
+                    .0
+                    .replace_temporal_at_lossy(index, meas.into(), force)
+                    .py_term_resolve()?;
+                Ok(ret.inner_into())
+            }
+
+            fn replace_temporal_named(
+                &mut self,
+                name: Shortname,
+                meas: $t,
+                force: bool,
+            ) -> PyResult<Option<Element<$t, $o>>> {
+                let ret = self
+                    .0
+                    .replace_temporal_named_lossy(&name, meas.into(), force)
+                    .py_term_resolve()?;
+                Ok(ret.map(|r| r.inner_into()))
+            }
+        }
+    };
+}
+
+set_temporal_3_2!(PyCoreTEXT3_2, PyOptical3_2, PyTemporal3_2);
+set_temporal_3_2!(PyCoreDataset3_2, PyOptical3_2, PyTemporal3_2);
 
 macro_rules! coredata_meas_get_set {
     ($pytype:ident, $o:ident, $t:ident, $n:path) => {

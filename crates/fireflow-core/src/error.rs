@@ -697,6 +697,16 @@ impl<V, E> BiTentative<V, E> {
     }
 }
 
+impl<V> BiTentative<V, Infallible> {
+    pub fn unwrap_infallible(self) -> V {
+        self.value
+    }
+
+    pub fn new_infallible(value: V) -> Self {
+        Tentative::new1(value)
+    }
+}
+
 impl<V, W, E> Tentative<Option<V>, W, E> {
     pub fn transpose(self) -> Option<Tentative<V, W, E>> {
         if let Some(value) = self.value {
@@ -874,6 +884,20 @@ impl<P, W, E> DeferredFailure<P, W, E> {
             warnings: self.warnings,
             errors: self.errors,
         }
+    }
+
+    pub fn void(self) -> DeferredFailure<(), W, E> {
+        DeferredFailure {
+            passthru: (),
+            warnings: self.warnings,
+            errors: self.errors,
+        }
+    }
+}
+
+impl<P> DeferredFailure<P, Infallible, Infallible> {
+    pub fn unwrap_infallible(self) -> P {
+        self.passthru
     }
 }
 
@@ -1216,6 +1240,8 @@ pub trait PassthruExt: Sized {
             self.def_push_warning(x.into())
         }
     }
+
+    fn def_void_passthru(self) -> DeferredResult<Self::V, Self::W, Self::E>;
 }
 
 impl<V, P, W, E> PassthruExt for PassthruResult<V, P, W, E> {
@@ -1288,6 +1314,26 @@ impl<V, P, W, E> PassthruExt for PassthruResult<V, P, W, E> {
             Ok(tnt) => tnt.push_warning(w),
             Err(f) => f.push_warning(w),
         }
+    }
+
+    fn def_void_passthru(self) -> DeferredResult<Self::V, Self::W, Self::E> {
+        self.map_err(|e| e.void())
+    }
+}
+
+pub trait InfalliblePassthruExt: Sized {
+    type V;
+
+    fn def_unwrap_infallible(self) -> Self::V;
+}
+
+impl<V> InfalliblePassthruExt for PassthruResult<V, (), Infallible, Infallible> {
+    type V = V;
+
+    fn def_unwrap_infallible(self) -> V {
+        self.map_err(|e| e.unwrap_infallible())
+            .unwrap()
+            .unwrap_infallible()
     }
 }
 

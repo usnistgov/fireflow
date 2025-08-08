@@ -66,11 +66,11 @@ pub fn get_set_all_meas_proc(input: TokenStream) -> TokenStream {
     let (kw_inner, optical_only) = unwrap_generic("NonCenterElement", kw);
     let s = info.suffix.value();
 
-    let doc_summary = format!("Values of *$Pn{}* for all measurements", s.to_uppercase());
+    let doc_summary = format!("Value of *$Pn{}* for all measurements", s.to_uppercase());
     let doc_middle = if optical_only {
-        "\n"
-    } else {
         "\n``()`` will be returned for the time measurement since it is not defined there.\n"
+    } else {
+        "\n"
     };
     let doc_type = format!(
         ":type: list[{}{}]",

@@ -24,7 +24,7 @@ use fireflow_core::validated::dataframe::AnyFCSColumn;
 use fireflow_core::validated::keys::{NonStdKey, StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::{Shortname, ShortnamePrefix};
 use fireflow_core::validated::textdelim::TEXTDelim;
-use fireflow_python_proc::get_set_metaroot;
+use fireflow_python_proc::{get_set_all_meas_proc, get_set_metaroot};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
 use derive_more::{From, Into};
@@ -399,24 +399,24 @@ impl From<PyNonMixedLayout> for NonMixedEndianLayout<NoMeasDatatype> {
     }
 }
 
-macro_rules! get_set_all_meas {
-    ($get:ident, $set:ident, $t:path, $($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn $get(&self) -> Vec<Option<$t>> {
-                    self.0.meas_opt().map(|x| x.cloned()).collect()
-                }
+// macro_rules! get_set_all_meas {
+//     ($get:ident, $set:ident, $t:path, $($pytype:ident),*) => {
+//         $(
+//             #[pymethods]
+//             impl $pytype {
+//                 #[getter]
+//                 fn $get(&self) -> Vec<Option<$t>> {
+//                     self.0.meas_opt().map(|x| x.cloned()).collect()
+//                 }
 
-                #[setter]
-                fn $set(&mut self, xs: Vec<Option<$t>>) -> PyResult<()> {
-                    Ok(self.0.set_meas(xs)?)
-                }
-            }
-        )*
-    };
-}
+//                 #[setter]
+//                 fn $set(&mut self, xs: Vec<Option<$t>>) -> PyResult<()> {
+//                     Ok(self.0.set_meas(xs)?)
+//                 }
+//             }
+//         )*
+//     };
+// }
 
 macro_rules! get_set_all_optical {
     ($get:ident, $set:ident, $t:path, $($pytype:ident),*) => {
@@ -558,7 +558,7 @@ macro_rules! common_methods {
         get_set_metaroot! {Option<kws::Sys>, "str", $pytype}
 
         // common measurement keywords
-        get_set_all_meas!(get_longnames, set_longnames, kws::Longname, $pytype);
+        get_set_all_meas_proc!(Option<kws::Longname>, "S", "str | None", $pytype);
 
         get_set_all_optical!(get_filters, set_filters, kws::Filter, $pytype);
         get_set_all_optical!(get_powers, set_powers, kws::Power, $pytype);
@@ -1853,10 +1853,10 @@ get_set_metaroot! {
 // Get/set methods for $PnD (3.1+)
 //
 // This is valid for the time channel so don't set on just optical
-get_set_all_meas!(
-    get_displays,
-    set_displays,
-    kws::Display,
+get_set_all_meas_proc!(
+    Option<kws::Display>,
+    "D",
+    "(bool, float, float) | None",
     PyCoreTEXT3_1,
     PyCoreDataset3_1,
     PyCoreTEXT3_2,

@@ -14,8 +14,8 @@ use syn::{
 #[proc_macro]
 pub fn get_set_metaroot(input: TokenStream) -> TokenStream {
     let info = parse_macro_input!(input as GetSetMetarootInfo);
-    let kw = &info.keyword;
-    let (kw_inner, optional) = unwrap_option(kw);
+    let kw = &info.kwtype;
+    let (kw_inner, optional) = unwrap_generic("Option", kw);
     let kts = info
         .name_override
         .map(|x| x.value())
@@ -33,7 +33,7 @@ pub fn get_set_metaroot(input: TokenStream) -> TokenStream {
     let clone_inner = format_ident!("{}", if optional { "cloned" } else { "clone" });
 
     let outputs: Vec<_> = info
-        .rstypes
+        .parent_types
         .iter()
         .map(|t| {
             quote! {
@@ -59,12 +59,85 @@ pub fn get_set_metaroot(input: TokenStream) -> TokenStream {
     quote! {#(#outputs)*}.into()
 }
 
+#[proc_macro]
+pub fn get_set_all_meas_proc(input: TokenStream) -> TokenStream {
+    let info = parse_macro_input!(input as GetSetAllMeas);
+    let kw = &info.rstype;
+    let (kw_inner, optical_only) = unwrap_generic("NonCenterElement", kw);
+    let s = info.suffix.value();
+
+    let doc_summary = format!("Values of *$Pn{}* for all measurements", s.to_uppercase());
+    let doc_middle = if optical_only {
+        "\n"
+    } else {
+        "\n``()`` will be returned for the time measurement since it is not defined there.\n"
+    };
+    let doc_type = format!(
+        ":type: list[{}{}]",
+        info.pytype.value(),
+        if optical_only { " | ()" } else { "" }
+    );
+    let get = format_ident!("get_all_pn{}", s.to_lowercase());
+    let set = format_ident!("set_all_pn{}", s.to_lowercase());
+
+    let outputs: Vec<_> = info
+        .parent_types
+        .iter()
+        .map(|t| {
+            let fn_get = if optical_only {
+                quote! {
+                    fn #get(&self) -> Vec<NonCenterElement<#kw_inner>> {
+                        self.0
+                            .optical_opt()
+                            .map(|e| e.0.map_non_center(|x| x.cloned()).into())
+                            .collect()
+                    }
+                }
+            } else {
+                quote! {
+                    fn #get(&self) -> Vec<#kw_inner> {
+                        self.0.meas_opt().map(|x| x.cloned()).collect()
+                    }
+                }
+            };
+            let fn_set = if optical_only {
+                quote! {
+                    fn #set(&mut self, xs: Vec<NonCenterElement<#kw_inner>>) -> PyResult<()> {
+                        self.0.set_optical(xs).py_term_resolve_nowarn()
+                    }
+                }
+            } else {
+                quote! {
+                    fn #set(&mut self, xs: Vec<#kw_inner>) -> PyResult<()> {
+                        Ok(self.0.set_meas(xs)?)
+                    }
+                }
+            };
+            quote! {
+                #[pymethods]
+                impl #t {
+                    #[doc = #doc_summary]
+                    #[doc = #doc_middle]
+                    #[doc = #doc_type]
+                    #[getter]
+                    #fn_get
+
+                    #[setter]
+                    #fn_set
+                }
+            }
+        })
+        .collect();
+
+    quote! {#(#outputs)*}.into()
+}
+
 #[derive(Debug)]
 struct GetSetMetarootInfo {
-    keyword: Path,
+    kwtype: Path,
     pytype: LitStr,
     name_override: Option<LitStr>,
-    rstypes: Punctuated<Type, Token![,]>,
+    parent_types: Punctuated<Type, Token![,]>,
 }
 
 impl Parse for GetSetMetarootInfo {
@@ -82,17 +155,42 @@ impl Parse for GetSetMetarootInfo {
         };
         let pytypes = Punctuated::parse_terminated(input)?;
         Ok(Self {
-            keyword,
+            kwtype: keyword,
             pytype,
             name_override,
-            rstypes: pytypes,
+            parent_types: pytypes,
         })
     }
 }
 
-fn unwrap_option(ty: &Path) -> (&Path, bool) {
+struct GetSetAllMeas {
+    rstype: Path,
+    suffix: LitStr,
+    pytype: LitStr,
+    parent_types: Punctuated<Type, Token![,]>,
+}
+
+impl Parse for GetSetAllMeas {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let rstype: Path = input.parse()?;
+        let _: Comma = input.parse()?;
+        let suffix: LitStr = input.parse()?;
+        let _: Comma = input.parse()?;
+        let pytype: LitStr = input.parse()?;
+        let _: Comma = input.parse()?;
+        let parent_types = Punctuated::parse_terminated(input)?;
+        Ok(Self {
+            rstype,
+            suffix,
+            pytype,
+            parent_types,
+        })
+    }
+}
+
+fn unwrap_generic<'a>(name: &str, ty: &'a Path) -> (&'a Path, bool) {
     if let Some(segment) = ty.segments.last() {
-        if segment.ident == "Option" {
+        if segment.ident == name {
             if let PathArguments::AngleBracketed(args) = &segment.arguments {
                 if let Some(GenericArgument::Type(Type::Path(inner_type))) = args.args.first() {
                     return (&inner_type.path, true);

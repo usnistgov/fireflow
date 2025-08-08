@@ -289,7 +289,7 @@ class _CoreCommon:
     trigger: Trigger | None
 
     all_shortnames: list[Shortname]
-    longnames: list[str | None]
+    all_pns: list[str | None]
 
     filters: _OpticalKeyVals[str]
     powers: _OpticalKeyVals[float]
@@ -534,7 +534,7 @@ class _CoreMeasWavelengths:
     wavelengths: _OpticalKeyVals[list[float]]
 
 class _CoreMeasDisplay:
-    displays: list[Display | None]
+    all_pnd: list[Display | None]
 
 class _CorePre3_2:
     mode: Mode

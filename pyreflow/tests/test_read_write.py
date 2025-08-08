@@ -398,12 +398,12 @@ class TestCore:
 
     @all_core
     def test_longnames(self, core: AnyCore) -> None:
-        assert core.longnames == [None]
+        assert core.all_pns == [None]
         new_name = "I can haz IP"
-        core.longnames = [new_name]
-        assert core.longnames == [new_name]
+        core.all_pns = [new_name]
+        assert core.all_pns == [new_name]
         with pytest.raises(TypeError):
-            core.longnames = [cast(str, 42)]
+            core.all_pns = [cast(str, 42)]
 
     # TODO add raw_keywords test
 
@@ -750,13 +750,13 @@ class TestCore:
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
     ) -> None:
-        assert core.displays == [None, None]
+        assert core.all_pnd == [None, None]
         new: list[tuple[bool, float, float] | None] = [
             (False, -1.0, 2.0),
             (True, 4.0, 0.5),
         ]
-        core.displays = new
-        assert core.displays == new
+        core.all_pnd = new
+        assert core.all_pnd == new
 
     @all_core
     def test_nonstandard(self, core: AnyCore) -> None:

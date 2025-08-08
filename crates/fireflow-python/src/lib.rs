@@ -399,47 +399,6 @@ impl From<PyNonMixedLayout> for NonMixedEndianLayout<NoMeasDatatype> {
     }
 }
 
-// macro_rules! get_set_all_meas {
-//     ($get:ident, $set:ident, $t:path, $($pytype:ident),*) => {
-//         $(
-//             #[pymethods]
-//             impl $pytype {
-//                 #[getter]
-//                 fn $get(&self) -> Vec<Option<$t>> {
-//                     self.0.meas_opt().map(|x| x.cloned()).collect()
-//                 }
-
-//                 #[setter]
-//                 fn $set(&mut self, xs: Vec<Option<$t>>) -> PyResult<()> {
-//                     Ok(self.0.set_meas(xs)?)
-//                 }
-//             }
-//         )*
-//     };
-// }
-
-macro_rules! get_set_all_optical {
-    ($get:ident, $set:ident, $t:path, $($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn $get(&self) -> Vec<NonCenterElement<Option<$t>>> {
-                    self.0
-                        .optical_opt()
-                        .map(|e| e.0.map_non_center(|x| x.cloned()).into())
-                        .collect()
-                }
-
-                #[setter]
-                fn $set(&mut self, xs: Vec<NonCenterElement<Option<$t>>>) -> PyResult<()> {
-                    self.0.set_optical(xs).py_term_resolve_nowarn()
-                }
-            }
-        )*
-    };
-}
-
 macro_rules! convert_methods {
     ($pytype:ident, $([$fn:ident, $to:ident]),+) => {
         #[pymethods]
@@ -560,27 +519,27 @@ macro_rules! common_methods {
         // common measurement keywords
         get_set_all_meas_proc!(Option<kws::Longname>, "S", "str", $pytype);
 
-        get_set_all_optical!(get_filters, set_filters, kws::Filter, $pytype);
-        get_set_all_optical!(get_powers, set_powers, kws::Power, $pytype);
+        get_set_all_meas_proc!(NonCenterElement<Option<kws::Filter>>, "F", "str", $pytype);
+        get_set_all_meas_proc!(NonCenterElement<Option<kws::Power>>, "O", "float", $pytype);
 
-        get_set_all_optical!(
-            get_percents_emitted,
-            set_percents_emitted,
-            kws::PercentEmitted,
+        get_set_all_meas_proc!(
+            NonCenterElement<Option<kws::PercentEmitted>>,
+            "P",
+            "str",
             $pytype
         );
 
-        get_set_all_optical!(
-            get_detector_types,
-            set_detector_types,
-            kws::DetectorType,
+        get_set_all_meas_proc!(
+            NonCenterElement<Option<kws::DetectorType>>,
+            "T",
+            "str",
             $pytype
         );
 
-        get_set_all_optical!(
-            get_detector_voltages,
-            set_detector_voltages,
-            kws::DetectorVoltage,
+        get_set_all_meas_proc!(
+            NonCenterElement<Option<kws::DetectorVoltage>>,
+            "V",
+            "float",
             $pytype
         );
 
@@ -1633,28 +1592,6 @@ timestep_methods!(
     PyCoreDataset3_2
 );
 
-// Get/set methods for scaler $PnL (2.0-3.0)
-get_set_all_optical!(
-    get_wavelengths,
-    set_wavelengths,
-    kws::Wavelength,
-    PyCoreTEXT2_0,
-    PyCoreTEXT3_0,
-    PyCoreDataset2_0,
-    PyCoreDataset3_0
-);
-
-// Get/set methods for vector $PnL (3.1-3.2)
-get_set_all_optical!(
-    get_wavelengths,
-    set_wavelengths,
-    kws::Wavelengths,
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2
-);
-
 // Get/set methods for $LAST_MODIFIER/$LAST_MODIFIED/$ORIGINALITY (3.1-3.2)
 macro_rules! modification_methods {
     ($pytype:ident) => {
@@ -1850,10 +1787,32 @@ get_set_metaroot! {
     PyCoreDataset3_2
 }
 
+// Get/set methods for scaler $PnL (2.0-3.0)
+get_set_all_meas_proc! {
+    NonCenterElement<Option<kws::Wavelength>>,
+    "L",
+    "float",
+    PyCoreTEXT2_0,
+    PyCoreTEXT3_0,
+    PyCoreDataset2_0,
+    PyCoreDataset3_0
+}
+
+// Get/set methods for vector $PnL (3.1-3.2)
+get_set_all_meas_proc! {
+    NonCenterElement<Option<kws::Wavelengths>>,
+    "L",
+    "list[float]",
+    PyCoreTEXT3_1,
+    PyCoreTEXT3_2,
+    PyCoreDataset3_1,
+    PyCoreDataset3_2
+}
+
 // Get/set methods for $PnD (3.1+)
 //
 // This is valid for the time channel so don't set on just optical
-get_set_all_meas_proc!(
+get_set_all_meas_proc! {
     Option<kws::Display>,
     "D",
     "(bool, float, float)",
@@ -1861,70 +1820,70 @@ get_set_all_meas_proc!(
     PyCoreDataset3_1,
     PyCoreTEXT3_2,
     PyCoreDataset3_2
-);
+}
 
 // Get/set methods for $PnDET (3.2)
-get_set_all_optical!(
-    get_detector_names,
-    set_detector_names,
-    kws::DetectorName,
+get_set_all_meas_proc! {
+    NonCenterElement<Option<kws::DetectorName>>,
+    "DET",
+    "str",
     PyCoreTEXT3_2,
     PyCoreDataset3_2
-);
+}
 
 // Get/set methods for $PnCALIBRATION (3.1)
-get_set_all_optical!(
-    get_calibrations,
-    set_calibrations,
-    kws::Calibration3_1,
+get_set_all_meas_proc! {
+    NonCenterElement<Option<kws::Calibration3_1>>,
+    "CALIBRATION",
+    "(float, str)",
     PyCoreTEXT3_1,
     PyCoreDataset3_1
-);
+}
 
 // Get/set methods for $PnCALIBRATION (3.2)
-get_set_all_optical!(
-    get_calibrations,
-    set_calibrations,
-    kws::Calibration3_2,
+get_set_all_meas_proc! {
+    NonCenterElement<Option<kws::Calibration3_2>>,
+    "CALIBRATION",
+    "(float, float, str)",
     PyCoreTEXT3_2,
     PyCoreDataset3_2
-);
+}
 
 // Get/set methods for $PnTAG (3.2)
-get_set_all_optical!(
-    get_tags,
-    set_tags,
-    kws::Tag,
+get_set_all_meas_proc! {
+    NonCenterElement<Option<kws::Tag>>,
+    "TAG",
+    "str",
     PyCoreTEXT3_2,
     PyCoreDataset3_2
-);
+}
 
 // Get/set methods for $PnTYPE (3.2)
-get_set_all_optical!(
-    get_measurement_types,
-    set_measurement_types,
-    kws::OpticalType,
+get_set_all_meas_proc! {
+    NonCenterElement<Option<kws::OpticalType>>,
+    "TYPE",
+    "str",
     PyCoreTEXT3_2,
     PyCoreDataset3_2
-);
+}
 
 // Get/set methods for $PnFEATURE (3.2)
-get_set_all_optical!(
-    get_features,
-    set_features,
-    kws::Feature,
+get_set_all_meas_proc! {
+    NonCenterElement<Option<kws::Feature>>,
+    "FEATURE",
+    "Literal[\"Area\", \"Width\", \"Height\"]",
     PyCoreTEXT3_2,
     PyCoreDataset3_2
-);
+}
 
 // Get/set methods for $PnANALYTE (3.2)
-get_set_all_optical!(
-    get_analytes,
-    set_analytes,
-    kws::Analyte,
+get_set_all_meas_proc! {
+    NonCenterElement<Option<kws::Analyte>>,
+    "ANALYTE",
+    "str",
     PyCoreTEXT3_2,
     PyCoreDataset3_2
-);
+}
 
 // Add method to convert CoreTEXT* to CoreDataset* by adding DATA, ANALYSIS, and
 // OTHER(s) (all versions)

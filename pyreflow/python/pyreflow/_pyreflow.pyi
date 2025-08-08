@@ -291,11 +291,11 @@ class _CoreCommon:
     all_shortnames: list[Shortname]
     all_pns: list[str | None]
 
-    filters: _OpticalKeyVals[str]
-    powers: _OpticalKeyVals[float]
-    percents_emitted: _OpticalKeyVals[int]
-    detector_types: _OpticalKeyVals[str]
-    detector_voltages: _OpticalKeyVals[float]
+    all_pnf: _OpticalKeyVals[str]
+    all_pno: _OpticalKeyVals[float]
+    all_pnp: _OpticalKeyVals[int]
+    all_pnt: _OpticalKeyVals[str]
+    all_pnv: _OpticalKeyVals[float]
 
     @property
     def shortnames_maybe(self) -> list[Shortname | None]: ...
@@ -528,10 +528,10 @@ class _CoreCytsn:
     cytsn: str | None
 
 class _CoreMeasWavelength:
-    wavelengths: _OpticalKeyVals[float]
+    all_pnl: _OpticalKeyVals[float]
 
 class _CoreMeasWavelengths:
-    wavelengths: _OpticalKeyVals[list[float]]
+    all_pnl: _OpticalKeyVals[list[float]]
 
 class _CoreMeasDisplay:
     all_pnd: list[Display | None]
@@ -556,14 +556,14 @@ class _Core3_2:
     begindatetime: datetime | None
     enddatetime: datetime | None
 
-    detector_names: _OpticalKeyVals[str]
-    tags: _OpticalKeyVals[str]
-    features: _OpticalKeyVals[Feature]
-    analytes: _OpticalKeyVals[str]
-    measurement_types: _OpticalKeyVals[str]
+    all_pndet: _OpticalKeyVals[str]
+    all_pntag: _OpticalKeyVals[str]
+    all_pnfeature: _OpticalKeyVals[Feature]
+    all_pnanalyte: _OpticalKeyVals[str]
+    all_pntype: _OpticalKeyVals[str]
 
 class _CoreMeasCalibration(Generic[_C]):
-    calibrations: _OpticalKeyVals[_C]
+    all_pncalibration: _OpticalKeyVals[_C]
 
 class _CoreToDataset(Generic[_X]):
     def to_dataset(

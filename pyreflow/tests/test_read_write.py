@@ -626,10 +626,7 @@ class TestCore:
 
     # each of these should be strings or None
     @all_core2
-    @pytest.mark.parametrize(
-        "attr",
-        ["filters", "percents_emitted", "detector_types"],
-    )
+    @pytest.mark.parametrize("attr", [f"all_pn{x}" for x in ["f", "p", "t"]])
     def test_meas_opt_strs(self, attr: str, core: AnyCore) -> None:
         assert getattr(core, attr) == [None, ()]
         new = ["bla", ()]
@@ -640,7 +637,7 @@ class TestCore:
 
     # each of these should be a non-negative float
     @all_core2
-    @pytest.mark.parametrize("attr", ["powers", "detector_voltages"])
+    @pytest.mark.parametrize("attr", [f"all_pn{x}" for x in ["o", "v"]])
     def test_meas_opt_floats(self, attr: str, core: AnyCore) -> None:
         assert getattr(core, attr) == [None, ()]
         new = 0.5
@@ -673,8 +670,7 @@ class TestCore:
 
     @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
     @pytest.mark.parametrize(
-        "attr",
-        ["detector_names", "tags", "analytes", "measurement_types"],
+        "attr", [f"all_pn{x}" for x in ["det", "tag", "analyte", "type"]]
     )
     def test_meas_3_2_str(
         self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2, attr: str
@@ -688,62 +684,62 @@ class TestCore:
 
     @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
     def test_meas_3_2_feature(self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2) -> None:
-        core.features == [None, ()]
-        core.features = ["Area", ()]
-        assert core.features == ["Area", ()]
+        core.all_pnfeature == [None, ()]
+        core.all_pnfeature = ["Area", ()]
+        assert core.all_pnfeature == ["Area", ()]
         with pytest.raises(ValueError):
-            core.features = ["Earth Minutes", ()]  # type: ignore
+            core.all_pnfeature = ["Earth Minutes", ()]  # type: ignore
 
     @parameterize_versions("core", ["3_1"], ["text2", "dataset2"])
     def test_meas_3_1_calibration(
         self, core: pf.CoreTEXT3_1 | pf.CoreDataset3_1
     ) -> None:
         new = (0.5, "NVidia A100 Heat Output")
-        core.calibrations == [None, ()]
-        core.calibrations = [new, ()]
-        assert core.calibrations == [new, ()]
+        core.all_pncalibration == [None, ()]
+        core.all_pncalibration = [new, ()]
+        assert core.all_pncalibration == [new, ()]
         with pytest.raises(TypeError):
-            core.calibrations = ["AMD Threadripper Power Consumptions", ()]  # type: ignore
+            core.all_pncalibration = ["AMD Threadripper Power Consumptions", ()]  # type: ignore
 
     @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
     def test_meas_3_2_calibration(
         self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2
     ) -> None:
         new = (0.5, 0.25, "Gouda Cheese Wheels")
-        core.calibrations == [None, ()]
-        core.calibrations = [new, ()]
-        assert core.calibrations == [new, ()]
+        core.all_pncalibration == [None, ()]
+        core.all_pncalibration = [new, ()]
+        assert core.all_pncalibration == [new, ()]
         with pytest.raises(TypeError):
-            core.calibrations = ["Sacred Cows", ()]  # type: ignore
+            core.all_pncalibration = ["Sacred Cows", ()]  # type: ignore
 
     @parameterize_versions("core", ["2_0", "3_0"], ["text2", "dataset2"])
     def test_meas_wavelengths_singleton(
         self,
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
     ) -> None:
-        assert core.wavelengths == [None, ()]
-        core.wavelengths = [1.0, ()]
-        assert core.wavelengths == [1.0, ()]
+        assert core.all_pnl == [None, ()]
+        core.all_pnl = [1.0, ()]
+        assert core.all_pnl == [1.0, ()]
         with pytest.raises(ValueError):
-            core.wavelengths = [0.0, ()]
+            core.all_pnl = [0.0, ()]
         with pytest.raises(ValueError):
-            core.wavelengths = [-1.0, ()]
+            core.all_pnl = [-1.0, ()]
 
     @parameterize_versions("core", ["3_1", "3_2"], ["text2", "dataset2"])
     def test_meas_wavelengths_vector(
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
     ) -> None:
-        assert core.wavelengths == [None, ()]
+        assert core.all_pnl == [None, ()]
         new = [1.0, 2.0]
-        core.wavelengths = [new, ()]
-        assert core.wavelengths == [new, ()]
+        core.all_pnl = [new, ()]
+        assert core.all_pnl == [new, ()]
         with pytest.raises(ValueError):
-            core.wavelengths = [[0.0], ()]
+            core.all_pnl = [[0.0], ()]
         with pytest.raises(ValueError):
-            core.wavelengths = [[-1.0], ()]
+            core.all_pnl = [[-1.0], ()]
         with pytest.raises(ValueError):
-            core.wavelengths = [[], ()]
+            core.all_pnl = [[], ()]
 
     @parameterize_versions("core", ["3_1", "3_2"], ["text2", "dataset2"])
     def test_meas_displays(

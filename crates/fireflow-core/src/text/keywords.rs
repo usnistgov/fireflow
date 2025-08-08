@@ -1912,6 +1912,7 @@ kw_req_meta!(ByteOrd3_1, "BYTEORD"); // 3.1+
 kw_req_meas!(Width, "B");
 kw_opt_meas_string!(Filter, "F");
 kw_opt_meas!(Power, "O");
+// TODO why is this a string?
 kw_opt_meas_string!(PercentEmitted, "P");
 kw_req_meas!(Range, "R");
 kw_opt_meas_string!(Longname, "S");

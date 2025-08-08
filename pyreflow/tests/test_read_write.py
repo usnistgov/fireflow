@@ -385,16 +385,19 @@ class TestCore:
 
     @all_core
     def test_shortnames(self, core: AnyCore) -> None:
-        assert core.all_shortnames == [LINK_NAME1]
+        assert core.all_pnn == [LINK_NAME1]
         new_name = "I can haz IP"
-        core.all_shortnames = [new_name]
-        assert core.all_shortnames == [new_name]
+        core.all_pnn = [new_name]
+        assert core.all_pnn == [new_name]
         with pytest.raises(ValueError):
-            core.all_shortnames = ["I,can,haz,IP"]
+            core.all_pnn = ["I,can,haz,IP"]
 
-    @all_core
-    def test_shortnames_maybe(self, core: AnyCore) -> None:
-        assert core.shortnames_maybe == [LINK_NAME1]
+    @parameterize_versions("core", ["2_0", "3_0"], ["text2", "dataset2"])
+    def test_shortnames_maybe(
+        self,
+        core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
+    ) -> None:
+        assert core.all_pnn_maybe == [LINK_NAME1, LINK_NAME2]
 
     @all_core
     def test_longnames(self, core: AnyCore) -> None:
@@ -415,10 +418,11 @@ class TestCore:
         assert len(core.measurements) == 2
         # note this will only set the measurements, since the time name is
         # never None
-        core.set_measurement_shortnames_maybe([None])
-        assert core.shortnames_maybe == [None, "maple latte"]
+        # TODO this is confusing
+        core.all_pnn_maybe = [None]
+        assert core.all_pnn_maybe == [None, "maple latte"]
         with pytest.raises(pf.PyreflowException):
-            core.set_measurement_shortnames_maybe([None, None])
+            core.all_pnn_maybe = [None, None]
 
     @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["text2", "dataset2"])
     def test_timestep(

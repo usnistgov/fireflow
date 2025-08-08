@@ -288,7 +288,7 @@ class _CoreCommon:
     date: date | None
     trigger: Trigger | None
 
-    all_shortnames: list[Shortname]
+    all_pnn: list[Shortname]
     all_pns: list[str | None]
 
     all_pnf: _OpticalKeyVals[str]
@@ -297,8 +297,6 @@ class _CoreCommon:
     all_pnt: _OpticalKeyVals[str]
     all_pnv: _OpticalKeyVals[float]
 
-    @property
-    def shortnames_maybe(self) -> list[Shortname | None]: ...
     def insert_nonstandard(self, key: NonStdKey, value: str) -> str | None: ...
     def remove_nonstandard(self, key: NonStdKey) -> str | None: ...
     def get_nonstandard(self, key: NonStdKey) -> str | None: ...
@@ -322,6 +320,9 @@ class _CoreDatasetCommon:
         skip_conversion_check: bool = False,
         allow_lossy_conversions: bool = False,
     ) -> None: ...
+
+class _CoreShortnamesMaybe:
+    all_pnn_maybe: list[Shortname | None]
 
 class _CoreTemporal2_0:
     def set_temporal(self, name: Shortname, force: bool = False) -> bool: ...
@@ -587,6 +588,7 @@ class CoreTEXT2_0(
     _CoreCommon,
     _CorePre3_2,
     _CoreTemporal2_0,
+    _CoreShortnamesMaybe,
     _CoreGetSetMeas[Shortname | None, Optical2_0, Temporal2_0],
     _CoreReplaceTemporal2_0[Shortname | None, Optical2_0, Temporal2_0],
     _CoreTEXTGetSetMeas[Shortname | None, Temporal2_0, Optical2_0],
@@ -606,6 +608,7 @@ class CoreTEXT3_0(
     _CoreCommon,
     _CorePre3_2,
     _CoreTemporal3_0,
+    _CoreShortnamesMaybe,
     _CoreGetSetMeas[Shortname | None, Optical3_0, Temporal3_0],
     _CoreReplaceTemporal2_0[Shortname | None, Optical2_0, Temporal2_0],
     _CoreTEXTGetSetMeas[Shortname | None, Temporal3_0, Optical3_0],
@@ -678,6 +681,7 @@ class CoreDataset2_0(
     _CoreCommon,
     _CorePre3_2,
     _CoreTemporal2_0,
+    _CoreShortnamesMaybe,
     _CoreGetSetMeas[Shortname | None, Optical2_0, Temporal2_0],
     _CoreReplaceTemporal2_0[Shortname | None, Optical2_0, Temporal2_0],
     _CoreDatasetGetSetMeas[Shortname | None, Temporal2_0, Optical2_0],
@@ -698,6 +702,7 @@ class CoreDataset3_0(
     _CoreCommon,
     _CorePre3_2,
     _CoreTemporal3_0,
+    _CoreShortnamesMaybe,
     _CoreGetSetMeas[Shortname | None, Optical3_0, Temporal3_0],
     _CoreReplaceTemporal2_0[Shortname | None, Optical2_0, Temporal2_0],
     _CoreDatasetGetSetMeas[Shortname | None, Temporal3_0, Optical3_0],

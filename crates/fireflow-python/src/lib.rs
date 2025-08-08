@@ -654,21 +654,6 @@ macro_rules! common_methods {
                 self.0.set_trigger_threshold(threshold)
             }
 
-            // TODO this is only relevant for 2.0/3.0
-            /// The possibly-empty values of *$PnN* for all measurements.
-            ///
-            /// :return: List of strings or ``None`` if *$PnN* is not set, which
-            ///     is only possible in FCS 2.0/3.0.
-            /// :rtype: list[str | None]
-            #[getter]
-            fn shortnames_maybe(&self) -> Vec<Option<Shortname>> {
-                self.0
-                    .shortnames_maybe()
-                    .into_iter()
-                    .map(|x| x.cloned())
-                    .collect()
-            }
-
             // TODO pretty sure there is no way to change prefix once a core
             // object is created
             // TODO docs should be specific to version
@@ -725,6 +710,38 @@ common_methods!(PyCoreDataset2_0);
 common_methods!(PyCoreDataset3_0);
 common_methods!(PyCoreDataset3_1);
 common_methods!(PyCoreDataset3_2);
+
+macro_rules! get_set_shortnames_maybe {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            /// The possibly-empty values of *$PnN* for all measurements.
+            ///
+            /// For this FCS version, *$PnN* is optional which is why values
+            /// may be ``None``.
+            ///
+            /// :rtype: list[str | None]
+            #[getter]
+            fn get_all_pnn_maybe(&self) -> Vec<Option<Shortname>> {
+                self.0
+                    .shortnames_maybe()
+                    .into_iter()
+                    .map(|x| x.cloned())
+                    .collect()
+            }
+
+            #[setter]
+            fn set_all_pnn_maybe(&mut self, names: Vec<Option<Shortname>>) -> PyResult<()> {
+                Ok(self.0.set_measurement_shortnames_maybe(names).void()?)
+            }
+        }
+    };
+}
+
+get_set_shortnames_maybe!(PyCoreTEXT2_0);
+get_set_shortnames_maybe!(PyCoreTEXT3_0);
+get_set_shortnames_maybe!(PyCoreDataset2_0);
+get_set_shortnames_maybe!(PyCoreDataset3_0);
 
 macro_rules! set_temporal_no_timestep {
     ($pytype:ident) => {
@@ -1425,26 +1442,6 @@ macro_rules! coredata3_1_meas_methods {
 
 coredata3_1_meas_methods!(PyCoreDataset3_1, PyTemporal3_1, PyOptical3_1);
 coredata3_1_meas_methods!(PyCoreDataset3_2, PyTemporal3_2, PyOptical3_2);
-
-// Get/set methods for setting $PnN (2.0-3.0)
-macro_rules! shortnames_methods {
-    ($pytype:ident) => {
-        #[pymethods]
-        impl $pytype {
-            fn set_measurement_shortnames_maybe(
-                &mut self,
-                names: Vec<Option<Shortname>>,
-            ) -> PyResult<()> {
-                Ok(self.0.set_measurement_shortnames_maybe(names).void()?)
-            }
-        }
-    };
-}
-
-shortnames_methods!(PyCoreTEXT2_0);
-shortnames_methods!(PyCoreTEXT3_0);
-shortnames_methods!(PyCoreDataset2_0);
-shortnames_methods!(PyCoreDataset3_0);
 
 macro_rules! get_set_3_2 {
     ($pytype:ident) => {

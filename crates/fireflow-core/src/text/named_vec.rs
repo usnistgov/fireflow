@@ -108,7 +108,7 @@ pub type EitherPair<K, U, V> =
     Element<Pair<Shortname, U>, Pair<<K as MightHave>::Wrapper<Shortname>, V>>;
 
 #[derive(From, Into)]
-pub struct RawInput<K: MightHave, U, V>(pub Vec<Either<K, U, V>>);
+pub struct Eithers<K: MightHave, U, V>(pub Vec<Either<K, U, V>>);
 
 pub type NameMapping = HashMap<Shortname, Shortname>;
 
@@ -117,8 +117,8 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     ///
     /// Must contain either one or zero center values, otherwise return error.
     /// All names within keys (including center) must be unique.
-    pub fn try_new(
-        xs: RawInput<K, U, V>,
+    pub(crate) fn try_new(
+        xs: Eithers<K, U, V>,
         prefix: ShortnamePrefix,
     ) -> Result<WrappedNamedVec<K, U, V>, NewNamedVecError> {
         let names: Vec<_> =
@@ -166,7 +166,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Return reference to center
-    pub fn as_center(&self) -> Option<IndexedElement<&Shortname, &U>> {
+    pub(crate) fn as_center(&self) -> Option<IndexedElement<&Shortname, &U>> {
         match self {
             NamedVec::Split(s, _) => Some(IndexedElement {
                 index: s.left.len().into(),
@@ -190,24 +190,24 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Return reference to prefix
-    pub fn as_prefix(&self) -> &ShortnamePrefix {
+    pub(crate) fn as_prefix(&self) -> &ShortnamePrefix {
         match self {
             NamedVec::Split(s, _) => &s.prefix,
             NamedVec::Unsplit(u) => &u.prefix,
         }
     }
 
-    /// Set the prefix
-    pub fn set_prefix(&mut self, prefix: ShortnamePrefix) {
-        match self {
-            NamedVec::Split(s, _) => {
-                s.prefix = prefix;
-            }
-            NamedVec::Unsplit(u) => {
-                u.prefix = prefix;
-            }
-        }
-    }
+    // /// Set the prefix
+    // pub(crate) fn set_prefix(&mut self, prefix: ShortnamePrefix) {
+    //     match self {
+    //         NamedVec::Split(s, _) => {
+    //             s.prefix = prefix;
+    //         }
+    //         NamedVec::Unsplit(u) => {
+    //             u.prefix = prefix;
+    //         }
+    //     }
+    // }
 
     // pub fn into_iter(
     //     self,
@@ -250,16 +250,22 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         }
     }
 
-    pub fn iter_common_values<'a, T: 'a>(&'a self) -> impl Iterator<Item = (MeasIndex, &'a T)> + 'a
-    where
-        U: AsRef<T>,
-        V: AsRef<T>,
-    {
-        self.iter()
-            .map(|(i, x)| (i, x.both(|l| l.value.as_ref(), |r| r.value.as_ref())))
-    }
+    // pub(crate) fn iter_common_values<'a, T: 'a>(
+    //     &'a self,
+    // ) -> impl Iterator<Item = (MeasIndex, &'a T)> + 'a
+    // where
+    //     U: AsRef<T>,
+    //     V: AsRef<T>,
+    // {
+    //     self.iter()
+    //         .map(|(i, x)| (i, x.both(|l| l.value.as_ref(), |r| r.value.as_ref())))
+    // }
 
-    pub fn iter_with<'a, T, F, G>(&'a self, f: &'a F, g: &'a G) -> impl Iterator<Item = T> + 'a
+    pub(crate) fn iter_with<'a, T, F, G>(
+        &'a self,
+        f: &'a F,
+        g: &'a G,
+    ) -> impl Iterator<Item = T> + 'a
     where
         F: Fn(MeasIndex, &'a Pair<Shortname, U>) -> T,
         G: Fn(MeasIndex, &'a WrappedPair<K, V>) -> T,
@@ -267,20 +273,20 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         self.iter().map(|(i, e)| e.both(|x| f(i, x), |x| g(i, x)))
     }
 
-    /// Return iterator over borrowed non-center values
-    pub fn iter_non_center_values(&self) -> impl Iterator<Item = (MeasIndex, &V)> + '_ {
-        self.iter()
-            .flat_map(|(i, x)| x.non_center().map(|p| (i, &p.value)))
-    }
+    // /// Return iterator over borrowed non-center values
+    // pub(crate) fn iter_non_center_values(&self) -> impl Iterator<Item = (MeasIndex, &V)> + '_ {
+    //     self.iter()
+    //         .flat_map(|(i, x)| x.non_center().map(|p| (i, &p.value)))
+    // }
 
-    /// Return iterator over borrowed non-center keys
-    pub fn iter_non_center_keys(&self) -> impl Iterator<Item = &K::Wrapper<Shortname>> + '_ {
-        self.iter()
-            .flat_map(|(_, x)| x.non_center().map(|p| &p.key))
-    }
+    // /// Return iterator over borrowed non-center keys
+    // pub(crate) fn iter_non_center_keys(&self) -> impl Iterator<Item = &K::Wrapper<Shortname>> + '_ {
+    //     self.iter()
+    //         .flat_map(|(_, x)| x.non_center().map(|p| &p.key))
+    // }
 
     /// Return all existing names in the vector with their indices
-    pub fn indexed_names(&self) -> impl Iterator<Item = (MeasIndex, &Shortname)> + '_ {
+    pub(crate) fn indexed_names(&self) -> impl Iterator<Item = (MeasIndex, &Shortname)> + '_ {
         self.iter().flat_map(|(i, r)| {
             r.both(|x| Some(&x.key), |x| K::as_opt(&x.key))
                 .map(|x| (i, x))
@@ -289,7 +295,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
 
     /// Return iterator over key names with non-existent names as default.
     // TODO seems like we should give a different type for this
-    pub fn iter_all_names(&self) -> impl Iterator<Item = Shortname> + '_ {
+    pub(crate) fn iter_all_names(&self) -> impl Iterator<Item = Shortname> + '_ {
         let prefix = self.as_prefix();
         self.iter().map(|(i, r)| {
             r.both(
@@ -299,47 +305,47 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         })
     }
 
-    /// Alter values with a function and payload.
-    ///
-    /// Center and non-center values will be projected to a common type.
-    pub fn alter_common_values_zip<F, X, R, T>(
-        &mut self,
-        xs: Vec<X>,
-        f: F,
-    ) -> Result<Vec<R>, KeyLengthError>
-    where
-        F: Fn(MeasIndex, &mut T, X) -> R,
-        U: AsMut<T>,
-        V: AsMut<T>,
-    {
-        self.alter_values_zip(
-            xs,
-            |v, x| f(v.index, v.value.as_mut(), x),
-            |v, x| f(v.index, v.value.as_mut(), x),
-        )
-    }
+    // /// Alter values with a function and payload.
+    // ///
+    // /// Center and non-center values will be projected to a common type.
+    // pub(crate) fn alter_common_values_zip<F, X, R, T>(
+    //     &mut self,
+    //     xs: Vec<X>,
+    //     f: F,
+    // ) -> Result<Vec<R>, KeyLengthError>
+    // where
+    //     F: Fn(MeasIndex, &mut T, X) -> R,
+    //     U: AsMut<T>,
+    //     V: AsMut<T>,
+    // {
+    //     self.alter_values_zip(
+    //         xs,
+    //         |v, x| f(v.index, v.value.as_mut(), x),
+    //         |v, x| f(v.index, v.value.as_mut(), x),
+    //     )
+    // }
 
-    /// Alter values with a function
-    ///
-    /// Center and non-center values will be projected to a common type.
-    pub fn alter_common_values<F, R, T>(&mut self, f: F) -> Vec<R>
-    where
-        F: Fn(MeasIndex, &mut T) -> R,
-        U: AsMut<T>,
-        V: AsMut<T>,
-    {
-        self.alter_values(
-            |v| f(v.index, v.value.as_mut()),
-            |v| f(v.index, v.value.as_mut()),
-        )
-    }
+    // /// Alter values with a function
+    // ///
+    // /// Center and non-center values will be projected to a common type.
+    // pub(crate) fn alter_common_values<F, R, T>(&mut self, f: F) -> Vec<R>
+    // where
+    //     F: Fn(MeasIndex, &mut T) -> R,
+    //     U: AsMut<T>,
+    //     V: AsMut<T>,
+    // {
+    //     self.alter_values(
+    //         |v| f(v.index, v.value.as_mut()),
+    //         |v| f(v.index, v.value.as_mut()),
+    //     )
+    // }
 
     /// Apply functions to values with payload, altering them in place.
     ///
     /// This will alter all values, including center and non-center values. The
     /// two functions apply to the different values contained. Return None
     /// if input vector is not the same length.
-    pub fn alter_values_zip<F, G, X, R>(
+    pub(crate) fn alter_values_zip<F, G, X, R>(
         &mut self,
         xs: Vec<X>,
         f: F,
@@ -395,7 +401,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Apply function(s) to all values, altering them in place.
-    pub fn alter_values<F, G, R>(&mut self, f: F, g: G) -> Vec<R>
+    pub(crate) fn alter_values<F, G, R>(&mut self, f: F, g: G) -> Vec<R>
     where
         F: Fn(IndexedElement<&K::Wrapper<Shortname>, &mut V>) -> R,
         G: Fn(IndexedElement<&Shortname, &mut U>) -> R,
@@ -404,63 +410,63 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         self.alter_values_zip(xs, |x, _| f(x), |x, _| g(x)).unwrap()
     }
 
-    /// Apply function to non-center values, altering them in place
-    pub fn alter_non_center_values<F, X>(&mut self, f: F) -> Vec<X>
-    where
-        F: Fn(&mut V) -> X,
-    {
-        match self {
-            NamedVec::Split(s, _) => s
-                .left
-                .iter_mut()
-                .map(|p| f(&mut p.value))
-                .chain(s.right.iter_mut().map(|p| f(&mut p.value)))
-                .collect(),
-            NamedVec::Unsplit(u) => u.members.iter_mut().map(|p| f(&mut p.value)).collect(),
-        }
-    }
+    // /// Apply function to non-center values, altering them in place
+    // pub(crate) fn alter_non_center_values<F, X>(&mut self, f: F) -> Vec<X>
+    // where
+    //     F: Fn(&mut V) -> X,
+    // {
+    //     match self {
+    //         NamedVec::Split(s, _) => s
+    //             .left
+    //             .iter_mut()
+    //             .map(|p| f(&mut p.value))
+    //             .chain(s.right.iter_mut().map(|p| f(&mut p.value)))
+    //             .collect(),
+    //         NamedVec::Unsplit(u) => u.members.iter_mut().map(|p| f(&mut p.value)).collect(),
+    //     }
+    // }
 
-    /// Apply function to non-center values with values, altering them in place
-    pub fn alter_non_center_values_zip<E, F, X>(
-        &mut self,
-        xs: Vec<X>,
-        f: F,
-    ) -> Result<Vec<E>, KeyLengthError>
-    where
-        F: Fn(&mut V, X) -> E,
-    {
-        self.check_keys_length(&xs[..], false)?;
-        let res = match self {
-            NamedVec::Split(s, _) => {
-                let nleft = s.left.len();
-                let nright = s.right.len();
-                let mut it = xs.into_iter();
-                let left_r: Vec<_> = s
-                    .left
-                    .iter_mut()
-                    .zip(it.by_ref().take(nleft))
-                    .map(|(y, x)| f(&mut y.value, x))
-                    .collect();
-                let right_r: Vec<_> = s
-                    .right
-                    .iter_mut()
-                    .zip(it.by_ref().take(nright))
-                    .map(|(y, x)| f(&mut y.value, x))
-                    .collect();
-                left_r.into_iter().chain(right_r).collect()
-            }
-            NamedVec::Unsplit(u) => u
-                .members
-                .iter_mut()
-                .zip(xs)
-                .map(|(p, x)| f(&mut p.value, x))
-                .collect(),
-        };
-        Ok(res)
-    }
+    // /// Apply function to non-center values with values, altering them in place
+    // pub(crate) fn alter_non_center_values_zip<E, F, X>(
+    //     &mut self,
+    //     xs: Vec<X>,
+    //     f: F,
+    // ) -> Result<Vec<E>, KeyLengthError>
+    // where
+    //     F: Fn(&mut V, X) -> E,
+    // {
+    //     self.check_keys_length(&xs[..], false)?;
+    //     let res = match self {
+    //         NamedVec::Split(s, _) => {
+    //             let nleft = s.left.len();
+    //             let nright = s.right.len();
+    //             let mut it = xs.into_iter();
+    //             let left_r: Vec<_> = s
+    //                 .left
+    //                 .iter_mut()
+    //                 .zip(it.by_ref().take(nleft))
+    //                 .map(|(y, x)| f(&mut y.value, x))
+    //                 .collect();
+    //             let right_r: Vec<_> = s
+    //                 .right
+    //                 .iter_mut()
+    //                 .zip(it.by_ref().take(nright))
+    //                 .map(|(y, x)| f(&mut y.value, x))
+    //                 .collect();
+    //             left_r.into_iter().chain(right_r).collect()
+    //         }
+    //         NamedVec::Unsplit(u) => u
+    //             .members
+    //             .iter_mut()
+    //             .zip(xs)
+    //             .map(|(p, x)| f(&mut p.value, x))
+    //             .collect(),
+    //     };
+    //     Ok(res)
+    // }
 
     /// Return position of center, if it exists
-    pub fn center_index(&self) -> Option<MeasIndex> {
+    pub(crate) fn center_index(&self) -> Option<MeasIndex> {
         match self {
             NamedVec::Split(s, _) => Some(s.left.len().into()),
             NamedVec::Unsplit(_) => None,
@@ -469,7 +475,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
 
     /// Apply function over center value, possibly changing it's type
     #[allow(clippy::type_complexity)]
-    pub fn map_center_value<F, X, W, E>(
+    pub(crate) fn map_center_value<F, X, W, E>(
         self,
         f: F,
     ) -> DeferredResult<NamedVec<K, K::Wrapper<Shortname>, X, V>, W, IndexedElementError<E>>
@@ -497,7 +503,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Apply function over non-center values, possibly changing their type
-    pub fn map_non_center_values<E, F, W, ToV>(
+    pub(crate) fn map_non_center_values<E, F, W, ToV>(
         self,
         f: F,
     ) -> DeferredResult<WrappedNamedVec<K, U, ToV>, W, IndexedElementError<E>>
@@ -536,17 +542,17 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Return number of all elements.
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.iter().count()
     }
 
     /// Return number of non-center elements.
-    pub fn len_non_center(&self) -> usize {
+    pub(crate) fn len_non_center(&self) -> usize {
         self.iter().filter(|(_, r)| r.is_non_center()).count()
     }
 
     /// Return true if there are no contained elements.
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
@@ -593,41 +599,44 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         .map(|x| x.bimap(|p| (&p.key, &mut p.value), |p| (&p.key, &mut p.value)))
     }
 
-    /// Get reference to value with name.
-    pub fn get_name(&self, n: &Shortname) -> Option<(MeasIndex, Element<&U, &V>)> {
-        if let Some(c) = self.as_center() {
-            if c.key == n {
-                return Some((c.index, Element::Center(c.value)));
-            }
-        }
-        self.iter()
-            .flat_map(|(i, r)| r.non_center().map(|x| (i, x)))
-            .find(|(_, p)| K::as_opt(&p.key).is_some_and(|kn| kn == n))
-            .map(|(i, p)| (i, Element::NonCenter(&p.value)))
-    }
+    // /// Get reference to value with name.
+    // pub(crate) fn get_name(&self, n: &Shortname) -> Option<(MeasIndex, Element<&U, &V>)> {
+    //     if let Some(c) = self.as_center() {
+    //         if c.key == n {
+    //             return Some((c.index, Element::Center(c.value)));
+    //         }
+    //     }
+    //     self.iter()
+    //         .flat_map(|(i, r)| r.non_center().map(|x| (i, x)))
+    //         .find(|(_, p)| K::as_opt(&p.key).is_some_and(|kn| kn == n))
+    //         .map(|(i, p)| (i, Element::NonCenter(&p.value)))
+    // }
 
-    /// Get mutable reference to value with name.
-    pub fn get_name_mut(&mut self, n: &Shortname) -> Option<(MeasIndex, Element<&mut U, &mut V>)> {
-        match self {
-            NamedVec::Split(s, _) => {
-                let nleft = s.left.len();
-                Self::value_by_name_mut(&mut s.left, n)
-                    .map(|(i, p)| (i.into(), Element::NonCenter(p)))
-                    .or(if &s.center.key == n {
-                        Some((nleft.into(), Element::Center(&mut s.center.value)))
-                    } else {
-                        None
-                    })
-                    .or(Self::value_by_name_mut(&mut s.right, n)
-                        .map(|(i, p)| ((i + nleft + 1).into(), Element::NonCenter(p))))
-            }
-            NamedVec::Unsplit(u) => Self::value_by_name_mut(&mut u.members, n)
-                .map(|(i, p)| (i.into(), Element::NonCenter(p))),
-        }
-    }
+    // /// Get mutable reference to value with name.
+    // pub(crate) fn get_name_mut(
+    //     &mut self,
+    //     n: &Shortname,
+    // ) -> Option<(MeasIndex, Element<&mut U, &mut V>)> {
+    //     match self {
+    //         NamedVec::Split(s, _) => {
+    //             let nleft = s.left.len();
+    //             Self::value_by_name_mut(&mut s.left, n)
+    //                 .map(|(i, p)| (i.into(), Element::NonCenter(p)))
+    //                 .or(if &s.center.key == n {
+    //                     Some((nleft.into(), Element::Center(&mut s.center.value)))
+    //                 } else {
+    //                     None
+    //                 })
+    //                 .or(Self::value_by_name_mut(&mut s.right, n)
+    //                     .map(|(i, p)| ((i + nleft + 1).into(), Element::NonCenter(p))))
+    //         }
+    //         NamedVec::Unsplit(u) => Self::value_by_name_mut(&mut u.members, n)
+    //             .map(|(i, p)| (i.into(), Element::NonCenter(p))),
+    //     }
+    // }
 
     /// Add a new non-center element at the end of the vector
-    pub fn push(
+    pub(crate) fn push(
         &mut self,
         key: K::Wrapper<Shortname>,
         value: V,
@@ -643,7 +652,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Insert a new non-center element at a given position.
-    pub fn insert(
+    pub(crate) fn insert(
         &mut self,
         index: MeasIndex,
         key: K::Wrapper<Shortname>,
@@ -674,7 +683,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     ///
     /// Return none if index is out of bounds. If index points to the center,
     /// convert it to a non-center value.
-    pub fn replace_at(
+    pub(crate) fn replace_at(
         &mut self,
         index: MeasIndex,
         value: V,
@@ -721,7 +730,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Return value that was replaced.
     ///
     /// Return none if name is not present.
-    pub fn replace_named(&mut self, name: &Shortname, value: V) -> Option<Element<U, V>> {
+    pub(crate) fn replace_named(&mut self, name: &Shortname, value: V) -> Option<Element<U, V>> {
         self.find_with_name(name)
             .and_then(|index| self.replace_at(index, value).ok())
     }
@@ -732,7 +741,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// nothing, the default name will be assigned. Return error if index is
     /// out of bounds or name is not unique. Return pair of old and new name
     /// on success.
-    pub fn rename(
+    pub(crate) fn rename(
         &mut self,
         index: MeasIndex,
         key: K::Wrapper<Shortname>,
@@ -771,7 +780,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Rename center element.
     ///
     /// Return previous name if center exists.
-    pub fn rename_center(&mut self, name: Shortname) -> Option<Shortname> {
+    pub(crate) fn rename_center(&mut self, name: Shortname) -> Option<Shortname> {
         match self {
             NamedVec::Split(s, _) => Some(mem::replace(&mut s.center.key, name)),
             NamedVec::Unsplit(_) => None,
@@ -781,7 +790,11 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Push a new center element to the end of the vector
     ///
     /// Return error if center already exists.
-    pub fn push_center(&mut self, name: Shortname, value: U) -> Result<(), InsertCenterError> {
+    pub(crate) fn push_center(
+        &mut self,
+        name: Shortname,
+        value: U,
+    ) -> Result<(), InsertCenterError> {
         let key = self
             .check_name(name)
             .map_err(InsertError::NonUnique)
@@ -798,7 +811,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Insert a new center element at a given position.
     ///
     /// Return error if center already exists.
-    pub fn insert_center(
+    pub(crate) fn insert_center(
         &mut self,
         index: MeasIndex,
         name: Shortname,
@@ -829,7 +842,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Remove key/value pair by name.
     ///
     /// Return None if index is not found.
-    pub fn remove_index(
+    pub(crate) fn remove_index(
         &mut self,
         index: MeasIndex,
     ) -> Result<EitherPair<K, U, V>, ElementIndexError> {
@@ -865,7 +878,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Remove key/value pair by name of key.
     ///
     /// Return error if name not found.
-    pub fn remove_name(
+    pub(crate) fn remove_name(
         &mut self,
         n: &Shortname,
     ) -> Result<(MeasIndex, Element<U, V>), KeyNotFoundError> {
@@ -910,7 +923,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     ///
     /// List must be the same length as all non-center keys and must be unique
     /// (including the center key).
-    pub fn set_non_center_keys(
+    pub(crate) fn set_non_center_keys(
         &mut self,
         ks: Vec<K::Wrapper<Shortname>>,
     ) -> Result<NameMapping, SetKeysError>
@@ -952,7 +965,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     ///
     /// Supplied list must be unique and have the same length as the target
     /// vector.
-    pub fn set_names(&mut self, ns: Vec<Shortname>) -> Result<NameMapping, SetKeysError> {
+    pub(crate) fn set_names(&mut self, ns: Vec<Shortname>) -> Result<NameMapping, SetKeysError> {
         self.check_keys_length(&ns[..], true)
             .map_err(SetKeysError::Length)?;
         if !all_unique(ns.iter()) {
@@ -984,7 +997,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Replace any value with a center value with name.
-    pub fn replace_center_by_name<F, W, E>(
+    pub(crate) fn replace_center_by_name<F, W, E>(
         &mut self,
         n: &Shortname,
         value: U,
@@ -1003,7 +1016,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Replace any value with a center value with name.
-    pub fn replace_center_by_name_nofail<F>(
+    pub(crate) fn replace_center_by_name_nofail<F>(
         &mut self,
         n: &Shortname,
         value: U,
@@ -1026,7 +1039,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Fail if name at index to be converted is blank or
     /// if the previous center value cannot be converted back to a non-center
     /// value.
-    pub fn replace_center_at<F, W, E>(
+    pub(crate) fn replace_center_at<F, W, E>(
         &mut self,
         index: MeasIndex,
         value: U,
@@ -1062,7 +1075,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Fail if name at index to be converted is blank or
     /// if the previous center value cannot be converted back to a non-center
     /// value.
-    pub fn replace_center_at_nofail<F>(
+    pub(crate) fn replace_center_at_nofail<F>(
         &mut self,
         index: MeasIndex,
         value: U,
@@ -1202,7 +1215,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Set center to be the element with name if it exists.
-    pub fn set_center_by_name<Fswap, FtoU, W, E>(
+    pub(crate) fn set_center_by_name<Fswap, FtoU, W, E>(
         &mut self,
         n: &Shortname,
         swap: Fswap,
@@ -1221,7 +1234,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Set center to be the element with index if it exists.
-    pub fn set_center_by_index<Fswap, FtoU, W, E>(
+    pub(crate) fn set_center_by_index<Fswap, FtoU, W, E>(
         &mut self,
         index: MeasIndex,
         swap: Fswap,
@@ -1356,7 +1369,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Has no effect if there already is no center element.
     ///
     /// Return true if vector is updated.
-    pub fn unset_center<F, W, E, X>(&mut self, to_v: F) -> Tentative<Option<X>, W, E>
+    pub(crate) fn unset_center<F, W, E, X>(&mut self, to_v: F) -> Tentative<Option<X>, W, E>
     where
         F: FnOnce(MeasIndex, U) -> PassthruResult<(V, X), Box<U>, W, E>,
     {
@@ -1401,7 +1414,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     ///
     /// This may fail if the original wrapped name cannot be converted.
     #[allow(clippy::type_complexity)]
-    pub fn try_rewrapped<J>(
+    pub(crate) fn try_rewrapped<J>(
         self,
     ) -> MultiResult<
         WrappedNamedVec<J, U, V>,
@@ -1464,15 +1477,15 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             .position(|p| K::as_opt(&p.key).is_some_and(|kn| kn == n))
     }
 
-    fn value_by_name_mut<'a>(
-        xs: &'a mut WrappedPairedVec<K, V>,
-        n: &Shortname,
-    ) -> Option<(usize, &'a mut V)> {
-        xs.iter_mut()
-            .enumerate()
-            .find(|(_, p)| K::as_opt(&p.key).is_some_and(|kn| kn == n))
-            .map(|(i, p)| (i, &mut p.value))
-    }
+    // fn value_by_name_mut<'a>(
+    //     xs: &'a mut WrappedPairedVec<K, V>,
+    //     n: &Shortname,
+    // ) -> Option<(usize, &'a mut V)> {
+    //     xs.iter_mut()
+    //         .enumerate()
+    //         .find(|(_, p)| K::as_opt(&p.key).is_some_and(|kn| kn == n))
+    //         .map(|(i, p)| (i, &mut p.value))
+    // }
 
     fn check_key(
         &self,
@@ -1704,7 +1717,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 }
 
-impl<K: MightHave, U, V> Clone for RawInput<K, U, V>
+impl<K: MightHave, U, V> Clone for Eithers<K, U, V>
 where
     K::Wrapper<Shortname>: Clone,
     U: Clone,
@@ -1715,13 +1728,13 @@ where
     }
 }
 
-impl<K: MightHave, U, V> RawInput<K, U, V> {
-    pub fn inner_into<U0, V0>(self) -> RawInput<K, U0, V0>
+impl<K: MightHave, U, V> Eithers<K, U, V> {
+    pub fn inner_into<U0, V0>(self) -> Eithers<K, U0, V0>
     where
         U0: From<U>,
         V0: From<V>,
     {
-        RawInput(
+        Eithers(
             self.0
                 .into_iter()
                 .map(|e| e.bimap(|(n, y)| (n, y.into()), |(n, y)| (n, y.into())))
@@ -2095,7 +2108,7 @@ impl fmt::Display for SetKeysError {
 #[cfg(feature = "python")]
 mod python {
     use super::{
-        Element, ElementIndexError, KeyLengthError, KeyNotFoundError, NonCenterElement, RawInput,
+        Eithers, Element, ElementIndexError, KeyLengthError, KeyNotFoundError, NonCenterElement,
         SetCenterError, SetKeysError,
     };
     use crate::python::macros::{impl_index_err, impl_pyreflow_err};
@@ -2109,7 +2122,7 @@ mod python {
 
     // derive(FromPyObject) will get confused by the wrapper; this is trivial
     // otherwise
-    impl<'py, K, U, V> FromPyObject<'py> for RawInput<K, U, V>
+    impl<'py, K, U, V> FromPyObject<'py> for Eithers<K, U, V>
     where
         K: MightHave,
         K::Wrapper<Shortname>: FromPyObject<'py>,

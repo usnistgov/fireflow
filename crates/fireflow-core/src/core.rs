@@ -3118,7 +3118,7 @@ where
     /// which takes no prefix.
     pub fn set_measurements(
         &mut self,
-        xs: RawInput<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        xs: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         prefix: ShortnamePrefix,
     ) -> TerminalResult<(), Infallible, SetMeasurementsError, SetMeasurementsFailure>
     where
@@ -3162,7 +3162,7 @@ where
     /// which takes no prefix.
     pub fn set_measurements_and_layout(
         &mut self,
-        measurements: RawInput<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        measurements: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         layout: <M::Ver as Versioned>::Layout,
         prefix: ShortnamePrefix,
     ) -> TerminalResult<(), Infallible, SetMeasurementsError, SetMeasurementsAndLayoutFailure>
@@ -3182,7 +3182,7 @@ where
 
     pub fn set_measurements_inner(
         &mut self,
-        xs: RawInput<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        xs: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         prefix: ShortnamePrefix,
     ) -> MultiResult<(), SetMeasurementsError>
     where
@@ -4031,7 +4031,7 @@ where
     /// which takes no prefix.
     pub fn set_measurements_and_data(
         &mut self,
-        xs: RawInput<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        xs: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         cs: Vec<AnyFCSColumn>,
         prefix: ShortnamePrefix,
     ) -> TerminalResult<(), Infallible, SetMeasurementsAndDataError, SetMeasurementsAndDataFailure>
@@ -4152,6 +4152,32 @@ where
         let mapping = self.measurements.set_non_center_keys(ks)?;
         self.metaroot.reassign_all(&mapping);
         Ok(mapping)
+
+        // self.measurements
+        //     .alter_values_zip(
+        //         ns,
+        //         |m, n| {
+        //             *m.value.as_mut() = n;
+        //             Ok(())
+        //         },
+        //         |m, n| {
+        //             if let Some(nn) = n {
+        //                 *m.value.as_mut() = nn;
+        //             } else {
+        //                 Err(ColumnError {
+        //                     error: (),
+        //                     index: m.index.into(),
+        //                 })
+        //             }
+        //         },
+        //     )
+        //     .into_mult()
+        //     .and_then(|rs| {
+        //         NonEmpty::collect(rs.into_iter().flat_map(|r| r.err()))
+        //             .map_or(Ok(()), Err)
+        //             .mult_errors_into()
+        //     })
+        //     .mult_terminate(SetOpticalFailure)
     }
 }
 
@@ -4166,7 +4192,7 @@ where
     /// is meaningless.
     pub fn set_measurements_noprefix(
         &mut self,
-        xs: RawInput<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
+        xs: Eithers<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
     ) -> TerminalResult<(), Infallible, SetMeasurementsError, SetMeasurementsFailure>
     where
         M::Optical: AsScaleTransform,
@@ -4181,7 +4207,7 @@ where
     /// mandatory, and thus the `prefix` argument is meaningless.
     pub fn set_measurements_and_layout_noprefix(
         &mut self,
-        xs: RawInput<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
+        xs: Eithers<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
         layout: <M::Ver as Versioned>::Layout,
     ) -> TerminalResult<(), Infallible, SetMeasurementsError, SetMeasurementsAndLayoutFailure>
     where
@@ -4204,7 +4230,7 @@ where
     /// mandatory, and thus the `prefix` argument is meaningless.
     pub fn set_measurements_and_data_noprefix(
         &mut self,
-        xs: RawInput<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
+        xs: Eithers<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
         cs: Vec<AnyFCSColumn>,
     ) -> TerminalResult<(), Infallible, SetMeasurementsAndDataError, SetMeasurementsAndDataFailure>
     where

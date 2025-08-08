@@ -15,7 +15,7 @@ use fireflow_core::text::byteord::{Endian, SizedByteOrd};
 use fireflow_core::text::compensation::Compensation;
 use fireflow_core::text::index::MeasIndex;
 use fireflow_core::text::keywords as kws;
-use fireflow_core::text::named_vec::{Element, NamedVec, NonCenterElement, RawInput};
+use fireflow_core::text::named_vec::{Eithers, Element, NamedVec, NonCenterElement};
 use fireflow_core::text::optional::{AlwaysFamily, MaybeFamily};
 use fireflow_core::text::scale::Scale;
 use fireflow_core::text::unstainedcenters::UnstainedCenters;
@@ -1318,7 +1318,7 @@ macro_rules! set_measurements_ordered {
         impl $pytype {
             fn set_measurements(
                 &mut self,
-                measurements: RawInput<MaybeFamily, $t, $o>,
+                measurements: Eithers<MaybeFamily, $t, $o>,
                 prefix: ShortnamePrefix,
             ) -> PyResult<()> {
                 self.0
@@ -1328,7 +1328,7 @@ macro_rules! set_measurements_ordered {
 
             fn set_measurements_and_layout(
                 &mut self,
-                measurements: RawInput<MaybeFamily, $t, $o>,
+                measurements: Eithers<MaybeFamily, $t, $o>,
                 layout: PyOrderedLayout,
                 prefix: ShortnamePrefix,
             ) -> PyResult<()> {
@@ -1361,7 +1361,7 @@ macro_rules! set_measurements_endian {
         impl $pytype {
             pub fn set_measurements(
                 &mut self,
-                measurements: RawInput<AlwaysFamily, $t, $o>,
+                measurements: Eithers<AlwaysFamily, $t, $o>,
             ) -> PyResult<()> {
                 self.0
                     .set_measurements_noprefix(measurements.inner_into())
@@ -1370,7 +1370,7 @@ macro_rules! set_measurements_endian {
 
             fn set_measurements_and_layout(
                 &mut self,
-                measurements: RawInput<AlwaysFamily, $t, $o>,
+                measurements: Eithers<AlwaysFamily, $t, $o>,
                 layout: $l,
             ) -> PyResult<()> {
                 self.0
@@ -1408,7 +1408,7 @@ macro_rules! coredata2_0_meas_methods {
         impl $pytype {
             fn set_measurements_and_data(
                 &mut self,
-                measurements: RawInput<MaybeFamily, $t, $o>,
+                measurements: Eithers<MaybeFamily, $t, $o>,
                 cols: Vec<AnyFCSColumn>,
                 prefix: ShortnamePrefix,
             ) -> PyResult<()> {
@@ -1429,7 +1429,7 @@ macro_rules! coredata3_1_meas_methods {
         impl $pytype {
             fn set_measurements_and_data(
                 &mut self,
-                measurements: RawInput<AlwaysFamily, $t, $o>,
+                measurements: Eithers<AlwaysFamily, $t, $o>,
                 cols: Vec<AnyFCSColumn>,
             ) -> PyResult<()> {
                 self.0

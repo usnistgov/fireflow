@@ -98,7 +98,7 @@ pub struct Core<A, D, O, M, T, P, N, W, L> {
 }
 
 /// The ANALYSIS segment, which is just a string of bytes
-#[derive(Clone, From, PartialEq)]
+#[derive(Clone, From, PartialEq, Default)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct Analysis(pub Vec<u8>);
 
@@ -2706,14 +2706,16 @@ where
     ///
     /// Return `true` if the time measurement exist (which means its $TIMESTEP
     /// was updated) and `false` otherwise.
-    pub fn set_timestep(&mut self, timestep: Timestep) -> bool
+    pub fn set_timestep(&mut self, timestep: Timestep) -> Option<Timestep>
     where
         Temporal<M::Temporal>: AsMut<Timestep>,
     {
-        self.measurements
-            .as_center_mut()
-            .map(|x| *x.value.as_mut() = timestep)
-            .is_some()
+        self.measurements.as_center_mut().map(|x| {
+            let ts = x.value.as_mut();
+            let old = *ts;
+            *ts = timestep;
+            old
+        })
     }
 
     pub fn compensation(&self) -> Option<&Compensation>

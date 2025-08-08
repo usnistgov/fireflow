@@ -494,7 +494,7 @@ class _CoreScaleTransformMethods:
 class _CoreTimestepMethods:
     @property
     def timestep(self) -> Timestep | None: ...
-    def set_timestep(self, timestep: Timestep) -> bool: ...
+    def set_timestep(self, timestep: Timestep) -> Timestep | None: ...
 
 class _CoreModified:
     originality: Originality | None
@@ -561,6 +561,8 @@ class _Core3_2:
     all_pntag: _OpticalKeyVals[str]
     all_pnfeature: _OpticalKeyVals[Feature]
     all_pnanalyte: _OpticalKeyVals[str]
+    # TODO this can return a list of all types including the time channel since
+    # they share the same kw
     all_pntype: _OpticalKeyVals[str]
 
 class _CoreMeasCalibration(Generic[_C]):
@@ -568,7 +570,10 @@ class _CoreMeasCalibration(Generic[_C]):
 
 class _CoreToDataset(Generic[_X]):
     def to_dataset(
-        self, cols: list[Series], analysis: AnalysisBytes, others: list[OtherBytes]
+        self,
+        cols: list[Series],
+        analysis: AnalysisBytes = ...,
+        others: list[OtherBytes] = ...,
     ) -> _X: ...
 
 class _CoreTo2_0(Generic[_X]):

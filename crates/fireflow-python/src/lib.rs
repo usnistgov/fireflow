@@ -1012,7 +1012,7 @@ common_coretext_meas_get_set!(
 common_coretext_meas_get_set!(PyCoreTEXT3_1, PyOptical3_1, PyTemporal3_1, Shortname);
 common_coretext_meas_get_set!(PyCoreTEXT3_2, PyOptical3_2, PyTemporal3_2, Shortname);
 
-macro_rules! set_temporal_2_0 {
+macro_rules! set_temporal {
     ($pytype:ident, $o:ident, $t:ident) => {
         #[pymethods]
         impl $pytype {
@@ -1037,24 +1037,36 @@ macro_rules! set_temporal_2_0 {
     };
 }
 
-set_temporal_2_0!(PyCoreTEXT2_0, PyOptical2_0, PyTemporal2_0);
-set_temporal_2_0!(PyCoreTEXT3_0, PyOptical3_0, PyTemporal3_0);
-set_temporal_2_0!(PyCoreTEXT3_1, PyOptical3_1, PyTemporal3_1);
-set_temporal_2_0!(PyCoreDataset2_0, PyOptical2_0, PyTemporal2_0);
-set_temporal_2_0!(PyCoreDataset3_0, PyOptical3_0, PyTemporal3_0);
-set_temporal_2_0!(PyCoreDataset3_1, PyOptical3_1, PyTemporal3_1);
+set_temporal!(PyCoreTEXT2_0, PyOptical2_0, PyTemporal2_0);
+set_temporal!(PyCoreTEXT3_0, PyOptical3_0, PyTemporal3_0);
+set_temporal!(PyCoreTEXT3_1, PyOptical3_1, PyTemporal3_1);
+set_temporal!(PyCoreDataset2_0, PyOptical2_0, PyTemporal2_0);
+set_temporal!(PyCoreDataset3_0, PyOptical3_0, PyTemporal3_0);
+set_temporal!(PyCoreDataset3_1, PyOptical3_1, PyTemporal3_1);
 
+// different set of functions for 3.2 since these can be "lossy"
 macro_rules! set_temporal_3_2 {
-    ($pytype:ident, $o:ident, $t:ident) => {
+    ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
+            /// Replace measurement at index with temporal measurement.
+            ///
+            /// Raise exception if index is output of bounds or there is already
+            /// a temporal measurement at a different index.
+            ///
+            /// :param int index: Index to be replaced.
+            /// :param meas: Temporal measurement with which to replace.
+            /// :type meas: :py:class:`Temporal3_2`
+            ///
+            /// :return: Replaced measurement object.
+            /// :rtype: :py:class:`Temporal3_2` | :py:class:`Optical3_2`
             #[pyo3(signature = (index, meas, force = false))]
             fn replace_temporal_at(
                 &mut self,
                 index: MeasIndex,
-                meas: $t,
+                meas: PyTemporal3_2,
                 force: bool,
-            ) -> PyResult<Element<$t, $o>> {
+            ) -> PyResult<Element<PyTemporal3_2, PyOptical3_2>> {
                 let ret = self
                     .0
                     .replace_temporal_at_lossy(index, meas.into(), force)
@@ -1062,13 +1074,24 @@ macro_rules! set_temporal_3_2 {
                 Ok(ret.inner_into())
             }
 
+            /// Replace measurement with name with temporal measurement.
+            ///
+            /// Raise exception if name is not found or there is already
+            /// a temporal measurement at a different index.
+            ///
+            /// :param str name: Name to replace. Must not contain commas.
+            /// :param meas: Temporal measurement with which to replace.
+            /// :type meas: :py:class:`Temporal3_2`
+            ///
+            /// :return: Replaced measurement object.
+            /// :rtype: :py:class:`Temporal3_2` | :py:class:`Optical3_2`
             #[pyo3(signature = (name, meas, force = false))]
             fn replace_temporal_named(
                 &mut self,
                 name: Shortname,
-                meas: $t,
+                meas: PyTemporal3_2,
                 force: bool,
-            ) -> PyResult<Option<Element<$t, $o>>> {
+            ) -> PyResult<Option<Element<PyTemporal3_2, PyOptical3_2>>> {
                 let ret = self
                     .0
                     .replace_temporal_named_lossy(&name, meas.into(), force)
@@ -1079,8 +1102,8 @@ macro_rules! set_temporal_3_2 {
     };
 }
 
-set_temporal_3_2!(PyCoreTEXT3_2, PyOptical3_2, PyTemporal3_2);
-set_temporal_3_2!(PyCoreDataset3_2, PyOptical3_2, PyTemporal3_2);
+set_temporal_3_2!(PyCoreTEXT3_2);
+set_temporal_3_2!(PyCoreDataset3_2);
 
 macro_rules! coredata_meas_get_set {
     ($pytype:ident, $o:ident, $t:ident, $n:path) => {
@@ -1145,11 +1168,27 @@ macro_rules! coredata_meas_get_set {
                     .insert_temporal(index, name, meas.into(), col, range, notrunc)
                     .py_term_resolve()
             }
+        }
+    };
+}
 
+macro_rules! coredata_common {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            // TODO be more specific about which keywords, requires splitting
+            // out by version
+            /// Remove all measurements and their data.
+            ///
+            /// Raise exception if any keywords reference *$PnN*.
             fn unset_data(&mut self) -> PyResult<()> {
                 Ok(self.0.unset_data()?)
             }
 
+            // TODO reference polars docs
+            /// The dataframe corresponding to *DATA*.
+            ///
+            /// :type: :py:class:`polars.DataFrame`
             #[getter]
             fn data(&self) -> PyDataFrame {
                 PyDataFrame(self.0.dataframe())
@@ -1160,6 +1199,9 @@ macro_rules! coredata_meas_get_set {
                 Ok(self.0.set_dataframe(df.0)?)
             }
 
+            /// The byte string corresponding to *ANALYSIS*.
+            ///
+            /// :type: bytes
             #[getter]
             fn analysis(&self) -> core::Analysis {
                 self.0.analysis.clone()
@@ -1170,6 +1212,9 @@ macro_rules! coredata_meas_get_set {
                 self.0.analysis = xs.into();
             }
 
+            /// The byte strings corresponding to *OTHER* segments.
+            ///
+            /// :type: list[bytes]
             #[getter]
             fn others(&self) -> core::Others {
                 self.0.others.clone()
@@ -1197,6 +1242,11 @@ coredata_meas_get_set!(
 );
 coredata_meas_get_set!(PyCoreDataset3_1, PyOptical3_1, PyTemporal3_1, Shortname);
 coredata_meas_get_set!(PyCoreDataset3_2, PyOptical3_2, PyTemporal3_2, Shortname);
+
+coredata_common!(PyCoreDataset2_0);
+coredata_common!(PyCoreDataset3_0);
+coredata_common!(PyCoreDataset3_1);
+coredata_common!(PyCoreDataset3_2);
 
 macro_rules! set_measurements_ordered {
     ($pytype:ident, $t:ident, $o:ident) => {
@@ -1333,6 +1383,11 @@ macro_rules! get_set_3_2 {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
+            /// Value for *$BEGINDATETIME*
+            ///
+            /// Must come before *$ENDDATETIME* if it exists.
+            ///
+            /// :type: :py:class:`datetime.datetime` | None
             #[getter]
             fn get_begindatetime(&self) -> Option<DateTime<FixedOffset>> {
                 self.0.begindatetime()
@@ -1343,6 +1398,11 @@ macro_rules! get_set_3_2 {
                 Ok(self.0.set_begindatetime(x)?)
             }
 
+            /// Value for *$ENDDATETIME*
+            ///
+            /// Must come after *$BEGINDATETIME* if it exists.
+            ///
+            /// :type: :py:class:`datetime.datetime` | None
             #[getter]
             fn get_enddatetime(&self) -> Option<DateTime<FixedOffset>> {
                 self.0.enddatetime()
@@ -1353,6 +1413,12 @@ macro_rules! get_set_3_2 {
                 Ok(self.0.set_enddatetime(x)?)
             }
 
+            /// Value for *$UNSTAINEDCENTERS*
+            ///
+            /// This is a dictionary where keys are names which must reference
+            /// a *$PnN*. Names must not contain commas.
+            ///
+            /// :type: dict[str, float]
             #[getter]
             fn get_unstained_centers(&self) -> Option<UnstainedCenters> {
                 self.0.metaroot_opt::<UnstainedCenters>().map(|y| y.clone())
@@ -1374,6 +1440,15 @@ macro_rules! scales_methods {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
+            /// The value for *$PnE* for all measurements.
+            ///
+            /// Will be ``()`` for linear scaling (``0,0`` in FCS encoding), a
+            /// 2-tuple for log scaling, and ``None`` if missing.
+            ///
+            /// The temporal measurement must always be ``()``. Setting it
+            /// to another value will raise an exception.
+            ///
+            /// :type: list[() | (float, float) | None]
             #[getter]
             fn get_scales(&self) -> Vec<Option<Scale>> {
                 self.0.scales().collect()
@@ -1395,6 +1470,22 @@ macro_rules! transforms_methods {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
+            /// The value for *$PnE* and/or *$PnG* for all measurements.
+            ///
+            /// Collectively these keywords correspond to scale transforms.
+            ///
+            /// If scaling is linear, return a float which corresponds to the
+            /// value of *$PnG* when *$PnE* is ``0,0``. If scaling is logarithmic,
+            /// return a pair of floats, corresponding to unset *$PnG* and the
+            /// non-``0,0`` value of *$PnE*.
+            ///
+            /// The FCS standards disallow any other combinations.
+            ///
+            /// The temporal measurement will always be ``1.0``, corresponding
+            /// to an identity transform. Setting it to another value will
+            /// raise an exception.
+            ///
+            /// :type: list[float | (float, float)]
             #[getter]
             fn get_transforms(&self) -> Vec<core::ScaleTransform> {
                 self.0.transforms().collect()
@@ -1421,12 +1512,22 @@ macro_rules! timestep_methods {
         $(
             #[pymethods]
             impl $pytype {
+                /// The value of *$TIMESTEP*.
+                ///
+                /// :type: float | None
                 #[getter]
                 fn get_timestep(&self) -> Option<kws::Timestep> {
                     self.0.timestep().copied()
                 }
 
-                fn set_timestep(&mut self, timestep: kws::Timestep) -> bool {
+                /// Set the *$TIMESTEP* if time measurement is present.
+                ///
+                /// :param float timestep: The timestep to set. Must be greater
+                ///     than zero.
+                ///
+                /// :return: Previous *$TIMESTEP* if present.
+                /// :rtype: float | None
+                fn set_timestep(&mut self, timestep: kws::Timestep) -> Option<kws::Timestep> {
                     self.0.set_timestep(timestep)
                 }
             }
@@ -1499,6 +1600,7 @@ macro_rules! comp_methods {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
+            // TODO docstring will be different for 2.0 and 3.0
             #[getter]
             fn get_compensation(&self) -> Option<Compensation> {
                 self.0.compensation().cloned()
@@ -1522,19 +1624,33 @@ macro_rules! spillover_methods {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
+            /// The matrix component of *$SPILLOVER*.
+            ///
+            /// Will always be at least 2x2.
+            ///
+            /// :type: :py:class:`numpy.ndarray`
             #[getter]
             fn get_spillover_matrix<'a>(&self, py: Python<'a>) -> Option<Bound<'a, PyArray2<f32>>> {
                 self.0.spillover_matrix().map(|x| x.to_pyarray(py))
             }
 
+            /// The measurement names component of *$SPILLOVER*.
+            ///
+            /// Will always contain at least 2 names.
+            ///
+            /// :type: list[str] | None
             #[getter]
-            fn get_spillover_names(&self) -> Vec<Shortname> {
-                self.0
-                    .spillover_names()
-                    .map(|x| x.to_vec())
-                    .unwrap_or_default()
+            fn get_spillover_names(&self) -> Option<Vec<Shortname>> {
+                self.0.spillover_names().map(|x| x.to_vec())
             }
 
+            /// Set the value of *$SPILLOVER*.
+            ///
+            /// :param names: Measurement names for matrix. Must refer to exising
+            ///     *$PnN* and must not have commas.
+            /// :type names: list[str]
+            /// :param matrix: Spillover matrix values in row-major order.
+            /// :type matrix: :py:class:`numpy.ndarray`
             fn set_spillover(
                 &mut self,
                 names: Vec<Shortname>,
@@ -1544,6 +1660,7 @@ macro_rules! spillover_methods {
                 Ok(self.0.set_spillover(names, m)?)
             }
 
+            /// Unset value of *$SPILLOVER*.
             fn unset_spillover(&mut self) {
                 self.0.unset_spillover()
             }
@@ -1741,7 +1858,20 @@ get_set_all_meas_proc! {
 macro_rules! to_dataset_method {
     ($from:ident, $to:ident) => {
         #[pymethods]
+        // TODO use dataframe here
+        // TODO use proc macro to get return type in docstring
         impl $from {
+            /// Convert to a dataset object.
+            ///
+            /// This will fully represent an FCS file, as opposed to just
+            /// representing *HEADER* and *TEXT*.
+            ///
+            /// :param cols: Columns corresponding to *DATA*.
+            /// :param analysis: Bytes corresponding to *ANALYSIS*.
+            /// :type analysis: bytes
+            /// :param others: Bytes corresponding to *OTHERS*.
+            /// :type others: list[bytes]
+            #[pyo3(signature = (cols, analysis = core::Analysis::default(), others = core::Others::default()))]
             fn to_dataset(
                 &self,
                 cols: Vec<AnyFCSColumn>,
@@ -1764,7 +1894,8 @@ macro_rules! write_dataset_method {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
-            // TODO make all flags default to false by convention
+            // TODO docstring will be different for 2.0 which must mention the
+            // 8 digit limit
             #[pyo3(signature =
                    (path, delim = TEXTDelim::default(), skip_conversion_check = false, allow_lossy_conversions = false)
             )]

@@ -487,10 +487,8 @@ macro_rules! common_methods {
         impl $pytype {
             /// Insert a nonstandard key.
             ///
-            /// :param key: Key to insert. Must not start with *$*.
-            /// :type key: str
-            /// :param value: Value to insert.
-            /// :type value: str
+            /// :param str key: Key to insert. Must not start with *$*.
+            /// :param str value: Value to insert.
             ///
             /// :return: Previous value for ``key`` if it exists.
             /// :rtype: str | None
@@ -500,8 +498,7 @@ macro_rules! common_methods {
 
             /// Remove a nonstandard key.
             ///
-            /// :param key: Key to remove. Must not start with *$*.
-            /// :type key: str
+            /// :param str key: Key to remove. Must not start with *$*.
             ///
             /// :return: Value for ``key`` if it exists.
             /// :rtype: str | None
@@ -511,8 +508,7 @@ macro_rules! common_methods {
 
             /// Look up a nonstandard key.
             ///
-            /// :param key: Key to find. Must not start with *$*.
-            /// :type key: str
+            /// :param str key: Key to find. Must not start with *$*.
             ///
             /// :return: Value for ``key`` if it exists.
             /// :rtype: str | None
@@ -527,14 +523,10 @@ macro_rules! common_methods {
             /// This will not include *$TOT*, *$NEXTDATA* or any of the
             /// offset keywords since these are not encoded in this class.
             ///
-            /// :param exclude_req_root: Do not include required non-measurement keywords
-            /// :type exclude_req_root: bool
-            /// :param exclude_opt_root: Do not include optional non-measurement keywords
-            /// :type exclude_opt_root: bool
-            /// :param exclude_req_meas: Do not include required measurement keywords
-            /// :type exclude_req_meas: bool
-            /// :param exclude_opt_meas: Do not include optional measurement keywords
-            /// :type exclude_opt_meas: bool
+            /// :param bool exclude_req_root: Do not include required non-measurement keywords
+            /// :param bool exclude_opt_root: Do not include optional non-measurement keywords
+            /// :param bool exclude_req_meas: Do not include required measurement keywords
+            /// :param bool exclude_opt_meas: Do not include optional measurement keywords
             ///
             /// :return: A list of standard keywords.
             /// :rtype: dict[str, str]
@@ -587,7 +579,7 @@ macro_rules! common_methods {
             //         .map(|rs| rs.into_iter().map(|r| r.cloned()).collect())
             // }
 
-            /// Get or set the value for *$BTIM*
+            /// The value for *$BTIM*.
             ///
             /// If ``date``, ``btim``, and ``etim`` are all not ``None`` then
             /// ``btim`` must be before ``etim``.
@@ -603,7 +595,7 @@ macro_rules! common_methods {
                 Ok(self.0.set_btim_naive(x)?)
             }
 
-            /// Get or set the value for *$ETIM*
+            /// The value for *$ETIM*.
             ///
             /// If ``date``, ``btim``, and ``etim`` are all not ``None`` then
             /// ``btim`` must be before ``etim``.
@@ -619,7 +611,7 @@ macro_rules! common_methods {
                 Ok(self.0.set_etim_naive(x)?)
             }
 
-            /// Get or set the value for *$DATE*
+            /// The value for *$DATE*.
             ///
             /// If ``date``, ``btim``, and ``etim`` are all not ``None`` then
             /// ``btim`` must be before ``etim``.
@@ -635,7 +627,7 @@ macro_rules! common_methods {
                 Ok(self.0.set_date_naive(x)?)
             }
 
-            /// The value for *$TR*
+            /// The value for *$TR*.
             ///
             /// This is represented as a tuple where the first member is the
             /// threshold and the second member is a measurement name which
@@ -652,10 +644,9 @@ macro_rules! common_methods {
                 Ok(self.0.set_trigger(tr)?)
             }
 
-            /// Set the threshold for *$TR*
+            /// Set the threshold for *$TR*.
             ///
-            /// :param threshold: The threshold to set
-            /// :type threshold: int
+            /// :param int threshold: The threshold to set
             ///
             /// :return: ``True`` if trigger is set and was updated
             /// :rtype: bool
@@ -664,7 +655,7 @@ macro_rules! common_methods {
             }
 
             // TODO this is only relevant for 2.0/3.0
-            /// Get *$PnN* for all measurements
+            /// The possibly-empty values of *$PnN* for all measurements.
             ///
             /// :return: List of strings or ``None`` if *$PnN* is not set, which
             ///     is only possible in FCS 2.0/3.0.
@@ -681,9 +672,10 @@ macro_rules! common_methods {
             // TODO pretty sure there is no way to change prefix once a core
             // object is created
             // TODO docs should be specific to version
-            /// Get or set *$PnN* for all measurements
+            /// Value of *$PnN* for all measurements.
             ///
-            /// When writing this attribute, must be a list of unique strings.
+            /// When writing this attribute, must be a list of unique strings
+            /// where each string must not contain a comma.
             ///
             /// When reading this attribute, will return list of strings of
             /// either *$PnN* if present or an indexed identifier like
@@ -693,15 +685,16 @@ macro_rules! common_methods {
             ///
             /// :type: list[str]
             #[getter]
-            fn all_shortnames(&self) -> Vec<Shortname> {
+            fn get_all_pnn(&self) -> Vec<Shortname> {
                 self.0.all_shortnames()
             }
 
             #[setter]
-            fn set_all_shortnames(&mut self, names: Vec<Shortname>) -> PyResult<()> {
+            fn set_all_pnn(&mut self, names: Vec<Shortname>) -> PyResult<()> {
                 Ok(self.0.set_all_shortnames(names).void()?)
             }
 
+            // TODO FCS 2.0 specific doc
             /// Write data to path.
             ///
             /// Resulting FCS file will include *HEADER* and *TEXT*.
@@ -733,15 +726,14 @@ common_methods!(PyCoreDataset3_0);
 common_methods!(PyCoreDataset3_1);
 common_methods!(PyCoreDataset3_2);
 
-macro_rules! temporal_get_set_2_0 {
+macro_rules! set_temporal_no_timestep {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
             /// Set the temporal measurement to a given name.
             ///
-            /// :param name: Name to set. Must be a *$PnN* which is present.
-            /// :param type: str
-            /// :param force: If ``True`` remove any optical-specific metadata
+            /// :param str name: Name to set. Must be a *$PnN* which is present.
+            /// :param bool force: If ``True`` remove any optical-specific metadata
             ///     (detectors, lasers, etc) without raising an exception.
             ///     Defauls to ``False``.
             ///
@@ -756,8 +748,7 @@ macro_rules! temporal_get_set_2_0 {
 
             /// Set the temporal measurement to a given index.
             ///
-            /// :param index: Index to set. Must be between 0 and ``par``.
-            /// :param type: int
+            /// :param int index: Index to set. Must be between 0 and ``par``.
             /// :param force: If ``True`` remove any optical-specific metadata
             ///     (detectors, lasers, etc) without raising an exception.
             ///     Defauls to ``False``.
@@ -770,7 +761,79 @@ macro_rules! temporal_get_set_2_0 {
             fn set_temporal_at(&mut self, index: MeasIndex, force: bool) -> PyResult<bool> {
                 self.0.set_temporal_at(index, (), force).py_term_resolve()
             }
+        }
+    };
+}
 
+set_temporal_no_timestep!(PyCoreTEXT2_0);
+set_temporal_no_timestep!(PyCoreDataset2_0);
+
+macro_rules! set_temporal_timestep {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            /// Set the temporal measurement to a given name.
+            ///
+            /// :param str name: Name to set. Must be a *$PnN* which is present.
+            /// :param float timestep: The value of *$TIMESTEP* to use.
+            /// :param bool force: If ``True`` remove any optical-specific metadata
+            ///     (detectors, lasers, etc) without raising an exception.
+            ///     Defauls to ``False``.
+            ///
+            /// :return: ``True`` if temporal measurement was set, which will
+            ///     happen for all cases except when the time measurement is
+            ///     already set to ``name``.
+            /// :rtype: bool
+            #[pyo3(signature = (name, timestep, force = false))]
+            fn set_temporal(
+                &mut self,
+                name: Shortname,
+                timestep: kws::Timestep,
+                force: bool,
+            ) -> PyResult<bool> {
+                self.0
+                    .set_temporal(&name, timestep, force)
+                    .py_term_resolve()
+            }
+
+            /// Set the temporal measurement to a given index.
+            ///
+            /// :param int index: Index to set. Must be between 0 and ``par``.
+            /// :param float timestep: The value of *$TIMESTEP* to use.
+            /// :param force: If ``True`` remove any optical-specific metadata
+            ///     (detectors, lasers, etc) without raising an exception.
+            ///     Defauls to ``False``.
+            ///
+            /// :return: ``True`` if temporal measurement was set, which will
+            ///     happen for all cases except when the time measurement is
+            ///     already set to ``index``.
+            /// :rtype: bool
+            #[pyo3(signature = (index, timestep, force = false))]
+            fn set_temporal_at(
+                &mut self,
+                index: MeasIndex,
+                timestep: kws::Timestep,
+                force: bool,
+            ) -> PyResult<bool> {
+                self.0
+                    .set_temporal_at(index, timestep, force)
+                    .py_term_resolve()
+            }
+        }
+    };
+}
+
+set_temporal_timestep!(PyCoreTEXT3_0);
+set_temporal_timestep!(PyCoreTEXT3_1);
+set_temporal_timestep!(PyCoreTEXT3_2);
+set_temporal_timestep!(PyCoreDataset3_0);
+set_temporal_timestep!(PyCoreDataset3_1);
+set_temporal_timestep!(PyCoreDataset3_2);
+
+macro_rules! unset_temporal_notimestep {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
             /// Convert the temporal measurement to an optical measurement.
             ///
             /// :return: ``True`` if temporal measurement was present and
@@ -783,37 +846,17 @@ macro_rules! temporal_get_set_2_0 {
     };
 }
 
-temporal_get_set_2_0!(PyCoreTEXT2_0);
-temporal_get_set_2_0!(PyCoreDataset2_0);
+unset_temporal_notimestep!(PyCoreTEXT2_0);
+unset_temporal_notimestep!(PyCoreDataset2_0);
 
-macro_rules! temporal_get_set_3_0 {
+macro_rules! unset_temporal_timestep {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
-            #[pyo3(signature = (name, timestep, force = false))]
-            fn set_temporal(
-                &mut self,
-                name: Shortname,
-                timestep: kws::Timestep,
-                force: bool,
-            ) -> PyResult<bool> {
-                self.0
-                    .set_temporal(&name, timestep, force)
-                    .py_term_resolve()
-            }
-
-            #[pyo3(signature = (index, timestep, force = false))]
-            fn set_temporal_at(
-                &mut self,
-                index: MeasIndex,
-                timestep: kws::Timestep,
-                force: bool,
-            ) -> PyResult<bool> {
-                self.0
-                    .set_temporal_at(index, timestep, force)
-                    .py_term_resolve()
-            }
-
+            /// Convert the temporal measurement to an optical measurement.
+            ///
+            /// :return: Value of *$TIMESTEP* if time measurement was present.
+            /// :rtype: float | None
             fn unset_temporal(&mut self) -> Option<kws::Timestep> {
                 self.0.unset_temporal()
             }
@@ -821,39 +864,23 @@ macro_rules! temporal_get_set_3_0 {
     };
 }
 
-temporal_get_set_3_0!(PyCoreTEXT3_0);
-temporal_get_set_3_0!(PyCoreTEXT3_1);
-temporal_get_set_3_0!(PyCoreDataset3_0);
-temporal_get_set_3_0!(PyCoreDataset3_1);
+unset_temporal_timestep!(PyCoreTEXT3_0);
+unset_temporal_timestep!(PyCoreTEXT3_1);
+unset_temporal_timestep!(PyCoreDataset3_0);
+unset_temporal_timestep!(PyCoreDataset3_1);
 
-macro_rules! temporal_get_set_3_2 {
+macro_rules! unset_temporal_timestep_lossy {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
-            #[pyo3(signature = (name, timestep, force = false))]
-            fn set_temporal(
-                &mut self,
-                name: Shortname,
-                timestep: kws::Timestep,
-                force: bool,
-            ) -> PyResult<bool> {
-                self.0
-                    .set_temporal(&name, timestep, force)
-                    .py_term_resolve()
-            }
-
-            #[pyo3(signature = (index, timestep, force = false))]
-            fn set_temporal_at(
-                &mut self,
-                index: MeasIndex,
-                timestep: kws::Timestep,
-                force: bool,
-            ) -> PyResult<bool> {
-                self.0
-                    .set_temporal_at(index, timestep, force)
-                    .py_term_resolve()
-            }
-
+            /// Convert the temporal measurement to an optical measurement.
+            ///
+            /// :param bool force: If ``True`` and current time measurement has
+            ///     data which cannot be converted to optical, force the conversion
+            ///     anyways. Otherwise raise an exception.
+            ///
+            /// :return: Value of *$TIMESTEP* if time measurement was present.
+            /// :rtype: float | None
             #[pyo3(signature = (force = false))]
             fn unset_temporal(&mut self, force: bool) -> PyResult<Option<kws::Timestep>> {
                 self.0.unset_temporal_lossy(force).py_term_resolve()
@@ -862,8 +889,8 @@ macro_rules! temporal_get_set_3_2 {
     };
 }
 
-temporal_get_set_3_2!(PyCoreTEXT3_2);
-temporal_get_set_3_2!(PyCoreDataset3_2);
+unset_temporal_timestep_lossy!(PyCoreTEXT3_2);
+unset_temporal_timestep_lossy!(PyCoreDataset3_2);
 
 macro_rules! common_meas_get_set {
     ($pytype:ident, $o:ident, $t:ident, $n:path, $fam:ident) => {

@@ -1076,14 +1076,14 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             .unwrap()
             .both(|_| true, |(n, _)| K::as_opt(n).is_some())
         {
-            return Err(SetCenterError::NoName.into());
+            return Err(SetCenterError::NoName);
         }
 
-        let index = self.check_element_index(index, true)?;
+        let i = self.check_element_index(index, true)?;
 
         let ret = self
-            .replace_center_at_inner(index.into(), value, |i, u| {
-                Ok(Tentative::new_infallible(to_v(i, u)))
+            .replace_center_at_inner(i.into(), value, |j, u| {
+                Ok(Tentative::new_infallible(to_v(j, u)))
             })
             .def_unwrap_infallible();
         Ok(ret)
@@ -1102,7 +1102,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             NamedVec::Split(s, _) => match split_at_index::<K, U, V>(s, index.into()) {
                 PartialSplit::Left(left, center, right, prefix) => {
                     let center_key = center.key;
-                    match to_v(index.into(), center.value) {
+                    match to_v(index, center.value) {
                         Ok(pass) => Ok(pass.map(|old_center_value| {
                             let sp = Self::new_split_from_left(
                                 left.left,

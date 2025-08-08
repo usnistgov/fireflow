@@ -711,7 +711,8 @@ macro_rules! common_methods {
             ///
             /// :param path: path to write
             /// :type path: :py:class:`pathlib.Path`
-            /// :param delim: Delimiter to use when writing *TEXT*.
+            ///
+            /// :param int delim: Delimiter to use when writing *TEXT*.
             ///     Defaults to 30 (record separator).
             #[pyo3(signature = (path, delim = TEXTDelim::default()))]
             fn write_text(&self, path: PathBuf, delim: TEXTDelim) -> PyResult<()> {

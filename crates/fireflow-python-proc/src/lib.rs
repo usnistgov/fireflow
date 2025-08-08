@@ -67,7 +67,7 @@ pub fn get_set_all_meas_proc(input: TokenStream) -> TokenStream {
     let (kw_inner, optional) = unwrap_generic("Option", kw_mid);
     let s = info.suffix.value();
 
-    let doc_summary = format!("Value of *$Pn{}* for all measurements", s.to_uppercase());
+    let doc_summary = format!("Value of *$Pn{}* for all measurements.", s.to_uppercase());
     let doc_middle = if optical_only {
         "\n``()`` will be returned for time since this keyword is not defined there.\n"
     } else {
@@ -156,7 +156,7 @@ pub fn convert_methods_proc(input: TokenStream) -> TokenStream {
             let target_type = format_ident!("{base}{v}");
             let target_rs_type = target_type.to_string().replace("Py", "");
             let pretty_version = v.replace("_", ".");
-            let doc_summary = format!("Convert to FCS {pretty_version}");
+            let doc_summary = format!("Convert to FCS {pretty_version}.");
             let doc_return = format!(":return: A new class conforming to FCS {pretty_version}");
             let doc_rtype = format!(":rtype: :class:`{target_rs_type}`");
             quote! {
@@ -167,14 +167,15 @@ pub fn convert_methods_proc(input: TokenStream) -> TokenStream {
                     /// Will raise an exception if target version requires data which
                     /// is not present in ``self``.
                     ///
-                    /// :param force: If ``False``, do not proceed with conversion if
-                    ///     it would result in data loss. This is most likely to
-                    ///     happen when converting from a later to an earlier version,
-                    ///     as many keywords from the later version may not exist
-                    ///     in the earlier version. There is no place to keep these
-                    ///     values so they must be discarded. Set to ``True`` to
-                    ///     perform the conversion with such discarding; otherwise,
-                    ///     remove the keywords manually before converting.
+                    /// :param bool force: If ``False``, do not proceed with
+                    ///     conversion if it would result in data loss. This is
+                    ///     most likely to happen when converting from a later
+                    ///     to an earlier version, as many keywords from the
+                    ///     later version may not exist in the earlier version.
+                    ///     There is no place to keep these values so they must
+                    ///     be discarded. Set to ``True`` to perform the
+                    ///     conversion with such discarding; otherwise, remove
+                    ///     the keywords manually before converting.
                     #[doc = #doc_return]
                     #[doc = #doc_rtype]
                     #[pyo3(signature = (force = false))]

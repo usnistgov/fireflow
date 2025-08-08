@@ -658,31 +658,30 @@ impl fmt::Display for WavelengthsError {
 #[derive(Clone, Copy, From, Into, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
-pub struct ModifiedDateTime(pub NaiveDateTime);
+pub struct LastModified(pub NaiveDateTime);
 
 const DATETIME_FMT: &str = "%d-%b-%Y %H:%M:%S";
 
-impl FromStr for ModifiedDateTime {
-    type Err = ModifiedDateTimeError;
+impl FromStr for LastModified {
+    type Err = LastModifiedError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let (t, cc) = match &s.split(".").collect::<Vec<_>>()[..] {
             [t] => (*t, ""),
             [t, cc] => (*t, *cc),
-            _ => return Err(ModifiedDateTimeError),
+            _ => return Err(LastModifiedError),
         };
         NaiveDateTime::parse_from_str(t, DATETIME_FMT)
-            .or(Err(ModifiedDateTimeError))
+            .or(Err(LastModifiedError))
             .and_then(|dt| {
                 if cc.is_empty() {
                     Ok(dt)
                 } else {
-                    let tt = cc.parse::<u32>().or(Err(ModifiedDateTimeError))?;
+                    let tt = cc.parse::<u32>().or(Err(LastModifiedError))?;
                     if tt > 100 {
-                        Err(ModifiedDateTimeError)
+                        Err(LastModifiedError)
                     } else {
-                        dt.with_nanosecond(tt * 10_000_000)
-                            .ok_or(ModifiedDateTimeError)
+                        dt.with_nanosecond(tt * 10_000_000).ok_or(LastModifiedError)
                     }
                 }
             })
@@ -690,7 +689,7 @@ impl FromStr for ModifiedDateTime {
     }
 }
 
-impl fmt::Display for ModifiedDateTime {
+impl fmt::Display for LastModified {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let dt = self.0.format(DATETIME_FMT);
         let cc = self.0.nanosecond() / 10_000_000;
@@ -698,9 +697,9 @@ impl fmt::Display for ModifiedDateTime {
     }
 }
 
-pub struct ModifiedDateTimeError;
+pub struct LastModifiedError;
 
-impl fmt::Display for ModifiedDateTimeError {
+impl fmt::Display for LastModifiedError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "must be like 'dd-mmm-yyyy hh:mm:ss[.cc]'")
     }
@@ -1864,7 +1863,7 @@ kw_req_meta!(Timestep, "TIMESTEP");
 // for 3.1+
 kw_opt_meta_string!(LastModifier, "LAST_MODIFIER");
 kw_opt_meta!(Originality, "ORIGINALITY");
-kw_opt_meta!(ModifiedDateTime, "LAST_MODIFIED");
+kw_opt_meta!(LastModified, "LAST_MODIFIED");
 
 kw_opt_meta_string!(Plateid, "PLATEID");
 kw_opt_meta_string!(Platename, "PLATENAME");
@@ -2111,11 +2110,11 @@ mod tests {
 
     #[test]
     fn test_last_modified() {
-        assert_from_to_str_almost::<ModifiedDateTime>(
+        assert_from_to_str_almost::<LastModified>(
             "01-Jan-2112 00:00:00",
             "01-Jan-2112 00:00:00.00",
         );
-        assert_from_to_str::<ModifiedDateTime>("01-Jan-2112 00:00:00.01");
+        assert_from_to_str::<LastModified>("01-Jan-2112 00:00:00.01");
     }
 
     #[test]
@@ -2202,7 +2201,7 @@ mod python {
 
     use super::{
         AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, DetectorVoltage, Display,
-        Feature, FeatureError, Mode, Mode3_2, Mode3_2Error, ModeError, ModifiedDateTime, NumType,
+        Feature, FeatureError, LastModified, Mode, Mode3_2, Mode3_2Error, ModeError, NumType,
         NumTypeError, OpticalType, OpticalTypeError, Originality, OriginalityError, Power, Range,
         Timestep, Trigger, Unicode, Vol, Wavelength, Wavelengths,
     };
@@ -2232,7 +2231,7 @@ mod python {
     impl_from_py_transparent!(Wavelength);
     impl_from_py_transparent!(Vol);
     impl_from_py_transparent!(Timestep);
-    impl_from_py_transparent!(ModifiedDateTime);
+    impl_from_py_transparent!(LastModified);
     impl_from_py_transparent!(Range);
     impl_from_py_transparent!(DetectorVoltage);
     impl_from_py_transparent!(Power);

@@ -511,8 +511,8 @@ pub struct InnerMetaroot3_1 {
     spillover: MaybeValue<Spillover>,
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
-    #[as_ref(Option<LastModifier>, Option<ModifiedDateTime>, Option<Originality>)]
-    #[as_mut(Option<LastModifier>, Option<ModifiedDateTime>, Option<Originality>)]
+    #[as_ref(Option<LastModifier>, Option<LastModified>, Option<Originality>)]
+    #[as_mut(Option<LastModifier>, Option<LastModified>, Option<Originality>)]
     pub modification: ModificationData,
 
     /// Values of $PLATEID/$PLATENAME/$WELLID
@@ -567,8 +567,8 @@ pub struct InnerMetaroot3_2 {
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
     // TODO it makes sense to verify this isn't before the file was created
-    #[as_ref(Option<LastModifier>, Option<ModifiedDateTime>, Option<Originality>)]
-    #[as_mut(Option<LastModifier>, Option<ModifiedDateTime>, Option<Originality>)]
+    #[as_ref(Option<LastModifier>, Option<LastModified>, Option<Originality>)]
+    #[as_mut(Option<LastModifier>, Option<LastModified>, Option<Originality>)]
     pub modification: ModificationData,
 
     /// Values of $PLATEID/$PLATENAME/$WELLID
@@ -1000,9 +1000,9 @@ pub struct ModificationData {
     #[as_mut(Option<LastModifier>)]
     pub last_modifier: MaybeValue<LastModifier>,
 
-    #[as_ref(Option<ModifiedDateTime>)]
-    #[as_mut(Option<ModifiedDateTime>)]
-    pub last_modified: MaybeValue<ModifiedDateTime>,
+    #[as_ref(Option<LastModified>)]
+    #[as_mut(Option<LastModified>)]
+    pub last_modified: MaybeValue<LastModified>,
 
     #[as_ref(Option<Originality>)]
     #[as_mut(Option<Originality>)]
@@ -5028,7 +5028,7 @@ impl From<AppliedGates3_2> for AppliedGates3_0 {
 impl ModificationData {
     fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<Self, E> {
         let lmr = LastModifier::lookup_opt(kws);
-        let lmd = ModifiedDateTime::lookup_opt(kws);
+        let lmd = LastModified::lookup_opt(kws);
         let ori = Originality::lookup_opt(kws);
         lmr.zip3(lmd, ori)
             .map(|(last_modifier, last_modified, originality)| Self {
@@ -5641,7 +5641,7 @@ impl_ref_specific_rw!(
     Option<Cyt>,
     Option<Cytsn>,
     Option<LastModifier>,
-    Option<ModifiedDateTime>,
+    Option<LastModified>,
     Option<Originality>,
     Option<Plateid>,
     Option<Wellid>,
@@ -5658,7 +5658,7 @@ impl_ref_specific_rw!(
     Option<Mode3_2>,
     Option<Cytsn>,
     Option<LastModifier>,
-    Option<ModifiedDateTime>,
+    Option<LastModified>,
     Option<Originality>,
     Option<Plateid>,
     Option<Wellid>,
@@ -8767,7 +8767,7 @@ pub enum AnyMetarootKeyLossError {
     Locationid(UnitaryKeyLossError<Locationid>),
     Carriertype(UnitaryKeyLossError<Carriertype>),
     LastModifier(UnitaryKeyLossError<LastModifier>),
-    LastModified(UnitaryKeyLossError<ModifiedDateTime>),
+    LastModified(UnitaryKeyLossError<LastModified>),
     Originality(UnitaryKeyLossError<Originality>),
     UnstainedCenters(UnitaryKeyLossError<UnstainedCenters>),
     UnstainedInfo(UnitaryKeyLossError<UnstainedInfo>),

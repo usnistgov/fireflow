@@ -49,7 +49,7 @@ def pytest_make_parametrize_id(
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_fixture_setup(
-    fixturedef: pytest.FixtureDef,
+    fixturedef: pytest.FixtureDef[object],
     request: pytest.FixtureRequest,
 ) -> object | None:
     """Lazy fixture setup hook.

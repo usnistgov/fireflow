@@ -1,4 +1,4 @@
-from typing import cast
+from typing import cast, Any
 from datetime import date, datetime, time, timezone, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -259,7 +259,9 @@ def dataset2_3_2(
     return dataset_3_2
 
 
-def parameterize_versions(arg: str, versions: list[str], targets: list[str]):
+def parameterize_versions(
+    arg: str, versions: list[str], targets: list[str]
+) -> pytest.MarkDecorator:
     return pytest.mark.parametrize(
         arg,
         [lazy_fixture(f"{t}_{v}") for v in versions for t in targets],
@@ -448,7 +450,7 @@ class TestCore:
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
         attr: str,
-        value,
+        value: Any,
     ) -> None:
         assert getattr(core, attr) is None
         setattr(core, attr, value)
@@ -580,8 +582,8 @@ class TestCore:
         self,
         core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
         attr: str,
-        good,
-        bad,
+        good: Any,
+        bad: Any,
     ) -> None:
         assert getattr(core, attr) is None
         setattr(core, attr, good)
@@ -780,12 +782,12 @@ class TestCore:
         self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0
     ) -> None:
         assert core.temporal is None
-        core.set_temporal(LINK_NAME1, False)
+        core.set_temporal(LINK_NAME1)
         assert core.temporal is not None
         assert core.temporal[1] == LINK_NAME1
-        assert core.unset_temporal(False) is True
+        assert core.unset_temporal() is True
         assert core.temporal is None
-        assert core.unset_temporal(False) is False
+        assert core.unset_temporal() is False
 
     @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["text", "dataset"])
     def test_temporal_timestep(
@@ -799,12 +801,12 @@ class TestCore:
     ) -> None:
         assert core.temporal is None
         ts = 1.0
-        core.set_temporal(LINK_NAME1, ts, False)
+        core.set_temporal(LINK_NAME1, ts)
         assert core.temporal is not None
         assert core.temporal[1] == LINK_NAME1
-        assert core.unset_temporal(False) == ts
+        assert core.unset_temporal() == ts
         assert core.temporal is None
-        assert core.unset_temporal(False) is None
+        assert core.unset_temporal() is None
 
     @parameterize_versions("core", ["2_0"], ["text", "dataset"])
     def test_temporal_no_timestep_at(
@@ -862,7 +864,7 @@ class TestCore:
             ]
         ],
     )
-    def test_replace_optical_at(self, core: AnyCore, optical) -> None:
+    def test_replace_optical_at(self, core: AnyCore, optical: Any) -> None:
         ln = "I am not living"
         optical.longname = ln
         core.replace_optical_at(0, optical)
@@ -884,7 +886,7 @@ class TestCore:
             ]
         ],
     )
-    def test_replace_optical_named(self, core: AnyCore, optical) -> None:
+    def test_replace_optical_named(self, core: AnyCore, optical: Any) -> None:
         ln = "I'm asleep"
         optical.longname = ln
         core.replace_optical_named(LINK_NAME1, optical)
@@ -906,10 +908,10 @@ class TestCore:
             ]
         ],
     )
-    def test_replace_temporal_at(self, core: AnyCore, temporal) -> None:
+    def test_replace_temporal_at(self, core: AnyCore, temporal: Any) -> None:
         ln = "show me wut u got"
         temporal.longname = ln
-        core.replace_temporal_at(1, temporal, False)
+        core.replace_temporal_at(1, temporal)
         core.measurement_at(1).longname == ln
 
     @pytest.mark.parametrize(
@@ -928,10 +930,10 @@ class TestCore:
             ]
         ],
     )
-    def test_replace_temporal_named(self, core: AnyCore, temporal) -> None:
+    def test_replace_temporal_named(self, core: AnyCore, temporal: Any) -> None:
         ln = "the combination is... 1. 2. 3. 4. 5."
         temporal.longname = ln
-        core.replace_temporal_named(LINK_NAME2, temporal, False)
+        core.replace_temporal_named(LINK_NAME2, temporal)
         core.measurement_at(1).longname == ln
 
     @all_core2
@@ -951,7 +953,7 @@ class TestCore:
             ]
         ],
     )
-    def test_text_insert_optical(self, core: AnyCoreTEXT, optical) -> None:
+    def test_text_insert_optical(self, core: AnyCoreTEXT, optical: Any) -> None:
         core.insert_optical(0, optical, LINK_NAME1, 9001)
         assert isinstance(core.measurement_at(0), type(optical))
 
@@ -967,7 +969,7 @@ class TestCore:
             ]
         ],
     )
-    def test_text_insert_temporal(self, core: AnyCoreTEXT, temporal) -> None:
+    def test_text_insert_temporal(self, core: AnyCoreTEXT, temporal: Any) -> None:
         core.insert_temporal(0, temporal, LINK_NAME1, 9001)
         assert isinstance(core.measurement_at(0), type(temporal))
 
@@ -984,7 +986,7 @@ class TestCore:
         ],
     )
     def test_dataset_insert_optical(
-        self, core: AnyCoreDataset, optical, series1: pl.Series
+        self, core: AnyCoreDataset, optical: Any, series1: pl.Series
     ) -> None:
         core.insert_optical(0, optical, series1, LINK_NAME1, 9001)
         assert isinstance(core.measurement_at(0), type(optical))
@@ -1002,7 +1004,7 @@ class TestCore:
         ],
     )
     def test_dataset_insert_temporal(
-        self, core: AnyCoreDataset, temporal, series1: pl.Series
+        self, core: AnyCoreDataset, temporal: Any, series1: pl.Series
     ) -> None:
         core.insert_temporal(0, temporal, series1, LINK_NAME1, 9001)
         assert isinstance(core.measurement_at(0), type(temporal))
@@ -1062,7 +1064,7 @@ class TestCore:
     def test_ordered_set_measurements(
         self,
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
-        optical,
+        optical: Any,
     ) -> None:
         core.set_measurements([(LINK_NAME1, optical)], prefix="_")
 
@@ -1081,7 +1083,7 @@ class TestCore:
     def test_endian_set_measurements(
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
-        optical,
+        optical: Any,
     ) -> None:
         core.set_measurements([(LINK_NAME1, optical)])
 
@@ -1100,7 +1102,7 @@ class TestCore:
     def test_ordered_set_measurements_and_layout(
         self,
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
-        optical,
+        optical: Any,
     ) -> None:
         new = pf.OrderedUint64Layout([1], False)
         core.set_measurements_and_layout([(LINK_NAME1, optical)], new, prefix="_")
@@ -1120,7 +1122,7 @@ class TestCore:
     def test_endian_set_measurements_and_layout(
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
-        optical,
+        optical: Any,
     ) -> None:
         new = pf.EndianF32Layout([1], False)
         core.set_measurements_and_layout([(LINK_NAME1, optical)], new)
@@ -1138,7 +1140,7 @@ class TestCore:
     def test_ordered_set_measurements_and_data(
         self,
         core: pf.CoreDataset2_0 | pf.CoreDataset3_0,
-        optical,
+        optical: Any,
         series2: pl.Series,
     ) -> None:
         core.set_measurements_and_data([(LINK_NAME1, optical)], [series2], prefix="_")
@@ -1156,7 +1158,7 @@ class TestCore:
     def test_endian_set_measurements_and_data(
         self,
         core: pf.CoreDataset3_1 | pf.CoreDataset3_2,
-        optical,
+        optical: Any,
         series2: pl.Series,
     ) -> None:
         core.set_measurements_and_data([(LINK_NAME1, optical)], [series2])

@@ -302,10 +302,12 @@ class _CoreCommon:
     def insert_nonstandard(self, key: NonStdKey, value: str) -> str | None: ...
     def remove_nonstandard(self, key: NonStdKey) -> str | None: ...
     def get_nonstandard(self, key: NonStdKey) -> str | None: ...
-    def raw_keywords(
+    def standard_keywords(
         self,
-        want_req: bool | None = None,
-        want_meta: bool | None = None,
+        exclude_req_root: bool = False,
+        exclude_opt_root: bool = False,
+        exclude_req_meas: bool = False,
+        exclude_opt_meas: bool = False,
     ) -> dict[str, str]: ...
     @property
     def par(self) -> int: ...
@@ -322,18 +324,36 @@ class _CoreDatasetCommon:
     ) -> None: ...
 
 class _CoreTemporal2_0:
-    def set_temporal(self, name: Shortname, force: bool) -> bool: ...
-    def set_temporal_at(self, index: MeasIndex, force: bool) -> bool: ...
-    def unset_temporal(self, force: bool) -> bool: ...
+    def set_temporal(self, name: Shortname, force: bool = False) -> bool: ...
+    def set_temporal_at(self, index: MeasIndex, force: bool = False) -> bool: ...
+    def unset_temporal(self) -> bool: ...
 
 class _CoreTemporal3_0:
     def set_temporal(
-        self, name: Shortname, timestep: Timestep, force: bool
+        self,
+        name: Shortname,
+        timestep: Timestep,
+        force: bool = False,
     ) -> bool: ...
     def set_temporal_at(
-        self, index: MeasIndex, timestep: Timestep, force: bool
+        self,
+        index: MeasIndex,
+        timestep: Timestep,
+        force: bool = False,
     ) -> bool: ...
-    def unset_temporal(self, force: bool) -> float | None: ...
+    def unset_temporal(self) -> float | None: ...
+
+class _CoreTemporal3_2:
+    def set_temporal(
+        self,
+        name: Shortname,
+        timestep: Timestep,
+        force: bool = False,
+    ) -> bool: ...
+    def set_temporal_at(
+        self, index: MeasIndex, timestep: Timestep, force: bool = False
+    ) -> bool: ...
+    def unset_temporal(self, force: bool = False) -> float | None: ...
 
 class _CoreGetSetMeas(Generic[_N, _O, _T]):
     @property
@@ -347,13 +367,25 @@ class _CoreGetSetMeas(Generic[_N, _O, _T]):
     def measurement_at(self, index: MeasIndex) -> _O | _T: ...
     def replace_optical_at(self, index: MeasIndex, meas: _O) -> _O | _T: ...
     def replace_optical_named(self, name: Shortname, meas: _O) -> _O | _T | None: ...
-    def replace_temporal_at(
-        self, index: MeasIndex, meas: _T, force: bool
-    ) -> _O | _T: ...
-    def replace_temporal_named(
-        self, name: Shortname, meas: _T, force: bool
-    ) -> _O | _T | None: ...
     def rename_temporal(self, name: Shortname) -> Shortname | None: ...
+
+class _CoreReplaceTemporal2_0(Generic[_N, _O, _T]):
+    def replace_temporal_at(self, index: MeasIndex, meas: _T) -> _O | _T: ...
+    def replace_temporal_named(self, name: Shortname, meas: _T) -> _O | _T | None: ...
+
+class _CoreReplaceTemporal3_2:
+    def replace_temporal_at(
+        self,
+        index: MeasIndex,
+        meas: Temporal3_2,
+        force: bool = False,
+    ) -> Optical3_2 | Temporal3_2: ...
+    def replace_temporal_named(
+        self,
+        name: Shortname,
+        meas: Temporal3_2,
+        force: bool = False,
+    ) -> Optical3_2 | Temporal3_2 | None: ...
 
 class _CoreTEXTGetSetMeas(Generic[_N, _T, _O]):
     def push_optical(
@@ -556,6 +588,7 @@ class CoreTEXT2_0(
     _CorePre3_2,
     _CoreTemporal2_0,
     _CoreGetSetMeas[Shortname | None, Optical2_0, Temporal2_0],
+    _CoreReplaceTemporal2_0[Shortname | None, Optical2_0, Temporal2_0],
     _CoreTEXTGetSetMeas[Shortname | None, Temporal2_0, Optical2_0],
     _CoreGetSetMeasOrdered[Optical2_0, Temporal2_0],
     _CoreSetShortnamesMaybe,
@@ -574,6 +607,7 @@ class CoreTEXT3_0(
     _CorePre3_2,
     _CoreTemporal3_0,
     _CoreGetSetMeas[Shortname | None, Optical3_0, Temporal3_0],
+    _CoreReplaceTemporal2_0[Shortname | None, Optical2_0, Temporal2_0],
     _CoreTEXTGetSetMeas[Shortname | None, Temporal3_0, Optical3_0],
     _CoreGetSetMeasOrdered[Optical3_0, Temporal3_0],
     _CoreSetShortnamesMaybe,
@@ -595,6 +629,7 @@ class CoreTEXT3_1(
     _CorePre3_2,
     _CoreTemporal3_0,
     _CoreGetSetMeas[Shortname, Optical3_1, Temporal3_1],
+    _CoreReplaceTemporal2_0[Shortname | None, Optical2_0, Temporal2_0],
     _CoreTEXTGetSetMeas[Shortname, Temporal3_1, Optical3_1],
     _CoreGetSetMeasEndian[_AnyNonMixedLayout, Optical3_1, Temporal3_1],
     _CoreScaleTransformMethods,
@@ -617,8 +652,9 @@ class CoreTEXT3_1(
 class CoreTEXT3_2(
     _CoreCommon,
     _Core3_2,
-    _CoreTemporal3_0,
+    _CoreTemporal3_2,
     _CoreGetSetMeas[Shortname, Optical3_2, Temporal3_2],
+    _CoreReplaceTemporal3_2,
     _CoreTEXTGetSetMeas[Shortname, Temporal3_2, Optical3_2],
     _CoreGetSetMeasEndian[_AnyMixedLayout, Optical3_2, Temporal3_2],
     _CoreScaleTransformMethods,
@@ -643,6 +679,7 @@ class CoreDataset2_0(
     _CorePre3_2,
     _CoreTemporal2_0,
     _CoreGetSetMeas[Shortname | None, Optical2_0, Temporal2_0],
+    _CoreReplaceTemporal2_0[Shortname | None, Optical2_0, Temporal2_0],
     _CoreDatasetGetSetMeas[Shortname | None, Temporal2_0, Optical2_0],
     _CoreGetSetMeasOrdered[Optical2_0, Temporal2_0],
     _CoreDatasetGetSetMeasOrdered[Optical2_0, Temporal2_0],
@@ -662,6 +699,7 @@ class CoreDataset3_0(
     _CorePre3_2,
     _CoreTemporal3_0,
     _CoreGetSetMeas[Shortname | None, Optical3_0, Temporal3_0],
+    _CoreReplaceTemporal2_0[Shortname | None, Optical2_0, Temporal2_0],
     _CoreDatasetGetSetMeas[Shortname | None, Temporal3_0, Optical3_0],
     _CoreGetSetMeasOrdered[Optical3_0, Temporal3_0],
     _CoreDatasetGetSetMeasOrdered[Optical3_0, Temporal3_0],
@@ -684,6 +722,7 @@ class CoreDataset3_1(
     _CorePre3_2,
     _CoreTemporal3_0,
     _CoreGetSetMeas[Shortname, Optical3_1, Temporal3_1],
+    _CoreReplaceTemporal2_0[Shortname | None, Optical2_0, Temporal2_0],
     _CoreDatasetGetSetMeas[Shortname, Temporal3_1, Optical3_1],
     _CoreGetSetMeasEndian[_AnyNonMixedLayout, Optical3_1, Temporal3_1],
     _CoreDatasetGetSetMeasEndian[Optical3_1, Temporal3_1],
@@ -707,8 +746,9 @@ class CoreDataset3_1(
 class CoreDataset3_2(
     _CoreCommon,
     _Core3_2,
-    _CoreTemporal3_0,
+    _CoreTemporal3_2,
     _CoreGetSetMeas[Shortname, Optical3_2, Temporal3_2],
+    _CoreReplaceTemporal3_2,
     _CoreDatasetGetSetMeas[Shortname, Temporal3_2, Optical3_2],
     _CoreGetSetMeasEndian[_AnyMixedLayout, Optical3_2, Temporal3_2],
     _CoreDatasetGetSetMeasEndian[Optical3_2, Temporal3_2],

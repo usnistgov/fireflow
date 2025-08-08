@@ -489,7 +489,7 @@ pub enum ParseOptKeyWarning {
     FCSTime60(FCSTime60Error),
     FCSTime100(FCSTime100Error),
     FCSDateTime(FCSDateTimeError),
-    ModifiedDateTime(ModifiedDateTimeError),
+    ModifiedDateTime(LastModifiedError),
     Originality(OriginalityError),
     UnstainedCenter(ParseUnstainedCenterError),
     Mode3_2(Mode3_2Error),

@@ -24,7 +24,7 @@ use fireflow_core::validated::dataframe::AnyFCSColumn;
 use fireflow_core::validated::keys::{NonStdKey, StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::{Shortname, ShortnamePrefix};
 use fireflow_core::validated::textdelim::TEXTDelim;
-use fireflow_python_proc::get_set_metaroot_proc;
+use fireflow_python_proc::get_set_metaroot;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
 use derive_more::{From, Into};
@@ -399,25 +399,6 @@ impl From<PyNonMixedLayout> for NonMixedEndianLayout<NoMeasDatatype> {
     }
 }
 
-macro_rules! get_set_metaroot_opt {
-    ($get:ident, $set:ident, $t:path, $($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn $get(&self) -> Option<$t> {
-                    self.0.metaroot_opt().cloned()
-                }
-
-                #[setter]
-                fn $set(&mut self, s: Option<$t>) {
-                    self.0.set_metaroot(s)
-                }
-            }
-        )*
-    };
-}
-
 macro_rules! get_set_all_meas {
     ($get:ident, $set:ident, $t:path, $($pytype:ident),*) => {
         $(
@@ -563,18 +544,18 @@ impl PyCoreTEXT3_2 {
 // Get/set methods for all versions
 macro_rules! common_methods {
     ($pytype:ident) => {
-        get_set_metaroot_opt!(get_abrt, set_abrt, kws::Abrt, $pytype);
-        get_set_metaroot_opt!(get_cells, set_cells, kws::Cells, $pytype);
-        get_set_metaroot_opt!(get_com, set_com, kws::Com, $pytype);
-        get_set_metaroot_opt!(get_exp, set_exp, kws::Exp, $pytype);
-        get_set_metaroot_opt!(get_fil, set_fil, kws::Fil, $pytype);
-        get_set_metaroot_opt!(get_inst, set_inst, kws::Inst, $pytype);
-        get_set_metaroot_opt!(get_lost, set_lost, kws::Lost, $pytype);
-        get_set_metaroot_opt!(get_op, set_op, kws::Op, $pytype);
-        get_set_metaroot_opt!(get_proj, set_proj, kws::Proj, $pytype);
-        get_set_metaroot_opt!(get_smno, set_smno, kws::Smno, $pytype);
-        get_set_metaroot_opt!(get_src, set_src, kws::Src, $pytype);
-        get_set_metaroot_opt!(get_sys, set_sys, kws::Sys, $pytype);
+        get_set_metaroot! {Option<kws::Abrt>, "int", $pytype}
+        get_set_metaroot! {Option<kws::Cells>, "str", $pytype}
+        get_set_metaroot! {Option<kws::Com>, "str", $pytype}
+        get_set_metaroot! {Option<kws::Exp>, "str", $pytype}
+        get_set_metaroot! {Option<kws::Fil>, "str", $pytype}
+        get_set_metaroot! {Option<kws::Inst>, "str", $pytype}
+        get_set_metaroot! {Option<kws::Lost>, "int", $pytype}
+        get_set_metaroot! {Option<kws::Op>, "str", $pytype}
+        get_set_metaroot! {Option<kws::Proj>, "str", $pytype}
+        get_set_metaroot! {Option<kws::Smno>, "str", $pytype}
+        get_set_metaroot! {Option<kws::Src>, "str", $pytype}
+        get_set_metaroot! {Option<kws::Sys>, "str", $pytype}
 
         // common measurement keywords
         get_set_all_meas!(get_longnames, set_longnames, kws::Longname, $pytype);
@@ -909,6 +890,7 @@ macro_rules! temporal_get_set_3_0 {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
+            #[pyo3(signature = (name, timestep, force = false))]
             fn set_temporal(
                 &mut self,
                 name: Shortname,
@@ -920,6 +902,7 @@ macro_rules! temporal_get_set_3_0 {
                     .py_term_resolve()
             }
 
+            #[pyo3(signature = (index, timestep, force = false))]
             fn set_temporal_at(
                 &mut self,
                 index: MeasIndex,
@@ -947,6 +930,7 @@ macro_rules! temporal_get_set_3_2 {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
+            #[pyo3(signature = (name, timestep, force = false))]
             fn set_temporal(
                 &mut self,
                 name: Shortname,
@@ -958,6 +942,7 @@ macro_rules! temporal_get_set_3_2 {
                     .py_term_resolve()
             }
 
+            #[pyo3(signature = (index, timestep, force = false))]
             fn set_temporal_at(
                 &mut self,
                 index: MeasIndex,
@@ -969,6 +954,7 @@ macro_rules! temporal_get_set_3_2 {
                     .py_term_resolve()
             }
 
+            #[pyo3(signature = (force = false))]
             fn unset_temporal(&mut self, force: bool) -> PyResult<Option<kws::Timestep>> {
                 self.0.unset_temporal_lossy(force).py_term_resolve()
             }
@@ -1232,6 +1218,7 @@ macro_rules! set_temporal_3_2 {
     ($pytype:ident, $o:ident, $t:ident) => {
         #[pymethods]
         impl $pytype {
+            #[pyo3(signature = (index, meas, force = false))]
             fn replace_temporal_at(
                 &mut self,
                 index: MeasIndex,
@@ -1245,6 +1232,7 @@ macro_rules! set_temporal_3_2 {
                 Ok(ret.inner_into())
             }
 
+            #[pyo3(signature = (name, meas, force = false))]
             fn replace_temporal_named(
                 &mut self,
                 name: Shortname,
@@ -1670,21 +1658,20 @@ get_set_all_optical!(
 // Get/set methods for $LAST_MODIFIER/$LAST_MODIFIED/$ORIGINALITY (3.1-3.2)
 macro_rules! modification_methods {
     ($pytype:ident) => {
-        get_set_metaroot_opt!(get_originality, set_originality, kws::Originality, $pytype);
-
-        get_set_metaroot_opt!(
-            get_last_modified,
-            set_last_modified,
-            kws::ModifiedDateTime,
+        get_set_metaroot!(
+            Option<kws::Originality>,
+            "Literal[\"Original\", \"NonDataModified\", \"Appended\", \"DataModified\"]",
             $pytype
         );
 
-        get_set_metaroot_opt!(
-            get_last_modifier,
-            set_last_modifier,
-            kws::LastModifier,
+        get_set_metaroot!(
+            Option<kws::LastModified>,
+            "datetime.datetime",
+            "LAST_MODIFIED",
             $pytype
         );
+
+        get_set_metaroot!(Option<kws::LastModifier>, "str", "LAST_MODIFIER", $pytype);
     };
 }
 
@@ -1696,9 +1683,9 @@ modification_methods!(PyCoreDataset3_2);
 // Get/set methods for $CARRIERID/$CARRIERTYPE/$LOCATIONID (3.2)
 macro_rules! carrier_methods {
     ($pytype:ident) => {
-        get_set_metaroot_opt!(get_carriertype, set_carriertype, kws::Carriertype, $pytype);
-        get_set_metaroot_opt!(get_carrierid, set_carrierid, kws::Carrierid, $pytype);
-        get_set_metaroot_opt!(get_locationid, set_locationid, kws::Locationid, $pytype);
+        get_set_metaroot!(Option<kws::Carriertype>, "str", $pytype);
+        get_set_metaroot!(Option<kws::Carrierid>, "str", $pytype);
+        get_set_metaroot!(Option<kws::Locationid>, "str", $pytype);
     };
 }
 
@@ -1708,9 +1695,9 @@ carrier_methods!(PyCoreDataset3_2);
 // Get/set methods for $PLATEID/$WELLID/$PLATENAME (3.1-3.2)
 macro_rules! plate_methods {
     ($pytype:ident) => {
-        get_set_metaroot_opt!(get_wellid, set_wellid, kws::Wellid, $pytype);
-        get_set_metaroot_opt!(get_plateid, set_plateid, kws::Plateid, $pytype);
-        get_set_metaroot_opt!(get_platename, set_platename, kws::Platename, $pytype);
+        get_set_metaroot!(Option<kws::Wellid>, "str", $pytype);
+        get_set_metaroot!(Option<kws::Plateid>, "str", $pytype);
+        get_set_metaroot!(Option<kws::Platename>, "str", $pytype);
     };
 }
 
@@ -1781,28 +1768,26 @@ spillover_methods!(PyCoreTEXT3_2);
 spillover_methods!(PyCoreDataset3_1);
 spillover_methods!(PyCoreDataset3_2);
 
-get_set_metaroot_opt!(
-    get_unicode,
-    set_unicode,
-    kws::Unicode,
+get_set_metaroot! {
+    Option<kws::Unicode>,
+    "(int, list[str])",
     PyCoreTEXT3_0,
     PyCoreDataset3_0
-);
+}
 
-get_set_metaroot_opt!(
-    get_vol,
-    set_vol,
-    kws::Vol,
+get_set_metaroot! {
+    Option<kws::Vol>,
+    "float",
     PyCoreTEXT3_1,
     PyCoreTEXT3_2,
     PyCoreDataset3_1,
     PyCoreDataset3_2
-);
+}
 
 // Get/set methods for $MODE (2.0-3.1)
-get_set_metaroot_proc! {
+get_set_metaroot! {
     kws::Mode,
-    "Literal[\"L\"] | Literal[\"U\"] | Literal[\"C\"]",
+    "Literal[\"L\", \"U\", \"C\"]",
     PyCoreTEXT2_0,
     PyCoreTEXT3_0,
     PyCoreTEXT3_1,
@@ -1812,62 +1797,58 @@ get_set_metaroot_proc! {
 }
 
 // Get/set methods for $MODE (3.2)
-get_set_metaroot_opt!(
-    get_mode,
-    set_mode,
-    kws::Mode3_2,
+get_set_metaroot! {
+    Option<kws::Mode3_2>,
+    "Literal[\"L\"]",
+    "MODE",
     PyCoreTEXT3_2,
     PyCoreDataset3_2
-);
+}
 
 // Get/set methods for (optional) $CYT (2.0-3.1)
 //
 // 3.2 is required which is why it is not included here
-get_set_metaroot_opt!(
-    get_cyt,
-    set_cyt,
-    kws::Cyt,
+get_set_metaroot! {
+    Option<kws::Cyt>,
+    "str",
     PyCoreTEXT2_0,
     PyCoreTEXT3_0,
     PyCoreTEXT3_1,
     PyCoreDataset2_0,
     PyCoreDataset3_0,
     PyCoreDataset3_1
-);
+}
 
 // Get/set methods for $FLOWRATE (3.2)
-get_set_metaroot_opt!(
-    get_flowrate,
-    set_flowrate,
-    kws::Flowrate,
+get_set_metaroot! {
+    Option<kws::Flowrate>,
+    "str",
     PyCoreTEXT3_2,
     PyCoreDataset3_2
-);
+}
 
 // Get/set methods for $CYTSN (3.0-3.2)
-get_set_metaroot_opt!(
-    get_cytsn,
-    set_cytsn,
-    kws::Cytsn,
+get_set_metaroot! {
+    Option<kws::Cytsn>,
+    "str",
     PyCoreTEXT3_0,
     PyCoreTEXT3_1,
     PyCoreTEXT3_2,
     PyCoreDataset3_0,
     PyCoreDataset3_1,
     PyCoreDataset3_2
-);
+}
 
 // Get/set methods for $CYT (required) (3.2)
-get_set_metaroot_proc! {kws::Cyt, "str", PyCoreTEXT3_2, PyCoreDataset3_2}
+get_set_metaroot! {kws::Cyt, "str", PyCoreTEXT3_2, PyCoreDataset3_2}
 
 // Get/set methods for $UNSTAINEDINFO (3.2)
-get_set_metaroot_opt!(
-    get_unstainedinfo,
-    set_unstainedinfo,
-    kws::UnstainedInfo,
+get_set_metaroot! {
+    Option<kws::UnstainedInfo>,
+    "str",
     PyCoreTEXT3_2,
     PyCoreDataset3_2
-);
+}
 
 // Get/set methods for $PnD (3.1+)
 //

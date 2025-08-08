@@ -24,6 +24,7 @@ use fireflow_core::validated::dataframe::AnyFCSColumn;
 use fireflow_core::validated::keys::{NonStdKey, StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::{Shortname, ShortnamePrefix};
 use fireflow_core::validated::textdelim::TEXTDelim;
+use fireflow_python_proc::get_set_metaroot_proc;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
 use derive_more::{From, Into};
@@ -396,25 +397,6 @@ impl From<PyNonMixedLayout> for NonMixedEndianLayout<NoMeasDatatype> {
             PyNonMixedLayout::F64(x) => Self::F64(x.into()),
         }
     }
-}
-
-macro_rules! get_set_metaroot {
-    ($get:ident, $set:ident, $t:path, $($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn $get(&self) -> $t {
-                    self.0.metaroot::<$t>().clone()
-                }
-
-                #[setter]
-                fn $set(&mut self, x: $t) {
-                    self.0.set_metaroot(x)
-                }
-            }
-        )*
-    };
 }
 
 macro_rules! get_set_metaroot_opt {
@@ -1818,17 +1800,16 @@ get_set_metaroot_opt!(
 );
 
 // Get/set methods for $MODE (2.0-3.1)
-get_set_metaroot!(
-    get_mode,
-    set_mode,
+get_set_metaroot_proc! {
     kws::Mode,
+    "Literal[\"L\"] | Literal[\"U\"] | Literal[\"C\"]",
     PyCoreTEXT2_0,
     PyCoreTEXT3_0,
     PyCoreTEXT3_1,
     PyCoreDataset2_0,
     PyCoreDataset3_0,
     PyCoreDataset3_1
-);
+}
 
 // Get/set methods for $MODE (3.2)
 get_set_metaroot_opt!(
@@ -1877,7 +1858,7 @@ get_set_metaroot_opt!(
 );
 
 // Get/set methods for $CYT (required) (3.2)
-get_set_metaroot!(get_cyt, set_cyt, kws::Cyt, PyCoreTEXT3_2, PyCoreDataset3_2);
+get_set_metaroot_proc! {kws::Cyt, "str", PyCoreTEXT3_2, PyCoreDataset3_2}
 
 // Get/set methods for $UNSTAINEDINFO (3.2)
 get_set_metaroot_opt!(

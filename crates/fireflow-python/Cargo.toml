@@ -8,6 +8,7 @@ Python-specific code for fireflow.
 
 [dependencies]
 fireflow-core = { version = "0.1.0", path = "../fireflow-core", features = ["python"] }
+fireflow-python-proc = { path = "../fireflow-python-proc" }
 chrono = { workspace = true }
 derive_more = { workspace = true, features = ["from", "into"] }
 nonempty = { workspace = true }

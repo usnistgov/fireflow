@@ -2129,7 +2129,7 @@ where
     /// keywords refering to the old names will be updated to reflect the new
     /// names. For 2.0 and 3.0 which have optional $PnN, all $PnN will end up
     /// being set.
-    pub fn set_all_shortnames(&mut self, ns: Vec<Shortname>) -> Result<NameMapping, SetKeysError> {
+    pub fn set_all_shortnames(&mut self, ns: Vec<Shortname>) -> Result<NameMapping, SetNamesError> {
         let mapping = self.measurements.set_names(ns)?;
         self.metaroot.reassign_all(&mapping);
         Ok(mapping)
@@ -4143,41 +4143,15 @@ impl<M, A, D, O> VersionedCore<A, D, O, M>
 where
     M: VersionedMetaroot<Name = MaybeFamily>,
 {
-    /// Set all optical $PnN keywords to list of names.
+    /// Set all $PnN keywords to list of names.
     pub fn set_measurement_shortnames_maybe(
         &mut self,
         ns: Vec<Option<Shortname>>,
     ) -> Result<NameMapping, SetKeysError> {
         let ks = ns.into_iter().map(|n| n.into()).collect();
-        let mapping = self.measurements.set_non_center_keys(ks)?;
+        let mapping = self.measurements.set_keys(ks)?;
         self.metaroot.reassign_all(&mapping);
         Ok(mapping)
-
-        // self.measurements
-        //     .alter_values_zip(
-        //         ns,
-        //         |m, n| {
-        //             *m.value.as_mut() = n;
-        //             Ok(())
-        //         },
-        //         |m, n| {
-        //             if let Some(nn) = n {
-        //                 *m.value.as_mut() = nn;
-        //             } else {
-        //                 Err(ColumnError {
-        //                     error: (),
-        //                     index: m.index.into(),
-        //                 })
-        //             }
-        //         },
-        //     )
-        //     .into_mult()
-        //     .and_then(|rs| {
-        //         NonEmpty::collect(rs.into_iter().flat_map(|r| r.err()))
-        //             .map_or(Ok(()), Err)
-        //             .mult_errors_into()
-        //     })
-        //     .mult_terminate(SetOpticalFailure)
     }
 }
 

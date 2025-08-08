@@ -398,6 +398,10 @@ class TestCore:
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
     ) -> None:
         assert core.all_pnn_maybe == [LINK_NAME1, LINK_NAME2]
+        core.all_pnn_maybe = [None, LINK_NAME2]
+        assert core.all_pnn_maybe == [None, "maple latte"]
+        with pytest.raises(pf.PyreflowException):
+            core.all_pnn_maybe = [None, None]
 
     @all_core
     def test_longnames(self, core: AnyCore) -> None:
@@ -409,20 +413,6 @@ class TestCore:
             core.all_pns = [cast(str, 42)]
 
     # TODO add raw_keywords test
-
-    @parameterize_versions("core", ["2_0", "3_0"], ["text2", "dataset2"])
-    def test_set_shortnames_maybe(
-        self,
-        core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
-    ) -> None:
-        assert len(core.measurements) == 2
-        # note this will only set the measurements, since the time name is
-        # never None
-        # TODO this is confusing
-        core.all_pnn_maybe = [None]
-        assert core.all_pnn_maybe == [None, "maple latte"]
-        with pytest.raises(pf.PyreflowException):
-            core.all_pnn_maybe = [None, None]
 
     @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["text2", "dataset2"])
     def test_timestep(

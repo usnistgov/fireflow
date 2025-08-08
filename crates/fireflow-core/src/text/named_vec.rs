@@ -915,27 +915,26 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         ret
     }
 
-    /// Set non-center keys to list
+    /// Set keys to list
     ///
-    /// The center key cannot be replaced by this method since the list will
-    /// contain wrapped names which may or may not have a name inside, and
-    /// the center value always has a name.
+    /// If center key does not exist, return an error.
     ///
     /// List must be the same length as all non-center keys and must be unique
     /// (including the center key).
-    pub(crate) fn set_non_center_keys(
+    pub(crate) fn set_keys(
         &mut self,
         ks: Vec<K::Wrapper<Shortname>>,
     ) -> Result<NameMapping, SetKeysError>
     where
         K::Wrapper<Shortname>: Clone,
     {
-        self.check_keys_length(&ks[..], false)
-            .map_err(SetKeysError::Length)?;
-        let center = self.as_center().map(|x| K::wrap(x.key));
-        let all_keys = ks.iter().map(K::as_ref).chain(center).collect();
-        if !self.as_prefix().all_unique::<K>(all_keys) {
-            return Err(SetKeysError::NonUnique);
+        self.check_keys_length(&ks[..], true)
+            .map_err(SetNamesError::Length)?;
+        if !self
+            .as_prefix()
+            .all_unique::<K>(ks.iter().map(K::as_ref).collect())
+        {
+            return Err(SetNamesError::NonUnique.into());
         }
         let mut mapping = HashMap::new();
         let mut go = |side: &mut WrappedPairedVec<K, V>, ks_side: Vec<K::Wrapper<Shortname>>| {
@@ -948,15 +947,66 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         };
         match self {
             NamedVec::Split(s, _) => {
-                let mut ks_left = ks;
-                let ks_right = ks_left.split_off(s.left.len());
-                go(&mut s.left, ks_left);
-                go(&mut s.right, ks_right);
+                let mut it = ks.into_iter();
+                // ASSUME this won't fail because we checked length above
+                let ks_left = it.by_ref().take(s.left.len()).collect();
+                let center = it.by_ref().next().expect("center should be set");
+                let ks_right = it.collect();
+                if let Some(center_name) = K::to_opt(center) {
+                    go(&mut s.left, ks_left);
+                    s.center.key = center_name;
+                    go(&mut s.right, ks_right);
+                } else {
+                    return Err(SetKeysError::MissingCenter);
+                }
             }
             NamedVec::Unsplit(u) => go(&mut u.members, ks),
         }
         Ok(mapping)
     }
+
+    // /// Set non-center keys to list
+    // ///
+    // /// The center key cannot be replaced by this method since the list will
+    // /// contain wrapped names which may or may not have a name inside, and
+    // /// the center value always has a name.
+    // ///
+    // /// List must be the same length as all non-center keys and must be unique
+    // /// (including the center key).
+    // pub(crate) fn set_non_center_keys(
+    //     &mut self,
+    //     ks: Vec<K::Wrapper<Shortname>>,
+    // ) -> Result<NameMapping, SetNamesError>
+    // where
+    //     K::Wrapper<Shortname>: Clone,
+    // {
+    //     self.check_keys_length(&ks[..], false)
+    //         .map_err(SetNamesError::Length)?;
+    //     let center = self.as_center().map(|x| K::wrap(x.key));
+    //     let all_keys = ks.iter().map(K::as_ref).chain(center).collect();
+    //     if !self.as_prefix().all_unique::<K>(all_keys) {
+    //         return Err(SetNamesError::NonUnique);
+    //     }
+    //     let mut mapping = HashMap::new();
+    //     let mut go = |side: &mut WrappedPairedVec<K, V>, ks_side: Vec<K::Wrapper<Shortname>>| {
+    //         for (p, k) in side.iter_mut().zip(ks_side) {
+    //             let old = mem::replace(&mut p.key, k.clone());
+    //             if let (Some(old_name), Some(new_name)) = (K::to_opt(old), K::to_opt(k)) {
+    //                 mapping.insert(old_name, new_name);
+    //             }
+    //         }
+    //     };
+    //     match self {
+    //         NamedVec::Split(s, _) => {
+    //             let mut ks_left = ks;
+    //             let ks_right = ks_left.split_off(s.left.len());
+    //             go(&mut s.left, ks_left);
+    //             go(&mut s.right, ks_right);
+    //         }
+    //         NamedVec::Unsplit(u) => go(&mut u.members, ks),
+    //     }
+    //     Ok(mapping)
+    // }
 
     /// Set all names to list of Shortnames
     ///
@@ -965,11 +1015,11 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     ///
     /// Supplied list must be unique and have the same length as the target
     /// vector.
-    pub(crate) fn set_names(&mut self, ns: Vec<Shortname>) -> Result<NameMapping, SetKeysError> {
+    pub(crate) fn set_names(&mut self, ns: Vec<Shortname>) -> Result<NameMapping, SetNamesError> {
         self.check_keys_length(&ns[..], true)
-            .map_err(SetKeysError::Length)?;
+            .map_err(SetNamesError::Length)?;
         if !all_unique(ns.iter()) {
-            return Err(SetKeysError::NonUnique);
+            return Err(SetNamesError::NonUnique);
         }
         let mut mapping = HashMap::new();
         let mut go = |side: &mut WrappedPairedVec<K, V>, ns_side: Vec<Shortname>| {
@@ -1951,7 +2001,16 @@ pub enum RenameError {
     NonUnique(NonUniqueKeyError),
 }
 
+#[derive(From)]
 pub enum SetKeysError {
+    #[from]
+    Names(SetNamesError),
+    MissingCenter,
+}
+
+#[derive(From)]
+pub enum SetNamesError {
+    #[from]
     Length(KeyLengthError),
     NonUnique,
 }
@@ -2096,11 +2155,20 @@ impl fmt::Display for KeyLengthError {
     }
 }
 
+impl fmt::Display for SetNamesError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Length(x) => x.fmt(f),
+            Self::NonUnique => write!(f, "not all supplied keys are unique"),
+        }
+    }
+}
+
 impl fmt::Display for SetKeysError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            SetKeysError::Length(x) => x.fmt(f),
-            SetKeysError::NonUnique => write!(f, "not all supplied keys are unique"),
+            Self::Names(x) => x.fmt(f),
+            Self::MissingCenter => write!(f, "center must not be missing"),
         }
     }
 }
@@ -2109,7 +2177,7 @@ impl fmt::Display for SetKeysError {
 mod python {
     use super::{
         Eithers, Element, ElementIndexError, KeyLengthError, KeyNotFoundError, NonCenterElement,
-        SetCenterError, SetKeysError,
+        SetCenterError, SetKeysError, SetNamesError,
     };
     use crate::python::macros::{impl_index_err, impl_pyreflow_err};
     use crate::text::optional::MightHave;
@@ -2149,6 +2217,7 @@ mod python {
     }
 
     impl_pyreflow_err!(KeyLengthError);
+    impl_pyreflow_err!(SetNamesError);
     impl_pyreflow_err!(SetKeysError);
     impl_pyreflow_err!(SetCenterError);
 }

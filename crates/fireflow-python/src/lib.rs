@@ -558,7 +558,7 @@ macro_rules! common_methods {
         get_set_metaroot! {Option<kws::Sys>, "str", $pytype}
 
         // common measurement keywords
-        get_set_all_meas_proc!(Option<kws::Longname>, "S", "str | None", $pytype);
+        get_set_all_meas_proc!(Option<kws::Longname>, "S", "str", $pytype);
 
         get_set_all_optical!(get_filters, set_filters, kws::Filter, $pytype);
         get_set_all_optical!(get_powers, set_powers, kws::Power, $pytype);
@@ -1856,7 +1856,7 @@ get_set_metaroot! {
 get_set_all_meas_proc!(
     Option<kws::Display>,
     "D",
-    "(bool, float, float) | None",
+    "(bool, float, float)",
     PyCoreTEXT3_1,
     PyCoreDataset3_1,
     PyCoreTEXT3_2,

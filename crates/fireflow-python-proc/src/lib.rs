@@ -63,7 +63,8 @@ pub fn get_set_metaroot(input: TokenStream) -> TokenStream {
 pub fn get_set_all_meas_proc(input: TokenStream) -> TokenStream {
     let info = parse_macro_input!(input as GetSetAllMeas);
     let kw = &info.rstype;
-    let (kw_inner, optical_only) = unwrap_generic("NonCenterElement", kw);
+    let (kw_mid, optical_only) = unwrap_generic("NonCenterElement", kw);
+    let (kw_inner, optional) = unwrap_generic("Option", kw_mid);
     let s = info.suffix.value();
 
     let doc_summary = format!("Value of *$Pn{}* for all measurements", s.to_uppercase());
@@ -73,9 +74,10 @@ pub fn get_set_all_meas_proc(input: TokenStream) -> TokenStream {
         "\n"
     };
     let doc_type = format!(
-        ":type: list[{}{}]",
-        info.pytype.value(),
-        if optical_only { " | ()" } else { "" }
+        ":type: list[{}]",
+        info.pytype.value()
+            + if optical_only { " | ()" } else { "" }
+            + if optional { " | None" } else { "" },
     );
     let get = format_ident!("get_all_pn{}", s.to_lowercase());
     let set = format_ident!("set_all_pn{}", s.to_lowercase());
@@ -84,9 +86,14 @@ pub fn get_set_all_meas_proc(input: TokenStream) -> TokenStream {
         .parent_types
         .iter()
         .map(|t| {
+            let kw = if optional {
+                quote! {Option<#kw_inner>}
+            } else {
+                quote! {#kw_inner}
+            };
             let fn_get = if optical_only {
                 quote! {
-                    fn #get(&self) -> Vec<NonCenterElement<#kw_inner>> {
+                    fn #get(&self) -> Vec<NonCenterElement<#kw>> {
                         self.0
                             .optical_opt()
                             .map(|e| e.0.map_non_center(|x| x.cloned()).into())
@@ -95,20 +102,20 @@ pub fn get_set_all_meas_proc(input: TokenStream) -> TokenStream {
                 }
             } else {
                 quote! {
-                    fn #get(&self) -> Vec<#kw_inner> {
+                    fn #get(&self) -> Vec<#kw> {
                         self.0.meas_opt().map(|x| x.cloned()).collect()
                     }
                 }
             };
             let fn_set = if optical_only {
                 quote! {
-                    fn #set(&mut self, xs: Vec<NonCenterElement<#kw_inner>>) -> PyResult<()> {
+                    fn #set(&mut self, xs: Vec<NonCenterElement<#kw>>) -> PyResult<()> {
                         self.0.set_optical(xs).py_term_resolve_nowarn()
                     }
                 }
             } else {
                 quote! {
-                    fn #set(&mut self, xs: Vec<#kw_inner>) -> PyResult<()> {
+                    fn #set(&mut self, xs: Vec<#kw>) -> PyResult<()> {
                         Ok(self.0.set_meas(xs)?)
                     }
                 }

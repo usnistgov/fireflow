@@ -24,7 +24,7 @@ use fireflow_core::validated::dataframe::AnyFCSColumn;
 use fireflow_core::validated::keys::{NonStdKey, StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::{Shortname, ShortnamePrefix};
 use fireflow_core::validated::textdelim::TEXTDelim;
-use fireflow_python_proc::{get_set_all_meas_proc, get_set_metaroot};
+use fireflow_python_proc::{convert_methods_proc, get_set_all_meas_proc, get_set_metaroot};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
 use derive_more::{From, Into};
@@ -399,74 +399,14 @@ impl From<PyNonMixedLayout> for NonMixedEndianLayout<NoMeasDatatype> {
     }
 }
 
-macro_rules! convert_methods {
-    ($pytype:ident, $([$fn:ident, $to:ident]),+) => {
-        #[pymethods]
-        impl $pytype {
-            $(
-                fn $fn(&self, lossless: bool) -> PyResult<$to> {
-                    self.0.clone().try_convert(lossless).py_term_resolve().map(|x| x.into())
-                }
-            )*
-        }
-    };
-}
-
-convert_methods!(
-    PyCoreTEXT2_0,
-    [version_3_0, PyCoreTEXT3_0],
-    [version_3_1, PyCoreTEXT3_1],
-    [version_3_2, PyCoreTEXT3_2]
-);
-
-convert_methods!(
-    PyCoreTEXT3_0,
-    [version_2_0, PyCoreTEXT2_0],
-    [version_3_1, PyCoreTEXT3_1],
-    [version_3_2, PyCoreTEXT3_2]
-);
-
-convert_methods!(
-    PyCoreTEXT3_1,
-    [version_2_0, PyCoreTEXT2_0],
-    [version_3_0, PyCoreTEXT3_0],
-    [version_3_2, PyCoreTEXT3_2]
-);
-
-convert_methods!(
-    PyCoreTEXT3_2,
-    [version_2_0, PyCoreTEXT2_0],
-    [version_3_0, PyCoreTEXT3_0],
-    [version_3_1, PyCoreTEXT3_1]
-);
-
-convert_methods!(
-    PyCoreDataset2_0,
-    [version_3_0, PyCoreDataset3_0],
-    [version_3_1, PyCoreDataset3_1],
-    [version_3_2, PyCoreDataset3_2]
-);
-
-convert_methods!(
-    PyCoreDataset3_0,
-    [version_2_0, PyCoreDataset2_0],
-    [version_3_1, PyCoreDataset3_1],
-    [version_3_2, PyCoreDataset3_2]
-);
-
-convert_methods!(
-    PyCoreDataset3_1,
-    [version_2_0, PyCoreDataset2_0],
-    [version_3_0, PyCoreDataset3_0],
-    [version_3_2, PyCoreDataset3_2]
-);
-
-convert_methods!(
-    PyCoreDataset3_2,
-    [version_2_0, PyCoreDataset2_0],
-    [version_3_0, PyCoreDataset3_0],
-    [version_3_1, PyCoreDataset3_1]
-);
+convert_methods_proc! {PyCoreTEXT2_0}
+convert_methods_proc! {PyCoreTEXT3_0}
+convert_methods_proc! {PyCoreTEXT3_1}
+convert_methods_proc! {PyCoreTEXT3_2}
+convert_methods_proc! {PyCoreDataset2_0}
+convert_methods_proc! {PyCoreDataset3_0}
+convert_methods_proc! {PyCoreDataset3_1}
+convert_methods_proc! {PyCoreDataset3_2}
 
 #[pymethods]
 impl PyCoreTEXT2_0 {

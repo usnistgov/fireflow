@@ -139,6 +139,56 @@ pub fn get_set_all_meas_proc(input: TokenStream) -> TokenStream {
     quote! {#(#outputs)*}.into()
 }
 
+#[proc_macro]
+pub fn convert_methods_proc(input: TokenStream) -> TokenStream {
+    let pytype: Path = parse_macro_input!(input);
+    let name = pytype.segments.last().unwrap().ident.to_string();
+    let (base, version) = name.as_str().split_at(name.len() - 3);
+    let all_versions = ["2_0", "3_0", "3_1", "3_2"];
+    if !all_versions.iter().any(|&v| v == version) {
+        panic!("invalid version {version}")
+    }
+    let outputs: Vec<_> = all_versions
+        .iter()
+        .filter(|&&v| v != version)
+        .map(|v| {
+            let fn_name = format_ident!("version_{v}");
+            let target_type = format_ident!("{base}{v}");
+            let target_rs_type = target_type.to_string().replace("Py", "");
+            let pretty_version = v.replace("_", ".");
+            let doc_summary = format!("Convert to FCS {pretty_version}");
+            let doc_return = format!(":return: A new class conforming to FCS {pretty_version}");
+            let doc_rtype = format!(":rtype: :class:`{target_rs_type}`");
+            quote! {
+                #[pymethods]
+                impl #pytype {
+                    #[doc = #doc_summary]
+                    ///
+                    /// Will raise an exception if target version requires data which
+                    /// is not present in ``self``.
+                    ///
+                    /// :param force: If ``False``, do not proceed with conversion if
+                    ///     it would result in data loss. This is most likely to
+                    ///     happen when converting from a later to an earlier version,
+                    ///     as many keywords from the later version may not exist
+                    ///     in the earlier version. There is no place to keep these
+                    ///     values so they must be discarded. Set to ``True`` to
+                    ///     perform the conversion with such discarding; otherwise,
+                    ///     remove the keywords manually before converting.
+                    #[doc = #doc_return]
+                    #[doc = #doc_rtype]
+                    #[pyo3(signature = (force = false))]
+                    fn #fn_name(&self, force: bool) -> PyResult<#target_type> {
+                        self.0.clone().try_convert(force).py_term_resolve().map(|x| x.into())
+                    }
+                }
+            }
+        })
+        .collect();
+
+    quote! {#(#outputs)*}.into()
+}
+
 #[derive(Debug)]
 struct GetSetMetarootInfo {
     kwtype: Path,

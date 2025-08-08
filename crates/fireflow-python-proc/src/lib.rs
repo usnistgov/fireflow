@@ -140,15 +140,165 @@ pub fn get_set_all_meas_proc(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+pub fn get_set_meas_common_proc(input: TokenStream) -> TokenStream {
+    let info = parse_macro_input!(input as CommonMeasGetSet);
+    let rstype = &info.rstype;
+    let nametype = &info.nametype;
+    let namefam = &info.namefam;
+    let name = info.rstype.segments.last().unwrap().ident.to_string();
+    let (_, version) = split_version(name.as_str());
+    let otype = format_ident!("PyOptical{version}");
+    let ttype = format_ident!("PyTemporal{version}");
+    let potype = format!("Optical{version}");
+    let pttype = format!("Temporal{version}");
+
+    let rtype_get_temp = format!(":rtype: (int, str, :py:class:`{}`) | None", potype);
+    let rtype_all_meas = format!(
+        ":rtype: list[:py:class:`{}` | :py:class:`{}`]",
+        pttype, potype
+    );
+    let rtype_remove_named_meas = format!(
+        ":rtype: (int, :py:class:`{}` | :py:class:`{}`)",
+        pttype, potype
+    );
+    let rtype_remove_index_meas = format!(
+        ":rtype: (str, :py:class:`{}` | :py:class:`{}`)",
+        pttype, potype
+    );
+    let rtype_get_meas = format!(":rtype: :py:class:`{}` | :py:class:`{}`", pttype, potype);
+
+    let param_type_optical = format!(":type meas: :py:class:`{}`", potype);
+
+    quote! {
+        #[pymethods]
+        impl #rstype {
+            /// Get the temporal measurement if it exists.
+            ///
+            /// :return: Index, name, and measurement or ``None``
+            #[doc = #rtype_get_temp]
+            #[getter]
+            fn get_temporal(&self) -> Option<(MeasIndex, Shortname, #ttype)> {
+                self.0
+                    .temporal()
+                    .map(|t| (t.index, t.key.clone(), t.value.clone().into()))
+            }
+
+            /// Get all measurements.
+            ///
+            /// :return: list of measurements
+            #[doc = #rtype_all_meas]
+            #[getter]
+            fn measurements(&self) -> Vec<Element<#ttype, #otype>> {
+                // This might seem inefficient since we are cloning
+                // everything, but if we want to map a python lambda
+                // function over the measurements we would need to to do
+                // this anyways, so simply returnig a copied list doesn't
+                // lose anything and keeps this API simpler.
+                let ms: &NamedVec<_, _, _, _> = self.0.as_ref();
+                ms.iter()
+                    .map(|(_, e)| e.bimap(|t| t.value.clone(), |o| o.value.clone()))
+                    .map(|v| v.inner_into())
+                    .collect()
+            }
+
+            /// Remove a measurement with a given name.
+            ///
+            /// Raise exception if name not found.
+            ///
+            /// :param str name: Name to remove. Must not contain commas.
+            ///
+            /// :return: Index and measurement object
+            #[doc = #rtype_remove_named_meas]
+            fn remove_measurement_by_name(
+                &mut self,
+                name: Shortname,
+            ) -> PyResult<(MeasIndex, Element<#ttype, #otype>)> {
+                Ok(self
+                    .0
+                    .remove_measurement_by_name(&name)
+                    .map(|(i, x)| (i, x.inner_into()))?)
+            }
+
+            /// Remove a measurement with a given index.
+            ///
+            /// Raise exception if index not found.
+            ///
+            /// :param int index: Index to remove.
+            ///
+            /// :return: Name and measurement object
+            #[doc = #rtype_remove_index_meas]
+            fn remove_measurement_by_index(
+                &mut self,
+                index: MeasIndex,
+            ) -> PyResult<(#nametype, Element<#ttype, #otype>)> {
+                let r = self.0.remove_measurement_by_index(index)?;
+                let (n, v) = Element::unzip::<#namefam>(r);
+                Ok((n.0, v.inner_into()))
+            }
+
+            /// Return measurement at index.
+            ///
+            /// Raise exception if index not found.
+            ///
+            /// :param int index: Index to retrieve.
+            ///
+            /// :return: Measurement object.
+            #[doc = #rtype_get_meas]
+            fn measurement_at(&self, index: MeasIndex) -> PyResult<Element<#ttype, #otype>> {
+                let ms: &NamedVec<_, _, _, _> = self.0.as_ref();
+                let m = ms.get(index)?;
+                Ok(m.bimap(|x| x.1.clone(), |x| x.1.clone()).inner_into())
+            }
+
+            /// Replace measurement at index with given optical measurement.
+            ///
+            /// Raise exception if index not found.
+            ///
+            /// :param int index: Index to replace.
+            /// :param meas: Optical measurement to replace the measurement at ``index``.
+            #[doc = #param_type_optical]
+            ///
+            /// :return: Replaced measurement object
+            #[doc = #rtype_get_meas]
+            fn replace_optical_at(
+                &mut self,
+                index: MeasIndex,
+                meas: #otype,
+            ) -> PyResult<Element<#ttype, #otype>> {
+                let ret = self.0.replace_optical_at(index, meas.into())?;
+                Ok(ret.inner_into())
+            }
+
+            /// Replace named measurement with given optical measurement.
+            ///
+            /// Raise exception if name not found.
+            ///
+            /// :param str name: Name to replace.
+            /// :param meas: Optical measurement to replace the measurement with ``name``.
+            #[doc = #param_type_optical]
+            ///
+            /// :return: Replaced measurement object.
+            #[doc = #rtype_get_meas]
+            fn replace_optical_named(
+                &mut self,
+                name: Shortname,
+                meas: #otype,
+            ) -> Option<Element<#ttype, #otype>> {
+                self.0
+                    .replace_optical_named(&name, meas.into())
+                    .map(|r| r.inner_into())
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
 pub fn convert_methods_proc(input: TokenStream) -> TokenStream {
     let pytype: Path = parse_macro_input!(input);
     let name = pytype.segments.last().unwrap().ident.to_string();
-    let (base, version) = name.as_str().split_at(name.len() - 3);
-    let all_versions = ["2_0", "3_0", "3_1", "3_2"];
-    if !all_versions.iter().any(|&v| v == version) {
-        panic!("invalid version {version}")
-    }
-    let outputs: Vec<_> = all_versions
+    let (base, version) = split_version(name.as_str());
+    let outputs: Vec<_> = ALL_VERSIONS
         .iter()
         .filter(|&&v| v != version)
         .map(|v| {
@@ -246,6 +396,27 @@ impl Parse for GetSetAllMeas {
     }
 }
 
+struct CommonMeasGetSet {
+    rstype: Path,
+    nametype: Type,
+    namefam: Type,
+}
+
+impl Parse for CommonMeasGetSet {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let rstype: Path = input.parse()?;
+        let _: Comma = input.parse()?;
+        let nametype: Type = input.parse()?;
+        let _: Comma = input.parse()?;
+        let namefam: Type = input.parse()?;
+        Ok(Self {
+            rstype,
+            nametype,
+            namefam,
+        })
+    }
+}
+
 fn unwrap_generic<'a>(name: &str, ty: &'a Path) -> (&'a Path, bool) {
     if let Some(segment) = ty.segments.last() {
         if segment.ident == name {
@@ -258,3 +429,13 @@ fn unwrap_generic<'a>(name: &str, ty: &'a Path) -> (&'a Path, bool) {
     }
     (ty, false)
 }
+
+fn split_version(name: &str) -> (&str, &str) {
+    let ret = name.split_at(name.len() - 3);
+    if !ALL_VERSIONS.iter().any(|&v| v == ret.1) {
+        panic!("invalid version {}", ret.1)
+    }
+    ret
+}
+
+const ALL_VERSIONS: [&str; 4] = ["2_0", "3_0", "3_1", "3_2"];

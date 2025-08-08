@@ -24,7 +24,9 @@ use fireflow_core::validated::dataframe::AnyFCSColumn;
 use fireflow_core::validated::keys::{NonStdKey, StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::{Shortname, ShortnamePrefix};
 use fireflow_core::validated::textdelim::TEXTDelim;
-use fireflow_python_proc::{convert_methods_proc, get_set_all_meas_proc, get_set_metaroot};
+use fireflow_python_proc::{
+    convert_methods_proc, get_set_all_meas_proc, get_set_meas_common_proc, get_set_metaroot,
+};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
 use derive_more::{From, Into};
@@ -679,6 +681,16 @@ macro_rules! common_methods {
                 Ok(self.0.set_all_shortnames(names).void()?)
             }
 
+            /// Rename temporal measurement if present.
+            ///
+            /// :param str name: New name to assign. Must not have commas.
+            ///
+            /// :return: Previous name if present.
+            /// :rtype: str | None
+            fn rename_temporal(&mut self, name: Shortname) -> Option<Shortname> {
+                self.0.rename_temporal(name)
+            }
+
             // TODO FCS 2.0 specific doc
             /// Write data to path.
             ///
@@ -909,140 +921,14 @@ macro_rules! unset_temporal_timestep_lossy {
 unset_temporal_timestep_lossy!(PyCoreTEXT3_2);
 unset_temporal_timestep_lossy!(PyCoreDataset3_2);
 
-macro_rules! common_meas_get_set {
-    ($pytype:ident, $o:ident, $t:ident, $n:path, $fam:ident) => {
-        #[pymethods]
-        impl $pytype {
-            #[getter]
-            fn get_temporal(&self) -> Option<(MeasIndex, Shortname, $t)> {
-                self.0
-                    .temporal()
-                    .map(|t| (t.index, t.key.clone(), t.value.clone().into()))
-            }
-
-            #[getter]
-            fn measurements(&self) -> Vec<Element<$t, $o>> {
-                // This might seem inefficient since we are cloning
-                // everything, but if we want to map a python lambda
-                // function over the measurements we would need to to do
-                // this anyways, so simply returnig a copied list doesn't
-                // lose anything and keeps this API simpler.
-                let ms: &NamedVec<_, _, _, _> = self.0.as_ref();
-                ms.iter()
-                    .map(|(_, e)| e.bimap(|t| t.value.clone(), |o| o.value.clone()))
-                    .map(|v| v.inner_into())
-                    .collect()
-            }
-
-            // TODO this seems like it should return a key error
-            fn remove_measurement_by_name(
-                &mut self,
-                name: Shortname,
-            ) -> PyResult<(MeasIndex, Element<$t, $o>)> {
-                Ok(self
-                    .0
-                    .remove_measurement_by_name(&name)
-                    .map(|(i, x)| (i, x.inner_into()))?)
-            }
-
-            fn remove_measurement_by_index(
-                &mut self,
-                index: MeasIndex,
-            ) -> PyResult<($n, Element<$t, $o>)> {
-                let r = self.0.remove_measurement_by_index(index)?;
-                let (n, v) = Element::unzip::<$fam>(r);
-                Ok((n.0, v.inner_into()))
-            }
-
-            fn measurement_at(&self, index: MeasIndex) -> PyResult<Element<$t, $o>> {
-                let ms: &NamedVec<_, _, _, _> = self.0.as_ref();
-                let m = ms.get(index)?;
-                Ok(m.bimap(|x| x.1.clone(), |x| x.1.clone()).inner_into())
-            }
-
-            fn replace_optical_at(
-                &mut self,
-                index: MeasIndex,
-                meas: $o,
-            ) -> PyResult<Element<$t, $o>> {
-                let ret = self.0.replace_optical_at(index, meas.into())?;
-                Ok(ret.inner_into())
-            }
-
-            fn replace_optical_named(
-                &mut self,
-                name: Shortname,
-                meas: $o,
-            ) -> Option<Element<$t, $o>> {
-                self.0
-                    .replace_optical_named(&name, meas.into())
-                    .map(|r| r.inner_into())
-            }
-
-            fn rename_temporal(&mut self, name: Shortname) -> Option<Shortname> {
-                self.0.rename_temporal(name)
-            }
-        }
-    };
-}
-
-common_meas_get_set!(
-    PyCoreTEXT2_0,
-    PyOptical2_0,
-    PyTemporal2_0,
-    Option<Shortname>,
-    MaybeFamily
-);
-common_meas_get_set!(
-    PyCoreTEXT3_0,
-    PyOptical3_0,
-    PyTemporal3_0,
-    Option<Shortname>,
-    MaybeFamily
-);
-common_meas_get_set!(
-    PyCoreTEXT3_1,
-    PyOptical3_1,
-    PyTemporal3_1,
-    Shortname,
-    AlwaysFamily
-);
-common_meas_get_set!(
-    PyCoreTEXT3_2,
-    PyOptical3_2,
-    PyTemporal3_2,
-    Shortname,
-    AlwaysFamily
-);
-
-common_meas_get_set!(
-    PyCoreDataset2_0,
-    PyOptical2_0,
-    PyTemporal2_0,
-    Option<Shortname>,
-    MaybeFamily
-);
-common_meas_get_set!(
-    PyCoreDataset3_0,
-    PyOptical3_0,
-    PyTemporal3_0,
-    Option<Shortname>,
-    MaybeFamily
-);
-common_meas_get_set!(
-    PyCoreDataset3_1,
-    PyOptical3_1,
-    PyTemporal3_1,
-    Shortname,
-    AlwaysFamily
-);
-common_meas_get_set!(
-    PyCoreDataset3_2,
-    PyOptical3_2,
-    PyTemporal3_2,
-    Shortname,
-    AlwaysFamily
-);
+get_set_meas_common_proc! {PyCoreTEXT2_0, Option<Shortname>, MaybeFamily}
+get_set_meas_common_proc! {PyCoreTEXT3_0, Option<Shortname>, MaybeFamily}
+get_set_meas_common_proc! {PyCoreTEXT3_1, Shortname, AlwaysFamily}
+get_set_meas_common_proc! {PyCoreTEXT3_2, Shortname, AlwaysFamily}
+get_set_meas_common_proc! {PyCoreDataset2_0, Option<Shortname>, MaybeFamily}
+get_set_meas_common_proc! {PyCoreDataset3_0, Option<Shortname>, MaybeFamily}
+get_set_meas_common_proc! {PyCoreDataset3_1, Shortname, AlwaysFamily}
+get_set_meas_common_proc! {PyCoreDataset3_2, Shortname, AlwaysFamily}
 
 macro_rules! common_coretext_meas_get_set {
     ($pytype:ident, $o:ident, $t:ident, $n:path) => {

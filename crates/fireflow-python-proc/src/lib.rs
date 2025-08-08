@@ -69,7 +69,7 @@ pub fn get_set_all_meas_proc(input: TokenStream) -> TokenStream {
 
     let doc_summary = format!("Value of *$Pn{}* for all measurements", s.to_uppercase());
     let doc_middle = if optical_only {
-        "\n``()`` will be returned for the time measurement since it is not defined there.\n"
+        "\n``()`` will be returned for time since this keyword is not defined there.\n"
     } else {
         "\n"
     };

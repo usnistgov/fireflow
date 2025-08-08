@@ -16,6 +16,7 @@ release = "0.1.0"
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
 extensions = [
+    "sphinx.ext.intersphinx",
     "sphinx.ext.autodoc",
     "sphinx_toolbox.more_autodoc.autonamedtuple",
 ]
@@ -32,3 +33,7 @@ html_static_path = ["_static"]
 
 autodoc_typehints = "description"
 autodoc_member_order = "bysource"
+
+intersphinx_mapping = {
+    "python": ("https://docs.python.org/3", None),
+}

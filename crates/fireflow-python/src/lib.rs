@@ -592,7 +592,7 @@ macro_rules! common_methods {
             /// If ``date``, ``btim``, and ``etim`` are all not ``None`` then
             /// ``btim`` must be before ``etim``.
             ///
-            /// :type: datetime.time | None
+            /// :type: :py:class:`datetime.time` | None
             #[getter]
             fn get_btim(&self) -> Option<NaiveTime> {
                 self.0.btim_naive()
@@ -608,7 +608,7 @@ macro_rules! common_methods {
             /// If ``date``, ``btim``, and ``etim`` are all not ``None`` then
             /// ``btim`` must be before ``etim``.
             ///
-            /// :type: datetime.time | None
+            /// :type: :py:class:`datetime.time` | None
             #[getter]
             fn get_etim(&self) -> Option<NaiveTime> {
                 self.0.etim_naive()
@@ -624,7 +624,7 @@ macro_rules! common_methods {
             /// If ``date``, ``btim``, and ``etim`` are all not ``None`` then
             /// ``btim`` must be before ``etim``.
             ///
-            /// :type: datetime.date | None
+            /// :type: :py:class:`datetime.date` | None
             #[getter]
             fn get_date(&self) -> Option<NaiveDate> {
                 self.0.date_naive()
@@ -635,7 +635,7 @@ macro_rules! common_methods {
                 Ok(self.0.set_date_naive(x)?)
             }
 
-            /// Get or set the value for *$TR*
+            /// The value for *$TR*
             ///
             /// This is represented as a tuple where the first member is the
             /// threshold and the second member is a measurement name which
@@ -710,7 +710,7 @@ macro_rules! common_methods {
             /// first 99,999,999 bytes.
             ///
             /// :param path: path to write
-            /// :type path: pathlib.Path
+            /// :type path: :py:class:`pathlib.Path`
             /// :param delim: Delimiter to use when writing *TEXT*.
             ///     Defaults to 30 (record separator).
             #[pyo3(signature = (path, delim = TEXTDelim::default()))]
@@ -1543,7 +1543,7 @@ macro_rules! modification_methods {
 
         get_set_metaroot!(
             Option<kws::LastModified>,
-            "datetime.datetime",
+            ":py:class:`datetime.datetime`",
             "LAST_MODIFIED",
             $pytype
         );

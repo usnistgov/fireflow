@@ -43,22 +43,22 @@ def blank_text_3_2() -> pf.CoreTEXT3_2:
 
 @pytest.fixture
 def blank_dataset_2_0(blank_text_2_0: pf.CoreTEXT2_0) -> pf.CoreDataset2_0:
-    return blank_text_2_0.to_dataset([], b"", [])
+    return blank_text_2_0.to_dataset(pl.DataFrame(), b"", [])
 
 
 @pytest.fixture
 def blank_dataset_3_0(blank_text_3_0: pf.CoreTEXT3_0) -> pf.CoreDataset3_0:
-    return blank_text_3_0.to_dataset([], b"", [])
+    return blank_text_3_0.to_dataset(pl.DataFrame(), b"", [])
 
 
 @pytest.fixture
 def blank_dataset_3_1(blank_text_3_1: pf.CoreTEXT3_1) -> pf.CoreDataset3_1:
-    return blank_text_3_1.to_dataset([], b"", [])
+    return blank_text_3_1.to_dataset(pl.DataFrame(), b"", [])
 
 
 @pytest.fixture
 def blank_dataset_3_2(blank_text_3_2: pf.CoreTEXT3_2) -> pf.CoreDataset3_2:
-    return blank_text_3_2.to_dataset([], b"", [])
+    return blank_text_3_2.to_dataset(pl.DataFrame(), b"", [])
 
 
 @pytest.fixture
@@ -1133,7 +1133,9 @@ class TestCore:
         optical: Any,
         series2: pl.Series,
     ) -> None:
-        core.set_measurements_and_data([(LINK_NAME1, optical)], [series2], prefix="_")
+        core.set_measurements_and_data(
+            [(LINK_NAME1, optical)], pl.DataFrame([series2]), prefix="_"
+        )
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -1151,7 +1153,7 @@ class TestCore:
         optical: Any,
         series2: pl.Series,
     ) -> None:
-        core.set_measurements_and_data([(LINK_NAME1, optical)], [series2])
+        core.set_measurements_and_data([(LINK_NAME1, optical)], pl.DataFrame([series2]))
 
     @pytest.mark.parametrize(
         "core, optical, temporal",
@@ -1416,8 +1418,8 @@ class TestCore:
         self, core: AnyCoreTEXT, target: type, series1: pl.Series, series2: pl.Series
     ) -> None:
         with pytest.raises(pf.PyreflowException):
-            core.to_dataset([series1], b"", [])
-        new = core.to_dataset([series1, series2], b"", [])
+            core.to_dataset(pl.DataFrame([series1]), b"", [])
+        new = core.to_dataset(pl.DataFrame([series1, series2]), b"", [])
         assert isinstance(new, target)
 
 

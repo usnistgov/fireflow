@@ -167,7 +167,7 @@ impl AnyFCSColumn {
     }
 
     #[cfg(feature = "python")]
-    pub(crate) fn as_polars_column(&self, name: &Shortname) -> Column {
+    fn as_polars_column(&self, name: &Shortname) -> Column {
         // ASSUME this will not fail because the we know the types and
         // we don't have a validity array
         Series::from_arrow(name.as_ref().into(), self.as_array())
@@ -336,7 +336,7 @@ impl FCSDataFrame {
     }
 
     #[cfg(feature = "python")]
-    pub(crate) fn as_polars_dataframe(&self, names: &[Shortname]) -> DataFrame {
+    pub fn as_polars_dataframe(&self, names: &[Shortname]) -> DataFrame {
         // ASSUME names is same length as columns
         let columns = self
             .iter_columns()
@@ -859,6 +859,13 @@ pub(crate) mod python {
             // ASSUME this will not fail because all columns should have unique
             // names and the same length
             PyDataFrame(DataFrame::new(columns).unwrap()).into_pyobject(py)
+        }
+    }
+
+    impl<'py> FromPyObject<'py> for FCSDataFrame {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let df: PyDataFrame = ob.extract()?;
+            Ok(df.0.try_into()?)
         }
     }
 

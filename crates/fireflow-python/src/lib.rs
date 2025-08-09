@@ -20,7 +20,7 @@ use fireflow_core::text::optional::{AlwaysFamily, MaybeFamily};
 use fireflow_core::text::scale::Scale;
 use fireflow_core::text::unstainedcenters::UnstainedCenters;
 use fireflow_core::validated::bitmask as bm;
-use fireflow_core::validated::dataframe::AnyFCSColumn;
+use fireflow_core::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
 use fireflow_core::validated::keys::{NonStdKey, StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::{Shortname, ShortnamePrefix};
 use fireflow_core::validated::textdelim::TEXTDelim;
@@ -1191,12 +1191,15 @@ macro_rules! coredata_common {
             /// :type: :py:class:`polars.DataFrame`
             #[getter]
             fn data(&self) -> PyDataFrame {
-                PyDataFrame(self.0.dataframe())
+                let ns = self.0.all_shortnames();
+                let data = self.0.data();
+                PyDataFrame(data.as_polars_dataframe(&ns[..]))
             }
 
             #[setter]
             fn set_data(&mut self, df: PyDataFrame) -> PyResult<()> {
-                Ok(self.0.set_dataframe(df.0)?)
+                let data = df.0.try_into()?;
+                Ok(self.0.set_data(data)?)
             }
 
             /// The byte string corresponding to *ANALYSIS*.
@@ -1345,11 +1348,11 @@ macro_rules! coredata2_0_meas_methods {
             fn set_measurements_and_data(
                 &mut self,
                 measurements: Eithers<MaybeFamily, $t, $o>,
-                cols: Vec<AnyFCSColumn>,
+                df: FCSDataFrame,
                 prefix: ShortnamePrefix,
             ) -> PyResult<()> {
                 self.0
-                    .set_measurements_and_data(measurements.inner_into(), cols, prefix)
+                    .set_measurements_and_data(measurements.inner_into(), df, prefix)
                     .py_term_resolve_nowarn()
             }
         }
@@ -1366,10 +1369,10 @@ macro_rules! coredata3_1_meas_methods {
             fn set_measurements_and_data(
                 &mut self,
                 measurements: Eithers<AlwaysFamily, $t, $o>,
-                cols: Vec<AnyFCSColumn>,
+                df: FCSDataFrame,
             ) -> PyResult<()> {
                 self.0
-                    .set_measurements_and_data_noprefix(measurements.inner_into(), cols)
+                    .set_measurements_and_data_noprefix(measurements.inner_into(), df)
                     .py_term_resolve_nowarn()
             }
         }
@@ -1858,7 +1861,6 @@ get_set_all_meas_proc! {
 macro_rules! to_dataset_method {
     ($from:ident, $to:ident) => {
         #[pymethods]
-        // TODO use dataframe here
         // TODO use proc macro to get return type in docstring
         impl $from {
             /// Convert to a dataset object.
@@ -1866,20 +1868,20 @@ macro_rules! to_dataset_method {
             /// This will fully represent an FCS file, as opposed to just
             /// representing *HEADER* and *TEXT*.
             ///
-            /// :param cols: Columns corresponding to *DATA*.
+            /// :param df: Columns corresponding to *DATA*.
+            /// :type df: :py:class:`polars.DataFrame`
             /// :param analysis: Bytes corresponding to *ANALYSIS*.
             /// :type analysis: bytes
             /// :param others: Bytes corresponding to *OTHERS*.
             /// :type others: list[bytes]
-            #[pyo3(signature = (cols, analysis = core::Analysis::default(), others = core::Others::default()))]
+            #[pyo3(signature = (df, analysis = core::Analysis::default(), others = core::Others::default()))]
             fn to_dataset(
                 &self,
-                cols: Vec<AnyFCSColumn>,
+                df: FCSDataFrame,
                 analysis: core::Analysis,
                 others: core::Others,
             ) -> PyResult<$to> {
-                let df = self.0.clone().into_coredataset(cols, analysis, others)?;
-                Ok(df.into())
+                Ok(self.0.clone().into_coredataset(df, analysis, others)?.into())
             }
         }
     };

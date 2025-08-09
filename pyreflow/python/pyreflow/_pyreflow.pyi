@@ -469,15 +469,15 @@ class _CoreDatasetGetSetMeasOrdered(Generic[_O, _T]):
     def set_measurements_and_data(
         self,
         measurements: _RawInput[Shortname | None, _O, _T],
-        cols: list[Series],
+        df: DataFrame,
         prefix: str,
     ) -> None: ...
 
 class _CoreDatasetGetSetMeasEndian(Generic[_O, _T]):
     def set_measurements_and_data(
         self,
-        measurements: _RawInput[Shortname | None, _O, _T],
-        cols: list[Series],
+        measurements: _RawInput[Shortname, _O, _T],
+        df: DataFrame,
     ) -> None: ...
 
 class _CoreSetShortnamesMaybe:
@@ -571,7 +571,7 @@ class _CoreMeasCalibration(Generic[_C]):
 class _CoreToDataset(Generic[_X]):
     def to_dataset(
         self,
-        cols: list[Series],
+        df: DataFrame,
         analysis: AnalysisBytes = ...,
         others: list[OtherBytes] = ...,
     ) -> _X: ...

@@ -44,9 +44,6 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
-#[cfg(feature = "python")]
-use polars::prelude::*;
-
 /// Represents the minimal data required to write an FCS file.
 ///
 /// At minimum, this contains the TEXT keywords in a version-specific structure
@@ -3481,19 +3478,6 @@ where
     {
         M::Ver::fcs_version().into()
     }
-
-    pub(crate) fn try_cols_to_dataframe(
-        &self,
-        cols: Vec<AnyFCSColumn>,
-    ) -> Result<FCSDataFrame, ColumnsToDataframeError> {
-        let data_n = cols.len();
-        let meas_n = self.par().0;
-        if data_n != meas_n {
-            return Err(MeasDataMismatchError { meas_n, data_n }.into());
-        }
-        let df = FCSDataFrame::try_new(cols)?;
-        Ok(df)
-    }
 }
 
 impl<M> VersionedCoreTEXT<M>
@@ -3692,12 +3676,16 @@ where
     /// same length.
     pub fn into_coredataset(
         self,
-        columns: Vec<AnyFCSColumn>,
+        df: FCSDataFrame,
         analysis: Analysis,
         others: Others,
-    ) -> Result<VersionedCoreDataset<M>, ColumnsToDataframeError> {
-        let data = self.try_cols_to_dataframe(columns)?;
-        Ok(self.into_coredataset_unchecked(data, analysis, others))
+    ) -> Result<VersionedCoreDataset<M>, MeasDataMismatchError> {
+        let data_n = df.ncols();
+        let meas_n = self.par().0;
+        if data_n != meas_n {
+            return Err(MeasDataMismatchError { meas_n, data_n });
+        }
+        Ok(self.into_coredataset_unchecked(df, analysis, others))
     }
 
     pub(crate) fn into_coredataset_unchecked(
@@ -3857,29 +3845,22 @@ where
             .def_terminate(WriteDatasetFailure)
     }
 
-    #[cfg(feature = "python")]
-    /// Return DATA as polars dataframe
-    pub fn dataframe(&self) -> DataFrame {
-        let ns = self.all_shortnames();
-        self.data.as_polars_dataframe(&ns[..])
-    }
-
-    #[cfg(feature = "python")]
-    /// Add columns to this dataset as a dataframe
-    ///
-    /// Return error if columns are not all the same length or number of columns
-    /// doesn't match the number of measurement.
-    pub fn set_dataframe(&mut self, df: DataFrame) -> Result<(), df::python::SeriesToColumnError> {
-        self.data = df.try_into()?;
-        Ok(())
+    /// Return DATA
+    pub fn data(&self) -> &FCSDataFrame {
+        &self.data
     }
 
     /// Add columns to this dataset.
     ///
     /// Return error if columns are not all the same length or number of columns
     /// doesn't match the number of measurement.
-    pub fn set_data(&mut self, cols: Vec<AnyFCSColumn>) -> Result<(), ColumnsToDataframeError> {
-        self.data = self.try_cols_to_dataframe(cols)?;
+    pub fn set_data(&mut self, df: FCSDataFrame) -> Result<(), ColumnsToDataframeError> {
+        let data_n = df.ncols();
+        let meas_n = self.par().0;
+        if data_n != meas_n {
+            return Err(MeasDataMismatchError { meas_n, data_n }.into());
+        }
+        self.data = df;
         Ok(())
     }
 
@@ -4034,7 +4015,7 @@ where
     pub fn set_measurements_and_data(
         &mut self,
         xs: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
-        cs: Vec<AnyFCSColumn>,
+        df: FCSDataFrame,
         prefix: ShortnamePrefix,
     ) -> TerminalResult<(), Infallible, SetMeasurementsAndDataError, SetMeasurementsAndDataFailure>
     where
@@ -4042,11 +4023,10 @@ where
     {
         let go = || {
             let meas_n = xs.0.len();
-            let data_n = cs.len();
+            let data_n = df.ncols();
             if meas_n != data_n {
                 return Err(MeasDataMismatchError { meas_n, data_n }).into_mult();
             }
-            let df = FCSDataFrame::try_new(cs).into_mult()?;
             self.set_measurements_inner(xs, prefix).mult_errors_into()?;
             self.data = df;
             Ok(())
@@ -4207,7 +4187,7 @@ where
     pub fn set_measurements_and_data_noprefix(
         &mut self,
         xs: Eithers<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
-        cs: Vec<AnyFCSColumn>,
+        cs: FCSDataFrame,
     ) -> TerminalResult<(), Infallible, SetMeasurementsAndDataError, SetMeasurementsAndDataFailure>
     where
         M::Optical: AsScaleTransform,
@@ -8459,7 +8439,6 @@ pub enum SetTransformsError {
 #[derive(From, Display)]
 pub enum SetMeasurementsAndDataError {
     Meas(SetMeasurementsError),
-    New(df::NewDataframeError),
     Mismatch(MeasDataMismatchError),
 }
 
@@ -9188,13 +9167,15 @@ mod serialize {
 mod python {
     use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
     use crate::text::ranged_float::PositiveFloat;
+    use crate::validated::dataframe::python::SeriesToColumnError;
 
     use super::{
         Analysis, ColumnsToDataframeError, CompParMismatchError, ExistingLinkError,
-        MissingMeasurementNameError, Other, Others, ScaleTransform, SetSpilloverError,
-        TriggerLinkError,
+        MeasDataMismatchError, MissingMeasurementNameError, Other, Others, ScaleTransform,
+        SetMeasurementsError, SetSpilloverError, TriggerLinkError,
     };
 
+    use derive_more::{Display, From};
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
     use pyo3::IntoPyObjectExt;
@@ -9233,6 +9214,15 @@ mod python {
         }
     }
 
+    #[derive(From, Display)]
+    pub enum SetMeasurementsAndDataframeError {
+        Meas(SetMeasurementsError),
+        DataFrame(SeriesToColumnError),
+        Mismatch(MeasDataMismatchError),
+    }
+
+    impl_pyreflow_err!(MeasDataMismatchError);
+    impl_pyreflow_err!(SetMeasurementsAndDataframeError);
     impl_pyreflow_err!(ColumnsToDataframeError);
     impl_pyreflow_err!(MissingMeasurementNameError);
     impl_pyreflow_err!(ExistingLinkError);

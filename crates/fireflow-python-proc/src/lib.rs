@@ -12,7 +12,7 @@ use syn::{
 };
 
 #[proc_macro]
-pub fn get_set_metaroot(input: TokenStream) -> TokenStream {
+pub fn impl_get_set_metaroot(input: TokenStream) -> TokenStream {
     let info = parse_macro_input!(input as GetSetMetarootInfo);
     let kw = &info.kwtype;
     let (kw_inner, optional) = unwrap_generic("Option", kw);
@@ -60,7 +60,7 @@ pub fn get_set_metaroot(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn get_set_all_meas_proc(input: TokenStream) -> TokenStream {
+pub fn impl_get_set_all_meas(input: TokenStream) -> TokenStream {
     let info = parse_macro_input!(input as GetSetAllMeas);
     let kw = &info.rstype;
     let (kw_mid, optical_only) = unwrap_generic("NonCenterElement", kw);
@@ -140,7 +140,7 @@ pub fn get_set_all_meas_proc(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn get_set_meas_common_proc(input: TokenStream) -> TokenStream {
+pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
     let info = parse_macro_input!(input as CommonMeasGetSet);
     let rstype = &info.rstype;
     let nametype = &info.nametype;
@@ -294,7 +294,7 @@ pub fn get_set_meas_common_proc(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn convert_methods_proc(input: TokenStream) -> TokenStream {
+pub fn impl_convert_version(input: TokenStream) -> TokenStream {
     let pytype: Path = parse_macro_input!(input);
     let name = pytype.segments.last().unwrap().ident.to_string();
     let (base, version) = split_version(name.as_str());

@@ -25,7 +25,8 @@ use fireflow_core::validated::keys::{NonStdKey, StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::{Shortname, ShortnamePrefix};
 use fireflow_core::validated::textdelim::TEXTDelim;
 use fireflow_python_proc::{
-    convert_methods_proc, get_set_all_meas_proc, get_set_meas_common_proc, get_set_metaroot,
+    impl_convert_version, impl_get_set_all_meas, impl_get_set_meas_obj_common,
+    impl_get_set_metaroot,
 };
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
@@ -401,14 +402,14 @@ impl From<PyNonMixedLayout> for NonMixedEndianLayout<NoMeasDatatype> {
     }
 }
 
-convert_methods_proc! {PyCoreTEXT2_0}
-convert_methods_proc! {PyCoreTEXT3_0}
-convert_methods_proc! {PyCoreTEXT3_1}
-convert_methods_proc! {PyCoreTEXT3_2}
-convert_methods_proc! {PyCoreDataset2_0}
-convert_methods_proc! {PyCoreDataset3_0}
-convert_methods_proc! {PyCoreDataset3_1}
-convert_methods_proc! {PyCoreDataset3_2}
+impl_convert_version! {PyCoreTEXT2_0}
+impl_convert_version! {PyCoreTEXT3_0}
+impl_convert_version! {PyCoreTEXT3_1}
+impl_convert_version! {PyCoreTEXT3_2}
+impl_convert_version! {PyCoreDataset2_0}
+impl_convert_version! {PyCoreDataset3_0}
+impl_convert_version! {PyCoreDataset3_1}
+impl_convert_version! {PyCoreDataset3_2}
 
 #[pymethods]
 impl PyCoreTEXT2_0 {
@@ -445,40 +446,40 @@ impl PyCoreTEXT3_2 {
 // Get/set methods for all versions
 macro_rules! impl_common {
     ($pytype:ident) => {
-        get_set_metaroot! {Option<kws::Abrt>, "int", $pytype}
-        get_set_metaroot! {Option<kws::Cells>, "str", $pytype}
-        get_set_metaroot! {Option<kws::Com>, "str", $pytype}
-        get_set_metaroot! {Option<kws::Exp>, "str", $pytype}
-        get_set_metaroot! {Option<kws::Fil>, "str", $pytype}
-        get_set_metaroot! {Option<kws::Inst>, "str", $pytype}
-        get_set_metaroot! {Option<kws::Lost>, "int", $pytype}
-        get_set_metaroot! {Option<kws::Op>, "str", $pytype}
-        get_set_metaroot! {Option<kws::Proj>, "str", $pytype}
-        get_set_metaroot! {Option<kws::Smno>, "str", $pytype}
-        get_set_metaroot! {Option<kws::Src>, "str", $pytype}
-        get_set_metaroot! {Option<kws::Sys>, "str", $pytype}
+        impl_get_set_metaroot! {Option<kws::Abrt>, "int", $pytype}
+        impl_get_set_metaroot! {Option<kws::Cells>, "str", $pytype}
+        impl_get_set_metaroot! {Option<kws::Com>, "str", $pytype}
+        impl_get_set_metaroot! {Option<kws::Exp>, "str", $pytype}
+        impl_get_set_metaroot! {Option<kws::Fil>, "str", $pytype}
+        impl_get_set_metaroot! {Option<kws::Inst>, "str", $pytype}
+        impl_get_set_metaroot! {Option<kws::Lost>, "int", $pytype}
+        impl_get_set_metaroot! {Option<kws::Op>, "str", $pytype}
+        impl_get_set_metaroot! {Option<kws::Proj>, "str", $pytype}
+        impl_get_set_metaroot! {Option<kws::Smno>, "str", $pytype}
+        impl_get_set_metaroot! {Option<kws::Src>, "str", $pytype}
+        impl_get_set_metaroot! {Option<kws::Sys>, "str", $pytype}
 
         // common measurement keywords
-        get_set_all_meas_proc!(Option<kws::Longname>, "S", "str", $pytype);
+        impl_get_set_all_meas!(Option<kws::Longname>, "S", "str", $pytype);
 
-        get_set_all_meas_proc!(NonCenterElement<Option<kws::Filter>>, "F", "str", $pytype);
-        get_set_all_meas_proc!(NonCenterElement<Option<kws::Power>>, "O", "float", $pytype);
+        impl_get_set_all_meas!(NonCenterElement<Option<kws::Filter>>, "F", "str", $pytype);
+        impl_get_set_all_meas!(NonCenterElement<Option<kws::Power>>, "O", "float", $pytype);
 
-        get_set_all_meas_proc!(
+        impl_get_set_all_meas!(
             NonCenterElement<Option<kws::PercentEmitted>>,
             "P",
             "str",
             $pytype
         );
 
-        get_set_all_meas_proc!(
+        impl_get_set_all_meas!(
             NonCenterElement<Option<kws::DetectorType>>,
             "T",
             "str",
             $pytype
         );
 
-        get_set_all_meas_proc!(
+        impl_get_set_all_meas!(
             NonCenterElement<Option<kws::DetectorVoltage>>,
             "V",
             "float",
@@ -969,16 +970,16 @@ macro_rules! impl_unset_temporal_timestep_lossy {
 impl_unset_temporal_timestep_lossy!(PyCoreTEXT3_2);
 impl_unset_temporal_timestep_lossy!(PyCoreDataset3_2);
 
-get_set_meas_common_proc! {PyCoreTEXT2_0, Option<Shortname>, MaybeFamily}
-get_set_meas_common_proc! {PyCoreTEXT3_0, Option<Shortname>, MaybeFamily}
-get_set_meas_common_proc! {PyCoreTEXT3_1, Shortname, AlwaysFamily}
-get_set_meas_common_proc! {PyCoreTEXT3_2, Shortname, AlwaysFamily}
-get_set_meas_common_proc! {PyCoreDataset2_0, Option<Shortname>, MaybeFamily}
-get_set_meas_common_proc! {PyCoreDataset3_0, Option<Shortname>, MaybeFamily}
-get_set_meas_common_proc! {PyCoreDataset3_1, Shortname, AlwaysFamily}
-get_set_meas_common_proc! {PyCoreDataset3_2, Shortname, AlwaysFamily}
+impl_get_set_meas_obj_common! {PyCoreTEXT2_0, Option<Shortname>, MaybeFamily}
+impl_get_set_meas_obj_common! {PyCoreTEXT3_0, Option<Shortname>, MaybeFamily}
+impl_get_set_meas_obj_common! {PyCoreTEXT3_1, Shortname, AlwaysFamily}
+impl_get_set_meas_obj_common! {PyCoreTEXT3_2, Shortname, AlwaysFamily}
+impl_get_set_meas_obj_common! {PyCoreDataset2_0, Option<Shortname>, MaybeFamily}
+impl_get_set_meas_obj_common! {PyCoreDataset3_0, Option<Shortname>, MaybeFamily}
+impl_get_set_meas_obj_common! {PyCoreDataset3_1, Shortname, AlwaysFamily}
+impl_get_set_meas_obj_common! {PyCoreDataset3_2, Shortname, AlwaysFamily}
 
-macro_rules! common_coretext_meas_get_set {
+macro_rules! impl_get_set_meas_obj_coretext {
     ($pytype:ident, $o:ident, $t:ident, $n:path) => {
         #[pymethods]
         impl $pytype {
@@ -1045,20 +1046,20 @@ macro_rules! common_coretext_meas_get_set {
     };
 }
 
-common_coretext_meas_get_set!(
+impl_get_set_meas_obj_coretext!(
     PyCoreTEXT2_0,
     PyOptical2_0,
     PyTemporal2_0,
     Option<Shortname>
 );
-common_coretext_meas_get_set!(
+impl_get_set_meas_obj_coretext!(
     PyCoreTEXT3_0,
     PyOptical3_0,
     PyTemporal3_0,
     Option<Shortname>
 );
-common_coretext_meas_get_set!(PyCoreTEXT3_1, PyOptical3_1, PyTemporal3_1, Shortname);
-common_coretext_meas_get_set!(PyCoreTEXT3_2, PyOptical3_2, PyTemporal3_2, Shortname);
+impl_get_set_meas_obj_coretext!(PyCoreTEXT3_1, PyOptical3_1, PyTemporal3_1, Shortname);
+impl_get_set_meas_obj_coretext!(PyCoreTEXT3_2, PyOptical3_2, PyTemporal3_2, Shortname);
 
 macro_rules! impl_replace_temporal {
     ($pytype:ident, $o:ident, $t:ident) => {
@@ -1153,7 +1154,7 @@ macro_rules! impl_replace_temporal_3_2 {
 impl_replace_temporal_3_2!(PyCoreTEXT3_2);
 impl_replace_temporal_3_2!(PyCoreDataset3_2);
 
-macro_rules! coredata_meas_get_set {
+macro_rules! impl_get_set_meas_obj_coredata {
     ($pytype:ident, $o:ident, $t:ident, $n:path) => {
         #[pymethods]
         impl $pytype {
@@ -1220,22 +1221,22 @@ macro_rules! coredata_meas_get_set {
     };
 }
 
-coredata_meas_get_set!(
+impl_get_set_meas_obj_coredata!(
     PyCoreDataset2_0,
     PyOptical2_0,
     PyTemporal2_0,
     Option<Shortname>
 );
-coredata_meas_get_set!(
+impl_get_set_meas_obj_coredata!(
     PyCoreDataset3_0,
     PyOptical3_0,
     PyTemporal3_0,
     Option<Shortname>
 );
-coredata_meas_get_set!(PyCoreDataset3_1, PyOptical3_1, PyTemporal3_1, Shortname);
-coredata_meas_get_set!(PyCoreDataset3_2, PyOptical3_2, PyTemporal3_2, Shortname);
+impl_get_set_meas_obj_coredata!(PyCoreDataset3_1, PyOptical3_1, PyTemporal3_1, Shortname);
+impl_get_set_meas_obj_coredata!(PyCoreDataset3_2, PyOptical3_2, PyTemporal3_2, Shortname);
 
-macro_rules! coredata_common {
+macro_rules! impl_coredata_common {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
@@ -1294,12 +1295,12 @@ macro_rules! coredata_common {
     };
 }
 
-coredata_common!(PyCoreDataset2_0);
-coredata_common!(PyCoreDataset3_0);
-coredata_common!(PyCoreDataset3_1);
-coredata_common!(PyCoreDataset3_2);
+impl_coredata_common!(PyCoreDataset2_0);
+impl_coredata_common!(PyCoreDataset3_0);
+impl_coredata_common!(PyCoreDataset3_1);
+impl_coredata_common!(PyCoreDataset3_2);
 
-macro_rules! set_measurements_ordered {
+macro_rules! impl_set_measurements_ordered {
     ($pytype:ident, $t:ident, $o:ident) => {
         #[pymethods]
         impl $pytype {
@@ -1337,12 +1338,12 @@ macro_rules! set_measurements_ordered {
     };
 }
 
-set_measurements_ordered!(PyCoreTEXT2_0, PyTemporal2_0, PyOptical2_0);
-set_measurements_ordered!(PyCoreTEXT3_0, PyTemporal3_0, PyOptical3_0);
-set_measurements_ordered!(PyCoreDataset2_0, PyTemporal2_0, PyOptical2_0);
-set_measurements_ordered!(PyCoreDataset3_0, PyTemporal3_0, PyOptical3_0);
+impl_set_measurements_ordered!(PyCoreTEXT2_0, PyTemporal2_0, PyOptical2_0);
+impl_set_measurements_ordered!(PyCoreTEXT3_0, PyTemporal3_0, PyOptical3_0);
+impl_set_measurements_ordered!(PyCoreDataset2_0, PyTemporal2_0, PyOptical2_0);
+impl_set_measurements_ordered!(PyCoreDataset3_0, PyTemporal3_0, PyOptical3_0);
 
-macro_rules! set_measurements_endian {
+macro_rules! impl_set_measurements_endian {
     ($pytype:ident, $t:ident, $o:ident, $l:ident) => {
         #[pymethods]
         impl $pytype {
@@ -1378,18 +1379,18 @@ macro_rules! set_measurements_endian {
     };
 }
 
-set_measurements_endian!(PyCoreTEXT3_1, PyTemporal3_1, PyOptical3_1, PyNonMixedLayout);
-set_measurements_endian!(PyCoreTEXT3_2, PyTemporal3_2, PyOptical3_2, PyLayout3_2);
-set_measurements_endian!(
+impl_set_measurements_endian!(PyCoreTEXT3_1, PyTemporal3_1, PyOptical3_1, PyNonMixedLayout);
+impl_set_measurements_endian!(PyCoreTEXT3_2, PyTemporal3_2, PyOptical3_2, PyLayout3_2);
+impl_set_measurements_endian!(
     PyCoreDataset3_1,
     PyTemporal3_1,
     PyOptical3_1,
     PyNonMixedLayout
 );
-set_measurements_endian!(PyCoreDataset3_2, PyTemporal3_2, PyOptical3_2, PyLayout3_2);
+impl_set_measurements_endian!(PyCoreDataset3_2, PyTemporal3_2, PyOptical3_2, PyLayout3_2);
 
 // TODO use a real dataframe here rather than a list of series
-macro_rules! coredata2_0_meas_methods {
+macro_rules! impl_set_meas_and_data_prefix {
     ($pytype:ident, $t:ident, $o:ident) => {
         #[pymethods]
         impl $pytype {
@@ -1407,10 +1408,10 @@ macro_rules! coredata2_0_meas_methods {
     };
 }
 
-coredata2_0_meas_methods!(PyCoreDataset2_0, PyTemporal2_0, PyOptical2_0);
-coredata2_0_meas_methods!(PyCoreDataset3_0, PyTemporal3_0, PyOptical3_0);
+impl_set_meas_and_data_prefix!(PyCoreDataset2_0, PyTemporal2_0, PyOptical2_0);
+impl_set_meas_and_data_prefix!(PyCoreDataset3_0, PyTemporal3_0, PyOptical3_0);
 
-macro_rules! coredata3_1_meas_methods {
+macro_rules! impl_set_meas_and_data_noprefix {
     ($pytype:ident, $t:ident, $o:ident) => {
         #[pymethods]
         impl $pytype {
@@ -1427,10 +1428,10 @@ macro_rules! coredata3_1_meas_methods {
     };
 }
 
-coredata3_1_meas_methods!(PyCoreDataset3_1, PyTemporal3_1, PyOptical3_1);
-coredata3_1_meas_methods!(PyCoreDataset3_2, PyTemporal3_2, PyOptical3_2);
+impl_set_meas_and_data_noprefix!(PyCoreDataset3_1, PyTemporal3_1, PyOptical3_1);
+impl_set_meas_and_data_noprefix!(PyCoreDataset3_2, PyTemporal3_2, PyOptical3_2);
 
-macro_rules! get_set_3_2 {
+macro_rules! impl_core3_2 {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
@@ -1483,11 +1484,11 @@ macro_rules! get_set_3_2 {
     };
 }
 
-get_set_3_2!(PyCoreTEXT3_2);
-get_set_3_2!(PyCoreDataset3_2);
+impl_core3_2!(PyCoreTEXT3_2);
+impl_core3_2!(PyCoreDataset3_2);
 
 // Get/set methods for $PnE (2.0)
-macro_rules! scales_methods {
+macro_rules! impl_get_set_all_pne {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
@@ -1513,11 +1514,11 @@ macro_rules! scales_methods {
     };
 }
 
-scales_methods!(PyCoreTEXT2_0);
-scales_methods!(PyCoreDataset2_0);
+impl_get_set_all_pne!(PyCoreTEXT2_0);
+impl_get_set_all_pne!(PyCoreDataset2_0);
 
 // Get/set methods for $PnE/$PnG (3.0-3.2)
-macro_rules! transforms_methods {
+macro_rules! impl_get_set_all_transform {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
@@ -1550,12 +1551,12 @@ macro_rules! transforms_methods {
     };
 }
 
-transforms_methods!(PyCoreTEXT3_0);
-transforms_methods!(PyCoreTEXT3_1);
-transforms_methods!(PyCoreTEXT3_2);
-transforms_methods!(PyCoreDataset3_0);
-transforms_methods!(PyCoreDataset3_1);
-transforms_methods!(PyCoreDataset3_2);
+impl_get_set_all_transform!(PyCoreTEXT3_0);
+impl_get_set_all_transform!(PyCoreTEXT3_1);
+impl_get_set_all_transform!(PyCoreTEXT3_2);
+impl_get_set_all_transform!(PyCoreDataset3_0);
+impl_get_set_all_transform!(PyCoreDataset3_1);
+impl_get_set_all_transform!(PyCoreDataset3_2);
 
 // Get/set methods for $TIMESTEP (3.0-3.2)
 macro_rules! impl_get_set_timestep {
@@ -1594,20 +1595,20 @@ impl_get_set_timestep!(PyCoreDataset3_2);
 // Get/set methods for $LAST_MODIFIER/$LAST_MODIFIED/$ORIGINALITY (3.1-3.2)
 macro_rules! impl_modification_attrs {
     ($pytype:ident) => {
-        get_set_metaroot!(
+        impl_get_set_metaroot!(
             Option<kws::Originality>,
             "Literal[\"Original\", \"NonDataModified\", \"Appended\", \"DataModified\"]",
             $pytype
         );
 
-        get_set_metaroot!(
+        impl_get_set_metaroot!(
             Option<kws::LastModified>,
             ":py:class:`datetime.datetime`",
             "LAST_MODIFIED",
             $pytype
         );
 
-        get_set_metaroot!(Option<kws::LastModifier>, "str", "LAST_MODIFIER", $pytype);
+        impl_get_set_metaroot!(Option<kws::LastModifier>, "str", "LAST_MODIFIER", $pytype);
     };
 }
 
@@ -1619,9 +1620,9 @@ impl_modification_attrs!(PyCoreDataset3_2);
 // Get/set methods for $CARRIERID/$CARRIERTYPE/$LOCATIONID (3.2)
 macro_rules! impl_carrier_attrs {
     ($pytype:ident) => {
-        get_set_metaroot!(Option<kws::Carriertype>, "str", $pytype);
-        get_set_metaroot!(Option<kws::Carrierid>, "str", $pytype);
-        get_set_metaroot!(Option<kws::Locationid>, "str", $pytype);
+        impl_get_set_metaroot!(Option<kws::Carriertype>, "str", $pytype);
+        impl_get_set_metaroot!(Option<kws::Carrierid>, "str", $pytype);
+        impl_get_set_metaroot!(Option<kws::Locationid>, "str", $pytype);
     };
 }
 
@@ -1631,9 +1632,9 @@ impl_carrier_attrs!(PyCoreDataset3_2);
 // Get/set methods for $PLATEID/$WELLID/$PLATENAME (3.1-3.2)
 macro_rules! impl_plate_attrs {
     ($pytype:ident) => {
-        get_set_metaroot!(Option<kws::Wellid>, "str", $pytype);
-        get_set_metaroot!(Option<kws::Plateid>, "str", $pytype);
-        get_set_metaroot!(Option<kws::Platename>, "str", $pytype);
+        impl_get_set_metaroot!(Option<kws::Wellid>, "str", $pytype);
+        impl_get_set_metaroot!(Option<kws::Plateid>, "str", $pytype);
+        impl_get_set_metaroot!(Option<kws::Platename>, "str", $pytype);
     };
 }
 
@@ -1643,7 +1644,7 @@ impl_plate_attrs!(PyCoreDataset3_1);
 impl_plate_attrs!(PyCoreDataset3_2);
 
 // get/set methods for $COMP (2.0-3.0)
-macro_rules! impl_comp {
+macro_rules! impl_get_set_comp {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
@@ -1661,10 +1662,10 @@ macro_rules! impl_comp {
     };
 }
 
-impl_comp!(PyCoreTEXT2_0);
-impl_comp!(PyCoreTEXT3_0);
-impl_comp!(PyCoreDataset2_0);
-impl_comp!(PyCoreDataset3_0);
+impl_get_set_comp!(PyCoreTEXT2_0);
+impl_get_set_comp!(PyCoreTEXT3_0);
+impl_get_set_comp!(PyCoreDataset2_0);
+impl_get_set_comp!(PyCoreDataset3_0);
 
 // Get/set methods for $SPILLOVER (3.1-3.2)
 macro_rules! impl_spillover {
@@ -1720,14 +1721,14 @@ impl_spillover!(PyCoreTEXT3_2);
 impl_spillover!(PyCoreDataset3_1);
 impl_spillover!(PyCoreDataset3_2);
 
-get_set_metaroot! {
+impl_get_set_metaroot! {
     Option<kws::Unicode>,
     "(int, list[str])",
     PyCoreTEXT3_0,
     PyCoreDataset3_0
 }
 
-get_set_metaroot! {
+impl_get_set_metaroot! {
     Option<kws::Vol>,
     "float",
     PyCoreTEXT3_1,
@@ -1737,7 +1738,7 @@ get_set_metaroot! {
 }
 
 // Get/set methods for $MODE (2.0-3.1)
-get_set_metaroot! {
+impl_get_set_metaroot! {
     kws::Mode,
     "Literal[\"L\", \"U\", \"C\"]",
     PyCoreTEXT2_0,
@@ -1749,7 +1750,7 @@ get_set_metaroot! {
 }
 
 // Get/set methods for $MODE (3.2)
-get_set_metaroot! {
+impl_get_set_metaroot! {
     Option<kws::Mode3_2>,
     "Literal[\"L\"]",
     "MODE",
@@ -1760,7 +1761,7 @@ get_set_metaroot! {
 // Get/set methods for (optional) $CYT (2.0-3.1)
 //
 // 3.2 is required which is why it is not included here
-get_set_metaroot! {
+impl_get_set_metaroot! {
     Option<kws::Cyt>,
     "str",
     PyCoreTEXT2_0,
@@ -1772,7 +1773,7 @@ get_set_metaroot! {
 }
 
 // Get/set methods for $FLOWRATE (3.2)
-get_set_metaroot! {
+impl_get_set_metaroot! {
     Option<kws::Flowrate>,
     "str",
     PyCoreTEXT3_2,
@@ -1780,7 +1781,7 @@ get_set_metaroot! {
 }
 
 // Get/set methods for $CYTSN (3.0-3.2)
-get_set_metaroot! {
+impl_get_set_metaroot! {
     Option<kws::Cytsn>,
     "str",
     PyCoreTEXT3_0,
@@ -1792,10 +1793,10 @@ get_set_metaroot! {
 }
 
 // Get/set methods for $CYT (required) (3.2)
-get_set_metaroot! {kws::Cyt, "str", PyCoreTEXT3_2, PyCoreDataset3_2}
+impl_get_set_metaroot! {kws::Cyt, "str", PyCoreTEXT3_2, PyCoreDataset3_2}
 
 // Get/set methods for $UNSTAINEDINFO (3.2)
-get_set_metaroot! {
+impl_get_set_metaroot! {
     Option<kws::UnstainedInfo>,
     "str",
     PyCoreTEXT3_2,
@@ -1803,7 +1804,7 @@ get_set_metaroot! {
 }
 
 // Get/set methods for scaler $PnL (2.0-3.0)
-get_set_all_meas_proc! {
+impl_get_set_all_meas! {
     NonCenterElement<Option<kws::Wavelength>>,
     "L",
     "float",
@@ -1814,7 +1815,7 @@ get_set_all_meas_proc! {
 }
 
 // Get/set methods for vector $PnL (3.1-3.2)
-get_set_all_meas_proc! {
+impl_get_set_all_meas! {
     NonCenterElement<Option<kws::Wavelengths>>,
     "L",
     "list[float]",
@@ -1827,7 +1828,7 @@ get_set_all_meas_proc! {
 // Get/set methods for $PnD (3.1+)
 //
 // This is valid for the time channel so don't set on just optical
-get_set_all_meas_proc! {
+impl_get_set_all_meas! {
     Option<kws::Display>,
     "D",
     "(bool, float, float)",
@@ -1838,7 +1839,7 @@ get_set_all_meas_proc! {
 }
 
 // Get/set methods for $PnDET (3.2)
-get_set_all_meas_proc! {
+impl_get_set_all_meas! {
     NonCenterElement<Option<kws::DetectorName>>,
     "DET",
     "str",
@@ -1847,7 +1848,7 @@ get_set_all_meas_proc! {
 }
 
 // Get/set methods for $PnCALIBRATION (3.1)
-get_set_all_meas_proc! {
+impl_get_set_all_meas! {
     NonCenterElement<Option<kws::Calibration3_1>>,
     "CALIBRATION",
     "(float, str)",
@@ -1856,7 +1857,7 @@ get_set_all_meas_proc! {
 }
 
 // Get/set methods for $PnCALIBRATION (3.2)
-get_set_all_meas_proc! {
+impl_get_set_all_meas! {
     NonCenterElement<Option<kws::Calibration3_2>>,
     "CALIBRATION",
     "(float, float, str)",
@@ -1865,7 +1866,7 @@ get_set_all_meas_proc! {
 }
 
 // Get/set methods for $PnTAG (3.2)
-get_set_all_meas_proc! {
+impl_get_set_all_meas! {
     NonCenterElement<Option<kws::Tag>>,
     "TAG",
     "str",
@@ -1874,7 +1875,7 @@ get_set_all_meas_proc! {
 }
 
 // Get/set methods for $PnTYPE (3.2)
-get_set_all_meas_proc! {
+impl_get_set_all_meas! {
     NonCenterElement<Option<kws::OpticalType>>,
     "TYPE",
     "str",
@@ -1883,7 +1884,7 @@ get_set_all_meas_proc! {
 }
 
 // Get/set methods for $PnFEATURE (3.2)
-get_set_all_meas_proc! {
+impl_get_set_all_meas! {
     NonCenterElement<Option<kws::Feature>>,
     "FEATURE",
     "Literal[\"Area\", \"Width\", \"Height\"]",
@@ -1892,7 +1893,7 @@ get_set_all_meas_proc! {
 }
 
 // Get/set methods for $PnANALYTE (3.2)
-get_set_all_meas_proc! {
+impl_get_set_all_meas! {
     NonCenterElement<Option<kws::Analyte>>,
     "ANALYTE",
     "str",
@@ -2070,7 +2071,7 @@ impl PyTemporal3_2 {
     }
 }
 
-macro_rules! get_set_meas {
+macro_rules! impl_meas_get_set {
     ($get:ident, $set:ident, $t:path, $($pytype:ident),*) => {
         $(
             #[pymethods]
@@ -2090,9 +2091,9 @@ macro_rules! get_set_meas {
     };
 }
 
-macro_rules! shared_meas_get_set {
+macro_rules! impl_meas_get_set_common {
     ($pytype:ident) => {
-        get_set_meas!(get_longname, set_longname, kws::Longname, $pytype);
+        impl_meas_get_set!(get_longname, set_longname, kws::Longname, $pytype);
 
         #[pymethods]
         impl $pytype {
@@ -2121,47 +2122,47 @@ macro_rules! shared_meas_get_set {
     };
 }
 
-shared_meas_get_set!(PyOptical2_0);
-shared_meas_get_set!(PyOptical3_0);
-shared_meas_get_set!(PyOptical3_1);
-shared_meas_get_set!(PyOptical3_2);
-shared_meas_get_set!(PyTemporal2_0);
-shared_meas_get_set!(PyTemporal3_0);
-shared_meas_get_set!(PyTemporal3_1);
-shared_meas_get_set!(PyTemporal3_2);
+impl_meas_get_set_common!(PyOptical2_0);
+impl_meas_get_set_common!(PyOptical3_0);
+impl_meas_get_set_common!(PyOptical3_1);
+impl_meas_get_set_common!(PyOptical3_2);
+impl_meas_get_set_common!(PyTemporal2_0);
+impl_meas_get_set_common!(PyTemporal3_0);
+impl_meas_get_set_common!(PyTemporal3_1);
+impl_meas_get_set_common!(PyTemporal3_2);
 
-macro_rules! optical_common {
+macro_rules! impl_optical_get_set {
     ($pytype:ident) => {
-        get_set_meas!(get_filter, set_filter, kws::Filter, $pytype);
-        get_set_meas!(
+        impl_meas_get_set!(get_filter, set_filter, kws::Filter, $pytype);
+        impl_meas_get_set!(
             get_detector_type,
             set_detector_type,
             kws::DetectorType,
             $pytype
         );
-        get_set_meas!(
+        impl_meas_get_set!(
             get_percent_emitted,
             set_percent_emitted,
             kws::PercentEmitted,
             $pytype
         );
-        get_set_meas!(
+        impl_meas_get_set!(
             get_detector_voltage,
             set_detector_voltage,
             kws::DetectorVoltage,
             $pytype
         );
-        get_set_meas!(get_power, set_power, kws::Power, $pytype);
+        impl_meas_get_set!(get_power, set_power, kws::Power, $pytype);
     };
 }
 
-optical_common!(PyOptical2_0);
-optical_common!(PyOptical3_0);
-optical_common!(PyOptical3_1);
-optical_common!(PyOptical3_2);
+impl_optical_get_set!(PyOptical2_0);
+impl_optical_get_set!(PyOptical3_0);
+impl_optical_get_set!(PyOptical3_1);
+impl_optical_get_set!(PyOptical3_2);
 
 // $PnE (3.0-3.2)
-macro_rules! get_set_meas_transform {
+macro_rules! impl_optical_get_set_transform {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
@@ -2178,12 +2179,12 @@ macro_rules! get_set_meas_transform {
     };
 }
 
-get_set_meas_transform!(PyOptical3_0);
-get_set_meas_transform!(PyOptical3_1);
-get_set_meas_transform!(PyOptical3_2);
+impl_optical_get_set_transform!(PyOptical3_0);
+impl_optical_get_set_transform!(PyOptical3_1);
+impl_optical_get_set_transform!(PyOptical3_2);
 
 // $PnL (2.0/3.0)
-get_set_meas!(
+impl_meas_get_set!(
     get_wavelength,
     set_wavelength,
     kws::Wavelength,
@@ -2192,7 +2193,7 @@ get_set_meas!(
 );
 
 // #PnL (3.1-3.2)
-get_set_meas!(
+impl_meas_get_set!(
     get_wavelength,
     set_wavelength,
     kws::Wavelengths,
@@ -2201,7 +2202,7 @@ get_set_meas!(
 );
 
 // #TIMESTEP (3.0-3.2)
-macro_rules! meas_get_set_timestep {
+macro_rules! impl_temporal_get_set_timestep {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
@@ -2218,12 +2219,12 @@ macro_rules! meas_get_set_timestep {
     };
 }
 
-meas_get_set_timestep!(PyTemporal3_0);
-meas_get_set_timestep!(PyTemporal3_1);
-meas_get_set_timestep!(PyTemporal3_2);
+impl_temporal_get_set_timestep!(PyTemporal3_0);
+impl_temporal_get_set_timestep!(PyTemporal3_1);
+impl_temporal_get_set_timestep!(PyTemporal3_2);
 
 // $PnCalibration (3.1)
-get_set_meas!(
+impl_meas_get_set!(
     get_calibration,
     set_calibration,
     kws::Calibration3_1,
@@ -2231,7 +2232,7 @@ get_set_meas!(
 );
 
 // $PnD (3.1-3.2)
-get_set_meas!(
+impl_meas_get_set!(
     get_display,
     set_display,
     kws::Display,
@@ -2242,7 +2243,7 @@ get_set_meas!(
 );
 
 // $PnDET (3.2)
-get_set_meas!(
+impl_meas_get_set!(
     get_detector_name,
     set_detector_name,
     kws::DetectorName,
@@ -2250,10 +2251,10 @@ get_set_meas!(
 );
 
 // $PnTAG (3.2)
-get_set_meas!(get_tag, set_tag, kws::Tag, PyOptical3_2);
+impl_meas_get_set!(get_tag, set_tag, kws::Tag, PyOptical3_2);
 
 // $PnTYPE (3.2)
-get_set_meas!(
+impl_meas_get_set!(
     get_measurement_type,
     set_measurement_type,
     kws::OpticalType,
@@ -2261,20 +2262,20 @@ get_set_meas!(
 );
 
 // $PnFEATURE (3.2)
-get_set_meas!(get_feature, set_feature, kws::Feature, PyOptical3_2);
+impl_meas_get_set!(get_feature, set_feature, kws::Feature, PyOptical3_2);
 
 // $PnANALYTE (3.2)
-get_set_meas!(get_analyte, set_analyte, kws::Analyte, PyOptical3_2);
+impl_meas_get_set!(get_analyte, set_analyte, kws::Analyte, PyOptical3_2);
 
 // $PnCalibration (3.2)
-get_set_meas!(
+impl_meas_get_set!(
     get_calibration,
     set_calibration,
     kws::Calibration3_2,
     PyOptical3_2
 );
 
-macro_rules! common_layout_methods {
+macro_rules! impl_layout_common {
     ($t:ident) => {
         #[pymethods]
         impl $t {
@@ -2314,24 +2315,24 @@ macro_rules! common_layout_methods {
     };
 }
 
-common_layout_methods!(PyAsciiFixedLayout);
-common_layout_methods!(PyAsciiDelimLayout);
-common_layout_methods!(PyOrderedUint08Layout);
-common_layout_methods!(PyOrderedUint16Layout);
-common_layout_methods!(PyOrderedUint24Layout);
-common_layout_methods!(PyOrderedUint32Layout);
-common_layout_methods!(PyOrderedUint40Layout);
-common_layout_methods!(PyOrderedUint48Layout);
-common_layout_methods!(PyOrderedUint56Layout);
-common_layout_methods!(PyOrderedUint64Layout);
-common_layout_methods!(PyOrderedF32Layout);
-common_layout_methods!(PyOrderedF64Layout);
-common_layout_methods!(PyEndianF32Layout);
-common_layout_methods!(PyEndianF64Layout);
-common_layout_methods!(PyEndianUintLayout);
-common_layout_methods!(PyMixedLayout);
+impl_layout_common!(PyAsciiFixedLayout);
+impl_layout_common!(PyAsciiDelimLayout);
+impl_layout_common!(PyOrderedUint08Layout);
+impl_layout_common!(PyOrderedUint16Layout);
+impl_layout_common!(PyOrderedUint24Layout);
+impl_layout_common!(PyOrderedUint32Layout);
+impl_layout_common!(PyOrderedUint40Layout);
+impl_layout_common!(PyOrderedUint48Layout);
+impl_layout_common!(PyOrderedUint56Layout);
+impl_layout_common!(PyOrderedUint64Layout);
+impl_layout_common!(PyOrderedF32Layout);
+impl_layout_common!(PyOrderedF64Layout);
+impl_layout_common!(PyEndianF32Layout);
+impl_layout_common!(PyEndianF64Layout);
+impl_layout_common!(PyEndianUintLayout);
+impl_layout_common!(PyMixedLayout);
 
-macro_rules! byte_order_methods {
+macro_rules! impl_layout_byteord {
     ($t:ident) => {
         #[pymethods]
         impl $t {
@@ -2353,18 +2354,18 @@ macro_rules! byte_order_methods {
     };
 }
 
-byte_order_methods!(PyOrderedUint08Layout);
-byte_order_methods!(PyOrderedUint16Layout);
-byte_order_methods!(PyOrderedUint24Layout);
-byte_order_methods!(PyOrderedUint32Layout);
-byte_order_methods!(PyOrderedUint40Layout);
-byte_order_methods!(PyOrderedUint48Layout);
-byte_order_methods!(PyOrderedUint56Layout);
-byte_order_methods!(PyOrderedUint64Layout);
-byte_order_methods!(PyOrderedF32Layout);
-byte_order_methods!(PyOrderedF64Layout);
+impl_layout_byteord!(PyOrderedUint08Layout);
+impl_layout_byteord!(PyOrderedUint16Layout);
+impl_layout_byteord!(PyOrderedUint24Layout);
+impl_layout_byteord!(PyOrderedUint32Layout);
+impl_layout_byteord!(PyOrderedUint40Layout);
+impl_layout_byteord!(PyOrderedUint48Layout);
+impl_layout_byteord!(PyOrderedUint56Layout);
+impl_layout_byteord!(PyOrderedUint64Layout);
+impl_layout_byteord!(PyOrderedF32Layout);
+impl_layout_byteord!(PyOrderedF64Layout);
 
-macro_rules! endianness_methods {
+macro_rules! impl_layout_endianness {
     ($t:ident) => {
         #[pymethods]
         impl $t {
@@ -2377,10 +2378,10 @@ macro_rules! endianness_methods {
     };
 }
 
-endianness_methods!(PyEndianF32Layout);
-endianness_methods!(PyEndianF64Layout);
-endianness_methods!(PyEndianUintLayout);
-endianness_methods!(PyMixedLayout);
+impl_layout_endianness!(PyEndianF32Layout);
+impl_layout_endianness!(PyEndianF64Layout);
+impl_layout_endianness!(PyEndianUintLayout);
+impl_layout_endianness!(PyMixedLayout);
 
 #[pymethods]
 impl PyAsciiDelimLayout {
@@ -2420,7 +2421,7 @@ impl PyAsciiFixedLayout {
     //             }
 }
 
-macro_rules! new_ordered_uint {
+macro_rules! impl_layout_new_ordered_uint {
     ($t:ident, $uint:ident, $size:expr) => {
         #[pymethods]
         impl $t {
@@ -2443,16 +2444,16 @@ macro_rules! new_ordered_uint {
     };
 }
 
-new_ordered_uint!(PyOrderedUint08Layout, u8, 1);
-new_ordered_uint!(PyOrderedUint16Layout, u16, 2);
-new_ordered_uint!(PyOrderedUint24Layout, u32, 3);
-new_ordered_uint!(PyOrderedUint32Layout, u32, 4);
-new_ordered_uint!(PyOrderedUint40Layout, u64, 5);
-new_ordered_uint!(PyOrderedUint48Layout, u64, 6);
-new_ordered_uint!(PyOrderedUint56Layout, u64, 7);
-new_ordered_uint!(PyOrderedUint64Layout, u64, 8);
+impl_layout_new_ordered_uint!(PyOrderedUint08Layout, u8, 1);
+impl_layout_new_ordered_uint!(PyOrderedUint16Layout, u16, 2);
+impl_layout_new_ordered_uint!(PyOrderedUint24Layout, u32, 3);
+impl_layout_new_ordered_uint!(PyOrderedUint32Layout, u32, 4);
+impl_layout_new_ordered_uint!(PyOrderedUint40Layout, u64, 5);
+impl_layout_new_ordered_uint!(PyOrderedUint48Layout, u64, 6);
+impl_layout_new_ordered_uint!(PyOrderedUint56Layout, u64, 7);
+impl_layout_new_ordered_uint!(PyOrderedUint64Layout, u64, 8);
 
-macro_rules! new_ordered_float {
+macro_rules! impl_layout_new_ordered_float {
     ($t:ident, $num:ident, $size:expr) => {
         #[pymethods]
         impl $t {
@@ -2475,11 +2476,11 @@ macro_rules! new_ordered_float {
     };
 }
 
-new_ordered_float!(PyOrderedF32Layout, f32, 4);
-new_ordered_float!(PyOrderedF64Layout, f64, 8);
+impl_layout_new_ordered_float!(PyOrderedF32Layout, f32, 4);
+impl_layout_new_ordered_float!(PyOrderedF64Layout, f64, 8);
 
 // float layouts for 3.1/3.2
-macro_rules! new_endian_float {
+macro_rules! impl_layout_new_endian_float {
     ($t:ident, $num:ident, $size:expr) => {
         #[pymethods]
         impl $t {
@@ -2492,8 +2493,8 @@ macro_rules! new_endian_float {
     };
 }
 
-new_endian_float!(PyEndianF32Layout, f32, 4);
-new_endian_float!(PyEndianF64Layout, f64, 8);
+impl_layout_new_endian_float!(PyEndianF32Layout, f32, 4);
+impl_layout_new_endian_float!(PyEndianF64Layout, f64, 8);
 
 #[pymethods]
 impl PyEndianUintLayout {

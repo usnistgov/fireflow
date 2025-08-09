@@ -443,7 +443,7 @@ impl PyCoreTEXT3_2 {
 }
 
 // Get/set methods for all versions
-macro_rules! common_methods {
+macro_rules! impl_common {
     ($pytype:ident) => {
         get_set_metaroot! {Option<kws::Abrt>, "int", $pytype}
         get_set_metaroot! {Option<kws::Cells>, "str", $pytype}
@@ -656,31 +656,6 @@ macro_rules! common_methods {
                 self.0.set_trigger_threshold(threshold)
             }
 
-            // TODO pretty sure there is no way to change prefix once a core
-            // object is created
-            // TODO docs should be specific to version
-            /// Value of *$PnN* for all measurements.
-            ///
-            /// When writing this attribute, must be a list of unique strings
-            /// where each string must not contain a comma.
-            ///
-            /// When reading this attribute, will return list of strings of
-            /// either *$PnN* if present or an indexed identifier like
-            /// '<prefix>n' where 'n' is the measurement index starting at 1 and
-            /// '<prefix>' is a fixed prefix (usually 'P'). The latter is only
-            /// possible in FCS 2.0/3.0.
-            ///
-            /// :type: list[str]
-            #[getter]
-            fn get_all_pnn(&self) -> Vec<Shortname> {
-                self.0.all_shortnames()
-            }
-
-            #[setter]
-            fn set_all_pnn(&mut self, names: Vec<Shortname>) -> PyResult<()> {
-                Ok(self.0.set_all_shortnames(names).void()?)
-            }
-
             /// Rename temporal measurement if present.
             ///
             /// :param str name: New name to assign. Must not have commas.
@@ -690,15 +665,28 @@ macro_rules! common_methods {
             fn rename_temporal(&mut self, name: Shortname) -> Option<Shortname> {
                 self.0.rename_temporal(name)
             }
+        }
+    };
+}
 
-            // TODO FCS 2.0 specific doc
+impl_common!(PyCoreTEXT2_0);
+impl_common!(PyCoreTEXT3_0);
+impl_common!(PyCoreTEXT3_1);
+impl_common!(PyCoreTEXT3_2);
+impl_common!(PyCoreDataset2_0);
+impl_common!(PyCoreDataset3_0);
+impl_common!(PyCoreDataset3_1);
+impl_common!(PyCoreDataset3_2);
+
+macro_rules! impl_write_text {
+    ($pytype:ident, $exc:expr) => {
+        #[pymethods]
+        impl $pytype {
             /// Write data to path.
             ///
             /// Resulting FCS file will include *HEADER* and *TEXT*.
             ///
-            /// For FCS2.0, will raise exception if *TEXT* cannot fit within
-            /// first 99,999,999 bytes.
-            ///
+            #[doc = $exc]
             /// :param path: path to write
             /// :type path: :py:class:`pathlib.Path`
             ///
@@ -714,16 +702,76 @@ macro_rules! common_methods {
     };
 }
 
-common_methods!(PyCoreTEXT2_0);
-common_methods!(PyCoreTEXT3_0);
-common_methods!(PyCoreTEXT3_1);
-common_methods!(PyCoreTEXT3_2);
-common_methods!(PyCoreDataset2_0);
-common_methods!(PyCoreDataset3_0);
-common_methods!(PyCoreDataset3_1);
-common_methods!(PyCoreDataset3_2);
+impl_write_text!(
+    PyCoreTEXT2_0,
+    "Will raise exception if file cannot fit within 99,999,999 bytes.\n"
+);
+impl_write_text!(PyCoreTEXT3_0, "");
+impl_write_text!(PyCoreTEXT3_1, "");
+impl_write_text!(PyCoreTEXT3_2, "");
+impl_write_text!(
+    PyCoreDataset2_0,
+    "Will raise exception if file cannot fit within 99,999,999 bytes.\n"
+);
+impl_write_text!(PyCoreDataset3_0, "");
+impl_write_text!(PyCoreDataset3_1, "");
+impl_write_text!(PyCoreDataset3_2, "");
 
-macro_rules! get_set_shortnames_maybe {
+macro_rules! impl_get_set_pnn {
+    ($(#[$meta:meta])* $pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            // TODO pretty sure there is no way to change prefix once a core
+            // object is created
+            /// Value of *$PnN* for all measurements.
+            ///
+            /// Strings are unique and cannot contain commas.
+            ///
+            $(#[$meta])*
+            /// :type: list[str]
+            #[getter]
+            fn get_all_pnn(&self) -> Vec<Shortname> {
+                self.0.all_shortnames()
+            }
+
+            #[setter]
+            fn set_all_pnn(&mut self, names: Vec<Shortname>) -> PyResult<()> {
+                Ok(self.0.set_all_shortnames(names).void()?)
+            }
+        }
+    };
+}
+
+impl_get_set_pnn!(
+    /// When reading, missing *$PnN* will be replaced with '<prefix>n' where 'n'
+    /// is the measurement index starting at 1 and '<prefix>' is a fixed prefix.
+    ///
+    PyCoreTEXT2_0
+);
+impl_get_set_pnn!(
+    /// When reading, missing *$PnN* will be replaced with '<prefix>n' where 'n'
+    /// is the measurement index starting at 1 and '<prefix>' is a fixed prefix.
+    ///
+    PyCoreTEXT3_0
+);
+impl_get_set_pnn!(PyCoreTEXT3_1);
+impl_get_set_pnn!(PyCoreTEXT3_2);
+impl_get_set_pnn!(
+    /// When reading, missing *$PnN* will be replaced with '<prefix>n' where 'n'
+    /// is the measurement index starting at 1 and '<prefix>' is a fixed prefix.
+    ///
+    PyCoreDataset2_0
+);
+impl_get_set_pnn!(
+    /// When reading, missing *$PnN* will be replaced with '<prefix>n' where 'n'
+    /// is the measurement index starting at 1 and '<prefix>' is a fixed prefix.
+    ///
+    PyCoreDataset3_0
+);
+impl_get_set_pnn!(PyCoreDataset3_1);
+impl_get_set_pnn!(PyCoreDataset3_2);
+
+macro_rules! impl_get_set_pnn_maybe {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
@@ -750,12 +798,12 @@ macro_rules! get_set_shortnames_maybe {
     };
 }
 
-get_set_shortnames_maybe!(PyCoreTEXT2_0);
-get_set_shortnames_maybe!(PyCoreTEXT3_0);
-get_set_shortnames_maybe!(PyCoreDataset2_0);
-get_set_shortnames_maybe!(PyCoreDataset3_0);
+impl_get_set_pnn_maybe!(PyCoreTEXT2_0);
+impl_get_set_pnn_maybe!(PyCoreTEXT3_0);
+impl_get_set_pnn_maybe!(PyCoreDataset2_0);
+impl_get_set_pnn_maybe!(PyCoreDataset3_0);
 
-macro_rules! set_temporal_no_timestep {
+macro_rules! impl_set_temporal_no_timestep {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
@@ -794,10 +842,10 @@ macro_rules! set_temporal_no_timestep {
     };
 }
 
-set_temporal_no_timestep!(PyCoreTEXT2_0);
-set_temporal_no_timestep!(PyCoreDataset2_0);
+impl_set_temporal_no_timestep!(PyCoreTEXT2_0);
+impl_set_temporal_no_timestep!(PyCoreDataset2_0);
 
-macro_rules! set_temporal_timestep {
+macro_rules! impl_set_temporal_timestep {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
@@ -852,14 +900,14 @@ macro_rules! set_temporal_timestep {
     };
 }
 
-set_temporal_timestep!(PyCoreTEXT3_0);
-set_temporal_timestep!(PyCoreTEXT3_1);
-set_temporal_timestep!(PyCoreTEXT3_2);
-set_temporal_timestep!(PyCoreDataset3_0);
-set_temporal_timestep!(PyCoreDataset3_1);
-set_temporal_timestep!(PyCoreDataset3_2);
+impl_set_temporal_timestep!(PyCoreTEXT3_0);
+impl_set_temporal_timestep!(PyCoreTEXT3_1);
+impl_set_temporal_timestep!(PyCoreTEXT3_2);
+impl_set_temporal_timestep!(PyCoreDataset3_0);
+impl_set_temporal_timestep!(PyCoreDataset3_1);
+impl_set_temporal_timestep!(PyCoreDataset3_2);
 
-macro_rules! unset_temporal_notimestep {
+macro_rules! impl_unset_temporal_notimestep {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
@@ -875,10 +923,10 @@ macro_rules! unset_temporal_notimestep {
     };
 }
 
-unset_temporal_notimestep!(PyCoreTEXT2_0);
-unset_temporal_notimestep!(PyCoreDataset2_0);
+impl_unset_temporal_notimestep!(PyCoreTEXT2_0);
+impl_unset_temporal_notimestep!(PyCoreDataset2_0);
 
-macro_rules! unset_temporal_timestep {
+macro_rules! impl_unset_temporal_timestep {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
@@ -893,12 +941,12 @@ macro_rules! unset_temporal_timestep {
     };
 }
 
-unset_temporal_timestep!(PyCoreTEXT3_0);
-unset_temporal_timestep!(PyCoreTEXT3_1);
-unset_temporal_timestep!(PyCoreDataset3_0);
-unset_temporal_timestep!(PyCoreDataset3_1);
+impl_unset_temporal_timestep!(PyCoreTEXT3_0);
+impl_unset_temporal_timestep!(PyCoreTEXT3_1);
+impl_unset_temporal_timestep!(PyCoreDataset3_0);
+impl_unset_temporal_timestep!(PyCoreDataset3_1);
 
-macro_rules! unset_temporal_timestep_lossy {
+macro_rules! impl_unset_temporal_timestep_lossy {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
@@ -918,8 +966,8 @@ macro_rules! unset_temporal_timestep_lossy {
     };
 }
 
-unset_temporal_timestep_lossy!(PyCoreTEXT3_2);
-unset_temporal_timestep_lossy!(PyCoreDataset3_2);
+impl_unset_temporal_timestep_lossy!(PyCoreTEXT3_2);
+impl_unset_temporal_timestep_lossy!(PyCoreDataset3_2);
 
 get_set_meas_common_proc! {PyCoreTEXT2_0, Option<Shortname>, MaybeFamily}
 get_set_meas_common_proc! {PyCoreTEXT3_0, Option<Shortname>, MaybeFamily}
@@ -1012,7 +1060,7 @@ common_coretext_meas_get_set!(
 common_coretext_meas_get_set!(PyCoreTEXT3_1, PyOptical3_1, PyTemporal3_1, Shortname);
 common_coretext_meas_get_set!(PyCoreTEXT3_2, PyOptical3_2, PyTemporal3_2, Shortname);
 
-macro_rules! set_temporal {
+macro_rules! impl_replace_temporal {
     ($pytype:ident, $o:ident, $t:ident) => {
         #[pymethods]
         impl $pytype {
@@ -1037,15 +1085,15 @@ macro_rules! set_temporal {
     };
 }
 
-set_temporal!(PyCoreTEXT2_0, PyOptical2_0, PyTemporal2_0);
-set_temporal!(PyCoreTEXT3_0, PyOptical3_0, PyTemporal3_0);
-set_temporal!(PyCoreTEXT3_1, PyOptical3_1, PyTemporal3_1);
-set_temporal!(PyCoreDataset2_0, PyOptical2_0, PyTemporal2_0);
-set_temporal!(PyCoreDataset3_0, PyOptical3_0, PyTemporal3_0);
-set_temporal!(PyCoreDataset3_1, PyOptical3_1, PyTemporal3_1);
+impl_replace_temporal!(PyCoreTEXT2_0, PyOptical2_0, PyTemporal2_0);
+impl_replace_temporal!(PyCoreTEXT3_0, PyOptical3_0, PyTemporal3_0);
+impl_replace_temporal!(PyCoreTEXT3_1, PyOptical3_1, PyTemporal3_1);
+impl_replace_temporal!(PyCoreDataset2_0, PyOptical2_0, PyTemporal2_0);
+impl_replace_temporal!(PyCoreDataset3_0, PyOptical3_0, PyTemporal3_0);
+impl_replace_temporal!(PyCoreDataset3_1, PyOptical3_1, PyTemporal3_1);
 
 // different set of functions for 3.2 since these can be "lossy"
-macro_rules! set_temporal_3_2 {
+macro_rules! impl_replace_temporal_3_2 {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
@@ -1102,8 +1150,8 @@ macro_rules! set_temporal_3_2 {
     };
 }
 
-set_temporal_3_2!(PyCoreTEXT3_2);
-set_temporal_3_2!(PyCoreDataset3_2);
+impl_replace_temporal_3_2!(PyCoreTEXT3_2);
+impl_replace_temporal_3_2!(PyCoreDataset3_2);
 
 macro_rules! coredata_meas_get_set {
     ($pytype:ident, $o:ident, $t:ident, $n:path) => {
@@ -1172,6 +1220,21 @@ macro_rules! coredata_meas_get_set {
     };
 }
 
+coredata_meas_get_set!(
+    PyCoreDataset2_0,
+    PyOptical2_0,
+    PyTemporal2_0,
+    Option<Shortname>
+);
+coredata_meas_get_set!(
+    PyCoreDataset3_0,
+    PyOptical3_0,
+    PyTemporal3_0,
+    Option<Shortname>
+);
+coredata_meas_get_set!(PyCoreDataset3_1, PyOptical3_1, PyTemporal3_1, Shortname);
+coredata_meas_get_set!(PyCoreDataset3_2, PyOptical3_2, PyTemporal3_2, Shortname);
+
 macro_rules! coredata_common {
     ($pytype:ident) => {
         #[pymethods]
@@ -1230,21 +1293,6 @@ macro_rules! coredata_common {
         }
     };
 }
-
-coredata_meas_get_set!(
-    PyCoreDataset2_0,
-    PyOptical2_0,
-    PyTemporal2_0,
-    Option<Shortname>
-);
-coredata_meas_get_set!(
-    PyCoreDataset3_0,
-    PyOptical3_0,
-    PyTemporal3_0,
-    Option<Shortname>
-);
-coredata_meas_get_set!(PyCoreDataset3_1, PyOptical3_1, PyTemporal3_1, Shortname);
-coredata_meas_get_set!(PyCoreDataset3_2, PyOptical3_2, PyTemporal3_2, Shortname);
 
 coredata_common!(PyCoreDataset2_0);
 coredata_common!(PyCoreDataset3_0);
@@ -1510,45 +1558,41 @@ transforms_methods!(PyCoreDataset3_1);
 transforms_methods!(PyCoreDataset3_2);
 
 // Get/set methods for $TIMESTEP (3.0-3.2)
-macro_rules! timestep_methods {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                /// The value of *$TIMESTEP*.
-                ///
-                /// :type: float | None
-                #[getter]
-                fn get_timestep(&self) -> Option<kws::Timestep> {
-                    self.0.timestep().copied()
-                }
-
-                /// Set the *$TIMESTEP* if time measurement is present.
-                ///
-                /// :param float timestep: The timestep to set. Must be greater
-                ///     than zero.
-                ///
-                /// :return: Previous *$TIMESTEP* if present.
-                /// :rtype: float | None
-                fn set_timestep(&mut self, timestep: kws::Timestep) -> Option<kws::Timestep> {
-                    self.0.set_timestep(timestep)
-                }
+macro_rules! impl_get_set_timestep {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            /// The value of *$TIMESTEP*.
+            ///
+            /// :type: float | None
+            #[getter]
+            fn get_timestep(&self) -> Option<kws::Timestep> {
+                self.0.timestep().copied()
             }
-        )*
+
+            /// Set the *$TIMESTEP* if time measurement is present.
+            ///
+            /// :param float timestep: The timestep to set. Must be greater
+            ///     than zero.
+            ///
+            /// :return: Previous *$TIMESTEP* if present.
+            /// :rtype: float | None
+            fn set_timestep(&mut self, timestep: kws::Timestep) -> Option<kws::Timestep> {
+                self.0.set_timestep(timestep)
+            }
+        }
     };
 }
 
-timestep_methods!(
-    PyCoreTEXT3_0,
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_0,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2
-);
+impl_get_set_timestep!(PyCoreTEXT3_0);
+impl_get_set_timestep!(PyCoreTEXT3_1);
+impl_get_set_timestep!(PyCoreTEXT3_2);
+impl_get_set_timestep!(PyCoreDataset3_0);
+impl_get_set_timestep!(PyCoreDataset3_1);
+impl_get_set_timestep!(PyCoreDataset3_2);
 
 // Get/set methods for $LAST_MODIFIER/$LAST_MODIFIED/$ORIGINALITY (3.1-3.2)
-macro_rules! modification_methods {
+macro_rules! impl_modification_attrs {
     ($pytype:ident) => {
         get_set_metaroot!(
             Option<kws::Originality>,
@@ -1567,13 +1611,13 @@ macro_rules! modification_methods {
     };
 }
 
-modification_methods!(PyCoreTEXT3_1);
-modification_methods!(PyCoreTEXT3_2);
-modification_methods!(PyCoreDataset3_1);
-modification_methods!(PyCoreDataset3_2);
+impl_modification_attrs!(PyCoreTEXT3_1);
+impl_modification_attrs!(PyCoreTEXT3_2);
+impl_modification_attrs!(PyCoreDataset3_1);
+impl_modification_attrs!(PyCoreDataset3_2);
 
 // Get/set methods for $CARRIERID/$CARRIERTYPE/$LOCATIONID (3.2)
-macro_rules! carrier_methods {
+macro_rules! impl_carrier_attrs {
     ($pytype:ident) => {
         get_set_metaroot!(Option<kws::Carriertype>, "str", $pytype);
         get_set_metaroot!(Option<kws::Carrierid>, "str", $pytype);
@@ -1581,11 +1625,11 @@ macro_rules! carrier_methods {
     };
 }
 
-carrier_methods!(PyCoreTEXT3_2);
-carrier_methods!(PyCoreDataset3_2);
+impl_carrier_attrs!(PyCoreTEXT3_2);
+impl_carrier_attrs!(PyCoreDataset3_2);
 
 // Get/set methods for $PLATEID/$WELLID/$PLATENAME (3.1-3.2)
-macro_rules! plate_methods {
+macro_rules! impl_plate_attrs {
     ($pytype:ident) => {
         get_set_metaroot!(Option<kws::Wellid>, "str", $pytype);
         get_set_metaroot!(Option<kws::Plateid>, "str", $pytype);
@@ -1593,13 +1637,13 @@ macro_rules! plate_methods {
     };
 }
 
-plate_methods!(PyCoreTEXT3_1);
-plate_methods!(PyCoreTEXT3_2);
-plate_methods!(PyCoreDataset3_1);
-plate_methods!(PyCoreDataset3_2);
+impl_plate_attrs!(PyCoreTEXT3_1);
+impl_plate_attrs!(PyCoreTEXT3_2);
+impl_plate_attrs!(PyCoreDataset3_1);
+impl_plate_attrs!(PyCoreDataset3_2);
 
 // get/set methods for $COMP (2.0-3.0)
-macro_rules! comp_methods {
+macro_rules! impl_comp {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
@@ -1617,13 +1661,13 @@ macro_rules! comp_methods {
     };
 }
 
-comp_methods!(PyCoreTEXT2_0);
-comp_methods!(PyCoreTEXT3_0);
-comp_methods!(PyCoreDataset2_0);
-comp_methods!(PyCoreDataset3_0);
+impl_comp!(PyCoreTEXT2_0);
+impl_comp!(PyCoreTEXT3_0);
+impl_comp!(PyCoreDataset2_0);
+impl_comp!(PyCoreDataset3_0);
 
 // Get/set methods for $SPILLOVER (3.1-3.2)
-macro_rules! spillover_methods {
+macro_rules! impl_spillover {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
@@ -1671,10 +1715,10 @@ macro_rules! spillover_methods {
     };
 }
 
-spillover_methods!(PyCoreTEXT3_1);
-spillover_methods!(PyCoreTEXT3_2);
-spillover_methods!(PyCoreDataset3_1);
-spillover_methods!(PyCoreDataset3_2);
+impl_spillover!(PyCoreTEXT3_1);
+impl_spillover!(PyCoreTEXT3_2);
+impl_spillover!(PyCoreDataset3_1);
+impl_spillover!(PyCoreDataset3_2);
 
 get_set_metaroot! {
     Option<kws::Unicode>,
@@ -1858,7 +1902,7 @@ get_set_all_meas_proc! {
 
 // Add method to convert CoreTEXT* to CoreDataset* by adding DATA, ANALYSIS, and
 // OTHER(s) (all versions)
-macro_rules! to_dataset_method {
+macro_rules! impl_to_dataset {
     ($from:ident, $to:ident) => {
         #[pymethods]
         // TODO use proc macro to get return type in docstring
@@ -1887,33 +1931,46 @@ macro_rules! to_dataset_method {
     };
 }
 
-to_dataset_method!(PyCoreTEXT2_0, PyCoreDataset2_0);
-to_dataset_method!(PyCoreTEXT3_0, PyCoreDataset3_0);
-to_dataset_method!(PyCoreTEXT3_1, PyCoreDataset3_1);
-to_dataset_method!(PyCoreTEXT3_2, PyCoreDataset3_2);
+impl_to_dataset!(PyCoreTEXT2_0, PyCoreDataset2_0);
+impl_to_dataset!(PyCoreTEXT3_0, PyCoreDataset3_0);
+impl_to_dataset!(PyCoreTEXT3_1, PyCoreDataset3_1);
+impl_to_dataset!(PyCoreTEXT3_2, PyCoreDataset3_2);
 
-macro_rules! write_dataset_method {
-    ($pytype:ident) => {
+macro_rules! impl_write_dataset {
+    ($pytype:ident, $exc:expr) => {
         #[pymethods]
         impl $pytype {
-            // TODO docstring will be different for 2.0 which must mention the
-            // 8 digit limit
-            #[pyo3(signature =
-                   (path, delim = TEXTDelim::default(), skip_conversion_check = false, allow_lossy_conversions = false)
-            )]
+            /// Write data as an FCS file.
+            ///
+            /// The resulting file will include *HEADER*, *TEXT*, *DATA*,
+            /// *ANALYSIS*, and *OTHER* as they present from this class.
+            ///
+            #[doc = $exc]
+            /// :param path: Path to be written.
+            /// :type path: :py:class:`pathlib.Path`
+            ///
+            /// :param int delim: Delimiter to use when writing *TEXT*.
+            ///
+            /// :param bool skip_conversion_check: Skip check to ensure that
+            ///     types of the dataframe match the columns (*$PnB*,
+            ///     *$DATATYPE*, etc). If this is ``False``, perform this check
+            ///     before writing, and raise exception on failure. If ``True``,
+            ///     raise warnings as file is being written. Skipping this is
+            ///     faster since the data needs to be traversed twice to perform
+            ///     the conversion check, but may result in loss of precision
+            ///     and/or truncation.
+            #[pyo3(signature = (path, delim = TEXTDelim::default(), skip_conversion_check = false))]
             fn write_dataset(
                 &self,
                 path: PathBuf,
                 delim: TEXTDelim,
                 skip_conversion_check: bool,
-                allow_lossy_conversions: bool,
             ) -> PyResult<()> {
                 let f = File::options().write(true).create(true).open(path)?;
                 let mut h = BufWriter::new(f);
                 let conf = cfg::WriteConfig {
                     delim,
                     skip_conversion_check,
-                    allow_lossy_conversions,
                 };
                 self.0.h_write_dataset(&mut h, &conf).py_term_resolve()
             }
@@ -1921,10 +1978,13 @@ macro_rules! write_dataset_method {
     };
 }
 
-write_dataset_method!(PyCoreDataset2_0);
-write_dataset_method!(PyCoreDataset3_0);
-write_dataset_method!(PyCoreDataset3_1);
-write_dataset_method!(PyCoreDataset3_2);
+impl_write_dataset!(
+    PyCoreDataset2_0,
+    "Raise exception if file cannot fit within 99,999,999 bytes.\n"
+);
+impl_write_dataset!(PyCoreDataset3_0, "");
+impl_write_dataset!(PyCoreDataset3_1, "");
+impl_write_dataset!(PyCoreDataset3_2, "");
 
 #[pymethods]
 impl PyOptical2_0 {

@@ -1764,4 +1764,4 @@ class TestReadWrite:
         with pytest.raises(pf.PyreflowException):
             core.write_dataset(p)
         # TODO shouldn't this emit a warning?
-        core.write_dataset(p, skip_conversion_check=True, allow_lossy_conversions=True)
+        core.write_dataset(p, skip_conversion_check=True)

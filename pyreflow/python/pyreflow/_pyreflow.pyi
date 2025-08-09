@@ -318,7 +318,6 @@ class _CoreDatasetCommon:
         path: Path,
         delim: int = ...,
         skip_conversion_check: bool = False,
-        allow_lossy_conversions: bool = False,
     ) -> None: ...
 
 class _CoreShortnamesMaybe:

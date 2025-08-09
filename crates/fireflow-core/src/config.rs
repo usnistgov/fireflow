@@ -197,15 +197,6 @@ pub struct WriteConfig {
     /// Lossy conversion will be performed regardless, but warnings will be
     /// emitted if this is false.
     pub skip_conversion_check: bool,
-
-    /// If true, allow lossy data conversions
-    ///
-    /// Only has an effect if [`Self::skip_conversion_check`] is false and at
-    /// least one conversion error is detected. In such cases, setting this to
-    /// true will turn the error into a warning which will allow writing to
-    /// proceed despite data loss. If false, such an error will halt the writing
-    /// process immediately.
-    pub allow_lossy_conversions: bool,
 }
 
 #[derive(Default, Clone)]

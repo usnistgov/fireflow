@@ -3790,16 +3790,12 @@ where
         let check_res = if conf.skip_conversion_check {
             Ok(Tentative::default())
         } else {
-            match layout.check_writer(df) {
-                Ok(()) => Ok(Tentative::default()),
-                Err(es) => if conf.allow_lossy_conversions {
-                    Ok(Tentative::new((), es.into(), vec![]))
-                } else {
-                    Err(DeferredFailure::new2(es))
-                }
-                .def_inner_into()
-                .def_errors_liftio(),
-            }
+            layout
+                .check_writer(df)
+                .map_err(DeferredFailure::new2)
+                .map(|()| Tentative::default())
+                .def_errors_into()
+                .def_errors_liftio()
         };
 
         check_res

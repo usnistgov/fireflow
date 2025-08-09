@@ -6786,7 +6786,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         let co = Compensation2_0::lookup(kws, par);
         let cy = Cyt::lookup_opt(kws);
         let t = Timestamps::lookup(kws);
-        let g = AppliedGates2_0::lookup(kws, conf);
+        let g = AppliedGates2_0::lookup(kws, par, conf);
         co.zip4(cy, t, g)
             .errors_into()
             .and_maybe(|(comp, cyt, timestamps, applied_gates)| {
@@ -6811,7 +6811,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
 
     fn lookup_specific(
         kws: &mut StdKeywords,
-        _: Par,
+        par: Par,
         _: &HashSet<&Shortname>,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
@@ -6821,7 +6821,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         let su = SubsetData::lookup(kws);
         let t = Timestamps::lookup(kws);
         let u = Unicode::lookup_opt(kws);
-        let g = AppliedGates3_0::lookup(kws, conf);
+        let g = AppliedGates3_0::lookup(kws, par, conf);
         co.zip4(cy, sn, su).zip4(t, u, g).and_maybe(
             |((comp, cyt, cytsn, subset), timestamps, unicode, applied_gates)| {
                 Mode::lookup_req(kws).def_map_value(|mode| Self {
@@ -6849,7 +6849,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
 
     fn lookup_specific(
         kws: &mut StdKeywords,
-        _: Par,
+        par: Par,
         names: &HashSet<&Shortname>,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
@@ -6861,7 +6861,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         let p = PlateData::lookup(kws);
         let t = Timestamps::lookup(kws);
         let v = Vol::lookup_opt(kws);
-        let g = AppliedGates3_0::lookup_dep(kws, conf).errors_into();
+        let g = AppliedGates3_0::lookup_dep(kws, par, conf).errors_into();
         cy.zip5(sp, sn, su, md).zip5(p, t, v, g).and_maybe(
             |(
                 (cyt, spillover, cytsn, subset, modification),
@@ -6907,7 +6907,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
 
     fn lookup_specific(
         kws: &mut StdKeywords,
-        _: Par,
+        par: Par,
         names: &HashSet<&Shortname>,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
@@ -6923,7 +6923,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         let t = Timestamps::lookup_dep(kws, dd);
         let u = UnstainedData::lookup(kws, names);
         let v = Vol::lookup_opt(kws);
-        let g = AppliedGates3_2::lookup(kws, dd);
+        let g = AppliedGates3_2::lookup(kws, par, dd);
         ca.zip6(d, f, md, mo, sp)
             .zip6(sn, p, t, u, v)
             .zip(g)

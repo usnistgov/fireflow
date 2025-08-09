@@ -444,7 +444,8 @@ pub enum LookupKeysError {
 pub enum LookupKeysWarning {
     Parse(ParseKeyError<ParseOptKeyWarning>),
     Relation(LookupRelationalWarning),
-    Linked(LinkedNameError),
+    LinkedName(LinkedNameError),
+    LinkedIndex(gating::RegionIndexError),
     Dep(DeprecatedError),
 }
 
@@ -674,7 +675,7 @@ where
     }
 }
 
-fn eval_dep_maybe<T>(
+pub(crate) fn eval_dep_maybe<T>(
     x: &mut LookupTentative<MaybeValue<T>, DeprecatedError>,
     key: StdKey,
     disallow_dep: bool,

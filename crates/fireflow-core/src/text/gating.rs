@@ -123,6 +123,90 @@ pub struct GatedMeasurement {
     pub detector_voltage: MaybeValue<GateDetectorVoltage>,
 }
 
+trait LinkedMeasIndex: Sized {
+    fn check_link(r: &RegionGateIndex<Self>, par: Par) -> Result<(), RegionIndexError> {
+        let n = par.into();
+        match r {
+            RegionGateIndex::Univariate(x) => x.index().map_or(Ok(()), |i| {
+                if i < n {
+                    Ok(())
+                } else {
+                    Err(RegionIndexError(NonEmpty::new(i)))
+                }
+            }),
+            RegionGateIndex::Bivariate(x, y) => NonEmpty::collect(
+                [x.index(), y.index()]
+                    .into_iter()
+                    .flatten()
+                    .filter(|&i| i >= n),
+            )
+            .map_or(Ok(()), |ne| Err(RegionIndexError(ne))),
+        }
+    }
+
+    fn index(&self) -> Option<usize>;
+
+    fn lookup_opt<E>(
+        kws: &mut StdKeywords,
+        i: RegionIndex,
+        par: Par,
+    ) -> LookupTentative<MaybeValue<RegionGateIndex<Self>>, E>
+    where
+        RegionGateIndex<Self>: fmt::Display + FromStr,
+        Self: fmt::Display + FromStr,
+        ParseOptKeyWarning: From<<RegionGateIndex<Self> as FromStr>::Err>,
+    {
+        process_opt(RegionGateIndex::remove_meas_opt(kws, i.into())).and_tentatively(|maybe| {
+            if let Some(x) = maybe.0 {
+                Self::check_link(&x, par).map_or_else(
+                    |w| Tentative::new(None, vec![w.into()], vec![]),
+                    |_| Tentative::new1(Some(x)),
+                )
+            } else {
+                Tentative::default()
+            }
+            .map(|x| x.into())
+        })
+    }
+
+    fn lookup_opt_dep(
+        kws: &mut StdKeywords,
+        i: RegionIndex,
+        par: Par,
+        disallow_dep: bool,
+    ) -> LookupTentative<MaybeValue<RegionGateIndex<Self>>, DeprecatedError>
+    where
+        RegionGateIndex<Self>: fmt::Display + FromStr,
+        Self: fmt::Display + FromStr,
+        ParseOptKeyWarning: From<<RegionGateIndex<Self> as FromStr>::Err>,
+    {
+        let mut x = Self::lookup_opt(kws, i, par);
+        eval_dep_maybe(&mut x, RegionGateIndex::<Self>::std(i.into()), disallow_dep);
+        x
+    }
+}
+
+impl LinkedMeasIndex for GateIndex {
+    fn index(&self) -> Option<usize> {
+        None
+    }
+}
+
+impl LinkedMeasIndex for MeasOrGateIndex {
+    fn index(&self) -> Option<usize> {
+        match self {
+            Self::Gate(_) => None,
+            Self::Meas(x) => Some((*x).into()),
+        }
+    }
+}
+
+impl LinkedMeasIndex for PrefixedMeasIndex {
+    fn index(&self) -> Option<usize> {
+        Some((*self).into())
+    }
+}
+
 impl<I> UnivariateRegion<I> {
     fn map<F, J>(self, f: F) -> UnivariateRegion<J>
     where
@@ -172,9 +256,10 @@ impl<I> BivariateRegion<I> {
 impl AppliedGates2_0 {
     pub(crate) fn lookup(
         kws: &mut StdKeywords,
+        par: Par,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<MaybeValue<Self>, DeprecatedError> {
-        let ag = GatingRegions::lookup(kws, Gating::lookup_opt, Region::lookup);
+        let ag = GatingRegions::lookup(kws, Gating::lookup_opt, |k, j| Region::lookup(k, j, par));
         let gm = GatedMeasurements::lookup(kws, conf);
         ag.zip(gm).and_tentatively(|(x, y)| {
             if let Some((applied, gated_measurements)) = x.0.zip(y.0) {
@@ -222,17 +307,19 @@ impl AppliedGates2_0 {
 impl AppliedGates3_0 {
     pub(crate) fn lookup<E>(
         kws: &mut StdKeywords,
+        par: Par,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<MaybeValue<Self>, E> {
         Self::lookup_inner(
             kws,
-            |k| GatingRegions::lookup(k, Gating::lookup_opt, Region::lookup),
+            |k| GatingRegions::lookup(k, Gating::lookup_opt, |kk, j| Region::lookup(kk, j, par)),
             |k| GatedMeasurements::lookup(k, conf),
         )
     }
 
     pub(crate) fn lookup_dep(
         kws: &mut StdKeywords,
+        par: Par,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<MaybeValue<Self>, DeprecatedError> {
         let dd = conf.disallow_deprecated;
@@ -242,7 +329,7 @@ impl AppliedGates3_0 {
                 GatingRegions::lookup(
                     k,
                     |kk| Gating::lookup_opt_dep(kk, dd),
-                    |kk, i| Region::lookup_dep(kk, i, dd),
+                    |kk, i| Region::lookup_dep(kk, i, par, dd),
                 )
             },
             |k| GatedMeasurements::lookup_dep(k, conf),
@@ -366,12 +453,13 @@ impl AppliedGates3_0 {
 impl AppliedGates3_2 {
     pub(crate) fn lookup(
         kws: &mut StdKeywords,
+        par: Par,
         disallow_deprecated: bool,
     ) -> LookupTentative<MaybeValue<Self>, DeprecatedError> {
         GatingRegions::lookup(
             kws,
             |k| Gating::lookup_opt_dep(k, disallow_deprecated),
-            |k, i| Region::lookup_dep(k, i, disallow_deprecated),
+            |k, i| Region::lookup_dep(k, i, par, disallow_deprecated),
         )
         .map(|x| x.map(|regions| Self { regions }))
     }
@@ -528,9 +616,7 @@ impl<I> GatingRegions<I> {
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)>
     where
-        I: fmt::Display,
-        I: FromStr,
-        I: Copy,
+        I: fmt::Display + FromStr + Copy,
     {
         self.regions
             .iter()
@@ -566,16 +652,19 @@ impl<I> Region<I> {
         }
     }
 
-    fn lookup<E>(kws: &mut StdKeywords, i: RegionIndex) -> LookupTentative<MaybeValue<Self>, E>
+    fn lookup<E>(
+        kws: &mut StdKeywords,
+        i: RegionIndex,
+        par: Par,
+    ) -> LookupTentative<MaybeValue<Self>, E>
     where
-        I: FromStr,
-        I: fmt::Display,
+        I: FromStr + fmt::Display + LinkedMeasIndex,
         ParseOptKeyWarning: From<<RegionGateIndex<I> as FromStr>::Err>,
     {
         Self::lookup_inner(
             kws,
             i,
-            RegionGateIndex::lookup_opt,
+            |k, j| I::lookup_opt(k, j, par),
             RegionWindow::lookup_opt,
         )
     }
@@ -583,17 +672,17 @@ impl<I> Region<I> {
     fn lookup_dep(
         kws: &mut StdKeywords,
         i: RegionIndex,
+        par: Par,
         disallow_dep: bool,
     ) -> LookupTentative<MaybeValue<Self>, DeprecatedError>
     where
-        I: FromStr,
-        I: fmt::Display,
+        I: FromStr + fmt::Display + LinkedMeasIndex,
         ParseOptKeyWarning: From<<RegionGateIndex<I> as FromStr>::Err>,
     {
         Self::lookup_inner(
             kws,
             i,
-            |k, j| RegionGateIndex::lookup_opt_dep(k, j, disallow_dep),
+            |k, j| I::lookup_opt_dep(k, j, par, disallow_dep),
             |k, j| RegionWindow::lookup_opt_dep(k, j, disallow_dep),
         )
     }
@@ -607,14 +696,13 @@ impl<I> Region<I> {
     where
         F0: FnOnce(
             &mut StdKeywords,
-            IndexFromOne,
+            RegionIndex,
         ) -> LookupTentative<MaybeValue<RegionGateIndex<I>>, E>,
         F1: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupTentative<MaybeValue<RegionWindow>, E>,
-        I: FromStr,
-        I: fmt::Display,
+        I: FromStr + fmt::Display,
         ParseOptKeyWarning: From<<RegionGateIndex<I> as FromStr>::Err>,
     {
-        let n = lookup_index(kws, i.into());
+        let n = lookup_index(kws, i);
         let w = lookup_window(kws, i.into());
         n.zip(w)
             .and_tentatively(|(_n, _y)| {
@@ -635,9 +723,7 @@ impl<I> Region<I> {
 
     pub(crate) fn opt_keywords(&self, i: RegionIndex) -> impl Iterator<Item = (String, String)>
     where
-        I: Copy,
-        I: FromStr,
-        I: fmt::Display,
+        I: Copy + FromStr + fmt::Display,
     {
         let (ri, rw) = self.split();
         [
@@ -934,6 +1020,18 @@ impl fmt::Display for MismatchedIndexAndWindowError {
         write!(
             f,
             "values for $RnI and $RnW must both be univariate or bivariate"
+        )
+    }
+}
+
+pub struct RegionIndexError(NonEmpty<usize>);
+
+impl fmt::Display for RegionIndexError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "region index refers to non-existent measurement index: {}",
+            self.0.iter().join(",")
         )
     }
 }

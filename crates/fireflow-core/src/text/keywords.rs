@@ -1061,8 +1061,9 @@ impl fmt::Display for MeasOrGateIndexError {
     }
 }
 
-#[derive(Clone, Copy, From, PartialEq)]
+#[derive(Clone, Copy, From, PartialEq, Into)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[into(MeasIndex, usize)]
 pub struct PrefixedMeasIndex(pub MeasIndex);
 
 impl FromStr for PrefixedMeasIndex {

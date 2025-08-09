@@ -527,6 +527,10 @@ class _CoreVol:
 class _CoreCytsn:
     cytsn: str | None
 
+class _CorePeak:
+    all_pkn: list[int]
+    all_pknn: list[int]
+
 class _CoreMeasWavelength:
     all_pnl: _OpticalKeyVals[float]
 
@@ -602,6 +606,7 @@ class CoreTEXT2_0(
     _CoreToDataset[CoreDataset2_0],
     _CoreCompensation,
     _CoreMeasWavelength,
+    _CorePeak,
     _CoreTo3_0[CoreTEXT3_0],
     _CoreTo3_1[CoreTEXT3_1],
     _CoreTo3_2[CoreTEXT3_2],
@@ -625,6 +630,7 @@ class CoreTEXT3_0(
     _CoreUnicode,
     _CoreCytsn,
     _CoreMeasWavelength,
+    _CorePeak,
     _CoreTo2_0[CoreTEXT2_0],
     _CoreTo3_1[CoreTEXT3_1],
     _CoreTo3_2[CoreTEXT3_2],
@@ -648,6 +654,7 @@ class CoreTEXT3_1(
     _CoreVol,
     _CoreCytsn,
     _CoreMeasWavelengths,
+    _CorePeak,
     _CoreMeasDisplay,
     _CoreMeasCalibration[Calibration3_1],
     _CoreTo2_0[CoreTEXT2_0],
@@ -695,6 +702,7 @@ class CoreDataset2_0(
     _CoreSetShortnamesMaybe,
     _CoreCompensation,
     _CoreMeasWavelength,
+    _CorePeak,
     _CoreTo3_0[CoreDataset3_0],
     _CoreTo3_1[CoreDataset3_1],
     _CoreTo3_2[CoreDataset3_2],
@@ -719,6 +727,7 @@ class CoreDataset3_0(
     _CoreUnicode,
     _CoreCytsn,
     _CoreMeasWavelength,
+    _CorePeak,
     _CoreTo2_0[CoreDataset2_0],
     _CoreTo3_1[CoreDataset3_1],
     _CoreTo3_2[CoreDataset3_2],
@@ -743,6 +752,7 @@ class CoreDataset3_1(
     _CoreVol,
     _CoreCytsn,
     _CoreMeasWavelengths,
+    _CorePeak,
     _CoreMeasDisplay,
     _CoreMeasCalibration[Calibration3_1],
     _CoreTo2_0[CoreDataset2_0],

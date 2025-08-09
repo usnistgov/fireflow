@@ -392,6 +392,24 @@ class TestCore:
         with pytest.raises(ValueError):
             core.all_pnn = ["I,can,haz,IP"]
 
+    @parameterize_versions("core", ["2_0", "3_0", "3_1"], ["text2", "dataset2"])
+    @pytest.mark.parametrize("attr", ["all_pkn", "all_pknn"])
+    def test_peak(
+        self,
+        core: pf.CoreTEXT2_0
+        | pf.CoreTEXT3_0
+        | pf.CoreTEXT3_1
+        | pf.CoreDataset2_0
+        | pf.CoreDataset3_0
+        | pf.CoreDataset3_1,
+        attr: str,
+    ) -> None:
+        assert getattr(core, attr) == [None, None]
+        setattr(core, attr, [1, 2])
+        assert getattr(core, attr) == [1, 2]
+        with pytest.raises(TypeError):
+            setattr(core, attr, [6.9, 4.20])
+
     @parameterize_versions("core", ["2_0", "3_0"], ["text2", "dataset2"])
     def test_shortnames_maybe(
         self,

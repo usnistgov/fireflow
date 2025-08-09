@@ -1721,6 +1721,52 @@ impl_spillover!(PyCoreTEXT3_2);
 impl_spillover!(PyCoreDataset3_1);
 impl_spillover!(PyCoreDataset3_2);
 
+macro_rules! impl_get_set_all_peak {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            /// The value of *$PKn* for all measurements.
+            ///
+            /// :type: list[int]
+            #[getter]
+            fn get_all_pkn(&self) -> Vec<Option<kws::PeakBin>> {
+                self.0
+                    .get_temporal_optical::<Option<kws::PeakBin>>()
+                    .map(|x| x.as_ref().copied())
+                    .collect()
+            }
+
+            #[setter]
+            fn set_all_pkn(&mut self, xs: Vec<Option<kws::PeakBin>>) -> PyResult<()> {
+                Ok(self.0.set_temporal_optical(xs)?)
+            }
+
+            /// The value of *$PKNn* for all measurements.
+            ///
+            /// :type: list[int]
+            #[getter]
+            fn get_all_pknn(&self) -> Vec<Option<kws::PeakNumber>> {
+                self.0
+                    .get_temporal_optical::<Option<kws::PeakNumber>>()
+                    .map(|x| x.as_ref().copied())
+                    .collect()
+            }
+
+            #[setter]
+            fn set_all_pknn(&mut self, xs: Vec<Option<kws::PeakNumber>>) -> PyResult<()> {
+                Ok(self.0.set_temporal_optical(xs)?)
+            }
+        }
+    };
+}
+
+impl_get_set_all_peak!(PyCoreTEXT2_0);
+impl_get_set_all_peak!(PyCoreTEXT3_0);
+impl_get_set_all_peak!(PyCoreTEXT3_1);
+impl_get_set_all_peak!(PyCoreDataset2_0);
+impl_get_set_all_peak!(PyCoreDataset3_0);
+impl_get_set_all_peak!(PyCoreDataset3_1);
+
 impl_get_set_metaroot! {
     Option<kws::Unicode>,
     "(int, list[str])",

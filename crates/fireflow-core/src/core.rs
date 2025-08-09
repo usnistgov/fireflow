@@ -2583,6 +2583,32 @@ where
             .mult_terminate(SetOpticalFailure)
     }
 
+    /// Get field which is on both optical and temporal measurement types
+    pub fn get_temporal_optical<'a, T: 'a>(&'a self) -> impl Iterator<Item = &'a T>
+    where
+        Optical<M::Optical>: AsRef<T>,
+        Temporal<M::Temporal>: AsRef<T>,
+    {
+        self.measurements
+            .iter()
+            .map(|(_, x)| x.both(|m| m.value.as_ref(), |m| m.value.as_ref()))
+    }
+
+    /// Set field which is on both optical and temporal measurement types
+    pub fn set_temporal_optical<T>(&mut self, xs: Vec<T>) -> Result<(), KeyLengthError>
+    where
+        Optical<M::Optical>: AsMut<T>,
+        Temporal<M::Temporal>: AsMut<T>,
+    {
+        self.measurements
+            .alter_values_zip(
+                xs,
+                |m, x| *m.value.as_mut() = x,
+                |m, x| *m.value.as_mut() = x,
+            )
+            .void()
+    }
+
     /// Get value for $BTIM as a [`NaiveTime`]
     pub fn btim_naive<X>(&self) -> Option<NaiveTime>
     where
@@ -5689,9 +5715,29 @@ impl_ref_specific_rw!(
     Option<DetectorName>
 );
 
-impl_ref_specific_rw!(Temporal, InnerTemporal3_0, Timestep);
+impl_ref_specific_rw!(
+    Temporal,
+    InnerTemporal2_0,
+    Option<PeakBin>,
+    Option<PeakNumber>
+);
 
-impl_ref_specific_rw!(Temporal, InnerTemporal3_1, Timestep, Option<Display>);
+impl_ref_specific_rw!(
+    Temporal,
+    InnerTemporal3_0,
+    Timestep,
+    Option<PeakBin>,
+    Option<PeakNumber>
+);
+
+impl_ref_specific_rw!(
+    Temporal,
+    InnerTemporal3_1,
+    Timestep,
+    Option<Display>,
+    Option<PeakBin>,
+    Option<PeakNumber>
+);
 
 impl_ref_specific_rw!(Temporal, InnerTemporal3_2, Timestep, Option<Display>);
 

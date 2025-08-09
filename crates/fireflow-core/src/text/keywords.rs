@@ -1606,12 +1606,14 @@ pub struct CSVFlag(pub u32);
 /// The value of the $PKn key (2.0-3.1)
 #[derive(Clone, Copy, Display, FromStr, Into, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(u32)]
 pub struct PeakBin(pub u32);
 
 /// The value of the $PKNn key (2.0-3.1)
 #[derive(Clone, Copy, Display, FromStr, Into, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(u32)]
 pub struct PeakNumber(pub u32);
 
@@ -2203,8 +2205,8 @@ mod python {
     use super::{
         AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, DetectorVoltage, Display,
         Feature, FeatureError, LastModified, Mode, Mode3_2, Mode3_2Error, ModeError, NumType,
-        NumTypeError, OpticalType, OpticalTypeError, Originality, OriginalityError, Power, Range,
-        Timestep, Trigger, Unicode, Vol, Wavelength, Wavelengths,
+        NumTypeError, OpticalType, OpticalTypeError, Originality, OriginalityError, PeakBin,
+        PeakNumber, Power, Range, Timestep, Trigger, Unicode, Vol, Wavelength, Wavelengths,
     };
 
     use nonempty::NonEmpty;
@@ -2236,6 +2238,8 @@ mod python {
     impl_from_py_transparent!(Range);
     impl_from_py_transparent!(DetectorVoltage);
     impl_from_py_transparent!(Power);
+    impl_from_py_transparent!(PeakBin);
+    impl_from_py_transparent!(PeakNumber);
 
     // $PnL (3.1+) should be represented as a list of floats
     impl<'py> FromPyObject<'py> for Wavelengths {

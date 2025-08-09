@@ -7,6 +7,7 @@ use crate::validated::shortname::*;
 use super::byteord::*;
 use super::compensation::*;
 use super::datetimes::*;
+use super::gating;
 use super::index::*;
 use super::keywords::*;
 use super::named_vec::*;
@@ -534,9 +535,9 @@ pub enum LookupRelationalWarning {
     Timestamp(ReversedTimestamps),
     Datetime(ReversedDatetimes),
     CompShape(NewCompError),
-    GateRegion(MismatchedIndexAndWindowError),
-    GateRegionLink(GateRegionLinkError),
-    GateMeasLink(GateMeasurementLinkError),
+    GateRegion(gating::MismatchedIndexAndWindowError),
+    GateRegionLink(gating::GateRegionLinkError),
+    GateMeasLink(gating::GateMeasurementLinkError),
 }
 
 /// Error/warning triggered when encountering a key which is deprecated
@@ -547,17 +548,6 @@ pub enum DepValueWarning {
     DatatypeASCII,
     ModeCorrelated,
     ModeUncorrelated,
-}
-
-pub struct MismatchedIndexAndWindowError;
-
-impl fmt::Display for MismatchedIndexAndWindowError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "values for $RnI and $RnW must both be univariate or bivariate"
-        )
-    }
 }
 
 impl fmt::Display for DepValueWarning {

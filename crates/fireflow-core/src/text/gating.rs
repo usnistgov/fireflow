@@ -970,7 +970,7 @@ impl GatedMeasurements {
 impl From<AppliedGates2_0> for AppliedGates3_0 {
     fn from(value: AppliedGates2_0) -> Self {
         Self {
-            gated_measurements: value.gated_measurements.0.into(),
+            gated_measurements: value.gated_measurements,
             scheme: value.scheme.inner_into(),
         }
     }
@@ -1036,14 +1036,6 @@ impl fmt::Display for MeasToGateIndexError {
 }
 
 pub struct GateMeasurementLinkError(NonEmpty<GateIndex>);
-
-impl fmt::Display for GateRegionLinkError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "regions in $GATING which do not have $RnI/$RnW")
-    }
-}
-
-pub struct GateRegionLinkError;
 
 impl fmt::Display for GateMeasurementLinkError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {

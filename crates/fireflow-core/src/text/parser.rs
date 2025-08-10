@@ -537,7 +537,6 @@ pub enum LookupRelationalWarning {
     Datetime(ReversedDatetimes),
     CompShape(NewCompError),
     GateRegion(gating::MismatchedIndexAndWindowError),
-    GateRegionLink(gating::GateRegionLinkError),
     GateMeasLink(gating::GateMeasurementLinkError),
     GatingScheme(gating::NewGatingSchemeError),
 }

@@ -214,13 +214,7 @@ impl<I> BivariateRegion<I> {
 }
 
 impl AppliedGates2_0 {
-    pub(crate) fn is_empty(&self) -> bool {
-        // ASSUME if this is empty then the gating regions will also be empty
-        // since they will have nothing to refer
-        self.gated_measurements.0.is_empty()
-    }
-
-    fn try_new(
+    pub fn try_new(
         gated_measurements: GatedMeasurements,
         scheme: GatingScheme<GateIndex>,
     ) -> Result<Self, GateMeasurementLinkError> {
@@ -229,7 +223,7 @@ impl AppliedGates2_0 {
             scheme
                 .regions
                 .iter()
-                .flat_map(|(_, r)| r.clone().flatten())
+                .flat_map(|(_, r)| r.indices())
                 .filter(|i| usize::from(*i) > n),
         ) {
             Err(GateMeasurementLinkError(xs))
@@ -239,6 +233,12 @@ impl AppliedGates2_0 {
                 scheme,
             })
         }
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        // ASSUME if this is empty then the gating regions will also be empty
+        // since they will have nothing to refer
+        self.gated_measurements.0.is_empty()
     }
 
     pub(crate) fn lookup(
@@ -268,6 +268,28 @@ impl AppliedGates2_0 {
 }
 
 impl AppliedGates3_0 {
+    pub fn try_new(
+        gated_measurements: GatedMeasurements,
+        scheme: GatingScheme<MeasOrGateIndex>,
+    ) -> Result<Self, GateMeasurementLinkError> {
+        let n = gated_measurements.0.len();
+        if let Some(xs) = NonEmpty::collect(
+            scheme
+                .regions
+                .iter()
+                .flat_map(|(_, r)| r.indices())
+                .flat_map(GateIndex::try_from)
+                .filter(|&i| usize::from(i) > n),
+        ) {
+            Err(GateMeasurementLinkError(xs))
+        } else {
+            Ok(Self {
+                gated_measurements,
+                scheme,
+            })
+        }
+    }
+
     pub(crate) fn is_empty(&self) -> bool {
         self.scheme.is_empty() && self.gated_measurements.0.is_empty()
     }
@@ -301,28 +323,6 @@ impl AppliedGates3_0 {
             },
             |k| GatedMeasurements::lookup_dep(k, conf),
         )
-    }
-
-    fn try_new(
-        gated_measurements: GatedMeasurements,
-        scheme: GatingScheme<MeasOrGateIndex>,
-    ) -> Result<Self, GateMeasurementLinkError> {
-        let n = gated_measurements.0.len();
-        if let Some(xs) = NonEmpty::collect(
-            scheme
-                .regions
-                .iter()
-                .flat_map(|(_, r)| r.clone().flatten())
-                .flat_map(|i| GateIndex::try_from(i).ok())
-                .filter(|i| usize::from(*i) > n),
-        ) {
-            Err(GateMeasurementLinkError(xs))
-        } else {
-            Ok(Self {
-                gated_measurements,
-                scheme,
-            })
-        }
     }
 
     fn lookup_inner<E, F0, F1>(
@@ -826,7 +826,10 @@ impl<I> Region<I> {
         self.map(|i| i.into())
     }
 
-    pub(crate) fn flatten(self) -> NonEmpty<I> {
+    pub(crate) fn indices(&self) -> NonEmpty<I>
+    where
+        I: Copy,
+    {
         match self {
             Self::Univariate(r) => NonEmpty::new(r.index),
             Self::Bivariate(r) => (r.x_index, vec![r.y_index]).into(),

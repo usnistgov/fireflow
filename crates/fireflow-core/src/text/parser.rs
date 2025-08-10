@@ -446,6 +446,7 @@ pub enum LookupKeysWarning {
     Relation(LookupRelationalWarning),
     LinkedName(LinkedNameError),
     LinkedIndex(RegionIndexError),
+    GatingScheme(gating::NewGatingSchemeError),
     Dep(DeprecatedError),
 }
 

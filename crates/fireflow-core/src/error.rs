@@ -1001,7 +1001,7 @@ impl<T> Leveled<T> {
     }
 }
 
-pub trait ResultExt {
+pub trait ResultExt: Sized {
     type V;
     type E;
 
@@ -1027,9 +1027,48 @@ pub trait ResultExt {
         self,
         default: Self::V,
         is_error: bool,
-    ) -> Tentative<Self::V, Self::E, Self::E>;
+    ) -> Tentative<Self::V, Self::E, Self::E> {
+        self.into_tentative_opt(is_error)
+            .map(|x| x.unwrap_or(default))
+    }
+
+    fn into_tentative_warn<X>(self, default: Self::V) -> Tentative<Self::V, Self::E, X> {
+        self.into_tentative_warn_opt().map(|x| x.unwrap_or(default))
+    }
+
+    fn into_tentative_err<X>(self, default: Self::V) -> Tentative<Self::V, X, Self::E> {
+        self.into_tentative_err_opt().map(|x| x.unwrap_or(default))
+    }
+
+    fn into_tentative_def(self, is_error: bool) -> Tentative<Self::V, Self::E, Self::E>
+    where
+        Self::V: Default,
+    {
+        self.into_tentative_opt(is_error)
+            .map(|x| x.unwrap_or(Self::V::default()))
+    }
+
+    fn into_tentative_warn_def<X>(self) -> Tentative<Self::V, Self::E, X>
+    where
+        Self::V: Default,
+    {
+        self.into_tentative_warn_opt()
+            .map(|x| x.unwrap_or(Self::V::default()))
+    }
+
+    fn into_tentative_err_def<X>(self) -> Tentative<Self::V, X, Self::E>
+    where
+        Self::V: Default,
+    {
+        self.into_tentative_err_opt()
+            .map(|x| x.unwrap_or(Self::V::default()))
+    }
 
     fn into_tentative_opt(self, is_error: bool) -> Tentative<Option<Self::V>, Self::E, Self::E>;
+
+    fn into_tentative_warn_opt<X>(self) -> Tentative<Option<Self::V>, Self::E, X>;
+
+    fn into_tentative_err_opt<X>(self) -> Tentative<Option<Self::V>, X, Self::E>;
 
     fn terminate<T, W>(self, reason: T) -> TerminalResult<Self::V, W, Self::E, T>;
 }
@@ -1084,15 +1123,25 @@ impl<V, E> ResultExt for Result<V, E> {
         self.map(|_| ())
     }
 
-    fn into_tentative(self, default: V, is_error: bool) -> Tentative<Self::V, Self::E, Self::E> {
+    fn into_tentative_opt(self, is_error: bool) -> Tentative<Option<Self::V>, Self::E, Self::E> {
         self.map_or_else(
-            |e| Tentative::new_either(default, vec![e], is_error),
-            Tentative::new1,
+            |e| Tentative::new_either(None, vec![e], is_error),
+            |v| Tentative::new1(Some(v)),
         )
     }
 
-    fn into_tentative_opt(self, is_error: bool) -> Tentative<Option<Self::V>, Self::E, Self::E> {
-        self.map(Some).into_tentative(None, is_error)
+    fn into_tentative_warn_opt<X>(self) -> Tentative<Option<Self::V>, Self::E, X> {
+        self.map_or_else(
+            |e| Tentative::new(None, vec![e], vec![]),
+            |v| Tentative::new1(Some(v)),
+        )
+    }
+
+    fn into_tentative_err_opt<X>(self) -> Tentative<Option<Self::V>, X, Self::E> {
+        self.map_or_else(
+            |e| Tentative::new(None, vec![], vec![e]),
+            |v| Tentative::new1(Some(v)),
+        )
     }
 
     fn terminate<T, W>(self, reason: T) -> TerminalResult<Self::V, W, Self::E, T> {

@@ -24,7 +24,7 @@ use serde::Serialize;
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AppliedGates2_0 {
     gated_measurements: GatedMeasurements,
-    regions: GatingRegions<GateIndex>,
+    scheme: GatingScheme<GateIndex>,
 }
 
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (3.0-3.1)
@@ -36,7 +36,7 @@ pub struct AppliedGates2_0 {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AppliedGates3_0 {
     gated_measurements: GatedMeasurements,
-    regions: GatingRegions<MeasOrGateIndex>,
+    scheme: GatingScheme<MeasOrGateIndex>,
 }
 
 /// The $GATING/$RnI/$RnW keywords in a unified bundle (3.2)
@@ -46,7 +46,7 @@ pub struct AppliedGates3_0 {
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AppliedGates3_2 {
-    pub regions: GatingRegions<PrefixedMeasIndex>,
+    pub scheme: GatingScheme<PrefixedMeasIndex>,
 }
 
 /// The $GATING/$RnI/$RnW keywords in a unified bundle.
@@ -55,18 +55,9 @@ pub struct AppliedGates3_2 {
 /// and each $RnI/$RnW pair is assumed to be consistent (ie both are univariate
 /// or bivariate)
 #[derive(Clone, PartialEq)]
-pub struct GatingRegions<I> {
+pub struct GatingScheme<I> {
     gating: Option<Gating>,
     regions: HashMap<RegionIndex, Region<I>>,
-}
-
-impl<I> Default for GatingRegions<I> {
-    fn default() -> Self {
-        Self {
-            gating: None,
-            regions: HashMap::new(),
-        }
-    }
 }
 
 /// A list of $Gn* keywords for indices 1-n.
@@ -235,12 +226,12 @@ impl AppliedGates2_0 {
         par: Par,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self, DeprecatedError> {
-        let ag = GatingRegions::lookup(kws, Gating::lookup_opt, |k, j| Region::lookup(k, j, par));
+        let ag = GatingScheme::lookup(kws, Gating::lookup_opt, |k, j| Region::lookup(k, j, par));
         let gm = GatedMeasurements::lookup(kws, conf);
         ag.zip(gm).and_tentatively(|(regions, gated_measurements)| {
             let ret = Self {
                 gated_measurements,
-                regions,
+                scheme: regions,
             };
             match ret.check_gates() {
                 Ok(_) => Tentative::new1(ret),
@@ -260,13 +251,13 @@ impl AppliedGates2_0 {
             .enumerate()
             .flat_map(|(i, m)| m.opt_keywords(i.into()))
             .chain([OptMetarootKey::pair(&gate)])
-            .chain(self.regions.opt_keywords())
+            .chain(self.scheme.opt_keywords())
     }
 
     pub fn check_gates(&self) -> Result<(), GateMeasurementLinkError> {
         let n = self.gated_measurements.0.len();
         let it = self
-            .regions
+            .scheme
             .regions
             .iter()
             .flat_map(|(_, r)| r.clone().flatten())
@@ -277,7 +268,7 @@ impl AppliedGates2_0 {
 
 impl AppliedGates3_0 {
     pub(crate) fn is_empty(&self) -> bool {
-        self.regions.is_empty() && self.gated_measurements.0.is_empty()
+        self.scheme.is_empty() && self.gated_measurements.0.is_empty()
     }
 
     pub(crate) fn lookup<E>(
@@ -287,7 +278,7 @@ impl AppliedGates3_0 {
     ) -> LookupTentative<Self, E> {
         Self::lookup_inner(
             kws,
-            |k| GatingRegions::lookup(k, Gating::lookup_opt, |kk, j| Region::lookup(kk, j, par)),
+            |k| GatingScheme::lookup(k, Gating::lookup_opt, |kk, j| Region::lookup(kk, j, par)),
             |k| GatedMeasurements::lookup(k, conf),
         )
     }
@@ -301,7 +292,7 @@ impl AppliedGates3_0 {
         Self::lookup_inner(
             kws,
             |k| {
-                GatingRegions::lookup(
+                GatingScheme::lookup(
                     k,
                     |kk| Gating::lookup_opt_dep(kk, dd),
                     |kk, i| Region::lookup_dep(kk, i, par, dd),
@@ -317,7 +308,7 @@ impl AppliedGates3_0 {
         lookup_meas: F1,
     ) -> LookupTentative<Self, E>
     where
-        F0: FnOnce(&mut StdKeywords) -> LookupTentative<GatingRegions<MeasOrGateIndex>, E>,
+        F0: FnOnce(&mut StdKeywords) -> LookupTentative<GatingScheme<MeasOrGateIndex>, E>,
         F1: FnOnce(&mut StdKeywords) -> LookupTentative<GatedMeasurements, E>,
     {
         let ag = lookup_regions(kws);
@@ -325,7 +316,7 @@ impl AppliedGates3_0 {
         ag.zip(gm).and_tentatively(|(regions, gated_measurements)| {
             let ret = Self {
                 gated_measurements,
-                regions,
+                scheme: regions,
             };
             match ret.check_gates() {
                 Ok(_) => Tentative::new1(ret),
@@ -345,14 +336,14 @@ impl AppliedGates3_0 {
             .iter()
             .enumerate()
             .flat_map(|(i, m)| m.opt_keywords(i.into()))
-            .chain(self.regions.opt_keywords())
+            .chain(self.scheme.opt_keywords())
             .chain(gate.map(|x| OptMetarootKey::pair(&x)))
     }
 
     pub fn check_gates(&self) -> Result<(), GateMeasurementLinkError> {
         let n = self.gated_measurements.0.len();
         let it = self
-            .regions
+            .scheme
             .regions
             .iter()
             .flat_map(|(_, r)| r.clone().flatten())
@@ -367,20 +358,20 @@ impl AppliedGates3_0 {
     ) -> BiDeferredResult<AppliedGates2_0, AppliedGates3_0To2_0Error> {
         // ASSUME region indices will still be unique in new hash table
         let (regions, es): (HashMap<_, _>, Vec<_>) = self
-            .regions
+            .scheme
             .regions
             .into_iter()
             .map(|(ri, r)| r.try_map(|i| i.try_into()).map(|x| (ri, x)))
             .partition_result();
         // TODO make sure $GATING doesn't have any dangling refs
-        let gr = GatingRegions {
+        let gr = GatingScheme {
             regions,
-            gating: self.regions.gating,
+            gating: self.scheme.gating,
         };
         // TODO make sure regions are all within Gn* keywords
         let mut res = Ok(AppliedGates2_0 {
             gated_measurements: self.gated_measurements,
-            regions: gr,
+            scheme: gr,
         })
         .into_deferred();
         for e in es {
@@ -395,16 +386,16 @@ impl AppliedGates3_0 {
     ) -> BiDeferredResult<AppliedGates3_2, AppliedGates3_0To3_2Error> {
         // ASSUME region indices will still be unique in new hash table
         let (regions, es): (HashMap<_, _>, Vec<_>) = self
-            .regions
+            .scheme
             .regions
             .into_iter()
             .map(|(ri, r)| r.try_map(|i| i.try_into()).map(|x| (ri, x)))
             .partition_result();
         // TODO check $GATING for dangling refs
         let mut res = Ok(AppliedGates3_2 {
-            regions: GatingRegions {
+            scheme: GatingScheme {
                 regions,
-                gating: self.regions.gating,
+                gating: self.scheme.gating,
             },
         })
         .into_deferred();
@@ -421,7 +412,7 @@ impl AppliedGates3_0 {
 
 impl AppliedGates3_2 {
     pub(crate) fn is_empty(&self) -> bool {
-        self.regions.is_empty()
+        self.scheme.is_empty()
     }
 
     pub(crate) fn lookup(
@@ -429,16 +420,16 @@ impl AppliedGates3_2 {
         par: Par,
         disallow_deprecated: bool,
     ) -> LookupTentative<Self, DeprecatedError> {
-        GatingRegions::lookup(
+        GatingScheme::lookup(
             kws,
             |k| Gating::lookup_opt_dep(k, disallow_deprecated),
             |k, i| Region::lookup_dep(k, i, par, disallow_deprecated),
         )
-        .map(|regions| Self { regions })
+        .map(|scheme| Self { scheme })
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
-        self.regions.opt_keywords()
+        self.scheme.opt_keywords()
     }
 }
 
@@ -553,7 +544,33 @@ impl GatedMeasurement {
     }
 }
 
-impl<I> GatingRegions<I> {
+impl<I> Default for GatingScheme<I> {
+    fn default() -> Self {
+        Self {
+            gating: None,
+            regions: HashMap::new(),
+        }
+    }
+}
+
+impl<I> GatingScheme<I> {
+    pub fn try_new(
+        gating: Option<Gating>,
+        regions: HashMap<RegionIndex, Region<I>>,
+    ) -> Result<Self, NewGatingSchemeError> {
+        if let Some(ris) = gating.as_ref().and_then(|g| {
+            NonEmpty::collect(
+                g.region_indices()
+                    .into_iter()
+                    .filter(|ri| !regions.contains_key(ri)),
+            )
+        }) {
+            Err(NewGatingSchemeError(ris))
+        } else {
+            Ok(Self { gating, regions })
+        }
+    }
+
     pub(crate) fn is_empty(&self) -> bool {
         // ASSUME gating will also be empty since it will have nothing to
         // refer to if this is also empty
@@ -603,7 +620,7 @@ impl<I> GatingRegions<I> {
         let ris: Vec<_> = self
             .gating
             .as_ref()
-            .map(|x| x.flatten().into())
+            .map(|x| x.region_indices().into())
             .unwrap_or_default();
         NonEmpty::collect(
             self.regions
@@ -621,34 +638,27 @@ impl<I> GatingRegions<I> {
         lookup_region: F1,
     ) -> LookupTentative<Self, E>
     where
-        F0: Fn(&mut StdKeywords) -> LookupTentative<MaybeValue<Gating>, E>,
-        F1: Fn(&mut StdKeywords, RegionIndex) -> LookupTentative<MaybeValue<Region<I>>, E>,
+        F0: Fn(&mut StdKeywords) -> LookupOptional<Gating, E>,
+        F1: Fn(&mut StdKeywords, RegionIndex) -> LookupOptional<Region<I>, E>,
     {
-        lookup_gating(kws).and_tentatively(|maybe| {
-            if let Some(gating) = maybe.0 {
-                let res = gating.flatten().try_map(|ri| {
-                    lookup_region(kws, ri)
-                        .map(|x| x.0.map(|y| (ri, y)))
-                        .transpose()
-                        .ok_or(GateRegionLinkError.into())
-                });
-                match res {
-                    Ok(xs) => Tentative::mconcat_ne(xs).map(|regions| {
-                        Self {
-                            // ASSUME keys will be unique
-                            regions: regions.into_iter().collect(),
-                            gating: Some(gating),
-                        }
-                    }),
-                    Err(w) => Tentative::new(
-                        Self::default(),
-                        vec![LookupKeysWarning::Relation(w)],
-                        vec![],
-                    ),
-                }
-            } else {
-                Tentative::default()
-            }
+        lookup_gating(kws).map(|g| g.0).and_tentatively(|gating| {
+            gating
+                .as_ref()
+                .map(|g| {
+                    Tentative::mconcat(
+                        g.region_indices()
+                            .into_iter()
+                            .map(|ri| lookup_region(kws, ri).map(|x| x.0.map(|y| (ri, y))))
+                            .collect(),
+                    )
+                })
+                .unwrap_or_default()
+                .and_tentatively(|rs| {
+                    let regions = rs.into_iter().flatten().collect();
+                    Self::try_new(gating, regions)
+                        .into_tentative_warn_def()
+                        .warnings_into()
+                })
         })
     }
 
@@ -662,11 +672,11 @@ impl<I> GatingRegions<I> {
             .chain(self.gating.as_ref().map(OptMetarootKey::pair))
     }
 
-    fn inner_into<J>(self) -> GatingRegions<J>
+    fn inner_into<J>(self) -> GatingScheme<J>
     where
         J: From<I>,
     {
-        GatingRegions {
+        GatingScheme {
             gating: self.gating,
             regions: self
                 .regions
@@ -964,7 +974,7 @@ impl From<AppliedGates2_0> for AppliedGates3_0 {
     fn from(value: AppliedGates2_0) -> Self {
         Self {
             gated_measurements: value.gated_measurements.0.into(),
-            regions: value.regions.inner_into(),
+            scheme: value.scheme.inner_into(),
         }
     }
 }
@@ -973,7 +983,7 @@ impl From<AppliedGates3_2> for AppliedGates3_0 {
     fn from(value: AppliedGates3_2) -> Self {
         Self {
             gated_measurements: vec![].into(),
-            regions: value.regions.inner_into(),
+            scheme: value.scheme.inner_into(),
         }
     }
 }
@@ -1122,9 +1132,21 @@ impl fmt::Display for RemoveGateMeasIndexError {
     }
 }
 
+pub struct NewGatingSchemeError(NonEmpty<RegionIndex>);
+
+impl fmt::Display for NewGatingSchemeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "could not make gating scheme, regions not found: {}",
+            self.0.iter().join(",")
+        )
+    }
+}
+
 #[cfg(feature = "serde")]
 mod serialize {
-    use super::{BivariateRegion, GatedMeasurements, GatingRegions};
+    use super::{BivariateRegion, GatedMeasurements, GatingScheme};
     use serde::{ser::SerializeStruct, Serialize};
 
     impl Serialize for GatedMeasurements {
@@ -1136,7 +1158,7 @@ mod serialize {
         }
     }
 
-    impl<I> Serialize for GatingRegions<I>
+    impl<I> Serialize for GatingScheme<I>
     where
         I: Serialize,
     {

@@ -1290,18 +1290,18 @@ pub enum Gating {
 }
 
 impl Gating {
-    pub(crate) fn flatten(&self) -> NonEmpty<RegionIndex> {
+    pub(crate) fn region_indices(&self) -> NonEmpty<RegionIndex> {
         match self {
             Self::Region(x) => NonEmpty::new(*x),
-            Self::Not(x) => Self::flatten(x),
+            Self::Not(x) => Self::region_indices(x),
             Self::And(x, y) => {
-                let mut acc = Self::flatten(x);
-                acc.extend(Self::flatten(y));
+                let mut acc = Self::region_indices(x);
+                acc.extend(Self::region_indices(y));
                 acc
             }
             Self::Or(x, y) => {
-                let mut acc = Self::flatten(x);
-                acc.extend(Self::flatten(y));
+                let mut acc = Self::region_indices(x);
+                acc.extend(Self::region_indices(y));
                 acc
             }
         }

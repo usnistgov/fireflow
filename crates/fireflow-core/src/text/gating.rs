@@ -6,7 +6,7 @@ use crate::text::optional::*;
 use crate::text::parser::*;
 use crate::validated::keys::*;
 
-use derive_more::From;
+use derive_more::{Display, From};
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use std::collections::HashMap;
@@ -213,7 +213,6 @@ impl<I> BivariateRegion<I> {
     }
 }
 
-// TODO add try_new
 impl AppliedGates2_0 {
     pub(crate) fn is_empty(&self) -> bool {
         // ASSUME if this is empty then the gating regions will also be empty
@@ -225,12 +224,21 @@ impl AppliedGates2_0 {
         gated_measurements: GatedMeasurements,
         scheme: GatingScheme<GateIndex>,
     ) -> Result<Self, GateMeasurementLinkError> {
-        let new = Self {
-            gated_measurements,
-            scheme,
-        };
-        new.check_gates()?;
-        Ok(new)
+        let n = gated_measurements.0.len();
+        if let Some(xs) = NonEmpty::collect(
+            scheme
+                .regions
+                .iter()
+                .flat_map(|(_, r)| r.clone().flatten())
+                .filter(|i| usize::from(*i) > n),
+        ) {
+            Err(GateMeasurementLinkError(xs))
+        } else {
+            Ok(Self {
+                gated_measurements,
+                scheme,
+            })
+        }
     }
 
     pub(crate) fn lookup(
@@ -256,17 +264,6 @@ impl AppliedGates2_0 {
             .flat_map(|(i, m)| m.opt_keywords(i.into()))
             .chain([OptMetarootKey::pair(&gate)])
             .chain(self.scheme.opt_keywords())
-    }
-
-    pub fn check_gates(&self) -> Result<(), GateMeasurementLinkError> {
-        let n = self.gated_measurements.0.len();
-        let it = self
-            .scheme
-            .regions
-            .iter()
-            .flat_map(|(_, r)| r.clone().flatten())
-            .filter(|i| usize::from(*i) > n);
-        NonEmpty::collect(it).map_or(Ok(()), |xs| Err(GateMeasurementLinkError(xs)))
     }
 }
 
@@ -310,12 +307,22 @@ impl AppliedGates3_0 {
         gated_measurements: GatedMeasurements,
         scheme: GatingScheme<MeasOrGateIndex>,
     ) -> Result<Self, GateMeasurementLinkError> {
-        let new = Self {
-            gated_measurements,
-            scheme,
-        };
-        new.check_gates()?;
-        Ok(new)
+        let n = gated_measurements.0.len();
+        if let Some(xs) = NonEmpty::collect(
+            scheme
+                .regions
+                .iter()
+                .flat_map(|(_, r)| r.clone().flatten())
+                .flat_map(|i| GateIndex::try_from(i).ok())
+                .filter(|i| usize::from(*i) > n),
+        ) {
+            Err(GateMeasurementLinkError(xs))
+        } else {
+            Ok(Self {
+                gated_measurements,
+                scheme,
+            })
+        }
     }
 
     fn lookup_inner<E, F0, F1>(
@@ -348,18 +355,6 @@ impl AppliedGates3_0 {
             .chain(gate.map(|x| OptMetarootKey::pair(&x)))
     }
 
-    pub fn check_gates(&self) -> Result<(), GateMeasurementLinkError> {
-        let n = self.gated_measurements.0.len();
-        let it = self
-            .scheme
-            .regions
-            .iter()
-            .flat_map(|(_, r)| r.clone().flatten())
-            .flat_map(|i| GateIndex::try_from(i).ok())
-            .filter(|i| usize::from(*i) > n);
-        NonEmpty::collect(it).map_or(Ok(()), |xs| Err(GateMeasurementLinkError(xs)))
-    }
-
     pub(crate) fn try_into_2_0(
         self,
         lossless: bool,
@@ -371,17 +366,11 @@ impl AppliedGates3_0 {
             .into_iter()
             .map(|(ri, r)| r.try_map(|i| i.try_into()).map(|x| (ri, x)))
             .partition_result();
-        // TODO make sure $GATING doesn't have any dangling refs
-        let gr = GatingScheme {
-            regions,
-            gating: self.scheme.gating,
-        };
-        // TODO make sure regions are all within Gn* keywords
-        let mut res = Ok(AppliedGates2_0 {
-            gated_measurements: self.gated_measurements,
-            scheme: gr,
-        })
-        .into_deferred();
+        let mut res = GatingScheme::try_new(self.scheme.gating, regions)
+            .into_deferred()
+            .def_and_maybe(|scheme| {
+                AppliedGates2_0::try_new(self.gated_measurements, scheme).into_deferred()
+            });
         for e in es {
             res.def_push_error_or_warning(AppliedGates3_0To2_0Error::Index(e), lossless);
         }
@@ -399,14 +388,7 @@ impl AppliedGates3_0 {
             .into_iter()
             .map(|(ri, r)| r.try_map(|i| i.try_into()).map(|x| (ri, x)))
             .partition_result();
-        // TODO check $GATING for dangling refs
-        let mut res = Ok(AppliedGates3_2 {
-            scheme: GatingScheme {
-                regions,
-                gating: self.scheme.gating,
-            },
-        })
-        .into_deferred();
+        let mut res = AppliedGates3_2::try_new(self.scheme.gating, regions).into_deferred();
         for e in es {
             res.def_push_error_or_warning(AppliedGates3_0To3_2Error::Index(e), lossless);
         }
@@ -419,6 +401,13 @@ impl AppliedGates3_0 {
 }
 
 impl AppliedGates3_2 {
+    pub fn try_new(
+        gating: Option<Gating>,
+        regions: HashMap<RegionIndex, Region<PrefixedMeasIndex>>,
+    ) -> Result<Self, NewGatingSchemeError> {
+        GatingScheme::try_new(gating, regions).map(|scheme| Self { scheme })
+    }
+
     pub(crate) fn is_empty(&self) -> bool {
         self.scheme.is_empty()
     }
@@ -1066,34 +1055,28 @@ impl fmt::Display for GateMeasurementLinkError {
     }
 }
 
+#[derive(From, Display)]
 pub enum AppliedGates3_0To2_0Error {
     Index(RegionToGateIndexError),
-    NoGates,
-    NoRegions,
+    Scheme(NewGatingSchemeError),
+    Link(GateMeasurementLinkError),
 }
 
-impl fmt::Display for AppliedGates3_0To2_0Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Index(x) => x.fmt(f),
-            Self::NoGates => write!(f, "no $Gn* keywords present"),
-            Self::NoRegions => write!(f, "no valid $Rn* keywords present"),
-        }
-    }
-}
-
+#[derive(From)]
 pub enum AppliedGates3_0To3_2Error {
+    #[from]
     Index(RegionToMeasIndexError),
     HasGates(usize),
-    NoRegions,
+    #[from]
+    Scheme(NewGatingSchemeError),
 }
 
 impl fmt::Display for AppliedGates3_0To3_2Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             Self::Index(x) => x.fmt(f),
+            Self::Scheme(x) => x.fmt(f),
             Self::HasGates(n) => write!(f, "$GATING references {n} $Gn* keywords"),
-            Self::NoRegions => write!(f, "no valid $Rn* keywords present"),
         }
     }
 }

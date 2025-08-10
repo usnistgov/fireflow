@@ -224,7 +224,7 @@ impl AppliedGates2_0 {
                 .regions
                 .iter()
                 .flat_map(|(_, r)| r.indices())
-                .filter(|i| usize::from(*i) > n),
+                .filter(|i| usize::from(*i) >= n),
         ) {
             Err(GateMeasurementLinkError(xs))
         } else {
@@ -279,7 +279,7 @@ impl AppliedGates3_0 {
                 .iter()
                 .flat_map(|(_, r)| r.indices())
                 .flat_map(GateIndex::try_from)
-                .filter(|&i| usize::from(i) > n),
+                .filter(|&i| usize::from(i) >= n),
         ) {
             Err(GateMeasurementLinkError(xs))
         } else {

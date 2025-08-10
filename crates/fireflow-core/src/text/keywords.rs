@@ -1,6 +1,7 @@
 use crate::config::StdTextReadConfig;
 use crate::error::*;
 use crate::macros::impl_newtype_try_from;
+use crate::nonempty::NonEmptyExt;
 use crate::validated::ascii_uint::*;
 use crate::validated::keys::*;
 use crate::validated::shortname::*;
@@ -9,6 +10,7 @@ use super::byteord::*;
 use super::compensation::*;
 use super::datetimes::*;
 use super::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
+use super::gating;
 use super::index::*;
 use super::named_vec::NameMapping;
 use super::optional::*;
@@ -21,7 +23,7 @@ use super::unstainedcenters::*;
 
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use chrono::{NaiveDateTime, NaiveTime, Timelike};
-use derive_more::{Add, Display, From, FromStr, Into, Sub};
+use derive_more::{Add, AsMut, Display, From, FromStr, Into, Sub};
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use num_traits::cast::ToPrimitive;
@@ -959,6 +961,72 @@ pub(crate) enum RegionGateIndex<I> {
     Bivariate(I, I),
 }
 
+impl<I> RegionGateIndex<I> {
+    pub(crate) fn lookup_region_opt<E>(
+        kws: &mut StdKeywords,
+        i: RegionIndex,
+        par: Par,
+    ) -> LookupTentative<MaybeValue<Self>, E>
+    where
+        I: fmt::Display + FromStr + gating::LinkedMeasIndex,
+        Self: fmt::Display + FromStr,
+        ParseOptKeyWarning: From<<Self as FromStr>::Err>,
+    {
+        process_opt(Self::remove_meas_opt(kws, i.into())).and_tentatively(|maybe| {
+            if let Some(x) = maybe.0 {
+                Self::check_link(&x, par).map_or_else(
+                    |w| Tentative::new(None, vec![w.into()], vec![]),
+                    |_| Tentative::new1(Some(x)),
+                )
+            } else {
+                Tentative::default()
+            }
+            .map(|x| x.into())
+        })
+    }
+
+    pub(crate) fn lookup_region_opt_dep(
+        kws: &mut StdKeywords,
+        i: RegionIndex,
+        par: Par,
+        disallow_dep: bool,
+    ) -> LookupTentative<MaybeValue<Self>, DeprecatedError>
+    where
+        I: fmt::Display + FromStr + gating::LinkedMeasIndex,
+        Self: fmt::Display + FromStr,
+        ParseOptKeyWarning: From<<Self as FromStr>::Err>,
+    {
+        let mut x = Self::lookup_region_opt(kws, i, par);
+        eval_dep_maybe(&mut x, Self::std(i.into()), disallow_dep);
+        x
+    }
+
+    fn check_link(&self, par: Par) -> Result<(), RegionIndexError>
+    where
+        I: gating::LinkedMeasIndex,
+    {
+        NonEmpty::collect(
+            self.meas_indices()
+                .into_iter()
+                .filter(|&i| i >= par.0.into()),
+        )
+        .map_or(Ok(()), |ne| Err(RegionIndexError(ne)))
+    }
+
+    fn meas_indices(&self) -> Vec<MeasIndex>
+    where
+        I: gating::LinkedMeasIndex,
+    {
+        match self {
+            RegionGateIndex::Univariate(x) => x.meas_index().into_iter().collect(),
+            RegionGateIndex::Bivariate(x, y) => [x.meas_index(), y.meas_index()]
+                .into_iter()
+                .flatten()
+                .collect(),
+        }
+    }
+}
+
 impl<I> FromStr for RegionGateIndex<I>
 where
     I: FromStr,
@@ -1006,6 +1074,18 @@ where
             Self::Format => write!(f, "must be either a single value 'x' or a pair 'x,y'"),
             Self::Int(e) => e.fmt(f),
         }
+    }
+}
+
+pub struct RegionIndexError(NonEmpty<MeasIndex>);
+
+impl fmt::Display for RegionIndexError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "region index refers to non-existent measurement index: {}",
+            self.0.iter().join(",")
+        )
     }
 }
 
@@ -1061,7 +1141,7 @@ impl fmt::Display for MeasOrGateIndexError {
     }
 }
 
-#[derive(Clone, Copy, From, PartialEq, Into)]
+#[derive(Clone, Copy, From, PartialEq, Into, AsMut)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(MeasIndex, usize)]
 pub struct PrefixedMeasIndex(pub MeasIndex);
@@ -1225,6 +1305,7 @@ impl Gating {
                 acc
             }
         }
+        .unique()
     }
 }
 

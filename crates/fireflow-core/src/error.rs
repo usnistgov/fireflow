@@ -1389,6 +1389,13 @@ pub trait DeferredExt: Sized + PassthruExt {
     }
 
     fn def_unfail(self) -> Tentative<Option<Self::V>, Self::W, Self::E>;
+
+    fn def_unfail_default(self) -> Tentative<Self::V, Self::W, Self::E>
+    where
+        Self::V: Default,
+    {
+        self.def_unfail().map(|_| Self::V::default())
+    }
 }
 
 impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {

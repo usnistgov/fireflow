@@ -435,7 +435,7 @@ pub struct InnerMetaroot2_0 {
     pub timestamps: Timestamps2_0,
 
     /// Values of $Gm*/$RnI/$RnW/$GATING/$GATE
-    applied_gates: MaybeValue<AppliedGates2_0>,
+    applied_gates: AppliedGates2_0,
 }
 
 /// Metaroot fields specific to version 3.0
@@ -475,7 +475,7 @@ pub struct InnerMetaroot3_0 {
     pub subset: MaybeValue<SubsetData>,
 
     /// Values of $Gm*/$RnI/$RnW/$GATING/$GATE
-    applied_gates: MaybeValue<AppliedGates3_0>,
+    applied_gates: AppliedGates3_0,
 }
 
 /// Metaroot fields specific to version 3.1
@@ -525,7 +525,7 @@ pub struct InnerMetaroot3_1 {
     pub subset: MaybeValue<SubsetData>,
 
     /// Values of $Gm*/$RnI/$RnW/$GATING/$GATE
-    applied_gates: MaybeValue<AppliedGates3_0>,
+    applied_gates: AppliedGates3_0,
 }
 
 /// Metaroot fields specific to version 3.2
@@ -593,7 +593,7 @@ pub struct InnerMetaroot3_2 {
     pub flowrate: MaybeValue<Flowrate>,
 
     /// Values of $RnI/$RnW/$GATING
-    applied_gates: MaybeValue<AppliedGates3_2>,
+    applied_gates: AppliedGates3_2,
 }
 
 /// Temporal measurement fields specific to version 2.0
@@ -5024,16 +5024,15 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
         let ret = c.zip3(u, s).inner_into().and_tentatively(|_| {
             value
                 .applied_gates
-                .0
-                .map_or(Tentative::new1(None), |x| {
-                    x.try_into_2_0(lossless).def_unfail().inner_into()
-                })
+                .try_into_2_0(lossless)
+                .def_unfail_default()
+                .inner_into()
                 .map(|ag| Self {
                     mode: value.mode,
                     cyt: value.cyt,
                     comp: value.comp.map(|x| x.0.into()),
                     timestamps: value.timestamps.map(|d| d.into()),
-                    applied_gates: ag.into(),
+                    applied_gates: ag,
                 })
         });
         Ok(ret)
@@ -5058,16 +5057,15 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
         let out = c.zip6(v, s, m, p, ss).inner_into().and_tentatively(|_| {
             value
                 .applied_gates
-                .0
-                .map_or(Tentative::new1(None), |x| {
-                    x.try_into_2_0(lossless).def_unfail().inner_into()
-                })
-                .map(|ag| Self {
+                .try_into_2_0(lossless)
+                .def_unfail_default()
+                .inner_into()
+                .map(|applied_gates| Self {
                     mode: value.mode,
                     cyt: value.cyt,
                     comp: None.into(),
                     timestamps: value.timestamps.map(|d| d.into()),
-                    applied_gates: ag.into(),
+                    applied_gates,
                 })
         });
         Ok(out)
@@ -5097,9 +5095,9 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
                 cyt: Some(value.cyt).into(),
                 comp: None.into(),
                 timestamps: value.timestamps.map(|x| x.into()),
-                applied_gates: None.into(),
+                applied_gates: AppliedGates2_0::default(),
             });
-        if value.applied_gates.0.is_some() {
+        if !value.applied_gates.is_empty() {
             ret.push_error_or_warning(gating::AppliedGates3_2To2_0Error, lossless);
         }
         Ok(ret)
@@ -5116,7 +5114,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_0 {
             cytsn: None.into(),
             unicode: None.into(),
             subset: None.into(),
-            applied_gates: None.into(),
+            applied_gates: value.applied_gates.into(),
         }))
     }
 }
@@ -5163,7 +5161,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
             comp: None.into(),
             unicode: None.into(),
             subset: None.into(),
-            applied_gates: value.applied_gates.map(|x| x.into()),
+            applied_gates: value.applied_gates.into(),
         });
         Ok(out)
     }
@@ -5184,7 +5182,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_1 {
             plate: PlateData::default(),
             vol: None.into(),
             subset: None.into(),
-            applied_gates: value.applied_gates.map(|x| x.into()),
+            applied_gates: value.applied_gates.into(),
         });
         if value.comp.0.is_some() {
             out.push_error_or_warning(Comp2_0TransferError, lossless);
@@ -5235,7 +5233,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
             modification: value.modification,
             vol: value.vol,
             subset: None.into(),
-            applied_gates: value.applied_gates.map(|x| x.into()),
+            applied_gates: value.applied_gates.into(),
         });
         Ok(ret)
     }
@@ -5268,10 +5266,10 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
                         carrier: CarrierData::default(),
                         unstained: UnstainedData::default(),
                         datetimes: Datetimes::default(),
-                        applied_gates: None.into(),
+                        applied_gates: AppliedGates3_2::default(),
                     })
             });
-        if value.applied_gates.0.is_some() {
+        if !value.applied_gates.is_empty() {
             res.def_push_error_or_warning(gating::AppliedGates2_0To3_2Error, lossless);
         }
         if value.comp.0.is_some() {
@@ -5296,11 +5294,10 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
         u.zip3(co, ss).inner_into().and_maybe(|_| {
             value
                 .applied_gates
-                .0
-                .map_or(Tentative::new1(None), |x| {
-                    x.try_into_3_2(lossless).def_unfail().inner_into()
-                })
-                .and_maybe(|ag| {
+                .try_into_3_2(lossless)
+                .def_unfail_default()
+                .inner_into()
+                .and_maybe(|applied_gates| {
                     value
                         .cyt
                         .0
@@ -5323,7 +5320,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
                                     carrier: CarrierData::default(),
                                     unstained: UnstainedData::default(),
                                     datetimes: Datetimes::default(),
-                                    applied_gates: ag.into(),
+                                    applied_gates,
                                 })
                         })
                 })
@@ -5342,10 +5339,12 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
             .map(|ss| ss.check_loss(lossless))
             .unwrap_or_default()
             .inner_into();
-        let a = value.applied_gates.0.map_or(Tentative::new1(None), |x| {
-            x.try_into_3_2(lossless).def_unfail().inner_into()
-        });
-        ss.zip(a).and_maybe(|(_, ag)| {
+        let a = value
+            .applied_gates
+            .try_into_3_2(lossless)
+            .def_unfail_default()
+            .inner_into();
+        ss.zip(a).and_maybe(|(_, applied_gates)| {
             value
                 .cyt
                 .0
@@ -5368,7 +5367,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
                             carrier: CarrierData::default(),
                             unstained: UnstainedData::default(),
                             datetimes: Datetimes::default(),
-                            applied_gates: ag.into(),
+                            applied_gates,
                         })
                 })
         })
@@ -7007,13 +7006,7 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
         [OptMetarootKey::pair_opt(&self.cyt)]
             .into_iter()
             .flat_map(|(k, v)| v.map(|x| (k, x)))
-            .chain(
-                self.applied_gates
-                    .as_ref_opt()
-                    .map(|x| x.opt_keywords())
-                    .into_iter()
-                    .flatten(),
-            )
+            .chain(self.applied_gates.opt_keywords())
             .chain(self.timestamps.opt_keywords())
             .chain(self.comp.as_ref_opt().map_or(vec![], |c| c.opt_keywords()))
     }
@@ -7087,13 +7080,7 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
-        .chain(
-            self.applied_gates
-                .as_ref_opt()
-                .map(|x| x.opt_keywords())
-                .into_iter()
-                .flatten(),
-        )
+        .chain(self.applied_gates.opt_keywords())
         .chain(
             self.subset
                 .as_ref_opt()
@@ -7173,13 +7160,7 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
-        .chain(
-            self.applied_gates
-                .as_ref_opt()
-                .map(|x| x.opt_keywords())
-                .into_iter()
-                .flatten(),
-        )
+        .chain(self.applied_gates.opt_keywords())
         .chain(
             self.subset
                 .as_ref_opt()
@@ -7264,13 +7245,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
-        .chain(
-            self.applied_gates
-                .as_ref_opt()
-                .map(|x| x.opt_keywords())
-                .into_iter()
-                .flatten(),
-        )
+        .chain(self.applied_gates.opt_keywords())
         .chain(self.unstained.opt_keywords())
         .chain(self.modification.opt_keywords())
         .chain(self.carrier.opt_keywords())
@@ -7377,7 +7352,7 @@ impl InnerMetaroot2_0 {
             cyt: None.into(),
             timestamps: Timestamps::default(),
             comp: None.into(),
-            applied_gates: None.into(),
+            applied_gates: AppliedGates2_0::default(),
         }
     }
 }
@@ -7392,7 +7367,7 @@ impl InnerMetaroot3_0 {
             comp: None.into(),
             unicode: None.into(),
             subset: None.into(),
-            applied_gates: None.into(),
+            applied_gates: AppliedGates3_0::default(),
         }
     }
 }
@@ -7409,7 +7384,7 @@ impl InnerMetaroot3_1 {
             spillover: None.into(),
             vol: None.into(),
             subset: None.into(),
-            applied_gates: None.into(),
+            applied_gates: AppliedGates3_0::default(),
         }
     }
 }
@@ -7429,7 +7404,7 @@ impl InnerMetaroot3_2 {
             unstained: UnstainedData::default(),
             spillover: None.into(),
             vol: None.into(),
-            applied_gates: None.into(),
+            applied_gates: AppliedGates3_2::default(),
         }
     }
 }

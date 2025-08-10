@@ -445,7 +445,7 @@ pub enum LookupKeysWarning {
     Parse(ParseKeyError<ParseOptKeyWarning>),
     Relation(LookupRelationalWarning),
     LinkedName(LinkedNameError),
-    LinkedIndex(gating::RegionIndexError),
+    LinkedIndex(RegionIndexError),
     Dep(DeprecatedError),
 }
 

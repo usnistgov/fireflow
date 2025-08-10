@@ -12,7 +12,7 @@ use pyo3::prelude::*;
 use crate::python::macros::impl_from_py_transparent;
 
 /// An index starting at 1, used as the basis for keyword indices
-#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug, Display, FromStr)]
+#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug, Display, FromStr, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct IndexFromOne(NonZeroUsize);
 
@@ -34,7 +34,7 @@ macro_rules! newtype_index {
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(IntoPyObject))]
         #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug,
-                 FromStr, Display, From, Into)]
+                 FromStr, Display, From, Into, Hash)]
         #[from(IndexFromOne, usize)]
         #[into(IndexFromOne, usize)]
         pub struct $t(pub IndexFromOne);

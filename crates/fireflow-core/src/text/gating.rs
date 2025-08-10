@@ -221,6 +221,18 @@ impl AppliedGates2_0 {
         self.gated_measurements.0.is_empty()
     }
 
+    fn try_new(
+        gated_measurements: GatedMeasurements,
+        scheme: GatingScheme<GateIndex>,
+    ) -> Result<Self, GateMeasurementLinkError> {
+        let new = Self {
+            gated_measurements,
+            scheme,
+        };
+        new.check_gates()?;
+        Ok(new)
+    }
+
     pub(crate) fn lookup(
         kws: &mut StdKeywords,
         par: Par,
@@ -228,18 +240,10 @@ impl AppliedGates2_0 {
     ) -> LookupTentative<Self, DeprecatedError> {
         let ag = GatingScheme::lookup(kws, Gating::lookup_opt, |k, j| Region::lookup(k, j, par));
         let gm = GatedMeasurements::lookup(kws, conf);
-        ag.zip(gm).and_tentatively(|(regions, gated_measurements)| {
-            let ret = Self {
-                gated_measurements,
-                scheme: regions,
-            };
-            match ret.check_gates() {
-                Ok(_) => Tentative::new1(ret),
-                Err(e) => {
-                    let w = LookupKeysWarning::Relation(e.into());
-                    Tentative::new(Self::default(), vec![w], vec![])
-                }
-            }
+        ag.zip(gm).and_tentatively(|(scheme, gated_measurements)| {
+            Self::try_new(gated_measurements, scheme)
+                .into_tentative_warn_def()
+                .map_warnings(|e| LookupKeysWarning::Relation(e.into()))
         })
     }
 
@@ -302,29 +306,33 @@ impl AppliedGates3_0 {
         )
     }
 
+    fn try_new(
+        gated_measurements: GatedMeasurements,
+        scheme: GatingScheme<MeasOrGateIndex>,
+    ) -> Result<Self, GateMeasurementLinkError> {
+        let new = Self {
+            gated_measurements,
+            scheme,
+        };
+        new.check_gates()?;
+        Ok(new)
+    }
+
     fn lookup_inner<E, F0, F1>(
         kws: &mut StdKeywords,
-        lookup_regions: F0,
+        lookup_scheme: F0,
         lookup_meas: F1,
     ) -> LookupTentative<Self, E>
     where
         F0: FnOnce(&mut StdKeywords) -> LookupTentative<GatingScheme<MeasOrGateIndex>, E>,
         F1: FnOnce(&mut StdKeywords) -> LookupTentative<GatedMeasurements, E>,
     {
-        let ag = lookup_regions(kws);
-        let gm = lookup_meas(kws);
-        ag.zip(gm).and_tentatively(|(regions, gated_measurements)| {
-            let ret = Self {
-                gated_measurements,
-                scheme: regions,
-            };
-            match ret.check_gates() {
-                Ok(_) => Tentative::new1(ret),
-                Err(e) => {
-                    let w = LookupKeysWarning::Relation(e.into());
-                    Tentative::new(Self::default(), vec![w], vec![])
-                }
-            }
+        let s = lookup_scheme(kws);
+        let ms = lookup_meas(kws);
+        s.zip(ms).and_tentatively(|(scheme, gated_measurements)| {
+            Self::try_new(gated_measurements, scheme)
+                .into_tentative_warn_def()
+                .map_warnings(|e| LookupKeysWarning::Relation(e.into()))
         })
     }
 
@@ -657,7 +665,7 @@ impl<I> GatingScheme<I> {
                     let regions = rs.into_iter().flatten().collect();
                     Self::try_new(gating, regions)
                         .into_tentative_warn_def()
-                        .warnings_into()
+                        .map_warnings(|e| LookupKeysWarning::Relation(e.into()))
                 })
         })
     }

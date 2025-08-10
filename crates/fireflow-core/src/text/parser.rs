@@ -446,7 +446,6 @@ pub enum LookupKeysWarning {
     Relation(LookupRelationalWarning),
     LinkedName(LinkedNameError),
     LinkedIndex(RegionIndexError),
-    GatingScheme(gating::NewGatingSchemeError),
     Dep(DeprecatedError),
 }
 
@@ -540,6 +539,7 @@ pub enum LookupRelationalWarning {
     GateRegion(gating::MismatchedIndexAndWindowError),
     GateRegionLink(gating::GateRegionLinkError),
     GateMeasLink(gating::GateMeasurementLinkError),
+    GatingScheme(gating::NewGatingSchemeError),
 }
 
 /// Error/warning triggered when encountering a key which is deprecated

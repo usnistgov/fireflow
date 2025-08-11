@@ -1193,8 +1193,8 @@ pub trait VersionedMetaroot: Sized {
     type Temporal: VersionedTemporal<Ver = Self::Ver>;
     type Name: MightHave;
 
-    /// Return `true` if any data in this struct links to a measurement
-    fn check_meas_links_inner(&self) -> Result<(), ExistingLinkError>;
+    /// Return error if any data in this struct links to given list of names.
+    fn check_meas_links_inner(&self, names: &HashSet<&Shortname>) -> Result<(), ExistingLinkError>;
 
     /// Rename any measurement references in keywords.
     fn rename_meas_links_inner(&mut self, mapping: &NameMapping);
@@ -1838,14 +1838,6 @@ where
     fn rename_meas_links(&mut self, mapping: &NameMapping) {
         self.rename_trigger_meas_link(mapping);
         self.specific.rename_meas_links_inner(mapping);
-    }
-
-    /// Return `true` if any data in this struct links to a measurement
-    fn check_meas_links(&self) -> Result<(), ExistingLinkError> {
-        if self.tr.0.is_some() {
-            return Err(ExistingLinkError::Trigger);
-        }
-        self.specific.check_meas_links_inner()
     }
 }
 
@@ -2942,7 +2934,7 @@ where
         ),
         RemoveMeasByNameError,
     > {
-        self.metaroot.check_meas_links()?;
+        self.check_meas_links(&self.measurement_names())?;
         let ret = self.measurements.remove_name(n)?;
         self.layout.remove_nocheck(ret.0);
         Ok(ret)
@@ -2956,7 +2948,7 @@ where
         EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         RemoveMeasByIndexError,
     > {
-        self.metaroot.check_meas_links()?;
+        self.check_meas_links(&self.measurement_names())?;
         let ret = self.measurements.remove_index(index)?;
         self.layout.remove_nocheck(index);
         Ok(ret)
@@ -3094,7 +3086,8 @@ where
         M::Optical: AsScaleTransform,
     {
         let go = || {
-            self.metaroot.check_meas_links().into_mult()?;
+            self.check_meas_links(&self.measurement_names())
+                .into_mult()?;
             let ms = NamedVec::try_new(measurements, prefix).into_mult()?;
             layout.check_measurement_vector(&ms).mult_errors_into()?;
             self.measurements = ms;
@@ -3112,7 +3105,8 @@ where
     where
         M::Optical: AsScaleTransform,
     {
-        self.metaroot.check_meas_links().into_mult()?;
+        self.check_meas_links(&self.measurement_names())
+            .into_mult()?;
         let ms = NamedVec::try_new(xs, prefix).into_mult()?;
         self.layout
             .check_measurement_vector(&ms)
@@ -3122,7 +3116,7 @@ where
     }
 
     fn unset_measurements_inner(&mut self) -> Result<(), ExistingLinkError> {
-        self.metaroot.check_meas_links()?;
+        self.check_meas_links(&self.measurement_names())?;
         self.measurements = NamedVec::default();
         self.layout.clear();
         Ok(())
@@ -3395,6 +3389,18 @@ where
 
     fn measurement_names(&self) -> HashSet<&Shortname> {
         self.measurements.indexed_names().map(|(_, x)| x).collect()
+    }
+
+    fn check_meas_links(&self, names: &HashSet<&Shortname>) -> Result<(), ExistingLinkError> {
+        let m = &self.metaroot;
+        if m.tr
+            .0
+            .as_ref()
+            .is_some_and(|tr| names.contains(&tr.measurement))
+        {
+            return Err(ExistingLinkError::Trigger);
+        }
+        m.specific.check_meas_links_inner(names)
     }
 
     pub(crate) fn fcs_version(&self) -> Version
@@ -6978,7 +6984,7 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
     type Temporal = InnerTemporal2_0;
     type Name = MaybeFamily;
 
-    fn check_meas_links_inner(&self) -> Result<(), ExistingLinkError> {
+    fn check_meas_links_inner(&self, _: &HashSet<&Shortname>) -> Result<(), ExistingLinkError> {
         if self.comp.0.is_some() {
             Err(ExistingLinkError::Comp)
         } else {
@@ -7030,7 +7036,7 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
     type Temporal = InnerTemporal3_0;
     type Name = MaybeFamily;
 
-    fn check_meas_links_inner(&self) -> Result<(), ExistingLinkError> {
+    fn check_meas_links_inner(&self, _: &HashSet<&Shortname>) -> Result<(), ExistingLinkError> {
         if self.comp.0.is_some() {
             Err(ExistingLinkError::Comp)
         } else if !self.applied_gates.meas_indices().is_empty() {
@@ -7096,8 +7102,13 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
     type Temporal = InnerTemporal3_1;
     type Name = AlwaysFamily;
 
-    fn check_meas_links_inner(&self) -> Result<(), ExistingLinkError> {
-        if self.spillover.0.is_some() {
+    fn check_meas_links_inner(&self, names: &HashSet<&Shortname>) -> Result<(), ExistingLinkError> {
+        if self
+            .spillover
+            .0
+            .as_ref()
+            .is_some_and(|s| s.intersect_names(names).count() > 0)
+        {
             Err(ExistingLinkError::Spillover)
         } else if !self.applied_gates.meas_indices().is_empty() {
             Err(ExistingLinkError::GateRegion)
@@ -7168,10 +7179,21 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
     type Temporal = InnerTemporal3_2;
     type Name = AlwaysFamily;
 
-    fn check_meas_links_inner(&self) -> Result<(), ExistingLinkError> {
-        if self.spillover.0.is_some() {
+    fn check_meas_links_inner(&self, names: &HashSet<&Shortname>) -> Result<(), ExistingLinkError> {
+        if self
+            .spillover
+            .0
+            .as_ref()
+            .is_some_and(|s| s.intersect_names(names).count() > 0)
+        {
             Err(ExistingLinkError::Spillover)
-        } else if self.unstained.unstainedcenters.0.is_some() {
+        } else if self
+            .unstained
+            .unstainedcenters
+            .0
+            .as_ref()
+            .is_some_and(|u| u.intersect_names(names).count() > 0)
+        {
             Err(ExistingLinkError::UnstainedCenters)
         } else if !self.applied_gates.is_empty() {
             Err(ExistingLinkError::GateRegion)

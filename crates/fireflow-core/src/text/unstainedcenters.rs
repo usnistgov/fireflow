@@ -1,4 +1,4 @@
-use crate::validated::shortname::*;
+use crate::validated::{keys, shortname::*};
 
 use super::named_vec::NameMapping;
 use super::optional::ClearMaybe;
@@ -58,13 +58,11 @@ impl UnstainedCenters {
         &self.0
     }
 
-    pub(crate) fn remove(&mut self, n: &Shortname) -> ClearMaybe<Option<f32>> {
-        let ret = self.0.remove(n);
-        if self.0.len() <= 1 {
-            ClearMaybe::clear(ret)
-        } else {
-            ClearMaybe::new(ret)
-        }
+    pub(crate) fn intersect_names(
+        &self,
+        names: &HashSet<&Shortname>,
+    ) -> impl Iterator<Item = &Shortname> {
+        self.0.keys().filter(|n| !names.contains(n))
     }
 }
 

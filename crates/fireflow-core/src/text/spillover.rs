@@ -1,7 +1,6 @@
 use crate::validated::shortname::*;
 
 use super::named_vec::NameMapping;
-use super::optional::ClearMaybe;
 use super::parser::OptLinkedKey;
 
 use derive_more::AsRef;
@@ -53,32 +52,39 @@ impl Spillover {
         }
     }
 
-    pub(crate) fn remove_by_name(&mut self, n: &Shortname) -> ClearMaybe<bool> {
-        if let Some(i) = self.measurements.iter().position(|m| m == n) {
-            if self.measurements.len() < 3 {
-                ClearMaybe::clear(true)
-            } else {
-                // TODO this looks expensive; it copies almost everything 3x;
-                // good thing these matrices aren't that big (usually). The
-                // alternative is to iterate over the matrix and populate a new
-                // one while skipping certain elements.
-                self.matrix = self.matrix.clone().remove_row(i).remove_column(i);
-                ClearMaybe::new(true)
-            }
-        } else {
-            ClearMaybe::new(false)
-        }
-    }
+    // pub(crate) fn remove_by_name(&mut self, n: &Shortname) -> ClearMaybe<bool> {
+    //     if let Some(i) = self.measurements.iter().position(|m| m == n) {
+    //         if self.measurements.len() < 3 {
+    //             ClearMaybe::clear(true)
+    //         } else {
+    //             // TODO this looks expensive; it copies almost everything 3x;
+    //             // good thing these matrices aren't that big (usually). The
+    //             // alternative is to iterate over the matrix and populate a new
+    //             // one while skipping certain elements.
+    //             self.matrix = self.matrix.clone().remove_row(i).remove_column(i);
+    //             ClearMaybe::new(true)
+    //         }
+    //     } else {
+    //         ClearMaybe::new(false)
+    //     }
+    // }
 
-    pub(crate) fn table(&self, delim: &str) -> Vec<String> {
-        let header0 = vec!["[-]"];
-        let header = header0
-            .into_iter()
-            .chain(self.measurements.iter().map(|m| m.as_ref()))
-            .join(delim);
-        let lines = vec![header];
-        let rows = self.matrix.row_iter().map(|xs| xs.iter().join(delim));
-        lines.into_iter().chain(rows).collect()
+    // pub(crate) fn table(&self, delim: &str) -> Vec<String> {
+    //     let header0 = vec!["[-]"];
+    //     let header = header0
+    //         .into_iter()
+    //         .chain(self.measurements.iter().map(|m| m.as_ref()))
+    //         .join(delim);
+    //     let lines = vec![header];
+    //     let rows = self.matrix.row_iter().map(|xs| xs.iter().join(delim));
+    //     lines.into_iter().chain(rows).collect()
+    // }
+
+    pub(crate) fn intersect_names(
+        &self,
+        names: &HashSet<&Shortname>,
+    ) -> impl Iterator<Item = &Shortname> {
+        self.measurements.iter().filter(|n| !names.contains(n))
     }
 }
 

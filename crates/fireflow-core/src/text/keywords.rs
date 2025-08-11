@@ -1143,6 +1143,8 @@ impl fmt::Display for MeasOrGateIndexError {
 
 #[derive(Clone, Copy, From, PartialEq, Into, AsMut)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[from(MeasIndex, usize)]
 #[into(MeasIndex, usize)]
 pub struct PrefixedMeasIndex(pub MeasIndex);
 
@@ -1623,9 +1625,16 @@ impl TryFrom<f64> for Range {
     }
 }
 
+/// The value of the $GmN key
+#[derive(Clone, From, Display, FromStr, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct GateShortname(pub Shortname);
+
 /// The value of the $GmR key
 #[derive(Clone, From, Display, FromStr, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[from(u64)]
 pub struct GateRange(pub Range);
 
@@ -1650,6 +1659,7 @@ impl_newtype_try_from!(DetectorVoltage, NonNegFloat, f32, RangedFloatError);
 /// The value of the $GmV key
 #[derive(Clone, Copy, Display, FromStr, Into, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(f32)]
 pub struct GateDetectorVoltage(pub NonNegFloat);
 
@@ -1658,6 +1668,7 @@ impl_newtype_try_from!(GateDetectorVoltage, NonNegFloat, f32, RangedFloatError);
 /// The value of the $GmE key
 #[derive(Clone, Copy, Display, FromStr, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct GateScale(pub Scale);
 
 // use the same fix we use for PnE here
@@ -2079,7 +2090,7 @@ kw_opt_gate!(GateScale, "E");
 kw_opt_gate_string!(GateFilter, "F");
 kw_opt_gate_string!(GatePercentEmitted, "P");
 kw_opt_gate!(GateRange, "R");
-kw_opt_gate_string!(GateShortname, "N");
+kw_opt_gate!(GateShortname, "N");
 kw_opt_gate_string!(GateLongname, "S");
 kw_opt_gate_string!(GateDetectorType, "T");
 kw_opt_gate!(GateDetectorVoltage, "V");
@@ -2286,9 +2297,10 @@ mod python {
 
     use super::{
         AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, DetectorVoltage, Display,
-        Feature, FeatureError, LastModified, Mode, Mode3_2, Mode3_2Error, ModeError, NumType,
-        NumTypeError, OpticalType, OpticalTypeError, Originality, OriginalityError, PeakBin,
-        PeakNumber, Power, Range, Timestep, Trigger, Unicode, Vol, Wavelength, Wavelengths,
+        Feature, FeatureError, GateDetectorVoltage, GateRange, GateScale, GateShortname,
+        LastModified, Mode, Mode3_2, Mode3_2Error, ModeError, NumType, NumTypeError, OpticalType,
+        OpticalTypeError, Originality, OriginalityError, PeakBin, PeakNumber, Power, Range,
+        Timestep, Trigger, UniGate, Unicode, Vertex, Vol, Wavelength, Wavelengths,
     };
 
     use nonempty::NonEmpty;
@@ -2322,6 +2334,10 @@ mod python {
     impl_from_py_transparent!(Power);
     impl_from_py_transparent!(PeakBin);
     impl_from_py_transparent!(PeakNumber);
+    impl_from_py_transparent!(GateRange);
+    impl_from_py_transparent!(GateScale);
+    impl_from_py_transparent!(GateShortname);
+    impl_from_py_transparent!(GateDetectorVoltage);
 
     // $PnL (3.1+) should be represented as a list of floats
     impl<'py> FromPyObject<'py> for Wavelengths {
@@ -2441,7 +2457,7 @@ mod python {
     impl<'py> FromPyObject<'py> for Trigger {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let (measurement, threshold): (Shortname, u32) = ob.extract()?;
-            Ok(Trigger {
+            Ok(Self {
                 measurement,
                 threshold,
             })
@@ -2455,6 +2471,42 @@ mod python {
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             (self.measurement, self.threshold).into_pyobject(py)
+        }
+    }
+
+    // unigate (for univariate gating regions) is a tuple pair of floats
+    impl<'py> FromPyObject<'py> for UniGate {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (lower, upper) = ob.extract()?;
+            Ok(Self { lower, upper })
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for UniGate {
+        type Target = PyTuple;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            (self.lower, self.upper).into_pyobject(py)
+        }
+    }
+
+    // vertex (for bivariate gating regions) is a tuple pair of floats
+    impl<'py> FromPyObject<'py> for Vertex {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (x, y) = ob.extract()?;
+            Ok(Self { x, y })
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for Vertex {
+        type Target = PyTuple;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            (self.x, self.y).into_pyobject(py)
         }
     }
 }

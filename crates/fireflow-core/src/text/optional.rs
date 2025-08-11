@@ -12,12 +12,16 @@ use std::mem;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
 /// A value that might exist.
 ///
 /// This is basically [`Option`] but more obvious in what it indicates. It also
 /// allows some nice methods to be built on top of [`Option`].
 #[derive(Debug, Clone, PartialEq, Eq, AsRef, AsMut)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct MaybeValue<T>(pub Option<T>);
 
 /// A value that always exists.

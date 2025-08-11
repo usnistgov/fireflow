@@ -1,12 +1,12 @@
 use crate::config::*;
 use crate::error::*;
-use crate::text::index::*;
+use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keywords::*;
 use crate::text::optional::*;
 use crate::text::parser::*;
 use crate::validated::keys::*;
 
-use derive_more::{Display, From};
+use derive_more::{AsRef, Display, From};
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use std::collections::{HashMap, HashSet};
@@ -16,14 +16,20 @@ use std::str::FromStr;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0)
 ///
 /// Each region is assumed to point to a member of ['gated_measurements'].
-// TODO updates to these are currently not validated
-#[derive(Clone, PartialEq, Default)]
+#[derive(Clone, PartialEq, Default, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", pyclass)]
 pub struct AppliedGates2_0 {
+    #[as_ref([GatedMeasurement])]
     gated_measurements: GatedMeasurements,
+    #[as_ref(Option<Gating>)]
+    #[as_ref(HashMap<RegionIndex, Region2_0>)]
     scheme: GatingScheme<GateIndex>,
 }
 
@@ -31,20 +37,25 @@ pub struct AppliedGates2_0 {
 ///
 /// Each region is assumed to point to a member of ['gated_measurements'] or
 /// a measurement in the ['Core'] struct
-// TODO updates to these are currently not validated
-#[derive(Clone, PartialEq, Default)]
+#[derive(Clone, PartialEq, Default, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", pyclass)]
 pub struct AppliedGates3_0 {
+    #[as_ref([GatedMeasurement])]
     gated_measurements: GatedMeasurements,
+    #[as_ref(Option<Gating>)]
+    #[as_ref(HashMap<RegionIndex, Region3_0>)]
     scheme: GatingScheme<MeasOrGateIndex>,
 }
 
 /// The $GATING/$RnI/$RnW keywords in a unified bundle (3.2)
 ///
 /// Each region is assumed to point to a measurement in the ['Core'] struct
-// TODO updates to these are currently not validated
-#[derive(Clone, PartialEq, Default)]
+#[derive(Clone, PartialEq, Default, AsRef)]
+#[as_ref(Option<Gating>)]
+#[as_ref(HashMap<RegionIndex, Region3_2>)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", pyclass)]
 pub struct AppliedGates3_2(pub GatingScheme<PrefixedMeasIndex>);
 
 /// The $GATING/$RnI/$RnW keywords in a unified bundle.
@@ -52,16 +63,22 @@ pub struct AppliedGates3_2(pub GatingScheme<PrefixedMeasIndex>);
 /// All regions in $GATING are assumed to have corresponding $RnI/$RnW keywords,
 /// and each $RnI/$RnW pair is assumed to be consistent (ie both are univariate
 /// or bivariate)
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, AsRef)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct GatingScheme<I> {
+    #[as_ref(Option<Gating>)]
     gating: Option<Gating>,
+    #[as_ref(HashMap<RegionIndex, Region<I>>)]
     regions: HashMap<RegionIndex, Region<I>>,
 }
 
 /// A list of $Gn* keywords for indices 1-n.
 ///
 /// $GATE is equal to length of this.
-#[derive(Clone, PartialEq, Default, From)]
+#[derive(Clone, PartialEq, Default, From, AsRef)]
+#[as_ref([GatedMeasurement])]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 pub struct GatedMeasurements(pub Vec<GatedMeasurement>);
 
 /// A uni/bivariate region corresponding to an $RnI/$RnW keyword pair
@@ -95,6 +112,7 @@ pub struct BivariateRegion<I> {
 /// The values for $Gm* keywords (2.0-3.1)
 #[derive(Clone, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", pyclass(get_all, set_all))]
 pub struct GatedMeasurement {
     /// Value for $GmE
     pub scale: MaybeValue<GateScale>,
@@ -301,10 +319,6 @@ impl AppliedGates3_0 {
         indices: &HashSet<MeasIndex>,
     ) -> impl Iterator<Item = MeasIndex> {
         self.scheme.indices_difference(indices)
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.scheme.is_empty() && self.gated_measurements.0.is_empty()
     }
 
     pub(crate) fn lookup<E>(
@@ -1133,32 +1147,8 @@ impl fmt::Display for NewGatingSchemeError {
 
 #[cfg(feature = "serde")]
 mod serialize {
-    use super::{BivariateRegion, GatedMeasurements, GatingScheme};
+    use super::BivariateRegion;
     use serde::{ser::SerializeStruct, Serialize};
-
-    impl Serialize for GatedMeasurements {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer,
-        {
-            self.0.iter().collect::<Vec<_>>().serialize(serializer)
-        }
-    }
-
-    impl<I> Serialize for GatingScheme<I>
-    where
-        I: Serialize,
-    {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer,
-        {
-            let mut state = serializer.serialize_struct("AppliedGates", 2)?;
-            state.serialize_field("gating", &self.gating)?;
-            state.serialize_field("regions", &self.regions.iter().collect::<Vec<_>>())?;
-            state.end()
-        }
-    }
 
     impl<I: Serialize> Serialize for BivariateRegion<I> {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -1172,4 +1162,222 @@ mod serialize {
             state.end()
         }
     }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use crate::python::macros::{
+        impl_from_py_via_fromstr, impl_pyreflow_err, impl_to_py_via_display, impl_value_err,
+    };
+    use crate::text::index::{GateIndex, RegionIndex};
+    use crate::text::keywords::{Gating, GatingError, MeasOrGateIndex, Vertex};
+
+    use super::{
+        AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, BivariateRegion,
+        GateMeasurementLinkError, GatedMeasurement, GatedMeasurements, GatingScheme,
+        MeasOrGateIndexError, NewGatingSchemeError, Region, Region2_0, Region3_0, Region3_2,
+        UniGate, UnivariateRegion,
+    };
+
+    use derive_more::{From, Into};
+    use nonempty::NonEmpty;
+    use pyo3::exceptions::PyValueError;
+    use pyo3::prelude::*;
+    use pyo3::types::PyTuple;
+    use std::collections::HashMap;
+
+    macro_rules! py_wrap {
+        ($pytype:ident, $rstype:path, $name:expr) => {
+            #[pyclass(name = $name, eq)]
+            #[derive(Clone, From, Into, PartialEq)]
+            pub struct $pytype($rstype);
+        };
+    }
+
+    py_wrap!(
+        PyGatingScheme2_0,
+        GatingScheme<GateIndex>,
+        "GatingScheme2_0"
+    );
+
+    py_wrap!(
+        PyGatingScheme3_0,
+        GatingScheme<MeasOrGateIndex>,
+        "GatingScheme3_0"
+    );
+
+    #[pymethods]
+    impl AppliedGates2_0 {
+        #[new]
+        fn new(gated_measurements: GatedMeasurements, scheme: PyGatingScheme2_0) -> PyResult<Self> {
+            Ok(Self::try_new(gated_measurements, scheme.into())?)
+        }
+
+        #[getter]
+        fn gated_measurements(&self) -> Vec<GatedMeasurement> {
+            let xs: &[GatedMeasurement] = self.as_ref();
+            xs.to_vec()
+        }
+
+        #[getter]
+        fn scheme(&self) -> Option<Gating> {
+            let g: &Option<Gating> = self.as_ref();
+            g.as_ref().cloned()
+        }
+
+        #[getter]
+        fn regions(&self) -> HashMap<RegionIndex, Region2_0> {
+            let h: &HashMap<RegionIndex, Region2_0> = self.as_ref();
+            h.clone()
+        }
+    }
+
+    #[pymethods]
+    impl AppliedGates3_0 {
+        #[new]
+        fn new(gated_measurements: GatedMeasurements, scheme: PyGatingScheme3_0) -> PyResult<Self> {
+            Ok(Self::try_new(gated_measurements, scheme.into())?)
+        }
+
+        #[getter]
+        fn gated_measurements(&self) -> Vec<GatedMeasurement> {
+            let xs: &[GatedMeasurement] = self.as_ref();
+            xs.to_vec()
+        }
+
+        #[getter]
+        fn scheme(&self) -> Option<Gating> {
+            let g: &Option<Gating> = self.as_ref();
+            g.as_ref().cloned()
+        }
+
+        #[getter]
+        fn regions(&self) -> HashMap<RegionIndex, Region3_0> {
+            let h: &HashMap<RegionIndex, Region3_0> = self.as_ref();
+            h.clone()
+        }
+    }
+
+    #[pymethods]
+    impl AppliedGates3_2 {
+        #[new]
+        fn new(gating: Option<Gating>, regions: HashMap<RegionIndex, Region3_2>) -> PyResult<Self> {
+            Ok(Self(GatingScheme::try_new(gating, regions)?))
+        }
+
+        #[getter]
+        fn scheme(&self) -> Option<Gating> {
+            let g: &Option<Gating> = self.as_ref();
+            g.as_ref().cloned()
+        }
+
+        #[getter]
+        fn regions(&self) -> HashMap<RegionIndex, Region3_2> {
+            let h: &HashMap<RegionIndex, Region3_2> = self.as_ref();
+            h.clone()
+        }
+    }
+
+    #[pymethods]
+    impl PyGatingScheme2_0 {
+        #[new]
+        fn new(gating: Option<Gating>, regions: HashMap<RegionIndex, Region2_0>) -> PyResult<Self> {
+            Ok(GatingScheme::try_new(gating, regions)?.into())
+        }
+    }
+
+    #[pymethods]
+    impl PyGatingScheme3_0 {
+        #[new]
+        fn new(gating: Option<Gating>, regions: HashMap<RegionIndex, Region3_0>) -> PyResult<Self> {
+            Ok(GatingScheme::try_new(gating, regions)?.into())
+        }
+    }
+
+    impl<'py, I> FromPyObject<'py> for Region<I>
+    where
+        I: From<usize>,
+    {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            extract_bound_region(ob, |s: usize| Ok(s.into()))
+        }
+    }
+
+    impl<'py> FromPyObject<'py> for Region3_0 {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            extract_bound_region(ob, |s: String| Ok(s.parse()?))
+        }
+    }
+
+    impl<'py, I> IntoPyObject<'py> for Region<I>
+    where
+        usize: From<I>,
+    {
+        type Target = PyTuple;
+        type Output = Bound<'py, PyTuple>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            into_pyobject_region(self, py, usize::from)
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for Region3_0 {
+        type Target = PyTuple;
+        type Output = Bound<'py, PyTuple>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            into_pyobject_region(self, py, |i| i.to_string())
+        }
+    }
+
+    fn into_pyobject_region<'py, F, I, X>(
+        r: Region<I>,
+        py: Python<'py>,
+        f: F,
+    ) -> Result<Bound<'py, PyTuple>, PyErr>
+    where
+        F: Fn(I) -> X,
+        X: IntoPyObject<'py>,
+    {
+        match r {
+            Region::Univariate(z) => (f(z.index), z.gate).into_pyobject(py),
+            Region::Bivariate(z) => {
+                ((f(z.x_index), f(z.y_index)), Vec::from(z.vertices)).into_pyobject(py)
+            }
+        }
+    }
+
+    fn extract_bound_region<'py, I, F, X>(ob: &Bound<'py, PyAny>, f: F) -> PyResult<Region<I>>
+    where
+        F: Fn(X) -> PyResult<I>,
+        X: FromPyObject<'py>,
+    {
+        if let Ok((s, gate)) = ob.extract::<(X, UniGate)>() {
+            let index = f(s)?;
+            return Ok(Region::Univariate(UnivariateRegion { gate, index }));
+        } else if let Ok(((x, y), vs)) = ob.extract::<((X, X), Vec<Vertex>)>() {
+            if let Some(vertices) = NonEmpty::from_vec(vs) {
+                let b = BivariateRegion {
+                    vertices,
+                    x_index: f(x)?,
+                    y_index: f(y)?,
+                };
+                return Ok(Region::Bivariate(b));
+            }
+        }
+        let msg = "must be univariate region like '(<index>, (<lower>, <upper>))' \
+                       or bivariate region like '((<x-index>, <y-index>), list[(<x>, <y>)])' \
+                       where the vertex list cannot be empty";
+        Err(PyValueError::new_err(msg))
+    }
+
+    impl_from_py_via_fromstr!(Gating);
+    impl_to_py_via_display!(Gating);
+
+    impl_value_err!(GatingError);
+    impl_value_err!(MeasOrGateIndexError);
+    impl_pyreflow_err!(GateMeasurementLinkError);
+    impl_pyreflow_err!(NewGatingSchemeError);
 }

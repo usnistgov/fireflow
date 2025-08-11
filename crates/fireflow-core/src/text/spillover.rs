@@ -80,7 +80,7 @@ impl Spillover {
     //     lines.into_iter().chain(rows).collect()
     // }
 
-    pub(crate) fn intersect_names(
+    pub(crate) fn names_difference(
         &self,
         names: &HashSet<&Shortname>,
     ) -> impl Iterator<Item = &Shortname> {

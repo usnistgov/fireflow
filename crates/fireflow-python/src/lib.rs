@@ -1308,9 +1308,16 @@ macro_rules! impl_set_measurements_ordered {
                 &mut self,
                 measurements: Eithers<MaybeFamily, $t, $o>,
                 prefix: ShortnamePrefix,
+                allow_shared_names: bool,
+                skip_index_check: bool,
             ) -> PyResult<()> {
                 self.0
-                    .set_measurements(measurements.inner_into(), prefix)
+                    .set_measurements(
+                        measurements.inner_into(),
+                        prefix,
+                        allow_shared_names,
+                        skip_index_check,
+                    )
                     .py_term_resolve_nowarn()
             }
 
@@ -1319,9 +1326,17 @@ macro_rules! impl_set_measurements_ordered {
                 measurements: Eithers<MaybeFamily, $t, $o>,
                 layout: PyOrderedLayout,
                 prefix: ShortnamePrefix,
+                allow_shared_names: bool,
+                skip_index_check: bool,
             ) -> PyResult<()> {
                 self.0
-                    .set_measurements_and_layout(measurements.inner_into(), layout.into(), prefix)
+                    .set_measurements_and_layout(
+                        measurements.inner_into(),
+                        layout.into(),
+                        prefix,
+                        allow_shared_names,
+                        skip_index_check,
+                    )
                     .py_term_resolve_nowarn()
             }
 
@@ -1350,9 +1365,15 @@ macro_rules! impl_set_measurements_endian {
             pub fn set_measurements(
                 &mut self,
                 measurements: Eithers<AlwaysFamily, $t, $o>,
+                allow_shared_names: bool,
+                skip_index_check: bool,
             ) -> PyResult<()> {
                 self.0
-                    .set_measurements_noprefix(measurements.inner_into())
+                    .set_measurements_noprefix(
+                        measurements.inner_into(),
+                        allow_shared_names,
+                        skip_index_check,
+                    )
                     .py_term_resolve_nowarn()
             }
 
@@ -1360,9 +1381,16 @@ macro_rules! impl_set_measurements_endian {
                 &mut self,
                 measurements: Eithers<AlwaysFamily, $t, $o>,
                 layout: $l,
+                allow_shared_names: bool,
+                skip_index_check: bool,
             ) -> PyResult<()> {
                 self.0
-                    .set_measurements_and_layout_noprefix(measurements.inner_into(), layout.into())
+                    .set_measurements_and_layout_noprefix(
+                        measurements.inner_into(),
+                        layout.into(),
+                        allow_shared_names,
+                        skip_index_check,
+                    )
                     .py_term_resolve_nowarn()
             }
 
@@ -1399,9 +1427,17 @@ macro_rules! impl_set_meas_and_data_prefix {
                 measurements: Eithers<MaybeFamily, $t, $o>,
                 df: FCSDataFrame,
                 prefix: ShortnamePrefix,
+                allow_shared_names: bool,
+                skip_index_check: bool,
             ) -> PyResult<()> {
                 self.0
-                    .set_measurements_and_data(measurements.inner_into(), df, prefix)
+                    .set_measurements_and_data(
+                        measurements.inner_into(),
+                        df,
+                        prefix,
+                        allow_shared_names,
+                        skip_index_check,
+                    )
                     .py_term_resolve_nowarn()
             }
         }
@@ -1419,9 +1455,16 @@ macro_rules! impl_set_meas_and_data_noprefix {
                 &mut self,
                 measurements: Eithers<AlwaysFamily, $t, $o>,
                 df: FCSDataFrame,
+                allow_shared_names: bool,
+                skip_index_check: bool,
             ) -> PyResult<()> {
                 self.0
-                    .set_measurements_and_data_noprefix(measurements.inner_into(), df)
+                    .set_measurements_and_data_noprefix(
+                        measurements.inner_into(),
+                        df,
+                        allow_shared_names,
+                        skip_index_check,
+                    )
                     .py_term_resolve_nowarn()
             }
         }

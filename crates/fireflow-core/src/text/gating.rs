@@ -9,7 +9,7 @@ use crate::validated::keys::*;
 use derive_more::{Display, From};
 use itertools::Itertools;
 use nonempty::NonEmpty;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::str::FromStr;
 
@@ -296,8 +296,11 @@ impl AppliedGates3_0 {
         self.scheme.shift_meas_indices_after_insert(i);
     }
 
-    pub(crate) fn meas_indices(&self) -> Vec<MeasIndex> {
-        self.scheme.meas_indices()
+    pub(crate) fn indices_difference(
+        &self,
+        indices: &HashSet<MeasIndex>,
+    ) -> impl Iterator<Item = MeasIndex> {
+        self.scheme.indices_difference(indices)
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -426,8 +429,11 @@ impl AppliedGates3_2 {
         self.0.shift_meas_indices_after_insert(i);
     }
 
-    pub(crate) fn meas_indices(&self) -> Vec<MeasIndex> {
-        self.0.meas_indices()
+    pub(crate) fn indices_difference(
+        &self,
+        indices: &HashSet<MeasIndex>,
+    ) -> impl Iterator<Item = MeasIndex> {
+        self.0.indices_difference(indices)
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -609,37 +615,18 @@ impl<I> GatingScheme<I> {
         }
     }
 
-    // /// Return error if `i` is referred to by any regions which are in $GATING
-    // pub(crate) fn check_meas_region_link(
-    //     &self,
-    //     i: &MeasIndex,
-    // ) -> Result<(), RemoveGateMeasIndexError>
-    // where
-    //     I: LinkedMeasIndex,
-    // {
-    //     let ris: Vec<_> = self
-    //         .gating
-    //         .as_ref()
-    //         .map(|x| x.region_indices().into())
-    //         .unwrap_or_default();
-    //     NonEmpty::collect(
-    //         self.regions
-    //             .iter()
-    //             .filter(|(ri, _)| ris.contains(ri))
-    //             .flat_map(|(_, r)| r.meas_indices())
-    //             .filter(|j| j == i),
-    //     )
-    //     .map_or(Ok(()), |ne| Err(RemoveGateMeasIndexError(ne)))
-    // }
-
-    fn meas_indices(&self) -> Vec<MeasIndex>
+    fn indices_difference(&self, indices: &HashSet<MeasIndex>) -> impl Iterator<Item = MeasIndex>
     where
         I: LinkedMeasIndex,
     {
-        self.regions
-            .iter()
-            .flat_map(|(_, v)| v.meas_indices())
-            .collect()
+        self.meas_indices().filter(|i| !indices.contains(i))
+    }
+
+    fn meas_indices(&self) -> impl Iterator<Item = MeasIndex>
+    where
+        I: LinkedMeasIndex,
+    {
+        self.regions.iter().flat_map(|(_, v)| v.meas_indices())
     }
 
     fn lookup<F0, F1, E>(
@@ -849,16 +836,17 @@ impl<I> Region<I> {
         }
     }
 
-    fn meas_indices(&self) -> Vec<MeasIndex>
+    fn meas_indices(&self) -> impl Iterator<Item = MeasIndex>
     where
         I: LinkedMeasIndex,
     {
         match self {
-            Self::Univariate(x) => x.index.meas_index().into_iter().collect(),
-            Self::Bivariate(x) => [x.x_index.meas_index(), x.y_index.meas_index()]
+            Self::Univariate(x) => x.index.meas_index().into_iter().chain(None),
+            Self::Bivariate(x) => x
+                .x_index
+                .meas_index()
                 .into_iter()
-                .flatten()
-                .collect(),
+                .chain(x.y_index.meas_index()),
         }
     }
 

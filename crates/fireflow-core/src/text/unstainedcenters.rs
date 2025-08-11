@@ -58,7 +58,7 @@ impl UnstainedCenters {
         &self.0
     }
 
-    pub(crate) fn intersect_names(
+    pub(crate) fn names_difference(
         &self,
         names: &HashSet<&Shortname>,
     ) -> impl Iterator<Item = &Shortname> {

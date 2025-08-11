@@ -1194,7 +1194,16 @@ pub trait VersionedMetaroot: Sized {
     type Name: MightHave;
 
     /// Return error if any data in this struct links to given list of names.
-    fn check_meas_links_inner(&self, names: &HashSet<&Shortname>) -> Result<(), ExistingLinkError>;
+    fn check_meas_named_links_inner(
+        &self,
+        names: &HashSet<&Shortname>,
+    ) -> Result<(), ExistingNamedLinkError>;
+
+    /// Return error if any data in struct has index links.
+    fn check_meas_index_links_inner(
+        &self,
+        indices: &HashSet<MeasIndex>,
+    ) -> Result<(), ExistingIndexLinkError>;
 
     /// Rename any measurement references in keywords.
     fn rename_meas_links_inner(&mut self, mapping: &NameMapping);
@@ -2926,7 +2935,7 @@ where
     #[allow(clippy::type_complexity)]
     fn remove_measurement_by_name_inner(
         &mut self,
-        n: &Shortname,
+        name: &Shortname,
     ) -> Result<
         (
             MeasIndex,
@@ -2934,8 +2943,11 @@ where
         ),
         RemoveMeasByNameError,
     > {
-        self.check_meas_links(&self.measurement_names())?;
-        let ret = self.measurements.remove_name(n)?;
+        let xs = self.measurement_named_indices();
+        if let Some(index) = xs.get(name) {
+            self.check_meas_links(&[(*index, name)])?;
+        }
+        let ret = self.measurements.remove_name(name)?;
         self.layout.remove_nocheck(ret.0);
         Ok(ret)
     }
@@ -2948,7 +2960,10 @@ where
         EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         RemoveMeasByIndexError,
     > {
-        self.check_meas_links(&self.measurement_names())?;
+        let xs = self.measurement_indexed_names();
+        if let Some(name) = xs.get(&index) {
+            self.check_meas_links(&[(index, name)])?;
+        }
         let ret = self.measurements.remove_index(index)?;
         self.layout.remove_nocheck(index);
         Ok(ret)
@@ -3036,11 +3051,13 @@ where
         &mut self,
         xs: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         prefix: ShortnamePrefix,
+        allow_shared_names: bool,
+        skip_index_check: bool,
     ) -> TerminalResult<(), Infallible, SetMeasurementsError, SetMeasurementsFailure>
     where
         M::Optical: AsScaleTransform,
     {
-        self.set_measurements_inner(xs, prefix)
+        self.set_measurements_inner(xs, prefix, allow_shared_names, skip_index_check)
             .mult_terminate(SetMeasurementsFailure)
     }
 
@@ -3081,12 +3098,14 @@ where
         measurements: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         layout: <M::Ver as Versioned>::Layout,
         prefix: ShortnamePrefix,
+        allow_shared_names: bool,
+        skip_index_check: bool,
     ) -> TerminalResult<(), Infallible, SetMeasurementsError, SetMeasurementsAndLayoutFailure>
     where
         M::Optical: AsScaleTransform,
     {
         let go = || {
-            self.check_meas_links(&self.measurement_names())
+            self.check_new_meas_links(&measurements, allow_shared_names, skip_index_check)
                 .into_mult()?;
             let ms = NamedVec::try_new(measurements, prefix).into_mult()?;
             layout.check_measurement_vector(&ms).mult_errors_into()?;
@@ -3099,15 +3118,17 @@ where
 
     pub fn set_measurements_inner(
         &mut self,
-        xs: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        measurements: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         prefix: ShortnamePrefix,
+        allow_shared_names: bool,
+        skip_index_check: bool,
     ) -> MultiResult<(), SetMeasurementsError>
     where
         M::Optical: AsScaleTransform,
     {
-        self.check_meas_links(&self.measurement_names())
+        self.check_new_meas_links(&measurements, allow_shared_names, skip_index_check)
             .into_mult()?;
-        let ms = NamedVec::try_new(xs, prefix).into_mult()?;
+        let ms = NamedVec::try_new(measurements, prefix).into_mult()?;
         self.layout
             .check_measurement_vector(&ms)
             .mult_errors_into()?;
@@ -3116,7 +3137,8 @@ where
     }
 
     fn unset_measurements_inner(&mut self) -> Result<(), ExistingLinkError> {
-        self.check_meas_links(&self.measurement_names())?;
+        let xs: Vec<_> = self.measurement_indexed_names().into_iter().collect();
+        self.check_meas_links(&xs)?;
         self.measurements = NamedVec::default();
         self.layout.clear();
         Ok(())
@@ -3387,20 +3409,94 @@ where
         })
     }
 
+    fn measurement_indexed_names(&self) -> HashMap<MeasIndex, &Shortname> {
+        self.measurements.indexed_names().collect()
+    }
+
+    fn measurement_named_indices(&self) -> HashMap<&Shortname, MeasIndex> {
+        self.measurements
+            .indexed_names()
+            .map(|(i, m)| (m, i))
+            .collect()
+    }
+
     fn measurement_names(&self) -> HashSet<&Shortname> {
         self.measurements.indexed_names().map(|(_, x)| x).collect()
     }
 
-    fn check_meas_links(&self, names: &HashSet<&Shortname>) -> Result<(), ExistingLinkError> {
+    fn check_meas_named_links(
+        &self,
+        names: &HashSet<&Shortname>,
+    ) -> Result<(), ExistingNamedLinkError> {
         let m = &self.metaroot;
         if m.tr
             .0
             .as_ref()
             .is_some_and(|tr| names.contains(&tr.measurement))
         {
-            return Err(ExistingLinkError::Trigger);
+            return Err(ExistingNamedLinkError::Trigger);
         }
-        m.specific.check_meas_links_inner(names)
+        m.specific.check_meas_named_links_inner(names)
+    }
+
+    fn check_meas_links(
+        &self,
+        index_names: &[(MeasIndex, &Shortname)],
+    ) -> Result<(), ExistingLinkError> {
+        let ns = index_names.iter().map(|(_, n)| *n).collect();
+        let js = index_names.iter().map(|(i, _)| i).copied().collect();
+        self.check_meas_named_links(&ns)?;
+        self.metaroot.specific.check_meas_index_links_inner(&js)?;
+        Ok(())
+    }
+
+    fn check_meas_any_index_links(&self) -> Result<(), ExistingIndexLinkError> {
+        let indices: HashSet<_> = (0..self.par().0).map(MeasIndex::from).collect();
+        self.metaroot
+            .specific
+            .check_meas_index_links_inner(&indices)
+    }
+
+    fn check_meas_any_named_links(&self) -> Result<(), ExistingNamedLinkError> {
+        self.check_meas_named_links(&self.measurement_names())
+    }
+
+    /// Check that links will not be broken when setting new measurement names.
+    ///
+    /// This is useful when setting the measurements in bulk and the names may
+    /// change all at once.
+    ///
+    /// For named links, assume by default that new measurements are
+    /// incompatible with old measurements (despite possibly sharing names) and
+    /// thus any existing links are considered broken. If `allow_shared_names`
+    /// is true, check that named links are within the new measurement names and
+    /// return error if not. Do not include time when doing this since this
+    /// cannot be linked.
+    ///
+    /// For indexed links, assume by default that new measurement order does not
+    /// correspond to new measurement order, in which case any existing links
+    /// will be broken. If `skip_index_check` is true, bypass this assumption.
+    /// This should only be true when the user knows that measurements that have
+    /// links are in the same order b/t new and old.
+    ///
+    /// The number of measurements is assumed to be correct; this should be
+    /// checked elsewhere.
+    fn check_new_meas_links<X, Y>(
+        &self,
+        measurements: &Eithers<M::Name, X, Y>,
+        allow_shared_names: bool,
+        skip_index_check: bool,
+    ) -> Result<(), ExistingLinkError> {
+        if allow_shared_names {
+            let ns = measurements.non_center_names().collect();
+            self.check_meas_named_links(&ns)?;
+        } else {
+            self.check_meas_any_named_links()?;
+        }
+        if !skip_index_check {
+            self.check_meas_any_index_links()?;
+        }
+        Ok(())
     }
 
     pub(crate) fn fcs_version(&self) -> Version
@@ -3948,6 +4044,8 @@ where
         xs: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         df: FCSDataFrame,
         prefix: ShortnamePrefix,
+        allow_shared_names: bool,
+        skip_index_check: bool,
     ) -> TerminalResult<(), Infallible, SetMeasurementsAndDataError, SetMeasurementsAndDataFailure>
     where
         M::Optical: AsScaleTransform,
@@ -3958,7 +4056,8 @@ where
             if meas_n != data_n {
                 return Err(MeasDataMismatchError { meas_n, data_n }).into_mult();
             }
-            self.set_measurements_inner(xs, prefix).mult_errors_into()?;
+            self.set_measurements_inner(xs, prefix, allow_shared_names, skip_index_check)
+                .mult_errors_into()?;
             self.data = df;
             Ok(())
         };
@@ -4079,12 +4178,15 @@ where
     /// is meaningless.
     pub fn set_measurements_noprefix(
         &mut self,
-        xs: Eithers<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
+        measurements: Eithers<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
+        allow_shared_names: bool,
+        skip_index_check: bool,
     ) -> TerminalResult<(), Infallible, SetMeasurementsError, SetMeasurementsFailure>
     where
         M::Optical: AsScaleTransform,
     {
-        self.set_measurements(xs, ShortnamePrefix::default())
+        let p = ShortnamePrefix::default();
+        self.set_measurements(measurements, p, allow_shared_names, skip_index_check)
     }
 
     /// Set measurements and layout
@@ -4096,11 +4198,14 @@ where
         &mut self,
         xs: Eithers<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
         layout: <M::Ver as Versioned>::Layout,
+        allow_shared_names: bool,
+        skip_index_check: bool,
     ) -> TerminalResult<(), Infallible, SetMeasurementsError, SetMeasurementsAndLayoutFailure>
     where
         M::Optical: AsScaleTransform,
     {
-        self.set_measurements_and_layout(xs, layout, ShortnamePrefix::default())
+        let p = ShortnamePrefix::default();
+        self.set_measurements_and_layout(xs, layout, p, allow_shared_names, skip_index_check)
     }
 }
 
@@ -4117,13 +4222,16 @@ where
     /// mandatory, and thus the `prefix` argument is meaningless.
     pub fn set_measurements_and_data_noprefix(
         &mut self,
-        xs: Eithers<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
+        measurements: Eithers<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
         cs: FCSDataFrame,
+        allow_shared_names: bool,
+        skip_index_check: bool,
     ) -> TerminalResult<(), Infallible, SetMeasurementsAndDataError, SetMeasurementsAndDataFailure>
     where
         M::Optical: AsScaleTransform,
     {
-        self.set_measurements_and_data(xs, cs, ShortnamePrefix::default())
+        let p = ShortnamePrefix::default();
+        self.set_measurements_and_data(measurements, cs, p, allow_shared_names, skip_index_check)
     }
 }
 
@@ -6984,9 +7092,21 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
     type Temporal = InnerTemporal2_0;
     type Name = MaybeFamily;
 
-    fn check_meas_links_inner(&self, _: &HashSet<&Shortname>) -> Result<(), ExistingLinkError> {
+    fn check_meas_named_links_inner(
+        &self,
+        _: &HashSet<&Shortname>,
+    ) -> Result<(), ExistingNamedLinkError> {
+        Ok(())
+    }
+
+    fn check_meas_index_links_inner(
+        &self,
+        _: &HashSet<MeasIndex>,
+    ) -> Result<(), ExistingIndexLinkError> {
+        // don't check specific indices for $COMP since this keyword links
+        // all indices
         if self.comp.0.is_some() {
-            Err(ExistingLinkError::Comp)
+            Err(ExistingIndexLinkError::Comp)
         } else {
             Ok(())
         }
@@ -7036,11 +7156,23 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
     type Temporal = InnerTemporal3_0;
     type Name = MaybeFamily;
 
-    fn check_meas_links_inner(&self, _: &HashSet<&Shortname>) -> Result<(), ExistingLinkError> {
+    fn check_meas_named_links_inner(
+        &self,
+        _: &HashSet<&Shortname>,
+    ) -> Result<(), ExistingNamedLinkError> {
+        Ok(())
+    }
+
+    fn check_meas_index_links_inner(
+        &self,
+        indices: &HashSet<MeasIndex>,
+    ) -> Result<(), ExistingIndexLinkError> {
+        // don't check specific indices for $COMP since this keyword links
+        // all indices
         if self.comp.0.is_some() {
-            Err(ExistingLinkError::Comp)
-        } else if !self.applied_gates.meas_indices().is_empty() {
-            Err(ExistingLinkError::GateRegion)
+            Err(ExistingIndexLinkError::Comp)
+        } else if !self.applied_gates.indices_difference(indices).count() > 0 {
+            Err(ExistingIndexLinkError::GateRegion)
         } else {
             Ok(())
         }
@@ -7102,16 +7234,28 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
     type Temporal = InnerTemporal3_1;
     type Name = AlwaysFamily;
 
-    fn check_meas_links_inner(&self, names: &HashSet<&Shortname>) -> Result<(), ExistingLinkError> {
+    fn check_meas_named_links_inner(
+        &self,
+        names: &HashSet<&Shortname>,
+    ) -> Result<(), ExistingNamedLinkError> {
         if self
             .spillover
             .0
             .as_ref()
-            .is_some_and(|s| s.intersect_names(names).count() > 0)
+            .is_some_and(|s| s.names_difference(names).count() > 0)
         {
-            Err(ExistingLinkError::Spillover)
-        } else if !self.applied_gates.meas_indices().is_empty() {
-            Err(ExistingLinkError::GateRegion)
+            Err(ExistingNamedLinkError::Spillover)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn check_meas_index_links_inner(
+        &self,
+        indices: &HashSet<MeasIndex>,
+    ) -> Result<(), ExistingIndexLinkError> {
+        if !self.applied_gates.indices_difference(indices).count() > 0 {
+            Err(ExistingIndexLinkError::GateRegion)
         } else {
             Ok(())
         }
@@ -7179,24 +7323,36 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
     type Temporal = InnerTemporal3_2;
     type Name = AlwaysFamily;
 
-    fn check_meas_links_inner(&self, names: &HashSet<&Shortname>) -> Result<(), ExistingLinkError> {
+    fn check_meas_named_links_inner(
+        &self,
+        names: &HashSet<&Shortname>,
+    ) -> Result<(), ExistingNamedLinkError> {
         if self
             .spillover
             .0
             .as_ref()
-            .is_some_and(|s| s.intersect_names(names).count() > 0)
+            .is_some_and(|s| s.names_difference(names).count() > 0)
         {
-            Err(ExistingLinkError::Spillover)
+            Err(ExistingNamedLinkError::Spillover)
         } else if self
             .unstained
             .unstainedcenters
             .0
             .as_ref()
-            .is_some_and(|u| u.intersect_names(names).count() > 0)
+            .is_some_and(|u| u.names_difference(names).count() > 0)
         {
-            Err(ExistingLinkError::UnstainedCenters)
-        } else if !self.applied_gates.is_empty() {
-            Err(ExistingLinkError::GateRegion)
+            Err(ExistingNamedLinkError::UnstainedCenters)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn check_meas_index_links_inner(
+        &self,
+        indices: &HashSet<MeasIndex>,
+    ) -> Result<(), ExistingIndexLinkError> {
+        if self.applied_gates.indices_difference(indices).count() > 0 {
+            Err(ExistingIndexLinkError::GateRegion)
         } else {
             Ok(())
         }
@@ -7564,24 +7720,41 @@ pub enum StdWriterWarning {
     Check(ColumnError<AnyLossError>),
 }
 
+#[derive(From, Display)]
 pub enum ExistingLinkError {
-    Trigger,
-    UnstainedCenters,
-    Comp,
-    Spillover,
-    GateRegion,
+    Named(ExistingNamedLinkError),
+    Index(ExistingIndexLinkError),
 }
 
-impl fmt::Display for ExistingLinkError {
+pub enum ExistingNamedLinkError {
+    Trigger,
+    UnstainedCenters,
+    Spillover,
+}
+
+impl fmt::Display for ExistingNamedLinkError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let s = match self {
             Self::Trigger => "$TR",
             Self::UnstainedCenters => "$UNSTAINEDCENTERS",
-            Self::Comp => "$COMP",
             Self::Spillover => "$SPILLOVER",
-            Self::GateRegion => "$RnI",
         };
         write!(f, "{s} depends on existing $PnN")
+    }
+}
+
+pub enum ExistingIndexLinkError {
+    Comp,
+    GateRegion,
+}
+
+impl fmt::Display for ExistingIndexLinkError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let s = match self {
+            Self::Comp => "$COMP",
+            Self::GateRegion => "$RnI",
+        };
+        write!(f, "{s} refers to existing measurement by index")
     }
 }
 

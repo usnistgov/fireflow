@@ -840,8 +840,6 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Remove key/value pair by name.
-    ///
-    /// Return None if index is not found.
     pub(crate) fn remove_index(
         &mut self,
         index: MeasIndex,

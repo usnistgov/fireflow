@@ -1199,9 +1199,6 @@ pub trait VersionedMetaroot: Sized {
     /// Rename any measurement references.
     fn rename_meas_links_inner(&mut self, mapping: &NameMapping);
 
-    /// Rename any measurement references.
-    fn remove_named_index_inner(&mut self, name: &Shortname, index: MeasIndex);
-
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)>;
 
     fn keywords_opt_inner(&self) -> impl Iterator<Item = (String, String)>;
@@ -1836,20 +1833,6 @@ where
     fn rename_meas_links(&mut self, mapping: &NameMapping) {
         self.rename_trigger_meas_link(mapping);
         self.specific.rename_meas_links_inner(mapping);
-    }
-
-    fn remove_trigger_by_name(&mut self, n: &Shortname) -> bool {
-        if self.tr.as_ref_opt().is_some_and(|m| &m.measurement == n) {
-            self.tr = None.into();
-            true
-        } else {
-            false
-        }
-    }
-
-    fn remove_named_index(&mut self, name: &Shortname, index: MeasIndex) {
-        self.remove_trigger_by_name(name);
-        self.specific.remove_named_index_inner(name, index);
     }
 
     /// Return `true` if any data in this struct links to a measurement
@@ -2952,30 +2935,26 @@ where
             MeasIndex,
             Element<Temporal<M::Temporal>, Optical<M::Optical>>,
         ),
-        KeyNotFoundError,
+        RemoveMeasByNameError,
     > {
-        let ret = self.measurements.remove_name(n);
-        if let Ok((i, _)) = ret {
-            self.metaroot.remove_named_index(n, i);
-            self.layout.remove_nocheck(i);
-        };
-        ret
+        self.metaroot.check_meas_links()?;
+        let ret = self.measurements.remove_name(n)?;
+        self.layout.remove_nocheck(ret.0);
+        Ok(ret)
     }
 
     #[allow(clippy::type_complexity)]
     fn remove_measurement_by_index_inner(
         &mut self,
         index: MeasIndex,
-    ) -> Result<EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>, ElementIndexError>
-    {
-        let res = self.measurements.remove_index(index)?;
-        if let Element::NonCenter(left) = &res {
-            if let Some(n) = M::Name::as_opt(&left.key) {
-                self.metaroot.remove_named_index(n, index);
-                self.layout.remove_nocheck(index);
-            }
-        }
-        Ok(res)
+    ) -> Result<
+        EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        RemoveMeasByIndexError,
+    > {
+        self.metaroot.check_meas_links()?;
+        let ret = self.measurements.remove_index(index)?;
+        self.layout.remove_nocheck(index);
+        Ok(ret)
     }
 
     fn push_temporal_inner(
@@ -3520,7 +3499,7 @@ where
             MeasIndex,
             Element<Temporal<M::Temporal>, Optical<M::Optical>>,
         ),
-        KeyNotFoundError,
+        RemoveMeasByNameError,
     > {
         self.remove_measurement_by_name_inner(n)
     }
@@ -3532,8 +3511,10 @@ where
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIndex,
-    ) -> Result<EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>, ElementIndexError>
-    {
+    ) -> Result<
+        EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        RemoveMeasByIndexError,
+    > {
         self.remove_measurement_by_index_inner(index)
     }
 
@@ -3812,7 +3793,7 @@ where
             MeasIndex,
             Element<Temporal<M::Temporal>, Optical<M::Optical>>,
         ),
-        KeyNotFoundError,
+        RemoveMeasByNameError,
     > {
         self.remove_measurement_by_name_inner(n).map(|(i, x)| {
             self.data.drop_in_place(i.into()).unwrap();
@@ -3827,8 +3808,10 @@ where
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIndex,
-    ) -> Result<EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>, ElementIndexError>
-    {
+    ) -> Result<
+        EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        RemoveMeasByIndexError,
+    > {
         let res = self.remove_measurement_by_index_inner(index)?;
         self.data.drop_in_place(index.into()).unwrap();
         Ok(res)
@@ -6990,11 +6973,6 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
 
     fn rename_meas_links_inner(&mut self, _: &NameMapping) {}
 
-    fn remove_named_index_inner(&mut self, _: &Shortname, index: MeasIndex) {
-        self.comp
-            .mut_or_unset_nofail(|c| c.0.remove_by_index(index));
-    }
-
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {
         [self.mode.pair()].into_iter()
     }
@@ -7042,12 +7020,6 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
     }
 
     fn rename_meas_links_inner(&mut self, _: &NameMapping) {}
-
-    fn remove_named_index_inner(&mut self, _: &Shortname, index: MeasIndex) {
-        self.comp
-            .mut_or_unset_nofail(|c| c.0.remove_by_index(index));
-        // TODO add gating removal thing here
-    }
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {
         [self.mode.pair()].into_iter()
@@ -7110,12 +7082,6 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
         if let Some(s) = self.spillover.0.as_mut() {
             s.reassign(mapping);
         }
-    }
-
-    fn remove_named_index_inner(&mut self, name: &Shortname, _: MeasIndex) {
-        self.spillover
-            .mut_or_unset_nofail(|s| s.remove_by_name(name));
-        // TODO add gating removal thing here
     }
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {
@@ -7189,15 +7155,6 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
         if let Some(x) = self.unstained.unstainedcenters.0.as_mut() {
             x.reassign(mapping);
         }
-    }
-
-    fn remove_named_index_inner(&mut self, name: &Shortname, _: MeasIndex) {
-        self.spillover
-            .mut_or_unset_nofail(|s| s.remove_by_name(name));
-        self.unstained
-            .unstainedcenters
-            .mut_or_unset_nofail(|u| u.remove(name));
-        // TODO update gating thing here
     }
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {
@@ -7646,6 +7603,18 @@ pub enum ColumnsToDataframeError {
 pub enum SetMeasurementsOnlyError {
     Meas(SetMeasurementsError),
     Mismatch(MeasDataMismatchError),
+}
+
+#[derive(From, Display)]
+pub enum RemoveMeasByNameError {
+    Link(ExistingLinkError),
+    Name(KeyNotFoundError),
+}
+
+#[derive(From, Display)]
+pub enum RemoveMeasByIndexError {
+    Link(ExistingLinkError),
+    Index(ElementIndexError),
 }
 
 #[derive(From, Display)]
@@ -8207,8 +8176,9 @@ mod python {
 
     use super::{
         Analysis, ColumnsToDataframeError, CompParMismatchError, ExistingLinkError,
-        MeasDataMismatchError, MissingMeasurementNameError, Other, Others, ScaleTransform,
-        SetMeasurementsError, SetSpilloverError, TriggerLinkError,
+        MeasDataMismatchError, MissingMeasurementNameError, Other, Others, RemoveMeasByIndexError,
+        RemoveMeasByNameError, ScaleTransform, SetMeasurementsError, SetSpilloverError,
+        TriggerLinkError,
     };
 
     use derive_more::{Display, From};
@@ -8265,4 +8235,6 @@ mod python {
     impl_pyreflow_err!(SetSpilloverError);
     impl_pyreflow_err!(CompParMismatchError);
     impl_pyreflow_err!(TriggerLinkError);
+    impl_pyreflow_err!(RemoveMeasByIndexError);
+    impl_pyreflow_err!(RemoveMeasByNameError);
 }

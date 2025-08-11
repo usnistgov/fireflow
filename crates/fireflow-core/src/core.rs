@@ -1196,17 +1196,11 @@ pub trait VersionedMetaroot: Sized {
     /// Return `true` if any data in this struct links to a measurement
     fn check_meas_links_inner(&self) -> Result<(), ExistingLinkError>;
 
-    fn with_unstainedcenters<F, X>(&mut self, f: F) -> Option<X>
-    where
-        F: Fn(&mut UnstainedCenters) -> ClearMaybe<X>;
+    /// Rename any measurement references.
+    fn rename_meas_links_inner(&mut self, mapping: &NameMapping);
 
-    fn with_spillover<F, X>(&mut self, f: F) -> Option<X>
-    where
-        F: Fn(&mut Spillover) -> ClearMaybe<X>;
-
-    fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
-    where
-        F: Fn(&mut Compensation) -> ClearMaybe<X>;
+    /// Rename any measurement references.
+    fn remove_named_index_inner(&mut self, name: &Shortname, index: MeasIndex);
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)>;
 
@@ -1835,20 +1829,13 @@ where
         )
     }
 
-    fn reassign_trigger(&mut self, mapping: &NameMapping) {
+    fn rename_trigger_meas_link(&mut self, mapping: &NameMapping) {
         self.tr.0.as_mut().map_or((), |tr| tr.reassign(mapping))
     }
 
-    fn reassign_all(&mut self, mapping: &NameMapping) {
-        self.reassign_trigger(mapping);
-        self.specific.with_spillover(|s| {
-            s.reassign(mapping);
-            ClearMaybe::new(())
-        });
-        self.specific.with_unstainedcenters(|u| {
-            u.reassign(mapping);
-            ClearMaybe::new(())
-        });
+    fn rename_meas_links(&mut self, mapping: &NameMapping) {
+        self.rename_trigger_meas_link(mapping);
+        self.specific.rename_meas_links_inner(mapping);
     }
 
     fn remove_trigger_by_name(&mut self, n: &Shortname) -> bool {
@@ -1860,12 +1847,9 @@ where
         }
     }
 
-    fn remove_name_index(&mut self, n: &Shortname, i: MeasIndex) {
-        self.remove_trigger_by_name(n);
-        let s = &mut self.specific;
-        s.with_spillover(|x| x.remove_by_name(n));
-        s.with_unstainedcenters(|u| u.remove(n));
-        s.with_compensation(|c| c.remove_by_index(i));
+    fn remove_named_index(&mut self, name: &Shortname, index: MeasIndex) {
+        self.remove_trigger_by_name(name);
+        self.specific.remove_named_index_inner(name, index);
     }
 
     /// Return `true` if any data in this struct links to a measurement
@@ -2039,7 +2023,7 @@ where
     /// being set.
     pub fn set_all_shortnames(&mut self, ns: Vec<Shortname>) -> Result<NameMapping, SetNamesError> {
         let mapping = self.measurements.set_names(ns)?;
-        self.metaroot.reassign_all(&mapping);
+        self.metaroot.rename_meas_links(&mapping);
         Ok(mapping)
     }
 
@@ -2327,7 +2311,7 @@ where
     ) -> Result<(Shortname, Shortname), RenameError> {
         self.measurements.rename(index, key).map(|(old, new)| {
             let mapping = [(old.clone(), new.clone())].into_iter().collect();
-            self.metaroot.reassign_all(&mapping);
+            self.metaroot.rename_meas_links(&mapping);
             (old, new)
         })
     }
@@ -2972,7 +2956,7 @@ where
     > {
         let ret = self.measurements.remove_name(n);
         if let Ok((i, _)) = ret {
-            self.metaroot.remove_name_index(n, i);
+            self.metaroot.remove_named_index(n, i);
             self.layout.remove_nocheck(i);
         };
         ret
@@ -2987,7 +2971,7 @@ where
         let res = self.measurements.remove_index(index)?;
         if let Element::NonCenter(left) = &res {
             if let Some(n) = M::Name::as_opt(&left.key) {
-                self.metaroot.remove_name_index(n, index);
+                self.metaroot.remove_named_index(n, index);
                 self.layout.remove_nocheck(index);
             }
         }
@@ -4075,7 +4059,7 @@ where
     ) -> Result<NameMapping, SetKeysError> {
         let ks = ns.into_iter().map(|n| n.into()).collect();
         let mapping = self.measurements.set_keys(ks)?;
-        self.metaroot.reassign_all(&mapping);
+        self.metaroot.rename_meas_links(&mapping);
         Ok(mapping)
     }
 }
@@ -7004,25 +6988,11 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
         }
     }
 
-    fn with_unstainedcenters<F, X>(&mut self, _: F) -> Option<X>
-    where
-        F: Fn(&mut UnstainedCenters) -> ClearMaybe<X>,
-    {
-        None
-    }
+    fn rename_meas_links_inner(&mut self, _: &NameMapping) {}
 
-    fn with_spillover<F, X>(&mut self, _: F) -> Option<X>
-    where
-        F: Fn(&mut Spillover) -> ClearMaybe<X>,
-    {
-        None
-    }
-
-    fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
-    where
-        F: Fn(&mut Compensation) -> ClearMaybe<X>,
-    {
-        self.comp.mut_or_unset_nofail(|c| f(&mut c.0))
+    fn remove_named_index_inner(&mut self, _: &Shortname, index: MeasIndex) {
+        self.comp
+            .mut_or_unset_nofail(|c| c.0.remove_by_index(index));
     }
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {
@@ -7071,25 +7041,12 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
         }
     }
 
-    fn with_unstainedcenters<F, X>(&mut self, _: F) -> Option<X>
-    where
-        F: Fn(&mut UnstainedCenters) -> ClearMaybe<X>,
-    {
-        None
-    }
+    fn rename_meas_links_inner(&mut self, _: &NameMapping) {}
 
-    fn with_spillover<F, X>(&mut self, _: F) -> Option<X>
-    where
-        F: Fn(&mut Spillover) -> ClearMaybe<X>,
-    {
-        None
-    }
-
-    fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
-    where
-        F: Fn(&mut Compensation) -> ClearMaybe<X>,
-    {
-        self.comp.mut_or_unset_nofail(|c| f(&mut c.0))
+    fn remove_named_index_inner(&mut self, _: &Shortname, index: MeasIndex) {
+        self.comp
+            .mut_or_unset_nofail(|c| c.0.remove_by_index(index));
+        // TODO add gating removal thing here
     }
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {
@@ -7149,25 +7106,16 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
         }
     }
 
-    fn with_unstainedcenters<F, X>(&mut self, _: F) -> Option<X>
-    where
-        F: Fn(&mut UnstainedCenters) -> ClearMaybe<X>,
-    {
-        None
+    fn rename_meas_links_inner(&mut self, mapping: &NameMapping) {
+        if let Some(s) = self.spillover.0.as_mut() {
+            s.reassign(mapping);
+        }
     }
 
-    fn with_spillover<F, X>(&mut self, f: F) -> Option<X>
-    where
-        F: Fn(&mut Spillover) -> ClearMaybe<X>,
-    {
-        self.spillover.mut_or_unset_nofail(f)
-    }
-
-    fn with_compensation<F, X>(&mut self, _: F) -> Option<X>
-    where
-        F: Fn(&mut Compensation) -> ClearMaybe<X>,
-    {
-        None
+    fn remove_named_index_inner(&mut self, name: &Shortname, _: MeasIndex) {
+        self.spillover
+            .mut_or_unset_nofail(|s| s.remove_by_name(name));
+        // TODO add gating removal thing here
     }
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {
@@ -7234,25 +7182,22 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
         }
     }
 
-    fn with_unstainedcenters<F, X>(&mut self, f: F) -> Option<X>
-    where
-        F: Fn(&mut UnstainedCenters) -> ClearMaybe<X>,
-    {
-        self.unstained.unstainedcenters.mut_or_unset_nofail(f)
+    fn rename_meas_links_inner(&mut self, mapping: &NameMapping) {
+        if let Some(x) = self.spillover.0.as_mut() {
+            x.reassign(mapping);
+        }
+        if let Some(x) = self.unstained.unstainedcenters.0.as_mut() {
+            x.reassign(mapping);
+        }
     }
 
-    fn with_spillover<F, X>(&mut self, f: F) -> Option<X>
-    where
-        F: Fn(&mut Spillover) -> ClearMaybe<X>,
-    {
-        self.spillover.mut_or_unset_nofail(f)
-    }
-
-    fn with_compensation<F, X>(&mut self, _: F) -> Option<X>
-    where
-        F: Fn(&mut Compensation) -> ClearMaybe<X>,
-    {
-        None
+    fn remove_named_index_inner(&mut self, name: &Shortname, _: MeasIndex) {
+        self.spillover
+            .mut_or_unset_nofail(|s| s.remove_by_name(name));
+        self.unstained
+            .unstainedcenters
+            .mut_or_unset_nofail(|u| u.remove(name));
+        // TODO update gating thing here
     }
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {

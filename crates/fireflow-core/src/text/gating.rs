@@ -288,6 +288,14 @@ impl AppliedGates3_0 {
         }
     }
 
+    /// Shift indices when a new measurement is inserted.
+    ///
+    /// New measurement is assumed to be inserted at `i`. All regions with
+    /// measurement indices greater than i will be incremented by one.
+    pub(crate) fn shift_meas_indices_after_insert(&mut self, i: MeasIndex) {
+        self.scheme.shift_meas_indices_after_insert(i);
+    }
+
     pub(crate) fn meas_indices(&self) -> Vec<MeasIndex> {
         self.scheme.meas_indices()
     }
@@ -408,6 +416,14 @@ impl AppliedGates3_2 {
         regions: HashMap<RegionIndex, Region<PrefixedMeasIndex>>,
     ) -> Result<Self, NewGatingSchemeError> {
         GatingScheme::try_new(gating, regions).map(Self)
+    }
+
+    /// Shift indices when a new measurement is inserted.
+    ///
+    /// New measurement is assumed to be inserted at `i`. All regions with
+    /// measurement indices greater than i will be incremented by one.
+    pub(crate) fn shift_meas_indices_after_insert(&mut self, i: MeasIndex) {
+        self.0.shift_meas_indices_after_insert(i);
     }
 
     pub(crate) fn meas_indices(&self) -> Vec<MeasIndex> {
@@ -593,47 +609,28 @@ impl<I> GatingScheme<I> {
         }
     }
 
-    // /// Shift indices when a new measurement is removed.
-    // ///
-    // /// Measurement at `i` is assumed to be removd. All regions with measurement
-    // /// indices greater than i will be decremented by one, and any regions
-    // /// that reference this measurement will be removed.
-    // ///
-    // /// Assume that no regions in $GATING will be left dangling. Check this
-    // /// using [`Self::check_meas_region_link`].
-    // pub(crate) fn shift_meas_indices_after_remove(&mut self, i: MeasIndex)
+    // /// Return error if `i` is referred to by any regions which are in $GATING
+    // pub(crate) fn check_meas_region_link(
+    //     &self,
+    //     i: &MeasIndex,
+    // ) -> Result<(), RemoveGateMeasIndexError>
     // where
     //     I: LinkedMeasIndex,
     // {
-    //     // remove any regions that refer to this measurement first
-    //     // then shift the remaining regions
-    //     for (_, r) in self.regions.iter_mut() {
-    //         r.shift_after_remove(i)
-    //     }
+    //     let ris: Vec<_> = self
+    //         .gating
+    //         .as_ref()
+    //         .map(|x| x.region_indices().into())
+    //         .unwrap_or_default();
+    //     NonEmpty::collect(
+    //         self.regions
+    //             .iter()
+    //             .filter(|(ri, _)| ris.contains(ri))
+    //             .flat_map(|(_, r)| r.meas_indices())
+    //             .filter(|j| j == i),
+    //     )
+    //     .map_or(Ok(()), |ne| Err(RemoveGateMeasIndexError(ne)))
     // }
-
-    /// Return error if `i` is referred to by any regions which are in $GATING
-    pub(crate) fn check_meas_region_link(
-        &self,
-        i: &MeasIndex,
-    ) -> Result<(), RemoveGateMeasIndexError>
-    where
-        I: LinkedMeasIndex,
-    {
-        let ris: Vec<_> = self
-            .gating
-            .as_ref()
-            .map(|x| x.region_indices().into())
-            .unwrap_or_default();
-        NonEmpty::collect(
-            self.regions
-                .iter()
-                .filter(|(ri, _)| ris.contains(ri))
-                .flat_map(|(_, r)| r.meas_indices())
-                .filter(|j| j == i),
-        )
-        .map_or(Ok(()), |ne| Err(RemoveGateMeasIndexError(ne)))
-    }
 
     fn meas_indices(&self) -> Vec<MeasIndex>
     where
@@ -883,25 +880,25 @@ impl<I> Region<I> {
         };
     }
 
-    fn shift_after_remove(&mut self, i: MeasIndex)
-    where
-        I: LinkedMeasIndex,
-    {
-        let ix = usize::from(i);
-        let go = |j: &mut MeasIndex| {
-            let jx = usize::from(*j);
-            // ASSUME this will never fail since ix at minimum can be zero, thus
-            // the minimum jx can be before subbing 1 is 1
-            *j = if jx > ix { jx - 1 } else { jx }.into();
-        };
-        match self {
-            Self::Univariate(x) => x.index.meas_index_mut().map(go),
-            Self::Bivariate(x) => {
-                x.x_index.meas_index_mut().map(go);
-                x.y_index.meas_index_mut().map(go)
-            }
-        };
-    }
+    // fn shift_after_remove(&mut self, i: MeasIndex)
+    // where
+    //     I: LinkedMeasIndex,
+    // {
+    //     let ix = usize::from(i);
+    //     let go = |j: &mut MeasIndex| {
+    //         let jx = usize::from(*j);
+    //         // ASSUME this will never fail since ix at minimum can be zero, thus
+    //         // the minimum jx can be before subbing 1 is 1
+    //         *j = if jx > ix { jx - 1 } else { jx }.into();
+    //     };
+    //     match self {
+    //         Self::Univariate(x) => x.index.meas_index_mut().map(go),
+    //         Self::Bivariate(x) => {
+    //             x.x_index.meas_index_mut().map(go);
+    //             x.y_index.meas_index_mut().map(go)
+    //         }
+    //     };
+    // }
 }
 
 impl TryFrom<MeasOrGateIndex> for PrefixedMeasIndex {

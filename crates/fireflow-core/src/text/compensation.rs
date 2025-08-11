@@ -107,19 +107,22 @@ impl TryFrom<DMatrix<f32>> for Compensation {
 }
 
 impl Compensation {
-    pub(crate) fn remove_by_index(&mut self, index: MeasIndex) -> ClearMaybe<bool> {
-        let i: usize = index.into();
-        let n = self.matrix.ncols();
-        if i <= n {
-            if n < 3 {
-                ClearMaybe::clear(true)
-            } else {
-                self.matrix = self.matrix.clone().remove_row(i).remove_column(i);
-                ClearMaybe::new(true)
-            }
-        } else {
-            ClearMaybe::new(false)
-        }
+    /// Add a new row/column corresponding to an identity transform.
+    ///
+    /// This is useful when inserting new measurements. Since $COMP needs to be
+    /// the same width/height as the total number of measurements, adding a
+    /// measurement means it needs a corresponding row/column in this matrix.
+    ///
+    /// The new row/column will be zeros everywhere except for the new index,
+    /// meaning the new value will be 100% determined by itself and have no
+    /// effect on existing measurements.
+    ///
+    /// Index is assumed to be valid. Will panic otherwise.
+    pub(crate) fn insert_identity_by_index_unchecked(&mut self, index: MeasIndex) {
+        let i = index.into();
+        let mut new = self.matrix.clone().insert_row(i, 0.0).insert_column(i, 0.0);
+        new[(i, i)] = 1.0;
+        self.matrix = new;
     }
 }
 

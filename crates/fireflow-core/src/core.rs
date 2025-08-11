@@ -1196,8 +1196,13 @@ pub trait VersionedMetaroot: Sized {
     /// Return `true` if any data in this struct links to a measurement
     fn check_meas_links_inner(&self) -> Result<(), ExistingLinkError>;
 
-    /// Rename any measurement references.
+    /// Rename any measurement references in keywords.
     fn rename_meas_links_inner(&mut self, mapping: &NameMapping);
+
+    /// Update linked indices in keywords after inserting a new measurement.
+    ///
+    /// Everything after `index` must be incremented by 1.
+    fn insert_meas_index_inner(&mut self, index: MeasIndex);
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)>;
 
@@ -2964,6 +2969,9 @@ where
         r: Range,
         notrunc: bool,
     ) -> DeferredResult<(), AnyRangeError, InsertTemporalError> {
+        self.metaroot
+            .specific
+            .insert_meas_index_inner(self.par().0.into());
         self.measurements
             .push_center(n, m)
             .into_deferred()
@@ -2978,6 +2986,7 @@ where
         r: Range,
         notrunc: bool,
     ) -> DeferredResult<(), AnyRangeError, InsertTemporalError> {
+        self.metaroot.specific.insert_meas_index_inner(i);
         self.measurements
             .insert_center(i, n, m)
             .into_deferred()
@@ -2991,6 +3000,9 @@ where
         r: Range,
         notrunc: bool,
     ) -> DeferredResult<Shortname, AnyRangeError, PushOpticalError> {
+        self.metaroot
+            .specific
+            .insert_meas_index_inner(self.par().0.into());
         self.measurements
             .push(n, m)
             .into_deferred()
@@ -3005,6 +3017,7 @@ where
         r: Range,
         notrunc: bool,
     ) -> DeferredResult<Shortname, AnyRangeError, InsertOpticalError> {
+        self.metaroot.specific.insert_meas_index_inner(i);
         self.measurements
             .insert(i, n, m)
             .into_deferred()
@@ -3016,6 +3029,8 @@ where
             })
     }
 
+    // TODO don't set names here, do that separately so we can decouple PnN link
+    // checking, or just check the links to make sure they are all still valid
     /// Set measurements.
     ///
     /// Return error if names are not unique, if there is more than one
@@ -6973,6 +6988,12 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
 
     fn rename_meas_links_inner(&mut self, _: &NameMapping) {}
 
+    fn insert_meas_index_inner(&mut self, index: MeasIndex) {
+        if let Some(x) = self.comp.0.as_mut() {
+            x.0.insert_identity_by_index_unchecked(index);
+        }
+    }
+
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {
         [self.mode.pair()].into_iter()
     }
@@ -7020,6 +7041,13 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
     }
 
     fn rename_meas_links_inner(&mut self, _: &NameMapping) {}
+
+    fn insert_meas_index_inner(&mut self, index: MeasIndex) {
+        if let Some(x) = self.comp.0.as_mut() {
+            x.0.insert_identity_by_index_unchecked(index);
+        }
+        self.applied_gates.shift_meas_indices_after_insert(index);
+    }
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {
         [self.mode.pair()].into_iter()
@@ -7082,6 +7110,10 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
         if let Some(s) = self.spillover.0.as_mut() {
             s.reassign(mapping);
         }
+    }
+
+    fn insert_meas_index_inner(&mut self, index: MeasIndex) {
+        self.applied_gates.shift_meas_indices_after_insert(index);
     }
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {
@@ -7155,6 +7187,10 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
         if let Some(x) = self.unstained.unstainedcenters.0.as_mut() {
             x.reassign(mapping);
         }
+    }
+
+    fn insert_meas_index_inner(&mut self, index: MeasIndex) {
+        self.applied_gates.shift_meas_indices_after_insert(index);
     }
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {

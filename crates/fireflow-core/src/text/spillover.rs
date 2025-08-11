@@ -80,12 +80,6 @@ impl Spillover {
         let rows = self.matrix.row_iter().map(|xs| xs.iter().join(delim));
         lines.into_iter().chain(rows).collect()
     }
-
-    pub(crate) fn print_table(&self, delim: &str) {
-        for e in self.table(delim) {
-            println!("{}", e);
-        }
-    }
 }
 
 impl fmt::Display for Spillover {

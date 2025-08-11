@@ -27,6 +27,7 @@ use crate::validated::textdelim::TEXTDelim;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, Timelike};
 use derive_more::{AsMut, AsRef, Display, From};
+use itertools::Itertools;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
 use num_traits::identities::One;
@@ -304,12 +305,27 @@ impl<A, D, O> AnyCore<A, D, O> {
         match_anycore!(self, x, { x.print_meas_table(delim) })
     }
 
-    pub fn print_spillover_table(&self, delim: &str) {
-        let res = match_anycore!(self, x, { x.metaroot.specific.as_spillover() })
-            .as_ref()
-            .map(|s| s.print_table(delim));
-        if res.is_none() {
-            println!("None")
+    pub fn print_comp_or_spillover_table(&self, delim: &str) {
+        if let Some((names, matrix)) = self.spillover_or_comp_table() {
+            let header = ["[-]"]
+                .into_iter()
+                .chain(names.iter().map(|n| n.as_ref()))
+                .join(delim);
+            println!("{header}");
+            for (r, n) in matrix.row_iter().zip(&names[..]) {
+                println!("{n}{delim}{}", r.iter().join(delim));
+            }
+        } else {
+            println!("[]")
+        }
+    }
+
+    fn spillover_or_comp_table(&self) -> Option<(Vec<Shortname>, DMatrix<f32>)> {
+        match self {
+            Self::FCS2_0(x) => x.named_compensation(),
+            Self::FCS3_0(x) => x.named_compensation(),
+            Self::FCS3_1(x) => x.named_spillover(),
+            Self::FCS3_2(x) => x.named_spillover(),
         }
     }
 }
@@ -1177,19 +1193,16 @@ pub trait VersionedMetaroot: Sized {
     type Temporal: VersionedTemporal<Ver = Self::Ver>;
     type Name: MightHave;
 
-    fn as_unstainedcenters(&self) -> Option<&UnstainedCenters>;
+    /// Return `true` if any data in this struct links to a measurement
+    fn check_meas_links_inner(&self) -> Result<(), ExistingLinkError>;
 
     fn with_unstainedcenters<F, X>(&mut self, f: F) -> Option<X>
     where
         F: Fn(&mut UnstainedCenters) -> ClearMaybe<X>;
 
-    fn as_spillover(&self) -> Option<&Spillover>;
-
     fn with_spillover<F, X>(&mut self, f: F) -> Option<X>
     where
         F: Fn(&mut Spillover) -> ClearMaybe<X>;
-
-    fn as_compensation(&self) -> Option<&Compensation>;
 
     fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
     where
@@ -1853,6 +1866,14 @@ where
         s.with_spillover(|x| x.remove_by_name(n));
         s.with_unstainedcenters(|u| u.remove(n));
         s.with_compensation(|c| c.remove_by_index(i));
+    }
+
+    /// Return `true` if any data in this struct links to a measurement
+    fn check_meas_links(&self) -> Result<(), ExistingLinkError> {
+        if self.tr.0.is_some() {
+            return Err(ExistingLinkError::Trigger);
+        }
+        self.specific.check_meas_links_inner()
     }
 }
 
@@ -2660,12 +2681,20 @@ where
         Ok(())
     }
 
+    /// Show $SPILLOVER
+    pub fn spillover(&self) -> Option<&Spillover>
+    where
+        M: AsRef<Option<Spillover>>,
+    {
+        self.metaroot.specific.as_ref().as_ref()
+    }
+
     /// Show $SPILLOVER matrix
     pub fn spillover_matrix(&self) -> Option<&DMatrix<f32>>
     where
         M: AsRef<Option<Spillover>>,
     {
-        self.metaroot.specific.as_ref().as_ref().map(|x| x.as_ref())
+        self.spillover().map(|x| x.as_ref())
     }
 
     /// Show $SPILLOVER measurement names
@@ -2673,7 +2702,7 @@ where
     where
         M: AsRef<Option<Spillover>>,
     {
-        self.metaroot.specific.as_ref().as_ref().map(|x| x.as_ref())
+        self.spillover().map(|x| x.as_ref())
     }
 
     /// Set names and matrix for $SPILLOVER
@@ -2898,6 +2927,27 @@ where
             .def_terminate(ConvertFailure)
     }
 
+    fn named_compensation(&self) -> Option<(Vec<Shortname>, DMatrix<f32>)>
+    where
+        M: HasCompensation,
+    {
+        self.compensation().as_ref().map(|c| {
+            let m: &DMatrix<f32> = c.as_ref();
+            (self.all_shortnames(), m.clone())
+        })
+    }
+
+    fn named_spillover(&self) -> Option<(Vec<Shortname>, DMatrix<f32>)>
+    where
+        M: AsRef<Option<Spillover>>,
+    {
+        self.spillover().as_ref().map(|c| {
+            let ns: &[Shortname] = c.as_ref();
+            let m: &DMatrix<f32> = c.as_ref();
+            (ns.to_vec(), m.clone())
+        })
+    }
+
     fn time_naive<const IS_ETIM: bool, X>(&self) -> Option<NaiveTime>
     where
         X: Copy,
@@ -3003,25 +3053,6 @@ where
             })
     }
 
-    fn check_existing_links(&mut self) -> Result<(), ExistingLinkError> {
-        if self.metaroot.tr.0.is_some() {
-            return Err(ExistingLinkError::Trigger);
-        }
-        let m = &self.metaroot;
-        let s = &m.specific;
-        if s.as_unstainedcenters().is_some() {
-            return Err(ExistingLinkError::UnstainedCenters);
-        }
-        // TODO these two are mutually exclusive and can be combined
-        if s.as_compensation().is_some() {
-            return Err(ExistingLinkError::Comp);
-        }
-        if s.as_spillover().is_some() {
-            return Err(ExistingLinkError::Spillover);
-        }
-        Ok(())
-    }
-
     /// Set measurements.
     ///
     /// Return error if names are not unique, if there is more than one
@@ -3085,7 +3116,7 @@ where
         M::Optical: AsScaleTransform,
     {
         let go = || {
-            self.check_existing_links().into_mult()?;
+            self.metaroot.check_meas_links().into_mult()?;
             let ms = NamedVec::try_new(measurements, prefix).into_mult()?;
             layout.check_measurement_vector(&ms).mult_errors_into()?;
             self.measurements = ms;
@@ -3103,7 +3134,7 @@ where
     where
         M::Optical: AsScaleTransform,
     {
-        self.check_existing_links().into_mult()?;
+        self.metaroot.check_meas_links().into_mult()?;
         let ms = NamedVec::try_new(xs, prefix).into_mult()?;
         self.layout
             .check_measurement_vector(&ms)
@@ -3113,7 +3144,7 @@ where
     }
 
     fn unset_measurements_inner(&mut self) -> Result<(), ExistingLinkError> {
-        self.check_existing_links()?;
+        self.metaroot.check_meas_links()?;
         self.measurements = NamedVec::default();
         self.layout.clear();
         Ok(())
@@ -6965,9 +6996,17 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
     type Temporal = InnerTemporal2_0;
     type Name = MaybeFamily;
 
-    fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
-        None
+    fn check_meas_links_inner(&self) -> Result<(), ExistingLinkError> {
+        if self.comp.0.is_some() {
+            Err(ExistingLinkError::Comp)
+        } else {
+            Ok(())
+        }
     }
+
+    // fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
+    //     None
+    // }
 
     fn with_unstainedcenters<F, X>(&mut self, _: F) -> Option<X>
     where
@@ -6976,9 +7015,9 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
         None
     }
 
-    fn as_spillover(&self) -> Option<&Spillover> {
-        None
-    }
+    // fn as_spillover(&self) -> Option<&Spillover> {
+    //     None
+    // }
 
     fn with_spillover<F, X>(&mut self, _: F) -> Option<X>
     where
@@ -6987,9 +7026,9 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
         None
     }
 
-    fn as_compensation(&self) -> Option<&Compensation> {
-        self.comp.as_ref_opt().map(|x| x.as_ref())
-    }
+    // fn as_compensation(&self) -> Option<&Compensation> {
+    //     self.comp.as_ref_opt().map(|x| x.as_ref())
+    // }
 
     fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
     where
@@ -7034,9 +7073,17 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
     type Temporal = InnerTemporal3_0;
     type Name = MaybeFamily;
 
-    fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
-        None
+    fn check_meas_links_inner(&self) -> Result<(), ExistingLinkError> {
+        if self.comp.0.is_some() {
+            Err(ExistingLinkError::Comp)
+        } else {
+            Ok(())
+        }
     }
+
+    // fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
+    //     None
+    // }
 
     fn with_unstainedcenters<F, X>(&mut self, _: F) -> Option<X>
     where
@@ -7045,9 +7092,9 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
         None
     }
 
-    fn as_spillover(&self) -> Option<&Spillover> {
-        None
-    }
+    // fn as_spillover(&self) -> Option<&Spillover> {
+    //     None
+    // }
 
     fn with_spillover<F, X>(&mut self, _: F) -> Option<X>
     where
@@ -7056,9 +7103,9 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
         None
     }
 
-    fn as_compensation(&self) -> Option<&Compensation> {
-        self.comp.as_ref_opt().map(|x| x.as_ref())
-    }
+    // fn as_compensation(&self) -> Option<&Compensation> {
+    //     self.comp.as_ref_opt().map(|x| x.as_ref())
+    // }
 
     fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
     where
@@ -7114,9 +7161,17 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
     type Temporal = InnerTemporal3_1;
     type Name = AlwaysFamily;
 
-    fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
-        None
+    fn check_meas_links_inner(&self) -> Result<(), ExistingLinkError> {
+        if self.spillover.0.is_some() {
+            Err(ExistingLinkError::Spillover)
+        } else {
+            Ok(())
+        }
     }
+
+    // fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
+    //     None
+    // }
 
     fn with_unstainedcenters<F, X>(&mut self, _: F) -> Option<X>
     where
@@ -7125,9 +7180,9 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
         None
     }
 
-    fn as_spillover(&self) -> Option<&Spillover> {
-        self.spillover.as_ref_opt()
-    }
+    // fn as_spillover(&self) -> Option<&Spillover> {
+    //     self.spillover.as_ref_opt()
+    // }
 
     fn with_spillover<F, X>(&mut self, f: F) -> Option<X>
     where
@@ -7136,9 +7191,9 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
         self.spillover.mut_or_unset_nofail(f)
     }
 
-    fn as_compensation(&self) -> Option<&Compensation> {
-        None
-    }
+    // fn as_compensation(&self) -> Option<&Compensation> {
+    //     None
+    // }
 
     fn with_compensation<F, X>(&mut self, _: F) -> Option<X>
     where
@@ -7199,9 +7254,19 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
     type Temporal = InnerTemporal3_2;
     type Name = AlwaysFamily;
 
-    fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
-        self.unstained.unstainedcenters.as_ref_opt()
+    fn check_meas_links_inner(&self) -> Result<(), ExistingLinkError> {
+        if self.spillover.0.is_some() {
+            Err(ExistingLinkError::Spillover)
+        } else if self.unstained.unstainedcenters.0.is_some() {
+            Err(ExistingLinkError::UnstainedCenters)
+        } else {
+            Ok(())
+        }
     }
+
+    // fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
+    //     self.unstained.unstainedcenters.as_ref_opt()
+    // }
 
     fn with_unstainedcenters<F, X>(&mut self, f: F) -> Option<X>
     where
@@ -7210,9 +7275,9 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
         self.unstained.unstainedcenters.mut_or_unset_nofail(f)
     }
 
-    fn as_spillover(&self) -> Option<&Spillover> {
-        self.spillover.as_ref_opt()
-    }
+    // fn as_spillover(&self) -> Option<&Spillover> {
+    //     self.spillover.as_ref_opt()
+    // }
 
     fn with_spillover<F, X>(&mut self, f: F) -> Option<X>
     where
@@ -7221,9 +7286,9 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
         self.spillover.mut_or_unset_nofail(f)
     }
 
-    fn as_compensation(&self) -> Option<&Compensation> {
-        None
-    }
+    // fn as_compensation(&self) -> Option<&Compensation> {
+    //     None
+    // }
 
     fn with_compensation<F, X>(&mut self, _: F) -> Option<X>
     where

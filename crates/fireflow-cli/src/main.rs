@@ -298,7 +298,7 @@ fn main() -> Result<(), ()> {
 
             fcs_read_std_text(filepath, &conf)
                 .map(handle_warnings)
-                .map(|(core, _)| core.print_spillover_table(delim))
+                .map(|(core, _)| core.print_comp_or_spillover_table(delim))
                 .map_err(handle_failure)
         }
 

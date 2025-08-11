@@ -45,9 +45,7 @@ pub struct AppliedGates3_0 {
 // TODO updates to these are currently not validated
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct AppliedGates3_2 {
-    pub scheme: GatingScheme<PrefixedMeasIndex>,
-}
+pub struct AppliedGates3_2(pub GatingScheme<PrefixedMeasIndex>);
 
 /// The $GATING/$RnI/$RnW keywords in a unified bundle.
 ///
@@ -290,6 +288,10 @@ impl AppliedGates3_0 {
         }
     }
 
+    pub(crate) fn meas_indices(&self) -> Vec<MeasIndex> {
+        self.scheme.meas_indices()
+    }
+
     pub(crate) fn is_empty(&self) -> bool {
         self.scheme.is_empty() && self.gated_measurements.0.is_empty()
     }
@@ -405,11 +407,15 @@ impl AppliedGates3_2 {
         gating: Option<Gating>,
         regions: HashMap<RegionIndex, Region<PrefixedMeasIndex>>,
     ) -> Result<Self, NewGatingSchemeError> {
-        GatingScheme::try_new(gating, regions).map(|scheme| Self { scheme })
+        GatingScheme::try_new(gating, regions).map(Self)
+    }
+
+    pub(crate) fn meas_indices(&self) -> Vec<MeasIndex> {
+        self.0.meas_indices()
     }
 
     pub(crate) fn is_empty(&self) -> bool {
-        self.scheme.is_empty()
+        self.0.is_empty()
     }
 
     pub(crate) fn lookup(
@@ -422,11 +428,11 @@ impl AppliedGates3_2 {
             |k| Gating::lookup_opt_dep(k, disallow_deprecated),
             |k, i| Region::lookup_dep(k, i, par, disallow_deprecated),
         )
-        .map(|scheme| Self { scheme })
+        .map(Self)
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
-        self.scheme.opt_keywords()
+        self.0.opt_keywords()
     }
 }
 
@@ -627,6 +633,16 @@ impl<I> GatingScheme<I> {
                 .filter(|j| j == i),
         )
         .map_or(Ok(()), |ne| Err(RemoveGateMeasIndexError(ne)))
+    }
+
+    fn meas_indices(&self) -> Vec<MeasIndex>
+    where
+        I: LinkedMeasIndex,
+    {
+        self.regions
+            .iter()
+            .flat_map(|(_, v)| v.meas_indices())
+            .collect()
     }
 
     fn lookup<F0, F1, E>(
@@ -983,7 +999,7 @@ impl From<AppliedGates3_2> for AppliedGates3_0 {
     fn from(value: AppliedGates3_2) -> Self {
         Self {
             gated_measurements: vec![].into(),
-            scheme: value.scheme.inner_into(),
+            scheme: value.0.inner_into(),
         }
     }
 }

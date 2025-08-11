@@ -7004,10 +7004,6 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
         }
     }
 
-    // fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
-    //     None
-    // }
-
     fn with_unstainedcenters<F, X>(&mut self, _: F) -> Option<X>
     where
         F: Fn(&mut UnstainedCenters) -> ClearMaybe<X>,
@@ -7015,20 +7011,12 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
         None
     }
 
-    // fn as_spillover(&self) -> Option<&Spillover> {
-    //     None
-    // }
-
     fn with_spillover<F, X>(&mut self, _: F) -> Option<X>
     where
         F: Fn(&mut Spillover) -> ClearMaybe<X>,
     {
         None
     }
-
-    // fn as_compensation(&self) -> Option<&Compensation> {
-    //     self.comp.as_ref_opt().map(|x| x.as_ref())
-    // }
 
     fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
     where
@@ -7076,14 +7064,12 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
     fn check_meas_links_inner(&self) -> Result<(), ExistingLinkError> {
         if self.comp.0.is_some() {
             Err(ExistingLinkError::Comp)
+        } else if !self.applied_gates.meas_indices().is_empty() {
+            Err(ExistingLinkError::GateRegion)
         } else {
             Ok(())
         }
     }
-
-    // fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
-    //     None
-    // }
 
     fn with_unstainedcenters<F, X>(&mut self, _: F) -> Option<X>
     where
@@ -7092,20 +7078,12 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
         None
     }
 
-    // fn as_spillover(&self) -> Option<&Spillover> {
-    //     None
-    // }
-
     fn with_spillover<F, X>(&mut self, _: F) -> Option<X>
     where
         F: Fn(&mut Spillover) -> ClearMaybe<X>,
     {
         None
     }
-
-    // fn as_compensation(&self) -> Option<&Compensation> {
-    //     self.comp.as_ref_opt().map(|x| x.as_ref())
-    // }
 
     fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
     where
@@ -7164,14 +7142,12 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
     fn check_meas_links_inner(&self) -> Result<(), ExistingLinkError> {
         if self.spillover.0.is_some() {
             Err(ExistingLinkError::Spillover)
+        } else if !self.applied_gates.meas_indices().is_empty() {
+            Err(ExistingLinkError::GateRegion)
         } else {
             Ok(())
         }
     }
-
-    // fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
-    //     None
-    // }
 
     fn with_unstainedcenters<F, X>(&mut self, _: F) -> Option<X>
     where
@@ -7180,20 +7156,12 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
         None
     }
 
-    // fn as_spillover(&self) -> Option<&Spillover> {
-    //     self.spillover.as_ref_opt()
-    // }
-
     fn with_spillover<F, X>(&mut self, f: F) -> Option<X>
     where
         F: Fn(&mut Spillover) -> ClearMaybe<X>,
     {
         self.spillover.mut_or_unset_nofail(f)
     }
-
-    // fn as_compensation(&self) -> Option<&Compensation> {
-    //     None
-    // }
 
     fn with_compensation<F, X>(&mut self, _: F) -> Option<X>
     where
@@ -7259,14 +7227,12 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
             Err(ExistingLinkError::Spillover)
         } else if self.unstained.unstainedcenters.0.is_some() {
             Err(ExistingLinkError::UnstainedCenters)
+        } else if !self.applied_gates.is_empty() {
+            Err(ExistingLinkError::GateRegion)
         } else {
             Ok(())
         }
     }
-
-    // fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
-    //     self.unstained.unstainedcenters.as_ref_opt()
-    // }
 
     fn with_unstainedcenters<F, X>(&mut self, f: F) -> Option<X>
     where
@@ -7275,20 +7241,12 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
         self.unstained.unstainedcenters.mut_or_unset_nofail(f)
     }
 
-    // fn as_spillover(&self) -> Option<&Spillover> {
-    //     self.spillover.as_ref_opt()
-    // }
-
     fn with_spillover<F, X>(&mut self, f: F) -> Option<X>
     where
         F: Fn(&mut Spillover) -> ClearMaybe<X>,
     {
         self.spillover.mut_or_unset_nofail(f)
     }
-
-    // fn as_compensation(&self) -> Option<&Compensation> {
-    //     None
-    // }
 
     fn with_compensation<F, X>(&mut self, _: F) -> Option<X>
     where
@@ -7651,6 +7609,7 @@ pub enum ExistingLinkError {
     UnstainedCenters,
     Comp,
     Spillover,
+    GateRegion,
 }
 
 impl fmt::Display for ExistingLinkError {
@@ -7660,6 +7619,7 @@ impl fmt::Display for ExistingLinkError {
             Self::UnstainedCenters => "$UNSTAINEDCENTERS",
             Self::Comp => "$COMP",
             Self::Spillover => "$SPILLOVER",
+            Self::GateRegion => "$RnI",
         };
         write!(f, "{s} depends on existing $PnN")
     }

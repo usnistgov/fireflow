@@ -1522,6 +1522,35 @@ class TestGating:
         assert r.index == i
         assert r.vertices == vs
 
+    def test_applied_gates2_0(self, blank_gated_meas: pf.GatedMeasurement) -> None:
+        ur = pf.UnivariateRegion2_0(0, (0.0, 1.0))
+        br = pf.BivariateRegion2_0((0, 1), [(0.0, 1.0)])
+        rs: dict[int, pf.UnivariateRegion2_0 | pf.BivariateRegion2_0] = {0: ur, 1: br}
+        g = "R1 AND R2"
+        ag = pf.AppliedGates2_0([blank_gated_meas] * 2, rs, g)
+        assert ag.gated_measurements == [blank_gated_meas] * 2
+        assert ag.regions == rs
+        assert ag.scheme == "(R1 AND R2)"  # NOTE parens are supposed to be added
+
+    def test_applied_gates3_0(self, blank_gated_meas: pf.GatedMeasurement) -> None:
+        ur = pf.UnivariateRegion3_0("P1", (0.0, 1.0))
+        br = pf.BivariateRegion3_0(("G1", "P1"), [(0.0, 1.0)])
+        rs: dict[int, pf.UnivariateRegion3_0 | pf.BivariateRegion3_0] = {0: ur, 1: br}
+        g = "R1 AND R2"
+        ag = pf.AppliedGates3_0([blank_gated_meas] * 2, rs, g)
+        assert ag.gated_measurements == [blank_gated_meas] * 2
+        assert ag.regions == rs
+        assert ag.scheme == "(R1 AND R2)"  # NOTE parens are supposed to be added
+
+    def test_applied_gates3_2(self, blank_gated_meas: pf.GatedMeasurement) -> None:
+        ur = pf.UnivariateRegion3_2(0, (0.0, 1.0))
+        br = pf.BivariateRegion3_2((0, 1), [(0.0, 1.0)])
+        rs: dict[int, pf.UnivariateRegion3_2 | pf.BivariateRegion3_2] = {0: ur, 1: br}
+        g = "R1 AND R2"
+        ag = pf.AppliedGates3_2(rs, g)
+        assert ag.regions == rs
+        assert ag.scheme == "(R1 AND R2)"  # NOTE parens are supposed to be added
+
 
 class TestMeas:
     @all_blank_meas

@@ -2848,32 +2848,8 @@ where
         Par(self.measurements.len())
     }
 
-    /// Return gating keywords (2.0)
-    pub fn applied_gates2_0(&self) -> &AppliedGates2_0
-    where
-        M: AsRef<AppliedGates2_0>,
-    {
-        self.metaroot.specific.as_ref()
-    }
-
-    /// Set gating keywords (2.0)
-    pub fn set_applied_gates2_0(&mut self, ag: AppliedGates2_0)
-    where
-        M: AsMut<AppliedGates2_0>,
-    {
-        *self.metaroot.specific.as_mut() = ag
-    }
-
-    /// Return gating keywords (3.0/3.1)
-    pub fn applied_gates3_0(&self) -> &AppliedGates3_0
-    where
-        M: AsRef<AppliedGates3_0>,
-    {
-        self.metaroot.specific.as_ref()
-    }
-
     /// Set gating keywords (3.0/3.1)
-    pub fn set_applied_gates3_0(&mut self, ag: AppliedGates3_0) -> Result<(), GatingMeasLinkError>
+    pub fn set_applied_gates_3_0(&mut self, ag: AppliedGates3_0) -> Result<(), GatingMeasLinkError>
     where
         M: HasAppliedGates3_0,
     {
@@ -2888,16 +2864,8 @@ where
         Ok(())
     }
 
-    /// Return gating keywords (3.2)
-    pub fn applied_gates3_2(&self) -> &AppliedGates3_2
-    where
-        M: AsRef<AppliedGates3_2>,
-    {
-        self.metaroot.specific.as_ref()
-    }
-
     /// Set gating keywords (3.2)
-    pub fn set_applied_gates3_2(&mut self, ag: AppliedGates3_2) -> Result<(), GatingMeasLinkError>
+    pub fn set_applied_gates_3_2(&mut self, ag: AppliedGates3_2) -> Result<(), GatingMeasLinkError>
     where
         M: HasAppliedGates3_2,
     {

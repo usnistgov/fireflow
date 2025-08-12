@@ -1571,12 +1571,75 @@ macro_rules! impl_core3_2 {
             fn set_unstained_centers(&mut self, us: Option<UnstainedCenters>) -> PyResult<()> {
                 self.0.set_unstained_centers(us).py_term_resolve_nowarn()
             }
+
+            /// Value for *$RnI/$RnW/$GATING* keywords.
+            ///
+            /// :type: :py:class:`AppliedGates3_2`
+            #[getter]
+            fn get_applied_gates(&self) -> AppliedGates3_2 {
+                self.0.metaroot::<AppliedGates3_2>().clone()
+            }
+
+            #[setter]
+            fn set_applied_gates(&mut self, ag: AppliedGates3_2) -> PyResult<()> {
+                Ok(self.0.set_applied_gates_3_2(ag)?)
+            }
         }
     };
 }
 
 impl_core3_2!(PyCoreTEXT3_2);
 impl_core3_2!(PyCoreDataset3_2);
+
+// gating for 2.0
+macro_rules! impl_get_set_applied_gates_2_0 {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            /// Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords.
+            ///
+            /// :type: :py:class:`AppliedGates2_0`
+            #[getter]
+            fn get_applied_gates(&self) -> AppliedGates2_0 {
+                self.0.metaroot::<AppliedGates2_0>().clone()
+            }
+
+            #[setter]
+            fn set_applied_gates(&mut self, ag: AppliedGates2_0) {
+                self.0.set_metaroot(ag)
+            }
+        }
+    };
+}
+
+impl_get_set_applied_gates_2_0!(PyCoreTEXT2_0);
+impl_get_set_applied_gates_2_0!(PyCoreDataset2_0);
+
+// gating for 3.0/3.1
+macro_rules! impl_get_set_applied_gates_3_0 {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            /// Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords.
+            ///
+            /// :type: :py:class:`AppliedGates3_0`
+            #[getter]
+            fn get_applied_gates(&self) -> AppliedGates3_0 {
+                self.0.metaroot::<AppliedGates3_0>().clone()
+            }
+
+            #[setter]
+            fn set_applied_gates(&mut self, ag: AppliedGates3_0) -> PyResult<()> {
+                Ok(self.0.set_applied_gates_3_0(ag)?)
+            }
+        }
+    };
+}
+
+impl_get_set_applied_gates_3_0!(PyCoreTEXT3_0);
+impl_get_set_applied_gates_3_0!(PyCoreDataset3_0);
+impl_get_set_applied_gates_3_0!(PyCoreTEXT3_1);
+impl_get_set_applied_gates_3_0!(PyCoreDataset3_1);
 
 // Get/set methods for $PnE (2.0)
 macro_rules! impl_get_set_all_pne {

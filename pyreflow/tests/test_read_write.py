@@ -1453,6 +1453,35 @@ class TestCore:
 class TestGatedMeasurement:
     def test_scale(self, blank_gated_meas: pf.GatedMeasurement) -> None:
         assert blank_gated_meas.gme is None
+        blank_gated_meas.gme = ()
+        assert blank_gated_meas.gme == ()
+        blank_gated_meas.gme = (1.0, 2.0)
+        assert blank_gated_meas.gme == (1.0, 2.0)
+        with pytest.raises(TypeError):
+            blank_gated_meas.gme = cast(tuple[()], "the new abnormal")
+
+    def test_range(self, blank_gated_meas: pf.GatedMeasurement) -> None:
+        assert blank_gated_meas.gmr is None
+        blank_gated_meas.gmr = 1.0
+        assert blank_gated_meas.gmr == 1.0
+        with pytest.raises(ValueError):
+            blank_gated_meas.gmr = cast(float, "hail stan")
+
+    def test_voltage(self, blank_gated_meas: pf.GatedMeasurement) -> None:
+        assert blank_gated_meas.gmr is None
+        blank_gated_meas.gmv = 1.0
+        assert blank_gated_meas.gmv == 1.0
+        with pytest.raises(ValueError):
+            blank_gated_meas.gmv = cast(float, -1.0)
+
+    @pytest.mark.parametrize("attr", ["gmf", "gmn", "gmp", "gms", "gmt"])
+    def test_floats(self, blank_gated_meas: pf.GatedMeasurement, attr: str) -> None:
+        assert getattr(blank_gated_meas, attr) is None
+        new = "this is sweet revenge and karma's a..."
+        setattr(blank_gated_meas, attr, new)
+        assert getattr(blank_gated_meas, attr) == new
+        with pytest.raises(TypeError):
+            setattr(blank_gated_meas, attr, 1.0)
 
 
 class TestMeas:

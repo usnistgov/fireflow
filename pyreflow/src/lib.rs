@@ -1,4 +1,5 @@
 use fireflow_core::python::exceptions::{PyreflowException, PyreflowWarning};
+use fireflow_core::text::gating::GatedMeasurement;
 use fireflow_python as ff;
 
 use pyo3::prelude::*;
@@ -30,6 +31,20 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ff::PyTemporal3_0>()?;
     m.add_class::<ff::PyTemporal3_1>()?;
     m.add_class::<ff::PyTemporal3_2>()?;
+
+    m.add_class::<ff::PyUnivariateRegion2_0>()?;
+    m.add_class::<ff::PyUnivariateRegion3_0>()?;
+    m.add_class::<ff::PyUnivariateRegion3_2>()?;
+
+    m.add_class::<ff::PyBivariateRegion2_0>()?;
+    m.add_class::<ff::PyBivariateRegion3_0>()?;
+    m.add_class::<ff::PyBivariateRegion3_2>()?;
+
+    m.add_class::<ff::PyAppliedGates2_0>()?;
+    m.add_class::<ff::PyAppliedGates3_0>()?;
+    m.add_class::<ff::PyAppliedGates3_2>()?;
+
+    m.add_class::<ff::PyGatedMeasurement>()?;
 
     m.add_class::<ff::PyAsciiFixedLayout>()?;
     m.add_class::<ff::PyAsciiDelimLayout>()?;

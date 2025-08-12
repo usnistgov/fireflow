@@ -36,6 +36,7 @@ from pyreflow.typing import (
 )
 
 _X = TypeVar("_X")
+_Y = TypeVar("_Y")
 _C = TypeVar("_C")
 _N = TypeVar("_N")
 _L = TypeVar("_L")
@@ -270,6 +271,71 @@ _O = TypeVar("_O", bound=Optical2_0 | Optical3_0 | Optical3_1 | Optical3_2)
 
 _RawInput = list[tuple[_N, _O] | tuple[Shortname, _T]]
 
+class GatedMeasurement:
+    
+
+class _UnivariateRegion(Generic[_X]):
+    @property
+    def index(self) -> _X: ...
+    @property
+    def gate(self) -> tuple[float, float]: ...
+
+class _BivariateRegion(Generic[_X]):
+    @property
+    def index(self) -> tuple[_X, _X]: ...
+    @property
+    def vertices(self) -> list[tuple[float, float]]: ...
+
+@final
+class UnivariateRegion2_0(_UnivariateRegion[int]):
+    pass
+
+@final
+class UnivariateRegion3_0(_UnivariateRegion[str]):
+    pass
+
+@final
+class UnivariateRegion3_2(_UnivariateRegion[int]):
+    pass
+
+@final
+class BivariateRegion2_0(_BivariateRegion[int]):
+    pass
+
+@final
+class BivariateRegion3_0(_BivariateRegion[str]):
+    pass
+
+@final
+class BivariateRegion3_2(_BivariateRegion[int]):
+    pass
+
+class _Regions(Generic[_X, _Y]):
+    @property
+    def regions(self) -> dict[int, _X | _Y]: ...
+    @property
+    def scheme(self) -> str | None: ...
+
+class _GatedMeasurements:
+    @property
+    def gated_measurements(self) -> list[GatedMeasurement]: ...
+
+@final
+class AppliedGates2_0(
+    _Regions[UnivariateRegion2_0, BivariateRegion2_0], _GatedMeasurements
+):
+    pass
+
+@final
+class AppliedGates3_0(
+    _Regions[UnivariateRegion3_0, BivariateRegion3_0], _GatedMeasurements
+):
+    pass
+
+@final
+class AppliedGates3_2(_Regions[UnivariateRegion3_2, BivariateRegion3_2]):
+    pass
+
 class _CoreCommon:
     abrt: int | None
     cells: str | None
@@ -447,21 +513,36 @@ class _CoreGetSetMeasOrdered(Generic[_O, _T]):
     layout: _AnyOrderedLayout
 
     def set_measurements(
-        self, measurements: _RawInput[Shortname | None, _O, _T], prefix: str
+        self,
+        measurements: _RawInput[Shortname | None, _O, _T],
+        prefix: str,
+        allow_shared_names: bool,
+        skip_index_check: bool,
     ) -> None: ...
     def set_measurements_and_layout(
         self,
         measurements: _RawInput[Shortname | None, _O, _T],
         layout: _AnyOrderedLayout,
         prefix: str,
+        allow_shared_names: bool,
+        skip_index_check: bool,
     ) -> None: ...
 
 class _CoreGetSetMeasEndian(Generic[_L, _O, _T]):
     layout: _L
 
-    def set_measurements(self, measurements: _RawInput[Shortname, _O, _T]) -> None: ...
+    def set_measurements(
+        self,
+        measurements: _RawInput[Shortname, _O, _T],
+        allow_shared_names: bool,
+        skip_index_check: bool,
+    ) -> None: ...
     def set_measurements_and_layout(
-        self, measurements: _RawInput[Shortname, _O, _T], layout: _L
+        self,
+        measurements: _RawInput[Shortname, _O, _T],
+        layout: _L,
+        allow_shared_names: bool,
+        skip_index_check: bool,
     ) -> None: ...
 
 class _CoreDatasetGetSetMeasOrdered(Generic[_O, _T]):
@@ -470,6 +551,8 @@ class _CoreDatasetGetSetMeasOrdered(Generic[_O, _T]):
         measurements: _RawInput[Shortname | None, _O, _T],
         df: DataFrame,
         prefix: str,
+        allow_shared_names: bool,
+        skip_index_check: bool,
     ) -> None: ...
 
 class _CoreDatasetGetSetMeasEndian(Generic[_O, _T]):
@@ -477,6 +560,8 @@ class _CoreDatasetGetSetMeasEndian(Generic[_O, _T]):
         self,
         measurements: _RawInput[Shortname, _O, _T],
         df: DataFrame,
+        allow_shared_names: bool,
+        skip_index_check: bool,
     ) -> None: ...
 
 class _CoreSetShortnamesMaybe:
@@ -494,6 +579,17 @@ class _CoreTimestepMethods:
     @property
     def timestep(self) -> Timestep | None: ...
     def set_timestep(self, timestep: Timestep) -> Timestep | None: ...
+
+class _CoreGates(Generic[_X]):
+    applied_gates: _X
+
+class _CoreSubset:
+    @property
+    def cstot(self) -> int | None: ...
+    @property
+    def csvbits(self) -> int | None: ...
+    @property
+    def csvflags(self) -> list[int | None] | None: ...
 
 class _CoreModified:
     originality: Originality | None
@@ -607,6 +703,7 @@ class CoreTEXT2_0(
     _CoreCompensation,
     _CoreMeasWavelength,
     _CorePeak,
+    _CoreGates[AppliedGates2_0],
     _CoreTo3_0[CoreTEXT3_0],
     _CoreTo3_1[CoreTEXT3_1],
     _CoreTo3_2[CoreTEXT3_2],
@@ -631,6 +728,8 @@ class CoreTEXT3_0(
     _CoreCytsn,
     _CoreMeasWavelength,
     _CorePeak,
+    _CoreSubset,
+    _CoreGates[AppliedGates3_0],
     _CoreTo2_0[CoreTEXT2_0],
     _CoreTo3_1[CoreTEXT3_1],
     _CoreTo3_2[CoreTEXT3_2],
@@ -648,6 +747,7 @@ class CoreTEXT3_1(
     _CoreScaleTransformMethods,
     _CoreTimestepMethods,
     _CoreToDataset[CoreDataset3_1],
+    _CoreSubset,
     _CoreModified,
     _CorePlate,
     _CoreSpillover,
@@ -657,6 +757,7 @@ class CoreTEXT3_1(
     _CorePeak,
     _CoreMeasDisplay,
     _CoreMeasCalibration[Calibration3_1],
+    _CoreGates[AppliedGates3_0],
     _CoreTo2_0[CoreTEXT2_0],
     _CoreTo3_0[CoreTEXT3_0],
     _CoreTo3_2[CoreTEXT3_2],
@@ -682,6 +783,7 @@ class CoreTEXT3_2(
     _CoreMeasWavelengths,
     _CoreMeasDisplay,
     _CoreMeasCalibration[Calibration3_2],
+    _CoreGates[AppliedGates3_2],
     _CoreTo2_0[CoreTEXT2_0],
     _CoreTo3_0[CoreTEXT3_0],
     _CoreTo3_1[CoreTEXT3_1],
@@ -703,6 +805,7 @@ class CoreDataset2_0(
     _CoreCompensation,
     _CoreMeasWavelength,
     _CorePeak,
+    _CoreGates[AppliedGates2_0],
     _CoreTo3_0[CoreDataset3_0],
     _CoreTo3_1[CoreDataset3_1],
     _CoreTo3_2[CoreDataset3_2],
@@ -728,6 +831,8 @@ class CoreDataset3_0(
     _CoreCytsn,
     _CoreMeasWavelength,
     _CorePeak,
+    _CoreSubset,
+    _CoreGates[AppliedGates3_0],
     _CoreTo2_0[CoreDataset2_0],
     _CoreTo3_1[CoreDataset3_1],
     _CoreTo3_2[CoreDataset3_2],
@@ -746,6 +851,7 @@ class CoreDataset3_1(
     _CoreDatasetGetSetMeasEndian[Optical3_1, Temporal3_1],
     _CoreScaleTransformMethods,
     _CoreTimestepMethods,
+    _CoreSubset,
     _CoreModified,
     _CorePlate,
     _CoreSpillover,
@@ -755,6 +861,7 @@ class CoreDataset3_1(
     _CorePeak,
     _CoreMeasDisplay,
     _CoreMeasCalibration[Calibration3_1],
+    _CoreGates[AppliedGates3_0],
     _CoreTo2_0[CoreDataset2_0],
     _CoreTo3_0[CoreDataset3_0],
     _CoreTo3_2[CoreDataset3_2],
@@ -781,6 +888,7 @@ class CoreDataset3_2(
     _CoreMeasWavelengths,
     _CoreMeasDisplay,
     _CoreMeasCalibration[Calibration3_2],
+    _CoreGates[AppliedGates3_2],
     _CoreTo2_0[CoreDataset2_0],
     _CoreTo3_0[CoreDataset3_0],
     _CoreTo3_1[CoreDataset3_1],
@@ -809,6 +917,15 @@ __all__ = [
     "Temporal3_0",
     "Temporal3_1",
     "Temporal3_2",
+    "UnivariateRegion2_0",
+    "UnivariateRegion3_0",
+    "UnivariateRegion3_2",
+    "BivariateRegion2_0",
+    "BivariateRegion3_0",
+    "BivariateRegion3_2",
+    "AppliedGates2_0",
+    "AppliedGates3_0",
+    "AppliedGates3_2",
     "AsciiFixedLayout",
     "AsciiDelimLayout",
     "OrderedUint08Layout",

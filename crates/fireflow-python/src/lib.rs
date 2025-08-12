@@ -16,12 +16,12 @@ use fireflow_core::text::byteord::{Endian, SizedByteOrd};
 use fireflow_core::text::compensation::Compensation;
 use fireflow_core::text::gating::{
     AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, BivariateRegion, GatedMeasurement,
-    GatedMeasurements, GatingScheme, Region, UnivariateRegion,
+    GatingScheme, Region, UnivariateRegion,
 };
 use fireflow_core::text::index::{GateIndex, MeasIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::{Eithers, Element, NamedVec, NonCenterElement};
-use fireflow_core::text::optional::{AlwaysFamily, MaybeFamily};
+use fireflow_core::text::optional::{AlwaysFamily, MaybeFamily, MaybeValue};
 use fireflow_core::text::scale::Scale;
 use fireflow_core::text::unstainedcenters::UnstainedCenters;
 use fireflow_core::validated::bitmask as bm;
@@ -171,6 +171,8 @@ py_wrap!(PyTemporal3_2, core::Temporal3_2, "Temporal3_2");
 py_wrap!(PyAppliedGates2_0, AppliedGates2_0, "AppliedGates2_0");
 py_wrap!(PyAppliedGates3_0, AppliedGates3_0, "AppliedGates3_0");
 py_wrap!(PyAppliedGates3_2, AppliedGates3_2, "AppliedGates3_2");
+
+py_wrap!(PyGatedMeasurement, GatedMeasurement, "GatedMeasurement");
 
 py_wrap!(
     PyUnivariateRegion2_0,
@@ -2560,7 +2562,7 @@ impl PyUnivariateRegion2_0 {
     /// Make a new FCS 2.0-compatible univariate region.
     ///
     /// :param int index: The index corresponding to a gating measurement
-    ///     (the *n* in the *$Gn\** keywords).
+    ///     (the *m* in the *$Gm\** keywords).
     ///
     /// :param gate: The lower and upper bounds of the gate.
     /// :type gate: (float, float)
@@ -2583,9 +2585,9 @@ impl PyUnivariateRegion3_0 {
     /// Make a new FCS 3.0/3.1-compatible univariate region.
     ///
     /// :param str index: The index corresponding to either a gating
-    ///     or a physical measurement (the *n* in the *$Gn\** or *$Pn\**
-    ///     keywords). Must be a string like either ``Gn`` or ``Pn`` where
-    ///     ``n`` is an integer and the prefix corresponds to a gating or
+    ///     or a physical measurement (the *m* and *n* in the *$Gm\** or *$Pn\**
+    ///     keywords). Must be a string like either ``Gm`` or ``Pn`` where
+    ///     ``m`` is an integer and the prefix corresponds to a gating or
     ///     physical measurement respectively.
     ///
     /// :param gate: The lower and upper bounds of the gate.
@@ -2597,7 +2599,7 @@ impl PyUnivariateRegion3_0 {
 
     /// The value of the index.
     ///
-    /// :return: A string like either ``Gn`` or ``Pn`` where ``n`` is an
+    /// :return: A string like either ``Gm`` or ``Pn`` where ``m`` is an
     ///     integer and the prefix corresponds to a gating or physical
     ///     measurement respectively.
     /// :rtype: str
@@ -2654,7 +2656,7 @@ impl PyBivariateRegion2_0 {
     /// Make a new FCS 2.0-compatible univariate region.
     ///
     /// :param index: The x/y indices corresponding to gating measurements
-    ///     (the *n* in the *$Gn\** keywords).
+    ///     (the *m* in the *$Gm\** keywords).
     /// :type index: (int, int)
     ///
     /// :param gate: The vertices of a polygon gate. Must not be empty.
@@ -2678,9 +2680,9 @@ impl PyBivariateRegion3_0 {
     /// Make a new FCS 3.0/3.1-compatible univariate region.
     ///
     /// :param index: The x/y indices corresponding to either gating or
-    ///     physical measurements (the *n* in the *$Gn\** or *$Pn\**
-    ///     keywords). Each must be a string like either ``Gn`` or ``Pn``
-    ///     where ``n`` is an integer and the prefix corresponds to a gating
+    ///     physical measurements (the *m* or *n* in the *$Gm\** or *$Pn\**
+    ///     keywords). Each must be a string like either ``Gm`` or ``Pn``
+    ///     where ``m`` is an integer and the prefix corresponds to a gating
     ///     or physical measurement respectively.
     /// :type index: (str, str)
     ///
@@ -2696,8 +2698,8 @@ impl PyBivariateRegion3_0 {
 
     /// The value of the x/y indices.
     ///
-    /// :return: Two strings like either ``Gn`` or ``Pn`` where ``n`` is an
-    ///     integer and the prefix corresponds to a gating or physical
+    /// :return: Two strings like either ``Gm`` or ``Pn`` where ``m`` or ``n``
+    ///     is an integer and the prefix corresponds to a gating or physical
     ///     measurement respectively.
     /// :rtype: (str, str)
     #[getter]
@@ -2757,7 +2759,7 @@ impl PyAppliedGates2_0 {
     /// Make new FCS 2.0-compatible gates.
     ///
     /// :param gated_measurements: Gated measurements corresponding to the
-    ///     *$Gn\** keywords.
+    ///     *$Gm\** keywords.
     /// :type gated_measurements: list[:py:class:`GatedMeasurement`]
     ///
     /// :param regions: Mapping of regions and windows to be used in gating
@@ -2773,17 +2775,18 @@ impl PyAppliedGates2_0 {
     /// :param gating: str | None
     #[new]
     #[pyo3(signature = (
-            gated_measurements = GatedMeasurements(vec![]),
+            gated_measurements = vec![],
             regions = PyRegionMapping(HashMap::new()),
             gating = None,
         ))]
     fn new(
-        gated_measurements: GatedMeasurements,
+        gated_measurements: Vec<PyGatedMeasurement>,
         regions: PyRegionMapping<PyRegion2_0>,
         gating: Option<kws::Gating>,
     ) -> PyResult<Self> {
         let scheme = GatingScheme::try_new(gating, regions.into())?;
-        Ok(AppliedGates2_0::try_new(gated_measurements, scheme)?.into())
+        let gs: Vec<_> = gated_measurements.into_iter().map(|x| x.into()).collect();
+        Ok(AppliedGates2_0::try_new(gs.into(), scheme)?.into())
     }
 
     /// Value of all gating regions, corresponding to *$RnI* and *$RnW*.
@@ -2801,7 +2804,7 @@ impl PyAppliedGates3_0 {
     /// Make new FCS 3.0/3.1-compatible gates.
     ///
     /// :param gated_measurements: Gated measurements corresponding to the
-    ///     *$Gn\** keywords.
+    ///     *$Gm\** keywords.
     /// :type gated_measurements: list[:py:class:`GatedMeasurement`]
     ///
     /// :param regions: Mapping of regions and windows to be used in gating
@@ -2817,17 +2820,18 @@ impl PyAppliedGates3_0 {
     /// :param gating: str | None
     #[new]
     #[pyo3(signature = (
-            gated_measurements = GatedMeasurements(vec![]),
+            gated_measurements = vec![],
             regions = PyRegionMapping(HashMap::new()),
             gating = None,
         ))]
     fn new(
-        gated_measurements: GatedMeasurements,
+        gated_measurements: Vec<PyGatedMeasurement>,
         regions: PyRegionMapping<PyRegion3_0>,
         gating: Option<kws::Gating>,
     ) -> PyResult<Self> {
         let scheme = GatingScheme::try_new(gating, regions.into())?;
-        Ok(AppliedGates3_0::try_new(gated_measurements, scheme)?.into())
+        let gs: Vec<_> = gated_measurements.into_iter().map(|x| x.into()).collect();
+        Ok(AppliedGates3_0::try_new(gs.into(), scheme)?.into())
     }
 
     /// Value of all gating regions, corresponding to *$RnI* and *$RnW*.
@@ -2897,15 +2901,15 @@ macro_rules! impl_applied_gated_meas {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
-            /// All gated measurements, corresponding to each *$Gn\** keyword.
+            /// All gated measurements, corresponding to each *$Gm\** keyword.
             ///
             /// *$GATE* is implied by the length of this list.
             ///
             /// :rtype: list[:py:class:`GatedMeasurement`]
             #[getter]
-            fn gated_measurements(&self) -> Vec<GatedMeasurement> {
+            fn gated_measurements(&self) -> Vec<PyGatedMeasurement> {
                 let gs: &[GatedMeasurement] = self.0.as_ref();
-                gs.to_vec()
+                gs.iter().map(|x| x.clone().into()).collect()
             }
         }
     };
@@ -2913,6 +2917,168 @@ macro_rules! impl_applied_gated_meas {
 
 impl_applied_gated_meas!(PyAppliedGates2_0);
 impl_applied_gated_meas!(PyAppliedGates3_0);
+
+#[pymethods]
+impl PyGatedMeasurement {
+    /// The *$Gm\** keywords for one gated measurement.
+    ///
+    /// :param scale: The *$$GmE* keyword. ``()`` means linear scaling and
+    ///     2-tuple specifies decades and offset for log scaling.
+    /// :type scale: () | (float, float) | None
+    ///
+    /// :param filter: The *$GmF* keyword.
+    /// :type filter: str | None
+    ///
+    /// :param shortname: The *$GmN* keyword. Must not contain commas.
+    /// :type filter: str | None
+    ///
+    /// :param percent_emitted: The *$GmP* keyword.
+    /// :type filter: str | None
+    ///
+    /// :param range: The *$GmR* keyword.
+    /// :type filter: float | None
+    ///
+    /// :param longname: The *$GmS* keyword.
+    /// :type filter: str | None
+    ///
+    /// :param detector_type: The *$GmT* keyword.
+    /// :type filter: str | None
+    ///
+    /// :param detector_voltage: The *$GmV* keyword.
+    /// :type filter: float | None
+    #[new]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (
+            scale = None.into(),
+            filter = None.into(),
+            shortname = None.into(),
+            percent_emitted = None.into(),
+            range = None.into(),
+            longname = None.into(),
+            detector_type = None.into(),
+            detector_voltage = None.into(),
+        ))]
+    fn new(
+        scale: MaybeValue<kws::GateScale>,
+        filter: MaybeValue<kws::GateFilter>,
+        shortname: MaybeValue<kws::GateShortname>,
+        percent_emitted: MaybeValue<kws::GatePercentEmitted>,
+        range: MaybeValue<kws::GateRange>,
+        longname: MaybeValue<kws::GateLongname>,
+        detector_type: MaybeValue<kws::GateDetectorType>,
+        detector_voltage: MaybeValue<kws::GateDetectorVoltage>,
+    ) -> Self {
+        GatedMeasurement {
+            scale,
+            filter,
+            shortname,
+            percent_emitted,
+            range,
+            longname,
+            detector_type,
+            detector_voltage,
+        }
+        .into()
+    }
+}
+
+macro_rules! impl_gated_meas_get_set {
+    ($(#[$meta:meta])* $get:ident, $set:ident, $t:path, $inner:ident) => {
+        $(#[$meta])*
+        #[pymethods]
+        impl PyGatedMeasurement {
+            #[getter]
+            fn $get(&self) -> Option<$t> {
+                self.0.$inner.0.as_ref().cloned()
+            }
+
+            #[setter]
+            fn $set(&mut self, x: Option<$t>) {
+                self.0.$inner.0 = x.into();
+            }
+        }
+    };
+}
+
+impl_gated_meas_get_set!(
+    /// Value of the *$GmE* keyword.
+    ///
+    /// :type: () | (float, float) | None
+    get_gme,
+    set_gme,
+    kws::GateScale,
+    scale
+);
+
+impl_gated_meas_get_set!(
+    /// Value of the *$GmF* keyword.
+    ///
+    /// :type: str | None
+    get_gmf,
+    set_gmf,
+    kws::GateFilter,
+    filter
+);
+
+impl_gated_meas_get_set!(
+    /// Value of the *$GmN* keyword.
+    ///
+    /// :type: str | None
+    get_gmn,
+    set_gmn,
+    kws::GateShortname,
+    shortname
+);
+
+impl_gated_meas_get_set!(
+    /// Value of the *$GmP* keyword.
+    ///
+    /// :type: str | None
+    get_gmp,
+    set_gmp,
+    kws::GatePercentEmitted,
+    percent_emitted
+);
+
+impl_gated_meas_get_set!(
+    /// Value of the *$GmR* keyword.
+    ///
+    /// :type: float | None
+    get_gmr,
+    set_gmr,
+    kws::GateRange,
+    range
+);
+
+impl_gated_meas_get_set!(
+    /// Value of the *$GmS* keyword.
+    ///
+    /// :type: str | None
+    get_gms,
+    set_gms,
+    kws::GateLongname,
+    longname
+);
+
+impl_gated_meas_get_set!(
+    /// Value of the *$GmT* keyword.
+    ///
+    /// :type: str | None
+    get_gmt,
+    set_gmt,
+    kws::GateDetectorType,
+    detector_type
+);
+
+impl_gated_meas_get_set!(
+    /// Value of the *$GmV* keyword.
+    ///
+    /// :type: float | None
+    get_gmv,
+    set_gmv,
+    kws::GateDetectorVoltage,
+    detector_voltage
+);
 
 macro_rules! impl_layout_common {
     ($t:ident) => {

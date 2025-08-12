@@ -79,7 +79,6 @@ pub struct GatingScheme<I> {
 #[derive(Clone, PartialEq, Default, From, AsRef)]
 #[as_ref([GatedMeasurement])]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 pub struct GatedMeasurements(pub Vec<GatedMeasurement>);
 
 /// A uni/bivariate region corresponding to an $RnI/$RnW keyword pair
@@ -113,7 +112,6 @@ pub struct BivariateRegion<I> {
 /// The values for $Gm* keywords (2.0-3.1)
 #[derive(Clone, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", pyclass(get_all, set_all))]
 pub struct GatedMeasurement {
     /// Value for $GmE
     pub scale: MaybeValue<GateScale>,
@@ -1127,84 +1125,9 @@ mod python {
     use crate::python::macros::{
         impl_from_py_via_fromstr, impl_pyreflow_err, impl_to_py_via_display, impl_value_err,
     };
-    use crate::text::keywords::{
-        GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GateRange, GateScale,
-        GateShortname, Gating, GatingError, MeasOrGateIndex,
-    };
-    use crate::text::optional::MaybeValue;
+    use crate::text::keywords::{Gating, GatingError, MeasOrGateIndex};
 
-    use super::{
-        GateMeasurementLinkError, GatePercentEmitted, GatedMeasurement, MeasOrGateIndexError,
-        NewGatingSchemeError,
-    };
-
-    use pyo3::prelude::*;
-
-    // most of these are in the fireflow-python crate, but it is far more
-    // convenient to do this here where we have the luxury of not using a
-    // newtype wrapper
-    #[pymethods]
-    impl GatedMeasurement {
-        /// The *$Gn\** keywords for one gated measurement.
-        ///
-        /// :param scale: The *$$GnE* keyword. ``()`` means linear scaling and
-        ///     2-tuple specifies decades and offset for log scaling.
-        /// :type scale: () | (float, float) | None
-        ///
-        /// :param filter: The *$GnF* keyword.
-        /// :type filter: str | None
-        ///
-        /// :param shortname: The *$GnN* keyword. Must not contain commas.
-        /// :type filter: str | None
-        ///
-        /// :param percent_emitted: The *$GnP* keyword.
-        /// :type filter: str | None
-        ///
-        /// :param range: The *$GnR* keyword.
-        /// :type filter: float | None
-        ///
-        /// :param longname: The *$GnS* keyword.
-        /// :type filter: str | None
-        ///
-        /// :param detector_type: The *$GnT* keyword.
-        /// :type filter: str | None
-        ///
-        /// :param detector_voltage: The *$GnV* keyword.
-        /// :type filter: float | None
-        #[new]
-        #[allow(clippy::too_many_arguments)]
-        #[pyo3(signature = (
-            scale = None.into(),
-            filter = None.into(),
-            shortname = None.into(),
-            percent_emitted = None.into(),
-            range = None.into(),
-            longname = None.into(),
-            detector_type = None.into(),
-            detector_voltage = None.into(),
-        ))]
-        fn new(
-            scale: MaybeValue<GateScale>,
-            filter: MaybeValue<GateFilter>,
-            shortname: MaybeValue<GateShortname>,
-            percent_emitted: MaybeValue<GatePercentEmitted>,
-            range: MaybeValue<GateRange>,
-            longname: MaybeValue<GateLongname>,
-            detector_type: MaybeValue<GateDetectorType>,
-            detector_voltage: MaybeValue<GateDetectorVoltage>,
-        ) -> Self {
-            Self {
-                scale,
-                filter,
-                shortname,
-                percent_emitted,
-                range,
-                longname,
-                detector_type,
-                detector_voltage,
-            }
-        }
-    }
+    use super::{GateMeasurementLinkError, MeasOrGateIndexError, NewGatingSchemeError};
 
     impl_from_py_via_fromstr!(Gating);
     impl_to_py_via_display!(Gating);

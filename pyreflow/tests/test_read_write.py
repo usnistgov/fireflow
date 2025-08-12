@@ -22,6 +22,11 @@ from .conftest import lazy_fixture
 
 
 @pytest.fixture
+def blank_gated_meas() -> pf.GatedMeasurement:
+    return pf.GatedMeasurement()
+
+
+@pytest.fixture
 def blank_text_2_0() -> pf.CoreTEXT2_0:
     return pf.CoreTEXT2_0("L", "I")
 
@@ -1074,7 +1079,7 @@ class TestCore:
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
         optical: Any,
     ) -> None:
-        core.set_measurements([(LINK_NAME1, optical)], prefix="_")
+        core.set_measurements([(LINK_NAME1, optical)], "_", False, False)
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -1093,7 +1098,7 @@ class TestCore:
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
         optical: Any,
     ) -> None:
-        core.set_measurements([(LINK_NAME1, optical)])
+        core.set_measurements([(LINK_NAME1, optical)], False, False)
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -1113,7 +1118,9 @@ class TestCore:
         optical: Any,
     ) -> None:
         new = pf.OrderedUint64Layout([1], False)
-        core.set_measurements_and_layout([(LINK_NAME1, optical)], new, prefix="_")
+        core.set_measurements_and_layout(
+            [(LINK_NAME1, optical)], new, "_", False, False
+        )
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -1133,7 +1140,7 @@ class TestCore:
         optical: Any,
     ) -> None:
         new = pf.EndianF32Layout([1], False)
-        core.set_measurements_and_layout([(LINK_NAME1, optical)], new)
+        core.set_measurements_and_layout([(LINK_NAME1, optical)], new, False, False)
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -1152,7 +1159,7 @@ class TestCore:
         series2: pl.Series,
     ) -> None:
         core.set_measurements_and_data(
-            [(LINK_NAME1, optical)], pl.DataFrame([series2]), prefix="_"
+            [(LINK_NAME1, optical)], pl.DataFrame([series2]), "_", False, False
         )
 
     @pytest.mark.parametrize(
@@ -1171,7 +1178,9 @@ class TestCore:
         optical: Any,
         series2: pl.Series,
     ) -> None:
-        core.set_measurements_and_data([(LINK_NAME1, optical)], pl.DataFrame([series2]))
+        core.set_measurements_and_data(
+            [(LINK_NAME1, optical)], pl.DataFrame([series2]), False, False
+        )
 
     @pytest.mark.parametrize(
         "core, optical, temporal",
@@ -1439,6 +1448,11 @@ class TestCore:
             core.to_dataset(pl.DataFrame([series1]), b"", [])
         new = core.to_dataset(pl.DataFrame([series1, series2]), b"", [])
         assert isinstance(new, target)
+
+
+class TestGatedMeasurement:
+    def test_scale(self, blank_gated_meas: pf.GatedMeasurement) -> None:
+        assert blank_gated_meas.gme is None
 
 
 class TestMeas:

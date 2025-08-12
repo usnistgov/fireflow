@@ -275,14 +275,14 @@ _RawInput = list[tuple[_N, _O] | tuple[Shortname, _T]]
 class GatedMeasurement:
     def __new__(
         cls,
-        scale: tuple[()] | tuple[float, float] | None,
-        filter: str | None,
-        shortname: str | None,
-        percent_emitted: str | None,
-        range: float | None,
-        longname: str | None,
-        detector_type: str | None,
-        detector_voltage: float | None,
+        scale: tuple[()] | tuple[float, float] | None = None,
+        filter: str | None = None,
+        shortname: str | None = None,
+        percent_emitted: str | None = None,
+        range: float | None = None,
+        longname: str | None = None,
+        detector_type: str | None = None,
+        detector_voltage: float | None = None,
     ) -> Self: ...
     gme: tuple[()] | tuple[float, float] | None
     gmf: str | None
@@ -969,6 +969,7 @@ __all__ = [
     "AppliedGates2_0",
     "AppliedGates3_0",
     "AppliedGates3_2",
+    "GatedMeasurement",
     "AsciiFixedLayout",
     "AsciiDelimLayout",
     "OrderedUint08Layout",

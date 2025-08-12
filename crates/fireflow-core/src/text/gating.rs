@@ -1140,8 +1140,37 @@ mod python {
 
     use pyo3::prelude::*;
 
+    // most of these are in the fireflow-python crate, but it is far more
+    // convenient to do this here where we have the luxury of not using a
+    // newtype wrapper
     #[pymethods]
     impl GatedMeasurement {
+        /// The *$Gn\** keywords for one gated measurement.
+        ///
+        /// :param scale: The *$$GnE* keyword. ``()`` means linear scaling and
+        ///     2-tuple specifies decades and offset for log scaling.
+        /// :type scale: () | (float, float) | None
+        ///
+        /// :param filter: The *$GnF* keyword.
+        /// :type filter: str | None
+        ///
+        /// :param shortname: The *$GnN* keyword. Must not contain commas.
+        /// :type filter: str | None
+        ///
+        /// :param percent_emitted: The *$GnP* keyword.
+        /// :type filter: str | None
+        ///
+        /// :param range: The *$GnR* keyword.
+        /// :type filter: float | None
+        ///
+        /// :param longname: The *$GnS* keyword.
+        /// :type filter: str | None
+        ///
+        /// :param detector_type: The *$GnT* keyword.
+        /// :type filter: str | None
+        ///
+        /// :param detector_voltage: The *$GnV* keyword.
+        /// :type filter: float | None
         #[new]
         #[allow(clippy::too_many_arguments)]
         #[pyo3(signature = (

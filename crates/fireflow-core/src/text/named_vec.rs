@@ -2140,8 +2140,9 @@ impl fmt::Display for ElementIndexError {
         if let Some(c) = self.center.as_ref() {
             write!(
                 f,
-                "index must be 0 <= i < {} and not include center at {c}, got {}",
-                self.index.len, self.index.index
+                "0-index must be 0 <= i < {} and not include center at {c}, got {}",
+                self.index.len,
+                usize::from(self.index.index)
             )
         } else {
             self.index.fmt(f)

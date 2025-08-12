@@ -93,7 +93,12 @@ pub struct BoundaryIndexError {
 
 impl fmt::Display for IndexError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "index must be 0 <= i < {}, got {}", self.len, self.index)
+        write!(
+            f,
+            "0-index must be 0 <= i < {}, got {}",
+            self.len,
+            usize::from(self.index)
+        )
     }
 }
 
@@ -101,8 +106,9 @@ impl fmt::Display for BoundaryIndexError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
-            "index must be 0 <= i <= {}, got {}",
-            self.len, self.index
+            "0-index must be 0 <= i <= {}, got {}",
+            self.len,
+            usize::from(self.index)
         )
     }
 }

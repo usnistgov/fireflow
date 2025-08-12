@@ -1,5 +1,4 @@
 use fireflow_core::python::exceptions::{PyreflowException, PyreflowWarning};
-use fireflow_core::text::gating::GatedMeasurement;
 use fireflow_python as ff;
 
 use pyo3::prelude::*;

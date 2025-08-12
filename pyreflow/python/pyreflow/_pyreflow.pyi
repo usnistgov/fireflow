@@ -271,16 +271,45 @@ _O = TypeVar("_O", bound=Optical2_0 | Optical3_0 | Optical3_1 | Optical3_2)
 
 _RawInput = list[tuple[_N, _O] | tuple[Shortname, _T]]
 
+@final
 class GatedMeasurement:
-    
+    def __new__(
+        cls,
+        scale: tuple[()] | tuple[float, float] | None,
+        filter: str | None,
+        shortname: str | None,
+        percent_emitted: str | None,
+        range: float | None,
+        longname: str | None,
+        detector_type: str | None,
+        detector_voltage: float | None,
+    ) -> Self: ...
+    gme: tuple[()] | tuple[float, float] | None
+    gmf: str | None
+    gmn: str | None
+    gmp: str | None
+    gmr: float | None
+    gms: str | None
+    gmt: str | None
+    gmv: float | None
 
 class _UnivariateRegion(Generic[_X]):
+    def __new__(
+        cls,
+        index: _X,
+        gate: tuple[float, float],
+    ) -> Self: ...
     @property
     def index(self) -> _X: ...
     @property
     def gate(self) -> tuple[float, float]: ...
 
 class _BivariateRegion(Generic[_X]):
+    def __new__(
+        cls,
+        index: tuple[_X, _X],
+        vertices: list[tuple[float, float]],
+    ) -> Self: ...
     @property
     def index(self) -> tuple[_X, _X]: ...
     @property
@@ -324,17 +353,31 @@ class _GatedMeasurements:
 class AppliedGates2_0(
     _Regions[UnivariateRegion2_0, BivariateRegion2_0], _GatedMeasurements
 ):
-    pass
+    def __new__(
+        cls,
+        gated_measurements: list[GatedMeasurement],
+        regions: dict[int, UnivariateRegion2_0 | BivariateRegion2_0],
+        gating: str | None,
+    ) -> Self: ...
 
 @final
 class AppliedGates3_0(
     _Regions[UnivariateRegion3_0, BivariateRegion3_0], _GatedMeasurements
 ):
-    pass
+    def __new__(
+        cls,
+        gated_measurements: list[GatedMeasurement],
+        regions: dict[int, UnivariateRegion3_0 | BivariateRegion3_0],
+        gating: str | None,
+    ) -> Self: ...
 
 @final
 class AppliedGates3_2(_Regions[UnivariateRegion3_2, BivariateRegion3_2]):
-    pass
+    def __new__(
+        cls,
+        regions: dict[int, UnivariateRegion3_2 | BivariateRegion3_2],
+        gating: str | None,
+    ) -> Self: ...
 
 class _CoreCommon:
     abrt: int | None

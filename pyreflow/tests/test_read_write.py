@@ -620,6 +620,59 @@ class TestCore:
         assert core.unstained_centers is None
 
     @parameterize_versions("core", ["2_0"], ["text2", "dataset2"])
+    def test_applied_gates_2_0(
+        self,
+        core: pf.CoreTEXT2_0 | pf.CoreDataset2_0,
+        blank_gated_meas: pf.GatedMeasurement,
+    ) -> None:
+        ur = pf.UnivariateRegion2_0(0, (0.0, 1.0))
+        ag = pf.AppliedGates2_0([blank_gated_meas], {0: ur})
+        core.applied_gates = ag
+
+    @parameterize_versions("core", ["3_0", "3_1"], ["text2", "dataset2"])
+    def test_applied_gates_3_0(
+        self,
+        core: pf.CoreTEXT3_0 | pf.CoreTEXT3_1 | pf.CoreDataset3_0 | pf.CoreDataset3_1,
+        blank_gated_meas: pf.GatedMeasurement,
+    ) -> None:
+        ur = pf.UnivariateRegion3_0("P1", (0.0, 1.0))
+        ag = pf.AppliedGates3_0([], {0: ur})
+        core.applied_gates = ag
+        with pytest.raises(pf.PyreflowException):
+            ur_bad = pf.UnivariateRegion3_0("P3", (0.0, 1.0))
+            ag_bad = pf.AppliedGates3_0([], {0: ur_bad})
+            core.applied_gates = ag_bad
+
+    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
+    def test_applied_gates_3_2(self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2) -> None:
+        ur = pf.UnivariateRegion3_2(0, (0.0, 1.0))
+        ag = pf.AppliedGates3_2({0: ur})
+        core.applied_gates = ag
+        with pytest.raises(pf.PyreflowException):
+            ur_bad = pf.UnivariateRegion3_2(2, (0.0, 1.0))
+            ag_bad = pf.AppliedGates3_2({0: ur_bad})
+            core.applied_gates = ag_bad
+
+    def test_applied_gates3_0(self, blank_gated_meas: pf.GatedMeasurement) -> None:
+        ur = pf.UnivariateRegion3_0("P1", (0.0, 1.0))
+        br = pf.BivariateRegion3_0(("G1", "P1"), [(0.0, 1.0)])
+        rs: dict[int, pf.UnivariateRegion3_0 | pf.BivariateRegion3_0] = {0: ur, 1: br}
+        g = "R1 AND R2"
+        ag = pf.AppliedGates3_0([blank_gated_meas] * 2, rs, g)
+        assert ag.gated_measurements == [blank_gated_meas] * 2
+        assert ag.regions == rs
+        assert ag.scheme == "(R1 AND R2)"  # NOTE parens are supposed to be added
+
+    def test_applied_gates3_2(self, blank_gated_meas: pf.GatedMeasurement) -> None:
+        ur = pf.UnivariateRegion3_2(0, (0.0, 1.0))
+        br = pf.BivariateRegion3_2((0, 1), [(0.0, 1.0)])
+        rs: dict[int, pf.UnivariateRegion3_2 | pf.BivariateRegion3_2] = {0: ur, 1: br}
+        g = "R1 AND R2"
+        ag = pf.AppliedGates3_2(rs, g)
+        assert ag.regions == rs
+        assert ag.scheme == "(R1 AND R2)"  # NOTE parens are supposed to be added
+
+    @parameterize_versions("core", ["2_0"], ["text2", "dataset2"])
     def test_meas_scales(self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0) -> None:
         assert core.scales == [None, ()]
         core.scales = [(), ()]

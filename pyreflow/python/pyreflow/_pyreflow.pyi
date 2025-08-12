@@ -355,9 +355,9 @@ class AppliedGates2_0(
 ):
     def __new__(
         cls,
-        gated_measurements: list[GatedMeasurement],
-        regions: dict[int, UnivariateRegion2_0 | BivariateRegion2_0],
-        gating: str | None,
+        gated_measurements: list[GatedMeasurement] = [],
+        regions: dict[int, UnivariateRegion2_0 | BivariateRegion2_0] = {},
+        gating: str | None = None,
     ) -> Self: ...
 
 @final
@@ -366,17 +366,17 @@ class AppliedGates3_0(
 ):
     def __new__(
         cls,
-        gated_measurements: list[GatedMeasurement],
-        regions: dict[int, UnivariateRegion3_0 | BivariateRegion3_0],
-        gating: str | None,
+        gated_measurements: list[GatedMeasurement] = [],
+        regions: dict[int, UnivariateRegion3_0 | BivariateRegion3_0] = {},
+        gating: str | None = None,
     ) -> Self: ...
 
 @final
 class AppliedGates3_2(_Regions[UnivariateRegion3_2, BivariateRegion3_2]):
     def __new__(
         cls,
-        regions: dict[int, UnivariateRegion3_2 | BivariateRegion3_2],
-        gating: str | None,
+        regions: dict[int, UnivariateRegion3_2 | BivariateRegion3_2] = {},
+        gating: str | None = None,
     ) -> Self: ...
 
 class _CoreCommon:

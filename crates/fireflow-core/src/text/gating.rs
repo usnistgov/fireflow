@@ -17,15 +17,11 @@ use std::str::FromStr;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-#[cfg(feature = "python")]
-use pyo3::prelude::*;
-
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0)
 ///
 /// Each region is assumed to point to a member of ['gated_measurements'].
 #[derive(Clone, PartialEq, Default, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", pyclass)]
 pub struct AppliedGates2_0 {
     #[as_ref([GatedMeasurement])]
     gated_measurements: GatedMeasurements,
@@ -40,7 +36,6 @@ pub struct AppliedGates2_0 {
 /// a measurement in the ['Core'] struct
 #[derive(Clone, PartialEq, Default, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", pyclass)]
 pub struct AppliedGates3_0 {
     #[as_ref([GatedMeasurement])]
     gated_measurements: GatedMeasurements,
@@ -56,7 +51,6 @@ pub struct AppliedGates3_0 {
 #[as_ref(Option<Gating>)]
 #[as_ref(HashMap<RegionIndex, Region3_2>)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", pyclass)]
 pub struct AppliedGates3_2(pub GatingScheme<PrefixedMeasIndex>);
 
 /// The $GATING/$RnI/$RnW keywords in a unified bundle.

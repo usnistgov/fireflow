@@ -1578,13 +1578,13 @@ macro_rules! impl_core3_2 {
             ///
             /// :type: :py:class:`AppliedGates3_2`
             #[getter]
-            fn get_applied_gates(&self) -> AppliedGates3_2 {
-                self.0.metaroot::<AppliedGates3_2>().clone()
+            fn get_applied_gates(&self) -> PyAppliedGates3_2 {
+                self.0.metaroot::<AppliedGates3_2>().clone().into()
             }
 
             #[setter]
-            fn set_applied_gates(&mut self, ag: AppliedGates3_2) -> PyResult<()> {
-                Ok(self.0.set_applied_gates_3_2(ag)?)
+            fn set_applied_gates(&mut self, ag: PyAppliedGates3_2) -> PyResult<()> {
+                Ok(self.0.set_applied_gates_3_2(ag.into())?)
             }
         }
     };
@@ -1602,13 +1602,13 @@ macro_rules! impl_get_set_applied_gates_2_0 {
             ///
             /// :type: :py:class:`AppliedGates2_0`
             #[getter]
-            fn get_applied_gates(&self) -> AppliedGates2_0 {
-                self.0.metaroot::<AppliedGates2_0>().clone()
+            fn get_applied_gates(&self) -> PyAppliedGates2_0 {
+                self.0.metaroot::<AppliedGates2_0>().clone().into()
             }
 
             #[setter]
-            fn set_applied_gates(&mut self, ag: AppliedGates2_0) {
-                self.0.set_metaroot(ag)
+            fn set_applied_gates(&mut self, ag: PyAppliedGates2_0) {
+                self.0.set_metaroot(ag.0)
             }
         }
     };
@@ -1626,13 +1626,13 @@ macro_rules! impl_get_set_applied_gates_3_0 {
             ///
             /// :type: :py:class:`AppliedGates3_0`
             #[getter]
-            fn get_applied_gates(&self) -> AppliedGates3_0 {
-                self.0.metaroot::<AppliedGates3_0>().clone()
+            fn get_applied_gates(&self) -> PyAppliedGates3_0 {
+                self.0.metaroot::<AppliedGates3_0>().clone().into()
             }
 
             #[setter]
-            fn set_applied_gates(&mut self, ag: AppliedGates3_0) -> PyResult<()> {
-                Ok(self.0.set_applied_gates_3_0(ag)?)
+            fn set_applied_gates(&mut self, ag: PyAppliedGates3_0) -> PyResult<()> {
+                Ok(self.0.set_applied_gates_3_0(ag.into())?)
             }
         }
     };

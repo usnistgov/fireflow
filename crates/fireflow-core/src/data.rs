@@ -52,7 +52,7 @@ use crate::config::{ReadLayoutConfig, ReaderConfig};
 use crate::core::*;
 use crate::error::*;
 use crate::macros::match_many_to_one;
-use crate::nonempty::NonEmptyExt;
+use crate::nonempty::FCSNonEmpty;
 use crate::segment::*;
 use crate::text::byteord::*;
 use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
@@ -2941,7 +2941,7 @@ impl HasDatatype for NullMixedType {
                 .ok()
                 .map_or(AlphaNumType::Ascii, |mut ds| {
                     ds.sort();
-                    let x = (*ds.mode().0).into();
+                    let x = (*FCSNonEmpty::from(ds).mode().0).into();
                     x
                 })
         } else {
@@ -3216,7 +3216,7 @@ impl<T> AnyOrderedUintLayout<T> {
                 .mult_map_errors(SingleFixedWidthError::Bytes)
                 .and_then(|widths| {
                     if let Some(ws) = NonEmpty::from_vec(widths) {
-                        let us = ws.unique();
+                        let us = FCSNonEmpty::from(ws).unique().0;
                         if us.tail.is_empty() && us.head == n {
                             Ok(())
                         } else {

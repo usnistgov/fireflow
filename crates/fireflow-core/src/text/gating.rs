@@ -1,5 +1,6 @@
 use crate::config::*;
 use crate::error::*;
+use crate::nonempty::FCSNonEmpty;
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keywords::*;
 use crate::text::optional::*;
@@ -103,10 +104,10 @@ pub struct UnivariateRegion<I> {
 
 /// A bivariate region corresponding to an $RnI/$RnW keyword pair
 #[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct BivariateRegion<I> {
-    pub vertices: NonEmpty<Vertex>,
-    pub x_index: I,
-    pub y_index: I,
+    pub vertices: FCSNonEmpty<Vertex>,
+    pub index: IndexPair<I>,
 }
 
 /// The values for $Gm* keywords (2.0-3.1)
@@ -206,25 +207,23 @@ impl<I> UnivariateRegion<I> {
 }
 
 impl<I> BivariateRegion<I> {
-    fn map<F, J>(self, mut f: F) -> BivariateRegion<J>
+    fn map<F, J>(self, f: F) -> BivariateRegion<J>
     where
         F: FnMut(I) -> J,
     {
         BivariateRegion {
             vertices: self.vertices,
-            x_index: f(self.x_index),
-            y_index: f(self.y_index),
+            index: self.index.map(f),
         }
     }
 
-    fn try_map<F, J, E>(self, mut f: F) -> Result<BivariateRegion<J>, E>
+    fn try_map<F, J, E>(self, f: F) -> Result<BivariateRegion<J>, E>
     where
         F: FnMut(I) -> Result<J, E>,
     {
         Ok(BivariateRegion {
             vertices: self.vertices,
-            x_index: f(self.x_index)?,
-            y_index: f(self.y_index)?,
+            index: self.index.try_map(f)?,
         })
     }
 }
@@ -704,11 +703,10 @@ impl<I> Region<I> {
             (RegionGateIndex::Univariate(index), RegionWindow::Univariate(gate)) => {
                 Some(Region::Univariate(UnivariateRegion { index, gate }))
             }
-            (RegionGateIndex::Bivariate(x_index, y_index), RegionWindow::Bivariate(vertices)) => {
+            (RegionGateIndex::Bivariate(index), RegionWindow::Bivariate(vs)) => {
                 Some(Region::Bivariate(BivariateRegion {
-                    x_index,
-                    y_index,
-                    vertices,
+                    index,
+                    vertices: vs.into(),
                 }))
             }
             _ => None,
@@ -801,14 +799,14 @@ impl<I> Region<I> {
         I: Copy,
     {
         match self {
-            Self::Univariate(x) => (
-                RegionGateIndex::Univariate(x.index),
+            Self::Univariate(r) => (
+                RegionGateIndex::Univariate(r.index),
                 // TODO clone
-                RegionWindow::Univariate(x.gate.clone()),
+                RegionWindow::Univariate(r.gate.clone()),
             ),
-            Self::Bivariate(x) => (
-                RegionGateIndex::Bivariate(x.x_index, x.y_index),
-                RegionWindow::Bivariate(x.vertices.clone()),
+            Self::Bivariate(r) => (
+                RegionGateIndex::Bivariate(r.index),
+                RegionWindow::Bivariate(r.vertices.clone().into()),
             ),
         }
     }
@@ -846,7 +844,7 @@ impl<I> Region<I> {
     {
         match self {
             Self::Univariate(r) => NonEmpty::new(r.index),
-            Self::Bivariate(r) => (r.x_index, vec![r.y_index]).into(),
+            Self::Bivariate(r) => (r.index.x, vec![r.index.x]).into(),
         }
     }
 
@@ -855,12 +853,11 @@ impl<I> Region<I> {
         I: LinkedMeasIndex,
     {
         match self {
-            Self::Univariate(x) => x.index.meas_index().into_iter().chain(None),
-            Self::Bivariate(x) => x
-                .x_index
-                .meas_index()
-                .into_iter()
-                .chain(x.y_index.meas_index()),
+            Self::Univariate(r) => r.index.meas_index().into_iter().chain(None),
+            Self::Bivariate(r) => {
+                let i = &r.index;
+                i.x.meas_index().into_iter().chain(i.y.meas_index())
+            }
         }
     }
 
@@ -874,10 +871,10 @@ impl<I> Region<I> {
             *j = if jx >= ix { jx + 1 } else { jx }.into();
         };
         match self {
-            Self::Univariate(x) => x.index.meas_index_mut().map(go),
-            Self::Bivariate(x) => {
-                x.x_index.meas_index_mut().map(go);
-                x.y_index.meas_index_mut().map(go)
+            Self::Univariate(r) => r.index.meas_index_mut().map(go),
+            Self::Bivariate(r) => {
+                r.index.x.meas_index_mut().map(go);
+                r.index.y.meas_index_mut().map(go)
             }
         };
     }
@@ -1125,49 +1122,28 @@ impl fmt::Display for NewGatingSchemeError {
     }
 }
 
-#[cfg(feature = "serde")]
-mod serialize {
-    use super::BivariateRegion;
-    use serde::{ser::SerializeStruct, Serialize};
-
-    impl<I: Serialize> Serialize for BivariateRegion<I> {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer,
-        {
-            let mut state = serializer.serialize_struct("BivariateRegion", 2)?;
-            state.serialize_field("vertices", &self.vertices.iter().collect::<Vec<_>>())?;
-            state.serialize_field("x_index", &self.x_index)?;
-            state.serialize_field("y_index", &self.y_index)?;
-            state.end()
-        }
-    }
-}
-
 #[cfg(feature = "python")]
 mod python {
+    use crate::nonempty::FCSNonEmpty;
     use crate::python::macros::{
         impl_from_py_via_fromstr, impl_pyreflow_err, impl_to_py_via_display, impl_value_err,
     };
     use crate::text::index::{GateIndex, RegionIndex};
     use crate::text::keywords::{
         GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GateRange, GateScale,
-        GateShortname, Gating, GatingError, MeasOrGateIndex, UniGate, Vertex,
+        GateShortname, Gating, GatingError, IndexPair, MeasOrGateIndex, PrefixedMeasIndex, UniGate,
+        Vertex,
     };
     use crate::text::optional::MaybeValue;
 
     use super::{
         AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, BivariateRegion,
         GateMeasurementLinkError, GatePercentEmitted, GatedMeasurement, GatedMeasurements,
-        GatingScheme, MeasOrGateIndexError, NewGatingSchemeError, Region, Region2_0, Region3_0,
-        Region3_2, UnivariateRegion,
+        GatingScheme, MeasOrGateIndexError, NewGatingSchemeError, Region, UnivariateRegion,
     };
 
     use derive_more::{From, Into};
-    use nonempty::NonEmpty;
-    use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
-    use pyo3::types::PyTuple;
     use std::collections::HashMap;
 
     macro_rules! py_wrap {
@@ -1179,104 +1155,456 @@ mod python {
     }
 
     py_wrap!(
-        PyGatingScheme2_0,
-        GatingScheme<GateIndex>,
-        "GatingScheme2_0"
+        PyUnivariateRegion2_0,
+        UnivariateRegion<GateIndex>,
+        "UnivariateRegion2_0"
     );
 
     py_wrap!(
-        PyGatingScheme3_0,
-        GatingScheme<MeasOrGateIndex>,
-        "GatingScheme3_0"
+        PyUnivariateRegion3_0,
+        UnivariateRegion<MeasOrGateIndex>,
+        "UnivariateRegion3_0"
+    );
+
+    py_wrap!(
+        PyUnivariateRegion3_2,
+        UnivariateRegion<PrefixedMeasIndex>,
+        "UnivariateRegion3_2"
+    );
+
+    py_wrap!(
+        PyBivariateRegion2_0,
+        BivariateRegion<GateIndex>,
+        "BivariateRegion2_0"
+    );
+
+    py_wrap!(
+        PyBivariateRegion3_0,
+        BivariateRegion<MeasOrGateIndex>,
+        "BivariateRegion3_0"
+    );
+
+    py_wrap!(
+        PyBivariateRegion3_2,
+        BivariateRegion<PrefixedMeasIndex>,
+        "BivariateRegion3_2"
     );
 
     #[pymethods]
-    impl AppliedGates2_0 {
+    impl PyUnivariateRegion2_0 {
+        /// Make a new FCS 2.0-compatible univariate region.
+        ///
+        /// :param int index: The index corresponding to a gating measurement
+        ///     (the *n* in the *$Gn\** keywords).
+        ///
+        /// :param gate: The lower and upper bounds of the gate.
+        /// :type gate: (float, float)
         #[new]
-        fn new(gated_measurements: GatedMeasurements, scheme: PyGatingScheme2_0) -> PyResult<Self> {
-            Ok(Self::try_new(gated_measurements, scheme.into())?)
+        fn new(index: GateIndex, gate: UniGate) -> Self {
+            UnivariateRegion { index, gate }.into()
         }
 
+        /// The value of the index.
+        ///
+        /// :rtype: int
         #[getter]
-        fn gated_measurements(&self) -> Vec<GatedMeasurement> {
-            let xs: &[GatedMeasurement] = self.as_ref();
-            xs.to_vec()
+        fn index(&self) -> GateIndex {
+            self.0.index
+        }
+    }
+
+    #[pymethods]
+    impl PyUnivariateRegion3_0 {
+        /// Make a new FCS 3.0/3.1-compatible univariate region.
+        ///
+        /// :param str index: The index corresponding to either a gating
+        ///     or a physical measurement (the *n* in the *$Gn\** or *$Pn\**
+        ///     keywords). Must be a string like either ``Gn`` or ``Pn`` where
+        ///     ``n`` is an integer and the prefix corresponds to a gating or
+        ///     physical measurement respectively.
+        ///
+        /// :param gate: The lower and upper bounds of the gate.
+        /// :type gate: (float, float)
+        #[new]
+        fn new(index: MeasOrGateIndex, gate: UniGate) -> Self {
+            UnivariateRegion { index, gate }.into()
         }
 
+        /// The value of the index.
+        ///
+        /// :return: A string like either ``Gn`` or ``Pn`` where ``n`` is an
+        ///     integer and the prefix corresponds to a gating or physical
+        ///     measurement respectively.
+        /// :rtype: str
         #[getter]
-        fn scheme(&self) -> Option<Gating> {
-            let g: &Option<Gating> = self.as_ref();
-            g.as_ref().cloned()
+        fn index(&self) -> MeasOrGateIndex {
+            self.0.index
+        }
+    }
+
+    #[pymethods]
+    impl PyUnivariateRegion3_2 {
+        /// Make a new FCS 3.2-compatible univariate region.
+        ///
+        /// :param int index: The index corresponding to either a physical
+        ///     measurement (the *n* in the *$Pn\** keywords).
+        ///
+        /// :param gate: The lower and upper bounds of the gate.
+        /// :type gate: (float, float)
+        #[new]
+        fn new(index: PrefixedMeasIndex, gate: UniGate) -> Self {
+            UnivariateRegion { index, gate }.into()
         }
 
+        /// The value of the index.
+        ///
+        /// :rtype: int
         #[getter]
-        fn regions(&self) -> HashMap<RegionIndex, Region2_0> {
-            let h: &HashMap<RegionIndex, Region2_0> = self.as_ref();
-            h.clone()
+        fn index(&self) -> PrefixedMeasIndex {
+            self.0.index
+        }
+    }
+
+    macro_rules! impl_univarate_get_gate {
+        ($pytype:ident) => {
+            #[pymethods]
+            impl $pytype {
+                /// The lower and upper bounds of the gate.
+                ///
+                /// :rtype: (float, float)
+                #[getter]
+                fn gate(&self) -> UniGate {
+                    self.0.gate.clone()
+                }
+            }
+        };
+    }
+
+    impl_univarate_get_gate!(PyUnivariateRegion2_0);
+    impl_univarate_get_gate!(PyUnivariateRegion3_0);
+    impl_univarate_get_gate!(PyUnivariateRegion3_2);
+
+    #[pymethods]
+    impl PyBivariateRegion2_0 {
+        /// Make a new FCS 2.0-compatible univariate region.
+        ///
+        /// :param index: The x/y indices corresponding to gating measurements
+        ///     (the *n* in the *$Gn\** keywords).
+        /// :type index: (int, int)
+        ///
+        /// :param gate: The vertices of a polygon gate. Must not be empty.
+        /// :type gate: list[(float, float)]
+        #[new]
+        fn new(index: IndexPair<GateIndex>, vertices: FCSNonEmpty<Vertex>) -> Self {
+            BivariateRegion { index, vertices }.into()
+        }
+
+        /// The value of the x/y indices.
+        ///
+        /// :rtype: (int, int)
+        #[getter]
+        fn index(&self) -> IndexPair<GateIndex> {
+            self.0.index
+        }
+    }
+
+    #[pymethods]
+    impl PyBivariateRegion3_0 {
+        /// Make a new FCS 3.0/3.1-compatible univariate region.
+        ///
+        /// :param index: The x/y indices corresponding to either gating or
+        ///     physical measurements (the *n* in the *$Gn\** or *$Pn\**
+        ///     keywords). Each must be a string like either ``Gn`` or ``Pn``
+        ///     where ``n`` is an integer and the prefix corresponds to a gating
+        ///     or physical measurement respectively.
+        /// :type index: (str, str)
+        ///
+        /// :param gate: The vertices of a polygon gate. Must not be empty.
+        /// :type gate: list[(float, float)]
+        #[new]
+        fn new(index: IndexPair<MeasOrGateIndex>, vertices: FCSNonEmpty<Vertex>) -> Self {
+            BivariateRegion { index, vertices }.into()
+        }
+
+        /// The value of the x/y indices.
+        ///
+        /// :return: Two strings like either ``Gn`` or ``Pn`` where ``n`` is an
+        ///     integer and the prefix corresponds to a gating or physical
+        ///     measurement respectively.
+        /// :rtype: (str, str)
+        #[getter]
+        fn index(&self) -> IndexPair<MeasOrGateIndex> {
+            self.0.index
+        }
+    }
+
+    #[pymethods]
+    impl PyBivariateRegion3_2 {
+        /// Make a new FCS 3.2-compatible univariate region.
+        ///
+        /// :param index: The x/y indices corresponding to physical measurements
+        ///     (the *n* in the *$Pn\** keywords).
+        /// :type index: (int, int)
+        ///
+        /// :param gate: The vertices of a polygon gate. Must not be empty.
+        /// :type gate: list[(float, float)]
+        #[new]
+        fn new(index: IndexPair<PrefixedMeasIndex>, vertices: FCSNonEmpty<Vertex>) -> Self {
+            BivariateRegion { index, vertices }.into()
+        }
+
+        /// The value of the x/y indices.
+        ///
+        /// :rtype: (int, int)
+        #[getter]
+        fn index(&self) -> IndexPair<PrefixedMeasIndex> {
+            self.0.index
+        }
+    }
+
+    macro_rules! impl_bivarate_get_vertices {
+        ($pytype:ident) => {
+            #[pymethods]
+            impl $pytype {
+                /// The vertices of a polygon gate.
+                ///
+                /// :rtype: list[(float, float)]
+                #[getter]
+                fn vertices(&self) -> FCSNonEmpty<Vertex> {
+                    self.0.vertices.clone()
+                }
+            }
+        };
+    }
+
+    impl_bivarate_get_vertices!(PyBivariateRegion2_0);
+    impl_bivarate_get_vertices!(PyBivariateRegion3_0);
+    impl_bivarate_get_vertices!(PyBivariateRegion3_2);
+
+    #[derive(IntoPyObject, FromPyObject)]
+    enum PyRegion<U, B> {
+        Uni(U),
+        Bi(B),
+    }
+
+    type PyRegion2_0 = PyRegion<PyUnivariateRegion2_0, PyBivariateRegion2_0>;
+    type PyRegion3_0 = PyRegion<PyUnivariateRegion3_0, PyBivariateRegion3_0>;
+    type PyRegion3_2 = PyRegion<PyUnivariateRegion3_2, PyBivariateRegion3_2>;
+
+    impl<U, B, I> From<PyRegion<U, B>> for Region<I>
+    where
+        UnivariateRegion<I>: From<U>,
+        BivariateRegion<I>: From<B>,
+    {
+        fn from(value: PyRegion<U, B>) -> Self {
+            match value {
+                PyRegion::Uni(u) => Self::Univariate(u.into()),
+                PyRegion::Bi(b) => Self::Bivariate(b.into()),
+            }
+        }
+    }
+
+    impl<U, B, I> From<Region<I>> for PyRegion<U, B>
+    where
+        U: From<UnivariateRegion<I>>,
+        B: From<BivariateRegion<I>>,
+    {
+        fn from(value: Region<I>) -> Self {
+            match value {
+                Region::Univariate(u) => Self::Uni(u.into()),
+                Region::Bivariate(b) => Self::Bi(b.into()),
+            }
+        }
+    }
+
+    #[derive(IntoPyObject)]
+    struct PyRegionMapping<R>(HashMap<RegionIndex, R>);
+
+    impl<'py, R> FromPyObject<'py> for PyRegionMapping<R>
+    where
+        R: FromPyObject<'py>,
+    {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let xs: HashMap<RegionIndex, R> = ob.extract()?;
+            Ok(Self(xs))
+        }
+    }
+
+    impl<I, R> From<PyRegionMapping<R>> for HashMap<RegionIndex, Region<I>>
+    where
+        Region<I>: From<R>,
+    {
+        fn from(value: PyRegionMapping<R>) -> Self {
+            value.0.into_iter().map(|(k, v)| (k, v.into())).collect()
+        }
+    }
+
+    impl<I, R> From<HashMap<RegionIndex, Region<I>>> for PyRegionMapping<R>
+    where
+        R: From<Region<I>>,
+    {
+        fn from(value: HashMap<RegionIndex, Region<I>>) -> Self {
+            Self(value.into_iter().map(|(k, v)| (k, v.into())).collect())
+        }
+    }
+
+    #[pymethods]
+    impl AppliedGates2_0 {
+        /// Make new FCS 2.0-compatible gates.
+        ///
+        /// :param gated_measurements: Gated measurements corresponding to the
+        ///     *$Gn\** keywords.
+        /// :type gated_measurements: list[:py:class:`GatedMeasurement`]
+        ///
+        /// :param regions: Mapping of regions and windows to be used in gating
+        ///     scheme. Corresponds to *$RnI* and *$RnW* keywords. Keys in
+        ///     dictionary are the region indices (the *n* in *$RnI* and
+        ///     *$RnW*). The values in the dictionary are either univariate or
+        ///     bivariate gates and must correspond to an index in
+        ///     ``gated_measurements``.
+        /// :type regions: dict[int, :py:class:`UnivariateGate2_0` | :py:class:`BnivariateGate2_0`]
+        ///
+        /// :param gating: The gating scheme. Corresponds to *$GATING* keyword.
+        ///      All 'Rn' in this string must reference a key in ``regions``.
+        /// :param gating: str | None
+        #[new]
+        #[pyo3(signature = (
+            gated_measurements = GatedMeasurements(vec![]),
+            regions = PyRegionMapping(HashMap::new()),
+            gating = None,
+        ))]
+        fn new(
+            gated_measurements: GatedMeasurements,
+            regions: PyRegionMapping<PyRegion2_0>,
+            gating: Option<Gating>,
+        ) -> PyResult<Self> {
+            let scheme = GatingScheme::try_new(gating, regions.into())?;
+            Ok(Self::try_new(gated_measurements, scheme)?)
+        }
+
+        /// Value of all gating regions, corresponding to *$RnI* and *$RnW*.
+        ///
+        /// :type regions: dict[int, :py:class:`UnivariateGate2_0` | :py:class:`BnivariateGate2_0`]
+        #[getter]
+        fn regions(&self) -> PyRegionMapping<PyRegion2_0> {
+            self.scheme.regions.clone().into()
         }
     }
 
     #[pymethods]
     impl AppliedGates3_0 {
+        /// Make new FCS 3.0/3.1-compatible gates.
+        ///
+        /// :param gated_measurements: Gated measurements corresponding to the
+        ///     *$Gn\** keywords.
+        /// :type gated_measurements: list[:py:class:`GatedMeasurement`]
+        ///
+        /// :param regions: Mapping of regions and windows to be used in gating
+        ///     scheme. Corresponds to *$RnI* and *$RnW* keywords. Keys in
+        ///     dictionary are the region indices (the *n* in *$RnI* and
+        ///     *$RnW*). The values in the dictionary are either univariate or
+        ///     bivariate gates and must correspond to either physical
+        ///     measurements of an index in ``gated_measurements``.
+        /// :type regions: dict[int, :py:class:`UnivariateGate3_0` | :py:class:`BnivariateGate3_0`]
+        ///
+        /// :param gating: The gating scheme. Corresponds to *$GATING* keyword.
+        ///      All 'Rn' in this string must reference a key in ``regions``.
+        /// :param gating: str | None
         #[new]
-        fn new(gated_measurements: GatedMeasurements, scheme: PyGatingScheme3_0) -> PyResult<Self> {
-            Ok(Self::try_new(gated_measurements, scheme.into())?)
+        #[pyo3(signature = (
+            gated_measurements = GatedMeasurements(vec![]),
+            regions = PyRegionMapping(HashMap::new()),
+            gating = None,
+        ))]
+        fn new(
+            gated_measurements: GatedMeasurements,
+            regions: PyRegionMapping<PyRegion3_0>,
+            gating: Option<Gating>,
+        ) -> PyResult<Self> {
+            let scheme = GatingScheme::try_new(gating, regions.into())?;
+            Ok(Self::try_new(gated_measurements, scheme)?)
         }
 
+        /// Value of all gating regions, corresponding to *$RnI* and *$RnW*.
+        ///
+        /// :type regions: dict[int, :py:class:`UnivariateGate3_0` | :py:class:`BnivariateGate3_0`]
         #[getter]
-        fn gated_measurements(&self) -> Vec<GatedMeasurement> {
-            let xs: &[GatedMeasurement] = self.as_ref();
-            xs.to_vec()
-        }
-
-        #[getter]
-        fn scheme(&self) -> Option<Gating> {
-            let g: &Option<Gating> = self.as_ref();
-            g.as_ref().cloned()
-        }
-
-        #[getter]
-        fn regions(&self) -> HashMap<RegionIndex, Region3_0> {
-            let h: &HashMap<RegionIndex, Region3_0> = self.as_ref();
-            h.clone()
+        fn regions(&self) -> PyRegionMapping<PyRegion3_0> {
+            self.scheme.regions.clone().into()
         }
     }
 
     #[pymethods]
     impl AppliedGates3_2 {
+        /// Make new FCS 3.0/3.1-compatible gates.
+        ///
+        /// :param regions: Mapping of regions and windows to be used in gating
+        ///     scheme. Corresponds to *$RnI* and *$RnW* keywords. Keys in
+        ///     dictionary are the region indices (the *n* in *$RnI* and
+        ///     *$RnW*). The values in the dictionary are either univariate or
+        ///     bivariate gates and must correspond to physical measurements.
+        /// :type regions: dict[int, :py:class:`UnivariateGate3_2` | :py:class:`BnivariateGate3_2`]
+        ///
+        /// :param gating: The gating scheme. Corresponds to *$GATING* keyword.
+        ///      All 'Rn' in this string must reference a key in ``regions``.
+        /// :param gating: str | None
         #[new]
-        fn new(gating: Option<Gating>, regions: HashMap<RegionIndex, Region3_2>) -> PyResult<Self> {
-            Ok(Self(GatingScheme::try_new(gating, regions)?))
+        #[pyo3(signature = (
+            regions = PyRegionMapping(HashMap::new()),
+            gating = None,
+        ))]
+        fn new(regions: PyRegionMapping<PyRegion3_2>, gating: Option<Gating>) -> PyResult<Self> {
+            Ok(Self::try_new(gating, regions.into())?)
         }
 
+        /// Value of all gating regions, corresponding to *$RnI* and *$RnW*.
+        ///
+        /// :type regions: dict[int, :py:class:`UnivariateGate3_2` | :py:class:`BnivariateGate3_2`]
         #[getter]
-        fn scheme(&self) -> Option<Gating> {
-            let g: &Option<Gating> = self.as_ref();
-            g.as_ref().cloned()
-        }
-
-        #[getter]
-        fn regions(&self) -> HashMap<RegionIndex, Region3_2> {
-            let h: &HashMap<RegionIndex, Region3_2> = self.as_ref();
-            h.clone()
+        fn regions(&self) -> PyRegionMapping<PyRegion3_2> {
+            self.0.regions.clone().into()
         }
     }
 
-    #[pymethods]
-    impl PyGatingScheme2_0 {
-        #[new]
-        fn new(gating: Option<Gating>, regions: HashMap<RegionIndex, Region2_0>) -> PyResult<Self> {
-            Ok(GatingScheme::try_new(gating, regions)?.into())
-        }
+    macro_rules! impl_applied_gates_scheme {
+        ($pytype:ident) => {
+            #[pymethods]
+            impl $pytype {
+                /// Value of the *$GATING* keyword.
+                ///
+                /// :rtype: str | None
+                #[getter]
+                fn scheme(&self) -> Option<Gating> {
+                    let g: &Option<Gating> = self.as_ref();
+                    g.as_ref().cloned()
+                }
+            }
+        };
     }
 
-    #[pymethods]
-    impl PyGatingScheme3_0 {
-        #[new]
-        fn new(gating: Option<Gating>, regions: HashMap<RegionIndex, Region3_0>) -> PyResult<Self> {
-            Ok(GatingScheme::try_new(gating, regions)?.into())
-        }
+    impl_applied_gates_scheme!(AppliedGates2_0);
+    impl_applied_gates_scheme!(AppliedGates3_0);
+    impl_applied_gates_scheme!(AppliedGates3_2);
+
+    macro_rules! impl_applied_gated_meas {
+        ($pytype:ident) => {
+            #[pymethods]
+            impl $pytype {
+                /// All gated measurements, corresponding to each *$Gn\** keyword.
+                ///
+                /// *$GATE* is implied by the length of this list.
+                ///
+                /// :rtype: list[:py:class:`GatedMeasurement`]
+                #[getter]
+                fn gated_measurements(&self) -> Vec<GatedMeasurement> {
+                    self.gated_measurements.0.clone()
+                }
+            }
+        };
     }
+
+    impl_applied_gated_meas!(AppliedGates2_0);
+    impl_applied_gated_meas!(AppliedGates3_0);
 
     #[pymethods]
     impl GatedMeasurement {
@@ -1315,87 +1643,11 @@ mod python {
         }
     }
 
-    impl<'py, I> FromPyObject<'py> for Region<I>
-    where
-        I: From<usize>,
-    {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            extract_bound_region(ob, |s: usize| Ok(s.into()))
-        }
-    }
-
-    impl<'py> FromPyObject<'py> for Region3_0 {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            extract_bound_region(ob, |s: String| Ok(s.parse()?))
-        }
-    }
-
-    impl<'py, I> IntoPyObject<'py> for Region<I>
-    where
-        usize: From<I>,
-    {
-        type Target = PyTuple;
-        type Output = Bound<'py, PyTuple>;
-        type Error = PyErr;
-
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            into_pyobject_region(self, py, usize::from)
-        }
-    }
-
-    impl<'py> IntoPyObject<'py> for Region3_0 {
-        type Target = PyTuple;
-        type Output = Bound<'py, PyTuple>;
-        type Error = PyErr;
-
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            into_pyobject_region(self, py, |i| i.to_string())
-        }
-    }
-
-    fn into_pyobject_region<'py, F, I, X>(
-        r: Region<I>,
-        py: Python<'py>,
-        f: F,
-    ) -> Result<Bound<'py, PyTuple>, PyErr>
-    where
-        F: Fn(I) -> X,
-        X: IntoPyObject<'py>,
-    {
-        match r {
-            Region::Univariate(z) => (f(z.index), z.gate).into_pyobject(py),
-            Region::Bivariate(z) => {
-                ((f(z.x_index), f(z.y_index)), Vec::from(z.vertices)).into_pyobject(py)
-            }
-        }
-    }
-
-    fn extract_bound_region<'py, I, F, X>(ob: &Bound<'py, PyAny>, f: F) -> PyResult<Region<I>>
-    where
-        F: Fn(X) -> PyResult<I>,
-        X: FromPyObject<'py>,
-    {
-        if let Ok((s, gate)) = ob.extract::<(X, UniGate)>() {
-            let index = f(s)?;
-            return Ok(Region::Univariate(UnivariateRegion { gate, index }));
-        } else if let Ok(((x, y), vs)) = ob.extract::<((X, X), Vec<Vertex>)>() {
-            if let Some(vertices) = NonEmpty::from_vec(vs) {
-                let b = BivariateRegion {
-                    vertices,
-                    x_index: f(x)?,
-                    y_index: f(y)?,
-                };
-                return Ok(Region::Bivariate(b));
-            }
-        }
-        let msg = "must be univariate region like '(<index>, (<lower>, <upper>))' \
-                       or bivariate region like '((<x-index>, <y-index>), list[(<x>, <y>)])' \
-                       where the vertex list cannot be empty";
-        Err(PyValueError::new_err(msg))
-    }
-
     impl_from_py_via_fromstr!(Gating);
     impl_to_py_via_display!(Gating);
+
+    impl_from_py_via_fromstr!(MeasOrGateIndex);
+    impl_to_py_via_display!(MeasOrGateIndex);
 
     impl_value_err!(GatingError);
     impl_value_err!(MeasOrGateIndexError);

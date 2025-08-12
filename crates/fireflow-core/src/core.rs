@@ -3,6 +3,7 @@ use crate::data::*;
 use crate::error::*;
 use crate::header::*;
 use crate::macros::{def_failure, match_many_to_one};
+use crate::nonempty::FCSNonEmpty;
 use crate::segment::*;
 use crate::text::byteord::*;
 use crate::text::compensation::*;
@@ -887,12 +888,13 @@ pub struct PeakData {
 /// ANALYSIS segment given the CS* keywords, but may add this in the future if
 /// the need arises.
 #[derive(Clone, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SubsetData {
     /// Value of $CSBITS if given
     pub bits: MaybeValue<CSVBits>,
 
     /// Values of $CSVnFLAG if given, with length equal to $CSMODE
-    pub flags: NonEmpty<MaybeValue<CSVFlag>>,
+    pub flags: FCSNonEmpty<MaybeValue<CSVFlag>>,
 }
 
 /// A bundle for $ORIGINALITY, $LAST_MODIFIER, and $LAST_MODIFIED (3.1+)
@@ -4329,7 +4331,13 @@ impl SubsetData {
             if let Some(n) = m.0 {
                 let it = (0..n.0).map(|i| lookup_flag(kws, i.into()));
                 Tentative::mconcat_ne(NonEmpty::collect(it).unwrap()).and_tentatively(|flags| {
-                    lookup_bits(kws).map(|bits| Some(Self { flags, bits }).into())
+                    lookup_bits(kws).map(|bits| {
+                        Some(Self {
+                            flags: flags.into(),
+                            bits,
+                        })
+                        .into()
+                    })
                 })
             } else {
                 Tentative::new1(None.into())
@@ -4338,8 +4346,9 @@ impl SubsetData {
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
-        let m = CSMode(self.flags.len());
+        let m = CSMode(self.flags.0.len());
         self.flags
+            .0
             .iter()
             .enumerate()
             .map(|(i, f)| OptIndexedKey::pair_opt(f, i.into()))
@@ -4352,6 +4361,7 @@ impl SubsetData {
         let b = self.bits.check_key_transfer(lossless);
         let xs = self
             .flags
+            .0
             .into_iter()
             .enumerate()
             .map(|(i, f)| f.check_indexed_key_transfer_own(i.into(), lossless))
@@ -4545,10 +4555,7 @@ impl From<FCSTime100> for FCSTime60 {
 
 impl From<Wavelength> for Wavelengths {
     fn from(value: Wavelength) -> Self {
-        Self(NonEmpty {
-            head: value.0,
-            tail: vec![],
-        })
+        Self(FCSNonEmpty::new(value.0))
     }
 }
 
@@ -8350,20 +8357,8 @@ def_failure!(WriteDatasetFailure, "could not write FCS file");
 
 #[cfg(feature = "serde")]
 mod serialize {
-    use crate::core::{AnyCore, SubsetData};
+    use crate::core::AnyCore;
     use serde::{ser::SerializeStruct, Serialize};
-
-    impl Serialize for SubsetData {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer,
-        {
-            let mut state = serializer.serialize_struct("SubsetData", 2)?;
-            state.serialize_field("bits", &self.bits)?;
-            state.serialize_field("flags", &self.flags.iter().collect::<Vec<_>>())?;
-            state.end()
-        }
-    }
 
     impl<A, D, O> Serialize for AnyCore<A, D, O>
     where

@@ -1,7 +1,7 @@
 use crate::config::StdTextReadConfig;
 use crate::error::*;
 use crate::macros::impl_newtype_try_from;
-use crate::nonempty::NonEmptyExt;
+use crate::nonempty::FCSNonEmpty;
 use crate::validated::ascii_uint::*;
 use crate::validated::keys::*;
 use crate::validated::shortname::*;
@@ -574,27 +574,22 @@ impl_newtype_try_from!(Wavelength, PositiveFloat, f32, RangedFloatError);
 ///
 /// Starting in 3.1 this is a vector rather than a scaler.
 #[derive(Clone, From, PartialEq)]
-pub struct Wavelengths(pub NonEmpty<PositiveFloat>);
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct Wavelengths(pub FCSNonEmpty<PositiveFloat>);
 
 impl From<Wavelengths> for Vec<f32> {
     fn from(value: Wavelengths) -> Self {
-        Vec::from(value.0).into_iter().map(|x| x.into()).collect()
-    }
-}
-
-#[cfg(feature = "serde")]
-impl Serialize for Wavelengths {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.0.iter().collect::<Vec<_>>().serialize(serializer)
+        Vec::from((value.0).0)
+            .into_iter()
+            .map(|x| x.into())
+            .collect()
     }
 }
 
 impl fmt::Display for Wavelengths {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", self.0.iter().join(","))
+        write!(f, "{}", (self.0).0.iter().join(","))
     }
 }
 
@@ -608,6 +603,7 @@ impl FromStr for Wavelengths {
         }
         NonEmpty::from_vec(ws)
             .ok_or(WavelengthsError::Empty)
+            .map(FCSNonEmpty)
             .map(Wavelengths)
     }
 }
@@ -618,8 +614,8 @@ impl Wavelengths {
         lossless: bool,
     ) -> Tentative<Wavelength, WavelengthsLossError, WavelengthsLossError> {
         let ws = self.0;
-        let n = ws.len();
-        let mut tnt = Tentative::new1(Wavelength(ws.head));
+        let n = ws.0.len();
+        let mut tnt = Tentative::new1(Wavelength(ws.0.head));
         if n > 1 {
             tnt.push_error_or_warning(WavelengthsLossError(n), lossless);
         }
@@ -958,7 +954,37 @@ impl fmt::Display for FeatureError {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub(crate) enum RegionGateIndex<I> {
     Univariate(I),
-    Bivariate(I, I),
+    Bivariate(IndexPair<I>),
+}
+
+/// The two indices of a bivariate gate
+#[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct IndexPair<I> {
+    pub x: I,
+    pub y: I,
+}
+
+impl<I> IndexPair<I> {
+    pub(crate) fn map<F, J>(self, mut f: F) -> IndexPair<J>
+    where
+        F: FnMut(I) -> J,
+    {
+        IndexPair {
+            x: f(self.x),
+            y: f(self.y),
+        }
+    }
+
+    pub(crate) fn try_map<F, J, E>(self, mut f: F) -> Result<IndexPair<J>, E>
+    where
+        F: FnMut(I) -> Result<J, E>,
+    {
+        Ok(IndexPair {
+            x: f(self.x)?,
+            y: f(self.y)?,
+        })
+    }
 }
 
 impl<I> RegionGateIndex<I> {
@@ -1018,8 +1044,8 @@ impl<I> RegionGateIndex<I> {
         I: gating::LinkedMeasIndex,
     {
         match self {
-            RegionGateIndex::Univariate(x) => x.meas_index().into_iter().collect(),
-            RegionGateIndex::Bivariate(x, y) => [x.meas_index(), y.meas_index()]
+            RegionGateIndex::Univariate(i) => i.meas_index().into_iter().collect(),
+            RegionGateIndex::Bivariate(i) => [i.x.meas_index(), i.y.meas_index()]
                 .into_iter()
                 .flatten()
                 .collect(),
@@ -1041,7 +1067,10 @@ where
                 .map_err(RegionGateIndexError::Int),
             [x, y] => x
                 .parse()
-                .and_then(|a| y.parse().map(|b| RegionGateIndex::Bivariate(a, b)))
+                .and_then(|a| {
+                    y.parse()
+                        .map(|b| RegionGateIndex::Bivariate(IndexPair { x: a, y: b }))
+                })
                 .map_err(RegionGateIndexError::Int),
             _ => Err(RegionGateIndexError::Format),
         }
@@ -1054,9 +1083,18 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            RegionGateIndex::Univariate(x) => write!(f, "{x}"),
-            RegionGateIndex::Bivariate(x, y) => write!(f, "{x},{y}"),
+            RegionGateIndex::Univariate(i) => write!(f, "{i}"),
+            RegionGateIndex::Bivariate(i) => i.fmt(f),
         }
+    }
+}
+
+impl<I> fmt::Display for IndexPair<I>
+where
+    I: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{},{}", self.x, self.y)
     }
 }
 
@@ -1293,7 +1331,7 @@ pub enum Gating {
 
 impl Gating {
     pub(crate) fn region_indices(&self) -> NonEmpty<RegionIndex> {
-        match self {
+        let xs = match self {
             Self::Region(x) => NonEmpty::new(*x),
             Self::Not(x) => Self::region_indices(x),
             Self::And(x, y) => {
@@ -1306,8 +1344,8 @@ impl Gating {
                 acc.extend(Self::region_indices(y));
                 acc
             }
-        }
-        .unique()
+        };
+        FCSNonEmpty::from(xs).unique().0
     }
 }
 
@@ -2297,10 +2335,11 @@ mod python {
 
     use super::{
         AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, DetectorVoltage, Display,
-        Feature, FeatureError, GateDetectorVoltage, GateRange, GateScale, GateShortname,
+        Feature, FeatureError, GateDetectorVoltage, GateRange, GateScale, GateShortname, IndexPair,
         LastModified, Mode, Mode3_2, Mode3_2Error, ModeError, NumType, NumTypeError, OpticalType,
-        OpticalTypeError, Originality, OriginalityError, PeakBin, PeakNumber, Power, Range,
-        Timestep, Trigger, UniGate, Unicode, Vertex, Vol, Wavelength, Wavelengths,
+        OpticalTypeError, Originality, OriginalityError, PeakBin, PeakNumber, Power,
+        PrefixedMeasIndex, Range, Timestep, Trigger, UniGate, Unicode, Vertex, Vol, Wavelength,
+        Wavelengths,
     };
 
     use nonempty::NonEmpty;
@@ -2338,28 +2377,8 @@ mod python {
     impl_from_py_transparent!(GateScale);
     impl_from_py_transparent!(GateShortname);
     impl_from_py_transparent!(GateDetectorVoltage);
-
-    // $PnL (3.1+) should be represented as a list of floats
-    impl<'py> FromPyObject<'py> for Wavelengths {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let xs: Vec<PositiveFloat> = ob.extract()?;
-            if let Some(ys) = NonEmpty::from_vec(xs) {
-                Ok(ys.into())
-            } else {
-                Err(PyValueError::new_err("wavelengths must not be empty"))
-            }
-        }
-    }
-
-    impl<'py> IntoPyObject<'py> for Wavelengths {
-        type Target = PyList;
-        type Output = Bound<'py, Self::Target>;
-        type Error = PyErr;
-
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            PyList::new(py, Vec::from(self.0))
-        }
-    }
+    impl_from_py_transparent!(PrefixedMeasIndex);
+    impl_from_py_transparent!(Wavelengths);
 
     // $PnCALIBRATION (3.1) as (f32, String) tuple in python
     impl<'py> FromPyObject<'py> for Calibration3_1 {
@@ -2501,6 +2520,30 @@ mod python {
     }
 
     impl<'py> IntoPyObject<'py> for Vertex {
+        type Target = PyTuple;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            (self.x, self.y).into_pyobject(py)
+        }
+    }
+
+    // index pairs are like python tuple pairs
+    impl<'py, I> FromPyObject<'py> for IndexPair<I>
+    where
+        I: FromPyObject<'py>,
+    {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (x, y) = ob.extract()?;
+            Ok(Self { x, y })
+        }
+    }
+
+    impl<'py, I> IntoPyObject<'py> for IndexPair<I>
+    where
+        I: IntoPyObject<'py>,
+    {
         type Target = PyTuple;
         type Output = Bound<'py, Self::Target>;
         type Error = PyErr;

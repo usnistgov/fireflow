@@ -1170,13 +1170,17 @@ mod python {
         impl_from_py_via_fromstr, impl_pyreflow_err, impl_to_py_via_display, impl_value_err,
     };
     use crate::text::index::{GateIndex, RegionIndex};
-    use crate::text::keywords::{Gating, GatingError, MeasOrGateIndex, Vertex};
+    use crate::text::keywords::{
+        GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GateRange, GateScale,
+        GateShortname, Gating, GatingError, MeasOrGateIndex, UniGate, Vertex,
+    };
+    use crate::text::optional::MaybeValue;
 
     use super::{
         AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, BivariateRegion,
-        GateMeasurementLinkError, GatedMeasurement, GatedMeasurements, GatingScheme,
-        MeasOrGateIndexError, NewGatingSchemeError, Region, Region2_0, Region3_0, Region3_2,
-        UniGate, UnivariateRegion,
+        GateMeasurementLinkError, GatePercentEmitted, GatedMeasurement, GatedMeasurements,
+        GatingScheme, MeasOrGateIndexError, NewGatingSchemeError, Region, Region2_0, Region3_0,
+        Region3_2, UnivariateRegion,
     };
 
     use derive_more::{From, Into};
@@ -1291,6 +1295,43 @@ mod python {
         #[new]
         fn new(gating: Option<Gating>, regions: HashMap<RegionIndex, Region3_0>) -> PyResult<Self> {
             Ok(GatingScheme::try_new(gating, regions)?.into())
+        }
+    }
+
+    #[pymethods]
+    impl GatedMeasurement {
+        #[new]
+        #[allow(clippy::too_many_arguments)]
+        #[pyo3(signature = (
+            scale = None.into(),
+            filter = None.into(),
+            shortname = None.into(),
+            percent_emitted = None.into(),
+            range = None.into(),
+            longname = None.into(),
+            detector_type = None.into(),
+            detector_voltage = None.into(),
+        ))]
+        fn new(
+            scale: MaybeValue<GateScale>,
+            filter: MaybeValue<GateFilter>,
+            shortname: MaybeValue<GateShortname>,
+            percent_emitted: MaybeValue<GatePercentEmitted>,
+            range: MaybeValue<GateRange>,
+            longname: MaybeValue<GateLongname>,
+            detector_type: MaybeValue<GateDetectorType>,
+            detector_voltage: MaybeValue<GateDetectorVoltage>,
+        ) -> Self {
+            Self {
+                scale,
+                filter,
+                shortname,
+                percent_emitted,
+                range,
+                longname,
+                detector_type,
+                detector_voltage,
+            }
         }
     }
 

@@ -892,7 +892,7 @@ pub struct PeakData {
 /// bytestring. This library currently makes no attempt to interpret the
 /// ANALYSIS segment given the CS* keywords, but may add this in the future if
 /// the need arises.
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SubsetData {
     /// Value of $CSBITS if given

@@ -8,7 +8,7 @@ pub mod data;
 pub mod error;
 pub mod header;
 mod macros;
-mod nonempty;
+pub mod nonempty;
 #[cfg(feature = "python")]
 pub mod python;
 pub mod segment;

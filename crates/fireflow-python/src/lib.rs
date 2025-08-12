@@ -9,11 +9,16 @@ use fireflow_core::data::{
 };
 use fireflow_core::error::ResultExt;
 use fireflow_core::header::{Header, Version};
+use fireflow_core::nonempty::FCSNonEmpty;
 use fireflow_core::python::exceptions::{PyTerminalNoWarnResultExt, PyTerminalResultExt};
 use fireflow_core::segment::{HeaderAnalysisSegment, HeaderDataSegment, OtherSegment};
 use fireflow_core::text::byteord::{Endian, SizedByteOrd};
 use fireflow_core::text::compensation::Compensation;
-use fireflow_core::text::index::MeasIndex;
+use fireflow_core::text::gating::{
+    AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, BivariateRegion, GatedMeasurement,
+    GatedMeasurements, GatingScheme, Region, UnivariateRegion,
+};
+use fireflow_core::text::index::{GateIndex, MeasIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::{Eithers, Element, NamedVec, NonCenterElement};
 use fireflow_core::text::optional::{AlwaysFamily, MaybeFamily};
@@ -161,6 +166,49 @@ py_wrap!(PyTemporal3_0, core::Temporal3_0, "Temporal3_0");
 py_wrap!(PyTemporal3_1, core::Temporal3_1, "Temporal3_1");
 py_wrap!(PyTemporal3_2, core::Temporal3_2, "Temporal3_2");
 
+// gating objects
+
+py_wrap!(PyAppliedGates2_0, AppliedGates2_0, "AppliedGates2_0");
+py_wrap!(PyAppliedGates3_0, AppliedGates3_0, "AppliedGates3_0");
+py_wrap!(PyAppliedGates3_2, AppliedGates3_2, "AppliedGates3_2");
+
+py_wrap!(
+    PyUnivariateRegion2_0,
+    UnivariateRegion<GateIndex>,
+    "UnivariateRegion2_0"
+);
+
+py_wrap!(
+    PyUnivariateRegion3_0,
+    UnivariateRegion<kws::MeasOrGateIndex>,
+    "UnivariateRegion3_0"
+);
+
+py_wrap!(
+    PyUnivariateRegion3_2,
+    UnivariateRegion<kws::PrefixedMeasIndex>,
+    "UnivariateRegion3_2"
+);
+
+py_wrap!(
+    PyBivariateRegion2_0,
+    BivariateRegion<GateIndex>,
+    "BivariateRegion2_0"
+);
+
+py_wrap!(
+    PyBivariateRegion3_0,
+    BivariateRegion<kws::MeasOrGateIndex>,
+    "BivariateRegion3_0"
+);
+
+py_wrap!(
+    PyBivariateRegion3_2,
+    BivariateRegion<kws::PrefixedMeasIndex>,
+    "BivariateRegion3_2"
+);
+
+// layout objects
 type AsciiDelim = FixedAsciiLayout<KnownTot, NoMeasDatatype, false>;
 py_wrap!(PyAsciiFixedLayout, AsciiDelim, "AsciiFixedLayout");
 
@@ -2363,6 +2411,432 @@ impl_meas_get_set!(
     kws::Calibration3_2,
     PyOptical3_2
 );
+
+#[derive(IntoPyObject, FromPyObject)]
+enum PyRegion<U, B> {
+    Uni(U),
+    Bi(B),
+}
+
+type PyRegion2_0 = PyRegion<PyUnivariateRegion2_0, PyBivariateRegion2_0>;
+type PyRegion3_0 = PyRegion<PyUnivariateRegion3_0, PyBivariateRegion3_0>;
+type PyRegion3_2 = PyRegion<PyUnivariateRegion3_2, PyBivariateRegion3_2>;
+
+impl<U, B, I> From<PyRegion<U, B>> for Region<I>
+where
+    UnivariateRegion<I>: From<U>,
+    BivariateRegion<I>: From<B>,
+{
+    fn from(value: PyRegion<U, B>) -> Self {
+        match value {
+            PyRegion::Uni(u) => Self::Univariate(u.into()),
+            PyRegion::Bi(b) => Self::Bivariate(b.into()),
+        }
+    }
+}
+
+impl<U, B, I> From<Region<I>> for PyRegion<U, B>
+where
+    U: From<UnivariateRegion<I>>,
+    B: From<BivariateRegion<I>>,
+{
+    fn from(value: Region<I>) -> Self {
+        match value {
+            Region::Univariate(u) => Self::Uni(u.into()),
+            Region::Bivariate(b) => Self::Bi(b.into()),
+        }
+    }
+}
+
+#[derive(IntoPyObject)]
+struct PyRegionMapping<R>(HashMap<RegionIndex, R>);
+
+impl<'py, R> FromPyObject<'py> for PyRegionMapping<R>
+where
+    R: FromPyObject<'py>,
+{
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let xs: HashMap<RegionIndex, R> = ob.extract()?;
+        Ok(Self(xs))
+    }
+}
+
+impl<I, R> From<PyRegionMapping<R>> for HashMap<RegionIndex, Region<I>>
+where
+    Region<I>: From<R>,
+{
+    fn from(value: PyRegionMapping<R>) -> Self {
+        value.0.into_iter().map(|(k, v)| (k, v.into())).collect()
+    }
+}
+
+impl<I, R> From<HashMap<RegionIndex, Region<I>>> for PyRegionMapping<R>
+where
+    R: From<Region<I>>,
+{
+    fn from(value: HashMap<RegionIndex, Region<I>>) -> Self {
+        Self(value.into_iter().map(|(k, v)| (k, v.into())).collect())
+    }
+}
+
+#[pymethods]
+impl PyUnivariateRegion2_0 {
+    /// Make a new FCS 2.0-compatible univariate region.
+    ///
+    /// :param int index: The index corresponding to a gating measurement
+    ///     (the *n* in the *$Gn\** keywords).
+    ///
+    /// :param gate: The lower and upper bounds of the gate.
+    /// :type gate: (float, float)
+    #[new]
+    fn new(index: GateIndex, gate: kws::UniGate) -> Self {
+        UnivariateRegion { index, gate }.into()
+    }
+
+    /// The value of the index.
+    ///
+    /// :rtype: int
+    #[getter]
+    fn index(&self) -> GateIndex {
+        self.0.index
+    }
+}
+
+#[pymethods]
+impl PyUnivariateRegion3_0 {
+    /// Make a new FCS 3.0/3.1-compatible univariate region.
+    ///
+    /// :param str index: The index corresponding to either a gating
+    ///     or a physical measurement (the *n* in the *$Gn\** or *$Pn\**
+    ///     keywords). Must be a string like either ``Gn`` or ``Pn`` where
+    ///     ``n`` is an integer and the prefix corresponds to a gating or
+    ///     physical measurement respectively.
+    ///
+    /// :param gate: The lower and upper bounds of the gate.
+    /// :type gate: (float, float)
+    #[new]
+    fn new(index: kws::MeasOrGateIndex, gate: kws::UniGate) -> Self {
+        UnivariateRegion { index, gate }.into()
+    }
+
+    /// The value of the index.
+    ///
+    /// :return: A string like either ``Gn`` or ``Pn`` where ``n`` is an
+    ///     integer and the prefix corresponds to a gating or physical
+    ///     measurement respectively.
+    /// :rtype: str
+    #[getter]
+    fn index(&self) -> kws::MeasOrGateIndex {
+        self.0.index
+    }
+}
+
+#[pymethods]
+impl PyUnivariateRegion3_2 {
+    /// Make a new FCS 3.2-compatible univariate region.
+    ///
+    /// :param int index: The index corresponding to either a physical
+    ///     measurement (the *n* in the *$Pn\** keywords).
+    ///
+    /// :param gate: The lower and upper bounds of the gate.
+    /// :type gate: (float, float)
+    #[new]
+    fn new(index: kws::PrefixedMeasIndex, gate: kws::UniGate) -> Self {
+        UnivariateRegion { index, gate }.into()
+    }
+
+    /// The value of the index.
+    ///
+    /// :rtype: int
+    #[getter]
+    fn index(&self) -> kws::PrefixedMeasIndex {
+        self.0.index
+    }
+}
+
+macro_rules! impl_univarate_get_gate {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            /// The lower and upper bounds of the gate.
+            ///
+            /// :rtype: (float, float)
+            #[getter]
+            fn gate(&self) -> kws::UniGate {
+                self.0.gate.clone()
+            }
+        }
+    };
+}
+
+impl_univarate_get_gate!(PyUnivariateRegion2_0);
+impl_univarate_get_gate!(PyUnivariateRegion3_0);
+impl_univarate_get_gate!(PyUnivariateRegion3_2);
+
+#[pymethods]
+impl PyBivariateRegion2_0 {
+    /// Make a new FCS 2.0-compatible univariate region.
+    ///
+    /// :param index: The x/y indices corresponding to gating measurements
+    ///     (the *n* in the *$Gn\** keywords).
+    /// :type index: (int, int)
+    ///
+    /// :param gate: The vertices of a polygon gate. Must not be empty.
+    /// :type gate: list[(float, float)]
+    #[new]
+    fn new(index: kws::IndexPair<GateIndex>, vertices: FCSNonEmpty<kws::Vertex>) -> Self {
+        BivariateRegion { index, vertices }.into()
+    }
+
+    /// The value of the x/y indices.
+    ///
+    /// :rtype: (int, int)
+    #[getter]
+    fn index(&self) -> kws::IndexPair<GateIndex> {
+        self.0.index
+    }
+}
+
+#[pymethods]
+impl PyBivariateRegion3_0 {
+    /// Make a new FCS 3.0/3.1-compatible univariate region.
+    ///
+    /// :param index: The x/y indices corresponding to either gating or
+    ///     physical measurements (the *n* in the *$Gn\** or *$Pn\**
+    ///     keywords). Each must be a string like either ``Gn`` or ``Pn``
+    ///     where ``n`` is an integer and the prefix corresponds to a gating
+    ///     or physical measurement respectively.
+    /// :type index: (str, str)
+    ///
+    /// :param gate: The vertices of a polygon gate. Must not be empty.
+    /// :type gate: list[(float, float)]
+    #[new]
+    fn new(
+        index: kws::IndexPair<kws::MeasOrGateIndex>,
+        vertices: FCSNonEmpty<kws::Vertex>,
+    ) -> Self {
+        BivariateRegion { index, vertices }.into()
+    }
+
+    /// The value of the x/y indices.
+    ///
+    /// :return: Two strings like either ``Gn`` or ``Pn`` where ``n`` is an
+    ///     integer and the prefix corresponds to a gating or physical
+    ///     measurement respectively.
+    /// :rtype: (str, str)
+    #[getter]
+    fn index(&self) -> kws::IndexPair<kws::MeasOrGateIndex> {
+        self.0.index
+    }
+}
+
+#[pymethods]
+impl PyBivariateRegion3_2 {
+    /// Make a new FCS 3.2-compatible univariate region.
+    ///
+    /// :param index: The x/y indices corresponding to physical measurements
+    ///     (the *n* in the *$Pn\** keywords).
+    /// :type index: (int, int)
+    ///
+    /// :param gate: The vertices of a polygon gate. Must not be empty.
+    /// :type gate: list[(float, float)]
+    #[new]
+    fn new(
+        index: kws::IndexPair<kws::PrefixedMeasIndex>,
+        vertices: FCSNonEmpty<kws::Vertex>,
+    ) -> Self {
+        BivariateRegion { index, vertices }.into()
+    }
+
+    /// The value of the x/y indices.
+    ///
+    /// :rtype: (int, int)
+    #[getter]
+    fn index(&self) -> kws::IndexPair<kws::PrefixedMeasIndex> {
+        self.0.index
+    }
+}
+
+macro_rules! impl_bivarate_get_vertices {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            /// The vertices of a polygon gate.
+            ///
+            /// :rtype: list[(float, float)]
+            #[getter]
+            fn vertices(&self) -> FCSNonEmpty<kws::Vertex> {
+                self.0.vertices.clone()
+            }
+        }
+    };
+}
+
+impl_bivarate_get_vertices!(PyBivariateRegion2_0);
+impl_bivarate_get_vertices!(PyBivariateRegion3_0);
+impl_bivarate_get_vertices!(PyBivariateRegion3_2);
+
+#[pymethods]
+impl PyAppliedGates2_0 {
+    /// Make new FCS 2.0-compatible gates.
+    ///
+    /// :param gated_measurements: Gated measurements corresponding to the
+    ///     *$Gn\** keywords.
+    /// :type gated_measurements: list[:py:class:`GatedMeasurement`]
+    ///
+    /// :param regions: Mapping of regions and windows to be used in gating
+    ///     scheme. Corresponds to *$RnI* and *$RnW* keywords. Keys in
+    ///     dictionary are the region indices (the *n* in *$RnI* and
+    ///     *$RnW*). The values in the dictionary are either univariate or
+    ///     bivariate gates and must correspond to an index in
+    ///     ``gated_measurements``.
+    /// :type regions: dict[int, :py:class:`UnivariateGate2_0` | :py:class:`BnivariateGate2_0`]
+    ///
+    /// :param gating: The gating scheme. Corresponds to *$GATING* keyword.
+    ///      All 'Rn' in this string must reference a key in ``regions``.
+    /// :param gating: str | None
+    #[new]
+    #[pyo3(signature = (
+            gated_measurements = GatedMeasurements(vec![]),
+            regions = PyRegionMapping(HashMap::new()),
+            gating = None,
+        ))]
+    fn new(
+        gated_measurements: GatedMeasurements,
+        regions: PyRegionMapping<PyRegion2_0>,
+        gating: Option<kws::Gating>,
+    ) -> PyResult<Self> {
+        let scheme = GatingScheme::try_new(gating, regions.into())?;
+        Ok(AppliedGates2_0::try_new(gated_measurements, scheme)?.into())
+    }
+
+    /// Value of all gating regions, corresponding to *$RnI* and *$RnW*.
+    ///
+    /// :type regions: dict[int, :py:class:`UnivariateGate2_0` | :py:class:`BnivariateGate2_0`]
+    #[getter]
+    fn regions(&self) -> PyRegionMapping<PyRegion2_0> {
+        let r: &HashMap<_, _> = self.0.as_ref();
+        r.clone().into()
+    }
+}
+
+#[pymethods]
+impl PyAppliedGates3_0 {
+    /// Make new FCS 3.0/3.1-compatible gates.
+    ///
+    /// :param gated_measurements: Gated measurements corresponding to the
+    ///     *$Gn\** keywords.
+    /// :type gated_measurements: list[:py:class:`GatedMeasurement`]
+    ///
+    /// :param regions: Mapping of regions and windows to be used in gating
+    ///     scheme. Corresponds to *$RnI* and *$RnW* keywords. Keys in
+    ///     dictionary are the region indices (the *n* in *$RnI* and
+    ///     *$RnW*). The values in the dictionary are either univariate or
+    ///     bivariate gates and must correspond to either physical
+    ///     measurements of an index in ``gated_measurements``.
+    /// :type regions: dict[int, :py:class:`UnivariateGate3_0` | :py:class:`BnivariateGate3_0`]
+    ///
+    /// :param gating: The gating scheme. Corresponds to *$GATING* keyword.
+    ///      All 'Rn' in this string must reference a key in ``regions``.
+    /// :param gating: str | None
+    #[new]
+    #[pyo3(signature = (
+            gated_measurements = GatedMeasurements(vec![]),
+            regions = PyRegionMapping(HashMap::new()),
+            gating = None,
+        ))]
+    fn new(
+        gated_measurements: GatedMeasurements,
+        regions: PyRegionMapping<PyRegion3_0>,
+        gating: Option<kws::Gating>,
+    ) -> PyResult<Self> {
+        let scheme = GatingScheme::try_new(gating, regions.into())?;
+        Ok(AppliedGates3_0::try_new(gated_measurements, scheme)?.into())
+    }
+
+    /// Value of all gating regions, corresponding to *$RnI* and *$RnW*.
+    ///
+    /// :type regions: dict[int, :py:class:`UnivariateGate3_0` | :py:class:`BnivariateGate3_0`]
+    #[getter]
+    fn regions(&self) -> PyRegionMapping<PyRegion3_0> {
+        let r: &HashMap<_, _> = self.0.as_ref();
+        r.clone().into()
+    }
+}
+
+#[pymethods]
+impl PyAppliedGates3_2 {
+    /// Make new FCS 3.0/3.1-compatible gates.
+    ///
+    /// :param regions: Mapping of regions and windows to be used in gating
+    ///     scheme. Corresponds to *$RnI* and *$RnW* keywords. Keys in
+    ///     dictionary are the region indices (the *n* in *$RnI* and
+    ///     *$RnW*). The values in the dictionary are either univariate or
+    ///     bivariate gates and must correspond to physical measurements.
+    /// :type regions: dict[int, :py:class:`UnivariateGate3_2` | :py:class:`BnivariateGate3_2`]
+    ///
+    /// :param gating: The gating scheme. Corresponds to *$GATING* keyword.
+    ///      All 'Rn' in this string must reference a key in ``regions``.
+    /// :param gating: str | None
+    #[new]
+    #[pyo3(signature = (
+            regions = PyRegionMapping(HashMap::new()),
+            gating = None,
+        ))]
+    fn new(regions: PyRegionMapping<PyRegion3_2>, gating: Option<kws::Gating>) -> PyResult<Self> {
+        Ok(AppliedGates3_2::try_new(gating, regions.into())?.into())
+    }
+
+    /// Value of all gating regions, corresponding to *$RnI* and *$RnW*.
+    ///
+    /// :type regions: dict[int, :py:class:`UnivariateGate3_2` | :py:class:`BnivariateGate3_2`]
+    #[getter]
+    fn regions(&self) -> PyRegionMapping<PyRegion3_2> {
+        let r: &HashMap<_, _> = self.0.as_ref();
+        r.clone().into()
+    }
+}
+
+macro_rules! impl_applied_gates_scheme {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            /// Value of the *$GATING* keyword.
+            ///
+            /// :rtype: str | None
+            #[getter]
+            fn scheme(&self) -> Option<kws::Gating> {
+                let g: &Option<kws::Gating> = self.0.as_ref();
+                g.as_ref().cloned()
+            }
+        }
+    };
+}
+
+impl_applied_gates_scheme!(PyAppliedGates2_0);
+impl_applied_gates_scheme!(PyAppliedGates3_0);
+impl_applied_gates_scheme!(PyAppliedGates3_2);
+
+macro_rules! impl_applied_gated_meas {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            /// All gated measurements, corresponding to each *$Gn\** keyword.
+            ///
+            /// *$GATE* is implied by the length of this list.
+            ///
+            /// :rtype: list[:py:class:`GatedMeasurement`]
+            #[getter]
+            fn gated_measurements(&self) -> Vec<GatedMeasurement> {
+                let gs: &[GatedMeasurement] = self.0.as_ref();
+                gs.to_vec()
+            }
+        }
+    };
+}
+
+impl_applied_gated_meas!(PyAppliedGates2_0);
+impl_applied_gated_meas!(PyAppliedGates3_0);
 
 macro_rules! impl_layout_common {
     ($t:ident) => {

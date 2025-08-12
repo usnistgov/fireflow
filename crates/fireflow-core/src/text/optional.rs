@@ -330,6 +330,7 @@ impl fmt::Display for MaybeToAlwaysError {
 #[cfg(feature = "python")]
 mod python {
     use super::{AlwaysValue, MaybeValue};
+    use crate::python::macros::impl_from_py_transparent;
 
     use pyo3::prelude::*;
 

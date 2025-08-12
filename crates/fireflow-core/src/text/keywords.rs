@@ -1731,6 +1731,7 @@ impl GateScale {
 /// The value of the $CSVnFLAG key (2.0-3.0)
 #[derive(Clone, Copy, Display, FromStr, Into, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(u32)]
 pub struct CSVFlag(pub u32);
 
@@ -2094,7 +2095,8 @@ impl BiIndexedKey for Dfc {
 
 // 3.0/3.1 subsets
 kw_opt_meta_int!(CSMode, usize, "CSMODE");
-kw_opt_meta_int!(CSVBits, u32, "CSVBits");
+kw_opt_meta_int!(CSVBits, u32, "CSVBITS");
+kw_opt_meta_int!(CSTot, u32, "CSTOT");
 
 impl IndexedKey for CSVFlag {
     const PREFIX: &'static str = "CSV";
@@ -2334,18 +2336,16 @@ mod python {
     use crate::validated::shortname::Shortname;
 
     use super::{
-        AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, DetectorVoltage, Display,
-        Feature, FeatureError, GateDetectorVoltage, GateRange, GateScale, GateShortname, IndexPair,
-        LastModified, Mode, Mode3_2, Mode3_2Error, ModeError, NumType, NumTypeError, OpticalType,
-        OpticalTypeError, Originality, OriginalityError, PeakBin, PeakNumber, Power,
+        AlphaNumType, AlphaNumTypeError, CSVFlag, Calibration3_1, Calibration3_2, DetectorVoltage,
+        Display, Feature, FeatureError, GateDetectorVoltage, GateRange, GateScale, GateShortname,
+        IndexPair, LastModified, Mode, Mode3_2, Mode3_2Error, ModeError, NumType, NumTypeError,
+        OpticalType, OpticalTypeError, Originality, OriginalityError, PeakBin, PeakNumber, Power,
         PrefixedMeasIndex, Range, Timestep, Trigger, UniGate, Unicode, Vertex, Vol, Wavelength,
         Wavelengths,
     };
 
-    use nonempty::NonEmpty;
-    use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
-    use pyo3::types::{PyList, PyTuple};
+    use pyo3::types::PyTuple;
 
     macro_rules! impl_str_py {
         ($type:ident, $err:ident) => {
@@ -2379,6 +2379,7 @@ mod python {
     impl_from_py_transparent!(GateDetectorVoltage);
     impl_from_py_transparent!(PrefixedMeasIndex);
     impl_from_py_transparent!(Wavelengths);
+    impl_from_py_transparent!(CSVFlag);
 
     // $PnCALIBRATION (3.1) as (f32, String) tuple in python
     impl<'py> FromPyObject<'py> for Calibration3_1 {

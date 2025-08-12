@@ -536,6 +536,7 @@ pub enum LookupRelationalWarning {
     Timestamp(ReversedTimestamps),
     Datetime(ReversedDatetimes),
     CompShape(NewCompError),
+    CSVFlag(NewCSVFlagsError),
     GateRegion(gating::MismatchedIndexAndWindowError),
     GateMeasLink(gating::GateMeasurementLinkError),
     GatingScheme(gating::NewGatingSchemeError),

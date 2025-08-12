@@ -491,7 +491,13 @@ pub struct InnerMetaroot3_0 {
     pub unicode: MaybeValue<Unicode>,
 
     /// Aggregated values for $CS* keywords
-    pub subset: MaybeValue<SubsetData>,
+    #[as_ref(Option<CSVBits>)]
+    #[as_mut(Option<CSVBits>)]
+    #[as_ref(Option<CSTot>)]
+    #[as_mut(Option<CSTot>)]
+    #[as_ref(Option<CSVFlags>)]
+    #[as_mut(Option<CSVFlags>)]
+    pub subset: SubsetData,
 
     /// Values of $Gm*/$RnI/$RnW/$GATING/$GATE
     #[as_ref(AppliedGates3_0)]
@@ -542,7 +548,13 @@ pub struct InnerMetaroot3_1 {
     pub vol: MaybeValue<Vol>,
 
     /// Aggregated values for $CS* keywords
-    pub subset: MaybeValue<SubsetData>,
+    #[as_ref(Option<CSVBits>)]
+    #[as_mut(Option<CSVBits>)]
+    #[as_ref(Option<CSTot>)]
+    #[as_mut(Option<CSTot>)]
+    #[as_ref(Option<CSVFlags>)]
+    #[as_mut(Option<CSVFlags>)]
+    pub subset: SubsetData,
 
     /// Values of $Gm*/$RnI/$RnW/$GATING/$GATE
     #[as_ref(AppliedGates3_0)]
@@ -892,15 +904,29 @@ pub struct PeakData {
 /// bytestring. This library currently makes no attempt to interpret the
 /// ANALYSIS segment given the CS* keywords, but may add this in the future if
 /// the need arises.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Default, AsRef, AsMut)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SubsetData {
     /// Value of $CSBITS if given
+    #[as_ref(Option<CSVBits>)]
+    #[as_mut(Option<CSVBits>)]
     pub bits: MaybeValue<CSVBits>,
 
-    /// Values of $CSVnFLAG if given, with length equal to $CSMODE
-    pub flags: FCSNonEmpty<MaybeValue<CSVFlag>>,
+    /// Value of $CSTOT if given
+    #[as_ref(Option<CSTot>)]
+    #[as_mut(Option<CSTot>)]
+    pub tot: MaybeValue<CSTot>,
+
+    #[as_ref(Option<CSVFlags>)]
+    #[as_mut(Option<CSVFlags>)]
+    pub flags: MaybeValue<CSVFlags>,
 }
+
+/// Values of $CSVnFLAG if given, with length equal to $CSMODE
+#[derive(Clone, PartialEq, From)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct CSVFlags(pub FCSNonEmpty<MaybeValue<CSVFlag>>);
 
 /// A bundle for $ORIGINALITY, $LAST_MODIFIER, and $LAST_MODIFIED (3.1+)
 #[derive(Clone, Default, AsRef, AsMut, PartialEq)]
@@ -4361,78 +4387,93 @@ impl UnstainedData {
 }
 
 impl SubsetData {
-    fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<MaybeValue<Self>, E> {
-        Self::lookup_inner(
-            kws,
-            CSMode::lookup_opt,
-            CSVFlag::lookup_opt,
-            CSVBits::lookup_opt,
-        )
-        // CSMode::lookup_opt_dep(kws, is_dep, disallow_dep).and_tentatively(|m| {
-        //     if let Some(n) = m.0 {
-        //         let it = (0..n.0).map(|i| CSVFlag::lookup_opt(kws, i.into(), is_dep));
-        //         Tentative::mconcat_ne(NonEmpty::collect(it).unwrap()).and_tentatively(|flags| {
-        //             CSVBits::lookup_opt_dep(kws, is_dep, disallow_dep)
-        //                 .map(|bits| Some(Self { flags, bits }).into())
-        //         })
-        //     } else {
-        //         Tentative::new1(None.into())
-        //     }
-        // })
-    }
-
-    fn lookup_inner<E, F0, F1, F2>(
-        kws: &mut StdKeywords,
-        lookup_mode: F0,
-        lookup_flag: F1,
-        lookup_bits: F2,
-    ) -> LookupTentative<MaybeValue<Self>, E>
-    where
-        F0: FnOnce(&mut StdKeywords) -> LookupTentative<MaybeValue<CSMode>, E>,
-        F1: Fn(&mut StdKeywords, IndexFromOne) -> LookupTentative<MaybeValue<CSVFlag>, E>,
-        F2: Fn(&mut StdKeywords) -> LookupTentative<MaybeValue<CSVBits>, E>,
-    {
-        lookup_mode(kws).and_tentatively(|m| {
-            if let Some(n) = m.0 {
-                let it = (0..n.0).map(|i| lookup_flag(kws, i.into()));
-                Tentative::mconcat_ne(NonEmpty::collect(it).unwrap()).and_tentatively(|flags| {
-                    lookup_bits(kws).map(|bits| {
-                        Some(Self {
-                            flags: flags.into(),
-                            bits,
-                        })
-                        .into()
-                    })
-                })
-            } else {
-                Tentative::new1(None.into())
-            }
-        })
+    fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<Self, E> {
+        let f = CSVFlags::lookup(kws);
+        let b = CSVBits::lookup_opt(kws);
+        let t = CSTot::lookup_opt(kws);
+        f.zip3(b, t)
+            .map(|(flags, bits, tot)| Self { flags, bits, tot })
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
-        let m = CSMode(self.flags.0.len());
-        self.flags
+        [
+            OptMetarootKey::pair_opt(&self.bits),
+            OptMetarootKey::pair_opt(&self.tot),
+        ]
+        .into_iter()
+        .flat_map(|(k, v)| v.map(|x| (k, x)))
+        .chain(
+            self.flags
+                .0
+                .as_ref()
+                .into_iter()
+                .flat_map(|f| f.opt_keywords()),
+        )
+    }
+
+    fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
+        self.bits
+            .check_key_transfer(lossless)
+            .and_tentatively(|()| {
+                self.flags
+                    .0
+                    .map_or(Tentative::default(), |flags| flags.check_loss(lossless))
+            })
+    }
+}
+
+impl TryFrom<Vec<Option<u32>>> for CSVFlags {
+    type Error = NewCSVFlagsError;
+    fn try_from(value: Vec<Option<u32>>) -> Result<Self, Self::Error> {
+        NonEmpty::collect(value.into_iter().map(|x| x.map(CSVFlag).into()))
+            .ok_or(NewCSVFlagsError)
+            .map(|xs| Self(xs.into()))
+    }
+}
+
+impl CSVFlags {
+    fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<MaybeValue<Self>, E> {
+        CSMode::lookup_opt(kws)
+            .and_tentatively(|m| {
+                if let Some(n) = m.0 {
+                    let fs: Vec<_> = (0..n.0)
+                        .map(|i| CSVFlag::lookup_opt(kws, i.into()))
+                        .collect();
+                    Tentative::mconcat(fs).and_tentatively(|flags| {
+                        let xs = flags
+                            .into_iter()
+                            .map(|x| x.0.map(|y| y.0))
+                            .collect::<Vec<_>>();
+                        Self::try_from(xs)
+                            .into_tentative_warn_opt()
+                            .map_warnings(|w| LookupKeysWarning::Relation(w.into()))
+                    })
+                } else {
+                    Tentative::default()
+                }
+            })
+            .map(|x| x.into())
+    }
+
+    fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
+        let m = CSMode((self.0).0.len());
+        (self.0)
             .0
             .iter()
             .enumerate()
             .map(|(i, f)| OptIndexedKey::pair_opt(f, i.into()))
-            .chain([OptMetarootKey::pair_opt(&self.bits)])
             .flat_map(|(k, v)| v.map(|x| (k, x)))
             .chain([OptMetarootKey::pair(&m)])
     }
 
     fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
-        let b = self.bits.check_key_transfer(lossless);
-        let xs = self
-            .flags
+        let xs = (self.0)
             .0
             .into_iter()
             .enumerate()
             .map(|(i, f)| f.check_indexed_key_transfer_own(i.into(), lossless))
             .collect();
-        let fs = Tentative::mconcat(xs);
-        let mut tnt = b.zip(fs).void();
+        let mut tnt = Tentative::mconcat(xs).void();
         tnt.push_error_or_warning(UnitaryKeyLossError::<CSMode>::default(), lossless);
         tnt
     }
@@ -5048,6 +5089,9 @@ impl_ref_specific_rw!(
     Option<Cyt>,
     Option<Cytsn>,
     Option<Unicode>,
+    Option<CSVBits>,
+    Option<CSTot>,
+    Option<CSVFlags>,
     Timestamps3_0
 );
 
@@ -5064,6 +5108,9 @@ impl_ref_specific_rw!(
     Option<Wellid>,
     Option<Platename>,
     Option<Vol>,
+    Option<CSVBits>,
+    Option<CSTot>,
+    Option<CSVFlags>,
     Timestamps3_1
 );
 
@@ -5224,11 +5271,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
     ) -> MetarootConvertResult<Self> {
         let c = value.cytsn.check_key_transfer(lossless);
         let u = value.unicode.check_key_transfer(lossless);
-        let s = value
-            .subset
-            .0
-            .map(|ss| ss.check_loss(lossless))
-            .unwrap_or(Tentative::new1(()));
+        let s = value.subset.check_loss(lossless);
         let ret = c.zip3(u, s).inner_into().and_tentatively(|_| {
             value
                 .applied_gates
@@ -5257,11 +5300,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
         let s = value.spillover.check_key_transfer(lossless);
         let m = value.modification.check_loss(lossless);
         let p = value.plate.check_loss(lossless);
-        let ss = value
-            .subset
-            .0
-            .map(|ss| ss.check_loss(lossless))
-            .unwrap_or(Tentative::new1(()));
+        let ss = value.subset.check_loss(lossless);
         let out = c.zip6(v, s, m, p, ss).inner_into().and_tentatively(|_| {
             value
                 .applied_gates
@@ -5321,7 +5360,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_0 {
             timestamps: value.timestamps.map(|d| d.into()),
             cytsn: None.into(),
             unicode: None.into(),
-            subset: None.into(),
+            subset: SubsetData::default(),
             applied_gates: value.applied_gates.into(),
         }))
     }
@@ -5342,7 +5381,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_0 {
             timestamps: value.timestamps.map(|d| d.into()),
             comp: None.into(),
             unicode: None.into(),
-            subset: None.into(),
+            subset: SubsetData::default(),
             applied_gates: value.applied_gates,
         });
         Ok(out)
@@ -5368,7 +5407,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
             timestamps: value.timestamps.map(|x| x.into()),
             comp: None.into(),
             unicode: None.into(),
-            subset: None.into(),
+            subset: SubsetData::default(),
             applied_gates: value.applied_gates.into(),
         });
         Ok(out)
@@ -5389,7 +5428,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_1 {
             modification: ModificationData::default(),
             plate: PlateData::default(),
             vol: None.into(),
-            subset: None.into(),
+            subset: SubsetData::default(),
             applied_gates: value.applied_gates.into(),
         });
         if value.comp.0.is_some() {
@@ -5440,7 +5479,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
             plate: value.plate,
             modification: value.modification,
             vol: value.vol,
-            subset: None.into(),
+            subset: SubsetData::default(),
             applied_gates: value.applied_gates.into(),
         });
         Ok(ret)
@@ -5494,11 +5533,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
     ) -> MetarootConvertResult<Self> {
         let u = value.unicode.check_key_transfer(lossless);
         let co = value.comp.check_key_transfer(lossless);
-        let ss = value
-            .subset
-            .0
-            .map(|ss| ss.check_loss(lossless))
-            .unwrap_or_default();
+        let ss = value.subset.check_loss(lossless);
         u.zip3(co, ss).inner_into().and_maybe(|_| {
             value
                 .applied_gates
@@ -5541,12 +5576,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
         value: InnerMetaroot3_1,
         lossless: bool,
     ) -> MetarootConvertResult<Self> {
-        let ss = value
-            .subset
-            .0
-            .map(|ss| ss.check_loss(lossless))
-            .unwrap_or_default()
-            .inner_into();
+        let ss = value.subset.check_loss(lossless).inner_into();
         let a = value
             .applied_gates
             .try_into_3_2(lossless)
@@ -7282,13 +7312,7 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
         .chain(self.applied_gates.opt_keywords())
-        .chain(
-            self.subset
-                .as_ref_opt()
-                .map(|x| x.opt_keywords())
-                .into_iter()
-                .flatten(),
-        )
+        .chain(self.subset.opt_keywords())
         .chain(self.timestamps.opt_keywords())
     }
 
@@ -7366,13 +7390,7 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
         .chain(self.applied_gates.opt_keywords())
-        .chain(
-            self.subset
-                .as_ref_opt()
-                .map(|x| x.opt_keywords())
-                .into_iter()
-                .flatten(),
-        )
+        .chain(self.subset.opt_keywords())
         .chain(self.modification.opt_keywords())
         .chain(self.plate.opt_keywords())
         .chain(self.timestamps.opt_keywords())
@@ -7586,7 +7604,7 @@ impl InnerMetaroot3_0 {
             cytsn: None.into(),
             comp: None.into(),
             unicode: None.into(),
-            subset: None.into(),
+            subset: SubsetData::default(),
             applied_gates: AppliedGates3_0::default(),
         }
     }
@@ -7603,7 +7621,7 @@ impl InnerMetaroot3_1 {
             modification: ModificationData::default(),
             spillover: None.into(),
             vol: None.into(),
-            subset: None.into(),
+            subset: SubsetData::default(),
             applied_gates: AppliedGates3_0::default(),
         }
     }
@@ -8379,6 +8397,14 @@ impl fmt::Display for GatingMeasLinkError {
     }
 }
 
+pub struct NewCSVFlagsError;
+
+impl fmt::Display for NewCSVFlagsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        f.write_str("$CSVnFLAGS must not be empty")
+    }
+}
+
 // pub struct DataSegmentMismatchError;
 
 // impl fmt::Display for DataSegmentMismatchError {
@@ -8487,7 +8513,7 @@ mod python {
     use crate::validated::dataframe::python::SeriesToColumnError;
 
     use super::{
-        Analysis, ColumnsToDataframeError, CompParMismatchError, ExistingLinkError,
+        Analysis, CSVFlags, ColumnsToDataframeError, CompParMismatchError, ExistingLinkError,
         GatingMeasLinkError, MeasDataMismatchError, MissingMeasurementNameError, Other, Others,
         RemoveMeasByIndexError, RemoveMeasByNameError, ScaleTransform, SetMeasurementsError,
         SetSpilloverError, TriggerLinkError,
@@ -8501,6 +8527,7 @@ mod python {
     impl_from_py_transparent!(Analysis);
     impl_from_py_transparent!(Other);
     impl_from_py_transparent!(Others);
+    impl_from_py_transparent!(CSVFlags);
 
     // $PnE/$PnG (3.0+) as a tuple like (f32) or (f32, f32) in python
     impl<'py> FromPyObject<'py> for ScaleTransform {

@@ -1921,6 +1921,19 @@ impl_get_set_all_peak!(PyCoreDataset2_0);
 impl_get_set_all_peak!(PyCoreDataset3_0);
 impl_get_set_all_peak!(PyCoreDataset3_1);
 
+macro_rules! impl_get_set_subset {
+    ($pytype:ident) => {
+        impl_get_set_metaroot!(Option<kws::CSTot>, "int", $pytype);
+        impl_get_set_metaroot!(Option<kws::CSVBits>, "int", $pytype);
+        impl_get_set_metaroot!(Option<core::CSVFlags>, "list[int | None]", $pytype);
+    };
+}
+
+impl_get_set_subset!(PyCoreTEXT3_0);
+impl_get_set_subset!(PyCoreTEXT3_1);
+impl_get_set_subset!(PyCoreDataset3_0);
+impl_get_set_subset!(PyCoreDataset3_1);
+
 impl_get_set_metaroot! {
     Option<kws::Unicode>,
     "(int, list[str])",

@@ -7282,7 +7282,7 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
         // all indices
         if self.comp.0.is_some() {
             Err(ExistingIndexLinkError::Comp)
-        } else if !self.applied_gates.indices_difference(indices).count() > 0 {
+        } else if self.applied_gates.indices_difference(indices).count() > 0 {
             Err(ExistingIndexLinkError::GateRegion)
         } else {
             Ok(())
@@ -7359,7 +7359,7 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
         &self,
         indices: &HashSet<MeasIndex>,
     ) -> Result<(), ExistingIndexLinkError> {
-        if !self.applied_gates.indices_difference(indices).count() > 0 {
+        if self.applied_gates.indices_difference(indices).count() > 0 {
             Err(ExistingIndexLinkError::GateRegion)
         } else {
             Ok(())

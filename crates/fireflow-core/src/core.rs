@@ -452,6 +452,8 @@ pub struct InnerMetaroot2_0 {
     pub timestamps: Timestamps2_0,
 
     /// Values of $Gm*/$RnI/$RnW/$GATING/$GATE
+    #[as_ref(AppliedGates2_0)]
+    #[as_mut(AppliedGates2_0)]
     applied_gates: AppliedGates2_0,
 }
 
@@ -492,6 +494,7 @@ pub struct InnerMetaroot3_0 {
     pub subset: MaybeValue<SubsetData>,
 
     /// Values of $Gm*/$RnI/$RnW/$GATING/$GATE
+    #[as_ref(AppliedGates3_0)]
     applied_gates: AppliedGates3_0,
 }
 
@@ -542,6 +545,7 @@ pub struct InnerMetaroot3_1 {
     pub subset: MaybeValue<SubsetData>,
 
     /// Values of $Gm*/$RnI/$RnW/$GATING/$GATE
+    #[as_ref(AppliedGates3_0)]
     applied_gates: AppliedGates3_0,
 }
 
@@ -610,6 +614,7 @@ pub struct InnerMetaroot3_2 {
     pub flowrate: MaybeValue<Flowrate>,
 
     /// Values of $RnI/$RnW/$GATING
+    #[as_ref(AppliedGates3_2)]
     applied_gates: AppliedGates3_2,
 }
 
@@ -1090,6 +1095,16 @@ pub trait HasScaleTransform {
 pub trait HasUnstainedCenters {
     // private as_mut
     fn unstainedcenters_mut(&mut self, _: private::NoTouchy) -> &mut Option<UnstainedCenters>;
+}
+
+pub trait HasAppliedGates3_0 {
+    // private as_mut
+    fn applied_gates3_0_mut(&mut self, _: private::NoTouchy) -> &mut AppliedGates3_0;
+}
+
+pub trait HasAppliedGates3_2 {
+    // private as_mut
+    fn applied_gates3_2_mut(&mut self, _: private::NoTouchy) -> &mut AppliedGates3_2;
 }
 
 pub trait AsScaleTransform {
@@ -2833,6 +2848,70 @@ where
         Par(self.measurements.len())
     }
 
+    /// Return gating keywords (2.0)
+    pub fn applied_gates2_0(&self) -> &AppliedGates2_0
+    where
+        M: AsRef<AppliedGates2_0>,
+    {
+        self.metaroot.specific.as_ref()
+    }
+
+    /// Set gating keywords (2.0)
+    pub fn set_applied_gates2_0(&mut self, ag: AppliedGates2_0)
+    where
+        M: AsMut<AppliedGates2_0>,
+    {
+        *self.metaroot.specific.as_mut() = ag
+    }
+
+    /// Return gating keywords (3.0/3.1)
+    pub fn applied_gates3_0(&self) -> &AppliedGates3_0
+    where
+        M: AsRef<AppliedGates3_0>,
+    {
+        self.metaroot.specific.as_ref()
+    }
+
+    /// Set gating keywords (3.0/3.1)
+    pub fn set_applied_gates3_0(&mut self, ag: AppliedGates3_0) -> Result<(), GatingMeasLinkError>
+    where
+        M: HasAppliedGates3_0,
+    {
+        let js = (0..self.par().0).map(MeasIndex::from).collect();
+        if let Some(ne) = NonEmpty::collect(ag.indices_difference(&js)) {
+            return Err(GatingMeasLinkError(ne));
+        }
+        *self
+            .metaroot
+            .specific
+            .applied_gates3_0_mut(private::NoTouchy) = ag;
+        Ok(())
+    }
+
+    /// Return gating keywords (3.2)
+    pub fn applied_gates3_2(&self) -> &AppliedGates3_2
+    where
+        M: AsRef<AppliedGates3_2>,
+    {
+        self.metaroot.specific.as_ref()
+    }
+
+    /// Set gating keywords (3.2)
+    pub fn set_applied_gates3_2(&mut self, ag: AppliedGates3_2) -> Result<(), GatingMeasLinkError>
+    where
+        M: HasAppliedGates3_2,
+    {
+        let js = (0..self.par().0).map(MeasIndex::from).collect();
+        if let Some(ne) = NonEmpty::collect(ag.indices_difference(&js)) {
+            return Err(GatingMeasLinkError(ne));
+        }
+        *self
+            .metaroot
+            .specific
+            .applied_gates3_2_mut(private::NoTouchy) = ag;
+        Ok(())
+    }
+
     /// Convert to another FCS version.
     ///
     /// Conversion may fail if some required keywords in the target version
@@ -4153,6 +4232,24 @@ impl HasScaleTransform for InnerOptical3_2 {
     }
 }
 
+impl HasAppliedGates3_0 for InnerMetaroot3_0 {
+    fn applied_gates3_0_mut(&mut self, _: private::NoTouchy) -> &mut AppliedGates3_0 {
+        &mut self.applied_gates
+    }
+}
+
+impl HasAppliedGates3_0 for InnerMetaroot3_1 {
+    fn applied_gates3_0_mut(&mut self, _: private::NoTouchy) -> &mut AppliedGates3_0 {
+        &mut self.applied_gates
+    }
+}
+
+impl HasAppliedGates3_2 for InnerMetaroot3_2 {
+    fn applied_gates3_2_mut(&mut self, _: private::NoTouchy) -> &mut AppliedGates3_2 {
+        &mut self.applied_gates
+    }
+}
+
 impl<M, A, D, O> VersionedCore<A, D, O, M>
 where
     M: VersionedMetaroot<Name = MaybeFamily>,
@@ -4967,7 +5064,14 @@ macro_rules! impl_ref_specific_rw {
     };
 }
 
-impl_ref_specific_rw!(Metaroot, InnerMetaroot2_0, Mode, Option<Cyt>, Timestamps2_0);
+impl_ref_specific_rw!(
+    Metaroot,
+    InnerMetaroot2_0,
+    Mode,
+    Option<Cyt>,
+    Timestamps2_0,
+    AppliedGates2_0
+);
 
 impl_ref_specific_rw!(
     Metaroot,
@@ -5093,10 +5197,11 @@ impl_ref_specific_ro!(
     Metaroot,
     InnerMetaroot3_0,
     Option<FCSDate>,
-    Option<Compensation3_0>
+    Option<Compensation3_0>,
+    AppliedGates3_0
 );
 
-impl_ref_specific_ro!(Metaroot, InnerMetaroot3_1, Option<FCSDate>);
+impl_ref_specific_ro!(Metaroot, InnerMetaroot3_1, Option<FCSDate>, AppliedGates3_0);
 
 impl_ref_specific_ro!(
     Metaroot,
@@ -5104,7 +5209,8 @@ impl_ref_specific_ro!(
     Option<FCSDate>,
     Option<BeginDateTime>,
     Option<EndDateTime>,
-    Option<UnstainedCenters>
+    Option<UnstainedCenters>,
+    AppliedGates3_2
 );
 
 impl_ref_specific_ro!(Optical, InnerOptical2_0, Option<Scale>);
@@ -8293,6 +8399,18 @@ impl fmt::Display for CompParMismatchError {
     }
 }
 
+pub struct GatingMeasLinkError(NonEmpty<MeasIndex>);
+
+impl fmt::Display for GatingMeasLinkError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "$RnI references non-existed measurements by index: {}",
+            self.0.iter().join(",")
+        )
+    }
+}
+
 // pub struct DataSegmentMismatchError;
 
 // impl fmt::Display for DataSegmentMismatchError {
@@ -8402,9 +8520,9 @@ mod python {
 
     use super::{
         Analysis, ColumnsToDataframeError, CompParMismatchError, ExistingLinkError,
-        MeasDataMismatchError, MissingMeasurementNameError, Other, Others, RemoveMeasByIndexError,
-        RemoveMeasByNameError, ScaleTransform, SetMeasurementsError, SetSpilloverError,
-        TriggerLinkError,
+        GatingMeasLinkError, MeasDataMismatchError, MissingMeasurementNameError, Other, Others,
+        RemoveMeasByIndexError, RemoveMeasByNameError, ScaleTransform, SetMeasurementsError,
+        SetSpilloverError, TriggerLinkError,
     };
 
     use derive_more::{Display, From};
@@ -8463,4 +8581,5 @@ mod python {
     impl_pyreflow_err!(TriggerLinkError);
     impl_pyreflow_err!(RemoveMeasByIndexError);
     impl_pyreflow_err!(RemoveMeasByNameError);
+    impl_pyreflow_err!(GatingMeasLinkError);
 }

@@ -1045,7 +1045,7 @@ pub trait ResultExt: Sized {
         Self::V: Default,
     {
         self.into_tentative_opt(is_error)
-            .map(|x| x.unwrap_or(Self::V::default()))
+            .map(|x| x.unwrap_or_default())
     }
 
     fn into_tentative_warn_def<X>(self) -> Tentative<Self::V, Self::E, X>
@@ -1053,15 +1053,14 @@ pub trait ResultExt: Sized {
         Self::V: Default,
     {
         self.into_tentative_warn_opt()
-            .map(|x| x.unwrap_or(Self::V::default()))
+            .map(|x| x.unwrap_or_default())
     }
 
     fn into_tentative_err_def<X>(self) -> Tentative<Self::V, X, Self::E>
     where
         Self::V: Default,
     {
-        self.into_tentative_err_opt()
-            .map(|x| x.unwrap_or(Self::V::default()))
+        self.into_tentative_err_opt().map(|x| x.unwrap_or_default())
     }
 
     fn into_tentative_opt(self, is_error: bool) -> Tentative<Option<Self::V>, Self::E, Self::E>;

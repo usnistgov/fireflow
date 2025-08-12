@@ -13,9 +13,9 @@ impl<X> FCSNonEmpty<X> {
         Self(NonEmpty::new(head))
     }
 
-    pub(crate) fn new1(head: X, tail: Vec<X>) -> Self {
-        Self(NonEmpty { head, tail })
-    }
+    // pub(crate) fn new1(head: X, tail: Vec<X>) -> Self {
+    //     Self(NonEmpty { head, tail })
+    // }
 
     // fn enumerate(self) -> NonEmpty<(usize, Self::X)> {
     //     NonEmpty::collect(self.into_iter().enumerate()).unwrap()

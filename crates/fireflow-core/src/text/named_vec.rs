@@ -293,16 +293,16 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         })
     }
 
-    /// Return all existing non-center names in the vector with their indices
-    pub(crate) fn indexed_non_center_names(
-        &self,
-    ) -> impl Iterator<Item = (MeasIndex, &Shortname)> + '_ {
-        self.iter().flat_map(|(i, r)| {
-            r.non_center()
-                .and_then(|x| K::as_opt(&x.key))
-                .map(|x| (i, x))
-        })
-    }
+    // /// Return all existing non-center names in the vector with their indices
+    // pub(crate) fn indexed_non_center_names(
+    //     &self,
+    // ) -> impl Iterator<Item = (MeasIndex, &Shortname)> + '_ {
+    //     self.iter().flat_map(|(i, r)| {
+    //         r.non_center()
+    //             .and_then(|x| K::as_opt(&x.key))
+    //             .map(|x| (i, x))
+    //     })
+    // }
 
     /// Return iterator over key names with non-existent names as default.
     // TODO seems like we should give a different type for this

@@ -1,7 +1,6 @@
-use crate::validated::{keys, shortname::*};
+use crate::validated::shortname::*;
 
 use super::named_vec::NameMapping;
-use super::optional::ClearMaybe;
 use super::parser::OptLinkedKey;
 
 use derive_more::Into;

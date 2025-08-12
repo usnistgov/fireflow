@@ -274,18 +274,18 @@ impl<V: Default, E> Default for ClearMaybeError<V, E> {
     }
 }
 
-impl<V, E> ClearMaybeError<V, E> {
-    pub(crate) fn new(value: V) -> Self {
-        Self { value, clear: None }
-    }
+// impl<V, E> ClearMaybeError<V, E> {
+//     pub(crate) fn new(value: V) -> Self {
+//         Self { value, clear: None }
+//     }
 
-    pub(crate) fn clear(value: V) -> Self {
-        Self {
-            value,
-            clear: Some(ClearOptionalOr::default()),
-        }
-    }
-}
+//     pub(crate) fn clear(value: V) -> Self {
+//         Self {
+//             value,
+//             clear: Some(ClearOptionalOr::default()),
+//         }
+//     }
+// }
 
 pub struct ClearMaybeError<V, E> {
     pub value: V,
@@ -330,7 +330,6 @@ impl fmt::Display for MaybeToAlwaysError {
 #[cfg(feature = "python")]
 mod python {
     use super::{AlwaysValue, MaybeValue};
-    use crate::python::macros::impl_from_py_transparent;
 
     use pyo3::prelude::*;
 

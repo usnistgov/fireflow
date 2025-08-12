@@ -881,26 +881,6 @@ impl<I> Region<I> {
             }
         };
     }
-
-    // fn shift_after_remove(&mut self, i: MeasIndex)
-    // where
-    //     I: LinkedMeasIndex,
-    // {
-    //     let ix = usize::from(i);
-    //     let go = |j: &mut MeasIndex| {
-    //         let jx = usize::from(*j);
-    //         // ASSUME this will never fail since ix at minimum can be zero, thus
-    //         // the minimum jx can be before subbing 1 is 1
-    //         *j = if jx > ix { jx - 1 } else { jx }.into();
-    //     };
-    //     match self {
-    //         Self::Univariate(x) => x.index.meas_index_mut().map(go),
-    //         Self::Bivariate(x) => {
-    //             x.x_index.meas_index_mut().map(go);
-    //             x.y_index.meas_index_mut().map(go)
-    //         }
-    //     };
-    // }
 }
 
 impl TryFrom<MeasOrGateIndex> for PrefixedMeasIndex {

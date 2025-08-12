@@ -8508,6 +8508,7 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
+    use crate::python::exceptions::PyreflowException;
     use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
     use crate::text::ranged_float::PositiveFloat;
     use crate::validated::dataframe::python::SeriesToColumnError;
@@ -8520,7 +8521,7 @@ mod python {
     };
 
     use derive_more::{Display, From};
-    use pyo3::exceptions::PyValueError;
+    use pyo3::exceptions::{PyIndexError, PyValueError};
     use pyo3::prelude::*;
     use pyo3::IntoPyObjectExt;
 
@@ -8574,7 +8575,23 @@ mod python {
     impl_pyreflow_err!(SetSpilloverError);
     impl_pyreflow_err!(CompParMismatchError);
     impl_pyreflow_err!(TriggerLinkError);
-    impl_pyreflow_err!(RemoveMeasByIndexError);
-    impl_pyreflow_err!(RemoveMeasByNameError);
     impl_pyreflow_err!(GatingMeasLinkError);
+
+    impl From<RemoveMeasByIndexError> for PyErr {
+        fn from(value: RemoveMeasByIndexError) -> Self {
+            match value {
+                RemoveMeasByIndexError::Link(x) => PyreflowException::new_err(x.to_string()),
+                RemoveMeasByIndexError::Index(x) => PyIndexError::new_err(x.to_string()),
+            }
+        }
+    }
+
+    impl From<RemoveMeasByNameError> for PyErr {
+        fn from(value: RemoveMeasByNameError) -> Self {
+            match value {
+                RemoveMeasByNameError::Link(x) => PyreflowException::new_err(x.to_string()),
+                RemoveMeasByNameError::Name(x) => PyIndexError::new_err(x.to_string()),
+            }
+        }
+    }
 }

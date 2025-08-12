@@ -11,4 +11,7 @@ API Reference
 
    api           
    core
+   measurement
+   gating
+   layout
 

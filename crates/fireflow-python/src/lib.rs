@@ -2984,9 +2984,9 @@ impl PyGatedMeasurement {
 
 macro_rules! impl_gated_meas_get_set {
     ($(#[$meta:meta])* $get:ident, $set:ident, $t:path, $inner:ident) => {
-        $(#[$meta])*
         #[pymethods]
         impl PyGatedMeasurement {
+            $(#[$meta])*
             #[getter]
             fn $get(&self) -> Option<$t> {
                 self.0.$inner.0.as_ref().cloned()

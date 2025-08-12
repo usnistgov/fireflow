@@ -1450,7 +1450,7 @@ class TestCore:
         assert isinstance(new, target)
 
 
-class TestGatedMeasurement:
+class TestGating:
     def test_scale(self, blank_gated_meas: pf.GatedMeasurement) -> None:
         assert blank_gated_meas.gme is None
         blank_gated_meas.gme = ()
@@ -1477,11 +1477,50 @@ class TestGatedMeasurement:
     @pytest.mark.parametrize("attr", ["gmf", "gmn", "gmp", "gms", "gmt"])
     def test_floats(self, blank_gated_meas: pf.GatedMeasurement, attr: str) -> None:
         assert getattr(blank_gated_meas, attr) is None
-        new = "this is sweet revenge and karma's a..."
+        new = "this is sweet revenge and karma's a"
         setattr(blank_gated_meas, attr, new)
         assert getattr(blank_gated_meas, attr) == new
         with pytest.raises(TypeError):
             setattr(blank_gated_meas, attr, 1.0)
+
+    def test_uvregion2_0(self) -> None:
+        r = pf.UnivariateRegion2_0(0, (0.0, 1.0))
+        assert r.index == 0
+        assert r.gate == (0.0, 1.0)
+
+    def test_uvregion3_0(self) -> None:
+        # TODO this is confusing as ****, for the other two we get a 0-index
+        # and here we get a 1-index
+        r = pf.UnivariateRegion3_0("P1", (0.0, 1.0))
+        assert r.index == "P1"
+        assert r.gate == (0.0, 1.0)
+
+    def test_uvregion3_2(self) -> None:
+        r = pf.UnivariateRegion3_2(0, (0.0, 1.0))
+        assert r.index == 0
+        assert r.gate == (0.0, 1.0)
+
+    def test_bvregion2_0(self) -> None:
+        i = (0, 1)
+        # TODO this should have 3 vertices minimum, a line gate makes no sense
+        vs = [(0.0, 1.0), (1.0, 3.0)]
+        r = pf.BivariateRegion2_0(i, vs)
+        assert r.index == i
+        assert r.vertices == vs
+
+    def test_bvregion3_0(self) -> None:
+        i = ("P1", "G2")
+        vs = [(0.0, 1.0), (1.0, 3.0)]
+        r = pf.BivariateRegion3_0(i, vs)
+        assert r.index == i
+        assert r.vertices == vs
+
+    def test_bvregion3_2(self) -> None:
+        i = (0, 1)
+        vs = [(0.0, 1.0), (1.0, 3.0)]
+        r = pf.BivariateRegion3_2(i, vs)
+        assert r.index == i
+        assert r.vertices == vs
 
 
 class TestMeas:

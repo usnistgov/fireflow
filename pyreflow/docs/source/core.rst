@@ -24,6 +24,133 @@ The following data is **not** explicitly stored in ``Core*``:
 * *$NEXTDATA* for similar reasons as offsets
 * any pseudostandard keywords since this would allow for "invalid" data
 
+Class relationships
+===================
+
+.. list-table::
+   :header-rows: 1
+
+   * - Version
+     - CoreTEXT\*
+     - CoreDataset\*
+     - Optical\*
+     - Temporal\*
+     - Gating
+   * - FCS2.0
+     - :py:class:`~pyreflow.CoreTEXT2_0`
+     - :py:class:`~pyreflow.CoreDataset2_0`
+     - :py:class:`~pyreflow.Optical2_0`
+     - :py:class:`~pyreflow.Temporal2_0`
+     - :py:class:`~pyreflow.AppliedGates2_0`
+   * - FCS3.0
+     - :py:class:`~pyreflow.CoreTEXT3_0`
+     - :py:class:`~pyreflow.CoreDataset3_0`
+     - :py:class:`~pyreflow.Optical3_0`
+     - :py:class:`~pyreflow.Temporal3_0`
+     - :py:class:`~pyreflow.AppliedGates3_0`
+   * - FCS3.1
+     - :py:class:`~pyreflow.CoreTEXT3_1`
+     - :py:class:`~pyreflow.CoreDataset3_1`
+     - :py:class:`~pyreflow.Optical3_1`
+     - :py:class:`~pyreflow.Temporal3_1`
+     - :py:class:`~pyreflow.AppliedGates3_0`
+   * - FCS3.2
+     - :py:class:`~pyreflow.CoreTEXT3_2`
+     - :py:class:`~pyreflow.CoreDataset3_2`
+     - :py:class:`~pyreflow.Optical3_2`
+     - :py:class:`~pyreflow.Temporal3_2`
+     - :py:class:`~pyreflow.AppliedGates3_1`
+
+
+.. list-table::
+   :header-rows: 1
+
+   * - Layout
+     - FCS2.0
+     - FCS3.0
+     - FCS3.1
+     - FCS3.2
+   * - :py:class:`~pyreflow.AsciiFixedLayout`
+     - X
+     - X
+     - X
+     - X
+   * - :py:class:`~pyreflow.AsciiDelimLayout`
+     - X
+     - X
+     - X
+     - X
+   * - :py:class:`~pyreflow.OrderedUint08Layout`
+     - X
+     - X
+     - 
+     - 
+   * - :py:class:`~pyreflow.OrderedUint16Layout`
+     - X
+     - X
+     - 
+     - 
+   * - :py:class:`~pyreflow.OrderedUint24Layout`
+     - X
+     - X
+     - 
+     - 
+   * - :py:class:`~pyreflow.OrderedUint32Layout`
+     - X
+     - X
+     - 
+     - 
+   * - :py:class:`~pyreflow.OrderedUint40Layout`
+     - X
+     - X
+     - 
+     - 
+   * - :py:class:`~pyreflow.OrderedUint48Layout`
+     - X
+     - X
+     - 
+     - 
+   * - :py:class:`~pyreflow.OrderedUint56Layout`
+     - X
+     - X
+     - 
+     - 
+   * - :py:class:`~pyreflow.OrderedUint64Layout`
+     - X
+     - X
+     - 
+     - 
+   * - :py:class:`~pyreflow.OrderedF32Layout`
+     - X
+     - X
+     - 
+     - 
+   * - :py:class:`~pyreflow.OrderedF64Layout`
+     - X
+     - X
+     - 
+     - 
+   * - :py:class:`~pyreflow.EndianF32Layout`
+     - 
+     - 
+     - X
+     - X
+   * - :py:class:`~pyreflow.EndianF64Layout`
+     - 
+     - 
+     - X
+     - X
+   * - :py:class:`~pyreflow.EndianUintLayout`
+     - 
+     - 
+     - X
+     - X
+   * - :py:class:`~pyreflow.MixedLayout`
+     - 
+     - 
+     - 
+     - X
+
 CoreTEXT\*
 ==========
 

@@ -4,8 +4,8 @@ use fireflow_core::core;
 use fireflow_core::data::{
     AnyAsciiLayout, AnyNullBitmask, AnyOrderedLayout, AnyOrderedUintLayout, DataLayout2_0,
     DataLayout3_0, DataLayout3_1, DataLayout3_2, DelimAsciiLayout, EndianLayout, F32Range,
-    F64Range, FixedAsciiLayout, FixedLayout, FloatRange, KnownTot, LayoutOps, MixedLayout,
-    NoMeasDatatype, NonMixedEndianLayout, NullMixedType, OrderedLayout, OrderedLayoutOps,
+    F64Range, FixedAsciiLayout, FixedLayout, KnownTot, LayoutOps, MixedLayout, NoMeasDatatype,
+    NonMixedEndianLayout, NullMixedType, OrderedLayout, OrderedLayoutOps,
 };
 use fireflow_core::error::ResultExt;
 use fireflow_core::header::{Header, Version};
@@ -138,7 +138,13 @@ pub fn py_fcs_read_std_dataset_with_keywords(
 }
 
 macro_rules! py_wrap {
-    ($pytype:ident, $rstype:path, $name:expr) => {
+    // pyo3 currently cannot add docstrings to __new__ methods, see
+    // https://github.com/PyO3/pyo3/issues/4326
+    //
+    // workaround, put them on the structs themselves, which works but has the
+    // disadvantage of being not next to the method def itself
+    ($(#[$meta:meta])* $pytype:ident, $rstype:path, $name:expr) => {
+        $(#[$meta])*
         #[pyclass(name = $name, eq)]
         #[derive(Clone, From, Into, PartialEq)]
         pub struct $pytype($rstype);
@@ -209,248 +215,6 @@ py_wrap!(
     BivariateRegion<kws::PrefixedMeasIndex>,
     "BivariateRegion3_2"
 );
-
-// layout objects
-type AsciiDelim = FixedAsciiLayout<KnownTot, NoMeasDatatype, false>;
-py_wrap!(PyAsciiFixedLayout, AsciiDelim, "AsciiFixedLayout");
-
-type AsciiFixed = DelimAsciiLayout<KnownTot, NoMeasDatatype, false>;
-py_wrap!(PyAsciiDelimLayout, AsciiFixed, "AsciiDelimLayout");
-
-py_wrap!(PyOrderedUint08Layout, OrderedLayout<bm::Bitmask08, KnownTot>, "OrderedUint08Layout");
-py_wrap!(PyOrderedUint16Layout, OrderedLayout<bm::Bitmask16, KnownTot>, "OrderedUint16Layout");
-py_wrap!(PyOrderedUint24Layout, OrderedLayout<bm::Bitmask24, KnownTot>, "OrderedUint24Layout");
-py_wrap!(PyOrderedUint32Layout, OrderedLayout<bm::Bitmask32, KnownTot>, "OrderedUint32Layout");
-py_wrap!(PyOrderedUint40Layout, OrderedLayout<bm::Bitmask40, KnownTot>, "OrderedUint40Layout");
-py_wrap!(PyOrderedUint48Layout, OrderedLayout<bm::Bitmask48, KnownTot>, "OrderedUint48Layout");
-py_wrap!(PyOrderedUint56Layout, OrderedLayout<bm::Bitmask56, KnownTot>, "OrderedUint56Layout");
-py_wrap!(PyOrderedUint64Layout, OrderedLayout<bm::Bitmask64, KnownTot>, "OrderedUint64Layout");
-
-py_wrap!(PyOrderedF32Layout, OrderedLayout<F32Range, KnownTot>, "OrderedF32Layout");
-py_wrap!(PyOrderedF64Layout, OrderedLayout<F64Range, KnownTot>, "OrderedF64Layout");
-
-py_wrap!(PyEndianF32Layout, EndianLayout<F32Range, NoMeasDatatype>, "EndianF32Layout");
-py_wrap!(PyEndianF64Layout, EndianLayout<F64Range, NoMeasDatatype>, "EndianF64Layout");
-
-py_wrap!(PyEndianUintLayout, EndianLayout<AnyNullBitmask, NoMeasDatatype>, "EndianUintLayout");
-
-py_wrap!(PyMixedLayout, MixedLayout, "MixedLayout");
-
-#[derive(IntoPyObject, From)]
-pub enum PyAnyCoreTEXT {
-    #[from(core::CoreTEXT2_0)]
-    FCS2_0(PyCoreTEXT2_0),
-    #[from(core::CoreTEXT3_0)]
-    FCS3_0(PyCoreTEXT3_0),
-    #[from(core::CoreTEXT3_1)]
-    FCS3_1(PyCoreTEXT3_1),
-    #[from(core::CoreTEXT3_2)]
-    FCS3_2(PyCoreTEXT3_2),
-}
-
-impl From<core::AnyCoreTEXT> for PyAnyCoreTEXT {
-    fn from(value: core::AnyCoreTEXT) -> PyAnyCoreTEXT {
-        match value {
-            core::AnyCoreTEXT::FCS2_0(x) => (*x).into(),
-            core::AnyCoreTEXT::FCS3_0(x) => (*x).into(),
-            core::AnyCoreTEXT::FCS3_1(x) => (*x).into(),
-            core::AnyCoreTEXT::FCS3_2(x) => (*x).into(),
-        }
-    }
-}
-
-#[derive(IntoPyObject, From)]
-pub enum PyAnyCoreDataset {
-    #[from(core::CoreDataset2_0)]
-    FCS2_0(PyCoreDataset2_0),
-    #[from(core::CoreDataset3_0)]
-    FCS3_0(PyCoreDataset3_0),
-    #[from(core::CoreDataset3_1)]
-    FCS3_1(PyCoreDataset3_1),
-    #[from(core::CoreDataset3_2)]
-    FCS3_2(PyCoreDataset3_2),
-}
-
-impl From<core::AnyCoreDataset> for PyAnyCoreDataset {
-    fn from(value: core::AnyCoreDataset) -> PyAnyCoreDataset {
-        match value {
-            core::AnyCoreDataset::FCS2_0(x) => (*x).into(),
-            core::AnyCoreDataset::FCS3_0(x) => (*x).into(),
-            core::AnyCoreDataset::FCS3_1(x) => (*x).into(),
-            core::AnyCoreDataset::FCS3_2(x) => (*x).into(),
-        }
-    }
-}
-
-#[derive(FromPyObject, IntoPyObject)]
-pub enum PyOrderedLayout {
-    AsciiFixed(PyAsciiFixedLayout),
-    AsciiDelim(PyAsciiDelimLayout),
-    Uint08(PyOrderedUint08Layout),
-    Uint16(PyOrderedUint16Layout),
-    Uint24(PyOrderedUint24Layout),
-    Uint32(PyOrderedUint32Layout),
-    Uint40(PyOrderedUint40Layout),
-    Uint48(PyOrderedUint48Layout),
-    Uint56(PyOrderedUint56Layout),
-    Uint64(PyOrderedUint64Layout),
-    F32(PyOrderedF32Layout),
-    F64(PyOrderedF64Layout),
-}
-
-#[derive(FromPyObject, IntoPyObject, From)]
-pub enum PyNonMixedLayout {
-    #[from(
-        PyAsciiFixedLayout,
-        FixedAsciiLayout<KnownTot, NoMeasDatatype, false>
-    )]
-    AsciiFixed(PyAsciiFixedLayout),
-
-    #[from(
-        PyAsciiDelimLayout,
-        DelimAsciiLayout<KnownTot, NoMeasDatatype, false>
-    )]
-    AsciiDelim(PyAsciiDelimLayout),
-
-    #[from(PyEndianUintLayout, EndianLayout<AnyNullBitmask, NoMeasDatatype>)]
-    Uint(PyEndianUintLayout),
-
-    #[from(PyEndianF32Layout, EndianLayout<F32Range, NoMeasDatatype>)]
-    F32(PyEndianF32Layout),
-
-    #[from(PyEndianF64Layout, EndianLayout<F64Range, NoMeasDatatype>)]
-    F64(PyEndianF64Layout),
-}
-
-#[derive(FromPyObject, IntoPyObject, From)]
-pub enum PyLayout3_2 {
-    NonMixed(PyNonMixedLayout),
-    Mixed(PyMixedLayout),
-}
-
-impl From<PyOrderedLayout> for DataLayout2_0 {
-    fn from(value: PyOrderedLayout) -> Self {
-        Self(AnyOrderedLayout::from(value).phantom_into())
-    }
-}
-
-impl From<PyOrderedLayout> for DataLayout3_0 {
-    fn from(value: PyOrderedLayout) -> Self {
-        Self(AnyOrderedLayout::from(value))
-    }
-}
-
-impl From<PyNonMixedLayout> for DataLayout3_1 {
-    fn from(value: PyNonMixedLayout) -> Self {
-        Self(NonMixedEndianLayout::from(value))
-    }
-}
-
-impl From<PyLayout3_2> for DataLayout3_2 {
-    fn from(value: PyLayout3_2) -> Self {
-        match value {
-            PyLayout3_2::Mixed(x) => Self::Mixed(x.into()),
-            PyLayout3_2::NonMixed(x) => {
-                Self::NonMixed(NonMixedEndianLayout::from(x).phantom_into())
-            }
-        }
-    }
-}
-
-impl From<DataLayout2_0> for PyOrderedLayout {
-    fn from(value: DataLayout2_0) -> Self {
-        value.0.phantom_into().into()
-    }
-}
-
-impl From<DataLayout3_0> for PyOrderedLayout {
-    fn from(value: DataLayout3_0) -> Self {
-        value.0.into()
-    }
-}
-
-impl From<DataLayout3_1> for PyNonMixedLayout {
-    fn from(value: DataLayout3_1) -> Self {
-        value.0.into()
-    }
-}
-
-impl From<DataLayout3_2> for PyLayout3_2 {
-    fn from(value: DataLayout3_2) -> Self {
-        match value {
-            DataLayout3_2::Mixed(x) => Self::Mixed(x.into()),
-            DataLayout3_2::NonMixed(x) => Self::NonMixed(x.phantom_into().into()),
-        }
-    }
-}
-
-impl From<PyOrderedLayout> for AnyOrderedLayout<KnownTot> {
-    fn from(value: PyOrderedLayout) -> Self {
-        match value {
-            PyOrderedLayout::AsciiFixed(x) => AnyAsciiLayout::from(x.0).phantom_into().into(),
-            PyOrderedLayout::AsciiDelim(x) => AnyAsciiLayout::from(x.0).phantom_into().into(),
-            PyOrderedLayout::Uint08(x) => AnyOrderedUintLayout::from(x.0).into(),
-            PyOrderedLayout::Uint16(x) => AnyOrderedUintLayout::from(x.0).into(),
-            PyOrderedLayout::Uint24(x) => AnyOrderedUintLayout::from(x.0).into(),
-            PyOrderedLayout::Uint32(x) => AnyOrderedUintLayout::from(x.0).into(),
-            PyOrderedLayout::Uint40(x) => AnyOrderedUintLayout::from(x.0).into(),
-            PyOrderedLayout::Uint48(x) => AnyOrderedUintLayout::from(x.0).into(),
-            PyOrderedLayout::Uint56(x) => AnyOrderedUintLayout::from(x.0).into(),
-            PyOrderedLayout::Uint64(x) => AnyOrderedUintLayout::from(x.0).into(),
-            PyOrderedLayout::F32(x) => x.0.into(),
-            PyOrderedLayout::F64(x) => x.0.into(),
-        }
-    }
-}
-
-impl From<AnyOrderedLayout<KnownTot>> for PyOrderedLayout {
-    fn from(value: AnyOrderedLayout<KnownTot>) -> Self {
-        match value {
-            AnyOrderedLayout::Ascii(x) => match x.phantom_into() {
-                AnyAsciiLayout::Delimited(y) => Self::AsciiDelim(y.into()),
-                AnyAsciiLayout::Fixed(y) => Self::AsciiFixed(y.into()),
-            },
-            AnyOrderedLayout::Integer(x) => match x {
-                AnyOrderedUintLayout::Uint08(y) => Self::Uint08(y.into()),
-                AnyOrderedUintLayout::Uint16(y) => Self::Uint16(y.into()),
-                AnyOrderedUintLayout::Uint24(y) => Self::Uint24(y.into()),
-                AnyOrderedUintLayout::Uint32(y) => Self::Uint32(y.into()),
-                AnyOrderedUintLayout::Uint40(y) => Self::Uint40(y.into()),
-                AnyOrderedUintLayout::Uint48(y) => Self::Uint48(y.into()),
-                AnyOrderedUintLayout::Uint56(y) => Self::Uint56(y.into()),
-                AnyOrderedUintLayout::Uint64(y) => Self::Uint64(y.into()),
-            },
-            AnyOrderedLayout::F32(x) => Self::F32(x.into()),
-            AnyOrderedLayout::F64(x) => Self::F64(x.into()),
-        }
-    }
-}
-
-impl From<NonMixedEndianLayout<NoMeasDatatype>> for PyNonMixedLayout {
-    fn from(value: NonMixedEndianLayout<NoMeasDatatype>) -> Self {
-        match value {
-            NonMixedEndianLayout::Ascii(x) => match x {
-                AnyAsciiLayout::Fixed(y) => y.into(),
-                AnyAsciiLayout::Delimited(y) => y.into(),
-            },
-            NonMixedEndianLayout::Integer(x) => x.into(),
-            NonMixedEndianLayout::F32(x) => x.into(),
-            NonMixedEndianLayout::F64(x) => x.into(),
-        }
-    }
-}
-
-impl From<PyNonMixedLayout> for NonMixedEndianLayout<NoMeasDatatype> {
-    fn from(value: PyNonMixedLayout) -> Self {
-        match value {
-            PyNonMixedLayout::AsciiFixed(x) => Self::Ascii(x.0.into()),
-            PyNonMixedLayout::AsciiDelim(x) => Self::Ascii(x.0.into()),
-            PyNonMixedLayout::Uint(x) => Self::Integer(x.into()),
-            PyNonMixedLayout::F32(x) => Self::F32(x.into()),
-            PyNonMixedLayout::F64(x) => Self::F64(x.into()),
-        }
-    }
-}
 
 impl_convert_version! {PyCoreTEXT2_0}
 impl_convert_version! {PyCoreTEXT3_0}
@@ -3080,12 +2844,383 @@ impl_gated_meas_get_set!(
     detector_voltage
 );
 
+type AsciiDelim = FixedAsciiLayout<KnownTot, NoMeasDatatype, false>;
+py_wrap! {
+    /// A fixed-width ASCII layout.
+    ///
+    /// :param chars: The number of characters for each measurement. Equivalent
+    ///     to the value of *$PnB*. Must be a number between 1 and 20
+    ///     (inclusive).
+    /// :type chars: list[int].
+    PyAsciiFixedLayout,
+    AsciiDelim,
+    "AsciiFixedLayout"
+}
+
+#[pymethods]
+impl PyAsciiFixedLayout {
+    #[new]
+    fn new(chars: Vec<u64>) -> Self {
+        FixedLayout::new_ascii_u64(chars).into()
+    }
+
+    /// The number of chars for each measurement.
+    ///
+    /// This corresponds to the value of *$PnB* for each measurement.
+    ///
+    /// :rtype: list[int]
+    #[getter]
+    fn char_widths(&self) -> Vec<u32> {
+        self.0
+            .widths()
+            .into_iter()
+            .map(|x| u32::from(u8::from(x)))
+            .collect()
+    }
+
+    // TODO make a constructor that takes char/range pairs
+    // #[classmethod]
+    // fn from_pairs(ranges: PyNonEmpty<u64>) -> Self {
+    //     FixedLayout::new(columns, NoByteOrd)
+    // }
+
+    //             #[classmethod]
+    //             fn new_ascii_fixed_pairs(
+    //                 _: &Bound<'_, PyType>,
+    //                 ranges: PyNonEmpty<(u64, u8)>,
+    //             ) -> PyResult<Self> {
+    //                 // TODO clean these types up
+    //                 let ys = ranges
+    //                     .0
+    //                     .try_map(|(x, c)| Chars::try_from(c).map(|y| (x, y)))
+    //                     .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+    //                 let rs = ys
+    //                     .try_map(|(x, c)| AsciiRange::try_new(x, c))
+    //                     .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+    //                 Ok($wrap($subwrap::new_ascii_fixed(rs)).into())
+    //             }
+}
+
+type AsciiFixed = DelimAsciiLayout<KnownTot, NoMeasDatatype, false>;
+py_wrap! {
+    /// A delimited ASCII layout.
+    ///
+    /// :param ranges: The range for each measurement. Equivalent to the *$PnR*
+    ///     keyword. This is not used internally and thus only represents
+    ///     documentation at the user level.
+    /// :type ranges: list[int]
+    PyAsciiDelimLayout,
+    AsciiFixed,
+    "AsciiDelimLayout"
+}
+
+#[pymethods]
+impl PyAsciiDelimLayout {
+    #[new]
+    fn new(ranges: Vec<u64>) -> Self {
+        DelimAsciiLayout::new(ranges).into()
+    }
+}
+
+// py_wrap!(PyOrderedUint08Layout, OrderedLayout<bm::Bitmask08, KnownTot>, "OrderedUint08Layout");
+// py_wrap!(PyOrderedUint16Layout, OrderedLayout<bm::Bitmask16, KnownTot>, "OrderedUint16Layout");
+// py_wrap!(PyOrderedUint24Layout, OrderedLayout<bm::Bitmask24, KnownTot>, "OrderedUint24Layout");
+// py_wrap!(PyOrderedUint32Layout, OrderedLayout<bm::Bitmask32, KnownTot>, "OrderedUint32Layout");
+// py_wrap!(PyOrderedUint40Layout, OrderedLayout<bm::Bitmask40, KnownTot>, "OrderedUint40Layout");
+// py_wrap!(PyOrderedUint48Layout, OrderedLayout<bm::Bitmask48, KnownTot>, "OrderedUint48Layout");
+// py_wrap!(PyOrderedUint56Layout, OrderedLayout<bm::Bitmask56, KnownTot>, "OrderedUint56Layout");
+// py_wrap!(PyOrderedUint64Layout, OrderedLayout<bm::Bitmask64, KnownTot>, "OrderedUint64Layout");
+
+macro_rules! impl_layout_new_ordered_uint {
+    ($pytype:ident, $bitmask:path, $name:expr, $size:expr, $summary:expr) => {
+        py_wrap! {
+            #[doc = $summary]
+            ///
+            /// :param ranges: The range for each measurement. Corresponds to
+            ///     *$PnR* - 1, which implies that the value for each
+            ///     measurement must be less than or equal to the values in
+            ///     ``ranges``. A bitmask will be created which corresponds to
+            ///     one less the next power of 2.
+            /// :type ranges: list[int]
+            ///
+            /// :param bool is_big: If ``True`` use big endian for encoding
+            ///     values, otherwise use little endian.
+            $pytype,
+            OrderedLayout<$bitmask, KnownTot>,
+            $name
+        }
+
+        #[pymethods]
+        impl $pytype {
+            #[new]
+            fn new(ranges: Vec<$bitmask>, is_big: bool) -> Self {
+                FixedLayout::new_endian_uint(ranges, is_big.into()).into()
+            }
+
+            #[doc = $summary]
+            ///
+            /// This differs from the default constructor in that one can
+            /// specify a byte order if they wish.
+            ///
+            /// :param ranges: The range for each measurement. Corresponds to
+            ///     *$PnR* - 1, which implies that the value for each
+            ///     measurement must be less than or equal to the values in
+            ///     ``ranges``. A bitmask will be created which corresponds to
+            ///     one less the next power of 2.
+            /// :type ranges: list[int]
+            ///
+            /// :param byteord: The byte order to use when encoding values.
+            ///     Must be a list of indices starting at 0.
+            /// :type byteord: list[int]
+            #[classmethod]
+            fn new_ordered(
+                _: &Bound<'_, PyType>,
+                ranges: Vec<$bitmask>,
+                byteord: SizedByteOrd<$size>,
+            ) -> Self {
+                FixedLayout::new(ranges, byteord).into()
+            }
+        }
+    };
+}
+
+impl_layout_new_ordered_uint!(
+    PyOrderedUint08Layout,
+    bm::Bitmask08,
+    "OrderedUint08Layout",
+    1,
+    "An 8-bit ordered integer layout."
+);
+
+impl_layout_new_ordered_uint!(
+    PyOrderedUint16Layout,
+    bm::Bitmask16,
+    "OrderedUint16Layout",
+    2,
+    "A 16-bit ordered integer layout."
+);
+
+impl_layout_new_ordered_uint!(
+    PyOrderedUint24Layout,
+    bm::Bitmask24,
+    "OrderedUint24Layout",
+    3,
+    "A 24-bit ordered integer layout."
+);
+
+impl_layout_new_ordered_uint!(
+    PyOrderedUint32Layout,
+    bm::Bitmask32,
+    "OrderedUint32Layout",
+    4,
+    "A 32-bit ordered integer layout."
+);
+
+impl_layout_new_ordered_uint!(
+    PyOrderedUint40Layout,
+    bm::Bitmask40,
+    "OrderedUint40Layout",
+    5,
+    "A 40-bit ordered integer layout."
+);
+
+impl_layout_new_ordered_uint!(
+    PyOrderedUint48Layout,
+    bm::Bitmask48,
+    "OrderedUint48Layout",
+    6,
+    "A 48-bit ordered integer layout."
+);
+
+impl_layout_new_ordered_uint!(
+    PyOrderedUint56Layout,
+    bm::Bitmask56,
+    "OrderedUint56Layout",
+    7,
+    "A 56-bit ordered integer layout."
+);
+
+impl_layout_new_ordered_uint!(
+    PyOrderedUint64Layout,
+    bm::Bitmask64,
+    "OrderedUint64Layout",
+    8,
+    "A 64-bit ordered integer layout."
+);
+
+macro_rules! impl_layout_new_ordered_float {
+    ($pytype:ident, $range:path, $name:expr, $size:expr, $summary:expr) => {
+        py_wrap! {
+            #[doc = $summary]
+            ///
+            /// :param ranges: The range for each measurement. Corresponds to
+            ///     *$PnR*. This is not used internally so only serves for
+            ///     users' own purposes.
+            /// :type ranges: list[float]
+            ///
+            /// :param bool is_big: If ``True`` use big endian for encoding
+            ///     values, otherwise use little endian.
+            $pytype,
+            OrderedLayout<$range, KnownTot>,
+            $name
+        }
+
+        #[pymethods]
+        impl $pytype {
+            #[new]
+            fn new(ranges: Vec<$range>, is_big: bool) -> Self {
+                FixedLayout::new_endian_float(ranges, is_big.into()).into()
+            }
+
+            #[doc = $summary]
+            ///
+            /// :param ranges: The range for each measurement. Corresponds to
+            ///     *$PnR*. This is not used internally so only serves for
+            ///     users' own purposes.
+            /// :type ranges: list[float]
+            ///
+            /// :param byteord: The byte order to use when encoding values.
+            ///     Must be a list of indices starting at 0.
+            /// :type byteord: list[int]
+            #[classmethod]
+            fn new_ordered(
+                _: &Bound<'_, PyType>,
+                ranges: Vec<$range>,
+                byteord: SizedByteOrd<$size>,
+            ) -> Self {
+                FixedLayout::new(ranges, byteord).into()
+            }
+        }
+    };
+}
+
+impl_layout_new_ordered_float!(
+    PyOrderedF32Layout,
+    F32Range,
+    "OrderedF32Layout",
+    4,
+    "A 32-bit ordered float layout."
+);
+
+impl_layout_new_ordered_float!(
+    PyOrderedF64Layout,
+    F64Range,
+    "OrderedF64Layout",
+    8,
+    "A 64-bit ordered float layout."
+);
+
+macro_rules! impl_layout_new_endian_float {
+    ($pytype:ident, $range:path, $name:expr, $summary:expr) => {
+        py_wrap! {
+            #[doc = $summary]
+            ///
+            /// :param ranges: The range for each measurement. Corresponds to
+            ///     *$PnR*. This is not used internally so only serves for
+            ///     users' own purposes.
+            /// :type ranges: list[float]
+            ///
+            /// :param bool is_big: If ``True`` use big endian for encoding
+            ///     values, otherwise use little endian.
+            $pytype,
+            EndianLayout<$range, NoMeasDatatype>,
+            $name
+        }
+
+        #[pymethods]
+        impl $pytype {
+            #[new]
+            fn new(ranges: Vec<$range>, is_big: bool) -> Self {
+                FixedLayout::new(ranges, is_big.into()).into()
+            }
+        }
+    };
+}
+
+impl_layout_new_endian_float!(
+    PyEndianF32Layout,
+    F32Range,
+    "EndianF32Layout",
+    "A 32-bit endian float layout"
+);
+
+impl_layout_new_endian_float!(
+    PyEndianF64Layout,
+    F64Range,
+    "EndianF64Layout",
+    "A 64-bit endian float layout"
+);
+
+py_wrap! {
+    /// A mixed-width integer layout.
+    ///
+    /// :param ranges: The range of each measurement. Corresponds to the *$PnR*
+    ///     keyword less one. The number of bytes used to encode each
+    ///     measurement (*$PnB*) will be the minimum required to express this
+    ///     value. For instance, a value of ``1024`` will set *$PnB* to ``16``
+    ///     and the values in this measurement will be encoded as 16-bit
+    ///     integer. The values of a measurement will be less than or equal to
+    ///     this value.
+    /// :type ranges: list[int]
+    ///
+    /// :param bool is_big: If ``True`` use big endian for encoding values,
+    ///     otherwise use little endian.
+    PyEndianUintLayout,
+    EndianLayout<AnyNullBitmask, NoMeasDatatype>,
+    "EndianUintLayout"
+}
+
+#[pymethods]
+impl PyEndianUintLayout {
+    #[new]
+    fn new(ranges: Vec<u64>, is_big: bool) -> Self {
+        let rs = ranges.into_iter().map(AnyNullBitmask::from_u64).collect();
+        FixedLayout::new(rs, is_big.into()).into()
+    }
+}
+
+py_wrap! {
+    /// A mixed-type layout.
+    ///
+    /// :param types: The type and range for each measurement. These are given
+    ///     as 2-tuples like ``(<flag>, <range>)`` where ``flag`` is one of
+    ///     ``"A"``, ``"I"``, ``"F"``, or ``"D"`` corresponding to Ascii,
+    ///     Integer, Float, or Double datatypes respectively. The ``range``
+    ///     field should be an ``int`` for ``"A"`` or ``"I"`` and a ``float``
+    ///     for ``"F"`` or ``"D"``.
+    /// :type types: list[tuple[Literal["A", "I"], int] | tuple[Literal["F", "D"], float]]
+    ///
+    /// :param bool is_big: If ``True`` use big endian for encoding values,
+    ///     otherwise use little endian.
+    PyMixedLayout,
+    MixedLayout,
+    "MixedLayout"
+}
+
+#[pymethods]
+impl PyMixedLayout {
+    #[new]
+    fn new(types: Vec<NullMixedType>, is_big: bool) -> Self {
+        FixedLayout::new(types, is_big.into()).into()
+    }
+
+    /// The datatypes for each measurement.
+    ///
+    /// When given, this will be *$PnDATATYPE*, otherwise *$DATATYPE*.
+    ///
+    /// :rtype: list[Literal["A", "I", "F", "D"]]
+    #[getter]
+    fn datatypes(&self) -> Vec<kws::AlphaNumType> {
+        self.0.datatypes()
+    }
+}
+
 // TODO these should be ints or floats depending on layout
 macro_rules! impl_layout_ranges {
     ($t:ident) => {
         #[pymethods]
         impl $t {
-            /// Return the value of *$PnR* for each measurement.
+            /// The value of *$PnR* for each measurement.
             ///
             /// :rtype: list[float]
             #[getter]
@@ -3149,6 +3284,9 @@ macro_rules! impl_layout_byteord {
         #[pymethods]
         impl $t {
             /// The value of *$BYTEORD*
+            ///
+            /// This will be a list of indices starting at 0 (rather than 1
+            /// as is written in an FCS file).
             ///
             /// :rtype: list[int]
             #[getter]
@@ -3264,169 +3402,6 @@ macro_rules! impl_layout_bytes_variable {
 impl_layout_bytes_variable!(PyEndianUintLayout);
 impl_layout_bytes_variable!(PyMixedLayout);
 
-#[pymethods]
-impl PyAsciiDelimLayout {
-    #[new]
-    fn new(ranges: Vec<u64>) -> Self {
-        DelimAsciiLayout::new(ranges).into()
-    }
-}
-
-#[pymethods]
-impl PyAsciiFixedLayout {
-    #[new]
-    fn new(ranges: Vec<u64>) -> Self {
-        FixedLayout::new_ascii_u64(ranges).into()
-    }
-
-    /// The number of chars for each measurement.
-    ///
-    /// This corresponds to the value of *$PnB* for each measurement.
-    ///
-    /// :rtype: list[int]
-    #[getter]
-    fn char_widths(&self) -> Vec<u32> {
-        self.0
-            .widths()
-            .into_iter()
-            .map(|x| u32::from(u8::from(x)))
-            .collect()
-    }
-
-    // TODO make a constructor that takes char/range pairs
-    // #[classmethod]
-    // fn from_pairs(ranges: PyNonEmpty<u64>) -> Self {
-    //     FixedLayout::new(columns, NoByteOrd)
-    // }
-
-    //             #[classmethod]
-    //             fn new_ascii_fixed_pairs(
-    //                 _: &Bound<'_, PyType>,
-    //                 ranges: PyNonEmpty<(u64, u8)>,
-    //             ) -> PyResult<Self> {
-    //                 // TODO clean these types up
-    //                 let ys = ranges
-    //                     .0
-    //                     .try_map(|(x, c)| Chars::try_from(c).map(|y| (x, y)))
-    //                     .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-    //                 let rs = ys
-    //                     .try_map(|(x, c)| AsciiRange::try_new(x, c))
-    //                     .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-    //                 Ok($wrap($subwrap::new_ascii_fixed(rs)).into())
-    //             }
-}
-
-macro_rules! impl_layout_new_ordered_uint {
-    ($t:ident, $uint:ident, $size:expr) => {
-        #[pymethods]
-        impl $t {
-            /// Make a new layout for $size-byte Uints with a given endian-ness.
-            #[new]
-            fn new(ranges: Vec<bm::Bitmask<$uint, $size>>, is_big: bool) -> Self {
-                FixedLayout::new_endian_uint(ranges, is_big.into()).into()
-            }
-
-            #[classmethod]
-            /// Make a new layout for $size-byte Uints with a given byte order.
-            fn new_ordered(
-                _: &Bound<'_, PyType>,
-                ranges: Vec<bm::Bitmask<$uint, $size>>,
-                byteord: SizedByteOrd<$size>,
-            ) -> Self {
-                FixedLayout::new(ranges, byteord).into()
-            }
-        }
-    };
-}
-
-impl_layout_new_ordered_uint!(PyOrderedUint08Layout, u8, 1);
-impl_layout_new_ordered_uint!(PyOrderedUint16Layout, u16, 2);
-impl_layout_new_ordered_uint!(PyOrderedUint24Layout, u32, 3);
-impl_layout_new_ordered_uint!(PyOrderedUint32Layout, u32, 4);
-impl_layout_new_ordered_uint!(PyOrderedUint40Layout, u64, 5);
-impl_layout_new_ordered_uint!(PyOrderedUint48Layout, u64, 6);
-impl_layout_new_ordered_uint!(PyOrderedUint56Layout, u64, 7);
-impl_layout_new_ordered_uint!(PyOrderedUint64Layout, u64, 8);
-
-macro_rules! impl_layout_new_ordered_float {
-    ($t:ident, $num:ident, $size:expr) => {
-        #[pymethods]
-        impl $t {
-            /// Make a new $num layout with a given endian-ness.
-            #[new]
-            fn new(ranges: Vec<FloatRange<$num, $size>>, is_big: bool) -> Self {
-                FixedLayout::new_endian_float(ranges, is_big.into()).into()
-            }
-
-            #[classmethod]
-            /// Make a new $num layout with a given byte order.
-            fn new_ordered(
-                _: &Bound<'_, PyType>,
-                ranges: Vec<FloatRange<$num, $size>>,
-                byteord: SizedByteOrd<$size>,
-            ) -> Self {
-                FixedLayout::new(ranges, byteord).into()
-            }
-        }
-    };
-}
-
-impl_layout_new_ordered_float!(PyOrderedF32Layout, f32, 4);
-impl_layout_new_ordered_float!(PyOrderedF64Layout, f64, 8);
-
-// float layouts for 3.1/3.2
-macro_rules! impl_layout_new_endian_float {
-    ($t:ident, $num:ident, $size:expr) => {
-        #[pymethods]
-        impl $t {
-            #[new]
-            /// Make a new $num layout with a given endian-ness.
-            fn new(ranges: Vec<FloatRange<$num, $size>>, is_big: bool) -> Self {
-                FixedLayout::new(ranges, is_big.into()).into()
-            }
-        }
-    };
-}
-
-impl_layout_new_endian_float!(PyEndianF32Layout, f32, 4);
-impl_layout_new_endian_float!(PyEndianF64Layout, f64, 8);
-
-#[pymethods]
-impl PyEndianUintLayout {
-    /// Make a new Uint layout with a given endian-ness.
-    ///
-    /// Width of each column (in bytes) will depend in the input range.
-    #[new]
-    fn new(ranges: Vec<u64>, is_big: bool) -> Self {
-        let rs = ranges.into_iter().map(AnyNullBitmask::from_u64).collect();
-        FixedLayout::new(rs, is_big.into()).into()
-    }
-}
-
-#[pymethods]
-impl PyMixedLayout {
-    #[new]
-    /// Make a new mixed layout with a given endian-ness.
-    ///
-    /// Columns must be specified as pairs like (flag, value) where 'flag'
-    /// is one of "A", "I", "F", or "D" corresponding to Ascii, Integer, Float,
-    /// or Double datatypes. The 'value' field should be an integer for "A" or
-    /// "I" and a float for "F" or "D".
-    fn new(ranges: Vec<NullMixedType>, is_big: bool) -> Self {
-        FixedLayout::new(ranges, is_big.into()).into()
-    }
-
-    #[getter]
-    /// The datatypes for each column.
-    ///
-    /// When given, this will be *$PnDATATYPE*, otherwise *$DATATYPE*.
-    ///
-    /// :rtype: list[Literal["A", "I", "F", "D"]]
-    fn datatypes(&self) -> Vec<kws::AlphaNumType> {
-        self.0.datatypes()
-    }
-}
-
 // pub(crate) struct PyNonEmpty<T>(pub(crate) NonEmpty<T>);
 
 // impl<'py, T: FromPyObject<'py>> FromPyObject<'py> for PyNonEmpty<T> {
@@ -3437,3 +3412,219 @@ impl PyMixedLayout {
 //             .map(Self)
 //     }
 // }
+
+#[derive(IntoPyObject, From)]
+pub enum PyAnyCoreTEXT {
+    #[from(core::CoreTEXT2_0)]
+    FCS2_0(PyCoreTEXT2_0),
+    #[from(core::CoreTEXT3_0)]
+    FCS3_0(PyCoreTEXT3_0),
+    #[from(core::CoreTEXT3_1)]
+    FCS3_1(PyCoreTEXT3_1),
+    #[from(core::CoreTEXT3_2)]
+    FCS3_2(PyCoreTEXT3_2),
+}
+
+impl From<core::AnyCoreTEXT> for PyAnyCoreTEXT {
+    fn from(value: core::AnyCoreTEXT) -> PyAnyCoreTEXT {
+        match value {
+            core::AnyCoreTEXT::FCS2_0(x) => (*x).into(),
+            core::AnyCoreTEXT::FCS3_0(x) => (*x).into(),
+            core::AnyCoreTEXT::FCS3_1(x) => (*x).into(),
+            core::AnyCoreTEXT::FCS3_2(x) => (*x).into(),
+        }
+    }
+}
+
+#[derive(IntoPyObject, From)]
+pub enum PyAnyCoreDataset {
+    #[from(core::CoreDataset2_0)]
+    FCS2_0(PyCoreDataset2_0),
+    #[from(core::CoreDataset3_0)]
+    FCS3_0(PyCoreDataset3_0),
+    #[from(core::CoreDataset3_1)]
+    FCS3_1(PyCoreDataset3_1),
+    #[from(core::CoreDataset3_2)]
+    FCS3_2(PyCoreDataset3_2),
+}
+
+impl From<core::AnyCoreDataset> for PyAnyCoreDataset {
+    fn from(value: core::AnyCoreDataset) -> PyAnyCoreDataset {
+        match value {
+            core::AnyCoreDataset::FCS2_0(x) => (*x).into(),
+            core::AnyCoreDataset::FCS3_0(x) => (*x).into(),
+            core::AnyCoreDataset::FCS3_1(x) => (*x).into(),
+            core::AnyCoreDataset::FCS3_2(x) => (*x).into(),
+        }
+    }
+}
+
+#[derive(FromPyObject, IntoPyObject)]
+pub enum PyOrderedLayout {
+    AsciiFixed(PyAsciiFixedLayout),
+    AsciiDelim(PyAsciiDelimLayout),
+    Uint08(PyOrderedUint08Layout),
+    Uint16(PyOrderedUint16Layout),
+    Uint24(PyOrderedUint24Layout),
+    Uint32(PyOrderedUint32Layout),
+    Uint40(PyOrderedUint40Layout),
+    Uint48(PyOrderedUint48Layout),
+    Uint56(PyOrderedUint56Layout),
+    Uint64(PyOrderedUint64Layout),
+    F32(PyOrderedF32Layout),
+    F64(PyOrderedF64Layout),
+}
+
+#[derive(FromPyObject, IntoPyObject, From)]
+pub enum PyNonMixedLayout {
+    #[from(
+        PyAsciiFixedLayout,
+        FixedAsciiLayout<KnownTot, NoMeasDatatype, false>
+    )]
+    AsciiFixed(PyAsciiFixedLayout),
+
+    #[from(
+        PyAsciiDelimLayout,
+        DelimAsciiLayout<KnownTot, NoMeasDatatype, false>
+    )]
+    AsciiDelim(PyAsciiDelimLayout),
+
+    #[from(PyEndianUintLayout, EndianLayout<AnyNullBitmask, NoMeasDatatype>)]
+    Uint(PyEndianUintLayout),
+
+    #[from(PyEndianF32Layout, EndianLayout<F32Range, NoMeasDatatype>)]
+    F32(PyEndianF32Layout),
+
+    #[from(PyEndianF64Layout, EndianLayout<F64Range, NoMeasDatatype>)]
+    F64(PyEndianF64Layout),
+}
+
+#[derive(FromPyObject, IntoPyObject, From)]
+pub enum PyLayout3_2 {
+    NonMixed(PyNonMixedLayout),
+    Mixed(PyMixedLayout),
+}
+
+impl From<PyOrderedLayout> for DataLayout2_0 {
+    fn from(value: PyOrderedLayout) -> Self {
+        Self(AnyOrderedLayout::from(value).phantom_into())
+    }
+}
+
+impl From<PyOrderedLayout> for DataLayout3_0 {
+    fn from(value: PyOrderedLayout) -> Self {
+        Self(AnyOrderedLayout::from(value))
+    }
+}
+
+impl From<PyNonMixedLayout> for DataLayout3_1 {
+    fn from(value: PyNonMixedLayout) -> Self {
+        Self(NonMixedEndianLayout::from(value))
+    }
+}
+
+impl From<PyLayout3_2> for DataLayout3_2 {
+    fn from(value: PyLayout3_2) -> Self {
+        match value {
+            PyLayout3_2::Mixed(x) => Self::Mixed(x.into()),
+            PyLayout3_2::NonMixed(x) => {
+                Self::NonMixed(NonMixedEndianLayout::from(x).phantom_into())
+            }
+        }
+    }
+}
+
+impl From<DataLayout2_0> for PyOrderedLayout {
+    fn from(value: DataLayout2_0) -> Self {
+        value.0.phantom_into().into()
+    }
+}
+
+impl From<DataLayout3_0> for PyOrderedLayout {
+    fn from(value: DataLayout3_0) -> Self {
+        value.0.into()
+    }
+}
+
+impl From<DataLayout3_1> for PyNonMixedLayout {
+    fn from(value: DataLayout3_1) -> Self {
+        value.0.into()
+    }
+}
+
+impl From<DataLayout3_2> for PyLayout3_2 {
+    fn from(value: DataLayout3_2) -> Self {
+        match value {
+            DataLayout3_2::Mixed(x) => Self::Mixed(x.into()),
+            DataLayout3_2::NonMixed(x) => Self::NonMixed(x.phantom_into().into()),
+        }
+    }
+}
+
+impl From<PyOrderedLayout> for AnyOrderedLayout<KnownTot> {
+    fn from(value: PyOrderedLayout) -> Self {
+        match value {
+            PyOrderedLayout::AsciiFixed(x) => AnyAsciiLayout::from(x.0).phantom_into().into(),
+            PyOrderedLayout::AsciiDelim(x) => AnyAsciiLayout::from(x.0).phantom_into().into(),
+            PyOrderedLayout::Uint08(x) => AnyOrderedUintLayout::from(x.0).into(),
+            PyOrderedLayout::Uint16(x) => AnyOrderedUintLayout::from(x.0).into(),
+            PyOrderedLayout::Uint24(x) => AnyOrderedUintLayout::from(x.0).into(),
+            PyOrderedLayout::Uint32(x) => AnyOrderedUintLayout::from(x.0).into(),
+            PyOrderedLayout::Uint40(x) => AnyOrderedUintLayout::from(x.0).into(),
+            PyOrderedLayout::Uint48(x) => AnyOrderedUintLayout::from(x.0).into(),
+            PyOrderedLayout::Uint56(x) => AnyOrderedUintLayout::from(x.0).into(),
+            PyOrderedLayout::Uint64(x) => AnyOrderedUintLayout::from(x.0).into(),
+            PyOrderedLayout::F32(x) => x.0.into(),
+            PyOrderedLayout::F64(x) => x.0.into(),
+        }
+    }
+}
+
+impl From<AnyOrderedLayout<KnownTot>> for PyOrderedLayout {
+    fn from(value: AnyOrderedLayout<KnownTot>) -> Self {
+        match value {
+            AnyOrderedLayout::Ascii(x) => match x.phantom_into() {
+                AnyAsciiLayout::Delimited(y) => Self::AsciiDelim(y.into()),
+                AnyAsciiLayout::Fixed(y) => Self::AsciiFixed(y.into()),
+            },
+            AnyOrderedLayout::Integer(x) => match x {
+                AnyOrderedUintLayout::Uint08(y) => Self::Uint08(y.into()),
+                AnyOrderedUintLayout::Uint16(y) => Self::Uint16(y.into()),
+                AnyOrderedUintLayout::Uint24(y) => Self::Uint24(y.into()),
+                AnyOrderedUintLayout::Uint32(y) => Self::Uint32(y.into()),
+                AnyOrderedUintLayout::Uint40(y) => Self::Uint40(y.into()),
+                AnyOrderedUintLayout::Uint48(y) => Self::Uint48(y.into()),
+                AnyOrderedUintLayout::Uint56(y) => Self::Uint56(y.into()),
+                AnyOrderedUintLayout::Uint64(y) => Self::Uint64(y.into()),
+            },
+            AnyOrderedLayout::F32(x) => Self::F32(x.into()),
+            AnyOrderedLayout::F64(x) => Self::F64(x.into()),
+        }
+    }
+}
+
+impl From<NonMixedEndianLayout<NoMeasDatatype>> for PyNonMixedLayout {
+    fn from(value: NonMixedEndianLayout<NoMeasDatatype>) -> Self {
+        match value {
+            NonMixedEndianLayout::Ascii(x) => match x {
+                AnyAsciiLayout::Fixed(y) => y.into(),
+                AnyAsciiLayout::Delimited(y) => y.into(),
+            },
+            NonMixedEndianLayout::Integer(x) => x.into(),
+            NonMixedEndianLayout::F32(x) => x.into(),
+            NonMixedEndianLayout::F64(x) => x.into(),
+        }
+    }
+}
+
+impl From<PyNonMixedLayout> for NonMixedEndianLayout<NoMeasDatatype> {
+    fn from(value: PyNonMixedLayout) -> Self {
+        match value {
+            PyNonMixedLayout::AsciiFixed(x) => Self::Ascii(x.0.into()),
+            PyNonMixedLayout::AsciiDelim(x) => Self::Ascii(x.0.into()),
+            PyNonMixedLayout::Uint(x) => Self::Integer(x.into()),
+            PyNonMixedLayout::F32(x) => Self::F32(x.into()),
+            PyNonMixedLayout::F64(x) => Self::F64(x.into()),
+        }
+    }
+}

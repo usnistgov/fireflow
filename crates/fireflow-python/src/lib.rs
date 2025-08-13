@@ -3080,26 +3080,14 @@ impl_gated_meas_get_set!(
     detector_voltage
 );
 
-macro_rules! impl_layout_common {
+// TODO these should be ints or floats depending on layout
+macro_rules! impl_layout_ranges {
     ($t:ident) => {
         #[pymethods]
         impl $t {
-            /// Return the widths of each column (ie the $PnB keyword).
+            /// Return the value of *$PnR* for each measurement.
             ///
-            /// This will be a list of integers equal to the number of columns
-            /// or an empty list if the layout is delimited Ascii (in which case
-            /// it has no column widths).
-            #[getter]
-            fn widths(&self) -> Option<Vec<u32>> {
-                self.0
-                    .widths()
-                    .map(|ws| ws.into_iter().map(|x| u32::from(u8::from(x))).collect())
-            }
-
-            /// Return a list of ranges for each column.
-            ///
-            /// The elements of the list will be either a float or int and
-            /// will depend on the underlying layout structure.
+            /// :rtype: list[float]
             #[getter]
             fn ranges(&self) -> Vec<kws::Range> {
                 self.0.ranges().into()
@@ -3108,31 +3096,31 @@ macro_rules! impl_layout_common {
     };
 }
 
-impl_layout_common!(PyAsciiFixedLayout);
-impl_layout_common!(PyAsciiDelimLayout);
-impl_layout_common!(PyOrderedUint08Layout);
-impl_layout_common!(PyOrderedUint16Layout);
-impl_layout_common!(PyOrderedUint24Layout);
-impl_layout_common!(PyOrderedUint32Layout);
-impl_layout_common!(PyOrderedUint40Layout);
-impl_layout_common!(PyOrderedUint48Layout);
-impl_layout_common!(PyOrderedUint56Layout);
-impl_layout_common!(PyOrderedUint64Layout);
-impl_layout_common!(PyOrderedF32Layout);
-impl_layout_common!(PyOrderedF64Layout);
-impl_layout_common!(PyEndianF32Layout);
-impl_layout_common!(PyEndianF64Layout);
-impl_layout_common!(PyEndianUintLayout);
-impl_layout_common!(PyMixedLayout);
+impl_layout_ranges!(PyAsciiFixedLayout);
+impl_layout_ranges!(PyAsciiDelimLayout);
+impl_layout_ranges!(PyOrderedUint08Layout);
+impl_layout_ranges!(PyOrderedUint16Layout);
+impl_layout_ranges!(PyOrderedUint24Layout);
+impl_layout_ranges!(PyOrderedUint32Layout);
+impl_layout_ranges!(PyOrderedUint40Layout);
+impl_layout_ranges!(PyOrderedUint48Layout);
+impl_layout_ranges!(PyOrderedUint56Layout);
+impl_layout_ranges!(PyOrderedUint64Layout);
+impl_layout_ranges!(PyOrderedF32Layout);
+impl_layout_ranges!(PyOrderedF64Layout);
+impl_layout_ranges!(PyEndianF32Layout);
+impl_layout_ranges!(PyEndianF64Layout);
+impl_layout_ranges!(PyEndianUintLayout);
+impl_layout_ranges!(PyMixedLayout);
 
 macro_rules! impl_layout_datatype {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
-            #[getter]
             /// The value of *$DATATYPE*
             ///
             /// :rtype: Literal["A", "I", "F", "D"]
+            #[getter]
             fn datatype(&self) -> kws::AlphaNumType {
                 self.0.datatype().into()
             }
@@ -3160,17 +3148,21 @@ macro_rules! impl_layout_byteord {
     ($t:ident) => {
         #[pymethods]
         impl $t {
+            /// The value of *$BYTEORD*
+            ///
+            /// :rtype: list[int]
             #[getter]
-            /// Return the byte order of the layout.
-            fn byte_order(&self) -> Vec<NonZeroU8> {
+            fn byteord(&self) -> Vec<NonZeroU8> {
                 self.0.byte_order().as_vec()
             }
 
-            #[getter]
-            /// Return the endianness if applicable.
+            /// The endianness if applicable.
             ///
-            /// Return true for big endian, false for little endian, and
-            /// None if byte order is mixed.
+            /// Return ``True`` for big endian, ``False`` for little endian,
+            /// and ``None`` for mixed.
+            ///
+            /// :rtype: bool | None
+            #[getter]
             fn is_big_endian(&self) -> Option<bool> {
                 self.0.endianness().map(|x| x == Endian::Big)
             }
@@ -3194,7 +3186,12 @@ macro_rules! impl_layout_endianness {
         #[pymethods]
         impl $t {
             #[getter]
-            /// Return true if big endian, false otherwise.
+            /// The value of *$BYTEORD*.
+            ///
+            /// Return ``True`` for big endian (``4,3,2,1``), ``False`` for
+            /// little endian (``1,2,3,4``).
+            ///
+            /// :rtype: bool
             fn is_big_endian(&self) -> bool {
                 *self.0.as_ref() == Endian::Big
             }
@@ -3206,6 +3203,66 @@ impl_layout_endianness!(PyEndianF32Layout);
 impl_layout_endianness!(PyEndianF64Layout);
 impl_layout_endianness!(PyEndianUintLayout);
 impl_layout_endianness!(PyMixedLayout);
+
+// Many layouts have the same width for each column, so this is just a simple
+// const method which will return that width (in bits)
+macro_rules! impl_layout_bytes_fixed {
+    ($t:ident, $width:expr, $doc:expr) => {
+        #[pymethods]
+        impl $t {
+            /// The width of each measurement in bytes.
+            ///
+            #[doc = $doc]
+            ///
+            /// This corresponds to the value of *$PnB* divided by 8, which are
+            /// all the same for this layout.
+            ///
+            /// :rtype: int
+            #[getter]
+            fn byte_width(&self) -> u32 {
+                $width
+            }
+        }
+    };
+}
+
+impl_layout_bytes_fixed!(PyOrderedUint08Layout, 1, "Will always return 1.");
+impl_layout_bytes_fixed!(PyOrderedUint16Layout, 2, "Will always return 2.");
+impl_layout_bytes_fixed!(PyOrderedUint24Layout, 3, "Will always return 3.");
+impl_layout_bytes_fixed!(PyOrderedUint32Layout, 4, "Will always return 4.");
+impl_layout_bytes_fixed!(PyOrderedUint40Layout, 5, "Will always return 5.");
+impl_layout_bytes_fixed!(PyOrderedUint48Layout, 6, "Will always return 6.");
+impl_layout_bytes_fixed!(PyOrderedUint56Layout, 7, "Will always return 7.");
+impl_layout_bytes_fixed!(PyOrderedUint64Layout, 8, "Will always return 8.");
+impl_layout_bytes_fixed!(PyOrderedF32Layout, 4, "Will always return 4.");
+impl_layout_bytes_fixed!(PyOrderedF64Layout, 8, "Will always return 8.");
+impl_layout_bytes_fixed!(PyEndianF32Layout, 4, "Will always return 4.");
+impl_layout_bytes_fixed!(PyEndianF64Layout, 8, "Will always return 8.");
+
+macro_rules! impl_layout_bytes_variable {
+    ($t:ident) => {
+        #[pymethods]
+        impl $t {
+            /// The width of each measurement in bytes.
+            ///
+            /// This corresponds to the value of *$PnB* for each measurement
+            /// divided by 8. Values for each measurement may be different.
+            ///
+            /// :rtype: list[int]
+            #[getter]
+            fn byte_widths(&self) -> Vec<u32> {
+                self.0
+                    .widths()
+                    .into_iter()
+                    .map(|x| u32::from(u8::from(x)))
+                    .collect()
+            }
+        }
+    };
+}
+
+impl_layout_bytes_variable!(PyEndianUintLayout);
+impl_layout_bytes_variable!(PyMixedLayout);
 
 #[pymethods]
 impl PyAsciiDelimLayout {
@@ -3220,6 +3277,20 @@ impl PyAsciiFixedLayout {
     #[new]
     fn new(ranges: Vec<u64>) -> Self {
         FixedLayout::new_ascii_u64(ranges).into()
+    }
+
+    /// The number of chars for each measurement.
+    ///
+    /// This corresponds to the value of *$PnB* for each measurement.
+    ///
+    /// :rtype: list[int]
+    #[getter]
+    fn char_widths(&self) -> Vec<u32> {
+        self.0
+            .widths()
+            .into_iter()
+            .map(|x| u32::from(u8::from(x)))
+            .collect()
     }
 
     // TODO make a constructor that takes char/range pairs

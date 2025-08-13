@@ -461,8 +461,6 @@ pub trait LayoutOps<'a, T>: Sized {
 
     fn nbytes(&self, df: &FCSDataFrame) -> u64;
 
-    fn widths(&self) -> Option<Vec<BitsOrChars>>;
-
     fn ranges(&self) -> Vec<Range>;
 
     fn datatype(&self) -> AlphaNumType;
@@ -2132,10 +2130,6 @@ where
         df.ascii_nbytes()
     }
 
-    fn widths(&self) -> Option<Vec<BitsOrChars>> {
-        None
-    }
-
     fn ranges(&self) -> Vec<Range> {
         self.ranges.iter().map(|x| Range::from(*x)).collect()
     }
@@ -2456,10 +2450,6 @@ where
     <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
     AnyRangeError: From<<C as FromRange>::Error>,
 {
-    fn widths(&self) -> Option<Vec<BitsOrChars>> {
-        Some(self.columns.iter().map(|x| x.fixed_width()).collect())
-    }
-
     fn ranges(&self) -> Vec<Range> {
         self.columns.iter().map(|x| x.into()).collect()
     }
@@ -2643,6 +2633,13 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
 
     pub fn new_empty(byte_layout: S) -> Self {
         Self::new(vec![], byte_layout)
+    }
+
+    pub fn widths(&self) -> Vec<BitsOrChars>
+    where
+        C: IsFixed,
+    {
+        self.columns.iter().map(|x| x.fixed_width()).collect()
     }
 
     fn new1(head: C, tail: Vec<C>, byte_layout: S) -> Self {

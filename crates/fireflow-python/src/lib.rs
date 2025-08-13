@@ -152,36 +152,12 @@ macro_rules! py_wrap {
 }
 
 // core* objects
-py_wrap!(PyCoreTEXT2_0, core::CoreTEXT2_0, "CoreTEXT2_0");
-py_wrap!(PyCoreTEXT3_0, core::CoreTEXT3_0, "CoreTEXT3_0");
-py_wrap!(PyCoreTEXT3_1, core::CoreTEXT3_1, "CoreTEXT3_1");
-py_wrap!(PyCoreTEXT3_2, core::CoreTEXT3_2, "CoreTEXT3_2");
-
-py_wrap!(PyCoreDataset2_0, core::CoreDataset2_0, "CoreDataset2_0");
-py_wrap!(PyCoreDataset3_0, core::CoreDataset3_0, "CoreDataset3_0");
-py_wrap!(PyCoreDataset3_1, core::CoreDataset3_1, "CoreDataset3_1");
-py_wrap!(PyCoreDataset3_2, core::CoreDataset3_2, "CoreDataset3_2");
-
-py_wrap!(PyOptical2_0, core::Optical2_0, "Optical2_0");
-py_wrap!(PyOptical3_0, core::Optical3_0, "Optical3_0");
-py_wrap!(PyOptical3_1, core::Optical3_1, "Optical3_1");
-py_wrap!(PyOptical3_2, core::Optical3_2, "Optical3_2");
-
-py_wrap!(PyTemporal2_0, core::Temporal2_0, "Temporal2_0");
-py_wrap!(PyTemporal3_0, core::Temporal3_0, "Temporal3_0");
-py_wrap!(PyTemporal3_1, core::Temporal3_1, "Temporal3_1");
-py_wrap!(PyTemporal3_2, core::Temporal3_2, "Temporal3_2");
-
-// gating objects
-
-impl_convert_version! {PyCoreTEXT2_0}
-impl_convert_version! {PyCoreTEXT3_0}
-impl_convert_version! {PyCoreTEXT3_1}
-impl_convert_version! {PyCoreTEXT3_2}
-impl_convert_version! {PyCoreDataset2_0}
-impl_convert_version! {PyCoreDataset3_0}
-impl_convert_version! {PyCoreDataset3_1}
-impl_convert_version! {PyCoreDataset3_2}
+py_wrap! {
+    /// Represents *TEXT* for an FCS 2.0 file.
+    PyCoreTEXT2_0,
+    core::CoreTEXT2_0,
+    "CoreTEXT2_0"
+}
 
 #[pymethods]
 impl PyCoreTEXT2_0 {
@@ -189,6 +165,13 @@ impl PyCoreTEXT2_0 {
     fn new(mode: kws::Mode, datatype: kws::AlphaNumType) -> PyResult<Self> {
         Ok(core::CoreTEXT2_0::new(mode, datatype).into())
     }
+}
+
+py_wrap! {
+    /// Represents *TEXT* for an FCS 3.0 file.
+    PyCoreTEXT3_0,
+    core::CoreTEXT3_0,
+    "CoreTEXT3_0"
 }
 
 #[pymethods]
@@ -199,6 +182,13 @@ impl PyCoreTEXT3_0 {
     }
 }
 
+py_wrap! {
+    /// Represents *TEXT* for an FCS 3.1 file.
+    PyCoreTEXT3_1,
+    core::CoreTEXT3_1,
+    "CoreTEXT3_1"
+}
+
 #[pymethods]
 impl PyCoreTEXT3_1 {
     #[new]
@@ -207,6 +197,13 @@ impl PyCoreTEXT3_1 {
     }
 }
 
+py_wrap!(
+    /// Represents *TEXT* for an FCS 3.2 file.
+    PyCoreTEXT3_2,
+    core::CoreTEXT3_2,
+    "CoreTEXT3_2"
+);
+
 #[pymethods]
 impl PyCoreTEXT3_2 {
     #[new]
@@ -214,6 +211,160 @@ impl PyCoreTEXT3_2 {
         core::CoreTEXT3_2::new(cyt, datatype).into()
     }
 }
+
+py_wrap!(PyCoreDataset2_0, core::CoreDataset2_0, "CoreDataset2_0");
+py_wrap!(PyCoreDataset3_0, core::CoreDataset3_0, "CoreDataset3_0");
+py_wrap!(PyCoreDataset3_1, core::CoreDataset3_1, "CoreDataset3_1");
+py_wrap!(PyCoreDataset3_2, core::CoreDataset3_2, "CoreDataset3_2");
+
+py_wrap! {
+    /// Encodes FCS2.0 *$Pn\** keywords for an optical measurement.
+    PyOptical2_0,
+    core::Optical2_0,
+    "Optical2_0"
+}
+
+#[pymethods]
+impl PyOptical2_0 {
+    #[new]
+    fn new() -> Self {
+        core::Optical2_0::default().into()
+    }
+
+    #[getter]
+    fn get_scale(&self) -> Option<Scale> {
+        self.0.specific.scale.0.as_ref().map(|&x| x)
+    }
+
+    #[setter]
+    fn set_scale(&mut self, x: Option<Scale>) {
+        self.0.specific.scale = x.into()
+    }
+}
+
+py_wrap! {
+    /// Encodes FCS3.0 *$Pn\** keywords for an optical measurement.
+    PyOptical3_0,
+    core::Optical3_0,
+    "Optical3_0"
+}
+
+#[pymethods]
+impl PyOptical3_0 {
+    #[new]
+    fn new(scale: Scale) -> Self {
+        core::Optical3_0::new(scale).into()
+    }
+}
+
+py_wrap! {
+    /// Encodes FCS3.1 *$Pn\** keywords for an optical measurement.
+    PyOptical3_1,
+    core::Optical3_1,
+    "Optical3_1"
+}
+
+#[pymethods]
+impl PyOptical3_1 {
+    #[new]
+    fn new(scale: Scale) -> Self {
+        core::Optical3_1::new(scale).into()
+    }
+}
+
+py_wrap! {
+    /// Encodes FCS3.2 *$Pn\** keywords for an optical measurement.
+    PyOptical3_2,
+    core::Optical3_2,
+    "Optical3_2"
+}
+
+#[pymethods]
+impl PyOptical3_2 {
+    #[new]
+    fn new(scale: Scale) -> Self {
+        core::Optical3_2::new(scale).into()
+    }
+}
+
+py_wrap! {
+    /// Encodes FCS2.0 *$Pn\** keywords for a temporal measurement.
+    PyTemporal2_0,
+    core::Temporal2_0,
+    "Temporal2_0"
+}
+
+#[pymethods]
+impl PyTemporal2_0 {
+    #[new]
+    fn new() -> Self {
+        core::Temporal2_0::default().into()
+    }
+}
+
+py_wrap! {
+    /// Encodes FCS3.0 *$Pn\** keywords for a temporal measurement.
+    PyTemporal3_0,
+    core::Temporal3_0,
+    "Temporal3_0"
+}
+
+#[pymethods]
+impl PyTemporal3_0 {
+    #[new]
+    fn new(timestep: kws::Timestep) -> Self {
+        core::Temporal3_0::new(timestep).into()
+    }
+}
+
+py_wrap! {
+    /// Encodes FCS3.1 *$Pn\** keywords for a temporal measurement.
+    PyTemporal3_1,
+    core::Temporal3_1,
+    "Temporal3_1"
+}
+
+#[pymethods]
+impl PyTemporal3_1 {
+    #[new]
+    fn new(timestep: kws::Timestep) -> Self {
+        core::Temporal3_1::new(timestep).into()
+    }
+}
+
+py_wrap! {
+    /// Encodes FCS3.2 *$Pn\** keywords for a temporal measurement.
+    PyTemporal3_2,
+    core::Temporal3_2,
+    "Temporal3_2"
+}
+
+#[pymethods]
+impl PyTemporal3_2 {
+    #[new]
+    fn new(timestep: kws::Timestep) -> Self {
+        core::Temporal3_2::new(timestep).into()
+    }
+
+    #[getter]
+    fn get_measurement_type(&self) -> bool {
+        self.0.specific.measurement_type.0.is_some()
+    }
+
+    #[setter]
+    fn set_measurement_type(&mut self, x: bool) {
+        self.0.specific.measurement_type = if x { Some(kws::TemporalType) } else { None }.into();
+    }
+}
+
+impl_convert_version! {PyCoreTEXT2_0}
+impl_convert_version! {PyCoreTEXT3_0}
+impl_convert_version! {PyCoreTEXT3_1}
+impl_convert_version! {PyCoreTEXT3_2}
+impl_convert_version! {PyCoreDataset2_0}
+impl_convert_version! {PyCoreDataset3_0}
+impl_convert_version! {PyCoreDataset3_1}
+impl_convert_version! {PyCoreDataset3_2}
 
 // Get/set methods for all versions
 macro_rules! impl_common {
@@ -1923,90 +2074,6 @@ impl_write_dataset!(
 impl_write_dataset!(PyCoreDataset3_0, "");
 impl_write_dataset!(PyCoreDataset3_1, "");
 impl_write_dataset!(PyCoreDataset3_2, "");
-
-#[pymethods]
-impl PyOptical2_0 {
-    #[new]
-    fn new() -> Self {
-        core::Optical2_0::default().into()
-    }
-
-    #[getter]
-    fn get_scale(&self) -> Option<Scale> {
-        self.0.specific.scale.0.as_ref().map(|&x| x)
-    }
-
-    #[setter]
-    fn set_scale(&mut self, x: Option<Scale>) {
-        self.0.specific.scale = x.into()
-    }
-}
-
-#[pymethods]
-impl PyOptical3_0 {
-    #[new]
-    fn new(scale: Scale) -> Self {
-        core::Optical3_0::new(scale).into()
-    }
-}
-
-#[pymethods]
-impl PyOptical3_1 {
-    #[new]
-    fn new(scale: Scale) -> Self {
-        core::Optical3_1::new(scale).into()
-    }
-}
-
-#[pymethods]
-impl PyOptical3_2 {
-    #[new]
-    fn new(scale: Scale) -> Self {
-        core::Optical3_2::new(scale).into()
-    }
-}
-
-#[pymethods]
-impl PyTemporal2_0 {
-    #[new]
-    fn new() -> Self {
-        core::Temporal2_0::default().into()
-    }
-}
-
-#[pymethods]
-impl PyTemporal3_0 {
-    #[new]
-    fn new(timestep: kws::Timestep) -> Self {
-        core::Temporal3_0::new(timestep).into()
-    }
-}
-
-#[pymethods]
-impl PyTemporal3_1 {
-    #[new]
-    fn new(timestep: kws::Timestep) -> Self {
-        core::Temporal3_1::new(timestep).into()
-    }
-}
-
-#[pymethods]
-impl PyTemporal3_2 {
-    #[new]
-    fn new(timestep: kws::Timestep) -> Self {
-        core::Temporal3_2::new(timestep).into()
-    }
-
-    #[getter]
-    fn get_measurement_type(&self) -> bool {
-        self.0.specific.measurement_type.0.is_some()
-    }
-
-    #[setter]
-    fn set_measurement_type(&mut self, x: bool) {
-        self.0.specific.measurement_type = if x { Some(kws::TemporalType) } else { None }.into();
-    }
-}
 
 macro_rules! impl_meas_get_set {
     ($get:ident, $set:ident, $t:path, $($pytype:ident),*) => {

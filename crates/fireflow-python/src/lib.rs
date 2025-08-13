@@ -3104,18 +3104,6 @@ macro_rules! impl_layout_common {
             fn ranges(&self) -> Vec<kws::Range> {
                 self.0.ranges().into()
             }
-
-            #[getter]
-            /// Return the datatype.
-            fn datatype(&self) -> kws::AlphaNumType {
-                self.0.datatype().into()
-            }
-
-            #[getter]
-            /// Return a list of datatypes corresponding to each column.
-            fn datatypes(&self) -> Vec<kws::AlphaNumType> {
-                self.0.datatypes().into_iter().map(|d| d.into()).collect()
-            }
         }
     };
 }
@@ -3136,6 +3124,37 @@ impl_layout_common!(PyEndianF32Layout);
 impl_layout_common!(PyEndianF64Layout);
 impl_layout_common!(PyEndianUintLayout);
 impl_layout_common!(PyMixedLayout);
+
+macro_rules! impl_layout_datatype {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            #[getter]
+            /// The value of *$DATATYPE*
+            ///
+            /// :rtype: Literal["A", "I", "F", "D"]
+            fn datatype(&self) -> kws::AlphaNumType {
+                self.0.datatype().into()
+            }
+        }
+    };
+}
+
+impl_layout_datatype!(PyAsciiFixedLayout);
+impl_layout_datatype!(PyAsciiDelimLayout);
+impl_layout_datatype!(PyOrderedUint08Layout);
+impl_layout_datatype!(PyOrderedUint16Layout);
+impl_layout_datatype!(PyOrderedUint24Layout);
+impl_layout_datatype!(PyOrderedUint32Layout);
+impl_layout_datatype!(PyOrderedUint40Layout);
+impl_layout_datatype!(PyOrderedUint48Layout);
+impl_layout_datatype!(PyOrderedUint56Layout);
+impl_layout_datatype!(PyOrderedUint64Layout);
+impl_layout_datatype!(PyOrderedF32Layout);
+impl_layout_datatype!(PyOrderedF64Layout);
+impl_layout_datatype!(PyEndianF32Layout);
+impl_layout_datatype!(PyEndianF64Layout);
+impl_layout_datatype!(PyEndianUintLayout);
 
 macro_rules! impl_layout_byteord {
     ($t:ident) => {
@@ -3324,6 +3343,16 @@ impl PyMixedLayout {
     /// "I" and a float for "F" or "D".
     fn new(ranges: Vec<NullMixedType>, is_big: bool) -> Self {
         FixedLayout::new(ranges, is_big.into()).into()
+    }
+
+    #[getter]
+    /// The datatypes for each column.
+    ///
+    /// When given, this will be *$PnDATATYPE*, otherwise *$DATATYPE*.
+    ///
+    /// :rtype: list[Literal["A", "I", "F", "D"]]
+    fn datatypes(&self) -> Vec<kws::AlphaNumType> {
+        self.0.datatypes()
     }
 }
 

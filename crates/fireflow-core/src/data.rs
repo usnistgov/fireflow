@@ -674,6 +674,11 @@ pub trait HasNativeWidth: HasNativeType {
     type Order;
 }
 
+/// A column which has only one $DATATYPE
+pub trait HasOneDatatype: Sized {
+    const DATATYPE: AlphaNumType;
+}
+
 /// A column which has a $DATATYPE keyword
 pub trait HasDatatype: Sized {
     fn datatype(&self) -> AlphaNumType;
@@ -2871,53 +2876,33 @@ impl HasNativeType for AsciiRange {
     type Native = u64;
 }
 
-impl HasDatatype for AsciiRange {
-    fn datatype(&self) -> AlphaNumType {
-        AlphaNumType::Ascii
-    }
-
-    fn datatype_from_columns(_: &[Self]) -> AlphaNumType {
-        AlphaNumType::Ascii
-    }
+impl HasOneDatatype for AsciiRange {
+    const DATATYPE: AlphaNumType = AlphaNumType::Ascii;
 }
 
-impl<T, const LEN: usize> HasDatatype for Bitmask<T, LEN> {
-    fn datatype(&self) -> AlphaNumType {
-        AlphaNumType::Integer
-    }
-
-    fn datatype_from_columns(_: &[Self]) -> AlphaNumType {
-        AlphaNumType::Integer
-    }
+impl<T, const LEN: usize> HasOneDatatype for Bitmask<T, LEN> {
+    const DATATYPE: AlphaNumType = AlphaNumType::Integer;
 }
 
-impl HasDatatype for F32Range {
-    fn datatype(&self) -> AlphaNumType {
-        AlphaNumType::Single
-    }
-
-    fn datatype_from_columns(_: &[Self]) -> AlphaNumType {
-        AlphaNumType::Single
-    }
+impl HasOneDatatype for F32Range {
+    const DATATYPE: AlphaNumType = AlphaNumType::Single;
 }
 
-impl HasDatatype for F64Range {
-    fn datatype(&self) -> AlphaNumType {
-        AlphaNumType::Double
-    }
-
-    fn datatype_from_columns(_: &[Self]) -> AlphaNumType {
-        AlphaNumType::Double
-    }
+impl HasOneDatatype for F64Range {
+    const DATATYPE: AlphaNumType = AlphaNumType::Double;
 }
 
-impl HasDatatype for AnyNullBitmask {
+impl HasOneDatatype for AnyNullBitmask {
+    const DATATYPE: AlphaNumType = AlphaNumType::Integer;
+}
+
+impl<T: HasOneDatatype> HasDatatype for T {
     fn datatype(&self) -> AlphaNumType {
-        AlphaNumType::Integer
+        T::DATATYPE
     }
 
     fn datatype_from_columns(_: &[Self]) -> AlphaNumType {
-        AlphaNumType::Integer
+        T::DATATYPE
     }
 }
 

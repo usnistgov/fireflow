@@ -2871,7 +2871,7 @@ impl PyAsciiFixedLayout {
         FixedLayout::new_ascii_u64(chars).into()
     }
 
-    /// The number of chars for each measurement.
+    /// The number of chars for each measurement (read-only).
     ///
     /// This corresponds to the value of *$PnB* for each measurement.
     ///
@@ -2929,15 +2929,6 @@ impl PyAsciiDelimLayout {
     }
 }
 
-// py_wrap!(PyOrderedUint08Layout, OrderedLayout<bm::Bitmask08, KnownTot>, "OrderedUint08Layout");
-// py_wrap!(PyOrderedUint16Layout, OrderedLayout<bm::Bitmask16, KnownTot>, "OrderedUint16Layout");
-// py_wrap!(PyOrderedUint24Layout, OrderedLayout<bm::Bitmask24, KnownTot>, "OrderedUint24Layout");
-// py_wrap!(PyOrderedUint32Layout, OrderedLayout<bm::Bitmask32, KnownTot>, "OrderedUint32Layout");
-// py_wrap!(PyOrderedUint40Layout, OrderedLayout<bm::Bitmask40, KnownTot>, "OrderedUint40Layout");
-// py_wrap!(PyOrderedUint48Layout, OrderedLayout<bm::Bitmask48, KnownTot>, "OrderedUint48Layout");
-// py_wrap!(PyOrderedUint56Layout, OrderedLayout<bm::Bitmask56, KnownTot>, "OrderedUint56Layout");
-// py_wrap!(PyOrderedUint64Layout, OrderedLayout<bm::Bitmask64, KnownTot>, "OrderedUint64Layout");
-
 macro_rules! impl_layout_new_ordered_uint {
     ($pytype:ident, $bitmask:path, $name:expr, $size:expr, $summary:expr) => {
         py_wrap! {
@@ -2960,6 +2951,7 @@ macro_rules! impl_layout_new_ordered_uint {
         #[pymethods]
         impl $pytype {
             #[new]
+            #[pyo3(signature = (ranges, is_big = false))]
             fn new(ranges: Vec<$bitmask>, is_big: bool) -> Self {
                 FixedLayout::new_endian_uint(ranges, is_big.into()).into()
             }
@@ -3075,6 +3067,7 @@ macro_rules! impl_layout_new_ordered_float {
         #[pymethods]
         impl $pytype {
             #[new]
+            #[pyo3(signature = (ranges, is_big = false))]
             fn new(ranges: Vec<$range>, is_big: bool) -> Self {
                 FixedLayout::new_endian_float(ranges, is_big.into()).into()
             }
@@ -3137,6 +3130,7 @@ macro_rules! impl_layout_new_endian_float {
         #[pymethods]
         impl $pytype {
             #[new]
+            #[pyo3(signature = (ranges, is_big = false))]
             fn new(ranges: Vec<$range>, is_big: bool) -> Self {
                 FixedLayout::new(ranges, is_big.into()).into()
             }
@@ -3180,6 +3174,7 @@ py_wrap! {
 #[pymethods]
 impl PyEndianUintLayout {
     #[new]
+    #[pyo3(signature = (ranges, is_big = false))]
     fn new(ranges: Vec<u64>, is_big: bool) -> Self {
         let rs = ranges.into_iter().map(AnyNullBitmask::from_u64).collect();
         FixedLayout::new(rs, is_big.into()).into()
@@ -3207,11 +3202,12 @@ py_wrap! {
 #[pymethods]
 impl PyMixedLayout {
     #[new]
+    #[pyo3(signature = (types, is_big = false))]
     fn new(types: Vec<NullMixedType>, is_big: bool) -> Self {
         FixedLayout::new(types, is_big.into()).into()
     }
 
-    /// The datatypes for each measurement.
+    /// The datatypes for each measurement (read-only).
     ///
     /// When given, this will be *$PnDATATYPE*, otherwise *$DATATYPE*.
     ///
@@ -3227,7 +3223,7 @@ macro_rules! impl_layout_ranges {
     ($t:ident) => {
         #[pymethods]
         impl $t {
-            /// The value of *$PnR* for each measurement.
+            /// The value of *$PnR* for each measurement (read-only).
             ///
             /// :rtype: list[float]
             #[getter]
@@ -3259,7 +3255,7 @@ macro_rules! impl_layout_datatype {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
-            /// The value of *$DATATYPE*
+            /// The value of *$DATATYPE* (read-only).
             ///
             /// :rtype: Literal["A", "I", "F", "D"]
             #[getter]
@@ -3290,7 +3286,7 @@ macro_rules! impl_layout_byteord {
     ($t:ident) => {
         #[pymethods]
         impl $t {
-            /// The value of *$BYTEORD*
+            /// The value of *$BYTEORD* (read-only).
             ///
             /// This will be a list of indices starting at 0 (rather than 1
             /// as is written in an FCS file).
@@ -3301,7 +3297,7 @@ macro_rules! impl_layout_byteord {
                 self.0.byte_order().as_vec()
             }
 
-            /// The endianness if applicable.
+            /// The endianness if applicable (read-only).
             ///
             /// Return ``True`` for big endian, ``False`` for little endian,
             /// and ``None`` for mixed.
@@ -3331,7 +3327,7 @@ macro_rules! impl_layout_endianness {
         #[pymethods]
         impl $t {
             #[getter]
-            /// The value of *$BYTEORD*.
+            /// The value of *$BYTEORD* (read-only).
             ///
             /// Return ``True`` for big endian (``4,3,2,1``), ``False`` for
             /// little endian (``1,2,3,4``).
@@ -3355,7 +3351,7 @@ macro_rules! impl_layout_bytes_fixed {
     ($t:ident, $width:expr, $doc:expr) => {
         #[pymethods]
         impl $t {
-            /// The width of each measurement in bytes.
+            /// The width of each measurement in bytes (read-only).
             ///
             #[doc = $doc]
             ///
@@ -3388,7 +3384,7 @@ macro_rules! impl_layout_bytes_variable {
     ($t:ident) => {
         #[pymethods]
         impl $t {
-            /// The width of each measurement in bytes.
+            /// The width of each measurement in bytes (read-only).
             ///
             /// This corresponds to the value of *$PnB* for each measurement
             /// divided by 8. Values for each measurement may be different.

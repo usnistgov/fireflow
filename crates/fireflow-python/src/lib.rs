@@ -616,7 +616,7 @@ macro_rules! impl_write_text {
             ///
             /// :param int delim: Delimiter to use when writing *TEXT*.
             ///     Defaults to 30 (record separator).
-            #[pyo3(signature = (path, delim = TEXTDelim::default()))]
+            #[pyo3(text_signature = "(path, delim = 30)")]
             fn write_text(&self, path: PathBuf, delim: TEXTDelim) -> PyResult<()> {
                 let f = File::options().write(true).create(true).open(path)?;
                 let mut h = BufWriter::new(f);
@@ -2007,14 +2007,18 @@ macro_rules! impl_to_dataset {
             /// :type analysis: bytes
             /// :param others: Bytes corresponding to *OTHERS*.
             /// :type others: list[bytes]
-            #[pyo3(signature = (df, analysis = core::Analysis::default(), others = core::Others::default()))]
+            #[pyo3(text_signature = "(df, analysis = b\"\", others = [])")]
             fn to_dataset(
                 &self,
                 df: FCSDataFrame,
                 analysis: core::Analysis,
                 others: core::Others,
             ) -> PyResult<$to> {
-                Ok(self.0.clone().into_coredataset(df, analysis, others)?.into())
+                Ok(self
+                    .0
+                    .clone()
+                    .into_coredataset(df, analysis, others)?
+                    .into())
             }
         }
     };
@@ -2048,7 +2052,7 @@ macro_rules! impl_write_dataset {
             ///     faster since the data needs to be traversed twice to perform
             ///     the conversion check, but may result in loss of precision
             ///     and/or truncation.
-            #[pyo3(signature = (path, delim = TEXTDelim::default(), skip_conversion_check = false))]
+            #[pyo3(text_signature = "(path, delim = 30, skip_conversion_check = False)")]
             fn write_dataset(
                 &self,
                 path: PathBuf,

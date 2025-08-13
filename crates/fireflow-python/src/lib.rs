@@ -31,7 +31,7 @@ use fireflow_core::validated::shortname::{Shortname, ShortnamePrefix};
 use fireflow_core::validated::textdelim::TEXTDelim;
 use fireflow_python_proc::{
     impl_convert_version, impl_get_set_all_meas, impl_get_set_meas_obj_common,
-    impl_get_set_metaroot,
+    impl_get_set_metaroot, impl_meas_get_set,
 };
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
@@ -231,6 +231,12 @@ impl PyOptical2_0 {
         core::Optical2_0::default().into()
     }
 
+    /// The value for *$PnE* for all measurements.
+    ///
+    /// Will be ``()`` for linear scaling (``0,0`` in FCS encoding), a
+    /// 2-tuple for log scaling, or ``None`` if missing.
+    ///
+    /// :type: () | (float, float) | None
     #[getter]
     fn get_scale(&self) -> Option<Scale> {
         self.0.specific.scale.0.as_ref().map(|&x| x)
@@ -1524,7 +1530,7 @@ macro_rules! impl_get_set_all_pne {
             /// The value for *$PnE* for all measurements.
             ///
             /// Will be ``()`` for linear scaling (``0,0`` in FCS encoding), a
-            /// 2-tuple for log scaling, and ``None`` if missing.
+            /// 2-tuple for log scaling, or ``None`` if missing.
             ///
             /// The temporal measurement must always be ``()``. Setting it
             /// to another value will raise an exception.
@@ -2079,32 +2085,17 @@ impl_write_dataset!(PyCoreDataset3_0, "");
 impl_write_dataset!(PyCoreDataset3_1, "");
 impl_write_dataset!(PyCoreDataset3_2, "");
 
-macro_rules! impl_meas_get_set {
-    ($get:ident, $set:ident, $t:path, $($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn $get(&self) -> Option<$t> {
-                    let x: &Option<$t> = self.0.as_ref();
-                    x.as_ref().cloned()
-                }
-
-                #[setter]
-                fn $set(&mut self, x: Option<$t>) {
-                    *self.0.as_mut() = x
-                }
-            }
-        )*
-    };
-}
-
 macro_rules! impl_meas_get_set_common {
     ($pytype:ident) => {
-        impl_meas_get_set!(get_longname, set_longname, kws::Longname, $pytype);
+        impl_meas_get_set! {Option<kws::Longname>, "S", "str", $pytype}
 
         #[pymethods]
         impl $pytype {
+            /// Non-standard keywords associated with this measurement.
+            ///
+            /// None of these should be prefixed with *$*.
+            ///
+            /// :type: dict[str, str]
             #[getter]
             fn nonstandard_keywords(&self) -> HashMap<NonStdKey, String> {
                 self.0.common.nonstandard_keywords.clone()
@@ -2113,18 +2104,6 @@ macro_rules! impl_meas_get_set_common {
             #[setter]
             fn set_nonstandard_keywords(&mut self, keyvals: HashMap<NonStdKey, String>) {
                 self.0.common.nonstandard_keywords = keyvals;
-            }
-
-            fn nonstandard_insert(&mut self, key: NonStdKey, value: String) -> Option<String> {
-                self.0.common.nonstandard_keywords.insert(key, value)
-            }
-
-            fn nonstandard_get(&self, key: NonStdKey) -> Option<String> {
-                self.0.common.nonstandard_keywords.get(&key).cloned()
-            }
-
-            fn nonstandard_remove(&mut self, key: NonStdKey) -> Option<String> {
-                self.0.common.nonstandard_keywords.remove(&key)
             }
         }
     };
@@ -2141,26 +2120,11 @@ impl_meas_get_set_common!(PyTemporal3_2);
 
 macro_rules! impl_optical_get_set {
     ($pytype:ident) => {
-        impl_meas_get_set!(get_filter, set_filter, kws::Filter, $pytype);
-        impl_meas_get_set!(
-            get_detector_type,
-            set_detector_type,
-            kws::DetectorType,
-            $pytype
-        );
-        impl_meas_get_set!(
-            get_percent_emitted,
-            set_percent_emitted,
-            kws::PercentEmitted,
-            $pytype
-        );
-        impl_meas_get_set!(
-            get_detector_voltage,
-            set_detector_voltage,
-            kws::DetectorVoltage,
-            $pytype
-        );
-        impl_meas_get_set!(get_power, set_power, kws::Power, $pytype);
+        impl_meas_get_set! {Option<kws::Filter>, "F", "str", $pytype}
+        impl_meas_get_set! {Option<kws::DetectorType>, "T", "str", $pytype}
+        impl_meas_get_set! {Option<kws::PercentEmitted>, "P", "str", $pytype}
+        impl_meas_get_set! {Option<kws::DetectorVoltage>, "V", "float", $pytype}
+        impl_meas_get_set! {Option<kws::Power>, "O", "float", $pytype}
     };
 }
 
@@ -2174,6 +2138,18 @@ macro_rules! impl_optical_get_set_transform {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
+            /// The value of *$PnE* and/or *$PnG*.
+            ///
+            /// Collectively these keywords correspond to scale transform.
+            ///
+            /// If scaling is linear, return a float which corresponds to the
+            /// value of *$PnG* when *$PnE* is ``0,0``. If scaling is logarithmic,
+            /// return a pair of floats, corresponding to unset *$PnG* and the
+            /// non-``0,0`` value of *$PnE*.
+            ///
+            /// The FCS standards disallow any other combinations.
+            ///
+            /// :type: float | tuple[float, float]
             #[getter]
             fn get_transform(&self) -> core::ScaleTransform {
                 self.0.specific.scale
@@ -2192,28 +2168,33 @@ impl_optical_get_set_transform!(PyOptical3_1);
 impl_optical_get_set_transform!(PyOptical3_2);
 
 // $PnL (2.0/3.0)
-impl_meas_get_set!(
-    get_wavelength,
-    set_wavelength,
-    kws::Wavelength,
+impl_meas_get_set! {
+    Option<kws::Wavelength>,
+    "L",
+    "float",
     PyOptical2_0,
     PyOptical3_0
-);
+}
 
 // #PnL (3.1-3.2)
-impl_meas_get_set!(
-    get_wavelength,
-    set_wavelength,
-    kws::Wavelengths,
+impl_meas_get_set! {
+    Option<kws::Wavelengths>,
+    "L",
+    "list[float]",
     PyOptical3_1,
     PyOptical3_2
-);
+}
 
 // #TIMESTEP (3.0-3.2)
 macro_rules! impl_temporal_get_set_timestep {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
+            /// The value of *$TIMESTEP*.
+            ///
+            /// Must be greater than ``0.0``.
+            ///
+            /// :type: float
             #[getter]
             fn get_timestep(&self) -> kws::Timestep {
                 self.0.specific.timestep
@@ -2232,56 +2213,61 @@ impl_temporal_get_set_timestep!(PyTemporal3_1);
 impl_temporal_get_set_timestep!(PyTemporal3_2);
 
 // $PnCalibration (3.1)
-impl_meas_get_set!(
-    get_calibration,
-    set_calibration,
-    kws::Calibration3_1,
+impl_meas_get_set! {
+    Option<kws::Calibration3_1>,
+    "CALIBRATION",
+    "tuple[float, str]",
     PyOptical3_1
-);
+}
 
 // $PnD (3.1-3.2)
-impl_meas_get_set!(
-    get_display,
-    set_display,
-    kws::Display,
+impl_meas_get_set! {
+    Option<kws::Display>,
+    "D",
+    "tuple[bool, float, float]",
     PyOptical3_1,
     PyOptical3_2,
     PyTemporal3_1,
     PyTemporal3_2
-);
+}
 
 // $PnDET (3.2)
-impl_meas_get_set!(
-    get_detector_name,
-    set_detector_name,
-    kws::DetectorName,
-    PyOptical3_2
-);
+impl_meas_get_set! {Option<kws::DetectorName>, "DET", "str", PyOptical3_2}
 
 // $PnTAG (3.2)
-impl_meas_get_set!(get_tag, set_tag, kws::Tag, PyOptical3_2);
+impl_meas_get_set! {Option<kws::Tag>, "TAG", "str", PyOptical3_2}
 
 // $PnTYPE (3.2)
-impl_meas_get_set!(
-    get_measurement_type,
-    set_measurement_type,
-    kws::OpticalType,
+impl_meas_get_set! {
+    Option<kws::OpticalType>,
+    "TYPE",
+    "str",
     PyOptical3_2
-);
+}
 
 // $PnFEATURE (3.2)
-impl_meas_get_set!(get_feature, set_feature, kws::Feature, PyOptical3_2);
+impl_meas_get_set! {
+    Option<kws::Feature>,
+    "FEATURE",
+    "Literal[\"Area\", \"Width\", \"Height\"]",
+    PyOptical3_2
+}
 
 // $PnANALYTE (3.2)
-impl_meas_get_set!(get_analyte, set_analyte, kws::Analyte, PyOptical3_2);
+impl_meas_get_set! {
+    Option<kws::Analyte>,
+    "ANALYTE",
+    "str",
+    PyOptical3_2
+}
 
 // $PnCalibration (3.2)
-impl_meas_get_set!(
-    get_calibration,
-    set_calibration,
-    kws::Calibration3_2,
+impl_meas_get_set! {
+    Option<kws::Calibration3_2>,
+    "CALIBRATION",
+    "tuple[float, float, str]",
     PyOptical3_2
-);
+}
 
 py_wrap! {
     /// Make new FCS 2.0-compatible gates.

@@ -340,6 +340,49 @@ pub fn impl_convert_version(input: TokenStream) -> TokenStream {
     quote! {#(#outputs)*}.into()
 }
 
+#[proc_macro]
+pub fn impl_meas_get_set(input: TokenStream) -> TokenStream {
+    let info = parse_macro_input!(input as GetSetAllMeas);
+    let kw = &info.rstype;
+    let (_, optional) = unwrap_generic("Option", kw);
+    let s = info.suffix.value();
+
+    let doc_summary = format!("Value of *$Pn{}*.", s.to_uppercase());
+    let doc_type = format!(
+        ":type: list[{}]",
+        info.pytype.value() + if optional { " | None" } else { "" },
+    );
+    let get = format_ident!("get_pn{}", s.to_lowercase());
+    let set = format_ident!("set_pn{}", s.to_lowercase());
+
+    let outputs: Vec<_> = info
+        .parent_types
+        .iter()
+        .map(|t| {
+            quote! {
+                #[pymethods]
+                impl #t {
+                    #[doc = #doc_summary]
+                    ///
+                    #[doc = #doc_type]
+                    #[getter]
+                    fn #get(&self) -> #kw {
+                        let x: &#kw = self.0.as_ref();
+                        x.as_ref().cloned()
+                    }
+
+                    #[setter]
+                    fn #set(&mut self, x: #kw) {
+                        *self.0.as_mut() = x
+                    }
+                }
+            }
+        })
+        .collect();
+
+    quote! {#(#outputs)*}.into()
+}
+
 #[derive(Debug)]
 struct GetSetMetarootInfo {
     kwtype: Path,

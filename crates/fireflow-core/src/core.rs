@@ -28,6 +28,7 @@ use crate::validated::textdelim::TEXTDelim;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, Timelike};
 use derive_more::{AsMut, AsRef, Display, From};
+use derive_new::new;
 use itertools::Itertools;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
@@ -196,19 +197,20 @@ pub struct Metaroot<X> {
     pub nonstandard_keywords: NonStdKeywords,
 }
 
-#[derive(Clone, Default, AsRef, AsMut, PartialEq)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct CommonMeasurement {
     /// Value for $PnS
     #[as_ref(Option<Longname>)]
     #[as_mut(Option<Longname>)]
+    #[new(into)]
     pub longname: MaybeValue<Longname>,
 
     /// Non standard keywords that belong to this measurement.
     ///
     /// These are found using a configurable pattern to filter matching keys.
-    #[as_ref(HashMap<NonStdKey, String>)]
-    #[as_mut(HashMap<NonStdKey, String>)]
+    #[as_ref(NonStdKeywords)]
+    #[as_mut(NonStdKeywords)]
     pub nonstandard_keywords: NonStdKeywords,
 }
 
@@ -232,7 +234,7 @@ pub struct Temporal<X> {
 ///
 /// Explicit fields are common to all versions. The generic type parameter
 /// allows for version-specific information to be encoded.
-#[derive(Clone, AsRef, AsMut, PartialEq)]
+#[derive(Clone, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Optical<X> {
     /// Fields shared with optical measurements
@@ -243,26 +245,31 @@ pub struct Optical<X> {
     /// Value for $PnF
     #[as_ref(Option<Filter>)]
     #[as_mut(Option<Filter>)]
+    #[new(into)]
     pub filter: MaybeValue<Filter>,
 
     /// Value for $PnO
     #[as_ref(Option<Power>)]
     #[as_mut(Option<Power>)]
+    #[new(into)]
     pub power: MaybeValue<Power>,
 
     /// Value for $PnD
     #[as_ref(Option<DetectorType>)]
     #[as_mut(Option<DetectorType>)]
+    #[new(into)]
     pub detector_type: MaybeValue<DetectorType>,
 
     /// Value for $PnP
     #[as_ref(Option<PercentEmitted>)]
     #[as_mut(Option<PercentEmitted>)]
+    #[new(into)]
     pub percent_emitted: MaybeValue<PercentEmitted>,
 
     /// Value for $PnV
     #[as_ref(Option<DetectorVoltage>)]
     #[as_mut(Option<DetectorVoltage>)]
+    #[new(into)]
     pub detector_voltage: MaybeValue<DetectorVoltage>,
 
     /// Version specific data
@@ -714,7 +721,7 @@ pub struct InnerTemporal3_2 {
 }
 
 /// Optical measurement fields specific to version 2.0
-#[derive(Clone, Default, AsRef, AsMut, PartialEq)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerOptical2_0 {
     /// Value for $PnE
@@ -727,11 +734,13 @@ pub struct InnerOptical2_0 {
     /// There is no harm in modifying `scale` when this struct is on its own,
     /// however, so it is still public.
     #[as_ref(Option<Scale>)]
+    #[new(into)]
     pub scale: MaybeValue<Scale>,
 
     /// Value for $PnL
     #[as_ref(Option<Wavelength>)]
     #[as_mut(Option<Wavelength>)]
+    #[new(into)]
     pub wavelength: MaybeValue<Wavelength>,
 
     /// Values of $Pkn/$PKNn
@@ -743,7 +752,7 @@ pub struct InnerOptical2_0 {
 }
 
 /// Optical measurement fields specific to version 3.0
-#[derive(Clone, AsRef, AsMut, PartialEq)]
+#[derive(Clone, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerOptical3_0 {
     /// Value for $PnE/$PnG
@@ -761,6 +770,7 @@ pub struct InnerOptical3_0 {
     /// Value for $PnL
     #[as_ref(Option<Wavelength>)]
     #[as_mut(Option<Wavelength>)]
+    #[new(into)]
     pub wavelength: MaybeValue<Wavelength>,
 
     /// Values of $Pkn/$PKNn
@@ -772,7 +782,7 @@ pub struct InnerOptical3_0 {
 }
 
 /// Optical measurement fields specific to version 3.1
-#[derive(Clone, AsRef, AsMut, PartialEq)]
+#[derive(Clone, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerOptical3_1 {
     /// Value for $PnE/$PnG
@@ -790,16 +800,19 @@ pub struct InnerOptical3_1 {
     /// Value for $PnL
     #[as_ref(Option<Wavelengths>)]
     #[as_mut(Option<Wavelengths>)]
+    #[new(into)]
     pub wavelengths: MaybeValue<Wavelengths>,
 
     /// Value for $PnCALIBRATION
     #[as_ref(Option<Calibration3_1>)]
     #[as_mut(Option<Calibration3_1>)]
+    #[new(into)]
     pub calibration: MaybeValue<Calibration3_1>,
 
     /// Value for $PnDISPLAY
     #[as_ref(Option<Display>)]
     #[as_mut(Option<Display>)]
+    #[new(into)]
     pub display: MaybeValue<Display>,
 
     /// Values of $Pkn/$PKNn
@@ -811,7 +824,8 @@ pub struct InnerOptical3_1 {
 }
 
 /// Optical measurement fields specific to version 3.2
-#[derive(Clone, AsRef, AsMut, PartialEq)]
+#[allow(clippy::too_many_arguments)]
+#[derive(Clone, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerOptical3_2 {
     /// Value for $PnE/$PnG
@@ -829,41 +843,49 @@ pub struct InnerOptical3_2 {
     /// Value for $PnL
     #[as_ref(Option<Wavelengths>)]
     #[as_mut(Option<Wavelengths>)]
+    #[new(into)]
     pub wavelengths: MaybeValue<Wavelengths>,
 
     /// Value for $PnCALIBRATION
     #[as_ref(Option<Calibration3_2>)]
     #[as_mut(Option<Calibration3_2>)]
+    #[new(into)]
     pub calibration: MaybeValue<Calibration3_2>,
 
     /// Value for $PnDISPLAY
     #[as_ref(Option<Display>)]
     #[as_mut(Option<Display>)]
+    #[new(into)]
     pub display: MaybeValue<Display>,
 
     /// Value for $PnANALYTE
     #[as_ref(Option<Analyte>)]
     #[as_mut(Option<Analyte>)]
+    #[new(into)]
     pub analyte: MaybeValue<Analyte>,
 
     /// Value for $PnFEATURE
     #[as_ref(Option<Feature>)]
     #[as_mut(Option<Feature>)]
+    #[new(into)]
     pub feature: MaybeValue<Feature>,
 
     /// Value for $PnTYPE
     #[as_ref(Option<OpticalType>)]
     #[as_mut(Option<OpticalType>)]
+    #[new(into)]
     pub measurement_type: MaybeValue<OpticalType>,
 
     /// Value for $PnTAG
     #[as_ref(Option<Tag>)]
     #[as_mut(Option<Tag>)]
+    #[new(into)]
     pub tag: MaybeValue<Tag>,
 
     /// Value for $PnDET
     #[as_ref(Option<DetectorName>)]
     #[as_mut(Option<DetectorName>)]
+    #[new(into)]
     pub detector_name: MaybeValue<DetectorName>,
 }
 
@@ -882,17 +904,19 @@ pub enum ScaleTransform {
 /// It makes little sense to have only one of these since they both collectively
 /// describe a histogram peak. This currently is not enforced since these keys
 /// are likely not used much and it is easy for users to check these themselves.
-#[derive(Clone, Default, AsRef, AsMut, PartialEq)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PeakData {
     /// Value of $Pkn
     #[as_ref(Option<PeakBin>)]
     #[as_mut(Option<PeakBin>)]
+    #[new(into)]
     pub bin: MaybeValue<PeakBin>,
 
     /// Value of $PkNn
     #[as_ref(Option<PeakNumber>)]
     #[as_mut(Option<PeakNumber>)]
+    #[new(into)]
     pub size: MaybeValue<PeakNumber>,
 }
 
@@ -7546,7 +7570,7 @@ impl InnerTemporal3_2 {
 }
 
 impl InnerOptical3_0 {
-    pub(crate) fn new(scale: Scale) -> Self {
+    pub(crate) fn new_def(scale: Scale) -> Self {
         Self {
             scale: scale.into(),
             wavelength: None.into(),
@@ -7556,7 +7580,7 @@ impl InnerOptical3_0 {
 }
 
 impl InnerOptical3_1 {
-    pub(crate) fn new(scale: Scale) -> Self {
+    pub(crate) fn new_def(scale: Scale) -> Self {
         Self {
             scale: scale.into(),
             calibration: None.into(),
@@ -7568,7 +7592,7 @@ impl InnerOptical3_1 {
 }
 
 impl InnerOptical3_2 {
-    pub(crate) fn new(scale: Scale) -> Self {
+    pub(crate) fn new_def(scale: Scale) -> Self {
         Self {
             scale: scale.into(),
             analyte: None.into(),
@@ -7682,23 +7706,156 @@ impl Default for Optical2_0 {
     }
 }
 
+impl Optical2_0 {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_2_0(
+        scale: Option<Scale>,
+        wavelength: Option<Wavelength>,
+        bin: Option<PeakBin>,
+        size: Option<PeakNumber>,
+        filter: Option<Filter>,
+        power: Option<Power>,
+        detector_type: Option<DetectorType>,
+        percent_emitted: Option<PercentEmitted>,
+        detector_voltage: Option<DetectorVoltage>,
+        longname: Option<Longname>,
+        nonstandard_keywords: NonStdKeywords,
+    ) -> Self {
+        let common = CommonMeasurement::new(longname, nonstandard_keywords);
+        let specific = InnerOptical2_0::new(scale, wavelength, PeakData::new(bin, size));
+        Self::new(
+            common,
+            filter,
+            power,
+            detector_type,
+            percent_emitted,
+            detector_voltage,
+            specific,
+        )
+    }
+}
+
 impl Optical3_0 {
-    pub fn new(scale: Scale) -> Self {
-        let specific = InnerOptical3_0::new(scale);
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_3_0(
+        transform: ScaleTransform,
+        wavelength: Option<Wavelength>,
+        bin: Option<PeakBin>,
+        size: Option<PeakNumber>,
+        filter: Option<Filter>,
+        power: Option<Power>,
+        detector_type: Option<DetectorType>,
+        percent_emitted: Option<PercentEmitted>,
+        detector_voltage: Option<DetectorVoltage>,
+        longname: Option<Longname>,
+        nonstandard_keywords: NonStdKeywords,
+    ) -> Self {
+        let common = CommonMeasurement::new(longname, nonstandard_keywords);
+        let specific = InnerOptical3_0::new(transform, wavelength, PeakData::new(bin, size));
+        Self::new(
+            common,
+            filter,
+            power,
+            detector_type,
+            percent_emitted,
+            detector_voltage,
+            specific,
+        )
+    }
+
+    pub fn new_def(scale: Scale) -> Self {
+        let specific = InnerOptical3_0::new_def(scale);
         Self::new_common(specific)
     }
 }
 
 impl Optical3_1 {
-    pub fn new(scale: Scale) -> Self {
-        let specific = InnerOptical3_1::new(scale);
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_3_1(
+        transform: ScaleTransform,
+        wavelengths: Option<Wavelengths>,
+        calibration: Option<Calibration3_1>,
+        display: Option<Display>,
+        bin: Option<PeakBin>,
+        size: Option<PeakNumber>,
+        filter: Option<Filter>,
+        power: Option<Power>,
+        detector_type: Option<DetectorType>,
+        percent_emitted: Option<PercentEmitted>,
+        detector_voltage: Option<DetectorVoltage>,
+        longname: Option<Longname>,
+        nonstandard_keywords: NonStdKeywords,
+    ) -> Self {
+        let common = CommonMeasurement::new(longname, nonstandard_keywords);
+        let specific = InnerOptical3_1::new(
+            transform,
+            wavelengths,
+            calibration,
+            display,
+            PeakData::new(bin, size),
+        );
+        Self::new(
+            common,
+            filter,
+            power,
+            detector_type,
+            percent_emitted,
+            detector_voltage,
+            specific,
+        )
+    }
+
+    pub fn new_def(scale: Scale) -> Self {
+        let specific = InnerOptical3_1::new_def(scale);
         Self::new_common(specific)
     }
 }
 
 impl Optical3_2 {
-    pub fn new(scale: Scale) -> Self {
-        let specific = InnerOptical3_2::new(scale);
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_3_2(
+        transform: ScaleTransform,
+        wavelengths: Option<Wavelengths>,
+        calibration: Option<Calibration3_2>,
+        display: Option<Display>,
+        analyte: Option<Analyte>,
+        feature: Option<Feature>,
+        tag: Option<Tag>,
+        measurement_type: Option<OpticalType>,
+        detector_name: Option<DetectorName>,
+        filter: Option<Filter>,
+        power: Option<Power>,
+        detector_type: Option<DetectorType>,
+        percent_emitted: Option<PercentEmitted>,
+        detector_voltage: Option<DetectorVoltage>,
+        longname: Option<Longname>,
+        nonstandard_keywords: NonStdKeywords,
+    ) -> Self {
+        let common = CommonMeasurement::new(longname, nonstandard_keywords);
+        let specific = InnerOptical3_2::new(
+            transform,
+            wavelengths,
+            calibration,
+            display,
+            analyte,
+            feature,
+            measurement_type,
+            tag,
+            detector_name,
+        );
+        Self::new(
+            common,
+            filter,
+            power,
+            detector_type,
+            percent_emitted,
+            detector_voltage,
+            specific,
+        )
+    }
+
+    pub fn new_def(scale: Scale) -> Self {
+        let specific = InnerOptical3_2::new_def(scale);
         Self::new_common(specific)
     }
 }

@@ -217,8 +217,28 @@ py_wrap!(PyCoreDataset3_0, core::CoreDataset3_0, "CoreDataset3_0");
 py_wrap!(PyCoreDataset3_1, core::CoreDataset3_1, "CoreDataset3_1");
 py_wrap!(PyCoreDataset3_2, core::CoreDataset3_2, "CoreDataset3_2");
 
+// TODO nonstandard_keywords could be "enforced" by storing the prefix somehow
 py_wrap! {
     /// Encodes FCS2.0 *$Pn\** keywords for an optical measurement.
+    ///
+    /// Note that *$PnN* is set separately when this object is stored in a
+    /// ``Core*`` object.
+    ///
+    /// :ivar tuple[()] | tuple[float, float] | None scale: The value of *$PnE*
+    /// :ivar float | None wavelength: The value of *$PnL*
+    /// :ivar int | None bin: The value of *$PKn*
+    /// :ivar int | None size: The value of *$PKNn*
+    /// :ivar str | None filter: The value of *$PnF*
+    /// :ivar float | None power: The value of *$PnO*
+    /// :ivar str | None detector_type: The value of *$PnT*
+    /// :ivar str | None percent_emitted: The value of *$PnP*
+    /// :ivar str | None detector_voltage: The value of *$PnV*
+    /// :ivar str | None longname: The value of *PnS*
+    /// :ivar dict[str, str] nonstandard_keywords: Any non-standard keywords
+    ///    corresponding to this measurement. No keys should start with *$*.
+    ///    Realistically each key should follow a pattern corresponding to the
+    ///    measurement index, something like prefixing with "P" followed by the
+    ///    index. This is not enforced.
     PyOptical2_0,
     core::Optical2_0,
     "Optical2_0"
@@ -227,8 +247,47 @@ py_wrap! {
 #[pymethods]
 impl PyOptical2_0 {
     #[new]
-    fn new() -> Self {
-        core::Optical2_0::default().into()
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(text_signature = "(
+        scale = None,
+        wavelength = None,
+        bin = None,
+        size = None,
+        filter = None,
+        power = None,
+        detector_type = None,
+        percent_emitted = None,
+        detector_voltage = None,
+        longname = None,
+        nonstandard_keywords = {},
+    )")]
+    fn new(
+        scale: Option<Scale>,
+        wavelength: Option<kws::Wavelength>,
+        bin: Option<kws::PeakBin>,
+        size: Option<kws::PeakNumber>,
+        filter: Option<kws::Filter>,
+        power: Option<kws::Power>,
+        detector_type: Option<kws::DetectorType>,
+        percent_emitted: Option<kws::PercentEmitted>,
+        detector_voltage: Option<kws::DetectorVoltage>,
+        longname: Option<kws::Longname>,
+        nonstandard_keywords: HashMap<NonStdKey, String>,
+    ) -> Self {
+        core::Optical2_0::new_2_0(
+            scale,
+            wavelength,
+            bin,
+            size,
+            filter,
+            power,
+            detector_type,
+            percent_emitted,
+            detector_voltage,
+            longname,
+            nonstandard_keywords,
+        )
+        .into()
     }
 
     /// The value for *$PnE* for all measurements.
@@ -258,8 +317,47 @@ py_wrap! {
 #[pymethods]
 impl PyOptical3_0 {
     #[new]
-    fn new(scale: Scale) -> Self {
-        core::Optical3_0::new(scale).into()
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(text_signature = "(
+        transform,
+        wavelength = None,
+        bin = None,
+        size = None,
+        filter = None,
+        power = None,
+        detector_type = None,
+        percent_emitted = None,
+        detector_voltage = None,
+        longname = None,
+        nonstandard_keywords = {},
+    )")]
+    fn new(
+        transform: core::ScaleTransform,
+        wavelength: Option<kws::Wavelength>,
+        bin: Option<kws::PeakBin>,
+        size: Option<kws::PeakNumber>,
+        filter: Option<kws::Filter>,
+        power: Option<kws::Power>,
+        detector_type: Option<kws::DetectorType>,
+        percent_emitted: Option<kws::PercentEmitted>,
+        detector_voltage: Option<kws::DetectorVoltage>,
+        longname: Option<kws::Longname>,
+        nonstandard_keywords: HashMap<NonStdKey, String>,
+    ) -> Self {
+        core::Optical3_0::new_3_0(
+            transform,
+            wavelength,
+            bin,
+            size,
+            filter,
+            power,
+            detector_type,
+            percent_emitted,
+            detector_voltage,
+            longname,
+            nonstandard_keywords,
+        )
+        .into()
     }
 }
 
@@ -273,8 +371,53 @@ py_wrap! {
 #[pymethods]
 impl PyOptical3_1 {
     #[new]
-    fn new(scale: Scale) -> Self {
-        core::Optical3_1::new(scale).into()
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(text_signature = "(
+        transform,
+        wavelengths = None,
+        calibration = None,
+        display = None,
+        bin = None,
+        size = None,
+        filter = None,
+        power = None,
+        detector_type = None,
+        percent_emitted = None,
+        detector_voltage = None,
+        longname = None,
+        nonstandard_keywords = {},
+    )")]
+    fn new(
+        transform: core::ScaleTransform,
+        wavelengths: Option<kws::Wavelengths>,
+        calibration: Option<kws::Calibration3_1>,
+        display: Option<kws::Display>,
+        bin: Option<kws::PeakBin>,
+        size: Option<kws::PeakNumber>,
+        filter: Option<kws::Filter>,
+        power: Option<kws::Power>,
+        detector_type: Option<kws::DetectorType>,
+        percent_emitted: Option<kws::PercentEmitted>,
+        detector_voltage: Option<kws::DetectorVoltage>,
+        longname: Option<kws::Longname>,
+        nonstandard_keywords: HashMap<NonStdKey, String>,
+    ) -> Self {
+        core::Optical3_1::new_3_1(
+            transform,
+            wavelengths,
+            calibration,
+            display,
+            bin,
+            size,
+            filter,
+            power,
+            detector_type,
+            percent_emitted,
+            detector_voltage,
+            longname,
+            nonstandard_keywords,
+        )
+        .into()
     }
 }
 
@@ -288,8 +431,62 @@ py_wrap! {
 #[pymethods]
 impl PyOptical3_2 {
     #[new]
-    fn new(scale: Scale) -> Self {
-        core::Optical3_2::new(scale).into()
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(text_signature = "(
+        transform,
+        wavelengths = None,
+        calibration = None,
+        display = None,
+        analyte = None,
+        feature = None,
+        tag = None,
+        measurement_type = None,
+        detector_name = None,
+        filter = None,
+        power = None,
+        detector_type = None,
+        percent_emitted = None,
+        detector_voltage = None,
+        longname = None,
+        nonstandard_keywords = {},
+    )")]
+    fn new(
+        transform: core::ScaleTransform,
+        wavelengths: Option<kws::Wavelengths>,
+        calibration: Option<kws::Calibration3_2>,
+        display: Option<kws::Display>,
+        analyte: Option<kws::Analyte>,
+        feature: Option<kws::Feature>,
+        tag: Option<kws::Tag>,
+        measurement_type: Option<kws::OpticalType>,
+        detector_name: Option<kws::DetectorName>,
+        filter: Option<kws::Filter>,
+        power: Option<kws::Power>,
+        detector_type: Option<kws::DetectorType>,
+        percent_emitted: Option<kws::PercentEmitted>,
+        detector_voltage: Option<kws::DetectorVoltage>,
+        longname: Option<kws::Longname>,
+        nonstandard_keywords: HashMap<NonStdKey, String>,
+    ) -> Self {
+        core::Optical3_2::new_3_2(
+            transform,
+            wavelengths,
+            calibration,
+            display,
+            analyte,
+            feature,
+            tag,
+            measurement_type,
+            detector_name,
+            filter,
+            power,
+            detector_type,
+            percent_emitted,
+            detector_voltage,
+            longname,
+            nonstandard_keywords,
+        )
+        .into()
     }
 }
 

@@ -500,8 +500,21 @@ py_wrap! {
 #[pymethods]
 impl PyTemporal2_0 {
     #[new]
-    fn new() -> Self {
-        core::Temporal2_0::default().into()
+    #[pyo3(text_signature = "(
+        has_scale = False,
+        bin = None,
+        size = None,
+        longname = None,
+        nonstandard_keywords = {},
+    )")]
+    fn new(
+        has_scale: bool,
+        bin: Option<kws::PeakBin>,
+        size: Option<kws::PeakNumber>,
+        longname: Option<kws::Longname>,
+        nonstandard_keywords: HashMap<NonStdKey, String>,
+    ) -> Self {
+        core::Temporal2_0::new_2_0(has_scale, bin, size, longname, nonstandard_keywords).into()
     }
 }
 
@@ -515,8 +528,21 @@ py_wrap! {
 #[pymethods]
 impl PyTemporal3_0 {
     #[new]
-    fn new(timestep: kws::Timestep) -> Self {
-        core::Temporal3_0::new(timestep).into()
+    #[pyo3(text_signature = "(
+        timestep,
+        bin = None,
+        size = None,
+        longname = None,
+        nonstandard_keywords = {},
+    )")]
+    fn new(
+        timestep: kws::Timestep,
+        bin: Option<kws::PeakBin>,
+        size: Option<kws::PeakNumber>,
+        longname: Option<kws::Longname>,
+        nonstandard_keywords: HashMap<NonStdKey, String>,
+    ) -> Self {
+        core::Temporal3_0::new_3_0(timestep, bin, size, longname, nonstandard_keywords).into()
     }
 }
 
@@ -530,8 +556,24 @@ py_wrap! {
 #[pymethods]
 impl PyTemporal3_1 {
     #[new]
-    fn new(timestep: kws::Timestep) -> Self {
-        core::Temporal3_1::new(timestep).into()
+    #[pyo3(text_signature = "(
+        timestep,
+        display = None,
+        bin = None,
+        size = None,
+        longname = None,
+        nonstandard_keywords = {},
+    )")]
+    fn new(
+        timestep: kws::Timestep,
+        display: Option<kws::Display>,
+        bin: Option<kws::PeakBin>,
+        size: Option<kws::PeakNumber>,
+        longname: Option<kws::Longname>,
+        nonstandard_keywords: HashMap<NonStdKey, String>,
+    ) -> Self {
+        core::Temporal3_1::new_3_1(timestep, display, bin, size, longname, nonstandard_keywords)
+            .into()
     }
 }
 
@@ -545,8 +587,22 @@ py_wrap! {
 #[pymethods]
 impl PyTemporal3_2 {
     #[new]
-    fn new(timestep: kws::Timestep) -> Self {
-        core::Temporal3_2::new(timestep).into()
+    #[pyo3(text_signature = "(
+        timestep,
+        display = None,
+        has_type = False,
+        longname = None,
+        nonstandard_keywords = {},
+    )")]
+    fn new(
+        timestep: kws::Timestep,
+        display: Option<kws::Display>,
+        has_type: bool,
+        longname: Option<kws::Longname>,
+        nonstandard_keywords: HashMap<NonStdKey, String>,
+    ) -> Self {
+        core::Temporal3_2::new_3_2(timestep, display, has_type, longname, nonstandard_keywords)
+            .into()
     }
 
     #[getter]

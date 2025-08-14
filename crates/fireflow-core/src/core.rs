@@ -218,7 +218,7 @@ pub struct CommonMeasurement {
 ///
 /// Explicit fields are common to all versions. The generic type parameter
 /// allows for version-specific information to be encoded.
-#[derive(Clone, AsRef, AsMut, PartialEq)]
+#[derive(Clone, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Temporal<X> {
     /// Fields shared with optical measurements
@@ -638,7 +638,7 @@ pub struct InnerMetaroot3_2 {
 }
 
 /// Temporal measurement fields specific to version 2.0
-#[derive(Clone, Default, AsRef, AsMut, PartialEq)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerTemporal2_0 {
     /// Value of $PnE
@@ -646,6 +646,7 @@ pub struct InnerTemporal2_0 {
     /// Unlike subsequent versions, included here because it is optional rather
     /// than required and constant.
     // TODO this can just be a bool
+    #[new(into)]
     pub scale: MaybeValue<TemporalScale>,
 
     /// Values of $Pkn/$PKNn
@@ -659,7 +660,7 @@ pub struct InnerTemporal2_0 {
 /// Temporal measurement fields specific to version 3.0
 ///
 /// $PnE is implied as linear but not included since it only has one value
-#[derive(Clone, AsRef, AsMut, PartialEq)]
+#[derive(Clone, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerTemporal3_0 {
     /// Value for $TIMESTEP
@@ -678,7 +679,7 @@ pub struct InnerTemporal3_0 {
 /// Temporal measurement fields specific to version 3.1
 ///
 /// $PnE is implied as linear but not included since it only has one value
-#[derive(Clone, AsRef, AsMut, PartialEq)]
+#[derive(Clone, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerTemporal3_1 {
     /// Value for $TIMESTEP
@@ -689,6 +690,7 @@ pub struct InnerTemporal3_1 {
     /// Value for $PnDISPLAY
     #[as_ref(Option<Display>)]
     #[as_mut(Option<Display>)]
+    #[new(into)]
     pub display: MaybeValue<Display>,
 
     /// Values of $Pkn/$PKNn
@@ -702,7 +704,7 @@ pub struct InnerTemporal3_1 {
 /// Temporal measurement fields specific to version 3.2
 ///
 /// $PnE is implied as linear but not included since it only has one value
-#[derive(Clone, AsRef, AsMut, PartialEq)]
+#[derive(Clone, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerTemporal3_2 {
     /// Value for $TIMESTEP
@@ -713,10 +715,12 @@ pub struct InnerTemporal3_2 {
     /// Value for $PnDISPLAY
     #[as_ref(Option<Display>)]
     #[as_mut(Option<Display>)]
+    #[new(into)]
     pub display: MaybeValue<Display>,
 
     /// Value for $PnTYPE
     // TODO this can just be a bool
+    #[new(into)]
     pub measurement_type: MaybeValue<TemporalType>,
 }
 
@@ -7540,73 +7544,6 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
     }
 }
 
-impl InnerTemporal3_0 {
-    pub(crate) fn new(timestep: Timestep) -> Self {
-        Self {
-            timestep,
-            peak: PeakData::default(),
-        }
-    }
-}
-
-impl InnerTemporal3_1 {
-    pub(crate) fn new(timestep: Timestep) -> Self {
-        Self {
-            timestep,
-            display: None.into(),
-            peak: PeakData::default(),
-        }
-    }
-}
-
-impl InnerTemporal3_2 {
-    pub(crate) fn new(timestep: Timestep) -> Self {
-        Self {
-            timestep,
-            display: None.into(),
-            measurement_type: None.into(),
-        }
-    }
-}
-
-impl InnerOptical3_0 {
-    pub(crate) fn new_def(scale: Scale) -> Self {
-        Self {
-            scale: scale.into(),
-            wavelength: None.into(),
-            peak: PeakData::default(),
-        }
-    }
-}
-
-impl InnerOptical3_1 {
-    pub(crate) fn new_def(scale: Scale) -> Self {
-        Self {
-            scale: scale.into(),
-            calibration: None.into(),
-            display: None.into(),
-            wavelengths: None.into(),
-            peak: PeakData::default(),
-        }
-    }
-}
-
-impl InnerOptical3_2 {
-    pub(crate) fn new_def(scale: Scale) -> Self {
-        Self {
-            scale: scale.into(),
-            analyte: None.into(),
-            calibration: None.into(),
-            detector_name: None.into(),
-            display: None.into(),
-            feature: None.into(),
-            measurement_type: None.into(),
-            tag: None.into(),
-            wavelengths: None.into(),
-        }
-    }
-}
-
 impl InnerMetaroot2_0 {
     pub(crate) fn new(mode: Mode) -> Self {
         Self {
@@ -7678,24 +7615,66 @@ impl Default for Temporal2_0 {
     }
 }
 
+impl Temporal2_0 {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_2_0(
+        has_scale: bool,
+        bin: Option<PeakBin>,
+        size: Option<PeakNumber>,
+        longname: Option<Longname>,
+        nonstandard_keywords: NonStdKeywords,
+    ) -> Self {
+        let common = CommonMeasurement::new(longname, nonstandard_keywords);
+        let scale = if has_scale { Some(TemporalScale) } else { None };
+        let specific = InnerTemporal2_0::new(scale, PeakData::new(bin, size));
+        Self::new(common, specific)
+    }
+}
+
 impl Temporal3_0 {
-    pub fn new(timestep: Timestep) -> Self {
-        let specific = InnerTemporal3_0::new(timestep);
-        Self::new_common(specific)
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_3_0(
+        timestep: Timestep,
+        bin: Option<PeakBin>,
+        size: Option<PeakNumber>,
+        longname: Option<Longname>,
+        nonstandard_keywords: NonStdKeywords,
+    ) -> Self {
+        let common = CommonMeasurement::new(longname, nonstandard_keywords);
+        let specific = InnerTemporal3_0::new(timestep, PeakData::new(bin, size));
+        Self::new(common, specific)
     }
 }
 
 impl Temporal3_1 {
-    pub fn new(timestep: Timestep) -> Self {
-        let specific = InnerTemporal3_1::new(timestep);
-        Self::new_common(specific)
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_3_1(
+        timestep: Timestep,
+        display: Option<Display>,
+        bin: Option<PeakBin>,
+        size: Option<PeakNumber>,
+        longname: Option<Longname>,
+        nonstandard_keywords: NonStdKeywords,
+    ) -> Self {
+        let common = CommonMeasurement::new(longname, nonstandard_keywords);
+        let specific = InnerTemporal3_1::new(timestep, display, PeakData::new(bin, size));
+        Self::new(common, specific)
     }
 }
 
 impl Temporal3_2 {
-    pub fn new(timestep: Timestep) -> Self {
-        let specific = InnerTemporal3_2::new(timestep);
-        Self::new_common(specific)
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_3_2(
+        timestep: Timestep,
+        display: Option<Display>,
+        has_type: bool,
+        longname: Option<Longname>,
+        nonstandard_keywords: NonStdKeywords,
+    ) -> Self {
+        let common = CommonMeasurement::new(longname, nonstandard_keywords);
+        let meas_type = if has_type { Some(TemporalType) } else { None };
+        let specific = InnerTemporal3_2::new(timestep, display, meas_type);
+        Self::new(common, specific)
     }
 }
 
@@ -7762,11 +7741,6 @@ impl Optical3_0 {
             specific,
         )
     }
-
-    pub fn new_def(scale: Scale) -> Self {
-        let specific = InnerOptical3_0::new_def(scale);
-        Self::new_common(specific)
-    }
 }
 
 impl Optical3_1 {
@@ -7803,11 +7777,6 @@ impl Optical3_1 {
             detector_voltage,
             specific,
         )
-    }
-
-    pub fn new_def(scale: Scale) -> Self {
-        let specific = InnerOptical3_1::new_def(scale);
-        Self::new_common(specific)
     }
 }
 
@@ -7854,10 +7823,10 @@ impl Optical3_2 {
         )
     }
 
-    pub fn new_def(scale: Scale) -> Self {
-        let specific = InnerOptical3_2::new_def(scale);
-        Self::new_common(specific)
-    }
+    // pub fn new_def(scale: Scale) -> Self {
+    //     let specific = InnerOptical3_2::new_def(scale);
+    //     Self::new_common(specific)
+    // }
 }
 
 impl<X> AsMut<CommonMeasurement> for Optical<X> {

@@ -59,19 +59,15 @@ pub struct Xtim<const IS_ETIM: bool, T>(pub T);
 pub struct FCSDate(pub NaiveDate);
 
 impl<X> Timestamps<X> {
-    pub fn new(
-        btim: MaybeValue<Btim<X>>,
-        etim: MaybeValue<Etim<X>>,
-        date: MaybeValue<FCSDate>,
+    pub fn try_new(
+        btim: Option<Btim<X>>,
+        etim: Option<Etim<X>>,
+        date: Option<FCSDate>,
     ) -> TimestampsResult<Self>
     where
         X: PartialOrd,
     {
-        let ret = Self {
-            btim: btim.0,
-            etim: etim.0,
-            date: date.0,
-        };
+        let ret = Self { btim, etim, date };
         if ret.valid() {
             Ok(ret)
         } else {
@@ -179,7 +175,7 @@ impl<X> Timestamps<X> {
         X: PartialOrd,
     {
         b.zip3(e, d).and_tentatively(|(btim, etim, date)| {
-            Timestamps::new(btim, etim, date)
+            Timestamps::try_new(btim.0, etim.0, date.0)
                 .map(Tentative::new1)
                 .unwrap_or_else(|w| {
                     let ow = LookupKeysWarning::Relation(w.into());

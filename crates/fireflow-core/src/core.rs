@@ -116,71 +116,85 @@ pub struct Others(pub Vec<Other>);
 /// Explicit fields are common to all FCS versions.
 ///
 /// The generic type parameter allows version-specific data to be encoded.
-#[derive(Clone, AsRef, AsMut, PartialEq)]
+#[allow(clippy::too_many_arguments)]
+#[derive(Clone, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Metaroot<X> {
     /// Value of $ABRT
     #[as_ref(Option<Abrt>)]
     #[as_mut(Option<Abrt>)]
+    #[new(into)]
     pub abrt: MaybeValue<Abrt>,
 
     /// Value of $COM
     #[as_ref(Option<Com>)]
     #[as_mut(Option<Com>)]
+    #[new(into)]
     pub com: MaybeValue<Com>,
 
     /// Value of $CELLS
     #[as_ref(Option<Cells>)]
     #[as_mut(Option<Cells>)]
+    #[new(into)]
     pub cells: MaybeValue<Cells>,
 
     /// Value of $EXP
     #[as_ref(Option<Exp>)]
     #[as_mut(Option<Exp>)]
+    #[new(into)]
     pub exp: MaybeValue<Exp>,
 
     /// Value of $FIL
     #[as_ref(Option<Fil>)]
     #[as_mut(Option<Fil>)]
+    #[new(into)]
     pub fil: MaybeValue<Fil>,
 
     /// Value of $INST
     #[as_ref(Option<Inst>)]
     #[as_mut(Option<Inst>)]
+    #[new(into)]
     pub inst: MaybeValue<Inst>,
 
     /// Value of $LOST
     #[as_ref(Option<Lost>)]
     #[as_mut(Option<Lost>)]
+    #[new(into)]
     pub lost: MaybeValue<Lost>,
 
     /// Value of $OP
     #[as_ref(Option<Op>)]
     #[as_mut(Option<Op>)]
+    #[new(into)]
     pub op: MaybeValue<Op>,
 
     /// Value of $PROJ
     #[as_ref(Option<Proj>)]
     #[as_mut(Option<Proj>)]
+    #[new(into)]
     pub proj: MaybeValue<Proj>,
 
     /// Value of $SMNO
     #[as_ref(Option<Smno>)]
     #[as_mut(Option<Smno>)]
+    #[new(into)]
     pub smno: MaybeValue<Smno>,
 
     /// Value of $SRC
     #[as_ref(Option<Src>)]
     #[as_mut(Option<Src>)]
+    #[new(into)]
     pub src: MaybeValue<Src>,
 
     /// Value of $SYS
     #[as_ref(Option<Sys>)]
     #[as_mut(Option<Sys>)]
+    #[new(into)]
     pub sys: MaybeValue<Sys>,
 
     /// Value of $TR
     #[as_ref(Option<Trigger>)]
+    #[new(into)]
     tr: MaybeValue<Trigger>,
 
     /// Version-specific data
@@ -436,7 +450,7 @@ impl AnyCoreDataset {
 }
 
 /// Metaroot fields specific to version 2.0
-#[derive(Clone, AsRef, AsMut, PartialEq)]
+#[derive(Clone, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerMetaroot2_0 {
     /// Value of $MODE
@@ -447,10 +461,12 @@ pub struct InnerMetaroot2_0 {
     /// Value of $CYT
     #[as_ref(Option<Cyt>)]
     #[as_mut(Option<Cyt>)]
+    #[new(into)]
     pub cyt: MaybeValue<Cyt>,
 
     /// Compensation matrix derived from 'DFCnTOm' key/value pairs
     #[as_ref(Option<Compensation2_0>)]
+    #[new(into)]
     comp: MaybeValue<Compensation2_0>,
 
     /// Values of $BTIM/ETIM/$DATE
@@ -465,7 +481,8 @@ pub struct InnerMetaroot2_0 {
 }
 
 /// Metaroot fields specific to version 3.0
-#[derive(Clone, AsRef, AsMut, PartialEq)]
+#[allow(clippy::too_many_arguments)]
+#[derive(Clone, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerMetaroot3_0 {
     /// Value of $MODE
@@ -476,10 +493,12 @@ pub struct InnerMetaroot3_0 {
     /// Value of $CYT
     #[as_ref(Option<Cyt>)]
     #[as_mut(Option<Cyt>)]
+    #[new(into)]
     pub cyt: MaybeValue<Cyt>,
 
     /// Value of $COMP
     #[as_ref(Option<Compensation3_0>)]
+    #[new(into)]
     comp: MaybeValue<Compensation3_0>,
 
     /// Values of $BTIM/ETIM/$DATE
@@ -490,11 +509,13 @@ pub struct InnerMetaroot3_0 {
     /// Value of $CYTSN
     #[as_ref(Option<Cytsn>)]
     #[as_mut(Option<Cytsn>)]
+    #[new(into)]
     pub cytsn: MaybeValue<Cytsn>,
 
     /// Value of $UNICODE
     #[as_ref(Option<Unicode>)]
     #[as_mut(Option<Unicode>)]
+    #[new(into)]
     pub unicode: MaybeValue<Unicode>,
 
     /// Aggregated values for $CS* keywords
@@ -512,7 +533,8 @@ pub struct InnerMetaroot3_0 {
 }
 
 /// Metaroot fields specific to version 3.1
-#[derive(Clone, AsRef, AsMut, PartialEq)]
+#[allow(clippy::too_many_arguments)]
+#[derive(Clone, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerMetaroot3_1 {
     /// Value of $MODE
@@ -523,6 +545,7 @@ pub struct InnerMetaroot3_1 {
     /// Value of $CYT
     #[as_ref(Option<Cyt>)]
     #[as_mut(Option<Cyt>)]
+    #[new(into)]
     pub cyt: MaybeValue<Cyt>,
 
     /// Values of $BTIM/ETIM/$DATE
@@ -533,10 +556,12 @@ pub struct InnerMetaroot3_1 {
     /// Value of $CYTSN
     #[as_ref(Option<Cytsn>)]
     #[as_mut(Option<Cytsn>)]
+    #[new(into)]
     pub cytsn: MaybeValue<Cytsn>,
 
     /// Value of $SPILLOVER
     #[as_ref(Option<Spillover>)]
+    #[new(into)]
     spillover: MaybeValue<Spillover>,
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
@@ -552,6 +577,7 @@ pub struct InnerMetaroot3_1 {
     /// Value of $VOL
     #[as_ref(Option<Vol>)]
     #[as_mut(Option<Vol>)]
+    #[new(into)]
     pub vol: MaybeValue<Vol>,
 
     /// Aggregated values for $CS* keywords
@@ -569,7 +595,8 @@ pub struct InnerMetaroot3_1 {
 }
 
 /// Metaroot fields specific to version 3.2
-#[derive(Clone, AsRef, AsMut, PartialEq)]
+#[allow(clippy::too_many_arguments)]
+#[derive(Clone, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerMetaroot3_2 {
     /// Value of $MODE
@@ -594,11 +621,13 @@ pub struct InnerMetaroot3_2 {
 
     /// Value of $SPILLOVER
     #[as_ref(Option<Spillover>)]
+    #[new(into)]
     spillover: MaybeValue<Spillover>,
 
     /// Value of $CYTSN
     #[as_ref(Option<Cytsn>)]
     #[as_mut(Option<Cytsn>)]
+    #[new(into)]
     pub cytsn: MaybeValue<Cytsn>,
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
@@ -615,6 +644,7 @@ pub struct InnerMetaroot3_2 {
     /// Value of $VOL
     #[as_ref(Option<Vol>)]
     #[as_mut(Option<Vol>)]
+    #[new(into)]
     pub vol: MaybeValue<Vol>,
 
     /// Values of $CARRIERID/$CARRIERTYPE/$LOCATIONID
@@ -630,6 +660,7 @@ pub struct InnerMetaroot3_2 {
     /// Value of $FLOWRATE
     #[as_ref(Option<Flowrate>)]
     #[as_mut(Option<Flowrate>)]
+    #[new(into)]
     pub flowrate: MaybeValue<Flowrate>,
 
     /// Values of $RnI/$RnW/$GATING
@@ -974,31 +1005,36 @@ pub struct ModificationData {
 }
 
 /// A bundle for $PLATEID, $PLATENAME, and $WELLID (3.1+)
-#[derive(Clone, Default, AsRef, AsMut, PartialEq)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PlateData {
     #[as_ref(Option<Plateid>)]
     #[as_mut(Option<Plateid>)]
+    #[new(into)]
     pub plateid: MaybeValue<Plateid>,
 
     #[as_ref(Option<Platename>)]
     #[as_mut(Option<Platename>)]
+    #[new(into)]
     pub platename: MaybeValue<Platename>,
 
     #[as_ref(Option<Wellid>)]
     #[as_mut(Option<Wellid>)]
+    #[new(into)]
     pub wellid: MaybeValue<Wellid>,
 }
 
 /// A bundle for $UNSTAINEDCENTERS and $UNSTAINEDINFO (3.2+)
-#[derive(Clone, Default, AsRef, AsMut, PartialEq)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct UnstainedData {
     #[as_ref(Option<UnstainedCenters>)]
+    #[new(into)]
     unstainedcenters: MaybeValue<UnstainedCenters>,
 
     #[as_ref(Option<UnstainedInfo>)]
     #[as_mut(Option<UnstainedInfo>)]
+    #[new(into)]
     pub unstainedinfo: MaybeValue<UnstainedInfo>,
 }
 
@@ -1784,7 +1820,7 @@ where
     M: VersionedMetaroot,
 {
     /// Make new version-specific metaroot
-    pub fn new(specific: M) -> Self {
+    pub fn new_def(specific: M) -> Self {
         Metaroot {
             abrt: None.into(),
             cells: None.into(),
@@ -4358,32 +4394,32 @@ where
 
 impl CoreTEXT2_0 {
     pub fn new(mode: Mode, datatype: AlphaNumType) -> Self {
-        let specific = InnerMetaroot2_0::new(mode);
-        let metaroot = Metaroot::new(specific);
+        let specific = InnerMetaroot2_0::new_def(mode);
+        let metaroot = Metaroot::new_def(specific);
         CoreTEXT::new_nomeas(metaroot, datatype)
     }
 }
 
 impl CoreTEXT3_0 {
     pub fn new(mode: Mode, datatype: AlphaNumType) -> Self {
-        let specific = InnerMetaroot3_0::new(mode);
-        let metaroot = Metaroot::new(specific);
+        let specific = InnerMetaroot3_0::new_def(mode);
+        let metaroot = Metaroot::new_def(specific);
         CoreTEXT::new_nomeas(metaroot, datatype)
     }
 }
 
 impl CoreTEXT3_1 {
     pub fn new(mode: Mode, datatype: AlphaNumType) -> Self {
-        let specific = InnerMetaroot3_1::new(mode);
-        let metaroot = Metaroot::new(specific);
+        let specific = InnerMetaroot3_1::new_def(mode);
+        let metaroot = Metaroot::new_def(specific);
         CoreTEXT::new_nomeas(metaroot, datatype)
     }
 }
 
 impl CoreTEXT3_2 {
     pub fn new(cyt: String, datatype: AlphaNumType) -> Self {
-        let specific = InnerMetaroot3_2::new(cyt);
-        let metaroot = Metaroot::new(specific);
+        let specific = InnerMetaroot3_2::new_def(cyt);
+        let metaroot = Metaroot::new_def(specific);
         CoreTEXT::new_nomeas(metaroot, datatype)
     }
 }
@@ -7545,7 +7581,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
 }
 
 impl InnerMetaroot2_0 {
-    pub(crate) fn new(mode: Mode) -> Self {
+    pub(crate) fn new_def(mode: Mode) -> Self {
         Self {
             mode,
             cyt: None.into(),
@@ -7557,7 +7593,7 @@ impl InnerMetaroot2_0 {
 }
 
 impl InnerMetaroot3_0 {
-    pub(crate) fn new(mode: Mode) -> Self {
+    pub(crate) fn new_def(mode: Mode) -> Self {
         Self {
             mode,
             cyt: None.into(),
@@ -7572,7 +7608,7 @@ impl InnerMetaroot3_0 {
 }
 
 impl InnerMetaroot3_1 {
-    pub(crate) fn new(mode: Mode) -> Self {
+    pub(crate) fn new_def(mode: Mode) -> Self {
         Self {
             mode,
             cyt: None.into(),
@@ -7589,7 +7625,7 @@ impl InnerMetaroot3_1 {
 }
 
 impl InnerMetaroot3_2 {
-    pub(crate) fn new(cyt: String) -> Self {
+    pub(crate) fn new_def(cyt: String) -> Self {
         Self {
             cyt: cyt.into(),
             mode: None.into(),

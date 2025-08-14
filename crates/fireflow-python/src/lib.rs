@@ -2693,6 +2693,9 @@ macro_rules! impl_applied_gated_meas {
 impl_applied_gated_meas!(PyAppliedGates2_0);
 impl_applied_gated_meas!(PyAppliedGates3_0);
 
+// TODO could clean this stuff up by moving to gating module and implementing
+// py conversion b/t regions to these things. Would avoid having to unpack
+// and repack a hashmap
 py_wrap! {
     /// Make a new FCS 2.0-compatible univariate region.
     ///

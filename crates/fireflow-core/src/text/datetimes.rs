@@ -46,13 +46,10 @@ pub struct FCSDateTime(pub DateTime<FixedOffset>);
 
 impl Datetimes {
     pub fn try_new(
-        begin: MaybeValue<BeginDateTime>,
-        end: MaybeValue<EndDateTime>,
+        begin: Option<BeginDateTime>,
+        end: Option<EndDateTime>,
     ) -> DatetimesResult<Self> {
-        let ret = Self {
-            begin: begin.0,
-            end: end.0,
-        };
+        let ret = Self { begin, end };
         if ret.valid() {
             Ok(ret)
         } else {
@@ -90,7 +87,7 @@ impl Datetimes {
         let b = BeginDateTime::lookup_opt(kws);
         let e = EndDateTime::lookup_opt(kws);
         b.zip(e).and_tentatively(|(begin, end)| {
-            Datetimes::try_new(begin, end)
+            Datetimes::try_new(begin.0, end.0)
                 .map(Tentative::new1)
                 .unwrap_or_else(|w| {
                     let ow = LookupKeysWarning::Relation(w.into());

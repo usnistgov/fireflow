@@ -21,7 +21,7 @@ use fireflow_core::text::gating::{
 use fireflow_core::text::index::{GateIndex, MeasIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::{Eithers, Element, NamedVec, NonCenterElement};
-use fireflow_core::text::optional::{AlwaysFamily, MaybeFamily, MaybeValue};
+use fireflow_core::text::optional::{AlwaysFamily, MaybeFamily};
 use fireflow_core::text::scale::Scale;
 use fireflow_core::text::unstainedcenters::UnstainedCenters;
 use fireflow_core::validated::bitmask as bm;
@@ -3029,27 +3029,27 @@ py_wrap! {
 impl PyGatedMeasurement {
     #[new]
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(text_signature = "(
-            scale = None,
-            filter = None,
-            shortname = None,
-            percent_emitted = None,
-            range = None,
-            longname = None,
-            detector_type = None,
-            detector_voltage = None,
-        )")]
+    #[pyo3(signature = (
+        scale = None,
+        filter = None,
+        shortname = None,
+        percent_emitted = None,
+        range = None,
+        longname = None,
+        detector_type = None,
+        detector_voltage = None,
+    ))]
     fn new(
-        scale: MaybeValue<kws::GateScale>,
-        filter: MaybeValue<kws::GateFilter>,
-        shortname: MaybeValue<kws::GateShortname>,
-        percent_emitted: MaybeValue<kws::GatePercentEmitted>,
-        range: MaybeValue<kws::GateRange>,
-        longname: MaybeValue<kws::GateLongname>,
-        detector_type: MaybeValue<kws::GateDetectorType>,
-        detector_voltage: MaybeValue<kws::GateDetectorVoltage>,
+        scale: Option<kws::GateScale>,
+        filter: Option<kws::GateFilter>,
+        shortname: Option<kws::GateShortname>,
+        percent_emitted: Option<kws::GatePercentEmitted>,
+        range: Option<kws::GateRange>,
+        longname: Option<kws::GateLongname>,
+        detector_type: Option<kws::GateDetectorType>,
+        detector_voltage: Option<kws::GateDetectorVoltage>,
     ) -> Self {
-        GatedMeasurement {
+        GatedMeasurement::new(
             scale,
             filter,
             shortname,
@@ -3058,7 +3058,7 @@ impl PyGatedMeasurement {
             longname,
             detector_type,
             detector_voltage,
-        }
+        )
         .into()
     }
 }

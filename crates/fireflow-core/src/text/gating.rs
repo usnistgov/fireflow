@@ -8,6 +8,7 @@ use crate::text::parser::*;
 use crate::validated::keys::*;
 
 use derive_more::{AsRef, Display, From};
+use derive_new::new;
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use std::collections::{HashMap, HashSet};
@@ -104,33 +105,41 @@ pub struct BivariateRegion<I> {
 }
 
 /// The values for $Gm* keywords (2.0-3.1)
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct GatedMeasurement {
     /// Value for $GmE
+    #[new(into)]
     pub scale: MaybeValue<GateScale>,
 
     /// Value for $GmF
+    #[new(into)]
     pub filter: MaybeValue<GateFilter>,
 
     /// Value for $GmN
     ///
     /// Unlike $PnN, this is not validated to be without commas
+    #[new(into)]
     pub shortname: MaybeValue<GateShortname>,
 
     /// Value for $GmP
+    #[new(into)]
     pub percent_emitted: MaybeValue<GatePercentEmitted>,
 
     /// Value for $GmR
+    #[new(into)]
     pub range: MaybeValue<GateRange>,
 
     /// Value for $GmS
+    #[new(into)]
     pub longname: MaybeValue<GateLongname>,
 
     /// Value for $GmT
+    #[new(into)]
     pub detector_type: MaybeValue<GateDetectorType>,
 
     /// Value for $GmV
+    #[new(into)]
     pub detector_voltage: MaybeValue<GateDetectorVoltage>,
 }
 

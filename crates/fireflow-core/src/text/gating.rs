@@ -105,6 +105,7 @@ pub struct BivariateRegion<I> {
 }
 
 /// The values for $Gm* keywords (2.0-3.1)
+#[allow(clippy::too_many_arguments)]
 #[derive(Clone, Default, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct GatedMeasurement {
@@ -231,10 +232,10 @@ impl<I> BivariateRegion<I> {
 
 impl AppliedGates2_0 {
     pub fn try_new(
-        gated_measurements: GatedMeasurements,
+        gated_measurements: Vec<GatedMeasurement>,
         scheme: GatingScheme<GateIndex>,
     ) -> Result<Self, GateMeasurementLinkError> {
-        let n = gated_measurements.0.len();
+        let n = gated_measurements.len();
         if let Some(xs) = NonEmpty::collect(
             scheme
                 .regions
@@ -245,10 +246,19 @@ impl AppliedGates2_0 {
             Err(GateMeasurementLinkError(xs))
         } else {
             Ok(Self {
-                gated_measurements,
+                gated_measurements: gated_measurements.into(),
                 scheme,
             })
         }
+    }
+
+    pub fn try_new1(
+        gated_measurements: Vec<GatedMeasurement>,
+        regions: HashMap<RegionIndex, Region2_0>,
+        gating: Option<Gating>,
+    ) -> Result<Self, NewAppliedGatesWithSchemeError> {
+        let scheme = GatingScheme::try_new(gating, regions)?;
+        Ok(Self::try_new(gated_measurements, scheme)?)
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -265,7 +275,7 @@ impl AppliedGates2_0 {
         let ag = GatingScheme::lookup(kws, Gating::lookup_opt, |k, j| Region::lookup(k, j, par));
         let gm = GatedMeasurements::lookup(kws, conf);
         ag.zip(gm).and_tentatively(|(scheme, gated_measurements)| {
-            Self::try_new(gated_measurements, scheme)
+            Self::try_new(gated_measurements.0, scheme)
                 .into_tentative_warn_def()
                 .map_warnings(|e| LookupKeysWarning::Relation(e.into()))
         })
@@ -285,10 +295,10 @@ impl AppliedGates2_0 {
 
 impl AppliedGates3_0 {
     pub fn try_new(
-        gated_measurements: GatedMeasurements,
+        gated_measurements: Vec<GatedMeasurement>,
         scheme: GatingScheme<MeasOrGateIndex>,
     ) -> Result<Self, GateMeasurementLinkError> {
-        let n = gated_measurements.0.len();
+        let n = gated_measurements.len();
         if let Some(xs) = NonEmpty::collect(
             scheme
                 .regions
@@ -300,10 +310,19 @@ impl AppliedGates3_0 {
             Err(GateMeasurementLinkError(xs))
         } else {
             Ok(Self {
-                gated_measurements,
+                gated_measurements: gated_measurements.into(),
                 scheme,
             })
         }
+    }
+
+    pub fn try_new1(
+        gated_measurements: Vec<GatedMeasurement>,
+        regions: HashMap<RegionIndex, Region3_0>,
+        gating: Option<Gating>,
+    ) -> Result<Self, NewAppliedGatesWithSchemeError> {
+        let scheme = GatingScheme::try_new(gating, regions)?;
+        Ok(Self::try_new(gated_measurements, scheme)?)
     }
 
     /// Shift indices when a new measurement is inserted.
@@ -364,7 +383,7 @@ impl AppliedGates3_0 {
         let s = lookup_scheme(kws);
         let ms = lookup_meas(kws);
         s.zip(ms).and_tentatively(|(scheme, gated_measurements)| {
-            Self::try_new(gated_measurements, scheme)
+            Self::try_new(gated_measurements.0, scheme)
                 .into_tentative_warn_def()
                 .map_warnings(|e| LookupKeysWarning::Relation(e.into()))
         })
@@ -396,7 +415,7 @@ impl AppliedGates3_0 {
         let mut res = GatingScheme::try_new(self.scheme.gating, regions)
             .into_deferred()
             .def_and_maybe(|scheme| {
-                AppliedGates2_0::try_new(self.gated_measurements, scheme).into_deferred()
+                AppliedGates2_0::try_new(self.gated_measurements.0, scheme).into_deferred()
             });
         for e in es {
             res.def_push_error_or_warning(AppliedGates3_0To2_0Error::Index(e), lossless);
@@ -1044,6 +1063,12 @@ impl fmt::Display for GateMeasurementLinkError {
 }
 
 #[derive(From, Display)]
+pub enum NewAppliedGatesWithSchemeError {
+    Link(GateMeasurementLinkError),
+    Scheme(NewGatingSchemeError),
+}
+
+#[derive(From, Display)]
 pub enum AppliedGates3_0To2_0Error {
     Index(RegionToGateIndexError),
     Scheme(NewGatingSchemeError),
@@ -1130,7 +1155,10 @@ mod python {
     };
     use crate::text::keywords::{Gating, GatingError, MeasOrGateIndex};
 
-    use super::{GateMeasurementLinkError, MeasOrGateIndexError, NewGatingSchemeError};
+    use super::{
+        GateMeasurementLinkError, MeasOrGateIndexError, NewAppliedGatesWithSchemeError,
+        NewGatingSchemeError,
+    };
 
     impl_from_py_via_fromstr!(Gating);
     impl_to_py_via_display!(Gating);
@@ -1142,4 +1170,5 @@ mod python {
     impl_value_err!(MeasOrGateIndexError);
     impl_pyreflow_err!(GateMeasurementLinkError);
     impl_pyreflow_err!(NewGatingSchemeError);
+    impl_pyreflow_err!(NewAppliedGatesWithSchemeError);
 }

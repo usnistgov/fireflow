@@ -163,7 +163,7 @@ py_wrap! {
 impl PyCoreTEXT2_0 {
     #[new]
     fn new(mode: kws::Mode, datatype: kws::AlphaNumType) -> PyResult<Self> {
-        Ok(core::CoreTEXT2_0::new(mode, datatype).into())
+        Ok(core::CoreTEXT2_0::new_def(mode, datatype).into())
     }
 }
 
@@ -178,7 +178,7 @@ py_wrap! {
 impl PyCoreTEXT3_0 {
     #[new]
     fn new(mode: kws::Mode, datatype: kws::AlphaNumType) -> PyResult<Self> {
-        Ok(core::CoreTEXT3_0::new(mode, datatype).into())
+        Ok(core::CoreTEXT3_0::new_def(mode, datatype).into())
     }
 }
 
@@ -193,7 +193,7 @@ py_wrap! {
 impl PyCoreTEXT3_1 {
     #[new]
     fn new(mode: kws::Mode, datatype: kws::AlphaNumType) -> Self {
-        core::CoreTEXT3_1::new(mode, datatype).into()
+        core::CoreTEXT3_1::new_def(mode, datatype).into()
     }
 }
 
@@ -208,7 +208,7 @@ py_wrap!(
 impl PyCoreTEXT3_2 {
     #[new]
     fn new(cyt: String, datatype: kws::AlphaNumType) -> Self {
-        core::CoreTEXT3_2::new(cyt, datatype).into()
+        core::CoreTEXT3_2::new_def(cyt, datatype).into()
     }
 }
 
@@ -2554,9 +2554,8 @@ impl PyAppliedGates2_0 {
         regions: PyRegionMapping<PyRegion2_0>,
         gating: Option<kws::Gating>,
     ) -> PyResult<Self> {
-        let scheme = GatingScheme::try_new(gating, regions.into())?;
         let gs: Vec<_> = gated_measurements.into_iter().map(|x| x.into()).collect();
-        Ok(AppliedGates2_0::try_new(gs.into(), scheme)?.into())
+        Ok(AppliedGates2_0::try_new1(gs, regions.into(), gating)?.into())
     }
 
     /// Value of all gating regions, corresponding to *$RnI* and *$RnW* (read-only).
@@ -2603,7 +2602,7 @@ impl PyAppliedGates3_0 {
     ) -> PyResult<Self> {
         let scheme = GatingScheme::try_new(gating, regions.into())?;
         let gs: Vec<_> = gated_measurements.into_iter().map(|x| x.into()).collect();
-        Ok(AppliedGates3_0::try_new(gs.into(), scheme)?.into())
+        Ok(AppliedGates3_0::try_new(gs, scheme)?.into())
     }
 
     /// Value of all gating regions, corresponding to *$RnI* and *$RnW* (read-only).

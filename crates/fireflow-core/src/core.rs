@@ -8,7 +8,10 @@ use crate::segment::*;
 use crate::text::byteord::*;
 use crate::text::compensation::*;
 use crate::text::datetimes::*;
-use crate::text::gating::{self, AppliedGates2_0, AppliedGates3_0, AppliedGates3_2};
+use crate::text::gating::{
+    self, AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, GatedMeasurement,
+    NewAppliedGatesWithSchemeError, NewGatingSchemeError, Region2_0, Region3_0, Region3_2,
+};
 use crate::text::index::*;
 use crate::text::keywords::*;
 use crate::text::named_vec::*;
@@ -602,6 +605,7 @@ pub struct InnerMetaroot3_2 {
     /// Value of $MODE
     #[as_ref(Option<Mode3_2>)]
     #[as_mut(Option<Mode3_2>)]
+    #[new(into)]
     pub mode: MaybeValue<Mode3_2>,
 
     /// Values of $BTIM/ETIM/$DATE
@@ -963,21 +967,24 @@ pub struct PeakData {
 /// bytestring. This library currently makes no attempt to interpret the
 /// ANALYSIS segment given the CS* keywords, but may add this in the future if
 /// the need arises.
-#[derive(Clone, PartialEq, Default, AsRef, AsMut)]
+#[derive(Clone, PartialEq, Default, AsRef, AsMut, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SubsetData {
     /// Value of $CSBITS if given
     #[as_ref(Option<CSVBits>)]
     #[as_mut(Option<CSVBits>)]
+    #[new(into)]
     pub bits: MaybeValue<CSVBits>,
 
     /// Value of $CSTOT if given
     #[as_ref(Option<CSTot>)]
     #[as_mut(Option<CSTot>)]
+    #[new(into)]
     pub tot: MaybeValue<CSTot>,
 
     #[as_ref(Option<CSVFlags>)]
     #[as_mut(Option<CSVFlags>)]
+    #[new(into)]
     pub flags: MaybeValue<CSVFlags>,
 }
 
@@ -988,19 +995,22 @@ pub struct SubsetData {
 pub struct CSVFlags(pub FCSNonEmpty<MaybeValue<CSVFlag>>);
 
 /// A bundle for $ORIGINALITY, $LAST_MODIFIER, and $LAST_MODIFIED (3.1+)
-#[derive(Clone, Default, AsRef, AsMut, PartialEq)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ModificationData {
     #[as_ref(Option<LastModifier>)]
     #[as_mut(Option<LastModifier>)]
+    #[new(into)]
     pub last_modifier: MaybeValue<LastModifier>,
 
     #[as_ref(Option<LastModified>)]
     #[as_mut(Option<LastModified>)]
+    #[new(into)]
     pub last_modified: MaybeValue<LastModified>,
 
     #[as_ref(Option<Originality>)]
     #[as_mut(Option<Originality>)]
+    #[new(into)]
     pub originality: MaybeValue<Originality>,
 }
 
@@ -1039,19 +1049,22 @@ pub struct UnstainedData {
 }
 
 /// A bundle for $CARRIERID, $CARRIERTYPE, $LOCATIONID (3.2+)
-#[derive(Clone, Default, AsRef, AsMut, PartialEq)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct CarrierData {
     #[as_ref(Option<Carrierid>)]
     #[as_mut(Option<Carrierid>)]
+    #[new(into)]
     pub carrierid: MaybeValue<Carrierid>,
 
     #[as_ref(Option<Carriertype>)]
     #[as_mut(Option<Carriertype>)]
+    #[new(into)]
     pub carriertype: MaybeValue<Carriertype>,
 
     #[as_ref(Option<Locationid>)]
     #[as_mut(Option<Locationid>)]
+    #[new(into)]
     pub locationid: MaybeValue<Locationid>,
 }
 
@@ -1954,6 +1967,32 @@ where
     fn rename_meas_links(&mut self, mapping: &NameMapping) {
         self.rename_trigger_meas_link(mapping);
         self.specific.rename_meas_links_inner(mapping);
+    }
+
+    fn check_meas_named_links(
+        &self,
+        names: &HashSet<&Shortname>,
+    ) -> Result<(), ExistingNamedLinkError> {
+        if self
+            .tr
+            .0
+            .as_ref()
+            .is_some_and(|tr| names.contains(&tr.measurement))
+        {
+            return Err(ExistingNamedLinkError::Trigger);
+        }
+        self.specific.check_meas_named_links_inner(names)
+    }
+
+    fn check_meas_links(
+        &self,
+        indexed_names: &[(MeasIndex, &Shortname)],
+    ) -> Result<(), ExistingLinkError> {
+        let ns = indexed_names.iter().map(|(_, n)| *n).collect();
+        let js = indexed_names.iter().map(|(i, _)| i).copied().collect();
+        self.check_meas_named_links(&ns)?;
+        self.specific.check_meas_index_links_inner(&js)?;
+        Ok(())
     }
 }
 
@@ -3084,7 +3123,7 @@ where
     > {
         let xs = self.measurement_named_indices();
         if let Some(index) = xs.get(name) {
-            self.check_meas_links(&[(*index, name)])?;
+            self.metaroot.check_meas_links(&[(*index, name)])?;
         }
         let ret = self.measurements.remove_name(name)?;
         self.layout.remove_nocheck(ret.0);
@@ -3101,7 +3140,7 @@ where
     > {
         let xs = self.measurement_indexed_names();
         if let Some(name) = xs.get(&index) {
-            self.check_meas_links(&[(index, name)])?;
+            self.metaroot.check_meas_links(&[(index, name)])?;
         }
         let ret = self.measurements.remove_index(index)?;
         self.layout.remove_nocheck(index);
@@ -3277,7 +3316,7 @@ where
 
     fn unset_measurements_inner(&mut self) -> Result<(), ExistingLinkError> {
         let xs: Vec<_> = self.measurement_indexed_names().into_iter().collect();
-        self.check_meas_links(&xs)?;
+        self.metaroot.check_meas_links(&xs)?;
         self.measurements = NamedVec::default();
         self.layout.clear();
         Ok(())
@@ -3563,30 +3602,9 @@ where
         self.measurements.indexed_names().map(|(_, x)| x).collect()
     }
 
-    fn check_meas_named_links(
-        &self,
-        names: &HashSet<&Shortname>,
-    ) -> Result<(), ExistingNamedLinkError> {
-        let m = &self.metaroot;
-        if m.tr
-            .0
-            .as_ref()
-            .is_some_and(|tr| names.contains(&tr.measurement))
-        {
-            return Err(ExistingNamedLinkError::Trigger);
-        }
-        m.specific.check_meas_named_links_inner(names)
-    }
-
-    fn check_meas_links(
-        &self,
-        index_names: &[(MeasIndex, &Shortname)],
-    ) -> Result<(), ExistingLinkError> {
-        let ns = index_names.iter().map(|(_, n)| *n).collect();
-        let js = index_names.iter().map(|(i, _)| i).copied().collect();
-        self.check_meas_named_links(&ns)?;
-        self.metaroot.specific.check_meas_index_links_inner(&js)?;
-        Ok(())
+    fn check_meas_any_named_links(&self) -> Result<(), ExistingNamedLinkError> {
+        self.metaroot
+            .check_meas_named_links(&self.measurement_names())
     }
 
     fn check_meas_any_index_links(&self) -> Result<(), ExistingIndexLinkError> {
@@ -3594,10 +3612,6 @@ where
         self.metaroot
             .specific
             .check_meas_index_links_inner(&indices)
-    }
-
-    fn check_meas_any_named_links(&self) -> Result<(), ExistingNamedLinkError> {
-        self.check_meas_named_links(&self.measurement_names())
     }
 
     /// Check that links will not be broken when setting new measurement names.
@@ -3628,7 +3642,7 @@ where
     ) -> Result<(), ExistingLinkError> {
         if allow_shared_names {
             let ns = measurements.non_center_names().collect();
-            self.check_meas_named_links(&ns)?;
+            self.metaroot.check_meas_named_links(&ns)?;
         } else {
             self.check_meas_any_named_links()?;
         }
@@ -4205,6 +4219,8 @@ where
 }
 
 impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
+    // TODO this is an unchecked function because $SPILLOVER or $TR could be
+    // set without any measurements and these aren't checked
     pub(crate) fn new_nomeas(metaroot: Metaroot<M>, datatype: AlphaNumType) -> Self {
         Self {
             metaroot,
@@ -4214,6 +4230,29 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             analysis: (),
             others: (),
         }
+    }
+
+    pub(crate) fn try_new(
+        metaroot: Metaroot<M>,
+        measurements: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        layout: <M::Ver as Versioned>::Layout,
+        prefix: ShortnamePrefix,
+    ) -> MultiResult<Self, NewCoreError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        let ms = Measurements::try_new(measurements, prefix).into_mult()?;
+        let ns: Vec<_> = ms.indexed_names().collect();
+        metaroot.check_meas_links(&ns[..]).into_mult()?;
+        layout.check_measurement_vector(&ms).mult_errors_into()?;
+        Ok(Self {
+            metaroot,
+            measurements: ms,
+            layout,
+            data: (),
+            analysis: (),
+            others: (),
+        })
     }
 
     pub(crate) fn new_unchecked(
@@ -4393,7 +4432,61 @@ where
 }
 
 impl CoreTEXT2_0 {
-    pub fn new(mode: Mode, datatype: AlphaNumType) -> Self {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_2_0(
+        mode: Mode,
+        measurements: Eithers<MaybeFamily, Temporal<InnerTemporal2_0>, Optical<InnerOptical2_0>>,
+        layout: DataLayout2_0,
+        cyt: Option<Cyt>,
+        comp: Option<Compensation2_0>,
+        btim: Option<Btim<FCSTime>>,
+        etim: Option<Etim<FCSTime>>,
+        date: Option<FCSDate>,
+        gated_measurements: Vec<GatedMeasurement>,
+        regions: HashMap<RegionIndex, Region2_0>,
+        gating: Option<Gating>,
+        abrt: Option<Abrt>,
+        com: Option<Com>,
+        cells: Option<Cells>,
+        exp: Option<Exp>,
+        fil: Option<Fil>,
+        inst: Option<Inst>,
+        lost: Option<Lost>,
+        op: Option<Op>,
+        proj: Option<Proj>,
+        smno: Option<Smno>,
+        src: Option<Src>,
+        sys: Option<Sys>,
+        tr: Option<Trigger>,
+        nonstandard_keywords: NonStdKeywords,
+        prefix: Option<ShortnamePrefix>,
+    ) -> MultiResult<Self, NewCoreTEXTError> {
+        let timestamps = Timestamps::try_new(btim, etim, date).into_mult()?;
+        let applied_gates =
+            AppliedGates2_0::try_new1(gated_measurements, regions, gating).into_mult()?;
+        let specific = InnerMetaroot2_0::new(mode, cyt, comp, timestamps, applied_gates);
+        let metaroot = Metaroot::new(
+            abrt,
+            com,
+            cells,
+            exp,
+            fil,
+            inst,
+            lost,
+            op,
+            proj,
+            smno,
+            src,
+            sys,
+            tr,
+            specific,
+            nonstandard_keywords,
+        );
+        let p = prefix.unwrap_or_default();
+        CoreTEXT::try_new(metaroot, measurements, layout, p).mult_errors_into()
+    }
+
+    pub fn new_def(mode: Mode, datatype: AlphaNumType) -> Self {
         let specific = InnerMetaroot2_0::new_def(mode);
         let metaroot = Metaroot::new_def(specific);
         CoreTEXT::new_nomeas(metaroot, datatype)
@@ -4401,7 +4494,76 @@ impl CoreTEXT2_0 {
 }
 
 impl CoreTEXT3_0 {
-    pub fn new(mode: Mode, datatype: AlphaNumType) -> Self {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_3_0(
+        mode: Mode,
+        measurements: Eithers<MaybeFamily, Temporal<InnerTemporal3_0>, Optical<InnerOptical3_0>>,
+        layout: DataLayout3_0,
+        cyt: Option<Cyt>,
+        comp: Option<Compensation3_0>,
+        btim: Option<Btim<FCSTime60>>,
+        etim: Option<Etim<FCSTime60>>,
+        date: Option<FCSDate>,
+        cytsn: Option<Cytsn>,
+        unicode: Option<Unicode>,
+        csvbits: Option<CSVBits>,
+        cstot: Option<CSTot>,
+        csvflags: Option<CSVFlags>,
+        gated_measurements: Vec<GatedMeasurement>,
+        regions: HashMap<RegionIndex, Region3_0>,
+        gating: Option<Gating>,
+        abrt: Option<Abrt>,
+        com: Option<Com>,
+        cells: Option<Cells>,
+        exp: Option<Exp>,
+        fil: Option<Fil>,
+        inst: Option<Inst>,
+        lost: Option<Lost>,
+        op: Option<Op>,
+        proj: Option<Proj>,
+        smno: Option<Smno>,
+        src: Option<Src>,
+        sys: Option<Sys>,
+        tr: Option<Trigger>,
+        nonstandard_keywords: NonStdKeywords,
+        prefix: Option<ShortnamePrefix>,
+    ) -> MultiResult<Self, NewCoreTEXTError> {
+        let timestamps = Timestamps::try_new(btim, etim, date).into_mult()?;
+        let applied_gates =
+            AppliedGates3_0::try_new1(gated_measurements, regions, gating).into_mult()?;
+        let subset = SubsetData::new(csvbits, cstot, csvflags);
+        let specific = InnerMetaroot3_0::new(
+            mode,
+            cyt,
+            comp,
+            timestamps,
+            cytsn,
+            unicode,
+            subset,
+            applied_gates,
+        );
+        let metaroot = Metaroot::new(
+            abrt,
+            com,
+            cells,
+            exp,
+            fil,
+            inst,
+            lost,
+            op,
+            proj,
+            smno,
+            src,
+            sys,
+            tr,
+            specific,
+            nonstandard_keywords,
+        );
+        let p = prefix.unwrap_or_default();
+        CoreTEXT::try_new(metaroot, measurements, layout, p).mult_errors_into()
+    }
+
+    pub fn new_def(mode: Mode, datatype: AlphaNumType) -> Self {
         let specific = InnerMetaroot3_0::new_def(mode);
         let metaroot = Metaroot::new_def(specific);
         CoreTEXT::new_nomeas(metaroot, datatype)
@@ -4409,7 +4571,83 @@ impl CoreTEXT3_0 {
 }
 
 impl CoreTEXT3_1 {
-    pub fn new(mode: Mode, datatype: AlphaNumType) -> Self {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_3_1(
+        mode: Mode,
+        gating: Option<Gating>,
+        measurements: Eithers<AlwaysFamily, Temporal<InnerTemporal3_1>, Optical<InnerOptical3_1>>,
+        cyt: Option<Cyt>,
+        btim: Option<Btim<FCSTime100>>,
+        etim: Option<Etim<FCSTime100>>,
+        date: Option<FCSDate>,
+        cytsn: Option<Cytsn>,
+        spillover: Option<Spillover>,
+        last_modifier: Option<LastModifier>,
+        last_modified: Option<LastModified>,
+        originality: Option<Originality>,
+        plateid: Option<Plateid>,
+        platename: Option<Platename>,
+        wellid: Option<Wellid>,
+        vol: Option<Vol>,
+        csvbits: Option<CSVBits>,
+        cstot: Option<CSTot>,
+        csvflags: Option<CSVFlags>,
+        gated_measurements: Vec<GatedMeasurement>,
+        regions: HashMap<RegionIndex, Region3_0>,
+        layout: DataLayout3_1,
+        abrt: Option<Abrt>,
+        com: Option<Com>,
+        cells: Option<Cells>,
+        exp: Option<Exp>,
+        fil: Option<Fil>,
+        inst: Option<Inst>,
+        lost: Option<Lost>,
+        op: Option<Op>,
+        proj: Option<Proj>,
+        smno: Option<Smno>,
+        src: Option<Src>,
+        sys: Option<Sys>,
+        tr: Option<Trigger>,
+        nonstandard_keywords: NonStdKeywords,
+    ) -> MultiResult<Self, NewCoreTEXTError> {
+        let timestamps = Timestamps::try_new(btim, etim, date).into_mult()?;
+        let applied_gates =
+            AppliedGates3_0::try_new1(gated_measurements, regions, gating).into_mult()?;
+        let subset = SubsetData::new(csvbits, cstot, csvflags);
+        let specific = InnerMetaroot3_1::new(
+            mode,
+            cyt,
+            timestamps,
+            cytsn,
+            spillover,
+            ModificationData::new(last_modifier, last_modified, originality),
+            PlateData::new(plateid, platename, wellid),
+            vol,
+            subset,
+            applied_gates,
+        );
+        let metaroot = Metaroot::new(
+            abrt,
+            com,
+            cells,
+            exp,
+            fil,
+            inst,
+            lost,
+            op,
+            proj,
+            smno,
+            src,
+            sys,
+            tr,
+            specific,
+            nonstandard_keywords,
+        );
+        let p = ShortnamePrefix::default();
+        CoreTEXT::try_new(metaroot, measurements, layout, p).mult_errors_into()
+    }
+
+    pub fn new_def(mode: Mode, datatype: AlphaNumType) -> Self {
         let specific = InnerMetaroot3_1::new_def(mode);
         let metaroot = Metaroot::new_def(specific);
         CoreTEXT::new_nomeas(metaroot, datatype)
@@ -4417,7 +4655,89 @@ impl CoreTEXT3_1 {
 }
 
 impl CoreTEXT3_2 {
-    pub fn new(cyt: String, datatype: AlphaNumType) -> Self {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_3_2(
+        cyt: Cyt,
+        measurements: Eithers<AlwaysFamily, Temporal<InnerTemporal3_2>, Optical<InnerOptical3_2>>,
+        layout: DataLayout3_2,
+        mode: Option<Mode3_2>,
+        btim: Option<Btim<FCSTime100>>,
+        etim: Option<Etim<FCSTime100>>,
+        date: Option<FCSDate>,
+        begindatetime: Option<BeginDateTime>,
+        enddatetime: Option<EndDateTime>,
+        cytsn: Option<Cytsn>,
+        spillover: Option<Spillover>,
+        last_modifier: Option<LastModifier>,
+        last_modified: Option<LastModified>,
+        originality: Option<Originality>,
+        plateid: Option<Plateid>,
+        platename: Option<Platename>,
+        wellid: Option<Wellid>,
+        vol: Option<Vol>,
+        carrierid: Option<Carrierid>,
+        carriertype: Option<Carriertype>,
+        locationid: Option<Locationid>,
+        unstainedinfo: Option<UnstainedInfo>,
+        unstainedcenters: Option<UnstainedCenters>,
+        flowrate: Option<Flowrate>,
+        regions: HashMap<RegionIndex, Region3_2>,
+        gating: Option<Gating>,
+        abrt: Option<Abrt>,
+        com: Option<Com>,
+        cells: Option<Cells>,
+        exp: Option<Exp>,
+        fil: Option<Fil>,
+        inst: Option<Inst>,
+        lost: Option<Lost>,
+        op: Option<Op>,
+        proj: Option<Proj>,
+        smno: Option<Smno>,
+        src: Option<Src>,
+        sys: Option<Sys>,
+        tr: Option<Trigger>,
+        nonstandard_keywords: NonStdKeywords,
+    ) -> MultiResult<Self, NewCoreTEXTError> {
+        let timestamps = Timestamps::try_new(btim, etim, date).into_mult()?;
+        let datetimes = Datetimes::try_new(begindatetime, enddatetime).into_mult()?;
+        let applied_gates = AppliedGates3_2::try_new(gating, regions).into_mult()?;
+        let specific = InnerMetaroot3_2::new(
+            mode,
+            timestamps,
+            datetimes,
+            cyt,
+            spillover,
+            cytsn,
+            ModificationData::new(last_modifier, last_modified, originality),
+            PlateData::new(plateid, platename, wellid),
+            vol,
+            CarrierData::new(carrierid, carriertype, locationid),
+            UnstainedData::new(unstainedcenters, unstainedinfo),
+            flowrate,
+            applied_gates,
+        );
+        let metaroot = Metaroot::new(
+            abrt,
+            com,
+            cells,
+            exp,
+            fil,
+            inst,
+            lost,
+            op,
+            proj,
+            smno,
+            src,
+            sys,
+            tr,
+            specific,
+            nonstandard_keywords,
+        );
+        let p = ShortnamePrefix::default();
+        CoreTEXT::try_new(metaroot, measurements, layout, p).mult_errors_into()
+    }
+
+    pub fn new_def(cyt: String, datatype: AlphaNumType) -> Self {
         let specific = InnerMetaroot3_2::new_def(cyt);
         let metaroot = Metaroot::new_def(specific);
         CoreTEXT::new_nomeas(metaroot, datatype)
@@ -8427,6 +8747,22 @@ pub enum LookupTEXTOffsetsError {
     ReqAnalysis(ReqSegmentWithDefaultError<AnalysisSegmentId>),
     MismatchData(SegmentMismatchWarning<DataSegmentId>),
     MismatchAnalysis(SegmentMismatchWarning<AnalysisSegmentId>),
+}
+
+#[derive(From, Display)]
+pub enum NewCoreError {
+    Meas(NewNamedVecError),
+    Link(ExistingLinkError),
+    Layout(MeasLayoutMismatchError),
+}
+
+#[derive(From, Display)]
+pub enum NewCoreTEXTError {
+    Core(NewCoreError),
+    Timestamps(ReversedTimestamps),
+    Datetimes(ReversedDatetimes),
+    Gates2_0(NewAppliedGatesWithSchemeError),
+    Gates3_2(NewGatingSchemeError),
 }
 
 type LookupTEXTOffsetsResult<T> =

@@ -22,7 +22,7 @@ use fireflow_core::text::gating::{
 use fireflow_core::text::index::{GateIndex, MeasIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::{Eithers, Element, NamedVec, NonCenterElement};
-use fireflow_core::text::optional::{AlwaysFamily, MaybeFamily};
+use fireflow_core::text::optional::{AlwaysFamily, MaybeFamily, MightHave};
 use fireflow_core::text::scale::Scale;
 use fireflow_core::text::spillover::Spillover;
 use fireflow_core::text::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime100, FCSTime60};
@@ -168,14 +168,14 @@ impl PyCoreTEXT2_0 {
     #[new]
     fn new(
         mode: kws::Mode,
-        measurements: Eithers<MaybeFamily, PyTemporal2_0, PyOptical2_0>,
+        measurements: PyEithers<MaybeFamily, PyTemporal2_0, PyOptical2_0>,
         layout: PyOrderedLayout,
         cyt: Option<kws::Cyt>,
         comp: Option<Compensation2_0>,
         btim: Option<Btim<FCSTime>>,
         etim: Option<Etim<FCSTime>>,
         date: Option<FCSDate>,
-        gated_measurements: Vec<PyGatedMeasurement>,
+        gated_measurements: PyGatedMeasurements,
         regions: PyRegionMapping<PyRegion2_0>,
         gating: Option<kws::Gating>,
         abrt: Option<kws::Abrt>,
@@ -196,14 +196,14 @@ impl PyCoreTEXT2_0 {
     ) -> PyResult<Self> {
         Ok(core::CoreTEXT2_0::try_new_2_0(
             mode,
-            measurements.inner_into(),
+            measurements.into(),
             layout.into(),
             cyt,
             comp,
             btim,
             etim,
             date,
-            gated_measurements.into_iter().map(|x| x.into()).collect(),
+            gated_measurements.into(),
             regions.into(),
             gating,
             abrt,
@@ -240,7 +240,7 @@ impl PyCoreTEXT3_0 {
     #[new]
     fn new(
         mode: kws::Mode,
-        measurements: Eithers<MaybeFamily, PyTemporal3_0, PyOptical3_0>,
+        measurements: PyEithers<MaybeFamily, PyTemporal3_0, PyOptical3_0>,
         layout: PyOrderedLayout,
         cyt: Option<kws::Cyt>,
         comp: Option<Compensation3_0>,
@@ -252,7 +252,7 @@ impl PyCoreTEXT3_0 {
         csvbits: Option<kws::CSVBits>,
         cstot: Option<kws::CSTot>,
         csvflags: Option<core::CSVFlags>,
-        gated_measurements: Vec<PyGatedMeasurement>,
+        gated_measurements: PyGatedMeasurements,
         regions: PyRegionMapping<PyRegion3_0>,
         gating: Option<kws::Gating>,
         abrt: Option<kws::Abrt>,
@@ -273,7 +273,7 @@ impl PyCoreTEXT3_0 {
     ) -> PyResult<Self> {
         Ok(core::CoreTEXT3_0::try_new_3_0(
             mode,
-            measurements.inner_into(),
+            measurements.into(),
             layout.into(),
             cyt,
             comp,
@@ -285,7 +285,7 @@ impl PyCoreTEXT3_0 {
             csvbits,
             cstot,
             csvflags,
-            gated_measurements.into_iter().map(|x| x.into()).collect(),
+            gated_measurements.into(),
             regions.into(),
             gating,
             abrt,
@@ -322,7 +322,7 @@ impl PyCoreTEXT3_1 {
     #[new]
     fn new(
         mode: kws::Mode,
-        measurements: Eithers<AlwaysFamily, PyTemporal3_1, PyOptical3_1>,
+        measurements: PyEithers<AlwaysFamily, PyTemporal3_1, PyOptical3_1>,
         layout: PyNonMixedLayout,
         cyt: Option<kws::Cyt>,
         btim: Option<Btim<FCSTime100>>,
@@ -340,7 +340,7 @@ impl PyCoreTEXT3_1 {
         csvbits: Option<kws::CSVBits>,
         cstot: Option<kws::CSTot>,
         csvflags: Option<core::CSVFlags>,
-        gated_measurements: Vec<PyGatedMeasurement>,
+        gated_measurements: PyGatedMeasurements,
         regions: PyRegionMapping<PyRegion3_0>,
         gating: Option<kws::Gating>,
         abrt: Option<kws::Abrt>,
@@ -360,7 +360,7 @@ impl PyCoreTEXT3_1 {
     ) -> PyResult<Self> {
         Ok(core::CoreTEXT3_1::try_new_3_1(
             mode,
-            measurements.inner_into(),
+            measurements.into(),
             layout.into(),
             cyt,
             btim,
@@ -378,7 +378,7 @@ impl PyCoreTEXT3_1 {
             csvbits,
             cstot,
             csvflags,
-            gated_measurements.into_iter().map(|x| x.into()).collect(),
+            gated_measurements.into(),
             regions.into(),
             gating,
             abrt,
@@ -414,7 +414,7 @@ impl PyCoreTEXT3_2 {
     #[new]
     fn new(
         cyt: kws::Cyt,
-        measurements: Eithers<AlwaysFamily, PyTemporal3_2, PyOptical3_2>,
+        measurements: PyEithers<AlwaysFamily, PyTemporal3_2, PyOptical3_2>,
         layout: PyLayout3_2,
         mode: Option<kws::Mode3_2>,
         btim: Option<Btim<FCSTime100>>,
@@ -456,7 +456,7 @@ impl PyCoreTEXT3_2 {
     ) -> PyResult<Self> {
         Ok(core::CoreTEXT3_2::try_new_3_2(
             cyt,
-            measurements.inner_into(),
+            measurements.into(),
             layout.into(),
             mode,
             btim,
@@ -2839,12 +2839,11 @@ impl PyAppliedGates2_0 {
     #[new]
     #[pyo3(text_signature = "(gated_measurements = [], regions = {}, gating = None)")]
     fn new(
-        gated_measurements: Vec<PyGatedMeasurement>,
+        gated_measurements: PyGatedMeasurements,
         regions: PyRegionMapping<PyRegion2_0>,
         gating: Option<kws::Gating>,
     ) -> PyResult<Self> {
-        let gs: Vec<_> = gated_measurements.into_iter().map(|x| x.into()).collect();
-        Ok(AppliedGates2_0::try_new1(gs, regions.into(), gating)?.into())
+        Ok(AppliedGates2_0::try_new1(gated_measurements.into(), regions.into(), gating)?.into())
     }
 
     /// Value of all gating regions, corresponding to *$RnI* and *$RnW* (read-only).
@@ -2885,13 +2884,12 @@ impl PyAppliedGates3_0 {
     #[new]
     #[pyo3(text_signature = "(gated_measurements = [], regions = {}, gating = None)")]
     fn new(
-        gated_measurements: Vec<PyGatedMeasurement>,
+        gated_measurements: PyGatedMeasurements,
         regions: PyRegionMapping<PyRegion3_0>,
         gating: Option<kws::Gating>,
     ) -> PyResult<Self> {
         let scheme = GatingScheme::try_new(gating, regions.into())?;
-        let gs: Vec<_> = gated_measurements.into_iter().map(|x| x.into()).collect();
-        Ok(AppliedGates3_0::try_new(gs, scheme)?.into())
+        Ok(AppliedGates3_0::try_new(gated_measurements.into(), scheme)?.into())
     }
 
     /// Value of all gating regions, corresponding to *$RnI* and *$RnW* (read-only).
@@ -2970,9 +2968,9 @@ macro_rules! impl_applied_gated_meas {
             ///
             /// :rtype: list[:py:class:`GatedMeasurement`]
             #[getter]
-            fn gated_measurements(&self) -> Vec<PyGatedMeasurement> {
+            fn gated_measurements(&self) -> PyGatedMeasurements {
                 let gs: &[GatedMeasurement] = self.0.as_ref();
-                gs.iter().map(|x| x.clone().into()).collect()
+                gs.to_vec().into()
             }
         }
     };
@@ -3217,6 +3215,32 @@ impl_bivarate_get_vertices!(PyBivariateRegion2_0);
 impl_bivarate_get_vertices!(PyBivariateRegion3_0);
 impl_bivarate_get_vertices!(PyBivariateRegion3_2);
 
+struct PyEithers<K: MightHave, U, V>(Eithers<K, U, V>);
+
+impl<'py, K, U, V> FromPyObject<'py> for PyEithers<K, U, V>
+where
+    K: MightHave,
+    K::Wrapper<Shortname>: FromPyObject<'py>,
+    U: FromPyObject<'py>,
+    V: FromPyObject<'py>,
+{
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let xs: Eithers<K, U, V> = ob.extract()?;
+        Ok(Self(xs))
+    }
+}
+
+impl<K, U, V, X, Y> From<PyEithers<K, U, V>> for Eithers<K, X, Y>
+where
+    K: MightHave,
+    X: From<U>,
+    Y: From<V>,
+{
+    fn from(value: PyEithers<K, U, V>) -> Self {
+        value.0.inner_into()
+    }
+}
+
 #[derive(IntoPyObject, FromPyObject)]
 enum PyRegion<U, B> {
     Uni(U),
@@ -3451,6 +3475,21 @@ impl_gated_meas_get_set!(
     kws::GateDetectorVoltage,
     detector_voltage
 );
+
+#[derive(FromPyObject, IntoPyObject)]
+struct PyGatedMeasurements(Vec<PyGatedMeasurement>);
+
+impl From<PyGatedMeasurements> for Vec<GatedMeasurement> {
+    fn from(value: PyGatedMeasurements) -> Vec<GatedMeasurement> {
+        value.0.into_iter().map(|x| x.0).collect()
+    }
+}
+
+impl From<Vec<GatedMeasurement>> for PyGatedMeasurements {
+    fn from(value: Vec<GatedMeasurement>) -> PyGatedMeasurements {
+        Self(value.into_iter().map(|x| x.into()).collect())
+    }
+}
 
 type AsciiDelim = FixedAsciiLayout<KnownTot, NoMeasDatatype, false>;
 py_wrap! {

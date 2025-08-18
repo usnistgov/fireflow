@@ -7,13 +7,14 @@ use fireflow_core::data::{
     F64Range, FixedAsciiLayout, FixedLayout, KnownTot, LayoutOps, MixedLayout, NoMeasDatatype,
     NonMixedEndianLayout, NullMixedType, OrderedLayout, OrderedLayoutOps,
 };
-use fireflow_core::error::ResultExt;
+use fireflow_core::error::{MultiResultExt, ResultExt};
 use fireflow_core::header::{Header, Version};
 use fireflow_core::nonempty::FCSNonEmpty;
 use fireflow_core::python::exceptions::{PyTerminalNoWarnResultExt, PyTerminalResultExt};
 use fireflow_core::segment::{HeaderAnalysisSegment, HeaderDataSegment, OtherSegment};
 use fireflow_core::text::byteord::{Endian, SizedByteOrd};
-use fireflow_core::text::compensation::Compensation;
+use fireflow_core::text::compensation::{Compensation, Compensation2_0, Compensation3_0};
+use fireflow_core::text::datetimes::{BeginDateTime, EndDateTime};
 use fireflow_core::text::gating::{
     AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, BivariateRegion, GatedMeasurement,
     GatingScheme, Region, UnivariateRegion,
@@ -23,6 +24,8 @@ use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::{Eithers, Element, NamedVec, NonCenterElement};
 use fireflow_core::text::optional::{AlwaysFamily, MaybeFamily};
 use fireflow_core::text::scale::Scale;
+use fireflow_core::text::spillover::Spillover;
+use fireflow_core::text::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime100, FCSTime60};
 use fireflow_core::text::unstainedcenters::UnstainedCenters;
 use fireflow_core::validated::bitmask as bm;
 use fireflow_core::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
@@ -161,9 +164,66 @@ py_wrap! {
 
 #[pymethods]
 impl PyCoreTEXT2_0 {
+    #[allow(clippy::too_many_arguments)]
     #[new]
-    fn new(mode: kws::Mode, datatype: kws::AlphaNumType) -> PyResult<Self> {
-        Ok(core::CoreTEXT2_0::new_def(mode, datatype).into())
+    fn new(
+        mode: kws::Mode,
+        measurements: Eithers<MaybeFamily, PyTemporal2_0, PyOptical2_0>,
+        layout: PyOrderedLayout,
+        cyt: Option<kws::Cyt>,
+        comp: Option<Compensation2_0>,
+        btim: Option<Btim<FCSTime>>,
+        etim: Option<Etim<FCSTime>>,
+        date: Option<FCSDate>,
+        gated_measurements: Vec<PyGatedMeasurement>,
+        regions: PyRegionMapping<PyRegion2_0>,
+        gating: Option<kws::Gating>,
+        abrt: Option<kws::Abrt>,
+        com: Option<kws::Com>,
+        cells: Option<kws::Cells>,
+        exp: Option<kws::Exp>,
+        fil: Option<kws::Fil>,
+        inst: Option<kws::Inst>,
+        lost: Option<kws::Lost>,
+        op: Option<kws::Op>,
+        proj: Option<kws::Proj>,
+        smno: Option<kws::Smno>,
+        src: Option<kws::Src>,
+        sys: Option<kws::Sys>,
+        tr: Option<kws::Trigger>,
+        nonstandard_keywords: HashMap<NonStdKey, String>,
+        prefix: Option<ShortnamePrefix>,
+    ) -> PyResult<Self> {
+        Ok(core::CoreTEXT2_0::try_new_2_0(
+            mode,
+            measurements.inner_into(),
+            layout.into(),
+            cyt,
+            comp,
+            btim,
+            etim,
+            date,
+            gated_measurements.into_iter().map(|x| x.into()).collect(),
+            regions.into(),
+            gating,
+            abrt,
+            com,
+            cells,
+            exp,
+            fil,
+            inst,
+            lost,
+            op,
+            proj,
+            smno,
+            src,
+            sys,
+            tr,
+            nonstandard_keywords,
+            prefix,
+        )
+        .mult_head()?
+        .into())
     }
 }
 
@@ -176,9 +236,76 @@ py_wrap! {
 
 #[pymethods]
 impl PyCoreTEXT3_0 {
+    #[allow(clippy::too_many_arguments)]
     #[new]
-    fn new(mode: kws::Mode, datatype: kws::AlphaNumType) -> PyResult<Self> {
-        Ok(core::CoreTEXT3_0::new_def(mode, datatype).into())
+    fn new(
+        mode: kws::Mode,
+        measurements: Eithers<MaybeFamily, PyTemporal3_0, PyOptical3_0>,
+        layout: PyOrderedLayout,
+        cyt: Option<kws::Cyt>,
+        comp: Option<Compensation3_0>,
+        btim: Option<Btim<FCSTime60>>,
+        etim: Option<Etim<FCSTime60>>,
+        date: Option<FCSDate>,
+        cytsn: Option<kws::Cytsn>,
+        unicode: Option<kws::Unicode>,
+        csvbits: Option<kws::CSVBits>,
+        cstot: Option<kws::CSTot>,
+        csvflags: Option<core::CSVFlags>,
+        gated_measurements: Vec<PyGatedMeasurement>,
+        regions: PyRegionMapping<PyRegion3_0>,
+        gating: Option<kws::Gating>,
+        abrt: Option<kws::Abrt>,
+        com: Option<kws::Com>,
+        cells: Option<kws::Cells>,
+        exp: Option<kws::Exp>,
+        fil: Option<kws::Fil>,
+        inst: Option<kws::Inst>,
+        lost: Option<kws::Lost>,
+        op: Option<kws::Op>,
+        proj: Option<kws::Proj>,
+        smno: Option<kws::Smno>,
+        src: Option<kws::Src>,
+        sys: Option<kws::Sys>,
+        tr: Option<kws::Trigger>,
+        nonstandard_keywords: HashMap<NonStdKey, String>,
+        prefix: Option<ShortnamePrefix>,
+    ) -> PyResult<Self> {
+        Ok(core::CoreTEXT3_0::try_new_3_0(
+            mode,
+            measurements.inner_into(),
+            layout.into(),
+            cyt,
+            comp,
+            btim,
+            etim,
+            date,
+            cytsn,
+            unicode,
+            csvbits,
+            cstot,
+            csvflags,
+            gated_measurements.into_iter().map(|x| x.into()).collect(),
+            regions.into(),
+            gating,
+            abrt,
+            com,
+            cells,
+            exp,
+            fil,
+            inst,
+            lost,
+            op,
+            proj,
+            smno,
+            src,
+            sys,
+            tr,
+            nonstandard_keywords,
+            prefix,
+        )
+        .mult_head()?
+        .into())
     }
 }
 
@@ -191,9 +318,86 @@ py_wrap! {
 
 #[pymethods]
 impl PyCoreTEXT3_1 {
+    #[allow(clippy::too_many_arguments)]
     #[new]
-    fn new(mode: kws::Mode, datatype: kws::AlphaNumType) -> Self {
-        core::CoreTEXT3_1::new_def(mode, datatype).into()
+    fn new(
+        mode: kws::Mode,
+        measurements: Eithers<AlwaysFamily, PyTemporal3_1, PyOptical3_1>,
+        layout: PyNonMixedLayout,
+        cyt: Option<kws::Cyt>,
+        btim: Option<Btim<FCSTime100>>,
+        etim: Option<Etim<FCSTime100>>,
+        date: Option<FCSDate>,
+        cytsn: Option<kws::Cytsn>,
+        spillover: Option<Spillover>,
+        last_modifier: Option<kws::LastModifier>,
+        last_modified: Option<kws::LastModified>,
+        originality: Option<kws::Originality>,
+        plateid: Option<kws::Plateid>,
+        platename: Option<kws::Platename>,
+        wellid: Option<kws::Wellid>,
+        vol: Option<kws::Vol>,
+        csvbits: Option<kws::CSVBits>,
+        cstot: Option<kws::CSTot>,
+        csvflags: Option<core::CSVFlags>,
+        gated_measurements: Vec<PyGatedMeasurement>,
+        regions: PyRegionMapping<PyRegion3_0>,
+        gating: Option<kws::Gating>,
+        abrt: Option<kws::Abrt>,
+        com: Option<kws::Com>,
+        cells: Option<kws::Cells>,
+        exp: Option<kws::Exp>,
+        fil: Option<kws::Fil>,
+        inst: Option<kws::Inst>,
+        lost: Option<kws::Lost>,
+        op: Option<kws::Op>,
+        proj: Option<kws::Proj>,
+        smno: Option<kws::Smno>,
+        src: Option<kws::Src>,
+        sys: Option<kws::Sys>,
+        tr: Option<kws::Trigger>,
+        nonstandard_keywords: HashMap<NonStdKey, String>,
+    ) -> PyResult<Self> {
+        Ok(core::CoreTEXT3_1::try_new_3_1(
+            mode,
+            measurements.inner_into(),
+            layout.into(),
+            cyt,
+            btim,
+            etim,
+            date,
+            cytsn,
+            spillover,
+            last_modifier,
+            last_modified,
+            originality,
+            plateid,
+            platename,
+            wellid,
+            vol,
+            csvbits,
+            cstot,
+            csvflags,
+            gated_measurements.into_iter().map(|x| x.into()).collect(),
+            regions.into(),
+            gating,
+            abrt,
+            com,
+            cells,
+            exp,
+            fil,
+            inst,
+            lost,
+            op,
+            proj,
+            smno,
+            src,
+            sys,
+            tr,
+            nonstandard_keywords,
+        )
+        .mult_head()?
+        .into())
     }
 }
 
@@ -206,9 +410,94 @@ py_wrap!(
 
 #[pymethods]
 impl PyCoreTEXT3_2 {
+    #[allow(clippy::too_many_arguments)]
     #[new]
-    fn new(cyt: String, datatype: kws::AlphaNumType) -> Self {
-        core::CoreTEXT3_2::new_def(cyt, datatype).into()
+    fn new(
+        cyt: kws::Cyt,
+        measurements: Eithers<AlwaysFamily, PyTemporal3_2, PyOptical3_2>,
+        layout: PyLayout3_2,
+        mode: Option<kws::Mode3_2>,
+        btim: Option<Btim<FCSTime100>>,
+        etim: Option<Etim<FCSTime100>>,
+        date: Option<FCSDate>,
+        begindatetime: Option<BeginDateTime>,
+        enddatetime: Option<EndDateTime>,
+        cytsn: Option<kws::Cytsn>,
+        spillover: Option<Spillover>,
+        last_modifier: Option<kws::LastModifier>,
+        last_modified: Option<kws::LastModified>,
+        originality: Option<kws::Originality>,
+        plateid: Option<kws::Plateid>,
+        platename: Option<kws::Platename>,
+        wellid: Option<kws::Wellid>,
+        vol: Option<kws::Vol>,
+        carrierid: Option<kws::Carrierid>,
+        carriertype: Option<kws::Carriertype>,
+        locationid: Option<kws::Locationid>,
+        unstainedinfo: Option<kws::UnstainedInfo>,
+        unstainedcenters: Option<UnstainedCenters>,
+        flowrate: Option<kws::Flowrate>,
+        regions: PyRegionMapping<PyRegion3_2>,
+        gating: Option<kws::Gating>,
+        abrt: Option<kws::Abrt>,
+        com: Option<kws::Com>,
+        cells: Option<kws::Cells>,
+        exp: Option<kws::Exp>,
+        fil: Option<kws::Fil>,
+        inst: Option<kws::Inst>,
+        lost: Option<kws::Lost>,
+        op: Option<kws::Op>,
+        proj: Option<kws::Proj>,
+        smno: Option<kws::Smno>,
+        src: Option<kws::Src>,
+        sys: Option<kws::Sys>,
+        tr: Option<kws::Trigger>,
+        nonstandard_keywords: HashMap<NonStdKey, String>,
+    ) -> PyResult<Self> {
+        Ok(core::CoreTEXT3_2::try_new_3_2(
+            cyt,
+            measurements.inner_into(),
+            layout.into(),
+            mode,
+            btim,
+            etim,
+            date,
+            begindatetime,
+            enddatetime,
+            cytsn,
+            spillover,
+            last_modifier,
+            last_modified,
+            originality,
+            plateid,
+            platename,
+            wellid,
+            vol,
+            carrierid,
+            carriertype,
+            locationid,
+            unstainedinfo,
+            unstainedcenters,
+            flowrate,
+            regions.into(),
+            gating,
+            abrt,
+            com,
+            cells,
+            exp,
+            fil,
+            inst,
+            lost,
+            op,
+            proj,
+            smno,
+            src,
+            sys,
+            tr,
+            nonstandard_keywords,
+        )
+        .mult_head()?
+        .into())
     }
 }
 

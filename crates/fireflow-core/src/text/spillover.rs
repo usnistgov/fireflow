@@ -219,3 +219,37 @@ mod tests {
             .is_err());
     }
 }
+
+#[cfg(feature = "python")]
+mod python {
+    use crate::python::macros::impl_value_err;
+    use crate::validated::shortname::Shortname;
+
+    use super::{Spillover, SpilloverError};
+
+    use numpy::{PyReadonlyArray2, ToPyArray};
+    use pyo3::{prelude::*, types::PyTuple};
+
+    // TODO is this ok?
+    impl_value_err!(SpilloverError);
+
+    impl<'py> FromPyObject<'py> for Spillover {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (measurements, arr): (Vec<Shortname>, PyReadonlyArray2<f32>) = ob.extract()?;
+            let matrix = arr.as_matrix().into_owned();
+            Ok(Self::try_new(measurements, matrix)?)
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for Spillover {
+        type Target = PyTuple;
+        type Output = Bound<'py, PyTuple>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            let ms = self.measurements.into_pyobject(py)?;
+            let mx = self.matrix.to_pyarray(py);
+            (ms, mx).into_pyobject(py)
+        }
+    }
+}

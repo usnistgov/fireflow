@@ -270,9 +270,9 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::impl_value_err;
+    use crate::python::macros::{impl_from_py_transparent, impl_value_err};
 
-    use super::{Compensation, NewCompError};
+    use super::{Compensation, Compensation2_0, Compensation3_0, NewCompError};
 
     use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
     use pyo3::prelude::*;
@@ -295,4 +295,7 @@ mod python {
             Ok(self.matrix.to_pyarray(py))
         }
     }
+
+    impl_from_py_transparent!(Compensation2_0);
+    impl_from_py_transparent!(Compensation3_0);
 }

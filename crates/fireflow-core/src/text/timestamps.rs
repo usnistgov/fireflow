@@ -381,8 +381,24 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::ReversedTimestamps;
-    use crate::python::macros::impl_pyreflow_err;
+    use super::{FCSDate, FCSTime, FCSTime100, FCSTime60, ReversedTimestamps, Xtim};
+    use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
+
+    use pyo3::prelude::*;
 
     impl_pyreflow_err!(ReversedTimestamps);
+
+    impl_from_py_transparent!(FCSDate);
+    impl_from_py_transparent!(FCSTime);
+    impl_from_py_transparent!(FCSTime60);
+    impl_from_py_transparent!(FCSTime100);
+
+    impl<'py, T, const IS_ETIM: bool> FromPyObject<'py> for Xtim<IS_ETIM, T>
+    where
+        T: FromPyObject<'py>,
+    {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            Ok(Self(ob.extract::<T>()?))
+        }
+    }
 }

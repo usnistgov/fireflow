@@ -4433,7 +4433,7 @@ where
 
 impl CoreTEXT2_0 {
     #[allow(clippy::too_many_arguments)]
-    pub fn new_2_0(
+    pub fn try_new_2_0(
         mode: Mode,
         measurements: Eithers<MaybeFamily, Temporal<InnerTemporal2_0>, Optical<InnerOptical2_0>>,
         layout: DataLayout2_0,
@@ -4495,7 +4495,7 @@ impl CoreTEXT2_0 {
 
 impl CoreTEXT3_0 {
     #[allow(clippy::too_many_arguments)]
-    pub fn new_3_0(
+    pub fn try_new_3_0(
         mode: Mode,
         measurements: Eithers<MaybeFamily, Temporal<InnerTemporal3_0>, Optical<InnerOptical3_0>>,
         layout: DataLayout3_0,
@@ -4572,10 +4572,10 @@ impl CoreTEXT3_0 {
 
 impl CoreTEXT3_1 {
     #[allow(clippy::too_many_arguments)]
-    pub fn new_3_1(
+    pub fn try_new_3_1(
         mode: Mode,
-        gating: Option<Gating>,
         measurements: Eithers<AlwaysFamily, Temporal<InnerTemporal3_1>, Optical<InnerOptical3_1>>,
+        layout: DataLayout3_1,
         cyt: Option<Cyt>,
         btim: Option<Btim<FCSTime100>>,
         etim: Option<Etim<FCSTime100>>,
@@ -4594,7 +4594,7 @@ impl CoreTEXT3_1 {
         csvflags: Option<CSVFlags>,
         gated_measurements: Vec<GatedMeasurement>,
         regions: HashMap<RegionIndex, Region3_0>,
-        layout: DataLayout3_1,
+        gating: Option<Gating>,
         abrt: Option<Abrt>,
         com: Option<Com>,
         cells: Option<Cells>,
@@ -4656,7 +4656,7 @@ impl CoreTEXT3_1 {
 
 impl CoreTEXT3_2 {
     #[allow(clippy::too_many_arguments)]
-    pub fn new_3_2(
+    pub fn try_new_3_2(
         cyt: Cyt,
         measurements: Eithers<AlwaysFamily, Temporal<InnerTemporal3_2>, Optical<InnerOptical3_2>>,
         layout: DataLayout3_2,
@@ -9013,9 +9013,9 @@ mod python {
 
     use super::{
         Analysis, CSVFlags, ColumnsToDataframeError, CompParMismatchError, ExistingLinkError,
-        GatingMeasLinkError, MeasDataMismatchError, MissingMeasurementNameError, Other, Others,
-        RemoveMeasByIndexError, RemoveMeasByNameError, ScaleTransform, SetMeasurementsError,
-        SetSpilloverError, TriggerLinkError,
+        GatingMeasLinkError, MeasDataMismatchError, MissingMeasurementNameError, NewCoreTEXTError,
+        Other, Others, RemoveMeasByIndexError, RemoveMeasByNameError, ScaleTransform,
+        SetMeasurementsError, SetSpilloverError, TriggerLinkError,
     };
 
     use derive_more::{Display, From};
@@ -9074,6 +9074,7 @@ mod python {
     impl_pyreflow_err!(CompParMismatchError);
     impl_pyreflow_err!(TriggerLinkError);
     impl_pyreflow_err!(GatingMeasLinkError);
+    impl_pyreflow_err!(NewCoreTEXTError);
 
     impl From<RemoveMeasByIndexError> for PyErr {
         fn from(value: RemoveMeasByIndexError) -> Self {

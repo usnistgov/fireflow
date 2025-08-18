@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 syn = { version = "*", features = ["extra-traits"] }
+itertools = { workspace = true }
 quote = "*"
 proc-macro2 = "*"
 

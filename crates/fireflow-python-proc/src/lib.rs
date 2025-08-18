@@ -2,14 +2,162 @@ extern crate proc_macro;
 
 use proc_macro::TokenStream;
 
+use itertools::Itertools;
 use quote::{format_ident, quote};
 use syn::{
+    parenthesized,
     parse::{Parse, ParseStream},
     parse_macro_input,
     punctuated::Punctuated,
     token::Comma,
-    GenericArgument, LitStr, Path, PathArguments, Result, Token, Type,
+    GenericArgument, Ident, LitStr, Path, PathArguments, Result, Token, Type,
 };
+
+#[proc_macro]
+pub fn impl_new_core(input: TokenStream) -> TokenStream {
+    let info = parse_macro_input!(input as NewCoreInfo);
+    let rstype = info.rstype;
+    let fun = info.fun;
+    let args = info.args;
+
+    let name = rstype.segments.last().unwrap().ident.to_string();
+    let pytype = format_ident!("Py{name}");
+
+    let funargs: Vec<_> = args
+        .iter()
+        .map(|x| {
+            let argname = &x.argname;
+            let rstype = &x.rstype;
+            quote! {#argname: #rstype}
+        })
+        .collect();
+
+    let inner_args: Vec<_> = args
+        .iter()
+        .map(|x| {
+            let argname = &x.argname;
+            quote! {#argname.into()}
+        })
+        .collect();
+
+    let sig_args = args
+        .iter()
+        .map(|x| {
+            let argname = &x.argname;
+            let default = if let Some(default) = x.default.as_ref() {
+                Some(default.value())
+            } else {
+                let rstype = &x.rstype.segments.last().unwrap().ident;
+                if rstype == "Option" {
+                    Some("None".to_string())
+                } else if rstype == "HashMap" {
+                    Some("{}".to_string())
+                } else {
+                    None
+                }
+            };
+            default.map_or(argname.to_string(), |d| format!("{argname}={d}"))
+        })
+        .join(",");
+    let sig = format!("({sig_args})");
+
+    let params = args
+        .iter()
+        .map(|x| {
+            let argname = &x.argname;
+            let pdesc = format!(":param {argname}: {}", x.desc.value());
+            let ptype = format!(":type {argname}: {}", x.pytype.value());
+            format!("{pdesc}\n{ptype}")
+        })
+        .join("\n\n");
+
+    quote! {
+        // TODO not dry, this is just pywrap!
+        /// Represents *TEXT* for an FCS 2.0 file.
+        ///
+        #[doc = #params]
+        #[pyclass(name = #name, eq)]
+        #[derive(Clone, From, Into, PartialEq)]
+        pub struct #pytype(#rstype);
+
+        #[pymethods]
+        impl #pytype {
+            #[allow(clippy::too_many_arguments)]
+            #[new]
+            #[pyo3(text_signature = #sig)]
+            fn new(#(#funargs),*) -> PyResult<Self> {
+                Ok(#fun(#(#inner_args),*).mult_head()?.into())
+            }
+        }
+    }
+    .into()
+}
+
+#[derive(Debug)]
+struct NewCoreInfo {
+    rstype: Path,
+    fun: Path,
+    args: Vec<NewArgInfo>,
+}
+
+impl Parse for NewCoreInfo {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let rstype: Path = input.parse()?;
+        let _: Comma = input.parse()?;
+        let fun: Path = input.parse()?;
+        let _: Comma = input.parse()?;
+        let args: Punctuated<NewParenArg, Token![,]> = Punctuated::parse_terminated(input)?;
+        Ok(Self {
+            rstype,
+            fun,
+            args: args.into_iter().map(|x| x.0).collect(),
+        })
+    }
+}
+
+struct NewParenArg(NewArgInfo);
+
+impl Parse for NewParenArg {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let content;
+        parenthesized!(content in input);
+        Ok(Self(content.parse()?))
+    }
+}
+
+#[derive(Debug)]
+struct NewArgInfo {
+    argname: Ident,
+    rstype: Path,
+    pytype: LitStr,
+    desc: LitStr,
+    default: Option<LitStr>,
+}
+
+impl Parse for NewArgInfo {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let argname: Ident = input.parse()?;
+        let _: Comma = input.parse()?;
+        let rstype: Path = input.parse()?;
+        let _: Comma = input.parse()?;
+        let pytype: LitStr = input.parse()?;
+        let _: Comma = input.parse()?;
+        let desc: LitStr = input.parse()?;
+        let default: Option<LitStr> = if input.peek(Token![,]) {
+            let _: Comma = input.parse()?;
+            Some(input.parse()?)
+        } else {
+            None
+        };
+        Ok(Self {
+            argname,
+            rstype,
+            pytype,
+            desc,
+            default,
+        })
+    }
+}
 
 #[proc_macro]
 pub fn impl_get_set_metaroot(input: TokenStream) -> TokenStream {

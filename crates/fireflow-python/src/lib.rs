@@ -34,7 +34,7 @@ use fireflow_core::validated::shortname::{Shortname, ShortnamePrefix};
 use fireflow_core::validated::textdelim::TEXTDelim;
 use fireflow_python_proc::{
     impl_convert_version, impl_get_set_all_meas, impl_get_set_meas_obj_common,
-    impl_get_set_metaroot, impl_meas_get_set,
+    impl_get_set_metaroot, impl_meas_get_set, impl_new_core,
 };
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
@@ -155,77 +155,113 @@ macro_rules! py_wrap {
 }
 
 // core* objects
-py_wrap! {
-    /// Represents *TEXT* for an FCS 2.0 file.
-    PyCoreTEXT2_0,
+// py_wrap! {
+//     /// Represents *TEXT* for an FCS 2.0 file.
+//     PyCoreTEXT2_0,
+//     core::CoreTEXT2_0,
+//     "CoreTEXT2_0"
+// }
+
+impl_new_core! {
     core::CoreTEXT2_0,
-    "CoreTEXT2_0"
+    core::CoreTEXT2_0::try_new_2_0,
+    (mode, kws::Mode, "Literal[\"L\", \"U\", \"C\"]", "Value for *$MODE*."),
+    (
+        measurements,
+        PyEithers<MaybeFamily, PyTemporal2_0, PyOptical2_0>,
+        "list[:py:class:`Optical2_0` | :py:class:`Temporal2_0`]",
+        "Measurements corresponding to columns in FCS file. Temporal must be given zero or one times."
+    ),
+    (layout, PyOrderedLayout, "", ""),
+    (cyt, Option<kws::Cyt>, "str", "Value for *$CYT*."),
+    (comp, Option<Compensation2_0>, "", ""),
+    (btim, Option<Btim<FCSTime>>, "datetime.time", "Value for *$BTIM*."),
+    (etim, Option<Etim<FCSTime>>, "datetime.time", "Value for *$ETIM*."),
+    (date, Option<FCSDate>, "datetime.date", "Value for *$DATE*."),
+    (gated_measurements, PyGatedMeasurements, "", "", "[]"),
+    (regions, PyRegionMapping<PyRegion2_0>, "", "", "{}"),
+    (gating, Option<kws::Gating>, "", ""),
+    (abrt, Option<kws::Abrt>, "int", "Value for *$ABRT*."),
+    (com, Option<kws::Com>, "str", "Value for *$COM*."),
+    (cells, Option<kws::Cells>, "str", "Value for *$CELLS*."),
+    (exp, Option<kws::Exp>, "str", "Value for *$EXP*."),
+    (fil, Option<kws::Fil>, "str", "Value for *$FIL*."),
+    (inst, Option<kws::Inst>, "str", "Value for *$INST*."),
+    (lost, Option<kws::Lost>, "int", "Value for *$LOST*."),
+    (op, Option<kws::Op>, "str", "Value for *$OP*."),
+    (proj, Option<kws::Proj>, "str", "Value for *$PROJ*."),
+    (smno, Option<kws::Smno>, "str", "Value for *$SMNO*."),
+    (src, Option<kws::Src>, "str", "Value for *$SRC*."),
+    (sys, Option<kws::Sys>, "str", "Value for *$SYS*."),
+    (tr, Option<kws::Trigger>, "tuple[int, str]", "Value for *$TR*."),
+    (nonstandard_keywords, HashMap<NonStdKey, String>, "", ""),
+    (prefix, Option<ShortnamePrefix>, "str", "", "\"P\"")
 }
 
-#[pymethods]
-impl PyCoreTEXT2_0 {
-    #[allow(clippy::too_many_arguments)]
-    #[new]
-    fn new(
-        mode: kws::Mode,
-        measurements: PyEithers<MaybeFamily, PyTemporal2_0, PyOptical2_0>,
-        layout: PyOrderedLayout,
-        cyt: Option<kws::Cyt>,
-        comp: Option<Compensation2_0>,
-        btim: Option<Btim<FCSTime>>,
-        etim: Option<Etim<FCSTime>>,
-        date: Option<FCSDate>,
-        gated_measurements: PyGatedMeasurements,
-        regions: PyRegionMapping<PyRegion2_0>,
-        gating: Option<kws::Gating>,
-        abrt: Option<kws::Abrt>,
-        com: Option<kws::Com>,
-        cells: Option<kws::Cells>,
-        exp: Option<kws::Exp>,
-        fil: Option<kws::Fil>,
-        inst: Option<kws::Inst>,
-        lost: Option<kws::Lost>,
-        op: Option<kws::Op>,
-        proj: Option<kws::Proj>,
-        smno: Option<kws::Smno>,
-        src: Option<kws::Src>,
-        sys: Option<kws::Sys>,
-        tr: Option<kws::Trigger>,
-        nonstandard_keywords: HashMap<NonStdKey, String>,
-        prefix: Option<ShortnamePrefix>,
-    ) -> PyResult<Self> {
-        Ok(core::CoreTEXT2_0::try_new_2_0(
-            mode,
-            measurements.into(),
-            layout.into(),
-            cyt,
-            comp,
-            btim,
-            etim,
-            date,
-            gated_measurements.into(),
-            regions.into(),
-            gating,
-            abrt,
-            com,
-            cells,
-            exp,
-            fil,
-            inst,
-            lost,
-            op,
-            proj,
-            smno,
-            src,
-            sys,
-            tr,
-            nonstandard_keywords,
-            prefix,
-        )
-        .mult_head()?
-        .into())
-    }
-}
+// #[pymethods]
+// impl PyCoreTEXT2_0 {
+//     #[allow(clippy::too_many_arguments)]
+//     #[new]
+//     fn new(
+//         mode: kws::Mode,
+//         measurements: PyEithers<MaybeFamily, PyTemporal2_0, PyOptical2_0>,
+//         layout: PyOrderedLayout,
+//         cyt: Option<kws::Cyt>,
+//         comp: Option<Compensation2_0>,
+//         btim: Option<Btim<FCSTime>>,
+//         etim: Option<Etim<FCSTime>>,
+//         date: Option<FCSDate>,
+//         gated_measurements: PyGatedMeasurements,
+//         regions: PyRegionMapping<PyRegion2_0>,
+//         gating: Option<kws::Gating>,
+//         abrt: Option<kws::Abrt>,
+//         com: Option<kws::Com>,
+//         cells: Option<kws::Cells>,
+//         exp: Option<kws::Exp>,
+//         fil: Option<kws::Fil>,
+//         inst: Option<kws::Inst>,
+//         lost: Option<kws::Lost>,
+//         op: Option<kws::Op>,
+//         proj: Option<kws::Proj>,
+//         smno: Option<kws::Smno>,
+//         src: Option<kws::Src>,
+//         sys: Option<kws::Sys>,
+//         tr: Option<kws::Trigger>,
+//         nonstandard_keywords: HashMap<NonStdKey, String>,
+//         prefix: Option<ShortnamePrefix>,
+//     ) -> PyResult<Self> {
+//         Ok(core::CoreTEXT2_0::try_new_2_0(
+//             mode,
+//             measurements.into(),
+//             layout.into(),
+//             cyt,
+//             comp,
+//             btim,
+//             etim,
+//             date,
+//             gated_measurements.into(),
+//             regions.into(),
+//             gating,
+//             abrt,
+//             com,
+//             cells,
+//             exp,
+//             fil,
+//             inst,
+//             lost,
+//             op,
+//             proj,
+//             smno,
+//             src,
+//             sys,
+//             tr,
+//             nonstandard_keywords,
+//             prefix,
+//         )
+//         .mult_head()?
+//         .into())
+//     }
+// }
 
 py_wrap! {
     /// Represents *TEXT* for an FCS 3.0 file.

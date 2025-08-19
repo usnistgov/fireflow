@@ -163,105 +163,108 @@ macro_rules! py_wrap {
 // }
 
 impl_new_core! {
+    "Represents *TEXT* for an FCS 2.0 file.",
     core::CoreTEXT2_0,
     core::CoreTEXT2_0::try_new_2_0,
-    (mode, kws::Mode, "Literal[\"L\", \"U\", \"C\"]", "Value for *$MODE*."),
     (
         measurements,
         PyEithers<MaybeFamily, PyTemporal2_0, PyOptical2_0>,
-        "list[:py:class:`Optical2_0` | :py:class:`Temporal2_0`]",
-        "Measurements corresponding to columns in FCS file. Temporal must be given zero or one times."
+        false,
+        "list[tuple[str | None, :py:class:`Optical2_0`] | tuple[str, :py:class:`Temporal2_0`]]",
+        "Measurements corresponding to columns in FCS file.
+         Temporal must be given zero or one times."
     ),
-    (layout, PyOrderedLayout, "", ""),
-    (cyt, Option<kws::Cyt>, "str", "Value for *$CYT*."),
-    (comp, Option<Compensation2_0>, "", ""),
-    (btim, Option<Btim<FCSTime>>, "datetime.time", "Value for *$BTIM*."),
-    (etim, Option<Etim<FCSTime>>, "datetime.time", "Value for *$ETIM*."),
-    (date, Option<FCSDate>, "datetime.date", "Value for *$DATE*."),
-    (gated_measurements, PyGatedMeasurements, "", "", "[]"),
-    (regions, PyRegionMapping<PyRegion2_0>, "", "", "{}"),
-    (gating, Option<kws::Gating>, "", ""),
-    (abrt, Option<kws::Abrt>, "int", "Value for *$ABRT*."),
-    (com, Option<kws::Com>, "str", "Value for *$COM*."),
-    (cells, Option<kws::Cells>, "str", "Value for *$CELLS*."),
-    (exp, Option<kws::Exp>, "str", "Value for *$EXP*."),
-    (fil, Option<kws::Fil>, "str", "Value for *$FIL*."),
-    (inst, Option<kws::Inst>, "str", "Value for *$INST*."),
-    (lost, Option<kws::Lost>, "int", "Value for *$LOST*."),
-    (op, Option<kws::Op>, "str", "Value for *$OP*."),
-    (proj, Option<kws::Proj>, "str", "Value for *$PROJ*."),
-    (smno, Option<kws::Smno>, "str", "Value for *$SMNO*."),
-    (src, Option<kws::Src>, "str", "Value for *$SRC*."),
-    (sys, Option<kws::Sys>, "str", "Value for *$SYS*."),
-    (tr, Option<kws::Trigger>, "tuple[int, str]", "Value for *$TR*."),
-    (nonstandard_keywords, HashMap<NonStdKey, String>, "", ""),
-    (prefix, Option<ShortnamePrefix>, "str", "", "\"P\"")
+    (
+        layout,
+        PyOrderedLayout,
+        false,
+        ":py:class:`AsciiFixedLayout` |
+         :py:class:`AsciiDelimLayout` |
+         :py:class:`OrderedUint08Layout` |
+         :py:class:`OrderedUint16Layout` |
+         :py:class:`OrderedUint24Layout` |
+         :py:class:`OrderedUint32Layout` |
+         :py:class:`OrderedUint40Layout` |
+         :py:class:`OrderedUint48Layout` |
+         :py:class:`OrderedUint56Layout` |
+         :py:class:`OrderedUint64Layout` |
+         :py:class:`OrderedF32Layout` |
+         :py:class:`OrderedF64Layout`",
+        "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*,
+         and *$DATATYPE*."
+    ),
+    (mode, kws::Mode, true, "Literal[\"L\", \"U\", \"C\"]", "Value for *$MODE*."),
+    (cyt, Option<kws::Cyt>, true, "str", "Value for *$CYT*."),
+    (
+        comp,
+        Option<Compensation2_0>,
+        true,
+        ":py:class:`numpy.ndarray`",
+        "The compensation matrix. Must be a square array with number of
+         rows/columns equal to the number of measurements. Non-zero entries
+         will produce a *$DFCmTOn* keyword."
+    ),
+    (btim, Option<Btim<FCSTime>>, true, "datetime.time", "Value for *$BTIM*."),
+    (etim, Option<Etim<FCSTime>>, true, "datetime.time", "Value for *$ETIM*."),
+    (date, Option<FCSDate>, true, "datetime.date", "Value for *$DATE*."),
+    (
+        gated_measurements,
+        PyGatedMeasurements,
+        false,
+        "list[:py:class:`GatedMeasurement`]",
+        "Values for *$Gn\\** keywords. The index *n* corresponds to the index in this list.",
+        "[]"
+    ),
+    (
+        regions,
+        PyRegionMapping<PyRegion2_0>,
+        false,
+        "dict[int, :py:class:`UnivariateRegion2_0` | :py:class:`BivariateRegion2_0`]",
+        "Mapping of regions and windows to be used in gating scheme. Corresponds
+         to *$RnI* and *$RnW* keywords. Keys in dictionary are the region
+         indices (the *n* in *$RnI* and *$RnW*). The values in the dictionary
+         are either univariate or bivariate gates and must correspond to either
+         physical measurements of an index in ``gated_measurements``.",
+        "{}"
+    ),
+    (gating, Option<kws::Gating>, false, "str", "Value for *$GATING*."),
+    (abrt, Option<kws::Abrt>, true, "int", "Value for *$ABRT*."),
+    (com, Option<kws::Com>, true, "str", "Value for *$COM*."),
+    (cells, Option<kws::Cells>, true, "str", "Value for *$CELLS*."),
+    (exp, Option<kws::Exp>, true, "str", "Value for *$EXP*."),
+    (fil, Option<kws::Fil>, true, "str", "Value for *$FIL*."),
+    (inst, Option<kws::Inst>, true, "str", "Value for *$INST*."),
+    (lost, Option<kws::Lost>, true, "int", "Value for *$LOST*."),
+    (op, Option<kws::Op>, true, "str", "Value for *$OP*."),
+    (proj, Option<kws::Proj>, true, "str", "Value for *$PROJ*."),
+    (smno, Option<kws::Smno>, true, "str", "Value for *$SMNO*."),
+    (src, Option<kws::Src>, true, "str", "Value for *$SRC*."),
+    (sys, Option<kws::Sys>, true, "str", "Value for *$SYS*."),
+    (
+        tr,
+        Option<kws::Trigger>,
+        true,
+        "tuple[int, str]",
+        "Value for *$TR*. First member of tuple is threshold and second is the
+         measurement name which must match a *$PnN*."
+    ),
+    (
+        nonstandard_keywords,
+        HashMap<NonStdKey, String>,
+        true,
+        "dict[str, str]",
+        "Pairs of non-standard keyword values. Keys must not start with *$*."
+    ),
+    (
+        prefix,
+        Option<ShortnamePrefix>,
+        false,
+        "str",
+        "Prefix to use for measurement names which do not have *$PnN*.
+         Actual name will be prefix + index.",
+        "\"P\""
+    )
 }
-
-// #[pymethods]
-// impl PyCoreTEXT2_0 {
-//     #[allow(clippy::too_many_arguments)]
-//     #[new]
-//     fn new(
-//         mode: kws::Mode,
-//         measurements: PyEithers<MaybeFamily, PyTemporal2_0, PyOptical2_0>,
-//         layout: PyOrderedLayout,
-//         cyt: Option<kws::Cyt>,
-//         comp: Option<Compensation2_0>,
-//         btim: Option<Btim<FCSTime>>,
-//         etim: Option<Etim<FCSTime>>,
-//         date: Option<FCSDate>,
-//         gated_measurements: PyGatedMeasurements,
-//         regions: PyRegionMapping<PyRegion2_0>,
-//         gating: Option<kws::Gating>,
-//         abrt: Option<kws::Abrt>,
-//         com: Option<kws::Com>,
-//         cells: Option<kws::Cells>,
-//         exp: Option<kws::Exp>,
-//         fil: Option<kws::Fil>,
-//         inst: Option<kws::Inst>,
-//         lost: Option<kws::Lost>,
-//         op: Option<kws::Op>,
-//         proj: Option<kws::Proj>,
-//         smno: Option<kws::Smno>,
-//         src: Option<kws::Src>,
-//         sys: Option<kws::Sys>,
-//         tr: Option<kws::Trigger>,
-//         nonstandard_keywords: HashMap<NonStdKey, String>,
-//         prefix: Option<ShortnamePrefix>,
-//     ) -> PyResult<Self> {
-//         Ok(core::CoreTEXT2_0::try_new_2_0(
-//             mode,
-//             measurements.into(),
-//             layout.into(),
-//             cyt,
-//             comp,
-//             btim,
-//             etim,
-//             date,
-//             gated_measurements.into(),
-//             regions.into(),
-//             gating,
-//             abrt,
-//             com,
-//             cells,
-//             exp,
-//             fil,
-//             inst,
-//             lost,
-//             op,
-//             proj,
-//             smno,
-//             src,
-//             sys,
-//             tr,
-//             nonstandard_keywords,
-//             prefix,
-//         )
-//         .mult_head()?
-//         .into())
-//     }
-// }
 
 py_wrap! {
     /// Represents *TEXT* for an FCS 3.0 file.
@@ -275,9 +278,9 @@ impl PyCoreTEXT3_0 {
     #[allow(clippy::too_many_arguments)]
     #[new]
     fn new(
-        mode: kws::Mode,
         measurements: PyEithers<MaybeFamily, PyTemporal3_0, PyOptical3_0>,
         layout: PyOrderedLayout,
+        mode: kws::Mode,
         cyt: Option<kws::Cyt>,
         comp: Option<Compensation3_0>,
         btim: Option<Btim<FCSTime60>>,
@@ -308,9 +311,9 @@ impl PyCoreTEXT3_0 {
         prefix: Option<ShortnamePrefix>,
     ) -> PyResult<Self> {
         Ok(core::CoreTEXT3_0::try_new_3_0(
-            mode,
             measurements.into(),
             layout.into(),
+            mode,
             cyt,
             comp,
             btim,
@@ -357,9 +360,9 @@ impl PyCoreTEXT3_1 {
     #[allow(clippy::too_many_arguments)]
     #[new]
     fn new(
-        mode: kws::Mode,
         measurements: PyEithers<AlwaysFamily, PyTemporal3_1, PyOptical3_1>,
         layout: PyNonMixedLayout,
+        mode: kws::Mode,
         cyt: Option<kws::Cyt>,
         btim: Option<Btim<FCSTime100>>,
         etim: Option<Etim<FCSTime100>>,
@@ -395,9 +398,9 @@ impl PyCoreTEXT3_1 {
         nonstandard_keywords: HashMap<NonStdKey, String>,
     ) -> PyResult<Self> {
         Ok(core::CoreTEXT3_1::try_new_3_1(
-            mode,
             measurements.into(),
             layout.into(),
+            mode,
             cyt,
             btim,
             etim,
@@ -449,9 +452,9 @@ impl PyCoreTEXT3_2 {
     #[allow(clippy::too_many_arguments)]
     #[new]
     fn new(
-        cyt: kws::Cyt,
         measurements: PyEithers<AlwaysFamily, PyTemporal3_2, PyOptical3_2>,
         layout: PyLayout3_2,
+        cyt: kws::Cyt,
         mode: Option<kws::Mode3_2>,
         btim: Option<Btim<FCSTime100>>,
         etim: Option<Etim<FCSTime100>>,
@@ -491,9 +494,9 @@ impl PyCoreTEXT3_2 {
         nonstandard_keywords: HashMap<NonStdKey, String>,
     ) -> PyResult<Self> {
         Ok(core::CoreTEXT3_2::try_new_3_2(
-            cyt,
             measurements.into(),
             layout.into(),
+            cyt,
             mode,
             btim,
             etim,
@@ -1143,7 +1146,7 @@ macro_rules! impl_common {
             /// threshold and the second member is a measurement name which
             /// must exist in the set of all *$PnN*.
             ///
-            /// :type: (int, str) | None
+            /// :type: tuple[int, str] | None
             #[getter]
             fn trigger(&self) -> Option<kws::Trigger> {
                 self.0.metaroot_opt().cloned()

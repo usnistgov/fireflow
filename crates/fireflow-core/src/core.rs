@@ -3214,6 +3214,7 @@ where
             })
     }
 
+    // TODO when is prefix actually needed?
     // TODO don't set names here, do that separately so we can decouple PnN link
     // checking, or just check the links to make sure they are all still valid
     /// Set measurements.
@@ -4434,9 +4435,9 @@ where
 impl CoreTEXT2_0 {
     #[allow(clippy::too_many_arguments)]
     pub fn try_new_2_0(
-        mode: Mode,
         measurements: Eithers<MaybeFamily, Temporal<InnerTemporal2_0>, Optical<InnerOptical2_0>>,
         layout: DataLayout2_0,
+        mode: Mode,
         cyt: Option<Cyt>,
         comp: Option<Compensation2_0>,
         btim: Option<Btim<FCSTime>>,
@@ -4496,9 +4497,9 @@ impl CoreTEXT2_0 {
 impl CoreTEXT3_0 {
     #[allow(clippy::too_many_arguments)]
     pub fn try_new_3_0(
-        mode: Mode,
         measurements: Eithers<MaybeFamily, Temporal<InnerTemporal3_0>, Optical<InnerOptical3_0>>,
         layout: DataLayout3_0,
+        mode: Mode,
         cyt: Option<Cyt>,
         comp: Option<Compensation3_0>,
         btim: Option<Btim<FCSTime60>>,
@@ -4573,9 +4574,9 @@ impl CoreTEXT3_0 {
 impl CoreTEXT3_1 {
     #[allow(clippy::too_many_arguments)]
     pub fn try_new_3_1(
-        mode: Mode,
         measurements: Eithers<AlwaysFamily, Temporal<InnerTemporal3_1>, Optical<InnerOptical3_1>>,
         layout: DataLayout3_1,
+        mode: Mode,
         cyt: Option<Cyt>,
         btim: Option<Btim<FCSTime100>>,
         etim: Option<Etim<FCSTime100>>,
@@ -4657,9 +4658,9 @@ impl CoreTEXT3_1 {
 impl CoreTEXT3_2 {
     #[allow(clippy::too_many_arguments)]
     pub fn try_new_3_2(
-        cyt: Cyt,
         measurements: Eithers<AlwaysFamily, Temporal<InnerTemporal3_2>, Optical<InnerOptical3_2>>,
         layout: DataLayout3_2,
+        cyt: Cyt,
         mode: Option<Mode3_2>,
         btim: Option<Btim<FCSTime100>>,
         etim: Option<Etim<FCSTime100>>,

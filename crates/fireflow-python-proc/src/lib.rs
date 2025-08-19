@@ -10,12 +10,13 @@ use syn::{
     parse_macro_input,
     punctuated::Punctuated,
     token::Comma,
-    GenericArgument, Ident, LitStr, Path, PathArguments, Result, Token, Type,
+    GenericArgument, Ident, LitBool, LitStr, Path, PathArguments, Result, Token, Type,
 };
 
 #[proc_macro]
 pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let info = parse_macro_input!(input as NewCoreInfo);
+    let summary = info.summary;
     let rstype = info.rstype;
     let fun = info.fun;
     let args = info.args;
@@ -64,16 +65,29 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let params = args
         .iter()
         .map(|x| {
+            let rstype = &x.rstype.segments.last().unwrap().ident;
             let argname = &x.argname;
-            let pdesc = format!(":param {argname}: {}", x.desc.value());
-            let ptype = format!(":type {argname}: {}", x.pytype.value());
+            let t = x.pytype.value();
+            let tt = if rstype == "Option" {
+                format!("{t} | None")
+            } else {
+                t
+            };
+            let desc = x.desc.value().replace("\n", "");
+            let (op, ty) = if x.isvar.value() {
+                ("ivar", "vartype")
+            } else {
+                ("param", "type")
+            };
+            let pdesc = format!(":{op} {argname}: {desc}");
+            let ptype = format!(":{ty} {argname}: {tt}");
             format!("{pdesc}\n{ptype}")
         })
         .join("\n\n");
 
     quote! {
         // TODO not dry, this is just pywrap!
-        /// Represents *TEXT* for an FCS 2.0 file.
+        #[doc = #summary]
         ///
         #[doc = #params]
         #[pyclass(name = #name, eq)]
@@ -95,6 +109,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
 #[derive(Debug)]
 struct NewCoreInfo {
+    summary: LitStr,
     rstype: Path,
     fun: Path,
     args: Vec<NewArgInfo>,
@@ -102,12 +117,15 @@ struct NewCoreInfo {
 
 impl Parse for NewCoreInfo {
     fn parse(input: ParseStream) -> Result<Self> {
+        let summary: LitStr = input.parse()?;
+        let _: Comma = input.parse()?;
         let rstype: Path = input.parse()?;
         let _: Comma = input.parse()?;
         let fun: Path = input.parse()?;
         let _: Comma = input.parse()?;
         let args: Punctuated<NewParenArg, Token![,]> = Punctuated::parse_terminated(input)?;
         Ok(Self {
+            summary,
             rstype,
             fun,
             args: args.into_iter().map(|x| x.0).collect(),
@@ -129,6 +147,7 @@ impl Parse for NewParenArg {
 struct NewArgInfo {
     argname: Ident,
     rstype: Path,
+    isvar: LitBool,
     pytype: LitStr,
     desc: LitStr,
     default: Option<LitStr>,
@@ -139,6 +158,8 @@ impl Parse for NewArgInfo {
         let argname: Ident = input.parse()?;
         let _: Comma = input.parse()?;
         let rstype: Path = input.parse()?;
+        let _: Comma = input.parse()?;
+        let isvar: LitBool = input.parse()?;
         let _: Comma = input.parse()?;
         let pytype: LitStr = input.parse()?;
         let _: Comma = input.parse()?;
@@ -152,6 +173,7 @@ impl Parse for NewArgInfo {
         Ok(Self {
             argname,
             rstype,
+            isvar,
             pytype,
             desc,
             default,

@@ -266,278 +266,366 @@ impl_new_core! {
     )
 }
 
-py_wrap! {
-    /// Represents *TEXT* for an FCS 3.0 file.
-    PyCoreTEXT3_0,
+impl_new_core! {
+    "Represents *TEXT* for an FCS 3.0 file.",
     core::CoreTEXT3_0,
-    "CoreTEXT3_0"
+    core::CoreTEXT3_0::try_new_3_0,
+    (
+        measurements,
+        PyEithers<MaybeFamily, PyTemporal3_0, PyOptical3_0>,
+        false,
+        "list[tuple[str | None, :py:class:`Optical3_0`] | tuple[str, :py:class:`Temporal3_0`]]",
+        "Measurements corresponding to columns in FCS file.
+         Temporal must be given zero or one times."
+    ),
+    (
+        layout,
+        PyOrderedLayout,
+        false,
+        ":py:class:`AsciiFixedLayout` |
+         :py:class:`AsciiDelimLayout` |
+         :py:class:`OrderedUint08Layout` |
+         :py:class:`OrderedUint16Layout` |
+         :py:class:`OrderedUint24Layout` |
+         :py:class:`OrderedUint32Layout` |
+         :py:class:`OrderedUint40Layout` |
+         :py:class:`OrderedUint48Layout` |
+         :py:class:`OrderedUint56Layout` |
+         :py:class:`OrderedUint64Layout` |
+         :py:class:`OrderedF32Layout` |
+         :py:class:`OrderedF64Layout`",
+        "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*,
+         and *$DATATYPE*."
+    ),
+    (mode, kws::Mode, true, "Literal[\"L\", \"U\", \"C\"]", "Value for *$MODE*."),
+    (cyt, Option<kws::Cyt>, true, "str", "Value for *$CYT*."),
+    (
+        comp,
+        Option<Compensation3_0>,
+        true,
+        ":py:class:`numpy.ndarray`",
+        "The value of *$COMP*. Must be a square array with number of
+         rows/columns equal to the number of measurements."
+    ),
+    (btim, Option<Btim<FCSTime60>>, true, "datetime.time", "Value for *$BTIM*."),
+    (etim, Option<Etim<FCSTime60>>, true, "datetime.time", "Value for *$ETIM*."),
+    (date, Option<FCSDate>, true, "datetime.date", "Value for *$DATE*."),
+    (cytsn, Option<kws::Cytsn>, true, "str", "Value for *$CYTSN*."),
+    (unicode, Option<kws::Unicode>, true, "tuple[int, list[str]]", "Value for *$UNICODE*."),
+    (csvbits, Option<kws::CSVBits>, true, "int", "Value for *$CSVBITS*."),
+    (cstot, Option<kws::CSTot>, true, "int", "Value for *$CSTot*."),
+    (
+        csvflags,
+        Option<core::CSVFlags>,
+        true,
+        "list[int | None]",
+        "Subset flags. Each element in the list corresponds to *$CSVnFLAG* and
+         the length of the list corresponds to *$CSMODE*."
+    ),
+    (
+        gated_measurements,
+        PyGatedMeasurements,
+        false,
+        "list[:py:class:`GatedMeasurement`]",
+        "Values for *$Gn\\** keywords. The index *n* corresponds to the index in this list.",
+        "[]"
+    ),
+    (
+        regions,
+        PyRegionMapping<PyRegion3_0>,
+        false,
+        "dict[int, :py:class:`UnivariateRegion3_0` | :py:class:`BivariateRegion3_0`]",
+        "Mapping of regions and windows to be used in gating scheme. Corresponds
+        to *$RnI* and *$RnW* keywords. Keys in dictionary are the region indices
+        (the *n* in *$RnI* and *$RnW*). The values in the dictionary are either
+        univariate or bivariate gates and must correspond to either physical
+        measurements of an index in ``gated_measurements``.",
+        "{}"
+    ),
+    (gating, Option<kws::Gating>, false, "str", "Value for *$GATING*."),
+    (abrt, Option<kws::Abrt>, true, "int", "Value for *$ABRT*."),
+    (com, Option<kws::Com>, true, "str", "Value for *$COM*."),
+    (cells, Option<kws::Cells>, true, "str", "Value for *$CELLS*."),
+    (exp, Option<kws::Exp>, true, "str", "Value for *$EXP*."),
+    (fil, Option<kws::Fil>, true, "str", "Value for *$FIL*."),
+    (inst, Option<kws::Inst>, true, "str", "Value for *$INST*."),
+    (lost, Option<kws::Lost>, true, "int", "Value for *$LOST*."),
+    (op, Option<kws::Op>, true, "str", "Value for *$OP*."),
+    (proj, Option<kws::Proj>, true, "str", "Value for *$PROJ*."),
+    (smno, Option<kws::Smno>, true, "str", "Value for *$SMNO*."),
+    (src, Option<kws::Src>, true, "str", "Value for *$SRC*."),
+    (sys, Option<kws::Sys>, true, "str", "Value for *$SYS*."),
+    (
+        tr,
+        Option<kws::Trigger>,
+        true,
+        "tuple[int, str]",
+        "Value for *$TR*. First member of tuple is threshold and second is the
+         measurement name which must match a *$PnN*."
+    ),
+    (
+        nonstandard_keywords,
+        HashMap<NonStdKey, String>,
+        true,
+        "dict[str, str]",
+        "Pairs of non-standard keyword values. Keys must not start with *$*."
+    ),
+    (
+        prefix,
+        Option<ShortnamePrefix>,
+        false,
+        "str",
+        "Prefix to use for measurement names which do not have *$PnN*.
+         Actual name will be prefix + index.",
+        "\"P\""
+    )
 }
 
-#[pymethods]
-impl PyCoreTEXT3_0 {
-    #[allow(clippy::too_many_arguments)]
-    #[new]
-    fn new(
-        measurements: PyEithers<MaybeFamily, PyTemporal3_0, PyOptical3_0>,
-        layout: PyOrderedLayout,
-        mode: kws::Mode,
-        cyt: Option<kws::Cyt>,
-        comp: Option<Compensation3_0>,
-        btim: Option<Btim<FCSTime60>>,
-        etim: Option<Etim<FCSTime60>>,
-        date: Option<FCSDate>,
-        cytsn: Option<kws::Cytsn>,
-        unicode: Option<kws::Unicode>,
-        csvbits: Option<kws::CSVBits>,
-        cstot: Option<kws::CSTot>,
-        csvflags: Option<core::CSVFlags>,
-        gated_measurements: PyGatedMeasurements,
-        regions: PyRegionMapping<PyRegion3_0>,
-        gating: Option<kws::Gating>,
-        abrt: Option<kws::Abrt>,
-        com: Option<kws::Com>,
-        cells: Option<kws::Cells>,
-        exp: Option<kws::Exp>,
-        fil: Option<kws::Fil>,
-        inst: Option<kws::Inst>,
-        lost: Option<kws::Lost>,
-        op: Option<kws::Op>,
-        proj: Option<kws::Proj>,
-        smno: Option<kws::Smno>,
-        src: Option<kws::Src>,
-        sys: Option<kws::Sys>,
-        tr: Option<kws::Trigger>,
-        nonstandard_keywords: HashMap<NonStdKey, String>,
-        prefix: Option<ShortnamePrefix>,
-    ) -> PyResult<Self> {
-        Ok(core::CoreTEXT3_0::try_new_3_0(
-            measurements.into(),
-            layout.into(),
-            mode,
-            cyt,
-            comp,
-            btim,
-            etim,
-            date,
-            cytsn,
-            unicode,
-            csvbits,
-            cstot,
-            csvflags,
-            gated_measurements.into(),
-            regions.into(),
-            gating,
-            abrt,
-            com,
-            cells,
-            exp,
-            fil,
-            inst,
-            lost,
-            op,
-            proj,
-            smno,
-            src,
-            sys,
-            tr,
-            nonstandard_keywords,
-            prefix,
-        )
-        .mult_head()?
-        .into())
-    }
-}
-
-py_wrap! {
-    /// Represents *TEXT* for an FCS 3.1 file.
-    PyCoreTEXT3_1,
+impl_new_core! {
+    "Represents *TEXT* for an FCS 3.1 file.",
     core::CoreTEXT3_1,
-    "CoreTEXT3_1"
+    core::CoreTEXT3_1::try_new_3_1,
+    (
+        measurements,
+        PyEithers<AlwaysFamily, PyTemporal3_1, PyOptical3_1>,
+        false,
+        "list[tuple[str, :py:class:`Optical3_1` | :py:class:`Temporal3_1`]]",
+        "Measurements corresponding to columns in FCS file.
+         Temporal must be given zero or one times."
+    ),
+    (
+        layout,
+        PyNonMixedLayout,
+        false,
+        ":py:class:`AsciiFixedLayout` |
+         :py:class:`AsciiDelimLayout` |
+         :py:class:`EndianUintLayout` |
+         :py:class:`EndianF32Layout` |
+         :py:class:`EndianF64Layout`",
+        "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*,
+         and *$DATATYPE*."
+    ),
+    (mode, kws::Mode, true, "Literal[\"L\", \"U\", \"C\"]", "Value for *$MODE*."),
+    (cyt, Option<kws::Cyt>, true, "str", "Value for *$CYT*."),
+    (btim, Option<Btim<FCSTime100>>, true, "datetime.time", "Value for *$BTIM*."),
+    (etim, Option<Etim<FCSTime100>>, true, "datetime.time", "Value for *$ETIM*."),
+    (date, Option<FCSDate>, true, "datetime.date", "Value for *$DATE*."),
+    (cytsn, Option<kws::Cytsn>, true, "str", "Value for *$CYTSN*."),
+    (
+        spillover,
+        Option<Spillover>,
+        true,
+        "tuple[list[str], :py:class:`numpy.ndarray`]",
+        "Value for *$SPILLOVER*. First element of tuple the list of measurement
+         names and the second is the matrix. Each measurement name must
+         correspond to a *$PnN*, must be unique, and the length of this list
+         must match the number of rows and columns of the matrix. The matrix
+         must be at least 2x2."
+    ),
+    (
+        last_modifier,
+        Option<kws::LastModifier>,
+        true,
+        "str", "Value of *$LAST_MODIFIER*."
+    ),
+    (
+        last_modified,
+        Option<kws::LastModified>,
+        true,
+        "datetime.datetime",
+        "Value of *$LAST_MODIFIED*."
+    ),
+    (
+        originality,
+        Option<kws::Originality>,
+        true,
+        "Literal[\"Original\", \"NonDataModified\", \"Appended\", \"DataModified\"]",
+        "Value of *$ORIGINALITY*."
+    ),
+    (plateid, Option<kws::Plateid>, true, "str", "Value of *$PLATEID*."),
+    (platename, Option<kws::Platename>, true, "str", "Value of *$PLATENAME*."),
+    (wellid, Option<kws::Wellid>, true, "str", "Value of *$WELLID*."),
+    (vol, Option<kws::Vol>, true, "float", "Value of *$VOL*."),
+    (csvbits, Option<kws::CSVBits>, true, "int", "Value for *$CSVBITS*."),
+    (cstot, Option<kws::CSTot>, true, "int", "Value for *$CSTot*."),
+    (
+        csvflags,
+        Option<core::CSVFlags>,
+        true,
+        "list[int | None]",
+        "Subset flags. Each element in the list corresponds to *$CSVnFLAG* and
+         the length of the list corresponds to *$CSMODE*."
+    ),
+    (
+        gated_measurements,
+        PyGatedMeasurements,
+        false,
+        "list[:py:class:`GatedMeasurement`]",
+        "Values for *$Gn\\** keywords. The index *n* corresponds to the index in this list.",
+        "[]"
+    ),
+    (
+        regions,
+        PyRegionMapping<PyRegion3_0>,
+        false,
+        "dict[int, :py:class:`UnivariateRegion3_0` | :py:class:`BivariateRegion3_0`]",
+        "Mapping of regions and windows to be used in gating scheme. Corresponds
+        to *$RnI* and *$RnW* keywords. Keys in dictionary are the region indices
+        (the *n* in *$RnI* and *$RnW*). The values in the dictionary are either
+        univariate or bivariate gates and must correspond to either physical
+        measurements of an index in ``gated_measurements``.",
+        "{}"
+    ),
+    (gating, Option<kws::Gating>, false, "str", "Value for *$GATING*."),
+    (abrt, Option<kws::Abrt>, true, "int", "Value for *$ABRT*."),
+    (com, Option<kws::Com>, true, "str", "Value for *$COM*."),
+    (cells, Option<kws::Cells>, true, "str", "Value for *$CELLS*."),
+    (exp, Option<kws::Exp>, true, "str", "Value for *$EXP*."),
+    (fil, Option<kws::Fil>, true, "str", "Value for *$FIL*."),
+    (inst, Option<kws::Inst>, true, "str", "Value for *$INST*."),
+    (lost, Option<kws::Lost>, true, "int", "Value for *$LOST*."),
+    (op, Option<kws::Op>, true, "str", "Value for *$OP*."),
+    (proj, Option<kws::Proj>, true, "str", "Value for *$PROJ*."),
+    (smno, Option<kws::Smno>, true, "str", "Value for *$SMNO*."),
+    (src, Option<kws::Src>, true, "str", "Value for *$SRC*."),
+    (sys, Option<kws::Sys>, true, "str", "Value for *$SYS*."),
+    (
+        tr,
+        Option<kws::Trigger>,
+        true,
+        "tuple[int, str]",
+        "Value for *$TR*. First member of tuple is threshold and second is the
+         measurement name which must match a *$PnN*."
+    ),
+    (
+        nonstandard_keywords,
+        HashMap<NonStdKey, String>,
+        true,
+        "dict[str, str]",
+        "Pairs of non-standard keyword values. Keys must not start with *$*."
+    ),
 }
 
-#[pymethods]
-impl PyCoreTEXT3_1 {
-    #[allow(clippy::too_many_arguments)]
-    #[new]
-    fn new(
-        measurements: PyEithers<AlwaysFamily, PyTemporal3_1, PyOptical3_1>,
-        layout: PyNonMixedLayout,
-        mode: kws::Mode,
-        cyt: Option<kws::Cyt>,
-        btim: Option<Btim<FCSTime100>>,
-        etim: Option<Etim<FCSTime100>>,
-        date: Option<FCSDate>,
-        cytsn: Option<kws::Cytsn>,
-        spillover: Option<Spillover>,
-        last_modifier: Option<kws::LastModifier>,
-        last_modified: Option<kws::LastModified>,
-        originality: Option<kws::Originality>,
-        plateid: Option<kws::Plateid>,
-        platename: Option<kws::Platename>,
-        wellid: Option<kws::Wellid>,
-        vol: Option<kws::Vol>,
-        csvbits: Option<kws::CSVBits>,
-        cstot: Option<kws::CSTot>,
-        csvflags: Option<core::CSVFlags>,
-        gated_measurements: PyGatedMeasurements,
-        regions: PyRegionMapping<PyRegion3_0>,
-        gating: Option<kws::Gating>,
-        abrt: Option<kws::Abrt>,
-        com: Option<kws::Com>,
-        cells: Option<kws::Cells>,
-        exp: Option<kws::Exp>,
-        fil: Option<kws::Fil>,
-        inst: Option<kws::Inst>,
-        lost: Option<kws::Lost>,
-        op: Option<kws::Op>,
-        proj: Option<kws::Proj>,
-        smno: Option<kws::Smno>,
-        src: Option<kws::Src>,
-        sys: Option<kws::Sys>,
-        tr: Option<kws::Trigger>,
-        nonstandard_keywords: HashMap<NonStdKey, String>,
-    ) -> PyResult<Self> {
-        Ok(core::CoreTEXT3_1::try_new_3_1(
-            measurements.into(),
-            layout.into(),
-            mode,
-            cyt,
-            btim,
-            etim,
-            date,
-            cytsn,
-            spillover,
-            last_modifier,
-            last_modified,
-            originality,
-            plateid,
-            platename,
-            wellid,
-            vol,
-            csvbits,
-            cstot,
-            csvflags,
-            gated_measurements.into(),
-            regions.into(),
-            gating,
-            abrt,
-            com,
-            cells,
-            exp,
-            fil,
-            inst,
-            lost,
-            op,
-            proj,
-            smno,
-            src,
-            sys,
-            tr,
-            nonstandard_keywords,
-        )
-        .mult_head()?
-        .into())
-    }
-}
-
-py_wrap!(
-    /// Represents *TEXT* for an FCS 3.2 file.
-    PyCoreTEXT3_2,
+impl_new_core! {
+    "Represents *TEXT* for an FCS 3.2 file.",
     core::CoreTEXT3_2,
-    "CoreTEXT3_2"
-);
-
-#[pymethods]
-impl PyCoreTEXT3_2 {
-    #[allow(clippy::too_many_arguments)]
-    #[new]
-    fn new(
-        measurements: PyEithers<AlwaysFamily, PyTemporal3_2, PyOptical3_2>,
-        layout: PyLayout3_2,
-        cyt: kws::Cyt,
-        mode: Option<kws::Mode3_2>,
-        btim: Option<Btim<FCSTime100>>,
-        etim: Option<Etim<FCSTime100>>,
-        date: Option<FCSDate>,
-        begindatetime: Option<BeginDateTime>,
-        enddatetime: Option<EndDateTime>,
-        cytsn: Option<kws::Cytsn>,
-        spillover: Option<Spillover>,
-        last_modifier: Option<kws::LastModifier>,
-        last_modified: Option<kws::LastModified>,
-        originality: Option<kws::Originality>,
-        plateid: Option<kws::Plateid>,
-        platename: Option<kws::Platename>,
-        wellid: Option<kws::Wellid>,
-        vol: Option<kws::Vol>,
-        carrierid: Option<kws::Carrierid>,
-        carriertype: Option<kws::Carriertype>,
-        locationid: Option<kws::Locationid>,
-        unstainedinfo: Option<kws::UnstainedInfo>,
-        unstainedcenters: Option<UnstainedCenters>,
-        flowrate: Option<kws::Flowrate>,
-        regions: PyRegionMapping<PyRegion3_2>,
-        gating: Option<kws::Gating>,
-        abrt: Option<kws::Abrt>,
-        com: Option<kws::Com>,
-        cells: Option<kws::Cells>,
-        exp: Option<kws::Exp>,
-        fil: Option<kws::Fil>,
-        inst: Option<kws::Inst>,
-        lost: Option<kws::Lost>,
-        op: Option<kws::Op>,
-        proj: Option<kws::Proj>,
-        smno: Option<kws::Smno>,
-        src: Option<kws::Src>,
-        sys: Option<kws::Sys>,
-        tr: Option<kws::Trigger>,
-        nonstandard_keywords: HashMap<NonStdKey, String>,
-    ) -> PyResult<Self> {
-        Ok(core::CoreTEXT3_2::try_new_3_2(
-            measurements.into(),
-            layout.into(),
-            cyt,
-            mode,
-            btim,
-            etim,
-            date,
-            begindatetime,
-            enddatetime,
-            cytsn,
-            spillover,
-            last_modifier,
-            last_modified,
-            originality,
-            plateid,
-            platename,
-            wellid,
-            vol,
-            carrierid,
-            carriertype,
-            locationid,
-            unstainedinfo,
-            unstainedcenters,
-            flowrate,
-            regions.into(),
-            gating,
-            abrt,
-            com,
-            cells,
-            exp,
-            fil,
-            inst,
-            lost,
-            op,
-            proj,
-            smno,
-            src,
-            sys,
-            tr,
-            nonstandard_keywords,
-        )
-        .mult_head()?
-        .into())
-    }
+    core::CoreTEXT3_2::try_new_3_2,
+    (
+        measurements,
+        PyEithers<AlwaysFamily, PyTemporal3_2, PyOptical3_2>,
+        false,
+        "list[tuple[str, :py:class:`Optical3_2` | :py:class:`Temporal3_2`]]",
+        "Measurements corresponding to columns in FCS file.
+         Temporal must be given zero or one times."
+    ),
+    (
+        layout,
+        PyLayout3_2,
+        false,
+        ":py:class:`AsciiFixedLayout` |
+         :py:class:`AsciiDelimLayout` |
+         :py:class:`EndianUintLayout` |
+         :py:class:`EndianF32Layout` |
+         :py:class:`EndianF64Layout` |
+         :py:class:`MixedLayout`",
+        "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*,
+         *$DATATYPE*, and *$PnDATATYPE*."
+    ),
+    (cyt, kws::Cyt, true, "str", "Value for *$CYT*."),
+    (mode, Option<kws::Mode3_2>, true, "Literal[\"L\", \"U\", \"C\"]", "Value for *$MODE*."),
+    (btim, Option<Btim<FCSTime100>>, true, "datetime.time", "Value for *$BTIM*."),
+    (etim, Option<Etim<FCSTime100>>, true, "datetime.time", "Value for *$ETIM*."),
+    (date, Option<FCSDate>, true, "datetime.date", "Value for *$DATE*."),
+    (begindatetime, Option<BeginDateTime>, true, "datetime.datetime", "Value for *$BEGINDATETIME*."),
+    (enddatetime, Option<EndDateTime>,true, "datetime.datetime", "Value for *$ENDDATETIME*."),
+    (cytsn, Option<kws::Cytsn>, true, "str", "Value for *$CYTSN*."),
+    (
+        spillover,
+        Option<Spillover>,
+        true,
+        "tuple[list[str], :py:class:`numpy.ndarray`]",
+        "Value for *$SPILLOVER*. First element of tuple the list of measurement
+         names and the second is the matrix. Each measurement name must
+         correspond to a *$PnN*, must be unique, and the length of this list
+         must match the number of rows and columns of the matrix. The matrix
+         must be at least 2x2."
+    ),
+    (
+        last_modifier,
+        Option<kws::LastModifier>,
+        true,
+        "str", "Value of *$LAST_MODIFIER*."
+    ),
+    (
+        last_modified,
+        Option<kws::LastModified>,
+        true,
+        "datetime.datetime",
+        "Value of *$LAST_MODIFIED*."
+    ),
+    (
+        originality,
+        Option<kws::Originality>,
+        true,
+        "Literal[\"Original\", \"NonDataModified\", \"Appended\", \"DataModified\"]",
+        "Value of *$ORIGINALITY*."
+    ),
+    (plateid, Option<kws::Plateid>, true, "str", "Value of *$PLATEID*."),
+    (platename, Option<kws::Platename>, true, "str", "Value of *$PLATENAME*."),
+    (wellid, Option<kws::Wellid>, true, "str", "Value of *$WELLID*."),
+    (vol, Option<kws::Vol>, true, "float", "Value of *$VOL*."),
+    (carrierid, Option<kws::Carrierid>, true, "str", "Value for *$CARRIERID*."),
+    (carriertype, Option<kws::Carriertype>, true, "str", "Value for *$CARRIERTYPE*."),
+    (locationid, Option<kws::Locationid>, true, "str", "Value for *$LOCATIONID*."),
+    (unstainedinfo, Option<kws::UnstainedInfo>, true, "str", "Value for *$UNSTAINEDINFO*."),
+    (
+        unstainedcenters,
+        Option<UnstainedCenters>,
+        true,
+        "dict[str, float]",
+        "Value for *$UNSTAINEDCENTERS. Each key must match a *$PnN*."
+    ),
+    (flowrate, Option<kws::Flowrate>, true, "str", "Value for *$FLOWRATE*."),
+    (
+        regions,
+        PyRegionMapping<PyRegion3_2>,
+        false,
+        "dict[int, :py:class:`UnivariateRegion3_2` | :py:class:`BivariateRegion3_2`]",
+        "Mapping of regions and windows to be used in gating scheme. Corresponds
+         to *$RnI* and *$RnW* keywords. Keys in dictionary are the region
+         indices (the *n* in *$RnI* and *$RnW*). The values in the dictionary
+         are either univariate or bivariate gates and must correspond to
+         physical measurements.",
+        "{}"
+    ),
+    (gating, Option<kws::Gating>, false, "str", "Value for *$GATING*."),
+    (abrt, Option<kws::Abrt>, true, "int", "Value for *$ABRT*."),
+    (com, Option<kws::Com>, true, "str", "Value for *$COM*."),
+    (cells, Option<kws::Cells>, true, "str", "Value for *$CELLS*."),
+    (exp, Option<kws::Exp>, true, "str", "Value for *$EXP*."),
+    (fil, Option<kws::Fil>, true, "str", "Value for *$FIL*."),
+    (inst, Option<kws::Inst>, true, "str", "Value for *$INST*."),
+    (lost, Option<kws::Lost>, true, "int", "Value for *$LOST*."),
+    (op, Option<kws::Op>, true, "str", "Value for *$OP*."),
+    (proj, Option<kws::Proj>, true, "str", "Value for *$PROJ*."),
+    (smno, Option<kws::Smno>, true, "str", "Value for *$SMNO*."),
+    (src, Option<kws::Src>, true, "str", "Value for *$SRC*."),
+    (sys, Option<kws::Sys>, true, "str", "Value for *$SYS*."),
+    (
+        tr,
+        Option<kws::Trigger>,
+        true,
+        "tuple[int, str]",
+        "Value for *$TR*. First member of tuple is threshold and second is the
+         measurement name which must match a *$PnN*."
+    ),
+    (
+        nonstandard_keywords,
+        HashMap<NonStdKey, String>,
+        true,
+        "dict[str, str]",
+        "Pairs of non-standard keyword values. Keys must not start with *$*."
+    ),
 }
 
 py_wrap!(PyCoreDataset2_0, core::CoreDataset2_0, "CoreDataset2_0");

@@ -154,45 +154,35 @@ macro_rules! py_wrap {
     };
 }
 
-// core* objects
-// py_wrap! {
-//     /// Represents *TEXT* for an FCS 2.0 file.
-//     PyCoreTEXT2_0,
-//     core::CoreTEXT2_0,
-//     "CoreTEXT2_0"
-// }
-
 impl_new_core! {
-    "Represents *TEXT* for an FCS 2.0 file.",
     core::CoreTEXT2_0,
+    core::CoreDataset2_0,
+    FCSDataFrame,
+    core::Analysis,
+    core::Others,
     core::CoreTEXT2_0::try_new_2_0,
-    (
-        measurements,
-        PyEithers<MaybeFamily, PyTemporal2_0, PyOptical2_0>,
-        false,
-        "list[tuple[str | None, :py:class:`Optical2_0`] | tuple[str, :py:class:`Temporal2_0`]]",
-        "Measurements corresponding to columns in FCS file.
-         Temporal must be given zero or one times."
-    ),
-    (
-        layout,
-        PyOrderedLayout,
-        false,
-        ":py:class:`AsciiFixedLayout` |
-         :py:class:`AsciiDelimLayout` |
-         :py:class:`OrderedUint08Layout` |
-         :py:class:`OrderedUint16Layout` |
-         :py:class:`OrderedUint24Layout` |
-         :py:class:`OrderedUint32Layout` |
-         :py:class:`OrderedUint40Layout` |
-         :py:class:`OrderedUint48Layout` |
-         :py:class:`OrderedUint56Layout` |
-         :py:class:`OrderedUint64Layout` |
-         :py:class:`OrderedF32Layout` |
-         :py:class:`OrderedF64Layout`",
-        "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*,
-         and *$DATATYPE*."
-    ),
+
+    PyEithers<MaybeFamily, PyTemporal2_0, PyOptical2_0>,
+    "list[tuple[str | None, :py:class:`Optical2_0`] | tuple[str, :py:class:`Temporal2_0`]]",
+    "Measurements corresponding to columns in FCS file.
+     Temporal must be given zero or one times.",
+
+    PyOrderedLayout,
+    ":py:class:`AsciiFixedLayout` |
+     :py:class:`AsciiDelimLayout` |
+     :py:class:`OrderedUint08Layout` |
+     :py:class:`OrderedUint16Layout` |
+     :py:class:`OrderedUint24Layout` |
+     :py:class:`OrderedUint32Layout` |
+     :py:class:`OrderedUint40Layout` |
+     :py:class:`OrderedUint48Layout` |
+     :py:class:`OrderedUint56Layout` |
+     :py:class:`OrderedUint64Layout` |
+     :py:class:`OrderedF32Layout` |
+     :py:class:`OrderedF64Layout`",
+    "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*,
+     and *$DATATYPE*.",
+
     (mode, kws::Mode, true, "Literal[\"L\", \"U\", \"C\"]", "Value for *$MODE*."),
     (cyt, Option<kws::Cyt>, true, "str", "Value for *$CYT*."),
     (
@@ -267,36 +257,34 @@ impl_new_core! {
 }
 
 impl_new_core! {
-    "Represents *TEXT* for an FCS 3.0 file.",
     core::CoreTEXT3_0,
+    core::CoreDataset3_0,
+    FCSDataFrame,
+    core::Analysis,
+    core::Others,
     core::CoreTEXT3_0::try_new_3_0,
-    (
-        measurements,
-        PyEithers<MaybeFamily, PyTemporal3_0, PyOptical3_0>,
-        false,
-        "list[tuple[str | None, :py:class:`Optical3_0`] | tuple[str, :py:class:`Temporal3_0`]]",
-        "Measurements corresponding to columns in FCS file.
-         Temporal must be given zero or one times."
-    ),
-    (
-        layout,
-        PyOrderedLayout,
-        false,
-        ":py:class:`AsciiFixedLayout` |
-         :py:class:`AsciiDelimLayout` |
-         :py:class:`OrderedUint08Layout` |
-         :py:class:`OrderedUint16Layout` |
-         :py:class:`OrderedUint24Layout` |
-         :py:class:`OrderedUint32Layout` |
-         :py:class:`OrderedUint40Layout` |
-         :py:class:`OrderedUint48Layout` |
-         :py:class:`OrderedUint56Layout` |
-         :py:class:`OrderedUint64Layout` |
-         :py:class:`OrderedF32Layout` |
-         :py:class:`OrderedF64Layout`",
-        "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*,
-         and *$DATATYPE*."
-    ),
+
+    PyEithers<MaybeFamily, PyTemporal3_0, PyOptical3_0>,
+    "list[tuple[str | None, :py:class:`Optical3_0`] | tuple[str, :py:class:`Temporal3_0`]]",
+    "Measurements corresponding to columns in FCS file.
+     Temporal must be given zero or one times.",
+
+    PyOrderedLayout,
+    ":py:class:`AsciiFixedLayout` |
+     :py:class:`AsciiDelimLayout` |
+     :py:class:`OrderedUint08Layout` |
+     :py:class:`OrderedUint16Layout` |
+     :py:class:`OrderedUint24Layout` |
+     :py:class:`OrderedUint32Layout` |
+     :py:class:`OrderedUint40Layout` |
+     :py:class:`OrderedUint48Layout` |
+     :py:class:`OrderedUint56Layout` |
+     :py:class:`OrderedUint64Layout` |
+     :py:class:`OrderedF32Layout` |
+     :py:class:`OrderedF64Layout`",
+    "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*,
+     and *$DATATYPE*.",
+
     (mode, kws::Mode, true, "Literal[\"L\", \"U\", \"C\"]", "Value for *$MODE*."),
     (cyt, Option<kws::Cyt>, true, "str", "Value for *$CYT*."),
     (
@@ -382,29 +370,27 @@ impl_new_core! {
 }
 
 impl_new_core! {
-    "Represents *TEXT* for an FCS 3.1 file.",
     core::CoreTEXT3_1,
+    core::CoreDataset3_1,
+    FCSDataFrame,
+    core::Analysis,
+    core::Others,
     core::CoreTEXT3_1::try_new_3_1,
-    (
-        measurements,
-        PyEithers<AlwaysFamily, PyTemporal3_1, PyOptical3_1>,
-        false,
-        "list[tuple[str, :py:class:`Optical3_1` | :py:class:`Temporal3_1`]]",
-        "Measurements corresponding to columns in FCS file.
-         Temporal must be given zero or one times."
-    ),
-    (
-        layout,
-        PyNonMixedLayout,
-        false,
-        ":py:class:`AsciiFixedLayout` |
-         :py:class:`AsciiDelimLayout` |
-         :py:class:`EndianUintLayout` |
-         :py:class:`EndianF32Layout` |
-         :py:class:`EndianF64Layout`",
-        "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*,
-         and *$DATATYPE*."
-    ),
+
+    PyEithers<AlwaysFamily, PyTemporal3_1, PyOptical3_1>,
+    "list[tuple[str, :py:class:`Optical3_1` | :py:class:`Temporal3_1`]]",
+    "Measurements corresponding to columns in FCS file.
+     Temporal must be given zero or one times.",
+
+    PyNonMixedLayout,
+    ":py:class:`AsciiFixedLayout` |
+     :py:class:`AsciiDelimLayout` |
+     :py:class:`EndianUintLayout` |
+     :py:class:`EndianF32Layout` |
+     :py:class:`EndianF64Layout`",
+    "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*,
+     and *$DATATYPE*.",
+
     (mode, kws::Mode, true, "Literal[\"L\", \"U\", \"C\"]", "Value for *$MODE*."),
     (cyt, Option<kws::Cyt>, true, "str", "Value for *$CYT*."),
     (btim, Option<Btim<FCSTime100>>, true, "datetime.time", "Value for *$BTIM*."),
@@ -507,30 +493,28 @@ impl_new_core! {
 }
 
 impl_new_core! {
-    "Represents *TEXT* for an FCS 3.2 file.",
     core::CoreTEXT3_2,
+    core::CoreDataset3_2,
+    FCSDataFrame,
+    core::Analysis,
+    core::Others,
     core::CoreTEXT3_2::try_new_3_2,
-    (
-        measurements,
-        PyEithers<AlwaysFamily, PyTemporal3_2, PyOptical3_2>,
-        false,
-        "list[tuple[str, :py:class:`Optical3_2` | :py:class:`Temporal3_2`]]",
-        "Measurements corresponding to columns in FCS file.
-         Temporal must be given zero or one times."
-    ),
-    (
-        layout,
-        PyLayout3_2,
-        false,
-        ":py:class:`AsciiFixedLayout` |
-         :py:class:`AsciiDelimLayout` |
-         :py:class:`EndianUintLayout` |
-         :py:class:`EndianF32Layout` |
-         :py:class:`EndianF64Layout` |
-         :py:class:`MixedLayout`",
-        "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*,
-         *$DATATYPE*, and *$PnDATATYPE*."
-    ),
+
+    PyEithers<AlwaysFamily, PyTemporal3_2, PyOptical3_2>,
+    "list[tuple[str, :py:class:`Optical3_2` | :py:class:`Temporal3_2`]]",
+    "Measurements corresponding to columns in FCS file.
+     Temporal must be given zero or one times.",
+
+    PyLayout3_2,
+    ":py:class:`AsciiFixedLayout` |
+     :py:class:`AsciiDelimLayout` |
+     :py:class:`EndianUintLayout` |
+     :py:class:`EndianF32Layout` |
+     :py:class:`EndianF64Layout` |
+     :py:class:`MixedLayout`",
+    "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*,
+     *$DATATYPE*, and *$PnDATATYPE*.",
+
     (cyt, kws::Cyt, true, "str", "Value for *$CYT*."),
     (mode, Option<kws::Mode3_2>, true, "Literal[\"L\", \"U\", \"C\"]", "Value for *$MODE*."),
     (btim, Option<Btim<FCSTime100>>, true, "datetime.time", "Value for *$BTIM*."),
@@ -628,10 +612,10 @@ impl_new_core! {
     ),
 }
 
-py_wrap!(PyCoreDataset2_0, core::CoreDataset2_0, "CoreDataset2_0");
-py_wrap!(PyCoreDataset3_0, core::CoreDataset3_0, "CoreDataset3_0");
-py_wrap!(PyCoreDataset3_1, core::CoreDataset3_1, "CoreDataset3_1");
-py_wrap!(PyCoreDataset3_2, core::CoreDataset3_2, "CoreDataset3_2");
+// py_wrap!(PyCoreDataset2_0, core::CoreDataset2_0, "CoreDataset2_0");
+// py_wrap!(PyCoreDataset3_0, core::CoreDataset3_0, "CoreDataset3_0");
+// py_wrap!(PyCoreDataset3_1, core::CoreDataset3_1, "CoreDataset3_1");
+// py_wrap!(PyCoreDataset3_2, core::CoreDataset3_2, "CoreDataset3_2");
 
 // TODO nonstandard_keywords could be "enforced" by storing the prefix somehow
 py_wrap! {

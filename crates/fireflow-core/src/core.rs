@@ -8,10 +8,7 @@ use crate::segment::*;
 use crate::text::byteord::*;
 use crate::text::compensation::*;
 use crate::text::datetimes::*;
-use crate::text::gating::{
-    self, AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, GatedMeasurement,
-    NewAppliedGatesWithSchemeError, NewGatingSchemeError, Region2_0, Region3_0, Region3_2,
-};
+use crate::text::gating::{self, AppliedGates2_0, AppliedGates3_0, AppliedGates3_2};
 use crate::text::index::*;
 use crate::text::keywords::*;
 use crate::text::named_vec::*;

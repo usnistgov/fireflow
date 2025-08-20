@@ -34,7 +34,7 @@ use fireflow_core::validated::shortname::{Shortname, ShortnamePrefix};
 use fireflow_core::validated::textdelim::TEXTDelim;
 use fireflow_python_proc::{
     impl_convert_version, impl_get_set_all_meas, impl_get_set_meas_obj_common,
-    impl_get_set_metaroot, impl_meas_get_set, impl_new_core,
+    impl_get_set_metaroot, impl_meas_get_set, impl_new_core, impl_new_meas,
 };
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
@@ -183,8 +183,8 @@ impl_new_core! {
     "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*,
      and *$DATATYPE*.",
 
-    (mode, kws::Mode, true, "Literal[\"L\", \"U\", \"C\"]", "Value for *$MODE*."),
-    (cyt, Option<kws::Cyt>, true, "str", "Value for *$CYT*."),
+    (mode, kws::Mode, true, "Literal[\"L\", \"U\", \"C\"]"),
+    (cyt, Option<kws::Cyt>, true, "str"),
     (
         comp,
         Option<Compensation2_0>,
@@ -194,9 +194,9 @@ impl_new_core! {
          rows/columns equal to the number of measurements. Non-zero entries
          will produce a *$DFCmTOn* keyword."
     ),
-    (btim, Option<Btim<FCSTime>>, true, "datetime.time", "Value for *$BTIM*."),
-    (etim, Option<Etim<FCSTime>>, true, "datetime.time", "Value for *$ETIM*."),
-    (date, Option<FCSDate>, true, "datetime.date", "Value for *$DATE*."),
+    (btim, Option<Btim<FCSTime>>, true, "datetime.time"),
+    (etim, Option<Etim<FCSTime>>, true, "datetime.time"),
+    (date, Option<FCSDate>, true, "datetime.date"),
     (
         gated_measurements,
         PyGatedMeasurements,
@@ -217,19 +217,19 @@ impl_new_core! {
          physical measurements of an index in ``gated_measurements``.",
         "{}"
     ),
-    (gating, Option<kws::Gating>, false, "str", "Value for *$GATING*."),
-    (abrt, Option<kws::Abrt>, true, "int", "Value for *$ABRT*."),
-    (com, Option<kws::Com>, true, "str", "Value for *$COM*."),
-    (cells, Option<kws::Cells>, true, "str", "Value for *$CELLS*."),
-    (exp, Option<kws::Exp>, true, "str", "Value for *$EXP*."),
-    (fil, Option<kws::Fil>, true, "str", "Value for *$FIL*."),
-    (inst, Option<kws::Inst>, true, "str", "Value for *$INST*."),
-    (lost, Option<kws::Lost>, true, "int", "Value for *$LOST*."),
-    (op, Option<kws::Op>, true, "str", "Value for *$OP*."),
-    (proj, Option<kws::Proj>, true, "str", "Value for *$PROJ*."),
-    (smno, Option<kws::Smno>, true, "str", "Value for *$SMNO*."),
-    (src, Option<kws::Src>, true, "str", "Value for *$SRC*."),
-    (sys, Option<kws::Sys>, true, "str", "Value for *$SYS*."),
+    (gating, Option<kws::Gating>, false, "str"),
+    (abrt, Option<kws::Abrt>, true, "int"),
+    (com, Option<kws::Com>, true, "str"),
+    (cells, Option<kws::Cells>, true, "str"),
+    (exp, Option<kws::Exp>, true, "str"),
+    (fil, Option<kws::Fil>, true, "str"),
+    (inst, Option<kws::Inst>, true, "str"),
+    (lost, Option<kws::Lost>, true, "int"),
+    (op, Option<kws::Op>, true, "str"),
+    (proj, Option<kws::Proj>, true, "str"),
+    (smno, Option<kws::Smno>, true, "str"),
+    (src, Option<kws::Src>, true, "str"),
+    (sys, Option<kws::Sys>, true, "str"),
     (
         tr,
         Option<kws::Trigger>,
@@ -285,8 +285,8 @@ impl_new_core! {
     "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*,
      and *$DATATYPE*.",
 
-    (mode, kws::Mode, true, "Literal[\"L\", \"U\", \"C\"]", "Value for *$MODE*."),
-    (cyt, Option<kws::Cyt>, true, "str", "Value for *$CYT*."),
+    (mode, kws::Mode, true, "Literal[\"L\", \"U\", \"C\"]"),
+    (cyt, Option<kws::Cyt>, true, "str"),
     (
         comp,
         Option<Compensation3_0>,
@@ -295,13 +295,13 @@ impl_new_core! {
         "The value of *$COMP*. Must be a square array with number of
          rows/columns equal to the number of measurements."
     ),
-    (btim, Option<Btim<FCSTime60>>, true, "datetime.time", "Value for *$BTIM*."),
-    (etim, Option<Etim<FCSTime60>>, true, "datetime.time", "Value for *$ETIM*."),
-    (date, Option<FCSDate>, true, "datetime.date", "Value for *$DATE*."),
-    (cytsn, Option<kws::Cytsn>, true, "str", "Value for *$CYTSN*."),
-    (unicode, Option<kws::Unicode>, true, "tuple[int, list[str]]", "Value for *$UNICODE*."),
-    (csvbits, Option<kws::CSVBits>, true, "int", "Value for *$CSVBITS*."),
-    (cstot, Option<kws::CSTot>, true, "int", "Value for *$CSTot*."),
+    (btim, Option<Btim<FCSTime60>>, true, "datetime.time"),
+    (etim, Option<Etim<FCSTime60>>, true, "datetime.time"),
+    (date, Option<FCSDate>, true, "datetime.date"),
+    (cytsn, Option<kws::Cytsn>, true, "str"),
+    (unicode, Option<kws::Unicode>, true, "tuple[int, list[str]]"),
+    (csvbits, Option<kws::CSVBits>, true, "int"),
+    (cstot, Option<kws::CSTot>, true, "int"),
     (
         csvflags,
         Option<core::CSVFlags>,
@@ -330,19 +330,19 @@ impl_new_core! {
         measurements of an index in ``gated_measurements``.",
         "{}"
     ),
-    (gating, Option<kws::Gating>, false, "str", "Value for *$GATING*."),
-    (abrt, Option<kws::Abrt>, true, "int", "Value for *$ABRT*."),
-    (com, Option<kws::Com>, true, "str", "Value for *$COM*."),
-    (cells, Option<kws::Cells>, true, "str", "Value for *$CELLS*."),
-    (exp, Option<kws::Exp>, true, "str", "Value for *$EXP*."),
-    (fil, Option<kws::Fil>, true, "str", "Value for *$FIL*."),
-    (inst, Option<kws::Inst>, true, "str", "Value for *$INST*."),
-    (lost, Option<kws::Lost>, true, "int", "Value for *$LOST*."),
-    (op, Option<kws::Op>, true, "str", "Value for *$OP*."),
-    (proj, Option<kws::Proj>, true, "str", "Value for *$PROJ*."),
-    (smno, Option<kws::Smno>, true, "str", "Value for *$SMNO*."),
-    (src, Option<kws::Src>, true, "str", "Value for *$SRC*."),
-    (sys, Option<kws::Sys>, true, "str", "Value for *$SYS*."),
+    (gating, Option<kws::Gating>, false, "str"),
+    (abrt, Option<kws::Abrt>, true, "int"),
+    (com, Option<kws::Com>, true, "str"),
+    (cells, Option<kws::Cells>, true, "str"),
+    (exp, Option<kws::Exp>, true, "str"),
+    (fil, Option<kws::Fil>, true, "str"),
+    (inst, Option<kws::Inst>, true, "str"),
+    (lost, Option<kws::Lost>, true, "int"),
+    (op, Option<kws::Op>, true, "str"),
+    (proj, Option<kws::Proj>, true, "str"),
+    (smno, Option<kws::Smno>, true, "str"),
+    (src, Option<kws::Src>, true, "str"),
+    (sys, Option<kws::Sys>, true, "str"),
     (
         tr,
         Option<kws::Trigger>,
@@ -391,12 +391,12 @@ impl_new_core! {
     "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*,
      and *$DATATYPE*.",
 
-    (mode, kws::Mode, true, "Literal[\"L\", \"U\", \"C\"]", "Value for *$MODE*."),
-    (cyt, Option<kws::Cyt>, true, "str", "Value for *$CYT*."),
-    (btim, Option<Btim<FCSTime100>>, true, "datetime.time", "Value for *$BTIM*."),
-    (etim, Option<Etim<FCSTime100>>, true, "datetime.time", "Value for *$ETIM*."),
-    (date, Option<FCSDate>, true, "datetime.date", "Value for *$DATE*."),
-    (cytsn, Option<kws::Cytsn>, true, "str", "Value for *$CYTSN*."),
+    (mode, kws::Mode, true, "Literal[\"L\", \"U\", \"C\"]"),
+    (cyt, Option<kws::Cyt>, true, "str"),
+    (btim, Option<Btim<FCSTime100>>, true, "datetime.time"),
+    (etim, Option<Etim<FCSTime100>>, true, "datetime.time"),
+    (date, Option<FCSDate>, true, "datetime.date"),
+    (cytsn, Option<kws::Cytsn>, true, "str"),
     (
         spillover,
         Option<Spillover>,
@@ -408,32 +408,20 @@ impl_new_core! {
          must match the number of rows and columns of the matrix. The matrix
          must be at least 2x2."
     ),
-    (
-        last_modifier,
-        Option<kws::LastModifier>,
-        true,
-        "str", "Value of *$LAST_MODIFIER*."
-    ),
-    (
-        last_modified,
-        Option<kws::LastModified>,
-        true,
-        "datetime.datetime",
-        "Value of *$LAST_MODIFIED*."
-    ),
+    (last_modifier, Option<kws::LastModifier>, true, "str"),
+    (last_modified, Option<kws::LastModified>, true, "datetime.datetime"),
     (
         originality,
         Option<kws::Originality>,
         true,
-        "Literal[\"Original\", \"NonDataModified\", \"Appended\", \"DataModified\"]",
-        "Value of *$ORIGINALITY*."
+        "Literal[\"Original\", \"NonDataModified\", \"Appended\", \"DataModified\"]"
     ),
-    (plateid, Option<kws::Plateid>, true, "str", "Value of *$PLATEID*."),
-    (platename, Option<kws::Platename>, true, "str", "Value of *$PLATENAME*."),
-    (wellid, Option<kws::Wellid>, true, "str", "Value of *$WELLID*."),
-    (vol, Option<kws::Vol>, true, "float", "Value of *$VOL*."),
-    (csvbits, Option<kws::CSVBits>, true, "int", "Value for *$CSVBITS*."),
-    (cstot, Option<kws::CSTot>, true, "int", "Value for *$CSTot*."),
+    (plateid, Option<kws::Plateid>, true, "str"),
+    (platename, Option<kws::Platename>, true, "str"),
+    (wellid, Option<kws::Wellid>, true, "str"),
+    (vol, Option<kws::Vol>, true, "float"),
+    (csvbits, Option<kws::CSVBits>, true, "int"),
+    (cstot, Option<kws::CSTot>, true, "int"),
     (
         csvflags,
         Option<core::CSVFlags>,
@@ -462,19 +450,19 @@ impl_new_core! {
         measurements of an index in ``gated_measurements``.",
         "{}"
     ),
-    (gating, Option<kws::Gating>, false, "str", "Value for *$GATING*."),
-    (abrt, Option<kws::Abrt>, true, "int", "Value for *$ABRT*."),
-    (com, Option<kws::Com>, true, "str", "Value for *$COM*."),
-    (cells, Option<kws::Cells>, true, "str", "Value for *$CELLS*."),
-    (exp, Option<kws::Exp>, true, "str", "Value for *$EXP*."),
-    (fil, Option<kws::Fil>, true, "str", "Value for *$FIL*."),
-    (inst, Option<kws::Inst>, true, "str", "Value for *$INST*."),
-    (lost, Option<kws::Lost>, true, "int", "Value for *$LOST*."),
-    (op, Option<kws::Op>, true, "str", "Value for *$OP*."),
-    (proj, Option<kws::Proj>, true, "str", "Value for *$PROJ*."),
-    (smno, Option<kws::Smno>, true, "str", "Value for *$SMNO*."),
-    (src, Option<kws::Src>, true, "str", "Value for *$SRC*."),
-    (sys, Option<kws::Sys>, true, "str", "Value for *$SYS*."),
+    (gating, Option<kws::Gating>, false, "str"),
+    (abrt, Option<kws::Abrt>, true, "int"),
+    (com, Option<kws::Com>, true, "str"),
+    (cells, Option<kws::Cells>, true, "str"),
+    (exp, Option<kws::Exp>, true, "str"),
+    (fil, Option<kws::Fil>, true, "str"),
+    (inst, Option<kws::Inst>, true, "str"),
+    (lost, Option<kws::Lost>, true, "int"),
+    (op, Option<kws::Op>, true, "str"),
+    (proj, Option<kws::Proj>, true, "str"),
+    (smno, Option<kws::Smno>, true, "str"),
+    (src, Option<kws::Src>, true, "str"),
+    (sys, Option<kws::Sys>, true, "str"),
     (
         tr,
         Option<kws::Trigger>,
@@ -515,14 +503,14 @@ impl_new_core! {
     "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*,
      *$DATATYPE*, and *$PnDATATYPE*.",
 
-    (cyt, kws::Cyt, true, "str", "Value for *$CYT*."),
-    (mode, Option<kws::Mode3_2>, true, "Literal[\"L\", \"U\", \"C\"]", "Value for *$MODE*."),
-    (btim, Option<Btim<FCSTime100>>, true, "datetime.time", "Value for *$BTIM*."),
-    (etim, Option<Etim<FCSTime100>>, true, "datetime.time", "Value for *$ETIM*."),
-    (date, Option<FCSDate>, true, "datetime.date", "Value for *$DATE*."),
-    (begindatetime, Option<BeginDateTime>, true, "datetime.datetime", "Value for *$BEGINDATETIME*."),
-    (enddatetime, Option<EndDateTime>,true, "datetime.datetime", "Value for *$ENDDATETIME*."),
-    (cytsn, Option<kws::Cytsn>, true, "str", "Value for *$CYTSN*."),
+    (cyt, kws::Cyt, true, "str"),
+    (mode, Option<kws::Mode3_2>, true, "Literal[\"L\", \"U\", \"C\"]"),
+    (btim, Option<Btim<FCSTime100>>, true, "datetime.time"),
+    (etim, Option<Etim<FCSTime100>>, true, "datetime.time"),
+    (date, Option<FCSDate>, true, "datetime.date"),
+    (begindatetime, Option<BeginDateTime>, true, "datetime.datetime"),
+    (enddatetime, Option<EndDateTime>,true, "datetime.datetime"),
+    (cytsn, Option<kws::Cytsn>, true, "str"),
     (
         spillover,
         Option<Spillover>,
@@ -534,34 +522,22 @@ impl_new_core! {
          must match the number of rows and columns of the matrix. The matrix
          must be at least 2x2."
     ),
-    (
-        last_modifier,
-        Option<kws::LastModifier>,
-        true,
-        "str", "Value of *$LAST_MODIFIER*."
-    ),
-    (
-        last_modified,
-        Option<kws::LastModified>,
-        true,
-        "datetime.datetime",
-        "Value of *$LAST_MODIFIED*."
-    ),
+    (last_modifier, Option<kws::LastModifier>, true, "str"),
+    (last_modified, Option<kws::LastModified>, true, "datetime.datetime"),
     (
         originality,
         Option<kws::Originality>,
         true,
-        "Literal[\"Original\", \"NonDataModified\", \"Appended\", \"DataModified\"]",
-        "Value of *$ORIGINALITY*."
+        "Literal[\"Original\", \"NonDataModified\", \"Appended\", \"DataModified\"]"
     ),
-    (plateid, Option<kws::Plateid>, true, "str", "Value of *$PLATEID*."),
-    (platename, Option<kws::Platename>, true, "str", "Value of *$PLATENAME*."),
-    (wellid, Option<kws::Wellid>, true, "str", "Value of *$WELLID*."),
-    (vol, Option<kws::Vol>, true, "float", "Value of *$VOL*."),
-    (carrierid, Option<kws::Carrierid>, true, "str", "Value for *$CARRIERID*."),
-    (carriertype, Option<kws::Carriertype>, true, "str", "Value for *$CARRIERTYPE*."),
-    (locationid, Option<kws::Locationid>, true, "str", "Value for *$LOCATIONID*."),
-    (unstainedinfo, Option<kws::UnstainedInfo>, true, "str", "Value for *$UNSTAINEDINFO*."),
+    (plateid, Option<kws::Plateid>, true, "str"),
+    (platename, Option<kws::Platename>, true, "str"),
+    (wellid, Option<kws::Wellid>, true, "str"),
+    (vol, Option<kws::Vol>, true, "float"),
+    (carrierid, Option<kws::Carrierid>, true, "str"),
+    (carriertype, Option<kws::Carriertype>, true, "str"),
+    (locationid, Option<kws::Locationid>, true, "str"),
+    (unstainedinfo, Option<kws::UnstainedInfo>, true, "str"),
     (
         unstainedcenters,
         Option<UnstainedCenters>,
@@ -569,7 +545,7 @@ impl_new_core! {
         "dict[str, float]",
         "Value for *$UNSTAINEDCENTERS. Each key must match a *$PnN*."
     ),
-    (flowrate, Option<kws::Flowrate>, true, "str", "Value for *$FLOWRATE*."),
+    (flowrate, Option<kws::Flowrate>, true, "str"),
     (
         regions,
         PyRegionMapping<PyRegion3_2>,
@@ -582,19 +558,19 @@ impl_new_core! {
          physical measurements.",
         "{}"
     ),
-    (gating, Option<kws::Gating>, false, "str", "Value for *$GATING*."),
-    (abrt, Option<kws::Abrt>, true, "int", "Value for *$ABRT*."),
-    (com, Option<kws::Com>, true, "str", "Value for *$COM*."),
-    (cells, Option<kws::Cells>, true, "str", "Value for *$CELLS*."),
-    (exp, Option<kws::Exp>, true, "str", "Value for *$EXP*."),
-    (fil, Option<kws::Fil>, true, "str", "Value for *$FIL*."),
-    (inst, Option<kws::Inst>, true, "str", "Value for *$INST*."),
-    (lost, Option<kws::Lost>, true, "int", "Value for *$LOST*."),
-    (op, Option<kws::Op>, true, "str", "Value for *$OP*."),
-    (proj, Option<kws::Proj>, true, "str", "Value for *$PROJ*."),
-    (smno, Option<kws::Smno>, true, "str", "Value for *$SMNO*."),
-    (src, Option<kws::Src>, true, "str", "Value for *$SRC*."),
-    (sys, Option<kws::Sys>, true, "str", "Value for *$SYS*."),
+    (gating, Option<kws::Gating>, false, "str"),
+    (abrt, Option<kws::Abrt>, true, "int"),
+    (com, Option<kws::Com>, true, "str"),
+    (cells, Option<kws::Cells>, true, "str"),
+    (exp, Option<kws::Exp>, true, "str"),
+    (fil, Option<kws::Fil>, true, "str"),
+    (inst, Option<kws::Inst>, true, "str"),
+    (lost, Option<kws::Lost>, true, "int"),
+    (op, Option<kws::Op>, true, "str"),
+    (proj, Option<kws::Proj>, true, "str"),
+    (smno, Option<kws::Smno>, true, "str"),
+    (src, Option<kws::Src>, true, "str"),
+    (sys, Option<kws::Sys>, true, "str"),
     (
         tr,
         Option<kws::Trigger>,
@@ -612,84 +588,41 @@ impl_new_core! {
     ),
 }
 
-// py_wrap!(PyCoreDataset2_0, core::CoreDataset2_0, "CoreDataset2_0");
-// py_wrap!(PyCoreDataset3_0, core::CoreDataset3_0, "CoreDataset3_0");
-// py_wrap!(PyCoreDataset3_1, core::CoreDataset3_1, "CoreDataset3_1");
-// py_wrap!(PyCoreDataset3_2, core::CoreDataset3_2, "CoreDataset3_2");
-
 // TODO nonstandard_keywords could be "enforced" by storing the prefix somehow
-py_wrap! {
-    /// Encodes FCS2.0 *$Pn\** keywords for an optical measurement.
-    ///
-    /// Note that *$PnN* is set separately when this object is stored in a
-    /// ``Core*`` object.
-    ///
-    /// :ivar tuple[()] | tuple[float, float] | None scale: The value of *$PnE*
-    /// :ivar float | None wavelength: The value of *$PnL*
-    /// :ivar int | None bin: The value of *$PKn*
-    /// :ivar int | None size: The value of *$PKNn*
-    /// :ivar str | None filter: The value of *$PnF*
-    /// :ivar float | None power: The value of *$PnO*
-    /// :ivar str | None detector_type: The value of *$PnT*
-    /// :ivar str | None percent_emitted: The value of *$PnP*
-    /// :ivar str | None detector_voltage: The value of *$PnV*
-    /// :ivar str | None longname: The value of *PnS*
-    /// :ivar dict[str, str] nonstandard_keywords: Any non-standard keywords
-    ///    corresponding to this measurement. No keys should start with *$*.
-    ///    Realistically each key should follow a pattern corresponding to the
-    ///    measurement index, something like prefixing with "P" followed by the
-    ///    index. This is not enforced.
-    PyOptical2_0,
+impl_new_meas! {
     core::Optical2_0,
-    "Optical2_0"
+    core::Optical2_0::new_2_0,
+    (
+        scale,
+        Option<Scale>,
+        true,
+        "tuple[()] | tuple[float, float]",
+        "Value for *$PnE*. Empty tuple means linear scale; 2-tuple encodes
+         decades and offset for log scale"
+    ),
+    (wavelength, Option<kws::Wavelength>, true, "float", "Value for *$PnL*."),
+    (bin, Option<kws::PeakBin>, true, "int", "Value for *$PKn*."),
+    (size, Option<kws::PeakNumber>, true, "int", "Value for *$PKNn*."),
+    (filter, Option<kws::Filter>, true, "str", "Value for *$PnF*."),
+    (power, Option<kws::Power>, true, "float", "Value for *$PnO*."),
+    (detector_type, Option<kws::DetectorType>, true, "str", "Value for *$PnT*."),
+    (percent_emitted, Option<kws::PercentEmitted>, true, "str", "Value for *$PnP*."),
+    (detector_voltage, Option<kws::DetectorVoltage>, true, "float", "Value for *$PnV*."),
+    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS."),
+    (
+        nonstandard_keywords,
+        HashMap<NonStdKey, String>,
+        true,
+        "dict[str, str]",
+        "Any non-standard keywords corresponding to this measurement. No keys
+         should start with *$*. Realistically each key should follow a pattern
+         corresponding to the measurement index, something like prefixing with
+         \"P\" followed by the index. This is not enforced."
+    ),
 }
 
 #[pymethods]
 impl PyOptical2_0 {
-    #[new]
-    #[allow(clippy::too_many_arguments)]
-    #[pyo3(text_signature = "(
-        scale = None,
-        wavelength = None,
-        bin = None,
-        size = None,
-        filter = None,
-        power = None,
-        detector_type = None,
-        percent_emitted = None,
-        detector_voltage = None,
-        longname = None,
-        nonstandard_keywords = {},
-    )")]
-    fn new(
-        scale: Option<Scale>,
-        wavelength: Option<kws::Wavelength>,
-        bin: Option<kws::PeakBin>,
-        size: Option<kws::PeakNumber>,
-        filter: Option<kws::Filter>,
-        power: Option<kws::Power>,
-        detector_type: Option<kws::DetectorType>,
-        percent_emitted: Option<kws::PercentEmitted>,
-        detector_voltage: Option<kws::DetectorVoltage>,
-        longname: Option<kws::Longname>,
-        nonstandard_keywords: HashMap<NonStdKey, String>,
-    ) -> Self {
-        core::Optical2_0::new_2_0(
-            scale,
-            wavelength,
-            bin,
-            size,
-            filter,
-            power,
-            detector_type,
-            percent_emitted,
-            detector_voltage,
-            longname,
-            nonstandard_keywords,
-        )
-        .into()
-    }
-
     /// The value for *$PnE* for all measurements.
     ///
     /// Will be ``()`` for linear scaling (``0,0`` in FCS encoding), a
@@ -707,304 +640,241 @@ impl PyOptical2_0 {
     }
 }
 
-py_wrap! {
-    /// Encodes FCS3.0 *$Pn\** keywords for an optical measurement.
-    PyOptical3_0,
+impl_new_meas! {
     core::Optical3_0,
-    "Optical3_0"
-}
-
-#[pymethods]
-impl PyOptical3_0 {
-    #[new]
-    #[allow(clippy::too_many_arguments)]
-    #[pyo3(text_signature = "(
+    core::Optical3_0::new_3_0,
+    (
         transform,
-        wavelength = None,
-        bin = None,
-        size = None,
-        filter = None,
-        power = None,
-        detector_type = None,
-        percent_emitted = None,
-        detector_voltage = None,
-        longname = None,
-        nonstandard_keywords = {},
-    )")]
-    fn new(
-        transform: core::ScaleTransform,
-        wavelength: Option<kws::Wavelength>,
-        bin: Option<kws::PeakBin>,
-        size: Option<kws::PeakNumber>,
-        filter: Option<kws::Filter>,
-        power: Option<kws::Power>,
-        detector_type: Option<kws::DetectorType>,
-        percent_emitted: Option<kws::PercentEmitted>,
-        detector_voltage: Option<kws::DetectorVoltage>,
-        longname: Option<kws::Longname>,
-        nonstandard_keywords: HashMap<NonStdKey, String>,
-    ) -> Self {
-        core::Optical3_0::new_3_0(
-            transform,
-            wavelength,
-            bin,
-            size,
-            filter,
-            power,
-            detector_type,
-            percent_emitted,
-            detector_voltage,
-            longname,
-            nonstandard_keywords,
-        )
-        .into()
-    }
+        core::ScaleTransform,
+        true,
+        "float | tuple[float, float]",
+        "Value for *$PnE* and/or *$PnG*. Singleton float encodes gain (*$PnG*)
+         and implies linear scaling (ie *$PnE* is ``0,0``). 2-tuple encodes
+         decades and offset for log scale, and implies *$PnG* is not set."
+    ),
+    (wavelength, Option<kws::Wavelength>, true, "float", "Value for *$PnL*."),
+    (bin, Option<kws::PeakBin>, true, "int", "Value for *$PKn*."),
+    (size, Option<kws::PeakNumber>, true, "int", "Value for *$PKNn*."),
+    (filter, Option<kws::Filter>, true, "str", "Value for *$PnF*."),
+    (power, Option<kws::Power>, true, "float", "Value for *$PnO*."),
+    (detector_type, Option<kws::DetectorType>, true, "str", "Value for *$PnT*."),
+    (percent_emitted, Option<kws::PercentEmitted>, true, "str", "Value for *$PnP*."),
+    (detector_voltage, Option<kws::DetectorVoltage>, true, "float", "Value for *$PnV*."),
+    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS."),
+    (
+        nonstandard_keywords,
+        HashMap<NonStdKey, String>,
+        true,
+        "dict[str, str]",
+        "Any non-standard keywords corresponding to this measurement. No keys
+         should start with *$*. Realistically each key should follow a pattern
+         corresponding to the measurement index, something like prefixing with
+         \"P\" followed by the index. This is not enforced."
+    ),
 }
 
-py_wrap! {
-    /// Encodes FCS3.1 *$Pn\** keywords for an optical measurement.
-    PyOptical3_1,
+impl_new_meas! {
     core::Optical3_1,
-    "Optical3_1"
-}
-
-#[pymethods]
-impl PyOptical3_1 {
-    #[new]
-    #[allow(clippy::too_many_arguments)]
-    #[pyo3(text_signature = "(
+    core::Optical3_1::new_3_1,
+    (
         transform,
-        wavelengths = None,
-        calibration = None,
-        display = None,
-        bin = None,
-        size = None,
-        filter = None,
-        power = None,
-        detector_type = None,
-        percent_emitted = None,
-        detector_voltage = None,
-        longname = None,
-        nonstandard_keywords = {},
-    )")]
-    fn new(
-        transform: core::ScaleTransform,
-        wavelengths: Option<kws::Wavelengths>,
-        calibration: Option<kws::Calibration3_1>,
-        display: Option<kws::Display>,
-        bin: Option<kws::PeakBin>,
-        size: Option<kws::PeakNumber>,
-        filter: Option<kws::Filter>,
-        power: Option<kws::Power>,
-        detector_type: Option<kws::DetectorType>,
-        percent_emitted: Option<kws::PercentEmitted>,
-        detector_voltage: Option<kws::DetectorVoltage>,
-        longname: Option<kws::Longname>,
-        nonstandard_keywords: HashMap<NonStdKey, String>,
-    ) -> Self {
-        core::Optical3_1::new_3_1(
-            transform,
-            wavelengths,
-            calibration,
-            display,
-            bin,
-            size,
-            filter,
-            power,
-            detector_type,
-            percent_emitted,
-            detector_voltage,
-            longname,
-            nonstandard_keywords,
-        )
-        .into()
-    }
+        core::ScaleTransform,
+        true,
+        "float | tuple[float, float]",
+        "Value for *$PnE* and/or *$PnG*. Singleton float encodes gain (*$PnG*)
+         and implies linear scaling (ie *$PnE* is ``0,0``). 2-tuple encodes
+         decades and offset for log scale, and implies *$PnG* is not set."
+    ),
+    (wavelengths, Option<kws::Wavelengths>, true, "float", "Value for *$PnL*."),
+    (
+        calibration,
+        Option<kws::Calibration3_1>,
+        true,
+        "tuple[float, str]",
+        "Value of *$PnCALIBRATION*. Tuple encodes slope and calibration units."
+    ),
+    (
+        display,
+        Option<kws::Display>,
+        true,
+        "tuple[bool, float, float]",
+        "Value of *$PnD*. First member of tuple encodes linear or log display
+         (``False`` and ``True`` respectively). The float members encode
+         lower/upper and decades/offset for linear and log scaling respectively."
+    ),
+    (bin, Option<kws::PeakBin>, true, "int", "Value for *$PKn*."),
+    (size, Option<kws::PeakNumber>, true, "int", "Value for *$PKNn*."),
+    (filter, Option<kws::Filter>, true, "str", "Value for *$PnF*."),
+    (power, Option<kws::Power>, true, "float", "Value for *$PnO*."),
+    (detector_type, Option<kws::DetectorType>, true, "str", "Value for *$PnT*."),
+    (percent_emitted, Option<kws::PercentEmitted>, true, "str", "Value for *$PnP*."),
+    (detector_voltage, Option<kws::DetectorVoltage>, true, "float", "Value for *$PnV*."),
+    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS."),
+    (
+        nonstandard_keywords,
+        HashMap<NonStdKey, String>,
+        true,
+        "dict[str, str]",
+        "Any non-standard keywords corresponding to this measurement. No keys
+         should start with *$*. Realistically each key should follow a pattern
+         corresponding to the measurement index, something like prefixing with
+         \"P\" followed by the index. This is not enforced."
+    ),
 }
 
-py_wrap! {
-    /// Encodes FCS3.2 *$Pn\** keywords for an optical measurement.
-    PyOptical3_2,
+impl_new_meas! {
     core::Optical3_2,
-    "Optical3_2"
-}
-
-#[pymethods]
-impl PyOptical3_2 {
-    #[new]
-    #[allow(clippy::too_many_arguments)]
-    #[pyo3(text_signature = "(
+    core::Optical3_2::new_3_2,
+    (
         transform,
-        wavelengths = None,
-        calibration = None,
-        display = None,
-        analyte = None,
-        feature = None,
-        tag = None,
-        measurement_type = None,
-        detector_name = None,
-        filter = None,
-        power = None,
-        detector_type = None,
-        percent_emitted = None,
-        detector_voltage = None,
-        longname = None,
-        nonstandard_keywords = {},
-    )")]
-    fn new(
-        transform: core::ScaleTransform,
-        wavelengths: Option<kws::Wavelengths>,
-        calibration: Option<kws::Calibration3_2>,
-        display: Option<kws::Display>,
-        analyte: Option<kws::Analyte>,
-        feature: Option<kws::Feature>,
-        tag: Option<kws::Tag>,
-        measurement_type: Option<kws::OpticalType>,
-        detector_name: Option<kws::DetectorName>,
-        filter: Option<kws::Filter>,
-        power: Option<kws::Power>,
-        detector_type: Option<kws::DetectorType>,
-        percent_emitted: Option<kws::PercentEmitted>,
-        detector_voltage: Option<kws::DetectorVoltage>,
-        longname: Option<kws::Longname>,
-        nonstandard_keywords: HashMap<NonStdKey, String>,
-    ) -> Self {
-        core::Optical3_2::new_3_2(
-            transform,
-            wavelengths,
-            calibration,
-            display,
-            analyte,
-            feature,
-            tag,
-            measurement_type,
-            detector_name,
-            filter,
-            power,
-            detector_type,
-            percent_emitted,
-            detector_voltage,
-            longname,
-            nonstandard_keywords,
-        )
-        .into()
-    }
+        core::ScaleTransform,
+        true,
+        "float | tuple[float, float]",
+        "Value for *$PnE* and/or *$PnG*. Singleton float encodes gain (*$PnG*)
+         and implies linear scaling (ie *$PnE* is ``0,0``). 2-tuple encodes
+         decades and offset for log scale, and implies *$PnG* is not set."
+    ),
+    (wavelengths, Option<kws::Wavelengths>, true, "list[float]", "Value for *$PnL*."),
+    (
+        calibration,
+        Option<kws::Calibration3_2>,
+        true,
+        "tuple[float, float, str]",
+        "Value of *$PnCALIBRATION*. Tuple encodes slope, intercept, and calibration units."
+    ),
+    (
+        display,
+        Option<kws::Display>,
+        true,
+        "tuple[bool, float, float]",
+        "Value of *$PnD*. First member of tuple encodes linear or log display
+         (``False`` and ``True`` respectively). The float members encode
+         lower/upper and decades/offset for linear and log scaling respectively."
+    ),
+    (analyte, Option<kws::Analyte>, true, "str", "Value for *$PnANALYTE*."),
+    (
+        feature,
+        Option<kws::Feature>,
+        true,
+        "Literal[\"Area\", \"Width\", \"Height\"]",
+        "Value for *$PnFEATURE*."
+    ),
+    (tag, Option<kws::Tag>, true, "str", "Value for *$PnTAG*."),
+    (measurement_type, Option<kws::OpticalType>, true, "str", "Value for *$PnTYPE*."),
+    (detector_name, Option<kws::DetectorName>, true, "str", "Value for *$PnDET*."),
+    (filter, Option<kws::Filter>, true, "str", "Value for *$PnF*."),
+    (power, Option<kws::Power>, true, "float", "Value for *$PnO*."),
+    (detector_type, Option<kws::DetectorType>, true, "str", "Value for *$PnT*."),
+    (percent_emitted, Option<kws::PercentEmitted>, true, "str", "Value for *$PnP*."),
+    (detector_voltage, Option<kws::DetectorVoltage>, true, "float", "Value for *$PnV*."),
+    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS."),
+    (
+        nonstandard_keywords,
+        HashMap<NonStdKey, String>,
+        true,
+        "dict[str, str]",
+        "Any non-standard keywords corresponding to this measurement. No keys
+         should start with *$*. Realistically each key should follow a pattern
+         corresponding to the measurement index, something like prefixing with
+         \"P\" followed by the index. This is not enforced."
+    ),
 }
 
-py_wrap! {
-    /// Encodes FCS2.0 *$Pn\** keywords for a temporal measurement.
-    PyTemporal2_0,
+impl_new_meas! {
     core::Temporal2_0,
-    "Temporal2_0"
+    core::Temporal2_0::new_2_0,
+    (has_scale, bool, true, "bool", "``True`` if *$PnE* is set to ``0,0``."),
+    (bin, Option<kws::PeakBin>, true, "int", "Value for *$PKn*."),
+    (size, Option<kws::PeakNumber>, true, "int", "Value for *$PKNn*."),
+    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS."),
+    (
+        nonstandard_keywords,
+        HashMap<NonStdKey, String>,
+        true,
+        "dict[str, str]",
+        "Any non-standard keywords corresponding to this measurement. No keys
+         should start with *$*. Realistically each key should follow a pattern
+         corresponding to the measurement index, something like prefixing with
+         \"P\" followed by the index. This is not enforced."
+    ),
 }
 
-#[pymethods]
-impl PyTemporal2_0 {
-    #[new]
-    #[pyo3(text_signature = "(
-        has_scale = False,
-        bin = None,
-        size = None,
-        longname = None,
-        nonstandard_keywords = {},
-    )")]
-    fn new(
-        has_scale: bool,
-        bin: Option<kws::PeakBin>,
-        size: Option<kws::PeakNumber>,
-        longname: Option<kws::Longname>,
-        nonstandard_keywords: HashMap<NonStdKey, String>,
-    ) -> Self {
-        core::Temporal2_0::new_2_0(has_scale, bin, size, longname, nonstandard_keywords).into()
-    }
-}
-
-py_wrap! {
-    /// Encodes FCS3.0 *$Pn\** keywords for a temporal measurement.
-    PyTemporal3_0,
+impl_new_meas! {
     core::Temporal3_0,
-    "Temporal3_0"
+    core::Temporal3_0::new_3_0,
+    (timestep, kws::Timestep, true, "float"),
+    (bin, Option<kws::PeakBin>, true, "int", "Value for *$PKn*."),
+    (size, Option<kws::PeakNumber>, true, "int", "Value for *$PKNn*."),
+    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS."),
+    (
+        nonstandard_keywords,
+        HashMap<NonStdKey, String>,
+        true,
+        "dict[str, str]",
+        "Any non-standard keywords corresponding to this measurement. No keys
+         should start with *$*. Realistically each key should follow a pattern
+         corresponding to the measurement index, something like prefixing with
+         \"P\" followed by the index. This is not enforced."
+    ),
 }
 
-#[pymethods]
-impl PyTemporal3_0 {
-    #[new]
-    #[pyo3(text_signature = "(
-        timestep,
-        bin = None,
-        size = None,
-        longname = None,
-        nonstandard_keywords = {},
-    )")]
-    fn new(
-        timestep: kws::Timestep,
-        bin: Option<kws::PeakBin>,
-        size: Option<kws::PeakNumber>,
-        longname: Option<kws::Longname>,
-        nonstandard_keywords: HashMap<NonStdKey, String>,
-    ) -> Self {
-        core::Temporal3_0::new_3_0(timestep, bin, size, longname, nonstandard_keywords).into()
-    }
-}
-
-py_wrap! {
-    /// Encodes FCS3.1 *$Pn\** keywords for a temporal measurement.
-    PyTemporal3_1,
+impl_new_meas! {
     core::Temporal3_1,
-    "Temporal3_1"
+    core::Temporal3_1::new_3_1,
+    (timestep, kws::Timestep, true, "float"),
+    (
+        display,
+        Option<kws::Display>,
+        true,
+        "tuple[bool, float, float]",
+        "Value of *$PnD*. First member of tuple encodes linear or log display
+         (``False`` and ``True`` respectively). The float members encode
+         lower/upper and decades/offset for linear and log scaling respectively."
+    ),
+    (bin, Option<kws::PeakBin>, true, "int", "Value for *$PKn*."),
+    (size, Option<kws::PeakNumber>, true, "int", "Value for *$PKNn*."),
+    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS."),
+    (
+        nonstandard_keywords,
+        HashMap<NonStdKey, String>,
+        true,
+        "dict[str, str]",
+        "Any non-standard keywords corresponding to this measurement. No keys
+         should start with *$*. Realistically each key should follow a pattern
+         corresponding to the measurement index, something like prefixing with
+         \"P\" followed by the index. This is not enforced."
+    ),
 }
 
-#[pymethods]
-impl PyTemporal3_1 {
-    #[new]
-    #[pyo3(text_signature = "(
-        timestep,
-        display = None,
-        bin = None,
-        size = None,
-        longname = None,
-        nonstandard_keywords = {},
-    )")]
-    fn new(
-        timestep: kws::Timestep,
-        display: Option<kws::Display>,
-        bin: Option<kws::PeakBin>,
-        size: Option<kws::PeakNumber>,
-        longname: Option<kws::Longname>,
-        nonstandard_keywords: HashMap<NonStdKey, String>,
-    ) -> Self {
-        core::Temporal3_1::new_3_1(timestep, display, bin, size, longname, nonstandard_keywords)
-            .into()
-    }
-}
-
-py_wrap! {
-    /// Encodes FCS3.2 *$Pn\** keywords for a temporal measurement.
-    PyTemporal3_2,
+impl_new_meas! {
     core::Temporal3_2,
-    "Temporal3_2"
+    core::Temporal3_2::new_3_2,
+    (timestep, kws::Timestep, true, "float"),
+    (
+        display,
+        Option<kws::Display>,
+        true,
+        "tuple[bool, float, float]",
+        "Value of *$PnD*. First member of tuple encodes linear or log display
+         (``False`` and ``True`` respectively). The float members encode
+         lower/upper and decades/offset for linear and log scaling respectively."
+    ),
+    (has_type, bool, true, "bool", "``True`` if *$PnTYPE* is set to ``Time``."),
+    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS."),
+    (
+        nonstandard_keywords,
+        HashMap<NonStdKey, String>,
+        true,
+        "dict[str, str]",
+        "Any non-standard keywords corresponding to this measurement. No keys
+         should start with *$*. Realistically each key should follow a pattern
+         corresponding to the measurement index, something like prefixing with
+         \"P\" followed by the index. This is not enforced."
+    ),
 }
 
 #[pymethods]
 impl PyTemporal3_2 {
-    #[new]
-    #[pyo3(text_signature = "(
-        timestep,
-        display = None,
-        has_type = False,
-        longname = None,
-        nonstandard_keywords = {},
-    )")]
-    fn new(
-        timestep: kws::Timestep,
-        display: Option<kws::Display>,
-        has_type: bool,
-        longname: Option<kws::Longname>,
-        nonstandard_keywords: HashMap<NonStdKey, String>,
-    ) -> Self {
-        core::Temporal3_2::new_3_2(timestep, display, has_type, longname, nonstandard_keywords)
-            .into()
-    }
-
     #[getter]
     fn get_measurement_type(&self) -> bool {
         self.0.specific.measurement_type.0.is_some()

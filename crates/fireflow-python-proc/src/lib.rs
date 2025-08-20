@@ -42,8 +42,8 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         "measurements",
         info.meas_rstype,
         false,
-        info.meas_desc.value().as_str(),
         info.meas_pytype.value().as_str(),
+        Some(info.meas_desc.value().as_str()),
         None,
     );
 
@@ -51,8 +51,8 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         "layout",
         info.layout_rstype,
         false,
-        info.layout_desc.value().as_str(),
         info.layout_pytype.value().as_str(),
+        Some(info.layout_desc.value().as_str()),
         None,
     );
 
@@ -60,11 +60,13 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         "df",
         info.df_type,
         false,
-        "A dataframe encoding the contents of *DATA*. Number of columns must
+        "polars.DataFrame",
+        Some(
+            "A dataframe encoding the contents of *DATA*. Number of columns must
          match number of measurements. May be empty. Types do not necessarily
          need to correspond to those in the data layout but mismatches may
          result in truncation.",
-        "polars.DataFrame",
+        ),
         None,
     );
 
@@ -72,8 +74,8 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         "analysis",
         info.analysis_type,
         true,
-        "A byte string encoding the *ANALYSIS* segment.",
         "bytes",
+        Some("A byte string encoding the *ANALYSIS* segment."),
         Some("b\"\""),
     );
 
@@ -81,59 +83,33 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         "others",
         info.others_type,
         true,
-        "Byte strings encoding the *OTHER* segments.",
         "list[bytes]",
+        Some("Byte strings encoding the *OTHER* segments."),
         Some("[]"),
     );
-
-    let make_fun_arg = |x: &NewArgInfo| {
-        let argname = format_ident!("{}", &x.argname);
-        let rstype = &x.rstype;
-        quote! {#argname: #rstype}
-    };
 
     let coretext_funargs: Vec<_> = [&meas, &layout]
         .into_iter()
         .chain(args.as_slice())
-        .map(make_fun_arg)
+        .map(|x| x.make_fun_arg())
         .collect();
     let coredataset_funargs: Vec<_> = [&meas, &layout, &df]
         .into_iter()
         .chain(args.as_slice())
         .chain([&analysis, &others])
-        .map(make_fun_arg)
+        .map(|x| x.make_fun_arg())
         .collect();
 
     let coretext_inner_args: Vec<_> = [&meas, &layout]
         .into_iter()
         .chain(args.as_slice())
-        .map(|x| {
-            let n = format_ident!("{}", &x.argname);
-            quote! {#n.into()}
-        })
+        .map(|x| x.make_argname())
         .collect();
-
-    let make_sig = |x: &NewArgInfo| {
-        let n = &x.argname;
-        let default = if let Some(default) = x.default.as_deref() {
-            Some(default)
-        } else {
-            let rstype = &x.rstype.segments.last().unwrap().ident;
-            if rstype == "Option" {
-                Some("None")
-            } else if rstype == "HashMap" {
-                Some("{}")
-            } else {
-                None
-            }
-        };
-        default.map_or(n.to_string(), |d| format!("{n}={d}"))
-    };
 
     let _coretext_sig_args = [&meas, &layout]
         .into_iter()
         .chain(args.as_slice())
-        .map(make_sig)
+        .map(|x| x.make_sig())
         .join(",");
     let coretext_sig = format!("({_coretext_sig_args})");
 
@@ -141,40 +117,20 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         .into_iter()
         .chain(args.as_slice())
         .chain([&analysis, &others])
-        .map(make_sig)
+        .map(|x| x.make_sig())
         .join(",");
     let coredataset_sig = format!("({_coredataset_sig_args})");
-
-    let fmt_arg_doc = |x: &NewArgInfo| {
-        let rstype = &x.rstype.segments.last().unwrap().ident;
-        let argname = &x.argname.to_string();
-        let t = x.pytype.as_str();
-        let pytype = if rstype == "Option" {
-            format!("{t} | None")
-        } else {
-            t.to_string()
-        };
-        let desc = x.desc.replace("\n", "");
-        let (op, ty) = if x.isvar {
-            ("ivar", "vartype")
-        } else {
-            ("param", "type")
-        };
-        let pdesc = format!(":{op} {argname}: {desc}");
-        let ptype = format!(":{ty} {argname}: {pytype}");
-        format!("{pdesc}\n{ptype}")
-    };
 
     let coretext_params = [&meas, &layout]
         .into_iter()
         .chain(args.as_slice())
-        .map(fmt_arg_doc)
+        .map(|x| x.fmt_arg_doc())
         .join("\n\n");
     let coredataset_params = [&meas, &layout, &df]
         .into_iter()
         .chain(args.as_slice())
         .chain([&analysis, &others])
-        .map(fmt_arg_doc)
+        .map(|x| x.fmt_arg_doc())
         .join("\n\n");
 
     quote! {
@@ -215,6 +171,76 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         }
     }
     .into()
+}
+
+#[proc_macro]
+pub fn impl_new_meas(input: TokenStream) -> TokenStream {
+    let info = parse_macro_input!(input as NewMeasInfo);
+    let rstype = info.rstype;
+    let fun = info.fun;
+    let args = info.args;
+
+    let name = rstype.segments.last().unwrap().ident.to_string();
+
+    let (base, version) = split_version(&name);
+    let pretty_version = version.replace("_", ".");
+    let lower_basename = base.to_lowercase();
+
+    let pytype = format_ident!("Py{name}");
+
+    let summary =
+        format!("Encodes FCS {pretty_version} *$Pn\\** keywords for {lower_basename} measurement.");
+
+    let funargs: Vec<_> = args.iter().map(|x| x.make_fun_arg()).collect();
+
+    let inner_args: Vec<_> = args.iter().map(|x| x.make_argname()).collect();
+
+    let _sig_args = args.iter().map(|x| x.make_sig()).join(",");
+    let sig = format!("({_sig_args})");
+
+    let params = args.iter().map(|x| x.fmt_arg_doc()).join("\n\n");
+
+    quote! {
+        #[doc = #summary]
+        ///
+        #[doc = #params]
+        #[pyclass(name = #name, eq)]
+        #[derive(Clone, From, Into, PartialEq)]
+        pub struct #pytype(#rstype);
+
+        #[pymethods]
+        impl #pytype {
+            #[allow(clippy::too_many_arguments)]
+            #[new]
+            #[pyo3(text_signature = #sig)]
+            fn new(#(#funargs),*) -> Self {
+                #fun(#(#inner_args),*).into()
+            }
+        }
+    }
+    .into()
+}
+
+#[derive(Debug)]
+struct NewMeasInfo {
+    rstype: Path,
+    fun: Path,
+    args: Vec<NewArgInfo>,
+}
+
+impl Parse for NewMeasInfo {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let rstype: Path = input.parse()?;
+        let _: Comma = input.parse()?;
+        let fun: Path = input.parse()?;
+        let _: Comma = input.parse()?;
+        let args: Punctuated<NewParenArg, Token![,]> = Punctuated::parse_terminated(input)?;
+        Ok(Self {
+            rstype,
+            fun,
+            args: args.into_iter().map(|x| x.0).collect(),
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -295,7 +321,7 @@ struct NewArgInfo {
     rstype: Path,
     isvar: bool,
     pytype: String,
-    desc: String,
+    desc: Option<String>,
     default: Option<String>,
 }
 
@@ -305,7 +331,7 @@ impl NewArgInfo {
         rstype: Path,
         isvar: bool,
         pytype: &str,
-        desc: &str,
+        desc: Option<&str>,
         default: Option<&str>,
     ) -> Self {
         Self {
@@ -313,9 +339,63 @@ impl NewArgInfo {
             rstype,
             isvar,
             pytype: pytype.to_string(),
-            desc: desc.to_string(),
+            desc: desc.map(|x| x.to_string()),
             default: default.map(|x| x.to_string()),
         }
+    }
+
+    fn make_fun_arg(&self) -> proc_macro2::TokenStream {
+        let argname = format_ident!("{}", &self.argname);
+        let rstype = &self.rstype;
+        quote! {#argname: #rstype}
+    }
+
+    fn make_argname(&self) -> proc_macro2::TokenStream {
+        let n = format_ident!("{}", &self.argname);
+        quote! {#n.into()}
+    }
+
+    fn make_sig(&self) -> String {
+        let n = &self.argname;
+        let default = if let Some(default) = self.default.as_deref() {
+            Some(default)
+        } else {
+            let rstype = &self.rstype.segments.last().unwrap().ident;
+            if rstype == "Option" {
+                Some("None")
+            } else if rstype == "bool" {
+                Some("False")
+            } else if rstype == "HashMap" {
+                Some("{}")
+            } else {
+                None
+            }
+        };
+        default.map_or(n.to_string(), |d| format!("{n}={d}"))
+    }
+
+    fn fmt_arg_doc(&self) -> String {
+        let rstype = &self.rstype.segments.last().unwrap().ident;
+        let argname = &self.argname.to_string();
+        let t = self.pytype.as_str();
+        let pytype = if rstype == "Option" {
+            format!("{t} | None")
+        } else {
+            t.to_string()
+        };
+        let desc = if let Some(d) = self.desc.as_ref() {
+            d.replace("\n", "")
+        } else {
+            format!("Value for *${}*.", argname.to_uppercase())
+        };
+        let (op, ty) = if self.isvar {
+            ("ivar", "vartype")
+        } else {
+            ("param", "type")
+        };
+        let pdesc = format!(":{op} {argname}: {desc}");
+        let ptype = format!(":{ty} {argname}: {pytype}");
+        format!("{pdesc}\n{ptype}")
     }
 }
 
@@ -328,9 +408,13 @@ impl Parse for NewArgInfo {
         let isvar = input.parse::<LitBool>()?.value();
         let _: Comma = input.parse()?;
         let pytype = input.parse::<LitStr>()?.value();
-        let _: Comma = input.parse()?;
-        let desc = input.parse::<LitStr>()?.value();
-        let default: Option<String> = if input.peek(Token![,]) {
+        let desc = if input.peek(Token![,]) {
+            let _: Comma = input.parse()?;
+            Some(input.parse::<LitStr>()?.value())
+        } else {
+            None
+        };
+        let default = if input.peek(Token![,]) {
             let _: Comma = input.parse()?;
             Some(input.parse::<LitStr>()?.value())
         } else {

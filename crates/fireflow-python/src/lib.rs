@@ -608,7 +608,7 @@ impl_new_meas! {
     (detector_type, Option<kws::DetectorType>, true, "str", "Value for *$PnT*."),
     (percent_emitted, Option<kws::PercentEmitted>, true, "str", "Value for *$PnP*."),
     (detector_voltage, Option<kws::DetectorVoltage>, true, "float", "Value for *$PnV*."),
-    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS."),
+    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS*.."),
     (
         nonstandard_keywords,
         HashMap<NonStdKey, String>,
@@ -660,7 +660,7 @@ impl_new_meas! {
     (detector_type, Option<kws::DetectorType>, true, "str", "Value for *$PnT*."),
     (percent_emitted, Option<kws::PercentEmitted>, true, "str", "Value for *$PnP*."),
     (detector_voltage, Option<kws::DetectorVoltage>, true, "float", "Value for *$PnV*."),
-    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS."),
+    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS*.."),
     (
         nonstandard_keywords,
         HashMap<NonStdKey, String>,
@@ -709,7 +709,7 @@ impl_new_meas! {
     (detector_type, Option<kws::DetectorType>, true, "str", "Value for *$PnT*."),
     (percent_emitted, Option<kws::PercentEmitted>, true, "str", "Value for *$PnP*."),
     (detector_voltage, Option<kws::DetectorVoltage>, true, "float", "Value for *$PnV*."),
-    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS."),
+    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS*."),
     (
         nonstandard_keywords,
         HashMap<NonStdKey, String>,
@@ -767,7 +767,7 @@ impl_new_meas! {
     (detector_type, Option<kws::DetectorType>, true, "str", "Value for *$PnT*."),
     (percent_emitted, Option<kws::PercentEmitted>, true, "str", "Value for *$PnP*."),
     (detector_voltage, Option<kws::DetectorVoltage>, true, "float", "Value for *$PnV*."),
-    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS."),
+    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS*."),
     (
         nonstandard_keywords,
         HashMap<NonStdKey, String>,
@@ -786,7 +786,7 @@ impl_new_meas! {
     (has_scale, bool, true, "bool", "``True`` if *$PnE* is set to ``0,0``."),
     (bin, Option<kws::PeakBin>, true, "int", "Value for *$PKn*."),
     (size, Option<kws::PeakNumber>, true, "int", "Value for *$PKNn*."),
-    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS."),
+    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS*."),
     (
         nonstandard_keywords,
         HashMap<NonStdKey, String>,
@@ -805,7 +805,7 @@ impl_new_meas! {
     (timestep, kws::Timestep, true, "float"),
     (bin, Option<kws::PeakBin>, true, "int", "Value for *$PKn*."),
     (size, Option<kws::PeakNumber>, true, "int", "Value for *$PKNn*."),
-    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS."),
+    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS*."),
     (
         nonstandard_keywords,
         HashMap<NonStdKey, String>,
@@ -833,7 +833,7 @@ impl_new_meas! {
     ),
     (bin, Option<kws::PeakBin>, true, "int", "Value for *$PKn*."),
     (size, Option<kws::PeakNumber>, true, "int", "Value for *$PKNn*."),
-    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS."),
+    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS*."),
     (
         nonstandard_keywords,
         HashMap<NonStdKey, String>,
@@ -860,7 +860,7 @@ impl_new_meas! {
          lower/upper and decades/offset for linear and log scaling respectively."
     ),
     (has_type, bool, true, "bool", "``True`` if *$PnTYPE* is set to ``Time``."),
-    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS."),
+    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS*."),
     (
         nonstandard_keywords,
         HashMap<NonStdKey, String>,

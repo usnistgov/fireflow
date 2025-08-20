@@ -352,7 +352,11 @@ impl NewArgInfo {
 
     fn make_argname(&self) -> proc_macro2::TokenStream {
         let n = format_ident!("{}", &self.argname);
-        quote! {#n.into()}
+        if unwrap_generic("Option", &self.rstype).1 {
+            quote! {#n.map(|x| x.into())}
+        } else {
+            quote! {#n.into()}
+        }
     }
 
     fn make_sig(&self) -> String {

@@ -4434,6 +4434,8 @@ where
 
 impl CoreTEXT2_0 {
     #[allow(clippy::too_many_arguments)]
+    // TODO the applied gates arg doesn't need to be optional but this makes
+    // python happy since we can use None in the text sig
     pub fn try_new_2_0(
         measurements: Eithers<MaybeFamily, Temporal<InnerTemporal2_0>, Optical<InnerOptical2_0>>,
         layout: DataLayout2_0,
@@ -4443,9 +4445,6 @@ impl CoreTEXT2_0 {
         btim: Option<Btim<FCSTime>>,
         etim: Option<Etim<FCSTime>>,
         date: Option<FCSDate>,
-        gated_measurements: Vec<GatedMeasurement>,
-        regions: HashMap<RegionIndex, Region2_0>,
-        gating: Option<Gating>,
         abrt: Option<Abrt>,
         com: Option<Com>,
         cells: Option<Cells>,
@@ -4459,13 +4458,18 @@ impl CoreTEXT2_0 {
         src: Option<Src>,
         sys: Option<Sys>,
         tr: Option<Trigger>,
+        applied_gates: Option<AppliedGates2_0>,
         nonstandard_keywords: NonStdKeywords,
         prefix: Option<ShortnamePrefix>,
     ) -> MultiResult<Self, NewCoreTEXTError> {
         let timestamps = Timestamps::try_new(btim, etim, date).into_mult()?;
-        let applied_gates =
-            AppliedGates2_0::try_new1(gated_measurements, regions, gating).into_mult()?;
-        let specific = InnerMetaroot2_0::new(mode, cyt, comp, timestamps, applied_gates);
+        let specific = InnerMetaroot2_0::new(
+            mode,
+            cyt,
+            comp,
+            timestamps,
+            applied_gates.unwrap_or_default(),
+        );
         let metaroot = Metaroot::new(
             abrt,
             com,
@@ -4510,9 +4514,6 @@ impl CoreTEXT3_0 {
         csvbits: Option<CSVBits>,
         cstot: Option<CSTot>,
         csvflags: Option<CSVFlags>,
-        gated_measurements: Vec<GatedMeasurement>,
-        regions: HashMap<RegionIndex, Region3_0>,
-        gating: Option<Gating>,
         abrt: Option<Abrt>,
         com: Option<Com>,
         cells: Option<Cells>,
@@ -4526,12 +4527,11 @@ impl CoreTEXT3_0 {
         src: Option<Src>,
         sys: Option<Sys>,
         tr: Option<Trigger>,
+        applied_gates: Option<AppliedGates3_0>,
         nonstandard_keywords: NonStdKeywords,
         prefix: Option<ShortnamePrefix>,
     ) -> MultiResult<Self, NewCoreTEXTError> {
         let timestamps = Timestamps::try_new(btim, etim, date).into_mult()?;
-        let applied_gates =
-            AppliedGates3_0::try_new1(gated_measurements, regions, gating).into_mult()?;
         let subset = SubsetData::new(csvbits, cstot, csvflags);
         let specific = InnerMetaroot3_0::new(
             mode,
@@ -4541,7 +4541,7 @@ impl CoreTEXT3_0 {
             cytsn,
             unicode,
             subset,
-            applied_gates,
+            applied_gates.unwrap_or_default(),
         );
         let metaroot = Metaroot::new(
             abrt,
@@ -4593,9 +4593,6 @@ impl CoreTEXT3_1 {
         csvbits: Option<CSVBits>,
         cstot: Option<CSTot>,
         csvflags: Option<CSVFlags>,
-        gated_measurements: Vec<GatedMeasurement>,
-        regions: HashMap<RegionIndex, Region3_0>,
-        gating: Option<Gating>,
         abrt: Option<Abrt>,
         com: Option<Com>,
         cells: Option<Cells>,
@@ -4609,11 +4606,10 @@ impl CoreTEXT3_1 {
         src: Option<Src>,
         sys: Option<Sys>,
         tr: Option<Trigger>,
+        applied_gates: Option<AppliedGates3_0>,
         nonstandard_keywords: NonStdKeywords,
     ) -> MultiResult<Self, NewCoreTEXTError> {
         let timestamps = Timestamps::try_new(btim, etim, date).into_mult()?;
-        let applied_gates =
-            AppliedGates3_0::try_new1(gated_measurements, regions, gating).into_mult()?;
         let subset = SubsetData::new(csvbits, cstot, csvflags);
         let specific = InnerMetaroot3_1::new(
             mode,
@@ -4625,7 +4621,7 @@ impl CoreTEXT3_1 {
             PlateData::new(plateid, platename, wellid),
             vol,
             subset,
-            applied_gates,
+            applied_gates.unwrap_or_default(),
         );
         let metaroot = Metaroot::new(
             abrt,
@@ -4682,8 +4678,6 @@ impl CoreTEXT3_2 {
         unstainedinfo: Option<UnstainedInfo>,
         unstainedcenters: Option<UnstainedCenters>,
         flowrate: Option<Flowrate>,
-        regions: HashMap<RegionIndex, Region3_2>,
-        gating: Option<Gating>,
         abrt: Option<Abrt>,
         com: Option<Com>,
         cells: Option<Cells>,
@@ -4697,11 +4691,11 @@ impl CoreTEXT3_2 {
         src: Option<Src>,
         sys: Option<Sys>,
         tr: Option<Trigger>,
+        applied_gates: Option<AppliedGates3_2>,
         nonstandard_keywords: NonStdKeywords,
     ) -> MultiResult<Self, NewCoreTEXTError> {
         let timestamps = Timestamps::try_new(btim, etim, date).into_mult()?;
         let datetimes = Datetimes::try_new(begindatetime, enddatetime).into_mult()?;
-        let applied_gates = AppliedGates3_2::try_new(gating, regions).into_mult()?;
         let specific = InnerMetaroot3_2::new(
             mode,
             timestamps,
@@ -4715,7 +4709,7 @@ impl CoreTEXT3_2 {
             CarrierData::new(carrierid, carriertype, locationid),
             UnstainedData::new(unstainedcenters, unstainedinfo),
             flowrate,
-            applied_gates,
+            applied_gates.unwrap_or_default(),
         );
         let metaroot = Metaroot::new(
             abrt,
@@ -8762,8 +8756,6 @@ pub enum NewCoreTEXTError {
     Core(NewCoreError),
     Timestamps(ReversedTimestamps),
     Datetimes(ReversedDatetimes),
-    Gates2_0(NewAppliedGatesWithSchemeError),
-    Gates3_2(NewGatingSchemeError),
 }
 
 type LookupTEXTOffsetsResult<T> =

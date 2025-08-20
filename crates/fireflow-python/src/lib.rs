@@ -197,27 +197,6 @@ impl_new_core! {
     (btim, Option<Btim<FCSTime>>, true, "datetime.time"),
     (etim, Option<Etim<FCSTime>>, true, "datetime.time"),
     (date, Option<FCSDate>, true, "datetime.date"),
-    (
-        gated_measurements,
-        PyGatedMeasurements,
-        false,
-        "list[:py:class:`GatedMeasurement`]",
-        "Values for *$Gn\\** keywords. The index *n* corresponds to the index in this list.",
-        "[]"
-    ),
-    (
-        regions,
-        PyRegionMapping<PyRegion2_0>,
-        false,
-        "dict[int, :py:class:`UnivariateRegion2_0` | :py:class:`BivariateRegion2_0`]",
-        "Mapping of regions and windows to be used in gating scheme. Corresponds
-         to *$RnI* and *$RnW* keywords. Keys in dictionary are the region
-         indices (the *n* in *$RnI* and *$RnW*). The values in the dictionary
-         are either univariate or bivariate gates and must correspond to either
-         physical measurements of an index in ``gated_measurements``.",
-        "{}"
-    ),
-    (gating, Option<kws::Gating>, false, "str"),
     (abrt, Option<kws::Abrt>, true, "int"),
     (com, Option<kws::Com>, true, "str"),
     (cells, Option<kws::Cells>, true, "str"),
@@ -237,6 +216,13 @@ impl_new_core! {
         "tuple[int, str]",
         "Value for *$TR*. First member of tuple is threshold and second is the
          measurement name which must match a *$PnN*."
+    ),
+    (
+        applied_gates,
+        Option<PyAppliedGates2_0>,
+        true,
+        ":py:class:`AppliedGates2_0`",
+        "Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords."
     ),
     (
         nonstandard_keywords,
@@ -310,27 +296,6 @@ impl_new_core! {
         "Subset flags. Each element in the list corresponds to *$CSVnFLAG* and
          the length of the list corresponds to *$CSMODE*."
     ),
-    (
-        gated_measurements,
-        PyGatedMeasurements,
-        false,
-        "list[:py:class:`GatedMeasurement`]",
-        "Values for *$Gn\\** keywords. The index *n* corresponds to the index in this list.",
-        "[]"
-    ),
-    (
-        regions,
-        PyRegionMapping<PyRegion3_0>,
-        false,
-        "dict[int, :py:class:`UnivariateRegion3_0` | :py:class:`BivariateRegion3_0`]",
-        "Mapping of regions and windows to be used in gating scheme. Corresponds
-        to *$RnI* and *$RnW* keywords. Keys in dictionary are the region indices
-        (the *n* in *$RnI* and *$RnW*). The values in the dictionary are either
-        univariate or bivariate gates and must correspond to either physical
-        measurements of an index in ``gated_measurements``.",
-        "{}"
-    ),
-    (gating, Option<kws::Gating>, false, "str"),
     (abrt, Option<kws::Abrt>, true, "int"),
     (com, Option<kws::Com>, true, "str"),
     (cells, Option<kws::Cells>, true, "str"),
@@ -350,6 +315,13 @@ impl_new_core! {
         "tuple[int, str]",
         "Value for *$TR*. First member of tuple is threshold and second is the
          measurement name which must match a *$PnN*."
+    ),
+    (
+        applied_gates,
+        Option<PyAppliedGates3_0>,
+        true,
+        ":py:class:`AppliedGates3_0`",
+        "Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords."
     ),
     (
         nonstandard_keywords,
@@ -430,27 +402,6 @@ impl_new_core! {
         "Subset flags. Each element in the list corresponds to *$CSVnFLAG* and
          the length of the list corresponds to *$CSMODE*."
     ),
-    (
-        gated_measurements,
-        PyGatedMeasurements,
-        false,
-        "list[:py:class:`GatedMeasurement`]",
-        "Values for *$Gn\\** keywords. The index *n* corresponds to the index in this list.",
-        "[]"
-    ),
-    (
-        regions,
-        PyRegionMapping<PyRegion3_0>,
-        false,
-        "dict[int, :py:class:`UnivariateRegion3_0` | :py:class:`BivariateRegion3_0`]",
-        "Mapping of regions and windows to be used in gating scheme. Corresponds
-        to *$RnI* and *$RnW* keywords. Keys in dictionary are the region indices
-        (the *n* in *$RnI* and *$RnW*). The values in the dictionary are either
-        univariate or bivariate gates and must correspond to either physical
-        measurements of an index in ``gated_measurements``.",
-        "{}"
-    ),
-    (gating, Option<kws::Gating>, false, "str"),
     (abrt, Option<kws::Abrt>, true, "int"),
     (com, Option<kws::Com>, true, "str"),
     (cells, Option<kws::Cells>, true, "str"),
@@ -470,6 +421,13 @@ impl_new_core! {
         "tuple[int, str]",
         "Value for *$TR*. First member of tuple is threshold and second is the
          measurement name which must match a *$PnN*."
+    ),
+    (
+        applied_gates,
+        Option<PyAppliedGates3_0>,
+        true,
+        ":py:class:`AppliedGates3_0`",
+        "Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords."
     ),
     (
         nonstandard_keywords,
@@ -546,19 +504,6 @@ impl_new_core! {
         "Value for *$UNSTAINEDCENTERS. Each key must match a *$PnN*."
     ),
     (flowrate, Option<kws::Flowrate>, true, "str"),
-    (
-        regions,
-        PyRegionMapping<PyRegion3_2>,
-        false,
-        "dict[int, :py:class:`UnivariateRegion3_2` | :py:class:`BivariateRegion3_2`]",
-        "Mapping of regions and windows to be used in gating scheme. Corresponds
-         to *$RnI* and *$RnW* keywords. Keys in dictionary are the region
-         indices (the *n* in *$RnI* and *$RnW*). The values in the dictionary
-         are either univariate or bivariate gates and must correspond to
-         physical measurements.",
-        "{}"
-    ),
-    (gating, Option<kws::Gating>, false, "str"),
     (abrt, Option<kws::Abrt>, true, "int"),
     (com, Option<kws::Com>, true, "str"),
     (cells, Option<kws::Cells>, true, "str"),
@@ -578,6 +523,13 @@ impl_new_core! {
         "tuple[int, str]",
         "Value for *$TR*. First member of tuple is threshold and second is the
          measurement name which must match a *$PnN*."
+    ),
+    (
+        applied_gates,
+        Option<PyAppliedGates3_2>,
+        true,
+        ":py:class:`AppliedGates3_2`",
+        "Value for *$RnI/$RnW/$GATING* keywords."
     ),
     (
         nonstandard_keywords,
@@ -2884,7 +2836,7 @@ impl PyAppliedGates3_0 {
 }
 
 py_wrap! {
-    /// Make new FCS 3.0/3.1-compatible gates.
+    /// Make new FCS 3.2-compatible gates.
     ///
     /// :param regions: Mapping of regions and windows to be used in gating
     ///     scheme. Corresponds to *$RnI* and *$RnW* keywords. Keys in

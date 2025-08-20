@@ -222,6 +222,7 @@ impl_new_core! {
         true,
         ":py:class:`AppliedGates2_0`",
         "Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords."
+
     ),
     (
         nonstandard_keywords,
@@ -232,12 +233,12 @@ impl_new_core! {
     ),
     (
         prefix,
-        Option<ShortnamePrefix>,
+        ShortnamePrefix,
         false,
         "str",
         "Prefix to use for measurement names which do not have *$PnN*.
          Actual name will be prefix + index.",
-        "\"P\""
+        (ShortnamePrefix::default(), "\"P\"")
     )
 }
 
@@ -331,12 +332,12 @@ impl_new_core! {
     ),
     (
         prefix,
-        Option<ShortnamePrefix>,
+        ShortnamePrefix,
         false,
         "str",
         "Prefix to use for measurement names which do not have *$PnN*.
          Actual name will be prefix + index.",
-        "\"P\""
+        (ShortnamePrefix::default(), "\"P\"")
     )
 }
 

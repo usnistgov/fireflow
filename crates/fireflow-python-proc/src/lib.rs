@@ -3,14 +3,14 @@ extern crate proc_macro;
 use proc_macro::TokenStream;
 
 use itertools::Itertools;
-use quote::{format_ident, quote};
+use quote::{format_ident, quote, ToTokens};
 use syn::{
     parenthesized,
     parse::{Parse, ParseStream},
     parse_macro_input,
     punctuated::Punctuated,
     token::Comma,
-    GenericArgument, Ident, LitBool, LitStr, Path, PathArguments, Result, Token, Type,
+    Expr, GenericArgument, Ident, LitBool, LitStr, Path, PathArguments, Result, Token, Type,
 };
 
 #[proc_macro]
@@ -70,22 +70,34 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         None,
     );
 
+    let analysis_type = info.analysis_type;
+    let analysis_default = ArgDefault {
+        rsval: quote! {#analysis_type::default()},
+        pyval: "b\"\"".to_string(),
+    };
+
     let analysis = NewArgInfo::new(
         "analysis",
-        info.analysis_type,
+        analysis_type,
         true,
         "bytes",
         Some("A byte string encoding the *ANALYSIS* segment."),
-        Some("b\"\""),
+        Some(analysis_default),
     );
+
+    let others_type = info.others_type;
+    let others_default = ArgDefault {
+        rsval: quote! {#others_type::default()},
+        pyval: "[]".to_string(),
+    };
 
     let others = NewArgInfo::new(
         "others",
-        info.others_type,
+        others_type,
         true,
         "list[bytes]",
         Some("Byte strings encoding the *OTHER* segments."),
-        Some("[]"),
+        Some(others_default),
     );
 
     let coretext_funargs: Vec<_> = [&meas, &layout]
@@ -106,20 +118,33 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         .map(|x| x.make_argname())
         .collect();
 
-    let _coretext_sig_args = [&meas, &layout]
+    let coretext_sig_args: Vec<_> = [&meas, &layout]
         .into_iter()
         .chain(args.as_slice())
         .map(|x| x.make_sig())
-        .join(",");
-    let coretext_sig = format!("({_coretext_sig_args})");
+        .collect();
 
-    let _coredataset_sig_args = [&meas, &layout, &df]
+    let coredataset_sig_args: Vec<_> = [&meas, &layout, &df]
         .into_iter()
         .chain(args.as_slice())
         .chain([&analysis, &others])
         .map(|x| x.make_sig())
+        .collect();
+
+    let _coretext_txt_sig_args = [&meas, &layout]
+        .into_iter()
+        .chain(args.as_slice())
+        .map(|x| x.make_txt_sig())
         .join(",");
-    let coredataset_sig = format!("({_coredataset_sig_args})");
+    let coretext_txt_sig = format!("({_coretext_txt_sig_args})");
+
+    let _coredataset_txt_sig_args = [&meas, &layout, &df]
+        .into_iter()
+        .chain(args.as_slice())
+        .chain([&analysis, &others])
+        .map(|x| x.make_txt_sig())
+        .join(",");
+    let coredataset_txt_sig = format!("({_coredataset_txt_sig_args})");
 
     let coretext_params = [&meas, &layout]
         .into_iter()
@@ -146,7 +171,8 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         impl #coretext_pytype {
             #[allow(clippy::too_many_arguments)]
             #[new]
-            #[pyo3(text_signature = #coretext_sig)]
+            #[pyo3(signature = (#(#coretext_sig_args),*))]
+            #[pyo3(text_signature = #coretext_txt_sig)]
             fn new(#(#coretext_funargs),*) -> PyResult<Self> {
                 Ok(#fun(#(#coretext_inner_args),*).mult_head()?.into())
             }
@@ -163,7 +189,8 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         impl #coredataset_pytype {
             #[allow(clippy::too_many_arguments)]
             #[new]
-            #[pyo3(text_signature = #coredataset_sig)]
+            #[pyo3(signature = (#(#coredataset_sig_args),*))]
+            #[pyo3(text_signature = #coredataset_txt_sig)]
             fn new(#(#coredataset_funargs),*) -> PyResult<Self> {
                 let x = #fun(#(#coretext_inner_args),*).mult_head()?;
                 Ok(x.into_coredataset(df, analysis, others)?.into())
@@ -195,8 +222,10 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
 
     let inner_args: Vec<_> = args.iter().map(|x| x.make_argname()).collect();
 
-    let _sig_args = args.iter().map(|x| x.make_sig()).join(",");
-    let sig = format!("({_sig_args})");
+    let sig_args: Vec<_> = args.iter().map(|x| x.make_sig()).collect();
+
+    let _txt_sig_args = args.iter().map(|x| x.make_txt_sig()).join(",");
+    let txt_sig = format!("({_txt_sig_args})");
 
     let params = args.iter().map(|x| x.fmt_arg_doc()).join("\n\n");
 
@@ -212,7 +241,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         impl #pytype {
             #[allow(clippy::too_many_arguments)]
             #[new]
-            #[pyo3(text_signature = #sig)]
+            #[pyo3(signature = (#(#sig_args),*), text_signature = #txt_sig)]
             fn new(#(#funargs),*) -> Self {
                 #fun(#(#inner_args),*).into()
             }
@@ -234,7 +263,8 @@ impl Parse for NewMeasInfo {
         let _: Comma = input.parse()?;
         let fun: Path = input.parse()?;
         let _: Comma = input.parse()?;
-        let args: Punctuated<NewParenArg, Token![,]> = Punctuated::parse_terminated(input)?;
+        let args: Punctuated<WrapParen<NewArgInfo>, Token![,]> =
+            Punctuated::parse_terminated(input)?;
         Ok(Self {
             rstype,
             fun,
@@ -286,7 +316,8 @@ impl Parse for NewCoreInfo {
         let _: Comma = input.parse()?;
         let layout_desc: LitStr = input.parse()?;
         let _: Comma = input.parse()?;
-        let args: Punctuated<NewParenArg, Token![,]> = Punctuated::parse_terminated(input)?;
+        let args: Punctuated<WrapParen<NewArgInfo>, Token![,]> =
+            Punctuated::parse_terminated(input)?;
         Ok(Self {
             coretext_type,
             coredataset_type,
@@ -305,9 +336,9 @@ impl Parse for NewCoreInfo {
     }
 }
 
-struct NewParenArg(NewArgInfo);
+struct WrapParen<T>(T);
 
-impl Parse for NewParenArg {
+impl<T: Parse> Parse for WrapParen<T> {
     fn parse(input: ParseStream) -> Result<Self> {
         let content;
         parenthesized!(content in input);
@@ -322,7 +353,13 @@ struct NewArgInfo {
     isvar: bool,
     pytype: String,
     desc: Option<String>,
-    default: Option<String>,
+    default: Option<ArgDefault>,
+}
+
+#[derive(Debug)]
+struct ArgDefault {
+    rsval: proc_macro2::TokenStream,
+    pyval: String,
 }
 
 impl NewArgInfo {
@@ -332,7 +369,7 @@ impl NewArgInfo {
         isvar: bool,
         pytype: &str,
         desc: Option<&str>,
-        default: Option<&str>,
+        default: Option<ArgDefault>,
     ) -> Self {
         Self {
             argname: argname.to_string(),
@@ -340,7 +377,7 @@ impl NewArgInfo {
             isvar,
             pytype: pytype.to_string(),
             desc: desc.map(|x| x.to_string()),
-            default: default.map(|x| x.to_string()),
+            default,
         }
     }
 
@@ -359,10 +396,29 @@ impl NewArgInfo {
         }
     }
 
-    fn make_sig(&self) -> String {
+    fn make_sig(&self) -> proc_macro2::TokenStream {
+        let n = format_ident!("{}", &self.argname);
+        let default = if let Some(default) = self.default.as_ref() {
+            Some(default.rsval.to_token_stream())
+        } else {
+            let rstype = &self.rstype.segments.last().unwrap().ident;
+            if rstype == "Option" {
+                Some(quote! {None})
+            } else if rstype == "bool" {
+                Some(quote! {false})
+            } else if rstype == "HashMap" {
+                Some(quote! {HashMap::new()})
+            } else {
+                None
+            }
+        };
+        default.map_or(quote! {#n}, |d| quote! {#n=#d})
+    }
+
+    fn make_txt_sig(&self) -> String {
         let n = &self.argname;
-        let default = if let Some(default) = self.default.as_deref() {
-            Some(default)
+        let default = if let Some(default) = self.default.as_ref() {
+            Some(default.pyval.as_str())
         } else {
             let rstype = &self.rstype.segments.last().unwrap().ident;
             if rstype == "Option" {
@@ -420,7 +476,7 @@ impl Parse for NewArgInfo {
         };
         let default = if input.peek(Token![,]) {
             let _: Comma = input.parse()?;
-            Some(input.parse::<LitStr>()?.value())
+            Some(input.parse::<WrapParen<ArgDefault>>()?.0)
         } else {
             None
         };
@@ -432,6 +488,15 @@ impl Parse for NewArgInfo {
             desc,
             default,
         })
+    }
+}
+
+impl Parse for ArgDefault {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let rsval = input.parse::<Expr>()?.to_token_stream();
+        let _: Comma = input.parse()?;
+        let pyval = input.parse::<LitStr>()?.value();
+        Ok(Self { rsval, pyval })
     }
 }
 

@@ -2805,51 +2805,21 @@ where
         self.metaroot.specific.as_ref().as_ref()
     }
 
-    /// Show $SPILLOVER matrix
-    pub fn spillover_matrix(&self) -> Option<&DMatrix<f32>>
-    where
-        M: AsRef<Option<Spillover>>,
-    {
-        self.spillover().map(|x| x.as_ref())
-    }
-
-    /// Show $SPILLOVER measurement names
-    pub fn spillover_names(&self) -> Option<&[Shortname]>
-    where
-        M: AsRef<Option<Spillover>>,
-    {
-        self.spillover().map(|x| x.as_ref())
-    }
-
-    /// Set names and matrix for $SPILLOVER
-    ///
-    /// Names must match number of rows/columns in matrix and also must be a
-    /// subset of the measurement names (ie $PnN). Matrix must be square and
-    /// at least 2x2.
-    pub fn set_spillover(
-        &mut self,
-        names: Vec<Shortname>,
-        matrix: DMatrix<f32>,
-    ) -> Result<(), SetSpilloverError>
+    /// Set $SPILLOVER
+    pub fn set_spillover(&mut self, spillover: Option<Spillover>) -> Result<(), SpilloverLinkError>
     where
         M: HasSpillover,
     {
-        let current = self.all_shortnames();
-        let ns: HashSet<_> = names.iter().collect();
-        if !ns.is_subset(&current.iter().collect()) {
-            return Err(SpilloverLinkError.into());
+        if let Some(s) = spillover.as_ref() {
+            let current = self.all_shortnames();
+            let ms: &[Shortname] = s.as_ref();
+            let ns: HashSet<_> = ms.iter().collect();
+            if !ns.is_subset(&current.iter().collect()) {
+                return Err(SpilloverLinkError);
+            }
         }
-        let m = Spillover::try_new(names, matrix)?;
-        *self.metaroot.specific.spill_mut(private::NoTouchy) = Some(m);
+        *self.metaroot.specific.spill_mut(private::NoTouchy) = spillover;
         Ok(())
-    }
-
-    /// Clear $SPILLOVER
-    pub fn unset_spillover(&mut self)
-    where
-        M: HasSpillover,
-    {
-        *self.metaroot.specific.spill_mut(private::NoTouchy) = None;
     }
 
     /// Set $UNSTAINEDCENTERS
@@ -9005,7 +8975,7 @@ mod python {
         Analysis, CSVFlags, ColumnsToDataframeError, CompParMismatchError, ExistingLinkError,
         GatingMeasLinkError, MeasDataMismatchError, MissingMeasurementNameError, NewCoreTEXTError,
         Other, Others, RemoveMeasByIndexError, RemoveMeasByNameError, ScaleTransform,
-        SetMeasurementsError, SetSpilloverError, TriggerLinkError,
+        SetMeasurementsError, SpilloverLinkError, TriggerLinkError,
     };
 
     use derive_more::{Display, From};
@@ -9060,7 +9030,7 @@ mod python {
     impl_pyreflow_err!(ColumnsToDataframeError);
     impl_pyreflow_err!(MissingMeasurementNameError);
     impl_pyreflow_err!(ExistingLinkError);
-    impl_pyreflow_err!(SetSpilloverError);
+    impl_pyreflow_err!(SpilloverLinkError);
     impl_pyreflow_err!(CompParMismatchError);
     impl_pyreflow_err!(TriggerLinkError);
     impl_pyreflow_err!(GatingMeasLinkError);

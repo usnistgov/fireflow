@@ -39,7 +39,6 @@ use fireflow_python_proc::{
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
 use derive_more::{From, Into};
-use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
 use pyo3::prelude::*;
 use pyo3::types::PyType;
 use pyo3_polars::PyDataFrame;
@@ -850,18 +849,18 @@ impl_convert_version! {PyCoreDataset3_2}
 // Get/set methods for all versions
 macro_rules! impl_common {
     ($pytype:ident) => {
-        impl_get_set_metaroot! {Option<kws::Abrt>, "int", $pytype}
-        impl_get_set_metaroot! {Option<kws::Cells>, "str", $pytype}
-        impl_get_set_metaroot! {Option<kws::Com>, "str", $pytype}
-        impl_get_set_metaroot! {Option<kws::Exp>, "str", $pytype}
-        impl_get_set_metaroot! {Option<kws::Fil>, "str", $pytype}
-        impl_get_set_metaroot! {Option<kws::Inst>, "str", $pytype}
-        impl_get_set_metaroot! {Option<kws::Lost>, "int", $pytype}
-        impl_get_set_metaroot! {Option<kws::Op>, "str", $pytype}
-        impl_get_set_metaroot! {Option<kws::Proj>, "str", $pytype}
-        impl_get_set_metaroot! {Option<kws::Smno>, "str", $pytype}
-        impl_get_set_metaroot! {Option<kws::Src>, "str", $pytype}
-        impl_get_set_metaroot! {Option<kws::Sys>, "str", $pytype}
+        impl_get_set_metaroot! {Option<kws::Abrt>, $pytype}
+        impl_get_set_metaroot! {Option<kws::Cells>, $pytype}
+        impl_get_set_metaroot! {Option<kws::Com>, $pytype}
+        impl_get_set_metaroot! {Option<kws::Exp>, $pytype}
+        impl_get_set_metaroot! {Option<kws::Fil>, $pytype}
+        impl_get_set_metaroot! {Option<kws::Inst>, $pytype}
+        impl_get_set_metaroot! {Option<kws::Lost>, $pytype}
+        impl_get_set_metaroot! {Option<kws::Op>, $pytype}
+        impl_get_set_metaroot! {Option<kws::Proj>, $pytype}
+        impl_get_set_metaroot! {Option<kws::Smno>, $pytype}
+        impl_get_set_metaroot! {Option<kws::Src>, $pytype}
+        impl_get_set_metaroot! {Option<kws::Sys>, $pytype}
 
         // common measurement keywords
         impl_get_set_all_meas!(Option<kws::Longname>, "S", "str", $pytype);
@@ -986,12 +985,6 @@ macro_rules! impl_common {
             //         .map(|rs| rs.into_iter().map(|r| r.cloned()).collect())
             // }
 
-            /// The value for *$BTIM*.
-            ///
-            /// If ``date``, ``btim``, and ``etim`` are all not ``None`` then
-            /// ``btim`` must be before ``etim``.
-            ///
-            /// :type: :py:class:`datetime.time` | None
             #[getter]
             fn get_btim(&self) -> Option<NaiveTime> {
                 self.0.btim_naive()
@@ -1002,12 +995,6 @@ macro_rules! impl_common {
                 Ok(self.0.set_btim_naive(x)?)
             }
 
-            /// The value for *$ETIM*.
-            ///
-            /// If ``date``, ``btim``, and ``etim`` are all not ``None`` then
-            /// ``btim`` must be before ``etim``.
-            ///
-            /// :type: :py:class:`datetime.time` | None
             #[getter]
             fn get_etim(&self) -> Option<NaiveTime> {
                 self.0.etim_naive()
@@ -1018,12 +1005,6 @@ macro_rules! impl_common {
                 Ok(self.0.set_etim_naive(x)?)
             }
 
-            /// The value for *$DATE*.
-            ///
-            /// If ``date``, ``btim``, and ``etim`` are all not ``None`` then
-            /// ``btim`` must be before ``etim``.
-            ///
-            /// :type: :py:class:`datetime.date` | None
             #[getter]
             fn get_date(&self) -> Option<NaiveDate> {
                 self.0.date_naive()
@@ -1034,13 +1015,6 @@ macro_rules! impl_common {
                 Ok(self.0.set_date_naive(x)?)
             }
 
-            /// The value for *$TR*.
-            ///
-            /// This is represented as a tuple where the first member is the
-            /// threshold and the second member is a measurement name which
-            /// must exist in the set of all *$PnN*.
-            ///
-            /// :type: tuple[int, str] | None
             #[getter]
             fn trigger(&self) -> Option<kws::Trigger> {
                 self.0.metaroot_opt().cloned()
@@ -1882,11 +1856,6 @@ macro_rules! impl_core3_2 {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
-            /// Value for *$BEGINDATETIME*
-            ///
-            /// Must come before *$ENDDATETIME* if it exists.
-            ///
-            /// :type: :py:class:`datetime.datetime` | None
             #[getter]
             fn get_begindatetime(&self) -> Option<DateTime<FixedOffset>> {
                 self.0.begindatetime()
@@ -1897,11 +1866,6 @@ macro_rules! impl_core3_2 {
                 Ok(self.0.set_begindatetime(x)?)
             }
 
-            /// Value for *$ENDDATETIME*
-            ///
-            /// Must come after *$BEGINDATETIME* if it exists.
-            ///
-            /// :type: :py:class:`datetime.datetime` | None
             #[getter]
             fn get_enddatetime(&self) -> Option<DateTime<FixedOffset>> {
                 self.0.enddatetime()
@@ -1912,12 +1876,6 @@ macro_rules! impl_core3_2 {
                 Ok(self.0.set_enddatetime(x)?)
             }
 
-            /// Value for *$UNSTAINEDCENTERS*
-            ///
-            /// This is a dictionary where keys are names which must reference
-            /// a *$PnN*. Names must not contain commas.
-            ///
-            /// :type: dict[str, float]
             #[getter]
             fn get_unstained_centers(&self) -> Option<UnstainedCenters> {
                 self.0.metaroot_opt::<UnstainedCenters>().map(|y| y.clone())
@@ -1928,9 +1886,6 @@ macro_rules! impl_core3_2 {
                 self.0.set_unstained_centers(us).py_term_resolve_nowarn()
             }
 
-            /// Value for *$RnI/$RnW/$GATING* keywords.
-            ///
-            /// :type: :py:class:`AppliedGates3_2`
             #[getter]
             fn get_applied_gates(&self) -> PyAppliedGates3_2 {
                 self.0.metaroot::<AppliedGates3_2>().clone().into()
@@ -1952,9 +1907,6 @@ macro_rules! impl_get_set_applied_gates_2_0 {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
-            /// Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords.
-            ///
-            /// :type: :py:class:`AppliedGates2_0`
             #[getter]
             fn get_applied_gates(&self) -> PyAppliedGates2_0 {
                 self.0.metaroot::<AppliedGates2_0>().clone().into()
@@ -1976,9 +1928,6 @@ macro_rules! impl_get_set_applied_gates_3_0 {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
-            /// Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords.
-            ///
-            /// :type: :py:class:`AppliedGates3_0`
             #[getter]
             fn get_applied_gates(&self) -> PyAppliedGates3_0 {
                 self.0.metaroot::<AppliedGates3_0>().clone().into()
@@ -2105,20 +2054,9 @@ impl_get_set_timestep!(PyCoreDataset3_2);
 // Get/set methods for $LAST_MODIFIER/$LAST_MODIFIED/$ORIGINALITY (3.1-3.2)
 macro_rules! impl_modification_attrs {
     ($pytype:ident) => {
-        impl_get_set_metaroot!(
-            Option<kws::Originality>,
-            "Literal[\"Original\", \"NonDataModified\", \"Appended\", \"DataModified\"]",
-            $pytype
-        );
-
-        impl_get_set_metaroot!(
-            Option<kws::LastModified>,
-            ":py:class:`datetime.datetime`",
-            "LAST_MODIFIED",
-            $pytype
-        );
-
-        impl_get_set_metaroot!(Option<kws::LastModifier>, "str", "LAST_MODIFIER", $pytype);
+        impl_get_set_metaroot!(Option<kws::Originality>, $pytype);
+        impl_get_set_metaroot!(Option<kws::LastModified>, "LAST_MODIFIED", $pytype);
+        impl_get_set_metaroot!(Option<kws::LastModifier>, "LAST_MODIFIER", $pytype);
     };
 }
 
@@ -2130,9 +2068,9 @@ impl_modification_attrs!(PyCoreDataset3_2);
 // Get/set methods for $CARRIERID/$CARRIERTYPE/$LOCATIONID (3.2)
 macro_rules! impl_carrier_attrs {
     ($pytype:ident) => {
-        impl_get_set_metaroot!(Option<kws::Carriertype>, "str", $pytype);
-        impl_get_set_metaroot!(Option<kws::Carrierid>, "str", $pytype);
-        impl_get_set_metaroot!(Option<kws::Locationid>, "str", $pytype);
+        impl_get_set_metaroot!(Option<kws::Carriertype>, $pytype);
+        impl_get_set_metaroot!(Option<kws::Carrierid>, $pytype);
+        impl_get_set_metaroot!(Option<kws::Locationid>, $pytype);
     };
 }
 
@@ -2142,9 +2080,9 @@ impl_carrier_attrs!(PyCoreDataset3_2);
 // Get/set methods for $PLATEID/$WELLID/$PLATENAME (3.1-3.2)
 macro_rules! impl_plate_attrs {
     ($pytype:ident) => {
-        impl_get_set_metaroot!(Option<kws::Wellid>, "str", $pytype);
-        impl_get_set_metaroot!(Option<kws::Plateid>, "str", $pytype);
-        impl_get_set_metaroot!(Option<kws::Platename>, "str", $pytype);
+        impl_get_set_metaroot!(Option<kws::Wellid>, $pytype);
+        impl_get_set_metaroot!(Option<kws::Plateid>, $pytype);
+        impl_get_set_metaroot!(Option<kws::Platename>, $pytype);
     };
 }
 
@@ -2158,7 +2096,6 @@ macro_rules! impl_get_set_comp {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
-            // TODO docstring will be different for 2.0 and 3.0
             #[getter]
             fn get_compensation(&self) -> Option<Compensation> {
                 self.0.compensation().cloned()
@@ -2182,45 +2119,14 @@ macro_rules! impl_spillover {
     ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
-            /// The matrix component of *$SPILLOVER*.
-            ///
-            /// Will always be at least 2x2.
-            ///
-            /// :type: :py:class:`numpy.ndarray`
             #[getter]
-            fn get_spillover_matrix<'a>(&self, py: Python<'a>) -> Option<Bound<'a, PyArray2<f32>>> {
-                self.0.spillover_matrix().map(|x| x.to_pyarray(py))
+            fn get_spillover(&self) -> Option<Spillover> {
+                self.0.spillover().map(|x| x.clone())
             }
 
-            /// The measurement names component of *$SPILLOVER*.
-            ///
-            /// Will always contain at least 2 names.
-            ///
-            /// :type: list[str] | None
-            #[getter]
-            fn get_spillover_names(&self) -> Option<Vec<Shortname>> {
-                self.0.spillover_names().map(|x| x.to_vec())
-            }
-
-            /// Set the value of *$SPILLOVER*.
-            ///
-            /// :param names: Measurement names for matrix. Must refer to exising
-            ///     *$PnN* and must not have commas.
-            /// :type names: list[str]
-            /// :param matrix: Spillover matrix values in row-major order.
-            /// :type matrix: :py:class:`numpy.ndarray`
-            fn set_spillover(
-                &mut self,
-                names: Vec<Shortname>,
-                matrix: PyReadonlyArray2<f32>,
-            ) -> PyResult<()> {
-                let m = matrix.as_matrix().into_owned();
-                Ok(self.0.set_spillover(names, m)?)
-            }
-
-            /// Unset value of *$SPILLOVER*.
-            fn unset_spillover(&mut self) {
-                self.0.unset_spillover()
+            #[setter]
+            fn set_spillover(&mut self, spillover: Option<Spillover>) -> PyResult<()> {
+                Ok(self.0.set_spillover(spillover)?)
             }
         }
     };
@@ -2279,9 +2185,9 @@ impl_get_set_all_peak!(PyCoreDataset3_1);
 
 macro_rules! impl_get_set_subset {
     ($pytype:ident) => {
-        impl_get_set_metaroot!(Option<kws::CSTot>, "int", $pytype);
-        impl_get_set_metaroot!(Option<kws::CSVBits>, "int", $pytype);
-        impl_get_set_metaroot!(Option<core::CSVFlags>, "list[int | None]", $pytype);
+        impl_get_set_metaroot!(Option<kws::CSTot>, $pytype);
+        impl_get_set_metaroot!(Option<kws::CSVBits>, $pytype);
+        impl_get_set_metaroot!(Option<core::CSVFlags>, $pytype);
     };
 }
 
@@ -2292,14 +2198,12 @@ impl_get_set_subset!(PyCoreDataset3_1);
 
 impl_get_set_metaroot! {
     Option<kws::Unicode>,
-    "(int, list[str])",
     PyCoreTEXT3_0,
     PyCoreDataset3_0
 }
 
 impl_get_set_metaroot! {
     Option<kws::Vol>,
-    "float",
     PyCoreTEXT3_1,
     PyCoreTEXT3_2,
     PyCoreDataset3_1,
@@ -2309,7 +2213,6 @@ impl_get_set_metaroot! {
 // Get/set methods for $MODE (2.0-3.1)
 impl_get_set_metaroot! {
     kws::Mode,
-    "Literal[\"L\", \"U\", \"C\"]",
     PyCoreTEXT2_0,
     PyCoreTEXT3_0,
     PyCoreTEXT3_1,
@@ -2321,7 +2224,6 @@ impl_get_set_metaroot! {
 // Get/set methods for $MODE (3.2)
 impl_get_set_metaroot! {
     Option<kws::Mode3_2>,
-    "Literal[\"L\"]",
     "MODE",
     PyCoreTEXT3_2,
     PyCoreDataset3_2
@@ -2332,7 +2234,6 @@ impl_get_set_metaroot! {
 // 3.2 is required which is why it is not included here
 impl_get_set_metaroot! {
     Option<kws::Cyt>,
-    "str",
     PyCoreTEXT2_0,
     PyCoreTEXT3_0,
     PyCoreTEXT3_1,
@@ -2344,7 +2245,6 @@ impl_get_set_metaroot! {
 // Get/set methods for $FLOWRATE (3.2)
 impl_get_set_metaroot! {
     Option<kws::Flowrate>,
-    "str",
     PyCoreTEXT3_2,
     PyCoreDataset3_2
 }
@@ -2352,7 +2252,6 @@ impl_get_set_metaroot! {
 // Get/set methods for $CYTSN (3.0-3.2)
 impl_get_set_metaroot! {
     Option<kws::Cytsn>,
-    "str",
     PyCoreTEXT3_0,
     PyCoreTEXT3_1,
     PyCoreTEXT3_2,
@@ -2362,12 +2261,11 @@ impl_get_set_metaroot! {
 }
 
 // Get/set methods for $CYT (required) (3.2)
-impl_get_set_metaroot! {kws::Cyt, "str", PyCoreTEXT3_2, PyCoreDataset3_2}
+impl_get_set_metaroot! {kws::Cyt, PyCoreTEXT3_2, PyCoreDataset3_2}
 
 // Get/set methods for $UNSTAINEDINFO (3.2)
 impl_get_set_metaroot! {
     Option<kws::UnstainedInfo>,
-    "str",
     PyCoreTEXT3_2,
     PyCoreDataset3_2
 }

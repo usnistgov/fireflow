@@ -555,8 +555,8 @@ impl_new_core! {
 
 // TODO nonstandard_keywords could be "enforced" by storing the prefix somehow
 impl_new_meas! {
-    core::Optical2_0,
-    core::Optical2_0::new_2_0,
+    "FCS2.0",
+    false,
     (
         scale,
         Option<Scale>,
@@ -595,8 +595,8 @@ impl PyOptical2_0 {
 }
 
 impl_new_meas! {
-    core::Optical3_0,
-    core::Optical3_0::new_3_0,
+    "FCS3.0",
+    false,
     (
         transform,
         core::ScaleTransform,
@@ -617,8 +617,8 @@ impl_new_meas! {
 }
 
 impl_new_meas! {
-    core::Optical3_1,
-    core::Optical3_1::new_3_1,
+    "FCS3.1",
+    false,
     (
         transform,
         core::ScaleTransform,
@@ -655,8 +655,8 @@ impl_new_meas! {
 }
 
 impl_new_meas! {
-    core::Optical3_2,
-    core::Optical3_2::new_3_2,
+    "FCS3.2",
+    false,
     (
         transform,
         core::ScaleTransform,
@@ -702,24 +702,24 @@ impl_new_meas! {
 }
 
 impl_new_meas! {
-    core::Temporal2_0,
-    core::Temporal2_0::new_2_0,
+    "FCS2.0",
+    true,
     (has_scale, bool, true, "bool", "``True`` if *$PnE* is set to ``0,0``."),
     (bin, Option<kws::PeakBin>, true, "int", "Value for *$PKn*."),
     (size, Option<kws::PeakNumber>, true, "int", "Value for *$PKNn*."),
 }
 
 impl_new_meas! {
-    core::Temporal3_0,
-    core::Temporal3_0::new_3_0,
+    "FCS3.0",
+    true,
     (timestep, kws::Timestep, true, "float"),
     (bin, Option<kws::PeakBin>, true, "int", "Value for *$PKn*."),
     (size, Option<kws::PeakNumber>, true, "int", "Value for *$PKNn*."),
 }
 
 impl_new_meas! {
-    core::Temporal3_1,
-    core::Temporal3_1::new_3_1,
+    "FCS3.1",
+    true,
     (timestep, kws::Timestep, true, "float"),
     (
         display,
@@ -735,8 +735,8 @@ impl_new_meas! {
 }
 
 impl_new_meas! {
-    core::Temporal3_2,
-    core::Temporal3_2::new_3_2,
+    "FCS3.2",
+    true,
     (timestep, kws::Timestep, true, "float"),
     (
         display,

@@ -424,6 +424,7 @@ impl fmt::Display for InHeaderError {
     }
 }
 
+#[derive(Debug)]
 pub struct VersionError(Vec<u8>);
 
 impl fmt::Display for VersionError {

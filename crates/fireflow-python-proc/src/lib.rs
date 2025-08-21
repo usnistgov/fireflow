@@ -1,5 +1,7 @@
 extern crate proc_macro;
 
+use fireflow_core::header::Version;
+
 use proc_macro::TokenStream;
 
 use itertools::Itertools;
@@ -231,18 +233,30 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let info = parse_macro_input!(input as NewMeasInfo);
-    let rstype = info.rstype;
-    let fun = info.fun;
     let args = info.args;
 
-    let name = path_name(&rstype);
+    let version = ugly_version(info.version);
+    let base = if info.is_temporal {
+        "Temporal"
+    } else {
+        "Optical"
+    };
+
+    let name = format!("{base}{version}");
+    let path = format!("fireflow_core::core::{name}");
+    let fun_path = format!("{path}::new_{version}");
+    let rstype = parse_str::<Path>(path.as_str()).unwrap();
+    let fun = parse_str::<Path>(fun_path.as_str()).unwrap();
 
     let (base, version) = split_version(&name);
     let pretty_version = version.replace("_", ".");
     let lower_basename = base.to_lowercase();
 
-    let ln_type = parse_str::<Path>("Option<kws::Longname>").unwrap();
-    let nonstd_type = parse_str::<Path>("HashMap<NonStdKey, String>").unwrap();
+    let ln_path = "Option<fireflow_core::text::keywords::Longname>";
+    let nonstd_path = "HashMap<fireflow_core::validated::keys::NonStdKey, String>";
+
+    let ln_type = parse_str::<Path>(ln_path).unwrap();
+    let nonstd_type = parse_str::<Path>(nonstd_path).unwrap();
 
     let longname = NewArgInfo::new(
         "longname",
@@ -306,24 +320,24 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     .into()
 }
 
-#[derive(Debug)]
 struct NewMeasInfo {
-    rstype: Path,
-    fun: Path,
+    version: Version,
+    is_temporal: bool,
     args: Vec<NewArgInfo>,
 }
 
 impl Parse for NewMeasInfo {
     fn parse(input: ParseStream) -> Result<Self> {
-        let rstype: Path = input.parse()?;
+        let v = input.parse::<LitStr>()?.value();
+        let version = v.parse::<Version>().unwrap();
         let _: Comma = input.parse()?;
-        let fun: Path = input.parse()?;
+        let is_temporal = input.parse::<LitBool>()?.value();
         let _: Comma = input.parse()?;
         let args: Punctuated<WrapParen<NewArgInfo>, Token![,]> =
             Punctuated::parse_terminated(input)?;
         Ok(Self {
-            rstype,
-            fun,
+            version,
+            is_temporal,
             args: args.into_iter().map(|x| x.0).collect(),
         })
     }
@@ -1295,6 +1309,15 @@ fn split_version(name: &str) -> (&str, &str) {
 
 fn path_name(p: &Path) -> String {
     p.segments.last().unwrap().ident.to_string()
+}
+
+fn ugly_version(v: Version) -> &'static str {
+    match v {
+        Version::FCS2_0 => "2_0",
+        Version::FCS3_0 => "3_0",
+        Version::FCS3_1 => "3_1",
+        Version::FCS3_2 => "3_2",
+    }
 }
 
 const ALL_VERSIONS: [&str; 4] = ["2_0", "3_0", "3_1", "3_2"];

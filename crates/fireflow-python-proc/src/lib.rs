@@ -241,21 +241,49 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let pretty_version = version.replace("_", ".");
     let lower_basename = base.to_lowercase();
 
+    let ln_type = parse_str::<Path>("Option<kws::Longname>").unwrap();
+    let nonstd_type = parse_str::<Path>("HashMap<NonStdKey, String>").unwrap();
+
+    let longname = NewArgInfo::new(
+        "longname",
+        ln_type,
+        true,
+        "str",
+        Some("Value for *$PnS*."),
+        None,
+    );
+
+    let nonstd = NewArgInfo::new(
+        "nonstandard_keywords",
+        nonstd_type,
+        true,
+        "dict[str, str]",
+        Some(
+            "Any non-standard keywords corresponding to this measurement. No keys \
+             should start with *$*. Realistically each key should follow a pattern \
+             corresponding to the measurement index, something like prefixing with \
+             \"P\" followed by the index. This is not enforced.",
+        ),
+        None,
+    );
+
+    let all_args: Vec<_> = args.iter().chain([&longname, &nonstd]).collect();
+
     let pytype = format_ident!("Py{name}");
 
     let summary =
         format!("Encodes FCS {pretty_version} *$Pn\\** keywords for {lower_basename} measurement.");
 
-    let funargs: Vec<_> = args.iter().map(|x| x.make_fun_arg()).collect();
+    let funargs: Vec<_> = all_args.iter().map(|x| x.make_fun_arg()).collect();
 
-    let inner_args: Vec<_> = args.iter().map(|x| x.make_argname()).collect();
+    let inner_args: Vec<_> = all_args.iter().map(|x| x.make_argname()).collect();
 
-    let sig_args: Vec<_> = args.iter().map(|x| x.make_sig()).collect();
+    let sig_args: Vec<_> = all_args.iter().map(|x| x.make_sig()).collect();
 
-    let _txt_sig_args = args.iter().map(|x| x.make_txt_sig()).join(",");
+    let _txt_sig_args = all_args.iter().map(|x| x.make_txt_sig()).join(",");
     let txt_sig = format!("({_txt_sig_args})");
 
-    let params = args.iter().map(|x| x.fmt_arg_doc()).join("\n\n");
+    let params = all_args.iter().map(|x| x.fmt_arg_doc()).join("\n\n");
 
     quote! {
         #[doc = #summary]

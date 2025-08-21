@@ -573,17 +573,6 @@ impl_new_meas! {
     (detector_type, Option<kws::DetectorType>, true, "str", "Value for *$PnT*."),
     (percent_emitted, Option<kws::PercentEmitted>, true, "str", "Value for *$PnP*."),
     (detector_voltage, Option<kws::DetectorVoltage>, true, "float", "Value for *$PnV*."),
-    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS*.."),
-    (
-        nonstandard_keywords,
-        HashMap<NonStdKey, String>,
-        true,
-        "dict[str, str]",
-        "Any non-standard keywords corresponding to this measurement. No keys \
-         should start with *$*. Realistically each key should follow a pattern \
-         corresponding to the measurement index, something like prefixing with \
-         \"P\" followed by the index. This is not enforced."
-    ),
 }
 
 #[pymethods]
@@ -625,17 +614,6 @@ impl_new_meas! {
     (detector_type, Option<kws::DetectorType>, true, "str", "Value for *$PnT*."),
     (percent_emitted, Option<kws::PercentEmitted>, true, "str", "Value for *$PnP*."),
     (detector_voltage, Option<kws::DetectorVoltage>, true, "float", "Value for *$PnV*."),
-    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS*.."),
-    (
-        nonstandard_keywords,
-        HashMap<NonStdKey, String>,
-        true,
-        "dict[str, str]",
-        "Any non-standard keywords corresponding to this measurement. No keys \
-         should start with *$*. Realistically each key should follow a pattern \
-         corresponding to the measurement index, something like prefixing with \
-         \"P\" followed by the index. This is not enforced."
-    ),
 }
 
 impl_new_meas! {
@@ -674,17 +652,6 @@ impl_new_meas! {
     (detector_type, Option<kws::DetectorType>, true, "str", "Value for *$PnT*."),
     (percent_emitted, Option<kws::PercentEmitted>, true, "str", "Value for *$PnP*."),
     (detector_voltage, Option<kws::DetectorVoltage>, true, "float", "Value for *$PnV*."),
-    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS*."),
-    (
-        nonstandard_keywords,
-        HashMap<NonStdKey, String>,
-        true,
-        "dict[str, str]",
-        "Any non-standard keywords corresponding to this measurement. No keys \
-         should start with *$*. Realistically each key should follow a pattern \
-         corresponding to the measurement index, something like prefixing with \
-         \"P\" followed by the index. This is not enforced."
-    ),
 }
 
 impl_new_meas! {
@@ -732,17 +699,6 @@ impl_new_meas! {
     (detector_type, Option<kws::DetectorType>, true, "str", "Value for *$PnT*."),
     (percent_emitted, Option<kws::PercentEmitted>, true, "str", "Value for *$PnP*."),
     (detector_voltage, Option<kws::DetectorVoltage>, true, "float", "Value for *$PnV*."),
-    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS*."),
-    (
-        nonstandard_keywords,
-        HashMap<NonStdKey, String>,
-        true,
-        "dict[str, str]",
-        "Any non-standard keywords corresponding to this measurement. No keys \
-         should start with *$*. Realistically each key should follow a pattern \
-         corresponding to the measurement index, something like prefixing with \
-         \"P\" followed by the index. This is not enforced."
-    ),
 }
 
 impl_new_meas! {
@@ -751,17 +707,6 @@ impl_new_meas! {
     (has_scale, bool, true, "bool", "``True`` if *$PnE* is set to ``0,0``."),
     (bin, Option<kws::PeakBin>, true, "int", "Value for *$PKn*."),
     (size, Option<kws::PeakNumber>, true, "int", "Value for *$PKNn*."),
-    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS*."),
-    (
-        nonstandard_keywords,
-        HashMap<NonStdKey, String>,
-        true,
-        "dict[str, str]",
-        "Any non-standard keywords corresponding to this measurement. No keys \
-         should start with *$*. Realistically each key should follow a pattern \
-         corresponding to the measurement index, something like prefixing with \
-         \"P\" followed by the index. This is not enforced."
-    ),
 }
 
 impl_new_meas! {
@@ -770,17 +715,6 @@ impl_new_meas! {
     (timestep, kws::Timestep, true, "float"),
     (bin, Option<kws::PeakBin>, true, "int", "Value for *$PKn*."),
     (size, Option<kws::PeakNumber>, true, "int", "Value for *$PKNn*."),
-    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS*."),
-    (
-        nonstandard_keywords,
-        HashMap<NonStdKey, String>,
-        true,
-        "dict[str, str]",
-        "Any non-standard keywords corresponding to this measurement. No keys \
-         should start with *$*. Realistically each key should follow a pattern \
-         corresponding to the measurement index, something like prefixing with \
-         \"P\" followed by the index. This is not enforced."
-    ),
 }
 
 impl_new_meas! {
@@ -798,17 +732,6 @@ impl_new_meas! {
     ),
     (bin, Option<kws::PeakBin>, true, "int", "Value for *$PKn*."),
     (size, Option<kws::PeakNumber>, true, "int", "Value for *$PKNn*."),
-    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS*."),
-    (
-        nonstandard_keywords,
-        HashMap<NonStdKey, String>,
-        true,
-        "dict[str, str]",
-        "Any non-standard keywords corresponding to this measurement. No keys \
-         should start with *$*. Realistically each key should follow a pattern \
-         corresponding to the measurement index, something like prefixing with \
-         \"P\" followed by the index. This is not enforced."
-    ),
 }
 
 impl_new_meas! {
@@ -825,17 +748,6 @@ impl_new_meas! {
          lower/upper and decades/offset for linear and log scaling respectively."
     ),
     (has_type, bool, true, "bool", "``True`` if *$PnTYPE* is set to ``Time``."),
-    (longname, Option<kws::Longname>, true, "str", "Value for *$PnS*."),
-    (
-        nonstandard_keywords,
-        HashMap<NonStdKey, String>,
-        true,
-        "dict[str, str]",
-        "Any non-standard keywords corresponding to this measurement. No keys \
-         should start with *$*. Realistically each key should follow a pattern \
-         corresponding to the measurement index, something like prefixing with \
-         \"P\" followed by the index. This is not enforced."
-    ),
 }
 
 #[pymethods]

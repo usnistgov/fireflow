@@ -41,7 +41,6 @@ use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
 use derive_more::{From, Into};
 use pyo3::prelude::*;
 use pyo3::types::{PyTuple, PyType};
-use pyo3_polars::PyDataFrame;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufWriter;
@@ -156,30 +155,27 @@ macro_rules! py_wrap {
 impl_new_core! {
     core::CoreTEXT2_0,
     core::CoreDataset2_0,
-    FCSDataFrame,
-    core::Analysis,
-    core::Others,
     core::CoreTEXT2_0::try_new_2_0,
 
     PyEithers<MaybeFamily, PyTemporal2_0, PyOptical2_0>,
     "list[tuple[str | None, :py:class:`Optical2_0`] | tuple[str, :py:class:`Temporal2_0`]]",
-    "Measurements corresponding to columns in FCS file.
+    "Measurements corresponding to columns in FCS file. \
      Temporal must be given zero or one times.",
 
     PyOrderedLayout,
-    ":py:class:`AsciiFixedLayout` |
-     :py:class:`AsciiDelimLayout` |
-     :py:class:`OrderedUint08Layout` |
-     :py:class:`OrderedUint16Layout` |
-     :py:class:`OrderedUint24Layout` |
-     :py:class:`OrderedUint32Layout` |
-     :py:class:`OrderedUint40Layout` |
-     :py:class:`OrderedUint48Layout` |
-     :py:class:`OrderedUint56Layout` |
-     :py:class:`OrderedUint64Layout` |
-     :py:class:`OrderedF32Layout` |
+    ":py:class:`AsciiFixedLayout` | \
+     :py:class:`AsciiDelimLayout` | \
+     :py:class:`OrderedUint08Layout` | \
+     :py:class:`OrderedUint16Layout` | \
+     :py:class:`OrderedUint24Layout` | \
+     :py:class:`OrderedUint32Layout` | \
+     :py:class:`OrderedUint40Layout` | \
+     :py:class:`OrderedUint48Layout` | \
+     :py:class:`OrderedUint56Layout` | \
+     :py:class:`OrderedUint64Layout` | \
+     :py:class:`OrderedF32Layout` | \
      :py:class:`OrderedF64Layout`",
-    "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*,
+    "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*, \
      and *$DATATYPE*.",
 
     (mode, kws::Mode, true, "Literal[\"L\", \"U\", \"C\"]"),
@@ -189,8 +185,8 @@ impl_new_core! {
         Option<Compensation2_0>,
         true,
         ":py:class:`numpy.ndarray`",
-        "The compensation matrix. Must be a square array with number of
-         rows/columns equal to the number of measurements. Non-zero entries
+        "The compensation matrix. Must be a square array with number of \
+         rows/columns equal to the number of measurements. Non-zero entries \
          will produce a *$DFCmTOn* keyword."
     ),
     (btim, Option<Btim<FCSTime>>, true, "datetime.time"),
@@ -213,23 +209,25 @@ impl_new_core! {
         Option<kws::Trigger>,
         true,
         "tuple[int, str]",
-        "Value for *$TR*. First member of tuple is threshold and second is the
+        "Value for *$TR*. First member of tuple is threshold and second is the \
          measurement name which must match a *$PnN*."
     ),
     (
         applied_gates,
         PyAppliedGates2_0,
         true,
-        "tuple[list[:py:class:`GatedMeasurement`], dict[int, :py:class:`UnivariateRegion2_0` | :py:class:`BivariateRegion2_0`], str | None]",
-        "Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords. The first member of
-         the tuple corresponds to the *$Gm\\** keywords, where *m* is given by
-         position in the list. The second member corresponds to the *$RnI* and
-         *$RnW* keywords and is a mapping of regions and windows to be used in
-         gating scheme. Keys in dictionary are the region indices (the *n* in
-         *$RnI* and *$RnW*). The values in the dictionary are either univariate
-         or bivariate gates and must correspond to an index in the list in the
-         first element. The third member corresponds to the *$GATING* keyword.
-         All 'Rn' in this string must reference a key in the dict of the second
+        "tuple[list[:py:class:`GatedMeasurement`], \
+           dict[int, :py:class:`UnivariateRegion2_0` | :py:class:`BivariateRegion2_0`], \
+           str | None]",
+        "Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords. The first member of \
+         the tuple corresponds to the *$Gm\\** keywords, where *m* is given by \
+         position in the list. The second member corresponds to the *$RnI* and \
+         *$RnW* keywords and is a mapping of regions and windows to be used in \
+         gating scheme. Keys in dictionary are the region indices (the *n* in \
+         *$RnI* and *$RnW*). The values in the dictionary are either univariate \
+         or bivariate gates and must correspond to an index in the list in the \
+         first element. The third member corresponds to the *$GATING* keyword. \
+         All 'Rn' in this string must reference a key in the dict of the second \
          member.",
         (PyAppliedGates2_0::default(), "([], {}, None)")
     ),
@@ -245,7 +243,7 @@ impl_new_core! {
         ShortnamePrefix,
         false,
         "str",
-        "Prefix to use for measurement names which do not have *$PnN*.
+        "Prefix to use for measurement names which do not have *$PnN*. \
          Actual name will be prefix + index.",
         (ShortnamePrefix::default(), "\"P\"")
     )
@@ -254,30 +252,27 @@ impl_new_core! {
 impl_new_core! {
     core::CoreTEXT3_0,
     core::CoreDataset3_0,
-    FCSDataFrame,
-    core::Analysis,
-    core::Others,
     core::CoreTEXT3_0::try_new_3_0,
 
     PyEithers<MaybeFamily, PyTemporal3_0, PyOptical3_0>,
     "list[tuple[str | None, :py:class:`Optical3_0`] | tuple[str, :py:class:`Temporal3_0`]]",
-    "Measurements corresponding to columns in FCS file.
+    "Measurements corresponding to columns in FCS file. \
      Temporal must be given zero or one times.",
 
     PyOrderedLayout,
-    ":py:class:`AsciiFixedLayout` |
-     :py:class:`AsciiDelimLayout` |
-     :py:class:`OrderedUint08Layout` |
-     :py:class:`OrderedUint16Layout` |
-     :py:class:`OrderedUint24Layout` |
-     :py:class:`OrderedUint32Layout` |
-     :py:class:`OrderedUint40Layout` |
-     :py:class:`OrderedUint48Layout` |
-     :py:class:`OrderedUint56Layout` |
-     :py:class:`OrderedUint64Layout` |
-     :py:class:`OrderedF32Layout` |
+    ":py:class:`AsciiFixedLayout` | \
+     :py:class:`AsciiDelimLayout` | \
+     :py:class:`OrderedUint08Layout` | \
+     :py:class:`OrderedUint16Layout` | \
+     :py:class:`OrderedUint24Layout` | \
+     :py:class:`OrderedUint32Layout` | \
+     :py:class:`OrderedUint40Layout` | \
+     :py:class:`OrderedUint48Layout` | \
+     :py:class:`OrderedUint56Layout` | \
+     :py:class:`OrderedUint64Layout` | \
+     :py:class:`OrderedF32Layout` | \
      :py:class:`OrderedF64Layout`",
-    "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*,
+    "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*, \
      and *$DATATYPE*.",
 
     (mode, kws::Mode, true, "Literal[\"L\", \"U\", \"C\"]"),
@@ -287,7 +282,7 @@ impl_new_core! {
         Option<Compensation3_0>,
         true,
         ":py:class:`numpy.ndarray`",
-        "The value of *$COMP*. Must be a square array with number of
+        "The value of *$COMP*. Must be a square array with number of \
          rows/columns equal to the number of measurements."
     ),
     (btim, Option<Btim<FCSTime60>>, true, "datetime.time"),
@@ -302,7 +297,7 @@ impl_new_core! {
         Option<core::CSVFlags>,
         true,
         "list[int | None]",
-        "Subset flags. Each element in the list corresponds to *$CSVnFLAG* and
+        "Subset flags. Each element in the list corresponds to *$CSVnFLAG* and \
          the length of the list corresponds to *$CSMODE*."
     ),
     (abrt, Option<kws::Abrt>, true, "int"),
@@ -322,23 +317,25 @@ impl_new_core! {
         Option<kws::Trigger>,
         true,
         "tuple[int, str]",
-        "Value for *$TR*. First member of tuple is threshold and second is the
+        "Value for *$TR*. First member of tuple is threshold and second is the \
          measurement name which must match a *$PnN*."
     ),
     (
         applied_gates,
         PyAppliedGates3_0,
         true,
-        "tuple[list[:py:class:`GatedMeasurement`], dict[int, :py:class:`UnivariateRegion3_0` | :py:class:`BivariateRegion3_0`], str | None]",
-        "Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords. The first member of
-         the tuple corresponds to the *$Gm\\** keywords, where *m* is given by
-         position in the list. The second member corresponds to the *$RnI* and
-         *$RnW* keywords and is a mapping of regions and windows to be used in
-         gating scheme. Keys in dictionary are the region indices (the *n* in
-         *$RnI* and *$RnW*). The values in the dictionary are either univariate
-         or bivariate gates and must correspond to an index in the list in the
-         first element or a physical measurement. The third member corresponds
-         to the *$GATING* keyword. All 'Rn' in this string must reference a key
+        "tuple[list[:py:class:`GatedMeasurement`], \
+         dict[int, :py:class:`UnivariateRegion3_0` | :py:class:`BivariateRegion3_0`], \
+         str | None]",
+        "Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords. The first member of \
+         the tuple corresponds to the *$Gm\\** keywords, where *m* is given by \
+         position in the list. The second member corresponds to the *$RnI* and \
+         *$RnW* keywords and is a mapping of regions and windows to be used in \
+         gating scheme. Keys in dictionary are the region indices (the *n* in \
+         *$RnI* and *$RnW*). The values in the dictionary are either univariate \
+         or bivariate gates and must correspond to an index in the list in the \
+         first element or a physical measurement. The third member corresponds \
+         to the *$GATING* keyword. All 'Rn' in this string must reference a key \
          in the dict of the second member.",
         (PyAppliedGates3_0::default(), "([], {}, None)")
     ),
@@ -354,7 +351,7 @@ impl_new_core! {
         ShortnamePrefix,
         false,
         "str",
-        "Prefix to use for measurement names which do not have *$PnN*.
+        "Prefix to use for measurement names which do not have *$PnN*. \
          Actual name will be prefix + index.",
         (ShortnamePrefix::default(), "\"P\"")
     )
@@ -363,23 +360,20 @@ impl_new_core! {
 impl_new_core! {
     core::CoreTEXT3_1,
     core::CoreDataset3_1,
-    FCSDataFrame,
-    core::Analysis,
-    core::Others,
     core::CoreTEXT3_1::try_new_3_1,
 
     PyEithers<AlwaysFamily, PyTemporal3_1, PyOptical3_1>,
     "list[tuple[str, :py:class:`Optical3_1` | :py:class:`Temporal3_1`]]",
-    "Measurements corresponding to columns in FCS file.
+    "Measurements corresponding to columns in FCS file. \
      Temporal must be given zero or one times.",
 
     PyNonMixedLayout,
-    ":py:class:`AsciiFixedLayout` |
-     :py:class:`AsciiDelimLayout` |
-     :py:class:`EndianUintLayout` |
-     :py:class:`EndianF32Layout` |
+    ":py:class:`AsciiFixedLayout` | \
+     :py:class:`AsciiDelimLayout` | \
+     :py:class:`EndianUintLayout` | \
+     :py:class:`EndianF32Layout` | \
      :py:class:`EndianF64Layout`",
-    "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*,
+    "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*, \
      and *$DATATYPE*.",
 
     (mode, kws::Mode, true, "Literal[\"L\", \"U\", \"C\"]"),
@@ -393,10 +387,10 @@ impl_new_core! {
         Option<Spillover>,
         true,
         "tuple[list[str], :py:class:`numpy.ndarray`]",
-        "Value for *$SPILLOVER*. First element of tuple the list of measurement
-         names and the second is the matrix. Each measurement name must
-         correspond to a *$PnN*, must be unique, and the length of this list
-         must match the number of rows and columns of the matrix. The matrix
+        "Value for *$SPILLOVER*. First element of tuple the list of measurement \
+         names and the second is the matrix. Each measurement name must \
+         correspond to a *$PnN*, must be unique, and the length of this list \
+         must match the number of rows and columns of the matrix. The matrix \
          must be at least 2x2."
     ),
     (last_modifier, Option<kws::LastModifier>, true, "str"),
@@ -418,7 +412,7 @@ impl_new_core! {
         Option<core::CSVFlags>,
         true,
         "list[int | None]",
-        "Subset flags. Each element in the list corresponds to *$CSVnFLAG* and
+        "Subset flags. Each element in the list corresponds to *$CSVnFLAG* and \
          the length of the list corresponds to *$CSMODE*."
     ),
     (abrt, Option<kws::Abrt>, true, "int"),
@@ -438,23 +432,25 @@ impl_new_core! {
         Option<kws::Trigger>,
         true,
         "tuple[int, str]",
-        "Value for *$TR*. First member of tuple is threshold and second is the
+        "Value for *$TR*. First member of tuple is threshold and second is the \
          measurement name which must match a *$PnN*."
     ),
     (
         applied_gates,
         PyAppliedGates3_0,
         true,
-        "tuple[list[:py:class:`GatedMeasurement`], dict[int, :py:class:`UnivariateRegion3_0` | :py:class:`BivariateRegion3_0`], str | None]",
-        "Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords. The first member of
-         the tuple corresponds to the *$Gm\\** keywords, where *m* is given by
-         position in the list. The second member corresponds to the *$RnI* and
-         *$RnW* keywords and is a mapping of regions and windows to be used in
-         gating scheme. Keys in dictionary are the region indices (the *n* in
-         *$RnI* and *$RnW*). The values in the dictionary are either univariate
-         or bivariate gates and must correspond to an index in the list in the
-         first element or a physical measurement. The third member corresponds
-         to the *$GATING* keyword. All 'Rn' in this string must reference a key
+        "tuple[list[:py:class:`GatedMeasurement`], \
+           dict[int, :py:class:`UnivariateRegion3_0` | :py:class:`BivariateRegion3_0`], \
+           str | None]",
+        "Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords. The first member of \
+         the tuple corresponds to the *$Gm\\** keywords, where *m* is given by \
+         position in the list. The second member corresponds to the *$RnI* and \
+         *$RnW* keywords and is a mapping of regions and windows to be used in \
+         gating scheme. Keys in dictionary are the region indices (the *n* in \
+         *$RnI* and *$RnW*). The values in the dictionary are either univariate \
+         or bivariate gates and must correspond to an index in the list in the \
+         first element or a physical measurement. The third member corresponds \
+         to the *$GATING* keyword. All 'Rn' in this string must reference a key \
          in the dict of the second member.",
         (PyAppliedGates3_0::default(), "([], {}, None)")
     ),
@@ -470,24 +466,21 @@ impl_new_core! {
 impl_new_core! {
     core::CoreTEXT3_2,
     core::CoreDataset3_2,
-    FCSDataFrame,
-    core::Analysis,
-    core::Others,
     core::CoreTEXT3_2::try_new_3_2,
 
     PyEithers<AlwaysFamily, PyTemporal3_2, PyOptical3_2>,
     "list[tuple[str, :py:class:`Optical3_2` | :py:class:`Temporal3_2`]]",
-    "Measurements corresponding to columns in FCS file.
+    "Measurements corresponding to columns in FCS file. \
      Temporal must be given zero or one times.",
 
     PyLayout3_2,
-    ":py:class:`AsciiFixedLayout` |
-     :py:class:`AsciiDelimLayout` |
-     :py:class:`EndianUintLayout` |
-     :py:class:`EndianF32Layout` |
-     :py:class:`EndianF64Layout` |
+    ":py:class:`AsciiFixedLayout` | \
+     :py:class:`AsciiDelimLayout` | \
+     :py:class:`EndianUintLayout` | \
+     :py:class:`EndianF32Layout` | \
+     :py:class:`EndianF64Layout` | \
      :py:class:`MixedLayout`",
-    "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*,
+    "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*, \
      *$DATATYPE*, and *$PnDATATYPE*.",
 
     (cyt, kws::Cyt, true, "str"),
@@ -503,10 +496,10 @@ impl_new_core! {
         Option<Spillover>,
         true,
         "tuple[list[str], :py:class:`numpy.ndarray`]",
-        "Value for *$SPILLOVER*. First element of tuple the list of measurement
-         names and the second is the matrix. Each measurement name must
-         correspond to a *$PnN*, must be unique, and the length of this list
-         must match the number of rows and columns of the matrix. The matrix
+        "Value for *$SPILLOVER*. First element of tuple the list of measurement \
+         names and the second is the matrix. Each measurement name must \
+         correspond to a *$PnN*, must be unique, and the length of this list \
+         must match the number of rows and columns of the matrix. The matrix \
          must be at least 2x2."
     ),
     (last_modifier, Option<kws::LastModifier>, true, "str"),
@@ -550,21 +543,22 @@ impl_new_core! {
         Option<kws::Trigger>,
         true,
         "tuple[int, str]",
-        "Value for *$TR*. First member of tuple is threshold and second is the
+        "Value for *$TR*. First member of tuple is threshold and second is the \
          measurement name which must match a *$PnN*."
     ),
     (
         applied_gates,
         PyAppliedGates3_2,
         true,
-        "tuple[dict[int, :py:class:`UnivariateRegion3_2` | :py:class:`BivariateRegion3_2`], str | None]",
-        "Value for *$RnI/$RnW/$GATING* keywords. The first member corresponds to
-         the *$RnI* and *$RnW* keywords and is a mapping of regions and windows
-         to be used in gating scheme. Keys in dictionary are the region indices
-         (the *n* in *$RnI* and *$RnW*). The values in the dictionary are either
-         univariate or bivariate gates and must correspond to a physical
-         measurement. The second member corresponds to the *$GATING* keyword.
-         All 'Rn' in this string must reference a key in the dict of the first
+        "tuple[dict[int, :py:class:`UnivariateRegion3_2` | :py:class:`BivariateRegion3_2`], \
+           str | None]",
+        "Value for *$RnI/$RnW/$GATING* keywords. The first member corresponds to \
+         the *$RnI* and *$RnW* keywords and is a mapping of regions and windows \
+         to be used in gating scheme. Keys in dictionary are the region indices \
+         (the *n* in *$RnI* and *$RnW*). The values in the dictionary are either \
+         univariate or bivariate gates and must correspond to a physical \
+         measurement. The second member corresponds to the *$GATING* keyword. \
+         All 'Rn' in this string must reference a key in the dict of the first \
          member.",
         (PyAppliedGates3_2::default(), "({}, None)")
     ),
@@ -586,7 +580,7 @@ impl_new_meas! {
         Option<Scale>,
         true,
         "tuple[()] | tuple[float, float]",
-        "Value for *$PnE*. Empty tuple means linear scale; 2-tuple encodes
+        "Value for *$PnE*. Empty tuple means linear scale; 2-tuple encodes \
          decades and offset for log scale"
     ),
     (wavelength, Option<kws::Wavelength>, true, "float", "Value for *$PnL*."),
@@ -603,9 +597,9 @@ impl_new_meas! {
         HashMap<NonStdKey, String>,
         true,
         "dict[str, str]",
-        "Any non-standard keywords corresponding to this measurement. No keys
-         should start with *$*. Realistically each key should follow a pattern
-         corresponding to the measurement index, something like prefixing with
+        "Any non-standard keywords corresponding to this measurement. No keys \
+         should start with *$*. Realistically each key should follow a pattern \
+         corresponding to the measurement index, something like prefixing with \
          \"P\" followed by the index. This is not enforced."
     ),
 }
@@ -637,8 +631,8 @@ impl_new_meas! {
         core::ScaleTransform,
         true,
         "float | tuple[float, float]",
-        "Value for *$PnE* and/or *$PnG*. Singleton float encodes gain (*$PnG*)
-         and implies linear scaling (ie *$PnE* is ``0,0``). 2-tuple encodes
+        "Value for *$PnE* and/or *$PnG*. Singleton float encodes gain (*$PnG*) \
+         and implies linear scaling (ie *$PnE* is ``0,0``). 2-tuple encodes \
          decades and offset for log scale, and implies *$PnG* is not set."
     ),
     (wavelength, Option<kws::Wavelength>, true, "float", "Value for *$PnL*."),
@@ -655,9 +649,9 @@ impl_new_meas! {
         HashMap<NonStdKey, String>,
         true,
         "dict[str, str]",
-        "Any non-standard keywords corresponding to this measurement. No keys
-         should start with *$*. Realistically each key should follow a pattern
-         corresponding to the measurement index, something like prefixing with
+        "Any non-standard keywords corresponding to this measurement. No keys \
+         should start with *$*. Realistically each key should follow a pattern \
+         corresponding to the measurement index, something like prefixing with \
          \"P\" followed by the index. This is not enforced."
     ),
 }
@@ -670,8 +664,8 @@ impl_new_meas! {
         core::ScaleTransform,
         true,
         "float | tuple[float, float]",
-        "Value for *$PnE* and/or *$PnG*. Singleton float encodes gain (*$PnG*)
-         and implies linear scaling (ie *$PnE* is ``0,0``). 2-tuple encodes
+        "Value for *$PnE* and/or *$PnG*. Singleton float encodes gain (*$PnG*) \
+         and implies linear scaling (ie *$PnE* is ``0,0``). 2-tuple encodes \
          decades and offset for log scale, and implies *$PnG* is not set."
     ),
     (wavelengths, Option<kws::Wavelengths>, true, "float", "Value for *$PnL*."),
@@ -687,8 +681,8 @@ impl_new_meas! {
         Option<kws::Display>,
         true,
         "tuple[bool, float, float]",
-        "Value of *$PnD*. First member of tuple encodes linear or log display
-         (``False`` and ``True`` respectively). The float members encode
+        "Value of *$PnD*. First member of tuple encodes linear or log display \
+         (``False`` and ``True`` respectively). The float members encode \
          lower/upper and decades/offset for linear and log scaling respectively."
     ),
     (bin, Option<kws::PeakBin>, true, "int", "Value for *$PKn*."),
@@ -704,9 +698,9 @@ impl_new_meas! {
         HashMap<NonStdKey, String>,
         true,
         "dict[str, str]",
-        "Any non-standard keywords corresponding to this measurement. No keys
-         should start with *$*. Realistically each key should follow a pattern
-         corresponding to the measurement index, something like prefixing with
+        "Any non-standard keywords corresponding to this measurement. No keys \
+         should start with *$*. Realistically each key should follow a pattern \
+         corresponding to the measurement index, something like prefixing with \
          \"P\" followed by the index. This is not enforced."
     ),
 }
@@ -719,8 +713,8 @@ impl_new_meas! {
         core::ScaleTransform,
         true,
         "float | tuple[float, float]",
-        "Value for *$PnE* and/or *$PnG*. Singleton float encodes gain (*$PnG*)
-         and implies linear scaling (ie *$PnE* is ``0,0``). 2-tuple encodes
+        "Value for *$PnE* and/or *$PnG*. Singleton float encodes gain (*$PnG*) \
+         and implies linear scaling (ie *$PnE* is ``0,0``). 2-tuple encodes \
          decades and offset for log scale, and implies *$PnG* is not set."
     ),
     (wavelengths, Option<kws::Wavelengths>, true, "list[float]", "Value for *$PnL*."),
@@ -736,8 +730,8 @@ impl_new_meas! {
         Option<kws::Display>,
         true,
         "tuple[bool, float, float]",
-        "Value of *$PnD*. First member of tuple encodes linear or log display
-         (``False`` and ``True`` respectively). The float members encode
+        "Value of *$PnD*. First member of tuple encodes linear or log display \
+         (``False`` and ``True`` respectively). The float members encode \
          lower/upper and decades/offset for linear and log scaling respectively."
     ),
     (analyte, Option<kws::Analyte>, true, "str", "Value for *$PnANALYTE*."),
@@ -762,9 +756,9 @@ impl_new_meas! {
         HashMap<NonStdKey, String>,
         true,
         "dict[str, str]",
-        "Any non-standard keywords corresponding to this measurement. No keys
-         should start with *$*. Realistically each key should follow a pattern
-         corresponding to the measurement index, something like prefixing with
+        "Any non-standard keywords corresponding to this measurement. No keys \
+         should start with *$*. Realistically each key should follow a pattern \
+         corresponding to the measurement index, something like prefixing with \
          \"P\" followed by the index. This is not enforced."
     ),
 }
@@ -781,9 +775,9 @@ impl_new_meas! {
         HashMap<NonStdKey, String>,
         true,
         "dict[str, str]",
-        "Any non-standard keywords corresponding to this measurement. No keys
-         should start with *$*. Realistically each key should follow a pattern
-         corresponding to the measurement index, something like prefixing with
+        "Any non-standard keywords corresponding to this measurement. No keys \
+         should start with *$*. Realistically each key should follow a pattern \
+         corresponding to the measurement index, something like prefixing with \
          \"P\" followed by the index. This is not enforced."
     ),
 }
@@ -800,9 +794,9 @@ impl_new_meas! {
         HashMap<NonStdKey, String>,
         true,
         "dict[str, str]",
-        "Any non-standard keywords corresponding to this measurement. No keys
-         should start with *$*. Realistically each key should follow a pattern
-         corresponding to the measurement index, something like prefixing with
+        "Any non-standard keywords corresponding to this measurement. No keys \
+         should start with *$*. Realistically each key should follow a pattern \
+         corresponding to the measurement index, something like prefixing with \
          \"P\" followed by the index. This is not enforced."
     ),
 }
@@ -816,8 +810,8 @@ impl_new_meas! {
         Option<kws::Display>,
         true,
         "tuple[bool, float, float]",
-        "Value of *$PnD*. First member of tuple encodes linear or log display
-         (``False`` and ``True`` respectively). The float members encode
+        "Value of *$PnD*. First member of tuple encodes linear or log display \
+         (``False`` and ``True`` respectively). The float members encode \
          lower/upper and decades/offset for linear and log scaling respectively."
     ),
     (bin, Option<kws::PeakBin>, true, "int", "Value for *$PKn*."),
@@ -828,9 +822,9 @@ impl_new_meas! {
         HashMap<NonStdKey, String>,
         true,
         "dict[str, str]",
-        "Any non-standard keywords corresponding to this measurement. No keys
-         should start with *$*. Realistically each key should follow a pattern
-         corresponding to the measurement index, something like prefixing with
+        "Any non-standard keywords corresponding to this measurement. No keys \
+         should start with *$*. Realistically each key should follow a pattern \
+         corresponding to the measurement index, something like prefixing with \
          \"P\" followed by the index. This is not enforced."
     ),
 }
@@ -844,8 +838,8 @@ impl_new_meas! {
         Option<kws::Display>,
         true,
         "tuple[bool, float, float]",
-        "Value of *$PnD*. First member of tuple encodes linear or log display
-         (``False`` and ``True`` respectively). The float members encode
+        "Value of *$PnD*. First member of tuple encodes linear or log display \
+         (``False`` and ``True`` respectively). The float members encode \
          lower/upper and decades/offset for linear and log scaling respectively."
     ),
     (has_type, bool, true, "bool", "``True`` if *$PnTYPE* is set to ``Time``."),
@@ -855,9 +849,9 @@ impl_new_meas! {
         HashMap<NonStdKey, String>,
         true,
         "dict[str, str]",
-        "Any non-standard keywords corresponding to this measurement. No keys
-         should start with *$*. Realistically each key should follow a pattern
-         corresponding to the measurement index, something like prefixing with
+        "Any non-standard keywords corresponding to this measurement. No keys \
+         should start with *$*. Realistically each key should follow a pattern \
+         corresponding to the measurement index, something like prefixing with \
          \"P\" followed by the index. This is not enforced."
     ),
 }

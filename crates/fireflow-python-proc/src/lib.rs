@@ -7,7 +7,7 @@ use quote::{format_ident, quote, ToTokens};
 use syn::{
     parenthesized,
     parse::{Parse, ParseStream},
-    parse_macro_input,
+    parse_macro_input, parse_str,
     punctuated::Punctuated,
     token::Comma,
     Expr, GenericArgument, Ident, LitBool, LitStr, Path, PathArguments, Result, Token, Type,
@@ -20,6 +20,12 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let coredataset_rstype = info.coredataset_type;
     let fun = info.fun;
     let args = info.args;
+
+    let df_type = parse_str::<Path>("fireflow_core::validated::dataframe::FCSDataFrame").unwrap();
+    let analysis_type = parse_str::<Path>("fireflow_core::core::Analysis").unwrap();
+    let others_type = parse_str::<Path>("fireflow_core::core::Others").unwrap();
+
+    let polars_df_type = quote! {pyo3_polars::PyDataFrame};
 
     let coretext_name = path_name(&coretext_rstype);
     let coredataset_name = path_name(&coredataset_rstype);
@@ -53,46 +59,40 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     let df = NewArgInfo::new(
         "df",
-        info.df_type,
+        df_type,
         false,
         "polars.DataFrame",
         Some(
-            "A dataframe encoding the contents of *DATA*. Number of columns must
-         match number of measurements. May be empty. Types do not necessarily
-         need to correspond to those in the data layout but mismatches may
-         result in truncation.",
+            "A dataframe encoding the contents of *DATA*. Number of columns must \
+             match number of measurements. May be empty. Types do not necessarily \
+             need to correspond to those in the data layout but mismatches may \
+             result in truncation.",
         ),
         None,
     );
 
-    let analysis_type = info.analysis_type;
-    let analysis_default = ArgDefault {
-        rsval: quote! {#analysis_type::default()},
-        pyval: "b\"\"".to_string(),
-    };
-
     let analysis = NewArgInfo::new(
         "analysis",
-        analysis_type,
+        analysis_type.clone(),
         true,
         "bytes",
         Some("A byte string encoding the *ANALYSIS* segment."),
-        Some(analysis_default),
+        Some(ArgDefault {
+            rsval: quote! {#analysis_type::default()},
+            pyval: "b\"\"".to_string(),
+        }),
     );
-
-    let others_type = info.others_type;
-    let others_default = ArgDefault {
-        rsval: quote! {#others_type::default()},
-        pyval: "[]".to_string(),
-    };
 
     let others = NewArgInfo::new(
         "others",
-        others_type,
+        others_type.clone(),
         true,
         "list[bytes]",
         Some("Byte strings encoding the *OTHER* segments."),
-        Some(others_default),
+        Some(ArgDefault {
+            rsval: quote! {#others_type::default()},
+            pyval: "[]".to_string(),
+        }),
     );
 
     let coretext_funargs: Vec<_> = [&meas, &layout]
@@ -192,35 +192,35 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             }
 
             #[getter]
-            fn data(&self) -> PyDataFrame {
+            fn data(&self) -> #polars_df_type {
                 let ns = self.0.all_shortnames();
                 let data = self.0.data();
-                PyDataFrame(data.as_polars_dataframe(&ns[..]))
+                #polars_df_type(data.as_polars_dataframe(&ns[..]))
             }
 
             #[setter]
-            fn set_data(&mut self, df: PyDataFrame) -> PyResult<()> {
+            fn set_data(&mut self, df: #polars_df_type) -> PyResult<()> {
                 let data = df.0.try_into()?;
                 Ok(self.0.set_data(data)?)
             }
 
             #[getter]
-            fn analysis(&self) -> core::Analysis {
+            fn analysis(&self) -> #analysis_type {
                 self.0.analysis.clone()
             }
 
             #[setter]
-            fn set_analysis(&mut self, xs: core::Analysis) {
+            fn set_analysis(&mut self, xs: #analysis_type) {
                 self.0.analysis = xs.into();
             }
 
             #[getter]
-            fn others(&self) -> core::Others {
+            fn others(&self) -> #others_type {
                 self.0.others.clone()
             }
 
             #[setter]
-            fn set_others(&mut self, xs: core::Others) {
+            fn set_others(&mut self, xs: #others_type) {
                 self.0.others = xs
             }
         }
@@ -305,9 +305,6 @@ impl Parse for NewMeasInfo {
 struct NewCoreInfo {
     coretext_type: Path,
     coredataset_type: Path,
-    df_type: Path,
-    analysis_type: Path,
-    others_type: Path,
     fun: Path,
     meas_rstype: Path,
     meas_pytype: LitStr,
@@ -323,12 +320,6 @@ impl Parse for NewCoreInfo {
         let coretext_type: Path = input.parse()?;
         let _: Comma = input.parse()?;
         let coredataset_type: Path = input.parse()?;
-        let _: Comma = input.parse()?;
-        let df_type: Path = input.parse()?;
-        let _: Comma = input.parse()?;
-        let analysis_type: Path = input.parse()?;
-        let _: Comma = input.parse()?;
-        let others_type: Path = input.parse()?;
         let _: Comma = input.parse()?;
         let fun: Path = input.parse()?;
         let _: Comma = input.parse()?;
@@ -349,9 +340,6 @@ impl Parse for NewCoreInfo {
         Ok(Self {
             coretext_type,
             coredataset_type,
-            df_type,
-            analysis_type,
-            others_type,
             fun,
             meas_rstype,
             meas_pytype,
@@ -472,7 +460,7 @@ impl NewArgInfo {
             t.to_string()
         };
         let desc = if let Some(d) = self.desc.as_ref() {
-            d.replace("\n", "")
+            d.to_string()
         } else {
             format!("Value for *${}*.", argname.to_uppercase())
         };

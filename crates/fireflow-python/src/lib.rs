@@ -40,7 +40,7 @@ use fireflow_python_proc::{
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
 use derive_more::{From, Into};
 use pyo3::prelude::*;
-use pyo3::types::PyType;
+use pyo3::types::{PyTuple, PyType};
 use pyo3_polars::PyDataFrame;
 use std::collections::HashMap;
 use std::fs::File;
@@ -218,11 +218,20 @@ impl_new_core! {
     ),
     (
         applied_gates,
-        Option<PyAppliedGates2_0>,
+        PyAppliedGates2_0,
         true,
-        ":py:class:`AppliedGates2_0`",
-        "Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords."
-
+        "tuple[list[:py:class:`GatedMeasurement`], dict[int, :py:class:`UnivariateRegion2_0` | :py:class:`BivariateRegion2_0`], str | None]",
+        "Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords. The first member of
+         the tuple corresponds to the *$Gm\\** keywords, where *m* is given by
+         position in the list. The second member corresponds to the *$RnI* and
+         *$RnW* keywords and is a mapping of regions and windows to be used in
+         gating scheme. Keys in dictionary are the region indices (the *n* in
+         *$RnI* and *$RnW*). The values in the dictionary are either univariate
+         or bivariate gates and must correspond to an index in the list in the
+         first element. The third member corresponds to the *$GATING* keyword.
+         All 'Rn' in this string must reference a key in the dict of the second
+         member.",
+        (PyAppliedGates2_0::default(), "([], {}, None)")
     ),
     (
         nonstandard_keywords,
@@ -318,10 +327,20 @@ impl_new_core! {
     ),
     (
         applied_gates,
-        Option<PyAppliedGates3_0>,
+        PyAppliedGates3_0,
         true,
-        ":py:class:`AppliedGates3_0`",
-        "Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords."
+        "tuple[list[:py:class:`GatedMeasurement`], dict[int, :py:class:`UnivariateRegion3_0` | :py:class:`BivariateRegion3_0`], str | None]",
+        "Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords. The first member of
+         the tuple corresponds to the *$Gm\\** keywords, where *m* is given by
+         position in the list. The second member corresponds to the *$RnI* and
+         *$RnW* keywords and is a mapping of regions and windows to be used in
+         gating scheme. Keys in dictionary are the region indices (the *n* in
+         *$RnI* and *$RnW*). The values in the dictionary are either univariate
+         or bivariate gates and must correspond to an index in the list in the
+         first element or a physical measurement. The third member corresponds
+         to the *$GATING* keyword. All 'Rn' in this string must reference a key
+         in the dict of the second member.",
+        (PyAppliedGates3_0::default(), "([], {}, None)")
     ),
     (
         nonstandard_keywords,
@@ -424,10 +443,20 @@ impl_new_core! {
     ),
     (
         applied_gates,
-        Option<PyAppliedGates3_0>,
+        PyAppliedGates3_0,
         true,
-        ":py:class:`AppliedGates3_0`",
-        "Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords."
+        "tuple[list[:py:class:`GatedMeasurement`], dict[int, :py:class:`UnivariateRegion3_0` | :py:class:`BivariateRegion3_0`], str | None]",
+        "Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords. The first member of
+         the tuple corresponds to the *$Gm\\** keywords, where *m* is given by
+         position in the list. The second member corresponds to the *$RnI* and
+         *$RnW* keywords and is a mapping of regions and windows to be used in
+         gating scheme. Keys in dictionary are the region indices (the *n* in
+         *$RnI* and *$RnW*). The values in the dictionary are either univariate
+         or bivariate gates and must correspond to an index in the list in the
+         first element or a physical measurement. The third member corresponds
+         to the *$GATING* keyword. All 'Rn' in this string must reference a key
+         in the dict of the second member.",
+        (PyAppliedGates3_0::default(), "([], {}, None)")
     ),
     (
         nonstandard_keywords,
@@ -526,10 +555,18 @@ impl_new_core! {
     ),
     (
         applied_gates,
-        Option<PyAppliedGates3_2>,
+        PyAppliedGates3_2,
         true,
-        ":py:class:`AppliedGates3_2`",
-        "Value for *$RnI/$RnW/$GATING* keywords."
+        "tuple[dict[int, :py:class:`UnivariateRegion3_2` | :py:class:`BivariateRegion3_2`], str | None]",
+        "Value for *$RnI/$RnW/$GATING* keywords. The first member corresponds to
+         the *$RnI* and *$RnW* keywords and is a mapping of regions and windows
+         to be used in gating scheme. Keys in dictionary are the region indices
+         (the *n* in *$RnI* and *$RnW*). The values in the dictionary are either
+         univariate or bivariate gates and must correspond to a physical
+         measurement. The second member corresponds to the *$GATING* keyword.
+         All 'Rn' in this string must reference a key in the dict of the first
+         member.",
+        (PyAppliedGates3_2::default(), "({}, None)")
     ),
     (
         nonstandard_keywords,
@@ -2643,173 +2680,89 @@ impl_meas_get_set! {
     PyOptical3_2
 }
 
-py_wrap! {
-    /// Make new FCS 2.0-compatible gates.
-    ///
-    /// :param gated_measurements: Gated measurements corresponding to the
-    ///     *$Gm\** keywords.
-    /// :type gated_measurements: list[:py:class:`GatedMeasurement`]
-    ///
-    /// :param regions: Mapping of regions and windows to be used in gating
-    ///     scheme. Corresponds to *$RnI* and *$RnW* keywords. Keys in
-    ///     dictionary are the region indices (the *n* in *$RnI* and
-    ///     *$RnW*). The values in the dictionary are either univariate or
-    ///     bivariate gates and must correspond to an index in
-    ///     ``gated_measurements``.
-    /// :type regions: dict[int, :py:class:`UnivariateRegion2_0` | :py:class:`BivariateRegion2_0`]
-    ///
-    /// :param gating: The gating scheme. Corresponds to *$GATING* keyword.
-    ///      All 'Rn' in this string must reference a key in ``regions``.
-    /// :type gating: str | None
-    PyAppliedGates2_0,
-    AppliedGates2_0,
-    "AppliedGates2_0"
-}
+#[derive(From, Into, Default)]
+struct PyAppliedGates2_0(AppliedGates2_0);
 
-#[pymethods]
-impl PyAppliedGates2_0 {
-    #[new]
-    #[pyo3(text_signature = "(gated_measurements = [], regions = {}, gating = None)")]
-    fn new(
-        gated_measurements: PyGatedMeasurements,
-        regions: PyRegionMapping<PyRegion2_0>,
-        gating: Option<kws::Gating>,
-    ) -> PyResult<Self> {
-        Ok(AppliedGates2_0::try_new1(gated_measurements.into(), regions.into(), gating)?.into())
-    }
+#[derive(From, Into, Default)]
+struct PyAppliedGates3_0(AppliedGates3_0);
 
-    /// Value of all gating regions, corresponding to *$RnI* and *$RnW* (read-only).
-    ///
-    /// :rtype: dict[int, :py:class:`UnivariateRegion2_0` | :py:class:`BivariateRegion2_0`]
-    #[getter]
-    fn regions(&self) -> PyRegionMapping<PyRegion2_0> {
-        let r: &HashMap<_, _> = self.0.as_ref();
-        r.clone().into()
+#[derive(From, Into, Default)]
+struct PyAppliedGates3_2(AppliedGates3_2);
+
+impl<'py> FromPyObject<'py> for PyAppliedGates2_0 {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let (gated_measurements, regions, gating): (
+            PyGatedMeasurements,
+            PyRegionMapping<PyRegion2_0>,
+            Option<kws::Gating>,
+        ) = ob.extract()?;
+        let scheme = GatingScheme::try_new(gating, regions.into())?;
+        Ok(AppliedGates2_0::try_new(gated_measurements.into(), scheme)?.into())
     }
 }
 
-py_wrap! {
-    /// Make new FCS 3.0/3.1-compatible gates.
-    ///
-    /// :param gated_measurements: Gated measurements corresponding to the
-    ///     *$Gm\** keywords.
-    /// :type gated_measurements: list[:py:class:`GatedMeasurement`]
-    ///
-    /// :param regions: Mapping of regions and windows to be used in gating
-    ///     scheme. Corresponds to *$RnI* and *$RnW* keywords. Keys in
-    ///     dictionary are the region indices (the *n* in *$RnI* and
-    ///     *$RnW*). The values in the dictionary are either univariate or
-    ///     bivariate gates and must correspond to either physical
-    ///     measurements of an index in ``gated_measurements``.
-    /// :type regions: dict[int, :py:class:`UnivariateRegion3_0` | :py:class:`BivariateRegion3_0`]
-    ///
-    /// :param gating: The gating scheme. Corresponds to *$GATING* keyword.
-    ///      All 'Rn' in this string must reference a key in ``regions``.
-    /// :type gating: str | None
-    PyAppliedGates3_0,
-    AppliedGates3_0,
-    "AppliedGates3_0"
+impl<'py> IntoPyObject<'py> for PyAppliedGates2_0 {
+    type Target = PyTuple;
+    type Output = Bound<'py, PyTuple>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        let (gms, rs, g) = self.0.split();
+        (
+            PyGatedMeasurements::from(gms),
+            PyRegionMapping::<PyRegion2_0>::from(rs),
+            g,
+        )
+            .into_pyobject(py)
+    }
 }
 
-#[pymethods]
-impl PyAppliedGates3_0 {
-    #[new]
-    #[pyo3(text_signature = "(gated_measurements = [], regions = {}, gating = None)")]
-    fn new(
-        gated_measurements: PyGatedMeasurements,
-        regions: PyRegionMapping<PyRegion3_0>,
-        gating: Option<kws::Gating>,
-    ) -> PyResult<Self> {
+impl<'py> FromPyObject<'py> for PyAppliedGates3_0 {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let (gated_measurements, regions, gating): (
+            PyGatedMeasurements,
+            PyRegionMapping<PyRegion3_0>,
+            Option<kws::Gating>,
+        ) = ob.extract()?;
         let scheme = GatingScheme::try_new(gating, regions.into())?;
         Ok(AppliedGates3_0::try_new(gated_measurements.into(), scheme)?.into())
     }
+}
 
-    /// Value of all gating regions, corresponding to *$RnI* and *$RnW* (read-only).
-    ///
-    /// :rtype: dict[int, :py:class:`UnivariateRegion3_0` | :py:class:`BnivariateGate3_0`]
-    #[getter]
-    fn regions(&self) -> PyRegionMapping<PyRegion3_0> {
-        let r: &HashMap<_, _> = self.0.as_ref();
-        r.clone().into()
+impl<'py> IntoPyObject<'py> for PyAppliedGates3_0 {
+    type Target = PyTuple;
+    type Output = Bound<'py, PyTuple>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        let (gms, rs, g) = self.0.split();
+        (
+            PyGatedMeasurements::from(gms),
+            PyRegionMapping::<PyRegion3_0>::from(rs),
+            g,
+        )
+            .into_pyobject(py)
     }
 }
 
-py_wrap! {
-    /// Make new FCS 3.2-compatible gates.
-    ///
-    /// :param regions: Mapping of regions and windows to be used in gating
-    ///     scheme. Corresponds to *$RnI* and *$RnW* keywords. Keys in
-    ///     dictionary are the region indices (the *n* in *$RnI* and
-    ///     *$RnW*). The values in the dictionary are either univariate or
-    ///     bivariate gates and must correspond to physical measurements.
-    /// :type regions: dict[int, :py:class:`UnivariateRegion3_2` | :py:class:`BivariateRegion3_2`]
-    ///
-    /// :param gating: The gating scheme. Corresponds to *$GATING* keyword.
-    ///      All 'Rn' in this string must reference a key in ``regions``.
-    /// :type gating: str | None
-    PyAppliedGates3_2,
-    AppliedGates3_2,
-    "AppliedGates3_2"
-}
-
-#[pymethods]
-impl PyAppliedGates3_2 {
-    #[new]
-    #[pyo3(text_signature = "(regions = {}, gating = None)")]
-    fn new(regions: PyRegionMapping<PyRegion3_2>, gating: Option<kws::Gating>) -> PyResult<Self> {
+impl<'py> FromPyObject<'py> for PyAppliedGates3_2 {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let (regions, gating): (PyRegionMapping<PyRegion3_2>, Option<kws::Gating>) =
+            ob.extract()?;
         Ok(AppliedGates3_2::try_new(gating, regions.into())?.into())
     }
+}
 
-    /// Value of all gating regions, corresponding to *$RnI* and *$RnW*.
-    ///
-    /// :rtype: dict[int, :py:class:`UnivariateRegion3_2` | :py:class:`BivariateRegion3_2`]
-    #[getter]
-    fn regions(&self) -> PyRegionMapping<PyRegion3_2> {
-        let r: &HashMap<_, _> = self.0.as_ref();
-        r.clone().into()
+impl<'py> IntoPyObject<'py> for PyAppliedGates3_2 {
+    type Target = PyTuple;
+    type Output = Bound<'py, PyTuple>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        let (rs, g) = self.0.split();
+        (PyRegionMapping::<PyRegion3_2>::from(rs), g).into_pyobject(py)
     }
 }
-
-macro_rules! impl_applied_gates_scheme {
-    ($pytype:ident) => {
-        #[pymethods]
-        impl $pytype {
-            /// Value of the *$GATING* keyword (read-only).
-            ///
-            /// :rtype: str | None
-            #[getter]
-            fn scheme(&self) -> Option<kws::Gating> {
-                let g: &Option<kws::Gating> = self.0.as_ref();
-                g.as_ref().cloned()
-            }
-        }
-    };
-}
-
-impl_applied_gates_scheme!(PyAppliedGates2_0);
-impl_applied_gates_scheme!(PyAppliedGates3_0);
-impl_applied_gates_scheme!(PyAppliedGates3_2);
-
-macro_rules! impl_applied_gated_meas {
-    ($pytype:ident) => {
-        #[pymethods]
-        impl $pytype {
-            /// All gated measurements, corresponding to each *$Gm\** keyword (read-only).
-            ///
-            /// *$GATE* is implied by the length of this list.
-            ///
-            /// :rtype: list[:py:class:`GatedMeasurement`]
-            #[getter]
-            fn gated_measurements(&self) -> PyGatedMeasurements {
-                let gs: &[GatedMeasurement] = self.0.as_ref();
-                gs.to_vec().into()
-            }
-        }
-    };
-}
-
-impl_applied_gated_meas!(PyAppliedGates2_0);
-impl_applied_gated_meas!(PyAppliedGates3_0);
 
 // TODO could clean this stuff up by moving to gating module and implementing
 // py conversion b/t regions to these things. Would avoid having to unpack

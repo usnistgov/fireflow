@@ -39,10 +39,6 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ff::PyBivariateRegion3_0>()?;
     m.add_class::<ff::PyBivariateRegion3_2>()?;
 
-    m.add_class::<ff::PyAppliedGates2_0>()?;
-    m.add_class::<ff::PyAppliedGates3_0>()?;
-    m.add_class::<ff::PyAppliedGates3_2>()?;
-
     m.add_class::<ff::PyGatedMeasurement>()?;
 
     m.add_class::<ff::PyAsciiFixedLayout>()?;

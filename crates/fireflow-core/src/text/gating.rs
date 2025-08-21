@@ -261,6 +261,20 @@ impl AppliedGates2_0 {
         Ok(Self::try_new(gated_measurements, scheme)?)
     }
 
+    pub fn split(
+        self,
+    ) -> (
+        Vec<GatedMeasurement>,
+        HashMap<RegionIndex, Region2_0>,
+        Option<Gating>,
+    ) {
+        (
+            self.gated_measurements.0,
+            self.scheme.regions,
+            self.scheme.gating,
+        )
+    }
+
     pub(crate) fn is_empty(&self) -> bool {
         // ASSUME if this is empty then the gating regions will also be empty
         // since they will have nothing to refer
@@ -323,6 +337,20 @@ impl AppliedGates3_0 {
     ) -> Result<Self, NewAppliedGatesWithSchemeError> {
         let scheme = GatingScheme::try_new(gating, regions)?;
         Ok(Self::try_new(gated_measurements, scheme)?)
+    }
+
+    pub fn split(
+        self,
+    ) -> (
+        Vec<GatedMeasurement>,
+        HashMap<RegionIndex, Region3_0>,
+        Option<Gating>,
+    ) {
+        (
+            self.gated_measurements.0,
+            self.scheme.regions,
+            self.scheme.gating,
+        )
     }
 
     /// Shift indices when a new measurement is inserted.
@@ -452,6 +480,10 @@ impl AppliedGates3_2 {
         regions: HashMap<RegionIndex, Region<PrefixedMeasIndex>>,
     ) -> Result<Self, NewGatingSchemeError> {
         GatingScheme::try_new(gating, regions).map(Self)
+    }
+
+    pub fn split(self) -> (HashMap<RegionIndex, Region3_2>, Option<Gating>) {
+        (self.0.regions, self.0.gating)
     }
 
     /// Shift indices when a new measurement is inserted.

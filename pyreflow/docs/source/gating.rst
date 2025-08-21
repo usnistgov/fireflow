@@ -1,21 +1,6 @@
 Gating Classes
 ==============
 
-Applied Gates
-=============
-
-.. autoclass:: pyreflow.AppliedGates2_0
-   :members:
-   :undoc-members:
-
-.. autoclass:: pyreflow.AppliedGates3_0
-   :members:
-   :undoc-members:
-
-.. autoclass:: pyreflow.AppliedGates3_2
-   :members:
-   :undoc-members:
-
 Regions
 =======
 

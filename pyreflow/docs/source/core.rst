@@ -35,31 +35,26 @@ Class relationships
      - CoreDataset\*
      - Optical\*
      - Temporal\*
-     - Gating
    * - FCS2.0
      - :py:class:`~pyreflow.CoreTEXT2_0`
      - :py:class:`~pyreflow.CoreDataset2_0`
      - :py:class:`~pyreflow.Optical2_0`
      - :py:class:`~pyreflow.Temporal2_0`
-     - :py:class:`~pyreflow.AppliedGates2_0`
    * - FCS3.0
      - :py:class:`~pyreflow.CoreTEXT3_0`
      - :py:class:`~pyreflow.CoreDataset3_0`
      - :py:class:`~pyreflow.Optical3_0`
      - :py:class:`~pyreflow.Temporal3_0`
-     - :py:class:`~pyreflow.AppliedGates3_0`
    * - FCS3.1
      - :py:class:`~pyreflow.CoreTEXT3_1`
      - :py:class:`~pyreflow.CoreDataset3_1`
      - :py:class:`~pyreflow.Optical3_1`
      - :py:class:`~pyreflow.Temporal3_1`
-     - :py:class:`~pyreflow.AppliedGates3_0`
    * - FCS3.2
      - :py:class:`~pyreflow.CoreTEXT3_2`
      - :py:class:`~pyreflow.CoreDataset3_2`
      - :py:class:`~pyreflow.Optical3_2`
      - :py:class:`~pyreflow.Temporal3_2`
-     - :py:class:`~pyreflow.AppliedGates3_1`
 
 
 .. list-table::

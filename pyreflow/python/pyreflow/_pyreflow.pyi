@@ -349,36 +349,6 @@ class _GatedMeasurements:
     @property
     def gated_measurements(self) -> list[GatedMeasurement]: ...
 
-@final
-class AppliedGates2_0(
-    _Regions[UnivariateRegion2_0, BivariateRegion2_0], _GatedMeasurements
-):
-    def __new__(
-        cls,
-        gated_measurements: list[GatedMeasurement] = [],
-        regions: dict[int, UnivariateRegion2_0 | BivariateRegion2_0] = {},
-        gating: str | None = None,
-    ) -> Self: ...
-
-@final
-class AppliedGates3_0(
-    _Regions[UnivariateRegion3_0, BivariateRegion3_0], _GatedMeasurements
-):
-    def __new__(
-        cls,
-        gated_measurements: list[GatedMeasurement] = [],
-        regions: dict[int, UnivariateRegion3_0 | BivariateRegion3_0] = {},
-        gating: str | None = None,
-    ) -> Self: ...
-
-@final
-class AppliedGates3_2(_Regions[UnivariateRegion3_2, BivariateRegion3_2]):
-    def __new__(
-        cls,
-        regions: dict[int, UnivariateRegion3_2 | BivariateRegion3_2] = {},
-        gating: str | None = None,
-    ) -> Self: ...
-
 class _CoreCommon:
     abrt: int | None
     cells: str | None
@@ -746,7 +716,6 @@ class CoreTEXT2_0(
     _CoreCompensation,
     _CoreMeasWavelength,
     _CorePeak,
-    _CoreGates[AppliedGates2_0],
     _CoreTo3_0[CoreTEXT3_0],
     _CoreTo3_1[CoreTEXT3_1],
     _CoreTo3_2[CoreTEXT3_2],
@@ -772,7 +741,6 @@ class CoreTEXT3_0(
     _CoreMeasWavelength,
     _CorePeak,
     _CoreSubset,
-    _CoreGates[AppliedGates3_0],
     _CoreTo2_0[CoreTEXT2_0],
     _CoreTo3_1[CoreTEXT3_1],
     _CoreTo3_2[CoreTEXT3_2],
@@ -800,7 +768,6 @@ class CoreTEXT3_1(
     _CorePeak,
     _CoreMeasDisplay,
     _CoreMeasCalibration[Calibration3_1],
-    _CoreGates[AppliedGates3_0],
     _CoreTo2_0[CoreTEXT2_0],
     _CoreTo3_0[CoreTEXT3_0],
     _CoreTo3_2[CoreTEXT3_2],
@@ -826,7 +793,6 @@ class CoreTEXT3_2(
     _CoreMeasWavelengths,
     _CoreMeasDisplay,
     _CoreMeasCalibration[Calibration3_2],
-    _CoreGates[AppliedGates3_2],
     _CoreTo2_0[CoreTEXT2_0],
     _CoreTo3_0[CoreTEXT3_0],
     _CoreTo3_1[CoreTEXT3_1],
@@ -848,7 +814,6 @@ class CoreDataset2_0(
     _CoreCompensation,
     _CoreMeasWavelength,
     _CorePeak,
-    _CoreGates[AppliedGates2_0],
     _CoreTo3_0[CoreDataset3_0],
     _CoreTo3_1[CoreDataset3_1],
     _CoreTo3_2[CoreDataset3_2],
@@ -875,7 +840,6 @@ class CoreDataset3_0(
     _CoreMeasWavelength,
     _CorePeak,
     _CoreSubset,
-    _CoreGates[AppliedGates3_0],
     _CoreTo2_0[CoreDataset2_0],
     _CoreTo3_1[CoreDataset3_1],
     _CoreTo3_2[CoreDataset3_2],
@@ -904,7 +868,6 @@ class CoreDataset3_1(
     _CorePeak,
     _CoreMeasDisplay,
     _CoreMeasCalibration[Calibration3_1],
-    _CoreGates[AppliedGates3_0],
     _CoreTo2_0[CoreDataset2_0],
     _CoreTo3_0[CoreDataset3_0],
     _CoreTo3_2[CoreDataset3_2],
@@ -931,7 +894,6 @@ class CoreDataset3_2(
     _CoreMeasWavelengths,
     _CoreMeasDisplay,
     _CoreMeasCalibration[Calibration3_2],
-    _CoreGates[AppliedGates3_2],
     _CoreTo2_0[CoreDataset2_0],
     _CoreTo3_0[CoreDataset3_0],
     _CoreTo3_1[CoreDataset3_1],
@@ -966,9 +928,6 @@ __all__ = [
     "BivariateRegion2_0",
     "BivariateRegion3_0",
     "BivariateRegion3_2",
-    "AppliedGates2_0",
-    "AppliedGates3_0",
-    "AppliedGates3_2",
     "GatedMeasurement",
     "AsciiFixedLayout",
     "AsciiDelimLayout",

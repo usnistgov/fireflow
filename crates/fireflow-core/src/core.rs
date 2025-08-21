@@ -4425,18 +4425,12 @@ impl CoreTEXT2_0 {
         src: Option<Src>,
         sys: Option<Sys>,
         tr: Option<Trigger>,
-        applied_gates: Option<AppliedGates2_0>,
+        applied_gates: AppliedGates2_0,
         nonstandard_keywords: NonStdKeywords,
         prefix: Option<ShortnamePrefix>,
     ) -> MultiResult<Self, NewCoreTEXTError> {
         let timestamps = Timestamps::try_new(btim, etim, date).into_mult()?;
-        let specific = InnerMetaroot2_0::new(
-            mode,
-            cyt,
-            comp,
-            timestamps,
-            applied_gates.unwrap_or_default(),
-        );
+        let specific = InnerMetaroot2_0::new(mode, cyt, comp, timestamps, applied_gates);
         let metaroot = Metaroot::new(
             abrt,
             com,
@@ -4494,7 +4488,7 @@ impl CoreTEXT3_0 {
         src: Option<Src>,
         sys: Option<Sys>,
         tr: Option<Trigger>,
-        applied_gates: Option<AppliedGates3_0>,
+        applied_gates: AppliedGates3_0,
         nonstandard_keywords: NonStdKeywords,
         prefix: Option<ShortnamePrefix>,
     ) -> MultiResult<Self, NewCoreTEXTError> {
@@ -4508,7 +4502,7 @@ impl CoreTEXT3_0 {
             cytsn,
             unicode,
             subset,
-            applied_gates.unwrap_or_default(),
+            applied_gates,
         );
         let metaroot = Metaroot::new(
             abrt,
@@ -4573,7 +4567,7 @@ impl CoreTEXT3_1 {
         src: Option<Src>,
         sys: Option<Sys>,
         tr: Option<Trigger>,
-        applied_gates: Option<AppliedGates3_0>,
+        applied_gates: AppliedGates3_0,
         nonstandard_keywords: NonStdKeywords,
     ) -> MultiResult<Self, NewCoreTEXTError> {
         let timestamps = Timestamps::try_new(btim, etim, date).into_mult()?;
@@ -4588,7 +4582,7 @@ impl CoreTEXT3_1 {
             PlateData::new(plateid, platename, wellid),
             vol,
             subset,
-            applied_gates.unwrap_or_default(),
+            applied_gates,
         );
         let metaroot = Metaroot::new(
             abrt,
@@ -4658,7 +4652,7 @@ impl CoreTEXT3_2 {
         src: Option<Src>,
         sys: Option<Sys>,
         tr: Option<Trigger>,
-        applied_gates: Option<AppliedGates3_2>,
+        applied_gates: AppliedGates3_2,
         nonstandard_keywords: NonStdKeywords,
     ) -> MultiResult<Self, NewCoreTEXTError> {
         let timestamps = Timestamps::try_new(btim, etim, date).into_mult()?;
@@ -4676,7 +4670,7 @@ impl CoreTEXT3_2 {
             CarrierData::new(carrierid, carriertype, locationid),
             UnstainedData::new(unstainedcenters, unstainedinfo),
             flowrate,
-            applied_gates.unwrap_or_default(),
+            applied_gates,
         );
         let metaroot = Metaroot::new(
             abrt,

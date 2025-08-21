@@ -20,6 +20,8 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let info = parse_macro_input!(input as NewCoreInfo);
     let coretext_rstype = info.coretext_type;
     let coredataset_rstype = info.coredataset_type;
+    let meas_rstype = &info.meas_rstype;
+    let layout_rstype = &info.layout_rstype;
     let fun = info.fun;
     let args = info.args;
 
@@ -43,7 +45,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     let meas = NewArgInfo::new(
         "measurements",
-        info.meas_rstype,
+        meas_rstype.clone(),
         false,
         info.meas_pytype.value().as_str(),
         Some(info.meas_desc.value().as_str()),
@@ -52,7 +54,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     let layout = NewArgInfo::new(
         "layout",
-        info.layout_rstype,
+        layout_rstype.clone(),
         false,
         info.layout_pytype.value().as_str(),
         Some(info.layout_desc.value().as_str()),
@@ -155,6 +157,52 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         .map(|x| x.fmt_arg_doc())
         .join("\n\n");
 
+    // TODO document these, also these might be better in a different macro
+    // that deals with the non-setters.
+    let common = quote! {
+        pub fn set_measurements(
+            &mut self,
+            measurements: #meas_rstype,
+            allow_shared_names: bool,
+            skip_index_check: bool,
+        ) -> PyResult<()> {
+            self.0
+                .set_measurements(
+                    measurements.0.inner_into(),
+                    allow_shared_names,
+                    skip_index_check,
+                )
+                .py_term_resolve_nowarn()
+        }
+
+        fn set_measurements_and_layout(
+            &mut self,
+            measurements: #meas_rstype,
+            layout: #layout_rstype,
+            allow_shared_names: bool,
+            skip_index_check: bool,
+        ) -> PyResult<()> {
+            self.0
+                .set_measurements_and_layout(
+                    measurements.0.inner_into(),
+                    layout.into(),
+                    allow_shared_names,
+                    skip_index_check,
+                )
+                .py_term_resolve_nowarn()
+        }
+
+        #[getter]
+        fn get_layout(&self) -> #layout_rstype {
+            self.0.layout().clone().into()
+        }
+
+        #[setter]
+        fn set_layout(&mut self, layout: #layout_rstype) -> PyResult<()> {
+            self.0.set_layout(layout.into()).py_term_resolve_nowarn()
+        }
+    };
+
     quote! {
         // TODO not dry, this is just pywrap!
         #[doc = #coretext_summary]
@@ -173,6 +221,8 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             fn new(#(#coretext_funargs),*) -> PyResult<Self> {
                 Ok(#fun(#(#coretext_inner_args),*).mult_head()?.into())
             }
+
+            #common
         }
 
         #[doc = #coredataset_summary]
@@ -225,6 +275,8 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             fn set_others(&mut self, xs: #others_type) {
                 self.0.others = xs
             }
+
+            #common
         }
     }
     .into()

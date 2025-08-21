@@ -1266,35 +1266,6 @@ impl_get_set_meas_obj_common!(
 impl_get_set_meas_obj_common!(PyCoreTEXT3_1, PyCoreDataset3_1, Shortname, AlwaysFamily);
 impl_get_set_meas_obj_common!(PyCoreTEXT3_2, PyCoreDataset3_2, Shortname, AlwaysFamily);
 
-macro_rules! impl_set_meas_and_data {
-    ($pytype:ident, $t:ident, $o:ident, $fam:ident) => {
-        #[pymethods]
-        impl $pytype {
-            fn set_measurements_and_data(
-                &mut self,
-                measurements: Eithers<$fam, $t, $o>,
-                df: FCSDataFrame,
-                allow_shared_names: bool,
-                skip_index_check: bool,
-            ) -> PyResult<()> {
-                self.0
-                    .set_measurements_and_data(
-                        measurements.inner_into(),
-                        df,
-                        allow_shared_names,
-                        skip_index_check,
-                    )
-                    .py_term_resolve_nowarn()
-            }
-        }
-    };
-}
-
-impl_set_meas_and_data!(PyCoreDataset2_0, PyTemporal2_0, PyOptical2_0, MaybeFamily);
-impl_set_meas_and_data!(PyCoreDataset3_0, PyTemporal3_0, PyOptical3_0, MaybeFamily);
-impl_set_meas_and_data!(PyCoreDataset3_1, PyTemporal3_1, PyOptical3_1, AlwaysFamily);
-impl_set_meas_and_data!(PyCoreDataset3_2, PyTemporal3_2, PyOptical3_2, AlwaysFamily);
-
 macro_rules! impl_core3_2 {
     ($pytype:ident) => {
         #[pymethods]

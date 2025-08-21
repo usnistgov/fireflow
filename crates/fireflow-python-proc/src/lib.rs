@@ -63,7 +63,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     let df = NewArgInfo::new(
         "df",
-        df_type,
+        df_type.clone(),
         false,
         "polars.DataFrame",
         Some(
@@ -274,6 +274,23 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             #[setter]
             fn set_others(&mut self, xs: #others_type) {
                 self.0.others = xs
+            }
+
+            fn set_measurements_and_data(
+                &mut self,
+                measurements: #meas_rstype,
+                df: #df_type,
+                allow_shared_names: bool,
+                skip_index_check: bool,
+            ) -> PyResult<()> {
+                self.0
+                    .set_measurements_and_data(
+                        measurements.0.inner_into(),
+                        df,
+                        allow_shared_names,
+                        skip_index_check,
+                    )
+                    .py_term_resolve_nowarn()
             }
 
             #common

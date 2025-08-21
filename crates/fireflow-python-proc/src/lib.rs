@@ -622,11 +622,11 @@ pub fn impl_get_set_all_meas(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
     let info = parse_macro_input!(input as CommonMeasGetSet);
-    let rstype = &info.rstype;
+    let core_type = &info.core_type;
     let nametype = &info.nametype;
     let namefam = &info.namefam;
-    let name = info.rstype.segments.last().unwrap().ident.to_string();
-    let (_, version) = split_version(name.as_str());
+    let core_name = info.core_type.segments.last().unwrap().ident.to_string();
+    let (_, version) = split_version(core_name.as_str());
     let otype = format_ident!("PyOptical{version}");
     let ttype = format_ident!("PyTemporal{version}");
     let potype = format!("Optical{version}");
@@ -649,9 +649,38 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
 
     let param_type_optical = format!(":type meas: :py:class:`{}`", potype);
 
+    let replace_tmp_input_doc = format!(":type meas: :py:class:`{pttype}`");
+    let replace_tmp_at_ret_doc = format!(":rtype: :py:class:`{potype}` | :py:class:`{pttype}`");
+    let replace_tmp_named_ret_doc = format!("{replace_tmp_at_ret_doc} | None");
+
+    // the temporal replacement functions for 3.2 are different because they
+    // can fail if $PnTYPE is set
+    let (replace_tmp_sig, replace_tmp_args, replace_tmp_at_body, replace_tmp_named_body) =
+        if version == "3_2" {
+            let go = |fun, x| {
+                quote! {self
+                .0
+                .#fun(#x, meas.into(), force)
+                .py_term_resolve()?}
+            };
+            (
+                quote! {force = true},
+                quote! {force: bool},
+                go(quote! {replace_temporal_at_lossy}, quote! {index}),
+                go(quote! {replace_temporal_named_lossy}, quote! {&name}),
+            )
+        } else {
+            (
+                quote! {},
+                quote! {},
+                quote! {self.0.replace_temporal_at(index, meas.into())?},
+                quote! {self.0.replace_temporal_named(&name, meas.into())},
+            )
+        };
+
     quote! {
         #[pymethods]
-        impl #rstype {
+        impl #core_type {
             /// Get the temporal measurement if it exists.
             ///
             /// :return: Index, name, and measurement or ``None``
@@ -767,6 +796,50 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
                 self.0
                     .replace_optical_named(&name, meas.into())
                     .map(|r| r.inner_into())
+            }
+
+            /// Replace measurement at index with temporal measurement.
+            ///
+            /// Raise exception if index is output of bounds or there is already
+            /// a temporal measurement at a different index.
+            ///
+            /// :param int index: Index to be replaced.
+            /// :param meas: Temporal measurement with which to replace.
+            #[doc = #replace_tmp_input_doc]
+            ///
+            /// :return: Replaced measurement object.
+            #[doc = #replace_tmp_at_ret_doc]
+            #[pyo3(signature = (index, meas, #replace_tmp_sig))]
+            fn replace_temporal_at(
+                &mut self,
+                index: MeasIndex,
+                meas: #ttype,
+                #replace_tmp_args
+            ) -> PyResult<Element<#ttype, #otype>> {
+                let ret = #replace_tmp_at_body;
+                Ok(ret.inner_into())
+            }
+
+            /// Replace measurement with name with temporal measurement.
+            ///
+            /// Raise exception if name is not found or there is already
+            /// a temporal measurement at a different index.
+            ///
+            /// :param str name: Name to replace. Must not contain commas.
+            /// :param meas: Temporal measurement with which to replace.
+            #[doc = #replace_tmp_input_doc]
+            ///
+            /// :return: Replaced measurement object.
+            #[doc = #replace_tmp_named_ret_doc]
+            #[pyo3(signature = (name, meas, #replace_tmp_sig))]
+            fn replace_temporal_named(
+                &mut self,
+                name: Shortname,
+                meas: #ttype,
+                #replace_tmp_args
+            ) -> PyResult<Option<Element<#ttype, #otype>>> {
+                let ret = #replace_tmp_named_body;
+                Ok(ret.map(|r| r.inner_into()))
             }
         }
     }
@@ -916,20 +989,20 @@ impl Parse for GetSetAllMeas {
 }
 
 struct CommonMeasGetSet {
-    rstype: Path,
+    core_type: Path,
     nametype: Type,
     namefam: Type,
 }
 
 impl Parse for CommonMeasGetSet {
     fn parse(input: ParseStream) -> Result<Self> {
-        let rstype: Path = input.parse()?;
+        let core_type = input.parse::<Path>()?;
         let _: Comma = input.parse()?;
         let nametype: Type = input.parse()?;
         let _: Comma = input.parse()?;
         let namefam: Type = input.parse()?;
         Ok(Self {
-            rstype,
+            core_type,
             nametype,
             namefam,
         })

@@ -1,6 +1,6 @@
 use crate::error::*;
 use crate::text::optional::MightHave;
-use crate::validated::shortname::{Shortname, ShortnamePrefix};
+use crate::validated::shortname::Shortname;
 
 use super::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
 
@@ -23,10 +23,9 @@ use Ordering::*;
 /// A list of potentially named values with an optional "center value".
 ///
 /// Each element is a pair consisting of a key and a value. The key is a
-/// wrapper type which may have a name in it. If their is no name, that
-/// element has a "default" name which is created from its index and a
-/// supplied prefix, which is stored along with the data. Each name (including)
-/// these "default" names) must be unique.
+/// wrapper type which may have a name in it. If there is no name, that
+/// element has a default name of "Pn" where "n" is the index starting at 1.
+/// Each name (including) these "default" names) must be unique.
 ///
 /// Additionally, up to one element may be designated the "center" value, which
 /// must have a name (ie not in the same wrapper type as the others) and can
@@ -45,10 +44,7 @@ pub enum NamedVec<K, W, U, V> {
 
 impl<K, W, U, V> Default for NamedVec<K, W, U, V> {
     fn default() -> Self {
-        NamedVec::Unsplit(UnsplitVec {
-            prefix: ShortnamePrefix::default(),
-            members: vec![],
-        })
+        NamedVec::Unsplit(UnsplitVec { members: vec![] })
     }
 }
 
@@ -64,14 +60,12 @@ pub struct SplitVec<K, U, V> {
     left: PairedVec<K, V>,
     center: Box<Center<U>>,
     right: PairedVec<K, V>,
-    prefix: ShortnamePrefix,
 }
 
 #[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct UnsplitVec<K, V> {
     members: PairedVec<K, V>,
-    prefix: ShortnamePrefix,
 }
 
 #[derive(Clone)]
@@ -119,13 +113,12 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// All names within keys (including center) must be unique.
     pub(crate) fn try_new(
         xs: Eithers<K, U, V>,
-        prefix: ShortnamePrefix,
     ) -> Result<WrappedNamedVec<K, U, V>, NewNamedVecError> {
         let names: Vec<_> =
             xs.0.iter()
                 .map(|x| x.as_ref().both(|e| K::wrap(&e.0), |o| K::as_ref(&o.0)))
                 .collect();
-        if !prefix.all_unique::<K>(names) {
+        if !all_unique_names::<K>(names) {
             return Err(NewNamedVecError::NonUnique);
         }
         let mut left = vec![];
@@ -158,9 +151,9 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             }
         }
         let s = if let Some(c) = center {
-            Self::new_split(left, c, right, prefix)
+            Self::new_split(left, c, right)
         } else {
-            Self::new_unsplit(left, prefix)
+            Self::new_unsplit(left)
         };
         Ok(s)
     }
@@ -188,26 +181,6 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             NamedVec::Unsplit(_) => None,
         }
     }
-
-    /// Return reference to prefix
-    pub(crate) fn as_prefix(&self) -> &ShortnamePrefix {
-        match self {
-            NamedVec::Split(s, _) => &s.prefix,
-            NamedVec::Unsplit(u) => &u.prefix,
-        }
-    }
-
-    // /// Set the prefix
-    // pub(crate) fn set_prefix(&mut self, prefix: ShortnamePrefix) {
-    //     match self {
-    //         NamedVec::Split(s, _) => {
-    //             s.prefix = prefix;
-    //         }
-    //         NamedVec::Unsplit(u) => {
-    //             u.prefix = prefix;
-    //         }
-    //     }
-    // }
 
     // pub fn into_iter(
     //     self,
@@ -307,11 +280,10 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Return iterator over key names with non-existent names as default.
     // TODO seems like we should give a different type for this
     pub(crate) fn iter_all_names(&self) -> impl Iterator<Item = Shortname> + '_ {
-        let prefix = self.as_prefix();
         self.iter().map(|(i, r)| {
             r.both(
                 |x| x.key.clone(),
-                |x| K::as_opt(&x.key).cloned().unwrap_or(prefix.as_indexed(i)),
+                |x| K::as_opt(&x.key).cloned().unwrap_or(i.into()),
             )
         })
     }
@@ -505,7 +477,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 };
                 f(e).def_map_value(|value| {
                     let center = Pair { value, key: ckey };
-                    NamedVec::new_split(s.left, center, s.right, s.prefix)
+                    NamedVec::new_split(s.left, center, s.right)
                 })
                 .def_map_errors(|error| IndexedElementError { index, error })
             }
@@ -542,12 +514,11 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 let nleft = s.left.len();
                 let lres = go(s.left, 0);
                 let rres = go(s.right, nleft + 1);
-                lres.def_zip(rres).def_map_value(|(left, right)| {
-                    NamedVec::new_split(left, *s.center, right, s.prefix)
-                })
+                lres.def_zip(rres)
+                    .def_map_value(|(left, right)| NamedVec::new_split(left, *s.center, right))
             }
             NamedVec::Unsplit(u) => {
-                go(u.members, 0).def_map_value(|members| NamedVec::new_unsplit(members, u.prefix))
+                go(u.members, 0).def_map_value(|members| NamedVec::new_unsplit(members))
             }
         }
     }
@@ -716,10 +687,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                             .chain([Pair { key, value }])
                             .chain(s.right)
                             .collect();
-                        (
-                            Self::new_unsplit(members, s.prefix),
-                            Element::Center(s.center.value),
-                        )
+                        (Self::new_unsplit(members), Element::Center(s.center.value))
                     }
                     Greater => {
                         let ret = mem::replace(&mut s.left[i - ln - 1].value, value);
@@ -760,9 +728,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         let i = self
             .check_element_index(index, true)
             .map_err(RenameError::Index)?;
-        let k = self
-            .as_prefix()
-            .as_opt_or_indexed::<K>(K::as_ref(&key), index);
+        let k = to_opt_or_indexed::<K>(K::as_ref(&key), index);
         if self
             .iter_all_names()
             .enumerate()
@@ -781,9 +747,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 }
                 NamedVec::Unsplit(u) => mem::replace(&mut u.members[i].key, key),
             };
-            let old_k = self
-                .as_prefix()
-                .as_opt_or_indexed::<K>(K::as_ref(&old), index);
+            let old_k = to_opt_or_indexed::<K>(K::as_ref(&old), index);
             Ok((old_k, k))
         }
     }
@@ -812,7 +776,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             .map_err(InsertCenterError::Insert)?;
         let p = Pair { key, value };
         let (newself, ret) = match mem::replace(self, dummy()) {
-            NamedVec::Unsplit(u) => (NamedVec::new_split(u.members, p, vec![], u.prefix), Ok(())),
+            NamedVec::Unsplit(u) => (NamedVec::new_split(u.members, p, vec![]), Ok(())),
             s => (s, Err(InsertCenterError::Present)),
         };
         *self = newself;
@@ -842,7 +806,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 let mut it = u.members.into_iter();
                 let left: Vec<_> = it.by_ref().take(i).collect();
                 let right: Vec<_> = it.collect();
-                (NamedVec::new_split(left, p, right, u.prefix), Ok(()))
+                (NamedVec::new_split(left, p, right), Ok(()))
             }
             s => (s, Err(InsertCenterError::Present)),
         };
@@ -867,7 +831,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                     Equal => {
                         let new = s.left.into_iter().chain(s.right).collect();
                         let ret = Ok(Element::Center(*s.center));
-                        (NamedVec::new_unsplit(new, s.prefix), ret)
+                        (NamedVec::new_unsplit(new), ret)
                     }
                     Greater => {
                         let x = s.right.remove(i - nleft - 1);
@@ -906,7 +870,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 } else if &s.center.key == n {
                     let i = s.left.len().into();
                     let xs = s.left.into_iter().chain(s.right).collect();
-                    let new = NamedVec::new_unsplit(xs, s.prefix);
+                    let new = NamedVec::new_unsplit(xs);
                     (new, Ok((i, Element::Center(s.center.value))))
                 } else {
                     (NamedVec::Split(s, p), Err(KeyNotFoundError(n.clone())))
@@ -939,10 +903,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     {
         self.check_keys_length(&ks[..], true)
             .map_err(SetNamesError::Length)?;
-        if !self
-            .as_prefix()
-            .all_unique::<K>(ks.iter().map(K::as_ref).collect())
-        {
+        if !all_unique_names::<K>(ks.iter().map(K::as_ref).collect()) {
             return Err(SetNamesError::NonUnique.into());
         }
         let mut mapping = HashMap::new();
@@ -1172,7 +1133,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     {
         let res = match mem::replace(self, dummy()) {
             NamedVec::Split(s, _) => match split_at_index::<K, U, V>(s, index.into()) {
-                PartialSplit::Left(left, center, right, prefix) => {
+                PartialSplit::Left(left, center, right) => {
                     let center_key = center.key;
                     match to_v(index, center.value) {
                         Ok(pass) => Ok(pass.map(|old_center_value| {
@@ -1184,7 +1145,6 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                                 center_key,
                                 old_center_value,
                                 right,
-                                prefix,
                             )
                             .unwrap();
                             (sp, Element::NonCenter(left.selected.value))
@@ -1198,7 +1158,6 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                                 center_key,
                                 *center_value,
                                 right,
-                                prefix,
                             )
                         })),
                     }
@@ -1210,12 +1169,12 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                         value,
                     };
                     Ok(Tentative::new1((
-                        Self::new_split(x.left, center, x.right, x.prefix),
+                        Self::new_split(x.left, center, x.right),
                         Element::Center(x.center.value),
                     )))
                 }
 
-                PartialSplit::Right(left, center, right, prefix) => {
+                PartialSplit::Right(left, center, right) => {
                     let center_key = center.key;
                     match to_v(index, center.value) {
                         Ok(pass) => Ok(pass.map(|old_center_value| {
@@ -1227,7 +1186,6 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                                 right.selected.key,
                                 value,
                                 right.right,
-                                prefix,
                             )
                             .unwrap();
                             (sp, Element::NonCenter(right.selected.value))
@@ -1241,7 +1199,6 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                                 right.selected.key,
                                 right.selected.value,
                                 right.right,
-                                prefix,
                             )
                         })),
                     }
@@ -1256,7 +1213,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                     value,
                 };
                 Ok(Tentative::new1((
-                    Self::new_split(x.left, center, x.right, u.prefix),
+                    Self::new_split(x.left, center, x.right),
                     Element::NonCenter(ret),
                 )))
             }
@@ -1316,7 +1273,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             .into_deferred()
             .def_and_tentatively(|i| match mem::replace(self, dummy()) {
                 NamedVec::Split(s, p) => match split_at_index::<K, U, V>(s, i) {
-                    PartialSplit::Left(left, center, right, prefix) => {
+                    PartialSplit::Left(left, center, right) => {
                         let center_key = center.key;
                         match swap(i.into(), center.value, left.selected.value) {
                             Ok(tnt) => tnt.map(|(right_value, center_value)| {
@@ -1328,7 +1285,6 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                                     center_key,
                                     right_value,
                                     right,
-                                    prefix,
                                 )
                                 .unwrap();
                                 (sp, true)
@@ -1343,7 +1299,6 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                                         center_key,
                                         center_value,
                                         right,
-                                        prefix,
                                     );
                                     (sp, false)
                                 })
@@ -1353,7 +1308,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
 
                     PartialSplit::Center(sc) => Tentative::new1((NamedVec::Split(sc, p), false)),
 
-                    PartialSplit::Right(left, center, right, prefix) => {
+                    PartialSplit::Right(left, center, right) => {
                         let center_key = center.key;
                         match swap(i.into(), center.value, right.selected.value) {
                             Ok(tnt) => tnt.map(|(right_value, center_value)| {
@@ -1365,7 +1320,6 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                                     right.selected.key,
                                     center_value,
                                     right.right,
-                                    prefix,
                                 )
                                 .unwrap();
                                 (sp, true)
@@ -1382,7 +1336,6 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                                             right.selected.key,
                                             right_value,
                                             right.right,
-                                            prefix,
                                         );
                                         (sp, false)
                                     })
@@ -1399,7 +1352,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                                 key: K::to_opt(x.selected.key).unwrap(),
                                 value: new_value,
                             };
-                            (Self::new_split(x.left, center, x.right, u.prefix), true)
+                            (Self::new_split(x.left, center, x.right), true)
                         }),
                         Err(fail) => fail.unfail().map(|old_value| {
                             let center = Pair {
@@ -1409,7 +1362,6 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                             (
                                 Self::new_unsplit(
                                     x.left.into_iter().chain([center]).chain(x.right).collect(),
-                                    u.prefix,
                                 ),
                                 false,
                             )
@@ -1448,14 +1400,14 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                             .chain([non_center])
                             .chain(s.right)
                             .collect();
-                        (Self::new_unsplit(members, s.prefix), Some(ret))
+                        (Self::new_unsplit(members), Some(ret))
                     }),
                     Err(fail) => fail.unfail().map(|value| {
                         let center = Pair {
                             key: center_key,
                             value: *value,
                         };
-                        let sp = Self::new_split(s.left, center, s.right, s.prefix);
+                        let sp = Self::new_split(s.left, center, s.right);
                         (sp, None)
                     }),
                 }
@@ -1500,9 +1452,9 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 let lres = go(s.left, 0);
                 let rres = go(s.right, offset);
                 let (left, right) = lres.mult_zip(rres)?;
-                NamedVec::new_split(left, *s.center, right, s.prefix)
+                NamedVec::new_split(left, *s.center, right)
             }
-            NamedVec::Unsplit(u) => NamedVec::new_unsplit(go(u.members, 0)?, u.prefix),
+            NamedVec::Unsplit(u) => NamedVec::new_unsplit(go(u.members, 0)?),
         };
         Ok(x)
     }
@@ -1551,9 +1503,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         key: K::Wrapper<Shortname>,
         index: MeasIndex,
     ) -> Result<(K::Wrapper<Shortname>, Shortname), NonUniqueKeyError> {
-        let name = self
-            .as_prefix()
-            .as_opt_or_indexed::<K>(K::as_ref(&key), index);
+        let name = to_opt_or_indexed::<K>(K::as_ref(&key), index);
         if self.iter_all_names().any(|n| n == name) {
             Err(NonUniqueKeyError { name })
         } else {
@@ -1635,14 +1585,12 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         left: WrappedPairedVec<K, V>,
         center: Center<U>,
         right: WrappedPairedVec<K, V>,
-        prefix: ShortnamePrefix,
     ) -> Self {
         NamedVec::Split(
             SplitVec {
                 left,
                 center: Box::new(center),
                 right,
-                prefix,
             },
             PhantomData,
         )
@@ -1657,7 +1605,6 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         old_center_name: Shortname,
         old_center_value: V,
         right: WrappedPairedVec<K, V>,
-        prefix: ShortnamePrefix,
     ) -> Option<Self> {
         let new_center = Pair {
             key: K::to_opt(new_center_name)?,
@@ -1675,7 +1622,6 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 .chain([new_right])
                 .chain(right)
                 .collect(),
-            prefix,
         ))
     }
 
@@ -1688,7 +1634,6 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         center_key: Shortname,
         center_value: U,
         right: WrappedPairedVec<K, V>,
-        prefix: ShortnamePrefix,
     ) -> Self {
         let center = Pair {
             key: center_key,
@@ -1706,7 +1651,6 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 .collect(),
             center,
             right,
-            prefix,
         )
     }
 
@@ -1719,7 +1663,6 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         new_center_key: K::Wrapper<Shortname>,
         new_center_value: U,
         right_right: WrappedPairedVec<K, V>,
-        prefix: ShortnamePrefix,
     ) -> Option<Self> {
         let new_center = Pair {
             key: K::to_opt(new_center_key)?,
@@ -1736,7 +1679,6 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 .collect(),
             new_center,
             right_right,
-            prefix,
         ))
     }
 
@@ -1749,7 +1691,6 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         right_key: K::Wrapper<Shortname>,
         right_value: V,
         right_right: WrappedPairedVec<K, V>,
-        prefix: ShortnamePrefix,
     ) -> Self {
         let center = Pair {
             key: center_key,
@@ -1767,12 +1708,11 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 .chain([new_right])
                 .chain(right_right)
                 .collect(),
-            prefix,
         )
     }
 
-    fn new_unsplit(members: WrappedPairedVec<K, V>, prefix: ShortnamePrefix) -> Self {
-        NamedVec::Unsplit(UnsplitVec { members, prefix })
+    fn new_unsplit(members: WrappedPairedVec<K, V>) -> Self {
+        NamedVec::Unsplit(UnsplitVec { members })
     }
 }
 
@@ -1902,22 +1842,16 @@ impl<U, V> Element<U, V> {
     }
 }
 
-impl ShortnamePrefix {
-    fn as_opt_or_indexed<X: MightHave>(
-        &self,
-        x: X::Wrapper<&Shortname>,
-        i: MeasIndex,
-    ) -> Shortname {
-        X::to_opt(x).cloned().unwrap_or(self.as_indexed(i))
-    }
+fn to_opt_or_indexed<X: MightHave>(x: X::Wrapper<&Shortname>, i: MeasIndex) -> Shortname {
+    X::to_opt(x).cloned().unwrap_or(i.into())
+}
 
-    fn all_unique<X: MightHave>(&self, xs: Vec<X::Wrapper<&Shortname>>) -> bool {
-        all_unique(
-            xs.into_iter()
-                .enumerate()
-                .map(|(i, x)| self.as_opt_or_indexed::<X>(x, i.into())),
-        )
-    }
+fn all_unique_names<X: MightHave>(xs: Vec<X::Wrapper<&Shortname>>) -> bool {
+    all_unique(
+        xs.into_iter()
+            .enumerate()
+            .map(|(i, x)| to_opt_or_indexed::<X>(x, i.into())),
+    )
 }
 
 fn all_unique<'a, T: Hash + Eq>(xs: impl Iterator<Item = T> + 'a) -> bool {
@@ -1934,26 +1868,13 @@ fn all_unique<'a, T: Hash + Eq>(xs: impl Iterator<Item = T> + 'a) -> bool {
 
 // dummy value to use when mutating NamedVec in place
 fn dummy<K, W, U, V>() -> NamedVec<K, W, U, V> {
-    NamedVec::Unsplit(UnsplitVec {
-        members: vec![],
-        prefix: ShortnamePrefix::default(),
-    })
+    NamedVec::Unsplit(UnsplitVec { members: vec![] })
 }
 
 enum PartialSplit<K, U, V> {
-    Left(
-        PairedSplit<K, V>,
-        Box<Center<U>>,
-        PairedVec<K, V>,
-        ShortnamePrefix,
-    ),
+    Left(PairedSplit<K, V>, Box<Center<U>>, PairedVec<K, V>),
     Center(SplitVec<K, U, V>),
-    Right(
-        PairedVec<K, V>,
-        Box<Center<U>>,
-        PairedSplit<K, V>,
-        ShortnamePrefix,
-    ),
+    Right(PairedVec<K, V>, Box<Center<U>>, PairedSplit<K, V>),
 }
 
 struct PairedSplit<K, V> {
@@ -1980,18 +1901,12 @@ fn split_at_index<K: MightHave, U, V>(
 ) -> PartialSplit<<K as MightHave>::Wrapper<Shortname>, U, V> {
     let nleft = s.left.len();
     match index.cmp(&nleft) {
-        Less => PartialSplit::Left(
-            split_paired_vec::<K, V>(s.left, index),
-            s.center,
-            s.right,
-            s.prefix,
-        ),
+        Less => PartialSplit::Left(split_paired_vec::<K, V>(s.left, index), s.center, s.right),
         Equal => PartialSplit::Center(s),
         Greater => PartialSplit::Right(
             s.left,
             s.center,
             split_paired_vec::<K, V>(s.right, index - nleft - 1),
-            s.prefix,
         ),
     }
 }
@@ -2059,11 +1974,6 @@ pub enum NewNamedVecError {
     NonUnique,
     MultiCenter,
 }
-
-// pub struct RewrapError<E> {
-//     error: E,
-//     index: MeasIdx,
-// }
 
 pub struct IndexedElementError<E> {
     error: E,

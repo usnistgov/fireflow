@@ -30,7 +30,7 @@ use fireflow_core::text::unstainedcenters::UnstainedCenters;
 use fireflow_core::validated::bitmask as bm;
 use fireflow_core::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
 use fireflow_core::validated::keys::{NonStdKey, StdKeywords, ValidKeywords};
-use fireflow_core::validated::shortname::{Shortname, ShortnamePrefix};
+use fireflow_core::validated::shortname::Shortname;
 use fireflow_core::validated::textdelim::TEXTDelim;
 use fireflow_python_proc::{
     impl_convert_version, impl_get_set_all_meas, impl_get_set_meas_obj_common,
@@ -238,15 +238,6 @@ impl_new_core! {
         "dict[str, str]",
         "Pairs of non-standard keyword values. Keys must not start with *$*."
     ),
-    (
-        prefix,
-        ShortnamePrefix,
-        false,
-        "str",
-        "Prefix to use for measurement names which do not have *$PnN*. \
-         Actual name will be prefix + index.",
-        (ShortnamePrefix::default(), "\"P\"")
-    )
 }
 
 impl_new_core! {
@@ -346,15 +337,6 @@ impl_new_core! {
         "dict[str, str]",
         "Pairs of non-standard keyword values. Keys must not start with *$*."
     ),
-    (
-        prefix,
-        ShortnamePrefix,
-        false,
-        "str",
-        "Prefix to use for measurement names which do not have *$PnN*. \
-         Actual name will be prefix + index.",
-        (ShortnamePrefix::default(), "\"P\"")
-    )
 }
 
 impl_new_core! {
@@ -1129,16 +1111,13 @@ impl_write_text!(PyCoreDataset3_1, "");
 impl_write_text!(PyCoreDataset3_2, "");
 
 macro_rules! impl_get_set_pnn {
-    ($(#[$meta:meta])* $pytype:ident) => {
+    ($pytype:ident) => {
         #[pymethods]
         impl $pytype {
-            // TODO pretty sure there is no way to change prefix once a core
-            // object is created
             /// Value of *$PnN* for all measurements.
             ///
             /// Strings are unique and cannot contain commas.
             ///
-            $(#[$meta])*
             /// :type: list[str]
             #[getter]
             fn get_all_pnn(&self) -> Vec<Shortname> {
@@ -1153,32 +1132,12 @@ macro_rules! impl_get_set_pnn {
     };
 }
 
-impl_get_set_pnn!(
-    /// When reading, missing *$PnN* will be replaced with '<prefix>n' where 'n'
-    /// is the measurement index starting at 1 and '<prefix>' is a fixed prefix.
-    ///
-    PyCoreTEXT2_0
-);
-impl_get_set_pnn!(
-    /// When reading, missing *$PnN* will be replaced with '<prefix>n' where 'n'
-    /// is the measurement index starting at 1 and '<prefix>' is a fixed prefix.
-    ///
-    PyCoreTEXT3_0
-);
+impl_get_set_pnn!(PyCoreTEXT2_0);
+impl_get_set_pnn!(PyCoreTEXT3_0);
 impl_get_set_pnn!(PyCoreTEXT3_1);
 impl_get_set_pnn!(PyCoreTEXT3_2);
-impl_get_set_pnn!(
-    /// When reading, missing *$PnN* will be replaced with '<prefix>n' where 'n'
-    /// is the measurement index starting at 1 and '<prefix>' is a fixed prefix.
-    ///
-    PyCoreDataset2_0
-);
-impl_get_set_pnn!(
-    /// When reading, missing *$PnN* will be replaced with '<prefix>n' where 'n'
-    /// is the measurement index starting at 1 and '<prefix>' is a fixed prefix.
-    ///
-    PyCoreDataset3_0
-);
+impl_get_set_pnn!(PyCoreDataset2_0);
+impl_get_set_pnn!(PyCoreDataset3_0);
 impl_get_set_pnn!(PyCoreDataset3_1);
 impl_get_set_pnn!(PyCoreDataset3_2);
 
@@ -1395,21 +1354,19 @@ impl_get_set_meas_obj_common!(
 impl_get_set_meas_obj_common!(PyCoreTEXT3_1, PyCoreDataset3_1, Shortname, AlwaysFamily);
 impl_get_set_meas_obj_common!(PyCoreTEXT3_2, PyCoreDataset3_2, Shortname, AlwaysFamily);
 
-macro_rules! impl_set_measurements_ordered {
-    ($pytype:ident, $t:ident, $o:ident) => {
+macro_rules! impl_set_measurements_endian {
+    ($pytype:ident, $t:ident, $o:ident, $l:ident, $fam:ident) => {
         #[pymethods]
         impl $pytype {
-            fn set_measurements(
+            pub fn set_measurements(
                 &mut self,
-                measurements: Eithers<MaybeFamily, $t, $o>,
-                prefix: ShortnamePrefix,
+                measurements: Eithers<$fam, $t, $o>,
                 allow_shared_names: bool,
                 skip_index_check: bool,
             ) -> PyResult<()> {
                 self.0
                     .set_measurements(
                         measurements.inner_into(),
-                        prefix,
                         allow_shared_names,
                         skip_index_check,
                     )
@@ -1418,69 +1375,13 @@ macro_rules! impl_set_measurements_ordered {
 
             fn set_measurements_and_layout(
                 &mut self,
-                measurements: Eithers<MaybeFamily, $t, $o>,
-                layout: PyOrderedLayout,
-                prefix: ShortnamePrefix,
-                allow_shared_names: bool,
-                skip_index_check: bool,
-            ) -> PyResult<()> {
-                self.0
-                    .set_measurements_and_layout(
-                        measurements.inner_into(),
-                        layout.into(),
-                        prefix,
-                        allow_shared_names,
-                        skip_index_check,
-                    )
-                    .py_term_resolve_nowarn()
-            }
-
-            #[getter]
-            fn get_layout(&self) -> PyOrderedLayout {
-                self.0.layout().clone().into()
-            }
-
-            #[setter]
-            fn set_layout(&mut self, layout: PyOrderedLayout) -> PyResult<()> {
-                self.0.set_layout(layout.into()).py_term_resolve_nowarn()
-            }
-        }
-    };
-}
-
-impl_set_measurements_ordered!(PyCoreTEXT2_0, PyTemporal2_0, PyOptical2_0);
-impl_set_measurements_ordered!(PyCoreTEXT3_0, PyTemporal3_0, PyOptical3_0);
-impl_set_measurements_ordered!(PyCoreDataset2_0, PyTemporal2_0, PyOptical2_0);
-impl_set_measurements_ordered!(PyCoreDataset3_0, PyTemporal3_0, PyOptical3_0);
-
-macro_rules! impl_set_measurements_endian {
-    ($pytype:ident, $t:ident, $o:ident, $l:ident) => {
-        #[pymethods]
-        impl $pytype {
-            pub fn set_measurements(
-                &mut self,
-                measurements: Eithers<AlwaysFamily, $t, $o>,
-                allow_shared_names: bool,
-                skip_index_check: bool,
-            ) -> PyResult<()> {
-                self.0
-                    .set_measurements_noprefix(
-                        measurements.inner_into(),
-                        allow_shared_names,
-                        skip_index_check,
-                    )
-                    .py_term_resolve_nowarn()
-            }
-
-            fn set_measurements_and_layout(
-                &mut self,
-                measurements: Eithers<AlwaysFamily, $t, $o>,
+                measurements: Eithers<$fam, $t, $o>,
                 layout: $l,
                 allow_shared_names: bool,
                 skip_index_check: bool,
             ) -> PyResult<()> {
                 self.0
-                    .set_measurements_and_layout_noprefix(
+                    .set_measurements_and_layout(
                         measurements.inner_into(),
                         layout.into(),
                         allow_shared_names,
@@ -1502,26 +1403,72 @@ macro_rules! impl_set_measurements_endian {
     };
 }
 
-impl_set_measurements_endian!(PyCoreTEXT3_1, PyTemporal3_1, PyOptical3_1, PyNonMixedLayout);
-impl_set_measurements_endian!(PyCoreTEXT3_2, PyTemporal3_2, PyOptical3_2, PyLayout3_2);
+impl_set_measurements_endian!(
+    PyCoreTEXT2_0,
+    PyTemporal2_0,
+    PyOptical2_0,
+    PyOrderedLayout,
+    MaybeFamily
+);
+impl_set_measurements_endian!(
+    PyCoreTEXT3_0,
+    PyTemporal3_0,
+    PyOptical3_0,
+    PyOrderedLayout,
+    MaybeFamily
+);
+impl_set_measurements_endian!(
+    PyCoreTEXT3_1,
+    PyTemporal3_1,
+    PyOptical3_1,
+    PyNonMixedLayout,
+    AlwaysFamily
+);
+impl_set_measurements_endian!(
+    PyCoreTEXT3_2,
+    PyTemporal3_2,
+    PyOptical3_2,
+    PyLayout3_2,
+    AlwaysFamily
+);
+
+impl_set_measurements_endian!(
+    PyCoreDataset2_0,
+    PyTemporal2_0,
+    PyOptical2_0,
+    PyOrderedLayout,
+    MaybeFamily
+);
+impl_set_measurements_endian!(
+    PyCoreDataset3_0,
+    PyTemporal3_0,
+    PyOptical3_0,
+    PyOrderedLayout,
+    MaybeFamily
+);
 impl_set_measurements_endian!(
     PyCoreDataset3_1,
     PyTemporal3_1,
     PyOptical3_1,
-    PyNonMixedLayout
+    PyNonMixedLayout,
+    AlwaysFamily
 );
-impl_set_measurements_endian!(PyCoreDataset3_2, PyTemporal3_2, PyOptical3_2, PyLayout3_2);
+impl_set_measurements_endian!(
+    PyCoreDataset3_2,
+    PyTemporal3_2,
+    PyOptical3_2,
+    PyLayout3_2,
+    AlwaysFamily
+);
 
-// TODO use a real dataframe here rather than a list of series
-macro_rules! impl_set_meas_and_data_prefix {
-    ($pytype:ident, $t:ident, $o:ident) => {
+macro_rules! impl_set_meas_and_data {
+    ($pytype:ident, $t:ident, $o:ident, $fam:ident) => {
         #[pymethods]
         impl $pytype {
             fn set_measurements_and_data(
                 &mut self,
-                measurements: Eithers<MaybeFamily, $t, $o>,
+                measurements: Eithers<$fam, $t, $o>,
                 df: FCSDataFrame,
-                prefix: ShortnamePrefix,
                 allow_shared_names: bool,
                 skip_index_check: bool,
             ) -> PyResult<()> {
@@ -1529,7 +1476,6 @@ macro_rules! impl_set_meas_and_data_prefix {
                     .set_measurements_and_data(
                         measurements.inner_into(),
                         df,
-                        prefix,
                         allow_shared_names,
                         skip_index_check,
                     )
@@ -1539,35 +1485,10 @@ macro_rules! impl_set_meas_and_data_prefix {
     };
 }
 
-impl_set_meas_and_data_prefix!(PyCoreDataset2_0, PyTemporal2_0, PyOptical2_0);
-impl_set_meas_and_data_prefix!(PyCoreDataset3_0, PyTemporal3_0, PyOptical3_0);
-
-macro_rules! impl_set_meas_and_data_noprefix {
-    ($pytype:ident, $t:ident, $o:ident) => {
-        #[pymethods]
-        impl $pytype {
-            fn set_measurements_and_data(
-                &mut self,
-                measurements: Eithers<AlwaysFamily, $t, $o>,
-                df: FCSDataFrame,
-                allow_shared_names: bool,
-                skip_index_check: bool,
-            ) -> PyResult<()> {
-                self.0
-                    .set_measurements_and_data_noprefix(
-                        measurements.inner_into(),
-                        df,
-                        allow_shared_names,
-                        skip_index_check,
-                    )
-                    .py_term_resolve_nowarn()
-            }
-        }
-    };
-}
-
-impl_set_meas_and_data_noprefix!(PyCoreDataset3_1, PyTemporal3_1, PyOptical3_1);
-impl_set_meas_and_data_noprefix!(PyCoreDataset3_2, PyTemporal3_2, PyOptical3_2);
+impl_set_meas_and_data!(PyCoreDataset2_0, PyTemporal2_0, PyOptical2_0, MaybeFamily);
+impl_set_meas_and_data!(PyCoreDataset3_0, PyTemporal3_0, PyOptical3_0, MaybeFamily);
+impl_set_meas_and_data!(PyCoreDataset3_1, PyTemporal3_1, PyOptical3_1, AlwaysFamily);
+impl_set_meas_and_data!(PyCoreDataset3_2, PyTemporal3_2, PyOptical3_2, AlwaysFamily);
 
 macro_rules! impl_core3_2 {
     ($pytype:ident) => {

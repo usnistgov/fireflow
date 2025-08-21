@@ -2142,7 +2142,7 @@ where
     /// Return a list of measurement names as stored in $PnN
     ///
     /// For cases where $PnN is optional and its value is not given, this will
-    /// return "Mn" where "n" is the parameter index starting at 0.
+    /// return "Pn" where "n" is the parameter index starting at 1.
     pub fn all_shortnames(&self) -> Vec<Shortname> {
         self.measurements.iter_all_names().collect()
     }
@@ -3181,7 +3181,6 @@ where
             })
     }
 
-    // TODO when is prefix actually needed?
     // TODO don't set names here, do that separately so we can decouple PnN link
     // checking, or just check the links to make sure they are all still valid
     /// Set measurements.
@@ -3189,21 +3188,16 @@ where
     /// Return error if names are not unique, if there is more than one
     /// time measurement, or if the measurement length doesn't match the
     /// layout length.
-    ///
-    /// For FCS versions where $PnN is mandatory, the `prefix` argument will
-    /// do nothing; for these cases use [`Core::set_measurements_noprefix`]
-    /// which takes no prefix.
     pub fn set_measurements(
         &mut self,
         xs: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
-        prefix: ShortnamePrefix,
         allow_shared_names: bool,
         skip_index_check: bool,
     ) -> TerminalResult<(), Infallible, SetMeasurementsError, SetMeasurementsFailure>
     where
         M::Optical: AsScaleTransform,
     {
-        self.set_measurements_inner(xs, prefix, allow_shared_names, skip_index_check)
+        self.set_measurements_inner(xs, allow_shared_names, skip_index_check)
             .mult_terminate(SetMeasurementsFailure)
     }
 
@@ -3235,15 +3229,10 @@ where
     /// Return error if measurement names are not unique, there is more
     /// than one time measurement, or the layout and measurements have
     /// different lengths.
-    ///
-    /// For FCS versions where $PnN is mandatory, the `prefix` argument will
-    /// do nothing; for these cases use [`Core::set_measurements_noprefix`]
-    /// which takes no prefix.
     pub fn set_measurements_and_layout(
         &mut self,
         measurements: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         layout: <M::Ver as Versioned>::Layout,
-        prefix: ShortnamePrefix,
         allow_shared_names: bool,
         skip_index_check: bool,
     ) -> TerminalResult<(), Infallible, SetMeasurementsError, SetMeasurementsAndLayoutFailure>
@@ -3253,7 +3242,7 @@ where
         let go = || {
             self.check_new_meas_links(&measurements, allow_shared_names, skip_index_check)
                 .into_mult()?;
-            let ms = NamedVec::try_new(measurements, prefix).into_mult()?;
+            let ms = NamedVec::try_new(measurements).into_mult()?;
             layout.check_measurement_vector(&ms).mult_errors_into()?;
             self.measurements = ms;
             self.layout = layout;
@@ -3265,7 +3254,6 @@ where
     pub fn set_measurements_inner(
         &mut self,
         measurements: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
-        prefix: ShortnamePrefix,
         allow_shared_names: bool,
         skip_index_check: bool,
     ) -> MultiResult<(), SetMeasurementsError>
@@ -3274,7 +3262,7 @@ where
     {
         self.check_new_meas_links(&measurements, allow_shared_names, skip_index_check)
             .into_mult()?;
-        let ms = NamedVec::try_new(measurements, prefix).into_mult()?;
+        let ms = NamedVec::try_new(measurements).into_mult()?;
         self.layout
             .check_measurement_vector(&ms)
             .mult_errors_into()?;
@@ -3546,7 +3534,7 @@ where
                     // into a named vector, which will have a special element
                     // for the time measurement if it exists, and will scream if
                     // we have more than one time measurement.
-                    NamedVec::try_new(xs.into(), conf.shortname_prefix.clone())
+                    NamedVec::try_new(xs.into())
                         .map(|ms| (ms, meta_nonstd))
                         .map_err(|e| LookupKeysError::Misc(e.into()))
                         .into_deferred()
@@ -4156,15 +4144,10 @@ where
     /// Set measurements and dataframe together
     ///
     /// Length of measurements must match the width of the input dataframe.
-    ///
-    /// For FCS versions where $PnN is mandatory, the `prefix` argument will
-    /// do nothing; for these cases use [`Core::set_measurements_noprefix`]
-    /// which takes no prefix.
     pub fn set_measurements_and_data(
         &mut self,
         xs: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         df: FCSDataFrame,
-        prefix: ShortnamePrefix,
         allow_shared_names: bool,
         skip_index_check: bool,
     ) -> TerminalResult<(), Infallible, SetMeasurementsAndDataError, SetMeasurementsAndDataFailure>
@@ -4177,7 +4160,7 @@ where
             if meas_n != data_n {
                 return Err(MeasDataMismatchError { meas_n, data_n }).into_mult();
             }
-            self.set_measurements_inner(xs, prefix, allow_shared_names, skip_index_check)
+            self.set_measurements_inner(xs, allow_shared_names, skip_index_check)
                 .mult_errors_into()?;
             self.data = df;
             Ok(())
@@ -4204,12 +4187,11 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         metaroot: Metaroot<M>,
         measurements: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         layout: <M::Ver as Versioned>::Layout,
-        prefix: ShortnamePrefix,
     ) -> MultiResult<Self, NewCoreError>
     where
         M::Optical: AsScaleTransform,
     {
-        let ms = Measurements::try_new(measurements, prefix).into_mult()?;
+        let ms = Measurements::try_new(measurements).into_mult()?;
         let ns: Vec<_> = ms.indexed_names().collect();
         metaroot.check_meas_links(&ns[..]).into_mult()?;
         layout.check_measurement_vector(&ms).mult_errors_into()?;
@@ -4331,74 +4313,6 @@ where
     }
 }
 
-impl<M, A, D, O> VersionedCore<A, D, O, M>
-where
-    M: VersionedMetaroot<Name = AlwaysFamily>,
-{
-    /// Set measurements.
-    ///
-    /// This is a more convenient version of [`Core::set_measurements`] for
-    /// FCS versions where $PnN is mandatory, and thus the `prefix` argument
-    /// is meaningless.
-    pub fn set_measurements_noprefix(
-        &mut self,
-        measurements: Eithers<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
-        allow_shared_names: bool,
-        skip_index_check: bool,
-    ) -> TerminalResult<(), Infallible, SetMeasurementsError, SetMeasurementsFailure>
-    where
-        M::Optical: AsScaleTransform,
-    {
-        let p = ShortnamePrefix::default();
-        self.set_measurements(measurements, p, allow_shared_names, skip_index_check)
-    }
-
-    /// Set measurements and layout
-    ///
-    /// This is a more convenient version of
-    /// [`Core::set_measurements_and_layout`] for FCS versions where $PnN is
-    /// mandatory, and thus the `prefix` argument is meaningless.
-    pub fn set_measurements_and_layout_noprefix(
-        &mut self,
-        xs: Eithers<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
-        layout: <M::Ver as Versioned>::Layout,
-        allow_shared_names: bool,
-        skip_index_check: bool,
-    ) -> TerminalResult<(), Infallible, SetMeasurementsError, SetMeasurementsAndLayoutFailure>
-    where
-        M::Optical: AsScaleTransform,
-    {
-        let p = ShortnamePrefix::default();
-        self.set_measurements_and_layout(xs, layout, p, allow_shared_names, skip_index_check)
-    }
-}
-
-impl<M> VersionedCoreDataset<M>
-where
-    M: VersionedMetaroot<Name = AlwaysFamily>,
-{
-    /// Set measurements and dataframe together
-    ///
-    /// Length of measurements must match the width of the input dataframe.
-    ///
-    /// This is a more convenient version of
-    /// [`Core::set_measurements_and_layout`] for FCS versions where $PnN is
-    /// mandatory, and thus the `prefix` argument is meaningless.
-    pub fn set_measurements_and_data_noprefix(
-        &mut self,
-        measurements: Eithers<AlwaysFamily, Temporal<M::Temporal>, Optical<M::Optical>>,
-        cs: FCSDataFrame,
-        allow_shared_names: bool,
-        skip_index_check: bool,
-    ) -> TerminalResult<(), Infallible, SetMeasurementsAndDataError, SetMeasurementsAndDataFailure>
-    where
-        M::Optical: AsScaleTransform,
-    {
-        let p = ShortnamePrefix::default();
-        self.set_measurements_and_data(measurements, cs, p, allow_shared_names, skip_index_check)
-    }
-}
-
 impl CoreTEXT2_0 {
     #[allow(clippy::too_many_arguments)]
     // TODO the applied gates arg doesn't need to be optional but this makes
@@ -4427,7 +4341,6 @@ impl CoreTEXT2_0 {
         tr: Option<Trigger>,
         applied_gates: AppliedGates2_0,
         nonstandard_keywords: NonStdKeywords,
-        prefix: Option<ShortnamePrefix>,
     ) -> MultiResult<Self, NewCoreTEXTError> {
         let timestamps = Timestamps::try_new(btim, etim, date).into_mult()?;
         let specific = InnerMetaroot2_0::new(mode, cyt, comp, timestamps, applied_gates);
@@ -4448,8 +4361,7 @@ impl CoreTEXT2_0 {
             specific,
             nonstandard_keywords,
         );
-        let p = prefix.unwrap_or_default();
-        CoreTEXT::try_new(metaroot, measurements, layout, p).mult_errors_into()
+        CoreTEXT::try_new(metaroot, measurements, layout).mult_errors_into()
     }
 
     pub fn new_def(mode: Mode, datatype: AlphaNumType) -> Self {
@@ -4490,7 +4402,6 @@ impl CoreTEXT3_0 {
         tr: Option<Trigger>,
         applied_gates: AppliedGates3_0,
         nonstandard_keywords: NonStdKeywords,
-        prefix: Option<ShortnamePrefix>,
     ) -> MultiResult<Self, NewCoreTEXTError> {
         let timestamps = Timestamps::try_new(btim, etim, date).into_mult()?;
         let subset = SubsetData::new(csvbits, cstot, csvflags);
@@ -4521,8 +4432,7 @@ impl CoreTEXT3_0 {
             specific,
             nonstandard_keywords,
         );
-        let p = prefix.unwrap_or_default();
-        CoreTEXT::try_new(metaroot, measurements, layout, p).mult_errors_into()
+        CoreTEXT::try_new(metaroot, measurements, layout).mult_errors_into()
     }
 
     pub fn new_def(mode: Mode, datatype: AlphaNumType) -> Self {
@@ -4601,8 +4511,7 @@ impl CoreTEXT3_1 {
             specific,
             nonstandard_keywords,
         );
-        let p = ShortnamePrefix::default();
-        CoreTEXT::try_new(metaroot, measurements, layout, p).mult_errors_into()
+        CoreTEXT::try_new(metaroot, measurements, layout).mult_errors_into()
     }
 
     pub fn new_def(mode: Mode, datatype: AlphaNumType) -> Self {
@@ -4689,8 +4598,7 @@ impl CoreTEXT3_2 {
             specific,
             nonstandard_keywords,
         );
-        let p = ShortnamePrefix::default();
-        CoreTEXT::try_new(metaroot, measurements, layout, p).mult_errors_into()
+        CoreTEXT::try_new(metaroot, measurements, layout).mult_errors_into()
     }
 
     pub fn new_def(cyt: String, datatype: AlphaNumType) -> Self {

@@ -19,13 +19,13 @@ use pyo3::prelude::*;
 #[as_ref(str)]
 pub struct Shortname(String);
 
-/// A prefix that can be made into a shortname by appending an index
-///
-/// This cannot contain commas.
-#[derive(Clone, Eq, PartialEq, Hash, AsRef, Display, FromStr)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[as_ref(str)]
-pub struct ShortnamePrefix(Shortname);
+// /// A prefix that can be made into a shortname by appending an index
+// ///
+// /// This cannot contain commas.
+// #[derive(Clone, Eq, PartialEq, Hash, AsRef, Display, FromStr)]
+// #[cfg_attr(feature = "serde", derive(Serialize))]
+// #[as_ref(str)]
+// pub struct ShortnamePrefix(Shortname);
 
 impl Shortname {
     pub fn new_unchecked<T: AsRef<str>>(s: T) -> Self {
@@ -45,17 +45,23 @@ impl FromStr for Shortname {
     }
 }
 
-impl ShortnamePrefix {
-    pub fn as_indexed(&self, i: MeasIndex) -> Shortname {
-        Shortname(format!("{}{i}", self))
+impl From<MeasIndex> for Shortname {
+    fn from(value: MeasIndex) -> Self {
+        Self(format!("P{value}"))
     }
 }
 
-impl Default for ShortnamePrefix {
-    fn default() -> Self {
-        Self(Shortname("P".into()))
-    }
-}
+// impl ShortnamePrefix {
+//     pub fn as_indexed(&self, i: MeasIndex) -> Shortname {
+//         Shortname(format!("{}{i}", self))
+//     }
+// }
+
+// impl Default for ShortnamePrefix {
+//     fn default() -> Self {
+//         Self(Shortname("P".into()))
+//     }
+// }
 
 pub struct ShortnameError(String);
 
@@ -78,12 +84,11 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{Shortname, ShortnameError, ShortnamePrefix};
+    use super::{Shortname, ShortnameError};
     use crate::python::macros::{
         impl_from_py_transparent, impl_from_py_via_fromstr, impl_value_err,
     };
 
-    impl_from_py_transparent!(ShortnamePrefix);
     impl_from_py_via_fromstr!(Shortname);
     impl_value_err!(ShortnameError);
 }

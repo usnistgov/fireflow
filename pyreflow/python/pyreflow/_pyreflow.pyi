@@ -33,6 +33,9 @@ from pyreflow.typing import (
     Feature,
     Calibration3_1,
     Calibration3_2,
+    AppliedGates2_0,
+    AppliedGates3_0,
+    AppliedGates3_2,
 )
 
 _X = TypeVar("_X")
@@ -339,16 +342,6 @@ class BivariateRegion3_0(_BivariateRegion[str]):
 class BivariateRegion3_2(_BivariateRegion[int]):
     pass
 
-class _Regions(Generic[_X, _Y]):
-    @property
-    def regions(self) -> dict[int, _X | _Y]: ...
-    @property
-    def scheme(self) -> str | None: ...
-
-class _GatedMeasurements:
-    @property
-    def gated_measurements(self) -> list[GatedMeasurement]: ...
-
 class _CoreCommon:
     abrt: int | None
     cells: str | None
@@ -528,7 +521,6 @@ class _CoreGetSetMeasOrdered(Generic[_O, _T]):
     def set_measurements(
         self,
         measurements: _RawInput[Shortname | None, _O, _T],
-        prefix: str,
         allow_shared_names: bool,
         skip_index_check: bool,
     ) -> None: ...
@@ -536,7 +528,6 @@ class _CoreGetSetMeasOrdered(Generic[_O, _T]):
         self,
         measurements: _RawInput[Shortname | None, _O, _T],
         layout: _AnyOrderedLayout,
-        prefix: str,
         allow_shared_names: bool,
         skip_index_check: bool,
     ) -> None: ...
@@ -563,7 +554,6 @@ class _CoreDatasetGetSetMeasOrdered(Generic[_O, _T]):
         self,
         measurements: _RawInput[Shortname | None, _O, _T],
         df: DataFrame,
-        prefix: str,
         allow_shared_names: bool,
         skip_index_check: bool,
     ) -> None: ...
@@ -716,6 +706,7 @@ class CoreTEXT2_0(
     _CoreCompensation,
     _CoreMeasWavelength,
     _CorePeak,
+    _CoreGates[AppliedGates2_0],
     _CoreTo3_0[CoreTEXT3_0],
     _CoreTo3_1[CoreTEXT3_1],
     _CoreTo3_2[CoreTEXT3_2],
@@ -741,6 +732,7 @@ class CoreTEXT3_0(
     _CoreMeasWavelength,
     _CorePeak,
     _CoreSubset,
+    _CoreGates[AppliedGates3_0],
     _CoreTo2_0[CoreTEXT2_0],
     _CoreTo3_1[CoreTEXT3_1],
     _CoreTo3_2[CoreTEXT3_2],
@@ -768,6 +760,7 @@ class CoreTEXT3_1(
     _CorePeak,
     _CoreMeasDisplay,
     _CoreMeasCalibration[Calibration3_1],
+    _CoreGates[AppliedGates3_0],
     _CoreTo2_0[CoreTEXT2_0],
     _CoreTo3_0[CoreTEXT3_0],
     _CoreTo3_2[CoreTEXT3_2],
@@ -793,6 +786,7 @@ class CoreTEXT3_2(
     _CoreMeasWavelengths,
     _CoreMeasDisplay,
     _CoreMeasCalibration[Calibration3_2],
+    _CoreGates[AppliedGates3_2],
     _CoreTo2_0[CoreTEXT2_0],
     _CoreTo3_0[CoreTEXT3_0],
     _CoreTo3_1[CoreTEXT3_1],
@@ -814,6 +808,7 @@ class CoreDataset2_0(
     _CoreCompensation,
     _CoreMeasWavelength,
     _CorePeak,
+    _CoreGates[AppliedGates2_0],
     _CoreTo3_0[CoreDataset3_0],
     _CoreTo3_1[CoreDataset3_1],
     _CoreTo3_2[CoreDataset3_2],
@@ -840,6 +835,7 @@ class CoreDataset3_0(
     _CoreMeasWavelength,
     _CorePeak,
     _CoreSubset,
+    _CoreGates[AppliedGates3_0],
     _CoreTo2_0[CoreDataset2_0],
     _CoreTo3_1[CoreDataset3_1],
     _CoreTo3_2[CoreDataset3_2],
@@ -868,6 +864,7 @@ class CoreDataset3_1(
     _CorePeak,
     _CoreMeasDisplay,
     _CoreMeasCalibration[Calibration3_1],
+    _CoreGates[AppliedGates3_0],
     _CoreTo2_0[CoreDataset2_0],
     _CoreTo3_0[CoreDataset3_0],
     _CoreTo3_2[CoreDataset3_2],
@@ -894,6 +891,7 @@ class CoreDataset3_2(
     _CoreMeasWavelengths,
     _CoreMeasDisplay,
     _CoreMeasCalibration[Calibration3_2],
+    _CoreGates[AppliedGates3_2],
     _CoreTo2_0[CoreDataset2_0],
     _CoreTo3_0[CoreDataset3_0],
     _CoreTo3_1[CoreDataset3_1],

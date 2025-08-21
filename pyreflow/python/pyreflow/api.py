@@ -513,15 +513,6 @@ _STD_ARGS: dict[str, list[str]] = {
         )
     ],
     "allow_missing_time": ["If ``True`` allow time measurement to be missing."],
-    "shortname_prefix": [
-        (
-            "Prefix to use when filling in missing *$PnN* values. "
-            "Missing *$PnN* will be written as ``<shortname_prefix>n`` where ``n`` "
-            "is the measurement index. "
-            "Only used for cases where a name is needed, for instance in dataframe headers. "
-            "Only applies to FCS 2.0/3.0 since *$PnN* became mandatory in later versions. "
-        )
-    ],
     "allow_pseudostandard": [
         "If ``True`` allow non-standard keywords with a leading *$*. "
         "The presence of such keywords often means the version in *HEADER* is incorrect."
@@ -629,7 +620,6 @@ class KeyPatterns(NamedTuple):
 DEFAULT_CORRECTION = (0, 0)
 DEFAULT_KEY_PATTERNS: KeyPatterns = KeyPatterns([], [])
 DEFAULT_OTHER_WIDTH = 8
-DEFAULT_SHORTNAME_PREFIX = "P"
 DEFAULT_TIME_PATTERN = "^(TIME|Time)$"
 
 
@@ -752,7 +742,6 @@ def fcs_read_std_text(
     # standard args
     time_pattern: str | None = DEFAULT_TIME_PATTERN,
     allow_missing_time: bool = False,
-    shortname_prefix: str = DEFAULT_SHORTNAME_PREFIX,
     allow_pseudostandard: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
@@ -904,7 +893,6 @@ def fcs_read_std_dataset(
     # standard args
     time_pattern: str | None = DEFAULT_TIME_PATTERN,
     allow_missing_time: bool = False,
-    shortname_prefix: str = DEFAULT_SHORTNAME_PREFIX,
     allow_pseudostandard: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
@@ -1008,7 +996,6 @@ def fcs_read_std_dataset_with_keywords(
     # standard args
     time_pattern: str | None = DEFAULT_TIME_PATTERN,
     allow_missing_time: bool = False,
-    shortname_prefix: str = DEFAULT_SHORTNAME_PREFIX,
     allow_pseudostandard: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,

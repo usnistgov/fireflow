@@ -14,6 +14,9 @@ from pyreflow.typing import (
     AnyOptical,
     AnyCore,
     AnyMeas,
+    AppliedGates2_0,
+    AppliedGates3_0,
+    AppliedGates3_2,
 )
 import pyreflow as pf
 import polars as pl
@@ -626,7 +629,7 @@ class TestCore:
         blank_gated_meas: pf.GatedMeasurement,
     ) -> None:
         ur = pf.UnivariateRegion2_0(0, (0.0, 1.0))
-        ag = pf.AppliedGates2_0([blank_gated_meas], {0: ur})
+        ag: AppliedGates2_0 = ([blank_gated_meas], {0: ur}, None)
         core.applied_gates = ag
 
     @parameterize_versions("core", ["3_0", "3_1"], ["text2", "dataset2"])
@@ -636,41 +639,22 @@ class TestCore:
         blank_gated_meas: pf.GatedMeasurement,
     ) -> None:
         ur = pf.UnivariateRegion3_0("P1", (0.0, 1.0))
-        ag = pf.AppliedGates3_0([], {0: ur})
+        ag: AppliedGates3_0 = ([], {0: ur}, None)
         core.applied_gates = ag
         with pytest.raises(pf.PyreflowException):
             ur_bad = pf.UnivariateRegion3_0("P3", (0.0, 1.0))
-            ag_bad = pf.AppliedGates3_0([], {0: ur_bad})
+            ag_bad = cast(AppliedGates3_0, ([], {0: ur_bad}, None))
             core.applied_gates = ag_bad
 
     @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
     def test_applied_gates_3_2(self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2) -> None:
         ur = pf.UnivariateRegion3_2(0, (0.0, 1.0))
-        ag = pf.AppliedGates3_2({0: ur})
+        ag: AppliedGates3_2 = ({0: ur}, None)
         core.applied_gates = ag
         with pytest.raises(pf.PyreflowException):
             ur_bad = pf.UnivariateRegion3_2(2, (0.0, 1.0))
-            ag_bad = pf.AppliedGates3_2({0: ur_bad})
+            ag_bad = cast(AppliedGates3_2, ({0: ur_bad}, None))
             core.applied_gates = ag_bad
-
-    def test_applied_gates3_0(self, blank_gated_meas: pf.GatedMeasurement) -> None:
-        ur = pf.UnivariateRegion3_0("P1", (0.0, 1.0))
-        br = pf.BivariateRegion3_0(("G1", "P1"), [(0.0, 1.0)])
-        rs: dict[int, pf.UnivariateRegion3_0 | pf.BivariateRegion3_0] = {0: ur, 1: br}
-        g = "R1 AND R2"
-        ag = pf.AppliedGates3_0([blank_gated_meas] * 2, rs, g)
-        assert ag.gated_measurements == [blank_gated_meas] * 2
-        assert ag.regions == rs
-        assert ag.scheme == "(R1 AND R2)"  # NOTE parens are supposed to be added
-
-    def test_applied_gates3_2(self, blank_gated_meas: pf.GatedMeasurement) -> None:
-        ur = pf.UnivariateRegion3_2(0, (0.0, 1.0))
-        br = pf.BivariateRegion3_2((0, 1), [(0.0, 1.0)])
-        rs: dict[int, pf.UnivariateRegion3_2 | pf.BivariateRegion3_2] = {0: ur, 1: br}
-        g = "R1 AND R2"
-        ag = pf.AppliedGates3_2(rs, g)
-        assert ag.regions == rs
-        assert ag.scheme == "(R1 AND R2)"  # NOTE parens are supposed to be added
 
     @parameterize_versions("core", ["2_0"], ["text2", "dataset2"])
     def test_meas_scales(self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0) -> None:
@@ -1132,7 +1116,7 @@ class TestCore:
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
         optical: Any,
     ) -> None:
-        core.set_measurements([(LINK_NAME1, optical)], "_", False, False)
+        core.set_measurements([(LINK_NAME1, optical)], False, False)
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -1171,9 +1155,7 @@ class TestCore:
         optical: Any,
     ) -> None:
         new = pf.OrderedUint64Layout([1], False)
-        core.set_measurements_and_layout(
-            [(LINK_NAME1, optical)], new, "_", False, False
-        )
+        core.set_measurements_and_layout([(LINK_NAME1, optical)], new, False, False)
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -1212,7 +1194,7 @@ class TestCore:
         series2: pl.Series,
     ) -> None:
         core.set_measurements_and_data(
-            [(LINK_NAME1, optical)], pl.DataFrame([series2]), "_", False, False
+            [(LINK_NAME1, optical)], pl.DataFrame([series2]), False, False
         )
 
     @pytest.mark.parametrize(
@@ -1574,35 +1556,6 @@ class TestGating:
         r = pf.BivariateRegion3_2(i, vs)
         assert r.index == i
         assert r.vertices == vs
-
-    def test_applied_gates2_0(self, blank_gated_meas: pf.GatedMeasurement) -> None:
-        ur = pf.UnivariateRegion2_0(0, (0.0, 1.0))
-        br = pf.BivariateRegion2_0((0, 1), [(0.0, 1.0)])
-        rs: dict[int, pf.UnivariateRegion2_0 | pf.BivariateRegion2_0] = {0: ur, 1: br}
-        g = "R1 AND R2"
-        ag = pf.AppliedGates2_0([blank_gated_meas] * 2, rs, g)
-        assert ag.gated_measurements == [blank_gated_meas] * 2
-        assert ag.regions == rs
-        assert ag.scheme == "(R1 AND R2)"  # NOTE parens are supposed to be added
-
-    def test_applied_gates3_0(self, blank_gated_meas: pf.GatedMeasurement) -> None:
-        ur = pf.UnivariateRegion3_0("P1", (0.0, 1.0))
-        br = pf.BivariateRegion3_0(("G1", "P1"), [(0.0, 1.0)])
-        rs: dict[int, pf.UnivariateRegion3_0 | pf.BivariateRegion3_0] = {0: ur, 1: br}
-        g = "R1 AND R2"
-        ag = pf.AppliedGates3_0([blank_gated_meas] * 2, rs, g)
-        assert ag.gated_measurements == [blank_gated_meas] * 2
-        assert ag.regions == rs
-        assert ag.scheme == "(R1 AND R2)"  # NOTE parens are supposed to be added
-
-    def test_applied_gates3_2(self, blank_gated_meas: pf.GatedMeasurement) -> None:
-        ur = pf.UnivariateRegion3_2(0, (0.0, 1.0))
-        br = pf.BivariateRegion3_2((0, 1), [(0.0, 1.0)])
-        rs: dict[int, pf.UnivariateRegion3_2 | pf.BivariateRegion3_2] = {0: ur, 1: br}
-        g = "R1 AND R2"
-        ag = pf.AppliedGates3_2(rs, g)
-        assert ag.regions == rs
-        assert ag.scheme == "(R1 AND R2)"  # NOTE parens are supposed to be added
 
 
 class TestMeas:

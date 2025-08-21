@@ -78,3 +78,20 @@ AnyTemporal: TypeAlias = (
 )
 
 AnyMeas: TypeAlias = AnyOptical | AnyTemporal
+
+AppliedGates2_0: TypeAlias = tuple[
+    list[pf.GatedMeasurement],
+    dict[int, pf.UnivariateRegion2_0 | pf.BivariateRegion2_0],
+    str | None,
+]
+
+AppliedGates3_0: TypeAlias = tuple[
+    list[pf.GatedMeasurement],
+    dict[int, pf.UnivariateRegion3_0 | pf.BivariateRegion3_0],
+    str | None,
+]
+
+AppliedGates3_2: TypeAlias = tuple[
+    dict[int, pf.UnivariateRegion3_2 | pf.BivariateRegion3_2],
+    str | None,
+]

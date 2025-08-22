@@ -2,7 +2,7 @@ extern crate proc_macro;
 
 mod docstring;
 
-use crate::docstring as ds;
+use crate::docstring::{ArgType, DocArg, DocReturn, DocString, PyType};
 
 use fireflow_core::header::Version;
 
@@ -43,14 +43,15 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let coretext_pytype = format_ident!("Py{coretext_name}");
     let coredataset_pytype = format_ident!("Py{coredataset_name}");
 
-    let meas_pytype = info.meas_pytype.value();
-    let layout_pytype = info.layout_pytype.value();
+    let meas_pytype = PyType::Raw(info.meas_pytype.value());
+    let layout_pytype = PyType::Raw(info.layout_pytype.value());
+    let df_pytype = PyType::PyClass("polars.DataFrame".into());
 
     let meas = NewArgInfo::new(
         "measurements",
         meas_rstype.clone(),
         false,
-        meas_pytype.as_str(),
+        &meas_pytype,
         Some(info.meas_desc.value().as_str()),
         None,
     );
@@ -59,7 +60,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         "layout",
         layout_rstype.clone(),
         false,
-        layout_pytype.as_str(),
+        &layout_pytype,
         Some(info.layout_desc.value().as_str()),
         None,
     );
@@ -68,7 +69,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         "df",
         df_type.clone(),
         false,
-        "polars.DataFrame",
+        &df_pytype,
         Some(
             "A dataframe encoding the contents of *DATA*. Number of columns must \
              match number of measurements. May be empty. Types do not necessarily \
@@ -82,7 +83,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         "analysis",
         analysis_type.clone(),
         true,
-        "bytes",
+        &PyType::Bytes,
         Some("A byte string encoding the *ANALYSIS* segment."),
         Some(ArgDefault {
             rsval: quote! {#analysis_type::default()},
@@ -94,7 +95,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         "others",
         others_type.clone(),
         true,
-        "list[bytes]",
+        &PyType::Raw("list[bytes]".into()),
         Some("Byte strings encoding the *OTHER* segments."),
         Some(ArgDefault {
             rsval: quote! {#others_type::default()},
@@ -160,38 +161,34 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         .map(|x| x.fmt_arg_doc())
         .collect();
 
-    let coretext_doc = ds::DocString::new(
+    let coretext_doc = DocString::new(
         format!("Represents *TEXT* for an FCS {version} file."),
         vec![],
         coretext_params,
         None,
     );
 
-    let coredataset_doc = ds::DocString::new(
+    let coredataset_doc = DocString::new(
         format!("Represents one dataset in an FCS {version} file."),
         vec![],
         coredataset_params,
         None,
     );
 
-    let param_type_set_meas = ds::DocArg::new_param(
+    let param_type_set_meas = DocArg::new_param(
         "measurements".into(),
         meas_pytype,
         "The new measurements.".into(),
     );
 
     let param_type_set_layout =
-        ds::DocArg::new_param("layout".into(), layout_pytype, "The new layout.".into());
+        DocArg::new_param("layout".into(), layout_pytype, "The new layout.".into());
 
-    let param_type_set_df = ds::DocArg::new_param(
-        "df".to_string(),
-        "polars.DataFrame".into(),
-        "The new data.".into(),
-    );
+    let param_type_set_df = DocArg::new_param("df".to_string(), df_pytype, "The new data.".into());
 
-    let param_allow_shared_names = ds::DocArg::new_param(
+    let param_allow_shared_names = DocArg::new_param(
         "allow_shared_named".into(),
-        "bool".into(),
+        PyType::Bool,
         "If ``False``, raise exception if any non-measurement keywords reference \
          any *$PnN* keywords. If ``True`` raise exception if any non-measurement \
          keywords reference a *$PnN* which is not present in ``measurements``. \
@@ -203,9 +200,9 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     // TODO this can be specific to each version, for instance, we can call out
     // the exact keywords in each that may have references.
-    let param_skip_index_check = ds::DocArg::new_param(
+    let param_skip_index_check = DocArg::new_param(
         "skip_index_check".into(),
-        "bool".into(),
+        PyType::Bool,
         "If ``False``, raise exception if any non-measurement keyword have an \
          index reference to the current measurements. If ``True`` allow such \
          references to exist as long as they do not break (which really means \
@@ -223,7 +220,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         let ps = vec![format!(
             "Length of ``measurements`` must match number of columns in existing {s}."
         )];
-        ds::DocString::new(
+        DocString::new(
             "Set all measurements at once.".into(),
             ps,
             vec![
@@ -245,7 +242,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             "This is equivalent to updating all *$PnN* keywords at once.".into(),
             format!("Length of ``measurements`` must match number of columns in ``layout`` {s}."),
         ];
-        ds::DocString::new(
+        DocString::new(
             "Set all measurements at once.".into(),
             ps,
             vec![
@@ -263,7 +260,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let coredataset_set_meas_doc = make_set_meas_doc(true);
     let coredataset_set_meas_and_layout_doc = make_set_meas_and_layout_doc(true);
 
-    let set_meas_and_data_doc = ds::DocString::new(
+    let set_meas_and_data_doc = DocString::new(
         "Set measurements and data at once.".into(),
         vec!["Length of ``measurements`` must match number of columns in ``df``.".into()],
         vec![
@@ -462,7 +459,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         "longname",
         ln_type,
         true,
-        "str",
+        &PyType::Str,
         Some("Value for *$PnS*."),
         None,
     );
@@ -471,7 +468,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         "nonstandard_keywords",
         nonstd_type,
         true,
-        "dict[str, str]",
+        &PyType::Raw("dict[str, str]".into()),
         Some(
             "Any non-standard keywords corresponding to this measurement. No keys \
              should start with *$*. Realistically each key should follow a pattern \
@@ -496,7 +493,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
 
     let params: Vec<_> = all_args.iter().map(|x| x.fmt_arg_doc()).collect();
 
-    let doc = ds::DocString::new(
+    let doc = DocString::new(
         format!("FCS {pretty_version} *$Pn\\** keywords for {lower_basename} measurement."),
         vec![],
         params,
@@ -627,7 +624,7 @@ impl NewArgInfo {
         argname: &str,
         rstype: Path,
         isvar: bool,
-        pytype: &str,
+        pytype: &PyType,
         desc: Option<&str>,
         default: Option<ArgDefault>,
     ) -> Self {
@@ -694,14 +691,14 @@ impl NewArgInfo {
         default.map_or(n.to_string(), |d| format!("{n}={d}"))
     }
 
-    fn fmt_arg_doc(&self) -> ds::DocArg {
+    fn fmt_arg_doc(&self) -> DocArg {
         let rstype = path_name(&self.rstype);
         let argname = self.argname.to_string();
         let t = self.pytype.as_str();
         let pytype = if rstype == "Option" {
-            format!("{t} | None")
+            PyType::Raw(format!("{t} | None"))
         } else {
-            t.to_string()
+            PyType::Raw(t.to_string())
         };
         let desc = if let Some(d) = self.desc.as_ref() {
             d.to_string()
@@ -709,11 +706,11 @@ impl NewArgInfo {
             format!("Value for *${}*.", argname.to_uppercase())
         };
         let at = if self.isvar {
-            ds::ArgType::Ivar
+            ArgType::Ivar
         } else {
-            ds::ArgType::Param
+            ArgType::Param
         };
-        ds::DocArg::new(at, argname, pytype, desc)
+        DocArg::new(at, argname, pytype, desc)
     }
 }
 
@@ -805,18 +802,29 @@ pub fn impl_get_set_all_meas(input: TokenStream) -> TokenStream {
     let (kw_inner, optional) = unwrap_generic("Option", kw_mid);
     let s = info.suffix.value();
 
-    let doc_summary = format!("Value of *$Pn{}* for all measurements.", s.to_uppercase());
+    let kw_doc = format!("*$Pn{}*", s.to_uppercase());
+
+    let doc_summary = format!("Value of {kw_doc} for all measurements.");
     let doc_middle = if optical_only {
-        "\n``()`` will be returned for time since this keyword is not defined there.\n"
+        vec![format!(
+            "``()`` will be returned for time since {kw_doc} is not \
+             defined for temporal measurements."
+        )]
     } else {
-        "\n"
+        vec![]
     };
-    let doc_type = format!(
-        ":type: list[{}]",
+    let doc_type = PyType::new_list(
         info.pytype.value()
-            + if optical_only { " | ()" } else { "" }
+            + if optical_only { " | tuple[()]" } else { "" }
             + if optional { " | None" } else { "" },
     );
+    let doc = DocString::new(
+        doc_summary,
+        doc_middle,
+        vec![],
+        Some(DocReturn::new(doc_type, None)),
+    );
+
     let get = format_ident!("get_all_pn{}", s.to_lowercase());
     let set = format_ident!("set_all_pn{}", s.to_lowercase());
 
@@ -861,9 +869,7 @@ pub fn impl_get_set_all_meas(input: TokenStream) -> TokenStream {
             quote! {
                 #[pymethods]
                 impl #t {
-                    #[doc = #doc_summary]
-                    #[doc = #doc_middle]
-                    #[doc = #doc_type]
+                    #doc
                     #[getter]
                     #fn_get
 
@@ -895,78 +901,92 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
 
     let otype = format_ident!("PyOptical{version}");
     let ttype = format_ident!("PyTemporal{version}");
-    let potype = format!("Optical{version}");
-    let pttype = format!("Temporal{version}");
-    let poclass = format!(":py:class:`{potype}`");
-    let ptclass = format!(":py:class:`{pttype}`");
+    let opt_pytype = PyType::PyClass(format!("Optical{version}"));
+    let tmp_pytype = PyType::PyClass(format!("Temporal{version}"));
 
-    let pclasses = format!("{poclass} | {ptclass}");
+    let meas_pytype = PyType::new_union2(opt_pytype, tmp_pytype);
 
-    let param_type_opt = format!(":type meas: {poclass}");
-    let param_type_tmp = format!(":type meas: {ptclass}");
+    // let param_type_opt = format!(":type meas: {poclass}");
+    // let param_type_tmp = format!(":type meas: {ptclass}");
 
-    let rtype_get_temp = format!(":rtype: (int, str, {ptclass}`) | None");
-    let rtype_all_meas = format!(":rtype: list[{pclasses}]");
-    let rtype_remove_named_meas = format!(":rtype: (int, {pclasses})");
-    let rtype_remove_index_meas = format!(":rtype: (str, {pclasses})");
-    let rtype_get_meas = format!(":rtype: {pclasses}");
+    // let rtype_get_temp = format!(":rtype: (int, str, {ptclass}`) | None");
+    // let rtype_all_meas = format!(":rtype: list[{pclasses}]");
+    // let rtype_remove_named_meas = format!(":rtype: (int, {pclasses})");
+    // let rtype_remove_index_meas = format!(":rtype: (str, {pclasses})");
+    // let rtype_get_meas = format!(":rtype: {pclasses}");
 
-    let rtype_replace_tmp_named = format!("{rtype_get_meas} | None");
+    // let rtype_replace_tmp_named = format!("{rtype_get_meas} | None");
 
-    let param_name = ":param str name: Name of measurement. Corresponds to *$PnN*. \
-                      Must not contain commas.";
-    let param_index = ":param int index: Position in measurement vector.";
-    let param_range = ":param float range: Range of measurement. Corresponds to *$PnR*.";
-    let param_notrunc = ":param bool notrunc: If ``False``, raise exception if \
-                         ``range`` must be truncated to fit into measurement type.";
-    let param_col = ":param col: Data for measurement. Must be same length as existing columns.\n\
-                     :type col: :py:class:`polars.Series`";
+    let param_name = DocArg::new_param(
+        "name".into(),
+        PyType::Str,
+        "Name of measurement. Corresponds to *$PnN*. Must not contain commas.".into(),
+    );
+    let param_index = DocArg::new_param(
+        "index".into(),
+        PyType::Int,
+        "Position in measurement vector.".into(),
+    );
+    let param_range = DocArg::new_param(
+        "range".into(),
+        PyType::Float,
+        "Range of measurement. Corresponds to *$PnR*.".into(),
+    );
+    let param_notrunc = DocArg::new_param(
+        "notrunc".into(),
+        PyType::Bool,
+        "If ``False``, raise exception if ``range`` must be truncated to fit \
+         into measurement type."
+            .into(),
+    );
+    let param_col = DocArg::new_param(
+        "col".into(),
+        PyType::PyClass("polars.Series".into()),
+        "Data for measurement. Must be same length as existing columns.".into(),
+    );
 
-    let push_meas_doc = |what: &str, param_type: &str, hasdata: bool| {
-        let _param_col = if hasdata {
-            format!("{param_col}\n")
-        } else {
-            "".to_string()
-        };
-        format!(
-            "Push {what} measurement to the end of the measurement vector.\n\
-             \n\
-             :param meas: The measurement to push.\n\
-             {param_type}\n\
-             {_param_col}\n\
-             {param_name}\n\
-             {param_range}\n\
-             {param_notrunc}"
-        )
+    let push_meas_doc = |is_optical: bool, meas_type: PyType, hasdata: bool| {
+        let what = if is_optical { "optical" } else { "temporal" };
+        let param_meas = DocArg::new_param(
+            "measurement".into(),
+            meas_type,
+            "The measurement to push.".into(),
+        );
+        let _param_col = if hasdata { Some(param_col) } else { None };
+        let ps: Vec<_> = [param_meas]
+            .into_iter()
+            .chain(_param_col)
+            .chain([param_name, param_range, param_notrunc])
+            .collect();
+        let summary = format!("Push {what} measurement to end of measurement vector.");
+        DocString::new(summary, vec![], ps, None)
     };
 
-    let insert_meas_doc = |what: &str, param_type: &str, hasdata: bool| {
-        let _param_col = if hasdata {
-            format!("{param_col}\n")
-        } else {
-            "".to_string()
-        };
-        format!(
-            "Insert {what} measurement at position in measurement vector.\n\
-             \n\
-             {param_index}\n\
-             :param meas: The measurement to insert.\n\
-             {param_type}\n\
-             {_param_col}\n\
-             {param_name}\n\
-             {param_range}\n\
-             {param_notrunc}"
-        )
+    let insert_meas_doc = |is_optical: bool, meas_type: PyType, hasdata: bool| {
+        let what = if is_optical { "optical" } else { "temporal" };
+        let param_meas = DocArg::new_param(
+            "measurement".into(),
+            meas_type,
+            "The measurement to insert.".into(),
+        );
+        let _param_col = if hasdata { Some(param_col) } else { None };
+        let summary = format!("Insert {what} measurement at position in measurement vector.");
+        let ps: Vec<_> = [param_index, param_meas]
+            .into_iter()
+            .chain(_param_col)
+            .chain([param_name, param_range, param_notrunc])
+            .collect();
+        DocString::new(summary, vec![], ps, None)
     };
 
-    let push_opt_doc = push_meas_doc("optical", param_type_opt.as_str(), false);
-    let insert_opt_doc = insert_meas_doc("optical", param_type_opt.as_str(), false);
-    let push_tmp_doc = push_meas_doc("temporal", param_type_tmp.as_str(), false);
-    let insert_tmp_doc = insert_meas_doc("temporal", param_type_tmp.as_str(), false);
-    let push_opt_data_doc = push_meas_doc("optical", param_type_opt.as_str(), true);
-    let insert_opt_data_doc = insert_meas_doc("optical", param_type_opt.as_str(), true);
-    let push_tmp_data_doc = push_meas_doc("temporal", param_type_tmp.as_str(), true);
-    let insert_tmp_data_doc = insert_meas_doc("temporal", param_type_tmp.as_str(), true);
+    let push_opt_doc = push_meas_doc(true, opt_pytype.clone(), false);
+    let insert_opt_doc = insert_meas_doc(true, opt_pytype.clone(), false);
+    let push_tmp_doc = push_meas_doc(false, tmp_pytype.clone(), false);
+    let insert_tmp_doc = insert_meas_doc(false, tmp_pytype.clone(), false);
+    let push_opt_data_doc = push_meas_doc(true, opt_pytype.clone(), true);
+    let insert_opt_data_doc = insert_meas_doc(true, opt_pytype.clone(), true);
+    let push_tmp_data_doc = push_meas_doc(false, tmp_pytype.clone(), true);
+    let insert_tmp_data_doc = insert_meas_doc(false, tmp_pytype.clone(), true);
 
     // the temporal replacement functions for 3.2 are different because they
     // can fail if $PnTYPE is set
@@ -992,6 +1012,19 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
                 quote! {self.0.replace_temporal_named(&name, meas.into())},
             )
         };
+
+    let get_tmp_doc = DocString::new(
+        "Get the temporal measurement if it exists.".into(),
+        vec![],
+        vec![],
+        Some(DocReturn::new(
+            PyType::new_opt(PyType::new_tuple(
+                PyType::Int,
+                vec![PyType::Str, tmp_type.clone()],
+            )),
+            Some("Index, name, and measurement or ``None``".into()),
+        )),
+    );
 
     let both = quote! {
         /// Get the temporal measurement if it exists.
@@ -1157,7 +1190,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
     };
 
     let coretext_only = quote! {
-        #[doc = #push_opt_doc]
+        #push_opt_doc
         #[pyo3(signature = (meas, name, range, notrunc = false))]
         fn push_optical(
             &mut self,
@@ -1172,7 +1205,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
                 .void()
         }
 
-        #[doc = #insert_opt_doc]
+        #insert_opt_doc
         #[pyo3(signature = (index, meas, name, range, notrunc = false))]
         fn insert_optical(
             &mut self,
@@ -1188,7 +1221,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
                 .void()
         }
 
-        #[doc = #push_tmp_doc]
+        #push_tmp_doc
         #[pyo3(signature = (meas, name, range, notrunc = false))]
         fn push_temporal(
             &mut self,
@@ -1202,7 +1235,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
                 .py_term_resolve()
         }
 
-        #[doc = #insert_tmp_doc]
+        #insert_tmp_doc
         #[pyo3(signature = (index, meas, name, range, notrunc = false))]
         fn insert_temporal(
             &mut self,

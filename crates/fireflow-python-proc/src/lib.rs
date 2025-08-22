@@ -1,5 +1,9 @@
 extern crate proc_macro;
 
+mod docstring;
+
+use crate::docstring as ds;
+
 use fireflow_core::header::Version;
 
 use proc_macro::TokenStream;
@@ -144,60 +148,71 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         .join(",");
     let coredataset_txt_sig = format!("({_coredataset_txt_sig_args})");
 
-    let coretext_params = [&meas, &layout]
+    let coretext_params: Vec<_> = [&meas, &layout]
         .into_iter()
         .chain(args.as_slice())
         .map(|x| x.fmt_arg_doc())
-        .join("\n\n");
-    let coredataset_params = [&meas, &layout, &df]
+        .collect();
+    let coredataset_params: Vec<_> = [&meas, &layout, &df]
         .into_iter()
         .chain(args.as_slice())
         .chain([&analysis, &others])
         .map(|x| x.fmt_arg_doc())
-        .join("\n\n");
+        .collect();
 
-    let coretext_doc = fmt_docstring1(format!(
-        "Represents *TEXT* for an FCS {version} file.\n\
-         \n\
-         {coretext_params}"
-    ));
-
-    let coredataset_doc = fmt_docstring1(format!(
-        "Represents one dataset in an FCS {version} file.\n\
-         \n\
-         {coredataset_params}"
-    ));
-
-    let param_type_set_meas = format!(
-        ":param measurements: The new measurements.\n\
-         :type measurements: {meas_pytype}"
+    let coretext_doc = ds::DocString::new(
+        format!("Represents *TEXT* for an FCS {version} file."),
+        vec![],
+        coretext_params,
+        None,
     );
 
-    let param_type_set_layout = format!(
-        ":param layout: The new layout.\n\
-         :type layout: {layout_pytype}"
+    let coredataset_doc = ds::DocString::new(
+        format!("Represents one dataset in an FCS {version} file."),
+        vec![],
+        coredataset_params,
+        None,
     );
 
-    let param_type_set_df = ":param df: The new data.\n\
-                             :type df: polars.DataFrame";
+    let param_type_set_meas = ds::DocArg::new_param(
+        "measurements".into(),
+        meas_pytype,
+        "The new measurements.".into(),
+    );
 
-    let param_allow_shared_names =
-        ":param bool allow_shared_named: If ``False``, raise exception if any \
-         non-measurement keywords reference any *$PnN* keywords. If \
-         ``True`` raise exception if any non-measurement keywords \
-         reference a *$PnN* which is not present in ``measurements``. In \
-         other words, ``False`` forbids named references to exist, and \
-         ``True`` allows named references to be updated. References \
-         cannot be broken in either case.";
+    let param_type_set_layout =
+        ds::DocArg::new_param("layout".into(), layout_pytype, "The new layout.".into());
+
+    let param_type_set_df = ds::DocArg::new_param(
+        "df".to_string(),
+        "polars.DataFrame".into(),
+        "The new data.".into(),
+    );
+
+    let param_allow_shared_names = ds::DocArg::new_param(
+        "allow_shared_named".into(),
+        "bool".into(),
+        "If ``False``, raise exception if any non-measurement keywords reference \
+         any *$PnN* keywords. If ``True`` raise exception if any non-measurement \
+         keywords reference a *$PnN* which is not present in ``measurements``. \
+         In other words, ``False`` forbids named references to exist, and \
+         ``True`` allows named references to be updated. References cannot \
+         be broken in either case."
+            .into(),
+    );
 
     // TODO this can be specific to each version, for instance, we can call out
     // the exact keywords in each that may have references.
-    let param_skip_index_check =
-        ":param bool skip_index_check: If ``False``, raise exception if any \
-         non-measurement keyword have an index reference to the current \
-         measurements. If ``True`` allow such references to exist as long \
-         as they do not break (which really means that the length of \
-         ``measurements`` is such that existing indices are satisfied).";
+    let param_skip_index_check = ds::DocArg::new_param(
+        "skip_index_check".into(),
+        "bool".into(),
+        "If ``False``, raise exception if any non-measurement keyword have an \
+         index reference to the current measurements. If ``True`` allow such \
+         references to exist as long as they do not break (which really means \
+         that the length of ``measurements`` is such that existing indices are \
+         satisfied)."
+            .into(),
+    );
 
     let make_set_meas_doc = |is_dataset: bool| {
         let s = if is_dataset {
@@ -205,17 +220,19 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         } else {
             "layout"
         };
-        fmt_docstring1(format!(
-            "Set all measurements at once.\n\
-             \n\
-             Length of ``measurements`` must match number of columns in existing {s}.\n\
-             \n\
-             {param_type_set_meas}\n\
-             \n\
-             {param_allow_shared_names}\n\
-             \n\
-             {param_skip_index_check}"
-        ))
+        let ps = vec![format!(
+            "Length of ``measurements`` must match number of columns in existing {s}."
+        )];
+        ds::DocString::new(
+            "Set all measurements at once.".into(),
+            ps,
+            vec![
+                param_type_set_meas.clone(),
+                param_allow_shared_names.clone(),
+                param_skip_index_check.clone(),
+            ],
+            None,
+        )
     };
 
     let make_set_meas_and_layout_doc = |is_dataset: bool| {
@@ -224,21 +241,21 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         } else {
             ""
         };
-        fmt_docstring1(format!(
-            "Set all measurements at once.\n\
-            \n\
-            This is equivalent to updating all *$PnN* keywords at once.\n\
-            \n\
-            Length of ``measurements`` must match number of columns in ``layout`` {s}.\n\
-            \n\
-            {param_type_set_meas}\n\
-            \n\
-            {param_type_set_layout}\n\
-            \n\
-            {param_allow_shared_names}\n\
-            \n\
-            {param_skip_index_check}"
-        ))
+        let ps = vec![
+            "This is equivalent to updating all *$PnN* keywords at once.".into(),
+            format!("Length of ``measurements`` must match number of columns in ``layout`` {s}."),
+        ];
+        ds::DocString::new(
+            "Set all measurements at once.".into(),
+            ps,
+            vec![
+                param_type_set_meas.clone(),
+                param_type_set_layout.clone(),
+                param_allow_shared_names.clone(),
+                param_skip_index_check.clone(),
+            ],
+            None,
+        )
     };
 
     let coretext_set_meas_doc = make_set_meas_doc(false);
@@ -246,19 +263,17 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let coredataset_set_meas_doc = make_set_meas_doc(true);
     let coredataset_set_meas_and_layout_doc = make_set_meas_and_layout_doc(true);
 
-    let set_meas_and_data_doc = fmt_docstring1(format!(
-        "Set measurements and data at once.\n\
-         \n\
-         Length of ``measurements`` must match number of columns in ``df``.\n\
-         \n\
-         {param_type_set_meas}\n\
-         \n\
-         {param_type_set_df}\n\
-         \n\
-         {param_allow_shared_names}\n\
-         \n\
-         {param_skip_index_check}"
-    ));
+    let set_meas_and_data_doc = ds::DocString::new(
+        "Set measurements and data at once.".into(),
+        vec!["Length of ``measurements`` must match number of columns in ``df``.".into()],
+        vec![
+            param_type_set_meas,
+            param_type_set_df,
+            param_allow_shared_names,
+            param_skip_index_check,
+        ],
+        None,
+    );
 
     // TODO these might be better in a different macro that deals with the
     // non-setters.
@@ -312,7 +327,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     quote! {
         // TODO not dry, this is just pywrap!
-        #[doc = #coretext_doc]
+        #coretext_doc
         #[pyclass(name = #coretext_name, eq)]
         #[derive(Clone, From, Into, PartialEq)]
         pub struct #coretext_pytype(#coretext_rstype);
@@ -327,16 +342,16 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
                 Ok(#fun(#(#coretext_inner_args),*).mult_head()?.into())
             }
 
-            #[doc = #coretext_set_meas_doc]
+            #coretext_set_meas_doc
             #set_meas_method
 
-            #[doc = #coretext_set_meas_and_layout_doc]
+            #coretext_set_meas_and_layout_doc
             #set_meas_and_layout_method
 
             #common
         }
 
-        #[doc = #coredataset_doc]
+        #coredataset_doc
         #[pyclass(name = #coredataset_name, eq)]
         #[derive(Clone, From, Into, PartialEq)]
         pub struct #coredataset_pytype(#coredataset_rstype);
@@ -385,13 +400,13 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
                 self.0.others = xs
             }
 
-            #[doc = #coredataset_set_meas_doc]
+            #coredataset_set_meas_doc
             #set_meas_method
 
-            #[doc = #coredataset_set_meas_and_layout_doc]
+            #coredataset_set_meas_and_layout_doc
             #set_meas_and_layout_method
 
-            #[doc = #set_meas_and_data_doc]
+            #set_meas_and_data_doc
             fn set_measurements_and_data(
                 &mut self,
                 measurements: #meas_rstype,
@@ -470,9 +485,6 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
 
     let pytype = format_ident!("Py{name}");
 
-    let summary =
-        format!("Encodes FCS {pretty_version} *$Pn\\** keywords for {lower_basename} measurement.");
-
     let funargs: Vec<_> = all_args.iter().map(|x| x.make_fun_arg()).collect();
 
     let inner_args: Vec<_> = all_args.iter().map(|x| x.make_argname()).collect();
@@ -482,12 +494,17 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let _txt_sig_args = all_args.iter().map(|x| x.make_txt_sig()).join(",");
     let txt_sig = format!("({_txt_sig_args})");
 
-    let params = all_args.iter().map(|x| x.fmt_arg_doc()).join("\n\n");
+    let params: Vec<_> = all_args.iter().map(|x| x.fmt_arg_doc()).collect();
+
+    let doc = ds::DocString::new(
+        format!("FCS {pretty_version} *$Pn\\** keywords for {lower_basename} measurement."),
+        vec![],
+        params,
+        None,
+    );
 
     quote! {
-        #[doc = #summary]
-        ///
-        #[doc = #params]
+        #doc
         #[pyclass(name = #name, eq)]
         #[derive(Clone, From, Into, PartialEq)]
         pub struct #pytype(#rstype);
@@ -677,9 +694,9 @@ impl NewArgInfo {
         default.map_or(n.to_string(), |d| format!("{n}={d}"))
     }
 
-    fn fmt_arg_doc(&self) -> String {
+    fn fmt_arg_doc(&self) -> ds::DocArg {
         let rstype = path_name(&self.rstype);
-        let argname = &self.argname.to_string();
+        let argname = self.argname.to_string();
         let t = self.pytype.as_str();
         let pytype = if rstype == "Option" {
             format!("{t} | None")
@@ -691,14 +708,12 @@ impl NewArgInfo {
         } else {
             format!("Value for *${}*.", argname.to_uppercase())
         };
-        let (op, ty) = if self.isvar {
-            ("ivar", "vartype")
+        let at = if self.isvar {
+            ds::ArgType::Ivar
         } else {
-            ("param", "type")
+            ds::ArgType::Param
         };
-        let pdesc = format!(":{op} {argname}: {desc}");
-        let ptype = format!(":{ty} {argname}: {pytype}");
-        format!("{pdesc}\n{ptype}")
+        ds::DocArg::new(at, argname, pytype, desc)
     }
 }
 
@@ -1505,89 +1520,53 @@ fn ugly_version(v: Version) -> &'static str {
     }
 }
 
-/// Format python docstring.
-///
-/// Only paragraphs after the first line will be indented, which are defined by
-/// strings separated by at least two newlines. Multiple newlines in a row will
-/// be collapses to two newlines. Paragraphs may be further split into
-/// :param.*, :type.*, :rtype.*, etc lines
-fn fmt_docstring(s: &str) -> String {
-    s.split("\n\n")
-        .filter(|x| !x.is_empty())
-        .enumerate()
-        .map(|(i, s)| {
-            if i > 0 {
-                s.split("\n")
-                    .scan(0, |para_type, x| {
-                        if let Some(next) = if x.starts_with(":param") {
-                            Some(1)
-                        } else if x.starts_with(":type") {
-                            Some(2)
-                        } else if x.starts_with(":vartype") {
-                            Some(3)
-                        } else if x.starts_with(":rtype") {
-                            Some(4)
-                        } else if x.starts_with(":return") {
-                            Some(5)
-                        } else {
-                            None
-                        } {
-                            *para_type = next;
-                        };
-                        Some((*para_type, x))
-                    })
-                    .chunk_by(|(para_type, _)| *para_type)
-                    .into_iter()
-                    .map(|(_, g)| {
-                        let z = g.map(|(_, x)| x).join("\n");
-                        fmt_docstring_para(z.as_str())
-                    })
-                    .join("\n")
-            } else {
-                s.to_string()
-            }
-        })
-        .join("\n\n")
-}
+// /// Format python docstring.
+// ///
+// /// Only paragraphs after the first line will be indented, which are defined by
+// /// strings separated by at least two newlines. Multiple newlines in a row will
+// /// be collapses to two newlines. Paragraphs may be further split into
+// /// :param.*, :type.*, :rtype.*, etc lines
+// fn fmt_docstring(s: &str) -> String {
+//     s.split("\n\n")
+//         .filter(|x| !x.is_empty())
+//         .enumerate()
+//         .map(|(i, s)| {
+//             if i > 0 {
+//                 s.split("\n")
+//                     .scan(0, |para_type, x| {
+//                         if let Some(next) = if x.starts_with(":param") {
+//                             Some(1)
+//                         } else if x.starts_with(":type") {
+//                             Some(2)
+//                         } else if x.starts_with(":vartype") {
+//                             Some(3)
+//                         } else if x.starts_with(":rtype") {
+//                             Some(4)
+//                         } else if x.starts_with(":return") {
+//                             Some(5)
+//                         } else {
+//                             None
+//                         } {
+//                             *para_type = next;
+//                         };
+//                         Some((*para_type, x))
+//                     })
+//                     .chunk_by(|(para_type, _)| *para_type)
+//                     .into_iter()
+//                     .map(|(_, g)| {
+//                         let z = g.map(|(_, x)| x).join("\n");
+//                         fmt_docstring_para(z.as_str())
+//                     })
+//                     .join("\n")
+//             } else {
+//                 s.to_string()
+//             }
+//         })
+//         .join("\n\n")
+// }
 
-fn fmt_docstring1(s: String) -> String {
-    fmt_docstring(s.as_str())
-}
-
-fn fmt_docstring_para(s: &str) -> String {
-    fmt_hanging_indent(72, 4, s)
-}
-
-fn fmt_hanging_indent(width: usize, indent: usize, s: &str) -> String {
-    let i = " ".repeat(indent);
-    let xs = s.split_whitespace().filter(|x| !x.is_empty());
-    let mut line_len = 0;
-    let mut tmp = vec![]; // buffer for current line
-    let mut zs = vec![]; // buffer for indented lines
-    for x in xs {
-        // add length of word (without next space)
-        line_len += x.len();
-        // If length exceeds target width, reset length, join line buffer with
-        // spaces, collect line in final line buffer, then make new line buffer
-        // and initialize with a hanging indent. This will only happen if we hit
-        // the target length at least once so the first line will never have a
-        // hanging indent.
-        //
-        // Otherwise, add 1 to length to account for space after word.
-        //
-        // In all cases, add the next word to the line buffer, which may only
-        // have a leading indent if it was reset immediately before.
-        if line_len > width {
-            line_len = indent + x.len();
-            zs.push(tmp.iter().join(" "));
-            tmp = vec![i.as_str()]
-        } else {
-            line_len += 1;
-        }
-        tmp.push(x);
-    }
-    zs.push(tmp.iter().join(" "));
-    zs.iter().join("\n")
-}
+// fn fmt_docstring1(s: String) -> String {
+//     fmt_docstring(s.as_str())
+// }
 
 const ALL_VERSIONS: [&str; 4] = ["2_0", "3_0", "3_1", "3_2"];

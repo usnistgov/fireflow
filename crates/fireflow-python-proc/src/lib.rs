@@ -43,11 +43,14 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let coredataset_summary =
         format!("Represents *TEXT*, *DATA*, *ANALYSIS* and *OTHER* for an FCS {version} file.");
 
+    let meas_pytype = info.meas_pytype.value();
+    let layout_pytype = info.layout_pytype.value();
+
     let meas = NewArgInfo::new(
         "measurements",
         meas_rstype.clone(),
         false,
-        info.meas_pytype.value().as_str(),
+        meas_pytype.as_str(),
         Some(info.meas_desc.value().as_str()),
         None,
     );
@@ -56,7 +59,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         "layout",
         layout_rstype.clone(),
         false,
-        info.layout_pytype.value().as_str(),
+        layout_pytype.as_str(),
         Some(info.layout_desc.value().as_str()),
         None,
     );
@@ -157,9 +160,101 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         .map(|x| x.fmt_arg_doc())
         .join("\n\n");
 
-    // TODO document these, also these might be better in a different macro
-    // that deals with the non-setters.
-    let common = quote! {
+    let param_type_set_meas = format!(
+        ":param measurements: The new measurements.\n\
+         :type measurements: {meas_pytype}"
+    );
+
+    let param_type_set_layout = format!(
+        ":param layout: The new layout.\n\
+         :type layout: {layout_pytype}"
+    );
+
+    let param_type_set_df = ":param df: The new data.\n\
+                             :type df: polars.DataFrame";
+
+    let param_allow_shared_names =
+        ":param bool allow_shared_named: If ``False``, raise exception if any \
+         non-measurement keywords reference any *$PnN* keywords. If \
+         ``True`` raise exception if any non-measurement keywords \
+         reference a *$PnN* which is not present in ``measurements``. In \
+         other words, ``False`` forbids named references to exist, and \
+         ``True`` allows named references to be updated. References \
+         cannot be broken in either case.";
+
+    // TODO this can be specific to each version, for instance, we can call out
+    // the exact keywords in each that may have references.
+    let param_skip_index_check =
+        ":param bool skip_index_check: If ``False``, raise exception if any \
+         non-measurement keyword have an index reference to the current \
+         measurements. If ``True`` allow such references to exist as long \
+         as they do not break (which really means that the length of \
+         ``measurements`` is such that existing indices are satisfied).";
+
+    let make_set_meas_doc = |is_dataset: bool| {
+        let s = if is_dataset {
+            "layout and dataframe"
+        } else {
+            "layout"
+        };
+        fmt_docstring1(format!(
+            "Set all measurements at once.\n\
+             \n\
+             Length of ``measurements`` must match number of columns in existing {s}.\n\
+             \n\
+             {param_type_set_meas}\n\
+             \n\
+             {param_allow_shared_names}\n\
+             \n\
+             {param_skip_index_check}"
+        ))
+    };
+
+    let make_set_meas_and_layout_doc = |is_dataset: bool| {
+        let s = if is_dataset {
+            " and both must match number of columns in existing dataframe"
+        } else {
+            ""
+        };
+        fmt_docstring1(format!(
+            "Set all measurements at once.\n\
+            \n\
+            This is equivalent to updating all *$PnN* keywords at once.\n\
+            \n\
+            Length of ``measurements`` must match number of columns in ``layout`` {s}.\n\
+            \n\
+            {param_type_set_meas}\n\
+            \n\
+            {param_type_set_layout}\n\
+            \n\
+            {param_allow_shared_names}\n\
+            \n\
+            {param_skip_index_check}"
+        ))
+    };
+
+    let coretext_set_meas_doc = make_set_meas_doc(false);
+    let coretext_set_meas_and_layout_doc = make_set_meas_and_layout_doc(false);
+    let coredataset_set_meas_doc = make_set_meas_doc(true);
+    let coredataset_set_meas_and_layout_doc = make_set_meas_and_layout_doc(true);
+
+    let set_meas_and_data_doc = fmt_docstring1(format!(
+        "Set measurements and data at once.\n\
+         \n\
+         Length of ``measurements`` must match number of columns in ``df``.\n\
+         \n\
+         {param_type_set_meas}\n\
+         \n\
+         {param_type_set_df}\n\
+         \n\
+         {param_allow_shared_names}\n\
+         \n\
+         {param_skip_index_check}"
+    ));
+
+    // TODO these might be better in a different macro that deals with the
+    // non-setters.
+    let set_meas_method = quote! {
         pub fn set_measurements(
             &mut self,
             measurements: #meas_rstype,
@@ -174,7 +269,9 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
                 )
                 .py_term_resolve_nowarn()
         }
+    };
 
+    let set_meas_and_layout_method = quote! {
         fn set_measurements_and_layout(
             &mut self,
             measurements: #meas_rstype,
@@ -191,7 +288,9 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
                 )
                 .py_term_resolve_nowarn()
         }
+    };
 
+    let common = quote! {
         #[getter]
         fn get_layout(&self) -> #layout_rstype {
             self.0.layout().clone().into()
@@ -221,6 +320,12 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             fn new(#(#coretext_funargs),*) -> PyResult<Self> {
                 Ok(#fun(#(#coretext_inner_args),*).mult_head()?.into())
             }
+
+            #[doc = #coretext_set_meas_doc]
+            #set_meas_method
+
+            #[doc = #coretext_set_meas_and_layout_doc]
+            #set_meas_and_layout_method
 
             #common
         }
@@ -276,6 +381,13 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
                 self.0.others = xs
             }
 
+            #[doc = #coredataset_set_meas_doc]
+            #set_meas_method
+
+            #[doc = #coredataset_set_meas_and_layout_doc]
+            #set_meas_and_layout_method
+
+            #[doc = #set_meas_and_data_doc]
             fn set_measurements_and_data(
                 &mut self,
                 measurements: #meas_rstype,
@@ -1387,6 +1499,89 @@ fn ugly_version(v: Version) -> &'static str {
         Version::FCS3_1 => "3_1",
         Version::FCS3_2 => "3_2",
     }
+}
+
+/// Format python docstring.
+///
+/// Only paragraphs after the first line will be indented, which are defined by
+/// strings separated by at least two newlines. Multiple newlines in a row will
+/// be collapses to two newlines. Paragraphs may be further split into
+/// :param.*, :type.*, :rtype.*, etc lines
+fn fmt_docstring(s: &str) -> String {
+    s.split("\n\n")
+        .filter(|x| !x.is_empty())
+        .enumerate()
+        .map(|(i, s)| {
+            if i > 0 {
+                s.split("\n")
+                    .scan(0, |para_type, x| {
+                        if let Some(next) = if x.starts_with(":param") {
+                            Some(1)
+                        } else if x.starts_with(":type") {
+                            Some(2)
+                        } else if x.starts_with(":rtype") {
+                            Some(3)
+                        } else if x.starts_with(":return") {
+                            Some(4)
+                        } else {
+                            None
+                        } {
+                            *para_type = next;
+                        };
+                        Some((*para_type, x))
+                    })
+                    .chunk_by(|(para_type, _)| *para_type)
+                    .into_iter()
+                    .map(|(_, g)| {
+                        let z = g.map(|(_, x)| x).join("\n");
+                        fmt_docstring_para(z.as_str())
+                    })
+                    .join("\n")
+            } else {
+                s.to_string()
+            }
+        })
+        .join("\n\n")
+}
+
+fn fmt_docstring1(s: String) -> String {
+    fmt_docstring(s.as_str())
+}
+
+fn fmt_docstring_para(s: &str) -> String {
+    fmt_hanging_indent(72, 4, s)
+}
+
+fn fmt_hanging_indent(width: usize, indent: usize, s: &str) -> String {
+    let i = " ".repeat(indent);
+    let xs = s.split_whitespace().filter(|x| !x.is_empty());
+    let mut line_len = 0;
+    let mut tmp = vec![]; // buffer for current line
+    let mut zs = vec![]; // buffer for indented lines
+    for x in xs {
+        // add length of word (without next space)
+        line_len += x.len();
+        // If length exceeds target width, reset length, join line buffer with
+        // spaces, collect line in final line buffer, then make new line buffer
+        // and initialize with a hanging indent. This will only happen if we hit
+        // the target length at least once so the first line will never have a
+        // hanging indent.
+        //
+        // Otherwise, add 1 to length to account for space after word.
+        //
+        // In all cases, add the next word to the line buffer, which may only
+        // have a leading indent if it was reset immediately before.
+        if line_len > width {
+            line_len = indent + x.len();
+            zs.push(tmp.iter().join(" "));
+            tmp = vec![i.as_str()]
+        } else {
+            line_len += 1;
+        }
+        tmp.push(x);
+    }
+    zs.push(tmp.iter().join(" "));
+    zs.iter().join("\n")
 }
 
 const ALL_VERSIONS: [&str; 4] = ["2_0", "3_0", "3_1", "3_2"];

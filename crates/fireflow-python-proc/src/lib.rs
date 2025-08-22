@@ -39,10 +39,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let coretext_pytype = format_ident!("Py{coretext_name}");
     let coredataset_pytype = format_ident!("Py{coredataset_name}");
 
-    let coretext_summary = format!("Represents *TEXT* for an FCS {version} file.");
-    let coredataset_summary =
-        format!("Represents *TEXT*, *DATA*, *ANALYSIS* and *OTHER* for an FCS {version} file.");
-
     let meas_pytype = info.meas_pytype.value();
     let layout_pytype = info.layout_pytype.value();
 
@@ -159,6 +155,18 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         .chain([&analysis, &others])
         .map(|x| x.fmt_arg_doc())
         .join("\n\n");
+
+    let coretext_doc = fmt_docstring1(format!(
+        "Represents *TEXT* for an FCS {version} file.\n\
+         \n\
+         {coretext_params}"
+    ));
+
+    let coredataset_doc = fmt_docstring1(format!(
+        "Represents one dataset in an FCS {version} file.\n\
+         \n\
+         {coredataset_params}"
+    ));
 
     let param_type_set_meas = format!(
         ":param measurements: The new measurements.\n\
@@ -304,9 +312,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     quote! {
         // TODO not dry, this is just pywrap!
-        #[doc = #coretext_summary]
-        ///
-        #[doc = #coretext_params]
+        #[doc = #coretext_doc]
         #[pyclass(name = #coretext_name, eq)]
         #[derive(Clone, From, Into, PartialEq)]
         pub struct #coretext_pytype(#coretext_rstype);
@@ -330,9 +336,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             #common
         }
 
-        #[doc = #coredataset_summary]
-        ///
-        #[doc = #coredataset_params]
+        #[doc = #coredataset_doc]
         #[pyclass(name = #coredataset_name, eq)]
         #[derive(Clone, From, Into, PartialEq)]
         pub struct #coredataset_pytype(#coredataset_rstype);
@@ -1519,10 +1523,12 @@ fn fmt_docstring(s: &str) -> String {
                             Some(1)
                         } else if x.starts_with(":type") {
                             Some(2)
-                        } else if x.starts_with(":rtype") {
+                        } else if x.starts_with(":vartype") {
                             Some(3)
-                        } else if x.starts_with(":return") {
+                        } else if x.starts_with(":rtype") {
                             Some(4)
+                        } else if x.starts_with(":return") {
+                            Some(5)
                         } else {
                             None
                         } {

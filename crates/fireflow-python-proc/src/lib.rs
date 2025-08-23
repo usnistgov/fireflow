@@ -822,7 +822,7 @@ pub fn impl_get_set_all_meas(input: TokenStream) -> TokenStream {
     };
     let none_pytype = if optional { Some(PyType::None) } else { None }.into_iter();
 
-    let doc_type = PyType::new_list(&PyType::new_union(NonEmpty::from((
+    let doc_type = PyType::new_list(PyType::new_union(NonEmpty::from((
         base_pytype,
         tmp_pytype.into_iter().chain(none_pytype).collect(),
     ))));
@@ -912,18 +912,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
     let opt_pytype = PyType::PyClass(format!("Optical{version}"));
     let tmp_pytype = PyType::PyClass(format!("Temporal{version}"));
 
-    let meas_pytype = PyType::new_union2(&opt_pytype, &tmp_pytype);
-
-    // let param_type_opt = format!(":type meas: {poclass}");
-    // let param_type_tmp = format!(":type meas: {ptclass}");
-
-    // let rtype_get_temp = format!(":rtype: (int, str, {ptclass}`) | None");
-    // let rtype_all_meas = format!(":rtype: list[{pclasses}]");
-    // let rtype_remove_named_meas = format!(":rtype: (int, {pclasses})");
-    // let rtype_remove_index_meas = format!(":rtype: (str, {pclasses})");
-    // let rtype_get_meas = format!(":rtype: {pclasses}");
-
-    // let rtype_replace_tmp_named = format!("{rtype_get_meas} | None");
+    let meas_pytype = PyType::new_union2(opt_pytype.clone(), tmp_pytype.clone());
 
     let make_param_name = |short_desc: &str| {
         DocArg::new_param(
@@ -1043,7 +1032,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
         vec![],
         vec![],
         Some(DocReturn::new(
-            PyType::new_opt(&PyType::new_tuple(vec![
+            PyType::new_opt(PyType::Tuple(vec![
                 PyType::Int,
                 PyType::Str,
                 tmp_pytype.clone(),
@@ -1057,7 +1046,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
         vec![],
         vec![],
         Some(DocReturn::new(
-            PyType::new_list(&meas_pytype),
+            PyType::new_list(meas_pytype.clone()),
             Some("List of measurements".into()),
         )),
     );
@@ -1067,7 +1056,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
         vec!["Raise exception if ``name`` not found.".into()],
         vec![make_param_name("Name to remove")],
         Some(DocReturn::new(
-            PyType::new_tuple(vec![PyType::Int, meas_pytype.clone()]),
+            PyType::Tuple(vec![PyType::Int, meas_pytype.clone()]),
             Some("Index and measurement object".into()),
         )),
     );
@@ -1077,7 +1066,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
         vec!["Raise exception if ``index`` not found.".into()],
         vec![make_param_index("Index to remove")],
         Some(DocReturn::new(
-            PyType::new_tuple(vec![PyType::Str, meas_pytype.clone()]),
+            PyType::Tuple(vec![PyType::Str, meas_pytype.clone()]),
             Some("Name and measurement object".into()),
         )),
     );
@@ -1490,9 +1479,9 @@ pub fn impl_meas_get_set(input: TokenStream) -> TokenStream {
 
     let base_type = PyType::Raw(info.pytype.value());
     let rtype = PyType::new_list(if optional {
-        &PyType::new_opt(&base_type)
+        PyType::new_opt(base_type)
     } else {
-        &base_type
+        base_type
     });
     let doc = DocString::new(
         format!("Value of *$Pn{}*.", s.to_uppercase()),

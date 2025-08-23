@@ -42,8 +42,8 @@ pub(crate) enum PyType {
     None,
     Option(Box<PyType>),
     Dict(Box<PyType>, Box<PyType>),
-    Union(NonEmpty<Box<PyType>>),
-    Tuple(Vec<Box<PyType>>),
+    Union(Box<PyType>, Vec<PyType>),
+    Tuple(Vec<PyType>),
     List(Box<PyType>),
     PyClass(String),
     Raw(String),
@@ -69,36 +69,32 @@ impl ArgType {
 }
 
 impl PyType {
-    pub(crate) fn new_opt(x: &PyType) -> Self {
-        Self::Option(Box::new(x.clone()))
+    pub(crate) fn new_opt(x: PyType) -> Self {
+        Self::Option(Box::new(x))
     }
 
-    pub(crate) fn new_list(x: &PyType) -> Self {
-        Self::List(Box::new(x.clone()))
+    pub(crate) fn new_list(x: PyType) -> Self {
+        Self::List(Box::new(x))
     }
 
-    pub(crate) fn new_union1(x: &PyType) -> Self {
-        Self::Union(NonEmpty::new(Box::new(x.clone())))
+    pub(crate) fn new_union1(x: PyType) -> Self {
+        Self::Union(Box::new(x), vec![])
     }
 
-    pub(crate) fn new_union2(x: &PyType, y: &PyType) -> Self {
+    pub(crate) fn new_union2(x: PyType, y: PyType) -> Self {
         Self::new_union(NonEmpty::from((x.clone(), vec![y.clone()])))
     }
 
     pub(crate) fn new_union(xs: NonEmpty<PyType>) -> Self {
-        Self::Union(xs.map(Box::new))
+        Self::Union(Box::new(xs.head), xs.tail)
     }
 
     pub(crate) fn new_unit() -> Self {
         Self::Tuple(vec![])
     }
 
-    pub(crate) fn new_tuple1(x: &PyType) -> Self {
-        Self::Tuple(vec![Box::new(x.clone())])
-    }
-
-    pub(crate) fn new_tuple(xs: Vec<PyType>) -> Self {
-        Self::Tuple(xs.into_iter().map(Box::new).collect())
+    pub(crate) fn new_tuple1(x: PyType) -> Self {
+        Self::Tuple(vec![x.clone()])
     }
 
     fn is_oneword(&self) -> bool {
@@ -184,8 +180,8 @@ impl fmt::Display for PyType {
             Self::Float => f.write_str("float"),
             Self::Bytes => f.write_str("Bytes"),
             Self::None => f.write_str("None"),
-            Self::Union(xs) => {
-                let s = xs.iter().join(" | ");
+            Self::Union(x, xs) => {
+                let s = [x.as_ref()].into_iter().chain(xs.iter()).join(" | ");
                 f.write_str(s.as_str())
             }
             Self::Tuple(xs) => {

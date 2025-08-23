@@ -921,7 +921,11 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
             format!("{short_desc}. Corresponds to *$PnN*. Must not contain commas."),
         )
     };
+
     let make_param_index = |desc: &str| DocArg::new_param("index".into(), PyType::Int, desc.into());
+
+    let make_return_meas = |desc: String| DocReturn::new(meas_pytype.clone(), Some(desc));
+
     let param_range = DocArg::new_param(
         "range".into(),
         PyType::Float,
@@ -1075,86 +1079,64 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
         "Return measurement at index".into(),
         vec!["Raise exception if ``index`` not found.".into()],
         vec![make_param_index("Index to retrieve.")],
-        Some(DocReturn::new(
-            meas_pytype.clone(),
-            Some("Measurement object".into()),
-        )),
+        Some(make_return_meas("Measurement object".into())),
     );
 
-    let replace_opt_at_doc = DocString::new(
-        "Replace measurement at index with given optical measurement.".into(),
-        vec!["Raise exception if ``index`` not found.".into()],
-        vec![
-            make_param_index("Index to replace."),
-            DocArg::new_param(
-                "meas".into(),
-                opt_pytype.clone(),
-                "Optical measurement to replace measurement at ``index``.".into(),
-            ),
-        ],
-        Some(DocReturn::new(
-            meas_pytype.clone(),
-            Some("Replaced measurement object".into()),
-        )),
-    );
+    let make_replace_doc = |is_optical: bool, is_index: bool| {
+        let (i, i_param, m) = if is_index {
+            (
+                "index",
+                make_param_index("Index to replace."),
+                "measurement at index",
+            )
+        } else {
+            (
+                "name",
+                make_param_name("Name to replace."),
+                "named measurement",
+            )
+        };
+        let (s, ss, t, other_pos) = if is_optical {
+            ("optical", "Optical", opt_pytype.clone(), "")
+        } else {
+            (
+                "temporal",
+                "Temporal",
+                tmp_pytype.clone(),
+                " or there is already a temporal measurement in a different position",
+            )
+        };
+        let meas_desc = format!("{ss} measurement to replace measurement at ``{i}``.");
+        let sub = format!("Raise exception if ``{i}`` does not exist{other_pos}.");
+        DocString::new(
+            format!("Replace {m} with given {s} measurement."),
+            vec![sub],
+            vec![i_param, DocArg::new_param("meas".into(), t, meas_desc)],
+            Some(make_return_meas("Replaced measurement object".into())),
+        )
+    };
 
-    let replace_named_opt_doc = DocString::new(
-        "Replace named measurement with given optical measurement.".into(),
-        vec!["Raise exception if ``name`` not found.".into()],
-        vec![
-            make_param_name("Name to replace."),
-            DocArg::new_param(
-                "meas".into(),
-                opt_pytype.clone(),
-                "Optical measurement to replace measurement at ``name``.".into(),
-            ),
-        ],
-        Some(DocReturn::new(
-            meas_pytype.clone(),
-            Some("Replaced measurement object".into()),
-        )),
-    );
+    let replace_opt_at_doc = make_replace_doc(true, true);
+    let replace_named_opt_doc = make_replace_doc(true, false);
+    let replace_tmp_at_doc = make_replace_doc(false, true);
+    let replace_named_tmp_doc = make_replace_doc(false, false);
 
-    let replace_tmp_at_doc = DocString::new(
-        "Replace measurement at index with given temporal measurement.".into(),
+    let unset_meas_doc = DocString::new(
+        "Remove measurements and clear the layout.".into(),
         vec![
-            "Raise exception if index is output of bounds or there is already \
-              a temporal measurement at a different index."
+            "This is equivalent to deleting all *$Pn\\** keywords and setting *$PAR* to 0.".into(),
+            "Will raise exception if other keywords (such as *$TR*) reference a measurement."
                 .into(),
         ],
-        vec![
-            make_param_index("Index to replace."),
-            DocArg::new_param(
-                "meas".into(),
-                opt_pytype.clone(),
-                "Temporal measurement to replace measurement at ``index``.".into(),
-            ),
-        ],
-        Some(DocReturn::new(
-            meas_pytype.clone(),
-            Some("Replaced measurement object".into()),
-        )),
+        vec![],
+        None,
     );
 
-    let replace_named_tmp_doc = DocString::new(
-        "Replace named measurement with given temporal measurement.".into(),
-        vec![
-            "Raise exception if ``name`` does not exist or there is already \
-              a temporal measurement in a different position."
-                .into(),
-        ],
-        vec![
-            make_param_name("Name to replace."),
-            DocArg::new_param(
-                "meas".into(),
-                opt_pytype.clone(),
-                "Temporal measurement to replace measurement at ``name``.".into(),
-            ),
-        ],
-        Some(DocReturn::new(
-            meas_pytype.clone(),
-            Some("Replaced measurement object".into()),
-        )),
+    let unset_data_doc = DocString::new(
+        "Remove all measurements and their data.".into(),
+        vec!["Raise exception if any keywords (such as *$TR*) reference a measurement.".into()],
+        vec![],
+        None,
     );
 
     let both = quote! {
@@ -1319,13 +1301,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
                 .py_term_resolve()
         }
 
-        /// Remove measurements and clear the layout.
-        ///
-        /// This is equivalent to deleting all *$Pn\** keywords and setting
-        /// *$PAR* to 0.
-        ///
-        /// Will raise exception if other keywords (such as *$TR*) reference
-        /// a measurement.
+        #unset_meas_doc
         fn unset_measurements(&mut self) -> PyResult<()> {
             Ok(self.0.unset_measurements()?)
         }
@@ -1396,10 +1372,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
                 .py_term_resolve()
         }
 
-        /// Remove all measurements and their data.
-        ///
-        /// Raise exception if any keywords (such as *$TR*) reference a
-        /// measurement.
+        #unset_data_doc
         fn unset_data(&mut self) -> PyResult<()> {
             Ok(self.0.unset_data()?)
         }

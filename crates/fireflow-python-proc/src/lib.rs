@@ -96,7 +96,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         "others",
         others_type.clone(),
         true,
-        &PyType::Raw("list[bytes]".into()),
+        &PyType::new_list(PyType::Bytes),
         Some("Byte strings encoding the *OTHER* segments."),
         Some(ArgDefault {
             rsval: quote! {#others_type::default()},
@@ -104,63 +104,32 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         }),
     );
 
-    let coretext_funargs: Vec<_> = [&meas, &layout]
+    let coretext_args: Vec<_> = [&meas, &layout]
         .into_iter()
         .chain(args.as_slice())
-        .map(|x| x.make_fun_arg())
         .collect();
-    let coredataset_funargs: Vec<_> = [&meas, &layout, &df]
+    let coredataset_args: Vec<_> = [&meas, &layout, &df]
         .into_iter()
         .chain(args.as_slice())
         .chain([&analysis, &others])
-        .map(|x| x.make_fun_arg())
         .collect();
 
-    let coretext_inner_args: Vec<_> = [&meas, &layout]
-        .into_iter()
-        .chain(args.as_slice())
-        .map(|x| x.make_argname())
-        .collect();
+    let coretext_funargs: Vec<_> = coretext_args.iter().map(|x| x.make_fun_arg()).collect();
+    let coredataset_funargs: Vec<_> = coredataset_args.iter().map(|x| x.make_fun_arg()).collect();
 
-    let coretext_sig_args: Vec<_> = [&meas, &layout]
-        .into_iter()
-        .chain(args.as_slice())
-        .map(|x| x.make_sig())
-        .collect();
+    let coretext_inner_args: Vec<_> = coretext_args.iter().map(|x| x.make_argname()).collect();
 
-    let coredataset_sig_args: Vec<_> = [&meas, &layout, &df]
-        .into_iter()
-        .chain(args.as_slice())
-        .chain([&analysis, &others])
-        .map(|x| x.make_sig())
-        .collect();
+    let coretext_sig_args: Vec<_> = coretext_args.iter().map(|x| x.make_sig()).collect();
+    let coredataset_sig_args: Vec<_> = coredataset_args.iter().map(|x| x.make_sig()).collect();
 
-    let _coretext_txt_sig_args = [&meas, &layout]
-        .into_iter()
-        .chain(args.as_slice())
-        .map(|x| x.make_txt_sig())
-        .join(",");
+    let _coretext_txt_sig_args = coretext_args.iter().map(|x| x.make_txt_sig()).join(",");
     let coretext_txt_sig = format!("({_coretext_txt_sig_args})");
 
-    let _coredataset_txt_sig_args = [&meas, &layout, &df]
-        .into_iter()
-        .chain(args.as_slice())
-        .chain([&analysis, &others])
-        .map(|x| x.make_txt_sig())
-        .join(",");
+    let _coredataset_txt_sig_args = coredataset_args.iter().map(|x| x.make_txt_sig()).join(",");
     let coredataset_txt_sig = format!("({_coredataset_txt_sig_args})");
 
-    let coretext_params: Vec<_> = [&meas, &layout]
-        .into_iter()
-        .chain(args.as_slice())
-        .map(|x| x.fmt_arg_doc())
-        .collect();
-    let coredataset_params: Vec<_> = [&meas, &layout, &df]
-        .into_iter()
-        .chain(args.as_slice())
-        .chain([&analysis, &others])
-        .map(|x| x.fmt_arg_doc())
-        .collect();
+    let coretext_params: Vec<_> = coretext_args.iter().map(|x| x.fmt_arg_doc()).collect();
+    let coredataset_params: Vec<_> = coredataset_args.iter().map(|x| x.fmt_arg_doc()).collect();
 
     let coretext_doc = DocString::new(
         format!("Represents *TEXT* for an FCS {version} file."),

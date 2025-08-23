@@ -6,7 +6,6 @@ edition.workspace = true
 [dependencies]
 derive-new = { workspace = true }
 fireflow-core = { version = "0.1.0", path = "../fireflow-core" }
-fireflow-python-docstring = { version = "0.1.0", path = "../fireflow-python-docstring" }
 nonempty = { workspace = true }
 syn = { version = "*", features = ["extra-traits"] }
 itertools = { workspace = true }

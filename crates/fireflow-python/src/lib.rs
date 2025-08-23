@@ -575,25 +575,6 @@ impl_new_meas! {
     (detector_voltage, Option<kws::DetectorVoltage>, true, "float", "Value for *$PnV*."),
 }
 
-#[pymethods]
-impl PyOptical2_0 {
-    /// The value for *$PnE* for all measurements.
-    ///
-    /// Will be ``()`` for linear scaling (``0,0`` in FCS encoding), a
-    /// 2-tuple for log scaling, or ``None`` if missing.
-    ///
-    /// :type: () | (float, float) | None
-    #[getter]
-    fn get_scale(&self) -> Option<Scale> {
-        self.0.specific.scale.0.as_ref().map(|&x| x)
-    }
-
-    #[setter]
-    fn set_scale(&mut self, x: Option<Scale>) {
-        self.0.specific.scale = x.into()
-    }
-}
-
 impl_new_meas! {
     "FCS3.0",
     false,
@@ -1920,6 +1901,27 @@ impl_optical_get_set!(PyOptical3_0);
 impl_optical_get_set!(PyOptical3_1);
 impl_optical_get_set!(PyOptical3_2);
 
+// TODO move to proc
+#[pymethods]
+impl PyOptical2_0 {
+    /// The value for *$PnE* for all measurements.
+    ///
+    /// Will be ``()`` for linear scaling (``0,0`` in FCS encoding), a
+    /// 2-tuple for log scaling, or ``None`` if missing.
+    ///
+    /// :type: () | (float, float) | None
+    #[getter]
+    fn get_scale(&self) -> Option<Scale> {
+        self.0.specific.scale.0.as_ref().map(|&x| x)
+    }
+
+    #[setter]
+    fn set_scale(&mut self, x: Option<Scale>) {
+        self.0.specific.scale = x.into()
+    }
+}
+
+// TODO move to proc
 // $PnE (3.0-3.2)
 macro_rules! impl_optical_get_set_transform {
     ($pytype:ident) => {
@@ -1972,6 +1974,7 @@ impl_meas_get_set! {
     PyOptical3_2
 }
 
+// TODO move to proc
 // #TIMESTEP (3.0-3.2)
 macro_rules! impl_temporal_get_set_timestep {
     ($pytype:ident) => {

@@ -5,7 +5,7 @@ use quote::{quote, ToTokens};
 use std::fmt;
 
 #[derive(Clone, new)]
-pub(crate) struct DocString {
+pub struct DocString {
     summary: String,
     paragraphs: Vec<String>,
     args: Vec<DocArg>,
@@ -13,7 +13,7 @@ pub(crate) struct DocString {
 }
 
 #[derive(Clone, new)]
-pub(crate) struct DocArg {
+pub struct DocArg {
     argtype: ArgType,
     argname: String,
     pytype: PyType,
@@ -21,19 +21,19 @@ pub(crate) struct DocArg {
 }
 
 #[derive(Clone, new)]
-pub(crate) struct DocReturn {
+pub struct DocReturn {
     rtype: PyType,
     desc: Option<String>,
 }
 
 #[derive(Clone)]
-pub(crate) enum ArgType {
+pub enum ArgType {
     Ivar,
     Param,
 }
 
 #[derive(Clone)]
-pub(crate) enum PyType {
+pub enum PyType {
     Str,
     Bool,
     Bytes,
@@ -50,11 +50,11 @@ pub(crate) enum PyType {
 }
 
 impl DocArg {
-    // pub(crate) fn new_ivar(argname: String, pytype: String, desc: String) -> Self {
-    //     Self::new(ArgType::Ivar, argname, pytype, desc)
-    // }
+    pub fn new_ivar(argname: String, pytype: PyType, desc: String) -> Self {
+        Self::new(ArgType::Ivar, argname, pytype, desc)
+    }
 
-    pub(crate) fn new_param(argname: String, pytype: PyType, desc: String) -> Self {
+    pub fn new_param(argname: String, pytype: PyType, desc: String) -> Self {
         Self::new(ArgType::Param, argname, pytype, desc)
     }
 }
@@ -69,39 +69,36 @@ impl ArgType {
 }
 
 impl PyType {
-    pub(crate) fn new_opt(x: PyType) -> Self {
+    pub fn new_opt(x: PyType) -> Self {
         Self::Option(Box::new(x))
     }
 
-    pub(crate) fn new_list(x: PyType) -> Self {
+    pub fn new_list(x: PyType) -> Self {
         Self::List(Box::new(x))
     }
 
-    pub(crate) fn new_union1(x: PyType) -> Self {
+    pub fn new_union1(x: PyType) -> Self {
         Self::Union(Box::new(x), vec![])
     }
 
-    pub(crate) fn new_union2(x: PyType, y: PyType) -> Self {
+    pub fn new_union2(x: PyType, y: PyType) -> Self {
         Self::new_union(NonEmpty::from((x.clone(), vec![y.clone()])))
     }
 
-    pub(crate) fn new_union(xs: NonEmpty<PyType>) -> Self {
+    pub fn new_union(xs: NonEmpty<PyType>) -> Self {
         Self::Union(Box::new(xs.head), xs.tail)
     }
 
-    pub(crate) fn new_unit() -> Self {
+    pub fn new_unit() -> Self {
         Self::Tuple(vec![])
     }
 
-    pub(crate) fn new_tuple1(x: PyType) -> Self {
+    pub fn new_tuple1(x: PyType) -> Self {
         Self::Tuple(vec![x.clone()])
     }
 
     fn is_oneword(&self) -> bool {
-        match self {
-            Self::Raw(_) | Self::PyClass(_) => false,
-            _ => true,
-        }
+        !matches!(self, Self::Raw(_) | Self::PyClass(_))
     }
 }
 

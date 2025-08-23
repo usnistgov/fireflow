@@ -1,8 +1,6 @@
 extern crate proc_macro;
 
-mod docstring;
-
-use crate::docstring::{ArgType, DocArg, DocReturn, DocString, PyType};
+use fireflow_python_docstring::{ArgType, DocArg, DocReturn, DocString, PyType};
 
 use fireflow_core::header::Version;
 

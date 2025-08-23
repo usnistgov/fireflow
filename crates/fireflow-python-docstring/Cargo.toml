@@ -1,0 +1,12 @@
+[package]
+name = "fireflow-python-docstring"
+version = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+derive-new = { workspace = true }
+fireflow-core = { version = "0.1.0", path = "../fireflow-core" }
+nonempty = { workspace = true }
+itertools = { workspace = true }
+quote = "*"
+proc-macro2 = "*"

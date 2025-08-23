@@ -69,32 +69,32 @@ impl ArgType {
 }
 
 impl PyType {
-    pub(crate) fn new_opt(x: PyType) -> Self {
-        Self::Option(Box::new(x))
+    pub(crate) fn new_opt(x: &PyType) -> Self {
+        Self::Option(Box::new(x.clone()))
     }
 
-    pub(crate) fn new_list(x: PyType) -> Self {
-        Self::List(Box::new(x))
+    pub(crate) fn new_list(x: &PyType) -> Self {
+        Self::List(Box::new(x.clone()))
     }
 
-    pub(crate) fn new_union1(x: PyType) -> Self {
-        Self::Union(NonEmpty::new(Box::new(x)))
+    pub(crate) fn new_union1(x: &PyType) -> Self {
+        Self::Union(NonEmpty::new(Box::new(x.clone())))
     }
 
-    pub(crate) fn new_union2(x: PyType, y: PyType) -> Self {
-        Self::new_union(x, vec![y])
+    pub(crate) fn new_union2(x: &PyType, y: &PyType) -> Self {
+        Self::new_union(NonEmpty::from((x.clone(), vec![y.clone()])))
     }
 
-    pub(crate) fn new_union(x: PyType, xs: Vec<PyType>) -> Self {
-        Self::Union(NonEmpty::from((x, xs)).map(Box::new))
+    pub(crate) fn new_union(xs: NonEmpty<PyType>) -> Self {
+        Self::Union(xs.map(Box::new))
     }
 
-    pub(crate) fn new_unit(x: PyType) -> Self {
+    pub(crate) fn new_unit() -> Self {
         Self::Tuple(vec![])
     }
 
-    pub(crate) fn new_tuple1(x: PyType) -> Self {
-        Self::Tuple(vec![Box::new(x)])
+    pub(crate) fn new_tuple1(x: &PyType) -> Self {
+        Self::Tuple(vec![Box::new(x.clone())])
     }
 
     pub(crate) fn new_tuple(xs: Vec<PyType>) -> Self {

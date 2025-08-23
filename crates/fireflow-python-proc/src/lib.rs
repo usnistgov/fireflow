@@ -9,6 +9,7 @@ use fireflow_core::header::Version;
 use proc_macro::TokenStream;
 
 use itertools::Itertools;
+use nonempty::NonEmpty;
 use quote::{format_ident, quote, ToTokens};
 use syn::{
     parenthesized,
@@ -813,11 +814,18 @@ pub fn impl_get_set_all_meas(input: TokenStream) -> TokenStream {
     } else {
         vec![]
     };
-    let doc_type = PyType::new_list(
-        info.pytype.value()
-            + if optical_only { " | tuple[()]" } else { "" }
-            + if optional { " | None" } else { "" },
-    );
+    let base_pytype = PyType::Raw(info.pytype.value());
+    let tmp_pytype = if optical_only {
+        Some(PyType::new_unit())
+    } else {
+        None
+    };
+    let none_pytype = if optional { Some(PyType::None) } else { None }.into_iter();
+
+    let doc_type = PyType::new_list(&PyType::new_union(NonEmpty::from((
+        base_pytype,
+        tmp_pytype.into_iter().chain(none_pytype).collect(),
+    ))));
     let doc = DocString::new(
         doc_summary,
         doc_middle,
@@ -904,7 +912,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
     let opt_pytype = PyType::PyClass(format!("Optical{version}"));
     let tmp_pytype = PyType::PyClass(format!("Temporal{version}"));
 
-    let meas_pytype = PyType::new_union2(opt_pytype, tmp_pytype);
+    let meas_pytype = PyType::new_union2(&opt_pytype, &tmp_pytype);
 
     // let param_type_opt = format!(":type meas: {poclass}");
     // let param_type_tmp = format!(":type meas: {ptclass}");
@@ -917,16 +925,14 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
 
     // let rtype_replace_tmp_named = format!("{rtype_get_meas} | None");
 
-    let param_name = DocArg::new_param(
-        "name".into(),
-        PyType::Str,
-        "Name of measurement. Corresponds to *$PnN*. Must not contain commas.".into(),
-    );
-    let param_index = DocArg::new_param(
-        "index".into(),
-        PyType::Int,
-        "Position in measurement vector.".into(),
-    );
+    let make_param_name = |short_desc: &str| {
+        DocArg::new_param(
+            "name".into(),
+            PyType::Str,
+            format!("{short_desc}. Corresponds to *$PnN*. Must not contain commas."),
+        )
+    };
+    let make_param_index = |desc: &str| DocArg::new_param("index".into(), PyType::Int, desc.into());
     let param_range = DocArg::new_param(
         "range".into(),
         PyType::Float,
@@ -945,48 +951,67 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
         "Data for measurement. Must be same length as existing columns.".into(),
     );
 
-    let push_meas_doc = |is_optical: bool, meas_type: PyType, hasdata: bool| {
+    let push_meas_doc = |is_optical: bool, meas_type: &PyType, hasdata: bool| {
         let what = if is_optical { "optical" } else { "temporal" };
         let param_meas = DocArg::new_param(
             "measurement".into(),
-            meas_type,
+            meas_type.clone(),
             "The measurement to push.".into(),
         );
-        let _param_col = if hasdata { Some(param_col) } else { None };
+        let _param_col = if hasdata {
+            Some(param_col.clone())
+        } else {
+            None
+        };
         let ps: Vec<_> = [param_meas]
             .into_iter()
             .chain(_param_col)
-            .chain([param_name, param_range, param_notrunc])
+            .chain([
+                make_param_name("Name of new measurement."),
+                param_range.clone(),
+                param_notrunc.clone(),
+            ])
             .collect();
         let summary = format!("Push {what} measurement to end of measurement vector.");
         DocString::new(summary, vec![], ps, None)
     };
 
-    let insert_meas_doc = |is_optical: bool, meas_type: PyType, hasdata: bool| {
+    let insert_meas_doc = |is_optical: bool, meas_type: &PyType, hasdata: bool| {
         let what = if is_optical { "optical" } else { "temporal" };
         let param_meas = DocArg::new_param(
             "measurement".into(),
-            meas_type,
+            meas_type.clone(),
             "The measurement to insert.".into(),
         );
-        let _param_col = if hasdata { Some(param_col) } else { None };
+        let _param_col = if hasdata {
+            Some(param_col.clone())
+        } else {
+            None
+        };
         let summary = format!("Insert {what} measurement at position in measurement vector.");
-        let ps: Vec<_> = [param_index, param_meas]
-            .into_iter()
-            .chain(_param_col)
-            .chain([param_name, param_range, param_notrunc])
-            .collect();
+        let ps: Vec<_> = [
+            make_param_index("Position at which to insert new measurement."),
+            param_meas,
+        ]
+        .into_iter()
+        .chain(_param_col)
+        .chain([
+            make_param_name("Name of new measurement."),
+            param_range.clone(),
+            param_notrunc.clone(),
+        ])
+        .collect();
         DocString::new(summary, vec![], ps, None)
     };
 
-    let push_opt_doc = push_meas_doc(true, opt_pytype.clone(), false);
-    let insert_opt_doc = insert_meas_doc(true, opt_pytype.clone(), false);
-    let push_tmp_doc = push_meas_doc(false, tmp_pytype.clone(), false);
-    let insert_tmp_doc = insert_meas_doc(false, tmp_pytype.clone(), false);
-    let push_opt_data_doc = push_meas_doc(true, opt_pytype.clone(), true);
-    let insert_opt_data_doc = insert_meas_doc(true, opt_pytype.clone(), true);
-    let push_tmp_data_doc = push_meas_doc(false, tmp_pytype.clone(), true);
-    let insert_tmp_data_doc = insert_meas_doc(false, tmp_pytype.clone(), true);
+    let push_opt_doc = push_meas_doc(true, &opt_pytype, false);
+    let insert_opt_doc = insert_meas_doc(true, &opt_pytype, false);
+    let push_tmp_doc = push_meas_doc(false, &tmp_pytype, false);
+    let insert_tmp_doc = insert_meas_doc(false, &tmp_pytype, false);
+    let push_opt_data_doc = push_meas_doc(true, &opt_pytype, true);
+    let insert_opt_data_doc = insert_meas_doc(true, &opt_pytype, true);
+    let push_tmp_data_doc = push_meas_doc(false, &tmp_pytype, true);
+    let insert_tmp_data_doc = insert_meas_doc(false, &tmp_pytype, true);
 
     // the temporal replacement functions for 3.2 are different because they
     // can fail if $PnTYPE is set
@@ -1018,19 +1043,133 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
         vec![],
         vec![],
         Some(DocReturn::new(
-            PyType::new_opt(PyType::new_tuple(
+            PyType::new_opt(&PyType::new_tuple(vec![
                 PyType::Int,
-                vec![PyType::Str, tmp_type.clone()],
-            )),
+                PyType::Str,
+                tmp_pytype.clone(),
+            ])),
             Some("Index, name, and measurement or ``None``".into()),
         )),
     );
 
+    let get_all_meas_doc = DocString::new(
+        "Get all measurements.".into(),
+        vec![],
+        vec![],
+        Some(DocReturn::new(
+            PyType::new_list(&meas_pytype),
+            Some("List of measurements".into()),
+        )),
+    );
+
+    let remove_meas_by_name_doc = DocString::new(
+        "Remove a measurement with a given name.".into(),
+        vec!["Raise exception if ``name`` not found.".into()],
+        vec![make_param_name("Name to remove")],
+        Some(DocReturn::new(
+            PyType::new_tuple(vec![PyType::Int, meas_pytype.clone()]),
+            Some("Index and measurement object".into()),
+        )),
+    );
+
+    let remove_meas_by_index_doc = DocString::new(
+        "Remove a measurement with a given index.".into(),
+        vec!["Raise exception if ``index`` not found.".into()],
+        vec![make_param_index("Index to remove")],
+        Some(DocReturn::new(
+            PyType::new_tuple(vec![PyType::Str, meas_pytype.clone()]),
+            Some("Name and measurement object".into()),
+        )),
+    );
+
+    let meas_at_doc = DocString::new(
+        "Return measurement at index".into(),
+        vec!["Raise exception if ``index`` not found.".into()],
+        vec![make_param_index("Index to retrieve.")],
+        Some(DocReturn::new(
+            meas_pytype.clone(),
+            Some("Measurement object".into()),
+        )),
+    );
+
+    let replace_opt_at_doc = DocString::new(
+        "Replace measurement at index with given optical measurement.".into(),
+        vec!["Raise exception if ``index`` not found.".into()],
+        vec![
+            make_param_index("Index to replace."),
+            DocArg::new_param(
+                "meas".into(),
+                opt_pytype.clone(),
+                "Optical measurement to replace measurement at ``index``.".into(),
+            ),
+        ],
+        Some(DocReturn::new(
+            meas_pytype.clone(),
+            Some("Replaced measurement object".into()),
+        )),
+    );
+
+    let replace_named_opt_doc = DocString::new(
+        "Replace named measurement with given optical measurement.".into(),
+        vec!["Raise exception if ``name`` not found.".into()],
+        vec![
+            make_param_name("Name to replace."),
+            DocArg::new_param(
+                "meas".into(),
+                opt_pytype.clone(),
+                "Optical measurement to replace measurement at ``name``.".into(),
+            ),
+        ],
+        Some(DocReturn::new(
+            meas_pytype.clone(),
+            Some("Replaced measurement object".into()),
+        )),
+    );
+
+    let replace_tmp_at_doc = DocString::new(
+        "Replace measurement at index with given temporal measurement.".into(),
+        vec![
+            "Raise exception if index is output of bounds or there is already \
+              a temporal measurement at a different index."
+                .into(),
+        ],
+        vec![
+            make_param_index("Index to replace."),
+            DocArg::new_param(
+                "meas".into(),
+                opt_pytype.clone(),
+                "Temporal measurement to replace measurement at ``index``.".into(),
+            ),
+        ],
+        Some(DocReturn::new(
+            meas_pytype.clone(),
+            Some("Replaced measurement object".into()),
+        )),
+    );
+
+    let replace_named_tmp_doc = DocString::new(
+        "Replace named measurement with given temporal measurement.".into(),
+        vec![
+            "Raise exception if ``name`` does not exist or there is already \
+              a temporal measurement in a different position."
+                .into(),
+        ],
+        vec![
+            make_param_name("Name to replace."),
+            DocArg::new_param(
+                "meas".into(),
+                opt_pytype.clone(),
+                "Temporal measurement to replace measurement at ``name``.".into(),
+            ),
+        ],
+        Some(DocReturn::new(
+            meas_pytype.clone(),
+            Some("Replaced measurement object".into()),
+        )),
+    );
+
     let both = quote! {
-        /// Get the temporal measurement if it exists.
-        ///
-        /// :return: Index, name, and measurement or ``None``
-        #[doc = #rtype_get_temp]
+        #get_tmp_doc
         #[getter]
         fn get_temporal(&self) -> Option<(MeasIndex, Shortname, #ttype)> {
             self.0
@@ -1038,10 +1177,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
                 .map(|t| (t.index, t.key.clone(), t.value.clone().into()))
         }
 
-        /// Get all measurements.
-        ///
-        /// :return: list of measurements
-        #[doc = #rtype_all_meas]
+        #get_all_meas_doc
         #[getter]
         fn measurements(&self) -> Vec<Element<#ttype, #otype>> {
             // This might seem inefficient since we are cloning
@@ -1056,14 +1192,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
                 .collect()
         }
 
-        /// Remove a measurement with a given name.
-        ///
-        /// Raise exception if name not found.
-        ///
-        #[doc = #param_name]
-        ///
-        /// :return: Index and measurement object
-        #[doc = #rtype_remove_named_meas]
+        #remove_meas_by_name_doc
         fn remove_measurement_by_name(
             &mut self,
             name: Shortname,
@@ -1074,14 +1203,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
                .map(|(i, x)| (i, x.inner_into()))?)
         }
 
-        /// Remove a measurement with a given index.
-        ///
-        /// Raise exception if index not found.
-        ///
-        /// :param int index: Index to remove.
-        ///
-        /// :return: Name and measurement object
-        #[doc = #rtype_remove_index_meas]
+        #remove_meas_by_index_doc
         fn remove_measurement_by_index(
             &mut self,
             index: MeasIndex,
@@ -1091,30 +1213,17 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
             Ok((n.0, v.inner_into()))
         }
 
-        /// Return measurement at index.
-        ///
-        /// Raise exception if index not found.
-        ///
-        /// :param int index: Index to retrieve.
-        ///
-        /// :return: Measurement object.
-        #[doc = #rtype_get_meas]
+        // TODO this should return name as well
+        #meas_at_doc
         fn measurement_at(&self, index: MeasIndex) -> PyResult<Element<#ttype, #otype>> {
             let ms: &NamedVec<_, _, _, _> = self.0.as_ref();
             let m = ms.get(index)?;
             Ok(m.bimap(|x| x.1.clone(), |x| x.1.clone()).inner_into())
         }
 
-        /// Replace measurement at index with given optical measurement.
-        ///
-        /// Raise exception if index not found.
-        ///
-        /// :param int index: Index to replace.
-        /// :param meas: Optical measurement to replace the measurement at ``index``.
-        #[doc = #param_type_opt]
-        ///
-        /// :return: Replaced measurement object
-        #[doc = #rtype_get_meas]
+        // TODO return measurement with name
+
+        #replace_opt_at_doc
         fn replace_optical_at(
             &mut self,
             index: MeasIndex,
@@ -1124,16 +1233,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
             Ok(ret.inner_into())
         }
 
-        /// Replace named measurement with given optical measurement.
-        ///
-        /// Raise exception if name not found.
-        ///
-        #[doc = #param_name]
-        /// :param meas: Optical measurement to replace the measurement with ``name``.
-        #[doc = #param_type_opt]
-        ///
-        /// :return: Replaced measurement object.
-        #[doc = #rtype_get_meas]
+        #replace_named_opt_doc
         fn replace_optical_named(
             &mut self,
             name: Shortname,
@@ -1144,17 +1244,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
                 .map(|r| r.inner_into())
         }
 
-        /// Replace measurement at index with temporal measurement.
-        ///
-        /// Raise exception if index is output of bounds or there is already
-        /// a temporal measurement at a different index.
-        ///
-        /// :param int index: Index to be replaced.
-        /// :param meas: Temporal measurement with which to replace.
-        #[doc = #param_type_tmp]
-        ///
-        /// :return: Replaced measurement object.
-        #[doc = #rtype_get_meas]
+        #replace_tmp_at_doc
         #[pyo3(signature = (index, meas, #replace_tmp_sig))]
         fn replace_temporal_at(
             &mut self,
@@ -1166,17 +1256,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
             Ok(ret.inner_into())
         }
 
-        /// Replace measurement with name with temporal measurement.
-        ///
-        /// Raise exception if name is not found or there is already
-        /// a temporal measurement at a different index.
-        ///
-        #[doc = #param_name]
-        /// :param meas: Temporal measurement with which to replace.
-        #[doc = #param_type_tmp]
-        ///
-        /// :return: Replaced measurement object.
-        #[doc = #rtype_replace_tmp_named]
+        #replace_named_tmp_doc
         #[pyo3(signature = (name, meas, #replace_tmp_sig))]
         fn replace_temporal_named(
             &mut self,
@@ -1263,7 +1343,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
     };
 
     let coredataset_only = quote! {
-        #[doc = #push_opt_data_doc]
+        #push_opt_data_doc
         #[pyo3(signature = (meas, col, name, range, notrunc = false))]
         fn push_optical(
             &mut self,
@@ -1279,7 +1359,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
                 .void()
         }
 
-        #[doc = #insert_opt_data_doc]
+        #insert_opt_data_doc
         #[pyo3(signature = (index, meas, col, name, range, notrunc = false))]
         fn insert_optical(
             &mut self,
@@ -1296,7 +1376,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
                 .void()
         }
 
-        #[doc = #push_tmp_data_doc]
+        #push_tmp_data_doc
         #[pyo3(signature = (meas, col, name, range, notrunc = false))]
         fn push_temporal(
             &mut self,
@@ -1311,7 +1391,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
                 .py_term_resolve()
         }
 
-        #[doc = #insert_tmp_data_doc]
+        #insert_tmp_data_doc
         #[pyo3(signature = (index, meas, col, name, range, notrunc = false))]
         fn insert_temporal(
             &mut self,
@@ -1357,6 +1437,17 @@ pub fn impl_convert_version(input: TokenStream) -> TokenStream {
     let pytype: Path = parse_macro_input!(input);
     let name = path_name(&pytype);
     let (base, version) = split_version(name.as_str());
+    let sub = "Will raise an exception if target version requires data which is \
+               not present in ``self``.";
+    let param_desc = "If ``False``, do not proceed with conversion if it would \
+                      result in data loss. This is most likely to happen when \
+                      converting from a later to an earlier version, as many \
+                      keywords from the later version may not exist in the \
+                      earlier version. There is no place to keep these values so \
+                      they must be discarded. Set to ``True`` to perform the \
+                      conversion with such discarding; otherwise, remove the \
+                      keywords manually before converting.";
+    let param = DocArg::new_param("force".into(), PyType::Bool, param_desc.into());
     let outputs: Vec<_> = ALL_VERSIONS
         .iter()
         .filter(|&&v| v != version)
@@ -1365,28 +1456,19 @@ pub fn impl_convert_version(input: TokenStream) -> TokenStream {
             let target_type = format_ident!("{base}{v}");
             let target_rs_type = target_type.to_string().replace("Py", "");
             let pretty_version = v.replace("_", ".");
-            let doc_summary = format!("Convert to FCS {pretty_version}.");
-            let doc_return = format!(":return: A new class conforming to FCS {pretty_version}");
-            let doc_rtype = format!(":rtype: :class:`{target_rs_type}`");
+            let doc = DocString::new(
+                format!("Convert to FCS {pretty_version}."),
+                vec![sub.into()],
+                vec![param.clone()],
+                Some(DocReturn::new(
+                    PyType::PyClass(target_rs_type),
+                    Some(format!("A new class conforming to FCS {pretty_version}")),
+                )),
+            );
             quote! {
                 #[pymethods]
                 impl #pytype {
-                    #[doc = #doc_summary]
-                    ///
-                    /// Will raise an exception if target version requires data which
-                    /// is not present in ``self``.
-                    ///
-                    /// :param bool force: If ``False``, do not proceed with
-                    ///     conversion if it would result in data loss. This is
-                    ///     most likely to happen when converting from a later
-                    ///     to an earlier version, as many keywords from the
-                    ///     later version may not exist in the earlier version.
-                    ///     There is no place to keep these values so they must
-                    ///     be discarded. Set to ``True`` to perform the
-                    ///     conversion with such discarding; otherwise, remove
-                    ///     the keywords manually before converting.
-                    #[doc = #doc_return]
-                    #[doc = #doc_rtype]
+                    #doc
                     #[pyo3(signature = (force = false))]
                     fn #fn_name(&self, force: bool) -> PyResult<#target_type> {
                         self.0.clone().try_convert(force).py_term_resolve().map(|x| x.into())
@@ -1406,10 +1488,17 @@ pub fn impl_meas_get_set(input: TokenStream) -> TokenStream {
     let (_, optional) = unwrap_generic("Option", kw);
     let s = info.suffix.value();
 
-    let doc_summary = format!("Value of *$Pn{}*.", s.to_uppercase());
-    let doc_type = format!(
-        ":type: list[{}]",
-        info.pytype.value() + if optional { " | None" } else { "" },
+    let base_type = PyType::Raw(info.pytype.value());
+    let rtype = PyType::new_list(if optional {
+        &PyType::new_opt(&base_type)
+    } else {
+        &base_type
+    });
+    let doc = DocString::new(
+        format!("Value of *$Pn{}*.", s.to_uppercase()),
+        vec![],
+        vec![],
+        Some(DocReturn::new(rtype, None)),
     );
     let get = format_ident!("get_pn{}", s.to_lowercase());
     let set = format_ident!("set_pn{}", s.to_lowercase());
@@ -1421,9 +1510,7 @@ pub fn impl_meas_get_set(input: TokenStream) -> TokenStream {
             quote! {
                 #[pymethods]
                 impl #t {
-                    #[doc = #doc_summary]
-                    ///
-                    #[doc = #doc_type]
+                    #doc
                     #[getter]
                     fn #get(&self) -> #kw {
                         let x: &#kw = self.0.as_ref();
@@ -1552,54 +1639,5 @@ fn ugly_version(v: Version) -> &'static str {
         Version::FCS3_2 => "3_2",
     }
 }
-
-// /// Format python docstring.
-// ///
-// /// Only paragraphs after the first line will be indented, which are defined by
-// /// strings separated by at least two newlines. Multiple newlines in a row will
-// /// be collapses to two newlines. Paragraphs may be further split into
-// /// :param.*, :type.*, :rtype.*, etc lines
-// fn fmt_docstring(s: &str) -> String {
-//     s.split("\n\n")
-//         .filter(|x| !x.is_empty())
-//         .enumerate()
-//         .map(|(i, s)| {
-//             if i > 0 {
-//                 s.split("\n")
-//                     .scan(0, |para_type, x| {
-//                         if let Some(next) = if x.starts_with(":param") {
-//                             Some(1)
-//                         } else if x.starts_with(":type") {
-//                             Some(2)
-//                         } else if x.starts_with(":vartype") {
-//                             Some(3)
-//                         } else if x.starts_with(":rtype") {
-//                             Some(4)
-//                         } else if x.starts_with(":return") {
-//                             Some(5)
-//                         } else {
-//                             None
-//                         } {
-//                             *para_type = next;
-//                         };
-//                         Some((*para_type, x))
-//                     })
-//                     .chunk_by(|(para_type, _)| *para_type)
-//                     .into_iter()
-//                     .map(|(_, g)| {
-//                         let z = g.map(|(_, x)| x).join("\n");
-//                         fmt_docstring_para(z.as_str())
-//                     })
-//                     .join("\n")
-//             } else {
-//                 s.to_string()
-//             }
-//         })
-//         .join("\n\n")
-// }
-
-// fn fmt_docstring1(s: String) -> String {
-//     fmt_docstring(s.as_str())
-// }
 
 const ALL_VERSIONS: [&str; 4] = ["2_0", "3_0", "3_1", "3_2"];

@@ -1853,27 +1853,10 @@ impl_write_dataset!(PyCoreDataset3_0, "");
 impl_write_dataset!(PyCoreDataset3_1, "");
 impl_write_dataset!(PyCoreDataset3_2, "");
 
+// TODO move all this stuff to proc
 macro_rules! impl_meas_get_set_common {
     ($pytype:ident) => {
         impl_meas_get_set! {Option<kws::Longname>, "S", "str", $pytype}
-
-        #[pymethods]
-        impl $pytype {
-            /// Non-standard keywords associated with this measurement.
-            ///
-            /// None of these should be prefixed with *$*.
-            ///
-            /// :type: dict[str, str]
-            #[getter]
-            fn nonstandard_keywords(&self) -> HashMap<NonStdKey, String> {
-                self.0.common.nonstandard_keywords.clone()
-            }
-
-            #[setter]
-            fn set_nonstandard_keywords(&mut self, keyvals: HashMap<NonStdKey, String>) {
-                self.0.common.nonstandard_keywords = keyvals;
-            }
-        }
     };
 }
 
@@ -1901,61 +1884,6 @@ impl_optical_get_set!(PyOptical3_0);
 impl_optical_get_set!(PyOptical3_1);
 impl_optical_get_set!(PyOptical3_2);
 
-// TODO proc
-#[pymethods]
-impl PyOptical2_0 {
-    /// The value for *$PnE* for all measurements.
-    ///
-    /// Will be ``()`` for linear scaling (``0,0`` in FCS encoding), a
-    /// 2-tuple for log scaling, or ``None`` if missing.
-    ///
-    /// :type: () | (float, float) | None
-    #[getter]
-    fn get_scale(&self) -> Option<Scale> {
-        self.0.specific.scale.0.as_ref().map(|&x| x)
-    }
-
-    #[setter]
-    fn set_scale(&mut self, x: Option<Scale>) {
-        self.0.specific.scale = x.into()
-    }
-}
-
-// TODO proc
-// $PnE (3.0-3.2)
-macro_rules! impl_optical_get_set_transform {
-    ($pytype:ident) => {
-        #[pymethods]
-        impl $pytype {
-            /// The value of *$PnE* and/or *$PnG*.
-            ///
-            /// Collectively these keywords correspond to scale transform.
-            ///
-            /// If scaling is linear, return a float which corresponds to the
-            /// value of *$PnG* when *$PnE* is ``0,0``. If scaling is logarithmic,
-            /// return a pair of floats, corresponding to unset *$PnG* and the
-            /// non-``0,0`` value of *$PnE*.
-            ///
-            /// The FCS standards disallow any other combinations.
-            ///
-            /// :type: float | tuple[float, float]
-            #[getter]
-            fn get_transform(&self) -> core::ScaleTransform {
-                self.0.specific.scale
-            }
-
-            #[setter]
-            fn set_transform(&mut self, transform: core::ScaleTransform) {
-                self.0.specific.scale = transform;
-            }
-        }
-    };
-}
-
-impl_optical_get_set_transform!(PyOptical3_0);
-impl_optical_get_set_transform!(PyOptical3_1);
-impl_optical_get_set_transform!(PyOptical3_2);
-
 // $PnL (2.0/3.0)
 impl_meas_get_set! {
     Option<kws::Wavelength>,
@@ -1973,34 +1901,6 @@ impl_meas_get_set! {
     PyOptical3_1,
     PyOptical3_2
 }
-
-// TODO proc
-// #TIMESTEP (3.0-3.2)
-macro_rules! impl_temporal_get_set_timestep {
-    ($pytype:ident) => {
-        #[pymethods]
-        impl $pytype {
-            /// The value of *$TIMESTEP*.
-            ///
-            /// Must be greater than ``0.0``.
-            ///
-            /// :type: float
-            #[getter]
-            fn get_timestep(&self) -> kws::Timestep {
-                self.0.specific.timestep
-            }
-
-            #[setter]
-            fn set_timestep(&mut self, timestep: kws::Timestep) {
-                self.0.specific.timestep = timestep
-            }
-        }
-    };
-}
-
-impl_temporal_get_set_timestep!(PyTemporal3_0);
-impl_temporal_get_set_timestep!(PyTemporal3_1);
-impl_temporal_get_set_timestep!(PyTemporal3_2);
 
 // $PnCalibration (3.1)
 impl_meas_get_set! {

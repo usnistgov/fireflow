@@ -470,6 +470,55 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         None,
     );
 
+    let get_set_timestep = if pretty_version != "2.0" && info.is_temporal {
+        let t = quote! {fireflow_core::text::keywords::Timestep};
+        quote! {
+            #[getter]
+            fn get_timestep(&self) -> #t {
+                self.0.specific.timestep
+            }
+
+            #[setter]
+            fn set_timestep(&mut self, timestep: #t) {
+                self.0.specific.timestep = timestep
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let get_set_scale = if info.is_temporal {
+        quote! {}
+    } else if pretty_version == "2.0" {
+        let t = quote! {fireflow_core::text::scale::Scale};
+        quote! {
+            #[getter]
+            fn get_scale(&self) -> Option<#t> {
+                self.0.specific.scale.0.as_ref().map(|&x| x)
+            }
+
+            #[setter]
+            fn set_scale(&mut self, x: Option<#t>) {
+                self.0.specific.scale = x.into()
+            }
+        }
+    } else {
+        let t = quote! {fireflow_core::core::ScaleTransform};
+        quote! {
+            #[getter]
+            fn get_transform(&self) -> #t {
+                self.0.specific.scale
+            }
+
+            #[setter]
+            fn set_transform(&mut self, transform: #t) {
+                self.0.specific.scale = transform;
+            }
+        }
+    };
+
+    let nk = quote! {fireflow_core::validated::keys::NonStdKey};
+
     quote! {
         #doc
         #[pyclass(name = #name, eq)]
@@ -483,6 +532,19 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
             #[pyo3(signature = (#(#sig_args),*), text_signature = #txt_sig)]
             fn new(#(#funargs),*) -> Self {
                 #fun(#(#inner_args),*).into()
+            }
+
+            #get_set_timestep
+            #get_set_scale
+
+            #[getter]
+            fn nonstandard_keywords(&self) -> HashMap<#nk, String> {
+                self.0.common.nonstandard_keywords.clone()
+            }
+
+            #[setter]
+            fn set_nonstandard_keywords(&mut self, keyvals: HashMap<#nk, String>) {
+                self.0.common.nonstandard_keywords = keyvals;
             }
         }
     }

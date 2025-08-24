@@ -37,7 +37,6 @@ use fireflow_python_proc::{
     impl_get_set_metaroot, impl_meas_get_set, impl_new_core, impl_new_meas,
 };
 
-use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
 use derive_more::{From, Into};
 use pyo3::prelude::*;
 use pyo3::types::{PyTuple, PyType};
@@ -861,14 +860,6 @@ macro_rules! impl_common {
                 )
             }
 
-            /// The value for *$PAR*
-            ///
-            /// :type: int
-            #[getter]
-            fn par(&self) -> usize {
-                self.0.par().0
-            }
-
             // fn insert_meas_nonstandard(
             //     &mut self,
             //     keyvals: Vec<(NonStdKey, String)>,
@@ -891,66 +882,6 @@ macro_rules! impl_common {
             //         .get_meas_nonstandard(&keys[..])
             //         .map(|rs| rs.into_iter().map(|r| r.cloned()).collect())
             // }
-
-            #[getter]
-            fn get_btim(&self) -> Option<NaiveTime> {
-                self.0.btim_naive()
-            }
-
-            #[setter]
-            fn set_btim(&mut self, x: Option<NaiveTime>) -> PyResult<()> {
-                Ok(self.0.set_btim_naive(x)?)
-            }
-
-            #[getter]
-            fn get_etim(&self) -> Option<NaiveTime> {
-                self.0.etim_naive()
-            }
-
-            #[setter]
-            fn set_etim(&mut self, x: Option<NaiveTime>) -> PyResult<()> {
-                Ok(self.0.set_etim_naive(x)?)
-            }
-
-            #[getter]
-            fn get_date(&self) -> Option<NaiveDate> {
-                self.0.date_naive()
-            }
-
-            #[setter]
-            fn set_date(&mut self, x: Option<NaiveDate>) -> PyResult<()> {
-                Ok(self.0.set_date_naive(x)?)
-            }
-
-            #[getter]
-            fn trigger(&self) -> Option<kws::Trigger> {
-                self.0.metaroot_opt().cloned()
-            }
-
-            #[setter]
-            fn set_trigger(&mut self, tr: Option<kws::Trigger>) -> PyResult<()> {
-                Ok(self.0.set_trigger(tr)?)
-            }
-
-            /// Set the threshold for *$TR*.
-            ///
-            /// :param int threshold: The threshold to set
-            ///
-            /// :return: ``True`` if trigger is set and was updated
-            /// :rtype: bool
-            fn set_trigger_threshold(&mut self, threshold: u32) -> bool {
-                self.0.set_trigger_threshold(threshold)
-            }
-
-            /// Rename temporal measurement if present.
-            ///
-            /// :param str name: New name to assign. Must not have commas.
-            ///
-            /// :return: Previous name if present.
-            /// :rtype: str | None
-            fn rename_temporal(&mut self, name: Shortname) -> Option<Shortname> {
-                self.0.rename_temporal(name)
-            }
         }
     };
 }
@@ -963,108 +894,6 @@ impl_common!(PyCoreDataset2_0);
 impl_common!(PyCoreDataset3_0);
 impl_common!(PyCoreDataset3_1);
 impl_common!(PyCoreDataset3_2);
-
-macro_rules! impl_write_text {
-    ($pytype:ident, $exc:expr) => {
-        #[pymethods]
-        impl $pytype {
-            /// Write data to path.
-            ///
-            /// Resulting FCS file will include *HEADER* and *TEXT*.
-            ///
-            #[doc = $exc]
-            /// :param path: path to write
-            /// :type path: :py:class:`pathlib.Path`
-            ///
-            /// :param int delim: Delimiter to use when writing *TEXT*.
-            ///     Defaults to 30 (record separator).
-            #[pyo3(text_signature = "(path, delim = 30)")]
-            fn write_text(&self, path: PathBuf, delim: TEXTDelim) -> PyResult<()> {
-                let f = File::options().write(true).create(true).open(path)?;
-                let mut h = BufWriter::new(f);
-                self.0.h_write_text(&mut h, delim).py_term_resolve_nowarn()
-            }
-        }
-    };
-}
-
-impl_write_text!(
-    PyCoreTEXT2_0,
-    "Will raise exception if file cannot fit within 99,999,999 bytes.\n"
-);
-impl_write_text!(PyCoreTEXT3_0, "");
-impl_write_text!(PyCoreTEXT3_1, "");
-impl_write_text!(PyCoreTEXT3_2, "");
-impl_write_text!(
-    PyCoreDataset2_0,
-    "Will raise exception if file cannot fit within 99,999,999 bytes.\n"
-);
-impl_write_text!(PyCoreDataset3_0, "");
-impl_write_text!(PyCoreDataset3_1, "");
-impl_write_text!(PyCoreDataset3_2, "");
-
-macro_rules! impl_get_set_pnn {
-    ($pytype:ident) => {
-        #[pymethods]
-        impl $pytype {
-            /// Value of *$PnN* for all measurements.
-            ///
-            /// Strings are unique and cannot contain commas.
-            ///
-            /// :type: list[str]
-            #[getter]
-            fn get_all_pnn(&self) -> Vec<Shortname> {
-                self.0.all_shortnames()
-            }
-
-            #[setter]
-            fn set_all_pnn(&mut self, names: Vec<Shortname>) -> PyResult<()> {
-                Ok(self.0.set_all_shortnames(names).void()?)
-            }
-        }
-    };
-}
-
-impl_get_set_pnn!(PyCoreTEXT2_0);
-impl_get_set_pnn!(PyCoreTEXT3_0);
-impl_get_set_pnn!(PyCoreTEXT3_1);
-impl_get_set_pnn!(PyCoreTEXT3_2);
-impl_get_set_pnn!(PyCoreDataset2_0);
-impl_get_set_pnn!(PyCoreDataset3_0);
-impl_get_set_pnn!(PyCoreDataset3_1);
-impl_get_set_pnn!(PyCoreDataset3_2);
-
-macro_rules! impl_get_set_pnn_maybe {
-    ($pytype:ident) => {
-        #[pymethods]
-        impl $pytype {
-            /// The possibly-empty values of *$PnN* for all measurements.
-            ///
-            /// For this FCS version, *$PnN* is optional which is why values
-            /// may be ``None``.
-            ///
-            /// :rtype: list[str | None]
-            #[getter]
-            fn get_all_pnn_maybe(&self) -> Vec<Option<Shortname>> {
-                self.0
-                    .shortnames_maybe()
-                    .into_iter()
-                    .map(|x| x.cloned())
-                    .collect()
-            }
-
-            #[setter]
-            fn set_all_pnn_maybe(&mut self, names: Vec<Option<Shortname>>) -> PyResult<()> {
-                Ok(self.0.set_measurement_shortnames_maybe(names).void()?)
-            }
-        }
-    };
-}
-
-impl_get_set_pnn_maybe!(PyCoreTEXT2_0);
-impl_get_set_pnn_maybe!(PyCoreTEXT3_0);
-impl_get_set_pnn_maybe!(PyCoreDataset2_0);
-impl_get_set_pnn_maybe!(PyCoreDataset3_0);
 
 macro_rules! impl_set_temporal_no_timestep {
     ($pytype:ident) => {
@@ -1247,56 +1076,6 @@ impl_get_set_meas_obj_common!(
 impl_get_set_meas_obj_common!(PyCoreTEXT3_1, PyCoreDataset3_1, Shortname, AlwaysFamily);
 impl_get_set_meas_obj_common!(PyCoreTEXT3_2, PyCoreDataset3_2, Shortname, AlwaysFamily);
 
-macro_rules! impl_core3_2 {
-    ($pytype:ident) => {
-        #[pymethods]
-        impl $pytype {
-            #[getter]
-            fn get_begindatetime(&self) -> Option<DateTime<FixedOffset>> {
-                self.0.begindatetime()
-            }
-
-            #[setter]
-            fn set_begindatetime(&mut self, x: Option<DateTime<FixedOffset>>) -> PyResult<()> {
-                Ok(self.0.set_begindatetime(x)?)
-            }
-
-            #[getter]
-            fn get_enddatetime(&self) -> Option<DateTime<FixedOffset>> {
-                self.0.enddatetime()
-            }
-
-            #[setter]
-            fn set_enddatetime(&mut self, x: Option<DateTime<FixedOffset>>) -> PyResult<()> {
-                Ok(self.0.set_enddatetime(x)?)
-            }
-
-            #[getter]
-            fn get_unstained_centers(&self) -> Option<UnstainedCenters> {
-                self.0.metaroot_opt::<UnstainedCenters>().map(|y| y.clone())
-            }
-
-            #[setter]
-            fn set_unstained_centers(&mut self, us: Option<UnstainedCenters>) -> PyResult<()> {
-                self.0.set_unstained_centers(us).py_term_resolve_nowarn()
-            }
-
-            #[getter]
-            fn get_applied_gates(&self) -> PyAppliedGates3_2 {
-                self.0.metaroot::<AppliedGates3_2>().clone().into()
-            }
-
-            #[setter]
-            fn set_applied_gates(&mut self, ag: PyAppliedGates3_2) -> PyResult<()> {
-                Ok(self.0.set_applied_gates_3_2(ag.into())?)
-            }
-        }
-    };
-}
-
-impl_core3_2!(PyCoreTEXT3_2);
-impl_core3_2!(PyCoreDataset3_2);
-
 // gating for 2.0
 macro_rules! impl_get_set_applied_gates_2_0 {
     ($pytype:ident) => {
@@ -1340,6 +1119,26 @@ impl_get_set_applied_gates_3_0!(PyCoreTEXT3_0);
 impl_get_set_applied_gates_3_0!(PyCoreDataset3_0);
 impl_get_set_applied_gates_3_0!(PyCoreTEXT3_1);
 impl_get_set_applied_gates_3_0!(PyCoreDataset3_1);
+
+macro_rules! impl_get_set_applied_gates_3_2 {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            #[getter]
+            fn get_applied_gates(&self) -> PyAppliedGates3_2 {
+                self.0.metaroot::<AppliedGates3_2>().clone().into()
+            }
+
+            #[setter]
+            fn set_applied_gates(&mut self, ag: PyAppliedGates3_2) -> PyResult<()> {
+                Ok(self.0.set_applied_gates_3_2(ag.into())?)
+            }
+        }
+    };
+}
+
+impl_get_set_applied_gates_3_2!(PyCoreTEXT3_2);
+impl_get_set_applied_gates_3_2!(PyCoreDataset3_2);
 
 // Get/set methods for $PnE (2.0)
 macro_rules! impl_get_set_all_pne {
@@ -1802,56 +1601,6 @@ impl_to_dataset!(PyCoreTEXT2_0, PyCoreDataset2_0);
 impl_to_dataset!(PyCoreTEXT3_0, PyCoreDataset3_0);
 impl_to_dataset!(PyCoreTEXT3_1, PyCoreDataset3_1);
 impl_to_dataset!(PyCoreTEXT3_2, PyCoreDataset3_2);
-
-macro_rules! impl_write_dataset {
-    ($pytype:ident, $exc:expr) => {
-        #[pymethods]
-        impl $pytype {
-            /// Write data as an FCS file.
-            ///
-            /// The resulting file will include *HEADER*, *TEXT*, *DATA*,
-            /// *ANALYSIS*, and *OTHER* as they present from this class.
-            ///
-            #[doc = $exc]
-            /// :param path: Path to be written.
-            /// :type path: :py:class:`pathlib.Path`
-            ///
-            /// :param int delim: Delimiter to use when writing *TEXT*.
-            ///
-            /// :param bool skip_conversion_check: Skip check to ensure that
-            ///     types of the dataframe match the columns (*$PnB*,
-            ///     *$DATATYPE*, etc). If this is ``False``, perform this check
-            ///     before writing, and raise exception on failure. If ``True``,
-            ///     raise warnings as file is being written. Skipping this is
-            ///     faster since the data needs to be traversed twice to perform
-            ///     the conversion check, but may result in loss of precision
-            ///     and/or truncation.
-            #[pyo3(text_signature = "(path, delim = 30, skip_conversion_check = False)")]
-            fn write_dataset(
-                &self,
-                path: PathBuf,
-                delim: TEXTDelim,
-                skip_conversion_check: bool,
-            ) -> PyResult<()> {
-                let f = File::options().write(true).create(true).open(path)?;
-                let mut h = BufWriter::new(f);
-                let conf = cfg::WriteConfig {
-                    delim,
-                    skip_conversion_check,
-                };
-                self.0.h_write_dataset(&mut h, &conf).py_term_resolve()
-            }
-        }
-    };
-}
-
-impl_write_dataset!(
-    PyCoreDataset2_0,
-    "Raise exception if file cannot fit within 99,999,999 bytes.\n"
-);
-impl_write_dataset!(PyCoreDataset3_0, "");
-impl_write_dataset!(PyCoreDataset3_1, "");
-impl_write_dataset!(PyCoreDataset3_2, "");
 
 // TODO move all this stuff to proc
 macro_rules! impl_meas_get_set_common {

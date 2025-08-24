@@ -39,7 +39,8 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let coretext_name = path_name(&coretext_rstype);
     let coredataset_name = path_name(&coredataset_rstype);
 
-    let version = split_version(&coretext_name).1.replace("_", ".");
+    let version = split_version(&coretext_name).1;
+    let v = version.short();
 
     let coretext_pytype = format_ident!("Py{coretext_name}");
     let coredataset_pytype = format_ident!("Py{coredataset_name}");
@@ -132,14 +133,14 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let coredataset_params: Vec<_> = coredataset_args.iter().map(|x| x.fmt_arg_doc()).collect();
 
     let coretext_doc = DocString::new(
-        format!("Represents *TEXT* for an FCS {version} file."),
+        format!("Represents *TEXT* for an FCS {v} file."),
         vec![],
         coretext_params,
         None,
     );
 
     let coredataset_doc = DocString::new(
-        format!("Represents one dataset in an FCS {version} file."),
+        format!("Represents one dataset in an FCS {v} file."),
         vec![],
         coredataset_params,
         None,
@@ -280,7 +281,276 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         }
     };
 
+    let get_all_pnn_doc = DocString::new(
+        "Value of *$PnN* for all measurements.".into(),
+        vec!["Strings are unique and cannot contain commas.".into()],
+        vec![],
+        Some(DocReturn::new(PyType::new_list(PyType::Str), None)),
+    );
+
+    let path_param = DocArg::new_param(
+        "path".into(),
+        PyType::PyClass("pathlib.path".into()),
+        "Path to be written".into(),
+    );
+
+    let textdelim_param = DocArg::new_param(
+        "delim".into(),
+        PyType::Int,
+        "Delimiter to use when writing *TEXT*. Defaults to 30 (record separator).".into(),
+    );
+
+    let write_2_0_warning = if version == Version::FCS2_0 {
+        Some("Will raise exception if file cannot fit within 99,999,999 bytes.".into())
+    } else {
+        None
+    };
+
+    let write_text_doc = DocString::new(
+        "Write data to path.".into(),
+        ["Resulting FCS file will include *HEADER* and *TEXT*.".into()]
+            .into_iter()
+            .chain(write_2_0_warning.clone())
+            .collect(),
+        vec![path_param.clone(), textdelim_param.clone()],
+        None,
+    );
+
+    let par_doc = DocString::new(
+        "The value for *$PAR*.".into(),
+        vec![],
+        vec![],
+        Some(DocReturn::new(PyType::Int, None)),
+    );
+
+    let set_tr_threshold_doc = DocString::new(
+        "Set the threshold for *$TR*.".into(),
+        vec![],
+        vec![DocArg::new_param(
+            "threshold".into(),
+            PyType::Int,
+            "The threshold to set.".into(),
+        )],
+        Some(DocReturn::new(
+            PyType::Bool,
+            Some("``True`` if trigger is set and was updated.".into()),
+        )),
+    );
+
+    let rename_temporal_doc = DocString::new(
+        "Rename temporal measurement if present.".into(),
+        vec![],
+        // TODO kinda not DRY
+        vec![DocArg::new_param(
+            "name".into(),
+            PyType::Str,
+            "New name to assign. Must not have commas.".into(),
+        )],
+        Some(DocReturn::new(
+            PyType::new_opt(PyType::Bool),
+            Some("Previous name if present".into()),
+        )),
+    );
+
+    let shortname_type =
+        parse_str::<Path>("fireflow_core::validated::shortname::Shortname").unwrap();
+
+    let textdelim_type =
+        parse_str::<Path>("fireflow_core::validated::textdelim::TEXTDelim").unwrap();
+
+    let tr_type = parse_str::<Path>("fireflow_core::text::keywords::Trigger").unwrap();
+
+    let get_set_all_pnn_maybe = if version < Version::FCS3_1 {
+        let doc = DocString::new(
+            "The possibly-empty values of *$PnN* for all measurements.".into(),
+            vec!["*$PnN* is optional for this FCS version so values may be ``None``.".into()],
+            vec![],
+            Some(DocReturn::new(
+                PyType::new_list(PyType::new_opt(PyType::Str)),
+                None,
+            )),
+        );
+        quote! {
+            #doc
+            #[getter]
+            fn get_all_pnn_maybe(&self) -> Vec<Option<#shortname_type>> {
+                self.0
+                    .shortnames_maybe()
+                    .into_iter()
+                    .map(|x| x.cloned())
+                    .collect()
+            }
+
+            #[setter]
+            fn set_all_pnn_maybe(&mut self, names: Vec<Option<#shortname_type>>) -> PyResult<()> {
+                Ok(self.0.set_measurement_shortnames_maybe(names).void()?)
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let get_set_3_2 = if version < Version::FCS3_2 {
+        quote! {}
+    } else {
+        let dt = quote! {chrono::DateTime<chrono::FixedOffset>};
+        let us =
+            parse_str::<Path>("fireflow_core::text::unstainedcenters::UnstainedCenters").unwrap();
+        quote! {
+            #[getter]
+            fn get_begindatetime(&self) -> Option<#dt> {
+                self.0.begindatetime()
+            }
+
+            #[setter]
+            fn set_begindatetime(&mut self, x: Option<#dt>) -> PyResult<()> {
+                Ok(self.0.set_begindatetime(x)?)
+            }
+
+            #[getter]
+            fn get_enddatetime(&self) -> Option<#dt> {
+                self.0.enddatetime()
+            }
+
+            #[setter]
+            fn set_enddatetime(&mut self, x: Option<#dt>) -> PyResult<()> {
+                Ok(self.0.set_enddatetime(x)?)
+            }
+
+            #[getter]
+            fn get_unstained_centers(&self) -> Option<#us> {
+                self.0.metaroot_opt::<#us>().map(|y| y.clone())
+            }
+
+            #[setter]
+            fn set_unstained_centers(&mut self, us: Option<#us>) -> PyResult<()> {
+                self.0.set_unstained_centers(us).py_term_resolve_nowarn()
+            }
+        }
+    };
+
+    let write_dataset_doc = DocString::new(
+        "Write data as an FCS file.".into(),
+        ["The resulting file will include *HEADER*, *TEXT*, *DATA*, \
+            *ANALYSIS*, and *OTHER* as they present from this class."
+            .into()]
+        .into_iter()
+        .chain(write_2_0_warning)
+        .collect(),
+        vec![
+            path_param,
+            textdelim_param,
+            DocArg::new_param(
+                "skip_conversion_check".into(),
+                PyType::Bool,
+                "Skip check to ensure that types of the dataframe match the \
+                 columns (*$PnB*, *$DATATYPE*, etc). If this is ``False``, \
+                 perform this check before writing, and raise exception on \
+                 failure. If ``True``, raise warnings as file is being \
+                 written. Skipping this is faster since the data needs to be \
+                 traversed twice to perform the conversion check, but may \
+                 result in loss of precision and/or truncation."
+                    .into(),
+            ),
+        ],
+        None,
+    );
+
+    let write_dataset_mtd = quote! {
+        #write_dataset_doc
+        #[pyo3(
+            signature = (path, delim = #textdelim_type::default(), skip_conversion_check = false),
+            text_signature = "(path, delim = 30, skip_conversion_check = False)"
+        )]
+        fn write_dataset(
+            &self,
+            path: PathBuf,
+            delim: #textdelim_type,
+            skip_conversion_check: bool,
+        ) -> PyResult<()> {
+            let f = File::options().write(true).create(true).open(path)?;
+            let mut h = BufWriter::new(f);
+            let conf = cfg::WriteConfig {
+                delim,
+                skip_conversion_check,
+            };
+            self.0.h_write_dataset(&mut h, &conf).py_term_resolve()
+        }
+    };
+
+    // methods which apply to both Coretext* and CoreDataset*
     let common = quote! {
+        #par_doc
+        #[getter]
+        fn par(&self) -> usize {
+            self.0.par().0
+        }
+
+        #rename_temporal_doc
+        fn rename_temporal(&mut self, name: #shortname_type) -> Option<#shortname_type> {
+            self.0.rename_temporal(name)
+        }
+
+        #[getter]
+        fn get_btim(&self) -> Option<chrono::NaiveTime> {
+            self.0.btim_naive()
+        }
+
+        #[setter]
+        fn set_btim(&mut self, x: Option<chrono::NaiveTime>) -> PyResult<()> {
+            Ok(self.0.set_btim_naive(x)?)
+        }
+
+        #[getter]
+        fn get_etim(&self) -> Option<chrono::NaiveTime> {
+            self.0.etim_naive()
+        }
+
+        #[setter]
+        fn set_etim(&mut self, x: Option<chrono::NaiveTime>) -> PyResult<()> {
+            Ok(self.0.set_etim_naive(x)?)
+        }
+
+        #[getter]
+        fn get_date(&self) -> Option<chrono::NaiveDate> {
+            self.0.date_naive()
+        }
+
+        #[setter]
+        fn set_date(&mut self, x: Option<chrono::NaiveDate>) -> PyResult<()> {
+            Ok(self.0.set_date_naive(x)?)
+        }
+
+        #[getter]
+        fn trigger(&self) -> Option<#tr_type> {
+            self.0.metaroot_opt().cloned()
+        }
+
+        #[setter]
+        fn set_trigger(&mut self, tr: Option<#tr_type>) -> PyResult<()> {
+            Ok(self.0.set_trigger(tr)?)
+        }
+
+        #set_tr_threshold_doc
+        fn set_trigger_threshold(&mut self, threshold: u32) -> bool {
+            self.0.set_trigger_threshold(threshold)
+        }
+
+        #get_all_pnn_doc
+        #[getter]
+        fn get_all_pnn(&self) -> Vec<#shortname_type> {
+            self.0.all_shortnames()
+        }
+
+        #[setter]
+        fn set_all_pnn(&mut self, names: Vec<#shortname_type>) -> PyResult<()> {
+            Ok(self.0.set_all_shortnames(names).void()?)
+        }
+
+        #get_set_all_pnn_maybe
+
+        #get_set_3_2
+
         #[getter]
         fn get_layout(&self) -> #layout_rstype {
             self.0.layout().clone().into()
@@ -289,6 +559,17 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         #[setter]
         fn set_layout(&mut self, layout: #layout_rstype) -> PyResult<()> {
             self.0.set_layout(layout.into()).py_term_resolve_nowarn()
+        }
+
+        #write_text_doc
+        #[pyo3(
+            signature = (path, delim = #textdelim_type::default()),
+            text_signature = "(path, delim = 30)"
+        )]
+        fn write_text(&self, path: PathBuf, delim: #textdelim_type) -> PyResult<()> {
+            let f = File::options().write(true).create(true).open(path)?;
+            let mut h = BufWriter::new(f);
+            self.0.h_write_text(&mut h, delim).py_term_resolve_nowarn()
         }
     };
 
@@ -392,6 +673,8 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             }
 
             #common
+
+            #write_dataset_mtd
         }
     }
     .into()
@@ -402,21 +685,21 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let info = parse_macro_input!(input as NewMeasInfo);
     let args = info.args;
 
-    let version = ugly_version(info.version);
     let base = if info.is_temporal {
         "Temporal"
     } else {
         "Optical"
     };
 
-    let name = format!("{base}{version}");
+    let version_us = info.version.short_underscore();
+    let version = info.version.short();
+
+    let name = format!("{base}{version_us}");
     let path = format!("fireflow_core::core::{name}");
-    let fun_path = format!("{path}::new_{version}");
+    let fun_path = format!("{path}::new_{version_us}");
     let rstype = parse_str::<Path>(path.as_str()).unwrap();
     let fun = parse_str::<Path>(fun_path.as_str()).unwrap();
 
-    let (base, version) = split_version(&name);
-    let pretty_version = version.replace("_", ".");
     let lower_basename = base.to_lowercase();
 
     let ln_path = "Option<fireflow_core::text::keywords::Longname>";
@@ -464,13 +747,13 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let params: Vec<_> = all_args.iter().map(|x| x.fmt_arg_doc()).collect();
 
     let doc = DocString::new(
-        format!("FCS {pretty_version} *$Pn\\** keywords for {lower_basename} measurement."),
+        format!("FCS {version} *$Pn\\** keywords for {lower_basename} measurement."),
         vec![],
         params,
         None,
     );
 
-    let get_set_timestep = if pretty_version != "2.0" && info.is_temporal {
+    let get_set_timestep = if info.version != Version::FCS2_0 && info.is_temporal {
         let t = quote! {fireflow_core::text::keywords::Timestep};
         quote! {
             #[getter]
@@ -489,7 +772,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
 
     let get_set_scale = if info.is_temporal {
         quote! {}
-    } else if pretty_version == "2.0" {
+    } else if info.version == Version::FCS2_0 {
         let t = quote! {fireflow_core::text::scale::Scale};
         quote! {
             #[getter]
@@ -933,15 +1216,16 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
     let coretext_name = path_name(coretext_type);
     let coredataset_name = path_name(coredataset_type);
     let (_, version) = split_version(coretext_name.as_str());
+    let vu = version.short_underscore();
 
     if split_version(coredataset_name.as_str()).1 != version {
         panic!("versions do not match");
     }
 
-    let otype = format_ident!("PyOptical{version}");
-    let ttype = format_ident!("PyTemporal{version}");
-    let opt_pytype = PyType::PyClass(format!("Optical{version}"));
-    let tmp_pytype = PyType::PyClass(format!("Temporal{version}"));
+    let otype = format_ident!("PyOptical{vu}");
+    let ttype = format_ident!("PyTemporal{vu}");
+    let opt_pytype = PyType::PyClass(format!("Optical{vu}"));
+    let tmp_pytype = PyType::PyClass(format!("Temporal{vu}"));
 
     let meas_pytype = PyType::new_union2(opt_pytype.clone(), tmp_pytype.clone());
 
@@ -1040,7 +1324,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
     // the temporal replacement functions for 3.2 are different because they
     // can fail if $PnTYPE is set
     let (replace_tmp_sig, replace_tmp_args, replace_tmp_at_body, replace_tmp_named_body) =
-        if version == "3_2" {
+        if version == Version::FCS3_2 {
             let go = |fun, x| {
                 quote! {self
                 .0
@@ -1445,17 +1729,18 @@ pub fn impl_convert_version(input: TokenStream) -> TokenStream {
         .iter()
         .filter(|&&v| v != version)
         .map(|v| {
-            let fn_name = format_ident!("version_{v}");
-            let target_type = format_ident!("{base}{v}");
+            let vsu = v.short_underscore();
+            let vs = v.short();
+            let fn_name = format_ident!("version_{vsu}");
+            let target_type = format_ident!("{base}{vsu}");
             let target_rs_type = target_type.to_string().replace("Py", "");
-            let pretty_version = v.replace("_", ".");
             let doc = DocString::new(
-                format!("Convert to FCS {pretty_version}."),
+                format!("Convert to FCS {vs}."),
                 vec![sub.into()],
                 vec![param.clone()],
                 Some(DocReturn::new(
                     PyType::PyClass(target_rs_type),
-                    Some(format!("A new class conforming to FCS {pretty_version}")),
+                    Some(format!("A new class conforming to FCS {vs}")),
                 )),
             );
             quote! {
@@ -1738,25 +2023,21 @@ fn unwrap_generic<'a>(name: &str, ty: &'a Path) -> (&'a Path, bool) {
     (ty, false)
 }
 
-fn split_version(name: &str) -> (&str, &str) {
-    let ret = name.split_at(name.len() - 3);
-    if !ALL_VERSIONS.iter().any(|&v| v == ret.1) {
-        panic!("invalid version {}", ret.1)
-    }
-    ret
+fn split_version(name: &str) -> (&str, Version) {
+    let (ret, v) = name.split_at(name.len() - 3);
+    (
+        ret,
+        Version::from_short_underscore(v).expect("version should be like 'X_Y'"),
+    )
 }
 
 fn path_name(p: &Path) -> String {
     p.segments.last().unwrap().ident.to_string()
 }
 
-fn ugly_version(v: Version) -> &'static str {
-    match v {
-        Version::FCS2_0 => "2_0",
-        Version::FCS3_0 => "3_0",
-        Version::FCS3_1 => "3_1",
-        Version::FCS3_2 => "3_2",
-    }
-}
-
-const ALL_VERSIONS: [&str; 4] = ["2_0", "3_0", "3_1", "3_2"];
+const ALL_VERSIONS: [Version; 4] = [
+    Version::FCS2_0,
+    Version::FCS3_0,
+    Version::FCS3_1,
+    Version::FCS3_2,
+];

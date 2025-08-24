@@ -33,7 +33,7 @@ use fireflow_core::validated::keys::{NonStdKey, StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::Shortname;
 use fireflow_core::validated::textdelim::TEXTDelim;
 use fireflow_python_proc::{
-    impl_convert_version, impl_get_set_all_meas, impl_get_set_meas_obj_common,
+    impl_convert_version, impl_gated_meas, impl_get_set_all_meas, impl_get_set_meas_obj_common,
     impl_get_set_metaroot, impl_meas_get_set, impl_new_core, impl_new_meas,
 };
 
@@ -573,25 +573,6 @@ impl_new_meas! {
     (detector_type, Option<kws::DetectorType>, true, "str", "Value for *$PnT*."),
     (percent_emitted, Option<kws::PercentEmitted>, true, "str", "Value for *$PnP*."),
     (detector_voltage, Option<kws::DetectorVoltage>, true, "float", "Value for *$PnV*."),
-}
-
-#[pymethods]
-impl PyOptical2_0 {
-    /// The value for *$PnE* for all measurements.
-    ///
-    /// Will be ``()`` for linear scaling (``0,0`` in FCS encoding), a
-    /// 2-tuple for log scaling, or ``None`` if missing.
-    ///
-    /// :type: () | (float, float) | None
-    #[getter]
-    fn get_scale(&self) -> Option<Scale> {
-        self.0.specific.scale.0.as_ref().map(|&x| x)
-    }
-
-    #[setter]
-    fn set_scale(&mut self, x: Option<Scale>) {
-        self.0.specific.scale = x.into()
-    }
 }
 
 impl_new_meas! {
@@ -1920,6 +1901,27 @@ impl_optical_get_set!(PyOptical3_0);
 impl_optical_get_set!(PyOptical3_1);
 impl_optical_get_set!(PyOptical3_2);
 
+// TODO proc
+#[pymethods]
+impl PyOptical2_0 {
+    /// The value for *$PnE* for all measurements.
+    ///
+    /// Will be ``()`` for linear scaling (``0,0`` in FCS encoding), a
+    /// 2-tuple for log scaling, or ``None`` if missing.
+    ///
+    /// :type: () | (float, float) | None
+    #[getter]
+    fn get_scale(&self) -> Option<Scale> {
+        self.0.specific.scale.0.as_ref().map(|&x| x)
+    }
+
+    #[setter]
+    fn set_scale(&mut self, x: Option<Scale>) {
+        self.0.specific.scale = x.into()
+    }
+}
+
+// TODO proc
 // $PnE (3.0-3.2)
 macro_rules! impl_optical_get_set_transform {
     ($pytype:ident) => {
@@ -1972,6 +1974,7 @@ impl_meas_get_set! {
     PyOptical3_2
 }
 
+// TODO proc
 // #TIMESTEP (3.0-3.2)
 macro_rules! impl_temporal_get_set_timestep {
     ($pytype:ident) => {
@@ -2469,173 +2472,7 @@ where
     }
 }
 
-py_wrap! {
-    /// The *$Gm\** keywords for one gated measurement.
-    ///
-    /// :param scale: The *$$GmE* keyword. ``()`` means linear scaling and
-    ///     2-tuple specifies decades and offset for log scaling.
-    /// :type scale: () | (float, float) | None
-    ///
-    /// :param filter: The *$GmF* keyword.
-    /// :type filter: str | None
-    ///
-    /// :param shortname: The *$GmN* keyword. Must not contain commas.
-    /// :type filter: str | None
-    ///
-    /// :param percent_emitted: The *$GmP* keyword.
-    /// :type filter: str | None
-    ///
-    /// :param range: The *$GmR* keyword.
-    /// :type filter: float | None
-    ///
-    /// :param longname: The *$GmS* keyword.
-    /// :type filter: str | None
-    ///
-    /// :param detector_type: The *$GmT* keyword.
-    /// :type filter: str | None
-    ///
-    /// :param detector_voltage: The *$GmV* keyword.
-    /// :type filter: float | None
-    PyGatedMeasurement,
-    GatedMeasurement,
-    "GatedMeasurement"
-}
-
-#[pymethods]
-impl PyGatedMeasurement {
-    #[new]
-    #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (
-        scale = None,
-        filter = None,
-        shortname = None,
-        percent_emitted = None,
-        range = None,
-        longname = None,
-        detector_type = None,
-        detector_voltage = None,
-    ))]
-    fn new(
-        scale: Option<kws::GateScale>,
-        filter: Option<kws::GateFilter>,
-        shortname: Option<kws::GateShortname>,
-        percent_emitted: Option<kws::GatePercentEmitted>,
-        range: Option<kws::GateRange>,
-        longname: Option<kws::GateLongname>,
-        detector_type: Option<kws::GateDetectorType>,
-        detector_voltage: Option<kws::GateDetectorVoltage>,
-    ) -> Self {
-        GatedMeasurement::new(
-            scale,
-            filter,
-            shortname,
-            percent_emitted,
-            range,
-            longname,
-            detector_type,
-            detector_voltage,
-        )
-        .into()
-    }
-}
-
-macro_rules! impl_gated_meas_get_set {
-    ($(#[$meta:meta])* $get:ident, $set:ident, $t:path, $inner:ident) => {
-        #[pymethods]
-        impl PyGatedMeasurement {
-            $(#[$meta])*
-            #[getter]
-            fn $get(&self) -> Option<$t> {
-                self.0.$inner.0.as_ref().cloned()
-            }
-
-            #[setter]
-            fn $set(&mut self, x: Option<$t>) {
-                self.0.$inner.0 = x.into();
-            }
-        }
-    };
-}
-
-impl_gated_meas_get_set!(
-    /// Value of the *$GmE* keyword.
-    ///
-    /// :type: () | (float, float) | None
-    get_scale,
-    set_scale,
-    kws::GateScale,
-    scale
-);
-
-impl_gated_meas_get_set!(
-    /// Value of the *$GmF* keyword.
-    ///
-    /// :type: str | None
-    get_filter,
-    set_filter,
-    kws::GateFilter,
-    filter
-);
-
-impl_gated_meas_get_set!(
-    /// Value of the *$GmN* keyword.
-    ///
-    /// :type: str | None
-    get_shortname,
-    set_shortname,
-    kws::GateShortname,
-    shortname
-);
-
-impl_gated_meas_get_set!(
-    /// Value of the *$GmP* keyword.
-    ///
-    /// :type: str | None
-    get_percent_emitted,
-    set_percent_emitted,
-    kws::GatePercentEmitted,
-    percent_emitted
-);
-
-impl_gated_meas_get_set!(
-    /// Value of the *$GmR* keyword.
-    ///
-    /// :type: float | None
-    get_range,
-    set_range,
-    kws::GateRange,
-    range
-);
-
-impl_gated_meas_get_set!(
-    /// Value of the *$GmS* keyword.
-    ///
-    /// :type: str | None
-    get_longname,
-    set_longname,
-    kws::GateLongname,
-    longname
-);
-
-impl_gated_meas_get_set!(
-    /// Value of the *$GmT* keyword.
-    ///
-    /// :type: str | None
-    get_detector_type,
-    set_detector_type,
-    kws::GateDetectorType,
-    detector_type
-);
-
-impl_gated_meas_get_set!(
-    /// Value of the *$GmV* keyword.
-    ///
-    /// :type: float | None
-    get_detector_voltage,
-    set_detector_voltage,
-    kws::GateDetectorVoltage,
-    detector_voltage
-);
+impl_gated_meas!();
 
 #[derive(FromPyObject, IntoPyObject)]
 struct PyGatedMeasurements(Vec<PyGatedMeasurement>);

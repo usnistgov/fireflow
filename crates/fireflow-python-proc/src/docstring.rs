@@ -50,9 +50,9 @@ pub(crate) enum PyType {
 }
 
 impl DocArg {
-    // pub(crate) fn new_ivar(argname: String, pytype: String, desc: String) -> Self {
-    //     Self::new(ArgType::Ivar, argname, pytype, desc)
-    // }
+    pub(crate) fn new_ivar(argname: String, pytype: PyType, desc: String) -> Self {
+        Self::new(ArgType::Ivar, argname, pytype, desc)
+    }
 
     pub(crate) fn new_param(argname: String, pytype: PyType, desc: String) -> Self {
         Self::new(ArgType::Param, argname, pytype, desc)

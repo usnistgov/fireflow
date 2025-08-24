@@ -9,7 +9,7 @@ use fireflow_core::header::Version;
 use proc_macro::TokenStream;
 
 use itertools::Itertools;
-use nonempty::NonEmpty;
+use nonempty::{nonempty, NonEmpty};
 use quote::{format_ident, quote, ToTokens};
 use syn::{
     parenthesized,
@@ -1458,6 +1458,132 @@ pub fn impl_meas_get_set(input: TokenStream) -> TokenStream {
         .collect();
 
     quote! {#(#outputs)*}.into()
+}
+
+#[proc_macro]
+pub fn impl_gated_meas(_: TokenStream) -> TokenStream {
+    let scale = DocArg::new_ivar(
+        "scale".into(),
+        PyType::new_union(nonempty![
+            PyType::new_unit(),
+            PyType::Tuple(vec![PyType::Float, PyType::Float]),
+            PyType::None
+        ]),
+        "The *$GmE* keyword. ``()`` means linear scaling and 2-tuple \
+         specifies decades and offset for log scaling."
+            .into(),
+    );
+    let make_arg = |n: &str, kw: &str, t: PyType| {
+        DocArg::new_ivar(
+            n.into(),
+            PyType::new_opt(t),
+            format!("The *$Gm{kw}* keyword."),
+        )
+    };
+    let filter = make_arg("filter", "F", PyType::Str);
+    let shortname = make_arg("shortname", "N", PyType::Str);
+    let percent_emitted = make_arg("percent_emitted", "P", PyType::Str);
+    let range = make_arg("range", "R", PyType::Float);
+    let longname = make_arg("longname", "S", PyType::Str);
+    let detector_type = make_arg("detector_type", "T", PyType::Str);
+    let detector_voltage = make_arg("detector_voltage", "V", PyType::Float);
+    let doc = DocString::new(
+        "The *$Gm\\** keywords for one gated measurement.".into(),
+        vec![],
+        vec![
+            scale,
+            filter,
+            shortname,
+            percent_emitted,
+            range,
+            longname,
+            detector_type,
+            detector_voltage,
+        ],
+        None,
+    );
+
+    let make_get_set = |n: &str, t: &str| {
+        let get = format_ident!("get_{n}");
+        let set = format_ident!("set_{n}");
+        let inner = format_ident!("{n}");
+        let s = format!("fireflow_core::text::keywords::{t}");
+        let rstype = parse_str::<Path>(s.as_str()).unwrap();
+        quote! {
+            #[getter]
+            fn #get(&self) -> Option<#rstype> {
+                self.0.#inner.0.as_ref().cloned()
+            }
+
+            #[setter]
+            fn #set(&mut self, x: Option<#rstype>) {
+                self.0.#inner.0 = x.into();
+            }
+        }
+    };
+
+    let methods: Vec<_> = [
+        ("scale", "GateScale"),
+        ("filter", "GateFilter"),
+        ("shortname", "GateShortname"),
+        ("percent_emitted", "GatePercentEmitted"),
+        ("longname", "GateLongname"),
+        ("detector_type", "GateDetectorType"),
+        ("detector_voltage", "GateDetectorVoltage"),
+    ]
+    .into_iter()
+    .map(|(n, t)| make_get_set(n, t))
+    .collect();
+
+    quote! {
+        // TODO not dry
+        #doc
+        #[pyclass(name = "GatedMeasurement", eq)]
+        #[derive(Clone, From, Into, PartialEq)]
+        pub struct PyGatedMeasurement(fireflow_core::text::gating::GatedMeasurement);
+
+        // TODO this also doesn't seem DRY
+        #[pymethods]
+        impl PyGatedMeasurement {
+            #[new]
+            #[allow(clippy::too_many_arguments)]
+            #[pyo3(signature = (
+                scale = None,
+                filter = None,
+                shortname = None,
+                percent_emitted = None,
+                range = None,
+                longname = None,
+                detector_type = None,
+                detector_voltage = None,
+            ))]
+            fn new(
+                scale: Option<kws::GateScale>,
+                filter: Option<kws::GateFilter>,
+                shortname: Option<kws::GateShortname>,
+                percent_emitted: Option<kws::GatePercentEmitted>,
+                range: Option<kws::GateRange>,
+                longname: Option<kws::GateLongname>,
+                detector_type: Option<kws::GateDetectorType>,
+                detector_voltage: Option<kws::GateDetectorVoltage>,
+            ) -> Self {
+                GatedMeasurement::new(
+                    scale,
+                    filter,
+                    shortname,
+                    percent_emitted,
+                    range,
+                    longname,
+                    detector_type,
+                    detector_voltage,
+                )
+                .into()
+            }
+
+            #(#methods)*
+        }
+    }
+    .into()
 }
 
 #[derive(Debug)]

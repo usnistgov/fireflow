@@ -500,12 +500,13 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         } else {
             None
         };
-        let force = DocArg::new_param(
+        let force = DocArg::new_param_def(
             "force".into(),
-            PyType::Str,
+            PyType::Bool,
             "If ``True`` remove any optical-specific metadata (detectors, \
              lasers, etc) without raising an exception. Defauls to ``False``."
                 .into(),
+            DocDefault::Bool(false),
         );
         let ps = [p].into_iter().chain(timestep).chain([force]).collect();
         DocString::new(
@@ -528,13 +529,11 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         let index_doc = make_set_temporal_doc(false, true);
         quote! {
             #name_doc
-            #[pyo3(signature = (name, force = false))]
             fn set_temporal(&mut self, name: #shortname_type, force: bool) -> PyResult<bool> {
                 self.0.set_temporal(&name, (), force).py_term_resolve()
             }
 
             #index_doc
-            #[pyo3(signature = (index, force = false))]
             fn set_temporal_at(&mut self, index: MeasIndex, force: bool) -> PyResult<bool> {
                 self.0.set_temporal_at(index, (), force).py_term_resolve()
             }
@@ -544,7 +543,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         let index_doc = make_set_temporal_doc(true, true);
         quote! {
             #name_doc
-            #[pyo3(signature = (name, timestep, force = false))]
             fn set_temporal(
                 &mut self,
                 name: #shortname_type,
@@ -557,7 +555,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             }
 
             #index_doc
-            #[pyo3(signature = (index, timestep, force = false))]
             fn set_temporal_at(
                 &mut self,
                 index: MeasIndex,
@@ -574,13 +571,14 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let make_unset_temporal_doc = |has_timestep: bool, has_force: bool| {
         let s = "Convert the temporal measurement to an optical measurement.".into();
         let p = if has_force {
-            Some(DocArg::new_param(
-                "bool".into(),
+            Some(DocArg::new_param_def(
+                "force".into(),
                 PyType::Bool,
                 "If ``True`` and current time measurement has data which cannot \
                  be converted to optical, force the conversion anyways. \
                  Otherwise raise an exception."
                     .into(),
+                DocDefault::Bool(false),
             ))
         } else {
             None
@@ -623,7 +621,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         let doc = make_unset_temporal_doc(true, true);
         quote! {
             #doc
-            #[pyo3(signature = (force = false))]
             fn unset_temporal(&mut self, force: bool) -> PyResult<Option<#timestep_type>> {
                 self.0.unset_temporal_lossy(force).py_term_resolve()
             }
@@ -822,15 +819,17 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
                 df_pytype,
                 "Columns corresponding to *DATA*".into(),
             ),
-            DocArg::new_param(
+            DocArg::new_param_def(
                 "analysis".into(),
                 PyType::Bytes,
                 "Bytes corresponding to *ANALYSIS*".into(),
+                DocDefault::Other(quote! {#analysis_type::default()}, "b\"\"".into()),
             ),
-            DocArg::new_param(
+            DocArg::new_param_def(
                 "others".into(),
                 PyType::new_list(PyType::Bytes),
                 "Bytes corresponding to *OTHER* segments".into(),
+                DocDefault::Other(quote! {#others_type::default()}, "[]".into()),
             ),
         ],
         Some(DocReturn::new(
@@ -841,10 +840,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     let to_dataset_mtd = quote! {
         #to_dataset_doc
-        #[pyo3(
-            signature = (df, analysis = #analysis_type::default(), others = #others_type::default()),
-            text_signature = "(df, analysis = b\"\", others = [])"
-        )]
         fn to_dataset(
             &self,
             df: FCSDataFrame,
@@ -2110,7 +2105,12 @@ pub fn impl_convert_version(input: TokenStream) -> TokenStream {
                       they must be discarded. Set to ``True`` to perform the \
                       conversion with such discarding; otherwise, remove the \
                       keywords manually before converting.";
-    let param = DocArg::new_param("force".into(), PyType::Bool, param_desc.into());
+    let param = DocArg::new_param_def(
+        "force".into(),
+        PyType::Bool,
+        param_desc.into(),
+        DocDefault::Bool(false),
+    );
     let outputs: Vec<_> = ALL_VERSIONS
         .iter()
         .filter(|&&v| v != version)
@@ -2133,7 +2133,6 @@ pub fn impl_convert_version(input: TokenStream) -> TokenStream {
                 #[pymethods]
                 impl #pytype {
                     #doc
-                    #[pyo3(signature = (force = false))]
                     fn #fn_name(&self, force: bool) -> PyResult<#target_type> {
                         self.0.clone().try_convert(force).py_term_resolve().map(|x| x.into())
                     }

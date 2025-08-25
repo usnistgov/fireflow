@@ -1,10 +1,9 @@
 use derive_new::new;
 use itertools::Itertools;
 use nonempty::NonEmpty;
-use proc_macro2::{Span, TokenStream};
+use proc_macro2::TokenStream;
 use quote::{format_ident, quote, ToTokens};
 use std::fmt;
-use syn::LitBool;
 
 #[derive(Clone, new)]
 pub(crate) struct DocString {
@@ -77,12 +76,28 @@ impl DocArg {
     ) -> Self {
         Self::new(ArgType::Param, argname, pytype, desc, Some(def))
     }
+
+    pub(crate) fn default_matches(&self) -> Result<(), String> {
+        if let Some(d) = self.default.as_ref() {
+            if d.matches_pytype(&self.pytype) {
+                Ok(())
+            } else {
+                Err(format!(
+                    "Arg type '{}' does not match default type '{}'",
+                    self.pytype,
+                    d.as_type()
+                ))
+            }
+        } else {
+            Ok(())
+        }
+    }
 }
 
 impl DocDefault {
     fn as_rs_value(&self) -> TokenStream {
         match self {
-            Self::Bool(x) => LitBool::new(*x, Span::call_site()).into_token_stream(),
+            Self::Bool(x) => quote! {#x},
             Self::EmptyDict => quote! {std::collections::HashMap::new()},
             Self::EmptyList => quote! {vec![]},
             Self::Other(rs, _) => rs.clone(),
@@ -96,6 +111,26 @@ impl DocDefault {
             Self::EmptyList => "[]".to_string(),
             Self::Other(_, py) => py.clone(),
         }
+    }
+
+    // for error reporting
+    fn as_type(&self) -> &'static str {
+        match self {
+            Self::Bool(_) => "bool",
+            Self::EmptyDict => "dict",
+            Self::EmptyList => "list",
+            Self::Other(_, _) => "raw",
+        }
+    }
+
+    fn matches_pytype(&self, other: &PyType) -> bool {
+        matches!(
+            (self, other),
+            (Self::Bool(_), PyType::Bool)
+                | (Self::EmptyDict, PyType::Dict(_, _))
+                | (Self::EmptyList, PyType::List(_))
+                | (Self::Other(_, _), _)
+        )
     }
 }
 
@@ -151,6 +186,14 @@ impl DocString {
     }
 
     fn sig(&self) -> TokenStream {
+        if let Err(e) = self
+            .args
+            .iter()
+            .map(|a| a.default_matches())
+            .collect::<Result<Vec<_>, _>>()
+        {
+            panic!("{e}")
+        }
         if let Some(has_def) = self.has_defaults() {
             if has_def {
                 let ps = &self.args;

@@ -9,7 +9,6 @@ use fireflow_core::header::Version;
 use proc_macro::TokenStream;
 
 use itertools::Itertools;
-use nonempty::{nonempty, NonEmpty};
 use quote::{format_ident, quote, ToTokens};
 use syn::{
     parenthesized,
@@ -640,11 +639,11 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             vec![s0, s1],
             vec![],
             Some(DocReturn::new(
-                PyType::new_list(PyType::new_union(nonempty![
+                PyType::new_list(PyType::new_union(
                     PyType::new_unit(),
                     PyType::Tuple(vec![PyType::Float, PyType::Float]),
-                    PyType::None
-                ])),
+                    vec![PyType::None],
+                )),
                 None,
             )),
         );
@@ -678,10 +677,10 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             vec![s0, s1, s2, s3],
             vec![],
             Some(DocReturn::new(
-                PyType::new_list(PyType::new_union(nonempty![
+                PyType::new_list(PyType::new_union2(
                     PyType::Float,
                     PyType::Tuple(vec![PyType::Float, PyType::Float]),
-                ])),
+                )),
                 None,
             )),
         );
@@ -1509,18 +1508,21 @@ pub fn impl_get_set_all_meas(input: TokenStream) -> TokenStream {
     } else {
         vec![]
     };
-    let base_pytype = PyType::Raw(info.pytype.value());
-    let tmp_pytype = if optical_only {
-        Some(PyType::new_unit())
-    } else {
-        None
-    };
-    let none_pytype = if optional { Some(PyType::None) } else { None }.into_iter();
 
-    let doc_type = PyType::new_list(PyType::new_union(NonEmpty::from((
-        base_pytype,
-        tmp_pytype.into_iter().chain(none_pytype).collect(),
-    ))));
+    let base_pytype = PyType::Raw(info.pytype.value());
+
+    let tmp_pytype = if optical_only {
+        PyType::new_union2(base_pytype, PyType::new_unit())
+    } else {
+        base_pytype
+    };
+
+    let doc_type = if optional {
+        PyType::new_opt(tmp_pytype)
+    } else {
+        tmp_pytype
+    };
+
     let doc = DocString::new(
         doc_summary,
         doc_middle,
@@ -1627,12 +1629,13 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
         PyType::Float,
         "Range of measurement. Corresponds to *$PnR*.".into(),
     );
-    let param_notrunc = DocArg::new_param(
+    let param_notrunc = DocArg::new_param_def(
         "notrunc".into(),
         PyType::Bool,
         "If ``False``, raise exception if ``range`` must be truncated to fit \
          into measurement type."
             .into(),
+        DocDefault::Bool(false),
     );
     let param_col = DocArg::new_param(
         "col".into(),
@@ -1643,7 +1646,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
     let push_meas_doc = |is_optical: bool, meas_type: &PyType, hasdata: bool| {
         let what = if is_optical { "optical" } else { "temporal" };
         let param_meas = DocArg::new_param(
-            "measurement".into(),
+            "meas".into(),
             meas_type.clone(),
             "The measurement to push.".into(),
         );
@@ -1668,7 +1671,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
     let insert_meas_doc = |is_optical: bool, meas_type: &PyType, hasdata: bool| {
         let what = if is_optical { "optical" } else { "temporal" };
         let param_meas = DocArg::new_param(
-            "measurement".into(),
+            "meas".into(),
             meas_type.clone(),
             "The measurement to insert.".into(),
         );
@@ -1938,7 +1941,6 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
 
     let coretext_only = quote! {
         #push_opt_doc
-        #[pyo3(signature = (meas, name, range, notrunc = false))]
         fn push_optical(
             &mut self,
             meas: #otype,
@@ -1953,7 +1955,6 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
         }
 
         #insert_opt_doc
-        #[pyo3(signature = (index, meas, name, range, notrunc = false))]
         fn insert_optical(
             &mut self,
             index: MeasIndex,
@@ -1969,7 +1970,6 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
         }
 
         #push_tmp_doc
-        #[pyo3(signature = (meas, name, range, notrunc = false))]
         fn push_temporal(
             &mut self,
             meas: #ttype,
@@ -1983,7 +1983,6 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
         }
 
         #insert_tmp_doc
-        #[pyo3(signature = (index, meas, name, range, notrunc = false))]
         fn insert_temporal(
             &mut self,
             index: MeasIndex,
@@ -2005,7 +2004,6 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
 
     let coredataset_only = quote! {
         #push_opt_data_doc
-        #[pyo3(signature = (meas, col, name, range, notrunc = false))]
         fn push_optical(
             &mut self,
             meas: #otype,
@@ -2021,7 +2019,6 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
         }
 
         #insert_opt_data_doc
-        #[pyo3(signature = (index, meas, col, name, range, notrunc = false))]
         fn insert_optical(
             &mut self,
             index: MeasIndex,
@@ -2038,7 +2035,6 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
         }
 
         #push_tmp_data_doc
-        #[pyo3(signature = (meas, col, name, range, notrunc = false))]
         fn push_temporal(
             &mut self,
             meas: #ttype,
@@ -2053,7 +2049,6 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
         }
 
         #insert_tmp_data_doc
-        #[pyo3(signature = (index, meas, col, name, range, notrunc = false))]
         fn insert_temporal(
             &mut self,
             index: MeasIndex,
@@ -2196,11 +2191,10 @@ pub fn impl_meas_get_set(input: TokenStream) -> TokenStream {
 pub fn impl_gated_meas(_: TokenStream) -> TokenStream {
     let scale = DocArg::new_ivar(
         "scale".into(),
-        PyType::new_union(nonempty![
+        PyType::new_opt(PyType::new_union2(
             PyType::new_unit(),
             PyType::Tuple(vec![PyType::Float, PyType::Float]),
-            PyType::None
-        ]),
+        )),
         "The *$GmE* keyword. ``()`` means linear scaling and 2-tuple \
          specifies decades and offset for log scaling."
             .into(),
@@ -2279,6 +2273,7 @@ pub fn impl_gated_meas(_: TokenStream) -> TokenStream {
         impl PyGatedMeasurement {
             #[new]
             #[allow(clippy::too_many_arguments)]
+            // TODO this sig is separate from the docstring :/
             #[pyo3(signature = (
                 scale = None,
                 filter = None,

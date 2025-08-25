@@ -1,6 +1,5 @@
 use derive_new::new;
 use itertools::Itertools;
-use nonempty::NonEmpty;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, ToTokens};
 use std::fmt;
@@ -27,6 +26,7 @@ pub(crate) enum DocDefault {
     Bool(bool),
     EmptyDict,
     EmptyList,
+    Option,
     Other(TokenStream, String),
 }
 
@@ -52,7 +52,7 @@ pub(crate) enum PyType {
     None,
     Option(Box<PyType>),
     Dict(Box<PyType>, Box<PyType>),
-    Union(Box<PyType>, Vec<PyType>),
+    Union(Box<PyType>, Box<PyType>, Vec<PyType>),
     Tuple(Vec<PyType>),
     List(Box<PyType>),
     PyClass(String),
@@ -67,6 +67,15 @@ impl DocArg {
     pub(crate) fn new_param(argname: String, pytype: PyType, desc: String) -> Self {
         Self::new(ArgType::Param, argname, pytype, desc, None)
     }
+
+    // pub(crate) fn new_ivar_def(
+    //     argname: String,
+    //     pytype: PyType,
+    //     desc: String,
+    //     def: DocDefault,
+    // ) -> Self {
+    //     Self::new(ArgType::Ivar, argname, pytype, desc, Some(def))
+    // }
 
     pub(crate) fn new_param_def(
         argname: String,
@@ -100,6 +109,7 @@ impl DocDefault {
             Self::Bool(x) => quote! {#x},
             Self::EmptyDict => quote! {std::collections::HashMap::new()},
             Self::EmptyList => quote! {vec![]},
+            Self::Option => quote! {None},
             Self::Other(rs, _) => rs.clone(),
         }
     }
@@ -109,6 +119,7 @@ impl DocDefault {
             Self::Bool(x) => if *x { "True" } else { "False" }.into(),
             Self::EmptyDict => "{}".to_string(),
             Self::EmptyList => "[]".to_string(),
+            Self::Option => "None".to_string(),
             Self::Other(_, py) => py.clone(),
         }
     }
@@ -119,6 +130,7 @@ impl DocDefault {
             Self::Bool(_) => "bool",
             Self::EmptyDict => "dict",
             Self::EmptyList => "list",
+            Self::Option => "option",
             Self::Other(_, _) => "raw",
         }
     }
@@ -129,6 +141,7 @@ impl DocDefault {
             (Self::Bool(_), PyType::Bool)
                 | (Self::EmptyDict, PyType::Dict(_, _))
                 | (Self::EmptyList, PyType::List(_))
+                | (Self::Option, PyType::Option(_))
                 | (Self::Other(_, _), _)
         )
     }
@@ -153,11 +166,11 @@ impl PyType {
     }
 
     pub(crate) fn new_union2(x: PyType, y: PyType) -> Self {
-        Self::new_union(NonEmpty::from((x.clone(), vec![y.clone()])))
+        Self::new_union(x, y, vec![])
     }
 
-    pub(crate) fn new_union(xs: NonEmpty<PyType>) -> Self {
-        Self::Union(Box::new(xs.head), xs.tail)
+    pub(crate) fn new_union(x0: PyType, x1: PyType, xs: Vec<PyType>) -> Self {
+        Self::Union(Box::new(x0), Box::new(x1), xs)
     }
 
     pub(crate) fn new_unit() -> Self {
@@ -305,8 +318,11 @@ impl fmt::Display for PyType {
             Self::Float => f.write_str("float"),
             Self::Bytes => f.write_str("Bytes"),
             Self::None => f.write_str("None"),
-            Self::Union(x, xs) => {
-                let s = [x.as_ref()].into_iter().chain(xs.iter()).join(" | ");
+            Self::Union(x, y, zs) => {
+                let s = [x.as_ref(), y.as_ref()]
+                    .into_iter()
+                    .chain(zs.iter())
+                    .join(" | ");
                 f.write_str(s.as_str())
             }
             Self::Tuple(xs) => {

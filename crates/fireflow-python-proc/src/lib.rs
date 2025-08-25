@@ -631,6 +631,78 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         }
     };
 
+    let get_set_scale = if version == Version::FCS2_0 {
+        let s0 = "Will be ``()`` for linear scaling (``0,0`` in FCS encoding), \
+                   a 2-tuple for log scaling, or ``None`` if missing."
+            .into();
+        let s1 = "The temporal measurement must always be ``()``. Setting it \
+                  to another value will raise an exception."
+            .into();
+        // TODO this will probably end up not being DRY
+        let doc = DocString::new(
+            "The value for *$PnE* for all measurements.".into(),
+            vec![s0, s1],
+            vec![],
+            Some(DocReturn::new(
+                PyType::new_list(PyType::new_union(nonempty![
+                    PyType::new_unit(),
+                    PyType::Tuple(vec![PyType::Float, PyType::Float]),
+                    PyType::None
+                ])),
+                None,
+            )),
+        );
+        quote! {
+            #doc
+            #[getter]
+            fn get_scales(&self) -> Vec<Option<Scale>> {
+                self.0.scales().collect()
+            }
+
+            #[setter]
+            fn set_scales(&mut self, scales: Vec<Option<Scale>>) -> PyResult<()> {
+                self.0.set_scales(scales).py_term_resolve_nowarn()
+            }
+        }
+    } else {
+        let sum = "The value for *$PnE* and/or *$PnG* for all measurements.".into();
+        let s0 = "Collectively these keywords correspond to scale transforms.".into();
+        let s1 = "If scaling is linear, return a float which corresponds to the \
+                  value of *$PnG* when *$PnE* is ``0,0``. If scaling is logarithmic, \
+                  return a pair of floats, corresponding to unset *$PnG* and the \
+                  non-``0,0`` value of *$PnE*."
+            .into();
+        let s2 = "The FCS standards disallow any other combinations.".into();
+        let s3 = "The temporal measurement will always be ``1.0``, corresponding \
+                  to an identity transform. Setting it to another value will \
+                  raise an exception."
+            .into();
+        let doc = DocString::new(
+            sum,
+            vec![s0, s1, s2, s3],
+            vec![],
+            Some(DocReturn::new(
+                PyType::new_list(PyType::new_union(nonempty![
+                    PyType::Float,
+                    PyType::Tuple(vec![PyType::Float, PyType::Float]),
+                ])),
+                None,
+            )),
+        );
+        quote! {
+            #doc
+            #[getter]
+            fn get_transforms(&self) -> Vec<core::ScaleTransform> {
+                self.0.transforms().collect()
+            }
+
+            #[setter]
+            fn set_transforms(&mut self, transforms: Vec<core::ScaleTransform>) -> PyResult<()> {
+                self.0.set_transforms(transforms).py_term_resolve_nowarn()
+            }
+        }
+    };
+
     // methods which apply to both Coretext* and CoreDataset*
     let common = quote! {
         #par_doc
@@ -727,6 +799,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
         #set_temporal_mtds
         #unset_temporal_mtd
+        #get_set_scale
     };
 
     quote! {

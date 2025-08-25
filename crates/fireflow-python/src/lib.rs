@@ -973,40 +973,6 @@ macro_rules! impl_get_set_applied_gates_3_2 {
 impl_get_set_applied_gates_3_2!(PyCoreTEXT3_2);
 impl_get_set_applied_gates_3_2!(PyCoreDataset3_2);
 
-// Get/set methods for $TIMESTEP (3.0-3.2)
-macro_rules! impl_get_set_timestep {
-    ($pytype:ident) => {
-        #[pymethods]
-        impl $pytype {
-            /// The value of *$TIMESTEP*.
-            ///
-            /// :type: float | None
-            #[getter]
-            fn get_timestep(&self) -> Option<kws::Timestep> {
-                self.0.timestep().copied()
-            }
-
-            /// Set the *$TIMESTEP* if time measurement is present.
-            ///
-            /// :param float timestep: The timestep to set. Must be greater
-            ///     than zero.
-            ///
-            /// :return: Previous *$TIMESTEP* if present.
-            /// :rtype: float | None
-            fn set_timestep(&mut self, timestep: kws::Timestep) -> Option<kws::Timestep> {
-                self.0.set_timestep(timestep)
-            }
-        }
-    };
-}
-
-impl_get_set_timestep!(PyCoreTEXT3_0);
-impl_get_set_timestep!(PyCoreTEXT3_1);
-impl_get_set_timestep!(PyCoreTEXT3_2);
-impl_get_set_timestep!(PyCoreDataset3_0);
-impl_get_set_timestep!(PyCoreDataset3_1);
-impl_get_set_timestep!(PyCoreDataset3_2);
-
 // Get/set methods for $LAST_MODIFIER/$LAST_MODIFIED/$ORIGINALITY (3.1-3.2)
 macro_rules! impl_modification_attrs {
     ($pytype:ident) => {
@@ -1046,98 +1012,6 @@ impl_plate_attrs!(PyCoreTEXT3_1);
 impl_plate_attrs!(PyCoreTEXT3_2);
 impl_plate_attrs!(PyCoreDataset3_1);
 impl_plate_attrs!(PyCoreDataset3_2);
-
-// get/set methods for $COMP (2.0-3.0)
-macro_rules! impl_get_set_comp {
-    ($pytype:ident) => {
-        #[pymethods]
-        impl $pytype {
-            #[getter]
-            fn get_compensation(&self) -> Option<Compensation> {
-                self.0.compensation().cloned()
-            }
-
-            #[setter]
-            fn set_compensation(&mut self, m: Option<Compensation>) -> PyResult<()> {
-                Ok(self.0.set_compensation(m)?)
-            }
-        }
-    };
-}
-
-impl_get_set_comp!(PyCoreTEXT2_0);
-impl_get_set_comp!(PyCoreTEXT3_0);
-impl_get_set_comp!(PyCoreDataset2_0);
-impl_get_set_comp!(PyCoreDataset3_0);
-
-// Get/set methods for $SPILLOVER (3.1-3.2)
-macro_rules! impl_spillover {
-    ($pytype:ident) => {
-        #[pymethods]
-        impl $pytype {
-            #[getter]
-            fn get_spillover(&self) -> Option<Spillover> {
-                self.0.spillover().map(|x| x.clone())
-            }
-
-            #[setter]
-            fn set_spillover(&mut self, spillover: Option<Spillover>) -> PyResult<()> {
-                Ok(self.0.set_spillover(spillover)?)
-            }
-        }
-    };
-}
-
-impl_spillover!(PyCoreTEXT3_1);
-impl_spillover!(PyCoreTEXT3_2);
-impl_spillover!(PyCoreDataset3_1);
-impl_spillover!(PyCoreDataset3_2);
-
-macro_rules! impl_get_set_all_peak {
-    ($pytype:ident) => {
-        #[pymethods]
-        impl $pytype {
-            /// The value of *$PKn* for all measurements.
-            ///
-            /// :type: list[int]
-            #[getter]
-            fn get_all_pkn(&self) -> Vec<Option<kws::PeakBin>> {
-                self.0
-                    .get_temporal_optical::<Option<kws::PeakBin>>()
-                    .map(|x| x.as_ref().copied())
-                    .collect()
-            }
-
-            #[setter]
-            fn set_all_pkn(&mut self, xs: Vec<Option<kws::PeakBin>>) -> PyResult<()> {
-                Ok(self.0.set_temporal_optical(xs)?)
-            }
-
-            /// The value of *$PKNn* for all measurements.
-            ///
-            /// :type: list[int]
-            #[getter]
-            fn get_all_pknn(&self) -> Vec<Option<kws::PeakNumber>> {
-                self.0
-                    .get_temporal_optical::<Option<kws::PeakNumber>>()
-                    .map(|x| x.as_ref().copied())
-                    .collect()
-            }
-
-            #[setter]
-            fn set_all_pknn(&mut self, xs: Vec<Option<kws::PeakNumber>>) -> PyResult<()> {
-                Ok(self.0.set_temporal_optical(xs)?)
-            }
-        }
-    };
-}
-
-impl_get_set_all_peak!(PyCoreTEXT2_0);
-impl_get_set_all_peak!(PyCoreTEXT3_0);
-impl_get_set_all_peak!(PyCoreTEXT3_1);
-impl_get_set_all_peak!(PyCoreDataset2_0);
-impl_get_set_all_peak!(PyCoreDataset3_0);
-impl_get_set_all_peak!(PyCoreDataset3_1);
 
 macro_rules! impl_get_set_subset {
     ($pytype:ident) => {

@@ -703,6 +703,115 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         }
     };
 
+    let get_set_timestep = if version == Version::FCS2_0 {
+        quote! {}
+    } else {
+        let t = PyType::new_opt(PyType::Float);
+        let get_doc = DocString::new(
+            "The value of *$TIMESTEP*".into(),
+            vec![],
+            vec![],
+            Some(DocReturn::new(t.clone(), None)),
+        );
+        let set_doc = DocString::new(
+            "Set the *$TIMESTEP* if time measurement is present.".into(),
+            vec![],
+            vec![DocArg::new_param(
+                "timestep".into(),
+                PyType::Float,
+                "The timestep to set. Must be greater than zero.".into(),
+            )],
+            Some(DocReturn::new(
+                t,
+                Some("Previous *$TIMESTEP* if present.".into()),
+            )),
+        );
+        quote! {
+            #get_doc
+            #[getter]
+            fn get_timestep(&self) -> Option<#timestep_type> {
+                self.0.timestep().copied()
+            }
+
+            #set_doc
+            fn set_timestep(&mut self, timestep: #timestep_type) -> Option<#timestep_type> {
+                self.0.set_timestep(timestep)
+            }
+        }
+    };
+
+    let get_set_comp_spill = if version < Version::FCS3_1 {
+        quote! {
+            #[getter]
+            fn get_compensation(&self) -> Option<Compensation> {
+                self.0.compensation().cloned()
+            }
+
+            #[setter]
+            fn set_compensation(&mut self, m: Option<Compensation>) -> PyResult<()> {
+                Ok(self.0.set_compensation(m)?)
+            }
+        }
+    } else {
+        quote! {
+            #[getter]
+            fn get_spillover(&self) -> Option<Spillover> {
+                self.0.spillover().map(|x| x.clone())
+            }
+
+            #[setter]
+            fn set_spillover(&mut self, spillover: Option<Spillover>) -> PyResult<()> {
+                Ok(self.0.set_spillover(spillover)?)
+            }
+        }
+    };
+
+    let get_set_all_peak = if version < Version::FCS3_2 {
+        let pkn_doc = DocString::new(
+            "The value of *$PKn* for all measurements.".into(),
+            vec![],
+            vec![],
+            Some(DocReturn::new(PyType::new_list(PyType::Int), None)),
+        );
+        let pknn_doc = DocString::new(
+            "The value of *$PKNn* for all measurements.".into(),
+            vec![],
+            vec![],
+            Some(DocReturn::new(PyType::new_list(PyType::Int), None)),
+        );
+        quote! {
+            #pkn_doc
+            #[getter]
+            fn get_all_pkn(&self) -> Vec<Option<kws::PeakBin>> {
+                self.0
+                    .get_temporal_optical::<Option<kws::PeakBin>>()
+                    .map(|x| x.as_ref().copied())
+                    .collect()
+            }
+
+            #[setter]
+            fn set_all_pkn(&mut self, xs: Vec<Option<kws::PeakBin>>) -> PyResult<()> {
+                Ok(self.0.set_temporal_optical(xs)?)
+            }
+
+            #pknn_doc
+            #[getter]
+            fn get_all_pknn(&self) -> Vec<Option<kws::PeakNumber>> {
+                self.0
+                    .get_temporal_optical::<Option<kws::PeakNumber>>()
+                    .map(|x| x.as_ref().copied())
+                    .collect()
+            }
+
+            #[setter]
+            fn set_all_pknn(&mut self, xs: Vec<Option<kws::PeakNumber>>) -> PyResult<()> {
+                Ok(self.0.set_temporal_optical(xs)?)
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     // methods which apply to both Coretext* and CoreDataset*
     let common = quote! {
         #par_doc
@@ -800,6 +909,9 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         #set_temporal_mtds
         #unset_temporal_mtd
         #get_set_scale
+        #get_set_timestep
+        #get_set_comp_spill
+        #get_set_all_peak
     };
 
     quote! {

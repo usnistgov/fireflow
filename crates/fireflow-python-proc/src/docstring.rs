@@ -1,8 +1,10 @@
 use derive_new::new;
 use itertools::Itertools;
 use nonempty::NonEmpty;
-use quote::{quote, ToTokens};
+use proc_macro2::{Span, TokenStream};
+use quote::{format_ident, quote, ToTokens};
 use std::fmt;
+use syn::LitBool;
 
 #[derive(Clone, new)]
 pub(crate) struct DocString {
@@ -18,6 +20,15 @@ pub(crate) struct DocArg {
     argname: String,
     pytype: PyType,
     desc: String,
+    default: Option<DocDefault>,
+}
+
+#[derive(Clone)]
+pub(crate) enum DocDefault {
+    Bool(bool),
+    EmptyDict,
+    EmptyList,
+    Other(TokenStream, String),
 }
 
 #[derive(Clone, new)]
@@ -51,11 +62,40 @@ pub(crate) enum PyType {
 
 impl DocArg {
     pub(crate) fn new_ivar(argname: String, pytype: PyType, desc: String) -> Self {
-        Self::new(ArgType::Ivar, argname, pytype, desc)
+        Self::new(ArgType::Ivar, argname, pytype, desc, None)
     }
 
     pub(crate) fn new_param(argname: String, pytype: PyType, desc: String) -> Self {
-        Self::new(ArgType::Param, argname, pytype, desc)
+        Self::new(ArgType::Param, argname, pytype, desc, None)
+    }
+
+    pub(crate) fn new_param_def(
+        argname: String,
+        pytype: PyType,
+        desc: String,
+        def: DocDefault,
+    ) -> Self {
+        Self::new(ArgType::Param, argname, pytype, desc, Some(def))
+    }
+}
+
+impl DocDefault {
+    fn as_rs_value(&self) -> TokenStream {
+        match self {
+            Self::Bool(x) => LitBool::new(*x, Span::call_site()).into_token_stream(),
+            Self::EmptyDict => quote! {std::collections::HashMap::new()},
+            Self::EmptyList => quote! {vec![]},
+            Self::Other(rs, _) => rs.clone(),
+        }
+    }
+
+    fn as_py_value(&self) -> String {
+        match self {
+            Self::Bool(x) => if *x { "True" } else { "False" }.into(),
+            Self::EmptyDict => "{}".to_string(),
+            Self::EmptyList => "[]".to_string(),
+            Self::Other(_, py) => py.clone(),
+        }
     }
 }
 
@@ -77,10 +117,6 @@ impl PyType {
         Self::List(Box::new(x))
     }
 
-    pub(crate) fn new_union1(x: PyType) -> Self {
-        Self::Union(Box::new(x), vec![])
-    }
-
     pub(crate) fn new_union2(x: PyType, y: PyType) -> Self {
         Self::new_union(NonEmpty::from((x.clone(), vec![y.clone()])))
     }
@@ -93,22 +129,68 @@ impl PyType {
         Self::Tuple(vec![])
     }
 
-    pub(crate) fn new_tuple1(x: PyType) -> Self {
-        Self::Tuple(vec![x.clone()])
+    fn is_oneword(&self) -> bool {
+        !matches!(self, Self::Raw(_) | Self::PyClass(_))
+    }
+}
+
+impl DocString {
+    fn has_defaults(&self) -> Option<bool> {
+        self.args
+            .iter()
+            .skip_while(|p| p.default.is_none())
+            .try_fold(false, |has_def, next| {
+                match (has_def, next.default.is_some()) {
+                    // if we encounter a non-default after at least one
+                    // default, return None (error) since this means we
+                    // have default args after non-default args.
+                    (true, false) => None,
+                    (x, y) => Some(x || y),
+                }
+            })
     }
 
-    fn is_oneword(&self) -> bool {
-        match self {
-            Self::Raw(_) | Self::PyClass(_) => false,
-            _ => true,
+    fn sig(&self) -> TokenStream {
+        if let Some(has_def) = self.has_defaults() {
+            if has_def {
+                let ps = &self.args;
+                let (raw_sig, _txt_sig): (Vec<_>, Vec<_>) = ps
+                    .iter()
+                    .map(|a| {
+                        let n = &a.argname;
+                        let i = format_ident!("{n}");
+                        if let Some(d) = a.default.as_ref() {
+                            let r = d.as_rs_value();
+                            let t = d.as_py_value();
+                            (quote! {#i=#r}, format!("{n}={t}"))
+                        } else {
+                            (quote! {#i}, n.to_string())
+                        }
+                    })
+                    .unzip();
+                let txt_sig = format!("({})", _txt_sig.iter().join(", "));
+                quote! {
+                    #[pyo3(signature = (#(#raw_sig),*))]
+                    #[pyo3(text_signature = #txt_sig)]
+                }
+            } else {
+                quote! {}
+            }
+        } else {
+            panic!("non-default args after default args");
         }
     }
 }
 
 impl ToTokens for DocString {
-    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
         let s = self.to_string();
-        quote! { #[doc = #s] }.to_tokens(tokens);
+        let sig = self.sig();
+        quote! {
+            #[doc = #s]
+            #sig
+        }
+        .to_tokens(tokens);
     }
 }
 

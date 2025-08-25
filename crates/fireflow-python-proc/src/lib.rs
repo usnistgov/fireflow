@@ -2,7 +2,7 @@ extern crate proc_macro;
 
 mod docstring;
 
-use crate::docstring::{ArgType, DocArg, DocReturn, DocString, PyType};
+use crate::docstring::{ArgType, DocArg, DocDefault, DocReturn, DocString, PyType};
 
 use fireflow_core::header::Version;
 
@@ -289,16 +289,20 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         Some(DocReturn::new(PyType::new_list(PyType::Str), None)),
     );
 
+    let textdelim_type =
+        parse_str::<Path>("fireflow_core::validated::textdelim::TEXTDelim").unwrap();
+
     let path_param = DocArg::new_param(
         "path".into(),
         PyType::PyClass("pathlib.path".into()),
         "Path to be written".into(),
     );
 
-    let textdelim_param = DocArg::new_param(
+    let textdelim_param = DocArg::new_param_def(
         "delim".into(),
         PyType::Int,
         "Delimiter to use when writing *TEXT*. Defaults to 30 (record separator).".into(),
+        DocDefault::Other(quote! {#textdelim_type::default()}, "30".into()),
     );
 
     let write_2_0_warning = if version == Version::FCS2_0 {
@@ -355,9 +359,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     let shortname_type =
         parse_str::<Path>("fireflow_core::validated::shortname::Shortname").unwrap();
-
-    let textdelim_type =
-        parse_str::<Path>("fireflow_core::validated::textdelim::TEXTDelim").unwrap();
 
     let timestep_type = parse_str::<Path>("fireflow_core::text::keywords::Timestep").unwrap();
 
@@ -443,7 +444,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         vec![
             path_param,
             textdelim_param,
-            DocArg::new_param(
+            DocArg::new_param_def(
                 "skip_conversion_check".into(),
                 PyType::Bool,
                 "Skip check to ensure that types of the dataframe match the \
@@ -454,6 +455,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
                  traversed twice to perform the conversion check, but may \
                  result in loss of precision and/or truncation."
                     .into(),
+                DocDefault::Bool(false),
             ),
         ],
         None,
@@ -461,10 +463,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     let write_dataset_mtd = quote! {
         #write_dataset_doc
-        #[pyo3(
-            signature = (path, delim = #textdelim_type::default(), skip_conversion_check = false),
-            text_signature = "(path, delim = 30, skip_conversion_check = False)"
-        )]
         fn write_dataset(
             &self,
             path: PathBuf,
@@ -945,10 +943,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         }
 
         #write_text_doc
-        #[pyo3(
-            signature = (path, delim = #textdelim_type::default()),
-            text_signature = "(path, delim = 30)"
-        )]
         fn write_text(&self, path: PathBuf, delim: #textdelim_type) -> PyResult<()> {
             let f = File::options().write(true).create(true).open(path)?;
             let mut h = BufWriter::new(f);
@@ -1417,7 +1411,7 @@ impl NewArgInfo {
         } else {
             ArgType::Param
         };
-        DocArg::new(at, argname, pytype, desc)
+        DocArg::new(at, argname, pytype, desc, None)
     }
 }
 

@@ -1198,46 +1198,6 @@ impl_get_set_all_meas! {
     PyCoreDataset3_2
 }
 
-// Add method to convert CoreTEXT* to CoreDataset* by adding DATA, ANALYSIS, and
-// OTHER(s) (all versions)
-macro_rules! impl_to_dataset {
-    ($from:ident, $to:ident) => {
-        #[pymethods]
-        // TODO use proc macro to get return type in docstring
-        impl $from {
-            /// Convert to a dataset object.
-            ///
-            /// This will fully represent an FCS file, as opposed to just
-            /// representing *HEADER* and *TEXT*.
-            ///
-            /// :param df: Columns corresponding to *DATA*.
-            /// :type df: :py:class:`polars.DataFrame`
-            /// :param analysis: Bytes corresponding to *ANALYSIS*.
-            /// :type analysis: bytes
-            /// :param others: Bytes corresponding to *OTHERS*.
-            /// :type others: list[bytes]
-            #[pyo3(text_signature = "(df, analysis = b\"\", others = [])")]
-            fn to_dataset(
-                &self,
-                df: FCSDataFrame,
-                analysis: core::Analysis,
-                others: core::Others,
-            ) -> PyResult<$to> {
-                Ok(self
-                    .0
-                    .clone()
-                    .into_coredataset(df, analysis, others)?
-                    .into())
-            }
-        }
-    };
-}
-
-// impl_to_dataset!(PyCoreTEXT2_0, PyCoreDataset2_0);
-// impl_to_dataset!(PyCoreTEXT3_0, PyCoreDataset3_0);
-// impl_to_dataset!(PyCoreTEXT3_1, PyCoreDataset3_1);
-// impl_to_dataset!(PyCoreTEXT3_2, PyCoreDataset3_2);
-
 // TODO move all this stuff to proc
 macro_rules! impl_meas_get_set_common {
     ($pytype:ident) => {

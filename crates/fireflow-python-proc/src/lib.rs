@@ -155,7 +155,8 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let param_type_set_layout =
         DocArg::new_param("layout".into(), layout_pytype, "The new layout.".into());
 
-    let param_type_set_df = DocArg::new_param("df".to_string(), df_pytype, "The new data.".into());
+    let param_type_set_df =
+        DocArg::new_param("df".to_string(), df_pytype.clone(), "The new data.".into());
 
     let param_allow_shared_names = DocArg::new_param(
         "allow_shared_named".into(),
@@ -812,6 +813,54 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         quote! {}
     };
 
+    let to_dataset_doc = DocString::new(
+        "Convert to a dataset object.".into(),
+        vec!["This will fully represent an FCS file, as opposed to just \
+             representing *HEADER* and *TEXT*."
+            .into()],
+        vec![
+            DocArg::new_param(
+                "df".into(),
+                df_pytype,
+                "Columns corresponding to *DATA*".into(),
+            ),
+            DocArg::new_param(
+                "analysis".into(),
+                PyType::Bytes,
+                "Bytes corresponding to *ANALYSIS*".into(),
+            ),
+            DocArg::new_param(
+                "others".into(),
+                PyType::new_list(PyType::Bytes),
+                "Bytes corresponding to *OTHER* segments".into(),
+            ),
+        ],
+        Some(DocReturn::new(
+            PyType::PyClass(coredataset_pytype.to_string()),
+            None,
+        )),
+    );
+
+    let to_dataset_mtd = quote! {
+        #to_dataset_doc
+        #[pyo3(
+            signature = (df, analysis = #analysis_type::default(), others = #others_type::default()),
+            text_signature = "(df, analysis = b\"\", others = [])"
+        )]
+        fn to_dataset(
+            &self,
+            df: FCSDataFrame,
+            analysis: core::Analysis,
+            others: core::Others,
+        ) -> PyResult<#coredataset_pytype> {
+            Ok(self
+               .0
+               .clone()
+               .into_coredataset(df, analysis, others)?
+               .into())
+        }
+    };
+
     // methods which apply to both Coretext* and CoreDataset*
     let common = quote! {
         #par_doc
@@ -938,6 +987,8 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             #set_meas_and_layout_method
 
             #common
+
+            #to_dataset_mtd
         }
 
         #coredataset_doc

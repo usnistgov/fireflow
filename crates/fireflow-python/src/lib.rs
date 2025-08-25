@@ -1233,10 +1233,10 @@ macro_rules! impl_to_dataset {
     };
 }
 
-impl_to_dataset!(PyCoreTEXT2_0, PyCoreDataset2_0);
-impl_to_dataset!(PyCoreTEXT3_0, PyCoreDataset3_0);
-impl_to_dataset!(PyCoreTEXT3_1, PyCoreDataset3_1);
-impl_to_dataset!(PyCoreTEXT3_2, PyCoreDataset3_2);
+// impl_to_dataset!(PyCoreTEXT2_0, PyCoreDataset2_0);
+// impl_to_dataset!(PyCoreTEXT3_0, PyCoreDataset3_0);
+// impl_to_dataset!(PyCoreTEXT3_1, PyCoreDataset3_1);
+// impl_to_dataset!(PyCoreTEXT3_2, PyCoreDataset3_2);
 
 // TODO move all this stuff to proc
 macro_rules! impl_meas_get_set_common {

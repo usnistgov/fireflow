@@ -358,6 +358,8 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let textdelim_type =
         parse_str::<Path>("fireflow_core::validated::textdelim::TEXTDelim").unwrap();
 
+    let timestep_type = parse_str::<Path>("fireflow_core::text::keywords::Timestep").unwrap();
+
     let tr_type = parse_str::<Path>("fireflow_core::text::keywords::Trigger").unwrap();
 
     let get_set_all_pnn_maybe = if version < Version::FCS3_1 {
@@ -478,6 +480,157 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         }
     };
 
+    let make_set_temporal_doc = |has_timestep: bool, has_index: bool| {
+        let name = DocArg::new_param(
+            "name".into(),
+            PyType::Str,
+            "Name to set. Must be a *$PnN* which is present.".into(),
+        );
+        let index = DocArg::new_param("index".into(), PyType::Int, "Index to set".into());
+        let (i, p) = if has_index {
+            ("index", index)
+        } else {
+            ("name", name)
+        };
+        let timestep = if has_timestep {
+            Some(DocArg::new_param(
+                "timestep".into(),
+                PyType::Float,
+                "The value of *$TIMESTEP* to use.".into(),
+            ))
+        } else {
+            None
+        };
+        let force = DocArg::new_param(
+            "force".into(),
+            PyType::Str,
+            "If ``True`` remove any optical-specific metadata (detectors, \
+             lasers, etc) without raising an exception. Defauls to ``False``."
+                .into(),
+        );
+        let ps = [p].into_iter().chain(timestep).chain([force]).collect();
+        DocString::new(
+            format!("Set the temporal measurement to a given {i}."),
+            vec![],
+            ps,
+            Some(DocReturn::new(
+                PyType::Bool,
+                Some(format!(
+                    "``True`` if temporal measurement was set, which will \
+                     happen for all cases except when the time measurement is \
+                     already set to ``{i}``."
+                )),
+            )),
+        )
+    };
+
+    let set_temporal_mtds = if version == Version::FCS2_0 {
+        let name_doc = make_set_temporal_doc(false, false);
+        let index_doc = make_set_temporal_doc(false, true);
+        quote! {
+            #name_doc
+            #[pyo3(signature = (name, force = false))]
+            fn set_temporal(&mut self, name: #shortname_type, force: bool) -> PyResult<bool> {
+                self.0.set_temporal(&name, (), force).py_term_resolve()
+            }
+
+            #index_doc
+            #[pyo3(signature = (index, force = false))]
+            fn set_temporal_at(&mut self, index: MeasIndex, force: bool) -> PyResult<bool> {
+                self.0.set_temporal_at(index, (), force).py_term_resolve()
+            }
+        }
+    } else {
+        let name_doc = make_set_temporal_doc(true, false);
+        let index_doc = make_set_temporal_doc(true, true);
+        quote! {
+            #name_doc
+            #[pyo3(signature = (name, timestep, force = false))]
+            fn set_temporal(
+                &mut self,
+                name: #shortname_type,
+                timestep: #timestep_type,
+                force: bool,
+            ) -> PyResult<bool> {
+                self.0
+                    .set_temporal(&name, timestep, force)
+                    .py_term_resolve()
+            }
+
+            #index_doc
+            #[pyo3(signature = (index, timestep, force = false))]
+            fn set_temporal_at(
+                &mut self,
+                index: MeasIndex,
+                timestep: #timestep_type,
+                force: bool,
+            ) -> PyResult<bool> {
+                self.0
+                    .set_temporal_at(index, timestep, force)
+                    .py_term_resolve()
+            }
+        }
+    };
+
+    let make_unset_temporal_doc = |has_timestep: bool, has_force: bool| {
+        let s = "Convert the temporal measurement to an optical measurement.".into();
+        let p = if has_force {
+            Some(DocArg::new_param(
+                "bool".into(),
+                PyType::Bool,
+                "If ``True`` and current time measurement has data which cannot \
+                 be converted to optical, force the conversion anyways. \
+                 Otherwise raise an exception."
+                    .into(),
+            ))
+        } else {
+            None
+        }
+        .into_iter()
+        .collect();
+        let (rt, rd) = if has_timestep {
+            (
+                PyType::new_opt(PyType::Float),
+                "Value of *$TIMESTEP* if time measurement was present.".into(),
+            )
+        } else {
+            (
+                PyType::Bool,
+                "``True`` if temporal measurement was present and converted, \
+                 ``False`` if there was not a temporal measurement."
+                    .into(),
+            )
+        };
+        DocString::new(s, vec![], p, Some(DocReturn::new(rt, Some(rd))))
+    };
+
+    let unset_temporal_mtd = if version == Version::FCS2_0 {
+        let doc = make_unset_temporal_doc(false, false);
+        quote! {
+            #doc
+            fn unset_temporal(&mut self) -> bool {
+                self.0.unset_temporal().is_some()
+            }
+        }
+    } else if version < Version::FCS3_2 {
+        let doc = make_unset_temporal_doc(true, false);
+        quote! {
+            #doc
+            fn unset_temporal(&mut self) -> Option<#timestep_type> {
+                self.0.unset_temporal()
+            }
+        }
+    } else {
+        let doc = make_unset_temporal_doc(true, true);
+        quote! {
+            #doc
+            #[pyo3(signature = (force = false))]
+            fn unset_temporal(&mut self, force: bool) -> PyResult<Option<#timestep_type>> {
+                self.0.unset_temporal_lossy(force).py_term_resolve()
+            }
+        }
+    };
+
     // methods which apply to both Coretext* and CoreDataset*
     let common = quote! {
         #par_doc
@@ -571,6 +724,9 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             let mut h = BufWriter::new(f);
             self.0.h_write_text(&mut h, delim).py_term_resolve_nowarn()
         }
+
+        #set_temporal_mtds
+        #unset_temporal_mtd
     };
 
     quote! {

@@ -68,14 +68,14 @@ impl DocArg {
         Self::new(ArgType::Param, argname, pytype, desc, None)
     }
 
-    // pub(crate) fn new_ivar_def(
-    //     argname: String,
-    //     pytype: PyType,
-    //     desc: String,
-    //     def: DocDefault,
-    // ) -> Self {
-    //     Self::new(ArgType::Ivar, argname, pytype, desc, Some(def))
-    // }
+    pub(crate) fn new_ivar_def(
+        argname: String,
+        pytype: PyType,
+        desc: String,
+        def: DocDefault,
+    ) -> Self {
+        Self::new(ArgType::Ivar, argname, pytype, desc, Some(def))
+    }
 
     pub(crate) fn new_param_def(
         argname: String,
@@ -198,7 +198,12 @@ impl DocString {
             })
     }
 
-    fn sig(&self) -> TokenStream {
+    pub(crate) fn doc(&self) -> TokenStream {
+        let s = self.to_string();
+        quote! {#[doc = #s]}
+    }
+
+    pub(crate) fn sig(&self) -> TokenStream {
         if let Err(e) = self
             .args
             .iter()
@@ -240,10 +245,10 @@ impl DocString {
 
 impl ToTokens for DocString {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let s = self.to_string();
+        let doc = self.doc();
         let sig = self.sig();
         quote! {
-            #[doc = #s]
+            #doc
             #sig
         }
         .to_tokens(tokens);

@@ -2189,7 +2189,7 @@ pub fn impl_meas_get_set(input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn impl_gated_meas(_: TokenStream) -> TokenStream {
-    let scale = DocArg::new_ivar(
+    let scale = DocArg::new_ivar_def(
         "scale".into(),
         PyType::new_opt(PyType::new_union2(
             PyType::new_unit(),
@@ -2198,12 +2198,14 @@ pub fn impl_gated_meas(_: TokenStream) -> TokenStream {
         "The *$GmE* keyword. ``()`` means linear scaling and 2-tuple \
          specifies decades and offset for log scaling."
             .into(),
+        DocDefault::Option,
     );
     let make_arg = |n: &str, kw: &str, t: PyType| {
-        DocArg::new_ivar(
+        DocArg::new_ivar_def(
             n.into(),
             PyType::new_opt(t),
             format!("The *$Gm{kw}* keyword."),
+            DocDefault::Option,
         )
     };
     let filter = make_arg("filter", "F", PyType::Str);
@@ -2261,9 +2263,12 @@ pub fn impl_gated_meas(_: TokenStream) -> TokenStream {
     .map(|(n, t)| make_get_set(n, t))
     .collect();
 
+    let docstring = doc.doc();
+    let signature = doc.sig();
+
     quote! {
         // TODO not dry
-        #doc
+        #docstring
         #[pyclass(name = "GatedMeasurement", eq)]
         #[derive(Clone, From, Into, PartialEq)]
         pub struct PyGatedMeasurement(fireflow_core::text::gating::GatedMeasurement);
@@ -2274,16 +2279,7 @@ pub fn impl_gated_meas(_: TokenStream) -> TokenStream {
             #[new]
             #[allow(clippy::too_many_arguments)]
             // TODO this sig is separate from the docstring :/
-            #[pyo3(signature = (
-                scale = None,
-                filter = None,
-                shortname = None,
-                percent_emitted = None,
-                range = None,
-                longname = None,
-                detector_type = None,
-                detector_voltage = None,
-            ))]
+            #signature
             fn new(
                 scale: Option<kws::GateScale>,
                 filter: Option<kws::GateFilter>,

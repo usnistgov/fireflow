@@ -27,13 +27,13 @@ use fireflow_core::text::scale::Scale;
 use fireflow_core::text::spillover::Spillover;
 use fireflow_core::text::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime100, FCSTime60};
 use fireflow_core::text::unstainedcenters::UnstainedCenters;
-use fireflow_core::validated::bitmask as bm;
 use fireflow_core::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
 use fireflow_core::validated::keys::{NonStdKey, StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::Shortname;
 use fireflow_python_proc::{
     impl_convert_version, impl_gated_meas, impl_get_set_all_meas, impl_get_set_meas_obj_common,
     impl_get_set_metaroot, impl_meas_get_set, impl_new_core, impl_new_meas,
+    impl_new_ordered_layout,
 };
 
 use derive_more::{From, Into};
@@ -1812,123 +1812,14 @@ impl PyAsciiDelimLayout {
     }
 }
 
-macro_rules! impl_layout_new_ordered_uint {
-    ($pytype:ident, $bitmask:path, $name:expr, $size:expr, $summary:expr) => {
-        py_wrap! {
-            #[doc = $summary]
-            ///
-            /// :param ranges: The range for each measurement. Corresponds to
-            ///     *$PnR* - 1, which implies that the value for each
-            ///     measurement must be less than or equal to the values in
-            ///     ``ranges``. A bitmask will be created which corresponds to
-            ///     one less the next power of 2.
-            /// :type ranges: list[int]
-            ///
-            /// :param bool is_big: If ``True`` use big endian for encoding
-            ///     values, otherwise use little endian.
-            $pytype,
-            OrderedLayout<$bitmask, KnownTot>,
-            $name
-        }
-
-        #[pymethods]
-        impl $pytype {
-            #[new]
-            #[pyo3(signature = (ranges, is_big = false))]
-            fn new(ranges: Vec<$bitmask>, is_big: bool) -> Self {
-                FixedLayout::new_endian_uint(ranges, is_big.into()).into()
-            }
-
-            #[doc = $summary]
-            ///
-            /// This differs from the default constructor in that one can
-            /// specify a byte order if they wish.
-            ///
-            /// :param ranges: The range for each measurement. Corresponds to
-            ///     *$PnR* - 1, which implies that the value for each
-            ///     measurement must be less than or equal to the values in
-            ///     ``ranges``. A bitmask will be created which corresponds to
-            ///     one less the next power of 2.
-            /// :type ranges: list[int]
-            ///
-            /// :param byteord: The byte order to use when encoding values.
-            ///     Must be a list of indices starting at 0.
-            /// :type byteord: list[int]
-            #[classmethod]
-            fn new_ordered(
-                _: &Bound<'_, PyType>,
-                ranges: Vec<$bitmask>,
-                byteord: SizedByteOrd<$size>,
-            ) -> Self {
-                FixedLayout::new(ranges, byteord).into()
-            }
-        }
-    };
-}
-
-impl_layout_new_ordered_uint!(
-    PyOrderedUint08Layout,
-    bm::Bitmask08,
-    "OrderedUint08Layout",
-    1,
-    "An 8-bit ordered integer layout."
-);
-
-impl_layout_new_ordered_uint!(
-    PyOrderedUint16Layout,
-    bm::Bitmask16,
-    "OrderedUint16Layout",
-    2,
-    "A 16-bit ordered integer layout."
-);
-
-impl_layout_new_ordered_uint!(
-    PyOrderedUint24Layout,
-    bm::Bitmask24,
-    "OrderedUint24Layout",
-    3,
-    "A 24-bit ordered integer layout."
-);
-
-impl_layout_new_ordered_uint!(
-    PyOrderedUint32Layout,
-    bm::Bitmask32,
-    "OrderedUint32Layout",
-    4,
-    "A 32-bit ordered integer layout."
-);
-
-impl_layout_new_ordered_uint!(
-    PyOrderedUint40Layout,
-    bm::Bitmask40,
-    "OrderedUint40Layout",
-    5,
-    "A 40-bit ordered integer layout."
-);
-
-impl_layout_new_ordered_uint!(
-    PyOrderedUint48Layout,
-    bm::Bitmask48,
-    "OrderedUint48Layout",
-    6,
-    "A 48-bit ordered integer layout."
-);
-
-impl_layout_new_ordered_uint!(
-    PyOrderedUint56Layout,
-    bm::Bitmask56,
-    "OrderedUint56Layout",
-    7,
-    "A 56-bit ordered integer layout."
-);
-
-impl_layout_new_ordered_uint!(
-    PyOrderedUint64Layout,
-    bm::Bitmask64,
-    "OrderedUint64Layout",
-    8,
-    "A 64-bit ordered integer layout."
-);
+impl_new_ordered_layout!(1);
+impl_new_ordered_layout!(2);
+impl_new_ordered_layout!(3);
+impl_new_ordered_layout!(4);
+impl_new_ordered_layout!(5);
+impl_new_ordered_layout!(6);
+impl_new_ordered_layout!(7);
+impl_new_ordered_layout!(8);
 
 macro_rules! impl_layout_new_ordered_float {
     ($pytype:ident, $range:path, $name:expr, $size:expr, $summary:expr) => {

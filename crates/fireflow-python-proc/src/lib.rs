@@ -854,8 +854,24 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         }
     };
 
+    let (mode_param, mode) = if version < Version::FCS3_2 {
+        let t = PyType::Literal("L".into(), vec!["U".into(), "C".into()]);
+        make_ivar_metaroot("Mode", "mode", t, "Value of *$MODE*.", None)
+    } else {
+        let t = PyType::Literal("L".into(), vec![]);
+        make_ivar_metaroot(
+            "Mode3_2",
+            "mode",
+            t,
+            "Value of *$MODE*.",
+            Some(DocDefault::Option),
+        )
+    };
+
     // methods which apply to both Coretext* and CoreDataset*
     let common = quote! {
+        #mode
+
         #par_doc
         #[getter]
         fn par(&self) -> usize {
@@ -1488,6 +1504,54 @@ pub fn impl_get_set_metaroot(input: TokenStream) -> TokenStream {
         .collect();
 
     quote! {#(#outputs)*}.into()
+}
+
+fn make_ivar_metaroot(
+    kw: &str,
+    name: &str,
+    pytype: PyType,
+    desc: &str,
+    def: Option<DocDefault>,
+) -> (DocArg, proc_macro2::TokenStream) {
+    let spath = format!("fireflow_core::text::keywords::{kw}");
+    let path = parse_str::<Path>(spath.as_str()).expect("not a valid path");
+    let get = format_ident!("get_{name}");
+    let set = format_ident!("set_{name}");
+
+    let (optional, d) = if let Some(d) = def {
+        let optional = matches!(d, DocDefault::Option);
+        let t = if optional {
+            PyType::new_opt(pytype)
+        } else {
+            pytype
+        };
+        let a = DocArg::new_ivar_def(name.to_string(), t, desc.to_string(), d);
+        (optional, a)
+    } else {
+        let a = DocArg::new_ivar(name.to_string(), pytype, desc.to_string());
+        (false, a)
+    };
+
+    let get_inner = format_ident!("{}", if optional { "metaroot_opt" } else { "metaroot" });
+    let clone_inner = format_ident!("{}", if optional { "cloned" } else { "clone" });
+    let full_kw = if optional {
+        quote! {Option<#path>}
+    } else {
+        quote! {#path}
+    };
+
+    let q = quote! {
+        #[getter]
+        fn #get(&self) -> #full_kw {
+            self.0.#get_inner::<#path>().#clone_inner()
+        }
+
+        #[setter]
+        fn #set(&mut self, x: #full_kw) {
+            self.0.set_metaroot(x)
+        }
+    };
+    (d, q)
 }
 
 #[proc_macro]
@@ -2329,7 +2393,6 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
     let layout_path = make_path(layout_type.as_str()).1;
 
     let layout_name = format!("OrderedUint{:02}Layout", nbits);
-    let layout_pyname = format_ident!("Py{layout_name}");
 
     let fixed_layout_path = make_path("FixedLayout").1;
     let sizedbyteord_path: Path = parse_quote!(fireflow_core::text::byteord::SizedByteOrd);
@@ -2374,25 +2437,13 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
         None,
     );
 
-    let constr_docstring = constr_doc.doc();
-    let constr_signature = constr_doc.sig();
-
-    quote! {
-        // TODO not dry
-        #constr_docstring
-        #[pyclass(name = #layout_name, eq)]
-        #[derive(Clone, From, Into, PartialEq)]
-        pub struct #layout_pyname(#layout_path);
-
-        // TODO this also doesn't seem DRY
-        #[pymethods]
-        impl #layout_pyname {
-            #constr_signature
-            #[new]
+    let constr = quote! {
             fn new(ranges: Vec<#bitmask_path>, is_big: bool) -> Self {
                 #fixed_layout_path::new_endian_uint(ranges, is_big.into()).into()
             }
+    };
 
+    let rest = quote! {
             #byteord_doc
             #[classmethod]
             fn new_ordered(
@@ -2402,9 +2453,38 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
             ) -> Self {
                 #fixed_layout_path::new(ranges, byteord).into()
             }
+    };
+
+    impl_new(layout_name, layout_path, constr_doc, constr, rest).1
+}
+
+fn impl_new(
+    name: String,
+    path: Path,
+    d: DocString,
+    constr: proc_macro2::TokenStream,
+    rest: proc_macro2::TokenStream,
+) -> (Ident, TokenStream) {
+    let doc = d.doc();
+    let sig = d.sig();
+    let pyname = format_ident!("Py{name}");
+    let s = quote! {
+        #doc
+        #[pyclass(name = #name, eq)]
+        #[derive(Clone, From, Into, PartialEq)]
+        pub struct #pyname(#path);
+
+        // TODO automatically make args here
+        #[pymethods]
+        impl #pyname {
+            #sig
+            #[new]
+            #constr
+
+            #rest
         }
-    }
-    .into()
+    };
+    (pyname, s.into())
 }
 
 #[derive(Debug)]

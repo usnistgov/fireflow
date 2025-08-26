@@ -55,6 +55,7 @@ pub(crate) enum PyType {
     Union(Box<PyType>, Box<PyType>, Vec<PyType>),
     Tuple(Vec<PyType>),
     List(Box<PyType>),
+    Literal(String, Vec<String>),
     PyClass(String),
     Raw(String),
 }
@@ -336,6 +337,9 @@ impl fmt::Display for PyType {
                 } else {
                     write!(f, "tuple[{}]", xs.iter().join(", "))
                 }
+            }
+            Self::Literal(x, xs) => {
+                write!(f, "Literal[{}]", [x].into_iter().chain(xs).join(", "))
             }
             Self::List(x) => write!(f, "list[{x}]"),
             Self::Dict(x, y) => write!(f, "dict[{x}, {y}]"),

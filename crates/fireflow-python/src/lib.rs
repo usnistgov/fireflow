@@ -1040,25 +1040,6 @@ impl_get_set_metaroot! {
     PyCoreDataset3_2
 }
 
-// Get/set methods for $MODE (2.0-3.1)
-impl_get_set_metaroot! {
-    kws::Mode,
-    PyCoreTEXT2_0,
-    PyCoreTEXT3_0,
-    PyCoreTEXT3_1,
-    PyCoreDataset2_0,
-    PyCoreDataset3_0,
-    PyCoreDataset3_1
-}
-
-// Get/set methods for $MODE (3.2)
-impl_get_set_metaroot! {
-    Option<kws::Mode3_2>,
-    "MODE",
-    PyCoreTEXT3_2,
-    PyCoreDataset3_2
-}
-
 // Get/set methods for (optional) $CYT (2.0-3.1)
 //
 // 3.2 is required which is why it is not included here

@@ -14,11 +14,11 @@ pub(crate) struct DocString {
 
 #[derive(Clone, new)]
 pub(crate) struct DocArg {
-    argtype: ArgType,
-    argname: String,
-    pytype: PyType,
-    desc: String,
-    default: Option<DocDefault>,
+    pub(crate) argtype: ArgType,
+    pub(crate) argname: String,
+    pub(crate) pytype: PyType,
+    pub(crate) desc: String,
+    pub(crate) default: Option<DocDefault>,
 }
 
 #[derive(Clone)]
@@ -174,10 +174,14 @@ impl PyType {
     }
 
     pub(crate) fn new_union2(x: PyType, y: PyType) -> Self {
-        Self::new_union(x, y, vec![])
+        Self::new_union(vec![x, y])
     }
 
-    pub(crate) fn new_union(x0: PyType, x1: PyType, xs: Vec<PyType>) -> Self {
+    pub(crate) fn new_union(xs: Vec<PyType>) -> Self {
+        let mut it = xs.into_iter();
+        let x0 = it.next().expect("Union cannot be empty");
+        let x1 = it.next().expect("Union must have at least 2 types");
+        let xs = it.collect();
         Self::Union(Box::new(x0), Box::new(x1), xs)
     }
 

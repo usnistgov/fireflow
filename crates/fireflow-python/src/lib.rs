@@ -742,14 +742,14 @@ impl PyTemporal3_2 {
     }
 }
 
-impl_convert_version! {PyCoreTEXT2_0}
-impl_convert_version! {PyCoreTEXT3_0}
-impl_convert_version! {PyCoreTEXT3_1}
-impl_convert_version! {PyCoreTEXT3_2}
-impl_convert_version! {PyCoreDataset2_0}
-impl_convert_version! {PyCoreDataset3_0}
-impl_convert_version! {PyCoreDataset3_1}
-impl_convert_version! {PyCoreDataset3_2}
+// impl_convert_version! {PyCoreTEXT2_0}
+// impl_convert_version! {PyCoreTEXT3_0}
+// impl_convert_version! {PyCoreTEXT3_1}
+// impl_convert_version! {PyCoreTEXT3_2}
+// impl_convert_version! {PyCoreDataset2_0}
+// impl_convert_version! {PyCoreDataset3_0}
+// impl_convert_version! {PyCoreDataset3_1}
+// impl_convert_version! {PyCoreDataset3_2}
 
 // Get/set methods for all versions
 macro_rules! impl_common {

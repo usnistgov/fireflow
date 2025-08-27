@@ -8,7 +8,7 @@ use fireflow_core::header::Version;
 
 use proc_macro::TokenStream;
 
-use itertools::{multiunzip, Itertools};
+use itertools::Itertools;
 use quote::{format_ident, quote, ToTokens};
 use syn::{
     parenthesized,
@@ -25,10 +25,9 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let info = parse_macro_input!(input as NewCoreInfo);
     let coretext_rstype = info.coretext_type;
     let coredataset_rstype = info.coredataset_type;
-    let meas_rstype = &info.meas_rstype;
-    let layout_rstype = &info.layout_rstype;
+    // let meas_rstype = &info.meas_rstype;
+    // let layout_rstype = &info.layout_rstype;
     let fun = info.fun;
-    let args = info.args;
 
     let df_type = parse_str::<Path>("fireflow_core::validated::dataframe::FCSDataFrame").unwrap();
     let analysis_type = parse_str::<Path>("fireflow_core::core::Analysis").unwrap();
@@ -45,106 +44,233 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let coretext_pytype = format_ident!("Py{coretext_name}");
     let coredataset_pytype = format_ident!("Py{coredataset_name}");
 
-    let meas_pytype = PyType::Raw(info.meas_pytype.value());
-    let layout_pytype = PyType::Raw(info.layout_pytype.value());
-    let df_pytype = PyType::PyClass("polars.DataFrame".into());
+    // let meas_pytype = PyType::Raw(info.meas_pytype.value());
+    // let layout_pytype = PyType::Raw(info.layout_pytype.value());
+    // let df_pytype = PyType::PyClass("polars.DataFrame".into());
 
-    let meas = NewArgInfo::new(
-        "measurements",
-        meas_rstype.clone(),
-        false,
-        &meas_pytype,
-        Some(info.meas_desc.value().as_str()),
-        None,
-    );
+    // let meas = NewArgInfo::new(
+    //     "measurements",
+    //     meas_rstype.clone(),
+    //     false,
+    //     &meas_pytype,
+    //     Some(info.meas_desc.value().as_str()),
+    //     None,
+    // );
 
-    let layout = NewArgInfo::new(
-        "layout",
-        layout_rstype.clone(),
-        false,
-        &layout_pytype,
-        Some(info.layout_desc.value().as_str()),
-        None,
-    );
+    // let layout = NewArgInfo::new(
+    //     "layout",
+    //     layout_rstype.clone(),
+    //     false,
+    //     &layout_pytype,
+    //     Some(info.layout_desc.value().as_str()),
+    //     None,
+    // );
 
-    let df = NewArgInfo::new(
-        "df",
-        df_type.clone(),
-        false,
-        &df_pytype,
-        Some(
-            "A dataframe encoding the contents of *DATA*. Number of columns must \
-             match number of measurements. May be empty. Types do not necessarily \
-             need to correspond to those in the data layout but mismatches may \
-             result in truncation.",
+    // let df = NewArgInfo::new(
+    //     "df",
+    //     df_type.clone(),
+    //     false,
+    //     &df_pytype,
+    //     Some(
+    //         "A dataframe encoding the contents of *DATA*. Number of columns must \
+    //          match number of measurements. May be empty. Types do not necessarily \
+    //          need to correspond to those in the data layout but mismatches may \
+    //          result in truncation.",
+    //     ),
+    //     None,
+    // );
+
+    // let analysis = NewArgInfo::new(
+    //     "analysis",
+    //     analysis_type.clone(),
+    //     true,
+    //     &PyType::Bytes,
+    //     Some("A byte string encoding the *ANALYSIS* segment."),
+    //     Some(ArgDefault {
+    //         rsval: quote! {#analysis_type::default()},
+    //         pyval: "b\"\"".to_string(),
+    //     }),
+    // );
+
+    // let others = NewArgInfo::new(
+    //     "others",
+    //     others_type.clone(),
+    //     true,
+    //     &PyType::new_list(PyType::Bytes),
+    //     Some("Byte strings encoding the *OTHER* segments."),
+    //     Some(ArgDefault {
+    //         rsval: quote! {#others_type::default()},
+    //         pyval: "[]".to_string(),
+    //     }),
+    // );
+
+    let (fam_ident, name_pytype) = if version < Version::FCS3_1 {
+        (format_ident!("MaybeFamily"), PyType::new_opt(PyType::Str))
+    } else {
+        (format_ident!("AlwaysFamily"), PyType::Str)
+    };
+    let fam_path = quote!(fireflow_core::text::optional::#fam_ident);
+    let meas_opt_name = format!("Optical{}", version.short_underscore());
+    let meas_tmp_name = format!("Temporal{}", version.short_underscore());
+    let meas_opt_pyname = format_ident!("Py{meas_opt_name}");
+    let meas_tmp_pyname = format_ident!("Py{meas_tmp_name}");
+    let meas_pytype = PyType::Tuple(vec![
+        name_pytype,
+        PyType::new_union2(
+            PyType::PyClass(meas_tmp_name),
+            PyType::PyClass(meas_opt_name),
         ),
-        None,
+    ]);
+    let meas_desc0 = "Measurements corresponding to columns in FCS file. \
+                      Temporal must be given zero or one times.";
+    let meas_doc = DocArg::new_param(
+        "measurements".into(),
+        meas_pytype.clone(),
+        meas_desc0.into(),
+    );
+    let meas_argtype: Path = parse_quote!(PyEithers<#fam_path, #meas_tmp_pyname, #meas_opt_pyname>);
+
+    let meas = ArgData::new(meas_doc, meas_argtype.clone());
+
+    let non_mixed_layouts = [
+        "AsciiFixedLayout",
+        "AsciiDelimLayout",
+        "EndianUintLayout",
+        "EndianF32Layout",
+        "EndianF64Layout",
+    ];
+
+    let (layout_name, layout_pytype) = match version {
+        Version::FCS3_2 => {
+            let ys = non_mixed_layouts
+                .iter()
+                .chain(&["MixedLayout"])
+                .map(|x| PyType::PyClass(x.to_string()))
+                .collect();
+            ("PyLayout3_2", PyType::new_union(ys))
+        }
+        Version::FCS3_1 => {
+            let ys = non_mixed_layouts
+                .iter()
+                .map(|x| PyType::PyClass(x.to_string()))
+                .collect();
+            ("PyNonMixedLayout", PyType::new_union(ys))
+        }
+        _ => {
+            let xs = [
+                "AsciiFixedLayout",
+                "AsciiDelimLayout",
+                "OrderedUint08Layout",
+                "OrderedUint16Layout",
+                "OrderedUint24Layout",
+                "OrderedUint32Layout",
+                "OrderedUint40Layout",
+                "OrderedUint48Layout",
+                "OrderedUint56Layout",
+                "OrderedUint64Layout",
+                "OrderedF32Layout",
+                "OrderedF64Layout",
+            ];
+            let ys = xs.iter().map(|x| PyType::PyClass(x.to_string())).collect();
+            ("PyOrderedLayout", PyType::new_union(ys))
+        }
+    };
+    let layout_ident = format_ident!("{layout_name}");
+    let layout_argname = format_ident!("layout");
+    let layout_desc = if version == Version::FCS3_2 {
+        "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*, \
+         *$DATATYPE*, and *$PnDATATYPE*."
+    } else {
+        "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*, \
+         and *$DATATYPE*."
+    };
+
+    let layout_doc = DocArg::new_param(
+        layout_argname.to_string(),
+        layout_pytype.clone(),
+        layout_desc.into(),
     );
 
-    let analysis = NewArgInfo::new(
-        "analysis",
-        analysis_type.clone(),
-        true,
-        &PyType::Bytes,
-        Some("A byte string encoding the *ANALYSIS* segment."),
-        Some(ArgDefault {
-            rsval: quote! {#analysis_type::default()},
-            pyval: "b\"\"".to_string(),
-        }),
+    let layout = ArgData::new(layout_doc, parse_quote!(#layout_ident));
+
+    // let df = NewArgInfo::new(
+    //     "df",
+    //     df_type.clone(),
+    //     false,
+    //     &df_pytype,
+    //     Some(
+    //         "A dataframe encoding the contents of *DATA*. Number of columns must \
+    //          match number of measurements. May be empty. Types do not necessarily \
+    //          need to correspond to those in the data layout but mismatches may \
+    //          result in truncation.",
+    //     ),
+    //     None,
+    // );
+
+    let df_pytype = PyType::PyClass("polars.DataFrame".into());
+    let df_doc = DocArg::new_param(
+        "df".into(),
+        df_pytype.clone(),
+        "A dataframe encoding the contents of *DATA*. Number of columns must \
+         match number of measurements. May be empty. Types do not necessarily \
+         need to correspond to those in the data layout but mismatches may \
+         result in truncation."
+            .into(),
     );
+    let fcs_df_path = parse_quote!(fireflow_core::validated::dataframe::FCSDataFrame);
 
-    let others = NewArgInfo::new(
-        "others",
-        others_type.clone(),
-        true,
-        &PyType::new_list(PyType::Bytes),
-        Some("Byte strings encoding the *OTHER* segments."),
-        Some(ArgDefault {
-            rsval: quote! {#others_type::default()},
-            pyval: "[]".to_string(),
-        }),
+    let df = ArgData::new(df_doc, fcs_df_path);
+
+    let analysis_rstype = parse_quote!(fireflow_core::core::Analysis);
+    let analysis_doc = DocArg::new_ivar_def(
+        "analysis".into(),
+        PyType::Bytes,
+        "A byte string encoding the *ANALYSIS* segment".into(),
+        DocDefault::Other(quote! {#analysis_rstype::default()}, "b\"\"".to_string()),
     );
+    let analysis = ArgData::new(analysis_doc, analysis_rstype);
 
-    let coretext_args: Vec<_> = [&meas, &layout]
-        .into_iter()
-        .chain(args.as_slice())
-        .collect();
-    let coredataset_args: Vec<_> = [&meas, &layout, &df]
-        .into_iter()
-        .chain(args.as_slice())
-        .chain([&analysis, &others])
-        .collect();
+    // let analysis = NewArgInfo::new(
+    //     "analysis",
+    //     analysis_type.clone(),
+    //     true,
+    //     &PyType::Bytes,
+    //     Some("A byte string encoding the *ANALYSIS* segment."),
+    //     Some(ArgDefault {
+    //         rsval: quote! {#analysis_type::default()},
+    //         pyval: "b\"\"".to_string(),
+    //     }),
+    // );
 
-    let coretext_funargs: Vec<_> = coretext_args.iter().map(|x| x.make_fun_arg()).collect();
-    let coredataset_funargs: Vec<_> = coredataset_args.iter().map(|x| x.make_fun_arg()).collect();
+    // let others = NewArgInfo::new(
+    //     "others",
+    //     others_type.clone(),
+    //     true,
+    //     &PyType::new_list(PyType::Bytes),
+    //     Some("Byte strings encoding the *OTHER* segments."),
+    //     Some(ArgDefault {
+    //         rsval: quote! {#others_type::default()},
+    //         pyval: "[]".to_string(),
+    //     }),
+    // );
 
-    let coretext_inner_args: Vec<_> = coretext_args.iter().map(|x| x.make_argname()).collect();
-
-    let coretext_sig_args: Vec<_> = coretext_args.iter().map(|x| x.make_sig()).collect();
-    let coredataset_sig_args: Vec<_> = coredataset_args.iter().map(|x| x.make_sig()).collect();
-
-    let _coretext_txt_sig_args = coretext_args.iter().map(|x| x.make_txt_sig()).join(",");
-    let coretext_txt_sig = format!("({_coretext_txt_sig_args})");
-
-    let _coredataset_txt_sig_args = coredataset_args.iter().map(|x| x.make_txt_sig()).join(",");
-    let coredataset_txt_sig = format!("({_coredataset_txt_sig_args})");
-
-    let coretext_params: Vec<_> = coretext_args.iter().map(|x| x.fmt_arg_doc()).collect();
-    let coredataset_params: Vec<_> = coredataset_args.iter().map(|x| x.fmt_arg_doc()).collect();
-
-    let coretext_doc = DocString::new(
-        format!("Represents *TEXT* for an FCS {v} file."),
-        vec![],
-        coretext_params,
-        None,
+    let others_rstype = parse_quote!(fireflow_core::core::Others);
+    let others_doc = DocArg::new_ivar_def(
+        "others".into(),
+        PyType::new_list(PyType::Bytes),
+        "A list of byte strings encoding the *OTHER* segments".into(),
+        DocDefault::Other(quote!(#others_rstype::default()), "[]".to_string()),
     );
+    let others = ArgData::new(others_doc, others_rstype);
 
-    let coredataset_doc = DocString::new(
-        format!("Represents one dataset in an FCS {v} file."),
-        vec![],
-        coredataset_params,
-        None,
-    );
+    // let coretext_sig_args: Vec<_> = coretext_args.iter().map(|x| x.make_sig()).collect();
+    // let coredataset_sig_args: Vec<_> = coredataset_args.iter().map(|x| x.make_sig()).collect();
+
+    // let _coretext_txt_sig_args = coretext_args.iter().map(|x| x.make_txt_sig()).join(",");
+    // let coretext_txt_sig = format!("({_coretext_txt_sig_args})");
+
+    // let _coredataset_txt_sig_args = coredataset_args.iter().map(|x| x.make_txt_sig()).join(",");
+    // let coredataset_txt_sig = format!("({_coredataset_txt_sig_args})");
 
     let param_type_set_meas = DocArg::new_param(
         "measurements".into(),
@@ -249,7 +375,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let set_meas_method = quote! {
         pub fn set_measurements(
             &mut self,
-            measurements: #meas_rstype,
+            measurements: #meas_argtype,
             allow_shared_names: bool,
             skip_index_check: bool,
         ) -> PyResult<()> {
@@ -266,8 +392,8 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let set_meas_and_layout_method = quote! {
         fn set_measurements_and_layout(
             &mut self,
-            measurements: #meas_rstype,
-            layout: #layout_rstype,
+            measurements: #meas_argtype,
+            layout: #layout_ident,
             allow_shared_names: bool,
             skip_index_check: bool,
         ) -> PyResult<()> {
@@ -638,11 +764,11 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             vec![s0, s1],
             vec![],
             Some(DocReturn::new(
-                PyType::new_list(PyType::new_union(
+                PyType::new_list(PyType::new_union(vec![
                     PyType::new_unit(),
                     PyType::Tuple(vec![PyType::Float, PyType::Float]),
-                    vec![PyType::None],
-                )),
+                    PyType::None,
+                ])),
                 None,
             )),
         );
@@ -1113,16 +1239,41 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             .collect(),
     };
 
-    let (fun_args, docs, methods): (Vec<_>, Vec<_>, Vec<_>) = multiunzip(
-        all_kws
-            .into_iter()
-            .map(|x| (x.fun_arg, x.doc, x.methods))
-            .collect::<Vec<_>>(),
+    let coretext_args: Vec<_> = [&meas, &layout].into_iter().chain(&all_kws).collect();
+    let coredataset_args: Vec<_> = [&meas, &layout, &df]
+        .into_iter()
+        .chain(&all_kws)
+        .chain([&analysis, &others])
+        .collect();
+
+    let coretext_ivar_methods: Vec<_> = coretext_args.iter().flat_map(|x| &x.methods).collect();
+    let coredataset_ivar_methods: Vec<_> =
+        coredataset_args.iter().flat_map(|x| &x.methods).collect();
+
+    let coretext_params: Vec<_> = coretext_args.iter().map(|x| x.doc.clone()).collect();
+    let coredataset_params: Vec<_> = coredataset_args.iter().map(|x| x.doc.clone()).collect();
+
+    let coretext_funargs: Vec<_> = coretext_args.iter().map(|x| x.constr_arg()).collect();
+    let coredataset_funargs: Vec<_> = coredataset_args.iter().map(|x| x.constr_arg()).collect();
+
+    let coretext_inner_args: Vec<_> = coretext_args.iter().map(|x| x.inner_arg()).collect();
+
+    let coretext_doc = DocString::new(
+        format!("Represents *TEXT* for an FCS {v} file."),
+        vec![],
+        coretext_params,
+        None,
+    );
+
+    let coredataset_doc = DocString::new(
+        format!("Represents one dataset in an FCS {v} file."),
+        vec![],
+        coredataset_params,
+        None,
     );
 
     // methods which apply to both Coretext* and CoreDataset*
     let common = quote! {
-        #(#methods)*
 
         #par_doc
         #[getter]
@@ -1134,46 +1285,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         fn rename_temporal(&mut self, name: #shortname_type) -> Option<#shortname_type> {
             self.0.rename_temporal(name)
         }
-
-        // #[getter]
-        // fn get_btim(&self) -> Option<chrono::NaiveTime> {
-        //     self.0.btim_naive()
-        // }
-
-        // #[setter]
-        // fn set_btim(&mut self, x: Option<chrono::NaiveTime>) -> PyResult<()> {
-        //     Ok(self.0.set_btim_naive(x)?)
-        // }
-
-        // #[getter]
-        // fn get_etim(&self) -> Option<chrono::NaiveTime> {
-        //     self.0.etim_naive()
-        // }
-
-        // #[setter]
-        // fn set_etim(&mut self, x: Option<chrono::NaiveTime>) -> PyResult<()> {
-        //     Ok(self.0.set_etim_naive(x)?)
-        // }
-
-        // #[getter]
-        // fn get_date(&self) -> Option<chrono::NaiveDate> {
-        //     self.0.date_naive()
-        // }
-
-        // #[setter]
-        // fn set_date(&mut self, x: Option<chrono::NaiveDate>) -> PyResult<()> {
-        //     Ok(self.0.set_date_naive(x)?)
-        // }
-
-        // #[getter]
-        // fn trigger(&self) -> Option<#tr_path> {
-        //     self.0.metaroot_opt().cloned()
-        // }
-
-        // #[setter]
-        // fn set_trigger(&mut self, tr: Option<#tr_path>) -> PyResult<()> {
-        //     Ok(self.0.set_trigger(tr)?)
-        // }
 
         #set_tr_threshold_doc
         fn set_trigger_threshold(&mut self, threshold: u32) -> bool {
@@ -1193,15 +1304,13 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
         #get_set_all_pnn_maybe
 
-        // #get_set_3_2
-
         #[getter]
-        fn get_layout(&self) -> #layout_rstype {
+        fn get_layout(&self) -> #layout_ident {
             self.0.layout().clone().into()
         }
 
         #[setter]
-        fn set_layout(&mut self, layout: #layout_rstype) -> PyResult<()> {
+        fn set_layout(&mut self, layout: #layout_ident) -> PyResult<()> {
             self.0.set_layout(layout.into()).py_term_resolve_nowarn()
         }
 
@@ -1220,111 +1329,112 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         #get_set_all_peak
     };
 
+    let coretext_new = quote! {
+        fn new(#(#coretext_funargs),*) -> PyResult<Self> {
+            Ok(#fun(#(#coretext_inner_args),*).mult_head()?.into())
+        }
+    };
+
+    let coredataset_new = quote! {
+        fn new(#(#coredataset_funargs),*) -> PyResult<Self> {
+            let x = #fun(#(#coretext_inner_args),*).mult_head()?;
+            Ok(x.into_coredataset(df, analysis, others)?.into())
+        }
+    };
+
+    let coretext_rest = quote! {
+        #coretext_set_meas_doc
+        #set_meas_method
+        #coretext_set_meas_and_layout_doc
+        #set_meas_and_layout_method
+        #common
+        #to_dataset_mtd
+    };
+
+    let coredataset_rest = quote! {
+        #[getter]
+        fn data(&self) -> #polars_df_type {
+            let ns = self.0.all_shortnames();
+            let data = self.0.data();
+            #polars_df_type(data.as_polars_dataframe(&ns[..]))
+        }
+
+        #[setter]
+        fn set_data(&mut self, df: #polars_df_type) -> PyResult<()> {
+            let data = df.0.try_into()?;
+            Ok(self.0.set_data(data)?)
+        }
+
+        #[getter]
+        fn analysis(&self) -> #analysis_type {
+            self.0.analysis.clone()
+        }
+
+        #[setter]
+        fn set_analysis(&mut self, xs: #analysis_type) {
+            self.0.analysis = xs.into();
+        }
+
+        #[getter]
+        fn others(&self) -> #others_type {
+            self.0.others.clone()
+        }
+
+        #[setter]
+        fn set_others(&mut self, xs: #others_type) {
+            self.0.others = xs
+        }
+
+        #coredataset_set_meas_doc
+        #set_meas_method
+
+        #coredataset_set_meas_and_layout_doc
+        #set_meas_and_layout_method
+
+        #set_meas_and_data_doc
+        fn set_measurements_and_data(
+            &mut self,
+            measurements: #meas_argtype,
+            df: #df_type,
+            allow_shared_names: bool,
+            skip_index_check: bool,
+        ) -> PyResult<()> {
+            self.0
+                .set_measurements_and_data(
+                    measurements.0.inner_into(),
+                    df,
+                    allow_shared_names,
+                    skip_index_check,
+                )
+                .py_term_resolve_nowarn()
+        }
+
+        #common
+
+        #write_dataset_mtd
+    };
+
+    let coretext_q = impl_new(
+        coretext_name,
+        coretext_rstype,
+        coretext_doc,
+        coretext_new,
+        coretext_rest,
+    )
+    .1;
+
+    let coredataset_q = impl_new(
+        coredataset_name,
+        coredataset_rstype,
+        coredataset_doc,
+        coredataset_new,
+        coredataset_rest,
+    )
+    .1;
+
     quote! {
-        // TODO not dry, this is just pywrap!
-        #coretext_doc
-        #[pyclass(name = #coretext_name, eq)]
-        #[derive(Clone, From, Into, PartialEq)]
-        pub struct #coretext_pytype(#coretext_rstype);
-
-        #[pymethods]
-        impl #coretext_pytype {
-            #[allow(clippy::too_many_arguments)]
-            #[new]
-            #[pyo3(signature = (#(#coretext_sig_args),*))]
-            #[pyo3(text_signature = #coretext_txt_sig)]
-            fn new(#(#coretext_funargs),*) -> PyResult<Self> {
-                Ok(#fun(#(#coretext_inner_args),*).mult_head()?.into())
-            }
-
-            #coretext_set_meas_doc
-            #set_meas_method
-
-            #coretext_set_meas_and_layout_doc
-            #set_meas_and_layout_method
-
-            #common
-
-            #to_dataset_mtd
-        }
-
-        #coredataset_doc
-        #[pyclass(name = #coredataset_name, eq)]
-        #[derive(Clone, From, Into, PartialEq)]
-        pub struct #coredataset_pytype(#coredataset_rstype);
-
-        #[pymethods]
-        impl #coredataset_pytype {
-            #[allow(clippy::too_many_arguments)]
-            #[new]
-            #[pyo3(signature = (#(#coredataset_sig_args),*))]
-            #[pyo3(text_signature = #coredataset_txt_sig)]
-            fn new(#(#coredataset_funargs),*) -> PyResult<Self> {
-                let x = #fun(#(#coretext_inner_args),*).mult_head()?;
-                Ok(x.into_coredataset(df, analysis, others)?.into())
-            }
-
-            #[getter]
-            fn data(&self) -> #polars_df_type {
-                let ns = self.0.all_shortnames();
-                let data = self.0.data();
-                #polars_df_type(data.as_polars_dataframe(&ns[..]))
-            }
-
-            #[setter]
-            fn set_data(&mut self, df: #polars_df_type) -> PyResult<()> {
-                let data = df.0.try_into()?;
-                Ok(self.0.set_data(data)?)
-            }
-
-            #[getter]
-            fn analysis(&self) -> #analysis_type {
-                self.0.analysis.clone()
-            }
-
-            #[setter]
-            fn set_analysis(&mut self, xs: #analysis_type) {
-                self.0.analysis = xs.into();
-            }
-
-            #[getter]
-            fn others(&self) -> #others_type {
-                self.0.others.clone()
-            }
-
-            #[setter]
-            fn set_others(&mut self, xs: #others_type) {
-                self.0.others = xs
-            }
-
-            #coredataset_set_meas_doc
-            #set_meas_method
-
-            #coredataset_set_meas_and_layout_doc
-            #set_meas_and_layout_method
-
-            #set_meas_and_data_doc
-            fn set_measurements_and_data(
-                &mut self,
-                measurements: #meas_rstype,
-                df: #df_type,
-                allow_shared_names: bool,
-                skip_index_check: bool,
-            ) -> PyResult<()> {
-                self.0
-                    .set_measurements_and_data(
-                        measurements.0.inner_into(),
-                        df,
-                        allow_shared_names,
-                        skip_index_check,
-                    )
-                    .py_term_resolve_nowarn()
-            }
-
-            #common
-
-            #write_dataset_mtd
-        }
+        #coretext_q
+        #coredataset_q
     }
     .into()
 }
@@ -1758,10 +1868,35 @@ pub fn impl_get_set_metaroot(input: TokenStream) -> TokenStream {
     quote! {#(#outputs)*}.into()
 }
 
-struct IvarData {
+struct ArgData {
     doc: DocArg,
-    fun_arg: proc_macro2::TokenStream,
-    methods: proc_macro2::TokenStream,
+    rstype: Path,
+    methods: Option<proc_macro2::TokenStream>,
+}
+
+impl ArgData {
+    fn new(doc: DocArg, rstype: Path) -> Self {
+        Self {
+            doc,
+            rstype,
+            methods: None,
+        }
+    }
+
+    fn constr_arg(&self) -> proc_macro2::TokenStream {
+        let n = format_ident!("{}", &self.doc.argname);
+        let t = &self.rstype;
+        quote!(#n: #t)
+    }
+
+    fn inner_arg(&self) -> proc_macro2::TokenStream {
+        let n = format_ident!("{}", &self.doc.argname);
+        if unwrap_generic("Option", &self.rstype).1 {
+            quote! {#n.map(|x| x.into())}
+        } else {
+            quote! {#n.into()}
+        }
+    }
 }
 
 fn make_ivar_metaroot(
@@ -1770,7 +1905,7 @@ fn make_ivar_metaroot(
     pytype: PyType,
     desc: Option<&str>,
     def: Option<DocDefault>,
-) -> IvarData {
+) -> ArgData {
     let spath = format!("fireflow_core::text::keywords::{kw}");
     let path = parse_str::<Path>(spath.as_str()).expect("not a valid path");
     let get = format_ident!("get_{name}");
@@ -1797,9 +1932,9 @@ fn make_ivar_metaroot(
     let get_inner = format_ident!("{}", if optional { "metaroot_opt" } else { "metaroot" });
     let clone_inner = format_ident!("{}", if optional { "cloned" } else { "clone" });
     let full_kw = if optional {
-        quote! {Option<#path>}
+        parse_quote! {Option<#path>}
     } else {
-        quote! {#path}
+        path.clone()
     };
 
     let methods = quote! {
@@ -1813,18 +1948,18 @@ fn make_ivar_metaroot(
             self.0.set_metaroot(x)
         }
     };
-    IvarData {
-        methods,
-        fun_arg: full_kw,
+    ArgData {
         doc,
+        rstype: full_kw,
+        methods: Some(methods),
     }
 }
 
-fn make_timestamps(time_name: &str) -> [IvarData; 3] {
+fn make_timestamps(time_name: &str) -> [ArgData; 3] {
     let nd = quote! {Option<chrono::NaiveDate>};
     let time_ident = format_ident!("{time_name}");
     let time_path = quote!(fireflow_core::text::timestamps::#time_ident);
-    let date_fun_arg = quote!(Option<fireflow_core::text::timestamps::FCSDate>);
+    let date_rstype = parse_quote!(Option<fireflow_core::text::timestamps::FCSDate>);
 
     let make_time_ivar = |is_start: bool| {
         let nt = quote! {Option<chrono::NaiveTime>};
@@ -1835,7 +1970,7 @@ fn make_timestamps(time_name: &str) -> [IvarData; 3] {
         };
         let wrap_ident = format_ident!("{wrap}");
         let wrap_path = quote!(fireflow_core::text::timestamps::#wrap_ident);
-        let fun_arg = quote!(Option<#wrap_path<#time_path>>);
+        let rstype = parse_quote!(Option<#wrap_path<#time_path>>);
         let get = format_ident!("get_{name}");
         let set = format_ident!("set_{name}");
         let get_naive = format_ident!("{name}_naive");
@@ -1858,10 +1993,10 @@ fn make_timestamps(time_name: &str) -> [IvarData; 3] {
                 Ok(self.0.#set_naive(x)?)
             }
         };
-        IvarData {
-            fun_arg,
-            methods,
+        ArgData {
             doc,
+            rstype,
+            methods: Some(methods),
         }
     };
 
@@ -1884,16 +2019,16 @@ fn make_timestamps(time_name: &str) -> [IvarData; 3] {
         }
     };
 
-    let date = IvarData {
-        fun_arg: date_fun_arg,
-        methods: date_methods,
+    let date = ArgData {
         doc: date_doc,
+        rstype: date_rstype,
+        methods: Some(date_methods),
     };
 
     [make_time_ivar(true), make_time_ivar(false), date]
 }
 
-fn make_datetime(is_start: bool) -> IvarData {
+fn make_datetime(is_start: bool) -> ArgData {
     let dt = quote! {Option<chrono::DateTime<chrono::FixedOffset>>};
     let (name, type_name) = if is_start {
         ("begindatetime", "BeginDateTime")
@@ -1901,7 +2036,7 @@ fn make_datetime(is_start: bool) -> IvarData {
         ("enddatetime", "EndDateTime")
     };
     let type_ident = format_ident!("{type_name}");
-    let fun_arg = quote!(Option<fireflow_core::text::datetimes::#type_ident>);
+    let rstype = parse_quote!(Option<fireflow_core::text::datetimes::#type_ident>);
     let get = format_ident!("{name}");
     let set = format_ident!("set_{name}");
     let doc = DocArg::new_ivar_def(
@@ -1921,23 +2056,23 @@ fn make_datetime(is_start: bool) -> IvarData {
             Ok(self.0.#set(x)?)
         }
     };
-    IvarData {
+    ArgData {
         doc,
-        fun_arg,
-        methods,
+        rstype,
+        methods: Some(methods),
     }
 }
 
-fn make_comp(is_2_0: bool) -> IvarData {
-    let fun_arg = quote!(Option<fireflow_core::text::compensation::Compensation>);
+fn make_comp(is_2_0: bool) -> ArgData {
+    let rstype = parse_quote!(Option<fireflow_core::text::compensation::Compensation>);
     let methods = quote! {
         #[getter]
-        fn get_compensation(&self) -> #fun_arg {
+        fn get_compensation(&self) -> #rstype {
             self.0.compensation().cloned()
         }
 
         #[setter]
-        fn set_compensation(&mut self, m: #fun_arg) -> PyResult<()> {
+        fn set_compensation(&mut self, m: #rstype) -> PyResult<()> {
             Ok(self.0.set_compensation(m)?)
         }
     };
@@ -1956,23 +2091,23 @@ fn make_comp(is_2_0: bool) -> IvarData {
         desc,
         DocDefault::Option,
     );
-    IvarData {
+    ArgData {
         doc,
-        fun_arg,
-        methods,
+        rstype,
+        methods: Some(methods),
     }
 }
 
-fn make_spillover() -> IvarData {
-    let fun_arg = quote!(Option<fireflow_core::text::spillover::Spillover>);
+fn make_spillover() -> ArgData {
+    let rstype = parse_quote!(Option<fireflow_core::text::spillover::Spillover>);
     let methods = quote! {
         #[getter]
-        fn get_spillover(&self) -> #fun_arg {
+        fn get_spillover(&self) -> #rstype {
             self.0.spillover().map(|x| x.clone())
         }
 
         #[setter]
-        fn set_spillover(&mut self, spillover: #fun_arg) -> PyResult<()> {
+        fn set_spillover(&mut self, spillover: #rstype) -> PyResult<()> {
             Ok(self.0.set_spillover(spillover)?)
         }
     };
@@ -1990,16 +2125,16 @@ fn make_spillover() -> IvarData {
             .into(),
         DocDefault::Option,
     );
-    IvarData {
+    ArgData {
         doc,
-        fun_arg,
-        methods,
+        rstype,
+        methods: Some(methods),
     }
 }
 
-fn make_csvflags() -> IvarData {
+fn make_csvflags() -> ArgData {
     let path = quote!(fireflow_core::core::CSVFlags);
-    let fun_arg = quote!(Option<#path>);
+    let rstype = parse_quote!(Option<#path>);
     let doc = DocArg::new_ivar_def(
         "csvflags".into(),
         PyType::new_opt(PyType::new_list(PyType::new_opt(PyType::Int))),
@@ -2010,25 +2145,25 @@ fn make_csvflags() -> IvarData {
     );
     let methods = quote! {
         #[getter]
-        fn get_csvflags(&self) -> #fun_arg {
+        fn get_csvflags(&self) -> #rstype {
             self.0.metaroot_opt::<#path>().cloned()
         }
 
         #[setter]
-        fn set_csvflags(&mut self, x: #fun_arg) {
+        fn set_csvflags(&mut self, x: #rstype) {
             self.0.set_metaroot(x)
         }
     };
 
-    IvarData {
+    ArgData {
         doc,
-        fun_arg,
-        methods,
+        rstype,
+        methods: Some(methods),
     }
 }
 
-fn make_trigger() -> IvarData {
-    let fun_arg = quote! {Option<fireflow_core::text::keywords::Trigger>};
+fn make_trigger() -> ArgData {
+    let rstype = parse_quote! {Option<fireflow_core::text::keywords::Trigger>};
 
     let doc = DocArg::new_ivar_def(
         "tr".into(),
@@ -2041,24 +2176,24 @@ fn make_trigger() -> IvarData {
 
     let methods = quote! {
         #[getter]
-        fn trigger(&self) -> #fun_arg {
+        fn trigger(&self) -> #rstype {
             self.0.metaroot_opt().cloned()
         }
 
         #[setter]
-        fn set_trigger(&mut self, tr: #fun_arg) -> PyResult<()> {
+        fn set_trigger(&mut self, tr: #rstype) -> PyResult<()> {
             Ok(self.0.set_trigger(tr)?)
         }
     };
 
-    IvarData {
-        fun_arg,
+    ArgData {
+        rstype,
         doc,
-        methods,
+        methods: Some(methods),
     }
 }
 
-fn make_unstainedcenters() -> IvarData {
+fn make_unstainedcenters() -> ArgData {
     let doc = DocArg::new_ivar_def(
         "unstainedcenters".into(),
         PyType::new_opt(PyType::new_dict(PyType::Str, PyType::Float)),
@@ -2066,34 +2201,34 @@ fn make_unstainedcenters() -> IvarData {
         DocDefault::Option,
     );
     let path = quote!(fireflow_core::text::unstainedcenters::UnstainedCenters);
-    let fun_arg = quote!(Option<#path>);
+    let rstype = parse_quote!(Option<#path>);
     let methods = quote! {
         #[getter]
-        fn get_unstained_centers(&self) -> #fun_arg {
+        fn get_unstained_centers(&self) -> #rstype {
             self.0.metaroot_opt::<#path>().map(|y| y.clone())
         }
 
         #[setter]
-        fn set_unstained_centers(&mut self, us: #fun_arg) -> PyResult<()> {
+        fn set_unstained_centers(&mut self, us: #rstype) -> PyResult<()> {
             self.0.set_unstained_centers(us).py_term_resolve_nowarn()
         }
     };
-    IvarData {
+    ArgData {
         doc,
-        fun_arg,
-        methods,
+        rstype,
+        methods: Some(methods),
     }
 }
 
-fn make_applied_gates(version: Version) -> IvarData {
+fn make_applied_gates(version: Version) -> ArgData {
     let collapsed_version = if version == Version::FCS3_1 {
         Version::FCS3_0
     } else {
         version
     };
     let vsu = collapsed_version.short_underscore();
-    let rstype = format_ident!("AppliedGates{vsu}");
-    let fun_arg = format_ident!("Py{}", rstype);
+    let rstype_inner = format_ident!("AppliedGates{vsu}");
+    let rstype = format_ident!("Py{rstype_inner}");
     let gmtype = if collapsed_version < Version::FCS3_2 {
         Some(PyType::new_list(PyType::PyClass("GatedMeasurement".into())))
     } else {
@@ -2145,20 +2280,20 @@ fn make_applied_gates(version: Version) -> IvarData {
         "({}, None)"
     };
 
-    let def = DocDefault::Other(quote!(#fun_arg::default()), pydef.into());
+    let def = DocDefault::Other(quote!(#rstype::default()), pydef.into());
 
     let doc = DocArg::new_ivar_def("applied_gates".into(), pytype, desc, def);
 
     let setter_body = if collapsed_version == Version::FCS2_0 {
         quote! {
-            fn set_applied_gates(&mut self, ag: #fun_arg) {
-                self.0.set_metaroot::<#rstype>(ag.into())
+            fn set_applied_gates(&mut self, ag: #rstype) {
+                self.0.set_metaroot::<#rstype_inner>(ag.into())
             }
         }
     } else {
         let setter = format_ident!("set_applied_gates_{vsu}");
         quote! {
-            fn set_applied_gates(&mut self, ag: #fun_arg) -> PyResult<()> {
+            fn set_applied_gates(&mut self, ag: #rstype) -> PyResult<()> {
                 Ok(self.0.#setter(ag.into())?)
             }
         }
@@ -2166,24 +2301,24 @@ fn make_applied_gates(version: Version) -> IvarData {
 
     let methods = quote! {
         #[getter]
-        fn get_applied_gates(&self) -> #fun_arg {
-            self.0.metaroot::<#rstype>().clone().into()
+        fn get_applied_gates(&self) -> #rstype {
+            self.0.metaroot::<#rstype_inner>().clone().into()
         }
 
         #[setter]
         #setter_body
     };
 
-    IvarData {
+    ArgData {
         doc,
-        fun_arg: quote!(#fun_arg),
-        methods,
+        rstype: parse_quote!(#rstype),
+        methods: Some(methods),
     }
 }
 
-fn make_nonstandard_keywords() -> IvarData {
+fn make_nonstandard_keywords() -> ArgData {
     let nsk = quote!(fireflow_core::validated::keys::NonStdKey);
-    let fun_arg = quote!(std::collections::HashMap<#nsk, String>);
+    let fun_arg = parse_quote!(std::collections::HashMap<#nsk, String>);
     let doc = DocArg::new_ivar_def(
         "nonstandard_keywords".into(),
         PyType::new_dict(PyType::Str, PyType::Str),
@@ -2201,10 +2336,10 @@ fn make_nonstandard_keywords() -> IvarData {
             self.0.metaroot.nonstandard_keywords = kws;
         }
     };
-    IvarData {
+    ArgData {
         doc,
-        fun_arg,
-        methods,
+        rstype: fun_arg,
+        methods: Some(methods),
     }
 }
 
@@ -3109,7 +3244,9 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
             }
     };
 
-    impl_new(layout_name, layout_path, constr_doc, constr, rest).1
+    impl_new(layout_name, layout_path, constr_doc, constr, rest)
+        .1
+        .into()
 }
 
 fn impl_new(
@@ -3118,7 +3255,7 @@ fn impl_new(
     d: DocString,
     constr: proc_macro2::TokenStream,
     rest: proc_macro2::TokenStream,
-) -> (Ident, TokenStream) {
+) -> (Ident, proc_macro2::TokenStream) {
     let doc = d.doc();
     let sig = d.sig();
     let pyname = format_ident!("Py{name}");
@@ -3138,7 +3275,7 @@ fn impl_new(
             #rest
         }
     };
-    (pyname, s.into())
+    (pyname, s)
 }
 
 #[derive(Debug)]

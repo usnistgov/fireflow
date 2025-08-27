@@ -4322,7 +4322,7 @@ impl CoreTEXT2_0 {
         layout: DataLayout2_0,
         mode: Mode,
         cyt: Option<Cyt>,
-        comp: Option<Compensation2_0>,
+        comp: Option<Compensation>,
         btim: Option<Btim<FCSTime>>,
         etim: Option<Etim<FCSTime>>,
         date: Option<FCSDate>,
@@ -4343,7 +4343,8 @@ impl CoreTEXT2_0 {
         nonstandard_keywords: NonStdKeywords,
     ) -> MultiResult<Self, NewCoreTEXTError> {
         let timestamps = Timestamps::try_new(btim, etim, date).into_mult()?;
-        let specific = InnerMetaroot2_0::new(mode, cyt, comp, timestamps, applied_gates);
+        let specific =
+            InnerMetaroot2_0::new(mode, cyt, comp.map(|x| x.into()), timestamps, applied_gates);
         let metaroot = Metaroot::new(
             abrt,
             com,
@@ -4378,7 +4379,7 @@ impl CoreTEXT3_0 {
         layout: DataLayout3_0,
         mode: Mode,
         cyt: Option<Cyt>,
-        comp: Option<Compensation3_0>,
+        comp: Option<Compensation>,
         btim: Option<Btim<FCSTime60>>,
         etim: Option<Etim<FCSTime60>>,
         date: Option<FCSDate>,
@@ -4408,7 +4409,7 @@ impl CoreTEXT3_0 {
         let specific = InnerMetaroot3_0::new(
             mode,
             cyt,
-            comp,
+            comp.map(|x| x.into()),
             timestamps,
             cytsn,
             unicode,

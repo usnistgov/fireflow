@@ -754,18 +754,18 @@ impl_convert_version! {PyCoreDataset3_2}
 // Get/set methods for all versions
 macro_rules! impl_common {
     ($pytype:ident) => {
-        impl_get_set_metaroot! {Option<kws::Abrt>, $pytype}
-        impl_get_set_metaroot! {Option<kws::Cells>, $pytype}
-        impl_get_set_metaroot! {Option<kws::Com>, $pytype}
-        impl_get_set_metaroot! {Option<kws::Exp>, $pytype}
-        impl_get_set_metaroot! {Option<kws::Fil>, $pytype}
-        impl_get_set_metaroot! {Option<kws::Inst>, $pytype}
-        impl_get_set_metaroot! {Option<kws::Lost>, $pytype}
-        impl_get_set_metaroot! {Option<kws::Op>, $pytype}
-        impl_get_set_metaroot! {Option<kws::Proj>, $pytype}
-        impl_get_set_metaroot! {Option<kws::Smno>, $pytype}
-        impl_get_set_metaroot! {Option<kws::Src>, $pytype}
-        impl_get_set_metaroot! {Option<kws::Sys>, $pytype}
+        // impl_get_set_metaroot! {Option<kws::Abrt>, $pytype}
+        // impl_get_set_metaroot! {Option<kws::Cells>, $pytype}
+        // impl_get_set_metaroot! {Option<kws::Com>, $pytype}
+        // impl_get_set_metaroot! {Option<kws::Exp>, $pytype}
+        // impl_get_set_metaroot! {Option<kws::Fil>, $pytype}
+        // impl_get_set_metaroot! {Option<kws::Inst>, $pytype}
+        // impl_get_set_metaroot! {Option<kws::Lost>, $pytype}
+        // impl_get_set_metaroot! {Option<kws::Op>, $pytype}
+        // impl_get_set_metaroot! {Option<kws::Proj>, $pytype}
+        // impl_get_set_metaroot! {Option<kws::Smno>, $pytype}
+        // impl_get_set_metaroot! {Option<kws::Src>, $pytype}
+        // impl_get_set_metaroot! {Option<kws::Sys>, $pytype}
 
         // common measurement keywords
         impl_get_set_all_meas!(Option<kws::Longname>, "S", "str", $pytype);
@@ -796,36 +796,36 @@ macro_rules! impl_common {
 
         #[pymethods]
         impl $pytype {
-            /// Insert a nonstandard key.
-            ///
-            /// :param str key: Key to insert. Must not start with *$*.
-            /// :param str value: Value to insert.
-            ///
-            /// :return: Previous value for ``key`` if it exists.
-            /// :rtype: str | None
-            fn insert_nonstandard(&mut self, key: NonStdKey, value: String) -> Option<String> {
-                self.0.metaroot.nonstandard_keywords.insert(key, value)
-            }
+            // /// Insert a nonstandard key.
+            // ///
+            // /// :param str key: Key to insert. Must not start with *$*.
+            // /// :param str value: Value to insert.
+            // ///
+            // /// :return: Previous value for ``key`` if it exists.
+            // /// :rtype: str | None
+            // fn insert_nonstandard(&mut self, key: NonStdKey, value: String) -> Option<String> {
+            //     self.0.metaroot.nonstandard_keywords.insert(key, value)
+            // }
 
-            /// Remove a nonstandard key.
-            ///
-            /// :param str key: Key to remove. Must not start with *$*.
-            ///
-            /// :return: Value for ``key`` if it exists.
-            /// :rtype: str | None
-            fn remove_nonstandard(&mut self, key: NonStdKey) -> Option<String> {
-                self.0.metaroot.nonstandard_keywords.remove(&key)
-            }
+            // /// Remove a nonstandard key.
+            // ///
+            // /// :param str key: Key to remove. Must not start with *$*.
+            // ///
+            // /// :return: Value for ``key`` if it exists.
+            // /// :rtype: str | None
+            // fn remove_nonstandard(&mut self, key: NonStdKey) -> Option<String> {
+            //     self.0.metaroot.nonstandard_keywords.remove(&key)
+            // }
 
-            /// Look up a nonstandard key.
-            ///
-            /// :param str key: Key to find. Must not start with *$*.
-            ///
-            /// :return: Value for ``key`` if it exists.
-            /// :rtype: str | None
-            fn get_nonstandard(&mut self, key: NonStdKey) -> Option<String> {
-                self.0.metaroot.nonstandard_keywords.get(&key).cloned()
-            }
+            // /// Look up a nonstandard key.
+            // ///
+            // /// :param str key: Key to find. Must not start with *$*.
+            // ///
+            // /// :return: Value for ``key`` if it exists.
+            // /// :rtype: str | None
+            // fn get_nonstandard(&mut self, key: NonStdKey) -> Option<String> {
+            //     self.0.metaroot.nonstandard_keywords.get(&key).cloned()
+            // }
 
             /// Return standard keywords as string pairs.
             ///
@@ -927,8 +927,8 @@ macro_rules! impl_get_set_applied_gates_2_0 {
     };
 }
 
-impl_get_set_applied_gates_2_0!(PyCoreTEXT2_0);
-impl_get_set_applied_gates_2_0!(PyCoreDataset2_0);
+// impl_get_set_applied_gates_2_0!(PyCoreTEXT2_0);
+// impl_get_set_applied_gates_2_0!(PyCoreDataset2_0);
 
 // gating for 3.0/3.1
 macro_rules! impl_get_set_applied_gates_3_0 {
@@ -948,10 +948,10 @@ macro_rules! impl_get_set_applied_gates_3_0 {
     };
 }
 
-impl_get_set_applied_gates_3_0!(PyCoreTEXT3_0);
-impl_get_set_applied_gates_3_0!(PyCoreDataset3_0);
-impl_get_set_applied_gates_3_0!(PyCoreTEXT3_1);
-impl_get_set_applied_gates_3_0!(PyCoreDataset3_1);
+// impl_get_set_applied_gates_3_0!(PyCoreTEXT3_0);
+// impl_get_set_applied_gates_3_0!(PyCoreDataset3_0);
+// impl_get_set_applied_gates_3_0!(PyCoreTEXT3_1);
+// impl_get_set_applied_gates_3_0!(PyCoreDataset3_1);
 
 macro_rules! impl_get_set_applied_gates_3_2 {
     ($pytype:ident) => {
@@ -970,8 +970,8 @@ macro_rules! impl_get_set_applied_gates_3_2 {
     };
 }
 
-impl_get_set_applied_gates_3_2!(PyCoreTEXT3_2);
-impl_get_set_applied_gates_3_2!(PyCoreDataset3_2);
+// impl_get_set_applied_gates_3_2!(PyCoreTEXT3_2);
+// impl_get_set_applied_gates_3_2!(PyCoreDataset3_2);
 
 // Get/set methods for $LAST_MODIFIER/$LAST_MODIFIED/$ORIGINALITY (3.1-3.2)
 macro_rules! impl_modification_attrs {
@@ -982,10 +982,10 @@ macro_rules! impl_modification_attrs {
     };
 }
 
-impl_modification_attrs!(PyCoreTEXT3_1);
-impl_modification_attrs!(PyCoreTEXT3_2);
-impl_modification_attrs!(PyCoreDataset3_1);
-impl_modification_attrs!(PyCoreDataset3_2);
+// impl_modification_attrs!(PyCoreTEXT3_1);
+// impl_modification_attrs!(PyCoreTEXT3_2);
+// impl_modification_attrs!(PyCoreDataset3_1);
+// impl_modification_attrs!(PyCoreDataset3_2);
 
 // Get/set methods for $CARRIERID/$CARRIERTYPE/$LOCATIONID (3.2)
 macro_rules! impl_carrier_attrs {
@@ -996,8 +996,8 @@ macro_rules! impl_carrier_attrs {
     };
 }
 
-impl_carrier_attrs!(PyCoreTEXT3_2);
-impl_carrier_attrs!(PyCoreDataset3_2);
+// impl_carrier_attrs!(PyCoreTEXT3_2);
+// impl_carrier_attrs!(PyCoreDataset3_2);
 
 // Get/set methods for $PLATEID/$WELLID/$PLATENAME (3.1-3.2)
 macro_rules! impl_plate_attrs {
@@ -1008,10 +1008,10 @@ macro_rules! impl_plate_attrs {
     };
 }
 
-impl_plate_attrs!(PyCoreTEXT3_1);
-impl_plate_attrs!(PyCoreTEXT3_2);
-impl_plate_attrs!(PyCoreDataset3_1);
-impl_plate_attrs!(PyCoreDataset3_2);
+// impl_plate_attrs!(PyCoreTEXT3_1);
+// impl_plate_attrs!(PyCoreTEXT3_2);
+// impl_plate_attrs!(PyCoreDataset3_1);
+// impl_plate_attrs!(PyCoreDataset3_2);
 
 macro_rules! impl_get_set_subset {
     ($pytype:ident) => {
@@ -1021,65 +1021,65 @@ macro_rules! impl_get_set_subset {
     };
 }
 
-impl_get_set_subset!(PyCoreTEXT3_0);
-impl_get_set_subset!(PyCoreTEXT3_1);
-impl_get_set_subset!(PyCoreDataset3_0);
-impl_get_set_subset!(PyCoreDataset3_1);
+// impl_get_set_subset!(PyCoreTEXT3_0);
+// impl_get_set_subset!(PyCoreTEXT3_1);
+// impl_get_set_subset!(PyCoreDataset3_0);
+// impl_get_set_subset!(PyCoreDataset3_1);
 
-impl_get_set_metaroot! {
-    Option<kws::Unicode>,
-    PyCoreTEXT3_0,
-    PyCoreDataset3_0
-}
+// impl_get_set_metaroot! {
+//     Option<kws::Unicode>,
+//     PyCoreTEXT3_0,
+//     PyCoreDataset3_0
+// }
 
-impl_get_set_metaroot! {
-    Option<kws::Vol>,
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2
-}
+// impl_get_set_metaroot! {
+//     Option<kws::Vol>,
+//     PyCoreTEXT3_1,
+//     PyCoreTEXT3_2,
+//     PyCoreDataset3_1,
+//     PyCoreDataset3_2
+// }
 
-// Get/set methods for (optional) $CYT (2.0-3.1)
-//
-// 3.2 is required which is why it is not included here
-impl_get_set_metaroot! {
-    Option<kws::Cyt>,
-    PyCoreTEXT2_0,
-    PyCoreTEXT3_0,
-    PyCoreTEXT3_1,
-    PyCoreDataset2_0,
-    PyCoreDataset3_0,
-    PyCoreDataset3_1
-}
+// // Get/set methods for (optional) $CYT (2.0-3.1)
+// //
+// // 3.2 is required which is why it is not included here
+// impl_get_set_metaroot! {
+//     Option<kws::Cyt>,
+//     PyCoreTEXT2_0,
+//     PyCoreTEXT3_0,
+//     PyCoreTEXT3_1,
+//     PyCoreDataset2_0,
+//     PyCoreDataset3_0,
+//     PyCoreDataset3_1
+// }
 
 // Get/set methods for $FLOWRATE (3.2)
-impl_get_set_metaroot! {
-    Option<kws::Flowrate>,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_2
-}
+// impl_get_set_metaroot! {
+//     Option<kws::Flowrate>,
+//     PyCoreTEXT3_2,
+//     PyCoreDataset3_2
+// }
 
 // Get/set methods for $CYTSN (3.0-3.2)
-impl_get_set_metaroot! {
-    Option<kws::Cytsn>,
-    PyCoreTEXT3_0,
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_0,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2
-}
+// impl_get_set_metaroot! {
+//     Option<kws::Cytsn>,
+//     PyCoreTEXT3_0,
+//     PyCoreTEXT3_1,
+//     PyCoreTEXT3_2,
+//     PyCoreDataset3_0,
+//     PyCoreDataset3_1,
+//     PyCoreDataset3_2
+// }
 
-// Get/set methods for $CYT (required) (3.2)
-impl_get_set_metaroot! {kws::Cyt, PyCoreTEXT3_2, PyCoreDataset3_2}
+// // // Get/set methods for $CYT (required) (3.2)
+// // impl_get_set_metaroot! {kws::Cyt, PyCoreTEXT3_2, PyCoreDataset3_2}
 
-// Get/set methods for $UNSTAINEDINFO (3.2)
-impl_get_set_metaroot! {
-    Option<kws::UnstainedInfo>,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_2
-}
+// // Get/set methods for $UNSTAINEDINFO (3.2)
+// impl_get_set_metaroot! {
+//     Option<kws::UnstainedInfo>,
+//     PyCoreTEXT3_2,
+//     PyCoreDataset3_2
+// }
 
 // Get/set methods for scaler $PnL (2.0-3.0)
 impl_get_set_all_meas! {

@@ -8,7 +8,7 @@ use fireflow_core::header::Version;
 
 use proc_macro::TokenStream;
 
-use itertools::Itertools;
+use itertools::{multiunzip, Itertools};
 use quote::{format_ident, quote, ToTokens};
 use syn::{
     parenthesized,
@@ -362,8 +362,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     let timestep_type = parse_str::<Path>("fireflow_core::text::keywords::Timestep").unwrap();
 
-    let tr_type = parse_str::<Path>("fireflow_core::text::keywords::Trigger").unwrap();
-
     let get_set_all_pnn_maybe = if version < Version::FCS3_1 {
         let doc = DocString::new(
             "The possibly-empty values of *$PnN* for all measurements.".into(),
@@ -394,44 +392,44 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         quote! {}
     };
 
-    let get_set_3_2 = if version < Version::FCS3_2 {
-        quote! {}
-    } else {
-        let dt = quote! {chrono::DateTime<chrono::FixedOffset>};
-        let us =
-            parse_str::<Path>("fireflow_core::text::unstainedcenters::UnstainedCenters").unwrap();
-        quote! {
-            #[getter]
-            fn get_begindatetime(&self) -> Option<#dt> {
-                self.0.begindatetime()
-            }
+    // let get_set_3_2 = if version < Version::FCS3_2 {
+    //     quote! {}
+    // } else {
+    //     let dt = quote! {chrono::DateTime<chrono::FixedOffset>};
+    //     let us =
+    //         parse_str::<Path>("fireflow_core::text::unstainedcenters::UnstainedCenters").unwrap();
+    //     quote! {
+    //         #[getter]
+    //         fn get_begindatetime(&self) -> Option<#dt> {
+    //             self.0.begindatetime()
+    //         }
 
-            #[setter]
-            fn set_begindatetime(&mut self, x: Option<#dt>) -> PyResult<()> {
-                Ok(self.0.set_begindatetime(x)?)
-            }
+    //         #[setter]
+    //         fn set_begindatetime(&mut self, x: Option<#dt>) -> PyResult<()> {
+    //             Ok(self.0.set_begindatetime(x)?)
+    //         }
 
-            #[getter]
-            fn get_enddatetime(&self) -> Option<#dt> {
-                self.0.enddatetime()
-            }
+    //         #[getter]
+    //         fn get_enddatetime(&self) -> Option<#dt> {
+    //             self.0.enddatetime()
+    //         }
 
-            #[setter]
-            fn set_enddatetime(&mut self, x: Option<#dt>) -> PyResult<()> {
-                Ok(self.0.set_enddatetime(x)?)
-            }
+    //         #[setter]
+    //         fn set_enddatetime(&mut self, x: Option<#dt>) -> PyResult<()> {
+    //             Ok(self.0.set_enddatetime(x)?)
+    //         }
 
-            #[getter]
-            fn get_unstained_centers(&self) -> Option<#us> {
-                self.0.metaroot_opt::<#us>().map(|y| y.clone())
-            }
+    //         #[getter]
+    //         fn get_unstained_centers(&self) -> Option<#us> {
+    //             self.0.metaroot_opt::<#us>().map(|y| y.clone())
+    //         }
 
-            #[setter]
-            fn set_unstained_centers(&mut self, us: Option<#us>) -> PyResult<()> {
-                self.0.set_unstained_centers(us).py_term_resolve_nowarn()
-            }
-        }
-    };
+    //         #[setter]
+    //         fn set_unstained_centers(&mut self, us: Option<#us>) -> PyResult<()> {
+    //             self.0.set_unstained_centers(us).py_term_resolve_nowarn()
+    //         }
+    //     }
+    // };
 
     let write_dataset_doc = DocString::new(
         "Write data as an FCS file.".into(),
@@ -736,31 +734,31 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         }
     };
 
-    let get_set_comp_spill = if version < Version::FCS3_1 {
-        quote! {
-            #[getter]
-            fn get_compensation(&self) -> Option<Compensation> {
-                self.0.compensation().cloned()
-            }
+    // let get_set_comp_spill = if version < Version::FCS3_1 {
+    //     quote! {
+    //         #[getter]
+    //         fn get_compensation(&self) -> Option<Compensation> {
+    //             self.0.compensation().cloned()
+    //         }
 
-            #[setter]
-            fn set_compensation(&mut self, m: Option<Compensation>) -> PyResult<()> {
-                Ok(self.0.set_compensation(m)?)
-            }
-        }
-    } else {
-        quote! {
-            #[getter]
-            fn get_spillover(&self) -> Option<Spillover> {
-                self.0.spillover().map(|x| x.clone())
-            }
+    //         #[setter]
+    //         fn set_compensation(&mut self, m: Option<Compensation>) -> PyResult<()> {
+    //             Ok(self.0.set_compensation(m)?)
+    //         }
+    //     }
+    // } else {
+    //     quote! {
+    //         #[getter]
+    //         fn get_spillover(&self) -> Option<Spillover> {
+    //             self.0.spillover().map(|x| x.clone())
+    //         }
 
-            #[setter]
-            fn set_spillover(&mut self, spillover: Option<Spillover>) -> PyResult<()> {
-                Ok(self.0.set_spillover(spillover)?)
-            }
-        }
-    };
+    //         #[setter]
+    //         fn set_spillover(&mut self, spillover: Option<Spillover>) -> PyResult<()> {
+    //             Ok(self.0.set_spillover(spillover)?)
+    //         }
+    //     }
+    // };
 
     let get_set_all_peak = if version < Version::FCS3_2 {
         let pkn_doc = DocString::new(
@@ -854,23 +852,277 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         }
     };
 
-    let (mode_param, mode) = if version < Version::FCS3_2 {
+    let mode = if version < Version::FCS3_2 {
         let t = PyType::Literal("L".into(), vec!["U".into(), "C".into()]);
-        make_ivar_metaroot("Mode", "mode", t, "Value of *$MODE*.", None)
+        // TODO make default arg
+        make_ivar_metaroot("Mode", "mode", t, None, None)
     } else {
         let t = PyType::Literal("L".into(), vec![]);
-        make_ivar_metaroot(
-            "Mode3_2",
-            "mode",
-            t,
-            "Value of *$MODE*.",
-            Some(DocDefault::Option),
-        )
+        make_ivar_metaroot("Mode3_2", "mode", t, None, Some(DocDefault::Option))
     };
+
+    let cyt = if version < Version::FCS3_2 {
+        make_ivar_metaroot("Cyt", "cyt", PyType::Str, None, Some(DocDefault::Option))
+    } else {
+        make_ivar_metaroot("Cyt", "cyt", PyType::Str, None, None)
+    };
+
+    let abrt = make_ivar_metaroot("Abrt", "abrt", PyType::Int, None, Some(DocDefault::Option));
+
+    let com = make_ivar_metaroot("Com", "com", PyType::Str, None, Some(DocDefault::Option));
+
+    let cells = make_ivar_metaroot(
+        "Cells",
+        "cells",
+        PyType::Str,
+        None,
+        Some(DocDefault::Option),
+    );
+
+    let exp = make_ivar_metaroot("Exp", "exp", PyType::Str, None, Some(DocDefault::Option));
+
+    let fil = make_ivar_metaroot("Fil", "fil", PyType::Str, None, Some(DocDefault::Option));
+
+    let inst = make_ivar_metaroot("Inst", "inst", PyType::Str, None, Some(DocDefault::Option));
+
+    let lost = make_ivar_metaroot("Lost", "lost", PyType::Int, None, Some(DocDefault::Option));
+
+    let op = make_ivar_metaroot("Op", "op", PyType::Str, None, Some(DocDefault::Option));
+
+    let proj = make_ivar_metaroot("Proj", "proj", PyType::Str, None, Some(DocDefault::Option));
+
+    let smno = make_ivar_metaroot("Smno", "smno", PyType::Str, None, Some(DocDefault::Option));
+
+    let src = make_ivar_metaroot("Src", "src", PyType::Str, None, Some(DocDefault::Option));
+
+    let sys = make_ivar_metaroot("Sys", "sys", PyType::Str, None, Some(DocDefault::Option));
+
+    let cytsn = make_ivar_metaroot(
+        "Cytsn",
+        "cytsn",
+        PyType::Str,
+        None,
+        Some(DocDefault::Option),
+    );
+
+    let unicode = make_ivar_metaroot(
+        "Unicode",
+        "unicode",
+        PyType::Tuple(vec![PyType::Int, PyType::new_list(PyType::Str)]),
+        None,
+        Some(DocDefault::Option),
+    );
+
+    let csvbits = make_ivar_metaroot(
+        "CSVBits",
+        "csvbits",
+        PyType::Int,
+        None,
+        Some(DocDefault::Option),
+    );
+
+    let cstot = make_ivar_metaroot(
+        "CSTot",
+        "cstot",
+        PyType::Int,
+        None,
+        Some(DocDefault::Option),
+    );
+
+    let csvflags = make_csvflags();
+
+    let all_subset = [csvbits, cstot, csvflags];
+
+    let last_modifier = make_ivar_metaroot(
+        "LastModifier",
+        "last_modifier",
+        PyType::Datetime,
+        None,
+        Some(DocDefault::Option),
+    );
+
+    let last_modified = make_ivar_metaroot(
+        "LastModified",
+        "last_modified",
+        PyType::Str,
+        None,
+        Some(DocDefault::Option),
+    );
+
+    let originality = make_ivar_metaroot(
+        "Originality",
+        "originality",
+        PyType::Literal(
+            "Original".into(),
+            vec![
+                "NonDataModified".into(),
+                "Appended".into(),
+                "DataModified".into(),
+            ],
+        ),
+        None,
+        Some(DocDefault::Option),
+    );
+
+    let all_modified = [last_modifier, last_modified, originality];
+
+    let plateid = make_ivar_metaroot(
+        "Plateid",
+        "plateid",
+        PyType::Str,
+        None,
+        Some(DocDefault::Option),
+    );
+
+    let platename = make_ivar_metaroot(
+        "Platename",
+        "platename",
+        PyType::Str,
+        None,
+        Some(DocDefault::Option),
+    );
+
+    let wellid = make_ivar_metaroot(
+        "Wellid",
+        "wellid",
+        PyType::Str,
+        None,
+        Some(DocDefault::Option),
+    );
+
+    let all_plate = [plateid, platename, wellid];
+
+    let vol = make_ivar_metaroot("Vol", "vol", PyType::Float, None, Some(DocDefault::Option));
+
+    let comp_or_spill = match version {
+        Version::FCS2_0 => make_comp(true),
+        Version::FCS3_0 => make_comp(false),
+        _ => make_spillover(),
+    };
+
+    let flowrate = make_ivar_metaroot(
+        "Flowrate",
+        "flowrate",
+        PyType::Str,
+        None,
+        Some(DocDefault::Option),
+    );
+
+    let carrierid = make_ivar_metaroot(
+        "Carrierid",
+        "carrierid",
+        PyType::Str,
+        None,
+        Some(DocDefault::Option),
+    );
+
+    let carriertype = make_ivar_metaroot(
+        "Carriertype",
+        "carriertype",
+        PyType::Str,
+        None,
+        Some(DocDefault::Option),
+    );
+
+    let locationid = make_ivar_metaroot(
+        "Locationid",
+        "locationid",
+        PyType::Str,
+        None,
+        Some(DocDefault::Option),
+    );
+
+    let all_carrier = [carrierid, carriertype, locationid];
+
+    let unstainedcenters = make_unstainedcenters();
+
+    let unstainedinfo = make_ivar_metaroot(
+        "UnstainedInfo",
+        "unstainedinfo",
+        PyType::Str,
+        None,
+        Some(DocDefault::Option),
+    );
+
+    let tr = make_trigger();
+
+    let all_timestamps = match version {
+        Version::FCS2_0 => make_timestamps("FCSTime"),
+        Version::FCS3_0 => make_timestamps("FCSTime60"),
+        Version::FCS3_1 | Version::FCS3_2 => make_timestamps("FCSTime100"),
+    };
+
+    let all_datetimes = [make_datetime(true), make_datetime(false)];
+
+    let applied_gates = make_applied_gates(version);
+
+    let nonstandard_keywords = make_nonstandard_keywords();
+
+    let common_kws = [
+        abrt,
+        com,
+        cells,
+        exp,
+        fil,
+        inst,
+        lost,
+        op,
+        proj,
+        smno,
+        src,
+        sys,
+        tr,
+        applied_gates,
+        nonstandard_keywords,
+    ];
+
+    let all_kws: Vec<_> = match version {
+        Version::FCS2_0 => [mode, cyt, comp_or_spill]
+            .into_iter()
+            .chain(all_timestamps)
+            .chain(common_kws)
+            .collect(),
+        Version::FCS3_0 => [mode, cyt, comp_or_spill]
+            .into_iter()
+            .chain(all_timestamps)
+            .chain([cytsn, unicode])
+            .chain(all_subset)
+            .chain(common_kws)
+            .collect(),
+        Version::FCS3_1 => [mode, cyt]
+            .into_iter()
+            .chain(all_timestamps)
+            .chain([cytsn, comp_or_spill])
+            .chain(all_modified)
+            .chain(all_plate)
+            .chain([vol])
+            .chain(all_subset)
+            .chain(common_kws)
+            .collect(),
+        Version::FCS3_2 => [cyt, mode]
+            .into_iter()
+            .chain(all_timestamps)
+            .chain(all_datetimes)
+            .chain([cytsn, comp_or_spill])
+            .chain(all_modified)
+            .chain(all_plate)
+            .chain([vol])
+            .chain(all_carrier)
+            .chain([unstainedinfo, unstainedcenters, flowrate])
+            .chain(common_kws)
+            .collect(),
+    };
+
+    let (fun_args, docs, methods): (Vec<_>, Vec<_>, Vec<_>) = multiunzip(
+        all_kws
+            .into_iter()
+            .map(|x| (x.fun_arg, x.doc, x.methods))
+            .collect::<Vec<_>>(),
+    );
 
     // methods which apply to both Coretext* and CoreDataset*
     let common = quote! {
-        #mode
+        #(#methods)*
 
         #par_doc
         #[getter]
@@ -883,45 +1135,45 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             self.0.rename_temporal(name)
         }
 
-        #[getter]
-        fn get_btim(&self) -> Option<chrono::NaiveTime> {
-            self.0.btim_naive()
-        }
+        // #[getter]
+        // fn get_btim(&self) -> Option<chrono::NaiveTime> {
+        //     self.0.btim_naive()
+        // }
 
-        #[setter]
-        fn set_btim(&mut self, x: Option<chrono::NaiveTime>) -> PyResult<()> {
-            Ok(self.0.set_btim_naive(x)?)
-        }
+        // #[setter]
+        // fn set_btim(&mut self, x: Option<chrono::NaiveTime>) -> PyResult<()> {
+        //     Ok(self.0.set_btim_naive(x)?)
+        // }
 
-        #[getter]
-        fn get_etim(&self) -> Option<chrono::NaiveTime> {
-            self.0.etim_naive()
-        }
+        // #[getter]
+        // fn get_etim(&self) -> Option<chrono::NaiveTime> {
+        //     self.0.etim_naive()
+        // }
 
-        #[setter]
-        fn set_etim(&mut self, x: Option<chrono::NaiveTime>) -> PyResult<()> {
-            Ok(self.0.set_etim_naive(x)?)
-        }
+        // #[setter]
+        // fn set_etim(&mut self, x: Option<chrono::NaiveTime>) -> PyResult<()> {
+        //     Ok(self.0.set_etim_naive(x)?)
+        // }
 
-        #[getter]
-        fn get_date(&self) -> Option<chrono::NaiveDate> {
-            self.0.date_naive()
-        }
+        // #[getter]
+        // fn get_date(&self) -> Option<chrono::NaiveDate> {
+        //     self.0.date_naive()
+        // }
 
-        #[setter]
-        fn set_date(&mut self, x: Option<chrono::NaiveDate>) -> PyResult<()> {
-            Ok(self.0.set_date_naive(x)?)
-        }
+        // #[setter]
+        // fn set_date(&mut self, x: Option<chrono::NaiveDate>) -> PyResult<()> {
+        //     Ok(self.0.set_date_naive(x)?)
+        // }
 
-        #[getter]
-        fn trigger(&self) -> Option<#tr_type> {
-            self.0.metaroot_opt().cloned()
-        }
+        // #[getter]
+        // fn trigger(&self) -> Option<#tr_path> {
+        //     self.0.metaroot_opt().cloned()
+        // }
 
-        #[setter]
-        fn set_trigger(&mut self, tr: Option<#tr_type>) -> PyResult<()> {
-            Ok(self.0.set_trigger(tr)?)
-        }
+        // #[setter]
+        // fn set_trigger(&mut self, tr: Option<#tr_path>) -> PyResult<()> {
+        //     Ok(self.0.set_trigger(tr)?)
+        // }
 
         #set_tr_threshold_doc
         fn set_trigger_threshold(&mut self, threshold: u32) -> bool {
@@ -941,7 +1193,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
         #get_set_all_pnn_maybe
 
-        #get_set_3_2
+        // #get_set_3_2
 
         #[getter]
         fn get_layout(&self) -> #layout_rstype {
@@ -964,7 +1216,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         #unset_temporal_mtd
         #get_set_scale
         #get_set_timestep
-        #get_set_comp_spill
+        // #get_set_comp_spill
         #get_set_all_peak
     };
 
@@ -1506,29 +1758,39 @@ pub fn impl_get_set_metaroot(input: TokenStream) -> TokenStream {
     quote! {#(#outputs)*}.into()
 }
 
+struct IvarData {
+    doc: DocArg,
+    fun_arg: proc_macro2::TokenStream,
+    methods: proc_macro2::TokenStream,
+}
+
 fn make_ivar_metaroot(
     kw: &str,
     name: &str,
     pytype: PyType,
-    desc: &str,
+    desc: Option<&str>,
     def: Option<DocDefault>,
-) -> (DocArg, proc_macro2::TokenStream) {
+) -> IvarData {
     let spath = format!("fireflow_core::text::keywords::{kw}");
     let path = parse_str::<Path>(spath.as_str()).expect("not a valid path");
     let get = format_ident!("get_{name}");
     let set = format_ident!("set_{name}");
 
-    let (optional, d) = if let Some(d) = def {
+    let _desc = desc.map_or(format!("Value of *${}*.", name.to_uppercase()), |d| {
+        d.to_string()
+    });
+
+    let (optional, doc) = if let Some(d) = def {
         let optional = matches!(d, DocDefault::Option);
         let t = if optional {
             PyType::new_opt(pytype)
         } else {
             pytype
         };
-        let a = DocArg::new_ivar_def(name.to_string(), t, desc.to_string(), d);
+        let a = DocArg::new_ivar_def(name.to_string(), t, _desc, d);
         (optional, a)
     } else {
-        let a = DocArg::new_ivar(name.to_string(), pytype, desc.to_string());
+        let a = DocArg::new_ivar(name.to_string(), pytype, _desc);
         (false, a)
     };
 
@@ -1540,7 +1802,7 @@ fn make_ivar_metaroot(
         quote! {#path}
     };
 
-    let q = quote! {
+    let methods = quote! {
         #[getter]
         fn #get(&self) -> #full_kw {
             self.0.#get_inner::<#path>().#clone_inner()
@@ -1551,7 +1813,399 @@ fn make_ivar_metaroot(
             self.0.set_metaroot(x)
         }
     };
-    (d, q)
+    IvarData {
+        methods,
+        fun_arg: full_kw,
+        doc,
+    }
+}
+
+fn make_timestamps(time_name: &str) -> [IvarData; 3] {
+    let nd = quote! {Option<chrono::NaiveDate>};
+    let time_ident = format_ident!("{time_name}");
+    let time_path = quote!(fireflow_core::text::timestamps::#time_ident);
+    let date_fun_arg = quote!(Option<fireflow_core::text::timestamps::FCSDate>);
+
+    let make_time_ivar = |is_start: bool| {
+        let nt = quote! {Option<chrono::NaiveTime>};
+        let (name, wrap) = if is_start {
+            ("btim", "Btim")
+        } else {
+            ("etim", "Etim")
+        };
+        let wrap_ident = format_ident!("{wrap}");
+        let wrap_path = quote!(fireflow_core::text::timestamps::#wrap_ident);
+        let fun_arg = quote!(Option<#wrap_path<#time_path>>);
+        let get = format_ident!("get_{name}");
+        let set = format_ident!("set_{name}");
+        let get_naive = format_ident!("{name}_naive");
+        let set_naive = format_ident!("set_{name}_naive");
+        let desc = format!("Value of *${}*.", name.to_uppercase());
+        let doc = DocArg::new_ivar_def(
+            name.into(),
+            PyType::new_opt(PyType::Time),
+            desc,
+            DocDefault::Option,
+        );
+        let methods = quote! {
+            #[getter]
+            fn #get(&self) -> #nt {
+                self.0.#get_naive()
+            }
+
+            #[setter]
+            fn #set(&mut self, x: #nt) -> PyResult<()> {
+                Ok(self.0.#set_naive(x)?)
+            }
+        };
+        IvarData {
+            fun_arg,
+            methods,
+            doc,
+        }
+    };
+
+    let date_doc = DocArg::new_ivar_def(
+        "date".into(),
+        PyType::new_opt(PyType::Date),
+        "Value of *$DATE*.".into(),
+        DocDefault::Option,
+    );
+
+    let date_methods = quote! {
+        #[getter]
+        fn get_date(&self) -> #nd {
+            self.0.date_naive()
+        }
+
+        #[setter]
+        fn set_date(&mut self, x: #nd) -> PyResult<()> {
+            Ok(self.0.set_date_naive(x)?)
+        }
+    };
+
+    let date = IvarData {
+        fun_arg: date_fun_arg,
+        methods: date_methods,
+        doc: date_doc,
+    };
+
+    [make_time_ivar(true), make_time_ivar(false), date]
+}
+
+fn make_datetime(is_start: bool) -> IvarData {
+    let dt = quote! {Option<chrono::DateTime<chrono::FixedOffset>>};
+    let (name, type_name) = if is_start {
+        ("begindatetime", "BeginDateTime")
+    } else {
+        ("enddatetime", "EndDateTime")
+    };
+    let type_ident = format_ident!("{type_name}");
+    let fun_arg = quote!(Option<fireflow_core::text::datetimes::#type_ident>);
+    let get = format_ident!("{name}");
+    let set = format_ident!("set_{name}");
+    let doc = DocArg::new_ivar_def(
+        name.into(),
+        PyType::new_opt(PyType::Datetime),
+        format!("Value for *${}*.", name.to_uppercase()),
+        DocDefault::Option,
+    );
+    let methods = quote! {
+        #[getter]
+        fn #get(&self) -> #dt {
+            self.0.#get()
+        }
+
+        #[setter]
+        fn #set(&mut self, x: #dt) -> PyResult<()> {
+            Ok(self.0.#set(x)?)
+        }
+    };
+    IvarData {
+        doc,
+        fun_arg,
+        methods,
+    }
+}
+
+fn make_comp(is_2_0: bool) -> IvarData {
+    let fun_arg = quote!(Option<fireflow_core::text::compensation::Compensation>);
+    let methods = quote! {
+        #[getter]
+        fn get_compensation(&self) -> #fun_arg {
+            self.0.compensation().cloned()
+        }
+
+        #[setter]
+        fn set_compensation(&mut self, m: #fun_arg) -> PyResult<()> {
+            Ok(self.0.set_compensation(m)?)
+        }
+    };
+    let desc = if is_2_0 {
+        "The compensation matrix. Must be a square array with number of \
+         rows/columns equal to the number of measurements. Non-zero entries \
+         will produce a *$DFCmTOn* keyword."
+    } else {
+        "The value of *$COMP*. Must be a square array with number of \
+         rows/columns equal to the number of measurements."
+    }
+    .into();
+    let doc = DocArg::new_ivar_def(
+        "comp".into(),
+        PyType::new_opt(PyType::PyClass("numpy.ndarray".into())),
+        desc,
+        DocDefault::Option,
+    );
+    IvarData {
+        doc,
+        fun_arg,
+        methods,
+    }
+}
+
+fn make_spillover() -> IvarData {
+    let fun_arg = quote!(Option<fireflow_core::text::spillover::Spillover>);
+    let methods = quote! {
+        #[getter]
+        fn get_spillover(&self) -> #fun_arg {
+            self.0.spillover().map(|x| x.clone())
+        }
+
+        #[setter]
+        fn set_spillover(&mut self, spillover: #fun_arg) -> PyResult<()> {
+            Ok(self.0.set_spillover(spillover)?)
+        }
+    };
+    let doc = DocArg::new_ivar_def(
+        "spillover".into(),
+        PyType::new_opt(PyType::Tuple(vec![
+            PyType::new_list(PyType::Str),
+            PyType::PyClass("numpy.ndarray".into()),
+        ])),
+        "Value for *$SPILLOVER*. First element of tuple the list of measurement \
+         names and the second is the matrix. Each measurement name must \
+         correspond to a *$PnN*, must be unique, and the length of this list \
+         must match the number of rows and columns of the matrix. The matrix \
+         must be at least 2x2."
+            .into(),
+        DocDefault::Option,
+    );
+    IvarData {
+        doc,
+        fun_arg,
+        methods,
+    }
+}
+
+fn make_csvflags() -> IvarData {
+    let path = quote!(fireflow_core::core::CSVFlags);
+    let fun_arg = quote!(Option<#path>);
+    let doc = DocArg::new_ivar_def(
+        "csvflags".into(),
+        PyType::new_opt(PyType::new_list(PyType::new_opt(PyType::Int))),
+        "Subset flags. Each element in the list corresponds to *$CSVnFLAG* and \
+         the length of the list corresponds to *$CSMODE*."
+            .into(),
+        DocDefault::Option,
+    );
+    let methods = quote! {
+        #[getter]
+        fn get_csvflags(&self) -> #fun_arg {
+            self.0.metaroot_opt::<#path>().cloned()
+        }
+
+        #[setter]
+        fn set_csvflags(&mut self, x: #fun_arg) {
+            self.0.set_metaroot(x)
+        }
+    };
+
+    IvarData {
+        doc,
+        fun_arg,
+        methods,
+    }
+}
+
+fn make_trigger() -> IvarData {
+    let fun_arg = quote! {Option<fireflow_core::text::keywords::Trigger>};
+
+    let doc = DocArg::new_ivar_def(
+        "tr".into(),
+        PyType::new_opt(PyType::Tuple(vec![PyType::Int, PyType::Str])),
+        "Value for *$TR*. First member of tuple is threshold and second is the \
+         measurement name which must match a *$PnN*."
+            .into(),
+        DocDefault::Option,
+    );
+
+    let methods = quote! {
+        #[getter]
+        fn trigger(&self) -> #fun_arg {
+            self.0.metaroot_opt().cloned()
+        }
+
+        #[setter]
+        fn set_trigger(&mut self, tr: #fun_arg) -> PyResult<()> {
+            Ok(self.0.set_trigger(tr)?)
+        }
+    };
+
+    IvarData {
+        fun_arg,
+        doc,
+        methods,
+    }
+}
+
+fn make_unstainedcenters() -> IvarData {
+    let doc = DocArg::new_ivar_def(
+        "unstainedcenters".into(),
+        PyType::new_opt(PyType::new_dict(PyType::Str, PyType::Float)),
+        "Value for *$UNSTAINEDCENTERS. Each key must match a *$PnN*.".into(),
+        DocDefault::Option,
+    );
+    let path = quote!(fireflow_core::text::unstainedcenters::UnstainedCenters);
+    let fun_arg = quote!(Option<#path>);
+    let methods = quote! {
+        #[getter]
+        fn get_unstained_centers(&self) -> #fun_arg {
+            self.0.metaroot_opt::<#path>().map(|y| y.clone())
+        }
+
+        #[setter]
+        fn set_unstained_centers(&mut self, us: #fun_arg) -> PyResult<()> {
+            self.0.set_unstained_centers(us).py_term_resolve_nowarn()
+        }
+    };
+    IvarData {
+        doc,
+        fun_arg,
+        methods,
+    }
+}
+
+fn make_applied_gates(version: Version) -> IvarData {
+    let collapsed_version = if version == Version::FCS3_1 {
+        Version::FCS3_0
+    } else {
+        version
+    };
+    let vsu = collapsed_version.short_underscore();
+    let rstype = format_ident!("AppliedGates{vsu}");
+    let fun_arg = format_ident!("Py{}", rstype);
+    let gmtype = if collapsed_version < Version::FCS3_2 {
+        Some(PyType::new_list(PyType::PyClass("GatedMeasurement".into())))
+    } else {
+        None
+    };
+    let urtype = PyType::PyClass(format!("UnivariateRegion{vsu}"));
+    let bvtype = PyType::PyClass(format!("BivariateRegion{vsu}"));
+    let rtype = PyType::new_dict(PyType::Int, PyType::new_union2(urtype, bvtype));
+    let gtype = PyType::new_opt(PyType::Str);
+    let pytype = PyType::Tuple(gmtype.into_iter().chain([rtype, gtype]).collect());
+
+    let desc = if collapsed_version == Version::FCS2_0 {
+        "Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords. The first member of \
+         the tuple corresponds to the *$Gm\\** keywords, where *m* is given by \
+         position in the list. The second member corresponds to the *$RnI* and \
+         *$RnW* keywords and is a mapping of regions and windows to be used in \
+         gating scheme. Keys in dictionary are the region indices (the *n* in \
+         *$RnI* and *$RnW*). The values in the dictionary are either univariate \
+         or bivariate gates and must correspond to an index in the list in the \
+         first element. The third member corresponds to the *$GATING* keyword. \
+         All 'Rn' in this string must reference a key in the dict of the second \
+         member."
+    } else if collapsed_version < Version::FCS3_2 {
+        "Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords. The first member of \
+         the tuple corresponds to the *$Gm\\** keywords, where *m* is given by \
+         position in the list. The second member corresponds to the *$RnI* and \
+         *$RnW* keywords and is a mapping of regions and windows to be used in \
+         gating scheme. Keys in dictionary are the region indices (the *n* in \
+         *$RnI* and *$RnW*). The values in the dictionary are either univariate \
+         or bivariate gates and must correspond to an index in the list in the \
+         first element or a physical measurement. The third member corresponds \
+         to the *$GATING* keyword. All 'Rn' in this string must reference a key \
+         in the dict of the second member."
+    } else {
+        "Value for *$RnI/$RnW/$GATING* keywords. The first member corresponds to \
+         the *$RnI* and *$RnW* keywords and is a mapping of regions and windows \
+         to be used in gating scheme. Keys in dictionary are the region indices \
+         (the *n* in *$RnI* and *$RnW*). The values in the dictionary are either \
+         univariate or bivariate gates and must correspond to a physical \
+         measurement. The second member corresponds to the *$GATING* keyword. \
+         All 'Rn' in this string must reference a key in the dict of the first \
+         member."
+    }
+    .into();
+
+    let pydef = if version < Version::FCS3_2 {
+        "([], {}, None)"
+    } else {
+        "({}, None)"
+    };
+
+    let def = DocDefault::Other(quote!(#fun_arg::default()), pydef.into());
+
+    let doc = DocArg::new_ivar_def("applied_gates".into(), pytype, desc, def);
+
+    let setter_body = if collapsed_version == Version::FCS2_0 {
+        quote! {
+            fn set_applied_gates(&mut self, ag: #fun_arg) {
+                self.0.set_metaroot::<#rstype>(ag.into())
+            }
+        }
+    } else {
+        let setter = format_ident!("set_applied_gates_{vsu}");
+        quote! {
+            fn set_applied_gates(&mut self, ag: #fun_arg) -> PyResult<()> {
+                Ok(self.0.#setter(ag.into())?)
+            }
+        }
+    };
+
+    let methods = quote! {
+        #[getter]
+        fn get_applied_gates(&self) -> #fun_arg {
+            self.0.metaroot::<#rstype>().clone().into()
+        }
+
+        #[setter]
+        #setter_body
+    };
+
+    IvarData {
+        doc,
+        fun_arg: quote!(#fun_arg),
+        methods,
+    }
+}
+
+fn make_nonstandard_keywords() -> IvarData {
+    let nsk = quote!(fireflow_core::validated::keys::NonStdKey);
+    let fun_arg = quote!(std::collections::HashMap<#nsk, String>);
+    let doc = DocArg::new_ivar_def(
+        "nonstandard_keywords".into(),
+        PyType::new_dict(PyType::Str, PyType::Str),
+        "Pairs of non-standard keyword values. Keys must not start with *$*.".into(),
+        DocDefault::EmptyDict,
+    );
+    let methods = quote! {
+        #[getter]
+        fn get_nonstandard_keywords(&self) -> #fun_arg {
+            self.0.metaroot.nonstandard_keywords.clone()
+        }
+
+        #[setter]
+        fn set_nonstandard_keywords(&mut self, kws: #fun_arg) {
+            self.0.metaroot.nonstandard_keywords = kws;
+        }
+    };
+    IvarData {
+        doc,
+        fun_arg,
+        methods,
+    }
 }
 
 #[proc_macro]

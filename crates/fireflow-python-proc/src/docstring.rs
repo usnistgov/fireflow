@@ -50,6 +50,9 @@ pub(crate) enum PyType {
     Int,
     Float,
     None,
+    Datetime,
+    Date,
+    Time,
     Option(Box<PyType>),
     Dict(Box<PyType>, Box<PyType>),
     Union(Box<PyType>, Box<PyType>, Vec<PyType>),
@@ -164,6 +167,10 @@ impl PyType {
 
     pub(crate) fn new_list(x: PyType) -> Self {
         Self::List(Box::new(x))
+    }
+
+    pub(crate) fn new_dict(k: PyType, v: PyType) -> Self {
+        Self::Dict(Box::new(k), Box::new(v))
     }
 
     pub(crate) fn new_union2(x: PyType, y: PyType) -> Self {
@@ -324,6 +331,9 @@ impl fmt::Display for PyType {
             Self::Float => f.write_str("float"),
             Self::Bytes => f.write_str("Bytes"),
             Self::None => f.write_str("None"),
+            Self::Date => f.write_str("datetime.date"),
+            Self::Time => f.write_str("datetime.time"),
+            Self::Datetime => f.write_str("datetime.datetime"),
             Self::Union(x, y, zs) => {
                 let s = [x.as_ref(), y.as_ref()]
                     .into_iter()

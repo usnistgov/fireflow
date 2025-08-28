@@ -58,7 +58,7 @@ pub(crate) enum PyType {
     Union(Box<PyType>, Box<PyType>, Vec<PyType>),
     Tuple(Vec<PyType>),
     List(Box<PyType>),
-    Literal(String, Vec<String>),
+    Literal(&'static str, Vec<&'static str>),
     PyClass(String),
     Raw(String),
 }
@@ -183,6 +183,13 @@ impl PyType {
         let x1 = it.next().expect("Union must have at least 2 types");
         let xs = it.collect();
         Self::Union(Box::new(x0), Box::new(x1), xs)
+    }
+
+    pub(crate) fn new_lit(xs: &[&'static str]) -> Self {
+        let mut it = xs.iter();
+        let x0 = it.next().expect("Literal cannot be empty");
+        let xs = it.copied().collect();
+        Self::Literal(x0, xs)
     }
 
     pub(crate) fn new_unit() -> Self {

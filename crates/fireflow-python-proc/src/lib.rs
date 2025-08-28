@@ -11,7 +11,6 @@ use proc_macro::TokenStream;
 use derive_new::new;
 use quote::{format_ident, quote};
 use syn::{
-    parenthesized,
     parse::{Parse, ParseStream},
     parse_macro_input, parse_quote, parse_str,
     punctuated::Punctuated,
@@ -22,22 +21,25 @@ use syn::{
 #[proc_macro]
 pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let info = parse_macro_input!(input as NewCoreInfo);
-    let coretext_rstype = info.coretext_type;
-    let coredataset_rstype = info.coredataset_type;
-    let fun = info.fun;
+    let version = info.version;
+    let vsu = version.short_underscore();
+    let vs = version.short();
+
+    let coretext_name = format_ident!("CoreTEXT{vsu}");
+    let coredataset_name = format_ident!("CoreDataset{vsu}");
+
+    let coretext_rstype = parse_quote!(fireflow_core::core::#coretext_name);
+    let coredataset_rstype = parse_quote!(fireflow_core::core::#coredataset_name);
+
+    let fun_name = format_ident!("try_new_{vsu}");
+    let fun: Path = parse_quote!(#coretext_rstype::#fun_name);
 
     let fcs_df_type =
         parse_str::<Path>("fireflow_core::validated::dataframe::FCSDataFrame").unwrap();
 
     let polars_df_type = quote! {pyo3_polars::PyDataFrame};
 
-    let coretext_name = path_name(&coretext_rstype);
-    let coredataset_name = path_name(&coredataset_rstype);
-
-    let version = split_version(&coretext_name).1;
-    let v = version.short();
-
-    let coretext_pytype = format_ident!("Py{coretext_name}");
+    // TODO we get this out of the impl_new function below
     let coredataset_pytype = format_ident!("Py{coredataset_name}");
 
     let meas = ArgData::new_measurements_arg(version);
@@ -846,14 +848,14 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let coretext_inner_args: Vec<_> = coretext_args.iter().map(|x| x.inner_arg()).collect();
 
     let coretext_doc = DocString::new(
-        format!("Represents *TEXT* for an FCS {v} file."),
+        format!("Represents *TEXT* for an FCS {vs} file."),
         vec![],
         coretext_params,
         None,
     );
 
     let coredataset_doc = DocString::new(
-        format!("Represents one dataset in an FCS {v} file."),
+        format!("Represents one dataset in an FCS {vs} file."),
         vec![],
         coredataset_params,
         None,
@@ -984,7 +986,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     };
 
     let coretext_q = impl_new(
-        coretext_name,
+        coretext_name.to_string(),
         coretext_rstype,
         coretext_doc,
         coretext_new,
@@ -993,7 +995,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     .1;
 
     let coredataset_q = impl_new(
-        coredataset_name,
+        coredataset_name.to_string(),
         coredataset_rstype,
         coredataset_doc,
         coredataset_new,
@@ -1304,35 +1306,27 @@ impl Parse for NewMeasInfo {
     }
 }
 
-#[derive(Debug)]
 struct NewCoreInfo {
-    coretext_type: Path,
-    coredataset_type: Path,
-    fun: Path,
+    version: Version,
+    // coretext_type: Path,
+    // coredataset_type: Path,
+    // fun: Path,
 }
 
 impl Parse for NewCoreInfo {
     fn parse(input: ParseStream) -> Result<Self> {
-        let coretext_type: Path = input.parse()?;
-        let _: Comma = input.parse()?;
-        let coredataset_type: Path = input.parse()?;
-        let _: Comma = input.parse()?;
-        let fun: Path = input.parse()?;
+        let v = input.parse::<LitStr>()?.value();
+        let version = v.parse::<Version>().unwrap();
+        // let coretext_type: Path = input.parse()?;
+        // let _: Comma = input.parse()?;
+        // let coredataset_type: Path = input.parse()?;
+        // let _: Comma = input.parse()?;
+        // let fun: Path = input.parse()?;
         Ok(Self {
-            coretext_type,
-            coredataset_type,
-            fun,
+            version, // coretext_type,
+                     // coredataset_type,
+                     // fun,
         })
-    }
-}
-
-struct WrapParen<T>(T);
-
-impl<T: Parse> Parse for WrapParen<T> {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let content;
-        parenthesized!(content in input);
-        Ok(Self(content.parse()?))
     }
 }
 

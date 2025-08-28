@@ -150,31 +150,11 @@ macro_rules! py_wrap {
     };
 }
 
-impl_new_core! {
-    core::CoreTEXT2_0,
-    core::CoreDataset2_0,
-    core::CoreTEXT2_0::try_new_2_0
-}
+impl_new_core!("FCS2.0");
+impl_new_core!("FCS3.0");
+impl_new_core!("FCS3.1");
+impl_new_core!("FCS3.2");
 
-impl_new_core! {
-    core::CoreTEXT3_0,
-    core::CoreDataset3_0,
-    core::CoreTEXT3_0::try_new_3_0
-}
-
-impl_new_core! {
-    core::CoreTEXT3_1,
-    core::CoreDataset3_1,
-    core::CoreTEXT3_1::try_new_3_1
-}
-
-impl_new_core! {
-    core::CoreTEXT3_2,
-    core::CoreDataset3_2,
-    core::CoreTEXT3_2::try_new_3_2
-}
-
-// TODO nonstandard_keywords could be "enforced" by storing the prefix somehow
 impl_new_meas!("FCS2.0", false);
 impl_new_meas!("FCS3.0", false);
 impl_new_meas!("FCS3.1", false);

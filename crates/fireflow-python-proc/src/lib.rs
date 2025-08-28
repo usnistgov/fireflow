@@ -2341,7 +2341,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
                 .py_term_resolve()?}
             };
             (
-                quote! {force = true},
+                quote! {force = false},
                 quote! {force: bool},
                 go(quote! {replace_temporal_at_lossy}, quote! {index}),
                 go(quote! {replace_temporal_named_lossy}, quote! {&name}),

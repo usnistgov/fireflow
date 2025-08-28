@@ -2,23 +2,21 @@ extern crate proc_macro;
 
 mod docstring;
 
-use crate::docstring::{ArgType, DocArg, DocDefault, DocReturn, DocString, PyType};
+use crate::docstring::{DocArg, DocDefault, DocReturn, DocString, PyType};
 
 use fireflow_core::header::Version;
 
 use proc_macro::TokenStream;
 
 use derive_new::new;
-use itertools::Itertools;
-use quote::{format_ident, quote, ToTokens};
+use quote::{format_ident, quote};
 use syn::{
     parenthesized,
     parse::{Parse, ParseStream},
     parse_macro_input, parse_quote, parse_str,
     punctuated::Punctuated,
     token::Comma,
-    Expr, GenericArgument, Ident, LitBool, LitInt, LitStr, Path, PathArguments, Result, Token,
-    Type,
+    GenericArgument, Ident, LitBool, LitInt, LitStr, Path, PathArguments, Result, Token, Type,
 };
 
 #[proc_macro]
@@ -771,7 +769,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     let applied_gates = ArgData::new_applied_gates_arg(version);
 
-    let nonstandard_keywords = ArgData::new_nonstandard_keywords_arg();
+    let nonstandard_keywords = ArgData::new_core_nonstandard_keywords_arg();
 
     let common_kws = [
         abrt,
@@ -1013,7 +1011,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let info = parse_macro_input!(input as NewMeasInfo);
-    let args = info.args;
+    // let args = info.args;
 
     let base = if info.is_temporal {
         "Temporal"
@@ -1021,8 +1019,9 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         "Optical"
     };
 
-    let version_us = info.version.short_underscore();
-    let version = info.version.short();
+    let version = info.version;
+    let version_us = version.short_underscore();
+    let version_s = version.short();
 
     let name = format!("{base}{version_us}");
     let path = format!("fireflow_core::core::{name}");
@@ -1032,52 +1031,225 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
 
     let lower_basename = base.to_lowercase();
 
-    let ln_path = "Option<fireflow_core::text::keywords::Longname>";
-    let nonstd_path = "HashMap<fireflow_core::validated::keys::NonStdKey, String>";
+    let scale = if version == Version::FCS2_0 {
+        ArgData::new_scale_arg()
+    } else {
+        ArgData::new_transform_arg()
+    };
 
-    let ln_type = parse_str::<Path>(ln_path).unwrap();
-    let nonstd_type = parse_str::<Path>(nonstd_path).unwrap();
+    let wavelength = if version < Version::FCS3_1 {
+        ArgData::new_meas_kw_opt_arg("Wavelength", "wavelength", "L", PyType::Float)
+    } else {
+        ArgData::new_meas_kw_opt_arg(
+            "Wavelengths",
+            "wavelength",
+            "L",
+            PyType::new_list(PyType::Float),
+        )
+    };
 
-    let longname = NewArgInfo::new(
-        "longname",
-        ln_type,
-        true,
-        &PyType::Str,
-        Some("Value for *$PnS*."),
-        None,
+    let bin = ArgData::new_meas_kw_opt_arg("PeakBin", "bin", "K", PyType::Int);
+    let size = ArgData::new_meas_kw_opt_arg("PeakNumber", "size", "KN", PyType::Int);
+
+    let all_peak = [bin, size];
+
+    let filter = ArgData::new_meas_kw_opt_arg("Filter", "filter", "F", PyType::Str);
+
+    let power = ArgData::new_meas_kw_opt_arg("Power", "power", "O", PyType::Float);
+
+    let detector_type =
+        ArgData::new_meas_kw_opt_arg("DetectorType", "detector_type", "T", PyType::Str);
+
+    let percent_emitted =
+        ArgData::new_meas_kw_opt_arg("PercentEmitted", "percent_emitted", "P", PyType::Str);
+
+    let detector_voltage =
+        ArgData::new_meas_kw_opt_arg("DetectorVoltage", "detector_voltage", "V", PyType::Float);
+
+    let all_common_optical = [
+        filter,
+        power,
+        detector_type,
+        percent_emitted,
+        detector_voltage,
+    ];
+
+    let calibration3_1 = ArgData::new_meas_kw_arg(
+        "Calibration3_1",
+        "calibration",
+        PyType::Tuple(vec![PyType::Float, PyType::Str]),
+        Some("Value of *$PnCALIBRATION*. Tuple encodes slope and calibration units."),
+        Some(DocDefault::Option),
     );
 
-    let nonstd = NewArgInfo::new(
-        "nonstandard_keywords",
-        nonstd_type,
-        true,
-        &PyType::Raw("dict[str, str]".into()),
+    let calibration3_2 = ArgData::new_meas_kw_arg(
+        "Calibration3_2",
+        "calibration",
+        PyType::Tuple(vec![PyType::Float, PyType::Float, PyType::Str]),
         Some(
-            "Any non-standard keywords corresponding to this measurement. No keys \
-             should start with *$*. Realistically each key should follow a pattern \
-             corresponding to the measurement index, something like prefixing with \
-             \"P\" followed by the index. This is not enforced.",
+            "Value of *$PnCALIBRATION*. Tuple encodes slope, intercept, \
+             and calibration units.",
         ),
-        None,
+        Some(DocDefault::Option),
     );
 
-    let all_args: Vec<_> = args.iter().chain([&longname, &nonstd]).collect();
+    let display = ArgData::new_meas_kw_arg(
+        "Display",
+        "display",
+        PyType::Tuple(vec![PyType::Bool, PyType::Float, PyType::Float]),
+        Some(
+            "Value of *$PnD*. First member of tuple encodes linear or log display \
+             (``False`` and ``True`` respectively). The float members encode \
+             lower/upper and decades/offset for linear and log scaling respectively.",
+        ),
+        Some(DocDefault::Option),
+    );
 
-    let pytype = format_ident!("Py{name}");
+    let analyte = ArgData::new_meas_kw_opt_arg("Analyte", "analyte", "ANALYTE", PyType::Str);
 
-    let funargs: Vec<_> = all_args.iter().map(|x| x.make_fun_arg()).collect();
+    let feature = ArgData::new_meas_kw_opt_arg(
+        "Feature",
+        "feature",
+        "FEATURE",
+        PyType::new_lit(&["Area", "Width", "Height"]),
+    );
 
-    let inner_args: Vec<_> = all_args.iter().map(|x| x.make_argname()).collect();
+    let detector_name =
+        ArgData::new_meas_kw_opt_arg("DetectorName", "detector_name", "DET", PyType::Str);
 
-    let sig_args: Vec<_> = all_args.iter().map(|x| x.make_sig()).collect();
+    let tag = ArgData::new_meas_kw_opt_arg("Tag", "tag", "TAG", PyType::Str);
 
-    let _txt_sig_args = all_args.iter().map(|x| x.make_txt_sig()).join(",");
-    let txt_sig = format!("({_txt_sig_args})");
+    let measurement_type =
+        ArgData::new_meas_kw_opt_arg("OpticalType", "measurement_type", "TYPE", PyType::Str);
 
-    let params: Vec<_> = all_args.iter().map(|x| x.fmt_arg_doc()).collect();
+    let has_scale_doc = DocArg::new_ivar_def(
+        "has_scale".into(),
+        PyType::Bool,
+        "``True`` if *$PnE* is set to ``0,0``.".into(),
+        DocDefault::Bool(false),
+    );
+    let has_scale_methods = quote! {
+        #[getter]
+        fn get_has_scale(&self) -> bool {
+            self.0.specific.scale.0.is_some()
+        }
+
+        #[setter]
+        fn set_has_scale(&mut self, has_scale: bool) {
+            self.0.specific.scale = if has_scale {
+                Some(fireflow_core::text::keywords::TemporalScale)
+            } else {
+                None
+            }.into();
+        }
+    };
+    let has_scale = ArgData::new(has_scale_doc, parse_quote!(bool), Some(has_scale_methods));
+
+    let has_type_doc = DocArg::new_ivar_def(
+        "has_type".into(),
+        PyType::Bool,
+        "``True`` if *$PnTYPE* is set to ``Time``.".into(),
+        DocDefault::Bool(false),
+    );
+    let has_type_methods = quote! {
+        #[getter]
+        fn get_has_type(&self) -> bool {
+            self.0.specific.measurement_type.0.is_some()
+        }
+
+        #[setter]
+        fn set_has_type(&mut self, has_type: bool) {
+            self.0.specific.measurement_type = if has_type {
+                Some(fireflow_core::text::keywords::TemporalType)
+            } else {
+                None
+            }.into();
+        }
+    };
+    let has_type = ArgData::new(has_type_doc, parse_quote!(bool), Some(has_type_methods));
+
+    // treat timestep as a param since the "setter" method can return the old
+    // timestep, so it is more than just a "setter"
+    let timestep_path = parse_quote!(fireflow_core::text::keywords::Timestep);
+    let timestep_doc = DocArg::new_param(
+        "timestep".into(),
+        PyType::Float,
+        "Value of *$TIMESTEP*.".into(),
+    );
+    let timestep = ArgData::new1(timestep_doc, timestep_path);
+
+    let longname = ArgData::new_meas_kw_opt_arg("Longname", "longname", "S", PyType::Str);
+
+    let nonstd = ArgData::new_meas_nonstandard_keywords_arg();
+
+    let all_common = [longname, nonstd];
+
+    let all_args: Vec<_> = match (version, info.is_temporal) {
+        (Version::FCS2_0, true) => [has_scale]
+            .into_iter()
+            .chain(all_peak)
+            .chain(all_common)
+            .collect(),
+        (Version::FCS3_0, true) => [timestep]
+            .into_iter()
+            .chain(all_peak)
+            .chain(all_common)
+            .collect(),
+        (Version::FCS3_1, true) => [timestep, display]
+            .into_iter()
+            .chain(all_peak)
+            .chain(all_common)
+            .collect(),
+        (Version::FCS3_2, true) => [timestep, display]
+            .into_iter()
+            .chain([has_type])
+            .chain(all_common)
+            .collect(),
+        (Version::FCS2_0, false) => [scale, wavelength]
+            .into_iter()
+            .chain(all_peak)
+            .chain(all_common_optical)
+            .chain(all_common)
+            .collect(),
+        (Version::FCS3_0, false) => [scale, wavelength]
+            .into_iter()
+            .chain(all_peak)
+            .chain(all_common_optical)
+            .chain(all_common)
+            .collect(),
+        (Version::FCS3_1, false) => [scale, wavelength, calibration3_1, display]
+            .into_iter()
+            .chain(all_peak)
+            .chain(all_common_optical)
+            .chain(all_common)
+            .collect(),
+        (Version::FCS3_2, false) => [
+            scale,
+            wavelength,
+            calibration3_2,
+            display,
+            analyte,
+            feature,
+            tag,
+            measurement_type,
+            detector_name,
+        ]
+        .into_iter()
+        .chain(all_common_optical)
+        .chain(all_common)
+        .collect(),
+    };
+
+    let params = all_args.iter().map(|x| x.doc.clone()).collect();
+
+    let funargs: Vec<_> = all_args.iter().map(|x| x.constr_arg()).collect();
+
+    let inner_args: Vec<_> = all_args.iter().map(|x| x.inner_arg()).collect();
+
+    let ivar_methods: Vec<_> = all_args.iter().flat_map(|x| &x.methods).collect();
 
     let doc = DocString::new(
-        format!("FCS {version} *$Pn\\** keywords for {lower_basename} measurement."),
+        format!("FCS {version_s} *$Pn\\** keywords for {lower_basename} measurement."),
         vec![],
         params,
         None,
@@ -1100,74 +1272,23 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         quote! {}
     };
 
-    let get_set_scale = if info.is_temporal {
-        quote! {}
-    } else if info.version == Version::FCS2_0 {
-        let t = quote! {fireflow_core::text::scale::Scale};
-        quote! {
-            #[getter]
-            fn get_scale(&self) -> Option<#t> {
-                self.0.specific.scale.0.as_ref().map(|&x| x)
-            }
-
-            #[setter]
-            fn set_scale(&mut self, x: Option<#t>) {
-                self.0.specific.scale = x.into()
-            }
-        }
-    } else {
-        let t = quote! {fireflow_core::core::ScaleTransform};
-        quote! {
-            #[getter]
-            fn get_transform(&self) -> #t {
-                self.0.specific.scale
-            }
-
-            #[setter]
-            fn set_transform(&mut self, transform: #t) {
-                self.0.specific.scale = transform;
-            }
+    let new_method = quote! {
+        fn new(#(#funargs),*) -> Self {
+            #fun(#(#inner_args),*).into()
         }
     };
 
-    let nk = quote! {fireflow_core::validated::keys::NonStdKey};
+    let rest = quote! {
+        #get_set_timestep
+        #(#ivar_methods)*
+    };
 
-    quote! {
-        #doc
-        #[pyclass(name = #name, eq)]
-        #[derive(Clone, From, Into, PartialEq)]
-        pub struct #pytype(#rstype);
-
-        #[pymethods]
-        impl #pytype {
-            #[allow(clippy::too_many_arguments)]
-            #[new]
-            #[pyo3(signature = (#(#sig_args),*), text_signature = #txt_sig)]
-            fn new(#(#funargs),*) -> Self {
-                #fun(#(#inner_args),*).into()
-            }
-
-            #get_set_timestep
-            #get_set_scale
-
-            #[getter]
-            fn nonstandard_keywords(&self) -> HashMap<#nk, String> {
-                self.0.common.nonstandard_keywords.clone()
-            }
-
-            #[setter]
-            fn set_nonstandard_keywords(&mut self, keyvals: HashMap<#nk, String>) {
-                self.0.common.nonstandard_keywords = keyvals;
-            }
-        }
-    }
-    .into()
+    impl_new(name, rstype, doc, new_method, rest).1.into()
 }
 
 struct NewMeasInfo {
     version: Version,
     is_temporal: bool,
-    args: Vec<NewArgInfo>,
 }
 
 impl Parse for NewMeasInfo {
@@ -1176,13 +1297,9 @@ impl Parse for NewMeasInfo {
         let version = v.parse::<Version>().unwrap();
         let _: Comma = input.parse()?;
         let is_temporal = input.parse::<LitBool>()?.value();
-        let _: Comma = input.parse()?;
-        let args: Punctuated<WrapParen<NewArgInfo>, Token![,]> =
-            Punctuated::parse_terminated(input)?;
         Ok(Self {
             version,
             is_temporal,
-            args: args.into_iter().map(|x| x.0).collect(),
         })
     }
 }
@@ -1216,158 +1333,6 @@ impl<T: Parse> Parse for WrapParen<T> {
         let content;
         parenthesized!(content in input);
         Ok(Self(content.parse()?))
-    }
-}
-
-#[derive(Debug)]
-struct NewArgInfo {
-    argname: String,
-    rstype: Path,
-    isvar: bool,
-    pytype: String,
-    desc: Option<String>,
-    default: Option<ArgDefault>,
-}
-
-#[derive(Debug)]
-struct ArgDefault {
-    rsval: proc_macro2::TokenStream,
-    pyval: String,
-}
-
-impl NewArgInfo {
-    fn new(
-        argname: &str,
-        rstype: Path,
-        isvar: bool,
-        pytype: &PyType,
-        desc: Option<&str>,
-        default: Option<ArgDefault>,
-    ) -> Self {
-        Self {
-            argname: argname.to_string(),
-            rstype,
-            isvar,
-            pytype: pytype.to_string(),
-            desc: desc.map(|x| x.to_string()),
-            default,
-        }
-    }
-
-    fn make_fun_arg(&self) -> proc_macro2::TokenStream {
-        let argname = format_ident!("{}", &self.argname);
-        let rstype = &self.rstype;
-        quote! {#argname: #rstype}
-    }
-
-    fn make_argname(&self) -> proc_macro2::TokenStream {
-        let n = format_ident!("{}", &self.argname);
-        if unwrap_generic("Option", &self.rstype).1 {
-            quote! {#n.map(|x| x.into())}
-        } else {
-            quote! {#n.into()}
-        }
-    }
-
-    fn make_sig(&self) -> proc_macro2::TokenStream {
-        let n = format_ident!("{}", &self.argname);
-        let default = if let Some(default) = self.default.as_ref() {
-            Some(default.rsval.to_token_stream())
-        } else {
-            let rstype = path_name(&self.rstype);
-            if rstype == "Option" {
-                Some(quote! {None})
-            } else if rstype == "bool" {
-                Some(quote! {false})
-            } else if rstype == "HashMap" {
-                Some(quote! {HashMap::new()})
-            } else {
-                None
-            }
-        };
-        default.map_or(quote! {#n}, |d| quote! {#n=#d})
-    }
-
-    fn make_txt_sig(&self) -> String {
-        let n = &self.argname;
-        let default = if let Some(default) = self.default.as_ref() {
-            Some(default.pyval.as_str())
-        } else {
-            let rstype = path_name(&self.rstype);
-            if rstype == "Option" {
-                Some("None")
-            } else if rstype == "bool" {
-                Some("False")
-            } else if rstype == "HashMap" {
-                Some("{}")
-            } else {
-                None
-            }
-        };
-        default.map_or(n.to_string(), |d| format!("{n}={d}"))
-    }
-
-    fn fmt_arg_doc(&self) -> DocArg {
-        let rstype = path_name(&self.rstype);
-        let argname = self.argname.to_string();
-        let t = self.pytype.as_str();
-        let pytype = if rstype == "Option" {
-            PyType::Raw(format!("{t} | None"))
-        } else {
-            PyType::Raw(t.to_string())
-        };
-        let desc = if let Some(d) = self.desc.as_ref() {
-            d.to_string()
-        } else {
-            format!("Value for *${}*.", argname.to_uppercase())
-        };
-        let at = if self.isvar {
-            ArgType::Ivar
-        } else {
-            ArgType::Param
-        };
-        DocArg::new(at, argname, pytype, desc, None)
-    }
-}
-
-impl Parse for NewArgInfo {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let argname = input.parse::<Ident>()?.to_string();
-        let _: Comma = input.parse()?;
-        let rstype: Path = input.parse()?;
-        let _: Comma = input.parse()?;
-        let isvar = input.parse::<LitBool>()?.value();
-        let _: Comma = input.parse()?;
-        let pytype = input.parse::<LitStr>()?.value();
-        let desc = if input.peek(Token![,]) {
-            let _: Comma = input.parse()?;
-            Some(input.parse::<LitStr>()?.value())
-        } else {
-            None
-        };
-        let default = if input.peek(Token![,]) {
-            let _: Comma = input.parse()?;
-            Some(input.parse::<WrapParen<ArgDefault>>()?.0)
-        } else {
-            None
-        };
-        Ok(Self {
-            argname,
-            rstype,
-            isvar,
-            pytype,
-            desc,
-            default,
-        })
-    }
-}
-
-impl Parse for ArgDefault {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let rsval = input.parse::<Expr>()?.to_token_stream();
-        let _: Comma = input.parse()?;
-        let pyval = input.parse::<LitStr>()?.value();
-        Ok(Self { rsval, pyval })
     }
 }
 
@@ -1521,8 +1486,70 @@ impl ArgData {
         Self::new(doc, full_kw, Some(methods))
     }
 
+    fn new_meas_kw_arg(
+        kw: &str,
+        name: &str,
+        pytype: PyType,
+        desc: Option<&str>,
+        def: Option<DocDefault>,
+    ) -> Self {
+        let spath = format!("fireflow_core::text::keywords::{kw}");
+        let path = parse_str::<Path>(spath.as_str()).expect("not a valid path");
+        let get = format_ident!("get_{name}");
+        let set = format_ident!("set_{name}");
+
+        let _desc = desc.map_or(format!("Value of *${}*.", name.to_uppercase()), |d| {
+            d.to_string()
+        });
+
+        let (optional, doc) = if let Some(d) = def {
+            let optional = matches!(d, DocDefault::Option);
+            let t = if optional {
+                PyType::new_opt(pytype)
+            } else {
+                pytype
+            };
+            let a = DocArg::new_ivar_def(name.to_string(), t, _desc, d);
+            (optional, a)
+        } else {
+            let a = DocArg::new_ivar(name.to_string(), pytype, _desc);
+            (false, a)
+        };
+
+        let full_kw = if optional {
+            parse_quote! {Option<#path>}
+        } else {
+            path.clone()
+        };
+
+        let methods = quote! {
+            #[getter]
+            fn #get(&self) -> #full_kw {
+                let x: &#full_kw = self.0.as_ref();
+                x.as_ref().cloned()
+            }
+
+            #[setter]
+            fn #set(&mut self, x: #full_kw) {
+                *self.0.as_mut() = x
+            }
+        };
+        Self::new(doc, full_kw, Some(methods))
+    }
+
     fn new_kw_opt_arg(kw: &str, name: &str, pytype: PyType) -> Self {
         Self::new_kw_arg(kw, name, pytype, None, Some(DocDefault::Option))
+    }
+
+    fn new_meas_kw_opt_arg(kw: &str, name: &str, abbr: &str, pytype: PyType) -> Self {
+        let desc = format!("Value for *$P{abbr}n*.");
+        Self::new_meas_kw_arg(
+            kw,
+            name,
+            pytype,
+            Some(desc.as_str()),
+            Some(DocDefault::Option),
+        )
     }
 
     fn new_layout_arg(version: Version) -> Self {
@@ -1977,24 +2004,94 @@ impl ArgData {
         Self::new(doc, parse_quote!(#rstype), Some(methods))
     }
 
-    fn new_nonstandard_keywords_arg() -> Self {
+    fn new_scale_arg() -> Self {
+        let doc = DocArg::new_ivar(
+            "scale".into(),
+            PyType::Tuple(vec![
+                PyType::new_unit(),
+                PyType::Tuple(vec![PyType::Float, PyType::Float]),
+            ]),
+            "Value for *$PnE*. Empty tuple means linear scale; 2-tuple encodes \
+             decades and offset for log scale"
+                .into(),
+        );
+        let rstype = parse_quote! {Option<fireflow_core::text::scale::Scale>};
+        let methods = quote! {
+            #[getter]
+            fn get_scale(&self) -> #rstype {
+                self.0.specific.scale.0.as_ref().map(|&x| x)
+            }
+
+            #[setter]
+            fn set_scale(&mut self, x: #rstype) {
+                self.0.specific.scale = x.into()
+            }
+        };
+        Self::new(doc, rstype, Some(methods))
+    }
+
+    fn new_transform_arg() -> Self {
+        let doc = DocArg::new_ivar(
+            "transform".into(),
+            PyType::Tuple(vec![
+                PyType::Float,
+                PyType::Tuple(vec![PyType::Float, PyType::Float]),
+            ]),
+            "Value for *$PnE* and/or *$PnG*. Singleton float encodes gain (*$PnG*) \
+             and implies linear scaling (ie *$PnE* is ``0,0``). 2-tuple encodes \
+             decades and offset for log scale, and implies *$PnG* is not set."
+                .into(),
+        );
+        let rstype = parse_quote! {fireflow_core::core::ScaleTransform};
+        let methods = quote! {
+            #[getter]
+            fn get_transform(&self) -> #rstype {
+                self.0.specific.scale
+            }
+
+            #[setter]
+            fn set_transform(&mut self, transform: #rstype) {
+                self.0.specific.scale = transform;
+            }
+        };
+        Self::new(doc, rstype, Some(methods))
+    }
+
+    fn new_core_nonstandard_keywords_arg() -> Self {
+        Self::new_nonstandard_keywords_arg(
+            "Pairs of non-standard keyword values. Keys must not start with *$*.",
+            quote!(self.0.metaroot),
+        )
+    }
+
+    fn new_meas_nonstandard_keywords_arg() -> Self {
+        Self::new_nonstandard_keywords_arg(
+            "Any non-standard keywords corresponding to this measurement. No keys \
+             should start with *$*. Realistically each key should follow a pattern \
+             corresponding to the measurement index, something like prefixing with \
+             \"P\" followed by the index. This is not enforced.",
+            quote!(self.0.common),
+        )
+    }
+
+    fn new_nonstandard_keywords_arg(desc: &str, root: proc_macro2::TokenStream) -> Self {
         let nsk = quote!(fireflow_core::validated::keys::NonStdKey);
         let fun_arg = parse_quote!(std::collections::HashMap<#nsk, String>);
         let doc = DocArg::new_ivar_def(
             "nonstandard_keywords".into(),
             PyType::new_dict(PyType::Str, PyType::Str),
-            "Pairs of non-standard keyword values. Keys must not start with *$*.".into(),
+            desc.into(),
             DocDefault::EmptyDict,
         );
         let methods = quote! {
             #[getter]
             fn get_nonstandard_keywords(&self) -> #fun_arg {
-                self.0.metaroot.nonstandard_keywords.clone()
+                #root.nonstandard_keywords.clone()
             }
 
             #[setter]
             fn set_nonstandard_keywords(&mut self, kws: #fun_arg) {
-                self.0.metaroot.nonstandard_keywords = kws;
+                #root.nonstandard_keywords = kws;
             }
         };
         Self::new(doc, fun_arg, Some(methods))

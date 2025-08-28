@@ -25,7 +25,7 @@ pub(crate) struct DocArg {
 pub(crate) enum DocDefault {
     Bool(bool),
     EmptyDict,
-    EmptyList,
+    // EmptyList,
     Option,
     Other(TokenStream, String),
 }
@@ -112,7 +112,7 @@ impl DocDefault {
         match self {
             Self::Bool(x) => quote! {#x},
             Self::EmptyDict => quote! {std::collections::HashMap::new()},
-            Self::EmptyList => quote! {vec![]},
+            // Self::EmptyList => quote! {vec![]},
             Self::Option => quote! {None},
             Self::Other(rs, _) => rs.clone(),
         }
@@ -122,7 +122,7 @@ impl DocDefault {
         match self {
             Self::Bool(x) => if *x { "True" } else { "False" }.into(),
             Self::EmptyDict => "{}".to_string(),
-            Self::EmptyList => "[]".to_string(),
+            // Self::EmptyList => "[]".to_string(),
             Self::Option => "None".to_string(),
             Self::Other(_, py) => py.clone(),
         }
@@ -133,7 +133,7 @@ impl DocDefault {
         match self {
             Self::Bool(_) => "bool",
             Self::EmptyDict => "dict",
-            Self::EmptyList => "list",
+            // Self::EmptyList => "list",
             Self::Option => "option",
             Self::Other(_, _) => "raw",
         }
@@ -144,7 +144,7 @@ impl DocDefault {
             (self, other),
             (Self::Bool(_), PyType::Bool)
                 | (Self::EmptyDict, PyType::Dict(_, _))
-                | (Self::EmptyList, PyType::List(_))
+                // | (Self::EmptyList, PyType::List(_))
                 | (Self::Option, PyType::Option(_))
                 | (Self::Other(_, _), _)
         )
@@ -197,7 +197,17 @@ impl PyType {
     }
 
     fn is_oneword(&self) -> bool {
-        !matches!(self, Self::Raw(_) | Self::PyClass(_))
+        !matches!(
+            self,
+            Self::Option(_)
+                | Self::Union(_, _, _)
+                | Self::Literal(_, _)
+                | Self::Tuple(_)
+                | Self::List(_)
+                | Self::Dict(_, _)
+                | Self::Raw(_)
+                | Self::PyClass(_)
+        )
     }
 }
 

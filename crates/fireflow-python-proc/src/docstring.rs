@@ -370,7 +370,7 @@ impl fmt::Display for PyType {
                 }
             }
             Self::Literal(x, xs) => {
-                write!(f, "Literal[{}]", [x].into_iter().chain(xs).join(", "))
+                write!(f, "Literal[\"{}\"]", [x].into_iter().chain(xs).join(", "))
             }
             Self::List(x) => write!(f, "list[{x}]"),
             Self::Dict(x, y) => write!(f, "dict[{x}, {y}]"),

@@ -19,7 +19,6 @@ from pyreflow.typing import (
     Display,
     Scale,
     ScaleTransform,
-    NonStdKey,
     Mode,
     Mode3_2,
     Trigger,
@@ -36,6 +35,11 @@ from pyreflow.typing import (
     AppliedGates2_0,
     AppliedGates3_0,
     AppliedGates3_2,
+    Unicode,
+    CsvFlags,
+    Compensation,
+    Spillover,
+    UnstainedCenters,
 )
 
 _X = TypeVar("_X")
@@ -48,17 +52,17 @@ _OpticalKeyVals = list[_X | tuple[()] | None]
 
 class _LayoutCommon:
     @property
-    def widths(self) -> list[int]: ...
-    @property
     def ranges(self) -> list[Range]: ...
+
+class _LayoutUnmixedCommon:
     @property
     def datatype(self) -> Datatype: ...
-    @property
-    def datatypes(self) -> list[Datatype]: ...
 
-class _LayoutOrderedCommon:
+class _LayoutOrderedCommon(_LayoutUnmixedCommon):
     @property
-    def byte_order(self) -> ByteOrd: ...
+    def byte_width(self) -> int: ...
+    @property
+    def byteord(self) -> ByteOrd: ...
     @property
     def is_big_endian(self) -> bool | None: ...
 
@@ -66,24 +70,28 @@ class _LayoutEndianCommon:
     @property
     def is_big_endian(self) -> bool: ...
 
-class _LayoutAsciiCommon:
+class _LayoutAsciiCommon(_LayoutUnmixedCommon):
     def __new__(cls, ranges: list[IntRange]) -> Self: ...
 
-class _LayoutOrderedUintCommon:
-    def __new__(cls, ranges: list[IntRange], is_big: bool) -> Self: ...
+class _LayoutOrderedUintCommon(_LayoutUnmixedCommon):
+    def __new__(cls, ranges: list[IntRange], is_big: bool = False) -> Self: ...
     @classmethod
     def new_ordered(cls, ranges: list[IntRange], byteord: ByteOrd) -> Self: ...
 
-class _LayoutOrderedFloatCommon:
-    def __new__(cls, ranges: list[FloatRange], is_big: bool) -> Self: ...
+class _LayoutOrderedFloatCommon(_LayoutUnmixedCommon):
+    def __new__(cls, ranges: list[FloatRange], is_big: bool = False) -> Self: ...
     @classmethod
     def new_ordered(cls, ranges: list[FloatRange], byteord: ByteOrd) -> Self: ...
 
-class _LayoutEndianFloatCommon:
-    def __new__(cls, ranges: list[FloatRange], is_big: bool) -> Self: ...
+class _LayoutEndianFloatCommon(_LayoutUnmixedCommon):
+    def __new__(cls, ranges: list[FloatRange], is_big: bool = False) -> Self: ...
+    @property
+    def byte_width(self) -> int: ...
 
 @final
-class AsciiFixedLayout(_LayoutCommon, _LayoutAsciiCommon): ...
+class AsciiFixedLayout(_LayoutCommon, _LayoutAsciiCommon):
+    @property
+    def char_widths(self) -> list[int | float]: ...
 
 @final
 class AsciiDelimLayout(_LayoutCommon, _LayoutAsciiCommon): ...
@@ -145,12 +153,18 @@ class EndianF32Layout(_LayoutCommon, _LayoutEndianCommon, _LayoutEndianFloatComm
 class EndianF64Layout(_LayoutCommon, _LayoutEndianCommon, _LayoutEndianFloatCommon): ...
 
 @final
-class EndianUintLayout(_LayoutCommon, _LayoutEndianCommon):
-    def __new__(cls, ranges: list[IntRange], is_big: bool) -> Self: ...
+class EndianUintLayout(_LayoutCommon, _LayoutEndianCommon, _LayoutUnmixedCommon):
+    def __new__(cls, ranges: list[IntRange], is_big: bool = False) -> Self: ...
+    @property
+    def byte_widths(self) -> list[int | float]: ...
 
 @final
 class MixedLayout(_LayoutCommon, _LayoutEndianCommon):
-    def __new__(cls, ranges: list[MixedType], is_big: bool) -> Self: ...
+    def __new__(cls, ranges: list[MixedType], is_big: bool = False) -> Self: ...
+    @property
+    def byte_widths(self) -> list[int | float]: ...
+    @property
+    def datatypes(self) -> list[Datatype]: ...
 
 _AnyOrderedLayout = Union[
     AsciiFixedLayout
@@ -188,18 +202,22 @@ class _MeasCommon:
     nonstandard_keywords: NonStdKeywords
     longname: str | None
 
-    def nonstandard_insert(self, key: NonStdKey, value: str) -> str | None: ...
-    def nonstandard_get(self, key: NonStdKey) -> str | None: ...
-    def nonstandard_remove(self, key: NonStdKey) -> str | None: ...
+    # def nonstandard_insert(self, key: NonStdKey, value: str) -> str | None: ...
+    # def nonstandard_get(self, key: NonStdKey) -> str | None: ...
+    # def nonstandard_remove(self, key: NonStdKey) -> str | None: ...
 
 class _OpticalWavelength:
     wavelength: float | None
 
 class _OpticalWavelengths:
-    wavelength: list[float] | None
+    wavelengths: list[float] | None
 
 class _MeasDisplay:
     display: Display
+
+class _PeakCommon:
+    size: int
+    bin: int
 
 class _OpticalCommon:
     filter: str | None
@@ -211,23 +229,46 @@ class _OpticalCommon:
 class _OpticalScaleTransform:
     transform: ScaleTransform
 
-    def __new__(cls, scale: Scale) -> Self: ...
-
 class _TemporalTimestep:
     timestep: Timestep
 
-    def __new__(cls, timestep: Timestep) -> Self: ...
-
 @final
-class Optical2_0(_MeasCommon, _OpticalCommon, _OpticalWavelength):
+class Optical2_0(_MeasCommon, _OpticalCommon, _OpticalWavelength, _PeakCommon):
     scale: Scale | None
 
-    def __new__(cls) -> Self: ...
+    def __new__(
+        cls,
+        scale: Scale | None = None,
+        wavelength: float | None = None,
+        bin: int | None = None,
+        size: int | None = None,
+        filter: str | None = None,
+        power: float | None = None,
+        detector_type: str | None = None,
+        percent_emitted: str | None = None,
+        detector_voltage: float | None = None,
+        longname: str | None = None,
+        nonstandard_keywords: NonStdKeywords = {},
+    ) -> Self: ...
 
 @final
 class Optical3_0(
-    _MeasCommon, _OpticalCommon, _OpticalScaleTransform, _OpticalWavelength
-): ...
+    _MeasCommon, _OpticalCommon, _OpticalScaleTransform, _OpticalWavelength, _PeakCommon
+):
+    def __new__(
+        cls,
+        transform: ScaleTransform,
+        wavelength: float | None = None,
+        bin: int | None = None,
+        size: int | None = None,
+        filter: str | None = None,
+        power: float | None = None,
+        detector_type: str | None = None,
+        percent_emitted: str | None = None,
+        detector_voltage: float | None = None,
+        longname: str | None = None,
+        nonstandard_keywords: NonStdKeywords = {},
+    ) -> Self: ...
 
 @final
 class Optical3_1(
@@ -236,8 +277,26 @@ class Optical3_1(
     _OpticalScaleTransform,
     _OpticalWavelengths,
     _MeasDisplay,
+    _PeakCommon,
 ):
     calibration: Calibration3_1 | None
+
+    def __new__(
+        cls,
+        transform: ScaleTransform,
+        wavelengths: list[float] | None = None,
+        calibration: Calibration3_1 | None = None,
+        display: Display | None = None,
+        bin: int | None = None,
+        size: int | None = None,
+        filter: str | None = None,
+        power: float | None = None,
+        detector_type: str | None = None,
+        percent_emitted: str | None = None,
+        detector_voltage: float | None = None,
+        longname: str | None = None,
+        nonstandard_keywords: NonStdKeywords = {},
+    ) -> Self: ...
 
 @final
 class Optical3_2(
@@ -255,19 +314,74 @@ class Optical3_2(
     feature: Feature | None
     analyte: str | None
 
-@final
-class Temporal2_0(_MeasCommon):
-    def __new__(cls) -> Self: ...
+    def __new__(
+        cls,
+        transform: ScaleTransform,
+        wavelengths: list[float] | None = None,
+        calibration: Calibration3_2 | None = None,
+        display: Display | None = None,
+        analyte: str | None = None,
+        feature: Feature | None = None,
+        tag: str | None = None,
+        measurement_type: str | None = None,
+        detector_name: str | None = None,
+        filter: str | None = None,
+        power: float | None = None,
+        detector_type: str | None = None,
+        percent_emitted: str | None = None,
+        detector_voltage: float | None = None,
+        longname: str | None = None,
+        nonstandard_keywords: NonStdKeywords = {},
+    ) -> Self: ...
 
 @final
-class Temporal3_0(_MeasCommon, _TemporalTimestep): ...
+class Temporal2_0(_MeasCommon, _PeakCommon):
+    def __new__(
+        cls,
+        has_scale: bool = False,
+        bin: int | None = None,
+        size: int | None = None,
+        longname: str | None = None,
+        nonstandard_keywords: NonStdKeywords = {},
+    ) -> Self: ...
+
+    has_scale: bool
 
 @final
-class Temporal3_1(_MeasCommon, _MeasDisplay, _TemporalTimestep): ...
+class Temporal3_0(_MeasCommon, _TemporalTimestep, _PeakCommon):
+    def __new__(
+        cls,
+        timestep: float,
+        bin: int | None = None,
+        size: int | None = None,
+        longname: str | None = None,
+        nonstandard_keywords: NonStdKeywords = {},
+    ) -> Self: ...
+
+@final
+class Temporal3_1(_MeasCommon, _MeasDisplay, _TemporalTimestep, _PeakCommon):
+    def __new__(
+        cls,
+        timestep: float,
+        display: Display | None = None,
+        bin: int | None = None,
+        size: int | None = None,
+        longname: str | None = None,
+        nonstandard_keywords: NonStdKeywords = {},
+    ) -> Self: ...
 
 @final
 class Temporal3_2(_MeasCommon, _MeasDisplay, _TemporalTimestep):
-    measurement_type: bool
+    has_type: bool
+
+    def __new__(
+        cls,
+        timestep: float,
+        display: Display | None = None,
+        has_type: bool = False,
+        longname: str | None = None,
+        nonstandard_keywords: NonStdKeywords = {},
+    ) -> Self: ...
 
 _T = TypeVar("_T", bound=Temporal2_0 | Temporal3_0 | Temporal3_1 | Temporal3_2)
 _O = TypeVar("_O", bound=Optical2_0 | Optical3_0 | Optical3_1 | Optical3_2)
@@ -287,14 +401,14 @@ class GatedMeasurement:
         detector_type: str | None = None,
         detector_voltage: float | None = None,
     ) -> Self: ...
-    gme: tuple[()] | tuple[float, float] | None
-    gmf: str | None
-    gmn: str | None
-    gmp: str | None
-    gmr: float | None
-    gms: str | None
-    gmt: str | None
-    gmv: float | None
+    scale: tuple[()] | tuple[float, float] | None
+    filter: str | None
+    shortname: str | None
+    percent_emitted: str | None
+    range: float | None
+    longname: str | None
+    detector_type: str | None
+    detector_voltage: float | None
 
 class _UnivariateRegion(Generic[_X]):
     def __new__(
@@ -369,9 +483,10 @@ class _CoreCommon:
     all_pnt: _OpticalKeyVals[str]
     all_pnv: _OpticalKeyVals[float]
 
-    def insert_nonstandard(self, key: NonStdKey, value: str) -> str | None: ...
-    def remove_nonstandard(self, key: NonStdKey) -> str | None: ...
-    def get_nonstandard(self, key: NonStdKey) -> str | None: ...
+    nonstandard_keywords: NonStdKeywords
+    # def insert_nonstandard(self, key: NonStdKey, value: str) -> str | None: ...
+    # def remove_nonstandard(self, key: NonStdKey) -> str | None: ...
+    # def get_nonstandard(self, key: NonStdKey) -> str | None: ...
     def standard_keywords(
         self,
         exclude_req_root: bool = False,
@@ -382,13 +497,13 @@ class _CoreCommon:
     @property
     def par(self) -> int: ...
     def set_trigger_threshold(self, threshold: int) -> bool: ...
-    def write_text(self, path: Path, delim: int = ...) -> None: ...
+    def write_text(self, path: Path, delim: int = 30) -> None: ...
 
 class _CoreDatasetCommon:
     def write_dataset(
         self,
         path: Path,
-        delim: int = ...,
+        delim: int = 30,
         skip_conversion_check: bool = False,
     ) -> None: ...
 
@@ -592,7 +707,7 @@ class _CoreSubset:
     @property
     def csvbits(self) -> int | None: ...
     @property
-    def csvflags(self) -> list[int | None] | None: ...
+    def csvflags(self) -> CsvFlags | None: ...
 
 class _CoreModified:
     originality: Originality | None
@@ -608,17 +723,10 @@ class _CoreCompensation:
     compensation: npt.NDArray[np.float32] | None
 
 class _CoreSpillover:
-    @property
-    def spillover_matrix(self) -> npt.NDArray[np.float32]: ...
-    @property
-    def spillover_names(self) -> list[Shortname]: ...
-    def set_spillover(
-        self, names: list[Shortname], matrix: npt.NDArray[np.float32]
-    ) -> None: ...
-    def unset_spillover(self) -> None: ...
+    spillover: Spillover
 
 class _CoreUnicode:
-    unicode: tuple[int, list[str]] | None
+    unicode: Unicode | None
 
 class _CoreVol:
     vol: float | None
@@ -643,11 +751,7 @@ class _CorePre3_2:
     mode: Mode
     cyt: str | None
 
-    def __new__(cls, mode: Mode, datatype: Datatype) -> Self: ...
-
 class _Core3_2:
-    def __new__(cls, cyt: str, datatype: Datatype) -> Self: ...
-
     mode: Mode3_2 | None
     flowrate: str | None
     cyt: str
@@ -674,8 +778,8 @@ class _CoreToDataset(Generic[_X]):
     def to_dataset(
         self,
         df: DataFrame,
-        analysis: AnalysisBytes = ...,
-        others: list[OtherBytes] = ...,
+        analysis: AnalysisBytes = b"",
+        others: list[OtherBytes] = [],
     ) -> _X: ...
 
 class _CoreTo2_0(Generic[_X]):
@@ -710,7 +814,33 @@ class CoreTEXT2_0(
     _CoreTo3_0[CoreTEXT3_0],
     _CoreTo3_1[CoreTEXT3_1],
     _CoreTo3_2[CoreTEXT3_2],
-): ...
+):
+    def __new__(
+        cls,
+        measurements: list[tuple[Shortname | None, Optical2_0 | Temporal2_0]],
+        layout: _AnyOrderedLayout,
+        mode: Mode = "L",
+        cyt: str | None = None,
+        comp: npt.NDArray[np.float32] | None = None,
+        btim: time | None = None,
+        etim: time | None = None,
+        date: date | None = None,
+        abrt: int | None = None,
+        com: str | None = None,
+        cells: str | None = None,
+        exp: str | None = None,
+        fil: str | None = None,
+        inst: str | None = None,
+        lost: int | None = None,
+        op: str | None = None,
+        proj: str | None = None,
+        smno: str | None = None,
+        src: str | None = None,
+        sys: str | None = None,
+        tr: Trigger | None = None,
+        applied_gates: AppliedGates2_0 = ([], {}, None),
+        nonstandard_keywords: NonStdKeywords = {},
+    ) -> Self: ...
 
 @final
 class CoreTEXT3_0(
@@ -736,7 +866,38 @@ class CoreTEXT3_0(
     _CoreTo2_0[CoreTEXT2_0],
     _CoreTo3_1[CoreTEXT3_1],
     _CoreTo3_2[CoreTEXT3_2],
-): ...
+):
+    def __new__(
+        cls,
+        measurements: list[tuple[Shortname | None, Optical3_0 | Temporal3_0]],
+        layout: _AnyOrderedLayout,
+        mode: Mode = "L",
+        cyt: str | None = None,
+        comp: Compensation | None = None,
+        btim: time | None = None,
+        etim: time | None = None,
+        date: date | None = None,
+        cytsn: str | None = None,
+        unicode: Unicode | None = None,
+        csvbits: int | None = None,
+        cstot: int | None = None,
+        csvflags: CsvFlags | None = None,
+        abrt: int | None = None,
+        com: str | None = None,
+        cells: str | None = None,
+        exp: str | None = None,
+        fil: str | None = None,
+        inst: str | None = None,
+        lost: int | None = None,
+        op: str | None = None,
+        proj: str | None = None,
+        smno: str | None = None,
+        src: str | None = None,
+        sys: str | None = None,
+        tr: Trigger | None = None,
+        applied_gates: AppliedGates3_0 = ([], {}, None),
+        nonstandard_keywords: NonStdKeywords = {},
+    ) -> Self: ...
 
 @final
 class CoreTEXT3_1(
@@ -764,7 +925,45 @@ class CoreTEXT3_1(
     _CoreTo2_0[CoreTEXT2_0],
     _CoreTo3_0[CoreTEXT3_0],
     _CoreTo3_2[CoreTEXT3_2],
-): ...
+):
+    def __new__(
+        cls,
+        measurements: list[tuple[Shortname, Optical3_1 | Temporal3_1]],
+        layout: _AnyNonMixedLayout,
+        mode: Mode = "L",
+        cyt: str | None = None,
+        comp: Compensation | None = None,
+        btim: time | None = None,
+        etim: time | None = None,
+        date: date | None = None,
+        cytsn: str | None = None,
+        spillover: Spillover | None = None,
+        last_modifier: str | None = None,
+        last_modified: datetime | None = None,
+        originality: Originality | None = None,
+        plateid: str | None = None,
+        platename: str | None = None,
+        wellid: str | None = None,
+        vol: float | None = None,
+        csvbits: int | None = None,
+        cstot: int | None = None,
+        csvflags: CsvFlags | None = None,
+        abrt: int | None = None,
+        com: str | None = None,
+        cells: str | None = None,
+        exp: str | None = None,
+        fil: str | None = None,
+        inst: str | None = None,
+        lost: int | None = None,
+        op: str | None = None,
+        proj: str | None = None,
+        smno: str | None = None,
+        src: str | None = None,
+        sys: str | None = None,
+        tr: Trigger | None = None,
+        applied_gates: AppliedGates3_0 = ([], {}, None),
+        nonstandard_keywords: NonStdKeywords = {},
+    ) -> Self: ...
 
 @final
 class CoreTEXT3_2(
@@ -790,7 +989,50 @@ class CoreTEXT3_2(
     _CoreTo2_0[CoreTEXT2_0],
     _CoreTo3_0[CoreTEXT3_0],
     _CoreTo3_1[CoreTEXT3_1],
-): ...
+):
+    def __new__(
+        cls,
+        measurements: list[tuple[Shortname, Optical3_2 | Temporal3_2]],
+        layout: _AnyMixedLayout,
+        cyt: str,
+        mode: Mode3_2 | None = None,
+        comp: Compensation | None = None,
+        btim: time | None = None,
+        etim: time | None = None,
+        date: date | None = None,
+        begindatetime: datetime | None = None,
+        enddatetime: datetime | None = None,
+        cytsn: str | None = None,
+        spillover: Spillover | None = None,
+        last_modifier: str | None = None,
+        last_modified: datetime | None = None,
+        originality: Originality | None = None,
+        plateid: str | None = None,
+        platename: str | None = None,
+        wellid: str | None = None,
+        vol: float | None = None,
+        carrierid: str | None = None,
+        carriertype: str | None = None,
+        locationid: str | None = None,
+        unstainedinfo: str | None = None,
+        unstainedcenters: UnstainedCenters | None = None,
+        flowrate: str | None = None,
+        abrt: int | None = None,
+        com: str | None = None,
+        cells: str | None = None,
+        exp: str | None = None,
+        fil: str | None = None,
+        inst: str | None = None,
+        lost: int | None = None,
+        op: str | None = None,
+        proj: str | None = None,
+        smno: str | None = None,
+        src: str | None = None,
+        sys: str | None = None,
+        tr: Trigger | None = None,
+        applied_gates: AppliedGates3_2 = ({}, None),
+        nonstandard_keywords: NonStdKeywords = {},
+    ) -> Self: ...
 
 @final
 class CoreDataset2_0(
@@ -813,7 +1055,36 @@ class CoreDataset2_0(
     _CoreTo3_1[CoreDataset3_1],
     _CoreTo3_2[CoreDataset3_2],
     _CoreDatasetCommon,
-): ...
+):
+    def __new__(
+        cls,
+        measurements: list[tuple[Shortname | None, Optical2_0 | Temporal2_0]],
+        df: DataFrame,
+        layout: _AnyOrderedLayout,
+        mode: Mode = "L",
+        cyt: str | None = None,
+        comp: npt.NDArray[np.float32] | None = None,
+        btim: time | None = None,
+        etim: time | None = None,
+        date: date | None = None,
+        abrt: int | None = None,
+        com: str | None = None,
+        cells: str | None = None,
+        exp: str | None = None,
+        fil: str | None = None,
+        inst: str | None = None,
+        lost: int | None = None,
+        op: str | None = None,
+        proj: str | None = None,
+        smno: str | None = None,
+        src: str | None = None,
+        sys: str | None = None,
+        tr: Trigger | None = None,
+        applied_gates: AppliedGates2_0 = ([], {}, None),
+        nonstandard_keywords: NonStdKeywords = {},
+        analysis: bytes = b"",
+        others: list[bytes] = [],
+    ) -> Self: ...
 
 @final
 class CoreDataset3_0(
@@ -840,7 +1111,41 @@ class CoreDataset3_0(
     _CoreTo3_1[CoreDataset3_1],
     _CoreTo3_2[CoreDataset3_2],
     _CoreDatasetCommon,
-): ...
+):
+    def __new__(
+        cls,
+        measurements: list[tuple[Shortname | None, Optical3_0 | Temporal3_0]],
+        layout: _AnyOrderedLayout,
+        df: DataFrame,
+        mode: Mode = "L",
+        cyt: str | None = None,
+        comp: Compensation | None = None,
+        btim: time | None = None,
+        etim: time | None = None,
+        date: date | None = None,
+        cytsn: str | None = None,
+        unicode: Unicode | None = None,
+        csvbits: int | None = None,
+        cstot: int | None = None,
+        csvflags: CsvFlags | None = None,
+        abrt: int | None = None,
+        com: str | None = None,
+        cells: str | None = None,
+        exp: str | None = None,
+        fil: str | None = None,
+        inst: str | None = None,
+        lost: int | None = None,
+        op: str | None = None,
+        proj: str | None = None,
+        smno: str | None = None,
+        src: str | None = None,
+        sys: str | None = None,
+        tr: Trigger | None = None,
+        applied_gates: AppliedGates3_0 = ([], {}, None),
+        nonstandard_keywords: NonStdKeywords = {},
+        analysis: bytes = b"",
+        others: list[bytes] = [],
+    ) -> Self: ...
 
 @final
 class CoreDataset3_1(
@@ -869,7 +1174,48 @@ class CoreDataset3_1(
     _CoreTo3_0[CoreDataset3_0],
     _CoreTo3_2[CoreDataset3_2],
     _CoreDatasetCommon,
-): ...
+):
+    def __new__(
+        cls,
+        measurements: list[tuple[Shortname, Optical3_1 | Temporal3_1]],
+        layout: _AnyNonMixedLayout,
+        df: DataFrame,
+        mode: Mode = "L",
+        cyt: str | None = None,
+        comp: Compensation | None = None,
+        btim: time | None = None,
+        etim: time | None = None,
+        date: date | None = None,
+        cytsn: str | None = None,
+        spillover: Spillover | None = None,
+        last_modifier: str | None = None,
+        last_modified: datetime | None = None,
+        originality: Originality | None = None,
+        plateid: str | None = None,
+        platename: str | None = None,
+        wellid: str | None = None,
+        vol: float | None = None,
+        csvbits: int | None = None,
+        cstot: int | None = None,
+        csvflags: CsvFlags | None = None,
+        abrt: int | None = None,
+        com: str | None = None,
+        cells: str | None = None,
+        exp: str | None = None,
+        fil: str | None = None,
+        inst: str | None = None,
+        lost: int | None = None,
+        op: str | None = None,
+        proj: str | None = None,
+        smno: str | None = None,
+        src: str | None = None,
+        sys: str | None = None,
+        tr: Trigger | None = None,
+        applied_gates: AppliedGates3_0 = ([], {}, None),
+        nonstandard_keywords: NonStdKeywords = {},
+        analysis: bytes = b"",
+        others: list[bytes] = [],
+    ) -> Self: ...
 
 @final
 class CoreDataset3_2(
@@ -896,7 +1242,53 @@ class CoreDataset3_2(
     _CoreTo3_0[CoreDataset3_0],
     _CoreTo3_1[CoreDataset3_1],
     _CoreDatasetCommon,
-): ...
+):
+    def __new__(
+        cls,
+        measurements: list[tuple[Shortname, Optical3_2 | Temporal3_2]],
+        layout: _AnyMixedLayout,
+        df: DataFrame,
+        cyt: str,
+        mode: Mode3_2 | None = None,
+        comp: Compensation | None = None,
+        btim: time | None = None,
+        etim: time | None = None,
+        date: date | None = None,
+        begindatetime: datetime | None = None,
+        enddatetime: datetime | None = None,
+        cytsn: str | None = None,
+        spillover: Spillover | None = None,
+        last_modifier: str | None = None,
+        last_modified: datetime | None = None,
+        originality: Originality | None = None,
+        plateid: str | None = None,
+        platename: str | None = None,
+        wellid: str | None = None,
+        vol: float | None = None,
+        carrierid: str | None = None,
+        carriertype: str | None = None,
+        locationid: str | None = None,
+        unstainedinfo: str | None = None,
+        unstainedcenters: UnstainedCenters | None = None,
+        flowrate: str | None = None,
+        abrt: int | None = None,
+        com: str | None = None,
+        cells: str | None = None,
+        exp: str | None = None,
+        fil: str | None = None,
+        inst: str | None = None,
+        lost: int | None = None,
+        op: str | None = None,
+        proj: str | None = None,
+        smno: str | None = None,
+        src: str | None = None,
+        sys: str | None = None,
+        tr: Trigger | None = None,
+        applied_gates: AppliedGates3_2 = ({}, None),
+        nonstandard_keywords: NonStdKeywords = {},
+        analysis: bytes = b"",
+        others: list[bytes] = [],
+    ) -> Self: ...
 
 __version__: str
 

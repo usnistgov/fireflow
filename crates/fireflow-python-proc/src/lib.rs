@@ -703,8 +703,9 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     let mode = if version < Version::FCS3_2 {
         let t = PyType::new_lit(&["L", "U", "C"]);
-        // TODO make default arg
-        ArgData::new_kw_arg("Mode", "mode", t, None, None)
+        let m = quote!(fireflow_core::text::keywords::Mode::default());
+        let d = DocDefault::Other(m, "L".into());
+        ArgData::new_kw_arg("Mode", "mode", t, None, Some(d))
     } else {
         ArgData::new_kw_opt_arg("Mode3_2", "mode", PyType::new_lit(&["L"]))
     };
@@ -1064,7 +1065,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     } else {
         ArgData::new_meas_kw_opt_arg(
             "Wavelengths",
-            "wavelength",
+            "wavelengths",
             "L",
             PyType::new_list(PyType::Float),
         )
@@ -2020,15 +2021,16 @@ impl ArgData {
     }
 
     fn new_scale_arg() -> Self {
-        let doc = DocArg::new_ivar(
+        let doc = DocArg::new_ivar_def(
             "scale".into(),
-            PyType::Tuple(vec![
+            PyType::new_opt(PyType::Tuple(vec![
                 PyType::new_unit(),
                 PyType::Tuple(vec![PyType::Float, PyType::Float]),
-            ]),
+            ])),
             "Value for *$PnE*. Empty tuple means linear scale; 2-tuple encodes \
              decades and offset for log scale"
                 .into(),
+            DocDefault::Option,
         );
         let rstype = parse_quote! {Option<fireflow_core::text::scale::Scale>};
         let methods = quote! {
@@ -2887,6 +2889,7 @@ pub fn impl_gated_meas(_: TokenStream) -> TokenStream {
     };
 
     let methods: Vec<_> = [
+        ("range", "GateRange"),
         ("scale", "GateScale"),
         ("filter", "GateFilter"),
         ("shortname", "GateShortname"),
@@ -3011,9 +3014,9 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
     );
 
     let constr = quote! {
-            fn new(ranges: Vec<#bitmask_path>, is_big: bool) -> Self {
-                #fixed_layout_path::new_endian_uint(ranges, is_big.into()).into()
-            }
+        fn new(ranges: Vec<#bitmask_path>, is_big: bool) -> Self {
+            #fixed_layout_path::new_endian_uint(ranges, is_big.into()).into()
+        }
     };
 
     let rest = quote! {

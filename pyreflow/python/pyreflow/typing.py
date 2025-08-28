@@ -1,5 +1,7 @@
 import pyreflow._pyreflow as pf
 from typing import Literal, TypeAlias
+import numpy as np
+import numpy.typing as npt
 
 MeasIndex: TypeAlias = int
 
@@ -24,6 +26,16 @@ AnalysisBytes: TypeAlias = bytes
 OtherBytes: TypeAlias = bytes
 
 Trigger: TypeAlias = tuple[Shortname, int]
+
+Unicode: TypeAlias = tuple[int, list[str]]
+
+CsvFlags: TypeAlias = list[int | None]
+
+Compensation: TypeAlias = npt.NDArray[np.float32]
+
+Spillover: TypeAlias = tuple[list[str], npt.NDArray[np.float32]]
+
+UnstainedCenters: TypeAlias = dict[StdKey, float]
 
 Segment: TypeAlias = tuple[int, int]
 

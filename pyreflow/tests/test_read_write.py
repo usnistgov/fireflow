@@ -31,42 +31,42 @@ def blank_gated_meas() -> pf.GatedMeasurement:
 
 @pytest.fixture
 def blank_text_2_0() -> pf.CoreTEXT2_0:
-    return pf.CoreTEXT2_0("L", "I")
+    return pf.CoreTEXT2_0([], pf.OrderedUint32Layout([]))
 
 
 @pytest.fixture
 def blank_text_3_0() -> pf.CoreTEXT3_0:
-    return pf.CoreTEXT3_0("L", "I")
+    return pf.CoreTEXT3_0([], pf.OrderedUint32Layout([]))
 
 
 @pytest.fixture
 def blank_text_3_1() -> pf.CoreTEXT3_1:
-    return pf.CoreTEXT3_1("L", "I")
+    return pf.CoreTEXT3_1([], pf.EndianUintLayout([]))
 
 
 @pytest.fixture
 def blank_text_3_2() -> pf.CoreTEXT3_2:
-    return pf.CoreTEXT3_2("Moca Emporium", "I")
+    return pf.CoreTEXT3_2([], pf.EndianUintLayout([]), "Moca Emporium")
 
 
 @pytest.fixture
 def blank_dataset_2_0(blank_text_2_0: pf.CoreTEXT2_0) -> pf.CoreDataset2_0:
-    return blank_text_2_0.to_dataset(pl.DataFrame(), b"", [])
+    return blank_text_2_0.to_dataset(pl.DataFrame())
 
 
 @pytest.fixture
 def blank_dataset_3_0(blank_text_3_0: pf.CoreTEXT3_0) -> pf.CoreDataset3_0:
-    return blank_text_3_0.to_dataset(pl.DataFrame(), b"", [])
+    return blank_text_3_0.to_dataset(pl.DataFrame())
 
 
 @pytest.fixture
 def blank_dataset_3_1(blank_text_3_1: pf.CoreTEXT3_1) -> pf.CoreDataset3_1:
-    return blank_text_3_1.to_dataset(pl.DataFrame(), b"", [])
+    return blank_text_3_1.to_dataset(pl.DataFrame())
 
 
 @pytest.fixture
 def blank_dataset_3_2(blank_text_3_2: pf.CoreTEXT3_2) -> pf.CoreDataset3_2:
-    return blank_text_3_2.to_dataset(pl.DataFrame(), b"", [])
+    return blank_text_3_2.to_dataset(pl.DataFrame())
 
 
 @pytest.fixture
@@ -76,17 +76,17 @@ def blank_optical_2_0() -> pf.Optical2_0:
 
 @pytest.fixture
 def blank_optical_3_0() -> pf.Optical3_0:
-    return pf.Optical3_0(())
+    return pf.Optical3_0(1.0)
 
 
 @pytest.fixture
 def blank_optical_3_1() -> pf.Optical3_1:
-    return pf.Optical3_1(())
+    return pf.Optical3_1(1.0)
 
 
 @pytest.fixture
 def blank_optical_3_2() -> pf.Optical3_2:
-    return pf.Optical3_2(())
+    return pf.Optical3_2(1.0)
 
 
 @pytest.fixture
@@ -812,20 +812,26 @@ class TestCore:
     def test_nonstandard(self, core: AnyCore) -> None:
         k = "midnight"
         v = "rowhammer"
+        assert core.nonstandard_keywords == {}
+        core.nonstandard_keywords = {k: v}
+        assert core.nonstandard_keywords == {k: v}
+        with pytest.raises(ValueError):
+            core.nonstandard_keywords = {"$" + k: v}  # type: ignore
+
         # trying to get key from empty list should return None
-        assert core.get_nonstandard(k) is None
-        # ditto if we try to remove it
-        assert core.remove_nonstandard(k) is None
-        # insert should succeed
-        core.insert_nonstandard(k, v)
-        # now the key should be present
-        assert core.get_nonstandard(k) == v
-        # if we remove it we should also get the key
-        assert core.remove_nonstandard(k) == v
-        # no the key shouldn't be present again
-        assert core.get_nonstandard(k) is None
-        # and it shouldn't return anything if we try to remove it a 2nd time
-        assert core.remove_nonstandard(k) is None
+        # assert core.get_nonstandard(k) is None
+        # # ditto if we try to remove it
+        # assert core.remove_nonstandard(k) is None
+        # # insert should succeed
+        # core.insert_nonstandard(k, v)
+        # # now the key should be present
+        # assert core.get_nonstandard(k) == v
+        # # if we remove it we should also get the key
+        # assert core.remove_nonstandard(k) == v
+        # # no the key shouldn't be present again
+        # assert core.get_nonstandard(k) is None
+        # # and it shouldn't return anything if we try to remove it a 2nd time
+        # assert core.remove_nonstandard(k) is None
 
     @parameterize_versions("core", ["2_0"], ["text", "dataset"])
     def test_temporal_no_timestep(
@@ -1487,29 +1493,31 @@ class TestCore:
 
 class TestGating:
     def test_scale(self, blank_gated_meas: pf.GatedMeasurement) -> None:
-        assert blank_gated_meas.gme is None
-        blank_gated_meas.gme = ()
-        assert blank_gated_meas.gme == ()
-        blank_gated_meas.gme = (1.0, 2.0)
-        assert blank_gated_meas.gme == (1.0, 2.0)
+        assert blank_gated_meas.scale is None
+        blank_gated_meas.scale = ()
+        assert blank_gated_meas.scale == ()
+        blank_gated_meas.scale = (1.0, 2.0)
+        assert blank_gated_meas.scale == (1.0, 2.0)
         with pytest.raises(TypeError):
-            blank_gated_meas.gme = cast(tuple[()], "the new abnormal")
+            blank_gated_meas.scale = cast(tuple[()], "the new abnormal")
 
     def test_range(self, blank_gated_meas: pf.GatedMeasurement) -> None:
-        assert blank_gated_meas.gmr is None
-        blank_gated_meas.gmr = 1.0
-        assert blank_gated_meas.gmr == 1.0
+        assert blank_gated_meas.range is None
+        blank_gated_meas.range = 1.0
+        assert blank_gated_meas.range == 1.0
         with pytest.raises(ValueError):
-            blank_gated_meas.gmr = cast(float, "hail stan")
+            blank_gated_meas.range = cast(float, "hail stan")
 
     def test_voltage(self, blank_gated_meas: pf.GatedMeasurement) -> None:
-        assert blank_gated_meas.gmr is None
-        blank_gated_meas.gmv = 1.0
-        assert blank_gated_meas.gmv == 1.0
+        assert blank_gated_meas.detector_voltage is None
+        blank_gated_meas.detector_voltage = 1.0
+        assert blank_gated_meas.detector_voltage == 1.0
         with pytest.raises(ValueError):
-            blank_gated_meas.gmv = cast(float, -1.0)
+            blank_gated_meas.detector_voltage = cast(float, -1.0)
 
-    @pytest.mark.parametrize("attr", ["gmf", "gmn", "gmp", "gms", "gmt"])
+    @pytest.mark.parametrize(
+        "attr", ["filter", "shortname", "percent_emitted", "longname", "detector_type"]
+    )
     def test_floats(self, blank_gated_meas: pf.GatedMeasurement, attr: str) -> None:
         assert getattr(blank_gated_meas, attr) is None
         new = "this is sweet revenge and karma's a"
@@ -1633,16 +1641,16 @@ class TestMeas:
 
     @parameterize_versions("meas", ["3_1", "3_2"], ["blank_optical"])
     def test_wavelength_3_1(self, meas: pf.Optical3_1 | pf.Optical3_2) -> None:
-        assert meas.wavelength is None
+        assert meas.wavelengths is None
         new = [1.0, 2.0]
-        meas.wavelength = new
-        assert meas.wavelength == new
+        meas.wavelengths = new
+        assert meas.wavelengths == new
         with pytest.raises(ValueError):
-            meas.wavelength = []
+            meas.wavelengths = []
         with pytest.raises(ValueError):
-            meas.wavelength = [-1.0]
+            meas.wavelengths = [-1.0]
         with pytest.raises(ValueError):
-            meas.wavelength = [0.0]
+            meas.wavelengths = [0.0]
 
     @parameterize_versions("meas", ["3_1"], ["blank_optical"])
     def test_calibration_3_1(self, meas: pf.Optical3_1) -> None:
@@ -1684,34 +1692,27 @@ class TestMeas:
 
     @parameterize_versions("meas", ["3_2"], ["blank_temporal"])
     def test_temporal_type(self, meas: pf.Temporal3_2) -> None:
-        assert not meas.measurement_type
-        meas.measurement_type = True
-        assert meas.measurement_type
+        assert not meas.has_type
+        meas.has_type = True
+        assert meas.has_type
 
     @all_blank_meas
     def test_nonstandard(self, meas: AnyOptical) -> None:
         assert meas.nonstandard_keywords == {}
         with pytest.raises(ValueError):
-            meas.nonstandard_insert("$GOD", "MONEY")
+            meas.nonstandard_keywords = {"$GOD": "MONEY"}
         k = "my bitwarden password"
         v0 = "SSBzb2xlbW5seSBzd2VhciBJIGFtIHVwIHRvIG5vIGdvb2QK"
-        v1 = "TWlzY2hpZWYgbWFuYWdlZAo="
-        assert meas.nonstandard_insert(k, v0) is None
-        assert meas.nonstandard_insert(k, v1) == v0
-        assert meas.nonstandard_keywords == {k: v1}
-        assert meas.nonstandard_get(k) == v1
-        assert meas.nonstandard_remove(k) == v1
-        assert meas.nonstandard_remove(k) is None
+        meas.nonstandard_keywords = {k: v0}
 
 
 class TestLayouts:
     def test_ascii_fixed(self) -> None:
         ranges = [9, 99, 999]
         new = pf.AsciiFixedLayout(ranges)
-        assert new.widths == [1, 2, 3]
+        assert new.char_widths == [1, 2, 3]
         assert new.ranges == ranges
         assert new.datatype == "A"
-        assert new.datatypes == ["A"] * 3
         with pytest.raises(OverflowError):
             ranges = [1 * 10**20]
             new = pf.AsciiFixedLayout(ranges)
@@ -1719,10 +1720,8 @@ class TestLayouts:
     def test_ascii_delim(self) -> None:
         ranges = [9, 99, 999]
         new = pf.AsciiDelimLayout(ranges)
-        assert new.widths is None
         assert new.ranges == ranges
         assert new.datatype == "A"
-        assert new.datatypes == ["A"] * 3
 
     @pytest.mark.parametrize(
         "layout, width",
@@ -1744,11 +1743,10 @@ class TestLayouts:
         # NOTE ranges will be 1+ whatever we put in because the inputs to the
         # the layout are literal ints and the output below is whatever the $PnR
         # value will be, which is 1+ the actual number...thanks FCS
-        assert new.byte_order == [r + 1 for r in range(n)]
-        assert new.widths == [width] * len(bitmasks)
+        assert new.byteord == [r + 1 for r in range(n)]
+        assert new.byte_width == n
         assert new.ranges == [Decimal(r + 1) for r in bitmasks]
         assert new.datatype == "I"
-        assert new.datatypes == ["I"] * len(bitmasks)
         with pytest.raises(OverflowError):
             layout([2**width], False)
 
@@ -1764,30 +1762,27 @@ class TestLayouts:
     def test_float(self, layout: type, width: int, datatype: Datatype) -> None:
         n = 3
         new = layout([1000.0] * n, False)
-        assert new.widths == [width] * n
+        assert new.byte_width == width / 8
         assert new.ranges == [Decimal("1000.0")] * n
         assert new.datatype == datatype
-        assert new.datatypes == [datatype] * n
         with pytest.raises(ValueError):
             layout([float("inf")], False)
 
     def test_endian_uint(self) -> None:
         ranges = [2**8 - 1, 2**16 - 1, 2**24 - 1]
         new = pf.EndianUintLayout(ranges, False)
-        assert new.widths == [8, 16, 24]
+        assert new.byte_widths == [8, 16, 24]
         # NOTE see ordered test for why this is 1+
         assert new.ranges == [r + 1 for r in ranges]
         assert new.datatype == "I"
-        assert new.datatypes == ["I"] * 3
 
     def test_mixed(self) -> None:
         ranges: list[MixedType] = [("F", 1000.0), ("D", 2000.0), ("I", 255)]
         new = pf.MixedLayout(ranges, False)
-        assert new.widths == [32, 64, 8]
+        assert new.byte_widths == [32, 64, 8]
         # NOTE see ordered test for why the int is 1+
         assert new.ranges == [Decimal(1000.0), Decimal(2000.0), Decimal(256)]
         # TODO this doesn't make much sense
-        assert new.datatype == "I"
         assert new.datatypes == ["F", "D", "I"]
 
 
@@ -1877,7 +1872,7 @@ class TestReadWrite:
         # be written with STEXT
         k = "info_dump"
         v = "I am a puppet." * 7500000
-        core.insert_nonstandard(k, v)
+        core.nonstandard_keywords = {k: v}
         core.write_dataset(p)
         nu_core, un_core = pf.fcs_read_std_dataset(
             p,

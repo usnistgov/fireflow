@@ -13,8 +13,6 @@ use fireflow_core::nonempty::FCSNonEmpty;
 use fireflow_core::python::exceptions::{PyTerminalNoWarnResultExt, PyTerminalResultExt};
 use fireflow_core::segment::{HeaderAnalysisSegment, HeaderDataSegment, OtherSegment};
 use fireflow_core::text::byteord::{Endian, SizedByteOrd};
-use fireflow_core::text::compensation::{Compensation, Compensation2_0, Compensation3_0};
-use fireflow_core::text::datetimes::{BeginDateTime, EndDateTime};
 use fireflow_core::text::gating::{
     AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, BivariateRegion, GatedMeasurement,
     GatingScheme, Region, UnivariateRegion,
@@ -24,16 +22,12 @@ use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::{Eithers, Element, NamedVec, NonCenterElement};
 use fireflow_core::text::optional::{AlwaysFamily, MaybeFamily, MightHave};
 use fireflow_core::text::scale::Scale;
-use fireflow_core::text::spillover::Spillover;
-use fireflow_core::text::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime100, FCSTime60};
-use fireflow_core::text::unstainedcenters::UnstainedCenters;
 use fireflow_core::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
-use fireflow_core::validated::keys::{NonStdKey, StdKeywords, ValidKeywords};
+use fireflow_core::validated::keys::{StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::Shortname;
 use fireflow_python_proc::{
     impl_convert_version, impl_gated_meas, impl_get_set_all_meas, impl_get_set_meas_obj_common,
-    impl_get_set_metaroot, impl_meas_get_set, impl_new_core, impl_new_meas,
-    impl_new_ordered_layout,
+    impl_new_core, impl_new_meas, impl_new_ordered_layout,
 };
 
 use derive_more::{From, Into};
@@ -165,27 +159,14 @@ impl_new_meas!("FCS3.0", true);
 impl_new_meas!("FCS3.1", true);
 impl_new_meas!("FCS3.2", true);
 
-#[pymethods]
-impl PyTemporal3_2 {
-    #[getter]
-    fn get_measurement_type(&self) -> bool {
-        self.0.specific.measurement_type.0.is_some()
-    }
-
-    #[setter]
-    fn set_measurement_type(&mut self, x: bool) {
-        self.0.specific.measurement_type = if x { Some(kws::TemporalType) } else { None }.into();
-    }
-}
-
-// impl_convert_version! {PyCoreTEXT2_0}
-// impl_convert_version! {PyCoreTEXT3_0}
-// impl_convert_version! {PyCoreTEXT3_1}
-// impl_convert_version! {PyCoreTEXT3_2}
-// impl_convert_version! {PyCoreDataset2_0}
-// impl_convert_version! {PyCoreDataset3_0}
-// impl_convert_version! {PyCoreDataset3_1}
-// impl_convert_version! {PyCoreDataset3_2}
+impl_convert_version! {PyCoreTEXT2_0}
+impl_convert_version! {PyCoreTEXT3_0}
+impl_convert_version! {PyCoreTEXT3_1}
+impl_convert_version! {PyCoreTEXT3_2}
+impl_convert_version! {PyCoreDataset2_0}
+impl_convert_version! {PyCoreDataset3_0}
+impl_convert_version! {PyCoreDataset3_1}
+impl_convert_version! {PyCoreDataset3_2}
 
 // Get/set methods for all versions
 macro_rules! impl_common {
@@ -345,178 +326,6 @@ impl_get_set_meas_obj_common!(
 impl_get_set_meas_obj_common!(PyCoreTEXT3_1, PyCoreDataset3_1, Shortname, AlwaysFamily);
 impl_get_set_meas_obj_common!(PyCoreTEXT3_2, PyCoreDataset3_2, Shortname, AlwaysFamily);
 
-// gating for 2.0
-macro_rules! impl_get_set_applied_gates_2_0 {
-    ($pytype:ident) => {
-        #[pymethods]
-        impl $pytype {
-            #[getter]
-            fn get_applied_gates(&self) -> PyAppliedGates2_0 {
-                self.0.metaroot::<AppliedGates2_0>().clone().into()
-            }
-
-            #[setter]
-            fn set_applied_gates(&mut self, ag: PyAppliedGates2_0) {
-                self.0.set_metaroot(ag.0)
-            }
-        }
-    };
-}
-
-// impl_get_set_applied_gates_2_0!(PyCoreTEXT2_0);
-// impl_get_set_applied_gates_2_0!(PyCoreDataset2_0);
-
-// gating for 3.0/3.1
-macro_rules! impl_get_set_applied_gates_3_0 {
-    ($pytype:ident) => {
-        #[pymethods]
-        impl $pytype {
-            #[getter]
-            fn get_applied_gates(&self) -> PyAppliedGates3_0 {
-                self.0.metaroot::<AppliedGates3_0>().clone().into()
-            }
-
-            #[setter]
-            fn set_applied_gates(&mut self, ag: PyAppliedGates3_0) -> PyResult<()> {
-                Ok(self.0.set_applied_gates_3_0(ag.into())?)
-            }
-        }
-    };
-}
-
-// impl_get_set_applied_gates_3_0!(PyCoreTEXT3_0);
-// impl_get_set_applied_gates_3_0!(PyCoreDataset3_0);
-// impl_get_set_applied_gates_3_0!(PyCoreTEXT3_1);
-// impl_get_set_applied_gates_3_0!(PyCoreDataset3_1);
-
-macro_rules! impl_get_set_applied_gates_3_2 {
-    ($pytype:ident) => {
-        #[pymethods]
-        impl $pytype {
-            #[getter]
-            fn get_applied_gates(&self) -> PyAppliedGates3_2 {
-                self.0.metaroot::<AppliedGates3_2>().clone().into()
-            }
-
-            #[setter]
-            fn set_applied_gates(&mut self, ag: PyAppliedGates3_2) -> PyResult<()> {
-                Ok(self.0.set_applied_gates_3_2(ag.into())?)
-            }
-        }
-    };
-}
-
-// impl_get_set_applied_gates_3_2!(PyCoreTEXT3_2);
-// impl_get_set_applied_gates_3_2!(PyCoreDataset3_2);
-
-// Get/set methods for $LAST_MODIFIER/$LAST_MODIFIED/$ORIGINALITY (3.1-3.2)
-macro_rules! impl_modification_attrs {
-    ($pytype:ident) => {
-        impl_get_set_metaroot!(Option<kws::Originality>, $pytype);
-        impl_get_set_metaroot!(Option<kws::LastModified>, "LAST_MODIFIED", $pytype);
-        impl_get_set_metaroot!(Option<kws::LastModifier>, "LAST_MODIFIER", $pytype);
-    };
-}
-
-// impl_modification_attrs!(PyCoreTEXT3_1);
-// impl_modification_attrs!(PyCoreTEXT3_2);
-// impl_modification_attrs!(PyCoreDataset3_1);
-// impl_modification_attrs!(PyCoreDataset3_2);
-
-// Get/set methods for $CARRIERID/$CARRIERTYPE/$LOCATIONID (3.2)
-macro_rules! impl_carrier_attrs {
-    ($pytype:ident) => {
-        impl_get_set_metaroot!(Option<kws::Carriertype>, $pytype);
-        impl_get_set_metaroot!(Option<kws::Carrierid>, $pytype);
-        impl_get_set_metaroot!(Option<kws::Locationid>, $pytype);
-    };
-}
-
-// impl_carrier_attrs!(PyCoreTEXT3_2);
-// impl_carrier_attrs!(PyCoreDataset3_2);
-
-// Get/set methods for $PLATEID/$WELLID/$PLATENAME (3.1-3.2)
-macro_rules! impl_plate_attrs {
-    ($pytype:ident) => {
-        impl_get_set_metaroot!(Option<kws::Wellid>, $pytype);
-        impl_get_set_metaroot!(Option<kws::Plateid>, $pytype);
-        impl_get_set_metaroot!(Option<kws::Platename>, $pytype);
-    };
-}
-
-// impl_plate_attrs!(PyCoreTEXT3_1);
-// impl_plate_attrs!(PyCoreTEXT3_2);
-// impl_plate_attrs!(PyCoreDataset3_1);
-// impl_plate_attrs!(PyCoreDataset3_2);
-
-macro_rules! impl_get_set_subset {
-    ($pytype:ident) => {
-        impl_get_set_metaroot!(Option<kws::CSTot>, $pytype);
-        impl_get_set_metaroot!(Option<kws::CSVBits>, $pytype);
-        impl_get_set_metaroot!(Option<core::CSVFlags>, $pytype);
-    };
-}
-
-// impl_get_set_subset!(PyCoreTEXT3_0);
-// impl_get_set_subset!(PyCoreTEXT3_1);
-// impl_get_set_subset!(PyCoreDataset3_0);
-// impl_get_set_subset!(PyCoreDataset3_1);
-
-// impl_get_set_metaroot! {
-//     Option<kws::Unicode>,
-//     PyCoreTEXT3_0,
-//     PyCoreDataset3_0
-// }
-
-// impl_get_set_metaroot! {
-//     Option<kws::Vol>,
-//     PyCoreTEXT3_1,
-//     PyCoreTEXT3_2,
-//     PyCoreDataset3_1,
-//     PyCoreDataset3_2
-// }
-
-// // Get/set methods for (optional) $CYT (2.0-3.1)
-// //
-// // 3.2 is required which is why it is not included here
-// impl_get_set_metaroot! {
-//     Option<kws::Cyt>,
-//     PyCoreTEXT2_0,
-//     PyCoreTEXT3_0,
-//     PyCoreTEXT3_1,
-//     PyCoreDataset2_0,
-//     PyCoreDataset3_0,
-//     PyCoreDataset3_1
-// }
-
-// Get/set methods for $FLOWRATE (3.2)
-// impl_get_set_metaroot! {
-//     Option<kws::Flowrate>,
-//     PyCoreTEXT3_2,
-//     PyCoreDataset3_2
-// }
-
-// Get/set methods for $CYTSN (3.0-3.2)
-// impl_get_set_metaroot! {
-//     Option<kws::Cytsn>,
-//     PyCoreTEXT3_0,
-//     PyCoreTEXT3_1,
-//     PyCoreTEXT3_2,
-//     PyCoreDataset3_0,
-//     PyCoreDataset3_1,
-//     PyCoreDataset3_2
-// }
-
-// // // Get/set methods for $CYT (required) (3.2)
-// // impl_get_set_metaroot! {kws::Cyt, PyCoreTEXT3_2, PyCoreDataset3_2}
-
-// // Get/set methods for $UNSTAINEDINFO (3.2)
-// impl_get_set_metaroot! {
-//     Option<kws::UnstainedInfo>,
-//     PyCoreTEXT3_2,
-//     PyCoreDataset3_2
-// }
-
 // Get/set methods for scaler $PnL (2.0-3.0)
 impl_get_set_all_meas! {
     NonCenterElement<Option<kws::Wavelength>>,
@@ -616,110 +425,110 @@ impl_get_set_all_meas! {
 }
 
 // TODO move all this stuff to proc
-macro_rules! impl_meas_get_set_common {
-    ($pytype:ident) => {
-        impl_meas_get_set! {Option<kws::Longname>, "S", "str", $pytype}
-    };
-}
+// macro_rules! impl_meas_get_set_common {
+//     ($pytype:ident) => {
+//         impl_meas_get_set! {Option<kws::Longname>, "S", "str", $pytype}
+//     };
+// }
 
-impl_meas_get_set_common!(PyOptical2_0);
-impl_meas_get_set_common!(PyOptical3_0);
-impl_meas_get_set_common!(PyOptical3_1);
-impl_meas_get_set_common!(PyOptical3_2);
-impl_meas_get_set_common!(PyTemporal2_0);
-impl_meas_get_set_common!(PyTemporal3_0);
-impl_meas_get_set_common!(PyTemporal3_1);
-impl_meas_get_set_common!(PyTemporal3_2);
+// impl_meas_get_set_common!(PyOptical2_0);
+// impl_meas_get_set_common!(PyOptical3_0);
+// impl_meas_get_set_common!(PyOptical3_1);
+// impl_meas_get_set_common!(PyOptical3_2);
+// impl_meas_get_set_common!(PyTemporal2_0);
+// impl_meas_get_set_common!(PyTemporal3_0);
+// impl_meas_get_set_common!(PyTemporal3_1);
+// impl_meas_get_set_common!(PyTemporal3_2);
 
-macro_rules! impl_optical_get_set {
-    ($pytype:ident) => {
-        impl_meas_get_set! {Option<kws::Filter>, "F", "str", $pytype}
-        impl_meas_get_set! {Option<kws::DetectorType>, "T", "str", $pytype}
-        impl_meas_get_set! {Option<kws::PercentEmitted>, "P", "str", $pytype}
-        impl_meas_get_set! {Option<kws::DetectorVoltage>, "V", "float", $pytype}
-        impl_meas_get_set! {Option<kws::Power>, "O", "float", $pytype}
-    };
-}
+// macro_rules! impl_optical_get_set {
+//     ($pytype:ident) => {
+//         impl_meas_get_set! {Option<kws::Filter>, "F", "str", $pytype}
+//         impl_meas_get_set! {Option<kws::DetectorType>, "T", "str", $pytype}
+//         impl_meas_get_set! {Option<kws::PercentEmitted>, "P", "str", $pytype}
+//         impl_meas_get_set! {Option<kws::DetectorVoltage>, "V", "float", $pytype}
+//         impl_meas_get_set! {Option<kws::Power>, "O", "float", $pytype}
+//     };
+// }
 
-impl_optical_get_set!(PyOptical2_0);
-impl_optical_get_set!(PyOptical3_0);
-impl_optical_get_set!(PyOptical3_1);
-impl_optical_get_set!(PyOptical3_2);
+// impl_optical_get_set!(PyOptical2_0);
+// impl_optical_get_set!(PyOptical3_0);
+// impl_optical_get_set!(PyOptical3_1);
+// impl_optical_get_set!(PyOptical3_2);
 
-// $PnL (2.0/3.0)
-impl_meas_get_set! {
-    Option<kws::Wavelength>,
-    "L",
-    "float",
-    PyOptical2_0,
-    PyOptical3_0
-}
+// // $PnL (2.0/3.0)
+// impl_meas_get_set! {
+//     Option<kws::Wavelength>,
+//     "L",
+//     "float",
+//     PyOptical2_0,
+//     PyOptical3_0
+// }
 
-// #PnL (3.1-3.2)
-impl_meas_get_set! {
-    Option<kws::Wavelengths>,
-    "L",
-    "list[float]",
-    PyOptical3_1,
-    PyOptical3_2
-}
+// // #PnL (3.1-3.2)
+// impl_meas_get_set! {
+//     Option<kws::Wavelengths>,
+//     "L",
+//     "list[float]",
+//     PyOptical3_1,
+//     PyOptical3_2
+// }
 
-// $PnCalibration (3.1)
-impl_meas_get_set! {
-    Option<kws::Calibration3_1>,
-    "CALIBRATION",
-    "tuple[float, str]",
-    PyOptical3_1
-}
+// // $PnCalibration (3.1)
+// impl_meas_get_set! {
+//     Option<kws::Calibration3_1>,
+//     "CALIBRATION",
+//     "tuple[float, str]",
+//     PyOptical3_1
+// }
 
-// $PnD (3.1-3.2)
-impl_meas_get_set! {
-    Option<kws::Display>,
-    "D",
-    "tuple[bool, float, float]",
-    PyOptical3_1,
-    PyOptical3_2,
-    PyTemporal3_1,
-    PyTemporal3_2
-}
+// // $PnD (3.1-3.2)
+// impl_meas_get_set! {
+//     Option<kws::Display>,
+//     "D",
+//     "tuple[bool, float, float]",
+//     PyOptical3_1,
+//     PyOptical3_2,
+//     PyTemporal3_1,
+//     PyTemporal3_2
+// }
 
-// $PnDET (3.2)
-impl_meas_get_set! {Option<kws::DetectorName>, "DET", "str", PyOptical3_2}
+// // $PnDET (3.2)
+// impl_meas_get_set! {Option<kws::DetectorName>, "DET", "str", PyOptical3_2}
 
-// $PnTAG (3.2)
-impl_meas_get_set! {Option<kws::Tag>, "TAG", "str", PyOptical3_2}
+// // $PnTAG (3.2)
+// impl_meas_get_set! {Option<kws::Tag>, "TAG", "str", PyOptical3_2}
 
-// $PnTYPE (3.2)
-impl_meas_get_set! {
-    Option<kws::OpticalType>,
-    "TYPE",
-    "str",
-    PyOptical3_2
-}
+// // $PnTYPE (3.2)
+// impl_meas_get_set! {
+//     Option<kws::OpticalType>,
+//     "TYPE",
+//     "str",
+//     PyOptical3_2
+// }
 
-// $PnFEATURE (3.2)
-impl_meas_get_set! {
-    Option<kws::Feature>,
-    "FEATURE",
-    "Literal[\"Area\", \"Width\", \"Height\"]",
-    PyOptical3_2
-}
+// // $PnFEATURE (3.2)
+// impl_meas_get_set! {
+//     Option<kws::Feature>,
+//     "FEATURE",
+//     "Literal[\"Area\", \"Width\", \"Height\"]",
+//     PyOptical3_2
+// }
 
-// $PnANALYTE (3.2)
-impl_meas_get_set! {
-    Option<kws::Analyte>,
-    "ANALYTE",
-    "str",
-    PyOptical3_2
-}
+// // $PnANALYTE (3.2)
+// impl_meas_get_set! {
+//     Option<kws::Analyte>,
+//     "ANALYTE",
+//     "str",
+//     PyOptical3_2
+// }
 
-// $PnCalibration (3.2)
-impl_meas_get_set! {
-    Option<kws::Calibration3_2>,
-    "CALIBRATION",
-    "tuple[float, float, str]",
-    PyOptical3_2
-}
+// // $PnCalibration (3.2)
+// impl_meas_get_set! {
+//     Option<kws::Calibration3_2>,
+//     "CALIBRATION",
+//     "tuple[float, float, str]",
+//     PyOptical3_2
+// }
 
 #[derive(From, Into, Default)]
 struct PyAppliedGates2_0(AppliedGates2_0);

@@ -951,6 +951,9 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         }
     };
 
+    let coretext_convert = make_convert_version(version, true);
+    let coredataset_convert = make_convert_version(version, false);
+
     let coretext_rest = quote! {
         #coretext_set_meas_doc
         #set_meas_method
@@ -959,6 +962,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         #common
         #to_dataset_mtd
         #(#coretext_ivar_methods)*
+        #coretext_convert
     };
 
     let coredataset_rest = quote! {
@@ -1004,6 +1008,8 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         #write_dataset_mtd
 
         #(#coredataset_ivar_methods)*
+
+        #coredataset_convert
     };
 
     let coretext_q = impl_new(
@@ -2732,11 +2738,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
     .into()
 }
 
-#[proc_macro]
-pub fn impl_convert_version(input: TokenStream) -> TokenStream {
-    let pytype: Path = parse_macro_input!(input);
-    let name = path_name(&pytype);
-    let (base, version) = split_version(name.as_str());
+fn make_convert_version(version: Version, is_text: bool) -> proc_macro2::TokenStream {
     let sub = "Will raise an exception if target version requires data which is \
                not present in ``self``.";
     let param_desc = "If ``False``, do not proceed with conversion if it would \
@@ -2747,12 +2749,7 @@ pub fn impl_convert_version(input: TokenStream) -> TokenStream {
                       they must be discarded. Set to ``True`` to perform the \
                       conversion with such discarding; otherwise, remove the \
                       keywords manually before converting.";
-    let param = DocArg::new_param_def(
-        "force".into(),
-        PyType::Bool,
-        param_desc.into(),
-        DocDefault::Bool(false),
-    );
+    let base = if is_text { "CoreTEXT" } else { "CoreDataset" };
     let outputs: Vec<_> = ALL_VERSIONS
         .iter()
         .filter(|&&v| v != version)
@@ -2761,30 +2758,32 @@ pub fn impl_convert_version(input: TokenStream) -> TokenStream {
             let vs = v.short();
             let fn_name = format_ident!("version_{vsu}");
             let target_type = format_ident!("{base}{vsu}");
-            let target_rs_type = target_type.to_string().replace("Py", "");
+            let target_pytype = format_ident!("Py{target_type}");
+            let param = DocArg::new_param_def(
+                "force".into(),
+                PyType::Bool,
+                param_desc.into(),
+                DocDefault::Bool(false),
+            );
             let doc = DocString::new(
                 format!("Convert to FCS {vs}."),
                 vec![sub.into()],
                 true,
-                vec![param.clone()],
+                vec![param],
                 Some(DocReturn::new(
-                    PyType::PyClass(target_rs_type),
+                    PyType::PyClass(target_type.to_string()),
                     Some(format!("A new class conforming to FCS {vs}")),
                 )),
             );
             quote! {
-                #[pymethods]
-                impl #pytype {
-                    #doc
-                    fn #fn_name(&self, force: bool) -> PyResult<#target_type> {
-                        self.0.clone().try_convert(force).py_term_resolve().map(|x| x.into())
-                    }
+                #doc
+                fn #fn_name(&self, force: bool) -> PyResult<#target_pytype> {
+                    self.0.clone().try_convert(force).py_term_resolve().map(|x| x.into())
                 }
             }
         })
         .collect();
-
-    quote! {#(#outputs)*}.into()
+    quote! {#(#outputs)*}
 }
 
 #[proc_macro]

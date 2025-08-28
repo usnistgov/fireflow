@@ -26,8 +26,8 @@ use fireflow_core::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
 use fireflow_core::validated::keys::{StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::Shortname;
 use fireflow_python_proc::{
-    impl_convert_version, impl_gated_meas, impl_get_set_all_meas, impl_get_set_meas_obj_common,
-    impl_new_core, impl_new_meas, impl_new_ordered_layout,
+    impl_gated_meas, impl_get_set_all_meas, impl_get_set_meas_obj_common, impl_new_core,
+    impl_new_meas, impl_new_ordered_layout,
 };
 
 use derive_more::{From, Into};
@@ -159,31 +159,9 @@ impl_new_meas!("FCS3.0", true);
 impl_new_meas!("FCS3.1", true);
 impl_new_meas!("FCS3.2", true);
 
-impl_convert_version! {PyCoreTEXT2_0}
-impl_convert_version! {PyCoreTEXT3_0}
-impl_convert_version! {PyCoreTEXT3_1}
-impl_convert_version! {PyCoreTEXT3_2}
-impl_convert_version! {PyCoreDataset2_0}
-impl_convert_version! {PyCoreDataset3_0}
-impl_convert_version! {PyCoreDataset3_1}
-impl_convert_version! {PyCoreDataset3_2}
-
 // Get/set methods for all versions
 macro_rules! impl_common {
     ($pytype:ident) => {
-        // impl_get_set_metaroot! {Option<kws::Abrt>, $pytype}
-        // impl_get_set_metaroot! {Option<kws::Cells>, $pytype}
-        // impl_get_set_metaroot! {Option<kws::Com>, $pytype}
-        // impl_get_set_metaroot! {Option<kws::Exp>, $pytype}
-        // impl_get_set_metaroot! {Option<kws::Fil>, $pytype}
-        // impl_get_set_metaroot! {Option<kws::Inst>, $pytype}
-        // impl_get_set_metaroot! {Option<kws::Lost>, $pytype}
-        // impl_get_set_metaroot! {Option<kws::Op>, $pytype}
-        // impl_get_set_metaroot! {Option<kws::Proj>, $pytype}
-        // impl_get_set_metaroot! {Option<kws::Smno>, $pytype}
-        // impl_get_set_metaroot! {Option<kws::Src>, $pytype}
-        // impl_get_set_metaroot! {Option<kws::Sys>, $pytype}
-
         // common measurement keywords
         impl_get_set_all_meas!(Option<kws::Longname>, "S", "str", $pytype);
 
@@ -213,37 +191,6 @@ macro_rules! impl_common {
 
         #[pymethods]
         impl $pytype {
-            // /// Insert a nonstandard key.
-            // ///
-            // /// :param str key: Key to insert. Must not start with *$*.
-            // /// :param str value: Value to insert.
-            // ///
-            // /// :return: Previous value for ``key`` if it exists.
-            // /// :rtype: str | None
-            // fn insert_nonstandard(&mut self, key: NonStdKey, value: String) -> Option<String> {
-            //     self.0.metaroot.nonstandard_keywords.insert(key, value)
-            // }
-
-            // /// Remove a nonstandard key.
-            // ///
-            // /// :param str key: Key to remove. Must not start with *$*.
-            // ///
-            // /// :return: Value for ``key`` if it exists.
-            // /// :rtype: str | None
-            // fn remove_nonstandard(&mut self, key: NonStdKey) -> Option<String> {
-            //     self.0.metaroot.nonstandard_keywords.remove(&key)
-            // }
-
-            // /// Look up a nonstandard key.
-            // ///
-            // /// :param str key: Key to find. Must not start with *$*.
-            // ///
-            // /// :return: Value for ``key`` if it exists.
-            // /// :rtype: str | None
-            // fn get_nonstandard(&mut self, key: NonStdKey) -> Option<String> {
-            //     self.0.metaroot.nonstandard_keywords.get(&key).cloned()
-            // }
-
             /// Return standard keywords as string pairs.
             ///
             /// Each key will be prefixed with *$*.

@@ -259,6 +259,7 @@ impl DocString {
                         }
                     })
                     .unzip();
+                // TODO add "cls" for class methods and the like
                 let txt_self = if self.self_arg {
                     Some("self".into())
                 } else {

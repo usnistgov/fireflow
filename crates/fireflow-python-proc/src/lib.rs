@@ -1071,8 +1071,20 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         )
     };
 
-    let bin = ArgData::new_meas_kw_opt_arg("PeakBin", "bin", "K", PyType::Int);
-    let size = ArgData::new_meas_kw_opt_arg("PeakNumber", "size", "KN", PyType::Int);
+    let bin = ArgData::new_meas_kw_arg(
+        "PeakBin",
+        "bin",
+        PyType::Int,
+        "Value of *$PKn*.".into(),
+        Some(DocDefault::Option),
+    );
+    let size = ArgData::new_meas_kw_arg(
+        "PeakNumber",
+        "size",
+        PyType::Int,
+        "Value of *$PKNn*.".into(),
+        Some(DocDefault::Option),
+    );
 
     let all_peak = [bin, size];
 
@@ -1558,7 +1570,7 @@ impl ArgData {
     }
 
     fn new_meas_kw_opt_arg(kw: &str, name: &str, abbr: &str, pytype: PyType) -> Self {
-        let desc = format!("Value for *$P{abbr}n*.");
+        let desc = format!("Value for *$Pn{abbr}*.");
         Self::new_meas_kw_arg(
             kw,
             name,

@@ -25,8 +25,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let info = parse_macro_input!(input as NewCoreInfo);
     let coretext_rstype = info.coretext_type;
     let coredataset_rstype = info.coredataset_type;
-    // let meas_rstype = &info.meas_rstype;
-    // let layout_rstype = &info.layout_rstype;
     let fun = info.fun;
 
     let df_type = parse_str::<Path>("fireflow_core::validated::dataframe::FCSDataFrame").unwrap();
@@ -43,66 +41,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     let coretext_pytype = format_ident!("Py{coretext_name}");
     let coredataset_pytype = format_ident!("Py{coredataset_name}");
-
-    // let meas_pytype = PyType::Raw(info.meas_pytype.value());
-    // let layout_pytype = PyType::Raw(info.layout_pytype.value());
-    // let df_pytype = PyType::PyClass("polars.DataFrame".into());
-
-    // let meas = NewArgInfo::new(
-    //     "measurements",
-    //     meas_rstype.clone(),
-    //     false,
-    //     &meas_pytype,
-    //     Some(info.meas_desc.value().as_str()),
-    //     None,
-    // );
-
-    // let layout = NewArgInfo::new(
-    //     "layout",
-    //     layout_rstype.clone(),
-    //     false,
-    //     &layout_pytype,
-    //     Some(info.layout_desc.value().as_str()),
-    //     None,
-    // );
-
-    // let df = NewArgInfo::new(
-    //     "df",
-    //     df_type.clone(),
-    //     false,
-    //     &df_pytype,
-    //     Some(
-    //         "A dataframe encoding the contents of *DATA*. Number of columns must \
-    //          match number of measurements. May be empty. Types do not necessarily \
-    //          need to correspond to those in the data layout but mismatches may \
-    //          result in truncation.",
-    //     ),
-    //     None,
-    // );
-
-    // let analysis = NewArgInfo::new(
-    //     "analysis",
-    //     analysis_type.clone(),
-    //     true,
-    //     &PyType::Bytes,
-    //     Some("A byte string encoding the *ANALYSIS* segment."),
-    //     Some(ArgDefault {
-    //         rsval: quote! {#analysis_type::default()},
-    //         pyval: "b\"\"".to_string(),
-    //     }),
-    // );
-
-    // let others = NewArgInfo::new(
-    //     "others",
-    //     others_type.clone(),
-    //     true,
-    //     &PyType::new_list(PyType::Bytes),
-    //     Some("Byte strings encoding the *OTHER* segments."),
-    //     Some(ArgDefault {
-    //         rsval: quote! {#others_type::default()},
-    //         pyval: "[]".to_string(),
-    //     }),
-    // );
 
     let (fam_ident, name_pytype) = if version < Version::FCS3_1 {
         (format_ident!("MaybeFamily"), PyType::new_opt(PyType::Str))
@@ -193,20 +131,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     let layout = ArgData::new(layout_doc, parse_quote!(#layout_ident));
 
-    // let df = NewArgInfo::new(
-    //     "df",
-    //     df_type.clone(),
-    //     false,
-    //     &df_pytype,
-    //     Some(
-    //         "A dataframe encoding the contents of *DATA*. Number of columns must \
-    //          match number of measurements. May be empty. Types do not necessarily \
-    //          need to correspond to those in the data layout but mismatches may \
-    //          result in truncation.",
-    //     ),
-    //     None,
-    // );
-
     let df_pytype = PyType::PyClass("polars.DataFrame".into());
     let df_doc = DocArg::new_param(
         "df".into(),
@@ -230,30 +154,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     );
     let analysis = ArgData::new(analysis_doc, analysis_rstype);
 
-    // let analysis = NewArgInfo::new(
-    //     "analysis",
-    //     analysis_type.clone(),
-    //     true,
-    //     &PyType::Bytes,
-    //     Some("A byte string encoding the *ANALYSIS* segment."),
-    //     Some(ArgDefault {
-    //         rsval: quote! {#analysis_type::default()},
-    //         pyval: "b\"\"".to_string(),
-    //     }),
-    // );
-
-    // let others = NewArgInfo::new(
-    //     "others",
-    //     others_type.clone(),
-    //     true,
-    //     &PyType::new_list(PyType::Bytes),
-    //     Some("Byte strings encoding the *OTHER* segments."),
-    //     Some(ArgDefault {
-    //         rsval: quote! {#others_type::default()},
-    //         pyval: "[]".to_string(),
-    //     }),
-    // );
-
     let others_rstype = parse_quote!(fireflow_core::core::Others);
     let others_doc = DocArg::new_ivar_def(
         "others".into(),
@@ -262,15 +162,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         DocDefault::Other(quote!(#others_rstype::default()), "[]".to_string()),
     );
     let others = ArgData::new(others_doc, others_rstype);
-
-    // let coretext_sig_args: Vec<_> = coretext_args.iter().map(|x| x.make_sig()).collect();
-    // let coredataset_sig_args: Vec<_> = coredataset_args.iter().map(|x| x.make_sig()).collect();
-
-    // let _coretext_txt_sig_args = coretext_args.iter().map(|x| x.make_txt_sig()).join(",");
-    // let coretext_txt_sig = format!("({_coretext_txt_sig_args})");
-
-    // let _coredataset_txt_sig_args = coredataset_args.iter().map(|x| x.make_txt_sig()).join(",");
-    // let coredataset_txt_sig = format!("({_coredataset_txt_sig_args})");
 
     let param_type_set_meas = DocArg::new_param(
         "measurements".into(),
@@ -517,45 +408,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     } else {
         quote! {}
     };
-
-    // let get_set_3_2 = if version < Version::FCS3_2 {
-    //     quote! {}
-    // } else {
-    //     let dt = quote! {chrono::DateTime<chrono::FixedOffset>};
-    //     let us =
-    //         parse_str::<Path>("fireflow_core::text::unstainedcenters::UnstainedCenters").unwrap();
-    //     quote! {
-    //         #[getter]
-    //         fn get_begindatetime(&self) -> Option<#dt> {
-    //             self.0.begindatetime()
-    //         }
-
-    //         #[setter]
-    //         fn set_begindatetime(&mut self, x: Option<#dt>) -> PyResult<()> {
-    //             Ok(self.0.set_begindatetime(x)?)
-    //         }
-
-    //         #[getter]
-    //         fn get_enddatetime(&self) -> Option<#dt> {
-    //             self.0.enddatetime()
-    //         }
-
-    //         #[setter]
-    //         fn set_enddatetime(&mut self, x: Option<#dt>) -> PyResult<()> {
-    //             Ok(self.0.set_enddatetime(x)?)
-    //         }
-
-    //         #[getter]
-    //         fn get_unstained_centers(&self) -> Option<#us> {
-    //             self.0.metaroot_opt::<#us>().map(|y| y.clone())
-    //         }
-
-    //         #[setter]
-    //         fn set_unstained_centers(&mut self, us: Option<#us>) -> PyResult<()> {
-    //             self.0.set_unstained_centers(us).py_term_resolve_nowarn()
-    //         }
-    //     }
-    // };
 
     let write_dataset_doc = DocString::new(
         "Write data as an FCS file.".into(),
@@ -859,32 +711,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             }
         }
     };
-
-    // let get_set_comp_spill = if version < Version::FCS3_1 {
-    //     quote! {
-    //         #[getter]
-    //         fn get_compensation(&self) -> Option<Compensation> {
-    //             self.0.compensation().cloned()
-    //         }
-
-    //         #[setter]
-    //         fn set_compensation(&mut self, m: Option<Compensation>) -> PyResult<()> {
-    //             Ok(self.0.set_compensation(m)?)
-    //         }
-    //     }
-    // } else {
-    //     quote! {
-    //         #[getter]
-    //         fn get_spillover(&self) -> Option<Spillover> {
-    //             self.0.spillover().map(|x| x.clone())
-    //         }
-
-    //         #[setter]
-    //         fn set_spillover(&mut self, spillover: Option<Spillover>) -> PyResult<()> {
-    //             Ok(self.0.set_spillover(spillover)?)
-    //         }
-    //     }
-    // };
 
     let get_set_all_peak = if version < Version::FCS3_2 {
         let pkn_doc = DocString::new(
@@ -1325,7 +1151,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         #unset_temporal_mtd
         #get_set_scale
         #get_set_timestep
-        // #get_set_comp_spill
         #get_set_all_peak
     };
 
@@ -1349,6 +1174,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         #set_meas_and_layout_method
         #common
         #to_dataset_mtd
+        #(#coretext_ivar_methods)*
     };
 
     let coredataset_rest = quote! {
@@ -1412,6 +1238,8 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         #common
 
         #write_dataset_mtd
+
+        #(#coredataset_ivar_methods)*
     };
 
     let coretext_q = impl_new(

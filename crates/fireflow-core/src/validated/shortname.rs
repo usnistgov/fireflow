@@ -1,6 +1,6 @@
 use crate::text::index::MeasIndex;
 
-use derive_more::{AsRef, Display, FromStr, Into};
+use derive_more::{AsRef, Display, Into};
 use std::fmt;
 use std::str::FromStr;
 
@@ -85,9 +85,7 @@ mod tests {
 #[cfg(feature = "python")]
 mod python {
     use super::{Shortname, ShortnameError};
-    use crate::python::macros::{
-        impl_from_py_transparent, impl_from_py_via_fromstr, impl_value_err,
-    };
+    use crate::python::macros::{impl_from_py_via_fromstr, impl_value_err};
 
     impl_from_py_via_fromstr!(Shortname);
     impl_value_err!(ShortnameError);

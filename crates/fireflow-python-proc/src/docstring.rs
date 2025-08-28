@@ -312,7 +312,13 @@ impl fmt::Display for DocArg {
         let at = &self.argtype;
         let pt = &self.pytype;
         let n = &self.argname;
-        let d = &self.desc;
+        let d = self
+            .default
+            .as_ref()
+            .map(|d| d.as_py_value())
+            .map_or(self.desc.to_string(), |def| {
+                format!("{} Defaults to ``{def}``.", self.desc)
+            });
         if pt.is_oneword() {
             let s = fmt_docstring_param1(format!(":{at} {pt} {n}: {d}"));
             f.write_str(s.as_str())

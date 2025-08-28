@@ -8,6 +8,7 @@ use std::fmt;
 pub(crate) struct DocString {
     summary: String,
     paragraphs: Vec<String>,
+    self_arg: bool,
     args: Vec<DocArg>,
     returns: Option<DocReturn>,
 }
@@ -258,7 +259,12 @@ impl DocString {
                         }
                     })
                     .unzip();
-                let txt_sig = format!("({})", _txt_sig.iter().join(", "));
+                let txt_self = if self.self_arg {
+                    Some("self".into())
+                } else {
+                    None
+                };
+                let txt_sig = format!("({})", txt_self.into_iter().chain(_txt_sig).join(", "));
                 quote! {
                     #[pyo3(signature = (#(#raw_sig),*))]
                     #[pyo3(text_signature = #txt_sig)]

@@ -1449,13 +1449,6 @@ struct NewCoreInfo {
     coretext_type: Path,
     coredataset_type: Path,
     fun: Path,
-    meas_rstype: Path,
-    meas_pytype: LitStr,
-    meas_desc: LitStr,
-    layout_rstype: Path,
-    layout_pytype: LitStr,
-    layout_desc: LitStr,
-    args: Vec<NewArgInfo>,
 }
 
 impl Parse for NewCoreInfo {
@@ -1465,32 +1458,10 @@ impl Parse for NewCoreInfo {
         let coredataset_type: Path = input.parse()?;
         let _: Comma = input.parse()?;
         let fun: Path = input.parse()?;
-        let _: Comma = input.parse()?;
-        let meas_rstype: Path = input.parse()?;
-        let _: Comma = input.parse()?;
-        let meas_pytype: LitStr = input.parse()?;
-        let _: Comma = input.parse()?;
-        let meas_desc: LitStr = input.parse()?;
-        let _: Comma = input.parse()?;
-        let layout_rstype: Path = input.parse()?;
-        let _: Comma = input.parse()?;
-        let layout_pytype: LitStr = input.parse()?;
-        let _: Comma = input.parse()?;
-        let layout_desc: LitStr = input.parse()?;
-        let _: Comma = input.parse()?;
-        let args: Punctuated<WrapParen<NewArgInfo>, Token![,]> =
-            Punctuated::parse_terminated(input)?;
         Ok(Self {
             coretext_type,
             coredataset_type,
             fun,
-            meas_rstype,
-            meas_pytype,
-            meas_desc,
-            layout_rstype,
-            layout_pytype,
-            layout_desc,
-            args: args.into_iter().map(|x| x.0).collect(),
         })
     }
 }
@@ -3098,6 +3069,7 @@ fn impl_new(
         impl #pyname {
             #sig
             #[new]
+            #[allow(clippy::too_many_arguments)]
             #constr
 
             #rest

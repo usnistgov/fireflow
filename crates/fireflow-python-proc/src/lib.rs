@@ -8,6 +8,7 @@ use fireflow_core::header::Version;
 
 use proc_macro::TokenStream;
 
+use derive_new::new;
 use itertools::Itertools;
 use quote::{format_ident, quote, ToTokens};
 use syn::{
@@ -1089,26 +1090,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             Ok(self.0.set_data(data)?)
         }
 
-        #[getter]
-        fn analysis(&self) -> #analysis_type {
-            self.0.analysis.clone()
-        }
-
-        #[setter]
-        fn set_analysis(&mut self, xs: #analysis_type) {
-            self.0.analysis = xs.into();
-        }
-
-        #[getter]
-        fn others(&self) -> #others_type {
-            self.0.others.clone()
-        }
-
-        #[setter]
-        fn set_others(&mut self, xs: #others_type) {
-            self.0.others = xs
-        }
-
         #coredataset_set_meas_doc
         #set_meas_method
 
@@ -1565,6 +1546,7 @@ pub fn impl_get_set_metaroot(input: TokenStream) -> TokenStream {
     quote! {#(#outputs)*}.into()
 }
 
+#[derive(new)]
 struct ArgData {
     doc: DocArg,
     rstype: Path,
@@ -1572,7 +1554,7 @@ struct ArgData {
 }
 
 impl ArgData {
-    fn new(doc: DocArg, rstype: Path) -> Self {
+    fn new1(doc: DocArg, rstype: Path) -> Self {
         Self {
             doc,
             rstype,
@@ -1675,7 +1657,7 @@ fn make_measurements(version: Version) -> ArgData {
     let meas_doc = DocArg::new_param("measurements".into(), meas_pytype.clone(), meas_desc.into());
     let meas_argtype: Path = parse_quote!(PyEithers<#fam_path, #meas_tmp_pyname, #meas_opt_pyname>);
 
-    ArgData::new(meas_doc, meas_argtype.clone())
+    ArgData::new1(meas_doc, meas_argtype.clone())
 }
 
 fn make_layout(version: Version) -> ArgData {
@@ -1742,7 +1724,7 @@ fn make_layout(version: Version) -> ArgData {
         layout_desc.into(),
     );
 
-    ArgData::new(layout_doc, parse_quote!(#layout_ident))
+    ArgData::new1(layout_doc, parse_quote!(#layout_ident))
 }
 
 fn make_df() -> ArgData {
@@ -1758,7 +1740,7 @@ fn make_df() -> ArgData {
     );
     let fcs_df_path = parse_quote!(fireflow_core::validated::dataframe::FCSDataFrame);
 
-    ArgData::new(df_doc, fcs_df_path)
+    ArgData::new1(df_doc, fcs_df_path)
 }
 
 fn make_analysis() -> ArgData {
@@ -1769,7 +1751,18 @@ fn make_analysis() -> ArgData {
         "A byte string encoding the *ANALYSIS* segment".into(),
         DocDefault::Other(quote! {#analysis_rstype::default()}, "b\"\"".to_string()),
     );
-    ArgData::new(analysis_doc, analysis_rstype)
+    let methods = quote! {
+        #[getter]
+        fn analysis(&self) -> #analysis_rstype {
+            self.0.analysis.clone()
+        }
+
+        #[setter]
+        fn set_analysis(&mut self, xs: #analysis_rstype) {
+            self.0.analysis = xs.into();
+        }
+    };
+    ArgData::new(analysis_doc, analysis_rstype, Some(methods))
 }
 
 fn make_others() -> ArgData {
@@ -1780,7 +1773,18 @@ fn make_others() -> ArgData {
         "A list of byte strings encoding the *OTHER* segments".into(),
         DocDefault::Other(quote!(#others_rstype::default()), "[]".to_string()),
     );
-    ArgData::new(others_doc, others_rstype)
+    let methods = quote! {
+        #[getter]
+        fn others(&self) -> #others_rstype {
+            self.0.others.clone()
+        }
+
+        #[setter]
+        fn set_others(&mut self, xs: #others_rstype) {
+            self.0.others = xs
+        }
+    };
+    ArgData::new(others_doc, others_rstype, Some(methods))
 }
 
 fn make_timestamps(time_name: &str) -> [ArgData; 3] {

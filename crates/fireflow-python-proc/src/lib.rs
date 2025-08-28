@@ -28,9 +28,8 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let coredataset_rstype = info.coredataset_type;
     let fun = info.fun;
 
-    let df_type = parse_str::<Path>("fireflow_core::validated::dataframe::FCSDataFrame").unwrap();
-    let analysis_type = parse_str::<Path>("fireflow_core::core::Analysis").unwrap();
-    let others_type = parse_str::<Path>("fireflow_core::core::Others").unwrap();
+    let fcs_df_type =
+        parse_str::<Path>("fireflow_core::validated::dataframe::FCSDataFrame").unwrap();
 
     let polars_df_type = quote! {pyo3_polars::PyDataFrame};
 
@@ -661,26 +660,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         vec!["This will fully represent an FCS file, as opposed to just \
              representing *HEADER* and *TEXT*."
             .into()],
-        // TODO reuse previous args here
-        vec![
-            DocArg::new_param(
-                "df".into(),
-                df_pytype.clone(),
-                "Columns corresponding to *DATA*".into(),
-            ),
-            DocArg::new_param_def(
-                "analysis".into(),
-                PyType::Bytes,
-                "Bytes corresponding to *ANALYSIS*".into(),
-                DocDefault::Other(quote! {#analysis_type::default()}, "b\"\"".into()),
-            ),
-            DocArg::new_param_def(
-                "others".into(),
-                PyType::new_list(PyType::Bytes),
-                "Bytes corresponding to *OTHER* segments".into(),
-                DocDefault::Other(quote! {#others_type::default()}, "[]".into()),
-            ),
-        ],
+        vec![df.doc.clone(), analysis.doc.clone(), others.doc.clone()],
         Some(DocReturn::new(
             PyType::PyClass(coredataset_pytype.to_string()),
             None,
@@ -984,7 +964,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         fn set_measurements_and_data(
             &mut self,
             measurements: #meas_argtype,
-            df: #df_type,
+            df: #fcs_df_type,
             allow_shared_names: bool,
             skip_index_check: bool,
         ) -> PyResult<()> {
@@ -1597,10 +1577,10 @@ impl ArgData {
         let layout_argname = format_ident!("layout");
         let layout_desc = if version == Version::FCS3_2 {
             "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*, \
-         *$DATATYPE*, and *$PnDATATYPE*."
+             *$DATATYPE*, and *$PnDATATYPE*."
         } else {
             "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*, \
-         and *$DATATYPE*."
+             and *$DATATYPE*."
         };
 
         let layout_doc = DocArg::new_param(
@@ -1618,9 +1598,9 @@ impl ArgData {
             "df".into(),
             df_pytype.clone(),
             "A dataframe encoding the contents of *DATA*. Number of columns must \
-         match number of measurements. May be empty. Types do not necessarily \
-         need to correspond to those in the data layout but mismatches may \
-         result in truncation."
+             match number of measurements. May be empty. Types do not necessarily \
+             need to correspond to those in the data layout but mismatches may \
+             result in truncation."
                 .into(),
         );
         let fcs_df_path = parse_quote!(fireflow_core::validated::dataframe::FCSDataFrame);

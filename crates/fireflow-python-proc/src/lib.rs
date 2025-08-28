@@ -42,135 +42,32 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let coretext_pytype = format_ident!("Py{coretext_name}");
     let coredataset_pytype = format_ident!("Py{coredataset_name}");
 
-    let (fam_ident, name_pytype) = if version < Version::FCS3_1 {
-        (format_ident!("MaybeFamily"), PyType::new_opt(PyType::Str))
-    } else {
-        (format_ident!("AlwaysFamily"), PyType::Str)
-    };
-    let fam_path = quote!(fireflow_core::text::optional::#fam_ident);
-    let meas_opt_name = format!("Optical{}", version.short_underscore());
-    let meas_tmp_name = format!("Temporal{}", version.short_underscore());
-    let meas_opt_pyname = format_ident!("Py{meas_opt_name}");
-    let meas_tmp_pyname = format_ident!("Py{meas_tmp_name}");
-    let meas_pytype = PyType::Tuple(vec![
-        name_pytype,
-        PyType::new_union2(
-            PyType::PyClass(meas_tmp_name),
-            PyType::PyClass(meas_opt_name),
-        ),
-    ]);
-    let meas_desc0 = "Measurements corresponding to columns in FCS file. \
-                      Temporal must be given zero or one times.";
-    let meas_doc = DocArg::new_param(
-        "measurements".into(),
-        meas_pytype.clone(),
-        meas_desc0.into(),
-    );
-    let meas_argtype: Path = parse_quote!(PyEithers<#fam_path, #meas_tmp_pyname, #meas_opt_pyname>);
+    let meas = make_measurements(version);
+    let meas_pytype = &meas.doc.pytype;
+    let meas_argtype = &meas.rstype;
 
-    let meas = ArgData::new(meas_doc, meas_argtype.clone());
+    let layout = make_layout(version);
+    let layout_pytype = &layout.doc.pytype;
+    let layout_ident = &layout.rstype;
 
-    let non_mixed_layouts = [
-        "AsciiFixedLayout",
-        "AsciiDelimLayout",
-        "EndianUintLayout",
-        "EndianF32Layout",
-        "EndianF64Layout",
-    ];
+    let df = make_df();
+    let df_pytype = &df.doc.pytype;
 
-    let (layout_name, layout_pytype) = match version {
-        Version::FCS3_2 => {
-            let ys = non_mixed_layouts
-                .iter()
-                .chain(&["MixedLayout"])
-                .map(|x| PyType::PyClass(x.to_string()))
-                .collect();
-            ("PyLayout3_2", PyType::new_union(ys))
-        }
-        Version::FCS3_1 => {
-            let ys = non_mixed_layouts
-                .iter()
-                .map(|x| PyType::PyClass(x.to_string()))
-                .collect();
-            ("PyNonMixedLayout", PyType::new_union(ys))
-        }
-        _ => {
-            let xs = [
-                "AsciiFixedLayout",
-                "AsciiDelimLayout",
-                "OrderedUint08Layout",
-                "OrderedUint16Layout",
-                "OrderedUint24Layout",
-                "OrderedUint32Layout",
-                "OrderedUint40Layout",
-                "OrderedUint48Layout",
-                "OrderedUint56Layout",
-                "OrderedUint64Layout",
-                "OrderedF32Layout",
-                "OrderedF64Layout",
-            ];
-            let ys = xs.iter().map(|x| PyType::PyClass(x.to_string())).collect();
-            ("PyOrderedLayout", PyType::new_union(ys))
-        }
-    };
-    let layout_ident = format_ident!("{layout_name}");
-    let layout_argname = format_ident!("layout");
-    let layout_desc = if version == Version::FCS3_2 {
-        "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*, \
-         *$DATATYPE*, and *$PnDATATYPE*."
-    } else {
-        "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*, \
-         and *$DATATYPE*."
-    };
+    let analysis = make_analysis();
 
-    let layout_doc = DocArg::new_param(
-        layout_argname.to_string(),
-        layout_pytype.clone(),
-        layout_desc.into(),
-    );
-
-    let layout = ArgData::new(layout_doc, parse_quote!(#layout_ident));
-
-    let df_pytype = PyType::PyClass("polars.DataFrame".into());
-    let df_doc = DocArg::new_param(
-        "df".into(),
-        df_pytype.clone(),
-        "A dataframe encoding the contents of *DATA*. Number of columns must \
-         match number of measurements. May be empty. Types do not necessarily \
-         need to correspond to those in the data layout but mismatches may \
-         result in truncation."
-            .into(),
-    );
-    let fcs_df_path = parse_quote!(fireflow_core::validated::dataframe::FCSDataFrame);
-
-    let df = ArgData::new(df_doc, fcs_df_path);
-
-    let analysis_rstype = parse_quote!(fireflow_core::core::Analysis);
-    let analysis_doc = DocArg::new_ivar_def(
-        "analysis".into(),
-        PyType::Bytes,
-        "A byte string encoding the *ANALYSIS* segment".into(),
-        DocDefault::Other(quote! {#analysis_rstype::default()}, "b\"\"".to_string()),
-    );
-    let analysis = ArgData::new(analysis_doc, analysis_rstype);
-
-    let others_rstype = parse_quote!(fireflow_core::core::Others);
-    let others_doc = DocArg::new_ivar_def(
-        "others".into(),
-        PyType::new_list(PyType::Bytes),
-        "A list of byte strings encoding the *OTHER* segments".into(),
-        DocDefault::Other(quote!(#others_rstype::default()), "[]".to_string()),
-    );
-    let others = ArgData::new(others_doc, others_rstype);
+    let others = make_others();
 
     let param_type_set_meas = DocArg::new_param(
         "measurements".into(),
-        meas_pytype,
+        meas_pytype.clone(),
         "The new measurements.".into(),
     );
 
-    let param_type_set_layout =
-        DocArg::new_param("layout".into(), layout_pytype, "The new layout.".into());
+    let param_type_set_layout = DocArg::new_param(
+        "layout".into(),
+        layout_pytype.clone(),
+        "The new layout.".into(),
+    );
 
     let param_type_set_df =
         DocArg::new_param("df".to_string(), df_pytype.clone(), "The new data.".into());
@@ -763,10 +660,11 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         vec!["This will fully represent an FCS file, as opposed to just \
              representing *HEADER* and *TEXT*."
             .into()],
+        // TODO reuse previous args here
         vec![
             DocArg::new_param(
                 "df".into(),
-                df_pytype,
+                df_pytype.clone(),
                 "Columns corresponding to *DATA*".into(),
             ),
             DocArg::new_param_def(
@@ -1752,6 +1650,137 @@ fn make_ivar_metaroot(
         rstype: full_kw,
         methods: Some(methods),
     }
+}
+
+fn make_measurements(version: Version) -> ArgData {
+    let (fam_ident, name_pytype) = if version < Version::FCS3_1 {
+        (format_ident!("MaybeFamily"), PyType::new_opt(PyType::Str))
+    } else {
+        (format_ident!("AlwaysFamily"), PyType::Str)
+    };
+    let fam_path = quote!(fireflow_core::text::optional::#fam_ident);
+    let meas_opt_name = format!("Optical{}", version.short_underscore());
+    let meas_tmp_name = format!("Temporal{}", version.short_underscore());
+    let meas_opt_pyname = format_ident!("Py{meas_opt_name}");
+    let meas_tmp_pyname = format_ident!("Py{meas_tmp_name}");
+    let meas_pytype = PyType::Tuple(vec![
+        name_pytype,
+        PyType::new_union2(
+            PyType::PyClass(meas_tmp_name),
+            PyType::PyClass(meas_opt_name),
+        ),
+    ]);
+    let meas_desc = "Measurements corresponding to columns in FCS file. \
+                     Temporal must be given zero or one times.";
+    let meas_doc = DocArg::new_param("measurements".into(), meas_pytype.clone(), meas_desc.into());
+    let meas_argtype: Path = parse_quote!(PyEithers<#fam_path, #meas_tmp_pyname, #meas_opt_pyname>);
+
+    ArgData::new(meas_doc, meas_argtype.clone())
+}
+
+fn make_layout(version: Version) -> ArgData {
+    let non_mixed_layouts = [
+        "AsciiFixedLayout",
+        "AsciiDelimLayout",
+        "EndianUintLayout",
+        "EndianF32Layout",
+        "EndianF64Layout",
+    ];
+
+    let ordered_layouts = [
+        "AsciiFixedLayout",
+        "AsciiDelimLayout",
+        "OrderedUint08Layout",
+        "OrderedUint16Layout",
+        "OrderedUint24Layout",
+        "OrderedUint32Layout",
+        "OrderedUint40Layout",
+        "OrderedUint48Layout",
+        "OrderedUint56Layout",
+        "OrderedUint64Layout",
+        "OrderedF32Layout",
+        "OrderedF64Layout",
+    ];
+
+    let (layout_name, layout_pytype) = match version {
+        Version::FCS3_2 => {
+            let ys = non_mixed_layouts
+                .iter()
+                .chain(&["MixedLayout"])
+                .map(|x| PyType::PyClass(x.to_string()))
+                .collect();
+            ("PyLayout3_2", PyType::new_union(ys))
+        }
+        Version::FCS3_1 => {
+            let ys = non_mixed_layouts
+                .iter()
+                .map(|x| PyType::PyClass(x.to_string()))
+                .collect();
+            ("PyNonMixedLayout", PyType::new_union(ys))
+        }
+        _ => {
+            let ys = ordered_layouts
+                .iter()
+                .map(|x| PyType::PyClass(x.to_string()))
+                .collect();
+            ("PyOrderedLayout", PyType::new_union(ys))
+        }
+    };
+    let layout_ident = format_ident!("{layout_name}");
+    let layout_argname = format_ident!("layout");
+    let layout_desc = if version == Version::FCS3_2 {
+        "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*, \
+         *$DATATYPE*, and *$PnDATATYPE*."
+    } else {
+        "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*, \
+         and *$DATATYPE*."
+    };
+
+    let layout_doc = DocArg::new_param(
+        layout_argname.to_string(),
+        layout_pytype.clone(),
+        layout_desc.into(),
+    );
+
+    ArgData::new(layout_doc, parse_quote!(#layout_ident))
+}
+
+fn make_df() -> ArgData {
+    let df_pytype = PyType::PyClass("polars.DataFrame".into());
+    let df_doc = DocArg::new_param(
+        "df".into(),
+        df_pytype.clone(),
+        "A dataframe encoding the contents of *DATA*. Number of columns must \
+         match number of measurements. May be empty. Types do not necessarily \
+         need to correspond to those in the data layout but mismatches may \
+         result in truncation."
+            .into(),
+    );
+    let fcs_df_path = parse_quote!(fireflow_core::validated::dataframe::FCSDataFrame);
+
+    ArgData::new(df_doc, fcs_df_path)
+}
+
+fn make_analysis() -> ArgData {
+    let analysis_rstype = parse_quote!(fireflow_core::core::Analysis);
+    let analysis_doc = DocArg::new_ivar_def(
+        "analysis".into(),
+        PyType::Bytes,
+        "A byte string encoding the *ANALYSIS* segment".into(),
+        DocDefault::Other(quote! {#analysis_rstype::default()}, "b\"\"".to_string()),
+    );
+    ArgData::new(analysis_doc, analysis_rstype)
+}
+
+fn make_others() -> ArgData {
+    let others_rstype = parse_quote!(fireflow_core::core::Others);
+    let others_doc = DocArg::new_ivar_def(
+        "others".into(),
+        PyType::new_list(PyType::Bytes),
+        "A list of byte strings encoding the *OTHER* segments".into(),
+        DocDefault::Other(quote!(#others_rstype::default()), "[]".to_string()),
+    );
+    ArgData::new(others_doc, others_rstype)
 }
 
 fn make_timestamps(time_name: &str) -> [ArgData; 3] {

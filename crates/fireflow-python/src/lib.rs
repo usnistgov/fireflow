@@ -4,8 +4,8 @@ use fireflow_core::core;
 use fireflow_core::data::{
     AnyAsciiLayout, AnyNullBitmask, AnyOrderedLayout, AnyOrderedUintLayout, DataLayout2_0,
     DataLayout3_0, DataLayout3_1, DataLayout3_2, DelimAsciiLayout, EndianLayout, F32Range,
-    F64Range, FixedAsciiLayout, FixedLayout, KnownTot, LayoutOps, NoMeasDatatype,
-    NonMixedEndianLayout, OrderedLayoutOps,
+    F64Range, FixedAsciiLayout, KnownTot, LayoutOps, NoMeasDatatype, NonMixedEndianLayout,
+    OrderedLayoutOps,
 };
 use fireflow_core::error::{MultiResultExt, ResultExt};
 use fireflow_core::header::{Header, Version};
@@ -25,6 +25,7 @@ use fireflow_core::validated::keys::{StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::Shortname;
 use fireflow_python_proc::impl_new_delim_ascii_layout;
 use fireflow_python_proc::impl_new_endian_float_layout;
+use fireflow_python_proc::impl_new_endian_uint_layout;
 use fireflow_python_proc::{
     impl_gated_meas, impl_get_set_all_meas, impl_get_set_meas_obj_common, impl_layout_byteord,
     impl_layout_datatype, impl_layout_endianness, impl_new_core, impl_new_fixed_ascii_layout,
@@ -129,20 +130,6 @@ pub fn py_fcs_read_std_dataset_with_keywords(
     )
     .py_term_resolve()?;
     Ok((core.into(), data))
-}
-
-macro_rules! py_wrap {
-    // pyo3 currently cannot add docstrings to __new__ methods, see
-    // https://github.com/PyO3/pyo3/issues/4326
-    //
-    // workaround, put them on the structs themselves, which works but has the
-    // disadvantage of being not next to the method def itself
-    ($(#[$meta:meta])* $pytype:ident, $rstype:path, $name:expr) => {
-        $(#[$meta])*
-        #[pyclass(name = $name, eq)]
-        #[derive(Clone, From, Into, PartialEq)]
-        pub struct $pytype($rstype);
-    };
 }
 
 impl_new_core!("FCS2.0");
@@ -592,34 +579,7 @@ impl_new_ordered_layout!(8, true);
 impl_new_endian_float_layout!(4);
 impl_new_endian_float_layout!(8);
 
-py_wrap! {
-    /// A mixed-width integer layout.
-    ///
-    /// :param ranges: The range of each measurement. Corresponds to the *$PnR*
-    ///     keyword less one. The number of bytes used to encode each
-    ///     measurement (*$PnB*) will be the minimum required to express this
-    ///     value. For instance, a value of ``1024`` will set *$PnB* to ``16``
-    ///     and the values in this measurement will be encoded as 16-bit
-    ///     integer. The values of a measurement will be less than or equal to
-    ///     this value.
-    /// :type ranges: list[int]
-    ///
-    /// :param bool is_big: If ``True`` use big endian for encoding values,
-    ///     otherwise use little endian.
-    PyEndianUintLayout,
-    EndianLayout<AnyNullBitmask, NoMeasDatatype>,
-    "EndianUintLayout"
-}
-
-#[pymethods]
-impl PyEndianUintLayout {
-    #[new]
-    #[pyo3(signature = (ranges, is_big = false))]
-    fn new(ranges: Vec<u64>, is_big: bool) -> Self {
-        let rs = ranges.into_iter().map(AnyNullBitmask::from_u64).collect();
-        FixedLayout::new(rs, is_big.into()).into()
-    }
-}
+impl_new_endian_uint_layout!();
 
 impl_new_mixed_layout!();
 
@@ -652,7 +612,7 @@ impl_layout_ranges!(PyOrderedF32Layout);
 impl_layout_ranges!(PyOrderedF64Layout);
 impl_layout_ranges!(PyEndianF32Layout);
 impl_layout_ranges!(PyEndianF64Layout);
-impl_layout_ranges!(PyEndianUintLayout);
+// impl_layout_ranges!(PyEndianUintLayout);
 impl_layout_ranges!(PyMixedLayout);
 
 impl_layout_datatype!(PyAsciiFixedLayout);

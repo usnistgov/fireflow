@@ -3245,6 +3245,62 @@ pub fn impl_layout_datatype(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
+    let name = format_ident!("EndianUintLayout");
+
+    let fixed = quote!(fireflow_core::data::FixedLayout);
+    let bitmask = quote!(fireflow_core::data::AnyNullBitmask);
+    let nomeasdt = quote!(fireflow_core::data::NoMeasDatatype);
+    let endian = quote!(fireflow_core::data::EndianLayout);
+    let layout_path = parse_quote!(#endian<#bitmask, #nomeasdt>);
+
+    let ranges_param = DocArg::new_ivar(
+        "ranges".into(),
+        PyType::new_list(PyType::Int),
+        "The range of each measurement. Corresponds to the *$PnR* \
+         keyword less one. The number of bytes used to encode each \
+         measurement (*$PnB*) will be the minimum required to express this \
+         value. For instance, a value of ``1024`` will set *$PnB* to ``16`` \
+         and the values in this measurement will be encoded as 16-bit \
+         integer. The values of a measurement will be less than or equal to \
+         this value."
+            .into(),
+    );
+
+    let is_big_param = DocArg::new_param_def(
+        "is_big".into(),
+        PyType::Bool,
+        "If ``True`` use big endian for encoding values, otherwise use little endian.".into(),
+        DocDefault::Bool(false),
+    );
+
+    let constr_doc = DocString::new(
+        "A mixed-width integer layout.".into(),
+        vec![],
+        false,
+        vec![ranges_param, is_big_param],
+        None,
+    );
+
+    let constr = quote! {
+        fn new(ranges: Vec<u64>, is_big: bool) -> Self {
+            let rs = ranges.into_iter().map(#bitmask::from).collect();
+            #fixed::new(rs, is_big.into()).into()
+        }
+    };
+
+    let rest = quote! {
+        fn ranges(&self) -> Vec<u64> {
+            self.0.columns().iter().map(|c| u64::from(*c)).collect()
+        }
+    };
+
+    impl_new(name.to_string(), layout_path, constr_doc, constr, rest)
+        .1
+        .into()
+}
+
+#[proc_macro]
 pub fn impl_new_fixed_ascii_layout(_: TokenStream) -> TokenStream {
     let name = format_ident!("AsciiFixedLayout");
 
@@ -3588,6 +3644,11 @@ fn impl_new(
     let sig = d.sig();
     let pyname = format_ident!("Py{name}");
     let s = quote! {
+        // pyo3 currently cannot add docstrings to __new__ methods, see
+        // https://github.com/PyO3/pyo3/issues/4326
+        //
+        // workaround, put them on the structs themselves, which works but has the
+        // disadvantage of being not next to the method def itself
         #doc
         #[pyclass(name = #name, eq)]
         #[derive(Clone, From, Into, PartialEq)]

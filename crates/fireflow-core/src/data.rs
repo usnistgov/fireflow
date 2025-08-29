@@ -286,7 +286,7 @@ impl<C, T, S> ColumnWriter<'_, C, T, S> {
 type UintColumnWriter<'a, C> = ColumnWriter<'a, C, <C as HasNativeType>::Native, Endian>;
 
 /// Marker type for columns which are used in a layout (non-reader/writer)
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct ColumnNullFamily;
 
 /// Marker type for columns which are in a layout and have data for reading
@@ -979,7 +979,7 @@ impl Clone for NullMixedType {
     fn clone(&self) -> Self {
         match self {
             Self::Ascii(x) => (*x).into(),
-            Self::Uint(x) => x.clone().into(),
+            Self::Uint(x) => (*x).into(),
             Self::F32(x) => x.clone().into(),
             Self::F64(x) => x.clone().into(),
         }
@@ -2027,6 +2027,33 @@ impl NullMixedType {
     }
 }
 
+impl From<u64> for AnyNullBitmask {
+    /// Make a new bitmask from a u64.
+    ///
+    /// The width is determined by the magnitude of the range; the smallest
+    /// possible will be used.
+    fn from(value: u64) -> Self {
+        // ASSUME these will never truncate because we check the width first
+        match Bytes::from_u64(value) {
+            Bytes::B1 => Self::Uint08(Bitmask::from_u64(value).0),
+            Bytes::B2 => Self::Uint16(Bitmask::from_u64(value).0),
+            Bytes::B3 => Self::Uint24(Bitmask::from_u64(value).0),
+            Bytes::B4 => Self::Uint32(Bitmask::from_u64(value).0),
+            Bytes::B5 => Self::Uint40(Bitmask::from_u64(value).0),
+            Bytes::B6 => Self::Uint48(Bitmask::from_u64(value).0),
+            Bytes::B7 => Self::Uint56(Bitmask::from_u64(value).0),
+            Bytes::B8 => Self::Uint64(Bitmask::from_u64(value).0),
+        }
+    }
+}
+
+impl From<AnyNullBitmask> for u64 {
+    /// Convert bitmask range (not bitmask itself) to u64.
+    fn from(value: AnyNullBitmask) -> Self {
+        match_any_uint!(value, AnyNullBitmask, x, { u64::from(x) })
+    }
+}
+
 impl AnyNullBitmask {
     /// Make a new bitmask from $PnB and PnR values.
     ///
@@ -2054,24 +2081,6 @@ impl AnyNullBitmask {
             Bytes::B6 => Bitmask48::from_range(range, notrunc).map(|b| b.into()),
             Bytes::B7 => Bitmask56::from_range(range, notrunc).map(|b| b.into()),
             Bytes::B8 => Bitmask64::from_range(range, notrunc).map(|b| b.into()),
-        }
-    }
-
-    /// Make a new bitmask from a u64.
-    ///
-    /// The width is determined by the magnitude of the range; the smallest
-    /// possible will be used.
-    pub fn from_u64(range: u64) -> Self {
-        // ASSUME these will never truncate because we check the width first
-        match Bytes::from_u64(range) {
-            Bytes::B1 => Self::Uint08(Bitmask::from_u64(range).0),
-            Bytes::B2 => Self::Uint16(Bitmask::from_u64(range).0),
-            Bytes::B3 => Self::Uint24(Bitmask::from_u64(range).0),
-            Bytes::B4 => Self::Uint32(Bitmask::from_u64(range).0),
-            Bytes::B5 => Self::Uint40(Bitmask::from_u64(range).0),
-            Bytes::B6 => Self::Uint48(Bitmask::from_u64(range).0),
-            Bytes::B7 => Self::Uint56(Bitmask::from_u64(range).0),
-            Bytes::B8 => Self::Uint64(Bitmask::from_u64(range).0),
         }
     }
 
@@ -2635,6 +2644,10 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         Self::new(vec![], byte_layout)
     }
 
+    pub fn columns(&self) -> &[C] {
+        &self.columns[..]
+    }
+
     pub fn widths(&self) -> Vec<BitsOrChars>
     where
         C: IsFixed,
@@ -2983,7 +2996,7 @@ impl FromRange for AnyNullBitmask {
         // TODO there is probably a better place to do this subtraction
         (range - Range::from(1_u8))
             .into_uint(notrunc)
-            .map(Self::from_u64)
+            .map(|x: u64| Self::from(x))
     }
 }
 
@@ -4386,7 +4399,7 @@ mod python {
                         .map_err(|e| PyValueError::new_err(e.to_string()))?;
                     Ok(FloatRange::new(y).into())
                 }
-                AlphaNumType::Integer => Ok(AnyNullBitmask::from_u64(value.extract()?).into()),
+                AlphaNumType::Integer => Ok(AnyNullBitmask::from(value.extract::<u64>()?).into()),
                 AlphaNumType::Ascii => Ok(AsciiRange::from(value.extract::<u64>()?).into()),
             }
         }

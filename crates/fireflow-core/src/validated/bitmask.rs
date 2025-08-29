@@ -50,6 +50,15 @@ where
     }
 }
 
+impl<T, const LEN: usize> From<Bitmask<T, LEN>> for u64
+where
+    u64: From<T>,
+{
+    fn from(value: Bitmask<T, LEN>) -> Self {
+        u64::from(value.value)
+    }
+}
+
 impl<T, const LEN: usize> Bitmask<T, LEN> {
     pub(crate) fn bitmask(&self) -> T
     where

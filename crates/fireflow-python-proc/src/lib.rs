@@ -2960,6 +2960,65 @@ pub fn impl_gated_meas(_: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
+    let nbytes = parse_macro_input!(input as LitInt)
+        .base10_parse::<usize>()
+        .expect("Must be an integer");
+    let nbits = nbytes * 8;
+    let range = format_ident!("F{:02}Range", nbits);
+    let range_path = quote!(fireflow_core::data::#range);
+
+    let nomeasdt_path = quote!(fireflow_core::data::NoMeasDatatype);
+    let endian_layout_path = quote!(fireflow_core::data::EndianLayout);
+    let fixed_layout_path = quote!(fireflow_core::data::FixedLayout);
+
+    let full_layout_path = parse_quote!(#endian_layout_path<#range_path, #nomeasdt_path>);
+
+    let layout_name = format!("EndianF{:02}Layout", nbits);
+
+    let range_param = DocArg::new_param(
+        "ranges".into(),
+        // TODO technically these types are decimals
+        PyType::new_list(PyType::Float),
+        "The range for each measurement. Corresponds to *$PnR*. This is not \
+         used internally so only serves for users' own purposes."
+            .into(),
+    );
+
+    // TODO not DRY
+    let is_big_param = DocArg::new_param_def(
+        "is_big".into(),
+        PyType::Bool,
+        "If ``True`` use big endian for encoding values, otherwise use little endian.".into(),
+        DocDefault::Bool(false),
+    );
+
+    let constr_doc = DocString::new(
+        format!("{nbits}-bit endian float layout"),
+        vec![],
+        false,
+        vec![range_param.clone(), is_big_param],
+        None,
+    );
+
+    let constr = quote! {
+        fn new(ranges: Vec<#range_path>, is_big: bool) -> Self {
+            #fixed_layout_path::new(ranges, is_big.into()).into()
+        }
+    };
+
+    let widths = make_byte_widths(nbytes);
+
+    let rest = quote! {
+        #widths
+    };
+
+    impl_new(layout_name, full_layout_path, constr_doc, constr, rest)
+        .1
+        .into()
+}
+
+#[proc_macro]
 pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
     let info = parse_macro_input!(input as OrderedLayoutInfo);
     let nbytes = info.nbytes;
@@ -3004,7 +3063,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
 
     let layout_name = format!("Ordered{base}{:02}Layout", nbits);
 
-    let summary = format!("An {nbits}-bit ordered {what} layout");
+    let summary = format!("{nbits}-bit ordered {what} layout");
 
     let range_param = DocArg::new_param(
         "ranges".into(),

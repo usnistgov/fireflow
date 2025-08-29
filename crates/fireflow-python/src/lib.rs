@@ -24,6 +24,7 @@ use fireflow_core::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
 use fireflow_core::validated::keys::{StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::Shortname;
 use fireflow_python_proc::impl_new_delim_ascii_layout;
+use fireflow_python_proc::impl_new_endian_float_layout;
 use fireflow_python_proc::{
     impl_gated_meas, impl_get_set_all_meas, impl_get_set_meas_obj_common, impl_layout_byteord,
     impl_layout_datatype, impl_layout_endianness, impl_new_core, impl_new_fixed_ascii_layout,
@@ -588,47 +589,8 @@ impl_new_ordered_layout!(8, false);
 impl_new_ordered_layout!(4, true);
 impl_new_ordered_layout!(8, true);
 
-macro_rules! impl_layout_new_endian_float {
-    ($pytype:ident, $range:path, $name:expr, $summary:expr) => {
-        py_wrap! {
-            #[doc = $summary]
-            ///
-            /// :param ranges: The range for each measurement. Corresponds to
-            ///     *$PnR*. This is not used internally so only serves for
-            ///     users' own purposes.
-            /// :type ranges: list[float]
-            ///
-            /// :param bool is_big: If ``True`` use big endian for encoding
-            ///     values, otherwise use little endian.
-            $pytype,
-            EndianLayout<$range, NoMeasDatatype>,
-            $name
-        }
-
-        #[pymethods]
-        impl $pytype {
-            #[new]
-            #[pyo3(signature = (ranges, is_big = false))]
-            fn new(ranges: Vec<$range>, is_big: bool) -> Self {
-                FixedLayout::new(ranges, is_big.into()).into()
-            }
-        }
-    };
-}
-
-impl_layout_new_endian_float!(
-    PyEndianF32Layout,
-    F32Range,
-    "EndianF32Layout",
-    "A 32-bit endian float layout"
-);
-
-impl_layout_new_endian_float!(
-    PyEndianF64Layout,
-    F64Range,
-    "EndianF64Layout",
-    "A 64-bit endian float layout"
-);
+impl_new_endian_float_layout!(4);
+impl_new_endian_float_layout!(8);
 
 py_wrap! {
     /// A mixed-width integer layout.
@@ -724,31 +686,6 @@ impl_layout_endianness!(PyEndianF32Layout);
 impl_layout_endianness!(PyEndianF64Layout);
 impl_layout_endianness!(PyEndianUintLayout);
 impl_layout_endianness!(PyMixedLayout);
-
-// Many layouts have the same width for each column, so this is just a simple
-// const method which will return that width (in bits)
-macro_rules! impl_layout_bytes_fixed {
-    ($t:ident, $width:expr, $doc:expr) => {
-        #[pymethods]
-        impl $t {
-            /// The width of each measurement in bytes (read-only).
-            ///
-            #[doc = $doc]
-            ///
-            /// This corresponds to the value of *$PnB* divided by 8, which are
-            /// all the same for this layout.
-            ///
-            /// :rtype: int
-            #[getter]
-            fn byte_width(&self) -> u32 {
-                $width
-            }
-        }
-    };
-}
-
-impl_layout_bytes_fixed!(PyEndianF32Layout, 4, "Will always return 4.");
-impl_layout_bytes_fixed!(PyEndianF64Layout, 8, "Will always return 8.");
 
 macro_rules! impl_layout_bytes_variable {
     ($t:ident) => {

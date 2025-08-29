@@ -3163,6 +3163,29 @@ pub fn impl_layout_endianness(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+pub fn impl_layout_datatype(input: TokenStream) -> TokenStream {
+    let t = parse_macro_input!(input as Ident);
+    let doc = DocString::new(
+        "The value of *$DATATYPE* (read-only).".into(),
+        vec![],
+        true,
+        vec![],
+        Some(DocReturn::new(datatype_pytype(), None)),
+    );
+    quote! {
+        #[pymethods]
+        impl #t {
+            #doc
+            #[getter]
+            fn datatype(&self) -> fireflow_core::text::keywords::AlphaNumType {
+                self.0.datatype().into()
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
 pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
     let name = format_ident!("MixedLayout");
     let layout_path = parse_quote!(fireflow_core::data::#name);
@@ -3207,10 +3230,7 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
         vec![],
         true,
         vec![],
-        Some(DocReturn::new(
-            PyType::new_list(PyType::new_lit(&["A", "I", "F", "D"])),
-            None,
-        )),
+        Some(DocReturn::new(PyType::new_list(datatype_pytype()), None)),
     );
 
     let constr = quote! {
@@ -3230,6 +3250,10 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
     impl_new(name.to_string(), layout_path, constr_doc, constr, rest)
         .1
         .into()
+}
+
+fn datatype_pytype() -> PyType {
+    PyType::new_lit(&["A", "I", "F", "D"])
 }
 
 struct OrderedLayoutInfo {

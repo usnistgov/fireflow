@@ -26,8 +26,8 @@ use fireflow_core::validated::keys::{StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::Shortname;
 use fireflow_python_proc::{
     impl_gated_meas, impl_get_set_all_meas, impl_get_set_meas_obj_common, impl_layout_byteord,
-    impl_layout_endianness, impl_new_core, impl_new_meas, impl_new_mixed_layout,
-    impl_new_ordered_layout,
+    impl_layout_datatype, impl_layout_endianness, impl_new_core, impl_new_meas,
+    impl_new_mixed_layout, impl_new_ordered_layout,
 };
 
 use derive_more::{From, Into};
@@ -963,43 +963,6 @@ impl PyEndianUintLayout {
 
 impl_new_mixed_layout!();
 
-// py_wrap! {
-//     /// A mixed-type layout.
-//     ///
-//     /// :param types: The type and range for each measurement. These are given
-//     ///     as 2-tuples like ``(<flag>, <range>)`` where ``flag`` is one of
-//     ///     ``"A"``, ``"I"``, ``"F"``, or ``"D"`` corresponding to Ascii,
-//     ///     Integer, Float, or Double datatypes respectively. The ``range``
-//     ///     field should be an ``int`` for ``"A"`` or ``"I"`` and a ``float``
-//     ///     for ``"F"`` or ``"D"``.
-//     /// :type types: list[tuple[Literal["A", "I"], int] | tuple[Literal["F", "D"], float]]
-//     ///
-//     /// :param bool is_big: If ``True`` use big endian for encoding values,
-//     ///     otherwise use little endian.
-//     PyMixedLayout,
-//     MixedLayout,
-//     "MixedLayout"
-// }
-
-// #[pymethods]
-// impl PyMixedLayout {
-//     #[new]
-//     #[pyo3(signature = (types, is_big = false))]
-//     fn new(types: Vec<NullMixedType>, is_big: bool) -> Self {
-//         FixedLayout::new(types, is_big.into()).into()
-//     }
-
-//     /// The datatypes for each measurement (read-only).
-//     ///
-//     /// When given, this will be *$PnDATATYPE*, otherwise *$DATATYPE*.
-//     ///
-//     /// :rtype: list[Literal["A", "I", "F", "D"]]
-//     #[getter]
-//     fn datatypes(&self) -> Vec<kws::AlphaNumType> {
-//         self.0.datatypes()
-//     }
-// }
-
 // TODO these should be ints or floats depending on layout
 macro_rules! impl_layout_ranges {
     ($t:ident) => {
@@ -1032,21 +995,6 @@ impl_layout_ranges!(PyEndianF32Layout);
 impl_layout_ranges!(PyEndianF64Layout);
 impl_layout_ranges!(PyEndianUintLayout);
 impl_layout_ranges!(PyMixedLayout);
-
-macro_rules! impl_layout_datatype {
-    ($pytype:ident) => {
-        #[pymethods]
-        impl $pytype {
-            /// The value of *$DATATYPE* (read-only).
-            ///
-            /// :rtype: Literal["A", "I", "F", "D"]
-            #[getter]
-            fn datatype(&self) -> kws::AlphaNumType {
-                self.0.datatype().into()
-            }
-        }
-    };
-}
 
 impl_layout_datatype!(PyAsciiFixedLayout);
 impl_layout_datatype!(PyAsciiDelimLayout);

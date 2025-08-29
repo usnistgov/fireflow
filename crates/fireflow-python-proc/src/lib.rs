@@ -3048,19 +3048,186 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
         }
     };
 
+    let widths = make_byte_widths(nbytes);
+
     let rest = quote! {
-            #byteord_doc
-            #[classmethod]
-            fn new_ordered(
-                _: &Bound<'_, PyType>,
-                ranges: Vec<#range_path>,
-                byteord: #sizedbyteord_path<#nbytes>,
-            ) -> Self {
-                #fixed_layout_path::new(ranges, byteord).into()
-            }
+        #byteord_doc
+        #[classmethod]
+        fn new_ordered(
+            _: &Bound<'_, PyType>,
+            ranges: Vec<#range_path>,
+            byteord: #sizedbyteord_path<#nbytes>,
+        ) -> Self {
+            #fixed_layout_path::new(ranges, byteord).into()
+        }
+
+        #widths
     };
 
     impl_new(layout_name, full_layout_path, constr_doc, constr, rest)
+        .1
+        .into()
+}
+
+fn make_byte_widths(nbytes: usize) -> proc_macro2::TokenStream {
+    let s0 = format!("Will always return {nbytes}.");
+    let s1 = "This corresponds to the value of *$PnB* divided by 8, which are \
+              all the same for this layout."
+        .into();
+    let doc = DocString::new(
+        "The width of each measurement in bytes (read only).".into(),
+        vec![s0, s1],
+        true,
+        vec![],
+        Some(DocReturn::new(PyType::Int, None)),
+    );
+    quote! {
+        #doc
+        #[getter]
+        fn byte_width(&self) -> usize {
+            #nbytes
+        }
+    }
+}
+
+#[proc_macro]
+pub fn impl_layout_byteord(input: TokenStream) -> TokenStream {
+    let t = parse_macro_input!(input as Ident);
+    let byteord_doc = DocString::new(
+        "The value of *$BYTEORD* (read-only).".into(),
+        vec![
+            "This will be a list of indices starting at 0 (rather than 1 \
+             as is written in an FCS file)."
+                .into(),
+        ],
+        true,
+        vec![],
+        Some(DocReturn::new(PyType::new_list(PyType::Int), None)),
+    );
+    let big_endian_doc = DocString::new(
+        "The endianness if applicable (read-only).".into(),
+        vec![
+            "Return ``True`` for big endian, ``False`` for little endian, \
+             and ``None`` for mixed."
+                .into(),
+        ],
+        true,
+        vec![],
+        Some(DocReturn::new(PyType::new_opt(PyType::Bool), None)),
+    );
+    let et = quote!(fireflow_core::text::byteord::Endian);
+    quote! {
+        #[pymethods]
+        impl #t {
+            #byteord_doc
+            #[getter]
+            fn byteord(&self) -> Vec<std::num::NonZeroU8> {
+                self.0.byte_order().as_vec()
+            }
+
+            #big_endian_doc
+            #[getter]
+            fn is_big_endian(&self) -> Option<bool> {
+                self.0.endianness().map(|x| x == #et::Big)
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_layout_endianness(input: TokenStream) -> TokenStream {
+    let t = parse_macro_input!(input as Ident);
+    let big_endian_doc = DocString::new(
+        "The value of *$BYTEORD* (read-only).".into(),
+        vec![
+            "Return ``True`` for big endian (``4,3,2,1``), ``False`` for \
+             little endian (``1,2,3,4``)."
+                .into(),
+        ],
+        true,
+        vec![],
+        Some(DocReturn::new(PyType::Bool, None)),
+    );
+    quote! {
+        #[pymethods]
+        impl #t {
+            #big_endian_doc
+            #[getter]
+            fn is_big_endian(&self) -> bool {
+                *self.0.as_ref() == fireflow_core::text::byteord::Endian::Big
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
+    let name = format_ident!("MixedLayout");
+    let layout_path = parse_quote!(fireflow_core::data::#name);
+
+    let null = quote!(fireflow_core::data::NullMixedType);
+    let fixed = quote!(fireflow_core::data::FixedLayout);
+    let ant = quote!(fireflow_core::text::keywords::AlphaNumType);
+
+    let types_param = DocArg::new_param(
+        "types".into(),
+        PyType::new_list(PyType::new_union2(
+            PyType::Tuple(vec![PyType::new_lit(&["A", "I"]), PyType::Int]),
+            PyType::Tuple(vec![PyType::new_lit(&["F", "D"]), PyType::Float]),
+        )),
+        "The type and range for each measurement. These are given \
+         as 2-tuples like ``(<flag>, <range>)`` where ``flag`` is one of \
+         ``\"A\"``, ``\"I\"``, ``\"F\"``, or ``\"D\"`` corresponding to Ascii, \
+         Integer, Float, or Double datatypes respectively. The ``range`` \
+         field should be an ``int`` for ``\"A\"`` or ``\"I\"`` and a ``float`` \
+         for ``\"F\"`` or ``\"D\"``."
+            .into(),
+    );
+
+    // TODO not dry
+    let is_big_param = DocArg::new_param_def(
+        "is_big".into(),
+        PyType::Bool,
+        "If ``True`` use big endian for encoding values, otherwise use little endian.".into(),
+        DocDefault::Bool(false),
+    );
+
+    let constr_doc = DocString::new(
+        "A mixed-type layout.".into(),
+        vec![],
+        false,
+        vec![types_param, is_big_param],
+        None,
+    );
+
+    let datatypes_doc = DocString::new(
+        "The datatypes for each measurement (read-only).".into(),
+        vec![],
+        true,
+        vec![],
+        Some(DocReturn::new(
+            PyType::new_list(PyType::new_lit(&["A", "I", "F", "D"])),
+            None,
+        )),
+    );
+
+    let constr = quote! {
+        fn new(types: Vec<#null>, is_big: bool) -> Self {
+            #fixed::new(types, is_big.into()).into()
+        }
+    };
+
+    let rest = quote! {
+        #datatypes_doc
+        #[getter]
+        fn datatypes(&self) -> Vec<#ant> {
+            self.0.datatypes()
+        }
+    };
+
+    impl_new(name.to_string(), layout_path, constr_doc, constr, rest)
         .1
         .into()
 }

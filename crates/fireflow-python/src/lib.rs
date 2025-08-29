@@ -4,15 +4,14 @@ use fireflow_core::core;
 use fireflow_core::data::{
     AnyAsciiLayout, AnyNullBitmask, AnyOrderedLayout, AnyOrderedUintLayout, DataLayout2_0,
     DataLayout3_0, DataLayout3_1, DataLayout3_2, DelimAsciiLayout, EndianLayout, F32Range,
-    F64Range, FixedAsciiLayout, FixedLayout, KnownTot, LayoutOps, MixedLayout, NoMeasDatatype,
-    NonMixedEndianLayout, NullMixedType, OrderedLayout, OrderedLayoutOps,
+    F64Range, FixedAsciiLayout, FixedLayout, KnownTot, LayoutOps, NoMeasDatatype,
+    NonMixedEndianLayout, OrderedLayoutOps,
 };
 use fireflow_core::error::{MultiResultExt, ResultExt};
 use fireflow_core::header::{Header, Version};
 use fireflow_core::nonempty::FCSNonEmpty;
 use fireflow_core::python::exceptions::{PyTerminalNoWarnResultExt, PyTerminalResultExt};
 use fireflow_core::segment::{HeaderAnalysisSegment, HeaderDataSegment, OtherSegment};
-use fireflow_core::text::byteord::{Endian, SizedByteOrd};
 use fireflow_core::text::gating::{
     AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, BivariateRegion, GatedMeasurement,
     GatingScheme, Region, UnivariateRegion,
@@ -26,8 +25,9 @@ use fireflow_core::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
 use fireflow_core::validated::keys::{StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::Shortname;
 use fireflow_python_proc::{
-    impl_gated_meas, impl_get_set_all_meas, impl_get_set_meas_obj_common, impl_new_core,
-    impl_new_meas, impl_new_ordered_layout,
+    impl_gated_meas, impl_get_set_all_meas, impl_get_set_meas_obj_common, impl_layout_byteord,
+    impl_layout_endianness, impl_new_core, impl_new_meas, impl_new_mixed_layout,
+    impl_new_ordered_layout,
 };
 
 use derive_more::{From, Into};
@@ -36,7 +36,6 @@ use pyo3::types::{PyTuple, PyType};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufWriter;
-use std::num::NonZeroU8;
 use std::path::PathBuf;
 
 #[pyfunction]
@@ -962,42 +961,44 @@ impl PyEndianUintLayout {
     }
 }
 
-py_wrap! {
-    /// A mixed-type layout.
-    ///
-    /// :param types: The type and range for each measurement. These are given
-    ///     as 2-tuples like ``(<flag>, <range>)`` where ``flag`` is one of
-    ///     ``"A"``, ``"I"``, ``"F"``, or ``"D"`` corresponding to Ascii,
-    ///     Integer, Float, or Double datatypes respectively. The ``range``
-    ///     field should be an ``int`` for ``"A"`` or ``"I"`` and a ``float``
-    ///     for ``"F"`` or ``"D"``.
-    /// :type types: list[tuple[Literal["A", "I"], int] | tuple[Literal["F", "D"], float]]
-    ///
-    /// :param bool is_big: If ``True`` use big endian for encoding values,
-    ///     otherwise use little endian.
-    PyMixedLayout,
-    MixedLayout,
-    "MixedLayout"
-}
+impl_new_mixed_layout!();
 
-#[pymethods]
-impl PyMixedLayout {
-    #[new]
-    #[pyo3(signature = (types, is_big = false))]
-    fn new(types: Vec<NullMixedType>, is_big: bool) -> Self {
-        FixedLayout::new(types, is_big.into()).into()
-    }
+// py_wrap! {
+//     /// A mixed-type layout.
+//     ///
+//     /// :param types: The type and range for each measurement. These are given
+//     ///     as 2-tuples like ``(<flag>, <range>)`` where ``flag`` is one of
+//     ///     ``"A"``, ``"I"``, ``"F"``, or ``"D"`` corresponding to Ascii,
+//     ///     Integer, Float, or Double datatypes respectively. The ``range``
+//     ///     field should be an ``int`` for ``"A"`` or ``"I"`` and a ``float``
+//     ///     for ``"F"`` or ``"D"``.
+//     /// :type types: list[tuple[Literal["A", "I"], int] | tuple[Literal["F", "D"], float]]
+//     ///
+//     /// :param bool is_big: If ``True`` use big endian for encoding values,
+//     ///     otherwise use little endian.
+//     PyMixedLayout,
+//     MixedLayout,
+//     "MixedLayout"
+// }
 
-    /// The datatypes for each measurement (read-only).
-    ///
-    /// When given, this will be *$PnDATATYPE*, otherwise *$DATATYPE*.
-    ///
-    /// :rtype: list[Literal["A", "I", "F", "D"]]
-    #[getter]
-    fn datatypes(&self) -> Vec<kws::AlphaNumType> {
-        self.0.datatypes()
-    }
-}
+// #[pymethods]
+// impl PyMixedLayout {
+//     #[new]
+//     #[pyo3(signature = (types, is_big = false))]
+//     fn new(types: Vec<NullMixedType>, is_big: bool) -> Self {
+//         FixedLayout::new(types, is_big.into()).into()
+//     }
+
+//     /// The datatypes for each measurement (read-only).
+//     ///
+//     /// When given, this will be *$PnDATATYPE*, otherwise *$DATATYPE*.
+//     ///
+//     /// :rtype: list[Literal["A", "I", "F", "D"]]
+//     #[getter]
+//     fn datatypes(&self) -> Vec<kws::AlphaNumType> {
+//         self.0.datatypes()
+//     }
+// }
 
 // TODO these should be ints or floats depending on layout
 macro_rules! impl_layout_ranges {
@@ -1063,35 +1064,6 @@ impl_layout_datatype!(PyEndianF32Layout);
 impl_layout_datatype!(PyEndianF64Layout);
 impl_layout_datatype!(PyEndianUintLayout);
 
-macro_rules! impl_layout_byteord {
-    ($t:ident) => {
-        #[pymethods]
-        impl $t {
-            /// The value of *$BYTEORD* (read-only).
-            ///
-            /// This will be a list of indices starting at 0 (rather than 1
-            /// as is written in an FCS file).
-            ///
-            /// :rtype: list[int]
-            #[getter]
-            fn byteord(&self) -> Vec<NonZeroU8> {
-                self.0.byte_order().as_vec()
-            }
-
-            /// The endianness if applicable (read-only).
-            ///
-            /// Return ``True`` for big endian, ``False`` for little endian,
-            /// and ``None`` for mixed.
-            ///
-            /// :rtype: bool | None
-            #[getter]
-            fn is_big_endian(&self) -> Option<bool> {
-                self.0.endianness().map(|x| x == Endian::Big)
-            }
-        }
-    };
-}
-
 impl_layout_byteord!(PyOrderedUint08Layout);
 impl_layout_byteord!(PyOrderedUint16Layout);
 impl_layout_byteord!(PyOrderedUint24Layout);
@@ -1102,24 +1074,6 @@ impl_layout_byteord!(PyOrderedUint56Layout);
 impl_layout_byteord!(PyOrderedUint64Layout);
 impl_layout_byteord!(PyOrderedF32Layout);
 impl_layout_byteord!(PyOrderedF64Layout);
-
-macro_rules! impl_layout_endianness {
-    ($t:ident) => {
-        #[pymethods]
-        impl $t {
-            #[getter]
-            /// The value of *$BYTEORD* (read-only).
-            ///
-            /// Return ``True`` for big endian (``4,3,2,1``), ``False`` for
-            /// little endian (``1,2,3,4``).
-            ///
-            /// :rtype: bool
-            fn is_big_endian(&self) -> bool {
-                *self.0.as_ref() == Endian::Big
-            }
-        }
-    };
-}
 
 impl_layout_endianness!(PyEndianF32Layout);
 impl_layout_endianness!(PyEndianF64Layout);
@@ -1148,16 +1102,6 @@ macro_rules! impl_layout_bytes_fixed {
     };
 }
 
-impl_layout_bytes_fixed!(PyOrderedUint08Layout, 1, "Will always return 1.");
-impl_layout_bytes_fixed!(PyOrderedUint16Layout, 2, "Will always return 2.");
-impl_layout_bytes_fixed!(PyOrderedUint24Layout, 3, "Will always return 3.");
-impl_layout_bytes_fixed!(PyOrderedUint32Layout, 4, "Will always return 4.");
-impl_layout_bytes_fixed!(PyOrderedUint40Layout, 5, "Will always return 5.");
-impl_layout_bytes_fixed!(PyOrderedUint48Layout, 6, "Will always return 6.");
-impl_layout_bytes_fixed!(PyOrderedUint56Layout, 7, "Will always return 7.");
-impl_layout_bytes_fixed!(PyOrderedUint64Layout, 8, "Will always return 8.");
-impl_layout_bytes_fixed!(PyOrderedF32Layout, 4, "Will always return 4.");
-impl_layout_bytes_fixed!(PyOrderedF64Layout, 8, "Will always return 8.");
 impl_layout_bytes_fixed!(PyEndianF32Layout, 4, "Will always return 4.");
 impl_layout_bytes_fixed!(PyEndianF64Layout, 8, "Will always return 8.");
 

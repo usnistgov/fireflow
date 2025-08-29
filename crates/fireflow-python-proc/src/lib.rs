@@ -3186,6 +3186,118 @@ pub fn impl_layout_datatype(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+pub fn impl_new_fixed_ascii_layout(_: TokenStream) -> TokenStream {
+    let name = format_ident!("AsciiFixedLayout");
+
+    let fixed = quote!(fireflow_core::data::FixedLayout);
+    let known_tot = quote!(fireflow_core::data::KnownTot);
+    let nomeasdt = quote!(fireflow_core::data::NoMeasDatatype);
+    let fixed_ascii = quote!(fireflow_core::data::FixedAsciiLayout);
+    let layout_path = parse_quote!(#fixed_ascii<#known_tot, #nomeasdt, false>);
+
+    let chars_param = DocArg::new_ivar(
+        "char_widths".into(),
+        PyType::new_list(PyType::Int),
+        "The number of characters for each measurement. Equivalent to the \
+         value of *$PnB*. Must be a number between 1 and 20"
+            .into(),
+    );
+
+    let constr_doc = DocString::new(
+        "A fixed-width ASCII layout.".into(),
+        vec![],
+        false,
+        vec![chars_param],
+        None,
+    );
+
+    let constr = quote! {
+        fn new(chars: Vec<u64>) -> Self {
+            #fixed::new_ascii_u64(chars).into()
+        }
+    };
+
+    // TODO make a constructor that takes char/range pairs
+    // #[classmethod]
+    // fn from_pairs(ranges: PyNonEmpty<u64>) -> Self {
+    //     FixedLayout::new(columns, NoByteOrd)
+    // }
+
+    //             #[classmethod]
+    //             fn new_ascii_fixed_pairs(
+    //                 _: &Bound<'_, PyType>,
+    //                 ranges: PyNonEmpty<(u64, u8)>,
+    //             ) -> PyResult<Self> {
+    //                 // TODO clean these types up
+    //                 let ys = ranges
+    //                     .0
+    //                     .try_map(|(x, c)| Chars::try_from(c).map(|y| (x, y)))
+    //                     .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+    //                 let rs = ys
+    //                     .try_map(|(x, c)| AsciiRange::try_new(x, c))
+    //                     .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+    //                 Ok($wrap($subwrap::new_ascii_fixed(rs)).into())
+    //             }
+
+    let rest = quote! {
+        fn char_widths(&self) -> Vec<u64> {
+            self.0
+                .widths()
+                .into_iter()
+                .map(|x| u64::from(u8::from(x)))
+                .collect()
+        }
+    };
+
+    impl_new(name.to_string(), layout_path, constr_doc, constr, rest)
+        .1
+        .into()
+}
+
+#[proc_macro]
+pub fn impl_new_delim_ascii_layout(_: TokenStream) -> TokenStream {
+    let name = format_ident!("AsciiDelimLayout");
+
+    let delim = quote!(fireflow_core::data::DelimAsciiLayout);
+    let known_tot = quote!(fireflow_core::data::KnownTot);
+    let nomeasdt = quote!(fireflow_core::data::NoMeasDatatype);
+    let layout_path = parse_quote!(#delim<#known_tot, #nomeasdt, false>);
+
+    let ranges_param = DocArg::new_ivar(
+        "ranges".into(),
+        PyType::new_list(PyType::Int),
+        "The range for each measurement. Equivalent to the *$PnR* \
+         keyword. This is not used internally and thus only represents \
+         documentation at the user level."
+            .into(),
+    );
+
+    let constr_doc = DocString::new(
+        "A delimited ASCII layout.".into(),
+        vec![],
+        false,
+        vec![ranges_param],
+        None,
+    );
+
+    let constr = quote! {
+        fn new(ranges: Vec<u64>) -> Self {
+            #delim::new(ranges).into()
+        }
+    };
+
+    let rest = quote! {
+        fn ranges(&self) -> Vec<u64> {
+            self.0.ranges.clone()
+        }
+    };
+
+    impl_new(name.to_string(), layout_path, constr_doc, constr, rest)
+        .1
+        .into()
+}
+
+#[proc_macro]
 pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
     let name = format_ident!("MixedLayout");
     let layout_path = parse_quote!(fireflow_core::data::#name);
@@ -3374,6 +3486,7 @@ fn make_gate_region(version: Version, is_uni: bool) -> TokenStream {
         region_name.to_lowercase()
     );
 
+    // TODO these are actually read-only variables
     let index_param = DocArg::new_ivar("index".into(), index_pytype, index_desc);
 
     let gate_param = DocArg::new_ivar("gate".into(), gate_pytype, gate_desc);

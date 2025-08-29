@@ -23,10 +23,12 @@ use fireflow_core::text::scale::Scale;
 use fireflow_core::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
 use fireflow_core::validated::keys::{StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::Shortname;
+use fireflow_python_proc::impl_new_delim_ascii_layout;
 use fireflow_python_proc::{
     impl_gated_meas, impl_get_set_all_meas, impl_get_set_meas_obj_common, impl_layout_byteord,
-    impl_layout_datatype, impl_layout_endianness, impl_new_core, impl_new_gate_bi_regions,
-    impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout, impl_new_ordered_layout,
+    impl_layout_datatype, impl_layout_endianness, impl_new_core, impl_new_fixed_ascii_layout,
+    impl_new_gate_bi_regions, impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout,
+    impl_new_ordered_layout,
 };
 
 use derive_more::{From, Into};
@@ -571,83 +573,8 @@ impl From<Vec<GatedMeasurement>> for PyGatedMeasurements {
     }
 }
 
-type AsciiDelim = FixedAsciiLayout<KnownTot, NoMeasDatatype, false>;
-py_wrap! {
-    /// A fixed-width ASCII layout.
-    ///
-    /// :param chars: The number of characters for each measurement. Equivalent
-    ///     to the value of *$PnB*. Must be a number between 1 and 20
-    ///     (inclusive).
-    /// :type chars: list[int].
-    PyAsciiFixedLayout,
-    AsciiDelim,
-    "AsciiFixedLayout"
-}
-
-#[pymethods]
-impl PyAsciiFixedLayout {
-    #[new]
-    fn new(chars: Vec<u64>) -> Self {
-        FixedLayout::new_ascii_u64(chars).into()
-    }
-
-    /// The number of chars for each measurement (read-only).
-    ///
-    /// This corresponds to the value of *$PnB* for each measurement.
-    ///
-    /// :rtype: list[int]
-    #[getter]
-    fn char_widths(&self) -> Vec<u32> {
-        self.0
-            .widths()
-            .into_iter()
-            .map(|x| u32::from(u8::from(x)))
-            .collect()
-    }
-
-    // TODO make a constructor that takes char/range pairs
-    // #[classmethod]
-    // fn from_pairs(ranges: PyNonEmpty<u64>) -> Self {
-    //     FixedLayout::new(columns, NoByteOrd)
-    // }
-
-    //             #[classmethod]
-    //             fn new_ascii_fixed_pairs(
-    //                 _: &Bound<'_, PyType>,
-    //                 ranges: PyNonEmpty<(u64, u8)>,
-    //             ) -> PyResult<Self> {
-    //                 // TODO clean these types up
-    //                 let ys = ranges
-    //                     .0
-    //                     .try_map(|(x, c)| Chars::try_from(c).map(|y| (x, y)))
-    //                     .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-    //                 let rs = ys
-    //                     .try_map(|(x, c)| AsciiRange::try_new(x, c))
-    //                     .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-    //                 Ok($wrap($subwrap::new_ascii_fixed(rs)).into())
-    //             }
-}
-
-type AsciiFixed = DelimAsciiLayout<KnownTot, NoMeasDatatype, false>;
-py_wrap! {
-    /// A delimited ASCII layout.
-    ///
-    /// :param ranges: The range for each measurement. Equivalent to the *$PnR*
-    ///     keyword. This is not used internally and thus only represents
-    ///     documentation at the user level.
-    /// :type ranges: list[int]
-    PyAsciiDelimLayout,
-    AsciiFixed,
-    "AsciiDelimLayout"
-}
-
-#[pymethods]
-impl PyAsciiDelimLayout {
-    #[new]
-    fn new(ranges: Vec<u64>) -> Self {
-        DelimAsciiLayout::new(ranges).into()
-    }
-}
+impl_new_fixed_ascii_layout!();
+impl_new_delim_ascii_layout!();
 
 impl_new_ordered_layout!(1, false);
 impl_new_ordered_layout!(2, false);
@@ -751,7 +678,6 @@ macro_rules! impl_layout_ranges {
 }
 
 impl_layout_ranges!(PyAsciiFixedLayout);
-impl_layout_ranges!(PyAsciiDelimLayout);
 impl_layout_ranges!(PyOrderedUint08Layout);
 impl_layout_ranges!(PyOrderedUint16Layout);
 impl_layout_ranges!(PyOrderedUint24Layout);

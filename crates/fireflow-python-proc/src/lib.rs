@@ -3273,87 +3273,137 @@ impl Parse for OrderedLayoutInfo {
     }
 }
 
-// #[proc_macro]
-// pub fn impl_new_ordered_float_layout(input: TokenStream) -> TokenStream {
-//     let nbytes = parse_macro_input!(input as LitInt)
-//         .base10_parse::<usize>()
-//         .expect("nbytes must be an integer");
-//     let nbits = nbytes * 8;
+#[proc_macro]
+pub fn impl_new_gate_uni_regions(input: TokenStream) -> TokenStream {
+    let version = parse_macro_input!(input as LitStr)
+        .value()
+        .parse::<Version>()
+        .expect("Must be a valid FCS version");
 
-//     let range = format_ident!("F{:02}Range", nbits);
+    make_gate_region(version, true)
+}
 
-//     let range_path = quote!(fireflow_core::validated::bitmask::#range);
-//     let known_tot_path = quote!(fireflow_core::data::KnownTot);
-//     let ordered_layout_path = quote!(fireflow_core::data::OrderedLayout);
-//     let fixed_layout_path = quote!(fireflow_core::data::FixedLayout);
-//     let sizedbyteord_path = quote!(fireflow_core::text::byteord::SizedByteOrd);
+#[proc_macro]
+pub fn impl_new_gate_bi_regions(input: TokenStream) -> TokenStream {
+    let version = parse_macro_input!(input as LitStr)
+        .value()
+        .parse::<Version>()
+        .expect("Must be a valid FCS version");
 
-//     let full_layout_path = parse_quote!(#ordered_layout_path<#range_path, #known_tot_path>);
+    make_gate_region(version, false)
+}
 
-//     let layout_name = format!("OrderedF{:02}Layout", nbits);
+fn make_gate_region(version: Version, is_uni: bool) -> TokenStream {
+    let index_name = if is_uni { "index" } else { "x/y indices" };
 
-//     let summary = format!("An {nbits}-bit ordered float layout");
+    let index_pair = quote!(fireflow_core::text::keywords::IndexPair);
+    let nonempty = quote!(fireflow_core::nonempty::FCSNonEmpty);
 
-//     let range_param = DocArg::new_param(
-//         "ranges".into(),
-//         PyType::new_list(PyType::Int),
-//         "The range for each measurement. Corresponds to *$PnR*. This is not \
-//          used internally so only serves users' own purposes."
-//             .into(),
-//     );
+    let (summary_version, index_desc, index_pytype_inner, index_rstype_inner) = match version {
+        Version::FCS2_0 => (
+            "2.0",
+            format!(
+                "The {index_name} corresponding to a gating measurement \
+                 (the *m* in the *$Gm\\** keywords)."
+            ),
+            PyType::Int,
+            quote!(fireflow_core::text::index::GateIndex),
+        ),
+        Version::FCS3_0 | Version::FCS3_1 => {
+            let k = if is_uni { "Must" } else { "Each must" };
+            (
+                "3.0/3.1",
+                format!(
+                    "The {index_name} corresponding to either a gating or a physical \
+                     measurement (the *m* and *n* in the *$Gm\\** or *$Pn\\** \
+                     keywords). {k} be a string like either ``Gm`` or ``Pn`` where \
+                     ``m`` is an integer and the prefix corresponds to a gating or \
+                     physical measurement respectively."
+                ),
+                PyType::Str,
+                quote!(fireflow_core::text::keywords::MeasOrGateIndex),
+            )
+        }
+        Version::FCS3_2 => (
+            "3.2",
+            format!(
+                "The {index_name} corresponding to a physical measurement \
+                 (the *n* in the *$Pn\\** keywords)."
+            ),
+            PyType::Int,
+            quote!(fireflow_core::text::keywords::PrefixedMeasIndex),
+        ),
+    };
 
-//     let is_big_param = DocArg::new_param_def(
-//         "is_big".into(),
-//         PyType::Bool,
-//         "If ``True`` use big endian for encoding values, otherwise use little endian.".into(),
-//         DocDefault::Bool(false),
-//     );
+    let (
+        region_name,
+        gate_rstype,
+        index_rstype,
+        index_pytype,
+        gate_argname,
+        gate_pytype,
+        gate_desc,
+    ) = if is_uni {
+        (
+            "Univariate",
+            quote!(fireflow_core::text::keywords::UniGate),
+            index_rstype_inner.clone(),
+            index_pytype_inner,
+            format_ident!("gate"),
+            PyType::Tuple(vec![PyType::Float; 2]),
+            "The lower and upper bounds of the gate.".into(),
+        )
+    } else {
+        (
+            "Bivariate",
+            quote!(#nonempty<fireflow_core::text::keywords::Vertex>),
+            quote!(#index_pair<#index_rstype_inner>),
+            PyType::Tuple(vec![index_pytype_inner; 2]),
+            format_ident!("vertices"),
+            PyType::new_list(PyType::Tuple(vec![PyType::Float; 2])),
+            "The vertices of a polygon gate. Must not be empty.".into(),
+        )
+    };
 
-//     let byteord_param = DocArg::new_param(
-//         "byteord".into(),
-//         PyType::new_list(PyType::Int),
-//         "The byte order to use when encoding values. Must be a list of indices starting at 0."
-//             .into(),
-//     );
+    let region_ident = format_ident!("{region_name}Region");
 
-//     let constr_doc = DocString::new(
-//         format!("{summary}."),
-//         vec![],
-//         false,
-//         vec![range_param.clone(), is_big_param],
-//         None,
-//     );
+    let region_rstype = quote!(fireflow_core::text::gating::#region_ident);
 
-//     let byteord_doc = DocString::new(
-//         format!("{summary} with a specific byteord."),
-//         vec![],
-//         false,
-//         vec![range_param.clone(), byteord_param],
-//         None,
-//     );
+    let summary = format!(
+        "Make a new FCS {summary_version}-compatible {} region",
+        region_name.to_lowercase()
+    );
 
-//     let constr = quote! {
-//         fn new(ranges: Vec<#range_path>, is_big: bool) -> Self {
-//             #fixed_layout_path::new_endian_uint(ranges, is_big.into()).into()
-//         }
-//     };
+    let index_param = DocArg::new_ivar("index".into(), index_pytype, index_desc);
 
-//     let rest = quote! {
-//             #byteord_doc
-//             #[classmethod]
-//             fn new_ordered(
-//                 _: &Bound<'_, PyType>,
-//                 ranges: Vec<#range_path>,
-//                 byteord: #sizedbyteord_path<#nbytes>,
-//             ) -> Self {
-//                 #fixed_layout_path::new(ranges, byteord).into()
-//             }
-//     };
+    let gate_param = DocArg::new_ivar("gate".into(), gate_pytype, gate_desc);
 
-//     impl_new(layout_name, full_layout_path, constr_doc, constr, rest)
-//         .1
-//         .into()
-// }
+    let name = format!("{region_ident}{}", version.short_underscore());
+
+    let full_rstype = parse_quote!(#region_rstype<#index_rstype_inner>);
+
+    let doc = DocString::new(summary, vec![], false, vec![index_param, gate_param], None);
+
+    let new = quote! {
+        fn new(index: #index_rstype, #gate_argname: #gate_rstype) -> Self {
+            #region_rstype { index, #gate_argname }.into()
+        }
+    };
+
+    let rest = quote! {
+        #[getter]
+        fn index(&self) -> #index_rstype {
+            self.0.index
+        }
+
+        #[getter]
+        fn #gate_argname(&self) -> #gate_rstype {
+            self.0.#gate_argname.clone()
+        }
+    };
+
+    impl_new(name, full_rstype, doc, new, rest).1.into()
+}
 
 fn impl_new(
     name: String,

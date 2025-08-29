@@ -2961,37 +2961,55 @@ pub fn impl_gated_meas(_: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
-    let nbytes = parse_macro_input!(input as LitInt)
-        .base10_parse::<usize>()
-        .expect("nbytes must be an integer");
+    let info = parse_macro_input!(input as OrderedLayoutInfo);
+    let nbytes = info.nbytes;
+    let is_float = info.is_float;
     let nbits = nbytes * 8;
-    let make_path = |x: &str| {
-        let s = format!("fireflow_core::data::{x}");
-        let p = parse_str::<Path>(s.as_str()).unwrap();
-        (s, p)
+
+    let (range_pytype, range_desc, what, base, range_path, fun) = if is_float {
+        let range = format_ident!("F{:02}Range", nbits);
+        let range_desc = "The range for each measurement. Corresponds to *$PnR*. \
+                          This is not used internally so only serves for users' \
+                          own purposes.";
+        (
+            PyType::Float,
+            range_desc,
+            "float",
+            "F",
+            quote!(fireflow_core::data::#range),
+            format_ident!("new_endian_float"),
+        )
+    } else {
+        let bitmask = format_ident!("Bitmask{:02}", nbits);
+        let range_desc = "The range for each measurement. Corresponds to \
+                          *$PnR* - 1, which implies that the value for each \
+                          measurement must be less than or equal to the values \
+                          in ``ranges``. A bitmask will be created which \
+                          corresponds to one less the next power of 2.";
+        (
+            PyType::Int,
+            range_desc,
+            "integer",
+            "Uint",
+            quote!(fireflow_core::validated::bitmask::#bitmask),
+            format_ident!("new_endian_uint"),
+        )
     };
-    let bitmask_spath = format!("fireflow_core::validated::bitmask::Bitmask{:02}", nbits);
-    let bitmask_path = parse_str::<Path>(bitmask_spath.as_str()).unwrap();
-    let known_tot_spath = make_path("KnownTot").0;
+    let known_tot_path = quote!(fireflow_core::data::KnownTot);
+    let ordered_layout_path = quote!(fireflow_core::data::OrderedLayout);
+    let fixed_layout_path = quote!(fireflow_core::data::FixedLayout);
+    let sizedbyteord_path = quote!(fireflow_core::text::byteord::SizedByteOrd);
 
-    let layout_type = format!("OrderedLayout<{bitmask_spath}, {known_tot_spath}>");
-    let layout_path = make_path(layout_type.as_str()).1;
+    let full_layout_path = parse_quote!(#ordered_layout_path<#range_path, #known_tot_path>);
 
-    let layout_name = format!("OrderedUint{:02}Layout", nbits);
+    let layout_name = format!("Ordered{base}{:02}Layout", nbits);
 
-    let fixed_layout_path = make_path("FixedLayout").1;
-    let sizedbyteord_path: Path = parse_quote!(fireflow_core::text::byteord::SizedByteOrd);
-
-    let summary = format!("An {nbits}-bit ordered integer layout");
+    let summary = format!("An {nbits}-bit ordered {what} layout");
 
     let range_param = DocArg::new_param(
         "ranges".into(),
-        PyType::new_list(PyType::Int),
-        "The range for each measurement. Corresponds to *$PnR* - 1, which \
-         implies that the value for each measurement must be less than or \
-         equal to the values in ``ranges``. A bitmask will be created which \
-         corresponds to one less the next power of 2."
-            .into(),
+        PyType::new_list(range_pytype),
+        range_desc.into(),
     );
 
     let is_big_param = DocArg::new_param_def(
@@ -3025,8 +3043,8 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
     );
 
     let constr = quote! {
-        fn new(ranges: Vec<#bitmask_path>, is_big: bool) -> Self {
-            #fixed_layout_path::new_endian_uint(ranges, is_big.into()).into()
+        fn new(ranges: Vec<#range_path>, is_big: bool) -> Self {
+            #fixed_layout_path::#fun(ranges, is_big.into()).into()
         }
     };
 
@@ -3035,17 +3053,116 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
             #[classmethod]
             fn new_ordered(
                 _: &Bound<'_, PyType>,
-                ranges: Vec<#bitmask_path>,
+                ranges: Vec<#range_path>,
                 byteord: #sizedbyteord_path<#nbytes>,
             ) -> Self {
                 #fixed_layout_path::new(ranges, byteord).into()
             }
     };
 
-    impl_new(layout_name, layout_path, constr_doc, constr, rest)
+    impl_new(layout_name, full_layout_path, constr_doc, constr, rest)
         .1
         .into()
 }
+
+struct OrderedLayoutInfo {
+    nbytes: usize,
+    is_float: bool,
+}
+
+impl Parse for OrderedLayoutInfo {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let nbytes = input
+            .parse::<LitInt>()?
+            .base10_parse::<usize>()
+            .expect("Number of bytes must be an unsigned integer");
+        let _: Comma = input.parse()?;
+        let is_float = input.parse::<LitBool>()?.value();
+        Ok(Self { nbytes, is_float })
+    }
+}
+
+// #[proc_macro]
+// pub fn impl_new_ordered_float_layout(input: TokenStream) -> TokenStream {
+//     let nbytes = parse_macro_input!(input as LitInt)
+//         .base10_parse::<usize>()
+//         .expect("nbytes must be an integer");
+//     let nbits = nbytes * 8;
+
+//     let range = format_ident!("F{:02}Range", nbits);
+
+//     let range_path = quote!(fireflow_core::validated::bitmask::#range);
+//     let known_tot_path = quote!(fireflow_core::data::KnownTot);
+//     let ordered_layout_path = quote!(fireflow_core::data::OrderedLayout);
+//     let fixed_layout_path = quote!(fireflow_core::data::FixedLayout);
+//     let sizedbyteord_path = quote!(fireflow_core::text::byteord::SizedByteOrd);
+
+//     let full_layout_path = parse_quote!(#ordered_layout_path<#range_path, #known_tot_path>);
+
+//     let layout_name = format!("OrderedF{:02}Layout", nbits);
+
+//     let summary = format!("An {nbits}-bit ordered float layout");
+
+//     let range_param = DocArg::new_param(
+//         "ranges".into(),
+//         PyType::new_list(PyType::Int),
+//         "The range for each measurement. Corresponds to *$PnR*. This is not \
+//          used internally so only serves users' own purposes."
+//             .into(),
+//     );
+
+//     let is_big_param = DocArg::new_param_def(
+//         "is_big".into(),
+//         PyType::Bool,
+//         "If ``True`` use big endian for encoding values, otherwise use little endian.".into(),
+//         DocDefault::Bool(false),
+//     );
+
+//     let byteord_param = DocArg::new_param(
+//         "byteord".into(),
+//         PyType::new_list(PyType::Int),
+//         "The byte order to use when encoding values. Must be a list of indices starting at 0."
+//             .into(),
+//     );
+
+//     let constr_doc = DocString::new(
+//         format!("{summary}."),
+//         vec![],
+//         false,
+//         vec![range_param.clone(), is_big_param],
+//         None,
+//     );
+
+//     let byteord_doc = DocString::new(
+//         format!("{summary} with a specific byteord."),
+//         vec![],
+//         false,
+//         vec![range_param.clone(), byteord_param],
+//         None,
+//     );
+
+//     let constr = quote! {
+//         fn new(ranges: Vec<#range_path>, is_big: bool) -> Self {
+//             #fixed_layout_path::new_endian_uint(ranges, is_big.into()).into()
+//         }
+//     };
+
+//     let rest = quote! {
+//             #byteord_doc
+//             #[classmethod]
+//             fn new_ordered(
+//                 _: &Bound<'_, PyType>,
+//                 ranges: Vec<#range_path>,
+//                 byteord: #sizedbyteord_path<#nbytes>,
+//             ) -> Self {
+//                 #fixed_layout_path::new(ranges, byteord).into()
+//             }
+//     };
+
+//     impl_new(layout_name, full_layout_path, constr_doc, constr, rest)
+//         .1
+//         .into()
+// }
 
 fn impl_new(
     name: String,

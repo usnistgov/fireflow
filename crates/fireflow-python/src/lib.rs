@@ -371,112 +371,6 @@ impl_get_set_all_meas! {
     PyCoreDataset3_2
 }
 
-// TODO move all this stuff to proc
-// macro_rules! impl_meas_get_set_common {
-//     ($pytype:ident) => {
-//         impl_meas_get_set! {Option<kws::Longname>, "S", "str", $pytype}
-//     };
-// }
-
-// impl_meas_get_set_common!(PyOptical2_0);
-// impl_meas_get_set_common!(PyOptical3_0);
-// impl_meas_get_set_common!(PyOptical3_1);
-// impl_meas_get_set_common!(PyOptical3_2);
-// impl_meas_get_set_common!(PyTemporal2_0);
-// impl_meas_get_set_common!(PyTemporal3_0);
-// impl_meas_get_set_common!(PyTemporal3_1);
-// impl_meas_get_set_common!(PyTemporal3_2);
-
-// macro_rules! impl_optical_get_set {
-//     ($pytype:ident) => {
-//         impl_meas_get_set! {Option<kws::Filter>, "F", "str", $pytype}
-//         impl_meas_get_set! {Option<kws::DetectorType>, "T", "str", $pytype}
-//         impl_meas_get_set! {Option<kws::PercentEmitted>, "P", "str", $pytype}
-//         impl_meas_get_set! {Option<kws::DetectorVoltage>, "V", "float", $pytype}
-//         impl_meas_get_set! {Option<kws::Power>, "O", "float", $pytype}
-//     };
-// }
-
-// impl_optical_get_set!(PyOptical2_0);
-// impl_optical_get_set!(PyOptical3_0);
-// impl_optical_get_set!(PyOptical3_1);
-// impl_optical_get_set!(PyOptical3_2);
-
-// // $PnL (2.0/3.0)
-// impl_meas_get_set! {
-//     Option<kws::Wavelength>,
-//     "L",
-//     "float",
-//     PyOptical2_0,
-//     PyOptical3_0
-// }
-
-// // #PnL (3.1-3.2)
-// impl_meas_get_set! {
-//     Option<kws::Wavelengths>,
-//     "L",
-//     "list[float]",
-//     PyOptical3_1,
-//     PyOptical3_2
-// }
-
-// // $PnCalibration (3.1)
-// impl_meas_get_set! {
-//     Option<kws::Calibration3_1>,
-//     "CALIBRATION",
-//     "tuple[float, str]",
-//     PyOptical3_1
-// }
-
-// // $PnD (3.1-3.2)
-// impl_meas_get_set! {
-//     Option<kws::Display>,
-//     "D",
-//     "tuple[bool, float, float]",
-//     PyOptical3_1,
-//     PyOptical3_2,
-//     PyTemporal3_1,
-//     PyTemporal3_2
-// }
-
-// // $PnDET (3.2)
-// impl_meas_get_set! {Option<kws::DetectorName>, "DET", "str", PyOptical3_2}
-
-// // $PnTAG (3.2)
-// impl_meas_get_set! {Option<kws::Tag>, "TAG", "str", PyOptical3_2}
-
-// // $PnTYPE (3.2)
-// impl_meas_get_set! {
-//     Option<kws::OpticalType>,
-//     "TYPE",
-//     "str",
-//     PyOptical3_2
-// }
-
-// // $PnFEATURE (3.2)
-// impl_meas_get_set! {
-//     Option<kws::Feature>,
-//     "FEATURE",
-//     "Literal[\"Area\", \"Width\", \"Height\"]",
-//     PyOptical3_2
-// }
-
-// // $PnANALYTE (3.2)
-// impl_meas_get_set! {
-//     Option<kws::Analyte>,
-//     "ANALYTE",
-//     "str",
-//     PyOptical3_2
-// }
-
-// // $PnCalibration (3.2)
-// impl_meas_get_set! {
-//     Option<kws::Calibration3_2>,
-//     "CALIBRATION",
-//     "tuple[float, float, str]",
-//     PyOptical3_2
-// }
-
 #[derive(From, Into, Default)]
 struct PyAppliedGates2_0(AppliedGates2_0);
 
@@ -985,77 +879,17 @@ impl PyAsciiDelimLayout {
     }
 }
 
-impl_new_ordered_layout!(1);
-impl_new_ordered_layout!(2);
-impl_new_ordered_layout!(3);
-impl_new_ordered_layout!(4);
-impl_new_ordered_layout!(5);
-impl_new_ordered_layout!(6);
-impl_new_ordered_layout!(7);
-impl_new_ordered_layout!(8);
+impl_new_ordered_layout!(1, false);
+impl_new_ordered_layout!(2, false);
+impl_new_ordered_layout!(3, false);
+impl_new_ordered_layout!(4, false);
+impl_new_ordered_layout!(5, false);
+impl_new_ordered_layout!(6, false);
+impl_new_ordered_layout!(7, false);
+impl_new_ordered_layout!(8, false);
 
-macro_rules! impl_layout_new_ordered_float {
-    ($pytype:ident, $range:path, $name:expr, $size:expr, $summary:expr) => {
-        py_wrap! {
-            #[doc = $summary]
-            ///
-            /// :param ranges: The range for each measurement. Corresponds to
-            ///     *$PnR*. This is not used internally so only serves for
-            ///     users' own purposes.
-            /// :type ranges: list[float]
-            ///
-            /// :param bool is_big: If ``True`` use big endian for encoding
-            ///     values, otherwise use little endian.
-            $pytype,
-            OrderedLayout<$range, KnownTot>,
-            $name
-        }
-
-        #[pymethods]
-        impl $pytype {
-            #[new]
-            #[pyo3(signature = (ranges, is_big = false))]
-            fn new(ranges: Vec<$range>, is_big: bool) -> Self {
-                FixedLayout::new_endian_float(ranges, is_big.into()).into()
-            }
-
-            #[doc = $summary]
-            ///
-            /// :param ranges: The range for each measurement. Corresponds to
-            ///     *$PnR*. This is not used internally so only serves for
-            ///     users' own purposes.
-            /// :type ranges: list[float]
-            ///
-            /// :param byteord: The byte order to use when encoding values.
-            ///     Must be a list of indices starting at 0.
-            /// :type byteord: list[int]
-            #[classmethod]
-            fn new_ordered(
-                _: &Bound<'_, PyType>,
-                ranges: Vec<$range>,
-                byteord: SizedByteOrd<$size>,
-            ) -> Self {
-                FixedLayout::new(ranges, byteord).into()
-            }
-        }
-    };
-}
-
-impl_layout_new_ordered_float!(
-    PyOrderedF32Layout,
-    F32Range,
-    "OrderedF32Layout",
-    4,
-    "A 32-bit ordered float layout."
-);
-
-impl_layout_new_ordered_float!(
-    PyOrderedF64Layout,
-    F64Range,
-    "OrderedF64Layout",
-    8,
-    "A 64-bit ordered float layout."
-);
+impl_new_ordered_layout!(4, true);
+impl_new_ordered_layout!(8, true);
 
 macro_rules! impl_layout_new_endian_float {
     ($pytype:ident, $range:path, $name:expr, $summary:expr) => {

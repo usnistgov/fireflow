@@ -359,17 +359,19 @@ impl fmt::Display for ArgType {
 
 impl fmt::Display for PyType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        // see https://github.com/sphinx-doc/sphinx/blob/9a08711e0e18c63c609070aa0a79019b4db45a78/tests/test_util/test_util_typing.py
+        // for cheat sheet on how these types should be represented in .rst syntax
         match self {
-            Self::Bool => f.write_str("bool"),
-            Self::Str => f.write_str("str"),
-            Self::Int => f.write_str("int"),
-            Self::Float => f.write_str("float"),
-            Self::Bytes => f.write_str("Bytes"),
+            Self::Bool => f.write_str(":py:class:`bool`"),
+            Self::Str => f.write_str(":py:class:`str`"),
+            Self::Int => f.write_str(":py:class:`int`"),
+            Self::Float => f.write_str(":py:class:`float`"),
+            Self::Bytes => f.write_str(":py:class:`bytes`"),
             Self::None => f.write_str("None"),
-            Self::Date => f.write_str("datetime.date"),
-            Self::Time => f.write_str("datetime.time"),
-            Self::Datetime => f.write_str("datetime.datetime"),
-            Self::Decimal => f.write_str("decimal.Decimal"),
+            Self::Date => f.write_str(":py:class:`~datetime.date`"),
+            Self::Time => f.write_str(":py:class:`~datetime.time`"),
+            Self::Datetime => f.write_str(":py:class:`~datetime.datetime`"),
+            Self::Decimal => f.write_str(":py:class:`~decimal.Decimal`"),
             Self::Union(x, y, zs) => {
                 let s = [x.as_ref(), y.as_ref()]
                     .into_iter()
@@ -378,24 +380,25 @@ impl fmt::Display for PyType {
                 f.write_str(s.as_str())
             }
             Self::Tuple(xs) => {
-                if xs.is_empty() {
-                    f.write_str("tuple[()]")
+                let s = if xs.is_empty() {
+                    "()".into()
                 } else {
-                    write!(f, "tuple[{}]", xs.iter().join(", "))
-                }
+                    xs.iter().join(", ")
+                };
+                write!(f, ":py:class:`tuple`\\ [{s}]")
             }
             Self::Literal(x, xs) => {
                 write!(
                     f,
-                    "Literal[{}]",
+                    ":obj:`~typing.Literal`\\ [{}]",
                     [x].into_iter()
                         .chain(xs)
                         .map(|s| format!("\"{s}\""))
                         .join(", ")
                 )
             }
-            Self::List(x) => write!(f, "list[{x}]"),
-            Self::Dict(x, y) => write!(f, "dict[{x}, {y}]"),
+            Self::List(x) => write!(f, ":py:class:`list`\\ [{x}]"),
+            Self::Dict(x, y) => write!(f, ":py:class:`dict`\\ [{x}, {y}]"),
             Self::Option(x) => write!(f, "{x} | None"),
             Self::PyClass(s) => write!(f, ":py:class:`{s}`"),
             Self::Raw(s) => f.write_str(s.as_ref()),

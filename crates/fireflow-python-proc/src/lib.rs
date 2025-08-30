@@ -681,7 +681,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         true,
         vec![df.doc.clone(), analysis.doc.clone(), others.doc.clone()],
         Some(DocReturn::new(
-            PyType::PyClass(coredataset_pytype.to_string()),
+            PyType::PyClass(coredataset_name.to_string()),
             None,
         )),
     );

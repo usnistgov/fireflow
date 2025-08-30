@@ -1089,7 +1089,7 @@ class TestCore:
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
     ) -> None:
         assert isinstance(core.layout, pf.OrderedUint32Layout)
-        core.layout = pf.OrderedUint64Layout([9002, 9003], False)
+        core.layout = pf.OrderedUint64Layout([9002, 9003])
         assert isinstance(core.layout, pf.OrderedUint64Layout)
         with pytest.raises(TypeError):
             core.layout = pf.EndianUintLayout([9002, 9003], False)  # type: ignore
@@ -1100,10 +1100,10 @@ class TestCore:
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
     ) -> None:
         assert isinstance(core.layout, pf.EndianUintLayout)
-        core.layout = pf.EndianF32Layout([9002, 9003], False)
+        core.layout = pf.EndianF32Layout([Decimal(9002), Decimal(9003)])
         assert isinstance(core.layout, pf.EndianF32Layout)
         with pytest.raises(TypeError):
-            core.layout = pf.OrderedUint64Layout([9002, 9003], False)  # type: ignore
+            core.layout = pf.OrderedUint64Layout([9002, 9003])  # type: ignore
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -1160,7 +1160,7 @@ class TestCore:
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
         optical: Any,
     ) -> None:
-        new = pf.OrderedUint64Layout([1], False)
+        new = pf.OrderedUint64Layout([1])
         core.set_measurements_and_layout([(LINK_NAME1, optical)], new, False, False)
 
     @pytest.mark.parametrize(
@@ -1180,7 +1180,7 @@ class TestCore:
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
         optical: Any,
     ) -> None:
-        new = pf.EndianF32Layout([1], False)
+        new = pf.EndianF32Layout([Decimal(1)])
         core.set_measurements_and_layout([(LINK_NAME1, optical)], new, False, False)
 
     @pytest.mark.parametrize(
@@ -1739,16 +1739,17 @@ class TestLayouts:
     def test_ordered_uint(self, layout: type, width: int) -> None:
         n = int(width / 8)
         bitmasks = [2 ** (8 * (b + 1)) - 1 for b in range(n)]
-        new = layout(bitmasks, False)
+        new = layout(bitmasks)
         # NOTE ranges will be 1+ whatever we put in because the inputs to the
         # the layout are literal ints and the output below is whatever the $PnR
         # value will be, which is 1+ the actual number...thanks FCS
-        assert new.byteord == [r + 1 for r in range(n)]
+        if n > 2:
+            assert new.byteord == "little"
         assert new.byte_width == n
-        assert new.ranges == [Decimal(r + 1) for r in bitmasks]
+        assert new.ranges == [r for r in bitmasks]
         assert new.datatype == "I"
         with pytest.raises(OverflowError):
-            layout([2**width], False)
+            layout([2**width])
 
     @pytest.mark.parametrize(
         "layout, width, datatype",
@@ -1761,29 +1762,29 @@ class TestLayouts:
     )
     def test_float(self, layout: type, width: int, datatype: Datatype) -> None:
         n = 3
-        new = layout([1000.0] * n, False)
+        new = layout([Decimal(1000.0)] * n)
         assert new.byte_width == width / 8
-        assert new.ranges == [Decimal("1000.0")] * n
+        assert new.ranges == [Decimal(1000.0)] * n
         assert new.datatype == datatype
         with pytest.raises(ValueError):
-            layout([float("inf")], False)
+            layout([float("inf")])
 
     def test_endian_uint(self) -> None:
         ranges = [2**8 - 1, 2**16 - 1, 2**24 - 1]
-        new = pf.EndianUintLayout(ranges, False)
+        new = pf.EndianUintLayout(ranges)
         assert new.byte_widths == [8, 16, 24]
-        # NOTE see ordered test for why this is 1+
-        assert new.ranges == [r + 1 for r in ranges]
+        assert new.ranges == ranges
         assert new.datatype == "I"
 
     def test_mixed(self) -> None:
-        ranges: list[MixedType] = [("F", 1000.0), ("D", 2000.0), ("I", 255)]
-        new = pf.MixedLayout(ranges, False)
+        types: list[MixedType] = [
+            ("F", Decimal(1000.0)),
+            ("D", Decimal(2000.0)),
+            ("I", 255),
+        ]
+        new = pf.MixedLayout(types)
         assert new.byte_widths == [32, 64, 8]
-        # NOTE see ordered test for why the int is 1+
-        assert new.ranges == [Decimal(1000.0), Decimal(2000.0), Decimal(256)]
-        # TODO this doesn't make much sense
-        assert new.datatypes == ["F", "D", "I"]
+        assert new.types == types
 
 
 class TestReadWrite:

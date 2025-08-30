@@ -3278,8 +3278,8 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
         }
 
         #[getter]
-        fn is_big_endian(&self) -> bool {
-            *self.0.as_ref() == fireflow_core::text::byteord::Endian::Big
+        fn endian(&self) -> #endian {
+            *self.0.as_ref()
         }
 
         #widths
@@ -3360,7 +3360,6 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
 
     let null = quote!(fireflow_core::data::NullMixedType);
     let fixed = quote!(fireflow_core::data::FixedLayout);
-    let ant = quote!(fireflow_core::text::keywords::AlphaNumType);
     let endian = quote!(fireflow_core::text::byteord::Endian);
 
     let types_param = DocArg::new_param(
@@ -3386,14 +3385,6 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
         None,
     );
 
-    let datatypes_doc = DocString::new(
-        "The datatypes for each measurement (read-only).".into(),
-        vec![],
-        true,
-        vec![],
-        Some(DocReturn::new(PyType::new_list(datatype_pytype()), None)),
-    );
-
     let constr = quote! {
         fn new(types: Vec<#null>, endian: #endian) -> Self {
             #fixed::new(types, endian).into()
@@ -3410,13 +3401,6 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
         fn endian(&self) -> #endian {
             *self.0.as_ref()
         }
-
-        #datatypes_doc
-        #[getter]
-        fn datatypes(&self) -> Vec<#ant> {
-            self.0.datatypes()
-        }
-
     };
 
     impl_new(name.to_string(), layout_path, constr_doc, constr, rest)

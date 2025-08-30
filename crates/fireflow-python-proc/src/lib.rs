@@ -1832,7 +1832,7 @@ impl ArgData {
         .into();
         let doc = DocArg::new_ivar_def(
             "comp".into(),
-            PyType::new_opt(PyType::PyClass("numpy.ndarray".into())),
+            PyType::new_opt(PyType::PyClass("~numpy.ndarray".into())),
             desc,
             DocDefault::Option,
         );
@@ -1856,7 +1856,7 @@ impl ArgData {
             "spillover".into(),
             PyType::new_opt(PyType::Tuple(vec![
                 PyType::new_list(PyType::Str),
-                PyType::PyClass("numpy.ndarray".into()),
+                PyType::PyClass("~numpy.ndarray".into()),
             ])),
             "Value for *$SPILLOVER*. First element of tuple the list of measurement \
          names and the second is the matrix. Each measurement name must \

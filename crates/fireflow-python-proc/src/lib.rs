@@ -3620,7 +3620,7 @@ fn make_gate_region(version: Version, is_uni: bool) -> TokenStream {
     // TODO these are actually read-only variables
     let index_param = DocArg::new_ivar("index".into(), index_pytype, index_desc);
 
-    let gate_param = DocArg::new_ivar("gate".into(), gate_pytype, gate_desc);
+    let gate_param = DocArg::new_ivar(gate_argname.to_string(), gate_pytype, gate_desc);
 
     let name = format!("{region_ident}{}", version.short_underscore());
 

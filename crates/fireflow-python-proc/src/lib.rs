@@ -880,16 +880,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
         #get_set_all_pnn_maybe
 
-        #[getter]
-        fn get_layout(&self) -> #layout_ident {
-            self.0.layout().clone().into()
-        }
-
-        #[setter]
-        fn set_layout(&mut self, layout: #layout_ident) -> PyResult<()> {
-            self.0.set_layout(layout.into()).py_term_resolve_nowarn()
-        }
-
         #write_text_doc
         fn write_text(&self, path: PathBuf, delim: #textdelim_type) -> PyResult<()> {
             let f = File::options().write(true).create(true).open(path)?;
@@ -1052,6 +1042,38 @@ pub fn impl_core_set_tr_threshold(input: TokenStream) -> TokenStream {
             fn set_trigger_threshold(&mut self, threshold: u32) -> bool {
                 self.0.set_trigger_threshold(threshold)
             }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_core_get_set_layout(input: TokenStream) -> TokenStream {
+    let version = parse_macro_version(input);
+    let layout_ident = ArgData::new_layout_arg(version).rstype;
+    let coretext = format_ident!("PyCoreTEXT{}", version.short_underscore());
+    let coredataset = format_ident!("PyCoreDataset{}", version.short_underscore());
+
+    let methods = quote! {
+        #[getter]
+        fn get_layout(&self) -> #layout_ident {
+            self.0.layout().clone().into()
+        }
+
+        #[setter]
+        fn set_layout(&mut self, layout: #layout_ident) -> PyResult<()> {
+            self.0.set_layout(layout.into()).py_term_resolve_nowarn()
+        }
+    };
+    quote! {
+        #[pymethods]
+        impl #coretext {
+            #methods
+        }
+
+        #[pymethods]
+        impl #coredataset {
+            #methods
         }
     }
     .into()
@@ -3533,21 +3555,13 @@ impl Parse for OrderedLayoutInfo {
 
 #[proc_macro]
 pub fn impl_new_gate_uni_regions(input: TokenStream) -> TokenStream {
-    let version = parse_macro_input!(input as LitStr)
-        .value()
-        .parse::<Version>()
-        .expect("Must be a valid FCS version");
-
+    let version = parse_macro_version(input);
     make_gate_region(version, true)
 }
 
 #[proc_macro]
 pub fn impl_new_gate_bi_regions(input: TokenStream) -> TokenStream {
-    let version = parse_macro_input!(input as LitStr)
-        .value()
-        .parse::<Version>()
-        .expect("Must be a valid FCS version");
-
+    let version = parse_macro_version(input);
     make_gate_region(version, false)
 }
 
@@ -3807,3 +3821,10 @@ const ALL_VERSIONS: [Version; 4] = [
     Version::FCS3_1,
     Version::FCS3_2,
 ];
+
+fn parse_macro_version(input: TokenStream) -> Version {
+    let x: LitStr = syn::parse(input).unwrap();
+    x.value()
+        .parse::<Version>()
+        .expect("Must be a valid FCS version")
+}

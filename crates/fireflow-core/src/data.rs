@@ -72,6 +72,7 @@ use crate::validated::keys::*;
 use ambassador::{delegatable_trait, Delegate};
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use derive_more::{AsRef, Display, From};
+use derive_new::new;
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use num_traits::PrimInt;
@@ -177,7 +178,7 @@ pub enum AnyAsciiLayout<T, D, const ORD: bool> {
 pub type FixedAsciiLayout<T, D, const ORD: bool> = FixedLayout<AsciiRange, NoByteOrd<ORD>, T, D>;
 
 /// Byte layout for delimited ASCII.
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DelimAsciiLayout<T, D, const ORD: bool> {
     pub ranges: Vec<u64>,
@@ -186,12 +187,12 @@ pub struct DelimAsciiLayout<T, D, const ORD: bool> {
 }
 
 /// Byte layout where each column has a fixed width.
-#[derive(Clone, AsRef, PartialEq)]
+#[derive(Clone, AsRef, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FixedLayout<C, L, T, D> {
+    columns: Vec<C>,
     #[as_ref(L)]
     byte_layout: L,
-    columns: Vec<C>,
     _tot_def: PhantomData<T>,
     _meas_data_def: PhantomData<D>,
 }
@@ -247,11 +248,10 @@ type AnyReaderBitmask = AnyBitmask<ColumnReaderFamily>;
 type AnyWriterBitmask<'a> = AnyBitmask<ColumnWriterFamily<'a>>;
 
 /// The type of any floating point column in all versions
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FloatRange<T, const LEN: usize> {
     pub range: FloatDecimal<T>,
-    _t: PhantomData<T>,
 }
 
 pub type F32Range = FloatRange<f32, 4>;
@@ -1954,13 +1954,6 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
 }
 
 impl<T, const LEN: usize> FloatRange<T, LEN> {
-    pub fn new(range: FloatDecimal<T>) -> Self {
-        Self {
-            range,
-            _t: PhantomData,
-        }
-    }
-
     /// Make new float range from $PnB and $PnR values.
     ///
     /// Will return an error if $PnB is the incorrect size.
@@ -2280,14 +2273,6 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
 }
 
 impl<T, D, const ORD: bool> DelimAsciiLayout<T, D, ORD> {
-    pub fn new(ranges: Vec<u64>) -> Self {
-        Self {
-            ranges,
-            _tot_def: PhantomData,
-            _meas_data_def: PhantomData,
-        }
-    }
-
     fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
         df.iter_columns()
             .enumerate()
@@ -2631,15 +2616,6 @@ where
 }
 
 impl<C, S, T, D> FixedLayout<C, S, T, D> {
-    pub fn new(columns: Vec<C>, byte_layout: S) -> Self {
-        Self {
-            columns,
-            byte_layout,
-            _tot_def: PhantomData,
-            _meas_data_def: PhantomData,
-        }
-    }
-
     pub fn new_empty(byte_layout: S) -> Self {
         Self::new(vec![], byte_layout)
     }

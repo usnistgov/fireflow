@@ -241,29 +241,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         None,
     );
 
-    let par_doc = DocString::new(
-        "The value for *$PAR*.".into(),
-        vec![],
-        true,
-        vec![],
-        Some(DocReturn::new(PyType::Int, None)),
-    );
-
-    let set_tr_threshold_doc = DocString::new(
-        "Set the threshold for *$TR*.".into(),
-        vec![],
-        true,
-        vec![DocArg::new_param(
-            "threshold".into(),
-            PyType::Int,
-            "The threshold to set.".into(),
-        )],
-        Some(DocReturn::new(
-            PyType::Bool,
-            Some("``True`` if trigger is set and was updated.".into()),
-        )),
-    );
-
     let rename_temporal_doc = DocString::new(
         "Rename temporal measurement if present.".into(),
         vec![],
@@ -885,21 +862,9 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     // methods which apply to both Coretext* and CoreDataset*
     let common = quote! {
-
-        #par_doc
-        #[getter]
-        fn par(&self) -> usize {
-            self.0.par().0
-        }
-
         #rename_temporal_doc
         fn rename_temporal(&mut self, name: #shortname_type) -> Option<#shortname_type> {
             self.0.rename_temporal(name)
-        }
-
-        #set_tr_threshold_doc
-        fn set_trigger_threshold(&mut self, threshold: u32) -> bool {
-            self.0.set_trigger_threshold(threshold)
         }
 
         #get_all_pnn_doc
@@ -1034,6 +999,60 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     quote! {
         #coretext_q
         #coredataset_q
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_core_par(input: TokenStream) -> TokenStream {
+    let t = parse_macro_input!(input as Ident);
+    let doc = DocString::new(
+        "The value for *$PAR*.".into(),
+        vec![],
+        true,
+        vec![],
+        Some(DocReturn::new(PyType::Int, None)),
+    );
+
+    quote! {
+        #[pymethods]
+        impl #t {
+            #doc
+            #[getter]
+            fn par(&self) -> usize {
+                self.0.par().0
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_core_set_tr_threshold(input: TokenStream) -> TokenStream {
+    let t = parse_macro_input!(input as Ident);
+    let doc = DocString::new(
+        "Set the threshold for *$TR*.".into(),
+        vec![],
+        true,
+        vec![DocArg::new_param(
+            "threshold".into(),
+            PyType::Int,
+            "The threshold to set.".into(),
+        )],
+        Some(DocReturn::new(
+            PyType::Bool,
+            Some("``True`` if trigger is set and was updated.".into()),
+        )),
+    );
+
+    quote! {
+        #[pymethods]
+        impl #t {
+            #doc
+            fn set_trigger_threshold(&mut self, threshold: u32) -> bool {
+                self.0.set_trigger_threshold(threshold)
+            }
+        }
     }
     .into()
 }

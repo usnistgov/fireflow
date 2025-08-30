@@ -132,31 +132,27 @@ pub fn py_fcs_read_std_dataset_with_keywords(
     Ok((core.into(), data))
 }
 
-impl_new_core!("FCS2.0");
-impl_new_core!("FCS3.0");
-impl_new_core!("FCS3.1");
-impl_new_core!("FCS3.2");
+impl_new_core!(core::CoreTEXT2_0, core::CoreDataset2_0);
+impl_new_core!(core::CoreTEXT3_0, core::CoreDataset3_0);
+impl_new_core!(core::CoreTEXT3_1, core::CoreDataset3_1);
+impl_new_core!(core::CoreTEXT3_2, core::CoreDataset3_2);
 
-impl_new_meas!("FCS2.0", false);
-impl_new_meas!("FCS3.0", false);
-impl_new_meas!("FCS3.1", false);
-impl_new_meas!("FCS3.2", false);
+impl_new_meas!(core::Optical2_0);
+impl_new_meas!(core::Optical3_0);
+impl_new_meas!(core::Optical3_1);
+impl_new_meas!(core::Optical3_2);
 
-impl_new_meas!("FCS2.0", true);
-impl_new_meas!("FCS3.0", true);
-impl_new_meas!("FCS3.1", true);
-impl_new_meas!("FCS3.2", true);
-
-impl_core_get_set_layout!("FCS2.0");
-impl_core_get_set_layout!("FCS3.0");
-impl_core_get_set_layout!("FCS3.1");
-impl_core_get_set_layout!("FCS3.2");
+impl_new_meas!(core::Temporal2_0);
+impl_new_meas!(core::Temporal3_0);
+impl_new_meas!(core::Temporal3_1);
+impl_new_meas!(core::Temporal3_2);
 
 // Get/set methods for all versions
 macro_rules! impl_common {
     ($pytype:ident) => {
         impl_core_par!($pytype);
         impl_core_set_tr_threshold!($pytype);
+        impl_core_get_set_layout!($pytype);
 
         // common measurement keywords
         impl_get_set_all_meas!(Option<kws::Longname>, "S", "str", $pytype);

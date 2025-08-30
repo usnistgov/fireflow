@@ -26,11 +26,10 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let vsu = version.short_underscore();
     let vs = version.short();
 
-    let coretext_name = format_ident!("CoreTEXT{vsu}");
-    let coredataset_name = format_ident!("CoreDataset{vsu}");
-
-    let coretext_rstype = parse_quote!(fireflow_core::core::#coretext_name);
-    let coredataset_rstype = parse_quote!(fireflow_core::core::#coredataset_name);
+    let coretext_name = info.coretext_name;
+    let coredataset_name = info.coredataset_name;
+    let coretext_rstype = info.coretext_path;
+    let coredataset_rstype = info.coredataset_path;
 
     let fun_name = format_ident!("try_new_{vsu}");
     let fun: Path = parse_quote!(#coretext_rstype::#fun_name);
@@ -1049,31 +1048,27 @@ pub fn impl_core_set_tr_threshold(input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn impl_core_get_set_layout(input: TokenStream) -> TokenStream {
-    let version = parse_macro_version(input);
+    let i: Ident = syn::parse(input).unwrap();
+    let (base, version) = split_ident_version(&i);
+
+    if !(base == "PyCoreTEXT" || base == "PyCoreDataset") {
+        panic!("must be PyCore(TEXT|Dataset)X_Y")
+    }
+
     let layout_ident = ArgData::new_layout_arg(version).rstype;
-    let coretext = format_ident!("PyCoreTEXT{}", version.short_underscore());
-    let coredataset = format_ident!("PyCoreDataset{}", version.short_underscore());
 
-    let methods = quote! {
-        #[getter]
-        fn get_layout(&self) -> #layout_ident {
-            self.0.layout().clone().into()
-        }
-
-        #[setter]
-        fn set_layout(&mut self, layout: #layout_ident) -> PyResult<()> {
-            self.0.set_layout(layout.into()).py_term_resolve_nowarn()
-        }
-    };
     quote! {
         #[pymethods]
-        impl #coretext {
-            #methods
-        }
+        impl #i {
+            #[getter]
+            fn get_layout(&self) -> #layout_ident {
+                self.0.layout().clone().into()
+            }
 
-        #[pymethods]
-        impl #coredataset {
-            #methods
+            #[setter]
+            fn set_layout(&mut self, layout: #layout_ident) -> PyResult<()> {
+                self.0.set_layout(layout.into()).py_term_resolve_nowarn()
+            }
         }
     }
     .into()
@@ -1081,24 +1076,20 @@ pub fn impl_core_get_set_layout(input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn impl_new_meas(input: TokenStream) -> TokenStream {
-    let info = parse_macro_input!(input as NewMeasInfo);
-    // let args = info.args;
-
-    let base = if info.is_temporal {
-        "Temporal"
-    } else {
-        "Optical"
+    let path: Path = syn::parse(input).unwrap();
+    let name = path.segments.last().unwrap().ident.clone();
+    let (base, version) = split_ident_version(&name);
+    let is_temporal = match base.as_str() {
+        "Temporal" => true,
+        "Optical" => false,
+        _ => panic!("must be either Optical or Temporal"),
     };
 
-    let version = info.version;
     let version_us = version.short_underscore();
     let version_s = version.short();
 
-    let name = format!("{base}{version_us}");
-    let path = format!("fireflow_core::core::{name}");
-    let fun_path = format!("{path}::new_{version_us}");
-    let rstype = parse_str::<Path>(path.as_str()).unwrap();
-    let fun = parse_str::<Path>(fun_path.as_str()).unwrap();
+    let fun_ident = format_ident!("new_{version_us}");
+    let fun = quote!(#path::#fun_ident);
 
     let lower_basename = base.to_lowercase();
 
@@ -1265,7 +1256,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
 
     let all_common = [longname, nonstd];
 
-    let all_args: Vec<_> = match (version, info.is_temporal) {
+    let all_args: Vec<_> = match (version, is_temporal) {
         (Version::FCS2_0, true) => [has_scale]
             .into_iter()
             .chain(all_peak)
@@ -1337,7 +1328,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         None,
     );
 
-    let get_set_timestep = if info.version != Version::FCS2_0 && info.is_temporal {
+    let get_set_timestep = if version != Version::FCS2_0 && is_temporal {
         let t = quote! {fireflow_core::text::keywords::Timestep};
         quote! {
             #[getter]
@@ -1365,47 +1356,37 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         #(#ivar_methods)*
     };
 
-    impl_new(name, rstype, doc, new_method, rest).1.into()
-}
-
-struct NewMeasInfo {
-    version: Version,
-    is_temporal: bool,
-}
-
-impl Parse for NewMeasInfo {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let v = input.parse::<LitStr>()?.value();
-        let version = v.parse::<Version>().unwrap();
-        let _: Comma = input.parse()?;
-        let is_temporal = input.parse::<LitBool>()?.value();
-        Ok(Self {
-            version,
-            is_temporal,
-        })
-    }
+    impl_new(name.to_string(), path, doc, new_method, rest)
+        .1
+        .into()
 }
 
 struct NewCoreInfo {
+    coretext_path: Path,
+    coredataset_path: Path,
+    coretext_name: Ident,
+    coredataset_name: Ident,
     version: Version,
-    // coretext_type: Path,
-    // coredataset_type: Path,
-    // fun: Path,
 }
 
 impl Parse for NewCoreInfo {
     fn parse(input: ParseStream) -> Result<Self> {
-        let v = input.parse::<LitStr>()?.value();
-        let version = v.parse::<Version>().unwrap();
-        // let coretext_type: Path = input.parse()?;
-        // let _: Comma = input.parse()?;
-        // let coredataset_type: Path = input.parse()?;
-        // let _: Comma = input.parse()?;
-        // let fun: Path = input.parse()?;
+        let coretext_path = input.parse::<Path>()?;
+        let _: Comma = input.parse()?;
+        let coredataset_path = input.parse::<Path>()?;
+        let coretext_name = coretext_path.segments.last().unwrap().ident.clone();
+        let coredataset_name = coredataset_path.segments.last().unwrap().ident.clone();
+        let v0 = split_ident_version_checked("CoreTEXT", &coretext_name);
+        let v1 = split_ident_version_checked("CoreDataset", &coredataset_name);
+        if v0 != v1 {
+            panic!("Versions don't match");
+        }
         Ok(Self {
-            version, // coretext_type,
-                     // coredataset_type,
-                     // fun,
+            coretext_path,
+            coredataset_path,
+            coretext_name,
+            coredataset_name,
+            version: v0,
         })
     }
 }
@@ -3809,6 +3790,21 @@ fn split_version(name: &str) -> (&str, Version) {
         ret,
         Version::from_short_underscore(v).expect("version should be like 'X_Y'"),
     )
+}
+
+fn split_ident_version(name: &Ident) -> (String, Version) {
+    let n = name.to_string();
+    let (ret, v) = n.split_at(n.len() - 3);
+    let version = Version::from_short_underscore(v).expect("version should be like 'X_Y'");
+    (ret.to_string(), version)
+}
+
+fn split_ident_version_checked(which: &'static str, name: &Ident) -> Version {
+    let (n, v) = split_ident_version(name);
+    if n.as_str() != which {
+        panic!("identifier should be like '{which}X_Y'")
+    }
+    v
 }
 
 fn path_name(p: &Path) -> String {

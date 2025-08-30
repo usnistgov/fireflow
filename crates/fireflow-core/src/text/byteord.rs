@@ -307,6 +307,13 @@ impl From<NoByteOrd<false>> for ByteOrd3_1 {
     }
 }
 
+impl SizedByteOrd<2> {
+    pub fn is_big(&self) -> bool {
+        let [x, y] = (*self).into();
+        y > x
+    }
+}
+
 impl ByteOrd2_0 {
     pub fn nbytes(&self) -> Bytes {
         match self {

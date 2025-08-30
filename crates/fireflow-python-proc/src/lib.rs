@@ -9,6 +9,7 @@ use fireflow_core::header::Version;
 use proc_macro::TokenStream;
 
 use derive_new::new;
+use itertools::Itertools;
 use quote::{format_ident, quote};
 use syn::{
     parse::{Parse, ParseStream},
@@ -3091,7 +3092,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
                           This is not used internally so only serves for users' \
                           own purposes.";
         (
-            PyType::Float,
+            PyType::Decimal,
             range_desc,
             "float",
             "F",
@@ -3145,34 +3146,76 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
         DocDefault::Other(quote!(#sizedbyteord_path::default()), "\"little\"".into()),
     );
 
-    let constr_doc = DocString::new(
-        format!("{summary}."),
-        vec![],
-        false,
-        vec![range_param.clone(), byteord_param],
-        None,
-    );
-
-    let constr = quote! {
-        fn new(ranges: Vec<#range_path>, byteord: #sizedbyteord_path<#nbytes>) -> Self {
-            #fixed_layout_path::new(ranges, byteord).into()
-        }
-    };
+    let is_big_param = make_endian_param(2);
 
     let widths = make_byte_width(nbytes);
     let datatype = make_layout_datatype(dt);
 
-    let rest = quote! {
+    let ranges = quote! {
         #[getter]
         fn ranges(&self) -> Vec<#range_path> {
             self.0.columns().iter().map(|c| c.clone()).collect()
         }
+    };
 
-        #[getter]
-        fn byteord(&self) -> #sizedbyteord_path<#nbytes> {
-            *self.0.as_ref()
+    let make_constr_doc = |ps| DocString::new(format!("{summary}."), vec![], false, ps, None);
+
+    // make different constructors and getters for u8 and u16 since the byteord
+    // for these can be simplified
+    let (constr, constr_doc, byteord) = match (is_float, nbytes) {
+        // u8 doesn't need byteord since only one is possible
+        (false, 1) => {
+            let constr = quote! {
+                fn new(ranges: Vec<#range_path>) -> Self {
+                    #fixed_layout_path::new(ranges, #sizedbyteord_path::default()).into()
+                }
+            };
+            let constr_doc = make_constr_doc(vec![range_param.clone()]);
+            (constr, constr_doc, quote!())
         }
 
+        // u16 only has two combinations (big and little) so don't allow a list
+        // for byteord
+        (false, 2) => {
+            let constr_doc = make_constr_doc(vec![range_param.clone(), is_big_param]);
+            let constr = quote! {
+                fn new(ranges: Vec<#range_path>, is_big_endian: bool) -> Self {
+                    let b = #sizedbyteord_path::Endian(is_big_endian.into());
+                    #fixed_layout_path::new(ranges, b).into()
+                }
+            };
+            let byteord = quote! {
+                #[getter]
+                fn is_big_endian(&self) -> bool {
+                    let m: #sizedbyteord_path<2> = *self.0.as_ref();
+                    m.is_big()
+                }
+            };
+            (constr, constr_doc, byteord)
+        }
+
+        // everything else needs the "full" version of byteord, which is big,
+        // little, and mixed (a list)
+        _ => {
+            let constr_doc = make_constr_doc(vec![range_param.clone(), byteord_param]);
+            let constr = quote! {
+                fn new(ranges: Vec<#range_path>, byteord: #sizedbyteord_path<#nbytes>) -> Self {
+                    #fixed_layout_path::new(ranges, byteord).into()
+                }
+            };
+            let byteord = quote! {
+                #[getter]
+                fn byteord(&self) -> #sizedbyteord_path<#nbytes> {
+                    *self.0.as_ref()
+                }
+            };
+            (constr, constr_doc, byteord)
+        }
+    };
+
+    let rest = quote! {
+        #ranges
+        #byteord
         #widths
         #datatype
     };
@@ -3207,7 +3250,7 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
             .into(),
     );
 
-    let is_big_param = make_endian_param();
+    let is_big_param = make_endian_param(4);
 
     let constr_doc = DocString::new(
         format!("{nbits}-bit endian float layout"),
@@ -3269,7 +3312,7 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
             .into(),
     );
 
-    let is_big_param = make_endian_param();
+    let is_big_param = make_endian_param(4);
 
     let constr_doc = DocString::new(
         "A mixed-width integer layout.".into(),
@@ -3320,18 +3363,16 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
         "types".into(),
         PyType::new_list(PyType::new_union2(
             PyType::Tuple(vec![PyType::new_lit(&["A", "I"]), PyType::Int]),
-            PyType::Tuple(vec![PyType::new_lit(&["F", "D"]), PyType::Float]),
+            PyType::Tuple(vec![PyType::new_lit(&["F", "D"]), PyType::Decimal]),
         )),
         "The type and range for each measurement. These are given \
          as 2-tuples like ``(<flag>, <range>)`` where ``flag`` is one of \
          ``\"A\"``, ``\"I\"``, ``\"F\"``, or ``\"D\"`` corresponding to Ascii, \
-         Integer, Float, or Double datatypes respectively. The ``range`` \
-         field should be an ``int`` for ``\"A\"`` or ``\"I\"`` and a ``float`` \
-         for ``\"F\"`` or ``\"D\"``."
+         Integer, Float, or Double datatypes respectively."
             .into(),
     );
 
-    let is_big_param = make_endian_param();
+    let is_big_param = make_endian_param(4);
 
     let constr_doc = DocString::new(
         "A mixed-type layout.".into(),
@@ -3379,19 +3420,22 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
         .into()
 }
 
-fn make_endian_param() -> DocArg {
+fn make_endian_param(n: usize) -> DocArg {
+    let xs = (1..(n + 1)).join(",");
+    let ys = (1..(n + 1)).rev().join(",");
     DocArg::new_ivar_def(
         "is_big_endian".into(),
         PyType::Bool,
-        "If ``True`` use big endian (``4,3,2,1``) for encoding values, \
-         otherwise use little endian (``1,2,3,4``)."
-            .into(),
+        format!(
+            "If ``True`` use big endian (``{ys}``) for encoding values, \
+             otherwise use little endian (``{xs}``)."
+        ),
         DocDefault::Bool(false),
     )
 }
 
 fn make_byte_width(nbytes: usize) -> proc_macro2::TokenStream {
-    let s0 = format!("Will always return {nbytes}.");
+    let s0 = format!("Will always return ``{nbytes}``.");
     let s1 = "This corresponds to the value of *$PnB* divided by 8, which are \
               all the same for this layout."
         .into();

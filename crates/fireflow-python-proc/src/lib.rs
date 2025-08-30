@@ -3177,18 +3177,19 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
         // u16 only has two combinations (big and little) so don't allow a list
         // for byteord
         (false, 2) => {
+            let endian = quote!(fireflow_core::text::byteord::Endian);
             let constr_doc = make_constr_doc(vec![range_param.clone(), is_big_param]);
             let constr = quote! {
-                fn new(ranges: Vec<#range_path>, is_big_endian: bool) -> Self {
-                    let b = #sizedbyteord_path::Endian(is_big_endian.into());
+                fn new(ranges: Vec<#range_path>, endian: #endian) -> Self {
+                    let b = #sizedbyteord_path::Endian(endian);
                     #fixed_layout_path::new(ranges, b).into()
                 }
             };
             let byteord = quote! {
                 #[getter]
-                fn is_big_endian(&self) -> bool {
+                fn endian(&self) -> #endian {
                     let m: #sizedbyteord_path<2> = *self.0.as_ref();
-                    m.is_big()
+                    m.endian()
                 }
             };
             (constr, constr_doc, byteord)
@@ -3237,6 +3238,7 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
     let nomeasdt_path = quote!(fireflow_core::data::NoMeasDatatype);
     let endian_layout_path = quote!(fireflow_core::data::EndianLayout);
     let fixed_layout_path = quote!(fireflow_core::data::FixedLayout);
+    let endian = quote!(fireflow_core::text::byteord::Endian);
 
     let full_layout_path = parse_quote!(#endian_layout_path<#range_path, #nomeasdt_path>);
 
@@ -3261,8 +3263,8 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
     );
 
     let constr = quote! {
-        fn new(ranges: Vec<#range_path>, is_big_endian: bool) -> Self {
-            #fixed_layout_path::new(ranges, is_big_endian.into()).into()
+        fn new(ranges: Vec<#range_path>, endian: #endian) -> Self {
+            #fixed_layout_path::new(ranges, endian).into()
         }
     };
 
@@ -3296,8 +3298,9 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
     let fixed = quote!(fireflow_core::data::FixedLayout);
     let bitmask = quote!(fireflow_core::data::AnyNullBitmask);
     let nomeasdt = quote!(fireflow_core::data::NoMeasDatatype);
-    let endian = quote!(fireflow_core::data::EndianLayout);
-    let layout_path = parse_quote!(#endian<#bitmask, #nomeasdt>);
+    let endian_layout = quote!(fireflow_core::data::EndianLayout);
+    let endian = quote!(fireflow_core::text::byteord::Endian);
+    let layout_path = parse_quote!(#endian_layout<#bitmask, #nomeasdt>);
 
     let ranges_param = DocArg::new_ivar(
         "ranges".into(),
@@ -3323,9 +3326,9 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
     );
 
     let constr = quote! {
-        fn new(ranges: Vec<u64>, is_big_endian: bool) -> Self {
+        fn new(ranges: Vec<u64>, endian: #endian) -> Self {
             let rs = ranges.into_iter().map(#bitmask::from).collect();
-            #fixed::new(rs, is_big_endian.into()).into()
+            #fixed::new(rs, endian).into()
         }
     };
 
@@ -3338,8 +3341,8 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
         }
 
         #[getter]
-        fn is_big_endian(&self) -> bool {
-            *self.0.as_ref() == fireflow_core::text::byteord::Endian::Big
+        fn endian(&self) -> #endian {
+            *self.0.as_ref()
         }
 
         #datatype
@@ -3358,6 +3361,7 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
     let null = quote!(fireflow_core::data::NullMixedType);
     let fixed = quote!(fireflow_core::data::FixedLayout);
     let ant = quote!(fireflow_core::text::keywords::AlphaNumType);
+    let endian = quote!(fireflow_core::text::byteord::Endian);
 
     let types_param = DocArg::new_param(
         "types".into(),
@@ -3391,8 +3395,8 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
     );
 
     let constr = quote! {
-        fn new(types: Vec<#null>, is_big_endian: bool) -> Self {
-            #fixed::new(types, is_big_endian.into()).into()
+        fn new(types: Vec<#null>, endian: #endian) -> Self {
+            #fixed::new(types, endian).into()
         }
     };
 
@@ -3403,8 +3407,8 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
         }
 
         #[getter]
-        fn is_big_endian(&self) -> bool {
-            *self.0.as_ref() == fireflow_core::text::byteord::Endian::Big
+        fn endian(&self) -> #endian {
+            *self.0.as_ref()
         }
 
         #datatypes_doc
@@ -3423,14 +3427,15 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
 fn make_endian_param(n: usize) -> DocArg {
     let xs = (1..(n + 1)).join(",");
     let ys = (1..(n + 1)).rev().join(",");
+    let endian = quote!(fireflow_core::text::byteord::Endian);
     DocArg::new_ivar_def(
-        "is_big_endian".into(),
-        PyType::Bool,
+        "endian".into(),
+        PyType::new_lit(&["big", "little"]),
         format!(
-            "If ``True`` use big endian (``{ys}``) for encoding values, \
-             otherwise use little endian (``{xs}``)."
+            "If ``\"big\"`` use big endian (``{ys}``) for encoding values; \
+             if ``\"little\"`` use little endian (``{xs}``)."
         ),
-        DocDefault::Bool(false),
+        DocDefault::Other(quote!(#endian::Little), "\"little\"".into()),
     )
 }
 

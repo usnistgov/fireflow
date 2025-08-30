@@ -308,9 +308,9 @@ impl From<NoByteOrd<false>> for ByteOrd3_1 {
 }
 
 impl SizedByteOrd<2> {
-    pub fn is_big(&self) -> bool {
+    pub fn endian(&self) -> Endian {
         let [x, y] = (*self).into();
-        y > x
+        (y > x).into()
     }
 }
 
@@ -762,8 +762,34 @@ mod python {
     use super::{ByteOrd2_0, Endian, NewByteOrdError, SizedByteOrd, VecToSizedError};
     use crate::python::macros::impl_value_err;
 
-    use pyo3::{exceptions::PyValueError, prelude::*, IntoPyObjectExt};
+    use pyo3::{exceptions::PyValueError, prelude::*, types::PyString, IntoPyObjectExt};
+    use std::convert::Infallible;
     use std::num::NonZeroU8;
+
+    impl<'py> FromPyObject<'py> for Endian {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let xs = ob.extract::<String>()?;
+            match xs.as_str() {
+                "big" => Ok(Self::Big),
+                "little" => Ok(Self::Little),
+                _ => Err(PyValueError::new_err("must be \"big\" or \"little\"")),
+            }
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for Endian {
+        type Target = PyString;
+        type Output = Bound<'py, PyString>;
+        type Error = Infallible;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            match self {
+                Self::Big => "big",
+                Self::Little => "little",
+            }
+            .into_pyobject(py)
+        }
+    }
 
     impl<'py> FromPyObject<'py> for ByteOrd2_0 {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {

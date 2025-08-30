@@ -2976,20 +2976,21 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
 
     let layout_name = format!("EndianF{:02}Layout", nbits);
 
-    let range_param = DocArg::new_param(
+    let range_param = DocArg::new_ivar(
         "ranges".into(),
-        // TODO technically these types are decimals
-        PyType::new_list(PyType::Float),
+        PyType::new_list(PyType::Decimal),
         "The range for each measurement. Corresponds to *$PnR*. This is not \
-         used internally so only serves for users' own purposes."
+         used internally so only serves the users' own purposes."
             .into(),
     );
 
     // TODO not DRY
-    let is_big_param = DocArg::new_param_def(
-        "is_big".into(),
+    let is_big_param = DocArg::new_ivar_def(
+        "is_big_endian".into(),
         PyType::Bool,
-        "If ``True`` use big endian for encoding values, otherwise use little endian.".into(),
+        "If ``True`` use big endian (``4,3,2,1``) for encoding values, \
+         otherwise use little endian (``1,2,3,4``)."
+            .into(),
         DocDefault::Bool(false),
     );
 
@@ -3002,15 +3003,25 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
     );
 
     let constr = quote! {
-        fn new(ranges: Vec<#range_path>, is_big: bool) -> Self {
-            #fixed_layout_path::new(ranges, is_big.into()).into()
+        fn new(ranges: Vec<#range_path>, is_big_endian: bool) -> Self {
+            #fixed_layout_path::new(ranges, is_big_endian.into()).into()
         }
     };
 
-    let widths = make_byte_widths(nbytes);
+    let widths = make_byte_width(nbytes);
 
     let rest = quote! {
         #widths
+
+        #[getter]
+        fn ranges(&self) -> Vec<#range_path> {
+            self.0.columns().iter().map(|c| c.clone()).collect()
+        }
+
+        #[getter]
+        fn is_big_endian(&self) -> bool {
+            *self.0.as_ref() == fireflow_core::text::byteord::Endian::Big
+        }
     };
 
     impl_new(layout_name, full_layout_path, constr_doc, constr, rest)
@@ -3025,7 +3036,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
     let is_float = info.is_float;
     let nbits = nbytes * 8;
 
-    let (range_pytype, range_desc, what, base, range_path, fun) = if is_float {
+    let (range_pytype, range_desc, what, base, range_path) = if is_float {
         let range = format_ident!("F{:02}Range", nbits);
         let range_desc = "The range for each measurement. Corresponds to *$PnR*. \
                           This is not used internally so only serves for users' \
@@ -3036,7 +3047,6 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
             "float",
             "F",
             quote!(fireflow_core::data::#range),
-            format_ident!("new_endian_float"),
         )
     } else {
         let bitmask = format_ident!("Bitmask{:02}", nbits);
@@ -3051,7 +3061,6 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
             "integer",
             "Uint",
             quote!(fireflow_core::validated::bitmask::#bitmask),
-            format_ident!("new_endian_uint"),
         )
     };
     let known_tot_path = quote!(fireflow_core::data::KnownTot);
@@ -3065,36 +3074,28 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
 
     let summary = format!("{nbits}-bit ordered {what} layout");
 
-    let range_param = DocArg::new_param(
+    let range_param = DocArg::new_ivar(
         "ranges".into(),
         PyType::new_list(range_pytype),
         range_desc.into(),
     );
 
-    let is_big_param = DocArg::new_param_def(
-        "is_big".into(),
-        PyType::Bool,
-        "If ``True`` use big endian for encoding values, otherwise use little endian.".into(),
-        DocDefault::Bool(false),
-    );
-
-    let byteord_param = DocArg::new_param(
+    let byteord_param = DocArg::new_ivar_def(
         "byteord".into(),
-        PyType::new_list(PyType::Int),
-        "The byte order to use when encoding values. Must be a list of indices starting at 0."
-            .into(),
+        PyType::new_union2(
+            PyType::new_lit(&["big", "little"]),
+            PyType::new_list(PyType::Int),
+        ),
+        format!(
+            "The byte order to use when encoding values. Must be ``\"big\"``, \
+             ``\"little\"``, or a list of all integers between 1 and {nbytes} \
+             in any order."
+        ),
+        DocDefault::Other(quote!(#sizedbyteord_path::default()), "little".into()),
     );
 
     let constr_doc = DocString::new(
         format!("{summary}."),
-        vec![],
-        false,
-        vec![range_param.clone(), is_big_param],
-        None,
-    );
-
-    let byteord_doc = DocString::new(
-        format!("{summary} with a specific byteord."),
         vec![],
         false,
         vec![range_param.clone(), byteord_param],
@@ -3102,25 +3103,25 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
     );
 
     let constr = quote! {
-        fn new(ranges: Vec<#range_path>, is_big: bool) -> Self {
-            #fixed_layout_path::#fun(ranges, is_big.into()).into()
+        fn new(ranges: Vec<#range_path>, byteord: #sizedbyteord_path<#nbytes>) -> Self {
+            #fixed_layout_path::new(ranges, byteord).into()
         }
     };
 
-    let widths = make_byte_widths(nbytes);
+    let widths = make_byte_width(nbytes);
 
     let rest = quote! {
-        #byteord_doc
-        #[classmethod]
-        fn new_ordered(
-            _: &Bound<'_, PyType>,
-            ranges: Vec<#range_path>,
-            byteord: #sizedbyteord_path<#nbytes>,
-        ) -> Self {
-            #fixed_layout_path::new(ranges, byteord).into()
+        #widths
+
+        #[getter]
+        fn ranges(&self) -> Vec<#range_path> {
+            self.0.columns().iter().map(|c| c.clone()).collect()
         }
 
-        #widths
+        #[getter]
+        fn byteord(&self) -> #sizedbyteord_path<#nbytes> {
+            *self.0.as_ref()
+        }
     };
 
     impl_new(layout_name, full_layout_path, constr_doc, constr, rest)
@@ -3128,7 +3129,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
         .into()
 }
 
-fn make_byte_widths(nbytes: usize) -> proc_macro2::TokenStream {
+fn make_byte_width(nbytes: usize) -> proc_macro2::TokenStream {
     let s0 = format!("Will always return {nbytes}.");
     let s1 = "This corresponds to the value of *$PnB* divided by 8, which are \
               all the same for this layout."
@@ -3147,6 +3148,39 @@ fn make_byte_widths(nbytes: usize) -> proc_macro2::TokenStream {
             #nbytes
         }
     }
+}
+
+#[proc_macro]
+pub fn impl_layout_byte_widths(input: TokenStream) -> TokenStream {
+    let t = parse_macro_input!(input as Ident);
+
+    let doc = DocString::new(
+        "The width of each measurement in bytes (read-only).".into(),
+        vec![
+            "This corresponds to the value of *$PnB* for each measurement \
+             divided by 8. Values for each measurement may be different."
+                .into(),
+        ],
+        true,
+        vec![],
+        Some(DocReturn::new(PyType::new_list(PyType::Int), None)),
+    );
+
+    quote! {
+        #[pymethods]
+        impl #t {
+            #doc
+            #[getter]
+            fn byte_widths(&self) -> Vec<u32> {
+                self.0
+                    .widths()
+                    .into_iter()
+                    .map(|x| u32::from(u8::from(x)))
+                    .collect()
+            }
+        }
+    }
+    .into()
 }
 
 #[proc_macro]

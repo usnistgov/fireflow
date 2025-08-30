@@ -23,6 +23,7 @@ use fireflow_core::text::scale::Scale;
 use fireflow_core::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
 use fireflow_core::validated::keys::{StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::Shortname;
+use fireflow_python_proc::impl_layout_byte_widths;
 use fireflow_python_proc::impl_new_delim_ascii_layout;
 use fireflow_python_proc::impl_new_endian_float_layout;
 use fireflow_python_proc::impl_new_endian_uint_layout;
@@ -600,19 +601,18 @@ macro_rules! impl_layout_ranges {
 }
 
 impl_layout_ranges!(PyAsciiFixedLayout);
-impl_layout_ranges!(PyOrderedUint08Layout);
-impl_layout_ranges!(PyOrderedUint16Layout);
-impl_layout_ranges!(PyOrderedUint24Layout);
-impl_layout_ranges!(PyOrderedUint32Layout);
-impl_layout_ranges!(PyOrderedUint40Layout);
-impl_layout_ranges!(PyOrderedUint48Layout);
-impl_layout_ranges!(PyOrderedUint56Layout);
-impl_layout_ranges!(PyOrderedUint64Layout);
-impl_layout_ranges!(PyOrderedF32Layout);
-impl_layout_ranges!(PyOrderedF64Layout);
-impl_layout_ranges!(PyEndianF32Layout);
-impl_layout_ranges!(PyEndianF64Layout);
-// impl_layout_ranges!(PyEndianUintLayout);
+// impl_layout_ranges!(PyOrderedUint08Layout);
+// impl_layout_ranges!(PyOrderedUint16Layout);
+// impl_layout_ranges!(PyOrderedUint24Layout);
+// impl_layout_ranges!(PyOrderedUint32Layout);
+// impl_layout_ranges!(PyOrderedUint40Layout);
+// impl_layout_ranges!(PyOrderedUint48Layout);
+// impl_layout_ranges!(PyOrderedUint56Layout);
+// impl_layout_ranges!(PyOrderedUint64Layout);
+// impl_layout_ranges!(PyOrderedF32Layout);
+// impl_layout_ranges!(PyOrderedF64Layout);
+// impl_layout_ranges!(PyEndianF32Layout);
+// impl_layout_ranges!(PyEndianF64Layout);
 impl_layout_ranges!(PyMixedLayout);
 
 impl_layout_datatype!(PyAsciiFixedLayout);
@@ -631,46 +631,22 @@ impl_layout_datatype!(PyEndianF32Layout);
 impl_layout_datatype!(PyEndianF64Layout);
 impl_layout_datatype!(PyEndianUintLayout);
 
-impl_layout_byteord!(PyOrderedUint08Layout);
-impl_layout_byteord!(PyOrderedUint16Layout);
-impl_layout_byteord!(PyOrderedUint24Layout);
-impl_layout_byteord!(PyOrderedUint32Layout);
-impl_layout_byteord!(PyOrderedUint40Layout);
-impl_layout_byteord!(PyOrderedUint48Layout);
-impl_layout_byteord!(PyOrderedUint56Layout);
-impl_layout_byteord!(PyOrderedUint64Layout);
-impl_layout_byteord!(PyOrderedF32Layout);
-impl_layout_byteord!(PyOrderedF64Layout);
+// impl_layout_byteord!(PyOrderedUint08Layout);
+// impl_layout_byteord!(PyOrderedUint16Layout);
+// impl_layout_byteord!(PyOrderedUint24Layout);
+// impl_layout_byteord!(PyOrderedUint32Layout);
+// impl_layout_byteord!(PyOrderedUint40Layout);
+// impl_layout_byteord!(PyOrderedUint48Layout);
+// impl_layout_byteord!(PyOrderedUint56Layout);
+// impl_layout_byteord!(PyOrderedUint64Layout);
+// impl_layout_byteord!(PyOrderedF32Layout);
+// impl_layout_byteord!(PyOrderedF64Layout);
 
-impl_layout_endianness!(PyEndianF32Layout);
-impl_layout_endianness!(PyEndianF64Layout);
 impl_layout_endianness!(PyEndianUintLayout);
 impl_layout_endianness!(PyMixedLayout);
 
-macro_rules! impl_layout_bytes_variable {
-    ($t:ident) => {
-        #[pymethods]
-        impl $t {
-            /// The width of each measurement in bytes (read-only).
-            ///
-            /// This corresponds to the value of *$PnB* for each measurement
-            /// divided by 8. Values for each measurement may be different.
-            ///
-            /// :rtype: list[int]
-            #[getter]
-            fn byte_widths(&self) -> Vec<u32> {
-                self.0
-                    .widths()
-                    .into_iter()
-                    .map(|x| u32::from(u8::from(x)))
-                    .collect()
-            }
-        }
-    };
-}
-
-impl_layout_bytes_variable!(PyEndianUintLayout);
-impl_layout_bytes_variable!(PyMixedLayout);
+impl_layout_byte_widths!(PyEndianUintLayout);
+impl_layout_byte_widths!(PyMixedLayout);
 
 // pub(crate) struct PyNonEmpty<T>(pub(crate) NonEmpty<T>);
 

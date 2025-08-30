@@ -285,4 +285,17 @@ mod python {
             }
         }
     }
+
+    impl<'py, T, const LEN: usize> IntoPyObject<'py> for Bitmask<T, LEN>
+    where
+        T: IntoPyObject<'py>,
+    {
+        type Target = <T as IntoPyObject<'py>>::Target;
+        type Output = <T as IntoPyObject<'py>>::Output;
+        type Error = <T as IntoPyObject<'py>>::Error;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            self.value.into_pyobject(py)
+        }
+    }
 }

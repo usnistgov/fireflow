@@ -752,10 +752,10 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{ByteOrd2_0, NewByteOrdError, SizedByteOrd, VecToSizedError};
+    use super::{ByteOrd2_0, Endian, NewByteOrdError, SizedByteOrd, VecToSizedError};
     use crate::python::macros::impl_value_err;
 
-    use pyo3::prelude::*;
+    use pyo3::{exceptions::PyValueError, prelude::*, IntoPyObjectExt};
     use std::num::NonZeroU8;
 
     impl<'py> FromPyObject<'py> for ByteOrd2_0 {
@@ -771,9 +771,33 @@ mod python {
         SizedByteOrd<LEN>: TryFrom<Vec<NonZeroU8>, Error = VecToSizedError>,
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let xs: Vec<NonZeroU8> = ob.extract()?;
-            let ret = SizedByteOrd::<LEN>::try_from(xs)?;
-            Ok(ret)
+            let err = || PyValueError::new_err("must be \"little\", \"big\", or a list");
+            if let Ok(s) = ob.extract::<String>() {
+                match s.as_str() {
+                    "little" => Ok(Endian::Little),
+                    "big" => Ok(Endian::Big),
+                    _ => Err(err()),
+                }
+                .map(SizedByteOrd::from)
+            } else if let Ok(xs) = ob.extract::<Vec<NonZeroU8>>() {
+                Ok(SizedByteOrd::<LEN>::try_from(xs)?)
+            } else {
+                Err(err())
+            }
+        }
+    }
+
+    impl<'py, const LEN: usize> IntoPyObject<'py> for SizedByteOrd<LEN> {
+        type Target = PyAny;
+        type Output = Bound<'py, PyAny>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            match self {
+                Self::Endian(Endian::Big) => "big".into_bound_py_any(py),
+                Self::Endian(Endian::Little) => "little".into_bound_py_any(py),
+                Self::Order(xs) => xs.into_pyobject(py),
+            }
         }
     }
 

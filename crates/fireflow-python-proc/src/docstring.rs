@@ -52,6 +52,7 @@ pub(crate) enum PyType {
     Float,
     None,
     Datetime,
+    Decimal,
     Date,
     Time,
     Option(Box<PyType>),
@@ -368,6 +369,7 @@ impl fmt::Display for PyType {
             Self::Date => f.write_str("datetime.date"),
             Self::Time => f.write_str("datetime.time"),
             Self::Datetime => f.write_str("datetime.datetime"),
+            Self::Decimal => f.write_str("decimal.Decimal"),
             Self::Union(x, y, zs) => {
                 let s = [x.as_ref(), y.as_ref()]
                     .into_iter()
@@ -383,7 +385,14 @@ impl fmt::Display for PyType {
                 }
             }
             Self::Literal(x, xs) => {
-                write!(f, "Literal[\"{}\"]", [x].into_iter().chain(xs).join(", "))
+                write!(
+                    f,
+                    "Literal[{}]",
+                    [x].into_iter()
+                        .chain(xs)
+                        .map(|s| format!("\"{s}\""))
+                        .join(", ")
+                )
             }
             Self::List(x) => write!(f, "list[{x}]"),
             Self::Dict(x, y) => write!(f, "dict[{x}, {y}]"),

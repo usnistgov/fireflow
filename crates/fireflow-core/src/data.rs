@@ -4339,6 +4339,7 @@ mod python {
 
     use super::{AnyNullBitmask, FloatRange, NullMixedType};
 
+    use bigdecimal::BigDecimal;
     use pyo3::conversion::FromPyObjectBound;
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
@@ -4347,15 +4348,25 @@ mod python {
     where
         for<'a> T: FromPyObjectBound<'a, 'py>,
         T: HasFloatBounds,
-        FloatDecimal<T>: TryFrom<T>,
-        <FloatDecimal<T> as TryFrom<T>>::Error: std::fmt::Display,
+        FloatDecimal<T>: TryFrom<BigDecimal>,
+        <FloatDecimal<T> as TryFrom<BigDecimal>>::Error: std::fmt::Display,
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let x = ob.extract::<T>()?;
+            let x = ob.extract::<BigDecimal>()?;
             FloatDecimal::try_from(x)
                 .map(FloatRange::new)
                 // this is a ParseBigDecimalError
                 .map_err(|e| PyValueError::new_err(e.to_string()))
+        }
+    }
+
+    impl<'py, T, const LEN: usize> IntoPyObject<'py> for FloatRange<T, LEN> {
+        type Target = PyAny;
+        type Output = Bound<'py, PyAny>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            BigDecimal::from(self.range).into_pyobject(py)
         }
     }
 

@@ -198,19 +198,19 @@ impl PyType {
         Self::Tuple(vec![])
     }
 
-    fn is_oneword(&self) -> bool {
-        !matches!(
-            self,
-            Self::Option(_)
-                | Self::Union(_, _, _)
-                | Self::Literal(_, _)
-                | Self::Tuple(_)
-                | Self::List(_)
-                | Self::Dict(_, _)
-                | Self::Raw(_)
-                | Self::PyClass(_)
-        )
-    }
+    // fn is_oneword(&self) -> bool {
+    //     !matches!(
+    //         self,
+    //         Self::Option(_)
+    //             | Self::Union(_, _, _)
+    //             | Self::Literal(_, _)
+    //             | Self::Tuple(_)
+    //             | Self::List(_)
+    //             | Self::Dict(_, _)
+    //             | Self::Raw(_)
+    //             | Self::PyClass(_)
+    //     )
+    // }
 }
 
 impl DocString {
@@ -320,15 +320,10 @@ impl fmt::Display for DocArg {
             .map_or(self.desc.to_string(), |def| {
                 format!("{} Defaults to ``{def}``.", self.desc)
             });
-        if pt.is_oneword() {
-            let s = fmt_docstring_param1(format!(":{at} {pt} {n}: {d}"));
-            f.write_str(s.as_str())
-        } else {
-            let tn = self.argtype.as_typename();
-            let s0 = fmt_docstring_param1(format!(":{at} {n}: {d}"));
-            let s1 = fmt_docstring_param1(format!(":{tn} {n}: {pt}"));
-            write!(f, "{s0}\n{s1}")
-        }
+        let tn = self.argtype.as_typename();
+        let s0 = fmt_docstring_param1(format!(":{at} {n}: {d}"));
+        let s1 = fmt_docstring_param1(format!(":{tn} {n}: {pt}"));
+        write!(f, "{s0}\n{s1}")
     }
 }
 

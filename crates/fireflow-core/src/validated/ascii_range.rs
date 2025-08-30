@@ -104,7 +104,7 @@ impl AsciiRange {
         self.chars
     }
 
-    pub(crate) fn value(&self) -> u64 {
+    pub fn value(&self) -> u64 {
         self.value
     }
 }

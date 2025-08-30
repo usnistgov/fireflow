@@ -4343,6 +4343,7 @@ mod python {
     use pyo3::conversion::FromPyObjectBound;
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
+    use pyo3::types::PyTuple;
 
     impl<'py, T, const LEN: usize> FromPyObject<'py> for FloatRange<T, LEN>
     where
@@ -4388,6 +4389,21 @@ mod python {
                 }
                 AlphaNumType::Integer => Ok(AnyNullBitmask::from(value.extract::<u64>()?).into()),
                 AlphaNumType::Ascii => Ok(AsciiRange::from(value.extract::<u64>()?).into()),
+            }
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for NullMixedType {
+        type Target = PyTuple;
+        type Output = Bound<'py, PyTuple>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            match self {
+                Self::Ascii(x) => ("A", x.value()).into_pyobject(py),
+                Self::Uint(x) => ("I", u64::from(x)).into_pyobject(py),
+                Self::F32(x) => ("F", BigDecimal::from(x.range)).into_pyobject(py),
+                Self::F64(x) => ("D", BigDecimal::from(x.range)).into_pyobject(py),
             }
         }
     }

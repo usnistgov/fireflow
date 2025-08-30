@@ -2960,71 +2960,120 @@ pub fn impl_gated_meas(_: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
-    let nbytes = parse_macro_input!(input as LitInt)
-        .base10_parse::<usize>()
-        .expect("Must be an integer");
-    let nbits = nbytes * 8;
-    let range = format_ident!("F{:02}Range", nbits);
-    let range_path = quote!(fireflow_core::data::#range);
+pub fn impl_new_fixed_ascii_layout(_: TokenStream) -> TokenStream {
+    let name = format_ident!("AsciiFixedLayout");
 
-    let nomeasdt_path = quote!(fireflow_core::data::NoMeasDatatype);
-    let endian_layout_path = quote!(fireflow_core::data::EndianLayout);
-    let fixed_layout_path = quote!(fireflow_core::data::FixedLayout);
+    let fixed = quote!(fireflow_core::data::FixedLayout);
+    let known_tot = quote!(fireflow_core::data::KnownTot);
+    let nomeasdt = quote!(fireflow_core::data::NoMeasDatatype);
+    let fixed_ascii = quote!(fireflow_core::data::FixedAsciiLayout);
+    let layout_path = parse_quote!(#fixed_ascii<#known_tot, #nomeasdt, false>);
 
-    let full_layout_path = parse_quote!(#endian_layout_path<#range_path, #nomeasdt_path>);
-
-    let layout_name = format!("EndianF{:02}Layout", nbits);
-
-    let range_param = DocArg::new_ivar(
+    let chars_param = DocArg::new_ivar(
         "ranges".into(),
-        PyType::new_list(PyType::Decimal),
-        "The range for each measurement. Corresponds to *$PnR*. This is not \
-         used internally so only serves the users' own purposes."
+        PyType::new_list(PyType::Int),
+        "The range for each measurement. Equivalent to *$PnR*. The value of \
+         *$PnB* will be derived from these and will be equivalent to the number \
+         of digits for each value."
             .into(),
-    );
-
-    // TODO not DRY
-    let is_big_param = DocArg::new_ivar_def(
-        "is_big_endian".into(),
-        PyType::Bool,
-        "If ``True`` use big endian (``4,3,2,1``) for encoding values, \
-         otherwise use little endian (``1,2,3,4``)."
-            .into(),
-        DocDefault::Bool(false),
     );
 
     let constr_doc = DocString::new(
-        format!("{nbits}-bit endian float layout"),
+        "A fixed-width ASCII layout.".into(),
         vec![],
         false,
-        vec![range_param.clone(), is_big_param],
+        vec![chars_param],
         None,
     );
 
     let constr = quote! {
-        fn new(ranges: Vec<#range_path>, is_big_endian: bool) -> Self {
-            #fixed_layout_path::new(ranges, is_big_endian.into()).into()
+        fn new(ranges: Vec<u64>) -> Self {
+            #fixed::new_ascii_u64(ranges).into()
         }
     };
 
-    let widths = make_byte_width(nbytes);
+    let char_widths_doc = DocString::new(
+        "The width of each measurement in number of chars (read only).".into(),
+        vec![
+            "Equivalent to *$PnB*, which is the number of chars/digits used \
+             to encode data for a given measurement."
+                .into(),
+        ],
+        true,
+        vec![],
+        Some(DocReturn::new(PyType::new_list(PyType::Int), None)),
+    );
+
+    let datatype = make_layout_datatype("A");
 
     let rest = quote! {
-        #widths
-
         #[getter]
-        fn ranges(&self) -> Vec<#range_path> {
-            self.0.columns().iter().map(|c| c.clone()).collect()
+        fn ranges(&self) -> Vec<u64> {
+            self.0.columns().iter().map(|c| c.value()).collect()
         }
 
+        #char_widths_doc
         #[getter]
-        fn is_big_endian(&self) -> bool {
-            *self.0.as_ref() == fireflow_core::text::byteord::Endian::Big
+        fn char_widths(&self) -> Vec<u64> {
+            self.0
+                .widths()
+                .into_iter()
+                .map(|x| u64::from(u8::from(x)))
+                .collect()
+        }
+
+        #datatype
+    };
+
+    impl_new(name.to_string(), layout_path, constr_doc, constr, rest)
+        .1
+        .into()
+}
+
+#[proc_macro]
+pub fn impl_new_delim_ascii_layout(_: TokenStream) -> TokenStream {
+    let name = format_ident!("AsciiDelimLayout");
+
+    let delim = quote!(fireflow_core::data::DelimAsciiLayout);
+    let known_tot = quote!(fireflow_core::data::KnownTot);
+    let nomeasdt = quote!(fireflow_core::data::NoMeasDatatype);
+    let layout_path = parse_quote!(#delim<#known_tot, #nomeasdt, false>);
+
+    let ranges_param = DocArg::new_ivar(
+        "ranges".into(),
+        PyType::new_list(PyType::Int),
+        "The range for each measurement. Equivalent to the *$PnR* \
+         keyword. This is not used internally and thus only represents \
+         documentation at the user level."
+            .into(),
+    );
+
+    let constr_doc = DocString::new(
+        "A delimited ASCII layout.".into(),
+        vec![],
+        false,
+        vec![ranges_param],
+        None,
+    );
+
+    let constr = quote! {
+        fn new(ranges: Vec<u64>) -> Self {
+            #delim::new(ranges).into()
         }
     };
 
-    impl_new(layout_name, full_layout_path, constr_doc, constr, rest)
+    let datatype = make_layout_datatype("A");
+
+    let rest = quote! {
+        #[getter]
+        fn ranges(&self) -> Vec<u64> {
+            self.0.ranges.clone()
+        }
+
+        #datatype
+    };
+
+    impl_new(name.to_string(), layout_path, constr_doc, constr, rest)
         .1
         .into()
 }
@@ -3036,7 +3085,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
     let is_float = info.is_float;
     let nbits = nbytes * 8;
 
-    let (range_pytype, range_desc, what, base, range_path) = if is_float {
+    let (range_pytype, range_desc, what, base, range_path, dt) = if is_float {
         let range = format_ident!("F{:02}Range", nbits);
         let range_desc = "The range for each measurement. Corresponds to *$PnR*. \
                           This is not used internally so only serves for users' \
@@ -3047,6 +3096,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
             "float",
             "F",
             quote!(fireflow_core::data::#range),
+            if nbytes == 4 { "F" } else { "D" },
         )
     } else {
         let bitmask = format_ident!("Bitmask{:02}", nbits);
@@ -3061,6 +3111,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
             "integer",
             "Uint",
             quote!(fireflow_core::validated::bitmask::#bitmask),
+            "I",
         )
     };
     let known_tot_path = quote!(fireflow_core::data::KnownTot);
@@ -3109,10 +3160,9 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
     };
 
     let widths = make_byte_width(nbytes);
+    let datatype = make_layout_datatype(dt);
 
     let rest = quote! {
-        #widths
-
         #[getter]
         fn ranges(&self) -> Vec<#range_path> {
             self.0.columns().iter().map(|c| c.clone()).collect()
@@ -3122,11 +3172,222 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
         fn byteord(&self) -> #sizedbyteord_path<#nbytes> {
             *self.0.as_ref()
         }
+
+        #widths
+        #datatype
     };
 
     impl_new(layout_name, full_layout_path, constr_doc, constr, rest)
         .1
         .into()
+}
+
+#[proc_macro]
+pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
+    let nbytes = parse_macro_input!(input as LitInt)
+        .base10_parse::<usize>()
+        .expect("Must be an integer");
+    let nbits = nbytes * 8;
+    let range = format_ident!("F{:02}Range", nbits);
+    let range_path = quote!(fireflow_core::data::#range);
+
+    let nomeasdt_path = quote!(fireflow_core::data::NoMeasDatatype);
+    let endian_layout_path = quote!(fireflow_core::data::EndianLayout);
+    let fixed_layout_path = quote!(fireflow_core::data::FixedLayout);
+
+    let full_layout_path = parse_quote!(#endian_layout_path<#range_path, #nomeasdt_path>);
+
+    let layout_name = format!("EndianF{:02}Layout", nbits);
+
+    let range_param = DocArg::new_ivar(
+        "ranges".into(),
+        PyType::new_list(PyType::Decimal),
+        "The range for each measurement. Corresponds to *$PnR*. This is not \
+         used internally so only serves the users' own purposes."
+            .into(),
+    );
+
+    let is_big_param = make_endian_param();
+
+    let constr_doc = DocString::new(
+        format!("{nbits}-bit endian float layout"),
+        vec![],
+        false,
+        vec![range_param.clone(), is_big_param],
+        None,
+    );
+
+    let constr = quote! {
+        fn new(ranges: Vec<#range_path>, is_big_endian: bool) -> Self {
+            #fixed_layout_path::new(ranges, is_big_endian.into()).into()
+        }
+    };
+
+    let widths = make_byte_width(nbytes);
+    let datatype = make_layout_datatype(if nbytes == 4 { "F" } else { "D" });
+
+    let rest = quote! {
+        #[getter]
+        fn ranges(&self) -> Vec<#range_path> {
+            self.0.columns().iter().map(|c| c.clone()).collect()
+        }
+
+        #[getter]
+        fn is_big_endian(&self) -> bool {
+            *self.0.as_ref() == fireflow_core::text::byteord::Endian::Big
+        }
+
+        #widths
+        #datatype
+    };
+
+    impl_new(layout_name, full_layout_path, constr_doc, constr, rest)
+        .1
+        .into()
+}
+
+#[proc_macro]
+pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
+    let name = format_ident!("EndianUintLayout");
+
+    let fixed = quote!(fireflow_core::data::FixedLayout);
+    let bitmask = quote!(fireflow_core::data::AnyNullBitmask);
+    let nomeasdt = quote!(fireflow_core::data::NoMeasDatatype);
+    let endian = quote!(fireflow_core::data::EndianLayout);
+    let layout_path = parse_quote!(#endian<#bitmask, #nomeasdt>);
+
+    let ranges_param = DocArg::new_ivar(
+        "ranges".into(),
+        PyType::new_list(PyType::Int),
+        "The range of each measurement. Corresponds to the *$PnR* \
+         keyword less one. The number of bytes used to encode each \
+         measurement (*$PnB*) will be the minimum required to express this \
+         value. For instance, a value of ``1023`` will set *$PnB* to ``16``, \
+         will set *$PnR* to ``1024``, and encode values for this measurement as \
+         16-bit integers. The values of a measurement will be less than or \
+         equal to this value."
+            .into(),
+    );
+
+    let is_big_param = make_endian_param();
+
+    let constr_doc = DocString::new(
+        "A mixed-width integer layout.".into(),
+        vec![],
+        false,
+        vec![ranges_param, is_big_param],
+        None,
+    );
+
+    let constr = quote! {
+        fn new(ranges: Vec<u64>, is_big_endian: bool) -> Self {
+            let rs = ranges.into_iter().map(#bitmask::from).collect();
+            #fixed::new(rs, is_big_endian.into()).into()
+        }
+    };
+
+    let datatype = make_layout_datatype("I");
+
+    let rest = quote! {
+        #[getter]
+        fn ranges(&self) -> Vec<u64> {
+            self.0.columns().iter().map(|c| u64::from(*c)).collect()
+        }
+
+        #[getter]
+        fn is_big_endian(&self) -> bool {
+            *self.0.as_ref() == fireflow_core::text::byteord::Endian::Big
+        }
+
+        #datatype
+    };
+
+    impl_new(name.to_string(), layout_path, constr_doc, constr, rest)
+        .1
+        .into()
+}
+
+#[proc_macro]
+pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
+    let name = format_ident!("MixedLayout");
+    let layout_path = parse_quote!(fireflow_core::data::#name);
+
+    let null = quote!(fireflow_core::data::NullMixedType);
+    let fixed = quote!(fireflow_core::data::FixedLayout);
+    let ant = quote!(fireflow_core::text::keywords::AlphaNumType);
+
+    let types_param = DocArg::new_param(
+        "types".into(),
+        PyType::new_list(PyType::new_union2(
+            PyType::Tuple(vec![PyType::new_lit(&["A", "I"]), PyType::Int]),
+            PyType::Tuple(vec![PyType::new_lit(&["F", "D"]), PyType::Float]),
+        )),
+        "The type and range for each measurement. These are given \
+         as 2-tuples like ``(<flag>, <range>)`` where ``flag`` is one of \
+         ``\"A\"``, ``\"I\"``, ``\"F\"``, or ``\"D\"`` corresponding to Ascii, \
+         Integer, Float, or Double datatypes respectively. The ``range`` \
+         field should be an ``int`` for ``\"A\"`` or ``\"I\"`` and a ``float`` \
+         for ``\"F\"`` or ``\"D\"``."
+            .into(),
+    );
+
+    let is_big_param = make_endian_param();
+
+    let constr_doc = DocString::new(
+        "A mixed-type layout.".into(),
+        vec![],
+        false,
+        vec![types_param, is_big_param],
+        None,
+    );
+
+    let datatypes_doc = DocString::new(
+        "The datatypes for each measurement (read-only).".into(),
+        vec![],
+        true,
+        vec![],
+        Some(DocReturn::new(PyType::new_list(datatype_pytype()), None)),
+    );
+
+    let constr = quote! {
+        fn new(types: Vec<#null>, is_big_endian: bool) -> Self {
+            #fixed::new(types, is_big_endian.into()).into()
+        }
+    };
+
+    let rest = quote! {
+        #[getter]
+        fn types(&self) -> Vec<#null> {
+            self.0.columns().iter().map(|c| c.clone()).collect()
+        }
+
+        #[getter]
+        fn is_big_endian(&self) -> bool {
+            *self.0.as_ref() == fireflow_core::text::byteord::Endian::Big
+        }
+
+        #datatypes_doc
+        #[getter]
+        fn datatypes(&self) -> Vec<#ant> {
+            self.0.datatypes()
+        }
+
+    };
+
+    impl_new(name.to_string(), layout_path, constr_doc, constr, rest)
+        .1
+        .into()
+}
+
+fn make_endian_param() -> DocArg {
+    DocArg::new_ivar_def(
+        "is_big_endian".into(),
+        PyType::Bool,
+        "If ``True`` use big endian (``4,3,2,1``) for encoding values, \
+         otherwise use little endian (``1,2,3,4``)."
+            .into(),
+        DocDefault::Bool(false),
+    )
 }
 
 fn make_byte_width(nbytes: usize) -> proc_macro2::TokenStream {
@@ -3183,334 +3444,21 @@ pub fn impl_layout_byte_widths(input: TokenStream) -> TokenStream {
     .into()
 }
 
-#[proc_macro]
-pub fn impl_layout_byteord(input: TokenStream) -> TokenStream {
-    let t = parse_macro_input!(input as Ident);
-    let byteord_doc = DocString::new(
-        "The value of *$BYTEORD* (read-only).".into(),
-        vec![
-            "This will be a list of indices starting at 0 (rather than 1 \
-             as is written in an FCS file)."
-                .into(),
-        ],
-        true,
-        vec![],
-        Some(DocReturn::new(PyType::new_list(PyType::Int), None)),
-    );
-    let big_endian_doc = DocString::new(
-        "The endianness if applicable (read-only).".into(),
-        vec![
-            "Return ``True`` for big endian, ``False`` for little endian, \
-             and ``None`` for mixed."
-                .into(),
-        ],
-        true,
-        vec![],
-        Some(DocReturn::new(PyType::new_opt(PyType::Bool), None)),
-    );
-    let et = quote!(fireflow_core::text::byteord::Endian);
-    quote! {
-        #[pymethods]
-        impl #t {
-            #byteord_doc
-            #[getter]
-            fn byteord(&self) -> Vec<std::num::NonZeroU8> {
-                self.0.byte_order().as_vec()
-            }
-
-            #big_endian_doc
-            #[getter]
-            fn is_big_endian(&self) -> Option<bool> {
-                self.0.endianness().map(|x| x == #et::Big)
-            }
-        }
-    }
-    .into()
-}
-
-#[proc_macro]
-pub fn impl_layout_endianness(input: TokenStream) -> TokenStream {
-    let t = parse_macro_input!(input as Ident);
-    let big_endian_doc = DocString::new(
-        "The value of *$BYTEORD* (read-only).".into(),
-        vec![
-            "Return ``True`` for big endian (``4,3,2,1``), ``False`` for \
-             little endian (``1,2,3,4``)."
-                .into(),
-        ],
-        true,
-        vec![],
-        Some(DocReturn::new(PyType::Bool, None)),
-    );
-    quote! {
-        #[pymethods]
-        impl #t {
-            #big_endian_doc
-            #[getter]
-            fn is_big_endian(&self) -> bool {
-                *self.0.as_ref() == fireflow_core::text::byteord::Endian::Big
-            }
-        }
-    }
-    .into()
-}
-
-#[proc_macro]
-pub fn impl_layout_datatype(input: TokenStream) -> TokenStream {
-    let t = parse_macro_input!(input as Ident);
+fn make_layout_datatype(dt: &str) -> proc_macro2::TokenStream {
     let doc = DocString::new(
         "The value of *$DATATYPE* (read-only).".into(),
-        vec![],
+        vec![format!("Will always return ``\"{dt}\"``.")],
         true,
         vec![],
         Some(DocReturn::new(datatype_pytype(), None)),
     );
     quote! {
-        #[pymethods]
-        impl #t {
-            #doc
-            #[getter]
-            fn datatype(&self) -> fireflow_core::text::keywords::AlphaNumType {
-                self.0.datatype().into()
-            }
+        #doc
+        #[getter]
+        fn datatype(&self) -> fireflow_core::text::keywords::AlphaNumType {
+            self.0.datatype().into()
         }
     }
-    .into()
-}
-
-#[proc_macro]
-pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
-    let name = format_ident!("EndianUintLayout");
-
-    let fixed = quote!(fireflow_core::data::FixedLayout);
-    let bitmask = quote!(fireflow_core::data::AnyNullBitmask);
-    let nomeasdt = quote!(fireflow_core::data::NoMeasDatatype);
-    let endian = quote!(fireflow_core::data::EndianLayout);
-    let layout_path = parse_quote!(#endian<#bitmask, #nomeasdt>);
-
-    let ranges_param = DocArg::new_ivar(
-        "ranges".into(),
-        PyType::new_list(PyType::Int),
-        "The range of each measurement. Corresponds to the *$PnR* \
-         keyword less one. The number of bytes used to encode each \
-         measurement (*$PnB*) will be the minimum required to express this \
-         value. For instance, a value of ``1024`` will set *$PnB* to ``16`` \
-         and the values in this measurement will be encoded as 16-bit \
-         integer. The values of a measurement will be less than or equal to \
-         this value."
-            .into(),
-    );
-
-    let is_big_param = DocArg::new_param_def(
-        "is_big".into(),
-        PyType::Bool,
-        "If ``True`` use big endian for encoding values, otherwise use little endian.".into(),
-        DocDefault::Bool(false),
-    );
-
-    let constr_doc = DocString::new(
-        "A mixed-width integer layout.".into(),
-        vec![],
-        false,
-        vec![ranges_param, is_big_param],
-        None,
-    );
-
-    let constr = quote! {
-        fn new(ranges: Vec<u64>, is_big: bool) -> Self {
-            let rs = ranges.into_iter().map(#bitmask::from).collect();
-            #fixed::new(rs, is_big.into()).into()
-        }
-    };
-
-    let rest = quote! {
-        fn ranges(&self) -> Vec<u64> {
-            self.0.columns().iter().map(|c| u64::from(*c)).collect()
-        }
-    };
-
-    impl_new(name.to_string(), layout_path, constr_doc, constr, rest)
-        .1
-        .into()
-}
-
-#[proc_macro]
-pub fn impl_new_fixed_ascii_layout(_: TokenStream) -> TokenStream {
-    let name = format_ident!("AsciiFixedLayout");
-
-    let fixed = quote!(fireflow_core::data::FixedLayout);
-    let known_tot = quote!(fireflow_core::data::KnownTot);
-    let nomeasdt = quote!(fireflow_core::data::NoMeasDatatype);
-    let fixed_ascii = quote!(fireflow_core::data::FixedAsciiLayout);
-    let layout_path = parse_quote!(#fixed_ascii<#known_tot, #nomeasdt, false>);
-
-    let chars_param = DocArg::new_ivar(
-        "char_widths".into(),
-        PyType::new_list(PyType::Int),
-        "The number of characters for each measurement. Equivalent to the \
-         value of *$PnB*. Must be a number between 1 and 20"
-            .into(),
-    );
-
-    let constr_doc = DocString::new(
-        "A fixed-width ASCII layout.".into(),
-        vec![],
-        false,
-        vec![chars_param],
-        None,
-    );
-
-    let constr = quote! {
-        fn new(chars: Vec<u64>) -> Self {
-            #fixed::new_ascii_u64(chars).into()
-        }
-    };
-
-    // TODO make a constructor that takes char/range pairs
-    // #[classmethod]
-    // fn from_pairs(ranges: PyNonEmpty<u64>) -> Self {
-    //     FixedLayout::new(columns, NoByteOrd)
-    // }
-
-    //             #[classmethod]
-    //             fn new_ascii_fixed_pairs(
-    //                 _: &Bound<'_, PyType>,
-    //                 ranges: PyNonEmpty<(u64, u8)>,
-    //             ) -> PyResult<Self> {
-    //                 // TODO clean these types up
-    //                 let ys = ranges
-    //                     .0
-    //                     .try_map(|(x, c)| Chars::try_from(c).map(|y| (x, y)))
-    //                     .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-    //                 let rs = ys
-    //                     .try_map(|(x, c)| AsciiRange::try_new(x, c))
-    //                     .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-    //                 Ok($wrap($subwrap::new_ascii_fixed(rs)).into())
-    //             }
-
-    let rest = quote! {
-        fn char_widths(&self) -> Vec<u64> {
-            self.0
-                .widths()
-                .into_iter()
-                .map(|x| u64::from(u8::from(x)))
-                .collect()
-        }
-    };
-
-    impl_new(name.to_string(), layout_path, constr_doc, constr, rest)
-        .1
-        .into()
-}
-
-#[proc_macro]
-pub fn impl_new_delim_ascii_layout(_: TokenStream) -> TokenStream {
-    let name = format_ident!("AsciiDelimLayout");
-
-    let delim = quote!(fireflow_core::data::DelimAsciiLayout);
-    let known_tot = quote!(fireflow_core::data::KnownTot);
-    let nomeasdt = quote!(fireflow_core::data::NoMeasDatatype);
-    let layout_path = parse_quote!(#delim<#known_tot, #nomeasdt, false>);
-
-    let ranges_param = DocArg::new_ivar(
-        "ranges".into(),
-        PyType::new_list(PyType::Int),
-        "The range for each measurement. Equivalent to the *$PnR* \
-         keyword. This is not used internally and thus only represents \
-         documentation at the user level."
-            .into(),
-    );
-
-    let constr_doc = DocString::new(
-        "A delimited ASCII layout.".into(),
-        vec![],
-        false,
-        vec![ranges_param],
-        None,
-    );
-
-    let constr = quote! {
-        fn new(ranges: Vec<u64>) -> Self {
-            #delim::new(ranges).into()
-        }
-    };
-
-    let rest = quote! {
-        fn ranges(&self) -> Vec<u64> {
-            self.0.ranges.clone()
-        }
-    };
-
-    impl_new(name.to_string(), layout_path, constr_doc, constr, rest)
-        .1
-        .into()
-}
-
-#[proc_macro]
-pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
-    let name = format_ident!("MixedLayout");
-    let layout_path = parse_quote!(fireflow_core::data::#name);
-
-    let null = quote!(fireflow_core::data::NullMixedType);
-    let fixed = quote!(fireflow_core::data::FixedLayout);
-    let ant = quote!(fireflow_core::text::keywords::AlphaNumType);
-
-    let types_param = DocArg::new_param(
-        "types".into(),
-        PyType::new_list(PyType::new_union2(
-            PyType::Tuple(vec![PyType::new_lit(&["A", "I"]), PyType::Int]),
-            PyType::Tuple(vec![PyType::new_lit(&["F", "D"]), PyType::Float]),
-        )),
-        "The type and range for each measurement. These are given \
-         as 2-tuples like ``(<flag>, <range>)`` where ``flag`` is one of \
-         ``\"A\"``, ``\"I\"``, ``\"F\"``, or ``\"D\"`` corresponding to Ascii, \
-         Integer, Float, or Double datatypes respectively. The ``range`` \
-         field should be an ``int`` for ``\"A\"`` or ``\"I\"`` and a ``float`` \
-         for ``\"F\"`` or ``\"D\"``."
-            .into(),
-    );
-
-    // TODO not dry
-    let is_big_param = DocArg::new_param_def(
-        "is_big".into(),
-        PyType::Bool,
-        "If ``True`` use big endian for encoding values, otherwise use little endian.".into(),
-        DocDefault::Bool(false),
-    );
-
-    let constr_doc = DocString::new(
-        "A mixed-type layout.".into(),
-        vec![],
-        false,
-        vec![types_param, is_big_param],
-        None,
-    );
-
-    let datatypes_doc = DocString::new(
-        "The datatypes for each measurement (read-only).".into(),
-        vec![],
-        true,
-        vec![],
-        Some(DocReturn::new(PyType::new_list(datatype_pytype()), None)),
-    );
-
-    let constr = quote! {
-        fn new(types: Vec<#null>, is_big: bool) -> Self {
-            #fixed::new(types, is_big.into()).into()
-        }
-    };
-
-    let rest = quote! {
-        #datatypes_doc
-        #[getter]
-        fn datatypes(&self) -> Vec<#ant> {
-            self.0.datatypes()
-        }
-    };
-
-    impl_new(name.to_string(), layout_path, constr_doc, constr, rest)
-        .1
-        .into()
 }
 
 fn datatype_pytype() -> PyType {

@@ -5,7 +5,6 @@ use fireflow_core::data::{
     AnyAsciiLayout, AnyNullBitmask, AnyOrderedLayout, AnyOrderedUintLayout, DataLayout2_0,
     DataLayout3_0, DataLayout3_1, DataLayout3_2, DelimAsciiLayout, EndianLayout, F32Range,
     F64Range, FixedAsciiLayout, KnownTot, LayoutOps, NoMeasDatatype, NonMixedEndianLayout,
-    OrderedLayoutOps,
 };
 use fireflow_core::error::{MultiResultExt, ResultExt};
 use fireflow_core::header::{Header, Version};
@@ -28,15 +27,14 @@ use fireflow_python_proc::impl_new_delim_ascii_layout;
 use fireflow_python_proc::impl_new_endian_float_layout;
 use fireflow_python_proc::impl_new_endian_uint_layout;
 use fireflow_python_proc::{
-    impl_gated_meas, impl_get_set_all_meas, impl_get_set_meas_obj_common, impl_layout_byteord,
-    impl_layout_datatype, impl_layout_endianness, impl_new_core, impl_new_fixed_ascii_layout,
-    impl_new_gate_bi_regions, impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout,
-    impl_new_ordered_layout,
+    impl_gated_meas, impl_get_set_all_meas, impl_get_set_meas_obj_common, impl_new_core,
+    impl_new_fixed_ascii_layout, impl_new_gate_bi_regions, impl_new_gate_uni_regions,
+    impl_new_meas, impl_new_mixed_layout, impl_new_ordered_layout,
 };
 
 use derive_more::{From, Into};
 use pyo3::prelude::*;
-use pyo3::types::{PyTuple, PyType};
+use pyo3::types::PyTuple;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufWriter;
@@ -583,67 +581,6 @@ impl_new_endian_float_layout!(8);
 impl_new_endian_uint_layout!();
 
 impl_new_mixed_layout!();
-
-// TODO these should be ints or floats depending on layout
-macro_rules! impl_layout_ranges {
-    ($t:ident) => {
-        #[pymethods]
-        impl $t {
-            /// The value of *$PnR* for each measurement (read-only).
-            ///
-            /// :rtype: list[float]
-            #[getter]
-            fn ranges(&self) -> Vec<kws::Range> {
-                self.0.ranges().into()
-            }
-        }
-    };
-}
-
-impl_layout_ranges!(PyAsciiFixedLayout);
-// impl_layout_ranges!(PyOrderedUint08Layout);
-// impl_layout_ranges!(PyOrderedUint16Layout);
-// impl_layout_ranges!(PyOrderedUint24Layout);
-// impl_layout_ranges!(PyOrderedUint32Layout);
-// impl_layout_ranges!(PyOrderedUint40Layout);
-// impl_layout_ranges!(PyOrderedUint48Layout);
-// impl_layout_ranges!(PyOrderedUint56Layout);
-// impl_layout_ranges!(PyOrderedUint64Layout);
-// impl_layout_ranges!(PyOrderedF32Layout);
-// impl_layout_ranges!(PyOrderedF64Layout);
-// impl_layout_ranges!(PyEndianF32Layout);
-// impl_layout_ranges!(PyEndianF64Layout);
-impl_layout_ranges!(PyMixedLayout);
-
-impl_layout_datatype!(PyAsciiFixedLayout);
-impl_layout_datatype!(PyAsciiDelimLayout);
-impl_layout_datatype!(PyOrderedUint08Layout);
-impl_layout_datatype!(PyOrderedUint16Layout);
-impl_layout_datatype!(PyOrderedUint24Layout);
-impl_layout_datatype!(PyOrderedUint32Layout);
-impl_layout_datatype!(PyOrderedUint40Layout);
-impl_layout_datatype!(PyOrderedUint48Layout);
-impl_layout_datatype!(PyOrderedUint56Layout);
-impl_layout_datatype!(PyOrderedUint64Layout);
-impl_layout_datatype!(PyOrderedF32Layout);
-impl_layout_datatype!(PyOrderedF64Layout);
-impl_layout_datatype!(PyEndianF32Layout);
-impl_layout_datatype!(PyEndianF64Layout);
-impl_layout_datatype!(PyEndianUintLayout);
-
-// impl_layout_byteord!(PyOrderedUint08Layout);
-// impl_layout_byteord!(PyOrderedUint16Layout);
-// impl_layout_byteord!(PyOrderedUint24Layout);
-// impl_layout_byteord!(PyOrderedUint32Layout);
-// impl_layout_byteord!(PyOrderedUint40Layout);
-// impl_layout_byteord!(PyOrderedUint48Layout);
-// impl_layout_byteord!(PyOrderedUint56Layout);
-// impl_layout_byteord!(PyOrderedUint64Layout);
-// impl_layout_byteord!(PyOrderedF32Layout);
-// impl_layout_byteord!(PyOrderedF64Layout);
-
-impl_layout_endianness!(PyEndianUintLayout);
-impl_layout_endianness!(PyMixedLayout);
 
 impl_layout_byte_widths!(PyEndianUintLayout);
 impl_layout_byte_widths!(PyMixedLayout);

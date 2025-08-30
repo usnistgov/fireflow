@@ -41,8 +41,8 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<ff::PyGatedMeasurement>()?;
 
-    m.add_class::<ff::PyAsciiFixedLayout>()?;
-    m.add_class::<ff::PyAsciiDelimLayout>()?;
+    m.add_class::<ff::PyFixedAsciiLayout>()?;
+    m.add_class::<ff::PyDelimAsciiLayout>()?;
     m.add_class::<ff::PyOrderedUint08Layout>()?;
     m.add_class::<ff::PyOrderedUint16Layout>()?;
     m.add_class::<ff::PyOrderedUint24Layout>()?;

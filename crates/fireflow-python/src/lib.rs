@@ -565,8 +565,8 @@ impl From<Vec<GatedMeasurement>> for PyGatedMeasurements {
     }
 }
 
-impl_new_fixed_ascii_layout!();
-impl_new_delim_ascii_layout!();
+impl_new_fixed_ascii_layout!(FixedAsciiLayout<KnownTot, NoMeasDatatype, false>);
+impl_new_delim_ascii_layout!(DelimAsciiLayout<KnownTot, NoMeasDatatype, false>);
 
 impl_new_ordered_layout!(1, false);
 impl_new_ordered_layout!(2, false);
@@ -649,8 +649,8 @@ impl From<core::AnyCoreDataset> for PyAnyCoreDataset {
 
 #[derive(FromPyObject, IntoPyObject)]
 pub enum PyOrderedLayout {
-    AsciiFixed(PyAsciiFixedLayout),
-    AsciiDelim(PyAsciiDelimLayout),
+    AsciiFixed(PyFixedAsciiLayout),
+    AsciiDelim(PyDelimAsciiLayout),
     Uint08(PyOrderedUint08Layout),
     Uint16(PyOrderedUint16Layout),
     Uint24(PyOrderedUint24Layout),
@@ -666,16 +666,16 @@ pub enum PyOrderedLayout {
 #[derive(FromPyObject, IntoPyObject, From)]
 pub enum PyNonMixedLayout {
     #[from(
-        PyAsciiFixedLayout,
+        PyFixedAsciiLayout,
         FixedAsciiLayout<KnownTot, NoMeasDatatype, false>
     )]
-    AsciiFixed(PyAsciiFixedLayout),
+    AsciiFixed(PyFixedAsciiLayout),
 
     #[from(
-        PyAsciiDelimLayout,
+        PyDelimAsciiLayout,
         DelimAsciiLayout<KnownTot, NoMeasDatatype, false>
     )]
-    AsciiDelim(PyAsciiDelimLayout),
+    AsciiDelim(PyDelimAsciiLayout),
 
     #[from(PyEndianUintLayout, EndianLayout<AnyNullBitmask, NoMeasDatatype>)]
     Uint(PyEndianUintLayout),

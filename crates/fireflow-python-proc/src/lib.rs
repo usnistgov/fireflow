@@ -2979,14 +2979,10 @@ pub fn impl_gated_meas(_: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_new_fixed_ascii_layout(_: TokenStream) -> TokenStream {
-    let name = format_ident!("AsciiFixedLayout");
-
-    let fixed = quote!(fireflow_core::data::FixedLayout);
-    let known_tot = quote!(fireflow_core::data::KnownTot);
-    let nomeasdt = quote!(fireflow_core::data::NoMeasDatatype);
-    let fixed_ascii = quote!(fireflow_core::data::FixedAsciiLayout);
-    let layout_path = parse_quote!(#fixed_ascii<#known_tot, #nomeasdt, false>);
+pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
+    let path: Path = syn::parse(input).unwrap();
+    let name = path.segments.last().unwrap().ident.clone();
+    let bare_path = path_strip_args(path.clone());
 
     let chars_param = DocArg::new_ivar(
         "ranges".into(),
@@ -3007,7 +3003,7 @@ pub fn impl_new_fixed_ascii_layout(_: TokenStream) -> TokenStream {
 
     let constr = quote! {
         fn new(ranges: Vec<u64>) -> Self {
-            #fixed::new_ascii_u64(ranges).into()
+            #bare_path::new_ascii_u64(ranges).into()
         }
     };
 
@@ -3044,19 +3040,16 @@ pub fn impl_new_fixed_ascii_layout(_: TokenStream) -> TokenStream {
         #datatype
     };
 
-    impl_new(name.to_string(), layout_path, constr_doc, constr, rest)
+    impl_new(name.to_string(), path, constr_doc, constr, rest)
         .1
         .into()
 }
 
 #[proc_macro]
-pub fn impl_new_delim_ascii_layout(_: TokenStream) -> TokenStream {
-    let name = format_ident!("AsciiDelimLayout");
-
-    let delim = quote!(fireflow_core::data::DelimAsciiLayout);
-    let known_tot = quote!(fireflow_core::data::KnownTot);
-    let nomeasdt = quote!(fireflow_core::data::NoMeasDatatype);
-    let layout_path = parse_quote!(#delim<#known_tot, #nomeasdt, false>);
+pub fn impl_new_delim_ascii_layout(input: TokenStream) -> TokenStream {
+    let path: Path = syn::parse(input).unwrap();
+    let name = path.segments.last().unwrap().ident.clone();
+    let bare_path = path_strip_args(path.clone());
 
     let ranges_param = DocArg::new_ivar(
         "ranges".into(),
@@ -3077,7 +3070,7 @@ pub fn impl_new_delim_ascii_layout(_: TokenStream) -> TokenStream {
 
     let constr = quote! {
         fn new(ranges: Vec<u64>) -> Self {
-            #delim::new(ranges).into()
+            #bare_path::new(ranges).into()
         }
     };
 
@@ -3092,7 +3085,7 @@ pub fn impl_new_delim_ascii_layout(_: TokenStream) -> TokenStream {
         #datatype
     };
 
-    impl_new(name.to_string(), layout_path, constr_doc, constr, rest)
+    impl_new(name.to_string(), path, constr_doc, constr, rest)
         .1
         .into()
 }
@@ -3534,6 +3527,7 @@ impl Parse for OrderedLayoutInfo {
     }
 }
 
+// TODO use real paths when calling this
 #[proc_macro]
 pub fn impl_new_gate_uni_regions(input: TokenStream) -> TokenStream {
     let version = parse_macro_version(input);
@@ -3823,4 +3817,11 @@ fn parse_macro_version(input: TokenStream) -> Version {
     x.value()
         .parse::<Version>()
         .expect("Must be a valid FCS version")
+}
+
+fn path_strip_args(mut path: Path) -> Path {
+    for segment in path.segments.iter_mut() {
+        segment.arguments = PathArguments::None;
+    }
+    path
 }

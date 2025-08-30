@@ -213,7 +213,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     let path_param = DocArg::new_param(
         "path".into(),
-        PyType::PyClass("pathlib.path".into()),
+        PyType::PyClass("~pathlib.Path".into()),
         "Path to be written".into(),
     );
 

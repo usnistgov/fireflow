@@ -1784,7 +1784,7 @@ class TestLayouts:
         ]
         new = pf.MixedLayout(types)
         assert new.byte_widths == [32, 64, 8]
-        assert new.types == types
+        assert new.typed_ranges == types
 
 
 class TestReadWrite:

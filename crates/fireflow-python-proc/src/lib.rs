@@ -3362,14 +3362,15 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
     let fixed = quote!(fireflow_core::data::FixedLayout);
     let endian = quote!(fireflow_core::text::byteord::Endian);
 
-    let types_param = DocArg::new_param(
-        "types".into(),
+    let types_param = DocArg::new_ivar(
+        "typed_ranges".into(),
         PyType::new_list(PyType::new_union2(
             PyType::Tuple(vec![PyType::new_lit(&["A", "I"]), PyType::Int]),
             PyType::Tuple(vec![PyType::new_lit(&["F", "D"]), PyType::Decimal]),
         )),
-        "The type and range for each measurement. These are given \
-         as 2-tuples like ``(<flag>, <range>)`` where ``flag`` is one of \
+        "The type and range for each measurement corresponding to *$DATATYPE* \
+         and/or *$PnDATATYPE* and *$PnR* respectively. These are given \
+         as 2-tuples like ``(<type>, <range>)`` where ``type`` is one of \
          ``\"A\"``, ``\"I\"``, ``\"F\"``, or ``\"D\"`` corresponding to Ascii, \
          Integer, Float, or Double datatypes respectively."
             .into(),
@@ -3386,14 +3387,14 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
     );
 
     let constr = quote! {
-        fn new(types: Vec<#null>, endian: #endian) -> Self {
-            #fixed::new(types, endian).into()
+        fn new(typed_ranges: Vec<#null>, endian: #endian) -> Self {
+            #fixed::new(typed_ranges, endian).into()
         }
     };
 
     let rest = quote! {
         #[getter]
-        fn types(&self) -> Vec<#null> {
+        fn typed_ranges(&self) -> Vec<#null> {
             self.0.columns().iter().map(|c| c.clone()).collect()
         }
 

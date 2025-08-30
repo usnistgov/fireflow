@@ -1210,10 +1210,8 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     };
     let has_type = ArgData::new(has_type_doc, parse_quote!(bool), Some(has_type_methods));
 
-    // treat timestep as a param since the "setter" method can return the old
-    // timestep, so it is more than just a "setter"
     let timestep_path = parse_quote!(fireflow_core::text::keywords::Timestep);
-    let timestep_doc = DocArg::new_param(
+    let timestep_doc = DocArg::new_ivar(
         "timestep".into(),
         PyType::Float,
         "Value of *$TIMESTEP*.".into(),

@@ -2266,8 +2266,6 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
 
     let make_param_index = |desc: &str| DocArg::new_param("index".into(), PyType::Int, desc.into());
 
-    let make_return_meas = |desc: String| DocReturn::new(meas_pytype.clone(), Some(desc));
-
     let param_range = DocArg::new_param(
         "range".into(),
         PyType::Float,
@@ -2394,10 +2392,7 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
         vec![],
         true,
         vec![],
-        Some(DocReturn::new(
-            PyType::new_list(meas_pytype.clone()),
-            Some("List of measurements".into()),
-        )),
+        Some(DocReturn::new(PyType::new_list(meas_pytype.clone()), None)),
     );
 
     let remove_meas_by_name_doc = DocString::new(
@@ -2423,11 +2418,11 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
     );
 
     let meas_at_doc = DocString::new(
-        "Return measurement at index".into(),
+        "Return measurement at index.".into(),
         vec!["Raise exception if ``index`` not found.".into()],
         true,
         vec![make_param_index("Index to retrieve.")],
-        Some(make_return_meas("Measurement object".into())),
+        Some(DocReturn::new(meas_pytype.clone(), None)),
     );
 
     let make_replace_doc = |is_optical: bool, is_index: bool| {
@@ -2461,7 +2456,10 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
             vec![sub],
             true,
             vec![i_param, DocArg::new_param("meas".into(), t, meas_desc)],
-            Some(make_return_meas("Replaced measurement object".into())),
+            Some(DocReturn::new(
+                meas_pytype.clone(),
+                Some("Replaced measurement object".into()),
+            )),
         )
     };
 

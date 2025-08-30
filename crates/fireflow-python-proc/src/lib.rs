@@ -3091,7 +3091,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
              ``\"little\"``, or a list of all integers between 1 and {nbytes} \
              in any order."
         ),
-        DocDefault::Other(quote!(#sizedbyteord_path::default()), "little".into()),
+        DocDefault::Other(quote!(#sizedbyteord_path::default()), "\"little\"".into()),
     );
 
     let constr_doc = DocString::new(

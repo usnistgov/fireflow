@@ -3579,7 +3579,7 @@ fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
         gate_desc,
     ) = if is_uni {
         (
-            "Univariate",
+            "univariate",
             quote!(fireflow_core::text::keywords::UniGate),
             index_path_inner.clone(),
             index_pytype_inner,
@@ -3589,7 +3589,7 @@ fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
         )
     } else {
         (
-            "Bivariate",
+            "uivariate",
             quote!(#nonempty<fireflow_core::text::keywords::Vertex>),
             parse_quote!(#index_pair<#index_path_inner>),
             PyType::Tuple(vec![index_pytype_inner; 2]),
@@ -3599,10 +3599,7 @@ fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
         )
     };
 
-    let summary = format!(
-        "Make a new FCS {summary_version}-compatible {} region",
-        region_name.to_lowercase()
-    );
+    let summary = format!("Make a new FCS {summary_version}-compatible {region_name} region",);
 
     // TODO these are actually read-only variables
     let index_param = DocArg::new_ivar("index".into(), index_pytype, index_desc);

@@ -2855,8 +2855,31 @@ pub fn impl_meas_get_set(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_gated_meas(_: TokenStream) -> TokenStream {
-    let scale = DocArg::new_ivar_def(
+pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
+    let path: Path = syn::parse(input).unwrap();
+    let name = path.segments.last().unwrap().ident.clone();
+
+    let make_get_set = |n: &str, t: &str| {
+        let get = format_ident!("get_{n}");
+        let set = format_ident!("set_{n}");
+        let inner = format_ident!("{n}");
+        let rstype = format_ident!("{t}");
+        let path: Path = parse_quote!(Option<fireflow_core::text::keywords::#rstype>);
+        let methods = quote! {
+            #[getter]
+            fn #get(&self) -> #path {
+                self.0.#inner.0.as_ref().cloned()
+            }
+
+            #[setter]
+            fn #set(&mut self, x: #path) {
+                self.0.#inner.0 = x.into();
+            }
+        };
+        (path, methods)
+    };
+
+    let scale_doc = DocArg::new_ivar_def(
         "scale".into(),
         PyType::new_opt(PyType::new_union2(
             PyType::new_unit(),
@@ -2867,115 +2890,62 @@ pub fn impl_gated_meas(_: TokenStream) -> TokenStream {
             .into(),
         DocDefault::Option,
     );
-    let make_arg = |n: &str, kw: &str, t: PyType| {
-        DocArg::new_ivar_def(
+    let (scale_path, scale_methods) = make_get_set("scale", "GateScale");
+    let scale = ArgData::new(scale_doc, scale_path, Some(scale_methods));
+
+    let make_arg = |n: &str, kw: &str, t: &str, p: PyType| {
+        let (path, methods) = make_get_set(n, t);
+        let doc = DocArg::new_ivar_def(
             n.into(),
-            PyType::new_opt(t),
+            PyType::new_opt(p),
             format!("The *$Gm{kw}* keyword."),
             DocDefault::Option,
-        )
+        );
+        ArgData::new(doc, path, Some(methods))
     };
-    let filter = make_arg("filter", "F", PyType::Str);
-    let shortname = make_arg("shortname", "N", PyType::Str);
-    let percent_emitted = make_arg("percent_emitted", "P", PyType::Str);
-    let range = make_arg("range", "R", PyType::Float);
-    let longname = make_arg("longname", "S", PyType::Str);
-    let detector_type = make_arg("detector_type", "T", PyType::Str);
-    let detector_voltage = make_arg("detector_voltage", "V", PyType::Float);
-    let doc = DocString::new(
-        "The *$Gm\\** keywords for one gated measurement.".into(),
-        vec![],
-        false,
-        vec![
-            scale,
-            filter,
-            shortname,
-            percent_emitted,
-            range,
-            longname,
-            detector_type,
-            detector_voltage,
-        ],
-        None,
+    let filter = make_arg("filter", "F", "GateFilter", PyType::Str);
+    let shortname = make_arg("shortname", "N", "GateShortname", PyType::Str);
+    let percent_emitted = make_arg("percent_emitted", "P", "GatePercentEmitted", PyType::Str);
+    let range = make_arg("range", "R", "GateRange", PyType::Float);
+    let longname = make_arg("longname", "S", "GateLongname", PyType::Str);
+    let detector_type = make_arg("detector_type", "T", "GateDetectorType", PyType::Str);
+    let detector_voltage = make_arg(
+        "detector_voltage",
+        "V",
+        "GateDetectorVoltage",
+        PyType::Float,
     );
 
-    let make_get_set = |n: &str, t: &str| {
-        let get = format_ident!("get_{n}");
-        let set = format_ident!("set_{n}");
-        let inner = format_ident!("{n}");
-        let s = format!("fireflow_core::text::keywords::{t}");
-        let rstype = parse_str::<Path>(s.as_str()).unwrap();
-        quote! {
-            #[getter]
-            fn #get(&self) -> Option<#rstype> {
-                self.0.#inner.0.as_ref().cloned()
-            }
+    let all_args = [
+        scale,
+        filter,
+        shortname,
+        percent_emitted,
+        range,
+        longname,
+        detector_type,
+        detector_voltage,
+    ];
 
-            #[setter]
-            fn #set(&mut self, x: Option<#rstype>) {
-                self.0.#inner.0 = x.into();
-            }
+    let ps = all_args.iter().map(|x| x.doc.clone()).collect();
+    let summary = "The *$Gm\\** keywords for one gated measurement.".into();
+    let doc = DocString::new(summary, vec![], false, ps, None);
+
+    let fun_args: Vec<_> = all_args.iter().map(|x| x.constr_arg()).collect();
+    let inner_args: Vec<_> = all_args.iter().map(|x| x.inner_arg()).collect();
+    let methods: Vec<_> = all_args.iter().map(|x| x.methods.clone()).collect();
+
+    let new = quote! {
+        fn new(#(#fun_args),*) -> Self {
+            #path::new(#(#inner_args),*).into()
         }
     };
 
-    let methods: Vec<_> = [
-        ("range", "GateRange"),
-        ("scale", "GateScale"),
-        ("filter", "GateFilter"),
-        ("shortname", "GateShortname"),
-        ("percent_emitted", "GatePercentEmitted"),
-        ("longname", "GateLongname"),
-        ("detector_type", "GateDetectorType"),
-        ("detector_voltage", "GateDetectorVoltage"),
-    ]
-    .into_iter()
-    .map(|(n, t)| make_get_set(n, t))
-    .collect();
+    let rest = quote! {
+        #(#methods)*
+    };
 
-    let docstring = doc.doc();
-    let signature = doc.sig();
-
-    quote! {
-        // TODO not dry
-        #docstring
-        #[pyclass(name = "GatedMeasurement", eq)]
-        #[derive(Clone, From, Into, PartialEq)]
-        pub struct PyGatedMeasurement(fireflow_core::text::gating::GatedMeasurement);
-
-        // TODO this also doesn't seem DRY
-        #[pymethods]
-        impl PyGatedMeasurement {
-            #[new]
-            #[allow(clippy::too_many_arguments)]
-            // TODO this sig is separate from the docstring :/
-            #signature
-            fn new(
-                scale: Option<kws::GateScale>,
-                filter: Option<kws::GateFilter>,
-                shortname: Option<kws::GateShortname>,
-                percent_emitted: Option<kws::GatePercentEmitted>,
-                range: Option<kws::GateRange>,
-                longname: Option<kws::GateLongname>,
-                detector_type: Option<kws::GateDetectorType>,
-                detector_voltage: Option<kws::GateDetectorVoltage>,
-            ) -> Self {
-                GatedMeasurement::new(
-                    scale,
-                    filter,
-                    shortname,
-                    percent_emitted,
-                    range,
-                    longname,
-                    detector_type,
-                    detector_voltage,
-                )
-                .into()
-            }
-
-            #(#methods)*
-        }
-    }
-    .into()
+    impl_new(name.to_string(), path, doc, new, rest).1.into()
 }
 
 #[proc_macro]

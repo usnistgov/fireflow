@@ -548,7 +548,7 @@ where
     }
 }
 
-impl_gated_meas!();
+impl_gated_meas!(GatedMeasurement);
 
 #[derive(FromPyObject, IntoPyObject)]
 struct PyGatedMeasurements(Vec<PyGatedMeasurement>);

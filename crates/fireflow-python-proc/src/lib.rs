@@ -316,30 +316,6 @@ pub fn impl_core_set_tr_threshold(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_core_get_set_layout(input: TokenStream) -> TokenStream {
-    let i: Ident = syn::parse(input).unwrap();
-    let version = split_ident_version_pycore(&i).1;
-
-    let layout_ident = ArgData::new_layout_arg(version).rstype;
-
-    quote! {
-        #[pymethods]
-        impl #i {
-            #[getter]
-            fn get_layout(&self) -> #layout_ident {
-                self.0.layout().clone().into()
-            }
-
-            #[setter]
-            fn set_layout(&mut self, layout: #layout_ident) -> PyResult<()> {
-                self.0.set_layout(layout.into()).py_term_resolve_nowarn()
-            }
-        }
-    }
-    .into()
-}
-
-#[proc_macro]
 pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
@@ -2308,7 +2284,19 @@ impl ArgData {
             layout_desc.into(),
         );
 
-        Self::new1(layout_doc, parse_quote!(#layout_ident))
+        let methods = quote! {
+            #[getter]
+            fn get_layout(&self) -> #layout_ident {
+                self.0.layout().clone().into()
+            }
+
+            #[setter]
+            fn set_layout(&mut self, layout: #layout_ident) -> PyResult<()> {
+                self.0.set_layout(layout.into()).py_term_resolve_nowarn()
+            }
+        };
+
+        Self::new(layout_doc, parse_quote!(#layout_ident), Some(methods))
     }
 
     fn new_df_arg() -> Self {

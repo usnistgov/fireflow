@@ -27,7 +27,7 @@ use fireflow_python_proc::impl_new_endian_uint_layout;
 use fireflow_python_proc::{
     impl_core_all_peak_attrs, impl_core_all_pnn_attr, impl_core_all_pnn_maybe_attr,
     impl_core_all_transforms_attr, impl_core_get_measurement, impl_core_get_measurements,
-    impl_core_get_set_layout, impl_core_get_temporal, impl_core_insert_measurement, impl_core_par,
+    impl_core_get_temporal, impl_core_insert_measurement, impl_core_par,
     impl_core_push_measurement, impl_core_remove_measurement, impl_core_rename_temporal,
     impl_core_replace_optical, impl_core_replace_temporal, impl_core_set_measurements,
     impl_core_set_measurements_and_layout, impl_core_set_temporal, impl_core_set_timestep,
@@ -156,7 +156,6 @@ macro_rules! impl_common {
     ($pytype:ident) => {
         impl_core_par!($pytype);
         impl_core_set_tr_threshold!($pytype);
-        impl_core_get_set_layout!($pytype);
         impl_core_write_text!($pytype);
         impl_core_all_pnn_attr!($pytype);
         impl_core_rename_temporal!($pytype);

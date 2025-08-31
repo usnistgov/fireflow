@@ -535,45 +535,41 @@ pub fn impl_core_all_pnn_maybe_attr(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_get_set_timestep(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    let version = split_ident_version_pycore(&i).1;
+    let _ = split_ident_version_pycore(&i).1;
     let timestep_path = keyword_path("Timestep");
 
-    let q = if version == Version::FCS2_0 {
-        quote! {}
-    } else {
-        let t = PyType::new_opt(PyType::Float);
-        let get_doc = DocString::new(
-            "The value of *$TIMESTEP*".into(),
-            vec![],
-            true,
-            vec![],
-            Some(DocReturn::new(t.clone(), None)),
-        );
-        let set_doc = DocString::new(
-            "Set the *$TIMESTEP* if time measurement is present.".into(),
-            vec![],
-            true,
-            vec![DocArg::new_param(
-                "timestep".into(),
-                PyType::Float,
-                "The timestep to set. Must be greater than zero.".into(),
-            )],
-            Some(DocReturn::new(
-                t,
-                Some("Previous *$TIMESTEP* if present.".into()),
-            )),
-        );
-        quote! {
-            #get_doc
-            #[getter]
-            fn get_timestep(&self) -> Option<#timestep_path> {
-                self.0.timestep().copied()
-            }
+    let t = PyType::new_opt(PyType::Float);
+    let get_doc = DocString::new(
+        "The value of *$TIMESTEP*".into(),
+        vec![],
+        true,
+        vec![],
+        Some(DocReturn::new(t.clone(), None)),
+    );
+    let set_doc = DocString::new(
+        "Set the *$TIMESTEP* if time measurement is present.".into(),
+        vec![],
+        true,
+        vec![DocArg::new_param(
+            "timestep".into(),
+            PyType::Float,
+            "The timestep to set. Must be greater than zero.".into(),
+        )],
+        Some(DocReturn::new(
+            t,
+            Some("Previous *$TIMESTEP* if present.".into()),
+        )),
+    );
+    let q = quote! {
+        #get_doc
+        #[getter]
+        fn get_timestep(&self) -> Option<#timestep_path> {
+            self.0.timestep().copied()
+        }
 
-            #set_doc
-            fn set_timestep(&mut self, timestep: #timestep_path) -> Option<#timestep_path> {
-                self.0.set_timestep(timestep)
-            }
+        #set_doc
+        fn set_timestep(&mut self, timestep: #timestep_path) -> Option<#timestep_path> {
+            self.0.set_timestep(timestep)
         }
     };
 

@@ -191,10 +191,6 @@ macro_rules! impl_common {
         // methods to set any measurement to temporal (using index or name)
         impl_core_set_temporal!($pytype);
 
-        // method to get/set timestep; this is not an attribute because the
-        // setter method returns something
-        impl_core_get_set_timestep!($pytype);
-
         // method to convert temporal measurement to optical if it exists; these
         // are slightly different for each version
         impl_core_unset_temporal!($pytype);
@@ -352,6 +348,15 @@ impl_coredataset_common!(PyCoreDataset2_0);
 impl_coredataset_common!(PyCoreDataset3_0);
 impl_coredataset_common!(PyCoreDataset3_1);
 impl_coredataset_common!(PyCoreDataset3_2);
+
+// methods to get/set timestep; this is not an attribute because the
+// setter method returns something
+impl_core_get_set_timestep!(PyCoreTEXT3_0);
+impl_core_get_set_timestep!(PyCoreTEXT3_1);
+impl_core_get_set_timestep!(PyCoreTEXT3_2);
+impl_core_get_set_timestep!(PyCoreDataset3_0);
+impl_core_get_set_timestep!(PyCoreDataset3_1);
+impl_core_get_set_timestep!(PyCoreDataset3_2);
 
 // Get/set $PnN for 2.0 and 3.0 where this field is optional
 impl_core_all_pnn_maybe_attr!(PyCoreTEXT2_0);

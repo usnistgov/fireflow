@@ -2865,13 +2865,13 @@ pub fn impl_core_all_pndet(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_all_pncal3_1(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Calibration3_1", "CAL", calibration3_1_pytype())
+    core_all_optical_attr(&i, "Calibration3_1", "CALIBRATION", calibration3_1_pytype())
 }
 
 #[proc_macro]
 pub fn impl_core_all_pncal3_2(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Calibration3_2", "CAL", calibration3_2_pytype())
+    core_all_optical_attr(&i, "Calibration3_2", "CALIBRATION", calibration3_2_pytype())
 }
 
 #[proc_macro]

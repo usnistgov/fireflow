@@ -1709,17 +1709,17 @@ class TestMeas:
 class TestLayouts:
     def test_ascii_fixed(self) -> None:
         ranges = [9, 99, 999]
-        new = pf.AsciiFixedLayout(ranges)
+        new = pf.FixedAsciiLayout(ranges)
         assert new.char_widths == [1, 2, 3]
         assert new.ranges == ranges
         assert new.datatype == "A"
         with pytest.raises(OverflowError):
             ranges = [1 * 10**20]
-            new = pf.AsciiFixedLayout(ranges)
+            new = pf.FixedAsciiLayout(ranges)
 
     def test_ascii_delim(self) -> None:
         ranges = [9, 99, 999]
-        new = pf.AsciiDelimLayout(ranges)
+        new = pf.DelimAsciiLayout(ranges)
         assert new.ranges == ranges
         assert new.datatype == "A"
 

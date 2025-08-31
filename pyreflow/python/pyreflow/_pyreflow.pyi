@@ -644,15 +644,15 @@ class _CoreGetSetMeasOrdered(Generic[_O, _T]):
     def set_measurements(
         self,
         measurements: _RawInput[Shortname | None, _O, _T],
-        allow_shared_names: bool,
-        skip_index_check: bool,
+        allow_shared_names: bool = False,
+        skip_index_check: bool = False,
     ) -> None: ...
     def set_measurements_and_layout(
         self,
         measurements: _RawInput[Shortname | None, _O, _T],
         layout: _AnyOrderedLayout,
-        allow_shared_names: bool,
-        skip_index_check: bool,
+        allow_shared_names: bool = False,
+        skip_index_check: bool = False,
     ) -> None: ...
 
 class _CoreGetSetMeasEndian(Generic[_L, _O, _T]):
@@ -661,15 +661,15 @@ class _CoreGetSetMeasEndian(Generic[_L, _O, _T]):
     def set_measurements(
         self,
         measurements: _RawInput[Shortname, _O, _T],
-        allow_shared_names: bool,
-        skip_index_check: bool,
+        allow_shared_names: bool = False,
+        skip_index_check: bool = False,
     ) -> None: ...
     def set_measurements_and_layout(
         self,
         measurements: _RawInput[Shortname, _O, _T],
         layout: _L,
-        allow_shared_names: bool,
-        skip_index_check: bool,
+        allow_shared_names: bool = False,
+        skip_index_check: bool = False,
     ) -> None: ...
 
 class _CoreDatasetGetSetMeasOrdered(Generic[_O, _T]):
@@ -677,8 +677,8 @@ class _CoreDatasetGetSetMeasOrdered(Generic[_O, _T]):
         self,
         measurements: _RawInput[Shortname | None, _O, _T],
         df: DataFrame,
-        allow_shared_names: bool,
-        skip_index_check: bool,
+        allow_shared_names: bool = False,
+        skip_index_check: bool = False,
     ) -> None: ...
 
 class _CoreDatasetGetSetMeasEndian(Generic[_O, _T]):
@@ -686,8 +686,8 @@ class _CoreDatasetGetSetMeasEndian(Generic[_O, _T]):
         self,
         measurements: _RawInput[Shortname, _O, _T],
         df: DataFrame,
-        allow_shared_names: bool,
-        skip_index_check: bool,
+        allow_shared_names: bool = False,
+        skip_index_check: bool = False,
     ) -> None: ...
 
 class _CoreSetShortnamesMaybe:

@@ -619,6 +619,7 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
     let version = split_ident_version_pycore(&i).1;
     let shortname_path = shortname_path();
     let timestep_path = timestep_path();
+    let meas_index_path = meas_index_path();
 
     let make_doc = |has_timestep: bool, has_index: bool| {
         let name = DocArg::new_param(
@@ -676,7 +677,7 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
             }
 
             #index_doc
-            fn set_temporal_at(&mut self, index: MeasIndex, force: bool) -> PyResult<bool> {
+            fn set_temporal_at(&mut self, index: #meas_index_path, force: bool) -> PyResult<bool> {
                 self.0.set_temporal_at(index, (), force).py_term_resolve()
             }
         }
@@ -699,7 +700,7 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
             #index_doc
             fn set_temporal_at(
                 &mut self,
-                index: MeasIndex,
+                index: #meas_index_path,
                 timestep: #timestep_path,
                 force: bool,
             ) -> PyResult<bool> {
@@ -916,6 +917,120 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+pub fn impl_core_get_measurements(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let version = split_ident_version_pycore(&i).1;
+
+    let element_path = element_path(version);
+    let named_vec_path = quote!(fireflow_core::text::named_vec::NamedVec);
+
+    let doc = DocString::new(
+        "Get all measurements.".into(),
+        vec![],
+        true,
+        vec![],
+        Some(DocReturn::new(
+            PyType::new_list(measurement_pytype(version)),
+            None,
+        )),
+    );
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #doc
+            #[getter]
+            fn measurements(&self) -> Vec<#element_path> {
+                // This might seem inefficient since we are cloning
+                // everything, but if we want to map a python lambda
+                // function over the measurements we would need to to do
+                // this anyways, so simply returnig a copied list doesn't
+                // lose anything and keeps this API simpler.
+                let ms: &#named_vec_path<_, _, _, _> = self.0.as_ref();
+                ms.iter()
+                    .map(|(_, e)| e.bimap(|t| t.value.clone(), |o| o.value.clone()))
+                    .map(|v| v.inner_into())
+                    .collect()
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_core_get_temporal(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let version = split_ident_version_pycore(&i).1;
+
+    let ttype = pytemporal(version);
+    let meas_index_path = meas_index_path();
+    let shortname_path = shortname_path();
+
+    let doc = DocString::new(
+        "Get the temporal measurement if it exists.".into(),
+        vec![],
+        true,
+        vec![],
+        Some(DocReturn::new(
+            PyType::new_opt(PyType::Tuple(vec![
+                PyType::Int,
+                PyType::Str,
+                temporal_pytype(version),
+            ])),
+            Some("Index, name, and measurement or ``None``".into()),
+        )),
+    );
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #doc
+            #[getter]
+            fn get_temporal(&self) -> Option<(#meas_index_path, #shortname_path, #ttype)> {
+                self.0
+                    .temporal()
+                    .map(|t| (t.index, t.key.clone(), t.value.clone().into()))
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_core_get_measurement(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let version = split_ident_version_pycore(&i).1;
+
+    let element_path = element_path(version);
+    let named_vec_path = quote!(fireflow_core::text::named_vec::NamedVec);
+    let meas_index_path = meas_index_path();
+
+    let doc = DocString::new(
+        "Return measurement at index.".into(),
+        vec!["Raise exception if ``index`` not found.".into()],
+        true,
+        vec![param_index("Index to retrieve.")],
+        Some(DocReturn::new(measurement_pytype(version), None)),
+    );
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            // TODO this should return name as well
+            #doc
+            fn measurement_at(&self, index: #meas_index_path) -> PyResult<#element_path> {
+                let ms: &#named_vec_path<_, _, _, _> = self.0.as_ref();
+                let m = ms.get(index)?;
+                Ok(m.bimap(|x| x.1.clone(), |x| x.1.clone()).inner_into())
+            }
+
+            // TODO return measurement with name
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
 pub fn impl_core_set_measurements(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let (is_dataset, version) = split_ident_version_pycore(&i);
@@ -959,6 +1074,482 @@ pub fn impl_core_set_measurements(input: TokenStream) -> TokenStream {
                         skip_index_check,
                     )
                     .py_term_resolve_nowarn()
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let (is_dataset, version) = split_ident_version_pycore(&i);
+
+    let otype = pyoptical(version);
+    let ttype = pytemporal(version);
+
+    let range_path = keyword_path("Range");
+    let ver_shortname_path = versioned_shortname_path(version);
+    let any_fcs_col_path = quote!(fireflow_core::validated::dataframe::AnyFCSColumn);
+    let shortname_path = shortname_path();
+
+    let push_meas_doc = |is_optical: bool, hasdata: bool| {
+        let (meas_type, what) = if is_optical {
+            (optical_pytype(version), "optical")
+        } else {
+            (temporal_pytype(version), "temporal")
+        };
+        let param_meas = DocArg::new_param(
+            "meas".into(),
+            meas_type.clone(),
+            "The measurement to push.".into(),
+        );
+        let _param_col = if hasdata { Some(param_col()) } else { None };
+        let ps: Vec<_> = [param_meas]
+            .into_iter()
+            .chain(_param_col)
+            .chain([
+                param_name("Name of new measurement."),
+                param_range(),
+                param_notrunc(),
+            ])
+            .collect();
+        let summary = format!("Push {what} measurement to end of measurement vector.");
+        DocString::new(summary, vec![], true, ps, None)
+    };
+
+    let push_opt_doc = push_meas_doc(true, false);
+    let push_tmp_doc = push_meas_doc(false, false);
+    let push_opt_data_doc = push_meas_doc(true, true);
+    let push_tmp_data_doc = push_meas_doc(false, true);
+
+    let q = if is_dataset {
+        quote! {
+            #push_opt_data_doc
+            fn push_optical(
+                &mut self,
+                meas: #otype,
+                col: #any_fcs_col_path,
+                name: #ver_shortname_path,
+                range: #range_path,
+                notrunc: bool,
+            ) -> PyResult<()> {
+                self.0
+                    .push_optical(name.into(), meas.into(), col, range, notrunc)
+                    .py_term_resolve()
+                    .void()
+            }
+
+            #push_tmp_data_doc
+            fn push_temporal(
+                &mut self,
+                meas: #ttype,
+                col: #any_fcs_col_path,
+                name: #shortname_path,
+                range: #range_path,
+                notrunc: bool,
+            ) -> PyResult<()> {
+                self.0
+                    .push_temporal(name, meas.into(), col, range, notrunc)
+                    .py_term_resolve()
+            }
+        }
+    } else {
+        quote! {
+            #push_opt_doc
+            fn push_optical(
+                &mut self,
+                meas: #otype,
+                name: #ver_shortname_path,
+                range: #range_path,
+                notrunc: bool,
+            ) -> PyResult<()> {
+                self.0
+                    .push_optical(name.into(), meas.into(), range, notrunc)
+                    .py_term_resolve()
+                    .void()
+            }
+
+            #push_tmp_doc
+            fn push_temporal(
+                &mut self,
+                meas: #ttype,
+                name: #shortname_path,
+                range: #range_path,
+                notrunc: bool,
+            ) -> PyResult<()> {
+                self.0
+                    .push_temporal(name, meas.into(), range, notrunc)
+                    .py_term_resolve()
+            }
+        }
+    };
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #q
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let version = split_ident_version_pycore(&i).1;
+
+    let element_path = element_path(version);
+    let ver_shortname_path = versioned_shortname_path(version);
+    let shortname_path = shortname_path();
+    let family_path = versioned_family_path(version);
+    let meas_index_path = meas_index_path();
+
+    let by_name_doc = DocString::new(
+        "Remove a measurement with a given name.".into(),
+        vec!["Raise exception if ``name`` not found.".into()],
+        true,
+        vec![param_name("Name to remove")],
+        Some(DocReturn::new(
+            PyType::Tuple(vec![PyType::Int, measurement_pytype(version)]),
+            Some("Index and measurement object".into()),
+        )),
+    );
+
+    let by_index_doc = DocString::new(
+        "Remove a measurement with a given index.".into(),
+        vec!["Raise exception if ``index`` not found.".into()],
+        true,
+        vec![param_index("Index to remove")],
+        Some(DocReturn::new(
+            PyType::Tuple(vec![PyType::Str, measurement_pytype(version)]),
+            Some("Name and measurement object".into()),
+        )),
+    );
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #by_name_doc
+            fn remove_measurement_by_name(
+                &mut self,
+                name: #shortname_path,
+            ) -> PyResult<(#meas_index_path, #element_path)> {
+                Ok(self
+                   .0
+                   .remove_measurement_by_name(&name)
+                   .map(|(i, x)| (i, x.inner_into()))?)
+            }
+
+            #by_index_doc
+            fn remove_measurement_by_index(
+                &mut self,
+                index: #meas_index_path,
+            ) -> PyResult<(#ver_shortname_path, #element_path)> {
+                let r = self.0.remove_measurement_by_index(index)?;
+                let (n, v) = Element::unzip::<#family_path>(r);
+                Ok((n.0, v.inner_into()))
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let (is_dataset, version) = split_ident_version_pycore(&i);
+
+    let otype = pyoptical(version);
+    let ttype = pytemporal(version);
+    let meas_index_path = meas_index_path();
+    let shortname_path = shortname_path();
+    let ver_shortname_path = versioned_shortname_path(version);
+    let range_path = keyword_path("Range");
+    let any_fcs_col_path = quote!(fireflow_core::validated::dataframe::AnyFCSColumn);
+
+    let insert_meas_doc = |is_optical: bool, hasdata: bool| {
+        let (meas_type, what) = if is_optical {
+            (optical_pytype(version), "optical")
+        } else {
+            (temporal_pytype(version), "temporal")
+        };
+        let param_meas = DocArg::new_param(
+            "meas".into(),
+            meas_type.clone(),
+            "The measurement to insert.".into(),
+        );
+        let _param_col = if hasdata { Some(param_col()) } else { None };
+        let summary = format!("Insert {what} measurement at position in measurement vector.");
+        let ps: Vec<_> = [
+            param_index("Position at which to insert new measurement."),
+            param_meas,
+        ]
+        .into_iter()
+        .chain(_param_col)
+        .chain([
+            param_name("Name of new measurement."),
+            param_range(),
+            param_notrunc(),
+        ])
+        .collect();
+        DocString::new(summary, vec![], true, ps, None)
+    };
+
+    let insert_opt_doc = insert_meas_doc(true, false);
+    let insert_tmp_doc = insert_meas_doc(false, false);
+    let insert_opt_data_doc = insert_meas_doc(true, true);
+    let insert_tmp_data_doc = insert_meas_doc(false, true);
+
+    let q = if is_dataset {
+        quote! {
+            #insert_opt_data_doc
+            fn insert_optical(
+                &mut self,
+                index: #meas_index_path,
+                meas: #otype,
+                col: #any_fcs_col_path,
+                name: #ver_shortname_path,
+                range: #range_path,
+                notrunc: bool,
+            ) -> PyResult<()> {
+                self.0
+                    .insert_optical(index, name.into(), meas.into(), col, range, notrunc)
+                    .py_term_resolve()
+                    .void()
+            }
+
+            #insert_tmp_data_doc
+            fn insert_temporal(
+                &mut self,
+                index: #meas_index_path,
+                meas: #ttype,
+                col: #any_fcs_col_path,
+                name: #shortname_path,
+                range: #range_path,
+                notrunc: bool,
+            ) -> PyResult<()> {
+                self.0
+                    .insert_temporal(index, name, meas.into(), col, range, notrunc)
+                    .py_term_resolve()
+            }
+        }
+    } else {
+        quote! {
+            #insert_opt_doc
+            fn insert_optical(
+                &mut self,
+                index: #meas_index_path,
+                meas: #otype,
+                name: #ver_shortname_path,
+                range: #range_path,
+                notrunc: bool,
+            ) -> PyResult<()> {
+                self.0
+                    .insert_optical(index, name.into(), meas.into(), range, notrunc)
+                    .py_term_resolve()
+                    .void()
+            }
+
+            #insert_tmp_doc
+            fn insert_temporal(
+                &mut self,
+                index: #meas_index_path,
+                meas: #ttype,
+                name: #shortname_path,
+                range: #range_path,
+                notrunc: bool,
+            ) -> PyResult<()> {
+                self.0
+                    .insert_temporal(index, name, meas.into(), range, notrunc)
+                    .py_term_resolve()
+            }
+        }
+    };
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #q
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_core_replace_measurement(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let version = split_ident_version_pycore(&i).1;
+
+    let otype = pyoptical(version);
+    let ttype = pytemporal(version);
+    let meas_index_path = meas_index_path();
+    let element_path = element_path(version);
+    let shortname_path = shortname_path();
+
+    // the temporal replacement functions for 3.2 are different because they
+    // can fail if $PnTYPE is set
+    let (replace_tmp_sig, replace_tmp_args, replace_tmp_at_body, replace_tmp_named_body) =
+        if version == Version::FCS3_2 {
+            let go = |fun, x| quote!(self.0.#fun(#x, meas.into(), force).py_term_resolve()?);
+            (
+                quote! {force = false},
+                quote! {force: bool},
+                go(quote! {replace_temporal_at_lossy}, quote! {index}),
+                go(quote! {replace_temporal_named_lossy}, quote! {&name}),
+            )
+        } else {
+            (
+                quote! {},
+                quote! {},
+                quote! {self.0.replace_temporal_at(index, meas.into())?},
+                quote! {self.0.replace_temporal_named(&name, meas.into())},
+            )
+        };
+
+    let make_replace_doc = |is_optical: bool, is_index: bool| {
+        let (i, i_param, m) = if is_index {
+            (
+                "index",
+                param_index("Index to replace."),
+                "measurement at index",
+            )
+        } else {
+            ("name", param_name("Name to replace."), "named measurement")
+        };
+        let (s, ss, t, other_pos) = if is_optical {
+            ("optical", "Optical", optical_pytype(version), "")
+        } else {
+            (
+                "temporal",
+                "Temporal",
+                temporal_pytype(version),
+                " or there is already a temporal measurement in a different position",
+            )
+        };
+        let meas_desc = format!("{ss} measurement to replace measurement at ``{i}``.");
+        let sub = format!("Raise exception if ``{i}`` does not exist{other_pos}.");
+        DocString::new(
+            format!("Replace {m} with given {s} measurement."),
+            vec![sub],
+            true,
+            vec![i_param, DocArg::new_param("meas".into(), t, meas_desc)],
+            Some(DocReturn::new(
+                measurement_pytype(version),
+                Some("Replaced measurement object".into()),
+            )),
+        )
+    };
+
+    let replace_opt_at_doc = make_replace_doc(true, true);
+    let replace_named_opt_doc = make_replace_doc(true, false);
+    let replace_tmp_at_doc = make_replace_doc(false, true);
+    let replace_named_tmp_doc = make_replace_doc(false, false);
+
+    let both = quote! {
+        #replace_opt_at_doc
+        fn replace_optical_at(
+            &mut self,
+            index: #meas_index_path,
+            meas: #otype,
+        ) -> PyResult<#element_path> {
+            let ret = self.0.replace_optical_at(index, meas.into())?;
+            Ok(ret.inner_into())
+        }
+
+        #replace_named_opt_doc
+        fn replace_optical_named(
+            &mut self,
+            name: #shortname_path,
+            meas: #otype,
+        ) -> Option<#element_path> {
+            self.0
+                .replace_optical_named(&name, meas.into())
+                .map(|r| r.inner_into())
+        }
+
+        #replace_tmp_at_doc
+        #[pyo3(signature = (index, meas, #replace_tmp_sig))]
+        fn replace_temporal_at(
+            &mut self,
+            index: #meas_index_path,
+            meas: #ttype,
+            #replace_tmp_args
+        ) -> PyResult<#element_path> {
+            let ret = #replace_tmp_at_body;
+            Ok(ret.inner_into())
+        }
+
+        #replace_named_tmp_doc
+        #[pyo3(signature = (name, meas, #replace_tmp_sig))]
+        fn replace_temporal_named(
+            &mut self,
+            name: #shortname_path,
+            meas: #ttype,
+            #replace_tmp_args
+        ) -> PyResult<Option<#element_path>> {
+            let ret = #replace_tmp_named_body;
+            Ok(ret.map(|r| r.inner_into()))
+        }
+    };
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #both
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_coretext_unset_measurements(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let _ = split_ident_version_checked("PyCoreTEXT", &i);
+
+    let doc = DocString::new(
+        "Remove measurements and clear the layout.".into(),
+        vec![
+            "This is equivalent to deleting all *$Pn\\** keywords and setting *$PAR* to 0.".into(),
+            "Will raise exception if other keywords (such as *$TR*) reference a measurement."
+                .into(),
+        ],
+        true,
+        vec![],
+        None,
+    );
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #doc
+            fn unset_measurements(&mut self) -> PyResult<()> {
+                Ok(self.0.unset_measurements()?)
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_coredataset_unset_data(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let _ = split_ident_version_checked("PyCoreDataset", &i);
+
+    let doc = DocString::new(
+        "Remove all measurements and their data.".into(),
+        vec!["Raise exception if any keywords (such as *$TR*) reference a measurement.".into()],
+        true,
+        vec![],
+        None,
+    );
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #doc
+            fn unset_data(&mut self) -> PyResult<()> {
+                Ok(self.0.unset_data()?)
             }
         }
     }
@@ -1440,45 +2031,6 @@ impl Parse for NewCoreInfo {
             version: v0,
         })
     }
-}
-
-#[proc_macro]
-pub fn impl_get_set_metaroot(input: TokenStream) -> TokenStream {
-    let info = parse_macro_input!(input as GetSetMetarootInfo);
-    let kw = &info.kwtype;
-    let (kw_inner, optional) = unwrap_generic("Option", kw);
-    let kts = info
-        .name_override
-        .map(|x| x.value())
-        .unwrap_or(path_name(kw_inner));
-
-    let get = format_ident!("get_{}", kts.to_lowercase());
-    let set = format_ident!("set_{}", kts.to_lowercase());
-    let get_inner = format_ident!("{}", if optional { "metaroot_opt" } else { "metaroot" });
-    let clone_inner = format_ident!("{}", if optional { "cloned" } else { "clone" });
-
-    let outputs: Vec<_> = info
-        .parent_types
-        .iter()
-        .map(|t| {
-            quote! {
-                #[pymethods]
-                impl #t {
-                    #[getter]
-                    fn #get(&self) -> #kw {
-                        self.0.#get_inner::<#kw_inner>().#clone_inner()
-                    }
-
-                    #[setter]
-                    fn #set(&mut self, x: #kw) {
-                        self.0.set_metaroot(x)
-                    }
-                }
-            }
-        })
-        .collect();
-
-    quote! {#(#outputs)*}.into()
 }
 
 #[derive(new)]
@@ -2319,509 +2871,6 @@ pub fn impl_get_set_all_meas(input: TokenStream) -> TokenStream {
         .collect();
 
     quote! {#(#outputs)*}.into()
-}
-
-#[proc_macro]
-pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
-    let info = parse_macro_input!(input as CommonMeasGetSet);
-    let coretext_type = &info.coretext_type;
-    let coredataset_type = &info.coredataset_type;
-    let nametype = &info.nametype;
-    let namefam = &info.namefam;
-
-    let coretext_name = path_name(coretext_type);
-    let coredataset_name = path_name(coredataset_type);
-    let (_, version) = split_version(coretext_name.as_str());
-    let vu = version.short_underscore();
-
-    if split_version(coredataset_name.as_str()).1 != version {
-        panic!("versions do not match");
-    }
-
-    let otype = format_ident!("PyOptical{vu}");
-    let ttype = format_ident!("PyTemporal{vu}");
-    let opt_pytype = PyType::PyClass(format!("Optical{vu}"));
-    let tmp_pytype = PyType::PyClass(format!("Temporal{vu}"));
-
-    let meas_pytype = PyType::new_union2(opt_pytype.clone(), tmp_pytype.clone());
-
-    let make_param_name = |short_desc: &str| {
-        DocArg::new_param(
-            "name".into(),
-            PyType::Str,
-            format!("{short_desc}. Corresponds to *$PnN*. Must not contain commas."),
-        )
-    };
-
-    let make_param_index = |desc: &str| DocArg::new_param("index".into(), PyType::Int, desc.into());
-
-    let param_range = DocArg::new_param(
-        "range".into(),
-        PyType::Float,
-        "Range of measurement. Corresponds to *$PnR*.".into(),
-    );
-    let param_notrunc = DocArg::new_param_def(
-        "notrunc".into(),
-        PyType::Bool,
-        "If ``False``, raise exception if ``range`` must be truncated to fit \
-         into measurement type."
-            .into(),
-        DocDefault::Bool(false),
-    );
-    let param_col = DocArg::new_param(
-        "col".into(),
-        PyType::PyClass("polars.Series".into()),
-        "Data for measurement. Must be same length as existing columns.".into(),
-    );
-
-    let push_meas_doc = |is_optical: bool, meas_type: &PyType, hasdata: bool| {
-        let what = if is_optical { "optical" } else { "temporal" };
-        let param_meas = DocArg::new_param(
-            "meas".into(),
-            meas_type.clone(),
-            "The measurement to push.".into(),
-        );
-        let _param_col = if hasdata {
-            Some(param_col.clone())
-        } else {
-            None
-        };
-        let ps: Vec<_> = [param_meas]
-            .into_iter()
-            .chain(_param_col)
-            .chain([
-                make_param_name("Name of new measurement."),
-                param_range.clone(),
-                param_notrunc.clone(),
-            ])
-            .collect();
-        let summary = format!("Push {what} measurement to end of measurement vector.");
-        DocString::new(summary, vec![], true, ps, None)
-    };
-
-    let insert_meas_doc = |is_optical: bool, meas_type: &PyType, hasdata: bool| {
-        let what = if is_optical { "optical" } else { "temporal" };
-        let param_meas = DocArg::new_param(
-            "meas".into(),
-            meas_type.clone(),
-            "The measurement to insert.".into(),
-        );
-        let _param_col = if hasdata {
-            Some(param_col.clone())
-        } else {
-            None
-        };
-        let summary = format!("Insert {what} measurement at position in measurement vector.");
-        let ps: Vec<_> = [
-            make_param_index("Position at which to insert new measurement."),
-            param_meas,
-        ]
-        .into_iter()
-        .chain(_param_col)
-        .chain([
-            make_param_name("Name of new measurement."),
-            param_range.clone(),
-            param_notrunc.clone(),
-        ])
-        .collect();
-        DocString::new(summary, vec![], true, ps, None)
-    };
-
-    let push_opt_doc = push_meas_doc(true, &opt_pytype, false);
-    let insert_opt_doc = insert_meas_doc(true, &opt_pytype, false);
-    let push_tmp_doc = push_meas_doc(false, &tmp_pytype, false);
-    let insert_tmp_doc = insert_meas_doc(false, &tmp_pytype, false);
-    let push_opt_data_doc = push_meas_doc(true, &opt_pytype, true);
-    let insert_opt_data_doc = insert_meas_doc(true, &opt_pytype, true);
-    let push_tmp_data_doc = push_meas_doc(false, &tmp_pytype, true);
-    let insert_tmp_data_doc = insert_meas_doc(false, &tmp_pytype, true);
-
-    // the temporal replacement functions for 3.2 are different because they
-    // can fail if $PnTYPE is set
-    let (replace_tmp_sig, replace_tmp_args, replace_tmp_at_body, replace_tmp_named_body) =
-        if version == Version::FCS3_2 {
-            let go = |fun, x| {
-                quote! {self
-                .0
-                .#fun(#x, meas.into(), force)
-                .py_term_resolve()?}
-            };
-            (
-                quote! {force = false},
-                quote! {force: bool},
-                go(quote! {replace_temporal_at_lossy}, quote! {index}),
-                go(quote! {replace_temporal_named_lossy}, quote! {&name}),
-            )
-        } else {
-            (
-                quote! {},
-                quote! {},
-                quote! {self.0.replace_temporal_at(index, meas.into())?},
-                quote! {self.0.replace_temporal_named(&name, meas.into())},
-            )
-        };
-
-    let get_tmp_doc = DocString::new(
-        "Get the temporal measurement if it exists.".into(),
-        vec![],
-        true,
-        vec![],
-        Some(DocReturn::new(
-            PyType::new_opt(PyType::Tuple(vec![
-                PyType::Int,
-                PyType::Str,
-                tmp_pytype.clone(),
-            ])),
-            Some("Index, name, and measurement or ``None``".into()),
-        )),
-    );
-
-    let get_all_meas_doc = DocString::new(
-        "Get all measurements.".into(),
-        vec![],
-        true,
-        vec![],
-        Some(DocReturn::new(PyType::new_list(meas_pytype.clone()), None)),
-    );
-
-    let remove_meas_by_name_doc = DocString::new(
-        "Remove a measurement with a given name.".into(),
-        vec!["Raise exception if ``name`` not found.".into()],
-        true,
-        vec![make_param_name("Name to remove")],
-        Some(DocReturn::new(
-            PyType::Tuple(vec![PyType::Int, meas_pytype.clone()]),
-            Some("Index and measurement object".into()),
-        )),
-    );
-
-    let remove_meas_by_index_doc = DocString::new(
-        "Remove a measurement with a given index.".into(),
-        vec!["Raise exception if ``index`` not found.".into()],
-        true,
-        vec![make_param_index("Index to remove")],
-        Some(DocReturn::new(
-            PyType::Tuple(vec![PyType::Str, meas_pytype.clone()]),
-            Some("Name and measurement object".into()),
-        )),
-    );
-
-    let meas_at_doc = DocString::new(
-        "Return measurement at index.".into(),
-        vec!["Raise exception if ``index`` not found.".into()],
-        true,
-        vec![make_param_index("Index to retrieve.")],
-        Some(DocReturn::new(meas_pytype.clone(), None)),
-    );
-
-    let make_replace_doc = |is_optical: bool, is_index: bool| {
-        let (i, i_param, m) = if is_index {
-            (
-                "index",
-                make_param_index("Index to replace."),
-                "measurement at index",
-            )
-        } else {
-            (
-                "name",
-                make_param_name("Name to replace."),
-                "named measurement",
-            )
-        };
-        let (s, ss, t, other_pos) = if is_optical {
-            ("optical", "Optical", opt_pytype.clone(), "")
-        } else {
-            (
-                "temporal",
-                "Temporal",
-                tmp_pytype.clone(),
-                " or there is already a temporal measurement in a different position",
-            )
-        };
-        let meas_desc = format!("{ss} measurement to replace measurement at ``{i}``.");
-        let sub = format!("Raise exception if ``{i}`` does not exist{other_pos}.");
-        DocString::new(
-            format!("Replace {m} with given {s} measurement."),
-            vec![sub],
-            true,
-            vec![i_param, DocArg::new_param("meas".into(), t, meas_desc)],
-            Some(DocReturn::new(
-                meas_pytype.clone(),
-                Some("Replaced measurement object".into()),
-            )),
-        )
-    };
-
-    let replace_opt_at_doc = make_replace_doc(true, true);
-    let replace_named_opt_doc = make_replace_doc(true, false);
-    let replace_tmp_at_doc = make_replace_doc(false, true);
-    let replace_named_tmp_doc = make_replace_doc(false, false);
-
-    let unset_meas_doc = DocString::new(
-        "Remove measurements and clear the layout.".into(),
-        vec![
-            "This is equivalent to deleting all *$Pn\\** keywords and setting *$PAR* to 0.".into(),
-            "Will raise exception if other keywords (such as *$TR*) reference a measurement."
-                .into(),
-        ],
-        true,
-        vec![],
-        None,
-    );
-
-    let unset_data_doc = DocString::new(
-        "Remove all measurements and their data.".into(),
-        vec!["Raise exception if any keywords (such as *$TR*) reference a measurement.".into()],
-        true,
-        vec![],
-        None,
-    );
-
-    let both = quote! {
-        #get_tmp_doc
-        #[getter]
-        fn get_temporal(&self) -> Option<(MeasIndex, Shortname, #ttype)> {
-            self.0
-                .temporal()
-                .map(|t| (t.index, t.key.clone(), t.value.clone().into()))
-        }
-
-        #get_all_meas_doc
-        #[getter]
-        fn measurements(&self) -> Vec<Element<#ttype, #otype>> {
-            // This might seem inefficient since we are cloning
-            // everything, but if we want to map a python lambda
-            // function over the measurements we would need to to do
-            // this anyways, so simply returnig a copied list doesn't
-            // lose anything and keeps this API simpler.
-            let ms: &NamedVec<_, _, _, _> = self.0.as_ref();
-            ms.iter()
-                .map(|(_, e)| e.bimap(|t| t.value.clone(), |o| o.value.clone()))
-                .map(|v| v.inner_into())
-                .collect()
-        }
-
-        #remove_meas_by_name_doc
-        fn remove_measurement_by_name(
-            &mut self,
-            name: Shortname,
-        ) -> PyResult<(MeasIndex, Element<#ttype, #otype>)> {
-            Ok(self
-               .0
-               .remove_measurement_by_name(&name)
-               .map(|(i, x)| (i, x.inner_into()))?)
-        }
-
-        #remove_meas_by_index_doc
-        fn remove_measurement_by_index(
-            &mut self,
-            index: MeasIndex,
-        ) -> PyResult<(#nametype, Element<#ttype, #otype>)> {
-            let r = self.0.remove_measurement_by_index(index)?;
-            let (n, v) = Element::unzip::<#namefam>(r);
-            Ok((n.0, v.inner_into()))
-        }
-
-        // TODO this should return name as well
-        #meas_at_doc
-        fn measurement_at(&self, index: MeasIndex) -> PyResult<Element<#ttype, #otype>> {
-            let ms: &NamedVec<_, _, _, _> = self.0.as_ref();
-            let m = ms.get(index)?;
-            Ok(m.bimap(|x| x.1.clone(), |x| x.1.clone()).inner_into())
-        }
-
-        // TODO return measurement with name
-
-        #replace_opt_at_doc
-        fn replace_optical_at(
-            &mut self,
-            index: MeasIndex,
-            meas: #otype,
-        ) -> PyResult<Element<#ttype, #otype>> {
-            let ret = self.0.replace_optical_at(index, meas.into())?;
-            Ok(ret.inner_into())
-        }
-
-        #replace_named_opt_doc
-        fn replace_optical_named(
-            &mut self,
-            name: Shortname,
-            meas: #otype,
-        ) -> Option<Element<#ttype, #otype>> {
-            self.0
-                .replace_optical_named(&name, meas.into())
-                .map(|r| r.inner_into())
-        }
-
-        #replace_tmp_at_doc
-        #[pyo3(signature = (index, meas, #replace_tmp_sig))]
-        fn replace_temporal_at(
-            &mut self,
-            index: MeasIndex,
-            meas: #ttype,
-            #replace_tmp_args
-        ) -> PyResult<Element<#ttype, #otype>> {
-            let ret = #replace_tmp_at_body;
-            Ok(ret.inner_into())
-        }
-
-        #replace_named_tmp_doc
-        #[pyo3(signature = (name, meas, #replace_tmp_sig))]
-        fn replace_temporal_named(
-            &mut self,
-            name: Shortname,
-            meas: #ttype,
-            #replace_tmp_args
-        ) -> PyResult<Option<Element<#ttype, #otype>>> {
-            let ret = #replace_tmp_named_body;
-            Ok(ret.map(|r| r.inner_into()))
-        }
-    };
-
-    let coretext_only = quote! {
-        #push_opt_doc
-        fn push_optical(
-            &mut self,
-            meas: #otype,
-            name: #nametype,
-            range: kws::Range,
-            notrunc: bool,
-        ) -> PyResult<()> {
-            self.0
-                .push_optical(name.into(), meas.into(), range, notrunc)
-                .py_term_resolve()
-                .void()
-        }
-
-        #insert_opt_doc
-        fn insert_optical(
-            &mut self,
-            index: MeasIndex,
-            meas: #otype,
-            name: #nametype,
-            range: kws::Range,
-            notrunc: bool,
-        ) -> PyResult<()> {
-            self.0
-                .insert_optical(index, name.into(), meas.into(), range, notrunc)
-                .py_term_resolve()
-                .void()
-        }
-
-        #push_tmp_doc
-        fn push_temporal(
-            &mut self,
-            meas: #ttype,
-            name: Shortname,
-            range: kws::Range,
-            notrunc: bool,
-        ) -> PyResult<()> {
-            self.0
-                .push_temporal(name, meas.into(), range, notrunc)
-                .py_term_resolve()
-        }
-
-        #insert_tmp_doc
-        fn insert_temporal(
-            &mut self,
-            index: MeasIndex,
-            meas: #ttype,
-            name: Shortname,
-            range: kws::Range,
-            notrunc: bool,
-        ) -> PyResult<()> {
-            self.0
-                .insert_temporal(index, name, meas.into(), range, notrunc)
-                .py_term_resolve()
-        }
-
-        #unset_meas_doc
-        fn unset_measurements(&mut self) -> PyResult<()> {
-            Ok(self.0.unset_measurements()?)
-        }
-    };
-
-    let coredataset_only = quote! {
-        #push_opt_data_doc
-        fn push_optical(
-            &mut self,
-            meas: #otype,
-            col: AnyFCSColumn,
-            name: #nametype,
-            range: kws::Range,
-            notrunc: bool,
-        ) -> PyResult<()> {
-            self.0
-                .push_optical(name.into(), meas.into(), col, range, notrunc)
-                .py_term_resolve()
-                .void()
-        }
-
-        #insert_opt_data_doc
-        fn insert_optical(
-            &mut self,
-            index: MeasIndex,
-            meas: #otype,
-            col: AnyFCSColumn,
-            name: #nametype,
-            range: kws::Range,
-            notrunc: bool,
-        ) -> PyResult<()> {
-            self.0
-                .insert_optical(index, name.into(), meas.into(), col, range, notrunc)
-                .py_term_resolve()
-                .void()
-        }
-
-        #push_tmp_data_doc
-        fn push_temporal(
-            &mut self,
-            meas: #ttype,
-            col: AnyFCSColumn,
-            name: Shortname,
-            range: kws::Range,
-            notrunc: bool,
-        ) -> PyResult<()> {
-            self.0
-                .push_temporal(name, meas.into(), col, range, notrunc)
-                .py_term_resolve()
-        }
-
-        #insert_tmp_data_doc
-        fn insert_temporal(
-            &mut self,
-            index: MeasIndex,
-            meas: #ttype,
-            col: AnyFCSColumn,
-            name: Shortname,
-            range: kws::Range,
-            notrunc: bool,
-        ) -> PyResult<()> {
-            self.0
-                .insert_temporal(index, name, meas.into(), col, range, notrunc)
-                .py_term_resolve()
-        }
-
-        #unset_data_doc
-        fn unset_data(&mut self) -> PyResult<()> {
-            Ok(self.0.unset_data()?)
-        }
-    };
-
-    quote! {
-        #[pymethods]
-        impl #coretext_type {
-            #both
-            #coretext_only
-        }
-
-        #[pymethods]
-        impl #coredataset_type {
-            #both
-            #coredataset_only
-        }
-    }
-    .into()
 }
 
 #[proc_macro]
@@ -3749,33 +3798,6 @@ fn impl_new(
     (pyname, s)
 }
 
-#[derive(Debug)]
-struct GetSetMetarootInfo {
-    kwtype: Path,
-    name_override: Option<LitStr>,
-    parent_types: Punctuated<Type, Token![,]>,
-}
-
-impl Parse for GetSetMetarootInfo {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let keyword: Path = input.parse()?;
-        let _: Comma = input.parse()?;
-        let name_override = if input.peek(LitStr) {
-            let x = input.parse()?;
-            let _: Comma = input.parse()?;
-            Some(x)
-        } else {
-            None
-        };
-        let pytypes = Punctuated::parse_terminated(input)?;
-        Ok(Self {
-            kwtype: keyword,
-            name_override,
-            parent_types: pytypes,
-        })
-    }
-}
-
 struct GetSetAllMeas {
     rstype: Path,
     suffix: LitStr,
@@ -3801,31 +3823,6 @@ impl Parse for GetSetAllMeas {
     }
 }
 
-struct CommonMeasGetSet {
-    coretext_type: Path,
-    coredataset_type: Path,
-    nametype: Type,
-    namefam: Type,
-}
-
-impl Parse for CommonMeasGetSet {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let coretext_type = input.parse::<Path>()?;
-        let _: Comma = input.parse()?;
-        let coredataset_type = input.parse::<Path>()?;
-        let _: Comma = input.parse()?;
-        let nametype: Type = input.parse()?;
-        let _: Comma = input.parse()?;
-        let namefam: Type = input.parse()?;
-        Ok(Self {
-            coretext_type,
-            coredataset_type,
-            nametype,
-            namefam,
-        })
-    }
-}
-
 fn unwrap_generic<'a>(name: &str, ty: &'a Path) -> (&'a Path, bool) {
     if let Some(segment) = ty.segments.last() {
         if segment.ident == name {
@@ -3837,14 +3834,6 @@ fn unwrap_generic<'a>(name: &str, ty: &'a Path) -> (&'a Path, bool) {
         }
     }
     (ty, false)
-}
-
-fn split_version(name: &str) -> (&str, Version) {
-    let (ret, v) = name.split_at(name.len() - 3);
-    (
-        ret,
-        Version::from_short_underscore(v).expect("version should be like 'X_Y'"),
-    )
 }
 
 fn split_ident_version(name: &Ident) -> (String, Version) {
@@ -3871,23 +3860,12 @@ fn split_ident_version_pycore(name: &Ident) -> (bool, Version) {
     (base == "PyCoreDataset", version)
 }
 
-fn path_name(p: &Path) -> String {
-    p.segments.last().unwrap().ident.to_string()
-}
-
 const ALL_VERSIONS: [Version; 4] = [
     Version::FCS2_0,
     Version::FCS3_0,
     Version::FCS3_1,
     Version::FCS3_2,
 ];
-
-// fn parse_macro_version(input: TokenStream) -> Version {
-//     let x: LitStr = syn::parse(input).unwrap();
-//     x.value()
-//         .parse::<Version>()
-//         .expect("Must be a valid FCS version")
-// }
 
 fn path_strip_args(mut path: Path) -> Path {
     for segment in path.segments.iter_mut() {
@@ -3926,13 +3904,21 @@ fn timestep_path() -> Path {
     parse_quote!(fireflow_core::text::keywords::Timestep)
 }
 
-// fn versioned_shortname_path(version: Version) -> Path {
-//     let shortname_path = shortname_path();
-//     match version {
-//         Version::FCS2_0 | Version::FCS3_0 => parse_quote!(Option<#shortname_path>),
-//         _ => shortname_path,
-//     }
-// }
+fn versioned_shortname_path(version: Version) -> Path {
+    let shortname_path = shortname_path();
+    match version {
+        Version::FCS2_0 | Version::FCS3_0 => parse_quote!(Option<#shortname_path>),
+        _ => shortname_path,
+    }
+}
+
+fn versioned_family_path(version: Version) -> Path {
+    let root = quote!(fireflow_core::text::optional);
+    match version {
+        Version::FCS2_0 | Version::FCS3_0 => parse_quote!(#root::MaybeFamily),
+        _ => parse_quote!(#root::AlwaysFamily),
+    }
+}
 
 fn param_type_set_meas(version: Version) -> DocArg {
     let meas_pytype = ArgData::new_measurements_arg(version).doc.pytype;
@@ -3974,4 +3960,79 @@ fn param_skip_index_check() -> DocArg {
 
 fn fcs_df_path() -> Path {
     parse_quote!(fireflow_core::validated::dataframe::FCSDataFrame)
+}
+
+fn param_index(desc: &str) -> DocArg {
+    DocArg::new_param("index".into(), PyType::Int, desc.into())
+}
+
+fn param_col() -> DocArg {
+    DocArg::new_param(
+        "col".into(),
+        PyType::PyClass("polars.Series".into()),
+        "Data for measurement. Must be same length as existing columns.".into(),
+    )
+}
+
+fn param_name(short_desc: &str) -> DocArg {
+    DocArg::new_param(
+        "name".into(),
+        PyType::Str,
+        format!("{short_desc}. Corresponds to *$PnN*. Must not contain commas."),
+    )
+}
+
+fn param_range() -> DocArg {
+    DocArg::new_param(
+        "range".into(),
+        PyType::Float,
+        "Range of measurement. Corresponds to *$PnR*.".into(),
+    )
+}
+
+fn param_notrunc() -> DocArg {
+    DocArg::new_param_def(
+        "notrunc".into(),
+        PyType::Bool,
+        "If ``False``, raise exception if ``range`` must be truncated to fit \
+         into measurement type."
+            .into(),
+        DocDefault::Bool(false),
+    )
+}
+
+fn optical_pytype(version: Version) -> PyType {
+    PyType::PyClass(format!("Optical{}", version.short_underscore()))
+}
+
+fn temporal_pytype(version: Version) -> PyType {
+    PyType::PyClass(format!("Temporal{}", version.short_underscore()))
+}
+
+fn measurement_pytype(version: Version) -> PyType {
+    PyType::new_union2(optical_pytype(version), temporal_pytype(version))
+}
+
+fn pyoptical(version: Version) -> Ident {
+    format_ident!("PyOptical{}", version.short_underscore())
+}
+
+fn pytemporal(version: Version) -> Ident {
+    format_ident!("PyTemporal{}", version.short_underscore())
+}
+
+fn element_path(version: Version) -> Path {
+    let otype = pyoptical(version);
+    let ttype = pytemporal(version);
+    let element_path = quote!(fireflow_core::text::named_vec::Element);
+    parse_quote!(#element_path<#ttype, #otype>)
+}
+
+fn meas_index_path() -> Path {
+    parse_quote!(fireflow_core::text::index::MeasIndex)
+}
+
+fn keyword_path(n: &str) -> Path {
+    let t = format_ident!("{n}");
+    parse_quote!(fireflow_core::text::keywords::#t)
 }

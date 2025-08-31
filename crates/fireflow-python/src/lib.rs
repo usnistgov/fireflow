@@ -14,11 +14,10 @@ use fireflow_core::text::gating::{
     AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, BivariateRegion, GatedMeasurement,
     GatingScheme, Region, UnivariateRegion,
 };
-use fireflow_core::text::index::{GateIndex, MeasIndex, RegionIndex};
+use fireflow_core::text::index::{GateIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
-use fireflow_core::text::named_vec::{Eithers, Element, NamedVec, NonCenterElement};
-use fireflow_core::text::optional::{AlwaysFamily, MaybeFamily, MightHave};
-use fireflow_core::validated::dataframe::AnyFCSColumn;
+use fireflow_core::text::named_vec::{Eithers, Element, NonCenterElement};
+use fireflow_core::text::optional::MightHave;
 use fireflow_core::validated::keys::{StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::Shortname;
 use fireflow_python_proc::impl_layout_byte_widths;
@@ -27,14 +26,17 @@ use fireflow_python_proc::impl_new_endian_float_layout;
 use fireflow_python_proc::impl_new_endian_uint_layout;
 use fireflow_python_proc::{
     impl_core_all_peak_attrs, impl_core_all_pnn_attr, impl_core_all_pnn_maybe_attr,
-    impl_core_all_transforms_attr, impl_core_get_set_layout, impl_core_par,
-    impl_core_rename_temporal, impl_core_set_measurements, impl_core_set_measurements_and_layout,
-    impl_core_set_temporal, impl_core_set_timestep, impl_core_set_tr_threshold,
-    impl_core_unset_temporal, impl_core_version_x_y, impl_core_write_dataset, impl_core_write_text,
-    impl_coredataset_set_measurements_and_data, impl_coretext_to_dataset, impl_gated_meas,
-    impl_get_set_all_meas, impl_get_set_meas_obj_common, impl_new_core,
-    impl_new_fixed_ascii_layout, impl_new_gate_bi_regions, impl_new_gate_uni_regions,
-    impl_new_meas, impl_new_mixed_layout, impl_new_ordered_layout,
+    impl_core_all_transforms_attr, impl_core_get_measurement, impl_core_get_measurements,
+    impl_core_get_set_layout, impl_core_get_temporal, impl_core_insert_measurement, impl_core_par,
+    impl_core_push_measurement, impl_core_remove_measurement, impl_core_rename_temporal,
+    impl_core_replace_measurement, impl_core_set_measurements,
+    impl_core_set_measurements_and_layout, impl_core_set_temporal, impl_core_set_timestep,
+    impl_core_set_tr_threshold, impl_core_unset_temporal, impl_core_version_x_y,
+    impl_core_write_dataset, impl_core_write_text, impl_coredataset_set_measurements_and_data,
+    impl_coredataset_unset_data, impl_coretext_to_dataset, impl_coretext_unset_measurements,
+    impl_gated_meas, impl_get_set_all_meas, impl_new_core, impl_new_fixed_ascii_layout,
+    impl_new_gate_bi_regions, impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout,
+    impl_new_ordered_layout,
 };
 
 use derive_more::{From, Into};
@@ -163,8 +165,16 @@ macro_rules! impl_common {
         impl_core_unset_temporal!($pytype);
         impl_core_all_transforms_attr!($pytype);
 
+        impl_core_get_measurements!($pytype);
+        impl_core_get_measurement!($pytype);
+        impl_core_get_temporal!($pytype);
         impl_core_set_measurements!($pytype);
         impl_core_set_measurements_and_layout!($pytype);
+
+        impl_core_push_measurement!($pytype);
+        impl_core_insert_measurement!($pytype);
+        impl_core_replace_measurement!($pytype);
+        impl_core_remove_measurement!($pytype);
 
         impl_core_version_x_y!($pytype);
 
@@ -279,6 +289,16 @@ impl_coretext_to_dataset!(PyCoreTEXT3_0);
 impl_coretext_to_dataset!(PyCoreTEXT3_1);
 impl_coretext_to_dataset!(PyCoreTEXT3_2);
 
+impl_coretext_unset_measurements!(PyCoreTEXT2_0);
+impl_coretext_unset_measurements!(PyCoreTEXT3_0);
+impl_coretext_unset_measurements!(PyCoreTEXT3_1);
+impl_coretext_unset_measurements!(PyCoreTEXT3_2);
+
+impl_coredataset_unset_data!(PyCoreDataset2_0);
+impl_coredataset_unset_data!(PyCoreDataset3_0);
+impl_coredataset_unset_data!(PyCoreDataset3_1);
+impl_coredataset_unset_data!(PyCoreDataset3_2);
+
 impl_core_all_pnn_maybe_attr!(PyCoreTEXT2_0);
 impl_core_all_pnn_maybe_attr!(PyCoreTEXT3_0);
 impl_core_all_pnn_maybe_attr!(PyCoreDataset2_0);
@@ -290,21 +310,6 @@ impl_core_all_peak_attrs!(PyCoreTEXT3_1);
 impl_core_all_peak_attrs!(PyCoreDataset2_0);
 impl_core_all_peak_attrs!(PyCoreDataset3_0);
 impl_core_all_peak_attrs!(PyCoreDataset3_1);
-
-impl_get_set_meas_obj_common!(
-    PyCoreTEXT2_0,
-    PyCoreDataset2_0,
-    Option<Shortname>,
-    MaybeFamily
-);
-impl_get_set_meas_obj_common!(
-    PyCoreTEXT3_0,
-    PyCoreDataset3_0,
-    Option<Shortname>,
-    MaybeFamily
-);
-impl_get_set_meas_obj_common!(PyCoreTEXT3_1, PyCoreDataset3_1, Shortname, AlwaysFamily);
-impl_get_set_meas_obj_common!(PyCoreTEXT3_2, PyCoreDataset3_2, Shortname, AlwaysFamily);
 
 // Get/set methods for scaler $PnL (2.0-3.0)
 impl_get_set_all_meas! {

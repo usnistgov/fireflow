@@ -2284,7 +2284,7 @@ impl ArgData {
              and *$DATATYPE*."
         };
 
-        let layout_doc = DocArg::new_param(
+        let layout_doc = DocArg::new_ivar(
             layout_argname.to_string(),
             layout_pytype.clone(),
             layout_desc.into(),

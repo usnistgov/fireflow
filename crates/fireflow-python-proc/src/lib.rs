@@ -1377,37 +1377,16 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_core_replace_measurement(input: TokenStream) -> TokenStream {
+pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
     let otype = pyoptical(version);
-    let ttype = pytemporal(version);
     let meas_index_path = meas_index_path();
     let element_path = element_path(version);
     let shortname_path = shortname_path();
 
-    // the temporal replacement functions for 3.2 are different because they
-    // can fail if $PnTYPE is set
-    let (replace_tmp_sig, replace_tmp_args, replace_tmp_at_body, replace_tmp_named_body) =
-        if version == Version::FCS3_2 {
-            let go = |fun, x| quote!(self.0.#fun(#x, meas.into(), force).py_term_resolve()?);
-            (
-                quote! {force = false},
-                quote! {force: bool},
-                go(quote! {replace_temporal_at_lossy}, quote! {index}),
-                go(quote! {replace_temporal_named_lossy}, quote! {&name}),
-            )
-        } else {
-            (
-                quote! {},
-                quote! {},
-                quote! {self.0.replace_temporal_at(index, meas.into())?},
-                quote! {self.0.replace_temporal_named(&name, meas.into())},
-            )
-        };
-
-    let make_replace_doc = |is_optical: bool, is_index: bool| {
+    let make_replace_doc = |is_index: bool| {
         let (i, i_param, m) = if is_index {
             (
                 "index",
@@ -1417,23 +1396,16 @@ pub fn impl_core_replace_measurement(input: TokenStream) -> TokenStream {
         } else {
             ("name", param_name("Name to replace."), "named measurement")
         };
-        let (s, ss, t, other_pos) = if is_optical {
-            ("optical", "Optical", optical_pytype(version), "")
-        } else {
-            (
-                "temporal",
-                "Temporal",
-                temporal_pytype(version),
-                " or there is already a temporal measurement in a different position",
-            )
-        };
-        let meas_desc = format!("{ss} measurement to replace measurement at ``{i}``.");
-        let sub = format!("Raise exception if ``{i}`` does not exist{other_pos}.");
+        let meas_desc = format!("Optical measurement to replace measurement at ``{i}``.");
+        let sub = format!("Raise exception if ``{i}`` does not exist.");
         DocString::new(
-            format!("Replace {m} with given {s} measurement."),
+            format!("Replace {m} with given optical measurement."),
             vec![sub],
             true,
-            vec![i_param, DocArg::new_param("meas".into(), t, meas_desc)],
+            vec![
+                i_param,
+                DocArg::new_param("meas".into(), optical_pytype(version), meas_desc),
+            ],
             Some(DocReturn::new(
                 measurement_pytype(version),
                 Some("Replaced measurement object".into()),
@@ -1441,62 +1413,127 @@ pub fn impl_core_replace_measurement(input: TokenStream) -> TokenStream {
         )
     };
 
-    let replace_opt_at_doc = make_replace_doc(true, true);
-    let replace_named_opt_doc = make_replace_doc(true, false);
-    let replace_tmp_at_doc = make_replace_doc(false, true);
-    let replace_named_tmp_doc = make_replace_doc(false, false);
-
-    let both = quote! {
-        #replace_opt_at_doc
-        fn replace_optical_at(
-            &mut self,
-            index: #meas_index_path,
-            meas: #otype,
-        ) -> PyResult<#element_path> {
-            let ret = self.0.replace_optical_at(index, meas.into())?;
-            Ok(ret.inner_into())
-        }
-
-        #replace_named_opt_doc
-        fn replace_optical_named(
-            &mut self,
-            name: #shortname_path,
-            meas: #otype,
-        ) -> Option<#element_path> {
-            self.0
-                .replace_optical_named(&name, meas.into())
-                .map(|r| r.inner_into())
-        }
-
-        #replace_tmp_at_doc
-        #[pyo3(signature = (index, meas, #replace_tmp_sig))]
-        fn replace_temporal_at(
-            &mut self,
-            index: #meas_index_path,
-            meas: #ttype,
-            #replace_tmp_args
-        ) -> PyResult<#element_path> {
-            let ret = #replace_tmp_at_body;
-            Ok(ret.inner_into())
-        }
-
-        #replace_named_tmp_doc
-        #[pyo3(signature = (name, meas, #replace_tmp_sig))]
-        fn replace_temporal_named(
-            &mut self,
-            name: #shortname_path,
-            meas: #ttype,
-            #replace_tmp_args
-        ) -> PyResult<Option<#element_path>> {
-            let ret = #replace_tmp_named_body;
-            Ok(ret.map(|r| r.inner_into()))
-        }
-    };
+    let replace_at_doc = make_replace_doc(true);
+    let replace_named_doc = make_replace_doc(false);
 
     quote! {
         #[pymethods]
         impl #i {
-            #both
+            #replace_at_doc
+            fn replace_optical_at(
+                &mut self,
+                index: #meas_index_path,
+                meas: #otype,
+            ) -> PyResult<#element_path> {
+                let ret = self.0.replace_optical_at(index, meas.into())?;
+                Ok(ret.inner_into())
+            }
+
+            #replace_named_doc
+            fn replace_optical_named(
+                &mut self,
+                name: #shortname_path,
+                meas: #otype,
+            ) -> Option<#element_path> {
+                self.0
+                    .replace_optical_named(&name, meas.into())
+                    .map(|r| r.inner_into())
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let version = split_ident_version_pycore(&i).1;
+
+    let ttype = pytemporal(version);
+    let meas_index_path = meas_index_path();
+    let element_path = element_path(version);
+    let shortname_path = shortname_path();
+
+    // the temporal replacement functions for 3.2 are different because they
+    // can fail if $PnTYPE is set
+    let (replace_tmp_args, replace_tmp_at_body, replace_tmp_named_body) =
+        if version == Version::FCS3_2 {
+            let go = |fun, x| quote!(self.0.#fun(#x, meas.into(), force).py_term_resolve()?);
+            (
+                quote! {force: bool},
+                go(quote! {replace_temporal_at_lossy}, quote! {index}),
+                go(quote! {replace_temporal_named_lossy}, quote! {&name}),
+            )
+        } else {
+            (
+                quote! {},
+                quote! {self.0.replace_temporal_at(index, meas.into())?},
+                quote! {self.0.replace_temporal_named(&name, meas.into())},
+            )
+        };
+
+    let make_replace_doc = |is_index: bool| {
+        let (i, i_param, m) = if is_index {
+            (
+                "index",
+                param_index("Index to replace."),
+                "measurement at index",
+            )
+        } else {
+            ("name", param_name("Name to replace."), "named measurement")
+        };
+        let meas_desc = format!("Temporal measurement to replace measurement at ``{i}``.");
+        let sub = format!(
+            "Raise exception if ``{i}`` does not exist  or there \
+             is already a temporal measurement in a different position."
+        );
+        DocString::new(
+            format!("Replace {m} with given temporal measurement."),
+            vec![sub],
+            true,
+            vec![
+                i_param,
+                DocArg::new_param("meas".into(), temporal_pytype(version), meas_desc),
+            ],
+            Some(DocReturn::new(
+                measurement_pytype(version),
+                Some("Replaced measurement object".into()),
+            )),
+        )
+    };
+
+    let replace_at_doc = make_replace_doc(true);
+    let replace_named_doc = make_replace_doc(false);
+
+    let replace_at_sig = replace_at_doc.sig();
+    let replace_named_sig = replace_named_doc.sig();
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #replace_at_doc
+            #replace_at_sig
+            fn replace_temporal_at(
+                &mut self,
+                index: #meas_index_path,
+                meas: #ttype,
+                #replace_tmp_args
+            ) -> PyResult<#element_path> {
+                let ret = #replace_tmp_at_body;
+                Ok(ret.inner_into())
+            }
+
+            #replace_named_doc
+            #replace_named_sig
+            fn replace_temporal_named(
+                &mut self,
+                name: #shortname_path,
+                meas: #ttype,
+                #replace_tmp_args
+            ) -> PyResult<Option<#element_path>> {
+                let ret = #replace_tmp_named_body;
+                Ok(ret.map(|r| r.inner_into()))
+            }
         }
     }
     .into()

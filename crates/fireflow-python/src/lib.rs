@@ -29,7 +29,7 @@ use fireflow_python_proc::{
     impl_core_all_transforms_attr, impl_core_get_measurement, impl_core_get_measurements,
     impl_core_get_set_layout, impl_core_get_temporal, impl_core_insert_measurement, impl_core_par,
     impl_core_push_measurement, impl_core_remove_measurement, impl_core_rename_temporal,
-    impl_core_replace_measurement, impl_core_set_measurements,
+    impl_core_replace_optical, impl_core_replace_temporal, impl_core_set_measurements,
     impl_core_set_measurements_and_layout, impl_core_set_temporal, impl_core_set_timestep,
     impl_core_set_tr_threshold, impl_core_unset_temporal, impl_core_version_x_y,
     impl_core_write_dataset, impl_core_write_text, impl_coredataset_set_measurements_and_data,
@@ -173,7 +173,8 @@ macro_rules! impl_common {
 
         impl_core_push_measurement!($pytype);
         impl_core_insert_measurement!($pytype);
-        impl_core_replace_measurement!($pytype);
+        impl_core_replace_temporal!($pytype);
+        impl_core_replace_optical!($pytype);
         impl_core_remove_measurement!($pytype);
 
         impl_core_version_x_y!($pytype);

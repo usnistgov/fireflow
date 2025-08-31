@@ -534,7 +534,7 @@ pub fn impl_core_all_pnn_maybe_attr(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_core_set_timestep(input: TokenStream) -> TokenStream {
+pub fn impl_core_get_set_timestep(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
     let timestep_path = keyword_path("Timestep");
@@ -1804,7 +1804,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let calibration3_1 = ArgData::new_meas_kw_arg(
         "Calibration3_1",
         "calibration",
-        PyType::Tuple(vec![PyType::Float, PyType::Str]),
+        calibration3_1_pytype(),
         Some("Value of *$PnCALIBRATION*. Tuple encodes slope and calibration units."),
         Some(DocDefault::Option),
     );
@@ -1812,7 +1812,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let calibration3_2 = ArgData::new_meas_kw_arg(
         "Calibration3_2",
         "calibration",
-        PyType::Tuple(vec![PyType::Float, PyType::Float, PyType::Str]),
+        calibration3_2_pytype(),
         Some(
             "Value of *$PnCALIBRATION*. Tuple encodes slope, intercept, \
              and calibration units.",
@@ -1823,7 +1823,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let display = ArgData::new_meas_kw_arg(
         "Display",
         "display",
-        PyType::Tuple(vec![PyType::Bool, PyType::Float, PyType::Float]),
+        display_pytype(),
         Some(
             "Value of *$PnD*. First member of tuple encodes linear or log display \
              (``False`` and ``True`` respectively). The float members encode \
@@ -1834,12 +1834,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
 
     let analyte = ArgData::new_meas_kw_opt_arg("Analyte", "analyte", "ANALYTE", PyType::Str);
 
-    let feature = ArgData::new_meas_kw_opt_arg(
-        "Feature",
-        "feature",
-        "FEATURE",
-        PyType::new_lit(&["Area", "Width", "Height"]),
-    );
+    let feature = ArgData::new_meas_kw_opt_arg("Feature", "feature", "FEATURE", feature_pytype());
 
     let detector_name =
         ArgData::new_meas_kw_opt_arg("DetectorName", "detector_name", "DET", PyType::Str);
@@ -2797,14 +2792,119 @@ impl ArgData {
 }
 
 #[proc_macro]
-pub fn impl_get_set_all_meas(input: TokenStream) -> TokenStream {
-    let info = parse_macro_input!(input as GetSetAllMeas);
-    let kw = &info.rstype;
-    let (kw_mid, optical_only) = unwrap_generic("NonCenterElement", kw);
-    let (kw_inner, optional) = unwrap_generic("Option", kw_mid);
-    let s = info.suffix.value();
+pub fn impl_core_all_pns(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    core_all_meas_attr(&i, "Longname", "S", PyType::Str)
+}
 
-    let kw_doc = format!("*$Pn{}*", s.to_uppercase());
+#[proc_macro]
+pub fn impl_core_all_pnf(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    core_all_optical_attr(&i, "Filter", "F", PyType::Str)
+}
+
+#[proc_macro]
+pub fn impl_core_all_pno(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    core_all_optical_attr(&i, "Power", "O", PyType::Float)
+}
+
+#[proc_macro]
+pub fn impl_core_all_pnp(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    core_all_optical_attr(&i, "PercentEmitted", "P", PyType::Str)
+}
+
+#[proc_macro]
+pub fn impl_core_all_pnt(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    core_all_optical_attr(&i, "DetectorType", "T", PyType::Str)
+}
+
+#[proc_macro]
+pub fn impl_core_all_pnv(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    core_all_optical_attr(&i, "DetectorVoltage", "V", PyType::Float)
+}
+
+#[proc_macro]
+pub fn impl_core_all_pnl_old(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    core_all_optical_attr(&i, "Wavelength", "L", PyType::Float)
+}
+
+#[proc_macro]
+pub fn impl_core_all_pnl_new(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    core_all_optical_attr(&i, "Wavelengths", "L", PyType::new_list(PyType::Float))
+}
+
+#[proc_macro]
+pub fn impl_core_all_pnd(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    core_all_meas_attr(&i, "Display", "D", display_pytype())
+}
+
+#[proc_macro]
+pub fn impl_core_all_pndet(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    core_all_optical_attr(&i, "DetectorName", "DET", PyType::Str)
+}
+
+#[proc_macro]
+pub fn impl_core_all_pncal3_1(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    core_all_optical_attr(&i, "Calibration3_1", "CAL", calibration3_1_pytype())
+}
+
+#[proc_macro]
+pub fn impl_core_all_pncal3_2(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    core_all_optical_attr(&i, "Calibration3_2", "CAL", calibration3_2_pytype())
+}
+
+#[proc_macro]
+pub fn impl_core_all_pntag(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    core_all_optical_attr(&i, "Tag", "TAG", PyType::Str)
+}
+
+#[proc_macro]
+pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    core_all_optical_attr(&i, "OpticalType", "TYPE", PyType::Str)
+}
+
+#[proc_macro]
+pub fn impl_core_all_pnfeature(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    core_all_optical_attr(&i, "Feature", "FEATURE", feature_pytype())
+}
+
+#[proc_macro]
+pub fn impl_core_all_pnanalyte(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    core_all_optical_attr(&i, "Analyte", "ANALYTE", PyType::Str)
+}
+
+fn core_all_optical_attr(t: &Ident, kw: &str, suffix: &str, base_pytype: PyType) -> TokenStream {
+    core_all_meas_attr1(t, kw, suffix, base_pytype, true, true)
+}
+
+fn core_all_meas_attr(t: &Ident, kw: &str, suffix: &str, base_pytype: PyType) -> TokenStream {
+    core_all_meas_attr1(t, kw, suffix, base_pytype, true, false)
+}
+
+fn core_all_meas_attr1(
+    t: &Ident,
+    kw: &str,
+    suffix: &str,
+    base_pytype: PyType,
+    is_optional: bool,
+    optical_only: bool,
+) -> TokenStream {
+    let kw_doc = format!("*$Pn{suffix}*");
+    let kw_inner = keyword_path(kw);
 
     let doc_summary = format!("Value of {kw_doc} for all measurements.");
     let doc_middle = if optical_only {
@@ -2816,15 +2916,13 @@ pub fn impl_get_set_all_meas(input: TokenStream) -> TokenStream {
         vec![]
     };
 
-    let base_pytype = PyType::Raw(info.pytype.value());
-
     let tmp_pytype = if optical_only {
         PyType::new_union2(base_pytype, PyType::new_unit())
     } else {
         base_pytype
     };
 
-    let doc_type = if optional {
+    let doc_type = if is_optional {
         PyType::new_opt(tmp_pytype)
     } else {
         tmp_pytype
@@ -2838,62 +2936,58 @@ pub fn impl_get_set_all_meas(input: TokenStream) -> TokenStream {
         Some(DocReturn::new(doc_type, None)),
     );
 
-    let get = format_ident!("get_all_pn{}", s.to_lowercase());
-    let set = format_ident!("set_all_pn{}", s.to_lowercase());
+    let get = format_ident!("get_all_pn{}", suffix.to_lowercase());
+    let set = format_ident!("set_all_pn{}", suffix.to_lowercase());
 
-    let outputs: Vec<_> = info
-        .parent_types
-        .iter()
-        .map(|t| {
-            let kw = if optional {
-                quote! {Option<#kw_inner>}
-            } else {
-                quote! {#kw_inner}
-            };
-            let fn_get = if optical_only {
-                quote! {
-                    fn #get(&self) -> Vec<NonCenterElement<#kw>> {
-                        self.0
-                            .optical_opt()
-                            .map(|e| e.0.map_non_center(|x| x.cloned()).into())
-                            .collect()
-                    }
-                }
-            } else {
-                quote! {
-                    fn #get(&self) -> Vec<#kw> {
-                        self.0.meas_opt().map(|x| x.cloned()).collect()
-                    }
-                }
-            };
-            let fn_set = if optical_only {
-                quote! {
-                    fn #set(&mut self, xs: Vec<NonCenterElement<#kw>>) -> PyResult<()> {
-                        self.0.set_optical(xs).py_term_resolve_nowarn()
-                    }
-                }
-            } else {
-                quote! {
-                    fn #set(&mut self, xs: Vec<#kw>) -> PyResult<()> {
-                        Ok(self.0.set_meas(xs)?)
-                    }
-                }
-            };
+    let kw = if is_optional {
+        quote! {Option<#kw_inner>}
+    } else {
+        quote! {#kw_inner}
+    };
+
+    let (fn_get, fn_set) = if optical_only {
+        (
             quote! {
-                #[pymethods]
-                impl #t {
-                    #doc
-                    #[getter]
-                    #fn_get
-
-                    #[setter]
-                    #fn_set
+                fn #get(&self) -> Vec<NonCenterElement<#kw>> {
+                    self.0
+                        .optical_opt()
+                        .map(|e| e.0.map_non_center(|x| x.cloned()).into())
+                        .collect()
                 }
-            }
-        })
-        .collect();
+            },
+            quote! {
+                fn #set(&mut self, xs: Vec<NonCenterElement<#kw>>) -> PyResult<()> {
+                    self.0.set_optical(xs).py_term_resolve_nowarn()
+                }
+            },
+        )
+    } else {
+        (
+            quote! {
+                fn #get(&self) -> Vec<#kw> {
+                    self.0.meas_opt().map(|x| x.cloned()).collect()
+                }
+            },
+            quote! {
+                fn #set(&mut self, xs: Vec<#kw>) -> PyResult<()> {
+                    Ok(self.0.set_meas(xs)?)
+                }
+            },
+        )
+    };
 
-    quote! {#(#outputs)*}.into()
+    quote! {
+        #[pymethods]
+        impl #t {
+            #doc
+            #[getter]
+            #fn_get
+
+            #[setter]
+            #fn_set
+        }
+    }
+    .into()
 }
 
 #[proc_macro]
@@ -3996,6 +4090,22 @@ fn measurement_pytype(version: Version) -> PyType {
 
 fn datatype_pytype() -> PyType {
     PyType::new_lit(&["A", "I", "F", "D"])
+}
+
+fn display_pytype() -> PyType {
+    PyType::Tuple(vec![PyType::Bool, PyType::Float, PyType::Float])
+}
+
+fn feature_pytype() -> PyType {
+    PyType::new_lit(&["Area", "Width", "Height"])
+}
+
+fn calibration3_1_pytype() -> PyType {
+    PyType::Tuple(vec![PyType::Float, PyType::Str])
+}
+
+fn calibration3_2_pytype() -> PyType {
+    PyType::Tuple(vec![PyType::Float, PyType::Float, PyType::Str])
 }
 
 fn element_path(version: Version) -> Path {

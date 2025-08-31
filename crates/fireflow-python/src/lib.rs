@@ -25,18 +25,21 @@ use fireflow_python_proc::impl_new_delim_ascii_layout;
 use fireflow_python_proc::impl_new_endian_float_layout;
 use fireflow_python_proc::impl_new_endian_uint_layout;
 use fireflow_python_proc::{
-    impl_core_all_peak_attrs, impl_core_all_pnn_attr, impl_core_all_pnn_maybe_attr,
+    impl_core_all_peak_attrs, impl_core_all_pnanalyte, impl_core_all_pncal3_1,
+    impl_core_all_pncal3_2, impl_core_all_pnd, impl_core_all_pndet, impl_core_all_pnf,
+    impl_core_all_pnfeature, impl_core_all_pnl_new, impl_core_all_pnl_old, impl_core_all_pnn_attr,
+    impl_core_all_pnn_maybe_attr, impl_core_all_pno, impl_core_all_pnp, impl_core_all_pns,
+    impl_core_all_pnt, impl_core_all_pntag, impl_core_all_pntype, impl_core_all_pnv,
     impl_core_all_transforms_attr, impl_core_get_measurement, impl_core_get_measurements,
-    impl_core_get_temporal, impl_core_insert_measurement, impl_core_par,
-    impl_core_push_measurement, impl_core_remove_measurement, impl_core_rename_temporal,
-    impl_core_replace_optical, impl_core_replace_temporal, impl_core_set_measurements,
-    impl_core_set_measurements_and_layout, impl_core_set_temporal, impl_core_set_timestep,
+    impl_core_get_set_timestep, impl_core_get_temporal, impl_core_insert_measurement,
+    impl_core_par, impl_core_push_measurement, impl_core_remove_measurement,
+    impl_core_rename_temporal, impl_core_replace_optical, impl_core_replace_temporal,
+    impl_core_set_measurements, impl_core_set_measurements_and_layout, impl_core_set_temporal,
     impl_core_set_tr_threshold, impl_core_unset_temporal, impl_core_version_x_y,
     impl_core_write_dataset, impl_core_write_text, impl_coredataset_set_measurements_and_data,
     impl_coredataset_unset_data, impl_coretext_to_dataset, impl_coretext_unset_measurements,
-    impl_gated_meas, impl_get_set_all_meas, impl_new_core, impl_new_fixed_ascii_layout,
-    impl_new_gate_bi_regions, impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout,
-    impl_new_ordered_layout,
+    impl_gated_meas, impl_new_core, impl_new_fixed_ascii_layout, impl_new_gate_bi_regions,
+    impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout, impl_new_ordered_layout,
 };
 
 use derive_more::{From, Into};
@@ -136,74 +139,123 @@ pub fn py_fcs_read_std_dataset_with_keywords(
     Ok((core.into(), data))
 }
 
+// Implement python classes for core* structs
+//
+// Will actually make classes called PyCoreTEXT* and PyCoreDataset* which
+// can be referred as such elsewhere
+//
+// This will include the __new__ methods and all attributes corresponding to
+// "instance variables" supplied to __new__
 impl_new_core!(core::CoreTEXT2_0, core::CoreDataset2_0);
 impl_new_core!(core::CoreTEXT3_0, core::CoreDataset3_0);
 impl_new_core!(core::CoreTEXT3_1, core::CoreDataset3_1);
 impl_new_core!(core::CoreTEXT3_2, core::CoreDataset3_2);
 
+// Implement python classes for Optical* structs (as PyOptical*)
+//
+// This will include the __new__ methods and all attributes corresponding to
+// "instance variables" supplied to __new__
 impl_new_meas!(core::Optical2_0);
 impl_new_meas!(core::Optical3_0);
 impl_new_meas!(core::Optical3_1);
 impl_new_meas!(core::Optical3_2);
 
+// Implement python classes for Temporal* structs (as PyTemporal*)
+//
+// This will include the __new__ methods and all attributes corresponding to
+// "instance variables" supplied to __new__
 impl_new_meas!(core::Temporal2_0);
 impl_new_meas!(core::Temporal3_0);
 impl_new_meas!(core::Temporal3_1);
 impl_new_meas!(core::Temporal3_2);
 
-// Get/set methods for all versions
+// Common methods for all Core* versions. Some of these macros will implement a
+// slightly different method depending on version.
 macro_rules! impl_common {
     ($pytype:ident) => {
+        // get $PAR as read-only value
         impl_core_par!($pytype);
-        impl_core_set_tr_threshold!($pytype);
-        impl_core_write_text!($pytype);
-        impl_core_all_pnn_attr!($pytype);
-        impl_core_rename_temporal!($pytype);
-        impl_core_set_temporal!($pytype);
-        impl_core_set_timestep!($pytype);
-        impl_core_unset_temporal!($pytype);
-        impl_core_all_transforms_attr!($pytype);
 
+        // method to set $TR threshold without changing its reference
+        impl_core_set_tr_threshold!($pytype);
+
+        // method to write HEADER+TEXT to file
+        impl_core_write_text!($pytype);
+
+        // $PnN attribute; for 2.0/3.0, this will not allow setting any to None
+        impl_core_all_pnn_attr!($pytype);
+
+        // method to rename temporal measurement if it exists
+        impl_core_rename_temporal!($pytype);
+
+        // methods to set any measurement to temporal (using index or name)
+        impl_core_set_temporal!($pytype);
+
+        // method to get/set timestep; this is not an attribute because the
+        // setter method returns something
+        impl_core_get_set_timestep!($pytype);
+
+        // method to convert temporal measurement to optical if it exists; these
+        // are slightly different for each version
+        impl_core_unset_temporal!($pytype);
+
+        // method to get all measurements as read-only list
         impl_core_get_measurements!($pytype);
-        impl_core_get_measurement!($pytype);
-        impl_core_get_temporal!($pytype);
+
+        // method to set all measurements; this cannot be combined with
+        // impl_core_get_measurements! because this method takes arguments
         impl_core_set_measurements!($pytype);
+
+        // method to get one measurement by index
+        impl_core_get_measurement!($pytype);
+
+        // method to get temporal measurement if it exists
+        impl_core_get_temporal!($pytype);
+
+        // method to set all measurements and layout at once
         impl_core_set_measurements_and_layout!($pytype);
 
+        // methods to add optical or temporal measurement at last index
         impl_core_push_measurement!($pytype);
+
+        // methods to add optical or temporal measurement at arbitrary index
         impl_core_insert_measurement!($pytype);
+
+        // method to replace temporal measurement by index or name; slightly
+        // different for each version since later versions are fallable
         impl_core_replace_temporal!($pytype);
+
+        // method to replace optical measurement by index or name
         impl_core_replace_optical!($pytype);
+
+        // method to replace measurement by index or name
         impl_core_remove_measurement!($pytype);
 
+        // methods to convert this class to to a different version; actually
+        // implements one method for each version that isn't this one
         impl_core_version_x_y!($pytype);
 
-        // common measurement keywords
-        impl_get_set_all_meas!(Option<kws::Longname>, "S", "str", $pytype);
+        // attribute for all $PnS keywords
+        impl_core_all_pns!($pytype);
 
-        impl_get_set_all_meas!(NonCenterElement<Option<kws::Filter>>, "F", "str", $pytype);
-        impl_get_set_all_meas!(NonCenterElement<Option<kws::Power>>, "O", "float", $pytype);
+        // attribute for all $PnF keywords
+        impl_core_all_pnf!($pytype);
 
-        impl_get_set_all_meas!(
-            NonCenterElement<Option<kws::PercentEmitted>>,
-            "P",
-            "str",
-            $pytype
-        );
+        // attribute for all $PnO keywords
+        impl_core_all_pno!($pytype);
 
-        impl_get_set_all_meas!(
-            NonCenterElement<Option<kws::DetectorType>>,
-            "T",
-            "str",
-            $pytype
-        );
+        // attribute for all $PnP keywords
+        impl_core_all_pnp!($pytype);
 
-        impl_get_set_all_meas!(
-            NonCenterElement<Option<kws::DetectorVoltage>>,
-            "V",
-            "float",
-            $pytype
-        );
+        // attribute for all $PnT keywords
+        impl_core_all_pnt!($pytype);
+
+        // attribute for all $PnV keywords
+        impl_core_all_pnv!($pytype);
+
+        // attribute for all scaling keywords ($PnE or $PnG if present);
+        // 3.0 and later will return gain and scale combined
+        impl_core_all_transforms_attr!($pytype);
 
         #[pymethods]
         impl $pytype {
@@ -274,36 +326,40 @@ impl_common!(PyCoreDataset3_0);
 impl_common!(PyCoreDataset3_1);
 impl_common!(PyCoreDataset3_2);
 
-impl_coredataset_set_measurements_and_data!(PyCoreDataset2_0);
-impl_coredataset_set_measurements_and_data!(PyCoreDataset3_0);
-impl_coredataset_set_measurements_and_data!(PyCoreDataset3_1);
-impl_coredataset_set_measurements_and_data!(PyCoreDataset3_2);
+// Common methods for all CoreTEXT* versions.
+macro_rules! impl_coretext_common {
+    ($pytype:ident) => {
+        impl_coretext_to_dataset!($pytype);
+        impl_coretext_unset_measurements!($pytype);
+    };
+}
 
-impl_core_write_dataset!(PyCoreDataset2_0);
-impl_core_write_dataset!(PyCoreDataset3_0);
-impl_core_write_dataset!(PyCoreDataset3_1);
-impl_core_write_dataset!(PyCoreDataset3_2);
+impl_coretext_common!(PyCoreTEXT2_0);
+impl_coretext_common!(PyCoreTEXT3_0);
+impl_coretext_common!(PyCoreTEXT3_1);
+impl_coretext_common!(PyCoreTEXT3_2);
 
-impl_coretext_to_dataset!(PyCoreTEXT2_0);
-impl_coretext_to_dataset!(PyCoreTEXT3_0);
-impl_coretext_to_dataset!(PyCoreTEXT3_1);
-impl_coretext_to_dataset!(PyCoreTEXT3_2);
+// Common methods for all CoreDataset* versions.
+macro_rules! impl_coredataset_common {
+    ($pytype:ident) => {
+        impl_coredataset_set_measurements_and_data!($pytype);
+        impl_core_write_dataset!($pytype);
+        impl_coredataset_unset_data!($pytype);
+    };
+}
 
-impl_coretext_unset_measurements!(PyCoreTEXT2_0);
-impl_coretext_unset_measurements!(PyCoreTEXT3_0);
-impl_coretext_unset_measurements!(PyCoreTEXT3_1);
-impl_coretext_unset_measurements!(PyCoreTEXT3_2);
+impl_coredataset_common!(PyCoreDataset2_0);
+impl_coredataset_common!(PyCoreDataset3_0);
+impl_coredataset_common!(PyCoreDataset3_1);
+impl_coredataset_common!(PyCoreDataset3_2);
 
-impl_coredataset_unset_data!(PyCoreDataset2_0);
-impl_coredataset_unset_data!(PyCoreDataset3_0);
-impl_coredataset_unset_data!(PyCoreDataset3_1);
-impl_coredataset_unset_data!(PyCoreDataset3_2);
-
+// Get/set $PnN for 2.0 and 3.0 where this field is optional
 impl_core_all_pnn_maybe_attr!(PyCoreTEXT2_0);
 impl_core_all_pnn_maybe_attr!(PyCoreTEXT3_0);
 impl_core_all_pnn_maybe_attr!(PyCoreDataset2_0);
 impl_core_all_pnn_maybe_attr!(PyCoreDataset3_0);
 
+// Get/set methods for $PKn and $PKNn (2.0-3.1)
 impl_core_all_peak_attrs!(PyCoreTEXT2_0);
 impl_core_all_peak_attrs!(PyCoreTEXT3_0);
 impl_core_all_peak_attrs!(PyCoreTEXT3_1);
@@ -312,102 +368,52 @@ impl_core_all_peak_attrs!(PyCoreDataset3_0);
 impl_core_all_peak_attrs!(PyCoreDataset3_1);
 
 // Get/set methods for scaler $PnL (2.0-3.0)
-impl_get_set_all_meas! {
-    NonCenterElement<Option<kws::Wavelength>>,
-    "L",
-    "float",
-    PyCoreTEXT2_0,
-    PyCoreTEXT3_0,
-    PyCoreDataset2_0,
-    PyCoreDataset3_0
-}
+impl_core_all_pnl_old!(PyCoreTEXT2_0);
+impl_core_all_pnl_old!(PyCoreTEXT3_0);
+impl_core_all_pnl_old!(PyCoreDataset2_0);
+impl_core_all_pnl_old!(PyCoreDataset3_0);
 
 // Get/set methods for vector $PnL (3.1-3.2)
-impl_get_set_all_meas! {
-    NonCenterElement<Option<kws::Wavelengths>>,
-    "L",
-    "list[float]",
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2
-}
+impl_core_all_pnl_new!(PyCoreTEXT3_1);
+impl_core_all_pnl_new!(PyCoreTEXT3_2);
+impl_core_all_pnl_new!(PyCoreDataset3_1);
+impl_core_all_pnl_new!(PyCoreDataset3_2);
 
 // Get/set methods for $PnD (3.1+)
 //
 // This is valid for the time channel so don't set on just optical
-impl_get_set_all_meas! {
-    Option<kws::Display>,
-    "D",
-    "(bool, float, float)",
-    PyCoreTEXT3_1,
-    PyCoreDataset3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_2
-}
+impl_core_all_pnd!(PyCoreTEXT3_1);
+impl_core_all_pnd!(PyCoreDataset3_1);
+impl_core_all_pnd!(PyCoreTEXT3_2);
+impl_core_all_pnd!(PyCoreDataset3_2);
 
 // Get/set methods for $PnDET (3.2)
-impl_get_set_all_meas! {
-    NonCenterElement<Option<kws::DetectorName>>,
-    "DET",
-    "str",
-    PyCoreTEXT3_2,
-    PyCoreDataset3_2
-}
+impl_core_all_pndet!(PyCoreTEXT3_2);
+impl_core_all_pndet!(PyCoreDataset3_2);
 
 // Get/set methods for $PnCALIBRATION (3.1)
-impl_get_set_all_meas! {
-    NonCenterElement<Option<kws::Calibration3_1>>,
-    "CALIBRATION",
-    "(float, str)",
-    PyCoreTEXT3_1,
-    PyCoreDataset3_1
-}
+impl_core_all_pncal3_1!(PyCoreTEXT3_1);
+impl_core_all_pncal3_1!(PyCoreDataset3_1);
 
 // Get/set methods for $PnCALIBRATION (3.2)
-impl_get_set_all_meas! {
-    NonCenterElement<Option<kws::Calibration3_2>>,
-    "CALIBRATION",
-    "(float, float, str)",
-    PyCoreTEXT3_2,
-    PyCoreDataset3_2
-}
+impl_core_all_pncal3_2!(PyCoreTEXT3_2);
+impl_core_all_pncal3_2!(PyCoreDataset3_2);
 
 // Get/set methods for $PnTAG (3.2)
-impl_get_set_all_meas! {
-    NonCenterElement<Option<kws::Tag>>,
-    "TAG",
-    "str",
-    PyCoreTEXT3_2,
-    PyCoreDataset3_2
-}
+impl_core_all_pntag!(PyCoreTEXT3_2);
+impl_core_all_pntag!(PyCoreDataset3_2);
 
 // Get/set methods for $PnTYPE (3.2)
-impl_get_set_all_meas! {
-    NonCenterElement<Option<kws::OpticalType>>,
-    "TYPE",
-    "str",
-    PyCoreTEXT3_2,
-    PyCoreDataset3_2
-}
+impl_core_all_pntype!(PyCoreTEXT3_2);
+impl_core_all_pntype!(PyCoreDataset3_2);
 
 // Get/set methods for $PnFEATURE (3.2)
-impl_get_set_all_meas! {
-    NonCenterElement<Option<kws::Feature>>,
-    "FEATURE",
-    "Literal[\"Area\", \"Width\", \"Height\"]",
-    PyCoreTEXT3_2,
-    PyCoreDataset3_2
-}
+impl_core_all_pnfeature!(PyCoreTEXT3_2);
+impl_core_all_pnfeature!(PyCoreDataset3_2);
 
 // Get/set methods for $PnANALYTE (3.2)
-impl_get_set_all_meas! {
-    NonCenterElement<Option<kws::Analyte>>,
-    "ANALYTE",
-    "str",
-    PyCoreTEXT3_2,
-    PyCoreDataset3_2
-}
+impl_core_all_pnanalyte!(PyCoreTEXT3_2);
+impl_core_all_pnanalyte!(PyCoreDataset3_2);
 
 #[derive(From, Into, Default)]
 struct PyAppliedGates2_0(AppliedGates2_0);
@@ -493,12 +499,22 @@ impl<'py> IntoPyObject<'py> for PyAppliedGates3_2 {
     }
 }
 
+// Implement __new__ and attributes for PyUnivariate2_0
 impl_new_gate_uni_regions!(UnivariateRegion<GateIndex>);
+
+// Implement __new__ and attributes for PyUnivariate3_0
 impl_new_gate_uni_regions!(UnivariateRegion<kws::MeasOrGateIndex>);
+
+// Implement __new__ and attributes for PyUnivariate3_2
 impl_new_gate_uni_regions!(UnivariateRegion<kws::PrefixedMeasIndex>);
 
+// Implement __new__ and attributes for PyBivariate2_0
 impl_new_gate_bi_regions!(BivariateRegion<GateIndex>);
+
+// Implement __new__ and attributes for PyBivariate3_0
 impl_new_gate_bi_regions!(BivariateRegion<kws::MeasOrGateIndex>);
+
+// Implement __new__ and attributes for PyBivariate3_2
 impl_new_gate_bi_regions!(BivariateRegion<kws::PrefixedMeasIndex>);
 
 struct PyEithers<K: MightHave, U, V>(Eithers<K, U, V>);
@@ -611,9 +627,13 @@ impl From<Vec<GatedMeasurement>> for PyGatedMeasurements {
     }
 }
 
+// Implement __new__ and attributes for PyFixedAsciiLayout
 impl_new_fixed_ascii_layout!(FixedAsciiLayout<KnownTot, NoMeasDatatype, false>);
+
+// Implement __new__ and attributes for PyFixedDelimLayout
 impl_new_delim_ascii_layout!(DelimAsciiLayout<KnownTot, NoMeasDatatype, false>);
 
+// Implement __new__ and attributes for all PyOrderedUint*Layout structs
 impl_new_ordered_layout!(1, false);
 impl_new_ordered_layout!(2, false);
 impl_new_ordered_layout!(3, false);
@@ -623,29 +643,23 @@ impl_new_ordered_layout!(6, false);
 impl_new_ordered_layout!(7, false);
 impl_new_ordered_layout!(8, false);
 
+// Implement __new__ and attributes for all PyOrderedF*Layout structs
 impl_new_ordered_layout!(4, true);
 impl_new_ordered_layout!(8, true);
 
+// Implement __new__ and attributes for all PyEndianF*Layout structs
 impl_new_endian_float_layout!(4);
 impl_new_endian_float_layout!(8);
 
+// Implement __new__ and attributes for PyEndianUintLayout
 impl_new_endian_uint_layout!();
 
+// Implement __new__ and attributes for PyMixedLayout
 impl_new_mixed_layout!();
 
+// Implement method to return the byte widths of variable-widths layouts
 impl_layout_byte_widths!(PyEndianUintLayout);
 impl_layout_byte_widths!(PyMixedLayout);
-
-// pub(crate) struct PyNonEmpty<T>(pub(crate) NonEmpty<T>);
-
-// impl<'py, T: FromPyObject<'py>> FromPyObject<'py> for PyNonEmpty<T> {
-//     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-//         let xs: Vec<_> = ob.extract()?;
-//         NonEmpty::from_vec(xs)
-//             .ok_or(PyValueError::new_err("list must not be empty"))
-//             .map(Self)
-//     }
-// }
 
 #[derive(IntoPyObject, From)]
 pub enum PyAnyCoreTEXT {

@@ -1694,7 +1694,8 @@ pub fn impl_coredataset_set_measurements_and_data(input: TokenStream) -> TokenSt
 pub fn impl_coretext_to_dataset(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_checked("PyCoreTEXT", &i);
-    let coredataset_name = format_ident!("PyCoreDataset{}", version.short_underscore());
+    let to_name = format!("CoreDataset{}", version.short_underscore());
+    let to_rstype = pycoredataset(version);
     let fcs_df_path = fcs_df_path();
 
     let df = ArgData::new_df_arg();
@@ -1711,10 +1712,7 @@ pub fn impl_coretext_to_dataset(input: TokenStream) -> TokenStream {
             .into()],
         true,
         vec![df.doc, analysis.doc, others.doc],
-        Some(DocReturn::new(
-            PyType::PyClass(coredataset_name.to_string()),
-            None,
-        )),
+        Some(DocReturn::new(PyType::PyClass(to_name), None)),
     );
 
     quote! {
@@ -1726,7 +1724,7 @@ pub fn impl_coretext_to_dataset(input: TokenStream) -> TokenStream {
                 df: #fcs_df_path,
                 analysis: #analysis_path,
                 others: #others_path,
-            ) -> PyResult<#coredataset_name> {
+            ) -> PyResult<#to_rstype> {
                 Ok(self
                    .0
                    .clone()
@@ -4102,6 +4100,10 @@ fn pyoptical(version: Version) -> Ident {
 
 fn pytemporal(version: Version) -> Ident {
     format_ident!("PyTemporal{}", version.short_underscore())
+}
+
+fn pycoredataset(version: Version) -> Ident {
+    format_ident!("PyCoreDataset{}", version.short_underscore())
 }
 
 const ALL_VERSIONS: [Version; 4] = [

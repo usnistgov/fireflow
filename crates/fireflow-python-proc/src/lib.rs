@@ -14,9 +14,8 @@ use quote::{format_ident, quote};
 use syn::{
     parse::{Parse, ParseStream},
     parse_macro_input, parse_quote,
-    punctuated::Punctuated,
     token::Comma,
-    GenericArgument, Ident, LitBool, LitInt, LitStr, Path, PathArguments, Result, Token, Type,
+    GenericArgument, Ident, LitBool, LitInt, Path, PathArguments, Result, Type,
 };
 
 #[proc_macro]
@@ -3053,55 +3052,6 @@ pub fn impl_core_version_x_y(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_meas_get_set(input: TokenStream) -> TokenStream {
-    let info = parse_macro_input!(input as GetSetAllMeas);
-    let kw = &info.rstype;
-    let (_, optional) = unwrap_generic("Option", kw);
-    let s = info.suffix.value();
-
-    let base_type = PyType::Raw(info.pytype.value());
-    let rtype = PyType::new_list(if optional {
-        PyType::new_opt(base_type)
-    } else {
-        base_type
-    });
-    let doc = DocString::new(
-        format!("Value of *$Pn{}*.", s.to_uppercase()),
-        vec![],
-        true,
-        vec![],
-        Some(DocReturn::new(rtype, None)),
-    );
-    let get = format_ident!("get_pn{}", s.to_lowercase());
-    let set = format_ident!("set_pn{}", s.to_lowercase());
-
-    let outputs: Vec<_> = info
-        .parent_types
-        .iter()
-        .map(|t| {
-            quote! {
-                #[pymethods]
-                impl #t {
-                    #doc
-                    #[getter]
-                    fn #get(&self) -> #kw {
-                        let x: &#kw = self.0.as_ref();
-                        x.as_ref().cloned()
-                    }
-
-                    #[setter]
-                    fn #set(&mut self, x: #kw) {
-                        *self.0.as_mut() = x
-                    }
-                }
-            }
-        })
-        .collect();
-
-    quote! {#(#outputs)*}.into()
-}
-
-#[proc_macro]
 pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
     let path: Path = syn::parse(input).unwrap();
     let name = path.segments.last().unwrap().ident.clone();
@@ -3910,31 +3860,6 @@ fn impl_new(
         }
     };
     (pyname, s)
-}
-
-struct GetSetAllMeas {
-    rstype: Path,
-    suffix: LitStr,
-    pytype: LitStr,
-    parent_types: Punctuated<Type, Token![,]>,
-}
-
-impl Parse for GetSetAllMeas {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let rstype: Path = input.parse()?;
-        let _: Comma = input.parse()?;
-        let suffix: LitStr = input.parse()?;
-        let _: Comma = input.parse()?;
-        let pytype: LitStr = input.parse()?;
-        let _: Comma = input.parse()?;
-        let parent_types = Punctuated::parse_terminated(input)?;
-        Ok(Self {
-            rstype,
-            suffix,
-            pytype,
-            parent_types,
-        })
-    }
 }
 
 fn unwrap_generic<'a>(name: &str, ty: &'a Path) -> (&'a Path, bool) {

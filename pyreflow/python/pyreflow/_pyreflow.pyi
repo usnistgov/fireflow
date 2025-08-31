@@ -90,7 +90,7 @@ class _LayoutEndianFloatCommon(_LayoutUnmixedCommon):
     def byte_width(self) -> int: ...
 
 @final
-class AsciiFixedLayout(
+class FixedAsciiLayout(
     _LayoutAsciiCommon,
     _LayoutUnmixedCommon,
 ):
@@ -101,7 +101,7 @@ class AsciiFixedLayout(
     def char_widths(self) -> list[int | float]: ...
 
 @final
-class AsciiDelimLayout(_LayoutAsciiCommon, _LayoutUnmixedCommon):
+class DelimAsciiLayout(_LayoutAsciiCommon, _LayoutUnmixedCommon):
     def __new__(cls, ranges: list[IntRange]) -> Self: ...
     @property
     def ranges(self) -> list[IntRange]: ...
@@ -175,8 +175,8 @@ class MixedLayout(_LayoutEndianCommon):
     def byte_widths(self) -> list[int]: ...
 
 _AnyOrderedLayout = Union[
-    AsciiFixedLayout
-    | AsciiDelimLayout
+    FixedAsciiLayout
+    | DelimAsciiLayout
     | OrderedUint08Layout
     | OrderedUint16Layout
     | OrderedUint24Layout
@@ -190,16 +190,16 @@ _AnyOrderedLayout = Union[
 ]
 
 _AnyNonMixedLayout = Union[
-    AsciiFixedLayout
-    | AsciiDelimLayout
+    FixedAsciiLayout
+    | DelimAsciiLayout
     | EndianF32Layout
     | EndianF64Layout
     | EndianUintLayout
 ]
 
 _AnyMixedLayout = Union[
-    AsciiFixedLayout
-    | AsciiDelimLayout
+    FixedAsciiLayout
+    | DelimAsciiLayout
     | EndianF32Layout
     | EndianF64Layout
     | EndianUintLayout
@@ -1327,8 +1327,8 @@ __all__ = [
     "BivariateRegion3_0",
     "BivariateRegion3_2",
     "GatedMeasurement",
-    "AsciiFixedLayout",
-    "AsciiDelimLayout",
+    "FixedAsciiLayout",
+    "DelimAsciiLayout",
     "OrderedUint08Layout",
     "OrderedUint16Layout",
     "OrderedUint24Layout",

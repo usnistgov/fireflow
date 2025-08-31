@@ -65,12 +65,12 @@ Class relationships
      - FCS3.0
      - FCS3.1
      - FCS3.2
-   * - :py:class:`~pyreflow.AsciiFixedLayout`
+   * - :py:class:`~pyreflow.FixedAsciiLayout`
      - X
      - X
      - X
      - X
-   * - :py:class:`~pyreflow.AsciiDelimLayout`
+   * - :py:class:`~pyreflow.DelimAsciiLayout`
      - X
      - X
      - X

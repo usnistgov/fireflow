@@ -268,7 +268,8 @@ pub fn impl_core_par(input: TokenStream) -> TokenStream {
         true,
         vec![],
         Some(DocReturn::new(PyType::Int, None)),
-    );
+    )
+    .doc();
 
     quote! {
         #[pymethods]
@@ -428,7 +429,8 @@ pub fn impl_core_all_peak_attrs(input: TokenStream) -> TokenStream {
             true,
             vec![],
             Some(DocReturn::new(PyType::new_list(PyType::Int), None)),
-        );
+        )
+        .doc();
         let get = format_ident!("get_all_p{}n", k.to_lowercase());
         let set = format_ident!("set_all_p{}n", k.to_lowercase());
         quote! {
@@ -473,7 +475,8 @@ pub fn impl_core_all_pnn_attr(input: TokenStream) -> TokenStream {
         true,
         vec![],
         Some(DocReturn::new(PyType::new_list(PyType::Str), None)),
-    );
+    )
+    .doc();
 
     quote! {
         #[pymethods]
@@ -508,7 +511,8 @@ pub fn impl_core_all_pnn_maybe_attr(input: TokenStream) -> TokenStream {
             PyType::new_list(PyType::new_opt(PyType::Str)),
             None,
         )),
-    );
+    )
+    .doc();
 
     quote! {
         #[pymethods]
@@ -545,7 +549,8 @@ pub fn impl_core_get_set_timestep(input: TokenStream) -> TokenStream {
         true,
         vec![],
         Some(DocReturn::new(t.clone(), None)),
-    );
+    )
+    .doc();
     let set_doc = DocString::new(
         "Set the *$TIMESTEP* if time measurement is present.".into(),
         vec![],
@@ -825,7 +830,8 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
                 ])),
                 None,
             )),
-        );
+        )
+        .doc();
         quote! {
             #doc
             #[getter]
@@ -861,7 +867,8 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
                 )),
                 None,
             )),
-        );
+        )
+        .doc();
         quote! {
             #doc
             #[getter]
@@ -902,7 +909,8 @@ pub fn impl_core_get_measurements(input: TokenStream) -> TokenStream {
             PyType::new_list(measurement_pytype(version)),
             None,
         )),
-    );
+    )
+    .doc();
 
     quote! {
         #[pymethods]
@@ -948,7 +956,8 @@ pub fn impl_core_get_temporal(input: TokenStream) -> TokenStream {
             ])),
             Some("Index, name, and measurement or ``None``".into()),
         )),
-    );
+    )
+    .doc();
 
     quote! {
         #[pymethods]
@@ -1423,21 +1432,32 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
     let element_path = element_path(version);
     let shortname_path = shortname_path();
 
+    let force_param = DocArg::new_param_def(
+        "force".into(),
+        PyType::Bool,
+        "If ``True``, do not raise exception if existing temporal measurement \
+         cannot be converted to optical measurement."
+            .into(),
+        DocDefault::Bool(false),
+    );
+
     // the temporal replacement functions for 3.2 are different because they
     // can fail if $PnTYPE is set
-    let (replace_tmp_args, replace_tmp_at_body, replace_tmp_named_body) =
+    let (replace_tmp_args, replace_tmp_at_body, replace_tmp_named_body, force) =
         if version == Version::FCS3_2 {
             let go = |fun, x| quote!(self.0.#fun(#x, meas.into(), force).py_term_resolve()?);
             (
                 quote! {force: bool},
                 go(quote! {replace_temporal_at_lossy}, quote! {index}),
                 go(quote! {replace_temporal_named_lossy}, quote! {&name}),
+                Some(force_param),
             )
         } else {
             (
                 quote! {},
                 quote! {self.0.replace_temporal_at(index, meas.into())?},
                 quote! {self.0.replace_temporal_named(&name, meas.into())},
+                None,
             )
         };
 
@@ -1456,14 +1476,15 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
             "Raise exception if ``{i}`` does not exist  or there \
              is already a temporal measurement in a different position."
         );
+        let args = [
+            i_param,
+            DocArg::new_param("meas".into(), temporal_pytype(version), meas_desc),
+        ];
         DocString::new(
             format!("Replace {m} with given temporal measurement."),
             vec![sub],
             true,
-            vec![
-                i_param,
-                DocArg::new_param("meas".into(), temporal_pytype(version), meas_desc),
-            ],
+            args.into_iter().chain(force.clone()).collect(),
             Some(DocReturn::new(
                 measurement_pytype(version),
                 Some("Replaced measurement object".into()),
@@ -1474,14 +1495,10 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
     let replace_at_doc = make_replace_doc(true);
     let replace_named_doc = make_replace_doc(false);
 
-    let replace_at_sig = replace_at_doc.sig();
-    let replace_named_sig = replace_named_doc.sig();
-
     quote! {
         #[pymethods]
         impl #i {
             #replace_at_doc
-            #replace_at_sig
             fn replace_temporal_at(
                 &mut self,
                 index: #meas_index_path,
@@ -1493,7 +1510,6 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
             }
 
             #replace_named_doc
-            #replace_named_sig
             fn replace_temporal_named(
                 &mut self,
                 name: #shortname_path,
@@ -2929,7 +2945,8 @@ fn core_all_meas_attr1(
         true,
         vec![],
         Some(DocReturn::new(doc_type, None)),
-    );
+    )
+    .doc();
 
     let get = format_ident!("get_all_pn{}", suffix.to_lowercase());
     let set = format_ident!("set_all_pn{}", suffix.to_lowercase());
@@ -3180,7 +3197,8 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
         true,
         vec![],
         Some(DocReturn::new(PyType::new_list(PyType::Int), None)),
-    );
+    )
+    .doc();
 
     let datatype = make_layout_datatype("A");
 
@@ -3609,7 +3627,8 @@ fn make_byte_width(nbytes: usize) -> proc_macro2::TokenStream {
         true,
         vec![],
         Some(DocReturn::new(PyType::Int, None)),
-    );
+    )
+    .doc();
     quote! {
         #doc
         #[getter]
@@ -3633,7 +3652,8 @@ pub fn impl_layout_byte_widths(input: TokenStream) -> TokenStream {
         true,
         vec![],
         Some(DocReturn::new(PyType::new_list(PyType::Int), None)),
-    );
+    )
+    .doc();
 
     quote! {
         #[pymethods]
@@ -3659,7 +3679,8 @@ fn make_layout_datatype(dt: &str) -> proc_macro2::TokenStream {
         true,
         vec![],
         Some(DocReturn::new(datatype_pytype(), None)),
-    );
+    )
+    .doc();
     quote! {
         #doc
         #[getter]
@@ -3930,8 +3951,8 @@ fn param_type_set_meas(version: Version) -> DocArg {
 }
 
 fn param_allow_shared_names() -> DocArg {
-    DocArg::new_param(
-        "allow_shared_named".into(),
+    DocArg::new_param_def(
+        "allow_shared_names".into(),
         PyType::Bool,
         "If ``False``, raise exception if any non-measurement keywords reference \
          any *$PnN* keywords. If ``True`` raise exception if any non-measurement \
@@ -3940,13 +3961,14 @@ fn param_allow_shared_names() -> DocArg {
          ``True`` allows named references to be updated. References cannot \
          be broken in either case."
             .into(),
+        DocDefault::Bool(false),
     )
 }
 
 // TODO this can be specific to each version, for instance, we can call out
 // the exact keywords in each that may have references.
 fn param_skip_index_check() -> DocArg {
-    DocArg::new_param(
+    DocArg::new_param_def(
         "skip_index_check".into(),
         PyType::Bool,
         "If ``False``, raise exception if any non-measurement keyword have an \
@@ -3955,6 +3977,7 @@ fn param_skip_index_check() -> DocArg {
          that the length of ``measurements`` is such that existing indices are \
          satisfied)."
             .into(),
+        DocDefault::Bool(false),
     )
 }
 

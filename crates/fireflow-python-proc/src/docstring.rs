@@ -62,7 +62,6 @@ pub(crate) enum PyType {
     List(Box<PyType>),
     Literal(&'static str, Vec<&'static str>),
     PyClass(String),
-    Raw(String),
 }
 
 impl DocArg {
@@ -243,39 +242,35 @@ impl DocString {
         {
             panic!("{e}")
         }
-        if let Some(has_def) = self.has_defaults() {
-            if has_def {
-                let ps = &self.args;
-                let (raw_sig, _txt_sig): (Vec<_>, Vec<_>) = ps
-                    .iter()
-                    .map(|a| {
-                        let n = &a.argname;
-                        let i = format_ident!("{n}");
-                        if let Some(d) = a.default.as_ref() {
-                            let r = d.as_rs_value();
-                            let t = d.as_py_value();
-                            (quote! {#i=#r}, format!("{n}={t}"))
-                        } else {
-                            (quote! {#i}, n.to_string())
-                        }
-                    })
-                    .unzip();
-                // TODO add "cls" for class methods and the like
-                let txt_self = if self.self_arg {
-                    Some("self".into())
-                } else {
-                    None
-                };
-                let txt_sig = format!("({})", txt_self.into_iter().chain(_txt_sig).join(", "));
-                quote! {
-                    #[pyo3(signature = (#(#raw_sig),*))]
-                    #[pyo3(text_signature = #txt_sig)]
-                }
-            } else {
-                quote! {}
-            }
-        } else {
+        if self.has_defaults().is_none() {
             panic!("non-default args after default args");
+        }
+
+        let ps = &self.args;
+        let (raw_sig, _txt_sig): (Vec<_>, Vec<_>) = ps
+            .iter()
+            .map(|a| {
+                let n = &a.argname;
+                let i = format_ident!("{n}");
+                if let Some(d) = a.default.as_ref() {
+                    let r = d.as_rs_value();
+                    let t = d.as_py_value();
+                    (quote! {#i=#r}, format!("{n}={t}"))
+                } else {
+                    (quote! {#i}, n.to_string())
+                }
+            })
+            .unzip();
+        // TODO add "cls" for class methods and the like
+        let txt_self = if self.self_arg {
+            Some("self".into())
+        } else {
+            None
+        };
+        let txt_sig = format!("({})", txt_self.into_iter().chain(_txt_sig).join(", "));
+        quote! {
+            #[pyo3(signature = (#(#raw_sig),*))]
+            #[pyo3(text_signature = #txt_sig)]
         }
     }
 }
@@ -396,7 +391,6 @@ impl fmt::Display for PyType {
             Self::Dict(x, y) => write!(f, ":py:class:`dict`\\ [{x}, {y}]"),
             Self::Option(x) => write!(f, "{x} | None"),
             Self::PyClass(s) => write!(f, ":py:class:`{s}`"),
-            Self::Raw(s) => f.write_str(s.as_ref()),
         }
     }
 }

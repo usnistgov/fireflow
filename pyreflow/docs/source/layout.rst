@@ -1,10 +1,10 @@
 Layout Classes
 ==============
 
-.. autoclass:: pyreflow.AsciiFixedLayout
+.. autoclass:: pyreflow.FixedAsciiLayout
    :members:
 
-.. autoclass:: pyreflow.AsciiDelimLayout
+.. autoclass:: pyreflow.DelimAsciiLayout
    :members:
       
 .. autoclass:: pyreflow.OrderedUint08Layout

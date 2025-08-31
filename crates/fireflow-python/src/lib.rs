@@ -18,7 +18,7 @@ use fireflow_core::text::index::{GateIndex, MeasIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::{Eithers, Element, NamedVec, NonCenterElement};
 use fireflow_core::text::optional::{AlwaysFamily, MaybeFamily, MightHave};
-use fireflow_core::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
+use fireflow_core::validated::dataframe::AnyFCSColumn;
 use fireflow_core::validated::keys::{StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::Shortname;
 use fireflow_python_proc::impl_layout_byte_widths;
@@ -28,8 +28,10 @@ use fireflow_python_proc::impl_new_endian_uint_layout;
 use fireflow_python_proc::{
     impl_core_all_peak_attrs, impl_core_all_pnn_attr, impl_core_all_pnn_maybe_attr,
     impl_core_all_transforms_attr, impl_core_get_set_layout, impl_core_par,
-    impl_core_rename_temporal, impl_core_set_temporal, impl_core_set_timestep,
-    impl_core_set_tr_threshold, impl_core_unset_temporal, impl_core_write_text, impl_gated_meas,
+    impl_core_rename_temporal, impl_core_set_measurements, impl_core_set_measurements_and_layout,
+    impl_core_set_temporal, impl_core_set_timestep, impl_core_set_tr_threshold,
+    impl_core_unset_temporal, impl_core_version_x_y, impl_core_write_dataset, impl_core_write_text,
+    impl_coredataset_set_measurements_and_data, impl_coretext_to_dataset, impl_gated_meas,
     impl_get_set_all_meas, impl_get_set_meas_obj_common, impl_new_core,
     impl_new_fixed_ascii_layout, impl_new_gate_bi_regions, impl_new_gate_uni_regions,
     impl_new_meas, impl_new_mixed_layout, impl_new_ordered_layout,
@@ -39,8 +41,6 @@ use derive_more::{From, Into};
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::BufWriter;
 use std::path::PathBuf;
 
 #[pyfunction]
@@ -163,6 +163,11 @@ macro_rules! impl_common {
         impl_core_unset_temporal!($pytype);
         impl_core_all_transforms_attr!($pytype);
 
+        impl_core_set_measurements!($pytype);
+        impl_core_set_measurements_and_layout!($pytype);
+
+        impl_core_version_x_y!($pytype);
+
         // common measurement keywords
         impl_get_set_all_meas!(Option<kws::Longname>, "S", "str", $pytype);
 
@@ -258,6 +263,21 @@ impl_common!(PyCoreDataset2_0);
 impl_common!(PyCoreDataset3_0);
 impl_common!(PyCoreDataset3_1);
 impl_common!(PyCoreDataset3_2);
+
+impl_coredataset_set_measurements_and_data!(PyCoreDataset2_0);
+impl_coredataset_set_measurements_and_data!(PyCoreDataset3_0);
+impl_coredataset_set_measurements_and_data!(PyCoreDataset3_1);
+impl_coredataset_set_measurements_and_data!(PyCoreDataset3_2);
+
+impl_core_write_dataset!(PyCoreDataset2_0);
+impl_core_write_dataset!(PyCoreDataset3_0);
+impl_core_write_dataset!(PyCoreDataset3_1);
+impl_core_write_dataset!(PyCoreDataset3_2);
+
+impl_coretext_to_dataset!(PyCoreTEXT2_0);
+impl_coretext_to_dataset!(PyCoreTEXT3_0);
+impl_coretext_to_dataset!(PyCoreTEXT3_1);
+impl_coretext_to_dataset!(PyCoreTEXT3_2);
 
 impl_core_all_pnn_maybe_attr!(PyCoreTEXT2_0);
 impl_core_all_pnn_maybe_attr!(PyCoreTEXT3_0);

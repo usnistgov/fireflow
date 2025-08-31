@@ -34,268 +34,11 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let fun_name = format_ident!("try_new_{vsu}");
     let fun: Path = parse_quote!(#coretext_rstype::#fun_name);
 
-    let fcs_df_type =
-        parse_str::<Path>("fireflow_core::validated::dataframe::FCSDataFrame").unwrap();
-
-    let polars_df_type = quote! {pyo3_polars::PyDataFrame};
-
-    // TODO we get this out of the impl_new function below
-    let coredataset_pytype = format_ident!("Py{coredataset_name}");
-
     let meas = ArgData::new_measurements_arg(version);
-    let meas_pytype = &meas.doc.pytype;
-    let meas_argtype = &meas.rstype;
-
     let layout = ArgData::new_layout_arg(version);
-    let layout_pytype = &layout.doc.pytype;
-    let layout_ident = &layout.rstype;
-
     let df = ArgData::new_df_arg();
-    let df_pytype = &df.doc.pytype;
-
     let analysis = ArgData::new_analysis_arg();
-
     let others = ArgData::new_others_arg();
-
-    let param_type_set_meas = DocArg::new_param(
-        "measurements".into(),
-        meas_pytype.clone(),
-        "The new measurements.".into(),
-    );
-
-    let param_type_set_layout = DocArg::new_param(
-        "layout".into(),
-        layout_pytype.clone(),
-        "The new layout.".into(),
-    );
-
-    let param_type_set_df =
-        DocArg::new_param("df".to_string(), df_pytype.clone(), "The new data.".into());
-
-    let param_allow_shared_names = DocArg::new_param(
-        "allow_shared_named".into(),
-        PyType::Bool,
-        "If ``False``, raise exception if any non-measurement keywords reference \
-         any *$PnN* keywords. If ``True`` raise exception if any non-measurement \
-         keywords reference a *$PnN* which is not present in ``measurements``. \
-         In other words, ``False`` forbids named references to exist, and \
-         ``True`` allows named references to be updated. References cannot \
-         be broken in either case."
-            .into(),
-    );
-
-    // TODO this can be specific to each version, for instance, we can call out
-    // the exact keywords in each that may have references.
-    let param_skip_index_check = DocArg::new_param(
-        "skip_index_check".into(),
-        PyType::Bool,
-        "If ``False``, raise exception if any non-measurement keyword have an \
-         index reference to the current measurements. If ``True`` allow such \
-         references to exist as long as they do not break (which really means \
-         that the length of ``measurements`` is such that existing indices are \
-         satisfied)."
-            .into(),
-    );
-
-    let make_set_meas_doc = |is_dataset: bool| {
-        let s = if is_dataset {
-            "layout and dataframe"
-        } else {
-            "layout"
-        };
-        let ps = vec![format!(
-            "Length of ``measurements`` must match number of columns in existing {s}."
-        )];
-        DocString::new(
-            "Set all measurements at once.".into(),
-            ps,
-            true,
-            vec![
-                param_type_set_meas.clone(),
-                param_allow_shared_names.clone(),
-                param_skip_index_check.clone(),
-            ],
-            None,
-        )
-    };
-
-    let make_set_meas_and_layout_doc = |is_dataset: bool| {
-        let s = if is_dataset {
-            " and both must match number of columns in existing dataframe"
-        } else {
-            ""
-        };
-        let ps = vec![
-            "This is equivalent to updating all *$PnN* keywords at once.".into(),
-            format!("Length of ``measurements`` must match number of columns in ``layout`` {s}."),
-        ];
-        DocString::new(
-            "Set all measurements at once.".into(),
-            ps,
-            true,
-            vec![
-                param_type_set_meas.clone(),
-                param_type_set_layout.clone(),
-                param_allow_shared_names.clone(),
-                param_skip_index_check.clone(),
-            ],
-            None,
-        )
-    };
-
-    let coretext_set_meas_doc = make_set_meas_doc(false);
-    let coretext_set_meas_and_layout_doc = make_set_meas_and_layout_doc(false);
-    let coredataset_set_meas_doc = make_set_meas_doc(true);
-    let coredataset_set_meas_and_layout_doc = make_set_meas_and_layout_doc(true);
-
-    let set_meas_and_data_doc = DocString::new(
-        "Set measurements and data at once.".into(),
-        vec!["Length of ``measurements`` must match number of columns in ``df``.".into()],
-        true,
-        vec![
-            param_type_set_meas,
-            param_type_set_df,
-            param_allow_shared_names,
-            param_skip_index_check,
-        ],
-        None,
-    );
-
-    // TODO these might be better in a different macro that deals with the
-    // non-setters.
-    let set_meas_method = quote! {
-        pub fn set_measurements(
-            &mut self,
-            measurements: #meas_argtype,
-            allow_shared_names: bool,
-            skip_index_check: bool,
-        ) -> PyResult<()> {
-            self.0
-                .set_measurements(
-                    measurements.0.inner_into(),
-                    allow_shared_names,
-                    skip_index_check,
-                )
-                .py_term_resolve_nowarn()
-        }
-    };
-
-    let set_meas_and_layout_method = quote! {
-        fn set_measurements_and_layout(
-            &mut self,
-            measurements: #meas_argtype,
-            layout: #layout_ident,
-            allow_shared_names: bool,
-            skip_index_check: bool,
-        ) -> PyResult<()> {
-            self.0
-                .set_measurements_and_layout(
-                    measurements.0.inner_into(),
-                    layout.into(),
-                    allow_shared_names,
-                    skip_index_check,
-                )
-                .py_term_resolve_nowarn()
-        }
-    };
-
-    let textdelim_type =
-        parse_str::<Path>("fireflow_core::validated::textdelim::TEXTDelim").unwrap();
-
-    let path_param = DocArg::new_param(
-        "path".into(),
-        PyType::PyClass("~pathlib.Path".into()),
-        "Path to be written".into(),
-    );
-
-    let textdelim_param = DocArg::new_param_def(
-        "delim".into(),
-        PyType::Int,
-        "Delimiter to use when writing *TEXT*. Defaults to 30 (record separator).".into(),
-        DocDefault::Other(quote! {#textdelim_type::default()}, "30".into()),
-    );
-
-    let write_2_0_warning = if version == Version::FCS2_0 {
-        Some("Will raise exception if file cannot fit within 99,999,999 bytes.".into())
-    } else {
-        None
-    };
-
-    let write_dataset_doc = DocString::new(
-        "Write data as an FCS file.".into(),
-        ["The resulting file will include *HEADER*, *TEXT*, *DATA*, \
-            *ANALYSIS*, and *OTHER* as they present from this class."
-            .into()]
-        .into_iter()
-        .chain(write_2_0_warning)
-        .collect(),
-        true,
-        vec![
-            path_param,
-            textdelim_param,
-            DocArg::new_param_def(
-                "skip_conversion_check".into(),
-                PyType::Bool,
-                "Skip check to ensure that types of the dataframe match the \
-                 columns (*$PnB*, *$DATATYPE*, etc). If this is ``False``, \
-                 perform this check before writing, and raise exception on \
-                 failure. If ``True``, raise warnings as file is being \
-                 written. Skipping this is faster since the data needs to be \
-                 traversed twice to perform the conversion check, but may \
-                 result in loss of precision and/or truncation."
-                    .into(),
-                DocDefault::Bool(false),
-            ),
-        ],
-        None,
-    );
-
-    let write_dataset_mtd = quote! {
-        #write_dataset_doc
-        fn write_dataset(
-            &self,
-            path: PathBuf,
-            delim: #textdelim_type,
-            skip_conversion_check: bool,
-        ) -> PyResult<()> {
-            let f = File::options().write(true).create(true).open(path)?;
-            let mut h = BufWriter::new(f);
-            let conf = cfg::WriteConfig {
-                delim,
-                skip_conversion_check,
-            };
-            self.0.h_write_dataset(&mut h, &conf).py_term_resolve()
-        }
-    };
-
-    let to_dataset_doc = DocString::new(
-        "Convert to a dataset object.".into(),
-        vec!["This will fully represent an FCS file, as opposed to just \
-             representing *HEADER* and *TEXT*."
-            .into()],
-        true,
-        vec![df.doc.clone(), analysis.doc.clone(), others.doc.clone()],
-        Some(DocReturn::new(
-            PyType::PyClass(coredataset_name.to_string()),
-            None,
-        )),
-    );
-
-    let to_dataset_mtd = quote! {
-        #to_dataset_doc
-        fn to_dataset(
-            &self,
-            df: FCSDataFrame,
-            analysis: core::Analysis,
-            others: core::Others,
-        ) -> PyResult<#coredataset_pytype> {
-            Ok(self
-               .0
-               .clone()
-               .into_coredataset(df, analysis, others)?
-               .into())
-        }
-    };
 
     let mode = if version < Version::FCS3_2 {
         let t = PyType::new_lit(&["L", "U", "C"]);
@@ -491,70 +234,12 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         }
     };
 
-    let coretext_convert = make_convert_version(version, true);
-    let coredataset_convert = make_convert_version(version, false);
-
-    let coretext_rest = quote! {
-        #coretext_set_meas_doc
-        #set_meas_method
-        #coretext_set_meas_and_layout_doc
-        #set_meas_and_layout_method
-        #to_dataset_mtd
-        #(#coretext_ivar_methods)*
-        #coretext_convert
-    };
-
-    let coredataset_rest = quote! {
-        #[getter]
-        fn data(&self) -> #polars_df_type {
-            let ns = self.0.all_shortnames();
-            let data = self.0.data();
-            #polars_df_type(data.as_polars_dataframe(&ns[..]))
-        }
-
-        #[setter]
-        fn set_data(&mut self, df: #polars_df_type) -> PyResult<()> {
-            let data = df.0.try_into()?;
-            Ok(self.0.set_data(data)?)
-        }
-
-        #coredataset_set_meas_doc
-        #set_meas_method
-
-        #coredataset_set_meas_and_layout_doc
-        #set_meas_and_layout_method
-
-        #set_meas_and_data_doc
-        fn set_measurements_and_data(
-            &mut self,
-            measurements: #meas_argtype,
-            df: #fcs_df_type,
-            allow_shared_names: bool,
-            skip_index_check: bool,
-        ) -> PyResult<()> {
-            self.0
-                .set_measurements_and_data(
-                    measurements.0.inner_into(),
-                    df,
-                    allow_shared_names,
-                    skip_index_check,
-                )
-                .py_term_resolve_nowarn()
-        }
-
-        #write_dataset_mtd
-
-        #(#coredataset_ivar_methods)*
-
-        #coredataset_convert
-    };
-
     let coretext_q = impl_new(
         coretext_name.to_string(),
         coretext_rstype,
         coretext_doc,
         coretext_new,
-        coretext_rest,
+        quote!(#(#coretext_ivar_methods)*),
     )
     .1;
 
@@ -563,7 +248,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         coredataset_rstype,
         coredataset_doc,
         coredataset_new,
-        coredataset_rest,
+        quote!(#(#coredataset_ivar_methods)*),
     )
     .1;
 
@@ -633,7 +318,7 @@ pub fn impl_core_set_tr_threshold(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_get_set_layout(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    let version = split_ident_version_pycore(&i);
+    let version = split_ident_version_pycore(&i).1;
 
     let layout_ident = ArgData::new_layout_arg(version).rstype;
 
@@ -657,7 +342,7 @@ pub fn impl_core_get_set_layout(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    let version = split_ident_version_pycore(&i);
+    let version = split_ident_version_pycore(&i).1;
     let textdelim_path = textdelim_path();
 
     let write_2_0_warning = if version == Version::FCS2_0 {
@@ -692,9 +377,73 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let version = split_ident_version_pycore(&i).1;
+    let textdelim_path = textdelim_path();
+
+    let write_2_0_warning = if version == Version::FCS2_0 {
+        Some("Will raise exception if file cannot fit within 99,999,999 bytes.".into())
+    } else {
+        None
+    };
+
+    let doc = DocString::new(
+        "Write data as an FCS file.".into(),
+        ["The resulting file will include *HEADER*, *TEXT*, *DATA*, \
+            *ANALYSIS*, and *OTHER* as they present from this class."
+            .into()]
+        .into_iter()
+        .chain(write_2_0_warning)
+        .collect(),
+        true,
+        vec![
+            path_param(),
+            textdelim_param(),
+            DocArg::new_param_def(
+                "skip_conversion_check".into(),
+                PyType::Bool,
+                "Skip check to ensure that types of the dataframe match the \
+                 columns (*$PnB*, *$DATATYPE*, etc). If this is ``False``, \
+                 perform this check before writing, and raise exception on \
+                 failure. If ``True``, raise warnings as file is being \
+                 written. Skipping this is faster since the data needs to be \
+                 traversed twice to perform the conversion check, but may \
+                 result in loss of precision and/or truncation."
+                    .into(),
+                DocDefault::Bool(false),
+            ),
+        ],
+        None,
+    );
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #doc
+            fn write_dataset(
+                &self,
+                path: std::path::PathBuf,
+                delim: #textdelim_path,
+                skip_conversion_check: bool,
+            ) -> PyResult<()> {
+                let f = std::fs::File::options().write(true).create(true).open(path)?;
+                let mut h = std::io::BufWriter::new(f);
+                let conf = fireflow_core::config::WriteConfig {
+                    delim,
+                    skip_conversion_check,
+                };
+                self.0.h_write_dataset(&mut h, &conf).py_term_resolve()
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
 pub fn impl_core_all_peak_attrs(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    let _ = split_ident_version_pycore(&i);
+    let _ = split_ident_version_pycore(&i).1;
 
     let go = |k: &str, p: Path| {
         let doc = DocString::new(
@@ -742,7 +491,7 @@ pub fn impl_core_all_peak_attrs(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_all_pnn_attr(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    let _ = split_ident_version_pycore(&i);
+    let _ = split_ident_version_pycore(&i).1;
     let shortname_path = shortname_path();
 
     let doc = DocString::new(
@@ -774,7 +523,7 @@ pub fn impl_core_all_pnn_attr(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_all_pnn_maybe_attr(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    let _ = split_ident_version_pycore(&i);
+    let _ = split_ident_version_pycore(&i).1;
     let shortname_path = shortname_path();
 
     let doc = DocString::new(
@@ -813,7 +562,7 @@ pub fn impl_core_all_pnn_maybe_attr(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_set_timestep(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    let version = split_ident_version_pycore(&i);
+    let version = split_ident_version_pycore(&i).1;
     let timestep_path = timestep_path();
 
     let q = if version == Version::FCS2_0 {
@@ -867,7 +616,7 @@ pub fn impl_core_set_timestep(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    let version = split_ident_version_pycore(&i);
+    let version = split_ident_version_pycore(&i).1;
     let shortname_path = shortname_path();
     let timestep_path = timestep_path();
 
@@ -973,7 +722,7 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    let version = split_ident_version_pycore(&i);
+    let version = split_ident_version_pycore(&i).1;
     let timestep_path = timestep_path();
 
     let make_doc = |has_timestep: bool, has_force: bool| {
@@ -1047,7 +796,7 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_rename_temporal(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    let _ = split_ident_version_pycore(&i);
+    let _ = split_ident_version_pycore(&i).1;
     let shortname_path = shortname_path();
 
     let doc = DocString::new(
@@ -1081,7 +830,7 @@ pub fn impl_core_rename_temporal(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    let version = split_ident_version_pycore(&i);
+    let version = split_ident_version_pycore(&i).1;
     let scale_path = quote!(fireflow_core::text::scale::Scale);
     let xform_path = quote!(fireflow_core::core::ScaleTransform);
 
@@ -1161,6 +910,216 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
         #[pymethods]
         impl #i {
             #q
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_core_set_measurements(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let (is_dataset, version) = split_ident_version_pycore(&i);
+
+    let meas_argtype = ArgData::new_measurements_arg(version).rstype;
+
+    let s = if is_dataset {
+        "layout and dataframe"
+    } else {
+        "layout"
+    };
+    let ps = vec![format!(
+        "Length of ``measurements`` must match number of columns in existing {s}."
+    )];
+    let doc = DocString::new(
+        "Set all measurements at once.".into(),
+        ps,
+        true,
+        vec![
+            param_type_set_meas(version),
+            param_allow_shared_names(),
+            param_skip_index_check(),
+        ],
+        None,
+    );
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #doc
+            fn set_measurements(
+                &mut self,
+                measurements: #meas_argtype,
+                allow_shared_names: bool,
+                skip_index_check: bool,
+            ) -> PyResult<()> {
+                self.0
+                    .set_measurements(
+                        measurements.0.inner_into(),
+                        allow_shared_names,
+                        skip_index_check,
+                    )
+                    .py_term_resolve_nowarn()
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_core_set_measurements_and_layout(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let (is_dataset, version) = split_ident_version_pycore(&i);
+
+    let meas_argtype = ArgData::new_measurements_arg(version).rstype;
+
+    let layout = ArgData::new_layout_arg(version);
+    let layout_pytype = layout.doc.pytype;
+    let layout_argtype = layout.rstype;
+
+    let param_type_set_layout =
+        DocArg::new_param("layout".into(), layout_pytype, "The new layout.".into());
+
+    let s = if is_dataset {
+        " and both must match number of columns in existing dataframe"
+    } else {
+        ""
+    };
+    let ps = vec![
+        "This is equivalent to updating all *$PnN* keywords at once.".into(),
+        format!("Length of ``measurements`` must match number of columns in ``layout`` {s}."),
+    ];
+    let doc = DocString::new(
+        "Set all measurements at once.".into(),
+        ps,
+        true,
+        vec![
+            param_type_set_meas(version),
+            param_type_set_layout.clone(),
+            param_allow_shared_names(),
+            param_skip_index_check(),
+        ],
+        None,
+    );
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #doc
+            fn set_measurements_and_layout(
+                &mut self,
+                measurements: #meas_argtype,
+                layout: #layout_argtype,
+                allow_shared_names: bool,
+                skip_index_check: bool,
+            ) -> PyResult<()> {
+                self.0
+                    .set_measurements_and_layout(
+                        measurements.0.inner_into(),
+                        layout.into(),
+                        allow_shared_names,
+                        skip_index_check,
+                    )
+                    .py_term_resolve_nowarn()
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_coredataset_set_measurements_and_data(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let version = split_ident_version_checked("PyCoreDataset", &i);
+
+    let fcs_df_path = fcs_df_path();
+
+    let meas_argtype = ArgData::new_measurements_arg(version).rstype;
+
+    let df_pytype = ArgData::new_df_arg().doc.pytype;
+
+    let param_type_set_df = DocArg::new_param("df".into(), df_pytype, "The new data.".into());
+
+    let doc = DocString::new(
+        "Set measurements and data at once.".into(),
+        vec!["Length of ``measurements`` must match number of columns in ``df``.".into()],
+        true,
+        vec![
+            param_type_set_meas(version),
+            param_type_set_df,
+            param_allow_shared_names(),
+            param_skip_index_check(),
+        ],
+        None,
+    );
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #doc
+            fn set_measurements_and_data(
+                &mut self,
+                measurements: #meas_argtype,
+                df: #fcs_df_path,
+                allow_shared_names: bool,
+                skip_index_check: bool,
+            ) -> PyResult<()> {
+                self.0
+                    .set_measurements_and_data(
+                        measurements.0.inner_into(),
+                        df,
+                        allow_shared_names,
+                        skip_index_check,
+                    )
+                    .py_term_resolve_nowarn()
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_coretext_to_dataset(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let version = split_ident_version_checked("PyCoreTEXT", &i);
+    let coredataset_name = format_ident!("PyCoreDataset{}", version.short_underscore());
+    let fcs_df_path = fcs_df_path();
+
+    let df = ArgData::new_df_arg();
+    let analysis = ArgData::new_analysis_arg();
+    let others = ArgData::new_others_arg();
+
+    let analysis_path = &analysis.rstype;
+    let others_path = &others.rstype;
+
+    let doc = DocString::new(
+        "Convert to a dataset object.".into(),
+        vec!["This will fully represent an FCS file, as opposed to just \
+             representing *HEADER* and *TEXT*."
+            .into()],
+        true,
+        vec![df.doc, analysis.doc, others.doc],
+        Some(DocReturn::new(
+            PyType::PyClass(coredataset_name.to_string()),
+            None,
+        )),
+    );
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #doc
+            fn to_dataset(
+                &self,
+                df: #fcs_df_path,
+                analysis: #analysis_path,
+                others: #others_path,
+            ) -> PyResult<#coredataset_name> {
+                Ok(self
+                   .0
+                   .clone()
+                   .into_coredataset(df, analysis, others)?
+                   .into())
+            }
         }
     }
     .into()
@@ -1767,6 +1726,7 @@ impl ArgData {
     }
 
     fn new_df_arg() -> Self {
+        // TODO fix cross-ref in docs here
         let df_pytype = PyType::PyClass("polars.DataFrame".into());
         let df_doc = DocArg::new_param(
             "df".into(),
@@ -1777,9 +1737,24 @@ impl ArgData {
              result in truncation."
                 .into(),
         );
-        let fcs_df_path = parse_quote!(fireflow_core::validated::dataframe::FCSDataFrame);
+        // use polars df here because we need to manually add names
+        let polars_df_type = quote! {pyo3_polars::PyDataFrame};
+        let methods = quote! {
+            #[getter]
+            fn data(&self) -> #polars_df_type {
+                let ns = self.0.all_shortnames();
+                let data = self.0.data();
+                #polars_df_type(data.as_polars_dataframe(&ns[..]))
+            }
 
-        Self::new1(df_doc, fcs_df_path)
+            #[setter]
+            fn set_data(&mut self, df: #polars_df_type) -> PyResult<()> {
+                let data = df.0.try_into()?;
+                Ok(self.0.set_data(data)?)
+            }
+        };
+
+        Self::new(df_doc, fcs_df_path(), Some(methods))
     }
 
     fn new_analysis_arg() -> Self {
@@ -2849,7 +2824,10 @@ pub fn impl_get_set_meas_obj_common(input: TokenStream) -> TokenStream {
     .into()
 }
 
-fn make_convert_version(version: Version, is_text: bool) -> proc_macro2::TokenStream {
+#[proc_macro]
+pub fn impl_core_version_x_y(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let (is_dataset, version) = split_ident_version_pycore(&i);
     let sub = "Will raise an exception if target version requires data which is \
                not present in ``self``.";
     let param_desc = "If ``False``, do not proceed with conversion if it would \
@@ -2860,7 +2838,11 @@ fn make_convert_version(version: Version, is_text: bool) -> proc_macro2::TokenSt
                       they must be discarded. Set to ``True`` to perform the \
                       conversion with such discarding; otherwise, remove the \
                       keywords manually before converting.";
-    let base = if is_text { "CoreTEXT" } else { "CoreDataset" };
+    let base = if is_dataset {
+        "CoreDataset"
+    } else {
+        "CoreTEXT"
+    };
     let outputs: Vec<_> = ALL_VERSIONS
         .iter()
         .filter(|&&v| v != version)
@@ -2894,7 +2876,14 @@ fn make_convert_version(version: Version, is_text: bool) -> proc_macro2::TokenSt
             }
         })
         .collect();
-    quote! {#(#outputs)*}
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #(#outputs)*
+        }
+    }
+    .into()
 }
 
 #[proc_macro]
@@ -3873,13 +3862,13 @@ fn split_ident_version_checked(which: &'static str, name: &Ident) -> Version {
     v
 }
 
-fn split_ident_version_pycore(name: &Ident) -> Version {
+fn split_ident_version_pycore(name: &Ident) -> (bool, Version) {
     let (base, version) = split_ident_version(name);
 
     if !(base == "PyCoreTEXT" || base == "PyCoreDataset") {
         panic!("must be PyCore(TEXT|Dataset)X_Y")
     }
-    version
+    (base == "PyCoreDataset", version)
 }
 
 fn path_name(p: &Path) -> String {
@@ -3937,10 +3926,52 @@ fn timestep_path() -> Path {
     parse_quote!(fireflow_core::text::keywords::Timestep)
 }
 
-fn versioned_shortname_path(version: Version) -> Path {
-    let shortname_path = shortname_path();
-    match version {
-        Version::FCS2_0 | Version::FCS3_0 => parse_quote!(Option<#shortname_path>),
-        _ => shortname_path,
-    }
+// fn versioned_shortname_path(version: Version) -> Path {
+//     let shortname_path = shortname_path();
+//     match version {
+//         Version::FCS2_0 | Version::FCS3_0 => parse_quote!(Option<#shortname_path>),
+//         _ => shortname_path,
+//     }
+// }
+
+fn param_type_set_meas(version: Version) -> DocArg {
+    let meas_pytype = ArgData::new_measurements_arg(version).doc.pytype;
+    DocArg::new_param(
+        "measurements".into(),
+        meas_pytype,
+        "The new measurements.".into(),
+    )
+}
+
+fn param_allow_shared_names() -> DocArg {
+    DocArg::new_param(
+        "allow_shared_named".into(),
+        PyType::Bool,
+        "If ``False``, raise exception if any non-measurement keywords reference \
+         any *$PnN* keywords. If ``True`` raise exception if any non-measurement \
+         keywords reference a *$PnN* which is not present in ``measurements``. \
+         In other words, ``False`` forbids named references to exist, and \
+         ``True`` allows named references to be updated. References cannot \
+         be broken in either case."
+            .into(),
+    )
+}
+
+// TODO this can be specific to each version, for instance, we can call out
+// the exact keywords in each that may have references.
+fn param_skip_index_check() -> DocArg {
+    DocArg::new_param(
+        "skip_index_check".into(),
+        PyType::Bool,
+        "If ``False``, raise exception if any non-measurement keyword have an \
+         index reference to the current measurements. If ``True`` allow such \
+         references to exist as long as they do not break (which really means \
+         that the length of ``measurements`` is such that existing indices are \
+         satisfied)."
+            .into(),
+    )
+}
+
+fn fcs_df_path() -> Path {
+    parse_quote!(fireflow_core::validated::dataframe::FCSDataFrame)
 }

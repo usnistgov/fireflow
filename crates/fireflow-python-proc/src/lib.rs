@@ -835,12 +835,12 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
         quote! {
             #doc
             #[getter]
-            fn get_scales(&self) -> Vec<Option<#scale_path>> {
+            fn get_all_pne(&self) -> Vec<Option<#scale_path>> {
                 self.0.scales().collect()
             }
 
             #[setter]
-            fn set_scales(&mut self, scales: Vec<Option<#scale_path>>) -> PyResult<()> {
+            fn set_all_pne(&mut self, scales: Vec<Option<#scale_path>>) -> PyResult<()> {
                 self.0.set_scales(scales).py_term_resolve_nowarn()
             }
         }
@@ -872,12 +872,12 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
         quote! {
             #doc
             #[getter]
-            fn get_transforms(&self) -> Vec<#xform_path> {
+            fn get_all_pne_png(&self) -> Vec<#xform_path> {
                 self.0.transforms().collect()
             }
 
             #[setter]
-            fn set_transforms(&mut self, transforms: Vec<#xform_path>) -> PyResult<()> {
+            fn set_all_pne_png(&mut self, transforms: Vec<#xform_path>) -> PyResult<()> {
                 self.0.set_transforms(transforms).py_term_resolve_nowarn()
             }
         }

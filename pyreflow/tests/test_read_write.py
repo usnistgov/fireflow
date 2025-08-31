@@ -658,13 +658,9 @@ class TestCore:
 
     @parameterize_versions("core", ["2_0"], ["text2", "dataset2"])
     def test_meas_scales(self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0) -> None:
-        assert core.scales == [None, ()]
-        core.scales = [(), ()]
-        assert core.scales == [(), ()]
-
-    @parameterize_versions("core", ["2_0"], ["text2", "dataset2"])
-    def test_meas_all_scales(self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0) -> None:
-        assert core.scales == [None, ()]
+        assert core.all_pne == [None, ()]
+        core.all_pne = [(), ()]
+        assert core.all_pne == [(), ()]
 
     @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["text2", "dataset2"])
     def test_meas_all_transforms(
@@ -676,7 +672,7 @@ class TestCore:
         | pf.CoreDataset3_1
         | pf.CoreDataset3_2,
     ) -> None:
-        assert core.transforms == [1.0, 1.0]
+        assert core.all_pne_png == [1.0, 1.0]
 
     # each of these should be strings or None
     @all_core2
@@ -1260,7 +1256,7 @@ class TestCore:
         # and should still fail when forced since $PnE is missing
         with pytest.raises(pf.PyreflowException):
             core.version_3_0(True)
-        core.scales = [(), ()]
+        core.all_pne = [(), ()]
         new = core.version_3_0()
         assert isinstance(new, target)
 
@@ -1283,7 +1279,7 @@ class TestCore:
         # and should still fail when forced since $PnE is missing
         with pytest.raises(pf.PyreflowException):
             core.version_3_1(True)
-        core.scales = [(), ()]
+        core.all_pne = [(), ()]
         new = core.version_3_1()
         assert isinstance(new, target)
 
@@ -1307,7 +1303,7 @@ class TestCore:
         with pytest.raises(pf.PyreflowException):
             core.version_3_2(True)
         core.cyt = "T cell incinerator"
-        core.scales = [(), ()]
+        core.all_pne = [(), ()]
         core.cyt = "T cell incinerator"
         new = core.version_3_2()
         assert isinstance(new, target)

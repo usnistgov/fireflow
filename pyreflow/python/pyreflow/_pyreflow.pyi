@@ -696,10 +696,10 @@ class _CoreSetShortnamesMaybe:
     ) -> None: ...
 
 class _CoreScaleMethods:
-    scales: list[Scale | None]
+    all_pne: list[Scale | None]
 
 class _CoreScaleTransformMethods:
-    transforms: list[ScaleTransform]
+    all_pne_png: list[ScaleTransform]
 
 class _CoreTimestepMethods:
     @property

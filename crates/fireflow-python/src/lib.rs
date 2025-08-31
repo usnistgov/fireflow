@@ -27,8 +27,8 @@ use fireflow_python_proc::impl_new_delim_ascii_layout;
 use fireflow_python_proc::impl_new_endian_float_layout;
 use fireflow_python_proc::impl_new_endian_uint_layout;
 use fireflow_python_proc::{
-    impl_core_get_set_layout, impl_core_par, impl_core_set_tr_threshold, impl_gated_meas,
-    impl_get_set_all_meas, impl_get_set_meas_obj_common, impl_new_core,
+    impl_core_get_set_layout, impl_core_par, impl_core_set_tr_threshold, impl_core_write_text,
+    impl_gated_meas, impl_get_set_all_meas, impl_get_set_meas_obj_common, impl_new_core,
     impl_new_fixed_ascii_layout, impl_new_gate_bi_regions, impl_new_gate_uni_regions,
     impl_new_meas, impl_new_mixed_layout, impl_new_ordered_layout,
 };
@@ -153,6 +153,7 @@ macro_rules! impl_common {
         impl_core_par!($pytype);
         impl_core_set_tr_threshold!($pytype);
         impl_core_get_set_layout!($pytype);
+        impl_core_write_text!($pytype);
 
         // common measurement keywords
         impl_get_set_all_meas!(Option<kws::Longname>, "S", "str", $pytype);

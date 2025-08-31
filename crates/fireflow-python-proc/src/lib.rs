@@ -229,17 +229,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         None
     };
 
-    let write_text_doc = DocString::new(
-        "Write data to path.".into(),
-        ["Resulting FCS file will include *HEADER* and *TEXT*.".into()]
-            .into_iter()
-            .chain(write_2_0_warning.clone())
-            .collect(),
-        true,
-        vec![path_param.clone(), textdelim_param.clone()],
-        None,
-    );
-
     let rename_temporal_doc = DocString::new(
         "Rename temporal measurement if present.".into(),
         vec![],
@@ -879,13 +868,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
         #get_set_all_pnn_maybe
 
-        #write_text_doc
-        fn write_text(&self, path: PathBuf, delim: #textdelim_type) -> PyResult<()> {
-            let f = File::options().write(true).create(true).open(path)?;
-            let mut h = BufWriter::new(f);
-            self.0.h_write_text(&mut h, delim).py_term_resolve_nowarn()
-        }
-
         #set_temporal_mtds
         #unset_temporal_mtd
         #get_set_scale
@@ -1049,11 +1031,7 @@ pub fn impl_core_set_tr_threshold(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_get_set_layout(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    let (base, version) = split_ident_version(&i);
-
-    if !(base == "PyCoreTEXT" || base == "PyCoreDataset") {
-        panic!("must be PyCore(TEXT|Dataset)X_Y")
-    }
+    let version = split_ident_version_pycore(&i);
 
     let layout_ident = ArgData::new_layout_arg(version).rstype;
 
@@ -1068,6 +1046,43 @@ pub fn impl_core_get_set_layout(input: TokenStream) -> TokenStream {
             #[setter]
             fn set_layout(&mut self, layout: #layout_ident) -> PyResult<()> {
                 self.0.set_layout(layout.into()).py_term_resolve_nowarn()
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let version = split_ident_version_pycore(&i);
+    let textdelim_path = textdelim_path();
+
+    let write_2_0_warning = if version == Version::FCS2_0 {
+        Some("Will raise exception if file cannot fit within 99,999,999 bytes.".into())
+    } else {
+        None
+    };
+
+    let write_text_doc = DocString::new(
+        "Write data to path.".into(),
+        ["Resulting FCS file will include *HEADER* and *TEXT*.".into()]
+            .into_iter()
+            .chain(write_2_0_warning.clone())
+            .collect(),
+        true,
+        vec![path_param(), textdelim_param()],
+        None,
+    );
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #write_text_doc
+            fn write_text(&self, path: std::path::PathBuf, delim: #textdelim_path) -> PyResult<()> {
+                let f = std::fs::File::options().write(true).create(true).open(path)?;
+                let mut h = std::io::BufWriter::new(f);
+                self.0.h_write_text(&mut h, delim).py_term_resolve_nowarn()
             }
         }
     }
@@ -3781,6 +3796,15 @@ fn split_ident_version_checked(which: &'static str, name: &Ident) -> Version {
     v
 }
 
+fn split_ident_version_pycore(name: &Ident) -> Version {
+    let (base, version) = split_ident_version(name);
+
+    if !(base == "PyCoreTEXT" || base == "PyCoreDataset") {
+        panic!("must be PyCore(TEXT|Dataset)X_Y")
+    }
+    version
+}
+
 fn path_name(p: &Path) -> String {
     p.segments.last().unwrap().ident.to_string()
 }
@@ -3804,4 +3828,26 @@ fn path_strip_args(mut path: Path) -> Path {
         segment.arguments = PathArguments::None;
     }
     path
+}
+
+fn textdelim_path() -> Path {
+    parse_quote!(fireflow_core::validated::textdelim::TEXTDelim)
+}
+
+fn path_param() -> DocArg {
+    DocArg::new_param(
+        "path".into(),
+        PyType::PyClass("~pathlib.Path".into()),
+        "Path to be written".into(),
+    )
+}
+
+fn textdelim_param() -> DocArg {
+    let t = textdelim_path();
+    DocArg::new_param_def(
+        "delim".into(),
+        PyType::Int,
+        "Delimiter to use when writing *TEXT*. Defaults to 30 (record separator).".into(),
+        DocDefault::Other(quote! {#t::default()}, "30".into()),
+    )
 }

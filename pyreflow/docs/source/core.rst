@@ -171,19 +171,15 @@ an "empty" FCS file with a single dataset and no events (ie only *HEADER* and
 
 .. autoclass:: pyreflow.CoreTEXT2_0
    :members:
-   :undoc-members:
 
 .. autoclass:: pyreflow.CoreTEXT3_0
    :members:
-   :undoc-members:
       
 .. autoclass:: pyreflow.CoreTEXT3_1
    :members:
-   :undoc-members:
 
 .. autoclass:: pyreflow.CoreTEXT3_2
    :members:
-   :undoc-members:
 
 CoreDataset*
 ============
@@ -208,16 +204,12 @@ contents.
 
 .. autoclass:: pyreflow.CoreDataset2_0
    :members:
-   :undoc-members:
 
 .. autoclass:: pyreflow.CoreDataset3_0
    :members:
-   :undoc-members:
 
 .. autoclass:: pyreflow.CoreDataset3_1
    :members:
-   :undoc-members:
 
 .. autoclass:: pyreflow.CoreDataset3_2
    :members:
-   :undoc-members:

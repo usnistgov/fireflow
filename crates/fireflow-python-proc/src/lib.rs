@@ -13,7 +13,7 @@ use itertools::Itertools;
 use quote::{format_ident, quote};
 use syn::{
     parse::{Parse, ParseStream},
-    parse_macro_input, parse_quote, parse_str,
+    parse_macro_input, parse_quote,
     punctuated::Punctuated,
     token::Comma,
     GenericArgument, Ident, LitBool, LitInt, LitStr, Path, PathArguments, Result, Token, Type,
@@ -445,7 +445,8 @@ pub fn impl_core_all_peak_attrs(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let _ = split_ident_version_pycore(&i).1;
 
-    let go = |k: &str, p: Path| {
+    let go = |k: &str, i: &str| {
+        let p = keyword_path(i);
         let doc = DocString::new(
             format!("The value of *$P{k}n* for all measurements."),
             vec![],
@@ -472,11 +473,8 @@ pub fn impl_core_all_peak_attrs(input: TokenStream) -> TokenStream {
         }
     };
 
-    let pkn = go("K", parse_quote!(fireflow_core::text::keywords::PeakBin));
-    let pknn = go(
-        "KN",
-        parse_quote!(fireflow_core::text::keywords::PeakNumber),
-    );
+    let pkn = go("K", "PeakBin");
+    let pknn = go("KN", "PeakNumber");
 
     quote! {
         #[pymethods]
@@ -563,7 +561,7 @@ pub fn impl_core_all_pnn_maybe_attr(input: TokenStream) -> TokenStream {
 pub fn impl_core_set_timestep(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
-    let timestep_path = timestep_path();
+    let timestep_path = keyword_path("Timestep");
 
     let q = if version == Version::FCS2_0 {
         quote! {}
@@ -618,7 +616,7 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
     let shortname_path = shortname_path();
-    let timestep_path = timestep_path();
+    let timestep_path = keyword_path("Timestep");
     let meas_index_path = meas_index_path();
 
     let make_doc = |has_timestep: bool, has_index: bool| {
@@ -724,7 +722,7 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
 pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
-    let timestep_path = timestep_path();
+    let timestep_path = keyword_path("Timestep");
 
     let make_doc = |has_timestep: bool, has_force: bool| {
         let s = "Convert the temporal measurement to an optical measurement.".into();
@@ -1898,6 +1896,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     };
     let has_scale = ArgData::new(has_scale_doc, parse_quote!(bool), Some(has_scale_methods));
 
+    // TODO not dry
     let has_type_doc = DocArg::new_ivar_def(
         "has_type".into(),
         PyType::Bool,
@@ -1921,7 +1920,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     };
     let has_type = ArgData::new(has_type_doc, parse_quote!(bool), Some(has_type_methods));
 
-    let timestep_path = parse_quote!(fireflow_core::text::keywords::Timestep);
+    let timestep_path = keyword_path("Timestep");
     let timestep_doc = DocArg::new_ivar(
         "timestep".into(),
         PyType::Float,
@@ -2008,7 +2007,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     );
 
     let get_set_timestep = if version != Version::FCS2_0 && is_temporal {
-        let t = quote! {fireflow_core::text::keywords::Timestep};
+        let t = keyword_path("Timestep");
         quote! {
             #[getter]
             fn get_timestep(&self) -> #t {
@@ -2136,8 +2135,7 @@ impl ArgData {
         desc: Option<&str>,
         def: Option<DocDefault>,
     ) -> Self {
-        let spath = format!("fireflow_core::text::keywords::{kw}");
-        let path = parse_str::<Path>(spath.as_str()).expect("not a valid path");
+        let path = keyword_path(kw);
         let get = format_ident!("get_{name}");
         let set = format_ident!("set_{name}");
 
@@ -2188,8 +2186,7 @@ impl ArgData {
         desc: Option<&str>,
         def: Option<DocDefault>,
     ) -> Self {
-        let spath = format!("fireflow_core::text::keywords::{kw}");
-        let path = parse_str::<Path>(spath.as_str()).expect("not a valid path");
+        let path = keyword_path(kw);
         let get = format_ident!("get_{name}");
         let set = format_ident!("set_{name}");
 
@@ -2574,13 +2571,14 @@ impl ArgData {
     }
 
     fn new_trigger_arg() -> Self {
-        let rstype = parse_quote! {Option<fireflow_core::text::keywords::Trigger>};
+        let path = keyword_path("Trigger");
+        let rstype = parse_quote! {Option<#path>};
 
         let doc = DocArg::new_ivar_def(
             "tr".into(),
             PyType::new_opt(PyType::Tuple(vec![PyType::Int, PyType::Str])),
             "Value for *$TR*. First member of tuple is threshold and second is the \
-         measurement name which must match a *$PnN*."
+             measurement name which must match a *$PnN*."
                 .into(),
             DocDefault::Option,
         );
@@ -3030,8 +3028,8 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
         let get = format_ident!("get_{n}");
         let set = format_ident!("set_{n}");
         let inner = format_ident!("{n}");
-        let rstype = format_ident!("{t}");
-        let path: Path = parse_quote!(Option<fireflow_core::text::keywords::#rstype>);
+        let rstype = keyword_path(t);
+        let path: Path = parse_quote!(Option<#rstype>);
         let methods = quote! {
             #[getter]
             fn #get(&self) -> #path {
@@ -3643,10 +3641,6 @@ fn make_layout_datatype(dt: &str) -> proc_macro2::TokenStream {
     }
 }
 
-fn datatype_pytype() -> PyType {
-    PyType::new_lit(&["A", "I", "F", "D"])
-}
-
 struct OrderedLayoutInfo {
     nbytes: usize,
     is_float: bool,
@@ -3696,7 +3690,7 @@ fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
     let index_rstype_inner = index_path_inner.segments.last().unwrap().ident.clone();
     let index_rsname = index_rstype_inner.to_string();
 
-    let index_pair = quote!(fireflow_core::text::keywords::IndexPair);
+    let index_pair = keyword_path("IndexPair");
     let nonempty = quote!(fireflow_core::nonempty::FCSNonEmpty);
 
     let (summary_version, suffix, index_desc, index_pytype_inner) = match index_rsname.as_str() {
@@ -3747,7 +3741,7 @@ fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
     ) = if is_uni {
         (
             "univariate",
-            quote!(fireflow_core::text::keywords::UniGate),
+            keyword_path("UniGate"),
             index_path_inner.clone(),
             index_pytype_inner,
             format_ident!("gate"),
@@ -3755,9 +3749,10 @@ fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
             "The lower and upper bounds of the gate.".into(),
         )
     } else {
+        let v = keyword_path("Vertex");
         (
-            "uivariate",
-            quote!(#nonempty<fireflow_core::text::keywords::Vertex>),
+            "bivariate",
+            parse_quote!(#nonempty<#v>),
             parse_quote!(#index_pair<#index_path_inner>),
             PyType::Tuple(vec![index_pytype_inner; 2]),
             format_ident!("vertices"),
@@ -3897,22 +3892,11 @@ fn split_ident_version_pycore(name: &Ident) -> (bool, Version) {
     (base == "PyCoreDataset", version)
 }
 
-const ALL_VERSIONS: [Version; 4] = [
-    Version::FCS2_0,
-    Version::FCS3_0,
-    Version::FCS3_1,
-    Version::FCS3_2,
-];
-
 fn path_strip_args(mut path: Path) -> Path {
     for segment in path.segments.iter_mut() {
         segment.arguments = PathArguments::None;
     }
     path
-}
-
-fn textdelim_path() -> Path {
-    parse_quote!(fireflow_core::validated::textdelim::TEXTDelim)
 }
 
 fn path_param() -> DocArg {
@@ -3931,30 +3915,6 @@ fn textdelim_param() -> DocArg {
         "Delimiter to use when writing *TEXT*. Defaults to 30 (record separator).".into(),
         DocDefault::Other(quote! {#t::default()}, "30".into()),
     )
-}
-
-fn shortname_path() -> Path {
-    parse_quote!(fireflow_core::validated::shortname::Shortname)
-}
-
-fn timestep_path() -> Path {
-    parse_quote!(fireflow_core::text::keywords::Timestep)
-}
-
-fn versioned_shortname_path(version: Version) -> Path {
-    let shortname_path = shortname_path();
-    match version {
-        Version::FCS2_0 | Version::FCS3_0 => parse_quote!(Option<#shortname_path>),
-        _ => shortname_path,
-    }
-}
-
-fn versioned_family_path(version: Version) -> Path {
-    let root = quote!(fireflow_core::text::optional);
-    match version {
-        Version::FCS2_0 | Version::FCS3_0 => parse_quote!(#root::MaybeFamily),
-        _ => parse_quote!(#root::AlwaysFamily),
-    }
 }
 
 fn param_type_set_meas(version: Version) -> DocArg {
@@ -3993,10 +3953,6 @@ fn param_skip_index_check() -> DocArg {
          satisfied)."
             .into(),
     )
-}
-
-fn fcs_df_path() -> Path {
-    parse_quote!(fireflow_core::validated::dataframe::FCSDataFrame)
 }
 
 fn param_index(desc: &str) -> DocArg {
@@ -4050,12 +4006,8 @@ fn measurement_pytype(version: Version) -> PyType {
     PyType::new_union2(optical_pytype(version), temporal_pytype(version))
 }
 
-fn pyoptical(version: Version) -> Ident {
-    format_ident!("PyOptical{}", version.short_underscore())
-}
-
-fn pytemporal(version: Version) -> Ident {
-    format_ident!("PyTemporal{}", version.short_underscore())
+fn datatype_pytype() -> PyType {
+    PyType::new_lit(&["A", "I", "F", "D"])
 }
 
 fn element_path(version: Version) -> Path {
@@ -4073,3 +4025,46 @@ fn keyword_path(n: &str) -> Path {
     let t = format_ident!("{n}");
     parse_quote!(fireflow_core::text::keywords::#t)
 }
+
+fn fcs_df_path() -> Path {
+    parse_quote!(fireflow_core::validated::dataframe::FCSDataFrame)
+}
+
+fn textdelim_path() -> Path {
+    parse_quote!(fireflow_core::validated::textdelim::TEXTDelim)
+}
+
+fn shortname_path() -> Path {
+    parse_quote!(fireflow_core::validated::shortname::Shortname)
+}
+
+fn versioned_shortname_path(version: Version) -> Path {
+    let shortname_path = shortname_path();
+    match version {
+        Version::FCS2_0 | Version::FCS3_0 => parse_quote!(Option<#shortname_path>),
+        _ => shortname_path,
+    }
+}
+
+fn versioned_family_path(version: Version) -> Path {
+    let root = quote!(fireflow_core::text::optional);
+    match version {
+        Version::FCS2_0 | Version::FCS3_0 => parse_quote!(#root::MaybeFamily),
+        _ => parse_quote!(#root::AlwaysFamily),
+    }
+}
+
+fn pyoptical(version: Version) -> Ident {
+    format_ident!("PyOptical{}", version.short_underscore())
+}
+
+fn pytemporal(version: Version) -> Ident {
+    format_ident!("PyTemporal{}", version.short_underscore())
+}
+
+const ALL_VERSIONS: [Version; 4] = [
+    Version::FCS2_0,
+    Version::FCS3_0,
+    Version::FCS3_1,
+    Version::FCS3_2,
+];

@@ -199,14 +199,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         }
     };
 
-    let get_all_pnn_doc = DocString::new(
-        "Value of *$PnN* for all measurements.".into(),
-        vec!["Strings are unique and cannot contain commas.".into()],
-        true,
-        vec![],
-        Some(DocReturn::new(PyType::new_list(PyType::Str), None)),
-    );
-
     let textdelim_type =
         parse_str::<Path>("fireflow_core::validated::textdelim::TEXTDelim").unwrap();
 
@@ -227,58 +219,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         Some("Will raise exception if file cannot fit within 99,999,999 bytes.".into())
     } else {
         None
-    };
-
-    let rename_temporal_doc = DocString::new(
-        "Rename temporal measurement if present.".into(),
-        vec![],
-        true,
-        // TODO kinda not DRY
-        vec![DocArg::new_param(
-            "name".into(),
-            PyType::Str,
-            "New name to assign. Must not have commas.".into(),
-        )],
-        Some(DocReturn::new(
-            PyType::new_opt(PyType::Bool),
-            Some("Previous name if present".into()),
-        )),
-    );
-
-    let shortname_type =
-        parse_str::<Path>("fireflow_core::validated::shortname::Shortname").unwrap();
-
-    let timestep_type = parse_str::<Path>("fireflow_core::text::keywords::Timestep").unwrap();
-
-    let get_set_all_pnn_maybe = if version < Version::FCS3_1 {
-        let doc = DocString::new(
-            "The possibly-empty values of *$PnN* for all measurements.".into(),
-            vec!["*$PnN* is optional for this FCS version so values may be ``None``.".into()],
-            true,
-            vec![],
-            Some(DocReturn::new(
-                PyType::new_list(PyType::new_opt(PyType::Str)),
-                None,
-            )),
-        );
-        quote! {
-            #doc
-            #[getter]
-            fn get_all_pnn_maybe(&self) -> Vec<Option<#shortname_type>> {
-                self.0
-                    .shortnames_maybe()
-                    .into_iter()
-                    .map(|x| x.cloned())
-                    .collect()
-            }
-
-            #[setter]
-            fn set_all_pnn_maybe(&mut self, names: Vec<Option<#shortname_type>>) -> PyResult<()> {
-                Ok(self.0.set_measurement_shortnames_maybe(names).void()?)
-            }
-        }
-    } else {
-        quote! {}
     };
 
     let write_dataset_doc = DocString::new(
@@ -326,316 +266,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             };
             self.0.h_write_dataset(&mut h, &conf).py_term_resolve()
         }
-    };
-
-    let make_set_temporal_doc = |has_timestep: bool, has_index: bool| {
-        let name = DocArg::new_param(
-            "name".into(),
-            PyType::Str,
-            "Name to set. Must be a *$PnN* which is present.".into(),
-        );
-        let index = DocArg::new_param("index".into(), PyType::Int, "Index to set".into());
-        let (i, p) = if has_index {
-            ("index", index)
-        } else {
-            ("name", name)
-        };
-        let timestep = if has_timestep {
-            Some(DocArg::new_param(
-                "timestep".into(),
-                PyType::Float,
-                "The value of *$TIMESTEP* to use.".into(),
-            ))
-        } else {
-            None
-        };
-        let force = DocArg::new_param_def(
-            "force".into(),
-            PyType::Bool,
-            "If ``True`` remove any optical-specific metadata (detectors, \
-             lasers, etc) without raising an exception. Defauls to ``False``."
-                .into(),
-            DocDefault::Bool(false),
-        );
-        let ps = [p].into_iter().chain(timestep).chain([force]).collect();
-        DocString::new(
-            format!("Set the temporal measurement to a given {i}."),
-            vec![],
-            true,
-            ps,
-            Some(DocReturn::new(
-                PyType::Bool,
-                Some(format!(
-                    "``True`` if temporal measurement was set, which will \
-                     happen for all cases except when the time measurement is \
-                     already set to ``{i}``."
-                )),
-            )),
-        )
-    };
-
-    let set_temporal_mtds = if version == Version::FCS2_0 {
-        let name_doc = make_set_temporal_doc(false, false);
-        let index_doc = make_set_temporal_doc(false, true);
-        quote! {
-            #name_doc
-            fn set_temporal(&mut self, name: #shortname_type, force: bool) -> PyResult<bool> {
-                self.0.set_temporal(&name, (), force).py_term_resolve()
-            }
-
-            #index_doc
-            fn set_temporal_at(&mut self, index: MeasIndex, force: bool) -> PyResult<bool> {
-                self.0.set_temporal_at(index, (), force).py_term_resolve()
-            }
-        }
-    } else {
-        let name_doc = make_set_temporal_doc(true, false);
-        let index_doc = make_set_temporal_doc(true, true);
-        quote! {
-            #name_doc
-            fn set_temporal(
-                &mut self,
-                name: #shortname_type,
-                timestep: #timestep_type,
-                force: bool,
-            ) -> PyResult<bool> {
-                self.0
-                    .set_temporal(&name, timestep, force)
-                    .py_term_resolve()
-            }
-
-            #index_doc
-            fn set_temporal_at(
-                &mut self,
-                index: MeasIndex,
-                timestep: #timestep_type,
-                force: bool,
-            ) -> PyResult<bool> {
-                self.0
-                    .set_temporal_at(index, timestep, force)
-                    .py_term_resolve()
-            }
-        }
-    };
-
-    let make_unset_temporal_doc = |has_timestep: bool, has_force: bool| {
-        let s = "Convert the temporal measurement to an optical measurement.".into();
-        let p = if has_force {
-            Some(DocArg::new_param_def(
-                "force".into(),
-                PyType::Bool,
-                "If ``True`` and current time measurement has data which cannot \
-                 be converted to optical, force the conversion anyways. \
-                 Otherwise raise an exception."
-                    .into(),
-                DocDefault::Bool(false),
-            ))
-        } else {
-            None
-        }
-        .into_iter()
-        .collect();
-        let (rt, rd) = if has_timestep {
-            (
-                PyType::new_opt(PyType::Float),
-                "Value of *$TIMESTEP* if time measurement was present.".into(),
-            )
-        } else {
-            (
-                PyType::Bool,
-                "``True`` if temporal measurement was present and converted, \
-                 ``False`` if there was not a temporal measurement."
-                    .into(),
-            )
-        };
-        DocString::new(s, vec![], true, p, Some(DocReturn::new(rt, Some(rd))))
-    };
-
-    let unset_temporal_mtd = if version == Version::FCS2_0 {
-        let doc = make_unset_temporal_doc(false, false);
-        quote! {
-            #doc
-            fn unset_temporal(&mut self) -> bool {
-                self.0.unset_temporal().is_some()
-            }
-        }
-    } else if version < Version::FCS3_2 {
-        let doc = make_unset_temporal_doc(true, false);
-        quote! {
-            #doc
-            fn unset_temporal(&mut self) -> Option<#timestep_type> {
-                self.0.unset_temporal()
-            }
-        }
-    } else {
-        let doc = make_unset_temporal_doc(true, true);
-        quote! {
-            #doc
-            fn unset_temporal(&mut self, force: bool) -> PyResult<Option<#timestep_type>> {
-                self.0.unset_temporal_lossy(force).py_term_resolve()
-            }
-        }
-    };
-
-    let get_set_scale = if version == Version::FCS2_0 {
-        let s0 = "Will be ``()`` for linear scaling (``0,0`` in FCS encoding), \
-                   a 2-tuple for log scaling, or ``None`` if missing."
-            .into();
-        let s1 = "The temporal measurement must always be ``()``. Setting it \
-                  to another value will raise an exception."
-            .into();
-        // TODO this will probably end up not being DRY
-        let doc = DocString::new(
-            "The value for *$PnE* for all measurements.".into(),
-            vec![s0, s1],
-            true,
-            vec![],
-            Some(DocReturn::new(
-                PyType::new_list(PyType::new_union(vec![
-                    PyType::new_unit(),
-                    PyType::Tuple(vec![PyType::Float, PyType::Float]),
-                    PyType::None,
-                ])),
-                None,
-            )),
-        );
-        quote! {
-            #doc
-            #[getter]
-            fn get_scales(&self) -> Vec<Option<Scale>> {
-                self.0.scales().collect()
-            }
-
-            #[setter]
-            fn set_scales(&mut self, scales: Vec<Option<Scale>>) -> PyResult<()> {
-                self.0.set_scales(scales).py_term_resolve_nowarn()
-            }
-        }
-    } else {
-        let sum = "The value for *$PnE* and/or *$PnG* for all measurements.".into();
-        let s0 = "Collectively these keywords correspond to scale transforms.".into();
-        let s1 = "If scaling is linear, return a float which corresponds to the \
-                  value of *$PnG* when *$PnE* is ``0,0``. If scaling is logarithmic, \
-                  return a pair of floats, corresponding to unset *$PnG* and the \
-                  non-``0,0`` value of *$PnE*."
-            .into();
-        let s2 = "The FCS standards disallow any other combinations.".into();
-        let s3 = "The temporal measurement will always be ``1.0``, corresponding \
-                  to an identity transform. Setting it to another value will \
-                  raise an exception."
-            .into();
-        let doc = DocString::new(
-            sum,
-            vec![s0, s1, s2, s3],
-            true,
-            vec![],
-            Some(DocReturn::new(
-                PyType::new_list(PyType::new_union2(
-                    PyType::Float,
-                    PyType::Tuple(vec![PyType::Float, PyType::Float]),
-                )),
-                None,
-            )),
-        );
-        quote! {
-            #doc
-            #[getter]
-            fn get_transforms(&self) -> Vec<core::ScaleTransform> {
-                self.0.transforms().collect()
-            }
-
-            #[setter]
-            fn set_transforms(&mut self, transforms: Vec<core::ScaleTransform>) -> PyResult<()> {
-                self.0.set_transforms(transforms).py_term_resolve_nowarn()
-            }
-        }
-    };
-
-    let get_set_timestep = if version == Version::FCS2_0 {
-        quote! {}
-    } else {
-        let t = PyType::new_opt(PyType::Float);
-        let get_doc = DocString::new(
-            "The value of *$TIMESTEP*".into(),
-            vec![],
-            true,
-            vec![],
-            Some(DocReturn::new(t.clone(), None)),
-        );
-        let set_doc = DocString::new(
-            "Set the *$TIMESTEP* if time measurement is present.".into(),
-            vec![],
-            true,
-            vec![DocArg::new_param(
-                "timestep".into(),
-                PyType::Float,
-                "The timestep to set. Must be greater than zero.".into(),
-            )],
-            Some(DocReturn::new(
-                t,
-                Some("Previous *$TIMESTEP* if present.".into()),
-            )),
-        );
-        quote! {
-            #get_doc
-            #[getter]
-            fn get_timestep(&self) -> Option<#timestep_type> {
-                self.0.timestep().copied()
-            }
-
-            #set_doc
-            fn set_timestep(&mut self, timestep: #timestep_type) -> Option<#timestep_type> {
-                self.0.set_timestep(timestep)
-            }
-        }
-    };
-
-    let get_set_all_peak = if version < Version::FCS3_2 {
-        let pkn_doc = DocString::new(
-            "The value of *$PKn* for all measurements.".into(),
-            vec![],
-            true,
-            vec![],
-            Some(DocReturn::new(PyType::new_list(PyType::Int), None)),
-        );
-        let pknn_doc = DocString::new(
-            "The value of *$PKNn* for all measurements.".into(),
-            vec![],
-            true,
-            vec![],
-            Some(DocReturn::new(PyType::new_list(PyType::Int), None)),
-        );
-        quote! {
-            #pkn_doc
-            #[getter]
-            fn get_all_pkn(&self) -> Vec<Option<kws::PeakBin>> {
-                self.0
-                    .get_temporal_optical::<Option<kws::PeakBin>>()
-                    .map(|x| x.as_ref().copied())
-                    .collect()
-            }
-
-            #[setter]
-            fn set_all_pkn(&mut self, xs: Vec<Option<kws::PeakBin>>) -> PyResult<()> {
-                Ok(self.0.set_temporal_optical(xs)?)
-            }
-
-            #pknn_doc
-            #[getter]
-            fn get_all_pknn(&self) -> Vec<Option<kws::PeakNumber>> {
-                self.0
-                    .get_temporal_optical::<Option<kws::PeakNumber>>()
-                    .map(|x| x.as_ref().copied())
-                    .collect()
-            }
-
-            #[setter]
-            fn set_all_pknn(&mut self, xs: Vec<Option<kws::PeakNumber>>) -> PyResult<()> {
-                Ok(self.0.set_temporal_optical(xs)?)
-            }
-        }
-    } else {
-        quote! {}
     };
 
     let to_dataset_doc = DocString::new(
@@ -848,33 +478,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         None,
     );
 
-    // methods which apply to both Coretext* and CoreDataset*
-    let common = quote! {
-        #rename_temporal_doc
-        fn rename_temporal(&mut self, name: #shortname_type) -> Option<#shortname_type> {
-            self.0.rename_temporal(name)
-        }
-
-        #get_all_pnn_doc
-        #[getter]
-        fn get_all_pnn(&self) -> Vec<#shortname_type> {
-            self.0.all_shortnames()
-        }
-
-        #[setter]
-        fn set_all_pnn(&mut self, names: Vec<#shortname_type>) -> PyResult<()> {
-            Ok(self.0.set_all_shortnames(names).void()?)
-        }
-
-        #get_set_all_pnn_maybe
-
-        #set_temporal_mtds
-        #unset_temporal_mtd
-        #get_set_scale
-        #get_set_timestep
-        #get_set_all_peak
-    };
-
     let coretext_new = quote! {
         fn new(#(#coretext_funargs),*) -> PyResult<Self> {
             Ok(#fun(#(#coretext_inner_args),*).mult_head()?.into())
@@ -896,7 +499,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         #set_meas_method
         #coretext_set_meas_and_layout_doc
         #set_meas_and_layout_method
-        #common
         #to_dataset_mtd
         #(#coretext_ivar_methods)*
         #coretext_convert
@@ -940,8 +542,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
                 .py_term_resolve_nowarn()
         }
 
-        #common
-
         #write_dataset_mtd
 
         #(#coredataset_ivar_methods)*
@@ -977,6 +577,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_par(input: TokenStream) -> TokenStream {
     let t = parse_macro_input!(input as Ident);
+    let _ = split_ident_version_pycore(&t);
     let doc = DocString::new(
         "The value for *$PAR*.".into(),
         vec![],
@@ -1001,6 +602,7 @@ pub fn impl_core_par(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_set_tr_threshold(input: TokenStream) -> TokenStream {
     let t = parse_macro_input!(input as Ident);
+    let _ = split_ident_version_pycore(&t);
     let doc = DocString::new(
         "Set the threshold for *$TR*.".into(),
         vec![],
@@ -1084,6 +686,481 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
                 let mut h = std::io::BufWriter::new(f);
                 self.0.h_write_text(&mut h, delim).py_term_resolve_nowarn()
             }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_core_all_peak_attrs(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let _ = split_ident_version_pycore(&i);
+
+    let go = |k: &str, p: Path| {
+        let doc = DocString::new(
+            format!("The value of *$P{k}n* for all measurements."),
+            vec![],
+            true,
+            vec![],
+            Some(DocReturn::new(PyType::new_list(PyType::Int), None)),
+        );
+        let get = format_ident!("get_all_p{}n", k.to_lowercase());
+        let set = format_ident!("set_all_p{}n", k.to_lowercase());
+        quote! {
+            #doc
+            #[getter]
+            fn #get(&self) -> Vec<Option<#p>> {
+                self.0
+                    .get_temporal_optical::<Option<#p>>()
+                    .map(|x| x.as_ref().copied())
+                    .collect()
+            }
+
+            #[setter]
+            fn #set(&mut self, xs: Vec<Option<#p>>) -> PyResult<()> {
+                Ok(self.0.set_temporal_optical(xs)?)
+            }
+        }
+    };
+
+    let pkn = go("K", parse_quote!(fireflow_core::text::keywords::PeakBin));
+    let pknn = go(
+        "KN",
+        parse_quote!(fireflow_core::text::keywords::PeakNumber),
+    );
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #pkn
+            #pknn
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_core_all_pnn_attr(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let _ = split_ident_version_pycore(&i);
+    let shortname_path = shortname_path();
+
+    let doc = DocString::new(
+        "Value of *$PnN* for all measurements.".into(),
+        vec!["Strings are unique and cannot contain commas.".into()],
+        true,
+        vec![],
+        Some(DocReturn::new(PyType::new_list(PyType::Str), None)),
+    );
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #doc
+            #[getter]
+            fn get_all_pnn(&self) -> Vec<#shortname_path> {
+                self.0.all_shortnames()
+            }
+
+            #[setter]
+            fn set_all_pnn(&mut self, names: Vec<#shortname_path>) -> PyResult<()> {
+                Ok(self.0.set_all_shortnames(names).void()?)
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_core_all_pnn_maybe_attr(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let _ = split_ident_version_pycore(&i);
+    let shortname_path = shortname_path();
+
+    let doc = DocString::new(
+        "The possibly-empty values of *$PnN* for all measurements.".into(),
+        vec!["*$PnN* is optional for this FCS version so values may be ``None``.".into()],
+        true,
+        vec![],
+        Some(DocReturn::new(
+            PyType::new_list(PyType::new_opt(PyType::Str)),
+            None,
+        )),
+    );
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #doc
+            #[getter]
+            fn get_all_pnn_maybe(&self) -> Vec<Option<#shortname_path>> {
+                self.0
+                    .shortnames_maybe()
+                    .into_iter()
+                    .map(|x| x.cloned())
+                    .collect()
+            }
+
+            #[setter]
+            fn set_all_pnn_maybe(&mut self, names: Vec<Option<#shortname_path>>) -> PyResult<()> {
+                Ok(self.0.set_measurement_shortnames_maybe(names).void()?)
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_core_set_timestep(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let version = split_ident_version_pycore(&i);
+    let timestep_path = timestep_path();
+
+    let q = if version == Version::FCS2_0 {
+        quote! {}
+    } else {
+        let t = PyType::new_opt(PyType::Float);
+        let get_doc = DocString::new(
+            "The value of *$TIMESTEP*".into(),
+            vec![],
+            true,
+            vec![],
+            Some(DocReturn::new(t.clone(), None)),
+        );
+        let set_doc = DocString::new(
+            "Set the *$TIMESTEP* if time measurement is present.".into(),
+            vec![],
+            true,
+            vec![DocArg::new_param(
+                "timestep".into(),
+                PyType::Float,
+                "The timestep to set. Must be greater than zero.".into(),
+            )],
+            Some(DocReturn::new(
+                t,
+                Some("Previous *$TIMESTEP* if present.".into()),
+            )),
+        );
+        quote! {
+            #get_doc
+            #[getter]
+            fn get_timestep(&self) -> Option<#timestep_path> {
+                self.0.timestep().copied()
+            }
+
+            #set_doc
+            fn set_timestep(&mut self, timestep: #timestep_path) -> Option<#timestep_path> {
+                self.0.set_timestep(timestep)
+            }
+        }
+    };
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #q
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let version = split_ident_version_pycore(&i);
+    let shortname_path = shortname_path();
+    let timestep_path = timestep_path();
+
+    let make_doc = |has_timestep: bool, has_index: bool| {
+        let name = DocArg::new_param(
+            "name".into(),
+            PyType::Str,
+            "Name to set. Must be a *$PnN* which is present.".into(),
+        );
+        let index = DocArg::new_param("index".into(), PyType::Int, "Index to set".into());
+        let (i, p) = if has_index {
+            ("index", index)
+        } else {
+            ("name", name)
+        };
+        let timestep = if has_timestep {
+            Some(DocArg::new_param(
+                "timestep".into(),
+                PyType::Float,
+                "The value of *$TIMESTEP* to use.".into(),
+            ))
+        } else {
+            None
+        };
+        let force = DocArg::new_param_def(
+            "force".into(),
+            PyType::Bool,
+            "If ``True`` remove any optical-specific metadata (detectors, \
+             lasers, etc) without raising an exception. Defauls to ``False``."
+                .into(),
+            DocDefault::Bool(false),
+        );
+        let ps = [p].into_iter().chain(timestep).chain([force]).collect();
+        DocString::new(
+            format!("Set the temporal measurement to a given {i}."),
+            vec![],
+            true,
+            ps,
+            Some(DocReturn::new(
+                PyType::Bool,
+                Some(format!(
+                    "``True`` if temporal measurement was set, which will \
+                     happen for all cases except when the time measurement is \
+                     already set to ``{i}``."
+                )),
+            )),
+        )
+    };
+
+    let q = if version == Version::FCS2_0 {
+        let name_doc = make_doc(false, false);
+        let index_doc = make_doc(false, true);
+        quote! {
+            #name_doc
+            fn set_temporal(&mut self, name: #shortname_path, force: bool) -> PyResult<bool> {
+                self.0.set_temporal(&name, (), force).py_term_resolve()
+            }
+
+            #index_doc
+            fn set_temporal_at(&mut self, index: MeasIndex, force: bool) -> PyResult<bool> {
+                self.0.set_temporal_at(index, (), force).py_term_resolve()
+            }
+        }
+    } else {
+        let name_doc = make_doc(true, false);
+        let index_doc = make_doc(true, true);
+        quote! {
+            #name_doc
+            fn set_temporal(
+                &mut self,
+                name: #shortname_path,
+                timestep: #timestep_path,
+                force: bool,
+            ) -> PyResult<bool> {
+                self.0
+                    .set_temporal(&name, timestep, force)
+                    .py_term_resolve()
+            }
+
+            #index_doc
+            fn set_temporal_at(
+                &mut self,
+                index: MeasIndex,
+                timestep: #timestep_path,
+                force: bool,
+            ) -> PyResult<bool> {
+                self.0
+                    .set_temporal_at(index, timestep, force)
+                    .py_term_resolve()
+            }
+        }
+    };
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #q
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let version = split_ident_version_pycore(&i);
+    let timestep_path = timestep_path();
+
+    let make_doc = |has_timestep: bool, has_force: bool| {
+        let s = "Convert the temporal measurement to an optical measurement.".into();
+        let p = if has_force {
+            Some(DocArg::new_param_def(
+                "force".into(),
+                PyType::Bool,
+                "If ``True`` and current time measurement has data which cannot \
+                 be converted to optical, force the conversion anyways. \
+                 Otherwise raise an exception."
+                    .into(),
+                DocDefault::Bool(false),
+            ))
+        } else {
+            None
+        }
+        .into_iter()
+        .collect();
+        let (rt, rd) = if has_timestep {
+            (
+                PyType::new_opt(PyType::Float),
+                "Value of *$TIMESTEP* if time measurement was present.".into(),
+            )
+        } else {
+            (
+                PyType::Bool,
+                "``True`` if temporal measurement was present and converted, \
+                 ``False`` if there was not a temporal measurement."
+                    .into(),
+            )
+        };
+        DocString::new(s, vec![], true, p, Some(DocReturn::new(rt, Some(rd))))
+    };
+
+    let q = if version == Version::FCS2_0 {
+        let doc = make_doc(false, false);
+        quote! {
+            #doc
+            fn unset_temporal(&mut self) -> bool {
+                self.0.unset_temporal().is_some()
+            }
+        }
+    } else if version < Version::FCS3_2 {
+        let doc = make_doc(true, false);
+        quote! {
+            #doc
+            fn unset_temporal(&mut self) -> Option<#timestep_path> {
+                self.0.unset_temporal()
+            }
+        }
+    } else {
+        let doc = make_doc(true, true);
+        quote! {
+            #doc
+            fn unset_temporal(&mut self, force: bool) -> PyResult<Option<#timestep_path>> {
+                self.0.unset_temporal_lossy(force).py_term_resolve()
+            }
+        }
+    };
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #q
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_core_rename_temporal(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let _ = split_ident_version_pycore(&i);
+    let shortname_path = shortname_path();
+
+    let doc = DocString::new(
+        "Rename temporal measurement if present.".into(),
+        vec![],
+        true,
+        // TODO kinda not DRY
+        vec![DocArg::new_param(
+            "name".into(),
+            PyType::Str,
+            "New name to assign. Must not have commas.".into(),
+        )],
+        Some(DocReturn::new(
+            PyType::new_opt(PyType::Bool),
+            Some("Previous name if present".into()),
+        )),
+    );
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #doc
+            fn rename_temporal(&mut self, name: #shortname_path) -> Option<#shortname_path> {
+                self.0.rename_temporal(name)
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let version = split_ident_version_pycore(&i);
+    let scale_path = quote!(fireflow_core::text::scale::Scale);
+    let xform_path = quote!(fireflow_core::core::ScaleTransform);
+
+    let q = if version == Version::FCS2_0 {
+        let s0 = "Will be ``()`` for linear scaling (``0,0`` in FCS encoding), \
+                   a 2-tuple for log scaling, or ``None`` if missing."
+            .into();
+        let s1 = "The temporal measurement must always be ``()``. Setting it \
+                  to another value will raise an exception."
+            .into();
+        // TODO this will probably end up not being DRY
+        let doc = DocString::new(
+            "The value for *$PnE* for all measurements.".into(),
+            vec![s0, s1],
+            true,
+            vec![],
+            Some(DocReturn::new(
+                PyType::new_list(PyType::new_union(vec![
+                    PyType::new_unit(),
+                    PyType::Tuple(vec![PyType::Float, PyType::Float]),
+                    PyType::None,
+                ])),
+                None,
+            )),
+        );
+        quote! {
+            #doc
+            #[getter]
+            fn get_scales(&self) -> Vec<Option<#scale_path>> {
+                self.0.scales().collect()
+            }
+
+            #[setter]
+            fn set_scales(&mut self, scales: Vec<Option<#scale_path>>) -> PyResult<()> {
+                self.0.set_scales(scales).py_term_resolve_nowarn()
+            }
+        }
+    } else {
+        let sum = "The value for *$PnE* and/or *$PnG* for all measurements.";
+        let s0 = "Collectively these keywords correspond to scale transforms.";
+        let s1 = "If scaling is linear, return a float which corresponds to the \
+                  value of *$PnG* when *$PnE* is ``0,0``. If scaling is logarithmic, \
+                  return a pair of floats, corresponding to unset *$PnG* and the \
+                  non-``0,0`` value of *$PnE*.";
+        let s2 = "The FCS standards disallow any other combinations.";
+        let s3 = "The temporal measurement will always be ``1.0``, corresponding \
+                  to an identity transform. Setting it to another value will \
+                  raise an exception.";
+        let doc = DocString::new(
+            sum.into(),
+            vec![s0.into(), s1.into(), s2.into(), s3.into()],
+            true,
+            vec![],
+            Some(DocReturn::new(
+                PyType::new_list(PyType::new_union2(
+                    PyType::Float,
+                    PyType::Tuple(vec![PyType::Float, PyType::Float]),
+                )),
+                None,
+            )),
+        );
+        quote! {
+            #doc
+            #[getter]
+            fn get_transforms(&self) -> Vec<#xform_path> {
+                self.0.transforms().collect()
+            }
+
+            #[setter]
+            fn set_transforms(&mut self, transforms: Vec<#xform_path>) -> PyResult<()> {
+                self.0.set_transforms(transforms).py_term_resolve_nowarn()
+            }
+        }
+    };
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #q
         }
     }
     .into()
@@ -3850,4 +3927,20 @@ fn textdelim_param() -> DocArg {
         "Delimiter to use when writing *TEXT*. Defaults to 30 (record separator).".into(),
         DocDefault::Other(quote! {#t::default()}, "30".into()),
     )
+}
+
+fn shortname_path() -> Path {
+    parse_quote!(fireflow_core::validated::shortname::Shortname)
+}
+
+fn timestep_path() -> Path {
+    parse_quote!(fireflow_core::text::keywords::Timestep)
+}
+
+fn versioned_shortname_path(version: Version) -> Path {
+    let shortname_path = shortname_path();
+    match version {
+        Version::FCS2_0 | Version::FCS3_0 => parse_quote!(Option<#shortname_path>),
+        _ => shortname_path,
+    }
 }

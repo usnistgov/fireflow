@@ -3500,36 +3500,53 @@ impl Parse for OrderedLayoutInfo {
 // TODO use real paths when calling this
 #[proc_macro]
 pub fn impl_new_gate_uni_regions(input: TokenStream) -> TokenStream {
-    let version = parse_macro_version(input);
-    make_gate_region(version, true)
+    let path: Path = syn::parse(input).unwrap();
+    make_gate_region(path, true)
 }
 
 #[proc_macro]
 pub fn impl_new_gate_bi_regions(input: TokenStream) -> TokenStream {
-    let version = parse_macro_version(input);
-    make_gate_region(version, false)
+    let path: Path = syn::parse(input).unwrap();
+    make_gate_region(path, false)
 }
 
-fn make_gate_region(version: Version, is_uni: bool) -> TokenStream {
+fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
     let index_name = if is_uni { "index" } else { "x/y indices" };
+    let region_ident = path.segments.last().unwrap().ident.clone();
+
+    let index_path_inner = if let PathArguments::AngleBracketed(xs) =
+        path.segments.last().unwrap().arguments.clone()
+    {
+        if let GenericArgument::Type(Type::Path(p)) = xs.args.first().unwrap() {
+            p.path.clone()
+        } else {
+            panic!("could not get index type")
+        }
+    } else {
+        panic!("no generic args")
+    };
+
+    let index_rstype_inner = index_path_inner.segments.last().unwrap().ident.clone();
+    let index_rsname = index_rstype_inner.to_string();
 
     let index_pair = quote!(fireflow_core::text::keywords::IndexPair);
     let nonempty = quote!(fireflow_core::nonempty::FCSNonEmpty);
 
-    let (summary_version, index_desc, index_pytype_inner, index_rstype_inner) = match version {
-        Version::FCS2_0 => (
+    let (summary_version, suffix, index_desc, index_pytype_inner) = match index_rsname.as_str() {
+        "GateIndex" => (
             "2.0",
+            "2_0",
             format!(
                 "The {index_name} corresponding to a gating measurement \
                  (the *m* in the *$Gm\\** keywords)."
             ),
             PyType::Int,
-            quote!(fireflow_core::text::index::GateIndex),
         ),
-        Version::FCS3_0 | Version::FCS3_1 => {
+        "MeasOrGateIndex" => {
             let k = if is_uni { "Must" } else { "Each must" };
             (
                 "3.0/3.1",
+                "3_0",
                 format!(
                     "The {index_name} corresponding to either a gating or a physical \
                      measurement (the *m* and *n* in the *$Gm\\** or *$Pn\\** \
@@ -3538,18 +3555,18 @@ fn make_gate_region(version: Version, is_uni: bool) -> TokenStream {
                      physical measurement respectively."
                 ),
                 PyType::Str,
-                quote!(fireflow_core::text::keywords::MeasOrGateIndex),
             )
         }
-        Version::FCS3_2 => (
+        "PrefixedMeasIndex" => (
             "3.2",
+            "3_2",
             format!(
                 "The {index_name} corresponding to a physical measurement \
                  (the *n* in the *$Pn\\** keywords)."
             ),
             PyType::Int,
-            quote!(fireflow_core::text::keywords::PrefixedMeasIndex),
         ),
+        _ => panic!("unknown index type"),
     };
 
     let (
@@ -3564,7 +3581,7 @@ fn make_gate_region(version: Version, is_uni: bool) -> TokenStream {
         (
             "Univariate",
             quote!(fireflow_core::text::keywords::UniGate),
-            index_rstype_inner.clone(),
+            index_path_inner.clone(),
             index_pytype_inner,
             format_ident!("gate"),
             PyType::Tuple(vec![PyType::Float; 2]),
@@ -3574,17 +3591,13 @@ fn make_gate_region(version: Version, is_uni: bool) -> TokenStream {
         (
             "Bivariate",
             quote!(#nonempty<fireflow_core::text::keywords::Vertex>),
-            quote!(#index_pair<#index_rstype_inner>),
+            parse_quote!(#index_pair<#index_path_inner>),
             PyType::Tuple(vec![index_pytype_inner; 2]),
             format_ident!("vertices"),
             PyType::new_list(PyType::Tuple(vec![PyType::Float; 2])),
             "The vertices of a polygon gate. Must not be empty.".into(),
         )
     };
-
-    let region_ident = format_ident!("{region_name}Region");
-
-    let region_rstype = quote!(fireflow_core::text::gating::#region_ident);
 
     let summary = format!(
         "Make a new FCS {summary_version}-compatible {} region",
@@ -3596,15 +3609,15 @@ fn make_gate_region(version: Version, is_uni: bool) -> TokenStream {
 
     let gate_param = DocArg::new_ivar(gate_argname.to_string(), gate_pytype, gate_desc);
 
-    let name = format!("{region_ident}{}", version.short_underscore());
-
-    let full_rstype = parse_quote!(#region_rstype<#index_rstype_inner>);
+    let name = format!("{region_ident}{suffix}");
 
     let doc = DocString::new(summary, vec![], false, vec![index_param, gate_param], None);
 
+    let bare_path = path_strip_args(path.clone());
+
     let new = quote! {
         fn new(index: #index_rstype, #gate_argname: #gate_rstype) -> Self {
-            #region_rstype { index, #gate_argname }.into()
+            #bare_path { index, #gate_argname }.into()
         }
     };
 
@@ -3620,7 +3633,7 @@ fn make_gate_region(version: Version, is_uni: bool) -> TokenStream {
         }
     };
 
-    impl_new(name, full_rstype, doc, new, rest).1.into()
+    impl_new(name, path, doc, new, rest).1.into()
 }
 
 fn impl_new(
@@ -3782,12 +3795,12 @@ const ALL_VERSIONS: [Version; 4] = [
     Version::FCS3_2,
 ];
 
-fn parse_macro_version(input: TokenStream) -> Version {
-    let x: LitStr = syn::parse(input).unwrap();
-    x.value()
-        .parse::<Version>()
-        .expect("Must be a valid FCS version")
-}
+// fn parse_macro_version(input: TokenStream) -> Version {
+//     let x: LitStr = syn::parse(input).unwrap();
+//     x.value()
+//         .parse::<Version>()
+//         .expect("Must be a valid FCS version")
+// }
 
 fn path_strip_args(mut path: Path) -> Path {
     for segment in path.segments.iter_mut() {

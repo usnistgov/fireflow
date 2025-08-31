@@ -14,7 +14,7 @@ use fireflow_core::text::gating::{
     AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, BivariateRegion, GatedMeasurement,
     GatingScheme, Region, UnivariateRegion,
 };
-use fireflow_core::text::index::{MeasIndex, RegionIndex};
+use fireflow_core::text::index::{GateIndex, MeasIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::{Eithers, Element, NamedVec, NonCenterElement};
 use fireflow_core::text::optional::{AlwaysFamily, MaybeFamily, MightHave};
@@ -447,13 +447,13 @@ impl<'py> IntoPyObject<'py> for PyAppliedGates3_2 {
     }
 }
 
-impl_new_gate_uni_regions!("FCS2.0");
-impl_new_gate_uni_regions!("FCS3.0");
-impl_new_gate_uni_regions!("FCS3.2");
+impl_new_gate_uni_regions!(UnivariateRegion<GateIndex>);
+impl_new_gate_uni_regions!(UnivariateRegion<kws::MeasOrGateIndex>);
+impl_new_gate_uni_regions!(UnivariateRegion<kws::PrefixedMeasIndex>);
 
-impl_new_gate_bi_regions!("FCS2.0");
-impl_new_gate_bi_regions!("FCS3.0");
-impl_new_gate_bi_regions!("FCS3.2");
+impl_new_gate_bi_regions!(BivariateRegion<GateIndex>);
+impl_new_gate_bi_regions!(BivariateRegion<kws::MeasOrGateIndex>);
+impl_new_gate_bi_regions!(BivariateRegion<kws::PrefixedMeasIndex>);
 
 struct PyEithers<K: MightHave, U, V>(Eithers<K, U, V>);
 

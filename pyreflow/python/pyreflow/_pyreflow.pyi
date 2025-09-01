@@ -210,10 +210,6 @@ class _MeasCommon:
     nonstandard_keywords: NonStdKeywords
     longname: str | None
 
-    # def nonstandard_insert(self, key: NonStdKey, value: str) -> str | None: ...
-    # def nonstandard_get(self, key: NonStdKey) -> str | None: ...
-    # def nonstandard_remove(self, key: NonStdKey) -> str | None: ...
-
 class _OpticalWavelength:
     wavelength: float | None
 
@@ -493,9 +489,6 @@ class _CoreCommon:
     all_meas_nonstandard_keywords: list[NonStdKeywords]
 
     nonstandard_keywords: NonStdKeywords
-    # def insert_nonstandard(self, key: NonStdKey, value: str) -> str | None: ...
-    # def remove_nonstandard(self, key: NonStdKey) -> str | None: ...
-    # def get_nonstandard(self, key: NonStdKey) -> str | None: ...
     def standard_keywords(
         self,
         exclude_req_root: bool = False,

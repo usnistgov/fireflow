@@ -27,19 +27,20 @@ use fireflow_python_proc::impl_new_endian_uint_layout;
 use fireflow_python_proc::{
     impl_core_all_peak_attrs, impl_core_all_pnanalyte, impl_core_all_pncal3_1,
     impl_core_all_pncal3_2, impl_core_all_pnd, impl_core_all_pndet, impl_core_all_pnf,
-    impl_core_all_pnfeature, impl_core_all_pnl_new, impl_core_all_pnl_old, impl_core_all_pnn_attr,
-    impl_core_all_pnn_maybe_attr, impl_core_all_pno, impl_core_all_pnp, impl_core_all_pns,
-    impl_core_all_pnt, impl_core_all_pntag, impl_core_all_pntype, impl_core_all_pnv,
-    impl_core_all_transforms_attr, impl_core_get_measurement, impl_core_get_measurements,
-    impl_core_get_set_timestep, impl_core_get_temporal, impl_core_insert_measurement,
-    impl_core_par, impl_core_push_measurement, impl_core_remove_measurement,
-    impl_core_rename_temporal, impl_core_replace_optical, impl_core_replace_temporal,
-    impl_core_set_measurements, impl_core_set_measurements_and_layout, impl_core_set_temporal,
-    impl_core_set_tr_threshold, impl_core_unset_temporal, impl_core_version_x_y,
-    impl_core_write_dataset, impl_core_write_text, impl_coredataset_set_measurements_and_data,
-    impl_coredataset_unset_data, impl_coretext_to_dataset, impl_coretext_unset_measurements,
-    impl_gated_meas, impl_new_core, impl_new_fixed_ascii_layout, impl_new_gate_bi_regions,
-    impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout, impl_new_ordered_layout,
+    impl_core_all_pnfeature, impl_core_all_pnl_new, impl_core_all_pnl_old, impl_core_all_pno,
+    impl_core_all_pnp, impl_core_all_pns, impl_core_all_pnt, impl_core_all_pntag,
+    impl_core_all_pntype, impl_core_all_pnv, impl_core_all_shortnames_attr,
+    impl_core_all_shortnames_maybe_attr, impl_core_all_transforms_attr, impl_core_get_measurement,
+    impl_core_get_measurements, impl_core_get_set_timestep, impl_core_get_temporal,
+    impl_core_insert_measurement, impl_core_par, impl_core_push_measurement,
+    impl_core_remove_measurement, impl_core_rename_temporal, impl_core_replace_optical,
+    impl_core_replace_temporal, impl_core_set_measurements, impl_core_set_measurements_and_layout,
+    impl_core_set_temporal, impl_core_set_tr_threshold, impl_core_unset_temporal,
+    impl_core_version_x_y, impl_core_write_dataset, impl_core_write_text,
+    impl_coredataset_set_measurements_and_data, impl_coredataset_unset_data,
+    impl_coretext_to_dataset, impl_coretext_unset_measurements, impl_gated_meas, impl_new_core,
+    impl_new_fixed_ascii_layout, impl_new_gate_bi_regions, impl_new_gate_uni_regions,
+    impl_new_meas, impl_new_mixed_layout, impl_new_ordered_layout,
 };
 
 use derive_more::{From, Into};
@@ -182,8 +183,8 @@ macro_rules! impl_common {
         // method to write HEADER+TEXT to file
         impl_core_write_text!($pytype);
 
-        // $PnN attribute; for 2.0/3.0, this will not allow setting any to None
-        impl_core_all_pnn_attr!($pytype);
+        // $Shortnames attribute; for 2.0/3.0, this will not allow setting any to None
+        impl_core_all_shortnames_attr!($pytype);
 
         // method to rename temporal measurement if it exists
         impl_core_rename_temporal!($pytype);
@@ -358,11 +359,11 @@ impl_core_get_set_timestep!(PyCoreDataset3_0);
 impl_core_get_set_timestep!(PyCoreDataset3_1);
 impl_core_get_set_timestep!(PyCoreDataset3_2);
 
-// Get/set $PnN for 2.0 and 3.0 where this field is optional
-impl_core_all_pnn_maybe_attr!(PyCoreTEXT2_0);
-impl_core_all_pnn_maybe_attr!(PyCoreTEXT3_0);
-impl_core_all_pnn_maybe_attr!(PyCoreDataset2_0);
-impl_core_all_pnn_maybe_attr!(PyCoreDataset3_0);
+// Get/set $Shortnames for 2.0 and 3.0 where this field is optional
+impl_core_all_shortnames_maybe_attr!(PyCoreTEXT2_0);
+impl_core_all_shortnames_maybe_attr!(PyCoreTEXT3_0);
+impl_core_all_shortnames_maybe_attr!(PyCoreDataset2_0);
+impl_core_all_shortnames_maybe_attr!(PyCoreDataset3_0);
 
 // Get/set methods for $PKn and $PKNn (2.0-3.1)
 impl_core_all_peak_attrs!(PyCoreTEXT2_0);

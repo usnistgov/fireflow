@@ -34,6 +34,7 @@ html_static_path = ["_static"]
 autodoc_typehints = "description"
 autodoc_member_order = "bysource"
 
+# TODO add custom inventory for polars using https://sphobjinv.readthedocs.io/en/latest/
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "numpy": ("https://numpy.org/doc/stable/", None),

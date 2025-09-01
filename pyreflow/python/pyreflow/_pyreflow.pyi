@@ -482,14 +482,14 @@ class _CoreCommon:
     date: date | None
     trigger: Trigger | None
 
-    all_pnn: list[Shortname]
-    all_pns: list[str | None]
+    all_shortnames: list[Shortname]
+    all_longnames: list[str | None]
 
-    all_pnf: _OpticalKeyVals[str]
-    all_pno: _OpticalKeyVals[float]
-    all_pnp: _OpticalKeyVals[int]
-    all_pnt: _OpticalKeyVals[str]
-    all_pnv: _OpticalKeyVals[float]
+    all_filters: _OpticalKeyVals[str]
+    all_powers: _OpticalKeyVals[float]
+    all_percents_emitted: _OpticalKeyVals[int]
+    all_detector_types: _OpticalKeyVals[str]
+    all_detector_voltages: _OpticalKeyVals[float]
 
     nonstandard_keywords: NonStdKeywords
     # def insert_nonstandard(self, key: NonStdKey, value: str) -> str | None: ...
@@ -516,7 +516,7 @@ class _CoreDatasetCommon:
     ) -> None: ...
 
 class _CoreShortnamesMaybe:
-    all_pnn_maybe: list[Shortname | None]
+    all_shortnames_maybe: list[Shortname | None]
 
 class _CoreTemporal2_0:
     def set_temporal(self, name: Shortname, force: bool = False) -> bool: ...
@@ -696,10 +696,10 @@ class _CoreSetShortnamesMaybe:
     ) -> None: ...
 
 class _CoreScaleMethods:
-    all_pne: list[Scale | None]
+    all_scales: list[Scale | None]
 
 class _CoreScaleTransformMethods:
-    all_pne_png: list[ScaleTransform]
+    all_scale_transforms: list[ScaleTransform]
 
 class _CoreTimestepMethods:
     @property
@@ -743,17 +743,17 @@ class _CoreCytsn:
     cytsn: str | None
 
 class _CorePeak:
-    all_pkn: list[int]
-    all_pknn: list[int]
+    all_peak_bins: list[int]
+    all_peak_sizes: list[int]
 
 class _CoreMeasWavelength:
-    all_pnl: _OpticalKeyVals[float]
+    all_wavelengths: _OpticalKeyVals[float]
 
 class _CoreMeasWavelengths:
-    all_pnl: _OpticalKeyVals[list[float]]
+    all_wavelengths: _OpticalKeyVals[list[float]]
 
 class _CoreMeasDisplay:
-    all_pnd: list[Display | None]
+    all_displays: list[Display | None]
 
 class _CorePre3_2:
     mode: Mode
@@ -771,16 +771,16 @@ class _Core3_2:
     begindatetime: datetime | None
     enddatetime: datetime | None
 
-    all_pndet: _OpticalKeyVals[str]
-    all_pntag: _OpticalKeyVals[str]
-    all_pnfeature: _OpticalKeyVals[Feature]
-    all_pnanalyte: _OpticalKeyVals[str]
+    all_detector_names: _OpticalKeyVals[str]
+    all_tags: _OpticalKeyVals[str]
+    all_features: _OpticalKeyVals[Feature]
+    all_analytes: _OpticalKeyVals[str]
     # TODO this can return a list of all types including the time channel since
     # they share the same kw
-    all_pntype: _OpticalKeyVals[str]
+    all_measurement_types: _OpticalKeyVals[str]
 
 class _CoreMeasCalibration(Generic[_C]):
-    all_pncalibration: _OpticalKeyVals[_C]
+    all_calibrations: _OpticalKeyVals[_C]
 
 class _CoreToDataset(Generic[_X]):
     def to_dataset(

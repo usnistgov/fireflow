@@ -421,7 +421,7 @@ pub fn impl_core_all_peak_attrs(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let _ = split_ident_version_pycore(&i).1;
 
-    let go = |k: &str, i: &str| {
+    let go = |k: &str, i: &str, name: &str| {
         let p = keyword_path(i);
         let doc = DocString::new(
             format!("The value of *$P{k}n* for all measurements."),
@@ -431,8 +431,8 @@ pub fn impl_core_all_peak_attrs(input: TokenStream) -> TokenStream {
             Some(DocReturn::new(PyType::new_list(PyType::Int), None)),
         )
         .doc();
-        let get = format_ident!("get_all_p{}n", k.to_lowercase());
-        let set = format_ident!("set_all_p{}n", k.to_lowercase());
+        let get = format_ident!("get_all_{name}");
+        let set = format_ident!("set_all_{name}");
         quote! {
             #doc
             #[getter]
@@ -450,8 +450,8 @@ pub fn impl_core_all_peak_attrs(input: TokenStream) -> TokenStream {
         }
     };
 
-    let pkn = go("K", "PeakBin");
-    let pknn = go("KN", "PeakNumber");
+    let pkn = go("K", "PeakBin", "peak_bins");
+    let pknn = go("KN", "PeakNumber", "peak_sizes");
 
     quote! {
         #[pymethods]
@@ -464,7 +464,7 @@ pub fn impl_core_all_peak_attrs(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_core_all_pnn_attr(input: TokenStream) -> TokenStream {
+pub fn impl_core_all_shortnames_attr(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let _ = split_ident_version_pycore(&i).1;
     let shortname_path = shortname_path();
@@ -483,12 +483,12 @@ pub fn impl_core_all_pnn_attr(input: TokenStream) -> TokenStream {
         impl #i {
             #doc
             #[getter]
-            fn get_all_pnn(&self) -> Vec<#shortname_path> {
+            fn get_all_shortnames(&self) -> Vec<#shortname_path> {
                 self.0.all_shortnames()
             }
 
             #[setter]
-            fn set_all_pnn(&mut self, names: Vec<#shortname_path>) -> PyResult<()> {
+            fn set_all_shortnames(&mut self, names: Vec<#shortname_path>) -> PyResult<()> {
                 Ok(self.0.set_all_shortnames(names).void()?)
             }
         }
@@ -497,7 +497,7 @@ pub fn impl_core_all_pnn_attr(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_core_all_pnn_maybe_attr(input: TokenStream) -> TokenStream {
+pub fn impl_core_all_shortnames_maybe_attr(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let _ = split_ident_version_pycore(&i).1;
     let shortname_path = shortname_path();
@@ -519,7 +519,7 @@ pub fn impl_core_all_pnn_maybe_attr(input: TokenStream) -> TokenStream {
         impl #i {
             #doc
             #[getter]
-            fn get_all_pnn_maybe(&self) -> Vec<Option<#shortname_path>> {
+            fn get_all_shortnames_maybe(&self) -> Vec<Option<#shortname_path>> {
                 self.0
                     .shortnames_maybe()
                     .into_iter()
@@ -528,7 +528,7 @@ pub fn impl_core_all_pnn_maybe_attr(input: TokenStream) -> TokenStream {
             }
 
             #[setter]
-            fn set_all_pnn_maybe(&mut self, names: Vec<Option<#shortname_path>>) -> PyResult<()> {
+            fn set_all_shortnames_maybe(&mut self, names: Vec<Option<#shortname_path>>) -> PyResult<()> {
                 Ok(self.0.set_measurement_shortnames_maybe(names).void()?)
             }
         }
@@ -835,12 +835,12 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
         quote! {
             #doc
             #[getter]
-            fn get_all_pne(&self) -> Vec<Option<#scale_path>> {
+            fn get_all_scales(&self) -> Vec<Option<#scale_path>> {
                 self.0.scales().collect()
             }
 
             #[setter]
-            fn set_all_pne(&mut self, scales: Vec<Option<#scale_path>>) -> PyResult<()> {
+            fn set_all_scales(&mut self, scales: Vec<Option<#scale_path>>) -> PyResult<()> {
                 self.0.set_scales(scales).py_term_resolve_nowarn()
             }
         }
@@ -872,12 +872,12 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
         quote! {
             #doc
             #[getter]
-            fn get_all_pne_png(&self) -> Vec<#xform_path> {
+            fn get_all_scale_transforms(&self) -> Vec<#xform_path> {
                 self.0.transforms().collect()
             }
 
             #[setter]
-            fn set_all_pne_png(&mut self, transforms: Vec<#xform_path>) -> PyResult<()> {
+            fn set_all_scale_transforms(&mut self, transforms: Vec<#xform_path>) -> PyResult<()> {
                 self.0.set_transforms(transforms).py_term_resolve_nowarn()
             }
         }
@@ -2803,110 +2803,147 @@ impl ArgData {
 #[proc_macro]
 pub fn impl_core_all_pns(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_meas_attr(&i, "Longname", "S", PyType::Str)
+    core_all_meas_attr(&i, "Longname", "longnames", "S", PyType::Str)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnf(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Filter", "F", PyType::Str)
+    core_all_optical_attr(&i, "Filter", "filters", "F", PyType::Str)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pno(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Power", "O", PyType::Float)
+    core_all_optical_attr(&i, "Power", "powers", "O", PyType::Float)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnp(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "PercentEmitted", "P", PyType::Str)
+    core_all_optical_attr(&i, "PercentEmitted", "percents_emitted", "P", PyType::Str)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnt(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "DetectorType", "T", PyType::Str)
+    core_all_optical_attr(&i, "DetectorType", "detector_types", "T", PyType::Str)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnv(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "DetectorVoltage", "V", PyType::Float)
+    core_all_optical_attr(
+        &i,
+        "DetectorVoltage",
+        "detector_voltages",
+        "V",
+        PyType::Float,
+    )
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnl_old(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Wavelength", "L", PyType::Float)
+    core_all_optical_attr(&i, "Wavelength", "wavelengths", "L", PyType::Float)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnl_new(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Wavelengths", "L", PyType::new_list(PyType::Float))
+    core_all_optical_attr(
+        &i,
+        "Wavelengths",
+        "wavelengths",
+        "L",
+        PyType::new_list(PyType::Float),
+    )
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnd(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_meas_attr(&i, "Display", "D", display_pytype())
+    core_all_meas_attr(&i, "Display", "displays", "D", display_pytype())
 }
 
 #[proc_macro]
 pub fn impl_core_all_pndet(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "DetectorName", "DET", PyType::Str)
+    core_all_optical_attr(&i, "DetectorName", "detector_names", "DET", PyType::Str)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pncal3_1(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Calibration3_1", "CALIBRATION", calibration3_1_pytype())
+    core_all_optical_attr(
+        &i,
+        "Calibration3_1",
+        "calibrations",
+        "CALIBRATION",
+        calibration3_1_pytype(),
+    )
 }
 
 #[proc_macro]
 pub fn impl_core_all_pncal3_2(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Calibration3_2", "CALIBRATION", calibration3_2_pytype())
+    core_all_optical_attr(
+        &i,
+        "Calibration3_2",
+        "calibrations",
+        "CALIBRATION",
+        calibration3_2_pytype(),
+    )
 }
 
 #[proc_macro]
 pub fn impl_core_all_pntag(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Tag", "TAG", PyType::Str)
+    core_all_optical_attr(&i, "Tag", "tags", "TAG", PyType::Str)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "OpticalType", "TYPE", PyType::Str)
+    core_all_optical_attr(&i, "OpticalType", "measurement_types", "TYPE", PyType::Str)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnfeature(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Feature", "FEATURE", feature_pytype())
+    core_all_optical_attr(&i, "Feature", "features", "FEATURE", feature_pytype())
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnanalyte(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Analyte", "ANALYTE", PyType::Str)
+    core_all_optical_attr(&i, "Analyte", "analytes", "ANALYTE", PyType::Str)
 }
 
-fn core_all_optical_attr(t: &Ident, kw: &str, suffix: &str, base_pytype: PyType) -> TokenStream {
-    core_all_meas_attr1(t, kw, suffix, base_pytype, true, true)
+fn core_all_optical_attr(
+    t: &Ident,
+    kw: &str,
+    name: &str,
+    suffix: &str,
+    base_pytype: PyType,
+) -> TokenStream {
+    core_all_meas_attr1(t, kw, name, suffix, base_pytype, true, true)
 }
 
-fn core_all_meas_attr(t: &Ident, kw: &str, suffix: &str, base_pytype: PyType) -> TokenStream {
-    core_all_meas_attr1(t, kw, suffix, base_pytype, true, false)
+fn core_all_meas_attr(
+    t: &Ident,
+    kw: &str,
+    name: &str,
+    suffix: &str,
+    base_pytype: PyType,
+) -> TokenStream {
+    core_all_meas_attr1(t, kw, name, suffix, base_pytype, true, false)
 }
 
 fn core_all_meas_attr1(
     t: &Ident,
     kw: &str,
+    name: &str,
     suffix: &str,
     base_pytype: PyType,
     is_optional: bool,
@@ -2946,8 +2983,8 @@ fn core_all_meas_attr1(
     )
     .doc();
 
-    let get = format_ident!("get_all_pn{}", suffix.to_lowercase());
-    let set = format_ident!("set_all_pn{}", suffix.to_lowercase());
+    let get = format_ident!("get_all_{name}");
+    let set = format_ident!("set_all_{name}");
 
     let kw = if is_optional {
         quote! {Option<#kw_inner>}

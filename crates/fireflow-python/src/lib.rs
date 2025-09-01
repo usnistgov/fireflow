@@ -47,8 +47,8 @@
 //!   and defined methods on that type. Sometimes this will "magically" read
 //!   the version and defined slightly different methods given the version.
 //!   This is unavoidable is we want to keep the code small (ish). The tradeoff
-//!   Is that it's easy to see which macros are being applied to each type/class
-//!   easily, and it is easy to bundle them in case multiple types use it.
+//!   os that it's easy to see which macros are being applied to each type/class
+//!   and it is easy to bundle them in case multiple types use it.
 //! * Docstring rendering is handled entirely internal to the proc macros. This
 //!   is reasonable since the docstrings only matter for the python interface
 //!   and can't cause compile errors. This is also almost-necessary since the

@@ -1,3 +1,60 @@
+//! Python interface for pyreflow
+//!
+//! Just turn back now, this is almost pure macro-insanity.
+//!
+//! This is utter nonsense due to a variety of design goals and constraints:
+//!
+//! * the interface is inherently repetitive as we have multiple versions
+//! * the parts that are not repetitive are only slightly different
+//! * even if the code is the same, the docstrings are often slightly different
+//! * the docstrings should conforms to PEP-8 (72 chars wide, structure, etc)
+//! * the docstrings should render nicely with sphinx
+//! * many methods have defaults, which need to be added with pyo3 signatures
+//! * many native rust types are generic, which means they need to be newtype-ed
+//! * docstrings can't be put on __new__ (yet)
+//!
+//! The only way to get all this is to use proc-macros for just about everything.
+//! The main bottleneck is the docstrings, which can't be manipulated well using
+//! dec-macros (nevermind the formatting and line-wrapping needed for PEP-8).
+//!
+//! Also, many classes should be created with instance vars. These need to be
+//! kept in sync in multiple places since the code is defined using #[getter]
+//! and #[setter] in pyo3 methods but the docstrings for these are defined
+//! on the struct definition (not the __new__ method, not that that would help)
+//! and the arguments for the constructor often take defaults which needs a
+//! signature. To keep this all in sync, we need a proc macro that defines
+//! "constructors" comprehensively, including the newtype struct, its docstring,
+//! the __new__ method, its signature, and the get/set methods for instance
+//! attributes.
+//!
+//! Totally reasonable ;)
+//!
+//! Other methods are less insane, but still need docstring formatting and are
+//! highly repetitive (many are defined for each FCS version).
+//!
+//! In order to make this slightly more sane, some conventions:
+//!
+//! * Constructors are implemented with "impl_new_*" macros. These define
+//!   __new__ and any getters/setters needed for instance variables. They also
+//!   make a newtype wrapper for a generic rust type in most cases. These are
+//!   the really nasty macros since they are yuuuuuuuuge.
+//! * Other proc macros are "small"; besides the "constructor" macros, this
+//!   often means 1-3 methods defined per invocation. This makes debugging
+//!   easier since a single macro invocation will light up if there is one error
+//!   anywhere inside it. Keeping the "inside" small make this triage easier.
+//! * Getters and setters are paired together
+//! * Non-constructor macros simply take one argument for the Python-rust type
+//!   and defined methods on that type. Sometimes this will "magically" read
+//!   the version and defined slightly different methods given the version.
+//!   This is unavoidable is we want to keep the code small (ish). The tradeoff
+//!   Is that it's easy to see which macros are being applied to each type/class
+//!   easily, and it is easy to bundle them in case multiple types use it.
+//! * Docstring rendering is handled entirely internal to the proc macros. This
+//!   is reasonable since the docstrings only matter for the python interface
+//!   and can't cause compile errors. This is also almost-necessary since the
+//!   internal proc-macro code has rendering logic for sphinx rst syntax, which
+//!   would be a pain to keep in sync at the macro call level.
+
 use fireflow_core::api;
 use fireflow_core::config as cfg;
 use fireflow_core::core;
@@ -16,14 +73,11 @@ use fireflow_core::text::gating::{
 };
 use fireflow_core::text::index::{GateIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
-use fireflow_core::text::named_vec::{Eithers, Element, NonCenterElement};
+use fireflow_core::text::named_vec::Eithers;
 use fireflow_core::text::optional::MightHave;
 use fireflow_core::validated::keys::{StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::Shortname;
-use fireflow_python_proc::impl_layout_byte_widths;
-use fireflow_python_proc::impl_new_delim_ascii_layout;
-use fireflow_python_proc::impl_new_endian_float_layout;
-use fireflow_python_proc::impl_new_endian_uint_layout;
+
 use fireflow_python_proc::{
     impl_core_all_meas_nonstandard_keywords, impl_core_all_peak_attrs, impl_core_all_pnanalyte,
     impl_core_all_pncal3_1, impl_core_all_pncal3_2, impl_core_all_pnd, impl_core_all_pndet,
@@ -38,9 +92,11 @@ use fireflow_python_proc::{
     impl_core_set_temporal, impl_core_set_tr_threshold, impl_core_standard_keywords,
     impl_core_unset_temporal, impl_core_version_x_y, impl_core_write_dataset, impl_core_write_text,
     impl_coredataset_set_measurements_and_data, impl_coredataset_unset_data,
-    impl_coretext_to_dataset, impl_coretext_unset_measurements, impl_gated_meas, impl_new_core,
-    impl_new_fixed_ascii_layout, impl_new_gate_bi_regions, impl_new_gate_uni_regions,
-    impl_new_meas, impl_new_mixed_layout, impl_new_ordered_layout,
+    impl_coretext_to_dataset, impl_coretext_unset_measurements, impl_gated_meas,
+    impl_layout_byte_widths, impl_new_core, impl_new_delim_ascii_layout,
+    impl_new_endian_float_layout, impl_new_endian_uint_layout, impl_new_fixed_ascii_layout,
+    impl_new_gate_bi_regions, impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout,
+    impl_new_ordered_layout,
 };
 
 use derive_more::{From, Into};

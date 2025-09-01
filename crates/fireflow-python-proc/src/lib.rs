@@ -703,11 +703,7 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
     let meas_index_path = meas_index_path();
 
     let make_doc = |has_timestep: bool, has_index: bool| {
-        let name = DocArg::new_param(
-            "name".into(),
-            PyType::Str,
-            "Name to set. Must be a *$PnN* which is present.".into(),
-        );
+        let name = param_name("Name to set to temporal.");
         let index = DocArg::new_param("index".into(), PyType::Int, "Index to set".into());
         let (i, p) = if has_index {
             ("index", index)
@@ -885,12 +881,7 @@ pub fn impl_core_rename_temporal(input: TokenStream) -> TokenStream {
         "Rename temporal measurement if present.".into(),
         vec![],
         true,
-        // TODO kinda not DRY
-        vec![DocArg::new_param(
-            "name".into(),
-            PyType::Str,
-            "New name to assign. Must not have commas.".into(),
-        )],
+        vec![param_name("New name to assign.")],
         Some(DocReturn::new(
             PyType::new_opt(PyType::Bool),
             Some("Previous name if present".into()),
@@ -916,6 +907,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
     let scale_path = quote!(fireflow_core::text::scale::Scale);
     let xform_path = quote!(fireflow_core::core::ScaleTransform);
 
+    let log_pytype = PyType::Tuple(vec![PyType::Float, PyType::Float]);
     let q = if version == Version::FCS2_0 {
         let s0 = "Will be ``()`` for linear scaling (``0,0`` in FCS encoding), \
                    a 2-tuple for log scaling, or ``None`` if missing."
@@ -932,7 +924,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
             Some(DocReturn::new(
                 PyType::new_list(PyType::new_union(vec![
                     PyType::new_unit(),
-                    PyType::Tuple(vec![PyType::Float, PyType::Float]),
+                    log_pytype,
                     PyType::None,
                 ])),
                 None,
@@ -968,10 +960,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
             true,
             vec![],
             Some(DocReturn::new(
-                PyType::new_list(PyType::new_union2(
-                    PyType::Float,
-                    PyType::Tuple(vec![PyType::Float, PyType::Float]),
-                )),
+                PyType::new_list(PyType::new_union2(PyType::Float, log_pytype)),
                 None,
             )),
         )
@@ -1312,6 +1301,8 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
         )),
     );
 
+    let bare_element_path = quote!(fireflow_core::text::named_vec::Element);
+
     quote! {
         #[pymethods]
         impl #i {
@@ -1332,7 +1323,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
                 index: #meas_index_path,
             ) -> PyResult<(#ver_shortname_path, #element_path)> {
                 let r = self.0.remove_measurement_by_index(index)?;
-                let (n, v) = Element::unzip::<#family_path>(r);
+                let (n, v) = #bare_element_path::unzip::<#family_path>(r);
                 Ok((n.0, v.inner_into()))
             }
         }
@@ -1983,7 +1974,6 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     };
     let has_scale = ArgData::new(has_scale_doc, parse_quote!(bool), Some(has_scale_methods));
 
-    // TODO not dry
     let has_type_doc = DocArg::new_ivar_def(
         "has_type".into(),
         PyType::Bool,
@@ -3099,10 +3089,12 @@ fn core_all_meas_attr1(
         quote! {#kw_inner}
     };
 
+    let nce_path = quote!(fireflow_core::text::named_vec::NonCenterElement);
+
     let (fn_get, fn_set) = if optical_only {
         (
             quote! {
-                fn #get(&self) -> Vec<NonCenterElement<#kw>> {
+                fn #get(&self) -> Vec<#nce_path<#kw>> {
                     self.0
                         .optical_opt()
                         .map(|e| e.0.map_non_center(|x| x.cloned()).into())
@@ -3110,7 +3102,7 @@ fn core_all_meas_attr1(
                 }
             },
             quote! {
-                fn #set(&mut self, xs: Vec<NonCenterElement<#kw>>) -> PyResult<()> {
+                fn #set(&mut self, xs: Vec<#nce_path<#kw>>) -> PyResult<()> {
                     self.0.set_optical(xs).py_term_resolve_nowarn()
                 }
             },
@@ -3849,7 +3841,6 @@ impl Parse for OrderedLayoutInfo {
     }
 }
 
-// TODO use real paths when calling this
 #[proc_macro]
 pub fn impl_new_gate_uni_regions(input: TokenStream) -> TokenStream {
     let path: Path = syn::parse(input).unwrap();

@@ -151,7 +151,7 @@ CoreTEXT\*
 
 Represents *HEADER* and *TEXT*.
 
-One of these will be created when using :func:pyreflow.api.fcs_read_std_text
+One of these will be created when using :func:`pyreflow.api.fcs_read_std_text`
 depending on the FCS version. They can also be constructed from scratch as
 one would expect in Python.
 
@@ -189,8 +189,8 @@ Represents one dataset from an FCS file (*HEADER* + *TEXT* + *DATA* +
 
 One of these will be created when using the following functions:
 
-* :func:pyreflow.api.fcs_read_std_dataset
-* :func:pyreflow.api.fcs_read_std_dataset_with_keywords
+* :func:`pyreflow.api.fcs_read_std_dataset`
+* :func:`pyreflow.api.fcs_read_std_dataset_with_keywords`
 
 In addition to all the minipulations offered by ``CoreTEXT*``, these
 additionally allow:

@@ -285,6 +285,113 @@ pub fn impl_core_par(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+pub fn impl_core_all_meas_nonstandard_keywords(input: TokenStream) -> TokenStream {
+    let t = parse_macro_input!(input as Ident);
+    let _ = split_ident_version_pycore(&t);
+
+    let doc = DocString::new(
+        "The non-standard keywords for each measurement.".into(),
+        vec![],
+        true,
+        vec![],
+        Some(DocReturn::new(
+            PyType::new_list(PyType::new_dict(PyType::Str, PyType::Str)),
+            Some("A list of non-standard keyword dicts for each measurement.".into()),
+        )),
+    )
+    .doc();
+
+    let nsk = quote!(fireflow_core::validated::keys::NonStdKey);
+    let ret = quote!(Vec<std::collections::HashMap<#nsk, String>>);
+
+    quote! {
+        #[pymethods]
+        impl #t {
+            #doc
+            #[getter]
+            fn get_all_meas_nonstandard_keywords(&self) -> #ret {
+                self.0.get_meas_nonstandard().into_iter().map(|x| x.clone()).collect()
+            }
+
+            #[setter]
+            fn set_all_meas_nonstandard_keywords(&mut self, ns: #ret) -> PyResult<()> {
+                Ok(self.0.set_meas_nonstandard(ns)?)
+            }
+        }
+    }
+    .into()
+}
+
+// TODO make this return $TOT, $NEXTDATA, etc
+#[proc_macro]
+pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
+    let t = parse_macro_input!(input as Ident);
+    let _ = split_ident_version_pycore(&t);
+
+    let make_param = |req: bool, root: bool| {
+        let (x, a) = if req {
+            ("req", "required")
+        } else {
+            ("opt", "non-required")
+        };
+        let (y, b) = if root {
+            ("root", "non-measurement")
+        } else {
+            ("meas", "measurement")
+        };
+        DocArg::new_param_def(
+            format!("exclude_{x}_{y}"),
+            PyType::Bool,
+            format!("Do not include {a} {b} keywords"),
+            DocDefault::Bool(false),
+        )
+    };
+
+    let doc = DocString::new(
+        "Return standard keywords as string pairs.".into(),
+        vec![
+            "Each key will be prefixed with *$*.".into(),
+            "This will not include *$TOT*, *$NEXTDATA* or any of the \
+             offset keywords since these are not encoded in this class."
+                .into(),
+        ],
+        true,
+        vec![
+            make_param(true, true),
+            make_param(false, true),
+            make_param(true, false),
+            make_param(false, false),
+        ],
+        Some(DocReturn::new(
+            PyType::new_dict(PyType::Str, PyType::Str),
+            Some("A list of standard keywords.".into()),
+        )),
+    );
+
+    quote! {
+        #[pymethods]
+        impl #t {
+            #doc
+            fn standard_keywords(
+                &self,
+                exclude_req_root: bool,
+                exclude_opt_root: bool,
+                exclude_req_meas: bool,
+                exclude_opt_meas: bool,
+            ) -> HashMap<String, String> {
+                self.0.standard_keywords(
+                    exclude_req_root,
+                    exclude_opt_root,
+                    exclude_req_meas,
+                    exclude_opt_meas
+                )
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
 pub fn impl_core_set_tr_threshold(input: TokenStream) -> TokenStream {
     let t = parse_macro_input!(input as Ident);
     let _ = split_ident_version_pycore(&t);

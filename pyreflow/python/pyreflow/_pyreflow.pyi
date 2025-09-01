@@ -490,6 +490,7 @@ class _CoreCommon:
     all_percents_emitted: _OpticalKeyVals[int]
     all_detector_types: _OpticalKeyVals[str]
     all_detector_voltages: _OpticalKeyVals[float]
+    all_meas_nonstandard_keywords: list[NonStdKeywords]
 
     nonstandard_keywords: NonStdKeywords
     # def insert_nonstandard(self, key: NonStdKey, value: str) -> str | None: ...

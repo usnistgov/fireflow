@@ -25,18 +25,18 @@ use fireflow_python_proc::impl_new_delim_ascii_layout;
 use fireflow_python_proc::impl_new_endian_float_layout;
 use fireflow_python_proc::impl_new_endian_uint_layout;
 use fireflow_python_proc::{
-    impl_core_all_peak_attrs, impl_core_all_pnanalyte, impl_core_all_pncal3_1,
-    impl_core_all_pncal3_2, impl_core_all_pnd, impl_core_all_pndet, impl_core_all_pnf,
-    impl_core_all_pnfeature, impl_core_all_pnl_new, impl_core_all_pnl_old, impl_core_all_pno,
-    impl_core_all_pnp, impl_core_all_pns, impl_core_all_pnt, impl_core_all_pntag,
-    impl_core_all_pntype, impl_core_all_pnv, impl_core_all_shortnames_attr,
+    impl_core_all_meas_nonstandard_keywords, impl_core_all_peak_attrs, impl_core_all_pnanalyte,
+    impl_core_all_pncal3_1, impl_core_all_pncal3_2, impl_core_all_pnd, impl_core_all_pndet,
+    impl_core_all_pnf, impl_core_all_pnfeature, impl_core_all_pnl_new, impl_core_all_pnl_old,
+    impl_core_all_pno, impl_core_all_pnp, impl_core_all_pns, impl_core_all_pnt,
+    impl_core_all_pntag, impl_core_all_pntype, impl_core_all_pnv, impl_core_all_shortnames_attr,
     impl_core_all_shortnames_maybe_attr, impl_core_all_transforms_attr, impl_core_get_measurement,
     impl_core_get_measurements, impl_core_get_set_timestep, impl_core_get_temporal,
     impl_core_insert_measurement, impl_core_par, impl_core_push_measurement,
     impl_core_remove_measurement, impl_core_rename_temporal, impl_core_replace_optical,
     impl_core_replace_temporal, impl_core_set_measurements, impl_core_set_measurements_and_layout,
-    impl_core_set_temporal, impl_core_set_tr_threshold, impl_core_unset_temporal,
-    impl_core_version_x_y, impl_core_write_dataset, impl_core_write_text,
+    impl_core_set_temporal, impl_core_set_tr_threshold, impl_core_standard_keywords,
+    impl_core_unset_temporal, impl_core_version_x_y, impl_core_write_dataset, impl_core_write_text,
     impl_coredataset_set_measurements_and_data, impl_coredataset_unset_data,
     impl_coretext_to_dataset, impl_coretext_unset_measurements, impl_gated_meas, impl_new_core,
     impl_new_fixed_ascii_layout, impl_new_gate_bi_regions, impl_new_gate_uni_regions,
@@ -254,63 +254,11 @@ macro_rules! impl_common {
         // 3.0 and later will return gain and scale combined
         impl_core_all_transforms_attr!($pytype);
 
-        #[pymethods]
-        impl $pytype {
-            /// Return standard keywords as string pairs.
-            ///
-            /// Each key will be prefixed with *$*.
-            ///
-            /// This will not include *$TOT*, *$NEXTDATA* or any of the
-            /// offset keywords since these are not encoded in this class.
-            ///
-            /// :param bool exclude_req_root: Do not include required non-measurement keywords
-            /// :param bool exclude_opt_root: Do not include optional non-measurement keywords
-            /// :param bool exclude_req_meas: Do not include required measurement keywords
-            /// :param bool exclude_opt_meas: Do not include optional measurement keywords
-            ///
-            /// :return: A list of standard keywords.
-            /// :rtype: dict[str, str]
-            #[pyo3(signature = (
-                exclude_req_root=false, exclude_opt_root=false, exclude_req_meas=false, exclude_opt_meas=false
-            ))]
-            fn standard_keywords(
-                &self,
-                exclude_req_root: bool,
-                exclude_opt_root: bool,
-                exclude_req_meas: bool,
-                exclude_opt_meas: bool,
-            ) -> HashMap<String, String> {
-                self.0.standard_keywords(
-                    exclude_req_root,
-                    exclude_opt_root,
-                    exclude_req_meas,
-                    exclude_opt_meas
-                )
-            }
+        // attribute to get/set nonstandard keywords for all measurements
+        impl_core_all_meas_nonstandard_keywords!($pytype);
 
-            // fn insert_meas_nonstandard(
-            //     &mut self,
-            //     keyvals: Vec<(NonStdKey, String)>,
-            // ) -> PyResult<Vec<Option<String>>> {
-            //     Ok(self.0.insert_meas_nonstandard(keyvals)?)
-            // }
-
-            // fn remove_meas_nonstandard(
-            //     &mut self,
-            //     keys: Vec<NonStdKey>,
-            // ) -> PyResult<Vec<Option<String>>> {
-            //     Ok(self.0.remove_meas_nonstandard(keys.iter().collect())?)
-            // }
-
-            // fn get_meas_nonstandard(
-            //     &mut self,
-            //     keys: Vec<NonStdKey>,
-            // ) -> Option<Vec<Option<String>>> {
-            //     self.0
-            //         .get_meas_nonstandard(&keys[..])
-            //         .map(|rs| rs.into_iter().map(|r| r.cloned()).collect())
-            // }
-        }
+        // method to return all standard keywords as read-only dict
+        impl_core_standard_keywords!($pytype);
     };
 }
 

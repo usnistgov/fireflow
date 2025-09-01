@@ -2259,56 +2259,27 @@ where
             .terminate(UnsetTemporalFailure)
     }
 
-    // TODO these functions could be improved, add functions that operate on
-    // one measurement at a time and change these to accept hashtables for
-    // each measurement
-    // /// Insert a nonstandard key/value pair for each measurement.
-    // ///
-    // /// Return a vector of elements corresponding to each measurement, where
-    // /// each element is the value of the inserted key if already present.
-    // ///
-    // /// This includes the time measurement if present.
-    // pub fn insert_meas_nonstandard(
-    //     &mut self,
-    //     xs: Vec<(NonStdKey, String)>,
-    // ) -> Result<Vec<Option<String>>, KeyLengthError> {
-    //     // TODO use a newtype for this so it can't be confused with a different
-    //     // hashmap
-    //     self.measurements
-    //         .alter_common_values_zip(xs, |_, x: &mut HashMap<_, _>, (k, v)| x.insert(k, v))
-    // }
+    /// Read nonstandard key/value pairs for each measurement.
+    ///
+    /// This includes the time measurement if present.
+    pub fn get_meas_nonstandard(&self) -> Vec<&HashMap<NonStdKey, String>> {
+        self.measurements
+            .iter_common_values()
+            .map(|(_, x)| x)
+            .collect()
+    }
 
-    // /// Remove a key from nonstandard key/value pairs for each measurement.
-    // ///
-    // /// Return a vector with removed values for each measurement if present.
-    // ///
-    // /// This includes the time measurement if present.
-    // pub fn remove_meas_nonstandard(
-    //     &mut self,
-    //     xs: Vec<&NonStdKey>,
-    // ) -> Result<Vec<Option<String>>, KeyLengthError> {
-    //     self.measurements
-    //         .alter_common_values_zip(xs, |_, x: &mut HashMap<_, _>, k| x.remove(k))
-    // }
-
-    // /// Read a key from nonstandard key/value pairs for each measurement.
-    // ///
-    // /// Return a vector with each successfully found value.
-    // ///
-    // /// This includes the time measurement if present.
-    // pub fn get_meas_nonstandard(&self, ks: &[NonStdKey]) -> Option<Vec<Option<&String>>> {
-    //     let ms = &self.measurements;
-    //     if ks.len() != ms.len() {
-    //         None
-    //     } else {
-    //         let res = ms
-    //             .iter_common_values()
-    //             .zip(ks)
-    //             .map(|((_, x), k): ((_, &HashMap<_, _>), _)| x.get(k))
-    //             .collect();
-    //         Some(res)
-    //     }
-    // }
+    /// Set nonstandard key/value pairs for each measurement.
+    ///
+    /// This includes the time measurement if present.
+    pub fn set_meas_nonstandard(
+        &mut self,
+        xs: Vec<HashMap<NonStdKey, String>>,
+    ) -> Result<(), KeyLengthError> {
+        self.measurements
+            .alter_common_values_zip(xs, |_, y: &mut HashMap<_, _>, x| *y = x)
+            .void()
+    }
 
     /// Replace optical measurement at index.
     ///

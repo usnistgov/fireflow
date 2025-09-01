@@ -223,16 +223,16 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         }
     }
 
-    // pub(crate) fn iter_common_values<'a, T: 'a>(
-    //     &'a self,
-    // ) -> impl Iterator<Item = (MeasIndex, &'a T)> + 'a
-    // where
-    //     U: AsRef<T>,
-    //     V: AsRef<T>,
-    // {
-    //     self.iter()
-    //         .map(|(i, x)| (i, x.both(|l| l.value.as_ref(), |r| r.value.as_ref())))
-    // }
+    pub(crate) fn iter_common_values<'a, T: 'a>(
+        &'a self,
+    ) -> impl Iterator<Item = (MeasIndex, &'a T)> + 'a
+    where
+        U: AsRef<T>,
+        V: AsRef<T>,
+    {
+        self.iter()
+            .map(|(i, x)| (i, x.both(|l| l.value.as_ref(), |r| r.value.as_ref())))
+    }
 
     pub(crate) fn iter_with<'a, T, F, G>(
         &'a self,
@@ -288,25 +288,25 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         })
     }
 
-    // /// Alter values with a function and payload.
-    // ///
-    // /// Center and non-center values will be projected to a common type.
-    // pub(crate) fn alter_common_values_zip<F, X, R, T>(
-    //     &mut self,
-    //     xs: Vec<X>,
-    //     f: F,
-    // ) -> Result<Vec<R>, KeyLengthError>
-    // where
-    //     F: Fn(MeasIndex, &mut T, X) -> R,
-    //     U: AsMut<T>,
-    //     V: AsMut<T>,
-    // {
-    //     self.alter_values_zip(
-    //         xs,
-    //         |v, x| f(v.index, v.value.as_mut(), x),
-    //         |v, x| f(v.index, v.value.as_mut(), x),
-    //     )
-    // }
+    /// Alter values with a function and payload.
+    ///
+    /// Center and non-center values will be projected to a common type.
+    pub(crate) fn alter_common_values_zip<F, X, R, T>(
+        &mut self,
+        xs: Vec<X>,
+        f: F,
+    ) -> Result<Vec<R>, KeyLengthError>
+    where
+        F: Fn(MeasIndex, &mut T, X) -> R,
+        U: AsMut<T>,
+        V: AsMut<T>,
+    {
+        self.alter_values_zip(
+            xs,
+            |v, x| f(v.index, v.value.as_mut(), x),
+            |v, x| f(v.index, v.value.as_mut(), x),
+        )
+    }
 
     // /// Alter values with a function
     // ///

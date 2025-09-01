@@ -1996,7 +1996,7 @@ impl NullMixedType {
                 NumType::Integer => AnyBitmask::from_width_and_range(width, range, notrunc)
                     .def_map_value(Self::Uint)
                     .def_inner_into(),
-                NumType::Single => F32Range::from_width_and_range(width, range, notrunc)
+                NumType::Float => F32Range::from_width_and_range(width, range, notrunc)
                     .def_map_value(Self::F32)
                     .def_inner_into(),
                 NumType::Double => F64Range::from_width_and_range(width, range, notrunc)
@@ -2014,7 +2014,7 @@ impl NullMixedType {
         match self {
             Self::Ascii(_) => AlphaNumType::Ascii,
             Self::Uint(_) => AlphaNumType::Integer,
-            Self::F32(_) => AlphaNumType::Single,
+            Self::F32(_) => AlphaNumType::Float,
             Self::F64(_) => AlphaNumType::Double,
         }
     }
@@ -2871,7 +2871,7 @@ impl<T, const LEN: usize> HasOneDatatype for Bitmask<T, LEN> {
 }
 
 impl HasOneDatatype for F32Range {
-    const DATATYPE: AlphaNumType = AlphaNumType::Single;
+    const DATATYPE: AlphaNumType = AlphaNumType::Float;
 }
 
 impl HasOneDatatype for F64Range {
@@ -2897,7 +2897,7 @@ impl HasDatatype for NullMixedType {
         match self {
             Self::Ascii(_) => AlphaNumType::Ascii,
             Self::Uint(_) => AlphaNumType::Integer,
-            Self::F32(_) => AlphaNumType::Single,
+            Self::F32(_) => AlphaNumType::Float,
             Self::F64(_) => AlphaNumType::Double,
         }
     }
@@ -3690,7 +3690,7 @@ impl<T> AnyOrderedLayout<T> {
         match datatype {
             AlphaNumType::Ascii => AnyAsciiLayout::default().into(),
             AlphaNumType::Integer => AnyOrderedUintLayout::default().into(),
-            AlphaNumType::Single => Self::F32(FixedLayout::default()),
+            AlphaNumType::Float => Self::F32(FixedLayout::default()),
             AlphaNumType::Double => Self::F64(FixedLayout::default()),
         }
     }
@@ -3711,7 +3711,7 @@ impl<T> AnyOrderedLayout<T> {
                 .def_map_value(Self::Integer)
                 .def_map_warnings(|e| e.inner_into())
                 .def_inner_into(),
-            AlphaNumType::Single => byteord.try_into().into_deferred().def_and_maybe(|b| {
+            AlphaNumType::Float => byteord.try_into().into_deferred().def_and_maybe(|b| {
                 FixedLayout::try_new(columns, b, |c| {
                     F32Range::from_width_and_range(c.width, c.range, notrunc).def_warnings_into()
                 })
@@ -3794,7 +3794,7 @@ impl NonMixedEndianLayout<NoMeasDatatype> {
                 .def_map_value(Self::Integer)
                 .def_map_warnings(|e| e.inner_into())
                 .def_inner_into(),
-            AlphaNumType::Single => FixedLayout::try_new(columns, endian, |c| {
+            AlphaNumType::Float => FixedLayout::try_new(columns, endian, |c| {
                 F32Range::from_width_and_range(c.width, c.range, notrunc).def_warnings_into()
             })
             .def_map_value(Self::F32),
@@ -3815,7 +3815,7 @@ impl<D> NonMixedEndianLayout<D> {
         match datatype {
             AlphaNumType::Ascii => AnyAsciiLayout::default().into(),
             AlphaNumType::Integer => Self::Integer(FixedLayout::new_empty(endian)),
-            AlphaNumType::Single => Self::F32(FixedLayout::new_empty(endian)),
+            AlphaNumType::Float => Self::F32(FixedLayout::new_empty(endian)),
             AlphaNumType::Double => Self::F64(FixedLayout::new_empty(endian)),
         }
     }
@@ -4375,7 +4375,7 @@ mod python {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let (datatype, value): (AlphaNumType, Bound<'py, PyAny>) = ob.extract()?;
             match datatype {
-                AlphaNumType::Single => {
+                AlphaNumType::Float => {
                     let x = value.extract::<f32>()?;
                     let y = FloatDecimal::try_from(x)
                         .map_err(|e| PyValueError::new_err(e.to_string()))?;

@@ -307,7 +307,7 @@ impl fmt::Display for DisplayError {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum NumType {
     Integer,
-    Single,
+    Float,
     Double,
 }
 
@@ -317,7 +317,7 @@ impl FromStr for NumType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "I" => Ok(NumType::Integer),
-            "F" => Ok(NumType::Single),
+            "F" => Ok(NumType::Float),
             "D" => Ok(NumType::Double),
             _ => Err(NumTypeError),
         }
@@ -328,7 +328,7 @@ impl fmt::Display for NumType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             NumType::Integer => write!(f, "I"),
-            NumType::Single => write!(f, "F"),
+            NumType::Float => write!(f, "F"),
             NumType::Double => write!(f, "D"),
         }
     }
@@ -348,7 +348,7 @@ impl fmt::Display for NumTypeError {
 pub enum AlphaNumType {
     Ascii,
     Integer,
-    Single,
+    Float,
     Double,
 }
 
@@ -374,7 +374,7 @@ impl FromStr for AlphaNumType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "I" => Ok(AlphaNumType::Integer),
-            "F" => Ok(AlphaNumType::Single),
+            "F" => Ok(AlphaNumType::Float),
             "D" => Ok(AlphaNumType::Double),
             "A" => Ok(AlphaNumType::Ascii),
             _ => Err(AlphaNumTypeError),
@@ -387,7 +387,7 @@ impl fmt::Display for AlphaNumType {
         match self {
             AlphaNumType::Ascii => write!(f, "A"),
             AlphaNumType::Integer => write!(f, "I"),
-            AlphaNumType::Single => write!(f, "F"),
+            AlphaNumType::Float => write!(f, "F"),
             AlphaNumType::Double => write!(f, "D"),
         }
     }
@@ -405,7 +405,7 @@ impl From<NumType> for AlphaNumType {
     fn from(value: NumType) -> Self {
         match value {
             NumType::Integer => AlphaNumType::Integer,
-            NumType::Single => AlphaNumType::Single,
+            NumType::Float => AlphaNumType::Float,
             NumType::Double => AlphaNumType::Double,
         }
     }
@@ -416,7 +416,7 @@ impl TryFrom<AlphaNumType> for NumType {
     fn try_from(value: AlphaNumType) -> Result<Self, Self::Error> {
         match value {
             AlphaNumType::Integer => Ok(NumType::Integer),
-            AlphaNumType::Single => Ok(NumType::Single),
+            AlphaNumType::Float => Ok(NumType::Float),
             AlphaNumType::Double => Ok(NumType::Double),
             AlphaNumType::Ascii => Err(()),
         }

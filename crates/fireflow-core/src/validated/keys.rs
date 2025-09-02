@@ -24,7 +24,7 @@ use pyo3::prelude::*;
 ///
 /// These may only contain ASCII and must start with "$". The "$" is not
 /// actually stored but will be appended when converting to a ['String'].
-#[derive(Clone, Debug, PartialEq, Eq, Hash, AsRef)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[as_ref(KeyString, str)]
 pub struct StdKey(KeyString);
@@ -32,7 +32,7 @@ pub struct StdKey(KeyString);
 /// A non-standard key.
 ///
 /// This cannot start with '$' and may only contain ASCII characters.
-#[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[as_ref(KeyString, str)]
 pub struct NonStdKey(KeyString);
@@ -44,7 +44,7 @@ pub type NonStdKeywords = HashMap<NonStdKey, String>;
 ///
 /// Must be non-empty and contain only ASCII characters. Comparisons will be
 /// case-insensitive.
-#[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[as_ref(str)]
 pub struct KeyString(Ascii<String>);
 
@@ -115,7 +115,9 @@ pub type BytesPairs = Vec<(Vec<u8>, Vec<u8>)>;
     pyo3(from_item_all)
 )]
 pub struct ValidKeywords {
+    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize::ordered_map"))]
     pub std: StdKeywords,
+    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize::ordered_map"))]
     pub nonstd: NonStdKeywords,
 }
 
@@ -770,6 +772,23 @@ mod python {
     }
 
     impl_value_err!(KeyStringPairsError);
+}
+
+#[cfg(feature = "serde")]
+mod serialize {
+    use serde::Serialize;
+    use std::collections::{BTreeMap, HashMap};
+
+    pub(crate) fn ordered_map<K: Serialize + Clone + Ord, S>(
+        value: &HashMap<K, String>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let ordered: BTreeMap<K, _> = value.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        ordered.serialize(serializer)
+    }
 }
 
 #[cfg(test)]

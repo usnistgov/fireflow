@@ -159,16 +159,6 @@ pub struct ReaderConfig {
     /// all $PnB. If $TOT does not match this, it may indicate an issue. If
     /// `false`, throw an error on mismatch, and warning otherwise.
     pub allow_tot_mismatch: bool,
-
-    /// If `true`, allow $PAR to be zero when DATA segment is non-empty.
-    ///
-    /// This will catch situations where $TOT > 0, DATA segment is non-empty,
-    /// and $PAR = 0 or the measurement layout ($PnB, $PnR, etc) was deleted for
-    /// some reason.
-    ///
-    /// Setting this to `true` will turn this situation into a warning rather
-    /// than an error.
-    pub allow_data_par_mismatch: bool,
 }
 
 /// Configuration for writing an FCS file

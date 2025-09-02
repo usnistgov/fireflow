@@ -523,13 +523,13 @@ impl fmt::Display for Width {
 
 pub struct BitsError(u8);
 
-#[cfg_attr(test, derive(Debug))]
+#[derive(Debug)]
 pub enum ParseByteOrdError {
     Order(NewByteOrdError),
     Format,
 }
 
-#[cfg_attr(test, derive(Debug))]
+#[derive(Debug)]
 pub struct NewByteOrdError(usize);
 
 pub struct NewEndianError;

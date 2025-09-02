@@ -1,12 +1,8 @@
-[build-system]
-requires = ["maturin>=1,<2"]
-build-backend = "maturin"
-
 [project]
 name = "pyreflow"
 description = "Fully-compliant Flow Cytometry Standard (FCS) read/write library"
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.11"
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Environment :: Console",
@@ -20,3 +16,59 @@ classifiers = [
     "Typing :: Typed",
 ]
 dynamic = ["version"]
+dependencies = [
+    "polars==1.26.0",
+    # TODO see https://docs.pola.rs/user-guide/misc/arrow/#for-library-maintainers
+    "pyarrow>7.0.0",
+    "numpy==2.3.2",
+]
+
+[build-system]
+requires = ["maturin>=1,<2"]
+build-backend = "maturin"
+
+[dependency-groups]
+all = [
+    { include-group = "dev" },
+    { include-group = "lint" },
+    { include-group = "testing" },
+    { include-group = "docs" },
+]
+dev = ["maturin[patchelf]"]
+lint = [
+    { include-group = "dev" },
+    "mypy[faster-cache]",
+    "ruff",
+]
+testing = [
+    { include-group = "dev" },
+    "pytest==8.4.1",
+]
+docs = [
+    "sphinx",
+    "sphinx-toolbox",
+]
+
+[tool.maturin]
+python-source = "python"
+module-name = "pyreflow._pyreflow"
+features = ["pyo3/extension-module"]
+
+[tool.mypy]
+warn_return_any = true
+
+disallow_any_generics = true
+disallow_subclassing_any = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_calls = true
+disallow_untyped_decorators = true
+
+strict_equality = true
+extra_checks = true
+
+check_untyped_defs = true
+
+[tool.ruff.format]
+docstring-code-format = true
+docstring-code-line-length = 20

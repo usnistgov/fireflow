@@ -6,11 +6,13 @@ use derive_more::{Add, Display, From, FromStr, Into, Mul, Sub};
 use num_derive::{One, Zero};
 use num_traits::identities::Zero;
 use num_traits::ops::checked::CheckedSub;
-use serde::Serialize;
 use std::fmt;
 use std::num::{NonZeroU64, ParseIntError, TryFromIntError};
 use std::str;
 use std::str::FromStr;
+
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 /// An unsigned int which may only be 20 chars wide.
 ///
@@ -20,22 +22,9 @@ use std::str::FromStr;
 /// This is used for the offsets in TEXT which must be formatted in a fixed
 /// width.
 #[derive(
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Serialize,
-    FromStr,
-    Into,
-    From,
-    Add,
-    Sub,
-    Mul,
-    Zero,
-    One,
+    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromStr, Into, From, Add, Sub, Mul, Zero, One,
 )]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(u64, i128)]
 #[mul(forward)]
 #[from(u64, NonZeroU64)]
@@ -66,7 +55,8 @@ impl CheckedSub for Uint20Char {
 /// wide.
 ///
 /// This is used for $NEXTDATA.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Uint8Char(pub Uint8Digit);
 
 impl fmt::Display for Uint8Char {
@@ -82,22 +72,9 @@ impl fmt::Display for Uint8Char {
 /// This is used as-is for HEADER offsets, and used in a wrapper for $NEXTDATA,
 /// both of which have this constraint.
 #[derive(
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Serialize,
-    Display,
-    Into,
-    From,
-    Add,
-    Mul,
-    Sub,
-    Zero,
-    One,
+    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Display, Into, From, Add, Mul, Sub, Zero, One,
 )]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(u32, u64, i128)]
 #[from(u8, u16)] // ASSUME these will never fail
 #[mul(forward)]
@@ -212,4 +189,34 @@ impl fmt::Display for NegativeOffsetError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "HEADER offset is negative: {}", self.0)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_u32_to_uint8digit() {
+        assert!(Uint8Digit::try_from(0_u64).is_ok());
+        assert!(Uint8Digit::try_from(1_u64).is_ok());
+        assert!(Uint8Digit::try_from(99_999_999_u64).is_ok());
+        assert!(Uint8Digit::try_from(100_000_000_u64).is_err());
+    }
+
+    #[test]
+    fn test_str_to_uint8digit() {
+        assert!("0".parse::<Uint8Digit>().is_ok());
+        assert!("99999999".parse::<Uint8Digit>().is_ok());
+        assert!("100000000".parse::<Uint8Digit>().is_err());
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::{Uint20Char, Uint8Digit, Uint8DigitOverflow};
+    use crate::python::macros::{impl_from_py_transparent, impl_try_from_py, impl_value_err};
+
+    impl_from_py_transparent!(Uint20Char);
+    impl_try_from_py!(Uint8Digit, u64);
+    impl_value_err!(Uint8DigitOverflow);
 }

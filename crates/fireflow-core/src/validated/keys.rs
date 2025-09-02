@@ -1,11 +1,11 @@
-use crate::config::RawTextReadConfig;
+use crate::config::ReadHeaderAndTEXTConfig;
 use crate::error::*;
 use crate::text::index::IndexFromOne;
 
 use derive_more::{AsRef, Display, From};
 use itertools::Itertools;
+use nonempty::NonEmpty;
 use regex::Regex;
-use serde::Serialize;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -14,11 +14,18 @@ use std::str;
 use std::str::FromStr;
 use unicase::Ascii;
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
 /// A standard key.
 ///
 /// These may only contain ASCII and must start with "$". The "$" is not
 /// actually stored but will be appended when converting to a ['String'].
 #[derive(Clone, Debug, PartialEq, Eq, Hash, AsRef)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[as_ref(KeyString, str)]
 pub struct StdKey(KeyString);
 
@@ -26,6 +33,7 @@ pub struct StdKey(KeyString);
 ///
 /// This cannot start with '$' and may only contain ASCII characters.
 #[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[as_ref(KeyString, str)]
 pub struct NonStdKey(KeyString);
 
@@ -39,6 +47,20 @@ pub type NonStdKeywords = HashMap<NonStdKey, String>;
 #[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash)]
 #[as_ref(str)]
 pub struct KeyString(Ascii<String>);
+
+/// A map of keystring-keystring pairs.
+///
+/// The main use case for this is to rename keys.
+///
+/// This will be validated such that no pair has matching source and
+/// destination.
+#[derive(Clone, Debug, Default)]
+pub struct KeyStringPairs(HashMap<KeyString, KeyString>);
+
+/// A map of keystrings and strings.
+///
+/// The main use case for this is to replace or add key values.
+pub type KeyStringValues = HashMap<KeyString, String>;
 
 /// A String that matches part of a non-standard measurement key.
 ///
@@ -85,7 +107,13 @@ pub type NonAsciiPairs = Vec<(String, String)>;
 pub type BytesPairs = Vec<(Vec<u8>, Vec<u8>)>;
 
 /// ['ParsedKeywords'] without the bad stuff
-#[derive(Clone, Default, Serialize)]
+#[derive(Clone, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(
+    feature = "python",
+    derive(FromPyObject, IntoPyObject),
+    pyo3(from_item_all)
+)]
 pub struct ValidKeywords {
     pub std: StdKeywords,
     pub nonstd: NonStdKeywords,
@@ -236,6 +264,34 @@ impl KeyString {
     }
 }
 
+#[cfg(feature = "serde")]
+impl Serialize for KeyString {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.as_ref().serialize(serializer)
+    }
+}
+
+impl TryFrom<HashMap<KeyString, KeyString>> for KeyStringPairs {
+    type Error = KeyStringPairsError;
+
+    fn try_from(value: HashMap<KeyString, KeyString>) -> Result<Self, Self::Error> {
+        let mut names = vec![];
+        for (k, v) in value.iter() {
+            if k == v {
+                names.push(k.clone());
+            }
+        }
+        if let Some(ns) = NonEmpty::from_vec(names) {
+            Err(KeyStringPairsError(ns))
+        } else {
+            Ok(Self(value))
+        }
+    }
+}
+
 impl StdKey {
     fn new(s: String) -> Self {
         Self(KeyString::new(s))
@@ -245,24 +301,6 @@ impl StdKey {
 impl NonStdKey {
     fn new(s: String) -> Self {
         Self(KeyString::new(s))
-    }
-}
-
-impl Serialize for StdKey {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.0.as_ref().serialize(serializer)
-    }
-}
-
-impl Serialize for NonStdKey {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.0.as_ref().serialize(serializer)
     }
 }
 
@@ -276,41 +314,50 @@ impl FromStr for KeyString {
     type Err = AsciiStringError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if is_printable_ascii(s.as_ref()) {
-            Ok(Self(Ascii::new(s.to_string())))
+        if s.is_empty() {
+            Err(AsciiStringError::Empty)
+        } else if !is_printable_ascii(s.as_ref()) {
+            Err(AsciiStringError::Ascii(s.to_string()))
         } else {
-            Err(AsciiStringError(s.to_string()))
+            Ok(Self(Ascii::new(s.to_string())))
         }
     }
 }
 
 impl FromStr for StdKey {
-    type Err = KeyStringError;
+    type Err = StdKeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         s.parse::<KeyString>()
-            .map_err(KeyStringError::Ascii)
-            .and_then(|x| {
-                if has_std_prefix(x.as_ref().as_bytes()) {
-                    Ok(Self::new(x.to_string()))
+            .map_err(StdKeyError::Ascii)
+            .and_then(|ks| {
+                // ASSUME this will not fail because we know the string is
+                // non-empty
+                let (y, ys) = ks.as_ref().as_bytes().split_first().unwrap();
+                if ys.is_empty() {
+                    Err(StdKeyError::Empty)
+                } else if *y != STD_PREFIX {
+                    Err(StdKeyError::Prefix(ks))
                 } else {
-                    Err(KeyStringError::Prefix(true, x.to_string()))
+                    // ASSUME this will not fail because we know the string has
+                    // only ASCII bytes
+                    Ok(Self(KeyString::from_bytes(ys)))
                 }
             })
     }
 }
 
 impl FromStr for NonStdKey {
-    type Err = KeyStringError;
+    type Err = NonStdKeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         s.parse::<KeyString>()
-            .map_err(KeyStringError::Ascii)
-            .and_then(|x| {
-                if has_no_std_prefix(x.as_ref().as_bytes()) {
-                    Ok(Self::new(x.to_string()))
+            .map_err(NonStdKeyError::Ascii)
+            .and_then(|ks| {
+                if has_no_std_prefix(ks.as_ref().as_bytes()) {
+                    Ok(Self::new(ks.to_string()))
                 } else {
-                    Err(KeyStringError::Prefix(false, x.to_string()))
+                    Err(NonStdKeyError::Prefix(ks))
                 }
             })
     }
@@ -402,7 +449,7 @@ impl ParsedKeywords {
         &mut self,
         k: &[u8],
         v: &[u8],
-        conf: &RawTextReadConfig,
+        conf: &ReadHeaderAndTEXTConfig,
     ) -> Result<(), Leveled<KeywordInsertError>> {
         // ASSUME key and value are never blank since we checked both prior to
         // calling this. The FCS standards do not allow either to be blank.
@@ -437,7 +484,7 @@ impl ParsedKeywords {
                     } else if to_nonstd.is_match(&kk) {
                         insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
                     } else {
-                        let rk = conf.rename_standard_keys.get(&kk).cloned().unwrap_or(kk);
+                        let rk = conf.rename_standard_keys.0.get(&kk).cloned().unwrap_or(kk);
                         insert_nonunique(&mut self.std, StdKey(rk), value, conf)
                     }
                 } else if n > 0 && is_printable_ascii(k) {
@@ -490,17 +537,17 @@ impl ParsedKeywords {
     }
 }
 
-#[derive(Debug, Display, From)]
+#[derive(Debug, Display, From, PartialEq)]
 pub enum KeywordInsertError {
     StdPresent(StdPresent),
     NonStdPresent(NonStdPresent),
     Blank(BlankValueError),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct BlankValueError(pub Vec<u8>);
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct KeyPresent<T> {
     pub key: T,
     pub value: String,
@@ -509,12 +556,23 @@ pub struct KeyPresent<T> {
 pub type StdPresent = KeyPresent<StdKey>;
 pub type NonStdPresent = KeyPresent<NonStdKey>;
 
-pub struct AsciiStringError(String);
+#[derive(PartialEq, Debug)]
+pub enum AsciiStringError {
+    Ascii(String),
+    Empty,
+}
 
-#[derive(From)]
-pub enum KeyStringError {
+#[derive(From, PartialEq, Debug)]
+pub enum StdKeyError {
     Ascii(AsciiStringError),
-    Prefix(bool, String),
+    Prefix(KeyString),
+    Empty,
+}
+
+#[derive(From, PartialEq, Debug)]
+pub enum NonStdKeyError {
+    Ascii(AsciiStringError),
+    Prefix(KeyString),
 }
 
 pub struct NonStdMeasKeyError(String);
@@ -526,6 +584,8 @@ pub struct NonStdMeasRegexError {
     error: regex::Error,
     index: IndexFromOne,
 }
+
+pub struct KeyStringPairsError(NonEmpty<KeyString>);
 
 impl<T: fmt::Display> fmt::Display for KeyPresent<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -539,25 +599,31 @@ impl<T: fmt::Display> fmt::Display for KeyPresent<T> {
 
 impl fmt::Display for AsciiStringError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "string should only have ASCII characters and not be empty, found '{}'",
-            self.0
-        )
+        match self {
+            Self::Empty => f.write_str("Key string must not be empty"),
+            Self::Ascii(s) => write!(f, "string should only have ASCII characters, found '{s}'",),
+        }
     }
 }
 
-impl fmt::Display for KeyStringError {
+impl fmt::Display for StdKeyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             Self::Ascii(x) => x.fmt(f),
-            Self::Prefix(is_std, s) => {
-                let k = if *is_std {
-                    "Standard key must start with '$'"
-                } else {
-                    "Non-standard key must not start with '$'"
-                };
-                write!(f, "{k}, found '{s}'")
+            Self::Prefix(s) => {
+                write!(f, "Standard key must start with '$', found '{s}'")
+            }
+            Self::Empty => f.write_str("Standard key must not be empty, got '$'"),
+        }
+    }
+}
+
+impl fmt::Display for NonStdKeyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Ascii(x) => x.fmt(f),
+            Self::Prefix(s) => {
+                write!(f, "Non-standard key must not start with '$', found '{s}'")
             }
         }
     }
@@ -606,12 +672,18 @@ impl fmt::Display for BlankValueError {
     }
 }
 
-fn is_printable_ascii(xs: &[u8]) -> bool {
-    xs.iter().all(|x| 32 <= *x && *x <= 126)
+impl fmt::Display for KeyStringPairsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "The following keys are paired with themselves: {}",
+            self.0.iter().join(",")
+        )
+    }
 }
 
-fn has_std_prefix(xs: &[u8]) -> bool {
-    xs.first().is_some_and(|x| *x == STD_PREFIX)
+fn is_printable_ascii(xs: &[u8]) -> bool {
+    xs.iter().all(|x| 32 <= *x && *x <= 126)
 }
 
 fn has_no_std_prefix(xs: &[u8]) -> bool {
@@ -622,7 +694,7 @@ fn insert_nonunique<K>(
     kws: &mut HashMap<K, String>,
     k: K,
     value: String,
-    conf: &RawTextReadConfig,
+    conf: &ReadHeaderAndTEXTConfig,
 ) -> Result<(), Leveled<KeywordInsertError>>
 where
     K: std::hash::Hash + Eq + Clone + AsRef<KeyString>,
@@ -647,3 +719,165 @@ where
 }
 
 const STD_PREFIX: u8 = 36; // '$'
+
+#[cfg(feature = "python")]
+mod python {
+    use super::{
+        AsciiStringError, KeyPatterns, KeyString, KeyStringPairs, KeyStringPairsError, NonStdKey,
+        NonStdKeyError, NonStdMeasPattern, NonStdMeasPatternError, StdKey, StdKeyError,
+    };
+    use crate::python::macros::{impl_from_py_via_fromstr, impl_to_py_via_display, impl_value_err};
+
+    use pyo3::exceptions::PyValueError;
+    use pyo3::prelude::*;
+    use std::collections::HashMap;
+
+    impl_from_py_via_fromstr!(NonStdMeasPattern);
+    impl_value_err!(NonStdMeasPatternError);
+
+    impl_from_py_via_fromstr!(StdKey);
+    impl_to_py_via_display!(StdKey);
+    impl_value_err!(StdKeyError);
+
+    impl_from_py_via_fromstr!(NonStdKey);
+    impl_to_py_via_display!(NonStdKey);
+    impl_value_err!(NonStdKeyError);
+
+    impl_from_py_via_fromstr!(KeyString);
+    impl_to_py_via_display!(KeyString);
+    impl_value_err!(AsciiStringError);
+
+    // pass keypatterns via config as a tuple like ([String], [String]) where the
+    // first member is literal strings and the second is regex patterns
+    impl<'py> FromPyObject<'py> for KeyPatterns {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (lits, pats): (Vec<String>, Vec<String>) = ob.extract()?;
+            let mut ret = KeyPatterns::try_from_literals(lits)?;
+            // this is just a regexp error
+            let ps = KeyPatterns::try_from_patterns(pats)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            ret.extend(ps);
+            Ok(ret)
+        }
+    }
+
+    impl<'py> FromPyObject<'py> for KeyStringPairs {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let xs: HashMap<KeyString, KeyString> = ob.extract()?;
+            let ret = xs.try_into()?;
+            Ok(ret)
+        }
+    }
+
+    impl_value_err!(KeyStringPairsError);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fromstr_std_key() {
+        let s = "$MAJESTY";
+        let k = s.parse::<StdKey>().unwrap();
+        assert_eq!(StdKey(KeyString(Ascii::new("MAJESTY".into()))), k);
+        // reverse process should give back original string
+        assert_eq!(k.to_string(), s.to_string());
+        // and such a valid key should behave the same when inserted into
+        // the hash table
+        let mut p = ParsedKeywords::default();
+        let res = p.insert(
+            s.as_bytes(),
+            b"of_the_night_sky",
+            &ReadHeaderAndTEXTConfig::default(),
+        );
+        assert_eq!(Ok(()), res);
+        assert_eq!(
+            s.to_string(),
+            p.std.into_iter().next().unwrap().0.to_string()
+        );
+    }
+
+    #[test]
+    fn fromstr_std_key_nonascii() {
+        let s = "$花冷え。"; // sugarsugarsugarsugarsugarsugarrrrrrrrr...
+        let k = s.parse::<StdKey>();
+        assert_eq!(
+            Err(StdKeyError::Ascii(AsciiStringError::Ascii(s.into()))),
+            k
+        );
+    }
+
+    #[test]
+    fn fromstr_std_key_noprefix() {
+        let s = "IMBROKE";
+        let k = s.parse::<StdKey>();
+        assert_eq!(
+            Err(StdKeyError::Prefix(KeyString(Ascii::new(s.to_string())))),
+            k
+        );
+    }
+
+    #[test]
+    fn fromstr_std_key_blank() {
+        let s = "";
+        let k = s.parse::<StdKey>();
+        assert_eq!(Err(StdKeyError::Ascii(AsciiStringError::Empty)), k);
+    }
+
+    #[test]
+    fn fromstr_std_key_onlyprefix() {
+        let s = "$";
+        let k = s.parse::<StdKey>();
+        assert_eq!(Err(StdKeyError::Empty), k);
+    }
+
+    #[test]
+    fn fromstr_nonstd_key() {
+        let s = "YTSEJAM";
+        let k = s.parse::<NonStdKey>().unwrap();
+        assert_eq!(NonStdKey(KeyString(Ascii::new("YTSEJAM".into()))), k);
+        // reverse process should give back original string
+        assert_eq!(k.to_string(), s.to_string());
+        // and such a valid key should behave the same when inserted into
+        // the hash table
+        let mut p = ParsedKeywords::default();
+        let res = p.insert(
+            s.as_bytes(),
+            b"the cake is a lie",
+            &ReadHeaderAndTEXTConfig::default(),
+        );
+        assert_eq!(Ok(()), res);
+        assert_eq!(
+            s.to_string(),
+            p.nonstd.into_iter().next().unwrap().0.to_string()
+        );
+    }
+
+    #[test]
+    fn fromstr_nonstd_key_nonascii() {
+        let s = "サイ";
+        let k = s.parse::<NonStdKey>();
+        assert_eq!(
+            Err(NonStdKeyError::Ascii(AsciiStringError::Ascii(s.into()))),
+            k
+        );
+    }
+
+    #[test]
+    fn fromstr_nonstd_key_hasprefix() {
+        let s = "$IMRICH";
+        let k = s.parse::<NonStdKey>();
+        assert_eq!(
+            Err(NonStdKeyError::Prefix(KeyString(Ascii::new(s.to_string())))),
+            k
+        );
+    }
+
+    #[test]
+    fn fromstr_nonstd_key_blank() {
+        let s = "";
+        let k = s.parse::<NonStdKey>();
+        assert_eq!(Err(NonStdKeyError::Ascii(AsciiStringError::Empty)), k);
+    }
+}

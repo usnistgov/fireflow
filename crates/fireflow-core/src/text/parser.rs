@@ -7,6 +7,7 @@ use crate::validated::shortname::*;
 use super::byteord::*;
 use super::compensation::*;
 use super::datetimes::*;
+use super::gating;
 use super::index::*;
 use super::keywords::*;
 use super::named_vec::*;
@@ -443,7 +444,8 @@ pub enum LookupKeysError {
 pub enum LookupKeysWarning {
     Parse(ParseKeyError<ParseOptKeyWarning>),
     Relation(LookupRelationalWarning),
-    Linked(LinkedNameError),
+    LinkedName(LinkedNameError),
+    LinkedIndex(RegionIndexError),
     Dep(DeprecatedError),
 }
 
@@ -489,7 +491,7 @@ pub enum ParseOptKeyWarning {
     FCSTime60(FCSTime60Error),
     FCSTime100(FCSTime100Error),
     FCSDateTime(FCSDateTimeError),
-    ModifiedDateTime(ModifiedDateTimeError),
+    ModifiedDateTime(LastModifiedError),
     Originality(OriginalityError),
     UnstainedCenter(ParseUnstainedCenterError),
     Mode3_2(Mode3_2Error),
@@ -534,9 +536,10 @@ pub enum LookupRelationalWarning {
     Timestamp(ReversedTimestamps),
     Datetime(ReversedDatetimes),
     CompShape(NewCompError),
-    GateRegion(MismatchedIndexAndWindowError),
-    GateRegionLink(GateRegionLinkError),
-    GateMeasLink(GateMeasurementLinkError),
+    CSVFlag(NewCSVFlagsError),
+    GateRegion(gating::MismatchedIndexAndWindowError),
+    GateMeasLink(gating::GateMeasurementLinkError),
+    GatingScheme(gating::NewGatingSchemeError),
 }
 
 /// Error/warning triggered when encountering a key which is deprecated
@@ -547,17 +550,6 @@ pub enum DepValueWarning {
     DatatypeASCII,
     ModeCorrelated,
     ModeUncorrelated,
-}
-
-pub struct MismatchedIndexAndWindowError;
-
-impl fmt::Display for MismatchedIndexAndWindowError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "values for $RnI and $RnW must both be univariate or bivariate"
-        )
-    }
 }
 
 impl fmt::Display for DepValueWarning {
@@ -684,7 +676,7 @@ where
     }
 }
 
-fn eval_dep_maybe<T>(
+pub(crate) fn eval_dep_maybe<T>(
     x: &mut LookupTentative<MaybeValue<T>, DeprecatedError>,
     key: StdKey,
     disallow_dep: bool,

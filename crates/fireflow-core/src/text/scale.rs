@@ -6,17 +6,21 @@ use crate::text::parser::*;
 use crate::text::ranged_float::*;
 use crate::validated::keys::*;
 
-use serde::Serialize;
+use super::parser::LookupTentative;
+
+use num_traits::identities::One;
 use std::fmt;
 use std::num::ParseFloatError;
 use std::str::FromStr;
 
-use super::parser::LookupTentative;
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 /// The value for the $PnE key (all versions).
 ///
 /// Format is assumed to be 'f1,f2'
-#[derive(Clone, Copy, PartialEq, Serialize)]
+#[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Scale {
     /// Linear scale (ie '0,0')
     Linear,
@@ -25,7 +29,8 @@ pub enum Scale {
     Log(LogScale),
 }
 
-#[derive(Clone, Copy, PartialEq, Serialize)]
+#[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct LogScale {
     pub decades: PositiveFloat,
     pub offset: PositiveFloat,
@@ -195,7 +200,7 @@ impl LogRangeError {
             if let Ok(decades) = PositiveFloat::try_from(self.decades) {
                 return Ok(LogScale {
                     decades,
-                    offset: PositiveFloat::unit(),
+                    offset: PositiveFloat::one(),
                 });
             }
         }
@@ -211,4 +216,59 @@ impl fmt::Display for LogRangeError {
             self.decades, self.offset,
         )
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test::*;
+
+    #[test]
+    fn test_scale() {
+        assert_from_to_str::<Scale>("0,0");
+        assert_from_to_str::<Scale>("4.5,0.01");
+    }
+
+    #[test]
+    fn test_scale_invalid() {
+        assert!("4.5,0".parse::<Scale>().is_err());
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::{LogRangeError, Scale};
+    use crate::python::macros::impl_value_err;
+
+    use pyo3::prelude::*;
+    use pyo3::types::PyTuple;
+    use pyo3::IntoPyObjectExt;
+
+    // $PnE (2.0) as either () or (f32, f32) tuples in python
+    impl<'py> FromPyObject<'py> for Scale {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            if ob.is_instance_of::<PyTuple>() && ob.len()? == 0 {
+                Ok(Self::Linear)
+            } else {
+                let (decades, offset): (f32, f32) = ob.extract()?;
+                let ret = Self::try_new_log(decades, offset)?;
+                Ok(ret)
+            }
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for Scale {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            match self {
+                Self::Linear => Ok(PyTuple::empty(py).into_any()),
+                Self::Log(l) => (f32::from(l.decades), f32::from(l.offset)).into_bound_py_any(py),
+            }
+        }
+    }
+
+    impl_value_err!(LogRangeError);
 }

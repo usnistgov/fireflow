@@ -1,0 +1,15 @@
+[package]
+name = "fireflow-python-proc"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+derive-new = { workspace = true }
+fireflow-core = { version = "0.1.0", path = "../fireflow-core" }
+syn = { version = "*", features = ["extra-traits"] }
+itertools = { workspace = true }
+quote = "*"
+proc-macro2 = "*"
+
+[lib]
+proc-macro = true

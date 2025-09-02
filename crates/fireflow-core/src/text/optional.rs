@@ -4,25 +4,34 @@ use crate::error::{BiTentative, Tentative};
 use super::index::IndexFromOne;
 
 use derive_more::{AsMut, AsRef};
-use serde::Serialize;
 use std::convert::Infallible;
 use std::fmt;
 use std::marker::PhantomData;
 use std::mem;
+
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
 
 /// A value that might exist.
 ///
 /// This is basically [`Option`] but more obvious in what it indicates. It also
 /// allows some nice methods to be built on top of [`Option`].
 #[derive(Debug, Clone, PartialEq, Eq, AsRef, AsMut)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct MaybeValue<T>(pub Option<T>);
 
 /// A value that always exists.
-#[derive(Clone, Serialize)]
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AlwaysValue<T>(pub T);
 
 /// A value that always exists.
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct NeverValue<T>(pub PhantomData<T>);
 
 /// Encodes a type which might have something in it.
@@ -68,7 +77,8 @@ pub trait MightHave {
         F: FnOnce(T) -> T0;
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct MaybeFamily;
 
 impl MightHave for MaybeFamily {
@@ -91,7 +101,8 @@ impl MightHave for MaybeFamily {
     }
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AlwaysFamily;
 
 impl MightHave for AlwaysFamily {
@@ -180,24 +191,26 @@ impl<V> MaybeValue<V> {
     /// Mutate thing in Option if present, and possibly unset Option entirely
     pub fn mut_or_unset<E, F, X>(&mut self, f: F) -> Result<Option<X>, E>
     where
-        F: Fn(&mut V) -> Result<X, ClearOptionalOr<E>>,
+        F: Fn(&mut V) -> ClearMaybeError<X, E>,
     {
         match mem::replace(self, None.into()).0 {
             None => Ok(None),
-            Some(mut x) => match f(&mut x) {
-                Ok(y) => Ok(Some(y)),
-                Err(ClearOptionalOr::Clear) => {
-                    *self = None.into();
-                    Ok(None)
-                }
-                Err(ClearOptionalOr::Error(e)) => Err(e),
-            },
+            Some(mut x) => {
+                let c = f(&mut x);
+                let (ret, newself) = match c.clear {
+                    None => (Ok(Some(c.value)), Some(x).into()),
+                    Some(ClearOptionalOr::Error(e)) => (Err(e), Some(x).into()),
+                    Some(ClearOptionalOr::Clear) => (Ok(Some(c.value)), None.into()),
+                };
+                *self = newself;
+                ret
+            }
         }
     }
 
     pub fn mut_or_unset_nofail<F, X>(&mut self, f: F) -> Option<X>
     where
-        F: Fn(&mut V) -> Result<X, ClearOptional>,
+        F: Fn(&mut V) -> ClearMaybe<X>,
     {
         let Ok(x) = self.mut_or_unset(f);
         x
@@ -250,6 +263,35 @@ impl<V, E> MaybeValue<Result<V, E>> {
     }
 }
 
+pub type ClearMaybe<V> = ClearMaybeError<V, Infallible>;
+
+impl<V: Default, E> Default for ClearMaybeError<V, E> {
+    fn default() -> Self {
+        Self {
+            value: V::default(),
+            clear: None,
+        }
+    }
+}
+
+// impl<V, E> ClearMaybeError<V, E> {
+//     pub(crate) fn new(value: V) -> Self {
+//         Self { value, clear: None }
+//     }
+
+//     pub(crate) fn clear(value: V) -> Self {
+//         Self {
+//             value,
+//             clear: Some(ClearOptionalOr::default()),
+//         }
+//     }
+// }
+
+pub struct ClearMaybeError<V, E> {
+    pub value: V,
+    pub clear: Option<ClearOptionalOr<E>>,
+}
+
 pub type ClearOptional = ClearOptionalOr<Infallible>;
 
 #[derive(Default)]
@@ -265,22 +307,47 @@ impl<V: fmt::Display> MaybeValue<V> {
     }
 }
 
-impl<T: Serialize> Serialize for MaybeValue<T> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self.0.as_ref() {
-            Some(x) => serializer.serialize_some(x),
-            None => serializer.serialize_none(),
-        }
-    }
-}
+// impl<T: Serialize> Serialize for MaybeValue<T> {
+//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+//     where
+//         S: serde::Serializer,
+//     {
+//         match self.0.as_ref() {
+//             Some(x) => serializer.serialize_some(x),
+//             None => serializer.serialize_none(),
+//         }
+//     }
+// }
 
 pub struct MaybeToAlwaysError;
 
 impl fmt::Display for MaybeToAlwaysError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "optional keyword value is blank",)
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::{AlwaysValue, MaybeValue};
+
+    use pyo3::prelude::*;
+
+    impl<'py, T> FromPyObject<'py> for AlwaysValue<T>
+    where
+        T: FromPyObject<'py>,
+    {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            Ok(Self(ob.extract()?))
+        }
+    }
+
+    impl<'py, T> FromPyObject<'py> for MaybeValue<T>
+    where
+        T: FromPyObject<'py>,
+    {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            Ok(Self(ob.extract()?))
+        }
     }
 }

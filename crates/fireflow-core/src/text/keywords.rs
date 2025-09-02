@@ -1,6 +1,7 @@
 use crate::config::StdTextReadConfig;
 use crate::error::*;
 use crate::macros::impl_newtype_try_from;
+use crate::nonempty::FCSNonEmpty;
 use crate::validated::ascii_uint::*;
 use crate::validated::keys::*;
 use crate::validated::shortname::*;
@@ -8,7 +9,8 @@ use crate::validated::shortname::*;
 use super::byteord::*;
 use super::compensation::*;
 use super::datetimes::*;
-use super::float_decimal::{FloatDecimal, FloatToDecimalError, HasFloatBounds};
+use super::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
+use super::gating;
 use super::index::*;
 use super::named_vec::NameMapping;
 use super::optional::*;
@@ -21,28 +23,39 @@ use super::unstainedcenters::*;
 
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use chrono::{NaiveDateTime, NaiveTime, Timelike};
-use derive_more::{Add, Display, From, FromStr, Into, Sub};
+use derive_more::{Add, AsMut, Display, From, FromStr, Into, Sub};
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use num_traits::cast::ToPrimitive;
 use num_traits::PrimInt;
-use serde::Serialize;
 use std::any::type_name;
 use std::collections::HashSet;
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
+#[cfg(feature = "python")]
+use crate::python::macros::impl_from_py_transparent;
+
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
 /// Value for $NEXTDATA (all versions)
 #[derive(From, Into, FromStr, Display)]
 pub struct Nextdata(pub Uint20Char);
 
 /// The value of the $PnG keyword
-#[derive(Clone, Copy, Serialize, PartialEq, From, Display, FromStr)]
+#[derive(Clone, Copy, PartialEq, From, Display, FromStr)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Gain(pub PositiveFloat);
 
 /// The value of the $TIMESTEP keyword
-#[derive(Clone, Copy, PartialEq, Serialize, From, Display, FromStr, Into)]
+#[derive(Clone, Copy, PartialEq, From, Display, FromStr, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(f32, PositiveFloat)]
 pub struct Timestep(pub PositiveFloat);
 
@@ -78,7 +91,9 @@ impl fmt::Display for TimestepLossError {
 }
 
 /// The value of the $VOL keyword
-#[derive(Clone, Copy, Serialize, From, Display, FromStr, Into)]
+#[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(NonNegFloat, f32)]
 pub struct Vol(pub NonNegFloat);
 
@@ -87,8 +102,9 @@ impl_newtype_try_from!(Vol, NonNegFloat, f32, RangedFloatError);
 /// The value of the $TR field (all versions)
 ///
 /// This is formatted as 'string,f' where 'string' is a measurement name.
-#[derive(Clone, Serialize)]
-pub(crate) struct Trigger {
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct Trigger {
     /// The measurement name (assumed to match a '$PnN' value).
     pub measurement: Shortname,
 
@@ -134,8 +150,10 @@ impl fmt::Display for TriggerError {
 }
 
 /// The values used for the $MODE key (up to 3.1)
-#[derive(Clone, PartialEq, Eq, Serialize)]
+#[derive(Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Mode {
+    #[default]
     List,
     Uncorrelated,
     Correlated,
@@ -174,6 +192,8 @@ impl fmt::Display for ModeError {
 }
 
 /// The value for the $MODE key, which can only contain 'L' (3.2)
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Mode3_2;
 
 pub struct Mode3_2Error;
@@ -194,14 +214,35 @@ impl fmt::Display for Mode3_2 {
         write!(f, "L")
     }
 }
+
 impl fmt::Display for Mode3_2Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "can only be 'L'")
     }
 }
 
+impl TryFrom<Mode> for Mode3_2 {
+    type Error = ModeUpgradeError;
+
+    fn try_from(value: Mode) -> Result<Self, Self::Error> {
+        match value {
+            Mode::List => Ok(Mode3_2),
+            _ => Err(ModeUpgradeError),
+        }
+    }
+}
+
+pub struct ModeUpgradeError;
+
+impl fmt::Display for ModeUpgradeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "pre-3.2 $MODE must be 'L' to upgrade to 3.2 $MODE")
+    }
+}
+
 /// The value for the $PnDISPLAY key (3.1+)
-#[derive(Clone, Copy, Serialize, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Display {
     /// Linear display (value like 'Linear,<lower>,<upper>')
     Lin { lower: f32, upper: f32 },
@@ -240,7 +281,7 @@ impl fmt::Display for Display {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             Display::Lin { lower, upper } => write!(f, "Linear,{lower},{upper}"),
-            Display::Log { offset, decades } => write!(f, "Log,{offset},{decades}"),
+            Display::Log { offset, decades } => write!(f, "Logarithmic,{decades},{offset}"),
         }
     }
 }
@@ -262,10 +303,11 @@ impl fmt::Display for DisplayError {
 }
 
 /// The three values for the $PnDATATYPE keyword (3.2+)
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum NumType {
     Integer,
-    Single,
+    Float,
     Double,
 }
 
@@ -275,7 +317,7 @@ impl FromStr for NumType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "I" => Ok(NumType::Integer),
-            "F" => Ok(NumType::Single),
+            "F" => Ok(NumType::Float),
             "D" => Ok(NumType::Double),
             _ => Err(NumTypeError),
         }
@@ -286,7 +328,7 @@ impl fmt::Display for NumType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             NumType::Integer => write!(f, "I"),
-            NumType::Single => write!(f, "F"),
+            NumType::Float => write!(f, "F"),
             NumType::Double => write!(f, "D"),
         }
     }
@@ -301,11 +343,12 @@ impl fmt::Display for NumTypeError {
 }
 
 /// The four allowed values for the $DATATYPE keyword.
-#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash, Serialize)]
+#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AlphaNumType {
     Ascii,
     Integer,
-    Single,
+    Float,
     Double,
 }
 
@@ -331,7 +374,7 @@ impl FromStr for AlphaNumType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "I" => Ok(AlphaNumType::Integer),
-            "F" => Ok(AlphaNumType::Single),
+            "F" => Ok(AlphaNumType::Float),
             "D" => Ok(AlphaNumType::Double),
             "A" => Ok(AlphaNumType::Ascii),
             _ => Err(AlphaNumTypeError),
@@ -344,7 +387,7 @@ impl fmt::Display for AlphaNumType {
         match self {
             AlphaNumType::Ascii => write!(f, "A"),
             AlphaNumType::Integer => write!(f, "I"),
-            AlphaNumType::Single => write!(f, "F"),
+            AlphaNumType::Float => write!(f, "F"),
             AlphaNumType::Double => write!(f, "D"),
         }
     }
@@ -362,7 +405,7 @@ impl From<NumType> for AlphaNumType {
     fn from(value: NumType) -> Self {
         match value {
             NumType::Integer => AlphaNumType::Integer,
-            NumType::Single => AlphaNumType::Single,
+            NumType::Float => AlphaNumType::Float,
             NumType::Double => AlphaNumType::Double,
         }
     }
@@ -373,7 +416,7 @@ impl TryFrom<AlphaNumType> for NumType {
     fn try_from(value: AlphaNumType) -> Result<Self, Self::Error> {
         match value {
             AlphaNumType::Integer => Ok(NumType::Integer),
-            AlphaNumType::Single => Ok(NumType::Single),
+            AlphaNumType::Float => Ok(NumType::Float),
             AlphaNumType::Double => Ok(NumType::Double),
             AlphaNumType::Ascii => Err(()),
         }
@@ -383,8 +426,15 @@ impl TryFrom<AlphaNumType> for NumType {
 /// The value of the $PnE key for temporal measurements (all versions)
 ///
 /// This can only be linear (0,0)
-#[derive(Clone, Serialize)]
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct TemporalScale;
+
+impl TemporalScale {
+    pub(crate) fn pair(i: IndexFromOne) -> (String, String) {
+        (Self::std(i).to_string(), Self.to_string())
+    }
+}
 
 impl FromStr for TemporalScale {
     type Err = TemporalScaleError;
@@ -414,7 +464,8 @@ impl fmt::Display for TemporalScaleError {
 /// The value for the $PnCALIBRATION key (3.1 only)
 ///
 /// This should be formatted like '<value>,<unit>'
-#[derive(Clone, Serialize, PartialEq)]
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Calibration3_1 {
     pub slope: PositiveFloat,
     pub unit: String,
@@ -468,7 +519,8 @@ impl<C: fmt::Display> fmt::Display for CalibrationError<C> {
 ///
 /// This should be formatted like '<value>,[<offset>,]<unit>' and differs from
 /// 3.1 with the optional inclusion of "offset" (assumed 0 if not included).
-#[derive(Clone, Serialize, PartialEq)]
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Calibration3_2 {
     pub slope: PositiveFloat,
     pub offset: f32,
@@ -510,7 +562,9 @@ impl fmt::Display for CalibrationFormat3_2 {
 }
 
 /// The value for the $PnL key (2.0/3.0).
-#[derive(Clone, From, FromStr, Display, Serialize, Into)]
+#[derive(Clone, Copy, From, FromStr, Display, Into, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(f32, PositiveFloat)]
 pub struct Wavelength(pub PositiveFloat);
 
@@ -519,35 +573,23 @@ impl_newtype_try_from!(Wavelength, PositiveFloat, f32, RangedFloatError);
 /// The value for the $PnL key (3.1).
 ///
 /// Starting in 3.1 this is a vector rather than a scaler.
-#[derive(Clone, From)]
-pub struct Wavelengths(pub NonEmpty<PositiveFloat>);
-
-// impl TryFrom<NonEmpty<f32>> for Wavelengths {
-//     type Error = RangedFloatError;
-
-//     fn try_from(value: NonEmpty<f32>) -> Result<Self, Self::Error> {
-//         value.try_map(|x| x.try_into()).map(Self)
-//     }
-// }
+#[derive(Clone, From, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct Wavelengths(pub FCSNonEmpty<PositiveFloat>);
 
 impl From<Wavelengths> for Vec<f32> {
     fn from(value: Wavelengths) -> Self {
-        Vec::from(value.0).into_iter().map(|x| x.into()).collect()
-    }
-}
-
-impl Serialize for Wavelengths {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.0.iter().collect::<Vec<_>>().serialize(serializer)
+        Vec::from((value.0).0)
+            .into_iter()
+            .map(|x| x.into())
+            .collect()
     }
 }
 
 impl fmt::Display for Wavelengths {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", self.0.iter().join(","))
+        write!(f, "{}", (self.0).0.iter().join(","))
     }
 }
 
@@ -561,6 +603,7 @@ impl FromStr for Wavelengths {
         }
         NonEmpty::from_vec(ws)
             .ok_or(WavelengthsError::Empty)
+            .map(FCSNonEmpty)
             .map(Wavelengths)
     }
 }
@@ -571,8 +614,8 @@ impl Wavelengths {
         lossless: bool,
     ) -> Tentative<Wavelength, WavelengthsLossError, WavelengthsLossError> {
         let ws = self.0;
-        let n = ws.len();
-        let mut tnt = Tentative::new1(Wavelength(ws.head));
+        let n = ws.0.len();
+        let mut tnt = Tentative::new1(Wavelength(ws.0.head));
         if n > 1 {
             tnt.push_error_or_warning(WavelengthsLossError(n), lossless);
         }
@@ -610,48 +653,59 @@ impl fmt::Display for WavelengthsError {
 ///
 /// Inner value is private to ensure it always gets parsed/printed using the
 /// correct format
-#[derive(Clone, Copy, Serialize, From, Into)]
-pub struct ModifiedDateTime(pub NaiveDateTime);
+#[derive(Clone, Copy, From, Into, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct LastModified(pub NaiveDateTime);
 
 const DATETIME_FMT: &str = "%d-%b-%Y %H:%M:%S";
 
-impl FromStr for ModifiedDateTime {
-    type Err = ModifiedDateTimeError;
+impl FromStr for LastModified {
+    type Err = LastModifiedError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (dt, cc) =
-            NaiveDateTime::parse_and_remainder(s, DATETIME_FMT).or(Err(ModifiedDateTimeError))?;
-        if cc.is_empty() {
-            Ok(ModifiedDateTime(dt))
-        } else if cc.len() == 3 && cc.starts_with(".") {
-            let tt: u32 = cc[1..3].parse().or(Err(ModifiedDateTimeError))?;
-            dt.with_nanosecond(tt * 10000000)
-                .map(ModifiedDateTime)
-                .ok_or(ModifiedDateTimeError)
-        } else {
-            Err(ModifiedDateTimeError)
-        }
+        let (t, cc) = match &s.split(".").collect::<Vec<_>>()[..] {
+            [t] => (*t, ""),
+            [t, cc] => (*t, *cc),
+            _ => return Err(LastModifiedError),
+        };
+        NaiveDateTime::parse_from_str(t, DATETIME_FMT)
+            .or(Err(LastModifiedError))
+            .and_then(|dt| {
+                if cc.is_empty() {
+                    Ok(dt)
+                } else {
+                    let tt = cc.parse::<u32>().or(Err(LastModifiedError))?;
+                    if tt > 100 {
+                        Err(LastModifiedError)
+                    } else {
+                        dt.with_nanosecond(tt * 10_000_000).ok_or(LastModifiedError)
+                    }
+                }
+            })
+            .map(Self)
     }
 }
 
-impl fmt::Display for ModifiedDateTime {
+impl fmt::Display for LastModified {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let dt = self.0.format(DATETIME_FMT);
-        let cc = self.0.nanosecond() / 10000000;
-        write!(f, "{dt}.{cc}")
+        let cc = self.0.nanosecond() / 10_000_000;
+        write!(f, "{dt}.{cc:02}")
     }
 }
 
-pub struct ModifiedDateTimeError;
+pub struct LastModifiedError;
 
-impl fmt::Display for ModifiedDateTimeError {
+impl fmt::Display for LastModifiedError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "must be like 'dd-mmm-yyyy hh:mm:ss[.cc]'")
     }
 }
 
 /// The value for the $ORIGINALITY key (3.1+)
-#[derive(Clone, Copy, Serialize, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Originality {
     Original,
     NonDataModified,
@@ -703,7 +757,8 @@ impl fmt::Display for OriginalityError {
 /// in this library and is present to be complete. The original purpose was to
 /// indicate keywords which supported UTF-8, but these days it is hard to
 /// write a library that does NOT support UTF-8 ;)
-#[derive(Clone, Serialize, PartialEq)]
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Unicode {
     pub page: u32,
     pub kws: Vec<String>,
@@ -748,7 +803,8 @@ impl fmt::Display for UnicodeError {
 }
 
 /// The value of the $PnTYPE key in optical channels (3.2+)
-#[derive(Clone, Serialize, PartialEq)]
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum OpticalType {
     ForwardScatter,
     SideScatter,
@@ -764,20 +820,30 @@ pub enum OpticalType {
 
 pub struct OpticalTypeError;
 
+const FORWARD_SCATTER: &str = "Forward Scatter";
+const SIDE_SCATTER: &str = "Side Scatter";
+const RAW_FLUORESCENCE: &str = "Raw Fluorescence";
+const UNMIXED_FLUORESCENCE: &str = "Unmixed Fluorescence";
+const MASS: &str = "Mass";
+const INDEX: &str = "Index";
+const ELECTRONIC_VOLUME: &str = "Electronic Volume";
+const CLASSIFICATION: &str = "Classification";
+const TIME: &str = "Time";
+
 impl FromStr for OpticalType {
     type Err = OpticalTypeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "Time" => Err(OpticalTypeError),
-            "Forward Scatter" => Ok(OpticalType::ForwardScatter),
-            "Side Scatter" => Ok(OpticalType::SideScatter),
-            "Raw Fluorescence" => Ok(OpticalType::RawFluorescence),
-            "Unmixed Fluorescence" => Ok(OpticalType::UnmixedFluorescence),
-            "Mass" => Ok(OpticalType::Mass),
-            "Electronic Volume" => Ok(OpticalType::ElectronicVolume),
-            "Index" => Ok(OpticalType::Index),
-            "Classification" => Ok(OpticalType::Classification),
+            TIME => Err(OpticalTypeError),
+            FORWARD_SCATTER => Ok(OpticalType::ForwardScatter),
+            SIDE_SCATTER => Ok(OpticalType::SideScatter),
+            RAW_FLUORESCENCE => Ok(OpticalType::RawFluorescence),
+            UNMIXED_FLUORESCENCE => Ok(OpticalType::UnmixedFluorescence),
+            MASS => Ok(OpticalType::Mass),
+            ELECTRONIC_VOLUME => Ok(OpticalType::ElectronicVolume),
+            INDEX => Ok(OpticalType::Index),
+            CLASSIFICATION => Ok(OpticalType::Classification),
             s => Ok(OpticalType::Other(String::from(s))),
         }
     }
@@ -786,14 +852,14 @@ impl FromStr for OpticalType {
 impl fmt::Display for OpticalType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            OpticalType::ForwardScatter => write!(f, "Foward Scatter"),
-            OpticalType::SideScatter => write!(f, "Side Scatter"),
-            OpticalType::RawFluorescence => write!(f, "Raw Fluorescence"),
-            OpticalType::UnmixedFluorescence => write!(f, "Unmixed Fluorescence"),
-            OpticalType::Mass => write!(f, "Mass"),
-            OpticalType::ElectronicVolume => write!(f, "Electronic Volume"),
-            OpticalType::Classification => write!(f, "Classification"),
-            OpticalType::Index => write!(f, "Index"),
+            OpticalType::ForwardScatter => f.write_str(FORWARD_SCATTER),
+            OpticalType::SideScatter => f.write_str(SIDE_SCATTER),
+            OpticalType::RawFluorescence => f.write_str(RAW_FLUORESCENCE),
+            OpticalType::UnmixedFluorescence => f.write_str(UNMIXED_FLUORESCENCE),
+            OpticalType::Mass => f.write_str(MASS),
+            OpticalType::ElectronicVolume => f.write_str(ELECTRONIC_VOLUME),
+            OpticalType::Classification => f.write_str(CLASSIFICATION),
+            OpticalType::Index => f.write_str(INDEX),
             OpticalType::Other(s) => write!(f, "{}", s),
         }
     }
@@ -809,7 +875,8 @@ impl fmt::Display for OpticalTypeError {
 }
 
 /// The value of the $PnTYPE key in temporal channels (3.2+)
-#[derive(Clone, Serialize, PartialEq)]
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct TemporalType;
 
 pub struct TemporalTypeError;
@@ -819,7 +886,7 @@ impl FromStr for TemporalType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "Time" => Ok(TemporalType),
+            TIME => Ok(TemporalType),
             _ => Err(TemporalTypeError),
         }
     }
@@ -827,7 +894,7 @@ impl FromStr for TemporalType {
 
 impl fmt::Display for TemporalType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "Time")
+        f.write_str(TIME)
     }
 }
 
@@ -838,21 +905,26 @@ impl fmt::Display for TemporalTypeError {
 }
 
 /// The value of the $PnFEATURE key (3.2+)
-#[derive(Clone, Copy, Serialize, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Feature {
     Area,
     Width,
     Height,
 }
 
+const AREA: &str = "Area";
+const WIDTH: &str = "Width";
+const HEIGHT: &str = "Height";
+
 impl FromStr for Feature {
     type Err = FeatureError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "Area" => Ok(Feature::Area),
-            "Width" => Ok(Feature::Width),
-            "Height" => Ok(Feature::Height),
+            AREA => Ok(Feature::Area),
+            WIDTH => Ok(Feature::Width),
+            HEIGHT => Ok(Feature::Height),
             _ => Err(FeatureError),
         }
     }
@@ -860,11 +932,12 @@ impl FromStr for Feature {
 
 impl fmt::Display for Feature {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Feature::Area => write!(f, "Area"),
-            Feature::Width => write!(f, "Width"),
-            Feature::Height => write!(f, "Height"),
-        }
+        let s = match self {
+            Feature::Area => AREA,
+            Feature::Width => WIDTH,
+            Feature::Height => HEIGHT,
+        };
+        f.write_str(s)
     }
 }
 
@@ -877,10 +950,107 @@ impl fmt::Display for FeatureError {
 }
 
 /// The value of the $RnI key (all versions)
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub(crate) enum RegionGateIndex<I> {
     Univariate(I),
-    Bivariate(I, I),
+    Bivariate(IndexPair<I>),
+}
+
+/// The two indices of a bivariate gate
+#[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct IndexPair<I> {
+    pub x: I,
+    pub y: I,
+}
+
+impl<I> IndexPair<I> {
+    pub(crate) fn map<F, J>(self, mut f: F) -> IndexPair<J>
+    where
+        F: FnMut(I) -> J,
+    {
+        IndexPair {
+            x: f(self.x),
+            y: f(self.y),
+        }
+    }
+
+    pub(crate) fn try_map<F, J, E>(self, mut f: F) -> Result<IndexPair<J>, E>
+    where
+        F: FnMut(I) -> Result<J, E>,
+    {
+        Ok(IndexPair {
+            x: f(self.x)?,
+            y: f(self.y)?,
+        })
+    }
+}
+
+impl<I> RegionGateIndex<I> {
+    pub(crate) fn lookup_region_opt<E>(
+        kws: &mut StdKeywords,
+        i: RegionIndex,
+        par: Par,
+    ) -> LookupTentative<MaybeValue<Self>, E>
+    where
+        I: fmt::Display + FromStr + gating::LinkedMeasIndex,
+        Self: fmt::Display + FromStr,
+        ParseOptKeyWarning: From<<Self as FromStr>::Err>,
+    {
+        process_opt(Self::remove_meas_opt(kws, i.into())).and_tentatively(|maybe| {
+            if let Some(x) = maybe.0 {
+                Self::check_link(&x, par).map_or_else(
+                    |w| Tentative::new(None, vec![w.into()], vec![]),
+                    |_| Tentative::new1(Some(x)),
+                )
+            } else {
+                Tentative::default()
+            }
+            .map(|x| x.into())
+        })
+    }
+
+    pub(crate) fn lookup_region_opt_dep(
+        kws: &mut StdKeywords,
+        i: RegionIndex,
+        par: Par,
+        disallow_dep: bool,
+    ) -> LookupTentative<MaybeValue<Self>, DeprecatedError>
+    where
+        I: fmt::Display + FromStr + gating::LinkedMeasIndex,
+        Self: fmt::Display + FromStr,
+        ParseOptKeyWarning: From<<Self as FromStr>::Err>,
+    {
+        let mut x = Self::lookup_region_opt(kws, i, par);
+        eval_dep_maybe(&mut x, Self::std(i.into()), disallow_dep);
+        x
+    }
+
+    fn check_link(&self, par: Par) -> Result<(), RegionIndexError>
+    where
+        I: gating::LinkedMeasIndex,
+    {
+        NonEmpty::collect(
+            self.meas_indices()
+                .into_iter()
+                .filter(|&i| i >= par.0.into()),
+        )
+        .map_or(Ok(()), |ne| Err(RegionIndexError(ne)))
+    }
+
+    fn meas_indices(&self) -> Vec<MeasIndex>
+    where
+        I: gating::LinkedMeasIndex,
+    {
+        match self {
+            RegionGateIndex::Univariate(i) => i.meas_index().into_iter().collect(),
+            RegionGateIndex::Bivariate(i) => [i.x.meas_index(), i.y.meas_index()]
+                .into_iter()
+                .flatten()
+                .collect(),
+        }
+    }
 }
 
 impl<I> FromStr for RegionGateIndex<I>
@@ -897,7 +1067,10 @@ where
                 .map_err(RegionGateIndexError::Int),
             [x, y] => x
                 .parse()
-                .and_then(|a| y.parse().map(|b| RegionGateIndex::Bivariate(a, b)))
+                .and_then(|a| {
+                    y.parse()
+                        .map(|b| RegionGateIndex::Bivariate(IndexPair { x: a, y: b }))
+                })
                 .map_err(RegionGateIndexError::Int),
             _ => Err(RegionGateIndexError::Format),
         }
@@ -910,9 +1083,18 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            RegionGateIndex::Univariate(x) => write!(f, "{x}"),
-            RegionGateIndex::Bivariate(x, y) => write!(f, "{x},{y}"),
+            RegionGateIndex::Univariate(i) => write!(f, "{i}"),
+            RegionGateIndex::Bivariate(i) => i.fmt(f),
         }
+    }
+}
+
+impl<I> fmt::Display for IndexPair<I>
+where
+    I: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{},{}", self.x, self.y)
     }
 }
 
@@ -933,7 +1115,20 @@ where
     }
 }
 
-#[derive(Clone, Copy, Serialize, From)]
+pub struct RegionIndexError(NonEmpty<MeasIndex>);
+
+impl fmt::Display for RegionIndexError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "region index refers to non-existent measurement index: {}",
+            self.0.iter().join(",")
+        )
+    }
+}
+
+#[derive(Clone, Copy, From, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum MeasOrGateIndex {
     Meas(MeasIndex),
     Gate(GateIndex),
@@ -984,7 +1179,11 @@ impl fmt::Display for MeasOrGateIndexError {
     }
 }
 
-#[derive(Clone, Copy, Serialize, From)]
+#[derive(Clone, Copy, From, PartialEq, Into, AsMut)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[from(MeasIndex, usize)]
+#[into(MeasIndex, usize)]
 pub struct PrefixedMeasIndex(pub MeasIndex);
 
 impl FromStr for PrefixedMeasIndex {
@@ -1031,13 +1230,15 @@ pub(crate) enum RegionWindow {
     Bivariate(NonEmpty<Vertex>),
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Vertex {
     pub x: BigDecimal,
     pub y: BigDecimal,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct UniGate {
     pub lower: BigDecimal,
     pub upper: BigDecimal,
@@ -1119,7 +1320,8 @@ impl fmt::Display for GatePairError {
 }
 
 /// The value of the $GATING key (3.0-3.2)
-#[derive(Clone, Serialize)]
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Gating {
     Region(RegionIndex),
     Not(Box<Gating>),
@@ -1128,21 +1330,22 @@ pub enum Gating {
 }
 
 impl Gating {
-    pub(crate) fn flatten(&self) -> NonEmpty<RegionIndex> {
-        match self {
+    pub(crate) fn region_indices(&self) -> NonEmpty<RegionIndex> {
+        let xs = match self {
             Self::Region(x) => NonEmpty::new(*x),
-            Self::Not(x) => Self::flatten(x),
+            Self::Not(x) => Self::region_indices(x),
             Self::And(x, y) => {
-                let mut acc = Self::flatten(x);
-                acc.extend(Self::flatten(y));
+                let mut acc = Self::region_indices(x);
+                acc.extend(Self::region_indices(y));
                 acc
             }
             Self::Or(x, y) => {
-                let mut acc = Self::flatten(x);
-                acc.extend(Self::flatten(y));
+                let mut acc = Self::region_indices(x);
+                acc.extend(Self::region_indices(y));
                 acc
             }
-        }
+        };
+        FCSNonEmpty::from(xs).unique().0
     }
 }
 
@@ -1165,15 +1368,15 @@ fn match_tokens(
 ) -> Result<Gating, GatingError> {
     if let Some(this) = rest.next() {
         match this {
-            GatingToken::LParen => match_tokens_depth(rest, depth + 1),
+            GatingToken::LParen => match_tokens_new_expr(rest, depth + 1),
             GatingToken::Not => {
-                let inner = match_tokens_depth(rest, depth)?;
+                let inner = match_tokens_new_expr(rest, depth)?;
                 let new = Gating::Not(Box::new(inner));
-                match_tokens_acc(new, rest, depth)
+                match_tokens_extend_expr(new, rest, depth)
             }
             GatingToken::Region(r) => {
                 let new = Gating::Region(r);
-                match_tokens_acc(new, rest, depth)
+                match_tokens_extend_expr(new, rest, depth)
             }
             _ => Err(GatingError::InvalidExprToken),
         }
@@ -1182,18 +1385,24 @@ fn match_tokens(
     }
 }
 
-fn match_tokens_depth(
+/// Start a new expression if next token is valid.
+///
+/// This inclues:
+/// - (blabla...
+/// - NOT blabla...
+/// - RX blabla...
+fn match_tokens_new_expr(
     rest: &mut impl Iterator<Item = GatingToken>,
     depth: u32,
 ) -> Result<Gating, GatingError> {
     if let Some(this) = rest.next() {
         match this {
             GatingToken::LParen => {
-                let inner = match_tokens_depth(rest, depth + 1)?;
-                match_tokens_acc(inner, rest, depth)
+                let inner = match_tokens_new_expr(rest, depth + 1)?;
+                match_tokens_extend_expr(inner, rest, depth + 1)
             }
             GatingToken::Not => {
-                let inner = match_tokens_depth(rest, depth)?;
+                let inner = match_tokens_new_expr(rest, depth)?;
                 Ok(Gating::Not(Box::new(inner)))
             }
             GatingToken::Region(r) => Ok(Gating::Region(r)),
@@ -1204,7 +1413,8 @@ fn match_tokens_depth(
     }
 }
 
-fn match_tokens_acc(
+/// Extend current expression
+fn match_tokens_extend_expr(
     acc: Gating,
     rest: &mut impl Iterator<Item = GatingToken>,
     depth: u32,
@@ -1212,18 +1422,18 @@ fn match_tokens_acc(
     if let Some(this) = rest.next() {
         match this {
             GatingToken::And => {
-                let right = match_tokens_depth(rest, depth)?;
+                let right = match_tokens_new_expr(rest, depth)?;
                 let new = Gating::And(Box::new(acc), Box::new(right));
-                match_tokens_acc(new, rest, depth)
+                match_tokens_extend_expr(new, rest, depth)
             }
             GatingToken::Or => {
-                let right = match_tokens_depth(rest, depth)?;
+                let right = match_tokens_new_expr(rest, depth)?;
                 let new = Gating::Or(Box::new(acc), Box::new(right));
-                match_tokens_acc(new, rest, depth)
+                match_tokens_extend_expr(new, rest, depth)
             }
             GatingToken::RParen => {
                 if depth > 0 {
-                    match_tokens_acc(acc, rest, depth - 1)
+                    match_tokens_extend_expr(acc, rest, depth - 1)
                 } else {
                     Err(GatingError::ExtraParen)
                 }
@@ -1238,7 +1448,7 @@ fn match_tokens_acc(
 }
 
 fn tokenize_gating(s: &str) -> impl Iterator<Item = GatingToken> {
-    s.split(['.', ' ']).filter(|x| x.is_empty()).flat_map(|x| {
+    s.split(['.', ' ']).filter(|x| !x.is_empty()).flat_map(|x| {
         x.split('(').flat_map(|y| {
             if y.is_empty() {
                 vec![GatingToken::LParen]
@@ -1278,6 +1488,7 @@ impl fmt::Display for Gating {
     }
 }
 
+#[derive(Debug)]
 enum GatingToken {
     RParen,
     LParen,
@@ -1314,7 +1525,9 @@ impl fmt::Display for GatingError {
 }
 
 /// The value of the $PnR key.
-#[derive(Clone, Serialize, From, Display, FromStr, Add, Sub)]
+#[derive(Clone, From, Display, FromStr, Add, Sub, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[from(u8, u16, u32, u64, BigDecimal)]
 pub struct Range(pub BigDecimal);
 
@@ -1324,12 +1537,10 @@ impl Range {
         T: TryFrom<Self, Error = IntRangeError<T>> + PrimInt,
     {
         let (b, e) = self.try_into().map_or_else(
-            |e| match e {
-                IntRangeError::Overrange(x) => (T::max_value(), Some(IntRangeError::Overrange(x))),
-                IntRangeError::Underrange(x) => (T::zero(), Some(IntRangeError::Underrange(x))),
-                IntRangeError::PrecisionLoss(x, y) => {
-                    (y, Some(IntRangeError::PrecisionLoss(x, ())))
-                }
+            |e: IntRangeError<T>| match e.error_kind {
+                IntRangeErrorKind::Overrange => (T::max_value(), Some(e.void())),
+                IntRangeErrorKind::Underrange => (T::zero(), Some(e.void())),
+                IntRangeErrorKind::PrecisionLoss(y) => (y, Some(e.void())),
             },
             |x| (x, None),
         );
@@ -1339,9 +1550,9 @@ impl Range {
     pub(crate) fn into_float<T>(
         self,
         notrunc: bool,
-    ) -> BiTentative<FloatDecimal<T>, FloatToDecimalError>
+    ) -> BiTentative<FloatDecimal<T>, DecimalToFloatError>
     where
-        FloatDecimal<T>: TryFrom<BigDecimal, Error = FloatToDecimalError>,
+        FloatDecimal<T>: TryFrom<BigDecimal, Error = DecimalToFloatError>,
         T: HasFloatBounds,
     {
         let (x, e) = FloatDecimal::try_from(self.0).map_or_else(
@@ -1366,17 +1577,22 @@ macro_rules! try_from_range_int {
 
             fn try_from(value: Range) -> Result<Self, Self::Error> {
                 let x = &value.0;
+                let err = |error_kind| IntRangeError {
+                    src_type: type_name::<$inttype>(),
+                    src_num: x.clone(),
+                    error_kind,
+                };
                 if let Some(y) = x.$to() {
-                    if x.fractional_digit_count() < 0 {
+                    if x.fractional_digit_count() <= 0 {
                         Ok(y)
                     } else {
-                        Err(IntRangeError::PrecisionLoss(x.clone(), y))
+                        Err(err(IntRangeErrorKind::PrecisionLoss(y)))
                     }
                 } else {
                     if BigDecimal::from($inttype::MAX) < *x {
-                        Err(IntRangeError::Overrange(x.clone()))
+                        Err(err(IntRangeErrorKind::Overrange))
                     } else {
-                        Err(IntRangeError::Underrange(x.clone()))
+                        Err(err(IntRangeErrorKind::Underrange))
                     }
                 }
             }
@@ -1389,23 +1605,44 @@ try_from_range_int!(u16, to_u16);
 try_from_range_int!(u32, to_u32);
 try_from_range_int!(u64, to_u64);
 
-pub enum IntRangeError<T> {
-    Overrange(BigDecimal),
-    Underrange(BigDecimal),
-    PrecisionLoss(BigDecimal, T),
+pub struct IntRangeError<T> {
+    src_type: &'static str,
+    src_num: BigDecimal,
+    error_kind: IntRangeErrorKind<T>,
+}
+
+pub enum IntRangeErrorKind<T> {
+    Overrange,
+    Underrange,
+    PrecisionLoss(T),
+}
+
+impl<T> IntRangeError<T> {
+    pub(crate) fn void(self) -> IntRangeError<()> {
+        IntRangeError {
+            src_type: self.src_type,
+            src_num: self.src_num,
+            error_kind: match self.error_kind {
+                IntRangeErrorKind::Overrange => IntRangeErrorKind::Overrange,
+                IntRangeErrorKind::Underrange => IntRangeErrorKind::Underrange,
+                IntRangeErrorKind::PrecisionLoss(_) => IntRangeErrorKind::PrecisionLoss(()),
+            },
+        }
+    }
 }
 
 impl<T> fmt::Display for IntRangeError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let t = type_name::<T>();
-        match self {
-            Self::Overrange(x) => {
+        let t = self.src_type;
+        let x = &self.src_num;
+        match self.error_kind {
+            IntRangeErrorKind::Overrange => {
                 write!(f, "{x} is larger than {t} can hold")
             }
-            Self::Underrange(x) => {
+            IntRangeErrorKind::Underrange => {
                 write!(f, "{x} is less than zero and could not be converted to {t}")
             }
-            Self::PrecisionLoss(x, _) => {
+            IntRangeErrorKind::PrecisionLoss(_) => {
                 write!(f, "{x} lost precision when converting to {t}")
             }
         }
@@ -1426,41 +1663,50 @@ impl TryFrom<f64> for Range {
     }
 }
 
+/// The value of the $GmN key
+#[derive(Clone, From, Display, FromStr, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct GateShortname(pub Shortname);
+
 /// The value of the $GmR key
-#[derive(Clone, Serialize, From, Display, FromStr)]
+#[derive(Clone, From, Display, FromStr, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[from(u64)]
 pub struct GateRange(pub Range);
 
-// impl TryFrom<f64> for GateRange {
-//     type Error = NanFloatError;
-//     fn try_from(value: f64) -> Result<Self, Self::Error> {
-//         NonNanF64::try_from(value).map(|x| FloatOrInt::Float(x).into())
-//     }
-// }
-
 /// The value of the $PnO key
-#[derive(Clone, Copy, Serialize, From, Display, FromStr, Into)]
+#[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(NonNegFloat, f32)]
 pub struct Power(pub NonNegFloat);
 
 impl_newtype_try_from!(Power, NonNegFloat, f32, RangedFloatError);
 
 /// The value of the $PnV key
-#[derive(Clone, Copy, Serialize, From, Display, FromStr, Into)]
+#[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(NonNegFloat, f32)]
 pub struct DetectorVoltage(pub NonNegFloat);
 
 impl_newtype_try_from!(DetectorVoltage, NonNegFloat, f32, RangedFloatError);
 
 /// The value of the $GmV key
-#[derive(Clone, Copy, Serialize, Display, FromStr, Into)]
+#[derive(Clone, Copy, Display, FromStr, Into, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(f32)]
 pub struct GateDetectorVoltage(pub NonNegFloat);
 
 impl_newtype_try_from!(GateDetectorVoltage, NonNegFloat, f32, RangedFloatError);
 
 /// The value of the $GmE key
-#[derive(Clone, Copy, Serialize, Display, FromStr)]
+#[derive(Clone, Copy, Display, FromStr, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct GateScale(pub Scale);
 
 // use the same fix we use for PnE here
@@ -1483,31 +1729,44 @@ impl GateScale {
 }
 
 /// The value of the $CSVnFLAG key (2.0-3.0)
-#[derive(Clone, Copy, Serialize, Display, FromStr, Into)]
+#[derive(Clone, Copy, Display, FromStr, Into, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(u32)]
 pub struct CSVFlag(pub u32);
 
 /// The value of the $PKn key (2.0-3.1)
-#[derive(Clone, Copy, Serialize, Display, FromStr, Into)]
+#[derive(Clone, Copy, Display, FromStr, Into, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(u32)]
 pub struct PeakBin(pub u32);
 
 /// The value of the $PKNn key (2.0-3.1)
-#[derive(Clone, Copy, Serialize, Display, FromStr, Into)]
+#[derive(Clone, Copy, Display, FromStr, Into, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(u32)]
 pub struct PeakNumber(pub u32);
 
 macro_rules! newtype_string {
     ($t:ident) => {
-        #[derive(Clone, Serialize, Display, FromStr, From, Into)]
+        #[derive(Clone, Display, FromStr, From, Into, PartialEq)]
+        #[cfg_attr(feature = "serde", derive(Serialize))]
+        #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
         pub struct $t(pub String);
     };
 }
 
 macro_rules! newtype_int {
-    ($t:ident, $type:ident) => {
-        #[derive(Clone, Copy, Serialize, Display, FromStr, From, Into)]
+    ($t:ident, $type:ty) => {
+        #[derive(Clone, Copy, Display, FromStr, From, Into, PartialEq)]
+        #[cfg_attr(feature = "serde", derive(Serialize))]
+        #[cfg_attr(feature = "python", derive(IntoPyObject))]
         pub struct $t(pub $type);
+
+        #[cfg(feature = "python")]
+        impl_from_py_transparent!($t);
     };
 }
 
@@ -1738,7 +1997,7 @@ kw_req_meta!(Timestep, "TIMESTEP");
 // for 3.1+
 kw_opt_meta_string!(LastModifier, "LAST_MODIFIER");
 kw_opt_meta!(Originality, "ORIGINALITY");
-kw_opt_meta!(ModifiedDateTime, "LAST_MODIFIED");
+kw_opt_meta!(LastModified, "LAST_MODIFIED");
 
 kw_opt_meta_string!(Plateid, "PLATEID");
 kw_opt_meta_string!(Platename, "PLATENAME");
@@ -1787,6 +2046,7 @@ kw_req_meta!(ByteOrd3_1, "BYTEORD"); // 3.1+
 kw_req_meas!(Width, "B");
 kw_opt_meas_string!(Filter, "F");
 kw_opt_meas!(Power, "O");
+// TODO why is this a string?
 kw_opt_meas_string!(PercentEmitted, "P");
 kw_req_meas!(Range, "R");
 kw_opt_meas_string!(Longname, "S");
@@ -1835,7 +2095,8 @@ impl BiIndexedKey for Dfc {
 
 // 3.0/3.1 subsets
 kw_opt_meta_int!(CSMode, usize, "CSMODE");
-kw_opt_meta_int!(CSVBits, u32, "CSVBits");
+kw_opt_meta_int!(CSVBits, u32, "CSVBITS");
+kw_opt_meta_int!(CSTot, u32, "CSTOT");
 
 impl IndexedKey for CSVFlag {
     const PREFIX: &'static str = "CSV";
@@ -1869,7 +2130,7 @@ kw_opt_gate!(GateScale, "E");
 kw_opt_gate_string!(GateFilter, "F");
 kw_opt_gate_string!(GatePercentEmitted, "P");
 kw_opt_gate!(GateRange, "R");
-kw_opt_gate_string!(GateShortname, "N");
+kw_opt_gate!(GateShortname, "N");
 kw_opt_gate_string!(GateLongname, "S");
 kw_opt_gate_string!(GateDetectorType, "T");
 kw_opt_gate!(GateDetectorVoltage, "V");
@@ -1914,3 +2175,382 @@ opt_meta!(Beginanalysis);
 opt_meta!(Endanalysis);
 opt_meta!(Beginstext);
 opt_meta!(Endstext);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test::*;
+
+    #[test]
+    fn test_tr() {
+        assert_from_to_str::<Trigger>("Wooden Leg Pt 3,456");
+    }
+
+    #[test]
+    fn test_mode() {
+        assert_from_to_str::<Mode>("C");
+        assert_from_to_str::<Mode>("L");
+        assert_from_to_str::<Mode>("U");
+    }
+
+    #[test]
+    fn test_mode_3_2() {
+        assert_from_to_str::<Mode3_2>("L");
+    }
+
+    #[test]
+    fn test_pnd() {
+        assert_from_to_str::<Display>("Linear,0,1");
+        // TODO seems like this shouldn't be allowed
+        assert_from_to_str::<Display>("Linear,1,0");
+        assert_from_to_str::<Display>("Logarithmic,1,1");
+        // TODO this also seems like nonsense
+        assert_from_to_str::<Display>("Logarithmic,1,0");
+    }
+
+    #[test]
+    fn test_datatype() {
+        assert_from_to_str::<NumType>("I");
+        assert_from_to_str::<NumType>("F");
+        assert_from_to_str::<NumType>("D");
+    }
+
+    #[test]
+    fn test_pndatetype() {
+        assert_from_to_str::<AlphaNumType>("I");
+        assert_from_to_str::<AlphaNumType>("F");
+        assert_from_to_str::<AlphaNumType>("D");
+        assert_from_to_str::<AlphaNumType>("A");
+    }
+
+    #[test]
+    fn test_pne_time() {
+        assert_from_to_str::<TemporalScale>("0,0");
+    }
+
+    #[test]
+    fn test_pncalibration_3_1() {
+        assert_from_to_str::<Calibration3_1>("0.1,cubic imperial lightyears");
+    }
+
+    #[test]
+    fn test_pncalibration_3_2() {
+        assert_from_to_str::<Calibration3_2>("1.1,3.5813,progressive metal albums");
+    }
+
+    #[test]
+    fn test_pnl_3_1() {
+        assert_from_to_str::<Wavelengths>("1");
+        assert_from_to_str::<Wavelengths>("1,2");
+    }
+
+    #[test]
+    fn test_last_modified() {
+        assert_from_to_str_almost::<LastModified>(
+            "01-Jan-2112 00:00:00",
+            "01-Jan-2112 00:00:00.00",
+        );
+        assert_from_to_str::<LastModified>("01-Jan-2112 00:00:00.01");
+    }
+
+    #[test]
+    fn test_originality() {
+        assert_from_to_str::<Originality>("Original");
+        assert_from_to_str::<Originality>("NonDataModified");
+        assert_from_to_str::<Originality>("Appended");
+        assert_from_to_str::<Originality>("DataModified");
+    }
+
+    #[test]
+    fn test_unicode() {
+        assert_from_to_str::<Unicode>("42,$BYTEORD");
+        // we don't actually check that the keyword is valid, likely nobody
+        // will notice ;)
+        assert_from_to_str::<Unicode>("42,$40DOLLARBILL");
+    }
+
+    #[test]
+    fn test_pntype_optical() {
+        assert_from_to_str::<OpticalType>("Forward Scatter");
+        assert_from_to_str::<OpticalType>("Side Scatter");
+        assert_from_to_str::<OpticalType>("Raw Fluorescence");
+        assert_from_to_str::<OpticalType>("Unmixed Fluorescence");
+        assert_from_to_str::<OpticalType>("Mass");
+        assert_from_to_str::<OpticalType>("Electronic Volume");
+        assert_from_to_str::<OpticalType>("Index");
+        assert_from_to_str::<OpticalType>("Classification");
+    }
+
+    #[test]
+    fn test_pntype_time() {
+        assert_from_to_str::<TemporalType>("Time");
+    }
+
+    #[test]
+    fn test_pnfeature() {
+        assert_from_to_str::<Feature>("Area");
+        assert_from_to_str::<Feature>("Width");
+        assert_from_to_str::<Feature>("Height");
+    }
+
+    #[test]
+    fn test_rni_2_0() {
+        assert_from_to_str::<RegionGateIndex<GateIndex>>("1");
+        assert_from_to_str::<RegionGateIndex<GateIndex>>("1,2");
+    }
+
+    #[test]
+    fn test_rni_3_0() {
+        assert_from_to_str::<RegionGateIndex<MeasOrGateIndex>>("P1");
+        assert_from_to_str::<RegionGateIndex<MeasOrGateIndex>>("P1,P2");
+        assert_from_to_str::<RegionGateIndex<MeasOrGateIndex>>("G1");
+        assert_from_to_str::<RegionGateIndex<MeasOrGateIndex>>("G1,G2");
+    }
+
+    #[test]
+    fn test_rni_3_2() {
+        assert_from_to_str::<RegionGateIndex<PrefixedMeasIndex>>("P1");
+        assert_from_to_str::<RegionGateIndex<PrefixedMeasIndex>>("P1,P2");
+    }
+
+    #[test]
+    fn test_rnw() {
+        assert_from_to_str::<RegionWindow>("1,1");
+        assert_from_to_str::<RegionWindow>("1,1;2,3;5,8;13,21");
+    }
+
+    #[test]
+    fn test_gating() {
+        assert_from_to_str::<Gating>("R1");
+        assert_from_to_str_almost::<Gating>("R1 AND (R2.OR.R3)", "(R1 AND (R2 OR R3))");
+        assert_from_to_str::<Gating>("((NOT R1) AND R2)");
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use crate::python::macros::{
+        impl_from_py_transparent, impl_from_py_via_fromstr, impl_to_py_via_display, impl_value_err,
+    };
+    use crate::text::ranged_float::PositiveFloat;
+    use crate::validated::shortname::Shortname;
+
+    use super::{
+        AlphaNumType, AlphaNumTypeError, CSVFlag, Calibration3_1, Calibration3_2, DetectorVoltage,
+        Display, Feature, FeatureError, GateDetectorVoltage, GateRange, GateScale, GateShortname,
+        IndexPair, LastModified, Mode, Mode3_2, Mode3_2Error, ModeError, NumType, NumTypeError,
+        OpticalType, OpticalTypeError, Originality, OriginalityError, PeakBin, PeakNumber, Power,
+        PrefixedMeasIndex, Range, Timestep, Trigger, UniGate, Unicode, Vertex, Vol, Wavelength,
+        Wavelengths,
+    };
+
+    use pyo3::prelude::*;
+    use pyo3::types::PyTuple;
+
+    macro_rules! impl_str_py {
+        ($type:ident, $err:ident) => {
+            impl_from_py_via_fromstr!($type);
+            impl_to_py_via_display!($type);
+            impl_value_err!($err);
+        };
+    }
+
+    // these should all be interpreted as validated/literal python strings
+    impl_str_py!(Originality, OriginalityError);
+    impl_str_py!(AlphaNumType, AlphaNumTypeError);
+    impl_str_py!(NumType, NumTypeError);
+    impl_str_py!(Feature, FeatureError);
+    impl_str_py!(Mode, ModeError);
+    impl_str_py!(Mode3_2, Mode3_2Error);
+    impl_str_py!(OpticalType, OpticalTypeError);
+
+    impl_from_py_transparent!(Wavelength);
+    impl_from_py_transparent!(Vol);
+    impl_from_py_transparent!(Timestep);
+    impl_from_py_transparent!(LastModified);
+    impl_from_py_transparent!(Range);
+    impl_from_py_transparent!(DetectorVoltage);
+    impl_from_py_transparent!(Power);
+    impl_from_py_transparent!(PeakBin);
+    impl_from_py_transparent!(PeakNumber);
+    impl_from_py_transparent!(GateRange);
+    impl_from_py_transparent!(GateScale);
+    impl_from_py_transparent!(GateShortname);
+    impl_from_py_transparent!(GateDetectorVoltage);
+    impl_from_py_transparent!(PrefixedMeasIndex);
+    impl_from_py_transparent!(Wavelengths);
+    impl_from_py_transparent!(CSVFlag);
+
+    // $PnCALIBRATION (3.1) as (f32, String) tuple in python
+    impl<'py> FromPyObject<'py> for Calibration3_1 {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (slope, unit): (PositiveFloat, String) = ob.extract()?;
+            Ok(Self { slope, unit })
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for Calibration3_1 {
+        type Target = PyTuple;
+        type Output = Bound<'py, <(PositiveFloat, String) as IntoPyObject<'py>>::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            (self.slope, self.unit).into_pyobject(py)
+        }
+    }
+
+    // $PnCALIBRATION (3.2) as (f32, f32, String) tuple in python
+    impl<'py> FromPyObject<'py> for Calibration3_2 {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (slope, offset, unit): (PositiveFloat, f32, String) = ob.extract()?;
+            Ok(Self {
+                slope,
+                offset,
+                unit,
+            })
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for Calibration3_2 {
+        type Target = PyTuple;
+        type Output = Bound<'py, <(PositiveFloat, f32, String) as IntoPyObject<'py>>::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            (self.slope, self.offset, self.unit).into_pyobject(py)
+        }
+    }
+
+    // $UNICODE (3.0) as a tuple like (f32, [String]) in python
+    impl<'py> FromPyObject<'py> for Unicode {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (page, kws): (u32, Vec<String>) = ob.extract()?;
+            Ok(Self { page, kws })
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for Unicode {
+        type Target = PyTuple;
+        type Output = Bound<'py, <(u32, Vec<String>) as IntoPyObject<'py>>::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            (self.page, self.kws).into_pyobject(py)
+        }
+    }
+
+    // $PnD (3.1+) as a tuple like (bool, f32, f32) in python where 'bool' is true
+    // if linear
+    impl<'py> FromPyObject<'py> for Display {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (is_log, x0, x1): (bool, f32, f32) = ob.extract()?;
+            let ret = if is_log {
+                Self::Log {
+                    offset: x0,
+                    decades: x1,
+                }
+            } else {
+                Self::Lin {
+                    lower: x0,
+                    upper: x1,
+                }
+            };
+            Ok(ret)
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for Display {
+        type Target = PyTuple;
+        type Output = Bound<'py, <(bool, f32, f32) as IntoPyObject<'py>>::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            let ret = match self {
+                Self::Lin { lower, upper } => (false, lower, upper),
+                Self::Log { offset, decades } => (true, offset, decades),
+            };
+            ret.into_pyobject(py)
+        }
+    }
+
+    // $TR as a tuple like (String, u32) in python
+    impl<'py> FromPyObject<'py> for Trigger {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (measurement, threshold): (Shortname, u32) = ob.extract()?;
+            Ok(Self {
+                measurement,
+                threshold,
+            })
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for Trigger {
+        type Target = PyTuple;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            (self.measurement, self.threshold).into_pyobject(py)
+        }
+    }
+
+    // unigate (for univariate gating regions) is a tuple pair of floats
+    impl<'py> FromPyObject<'py> for UniGate {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (lower, upper) = ob.extract()?;
+            Ok(Self { lower, upper })
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for UniGate {
+        type Target = PyTuple;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            (self.lower, self.upper).into_pyobject(py)
+        }
+    }
+
+    // vertex (for bivariate gating regions) is a tuple pair of floats
+    impl<'py> FromPyObject<'py> for Vertex {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (x, y) = ob.extract()?;
+            Ok(Self { x, y })
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for Vertex {
+        type Target = PyTuple;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            (self.x, self.y).into_pyobject(py)
+        }
+    }
+
+    // index pairs are like python tuple pairs
+    impl<'py, I> FromPyObject<'py> for IndexPair<I>
+    where
+        I: FromPyObject<'py>,
+    {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (x, y) = ob.extract()?;
+            Ok(Self { x, y })
+        }
+    }
+
+    impl<'py, I> IntoPyObject<'py> for IndexPair<I>
+    where
+        I: IntoPyObject<'py>,
+    {
+        type Target = PyTuple;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            (self.x, self.y).into_pyobject(py)
+        }
+    }
+}

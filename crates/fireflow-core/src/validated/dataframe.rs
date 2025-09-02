@@ -11,8 +11,14 @@ use std::fmt;
 use std::iter;
 use std::slice::Iter;
 
+#[cfg(feature = "python")]
+use polars::prelude::*;
+
+#[cfg(feature = "python")]
+use crate::validated::shortname::Shortname;
+
 /// A dataframe without NULL and only types that make sense for FCS files.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 pub struct FCSDataFrame {
     columns: Vec<AnyFCSColumn>,
     nrows: usize,
@@ -29,14 +35,8 @@ pub enum AnyFCSColumn {
     F64(F64Column),
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct FCSColumn<T>(pub Buffer<T>);
-
-impl<T> From<Vec<T>> for FCSColumn<T> {
-    fn from(value: Vec<T>) -> Self {
-        FCSColumn(value.into())
-    }
-}
 
 pub type U08Column = FCSColumn<u8>;
 pub type U16Column = FCSColumn<u16>;
@@ -44,6 +44,76 @@ pub type U32Column = FCSColumn<u32>;
 pub type U64Column = FCSColumn<u64>;
 pub type F32Column = FCSColumn<f32>;
 pub type F64Column = FCSColumn<f64>;
+
+impl PartialEq for AnyFCSColumn {
+    /// Test for numeric equality between two columns.
+    ///
+    /// This will attempt to convert b/t datatypes when testing equality; for
+    /// example, a `1` / `1.0` will be equal regardless of datatype because
+    /// it can be losslessly converted between all possible types for a column
+    /// (u8-64 and f32/f64).
+    fn eq(&self, other: &AnyFCSColumn) -> bool {
+        fn go<From, To>(xs: &FCSColumn<From>, ys: &FCSColumn<To>) -> bool
+        where
+            To: NumCast<From> + FCSDataType + PartialEq,
+            From: FCSDataType,
+        {
+            From::as_col_iter::<To>(xs)
+                .zip(ys.0.iter())
+                .all(|(x, y)| x.lossy.is_none() && &x.new == y)
+        }
+
+        match (self, other) {
+            (Self::U08(xs), Self::U08(ys)) => xs == ys,
+            (Self::U08(xs), Self::U16(ys)) => go(xs, ys),
+            (Self::U08(xs), Self::U32(ys)) => go(xs, ys),
+            (Self::U08(xs), Self::U64(ys)) => go(xs, ys),
+            (Self::U08(xs), Self::F32(ys)) => go(xs, ys),
+            (Self::U08(xs), Self::F64(ys)) => go(xs, ys),
+
+            (Self::U16(xs), Self::U08(ys)) => go(xs, ys),
+            (Self::U16(xs), Self::U16(ys)) => xs == ys,
+            (Self::U16(xs), Self::U32(ys)) => go(xs, ys),
+            (Self::U16(xs), Self::U64(ys)) => go(xs, ys),
+            (Self::U16(xs), Self::F32(ys)) => go(xs, ys),
+            (Self::U16(xs), Self::F64(ys)) => go(xs, ys),
+
+            (Self::U32(xs), Self::U08(ys)) => go(xs, ys),
+            (Self::U32(xs), Self::U16(ys)) => go(xs, ys),
+            (Self::U32(xs), Self::U32(ys)) => xs == ys,
+            (Self::U32(xs), Self::U64(ys)) => go(xs, ys),
+            (Self::U32(xs), Self::F32(ys)) => go(xs, ys),
+            (Self::U32(xs), Self::F64(ys)) => go(xs, ys),
+
+            (Self::U64(xs), Self::U08(ys)) => go(xs, ys),
+            (Self::U64(xs), Self::U16(ys)) => go(xs, ys),
+            (Self::U64(xs), Self::U32(ys)) => go(xs, ys),
+            (Self::U64(xs), Self::U64(ys)) => xs == ys,
+            (Self::U64(xs), Self::F32(ys)) => go(xs, ys),
+            (Self::U64(xs), Self::F64(ys)) => go(xs, ys),
+
+            (Self::F32(xs), Self::U08(ys)) => go(xs, ys),
+            (Self::F32(xs), Self::U16(ys)) => go(xs, ys),
+            (Self::F32(xs), Self::U32(ys)) => go(xs, ys),
+            (Self::F32(xs), Self::U64(ys)) => go(xs, ys),
+            (Self::F32(xs), Self::F32(ys)) => xs == ys,
+            (Self::F32(xs), Self::F64(ys)) => go(xs, ys),
+
+            (Self::F64(xs), Self::U08(ys)) => go(xs, ys),
+            (Self::F64(xs), Self::U16(ys)) => go(xs, ys),
+            (Self::F64(xs), Self::U32(ys)) => go(xs, ys),
+            (Self::F64(xs), Self::U64(ys)) => go(xs, ys),
+            (Self::F64(xs), Self::F32(ys)) => go(xs, ys),
+            (Self::F64(xs), Self::F64(ys)) => xs == ys,
+        }
+    }
+}
+
+impl<T> From<Vec<T>> for FCSColumn<T> {
+    fn from(value: Vec<T>) -> Self {
+        FCSColumn(value.into())
+    }
+}
 
 impl AnyFCSColumn {
     pub fn len(&self) -> usize {
@@ -95,6 +165,15 @@ impl AnyFCSColumn {
             Self::F64(xs) => Box::new(PrimitiveArray::new(ArrowDataType::Float64, xs.0, None)),
         }
     }
+
+    #[cfg(feature = "python")]
+    fn as_polars_column(&self, name: &Shortname) -> Column {
+        // ASSUME this will not fail because the we know the types and
+        // we don't have a validity array
+        Series::from_arrow(name.as_ref().into(), self.as_array())
+            .unwrap()
+            .into()
+    }
 }
 
 #[derive(Debug)]
@@ -122,13 +201,13 @@ impl fmt::Display for ColumnLengthError {
         write!(
             f,
             "column length ({}) is different from number of rows in dataframe ({})",
-            self.df_len, self.col_len
+            self.col_len, self.df_len
         )
     }
 }
 
 impl FCSDataFrame {
-    pub(crate) fn try_new(columns: Vec<AnyFCSColumn>) -> Result<Self, NewDataframeError> {
+    pub fn try_new(columns: Vec<AnyFCSColumn>) -> Result<Self, NewDataframeError> {
         if let Some(nrows) = columns.first().map(|c| c.len()) {
             if columns.iter().all(|c| c.len() == nrows) {
                 Ok(Self { columns, nrows })
@@ -137,6 +216,13 @@ impl FCSDataFrame {
             }
         } else {
             Ok(Self::default())
+        }
+    }
+
+    pub fn new1(column: AnyFCSColumn) -> Self {
+        Self {
+            nrows: column.len(),
+            columns: vec![column],
         }
     }
 
@@ -178,6 +264,10 @@ impl FCSDataFrame {
     }
 
     pub(crate) fn push_column(&mut self, col: AnyFCSColumn) -> Result<(), ColumnLengthError> {
+        if self.is_empty() {
+            *self = Self::new1(col);
+            return Ok(());
+        }
         let df_len = self.nrows();
         let col_len = col.len();
         if col_len == df_len {
@@ -194,13 +284,20 @@ impl FCSDataFrame {
         i: usize,
         col: AnyFCSColumn,
     ) -> Result<(), ColumnLengthError> {
+        // don't use Self::new1 here since we want to panic if i is out of
+        // bounds
+        if self.is_empty() {
+            self.nrows = col.len();
+            self.columns.insert(i, col);
+            return Ok(());
+        }
         let df_len = self.nrows();
         let col_len = col.len();
-        if col_len != df_len {
-            Err(ColumnLengthError { df_len, col_len })
-        } else {
+        if col_len == df_len {
             self.columns.insert(i, col);
             Ok(())
+        } else {
+            Err(ColumnLengthError { df_len, col_len })
         }
     }
 
@@ -236,6 +333,19 @@ impl FCSDataFrame {
         let ndelim = n - 1;
         let ndigits: u32 = self.iter_columns().map(|c| c.ascii_nbytes()).sum();
         u64::from(ndigits) + ndelim
+    }
+
+    #[cfg(feature = "python")]
+    pub fn as_polars_dataframe(&self, names: &[Shortname]) -> DataFrame {
+        // ASSUME names is same length as columns
+        let columns = self
+            .iter_columns()
+            .zip(names)
+            .map(|(c, n)| c.as_polars_column(n))
+            .collect();
+        // ASSUME this will not fail because all columns should have unique
+        // names and the same length
+        DataFrame::new(columns).unwrap()
     }
 }
 
@@ -274,13 +384,7 @@ where
         f: F,
     ) -> Result<(), LossError<E>> {
         for x in Self::as_col_iter::<ToType>(c) {
-            if x.lossy {
-                let d = CastError {
-                    from: type_name::<Self>(),
-                    to: type_name::<ToType>(),
-                };
-                return Err(LossError::Cast(d));
-            }
+            x.resolve()?;
             if let Some(err) = f(x.new) {
                 return Err(LossError::Other(err));
             }
@@ -293,11 +397,14 @@ where
     }
 }
 
+#[derive(From, Clone, Copy)]
 pub enum LossError<E> {
+    #[from]
     Cast(CastError),
     Other(E),
 }
 
+#[derive(Clone, Copy)]
 pub struct CastError {
     from: &'static str,
     to: &'static str,
@@ -332,9 +439,32 @@ impl FCSDataType for u64 {}
 impl FCSDataType for f32 {}
 impl FCSDataType for f64 {}
 
+#[cfg_attr(test, derive(Debug, PartialEq))]
 pub(crate) struct CastResult<T> {
     pub(crate) new: T,
-    pub(crate) lossy: bool,
+    pub(crate) lossy: Option<&'static str>,
+}
+
+impl<T> CastResult<T> {
+    fn new<FromT>(new: T, has_loss: bool) -> Self {
+        let lossy = if has_loss {
+            Some(type_name::<FromT>())
+        } else {
+            None
+        };
+        Self { new, lossy }
+    }
+
+    pub(crate) fn as_err(&self) -> Option<CastError> {
+        self.lossy.map(|from| {
+            let to = type_name::<T>();
+            CastError { from, to }
+        })
+    }
+
+    pub(crate) fn resolve(&self) -> Result<(), CastError> {
+        self.as_err().map_or(Ok(()), Err)
+    }
 }
 
 pub(crate) trait NumCast<T>: Sized {
@@ -347,7 +477,7 @@ macro_rules! impl_cast_noloss {
             fn from_truncated(x: $from) -> CastResult<Self> {
                 CastResult {
                     new: x.into(),
-                    lossy: false,
+                    lossy: None,
                 }
             }
         }
@@ -358,10 +488,9 @@ macro_rules! impl_cast_int_lossy {
     ($from:ident, $to:ident) => {
         impl NumCast<$from> for $to {
             fn from_truncated(x: $from) -> CastResult<Self> {
-                CastResult {
-                    new: x as $to,
-                    lossy: $to::try_from(x).is_err(),
-                }
+                let has_loss = $to::try_from(x).is_err();
+                let new = if has_loss { $to::MAX } else { x as $to };
+                CastResult::new::<$from>(new, has_loss)
             }
         }
     };
@@ -371,27 +500,24 @@ macro_rules! impl_cast_float_to_int_lossy {
     ($from:ident, $to:ident) => {
         impl NumCast<$from> for $to {
             fn from_truncated(x: $from) -> CastResult<Self> {
-                CastResult {
-                    new: x as $to,
-                    lossy: x.is_nan()
-                        || x.is_infinite()
-                        || x.is_sign_negative()
-                        || x.floor() != x
-                        || x > $to::MAX as $from,
-                }
+                let has_loss = x.is_nan()
+                    || x.is_infinite()
+                    || x.is_sign_negative()
+                    || x.floor() != x
+                    || x > $to::MAX as $from;
+                CastResult::new::<$from>(x as $to, has_loss)
             }
         }
     };
 }
 
 macro_rules! impl_cast_int_to_float_lossy {
-    ($from:ident, $to:ident, $bits:expr) => {
+    ($from:ident, $to:ident) => {
         impl NumCast<$from> for $to {
             fn from_truncated(x: $from) -> CastResult<Self> {
-                CastResult {
-                    new: x as $to,
-                    lossy: x > 2 ^ $bits,
-                }
+                let new = x as $to;
+                let old = new as $from;
+                CastResult::new::<$from>(new, old != x)
             }
         }
     };
@@ -415,21 +541,23 @@ impl_cast_int_lossy!(u32, u8);
 impl_cast_int_lossy!(u32, u16);
 impl_cast_noloss!(u32, u32);
 impl_cast_noloss!(u32, u64);
-impl_cast_int_to_float_lossy!(u32, f32, 24);
+impl_cast_int_to_float_lossy!(u32, f32);
 impl_cast_noloss!(u32, f64);
 
 impl_cast_int_lossy!(u64, u8);
 impl_cast_int_lossy!(u64, u16);
 impl_cast_int_lossy!(u64, u32);
 impl_cast_noloss!(u64, u64);
-impl_cast_int_to_float_lossy!(u64, f32, 24);
-impl_cast_int_to_float_lossy!(u64, f64, 53);
+impl_cast_int_to_float_lossy!(u64, f32);
+impl_cast_int_to_float_lossy!(u64, f64);
 
 impl_cast_float_to_int_lossy!(f32, u8);
 impl_cast_float_to_int_lossy!(f32, u16);
 impl_cast_float_to_int_lossy!(f32, u32);
 impl_cast_float_to_int_lossy!(f32, u64);
 impl_cast_noloss!(f32, f32);
+// this will always be lossless, see
+// https://doc.rust-lang.org/reference/expressions/operator-expr.html#r-expr.as.numeric.float-widening
 impl_cast_noloss!(f32, f64);
 
 impl_cast_float_to_int_lossy!(f64, u8);
@@ -437,12 +565,13 @@ impl_cast_float_to_int_lossy!(f64, u16);
 impl_cast_float_to_int_lossy!(f64, u32);
 impl_cast_float_to_int_lossy!(f64, u64);
 
+// TODO there are plenty of cases where this isn't lossy, but it's not clear
+// where the line should be drawn
 impl NumCast<f64> for f32 {
     fn from_truncated(x: f64) -> CastResult<Self> {
-        CastResult {
-            new: x as f32,
-            lossy: true,
-        }
+        let new = x as f32;
+        let old = new as f64;
+        CastResult::new::<f64>(new, old != x)
     }
 }
 
@@ -460,4 +589,364 @@ pub(crate) trait AllFCSCast:
 impl<T> AllFCSCast for T where
     T: NumCast<u8> + NumCast<u16> + NumCast<u32> + NumCast<u64> + NumCast<f32> + NumCast<f64>
 {
+}
+
+// TODO this seems like a good place for property testing
+// (https://github.com/proptest-rs/proptest)
+#[cfg(test)]
+mod tests {
+    use core::f32;
+
+    use super::*;
+
+    // only test lossy cases, assume the others will simply noop
+
+    #[test]
+    fn test_u16_to_u8() {
+        assert_eq!(u8::from_truncated(1_u16).lossy, None);
+        assert_eq!(
+            u8::from_truncated(256_u16),
+            CastResult::new::<u16>(255, true)
+        );
+    }
+
+    #[test]
+    fn test_u32_to_u8() {
+        assert_eq!(u8::from_truncated(1_u32).lossy, None);
+        assert_eq!(
+            u8::from_truncated(256_u32),
+            CastResult::new::<u32>(255, true)
+        );
+    }
+
+    #[test]
+    fn test_u64_to_u8() {
+        assert_eq!(u8::from_truncated(1_u64).lossy, None);
+        assert_eq!(
+            u8::from_truncated(256_u64),
+            CastResult::new::<u64>(255, true)
+        );
+    }
+
+    #[test]
+    fn test_u32_to_u16() {
+        assert_eq!(u16::from_truncated(1_u32).lossy, None);
+        assert_eq!(
+            u16::from_truncated(65536_u32),
+            CastResult::new::<u32>(65535, true)
+        );
+    }
+
+    #[test]
+    fn test_u64_to_u16() {
+        assert_eq!(u16::from_truncated(1_u64).lossy, None);
+        assert_eq!(
+            u16::from_truncated(65536_u64),
+            CastResult::new::<u64>(65535, true)
+        );
+    }
+
+    #[test]
+    fn test_u64_to_u32() {
+        assert_eq!(u32::from_truncated(1_u64).lossy, None);
+        assert_eq!(
+            u32::from_truncated(4294967296_u64),
+            CastResult::new::<u64>(4294967295, true)
+        );
+    }
+
+    // uint should map exactly to f32 if less than 2^24, above this it will
+    // start rounding to nearest even number (and beyond as we get higher)
+
+    #[test]
+    fn test_u32_to_f32() {
+        assert_eq!(
+            f32::from_truncated(1_u32),
+            CastResult::new::<u64>(1.0, false)
+        );
+        assert_eq!(
+            f32::from_truncated(16777216_u32),
+            CastResult::new::<u32>(16777216.0, false)
+        );
+        assert_eq!(
+            f32::from_truncated(16777217_u32),
+            CastResult::new::<u32>(16777216.0, true)
+        );
+        assert_eq!(
+            f32::from_truncated(16777218_u32),
+            CastResult::new::<u32>(16777218.0, false)
+        );
+    }
+
+    #[test]
+    fn test_u64_to_f32() {
+        assert_eq!(
+            f32::from_truncated(1_u64),
+            CastResult::new::<u64>(1.0, false)
+        );
+        assert_eq!(
+            f32::from_truncated(16777216_u64),
+            CastResult::new::<u64>(16777216.0, false)
+        );
+        assert_eq!(
+            f32::from_truncated(16777217_u64),
+            CastResult::new::<u64>(16777216.0, true)
+        );
+        assert_eq!(
+            f32::from_truncated(16777218_u64),
+            CastResult::new::<u64>(16777218.0, false)
+        );
+    }
+
+    // uint should map exactly to f64 if less than 2^53, above this it will
+    // start rounding to nearest even number (and beyond as we get higher)
+
+    #[test]
+    fn test_u64_to_f64() {
+        assert_eq!(
+            f64::from_truncated(1_u64),
+            CastResult::new::<u64>(1.0, false)
+        );
+        assert_eq!(
+            f64::from_truncated(9007199254740992_u64),
+            CastResult::new::<u64>(9007199254740992.0, false)
+        );
+        assert_eq!(
+            f64::from_truncated(9007199254740993_u64),
+            CastResult::new::<u64>(9007199254740992.0, true)
+        );
+        assert_eq!(
+            f64::from_truncated(9007199254740994_u64),
+            CastResult::new::<u64>(9007199254740994.0, false)
+        );
+    }
+
+    macro_rules! test_float_to_int {
+        ($float:ident, $int:ident) => {
+            let zero: $float = 0.0;
+            let nonzero: $float = 1.5;
+            let neg: $float = -1.0;
+
+            assert_eq!(
+                $int::from_truncated(zero),
+                CastResult::new::<$float>(0, false)
+            );
+            assert_eq!(
+                $int::from_truncated($int::MAX as $float),
+                CastResult::new::<$float>($int::MAX, false)
+            );
+            assert_eq!(
+                $int::from_truncated(nonzero),
+                CastResult::new::<$float>(1, true)
+            );
+            assert_eq!(
+                $int::from_truncated(neg),
+                CastResult::new::<$float>(0, true)
+            );
+            assert_eq!(
+                $int::from_truncated($float::NAN),
+                CastResult::new::<$float>(0, true)
+            );
+            assert_eq!(
+                $int::from_truncated($float::NEG_INFINITY),
+                CastResult::new::<$float>(0, true)
+            );
+            assert_eq!(
+                $int::from_truncated($float::INFINITY),
+                CastResult::new::<$float>($int::MAX, true)
+            );
+        };
+    }
+
+    #[test]
+    fn test_f32_to_u8() {
+        test_float_to_int!(f32, u8);
+    }
+
+    #[test]
+    fn test_f32_to_u16() {
+        test_float_to_int!(f32, u16);
+    }
+
+    #[test]
+    fn test_f32_to_u32() {
+        test_float_to_int!(f32, u32);
+    }
+
+    #[test]
+    fn test_f32_to_u64() {
+        test_float_to_int!(f32, u64);
+    }
+
+    #[test]
+    fn test_f64_to_u8() {
+        test_float_to_int!(f64, u8);
+    }
+
+    #[test]
+    fn test_f64_to_u16() {
+        test_float_to_int!(f64, u16);
+    }
+
+    #[test]
+    fn test_f64_to_u32() {
+        test_float_to_int!(f64, u32);
+    }
+
+    #[test]
+    fn test_f64_to_u64() {
+        test_float_to_int!(f64, u64);
+    }
+
+    #[test]
+    fn test_f64_to_f32() {
+        // this should obviously pass
+        assert_eq!(
+            f32::from_truncated(0.0_f64),
+            CastResult::new::<f64>(0.0, false)
+        );
+        // this is the upper limit of ints that an f32 can represent exactly,
+        // going above this will start to induce rounding errors that don't
+        // happen in f64
+        assert_eq!(
+            f32::from_truncated(16777216.0_f64),
+            CastResult::new::<f64>(16777216.0, false)
+        );
+        assert_eq!(
+            f32::from_truncated(16777217.0_f64),
+            CastResult::new::<f64>(16777216.0, true)
+        );
+        // this is a decimal that can be represented perfectly in both
+        assert_eq!(
+            f32::from_truncated(0.5_f64),
+            CastResult::new::<f64>(0.5, false)
+        );
+        // this is a repeating decimal which will have different representations
+        // in f32 and f64, thus it will be lossy
+        assert_eq!(
+            f32::from_truncated(0.2_f64),
+            CastResult::new::<f64>(0.2, true)
+        );
+    }
+}
+
+#[cfg(feature = "python")]
+pub(crate) mod python {
+    use super::{AnyFCSColumn, FCSColumn, FCSDataFrame};
+    use crate::python::macros::impl_value_err;
+
+    use polars::prelude::*;
+    use polars_arrow::array::PrimitiveArray;
+    use pyo3::prelude::*;
+    use pyo3_polars::{PyDataFrame, PySeries};
+    use std::fmt;
+
+    impl<'py> IntoPyObject<'py> for FCSDataFrame {
+        type Target = PyAny;
+        type Output = Bound<'py, PyAny>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            let columns = self
+                .iter_columns()
+                .enumerate()
+                .map(|(i, c)| {
+                    Series::from_arrow(PlSmallStr::from(format!("X{i}")), c.as_array())
+                        .unwrap()
+                        .into()
+                })
+                .collect();
+            // ASSUME this will not fail because all columns should have unique
+            // names and the same length
+            PyDataFrame(DataFrame::new(columns).unwrap()).into_pyobject(py)
+        }
+    }
+
+    impl<'py> FromPyObject<'py> for FCSDataFrame {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let df: PyDataFrame = ob.extract()?;
+            Ok(df.0.try_into()?)
+        }
+    }
+
+    impl<'py> FromPyObject<'py> for AnyFCSColumn {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let ser: PySeries = ob.extract()?;
+            Ok(ser.0.try_into()?)
+        }
+    }
+
+    impl TryFrom<DataFrame> for FCSDataFrame {
+        type Error = SeriesToColumnError;
+
+        fn try_from(df: DataFrame) -> Result<Self, Self::Error> {
+            let cs = df
+                .column_iter()
+                .map(|c| c.as_materialized_series().clone())
+                .map(AnyFCSColumn::try_from)
+                .collect::<Result<Vec<_>, _>>()?;
+            // ASSUME this won't fail because all columns will have the same
+            // length after pulling from a valid polars dataframe
+            Ok(Self::try_new(cs).unwrap())
+        }
+    }
+
+    impl TryFrom<Series> for AnyFCSColumn {
+        type Error = SeriesToColumnError;
+
+        fn try_from(ser: Series) -> Result<Self, Self::Error> {
+            fn column_to_buf<T>(ser: Series) -> Result<AnyFCSColumn, SeriesToColumnError>
+            where
+                T: NumericNative,
+                AnyFCSColumn: From<FCSColumn<T>>,
+            {
+                if ser.null_count() > 0 {
+                    Err(SeriesToColumnError::HasNull(ser.name().clone()))
+                } else {
+                    // ASSUME series only has one chunk
+                    let buf = ser.into_chunks()[0]
+                        .as_any()
+                        .downcast_ref::<PrimitiveArray<T>>()
+                        .unwrap()
+                        .values()
+                        .clone();
+                    Ok(FCSColumn(buf).into())
+                }
+            }
+
+            match ser.dtype() {
+                DataType::UInt8 => column_to_buf::<u8>(ser),
+                DataType::UInt16 => column_to_buf::<u16>(ser),
+                DataType::UInt32 => column_to_buf::<u32>(ser),
+                DataType::UInt64 => column_to_buf::<u64>(ser),
+                DataType::Float32 => column_to_buf::<f32>(ser),
+                DataType::Float64 => column_to_buf::<f64>(ser),
+                t => Err(SeriesToColumnError::InvalidDatatype(
+                    ser.name().clone(),
+                    t.clone(),
+                )),
+            }
+        }
+    }
+
+    pub enum SeriesToColumnError {
+        InvalidDatatype(PlSmallStr, DataType),
+        HasNull(PlSmallStr),
+    }
+
+    impl fmt::Display for SeriesToColumnError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+            match self {
+                Self::InvalidDatatype(n, t) => write!(
+                    f,
+                    "Datatype must be u8/16/32/64 or f32/64, got {t} for series '{n}'"
+                ),
+                Self::HasNull(n) => {
+                    write!(f, "Series {n} contains null values which are not allowed")
+                }
+            }
+        }
+    }
+
+    impl_value_err!(SeriesToColumnError);
 }

@@ -64,6 +64,7 @@ pub struct Tentative<V, W, E> {
 ///
 /// Useful for functions which only return one error or warning for which
 /// using a tentative would be unnecessary.
+#[derive(Debug, PartialEq)]
 pub enum Leveled<T> {
     Error(T),
     Warning(T),
@@ -252,7 +253,7 @@ impl<V, W> Terminal<V, W> {
     }
 }
 
-impl<V> Terminal<V, ()> {
+impl<V> Terminal<V, Infallible> {
     pub fn inner(self) -> V {
         self.value
     }
@@ -696,6 +697,16 @@ impl<V, E> BiTentative<V, E> {
     }
 }
 
+impl<V> BiTentative<V, Infallible> {
+    pub fn unwrap_infallible(self) -> V {
+        self.value
+    }
+
+    pub fn new_infallible(value: V) -> Self {
+        Tentative::new1(value)
+    }
+}
+
 impl<V, W, E> Tentative<Option<V>, W, E> {
     pub fn transpose(self) -> Option<Tentative<V, W, E>> {
         if let Some(value) = self.value {
@@ -713,6 +724,12 @@ impl<V, W, E> Tentative<Option<V>, W, E> {
 impl<V: Default, W, E> Default for Tentative<V, W, E> {
     fn default() -> Self {
         Self::new1(V::default())
+    }
+}
+
+impl<V: Default, W> Default for Terminal<V, W> {
+    fn default() -> Self {
+        Self::new(V::default())
     }
 }
 
@@ -868,6 +885,20 @@ impl<P, W, E> DeferredFailure<P, W, E> {
             errors: self.errors,
         }
     }
+
+    pub fn void(self) -> DeferredFailure<(), W, E> {
+        DeferredFailure {
+            passthru: (),
+            warnings: self.warnings,
+            errors: self.errors,
+        }
+    }
+}
+
+impl<P> DeferredFailure<P, Infallible, Infallible> {
+    pub fn unwrap_infallible(self) -> P {
+        self.passthru
+    }
 }
 
 impl<W, E> DeferredFailure<(), W, E> {
@@ -970,7 +1001,7 @@ impl<T> Leveled<T> {
     }
 }
 
-pub trait ResultExt {
+pub trait ResultExt: Sized {
     type V;
     type E;
 
@@ -991,6 +1022,54 @@ pub trait ResultExt {
     ) -> MultiResult<(Self::V, A, B), Self::E>;
 
     fn void(self) -> Result<(), Self::E>;
+
+    fn into_tentative(
+        self,
+        default: Self::V,
+        is_error: bool,
+    ) -> Tentative<Self::V, Self::E, Self::E> {
+        self.into_tentative_opt(is_error)
+            .map(|x| x.unwrap_or(default))
+    }
+
+    fn into_tentative_warn<X>(self, default: Self::V) -> Tentative<Self::V, Self::E, X> {
+        self.into_tentative_warn_opt().map(|x| x.unwrap_or(default))
+    }
+
+    fn into_tentative_err<X>(self, default: Self::V) -> Tentative<Self::V, X, Self::E> {
+        self.into_tentative_err_opt().map(|x| x.unwrap_or(default))
+    }
+
+    fn into_tentative_def(self, is_error: bool) -> Tentative<Self::V, Self::E, Self::E>
+    where
+        Self::V: Default,
+    {
+        self.into_tentative_opt(is_error)
+            .map(|x| x.unwrap_or_default())
+    }
+
+    fn into_tentative_warn_def<X>(self) -> Tentative<Self::V, Self::E, X>
+    where
+        Self::V: Default,
+    {
+        self.into_tentative_warn_opt()
+            .map(|x| x.unwrap_or_default())
+    }
+
+    fn into_tentative_err_def<X>(self) -> Tentative<Self::V, X, Self::E>
+    where
+        Self::V: Default,
+    {
+        self.into_tentative_err_opt().map(|x| x.unwrap_or_default())
+    }
+
+    fn into_tentative_opt(self, is_error: bool) -> Tentative<Option<Self::V>, Self::E, Self::E>;
+
+    fn into_tentative_warn_opt<X>(self) -> Tentative<Option<Self::V>, Self::E, X>;
+
+    fn into_tentative_err_opt<X>(self) -> Tentative<Option<Self::V>, X, Self::E>;
+
+    fn terminate<T, W>(self, reason: T) -> TerminalResult<Self::V, W, Self::E, T>;
 }
 
 impl<V, E> ResultExt for Result<V, E> {
@@ -1042,6 +1121,32 @@ impl<V, E> ResultExt for Result<V, E> {
     fn void(self) -> Result<(), Self::E> {
         self.map(|_| ())
     }
+
+    fn into_tentative_opt(self, is_error: bool) -> Tentative<Option<Self::V>, Self::E, Self::E> {
+        self.map_or_else(
+            |e| Tentative::new_either(None, vec![e], is_error),
+            |v| Tentative::new1(Some(v)),
+        )
+    }
+
+    fn into_tentative_warn_opt<X>(self) -> Tentative<Option<Self::V>, Self::E, X> {
+        self.map_or_else(
+            |e| Tentative::new(None, vec![e], vec![]),
+            |v| Tentative::new1(Some(v)),
+        )
+    }
+
+    fn into_tentative_err_opt<X>(self) -> Tentative<Option<Self::V>, X, Self::E> {
+        self.map_or_else(
+            |e| Tentative::new(None, vec![], vec![e]),
+            |v| Tentative::new1(Some(v)),
+        )
+    }
+
+    fn terminate<T, W>(self, reason: T) -> TerminalResult<Self::V, W, Self::E, T> {
+        self.map_err(|e| TerminalFailure::new(NonEmpty::new(e), reason))
+            .map(Terminal::new)
+    }
 }
 
 pub trait MultiResultExt: Sized {
@@ -1071,7 +1176,9 @@ pub trait MultiResultExt: Sized {
     where
         F: Fn(Self::E) -> X;
 
-    fn mult_terminate<T>(self, reason: T) -> TerminalResult<Self::V, (), Self::E, T>;
+    fn mult_terminate<T>(self, reason: T) -> TerminalResult<Self::V, Infallible, Self::E, T>;
+
+    fn mult_head(self) -> Result<Self::V, Self::E>;
 }
 
 impl<V, E> MultiResultExt for MultiResult<V, E> {
@@ -1106,9 +1213,13 @@ impl<V, E> MultiResultExt for MultiResult<V, E> {
         self.map_err(|es| es.map(f))
     }
 
-    fn mult_terminate<T>(self, reason: T) -> TerminalResult<Self::V, (), Self::E, T> {
+    fn mult_terminate<T>(self, reason: T) -> TerminalResult<Self::V, Infallible, Self::E, T> {
         self.map(Terminal::new)
             .map_err(|es| DeferredFailure::new2(es).terminate(reason))
+    }
+
+    fn mult_head(self) -> Result<Self::V, Self::E> {
+        self.map_err(|e| e.head)
     }
 }
 
@@ -1183,6 +1294,8 @@ pub trait PassthruExt: Sized {
             self.def_push_warning(x.into())
         }
     }
+
+    fn def_void_passthru(self) -> DeferredResult<Self::V, Self::W, Self::E>;
 }
 
 impl<V, P, W, E> PassthruExt for PassthruResult<V, P, W, E> {
@@ -1256,6 +1369,26 @@ impl<V, P, W, E> PassthruExt for PassthruResult<V, P, W, E> {
             Err(f) => f.push_warning(w),
         }
     }
+
+    fn def_void_passthru(self) -> DeferredResult<Self::V, Self::W, Self::E> {
+        self.map_err(|e| e.void())
+    }
+}
+
+pub trait InfalliblePassthruExt: Sized {
+    type V;
+
+    fn def_unwrap_infallible(self) -> Self::V;
+}
+
+impl<V> InfalliblePassthruExt for PassthruResult<V, (), Infallible, Infallible> {
+    type V = V;
+
+    fn def_unwrap_infallible(self) -> V {
+        self.map_err(|e| e.unwrap_infallible())
+            .unwrap()
+            .unwrap_infallible()
+    }
 }
 
 pub trait DeferredExt: Sized + PassthruExt {
@@ -1310,6 +1443,13 @@ pub trait DeferredExt: Sized + PassthruExt {
     }
 
     fn def_unfail(self) -> Tentative<Option<Self::V>, Self::W, Self::E>;
+
+    fn def_unfail_default(self) -> Tentative<Self::V, Self::W, Self::E>
+    where
+        Self::V: Default,
+    {
+        self.def_unfail().map(|_| Self::V::default())
+    }
 }
 
 impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
@@ -1378,18 +1518,37 @@ pub fn def_transpose<X, W, E>(
     x.map_or(Ok(Tentative::new1(None)), |y| y.def_map_value(Some))
 }
 
-pub trait IODeferredExt: Sized + PassthruExt {
-    fn def_io_into<FromE, ToE, ToW>(self) -> IODeferredResult<Self::V, ToW, ToE>
+pub trait IODeferredExt: Sized + PassthruExt
+where
+    Self: PassthruExt<E = ImpureError<Self::InnerE>>,
+{
+    type InnerE;
+
+    fn def_io_into<ToE, ToW>(self) -> IODeferredResult<Self::V, ToW, ToE>
     where
-        Self: PassthruExt<E = ImpureError<FromE>, P = ()>,
-        ToE: From<FromE>,
+        Self: PassthruExt<P = ()>,
+        ToE: From<Self::InnerE>,
         ToW: From<Self::W>,
     {
         self.def_map_errors(|e| e.inner_into()).def_warnings_into()
     }
+
+    fn def_io_push_error_or_warning<X>(&mut self, x: X, is_error: bool)
+    where
+        X: Into<Self::W>,
+        X: Into<Self::InnerE>,
+    {
+        if is_error {
+            self.def_push_error(ImpureError::Pure(x.into()))
+        } else {
+            self.def_push_warning(x.into())
+        }
+    }
 }
 
-impl<V, W, E> IODeferredExt for IODeferredResult<V, W, E> {}
+impl<V, W, E> IODeferredExt for IODeferredResult<V, W, E> {
+    type InnerE = E;
+}
 
 impl<E> fmt::Display for ImpureError<E>
 where

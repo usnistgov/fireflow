@@ -1,19 +1,21 @@
 use crate::validated::shortname::*;
 
 use super::named_vec::NameMapping;
-use super::optional::ClearOptional;
 use super::parser::OptLinkedKey;
 
 use derive_more::AsRef;
 use itertools::Itertools;
 use nalgebra::DMatrix;
-use serde::Serialize;
 use std::collections::HashSet;
 use std::fmt;
 use std::str::FromStr;
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
 /// The spillover matrix from the $SPILLOVER keyword (3.1+)
-#[derive(Clone, Serialize, AsRef)]
+#[derive(Clone, AsRef, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Spillover {
     /// The measurements in the spillover matrix.
     ///
@@ -50,48 +52,50 @@ impl Spillover {
         }
     }
 
-    pub(crate) fn remove_by_name(&mut self, n: &Shortname) -> Result<bool, ClearOptional> {
-        if let Some(i) = self.measurements.iter().position(|m| m == n) {
-            if self.measurements.len() < 3 {
-                Err(ClearOptional::default())
-            } else {
-                // TODO this looks expensive; it copies almost everything 3x;
-                // good thing these matrices aren't that big (usually). The
-                // alternative is to iterate over the matrix and populate a new
-                // one while skipping certain elements.
-                self.matrix = self.matrix.clone().remove_row(i).remove_column(i);
-                Ok(true)
-            }
-        } else {
-            Ok(false)
-        }
-    }
+    // pub(crate) fn remove_by_name(&mut self, n: &Shortname) -> ClearMaybe<bool> {
+    //     if let Some(i) = self.measurements.iter().position(|m| m == n) {
+    //         if self.measurements.len() < 3 {
+    //             ClearMaybe::clear(true)
+    //         } else {
+    //             // TODO this looks expensive; it copies almost everything 3x;
+    //             // good thing these matrices aren't that big (usually). The
+    //             // alternative is to iterate over the matrix and populate a new
+    //             // one while skipping certain elements.
+    //             self.matrix = self.matrix.clone().remove_row(i).remove_column(i);
+    //             ClearMaybe::new(true)
+    //         }
+    //     } else {
+    //         ClearMaybe::new(false)
+    //     }
+    // }
 
-    pub(crate) fn table(&self, delim: &str) -> Vec<String> {
-        let header0 = vec!["[-]"];
-        let header = header0
-            .into_iter()
-            .chain(self.measurements.iter().map(|m| m.as_ref()))
-            .join(delim);
-        let lines = vec![header];
-        let rows = self.matrix.row_iter().map(|xs| xs.iter().join(delim));
-        lines.into_iter().chain(rows).collect()
-    }
+    // pub(crate) fn table(&self, delim: &str) -> Vec<String> {
+    //     let header0 = vec!["[-]"];
+    //     let header = header0
+    //         .into_iter()
+    //         .chain(self.measurements.iter().map(|m| m.as_ref()))
+    //         .join(delim);
+    //     let lines = vec![header];
+    //     let rows = self.matrix.row_iter().map(|xs| xs.iter().join(delim));
+    //     lines.into_iter().chain(rows).collect()
+    // }
 
-    pub(crate) fn print_table(&self, delim: &str) {
-        for e in self.table(delim) {
-            println!("{}", e);
-        }
+    pub(crate) fn names_difference(
+        &self,
+        names: &HashSet<&Shortname>,
+    ) -> impl Iterator<Item = &Shortname> {
+        self.measurements.iter().filter(|n| !names.contains(n))
     }
 }
 
 impl fmt::Display for Spillover {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let n = self.measurements.len();
+        let names = self.measurements.iter().join(",");
         // DMatrix slices are column major, so transpose first to output
         // row-major
         let xs = self.matrix.transpose().as_slice().iter().join(",");
-        write!(f, "{n},{xs}")
+        write!(f, "{n},{names},{xs}")
     }
 }
 
@@ -182,6 +186,70 @@ impl OptLinkedKey for Spillover {
             if let Some(new) = mapping.get(n) {
                 *n = (*new).clone();
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test::*;
+
+    #[test]
+    fn test_str_compensation() {
+        assert_from_to_str::<Spillover>("2,X,Y,0,0,0,0");
+        assert_from_to_str::<Spillover>("3,X,Y,Z,0,0,0,0,0,0,0,0,0");
+        assert_from_to_str::<Spillover>("2,X,Y,1.1,1,0,-1.5");
+    }
+
+    #[test]
+    fn test_str_compensation_unique() {
+        assert!("3,Y,Y,Z,0,0,0,0,0,0,0,0,0".parse::<Spillover>().is_err());
+    }
+
+    #[test]
+    fn test_str_compensation_toosmall() {
+        assert!("1,potato,0".parse::<Spillover>().is_err());
+    }
+
+    #[test]
+    fn test_str_compensation_name_length() {
+        assert!("2,moody,padfoot,prongs,0,0,0,0"
+            .parse::<Spillover>()
+            .is_err());
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use crate::python::macros::impl_value_err;
+    use crate::validated::shortname::Shortname;
+
+    use super::{Spillover, SpilloverError};
+
+    use numpy::{PyReadonlyArray2, ToPyArray};
+    use pyo3::{prelude::*, types::PyTuple};
+
+    // TODO is this ok?
+    impl_value_err!(SpilloverError);
+
+    impl<'py> FromPyObject<'py> for Spillover {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (measurements, arr): (Vec<Shortname>, PyReadonlyArray2<f32>) = ob.extract()?;
+            let matrix = arr.as_matrix().into_owned();
+            Ok(Self::try_new(measurements, matrix)?)
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for Spillover {
+        type Target = PyTuple;
+        type Output = Bound<'py, PyTuple>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            let ms = self.measurements.into_pyobject(py)?;
+            let mx = self.matrix.to_pyarray(py);
+            (ms, mx).into_pyobject(py)
         }
     }
 }

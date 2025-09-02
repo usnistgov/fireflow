@@ -3,13 +3,16 @@ use crate::text::keywords::Range;
 use bigdecimal::num_bigint::{BigUint, Sign};
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use derive_more::Into;
-use serde::Serialize;
 use std::any::type_name;
 use std::fmt;
 use std::marker::PhantomData;
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
 /// A big decimal which has been validated to be within the range of a float.
-#[derive(Clone, Serialize, Into, PartialEq)]
+#[derive(Clone, Into, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FloatDecimal<T> {
     #[into]
     value: BigDecimal,
@@ -48,7 +51,7 @@ impl<T> From<FloatDecimal<T>> for Range {
 }
 
 impl<T: HasFloatBounds> TryFrom<BigDecimal> for FloatDecimal<T> {
-    type Error = FloatToDecimalError;
+    type Error = DecimalToFloatError;
 
     fn try_from(value: BigDecimal) -> Result<Self, Self::Error> {
         let over = match value.sign() {
@@ -56,18 +59,19 @@ impl<T: HasFloatBounds> TryFrom<BigDecimal> for FloatDecimal<T> {
             Sign::Minus => false,
             Sign::Plus => true,
         };
-        let (n, s) = value.normalized().into_bigint_and_scale();
+        let (bi, s) = value.normalized().into_bigint_and_scale();
+        let (_, n) = bi.into_parts();
         u64::try_from(n)
             .ok()
             .and_then(|x| {
-                if x <= T::DIGITS && s >= -i64::from(T::ZEROS) {
-                    Some(x)
-                } else {
+                if x > T::DIGITS && s <= -i64::from(T::ZEROS) {
                     None
+                } else {
+                    Some(x)
                 }
             })
             .map_or(
-                Err(FloatToDecimalError {
+                Err(DecimalToFloatError {
                     src: value,
                     over,
                     typename: type_name::<T>(),
@@ -102,13 +106,13 @@ impl HasFloatBounds for f64 {
     const ZEROS: u16 = 292;
 }
 
-pub struct FloatToDecimalError {
+pub struct DecimalToFloatError {
     pub(crate) src: BigDecimal,
     pub(crate) over: bool,
     pub(crate) typename: &'static str,
 }
 
-impl fmt::Display for FloatToDecimalError {
+impl fmt::Display for DecimalToFloatError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let o = if self.over {
             "over the maximum"
@@ -116,5 +120,93 @@ impl fmt::Display for FloatToDecimalError {
             "under the minimum"
         };
         write!(f, "{} is {o} range for {}", self.src, self.typename)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_str_to_float_dec_zero() {
+        let d = "0".parse::<BigDecimal>().unwrap();
+        assert!(FloatDecimal::<f32>::try_from(d.clone()).is_ok());
+        assert!(FloatDecimal::<f64>::try_from(d).is_ok());
+    }
+
+    #[test]
+    fn test_str_to_f32_submax() {
+        let d = "34028236".parse::<BigDecimal>().unwrap();
+        assert!(FloatDecimal::<f32>::try_from(d).is_ok());
+    }
+
+    #[test]
+    fn test_str_to_f32_max() {
+        let d = "340282350000000000000000000000000000000"
+            .parse::<BigDecimal>()
+            .unwrap();
+        assert!(FloatDecimal::<f32>::try_from(d).is_ok());
+    }
+
+    #[test]
+    fn test_str_to_f32_min() {
+        let d = "-340282350000000000000000000000000000000"
+            .parse::<BigDecimal>()
+            .unwrap();
+        assert!(FloatDecimal::<f32>::try_from(d).is_ok());
+    }
+
+    #[test]
+    fn test_str_to_f32_hypermax() {
+        let d = "340282350000000000000000000000000000001"
+            .parse::<BigDecimal>()
+            .unwrap();
+        assert!(FloatDecimal::<f32>::try_from(d).is_err());
+    }
+
+    #[test]
+    fn test_str_to_f32_hypermin() {
+        let d = "-340282350000000000000000000000000000001"
+            .parse::<BigDecimal>()
+            .unwrap();
+        assert!(FloatDecimal::<f32>::try_from(d).is_err());
+    }
+
+    #[test]
+    fn test_str_to_f64_submax() {
+        let d = "17976931348623158".parse::<BigDecimal>().unwrap();
+        assert!(FloatDecimal::<f64>::try_from(d).is_ok());
+    }
+
+    #[test]
+    fn test_str_to_f64_max() {
+        let d = "179769313486231570000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            .parse::<BigDecimal>()
+            .unwrap();
+        assert!(FloatDecimal::<f64>::try_from(d).is_ok());
+    }
+
+    #[test]
+    fn test_str_to_f64_min() {
+        let d = "-179769313486231570000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            .parse::<BigDecimal>()
+            .unwrap();
+        assert!(FloatDecimal::<f64>::try_from(d).is_ok());
+    }
+
+    #[test]
+    fn test_str_to_f64_hypermax() {
+        let d = "179769313486231570000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001"
+            .parse::<BigDecimal>()
+            .unwrap();
+        assert!(FloatDecimal::<f64>::try_from(d).is_err());
+    }
+
+    #[test]
+    fn test_str_to_f64_hypermin() {
+        let d = "-179769313486231570000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001"
+            .parse::<BigDecimal>()
+            .unwrap();
+        assert!(FloatDecimal::<f64>::try_from(d).is_err());
     }
 }

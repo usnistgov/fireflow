@@ -15,15 +15,121 @@ use crate::text::byteord::ByteOrd2_0;
 use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::keys;
-use crate::validated::shortname::*;
 use crate::validated::textdelim::TEXTDelim;
 
-use derive_more::{Display, FromStr};
+use derive_more::{AsRef, Display, From, FromStr};
 use regex::Regex;
-use std::collections::HashMap;
+
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
+#[derive(Default, Clone, AsRef, From)]
+#[cfg_attr(feature = "python", derive(FromPyObject))]
+pub struct ReadHeaderConfig(pub HeaderConfigInner);
+
+/// Instructions for reading the DATA segment.
+#[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
+pub struct ReadRawTEXTConfig {
+    #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
+    pub raw: ReadHeaderAndTEXTConfig,
+
+    pub shared: SharedConfig,
+}
+
+#[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
+pub struct ReadStdTEXTConfig {
+    #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
+    pub raw: ReadHeaderAndTEXTConfig,
+
+    #[as_ref(StdTextReadConfig)]
+    pub standard: StdTextReadConfig,
+
+    #[as_ref(ReadTEXTOffsetsConfig)]
+    pub offsets: ReadTEXTOffsetsConfig,
+
+    #[as_ref(ReadLayoutConfig)]
+    pub layout: ReadLayoutConfig,
+
+    pub shared: SharedConfig,
+}
+
+#[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
+pub struct ReadRawDatasetConfig {
+    #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
+    pub raw: ReadHeaderAndTEXTConfig,
+
+    #[as_ref(ReadLayoutConfig)]
+    pub layout: ReadLayoutConfig,
+
+    #[as_ref(ReadTEXTOffsetsConfig)]
+    pub offsets: ReadTEXTOffsetsConfig,
+
+    #[as_ref(ReaderConfig)]
+    pub data: ReaderConfig,
+
+    pub shared: SharedConfig,
+}
+
+#[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
+pub struct ReadStdDatasetConfig {
+    #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
+    pub raw: ReadHeaderAndTEXTConfig,
+
+    #[as_ref(StdTextReadConfig)]
+    pub standard: StdTextReadConfig,
+
+    #[as_ref(ReadLayoutConfig)]
+    pub layout: ReadLayoutConfig,
+
+    #[as_ref(ReadTEXTOffsetsConfig)]
+    pub offsets: ReadTEXTOffsetsConfig,
+
+    #[as_ref(ReaderConfig)]
+    pub data: ReaderConfig,
+
+    pub shared: SharedConfig,
+}
+
+#[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
+pub struct ReadRawDatasetFromKeywordsConfig {
+    #[as_ref(ReadLayoutConfig)]
+    pub layout: ReadLayoutConfig,
+
+    #[as_ref(ReaderConfig)]
+    pub data: ReaderConfig,
+
+    #[as_ref(ReadTEXTOffsetsConfig)]
+    pub offsets: ReadTEXTOffsetsConfig,
+
+    pub shared: SharedConfig,
+}
+
+#[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
+pub struct ReadStdDatasetFromKeywordsConfig {
+    #[as_ref(StdTextReadConfig)]
+    pub standard: StdTextReadConfig,
+
+    #[as_ref(ReadLayoutConfig)]
+    pub layout: ReadLayoutConfig,
+
+    #[as_ref(ReadTEXTOffsetsConfig)]
+    pub offsets: ReadTEXTOffsetsConfig,
+
+    #[as_ref(ReaderConfig)]
+    pub data: ReaderConfig,
+
+    pub shared: SharedConfig,
+}
 
 /// Instructions for reading the DATA segment.
 #[derive(Default, Clone)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct DataReadConfig {
     /// Instructions to read and standardize TEXT.
     pub standard: StdTextReadConfig,
@@ -36,6 +142,7 @@ pub struct DataReadConfig {
 
 /// Instructions for reading the DATA/ANALYSIS segments
 #[derive(Default, Clone)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ReaderConfig {
     /// If `true`, allow event width to not perfectly divide DATA.
     ///
@@ -74,7 +181,7 @@ pub struct WriteConfig {
     /// (character 30).
     pub delim: TEXTDelim,
 
-    /// If true, check for conversion losses before writing data.
+    /// If true, skip check for conversion losses before writing data.
     ///
     /// Data in each column may be stored in several different types which may
     /// or may not totally coincide with the measurement type. For example, a
@@ -87,24 +194,13 @@ pub struct WriteConfig {
     /// Skipping this will result in slightly faster writing, as the data need
     /// to be enumerated once prior to writing in order to perform this check.
     /// Lossy conversion will be performed regardless, but warnings will be
-    /// emitted if this is true.
-    pub check_conversion: bool,
-
-    /// If true, disallow lossy data conversions
-    ///
-    /// Only has an effect if `check_conversion` is true. If this is also true,
-    /// any lossy conversion will halt immediately and return an error to the
-    /// user.
-    pub disallow_lossy_conversions: bool,
-    // /// Shared configuration options
-    // pub shared: SharedConfig,
+    /// emitted if this is false.
+    pub skip_conversion_check: bool,
 }
 
 #[derive(Default, Clone)]
-pub struct HeaderConfig {
-    /// Override the version
-    pub version_override: Option<Version>,
-
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
+pub struct HeaderConfigInner {
     /// Corrections for primary TEXT segment
     pub text_correction: HeaderCorrection<PrimaryTextSegmentId>,
 
@@ -177,10 +273,15 @@ pub struct HeaderConfig {
 
 /// Instructions for reading the TEXT segment as raw key/value pairs.
 // TODO add correction for $NEXTDATA
-#[derive(Default, Clone)]
-pub struct RawTextReadConfig {
+#[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
+pub struct ReadHeaderAndTEXTConfig {
     /// Config for reading HEADER
-    pub header: HeaderConfig,
+    #[as_ref(HeaderConfigInner)]
+    pub header: HeaderConfigInner,
+
+    /// Override the version
+    pub version_override: Option<Version>,
 
     /// Corrections for supplemental TEXT segment
     pub supp_text_correction: TEXTCorrection<SupplementalTextSegmentId>,
@@ -201,37 +302,6 @@ pub struct RawTextReadConfig {
     /// This may be useful if STEXT is duplicated (or partly overlaps) with
     /// primary TEXT.
     pub ignore_supp_text: bool,
-
-    /// If true, ignore DATA offsets in TEXT.
-    ///
-    /// This may be useful if DATA offsets are different from those in HEADER,
-    /// either inherently or after a correction. This obviously assumes the
-    /// offsets in HEADER are correct.
-    pub ignore_text_data_offsets: bool,
-
-    /// If true, ignore ANALYSIS offsets in TEXT.
-    ///
-    /// This may be useful if ANALYSIS offsets are different from those in
-    /// HEADER, either inherently or after a correction. This obviously assumes
-    /// the offsets in HEADER are correct.
-    pub ignore_text_analysis_offsets: bool,
-
-    /// If true, throw error if offsets in HEADER and TEXT differ.
-    ///
-    /// Only applies to DATA and ANALYSIS offsets
-    pub allow_header_text_offset_mismatch: bool,
-
-    /// If true, throw error if required TEXT offsets are missing.
-    ///
-    /// Only applies to DATA and ANALYSIS offsets in versions 3.0 and 3.1. If
-    /// missing these will be taken from HEADER.
-    pub allow_missing_required_offsets: bool,
-
-    /// Corrections for DATA offsets in TEXT segment
-    pub data: TEXTCorrection<DataSegmentId>,
-
-    /// Corrections for ANALYSIS offsets in TEXT segment
-    pub analysis: TEXTCorrection<AnalysisSegmentId>,
 
     /// If true, treat every delimiter as literal.
     ///
@@ -363,8 +433,7 @@ pub struct RawTextReadConfig {
     ///
     /// Keys are renamed before ['promote_to_standard'] and
     /// ['demote_from_standard'] are applied.
-    // TODO ensure src and dest are different
-    pub rename_standard_keys: HashMap<keys::KeyString, keys::KeyString>,
+    pub rename_standard_keys: keys::KeyStringPairs,
 
     /// A list of nonstandard keywords to be "promoted" to standard.
     ///
@@ -391,7 +460,7 @@ pub struct RawTextReadConfig {
     ///
     /// Keys will be matched in case-insensitive manner. The leading "$" is
     /// implied, so keys in this table should not include it.
-    pub replace_standard_key_values: HashMap<keys::KeyString, String>,
+    pub replace_standard_key_values: keys::KeyStringValues,
 
     /// Append standard key/value pairs to those read from TEXT.
     ///
@@ -403,49 +472,64 @@ pub struct RawTextReadConfig {
     /// and existing value will not be overwritten in such cases. This will also
     /// trigger a deviant keyword warning/error if they do not belong in the
     /// indicated version.
-    pub append_standard_keywords: HashMap<keys::KeyString, String>,
-
-    /// If true, all warnings will become fatal errors.
-    pub warnings_are_errors: bool,
+    pub append_standard_keywords: keys::KeyStringValues,
 }
 
-/// Instructions for validating time-related properties.
 #[derive(Default, Clone)]
-pub struct TimeConfig {
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
+pub struct ReadTEXTOffsetsConfig {
+    /// Corrections for DATA offsets in TEXT segment
+    pub text_data_correction: TEXTCorrection<DataSegmentId>,
+
+    /// Corrections for ANALYSIS offsets in TEXT segment
+    pub text_analysis_correction: TEXTCorrection<AnalysisSegmentId>,
+
+    /// If true, ignore DATA offsets in TEXT.
+    ///
+    /// This may be useful if DATA offsets are different from those in HEADER,
+    /// either inherently or after a correction. This obviously assumes the
+    /// offsets in HEADER are correct.
+    pub ignore_text_data_offsets: bool,
+
+    /// If true, ignore ANALYSIS offsets in TEXT.
+    ///
+    /// This may be useful if ANALYSIS offsets are different from those in
+    /// HEADER, either inherently or after a correction. This obviously assumes
+    /// the offsets in HEADER are correct.
+    pub ignore_text_analysis_offsets: bool,
+
+    /// If true, throw error if offsets in HEADER and TEXT differ.
+    ///
+    /// Only applies to DATA and ANALYSIS offsets
+    pub allow_header_text_offset_mismatch: bool,
+
+    /// If true, throw error if required TEXT offsets are missing.
+    ///
+    /// Only applies to DATA and ANALYSIS offsets in versions 3.0 and 3.1. If
+    /// missing these will be taken from HEADER.
+    pub allow_missing_required_offsets: bool,
+
+    /// If true, truncate TEXT offsets that exceed the end of the file.
+    ///
+    /// In many cases, such offsets likely mean the file was incompletely
+    /// written, which is a larger problem itself. Setting this to true will at
+    /// least allow these files to be read.
+    pub truncate_text_offsets: bool,
+}
+
+/// Instructions for reading the TEXT segment in a standardized structure.
+#[derive(Default, Clone)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
+pub struct StdTextReadConfig {
     /// If given, a pattern to find/match the $PnN of the time measurement.
     ///
     /// If matched, the time measurement must conform to the requirements of the
     /// target FCS version, such as having $TIMESTEP present and having a PnE
     /// set to '0,0'.
-    pub pattern: Option<TimePattern>,
+    pub time_pattern: Option<TimePattern>,
 
     /// If true, allow time to not be present even if we specify ['pattern'].
-    pub allow_missing: bool,
-    // /// If true, will allow $PnE to not be linear (ie "0,0").
-    // ///
-    // /// $PnE will not be used regardless. This will merely throw an error if
-    // /// scale is non-linear
-    // pub allow_nonlinear_scale: bool,
-
-    // /// If true, will ensure PnG is absent for time measurement.
-    // pub allow_nontime_keywords: bool,
-}
-
-/// Instructions for reading the TEXT segment in a standardized structure.
-#[derive(Default, Clone)]
-pub struct StdTextReadConfig {
-    /// Instructions to read HEADER and TEXT.
-    pub raw: RawTextReadConfig,
-
-    /// Time-related options.
-    pub time: TimeConfig,
-
-    /// Prefix to use when filling in missing $PnN values.
-    ///
-    /// This is only applicable to 2.0 and 3.0 since $PnN became required in
-    /// 3.1. For cases where $PnN is missing, the name used for the measurement
-    /// will be this prefix appended with the measurement index.
-    pub shortname_prefix: ShortnamePrefix,
+    pub allow_missing_time: bool,
 
     /// If true, allow non-standard keywords starting with '$'.
     ///
@@ -472,6 +556,23 @@ pub struct StdTextReadConfig {
     /// becomes 'X,1.0'.
     pub fix_log_scale_offsets: bool,
 
+    /// If supplied, this pattern will be used to group "nonstandard" keywords
+    /// with matching measurements.
+    ///
+    /// Usually this will be something like '^P%n.+' where '%n' will be
+    /// substituted with the measurement index before using it as a regular
+    /// expression to match keywords. It should not start with a "$" and must
+    /// contain a literal '%n'.
+    ///
+    /// This will matching something like 'P7FOO' which would be 'FOO' for
+    /// measurement 7. These may be used when converting between different
+    /// FCS versions.
+    pub nonstandard_measurement_pattern: Option<keys::NonStdMeasPattern>,
+}
+
+#[derive(Default, Clone)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
+pub struct ReadLayoutConfig {
     /// If given, override $PnB with the number of bytes in $BYTEORD.
     ///
     /// Some files set $PnB to match the bitmask. For example, a 16-bit column
@@ -522,27 +623,15 @@ pub struct StdTextReadConfig {
     /// Note: this flag has nothing to do with the bitmask being applied to the
     /// actual data being read. This will happen regardless.
     pub disallow_range_truncation: bool,
-
-    /// If supplied, this pattern will be used to group "nonstandard" keywords
-    /// with matching measurements.
-    ///
-    /// Usually this will be something like '^P%n.+' where '%n' will be
-    /// substituted with the measurement index before using it as a regular
-    /// expression to match keywords. It should not start with a "$" and must
-    /// contain a literal '%n'.
-    ///
-    /// This will matching something like 'P7FOO' which would be 'FOO' for
-    /// measurement 7. These may be used when converting between different
-    /// FCS versions.
-    pub nonstandard_measurement_pattern: Option<keys::NonStdMeasPattern>,
 }
 
-// /// Configuration options for both reading and writing
-// #[derive(Default, Clone)]
-// pub struct SharedConfig {
-//     /// If true, all warnings are considered to be fatal errors.
-//     pub warnings_are_errors: bool,
-// }
+/// Configuration options for both reading and writing
+#[derive(Default, Clone)]
+#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
+pub struct SharedConfig {
+    /// If true, all warnings are considered to be fatal errors.
+    pub warnings_are_errors: bool,
+}
 
 /// A pattern to match the $PnN for the time measurement.
 ///
@@ -557,33 +646,42 @@ impl Default for TimePattern {
 }
 
 /// State pertinent to reading a file
-pub struct ReadState<'a, C> {
+pub struct ReadState<C> {
     pub(crate) file_len: u64,
-    pub(crate) conf: &'a C,
+    pub(crate) conf: C,
 }
 
-impl<'a, C> ReadState<'a, C> {
-    pub(crate) fn init(f: &std::fs::File, conf: &'a C) -> std::io::Result<Self> {
+impl<C> ReadState<C> {
+    pub(crate) fn init(f: &std::fs::File, conf: C) -> std::io::Result<Self> {
         f.metadata().map(|m| Self {
             file_len: m.len(),
             conf,
         })
     }
+}
 
-    pub(crate) fn map_inner<D, F>(&self, f: F) -> ReadState<D>
-    where
-        F: FnOnce(&C) -> &D,
-    {
-        ReadState {
-            file_len: self.file_len,
-            conf: f(self.conf),
+#[cfg(feature = "python")]
+mod python {
+    use super::{OffsetCorrection, TimePattern};
+    use pyo3::exceptions::PyValueError;
+    use pyo3::prelude::*;
+
+    impl<'py> FromPyObject<'py> for TimePattern {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let s: String = ob.extract()?;
+            let n = s
+                .parse::<TimePattern>()
+                // this should be an error from regexp parsing
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            Ok(n)
         }
     }
 
-    pub(crate) fn replace_inner<D>(&self, conf: &'a D) -> ReadState<D> {
-        ReadState {
-            file_len: self.file_len,
-            conf,
+    // offset corrections will be tuples like (i32, i32)
+    impl<'py, I, S> FromPyObject<'py> for OffsetCorrection<I, S> {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let t: (i32, i32) = ob.extract()?;
+            Ok(Self::from(t))
         }
     }
 }

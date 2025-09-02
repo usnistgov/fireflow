@@ -8,17 +8,20 @@ use chrono::{NaiveDate, NaiveTime, Timelike};
 use derive_more::{AsRef, Display, From, FromStr, Into};
 use once_cell::sync::Lazy;
 use regex::Regex;
-use serde::Serialize;
 use std::fmt;
 use std::mem;
 use std::str::FromStr;
+
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 /// A convenient bundle holding data/time keyword values.
 ///
 /// The generic type parameter is meant to account for the fact that the time
 /// types for different versions are all slightly different in their treatment
 /// of sub-second time.
-#[derive(Clone, Serialize, AsRef)]
+#[derive(Clone, AsRef, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Timestamps<X> {
     /// The value of the $BTIM key
     #[as_ref(Option<Btim<X>>)]
@@ -46,27 +49,25 @@ impl<X> Default for Timestamps<X> {
 pub type Btim<T> = Xtim<false, T>;
 pub type Etim<T> = Xtim<true, T>;
 
-#[derive(Clone, Copy, Serialize, Display, FromStr, From)]
+#[derive(Clone, Copy, Display, FromStr, From, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Xtim<const IS_ETIM: bool, T>(pub T);
 
 /// A date as used in the $DATE key
-#[derive(Clone, Copy, Serialize, From, Into, AsRef)]
+#[derive(Clone, Copy, From, Into, AsRef, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FCSDate(pub NaiveDate);
 
 impl<X> Timestamps<X> {
-    pub fn new(
-        btim: MaybeValue<Btim<X>>,
-        etim: MaybeValue<Etim<X>>,
-        date: MaybeValue<FCSDate>,
+    pub fn try_new(
+        btim: Option<Btim<X>>,
+        etim: Option<Etim<X>>,
+        date: Option<FCSDate>,
     ) -> TimestampsResult<Self>
     where
         X: PartialOrd,
     {
-        let ret = Self {
-            btim: btim.0,
-            etim: etim.0,
-            date: date.0,
-        };
+        let ret = Self { btim, etim, date };
         if ret.valid() {
             Ok(ret)
         } else {
@@ -174,7 +175,7 @@ impl<X> Timestamps<X> {
         X: PartialOrd,
     {
         b.zip3(e, d).and_tentatively(|(btim, etim, date)| {
-            Timestamps::new(btim, etim, date)
+            Timestamps::try_new(btim.0, etim.0, date.0)
                 .map(Tentative::new1)
                 .unwrap_or_else(|w| {
                     let ow = LookupKeysWarning::Relation(w.into());
@@ -238,7 +239,8 @@ impl fmt::Display for FCSDateError {
 }
 
 /// A time as used in the $BTIM/ETIM keys without seconds (2.0 only)
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, From, Into)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FCSTime(pub NaiveTime);
 
 impl FromStr for FCSTime {
@@ -266,7 +268,8 @@ impl fmt::Display for FCSTimeError {
 }
 
 /// A time as used in the $BTIM/ETIM keys with 1/60 seconds (3.0 only)
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, From, Into)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FCSTime60(pub NaiveTime);
 
 impl FromStr for FCSTime60 {
@@ -293,7 +296,7 @@ impl fmt::Display for FCSTime60 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let base = self.0.format("%H:%M:%S");
         let cc = u64::from(self.0.nanosecond()) * 60 / 1_000_000_000;
-        write!(f, "{}.{}", base, cc)
+        write!(f, "{base}:{cc:02}")
     }
 }
 
@@ -309,7 +312,8 @@ impl fmt::Display for FCSTime60Error {
 }
 
 /// A time as used in the $BTIM/ETIM keys with centiseconds (3.1+ only)
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, From, Into)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FCSTime100(pub NaiveTime);
 
 impl FromStr for FCSTime100 {
@@ -319,7 +323,7 @@ impl FromStr for FCSTime100 {
         NaiveTime::parse_from_str(s, "%H:%M:%S")
             .or_else(|_| {
                 static RE: Lazy<Regex> = Lazy::new(|| {
-                    Regex::new(r"([0-9]){2}:([0-9]){2}:([0-9]){2}.([0-9]){2}").unwrap()
+                    Regex::new(r"([0-9]{2}):([0-9]{2}):([0-9]{2})\.([0-9]{2})").unwrap()
                 });
                 let cap = RE.captures(s).ok_or(FCSTime100Error)?;
                 let [s1, s2, s3, s4] = cap.extract().1;
@@ -338,7 +342,7 @@ impl fmt::Display for FCSTime100 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let base = self.0.format("%H:%M:%S");
         let cc = self.0.nanosecond() / 10_000_000;
-        write!(f, "{}.{}", base, cc)
+        write!(f, "{base}.{cc:02}")
     }
 }
 
@@ -347,5 +351,54 @@ pub struct FCSTime100Error;
 impl fmt::Display for FCSTime100Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "must be like 'hh:mm:ss[.cc]'")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test::*;
+
+    #[test]
+    fn test_str_timestamps2_0() {
+        assert_from_to_str::<FCSTime>("23:58:00");
+    }
+
+    #[test]
+    fn test_str_timestamps3_0() {
+        assert_from_to_str_almost::<FCSTime60>("23:58:00", "23:58:00:00");
+        assert_from_to_str::<FCSTime60>("23:58:00:30");
+        // TODO should probably avoid stuff like this
+        assert_from_to_str_almost::<FCSTime60>("23:58:00:13", "23:58:00:12");
+    }
+
+    #[test]
+    fn test_str_timestamps3_1() {
+        assert_from_to_str_almost::<FCSTime100>("23:58:00", "23:58:00.00");
+        assert_from_to_str::<FCSTime100>("23:58:00.30");
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::{FCSDate, FCSTime, FCSTime100, FCSTime60, ReversedTimestamps, Xtim};
+    use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
+
+    use pyo3::prelude::*;
+
+    impl_pyreflow_err!(ReversedTimestamps);
+
+    impl_from_py_transparent!(FCSDate);
+    impl_from_py_transparent!(FCSTime);
+    impl_from_py_transparent!(FCSTime60);
+    impl_from_py_transparent!(FCSTime100);
+
+    impl<'py, T, const IS_ETIM: bool> FromPyObject<'py> for Xtim<IS_ETIM, T>
+    where
+        T: FromPyObject<'py>,
+    {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            Ok(Self(ob.extract::<T>()?))
+        }
     }
 }

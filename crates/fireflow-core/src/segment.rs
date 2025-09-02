@@ -9,7 +9,6 @@ use itertools::Itertools;
 use nonempty::NonEmpty;
 use num_traits::identities::{One, Zero};
 use num_traits::ops::checked::CheckedSub;
-use serde::Serialize;
 use std::fmt;
 use std::io;
 use std::io::{BufReader, Read, Seek, SeekFrom};
@@ -19,22 +18,28 @@ use std::num::ParseIntError;
 use std::str;
 use std::str::FromStr;
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
 /// A segment in an FCS file which is denoted by a pair of offsets
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Segment<T> {
     NonEmpty(NonEmptySegment<T>),
     #[default]
     Empty,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct NonEmptySegment<T> {
     begin: T,
     end: T,
 }
 
 /// A segment that is specific to a region in the FCS file.
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SpecificSegment<I, S, T> {
     pub inner: Segment<T>,
     _id: PhantomData<I>,
@@ -63,11 +68,13 @@ pub(crate) struct GenericSegment {
 }
 
 /// Denotes a segment came from HEADER
-#[derive(Default, Debug, Clone, Copy, Serialize)]
+#[derive(Default, Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SegmentFromHeader;
 
 /// Denotes a segment came from TEXT
-#[derive(Default, Debug, Clone, Copy, Serialize)]
+#[derive(Default, Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SegmentFromTEXT;
 
 /// Denotes a segment came from either TEXT or HEADER
@@ -75,23 +82,28 @@ pub struct SegmentFromTEXT;
 pub struct SegmentFromAnywhere;
 
 /// Denotes the segment pertains to primary TEXT
-#[derive(Default, Debug, Clone, Copy, Serialize)]
+#[derive(Default, Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PrimaryTextSegmentId;
 
 /// Denotes the segment pertains to supplemental TEXT
-#[derive(Default, Debug, Clone, Copy, Serialize)]
+#[derive(Default, Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SupplementalTextSegmentId;
 
 /// Denotes the segment pertains to DATA
-#[derive(Default, Debug, Clone, Copy, Serialize)]
+#[derive(Default, Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DataSegmentId;
 
 /// Denotes the segment pertains to ANALYSIS
-#[derive(Default, Debug, Clone, Copy, Serialize)]
+#[derive(Default, Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AnalysisSegmentId;
 
 /// Denotes the segment pertains to OTHER (indexed from 0)
-#[derive(Default, Debug, Clone, Copy, Serialize)]
+#[derive(Default, Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct OtherSegmentId;
 
 pub type PrimaryTextSegment = SpecificSegment<PrimaryTextSegmentId, SegmentFromHeader, Uint8Digit>;
@@ -904,23 +916,6 @@ impl<T> Segment<T> {
         }
     }
 
-    // pub(crate) fn try_adjust<I, S>(
-    //     self,
-    //     conf: &NewSegmentConfig<T, I, S>,
-    // ) -> Result<Self, SegmentError<T>>
-    // where
-    //     S: HasSource,
-    //     I: HasRegion,
-    //     T: Copy + Zero + One + CheckedSub + TryFrom<i128> + Into<i128> + Ord,
-    //     u64: From<T>,
-    // {
-    //     let (b, e) = match self {
-    //         Self::Empty => (T::zero(), T::zero()),
-    //         Self::NonEmpty(s) => s.coords(),
-    //     };
-    //     Self::try_new::<I, S>(b, e, conf)
-    // }
-
     /// Return the first and last byte if applicable
     pub fn try_coords(&self) -> Option<(T, T)>
     where
@@ -1009,7 +1004,7 @@ impl<T> NonEmptySegment<T> {
     {
         // TODO technically this should return option since it isn't guaranteed
         // that the next byte won't wrap
-        NonZeroU64::MIN.saturating_add(self.begin.into())
+        NonZeroU64::MIN.saturating_add(self.end.into())
     }
 
     fn new_unchecked(begin: T, end: T) -> Self {
@@ -1240,8 +1235,83 @@ where
     }
 }
 
+#[derive(Default)]
 pub(crate) struct NewSegmentConfig<T, I, S> {
     pub(crate) corr: OffsetCorrection<I, S>,
     pub(crate) file_len: Option<T>,
     pub(crate) truncate_offsets: bool,
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::*;
+    use pyo3::exceptions::PyValueError;
+    use pyo3::prelude::*;
+    use pyo3::types::PyTuple;
+
+    // segments will be returned as tuples like (u32, u32) reflecting their
+    // exact representation in an FCS file
+    impl<'py, T> FromPyObject<'py> for Segment<T>
+    where
+        T: FromPyObject<'py> + Zero + Ord,
+        u64: From<T>,
+    {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (begin, end): (T, T) = ob.extract()?;
+            if begin > end {
+                Err(PyValueError::new_err("offset begin is greater than end"))
+            } else if begin == T::zero() && end == T::zero() {
+                Ok(Self::Empty)
+            } else {
+                Ok(Self::NonEmpty(NonEmptySegment::new_unchecked(begin, end)))
+            }
+        }
+    }
+
+    impl<'py, T> IntoPyObject<'py> for Segment<T>
+    where
+        T: Copy,
+        u64: From<T>,
+    {
+        type Target = PyTuple;
+        type Output = Bound<'py, <(u64, u64) as IntoPyObject<'py>>::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            self.as_u64()
+                .try_coords()
+                .unwrap_or((0, 0))
+                .into_pyobject(py)
+        }
+    }
+
+    // pyo3 apparently can't deal with phantomdata, this is basically just
+    // converting the inner segment which already has this trait
+    impl<'py, I, S, T> FromPyObject<'py> for SpecificSegment<I, S, T>
+    where
+        Segment<T>: FromPyObject<'py>,
+    {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            Ok(Self {
+                inner: ob.extract()?,
+                _id: PhantomData,
+                _src: PhantomData,
+            })
+        }
+    }
+
+    impl<'py, I, S, T> IntoPyObject<'py> for SpecificSegment<I, S, T>
+    where
+        T: Copy,
+        u64: From<T>,
+        Segment<T>: IntoPyObject<'py>,
+    {
+        type Target = <Segment<T> as IntoPyObject<'py>>::Target;
+        type Output = <Segment<T> as IntoPyObject<'py>>::Output;
+        type Error = <Segment<T> as IntoPyObject<'py>>::Error;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            self.inner.into_pyobject(py)
+        }
+    }
 }

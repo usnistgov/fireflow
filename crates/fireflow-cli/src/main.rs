@@ -1,11 +1,13 @@
 use fireflow_core::api::*;
 use fireflow_core::config;
+use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::error::*;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::keys::NonStdMeasPattern;
 
 use clap::{arg, value_parser, Command};
 use serde::ser::Serialize;
+use std::convert::Infallible;
 use std::fmt::Display;
 use std::path::PathBuf;
 
@@ -13,15 +15,15 @@ fn print_json<T: Serialize>(j: &T) {
     println!("{}", serde_json::to_string(j).unwrap());
 }
 
-pub fn print_parsed_data(s: &StdDatasetOutput, _delim: &str) {
-    let df = s.dataset.standardized.core.as_data();
+pub fn print_parsed_data(core: &AnyCoreDataset, _delim: &str) {
+    let df = core.as_data();
     let nrows = df.nrows();
     let cols: Vec<_> = df.iter_columns().collect();
     let ncols = cols.len();
     if ncols == 0 {
         return;
     }
-    let mut ns = s.dataset.standardized.core.shortnames().into_iter();
+    let mut ns = core.shortnames().into_iter();
     print!("{}", ns.next().unwrap());
     for n in ns {
         print!("\t{n}");
@@ -67,7 +69,7 @@ where
     });
 }
 
-fn handle_failure_nowarn<E, T>(f: TerminalFailure<(), E, T>)
+fn handle_failure_nowarn<E, T>(f: TerminalFailure<Infallible, E, T>)
 where
     E: Display,
     T: Display,
@@ -233,8 +235,8 @@ fn main() -> Result<(), ()> {
 
     match args.subcommand() {
         Some(("header", sargs)) => {
-            let mut conf = config::HeaderConfig::default();
-            conf = config::HeaderConfig {
+            let mut conf = config::HeaderConfigInner::default();
+            conf = config::HeaderConfigInner {
                 max_other: sargs.get_one::<usize>("max-other").copied(),
                 other_width: sargs
                     .get_one::<u8>("other-width")
@@ -245,14 +247,15 @@ fn main() -> Result<(), ()> {
                 squish_offsets: sargs.get_flag("squish-offsets"),
                 ..conf
             };
-            fcs_read_header(filepath, &conf)
+            fcs_read_header(filepath, &conf.into())
                 .map(|h| print_json(&h.inner()))
                 .map_err(handle_failure_nowarn)
         }
 
         Some(("raw", sargs)) => {
-            let mut conf = config::RawTextReadConfig::default();
-            conf.header = config::HeaderConfig {
+            let mut conf = config::ReadRawTEXTConfig::default();
+            // let mut conf = config::ReadHeaderAndTEXTConfig::default();
+            conf.raw.header = config::HeaderConfigInner {
                 max_other: sargs.get_one::<usize>("max-other").copied(),
                 other_width: sargs
                     .get_one::<u8>("other-width")
@@ -261,13 +264,13 @@ fn main() -> Result<(), ()> {
                     .unwrap_or_default(),
                 allow_negative: sargs.get_flag("allow-negative"),
                 squish_offsets: sargs.get_flag("squish-offsets"),
-                ..conf.header
+                ..conf.raw.header
             };
-            conf = config::RawTextReadConfig {
+            conf.raw = config::ReadHeaderAndTEXTConfig {
                 trim_value_whitespace: sargs.get_flag("trim-whitespace"),
                 allow_duplicated_stext: sargs.get_flag("allow-dup-stext"),
                 ignore_supp_text: sargs.get_flag("ignore-stext"),
-                ..conf
+                ..conf.raw
             };
             fcs_read_raw_text(filepath, &conf)
                 .map(handle_warnings)
@@ -276,8 +279,8 @@ fn main() -> Result<(), ()> {
         }
 
         Some(("spillover", sargs)) => {
-            let mut conf = config::StdTextReadConfig::default();
-            conf.raw.header = config::HeaderConfig {
+            let mut conf = config::ReadStdTEXTConfig::default();
+            conf.raw.header = config::HeaderConfigInner {
                 max_other: sargs.get_one::<usize>("max-other").copied(),
                 other_width: sargs
                     .get_one::<u8>("other-width")
@@ -295,13 +298,13 @@ fn main() -> Result<(), ()> {
 
             fcs_read_std_text(filepath, &conf)
                 .map(handle_warnings)
-                .map(|std| std.standardized.print_spillover_table(delim))
+                .map(|(core, _)| core.print_comp_or_spillover_table(delim))
                 .map_err(handle_failure)
         }
 
         Some(("measurements", sargs)) => {
-            let mut conf = config::StdTextReadConfig::default();
-            conf.raw.header = config::HeaderConfig {
+            let mut conf = config::ReadStdTEXTConfig::default();
+            conf.raw.header = config::HeaderConfigInner {
                 max_other: sargs.get_one::<usize>("max-other").copied(),
                 other_width: sargs
                     .get_one::<u8>("other-width")
@@ -320,14 +323,14 @@ fn main() -> Result<(), ()> {
 
             fcs_read_std_text(filepath, &conf)
                 .map(handle_warnings)
-                .map(|std| std.standardized.print_meas_table(delim))
+                .map(|(core, _)| core.print_meas_table(delim))
                 .map_err(handle_failure)
         }
 
         Some(("std", sargs)) => {
-            let mut conf = config::StdTextReadConfig::default();
+            let mut conf = config::ReadStdTEXTConfig::default();
 
-            conf.raw.header = config::HeaderConfig {
+            conf.raw.header = config::HeaderConfigInner {
                 max_other: sargs.get_one::<usize>("max-other").copied(),
                 other_width: sargs
                     .get_one::<u8>("other-width")
@@ -346,35 +349,33 @@ fn main() -> Result<(), ()> {
             }
 
             if let Some(m) = sargs.get_one::<String>("ns-meas-pattern").cloned() {
-                conf.nonstandard_measurement_pattern =
+                conf.standard.nonstandard_measurement_pattern =
                     Some(m.parse::<NonStdMeasPattern>().unwrap());
             }
 
             if let Some(m) = sargs.get_one::<String>("time-name").cloned() {
-                conf.time.pattern = Some(m.parse::<config::TimePattern>().unwrap());
+                conf.standard.time_pattern = Some(m.parse::<config::TimePattern>().unwrap());
             }
 
-            conf.time.allow_missing = sargs.get_flag("ensure-time");
+            conf.standard.allow_missing_time = sargs.get_flag("ensure-time");
             conf.raw.allow_duplicated_stext = sargs.get_flag("allow-dup-stext");
             conf.raw.ignore_supp_text = sargs.get_flag("ignore-stext");
             // conf.time.allow_nonlinear_scale = sargs.get_flag("ensure-time-linear");
             // conf.time.allow_nontime_keywords = sargs.get_flag("ensure-time-nogain");
-            conf.allow_pseudostandard = sargs.get_flag("allow-pseudostandard");
-            conf.disallow_deprecated = sargs.get_flag("disallow-deprecated");
+            conf.standard.allow_pseudostandard = sargs.get_flag("allow-pseudostandard");
+            conf.standard.disallow_deprecated = sargs.get_flag("disallow-deprecated");
             conf.raw.trim_value_whitespace = sargs.get_flag("trim-whitespace");
 
             fcs_read_std_text(filepath, &conf)
                 .map(handle_warnings)
-                .map(|std| {
-                    print_json(&std.standardized);
-                })
+                .map(|(core, _)| print_json(&core))
                 .map_err(handle_failure)
         }
 
         Some(("data", sargs)) => {
-            let mut conf = config::DataReadConfig::default();
+            let mut conf = config::ReadStdDatasetConfig::default();
 
-            conf.standard.raw.header = config::HeaderConfig {
+            conf.raw.header = config::HeaderConfigInner {
                 max_other: sargs.get_one::<usize>("max-other").copied(),
                 other_width: sargs
                     .get_one::<u8>("other-width")
@@ -383,19 +384,19 @@ fn main() -> Result<(), ()> {
                     .unwrap_or_default(),
                 allow_negative: sargs.get_flag("allow-negative"),
                 squish_offsets: sargs.get_flag("squish-offsets"),
-                ..conf.standard.raw.header
+                ..conf.raw.header
             };
 
             // get_text_delta(sargs);
             // TODO add DATA delta adjust
-            conf.standard.raw.allow_duplicated_stext = sargs.get_flag("allow-dup-stext");
-            conf.standard.raw.ignore_supp_text = sargs.get_flag("ignore-stext");
-            conf.standard.raw.trim_value_whitespace = sargs.get_flag("trim-whitespace");
+            conf.raw.allow_duplicated_stext = sargs.get_flag("allow-dup-stext");
+            conf.raw.ignore_supp_text = sargs.get_flag("ignore-stext");
+            conf.raw.trim_value_whitespace = sargs.get_flag("trim-whitespace");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
             fcs_read_std_dataset(filepath, &conf)
                 .map(handle_warnings)
-                .map(|res| print_parsed_data(&res, delim))
+                .map(|(core, _)| print_parsed_data(&core, delim))
                 .map_err(handle_failure)
         }
 

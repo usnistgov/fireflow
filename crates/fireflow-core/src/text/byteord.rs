@@ -4,11 +4,13 @@ use crate::validated::ascii_range::{Chars, CharsError};
 use derive_more::{Display, From, FromStr, Into};
 use itertools::Itertools;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-use serde::Serialize;
 use std::fmt;
 use std::num::NonZeroU8;
 use std::num::ParseIntError;
 use std::str::FromStr;
+
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 use super::parser::ReqMetarootKey;
 
@@ -17,7 +19,8 @@ use super::parser::ReqMetarootKey;
 /// This must be a list of integers belonging to the unordered set {1..N} where
 /// N is the total number of bytes. The numbers will be stored as one less the
 /// displayed integers to make array indexing easier.
-#[derive(Clone, Copy, Serialize, From, Display)]
+#[derive(Clone, Copy, From, Display)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum ByteOrd2_0 {
     O1(SizedByteOrd<1>),
     O2(SizedByteOrd<2>),
@@ -29,13 +32,15 @@ pub enum ByteOrd2_0 {
     O8(SizedByteOrd<8>),
 }
 
-#[derive(Clone, Copy, Serialize, From, Display, FromStr, Default)]
+#[derive(Clone, Copy, From, Display, FromStr, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ByteOrd3_1(pub Endian);
 
 /// Endianness
 ///
 /// This is also stored in the $BYTEORD key in 3.1+
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Endian {
     Big,
     #[default]
@@ -45,7 +50,8 @@ pub enum Endian {
 /// Marker type representing lack of byte order.
 ///
 /// This is used in ASCII layouts, for which $BYTEORD is meaningless.
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct NoByteOrd<const ORD: bool>;
 
 pub type NoByteOrd2_0 = NoByteOrd<true>;
@@ -60,7 +66,9 @@ pub type NoByteOrd3_1 = NoByteOrd<false>;
 ///
 /// This may also be '*' which means "delimited ASCII" which is only valid when
 /// $DATATYPE=A.
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash, From)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(test, derive(Debug))]
 #[from(Chars)]
 pub enum Width {
     Fixed(BitsOrChars),
@@ -68,7 +76,9 @@ pub enum Width {
 }
 
 /// The number of bytes for a numeric measurement
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(test, derive(Debug))]
 #[repr(u8)]
 pub enum Bytes {
     B1 = 1,
@@ -85,7 +95,9 @@ pub enum Bytes {
 ///
 /// Subsequent operations can be used to use it as "bytes" or "characters"
 /// depending on what is needed by the column.
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash, From, Into)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(test, derive(Debug))]
 #[from(Chars)]
 #[into(NonZeroU8, u8)]
 pub struct BitsOrChars(NonZeroU8);
@@ -239,6 +251,7 @@ impl Bytes {
     }
 }
 
+#[cfg(feature = "serde")]
 impl<const LEN: usize> Serialize for SizedByteOrd<LEN> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -291,6 +304,13 @@ impl From<NoByteOrd<true>> for ByteOrd2_0 {
 impl From<NoByteOrd<false>> for ByteOrd3_1 {
     fn from(_: NoByteOrd<false>) -> Self {
         Self::default()
+    }
+}
+
+impl SizedByteOrd<2> {
+    pub fn endian(&self) -> Endian {
+        let [x, y] = (*self).into();
+        (y > x).into()
     }
 }
 
@@ -472,12 +492,12 @@ impl FromStr for ByteOrd2_0 {
     }
 }
 
-impl<const LEN: usize> fmt::Display for SizedByteOrd<LEN> {
+impl<const LEN: usize> fmt::Display for SizedByteOrd<LEN>
+where
+    [NonZeroU8; LEN]: From<SizedByteOrd<LEN>>,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Endian(e) => e.fmt(f),
-            Self::Order(o) => write!(f, "{}", o.iter().map(|x| *x + 1).join(",")),
-        }
+        write!(f, "{}", <[NonZeroU8; LEN]>::from(*self).iter().join(","))
     }
 }
 
@@ -503,11 +523,13 @@ impl fmt::Display for Width {
 
 pub struct BitsError(u8);
 
+#[cfg_attr(test, derive(Debug))]
 pub enum ParseByteOrdError {
     Order(NewByteOrdError),
     Format,
 }
 
+#[cfg_attr(test, derive(Debug))]
 pub struct NewByteOrdError(usize);
 
 pub struct NewEndianError;
@@ -651,4 +673,167 @@ impl fmt::Display for VecToArrayError {
             self.vec_len, self.req_len
         )
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test::*;
+
+    #[test]
+    fn test_str_to_byteord_valid() {
+        assert_from_to_str::<ByteOrd2_0>("1");
+        assert_from_to_str::<ByteOrd2_0>("1,2,3,4");
+        assert_from_to_str::<ByteOrd2_0>("1,2,3,4");
+        assert_from_to_str::<ByteOrd2_0>("4,3,2,1");
+        assert_from_to_str::<ByteOrd2_0>("3,4,2,1");
+        assert_from_to_str::<ByteOrd2_0>("1,2,3,4,5,6,7,8");
+    }
+
+    #[test]
+    fn test_str_to_byteord_tolong() {
+        assert!("1,2,3,4,5,6,7,8,9".parse::<ByteOrd2_0>().is_err());
+    }
+
+    #[test]
+    fn test_str_to_byteord_bad_digits() {
+        assert!("0".parse::<ByteOrd2_0>().is_err());
+        assert!("2".parse::<ByteOrd2_0>().is_err());
+    }
+
+    #[test]
+    fn test_str_to_byteord_skipped() {
+        assert!("1,3".parse::<ByteOrd2_0>().is_err());
+    }
+
+    #[test]
+    fn test_str_to_byteord_repeat() {
+        assert!("1,1".parse::<ByteOrd2_0>().is_err());
+    }
+
+    #[test]
+    fn test_str_to_byteord_garbage() {
+        assert!("fortytwo".parse::<ByteOrd2_0>().is_err());
+        assert!("".parse::<ByteOrd2_0>().is_err());
+        assert!("one,two,three".parse::<ByteOrd2_0>().is_err());
+    }
+
+    #[test]
+    fn test_str_to_endian() {
+        assert!("1,2,3,4".parse::<ByteOrd3_1>().is_ok());
+        assert!("4,3,2,1".parse::<ByteOrd3_1>().is_ok());
+        assert!("1,2,3".parse::<ByteOrd3_1>().is_err());
+        assert!("5,4,3,2,1".parse::<ByteOrd3_1>().is_err());
+    }
+
+    #[test]
+    fn test_str_to_width() {
+        assert_eq!("*".parse::<Width>(), Ok(Width::Variable));
+        assert!("1".parse::<Width>().is_ok(),);
+        assert!("255".parse::<Width>().is_ok());
+        assert!("0".parse::<Width>().is_err());
+        assert!("256".parse::<Width>().is_err());
+    }
+
+    #[test]
+    fn test_str_to_width_as_bytes() {
+        assert!(Bytes::try_from("8".parse::<Width>().unwrap()).is_ok());
+        assert!(Bytes::try_from("16".parse::<Width>().unwrap()).is_ok());
+        assert!(Bytes::try_from("64".parse::<Width>().unwrap()).is_ok());
+        assert!(Bytes::try_from("7".parse::<Width>().unwrap()).is_err());
+        assert!(Bytes::try_from("63".parse::<Width>().unwrap()).is_err());
+        assert!(Bytes::try_from("65".parse::<Width>().unwrap()).is_err());
+        assert!(Bytes::try_from("72".parse::<Width>().unwrap()).is_err(),);
+    }
+
+    #[test]
+    fn test_bytes_from_u64() {
+        assert_eq!(Bytes::B1, Bytes::from_u64(0));
+        assert_eq!(Bytes::B1, Bytes::from_u64(255));
+        assert_eq!(Bytes::B2, Bytes::from_u64(256));
+        assert_eq!(Bytes::B2, Bytes::from_u64(65535));
+        assert_eq!(Bytes::B3, Bytes::from_u64(65536));
+        assert_eq!(Bytes::B8, Bytes::from_u64(18446744073709551615));
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::{ByteOrd2_0, Endian, NewByteOrdError, SizedByteOrd, VecToSizedError};
+    use crate::python::macros::impl_value_err;
+
+    use pyo3::{exceptions::PyValueError, prelude::*, types::PyString, IntoPyObjectExt};
+    use std::convert::Infallible;
+    use std::num::NonZeroU8;
+
+    impl<'py> FromPyObject<'py> for Endian {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let xs = ob.extract::<String>()?;
+            match xs.as_str() {
+                "big" => Ok(Self::Big),
+                "little" => Ok(Self::Little),
+                _ => Err(PyValueError::new_err("must be \"big\" or \"little\"")),
+            }
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for Endian {
+        type Target = PyString;
+        type Output = Bound<'py, PyString>;
+        type Error = Infallible;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            match self {
+                Self::Big => "big",
+                Self::Little => "little",
+            }
+            .into_pyobject(py)
+        }
+    }
+
+    impl<'py> FromPyObject<'py> for ByteOrd2_0 {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let xs: Vec<NonZeroU8> = ob.extract()?;
+            let ret = ByteOrd2_0::try_from(&xs[..])?;
+            Ok(ret)
+        }
+    }
+
+    impl<'py, const LEN: usize> FromPyObject<'py> for SizedByteOrd<LEN>
+    where
+        SizedByteOrd<LEN>: TryFrom<Vec<NonZeroU8>, Error = VecToSizedError>,
+    {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let err = || PyValueError::new_err("must be \"little\", \"big\", or a list");
+            if let Ok(s) = ob.extract::<String>() {
+                match s.as_str() {
+                    "little" => Ok(Endian::Little),
+                    "big" => Ok(Endian::Big),
+                    _ => Err(err()),
+                }
+                .map(SizedByteOrd::from)
+            } else if let Ok(xs) = ob.extract::<Vec<NonZeroU8>>() {
+                Ok(SizedByteOrd::<LEN>::try_from(xs)?)
+            } else {
+                Err(err())
+            }
+        }
+    }
+
+    impl<'py, const LEN: usize> IntoPyObject<'py> for SizedByteOrd<LEN> {
+        type Target = PyAny;
+        type Output = Bound<'py, PyAny>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            match self {
+                Self::Endian(Endian::Big) => "big".into_bound_py_any(py),
+                Self::Endian(Endian::Little) => "little".into_bound_py_any(py),
+                Self::Order(xs) => xs.into_pyobject(py),
+            }
+        }
+    }
+
+    impl_value_err!(NewByteOrdError);
+    impl_value_err!(VecToSizedError);
 }

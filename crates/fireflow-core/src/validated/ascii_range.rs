@@ -5,14 +5,17 @@ use crate::text::byteord::{Width, WidthToCharsError};
 use crate::text::keywords::{IntRangeError, Range};
 
 use derive_more::{Display, From, Into};
-use serde::Serialize;
 use std::fmt;
 use std::num::{NonZero, NonZeroU8};
+
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 /// The type of an ASCII column in all versions
 ///
 /// Fields are private to guarantee they are always in sync.
-#[derive(PartialEq, Clone, Copy, Serialize)]
+#[derive(PartialEq, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AsciiRange {
     /// The maximum value of the ASCII column
     value: u64,
@@ -26,7 +29,8 @@ pub struct AsciiRange {
 /// The number of chars for an ASCII measurement
 ///
 /// Must be an integer between 1 and 20.
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Hash, Display, Into)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Hash, Display, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(NonZeroU8, u8)]
 pub struct Chars(NonZeroU8);
 
@@ -100,7 +104,7 @@ impl AsciiRange {
         self.chars
     }
 
-    pub(crate) fn value(&self) -> u64 {
+    pub fn value(&self) -> u64 {
         self.value
     }
 }
@@ -208,4 +212,27 @@ impl fmt::Display for OtherWidthError {
             self.0
         )
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_u8_to_chars() {
+        assert!(Chars::try_from(1_u8).is_ok());
+        assert!(Chars::try_from(0_u8).is_err());
+        assert!(Chars::try_from(20_u8).is_ok());
+        assert!(Chars::try_from(21_u8).is_err());
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::{Chars, CharsError, OtherWidth};
+    use crate::python::macros::{impl_from_py_transparent, impl_try_from_py, impl_value_err};
+
+    impl_from_py_transparent!(OtherWidth);
+    impl_try_from_py!(Chars, u8);
+    impl_value_err!(CharsError);
 }

@@ -1,4 +1,4 @@
-use crate::config::{HeaderConfig, ReadState};
+use crate::config::{HeaderConfigInner, ReadState};
 use crate::error::*;
 use crate::segment::*;
 use crate::text::keywords::*;
@@ -7,13 +7,19 @@ use crate::validated::ascii_uint::*;
 use crate::validated::keys::*;
 
 use derive_more::{Display, From};
+use itertools::Itertools;
 use nonempty::NonEmpty;
-use serde::Serialize;
 use std::fmt;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::iter::repeat;
 use std::str;
+
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
 
 /// The length of the HEADER.
 ///
@@ -24,7 +30,8 @@ pub const HEADER_LEN: u8 = 58;
 /// All FCS versions this library supports.
 ///
 /// This appears as the first 6 bytes of any valid FCS file.
-#[derive(Clone, Copy, Eq, PartialEq, Serialize, PartialOrd, Ord)]
+#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Version {
     FCS2_0,
     FCS3_0,
@@ -34,7 +41,8 @@ pub enum Version {
 
 macro_rules! impl_version {
     ($name:ident, $var:ident) => {
-        #[derive(Clone, Copy, Eq, PartialEq, Serialize)]
+        #[derive(Clone, Copy, Eq, PartialEq)]
+        #[cfg_attr(feature = "serde", derive(Serialize))]
         pub struct $name;
 
         impl From<$name> for Version {
@@ -51,7 +59,9 @@ impl_version!(Version3_1, FCS3_1);
 impl_version!(Version3_2, FCS3_2);
 
 /// The three segments from the HEADER
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct HeaderSegments {
     pub text: PrimaryTextSegment,
     pub data: HeaderDataSegment,
@@ -65,13 +75,17 @@ impl HeaderSegments {
         h: &mut BufWriter<W>,
         version: Version,
     ) -> io::Result<()> {
+        // ASSUME this is a total of 58 bytes long (sans OTHER)
         for s in [
-            version.to_string(),
-            self.text.header_string(),
-            self.data.header_string(),
-            self.analysis.header_string(),
+            version.to_string(),           // 6 bytes
+            "    ".to_string(),            // 4 bytes
+            self.text.header_string(),     // 16 bytes
+            self.data.header_string(),     // 16 bytes
+            self.analysis.header_string(), // 16 bytes
         ]
         .into_iter()
+        // TODO the other segments will each be 20 chars wide and padded with 0,
+        // which is probably overkill
         .chain(self.other.iter().map(|x| x.header_string()))
         {
             h.write_all(s.as_bytes())?;
@@ -172,18 +186,24 @@ impl HeaderSegments {
 /// any OTHER segments after the first 58 bytes.
 ///
 /// Only valid segments are to be put in this struct (ie begin <= end).
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct Header {
     pub version: Version,
     pub segments: HeaderSegments,
 }
 
 impl Header {
-    pub fn h_read<R: Read>(
+    pub fn h_read<C, R>(
         h: &mut BufReader<R>,
-        conf: &ReadState<HeaderConfig>,
-    ) -> MultiResult<Self, ImpureError<HeaderError>> {
-        h_read_required_header(h, conf).and_then(|(version, text, data, analysis)| {
+        st: &ReadState<C>,
+    ) -> MultiResult<Self, ImpureError<HeaderError>>
+    where
+        C: AsRef<HeaderConfigInner>,
+        R: Read,
+    {
+        h_read_required_header(h, st).and_then(|(version, text, data, analysis)| {
             [
                 text.inner.try_coords(),
                 data.inner.try_coords(),
@@ -194,7 +214,7 @@ impl Header {
             .map(|(x, _)| x)
             .min()
             .map_or(Ok(vec![]), |earliest_begin| {
-                h_read_other_segments(h, *earliest_begin, conf)
+                h_read_other_segments(h, *earliest_begin, st)
             })
             .map(|other| Self {
                 version,
@@ -217,9 +237,9 @@ impl Header {
     }
 }
 
-fn h_read_required_header<R: Read>(
+fn h_read_required_header<C, R>(
     h: &mut BufReader<R>,
-    st: &ReadState<HeaderConfig>,
+    st: &ReadState<C>,
 ) -> MultiResult<
     (
         Version,
@@ -228,8 +248,12 @@ fn h_read_required_header<R: Read>(
         HeaderAnalysisSegment,
     ),
     ImpureError<HeaderError>,
-> {
-    let conf = &st.conf;
+>
+where
+    R: Read,
+    C: AsRef<HeaderConfigInner>,
+{
+    let conf = &st.conf.as_ref();
     let vers_res = Version::h_read(h)
         .map_err(NonEmpty::new)
         .mult_map_errors(|e| e.map_inner(HeaderError::Version));
@@ -242,14 +266,7 @@ fn h_read_required_header<R: Read>(
         .mult_map_errors(|e| e.map_inner(HeaderError::Segment));
     vers_res
         .mult_zip3(space_res, offset_res)
-        .map(|(version, (), (text, data, analysis))| {
-            (
-                conf.version_override.unwrap_or(version),
-                text,
-                data,
-                analysis,
-            )
-        })
+        .map(|(version, (), (text, data, analysis))| (version, text, data, analysis))
 }
 
 fn h_read_spaces<R: Read>(h: &mut BufReader<R>) -> Result<(), ImpureError<HeaderError>> {
@@ -262,37 +279,44 @@ fn h_read_spaces<R: Read>(h: &mut BufReader<R>) -> Result<(), ImpureError<Header
     }
 }
 
-fn h_read_primary_segment<R: Read, I>(
+fn h_read_primary_segment<C, R, I>(
     h: &mut BufReader<R>,
     allow_blank: bool,
     corr: HeaderCorrection<I>,
-    st: &ReadState<HeaderConfig>,
+    st: &ReadState<C>,
 ) -> MultiResult<HeaderSegment<I>, ImpureError<HeaderSegmentError>>
 where
+    R: Read,
+    C: AsRef<HeaderConfigInner>,
     I: HasRegion + Copy,
 {
+    let conf = st.conf.as_ref();
     let seg_conf = NewSegmentConfig {
         corr,
         file_len: st.file_len.try_into().ok(),
-        truncate_offsets: st.conf.truncate_offsets,
+        truncate_offsets: conf.truncate_offsets,
     };
     HeaderSegment::<I>::h_read_offsets(
         h,
         allow_blank,
-        st.conf.allow_negative,
-        st.conf.squish_offsets,
+        conf.allow_negative,
+        conf.squish_offsets,
         &seg_conf,
     )
 }
 
-fn h_read_other_segments<R: Read>(
+fn h_read_other_segments<C, R>(
     h: &mut BufReader<R>,
     text_begin: Uint8Digit,
-    st: &ReadState<HeaderConfig>,
-) -> MultiResult<Vec<OtherSegment>, ImpureError<HeaderError>> {
+    st: &ReadState<C>,
+) -> MultiResult<Vec<OtherSegment>, ImpureError<HeaderError>>
+where
+    R: Read,
+    C: AsRef<HeaderConfigInner>,
+{
     // ASSUME this won't fail because we checked that each offset is greater
     // than this
-    let conf = &st.conf;
+    let conf = st.conf.as_ref();
     let n = u64::from(text_begin) - u64::from(HEADER_LEN);
     let w = u8::from(conf.other_width);
     let mut buf0 = vec![];
@@ -337,7 +361,45 @@ impl Version {
             let s = unsafe { str::from_utf8_unchecked(&buf) };
             s.parse().map_err(ImpureError::Pure)
         } else {
-            Err(ImpureError::Pure(VersionError))
+            Err(ImpureError::Pure(VersionError(buf.to_vec())))
+        }
+    }
+
+    pub fn short(&self) -> &'static str {
+        match self {
+            Self::FCS2_0 => "2.0",
+            Self::FCS3_0 => "3.0",
+            Self::FCS3_1 => "3.1",
+            Self::FCS3_2 => "3.2",
+        }
+    }
+
+    pub fn short_underscore(&self) -> &'static str {
+        match self {
+            Self::FCS2_0 => "2_0",
+            Self::FCS3_0 => "3_0",
+            Self::FCS3_1 => "3_1",
+            Self::FCS3_2 => "3_2",
+        }
+    }
+
+    pub fn from_short(s: &str) -> Option<Self> {
+        match s {
+            "2.0" => Some(Self::FCS2_0),
+            "3.0" => Some(Self::FCS3_0),
+            "3.1" => Some(Self::FCS3_1),
+            "3.2" => Some(Self::FCS3_2),
+            _ => None,
+        }
+    }
+
+    pub fn from_short_underscore(s: &str) -> Option<Self> {
+        match s {
+            "2_0" => Some(Self::FCS2_0),
+            "3_0" => Some(Self::FCS3_0),
+            "3_1" => Some(Self::FCS3_1),
+            "3_2" => Some(Self::FCS3_2),
+            _ => None,
         }
     }
 }
@@ -351,7 +413,7 @@ impl str::FromStr for Version {
             "FCS3.0" => Ok(Self::FCS3_0),
             "FCS3.1" => Ok(Self::FCS3_1),
             "FCS3.2" => Ok(Self::FCS3_2),
-            _ => Err(VersionError),
+            _ => Err(VersionError(s.as_bytes().to_vec())),
         }
     }
 }
@@ -400,11 +462,20 @@ impl fmt::Display for InHeaderError {
     }
 }
 
-pub struct VersionError;
+#[derive(Debug)]
+pub struct VersionError(Vec<u8>);
 
 impl fmt::Display for VersionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "could not parse FCS Version")
+        if let Ok(s) = str::from_utf8(&self.0) {
+            write!(f, "'{s}' is not a valid or supported FCS version")
+        } else {
+            write!(
+                f,
+                "could not read FCS version, got bytes [{}]",
+                self.0.iter().join(",")
+            )
+        }
     }
 }
 
@@ -437,6 +508,7 @@ pub(crate) fn make_data_offset_keywords_2_0(
     data_len: u64,
     analysis_len: u64,
     other_lens: Vec<u64>,
+    has_nextdata: bool,
 ) -> Result<HeaderKeywordsToWrite, Uint8DigitOverflow> {
     let (other_segs, other_header_len, other_segments_len) = other_segments(other_lens);
 
@@ -459,13 +531,17 @@ pub(crate) fn make_data_offset_keywords_2_0(
         .map_or(Ok(text_begin), |x| u64::from(x).try_into())?;
     let analysis_seg = HeaderAnalysisSegment::try_new_with_len(analysis_begin, analysis_len)?;
 
-    let nextdata = Nextdata(Uint20Char(
-        analysis_seg
-            .inner
-            .try_next_byte()
-            .map(u64::from)
-            .unwrap_or(u64::from(analysis_begin)),
-    ));
+    let nextdata = Nextdata(if !has_nextdata {
+        Uint20Char(0)
+    } else {
+        Uint20Char(
+            analysis_seg
+                .inner
+                .try_next_byte()
+                .map(u64::from)
+                .unwrap_or(u64::from(analysis_begin)),
+        )
+    });
 
     let header = HeaderSegments {
         text: text_seg,
@@ -500,6 +576,7 @@ pub(crate) fn make_data_offset_keywords_3_0(
     data_len: u64,
     analysis_len: u64,
     other_lens: Vec<u64>,
+    has_nextdata: bool,
 ) -> Result<HeaderKeywordsToWrite, Uint8DigitOverflow> {
     let (other_segs, other_header_len, other_segments_len) = other_segments(other_lens);
     let prim_text_begin: Uint8Digit =
@@ -548,13 +625,17 @@ pub(crate) fn make_data_offset_keywords_3_0(
     let h_analysis_seg = analysis_seg.as_header();
     let h_data_seg = data_seg.as_header();
 
-    let nextdata = Nextdata(Uint20Char(
-        analysis_seg
-            .inner
-            .try_next_byte()
-            .map(u64::from)
-            .unwrap_or(u64::from(analysis_begin)),
-    ));
+    let nextdata = Nextdata(if !has_nextdata {
+        Uint20Char(0)
+    } else {
+        Uint20Char(
+            analysis_seg
+                .inner
+                .try_next_byte()
+                .map(u64::from)
+                .unwrap_or(u64::from(analysis_begin)),
+        )
+    });
 
     // NOTE in 3.2 *DATA and *SDATA are technically optional, but it is much
     // easier just to include them in the "required" stuff regardless.
@@ -641,4 +722,14 @@ fn supp_text_len() -> u64 {
 /// This only applies to 3.0+ since 2.0 only has NEXTDATA.
 fn offsets_len() -> u64 {
     data_len() + analysis_len() + supp_text_len() + nextdata_len()
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::{Version, VersionError};
+    use crate::python::macros::{impl_from_py_via_fromstr, impl_to_py_via_display, impl_value_err};
+
+    impl_to_py_via_display!(Version);
+    impl_from_py_via_fromstr!(Version);
+    impl_value_err!(VersionError);
 }

@@ -1,15 +1,24 @@
 use derive_more::{Display, From, FromStr, Into};
-use serde::Serialize;
 use std::fmt;
 use std::num::NonZeroUsize;
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
+#[cfg(feature = "python")]
+use crate::python::macros::impl_from_py_transparent;
+
 /// An index starting at 1, used as the basis for keyword indices
-#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug, Serialize, Display, FromStr)]
+#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug, Display, FromStr, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct IndexFromOne(NonZeroUsize);
 
 impl From<usize> for IndexFromOne {
     fn from(value: usize) -> Self {
-        IndexFromOne(NonZeroUsize::MIN.saturating_add(value))
+        Self(NonZeroUsize::MIN.saturating_add(value))
     }
 }
 
@@ -22,21 +31,16 @@ impl From<IndexFromOne> for usize {
 macro_rules! newtype_index {
     ($(#[$attr:meta])* $t:ident) => {
         $(#[$attr])*
-        #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug, Serialize,
-                 FromStr, Display, From, Into)]
+        #[cfg_attr(feature = "serde", derive(Serialize))]
+        #[cfg_attr(feature = "python", derive(IntoPyObject))]
+        #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug,
+                 FromStr, Display, From, Into, Hash)]
+        #[from(IndexFromOne, usize)]
+        #[into(IndexFromOne, usize)]
         pub struct $t(pub IndexFromOne);
 
-        impl From<usize> for $t {
-            fn from(value: usize) -> Self {
-                Self(value.into())
-            }
-        }
-
-        impl From<$t> for usize {
-            fn from(value: $t) -> Self {
-                value.0.into()
-            }
-        }
+        #[cfg(feature = "python")]
+        impl_from_py_transparent!($t);
     };
 }
 
@@ -89,7 +93,12 @@ pub struct BoundaryIndexError {
 
 impl fmt::Display for IndexError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "index must be 0 <= i < {}, got {}", self.len, self.index)
+        write!(
+            f,
+            "0-index must be 0 <= i < {}, got {}",
+            self.len,
+            usize::from(self.index)
+        )
     }
 }
 
@@ -97,8 +106,49 @@ impl fmt::Display for BoundaryIndexError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
-            "index must be 0 <= i <= {}, got {}",
-            self.len, self.index
+            "0-index must be 0 <= i <= {}, got {}",
+            self.len,
+            usize::from(self.index)
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::num::NonZero;
+
+    #[test]
+    fn test_zero() {
+        let i = 0_usize;
+        let i0 = IndexFromOne::from(i);
+        let i1 = usize::from(i0);
+        assert_eq!(i, i1);
+        assert_eq!(i0, IndexFromOne(NonZero::new(1).unwrap()));
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::IndexFromOne;
+    use pyo3::prelude::*;
+    use pyo3::types::PyInt;
+    use std::convert::Infallible;
+
+    impl<'py> FromPyObject<'py> for IndexFromOne {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let x: usize = ob.extract()?;
+            Ok(x.into())
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for IndexFromOne {
+        type Target = PyInt;
+        type Output = Bound<'py, PyInt>;
+        type Error = Infallible;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            usize::from(self).into_pyobject(py)
+        }
     }
 }

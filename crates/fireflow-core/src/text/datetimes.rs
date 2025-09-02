@@ -5,15 +5,18 @@ use crate::validated::keys::*;
 use super::optional::*;
 use super::parser::*;
 
-use chrono::{DateTime, FixedOffset};
+use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeZone};
 use derive_more::{AsRef, Display, From, FromStr, Into};
-use serde::Serialize;
 use std::fmt;
 use std::mem;
 use std::str::FromStr;
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
 /// A convenient bundle for the $BEGINDATETIME and $ENDDATETIME keys (3.2+)
-#[derive(Clone, Serialize, Default, AsRef)]
+#[derive(Clone, Default, AsRef, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Datetimes {
     /// Value for the $BEGINDATETIME key.
     #[as_ref(Option<BeginDateTime>)]
@@ -24,29 +27,29 @@ pub struct Datetimes {
     end: Option<EndDateTime>,
 }
 
-#[derive(Clone, Copy, Serialize, From, Into, Display, FromStr)]
+#[derive(Clone, Copy, From, Into, Display, FromStr, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(DateTime<FixedOffset>, FCSDateTime)]
 #[into(DateTime<FixedOffset>, FCSDateTime)]
 pub struct BeginDateTime(pub FCSDateTime);
 
-#[derive(Clone, Copy, Serialize, From, Into, Display, FromStr)]
+#[derive(Clone, Copy, From, Into, Display, FromStr, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(DateTime<FixedOffset>, FCSDateTime)]
 #[into(DateTime<FixedOffset>, FCSDateTime)]
 pub struct EndDateTime(pub FCSDateTime);
 
 /// A datetime as used in the $(BEGIN|END)DATETIME keys (3.2+ only)
-#[derive(Clone, Copy, Serialize, From, Into)]
+#[derive(Clone, Copy, From, Into, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FCSDateTime(pub DateTime<FixedOffset>);
 
 impl Datetimes {
     pub fn try_new(
-        begin: MaybeValue<BeginDateTime>,
-        end: MaybeValue<EndDateTime>,
+        begin: Option<BeginDateTime>,
+        end: Option<EndDateTime>,
     ) -> DatetimesResult<Self> {
-        let ret = Self {
-            begin: begin.0,
-            end: end.0,
-        };
+        let ret = Self { begin, end };
         if ret.valid() {
             Ok(ret)
         } else {
@@ -84,7 +87,7 @@ impl Datetimes {
         let b = BeginDateTime::lookup_opt(kws);
         let e = EndDateTime::lookup_opt(kws);
         b.zip(e).and_tentatively(|(begin, end)| {
-            Datetimes::try_new(begin, end)
+            Datetimes::try_new(begin.0, end.0)
                 .map(Tentative::new1)
                 .unwrap_or_else(|w| {
                     let ow = LookupKeysWarning::Relation(w.into());
@@ -128,19 +131,35 @@ impl FromStr for FCSDateTime {
     type Err = FCSDateTimeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let formats = [
-            "%Y-%m-%dT%H:%M:%S%.f",
-            "%Y-%m-%dT%H:%M:%S%.f%#z",
-            "%Y-%m-%dT%H:%M:%S%.f%:z",
-            "%Y-%m-%dT%H:%M:%S%.f%::z",
-            "%Y-%m-%dT%H:%M:%S%.f%:::z",
-        ];
-        for f in formats {
-            if let Ok(t) = DateTime::parse_from_str(s, f) {
-                return Ok(FCSDateTime(t));
+        // first, try to parse without a timezone, defaulting to localtime and
+        // converting to a fixed offset
+        // TODO this should probably be a warning since it is ambiguous to
+        // parse a timezone based solely on localtime
+        if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f") {
+            Local::now()
+                .timezone()
+                .from_local_datetime(&naive)
+                .single()
+                .map_or_else(
+                    || Err(FCSDateTimeError::Unmapped(s.to_string())),
+                    |t| Ok(FCSDateTime(t.fixed_offset())),
+                )
+        } else {
+            // If zone information is present, try any number of formats which
+            // are valid and mostly equivalent which contain the timezone
+            let formats = [
+                "%Y-%m-%dT%H:%M:%S%.f",
+                "%Y-%m-%dT%H:%M:%S%.f%#z",
+                "%Y-%m-%dT%H:%M:%S%.f%:z",
+                "%Y-%m-%dT%H:%M:%S%.f%:::z",
+            ];
+            for f in formats {
+                if let Ok(t) = DateTime::parse_from_str(s, f) {
+                    return Ok(FCSDateTime(t));
+                }
             }
+            Err(FCSDateTimeError::Other)
         }
-        Err(FCSDateTimeError)
     }
 }
 
@@ -150,10 +169,68 @@ impl fmt::Display for FCSDateTime {
     }
 }
 
-pub struct FCSDateTimeError;
+pub enum FCSDateTimeError {
+    Unmapped(String),
+    Other,
+}
 
 impl fmt::Display for FCSDateTimeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'")
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test::*;
+
+    #[test]
+    fn test_str_to_datetime_local() {
+        assert!("2112-01-01T00:00:00.0".parse::<FCSDateTime>().is_ok());
+    }
+
+    #[test]
+    fn test_datetime_utc() {
+        assert_from_to_str_almost::<FCSDateTime>(
+            "2112-01-01T00:00:00.0Z",
+            "2112-01-01T00:00:00+00:00",
+        );
+    }
+
+    #[test]
+    fn test_datetime_hh() {
+        assert_from_to_str_almost::<FCSDateTime>(
+            "2112-01-01T00:00:00.0+01",
+            "2112-01-01T00:00:00+01:00",
+        );
+    }
+
+    #[test]
+    fn test_datetime_hh_mm() {
+        assert_from_to_str_almost::<FCSDateTime>(
+            "2112-01-01T00:00:00.0+00:01",
+            "2112-01-01T00:00:00+00:01",
+        );
+    }
+
+    #[test]
+    fn test_datetime_hhmm() {
+        assert_from_to_str_almost::<FCSDateTime>(
+            "2112-01-01T00:00:00.0+0001",
+            "2112-01-01T00:00:00+00:01",
+        );
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::{BeginDateTime, EndDateTime, FCSDateTime, ReversedDatetimes};
+    use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
+
+    impl_pyreflow_err!(ReversedDatetimes);
+
+    impl_from_py_transparent!(FCSDateTime);
+    impl_from_py_transparent!(BeginDateTime);
+    impl_from_py_transparent!(EndDateTime);
 }

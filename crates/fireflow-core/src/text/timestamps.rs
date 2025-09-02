@@ -263,7 +263,11 @@ pub struct FCSTimeError;
 
 impl fmt::Display for FCSTimeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be like 'hh:mm:ss'")
+        write!(
+            f,
+            "must be like 'hh:mm:ss' where 'hh' is hours (0-23) and 'mm', \
+             'ss', 'tt' are minutes, seconds respectively (0-59)."
+        )
     }
 }
 
@@ -306,7 +310,9 @@ impl fmt::Display for FCSTime60Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
-            "must be like 'hh:mm:ss[:tt]' where 'tt' is in 1/60th seconds"
+            "must be like 'hh:mm:ss[:tt]' where 'hh' is hours (0-23) and 'mm', \
+             'ss', 'tt' are minutes, seconds, and optional fractional seconds \
+             respectively (0-59)."
         )
     }
 }
@@ -323,7 +329,7 @@ impl FromStr for FCSTime100 {
         NaiveTime::parse_from_str(s, "%H:%M:%S")
             .or_else(|_| {
                 static RE: Lazy<Regex> = Lazy::new(|| {
-                    Regex::new(r"([0-9]{2}):([0-9]{2}):([0-9]{2})\.([0-9]{2})").unwrap()
+                    Regex::new(r"^([0-9]{2}):([0-9]{2}):([0-9]{2})\.([0-9]{2})$").unwrap()
                 });
                 let cap = RE.captures(s).ok_or(FCSTime100Error)?;
                 let [s1, s2, s3, s4] = cap.extract().1;
@@ -350,7 +356,12 @@ pub struct FCSTime100Error;
 
 impl fmt::Display for FCSTime100Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be like 'hh:mm:ss[.cc]'")
+        write!(
+            f,
+            "must be like 'hh:mm:ss[.cc]' where 'hh' is hours (0-23) 'mm' and \
+             'ss' are minutes and seconds respectively (0-59), and 'cc' is \
+             optional centiseconds (0-99)."
+        )
     }
 }
 
@@ -370,12 +381,16 @@ mod tests {
         assert_from_to_str::<FCSTime60>("23:58:00:30");
         // TODO should probably avoid stuff like this
         assert_from_to_str_almost::<FCSTime60>("23:58:00:13", "23:58:00:12");
+        // this is an overflow
+        assert!("23:58:00:60".parse::<FCSTime60>().is_err())
     }
 
     #[test]
     fn test_str_timestamps3_1() {
         assert_from_to_str_almost::<FCSTime100>("23:58:00", "23:58:00.00");
         assert_from_to_str::<FCSTime100>("23:58:00.30");
+        // this is an overflow
+        assert!("23:58:00.100".parse::<FCSTime100>().is_err())
     }
 }
 

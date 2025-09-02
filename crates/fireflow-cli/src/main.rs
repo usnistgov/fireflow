@@ -322,20 +322,25 @@ fn main() -> Result<(), ()> {
         .default_value("\t");
 
     let input_arg = Arg::new(INPUT_PATH)
+        .short('i')
+        .long(INPUT_PATH)
         .value_parser(value_parser!(PathBuf))
+        .help("path to FCS file to parse")
         .required(true);
 
     let cmd = Command::new("fireflow")
         .about("read and write FCS files")
-        .arg(input_arg)
+        .arg_required_else_help(true)
         .subcommand(
             Command::new(SUBCMD_HEADER)
                 .about("show header as JSON")
+                .arg(&input_arg)
                 .args(&all_header_args),
         )
         .subcommand(
             Command::new(SUBCMD_RAW)
                 .about("show raw keywords as JSON")
+                .arg(&input_arg)
                 .args(&all_header_args)
                 .args(&all_raw_args)
                 .args(&all_shared_args),
@@ -343,6 +348,7 @@ fn main() -> Result<(), ()> {
         .subcommand(
             Command::new(SUBCMD_STD)
                 .about("dump standardized keywords as JSON")
+                .arg(&input_arg)
                 .args(&all_header_args)
                 .args(&all_raw_args)
                 .args(&all_std_args)
@@ -353,6 +359,7 @@ fn main() -> Result<(), ()> {
         .subcommand(
             Command::new(SUBCMD_MEAS)
                 .about("show a table of standardized measurement values")
+                .arg(&input_arg)
                 .args(&all_header_args)
                 .args(&all_raw_args)
                 .args(&all_std_args)
@@ -364,6 +371,7 @@ fn main() -> Result<(), ()> {
         .subcommand(
             Command::new(SUBCMD_SPILL)
                 .about("dump the spillover matrix if present")
+                .arg(&input_arg)
                 .args(&all_header_args)
                 .args(&all_raw_args)
                 .args(&all_std_args)
@@ -375,6 +383,7 @@ fn main() -> Result<(), ()> {
         .subcommand(
             Command::new(SUBCMD_DATA)
                 .about("show a table of the DATA segment")
+                .arg(&input_arg)
                 .args(&all_header_args)
                 .args(&all_raw_args)
                 .args(&all_std_args)
@@ -387,11 +396,10 @@ fn main() -> Result<(), ()> {
 
     let args = cmd.get_matches();
 
-    let filepath = parse_input_path(&args);
-
     match args.subcommand() {
         Some((SUBCMD_HEADER, sargs)) => {
             let conf = parse_header_config(sargs);
+            let filepath = parse_input_path(sargs);
             fcs_read_header(filepath, &conf.into())
                 .map(|h| print_json(&h.inner()))
                 .map_err(handle_failure_nowarn)
@@ -399,6 +407,7 @@ fn main() -> Result<(), ()> {
 
         Some((SUBCMD_RAW, sargs)) => {
             let conf = parse_raw_config(sargs);
+            let filepath = parse_input_path(sargs);
             fcs_read_raw_text(filepath, &conf)
                 .map(handle_warnings)
                 .map(|raw| print_json(&raw))
@@ -408,6 +417,7 @@ fn main() -> Result<(), ()> {
         Some((SUBCMD_SPILL, sargs)) => {
             let conf = parse_std_config(sargs);
             let delim = parse_delim(sargs);
+            let filepath = parse_input_path(sargs);
             fcs_read_std_text(filepath, &conf)
                 .map(handle_warnings)
                 .map(|(core, _)| core.print_comp_or_spillover_table(delim))
@@ -417,6 +427,7 @@ fn main() -> Result<(), ()> {
         Some((SUBCMD_MEAS, sargs)) => {
             let conf = parse_std_config(sargs);
             let delim = parse_delim(sargs);
+            let filepath = parse_input_path(sargs);
             fcs_read_std_text(filepath, &conf)
                 .map(handle_warnings)
                 .map(|(core, _)| core.print_meas_table(delim))
@@ -425,6 +436,7 @@ fn main() -> Result<(), ()> {
 
         Some((SUBCMD_STD, sargs)) => {
             let conf = parse_std_config(sargs);
+            let filepath = parse_input_path(sargs);
             fcs_read_std_text(filepath, &conf)
                 .map(handle_warnings)
                 .map(|(core, _)| print_json(&core))
@@ -434,6 +446,7 @@ fn main() -> Result<(), ()> {
         Some((SUBCMD_DATA, sargs)) => {
             let conf = parse_dataset_config(sargs);
             let delim = parse_delim(sargs);
+            let filepath = parse_input_path(sargs);
             fcs_read_std_dataset(filepath, &conf)
                 .map(handle_warnings)
                 .map(|(core, _)| print_parsed_data(&core, delim))

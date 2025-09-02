@@ -95,74 +95,65 @@ fn main() -> Result<(), ()> {
         "adjustment for end supplemental TEXT offset",
     );
 
-    let allow_dup_stext = Arg::new(ALLOW_DUP_STEXT)
-        .long(ALLOW_DUP_STEXT)
-        .help("only throw warning if STEXT is same as TEXT");
+    let allow_dup_stext = flag_arg(
+        ALLOW_DUP_STEXT,
+        "only throw warning if STEXT is same as TEXT",
+    );
 
-    let ignore_stext = Arg::new(IGNORE_SSTEXT)
-        .long(IGNORE_SSTEXT)
-        .help("ignore STEXT entirely");
+    let ignore_stext = flag_arg(IGNORE_SSTEXT, "ignore STEXT entirely");
 
-    let lit_delims = Arg::new(LIT_DELIMS)
-        .long(LIT_DELIMS)
-        .help("treat every delim as literal (no escaping)");
+    let lit_delims = flag_arg(LIT_DELIMS, "treat every delim as literal (no escaping)");
 
-    let non_ascii_delim = Arg::new(ALLOW_NON_ASCII_DELIM)
-        .long(ALLOW_NON_ASCII_DELIM)
-        .help("allow delim to be non-ascii character");
+    let non_ascii_delim = flag_arg(
+        ALLOW_NON_ASCII_DELIM,
+        "allow delim to be non-ascii character",
+    );
 
-    let missing_final_delim = Arg::new(ALLOW_MISSING_FINAL_DELIM)
-        .long(ALLOW_MISSING_FINAL_DELIM)
-        .help("allow final delimiter to be missing from TEXT");
+    let missing_final_delim = flag_arg(
+        ALLOW_MISSING_FINAL_DELIM,
+        "allow final delimiter to be missing from TEXT",
+    );
 
-    let allow_non_unique = Arg::new(ALLOW_NON_UNIQUE)
-        .long(ALLOW_NON_UNIQUE)
-        .help("allow non-unique keys to exist");
+    let allow_non_unique = flag_arg(ALLOW_NON_UNIQUE, "allow non-unique keys to exist");
 
-    let allow_odd = Arg::new(ALLOW_ODD)
-        .long(ALLOW_ODD)
-        .help("allow odd number of words in TEXT");
+    let allow_odd = flag_arg(ALLOW_ODD, "allow odd number of words in TEXT");
 
-    let allow_empty = Arg::new(ALLOW_EMPTY)
-        .long(ALLOW_EMPTY)
-        .help("allow keys to have blank values");
+    let allow_empty = flag_arg(ALLOW_EMPTY, "allow keys to have blank values");
 
-    let allow_delim_at_bound = Arg::new(ALLOW_DELIM_AT_BOUNDARY)
-        .long(ALLOW_DELIM_AT_BOUNDARY)
-        .help("allow delims to be at word boundaries");
+    let allow_delim_at_bound = flag_arg(
+        ALLOW_DELIM_AT_BOUNDARY,
+        "allow delims to be at word boundaries",
+    );
 
-    let allow_non_utf8 = Arg::new(ALLOW_NON_UTF8)
-        .long(ALLOW_NON_UTF8)
-        .help("allow non-utf8 characters in TEXT");
+    let allow_non_utf8 = flag_arg(ALLOW_NON_UTF8, "allow non-utf8 characters in TEXT");
 
-    let allow_non_ascii_keywords = Arg::new(ALLOW_NON_ASCII_KEYWORDS)
-        .long(ALLOW_NON_ASCII_KEYWORDS)
-        .help("allow non-ascii keys");
+    let allow_non_ascii_keywords = flag_arg(ALLOW_NON_ASCII_KEYWORDS, "allow non-ascii keys");
 
-    let allow_missing_stext = Arg::new(ALLOW_MISSING_STEXT)
-        .long(ALLOW_MISSING_STEXT)
-        .help("allow supplemental TEXT offsets to be missing");
+    let allow_missing_stext = flag_arg(
+        ALLOW_MISSING_STEXT,
+        "allow supplemental TEXT offsets to be missing",
+    );
 
-    let allow_stext_own_delim = Arg::new(ALLOW_STEXT_OWN_DELIM)
-        .long(ALLOW_STEXT_OWN_DELIM)
-        .help("allow delimiters in primary and supplemental TEXT to differ");
+    let allow_stext_own_delim = flag_arg(
+        ALLOW_STEXT_OWN_DELIM,
+        "allow delimiters in primary and supplemental TEXT to differ",
+    );
 
-    let allow_missing_nextdata = Arg::new(ALLOW_MISSING_NEXTDATA)
-        .long(ALLOW_MISSING_NEXTDATA)
-        .help("allow $NEXTDATA to be missing");
+    let allow_missing_nextdata = flag_arg(ALLOW_MISSING_NEXTDATA, "allow $NEXTDATA to be missing");
 
-    let trim_value_whitespace = Arg::new(TRIM_VALUE_WHITESPACE)
-        .long(TRIM_VALUE_WHITESPACE)
-        .help("trim whitespace from all values");
+    let trim_value_whitespace = flag_arg(TRIM_VALUE_WHITESPACE, "trim whitespace from all values");
 
     let date_pattern = Arg::new(DATE_PATTERN)
         .long(DATE_PATTERN)
+        .value_name("REGEXP")
         .help("pattern to match $DATE keyword if it is non-conferment");
 
     let all_raw_args = [
         version_override,
         supp_text_correction_begin,
         supp_text_correction_end,
+        allow_dup_stext,
+        ignore_stext,
         lit_delims,
         non_ascii_delim,
         missing_final_delim,
@@ -186,21 +177,22 @@ fn main() -> Result<(), ()> {
         .value_name("REGEXP")
         .help("pattern to use when matching time measurement");
 
-    let allow_missing_time = Arg::new(ALLOW_MISSING_TIME)
-        .long(ALLOW_MISSING_TIME)
-        .help("allow time measurement to be missing");
+    let allow_missing_time = flag_arg(ALLOW_MISSING_TIME, "allow time measurement to be missing");
 
-    let allow_pseudostandard = Arg::new(ALLOW_PSEUDOSTANDARD)
-        .long(ALLOW_PSEUDOSTANDARD)
-        .help("allow non-standard keywords that start with a '$'");
+    let allow_pseudostandard = flag_arg(
+        ALLOW_PSEUDOSTANDARD,
+        "allow non-standard keywords that start with a '$'",
+    );
 
-    let disallow_deprecated = Arg::new(DISALLOW_DEPRECATED)
-        .long(DISALLOW_DEPRECATED)
-        .help("throw error if any deprecated keywords are present");
+    let disallow_deprecated = flag_arg(
+        DISALLOW_DEPRECATED,
+        "throw error if any deprecated keywords are present",
+    );
 
-    let fix_log_scale_offset = Arg::new(FIX_LOG_SCALE_OFFSETS)
-        .long(FIX_LOG_SCALE_OFFSETS)
-        .help("fix PnE keys that have log scaling with zero offset (ie 'X,0.0')");
+    let fix_log_scale_offset = flag_arg(
+        FIX_LOG_SCALE_OFFSETS,
+        "fix PnE keys that have log scaling with zero offset (ie 'X,0.0')",
+    );
 
     let ns_meas_pattern = Arg::new(NS_MEAS_PATTERN)
         .long(NS_MEAS_PATTERN)
@@ -239,25 +231,30 @@ fn main() -> Result<(), ()> {
         "adjustment for end ANALYSIS offset from TEXT",
     );
 
-    let ignore_text_data_offsets = Arg::new(IGNORE_TEXT_DATA_OFFSETS)
-        .long(IGNORE_TEXT_DATA_OFFSETS)
-        .help("ignore offsets for DATA from TEXT");
+    let ignore_text_data_offsets = flag_arg(
+        IGNORE_TEXT_DATA_OFFSETS,
+        "ignore offsets for DATA from TEXT",
+    );
 
-    let ignore_text_analysis_offsets = Arg::new(IGNORE_TEXT_ANALYSIS_OFFSETS)
-        .long(IGNORE_TEXT_ANALYSIS_OFFSETS)
-        .help("ignore offsets for ANALYSIS from TEXT");
+    let ignore_text_analysis_offsets = flag_arg(
+        IGNORE_TEXT_ANALYSIS_OFFSETS,
+        "ignore offsets for ANALYSIS from TEXT",
+    );
 
-    let allow_header_text_offset_mismatch = Arg::new(ALLOW_HEADER_TEXT_OFFSET_MISMATCH)
-        .long(ALLOW_HEADER_TEXT_OFFSET_MISMATCH)
-        .help("allow HEADER and TEXT offsets to be different, in which case HEADER will be used");
+    let allow_header_text_offset_mismatch = flag_arg(
+        ALLOW_HEADER_TEXT_OFFSET_MISMATCH,
+        "allow HEADER and TEXT offsets to be different, in which case HEADER will be used",
+    );
 
-    let allow_missing_required_offsets = Arg::new(ALLOW_MISSING_REQUIRED_OFFSETS)
-        .long(ALLOW_MISSING_REQUIRED_OFFSETS)
-        .help("allow required offsets to be missing from TEXT (3.0/3.1)");
+    let allow_missing_required_offsets = flag_arg(
+        ALLOW_MISSING_REQUIRED_OFFSETS,
+        "allow required offsets to be missing from TEXT (3.0/3.1)",
+    );
 
-    let truncate_text_offsets = Arg::new(TRUNCATE_TEXT_OFFSETS)
-        .long(TRUNCATE_TEXT_OFFSETS)
-        .help("truncate offsets in TEXT if they exceed end of file");
+    let truncate_text_offsets = flag_arg(
+        TRUNCATE_TEXT_OFFSETS,
+        "truncate offsets in TEXT if they exceed end of file",
+    );
 
     let all_offset_args = [
         text_data_correction_begin,
@@ -273,24 +270,22 @@ fn main() -> Result<(), ()> {
 
     // layout args
 
-    let int_widths_from_byteord = Arg::new(INT_WIDTHS_FROM_BYTEORD)
-        .long(INT_WIDTHS_FROM_BYTEORD)
-        .help(
-            "set $PnB based on length of $BYTEORD; \
-             only has effect on integer layouts in 2.0/3.0",
-        );
+    let int_widths_from_byteord = flag_arg(
+        INT_WIDTHS_FROM_BYTEORD,
+        "set $PnB based on length of $BYTEORD; \
+         only has effect on integer layouts in 2.0/3.0",
+    );
 
     let int_byteord_override = Arg::new(INT_BYTEORD_OVERRIDE)
         .long(INT_BYTEORD_OVERRIDE)
         .value_name("BYTEORD")
         .help("override the value of $BYTEORD; only has effect on integer layouts in 2.0/3.0");
 
-    let disallow_range_truncation = Arg::new(DISALLOW_RANGE_TRUNCATION)
-        .long(DISALLOW_RANGE_TRUNCATION)
-        .help(
-            "throw error if $PnR values need to be truncated to fit in type \
-             dictated by $DATATYPE and $PnB.",
-        );
+    let disallow_range_truncation = flag_arg(
+        DISALLOW_RANGE_TRUNCATION,
+        "throw error if $PnR values need to be truncated to fit in type \
+         dictated by $DATATYPE and $PnB.",
+    );
 
     let all_layout_args = [
         int_widths_from_byteord,
@@ -300,21 +295,21 @@ fn main() -> Result<(), ()> {
 
     // dataset args
 
-    let allow_uneven_event_width = Arg::new(ALLOW_UNEVEN_EVENT_WIDTH)
-        .long(ALLOW_UNEVEN_EVENT_WIDTH)
-        .help("allow event width to not evenly divide length of DATA");
+    let allow_uneven_event_width = flag_arg(
+        ALLOW_UNEVEN_EVENT_WIDTH,
+        "allow event width to not evenly divide length of DATA",
+    );
 
-    let allow_tot_mismatch = Arg::new(ALLOW_TOT_MISMATCH)
-        .long(ALLOW_TOT_MISMATCH)
-        .help("allow $TOT to mismatch the number of events that are actually in DATA");
+    let allow_tot_mismatch = flag_arg(
+        ALLOW_TOT_MISMATCH,
+        "allow $TOT to mismatch the number of events that are actually in DATA",
+    );
 
     let all_dataset_args = [allow_uneven_event_width, allow_tot_mismatch];
 
     // shared args
 
-    let warnings_are_errors = Arg::new(WARNINGS_ARE_ERRORS)
-        .long(WARNINGS_ARE_ERRORS)
-        .help("treat all warnings as fatal errors");
+    let warnings_are_errors = flag_arg(WARNINGS_ARE_ERRORS, "treat all warnings as fatal errors");
 
     let all_shared_args = [warnings_are_errors];
 
@@ -353,9 +348,7 @@ fn main() -> Result<(), ()> {
                 .args(&all_std_args)
                 .args(&all_offset_args)
                 .args(&all_layout_args)
-                .args(&all_shared_args)
-                .arg(&allow_dup_stext)
-                .arg(&ignore_stext),
+                .args(&all_shared_args),
         )
         .subcommand(
             Command::new(SUBCMD_MEAS)
@@ -487,7 +480,7 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
     let stext1 = sargs.get_one(SUPP_TEXT_COR_END).copied();
     let supp_text_correction = (stext0, stext1).into();
     let date_pattern = sargs
-        .get_one::<String>("date-pattern")
+        .get_one::<String>(DATE_PATTERN)
         .cloned()
         .map(|d| d.parse::<DatePattern>().unwrap());
     config::ReadHeaderAndTEXTConfig {

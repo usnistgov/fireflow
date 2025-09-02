@@ -250,6 +250,7 @@ type AnyWriterBitmask<'a> = AnyBitmask<ColumnWriterFamily<'a>>;
 /// The type of any floating point column in all versions
 #[derive(PartialEq, Clone, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", serde(transparent))]
 pub struct FloatRange<T, const LEN: usize> {
     pub range: FloatDecimal<T>,
 }

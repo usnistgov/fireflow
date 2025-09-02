@@ -13,6 +13,7 @@ use serde::Serialize;
 /// A big decimal which has been validated to be within the range of a float.
 #[derive(Clone, Into, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", serde(transparent))]
 pub struct FloatDecimal<T> {
     #[into]
     value: BigDecimal,

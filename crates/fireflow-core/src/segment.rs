@@ -21,9 +21,18 @@ use std::str::FromStr;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+/// A segment that is specific to a region in the FCS file.
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", serde(transparent))]
+pub struct SpecificSegment<I, S, T> {
+    pub inner: Segment<T>,
+    _id: PhantomData<I>,
+    _src: PhantomData<S>,
+}
+
 /// A segment in an FCS file which is denoted by a pair of offsets
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Segment<T> {
     NonEmpty(NonEmptySegment<T>),
     #[default]
@@ -35,15 +44,6 @@ pub enum Segment<T> {
 pub struct NonEmptySegment<T> {
     begin: T,
     end: T,
-}
-
-/// A segment that is specific to a region in the FCS file.
-#[derive(Clone, Copy)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct SpecificSegment<I, S, T> {
-    pub inner: Segment<T>,
-    _id: PhantomData<I>,
-    _src: PhantomData<S>,
 }
 
 /// Denotes a correction for a segment
@@ -1246,6 +1246,30 @@ pub(crate) struct NewSegmentConfig<T, I, S> {
     pub(crate) corr: OffsetCorrection<I, S>,
     pub(crate) file_len: Option<T>,
     pub(crate) truncate_offsets: bool,
+}
+
+#[cfg(feature = "serde")]
+mod serialize {
+    use super::*;
+
+    use serde::ser::{Serialize, SerializeStruct, Serializer};
+
+    impl<T: Serialize> Serialize for Segment<T> {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            match self {
+                Self::NonEmpty(s) => s.serialize(serializer),
+                Self::Empty => {
+                    let mut state = serializer.serialize_struct("EmptySegment", 2)?;
+                    state.serialize_field("start", "0")?;
+                    state.serialize_field("end", "0")?;
+                    state.end()
+                }
+            }
+        }
+    }
 }
 
 #[cfg(feature = "python")]

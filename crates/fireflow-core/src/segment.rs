@@ -494,7 +494,7 @@ impl<I, S> From<(i32, i32)> for OffsetCorrection<I, S> {
 
 impl<I, S> From<(Option<i32>, Option<i32>)> for OffsetCorrection<I, S> {
     fn from(value: (Option<i32>, Option<i32>)) -> Self {
-        Self::from((value.0.unwrap_or_default(), value.0.unwrap_or_default()))
+        Self::from((value.0.unwrap_or_default(), value.1.unwrap_or_default()))
     }
 }
 

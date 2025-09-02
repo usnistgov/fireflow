@@ -579,8 +579,10 @@ impl fmt::Display for TemporalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         // TODO include meas idx here
         match self {
-            TemporalError::NonLinear => write!(f, "$PnE must be '0,0'"),
-            TemporalError::HasGain => write!(f, "$PnG must not be set"),
+            TemporalError::NonLinear => f.write_str("$PnE must be '0,0' for temporal measurement"),
+            TemporalError::HasGain => {
+                f.write_str("$PnG must not be 1.0 or not set for temporal measurement")
+            }
         }
     }
 }

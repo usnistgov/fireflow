@@ -6393,7 +6393,7 @@ impl LookupTemporal for InnerTemporal3_0 {
     ) -> LookupResult<Self> {
         let mut tnt_gain = Gain::lookup_opt(kws, i.into());
         tnt_gain.eval_error(|gain| {
-            if gain.0.is_some() {
+            if gain.0.is_some_and(|g| g.0 != PositiveFloat::one()) {
                 Some(LookupKeysError::Misc(TemporalError::HasGain.into()))
             } else {
                 None

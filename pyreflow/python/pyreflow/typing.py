@@ -75,6 +75,20 @@ MixedType: TypeAlias = (
     tuple[FloatType | DoubleType, FloatRange] | tuple[AsciiType | IntegerType, IntRange]
 )
 
+TemporalOpticalKey = Literal[
+    "F",
+    "L",
+    "O",
+    "T",
+    "P",
+    "V",
+    "CALIBRATION",
+    "DET",
+    "TAG",
+    "FEATURE",
+    "ANALYTE",
+]
+
 AnyCoreTEXT: TypeAlias = (
     pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreTEXT3_1 | pf.CoreTEXT3_2
 )

@@ -12,6 +12,7 @@ from pyreflow.typing import (
     OffsetCorrection,
     AnalysisBytes,
     OtherBytes,
+    TemporalOpticalKey,
 )
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -513,6 +514,10 @@ _STD_ARGS: dict[str, list[str]] = {
         )
     ],
     "allow_missing_time": ["If ``True`` allow time measurement to be missing."],
+    "ignore_time_optical_keys": [
+        "Ignore optical keys in temporal measurement.",
+        'Provided keys are the string after the "Pn" in the "PnX" keywords.',
+    ],
     "allow_pseudostandard": [
         "If ``True`` allow non-standard keywords with a leading *$*. "
         "The presence of such keywords often means the version in *HEADER* is incorrect."
@@ -742,6 +747,7 @@ def fcs_read_std_text(
     # standard args
     time_pattern: str | None = DEFAULT_TIME_PATTERN,
     allow_missing_time: bool = False,
+    ignore_time_optical_keys: set[TemporalOpticalKey] = set(),
     allow_pseudostandard: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
@@ -893,6 +899,7 @@ def fcs_read_std_dataset(
     # standard args
     time_pattern: str | None = DEFAULT_TIME_PATTERN,
     allow_missing_time: bool = False,
+    ignore_time_optical_keys: set[TemporalOpticalKey] = set(),
     allow_pseudostandard: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
@@ -996,6 +1003,7 @@ def fcs_read_std_dataset_with_keywords(
     # standard args
     time_pattern: str | None = DEFAULT_TIME_PATTERN,
     allow_missing_time: bool = False,
+    ignore_time_optical_keys: set[TemporalOpticalKey] = set(),
     allow_pseudostandard: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,

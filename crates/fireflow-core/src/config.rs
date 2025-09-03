@@ -12,13 +12,18 @@
 use crate::header::Version;
 use crate::segment::*;
 use crate::text::byteord::ByteOrd2_0;
+use crate::text::index::MeasIndex;
+use crate::text::keywords as kws;
 use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::keys;
+use crate::validated::keys::IndexedKey;
 use crate::validated::textdelim::TEXTDelim;
 
 use derive_more::{AsRef, Display, From, FromStr};
 use regex::Regex;
+use std::collections::HashSet;
+use std::fmt;
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
@@ -521,6 +526,8 @@ pub struct StdTextReadConfig {
     /// If true, allow time to not be present even if we specify ['pattern'].
     pub allow_missing_time: bool,
 
+    pub ignore_time_optical_keys: HashSet<TemporalOpticalKey>,
+
     /// If true, allow non-standard keywords starting with '$'.
     ///
     /// The '$' prefix is reserved for standard keywords only. While little harm
@@ -629,6 +636,95 @@ pub struct SharedConfig {
 #[derive(Clone, FromStr, Display)]
 pub struct TimePattern(pub Regex);
 
+/// Measurement keywords which are not allowed for temporal measurements.
+///
+/// These can optionally be ignored via config.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub enum TemporalOpticalKey {
+    /// PnF
+    Filter,
+    /// PnL
+    Wavelength,
+    /// PnO
+    Power,
+    /// PnT
+    DetectorType,
+    /// PnV
+    DetectorVoltage,
+    /// PnP
+    PercentEmitted,
+    /// PnCALIBRATION
+    Calibration,
+    /// PnDET
+    DetectorName,
+    /// PnTAG
+    Tag,
+    /// PnFEATURE
+    Feature,
+    /// PnANALYTE
+    Analyte,
+}
+
+impl std::str::FromStr for TemporalOpticalKey {
+    type Err = ParseTemporalOpticalKeyError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "F" => Ok(Self::Filter),
+            "L" => Ok(Self::Wavelength),
+            "O" => Ok(Self::Power),
+            "T" => Ok(Self::DetectorType),
+            "P" => Ok(Self::PercentEmitted),
+            "V" => Ok(Self::DetectorVoltage),
+            "CALIBRATION" => Ok(Self::Calibration),
+            "DET" => Ok(Self::DetectorName),
+            "TAG" => Ok(Self::Tag),
+            "FEATURE" => Ok(Self::Feature),
+            "ANALYTE" => Ok(Self::Analyte),
+            _ => Err(ParseTemporalOpticalKeyError),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ParseTemporalOpticalKeyError;
+
+impl fmt::Display for ParseTemporalOpticalKeyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        f.write_str(
+            "must be one of  'F', 'L', 'O', 'T', 'P', 'V', \
+             'CALIBRATION', 'DET', 'TAG', 'FEATURE', or 'ANALYTE'",
+        )
+    }
+}
+
+impl TemporalOpticalKey {
+    pub(crate) fn std_key(&self, i: MeasIndex) -> keys::StdKey {
+        let j = i.into();
+        match self {
+            Self::Filter => kws::Filter::std(j),
+            // ASSUME this is the same for all versions
+            Self::Wavelength => kws::Wavelength::std(j),
+            Self::Power => kws::Power::std(j),
+            Self::DetectorType => kws::DetectorType::std(j),
+            Self::DetectorVoltage => kws::DetectorVoltage::std(j),
+            Self::PercentEmitted => kws::PercentEmitted::std(j),
+            // ASSUME this is the same for all versions
+            Self::Calibration => kws::Calibration3_1::std(j),
+            Self::DetectorName => kws::DetectorName::std(j),
+            Self::Tag => kws::Tag::std(j),
+            Self::Feature => kws::Feature::std(j),
+            Self::Analyte => kws::Analyte::std(j),
+        }
+    }
+
+    pub(crate) fn remove_keys(xs: &HashSet<Self>, kws: &mut keys::StdKeywords, i: MeasIndex) {
+        for x in xs.iter() {
+            let k = x.std_key(i);
+            let _ = kws.remove(&k);
+        }
+    }
+}
+
 impl Default for TimePattern {
     fn default() -> Self {
         Self(Regex::new("^(TIME|Time)$").unwrap())
@@ -652,9 +748,15 @@ impl<C> ReadState<C> {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{OffsetCorrection, TimePattern};
+    use crate::python::macros::{impl_from_py_via_fromstr, impl_value_err};
+
+    use super::{OffsetCorrection, ParseTemporalOpticalKeyError, TemporalOpticalKey, TimePattern};
+
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
+
+    impl_from_py_via_fromstr!(TemporalOpticalKey);
+    impl_value_err!(ParseTemporalOpticalKeyError);
 
     impl<'py> FromPyObject<'py> for TimePattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {

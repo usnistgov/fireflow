@@ -179,6 +179,15 @@ fn main() -> Result<(), ()> {
 
     let allow_missing_time = flag_arg(ALLOW_MISSING_TIME, "allow time measurement to be missing");
 
+    let ignore_time_optical_keys = Arg::new(IGNORE_TIME_OPTICAL_KEYS)
+        .long(IGNORE_TIME_OPTICAL_KEYS)
+        .action(ArgAction::Append)
+        .value_name("KEY")
+        .help(
+            "optical keywords to ignore on temporal measurement, must be a \
+             single file like the X in 'PnX'",
+        );
+
     let allow_pseudostandard = flag_arg(
         ALLOW_PSEUDOSTANDARD,
         "allow non-standard keywords that start with a '$'",
@@ -205,6 +214,7 @@ fn main() -> Result<(), ()> {
     let all_std_args = [
         time_pattern,
         allow_missing_time,
+        ignore_time_optical_keys,
         allow_pseudostandard,
         disallow_deprecated,
         fix_log_scale_offset,
@@ -534,8 +544,14 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::StdTextReadConfig {
         .get_one::<String>(NS_MEAS_PATTERN)
         .cloned()
         .map(|s| s.parse::<NonStdMeasPattern>().unwrap());
+    let ignore_time_optical_keys = sargs
+        .get_many::<String>(IGNORE_TIME_OPTICAL_KEYS)
+        .unwrap_or_default()
+        .map(|s| s.parse::<config::TemporalOpticalKey>().unwrap())
+        .collect();
     config::StdTextReadConfig {
         time_pattern,
+        ignore_time_optical_keys,
         allow_missing_time: sargs.get_flag(ALLOW_MISSING_TIME),
         allow_pseudostandard: sargs.get_flag(ALLOW_PSEUDOSTANDARD),
         disallow_deprecated: sargs.get_flag(DISALLOW_DEPRECATED),
@@ -772,6 +788,8 @@ const WARNINGS_ARE_ERRORS: &str = "warnings-are-errors";
 const TIME_PATTERN: &str = "time-pattern";
 
 const ALLOW_MISSING_TIME: &str = "allow-missing-time";
+
+const IGNORE_TIME_OPTICAL_KEYS: &str = "ignore-time-optical-keys";
 
 const ALLOW_PSEUDOSTANDARD: &str = "allow-pseudostandard";
 

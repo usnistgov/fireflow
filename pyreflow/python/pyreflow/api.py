@@ -518,16 +518,20 @@ _STD_ARGS: dict[str, list[str]] = {
         "If ``True`` force the time channel to be linear independent of *$PnE*."
     ],
     "ignore_time_gain": [
-        "If ``True`` ignore the *$PnG* (gain) keyword.",
-        "This keyword should not be set according to the standard.",
-        "This library will allow gain to be 1.0 since this equates to identity."
-        "If gain is not 1.0, this is nonsense and it can be ignored with this flag.",
+        (
+            "If ``True`` ignore the *$PnG* (gain) keyword. "
+            "This keyword should not be set according to the standard. "
+            "This library will allow gain to be 1.0 since this equates to identity. "
+            "If gain is not 1.0, this is nonsense and it can be ignored with this flag."
+        )
     ],
     "ignore_time_optical_keys": [
-        "Ignore optical keys in temporal measurement.",
-        "These keys are nonsensical for time measurements but are not explicitly",
-        "forbidden in the the standard.",
-        'Provided keys are the string after the "Pn" in the "PnX" keywords.',
+        (
+            "Ignore optical keys in temporal measurement. "
+            "These keys are nonsensical for time measurements but are not explicitly "
+            "forbidden in the the standard. "
+            'Provided keys are the string after the "Pn" in the "PnX" keywords.'
+        )
     ],
     "allow_pseudostandard": [
         "If ``True`` allow non-standard keywords with a leading *$*. "

@@ -1,4 +1,4 @@
-use crate::config::TimePattern;
+use crate::config::{StdTextReadConfig, TimePattern};
 use crate::core::*;
 use crate::error::*;
 use crate::validated::keys::*;
@@ -374,19 +374,40 @@ impl fmt::Display for LinkedNameError {
     }
 }
 
+pub(crate) fn lookup_temporal_scale_3_0(
+    kws: &mut StdKeywords,
+    i: MeasIndex,
+    conf: &StdTextReadConfig,
+) -> LookupResult<TemporalScale> {
+    let j = i.into();
+    if conf.force_time_linear {
+        let _ = kws.remove(&TemporalScale::std(j));
+        Ok(Tentative::new1(TemporalScale))
+    } else {
+        TemporalScale::lookup_req(kws, j)
+    }
+}
+
 pub(crate) fn lookup_temporal_gain_3_0(
     kws: &mut StdKeywords,
-    i: IndexFromOne,
+    i: MeasIndex,
+    conf: &StdTextReadConfig,
 ) -> LookupTentative<MaybeValue<Gain>, LookupKeysError> {
-    let mut tnt_gain = Gain::lookup_opt(kws, i);
-    tnt_gain.eval_error(|gain| {
-        if gain.0.is_some_and(|g| f32::from(g.0) != 1.0) {
-            Some(LookupKeysError::Misc(TemporalError::HasGain.into()))
-        } else {
-            None
-        }
-    });
-    tnt_gain
+    let j = i.into();
+    if conf.ignore_time_gain {
+        let _ = kws.remove(&Gain::std(j));
+        Tentative::default()
+    } else {
+        let mut tnt_gain = Gain::lookup_opt(kws, j);
+        tnt_gain.eval_error(|gain| {
+            if gain.0.is_some_and(|g| f32::from(g.0) != 1.0) {
+                Some(LookupKeysError::Misc(TemporalError::HasGain.into()))
+            } else {
+                None
+            }
+        });
+        tnt_gain
+    }
 }
 
 pub(crate) fn process_opt_dep<V>(

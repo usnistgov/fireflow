@@ -179,6 +179,13 @@ fn main() -> Result<(), ()> {
 
     let allow_missing_time = flag_arg(ALLOW_MISSING_TIME, "allow time measurement to be missing");
 
+    let force_time_linear = flag_arg(
+        FORCE_TIME_LINEAR,
+        "force $PnE for time measurement to be linear",
+    );
+
+    let ignore_time_gain = flag_arg(IGNORE_TIME_GAIN, "ignore $PnG for time measurement");
+
     let ignore_time_optical_keys = Arg::new(IGNORE_TIME_OPTICAL_KEYS)
         .long(IGNORE_TIME_OPTICAL_KEYS)
         .action(ArgAction::Append)
@@ -214,6 +221,8 @@ fn main() -> Result<(), ()> {
     let all_std_args = [
         time_pattern,
         allow_missing_time,
+        force_time_linear,
+        ignore_time_gain,
         ignore_time_optical_keys,
         allow_pseudostandard,
         disallow_deprecated,
@@ -551,6 +560,8 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::StdTextReadConfig {
         .collect();
     config::StdTextReadConfig {
         time_pattern,
+        force_time_linear: sargs.get_flag(FORCE_TIME_LINEAR),
+        ignore_time_gain: sargs.get_flag(IGNORE_TIME_GAIN),
         ignore_time_optical_keys,
         allow_missing_time: sargs.get_flag(ALLOW_MISSING_TIME),
         allow_pseudostandard: sargs.get_flag(ALLOW_PSEUDOSTANDARD),
@@ -788,6 +799,10 @@ const WARNINGS_ARE_ERRORS: &str = "warnings-are-errors";
 const TIME_PATTERN: &str = "time-pattern";
 
 const ALLOW_MISSING_TIME: &str = "allow-missing-time";
+
+const FORCE_TIME_LINEAR: &str = "force-time-linear";
+
+const IGNORE_TIME_GAIN: &str = "ignore-time-gain";
 
 const IGNORE_TIME_OPTICAL_KEYS: &str = "ignore-time-optical-keys";
 

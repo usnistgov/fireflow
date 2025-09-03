@@ -526,6 +526,23 @@ pub struct StdTextReadConfig {
     /// If true, allow time to not be present even if we specify ['pattern'].
     pub allow_missing_time: bool,
 
+    /// If ``true`` force, force scale to be linear for temporal measurement.
+    pub force_time_linear: bool,
+
+    /// If ``true``, ignore $PnG for the temporal measurement.
+    ///
+    /// The standard explicitly forbids gain from being set for the temporal
+    /// channel. This library will allow gain to be 1.0 since this shouldn't
+    /// hurt anything. However, some instruments set gain to be something other
+    /// than 1.0, which is nonsense and can be ignored with this flag.
+    pub ignore_time_gain: bool,
+
+    /// Ignore optical keywords in time channel.
+    ///
+    /// These are keys which the standard does not explicitly forbid but are
+    /// nonsense for the time measurement.
+    ///
+    /// This cannot ignore PnG; to remove that pass `ignore_time_gain`.
     pub ignore_time_optical_keys: HashSet<TemporalOpticalKey>,
 
     /// If true, allow non-standard keywords starting with '$'.

@@ -514,8 +514,19 @@ _STD_ARGS: dict[str, list[str]] = {
         )
     ],
     "allow_missing_time": ["If ``True`` allow time measurement to be missing."],
+    "force_time_linear": [
+        "If ``True`` force the time channel to be linear independent of *$PnE*."
+    ],
+    "ignore_time_gain": [
+        "If ``True`` ignore the *$PnG* (gain) keyword.",
+        "This keyword should not be set according to the standard.",
+        "This library will allow gain to be 1.0 since this equates to identity."
+        "If gain is not 1.0, this is nonsense and it can be ignored with this flag.",
+    ],
     "ignore_time_optical_keys": [
         "Ignore optical keys in temporal measurement.",
+        "These keys are nonsensical for time measurements but are not explicitly",
+        "forbidden in the the standard.",
         'Provided keys are the string after the "Pn" in the "PnX" keywords.',
     ],
     "allow_pseudostandard": [
@@ -747,6 +758,8 @@ def fcs_read_std_text(
     # standard args
     time_pattern: str | None = DEFAULT_TIME_PATTERN,
     allow_missing_time: bool = False,
+    force_time_linear: bool = False,
+    ignore_time_gain: bool = False,
     ignore_time_optical_keys: set[TemporalOpticalKey] = set(),
     allow_pseudostandard: bool = False,
     disallow_deprecated: bool = False,
@@ -899,6 +912,8 @@ def fcs_read_std_dataset(
     # standard args
     time_pattern: str | None = DEFAULT_TIME_PATTERN,
     allow_missing_time: bool = False,
+    force_time_linear: bool = False,
+    ignore_time_gain: bool = False,
     ignore_time_optical_keys: set[TemporalOpticalKey] = set(),
     allow_pseudostandard: bool = False,
     disallow_deprecated: bool = False,
@@ -1003,6 +1018,8 @@ def fcs_read_std_dataset_with_keywords(
     # standard args
     time_pattern: str | None = DEFAULT_TIME_PATTERN,
     allow_missing_time: bool = False,
+    force_time_linear: bool = False,
+    ignore_time_gain: bool = False,
     ignore_time_optical_keys: set[TemporalOpticalKey] = set(),
     allow_pseudostandard: bool = False,
     disallow_deprecated: bool = False,

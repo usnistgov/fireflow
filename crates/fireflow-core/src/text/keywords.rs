@@ -440,8 +440,11 @@ impl FromStr for TemporalScale {
     type Err = TemporalScaleError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "0,0" => Ok(Self),
+        match s.split(",").collect::<Vec<_>>()[..] {
+            [ds, os] => match (ds.parse(), os.parse()) {
+                (Ok(0.0), Ok(0.0)) => Ok(TemporalScale),
+                _ => Err(TemporalScaleError),
+            },
             _ => Err(TemporalScaleError),
         }
     }

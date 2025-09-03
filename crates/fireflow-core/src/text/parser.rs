@@ -380,7 +380,7 @@ pub(crate) fn lookup_temporal_gain_3_0(
 ) -> LookupTentative<MaybeValue<Gain>, LookupKeysError> {
     let mut tnt_gain = Gain::lookup_opt(kws, i);
     tnt_gain.eval_error(|gain| {
-        if gain.0.is_some() {
+        if gain.0.is_some_and(|g| f32::from(g.0) != 1.0) {
             Some(LookupKeysError::Misc(TemporalError::HasGain.into()))
         } else {
             None
@@ -581,7 +581,7 @@ impl fmt::Display for TemporalError {
         match self {
             TemporalError::NonLinear => f.write_str("$PnE must be '0,0' for temporal measurement"),
             TemporalError::HasGain => {
-                f.write_str("$PnG must not be 1.0 or not set for temporal measurement")
+                f.write_str("$PnG must be 1.0 or not set for temporal measurement")
             }
         }
     }

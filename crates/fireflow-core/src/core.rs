@@ -6391,16 +6391,9 @@ impl LookupTemporal for InnerTemporal3_0 {
         i: MeasIndex,
         _: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let mut tnt_gain = Gain::lookup_opt(kws, i.into());
-        tnt_gain.eval_error(|gain| {
-            if gain.0.is_some_and(|g| g.0 != PositiveFloat::one()) {
-                Some(LookupKeysError::Misc(TemporalError::HasGain.into()))
-            } else {
-                None
-            }
-        });
-        let tnt_peak = PeakData::lookup(kws, i);
-        tnt_gain.zip(tnt_peak).and_maybe(|(_, peak)| {
+        let g = lookup_temporal_gain_3_0(kws, i.into());
+        let p = PeakData::lookup(kws, i);
+        g.zip(p).and_maybe(|(_, peak)| {
             let s = TemporalScale::lookup_req(kws, i.into());
             let t = Timestep::lookup_req(kws);
             s.def_zip(t)

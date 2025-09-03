@@ -30,16 +30,16 @@ use std::str::FromStr;
 
 /// Any required key
 pub(crate) trait Required {
-    fn get_req<V>(kws: &StdKeywords, k: StdKey) -> ReqResult<V>
+    fn get_req(kws: &StdKeywords, k: StdKey) -> ReqResult<Self>
     where
-        V: FromStr,
+        Self: FromStr,
     {
         get_req(kws, k)
     }
 
-    fn remove_req<V>(kws: &mut StdKeywords, k: StdKey) -> ReqResult<V>
+    fn remove_req(kws: &mut StdKeywords, k: StdKey) -> ReqResult<Self>
     where
-        V: FromStr,
+        Self: FromStr,
     {
         remove_req(kws, k)
     }
@@ -47,19 +47,19 @@ pub(crate) trait Required {
 
 /// Any optional key
 pub(crate) trait Optional {
-    fn get_opt<V>(kws: &StdKeywords, k: StdKey) -> OptKwResult<V>
+    fn get_opt(kws: &StdKeywords, k: StdKey) -> OptKwResult<Self>
     where
-        V: FromStr,
+        Self: FromStr,
     {
         get_opt(kws, k).map(|x| x.into())
     }
 
-    fn remove_opt<V>(
+    fn remove_opt(
         kws: &mut StdKeywords,
         k: StdKey,
-    ) -> Result<MaybeValue<V>, ParseKeyError<V::Err>>
+    ) -> Result<MaybeValue<Self>, ParseKeyError<Self::Err>>
     where
-        V: FromStr,
+        Self: FromStr,
     {
         remove_opt(kws, k).map(|x| x.into())
     }

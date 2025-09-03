@@ -521,7 +521,8 @@ pub enum ParseOptKeyWarning {
     Shortname(ShortnameError),
     Display(DisplayError),
     Unicode(UnicodeError),
-    Spillover(ParseSpilloverError),
+    Spillover(ParseGenericSpilloverError),
+    IndexedSpillover(ParseIndexedSpilloverError),
     Compensation(ParseCompError),
     GateRange(ParseBigDecimalError),
     GateRegionIndex2_0(RegionGateIndexError<ParseIntError>),
@@ -561,6 +562,7 @@ pub enum LookupRelationalWarning {
     GateRegion(gating::MismatchedIndexAndWindowError),
     GateMeasLink(gating::GateMeasurementLinkError),
     GatingScheme(gating::NewGatingSchemeError),
+    Spillover(SpilloverIndexError),
 }
 
 /// Error/warning triggered when encountering a key which is deprecated

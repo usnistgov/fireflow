@@ -195,6 +195,11 @@ fn main() -> Result<(), ()> {
              single file like the X in 'PnX'",
         );
 
+    let parse_indexed_spillover = flag_arg(
+        PARSE_INDEXED_SPILLOVER,
+        "parse numeric indices for $SPILLOVER rather than string names ($PnN)",
+    );
+
     let allow_pseudostandard = flag_arg(
         ALLOW_PSEUDOSTANDARD,
         "allow non-standard keywords that start with a '$'",
@@ -224,6 +229,7 @@ fn main() -> Result<(), ()> {
         force_time_linear,
         ignore_time_gain,
         ignore_time_optical_keys,
+        parse_indexed_spillover,
         allow_pseudostandard,
         disallow_deprecated,
         fix_log_scale_offset,
@@ -564,6 +570,7 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::StdTextReadConfig {
         ignore_time_gain: sargs.get_flag(IGNORE_TIME_GAIN),
         ignore_time_optical_keys,
         allow_missing_time: sargs.get_flag(ALLOW_MISSING_TIME),
+        parse_indexed_spillover: sargs.get_flag(PARSE_INDEXED_SPILLOVER),
         allow_pseudostandard: sargs.get_flag(ALLOW_PSEUDOSTANDARD),
         disallow_deprecated: sargs.get_flag(DISALLOW_DEPRECATED),
         fix_log_scale_offsets: sargs.get_flag(FIX_LOG_SCALE_OFFSETS),
@@ -799,6 +806,8 @@ const WARNINGS_ARE_ERRORS: &str = "warnings-are-errors";
 const TIME_PATTERN: &str = "time-pattern";
 
 const ALLOW_MISSING_TIME: &str = "allow-missing-time";
+
+const PARSE_INDEXED_SPILLOVER: &str = "parse-indexed-spillover";
 
 const FORCE_TIME_LINEAR: &str = "force-time-linear";
 

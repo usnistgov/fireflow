@@ -1,27 +1,37 @@
+use crate::config::StdTextReadConfig;
+use crate::error::ResultExt;
+use crate::validated::keys::{Key, StdKeywords};
 use crate::validated::shortname::*;
 
+use super::index::MeasIndex;
 use super::named_vec::NameMapping;
-use super::parser::OptLinkedKey;
+use super::optional::MaybeValue;
+use super::parser::{LookupKeysWarning, LookupTentative, OptLinkedKey, Optional};
 
-use derive_more::AsRef;
+use derive_more::{AsRef, Display, From};
 use itertools::Itertools;
 use nalgebra::DMatrix;
 use std::collections::HashSet;
 use std::fmt;
+use std::hash::Hash;
+use std::num::ParseIntError;
 use std::str::FromStr;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+pub type Spillover = GenericSpillover<Shortname>;
+pub type IndexedSpillover = GenericSpillover<MeasIndex>;
+
 /// The spillover matrix from the $SPILLOVER keyword (3.1+)
 #[derive(Clone, AsRef, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct Spillover {
+pub struct GenericSpillover<T> {
     /// The measurements in the spillover matrix.
     ///
     /// Assumed to be a subset of the values in the $PnN keys and unique.
-    #[as_ref([Shortname])]
-    measurements: Vec<Shortname>,
+    #[as_ref([T])]
+    measurements: Vec<T>,
 
     /// Numeric values in the spillover matrix in row-major order.
     #[as_ref]
@@ -29,26 +39,24 @@ pub struct Spillover {
 }
 
 impl Spillover {
-    pub fn try_new(
-        measurements: Vec<Shortname>,
-        matrix: DMatrix<f32>,
-    ) -> Result<Self, SpilloverError> {
-        let n = measurements.len();
-        let c = matrix.ncols();
-        let r = matrix.nrows();
-        if r != c {
-            Err(SpilloverError::NonSquare)
-        } else if n != r {
-            Err(SpilloverError::NameLen)
-        } else if measurements.iter().unique().count() != n {
-            Err(SpilloverError::NonUnique)
-        } else if n < 2 {
-            Err(SpilloverError::TooSmall)
+    pub(crate) fn lookup_maybe_indexed<E>(
+        kws: &mut StdKeywords,
+        names: &HashSet<&Shortname>,
+        ordered_names: &[&Shortname],
+        conf: &StdTextReadConfig,
+    ) -> LookupTentative<MaybeValue<Self>, E> {
+        if conf.parse_indexed_spillover {
+            IndexedSpillover::remove_opt(kws, IndexedSpillover::std())
+                .map_err(|w| LookupKeysWarning::Parse(w.inner_into()))
+                .and_then(|x| {
+                    x.0.map(|s| s.try_into_named(ordered_names))
+                        .transpose()
+                        .map_err(|w| LookupKeysWarning::Relation(w.into()))
+                })
+                .into_tentative_warn_def()
+                .map(|y| y.into())
         } else {
-            Ok(Self {
-                measurements,
-                matrix,
-            })
+            Spillover::lookup_opt(kws, names)
         }
     }
 
@@ -88,6 +96,92 @@ impl Spillover {
     }
 }
 
+impl IndexedSpillover {
+    pub(crate) fn try_into_named(
+        self,
+        names: &[&Shortname],
+    ) -> Result<Spillover, SpilloverIndexError> {
+        let ms = self
+            .measurements
+            .into_iter()
+            .map(|i| {
+                names
+                    .get(usize::from(i))
+                    .ok_or(SpilloverIndexError(i))
+                    .map(|&x| x.clone())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Spillover {
+            measurements: ms,
+            matrix: self.matrix,
+        })
+    }
+}
+
+impl<T> GenericSpillover<T> {
+    pub fn try_new(measurements: Vec<T>, matrix: DMatrix<f32>) -> Result<Self, NewSpilloverError>
+    where
+        T: Eq + Hash,
+    {
+        let n = measurements.len();
+        let c = matrix.ncols();
+        let r = matrix.nrows();
+        if r != c {
+            Err(NewSpilloverError::NonSquare)
+        } else if n != r {
+            Err(NewSpilloverError::NameLen)
+        } else if measurements.iter().unique().count() != n {
+            Err(NewSpilloverError::NonUnique)
+        } else if n < 2 {
+            Err(NewSpilloverError::TooSmall)
+        } else {
+            Ok(Self {
+                measurements,
+                matrix,
+            })
+        }
+    }
+
+    fn from_str<E, F, EM>(s: &str, parse_meas: F) -> Result<Self, E>
+    where
+        E: From<ParseGenericSpilloverError> + From<EM>,
+        F: Fn(&str) -> Result<T, EM>,
+        T: Eq + Hash,
+    {
+        let mut xs = s.split(",");
+        if let Some(first) = &xs.next().and_then(|x| x.parse::<usize>().ok()) {
+            let n = *first;
+            let nn = n * n;
+            let expected = n + nn;
+            // This should be safe since we split on commas
+            let measurements = xs
+                .by_ref()
+                .take(n)
+                .map(parse_meas)
+                .collect::<Result<Vec<_>, _>>()?;
+            let values: Vec<_> = xs.collect();
+            let total = measurements.len() + values.len();
+            if total != expected {
+                Err(ParseGenericSpilloverError::WrongLength { total, expected })?
+            } else {
+                let fvalues: Vec<_> = values
+                    .into_iter()
+                    .filter_map(|x| x.parse::<f32>().ok())
+                    .collect();
+                if fvalues.len() != nn {
+                    Err(ParseGenericSpilloverError::BadFloat)?
+                } else {
+                    let matrix = DMatrix::from_row_iterator(n, n, fvalues);
+                    Ok(Self::try_new(measurements, matrix)
+                        .map_err(ParseGenericSpilloverError::New)?)
+                }
+            }
+        } else {
+            Err(ParseGenericSpilloverError::BadN)?
+        }
+    }
+}
+
 impl fmt::Display for Spillover {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let n = self.measurements.len();
@@ -100,76 +194,81 @@ impl fmt::Display for Spillover {
 }
 
 impl FromStr for Spillover {
-    type Err = ParseSpilloverError;
+    type Err = ParseGenericSpilloverError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         {
-            let mut xs = s.split(",");
-            if let Some(first) = &xs.next().and_then(|x| x.parse::<usize>().ok()) {
-                let n = *first;
-                let nn = n * n;
-                let expected = n + nn;
-                // This should be safe since we split on commas
-                let measurements: Vec<_> =
-                    xs.by_ref().take(n).map(Shortname::new_unchecked).collect();
-                let values: Vec<_> = xs.collect();
-                let total = measurements.len() + values.len();
-                if total != expected {
-                    Err(ParseSpilloverError::WrongLength { total, expected })
-                } else {
-                    let fvalues: Vec<_> = values
-                        .into_iter()
-                        .filter_map(|x| x.parse::<f32>().ok())
-                        .collect();
-                    if fvalues.len() != nn {
-                        Err(ParseSpilloverError::BadFloat)
-                    } else {
-                        let matrix = DMatrix::from_row_iterator(n, n, fvalues);
-                        Spillover::try_new(measurements, matrix)
-                            .map_err(ParseSpilloverError::Internal)
-                    }
-                }
-            } else {
-                Err(ParseSpilloverError::BadN)
-            }
+            GenericSpillover::from_str(s, |m| Ok(Shortname::new_unchecked(m)))
         }
     }
 }
 
-pub enum SpilloverError {
+impl FromStr for IndexedSpillover {
+    type Err = ParseIndexedSpilloverError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        {
+            GenericSpillover::from_str(s, |m| m.parse::<MeasIndex>().map_err(MalformedIndexError))
+        }
+    }
+}
+
+pub enum NewSpilloverError {
     NonSquare,
     NameLen,
     NonUnique,
     TooSmall,
 }
 
-pub enum ParseSpilloverError {
+#[derive(From, Display)]
+pub enum ParseIndexedSpilloverError {
+    Generic(ParseGenericSpilloverError),
+    Index(MalformedIndexError),
+}
+
+pub enum ParseGenericSpilloverError {
     WrongLength { total: usize, expected: usize },
     BadFloat,
     BadN,
-    Internal(SpilloverError),
+    New(NewSpilloverError),
 }
 
-impl fmt::Display for ParseSpilloverError {
+pub struct MalformedIndexError(ParseIntError);
+
+pub struct SpilloverIndexError(MeasIndex);
+
+impl fmt::Display for SpilloverIndexError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "$SPILLOVER index out of bounds: {}", self.0)
+    }
+}
+
+impl fmt::Display for MalformedIndexError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "error when parsing index for $SPILLOVER: {}", self.0)
+    }
+}
+
+impl fmt::Display for ParseGenericSpilloverError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            ParseSpilloverError::WrongLength { total, expected } => {
+            Self::WrongLength { total, expected } => {
                 write!(f, "Expected {expected} entries, found {total}")
             }
-            ParseSpilloverError::BadFloat => write!(f, "Float could not be parsed"),
-            ParseSpilloverError::BadN => write!(f, "N could not be parsed"),
-            ParseSpilloverError::Internal(i) => i.fmt(f),
+            Self::BadFloat => write!(f, "Float could not be parsed"),
+            Self::BadN => write!(f, "N could not be parsed"),
+            Self::New(e) => e.fmt(f),
         }
     }
 }
 
-impl fmt::Display for SpilloverError {
+impl fmt::Display for NewSpilloverError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let s = match self {
-            SpilloverError::NonSquare => "Matrix is not square",
-            SpilloverError::NonUnique => "Names are not unique",
-            SpilloverError::NameLen => "Name length does not match matrix dimensions",
-            SpilloverError::TooSmall => "Matrix is less than 2x2",
+            NewSpilloverError::NonSquare => "Matrix is not square",
+            NewSpilloverError::NonUnique => "Names are not unique",
+            NewSpilloverError::NameLen => "Name length does not match matrix dimensions",
+            NewSpilloverError::TooSmall => "Matrix is less than 2x2",
         };
         write!(f, "{}", s)
     }
@@ -225,13 +324,13 @@ mod python {
     use crate::python::macros::impl_value_err;
     use crate::validated::shortname::Shortname;
 
-    use super::{Spillover, SpilloverError};
+    use super::{NewSpilloverError, Spillover};
 
     use numpy::{PyReadonlyArray2, ToPyArray};
     use pyo3::{prelude::*, types::PyTuple};
 
     // TODO is this ok?
-    impl_value_err!(SpilloverError);
+    impl_value_err!(NewSpilloverError);
 
     impl<'py> FromPyObject<'py> for Spillover {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {

@@ -545,6 +545,12 @@ pub struct StdTextReadConfig {
     /// This cannot ignore PnG; to remove that pass `ignore_time_gain`.
     pub ignore_time_optical_keys: HashSet<TemporalOpticalKey>,
 
+    /// If ``true``, parse $SPILLOVER with indices rather than names.
+    ///
+    /// Indices will then be used to look up the names that should have been
+    /// in their place.
+    pub parse_indexed_spillover: bool,
+
     /// If true, allow non-standard keywords starting with '$'.
     ///
     /// The '$' prefix is reserved for standard keywords only. While little harm

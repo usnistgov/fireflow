@@ -2009,6 +2009,13 @@ impl Key for Spillover {
 
 impl Optional for Spillover {}
 
+// this is a dummy value for cases where $SPILLOVER uses indices rather than names
+impl Key for IndexedSpillover {
+    const C: &'static str = "SPILLOVER";
+}
+
+impl Optional for IndexedSpillover {}
+
 kw_opt_meta!(Vol, "VOL");
 
 // for 3.2+

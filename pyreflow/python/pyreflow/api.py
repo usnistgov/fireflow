@@ -533,6 +533,12 @@ _STD_ARGS: dict[str, list[str]] = {
             'Provided keys are the string after the "Pn" in the "PnX" keywords.'
         )
     ],
+    "parse_indexed_spillover": [
+        (
+            "Parse $SPILLOVER with numeric indices rather than strings "
+            "(ie names or *$PnN*)"
+        )
+    ],
     "allow_pseudostandard": [
         "If ``True`` allow non-standard keywords with a leading *$*. "
         "The presence of such keywords often means the version in *HEADER* is incorrect."
@@ -765,6 +771,7 @@ def fcs_read_std_text(
     force_time_linear: bool = False,
     ignore_time_gain: bool = False,
     ignore_time_optical_keys: set[TemporalOpticalKey] = set(),
+    parse_indexed_spillover: bool = False,
     allow_pseudostandard: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
@@ -919,6 +926,7 @@ def fcs_read_std_dataset(
     force_time_linear: bool = False,
     ignore_time_gain: bool = False,
     ignore_time_optical_keys: set[TemporalOpticalKey] = set(),
+    parse_indexed_spillover: bool = False,
     allow_pseudostandard: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
@@ -1025,6 +1033,7 @@ def fcs_read_std_dataset_with_keywords(
     force_time_linear: bool = False,
     ignore_time_gain: bool = False,
     ignore_time_optical_keys: set[TemporalOpticalKey] = set(),
+    parse_indexed_spillover: bool = False,
     allow_pseudostandard: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,

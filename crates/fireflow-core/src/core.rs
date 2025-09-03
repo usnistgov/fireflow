@@ -1270,6 +1270,7 @@ pub(crate) trait LookupMetaroot: Sized + VersionedMetaroot {
         st: &mut StdKeywords,
         par: Par,
         names: &HashSet<&Shortname>,
+        ordered_names: &[&Shortname],
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self>;
 }
@@ -1885,6 +1886,7 @@ where
     {
         let par = Par(ms.len());
         let names: HashSet<_> = ms.indexed_names().map(|(_, n)| n).collect();
+        let ordered_names: Vec<_> = ms.indexed_names().map(|(_, n)| n).collect();
         let a = Abrt::lookup_opt(kws);
         let co = Com::lookup_opt(kws);
         let ce = Cells::lookup_opt(kws);
@@ -1903,23 +1905,25 @@ where
             .zip5(sm, sr, sy, t)
             .and_maybe(
                 |(((abrt, com, cells, exp, fil), inst, lost, op, proj), smno, src, sys, tr)| {
-                    M::lookup_specific(kws, par, &names, conf).def_map_value(|specific| Metaroot {
-                        abrt,
-                        com,
-                        cells,
-                        exp,
-                        fil,
-                        inst,
-                        lost,
-                        op,
-                        proj,
-                        smno,
-                        src,
-                        sys,
-                        tr,
-                        nonstandard_keywords: nonstd.into_iter().collect(),
-                        specific,
-                    })
+                    M::lookup_specific(kws, par, &names, &ordered_names, conf).def_map_value(
+                        |specific| Metaroot {
+                            abrt,
+                            com,
+                            cells,
+                            exp,
+                            fil,
+                            inst,
+                            lost,
+                            op,
+                            proj,
+                            smno,
+                            src,
+                            sys,
+                            tr,
+                            nonstandard_keywords: nonstd.into_iter().collect(),
+                            specific,
+                        },
+                    )
                 },
             )
     }
@@ -7241,6 +7245,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         kws: &mut StdKeywords,
         par: Par,
         _: &HashSet<&Shortname>,
+        _: &[&Shortname],
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let co = Compensation2_0::lookup(kws, par);
@@ -7273,6 +7278,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         kws: &mut StdKeywords,
         par: Par,
         _: &HashSet<&Shortname>,
+        _: &[&Shortname],
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let co = Compensation3_0::lookup_opt(kws);
@@ -7311,10 +7317,11 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         kws: &mut StdKeywords,
         par: Par,
         names: &HashSet<&Shortname>,
+        ordered_names: &[&Shortname],
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let cy = Cyt::lookup_opt(kws);
-        let sp = Spillover::lookup_opt(kws, names);
+        let sp = Spillover::lookup_maybe_indexed(kws, names, ordered_names, conf);
         let sn = Cytsn::lookup_opt(kws);
         let su = SubsetData::lookup(kws);
         let md = ModificationData::lookup(kws);
@@ -7369,6 +7376,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         kws: &mut StdKeywords,
         par: Par,
         names: &HashSet<&Shortname>,
+        ordered_names: &[&Shortname],
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let dd = conf.disallow_deprecated;
@@ -7377,7 +7385,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         let f = Flowrate::lookup_opt(kws);
         let md = ModificationData::lookup(kws);
         let mo = Mode3_2::lookup_opt_dep(kws, dd);
-        let sp = Spillover::lookup_opt(kws, names);
+        let sp = Spillover::lookup_maybe_indexed(kws, names, ordered_names, conf);
         let sn = Cytsn::lookup_opt(kws);
         let p = PlateData::lookup_dep(kws, dd);
         let t = Timestamps::lookup_dep(kws, dd);
@@ -8180,7 +8188,7 @@ impl fmt::Display for ExistingIndexLinkError {
 
 #[derive(From, Display)]
 pub enum SetSpilloverError {
-    New(SpilloverError),
+    New(NewSpilloverError),
     Link(SpilloverLinkError),
 }
 

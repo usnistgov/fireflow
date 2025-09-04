@@ -1,12 +1,7 @@
 use crate::config::StdTextReadConfig;
 use crate::error::*;
-use crate::text::index::MeasIndex;
-use crate::text::optional::*;
 use crate::text::parser::*;
 use crate::text::ranged_float::*;
-use crate::validated::keys::*;
-
-use super::parser::LookupTentative;
 
 use num_traits::identities::One;
 use std::fmt;

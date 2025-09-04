@@ -1,14 +1,10 @@
 use crate::config::StdTextReadConfig;
-use crate::error::{ErrorIter, ResultExt};
-use crate::validated::keys::{Key, StdKeywords};
+use crate::error::ErrorIter;
 use crate::validated::shortname::*;
 
 use super::index::MeasIndex;
 use super::named_vec::NameMapping;
-use super::optional::MaybeValue;
-use super::parser::{
-    FromStrStateful, LinkedNameError, LookupKeysWarning, LookupTentative, OptLinkedKey, Optional,
-};
+use super::parser::{FromStrStateful, LinkedNameError, OptLinkedKey};
 
 use derive_more::{AsRef, Display, From};
 use itertools::Itertools;
@@ -174,9 +170,9 @@ impl FromStrStateful for Spillover {
     type Err = ParseSpilloverError;
     type Payload<'a> = (&'a HashSet<&'a Shortname>, &'a [&'a Shortname]);
 
-    fn from_str_st<'a>(
+    fn from_str_st(
         s: &str,
-        data: Self::Payload<'a>,
+        data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
     ) -> Result<Self, Self::Err> {
         let (names, ordered_names) = data;

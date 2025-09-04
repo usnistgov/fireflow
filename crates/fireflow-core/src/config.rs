@@ -19,6 +19,7 @@ use crate::validated::datepattern::DatePattern;
 use crate::validated::keys;
 use crate::validated::keys::IndexedKey;
 use crate::validated::textdelim::TEXTDelim;
+use crate::validated::timepattern::TimePattern;
 
 use derive_more::{AsRef, Display, From, FromStr};
 use regex::Regex;
@@ -513,7 +514,7 @@ pub struct StdTextReadConfig {
     /// If matched, the time measurement must conform to the requirements of the
     /// target FCS version, such as having $TIMESTEP present and having a PnE
     /// set to '0,0'.
-    pub time_pattern: Option<TimePattern>,
+    pub time_meas_pattern: Option<TimeMeasNamePattern>,
 
     /// If true, allow time to not be present even if we specify ['pattern'].
     pub allow_missing_time: bool,
@@ -550,6 +551,9 @@ pub struct StdTextReadConfig {
     /// supplied, $DATE will be parsed according to the standard pattern which
     /// is '%d-%b-%Y'.
     pub date_pattern: Option<DatePattern>,
+
+    /// If supplied, will be used as an alternative pattern toe parse $BTIM/$ETIM.
+    pub time_pattern: Option<TimePattern>,
 
     /// If true, allow non-standard keywords starting with '$'.
     ///
@@ -657,7 +661,7 @@ pub struct SharedConfig {
 ///
 /// Defaults to matching "TIME" or "Time".
 #[derive(Clone, FromStr, Display)]
-pub struct TimePattern(pub Regex);
+pub struct TimeMeasNamePattern(pub Regex);
 
 /// Measurement keywords which are not allowed for temporal measurements.
 ///
@@ -748,7 +752,7 @@ impl TemporalOpticalKey {
     }
 }
 
-impl Default for TimePattern {
+impl Default for TimeMeasNamePattern {
     fn default() -> Self {
         Self(Regex::new("^(TIME|Time)$").unwrap())
     }
@@ -773,7 +777,9 @@ impl<C> ReadState<C> {
 mod python {
     use crate::python::macros::{impl_from_py_via_fromstr, impl_value_err};
 
-    use super::{OffsetCorrection, ParseTemporalOpticalKeyError, TemporalOpticalKey, TimePattern};
+    use super::{
+        OffsetCorrection, ParseTemporalOpticalKeyError, TemporalOpticalKey, TimeMeasNamePattern,
+    };
 
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
@@ -781,11 +787,11 @@ mod python {
     impl_from_py_via_fromstr!(TemporalOpticalKey);
     impl_value_err!(ParseTemporalOpticalKeyError);
 
-    impl<'py> FromPyObject<'py> for TimePattern {
+    impl<'py> FromPyObject<'py> for TimeMeasNamePattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let s: String = ob.extract()?;
             let n = s
-                .parse::<TimePattern>()
+                .parse::<TimeMeasNamePattern>()
                 // this should be an error from regexp parsing
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
             Ok(n)

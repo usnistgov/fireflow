@@ -6,3 +6,4 @@ pub mod datepattern;
 pub mod keys;
 pub mod shortname;
 pub mod textdelim;
+pub mod timepattern;

@@ -1,4 +1,4 @@
-use crate::config::{StdTextReadConfig, TimePattern};
+use crate::config::{StdTextReadConfig, TimeMeasNamePattern};
 use crate::core::*;
 use crate::error::*;
 use crate::validated::keys::*;
@@ -33,11 +33,8 @@ pub trait FromStrStateful: Sized {
     type Err;
     type Payload<'a>;
 
-    fn from_str_st<'a>(
-        _: &str,
-        _: Self::Payload<'a>,
-        _: &StdTextReadConfig,
-    ) -> Result<Self, Self::Err>;
+    fn from_str_st(_: &str, _: Self::Payload<'_>, _: &StdTextReadConfig)
+        -> Result<Self, Self::Err>;
 }
 
 /// Any required key
@@ -62,10 +59,10 @@ pub(crate) trait Required {
         }
     }
 
-    fn remove_req_st<'a>(
+    fn remove_req_st(
         kws: &mut StdKeywords,
         k: StdKey,
-        data: Self::Payload<'a>,
+        data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
     ) -> ReqStResult<Self>
     where
@@ -102,10 +99,10 @@ pub(crate) trait Optional {
             .map(|x| x.into())
     }
 
-    fn remove_opt_st<'a>(
+    fn remove_opt_st(
         kws: &mut StdKeywords,
         k: StdKey,
-        data: Self::Payload<'a>,
+        data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
     ) -> Result<MaybeValue<Self>, ParseKeyError<Self::Err>>
     where
@@ -148,20 +145,20 @@ pub(crate) trait ReqMetarootKey: Sized + Required + Key {
             .into_deferred()
     }
 
-    fn lookup_req_st<'a>(
-        kws: &mut StdKeywords,
-        data: Self::Payload<'a>,
-        conf: &StdTextReadConfig,
-    ) -> LookupResult<Self>
-    where
-        Self: FromStrStateful,
-        ParseReqKeyError: From<<Self as FromStrStateful>::Err>,
-    {
-        Self::remove_req_st(kws, Self::std(), data, conf)
-            .map_err(|e| e.inner_into())
-            .map_err(Box::new)
-            .into_deferred()
-    }
+    // fn lookup_req_st(
+    //     kws: &mut StdKeywords,
+    //     data: Self::Payload<'_>,
+    //     conf: &StdTextReadConfig,
+    // ) -> LookupResult<Self>
+    // where
+    //     Self: FromStrStateful,
+    //     ParseReqKeyError: From<<Self as FromStrStateful>::Err>,
+    // {
+    //     Self::remove_req_st(kws, Self::std(), data, conf)
+    //         .map_err(|e| e.inner_into())
+    //         .map_err(Box::new)
+    //         .into_deferred()
+    // }
 
     fn pair(&self) -> (String, String)
     where
@@ -198,10 +195,10 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
             .into_deferred()
     }
 
-    fn lookup_req_st<'a>(
+    fn lookup_req_st(
         kws: &mut StdKeywords,
         i: IndexFromOne,
-        data: Self::Payload<'a>,
+        data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self>
     where
@@ -258,9 +255,9 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         process_opt(Self::remove_metaroot_opt(kws))
     }
 
-    fn lookup_opt_st<'a, E>(
+    fn lookup_opt_st<E>(
         kws: &mut StdKeywords,
-        data: Self::Payload<'a>,
+        data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<MaybeValue<Self>, E>
     where
@@ -283,10 +280,10 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         x
     }
 
-    fn lookup_opt_st_dep<'a>(
+    fn lookup_opt_st_dep(
         kws: &mut StdKeywords,
         disallow_dep: bool,
-        data: Self::Payload<'a>,
+        data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<MaybeValue<Self>, DeprecatedError>
     where
@@ -340,10 +337,10 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         process_opt(Self::remove_meas_opt(kws, i))
     }
 
-    fn lookup_opt_st<'a, E>(
+    fn lookup_opt_st<E>(
         kws: &mut StdKeywords,
         i: IndexFromOne,
-        data: Self::Payload<'a>,
+        data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<MaybeValue<Self>, E>
     where
@@ -367,11 +364,11 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         x
     }
 
-    fn lookup_opt_st_dep<'a>(
+    fn lookup_opt_st_dep(
         kws: &mut StdKeywords,
         i: IndexFromOne,
         disallow_dep: bool,
-        data: Self::Payload<'a>,
+        data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<MaybeValue<Self>, DeprecatedError>
     where
@@ -538,20 +535,6 @@ pub(crate) fn lookup_temporal_gain_3_0(
     }
 }
 
-pub(crate) fn process_opt_dep<V>(
-    res: Result<MaybeValue<V>, ParseKeyError<<V as FromStr>::Err>>,
-    k: StdKey,
-    disallow_dep: bool,
-) -> Tentative<MaybeValue<V>, LookupKeysWarning, DeprecatedError>
-where
-    V: FromStr,
-    ParseOptKeyWarning: From<<V as FromStr>::Err>,
-{
-    let mut x = process_opt(res);
-    eval_dep_maybe(&mut x, k, disallow_dep);
-    x
-}
-
 pub(crate) fn process_opt<V, E, W>(
     res: Result<MaybeValue<V>, ParseKeyError<W>>,
 ) -> Tentative<MaybeValue<V>, LookupKeysWarning, E>
@@ -628,9 +611,9 @@ pub enum ParseOptKeyWarning {
     Int(ParseIntError),
     String(Infallible),
     FCSDate(FCSDateError),
-    FCSTime(FCSTimeError),
-    FCSTime60(FCSTime60Error),
-    FCSTime100(FCSTime100Error),
+    FCSTime(FCSFixedTimeError<FCSTimeError>),
+    FCSTime60(FCSFixedTimeError<FCSTime60Error>),
+    FCSTime100(FCSFixedTimeError<FCSTime100Error>),
     FCSDateTime(FCSDateTimeError),
     ModifiedDateTime(LastModifiedError),
     Originality(OriginalityError),
@@ -662,7 +645,7 @@ pub enum LookupMiscError {
 }
 
 /// Error triggered when time measurement is missing but required.
-pub struct MissingTime(pub TimePattern);
+pub struct MissingTime(pub TimeMeasNamePattern);
 
 /// Errors triggered when time measurement keyword value is invalid
 // TODO add other optical keywords that shouldn't be set for time.

@@ -3478,7 +3478,7 @@ where
                         // will know it is trying to find $TIMESTEP in a
                         // nonsense measurement.
                         let key = M::Name::unwrap(wrapped).and_then(|name| {
-                            if let Some(tp) = conf.time_pattern.as_ref() {
+                            if let Some(tp) = conf.time_meas_pattern.as_ref() {
                                 if tp.0.is_match(name.as_ref()) {
                                     return Ok(name);
                                 }
@@ -3657,7 +3657,7 @@ where
                         // Check that the time measurement is present if we want
                         // it and the measurement vector is non-empty
                         tnt_core.eval_error(|core| {
-                            if let Some(pat) = std_conf.time_pattern.as_ref() {
+                            if let Some(pat) = std_conf.time_meas_pattern.as_ref() {
                                 if !std_conf.allow_missing_time
                                     && core.measurements.as_center().is_none()
                                     && !core.measurements.is_empty()
@@ -7252,7 +7252,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
     ) -> LookupResult<Self> {
         let co = Compensation2_0::lookup(kws, par);
         let cy = Cyt::lookup_opt(kws);
-        let t = Timestamps::lookup(kws);
+        let t = Timestamps::lookup(kws, conf);
         let g = AppliedGates2_0::lookup(kws, par, conf);
         co.zip4(cy, t, g)
             .errors_into()
@@ -7287,7 +7287,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         let cy = Cyt::lookup_opt(kws);
         let sn = Cytsn::lookup_opt(kws);
         let su = SubsetData::lookup(kws);
-        let t = Timestamps::lookup(kws);
+        let t = Timestamps::lookup(kws, conf);
         let u = Unicode::lookup_opt(kws);
         let g = AppliedGates3_0::lookup(kws, par, conf);
         co.zip4(cy, sn, su).zip4(t, u, g).and_maybe(
@@ -7328,7 +7328,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         let su = SubsetData::lookup(kws);
         let md = ModificationData::lookup(kws);
         let p = PlateData::lookup(kws);
-        let t = Timestamps::lookup(kws);
+        let t = Timestamps::lookup(kws, conf);
         let v = Vol::lookup_opt(kws);
         let g = AppliedGates3_0::lookup_dep(kws, par, conf).errors_into();
         cy.zip5(sp, sn, su, md).zip5(p, t, v, g).and_maybe(
@@ -7390,7 +7390,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         let sp = Spillover::lookup_opt_st(kws, (names, ordered_names), conf);
         let sn = Cytsn::lookup_opt(kws);
         let p = PlateData::lookup_dep(kws, dd);
-        let t = Timestamps::lookup_dep(kws, dd);
+        let t = Timestamps::lookup_dep(kws, conf, dd);
         let u = UnstainedData::lookup(kws, names);
         let v = Vol::lookup_opt(kws);
         let g = AppliedGates3_2::lookup(kws, par, dd);

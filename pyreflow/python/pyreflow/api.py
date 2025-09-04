@@ -496,7 +496,7 @@ _RAW_ARGS: dict[str, list[str]] = {
 }
 
 _STD_ARGS: dict[str, list[str]] = {
-    "time_pattern": [
+    "time_meas_pattern": [
         (
             "A pattern to match the *$PnN* of the time measurement. "
             "Must be a regular expression following syntax described in "
@@ -537,6 +537,18 @@ _STD_ARGS: dict[str, list[str]] = {
             "`chrono <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>`__. "
             "If not supplied, *$DATE* will be parsed according to the standard pattern which "
             "is ``%d-%b-%Y``."
+        )
+    ],
+    "time_pattern": [
+        (
+            "If supplied, will be used as an alternative pattern when parsing *$BTIM* and *$ETIM*. "
+            "It should have specifiers for hours, minutes, and seconds as outlined in "
+            "`chrono <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>`__. "
+            "It may optionally also have a sub-seconds specifier as shown in the same link. "
+            "Furthermore, the specifiers '%!' and %@' may be used to match 1/60 and "
+            "centiseconds respectively. "
+            "If not supplied, *$BTIM* and *$ETIM* will be parsed according to the "
+            "standard pattern which is version-specific."
         )
     ],
     "allow_pseudostandard": [
@@ -646,7 +658,7 @@ class KeyPatterns(NamedTuple):
 DEFAULT_CORRECTION = (0, 0)
 DEFAULT_KEY_PATTERNS: KeyPatterns = KeyPatterns([], [])
 DEFAULT_OTHER_WIDTH = 8
-DEFAULT_TIME_PATTERN = "^(TIME|Time)$"
+DEFAULT_TIME_MEAS_PATTERN = "^(TIME|Time)$"
 
 
 def fcs_read_header(
@@ -764,13 +776,14 @@ def fcs_read_std_text(
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
     # standard args
-    time_pattern: str | None = DEFAULT_TIME_PATTERN,
+    time_meas_pattern: str | None = DEFAULT_TIME_MEAS_PATTERN,
     allow_missing_time: bool = False,
     force_time_linear: bool = False,
     ignore_time_gain: bool = False,
     ignore_time_optical_keys: set[TemporalOpticalKey] = set(),
     parse_indexed_spillover: bool = False,
     date_pattern: str | None = None,
+    time_pattern: str | None = None,
     allow_pseudostandard: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
@@ -918,13 +931,14 @@ def fcs_read_std_dataset(
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
     # standard args
-    time_pattern: str | None = DEFAULT_TIME_PATTERN,
+    time_meas_pattern: str | None = DEFAULT_TIME_MEAS_PATTERN,
     allow_missing_time: bool = False,
     force_time_linear: bool = False,
     ignore_time_gain: bool = False,
     ignore_time_optical_keys: set[TemporalOpticalKey] = set(),
     parse_indexed_spillover: bool = False,
     date_pattern: str | None = None,
+    time_pattern: str | None = None,
     allow_pseudostandard: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
@@ -1026,13 +1040,14 @@ def fcs_read_std_dataset_with_keywords(
     analysis_seg: Segment,
     other_segs: list[Segment],
     # standard args
-    time_pattern: str | None = DEFAULT_TIME_PATTERN,
+    time_meas_pattern: str | None = DEFAULT_TIME_MEAS_PATTERN,
     allow_missing_time: bool = False,
     force_time_linear: bool = False,
     ignore_time_gain: bool = False,
     ignore_time_optical_keys: set[TemporalOpticalKey] = set(),
     parse_indexed_spillover: bool = False,
     date_pattern: str | None = None,
+    time_pattern: str | None = None,
     allow_pseudostandard: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,

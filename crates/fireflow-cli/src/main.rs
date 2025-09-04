@@ -7,6 +7,7 @@ use fireflow_core::segment::HeaderCorrection;
 use fireflow_core::text::byteord::ByteOrd2_0;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::keys::{KeyPatterns, KeyStringPairs, NonStdMeasPattern};
+use fireflow_core::validated::timepattern::TimePattern;
 
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
 use serde::ser::Serialize;
@@ -166,8 +167,8 @@ fn main() -> Result<(), ()> {
 
     // std args
 
-    let time_pattern = Arg::new(TIME_PATTERN)
-        .long(TIME_PATTERN)
+    let time_meas_pattern = Arg::new(TIME_MEAS_PATTERN)
+        .long(TIME_MEAS_PATTERN)
         .value_name("REGEXP")
         .help("pattern to use when matching time measurement");
 
@@ -211,8 +212,13 @@ fn main() -> Result<(), ()> {
 
     let date_pattern = Arg::new(DATE_PATTERN)
         .long(DATE_PATTERN)
-        .value_name("REGEXP")
+        .value_name("PATTERN")
         .help("pattern to match $DATE keyword if it is non-conferment");
+
+    let time_pattern = Arg::new(TIME_PATTERN)
+        .long(TIME_PATTERN)
+        .value_name("PATTERN")
+        .help("pattern to match $BTIM/$ETIM keywords if non-conferment");
 
     let ns_meas_pattern = Arg::new(NS_MEAS_PATTERN)
         .long(NS_MEAS_PATTERN)
@@ -223,13 +229,14 @@ fn main() -> Result<(), ()> {
         );
 
     let all_std_args = [
-        time_pattern,
+        time_meas_pattern,
         allow_missing_time,
         force_time_linear,
         ignore_time_gain,
         ignore_time_optical_keys,
         parse_indexed_spillover,
         date_pattern,
+        time_pattern,
         allow_pseudostandard,
         disallow_deprecated,
         fix_log_scale_offset,
@@ -546,10 +553,10 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
 }
 
 fn parse_std_inner_config(sargs: &ArgMatches) -> config::StdTextReadConfig {
-    let time_pattern = sargs
-        .get_one::<String>(TIME_PATTERN)
+    let time_meas_pattern = sargs
+        .get_one::<String>(TIME_MEAS_PATTERN)
         .cloned()
-        .map(|s| s.parse::<config::TimePattern>().unwrap());
+        .map(|s| s.parse::<config::TimeMeasNamePattern>().unwrap());
     let nonstandard_measurement_pattern = sargs
         .get_one::<String>(NS_MEAS_PATTERN)
         .cloned()
@@ -563,14 +570,19 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::StdTextReadConfig {
         .get_one::<String>(DATE_PATTERN)
         .cloned()
         .map(|d| d.parse::<DatePattern>().unwrap());
+    let time_pattern = sargs
+        .get_one::<String>(TIME_PATTERN)
+        .cloned()
+        .map(|d| d.parse::<TimePattern>().unwrap());
     config::StdTextReadConfig {
-        time_pattern,
+        time_meas_pattern,
         force_time_linear: sargs.get_flag(FORCE_TIME_LINEAR),
         ignore_time_gain: sargs.get_flag(IGNORE_TIME_GAIN),
         ignore_time_optical_keys,
         allow_missing_time: sargs.get_flag(ALLOW_MISSING_TIME),
         parse_indexed_spillover: sargs.get_flag(PARSE_INDEXED_SPILLOVER),
         date_pattern,
+        time_pattern,
         allow_pseudostandard: sargs.get_flag(ALLOW_PSEUDOSTANDARD),
         disallow_deprecated: sargs.get_flag(DISALLOW_DEPRECATED),
         fix_log_scale_offsets: sargs.get_flag(FIX_LOG_SCALE_OFFSETS),
@@ -801,9 +813,11 @@ const TRIM_VALUE_WHITESPACE: &str = "trim-value-whitespace";
 
 const DATE_PATTERN: &str = "date-pattern";
 
+const TIME_PATTERN: &str = "time-pattern";
+
 const WARNINGS_ARE_ERRORS: &str = "warnings-are-errors";
 
-const TIME_PATTERN: &str = "time-pattern";
+const TIME_MEAS_PATTERN: &str = "time-pattern";
 
 const ALLOW_MISSING_TIME: &str = "allow-missing-time";
 

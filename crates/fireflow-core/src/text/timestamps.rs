@@ -1,6 +1,7 @@
 use crate::config::StdTextReadConfig;
 use crate::error::*;
 use crate::validated::keys::*;
+use crate::validated::timepattern::ParseWithTimePatternError;
 
 use super::optional::*;
 use super::parser::*;
@@ -53,6 +54,23 @@ pub type Etim<T> = Xtim<true, T>;
 #[derive(Clone, Copy, Display, FromStr, From, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Xtim<const IS_ETIM: bool, T>(pub T);
+
+impl<const IS_ETIM: bool, T> FromStrStateful for Xtim<IS_ETIM, T>
+where
+    T: FromStr + From<NaiveTime>,
+{
+    type Err = FCSFixedTimeError<<T as FromStr>::Err>;
+    type Payload<'a> = ();
+
+    fn from_str_st<'a>(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+        let ret = if let Some(pat) = conf.time_pattern.as_ref() {
+            pat.parse_str(s)?.into()
+        } else {
+            s.parse::<T>().map_err(FCSFixedTimeError::Native)?
+        };
+        Ok(Self(ret))
+    }
+}
 
 /// A date as used in the $DATE key
 #[derive(Clone, Copy, From, Into, AsRef, PartialEq)]
@@ -138,32 +156,38 @@ impl<X> Timestamps<X> {
         }
     }
 
-    pub(crate) fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<Self, E>
+    pub(crate) fn lookup<E>(
+        kws: &mut StdKeywords,
+        conf: &StdTextReadConfig,
+    ) -> LookupTentative<Self, E>
     where
         Btim<X>: OptMetarootKey,
         Etim<X>: OptMetarootKey,
-        ParseOptKeyWarning: From<<Btim<X> as FromStr>::Err> + From<<Etim<X> as FromStr>::Err>,
-        X: PartialOrd + FromStr,
+        ParseOptKeyWarning:
+            From<<Btim<X> as FromStrStateful>::Err> + From<<Etim<X> as FromStrStateful>::Err>,
+        for<'a> X: PartialOrd + FromStr + From<NaiveTime>,
     {
-        let b = Btim::lookup_opt(kws);
-        let e = Etim::lookup_opt(kws);
-        let d = FCSDate::lookup_opt(kws);
+        let b = Btim::lookup_opt_st(kws, (), conf);
+        let e = Etim::lookup_opt_st(kws, (), conf);
+        let d = FCSDate::lookup_opt_st(kws, (), conf);
         Self::process_lookup(b, e, d)
     }
 
     pub(crate) fn lookup_dep(
         kws: &mut StdKeywords,
+        conf: &StdTextReadConfig,
         disallow_dep: bool,
     ) -> LookupTentative<Self, DeprecatedError>
     where
         Btim<X>: OptMetarootKey,
         Etim<X>: OptMetarootKey,
-        ParseOptKeyWarning: From<<Btim<X> as FromStr>::Err> + From<<Etim<X> as FromStr>::Err>,
-        X: PartialOrd + FromStr,
+        ParseOptKeyWarning:
+            From<<Btim<X> as FromStrStateful>::Err> + From<<Etim<X> as FromStrStateful>::Err>,
+        for<'a> X: PartialOrd + FromStr + From<NaiveTime>,
     {
-        let b = Btim::lookup_opt_dep(kws, disallow_dep);
-        let e = Etim::lookup_opt_dep(kws, disallow_dep);
-        let d = FCSDate::lookup_opt_dep(kws, disallow_dep);
+        let b = Btim::lookup_opt_st_dep(kws, disallow_dep, (), conf);
+        let e = Etim::lookup_opt_st_dep(kws, disallow_dep, (), conf);
+        let d = FCSDate::lookup_opt_st_dep(kws, disallow_dep, (), conf);
         Self::process_lookup(b, e, d)
     }
 
@@ -263,11 +287,13 @@ impl fmt::Display for FCSDateError {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FCSTime(pub NaiveTime);
 
+const FCS_TIME_FORMAT: &str = "%H:%M:%S";
+
 impl FromStr for FCSTime {
     type Err = FCSTimeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        NaiveTime::parse_from_str(s, "%H:%M:%S")
+        NaiveTime::parse_from_str(s, FCS_TIME_FORMAT)
             .map(FCSTime)
             .or(Err(FCSTimeError))
     }
@@ -275,8 +301,15 @@ impl FromStr for FCSTime {
 
 impl fmt::Display for FCSTime {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", self.0.format("%H:%M:%S"))
+        write!(f, "{}", self.0.format(FCS_TIME_FORMAT))
     }
+}
+
+#[derive(From, Display)]
+pub enum FCSFixedTimeError<E> {
+    Native(E),
+    #[from]
+    Patterned(ParseWithTimePatternError),
 }
 
 pub struct FCSTimeError;

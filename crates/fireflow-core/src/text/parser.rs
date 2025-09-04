@@ -68,10 +68,7 @@ pub(crate) trait Optional {
 /// A required metaroot key
 pub(crate) trait ReqMetarootKey
 where
-    Self: Required,
-    Self: fmt::Display,
-    Self: Key,
-    Self: FromStr,
+    Self: Required + fmt::Display + Key + FromStr,
 {
     fn get_metaroot_req(kws: &StdKeywords) -> ReqResult<Self> {
         Self::get_req(kws, Self::std())
@@ -99,10 +96,7 @@ where
 /// Any required key with one index
 pub(crate) trait ReqIndexedKey
 where
-    Self: Required,
-    Self: fmt::Display,
-    Self: IndexedKey,
-    Self: FromStr,
+    Self: Required + fmt::Display + IndexedKey + FromStr,
 {
     fn get_meas_req(kws: &StdKeywords, i: IndexFromOne) -> ReqResult<Self> {
         Self::get_req(kws, Self::std(i))
@@ -139,10 +133,7 @@ where
 /// An optional metaroot key
 pub(crate) trait OptMetarootKey
 where
-    Self: Optional,
-    Self: fmt::Display,
-    Self: Key,
-    Self: FromStr,
+    Self: Optional + fmt::Display + Key + FromStr,
 {
     fn get_metaroot_opt(kws: &StdKeywords) -> OptKwResult<Self> {
         Self::get_opt(kws, Self::std())
@@ -186,10 +177,7 @@ where
 /// Any optional key with an index
 pub(crate) trait OptIndexedKey
 where
-    Self: Optional,
-    Self: fmt::Display,
-    Self: IndexedKey,
-    Self: FromStr,
+    Self: Optional + fmt::Display + IndexedKey + FromStr,
 {
     fn get_meas_opt(kws: &StdKeywords, i: IndexFromOne) -> OptKwResult<Self> {
         Self::get_opt(kws, Self::std(i))

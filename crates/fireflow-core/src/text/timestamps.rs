@@ -142,7 +142,7 @@ impl<X> Timestamps<X> {
         Btim<X>: OptMetarootKey,
         Etim<X>: OptMetarootKey,
         ParseOptKeyWarning: From<<Btim<X> as FromStr>::Err> + From<<Etim<X> as FromStr>::Err>,
-        X: PartialOrd,
+        X: PartialOrd + FromStr,
     {
         let b = Btim::lookup_opt(kws);
         let e = Etim::lookup_opt(kws);
@@ -158,7 +158,7 @@ impl<X> Timestamps<X> {
         Btim<X>: OptMetarootKey,
         Etim<X>: OptMetarootKey,
         ParseOptKeyWarning: From<<Btim<X> as FromStr>::Err> + From<<Etim<X> as FromStr>::Err>,
-        X: PartialOrd,
+        X: PartialOrd + FromStr,
     {
         let b = Btim::lookup_opt_dep(kws, disallow_dep);
         let e = Etim::lookup_opt_dep(kws, disallow_dep);
@@ -188,7 +188,7 @@ impl<X> Timestamps<X> {
     where
         Btim<X>: OptMetarootKey,
         Etim<X>: OptMetarootKey,
-        X: Copy,
+        X: Copy + fmt::Display,
     {
         [
             OptMetarootKey::pair_opt(&MaybeValue(self.btim)),

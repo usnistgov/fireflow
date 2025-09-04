@@ -2124,6 +2124,7 @@ impl<T, D, const ORD: bool> LayoutOps<'_, T> for DelimAsciiLayout<T, D, ORD>
 where
     T: TotDefinition,
     NoByteOrd<ORD>: HasByteOrd,
+    <NoByteOrd<ORD> as HasByteOrd>::ByteOrd: fmt::Display,
 {
     fn ncols(&self) -> usize {
         self.ranges.len()
@@ -2440,6 +2441,7 @@ where
     T: TotDefinition,
     C: Clone + IsFixed + HasDatatype + IntoReader<S> + IntoWriter<'a, S> + FromRange,
     S: Copy + HasByteOrd,
+    S::ByteOrd: fmt::Display,
     for<'c> Range: From<&'c C>,
     <C as IntoReader<S>>::Target: Readable<S>,
     <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,

@@ -20,6 +20,7 @@ use super::unstainedcenters::*;
 
 use bigdecimal::ParseBigDecimalError;
 use derive_more::{Display, From};
+use derive_new::new;
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use std::collections::{HashMap, HashSet};
@@ -27,6 +28,17 @@ use std::convert::Infallible;
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
+
+pub trait FromStrStateful: Sized {
+    type Err;
+    type Payload<'a>;
+
+    fn from_str_mod<'a>(
+        _: &str,
+        _: Self::Payload<'a>,
+        _: &StdTextReadConfig,
+    ) -> Result<Self, Self::Err>;
+}
 
 /// Any required key
 pub(crate) trait Required {
@@ -41,7 +53,30 @@ pub(crate) trait Required {
     where
         Self: FromStr,
     {
-        remove_req(kws, k)
+        match kws.remove(&k) {
+            Some(v) => v
+                .parse()
+                .map_err(|error| ParseKeyError::new(error, k, v))
+                .map_err(ReqKeyError::Parse),
+            None => Err(ReqKeyError::Missing(k)),
+        }
+    }
+
+    fn remove_req_mod<'a>(
+        kws: &mut StdKeywords,
+        k: StdKey,
+        data: Self::Payload<'a>,
+        conf: &StdTextReadConfig,
+    ) -> ReqModResult<Self>
+    where
+        Self: FromStrStateful,
+    {
+        match kws.remove(&k) {
+            Some(v) => Self::from_str_mod(v.as_str(), data, conf)
+                .map_err(|error| ParseKeyError::new(error, k, v))
+                .map_err(ReqKeyError::Parse),
+            None => Err(ReqKeyError::Missing(k)),
+        }
     }
 }
 
@@ -61,25 +96,50 @@ pub(crate) trait Optional {
     where
         Self: FromStr,
     {
-        remove_opt(kws, k).map(|x| x.into())
+        kws.remove(&k)
+            .map(|v| v.parse().map_err(|error| ParseKeyError::new(error, k, v)))
+            .transpose()
+            .map(|x| x.into())
+    }
+
+    fn remove_opt_mod<'a>(
+        kws: &mut StdKeywords,
+        k: StdKey,
+        data: Self::Payload<'a>,
+        conf: &StdTextReadConfig,
+    ) -> Result<MaybeValue<Self>, ParseKeyError<Self::Err>>
+    where
+        Self: FromStrStateful,
+    {
+        kws.remove(&k)
+            .map(|v| {
+                Self::from_str_mod(v.as_str(), data, conf)
+                    .map_err(|error| ParseKeyError::new(error, k, v))
+            })
+            .transpose()
+            .map(|x| x.into())
     }
 }
 
 /// A required metaroot key
-pub(crate) trait ReqMetarootKey
-where
-    Self: Required + fmt::Display + Key + FromStr,
-{
-    fn get_metaroot_req(kws: &StdKeywords) -> ReqResult<Self> {
+pub(crate) trait ReqMetarootKey: Sized + Required + Key {
+    fn get_metaroot_req(kws: &StdKeywords) -> ReqResult<Self>
+    where
+        Self: FromStr,
+    {
         Self::get_req(kws, Self::std())
     }
 
-    fn remove_metaroot_req(kws: &mut StdKeywords) -> ReqResult<Self> {
+    fn remove_metaroot_req(kws: &mut StdKeywords) -> ReqResult<Self>
+    where
+        Self: FromStr,
+    {
         Self::remove_req(kws, Self::std())
     }
 
     fn lookup_req(kws: &mut StdKeywords) -> LookupResult<Self>
     where
+        Self: FromStr,
         ParseReqKeyError: From<<Self as FromStr>::Err>,
     {
         Self::remove_metaroot_req(kws)
@@ -88,26 +148,48 @@ where
             .into_deferred()
     }
 
-    fn pair(&self) -> (String, String) {
+    fn lookup_req_mod<'a>(
+        kws: &mut StdKeywords,
+        data: Self::Payload<'a>,
+        conf: &StdTextReadConfig,
+    ) -> LookupResult<Self>
+    where
+        Self: FromStrStateful,
+        ParseReqKeyError: From<<Self as FromStrStateful>::Err>,
+    {
+        Self::remove_req_mod(kws, Self::std(), data, conf)
+            .map_err(|e| e.inner_into())
+            .map_err(Box::new)
+            .into_deferred()
+    }
+
+    fn pair(&self) -> (String, String)
+    where
+        Self: fmt::Display,
+    {
         (Self::std().to_string(), self.to_string())
     }
 }
 
 /// Any required key with one index
-pub(crate) trait ReqIndexedKey
-where
-    Self: Required + fmt::Display + IndexedKey + FromStr,
-{
-    fn get_meas_req(kws: &StdKeywords, i: IndexFromOne) -> ReqResult<Self> {
+pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
+    fn get_meas_req(kws: &StdKeywords, i: IndexFromOne) -> ReqResult<Self>
+    where
+        Self: FromStr,
+    {
         Self::get_req(kws, Self::std(i))
     }
 
-    fn remove_meas_req(kws: &mut StdKeywords, i: IndexFromOne) -> ReqResult<Self> {
+    fn remove_meas_req(kws: &mut StdKeywords, i: IndexFromOne) -> ReqResult<Self>
+    where
+        Self: FromStr,
+    {
         Self::remove_req(kws, Self::std(i))
     }
 
     fn lookup_req(kws: &mut StdKeywords, i: IndexFromOne) -> LookupResult<Self>
     where
+        Self: FromStr,
         ParseReqKeyError: From<<Self as FromStr>::Err>,
     {
         Self::remove_meas_req(kws, i)
@@ -116,7 +198,26 @@ where
             .into_deferred()
     }
 
-    fn triple(&self, i: IndexFromOne) -> (MeasHeader, String, String) {
+    fn lookup_req_mod<'a>(
+        kws: &mut StdKeywords,
+        i: IndexFromOne,
+        data: Self::Payload<'a>,
+        conf: &StdTextReadConfig,
+    ) -> LookupResult<Self>
+    where
+        Self: FromStrStateful,
+        ParseReqKeyError: From<<Self as FromStrStateful>::Err>,
+    {
+        Self::remove_req_mod(kws, Self::std(i), data, conf)
+            .map_err(|e| e.inner_into())
+            .map_err(Box::new)
+            .into_deferred()
+    }
+
+    fn triple(&self, i: IndexFromOne) -> (MeasHeader, String, String)
+    where
+        Self: fmt::Display,
+    {
         (
             Self::std_blank(),
             Self::std(i).to_string(),
@@ -124,30 +225,49 @@ where
         )
     }
 
-    fn pair(&self, i: IndexFromOne) -> (String, String) {
+    fn pair(&self, i: IndexFromOne) -> (String, String)
+    where
+        Self: fmt::Display,
+    {
         let (_, k, v) = self.triple(i);
         (k, v)
     }
 }
 
 /// An optional metaroot key
-pub(crate) trait OptMetarootKey
-where
-    Self: Optional + fmt::Display + Key + FromStr,
-{
-    fn get_metaroot_opt(kws: &StdKeywords) -> OptKwResult<Self> {
+pub(crate) trait OptMetarootKey: Sized + Optional + Key {
+    fn get_metaroot_opt(kws: &StdKeywords) -> OptKwResult<Self>
+    where
+        Self: FromStr,
+    {
         Self::get_opt(kws, Self::std())
     }
 
-    fn remove_metaroot_opt(kws: &mut StdKeywords) -> OptKwResult<Self> {
+    fn remove_metaroot_opt(kws: &mut StdKeywords) -> OptKwResult<Self>
+    where
+        Self: FromStr,
+    {
         Self::remove_opt(kws, Self::std())
     }
 
     fn lookup_opt<E>(kws: &mut StdKeywords) -> LookupTentative<MaybeValue<Self>, E>
     where
+        Self: FromStr,
         ParseOptKeyWarning: From<<Self as FromStr>::Err>,
     {
         process_opt(Self::remove_metaroot_opt(kws))
+    }
+
+    fn lookup_opt_mod<'a, E>(
+        kws: &mut StdKeywords,
+        data: Self::Payload<'a>,
+        conf: &StdTextReadConfig,
+    ) -> LookupTentative<MaybeValue<Self>, E>
+    where
+        Self: FromStrStateful,
+        ParseOptKeyWarning: From<<Self as FromStrStateful>::Err>,
+    {
+        process_opt(Self::remove_opt_mod(kws, Self::std(), data, conf))
     }
 
     fn lookup_opt_dep(
@@ -155,6 +275,7 @@ where
         disallow_dep: bool,
     ) -> LookupTentative<MaybeValue<Self>, DeprecatedError>
     where
+        Self: FromStr,
         ParseOptKeyWarning: From<<Self as FromStr>::Err>,
     {
         let mut x = Self::lookup_opt(kws);
@@ -162,36 +283,74 @@ where
         x
     }
 
-    fn pair_opt(opt: &MaybeValue<Self>) -> (String, Option<String>) {
+    fn lookup_opt_mod_dep<'a>(
+        kws: &mut StdKeywords,
+        disallow_dep: bool,
+        data: Self::Payload<'a>,
+        conf: &StdTextReadConfig,
+    ) -> LookupTentative<MaybeValue<Self>, DeprecatedError>
+    where
+        Self: FromStrStateful,
+        ParseOptKeyWarning: From<<Self as FromStrStateful>::Err>,
+    {
+        let mut x = Self::lookup_opt_mod(kws, data, conf);
+        eval_dep_maybe(&mut x, Self::std(), disallow_dep);
+        x
+    }
+
+    fn pair_opt(opt: &MaybeValue<Self>) -> (String, Option<String>)
+    where
+        Self: fmt::Display,
+    {
         (
             Self::std().to_string(),
             opt.0.as_ref().map(|s| s.to_string()),
         )
     }
 
-    fn pair(opt: &Self) -> (String, String) {
-        (Self::std().to_string(), opt.to_string())
+    fn pair(&self) -> (String, String)
+    where
+        Self: fmt::Display,
+    {
+        (Self::std().to_string(), self.to_string())
     }
 }
 
 /// Any optional key with an index
-pub(crate) trait OptIndexedKey
-where
-    Self: Optional + fmt::Display + IndexedKey + FromStr,
-{
-    fn get_meas_opt(kws: &StdKeywords, i: IndexFromOne) -> OptKwResult<Self> {
+pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
+    fn get_meas_opt(kws: &StdKeywords, i: IndexFromOne) -> OptKwResult<Self>
+    where
+        Self: FromStr,
+    {
         Self::get_opt(kws, Self::std(i))
     }
 
-    fn remove_meas_opt(kws: &mut StdKeywords, i: IndexFromOne) -> OptKwResult<Self> {
+    fn remove_meas_opt(kws: &mut StdKeywords, i: IndexFromOne) -> OptKwResult<Self>
+    where
+        Self: FromStr,
+    {
         Self::remove_opt(kws, Self::std(i))
     }
 
     fn lookup_opt<E>(kws: &mut StdKeywords, i: IndexFromOne) -> LookupTentative<MaybeValue<Self>, E>
     where
+        Self: FromStr,
         ParseOptKeyWarning: From<<Self as FromStr>::Err>,
     {
         process_opt(Self::remove_meas_opt(kws, i))
+    }
+
+    fn lookup_opt_mod<'a, E>(
+        kws: &mut StdKeywords,
+        i: IndexFromOne,
+        data: Self::Payload<'a>,
+        conf: &StdTextReadConfig,
+    ) -> LookupTentative<MaybeValue<Self>, E>
+    where
+        Self: FromStrStateful,
+        ParseOptKeyWarning: From<<Self as FromStrStateful>::Err>,
+    {
+        process_opt(Self::remove_opt_mod(kws, Self::std(i), data, conf))
     }
 
     fn lookup_opt_dep(
@@ -200,6 +359,7 @@ where
         disallow_dep: bool,
     ) -> LookupTentative<MaybeValue<Self>, DeprecatedError>
     where
+        Self: FromStr,
         ParseOptKeyWarning: From<<Self as FromStr>::Err>,
     {
         let mut x = Self::lookup_opt(kws, i);
@@ -207,7 +367,26 @@ where
         x
     }
 
-    fn triple(opt: &MaybeValue<Self>, i: IndexFromOne) -> (MeasHeader, String, Option<String>) {
+    fn lookup_opt_mod_dep<'a>(
+        kws: &mut StdKeywords,
+        i: IndexFromOne,
+        disallow_dep: bool,
+        data: Self::Payload<'a>,
+        conf: &StdTextReadConfig,
+    ) -> LookupTentative<MaybeValue<Self>, DeprecatedError>
+    where
+        Self: FromStrStateful,
+        ParseOptKeyWarning: From<<Self as FromStrStateful>::Err>,
+    {
+        let mut x = Self::lookup_opt_mod(kws, i, data, conf);
+        eval_dep_maybe(&mut x, Self::std(i), disallow_dep);
+        x
+    }
+
+    fn triple(opt: &MaybeValue<Self>, i: IndexFromOne) -> (MeasHeader, String, Option<String>)
+    where
+        Self: fmt::Display,
+    {
         (
             Self::std_blank(),
             Self::std(i).to_string(),
@@ -215,12 +394,18 @@ where
         )
     }
 
-    fn pair_opt(opt: &MaybeValue<Self>, i: IndexFromOne) -> (String, Option<String>) {
+    fn pair_opt(opt: &MaybeValue<Self>, i: IndexFromOne) -> (String, Option<String>)
+    where
+        Self: fmt::Display,
+    {
         let (_, k, v) = Self::triple(opt, i);
         (k, v)
     }
 
-    fn pair(&self, i: IndexFromOne) -> (String, String) {
+    fn pair(&self, i: IndexFromOne) -> (String, String)
+    where
+        Self: fmt::Display,
+    {
         (Self::std(i).to_string(), self.to_string())
     }
 }
@@ -228,11 +413,7 @@ where
 /// Any key which references $PnN in its value
 pub(crate) trait OptLinkedKey
 where
-    Self: Key,
-    Self: Optional,
-    Self: fmt::Display,
-    Self: FromStr,
-    Self: Sized,
+    Self: Key + Optional + fmt::Display + FromStr + Sized,
 {
     fn check_link(&self, names: &HashSet<&Shortname>) -> Result<(), LinkedNameError> {
         NonEmpty::collect(self.names().difference(names).copied().cloned())
@@ -285,11 +466,7 @@ where
     match kws.get(&k) {
         Some(v) => v
             .parse()
-            .map_err(|error| ParseKeyError {
-                error,
-                key: k,
-                value: v.clone(),
-            })
+            .map_err(|error| ParseKeyError::new(error, k, v.clone()))
             .map_err(ReqKeyError::Parse),
         None => Err(ReqKeyError::Missing(k)),
     }
@@ -302,45 +479,8 @@ where
 {
     kws.get(&k)
         .map(|v| {
-            v.parse().map_err(|error| ParseKeyError {
-                error,
-                key: k,
-                value: v.clone(),
-            })
-        })
-        .transpose()
-}
-
-/// Find a required standard key in a hash table and remove it
-pub(crate) fn remove_req<T>(kws: &mut StdKeywords, k: StdKey) -> ReqResult<T>
-where
-    T: FromStr,
-{
-    match kws.remove(&k) {
-        Some(v) => v
-            .parse()
-            .map_err(|error| ParseKeyError {
-                error,
-                key: k,
-                value: v,
-            })
-            .map_err(ReqKeyError::Parse),
-        None => Err(ReqKeyError::Missing(k)),
-    }
-}
-
-/// Find an optional standard key in a hash table and remove it
-pub(crate) fn remove_opt<T>(kws: &mut StdKeywords, k: StdKey) -> OptResult<T>
-where
-    T: FromStr,
-{
-    kws.remove(&k)
-        .map(|v| {
-            v.parse().map_err(|error| ParseKeyError {
-                error,
-                key: k,
-                value: v,
-            })
+            v.parse()
+                .map_err(|error| ParseKeyError::new(error, k, v.clone()))
         })
         .transpose()
 }
@@ -412,28 +552,20 @@ where
     x
 }
 
-pub(crate) fn process_opt<V, E>(
-    res: Result<MaybeValue<V>, ParseKeyError<<V as FromStr>::Err>>,
+pub(crate) fn process_opt<V, E, W>(
+    res: Result<MaybeValue<V>, ParseKeyError<W>>,
 ) -> Tentative<MaybeValue<V>, LookupKeysWarning, E>
 where
-    V: FromStr,
-    ParseOptKeyWarning: From<<V as FromStr>::Err>,
+    ParseOptKeyWarning: From<W>,
 {
-    res.map_or_else(
-        |e| {
-            Tentative::new(
-                None.into(),
-                vec![LookupKeysWarning::Parse(e.inner_into())],
-                vec![],
-            )
-        },
-        Tentative::new1,
-    )
+    res.into_tentative_warn_def()
+        .map_warnings(|w| LookupKeysWarning::Parse(w.inner_into()))
 }
 
 pub(crate) type RawKeywords = HashMap<String, String>;
 
 pub(crate) type ReqResult<T> = Result<T, ReqKeyError<<T as FromStr>::Err>>;
+pub(crate) type ReqModResult<T> = Result<T, ReqKeyError<<T as FromStrStateful>::Err>>;
 pub(crate) type OptResult<T> = Result<Option<T>, ParseKeyError<<T as FromStr>::Err>>;
 pub(crate) type OptKwResult<T> = Result<MaybeValue<T>, ParseKeyError<<T as FromStr>::Err>>;
 
@@ -509,8 +641,7 @@ pub enum ParseOptKeyWarning {
     Shortname(ShortnameError),
     Display(DisplayError),
     Unicode(UnicodeError),
-    Spillover(ParseGenericSpilloverError),
-    IndexedSpillover(ParseIndexedSpilloverError),
+    Spillover(ParseSpilloverError),
     Compensation(ParseCompError),
     GateRange(ParseBigDecimalError),
     GateRegionIndex2_0(RegionGateIndexError<ParseIntError>),
@@ -607,6 +738,7 @@ impl fmt::Display for PseudostandardError {
     }
 }
 
+#[derive(new)]
 pub struct ParseKeyError<E> {
     pub error: E,
     pub key: StdKey,

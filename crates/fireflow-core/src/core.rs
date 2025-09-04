@@ -5864,8 +5864,9 @@ impl ScaleTransform {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<ScaleTransform> {
-        Gain::lookup_opt(kws, i.into()).and_maybe(|g| {
-            Scale::lookup_fixed_req(kws, i, conf.fix_log_scale_offsets).def_and_maybe(|s| {
+        let j = i.into();
+        Gain::lookup_opt(kws, j).and_maybe(|g| {
+            Scale::lookup_req_mod(kws, j, (), conf).def_and_maybe(|s| {
                 ScaleTransform::try_from((s, g))
                     .into_deferred::<_, LookupMiscError>()
                     .def_errors_into()
@@ -6286,8 +6287,9 @@ impl LookupOptical for InnerOptical2_0 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let s = Scale::lookup_fixed_opt(kws, i, conf);
-        let w = Wavelength::lookup_opt(kws, i.into());
+        let j = i.into();
+        let s = Scale::lookup_opt_mod(kws, j, (), conf);
+        let w = Wavelength::lookup_opt(kws, j);
         let p = PeakData::lookup(kws, i);
         Ok(s.zip3(w, p).map(|(scale, wavelength, peak)| Self {
             scale,
@@ -7321,7 +7323,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let cy = Cyt::lookup_opt(kws);
-        let sp = Spillover::lookup_maybe_indexed(kws, names, ordered_names, conf);
+        let sp = Spillover::lookup_opt_mod(kws, (names, ordered_names), conf);
         let sn = Cytsn::lookup_opt(kws);
         let su = SubsetData::lookup(kws);
         let md = ModificationData::lookup(kws);
@@ -7385,7 +7387,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         let f = Flowrate::lookup_opt(kws);
         let md = ModificationData::lookup(kws);
         let mo = Mode3_2::lookup_opt_dep(kws, dd);
-        let sp = Spillover::lookup_maybe_indexed(kws, names, ordered_names, conf);
+        let sp = Spillover::lookup_opt_mod(kws, (names, ordered_names), conf);
         let sn = Cytsn::lookup_opt(kws);
         let p = PlateData::lookup_dep(kws, dd);
         let t = Timestamps::lookup_dep(kws, dd);
@@ -7702,7 +7704,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
     }
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {
-        [self.cyt.pair()].into_iter()
+        [ReqMetarootKey::pair(&self.cyt)].into_iter()
     }
 
     fn keywords_opt_inner(&self) -> impl Iterator<Item = (String, String)> {

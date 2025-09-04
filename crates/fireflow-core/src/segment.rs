@@ -820,14 +820,16 @@ impl<I> TEXTSegment<I> {
     pub(crate) fn keywords(&self) -> [(String, String); 2]
     where
         I: KeyedReqSegment,
-        I::B: Into<Uint20Char>,
-        I::E: Into<Uint20Char>,
-        I::B: From<Uint20Char>,
-        I::E: From<Uint20Char>,
-        I::B: ReqMetarootKey,
-        I::E: ReqMetarootKey,
-        I::B: FromStr<Err = ParseIntError>,
-        I::E: FromStr<Err = ParseIntError>,
+        I::B: Into<Uint20Char>
+            + From<Uint20Char>
+            + ReqMetarootKey
+            + FromStr<Err = ParseIntError>
+            + fmt::Display,
+        I::E: Into<Uint20Char>
+            + From<Uint20Char>
+            + ReqMetarootKey
+            + FromStr<Err = ParseIntError>
+            + fmt::Display,
     {
         let i = self.inner;
         let (b, e) = match i {

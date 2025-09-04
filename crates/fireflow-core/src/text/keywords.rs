@@ -1710,21 +1710,12 @@ impl_newtype_try_from!(GateDetectorVoltage, NonNegFloat, f32, RangedFloatError);
 pub struct GateScale(pub Scale);
 
 // use the same fix we use for PnE here
-impl GateScale {
-    pub(crate) fn lookup_fixed_opt<E>(
-        kws: &mut StdKeywords,
-        i: GateIndex,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<MaybeValue<GateScale>, E> {
-        Scale::lookup_fixed_opt(kws, usize::from(i).into(), conf).map(|x| x.map(GateScale))
-    }
+impl FromStrStateful for GateScale {
+    type Err = ScaleError;
+    type Payload<'a> = ();
 
-    pub(crate) fn lookup_fixed_opt_dep(
-        kws: &mut StdKeywords,
-        i: GateIndex,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<MaybeValue<GateScale>, DeprecatedError> {
-        Scale::lookup_fixed_opt_dep(kws, usize::from(i).into(), conf).map(|x| x.map(GateScale))
+    fn from_str_mod(s: &str, data: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+        Scale::from_str_mod(s, data, conf).map(Self)
     }
 }
 
@@ -2003,18 +1994,12 @@ kw_opt_meta_string!(Plateid, "PLATEID");
 kw_opt_meta_string!(Platename, "PLATENAME");
 kw_opt_meta_string!(Wellid, "WELLID");
 
-impl Key for Spillover {
-    const C: &'static str = "SPILLOVER";
-}
+// impl Key for Spillover {
+//     const C: &'static str = "SPILLOVER";
+// }
 
-impl Optional for Spillover {}
-
-// this is a dummy value for cases where $SPILLOVER uses indices rather than names
-impl Key for IndexedSpillover {
-    const C: &'static str = "SPILLOVER";
-}
-
-impl Optional for IndexedSpillover {}
+// impl Optional for Spillover {}
+kw_opt_meta!(Spillover, "SPILLOVER");
 
 kw_opt_meta!(Vol, "VOL");
 

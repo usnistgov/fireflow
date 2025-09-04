@@ -1,16 +1,19 @@
 use crate::config::StdTextReadConfig;
-use crate::error::ResultExt;
+use crate::error::{ErrorIter, ResultExt};
 use crate::validated::keys::{Key, StdKeywords};
 use crate::validated::shortname::*;
 
 use super::index::MeasIndex;
 use super::named_vec::NameMapping;
 use super::optional::MaybeValue;
-use super::parser::{LookupKeysWarning, LookupTentative, OptLinkedKey, Optional};
+use super::parser::{
+    FromStrStateful, LinkedNameError, LookupKeysWarning, LookupTentative, OptLinkedKey, Optional,
+};
 
 use derive_more::{AsRef, Display, From};
 use itertools::Itertools;
 use nalgebra::DMatrix;
+use nonempty::NonEmpty;
 use std::collections::HashSet;
 use std::fmt;
 use std::hash::Hash;
@@ -21,7 +24,6 @@ use std::str::FromStr;
 use serde::Serialize;
 
 pub type Spillover = GenericSpillover<Shortname>;
-pub type IndexedSpillover = GenericSpillover<MeasIndex>;
 
 /// The spillover matrix from the $SPILLOVER keyword (3.1+)
 #[derive(Clone, AsRef, PartialEq)]
@@ -39,27 +41,6 @@ pub struct GenericSpillover<T> {
 }
 
 impl Spillover {
-    pub(crate) fn lookup_maybe_indexed<E>(
-        kws: &mut StdKeywords,
-        names: &HashSet<&Shortname>,
-        ordered_names: &[&Shortname],
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<MaybeValue<Self>, E> {
-        if conf.parse_indexed_spillover {
-            IndexedSpillover::remove_opt(kws, IndexedSpillover::std())
-                .map_err(|w| LookupKeysWarning::Parse(w.inner_into()))
-                .and_then(|x| {
-                    x.0.map(|s| s.try_into_named(ordered_names))
-                        .transpose()
-                        .map_err(|w| LookupKeysWarning::Relation(w.into()))
-                })
-                .into_tentative_warn_def()
-                .map(|y| y.into())
-        } else {
-            Spillover::lookup_opt(kws, names)
-        }
-    }
-
     // pub(crate) fn remove_by_name(&mut self, n: &Shortname) -> ClearMaybe<bool> {
     //     if let Some(i) = self.measurements.iter().position(|m| m == n) {
     //         if self.measurements.len() < 3 {
@@ -96,7 +77,7 @@ impl Spillover {
     }
 }
 
-impl IndexedSpillover {
+impl GenericSpillover<MeasIndex> {
     pub(crate) fn try_into_named(
         self,
         names: &[&Shortname],
@@ -104,13 +85,9 @@ impl IndexedSpillover {
         let ms = self
             .measurements
             .into_iter()
-            .map(|i| {
-                names
-                    .get(usize::from(i))
-                    .ok_or(SpilloverIndexError(i))
-                    .map(|&x| x.clone())
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(|i| names.get(usize::from(i)).ok_or(i).map(|&x| x.clone()))
+            .gather()
+            .map_err(SpilloverIndexError)?;
         Ok(Spillover {
             measurements: ms,
             matrix: self.matrix,
@@ -193,22 +170,34 @@ impl fmt::Display for Spillover {
     }
 }
 
+impl FromStrStateful for Spillover {
+    type Err = ParseSpilloverError;
+    type Payload<'a> = (&'a HashSet<&'a Shortname>, &'a [&'a Shortname]);
+
+    fn from_str_mod<'a>(
+        s: &str,
+        data: Self::Payload<'a>,
+        conf: &StdTextReadConfig,
+    ) -> Result<Self, Self::Err> {
+        let (names, ordered_names) = data;
+        if conf.parse_indexed_spillover {
+            let go = |m: &str| m.parse::<MeasIndex>().map_err(MalformedIndexError);
+            let m = GenericSpillover::from_str::<ParseSpilloverError, _, _>(s, go)?;
+            Ok(m.try_into_named(ordered_names)?)
+        } else {
+            let m = s.parse::<Spillover>()?;
+            m.check_link(names)?;
+            Ok(m)
+        }
+    }
+}
+
 impl FromStr for Spillover {
     type Err = ParseGenericSpilloverError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         {
             GenericSpillover::from_str(s, |m| Ok(Shortname::new_unchecked(m)))
-        }
-    }
-}
-
-impl FromStr for IndexedSpillover {
-    type Err = ParseIndexedSpilloverError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        {
-            GenericSpillover::from_str(s, |m| m.parse::<MeasIndex>().map_err(MalformedIndexError))
         }
     }
 }
@@ -221,9 +210,11 @@ pub enum NewSpilloverError {
 }
 
 #[derive(From, Display)]
-pub enum ParseIndexedSpilloverError {
+pub enum ParseSpilloverError {
     Generic(ParseGenericSpilloverError),
-    Index(MalformedIndexError),
+    BadIndex(MalformedIndexError),
+    IndexLink(SpilloverIndexError),
+    NamedLink(LinkedNameError),
 }
 
 pub enum ParseGenericSpilloverError {
@@ -235,13 +226,29 @@ pub enum ParseGenericSpilloverError {
 
 pub struct MalformedIndexError(ParseIntError);
 
-pub struct SpilloverIndexError(MeasIndex);
+pub struct SpilloverIndexError(NonEmpty<MeasIndex>);
+
+// pub struct SpilloverNamedError(NonEmpty<Shortname>);
 
 impl fmt::Display for SpilloverIndexError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "$SPILLOVER index out of bounds: {}", self.0)
+        write!(
+            f,
+            "$SPILLOVER indices out of bounds: {}",
+            self.0.iter().join(",")
+        )
     }
 }
+
+// impl fmt::Display for SpilloverNamedError {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+//         write!(
+//             f,
+//             "$SPILLOVER links to non-existent names: {}",
+//             self.0.iter().join(",")
+//         )
+//     }
+// }
 
 impl fmt::Display for MalformedIndexError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {

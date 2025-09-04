@@ -83,76 +83,22 @@ impl FromStr for Scale {
     }
 }
 
-impl Scale {
-    pub(crate) fn lookup_fixed_req(
-        kws: &mut StdKeywords,
-        i: MeasIndex,
-        try_fix: bool,
-    ) -> LookupResult<Scale> {
-        let res = Scale::remove_meas_req(kws, i.into());
-        if try_fix {
-            res.map_or_else(
-                |e| {
-                    e.with_parse_error(|se| {
-                        if let ScaleError::LogRange(le) = se {
-                            le.try_fix_offset()
-                                .map(Scale::Log)
-                                .map_err(ScaleError::LogRange)
-                        } else {
-                            Err(se)
-                        }
-                    })
-                },
-                Ok,
-            )
-        } else {
-            res
-        }
-        .map_err(|e| e.inner_into())
-        .map_err(Box::new)
-        .into_deferred()
-    }
+impl FromStrStateful for Scale {
+    type Err = ScaleError;
+    type Payload<'a> = ();
 
-    pub(crate) fn lookup_fixed_opt<E>(
-        kws: &mut StdKeywords,
-        i: MeasIndex,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<MaybeValue<Scale>, E> {
-        let res = Self::lookup_fixed_opt_inner(kws, i, conf.fix_log_scale_offsets);
-        process_opt(res)
-    }
-
-    pub(crate) fn lookup_fixed_opt_dep(
-        kws: &mut StdKeywords,
-        i: MeasIndex,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<MaybeValue<Scale>, DeprecatedError> {
-        let dd = conf.disallow_deprecated;
-        let res = Self::lookup_fixed_opt_inner(kws, i, conf.fix_log_scale_offsets);
-        process_opt_dep(res, Scale::std(i.into()), dd)
-    }
-
-    fn lookup_fixed_opt_inner(
-        kws: &mut StdKeywords,
-        i: MeasIndex,
-        try_fix: bool,
-    ) -> OptKwResult<Scale> {
-        let res = Scale::remove_meas_opt(kws, i.into());
-        if try_fix {
-            res.map_or_else(
-                |e| {
-                    e.with_error(|se| {
-                        if let ScaleError::LogRange(le) = se {
-                            le.try_fix_offset()
-                                .map(|x| Some(Scale::Log(x)).into())
-                                .map_err(ScaleError::LogRange)
-                        } else {
-                            Err(se)
-                        }
-                    })
-                },
-                Ok,
-            )
+    fn from_str_mod(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+        let res = s.parse::<Self>();
+        if conf.fix_log_scale_offsets {
+            res.or_else(|e| {
+                if let ScaleError::LogRange(le) = e {
+                    le.try_fix_offset()
+                        .map(Scale::Log)
+                        .map_err(ScaleError::LogRange)
+                } else {
+                    Err(e)
+                }
+            })
         } else {
             res
         }

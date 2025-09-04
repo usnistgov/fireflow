@@ -1714,8 +1714,8 @@ impl FromStrStateful for GateScale {
     type Err = ScaleError;
     type Payload<'a> = ();
 
-    fn from_str_mod(s: &str, data: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
-        Scale::from_str_mod(s, data, conf).map(Self)
+    fn from_str_st(s: &str, data: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+        Scale::from_str_st(s, data, conf).map(Self)
     }
 }
 

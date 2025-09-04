@@ -87,7 +87,7 @@ impl FromStrStateful for Scale {
     type Err = ScaleError;
     type Payload<'a> = ();
 
-    fn from_str_mod(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         let res = s.parse::<Self>();
         if conf.fix_log_scale_offsets {
             res.or_else(|e| {

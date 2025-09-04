@@ -174,7 +174,7 @@ impl FromStrStateful for Spillover {
     type Err = ParseSpilloverError;
     type Payload<'a> = (&'a HashSet<&'a Shortname>, &'a [&'a Shortname]);
 
-    fn from_str_mod<'a>(
+    fn from_str_st<'a>(
         s: &str,
         data: Self::Payload<'a>,
         conf: &StdTextReadConfig,

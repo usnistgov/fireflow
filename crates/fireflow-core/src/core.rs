@@ -5866,7 +5866,7 @@ impl ScaleTransform {
     ) -> LookupResult<ScaleTransform> {
         let j = i.into();
         Gain::lookup_opt(kws, j).and_maybe(|g| {
-            Scale::lookup_req_mod(kws, j, (), conf).def_and_maybe(|s| {
+            Scale::lookup_req_st(kws, j, (), conf).def_and_maybe(|s| {
                 ScaleTransform::try_from((s, g))
                     .into_deferred::<_, LookupMiscError>()
                     .def_errors_into()
@@ -6288,7 +6288,7 @@ impl LookupOptical for InnerOptical2_0 {
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let j = i.into();
-        let s = Scale::lookup_opt_mod(kws, j, (), conf);
+        let s = Scale::lookup_opt_st(kws, j, (), conf);
         let w = Wavelength::lookup_opt(kws, j);
         let p = PeakData::lookup(kws, i);
         Ok(s.zip3(w, p).map(|(scale, wavelength, peak)| Self {
@@ -7323,7 +7323,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let cy = Cyt::lookup_opt(kws);
-        let sp = Spillover::lookup_opt_mod(kws, (names, ordered_names), conf);
+        let sp = Spillover::lookup_opt_st(kws, (names, ordered_names), conf);
         let sn = Cytsn::lookup_opt(kws);
         let su = SubsetData::lookup(kws);
         let md = ModificationData::lookup(kws);
@@ -7387,7 +7387,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         let f = Flowrate::lookup_opt(kws);
         let md = ModificationData::lookup(kws);
         let mo = Mode3_2::lookup_opt_dep(kws, dd);
-        let sp = Spillover::lookup_opt_mod(kws, (names, ordered_names), conf);
+        let sp = Spillover::lookup_opt_st(kws, (names, ordered_names), conf);
         let sn = Cytsn::lookup_opt(kws);
         let p = PlateData::lookup_dep(kws, dd);
         let t = Timestamps::lookup_dep(kws, dd);

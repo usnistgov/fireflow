@@ -403,14 +403,6 @@ pub struct ReadHeaderAndTEXTConfig {
     /// that these will result in errors if ['allow_empty'] is false.
     pub trim_value_whitespace: bool,
 
-    /// If supplied, will be used as an alternative pattern when parsing $DATE.
-    ///
-    /// It should have specifiers for year, month, and day as outlined in
-    /// https://docs.rs/chrono/latest/chrono/format/strftime/index.html. If not
-    /// supplied, $DATE will be parsed according to the standard pattern which
-    /// is '%d-%b-%Y'.
-    pub date_pattern: Option<DatePattern>,
-
     /// Remove standard keys from TEXT.
     ///
     /// Comparisons will be case-insensitive. Members of this list should not
@@ -550,6 +542,14 @@ pub struct StdTextReadConfig {
     /// Indices will then be used to look up the names that should have been
     /// in their place.
     pub parse_indexed_spillover: bool,
+
+    /// If supplied, will be used as an alternative pattern when parsing $DATE.
+    ///
+    /// It should have specifiers for year, month, and day as outlined in
+    /// https://docs.rs/chrono/latest/chrono/format/strftime/index.html. If not
+    /// supplied, $DATE will be parsed according to the standard pattern which
+    /// is '%d-%b-%Y'.
+    pub date_pattern: Option<DatePattern>,
 
     /// If true, allow non-standard keywords starting with '$'.
     ///

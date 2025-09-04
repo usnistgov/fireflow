@@ -1,3 +1,4 @@
+use crate::config::StdTextReadConfig;
 use crate::error::*;
 use crate::validated::keys::*;
 
@@ -214,13 +215,32 @@ impl fmt::Display for ReversedTimestamps {
 // "jan", "jaN", etc
 const FCS_DATE_FORMAT: &str = "%d-%b-%Y";
 
+impl FromStrStateful for FCSDate {
+    type Err = FCSDateError;
+    type Payload<'a> = ();
+
+    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+        if let Some(pattern) = &conf.date_pattern {
+            Self::parse_with_pattern(s, pattern.as_ref())
+        } else {
+            s.parse::<FCSDate>()
+        }
+    }
+}
+
+impl FCSDate {
+    fn parse_with_pattern(s: &str, pat: &str) -> Result<Self, FCSDateError> {
+        NaiveDate::parse_from_str(s, pat)
+            .or(Err(FCSDateError))
+            .map(FCSDate)
+    }
+}
+
 impl FromStr for FCSDate {
     type Err = FCSDateError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        NaiveDate::parse_from_str(s, FCS_DATE_FORMAT)
-            .or(Err(FCSDateError))
-            .map(FCSDate)
+        Self::parse_with_pattern(s, FCS_DATE_FORMAT)
     }
 }
 

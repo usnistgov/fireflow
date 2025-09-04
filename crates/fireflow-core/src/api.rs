@@ -736,7 +736,6 @@ where
         });
 
     let repair_res = kws_res.def_and_tentatively(|(delim, mut kws, supp_text_seg)| {
-        repair_keywords(&mut kws.std, conf);
         append_keywords(&mut kws, conf)
             .map_or_else(
                 |es| {
@@ -1083,19 +1082,6 @@ fn split_raw_text_escaped_delim(
     }
 
     Tentative::new(kws, ews.0, ews.1)
-}
-
-fn repair_keywords(kws: &mut StdKeywords, conf: &ReadHeaderAndTEXTConfig) {
-    for (key, v) in kws.iter_mut() {
-        // TODO generalized this and possibly put in a trait
-        if key == &FCSDate::std() {
-            if let Some(pattern) = &conf.date_pattern {
-                if let Ok(d) = NaiveDate::parse_from_str(v, pattern.as_ref()) {
-                    *v = FCSDate(d).to_string();
-                }
-            }
-        }
-    }
 }
 
 fn append_keywords(

@@ -33,7 +33,7 @@ pub trait FromStrStateful: Sized {
     type Err;
     type Payload<'a>;
 
-    fn from_str_mod<'a>(
+    fn from_str_st<'a>(
         _: &str,
         _: Self::Payload<'a>,
         _: &StdTextReadConfig,
@@ -62,17 +62,17 @@ pub(crate) trait Required {
         }
     }
 
-    fn remove_req_mod<'a>(
+    fn remove_req_st<'a>(
         kws: &mut StdKeywords,
         k: StdKey,
         data: Self::Payload<'a>,
         conf: &StdTextReadConfig,
-    ) -> ReqModResult<Self>
+    ) -> ReqStResult<Self>
     where
         Self: FromStrStateful,
     {
         match kws.remove(&k) {
-            Some(v) => Self::from_str_mod(v.as_str(), data, conf)
+            Some(v) => Self::from_str_st(v.as_str(), data, conf)
                 .map_err(|error| ParseKeyError::new(error, k, v))
                 .map_err(ReqKeyError::Parse),
             None => Err(ReqKeyError::Missing(k)),
@@ -102,7 +102,7 @@ pub(crate) trait Optional {
             .map(|x| x.into())
     }
 
-    fn remove_opt_mod<'a>(
+    fn remove_opt_st<'a>(
         kws: &mut StdKeywords,
         k: StdKey,
         data: Self::Payload<'a>,
@@ -113,7 +113,7 @@ pub(crate) trait Optional {
     {
         kws.remove(&k)
             .map(|v| {
-                Self::from_str_mod(v.as_str(), data, conf)
+                Self::from_str_st(v.as_str(), data, conf)
                     .map_err(|error| ParseKeyError::new(error, k, v))
             })
             .transpose()
@@ -148,7 +148,7 @@ pub(crate) trait ReqMetarootKey: Sized + Required + Key {
             .into_deferred()
     }
 
-    fn lookup_req_mod<'a>(
+    fn lookup_req_st<'a>(
         kws: &mut StdKeywords,
         data: Self::Payload<'a>,
         conf: &StdTextReadConfig,
@@ -157,7 +157,7 @@ pub(crate) trait ReqMetarootKey: Sized + Required + Key {
         Self: FromStrStateful,
         ParseReqKeyError: From<<Self as FromStrStateful>::Err>,
     {
-        Self::remove_req_mod(kws, Self::std(), data, conf)
+        Self::remove_req_st(kws, Self::std(), data, conf)
             .map_err(|e| e.inner_into())
             .map_err(Box::new)
             .into_deferred()
@@ -198,7 +198,7 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
             .into_deferred()
     }
 
-    fn lookup_req_mod<'a>(
+    fn lookup_req_st<'a>(
         kws: &mut StdKeywords,
         i: IndexFromOne,
         data: Self::Payload<'a>,
@@ -208,7 +208,7 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
         Self: FromStrStateful,
         ParseReqKeyError: From<<Self as FromStrStateful>::Err>,
     {
-        Self::remove_req_mod(kws, Self::std(i), data, conf)
+        Self::remove_req_st(kws, Self::std(i), data, conf)
             .map_err(|e| e.inner_into())
             .map_err(Box::new)
             .into_deferred()
@@ -258,7 +258,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         process_opt(Self::remove_metaroot_opt(kws))
     }
 
-    fn lookup_opt_mod<'a, E>(
+    fn lookup_opt_st<'a, E>(
         kws: &mut StdKeywords,
         data: Self::Payload<'a>,
         conf: &StdTextReadConfig,
@@ -267,7 +267,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self: FromStrStateful,
         ParseOptKeyWarning: From<<Self as FromStrStateful>::Err>,
     {
-        process_opt(Self::remove_opt_mod(kws, Self::std(), data, conf))
+        process_opt(Self::remove_opt_st(kws, Self::std(), data, conf))
     }
 
     fn lookup_opt_dep(
@@ -283,7 +283,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         x
     }
 
-    fn lookup_opt_mod_dep<'a>(
+    fn lookup_opt_st_dep<'a>(
         kws: &mut StdKeywords,
         disallow_dep: bool,
         data: Self::Payload<'a>,
@@ -293,7 +293,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self: FromStrStateful,
         ParseOptKeyWarning: From<<Self as FromStrStateful>::Err>,
     {
-        let mut x = Self::lookup_opt_mod(kws, data, conf);
+        let mut x = Self::lookup_opt_st(kws, data, conf);
         eval_dep_maybe(&mut x, Self::std(), disallow_dep);
         x
     }
@@ -340,7 +340,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         process_opt(Self::remove_meas_opt(kws, i))
     }
 
-    fn lookup_opt_mod<'a, E>(
+    fn lookup_opt_st<'a, E>(
         kws: &mut StdKeywords,
         i: IndexFromOne,
         data: Self::Payload<'a>,
@@ -350,7 +350,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self: FromStrStateful,
         ParseOptKeyWarning: From<<Self as FromStrStateful>::Err>,
     {
-        process_opt(Self::remove_opt_mod(kws, Self::std(i), data, conf))
+        process_opt(Self::remove_opt_st(kws, Self::std(i), data, conf))
     }
 
     fn lookup_opt_dep(
@@ -367,7 +367,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         x
     }
 
-    fn lookup_opt_mod_dep<'a>(
+    fn lookup_opt_st_dep<'a>(
         kws: &mut StdKeywords,
         i: IndexFromOne,
         disallow_dep: bool,
@@ -378,7 +378,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self: FromStrStateful,
         ParseOptKeyWarning: From<<Self as FromStrStateful>::Err>,
     {
-        let mut x = Self::lookup_opt_mod(kws, i, data, conf);
+        let mut x = Self::lookup_opt_st(kws, i, data, conf);
         eval_dep_maybe(&mut x, Self::std(i), disallow_dep);
         x
     }
@@ -565,7 +565,7 @@ where
 pub(crate) type RawKeywords = HashMap<String, String>;
 
 pub(crate) type ReqResult<T> = Result<T, ReqKeyError<<T as FromStr>::Err>>;
-pub(crate) type ReqModResult<T> = Result<T, ReqKeyError<<T as FromStrStateful>::Err>>;
+pub(crate) type ReqStResult<T> = Result<T, ReqKeyError<<T as FromStrStateful>::Err>>;
 pub(crate) type OptResult<T> = Result<Option<T>, ParseKeyError<<T as FromStr>::Err>>;
 pub(crate) type OptKwResult<T> = Result<MaybeValue<T>, ParseKeyError<<T as FromStr>::Err>>;
 

@@ -532,7 +532,7 @@ impl GatedMeasurement {
         Self::lookup_inner(
             kws,
             i,
-            |k, j| GateScale::lookup_opt_mod(k, j.into(), (), conf),
+            |k, j| GateScale::lookup_opt_st(k, j.into(), (), conf),
             GateFilter::lookup_opt,
             GateShortname::lookup_opt,
             GatePercentEmitted::lookup_opt,
@@ -552,7 +552,7 @@ impl GatedMeasurement {
         Self::lookup_inner(
             kws,
             i,
-            |k, j| GateScale::lookup_opt_mod_dep(k, j.into(), dd, (), conf),
+            |k, j| GateScale::lookup_opt_st_dep(k, j.into(), dd, (), conf),
             |k, j| GateFilter::lookup_opt_dep(k, j, dd),
             |k, j| GateShortname::lookup_opt_dep(k, j, dd),
             |k, j| GatePercentEmitted::lookup_opt_dep(k, j, dd),

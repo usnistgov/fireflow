@@ -463,15 +463,6 @@ _RAW_ARGS: dict[str, list[str]] = {
             "it may also be sensible to enable ``allow_empty``."
         )
     ],
-    "date_pattern": [
-        (
-            "If supplied, will be used as an alternative pattern when parsing *$DATE*. "
-            "It should have specifiers for year, month, and day as outlined in "
-            "`chrono <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>`__. "
-            "If not supplied, *$DATE* will be parsed according to the standard pattern which "
-            "is ``%d-%b-%Y``."
-        )
-    ],
     "ignore_standard_keys": [
         (
             "Remove standard keys from *TEXT*. "
@@ -537,6 +528,15 @@ _STD_ARGS: dict[str, list[str]] = {
         (
             "Parse $SPILLOVER with numeric indices rather than strings "
             "(ie names or *$PnN*)"
+        )
+    ],
+    "date_pattern": [
+        (
+            "If supplied, will be used as an alternative pattern when parsing *$DATE*. "
+            "It should have specifiers for year, month, and day as outlined in "
+            "`chrono <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>`__. "
+            "If not supplied, *$DATE* will be parsed according to the standard pattern which "
+            "is ``%d-%b-%Y``."
         )
     ],
     "allow_pseudostandard": [
@@ -700,7 +700,6 @@ def fcs_read_raw_text(
     allow_stext_own_delim: bool = False,
     allow_missing_nextdata: bool = False,
     trim_value_whitespace: bool = False,
-    date_pattern: str | None = None,
     ignore_standard_keys: KeyPatterns = DEFAULT_KEY_PATTERNS,
     rename_standard_keys: dict[str, str] = {},
     promote_to_standard: KeyPatterns = DEFAULT_KEY_PATTERNS,
@@ -758,7 +757,6 @@ def fcs_read_std_text(
     allow_stext_own_delim: bool = False,
     allow_missing_nextdata: bool = False,
     trim_value_whitespace: bool = False,
-    date_pattern: str | None = None,
     ignore_standard_keys: KeyPatterns = DEFAULT_KEY_PATTERNS,
     rename_standard_keys: dict[str, str] = {},
     promote_to_standard: KeyPatterns = DEFAULT_KEY_PATTERNS,
@@ -772,6 +770,7 @@ def fcs_read_std_text(
     ignore_time_gain: bool = False,
     ignore_time_optical_keys: set[TemporalOpticalKey] = set(),
     parse_indexed_spillover: bool = False,
+    date_pattern: str | None = None,
     allow_pseudostandard: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
@@ -837,7 +836,6 @@ def fcs_read_raw_dataset(
     allow_stext_own_delim: bool = False,
     allow_missing_nextdata: bool = False,
     trim_value_whitespace: bool = False,
-    date_pattern: str | None = None,
     ignore_standard_keys: KeyPatterns = DEFAULT_KEY_PATTERNS,
     rename_standard_keys: dict[str, str] = {},
     promote_to_standard: KeyPatterns = DEFAULT_KEY_PATTERNS,
@@ -913,7 +911,6 @@ def fcs_read_std_dataset(
     allow_stext_own_delim: bool = False,
     allow_missing_nextdata: bool = False,
     trim_value_whitespace: bool = False,
-    date_pattern: str | None = None,
     ignore_standard_keys: KeyPatterns = DEFAULT_KEY_PATTERNS,
     rename_standard_keys: dict[str, str] = {},
     promote_to_standard: KeyPatterns = DEFAULT_KEY_PATTERNS,
@@ -927,6 +924,7 @@ def fcs_read_std_dataset(
     ignore_time_gain: bool = False,
     ignore_time_optical_keys: set[TemporalOpticalKey] = set(),
     parse_indexed_spillover: bool = False,
+    date_pattern: str | None = None,
     allow_pseudostandard: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
@@ -1034,6 +1032,7 @@ def fcs_read_std_dataset_with_keywords(
     ignore_time_gain: bool = False,
     ignore_time_optical_keys: set[TemporalOpticalKey] = set(),
     parse_indexed_spillover: bool = False,
+    date_pattern: str | None = None,
     allow_pseudostandard: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,

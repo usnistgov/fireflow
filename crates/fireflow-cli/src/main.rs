@@ -143,11 +143,6 @@ fn main() -> Result<(), ()> {
 
     let trim_value_whitespace = flag_arg(TRIM_VALUE_WHITESPACE, "trim whitespace from all values");
 
-    let date_pattern = Arg::new(DATE_PATTERN)
-        .long(DATE_PATTERN)
-        .value_name("REGEXP")
-        .help("pattern to match $DATE keyword if it is non-conferment");
-
     let all_raw_args = [
         version_override,
         supp_text_correction_begin,
@@ -167,7 +162,6 @@ fn main() -> Result<(), ()> {
         allow_stext_own_delim,
         allow_missing_nextdata,
         trim_value_whitespace,
-        date_pattern,
     ];
 
     // std args
@@ -215,6 +209,11 @@ fn main() -> Result<(), ()> {
         "fix PnE keys that have log scaling with zero offset (ie 'X,0.0')",
     );
 
+    let date_pattern = Arg::new(DATE_PATTERN)
+        .long(DATE_PATTERN)
+        .value_name("REGEXP")
+        .help("pattern to match $DATE keyword if it is non-conferment");
+
     let ns_meas_pattern = Arg::new(NS_MEAS_PATTERN)
         .long(NS_MEAS_PATTERN)
         .value_name("REGEXP")
@@ -230,6 +229,7 @@ fn main() -> Result<(), ()> {
         ignore_time_gain,
         ignore_time_optical_keys,
         parse_indexed_spillover,
+        date_pattern,
         allow_pseudostandard,
         disallow_deprecated,
         fix_log_scale_offset,
@@ -517,10 +517,6 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
     let stext0 = sargs.get_one(SUPP_TEXT_COR_BEGIN).copied();
     let stext1 = sargs.get_one(SUPP_TEXT_COR_END).copied();
     let supp_text_correction = (stext0, stext1).into();
-    let date_pattern = sargs
-        .get_one::<String>(DATE_PATTERN)
-        .cloned()
-        .map(|d| d.parse::<DatePattern>().unwrap());
     config::ReadHeaderAndTEXTConfig {
         header: parse_header_config(sargs),
         version_override,
@@ -540,7 +536,6 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
         allow_stext_own_delim: sargs.get_flag(ALLOW_STEXT_OWN_DELIM),
         allow_missing_nextdata: sargs.get_flag(ALLOW_MISSING_NEXTDATA),
         trim_value_whitespace: sargs.get_flag(TRIM_VALUE_WHITESPACE),
-        date_pattern,
         ignore_standard_keys: KeyPatterns::default(),
         rename_standard_keys: KeyStringPairs::default(),
         promote_to_standard: KeyPatterns::default(),
@@ -564,6 +559,10 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::StdTextReadConfig {
         .unwrap_or_default()
         .map(|s| s.parse::<config::TemporalOpticalKey>().unwrap())
         .collect();
+    let date_pattern = sargs
+        .get_one::<String>(DATE_PATTERN)
+        .cloned()
+        .map(|d| d.parse::<DatePattern>().unwrap());
     config::StdTextReadConfig {
         time_pattern,
         force_time_linear: sargs.get_flag(FORCE_TIME_LINEAR),
@@ -571,6 +570,7 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::StdTextReadConfig {
         ignore_time_optical_keys,
         allow_missing_time: sargs.get_flag(ALLOW_MISSING_TIME),
         parse_indexed_spillover: sargs.get_flag(PARSE_INDEXED_SPILLOVER),
+        date_pattern,
         allow_pseudostandard: sargs.get_flag(ALLOW_PSEUDOSTANDARD),
         disallow_deprecated: sargs.get_flag(DISALLOW_DEPRECATED),
         fix_log_scale_offsets: sargs.get_flag(FIX_LOG_SCALE_OFFSETS),

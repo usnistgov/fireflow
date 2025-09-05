@@ -251,7 +251,7 @@ Legend:
 
 Notes:
 1. For ASCII, *$BYTEORD* does not matter. `fireflow` will still read it to
-   ensure it is valid but beyond this its value has no impact on the layout.
+   ensure validity; beyond this its value has no impact on the layout.
 2. These must be less than 2^`$PnB`.
 3. Must match whatever is specified by *$DATATYPE* and *$PnDATATYPE*. *$PnR*
    must be within [1, 20] and can never be `*` if *$DATATYPE* is `A` and

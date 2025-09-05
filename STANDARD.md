@@ -236,7 +236,7 @@ All possible data layouts in `fireflow` (in terms of their keywords) are:
 | F32               | `F`       | endian   | `32`   | f32    | n/a         | 3.1/3.2  |
 | F64               | `D`       | endian   | `64`   | f64    | n/a         | 3.1/3.2  |
 | Int (any width)   | `I`       | endian   | octet  | (2)    | n/a         | 3.1/3.2  |
-| Mixed-Type        | any-dt    | endian   | (3)    | (3)    | <any-pdt>   | 3.2      |
+| Mixed-Type        | any-dt    | endian   | (3)    | (3)    | any-pdt     | 3.2      |
 
 Legend:
 * any-dt: `A`, `I`, `F`, or `D`

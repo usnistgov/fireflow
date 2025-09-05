@@ -219,30 +219,32 @@ keywords are allowed and their implications are clarified here.
 
 All possible data layouts in `fireflow` (in terms of their keywords) are:
 
-| Name              | $DATATYPE | $BYTEORD | $PnB    | $PnR   | $PnDATATYPE | Versions |
-|-------------------|-----------|----------|---------|--------|-------------|----------|
-| Ascii (delimited) | `A`       | (1)      | `*`     | x<2^64 | n/a         | all      |
-| Ascii (fixed)     | `A`       | (1)      | [1,20]  | x<2^64 | n/a         | all      |
-| Int8 (mixed)      | `I`       | `1`      | `8`     | x<2^8  | n/a         | 2.0/3.0  |
-| Int16 (mixed)     | `I`       | [1,2]    | `16`    | x<2^16 | n/a         | 2.0/3.0  |
-| Int24 (mixed)     | `I`       | [1,3]    | `24`    | x<2^24 | n/a         | 2.0/3.0  |
-| Int32 (mixed)     | `I`       | [1,4]    | `32`    | x<2^32 | n/a         | 2.0/3.0  |
-| Int40 (mixed)     | `I`       | [1,5]    | `40`    | x<2^40 | n/a         | 2.0/3.0  |
-| Int48 (mixed)     | `I`       | [1,6]    | `48`    | x<2^48 | n/a         | 2.0/3.0  |
-| Int56 (mixed)     | `I`       | [1,7]    | `56`    | x<2^56 | n/a         | 2.0/3.0  |
-| Int64 (mixed)     | `I`       | [1,8]    | `64`    | x<2^64 | n/a         | 2.0/3.0  |
-| F32 (mixed)       | `F`       | [1,4]    | `32`    | <f32>  | n/a         | 2.0/3.0  |
-| F64 (mixed)       | `D`       | [1,8]    | `32`    | <f64>  | n/a         | 2.0/3.0  |
-| F32               | `F`       | <endian> | `32`    | <f32>  | n/a         | 3.1/3.2  |
-| F64               | `D`       | <endian> | `64`    | <f64>  | n/a         | 3.1/3.2  |
-| Int (any width)   | `I`       | <endian> | <octet> | (2)    | n/a         | 3.1/3.2  |
-| Mixed-Type        | <any-dt>  | <endian> | (3)     | (3)    | <any-pdt>   | 3.2      |
+| Name              | $DATATYPE | $BYTEORD | $PnB   | $PnR   | $PnDATATYPE | Versions |
+|-------------------|-----------|----------|--------|--------|-------------|----------|
+| Ascii (delimited) | `A`       | (1)      | `*`    | x<2^64 | n/a         | all      |
+| Ascii (fixed)     | `A`       | (1)      | [1,20] | x<2^64 | n/a         | all      |
+| Int8 (mixed)      | `I`       | `1`      | `8`    | x<2^8  | n/a         | 2.0/3.0  |
+| Int16 (mixed)     | `I`       | [1,2]    | `16`   | x<2^16 | n/a         | 2.0/3.0  |
+| Int24 (mixed)     | `I`       | [1,3]    | `24`   | x<2^24 | n/a         | 2.0/3.0  |
+| Int32 (mixed)     | `I`       | [1,4]    | `32`   | x<2^32 | n/a         | 2.0/3.0  |
+| Int40 (mixed)     | `I`       | [1,5]    | `40`   | x<2^40 | n/a         | 2.0/3.0  |
+| Int48 (mixed)     | `I`       | [1,6]    | `48`   | x<2^48 | n/a         | 2.0/3.0  |
+| Int56 (mixed)     | `I`       | [1,7]    | `56`   | x<2^56 | n/a         | 2.0/3.0  |
+| Int64 (mixed)     | `I`       | [1,8]    | `64`   | x<2^64 | n/a         | 2.0/3.0  |
+| F32 (mixed)       | `F`       | [1,4]    | `32`   | f32    | n/a         | 2.0/3.0  |
+| F64 (mixed)       | `D`       | [1,8]    | `32`   | f64    | n/a         | 2.0/3.0  |
+| F32               | `F`       | endian   | `32`   | f32    | n/a         | 3.1/3.2  |
+| F64               | `D`       | endian   | `64`   | f64    | n/a         | 3.1/3.2  |
+| Int (any width)   | `I`       | endian   | octet  | (2)    | n/a         | 3.1/3.2  |
+| Mixed-Type        | any-dt    | endian   | (3)    | (3)    | <any-pdt>   | 3.2      |
 
 Legend:
-* <any-dt>: `A`, `I`, `F`, or `D`
-* <any-pdt>: `I`, `F`, or `D`
-* <endian>: `1,2,3,4` or `4,3,2,1`
-* <octet>: ∈ {x * 8 | 1 <= x <= 8}
+* any-dt: `A`, `I`, `F`, or `D`
+* any-pdt: `I`, `F`, or `D`
+* endian: `1,2,3,4` or `4,3,2,1`
+* octet: ∈ {x * 8 | 1 <= x <= 8}
+* f32: any valid f32 number except for +/- infinity and NaN
+* f64: any valid f64 number except for +/- infinity and NaN
 
 Notes:
 1. For ASCII, *$BYTEORD* does not matter. `fireflow` will still read it to

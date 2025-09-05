@@ -299,6 +299,16 @@ FCS 3.0 and 3.1 provide guidance for parsing *ANALYSIS* in §3.4 but this is not
 implemented in `fireflow`. Furthermore, the *$CS\** keywords are available from
 `fireflow`'s *TEXT* API which may be used in this process as required.
 
+## Additional checks
+
+### Non-overlapping offsets
+
+Each segment as specified in HEADER and/or TEXT should not overlap with any
+other segment. Additionally, each offset must be contained within the file.
+
+Together, these checks will flag many common offset issues (off-by-one) as well
+as any truncated files that were not fully written.
+
 ## Other unsupported features
 
 * Multiple datasets, although this is planned

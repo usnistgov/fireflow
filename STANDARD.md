@@ -240,7 +240,7 @@ All possible data layouts in `fireflow` (in terms of their keywords) are:
 
 Legend:
 * `X`: literal value
-* {X..Y}: unordered set of integers between X and Y (inclusive)
+* {X..Y}: comma-separated integers between X and Y (inclusive) in any order
 * any-dt: `A`, `I`, `F`, or `D`
 * any-pdt: `I`, `F`, or `D`
 * endian: `1,2,3,4` or `4,3,2,1`

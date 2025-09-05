@@ -221,8 +221,8 @@ All possible data layouts in `fireflow` (in terms of their keywords) are:
 
 | Name              | $DATATYPE | $BYTEORD | $PnB   | $PnR   | $PnDATATYPE | Versions |
 |-------------------|-----------|----------|--------|--------|-------------|----------|
-| Ascii (delimited) | `A`       | (1)      | `*`    | x<2^64 | n/a         | all      |
-| Ascii (fixed)     | `A`       | (1)      | 0<x<21 | x<2^64 | n/a         | all      |
+| Ascii (delimited) | `A`       | Note 1   | `*`    | x<2^64 | n/a         | all      |
+| Ascii (fixed)     | `A`       | Note 1   | 0<x<21 | x<2^64 | n/a         | all      |
 | Int8 (mixed)      | `I`       | `1`      | `8`    | x<2^8  | n/a         | 2.0/3.0  |
 | Int16 (mixed)     | `I`       | {1..2}   | `16`   | x<2^16 | n/a         | 2.0/3.0  |
 | Int24 (mixed)     | `I`       | {1..3}   | `24`   | x<2^24 | n/a         | 2.0/3.0  |
@@ -235,8 +235,8 @@ All possible data layouts in `fireflow` (in terms of their keywords) are:
 | F64 (mixed)       | `D`       | {1..8}   | `32`   | f64    | n/a         | 2.0/3.0  |
 | F32               | `F`       | endian   | `32`   | f32    | n/a         | 3.1/3.2  |
 | F64               | `D`       | endian   | `64`   | f64    | n/a         | 3.1/3.2  |
-| Int (any width)   | `I`       | endian   | octet  | (2)    | n/a         | 3.1/3.2  |
-| Mixed-Type        | any-dt    | endian   | (3)    | (3)    | any-pdt     | 3.2      |
+| Int (any width)   | `I`       | endian   | octet  | Note 2 | n/a         | 3.1/3.2  |
+| Mixed-Type        | any-dt    | endian   | Note 3 | Note 3 | any-pdt     | 3.2      |
 
 Legend:
 * `X`: literal value

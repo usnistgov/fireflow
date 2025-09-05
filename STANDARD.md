@@ -277,9 +277,9 @@ One of the implications of changing *$BYTEORD* to only mean "big or little
 endian" in FCS 3.1 was that it became possible to make *$PnB* different across
 measurements; this is because previously *$PnB* was implied in *$BYTEORD*.
 
-As a consequence, integer layouts can express any width from 8-64 bits (in
-multiples of 8) starting in 3.1. It wasn't clear if this was intended, but
-`fireflow` nonetheless supports these layouts.
+As a consequence, integer layouts can express any width from 8 to 64 bits (in
+multiples of 8) starting in FCS 3.1. It wasn't clear if this was intended, but
+`fireflow` nonetheless supports this layout.
 
 In practice, many vendors still seem to use a single width for integer data
 in FCS 3.1+ despite the added flexibility.

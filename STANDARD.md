@@ -44,7 +44,7 @@ should be more than enough for all use cases.
 
 Furthermore, `fireflow` will write new FCS files with each of these left-padded
 with zeros up to 20 characters. This makes the length of *TEXT* predictable,
-which in turn allows computing the length of each offset (otherwise this would
+which in turn allows computing the value of each offset (otherwise this would
 be circular).
 
 ### *$TR*
@@ -54,7 +54,7 @@ matches a *$PnN*.
 
 ### *$UNSTAINEDCENTERS*
 
-For all versions, `fireflow` will ensure all measurement names in this keyword
+For FCS 3.2, `fireflow` will ensure all measurement names in this keyword
 matches a *$PnN*.
 
 ### Timestamp keywords
@@ -72,7 +72,7 @@ No version explicitly mandates this check, but it makes sense to do.
 
 ### Spillover/Compensation
 
-For *$DFCnTOM* and *$COMP* `fireflow` will only accept matrices that are 2x2 or
+For *$DFCnTOm* and *$COMP* `fireflow` will only accept matrices that are 2x2 or
 larger despite not being written into the standard. This restriction is
 specified for *$SPILLOVER* starting in FCS 3.1.
 
@@ -84,7 +84,7 @@ match a *$PnN*.
 ### Subset keywords
 
 `fireflow` will parse *$CSMODE*, *$CSVBITS*, *$CSTOT*, and *$CSVnFLAG* as-is.
-No other processing will be done with these despite FSC 3.0 and FCS 3.1 (see
+No other processing will be done with these despite FCS 3.0 and FCS 3.1 (see
 §3.4 in both) outlining their use in parsing the *ANALYSIS* segment.
 
 ### *$PnB*
@@ -128,17 +128,18 @@ make the bitmask that will be applied to data when read/written.
 
 ### *$PnE* and *$PnG*
 
-As of FCS 3.2, *$PnG* shall not be used with *$PnE* other than `0,0` (linear)
+As of FCS 3.2, *$PnG* shall not be used when *$PnE* is set to log scaling
 (§3.3.46).
 
-`fireflow` slightly loosens this restriction to allow *$PnG* to be set to `1.0`
-in the case of log scaling. Since *$PnG* is simply a multiplier, setting it to
-`1.0` equates to a no-op, and thus no harm should come from allowing this while
-also allowing many machines that "erronously" set this value.
+`fireflow` slightly loosens this restriction to allow *$PnG* to be `1.0` in the
+case of log scaling. Since *$PnG* is simply a multiplier, setting it to `1.0`
+equates to a no-op, and thus no harm should come from this while also allowing
+many machines that "erroneously" set *$PnG* to `1.0`.
 
 In all other cases, the standard is enforced as written, including the
-restriction of log scaling to integer data only. Note that `fireflow` counts
-ASCII data as integer data.
+restriction of log scaling to integer data only. Note that ASCII values are not
+counted as integer values here despite being processed as 64-bit integers in
+`fireflow`.
 
 ### *$PnL*, *$PnO*, and *$PnV*
 
@@ -152,7 +153,7 @@ Additionally, *$PnL* and *$PnV* may only use positive floats and *$PnO* may only
 use non-negative floats.
 
 Specifically, *$PnL* is supposed to be an integer in all versions (although FCS
-3.1 allowed this to included multiple wavelengths), *PnO* was specified as an
+3.1 allowed this to include multiple wavelengths), *PnO* was specified as an
 integer through FCS 3.1, and *$PnV* was specified to be an integer through FCS
 3.0. Note that FCS 2.0 does not list the type of these but integer is implied
 via the examples given.
@@ -176,12 +177,12 @@ especially as new machines are developed.
 ### Temporal Measurements
 
 `fireflow` makes a clear distinction between "temporal" and "optical"
-measurements. "Temporal" measurements describe the channel often labelled
-"Time". "Optical" measurements describe everything else, which usually includes
-actual optical measurements with lasers, filters, and detectors but could
-include other things which as of FCS 3.2 are not well-described.
+measurements. "Temporal" measurements describe the channel often labeled "Time".
+"Optical" describe everything else and includes actual optical measurements with
+lasers, filters, and detectors but could include other types which as of FCS 3.2
+are not well-described.
 
-As of FCS 3.2, the only restrictions applied to temporal measurements are:
+As of FCS 3.2, the restrictions applied to temporal measurements are:
 
 1. shall only have linear scaling (§3.3.43)
 2. shall not have *$PnG* set (§3.3.46)
@@ -189,23 +190,23 @@ As of FCS 3.2, the only restrictions applied to temporal measurements are:
 4. if provided *$TIMESTEP* should also be present (§3.3.64)
 
 `fireflow` enforces (1) and (2) according to the logic outlined [previously](###
-*$PnE* and *$PnG*). (3) is enforced by default but in a case-insenstive manner
+*$PnE* and *$PnG*). (3) is enforced by default but in a case-insensitive manner
 as outlined in (§3.3.64). (4) is enforced for all versions except FCS 2.0 where
 *$TIMESTEP* did not exist.
 
 Additionally, `fireflow` adds the following restrictions to temporal
 measurements:
 
-1. there can only be zero or one temporal measurements per dataset
+1. there can only be zero or one temporal measurement per dataset
 2. the temporal measurement cannot be referenced by *$SPILLOVER*, *$TR*, or
    *$UNSTAINEDCENTERS* as each of these pertain to optical data
-3. *PnTYPE* must be "Time" for FCS 3.2
+3. *PnTYPE* must be `Time` for FCS 3.2
 4. *$TIMESTEP* must be greater than zero
-5. All measurement-specific keywords are restricted to "non-optical" keywords.
-   This includes *$PnN*, *$PnS*, *$PnD*, *$PnTYPE*, *$PKn*, and *PKNn*.
+5. Only *$PnN*, *$PnS*, *$PnD*, *$PnTYPE*, *$PKn*, and *PKNn* are allowed since
+   all other keywords describe some aspect of an optical measurement
    
-For (1), some vendors who stored data in 32 bit will "hack" a 64-bit time
-measurement by spreading the 64-bit value across two 32-bit measurements.
+For (1), some vendors will store data in 32-bit but will "hack" a 64-bit time
+measurement by spreading the 64-bit values across two 32-bit measurements.
 `fireflow` can read these without issue, but only one will be considered the
 temporal measurement (assuming all other restrictions are met as described
 above).
@@ -263,8 +264,8 @@ Notes:
 
 For all but delimited ASCII, the *$TOT* keyword is overspecified since the
 number of events can be computed using the length of *DATA* and the sum of all
-*PnB*. `fireflow` will check if *$TOT* matches this precomputed event number and
-alert the user for a descrepency.
+*$PnB*. `fireflow` will check if *$TOT* matches this precomputed event number
+and alert the user for a discrepancy.
 
 For delimited ASCII, *$TOT* is necessary since there is no fixed event width.
 For FCS 2.0, *$TOT* is optional, and if not given `fireflow` will simply read
@@ -280,6 +281,9 @@ As a consequence, integer layouts can express any width from 8-64 bits (in
 multiples of 8) starting in 3.1. It wasn't clear if this was intended, but
 `fireflow` nonetheless supports these layouts.
 
+In practice, many vendors still seem to use a single width for integer data
+in FCS 3.1+ despite the added flexibility.
+
 ### ASCII integers
 
 `fireflow` treats ASCII values as unsigned 64-bit integers. It isn't clear from
@@ -287,7 +291,7 @@ FCS 3.2 §3.3.14 if signed integers are allowed).
 
 ## ANALYSIS and OTHER
 
-`fireflow` will read *ANALYIS* and *OTHER* segments as an unprocessed
+`fireflow` will read *ANALYSIS* and *OTHER* segments as an unprocessed
 bytestream. Nothing else will be done. It is up to the user to process these
 as needed.
 

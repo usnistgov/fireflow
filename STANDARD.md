@@ -244,7 +244,7 @@ Legend:
 * any-dt: `A`, `I`, `F`, or `D`
 * any-pdt: `I`, `F`, or `D`
 * endian: `1,2,3,4` or `4,3,2,1`
-* octet: ∈ {x * 8 | 1 <= x <= 8}
+* octet: any multiple of 8 between 8 and 64 (inclusive)
 * f32: any valid f32 number except for +/- infinity and NaN
 * f64: any valid f64 number except for +/- infinity and NaN
 

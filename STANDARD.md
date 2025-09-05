@@ -189,10 +189,10 @@ As of FCS 3.2, the restrictions applied to temporal measurements are:
 3. *$PnN* shall be set to "Time" (§3.3.48)
 4. if provided *$TIMESTEP* should also be present (§3.3.64)
 
-`fireflow` enforces (1) and (2) according to the logic outlined [previously](###
-*$PnE* and *$PnG*). (3) is enforced by default but in a case-insensitive manner
-as outlined in (§3.3.64). (4) is enforced for all versions except FCS 2.0 where
-*$TIMESTEP* did not exist.
+`fireflow` enforces (1) and (2) according to the logic outlined
+[previously](### *$PnE* and *$PnG*). (3) is enforced by default but in a
+case-insensitive manner as outlined in (§3.3.64). (4) is enforced for all
+versions except FCS 2.0 where *$TIMESTEP* did not exist.
 
 Additionally, `fireflow` adds the following restrictions to temporal
 measurements:

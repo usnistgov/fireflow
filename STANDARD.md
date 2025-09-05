@@ -10,11 +10,13 @@ this documentation assumes a general level of familiarity. References to the
 standards will be given as sectional citations (ie §X.Y.Z, referring to headers)
 when necessary and applicable.
 
-Furthermore, `fireflow` has many ways to deal with "non-compliant" errors
-commonly found in FCS files which are not covered here; this is meant to provide
-an overview of how `fireflow` implements the standards themselves.
+By default, `fireflow` will only **read** fully-compliant files as outlined
+here. `fireflow` has many ways to deal with "non-compliant" errors commonly
+found in FCS files which are covered elsewhere; this is meant to provide an
+overview of how `fireflow` implements the standards themselves.
 
-By default, `fireflow` will only accept fully-compliant files as outlined here.
+`fireflow` will only **write** fully-compliant files which follow the standards
+and any exceptions outlined here. Any deviation from this is a bug.
 
 ## HEADER
 
@@ -282,3 +284,18 @@ multiples of 8) starting in 3.1. It wasn't clear if this was intended, but
 
 `fireflow` treats ASCII values as unsigned 64-bit integers. It isn't clear from
 FCS 3.2 §3.3.14 if signed integers are allowed).
+
+## ANALYSIS and OTHER
+
+`fireflow` will read *ANALYIS* and *OTHER* segments as an unprocessed
+bytestream. Nothing else will be done. It is up to the user to process these
+as needed.
+
+FCS 3.0 and 3.1 provide guidance for parsing *ANALYSIS* in §3.4 but this is not
+implemented in `fireflow`. Furthermore, the *$CS\** keywords are available from
+`fireflow`'s *TEXT* API which may be used in this process as required.
+
+## Other unsupported features
+
+* Multiple datasets, although this is planned
+* cyclic redundancy check (CRC)

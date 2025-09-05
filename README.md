@@ -13,12 +13,10 @@ Supported FCS versions:
 Key features:
 
 * Is written in Rust (reliable and fast)
-* Implements/enforces the FCS standard[^1]
+* Implements/enforces the FCS standard (see [implementaion details](STANDARD.md))
 * Can convert between FCS versions
 * Can repair non-compliant FCS files
 * Has API for command line, Python, R (planned)
-
-[^1]: see unsupported/planned features 
 
 ### Overview
 
@@ -64,12 +62,3 @@ be written with `fireflow`.
 ### Quick start
 
 TODO
-
-#### Future additions
-
-* CRC (read/write/check)
-* Support for multiple datasets
-
-#### Limitations
-
-* `$PnB` can only be in multiples of 8 when parsing numeric data

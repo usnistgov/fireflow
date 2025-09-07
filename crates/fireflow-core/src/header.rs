@@ -681,7 +681,8 @@ fn other_segments(other_lens: Vec<u64>) -> (Vec<OtherSegment>, u64, u64) {
         os.push(seg);
     }
     let total_length = os.iter().map(|s| s.inner.len()).sum();
-    let header_length = (os.len() as u64) * 16;
+    // each segment offset pair has two digits that are 20 bytes long
+    let header_length = (os.len() as u64) * 20 * 2;
     (os, header_length, total_length)
 }
 

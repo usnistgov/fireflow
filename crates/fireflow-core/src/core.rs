@@ -4795,7 +4795,7 @@ impl PlateData {
         [
             OptMetarootKey::pair_opt(&self.wellid),
             OptMetarootKey::pair_opt(&self.platename),
-            OptMetarootKey::pair_opt(&self.platename),
+            OptMetarootKey::pair_opt(&self.plateid),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))

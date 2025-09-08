@@ -4077,7 +4077,7 @@ fn textdelim_param() -> DocArg {
     DocArg::new_param_def(
         "delim".into(),
         PyType::Int,
-        "Delimiter to use when writing *TEXT*. Defaults to 30 (record separator).".into(),
+        "Delimiter to use when writing *TEXT*.".into(),
         DocDefault::Other(quote! {#t::default()}, "30".into()),
     )
 }

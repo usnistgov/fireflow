@@ -543,6 +543,8 @@ pub trait LayoutOps<'a, T>: Sized {
             .gather()
             .void()
     }
+
+    fn truncate_df(&self, df: &'a FCSDataFrame, skip_conv_check: bool) -> FCSDataFrame;
 }
 
 #[delegatable_trait]
@@ -807,7 +809,13 @@ trait IntoWriter<'a, S> {
 trait Writable<'a, S> {
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: S) -> io::Result<()>;
 
+    fn truncate(self) -> AnyFCSColumn;
+
     fn as_err(&self, i: MeasIndex) -> Option<ColumnError<AnyLossError>>;
+}
+
+trait Castable: Sized + HasNativeType {
+    fn with_cast(&self, x: CastResult<Self::Native>) -> (Self::Native, Option<AnyLossError>);
 }
 
 /// General methods for each numeric type.
@@ -1449,9 +1457,43 @@ impl Readable<Endian> for AnyReaderBitmask {
     }
 }
 
+impl<T, const LEN: usize> Castable for Bitmask<T, LEN>
+where
+    Self: HasNativeType<Native = T>,
+    T: Copy + Ord,
+    u64: From<T>,
+{
+    fn with_cast(&self, x: CastResult<T>) -> (T, Option<AnyLossError>) {
+        let (trunc, y) = self.apply(x.new);
+        let t = trunc
+            .map(LossError::Other)
+            .or(x.as_err().map(LossError::Cast))
+            .map(AnyLossError::Int);
+        (y, t)
+    }
+}
+
+impl<T, const LEN: usize> Castable for FloatRange<T, LEN>
+where
+    Self: HasNativeType<Native = T>,
+    T: Copy,
+{
+    fn with_cast(&self, x: CastResult<T>) -> (T, Option<AnyLossError>) {
+        let t = x.as_err().map(LossError::Cast).map(AnyLossError::Float);
+        (x.new, t)
+    }
+}
+
+impl Castable for AsciiRange {
+    fn with_cast(&self, x: CastResult<Self::Native>) -> (Self::Native, Option<AnyLossError>) {
+        let t = x.as_err().map(LossError::Cast).map(AnyLossError::Ascii);
+        (x.new, t)
+    }
+}
+
 impl<T, const LEN: usize> NativeWritable<Endian> for Bitmask<T, LEN>
 where
-    Bitmask<T, LEN>: HasNativeType<Native = T>,
+    Self: HasNativeType<Native = T>,
     T: Ord + Copy + IntFromBytes<LEN>,
     u64: From<T>,
 {
@@ -1461,18 +1503,15 @@ where
         x: CastResult<T>,
         byte_layout: Endian,
     ) -> io::Result<Option<AnyLossError>> {
-        let (trunc, y) = self.apply(x.new);
+        let (y, trunc) = self.with_cast(x);
         y.h_write_endian(h, byte_layout)?;
-        Ok(trunc
-            .map(LossError::Other)
-            .or(x.as_err().map(LossError::Cast))
-            .map(AnyLossError::Int))
+        Ok(trunc)
     }
 }
 
 impl<T, const LEN: usize> NativeWritable<SizedByteOrd<LEN>> for Bitmask<T, LEN>
 where
-    Bitmask<T, LEN>: HasNativeType<Native = T>,
+    Self: HasNativeType<Native = T>,
     T: Ord + Copy + IntFromBytes<LEN>,
     u64: From<T>,
 {
@@ -1482,18 +1521,15 @@ where
         x: CastResult<T>,
         byte_layout: SizedByteOrd<LEN>,
     ) -> io::Result<Option<AnyLossError>> {
-        let (trunc, y) = self.apply(x.new);
+        let (y, trunc) = self.with_cast(x);
         y.h_write_ordered(h, byte_layout)?;
-        Ok(trunc
-            .map(LossError::Other)
-            .or(x.as_err().map(LossError::Cast))
-            .map(AnyLossError::Int))
+        Ok(trunc)
     }
 }
 
 impl<T, const LEN: usize> NativeWritable<Endian> for FloatRange<T, LEN>
 where
-    FloatRange<T, LEN>: HasNativeType<Native = T>,
+    Self: HasNativeType<Native = T>,
     T: Copy + FloatFromBytes<LEN>,
 {
     fn h_write<W: Write>(
@@ -1502,14 +1538,15 @@ where
         x: CastResult<T>,
         byte_layout: Endian,
     ) -> io::Result<Option<AnyLossError>> {
-        x.new.h_write_endian(h, byte_layout)?;
-        Ok(x.as_err().map(LossError::Cast).map(AnyLossError::Float))
+        let (y, trunc) = self.with_cast(x);
+        y.h_write_endian(h, byte_layout)?;
+        Ok(trunc)
     }
 }
 
 impl<T, const LEN: usize> NativeWritable<SizedByteOrd<LEN>> for FloatRange<T, LEN>
 where
-    FloatRange<T, LEN>: HasNativeType<Native = T>,
+    Self: HasNativeType<Native = T>,
     T: Copy + FloatFromBytes<LEN>,
 {
     fn h_write<W: Write>(
@@ -1518,8 +1555,9 @@ where
         x: CastResult<T>,
         byte_layout: SizedByteOrd<LEN>,
     ) -> io::Result<Option<AnyLossError>> {
-        x.new.h_write_ordered(h, byte_layout)?;
-        Ok(x.as_err().map(LossError::Cast).map(AnyLossError::Float))
+        let (y, trunc) = self.with_cast(x);
+        y.h_write_ordered(h, byte_layout)?;
+        Ok(trunc)
     }
 }
 
@@ -1530,7 +1568,8 @@ impl<const ORD: bool> NativeWritable<NoByteOrd<ORD>> for AsciiRange {
         x: CastResult<Self::Native>,
         _: NoByteOrd<ORD>,
     ) -> io::Result<Option<AnyLossError>> {
-        let s = x.new.to_string();
+        let (y, trunc) = self.with_cast(x);
+        let s = y.to_string();
         let w: usize = u8::from(self.chars()).into();
         let e = if s.len() > w {
             // if string is greater than allocated chars, only write a fraction
@@ -1547,8 +1586,7 @@ impl<const ORD: bool> NativeWritable<NoByteOrd<ORD>> for AsciiRange {
             h.write_all(s.as_bytes())?;
             None
         };
-        Ok(e.or(x.as_err().map(LossError::Cast))
-            .map(AnyLossError::Ascii))
+        Ok(e.map(AnyLossError::Ascii).or(trunc))
     }
 }
 
@@ -1609,13 +1647,20 @@ impl<'a> IntoWriter<'a, Endian> for NullMixedType {
 
 impl<'a, C, T, S> Writable<'a, S> for ColumnWriter<'a, C, T, S>
 where
-    C: NativeWritable<S> + HasNativeType<Native = T> + ToNativeWriter,
+    C: NativeWritable<S> + HasNativeType<Native = T> + ToNativeWriter + Castable,
+    AnyFCSColumn: From<FCSColumn<T>>,
 {
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: S) -> io::Result<()> {
         let x = self.data.next().unwrap();
         let loss = self.column_type.h_write(h, x, byte_layout)?;
         self.loss = std::mem::take(&mut self.loss).or(loss);
         Ok(())
+    }
+
+    fn truncate(self) -> AnyFCSColumn {
+        let c = self.column_type;
+        let xs: Vec<_> = self.data.map(|x| c.with_cast(x).0).collect();
+        FCSColumn::from(xs).into()
     }
 
     fn as_err(&self, i: MeasIndex) -> Option<ColumnError<AnyLossError>> {
@@ -1633,6 +1678,10 @@ impl<'a> Writable<'a, Endian> for WriterMixedType<'a> {
         }
     }
 
+    fn truncate(self) -> AnyFCSColumn {
+        match_any_mixed!(self, x, { x.truncate() })
+    }
+
     fn as_err(&self, i: MeasIndex) -> Option<ColumnError<AnyLossError>> {
         match_any_mixed!(self, x, { x.as_err(i) })
     }
@@ -1641,6 +1690,10 @@ impl<'a> Writable<'a, Endian> for WriterMixedType<'a> {
 impl<'a> Writable<'a, Endian> for AnyWriterBitmask<'a> {
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: Endian) -> io::Result<()> {
         match_any_uint!(self, Self, c, { c.h_write(h, byte_layout) })
+    }
+
+    fn truncate(self) -> AnyFCSColumn {
+        match_any_uint!(self, Self, x, { x.truncate() })
     }
 
     fn as_err(&self, i: MeasIndex) -> Option<ColumnError<AnyLossError>> {
@@ -1719,8 +1772,12 @@ impl<'a, T> AnySource<'a, T> {
             FCSDataType::as_col_iter(xs).into()
         })
     }
+}
 
-    fn next(&mut self) -> Option<CastResult<T>> {
+impl<T> Iterator for AnySource<'_, T> {
+    type Item = CastResult<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
         match_many_to_one!(
             self,
             Self,
@@ -2239,6 +2296,21 @@ where
         };
         Ok(Tentative::new((), ws, vec![]))
     }
+
+    fn truncate_df(&self, df: &FCSDataFrame, skip_conv_check: bool) -> FCSDataFrame {
+        let columns: Vec<_> = df
+            .iter_columns()
+            .map(|c| {
+                FCSColumn::from(
+                    AnySource::<'_, u64>::new(c)
+                        .map(|x| x.new)
+                        .collect::<Vec<_>>(),
+                )
+                .into()
+            })
+            .collect();
+        FCSDataFrame::try_new(columns).unwrap()
+    }
 }
 
 impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
@@ -2565,6 +2637,17 @@ where
                 .collect()
         };
         Ok(Tentative::new((), ws, vec![]))
+    }
+
+    fn truncate_df(&self, df: &'a FCSDataFrame, skip_conv_check: bool) -> FCSDataFrame {
+        // ASSUME df has same number of columns as layout
+        let new_columns: Vec<_> = self
+            .columns
+            .iter()
+            .zip(df.iter_columns())
+            .map(|(col_type, col_data)| col_type.clone().into_writer(col_data).truncate())
+            .collect();
+        FCSDataFrame::try_new(new_columns).unwrap()
     }
 }
 

@@ -4001,6 +4001,12 @@ where
         Ok(())
     }
 
+    /// Coerce all values in DATA to fit within types specified in layout.
+    // TODO return warnings
+    pub fn truncate_data(&mut self) {
+        self.data = self.layout.truncate_df(&self.data, true);
+    }
+
     // TODO add function to append event(s)
 
     /// Remove a measurement matching the given name.

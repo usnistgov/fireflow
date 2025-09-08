@@ -23,10 +23,10 @@ and any exceptions outlined here. Any deviation from this is a bug.
 The first 58 bytes of *HEADER* are supported as-is. *OTHER* segments are also
 supported.
 
-Note that FCS 3.2 is the only version that specifies that the *OTHER* segment
-offsets must be 8 bytes long (§3.2). `fireflow` defaults to reading *OTHER*
-segments with 8 bytes but allows this parameter to be configured to deal with
-older versions where the width was not specified.
+FCS 3.2 is the only version that specifies that the *OTHER* segment offsets must
+be 8 bytes long (§3.2). By default, `fireflow` will use 8 bytes for the width of
+each *OTHER* offset for both reading and writing. although both can be
+configured.
 
 ## TEXT
 
@@ -308,6 +308,22 @@ other segment. Additionally, each offset must be contained within the file.
 
 Together, these checks will flag many common offset issues (off-by-one) as well
 as any truncated files that were not fully written.
+
+## Segment Order
+
+When writing, `fireflow` will arrange segments in the following order:
+
+* *HEADER*
+* *TEXT*
+* *OTHER* (if they exist, in the order listed in *HEADER*)
+* supplemental *TEXT*
+* *DATA*
+* *ANALYIS*
+
+*TEXT* must come directly after *HEADER* to make it obvious when to stop parsing
+*OTHER* offsets. *OTHER* comes after *TEXT* to maximize likelihood these will
+fit within the first 99,999,999 bytes. Everything else can go in any order
+since they can be addressed using "large" offsets.
 
 ## Other unsupported features
 

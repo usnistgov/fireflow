@@ -3927,13 +3927,13 @@ where
                     .h_write(h, M::Ver::fcs_version().into())
                     .into_deferred()?;
 
+                // write primary TEXT
+                hdr_kws.primary.h_write(h, delim).into_deferred()?;
+
                 // write OTHER
                 for o in others.0.iter() {
                     h.write_all(&o.0).into_deferred()?;
                 }
-
-                // write primary TEXT
-                hdr_kws.primary.h_write(h, delim).into_deferred()?;
 
                 // write supplemental TEXT
                 if !hdr_kws.supplemental.0.is_empty() {

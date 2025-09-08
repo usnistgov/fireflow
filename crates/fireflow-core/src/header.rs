@@ -510,20 +510,21 @@ pub(crate) fn make_data_offset_keywords_2_0(
     other_lens: Vec<u64>,
     has_nextdata: bool,
 ) -> Result<HeaderKeywordsToWrite, Uint8DigitOverflow> {
-    let (other_segs, other_header_len, other_segments_len) = other_segments(other_lens);
+    let other_header_len = other_header_len(&other_lens[..]);
 
-    let text_begin: Uint8Digit =
-        (u64::from(HEADER_LEN) + other_header_len + other_segments_len).try_into()?;
+    let text_begin: Uint8Digit = (u64::from(HEADER_LEN) + other_header_len).try_into()?;
     // +1 at end accounts for first delimiter
     let text_len =
         raw_keywords_length(&req[..]) + raw_keywords_length(&opt[..]) + nextdata_len() + 1;
     let text_seg = PrimaryTextSegment::try_new_with_len(text_begin, text_len)?;
 
-    let data_begin = text_seg
+    let other_begin = text_seg
         .inner
         .try_next_byte()
         .map_or(Ok(text_begin), |x| u64::from(x).try_into())?;
-    let data_seg = HeaderDataSegment::try_new_with_len(data_begin, data_len)?;
+    let (other_segs, data_begin) = other_segments(other_begin.into(), &other_lens[..]);
+
+    let data_seg = HeaderDataSegment::try_new_with_len(data_begin.try_into()?, data_len)?;
 
     let analysis_begin = data_seg
         .inner
@@ -578,9 +579,8 @@ pub(crate) fn make_data_offset_keywords_3_0(
     other_lens: Vec<u64>,
     has_nextdata: bool,
 ) -> Result<HeaderKeywordsToWrite, Uint8DigitOverflow> {
-    let (other_segs, other_header_len, other_segments_len) = other_segments(other_lens);
-    let prim_text_begin: Uint8Digit =
-        (u64::from(HEADER_LEN) + other_header_len + other_segments_len).try_into()?;
+    let other_header_len = other_header_len(&other_lens[..]);
+    let prim_text_begin: Uint8Digit = (u64::from(HEADER_LEN) + other_header_len).try_into()?;
 
     let nooffset_req_text_len = raw_keywords_length(&req[..]);
     let opt_text_len = raw_keywords_length(&opt[..]);
@@ -589,38 +589,52 @@ pub(crate) fn make_data_offset_keywords_3_0(
     let supp_text_len = opt_text_len + 1;
     let all_text_len = opt_text_len + nosupp_text_len;
 
+    let make_text_seg = |len| {
+        PrimaryTextSegment::try_new_with_len(prim_text_begin, len).map(|seg| {
+            let other_begin = seg
+                .inner
+                .try_next_byte()
+                .map(u64::from)
+                .unwrap_or(u64::from(prim_text_begin));
+            (seg, other_begin)
+        })
+    };
+
     // include STEXT only if the optional keywords don't fit within the first
     // 99,999,999 bytes
-    let (prim_text_seg, supp_text_seg) =
-        PrimaryTextSegment::try_new_with_len(prim_text_begin, all_text_len)
-            .map(|p| (p, SupplementalTextSegment::default()))
-            .or(
-                PrimaryTextSegment::try_new_with_len(prim_text_begin, nosupp_text_len).map(|p| {
-                    let supp_text_begin = p
-                        .inner
-                        .try_next_byte()
-                        .map_or(u64::from(prim_text_begin).into(), |x| u64::from(x).into());
-                    let s = SupplementalTextSegment::new_with_len(supp_text_begin, supp_text_len);
-                    (p, s)
-                }),
-            )?;
+    let prim_text_res = make_text_seg(all_text_len);
+    let (prim_text_seg, other_segs, supp_text_seg, data_begin) = match prim_text_res {
+        Ok((prim_text_seg, other_begin)) => {
+            let (other_segs, next_begin) = other_segments(other_begin, &other_lens[..]);
+            (
+                prim_text_seg,
+                other_segs,
+                SupplementalTextSegment::default(),
+                next_begin,
+            )
+        }
+        Err(_) => {
+            let (prim_text_seg, other_begin) = make_text_seg(nosupp_text_len)?;
+            let (other_segs, supp_text_begin) = other_segments(other_begin, &other_lens[..]);
+            let supp_text_seg =
+                SupplementalTextSegment::new_with_len(supp_text_begin.into(), supp_text_len);
+            let data_begin = supp_text_seg
+                .inner
+                .try_next_byte()
+                .map(u64::from)
+                .unwrap_or(supp_text_begin);
+            (prim_text_seg, other_segs, supp_text_seg, data_begin)
+        }
+    };
 
-    let data_begin = supp_text_seg
-        .inner
-        .try_next_byte()
-        .or(prim_text_seg.inner.try_next_byte())
-        .map(u64::from)
-        .unwrap_or(u64::from(prim_text_begin))
-        .into();
-
-    let data_seg = TEXTDataSegment::new_with_len(data_begin, data_len);
+    let data_seg = TEXTDataSegment::new_with_len(data_begin.into(), data_len);
 
     let analysis_begin = data_seg
         .inner
         .try_next_byte()
-        .map(|x| u64::from(x).into())
+        .map(u64::from)
         .unwrap_or(data_begin);
-    let analysis_seg = TEXTAnalysisSegment::new_with_len(analysis_begin, analysis_len);
+    let analysis_seg = TEXTAnalysisSegment::new_with_len(analysis_begin.into(), analysis_len);
 
     let h_analysis_seg = analysis_seg.as_header();
     let h_data_seg = data_seg.as_header();
@@ -633,7 +647,7 @@ pub(crate) fn make_data_offset_keywords_3_0(
                 .inner
                 .try_next_byte()
                 .map(u64::from)
-                .unwrap_or(u64::from(analysis_begin)),
+                .unwrap_or(analysis_begin),
         )
     });
 
@@ -672,18 +686,27 @@ fn raw_keywords_length(ks: &[(String, String)]) -> u64 {
     ks.iter().map(|(k, v)| k.len() + v.len() + 2).sum::<usize>() as u64
 }
 
-fn other_segments(other_lens: Vec<u64>) -> (Vec<OtherSegment>, u64, u64) {
-    let mut os = vec![];
-    let mut begin = u64::from(HEADER_LEN);
-    for length in other_lens {
-        let seg = OtherSegment::new_with_len(begin.into(), length);
-        begin += length;
-        os.push(seg);
-    }
-    let total_length = os.iter().map(|s| s.inner.len()).sum();
+fn other_header_len(other_lens: &[u64]) -> u64 {
     // each segment offset pair has two digits that are 20 bytes long
-    let header_length = (os.len() as u64) * 20 * 2;
-    (os, header_length, total_length)
+    (other_lens.len() as u64) * 20 * 2
+}
+
+fn other_segments(begin: u64, other_lens: &[u64]) -> (Vec<OtherSegment>, u64) {
+    let ret: Vec<_> = other_lens
+        .iter()
+        .scan(begin, |b, &length| {
+            let ret = OtherSegment::new_with_len(begin.into(), length);
+            *b += length;
+            Some(ret)
+        })
+        .collect();
+    let next = ret
+        .iter()
+        .flat_map(|x| x.inner.try_next_byte())
+        .last()
+        .map(|x| x.into())
+        .unwrap_or(begin);
+    (ret, next)
 }
 
 /// Length of $(BEGIN/END)(STEXT/ANALYSIS/DATA) and $NEXTDATA offset length.

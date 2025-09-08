@@ -106,7 +106,8 @@ pub struct AnalysisSegmentId;
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct OtherSegmentId;
 
-pub type PrimaryTextSegment = SpecificSegment<PrimaryTextSegmentId, SegmentFromHeader, UintSpacePad8>;
+pub type PrimaryTextSegment =
+    SpecificSegment<PrimaryTextSegmentId, SegmentFromHeader, UintSpacePad8>;
 pub type SupplementalTextSegment =
     SpecificSegment<SupplementalTextSegmentId, SegmentFromTEXT, UintZeroPad20>;
 
@@ -128,7 +129,7 @@ pub type TEXTCorrection<I> = OffsetCorrection<I, SegmentFromTEXT>;
 pub type AnyDataSegment = DataSegment<SegmentFromAnywhere, u64>;
 pub type AnyAnalysisSegment = AnalysisSegment<SegmentFromAnywhere, u64>;
 
-pub type OtherSegment = SpecificSegment<OtherSegmentId, SegmentFromHeader, UintZeroPad20>;
+pub type OtherSegment = SpecificSegment<OtherSegmentId, SegmentFromHeader, UintSpacePad20>;
 
 pub(crate) type ReqSegResult<T> =
     DeferredResult<AnySegment<T>, ReqSegmentWithDefaultWarning<T>, ReqSegmentWithDefaultError<T>>;
@@ -602,12 +603,16 @@ impl GenericSegment {
     }
 }
 
-impl<I, S> SpecificSegment<I, S, UintZeroPad20> {
-    pub(crate) fn new_with_len(begin: UintZeroPad20, length: u64) -> Self {
+impl<I, S, T> SpecificSegment<I, S, T> {
+    pub(crate) fn new_with_len(begin: T, length: u64) -> Self
+    where
+        T: From<u64> + Copy,
+        u64: From<T>,
+    {
         let inner = if length == 0 {
             Segment::default()
         } else {
-            let end = UintZeroPad20::from(u64::from(begin) + length - 1);
+            let end = T::from(u64::from(begin) + length - 1);
             Segment::NonEmpty(NonEmptySegment::new_unchecked(begin, end))
         };
         Self {
@@ -766,7 +771,7 @@ impl OtherSegment {
         bs0: &[u8],
         bs1: &[u8],
         allow_negative: bool,
-        conf: &NewSegmentConfig<UintZeroPad20, OtherSegmentId, SegmentFromHeader>,
+        conf: &NewSegmentConfig<UintSpacePad20, OtherSegmentId, SegmentFromHeader>,
     ) -> MultiResult<Self, HeaderSegmentError> {
         let parse_one = |bs: &[u8], is_begin| {
             ascii_str_from_bytes(bs)
@@ -778,14 +783,14 @@ impl OtherSegment {
                         .map_err(ParseFixedUintError::Int)?;
                     if x < 0 {
                         if allow_negative {
-                            Ok(UintZeroPad20::zero())
+                            Ok(UintSpacePad20::zero())
                         } else {
                             Err(ParseFixedUintError::Negative(NegativeOffsetError(x)))
                         }
                     } else {
                         // ASSUME this will never fail because we checked the
                         // sign above
-                        Ok(UintZeroPad20(x as u64))
+                        Ok(UintSpacePad20(x as u64))
                     }
                 })
                 .map_err(|error| ParseOffsetError {
@@ -808,10 +813,10 @@ impl OtherSegment {
         let (b, e) = self
             .inner
             .try_coords()
-            .unwrap_or((UintZeroPad20::zero(), UintZeroPad20::zero()));
+            .unwrap_or((UintSpacePad20::zero(), UintSpacePad20::zero()));
         let mut s = String::new();
-        s.push_str(&b.to_space_padded_string());
-        s.push_str(&e.to_space_padded_string());
+        s.push_str(&b.to_string());
+        s.push_str(&e.to_string());
         s
     }
 }
@@ -1033,7 +1038,7 @@ impl<T> NonEmptySegment<T> {
 #[derive(From, Display)]
 pub enum HeaderSegmentError {
     Standard(SegmentError<UintSpacePad8>),
-    Other(SegmentError<UintZeroPad20>),
+    Other(SegmentError<UintSpacePad20>),
     Parse(ParseOffsetError),
 }
 

@@ -30,12 +30,6 @@ use serde::Serialize;
 #[from(u64, NonZeroU64)]
 pub struct UintZeroPad20(pub u64);
 
-impl UintZeroPad20 {
-    pub(crate) fn to_space_padded_string(&self) -> String {
-        format!("{:>20}", self.0)
-    }
-}
-
 impl fmt::Display for UintZeroPad20 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "{:0>20}", self.0)
@@ -50,6 +44,42 @@ impl TryFrom<i128> for UintZeroPad20 {
 }
 
 impl CheckedSub for UintZeroPad20 {
+    fn checked_sub(&self, v: &Self) -> Option<Self> {
+        self.0.checked_sub(v.0).map(Self)
+    }
+}
+
+/// An unsigned int which may only be 20 chars wide.
+///
+/// This will always be formatted as a right-aligned space-padded integer 20
+/// chars wide. No validation will be performed as a u64 can only store 20
+/// digits.
+///
+/// This is used for the OTHER offsets in HEADER which can be up to 20 chars
+/// wide.
+#[derive(
+    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromStr, Into, From, Add, Sub, Mul, Zero, One,
+)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[into(u64, i128)]
+#[mul(forward)]
+#[from(u64, NonZeroU64)]
+pub struct UintSpacePad20(pub u64);
+
+impl fmt::Display for UintSpacePad20 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{:>20}", self.0)
+    }
+}
+
+impl TryFrom<i128> for UintSpacePad20 {
+    type Error = TryFromIntError;
+    fn try_from(value: i128) -> Result<Self, Self::Error> {
+        value.try_into().map(Self)
+    }
+}
+
+impl CheckedSub for UintSpacePad20 {
     fn checked_sub(&self, v: &Self) -> Option<Self> {
         self.0.checked_sub(v.0).map(Self)
     }
@@ -203,10 +233,11 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{Uint8DigitOverflow, UintSpacePad8, UintZeroPad20};
+    use super::{Uint8DigitOverflow, UintSpacePad20, UintSpacePad8, UintZeroPad20};
     use crate::python::macros::{impl_from_py_transparent, impl_try_from_py, impl_value_err};
 
     impl_from_py_transparent!(UintZeroPad20);
+    impl_from_py_transparent!(UintSpacePad20);
     impl_try_from_py!(UintSpacePad8, u64);
     impl_value_err!(Uint8DigitOverflow);
 }

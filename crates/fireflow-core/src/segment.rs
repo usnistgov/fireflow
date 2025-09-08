@@ -810,8 +810,8 @@ impl OtherSegment {
             .try_coords()
             .unwrap_or((Uint20Char::zero(), Uint20Char::zero()));
         let mut s = String::new();
-        s.push_str(&b.to_string());
-        s.push_str(&e.to_string());
+        s.push_str(&b.to_space_padded_string());
+        s.push_str(&e.to_space_padded_string());
         s
     }
 }

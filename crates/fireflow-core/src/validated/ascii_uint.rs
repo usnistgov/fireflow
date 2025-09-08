@@ -30,6 +30,12 @@ use serde::Serialize;
 #[from(u64, NonZeroU64)]
 pub struct Uint20Char(pub u64);
 
+impl Uint20Char {
+    pub(crate) fn to_space_padded_string(&self) -> String {
+        format!("{:>20}", self.0)
+    }
+}
+
 impl fmt::Display for Uint20Char {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "{:0>20}", self.0)

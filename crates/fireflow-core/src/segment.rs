@@ -5,6 +5,7 @@ use crate::validated::ascii_uint::*;
 use crate::validated::keys::*;
 
 use derive_more::{Display, From};
+use derive_new::new;
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use num_traits::identities::{One, Zero};
@@ -22,7 +23,7 @@ use std::str::FromStr;
 use serde::Serialize;
 
 /// A segment that is specific to a region in the FCS file.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
 pub struct SpecificSegment<I, S, T> {
@@ -47,7 +48,7 @@ pub struct NonEmptySegment<T> {
 }
 
 /// Denotes a correction for a segment
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, new)]
 pub struct OffsetCorrection<I, S> {
     pub begin: i32,
     pub end: i32,
@@ -476,17 +477,6 @@ pub enum OptSegmentError {
     Segment(SegmentError<UintZeroPad20>),
 }
 
-impl<I, S> OffsetCorrection<I, S> {
-    fn new(begin: i32, end: i32) -> Self {
-        Self {
-            begin,
-            end,
-            _id: PhantomData,
-            _src: PhantomData,
-        }
-    }
-}
-
 impl<I, S> From<(i32, i32)> for OffsetCorrection<I, S> {
     fn from(value: (i32, i32)) -> Self {
         Self::new(value.0, value.1)
@@ -501,11 +491,7 @@ impl<I, S> From<(Option<i32>, Option<i32>)> for OffsetCorrection<I, S> {
 
 impl<I, S, T> Default for SpecificSegment<I, S, T> {
     fn default() -> Self {
-        Self {
-            inner: Segment::Empty,
-            _id: PhantomData,
-            _src: PhantomData,
-        }
+        Self::new(Segment::Empty)
     }
 }
 
@@ -517,11 +503,7 @@ impl<I, S, T> SpecificSegment<I, S, T> {
         T: Zero + One + CheckedSub + Into<u64> + Into<i128> + TryFrom<i128> + Ord + Copy,
         u64: From<T>,
     {
-        Segment::try_new::<I, S>(begin, end, conf).map(|inner| Self {
-            inner,
-            _id: PhantomData,
-            _src: PhantomData,
-        })
+        Segment::try_new::<I, S>(begin, end, conf).map(Self::new)
     }
 
     pub(crate) fn try_new_with_len(
@@ -538,11 +520,7 @@ impl<I, S, T> SpecificSegment<I, S, T> {
                 .try_into()
                 .map(|end| Segment::NonEmpty(NonEmptySegment::new_unchecked(begin, end)))
         }
-        .map(|inner| Self {
-            inner,
-            _id: PhantomData,
-            _src: PhantomData,
-        })
+        .map(Self::new)
     }
 
     // TODO this is just tryfrom
@@ -615,11 +593,7 @@ impl<I, S, T> SpecificSegment<I, S, T> {
             let end = T::from(u64::from(begin) + length - 1);
             Segment::NonEmpty(NonEmptySegment::new_unchecked(begin, end))
         };
-        Self {
-            inner,
-            _id: PhantomData,
-            _src: PhantomData,
-        }
+        Self::new(inner)
     }
 }
 

@@ -55,22 +55,6 @@ impl CheckedSub for Uint20Char {
     }
 }
 
-/// An unsigned int which may only be 8 chars wide (ie less than 99,999,999)
-///
-/// This will always be formatted as a right-aligned 0-padded integer 8 chars
-/// wide.
-///
-/// This is used for $NEXTDATA.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct Uint8Char(pub Uint8Digit);
-
-impl fmt::Display for Uint8Char {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{:0>8}", self.0)
-    }
-}
-
 /// An unsigned int which must be <= 99,999,999.
 ///
 /// Aside from this, it will behave just like a normal u32.

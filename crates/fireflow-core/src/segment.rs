@@ -106,20 +106,20 @@ pub struct AnalysisSegmentId;
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct OtherSegmentId;
 
-pub type PrimaryTextSegment = SpecificSegment<PrimaryTextSegmentId, SegmentFromHeader, Uint8Digit>;
+pub type PrimaryTextSegment = SpecificSegment<PrimaryTextSegmentId, SegmentFromHeader, UintSpacePad8>;
 pub type SupplementalTextSegment =
-    SpecificSegment<SupplementalTextSegmentId, SegmentFromTEXT, Uint20Char>;
+    SpecificSegment<SupplementalTextSegmentId, SegmentFromTEXT, UintZeroPad20>;
 
 type DataSegment<S, T> = SpecificSegment<DataSegmentId, S, T>;
-pub type HeaderDataSegment = DataSegment<SegmentFromHeader, Uint8Digit>;
-pub type TEXTDataSegment = DataSegment<SegmentFromTEXT, Uint20Char>;
+pub type HeaderDataSegment = DataSegment<SegmentFromHeader, UintSpacePad8>;
+pub type TEXTDataSegment = DataSegment<SegmentFromTEXT, UintZeroPad20>;
 
 type AnalysisSegment<S, T> = SpecificSegment<AnalysisSegmentId, S, T>;
-pub type HeaderAnalysisSegment = AnalysisSegment<SegmentFromHeader, Uint8Digit>;
-pub type TEXTAnalysisSegment = AnalysisSegment<SegmentFromTEXT, Uint20Char>;
+pub type HeaderAnalysisSegment = AnalysisSegment<SegmentFromHeader, UintSpacePad8>;
+pub type TEXTAnalysisSegment = AnalysisSegment<SegmentFromTEXT, UintZeroPad20>;
 
-pub type HeaderSegment<I> = SpecificSegment<I, SegmentFromHeader, Uint8Digit>;
-pub type TEXTSegment<I> = SpecificSegment<I, SegmentFromTEXT, Uint20Char>;
+pub type HeaderSegment<I> = SpecificSegment<I, SegmentFromHeader, UintSpacePad8>;
+pub type TEXTSegment<I> = SpecificSegment<I, SegmentFromTEXT, UintZeroPad20>;
 pub type AnySegment<I> = SpecificSegment<I, SegmentFromAnywhere, u64>;
 
 pub type HeaderCorrection<I> = OffsetCorrection<I, SegmentFromHeader>;
@@ -128,7 +128,7 @@ pub type TEXTCorrection<I> = OffsetCorrection<I, SegmentFromTEXT>;
 pub type AnyDataSegment = DataSegment<SegmentFromAnywhere, u64>;
 pub type AnyAnalysisSegment = AnalysisSegment<SegmentFromAnywhere, u64>;
 
-pub type OtherSegment = SpecificSegment<OtherSegmentId, SegmentFromHeader, Uint20Char>;
+pub type OtherSegment = SpecificSegment<OtherSegmentId, SegmentFromHeader, UintZeroPad20>;
 
 pub(crate) type ReqSegResult<T> =
     DeferredResult<AnySegment<T>, ReqSegmentWithDefaultWarning<T>, ReqSegmentWithDefaultError<T>>;
@@ -151,8 +151,8 @@ where
 pub(crate) trait KeyedReqSegment
 where
     Self: KeyedSegment + HasRegion,
-    Self::B: Into<Uint20Char> + ReqMetarootKey + FromStr<Err = ParseIntError>,
-    Self::E: Into<Uint20Char> + ReqMetarootKey + FromStr<Err = ParseIntError>,
+    Self::B: Into<UintZeroPad20> + ReqMetarootKey + FromStr<Err = ParseIntError>,
+    Self::E: Into<UintZeroPad20> + ReqMetarootKey + FromStr<Err = ParseIntError>,
 {
     fn get_or(
         kws: &StdKeywords,
@@ -160,7 +160,7 @@ where
         force_default: bool,
         allow_mismatch: bool,
         allow_missing: bool,
-        conf: &NewSegmentConfig<Uint20Char, Self, SegmentFromTEXT>,
+        conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> ReqSegResult<Self>
     where
         Self: Copy,
@@ -175,14 +175,14 @@ where
 
     fn get<W>(
         kws: &StdKeywords,
-        conf: &NewSegmentConfig<Uint20Char, Self, SegmentFromTEXT>,
+        conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> DeferredResult<TEXTSegment<Self>, W, ReqSegmentError> {
         Self::get_mult(kws, conf).mult_to_deferred()
     }
 
     fn get_mult(
         kws: &StdKeywords,
-        conf: &NewSegmentConfig<Uint20Char, Self, SegmentFromTEXT>,
+        conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> MultiResult<TEXTSegment<Self>, ReqSegmentError> {
         Self::get_pair(kws)
             .map_err(|es| es.map(|e| e.into()))
@@ -197,7 +197,7 @@ where
         force_default: bool,
         allow_mismatch: bool,
         allow_missing: bool,
-        conf: &NewSegmentConfig<Uint20Char, Self, SegmentFromTEXT>,
+        conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> ReqSegResult<Self>
     where
         Self: Copy,
@@ -216,14 +216,14 @@ where
 
     fn remove<W>(
         kws: &mut StdKeywords,
-        conf: &NewSegmentConfig<Uint20Char, Self, SegmentFromTEXT>,
+        conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> DeferredResult<TEXTSegment<Self>, W, ReqSegmentError> {
         Self::remove_mult(kws, conf).mult_to_deferred()
     }
 
     fn remove_mult(
         kws: &mut StdKeywords,
-        conf: &NewSegmentConfig<Uint20Char, Self, SegmentFromTEXT>,
+        conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> MultiResult<TEXTSegment<Self>, ReqSegmentError> {
         Self::remove_pair(kws)
             .map_err(|es| es.map(|e| e.into()))
@@ -285,15 +285,15 @@ where
 pub(crate) trait KeyedOptSegment
 where
     Self: KeyedSegment + HasRegion,
-    Self::B: Into<Uint20Char> + OptMetarootKey + FromStr<Err = ParseIntError>,
-    Self::E: Into<Uint20Char> + OptMetarootKey + FromStr<Err = ParseIntError>,
+    Self::B: Into<UintZeroPad20> + OptMetarootKey + FromStr<Err = ParseIntError>,
+    Self::E: Into<UintZeroPad20> + OptMetarootKey + FromStr<Err = ParseIntError>,
 {
     fn get_or(
         kws: &StdKeywords,
         default: HeaderSegment<Self>,
         force_default: bool,
         allow_mismatch: bool,
-        conf: &NewSegmentConfig<Uint20Char, Self, SegmentFromTEXT>,
+        conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> OptSegTentative<Self>
     where
         Self: Copy,
@@ -310,7 +310,7 @@ where
 
     fn get<E>(
         kws: &StdKeywords,
-        conf: &NewSegmentConfig<Uint20Char, Self, SegmentFromTEXT>,
+        conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> Tentative<Option<TEXTSegment<Self>>, OptSegmentError, E> {
         Self::get_pair(kws)
             .map_err(|es| es.map(|e| e.into()))
@@ -329,7 +329,7 @@ where
         default: HeaderSegment<Self>,
         force_default: bool,
         allow_mismatch: bool,
-        conf: &NewSegmentConfig<Uint20Char, Self, SegmentFromTEXT>,
+        conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> OptSegTentative<Self>
     where
         Self: Copy,
@@ -345,7 +345,7 @@ where
 
     fn remove<E>(
         kws: &mut StdKeywords,
-        conf: &NewSegmentConfig<Uint20Char, Self, SegmentFromTEXT>,
+        conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> Tentative<Option<TEXTSegment<Self>>, OptSegmentError, E> {
         Self::remove_pair(kws)
             .map_err(|es| es.map(|e| e.into()))
@@ -466,13 +466,13 @@ impl HasRegion for OtherSegmentId {
 #[derive(From, Display)]
 pub enum ReqSegmentError {
     Key(ReqKeyError<ParseIntError>),
-    Segment(SegmentError<Uint20Char>),
+    Segment(SegmentError<UintZeroPad20>),
 }
 
 #[derive(From, Display)]
 pub enum OptSegmentError {
     Key(ParseKeyError<ParseIntError>),
-    Segment(SegmentError<Uint20Char>),
+    Segment(SegmentError<UintZeroPad20>),
 }
 
 impl<I, S> OffsetCorrection<I, S> {
@@ -602,12 +602,12 @@ impl GenericSegment {
     }
 }
 
-impl<I, S> SpecificSegment<I, S, Uint20Char> {
-    pub(crate) fn new_with_len(begin: Uint20Char, length: u64) -> Self {
+impl<I, S> SpecificSegment<I, S, UintZeroPad20> {
+    pub(crate) fn new_with_len(begin: UintZeroPad20, length: u64) -> Self {
         let inner = if length == 0 {
             Segment::default()
         } else {
-            let end = Uint20Char::from(u64::from(begin) + length - 1);
+            let end = UintZeroPad20::from(u64::from(begin) + length - 1);
             Segment::NonEmpty(NonEmptySegment::new_unchecked(begin, end))
         };
         Self {
@@ -649,7 +649,7 @@ impl<I: Copy> HeaderSegment<I> {
         allow_blank: bool,
         allow_negative: bool,
         squish_offsets: bool,
-        conf: &NewSegmentConfig<Uint8Digit, I, SegmentFromHeader>,
+        conf: &NewSegmentConfig<UintSpacePad8, I, SegmentFromHeader>,
     ) -> MultiResult<Self, ImpureError<HeaderSegmentError>>
     where
         I: HasRegion,
@@ -675,13 +675,13 @@ impl<I: Copy> HeaderSegment<I> {
         allow_blank: bool,
         allow_negative: bool,
         squish_offsets: bool,
-        conf: &NewSegmentConfig<Uint8Digit, I, SegmentFromHeader>,
+        conf: &NewSegmentConfig<UintSpacePad8, I, SegmentFromHeader>,
     ) -> MultiResult<Self, HeaderSegmentError>
     where
         I: HasRegion,
     {
         let parse_one = |bs, is_begin| {
-            Uint8Digit::from_bytes(bs, allow_blank, allow_negative).map_err(|error| {
+            UintSpacePad8::from_bytes(bs, allow_blank, allow_negative).map_err(|error| {
                 ParseOffsetError {
                     error,
                     is_begin,
@@ -708,7 +708,7 @@ impl<I: Copy> HeaderSegment<I> {
         let (b, e) = self
             .inner
             .try_coords()
-            .unwrap_or((Uint8Digit::zero(), Uint8Digit::zero()));
+            .unwrap_or((UintSpacePad8::zero(), UintSpacePad8::zero()));
         format!("{:>8}{:>8}", b, e)
     }
 
@@ -742,18 +742,18 @@ impl<I: Copy> HeaderSegment<I> {
     }
 
     fn try_new_squish(
-        begin: Uint8Digit,
-        end: Uint8Digit,
+        begin: UintSpacePad8,
+        end: UintSpacePad8,
         squish_offsets: bool,
-        conf: &NewSegmentConfig<Uint8Digit, I, SegmentFromHeader>,
-    ) -> Result<Self, SegmentError<Uint8Digit>>
+        conf: &NewSegmentConfig<UintSpacePad8, I, SegmentFromHeader>,
+    ) -> Result<Self, SegmentError<UintSpacePad8>>
     where
         I: HasRegion,
     {
         // TODO this might produce really weird errors if run on a 2.0
         // file, so in those cases, this should never be true
-        let (b, e) = if squish_offsets && end == Uint8Digit::zero() && begin > end {
-            (Uint8Digit::zero(), Uint8Digit::zero())
+        let (b, e) = if squish_offsets && end == UintSpacePad8::zero() && begin > end {
+            (UintSpacePad8::zero(), UintSpacePad8::zero())
         } else {
             (begin, end)
         };
@@ -766,7 +766,7 @@ impl OtherSegment {
         bs0: &[u8],
         bs1: &[u8],
         allow_negative: bool,
-        conf: &NewSegmentConfig<Uint20Char, OtherSegmentId, SegmentFromHeader>,
+        conf: &NewSegmentConfig<UintZeroPad20, OtherSegmentId, SegmentFromHeader>,
     ) -> MultiResult<Self, HeaderSegmentError> {
         let parse_one = |bs: &[u8], is_begin| {
             ascii_str_from_bytes(bs)
@@ -778,14 +778,14 @@ impl OtherSegment {
                         .map_err(ParseFixedUintError::Int)?;
                     if x < 0 {
                         if allow_negative {
-                            Ok(Uint20Char::zero())
+                            Ok(UintZeroPad20::zero())
                         } else {
                             Err(ParseFixedUintError::Negative(NegativeOffsetError(x)))
                         }
                     } else {
                         // ASSUME this will never fail because we checked the
                         // sign above
-                        Ok(Uint20Char(x as u64))
+                        Ok(UintZeroPad20(x as u64))
                     }
                 })
                 .map_err(|error| ParseOffsetError {
@@ -808,7 +808,7 @@ impl OtherSegment {
         let (b, e) = self
             .inner
             .try_coords()
-            .unwrap_or((Uint20Char::zero(), Uint20Char::zero()));
+            .unwrap_or((UintZeroPad20::zero(), UintZeroPad20::zero()));
         let mut s = String::new();
         s.push_str(&b.to_space_padded_string());
         s.push_str(&e.to_space_padded_string());
@@ -820,20 +820,20 @@ impl<I> TEXTSegment<I> {
     pub(crate) fn keywords(&self) -> [(String, String); 2]
     where
         I: KeyedReqSegment,
-        I::B: Into<Uint20Char>
-            + From<Uint20Char>
+        I::B: Into<UintZeroPad20>
+            + From<UintZeroPad20>
             + ReqMetarootKey
             + FromStr<Err = ParseIntError>
             + fmt::Display,
-        I::E: Into<Uint20Char>
-            + From<Uint20Char>
+        I::E: Into<UintZeroPad20>
+            + From<UintZeroPad20>
             + ReqMetarootKey
             + FromStr<Err = ParseIntError>
             + fmt::Display,
     {
         let i = self.inner;
         let (b, e) = match i {
-            Segment::Empty => (Uint20Char::zero(), Uint20Char::zero()),
+            Segment::Empty => (UintZeroPad20::zero(), UintZeroPad20::zero()),
             Segment::NonEmpty(x) => (x.begin, x.end),
         };
         [
@@ -1032,8 +1032,8 @@ impl<T> NonEmptySegment<T> {
 
 #[derive(From, Display)]
 pub enum HeaderSegmentError {
-    Standard(SegmentError<Uint8Digit>),
-    Other(SegmentError<Uint20Char>),
+    Standard(SegmentError<UintSpacePad8>),
+    Other(SegmentError<UintZeroPad20>),
     Parse(ParseOffsetError),
 }
 

@@ -307,7 +307,7 @@ where
 
 fn h_read_other_segments<C, R>(
     h: &mut BufReader<R>,
-    text_begin: Uint8Digit,
+    text_begin: UintSpacePad8,
     st: &ReadState<C>,
 ) -> MultiResult<Vec<OtherSegment>, ImpureError<HeaderError>>
 where
@@ -512,7 +512,7 @@ pub(crate) fn make_data_offset_keywords_2_0(
 ) -> Result<HeaderKeywordsToWrite, Uint8DigitOverflow> {
     let other_header_len = other_header_len(&other_lens[..]);
 
-    let text_begin: Uint8Digit = (u64::from(HEADER_LEN) + other_header_len).try_into()?;
+    let text_begin: UintSpacePad8 = (u64::from(HEADER_LEN) + other_header_len).try_into()?;
     // +1 at end accounts for first delimiter
     let text_len =
         raw_keywords_length(&req[..]) + raw_keywords_length(&opt[..]) + nextdata_len() + 1;
@@ -533,9 +533,9 @@ pub(crate) fn make_data_offset_keywords_2_0(
     let analysis_seg = HeaderAnalysisSegment::try_new_with_len(analysis_begin, analysis_len)?;
 
     let nextdata = Nextdata(if !has_nextdata {
-        Uint20Char(0)
+        UintZeroPad20(0)
     } else {
-        Uint20Char(
+        UintZeroPad20(
             analysis_seg
                 .inner
                 .try_next_byte()
@@ -580,7 +580,7 @@ pub(crate) fn make_data_offset_keywords_3_0(
     has_nextdata: bool,
 ) -> Result<HeaderKeywordsToWrite, Uint8DigitOverflow> {
     let other_header_len = other_header_len(&other_lens[..]);
-    let prim_text_begin: Uint8Digit = (u64::from(HEADER_LEN) + other_header_len).try_into()?;
+    let prim_text_begin: UintSpacePad8 = (u64::from(HEADER_LEN) + other_header_len).try_into()?;
 
     let nooffset_req_text_len = raw_keywords_length(&req[..]);
     let opt_text_len = raw_keywords_length(&opt[..]);
@@ -640,9 +640,9 @@ pub(crate) fn make_data_offset_keywords_3_0(
     let h_data_seg = data_seg.as_header();
 
     let nextdata = Nextdata(if !has_nextdata {
-        Uint20Char(0)
+        UintZeroPad20(0)
     } else {
-        Uint20Char(
+        UintZeroPad20(
             analysis_seg
                 .inner
                 .try_next_byte()

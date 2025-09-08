@@ -45,7 +45,7 @@ use pyo3::prelude::*;
 
 /// Value for $NEXTDATA (all versions)
 #[derive(From, Into, FromStr, Display)]
-pub struct Nextdata(pub Uint20Char);
+pub struct Nextdata(pub UintZeroPad20);
 
 /// The value of the $PnG keyword
 #[derive(Clone, Copy, PartialEq, From, Display, FromStr)]
@@ -2150,7 +2150,7 @@ macro_rules! kw_offset {
     ($t:ident, $key:expr) => {
         /// Value for $$key (3.0-3.2)
         #[derive(Display, From, Into, FromStr)]
-        pub struct $t(pub Uint20Char);
+        pub struct $t(pub UintZeroPad20);
 
         kw_req_meta!($t, $key);
     };

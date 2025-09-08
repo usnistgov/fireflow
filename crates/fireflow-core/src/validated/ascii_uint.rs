@@ -28,28 +28,28 @@ use serde::Serialize;
 #[into(u64, i128)]
 #[mul(forward)]
 #[from(u64, NonZeroU64)]
-pub struct Uint20Char(pub u64);
+pub struct UintZeroPad20(pub u64);
 
-impl Uint20Char {
+impl UintZeroPad20 {
     pub(crate) fn to_space_padded_string(&self) -> String {
         format!("{:>20}", self.0)
     }
 }
 
-impl fmt::Display for Uint20Char {
+impl fmt::Display for UintZeroPad20 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "{:0>20}", self.0)
     }
 }
 
-impl TryFrom<i128> for Uint20Char {
+impl TryFrom<i128> for UintZeroPad20 {
     type Error = TryFromIntError;
     fn try_from(value: i128) -> Result<Self, Self::Error> {
         value.try_into().map(Self)
     }
 }
 
-impl CheckedSub for Uint20Char {
+impl CheckedSub for UintZeroPad20 {
     fn checked_sub(&self, v: &Self) -> Option<Self> {
         self.0.checked_sub(v.0).map(Self)
     }
@@ -68,15 +68,15 @@ impl CheckedSub for Uint20Char {
 #[into(u32, u64, i128)]
 #[from(u8, u16)] // ASSUME these will never fail
 #[mul(forward)]
-pub struct Uint8Digit(u32);
+pub struct UintSpacePad8(u32);
 
-impl CheckedSub for Uint8Digit {
+impl CheckedSub for UintSpacePad8 {
     fn checked_sub(&self, v: &Self) -> Option<Self> {
         self.0.checked_sub(v.0).map(Self)
     }
 }
 
-impl Uint8Digit {
+impl UintSpacePad8 {
     /// Parse from a buffer that contains 8 bytes.
     pub(crate) fn from_bytes(
         bs: &[u8; 8],
@@ -86,7 +86,7 @@ impl Uint8Digit {
         let s = ascii_str_from_bytes(bs).map_err(ParseFixedUintError::NotAscii)?;
         let trimmed = s.trim_start();
         if allow_blank && trimmed.is_empty() {
-            return Ok(Uint8Digit::zero());
+            return Ok(UintSpacePad8::zero());
         }
         let x = trimmed.parse::<i32>().map_err(ParseFixedUintError::Int)?;
         if x < 0 {
@@ -104,7 +104,7 @@ impl Uint8Digit {
     }
 }
 
-impl TryFrom<i128> for Uint8Digit {
+impl TryFrom<i128> for UintSpacePad8 {
     type Error = TryFromIntError;
     fn try_from(value: i128) -> Result<Self, Self::Error> {
         value.try_into().map(Self)
@@ -118,7 +118,7 @@ pub enum ParseFixedUintError {
     Negative(NegativeOffsetError),
 }
 
-impl TryFrom<u64> for Uint8Digit {
+impl TryFrom<u64> for UintSpacePad8 {
     type Error = Uint8DigitOverflow;
     fn try_from(value: u64) -> Result<Self, Self::Error> {
         value
@@ -133,7 +133,7 @@ impl TryFrom<u64> for Uint8Digit {
     }
 }
 
-impl FromStr for Uint8Digit {
+impl FromStr for UintSpacePad8 {
     type Err = ParseUint8DigitError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -187,26 +187,26 @@ mod tests {
 
     #[test]
     fn test_u32_to_uint8digit() {
-        assert!(Uint8Digit::try_from(0_u64).is_ok());
-        assert!(Uint8Digit::try_from(1_u64).is_ok());
-        assert!(Uint8Digit::try_from(99_999_999_u64).is_ok());
-        assert!(Uint8Digit::try_from(100_000_000_u64).is_err());
+        assert!(UintSpacePad8::try_from(0_u64).is_ok());
+        assert!(UintSpacePad8::try_from(1_u64).is_ok());
+        assert!(UintSpacePad8::try_from(99_999_999_u64).is_ok());
+        assert!(UintSpacePad8::try_from(100_000_000_u64).is_err());
     }
 
     #[test]
     fn test_str_to_uint8digit() {
-        assert!("0".parse::<Uint8Digit>().is_ok());
-        assert!("99999999".parse::<Uint8Digit>().is_ok());
-        assert!("100000000".parse::<Uint8Digit>().is_err());
+        assert!("0".parse::<UintSpacePad8>().is_ok());
+        assert!("99999999".parse::<UintSpacePad8>().is_ok());
+        assert!("100000000".parse::<UintSpacePad8>().is_err());
     }
 }
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{Uint20Char, Uint8Digit, Uint8DigitOverflow};
+    use super::{Uint8DigitOverflow, UintSpacePad8, UintZeroPad20};
     use crate::python::macros::{impl_from_py_transparent, impl_try_from_py, impl_value_err};
 
-    impl_from_py_transparent!(Uint20Char);
-    impl_try_from_py!(Uint8Digit, u64);
+    impl_from_py_transparent!(UintZeroPad20);
+    impl_try_from_py!(UintSpacePad8, u64);
     impl_value_err!(Uint8DigitOverflow);
 }

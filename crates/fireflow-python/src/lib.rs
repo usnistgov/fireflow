@@ -66,7 +66,7 @@ use fireflow_core::data::{
 use fireflow_core::error::{MultiResultExt, ResultExt};
 use fireflow_core::header::{Header, Version};
 use fireflow_core::python::exceptions::{PyTerminalNoWarnResultExt, PyTerminalResultExt};
-use fireflow_core::segment::{HeaderAnalysisSegment, HeaderDataSegment, OtherSegment};
+use fireflow_core::segment::{HeaderAnalysisSegment, HeaderDataSegment, OtherSegment20};
 use fireflow_core::text::gating::{
     AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, BivariateRegion, GatedMeasurement,
     GatingScheme, Region, UnivariateRegion,
@@ -157,7 +157,7 @@ pub fn py_fcs_read_raw_dataset_with_keywords(
     std: StdKeywords,
     data_seg: HeaderDataSegment,
     analysis_seg: HeaderAnalysisSegment,
-    other_segs: Vec<OtherSegment>,
+    other_segs: Vec<OtherSegment20>,
     conf: cfg::ReadRawDatasetFromKeywordsConfig,
 ) -> PyResult<api::RawDatasetWithKwsOutput> {
     api::fcs_read_raw_dataset_with_keywords(
@@ -180,7 +180,7 @@ pub fn py_fcs_read_std_dataset_with_keywords(
     kws: ValidKeywords,
     data_seg: HeaderDataSegment,
     analysis_seg: HeaderAnalysisSegment,
-    other_segs: Vec<OtherSegment>,
+    other_segs: Vec<OtherSegment20>,
     conf: cfg::ReadStdDatasetFromKeywordsConfig,
 ) -> PyResult<(PyAnyCoreDataset, api::StdDatasetWithKwsOutput)> {
     let (core, data) = api::fcs_read_std_dataset_with_keywords(

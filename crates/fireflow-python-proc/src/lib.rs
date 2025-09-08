@@ -441,7 +441,7 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
             .chain(write_2_0_warning.clone())
             .collect(),
         true,
-        vec![path_param(), textdelim_param()],
+        vec![path_param(), textdelim_param(), big_other_param()],
         None,
     );
 
@@ -449,10 +449,15 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
         #[pymethods]
         impl #i {
             #write_text_doc
-            fn write_text(&self, path: std::path::PathBuf, delim: #textdelim_path) -> PyResult<()> {
+            fn write_text(
+                &self,
+                path: std::path::PathBuf,
+                delim: #textdelim_path,
+                big_other: bool
+            ) -> PyResult<()> {
                 let f = std::fs::File::options().write(true).create(true).open(path)?;
                 let mut h = std::io::BufWriter::new(f);
-                self.0.h_write_text(&mut h, delim).py_term_resolve_nowarn()
+                self.0.h_write_text(&mut h, delim, big_other).py_term_resolve_nowarn()
             }
         }
     }
@@ -483,6 +488,7 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
         vec![
             path_param(),
             textdelim_param(),
+            big_other_param(),
             DocArg::new_param_def(
                 "skip_conversion_check".into(),
                 PyType::Bool,
@@ -508,6 +514,7 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
                 &self,
                 path: std::path::PathBuf,
                 delim: #textdelim_path,
+                big_other: bool,
                 skip_conversion_check: bool,
             ) -> PyResult<()> {
                 let f = std::fs::File::options().write(true).create(true).open(path)?;
@@ -515,6 +522,7 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
                 let conf = fireflow_core::config::WriteConfig {
                     delim,
                     skip_conversion_check,
+                    big_other,
                 };
                 self.0.h_write_dataset(&mut h, &conf).py_term_resolve()
             }
@@ -4071,6 +4079,15 @@ fn textdelim_param() -> DocArg {
         PyType::Int,
         "Delimiter to use when writing *TEXT*. Defaults to 30 (record separator).".into(),
         DocDefault::Other(quote! {#t::default()}, "30".into()),
+    )
+}
+
+fn big_other_param() -> DocArg {
+    DocArg::new_param_def(
+        "big_other".into(),
+        PyType::Bool,
+        "If ``True`` use 20 chars for OTHER segments, and 8 otherwise.".into(),
+        DocDefault::Bool(false),
     )
 }
 

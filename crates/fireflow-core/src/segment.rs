@@ -130,7 +130,9 @@ pub type TEXTCorrection<I> = OffsetCorrection<I, SegmentFromTEXT>;
 pub type AnyDataSegment = DataSegment<SegmentFromAnywhere, u64>;
 pub type AnyAnalysisSegment = AnalysisSegment<SegmentFromAnywhere, u64>;
 
-pub type OtherSegment = SpecificSegment<OtherSegmentId, SegmentFromHeader, UintSpacePad20>;
+pub type OtherSegment<T> = SpecificSegment<OtherSegmentId, SegmentFromHeader, T>;
+pub type OtherSegment8 = OtherSegment<UintSpacePad20>;
+pub type OtherSegment20 = OtherSegment<UintSpacePad20>;
 
 pub(crate) type ReqSegResult<T> =
     DeferredResult<AnySegment<T>, ReqSegmentWithDefaultWarning<T>, ReqSegmentWithDefaultError<T>>;
@@ -507,20 +509,19 @@ impl<I, S, T> SpecificSegment<I, S, T> {
     }
 
     pub(crate) fn try_new_with_len(
-        begin: T,
+        begin: u64,
         length: u64,
     ) -> Result<Self, <T as TryFrom<u64>>::Error>
     where
-        T: Into<u64> + TryFrom<u64> + Copy,
+        T: TryFrom<u64> + Copy,
     {
-        if length == 0 {
-            Ok(Segment::default())
+        let s = if length == 0 {
+            Segment::default()
         } else {
-            (begin.into() + length - 1)
-                .try_into()
-                .map(|end| Segment::NonEmpty(NonEmptySegment::new_unchecked(begin, end)))
-        }
-        .map(Self::new)
+            let end = (begin + length - 1).try_into()?;
+            Segment::NonEmpty(NonEmptySegment::new_unchecked(begin.try_into()?, end))
+        };
+        Ok(Self::new(s))
     }
 
     // TODO this is just tryfrom
@@ -582,16 +583,15 @@ impl GenericSegment {
 }
 
 impl<I, S, T> SpecificSegment<I, S, T> {
-    pub(crate) fn new_with_len(begin: T, length: u64) -> Self
+    pub(crate) fn new_with_len(begin: u64, length: u64) -> Self
     where
         T: From<u64> + Copy,
-        u64: From<T>,
     {
         let inner = if length == 0 {
             Segment::default()
         } else {
-            let end = T::from(u64::from(begin) + length - 1);
-            Segment::NonEmpty(NonEmptySegment::new_unchecked(begin, end))
+            let end = (begin + length - 1).into();
+            Segment::NonEmpty(NonEmptySegment::new_unchecked(begin.into(), end))
         };
         Self::new(inner)
     }
@@ -614,11 +614,20 @@ impl<I> TEXTSegment<I> {
                     Segment::default()
                 }
             });
-        SpecificSegment {
-            inner,
-            _id: PhantomData,
-            _src: PhantomData,
-        }
+        SpecificSegment::new(inner)
+    }
+}
+
+impl<I, T> SpecificSegment<I, SegmentFromHeader, T> {
+    pub(crate) fn header_string(&self) -> String
+    where
+        T: Zero + HeaderString,
+    {
+        let (b, e) = self.inner.try_coords().unwrap_or((T::zero(), T::zero()));
+        let mut s = String::new();
+        s.push_str(&b.header_string());
+        s.push_str(&e.header_string());
+        s
     }
 }
 
@@ -680,17 +689,6 @@ impl<I: Copy> HeaderSegment<I> {
             })
     }
 
-    /// Create offset pairs for HEADER
-    ///
-    /// Returns a string array like "   XXXX    YYYY".
-    pub(crate) fn header_string(&self) -> String {
-        let (b, e) = self
-            .inner
-            .try_coords()
-            .unwrap_or((UintSpacePad8::zero(), UintSpacePad8::zero()));
-        format!("{:>8}{:>8}", b, e)
-    }
-
     pub(crate) fn unless(
         self,
         other: TEXTSegment<I>,
@@ -704,20 +702,12 @@ impl<I: Copy> HeaderSegment<I> {
                 },
             ))
         } else {
-            Ok(SpecificSegment {
-                inner: other.inner.as_u64(),
-                _id: PhantomData,
-                _src: PhantomData,
-            })
+            Ok(SpecificSegment::new(other.inner.as_u64()))
         }
     }
 
     pub(crate) fn into_any(self) -> AnySegment<I> {
-        SpecificSegment {
-            inner: self.inner.as_u64(),
-            _id: PhantomData,
-            _src: PhantomData,
-        }
+        SpecificSegment::new(self.inner.as_u64())
     }
 
     fn try_new_squish(
@@ -740,8 +730,8 @@ impl<I: Copy> HeaderSegment<I> {
     }
 }
 
-impl OtherSegment {
-    pub(crate) fn parse(
+impl OtherSegment20 {
+    pub(crate) fn parse_other(
         bs0: &[u8],
         bs1: &[u8],
         allow_negative: bool,
@@ -762,17 +752,6 @@ impl OtherSegment {
             .zip(end_res)
             .mult_errors_into()
             .and_then(|(begin, end)| SpecificSegment::try_new(begin, end, conf).into_mult())
-    }
-
-    pub(crate) fn header_string(&self) -> String {
-        let (b, e) = self
-            .inner
-            .try_coords()
-            .unwrap_or((UintSpacePad20::zero(), UintSpacePad20::zero()));
-        let mut s = String::new();
-        s.push_str(&b.to_string());
-        s.push_str(&e.to_string());
-        s
     }
 }
 
@@ -1284,11 +1263,7 @@ mod python {
         Segment<T>: FromPyObject<'py>,
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            Ok(Self {
-                inner: ob.extract()?,
-                _id: PhantomData,
-                _src: PhantomData,
-            })
+            Ok(Self::new(ob.extract()?))
         }
     }
 

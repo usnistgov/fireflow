@@ -5,10 +5,14 @@ use crate::text::keywords::*;
 use crate::text::parser::*;
 use crate::validated::ascii_uint::*;
 use crate::validated::keys::*;
+use crate::validated::textdelim::TEXTDelim;
+
+use super::core::Other;
 
 use derive_more::{Display, From};
 use itertools::Itertools;
 use nonempty::NonEmpty;
+use num_traits::identities::Zero;
 use std::fmt;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -61,20 +65,18 @@ impl_version!(Version3_2, FCS3_2);
 /// The three segments from the HEADER
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
-pub struct HeaderSegments {
+pub struct HeaderSegments<T> {
     pub text: PrimaryTextSegment,
     pub data: HeaderDataSegment,
     pub analysis: HeaderAnalysisSegment,
-    pub other: Vec<OtherSegment>,
+    pub other: Vec<OtherSegment<T>>,
 }
 
-impl HeaderSegments {
-    pub(crate) fn h_write<W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        version: Version,
-    ) -> io::Result<()> {
+impl<T> HeaderSegments<T> {
+    pub(crate) fn h_write<W: Write>(&self, h: &mut BufWriter<W>, version: Version) -> io::Result<()>
+    where
+        T: HeaderString + Zero,
+    {
         // ASSUME this is a total of 58 bytes long (sans OTHER)
         for s in [
             version.to_string(),           // 6 bytes
@@ -108,6 +110,7 @@ impl HeaderSegments {
     pub(crate) fn overlaps_with<I>(&self, s: TEXTSegment<I>) -> MultiResult<(), SegmentOverlapError>
     where
         I: HasRegion,
+        T: Copy + Into<u64>,
     {
         if let Some(q) = s.try_as_generic() {
             self.as_generics().map(|x| x.overlaps(&q)).gather().void()
@@ -117,13 +120,19 @@ impl HeaderSegments {
     }
 
     /// Ensure HEADER segments don't overlap and start after HEADER itself
-    fn validate(&self) -> MultiResult<(), HeaderValidationError> {
+    fn validate(&self) -> MultiResult<(), HeaderValidationError>
+    where
+        T: Copy + Into<u64>,
+    {
         let x = self.overlapping_segments().mult_errors_into();
         let y = self.contains_header_segments().mult_errors_into();
         x.mult_zip(y).void()
     }
 
-    fn contains_header_segments(&self) -> MultiResult<(), InHeaderError> {
+    fn contains_header_segments(&self) -> MultiResult<(), InHeaderError>
+    where
+        T: Copy + Into<u64>,
+    {
         let t = self.contains_header_segment(self.text);
         let d = self.contains_header_segment(self.data);
         let a = self.contains_header_segment(self.analysis);
@@ -136,14 +145,14 @@ impl HeaderSegments {
         t.zip3(d, a).mult_zip(os).void()
     }
 
-    fn contains_header_segment<I, S, T>(
+    fn contains_header_segment<I, S, T0>(
         &self,
-        s: SpecificSegment<I, S, T>,
+        s: SpecificSegment<I, S, T0>,
     ) -> Result<(), InHeaderError>
     where
         I: HasRegion,
         S: HasSource,
-        T: Into<u64> + Copy,
+        T0: Into<u64> + Copy,
     {
         s.try_as_generic()
             .map_or(Ok(()), |q| self.contains_segment(q))
@@ -157,7 +166,10 @@ impl HeaderSegments {
         }
     }
 
-    fn overlapping_segments(&self) -> MultiResult<(), SegmentOverlapError> {
+    fn overlapping_segments(&self) -> MultiResult<(), SegmentOverlapError>
+    where
+        T: Copy + Into<u64>,
+    {
         GenericSegment::find_overlaps(self.as_generics().collect())
     }
 
@@ -166,7 +178,10 @@ impl HeaderSegments {
         u64::from(HEADER_LEN) + (self.other.len() as u64) * 16
     }
 
-    fn as_generics(&self) -> impl Iterator<Item = GenericSegment> {
+    fn as_generics(&self) -> impl Iterator<Item = GenericSegment>
+    where
+        T: Copy + Into<u64>,
+    {
         self.other
             .iter()
             .copied()
@@ -191,7 +206,7 @@ impl HeaderSegments {
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct Header {
     pub version: Version,
-    pub segments: HeaderSegments,
+    pub segments: HeaderSegments<UintSpacePad20>,
 }
 
 impl Header {
@@ -309,7 +324,7 @@ fn h_read_other_segments<C, R>(
     h: &mut BufReader<R>,
     text_begin: UintSpacePad8,
     st: &ReadState<C>,
-) -> MultiResult<Vec<OtherSegment>, ImpureError<HeaderError>>
+) -> MultiResult<Vec<OtherSegment20>, ImpureError<HeaderError>>
 where
     R: Read,
     C: AsRef<HeaderConfigInner>,
@@ -335,14 +350,14 @@ where
             h.take(u64::from(w)).read_to_end(&mut buf1).into_mult()?;
             let seg_conf = NewSegmentConfig {
                 corr,
-                file_len: Some(st.file_len.into()),
+                file_len: Some(UintSpacePad20(st.file_len)),
                 truncate_offsets: conf.truncate_offsets,
             };
             // If any regions are entirely blank, just ignore them
             if buf0.iter().chain(buf1.iter()).all(|x| *x == 32) {
                 Ok(None)
             } else {
-                OtherSegment::parse(&buf0, &buf1, conf.allow_negative, &seg_conf)
+                OtherSegment::parse_other(&buf0, &buf1, conf.allow_negative, &seg_conf)
                     .map(Some)
                     .mult_map_errors(HeaderError::Segment)
                     .mult_map_errors(ImpureError::Pure)
@@ -479,12 +494,256 @@ impl fmt::Display for VersionError {
     }
 }
 
-pub(crate) struct HeaderKeywordsToWrite {
-    pub(crate) header: HeaderSegments,
+pub(crate) struct HeaderKeywordsToWrite<T> {
+    pub(crate) header: HeaderSegments<T>,
     pub(crate) primary: KeywordsWriter,
     pub(crate) supplemental: KeywordsWriter,
     // TODO do something useful with this
     pub(crate) _nextdata: Nextdata,
+}
+
+impl<T> HeaderKeywordsToWrite<T> {
+    /// Create HEADER+TEXT+OTHER offsets for FCS 2.0
+    pub(crate) fn new_2_0(
+        req: Vec<(String, String)>,
+        opt: Vec<(String, String)>,
+        data_len: u64,
+        analysis_len: u64,
+        other_lens: Vec<u64>,
+        has_nextdata: bool,
+    ) -> Result<HeaderKeywordsToWrite<T>, Uint8DigitOverflow>
+    where
+        T: TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
+    {
+        let other_header_len = Self::other_header_len(&other_lens[..]);
+
+        let text_begin = u64::from(HEADER_LEN) + other_header_len;
+        // +1 at end accounts for first delimiter
+        let text_len: u64 =
+            raw_keywords_length(&req[..]) + raw_keywords_length(&opt[..]) + nextdata_len() + 1;
+        let text_seg = PrimaryTextSegment::try_new_with_len(text_begin, text_len)?;
+
+        let other_begin = text_seg.inner.try_next_byte().map_or(text_begin, u64::from);
+        let (other_segs, data_begin) = Self::other_segments(other_begin, &other_lens[..])?;
+
+        let data_seg = HeaderDataSegment::try_new_with_len(data_begin, data_len)?;
+
+        let analysis_begin = data_seg.inner.try_next_byte().map_or(text_begin, u64::from);
+        let analysis_seg = HeaderAnalysisSegment::try_new_with_len(analysis_begin, analysis_len)?;
+
+        let nextdata = Nextdata(if !has_nextdata {
+            UintZeroPad20(0)
+        } else {
+            UintZeroPad20(
+                analysis_seg
+                    .inner
+                    .try_next_byte()
+                    .map(u64::from)
+                    .unwrap_or(analysis_begin),
+            )
+        });
+
+        let header = HeaderSegments {
+            text: text_seg,
+            data: data_seg,
+            analysis: analysis_seg,
+            other: other_segs,
+        };
+
+        let primary = KeywordsWriter(
+            [nextdata.pair()]
+                .into_iter()
+                .chain(req)
+                .chain(opt)
+                .collect(),
+        );
+
+        Ok(HeaderKeywordsToWrite {
+            header,
+            primary,
+            supplemental: KeywordsWriter::default(),
+            _nextdata: nextdata,
+        })
+    }
+
+    /// Create HEADER+TEXT+OTHER offsets for FCS 3.0
+    ///
+    /// Order in which this is expected to be written is HEADER, OTHER(s), TEXT,
+    /// STEXT, DATA, ANALYSIS.
+    pub(crate) fn new_3_0(
+        req: Vec<(String, String)>,
+        opt: Vec<(String, String)>,
+        data_len: u64,
+        analysis_len: u64,
+        other_lens: Vec<u64>,
+        has_nextdata: bool,
+    ) -> Result<HeaderKeywordsToWrite<T>, Uint8DigitOverflow>
+    where
+        T: TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
+    {
+        let other_header_len = Self::other_header_len(&other_lens[..]);
+        let prim_text_begin = u64::from(HEADER_LEN) + other_header_len;
+
+        let nooffset_req_text_len = raw_keywords_length(&req[..]);
+        let opt_text_len = raw_keywords_length(&opt[..]);
+        // +1 accounts for first delimiter
+        let nosupp_text_len = offsets_len() + nooffset_req_text_len + 1;
+        let supp_text_len = opt_text_len + 1;
+        let all_text_len = opt_text_len + nosupp_text_len;
+
+        let make_text_seg = |len| {
+            PrimaryTextSegment::try_new_with_len(prim_text_begin, len).map(|seg| {
+                let other_begin = seg
+                    .inner
+                    .try_next_byte()
+                    .map(u64::from)
+                    .unwrap_or(prim_text_begin);
+                (seg, other_begin)
+            })
+        };
+
+        // include STEXT only if the optional keywords don't fit within the first
+        // 99,999,999 bytes
+        let prim_text_res = make_text_seg(all_text_len);
+        let (prim_text_seg, other_segs, supp_text_seg, data_begin) = match prim_text_res {
+            Ok((prim_text_seg, other_begin)) => {
+                let (other_segs, next_begin) = Self::other_segments(other_begin, &other_lens[..])?;
+                (
+                    prim_text_seg,
+                    other_segs,
+                    SupplementalTextSegment::default(),
+                    next_begin,
+                )
+            }
+            Err(_) => {
+                let (prim_text_seg, other_begin) = make_text_seg(nosupp_text_len)?;
+                let (other_segs, supp_text_begin) =
+                    Self::other_segments(other_begin, &other_lens[..])?;
+                let supp_text_seg =
+                    SupplementalTextSegment::new_with_len(supp_text_begin, supp_text_len);
+                let data_begin = supp_text_seg
+                    .inner
+                    .try_next_byte()
+                    .map(u64::from)
+                    .unwrap_or(supp_text_begin);
+                (prim_text_seg, other_segs, supp_text_seg, data_begin)
+            }
+        };
+
+        let data_seg = TEXTDataSegment::new_with_len(data_begin, data_len);
+
+        let analysis_begin = data_seg
+            .inner
+            .try_next_byte()
+            .map(u64::from)
+            .unwrap_or(data_begin);
+        let analysis_seg = TEXTAnalysisSegment::new_with_len(analysis_begin, analysis_len);
+
+        let h_analysis_seg = analysis_seg.as_header();
+        let h_data_seg = data_seg.as_header();
+
+        let nextdata = Nextdata(if !has_nextdata {
+            UintZeroPad20(0)
+        } else {
+            UintZeroPad20(
+                analysis_seg
+                    .inner
+                    .try_next_byte()
+                    .map(u64::from)
+                    .unwrap_or(analysis_begin),
+            )
+        });
+
+        // NOTE in 3.2 *DATA and *SDATA are technically optional, but it is much
+        // easier just to include them in the "required" stuff regardless.
+        let all_req = supp_text_seg
+            .keywords()
+            .into_iter()
+            .chain(data_seg.keywords())
+            .chain(analysis_seg.keywords())
+            .chain([nextdata.pair()])
+            .chain(req);
+
+        let (primary, supplemental) = if supp_text_seg.inner.is_empty() {
+            (all_req.chain(opt).collect(), vec![])
+        } else {
+            (all_req.collect(), opt)
+        };
+
+        let header = HeaderSegments {
+            text: prim_text_seg,
+            analysis: h_analysis_seg,
+            data: h_data_seg,
+            other: other_segs,
+        };
+
+        Ok(HeaderKeywordsToWrite {
+            header,
+            primary: KeywordsWriter(primary),
+            supplemental: KeywordsWriter(supplemental),
+            _nextdata: nextdata,
+        })
+    }
+
+    pub(crate) fn h_write<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        version: Version,
+        delim: TEXTDelim,
+        other_segs: &[Other],
+    ) -> io::Result<()>
+    where
+        T: Zero + HeaderString,
+    {
+        // write HEADER
+        self.header.h_write(h, version)?;
+
+        // write primary TEXT
+        self.primary.h_write(h, delim.into())?;
+
+        // write OTHER
+        for o in other_segs.iter() {
+            h.write_all(&o.0)?;
+        }
+
+        // write supplemental TEXT
+        if !self.supplemental.0.is_empty() {
+            self.supplemental.h_write(h, delim.into())?;
+        }
+        Ok(())
+    }
+
+    fn other_header_len(other_lens: &[u64]) -> u64
+    where
+        T: HeaderString,
+    {
+        (other_lens.len() as u64) * u64::from(T::WIDTH) * 2
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn other_segments(
+        begin: u64,
+        other_lens: &[u64],
+    ) -> Result<(Vec<OtherSegment<T>>, u64), <T as TryFrom<u64>>::Error>
+    where
+        T: Copy + TryFrom<u64> + Into<u64>,
+    {
+        let ret = other_lens
+            .iter()
+            .scan(begin, |b, &length| {
+                let s = OtherSegment::try_new_with_len(*b, length);
+                *b += length;
+                Some(s)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let next = ret
+            .iter()
+            .flat_map(|x| x.inner.try_next_byte())
+            .last()
+            .map(|x| x.into())
+            .unwrap_or(begin);
+        Ok((ret, next))
+    }
 }
 
 #[derive(Default)]
@@ -501,212 +760,8 @@ impl KeywordsWriter {
     }
 }
 
-/// Create HEADER+TEXT+OTHER offsets for FCS 2.0
-pub(crate) fn make_data_offset_keywords_2_0(
-    req: Vec<(String, String)>,
-    opt: Vec<(String, String)>,
-    data_len: u64,
-    analysis_len: u64,
-    other_lens: Vec<u64>,
-    has_nextdata: bool,
-) -> Result<HeaderKeywordsToWrite, Uint8DigitOverflow> {
-    let other_header_len = other_header_len(&other_lens[..]);
-
-    let text_begin: UintSpacePad8 = (u64::from(HEADER_LEN) + other_header_len).try_into()?;
-    // +1 at end accounts for first delimiter
-    let text_len =
-        raw_keywords_length(&req[..]) + raw_keywords_length(&opt[..]) + nextdata_len() + 1;
-    let text_seg = PrimaryTextSegment::try_new_with_len(text_begin, text_len)?;
-
-    let other_begin = text_seg
-        .inner
-        .try_next_byte()
-        .map_or(Ok(text_begin), |x| u64::from(x).try_into())?;
-    let (other_segs, data_begin) = other_segments(other_begin.into(), &other_lens[..]);
-
-    let data_seg = HeaderDataSegment::try_new_with_len(data_begin.try_into()?, data_len)?;
-
-    let analysis_begin = data_seg
-        .inner
-        .try_next_byte()
-        .map_or(Ok(text_begin), |x| u64::from(x).try_into())?;
-    let analysis_seg = HeaderAnalysisSegment::try_new_with_len(analysis_begin, analysis_len)?;
-
-    let nextdata = Nextdata(if !has_nextdata {
-        UintZeroPad20(0)
-    } else {
-        UintZeroPad20(
-            analysis_seg
-                .inner
-                .try_next_byte()
-                .map(u64::from)
-                .unwrap_or(u64::from(analysis_begin)),
-        )
-    });
-
-    let header = HeaderSegments {
-        text: text_seg,
-        data: data_seg,
-        analysis: analysis_seg,
-        other: other_segs,
-    };
-
-    let primary = KeywordsWriter(
-        [nextdata.pair()]
-            .into_iter()
-            .chain(req)
-            .chain(opt)
-            .collect(),
-    );
-
-    Ok(HeaderKeywordsToWrite {
-        header,
-        primary,
-        supplemental: KeywordsWriter::default(),
-        _nextdata: nextdata,
-    })
-}
-
-/// Create HEADER+TEXT+OTHER offsets for FCS 3.0
-///
-/// Order in which this is expected to be written is HEADER, OTHER(s), TEXT,
-/// STEXT, DATA, ANALYSIS.
-pub(crate) fn make_data_offset_keywords_3_0(
-    req: Vec<(String, String)>,
-    opt: Vec<(String, String)>,
-    data_len: u64,
-    analysis_len: u64,
-    other_lens: Vec<u64>,
-    has_nextdata: bool,
-) -> Result<HeaderKeywordsToWrite, Uint8DigitOverflow> {
-    let other_header_len = other_header_len(&other_lens[..]);
-    let prim_text_begin: UintSpacePad8 = (u64::from(HEADER_LEN) + other_header_len).try_into()?;
-
-    let nooffset_req_text_len = raw_keywords_length(&req[..]);
-    let opt_text_len = raw_keywords_length(&opt[..]);
-    // +1 accounts for first delimiter
-    let nosupp_text_len = offsets_len() + nooffset_req_text_len + 1;
-    let supp_text_len = opt_text_len + 1;
-    let all_text_len = opt_text_len + nosupp_text_len;
-
-    let make_text_seg = |len| {
-        PrimaryTextSegment::try_new_with_len(prim_text_begin, len).map(|seg| {
-            let other_begin = seg
-                .inner
-                .try_next_byte()
-                .map(u64::from)
-                .unwrap_or(u64::from(prim_text_begin));
-            (seg, other_begin)
-        })
-    };
-
-    // include STEXT only if the optional keywords don't fit within the first
-    // 99,999,999 bytes
-    let prim_text_res = make_text_seg(all_text_len);
-    let (prim_text_seg, other_segs, supp_text_seg, data_begin) = match prim_text_res {
-        Ok((prim_text_seg, other_begin)) => {
-            let (other_segs, next_begin) = other_segments(other_begin, &other_lens[..]);
-            (
-                prim_text_seg,
-                other_segs,
-                SupplementalTextSegment::default(),
-                next_begin,
-            )
-        }
-        Err(_) => {
-            let (prim_text_seg, other_begin) = make_text_seg(nosupp_text_len)?;
-            let (other_segs, supp_text_begin) = other_segments(other_begin, &other_lens[..]);
-            let supp_text_seg =
-                SupplementalTextSegment::new_with_len(supp_text_begin.into(), supp_text_len);
-            let data_begin = supp_text_seg
-                .inner
-                .try_next_byte()
-                .map(u64::from)
-                .unwrap_or(supp_text_begin);
-            (prim_text_seg, other_segs, supp_text_seg, data_begin)
-        }
-    };
-
-    let data_seg = TEXTDataSegment::new_with_len(data_begin.into(), data_len);
-
-    let analysis_begin = data_seg
-        .inner
-        .try_next_byte()
-        .map(u64::from)
-        .unwrap_or(data_begin);
-    let analysis_seg = TEXTAnalysisSegment::new_with_len(analysis_begin.into(), analysis_len);
-
-    let h_analysis_seg = analysis_seg.as_header();
-    let h_data_seg = data_seg.as_header();
-
-    let nextdata = Nextdata(if !has_nextdata {
-        UintZeroPad20(0)
-    } else {
-        UintZeroPad20(
-            analysis_seg
-                .inner
-                .try_next_byte()
-                .map(u64::from)
-                .unwrap_or(analysis_begin),
-        )
-    });
-
-    // NOTE in 3.2 *DATA and *SDATA are technically optional, but it is much
-    // easier just to include them in the "required" stuff regardless.
-    let all_req = supp_text_seg
-        .keywords()
-        .into_iter()
-        .chain(data_seg.keywords())
-        .chain(analysis_seg.keywords())
-        .chain([nextdata.pair()])
-        .chain(req);
-
-    let (primary, supplemental) = if supp_text_seg.inner.is_empty() {
-        (all_req.chain(opt).collect(), vec![])
-    } else {
-        (all_req.collect(), opt)
-    };
-
-    let header = HeaderSegments {
-        text: prim_text_seg,
-        analysis: h_analysis_seg,
-        data: h_data_seg,
-        other: other_segs,
-    };
-
-    Ok(HeaderKeywordsToWrite {
-        header,
-        primary: KeywordsWriter(primary),
-        supplemental: KeywordsWriter(supplemental),
-        _nextdata: nextdata,
-    })
-}
-
 fn raw_keywords_length(ks: &[(String, String)]) -> u64 {
     ks.iter().map(|(k, v)| k.len() + v.len() + 2).sum::<usize>() as u64
-}
-
-fn other_header_len(other_lens: &[u64]) -> u64 {
-    // each segment offset pair has two digits that are 20 bytes long
-    (other_lens.len() as u64) * 20 * 2
-}
-
-fn other_segments(begin: u64, other_lens: &[u64]) -> (Vec<OtherSegment>, u64) {
-    let ret: Vec<_> = other_lens
-        .iter()
-        .scan(begin, |b, &length| {
-            let ret = OtherSegment::new_with_len(begin.into(), length);
-            *b += length;
-            Some(ret)
-        })
-        .collect();
-    let next = ret
-        .iter()
-        .flat_map(|x| x.inner.try_next_byte())
-        .last()
-        .map(|x| x.into())
-        .unwrap_or(begin);
-    (ret, next)
 }
 
 /// Length of $(BEGIN/END)(STEXT/ANALYSIS/DATA) and $NEXTDATA offset length.
@@ -750,8 +805,26 @@ fn offsets_len() -> u64 {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{Version, VersionError};
+    use super::{HeaderSegments, UintSpacePad20, Version, VersionError};
     use crate::python::macros::{impl_from_py_via_fromstr, impl_to_py_via_display, impl_value_err};
+
+    use pyo3::prelude::*;
+    use pyo3::types::PyDict;
+
+    impl<'py> IntoPyObject<'py> for HeaderSegments<UintSpacePad20> {
+        type Target = PyDict;
+        type Output = Bound<'py, PyDict>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            let dict = PyDict::new(py);
+            dict.set_item("text", self.text.into_pyobject(py)?)?;
+            dict.set_item("data", self.data.into_pyobject(py)?)?;
+            dict.set_item("analysis", self.analysis.into_pyobject(py)?)?;
+            dict.set_item("other", self.other.into_pyobject(py)?)?;
+            Ok(dict)
+        }
+    }
 
     impl_to_py_via_display!(Version);
     impl_from_py_via_fromstr!(Version);

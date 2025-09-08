@@ -7,6 +7,7 @@ use crate::macros::def_failure;
 use crate::segment::*;
 use crate::text::keywords::*;
 use crate::text::parser::*;
+use crate::validated::ascii_uint::UintSpacePad20;
 use crate::validated::dataframe::FCSDataFrame;
 use crate::validated::keys::*;
 
@@ -118,7 +119,7 @@ pub fn fcs_read_raw_dataset_with_keywords(
     std: &StdKeywords,
     data_seg: HeaderDataSegment,
     analysis_seg: HeaderAnalysisSegment,
-    other_segs: Vec<OtherSegment>,
+    other_segs: Vec<OtherSegment20>,
     conf: &ReadRawDatasetFromKeywordsConfig,
 ) -> IOTerminalResult<
     RawDatasetWithKwsOutput,
@@ -157,7 +158,7 @@ pub fn fcs_read_std_dataset_with_keywords(
     mut kws: ValidKeywords,
     data_seg: HeaderDataSegment,
     analysis_seg: HeaderAnalysisSegment,
-    other_segs: Vec<OtherSegment>,
+    other_segs: Vec<OtherSegment20>,
     conf: &ReadStdDatasetFromKeywordsConfig,
 ) -> IOTerminalResult<
     (AnyCoreDataset, StdDatasetWithKwsOutput),
@@ -295,7 +296,7 @@ pub struct RawDatasetWithKwsOutput {
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct RawTEXTParseData {
     /// Offsets read from HEADER
-    pub header_segments: HeaderSegments,
+    pub header_segments: HeaderSegments<UintSpacePad20>,
 
     /// Supplemental TEXT offsets
     ///
@@ -524,7 +525,7 @@ fn h_read_dataset_from_kws<C, R>(
     kws: &StdKeywords,
     data_seg: HeaderDataSegment,
     analysis_seg: HeaderAnalysisSegment,
-    other_segs: &[OtherSegment],
+    other_segs: &[OtherSegment20],
     st: &ReadState<C>,
 ) -> IODeferredResult<
     RawDatasetWithKwsOutput,

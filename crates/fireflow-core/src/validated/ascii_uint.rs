@@ -1,6 +1,7 @@
 //! Types used for constructing offsets in HEADER and TEXT
 
 use crate::header::MAX_HEADER_OFFSET;
+use crate::validated::ascii_range::Chars;
 
 use derive_more::{Add, Display, From, FromStr, Into, Mul, Sub};
 use num_derive::{One, Zero};
@@ -58,19 +59,27 @@ impl CheckedSub for UintZeroPad20 {
 /// This is used for the OTHER offsets in HEADER which can be up to 20 chars
 /// wide.
 #[derive(
-    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromStr, Into, From, Add, Sub, Mul, Zero, One,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    FromStr,
+    Into,
+    From,
+    Add,
+    Sub,
+    Mul,
+    Zero,
+    One,
+    Display,
 )]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(u64, i128)]
 #[mul(forward)]
-#[from(u64, NonZeroU64)]
+#[from(NonZeroU64, UintSpacePad8)]
 pub struct UintSpacePad20(pub u64);
-
-impl fmt::Display for UintSpacePad20 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{:>20}", self.0)
-    }
-}
 
 impl TryFrom<i128> for UintSpacePad20 {
     type Error = TryFromIntError;
@@ -106,6 +115,18 @@ impl UintSpacePad20 {
             Ok(Self(x as u64))
         }
     }
+}
+
+// for symmetry with UintSpacePad8
+impl TryFrom<u64> for UintSpacePad20 {
+    type Error = Uint8DigitOverflow;
+    fn try_from(value: u64) -> Result<Self, Self::Error> {
+        Ok(Self(value))
+    }
+}
+
+impl HeaderString for UintSpacePad20 {
+    const WIDTH: u8 = 20;
 }
 
 /// An unsigned int which must be <= 99,999,999.
@@ -154,6 +175,22 @@ impl UintSpacePad8 {
             // max of a u32.
             Ok(Self(x as u32))
         }
+    }
+}
+
+impl HeaderString for UintSpacePad8 {
+    const WIDTH: u8 = 8;
+}
+
+pub(crate) trait HeaderString: fmt::Display + Into<u64> + Copy {
+    const WIDTH: u8;
+
+    fn header_string(&self) -> String {
+        let n = Chars::from_u64((*self).into());
+        let mut s = " ".repeat(usize::from(Self::WIDTH - u8::from(n)));
+        let d = self.to_string();
+        s.push_str(&d);
+        s
     }
 }
 

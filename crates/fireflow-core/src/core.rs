@@ -19,7 +19,9 @@ use crate::text::scale::*;
 use crate::text::spillover::*;
 use crate::text::timestamps::*;
 use crate::text::unstainedcenters::*;
-use crate::validated::ascii_uint::Uint8DigitOverflow;
+use crate::validated::ascii_uint::{
+    HeaderString, Uint8DigitOverflow, UintSpacePad20, UintSpacePad8,
+};
 use crate::validated::dataframe as df;
 use crate::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
 use crate::validated::keys::*;
@@ -32,7 +34,7 @@ use derive_new::new;
 use itertools::Itertools;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
-use num_traits::identities::One;
+use num_traits::identities::{One, Zero};
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::fmt;
@@ -390,7 +392,7 @@ impl AnyCoreDataset {
         nonstd: NonStdKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
-        other_segs: &[OtherSegment],
+        other_segs: &[OtherSegment20],
         conf: &ReadState<C>,
     ) -> IODeferredResult<
         (Self, AnyDataSegment, AnyAnalysisSegment),
@@ -1153,7 +1155,7 @@ pub struct AnalysisReader {
 
 /// Reader for OTHER segments
 pub struct OthersReader<'a> {
-    pub segs: &'a [OtherSegment],
+    pub segs: &'a [OtherSegment20],
 }
 
 mod private {
@@ -2061,28 +2063,50 @@ where
         &self,
         h: &mut BufWriter<W>,
         delim: TEXTDelim,
+        big_other: bool,
     ) -> IOTerminalResult<(), Infallible, Uint8DigitOverflow, WriteTEXTFailure>
     where
         Version: From<M::Ver>,
     {
-        // TODO do something useful with $NEXTDATA
-        self.header_and_raw_keywords(Tot(0), 0, 0, vec![], false)
-            .map_err(ImpureError::Pure)
-            .and_then(|hdr_kws| {
-                // write HEADER
-                hdr_kws.header.h_write(h, M::Ver::fcs_version().into())?;
+        if big_other {
+            self.h_write_text_inner1::<_, UintSpacePad20>(h, delim)
+        } else {
+            self.h_write_text_inner1::<_, UintSpacePad8>(h, delim)
+        }
+    }
 
-                // write primary TEXT
-                hdr_kws.primary.h_write(h, delim.into())?;
-
-                // write supplemental TEXT
-                if !hdr_kws.supplemental.0.is_empty() {
-                    hdr_kws.supplemental.h_write(h, delim.into())?;
-                }
-
-                Ok(())
-            })
+    fn h_write_text_inner1<W: Write, T>(
+        &self,
+        h: &mut BufWriter<W>,
+        delim: TEXTDelim,
+    ) -> IOTerminalResult<(), Infallible, Uint8DigitOverflow, WriteTEXTFailure>
+    where
+        Version: From<M::Ver>,
+        T: Zero + TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
+    {
+        self.h_write_text_inner::<_, T>(h, delim, Tot(0), 0, 0, vec![])
             .terminate(WriteTEXTFailure)
+    }
+
+    fn h_write_text_inner<W: Write, T>(
+        &self,
+        h: &mut BufWriter<W>,
+        delim: TEXTDelim,
+        tot: Tot,
+        data_len: u64,
+        analysis_len: u64,
+        other_lens: Vec<u64>,
+    ) -> IOResult<(), Uint8DigitOverflow>
+    where
+        Version: From<M::Ver>,
+        T: Zero + TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
+    {
+        // TODO do something useful with $NEXTDATA
+        self.header_and_raw_keywords(tot, data_len, analysis_len, other_lens, false)
+            .map_err(ImpureError::Pure)
+            .and_then(|hdr_kws: HeaderKeywordsToWrite<T>| {
+                Ok(hdr_kws.h_write(h, M::Ver::fcs_version().into(), delim, &[])?)
+            })
     }
 
     /// Return all keywords as an ordered list of pairs
@@ -3253,16 +3277,17 @@ where
         Ok(())
     }
 
-    fn header_and_raw_keywords(
+    fn header_and_raw_keywords<T>(
         &self,
         tot: Tot,
         data_len: u64,
         analysis_len: u64,
         other_lens: Vec<u64>,
         has_nextdata: bool,
-    ) -> Result<HeaderKeywordsToWrite, Uint8DigitOverflow>
+    ) -> Result<HeaderKeywordsToWrite<T>, Uint8DigitOverflow>
     where
         Version: From<M::Ver>,
+        T: TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
     {
         let req: Vec<_> = self
             .req_root_keywords()
@@ -3274,7 +3299,7 @@ where
             .chain(self.opt_meas_keywords())
             .collect();
         if Version::from(M::Ver::fcs_version()) == Version::FCS2_0 {
-            make_data_offset_keywords_2_0(
+            HeaderKeywordsToWrite::new_2_0(
                 req,
                 opt,
                 data_len,
@@ -3283,7 +3308,7 @@ where
                 has_nextdata,
             )
         } else {
-            make_data_offset_keywords_3_0(
+            HeaderKeywordsToWrite::new_3_0(
                 req,
                 opt,
                 data_len,
@@ -3830,7 +3855,7 @@ where
         nonstd: NonStdKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
-        other_segs: &[OtherSegment],
+        other_segs: &[OtherSegment20],
         st: &ReadState<C>,
         // TODO wrap this in a nice struct
     ) -> IODeferredResult<
@@ -3895,7 +3920,7 @@ where
         let df = &self.data;
         let layout = &self.layout;
         let others = &self.others;
-        let delim = conf.delim.into();
+        let delim = conf.delim;
         let tot = Tot(df.nrows());
         let analysis_len = self.analysis.0.len() as u64;
         let other_lens = others.0.iter().map(|o| o.0.len() as u64).collect();
@@ -3914,31 +3939,27 @@ where
         check_res
             .def_and_maybe(|()| {
                 let data_len = layout.nbytes(df);
-                let hdr_kws = self
-                    // TODO do something useful with $NEXTDATA
-                    .header_and_raw_keywords(tot, data_len, analysis_len, other_lens, false)
-                    .map_err(ImpureError::Pure)
-                    .map_err(|e| e.inner_into())
-                    .map_err(DeferredFailure::new1)?;
-
-                // write HEADER
-                hdr_kws
-                    .header
-                    .h_write(h, M::Ver::fcs_version().into())
-                    .into_deferred()?;
-
-                // write primary TEXT
-                hdr_kws.primary.h_write(h, delim).into_deferred()?;
-
-                // write OTHER
-                for o in others.0.iter() {
-                    h.write_all(&o.0).into_deferred()?;
+                if conf.big_other {
+                    self.h_write_text_inner::<_, UintSpacePad20>(
+                        h,
+                        delim,
+                        tot,
+                        data_len,
+                        analysis_len,
+                        other_lens,
+                    )
+                } else {
+                    self.h_write_text_inner::<_, UintSpacePad8>(
+                        h,
+                        delim,
+                        tot,
+                        data_len,
+                        analysis_len,
+                        other_lens,
+                    )
                 }
-
-                // write supplemental TEXT
-                if !hdr_kws.supplemental.0.is_empty() {
-                    hdr_kws.supplemental.h_write(h, delim).into_deferred()?;
-                }
+                .map_err(|e| e.inner_into())
+                .map_err(DeferredFailure::new1)?;
 
                 // write DATA; conversion check flag is flipped from above since
                 // we want to emit warnings as we are writing if we did not run

@@ -499,13 +499,16 @@ class _CoreCommon:
     @property
     def par(self) -> int: ...
     def set_trigger_threshold(self, threshold: int) -> bool: ...
-    def write_text(self, path: Path, delim: int = 30) -> None: ...
+    def write_text(
+        self, path: Path, delim: int = 30, big_other: bool = False
+    ) -> None: ...
 
 class _CoreDatasetCommon:
     def write_dataset(
         self,
         path: Path,
         delim: int = 30,
+        big_other: bool = False,
         skip_conversion_check: bool = False,
     ) -> None: ...
 

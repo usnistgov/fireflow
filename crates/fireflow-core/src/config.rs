@@ -192,6 +192,9 @@ pub struct WriteConfig {
     /// Lossy conversion will be performed regardless, but warnings will be
     /// emitted if this is false.
     pub skip_conversion_check: bool,
+
+    /// If ``true`` use 20 chars for OTHER offset width, otherwise 8.
+    pub big_other: bool,
 }
 
 #[derive(Default, Clone)]

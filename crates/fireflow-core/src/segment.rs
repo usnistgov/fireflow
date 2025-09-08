@@ -774,31 +774,12 @@ impl OtherSegment {
         conf: &NewSegmentConfig<UintSpacePad20, OtherSegmentId, SegmentFromHeader>,
     ) -> MultiResult<Self, HeaderSegmentError> {
         let parse_one = |bs: &[u8], is_begin| {
-            ascii_str_from_bytes(bs)
-                .map_err(ParseFixedUintError::NotAscii)
-                .and_then(|s| {
-                    let x = s
-                        .trim_start()
-                        .parse::<i32>()
-                        .map_err(ParseFixedUintError::Int)?;
-                    if x < 0 {
-                        if allow_negative {
-                            Ok(UintSpacePad20::zero())
-                        } else {
-                            Err(ParseFixedUintError::Negative(NegativeOffsetError(x)))
-                        }
-                    } else {
-                        // ASSUME this will never fail because we checked the
-                        // sign above
-                        Ok(UintSpacePad20(x as u64))
-                    }
-                })
-                .map_err(|error| ParseOffsetError {
-                    error,
-                    is_begin,
-                    location: OtherSegmentId::REGION,
-                    source: bs.to_vec(),
-                })
+            UintSpacePad20::from_bytes(bs, allow_negative).map_err(|error| ParseOffsetError {
+                error,
+                is_begin,
+                location: OtherSegmentId::REGION,
+                source: bs.to_vec(),
+            })
         };
 
         let begin_res = parse_one(bs0, true);

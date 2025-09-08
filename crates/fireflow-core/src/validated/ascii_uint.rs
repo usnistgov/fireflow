@@ -85,6 +85,29 @@ impl CheckedSub for UintSpacePad20 {
     }
 }
 
+impl UintSpacePad20 {
+    /// Parse from a buffer that contains up to 20 bytes.
+    ///
+    /// Will panic if parsed digit is more than 20 digits long.
+    pub(crate) fn from_bytes(bs: &[u8], allow_negative: bool) -> Result<Self, ParseFixedUintError> {
+        if bs.len() > 20 {
+            panic!("cannot parse more than 20 bytes")
+        }
+        let x = ascii_str_from_bytes(bs)?.trim_start().parse::<i32>()?;
+        if x < 0 {
+            if allow_negative {
+                Ok(Self::zero())
+            } else {
+                Err(ParseFixedUintError::Negative(NegativeOffsetError(x)))
+            }
+        } else {
+            // ASSUME this will never fail because we checked the
+            // sign above
+            Ok(Self(x as u64))
+        }
+    }
+}
+
 /// An unsigned int which must be <= 99,999,999.
 ///
 /// Aside from this, it will behave just like a normal u32.

@@ -2084,7 +2084,7 @@ where
         Version: From<M::Ver>,
         T: Zero + TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
     {
-        self.h_write_text_inner::<_, T>(h, delim, Tot(0), 0, 0, vec![])
+        self.h_write_text_inner::<_, T>(h, delim, Tot(0), 0, 0, &[])
             .terminate(WriteTEXTFailure)
     }
 
@@ -2095,17 +2095,18 @@ where
         tot: Tot,
         data_len: u64,
         analysis_len: u64,
-        other_lens: Vec<u64>,
+        other_segs: &[Other],
     ) -> IOResult<(), Uint8DigitOverflow>
     where
         Version: From<M::Ver>,
         T: Zero + TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
     {
         // TODO do something useful with $NEXTDATA
+        let other_lens: Vec<_> = other_segs.iter().map(|s| s.0.len() as u64).collect();
         self.header_and_raw_keywords(tot, data_len, analysis_len, other_lens, false)
             .map_err(ImpureError::Pure)
             .and_then(|hdr_kws: HeaderKeywordsToWrite<T>| {
-                Ok(hdr_kws.h_write(h, M::Ver::fcs_version().into(), delim, &[])?)
+                Ok(hdr_kws.h_write(h, M::Ver::fcs_version().into(), delim, other_segs)?)
             })
     }
 
@@ -3919,11 +3920,10 @@ where
     {
         let df = &self.data;
         let layout = &self.layout;
-        let others = &self.others;
         let delim = conf.delim;
         let tot = Tot(df.nrows());
         let analysis_len = self.analysis.0.len() as u64;
-        let other_lens = others.0.iter().map(|o| o.0.len() as u64).collect();
+        let others = &self.others.0[..];
 
         let check_res = if conf.skip_conversion_check {
             Ok(Tentative::default())
@@ -3946,7 +3946,7 @@ where
                         tot,
                         data_len,
                         analysis_len,
-                        other_lens,
+                        others,
                     )
                 } else {
                     self.h_write_text_inner::<_, UintSpacePad8>(
@@ -3955,7 +3955,7 @@ where
                         tot,
                         data_len,
                         analysis_len,
-                        other_lens,
+                        others,
                     )
                 }
                 .map_err(|e| e.inner_into())

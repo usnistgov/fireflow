@@ -4086,7 +4086,7 @@ fn big_other_param() -> DocArg {
     DocArg::new_param_def(
         "big_other".into(),
         PyType::Bool,
-        "If ``True`` use 20 chars for OTHER segments, and 8 otherwise.".into(),
+        "If ``True`` use 20 chars for OTHER segment offsets, and 8 otherwise.".into(),
         DocDefault::Bool(false),
     )
 }

@@ -13,10 +13,14 @@ Supported FCS versions:
 Key features:
 
 * Is written in Rust (reliable and fast)
-* Implements/enforces the FCS standard (see [implementaion details](STANDARD.md))
+* Implements/enforces the FCS standard (see [implementation details](STANDARD.md))
 * Can convert between FCS versions
 * Can repair non-compliant FCS files
 * Has API for command line, Python, R (planned)
+
+## Status
+
+Pre-release
 
 ## Python API
 

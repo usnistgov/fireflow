@@ -4002,9 +4002,29 @@ where
     }
 
     /// Coerce all values in DATA to fit within types specified in layout.
-    // TODO return warnings
-    pub fn truncate_data(&mut self) {
-        self.data = self.layout.truncate_df(&self.data, true);
+    ///
+    /// If `skip_conv_check` is `false`, also return warnings for truncation;
+    /// otherwise truncation is performed silently.
+    ///
+    /// This will copy the entire dataframe regardless of whether or not the
+    /// data needs to be truncated. This will hopefully be fixed in the future.
+    pub fn truncate_data(
+        &mut self,
+        skip_conv_check: bool,
+    ) -> Terminal<(), ColumnError<AnyLossError>> {
+        // TODO this function is hilariously not-optimized; each column will be
+        // cast into a totally new vector even if they are they exact same
+        // type with no possible truncation. This also means that the new
+        // dataframe will be totally separate from the old one. Unfortunately,
+        // the best fix for this requires specialization, since we need a way
+        // to tell rust to do nothing when the input and output types match and
+        // otherwise do something else.
+        self.layout
+            .truncate_df(&self.data, skip_conv_check)
+            .map(|data| {
+                self.data = data;
+            })
+            .into_terminal()
     }
 
     // TODO add function to append event(s)

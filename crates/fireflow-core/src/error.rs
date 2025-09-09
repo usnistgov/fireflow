@@ -697,6 +697,15 @@ impl<V, E> BiTentative<V, E> {
     }
 }
 
+impl<V, W> Tentative<V, W, Infallible> {
+    pub fn into_terminal(self) -> Terminal<V, W> {
+        Terminal {
+            value: self.value,
+            warnings: self.warnings,
+        }
+    }
+}
+
 impl<V> BiTentative<V, Infallible> {
     pub fn unwrap_infallible(self) -> V {
         self.value

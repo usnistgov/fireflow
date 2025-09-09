@@ -25,7 +25,7 @@ create_exception!(
 pub trait PyTerminalResultExt {
     type V;
 
-    fn py_term_resolve(self) -> PyResult<Self::V>;
+    fn py_termfail_resolve(self) -> PyResult<Self::V>;
 }
 
 impl<V, W: fmt::Display, E: fmt::Display, T: fmt::Display> PyTerminalResultExt
@@ -33,7 +33,7 @@ impl<V, W: fmt::Display, E: fmt::Display, T: fmt::Display> PyTerminalResultExt
 {
     type V = V;
 
-    fn py_term_resolve(self) -> PyResult<Self::V> {
+    fn py_termfail_resolve(self) -> PyResult<Self::V> {
         self.map_or_else(|e| Err(handle_failure(e)), handle_warnings)
     }
 }
@@ -41,7 +41,7 @@ impl<V, W: fmt::Display, E: fmt::Display, T: fmt::Display> PyTerminalResultExt
 pub trait PyTerminalNoWarnResultExt {
     type V;
 
-    fn py_term_resolve_nowarn(self) -> PyResult<Self::V>;
+    fn py_termfail_resolve_nowarn(self) -> PyResult<Self::V>;
 }
 
 impl<V, E: fmt::Display, T: fmt::Display> PyTerminalNoWarnResultExt
@@ -49,8 +49,22 @@ impl<V, E: fmt::Display, T: fmt::Display> PyTerminalNoWarnResultExt
 {
     type V = V;
 
-    fn py_term_resolve_nowarn(self) -> PyResult<Self::V> {
+    fn py_termfail_resolve_nowarn(self) -> PyResult<Self::V> {
         self.map_err(handle_failure_nowarn).map(|x| x.inner())
+    }
+}
+
+pub trait PyTerminalNoErrorResultExt {
+    type V;
+
+    fn py_term_resolve_noerror(self) -> PyResult<Self::V>;
+}
+
+impl<V, W: fmt::Display> PyTerminalNoErrorResultExt for Terminal<V, W> {
+    type V = V;
+
+    fn py_term_resolve_noerror(self) -> PyResult<Self::V> {
+        handle_warnings(self)
     }
 }
 
@@ -61,20 +75,6 @@ where
     let (x, warn_res) = t.resolve(emit_warnings);
     warn_res?;
     Ok(x)
-}
-
-fn emit_warnings<W>(ws: Vec<W>) -> PyResult<()>
-where
-    W: fmt::Display,
-{
-    Python::with_gil(|py| -> PyResult<()> {
-        let wt = py.get_type::<PyreflowWarning>();
-        for w in ws {
-            let s = CString::new(w.to_string())?;
-            PyErr::warn(py, &wt, &s, 0)?;
-        }
-        Ok(())
-    })
 }
 
 // TODO python has a way of handling multiple exceptions (ExceptionGroup)
@@ -91,6 +91,20 @@ where
     } else {
         e
     }
+}
+
+fn emit_warnings<W>(ws: Vec<W>) -> PyResult<()>
+where
+    W: fmt::Display,
+{
+    Python::with_gil(|py| -> PyResult<()> {
+        let wt = py.get_type::<PyreflowWarning>();
+        for w in ws {
+            let s = CString::new(w.to_string())?;
+            PyErr::warn(py, &wt, &s, 0)?;
+        }
+        Ok(())
+    })
 }
 
 fn handle_failure_nowarn<E, T>(f: TerminalFailure<Infallible, E, T>) -> PyErr

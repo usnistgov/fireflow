@@ -457,7 +457,7 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
             ) -> PyResult<()> {
                 let f = std::fs::File::options().write(true).create(true).open(path)?;
                 let mut h = std::io::BufWriter::new(f);
-                self.0.h_write_text(&mut h, delim, big_other).py_term_resolve_nowarn()
+                self.0.h_write_text(&mut h, delim, big_other).py_termfail_resolve_nowarn()
             }
         }
     }
@@ -524,7 +524,7 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
                     skip_conversion_check,
                     big_other,
                 };
-                self.0.h_write_dataset(&mut h, &conf).py_term_resolve()
+                self.0.h_write_dataset(&mut h, &conf).py_termfail_resolve()
             }
         }
     }
@@ -758,12 +758,12 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
         quote! {
             #name_doc
             fn set_temporal(&mut self, name: #shortname_path, force: bool) -> PyResult<bool> {
-                self.0.set_temporal(&name, (), force).py_term_resolve()
+                self.0.set_temporal(&name, (), force).py_termfail_resolve()
             }
 
             #index_doc
             fn set_temporal_at(&mut self, index: #meas_index_path, force: bool) -> PyResult<bool> {
-                self.0.set_temporal_at(index, (), force).py_term_resolve()
+                self.0.set_temporal_at(index, (), force).py_termfail_resolve()
             }
         }
     } else {
@@ -779,7 +779,7 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
             ) -> PyResult<bool> {
                 self.0
                     .set_temporal(&name, timestep, force)
-                    .py_term_resolve()
+                    .py_termfail_resolve()
             }
 
             #index_doc
@@ -791,7 +791,7 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
             ) -> PyResult<bool> {
                 self.0
                     .set_temporal_at(index, timestep, force)
-                    .py_term_resolve()
+                    .py_termfail_resolve()
             }
         }
     };
@@ -865,7 +865,7 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
         quote! {
             #doc
             fn unset_temporal(&mut self, force: bool) -> PyResult<Option<#timestep_path>> {
-                self.0.unset_temporal_lossy(force).py_term_resolve()
+                self.0.unset_temporal_lossy(force).py_termfail_resolve()
             }
         }
     };
@@ -948,7 +948,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
 
             #[setter]
             fn set_all_scales(&mut self, scales: Vec<Option<#scale_path>>) -> PyResult<()> {
-                self.0.set_scales(scales).py_term_resolve_nowarn()
+                self.0.set_scales(scales).py_termfail_resolve_nowarn()
             }
         }
     } else {
@@ -982,7 +982,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
 
             #[setter]
             fn set_all_scale_transforms(&mut self, transforms: Vec<#xform_path>) -> PyResult<()> {
-                self.0.set_transforms(transforms).py_term_resolve_nowarn()
+                self.0.set_transforms(transforms).py_termfail_resolve_nowarn()
             }
         }
     };
@@ -1155,7 +1155,7 @@ pub fn impl_core_set_measurements(input: TokenStream) -> TokenStream {
                         allow_shared_names,
                         skip_index_check,
                     )
-                    .py_term_resolve_nowarn()
+                    .py_termfail_resolve_nowarn()
             }
         }
     }
@@ -1218,7 +1218,7 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
             ) -> PyResult<()> {
                 self.0
                     .push_optical(name.into(), meas.into(), col, range, notrunc)
-                    .py_term_resolve()
+                    .py_termfail_resolve()
                     .void()
             }
 
@@ -1233,7 +1233,7 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
             ) -> PyResult<()> {
                 self.0
                     .push_temporal(name, meas.into(), col, range, notrunc)
-                    .py_term_resolve()
+                    .py_termfail_resolve()
             }
         }
     } else {
@@ -1248,7 +1248,7 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
             ) -> PyResult<()> {
                 self.0
                     .push_optical(name.into(), meas.into(), range, notrunc)
-                    .py_term_resolve()
+                    .py_termfail_resolve()
                     .void()
             }
 
@@ -1262,7 +1262,7 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
             ) -> PyResult<()> {
                 self.0
                     .push_temporal(name, meas.into(), range, notrunc)
-                    .py_term_resolve()
+                    .py_termfail_resolve()
             }
         }
     };
@@ -1399,7 +1399,7 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
             ) -> PyResult<()> {
                 self.0
                     .insert_optical(index, name.into(), meas.into(), col, range, notrunc)
-                    .py_term_resolve()
+                    .py_termfail_resolve()
                     .void()
             }
 
@@ -1415,7 +1415,7 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
             ) -> PyResult<()> {
                 self.0
                     .insert_temporal(index, name, meas.into(), col, range, notrunc)
-                    .py_term_resolve()
+                    .py_termfail_resolve()
             }
         }
     } else {
@@ -1431,7 +1431,7 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
             ) -> PyResult<()> {
                 self.0
                     .insert_optical(index, name.into(), meas.into(), range, notrunc)
-                    .py_term_resolve()
+                    .py_termfail_resolve()
                     .void()
             }
 
@@ -1446,7 +1446,7 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
             ) -> PyResult<()> {
                 self.0
                     .insert_temporal(index, name, meas.into(), range, notrunc)
-                    .py_term_resolve()
+                    .py_termfail_resolve()
             }
         }
     };
@@ -1551,7 +1551,7 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
     // can fail if $PnTYPE is set
     let (replace_tmp_args, replace_tmp_at_body, replace_tmp_named_body, force) =
         if version == Version::FCS3_2 {
-            let go = |fun, x| quote!(self.0.#fun(#x, meas.into(), force).py_term_resolve()?);
+            let go = |fun, x| quote!(self.0.#fun(#x, meas.into(), force).py_termfail_resolve()?);
             (
                 quote! {force: bool},
                 go(quote! {replace_temporal_at_lossy}, quote! {index}),
@@ -1685,6 +1685,40 @@ pub fn impl_coredataset_unset_data(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+pub fn impl_coredataset_truncate_data(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let _ = split_ident_version_checked("PyCoreDataset", &i);
+
+    let p = DocArg::new_param_def(
+        "skip_conv_check".into(),
+        PyType::Bool,
+        "If ``True``, silently truncate data; otherwise return warnings when \
+         truncation is performed."
+            .into(),
+        DocDefault::Bool(false),
+    );
+
+    let doc = DocString::new(
+        "Coerce all values in DATA to fit within types specified in layout.".into(),
+        vec!["This will always create a new copy of DATA in-place.".into()],
+        true,
+        vec![p],
+        None,
+    );
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #doc
+            fn truncate_data(&mut self, skip_conv_check: bool) -> PyResult<()> {
+                self.0.truncate_data(skip_conv_check).py_term_resolve_noerror()
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
 pub fn impl_core_set_measurements_and_layout(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let (is_dataset, version) = split_ident_version_pycore(&i);
@@ -1738,7 +1772,7 @@ pub fn impl_core_set_measurements_and_layout(input: TokenStream) -> TokenStream 
                         allow_shared_names,
                         skip_index_check,
                     )
-                    .py_term_resolve_nowarn()
+                    .py_termfail_resolve_nowarn()
             }
         }
     }
@@ -1789,7 +1823,7 @@ pub fn impl_coredataset_set_measurements_and_data(input: TokenStream) -> TokenSt
                         allow_shared_names,
                         skip_index_check,
                     )
-                    .py_term_resolve_nowarn()
+                    .py_termfail_resolve_nowarn()
             }
         }
     }
@@ -2401,7 +2435,7 @@ impl ArgData {
 
             #[setter]
             fn set_layout(&mut self, layout: #layout_ident) -> PyResult<()> {
-                self.0.set_layout(layout.into()).py_term_resolve_nowarn()
+                self.0.set_layout(layout.into()).py_termfail_resolve_nowarn()
             }
         };
 
@@ -2712,7 +2746,7 @@ impl ArgData {
 
             #[setter]
             fn set_unstained_centers(&mut self, us: #rstype) -> PyResult<()> {
-                self.0.set_unstained_centers(us).py_term_resolve_nowarn()
+                self.0.set_unstained_centers(us).py_termfail_resolve_nowarn()
             }
         };
         Self::new(doc, rstype, Some(methods))
@@ -3111,7 +3145,7 @@ fn core_all_meas_attr1(
             },
             quote! {
                 fn #set(&mut self, xs: Vec<#nce_path<#kw>>) -> PyResult<()> {
-                    self.0.set_optical(xs).py_term_resolve_nowarn()
+                    self.0.set_optical(xs).py_termfail_resolve_nowarn()
                 }
             },
         )
@@ -3191,7 +3225,7 @@ pub fn impl_core_version_x_y(input: TokenStream) -> TokenStream {
             quote! {
                 #doc
                 fn #fn_name(&self, force: bool) -> PyResult<#target_pytype> {
-                    self.0.clone().try_convert(force).py_term_resolve().map(|x| x.into())
+                    self.0.clone().try_convert(force).py_termfail_resolve().map(|x| x.into())
                 }
             }
         })

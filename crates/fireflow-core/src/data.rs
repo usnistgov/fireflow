@@ -544,7 +544,11 @@ pub trait LayoutOps<'a, T>: Sized {
             .void()
     }
 
-    fn truncate_df(&self, df: &'a FCSDataFrame, skip_conv_check: bool) -> FCSDataFrame;
+    fn truncate_df<E>(
+        &self,
+        df: &'a FCSDataFrame,
+        skip_conv_check: bool,
+    ) -> Tentative<FCSDataFrame, ColumnError<AnyLossError>, E>;
 }
 
 #[delegatable_trait]
@@ -809,7 +813,7 @@ trait IntoWriter<'a, S> {
 trait Writable<'a, S> {
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: S) -> io::Result<()>;
 
-    fn truncate(self) -> AnyFCSColumn;
+    fn truncate(self, skip_conv_check: bool) -> (AnyFCSColumn, Option<AnyLossError>);
 
     fn as_err(&self, i: MeasIndex) -> Option<ColumnError<AnyLossError>>;
 }
@@ -1657,10 +1661,18 @@ where
         Ok(())
     }
 
-    fn truncate(self) -> AnyFCSColumn {
-        let c = self.column_type;
-        let xs: Vec<_> = self.data.map(|x| c.with_cast(x).0).collect();
-        FCSColumn::from(xs).into()
+    fn truncate(self, skip_conv_check: bool) -> (AnyFCSColumn, Option<AnyLossError>) {
+        let mut warn = None;
+        // TODO not optimal at all
+        let mut xs = vec![];
+        for x in self.data {
+            let (y, w) = self.column_type.with_cast(x);
+            if skip_conv_check {
+                warn = std::mem::take(&mut warn).or(w);
+            }
+            xs.push(y);
+        }
+        (FCSColumn::from(xs).into(), warn)
     }
 
     fn as_err(&self, i: MeasIndex) -> Option<ColumnError<AnyLossError>> {
@@ -1678,8 +1690,8 @@ impl<'a> Writable<'a, Endian> for WriterMixedType<'a> {
         }
     }
 
-    fn truncate(self) -> AnyFCSColumn {
-        match_any_mixed!(self, x, { x.truncate() })
+    fn truncate(self, skip_conv_check: bool) -> (AnyFCSColumn, Option<AnyLossError>) {
+        match_any_mixed!(self, x, { x.truncate(skip_conv_check) })
     }
 
     fn as_err(&self, i: MeasIndex) -> Option<ColumnError<AnyLossError>> {
@@ -1692,8 +1704,8 @@ impl<'a> Writable<'a, Endian> for AnyWriterBitmask<'a> {
         match_any_uint!(self, Self, c, { c.h_write(h, byte_layout) })
     }
 
-    fn truncate(self) -> AnyFCSColumn {
-        match_any_uint!(self, Self, x, { x.truncate() })
+    fn truncate(self, skip_conv_check: bool) -> (AnyFCSColumn, Option<AnyLossError>) {
+        match_any_uint!(self, Self, x, { x.truncate(skip_conv_check) })
     }
 
     fn as_err(&self, i: MeasIndex) -> Option<ColumnError<AnyLossError>> {
@@ -2288,28 +2300,38 @@ where
                 .into_iter()
                 .flatten()
                 .enumerate()
-                .map(|(i, w)| ColumnError {
-                    error: AnyLossError::Ascii(LossError::Cast(w)),
-                    index: i.into(),
-                })
+                .map(|(i, w)| ColumnError::new(i.into(), AnyLossError::Ascii(LossError::Cast(w))))
                 .collect()
         };
         Ok(Tentative::new((), ws, vec![]))
     }
 
-    fn truncate_df(&self, df: &FCSDataFrame, skip_conv_check: bool) -> FCSDataFrame {
-        let columns: Vec<_> = df
+    fn truncate_df<E>(
+        &self,
+        df: &FCSDataFrame,
+        skip_conv_check: bool,
+    ) -> Tentative<FCSDataFrame, ColumnError<AnyLossError>, E> {
+        let nrows = df.nrows();
+        let (columns, warnings): (Vec<_>, Vec<_>) = df
             .iter_columns()
-            .map(|c| {
-                FCSColumn::from(
-                    AnySource::<'_, u64>::new(c)
-                        .map(|x| x.new)
-                        .collect::<Vec<_>>(),
+            .enumerate()
+            .map(|(i, c)| {
+                let mut w = None;
+                let mut cs = vec![0; nrows];
+                for x in AnySource::<'_, u64>::new(c) {
+                    cs.push(x.new);
+                    if !skip_conv_check {
+                        w = std::mem::take(&mut w).or(x.as_err());
+                    }
+                }
+                (
+                    FCSColumn::from(cs).into(),
+                    w.map(|x| ColumnError::new(i.into(), AnyLossError::Ascii(LossError::Cast(x)))),
                 )
-                .into()
             })
-            .collect();
-        FCSDataFrame::try_new(columns).unwrap()
+            .unzip();
+        let ws = warnings.into_iter().flatten().collect();
+        Tentative::new(FCSDataFrame::try_new(columns).unwrap(), ws, vec![])
     }
 }
 
@@ -2639,15 +2661,29 @@ where
         Ok(Tentative::new((), ws, vec![]))
     }
 
-    fn truncate_df(&self, df: &'a FCSDataFrame, skip_conv_check: bool) -> FCSDataFrame {
+    fn truncate_df<E>(
+        &self,
+        df: &'a FCSDataFrame,
+        skip_conv_check: bool,
+    ) -> Tentative<FCSDataFrame, ColumnError<AnyLossError>, E> {
         // ASSUME df has same number of columns as layout
-        let new_columns: Vec<_> = self
+        let (new_columns, warnings): (Vec<_>, Vec<_>) = self
             .columns
             .iter()
             .zip(df.iter_columns())
-            .map(|(col_type, col_data)| col_type.clone().into_writer(col_data).truncate())
+            .map(|(col_type, col_data)| {
+                col_type
+                    .clone()
+                    .into_writer(col_data)
+                    .truncate(skip_conv_check)
+            })
+            .unzip();
+        let ws = warnings
+            .into_iter()
+            .enumerate()
+            .flat_map(|(i, e)| e.map(|f| ColumnError::new(i.into(), f)))
             .collect();
-        FCSDataFrame::try_new(new_columns).unwrap()
+        Tentative::new(FCSDataFrame::try_new(new_columns).unwrap(), ws, vec![])
     }
 }
 
@@ -4071,6 +4107,7 @@ impl fmt::Display for AsciiLossError {
     }
 }
 
+#[derive(new)]
 pub struct ColumnError<E> {
     pub index: IndexFromOne,
     pub error: E,

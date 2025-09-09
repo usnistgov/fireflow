@@ -29,10 +29,10 @@ each *OTHER* offset when reading and writing (both are configurable).
 
 ## TEXT
 
-All standard keywords (ie keywords that start with *$*) in all required and
-optional FCS versions are generally supported in `fireflow`. For many keywords
-this means that that key and value will be read exactly as specified in each
-standard. There are some important exceptions outlined below.
+All standard keywords (those that start with *$*) for each FCS version are
+generally supported in `fireflow`. For many keywords this means that that key
+and value will be read exactly as specified in each standard. There are some
+important exceptions outlined below.
 
 ### Offsets
 
@@ -43,8 +43,7 @@ should be more than enough for all use cases.
 
 Furthermore, `fireflow` will write new FCS files with each of these left-padded
 with zeros up to 20 characters. This makes the length of *TEXT* predictable,
-which in turn allows computing the value of each offset (otherwise this would
-be circular).
+which in turn allows computing the value of each offset.
 
 ### *$TR*
 
@@ -54,13 +53,13 @@ matches a *$PnN*.
 ### *$UNSTAINEDCENTERS*
 
 For FCS 3.2, `fireflow` will ensure all measurement names in this keyword
-matches a *$PnN*.
+match a *$PnN*.
 
 ### Timestamp keywords
 
 `fireflow` will check that the "start time" occurs before the "end time".
 
-For the keywords *$BTIM*, *$ETIM* and *$DATE*, this requires *$DATE* to be
+For the keywords *$BTIM*, *$ETIM* and *$DATE*, this requires all three to be
 present since it is possible for a run to start on one day and end at an earlier
 wall clock time on a subsequent day.
 
@@ -94,11 +93,10 @@ anything otherwise is deprecated.
 `fireflow` outright forbids anything that is not a multiple of 8 for any version
 **for numeric data**. Specifically, *$PnB* must be a multiple of 8 between 8 and
 64 (inclusive) for numeric data, and an integer between 1 and 20 for ASCII data
-(inclusive) which reflects `fireflow`'s internal limitation for 64-bit data.
+(inclusive).
 
 In reality, non-multiples of 8 are rarely seen (if ever) and implementing
-support for these would make the internal logic of `fireflow` much more
-complex.
+support for these would make the internal logic of `fireflow` much more complex.
 
 Furthermore, the *$BYTEORD* keyword in FCS 2.0 and 3.0 effectively forbids
 *$PnB* to be anything other than a multiple of 8 since its length is measured in
@@ -186,7 +184,7 @@ As of FCS 3.2, the restrictions applied to temporal measurements are:
 1. shall only have linear scaling (§3.3.43)
 2. shall not have *$PnG* set (§3.3.46)
 3. *$PnN* shall be set to "Time" (§3.3.48)
-4. if provided *$TIMESTEP* should also be present (§3.3.64)
+4. if provided, *$TIMESTEP* should also be present (§3.3.64)
 
 `fireflow` enforces (1) and (2) according to the logic outlined
 [previously](#pne-and-png). (3) is enforced by default but in a
@@ -204,7 +202,7 @@ measurements:
 5. Only *$PnN*, *$PnS*, *$PnD*, *$PnTYPE*, *$PKn*, and *PKNn* are allowed since
    all other keywords describe some aspect of an optical measurement
    
-For (1), some vendors will store data in 32-bit but will "hack" a 64-bit time
+For (1), some vendors store data in 32-bit but will "hack" a 64-bit time
 measurement by spreading the 64-bit values across two 32-bit measurements.
 `fireflow` can read these without issue, but only one will be considered the
 temporal measurement (assuming all other restrictions are met as described
@@ -245,8 +243,8 @@ Legend:
 * {X..Y}: comma-separated integers between X and Y (inclusive) in any order
 * endian: `1,2,3,4` or `4,3,2,1`
 * octet: any multiple of 8 between 8 and 64 (inclusive)
-* f32: any valid f32 number except for +/- infinity and NaN
-* f64: any valid f64 number except for +/- infinity and NaN
+* f32: any f32 value except +/- infinity and NaN
+* f64: any f64 value except +/- infinity and NaN
 
 Notes:
 1. For ASCII, *$BYTEORD* does not matter. `fireflow` will still read it to
@@ -302,7 +300,7 @@ implemented in `fireflow`. Furthermore, the *$CS\** keywords are available from
 
 ### Non-overlapping offsets
 
-Each segment as specified in HEADER and/or TEXT should not overlap with any
+Each segment as specified in *HEADER* and/or *TEXT* should not overlap with any
 other segment. Additionally, each offset must be contained within the file.
 
 Together, these checks will flag many common offset issues (off-by-one) as well
@@ -317,7 +315,7 @@ When writing, `fireflow` will arrange segments in the following order:
 * *OTHER* (if they exist, in the order listed in *HEADER*)
 * supplemental *TEXT*
 * *DATA*
-* *ANALYIS*
+* *ANALYSIS*
 
 *TEXT* must come directly after *HEADER* to make it obvious when to stop parsing
 *OTHER* offsets. *OTHER* comes after *TEXT* to maximize likelihood these will

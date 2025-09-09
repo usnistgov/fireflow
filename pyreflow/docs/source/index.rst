@@ -24,13 +24,21 @@ Key features:
 .. _polars: https://docs.pola.rs/api/python/stable/reference/dataframe/index.html
 
 
+User Guide
+----------
+
+.. toctree::
+   :maxdepth: 2
+
+   install
+
 API Reference
 -------------
 
 .. toctree::
    :maxdepth: 2
 
-   api           
+   fcs_read
    core
    measurement
    gating

@@ -1,5 +1,7 @@
-Reference
-=========
+Reading FCS Files
+=================
+
+The following are function which read various components of FCS files.
 
 Reading *HEADER*
 ----------------
@@ -58,14 +60,14 @@ out-of-band, and then feed these into one of the following functions below.
 
 
 Inputs
-------------------
+------
 
 Input types used in the functions above
 
 .. autonamedtuple:: pyreflow.api.KeyPatterns
 
 Outputs
-------------------
+-------
 
 These are neatly bundled tuples of data returned by each of the ``fcs_*``
 functions above.
@@ -86,7 +88,7 @@ functions above.
 
 
 Common outputs
-------------------
+--------------
 
 The following are named tuples which are reused when returning data from the
 above functions.

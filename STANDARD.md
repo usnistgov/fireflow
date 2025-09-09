@@ -25,7 +25,7 @@ supported.
 
 FCS 3.2 is the only version that specifies that the *OTHER* segment offsets must
 be 8 bytes long (§3.2). By default, `fireflow` will use 8 bytes for the width of
-each *OTHER* offset for both reading and writing. Both can be configured.
+each *OTHER* offset when reading and writing (both are configurable).
 
 ## TEXT
 

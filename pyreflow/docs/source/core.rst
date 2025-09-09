@@ -25,7 +25,7 @@ The following data is **not** explicitly stored in ``Core*``:
 * any pseudostandard keywords since this would allow for "invalid" data
 
 Class relationships
-===================
+-------------------
 
 .. list-table::
    :header-rows: 1
@@ -147,7 +147,7 @@ Class relationships
      - X
 
 CoreTEXT\*
-==========
+----------
 
 Represents *HEADER* and *TEXT*.
 
@@ -182,7 +182,7 @@ an "empty" FCS file with a single dataset and no events (ie only *HEADER* and
    :members:
 
 CoreDataset*
-============
+------------
 
 Represents one dataset from an FCS file (*HEADER* + *TEXT* + *DATA* +
 *ANALYSIS* + *OTHER*).

@@ -36,9 +36,9 @@ API Reference
 -------------
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
 
-   fcs_read
+   toplevel
    core
    measurement
    gating

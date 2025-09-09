@@ -1,12 +1,10 @@
-Reading FCS Files
-=================
+Toplevel Functions
+==================
 
 The following are function which read various components of FCS files.
 
 Reading *HEADER*
 ----------------
-
-Reading *HEADER* is fairly straightforward.
 
 .. autofunction:: pyreflow.api.fcs_read_header
 

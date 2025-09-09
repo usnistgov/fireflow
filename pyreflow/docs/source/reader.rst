@@ -1,5 +1,5 @@
-Toplevel Functions
-==================
+Reader Functions
+================
 
 The following are function which read various components of FCS files.
 

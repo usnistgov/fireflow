@@ -53,7 +53,7 @@ API Reference
 .. toctree::
    :maxdepth: 1
 
-   toplevel
+   reader
    core
    measurement
    gating

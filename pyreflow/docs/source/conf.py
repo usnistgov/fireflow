@@ -19,6 +19,7 @@ extensions = [
     "sphinx.ext.intersphinx",
     "sphinx.ext.autodoc",
     "sphinx_toolbox.more_autodoc.autonamedtuple",
+    "sphinx.ext.graphviz",
 ]
 
 templates_path = ["_templates"]

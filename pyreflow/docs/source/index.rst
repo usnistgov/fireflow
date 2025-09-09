@@ -14,15 +14,27 @@ It supports the following FCS versions:
 
 Key features:
 
-* Effectively-complete support of FCS standards.
+* Effectively-complete support of FCS standards (with minor `caveats`_)
 * Reading/writing files from disk to/from memory
 * API to manipulate metadata using validated classes and methods
 * Support for manipulating data using `polars`_ dataframes
 * Upgrading and downgrading versions
 * Numerous tools for reparing non-compliant files
 
-.. _polars: https://docs.pola.rs/api/python/stable/reference/dataframe/index.html
+``pyreflow`` is **not** an "analysis" library. Its main goal is to parse and
+manipulate FCS files. It provides no methods to transform data (compensation,
+scaling), gate populations, compute statistics, etc. These are the purview of
+other tools such as `flowCore`_ (R) and `flowkit`_ (Python).
 
+A good analogy is that ``fireflow`` and ``pyreflow`` are like ``libyaml`` and
+``pylibyaml`` respectively; their main purpose is to provide an interface for a
+certain file type, and the latter is a python wrapper for the former, written in
+a "fast" language.
+
+.. _caveats: https://github.com/njd2/fireflow/blob/master/STANDARD.md
+.. _polars: https://docs.pola.rs/api/python/stable/reference/dataframe/index.html
+.. _flowcore: https://github.com/RGLab/flowCore
+.. _flowkit: https://github.com/whitews/FlowKit
 
 User Guide
 ----------
@@ -31,6 +43,9 @@ User Guide
    :maxdepth: 2
 
    install
+   quickstart
+   workflow
+   terminology
 
 API Reference
 -------------

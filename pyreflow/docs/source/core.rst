@@ -146,6 +146,8 @@ Class relationships
      - 
      - X
 
+.. _coretext:
+
 CoreTEXT\*
 ----------
 
@@ -180,6 +182,8 @@ an "empty" FCS file with a single dataset and no events (ie only *HEADER* and
 
 .. autoclass:: pyreflow.CoreTEXT3_2
    :members:
+
+.. _coredataset:
 
 CoreDataset*
 ------------

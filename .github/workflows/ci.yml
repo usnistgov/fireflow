@@ -1,0 +1,16 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: astral-sh/setup-uv@v6
+      - run: make all-dev
+    

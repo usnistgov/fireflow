@@ -2894,10 +2894,10 @@ where
                 .collect();
             l.check_transforms_and_len(&xforms[..]).mult_errors_into()?;
             // ASSUME this won't panic because we checked length above
-            if let Some(i) = self.measurements.center_index().map(usize::from) {
-                if scales[i] != Some(Scale::Linear) {
-                    return Err(NonEmpty::new(NonLinearTemporalScaleError.into()));
-                }
+            if let Some(i) = self.measurements.center_index().map(usize::from)
+                && scales[i] != Some(Scale::Linear)
+            {
+                return Err(NonEmpty::new(NonLinearTemporalScaleError.into()));
             }
             // ASSUME this won't fail because we checked the length and time
             // index first
@@ -2926,10 +2926,10 @@ where
             let l = &self.layout;
             l.check_transforms_and_len(&xforms[..]).mult_errors_into()?;
             // ASSUME this won't panic because we checked length first
-            if let Some(i) = self.measurements.center_index().map(usize::from) {
-                if !xforms[i].is_noop() {
-                    return Err(NonEmpty::new(NonLinearTemporalTransformError.into()));
-                }
+            if let Some(i) = self.measurements.center_index().map(usize::from)
+                && !xforms[i].is_noop()
+            {
+                return Err(NonEmpty::new(NonLinearTemporalTransformError.into()));
             }
             // ASSUME this won't fail because we checked the length first
             self.measurements
@@ -3510,10 +3510,10 @@ where
                         // will know it is trying to find $TIMESTEP in a
                         // nonsense measurement.
                         let key = M::Name::unwrap(wrapped).and_then(|name| {
-                            if let Some(tp) = conf.time_meas_pattern.as_ref() {
-                                if tp.0.is_match(name.as_ref()) {
-                                    return Ok(name);
-                                }
+                            if let Some(tp) = conf.time_meas_pattern.as_ref()
+                                && tp.0.is_match(name.as_ref())
+                            {
+                                return Ok(name);
                             }
                             Err(M::Name::wrap(name))
                         });
@@ -3703,14 +3703,13 @@ where
                     // Check that the time measurement is present if we want
                     // it and the measurement vector is non-empty
                     tnt_core.eval_error(|core| {
-                        if let Some(pat) = std_conf.time_meas_pattern.as_ref() {
-                            if !std_conf.allow_missing_time
-                                && core.measurements.as_center().is_none()
-                                && !core.measurements.is_empty()
-                            {
-                                let e = MissingTime(pat.clone());
-                                return Some(LookupKeysError::Misc(e.into()).into());
-                            }
+                        if let Some(pat) = std_conf.time_meas_pattern.as_ref()
+                            && !std_conf.allow_missing_time
+                            && core.measurements.as_center().is_none()
+                            && !core.measurements.is_empty()
+                        {
+                            let e = MissingTime(pat.clone());
+                            return Some(LookupKeysError::Misc(e.into()).into());
                         }
                         None
                     });
@@ -5991,10 +5990,10 @@ impl TryFrom<(Scale, MaybeValue<Gain>)> for ScaleTransform {
         match scale {
             Scale::Linear => Ok(Self::Lin(gain.map(|g| g.0).unwrap_or(PositiveFloat::one()))),
             Scale::Log(l) => {
-                if let Some(g) = gain {
-                    if f32::from(g.0) != 1.0 {
-                        return Err(ScaleTransformError { scale, gain: g });
-                    }
+                if let Some(g) = gain
+                    && f32::from(g.0) != 1.0
+                {
+                    return Err(ScaleTransformError { scale, gain: g });
                 }
                 Ok(Self::Log(l))
             }
@@ -6552,10 +6551,10 @@ impl VersionedOptical for InnerOptical2_0 {
             .check_indexed_key_transfer(i.into())
             .map_err(OpticalToTemporalError::Loss)
             .into_mult();
-        if let Err(err) = res.as_mut() {
-            if !self.scale.as_ref_opt().is_some_and(|s| *s == Scale::Linear) {
-                err.push(OpticalNonLinearError.into());
-            }
+        if let Err(err) = res.as_mut()
+            && !self.scale.as_ref_opt().is_some_and(|s| *s == Scale::Linear)
+        {
+            err.push(OpticalNonLinearError.into());
         }
         res
     }

@@ -137,13 +137,13 @@ impl LogRangeError {
     /// what this does. This is a heuristic hack to get some files to work
     /// which didn't write $PnE correctly.
     pub(crate) fn try_fix_offset(self) -> Result<LogScale, Self> {
-        if self.offset == 0.0 {
-            if let Ok(decades) = PositiveFloat::try_from(self.decades) {
-                return Ok(LogScale {
-                    decades,
-                    offset: PositiveFloat::one(),
-                });
-            }
+        if self.offset == 0.0
+            && let Ok(decades) = PositiveFloat::try_from(self.decades)
+        {
+            return Ok(LogScale {
+                decades,
+                offset: PositiveFloat::one(),
+            });
         }
         Err(self)
     }

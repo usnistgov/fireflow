@@ -4081,14 +4081,12 @@ fn impl_new(
 }
 
 fn unwrap_generic<'a>(name: &str, ty: &'a Path) -> (&'a Path, bool) {
-    if let Some(segment) = ty.segments.last() {
-        if segment.ident == name {
-            if let PathArguments::AngleBracketed(args) = &segment.arguments {
-                if let Some(GenericArgument::Type(Type::Path(inner_type))) = args.args.first() {
-                    return (&inner_type.path, true);
-                }
-            }
-        }
+    if let Some(segment) = ty.segments.last()
+        && segment.ident == name
+        && let PathArguments::AngleBracketed(args) = &segment.arguments
+        && let Some(GenericArgument::Type(Type::Path(inner_type))) = args.args.first()
+    {
+        return (&inner_type.path, true);
     }
     (ty, false)
 }

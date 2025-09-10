@@ -973,7 +973,7 @@ fn split_raw_text_escaped_delim(
     };
 
     let push_delim = |kb: &mut Vec<_>, vb: &mut Vec<_>, k: usize| {
-        let n = (k + 1) / 2;
+        let n = k.div_ceil(2);
         let buf = if vb.is_empty() { kb } else { vb };
         for _ in 0..n {
             buf.push(delim);

@@ -3034,8 +3034,7 @@ impl HasDatatype for NullMixedType {
                 .ok()
                 .map_or(AlphaNumType::Ascii, |mut ds| {
                     ds.sort();
-                    let x = (*FCSNonEmpty::from(ds).mode().0).into();
-                    x
+                    (*FCSNonEmpty::from(ds).mode().0).into()
                 })
         } else {
             // TODO sensible default?

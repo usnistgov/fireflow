@@ -1533,16 +1533,17 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 })
             },
             |i| {
-                if let Some(j) = self.center_index() {
-                    if !include_center && usize::from(j) == i {
-                        return Err(ElementIndexError {
-                            index: IndexError {
-                                index: i.into(),
-                                len,
-                            },
-                            center: Some(j),
-                        });
-                    }
+                if let Some(j) = self.center_index()
+                    && !include_center
+                    && usize::from(j) == i
+                {
+                    return Err(ElementIndexError {
+                        index: IndexError {
+                            index: i.into(),
+                            len,
+                        },
+                        center: Some(j),
+                    });
                 }
                 Ok(i)
             },
@@ -2133,10 +2134,10 @@ mod python {
         V: FromPyObject<'py>,
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            if let Ok(t) = ob.downcast::<PyTuple>() {
-                if t.is_empty() {
-                    return Ok(Self(Element::Center(())));
-                }
+            if let Ok(t) = ob.downcast::<PyTuple>()
+                && t.is_empty()
+            {
+                return Ok(Self(Element::Center(())));
             };
             Ok(Self(Element::NonCenter(ob.extract::<V>()?)))
         }

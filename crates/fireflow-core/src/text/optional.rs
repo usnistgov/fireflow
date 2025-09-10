@@ -144,11 +144,9 @@ impl<T> TryFrom<MaybeValue<T>> for AlwaysValue<T> {
     }
 }
 
-// This will never really fail but is implemented for symmetry with its inverse
-impl<T> TryFrom<AlwaysValue<T>> for MaybeValue<T> {
-    type Error = Infallible;
-    fn try_from(value: AlwaysValue<T>) -> Result<Self, Infallible> {
-        Ok(Some(value.0).into())
+impl<T> From<AlwaysValue<T>> for MaybeValue<T> {
+    fn from(value: AlwaysValue<T>) -> Self {
+        Some(value.0).into()
     }
 }
 

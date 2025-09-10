@@ -8,11 +8,11 @@ use super::parser::*;
 
 use chrono::{NaiveDate, NaiveTime, Timelike};
 use derive_more::{AsRef, Display, From, FromStr, Into};
-use once_cell::sync::Lazy;
 use regex::Regex;
 use std::fmt;
 use std::mem;
 use std::str::FromStr;
+use std::sync::LazyLock;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -381,7 +381,7 @@ impl FromStr for FCSTime100 {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         NaiveTime::parse_from_str(s, "%H:%M:%S")
             .or_else(|_| {
-                static RE: Lazy<Regex> = Lazy::new(|| {
+                static RE: LazyLock<Regex> = LazyLock::new(|| {
                     Regex::new(r"^([0-9]{2}):([0-9]{2}):([0-9]{2})\.([0-9]{2})$").unwrap()
                 });
                 let cap = RE.captures(s).ok_or(FCSTime100Error)?;

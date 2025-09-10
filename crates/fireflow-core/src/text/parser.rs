@@ -836,7 +836,6 @@ fn eval_dep<T>(v: &MaybeValue<T>, key: StdKey) -> Option<DeprecatedError> {
     }
 }
 
-#[derive(Clone)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ExtraStdKeywords {
     pub pseudostandard: StdKeywords,

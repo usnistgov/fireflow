@@ -231,7 +231,7 @@ pub struct StdTEXTOutput {
     pub analysis: AnyAnalysisSegment,
 
     /// Keywords that start with '$' that are not part of the standard
-    pub pseudostandard: StdKeywords,
+    pub extra: ExtraStdKeywords,
 
     /// Miscellaneous data from parsing TEXT
     pub parse: RawTEXTParseData,
@@ -592,7 +592,7 @@ impl RawTEXTOutput {
                     tot: offsets.tot,
                     data: offsets.data,
                     analysis: offsets.analysis,
-                    pseudostandard: extra.pseudostandard,
+                    extra,
                 },
             )
         })

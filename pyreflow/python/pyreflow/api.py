@@ -294,7 +294,10 @@ def _to_parse_data(xs: dict[str, Any]) -> ParseData:
 
 def _to_std_text_data(xs: dict[str, Any]) -> StdTEXTData:
     args: dict[str, Any] = {
-        k: _to_parse_data(v) if k == "parse" else v for k, v in xs.items()
+        k: _to_parse_data(v)
+        if k == "parse"
+        else (ExtraStdKeywords(**v) if k == "extra" else v)
+        for k, v in xs.items()
     }
     return StdTEXTData(**args)
 
@@ -544,7 +547,9 @@ _STD_ARGS: dict[str, list[str]] = {
         "If ``True`` allow non-standard keywords with a leading *$*. "
         "The presence of such keywords often means the version in *HEADER* is incorrect."
     ],
-    "allow_unused": ["If ``True`` allow unused standard keywords to be present."],
+    "allow_unused_standard": [
+        "If ``True`` allow unused standard keywords to be present."
+    ],
     "disallow_deprecated": [
         "If ``True`` throw error if a deprecated key is encountered."
     ],

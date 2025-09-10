@@ -1800,7 +1800,8 @@ class TestReadWrite:
         assert uncore.parse.delimiter == 30
         assert len(uncore.parse.non_ascii) == 0
         assert len(uncore.parse.byte_pairs) == 0
-        assert len(uncore.pseudostandard) == 0
+        assert len(uncore.extra.pseudostandard) == 0
+        assert len(uncore.extra.unused) == 0
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["blank_text"])
     def test_text_empty(self, tmp_path: Path, core: AnyCoreTEXT) -> None:

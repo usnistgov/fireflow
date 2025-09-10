@@ -68,7 +68,7 @@ impl Compensation2_0 {
                 .map_err(|e| LookupKeysWarning::Relation(e.into()))
                 .map_or(Tentative::default(), Tentative::new1)
         };
-        tnt.extend_warnings(warnings.into_iter().flatten().collect());
+        tnt.extend_warnings(warnings.into_iter().flatten());
         tnt.map(MaybeValue)
     }
 

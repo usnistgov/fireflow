@@ -388,11 +388,23 @@ impl<V, W, E> Tentative<V, W, E> {
         }
     }
 
-    pub fn extend_warnings(&mut self, xs: Vec<W>) {
+    pub fn extend_errors_or_warnings<X>(&mut self, xs: impl Iterator<Item = X>, is_error: bool)
+    where
+        W: From<X>,
+        E: From<X>,
+    {
+        if is_error {
+            self.extend_errors(xs.map(|x| x.into()));
+        } else {
+            self.extend_warnings(xs.map(|x| x.into()));
+        }
+    }
+
+    pub fn extend_warnings(&mut self, xs: impl Iterator<Item = W>) {
         self.warnings.extend(xs)
     }
 
-    pub fn extend_errors(&mut self, xs: Vec<E>) {
+    pub fn extend_errors(&mut self, xs: impl Iterator<Item = E>) {
         self.errors.extend(xs)
     }
 

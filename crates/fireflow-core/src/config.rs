@@ -567,6 +567,12 @@ pub struct StdTextReadConfig {
     /// standard.
     pub allow_pseudostandard: bool,
 
+    /// If true, allow unused standard keywords.
+    ///
+    /// These may arise if some $Pn* keywords are present which exceed $PAR or
+    /// if $TIMESTEP is present but no time measurement is present.
+    pub allow_unused_standard: bool,
+
     /// If true, throw an error if TEXT includes any deprecated features.
     ///
     /// If false, merely throw a warning.

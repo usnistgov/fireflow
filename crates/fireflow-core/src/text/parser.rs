@@ -29,6 +29,9 @@ use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
 
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
 pub trait FromStrStateful: Sized {
     type Err;
     type Payload<'a>;
@@ -715,9 +718,18 @@ impl fmt::Display for TemporalError {
 /// Error denoting that pseudostandard keyword was found.
 pub struct PseudostandardError(pub StdKey);
 
+/// Error denoting that unused standard keyword was found.
+pub struct UnusedStandardError(pub StdKey);
+
 impl fmt::Display for PseudostandardError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "pseudostandard keyword found: {}", self.0)
+    }
+}
+
+impl fmt::Display for UnusedStandardError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "unused standard keyword found: {}", self.0)
     }
 }
 
@@ -821,5 +833,103 @@ fn eval_dep<T>(v: &MaybeValue<T>, key: StdKey) -> Option<DeprecatedError> {
         Some(DeprecatedError::Key(DepKeyWarning(key)))
     } else {
         None
+    }
+}
+
+#[derive(Clone)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct ExtraStdKeywords {
+    pub pseudostandard: StdKeywords,
+    pub unused: StdKeywords,
+}
+
+impl ExtraStdKeywords {
+    pub(crate) fn split_2_0(kws: StdKeywords) -> Self {
+        Self::split_inner(kws, Self::matches_kw_2_0)
+    }
+
+    pub(crate) fn split_3_0(kws: StdKeywords) -> Self {
+        Self::split_inner(kws, Self::matches_kw_3_0)
+    }
+
+    pub(crate) fn split_3_1(kws: StdKeywords) -> Self {
+        Self::split_inner(kws, Self::matches_kw_3_1)
+    }
+
+    pub(crate) fn split_3_2(kws: StdKeywords) -> Self {
+        Self::split_inner(kws, Self::matches_kw_3_2)
+    }
+
+    fn split_inner<F>(mut kws: StdKeywords, mut f: F) -> Self
+    where
+        F: FnMut(&StdKey) -> bool,
+    {
+        let unused: HashMap<_, _> = kws.extract_if(|k, _| f(k)).collect();
+        Self {
+            pseudostandard: kws,
+            unused,
+        }
+    }
+
+    fn matches_kw_2_0(k: &StdKey) -> bool {
+        let s: &str = k.as_ref();
+        s.eq_ignore_ascii_case(Tot::C) || Dfc::matches(k) || Self::matches_meas_kw_common(k)
+    }
+
+    fn matches_kw_3_0(k: &StdKey) -> bool {
+        let s: &str = k.as_ref();
+        Self::matches_offsets(k)
+            || s.eq_ignore_ascii_case(Tot::C)
+            || s.eq_ignore_ascii_case(Timestep::C)
+            || Gain::matches(k)
+            || Self::matches_meas_kw_common(k)
+    }
+
+    fn matches_kw_3_1(k: &StdKey) -> bool {
+        let s: &str = k.as_ref();
+        Self::matches_offsets(k)
+            || s.eq_ignore_ascii_case(Tot::C)
+            || s.eq_ignore_ascii_case(Timestep::C)
+            || Gain::matches(k)
+            || Display::matches(k)
+            || Calibration3_1::matches(k)
+            || Self::matches_meas_kw_common(k)
+    }
+
+    fn matches_kw_3_2(k: &StdKey) -> bool {
+        let s: &str = k.as_ref();
+        Self::matches_offsets(k)
+            || s.eq_ignore_ascii_case(Tot::C)
+            || s.eq_ignore_ascii_case(Timestep::C)
+            || Gain::matches(k)
+            || Display::matches(k)
+            || Calibration3_2::matches(k)
+            || NumType::matches(k)
+            || DetectorName::matches(k)
+            || Tag::matches(k)
+            || Analyte::matches(k)
+            || Feature::matches(k)
+            || OpticalType::matches(k)
+            || Self::matches_meas_kw_common(k)
+    }
+
+    fn matches_offsets(k: &StdKey) -> bool {
+        let s: &str = k.as_ref();
+        s.eq_ignore_ascii_case(Beginanalysis::C)
+            || s.eq_ignore_ascii_case(Endanalysis::C)
+            || s.eq_ignore_ascii_case(Begindata::C)
+            || s.eq_ignore_ascii_case(Enddata::C)
+    }
+
+    fn matches_meas_kw_common(k: &StdKey) -> bool {
+        Width::matches(k)
+            || Range::matches(k)
+            || Scale::matches(k)
+            || Shortname::matches(k)
+            || Longname::matches(k)
+            || Power::matches(k)
+            || DetectorType::matches(k)
+            || PercentEmitted::matches(k)
+            || DetectorVoltage::matches(k)
     }
 }

@@ -155,7 +155,7 @@ pub fn fcs_read_raw_dataset_with_keywords(
 pub fn fcs_read_std_dataset_with_keywords(
     p: &path::PathBuf,
     version: Version,
-    mut kws: ValidKeywords,
+    kws: ValidKeywords,
     data_seg: HeaderDataSegment,
     analysis_seg: HeaderAnalysisSegment,
     other_segs: Vec<OtherSegment20>,
@@ -176,14 +176,13 @@ pub fn fcs_read_std_dataset_with_keywords(
             AnyCoreDataset::parse_raw(
                 &mut h,
                 version,
-                &mut kws.std,
-                kws.nonstd,
+                kws,
                 data_seg,
                 analysis_seg,
                 &other_segs[..],
                 &st,
             )
-            .def_map_value(|(core, d_seg, a_seg)| {
+            .def_map_value(|(core, extra, d_seg, a_seg)| {
                 (
                     core,
                     StdDatasetWithKwsOutput {
@@ -191,7 +190,7 @@ pub fn fcs_read_std_dataset_with_keywords(
                             data_seg: d_seg,
                             analysis_seg: a_seg,
                         },
-                        pseudostandard: kws.std,
+                        extra,
                     },
                 )
             })
@@ -224,9 +223,6 @@ pub struct StdTEXTOutput {
     ///
     /// This should always be Some for 3.0+ and might be None for 2.0.
     pub tot: Option<Tot>,
-
-    /// TEXT value for $TIMESTEP if a time channel was not found (3.0+)
-    pub timestep: Option<String>,
 
     /// Segment for DATA
     pub data: AnyDataSegment,
@@ -268,7 +264,7 @@ pub struct StdDatasetWithKwsOutput {
     pub standardized: DatasetSegments,
 
     /// Keywords that start with '$' that are not part of the standard
-    pub pseudostandard: StdKeywords,
+    pub extra: ExtraStdKeywords,
 }
 
 /// Output of using keywords to read raw TEXT+DATA
@@ -580,27 +576,23 @@ impl RawTEXTOutput {
     where
         C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
     {
-        let mut kws = self.keywords;
         let header = &self.parse.header_segments;
         AnyCoreTEXT::parse_raw(
             self.version,
-            &mut kws.std,
-            kws.nonstd,
+            self.keywords,
             header.data,
             header.analysis,
             st,
         )
-        .def_map_value(|(standardized, offsets)| {
-            let timestep = kws.std.remove(&Timestep::std());
+        .def_map_value(|(standardized, extra, offsets)| {
             (
                 standardized,
                 StdTEXTOutput {
                     parse: self.parse,
                     tot: offsets.tot,
-                    timestep,
                     data: offsets.data,
                     analysis: offsets.analysis,
-                    pseudostandard: kws.std,
+                    pseudostandard: extra.pseudostandard,
                 },
             )
         })
@@ -622,18 +614,16 @@ impl RawTEXTOutput {
             + AsRef<ReaderConfig>
             + AsRef<ReadTEXTOffsetsConfig>,
     {
-        let mut kws = self.keywords;
         AnyCoreDataset::parse_raw(
             h,
             self.version,
-            &mut kws.std,
-            kws.nonstd,
+            self.keywords,
             self.parse.header_segments.data,
             self.parse.header_segments.analysis,
             &self.parse.header_segments.other[..],
             st,
         )
-        .def_map_value(|(core, data_seg, analysis_seg)| {
+        .def_map_value(|(core, extra, data_seg, analysis_seg)| {
             (
                 core,
                 StdDatasetOutput {
@@ -642,7 +632,7 @@ impl RawTEXTOutput {
                             data_seg,
                             analysis_seg,
                         },
-                        pseudostandard: kws.std,
+                        extra,
                     },
                     parse: self.parse,
                 },

@@ -2,7 +2,6 @@ from ._pyreflow import _api  # type: ignore
 from pyreflow.typing import (
     ByteOrd,
     StdKey,
-    Timestep,
     AnyCoreTEXT,
     AnyCoreDataset,
     Segment,
@@ -75,6 +74,22 @@ class ParseData(NamedTuple):
     """Any key/value pairs that contain invalid UTF-8 characters."""
 
 
+class ExtraStdKeywords(NamedTuple):
+    """
+    Keywords which were not consumed when standardizing TEXT.
+    """
+
+    pseudostandard: dict[StdKey, str]
+    """
+    Keywords which start with *$* but are not part of the target FCS standard.
+    """
+
+    unused: dict[StdKey, str]
+    """
+    Keywords which are part of the standard but were not used.
+    """
+
+
 class StdTEXTData(NamedTuple):
     """
     Return data from reading standardized TEXT.
@@ -86,23 +101,6 @@ class StdTEXTData(NamedTuple):
 
     This keyword is optional in FCS 2.0 and this attribute will be ``None`` if
     missing.
-    """
-
-    # TODO link CoreTEXT in doc
-    timestep: Timestep | None
-    """
-    The value of *$TIMESTEP* if not already captured.
-
-    This will always be ``None`` for FCS 2.0 since *$TIMESTEP* only applies to
-    3.0+.
-
-    Furthermore, this keyword will be included in the CoreTEXT object if the
-    measurements contain a time measurement, which must include *$TIMESTEP*. In
-    these cases, this value will also be ``None``.
-
-    In other words, this value will not be ``None`` only if a time measurement
-    was not specified when standardizing *TEXT* and *$TIMESTEP* is still
-    included in the raw keywords.
     """
 
     data: Segment
@@ -121,10 +119,7 @@ class StdTEXTData(NamedTuple):
     be the segment from *HEADER*.
     """
 
-    pseudostandard: dict[str, str]
-    """
-    Keywords which start with *$* but are not part of the target FCS standard.
-    """
+    extra: ExtraStdKeywords
 
     parse: ParseData
 
@@ -136,10 +131,7 @@ class StdDatasetData(NamedTuple):
 
     parse: ParseData
 
-    pseudostandard: dict[str, str]
-    """
-    Keywords which start with *$* but are not part of the target FCS standard.
-    """
+    extra: ExtraStdKeywords
 
     data_seg: Segment
     """
@@ -274,10 +266,7 @@ class ReadStdDatasetFromKwsOutput(NamedTuple):
     core: AnyCoreDataset
     """Encodes *TEXT*, *DATA*, *ANALYSIS*, and *OTHER* if present."""
 
-    pseudostandard: dict[StdKey, str]
-    """
-    Keywords which start with *$* but are not part of the target FCS standard.
-    """
+    extra: ExtraStdKeywords
 
     data_seg: Segment
     """
@@ -555,6 +544,7 @@ _STD_ARGS: dict[str, list[str]] = {
         "If ``True`` allow non-standard keywords with a leading *$*. "
         "The presence of such keywords often means the version in *HEADER* is incorrect."
     ],
+    "allow_unused": ["If ``True`` allow unused standard keywords to be present."],
     "disallow_deprecated": [
         "If ``True`` throw error if a deprecated key is encountered."
     ],
@@ -785,6 +775,7 @@ def fcs_read_std_text(
     date_pattern: str | None = None,
     time_pattern: str | None = None,
     allow_pseudostandard: bool = False,
+    allow_unused_standard: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = None,
@@ -940,6 +931,7 @@ def fcs_read_std_dataset(
     date_pattern: str | None = None,
     time_pattern: str | None = None,
     allow_pseudostandard: bool = False,
+    allow_unused_standard: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = None,
@@ -980,7 +972,7 @@ def fcs_read_std_dataset(
         core=core,
         uncore=StdDatasetData(
             parse=_to_parse_data(uncore["parse"]),
-            pseudostandard=uncore["dataset"]["pseudostandard"],
+            extra=ExtraStdKeywords(**uncore["dataset"]["extra"]),
             data_seg=uncore["dataset"]["standardized"]["data_seg"],
             analysis_seg=uncore["dataset"]["standardized"]["analysis_seg"],
         ),
@@ -1049,6 +1041,7 @@ def fcs_read_std_dataset_with_keywords(
     date_pattern: str | None = None,
     time_pattern: str | None = None,
     allow_pseudostandard: bool = False,
+    allow_unused_standard: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = None,
@@ -1095,7 +1088,7 @@ def fcs_read_std_dataset_with_keywords(
     )
     return ReadStdDatasetFromKwsOutput(
         core=core,
-        pseudostandard=uncore["pseudostandard"],
+        extra=ExtraStdKeywords(**uncore["extra"]),
         data_seg=uncore["standardized"]["data_seg"],
         analysis_seg=uncore["standardized"]["analysis_seg"],
     )

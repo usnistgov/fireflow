@@ -12,6 +12,7 @@ use std::fmt;
 use std::hash::Hash;
 use std::str;
 use std::str::FromStr;
+use std::sync::OnceLock;
 use unicase::Ascii;
 
 #[cfg(feature = "serde")]
@@ -187,21 +188,20 @@ pub(crate) trait IndexedKey {
         MeasHeader(s)
     }
 
-    // /// Return true if a key matches the prefix/suffix.
-    // ///
-    // /// Specifically, test if string is like <PREFIX><N><SUFFIX> where
-    // /// N is an integer greater than zero.
-    // fn matches(other: &str, std: bool) -> bool {
-    //     if std {
-    //         other.strip_prefix("$")
-    //     } else {
-    //         Some(other)
-    //     }
-    //     .and_then(|s| s.strip_prefix(Self::PREFIX))
-    //     .and_then(|s| s.strip_suffix(Self::SUFFIX))
-    //     .and_then(|s| s.parse::<u32>().ok())
-    //     .is_some_and(|x| x > 0)
-    // }
+    /// Build regexp matching "<PREFIX>n<SUFFIX>"
+    fn regexp() -> CaseInsRegex {
+        let mut s = String::new();
+        s.push_str(Self::PREFIX);
+        s.push_str("[0-9]+");
+        s.push_str(Self::SUFFIX);
+        // ASSUME this will never fail because pre/suffix should only be letters
+        CaseInsRegex::from_str(s.as_str()).unwrap()
+    }
+
+    fn matches(other: &StdKey) -> bool {
+        static RE: OnceLock<CaseInsRegex> = OnceLock::new();
+        RE.get_or_init(|| Self::regexp()).0.is_match(other.as_ref())
+    }
 }
 
 /// A standard key with two indices
@@ -225,6 +225,23 @@ pub(crate) trait BiIndexedKey {
         StdKey::new(s)
     }
 
+    /// Build regexp matching "<PREFIX>m<MIDDLE>n<SUFFIX>"
+    fn regexp() -> CaseInsRegex {
+        let mut s = String::new();
+        s.push_str(Self::PREFIX);
+        s.push_str("[0-9]+");
+        s.push_str(Self::MIDDLE);
+        s.push_str("[0-9]+");
+        s.push_str(Self::SUFFIX);
+        // ASSUME this will never fail because pre/suffix should only be letters
+        CaseInsRegex::from_str(s.as_str()).unwrap()
+    }
+
+    fn matches(other: &StdKey) -> bool {
+        static RE: OnceLock<CaseInsRegex> = OnceLock::new();
+        RE.get_or_init(|| Self::regexp()).0.is_match(other.as_ref())
+    }
+
     // fn std_blank() -> String {
     //     // reserve enough space for '$', prefix, middle, suffix, and 'n'/'m'
     //     let n = Self::PREFIX.len() + 2 + Self::SUFFIX.len();
@@ -237,22 +254,6 @@ pub(crate) trait BiIndexedKey {
     //     s.push('n');
     //     s.push_str(Self::SUFFIX);
     //     s
-    // }
-
-    // /// Return true if a key matches the prefix/suffix.
-    // ///
-    // /// Specifically, test if string is like <PREFIX><N><SUFFIX> where
-    // /// N is an integer greater than zero.
-    // fn matches(other: &str, std: bool) -> bool {
-    //     if std {
-    //         other.strip_prefix("$")
-    //     } else {
-    //         Some(other)
-    //     }
-    //     .and_then(|s| s.strip_prefix(Self::PREFIX))
-    //     .and_then(|s| s.strip_suffix(Self::SUFFIX))
-    //     .and_then(|s| s.parse::<u32>().ok())
-    //     .is_some_and(|x| x > 0)
     // }
 }
 

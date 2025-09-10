@@ -1260,12 +1260,12 @@ class TestCore:
     ) -> None:
         # should fail if $PnE are missing
         with pytest.raises(pf.PyreflowException):
-            core.version_3_0()
+            core.to_version_3_0()
         # and should still fail when forced since $PnE is missing
         with pytest.raises(pf.PyreflowException):
-            core.version_3_0(True)
+            core.to_version_3_0(True)
         core.all_scales = [(), ()]
-        new = core.version_3_0()
+        new = core.to_version_3_0()
         assert isinstance(new, target)
 
     @pytest.mark.parametrize(
@@ -1283,12 +1283,12 @@ class TestCore:
     ) -> None:
         # should fail if $PnE are missing
         with pytest.raises(pf.PyreflowException):
-            core.version_3_1()
+            core.to_version_3_1()
         # and should still fail when forced since $PnE is missing
         with pytest.raises(pf.PyreflowException):
-            core.version_3_1(True)
+            core.to_version_3_1(True)
         core.all_scales = [(), ()]
-        new = core.version_3_1()
+        new = core.to_version_3_1()
         assert isinstance(new, target)
 
     @pytest.mark.parametrize(
@@ -1306,14 +1306,14 @@ class TestCore:
     ) -> None:
         # should fail if $PnE and $CYT are missing
         with pytest.raises(pf.PyreflowException):
-            core.version_3_2()
+            core.to_version_3_2()
         # and should still fail if we force since $CYT and $PnE are missing
         with pytest.raises(pf.PyreflowException):
-            core.version_3_2(True)
+            core.to_version_3_2(True)
         core.cyt = "T cell incinerator"
         core.all_scales = [(), ()]
         core.cyt = "T cell incinerator"
-        new = core.version_3_2()
+        new = core.to_version_3_2()
         assert isinstance(new, target)
 
     @pytest.mark.parametrize(
@@ -1329,7 +1329,7 @@ class TestCore:
     def test_3_0_to_2_0(
         self, core: pf.CoreTEXT3_0 | pf.CoreDataset3_0, target: type
     ) -> None:
-        new = core.version_2_0()
+        new = core.to_version_2_0()
         assert isinstance(new, target)
 
     @pytest.mark.parametrize(
@@ -1345,7 +1345,7 @@ class TestCore:
     def test_3_0_to_3_1(
         self, core: pf.CoreTEXT3_0 | pf.CoreDataset3_0, target: type
     ) -> None:
-        new = core.version_3_1()
+        new = core.to_version_3_1()
         assert isinstance(new, target)
 
     @pytest.mark.parametrize(
@@ -1363,12 +1363,12 @@ class TestCore:
     ) -> None:
         # should fail if $CYT is missing
         with pytest.raises(pf.PyreflowException):
-            core.version_3_2()
+            core.to_version_3_2()
         # and should still fail if forced since $CYT is missing
         with pytest.raises(pf.PyreflowException):
-            core.version_3_2(True)
+            core.to_version_3_2(True)
         core.cyt = "the dark eternal void from which cells will never escape"
-        new = core.version_3_2()
+        new = core.to_version_3_2()
         assert isinstance(new, target)
 
     @pytest.mark.parametrize(
@@ -1384,7 +1384,7 @@ class TestCore:
     def test_3_1_to_2_0(
         self, core: pf.CoreTEXT3_1 | pf.CoreDataset3_1, target: type
     ) -> None:
-        new = core.version_2_0()
+        new = core.to_version_2_0()
         assert isinstance(new, target)
 
     @pytest.mark.parametrize(
@@ -1400,7 +1400,7 @@ class TestCore:
     def test_3_1_to_3_0(
         self, core: pf.CoreTEXT3_1 | pf.CoreDataset3_1, target: type
     ) -> None:
-        new = core.version_3_0()
+        new = core.to_version_3_0()
         assert isinstance(new, target)
 
     @pytest.mark.parametrize(
@@ -1418,12 +1418,12 @@ class TestCore:
     ) -> None:
         # should fail if $CYT is missing
         with pytest.raises(pf.PyreflowException):
-            core.version_3_2()
+            core.to_version_3_2()
         # should still fail when forced
         with pytest.raises(pf.PyreflowException):
-            core.version_3_2(True)
+            core.to_version_3_2(True)
         core.cyt = "Cygnus X-1"
-        new = core.version_3_2()
+        new = core.to_version_3_2()
         assert isinstance(new, target)
 
     @pytest.mark.parametrize(
@@ -1439,7 +1439,7 @@ class TestCore:
     def test_3_2_to_2_0(
         self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2, target: type
     ) -> None:
-        new = core.version_2_0()
+        new = core.to_version_2_0()
         assert isinstance(new, target)
 
     @pytest.mark.parametrize(
@@ -1455,7 +1455,7 @@ class TestCore:
     def test_3_2_to_3_0(
         self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2, target: type
     ) -> None:
-        new = core.version_3_0()
+        new = core.to_version_3_0()
         assert isinstance(new, target)
 
     @pytest.mark.parametrize(
@@ -1471,7 +1471,7 @@ class TestCore:
     def test_3_2_to_3_1(
         self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2, target: type
     ) -> None:
-        new = core.version_3_1()
+        new = core.to_version_3_1()
         assert isinstance(new, target)
 
     @pytest.mark.parametrize(

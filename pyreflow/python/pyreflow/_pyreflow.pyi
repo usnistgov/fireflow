@@ -41,6 +41,7 @@ from pyreflow.typing import (
     Compensation,
     Spillover,
     UnstainedCenters,
+    FCSVersion,
 )
 
 _X = TypeVar("_X")
@@ -502,6 +503,8 @@ class _CoreCommon:
     def write_text(
         self, path: Path, delim: int = 30, big_other: bool = False
     ) -> None: ...
+    @property
+    def version(self) -> FCSVersion: ...
 
 class _CoreDatasetCommon:
     def write_dataset(
@@ -789,16 +792,16 @@ class _CoreToDataset(Generic[_X]):
     ) -> _X: ...
 
 class _CoreTo2_0(Generic[_X]):
-    def version_2_0(self, force: bool = False) -> _X: ...
+    def to_version_2_0(self, force: bool = False) -> _X: ...
 
 class _CoreTo3_0(Generic[_X]):
-    def version_3_0(self, force: bool = False) -> _X: ...
+    def to_version_3_0(self, force: bool = False) -> _X: ...
 
 class _CoreTo3_1(Generic[_X]):
-    def version_3_1(self, force: bool = False) -> _X: ...
+    def to_version_3_1(self, force: bool = False) -> _X: ...
 
 class _CoreTo3_2(Generic[_X]):
-    def version_3_2(self, force: bool = False) -> _X: ...
+    def to_version_3_2(self, force: bool = False) -> _X: ...
 
 @final
 class CoreTEXT2_0(

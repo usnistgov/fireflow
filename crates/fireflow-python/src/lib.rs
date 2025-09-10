@@ -92,13 +92,13 @@ use fireflow_python_proc::{
     impl_core_remove_measurement, impl_core_rename_temporal, impl_core_replace_optical,
     impl_core_replace_temporal, impl_core_set_measurements, impl_core_set_measurements_and_layout,
     impl_core_set_temporal, impl_core_set_tr_threshold, impl_core_standard_keywords,
-    impl_core_unset_temporal, impl_core_version_x_y, impl_core_write_dataset, impl_core_write_text,
-    impl_coredataset_set_measurements_and_data, impl_coredataset_truncate_data,
-    impl_coredataset_unset_data, impl_coretext_to_dataset, impl_coretext_unset_measurements,
-    impl_gated_meas, impl_layout_byte_widths, impl_new_core, impl_new_delim_ascii_layout,
-    impl_new_endian_float_layout, impl_new_endian_uint_layout, impl_new_fixed_ascii_layout,
-    impl_new_gate_bi_regions, impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout,
-    impl_new_ordered_layout,
+    impl_core_to_version_x_y, impl_core_unset_temporal, impl_core_version, impl_core_write_dataset,
+    impl_core_write_text, impl_coredataset_set_measurements_and_data,
+    impl_coredataset_truncate_data, impl_coredataset_unset_data, impl_coretext_to_dataset,
+    impl_coretext_unset_measurements, impl_gated_meas, impl_layout_byte_widths, impl_new_core,
+    impl_new_delim_ascii_layout, impl_new_endian_float_layout, impl_new_endian_uint_layout,
+    impl_new_fixed_ascii_layout, impl_new_gate_bi_regions, impl_new_gate_uni_regions,
+    impl_new_meas, impl_new_mixed_layout, impl_new_ordered_layout,
 };
 
 use derive_more::{From, Into};
@@ -232,6 +232,9 @@ impl_new_meas!(core::Temporal3_2);
 // slightly different method depending on version.
 macro_rules! impl_common {
     ($pytype:ident) => {
+        // get FCS version as read-only value
+        impl_core_version!($pytype);
+
         // get $PAR as read-only value
         impl_core_par!($pytype);
 
@@ -288,7 +291,7 @@ macro_rules! impl_common {
 
         // methods to convert this class to to a different version; actually
         // implements one method for each version that isn't this one
-        impl_core_version_x_y!($pytype);
+        impl_core_to_version_x_y!($pytype);
 
         // attribute for all $PnS keywords
         impl_core_all_pns!($pytype);

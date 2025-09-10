@@ -2058,6 +2058,14 @@ where
     M: VersionedMetaroot,
     M::Name: Clone,
 {
+    /// Show FCS version.
+    pub fn fcs_version(&self) -> Version
+    where
+        Version: From<M::Ver>,
+    {
+        M::Ver::fcs_version().into()
+    }
+
     /// Write this core structure (HEADER+TEXT) to a handle
     pub fn h_write_text<W: Write>(
         &self,
@@ -3607,13 +3615,6 @@ where
             self.check_meas_any_index_links()?;
         }
         Ok(())
-    }
-
-    pub(crate) fn fcs_version(&self) -> Version
-    where
-        Version: From<M::Ver>,
-    {
-        M::Ver::fcs_version().into()
     }
 }
 

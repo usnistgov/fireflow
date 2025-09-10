@@ -259,6 +259,32 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+pub fn impl_core_version(input: TokenStream) -> TokenStream {
+    let t = parse_macro_input!(input as Ident);
+    let _ = split_ident_version_pycore(&t);
+    let doc = DocString::new(
+        "Show the FCS version.".into(),
+        vec![],
+        true,
+        vec![],
+        Some(DocReturn::new(version_pytype(), None)),
+    )
+    .doc();
+
+    quote! {
+        #[pymethods]
+        impl #t {
+            #doc
+            #[getter]
+            fn version(&self) -> Version {
+                self.0.fcs_version()
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
 pub fn impl_core_par(input: TokenStream) -> TokenStream {
     let t = parse_macro_input!(input as Ident);
     let _ = split_ident_version_pycore(&t);
@@ -3179,7 +3205,7 @@ fn core_all_meas_attr1(
 }
 
 #[proc_macro]
-pub fn impl_core_version_x_y(input: TokenStream) -> TokenStream {
+pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let (is_dataset, version) = split_ident_version_pycore(&i);
     let sub = "Will raise an exception if target version requires data which is \
@@ -3203,7 +3229,7 @@ pub fn impl_core_version_x_y(input: TokenStream) -> TokenStream {
         .map(|v| {
             let vsu = v.short_underscore();
             let vs = v.short();
-            let fn_name = format_ident!("version_{vsu}");
+            let fn_name = format_ident!("to_version_{vsu}");
             let target_type = format_ident!("{base}{vsu}");
             let target_pytype = format_ident!("Py{target_type}");
             let param = DocArg::new_param_def(
@@ -4214,6 +4240,10 @@ fn temporal_pytype(version: Version) -> PyType {
 
 fn measurement_pytype(version: Version) -> PyType {
     PyType::new_union2(optical_pytype(version), temporal_pytype(version))
+}
+
+fn version_pytype() -> PyType {
+    PyType::new_lit(&["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
 }
 
 fn datatype_pytype() -> PyType {

@@ -1657,6 +1657,279 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let ident = path.segments.last().unwrap().ident.clone();
+    let version = split_ident_version_checked("CoreTEXT", &ident);
+    let pyname = format_ident!("Py{ident}");
+
+    let time_meas_pattern = ArgData::new_config_opt_arg(
+        "time_meas_pattern".into(),
+        PyType::Str,
+        "A pattern to match the *$PnN* of the time measurement. \
+         Must be a regular expression following syntax described in \
+         `regexp-syntax <https://docs.rs/regex-syntax/latest/regex_syntax/>`__. \
+         If ``None``, do not try to find a time measurement."
+            .into(),
+        parse_quote!(fireflow_core::config::TimeMeasNamePattern),
+    );
+
+    let allow_missing_time = ArgData::new_config_bool_arg(
+        "allow_missing_time".into(),
+        "If ``True`` allow time measurement to be missing.".into(),
+    );
+
+    let force_time_linear = ArgData::new_config_bool_arg(
+        "force_time_linear".into(),
+        "If ``True`` force time measurement to be linear independent of *$PnE*.".into(),
+    );
+
+    let ignore_time_gain = ArgData::new_config_bool_arg(
+        "ignore_time_gain".into(),
+        "If ``True`` ignore the *$PnG* (gain) keyword. This keyword should not \
+         be set according to the standard; however, this library will allow \
+         gain to be 1.0 since this equates to identity. If gain is not 1.0, \
+         this is nonsense and it can be ignored with this flag."
+            .into(),
+    );
+
+    let ignore_time_optical_keys = ArgData::new_config_arg(
+        "ignore_time_optical_keys".into(),
+        PyType::new_list(temporal_optical_key_pytype()),
+        "Ignore optical keys in temporal measurement. These keys are \
+         nonsensical for time measurements but are not explicitly forbidden in \
+         the the standard. Provided keys are the string after the \"Pn\" in \
+         the \"PnX\" keywords."
+            .into(),
+        DocDefault::Other(quote!(TemporalOpticalKeys::default()), "[]".into()),
+        parse_quote!(TemporalOpticalKeys),
+    );
+
+    let parse_indexed_spillover = ArgData::new_config_bool_arg(
+        "parse_indexed_spillover".into(),
+        "Parse $SPILLOVER with numeric indices rather than strings \
+         (ie names or *$PnN*)"
+            .into(),
+    );
+
+    let date_pattern = ArgData::new_config_opt_arg(
+        "date_pattern".into(),
+        PyType::Str,
+        "If supplied, will be used as an alternative pattern when parsing *$DATE*. \
+         It should have specifiers for year, month, and day as outlined in \
+         `chrono <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>`__. \
+         If not supplied, *$DATE* will be parsed according to the standard pattern which \
+         is ``%d-%b-%Y``."
+            .into(),
+        parse_quote!(fireflow_core::validated::datepattern::DatePattern),
+    );
+
+    // TODO make this version specific
+    let time_pattern = ArgData::new_config_opt_arg(
+        "time_pattern".into(),
+        PyType::Str,
+        "If supplied, will be used as an alternative pattern when parsing *$BTIM* and *$ETIM*. \
+         It should have specifiers for hours, minutes, and seconds as outlined in \
+         `chrono <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>`__. \
+         It may optionally also have a sub-seconds specifier as shown in the same link. \
+         Furthermore, the specifiers '%!' and %@' may be used to match 1/60 and \
+         centiseconds respectively. If not supplied, *$BTIM* and *$ETIM* will \
+         be parsed according to the standard pattern which is version-specific."
+            .into(),
+        parse_quote!(fireflow_core::validated::timepattern::TimePattern),
+    );
+
+    let allow_pseudostandard = ArgData::new_config_bool_arg(
+        "allow_pseudostandard".into(),
+        "If ``True`` allow non-standard keywords with a leading *$*. The \
+         presence of such keywords often means the version in *HEADER* \
+         is incorrect."
+            .into(),
+    );
+
+    let allow_unused_standard = ArgData::new_config_bool_arg(
+        "allow_unused_standard".into(),
+        "If ``True`` allow unused standard keywords to be present.".into(),
+    );
+
+    let disallow_deprecated = ArgData::new_config_bool_arg(
+        "disallow_deprecated".into(),
+        "If ``True`` throw error if a deprecated key is encountered.".into(),
+    );
+
+    let fix_log_scale_offsets = ArgData::new_config_bool_arg(
+        "fix_log_scale_offsets".into(),
+        "If ``True`` fix log-scale *PnE* and keywords which have zero offset \
+         (ie ``X,0,0`` where ``X`` is non-zero)."
+            .into(),
+    );
+
+    let nonstandard_measurement_pattern = ArgData::new_config_opt_arg(
+        "nonstandard_measurement_pattern".into(),
+        PyType::Str,
+        "Pattern to use when matching nonstandard measurement keys. \
+         Must be a regular expression pattern with ``%n`` which will \
+         represent the measurement index and should not start with *$*. \
+         Otherwise should be a normal regular expression as defined in \
+         `regexp-syntax <https://docs.rs/regex-syntax/latest/regex_syntax/>`__. "
+            .into(),
+        parse_quote!(fireflow_core::validated::keys::NonStdMeasPattern),
+    );
+
+    let integer_widths_from_byteord = ArgData::new_config_bool_arg(
+        "integer_widths_from_byteord".into(),
+        "If ``True`` set all *$PnB* to the number of bytes from *$BYTEORD*. \
+         Only has an effect for FCS 2.0/3.0 where *$DATATYPE* is ``I``."
+            .into(),
+    );
+
+    let integer_byteord_override = ArgData::new_config_opt_arg(
+        "integer_byteord_override".into(),
+        PyType::new_list(PyType::Int),
+        "Override *$BYTEORD* for integer layouts.".into(),
+        parse_quote!(fireflow_core::text::byteord::ByteOrd2_0),
+    );
+
+    let disallow_range_truncation = ArgData::new_config_bool_arg(
+        "disallow_range_truncation".into(),
+        "If ``True`` throw error if *$PnR* values need to be truncated \
+         to match the number of bytes specified by *$PnB* and *$DATATYPE*."
+            .into(),
+    );
+
+    let warnings_are_errors = ArgData::new_config_bool_arg(
+        "warnings_are_errors".into(),
+        "If ``True`` all warnings will be regarded as errors.".into(),
+    );
+
+    let std_common_args = [
+        time_meas_pattern,
+        allow_missing_time,
+        force_time_linear,
+        ignore_time_optical_keys,
+        date_pattern,
+        time_pattern,
+        allow_pseudostandard,
+        allow_unused_standard,
+        disallow_deprecated,
+        fix_log_scale_offsets,
+        nonstandard_measurement_pattern,
+    ]
+    .into_iter();
+
+    let std_args: Vec<_> = match version {
+        Version::FCS2_0 => std_common_args.collect(),
+        Version::FCS3_0 => std_common_args.chain([ignore_time_gain]).collect(),
+        _ => std_common_args
+            .chain([ignore_time_gain, parse_indexed_spillover])
+            .collect(),
+    };
+
+    let layout_args: Vec<_> = match version {
+        Version::FCS2_0 | Version::FCS3_0 => [
+            integer_widths_from_byteord,
+            integer_byteord_override,
+            disallow_range_truncation,
+        ]
+        .into_iter()
+        .collect(),
+        _ => [disallow_range_truncation].into_iter().collect(),
+    };
+
+    let shared_args = [warnings_are_errors];
+
+    let sk = quote!(fireflow_core::validated::keys::StdKey);
+    let nsk = quote!(fireflow_core::validated::keys::NonStdKey);
+    let std = quote!(std::collections::HashMap<#sk, String>);
+    let nonstd = quote!(std::collections::HashMap<#nsk, String>);
+
+    let fun_args: Vec<_> = std_args
+        .iter()
+        .chain(layout_args.iter())
+        .chain(shared_args.iter())
+        .map(|a| a.constr_arg())
+        .collect();
+
+    let std_inner_args: Vec<_> = std_args.iter().map(|a| a.inner_arg1()).collect();
+    let layout_inner_args: Vec<_> = layout_args.iter().map(|a| a.inner_arg1()).collect();
+    let shared_inner_args: Vec<_> = shared_args.iter().map(|a| a.inner_arg1()).collect();
+
+    let std_conf = quote!(fireflow_core::config::StdTextReadConfig);
+    let layout_conf = quote!(fireflow_core::config::ReadLayoutConfig);
+    let shared_conf = quote!(fireflow_core::config::SharedConfig);
+    let core_conf = quote!(fireflow_core::config::NewCoreTEXTConfig);
+
+    let s0 = if version == Version::FCS2_0 {
+        "Keywords must not contain *$TOT*."
+    } else {
+        "Keywords must not contain *$TOT*, *$BEGINDATA*, *$ENDDATA*, *$BEGINANALYSIS*, \
+         or *$ENDANALYSIS*. If time measurement not present, must also not \
+         contain *$TIMESTEP*."
+    };
+    let s1 = "Keywords must not contain any *$Pn\\** keywords not indexed by *$PAR*.";
+
+    let std_param = DocArg::new_param(
+        "std".into(),
+        PyType::new_dict(PyType::Str, PyType::Str),
+        "Standard keywords.".into(),
+    );
+
+    let nonstd_param = DocArg::new_param(
+        "nonstd".into(),
+        PyType::new_dict(PyType::Str, PyType::Str),
+        "Non-Standard keywords.".into(),
+    );
+
+    let params = std_args
+        .iter()
+        .chain(layout_args.iter())
+        .chain(shared_args.iter())
+        .map(|a| a.doc.clone());
+
+    let doc = DocString::new(
+        "Make new instance from raw keywords.".into(),
+        vec![s0.into(), s1.into()],
+        true,
+        [std_param, nonstd_param]
+            .into_iter()
+            .chain(params)
+            .collect(),
+        Some(DocReturn::new(PyType::PyClass(ident.to_string()), None)),
+    );
+
+    quote! {
+        #[pymethods]
+        impl #pyname {
+            #[classmethod]
+            #[allow(clippy::type_complexity)]
+            #doc
+            fn from_kws(
+                _: &Bound<'_, pyo3::types::PyType>,
+                std: #std,
+                nonstd: #nonstd,
+                #(#fun_args),*
+            ) -> PyResult<Self> {
+                let kws = fireflow_core::validated::keys::ValidKeywords { std, nonstd };
+                #[allow(clippy::needless_update)]
+                let standard = #std_conf {
+                    #(#std_inner_args,)*
+                    ..#std_conf::default()
+                };
+                #[allow(clippy::needless_update)]
+                let layout = #layout_conf {
+                    #(#layout_inner_args,)*
+                    ..#layout_conf::default()
+                };
+                let shared = #shared_conf { #(#shared_inner_args),* };
+                let conf = #core_conf { standard, layout, shared };
+                Ok(Self(#path::lookup(kws, &conf).py_termfail_resolve()?))
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
 pub fn impl_coretext_unset_measurements(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let _ = split_ident_version_checked("PyCoreTEXT", &i);
@@ -2243,6 +2516,11 @@ impl ArgData {
         } else {
             quote! {#n.into()}
         }
+    }
+
+    fn inner_arg1(&self) -> proc_macro2::TokenStream {
+        let n = format_ident!("{}", &self.doc.argname);
+        quote! {#n: #n.into()}
     }
 
     fn new_measurements_arg(version: Version) -> Self {
@@ -2962,6 +3240,36 @@ impl ArgData {
             }
         };
         Self::new(doc, fun_arg, Some(methods))
+    }
+
+    fn new_config_arg(
+        name: String,
+        pytype: PyType,
+        desc: String,
+        def: DocDefault,
+        rstype: Path,
+    ) -> Self {
+        Self::new1(DocArg::new_param_def(name, pytype, desc, def), rstype)
+    }
+
+    fn new_config_bool_arg(name: String, desc: String) -> Self {
+        ArgData::new_config_arg(
+            name,
+            PyType::Bool,
+            desc,
+            DocDefault::Bool(false),
+            parse_quote!(bool),
+        )
+    }
+
+    fn new_config_opt_arg(name: String, pytype: PyType, desc: String, path: Path) -> Self {
+        ArgData::new_config_arg(
+            name,
+            PyType::new_opt(pytype),
+            desc,
+            DocDefault::Option,
+            parse_quote!(Option<#path>),
+        )
     }
 }
 
@@ -4242,6 +4550,22 @@ fn measurement_pytype(version: Version) -> PyType {
 
 fn version_pytype() -> PyType {
     PyType::new_lit(&["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+}
+
+fn temporal_optical_key_pytype() -> PyType {
+    PyType::new_lit(&[
+        "F",
+        "L",
+        "O",
+        "T",
+        "P",
+        "V",
+        "CALIBRATION",
+        "DET",
+        "TAG",
+        "FEATURE",
+        "ANALYTE",
+    ])
 }
 
 fn datatype_pytype() -> PyType {

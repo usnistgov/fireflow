@@ -94,11 +94,12 @@ use fireflow_python_proc::{
     impl_core_set_temporal, impl_core_set_tr_threshold, impl_core_standard_keywords,
     impl_core_to_version_x_y, impl_core_unset_temporal, impl_core_version, impl_core_write_dataset,
     impl_core_write_text, impl_coredataset_set_measurements_and_data,
-    impl_coredataset_truncate_data, impl_coredataset_unset_data, impl_coretext_to_dataset,
-    impl_coretext_unset_measurements, impl_gated_meas, impl_layout_byte_widths, impl_new_core,
-    impl_new_delim_ascii_layout, impl_new_endian_float_layout, impl_new_endian_uint_layout,
-    impl_new_fixed_ascii_layout, impl_new_gate_bi_regions, impl_new_gate_uni_regions,
-    impl_new_meas, impl_new_mixed_layout, impl_new_ordered_layout,
+    impl_coredataset_truncate_data, impl_coredataset_unset_data, impl_coretext_from_kws,
+    impl_coretext_to_dataset, impl_coretext_unset_measurements, impl_gated_meas,
+    impl_layout_byte_widths, impl_new_core, impl_new_delim_ascii_layout,
+    impl_new_endian_float_layout, impl_new_endian_uint_layout, impl_new_fixed_ascii_layout,
+    impl_new_gate_bi_regions, impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout,
+    impl_new_ordered_layout,
 };
 
 use derive_more::{From, Into};
@@ -331,6 +332,12 @@ impl_common!(PyCoreDataset2_0);
 impl_common!(PyCoreDataset3_0);
 impl_common!(PyCoreDataset3_1);
 impl_common!(PyCoreDataset3_2);
+
+// impl from_kws for all CoreTEXT*
+impl_coretext_from_kws!(core::CoreTEXT2_0);
+impl_coretext_from_kws!(core::CoreTEXT3_0);
+impl_coretext_from_kws!(core::CoreTEXT3_1);
+impl_coretext_from_kws!(core::CoreTEXT3_2);
 
 // Common methods for all CoreTEXT* versions.
 macro_rules! impl_coretext_common {
@@ -890,5 +897,19 @@ impl From<PyNonMixedLayout> for NonMixedEndianLayout<NoMeasDatatype> {
             PyNonMixedLayout::F32(x) => Self::F32(x.into()),
             PyNonMixedLayout::F64(x) => Self::F64(x.into()),
         }
+    }
+}
+
+/// Set of temporal optical keys.
+///
+/// This is a hack to get default arguments to work in python, which will
+/// be interpreted as a list since there is no empty set symbol (yet).
+#[derive(Into, Default)]
+pub struct TemporalOpticalKeys(std::collections::HashSet<cfg::TemporalOpticalKey>);
+
+impl<'py> FromPyObject<'py> for TemporalOpticalKeys {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let xs: Vec<_> = ob.extract()?;
+        Ok(Self(xs.into_iter().collect()))
     }
 }

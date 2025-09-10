@@ -3646,7 +3646,7 @@ where
         let offsets_res = <M::Ver as Versioned>::Offsets::lookup(&mut kws.std, data, analysis, st)
             .def_inner_into();
 
-        Self::lookup(kws, &st.conf)
+        Self::lookup_inner(kws, &st.conf)
             .def_zip(offsets_res)
             .def_map_value(|((x, y), z)| (x, y, z))
     }
@@ -3659,6 +3659,34 @@ where
     /// This will not process $TOT or $(BEGIN|END)(TEXT|DATA). If present these
     /// will trigger pseudostandard warnings.
     pub fn lookup<C>(
+        kws: ValidKeywords,
+        conf: &C,
+    ) -> TerminalResult<
+        Self,
+        StdTEXTFromRawWarning,
+        StdTEXTFromKeywordsError,
+        CoreTEXTFromKeywordsFailure,
+    >
+    where
+        M: LookupMetaroot,
+        M::Temporal: LookupTemporal,
+        M::Optical: LookupOptical,
+        Version: From<M::Ver>,
+        <M::Ver as Versioned>::Layout: VersionedDataLayout,
+        C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<SharedConfig>,
+    {
+        let sconf: &SharedConfig = conf.as_ref();
+        Self::lookup_inner(kws, conf)
+            .def_errors_into()
+            .def_map_value(|(x, _)| x)
+            .def_terminate_maybe_warn(
+                CoreTEXTFromKeywordsFailure,
+                sconf.warnings_are_errors,
+                |w| w.into(),
+            )
+    }
+
+    fn lookup_inner<C>(
         mut kws: ValidKeywords,
         conf: &C,
     ) -> DeferredResult<(Self, ExtraStdKeywords), StdTEXTFromRawWarning, StdTEXTFromRawError>
@@ -3668,7 +3696,7 @@ where
         M::Optical: LookupOptical,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
-        C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig>,
     {
         // $NEXTDATA/$BEGINSTEXT/$ENDSTEXT should have already been
         // processed when we read the TEXT; remove them so they don't
@@ -8424,6 +8452,12 @@ impl fmt::Display for NonLinearTemporalTransformError {
 }
 
 #[derive(From, Display)]
+pub enum StdTEXTFromKeywordsError {
+    Error(StdTEXTFromRawError),
+    Warn(StdTEXTFromRawWarning),
+}
+
+#[derive(From, Display)]
 pub enum StdTEXTFromRawError {
     Metaroot(LookupKeysError),
     Layout(Box<LookupLayoutError>),
@@ -8877,6 +8911,11 @@ def_failure!(SetUnstainedFailure, "could not set $UNSTAINEDCENTERS");
 def_failure!(WriteTEXTFailure, "could not write HEADER and TEXT segments");
 
 def_failure!(WriteDatasetFailure, "could not write FCS file");
+
+def_failure!(
+    CoreTEXTFromKeywordsFailure,
+    "could not create new CoreTEXT from keywords"
+);
 
 #[cfg(feature = "serde")]
 mod serialize {

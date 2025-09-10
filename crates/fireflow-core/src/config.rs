@@ -80,6 +80,18 @@ pub struct ReadRawDatasetConfig {
 }
 
 #[derive(Default, Clone, AsRef)]
+pub struct NewCoreTEXTConfig {
+    #[as_ref(StdTextReadConfig)]
+    pub standard: StdTextReadConfig,
+
+    #[as_ref(ReadLayoutConfig)]
+    pub layout: ReadLayoutConfig,
+
+    #[as_ref(SharedConfig)]
+    pub shared: SharedConfig,
+}
+
+#[derive(Default, Clone, AsRef)]
 #[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ReadStdDatasetConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]

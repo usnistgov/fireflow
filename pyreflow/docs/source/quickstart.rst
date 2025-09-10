@@ -48,6 +48,9 @@ Read *TEXT* (standardized mode):
    # has data that is overspecified or non-compliant relative to "core"
    core, uncore = fcs_read_std_text("tea_sells.fcs")
 
+   # show version
+   core.version
+
    # show the $CYT keyword
    core.cyt
 

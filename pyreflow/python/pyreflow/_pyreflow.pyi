@@ -44,6 +44,7 @@ from pyreflow.typing import (
     UnstainedCenters,
     FCSVersion,
     TemporalOpticalKey,
+    Segment,
 )
 
 _X = TypeVar("_X")
@@ -1181,6 +1182,33 @@ class CoreDataset2_0(
         analysis: bytes = b"",
         others: list[bytes] = [],
     ) -> Self: ...
+    @classmethod
+    def from_kws(
+        cls,
+        path: Path,
+        std: StdKeywords,
+        nonstd: NonStdKeywords,
+        data_seg: Segment,
+        analysis_seg: Segment = (0, 0),
+        other_segs: list[Segment] = [],
+        time_meas_pattern: str | None = None,
+        allow_missing_time: bool = False,
+        force_time_linear: bool = False,
+        ignore_time_optical_keys: list[TemporalOpticalKey] = [],
+        date_pattern: str | None = None,
+        time_pattern: str | None = None,
+        allow_pseudostandard: bool = False,
+        allow_unused_standard: bool = False,
+        disallow_deprecated: bool = False,
+        fix_log_scale_offsets: bool = False,
+        nonstandard_measurement_pattern: str | None = None,
+        integer_widths_from_byteord: bool = False,
+        integer_byteord_override: list[int] | None = None,
+        disallow_range_truncation: bool = False,
+        allow_uneven_event_width: bool = False,
+        allow_tot_mismatch: bool = False,
+        warnings_are_errors: bool = False,
+    ) -> Self: ...
 
 @final
 class CoreDataset3_0(
@@ -1241,6 +1269,41 @@ class CoreDataset3_0(
         nonstandard_keywords: NonStdKeywords = {},
         analysis: bytes = b"",
         others: list[bytes] = [],
+    ) -> Self: ...
+    @classmethod
+    def from_kws(
+        cls,
+        path: Path,
+        std: StdKeywords,
+        nonstd: NonStdKeywords,
+        data_seg: Segment,
+        analysis_seg: Segment = (0, 0),
+        other_segs: list[Segment] = [],
+        time_meas_pattern: str | None = None,
+        allow_missing_time: bool = False,
+        force_time_linear: bool = False,
+        ignore_time_optical_keys: list[TemporalOpticalKey] = [],
+        date_pattern: str | None = None,
+        time_pattern: str | None = None,
+        allow_pseudostandard: bool = False,
+        allow_unused_standard: bool = False,
+        disallow_deprecated: bool = False,
+        fix_log_scale_offsets: bool = False,
+        nonstandard_measurement_pattern: str | None = None,
+        ignore_time_gain: bool = False,
+        integer_widths_from_byteord: bool = False,
+        integer_byteord_override: list[int] | None = None,
+        disallow_range_truncation: bool = False,
+        text_data_correction: tuple[int, int] = (0, 0),
+        text_analysis_correction: tuple[int, int] = (0, 0),
+        ignore_text_data_offsets: bool = False,
+        ignore_text_analysis_offsets: bool = False,
+        allow_missing_required_offsets: bool = False,
+        allow_header_text_offset_mismatch: bool = False,
+        truncate_text_offsets: bool = False,
+        allow_uneven_event_width: bool = False,
+        allow_tot_mismatch: bool = False,
+        warnings_are_errors: bool = False,
     ) -> Self: ...
 
 @final
@@ -1311,6 +1374,40 @@ class CoreDataset3_1(
         nonstandard_keywords: NonStdKeywords = {},
         analysis: bytes = b"",
         others: list[bytes] = [],
+    ) -> Self: ...
+    @classmethod
+    def from_kws(
+        cls,
+        path: Path,
+        std: StdKeywords,
+        nonstd: NonStdKeywords,
+        data_seg: Segment,
+        analysis_seg: Segment = (0, 0),
+        other_segs: list[Segment] = [],
+        time_meas_pattern: str | None = None,
+        allow_missing_time: bool = False,
+        force_time_linear: bool = False,
+        ignore_time_optical_keys: list[TemporalOpticalKey] = [],
+        date_pattern: str | None = None,
+        time_pattern: str | None = None,
+        allow_pseudostandard: bool = False,
+        allow_unused_standard: bool = False,
+        disallow_deprecated: bool = False,
+        fix_log_scale_offsets: bool = False,
+        nonstandard_measurement_pattern: str | None = None,
+        ignore_time_gain: bool = False,
+        parse_indexed_spillover: bool = False,
+        disallow_range_truncation: bool = False,
+        text_data_correction: tuple[int, int] = (0, 0),
+        text_analysis_correction: tuple[int, int] = (0, 0),
+        ignore_text_data_offsets: bool = False,
+        ignore_text_analysis_offsets: bool = False,
+        allow_missing_required_offsets: bool = False,
+        allow_header_text_offset_mismatch: bool = False,
+        truncate_text_offsets: bool = False,
+        allow_uneven_event_width: bool = False,
+        allow_tot_mismatch: bool = False,
+        warnings_are_errors: bool = False,
     ) -> Self: ...
 
 @final
@@ -1384,6 +1481,40 @@ class CoreDataset3_2(
         nonstandard_keywords: NonStdKeywords = {},
         analysis: bytes = b"",
         others: list[bytes] = [],
+    ) -> Self: ...
+    @classmethod
+    def from_kws(
+        cls,
+        path: Path,
+        std: StdKeywords,
+        nonstd: NonStdKeywords,
+        data_seg: Segment,
+        analysis_seg: Segment = (0, 0),
+        other_segs: list[Segment] = [],
+        time_meas_pattern: str | None = None,
+        allow_missing_time: bool = False,
+        force_time_linear: bool = False,
+        ignore_time_optical_keys: list[TemporalOpticalKey] = [],
+        date_pattern: str | None = None,
+        time_pattern: str | None = None,
+        allow_pseudostandard: bool = False,
+        allow_unused_standard: bool = False,
+        disallow_deprecated: bool = False,
+        fix_log_scale_offsets: bool = False,
+        nonstandard_measurement_pattern: str | None = None,
+        ignore_time_gain: bool = False,
+        parse_indexed_spillover: bool = False,
+        disallow_range_truncation: bool = False,
+        text_data_correction: tuple[int, int] = (0, 0),
+        text_analysis_correction: tuple[int, int] = (0, 0),
+        ignore_text_data_offsets: bool = False,
+        ignore_text_analysis_offsets: bool = False,
+        allow_missing_required_offsets: bool = False,
+        allow_header_text_offset_mismatch: bool = False,
+        truncate_text_offsets: bool = False,
+        allow_uneven_event_width: bool = False,
+        allow_tot_mismatch: bool = False,
+        warnings_are_errors: bool = False,
     ) -> Self: ...
 
 __version__: str

@@ -1885,7 +1885,8 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
                 analysis_seg: #analysis_seg_path,
                 other_segs: #other_segs_path,
                 #(#fun_args),*
-            ) -> PyResult<(Self, fireflow_core::core::StdDatasetWithKwsOutput)> {
+            // ) -> PyResult<(Self, fireflow_core::core::StdDatasetWithKwsOutput)> {
+            ) -> PyResult<Self> {
                 let kws = fireflow_core::validated::keys::ValidKeywords { std, nonstd };
                 #[allow(clippy::needless_update)]
                 let standard = #std_conf {
@@ -1916,7 +1917,9 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
                 let (core, uncore) = #path::new_from_keywords(
                     path, kws, data_seg, analysis_seg, &other_segs[..], &conf
                 ).py_termfail_resolve()?;
-                Ok((Self(core), uncore))
+                // Ok((Self(core), uncore))
+                // TODO return more stuff from this
+                Ok(core.into())
             }
         }
     }

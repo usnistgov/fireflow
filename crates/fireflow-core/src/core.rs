@@ -38,9 +38,11 @@ use num_traits::identities::{One, Zero};
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::fmt;
+use std::fs::File;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, Write};
 use std::marker::PhantomData;
+use std::path::PathBuf;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -370,13 +372,13 @@ impl AnyCoreTEXT {
         C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
     {
         match version {
-            Version::FCS2_0 => CoreTEXT2_0::lookup_with_offsets(kws, data, analysis, st)
+            Version::FCS2_0 => CoreTEXT2_0::new_from_keywords_with_offsets(kws, data, analysis, st)
                 .def_map_value(|(x, y, z)| (x.into(), y, z.into_common())),
-            Version::FCS3_0 => CoreTEXT3_0::lookup_with_offsets(kws, data, analysis, st)
+            Version::FCS3_0 => CoreTEXT3_0::new_from_keywords_with_offsets(kws, data, analysis, st)
                 .def_map_value(|(x, y, z)| (x.into(), y, z.into_common())),
-            Version::FCS3_1 => CoreTEXT3_1::lookup_with_offsets(kws, data, analysis, st)
+            Version::FCS3_1 => CoreTEXT3_1::new_from_keywords_with_offsets(kws, data, analysis, st)
                 .def_map_value(|(x, y, z)| (x.into(), y, z.into_common())),
-            Version::FCS3_2 => CoreTEXT3_2::lookup_with_offsets(kws, data, analysis, st)
+            Version::FCS3_2 => CoreTEXT3_2::new_from_keywords_with_offsets(kws, data, analysis, st)
                 .def_map_value(|(x, y, z)| (x.into(), y, z.into_common())),
         }
     }
@@ -388,7 +390,7 @@ impl AnyCoreDataset {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn parse_raw<C, R>(
+    pub(crate) fn new_from_keywords<C, R>(
         h: &mut BufReader<R>,
         version: Version,
         kws: ValidKeywords,
@@ -409,7 +411,7 @@ impl AnyCoreDataset {
             + AsRef<ReadTEXTOffsetsConfig>,
     {
         match version {
-            Version::FCS2_0 => CoreDataset2_0::new_dataset_from_raw(
+            Version::FCS2_0 => CoreDataset2_0::new_from_keywords_inner(
                 h,
                 kws,
                 data_seg,
@@ -418,7 +420,7 @@ impl AnyCoreDataset {
                 conf,
             )
             .def_map_value(|(w, x, y, z)| (w.into(), x, y, z)),
-            Version::FCS3_0 => CoreDataset3_0::new_dataset_from_raw(
+            Version::FCS3_0 => CoreDataset3_0::new_from_keywords_inner(
                 h,
                 kws,
                 data_seg,
@@ -427,7 +429,7 @@ impl AnyCoreDataset {
                 conf,
             )
             .def_map_value(|(w, x, y, z)| (w.into(), x, y, z)),
-            Version::FCS3_1 => CoreDataset3_1::new_dataset_from_raw(
+            Version::FCS3_1 => CoreDataset3_1::new_from_keywords_inner(
                 h,
                 kws,
                 data_seg,
@@ -436,7 +438,7 @@ impl AnyCoreDataset {
                 conf,
             )
             .def_map_value(|(w, x, y, z)| (w.into(), x, y, z)),
-            Version::FCS3_2 => CoreDataset3_2::new_dataset_from_raw(
+            Version::FCS3_2 => CoreDataset3_2::new_from_keywords_inner(
                 h,
                 kws,
                 data_seg,
@@ -1154,6 +1156,26 @@ pub struct AnalysisReader {
 /// Reader for OTHER segments
 pub struct OthersReader<'a> {
     pub segs: &'a [OtherSegment20],
+}
+
+/// Output of using keywords to read standardized TEXT+DATA
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct StdDatasetWithKwsOutput {
+    /// DATA+ANALYSIS
+    pub standardized: DatasetSegments,
+
+    /// Keywords that start with '$' that are not part of the standard
+    pub extra: ExtraStdKeywords,
+}
+
+/// Standardized TEXT+DATA+ANALYSIS with DATA+ANALYSIS offsets
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct DatasetSegments {
+    /// offsets used to parse DATA
+    pub data_seg: AnyDataSegment,
+
+    /// offsets used to parse ANALYSIS
+    pub analysis_seg: AnyAnalysisSegment,
 }
 
 mod private {
@@ -3621,7 +3643,7 @@ where
     M: VersionedMetaroot,
     M::Name: Clone,
 {
-    pub(crate) fn lookup_with_offsets<C>(
+    pub(crate) fn new_from_keywords_with_offsets<C>(
         mut kws: ValidKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
@@ -3658,7 +3680,7 @@ where
     ///
     /// This will not process $TOT or $(BEGIN|END)(TEXT|DATA). If present these
     /// will trigger pseudostandard warnings.
-    pub fn lookup<C>(
+    pub fn new_from_keywords<C>(
         kws: ValidKeywords,
         conf: &C,
     ) -> TerminalResult<
@@ -3896,7 +3918,59 @@ where
     M::Name: Clone,
     <M::Ver as Versioned>::Layout: VersionedDataLayout,
 {
-    pub(crate) fn new_dataset_from_raw<C, R>(
+    pub fn new_from_keywords<C>(
+        p: PathBuf,
+        kws: ValidKeywords,
+        data_seg: HeaderDataSegment,
+        analysis_seg: HeaderAnalysisSegment,
+        other_segs: &[OtherSegment20],
+        conf: &C,
+    ) -> IOTerminalResult<
+        (Self, StdDatasetWithKwsOutput),
+        StdDatasetFromRawWarning,
+        StdDatasetFromRawError,
+        StdDatasetWithKwsFailure,
+    >
+    where
+        M: LookupMetaroot,
+        M::Temporal: LookupTemporal,
+        M::Optical: LookupOptical,
+        Version: From<M::Ver>,
+        <M::Ver as Versioned>::Offsets: AsRef<AnyDataSegment> + AsRef<AnyAnalysisSegment>,
+        C: AsRef<StdTextReadConfig>
+            + AsRef<ReadLayoutConfig>
+            + AsRef<ReaderConfig>
+            + AsRef<ReadTEXTOffsetsConfig>
+            + AsRef<SharedConfig>,
+    {
+        let sconf: &SharedConfig = conf.as_ref();
+        File::options()
+            .read(true)
+            .open(p)
+            .and_then(|file| ReadState::init(&file, conf).map(|st| (st, file)))
+            .into_deferred()
+            .def_and_maybe(|(st, file)| {
+                let mut h = BufReader::new(file);
+                Self::new_from_keywords_inner(&mut h, kws, data_seg, analysis_seg, other_segs, &st)
+                    .def_map_value(|(core, extra, d_seg, a_seg)| {
+                        (
+                            core,
+                            StdDatasetWithKwsOutput {
+                                standardized: DatasetSegments {
+                                    data_seg: d_seg,
+                                    analysis_seg: a_seg,
+                                },
+                                extra,
+                            },
+                        )
+                    })
+            })
+            .def_terminate_maybe_warn(StdDatasetWithKwsFailure, sconf.warnings_are_errors, |w| {
+                ImpureError::Pure(StdDatasetFromRawError::from(w))
+            })
+    }
+
+    pub(crate) fn new_from_keywords_inner<C, R>(
         h: &mut BufReader<R>,
         kws: ValidKeywords,
         data_seg: HeaderDataSegment,
@@ -3921,7 +3995,7 @@ where
             + AsRef<ReaderConfig>
             + AsRef<ReadTEXTOffsetsConfig>,
     {
-        VersionedCoreTEXT::<M>::lookup_with_offsets(kws, data_seg, analysis_seg, st)
+        VersionedCoreTEXT::<M>::new_from_keywords_with_offsets(kws, data_seg, analysis_seg, st)
             .def_map_errors(Box::new)
             .def_inner_into()
             .def_errors_liftio()
@@ -8915,6 +8989,11 @@ def_failure!(WriteDatasetFailure, "could not write FCS file");
 def_failure!(
     CoreTEXTFromKeywordsFailure,
     "could not create new CoreTEXT from keywords"
+);
+
+def_failure!(
+    StdDatasetWithKwsFailure,
+    "could not read standardized dataset from keywords"
 );
 
 #[cfg(feature = "serde")]

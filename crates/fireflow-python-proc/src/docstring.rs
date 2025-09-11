@@ -34,7 +34,7 @@ pub(crate) enum DocDefault {
     Bool(bool),
     EmptyDict,
     // EmptySet,
-    // EmptyList,
+    EmptyList,
     Option,
     Other(TokenStream, String),
 }
@@ -123,7 +123,7 @@ impl DocDefault {
             Self::Bool(x) => quote! {#x},
             Self::EmptyDict => quote! {std::collections::HashMap::new()},
             // Self::EmptySet => quote! {std::collections::HashSet::new()},
-            // Self::EmptyList => quote! {vec![]},
+            Self::EmptyList => quote! {vec![]},
             Self::Option => quote! {None},
             Self::Other(rs, _) => rs.clone(),
         }
@@ -135,7 +135,7 @@ impl DocDefault {
             Self::EmptyDict => "{}".to_string(),
             // this isn't implemented yet: https://peps.python.org/pep-0802/#abstract
             // Self::EmptySet => "{/}".to_string(),
-            // Self::EmptyList => "[]".to_string(),
+            Self::EmptyList => "[]".to_string(),
             Self::Option => "None".to_string(),
             Self::Other(_, py) => py.clone(),
         }
@@ -147,7 +147,7 @@ impl DocDefault {
             Self::Bool(_) => "bool",
             Self::EmptyDict => "dict",
             // Self::EmptySet => "set",
-            // Self::EmptyList => "list",
+            Self::EmptyList => "list",
             Self::Option => "option",
             Self::Other(_, _) => "raw",
         }
@@ -159,7 +159,7 @@ impl DocDefault {
             (Self::Bool(_), PyType::Bool)
                 | (Self::EmptyDict, PyType::Dict(_, _))
                 // | (Self::EmptySet, PyType::Set(_))
-                // | (Self::EmptyList, PyType::List(_))
+                | (Self::EmptyList, PyType::List(_))
                 | (Self::Option, PyType::Option(_))
                 | (Self::Other(_, _), _)
         )

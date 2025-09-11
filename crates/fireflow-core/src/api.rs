@@ -31,10 +31,7 @@ pub fn fcs_read_header(
     p: &path::PathBuf,
     conf: &ReadHeaderConfig,
 ) -> IOTerminalResult<Header, Infallible, HeaderError, HeaderFailure> {
-    fs::File::options()
-        .read(true)
-        .open(p)
-        .and_then(|file| ReadState::init(&file, conf).map(|st| (st, file)))
+    ReadState::open(p, conf)
         .into_deferred()
         .def_and_maybe(|(st, file)| {
             let mut reader = BufReader::new(file);
@@ -114,7 +111,7 @@ pub fn fcs_read_std_dataset(
 
 /// Read DATA/ANALYSIS in FCS file using provided keywords.
 pub fn fcs_read_raw_dataset_with_keywords(
-    p: path::PathBuf,
+    p: &path::PathBuf,
     version: Version,
     std: &StdKeywords,
     data_seg: HeaderDataSegment,
@@ -127,10 +124,7 @@ pub fn fcs_read_raw_dataset_with_keywords(
     LookupAndReadDataAnalysisError,
     RawDatasetWithKwsFailure,
 > {
-    fs::File::options()
-        .read(true)
-        .open(p)
-        .and_then(|file| ReadState::init(&file, conf).map(|st| (st, file)))
+    ReadState::open(p, conf)
         .into_deferred()
         .def_and_maybe(|(st, file)| {
             let mut h = BufReader::new(file);
@@ -166,14 +160,11 @@ pub fn fcs_read_std_dataset_with_keywords(
     StdDatasetFromRawError,
     StdDatasetWithKwsFailure,
 > {
-    fs::File::options()
-        .read(true)
-        .open(p)
-        .and_then(|file| ReadState::init(&file, conf).map(|st| (st, file)))
+    ReadState::open(p, conf)
         .into_deferred()
         .def_and_maybe(|(st, file)| {
             let mut h = BufReader::new(file);
-            AnyCoreDataset::parse_raw(
+            AnyCoreDataset::new_from_keywords(
                 &mut h,
                 version,
                 kws,
@@ -257,16 +248,6 @@ pub struct StdDatasetOutput {
     pub parse: RawTEXTParseData,
 }
 
-/// Output of using keywords to read standardized TEXT+DATA
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
-pub struct StdDatasetWithKwsOutput {
-    /// DATA+ANALYSIS
-    pub standardized: DatasetSegments,
-
-    /// Keywords that start with '$' that are not part of the standard
-    pub extra: ExtraStdKeywords,
-}
-
 /// Output of using keywords to read raw TEXT+DATA
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct RawDatasetWithKwsOutput {
@@ -322,16 +303,6 @@ pub struct RawTEXTParseData {
     /// These have either a key or value or both that is not a UTF-8 string.
     /// Included here for debugging
     pub byte_pairs: BytesPairs,
-}
-
-/// Standardized TEXT+DATA+ANALYSIS with DATA+ANALYSIS offsets
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
-pub struct DatasetSegments {
-    /// offsets used to parse DATA
-    pub data_seg: AnyDataSegment,
-
-    /// offsets used to parse ANALYSIS
-    pub analysis_seg: AnyAnalysisSegment,
 }
 
 #[derive(From, Display)]
@@ -504,10 +475,7 @@ fn read_fcs_raw_text_inner<C>(
 where
     C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<HeaderConfigInner>,
 {
-    fs::File::options()
-        .read(true)
-        .open(p)
-        .and_then(|file| ReadState::init(&file, conf).map(|st| (st, file)))
+    ReadState::open(p, conf)
         .into_deferred()
         .def_and_maybe(|(st, file)| {
             let mut h = BufReader::new(file);
@@ -614,7 +582,7 @@ impl RawTEXTOutput {
             + AsRef<ReaderConfig>
             + AsRef<ReadTEXTOffsetsConfig>,
     {
-        AnyCoreDataset::parse_raw(
+        AnyCoreDataset::new_from_keywords(
             h,
             self.version,
             self.keywords,
@@ -1239,11 +1207,6 @@ def_failure!(RawDatasetFailure, "could not read DATA with raw TEXT");
 def_failure!(
     RawDatasetWithKwsFailure,
     "could not read raw dataset from keywords"
-);
-
-def_failure!(
-    StdDatasetWithKwsFailure,
-    "could not read standardized dataset from keywords"
 );
 
 #[cfg(test)]

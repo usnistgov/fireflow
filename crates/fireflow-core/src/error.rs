@@ -1250,6 +1250,13 @@ pub trait PassthruExt: Sized {
     type E;
     type W;
 
+    fn def_value_into<ToV>(self) -> PassthruResult<ToV, Self::P, Self::W, Self::E>
+    where
+        ToV: From<Self::V>,
+    {
+        self.def_map_value(|x| x.into())
+    }
+
     fn def_inner_into<ToW, ToE>(self) -> PassthruResult<Self::V, Self::P, ToW, ToE>
     where
         ToW: From<Self::W>,

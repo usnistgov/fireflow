@@ -25,6 +25,8 @@ use derive_more::{AsRef, Display, From, FromStr};
 use regex::Regex;
 use std::collections::HashSet;
 use std::fmt;
+use std::fs::File;
+use std::path::PathBuf;
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
@@ -142,6 +144,7 @@ pub struct ReadStdDatasetFromKeywordsConfig {
     #[as_ref(ReaderConfig)]
     pub data: ReaderConfig,
 
+    #[as_ref(SharedConfig)]
     pub shared: SharedConfig,
 }
 
@@ -786,7 +789,14 @@ pub struct ReadState<C> {
 }
 
 impl<C> ReadState<C> {
-    pub(crate) fn init(f: &std::fs::File, conf: C) -> std::io::Result<Self> {
+    pub(crate) fn open(p: &PathBuf, conf: C) -> std::io::Result<(Self, File)> {
+        File::options()
+            .read(true)
+            .open(p)
+            .and_then(|file| Self::init(&file, conf).map(|st| (st, file)))
+    }
+
+    pub(crate) fn init(f: &File, conf: C) -> std::io::Result<Self> {
         f.metadata().map(|m| Self {
             file_len: m.len(),
             conf,

@@ -7,7 +7,7 @@
 //! * the interface is inherently repetitive as we have multiple versions
 //! * the parts that are not repetitive are only slightly different
 //! * even if the code is the same, the docstrings are often slightly different
-//! * the docstrings should conforms to PEP-8 (72 chars wide, structure, etc)
+//! * the docstrings should conform to PEP-8 (72 chars wide, structure, etc)
 //! * the docstrings should render nicely with sphinx
 //! * many methods have defaults, which need to be added with pyo3 signatures
 //! * many native rust types are generic, which means they need to be newtype-ed
@@ -93,7 +93,7 @@ use fireflow_python_proc::{
     impl_core_replace_temporal, impl_core_set_measurements, impl_core_set_measurements_and_layout,
     impl_core_set_temporal, impl_core_set_tr_threshold, impl_core_standard_keywords,
     impl_core_to_version_x_y, impl_core_unset_temporal, impl_core_version, impl_core_write_dataset,
-    impl_core_write_text, impl_coredataset_set_measurements_and_data,
+    impl_core_write_text, impl_coredataset_from_kws, impl_coredataset_set_measurements_and_data,
     impl_coredataset_truncate_data, impl_coredataset_unset_data, impl_coretext_from_kws,
     impl_coretext_to_dataset, impl_coretext_unset_measurements, impl_gated_meas,
     impl_layout_byte_widths, impl_new_core, impl_new_delim_ascii_layout,
@@ -164,7 +164,7 @@ pub fn py_fcs_read_raw_dataset_with_keywords(
     conf: cfg::ReadRawDatasetFromKeywordsConfig,
 ) -> PyResult<api::RawDatasetWithKwsOutput> {
     api::fcs_read_raw_dataset_with_keywords(
-        p,
+        &p,
         version,
         &std,
         data_seg,
@@ -185,7 +185,7 @@ pub fn py_fcs_read_std_dataset_with_keywords(
     analysis_seg: HeaderAnalysisSegment,
     other_segs: Vec<OtherSegment20>,
     conf: cfg::ReadStdDatasetFromKeywordsConfig,
-) -> PyResult<(PyAnyCoreDataset, api::StdDatasetWithKwsOutput)> {
+) -> PyResult<(PyAnyCoreDataset, core::StdDatasetWithKwsOutput)> {
     let (core, data) = api::fcs_read_std_dataset_with_keywords(
         &p,
         version,
@@ -338,6 +338,12 @@ impl_coretext_from_kws!(core::CoreTEXT2_0);
 impl_coretext_from_kws!(core::CoreTEXT3_0);
 impl_coretext_from_kws!(core::CoreTEXT3_1);
 impl_coretext_from_kws!(core::CoreTEXT3_2);
+
+// impl from_kws for all CoreTEXT*
+impl_coredataset_from_kws!(core::CoreDataset2_0);
+impl_coredataset_from_kws!(core::CoreDataset3_0);
+impl_coredataset_from_kws!(core::CoreDataset3_1);
+impl_coredataset_from_kws!(core::CoreDataset3_2);
 
 // Common methods for all CoreTEXT* versions.
 macro_rules! impl_coretext_common {

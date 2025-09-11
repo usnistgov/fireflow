@@ -2,7 +2,7 @@ extern crate proc_macro;
 
 mod docstring;
 
-use crate::docstring::{DocArg, DocDefault, DocReturn, DocString, PyType};
+use crate::docstring::{DocArg, DocDefault, DocReturn, DocSelf, DocString, PyType};
 
 use fireflow_core::header::Version;
 
@@ -207,7 +207,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let coretext_doc = DocString::new(
         format!("Represents *TEXT* for an FCS {vs} file."),
         vec![],
-        false,
+        DocSelf::NoSelf,
         coretext_params,
         None,
     );
@@ -215,7 +215,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let coredataset_doc = DocString::new(
         format!("Represents one dataset in an FCS {vs} file."),
         vec![],
-        false,
+        DocSelf::NoSelf,
         coredataset_params,
         None,
     );
@@ -265,7 +265,7 @@ pub fn impl_core_version(input: TokenStream) -> TokenStream {
     let doc = DocString::new(
         "Show the FCS version.".into(),
         vec![],
-        true,
+        DocSelf::PySelf,
         vec![],
         Some(DocReturn::new(version_pytype(), None)),
     )
@@ -291,7 +291,7 @@ pub fn impl_core_par(input: TokenStream) -> TokenStream {
     let doc = DocString::new(
         "The value for *$PAR*.".into(),
         vec![],
-        true,
+        DocSelf::PySelf,
         vec![],
         Some(DocReturn::new(PyType::Int, None)),
     )
@@ -318,7 +318,7 @@ pub fn impl_core_all_meas_nonstandard_keywords(input: TokenStream) -> TokenStrea
     let doc = DocString::new(
         "The non-standard keywords for each measurement.".into(),
         vec![],
-        true,
+        DocSelf::PySelf,
         vec![],
         Some(DocReturn::new(
             PyType::new_list(PyType::new_dict(PyType::Str, PyType::Str)),
@@ -381,7 +381,7 @@ pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
              offset keywords since these are not encoded in this class."
                 .into(),
         ],
-        true,
+        DocSelf::PySelf,
         vec![
             make_param(true, true),
             make_param(false, true),
@@ -424,7 +424,7 @@ pub fn impl_core_set_tr_threshold(input: TokenStream) -> TokenStream {
     let doc = DocString::new(
         "Set the threshold for *$TR*.".into(),
         vec![],
-        true,
+        DocSelf::PySelf,
         vec![DocArg::new_param(
             "threshold".into(),
             PyType::Int,
@@ -466,7 +466,7 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
             .into_iter()
             .chain(write_2_0_warning.clone())
             .collect(),
-        true,
+        DocSelf::PySelf,
         vec![path_param(), textdelim_param(), big_other_param()],
         None,
     );
@@ -510,7 +510,7 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
         .into_iter()
         .chain(write_2_0_warning)
         .collect(),
-        true,
+        DocSelf::PySelf,
         vec![
             path_param(),
             textdelim_param(),
@@ -567,7 +567,7 @@ pub fn impl_core_all_peak_attrs(input: TokenStream) -> TokenStream {
         let doc = DocString::new(
             format!("The value of *$P{k}n* for all measurements."),
             vec![],
-            true,
+            DocSelf::PySelf,
             vec![],
             Some(DocReturn::new(PyType::new_list(PyType::Int), None)),
         )
@@ -613,7 +613,7 @@ pub fn impl_core_all_shortnames_attr(input: TokenStream) -> TokenStream {
     let doc = DocString::new(
         "Value of *$PnN* for all measurements.".into(),
         vec!["Strings are unique and cannot contain commas.".into()],
-        true,
+        DocSelf::PySelf,
         vec![],
         Some(DocReturn::new(PyType::new_list(PyType::Str), None)),
     )
@@ -646,7 +646,7 @@ pub fn impl_core_all_shortnames_maybe_attr(input: TokenStream) -> TokenStream {
     let doc = DocString::new(
         "The possibly-empty values of *$PnN* for all measurements.".into(),
         vec!["*$PnN* is optional for this FCS version so values may be ``None``.".into()],
-        true,
+        DocSelf::PySelf,
         vec![],
         Some(DocReturn::new(
             PyType::new_list(PyType::new_opt(PyType::Str)),
@@ -687,7 +687,7 @@ pub fn impl_core_get_set_timestep(input: TokenStream) -> TokenStream {
     let get_doc = DocString::new(
         "The value of *$TIMESTEP*".into(),
         vec![],
-        true,
+        DocSelf::PySelf,
         vec![],
         Some(DocReturn::new(t.clone(), None)),
     )
@@ -695,7 +695,7 @@ pub fn impl_core_get_set_timestep(input: TokenStream) -> TokenStream {
     let set_doc = DocString::new(
         "Set the *$TIMESTEP* if time measurement is present.".into(),
         vec![],
-        true,
+        DocSelf::PySelf,
         vec![DocArg::new_param(
             "timestep".into(),
             PyType::Float,
@@ -765,7 +765,7 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
         DocString::new(
             format!("Set the temporal measurement to a given {i}."),
             vec![],
-            true,
+            DocSelf::PySelf,
             ps,
             Some(DocReturn::new(
                 PyType::Bool,
@@ -867,7 +867,13 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
                     .into(),
             )
         };
-        DocString::new(s, vec![], true, p, Some(DocReturn::new(rt, Some(rd))))
+        DocString::new(
+            s,
+            vec![],
+            DocSelf::PySelf,
+            p,
+            Some(DocReturn::new(rt, Some(rd))),
+        )
     };
 
     let q = if version == Version::FCS2_0 {
@@ -914,7 +920,7 @@ pub fn impl_core_rename_temporal(input: TokenStream) -> TokenStream {
     let doc = DocString::new(
         "Rename temporal measurement if present.".into(),
         vec![],
-        true,
+        DocSelf::PySelf,
         vec![param_name("New name to assign.")],
         Some(DocReturn::new(
             PyType::new_opt(PyType::Bool),
@@ -953,7 +959,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
         let doc = DocString::new(
             "The value for *$PnE* for all measurements.".into(),
             vec![s0, s1],
-            true,
+            DocSelf::PySelf,
             vec![],
             Some(DocReturn::new(
                 PyType::new_list(PyType::new_union(vec![
@@ -991,7 +997,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
         let doc = DocString::new(
             sum.into(),
             vec![s0.into(), s1.into(), s2.into(), s3.into()],
-            true,
+            DocSelf::PySelf,
             vec![],
             Some(DocReturn::new(
                 PyType::new_list(PyType::new_union2(PyType::Float, log_pytype)),
@@ -1033,7 +1039,7 @@ pub fn impl_core_get_measurements(input: TokenStream) -> TokenStream {
     let doc = DocString::new(
         "Get all measurements.".into(),
         vec![],
-        true,
+        DocSelf::PySelf,
         vec![],
         Some(DocReturn::new(
             PyType::new_list(measurement_pytype(version)),
@@ -1076,7 +1082,7 @@ pub fn impl_core_get_temporal(input: TokenStream) -> TokenStream {
     let doc = DocString::new(
         "Get the temporal measurement if it exists.".into(),
         vec![],
-        true,
+        DocSelf::PySelf,
         vec![],
         Some(DocReturn::new(
             PyType::new_opt(PyType::Tuple(vec![
@@ -1116,7 +1122,7 @@ pub fn impl_core_get_measurement(input: TokenStream) -> TokenStream {
     let doc = DocString::new(
         "Return measurement at index.".into(),
         vec!["Raise exception if ``index`` not found.".into()],
-        true,
+        DocSelf::PySelf,
         vec![param_index("Index to retrieve.")],
         Some(DocReturn::new(measurement_pytype(version), None)),
     );
@@ -1156,7 +1162,7 @@ pub fn impl_core_set_measurements(input: TokenStream) -> TokenStream {
     let doc = DocString::new(
         "Set all measurements at once.".into(),
         ps,
-        true,
+        DocSelf::PySelf,
         vec![
             param_type_set_meas(version),
             param_allow_shared_names(),
@@ -1223,7 +1229,7 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
             ])
             .collect();
         let summary = format!("Push {what} measurement to end of measurement vector.");
-        DocString::new(summary, vec![], true, ps, None)
+        DocString::new(summary, vec![], DocSelf::PySelf, ps, None)
     };
 
     let push_opt_doc = push_meas_doc(true, false);
@@ -1316,7 +1322,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     let by_name_doc = DocString::new(
         "Remove a measurement with a given name.".into(),
         vec!["Raise exception if ``name`` not found.".into()],
-        true,
+        DocSelf::PySelf,
         vec![param_name("Name to remove")],
         Some(DocReturn::new(
             PyType::Tuple(vec![PyType::Int, measurement_pytype(version)]),
@@ -1327,7 +1333,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     let by_index_doc = DocString::new(
         "Remove a measurement with a given index.".into(),
         vec!["Raise exception if ``index`` not found.".into()],
-        true,
+        DocSelf::PySelf,
         vec![param_index("Index to remove")],
         Some(DocReturn::new(
             PyType::Tuple(vec![PyType::Str, measurement_pytype(version)]),
@@ -1403,7 +1409,7 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
             param_notrunc(),
         ])
         .collect();
-        DocString::new(summary, vec![], true, ps, None)
+        DocString::new(summary, vec![], DocSelf::PySelf, ps, None)
     };
 
     let insert_opt_doc = insert_meas_doc(true, false);
@@ -1511,7 +1517,7 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
         DocString::new(
             format!("Replace {m} with given optical measurement."),
             vec![sub],
-            true,
+            DocSelf::PySelf,
             vec![
                 i_param,
                 DocArg::new_param("meas".into(), optical_pytype(version), meas_desc),
@@ -1615,7 +1621,7 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
         DocString::new(
             format!("Replace {m} with given temporal measurement."),
             vec![sub],
-            true,
+            DocSelf::PySelf,
             args.into_iter().chain(force.clone()).collect(),
             Some(DocReturn::new(
                 measurement_pytype(version),
@@ -1889,7 +1895,8 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
     let doc = DocString::new(
         "Make new instance from raw keywords.".into(),
         vec![s0.into(), s1.into()],
-        true,
+        // NOTE no need to write "cls" in sig (apparently)
+        DocSelf::NoSelf,
         [std_param, nonstd_param]
             .into_iter()
             .chain(params)
@@ -1901,7 +1908,7 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
         #[pymethods]
         impl #pyname {
             #[classmethod]
-            #[allow(clippy::type_complexity)]
+            #[allow(clippy::too_many_arguments)]
             #doc
             fn from_kws(
                 _: &Bound<'_, pyo3::types::PyType>,
@@ -1941,7 +1948,7 @@ pub fn impl_coretext_unset_measurements(input: TokenStream) -> TokenStream {
             "Will raise exception if other keywords (such as *$TR*) reference a measurement."
                 .into(),
         ],
-        true,
+        DocSelf::PySelf,
         vec![],
         None,
     );
@@ -1966,7 +1973,7 @@ pub fn impl_coredataset_unset_data(input: TokenStream) -> TokenStream {
     let doc = DocString::new(
         "Remove all measurements and their data.".into(),
         vec!["Raise exception if any keywords (such as *$TR*) reference a measurement.".into()],
-        true,
+        DocSelf::PySelf,
         vec![],
         None,
     );
@@ -2000,7 +2007,7 @@ pub fn impl_coredataset_truncate_data(input: TokenStream) -> TokenStream {
     let doc = DocString::new(
         "Coerce all values in DATA to fit within types specified in layout.".into(),
         vec!["This will always create a new copy of DATA in-place.".into()],
-        true,
+        DocSelf::PySelf,
         vec![p],
         None,
     );
@@ -2043,7 +2050,7 @@ pub fn impl_core_set_measurements_and_layout(input: TokenStream) -> TokenStream 
     let doc = DocString::new(
         "Set all measurements at once.".into(),
         ps,
-        true,
+        DocSelf::PySelf,
         vec![
             param_type_set_meas(version),
             param_type_set_layout.clone(),
@@ -2094,7 +2101,7 @@ pub fn impl_coredataset_set_measurements_and_data(input: TokenStream) -> TokenSt
     let doc = DocString::new(
         "Set measurements and data at once.".into(),
         vec!["Length of ``measurements`` must match number of columns in ``df``.".into()],
-        true,
+        DocSelf::PySelf,
         vec![
             param_type_set_meas(version),
             param_type_set_df,
@@ -2149,7 +2156,7 @@ pub fn impl_coretext_to_dataset(input: TokenStream) -> TokenStream {
         vec!["This will fully represent an FCS file, as opposed to just \
              representing *HEADER* and *TEXT*."
             .into()],
-        true,
+        DocSelf::PySelf,
         vec![df.doc, analysis.doc, others.doc],
         Some(DocReturn::new(PyType::PyClass(to_name), None)),
     );
@@ -2419,7 +2426,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let doc = DocString::new(
         format!("FCS {version_s} *$Pn\\** keywords for {lower_basename} measurement."),
         vec![],
-        false,
+        DocSelf::PySelf,
         params,
         None,
     );
@@ -3450,7 +3457,7 @@ fn core_all_meas_attr1(
     let doc = DocString::new(
         doc_summary,
         doc_middle,
-        true,
+        DocSelf::PySelf,
         vec![],
         Some(DocReturn::new(doc_type, None)),
     )
@@ -3549,7 +3556,7 @@ pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
             let doc = DocString::new(
                 format!("Convert to FCS {vs}."),
                 vec![sub.into()],
-                true,
+                DocSelf::PySelf,
                 vec![param],
                 Some(DocReturn::new(
                     PyType::PyClass(target_type.to_string()),
@@ -3649,7 +3656,7 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
 
     let ps = all_args.iter().map(|x| x.doc.clone()).collect();
     let summary = "The *$Gm\\** keywords for one gated measurement.".into();
-    let doc = DocString::new(summary, vec![], false, ps, None);
+    let doc = DocString::new(summary, vec![], DocSelf::NoSelf, ps, None);
 
     let fun_args: Vec<_> = all_args.iter().map(|x| x.constr_arg()).collect();
     let inner_args: Vec<_> = all_args.iter().map(|x| x.inner_arg()).collect();
@@ -3686,7 +3693,7 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
     let constr_doc = DocString::new(
         "A fixed-width ASCII layout.".into(),
         vec![],
-        false,
+        DocSelf::NoSelf,
         vec![chars_param],
         None,
     );
@@ -3704,7 +3711,7 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
              to encode data for a given measurement."
                 .into(),
         ],
-        true,
+        DocSelf::PySelf,
         vec![],
         Some(DocReturn::new(PyType::new_list(PyType::Int), None)),
     )
@@ -3754,7 +3761,7 @@ pub fn impl_new_delim_ascii_layout(input: TokenStream) -> TokenStream {
     let constr_doc = DocString::new(
         "A delimited ASCII layout.".into(),
         vec![],
-        false,
+        DocSelf::NoSelf,
         vec![ranges_param],
         None,
     );
@@ -3860,7 +3867,8 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
         }
     };
 
-    let make_constr_doc = |ps| DocString::new(format!("{summary}."), vec![], false, ps, None);
+    let make_constr_doc =
+        |ps| DocString::new(format!("{summary}."), vec![], DocSelf::NoSelf, ps, None);
 
     // make different constructors and getters for u8 and u16 since the byteord
     // for these can be simplified
@@ -3959,7 +3967,7 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
     let constr_doc = DocString::new(
         format!("{nbits}-bit endian float layout"),
         vec![],
-        false,
+        DocSelf::NoSelf,
         vec![range_param.clone(), is_big_param],
         None,
     );
@@ -4022,7 +4030,7 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
     let constr_doc = DocString::new(
         "A mixed-width integer layout.".into(),
         vec![],
-        false,
+        DocSelf::NoSelf,
         vec![ranges_param, is_big_param],
         None,
     );
@@ -4083,7 +4091,7 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
     let constr_doc = DocString::new(
         "A mixed-type layout.".into(),
         vec![],
-        false,
+        DocSelf::NoSelf,
         vec![types_param, is_big_param],
         None,
     );
@@ -4134,7 +4142,7 @@ fn make_byte_width(nbytes: usize) -> proc_macro2::TokenStream {
     let doc = DocString::new(
         "The width of each measurement in bytes (read only).".into(),
         vec![s0, s1],
-        true,
+        DocSelf::PySelf,
         vec![],
         Some(DocReturn::new(PyType::Int, None)),
     )
@@ -4159,7 +4167,7 @@ pub fn impl_layout_byte_widths(input: TokenStream) -> TokenStream {
              divided by 8. Values for each measurement may be different."
                 .into(),
         ],
-        true,
+        DocSelf::PySelf,
         vec![],
         Some(DocReturn::new(PyType::new_list(PyType::Int), None)),
     )
@@ -4186,7 +4194,7 @@ fn make_layout_datatype(dt: &str) -> proc_macro2::TokenStream {
     let doc = DocString::new(
         "The value of *$DATATYPE* (read-only).".into(),
         vec![format!("Will always return ``\"{dt}\"``.")],
-        true,
+        DocSelf::PySelf,
         vec![],
         Some(DocReturn::new(datatype_pytype(), None)),
     )
@@ -4328,7 +4336,13 @@ fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
 
     let name = format!("{region_ident}{suffix}");
 
-    let doc = DocString::new(summary, vec![], false, vec![index_param, gate_param], None);
+    let doc = DocString::new(
+        summary,
+        vec![],
+        DocSelf::NoSelf,
+        vec![index_param, gate_param],
+        None,
+    );
 
     let bare_path = path_strip_args(path.clone());
 

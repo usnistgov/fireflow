@@ -8,9 +8,16 @@ use std::fmt;
 pub(crate) struct DocString {
     summary: String,
     paragraphs: Vec<String>,
-    self_arg: bool,
+    self_arg: DocSelf,
     args: Vec<DocArg>,
     returns: Option<DocReturn>,
+}
+
+#[derive(Clone)]
+pub enum DocSelf {
+    NoSelf,
+    PySelf,
+    // PyClass,
 }
 
 #[derive(Clone, new)]
@@ -272,16 +279,21 @@ impl DocString {
                 }
             })
             .unzip();
-        // TODO add "cls" for class methods and the like
-        let txt_self = if self.self_arg {
-            Some("self".into())
-        } else {
-            None
-        };
+        let txt_self = self.self_arg.as_arg();
         let txt_sig = format!("({})", txt_self.into_iter().chain(_txt_sig).join(", "));
         quote! {
             #[pyo3(signature = (#(#raw_sig),*))]
             #[pyo3(text_signature = #txt_sig)]
+        }
+    }
+}
+
+impl DocSelf {
+    fn as_arg(&self) -> Option<String> {
+        match self {
+            DocSelf::NoSelf => None,
+            DocSelf::PySelf => Some("self".into()),
+            // DocSelf::PyClass => Some("cls".into()),
         }
     }
 }

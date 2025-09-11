@@ -24,6 +24,7 @@ from pyreflow.typing import (
     Mode3_2,
     Trigger,
     Shortname,
+    StdKeywords,
     NonStdKeywords,
     AnalysisBytes,
     OtherBytes,
@@ -42,6 +43,7 @@ from pyreflow.typing import (
     Spillover,
     UnstainedCenters,
     FCSVersion,
+    TemporalOpticalKey,
 )
 
 _X = TypeVar("_X")
@@ -850,6 +852,27 @@ class CoreTEXT2_0(
         applied_gates: AppliedGates2_0 = ([], {}, None),
         nonstandard_keywords: NonStdKeywords = {},
     ) -> Self: ...
+    @classmethod
+    def from_kws(
+        cls,
+        std: StdKeywords,
+        nonstd: NonStdKeywords,
+        time_meas_pattern: str | None = None,
+        allow_missing_time: bool = False,
+        force_time_linear: bool = False,
+        ignore_time_optical_keys: list[TemporalOpticalKey] = [],
+        date_pattern: str | None = None,
+        time_pattern: str | None = None,
+        allow_pseudostandard: bool = False,
+        allow_unused_standard: bool = False,
+        disallow_deprecated: bool = False,
+        fix_log_scale_offsets: bool = False,
+        nonstandard_measurement_pattern: str | None = None,
+        integer_widths_from_byteord: bool = False,
+        integer_byteord_override: list[int] | None = None,
+        disallow_range_truncation: bool = False,
+        warnings_are_errors: bool = False,
+    ) -> Self: ...
 
 @final
 class CoreTEXT3_0(
@@ -906,6 +929,28 @@ class CoreTEXT3_0(
         tr: Trigger | None = None,
         applied_gates: AppliedGates3_0 = ([], {}, None),
         nonstandard_keywords: NonStdKeywords = {},
+    ) -> Self: ...
+    @classmethod
+    def from_kws(
+        cls,
+        std: StdKeywords,
+        nonstd: NonStdKeywords,
+        time_meas_pattern: str | None = None,
+        allow_missing_time: bool = False,
+        force_time_linear: bool = False,
+        ignore_time_optical_keys: list[TemporalOpticalKey] = [],
+        date_pattern: str | None = None,
+        time_pattern: str | None = None,
+        allow_pseudostandard: bool = False,
+        allow_unused_standard: bool = False,
+        disallow_deprecated: bool = False,
+        fix_log_scale_offsets: bool = False,
+        nonstandard_measurement_pattern: str | None = None,
+        ignore_time_gain: bool = False,
+        integer_widths_from_byteord: bool = False,
+        integer_byteord_override: list[int] | None = None,
+        disallow_range_truncation: bool = False,
+        warnings_are_errors: bool = False,
     ) -> Self: ...
 
 @final
@@ -972,6 +1017,27 @@ class CoreTEXT3_1(
         tr: Trigger | None = None,
         applied_gates: AppliedGates3_0 = ([], {}, None),
         nonstandard_keywords: NonStdKeywords = {},
+    ) -> Self: ...
+    @classmethod
+    def from_kws(
+        cls,
+        std: StdKeywords,
+        nonstd: NonStdKeywords,
+        time_meas_pattern: str | None = None,
+        allow_missing_time: bool = False,
+        force_time_linear: bool = False,
+        ignore_time_optical_keys: list[TemporalOpticalKey] = [],
+        date_pattern: str | None = None,
+        time_pattern: str | None = None,
+        allow_pseudostandard: bool = False,
+        allow_unused_standard: bool = False,
+        disallow_deprecated: bool = False,
+        fix_log_scale_offsets: bool = False,
+        nonstandard_measurement_pattern: str | None = None,
+        ignore_time_gain: bool = False,
+        parse_indexed_spillover: bool = False,
+        disallow_range_truncation: bool = False,
+        warnings_are_errors: bool = False,
     ) -> Self: ...
 
 @final
@@ -1041,6 +1107,27 @@ class CoreTEXT3_2(
         tr: Trigger | None = None,
         applied_gates: AppliedGates3_2 = ({}, None),
         nonstandard_keywords: NonStdKeywords = {},
+    ) -> Self: ...
+    @classmethod
+    def from_kws(
+        cls,
+        std: StdKeywords,
+        nonstd: NonStdKeywords,
+        time_meas_pattern: str | None = None,
+        allow_missing_time: bool = False,
+        force_time_linear: bool = False,
+        ignore_time_optical_keys: list[TemporalOpticalKey] = [],
+        date_pattern: str | None = None,
+        time_pattern: str | None = None,
+        allow_pseudostandard: bool = False,
+        allow_unused_standard: bool = False,
+        disallow_deprecated: bool = False,
+        fix_log_scale_offsets: bool = False,
+        nonstandard_measurement_pattern: str | None = None,
+        ignore_time_gain: bool = False,
+        parse_indexed_spillover: bool = False,
+        disallow_range_truncation: bool = False,
+        warnings_are_errors: bool = False,
     ) -> Self: ...
 
 @final

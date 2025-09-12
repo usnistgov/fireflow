@@ -1,31 +1,22 @@
 Core\* Classes
 ==============
 
-Each of these classes is an in-memory, non-redundant data structure to represent
-and manipulate an FCS file (hence the name ``Core*``).
+Each of these classes is a version-specific, in-memory, non-redundant data
+structure to represent and manipulate an FCS file.
 
-These can be regarded as database-like entities in that they can be represented
-by a hierarchical 'schema', maintain an internally-consistent state, and update
-this state atomically.
+These can be regarded as database-like entities that encode a hierarchical
+'schema', maintain an internally-consistent state, and update this state
+atomically.
 
-Each structure corresponds to an FCS version, and each version takes into
-account its *TEXT* keywords, data layout, and other pecularities. When
-applicable, keywords are stored in a "simple" datatype (``int``, ``float``,
-``tuple``, etc) corresponding to its version specification, rather than a raw
-string as written in the *TEXT* of an FCS file. When applicable, these data
-structures can also store *DATA* (as a polars ``DataFrame``), *ANALYSIS*, and
-*OTHER* segments (as ``bytes``).
+Each class corresponds to an FCS version. When applicable, keywords are stored
+in a "native" datatype (:py:class:`int`, :py:class:`float`, :py:class:`tuple`,
+etc) corresponding to its version specification, rather than a raw string as
+written in the *TEXT* of an FCS file. CoreDataset* classes additionally store
+*DATA* (as a `polars`_ ``DataFrame``), *ANALYSIS*, and *OTHER* segments (as
+:py:class:`bytes`).
 
-The following data is **not** explicitly stored in ``Core*``:
-
-* *$TOT* since this implied by the length of the dataframe
-* *$PAR* since this is implied by the length of the measurement vector
-* any offsets, since these can be computed from the contained data itself
-* *$NEXTDATA* for similar reasons as offsets
-* any pseudostandard keywords since this would allow for "invalid" data
-
-Class relationships
--------------------
+Each ``Core*`` class is further composed of other version-specific classes as
+follows:
 
 .. list-table::
    :header-rows: 1
@@ -56,95 +47,17 @@ Class relationships
      - :py:class:`~pyreflow.Optical3_2`
      - :py:class:`~pyreflow.Temporal3_2`
 
+Some keywords are redundant and therefore **not** stored in any ``Core*``
+classes:
 
-.. list-table::
-   :header-rows: 1
+* *$TOT* since this implied by the length of the dataframe
+* *$PAR* since this is implied by the length of the measurement vector
+* any offsets (*$(BEGIN|END)(DATA|ANALYSIS|STEXT)* and *$NEXTDATA*), since these
+  can be computed by serializing the class's contents
+* any pseudostandard keywords since this would allow the FCS standard to be
+  violated when writing to a new file
 
-   * - Layout
-     - FCS2.0
-     - FCS3.0
-     - FCS3.1
-     - FCS3.2
-   * - :py:class:`~pyreflow.FixedAsciiLayout`
-     - X
-     - X
-     - X
-     - X
-   * - :py:class:`~pyreflow.DelimAsciiLayout`
-     - X
-     - X
-     - X
-     - X
-   * - :py:class:`~pyreflow.OrderedUint08Layout`
-     - X
-     - X
-     - 
-     - 
-   * - :py:class:`~pyreflow.OrderedUint16Layout`
-     - X
-     - X
-     - 
-     - 
-   * - :py:class:`~pyreflow.OrderedUint24Layout`
-     - X
-     - X
-     - 
-     - 
-   * - :py:class:`~pyreflow.OrderedUint32Layout`
-     - X
-     - X
-     - 
-     - 
-   * - :py:class:`~pyreflow.OrderedUint40Layout`
-     - X
-     - X
-     - 
-     - 
-   * - :py:class:`~pyreflow.OrderedUint48Layout`
-     - X
-     - X
-     - 
-     - 
-   * - :py:class:`~pyreflow.OrderedUint56Layout`
-     - X
-     - X
-     - 
-     - 
-   * - :py:class:`~pyreflow.OrderedUint64Layout`
-     - X
-     - X
-     - 
-     - 
-   * - :py:class:`~pyreflow.OrderedF32Layout`
-     - X
-     - X
-     - 
-     - 
-   * - :py:class:`~pyreflow.OrderedF64Layout`
-     - X
-     - X
-     - 
-     - 
-   * - :py:class:`~pyreflow.EndianF32Layout`
-     - 
-     - 
-     - X
-     - X
-   * - :py:class:`~pyreflow.EndianF64Layout`
-     - 
-     - 
-     - X
-     - X
-   * - :py:class:`~pyreflow.EndianUintLayout`
-     - 
-     - 
-     - X
-     - X
-   * - :py:class:`~pyreflow.MixedLayout`
-     - 
-     - 
-     - 
-     - X
+.. _polars: https://docs.pola.rs/api/python/stable/reference/dataframe/index.html
 
 .. _coretext:
 
@@ -153,9 +66,11 @@ CoreTEXT\*
 
 Represents *HEADER* and *TEXT*.
 
-One of these will be created when using :func:`pyreflow.api.fcs_read_std_text`
-depending on the FCS version. They can also be constructed from scratch as
-one would expect in Python.
+These can be created by:
+
+* calling :func:`pyreflow.api.fcs_read_std_text`
+* calling ``from_kws`` (described below)
+* calling ``__new__``
 
 In general, the following manipulations are possible:
 
@@ -164,12 +79,10 @@ In general, the following manipulations are possible:
 * adding/removing measurements
 * converting measurements to/from temporal and optical types
 * upgrading/downgrading the FCS version
-* converting to ``CoreDataset*`` by supplying a ``DataFrame`` and/or byte
+* converting to :ref:`coredataset` by supplying a ``DataFrame`` and/or byte
   segments for *ANALYSIS* and *OTHER*.
-
-These may also be written to an FCS file on disk, in which case the file will be
-an "empty" FCS file with a single dataset and no events (ie only *HEADER* and
-*TEXT*).
+* writing to disk; the file will be an "empty" FCS file with a single dataset
+  and no events (ie only *HEADER* and *TEXT*).
 
 .. autoclass:: pyreflow.CoreTEXT2_0
    :members:
@@ -191,17 +104,19 @@ CoreDataset*
 Represents one dataset from an FCS file (*HEADER* + *TEXT* + *DATA* +
 *ANALYSIS* + *OTHER*).
 
-One of these will be created when using the following functions:
+These can be created by:
 
-* :func:`pyreflow.api.fcs_read_std_dataset`
-* :func:`pyreflow.api.fcs_read_std_dataset_with_keywords`
+* calling :func:`pyreflow.api.fcs_read_std_dataset`
+* calling :func:`pyreflow.api.fcs_read_std_dataset_with_keywords`
+* calling ``from_kws`` (described below)
+* calling ``__new__``
 
 In addition to all the minipulations offered by ``CoreTEXT*``, these
 additionally allow:
 
 * modifying the ``DataFrame`` corresponding to *DATA*
 * modifying the byte segments corresponding to *ANALYSIS and/or *OTHER*
-* removing all data by converting to ``CoreTEXT*``
+* removing all data by converting to :ref:`coretext`
 
 When written, these will result in an FCS file a single dataset reflecting its
 contents.

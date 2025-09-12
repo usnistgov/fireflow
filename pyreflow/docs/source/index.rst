@@ -26,37 +26,30 @@ manipulate FCS files. It provides no methods to transform data (compensation,
 scaling), gate populations, compute statistics, etc. These are the purview of
 other tools such as `flowCore`_ (R) and `flowkit`_ (Python).
 
-A good analogy is that ``fireflow`` and ``pyreflow`` are like ``libyaml`` and
-``pylibyaml`` respectively; their main purpose is to provide an interface for a
-certain file type, and the latter is a python wrapper for the former, written in
-a "fast" language.
+To understand the intended use-cases, a good analogy is that `fireflow`_ is
+analogous to other "file-format libraries" such as `libyaml`_, `libpng`_, and
+`libjpeg`_. Each of these provide an interface to a given file type and are
+written in a "fast" language. Their intention is to be at the bottom of a
+software stack. Many of these have wrappers in "nice" languages such as Python,
+and this is what ``pyreflow`` aims to be.
 
 .. _fireflow: https://github.com/usnistgov/fireflow
 .. _caveats: https://github.com/usnistgov/fireflow/blob/master/STANDARD.md
 .. _polars: https://docs.pola.rs/api/python/stable/reference/dataframe/index.html
 .. _flowcore: https://github.com/RGLab/flowCore
 .. _flowkit: https://github.com/whitews/FlowKit
+.. _libyaml: https://github.com/yaml/libyaml
+.. _libpng: https://github.com/pnggroup/libpng
+.. _libjpeg: https://github.com/winlibs/libjpeg
 
 User Guide
 ----------
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 3
 
    install
    quickstart
    workflow
    terminology
-
-API Reference
--------------
-
-.. toctree::
-   :maxdepth: 1
-
-   reader
-   core
-   measurement
-   gating
-   layout
-
+   api

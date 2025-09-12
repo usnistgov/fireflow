@@ -34,7 +34,7 @@ html_sidebars = {
     "**": [
         "about.html",
         "searchbox.html",
-        "localtoc.html",
+        "globaltoc.html",
     ]
 }
 html_theme_options = {

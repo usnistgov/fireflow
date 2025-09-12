@@ -1,9 +1,10 @@
 Measurement Classes
 ===================
 
+The following classes encode the *$Pn\** keywords for a single measurement.
 
 Optical
-=======
+-------
 
 .. autoclass:: pyreflow.Optical2_0
 
@@ -14,7 +15,7 @@ Optical
 .. autoclass:: pyreflow.Optical3_2
 
 Temporal
-========
+--------
 
 .. autoclass:: pyreflow.Temporal2_0
 

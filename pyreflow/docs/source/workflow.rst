@@ -63,8 +63,6 @@ trigger an error if present upon creation. These classes themselves have an API
 which allows reading/writing internal elements of an FCS file. They can also be
 written back to disk.
 
-The Core* classes are explained further in :doc:`core`.
-
 "Raw mode" has the advantage of being slightly faster, while "standard mode" has
 the advantage of compliant parsing and manipulation.
 

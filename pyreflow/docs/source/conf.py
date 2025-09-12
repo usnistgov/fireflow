@@ -29,8 +29,21 @@ exclude_patterns = []
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = 'nature'
+html_theme = "alabaster"
+html_sidebars = {
+    "**": [
+        "about.html",
+        "searchbox.html",
+        "localtoc.html",
+    ]
+}
+html_theme_options = {
+    "github_button": "true",
+    "github_user": "usnistgov",
+    "github_repo": "fireflow",
+}
 html_static_path = ["_static"]
+html_show_sourcelink = False
 
 autodoc_typehints = "description"
 autodoc_member_order = "bysource"

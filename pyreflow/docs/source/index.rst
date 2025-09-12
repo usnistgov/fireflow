@@ -1,5 +1,5 @@
-pyreflow documentation
-======================
+Welcome to pyreflow
+===================
 
 ``pyreflow`` is a library aiming to provide a standards-compliant Python API for
 Flow Cytometry Standards (FCS) files. It is a wrapper around the Rust

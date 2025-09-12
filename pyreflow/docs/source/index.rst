@@ -31,7 +31,7 @@ A good analogy is that ``fireflow`` and ``pyreflow`` are like ``libyaml`` and
 certain file type, and the latter is a python wrapper for the former, written in
 a "fast" language.
 
-.. _caveats: https://github.com/njd2/fireflow/blob/master/STANDARD.md
+.. _caveats: https://github.com/usnistgov/fireflow/blob/master/STANDARD.md
 .. _polars: https://docs.pola.rs/api/python/stable/reference/dataframe/index.html
 .. _flowcore: https://github.com/RGLab/flowCore
 .. _flowkit: https://github.com/whitews/FlowKit

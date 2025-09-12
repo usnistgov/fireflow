@@ -8,7 +8,7 @@ Install using pip/git:
 
 .. code-block:: sh
 
-    pip install git+https://github.com/njd2/fireflow.git#subdirectory=pyreflow
+    pip install git+https://github.com/usnistgov/fireflow.git#subdirectory=pyreflow
 
 This will build and install the master branch into the currently active
 environment.
@@ -24,4 +24,4 @@ Example `env.yml`:
     dependencies:
       - maturin=1.8.7
       - pip:
-        - git+https://github.com/njd2/fireflow.git#subdirectory=pyreflow
+        - git+https://github.com/usnistgov/fireflow.git#subdirectory=pyreflow

@@ -13,15 +13,16 @@ Workflow
        "FCS File" -> CoreDataset [label = "5"];
 
        "HEADER+TEXT\n(flat keywords)" -> "All segments\n(flat keywords)" [label = "6"];
-       "HEADER+TEXT\n(flat keywords)" -> CoreDataset [label = "7"];
+       "HEADER+TEXT\n(flat keywords)" -> CoreTEXT [label = "7"];
+       "HEADER+TEXT\n(flat keywords)" -> CoreDataset [label = "8"];
 
-       CoreTEXT -> CoreDataset [label = "8"];
+       CoreTEXT -> CoreDataset [label = "9"];
 
-       CoreTEXT -> "FCS File" [label = "9"];
-       CoreDataset -> "FCS File" [label = "10"];
+       CoreTEXT -> "FCS File" [label = "10"];
+       CoreDataset -> "FCS File" [label = "11"];
 
-       CoreTEXT -> CoreTEXT [label = "11"];
-       CoreDataset -> CoreDataset [label = "12"];
+       CoreTEXT -> CoreTEXT [label = "12"];
+       CoreDataset -> CoreDataset [label = "13"];
 
        "HEADER+TEXT\n(flat keywords)" -> "offline\nmanipulation";
        "offline\nmanipulation" -> "HEADER+TEXT\n(flat keywords)";
@@ -35,12 +36,13 @@ Legend:
 4. :py:func:`~pyreflow.api.fcs_read_raw_dataset`
 5. :py:func:`~pyreflow.api.fcs_read_std_dataset`
 6. :py:func:`~pyreflow.api.fcs_read_raw_dataset_with_keywords`
-7. :py:func:`~pyreflow.api.fcs_read_std_dataset_with_keywords`
-8. :py:meth:`CoreTEXT*.to_dataset` (see :ref:`coretext`)
-9. :py:meth:`CoreTEXT*.write_text` (see :ref:`coretext`)
-10. :py:meth:`CoreDataset*.write_dataset` (see :ref:`coredataset`)
-11. :py:meth:`CoreTEXT*.version_*` (see :ref:`coretext`)
-12. :py:meth:`CoreDataset*.version_*` (see :ref:`coredataset`)
+7. :py:func:`CoreTEXT*.from_kws` (see :ref:`coretext`)
+8. :py:func:`CoreDataset*.from_kws` (see :ref:`coredataset`)
+9. :py:meth:`CoreTEXT*.to_dataset` (see :ref:`coretext`)
+10. :py:meth:`CoreTEXT*.write_text` (see :ref:`coretext`)
+11. :py:meth:`CoreDataset*.write_dataset` (see :ref:`coredataset`)
+12. :py:meth:`CoreTEXT*.version_*` (see :ref:`coretext`)
+13. :py:meth:`CoreDataset*.version_*` (see :ref:`coredataset`)
 
 Raw vs standardized mode
 ------------------------

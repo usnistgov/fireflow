@@ -556,6 +556,7 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
 }
 
 fn parse_std_inner_config(sargs: &ArgMatches) -> config::StdTextReadConfig {
+    // TODO default to "Time|TIME"
     let time_meas_pattern = sargs
         .get_one::<String>(TIME_MEAS_PATTERN)
         .cloned()
@@ -821,7 +822,7 @@ const TIME_PATTERN: &str = "time-pattern";
 
 const WARNINGS_ARE_ERRORS: &str = "warnings-are-errors";
 
-const TIME_MEAS_PATTERN: &str = "time-pattern";
+const TIME_MEAS_PATTERN: &str = "time-meas-pattern";
 
 const ALLOW_MISSING_TIME: &str = "allow-missing-time";
 

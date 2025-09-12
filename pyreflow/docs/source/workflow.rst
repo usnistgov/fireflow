@@ -56,11 +56,12 @@ interpreted (*$DATATYPE*, *$PnB*, etc); everything else will be left as-is.
 files.
 
 In "standard" or "standardized mode" (abbreviated "std" in function names
-above), each keyword will be parsed and stored in a class called CoreTEXT (for
-*TEXT*) or CoreDataset (for all segments). These are internally validated, thus
-it non-conforming keywords will trigger an error if present upon creation. These
-classes themselves have an API which allows reading/writing internal elements of
-an FCS file. They can also be written back to disk.
+above), each keyword will be parsed and stored in a class called :ref:`coretext`
+(for *TEXT*) or :ref:`coredataset` (for all segments) where the ``*`` indicates
+FCS version. These are internally validated, thus non-conforming keywords will
+trigger an error if present upon creation. These classes themselves have an API
+which allows reading/writing internal elements of an FCS file. They can also be
+written back to disk.
 
 The Core* classes are explained further in :doc:`core`.
 

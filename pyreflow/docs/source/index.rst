@@ -3,7 +3,7 @@ Welcome to pyreflow
 
 ``pyreflow`` is a library aiming to provide a standards-compliant Python API for
 Flow Cytometry Standards (FCS) files. It is a wrapper around the Rust
-``fireflow`` library.
+`fireflow`_ library.
 
 It supports the following FCS versions:
 
@@ -31,6 +31,7 @@ A good analogy is that ``fireflow`` and ``pyreflow`` are like ``libyaml`` and
 certain file type, and the latter is a python wrapper for the former, written in
 a "fast" language.
 
+.. _fireflow: https://github.com/usnistgov/fireflow
 .. _caveats: https://github.com/usnistgov/fireflow/blob/master/STANDARD.md
 .. _polars: https://docs.pola.rs/api/python/stable/reference/dataframe/index.html
 .. _flowcore: https://github.com/RGLab/flowCore

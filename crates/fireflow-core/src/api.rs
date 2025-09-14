@@ -410,25 +410,31 @@ pub struct DelimCharError(u8);
 
 pub struct EmptyTEXTError;
 
-#[derive(Debug)]
-pub struct BlankKeyError;
+pub struct NoTEXTWordsError;
 
 #[derive(Debug)]
-pub struct UnevenWordsError;
+pub struct BlankKeyError(TEXTKind);
 
 #[derive(Debug)]
-pub struct FinalDelimError;
+pub struct UnevenWordsError(TEXTKind);
 
 #[derive(Debug)]
-pub struct DelimBoundError;
+pub struct FinalDelimError(TEXTKind);
+
+#[derive(Debug)]
+pub struct DelimBoundError(TEXTKind);
+
+#[derive(Clone, Copy, Debug)]
+pub enum TEXTKind {
+    Primary,
+    Supplemental,
+}
 
 #[derive(From, Display)]
 pub enum ParsePrimaryTEXTError {
     Keywords(ParseKeywordsIssue),
     Empty(NoTEXTWordsError),
 }
-
-pub struct NoTEXTWordsError;
 
 #[derive(Debug, Display, From)]
 pub enum ParseKeywordsIssue {
@@ -806,7 +812,7 @@ fn split_raw_primary_text(
     if bytes.is_empty() {
         Err(DeferredFailure::new1(NoTEXTWordsError.into()))
     } else {
-        Ok(split_raw_text_inner(kws, delim, bytes, conf).errors_into())
+        Ok(split_raw_text_inner(kws, delim, bytes, TEXTKind::Primary, conf).errors_into())
     }
 }
 
@@ -817,7 +823,8 @@ fn split_raw_supp_text(
     conf: &ReadHeaderAndTEXTConfig,
 ) -> Tentative<ParsedKeywords, ParseKeywordsIssue, ParseSupplementalTEXTError> {
     if let Some((byte0, rest)) = bytes.split_first() {
-        let mut tnt = split_raw_text_inner(kws, *byte0, rest, conf).errors_into();
+        let mut tnt =
+            split_raw_text_inner(kws, *byte0, rest, TEXTKind::Supplemental, conf).errors_into();
         if *byte0 != delim {
             let x = DelimMismatch {
                 delim,
@@ -840,12 +847,13 @@ fn split_raw_text_inner(
     kws: ParsedKeywords,
     delim: u8,
     bytes: &[u8],
+    tk: TEXTKind,
     conf: &ReadHeaderAndTEXTConfig,
 ) -> Tentative<ParsedKeywords, ParseKeywordsIssue, ParseKeywordsIssue> {
     if conf.use_literal_delims {
-        split_raw_text_literal_delim(kws, delim, bytes, conf)
+        split_raw_text_literal_delim(kws, delim, bytes, tk, conf)
     } else {
-        split_raw_text_escaped_delim(kws, delim, bytes, conf)
+        split_raw_text_escaped_delim(kws, delim, bytes, tk, conf)
     }
 }
 
@@ -853,6 +861,7 @@ fn split_raw_text_literal_delim(
     mut kws: ParsedKeywords,
     delim: u8,
     bytes: &[u8],
+    tk: TEXTKind,
     conf: &ReadHeaderAndTEXTConfig,
 ) -> Tentative<ParsedKeywords, ParseKeywordsIssue, ParseKeywordsIssue> {
     let mut errors = vec![];
@@ -878,7 +887,7 @@ fn split_raw_text_literal_delim(
             if let Some(value) = it.next() {
                 prev_was_key = false;
                 prev_was_blank = value.is_empty();
-                push_issue(conf.allow_empty, BlankKeyError.into());
+                push_issue(conf.allow_empty, BlankKeyError(tk).into());
             } else {
                 // if everything is correct, we should exit here since the
                 // last word will be the blank slice after the final delim
@@ -903,11 +912,11 @@ fn split_raw_text_literal_delim(
     }
 
     if !prev_was_key {
-        push_issue(conf.allow_odd, UnevenWordsError.into());
+        push_issue(conf.allow_odd, UnevenWordsError(tk).into());
     }
 
     if !prev_was_blank {
-        push_issue(conf.allow_missing_final_delim, FinalDelimError.into());
+        push_issue(conf.allow_missing_final_delim, FinalDelimError(tk).into());
     }
 
     Tentative::new(kws, warnings, errors)
@@ -917,6 +926,7 @@ fn split_raw_text_escaped_delim(
     mut kws: ParsedKeywords,
     delim: u8,
     bytes: &[u8],
+    tk: TEXTKind,
     conf: &ReadHeaderAndTEXTConfig,
 ) -> Tentative<ParsedKeywords, ParseKeywordsIssue, ParseKeywordsIssue> {
     let mut ews = (vec![], vec![]);
@@ -975,7 +985,7 @@ fn split_raw_text_escaped_delim(
                     push_issue(
                         &mut ews,
                         conf.allow_delim_at_boundary,
-                        DelimBoundError.into(),
+                        DelimBoundError(tk).into(),
                     );
                 }
             } else {
@@ -1013,13 +1023,13 @@ fn split_raw_text_escaped_delim(
         push_issue(
             &mut ews,
             conf.allow_missing_final_delim,
-            FinalDelimError.into(),
+            FinalDelimError(tk).into(),
         );
     } else if consec_blanks > 1 {
         push_issue(
             &mut ews,
             conf.allow_delim_at_boundary,
-            DelimBoundError.into(),
+            DelimBoundError(tk).into(),
         );
         push_delim(&mut keybuf, &mut valuebuf, consec_blanks);
 
@@ -1027,13 +1037,13 @@ fn split_raw_text_escaped_delim(
             push_issue(
                 &mut ews,
                 conf.allow_missing_final_delim,
-                FinalDelimError.into(),
+                FinalDelimError(tk).into(),
             );
         }
     }
 
     if valuebuf.is_empty() {
-        push_issue(&mut ews, conf.allow_odd, UnevenWordsError.into());
+        push_issue(&mut ews, conf.allow_odd, UnevenWordsError(tk).into());
     } else {
         push_pair(&mut ews, &keybuf, &valuebuf);
     }
@@ -1122,37 +1132,55 @@ impl fmt::Display for DelimCharError {
 
 impl fmt::Display for EmptyTEXTError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "TEXT segment is empty")
+        write!(f, "Primary TEXT segment is empty")
     }
 }
 
 impl fmt::Display for BlankKeyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "encountered blank key, skipping key and its value")
+        write!(
+            f,
+            "encountered blank key in {} TEXT, skipping key and its value",
+            self.0
+        )
     }
 }
 
 impl fmt::Display for UnevenWordsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "TEXT segment has uneven number of words",)
+        write!(f, "{} TEXT segment has uneven number of words", self.0)
     }
 }
 
 impl fmt::Display for FinalDelimError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "TEXT does not end with delim",)
+        write!(f, "{} TEXT does not end with delim", self.0)
     }
 }
 
 impl fmt::Display for DelimBoundError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "delimiter encountered at word boundary",)
+        write!(
+            f,
+            "delimiter encountered at word boundary in {} TEXT",
+            self.0
+        )
+    }
+}
+
+impl fmt::Display for TEXTKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let s = match self {
+            Self::Primary => "Primary",
+            Self::Supplemental => "Supplemental",
+        };
+        f.write_str(s)
     }
 }
 
 impl fmt::Display for NoTEXTWordsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "TEXT has a delimiter and no words",)
+        write!(f, "Primary TEXT has a delimiter and no words",)
     }
 }
 

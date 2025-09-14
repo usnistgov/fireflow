@@ -1200,7 +1200,7 @@ impl fmt::Display for FinalDelimError {
         };
         write!(
             f,
-            "{} TEXT does not end with delim, ended with {what} of length {n}: \
+            "{} TEXT does not end with delim; ends with {what} of length {n}: \
              {s}{cont}",
             self.kind
         )

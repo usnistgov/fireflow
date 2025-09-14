@@ -13,10 +13,12 @@ use crate::validated::keys::*;
 
 use derive_more::{Display, From};
 use itertools::Itertools;
+use nonempty::NonEmpty;
 use std::convert::Infallible;
 use std::fmt;
 use std::fs;
 use std::io::{BufReader, Read, Seek};
+use std::num::NonZeroUsize;
 use std::num::ParseIntError;
 use std::path;
 
@@ -419,10 +421,18 @@ pub struct BlankKeyError(TEXTKind);
 pub struct UnevenWordsError(TEXTKind);
 
 #[derive(Debug)]
-pub struct FinalDelimError(TEXTKind);
+pub struct FinalDelimError {
+    kind: TEXTKind,
+    bytes: NonEmpty<u8>,
+}
 
+// this can only happen in escaped TEXT
 #[derive(Debug)]
-pub struct DelimBoundError(TEXTKind);
+pub struct EvenFinalDelimError;
+
+// this can only happen in escaped TEXT
+#[derive(Debug)]
+pub struct DelimBoundError;
 
 #[derive(Clone, Copy, Debug)]
 pub enum TEXTKind {
@@ -442,6 +452,7 @@ pub enum ParseKeywordsIssue {
     BlankValue(BlankValueError),
     Uneven(UnevenWordsError),
     Final(FinalDelimError),
+    EvenFinal(EvenFinalDelimError),
     Insert(KeywordInsertError),
     Bound(DelimBoundError),
     // this is only for supp TEXT but seems less wasteful/convoluted to put here
@@ -877,16 +888,16 @@ fn split_raw_text_literal_delim(
 
     // ASSUME input slice does not start with delim
     let mut it = bytes.split(|x| *x == delim);
-    let mut prev_was_blank = false;
     let mut prev_was_key = false;
+    let mut prev_word: &[u8] = &[];
 
     while let Some(key) = it.next() {
         prev_was_key = true;
-        prev_was_blank = key.is_empty();
+        prev_word = key;
         if key.is_empty() {
             if let Some(value) = it.next() {
                 prev_was_key = false;
-                prev_was_blank = value.is_empty();
+                prev_word = value;
                 push_issue(conf.allow_empty, BlankKeyError(tk).into());
             } else {
                 // if everything is correct, we should exit here since the
@@ -895,7 +906,7 @@ fn split_raw_text_literal_delim(
             }
         } else if let Some(value) = it.next() {
             prev_was_key = false;
-            prev_was_blank = value.is_empty();
+            prev_word = value;
             if value.is_empty() {
                 push_issue(conf.allow_empty, BlankValueError(key.to_vec()).into());
             } else if let Err(lvl) = kws.insert(key, value, conf) {
@@ -915,8 +926,15 @@ fn split_raw_text_literal_delim(
         push_issue(conf.allow_odd, UnevenWordsError(tk).into());
     }
 
-    if !prev_was_blank {
-        push_issue(conf.allow_missing_final_delim, FinalDelimError(tk).into());
+    if let Some(bs) = NonEmpty::from_slice(prev_word) {
+        push_issue(
+            conf.allow_missing_final_delim,
+            FinalDelimError {
+                kind: tk,
+                bytes: bs,
+            }
+            .into(),
+        );
     }
 
     Tentative::new(kws, warnings, errors)
@@ -960,6 +978,7 @@ fn split_raw_text_escaped_delim(
 
     // ASSUME input slice does not start with delim
     let mut consec_blanks = 0;
+    let mut lastbuf: &[u8] = &[];
     let mut keybuf: Vec<u8> = vec![];
     let mut valuebuf: Vec<u8> = vec![];
 
@@ -985,7 +1004,7 @@ fn split_raw_text_escaped_delim(
                     push_issue(
                         &mut ews,
                         conf.allow_delim_at_boundary,
-                        DelimBoundError(tk).into(),
+                        DelimBoundError.into(),
                     );
                 }
             } else {
@@ -1001,13 +1020,16 @@ fn split_raw_text_escaped_delim(
             }
             consec_blanks = 0;
         }
+        lastbuf = segment
     }
 
     // If all went perfectly, we should have one consecutive blank at this point
     // since the space between the last delim and the end will show up as a
-    // blank.
+    // blank. The value of the last buffer should also be an empty slice.
     //
-    // If we have 0, then there was no delim at the end, which is an error.
+    // If we have 0 consecutive blanks, then there was no delim at the end,
+    // which is an error. In this case the last buffer should be a non-empty
+    // slice.
     //
     // If number of blanks is even and not 0, then the last word ended with one
     // or more escaped delimiters, but the TEXT didn't (2 errors, delim at
@@ -1019,17 +1041,23 @@ fn split_raw_text_escaped_delim(
     // more escaped delimiters (error: on a boundary) and the TEXT ended with a
     // delimiter (not an error).
 
-    if consec_blanks == 0 {
+    if let Some(bs) = NonEmpty::from_slice(lastbuf) {
         push_issue(
             &mut ews,
             conf.allow_missing_final_delim,
-            FinalDelimError(tk).into(),
+            FinalDelimError {
+                kind: tk,
+                bytes: bs,
+            }
+            .into(),
         );
-    } else if consec_blanks > 1 {
+    }
+
+    if consec_blanks > 1 {
         push_issue(
             &mut ews,
             conf.allow_delim_at_boundary,
-            DelimBoundError(tk).into(),
+            DelimBoundError.into(),
         );
         push_delim(&mut keybuf, &mut valuebuf, consec_blanks);
 
@@ -1037,7 +1065,7 @@ fn split_raw_text_escaped_delim(
             push_issue(
                 &mut ews,
                 conf.allow_missing_final_delim,
-                FinalDelimError(tk).into(),
+                EvenFinalDelimError.into(),
             );
         }
     }
@@ -1154,17 +1182,43 @@ impl fmt::Display for UnevenWordsError {
 
 impl fmt::Display for FinalDelimError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{} TEXT does not end with delim", self.0)
+        let n = self.bytes.len();
+        const MAX_FINAL_BYTES: usize = 100;
+        let xs: Vec<_> = self.bytes.iter().copied().take(MAX_FINAL_BYTES).collect();
+        let (what, s) = if let Ok(s) = str::from_utf8(&xs[..]) {
+            ("string", format!("'{s}'"))
+        } else {
+            ("bytes", xs.iter().join(","))
+        };
+        let cont = if let Some(diff) = n
+            .checked_sub(MAX_FINAL_BYTES)
+            .and_then(|x| NonZeroUsize::try_from(x).ok())
+        {
+            format!(" ({diff} more)")
+        } else {
+            "".to_string()
+        };
+        write!(
+            f,
+            "{} TEXT does not end with delim, ended with {what} which is {n} \
+             characters long: {s}{cont}",
+            self.kind
+        )
+    }
+}
+
+impl fmt::Display for EvenFinalDelimError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "Primary TEXT ends with an even number of delimiters and thus are all escaped"
+        )
     }
 }
 
 impl fmt::Display for DelimBoundError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "delimiter encountered at word boundary in {} TEXT",
-            self.0
-        )
+        write!(f, "delimiter encountered at word boundary in Primary TEXT",)
     }
 }
 

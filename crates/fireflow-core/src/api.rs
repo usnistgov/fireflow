@@ -1188,7 +1188,7 @@ impl fmt::Display for FinalDelimError {
         let (what, s) = if let Ok(s) = str::from_utf8(&xs[..]) {
             ("string", format!("'{s}'"))
         } else {
-            ("bytes", xs.iter().join(","))
+            ("bytestring", xs.iter().join(","))
         };
         let cont = if let Some(diff) = n
             .checked_sub(MAX_FINAL_BYTES)
@@ -1200,8 +1200,8 @@ impl fmt::Display for FinalDelimError {
         };
         write!(
             f,
-            "{} TEXT does not end with delim, ended with {what} which is {n} \
-             characters long: {s}{cont}",
+            "{} TEXT does not end with delim, ended with {what} of length {n}: \
+             {s}{cont}",
             self.kind
         )
     }

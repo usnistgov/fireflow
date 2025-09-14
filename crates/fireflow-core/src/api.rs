@@ -1183,7 +1183,7 @@ impl fmt::Display for UnevenWordsError {
 impl fmt::Display for FinalDelimError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let n = self.bytes.len();
-        const MAX_FINAL_BYTES: usize = 100;
+        const MAX_FINAL_BYTES: usize = 20;
         let xs: Vec<_> = self.bytes.iter().copied().take(MAX_FINAL_BYTES).collect();
         let (what, s) = if let Ok(s) = str::from_utf8(&xs[..]) {
             ("string", format!("'{s}'"))

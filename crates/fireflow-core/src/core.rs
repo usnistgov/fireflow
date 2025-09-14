@@ -3772,10 +3772,10 @@ where
                     };
 
                     let ps = esks.pseudostandard.keys().cloned().map(PseudostandardError);
-                    tnt_core.extend_errors_or_warnings(ps, std_conf.allow_pseudostandard);
+                    tnt_core.extend_errors_or_warnings(ps, !std_conf.allow_pseudostandard);
 
                     let us = esks.unused.keys().cloned().map(UnusedStandardError);
-                    tnt_core.extend_errors_or_warnings(us, std_conf.allow_unused_standard);
+                    tnt_core.extend_errors_or_warnings(us, !std_conf.allow_unused_standard);
 
                     tnt_core.map(|x| (x, esks))
                 })

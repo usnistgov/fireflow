@@ -115,15 +115,17 @@ impl<T> GenericSpillover<T> {
         }
     }
 
-    fn from_str<E, F, EM>(s: &str, parse_meas: F) -> Result<Self, E>
+    fn from_iter<'a, E, F, EM>(
+        mut xs: impl Iterator<Item = &'a str>,
+        parse_meas: F,
+    ) -> Result<Self, E>
     where
         E: From<ParseGenericSpilloverError> + From<EM>,
         F: Fn(&str) -> Result<T, EM>,
         T: Eq + Hash,
     {
-        let mut xs = s.split(",");
-        if let Some(first) = &xs.next().and_then(|x| x.parse::<usize>().ok()) {
-            let n = *first;
+        if let Some(first) = xs.next().and_then(|x| x.parse::<usize>().ok()) {
+            let n = first;
             let nn = n * n;
             let expected = n + nn;
             // This should be safe since we split on commas
@@ -153,6 +155,20 @@ impl<T> GenericSpillover<T> {
             Err(ParseGenericSpilloverError::BadN)?
         }
     }
+
+    fn from_str<E, F, EM>(s: &str, trim_intra: bool, parse_meas: F) -> Result<Self, E>
+    where
+        E: From<ParseGenericSpilloverError> + From<EM>,
+        F: Fn(&str) -> Result<T, EM>,
+        T: Eq + Hash,
+    {
+        let it = s.split(",");
+        if trim_intra {
+            Self::from_iter(it.map(|x| x.trim()), parse_meas)
+        } else {
+            Self::from_iter(it, parse_meas)
+        }
+    }
 }
 
 impl fmt::Display for Spillover {
@@ -178,7 +194,11 @@ impl FromStrStateful for Spillover {
         let (names, ordered_names) = data;
         if conf.parse_indexed_spillover {
             let go = |m: &str| m.parse::<MeasIndex>().map_err(MalformedIndexError);
-            let m = GenericSpillover::from_str::<ParseSpilloverError, _, _>(s, go)?;
+            let m = GenericSpillover::from_str::<ParseSpilloverError, _, _>(
+                s,
+                conf.trim_intra_value_whitespace,
+                go,
+            )?;
             Ok(m.try_into_named(ordered_names)?)
         } else {
             let m = s.parse::<Spillover>()?;
@@ -193,7 +213,7 @@ impl FromStr for Spillover {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         {
-            GenericSpillover::from_str(s, |m| Ok(Shortname::new_unchecked(m)))
+            GenericSpillover::from_str(s, false, |m| Ok(Shortname::new_unchecked(m)))
         }
     }
 }

@@ -32,6 +32,22 @@ use std::str::FromStr;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
+pub trait FromStrDelim: Sized {
+    type Err;
+    const DELIM: char;
+
+    fn from_iter<'a>(ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err>;
+
+    fn from_str_delim(s: &str, trim_whitespace: bool) -> Result<Self, Self::Err> {
+        let it = s.split(Self::DELIM);
+        if trim_whitespace {
+            Self::from_iter(it.map(|x| x.trim()))
+        } else {
+            Self::from_iter(it)
+        }
+    }
+}
+
 pub trait FromStrStateful: Sized {
     type Err;
     type Payload<'a>;
@@ -332,6 +348,18 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self::remove_opt(kws, Self::std(i))
     }
 
+    fn remove_meas_opt_st(
+        kws: &mut StdKeywords,
+        i: IndexFromOne,
+        data: Self::Payload<'_>,
+        conf: &StdTextReadConfig,
+    ) -> Result<MaybeValue<Self>, ParseKeyError<Self::Err>>
+    where
+        Self: FromStrStateful,
+    {
+        Self::remove_opt_st(kws, Self::std(i), data, conf)
+    }
+
     fn lookup_opt<E>(kws: &mut StdKeywords, i: IndexFromOne) -> LookupTentative<MaybeValue<Self>, E>
     where
         Self: FromStr,
@@ -425,14 +453,38 @@ where
             .unwrap_or(Ok(()))
     }
 
-    fn lookup_opt<E>(
+    // fn lookup_opt_linked<E>(
+    //     kws: &mut StdKeywords,
+    //     names: &HashSet<&Shortname>,
+    // ) -> LookupTentative<MaybeValue<Self>, E>
+    // where
+    //     ParseOptKeyWarning: From<<Self as FromStr>::Err>,
+    // {
+    //     process_opt(Self::remove_opt(kws, Self::std())).and_tentatively(|maybe| {
+    //         if let Some(x) = maybe.0 {
+    //             Self::check_link(&x, names).map_or_else(
+    //                 |w| Tentative::new(None, vec![w.into()], vec![]),
+    //                 |_| Tentative::new1(Some(x)),
+    //             )
+    //         } else {
+    //             Tentative::new1(None)
+    //         }
+    //         .map(|x| x.into())
+    //     })
+    // }
+
+    fn lookup_opt_linked_st<E, P>(
         kws: &mut StdKeywords,
         names: &HashSet<&Shortname>,
+        payload: P,
+        conf: &StdTextReadConfig,
     ) -> LookupTentative<MaybeValue<Self>, E>
     where
-        ParseOptKeyWarning: From<<Self as FromStr>::Err>,
+        for<'a> Self: FromStrStateful<Payload<'a> = P>,
+        ParseOptKeyWarning: From<<Self as FromStrStateful>::Err>,
     {
-        process_opt(Self::remove_opt(kws, Self::std())).and_tentatively(|maybe| {
+        // TODO not dry
+        process_opt(Self::remove_opt_st(kws, Self::std(), payload, conf)).and_tentatively(|maybe| {
             if let Some(x) = maybe.0 {
                 Self::check_link(&x, names).map_or_else(
                     |w| Tentative::new(None, vec![w.into()], vec![]),

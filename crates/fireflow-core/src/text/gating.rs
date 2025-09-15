@@ -286,7 +286,9 @@ impl AppliedGates2_0 {
         par: Par,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self, DeprecatedError> {
-        let ag = GatingScheme::lookup(kws, Gating::lookup_opt, |k, j| Region::lookup(k, j, par));
+        let ag = GatingScheme::lookup(kws, Gating::lookup_opt, |k, j| {
+            Region::lookup(k, j, par, conf)
+        });
         let gm = GatedMeasurements::lookup(kws, conf);
         ag.zip(gm).and_tentatively(|(scheme, gated_measurements)| {
             Self::try_new(gated_measurements.0, scheme)
@@ -375,7 +377,11 @@ impl AppliedGates3_0 {
     ) -> LookupTentative<Self, E> {
         Self::lookup_inner(
             kws,
-            |k| GatingScheme::lookup(k, Gating::lookup_opt, |kk, j| Region::lookup(kk, j, par)),
+            |k| {
+                GatingScheme::lookup(k, Gating::lookup_opt, |kk, j| {
+                    Region::lookup(kk, j, par, conf)
+                })
+            },
             |k| GatedMeasurements::lookup(k, conf),
         )
     }
@@ -392,7 +398,7 @@ impl AppliedGates3_0 {
                 GatingScheme::lookup(
                     k,
                     |kk| Gating::lookup_opt_dep(kk, dd),
-                    |kk, i| Region::lookup_dep(kk, i, par, dd),
+                    |kk, i| Region::lookup_dep(kk, i, par, dd, conf),
                 )
             },
             |k| GatedMeasurements::lookup_dep(k, conf),
@@ -509,11 +515,12 @@ impl AppliedGates3_2 {
         kws: &mut StdKeywords,
         par: Par,
         disallow_deprecated: bool,
+        conf: &StdTextReadConfig,
     ) -> LookupTentative<Self, DeprecatedError> {
         GatingScheme::lookup(
             kws,
             |k| Gating::lookup_opt_dep(k, disallow_deprecated),
-            |k, i| Region::lookup_dep(k, i, par, disallow_deprecated),
+            |k, i| Region::lookup_dep(k, i, par, disallow_deprecated, conf),
         )
         .map(Self)
     }
@@ -769,6 +776,7 @@ impl<I> Region<I> {
         kws: &mut StdKeywords,
         i: RegionIndex,
         par: Par,
+        conf: &StdTextReadConfig,
     ) -> LookupTentative<MaybeValue<Self>, E>
     where
         I: FromStr + fmt::Display + LinkedMeasIndex,
@@ -777,8 +785,8 @@ impl<I> Region<I> {
         Self::lookup_inner(
             kws,
             i,
-            |k, j| RegionGateIndex::lookup_region_opt(k, j, par),
-            RegionWindow::lookup_opt,
+            |k, j| RegionGateIndex::lookup_region_opt(k, j, par, conf),
+            |k, j| RegionWindow::lookup_opt_st(k, j, (), conf),
         )
     }
 
@@ -787,6 +795,7 @@ impl<I> Region<I> {
         i: RegionIndex,
         par: Par,
         disallow_dep: bool,
+        conf: &StdTextReadConfig,
     ) -> LookupTentative<MaybeValue<Self>, DeprecatedError>
     where
         I: FromStr + fmt::Display + LinkedMeasIndex,
@@ -795,8 +804,8 @@ impl<I> Region<I> {
         Self::lookup_inner(
             kws,
             i,
-            |k, j| RegionGateIndex::lookup_region_opt_dep(k, j, par, disallow_dep),
-            |k, j| RegionWindow::lookup_opt_dep(k, j, disallow_dep),
+            |k, j| RegionGateIndex::lookup_region_opt_dep(k, j, par, disallow_dep, conf),
+            |k, j| RegionWindow::lookup_opt_st_dep(k, j, disallow_dep, (), conf),
         )
     }
 

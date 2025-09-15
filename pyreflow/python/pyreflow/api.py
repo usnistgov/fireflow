@@ -488,6 +488,9 @@ _RAW_ARGS: dict[str, list[str]] = {
 }
 
 _STD_ARGS: dict[str, list[str]] = {
+    "trim_intra_value_whitespace": [
+        "If ``True`` trim whitespace between delimiters such as ``;`` and ``,``."
+    ],
     "time_meas_pattern": [
         (
             "A pattern to match the *$PnN* of the time measurement. "
@@ -771,6 +774,7 @@ def fcs_read_std_text(
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
     # standard args
+    trim_intra_value_whitespace: bool = False,
     time_meas_pattern: str | None = DEFAULT_TIME_MEAS_PATTERN,
     allow_missing_time: bool = False,
     force_time_linear: bool = False,
@@ -927,6 +931,7 @@ def fcs_read_std_dataset(
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
     # standard args
+    trim_intra_value_whitespace: bool = False,
     time_meas_pattern: str | None = DEFAULT_TIME_MEAS_PATTERN,
     allow_missing_time: bool = False,
     force_time_linear: bool = False,
@@ -1037,6 +1042,7 @@ def fcs_read_std_dataset_with_keywords(
     analysis_seg: Segment,
     other_segs: list[Segment],
     # standard args
+    trim_intra_value_whitespace: bool = False,
     time_meas_pattern: str | None = DEFAULT_TIME_MEAS_PATTERN,
     allow_missing_time: bool = False,
     force_time_linear: bool = False,

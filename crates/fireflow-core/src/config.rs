@@ -527,6 +527,13 @@ pub struct ReadTEXTOffsetsConfig {
 #[derive(Default, Clone)]
 #[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct StdTextReadConfig {
+    /// If `true`, remove whitespace between commas where applicable.
+    ///
+    /// This will only affect keywords that are given as comma-separated lists,
+    /// such as $PnE. Will fix the case where `"0, 0"` is supposed to be
+    /// `"0,0"`.
+    pub trim_intra_value_whitespace: bool,
+
     /// If given, a pattern to find/match the $PnN of the time measurement.
     ///
     /// If matched, the time measurement must conform to the requirements of the

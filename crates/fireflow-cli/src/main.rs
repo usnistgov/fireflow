@@ -167,6 +167,11 @@ fn main() -> Result<(), ()> {
 
     // std args
 
+    let trim_intra_value_whitespace = flag_arg(
+        TRIM_INTRA_VALUE_WHITESPACE,
+        "remove spaces between comma-separated values",
+    );
+
     let time_meas_pattern = Arg::new(TIME_MEAS_PATTERN)
         .long(TIME_MEAS_PATTERN)
         .value_name("REGEXP")
@@ -231,6 +236,7 @@ fn main() -> Result<(), ()> {
         );
 
     let all_std_args = [
+        trim_intra_value_whitespace,
         time_meas_pattern,
         allow_missing_time,
         force_time_linear,
@@ -579,6 +585,7 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::StdTextReadConfig {
         .cloned()
         .map(|d| d.parse::<TimePattern>().unwrap());
     config::StdTextReadConfig {
+        trim_intra_value_whitespace: sargs.get_flag(TRIM_INTRA_VALUE_WHITESPACE),
         time_meas_pattern,
         force_time_linear: sargs.get_flag(FORCE_TIME_LINEAR),
         ignore_time_gain: sargs.get_flag(IGNORE_TIME_GAIN),
@@ -821,6 +828,8 @@ const DATE_PATTERN: &str = "date-pattern";
 const TIME_PATTERN: &str = "time-pattern";
 
 const WARNINGS_ARE_ERRORS: &str = "warnings-are-errors";
+
+const TRIM_INTRA_VALUE_WHITESPACE: &str = "trim-intra-value-whitespace";
 
 const TIME_MEAS_PATTERN: &str = "time-meas-pattern";
 

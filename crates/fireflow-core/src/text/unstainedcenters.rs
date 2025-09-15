@@ -1,7 +1,8 @@
+use crate::config::StdTextReadConfig;
 use crate::validated::shortname::*;
 
 use super::named_vec::NameMapping;
-use super::parser::OptLinkedKey;
+use super::parser::{FromStrDelim, FromStrStateful, OptLinkedKey};
 
 use derive_more::Into;
 use itertools::Itertools;
@@ -65,11 +66,28 @@ impl UnstainedCenters {
     }
 }
 
+impl FromStrStateful for UnstainedCenters {
+    type Err = ParseUnstainedCenterError;
+    type Payload<'a> = ();
+
+    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
+    }
+}
+
 impl FromStr for UnstainedCenters {
     type Err = ParseUnstainedCenterError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut xs = s.split(",");
+        Self::from_str_delim(s, false)
+    }
+}
+
+impl FromStrDelim for UnstainedCenters {
+    type Err = ParseUnstainedCenterError;
+    const DELIM: char = ',';
+
+    fn from_iter<'a>(mut xs: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
         if let Some(n) = xs.next().and_then(|x| x.parse().ok()) {
             // This should be safe since we are splitting by commas
             let measurements: Vec<_> = xs.by_ref().take(n).map(Shortname::new_unchecked).collect();

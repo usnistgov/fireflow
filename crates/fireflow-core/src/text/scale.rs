@@ -58,32 +58,12 @@ impl TryFrom<(f32, f32)> for LogScale {
     }
 }
 
-impl FromStr for Scale {
-    type Err = ScaleError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.split(",").collect::<Vec<_>>()[..] {
-            [ds, os] => {
-                let f1 = ds.parse().map_err(ScaleError::FloatError)?;
-                let f2 = os.parse().map_err(ScaleError::FloatError)?;
-                match (f1, f2) {
-                    (0.0, 0.0) => Ok(Scale::Linear),
-                    (decades, offset) => {
-                        Scale::try_new_log(decades, offset).map_err(ScaleError::LogRange)
-                    }
-                }
-            }
-            _ => Err(ScaleError::WrongFormat),
-        }
-    }
-}
-
 impl FromStrStateful for Scale {
     type Err = ScaleError;
     type Payload<'a> = ();
 
     fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
-        let res = s.parse::<Self>();
+        let res = Self::from_str_delim(s, conf.trim_intra_value_whitespace);
         if conf.fix_log_scale_offsets {
             res.or_else(|e| {
                 if let ScaleError::LogRange(le) = e {
@@ -96,6 +76,36 @@ impl FromStrStateful for Scale {
             })
         } else {
             res
+        }
+    }
+}
+
+impl FromStr for Scale {
+    type Err = ScaleError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_str_delim(s, false)
+    }
+}
+
+impl FromStrDelim for Scale {
+    type Err = ScaleError;
+    const DELIM: char = ',';
+
+    fn from_iter<'a>(ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        let xs: Vec<_> = ss.collect();
+        match &xs[..] {
+            [ds, os] => {
+                let f1 = ds.parse().map_err(ScaleError::FloatError)?;
+                let f2 = os.parse().map_err(ScaleError::FloatError)?;
+                match (f1, f2) {
+                    (0.0, 0.0) => Ok(Scale::Linear),
+                    (decades, offset) => {
+                        Scale::try_new_log(decades, offset).map_err(ScaleError::LogRange)
+                    }
+                }
+            }
+            _ => Err(ScaleError::WrongFormat),
         }
     }
 }

@@ -1,3 +1,4 @@
+use crate::config::StdTextReadConfig;
 use crate::error::*;
 use crate::validated::keys::{BiIndexedKey, StdKey, StdKeywords};
 
@@ -126,16 +127,33 @@ impl Compensation {
     }
 }
 
+impl FromStrStateful for Compensation3_0 {
+    type Err = ParseCompError;
+    type Payload<'a> = ();
+
+    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
+    }
+}
+
 impl FromStr for Compensation3_0 {
     type Err = ParseCompError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut xs = s.split(",");
-        if let Some(first) = &xs.next().and_then(|x| x.parse::<usize>().ok()) {
-            let n = *first;
+        Self::from_str_delim(s, false)
+    }
+}
+
+impl FromStrDelim for Compensation3_0 {
+    type Err = ParseCompError;
+    const DELIM: char = ',';
+
+    fn from_iter<'a>(mut ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        if let Some(first) = ss.next().and_then(|x| x.parse::<usize>().ok()) {
+            let n = first;
             let nn = n * n;
-            let values: Vec<_> = xs.by_ref().take(nn).collect();
-            let remainder = xs.by_ref().count();
+            let values: Vec<_> = ss.by_ref().take(nn).collect();
+            let remainder = ss.by_ref().count();
             let total = values.len() + remainder;
             if total != nn {
                 Err(ParseCompError::WrongLength {

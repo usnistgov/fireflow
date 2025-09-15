@@ -117,11 +117,30 @@ pub enum TriggerError {
     IntFormat(std::num::ParseIntError),
 }
 
+impl FromStrStateful for Trigger {
+    type Err = TriggerError;
+    type Payload<'a> = ();
+
+    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
+    }
+}
+
 impl FromStr for Trigger {
     type Err = TriggerError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.split(",").collect::<Vec<_>>()[..] {
+        Self::from_str_delim(s, false)
+    }
+}
+
+impl FromStrDelim for Trigger {
+    type Err = TriggerError;
+    const DELIM: char = ',';
+
+    fn from_iter<'a>(ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        let xs: Vec<_> = ss.collect();
+        match &xs[..] {
             [p, n1] => n1
                 .parse()
                 .map_err(TriggerError::IntFormat)
@@ -597,14 +616,27 @@ impl FromStr for Wavelengths {
     type Err = WavelengthsError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut ws = vec![];
-        for x in s.split(",") {
-            ws.push(x.parse().map_err(WavelengthsError::Num)?);
-        }
-        NonEmpty::from_vec(ws)
-            .ok_or(WavelengthsError::Empty)
-            .map(FCSNonEmpty)
-            .map(Wavelengths)
+        Self::from_str_delim(s, false)
+    }
+}
+
+impl FromStrStateful for Wavelengths {
+    type Err = WavelengthsError;
+    type Payload<'a> = ();
+
+    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
+    }
+}
+
+impl FromStrDelim for Wavelengths {
+    type Err = WavelengthsError;
+    const DELIM: char = ',';
+
+    fn from_iter<'a>(ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        let xs = NonEmpty::collect(ss).ok_or(WavelengthsError::Empty)?;
+        let ys = xs.try_map(|x| x.parse().map_err(WavelengthsError::Num))?;
+        Ok(Self(FCSNonEmpty(ys)))
     }
 }
 
@@ -764,11 +796,28 @@ pub struct Unicode {
     pub kws: Vec<String>,
 }
 
+impl FromStrStateful for Unicode {
+    type Err = UnicodeError;
+    type Payload<'a> = ();
+
+    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
+    }
+}
+
 impl FromStr for Unicode {
     type Err = UnicodeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut xs = s.split(",");
+        Self::from_str_delim(s, false)
+    }
+}
+
+impl FromStrDelim for Unicode {
+    type Err = UnicodeError;
+    const DELIM: char = ',';
+
+    fn from_iter<'a>(mut xs: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
         if let Some(page) = xs.next().and_then(|x| x.parse().ok()) {
             let kws: Vec<String> = xs.map(String::from).collect();
             if kws.is_empty() {
@@ -992,13 +1041,14 @@ impl<I> RegionGateIndex<I> {
         kws: &mut StdKeywords,
         i: RegionIndex,
         par: Par,
+        conf: &StdTextReadConfig,
     ) -> LookupTentative<MaybeValue<Self>, E>
     where
         I: fmt::Display + FromStr + gating::LinkedMeasIndex,
-        Self: fmt::Display + FromStr,
-        ParseOptKeyWarning: From<<Self as FromStr>::Err>,
+        for<'a> Self: fmt::Display + FromStrStateful<Payload<'a> = ()>,
+        ParseOptKeyWarning: From<<Self as FromStrStateful>::Err>,
     {
-        process_opt(Self::remove_meas_opt(kws, i.into())).and_tentatively(|maybe| {
+        process_opt(Self::remove_meas_opt_st(kws, i.into(), (), conf)).and_tentatively(|maybe| {
             if let Some(x) = maybe.0 {
                 Self::check_link(&x, par).map_or_else(
                     |w| Tentative::new(None, vec![w.into()], vec![]),
@@ -1016,13 +1066,14 @@ impl<I> RegionGateIndex<I> {
         i: RegionIndex,
         par: Par,
         disallow_dep: bool,
+        conf: &StdTextReadConfig,
     ) -> LookupTentative<MaybeValue<Self>, DeprecatedError>
     where
         I: fmt::Display + FromStr + gating::LinkedMeasIndex,
-        Self: fmt::Display + FromStr,
-        ParseOptKeyWarning: From<<Self as FromStr>::Err>,
+        for<'a> Self: fmt::Display + FromStrStateful<Payload<'a> = ()>,
+        ParseOptKeyWarning: From<<Self as FromStrStateful>::Err>,
     {
-        let mut x = Self::lookup_region_opt(kws, i, par);
+        let mut x = Self::lookup_region_opt(kws, i, par, conf);
         eval_dep_maybe(&mut x, Self::std(i.into()), disallow_dep);
         x
     }
@@ -1053,6 +1104,15 @@ impl<I> RegionGateIndex<I> {
     }
 }
 
+impl<I: FromStr> FromStrStateful for RegionGateIndex<I> {
+    type Err = RegionGateIndexError<<I as FromStr>::Err>;
+    type Payload<'a> = ();
+
+    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
+    }
+}
+
 impl<I> FromStr for RegionGateIndex<I>
 where
     I: FromStr,
@@ -1060,7 +1120,17 @@ where
     type Err = RegionGateIndexError<<I as FromStr>::Err>;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.split(",").collect::<Vec<_>>()[..] {
+        Self::from_str_delim(s, false)
+    }
+}
+
+impl<I: FromStr> FromStrDelim for RegionGateIndex<I> {
+    type Err = RegionGateIndexError<<I as FromStr>::Err>;
+    const DELIM: char = ',';
+
+    fn from_iter<'a>(ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        let xs: Vec<_> = ss.collect();
+        match &xs[..] {
             [x] => x
                 .parse()
                 .map(RegionGateIndex::Univariate)
@@ -1244,17 +1314,46 @@ pub struct UniGate {
     pub upper: BigDecimal,
 }
 
+impl FromStrStateful for RegionWindow {
+    type Err = GatePairError;
+    type Payload<'a> = ();
+
+    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
+    }
+}
+
 impl FromStr for RegionWindow {
     type Err = GatePairError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // ASSUME split will always contain one element
-        let ss = NonEmpty::collect(s.split(";")).unwrap();
-        if ss.tail.is_empty() {
-            ss.head.parse().map(RegionWindow::Univariate)
+        Self::from_str_delim(s, false)
+    }
+}
+
+impl FromStrDelim for RegionWindow {
+    type Err = GatePairError;
+    const DELIM: char = ';';
+
+    fn from_str_delim(s: &str, trim_whitespace: bool) -> Result<Self, Self::Err> {
+        let it = s.split(Self::DELIM);
+        if trim_whitespace {
+            Self::from_iter(it.map(|x| x.trim()))
         } else {
-            ss.try_map(|sub| sub.parse()).map(Self::Bivariate)
+            Self::from_iter_inner(
+                it,
+                |x| UniGate::from_str_delim(x, false),
+                |x| Vertex::from_str_delim(x, false),
+            )
         }
+    }
+
+    fn from_iter<'a>(ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        Self::from_iter_inner(
+            ss,
+            |x| UniGate::from_str_delim(x, true),
+            |x| Vertex::from_str_delim(x, true),
+        )
     }
 }
 
@@ -1267,24 +1366,49 @@ impl fmt::Display for RegionWindow {
     }
 }
 
-impl FromStr for UniGate {
-    type Err = GatePairError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        parse_pair(s).map(|(lower, upper)| Self { lower, upper })
+impl RegionWindow {
+    fn from_iter_inner<'a, F, G>(
+        ss: impl Iterator<Item = &'a str>,
+        go_uni: F,
+        go_bi: G,
+    ) -> Result<Self, GatePairError>
+    where
+        F: FnOnce(&str) -> Result<UniGate, GatePairError>,
+        G: Fn(&str) -> Result<Vertex, GatePairError>,
+    {
+        // ASSUME split will always contain one element
+        let xs = NonEmpty::collect(ss).unwrap();
+        if xs.tail.is_empty() {
+            go_uni(xs.head).map(RegionWindow::Univariate)
+        } else {
+            xs.try_map(go_bi).map(Self::Bivariate)
+        }
     }
 }
 
-impl FromStr for Vertex {
+impl FromStrDelim for UniGate {
     type Err = GatePairError;
+    const DELIM: char = ',';
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        parse_pair(s).map(|(x, y)| Self { x, y })
+    fn from_iter<'a>(ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        parse_pair(ss).map(|(lower, upper)| Self { lower, upper })
     }
 }
 
-fn parse_pair(s: &str) -> Result<(BigDecimal, BigDecimal), GatePairError> {
-    match s.split(",").collect::<Vec<_>>()[..] {
+impl FromStrDelim for Vertex {
+    type Err = GatePairError;
+    const DELIM: char = ',';
+
+    fn from_iter<'a>(ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        parse_pair(ss).map(|(x, y)| Self { x, y })
+    }
+}
+
+fn parse_pair<'a>(
+    ss: impl Iterator<Item = &'a str>,
+) -> Result<(BigDecimal, BigDecimal), GatePairError> {
+    let xs: Vec<_> = ss.collect();
+    match &xs[..] {
         [a, b] => a
             .parse()
             .and_then(|x| b.parse().map(|y| (x, y)))

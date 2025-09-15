@@ -1921,7 +1921,7 @@ where
         let sm = Smno::lookup_opt(kws);
         let sr = Src::lookup_opt(kws);
         let sy = Sys::lookup_opt(kws);
-        let t = Trigger::lookup_opt(kws, &names);
+        let t = Trigger::lookup_opt_linked_st(kws, &names, (), conf);
         a.zip5(co, ce, e, f)
             .zip5(i, l, o, p)
             .zip5(sm, sr, sy, t)
@@ -4751,8 +4751,12 @@ impl CoreTEXT3_2 {
 }
 
 impl UnstainedData {
-    fn lookup<E>(kws: &mut StdKeywords, names: &HashSet<&Shortname>) -> LookupTentative<Self, E> {
-        let c = UnstainedCenters::lookup_opt(kws, names);
+    fn lookup<E>(
+        kws: &mut StdKeywords,
+        names: &HashSet<&Shortname>,
+        conf: &StdTextReadConfig,
+    ) -> LookupTentative<Self, E> {
+        let c = UnstainedCenters::lookup_opt_linked_st(kws, names, (), conf);
         let i = UnstainedInfo::lookup_opt(kws);
         c.zip(i).map(|(unstainedcenters, unstainedinfo)| Self {
             unstainedcenters,
@@ -6489,7 +6493,7 @@ impl LookupOptical for InnerOptical3_1 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let w = Wavelengths::lookup_opt(kws, i.into());
+        let w = Wavelengths::lookup_opt_st(kws, i.into(), (), conf);
         let c = Calibration3_1::lookup_opt(kws, i.into());
         let d = Display::lookup_opt(kws, i.into());
         let p = PeakData::lookup_dep(kws, i, conf.disallow_deprecated);
@@ -6513,7 +6517,7 @@ impl LookupOptical for InnerOptical3_2 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let w = Wavelengths::lookup_opt(kws, i.into());
+        let w = Wavelengths::lookup_opt_st(kws, i.into(), (), conf);
         let c = Calibration3_2::lookup_opt(kws, i.into());
         let d = Display::lookup_opt(kws, i.into());
         let de = DetectorName::lookup_opt(kws, i.into());
@@ -7454,7 +7458,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         let sn = Cytsn::lookup_opt(kws);
         let su = SubsetData::lookup(kws);
         let t = Timestamps::lookup(kws, conf);
-        let u = Unicode::lookup_opt(kws);
+        let u = Unicode::lookup_opt_st(kws, (), conf);
         let g = AppliedGates3_0::lookup(kws, par, conf);
         co.zip4(cy, sn, su).zip4(t, u, g).and_maybe(
             |((comp, cyt, cytsn, subset), timestamps, unicode, applied_gates)| {
@@ -7557,9 +7561,9 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         let sn = Cytsn::lookup_opt(kws);
         let p = PlateData::lookup_dep(kws, dd);
         let t = Timestamps::lookup_dep(kws, conf, dd);
-        let u = UnstainedData::lookup(kws, names);
+        let u = UnstainedData::lookup(kws, names, conf);
         let v = Vol::lookup_opt(kws);
-        let g = AppliedGates3_2::lookup(kws, par, dd);
+        let g = AppliedGates3_2::lookup(kws, par, dd, conf);
         ca.zip6(d, f, md, mo, sp)
             .zip6(sn, p, t, u, v)
             .zip(g)

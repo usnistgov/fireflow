@@ -3276,6 +3276,7 @@ impl ArgData {
     }
 
     fn std_config_args(version: Version) -> Vec<Self> {
+        let trim_intra_value_whitespace = ArgData::trim_intra_value_whitespace();
         let time_meas_pattern = ArgData::time_meas_pattern_arg();
         let allow_missing_time = ArgData::allow_missing_time_arg();
         let force_time_linear = ArgData::force_time_linear_arg();
@@ -3291,6 +3292,7 @@ impl ArgData {
         let nonstandard_measurement_pattern = ArgData::nonstandard_measurement_pattern_arg();
 
         let std_common_args = [
+            trim_intra_value_whitespace,
             time_meas_pattern,
             allow_missing_time,
             force_time_linear,
@@ -3365,6 +3367,15 @@ impl ArgData {
         let warnings_are_errors = ArgData::warnings_are_errors_arg();
 
         vec![warnings_are_errors]
+    }
+
+    fn trim_intra_value_whitespace() -> Self {
+        ArgData::new_config_bool_arg(
+            "trim_intra_value_whitespace".into(),
+            "If ``True``, trim whitespace between delimiters such as ``,`` \
+             and ``;`` within keyword value strings."
+                .into(),
+        )
     }
 
     fn time_meas_pattern_arg() -> Self {

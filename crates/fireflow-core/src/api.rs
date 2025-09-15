@@ -1302,7 +1302,7 @@ mod tests {
         // NOTE should not start with delim
         let bytes = "$P4F/700//75 BP/".as_bytes();
         let delim = 47;
-        let out = split_raw_text_escaped_delim(kws, delim, bytes, &conf);
+        let out = split_raw_text_escaped_delim(kws, delim, bytes, TEXTKind::Primary, &conf);
         let v = out
             .value()
             .std

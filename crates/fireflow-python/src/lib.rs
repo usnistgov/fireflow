@@ -64,7 +64,7 @@ use fireflow_core::data::{
     F64Range, FixedAsciiLayout, KnownTot, LayoutOps, NoMeasDatatype, NonMixedEndianLayout,
 };
 use fireflow_core::error::{MultiResultExt, ResultExt};
-use fireflow_core::header::{Header, Version};
+use fireflow_core::header::Version;
 use fireflow_core::python::exceptions::{
     PyTerminalNoErrorResultExt, PyTerminalNoWarnResultExt, PyTerminalResultExt,
 };
@@ -81,19 +81,20 @@ use fireflow_core::validated::keys::{StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::Shortname;
 
 use fireflow_python_proc::{
-    impl_core_all_meas_nonstandard_keywords, impl_core_all_peak_attrs, impl_core_all_pnanalyte,
-    impl_core_all_pncal3_1, impl_core_all_pncal3_2, impl_core_all_pnd, impl_core_all_pndet,
-    impl_core_all_pnf, impl_core_all_pnfeature, impl_core_all_pnl_new, impl_core_all_pnl_old,
-    impl_core_all_pno, impl_core_all_pnp, impl_core_all_pns, impl_core_all_pnt,
-    impl_core_all_pntag, impl_core_all_pntype, impl_core_all_pnv, impl_core_all_shortnames_attr,
-    impl_core_all_shortnames_maybe_attr, impl_core_all_transforms_attr, impl_core_get_measurement,
-    impl_core_get_measurements, impl_core_get_set_timestep, impl_core_get_temporal,
-    impl_core_insert_measurement, impl_core_par, impl_core_push_measurement,
-    impl_core_remove_measurement, impl_core_rename_temporal, impl_core_replace_optical,
-    impl_core_replace_temporal, impl_core_set_measurements, impl_core_set_measurements_and_layout,
-    impl_core_set_temporal, impl_core_set_tr_threshold, impl_core_standard_keywords,
-    impl_core_to_version_x_y, impl_core_unset_temporal, impl_core_version, impl_core_write_dataset,
-    impl_core_write_text, impl_coredataset_from_kws, impl_coredataset_set_measurements_and_data,
+    def_fcs_read_header, impl_core_all_meas_nonstandard_keywords, impl_core_all_peak_attrs,
+    impl_core_all_pnanalyte, impl_core_all_pncal3_1, impl_core_all_pncal3_2, impl_core_all_pnd,
+    impl_core_all_pndet, impl_core_all_pnf, impl_core_all_pnfeature, impl_core_all_pnl_new,
+    impl_core_all_pnl_old, impl_core_all_pno, impl_core_all_pnp, impl_core_all_pns,
+    impl_core_all_pnt, impl_core_all_pntag, impl_core_all_pntype, impl_core_all_pnv,
+    impl_core_all_shortnames_attr, impl_core_all_shortnames_maybe_attr,
+    impl_core_all_transforms_attr, impl_core_get_measurement, impl_core_get_measurements,
+    impl_core_get_set_timestep, impl_core_get_temporal, impl_core_insert_measurement,
+    impl_core_par, impl_core_push_measurement, impl_core_remove_measurement,
+    impl_core_rename_temporal, impl_core_replace_optical, impl_core_replace_temporal,
+    impl_core_set_measurements, impl_core_set_measurements_and_layout, impl_core_set_temporal,
+    impl_core_set_tr_threshold, impl_core_standard_keywords, impl_core_to_version_x_y,
+    impl_core_unset_temporal, impl_core_version, impl_core_write_dataset, impl_core_write_text,
+    impl_coredataset_from_kws, impl_coredataset_set_measurements_and_data,
     impl_coredataset_truncate_data, impl_coredataset_unset_data, impl_coretext_from_kws,
     impl_coretext_to_dataset, impl_coretext_unset_measurements, impl_gated_meas,
     impl_layout_byte_widths, impl_new_core, impl_new_delim_ascii_layout,
@@ -108,11 +109,12 @@ use pyo3::types::PyTuple;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-#[pyfunction]
-#[pyo3(name = "_fcs_read_header")]
-pub fn py_fcs_read_header(p: PathBuf, conf: cfg::ReadHeaderConfig) -> PyResult<Header> {
-    api::fcs_read_header(&p, &conf).py_termfail_resolve_nowarn()
-}
+def_fcs_read_header!();
+// #[pyfunction]
+// #[pyo3(name = "_fcs_read_header")]
+// pub fn py_fcs_read_header(p: PathBuf, conf: cfg::ReadHeaderConfig) -> PyResult<Header> {
+//     api::fcs_read_header(&p, &conf).py_termfail_resolve_nowarn()
+// }
 
 #[pyfunction]
 #[pyo3(name = "_fcs_read_raw_text")]

@@ -659,25 +659,25 @@ DEFAULT_OTHER_WIDTH = 8
 DEFAULT_TIME_MEAS_PATTERN = "^(TIME|Time)$"
 
 
-def fcs_read_header(
-    p: Path,
-    text_correction: OffsetCorrection = DEFAULT_CORRECTION,
-    data_correction: OffsetCorrection = DEFAULT_CORRECTION,
-    analysis_correction: OffsetCorrection = DEFAULT_CORRECTION,
-    other_corrections: list[OffsetCorrection] = [],
-    max_other: int | None = None,
-    other_width: int = DEFAULT_OTHER_WIDTH,
-    squish_offsets: bool = False,
-    allow_negative: bool = False,
-    truncate_offsets: bool = False,
-) -> ReadHeaderOutput:
-    args = {k: v for k, v in locals().items() if k != "p"}
-    conf = _assign_args([*_HEADER_ARGS], args)
-    assert len(args) == 0, False
-    ret = _api._fcs_read_header(p, conf)
-    return ReadHeaderOutput(
-        version=ret["version"], segments=HeaderSegments(**ret["segments"])
-    )
+# def fcs_read_header(
+#     p: Path,
+#     text_correction: OffsetCorrection = DEFAULT_CORRECTION,
+#     data_correction: OffsetCorrection = DEFAULT_CORRECTION,
+#     analysis_correction: OffsetCorrection = DEFAULT_CORRECTION,
+#     other_corrections: list[OffsetCorrection] = [],
+#     max_other: int | None = None,
+#     other_width: int = DEFAULT_OTHER_WIDTH,
+#     squish_offsets: bool = False,
+#     allow_negative: bool = False,
+#     truncate_offsets: bool = False,
+# ) -> ReadHeaderOutput:
+#     args = {k: v for k, v in locals().items() if k != "p"}
+#     conf = _assign_args([*_HEADER_ARGS], args)
+#     assert len(args) == 0, False
+#     ret = _api._fcs_read_header(p, conf)
+#     return ReadHeaderOutput(
+#         version=ret["version"], segments=HeaderSegments(**ret["segments"])
+#     )
 
 
 def fcs_read_raw_text(
@@ -1127,13 +1127,13 @@ def _format_docstring(front: str, params: list[tuple[str, list[str]]]) -> str:
     return f"{front}\n\n{ps}"
 
 
-fcs_read_header.__doc__ = _format_docstring(
-    "Read the *HEADER* of an FCS file.",
-    [
-        ("p", ["path to FCS file"]),
-        *_HEADER_ARGS.items(),
-    ],
-)
+# fcs_read_header.__doc__ = _format_docstring(
+#     "Read the *HEADER* of an FCS file.",
+#     [
+#         ("p", ["path to FCS file"]),
+#         *_HEADER_ARGS.items(),
+#     ],
+# )
 
 fcs_read_raw_text.__doc__ = _format_docstring(
     "Read the *TEXT* of an FCS file without standarization.",

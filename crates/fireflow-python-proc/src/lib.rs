@@ -19,6 +19,35 @@ use syn::{
 };
 
 #[proc_macro]
+pub fn def_fcs_read_header(_: TokenStream) -> TokenStream {
+    let fun_path = quote!(fireflow_core::api::fcs_read_header);
+    let ret_path = quote!(fireflow_core::header::Header);
+    let args = ArgData::header_config_args();
+    let fun_args: Vec<_> = args.iter().map(|a| a.constr_arg()).collect();
+    let inner_args: Vec<_> = args.iter().map(|a| a.inner_arg1()).collect();
+    let conf_params: Vec<_> = args.iter().map(|a| a.doc.clone()).collect();
+    let doc = DocString::new(
+        "Read the *HEADER* of an FCS file.".into(),
+        vec![],
+        DocSelf::NoSelf,
+        [path_param(true)].into_iter().chain(conf_params).collect(),
+        Some(DocReturn::new(PyType::PyClass("Header".into()), None)),
+    );
+    quote! {
+        #[pyfunction]
+        #doc
+        pub fn fcs_read_header(path: std::path::PathBuf, #(#fun_args),*) -> PyResult<#ret_path> {
+            let inner = fireflow_core::config::HeaderConfigInner{
+                #(#inner_args),*
+            };
+            let conf =  fireflow_core::config::ReadHeaderConfig(inner);
+            #fun_path(&path, &conf).py_termfail_resolve_nowarn()
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
 pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let info = parse_macro_input!(input as NewCoreInfo);
     let version = info.version;
@@ -3275,6 +3304,20 @@ impl ArgData {
         )
     }
 
+    fn header_config_args() -> Vec<Self> {
+        vec![
+            ArgData::text_correction_arg(),
+            ArgData::data_correction_arg(),
+            ArgData::analysis_correction_arg(),
+            ArgData::other_corrections_arg(),
+            ArgData::max_other_arg(),
+            ArgData::other_width_arg(),
+            ArgData::squish_offsets_arg(),
+            ArgData::allow_negative_arg(),
+            ArgData::truncate_offsets_arg(),
+        ]
+    }
+
     fn std_config_args(version: Version) -> Vec<Self> {
         let trim_intra_value_whitespace = ArgData::trim_intra_value_whitespace();
         let time_meas_pattern = ArgData::time_meas_pattern_arg();
@@ -3551,13 +3594,122 @@ impl ArgData {
     fn new_config_correction_arg(name: &str, what: &str, location: &str, rstype: Path) -> Self {
         ArgData::new_config_arg(
             name.into(),
-            PyType::Tuple(vec![PyType::Int, PyType::Int]),
+            correction_pytype(),
             format!("Corrections for *{what}* offsets in *{location}*"),
             DocDefault::Other(
                 quote!(fireflow_core::segment::OffsetCorrection::default()),
                 "(0, 0)".into(),
             ),
             parse_quote!(fireflow_core::segment::#rstype),
+        )
+    }
+
+    fn text_correction_arg() -> Self {
+        Self::new_config_correction_arg(
+            "text_correction",
+            "TEXT",
+            "HEADER",
+            parse_quote!(HeaderCorrection<fireflow_core::segment::PrimaryTextSegmentId>),
+        )
+    }
+
+    fn data_correction_arg() -> Self {
+        Self::new_config_correction_arg(
+            "data_correction",
+            "DATA",
+            "HEADER",
+            parse_quote!(HeaderCorrection<fireflow_core::segment::DataSegmentId>),
+        )
+    }
+
+    fn analysis_correction_arg() -> Self {
+        Self::new_config_correction_arg(
+            "analysis_correction",
+            "ANALYSIS",
+            "HEADER",
+            parse_quote!(HeaderCorrection<fireflow_core::segment::AnalysisSegmentId>),
+        )
+    }
+
+    fn other_corrections_arg() -> Self {
+        let id_path = quote!(fireflow_core::segment::OtherSegmentId);
+        let corr_path = quote!(fireflow_core::segment::HeaderCorrection);
+        Self::new_config_arg(
+            "other_corrections".into(),
+            PyType::new_list(correction_pytype()),
+            "Corrections for OTHER offsets if they exist. Each correction will \
+             be applied in order. If an offset does not need to be corrected, \
+             use ``(0, 0)``. This will not affect the number of OTHER segments \
+             that are read; this is controlled by ``max_other``."
+                .into(),
+            DocDefault::EmptyList,
+            parse_quote!(Vec<#corr_path<#id_path>>),
+        )
+    }
+
+    fn max_other_arg() -> Self {
+        Self::new_config_opt_arg(
+            "max_other".into(),
+            PyType::Int,
+            "Maximum number of OTHER segments that can be parsed. \
+             ``None`` means limitless."
+                .into(),
+            parse_quote!(usize),
+        )
+    }
+
+    fn other_width_arg() -> Self {
+        let path = parse_quote!(fireflow_core::validated::ascii_range::OtherWidth);
+        Self::new_config_arg(
+            "other_width".into(),
+            PyType::Int,
+            "Maximum number of OTHER segments that can be parsed. \
+             ``None`` means limitless."
+                .into(),
+            DocDefault::Other(quote!(#path::default()), "8".into()),
+            path,
+        )
+    }
+
+    // this only matters for 3.0+ files
+    fn squish_offsets_arg() -> Self {
+        Self::new_config_bool_arg(
+            "squish_offsets".into(),
+            "If ``True`` and a segment's ending offset is zero, treat entire \
+             offset as empty. This might happen if the ending offset is longer \
+             than 8 digits, in which case it must be written in *TEXT*. If this \
+             happens, the standards mandate that both offsets be written to \
+             *TEXT* and that the *HEADER* offsets be set to ``0,0``, so only \
+             writing one is an error unless this flag is set. This should only \
+             happen in FCS 3.0 files and above."
+                .into(),
+        )
+    }
+
+    fn allow_negative_arg() -> Self {
+        Self::new_config_bool_arg(
+            "allow_negative".into(),
+            "If true, allow negative values in a HEADER offset. If negative \
+             offsets are found, they will be replaced with ``0``. Some files \
+             will denote an \"empty\" offset as ``0,-1``, which is logically \
+             correct since the last offset points to the last byte, thus ``0,0`` \
+             is actually 1 byte long. Unfortunately this is not what the \
+             standards say, so specifying ``0,-1`` is an error unless this \
+             flag is set."
+                .into(),
+        )
+    }
+
+    fn truncate_offsets_arg() -> Self {
+        Self::new_config_bool_arg(
+            "truncate_offsets".into(),
+            "If true, truncate offsets that exceed the end of the file. \
+             In some cases the DATA offset (usually) might exceed the end of the \
+             file by 1, which is usually a mistake and should be corrected with \
+             ``data_correction`` (or analogous for the offending offset). If this \
+             is not the case, the file is likely corrupted. This flag will allow \
+             such files to be read conveniently if desired."
+                .into(),
         )
     }
 
@@ -4973,6 +5125,10 @@ fn calibration3_2_pytype() -> PyType {
 }
 
 fn segment_pytype() -> PyType {
+    PyType::Tuple(vec![PyType::Int, PyType::Int])
+}
+
+fn correction_pytype() -> PyType {
     PyType::Tuple(vec![PyType::Int, PyType::Int])
 }
 

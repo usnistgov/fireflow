@@ -41,8 +41,8 @@ from ._pyreflow import (
     EndianF64Layout,
     EndianUintLayout,
     MixedLayout,
-    api,
 )
+from pyreflow import api
 # from .api import (
 #     fcs_read_header,
 #     fcs_read_raw_text,

@@ -7,8 +7,6 @@ from polars import Series, DataFrame
 import numpy as np
 import numpy.typing as npt
 
-# TODO not sure why mypy complains about this
-from pyreflow import PyreflowWarning, PyreflowException  # type: ignore
 from pyreflow.typing import (
     MeasIndex,
     Range,
@@ -45,6 +43,7 @@ from pyreflow.typing import (
     FCSVersion,
     TemporalOpticalKey,
     Segment,
+    OffsetCorrection,
 )
 
 _X = TypeVar("_X")
@@ -54,6 +53,9 @@ _N = TypeVar("_N")
 _L = TypeVar("_L")
 
 _OpticalKeyVals = list[_X | tuple[()] | None]
+
+_DEFAULT_CORRECTION = (0, 0)
+_DEFAULT_OTHER_WIDTH = 8
 
 class _LayoutUnmixedCommon:
     @property
@@ -1300,8 +1302,8 @@ class CoreDataset3_0(
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
         disallow_range_truncation: bool = False,
-        text_data_correction: tuple[int, int] = (0, 0),
-        text_analysis_correction: tuple[int, int] = (0, 0),
+        text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+        text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
         allow_missing_required_offsets: bool = False,
@@ -1405,8 +1407,8 @@ class CoreDataset3_1(
         ignore_time_gain: bool = False,
         parse_indexed_spillover: bool = False,
         disallow_range_truncation: bool = False,
-        text_data_correction: tuple[int, int] = (0, 0),
-        text_analysis_correction: tuple[int, int] = (0, 0),
+        text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+        text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
         allow_missing_required_offsets: bool = False,
@@ -1513,8 +1515,8 @@ class CoreDataset3_2(
         ignore_time_gain: bool = False,
         parse_indexed_spillover: bool = False,
         disallow_range_truncation: bool = False,
-        text_data_correction: tuple[int, int] = (0, 0),
-        text_analysis_correction: tuple[int, int] = (0, 0),
+        text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+        text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
         allow_missing_required_offsets: bool = False,
@@ -1524,6 +1526,22 @@ class CoreDataset3_2(
         allow_tot_mismatch: bool = False,
         warnings_are_errors: bool = False,
     ) -> Self: ...
+
+def fcs_read_header(
+    path: Path,
+    text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    other_corrections: list[OffsetCorrection] = [],
+    max_other: int | None = None,
+    other_width: int = _DEFAULT_OTHER_WIDTH,
+    squish_offsets: bool = False,
+    allow_negative: bool = False,
+    truncate_offsets: bool = False,
+) -> None: ...
+
+class PyreflowException(Exception): ...
+class PyreflowWarning(Exception): ...
 
 __version__: str
 
@@ -1570,4 +1588,5 @@ __all__ = [
     "EndianF64Layout",
     "EndianUintLayout",
     "MixedLayout",
+    "fcs_read_header",
 ]

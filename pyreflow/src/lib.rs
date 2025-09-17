@@ -2,7 +2,7 @@ use fireflow_core::python::exceptions::{PyreflowException, PyreflowWarning};
 use fireflow_python as ff;
 
 use pyo3::prelude::*;
-use pyo3::wrap_pymodule;
+// use pyo3::wrap_pymodule;
 
 #[pymodule]
 fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -58,26 +58,25 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ff::PyEndianUintLayout>()?;
     m.add_class::<ff::PyMixedLayout>()?;
 
-    m.add_wrapped(wrap_pymodule!(api))?;
-
-    Ok(())
-}
-
-#[pymodule]
-fn api(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(ff::fcs_read_header, m)?)?;
-    // m.add_function(wrap_pyfunction!(ff::py_fcs_read_raw_text, m)?)?;
-    // m.add_function(wrap_pyfunction!(ff::py_fcs_read_std_text, m)?)?;
-    // m.add_function(wrap_pyfunction!(ff::py_fcs_read_std_dataset, m)?)?;
-    // m.add_function(wrap_pyfunction!(ff::py_fcs_read_raw_dataset, m)?)?;
-    // m.add_function(wrap_pyfunction!(
-    //     ff::py_fcs_read_raw_dataset_with_keywords,
-    //     m
-    // )?)?;
-    // m.add_function(wrap_pyfunction!(
-    //     ff::py_fcs_read_std_dataset_with_keywords,
-    //     m
-    // )?)?;
 
     Ok(())
 }
+
+// #[pymodule]
+// fn api(m: &Bound<'_, PyModule>) -> PyResult<()> {
+//     // m.add_function(wrap_pyfunction!(ff::py_fcs_read_raw_text, m)?)?;
+//     // m.add_function(wrap_pyfunction!(ff::py_fcs_read_std_text, m)?)?;
+//     // m.add_function(wrap_pyfunction!(ff::py_fcs_read_std_dataset, m)?)?;
+//     // m.add_function(wrap_pyfunction!(ff::py_fcs_read_raw_dataset, m)?)?;
+//     // m.add_function(wrap_pyfunction!(
+//     //     ff::py_fcs_read_raw_dataset_with_keywords,
+//     //     m
+//     // )?)?;
+//     // m.add_function(wrap_pyfunction!(
+//     //     ff::py_fcs_read_std_dataset_with_keywords,
+//     //     m
+//     // )?)?;
+
+//     Ok(())
+// }

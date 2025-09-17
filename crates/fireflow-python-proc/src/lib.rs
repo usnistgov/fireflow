@@ -103,7 +103,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let mode = if version < Version::FCS3_2 {
         let t = PyType::new_lit(&["L", "U", "C"]);
         let m = quote!(fireflow_core::text::keywords::Mode::default());
-        let d = DocDefault::Other(m, "L".into());
+        let d = DocDefault::Other(m, "\"L\"".into());
         ArgData::new_kw_arg("Mode", "mode", t, None, Some(d))
     } else {
         ArgData::new_kw_opt_arg("Mode3_2", "mode", PyType::new_lit(&["L"]))

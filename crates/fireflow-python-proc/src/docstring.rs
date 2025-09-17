@@ -1,32 +1,83 @@
+use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Itertools;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, ToTokens};
 use std::fmt;
+use std::marker::PhantomData;
 
 #[derive(Clone, new)]
-pub(crate) struct DocString {
+pub(crate) struct DocString<A, R, S> {
     summary: String,
     paragraphs: Vec<String>,
-    self_arg: DocSelf,
-    args: Vec<DocArg>,
-    returns: Option<DocReturn>,
+    args: Vec<A>,
+    returns: R,
+    _selfarg: PhantomData<S>,
 }
 
-#[derive(Clone)]
-pub enum DocSelf {
-    NoSelf,
-    PySelf,
-    // PyClass,
+pub(crate) type ClassDocString = DocString<AnyDocArg, (), NoSelf>;
+pub(crate) type MethodDocString = DocString<DocArgParam, Option<DocReturn>, SelfArg>;
+pub(crate) type FunDocString = DocString<DocArgParam, Option<DocReturn>, NoSelf>;
+
+// pub(crate) struct NoReturn;
+
+pub(crate) struct NoSelf;
+
+pub(crate) struct SelfArg;
+
+pub(crate) trait IsSelfArg {
+    const ARG: Option<&'static str>;
 }
+
+// pub(crate) trait IsReturn {
+//     fn return_doc(&self) -> Option<String>;
+// }
+
+// impl IsReturn for NoReturn {
+//     fn return_doc(&self) -> Option<String> {
+//         None
+//     }
+// }
+
+// impl IsReturn for DocReturn {
+//     fn return_doc(&self) -> Option<String> {
+//         Some(self.to_string())
+//     }
+// }
+
+impl IsSelfArg for NoSelf {
+    const ARG: Option<&'static str> = None;
+}
+
+impl IsSelfArg for SelfArg {
+    const ARG: Option<&'static str> = Some("self");
+}
+
+#[derive(Clone, From, Display)]
+pub(crate) enum AnyDocArg {
+    RWIvar(DocArgRWIvar),
+    ROIvar(DocArgROIvar),
+    Param(DocArgParam),
+}
+
+pub(crate) type DocArgRWIvar = DocArg<ArgTypeIvar<false>>;
+pub(crate) type DocArgROIvar = DocArg<ArgTypeIvar<true>>;
+pub(crate) type DocArgParam = DocArg<ArgTypeParam>;
+
+// #[derive(Clone)]
+// pub enum DocSelf {
+//     NoSelf,
+//     PySelf,
+//     // PyClass,
+// }
 
 #[derive(Clone, new)]
-pub(crate) struct DocArg {
-    pub(crate) argtype: ArgType,
+pub(crate) struct DocArg<T> {
     pub(crate) argname: String,
     pub(crate) pytype: PyType,
     pub(crate) desc: String,
     pub(crate) default: Option<DocDefault>,
+    _argtype: PhantomData<T>,
 }
 
 #[derive(Clone)]
@@ -46,10 +97,10 @@ pub(crate) struct DocReturn {
 }
 
 #[derive(Clone)]
-pub(crate) enum ArgType {
-    Ivar(bool),
-    Param,
-}
+pub(crate) struct ArgTypeParam;
+
+#[derive(Clone)]
+pub(crate) struct ArgTypeIvar<const READONLY: bool>;
 
 #[derive(Clone)]
 pub(crate) enum PyType {
@@ -73,23 +124,39 @@ pub(crate) enum PyType {
     PyClass(String),
 }
 
-impl DocArg {
-    pub(crate) fn new_ivar(argname: String, pytype: PyType, desc: String, readonly: bool) -> Self {
-        Self::new(ArgType::Ivar(readonly), argname, pytype, desc, None)
+impl DocArgROIvar {
+    pub(crate) fn new_ivar_ro(argname: String, pytype: PyType, desc: String) -> Self {
+        Self::new(argname, pytype, desc, None)
     }
 
-    pub(crate) fn new_param(argname: String, pytype: PyType, desc: String) -> Self {
-        Self::new(ArgType::Param, argname, pytype, desc, None)
-    }
-
-    pub(crate) fn new_ivar_def(
+    pub(crate) fn new_ivar_ro_def(
         argname: String,
         pytype: PyType,
         desc: String,
         def: DocDefault,
-        readonly: bool,
     ) -> Self {
-        Self::new(ArgType::Ivar(readonly), argname, pytype, desc, Some(def))
+        Self::new(argname, pytype, desc, Some(def))
+    }
+}
+
+impl DocArgRWIvar {
+    pub(crate) fn new_ivar_rw(argname: String, pytype: PyType, desc: String) -> Self {
+        Self::new(argname, pytype, desc, None)
+    }
+
+    pub(crate) fn new_ivar_rw_def(
+        argname: String,
+        pytype: PyType,
+        desc: String,
+        def: DocDefault,
+    ) -> Self {
+        Self::new(argname, pytype, desc, Some(def))
+    }
+}
+
+impl DocArgParam {
+    pub(crate) fn new_param(argname: String, pytype: PyType, desc: String) -> Self {
+        Self::new(argname, pytype, desc, None)
     }
 
     pub(crate) fn new_param_def(
@@ -98,9 +165,11 @@ impl DocArg {
         desc: String,
         def: DocDefault,
     ) -> Self {
-        Self::new(ArgType::Param, argname, pytype, desc, Some(def))
+        Self::new(argname, pytype, desc, Some(def))
     }
+}
 
+impl<T> DocArg<T> {
     pub(crate) fn default_matches(&self) -> Result<(), String> {
         if let Some(d) = self.default.as_ref() {
             if d.matches_pytype(&self.pytype) {
@@ -167,11 +236,115 @@ impl DocDefault {
     }
 }
 
-impl ArgType {
-    fn as_typename(&self) -> &'static str {
+pub(crate) trait IsArgType {
+    const TYPENAME: &str;
+    const ARGTYPE: &str;
+
+    fn readonly() -> bool;
+}
+
+impl<const READONLY: bool> IsArgType for ArgTypeIvar<READONLY> {
+    const TYPENAME: &str = "vartype";
+    const ARGTYPE: &str = "ivar";
+
+    fn readonly() -> bool {
+        READONLY
+    }
+}
+
+impl IsArgType for ArgTypeParam {
+    const TYPENAME: &str = "type";
+    const ARGTYPE: &str = "param";
+
+    fn readonly() -> bool {
+        false
+    }
+}
+
+pub(crate) trait IsDocArg {
+    fn argname(&self) -> &str;
+
+    fn pytype(&self) -> &PyType;
+
+    fn desc(&self) -> &str;
+
+    fn default(&self) -> Option<&DocDefault>;
+
+    fn default_matches(&self) -> Result<(), String>;
+}
+
+impl<T> IsDocArg for DocArg<T> {
+    fn argname(&self) -> &str {
+        self.argname.as_str()
+    }
+
+    fn pytype(&self) -> &PyType {
+        &self.pytype
+    }
+
+    fn desc(&self) -> &str {
+        self.desc.as_str()
+    }
+
+    fn default(&self) -> Option<&DocDefault> {
+        self.default.as_ref()
+    }
+
+    fn default_matches(&self) -> Result<(), String> {
+        if let Some(d) = self.default.as_ref() {
+            if d.matches_pytype(&self.pytype) {
+                Ok(())
+            } else {
+                Err(format!(
+                    "Arg type '{}' does not match default type '{}'",
+                    self.pytype,
+                    d.as_type()
+                ))
+            }
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl IsDocArg for AnyDocArg {
+    fn argname(&self) -> &str {
         match self {
-            Self::Ivar(_) => "vartype",
-            Self::Param => "type",
+            Self::RWIvar(x) => x.argname(),
+            Self::ROIvar(x) => x.argname(),
+            Self::Param(x) => x.argname(),
+        }
+    }
+
+    fn pytype(&self) -> &PyType {
+        match self {
+            Self::RWIvar(x) => x.pytype(),
+            Self::ROIvar(x) => x.pytype(),
+            Self::Param(x) => x.pytype(),
+        }
+    }
+
+    fn desc(&self) -> &str {
+        match self {
+            Self::RWIvar(x) => x.desc(),
+            Self::ROIvar(x) => x.desc(),
+            Self::Param(x) => x.desc(),
+        }
+    }
+
+    fn default(&self) -> Option<&DocDefault> {
+        match self {
+            Self::RWIvar(x) => x.default(),
+            Self::ROIvar(x) => x.default(),
+            Self::Param(x) => x.default(),
+        }
+    }
+
+    fn default_matches(&self) -> Result<(), String> {
+        match self {
+            Self::RWIvar(x) => x.default_matches(),
+            Self::ROIvar(x) => x.default_matches(),
+            Self::Param(x) => x.default_matches(),
         }
     }
 }
@@ -231,13 +404,48 @@ impl PyType {
     // }
 }
 
-impl DocString {
-    fn has_defaults(&self) -> Option<bool> {
+impl ClassDocString {
+    pub(crate) fn new_class(
+        summary: String,
+        paragraphs: Vec<String>,
+        args: Vec<AnyDocArg>,
+    ) -> Self {
+        Self::new(summary, paragraphs, args, ())
+    }
+}
+
+impl MethodDocString {
+    pub(crate) fn new_method(
+        summary: String,
+        paragraphs: Vec<String>,
+        args: Vec<DocArgParam>,
+        returns: Option<DocReturn>,
+    ) -> Self {
+        Self::new(summary, paragraphs, args, returns)
+    }
+}
+
+impl FunDocString {
+    pub(crate) fn new_fun(
+        summary: String,
+        paragraphs: Vec<String>,
+        args: Vec<DocArgParam>,
+        returns: Option<DocReturn>,
+    ) -> Self {
+        Self::new(summary, paragraphs, args, returns)
+    }
+}
+
+impl<A, R, S> DocString<A, R, S> {
+    fn has_defaults(&self) -> Option<bool>
+    where
+        A: IsDocArg,
+    {
         self.args
             .iter()
-            .skip_while(|p| p.default.is_none())
+            .skip_while(|p| p.default().is_none())
             .try_fold(false, |has_def, next| {
-                match (has_def, next.default.is_some()) {
+                match (has_def, next.default().is_some()) {
                     // if we encounter a non-default after at least one
                     // default, return None (error) since this means we
                     // have default args after non-default args.
@@ -247,12 +455,19 @@ impl DocString {
             })
     }
 
-    pub(crate) fn doc(&self) -> TokenStream {
+    pub(crate) fn doc(&self) -> TokenStream
+    where
+        Self: fmt::Display,
+    {
         let s = self.to_string();
         quote! {#[doc = #s]}
     }
 
-    pub(crate) fn sig(&self) -> TokenStream {
+    pub(crate) fn sig(&self) -> TokenStream
+    where
+        A: IsDocArg,
+        S: IsSelfArg,
+    {
         if let Err(e) = self
             .args
             .iter()
@@ -269,9 +484,9 @@ impl DocString {
         let (raw_sig, _txt_sig): (Vec<_>, Vec<_>) = ps
             .iter()
             .map(|a| {
-                let n = &a.argname;
+                let n = &a.argname();
                 let i = format_ident!("{n}");
-                if let Some(d) = a.default.as_ref() {
+                if let Some(d) = a.default() {
                     let r = d.as_rs_value();
                     let t = d.as_py_value();
                     (quote! {#i=#r}, format!("{n}={t}"))
@@ -280,26 +495,54 @@ impl DocString {
                 }
             })
             .unzip();
-        let txt_self = self.self_arg.as_arg();
-        let txt_sig = format!("({})", txt_self.into_iter().chain(_txt_sig).join(", "));
+        let txt_sig = format!(
+            "({})",
+            S::ARG
+                .into_iter()
+                .chain(_txt_sig.iter().map(|s| s.as_str()))
+                .join(", ")
+        );
         quote! {
             #[pyo3(signature = (#(#raw_sig),*))]
             #[pyo3(text_signature = #txt_sig)]
         }
     }
-}
 
-impl DocSelf {
-    fn as_arg(&self) -> Option<String> {
-        match self {
-            DocSelf::NoSelf => None,
-            DocSelf::PySelf => Some("self".into()),
-            // DocSelf::PyClass => Some("cls".into()),
+    fn fmt_inner<F>(&self, f_return: F, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error>
+    where
+        A: fmt::Display,
+        F: FnOnce(&R) -> Option<String>,
+    {
+        let ps = self
+            .paragraphs
+            .iter()
+            .map(|s| fmt_docstring_nonparam(s.as_str()));
+        let xs = self.args.iter().map(|s| s.to_string());
+        let r = f_return(&self.returns).into_iter();
+        let rest = ps.chain(xs).chain(r).join("\n\n");
+        if self.summary.len() > LINE_LEN {
+            panic!("summary is too long");
         }
+        write!(f, "{}\n\n{rest}", self.summary)
     }
 }
 
-impl ToTokens for DocString {
+// impl DocSelf {
+//     fn as_arg(&self) -> Option<String> {
+//         match self {
+//             DocSelf::NoSelf => None,
+//             DocSelf::PySelf => Some("self".into()),
+//             // DocSelf::PyClass => Some("cls".into()),
+//         }
+//     }
+// }
+
+impl<A, R, S> ToTokens for DocString<A, R, S>
+where
+    Self: fmt::Display,
+    A: IsDocArg,
+    S: IsSelfArg,
+{
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let doc = self.doc();
         let sig = self.sig();
@@ -311,30 +554,21 @@ impl ToTokens for DocString {
     }
 }
 
-impl fmt::Display for DocString {
+impl fmt::Display for ClassDocString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let ps = self
-            .paragraphs
-            .iter()
-            .map(|s| fmt_docstring_nonparam(s.as_str()));
-        let xs = self.args.iter().map(|s| s.to_string());
-        let r = self.returns.as_ref().into_iter().map(|s| s.to_string());
-        let rest = ps.chain(xs).chain(r).join("\n\n");
-        if self.summary.len() > LINE_LEN {
-            panic!("summary is too long");
-        }
-        write!(f, "{}\n\n{rest}", self.summary)
+        self.fmt_inner(|()| None, f)
     }
 }
 
-impl fmt::Display for DocArg {
+impl<A: fmt::Display, S> fmt::Display for DocString<A, Option<DocReturn>, S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let at = &self.argtype;
-        let ro = if matches!(&self.argtype, ArgType::Ivar(true)) {
-            "(read-only) "
-        } else {
-            ""
-        };
+        self.fmt_inner(|r| r.as_ref().map(|s| s.to_string()), f)
+    }
+}
+
+impl<T: IsArgType + fmt::Display> fmt::Display for DocArg<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let ro = if T::readonly() { "(read-only) " } else { "" };
         let pt = &self.pytype;
         let n = &self.argname;
         let d = self
@@ -344,7 +578,8 @@ impl fmt::Display for DocArg {
             .map_or(self.desc.to_string(), |def| {
                 format!("{} Defaults to ``{def}``.", self.desc)
             });
-        let tn = self.argtype.as_typename();
+        let tn = T::TYPENAME;
+        let at = T::ARGTYPE;
         let s0 = fmt_docstring_param1(format!(":{at} {n}: {ro}{d}"));
         let s1 = fmt_docstring_param1(format!(":{tn} {n}: {pt}"));
         write!(f, "{s0}\n{s1}")
@@ -366,13 +601,15 @@ impl fmt::Display for DocReturn {
     }
 }
 
-impl fmt::Display for ArgType {
+impl<const READONLY: bool> fmt::Display for ArgTypeIvar<READONLY> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s = match self {
-            Self::Ivar(_) => "ivar",
-            Self::Param => "param",
-        };
-        f.write_str(s)
+        f.write_str("ivar")
+    }
+}
+
+impl fmt::Display for ArgTypeParam {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        f.write_str("param")
     }
 }
 

@@ -47,7 +47,7 @@ pub(crate) struct DocReturn {
 
 #[derive(Clone)]
 pub(crate) enum ArgType {
-    Ivar,
+    Ivar(bool),
     Param,
 }
 
@@ -74,8 +74,8 @@ pub(crate) enum PyType {
 }
 
 impl DocArg {
-    pub(crate) fn new_ivar(argname: String, pytype: PyType, desc: String) -> Self {
-        Self::new(ArgType::Ivar, argname, pytype, desc, None)
+    pub(crate) fn new_ivar(argname: String, pytype: PyType, desc: String, readonly: bool) -> Self {
+        Self::new(ArgType::Ivar(readonly), argname, pytype, desc, None)
     }
 
     pub(crate) fn new_param(argname: String, pytype: PyType, desc: String) -> Self {
@@ -87,8 +87,9 @@ impl DocArg {
         pytype: PyType,
         desc: String,
         def: DocDefault,
+        readonly: bool,
     ) -> Self {
-        Self::new(ArgType::Ivar, argname, pytype, desc, Some(def))
+        Self::new(ArgType::Ivar(readonly), argname, pytype, desc, Some(def))
     }
 
     pub(crate) fn new_param_def(
@@ -169,7 +170,7 @@ impl DocDefault {
 impl ArgType {
     fn as_typename(&self) -> &'static str {
         match self {
-            Self::Ivar => "vartype",
+            Self::Ivar(_) => "vartype",
             Self::Param => "type",
         }
     }
@@ -329,6 +330,11 @@ impl fmt::Display for DocString {
 impl fmt::Display for DocArg {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let at = &self.argtype;
+        let ro = if matches!(&self.argtype, ArgType::Ivar(true)) {
+            "(read-only) "
+        } else {
+            ""
+        };
         let pt = &self.pytype;
         let n = &self.argname;
         let d = self
@@ -339,7 +345,7 @@ impl fmt::Display for DocArg {
                 format!("{} Defaults to ``{def}``.", self.desc)
             });
         let tn = self.argtype.as_typename();
-        let s0 = fmt_docstring_param1(format!(":{at} {n}: {d}"));
+        let s0 = fmt_docstring_param1(format!(":{at} {n}: {ro}{d}"));
         let s1 = fmt_docstring_param1(format!(":{tn} {n}: {pt}"));
         write!(f, "{s0}\n{s1}")
     }
@@ -363,7 +369,7 @@ impl fmt::Display for DocReturn {
 impl fmt::Display for ArgType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let s = match self {
-            Self::Ivar => "ivar",
+            Self::Ivar(_) => "ivar",
             Self::Param => "param",
         };
         f.write_str(s)

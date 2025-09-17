@@ -221,9 +221,14 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         .chain([&analysis, &others])
         .collect();
 
-    let coretext_ivar_methods: Vec<_> = coretext_args.iter().flat_map(|x| &x.methods).collect();
-    let coredataset_ivar_methods: Vec<_> =
-        coredataset_args.iter().flat_map(|x| &x.methods).collect();
+    let coretext_ivar_methods: Vec<_> = coretext_args
+        .iter()
+        .flat_map(|x| x.quoted_methods())
+        .collect();
+    let coredataset_ivar_methods: Vec<_> = coredataset_args
+        .iter()
+        .flat_map(|x| x.quoted_methods())
+        .collect();
 
     let coretext_params: Vec<_> = coretext_args.iter().map(|x| x.doc.clone()).collect();
     let coredataset_params: Vec<_> = coredataset_args.iter().map(|x| x.doc.clone()).collect();
@@ -2323,54 +2328,71 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         PyType::Bool,
         "``True`` if *$PnE* is set to ``0,0``.".into(),
         DocDefault::Bool(false),
+        false,
     );
-    let has_scale_methods = quote! {
-        #[getter]
-        fn get_has_scale(&self) -> bool {
-            self.0.specific.scale.0.is_some()
-        }
-
-        #[setter]
-        fn set_has_scale(&mut self, has_scale: bool) {
-            self.0.specific.scale = if has_scale {
-                Some(fireflow_core::text::keywords::TemporalScale)
-            } else {
-                None
-            }.into();
-        }
-    };
-    let has_scale = ArgData::new(has_scale_doc, parse_quote!(bool), Some(has_scale_methods));
+    let has_scale_methods = ArgDataMethods::GetSet(
+        quote! {
+            fn get_has_scale(&self) -> bool {
+                self.0.specific.scale.0.is_some()
+            }
+        },
+        quote! {
+            fn set_has_scale(&mut self, has_scale: bool) {
+                self.0.specific.scale = if has_scale {
+                    Some(fireflow_core::text::keywords::TemporalScale)
+                } else {
+                    None
+                }.into();
+            }
+        },
+    );
+    let has_scale = ArgData::new(has_scale_doc, parse_quote!(bool), has_scale_methods);
 
     let has_type_doc = DocArg::new_ivar_def(
         "has_type".into(),
         PyType::Bool,
         "``True`` if *$PnTYPE* is set to ``Time``.".into(),
         DocDefault::Bool(false),
+        false,
     );
-    let has_type_methods = quote! {
-        #[getter]
-        fn get_has_type(&self) -> bool {
-            self.0.specific.measurement_type.0.is_some()
-        }
-
-        #[setter]
-        fn set_has_type(&mut self, has_type: bool) {
-            self.0.specific.measurement_type = if has_type {
-                Some(fireflow_core::text::keywords::TemporalType)
-            } else {
-                None
-            }.into();
-        }
-    };
-    let has_type = ArgData::new(has_type_doc, parse_quote!(bool), Some(has_type_methods));
+    let has_type_methods = ArgDataMethods::GetSet(
+        quote! {
+            fn get_has_type(&self) -> bool {
+                self.0.specific.measurement_type.0.is_some()
+            }
+        },
+        quote! {
+            fn set_has_type(&mut self, has_type: bool) {
+                self.0.specific.measurement_type = if has_type {
+                    Some(fireflow_core::text::keywords::TemporalType)
+                } else {
+                    None
+                }.into();
+            }
+        },
+    );
+    let has_type = ArgData::new(has_type_doc, parse_quote!(bool), has_type_methods);
 
     let timestep_path = keyword_path("Timestep");
     let timestep_doc = DocArg::new_ivar(
         "timestep".into(),
         PyType::Float,
         "Value of *$TIMESTEP*.".into(),
+        false,
     );
-    let timestep = ArgData::new1(timestep_doc, timestep_path);
+    let timestep_methods = ArgDataMethods::GetSet(
+        quote! {
+            fn get_timestep(&self) -> #timestep_path {
+                self.0.specific.timestep
+            }
+        },
+        quote! {
+            fn set_timestep(&mut self, timestep: #timestep_path) {
+                self.0.specific.timestep = timestep
+            }
+        },
+    );
+    let timestep = ArgData::new(timestep_doc, timestep_path, timestep_methods);
 
     let longname = ArgData::new_meas_kw_opt_arg("Longname", "longname", "S", PyType::Str);
 
@@ -2440,7 +2462,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
 
     let inner_args: Vec<_> = all_args.iter().map(|x| x.inner_arg()).collect();
 
-    let ivar_methods: Vec<_> = all_args.iter().flat_map(|x| &x.methods).collect();
+    let ivar_methods: Vec<_> = all_args.iter().flat_map(|x| x.quoted_methods()).collect();
 
     let doc = DocString::new(
         format!("FCS {version_s} *$Pn\\** keywords for {lower_basename} measurement."),
@@ -2450,33 +2472,13 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         None,
     );
 
-    let get_set_timestep = if version != Version::FCS2_0 && is_temporal {
-        let t = keyword_path("Timestep");
-        quote! {
-            #[getter]
-            fn get_timestep(&self) -> #t {
-                self.0.specific.timestep
-            }
-
-            #[setter]
-            fn set_timestep(&mut self, timestep: #t) {
-                self.0.specific.timestep = timestep
-            }
-        }
-    } else {
-        quote! {}
-    };
-
     let new_method = quote! {
         fn new(#(#funargs),*) -> Self {
             #fun(#(#inner_args),*).into()
         }
     };
 
-    let rest = quote! {
-        #get_set_timestep
-        #(#ivar_methods)*
-    };
+    let rest = quote! { #(#ivar_methods)* };
 
     impl_new(name.to_string(), path, doc, new_method, rest)
         .1
@@ -2517,7 +2519,13 @@ impl Parse for NewCoreInfo {
 struct ArgData {
     doc: DocArg,
     rstype: Path,
-    methods: Option<proc_macro2::TokenStream>,
+    methods: ArgDataMethods,
+}
+
+enum ArgDataMethods {
+    Hidden,
+    Get(proc_macro2::TokenStream),
+    GetSet(proc_macro2::TokenStream, proc_macro2::TokenStream),
 }
 
 impl ArgData {
@@ -2525,7 +2533,24 @@ impl ArgData {
         Self {
             doc,
             rstype,
-            methods: None,
+            methods: ArgDataMethods::Hidden,
+        }
+    }
+
+    fn quoted_methods(&self) -> Option<proc_macro2::TokenStream> {
+        match &self.methods {
+            ArgDataMethods::Hidden => None,
+            ArgDataMethods::Get(g) => Some(quote! {
+                #[getter]
+                #g
+            }),
+            ArgDataMethods::GetSet(g, s) => Some(quote! {
+                #[getter]
+                #g
+
+                #[setter]
+                #s
+            }),
         }
     }
 
@@ -2605,10 +2630,10 @@ impl ArgData {
             } else {
                 pytype
             };
-            let a = DocArg::new_ivar_def(name.to_string(), t, _desc, d);
+            let a = DocArg::new_ivar_def(name.to_string(), t, _desc, d, false);
             (optional, a)
         } else {
-            let a = DocArg::new_ivar(name.to_string(), pytype, _desc);
+            let a = DocArg::new_ivar(name.to_string(), pytype, _desc, false);
             (false, a)
         };
 
@@ -2620,18 +2645,19 @@ impl ArgData {
             path.clone()
         };
 
-        let methods = quote! {
-            #[getter]
-            fn #get(&self) -> #full_kw {
-                self.0.#get_inner::<#path>().#clone_inner()
-            }
-
-            #[setter]
-            fn #set(&mut self, x: #full_kw) {
-                self.0.set_metaroot(x)
-            }
-        };
-        Self::new(doc, full_kw, Some(methods))
+        let methods = ArgDataMethods::GetSet(
+            quote! {
+                fn #get(&self) -> #full_kw {
+                    self.0.#get_inner::<#path>().#clone_inner()
+                }
+            },
+            quote! {
+                fn #set(&mut self, x: #full_kw) {
+                    self.0.set_metaroot(x)
+                }
+            },
+        );
+        Self::new(doc, full_kw, methods)
     }
 
     fn new_meas_kw_arg(
@@ -2656,10 +2682,10 @@ impl ArgData {
             } else {
                 pytype
             };
-            let a = DocArg::new_ivar_def(name.to_string(), t, _desc, d);
+            let a = DocArg::new_ivar_def(name.to_string(), t, _desc, d, false);
             (optional, a)
         } else {
-            let a = DocArg::new_ivar(name.to_string(), pytype, _desc);
+            let a = DocArg::new_ivar(name.to_string(), pytype, _desc, false);
             (false, a)
         };
 
@@ -2669,19 +2695,20 @@ impl ArgData {
             path.clone()
         };
 
-        let methods = quote! {
-            #[getter]
-            fn #get(&self) -> #full_kw {
-                let x: &#full_kw = self.0.as_ref();
-                x.as_ref().cloned()
-            }
-
-            #[setter]
-            fn #set(&mut self, x: #full_kw) {
-                *self.0.as_mut() = x
-            }
-        };
-        Self::new(doc, full_kw, Some(methods))
+        let methods = ArgDataMethods::GetSet(
+            quote! {
+                fn #get(&self) -> #full_kw {
+                    let x: &#full_kw = self.0.as_ref();
+                    x.as_ref().cloned()
+                }
+            },
+            quote! {
+                fn #set(&mut self, x: #full_kw) {
+                    *self.0.as_mut() = x
+                }
+            },
+        );
+        Self::new(doc, full_kw, methods)
     }
 
     fn new_kw_opt_arg(kw: &str, name: &str, pytype: PyType) -> Self {
@@ -2761,21 +2788,23 @@ impl ArgData {
             layout_argname.to_string(),
             layout_pytype.clone(),
             layout_desc.into(),
+            false,
         );
 
-        let methods = quote! {
-            #[getter]
-            fn get_layout(&self) -> #layout_ident {
-                self.0.layout().clone().into()
-            }
+        let methods = ArgDataMethods::GetSet(
+            quote! {
+                fn get_layout(&self) -> #layout_ident {
+                    self.0.layout().clone().into()
+                }
+            },
+            quote! {
+                fn set_layout(&mut self, layout: #layout_ident) -> PyResult<()> {
+                    self.0.set_layout(layout.into()).py_termfail_resolve_nowarn()
+                }
+            },
+        );
 
-            #[setter]
-            fn set_layout(&mut self, layout: #layout_ident) -> PyResult<()> {
-                self.0.set_layout(layout.into()).py_termfail_resolve_nowarn()
-            }
-        };
-
-        Self::new(layout_doc, parse_quote!(#layout_ident), Some(methods))
+        Self::new(layout_doc, parse_quote!(#layout_ident), methods)
     }
 
     fn new_df_arg() -> Self {
@@ -2792,22 +2821,22 @@ impl ArgData {
         );
         // use polars df here because we need to manually add names
         let polars_df_type = quote! {pyo3_polars::PyDataFrame};
-        let methods = quote! {
-            #[getter]
-            fn data(&self) -> #polars_df_type {
-                let ns = self.0.all_shortnames();
-                let data = self.0.data();
-                #polars_df_type(data.as_polars_dataframe(&ns[..]))
-            }
-
-            #[setter]
-            fn set_data(&mut self, df: #polars_df_type) -> PyResult<()> {
-                let data = df.0.try_into()?;
-                Ok(self.0.set_data(data)?)
-            }
-        };
-
-        Self::new(df_doc, fcs_df_path(), Some(methods))
+        let methods = ArgDataMethods::GetSet(
+            quote! {
+                fn data(&self) -> #polars_df_type {
+                    let ns = self.0.all_shortnames();
+                    let data = self.0.data();
+                    #polars_df_type(data.as_polars_dataframe(&ns[..]))
+                }
+            },
+            quote! {
+                fn set_data(&mut self, df: #polars_df_type) -> PyResult<()> {
+                    let data = df.0.try_into()?;
+                    Ok(self.0.set_data(data)?)
+                }
+            },
+        );
+        Self::new(df_doc, fcs_df_path(), methods)
     }
 
     fn new_analysis_arg() -> Self {
@@ -2817,19 +2846,21 @@ impl ArgData {
             PyType::Bytes,
             "A byte string encoding the *ANALYSIS* segment".into(),
             DocDefault::Other(quote! {#analysis_rstype::default()}, "b\"\"".to_string()),
+            false,
         );
-        let methods = quote! {
-            #[getter]
-            fn analysis(&self) -> #analysis_rstype {
-                self.0.analysis.clone()
-            }
-
-            #[setter]
-            fn set_analysis(&mut self, xs: #analysis_rstype) {
-                self.0.analysis = xs.into();
-            }
-        };
-        Self::new(analysis_doc, analysis_rstype, Some(methods))
+        let methods = ArgDataMethods::GetSet(
+            quote! {
+                fn analysis(&self) -> #analysis_rstype {
+                    self.0.analysis.clone()
+                }
+            },
+            quote! {
+                fn set_analysis(&mut self, xs: #analysis_rstype) {
+                    self.0.analysis = xs.into();
+                }
+            },
+        );
+        Self::new(analysis_doc, analysis_rstype, methods)
     }
 
     fn new_others_arg() -> Self {
@@ -2839,19 +2870,21 @@ impl ArgData {
             PyType::new_list(PyType::Bytes),
             "A list of byte strings encoding the *OTHER* segments".into(),
             DocDefault::Other(quote!(#others_rstype::default()), "[]".to_string()),
+            false,
         );
-        let methods = quote! {
-            #[getter]
-            fn others(&self) -> #others_rstype {
-                self.0.others.clone()
-            }
-
-            #[setter]
-            fn set_others(&mut self, xs: #others_rstype) {
-                self.0.others = xs
-            }
-        };
-        Self::new(others_doc, others_rstype, Some(methods))
+        let methods = ArgDataMethods::GetSet(
+            quote! {
+                fn others(&self) -> #others_rstype {
+                    self.0.others.clone()
+                }
+            },
+            quote! {
+                fn set_others(&mut self, xs: #others_rstype) {
+                    self.0.others = xs
+                }
+            },
+        );
+        Self::new(others_doc, others_rstype, methods)
     }
 
     fn new_timestamps_args(time_name: &str) -> [Self; 3] {
@@ -2880,19 +2913,21 @@ impl ArgData {
                 PyType::new_opt(PyType::Time),
                 desc,
                 DocDefault::Option,
+                false,
             );
-            let methods = quote! {
-                #[getter]
-                fn #get(&self) -> #nt {
-                    self.0.#get_naive()
-                }
-
-                #[setter]
-                fn #set(&mut self, x: #nt) -> PyResult<()> {
-                    Ok(self.0.#set_naive(x)?)
-                }
-            };
-            Self::new(doc, rstype, Some(methods))
+            let methods = ArgDataMethods::GetSet(
+                quote! {
+                    fn #get(&self) -> #nt {
+                        self.0.#get_naive()
+                    }
+                },
+                quote! {
+                    fn #set(&mut self, x: #nt) -> PyResult<()> {
+                        Ok(self.0.#set_naive(x)?)
+                    }
+                },
+            );
+            Self::new(doc, rstype, methods)
         };
 
         let date_doc = DocArg::new_ivar_def(
@@ -2900,21 +2935,23 @@ impl ArgData {
             PyType::new_opt(PyType::Date),
             "Value of *$DATE*.".into(),
             DocDefault::Option,
+            false,
         );
 
-        let date_methods = quote! {
-            #[getter]
-            fn get_date(&self) -> #nd {
-                self.0.date_naive()
-            }
+        let date_methods = ArgDataMethods::GetSet(
+            quote! {
+                fn get_date(&self) -> #nd {
+                    self.0.date_naive()
+                }
+            },
+            quote! {
+                fn set_date(&mut self, x: #nd) -> PyResult<()> {
+                    Ok(self.0.set_date_naive(x)?)
+                }
+            },
+        );
 
-            #[setter]
-            fn set_date(&mut self, x: #nd) -> PyResult<()> {
-                Ok(self.0.set_date_naive(x)?)
-            }
-        };
-
-        let date = Self::new(date_doc, date_rstype, Some(date_methods));
+        let date = Self::new(date_doc, date_rstype, date_methods);
 
         [make_time_ivar(true), make_time_ivar(false), date]
     }
@@ -2935,34 +2972,37 @@ impl ArgData {
             PyType::new_opt(PyType::Datetime),
             format!("Value for *${}*.", name.to_uppercase()),
             DocDefault::Option,
+            false,
         );
-        let methods = quote! {
-            #[getter]
-            fn #get(&self) -> #dt {
-                self.0.#get()
-            }
-
-            #[setter]
-            fn #set(&mut self, x: #dt) -> PyResult<()> {
-                Ok(self.0.#set(x)?)
-            }
-        };
-        Self::new(doc, rstype, Some(methods))
+        let methods = ArgDataMethods::GetSet(
+            quote! {
+                fn #get(&self) -> #dt {
+                    self.0.#get()
+                }
+            },
+            quote! {
+                fn #set(&mut self, x: #dt) -> PyResult<()> {
+                    Ok(self.0.#set(x)?)
+                }
+            },
+        );
+        Self::new(doc, rstype, methods)
     }
 
     fn new_comp_arg(is_2_0: bool) -> Self {
         let rstype = parse_quote!(Option<fireflow_core::text::compensation::Compensation>);
-        let methods = quote! {
-            #[getter]
-            fn get_compensation(&self) -> #rstype {
-                self.0.compensation().cloned()
-            }
-
-            #[setter]
-            fn set_compensation(&mut self, m: #rstype) -> PyResult<()> {
-                Ok(self.0.set_compensation(m)?)
-            }
-        };
+        let methods = ArgDataMethods::GetSet(
+            quote! {
+                fn get_compensation(&self) -> #rstype {
+                    self.0.compensation().cloned()
+                }
+            },
+            quote! {
+                fn set_compensation(&mut self, m: #rstype) -> PyResult<()> {
+                    Ok(self.0.set_compensation(m)?)
+                }
+            },
+        );
         let desc = if is_2_0 {
             "The compensation matrix. Must be a square array with number of \
          rows/columns equal to the number of measurements. Non-zero entries \
@@ -2977,23 +3017,25 @@ impl ArgData {
             PyType::new_opt(PyType::PyClass("~numpy.ndarray".into())),
             desc,
             DocDefault::Option,
+            false,
         );
-        Self::new(doc, rstype, Some(methods))
+        Self::new(doc, rstype, methods)
     }
 
     fn new_spillover_arg() -> Self {
         let rstype = parse_quote!(Option<fireflow_core::text::spillover::Spillover>);
-        let methods = quote! {
-            #[getter]
-            fn get_spillover(&self) -> #rstype {
-                self.0.spillover().map(|x| x.clone())
-            }
-
-            #[setter]
-            fn set_spillover(&mut self, spillover: #rstype) -> PyResult<()> {
-                Ok(self.0.set_spillover(spillover)?)
-            }
-        };
+        let methods = ArgDataMethods::GetSet(
+            quote! {
+                fn get_spillover(&self) -> #rstype {
+                    self.0.spillover().map(|x| x.clone())
+                }
+            },
+            quote! {
+                fn set_spillover(&mut self, spillover: #rstype) -> PyResult<()> {
+                    Ok(self.0.set_spillover(spillover)?)
+                }
+            },
+        );
         let doc = DocArg::new_ivar_def(
             "spillover".into(),
             PyType::new_opt(PyType::Tuple(vec![
@@ -3001,14 +3043,15 @@ impl ArgData {
                 PyType::PyClass("~numpy.ndarray".into()),
             ])),
             "Value for *$SPILLOVER*. First element of tuple the list of measurement \
-         names and the second is the matrix. Each measurement name must \
-         correspond to a *$PnN*, must be unique, and the length of this list \
-         must match the number of rows and columns of the matrix. The matrix \
-         must be at least 2x2."
+             names and the second is the matrix. Each measurement name must \
+             correspond to a *$PnN*, must be unique, and the length of this list \
+             must match the number of rows and columns of the matrix. The matrix \
+             must be at least 2x2."
                 .into(),
             DocDefault::Option,
+            false,
         );
-        Self::new(doc, rstype, Some(methods))
+        Self::new(doc, rstype, methods)
     }
 
     fn new_csvflags_arg() -> Self {
@@ -3021,20 +3064,21 @@ impl ArgData {
          the length of the list corresponds to *$CSMODE*."
                 .into(),
             DocDefault::Option,
+            false,
         );
-        let methods = quote! {
-            #[getter]
-            fn get_csvflags(&self) -> #rstype {
-                self.0.metaroot_opt::<#path>().cloned()
-            }
-
-            #[setter]
-            fn set_csvflags(&mut self, x: #rstype) {
-                self.0.set_metaroot(x)
-            }
-        };
-
-        Self::new(doc, rstype, Some(methods))
+        let methods = ArgDataMethods::GetSet(
+            quote! {
+                fn get_csvflags(&self) -> #rstype {
+                    self.0.metaroot_opt::<#path>().cloned()
+                }
+            },
+            quote! {
+                fn set_csvflags(&mut self, x: #rstype) {
+                    self.0.set_metaroot(x)
+                }
+            },
+        );
+        Self::new(doc, rstype, methods)
     }
 
     fn new_trigger_arg() -> Self {
@@ -3048,21 +3092,22 @@ impl ArgData {
              measurement name which must match a *$PnN*."
                 .into(),
             DocDefault::Option,
+            false,
         );
 
-        let methods = quote! {
-            #[getter]
-            fn trigger(&self) -> #rstype {
-                self.0.metaroot_opt().cloned()
-            }
-
-            #[setter]
-            fn set_trigger(&mut self, tr: #rstype) -> PyResult<()> {
-                Ok(self.0.set_trigger(tr)?)
-            }
-        };
-
-        Self::new(doc, rstype, Some(methods))
+        let methods = ArgDataMethods::GetSet(
+            quote! {
+                fn trigger(&self) -> #rstype {
+                    self.0.metaroot_opt().cloned()
+                }
+            },
+            quote! {
+                fn set_trigger(&mut self, tr: #rstype) -> PyResult<()> {
+                    Ok(self.0.set_trigger(tr)?)
+                }
+            },
+        );
+        Self::new(doc, rstype, methods)
     }
 
     fn new_unstainedcenters_arg() -> Self {
@@ -3071,21 +3116,23 @@ impl ArgData {
             PyType::new_opt(PyType::new_dict(PyType::Str, PyType::Float)),
             "Value for *$UNSTAINEDCENTERS. Each key must match a *$PnN*.".into(),
             DocDefault::Option,
+            false,
         );
         let path = quote!(fireflow_core::text::unstainedcenters::UnstainedCenters);
         let rstype = parse_quote!(Option<#path>);
-        let methods = quote! {
-            #[getter]
-            fn get_unstained_centers(&self) -> #rstype {
-                self.0.metaroot_opt::<#path>().map(|y| y.clone())
-            }
-
-            #[setter]
-            fn set_unstained_centers(&mut self, us: #rstype) -> PyResult<()> {
-                self.0.set_unstained_centers(us).py_termfail_resolve_nowarn()
-            }
-        };
-        Self::new(doc, rstype, Some(methods))
+        let methods = ArgDataMethods::GetSet(
+            quote! {
+                fn get_unstained_centers(&self) -> #rstype {
+                    self.0.metaroot_opt::<#path>().map(|y| y.clone())
+                }
+            },
+            quote! {
+                fn set_unstained_centers(&mut self, us: #rstype) -> PyResult<()> {
+                    self.0.set_unstained_centers(us).py_termfail_resolve_nowarn()
+                }
+            },
+        );
+        Self::new(doc, rstype, methods)
     }
 
     fn new_applied_gates_arg(version: Version) -> Self {
@@ -3150,7 +3197,7 @@ impl ArgData {
 
         let def = DocDefault::Other(quote!(#rstype::default()), pydef.into());
 
-        let doc = DocArg::new_ivar_def("applied_gates".into(), pytype, desc, def);
+        let doc = DocArg::new_ivar_def("applied_gates".into(), pytype, desc, def, false);
 
         let setter_body = if collapsed_version == Version::FCS2_0 {
             quote! {
@@ -3167,17 +3214,16 @@ impl ArgData {
             }
         };
 
-        let methods = quote! {
-            #[getter]
-            fn get_applied_gates(&self) -> #rstype {
-                self.0.metaroot::<#rstype_inner>().clone().into()
-            }
+        let methods = ArgDataMethods::GetSet(
+            quote! {
+                fn get_applied_gates(&self) -> #rstype {
+                    self.0.metaroot::<#rstype_inner>().clone().into()
+                }
+            },
+            setter_body,
+        );
 
-            #[setter]
-            #setter_body
-        };
-
-        Self::new(doc, parse_quote!(#rstype), Some(methods))
+        Self::new(doc, parse_quote!(#rstype), methods)
     }
 
     fn new_scale_arg() -> Self {
@@ -3191,20 +3237,22 @@ impl ArgData {
              decades and offset for log scale"
                 .into(),
             DocDefault::Option,
+            false,
         );
         let rstype = parse_quote! {Option<fireflow_core::text::scale::Scale>};
-        let methods = quote! {
-            #[getter]
-            fn get_scale(&self) -> #rstype {
-                self.0.specific.scale.0.as_ref().map(|&x| x)
-            }
-
-            #[setter]
-            fn set_scale(&mut self, x: #rstype) {
-                self.0.specific.scale = x.into()
-            }
-        };
-        Self::new(doc, rstype, Some(methods))
+        let methods = ArgDataMethods::GetSet(
+            quote! {
+                fn get_scale(&self) -> #rstype {
+                    self.0.specific.scale.0.as_ref().map(|&x| x)
+                }
+            },
+            quote! {
+                fn set_scale(&mut self, x: #rstype) {
+                    self.0.specific.scale = x.into()
+                }
+            },
+        );
+        Self::new(doc, rstype, methods)
     }
 
     fn new_transform_arg() -> Self {
@@ -3218,20 +3266,22 @@ impl ArgData {
              and implies linear scaling (ie *$PnE* is ``0,0``). 2-tuple encodes \
              decades and offset for log scale, and implies *$PnG* is not set."
                 .into(),
+            false,
         );
         let rstype = parse_quote! {fireflow_core::core::ScaleTransform};
-        let methods = quote! {
-            #[getter]
-            fn get_transform(&self) -> #rstype {
-                self.0.specific.scale
-            }
-
-            #[setter]
-            fn set_transform(&mut self, transform: #rstype) {
-                self.0.specific.scale = transform;
-            }
-        };
-        Self::new(doc, rstype, Some(methods))
+        let methods = ArgDataMethods::GetSet(
+            quote! {
+                fn get_transform(&self) -> #rstype {
+                    self.0.specific.scale
+                }
+            },
+            quote! {
+                fn set_transform(&mut self, transform: #rstype) {
+                    self.0.specific.scale = transform;
+                }
+            },
+        );
+        Self::new(doc, rstype, methods)
     }
 
     fn new_core_nonstandard_keywords_arg() -> Self {
@@ -3259,19 +3309,21 @@ impl ArgData {
             PyType::new_dict(PyType::Str, PyType::Str),
             desc.into(),
             DocDefault::EmptyDict,
+            false,
         );
-        let methods = quote! {
-            #[getter]
-            fn get_nonstandard_keywords(&self) -> #fun_arg {
-                #root.nonstandard_keywords.clone()
-            }
-
-            #[setter]
-            fn set_nonstandard_keywords(&mut self, kws: #fun_arg) {
-                #root.nonstandard_keywords = kws;
-            }
-        };
-        Self::new(doc, fun_arg, Some(methods))
+        let methods = ArgDataMethods::GetSet(
+            quote! {
+                fn get_nonstandard_keywords(&self) -> #fun_arg {
+                    #root.nonstandard_keywords.clone()
+                }
+            },
+            quote! {
+                fn set_nonstandard_keywords(&mut self, kws: #fun_arg) {
+                    #root.nonstandard_keywords = kws;
+                }
+            },
+        );
+        Self::new(doc, fun_arg, methods)
     }
 
     fn new_config_arg(
@@ -4113,17 +4165,18 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
         let inner = format_ident!("{n}");
         let rstype = keyword_path(t);
         let path: Path = parse_quote!(Option<#rstype>);
-        let methods = quote! {
-            #[getter]
-            fn #get(&self) -> #path {
-                self.0.#inner.0.as_ref().cloned()
-            }
-
-            #[setter]
-            fn #set(&mut self, x: #path) {
-                self.0.#inner.0 = x.into();
-            }
-        };
+        let methods = ArgDataMethods::GetSet(
+            quote! {
+                fn #get(&self) -> #path {
+                    self.0.#inner.0.as_ref().cloned()
+                }
+            },
+            quote! {
+                fn #set(&mut self, x: #path) {
+                    self.0.#inner.0 = x.into();
+                }
+            },
+        );
         (path, methods)
     };
 
@@ -4137,9 +4190,10 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
          specifies decades and offset for log scaling."
             .into(),
         DocDefault::Option,
+        false,
     );
     let (scale_path, scale_methods) = make_get_set("scale", "GateScale");
-    let scale = ArgData::new(scale_doc, scale_path, Some(scale_methods));
+    let scale = ArgData::new(scale_doc, scale_path, scale_methods);
 
     let make_arg = |n: &str, kw: &str, t: &str, p: PyType| {
         let (path, methods) = make_get_set(n, t);
@@ -4148,8 +4202,9 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
             PyType::new_opt(p),
             format!("The *$Gm{kw}* keyword."),
             DocDefault::Option,
+            false,
         );
-        ArgData::new(doc, path, Some(methods))
+        ArgData::new(doc, path, methods)
     };
     let filter = make_arg("filter", "F", "GateFilter", PyType::Str);
     let shortname = make_arg("shortname", "N", "GateShortname", PyType::Str);
@@ -4181,7 +4236,7 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
 
     let fun_args: Vec<_> = all_args.iter().map(|x| x.constr_arg()).collect();
     let inner_args: Vec<_> = all_args.iter().map(|x| x.inner_arg()).collect();
-    let methods: Vec<_> = all_args.iter().map(|x| x.methods.clone()).collect();
+    let methods: Vec<_> = all_args.iter().flat_map(|x| x.quoted_methods()).collect();
 
     let new = quote! {
         fn new(#(#fun_args),*) -> Self {
@@ -4209,6 +4264,7 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
          *$PnB* will be derived from these and will be equivalent to the number \
          of digits for each value."
             .into(),
+        true,
     );
 
     let constr_doc = DocString::new(
@@ -4277,6 +4333,7 @@ pub fn impl_new_delim_ascii_layout(input: TokenStream) -> TokenStream {
          keyword. This is not used internally and thus only represents \
          documentation at the user level."
             .into(),
+        false,
     );
 
     let constr_doc = DocString::new(
@@ -4360,6 +4417,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
         "ranges".into(),
         PyType::new_list(range_pytype),
         range_desc.into(),
+        false,
     );
 
     let byteord_param = DocArg::new_ivar_def(
@@ -4374,6 +4432,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
              in any order."
         ),
         DocDefault::Other(quote!(#sizedbyteord_path::default()), "\"little\"".into()),
+        false,
     );
 
     let is_big_param = make_endian_param(2);
@@ -4481,6 +4540,7 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
         "The range for each measurement. Corresponds to *$PnR*. This is not \
          used internally so only serves the users' own purposes."
             .into(),
+        false,
     );
 
     let is_big_param = make_endian_param(4);
@@ -4544,6 +4604,7 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
          16-bit integers. The values of a measurement will be less than or \
          equal to this value."
             .into(),
+        true,
     );
 
     let is_big_param = make_endian_param(4);
@@ -4605,6 +4666,7 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
          ``\"A\"``, ``\"I\"``, ``\"F\"``, or ``\"D\"`` corresponding to Ascii, \
          Integer, Float, or Double datatypes respectively."
             .into(),
+        true,
     );
 
     let is_big_param = make_endian_param(4);
@@ -4652,6 +4714,7 @@ fn make_endian_param(n: usize) -> DocArg {
              if ``\"little\"`` use little endian (``{xs}``)."
         ),
         DocDefault::Other(quote!(#endian::Little), "\"little\"".into()),
+        true,
     )
 }
 
@@ -4851,39 +4914,43 @@ fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
     let summary = format!("Make a new FCS {summary_version}-compatible {region_name} region",);
 
     // TODO these are actually read-only variables
-    let index_param = DocArg::new_ivar("index".into(), index_pytype, index_desc);
+    let index_param = DocArg::new_ivar("index".into(), index_pytype, index_desc, true);
+    let gate_param = DocArg::new_ivar(gate_argname.to_string(), gate_pytype, gate_desc, true);
 
-    let gate_param = DocArg::new_ivar(gate_argname.to_string(), gate_pytype, gate_desc);
+    let index_getter = ArgDataMethods::Get(quote! {
+        fn index(&self) -> #index_rstype {
+            self.0.index
+        }
+    });
+    let gate_getter = ArgDataMethods::Get(quote! {
+        fn #gate_argname(&self) -> #gate_rstype {
+            self.0.#gate_argname.clone()
+        }
+    });
+
+    let index_arg = ArgData::new(index_param.clone(), index_rstype, index_getter);
+    let gate_arg = ArgData::new(gate_param.clone(), gate_rstype, gate_getter);
+
+    let all_args = [index_arg, gate_arg];
+
+    let params = all_args.iter().map(|a| a.doc.clone()).collect();
+    let fun_args: Vec<_> = all_args.iter().map(|a| a.constr_arg()).collect();
+    let inner_args: Vec<_> = all_args.iter().map(|a| a.inner_arg1()).collect();
+    let methods: Vec<_> = all_args.iter().flat_map(|a| a.quoted_methods()).collect();
 
     let name = format!("{region_ident}{suffix}");
 
-    let doc = DocString::new(
-        summary,
-        vec![],
-        DocSelf::NoSelf,
-        vec![index_param, gate_param],
-        None,
-    );
+    let doc = DocString::new(summary, vec![], DocSelf::NoSelf, params, None);
 
     let bare_path = path_strip_args(path.clone());
 
     let new = quote! {
-        fn new(index: #index_rstype, #gate_argname: #gate_rstype) -> Self {
-            #bare_path { index, #gate_argname }.into()
+        fn new(#(#fun_args),*) -> Self {
+            #bare_path { #(#inner_args),* }.into()
         }
     };
 
-    let rest = quote! {
-        #[getter]
-        fn index(&self) -> #index_rstype {
-            self.0.index
-        }
-
-        #[getter]
-        fn #gate_argname(&self) -> #gate_rstype {
-            self.0.#gate_argname.clone()
-        }
-    };
+    let rest = quote!(#(#methods)*);
 
     impl_new(name, path, doc, new, rest).1.into()
 }
@@ -4895,19 +4962,10 @@ fn impl_new(
     constr: proc_macro2::TokenStream,
     rest: proc_macro2::TokenStream,
 ) -> (Ident, proc_macro2::TokenStream) {
-    let doc = d.doc();
+    let (pyname, wrapped) = impl_pywrap(name, path, &d);
     let sig = d.sig();
-    let pyname = format_ident!("Py{name}");
     let s = quote! {
-        // pyo3 currently cannot add docstrings to __new__ methods, see
-        // https://github.com/PyO3/pyo3/issues/4326
-        //
-        // workaround, put them on the structs themselves, which works but has the
-        // disadvantage of being not next to the method def itself
-        #doc
-        #[pyclass(name = #name, eq)]
-        #[derive(Clone, From, Into, PartialEq)]
-        pub struct #pyname(#path);
+        #wrapped
 
         // TODO automatically make args here
         #[pymethods]
@@ -4921,6 +4979,23 @@ fn impl_new(
         }
     };
     (pyname, s)
+}
+
+fn impl_pywrap(name: String, path: Path, d: &DocString) -> (Ident, proc_macro2::TokenStream) {
+    let doc = d.doc();
+    let pyname = format_ident!("Py{name}");
+    let q = quote! {
+        // pyo3 currently cannot add docstrings to __new__ methods, see
+        // https://github.com/PyO3/pyo3/issues/4326
+        //
+        // workaround, put them on the structs themselves, which works but has the
+        // disadvantage of being not next to the method def itself
+        #doc
+        #[pyclass(name = #name, eq)]
+        #[derive(Clone, From, Into, PartialEq)]
+        pub struct #pyname(#path);
+    };
+    (pyname, q)
 }
 
 fn unwrap_generic<'a>(name: &str, ty: &'a Path) -> (&'a Path, bool) {

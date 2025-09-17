@@ -19,8 +19,6 @@ pub(crate) type ClassDocString = DocString<AnyDocArg, (), NoSelf>;
 pub(crate) type MethodDocString = DocString<DocArgParam, Option<DocReturn>, SelfArg>;
 pub(crate) type FunDocString = DocString<DocArgParam, Option<DocReturn>, NoSelf>;
 
-// pub(crate) struct NoReturn;
-
 pub(crate) struct NoSelf;
 
 pub(crate) struct SelfArg;
@@ -28,22 +26,6 @@ pub(crate) struct SelfArg;
 pub(crate) trait IsSelfArg {
     const ARG: Option<&'static str>;
 }
-
-// pub(crate) trait IsReturn {
-//     fn return_doc(&self) -> Option<String>;
-// }
-
-// impl IsReturn for NoReturn {
-//     fn return_doc(&self) -> Option<String> {
-//         None
-//     }
-// }
-
-// impl IsReturn for DocReturn {
-//     fn return_doc(&self) -> Option<String> {
-//         Some(self.to_string())
-//     }
-// }
 
 impl IsSelfArg for NoSelf {
     const ARG: Option<&'static str> = None;
@@ -63,13 +45,6 @@ pub(crate) enum AnyDocArg {
 pub(crate) type DocArgRWIvar = DocArg<ArgTypeIvar<false>>;
 pub(crate) type DocArgROIvar = DocArg<ArgTypeIvar<true>>;
 pub(crate) type DocArgParam = DocArg<ArgTypeParam>;
-
-// #[derive(Clone)]
-// pub enum DocSelf {
-//     NoSelf,
-//     PySelf,
-//     // PyClass,
-// }
 
 #[derive(Clone, new)]
 pub(crate) struct DocArg<T> {
@@ -264,9 +239,9 @@ impl IsArgType for ArgTypeParam {
 pub(crate) trait IsDocArg {
     fn argname(&self) -> &str;
 
-    fn pytype(&self) -> &PyType;
+    // fn pytype(&self) -> &PyType;
 
-    fn desc(&self) -> &str;
+    // fn desc(&self) -> &str;
 
     fn default(&self) -> Option<&DocDefault>;
 
@@ -278,13 +253,13 @@ impl<T> IsDocArg for DocArg<T> {
         self.argname.as_str()
     }
 
-    fn pytype(&self) -> &PyType {
-        &self.pytype
-    }
+    // fn pytype(&self) -> &PyType {
+    //     &self.pytype
+    // }
 
-    fn desc(&self) -> &str {
-        self.desc.as_str()
-    }
+    // fn desc(&self) -> &str {
+    //     self.desc.as_str()
+    // }
 
     fn default(&self) -> Option<&DocDefault> {
         self.default.as_ref()
@@ -316,21 +291,21 @@ impl IsDocArg for AnyDocArg {
         }
     }
 
-    fn pytype(&self) -> &PyType {
-        match self {
-            Self::RWIvar(x) => x.pytype(),
-            Self::ROIvar(x) => x.pytype(),
-            Self::Param(x) => x.pytype(),
-        }
-    }
+    // fn pytype(&self) -> &PyType {
+    //     match self {
+    //         Self::RWIvar(x) => x.pytype(),
+    //         Self::ROIvar(x) => x.pytype(),
+    //         Self::Param(x) => x.pytype(),
+    //     }
+    // }
 
-    fn desc(&self) -> &str {
-        match self {
-            Self::RWIvar(x) => x.desc(),
-            Self::ROIvar(x) => x.desc(),
-            Self::Param(x) => x.desc(),
-        }
-    }
+    // fn desc(&self) -> &str {
+    //     match self {
+    //         Self::RWIvar(x) => x.desc(),
+    //         Self::ROIvar(x) => x.desc(),
+    //         Self::Param(x) => x.desc(),
+    //     }
+    // }
 
     fn default(&self) -> Option<&DocDefault> {
         match self {
@@ -388,20 +363,6 @@ impl PyType {
     pub(crate) fn new_unit() -> Self {
         Self::Tuple(vec![])
     }
-
-    // fn is_oneword(&self) -> bool {
-    //     !matches!(
-    //         self,
-    //         Self::Option(_)
-    //             | Self::Union(_, _, _)
-    //             | Self::Literal(_, _)
-    //             | Self::Tuple(_)
-    //             | Self::List(_)
-    //             | Self::Dict(_, _)
-    //             | Self::Raw(_)
-    //             | Self::PyClass(_)
-    //     )
-    // }
 }
 
 impl ClassDocString {
@@ -526,16 +487,6 @@ impl<A, R, S> DocString<A, R, S> {
         write!(f, "{}\n\n{rest}", self.summary)
     }
 }
-
-// impl DocSelf {
-//     fn as_arg(&self) -> Option<String> {
-//         match self {
-//             DocSelf::NoSelf => None,
-//             DocSelf::PySelf => Some("self".into()),
-//             // DocSelf::PyClass => Some("cls".into()),
-//         }
-//     }
-// }
 
 impl<A, R, S> ToTokens for DocString<A, R, S>
 where

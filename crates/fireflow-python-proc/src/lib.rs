@@ -22,19 +22,18 @@ pub fn def_fcs_read_header(_: TokenStream) -> TokenStream {
     let fun_path = quote!(fireflow_core::api::fcs_read_header);
     let ret_path = quote!(fireflow_core::header::Header);
     let args = DocArgParam::header_config_args();
-    let fun_args: Vec<_> = args.iter().map(|a| a.constr_arg()).collect();
     let inner_args: Vec<_> = args.iter().map(|a| a.inner_arg1()).collect();
-    // let conf_params: Vec<_> = args.iter().map(|a| a.doc.clone()).collect();
     let doc = DocString::new_fun(
         "Read the *HEADER* of an FCS file.".into(),
         vec![],
         [path_param(true)].into_iter().chain(args).collect(),
         Some(DocReturn::new(PyType::PyClass("Header".into()), None)),
     );
+    let fun_args = doc.fun_args();
     quote! {
         #[pyfunction]
         #doc
-        pub fn fcs_read_header(path: std::path::PathBuf, #(#fun_args),*) -> PyResult<#ret_path> {
+        pub fn fcs_read_header(#fun_args) -> PyResult<#ret_path> {
             let inner = fireflow_core::config::HeaderConfigInner{
                 #(#inner_args),*
             };
@@ -258,18 +257,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         .chain([analysis, others])
         .collect();
 
-    let coretext_ivar_methods: Vec<_> = coretext_args.iter().map(|x| x.quoted_methods()).collect();
-    let coredataset_ivar_methods: Vec<_> = coredataset_args
-        .iter()
-        .map(|x| x.quoted_methods())
-        .collect();
-
-    // let coretext_params: Vec<_> = coretext_args.iter().map(|x| x.doc()).collect();
-    // let coredataset_params: Vec<_> = coredataset_args.iter().map(|x| x.doc()).collect();
-
-    let coretext_funargs: Vec<_> = coretext_args.iter().map(|x| x.constr_arg()).collect();
-    let coredataset_funargs: Vec<_> = coredataset_args.iter().map(|x| x.constr_arg()).collect();
-
     let coretext_inner_args: Vec<_> = coretext_args.iter().map(|x| x.inner_arg()).collect();
 
     let coretext_doc = DocString::new_class(
@@ -284,16 +271,20 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         coredataset_args,
     );
 
-    let coretext_new = quote! {
-        fn new(#(#coretext_funargs),*) -> PyResult<Self> {
-            Ok(#fun(#(#coretext_inner_args),*).mult_head()?.into())
+    let coretext_new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> PyResult<Self> {
+                Ok(#fun(#(#coretext_inner_args),*).mult_head()?.into())
+            }
         }
     };
 
-    let coredataset_new = quote! {
-        fn new(#(#coredataset_funargs),*) -> PyResult<Self> {
-            let x = #fun(#(#coretext_inner_args),*).mult_head()?;
-            Ok(x.into_coredataset(data, analysis, others)?.into())
+    let coredataset_new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> PyResult<Self> {
+                let x = #fun(#(#coretext_inner_args),*).mult_head()?;
+                Ok(x.into_coredataset(data, analysis, others)?.into())
+            }
         }
     };
 
@@ -302,7 +293,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         coretext_rstype,
         coretext_doc,
         coretext_new,
-        quote!(#(#coretext_ivar_methods)*),
+        quote!(),
     )
     .1;
 
@@ -311,7 +302,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         coredataset_rstype,
         coredataset_doc,
         coredataset_new,
-        quote!(#(#coredataset_ivar_methods)*),
+        quote!(),
     )
     .1;
 
@@ -1739,13 +1730,6 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
     let std: Path = parse_quote!(std::collections::HashMap<#sk, String>);
     let nonstd: Path = parse_quote!(std::collections::HashMap<#nsk, String>);
 
-    let fun_args: Vec<_> = std_args
-        .iter()
-        .chain(layout_args.iter())
-        .chain(shared_args.iter())
-        .map(|a| a.constr_arg())
-        .collect();
-
     let std_inner_args: Vec<_> = std_args.iter().map(|a| a.inner_arg1()).collect();
     let layout_inner_args: Vec<_> = layout_args.iter().map(|a| a.inner_arg1()).collect();
     let shared_inner_args: Vec<_> = shared_args.iter().map(|a| a.inner_arg1()).collect();
@@ -1798,18 +1782,15 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
         Some(DocReturn::new(PyType::PyClass(ident.to_string()), None)),
     );
 
+    let fun_args = doc.fun_args();
+
     quote! {
         #[pymethods]
         impl #pyname {
             #[classmethod]
             #[allow(clippy::too_many_arguments)]
             #doc
-            fn from_kws(
-                _: &Bound<'_, pyo3::types::PyType>,
-                std: #std,
-                nonstd: #nonstd,
-                #(#fun_args),*
-            ) -> PyResult<Self> {
+            fn from_kws(_: &Bound<'_, pyo3::types::PyType>, #fun_args) -> PyResult<Self> {
                 let kws = fireflow_core::validated::keys::ValidKeywords { std, nonstd };
                 #[allow(clippy::needless_update)]
                 let standard = #std_conf {
@@ -1912,8 +1893,6 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
         DocDefault::EmptyList,
     );
 
-    let fun_args: Vec<_> = config_args.iter().map(|a| a.constr_arg()).collect();
-
     let all_args = [
         path_param,
         std_param,
@@ -1933,23 +1912,15 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
         Some(DocReturn::new(PyType::PyClass(ident.to_string()), None)),
     );
 
+    let fun_args = doc.fun_args();
+
     quote! {
         #[pymethods]
         impl #pyname {
             #[classmethod]
             #[allow(clippy::too_many_arguments)]
             #doc
-            fn from_kws(
-                _: &Bound<'_, pyo3::types::PyType>,
-                path: std::path::PathBuf,
-                std: #std_path,
-                nonstd: #nonstd_path,
-                data_seg: #data_seg_path,
-                analysis_seg: #analysis_seg_path,
-                other_segs: #other_segs_path,
-                #(#fun_args),*
-            // ) -> PyResult<(Self, fireflow_core::core::StdDatasetWithKwsOutput)> {
-            ) -> PyResult<Self> {
+            fn from_kws(_: &Bound<'_, pyo3::types::PyType>, #fun_args) -> PyResult<Self> {
                 let kws = fireflow_core::validated::keys::ValidKeywords { std, nonstd };
                 #[allow(clippy::needless_update)]
                 let standard = #std_conf {
@@ -2485,31 +2456,23 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         .collect(),
     };
 
-    let params = all_args.iter().map(|x| x.clone().into()).collect();
-
-    // let funargs: Vec<_> = all_args.iter().map(|x| x.constr_arg()).collect();
-
     let inner_args: Vec<_> = all_args.iter().map(|x| x.inner_arg()).collect();
-
-    let ivar_methods: Vec<_> = all_args.iter().flat_map(|x| x.quoted_methods()).collect();
 
     let doc = DocString::new_class(
         format!("FCS {version_s} *$Pn\\** keywords for {lower_basename} measurement."),
         vec![],
-        params,
+        all_args.into_iter().map(|x| x.into()).collect(),
     );
 
-    let fun_args = doc.fun_args();
-
-    let new_method = quote! {
-        fn new(#fun_args) -> Self {
-            #fun(#(#inner_args),*).into()
+    let new_method = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #fun(#(#inner_args),*).into()
+            }
         }
     };
 
-    let rest = quote! { #(#ivar_methods)* };
-
-    impl_new(name.to_string(), path, doc, new_method, rest)
+    impl_new(name.to_string(), path, doc, new_method, quote!())
         .1
         .into()
 }
@@ -2544,64 +2507,12 @@ impl Parse for NewCoreInfo {
     }
 }
 
-// impl AnyDocArg {
-//     fn constr_arg(&self) -> TokenStream2 {
-//         match self {
-//             Self::Param(x) => x.constr_arg(),
-//             Self::ROIvar(x) => x.constr_arg(),
-//             Self::RWIvar(x) => x.constr_arg(),
-//         }
-//     }
-
-//     fn inner_arg(&self) -> TokenStream2 {
-//         match self {
-//             Self::Param(x) => x.inner_arg(),
-//             Self::ROIvar(x) => x.inner_arg(),
-//             Self::RWIvar(x) => x.inner_arg(),
-//         }
-//     }
-
-//     fn inner_arg1(&self) -> TokenStream2 {
-//         match self {
-//             Self::Param(x) => x.inner_arg1(),
-//             Self::ROIvar(x) => x.inner_arg1(),
-//             Self::RWIvar(x) => x.inner_arg1(),
-//         }
-//     }
-// }
-
 impl<T> DocArg<T> {
     fn quoted_methods(&self) -> TokenStream2
     where
         T: IsMethods,
     {
         self.methods.quoted_methods()
-    }
-
-    fn constr_arg(&self) -> TokenStream2 {
-        let n = format_ident!("{}", &self.argname);
-        let t = &self.rstype;
-        quote!(#n: #t)
-    }
-
-    fn inner_arg(&self) -> TokenStream2 {
-        let n = format_ident!("{}", &self.argname);
-        if unwrap_generic("Option", &self.rstype).1 {
-            quote! {#n.map(|x| x.into())}
-        } else {
-            quote! {#n.into()}
-        }
-    }
-
-    fn inner_arg1(&self) -> TokenStream2 {
-        // let n = format_ident!("{}", &self.doc.argname);
-        // quote! {#n: #n.into()}
-        let n = format_ident!("{}", &self.argname);
-        if unwrap_generic("Option", &self.rstype).1 {
-            quote! {#n: #n.map(|x| x.into())}
-        } else {
-            quote! {#n: #n.into()}
-        }
     }
 }
 
@@ -4262,21 +4173,19 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
     let summary = "The *$Gm\\** keywords for one gated measurement.".into();
     let doc = DocString::new_class(summary, vec![], ps);
 
-    let fun_args: Vec<_> = all_args.iter().map(|x| x.constr_arg()).collect();
     let inner_args: Vec<_> = all_args.iter().map(|x| x.inner_arg()).collect();
-    let methods: Vec<_> = all_args.iter().flat_map(|x| x.quoted_methods()).collect();
 
-    let new = quote! {
-        fn new(#(#fun_args),*) -> Self {
-            #path::new(#(#inner_args),*).into()
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #path::new(#(#inner_args),*).into()
+            }
         }
     };
 
-    let rest = quote! {
-        #(#methods)*
-    };
-
-    impl_new(name.to_string(), path, doc, new, rest).1.into()
+    impl_new(name.to_string(), path.clone(), doc, new, quote!())
+        .1
+        .into()
 }
 
 #[proc_macro]
@@ -4286,12 +4195,8 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
     let bare_path = path_strip_args(path.clone());
 
     let chars_getter = GetMethod(quote! {
-        fn char_widths(&self) -> Vec<u64> {
-            self.0
-                .widths()
-                .into_iter()
-                .map(|x| u64::from(u8::from(x)))
-                .collect()
+        fn ranges(&self) -> Vec<u64> {
+            self.0.columns().iter().map(|c| c.value()).collect()
         }
     });
 
@@ -4312,9 +4217,11 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
         vec![chars_param.into()],
     );
 
-    let constr = quote! {
-        fn new(ranges: Vec<u64>) -> Self {
-            #bare_path::new_ascii_u64(ranges).into()
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #bare_path::new_ascii_u64(ranges).into()
+            }
         }
     };
 
@@ -4332,13 +4239,7 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
 
     let datatype = make_layout_datatype("A");
 
-    // TODO replace this with args getters
     let rest = quote! {
-        #[getter]
-        fn ranges(&self) -> Vec<u64> {
-            self.0.columns().iter().map(|c| c.value()).collect()
-        }
-
         #char_widths_doc
         #[getter]
         fn char_widths(&self) -> Vec<u64> {
@@ -4352,7 +4253,7 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
         #datatype
     };
 
-    impl_new(name.to_string(), path, constr_doc, constr, rest)
+    impl_new(name.to_string(), path, constr_doc, new, rest)
         .1
         .into()
 }
@@ -4386,25 +4287,17 @@ pub fn impl_new_delim_ascii_layout(input: TokenStream) -> TokenStream {
         vec![ranges_param.into()],
     );
 
-    let constr = quote! {
-        fn new(ranges: Vec<u64>) -> Self {
-            #bare_path::new(ranges).into()
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #bare_path::new(ranges).into()
+            }
         }
     };
 
     let datatype = make_layout_datatype("A");
 
-    // TODO replace this with arg getter
-    let rest = quote! {
-        #[getter]
-        fn ranges(&self) -> Vec<u64> {
-            self.0.ranges.clone()
-        }
-
-        #datatype
-    };
-
-    impl_new(name.to_string(), path, constr_doc, constr, rest)
+    impl_new(name.to_string(), path, constr_doc, new, datatype)
         .1
         .into()
 }
@@ -4450,7 +4343,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
     let fixed_layout_path = quote!(fireflow_core::data::FixedLayout);
     let sizedbyteord_path = quote!(fireflow_core::text::byteord::SizedByteOrd);
 
-    let full_layout_path = parse_quote!(#ordered_layout_path<#range_path, #known_tot_path>);
+    let full_layout_path: Path = parse_quote!(#ordered_layout_path<#range_path, #known_tot_path>);
 
     let layout_name = format!("Ordered{base}{:02}Layout", nbits);
 
@@ -4492,87 +4385,65 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
         byteord_getter,
     );
 
-    let is_big_param = make_endian_param(2);
+    let is_big_param = make_endian_ord_param(2);
 
     let widths = make_byte_width(nbytes);
     let datatype = make_layout_datatype(dt);
 
-    // TODO replace this with ranges getter
-    let ranges = quote! {
-        #[getter]
-        fn ranges(&self) -> Vec<#range_path> {
-            self.0.columns().iter().map(|c| c.clone()).collect()
-        }
+    let rest = quote! {
+        #widths
+        #datatype
     };
 
-    let make_constr_doc = |ps| DocString::new_class(summary, vec![], ps);
+    let make_doc = |args| DocString::new_class(summary, vec![], args);
 
     // make different constructors and getters for u8 and u16 since the byteord
     // for these can be simplified
-    let (constr, constr_doc, byteord) = match (is_float, nbytes) {
+    match (is_float, nbytes) {
         // u8 doesn't need byteord since only one is possible
         (false, 1) => {
-            let constr = quote! {
-                fn new(ranges: Vec<#range_path>) -> Self {
-                    #fixed_layout_path::new(ranges, #sizedbyteord_path::default()).into()
+            let doc = make_doc(vec![range_param.into()]);
+            let new = |fun_args| {
+                quote! {
+                    fn new(#fun_args) -> Self {
+                        #fixed_layout_path::new(ranges, #sizedbyteord_path::default()).into()
+                    }
                 }
             };
-            let constr_doc = make_constr_doc(vec![range_param.clone().into()]);
-            (constr, constr_doc, quote!())
+            impl_new(layout_name, full_layout_path, doc, new, rest)
         }
 
         // u16 only has two combinations (big and little) so don't allow a list
         // for byteord
         (false, 2) => {
-            let endian = quote!(fireflow_core::text::byteord::Endian);
-            let constr_doc = make_constr_doc(vec![range_param.clone().into(), is_big_param.into()]);
-            let constr = quote! {
-                fn new(ranges: Vec<#range_path>, endian: #endian) -> Self {
-                    let b = #sizedbyteord_path::Endian(endian);
-                    #fixed_layout_path::new(ranges, b).into()
+            let doc = make_doc(vec![range_param.into(), is_big_param.into()]);
+            let new = |fun_args| {
+                quote! {
+                    fn new(#fun_args) -> Self {
+                        let b = #sizedbyteord_path::Endian(endian);
+                        #fixed_layout_path::new(ranges, b).into()
+                    }
                 }
             };
-            let byteord = quote! {
-                #[getter]
-                fn endian(&self) -> #endian {
-                    let m: #sizedbyteord_path<2> = *self.0.as_ref();
-                    m.endian()
-                }
-            };
-            (constr, constr_doc, byteord)
+            impl_new(layout_name, full_layout_path, doc, new, rest)
         }
 
         // everything else needs the "full" version of byteord, which is big,
         // little, and mixed (a list)
         _ => {
-            let constr_doc =
-                make_constr_doc(vec![range_param.clone().into(), byteord_param.into()]);
-            let constr = quote! {
-                fn new(ranges: Vec<#range_path>, byteord: #sizedbyteord_path<#nbytes>) -> Self {
-                    #fixed_layout_path::new(ranges, byteord).into()
+            let doc = make_doc(vec![range_param.into(), byteord_param.into()]);
+            let new = |fun_args| {
+                quote! {
+                    fn new(#fun_args) -> Self {
+                        #fixed_layout_path::new(ranges, byteord).into()
+                    }
                 }
             };
-            // TODO replace this this getter from arg
-            let byteord = quote! {
-                #[getter]
-                fn byteord(&self) -> #sizedbyteord_path<#nbytes> {
-                    *self.0.as_ref()
-                }
-            };
-            (constr, constr_doc, byteord)
+            impl_new(layout_name, full_layout_path, doc, new, rest)
         }
-    };
-
-    let rest = quote! {
-        #ranges
-        #byteord
-        #widths
-        #datatype
-    };
-
-    impl_new(layout_name, full_layout_path, constr_doc, constr, rest)
-        .1
-        .into()
+    }
+    .1
+    .into()
 }
 
 #[proc_macro]
@@ -4587,7 +4458,6 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
     let nomeasdt_path = quote!(fireflow_core::data::NoMeasDatatype);
     let endian_layout_path = quote!(fireflow_core::data::EndianLayout);
     let fixed_layout_path = quote!(fireflow_core::data::FixedLayout);
-    let endian = quote!(fireflow_core::text::byteord::Endian);
 
     let full_layout_path = parse_quote!(#endian_layout_path<#range_path, #nomeasdt_path>);
 
@@ -4617,9 +4487,11 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
         vec![range_param.clone().into(), is_big_param.into()],
     );
 
-    let constr = quote! {
-        fn new(ranges: Vec<#range_path>, endian: #endian) -> Self {
-            #fixed_layout_path::new(ranges, endian).into()
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #fixed_layout_path::new(ranges, endian).into()
+            }
         }
     };
 
@@ -4627,21 +4499,11 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
     let datatype = make_layout_datatype(if nbytes == 4 { "F" } else { "D" });
 
     let rest = quote! {
-        #[getter]
-        fn ranges(&self) -> Vec<#range_path> {
-            self.0.columns().iter().map(|c| c.clone()).collect()
-        }
-
-        #[getter]
-        fn endian(&self) -> #endian {
-            *self.0.as_ref()
-        }
-
         #widths
         #datatype
     };
 
-    impl_new(layout_name, full_layout_path, constr_doc, constr, rest)
+    impl_new(layout_name, full_layout_path, constr_doc, new, rest)
         .1
         .into()
 }
@@ -4654,7 +4516,6 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
     let bitmask = quote!(fireflow_core::data::AnyNullBitmask);
     let nomeasdt = quote!(fireflow_core::data::NoMeasDatatype);
     let endian_layout = quote!(fireflow_core::data::EndianLayout);
-    let endian = quote!(fireflow_core::text::byteord::Endian);
     let layout_path = parse_quote!(#endian_layout<#bitmask, #nomeasdt>);
 
     let ranges_getter = GetMethod(quote! {
@@ -4686,30 +4547,18 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
         vec![ranges_param.into(), is_big_param.into()],
     );
 
-    let constr = quote! {
-        fn new(ranges: Vec<u64>, endian: #endian) -> Self {
-            let rs = ranges.into_iter().map(#bitmask::from).collect();
-            #fixed::new(rs, endian).into()
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                let rs = ranges.into_iter().map(#bitmask::from).collect();
+                #fixed::new(rs, endian).into()
+            }
         }
     };
 
     let datatype = make_layout_datatype("I");
 
-    let rest = quote! {
-        #[getter]
-        fn ranges(&self) -> Vec<u64> {
-            self.0.columns().iter().map(|c| u64::from(*c)).collect()
-        }
-
-        #[getter]
-        fn endian(&self) -> #endian {
-            *self.0.as_ref()
-        }
-
-        #datatype
-    };
-
-    impl_new(name.to_string(), layout_path, constr_doc, constr, rest)
+    impl_new(name.to_string(), layout_path, constr_doc, new, datatype)
         .1
         .into()
 }
@@ -4721,7 +4570,6 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
 
     let null = quote!(fireflow_core::data::NullMixedType);
     let fixed = quote!(fireflow_core::data::FixedLayout);
-    let endian = quote!(fireflow_core::text::byteord::Endian);
 
     let types_getter = GetMethod(quote! {
         fn typed_ranges(&self) -> Vec<#null> {
@@ -4753,27 +4601,43 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
         vec![types_param.into(), is_big_param.into()],
     );
 
-    let constr = quote! {
-        fn new(typed_ranges: Vec<#null>, endian: #endian) -> Self {
-            #fixed::new(typed_ranges, endian).into()
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #fixed::new(typed_ranges, endian).into()
+            }
         }
     };
 
-    let rest = quote! {
-        #[getter]
-        fn typed_ranges(&self) -> Vec<#null> {
-            self.0.columns().iter().map(|c| c.clone()).collect()
-        }
-
-        #[getter]
-        fn endian(&self) -> #endian {
-            *self.0.as_ref()
-        }
-    };
-
-    impl_new(name.to_string(), layout_path, constr_doc, constr, rest)
+    impl_new(name.to_string(), layout_path, constr_doc, new, quote!())
         .1
         .into()
+}
+
+// TODO not DRY
+fn make_endian_ord_param(n: usize) -> DocArgROIvar {
+    let xs = (1..(n + 1)).join(",");
+    let ys = (1..(n + 1)).rev().join(",");
+    let endian = parse_quote!(fireflow_core::text::byteord::Endian);
+    let sizedbyteord_path = quote!(fireflow_core::text::byteord::SizedByteOrd);
+    let getter = GetMethod(quote! {
+        fn endian(&self) -> #endian {
+            let m: #sizedbyteord_path<2> = *self.0.as_ref();
+            m.endian()
+        }
+    });
+    let d = quote!(#endian::Little);
+    DocArg::new_ivar_ro_def(
+        "endian".into(),
+        PyType::new_lit(&["big", "little"]),
+        endian,
+        format!(
+            "If ``\"big\"`` use big endian (``{ys}``) for encoding values; \
+             if ``\"little\"`` use little endian (``{xs}``)."
+        ),
+        DocDefault::Other(d, "\"little\"".into()),
+        getter,
+    )
 }
 
 fn make_endian_param(n: usize) -> DocArgROIvar {
@@ -5019,37 +4883,37 @@ fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
 
     let doc = DocString::new_class(summary, vec![], vec![index_arg.into(), gate_arg.into()]);
 
-    // let params = all_args.iter().map(|a| a.doc.clone().into()).collect();
-    // let fun_args: Vec<_> = doc.args.iter().map(|a| a.constr_arg()).collect();
-    // let inner_args: Vec<_> = all_args.iter().map(|a| a.inner_arg1()).collect();
-
     let name = format!("{region_ident}{suffix}");
 
     let bare_path = path_strip_args(path.clone());
 
-    let fun_args = doc.fun_args();
-    let methods = doc.quoted_methods();
-
     let inner_args: Vec<_> = doc.args.iter().map(|a| a.inner_arg1()).collect();
 
-    let new = quote! {
-        fn new(#fun_args) -> Self {
-            #bare_path { #(#inner_args),* }.into()
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #bare_path { #(#inner_args),* }.into()
+            }
         }
     };
 
-    impl_new(name, path, doc, new, methods).1.into()
+    impl_new(name, path, doc, new, quote!()).1.into()
 }
 
-fn impl_new(
+fn impl_new<F>(
     name: String,
     path: Path,
     d: ClassDocString,
-    constr: TokenStream2,
+    constr: F,
     rest: TokenStream2,
-) -> (Ident, TokenStream2) {
+) -> (Ident, TokenStream2)
+where
+    F: FnOnce(TokenStream2) -> TokenStream2,
+{
     let (pyname, wrapped) = impl_pywrap(name, path, &d);
     let sig = d.sig();
+    let get_set_methods = d.quoted_methods();
+    let new = constr(d.fun_args());
     let s = quote! {
         #wrapped
 
@@ -5059,7 +4923,9 @@ fn impl_new(
             #sig
             #[new]
             #[allow(clippy::too_many_arguments)]
-            #constr
+            #new
+
+            #get_set_methods
 
             #rest
         }

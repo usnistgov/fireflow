@@ -1784,7 +1784,7 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
         .iter()
         .chain(layout_args.iter())
         .chain(shared_args.iter())
-        .map(|a| a.clone());
+        .cloned();
 
     let params = [std_param, nonstd_param]
         .into_iter()
@@ -1851,10 +1851,10 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
 
     let config_args: Vec<_> = std_args
         .into_iter()
-        .chain(layout_args.into_iter())
-        .chain(offsets_args.into_iter())
-        .chain(reader_args.into_iter())
-        .chain(shared_args.into_iter())
+        .chain(layout_args)
+        .chain(offsets_args)
+        .chain(reader_args)
+        .chain(shared_args)
         .collect();
 
     let std_conf = quote!(fireflow_core::config::StdTextReadConfig);
@@ -2487,7 +2487,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
 
     let params = all_args.iter().map(|x| x.clone().into()).collect();
 
-    let funargs: Vec<_> = all_args.iter().map(|x| x.constr_arg()).collect();
+    // let funargs: Vec<_> = all_args.iter().map(|x| x.constr_arg()).collect();
 
     let inner_args: Vec<_> = all_args.iter().map(|x| x.inner_arg()).collect();
 
@@ -2499,8 +2499,10 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         params,
     );
 
+    let fun_args = doc.fun_args();
+
     let new_method = quote! {
-        fn new(#(#funargs),*) -> Self {
+        fn new(#fun_args) -> Self {
             #fun(#(#inner_args),*).into()
         }
     };
@@ -2542,23 +2544,31 @@ impl Parse for NewCoreInfo {
     }
 }
 
-impl AnyDocArg {
-    fn constr_arg(&self) -> TokenStream2 {
-        match self {
-            Self::Param(x) => x.constr_arg(),
-            Self::ROIvar(x) => x.constr_arg(),
-            Self::RWIvar(x) => x.constr_arg(),
-        }
-    }
+// impl AnyDocArg {
+//     fn constr_arg(&self) -> TokenStream2 {
+//         match self {
+//             Self::Param(x) => x.constr_arg(),
+//             Self::ROIvar(x) => x.constr_arg(),
+//             Self::RWIvar(x) => x.constr_arg(),
+//         }
+//     }
 
-    fn inner_arg(&self) -> TokenStream2 {
-        match self {
-            Self::Param(x) => x.inner_arg(),
-            Self::ROIvar(x) => x.inner_arg(),
-            Self::RWIvar(x) => x.inner_arg(),
-        }
-    }
-}
+//     fn inner_arg(&self) -> TokenStream2 {
+//         match self {
+//             Self::Param(x) => x.inner_arg(),
+//             Self::ROIvar(x) => x.inner_arg(),
+//             Self::RWIvar(x) => x.inner_arg(),
+//         }
+//     }
+
+//     fn inner_arg1(&self) -> TokenStream2 {
+//         match self {
+//             Self::Param(x) => x.inner_arg1(),
+//             Self::ROIvar(x) => x.inner_arg1(),
+//             Self::RWIvar(x) => x.inner_arg1(),
+//         }
+//     }
+// }
 
 impl<T> DocArg<T> {
     fn quoted_methods(&self) -> TokenStream2
@@ -2612,16 +2622,16 @@ impl DocArgRWIvar {
             d.to_string()
         });
 
-        let make_methods = |optional: bool, p: &Path| {
+        let make_methods = |optional: bool| {
             let get_inner = format_ident!("{}", if optional { "metaroot_opt" } else { "metaroot" });
             let clone_inner = format_ident!("{}", if optional { "cloned" } else { "clone" });
             let full_kw = if optional {
-                parse_quote! {Option<#p>}
+                parse_quote! {Option<#path>}
             } else {
                 path.clone()
             };
 
-            GetSetMethods::new(
+            let m = GetSetMethods::new(
                 quote! {
                     fn #get(&self) -> #full_kw {
                         self.0.#get_inner::<#path>().#clone_inner()
@@ -2632,7 +2642,8 @@ impl DocArgRWIvar {
                         self.0.set_metaroot(x)
                     }
                 },
-            )
+            );
+            (full_kw, m)
         };
 
         if let Some(d) = def {
@@ -2642,11 +2653,11 @@ impl DocArgRWIvar {
             } else {
                 pytype
             };
-            let m = make_methods(optional, &path);
-            Self::new_ivar_rw_def(n, t, path, _desc, d, m)
+            let (p, m) = make_methods(optional);
+            Self::new_ivar_rw_def(n, t, p, _desc, d, m)
         } else {
-            let m = make_methods(false, &path);
-            Self::new_ivar_rw(n, pytype, path, _desc, m)
+            let (p, m) = make_methods(false);
+            Self::new_ivar_rw(n, pytype, p, _desc, m)
         }
     }
 
@@ -2666,14 +2677,14 @@ impl DocArgRWIvar {
             d.to_string()
         });
 
-        let make_methods = |optional: bool, p: &Path| {
+        let make_methods = |optional: bool| {
             let full_kw = if optional {
-                parse_quote! {Option<#p>}
+                parse_quote! {Option<#path>}
             } else {
                 path.clone()
             };
 
-            GetSetMethods::new(
+            let m = GetSetMethods::new(
                 quote! {
                     fn #get(&self) -> #full_kw {
                         let x: &#full_kw = self.0.as_ref();
@@ -2685,7 +2696,8 @@ impl DocArgRWIvar {
                         *self.0.as_mut() = x
                     }
                 },
-            )
+            );
+            (full_kw, m)
         };
 
         if let Some(d) = def {
@@ -2695,11 +2707,11 @@ impl DocArgRWIvar {
             } else {
                 pytype
             };
-            let m = make_methods(optional, &path);
-            DocArg::new_ivar_rw_def(n, t, path, _desc, d, m)
+            let (p, m) = make_methods(optional);
+            DocArg::new_ivar_rw_def(n, t, p, _desc, d, m)
         } else {
-            let m = make_methods(false, &path);
-            DocArg::new_ivar_rw(n, pytype, path, _desc, m)
+            let (p, m) = make_methods(false);
+            DocArg::new_ivar_rw(n, pytype, p, _desc, m)
         }
     }
 
@@ -3299,16 +3311,16 @@ impl DocArgRWIvar {
 }
 
 impl DocArgParam {
-    fn into_ro(self, m: GetMethod) -> DocArgROIvar {
-        DocArgROIvar::new(
-            self.argname,
-            self.pytype,
-            self.rstype,
-            self.desc,
-            self.default,
-            m,
-        )
-    }
+    // fn into_ro(self, m: GetMethod) -> DocArgROIvar {
+    //     DocArgROIvar::new(
+    //         self.argname,
+    //         self.pytype,
+    //         self.rstype,
+    //         self.desc,
+    //         self.default,
+    //         m,
+    //     )
+    // }
 
     fn into_rw(self, m: GetSetMethods) -> DocArgRWIvar {
         DocArgRWIvar::new(
@@ -4273,13 +4285,25 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
     let name = path.segments.last().unwrap().ident.clone();
     let bare_path = path_strip_args(path.clone());
 
+    let chars_getter = GetMethod(quote! {
+        fn char_widths(&self) -> Vec<u64> {
+            self.0
+                .widths()
+                .into_iter()
+                .map(|x| u64::from(u8::from(x)))
+                .collect()
+        }
+    });
+
     let chars_param = DocArg::new_ivar_ro(
         "ranges".into(),
         PyType::new_list(PyType::Int),
+        parse_quote!(Vec<u64>),
         "The range for each measurement. Equivalent to *$PnR*. The value of \
          *$PnB* will be derived from these and will be equivalent to the number \
          of digits for each value."
             .into(),
+        chars_getter,
     );
 
     let constr_doc = DocString::new_class(
@@ -4308,6 +4332,7 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
 
     let datatype = make_layout_datatype("A");
 
+    // TODO replace this with args getters
     let rest = quote! {
         #[getter]
         fn ranges(&self) -> Vec<u64> {
@@ -4338,13 +4363,21 @@ pub fn impl_new_delim_ascii_layout(input: TokenStream) -> TokenStream {
     let name = path.segments.last().unwrap().ident.clone();
     let bare_path = path_strip_args(path.clone());
 
+    let ranges_getter = GetMethod(quote! {
+        fn ranges(&self) -> Vec<u64> {
+            self.0.ranges.clone()
+        }
+    });
+
     let ranges_param = DocArg::new_ivar_ro(
         "ranges".into(),
         PyType::new_list(PyType::Int),
+        parse_quote!(Vec<u64>),
         "The range for each measurement. Equivalent to the *$PnR* \
          keyword. This is not used internally and thus only represents \
          documentation at the user level."
             .into(),
+        ranges_getter,
     );
 
     let constr_doc = DocString::new_class(
@@ -4361,6 +4394,7 @@ pub fn impl_new_delim_ascii_layout(input: TokenStream) -> TokenStream {
 
     let datatype = make_layout_datatype("A");
 
+    // TODO replace this with arg getter
     let rest = quote! {
         #[getter]
         fn ranges(&self) -> Vec<u64> {
@@ -4422,24 +4456,40 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
 
     let summary = format!("{nbits}-bit ordered {what} layout.");
 
+    let ranges_getter = GetMethod(quote! {
+        fn ranges(&self) -> Vec<#range_path> {
+            self.0.columns().iter().map(|c| c.clone()).collect()
+        }
+    });
+
     let range_param = DocArg::new_ivar_ro(
         "ranges".into(),
         PyType::new_list(range_pytype),
+        parse_quote!(Vec<#range_path>),
         range_desc.into(),
+        ranges_getter,
     );
 
-    let byteord_param: DocArgROIvar = DocArg::new_ivar_ro_def(
+    let byteord_getter = GetMethod(quote! {
+        fn byteord(&self) -> #sizedbyteord_path<#nbytes> {
+            *self.0.as_ref()
+        }
+    });
+
+    let byteord_param = DocArg::new_ivar_ro_def(
         "byteord".into(),
         PyType::new_union2(
             PyType::new_lit(&["big", "little"]),
             PyType::new_list(PyType::Int),
         ),
+        parse_quote!(#sizedbyteord_path<#nbytes>),
         format!(
             "The byte order to use when encoding values. Must be ``\"big\"``, \
              ``\"little\"``, or a list of all integers between 1 and {nbytes} \
              in any order."
         ),
         DocDefault::Other(quote!(#sizedbyteord_path::default()), "\"little\"".into()),
+        byteord_getter,
     );
 
     let is_big_param = make_endian_param(2);
@@ -4447,6 +4497,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
     let widths = make_byte_width(nbytes);
     let datatype = make_layout_datatype(dt);
 
+    // TODO replace this with ranges getter
     let ranges = quote! {
         #[getter]
         fn ranges(&self) -> Vec<#range_path> {
@@ -4501,6 +4552,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
                     #fixed_layout_path::new(ranges, byteord).into()
                 }
             };
+            // TODO replace this this getter from arg
             let byteord = quote! {
                 #[getter]
                 fn byteord(&self) -> #sizedbyteord_path<#nbytes> {
@@ -4541,12 +4593,20 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
 
     let layout_name = format!("EndianF{:02}Layout", nbits);
 
+    let ranges_getter = GetMethod(quote! {
+        fn ranges(&self) -> Vec<#range_path> {
+            self.0.columns().iter().map(|c| c.clone()).collect()
+        }
+    });
+
     let range_param = DocArg::new_ivar_ro(
         "ranges".into(),
         PyType::new_list(PyType::Decimal),
+        parse_quote!(Vec<#range_path>),
         "The range for each measurement. Corresponds to *$PnR*. This is not \
          used internally so only serves the users' own purposes."
             .into(),
+        ranges_getter,
     );
 
     let is_big_param = make_endian_param(4);
@@ -4597,9 +4657,16 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
     let endian = quote!(fireflow_core::text::byteord::Endian);
     let layout_path = parse_quote!(#endian_layout<#bitmask, #nomeasdt>);
 
+    let ranges_getter = GetMethod(quote! {
+        fn ranges(&self) -> Vec<u64> {
+            self.0.columns().iter().map(|c| u64::from(*c)).collect()
+        }
+    });
+
     let ranges_param: DocArgROIvar = DocArg::new_ivar_ro(
         "ranges".into(),
         PyType::new_list(PyType::Int),
+        parse_quote!(Vec<u64>),
         "The range of each measurement. Corresponds to the *$PnR* \
          keyword less one. The number of bytes used to encode each \
          measurement (*$PnB*) will be the minimum required to express this \
@@ -4608,6 +4675,7 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
          16-bit integers. The values of a measurement will be less than or \
          equal to this value."
             .into(),
+        ranges_getter,
     );
 
     let is_big_param = make_endian_param(4);
@@ -4655,18 +4723,26 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
     let fixed = quote!(fireflow_core::data::FixedLayout);
     let endian = quote!(fireflow_core::text::byteord::Endian);
 
+    let types_getter = GetMethod(quote! {
+        fn typed_ranges(&self) -> Vec<#null> {
+            self.0.columns().iter().map(|c| c.clone()).collect()
+        }
+    });
+
     let types_param: DocArgROIvar = DocArg::new_ivar_ro(
         "typed_ranges".into(),
         PyType::new_list(PyType::new_union2(
             PyType::Tuple(vec![PyType::new_lit(&["A", "I"]), PyType::Int]),
             PyType::Tuple(vec![PyType::new_lit(&["F", "D"]), PyType::Decimal]),
         )),
+        parse_quote!(Vec<#null>),
         "The type and range for each measurement corresponding to *$DATATYPE* \
          and/or *$PnDATATYPE* and *$PnR* respectively. These are given \
          as 2-tuples like ``(<type>, <range>)`` where ``type`` is one of \
          ``\"A\"``, ``\"I\"``, ``\"F\"``, or ``\"D\"`` corresponding to Ascii, \
          Integer, Float, or Double datatypes respectively."
             .into(),
+        types_getter,
     );
 
     let is_big_param = make_endian_param(4);
@@ -4703,15 +4779,23 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
 fn make_endian_param(n: usize) -> DocArgROIvar {
     let xs = (1..(n + 1)).join(",");
     let ys = (1..(n + 1)).rev().join(",");
-    let endian = quote!(fireflow_core::text::byteord::Endian);
+    let endian = parse_quote!(fireflow_core::text::byteord::Endian);
+    let getter = GetMethod(quote! {
+        fn endian(&self) -> #endian {
+            *self.0.as_ref()
+        }
+    });
+    let d = quote!(#endian::Little);
     DocArg::new_ivar_ro_def(
         "endian".into(),
         PyType::new_lit(&["big", "little"]),
+        endian,
         format!(
             "If ``\"big\"`` use big endian (``{ys}``) for encoding values; \
              if ``\"little\"`` use little endian (``{xs}``)."
         ),
-        DocDefault::Other(quote!(#endian::Little), "\"little\"".into()),
+        DocDefault::Other(d, "\"little\"".into()),
+        getter,
     )
 }
 
@@ -4938,21 +5022,23 @@ fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
     // let params = all_args.iter().map(|a| a.doc.clone().into()).collect();
     // let fun_args: Vec<_> = doc.args.iter().map(|a| a.constr_arg()).collect();
     // let inner_args: Vec<_> = all_args.iter().map(|a| a.inner_arg1()).collect();
-    // let methods: Vec<_> = all_args.iter().flat_map(|a| a.quoted_methods()).collect();
 
     let name = format!("{region_ident}{suffix}");
 
     let bare_path = path_strip_args(path.clone());
 
+    let fun_args = doc.fun_args();
+    let methods = doc.quoted_methods();
+
+    let inner_args: Vec<_> = doc.args.iter().map(|a| a.inner_arg1()).collect();
+
     let new = quote! {
-        fn new(#(#fun_args),*) -> Self {
+        fn new(#fun_args) -> Self {
             #bare_path { #(#inner_args),* }.into()
         }
     };
 
-    let rest = quote!(#(#methods)*);
-
-    impl_new(name, path, doc, new, rest).1.into()
+    impl_new(name, path, doc, new, methods).1.into()
 }
 
 fn impl_new(
@@ -5071,11 +5157,13 @@ fn big_other_param() -> DocArgParam {
     )
 }
 
+// TODO ???
 fn param_type_set_meas(version: Version) -> DocArgParam {
-    let meas_pytype = ArgData::new_measurements_arg(version).doc.pytype;
+    let a = DocArg::new_measurements_arg(version);
     DocArg::new_param(
         "measurements".into(),
-        meas_pytype,
+        a.pytype,
+        a.rstype,
         "The new measurements.".into(),
     )
 }
@@ -5159,15 +5247,15 @@ fn param_notrunc() -> DocArgParam {
 fn param_df() -> DocArgParam {
     // TODO fix cross-ref in docs here
     let df_pytype = PyType::PyClass("polars.DataFrame".into());
-    DocArg::new_param_def(
+    DocArg::new_param(
         "data".into(),
         df_pytype,
+        fcs_df_path(),
         "A dataframe encoding the contents of *DATA*. Number of columns must \
          match number of measurements. May be empty. Types do not necessarily \
          need to correspond to those in the data layout but mismatches may \
          result in truncation."
             .into(),
-        None,
     )
 }
 
@@ -5453,12 +5541,6 @@ struct DocReturn {
 }
 
 #[derive(Clone)]
-struct ArgTypeParam;
-
-#[derive(Clone)]
-struct ArgTypeIvar<const READONLY: bool>;
-
-#[derive(Clone)]
 enum PyType {
     Str,
     Bool,
@@ -5653,6 +5735,12 @@ trait IsDocArg {
     fn default(&self) -> Option<&DocDefault>;
 
     fn default_matches(&self) -> Result<(), String>;
+
+    fn constr_arg(&self) -> TokenStream2;
+
+    fn inner_arg(&self) -> TokenStream2;
+
+    fn inner_arg1(&self) -> TokenStream2;
 }
 
 impl<T> IsDocArg for DocArg<T> {
@@ -5685,6 +5773,30 @@ impl<T> IsDocArg for DocArg<T> {
             }
         } else {
             Ok(())
+        }
+    }
+
+    fn constr_arg(&self) -> TokenStream2 {
+        let n = format_ident!("{}", &self.argname);
+        let t = &self.rstype;
+        quote!(#n: #t)
+    }
+
+    fn inner_arg(&self) -> TokenStream2 {
+        let n = format_ident!("{}", &self.argname);
+        if unwrap_generic("Option", &self.rstype).1 {
+            quote! {#n.map(|x| x.into())}
+        } else {
+            quote! {#n.into()}
+        }
+    }
+
+    fn inner_arg1(&self) -> TokenStream2 {
+        let n = format_ident!("{}", &self.argname);
+        if unwrap_generic("Option", &self.rstype).1 {
+            quote! {#n: #n.map(|x| x.into())}
+        } else {
+            quote! {#n: #n.into()}
         }
     }
 }
@@ -5727,6 +5839,30 @@ impl IsDocArg for AnyDocArg {
             Self::RWIvar(x) => x.default_matches(),
             Self::ROIvar(x) => x.default_matches(),
             Self::Param(x) => x.default_matches(),
+        }
+    }
+
+    fn constr_arg(&self) -> TokenStream2 {
+        match self {
+            Self::RWIvar(x) => x.constr_arg(),
+            Self::ROIvar(x) => x.constr_arg(),
+            Self::Param(x) => x.constr_arg(),
+        }
+    }
+
+    fn inner_arg(&self) -> TokenStream2 {
+        match self {
+            Self::RWIvar(x) => x.inner_arg(),
+            Self::ROIvar(x) => x.inner_arg(),
+            Self::Param(x) => x.inner_arg(),
+        }
+    }
+
+    fn inner_arg1(&self) -> TokenStream2 {
+        match self {
+            Self::RWIvar(x) => x.inner_arg1(),
+            Self::ROIvar(x) => x.inner_arg1(),
+            Self::Param(x) => x.inner_arg1(),
         }
     }
 }
@@ -5801,6 +5937,24 @@ impl FunDocString {
 }
 
 impl<A, R, S> DocString<A, R, S> {
+    /// Emit typed argument list for use in rust function signature
+    fn fun_args(&self) -> TokenStream2
+    where
+        A: IsDocArg,
+    {
+        let xs: Vec<_> = self.args.iter().map(|a| a.constr_arg()).collect();
+        quote!(#(#xs),*)
+    }
+
+    /// Emit get/set methods associated with arguments (if any)
+    fn quoted_methods(&self) -> TokenStream2
+    where
+        A: IsMethods,
+    {
+        let xs: Vec<_> = self.args.iter().map(|a| a.quoted_methods()).collect();
+        quote!(#(#xs)*)
+    }
+
     fn has_defaults(&self) -> Option<bool>
     where
         A: IsDocArg,
@@ -5952,18 +6106,6 @@ impl fmt::Display for DocReturn {
         } else {
             f.write_str(t.as_str())
         }
-    }
-}
-
-impl<const READONLY: bool> fmt::Display for ArgTypeIvar<READONLY> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str("ivar")
-    }
-}
-
-impl fmt::Display for ArgTypeParam {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str("param")
     }
 }
 

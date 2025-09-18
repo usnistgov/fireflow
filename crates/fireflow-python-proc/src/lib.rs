@@ -21,14 +21,14 @@ use syn::{
 pub fn def_fcs_read_header(_: TokenStream) -> TokenStream {
     let fun_path = quote!(fireflow_core::api::fcs_read_header);
     let ret_path = quote!(fireflow_core::header::Header);
-    let args = ArgData::header_config_args();
+    let args = DocArgParam::header_config_args();
     let fun_args: Vec<_> = args.iter().map(|a| a.constr_arg()).collect();
     let inner_args: Vec<_> = args.iter().map(|a| a.inner_arg1()).collect();
-    let conf_params: Vec<_> = args.iter().map(|a| a.doc.clone()).collect();
+    // let conf_params: Vec<_> = args.iter().map(|a| a.doc.clone()).collect();
     let doc = DocString::new_fun(
         "Read the *HEADER* of an FCS file.".into(),
         vec![],
-        [path_param(true)].into_iter().chain(conf_params).collect(),
+        [path_param(true)].into_iter().chain(args).collect(),
         Some(DocReturn::new(PyType::PyClass("Header".into()), None)),
     );
     quote! {
@@ -89,54 +89,54 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let fun_name = format_ident!("try_new_{vsu}");
     let fun: Path = parse_quote!(#coretext_rstype::#fun_name);
 
-    let meas = ArgData::new_measurements_arg(version).into();
-    let layout = ArgData::new_layout_arg(version).into();
-    let df = ArgData::new_df_arg().into();
-    let analysis = ArgData::new_analysis_arg().into();
-    let others = ArgData::new_others_arg().into();
+    let meas = DocArg::new_measurements_arg(version).into();
+    let layout = DocArg::new_layout_arg(version).into();
+    let df = DocArg::new_df_arg().into();
+    let analysis = DocArg::new_analysis_arg().into();
+    let others = DocArg::new_others_arg().into();
 
     let mode = if version < Version::FCS3_2 {
         let t = PyType::new_lit(&["L", "U", "C"]);
         let m = quote!(fireflow_core::text::keywords::Mode::default());
         let d = DocDefault::Other(m, "\"L\"".into());
-        ArgData::new_kw_arg("Mode", "mode", t, None, Some(d))
+        DocArg::new_kw_arg("Mode", "mode", t, None, Some(d))
     } else {
-        ArgData::new_kw_opt_arg("Mode3_2", "mode", PyType::new_lit(&["L"]))
+        DocArg::new_kw_opt_arg("Mode3_2", "mode", PyType::new_lit(&["L"]))
     };
 
     let cyt = if version < Version::FCS3_2 {
-        ArgData::new_kw_opt_arg("Cyt", "cyt", PyType::Str)
+        DocArg::new_kw_opt_arg("Cyt", "cyt", PyType::Str)
     } else {
-        ArgData::new_kw_arg("Cyt", "cyt", PyType::Str, None, None)
+        DocArg::new_kw_arg("Cyt", "cyt", PyType::Str, None, None)
     };
 
-    let abrt = ArgData::new_kw_opt_arg("Abrt", "abrt", PyType::Int);
-    let com = ArgData::new_kw_opt_arg("Com", "com", PyType::Str);
-    let cells = ArgData::new_kw_opt_arg("Cells", "cells", PyType::Str);
-    let exp = ArgData::new_kw_opt_arg("Exp", "exp", PyType::Str);
-    let fil = ArgData::new_kw_opt_arg("Fil", "fil", PyType::Str);
-    let inst = ArgData::new_kw_opt_arg("Inst", "inst", PyType::Str);
-    let lost = ArgData::new_kw_opt_arg("Lost", "lost", PyType::Int);
-    let op = ArgData::new_kw_opt_arg("Op", "op", PyType::Str);
-    let proj = ArgData::new_kw_opt_arg("Proj", "proj", PyType::Str);
-    let smno = ArgData::new_kw_opt_arg("Smno", "smno", PyType::Str);
-    let src = ArgData::new_kw_opt_arg("Src", "src", PyType::Str);
-    let sys = ArgData::new_kw_opt_arg("Sys", "sys", PyType::Str);
-    let cytsn = ArgData::new_kw_opt_arg("Cytsn", "cytsn", PyType::Str);
+    let abrt = DocArg::new_kw_opt_arg("Abrt", "abrt", PyType::Int);
+    let com = DocArg::new_kw_opt_arg("Com", "com", PyType::Str);
+    let cells = DocArg::new_kw_opt_arg("Cells", "cells", PyType::Str);
+    let exp = DocArg::new_kw_opt_arg("Exp", "exp", PyType::Str);
+    let fil = DocArg::new_kw_opt_arg("Fil", "fil", PyType::Str);
+    let inst = DocArg::new_kw_opt_arg("Inst", "inst", PyType::Str);
+    let lost = DocArg::new_kw_opt_arg("Lost", "lost", PyType::Int);
+    let op = DocArg::new_kw_opt_arg("Op", "op", PyType::Str);
+    let proj = DocArg::new_kw_opt_arg("Proj", "proj", PyType::Str);
+    let smno = DocArg::new_kw_opt_arg("Smno", "smno", PyType::Str);
+    let src = DocArg::new_kw_opt_arg("Src", "src", PyType::Str);
+    let sys = DocArg::new_kw_opt_arg("Sys", "sys", PyType::Str);
+    let cytsn = DocArg::new_kw_opt_arg("Cytsn", "cytsn", PyType::Str);
 
     let unicode_pytype = PyType::Tuple(vec![PyType::Int, PyType::new_list(PyType::Str)]);
-    let unicode = ArgData::new_kw_opt_arg("Unicode", "unicode", unicode_pytype);
+    let unicode = DocArg::new_kw_opt_arg("Unicode", "unicode", unicode_pytype);
 
-    let csvbits = ArgData::new_kw_opt_arg("CSVBits", "csvbits", PyType::Int);
-    let cstot = ArgData::new_kw_opt_arg("CSTot", "cstot", PyType::Int);
+    let csvbits = DocArg::new_kw_opt_arg("CSVBits", "csvbits", PyType::Int);
+    let cstot = DocArg::new_kw_opt_arg("CSTot", "cstot", PyType::Int);
 
-    let csvflags = ArgData::new_csvflags_arg();
+    let csvflags = DocArg::new_csvflags_arg();
 
     let all_subset = [csvbits, cstot, csvflags];
 
-    let last_modifier = ArgData::new_kw_opt_arg("LastModifier", "last_modifier", PyType::Datetime);
-    let last_modified = ArgData::new_kw_opt_arg("LastModified", "last_modified", PyType::Str);
-    let originality = ArgData::new_kw_opt_arg(
+    let last_modifier = DocArg::new_kw_opt_arg("LastModifier", "last_modifier", PyType::Datetime);
+    let last_modified = DocArg::new_kw_opt_arg("LastModified", "last_modified", PyType::Str);
+    let originality = DocArg::new_kw_opt_arg(
         "Originality",
         "originality",
         PyType::new_lit(&["Original", "NonDataModified", "Appended", "DataModified"]),
@@ -144,47 +144,47 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     let all_modified = [last_modifier, last_modified, originality];
 
-    let plateid = ArgData::new_kw_opt_arg("Plateid", "plateid", PyType::Str);
-    let platename = ArgData::new_kw_opt_arg("Platename", "platename", PyType::Str);
-    let wellid = ArgData::new_kw_opt_arg("Wellid", "wellid", PyType::Str);
+    let plateid = DocArg::new_kw_opt_arg("Plateid", "plateid", PyType::Str);
+    let platename = DocArg::new_kw_opt_arg("Platename", "platename", PyType::Str);
+    let wellid = DocArg::new_kw_opt_arg("Wellid", "wellid", PyType::Str);
 
     let all_plate = [plateid, platename, wellid];
 
-    let vol = ArgData::new_kw_opt_arg("Vol", "vol", PyType::Float);
+    let vol = DocArg::new_kw_opt_arg("Vol", "vol", PyType::Float);
 
     let comp_or_spill = match version {
-        Version::FCS2_0 => ArgData::new_comp_arg(true),
-        Version::FCS3_0 => ArgData::new_comp_arg(false),
-        _ => ArgData::new_spillover_arg(),
+        Version::FCS2_0 => DocArg::new_comp_arg(true),
+        Version::FCS3_0 => DocArg::new_comp_arg(false),
+        _ => DocArg::new_spillover_arg(),
     };
 
-    let flowrate = ArgData::new_kw_opt_arg("Flowrate", "flowrate", PyType::Str);
+    let flowrate = DocArg::new_kw_opt_arg("Flowrate", "flowrate", PyType::Str);
 
-    let carrierid = ArgData::new_kw_opt_arg("Carrierid", "carrierid", PyType::Str);
-    let carriertype = ArgData::new_kw_opt_arg("Carriertype", "carriertype", PyType::Str);
-    let locationid = ArgData::new_kw_opt_arg("Locationid", "locationid", PyType::Str);
+    let carrierid = DocArg::new_kw_opt_arg("Carrierid", "carrierid", PyType::Str);
+    let carriertype = DocArg::new_kw_opt_arg("Carriertype", "carriertype", PyType::Str);
+    let locationid = DocArg::new_kw_opt_arg("Locationid", "locationid", PyType::Str);
 
     let all_carrier = [carrierid, carriertype, locationid];
 
-    let unstainedcenters = ArgData::new_unstainedcenters_arg();
-    let unstainedinfo = ArgData::new_kw_opt_arg("UnstainedInfo", "unstainedinfo", PyType::Str);
+    let unstainedcenters = DocArg::new_unstainedcenters_arg();
+    let unstainedinfo = DocArg::new_kw_opt_arg("UnstainedInfo", "unstainedinfo", PyType::Str);
 
-    let tr = ArgData::new_trigger_arg();
+    let tr = DocArg::new_trigger_arg();
 
     let all_timestamps = match version {
-        Version::FCS2_0 => ArgData::new_timestamps_args("FCSTime"),
-        Version::FCS3_0 => ArgData::new_timestamps_args("FCSTime60"),
-        Version::FCS3_1 | Version::FCS3_2 => ArgData::new_timestamps_args("FCSTime100"),
+        Version::FCS2_0 => DocArg::new_timestamps_args("FCSTime"),
+        Version::FCS3_0 => DocArg::new_timestamps_args("FCSTime60"),
+        Version::FCS3_1 | Version::FCS3_2 => DocArg::new_timestamps_args("FCSTime100"),
     };
 
     let all_datetimes = [
-        ArgData::new_datetime_arg(true),
-        ArgData::new_datetime_arg(false),
+        DocArg::new_datetime_arg(true),
+        DocArg::new_datetime_arg(false),
     ];
 
-    let applied_gates = ArgData::new_applied_gates_arg(version);
+    let applied_gates = DocArg::new_applied_gates_arg(version);
 
-    let nonstandard_keywords = ArgData::new_core_nonstandard_keywords_arg();
+    let nonstandard_keywords = DocArg::new_core_nonstandard_keywords_arg();
 
     let common_kws = [
         abrt,
@@ -204,7 +204,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         nonstandard_keywords,
     ];
 
-    let all_kws: Vec<AnyArgData> = match version {
+    let all_kws: Vec<AnyDocArg> = match version {
         Version::FCS2_0 => [mode, cyt, comp_or_spill]
             .into_iter()
             .chain(all_timestamps)
@@ -246,12 +246,16 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     };
 
     let meas_layout_args = [meas, layout];
-    let coretext_args: Vec<_> = meas_layout_args.iter().chain(&all_kws).collect();
+    let coretext_args: Vec<_> = meas_layout_args
+        .clone()
+        .into_iter()
+        .chain(all_kws.clone())
+        .collect();
     let coredataset_args: Vec<_> = meas_layout_args
-        .iter()
-        .chain([&df])
-        .chain(&all_kws)
-        .chain([&analysis, &others])
+        .into_iter()
+        .chain([df])
+        .chain(all_kws)
+        .chain([analysis, others])
         .collect();
 
     let coretext_ivar_methods: Vec<_> = coretext_args.iter().map(|x| x.quoted_methods()).collect();
@@ -260,8 +264,8 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         .map(|x| x.quoted_methods())
         .collect();
 
-    let coretext_params: Vec<_> = coretext_args.iter().map(|x| x.doc()).collect();
-    let coredataset_params: Vec<_> = coredataset_args.iter().map(|x| x.doc()).collect();
+    // let coretext_params: Vec<_> = coretext_args.iter().map(|x| x.doc()).collect();
+    // let coredataset_params: Vec<_> = coredataset_args.iter().map(|x| x.doc()).collect();
 
     let coretext_funargs: Vec<_> = coretext_args.iter().map(|x| x.constr_arg()).collect();
     let coredataset_funargs: Vec<_> = coredataset_args.iter().map(|x| x.constr_arg()).collect();
@@ -271,13 +275,13 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let coretext_doc = DocString::new_class(
         format!("Represents *TEXT* for an FCS {vs} file."),
         vec![],
-        coretext_params,
+        coretext_args,
     );
 
     let coredataset_doc = DocString::new_class(
         format!("Represents one dataset in an FCS {vs} file."),
         vec![],
-        coredataset_params,
+        coredataset_args,
     );
 
     let coretext_new = quote! {
@@ -425,6 +429,7 @@ pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
         DocArg::new_param_def(
             format!("exclude_{x}_{y}"),
             PyType::Bool,
+            parse_quote!(bool),
             format!("Do not include {a} {b} keywords"),
             DocDefault::Bool(false),
         )
@@ -480,6 +485,7 @@ pub fn impl_core_set_tr_threshold(input: TokenStream) -> TokenStream {
     let p = DocArg::new_param(
         "threshold".into(),
         PyType::Int,
+        parse_quote!(u32),
         "The threshold to set.".into(),
     );
     let doc = DocString::new_method(
@@ -572,6 +578,7 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
             DocArg::new_param_def(
                 "skip_conversion_check".into(),
                 PyType::Bool,
+                parse_quote!(bool),
                 "Skip check to ensure that types of the dataframe match the \
                  columns (*$PnB*, *$DATATYPE*, etc). If this is ``False``, \
                  perform this check before writing, and raise exception on \
@@ -745,6 +752,7 @@ pub fn impl_core_get_set_timestep(input: TokenStream) -> TokenStream {
     let param = DocArg::new_param(
         "timestep".into(),
         PyType::Float,
+        timestep_path.clone(),
         "The timestep to set. Must be greater than zero.".into(),
     );
     let set_doc = DocString::new_method(
@@ -788,7 +796,12 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
 
     let make_doc = |has_timestep: bool, has_index: bool| {
         let name = param_name("Name to set to temporal.");
-        let index = DocArg::new_param("index".into(), PyType::Int, "Index to set".into());
+        let index = DocArg::new_param(
+            "index".into(),
+            PyType::Int,
+            meas_index_path.clone(),
+            "Index to set".into(),
+        );
         let (i, p) = if has_index {
             ("index", index)
         } else {
@@ -798,6 +811,7 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
             Some(DocArg::new_param(
                 "timestep".into(),
                 PyType::Float,
+                timestep_path.clone(),
                 "The value of *$TIMESTEP* to use.".into(),
             ))
         } else {
@@ -806,6 +820,7 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
         let force = DocArg::new_param_def(
             "force".into(),
             PyType::Bool,
+            parse_quote!(bool),
             "If ``True`` remove any optical-specific metadata (detectors, \
              lasers, etc) without raising an exception. Defauls to ``False``."
                 .into(),
@@ -892,6 +907,7 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
             Some(DocArg::new_param_def(
                 "force".into(),
                 PyType::Bool,
+                parse_quote!(bool),
                 "If ``True`` and current time measurement has data which cannot \
                      be converted to optical, force the conversion anyways. \
                      Otherwise raise an exception."
@@ -1186,7 +1202,7 @@ pub fn impl_core_set_measurements(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let (is_dataset, version) = split_ident_version_pycore(&i);
 
-    let meas_argtype = ArgData::new_measurements_arg(version).rstype;
+    let meas_argtype = DocArg::new_measurements_arg(version).rstype;
 
     let s = if is_dataset {
         "layout and dataframe"
@@ -1252,6 +1268,7 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
         let param_meas = DocArg::new_param(
             "meas".into(),
             meas_type.clone(),
+            parse_quote!(#otype),
             "The measurement to push.".into(),
         );
         let _param_col = if hasdata { Some(param_col()) } else { None };
@@ -1427,6 +1444,7 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
         let param_meas = DocArg::new_param(
             "meas".into(),
             meas_type.clone(),
+            parse_quote!(#otype),
             "The measurement to insert.".into(),
         );
         let _param_col = if hasdata { Some(param_col()) } else { None };
@@ -1553,7 +1571,12 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
             vec![sub],
             vec![
                 i_param,
-                DocArg::new_param("meas".into(), optical_pytype(version), meas_desc),
+                DocArg::new_param(
+                    "meas".into(),
+                    optical_pytype(version),
+                    parse_quote!(#otype),
+                    meas_desc,
+                ),
             ],
             Some(DocReturn::new(
                 measurement_pytype(version),
@@ -1606,6 +1629,7 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
     let force_param = DocArg::new_param_def(
         "force".into(),
         PyType::Bool,
+        parse_quote!(bool),
         "If ``True``, do not raise exception if existing temporal measurement \
          cannot be converted to optical measurement."
             .into(),
@@ -1649,7 +1673,12 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
         );
         let args = [
             i_param,
-            DocArg::new_param("meas".into(), temporal_pytype(version), meas_desc),
+            DocArg::new_param(
+                "meas".into(),
+                temporal_pytype(version),
+                parse_quote!(#ttype),
+                meas_desc,
+            ),
         ];
         DocString::new_method(
             format!("Replace {m} with given temporal measurement."),
@@ -1701,14 +1730,14 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
     let version = split_ident_version_checked("CoreTEXT", &ident);
     let pyname = format_ident!("Py{ident}");
 
-    let std_args = ArgData::std_config_args(version);
-    let layout_args = ArgData::layout_config_args(version);
-    let shared_args = ArgData::shared_config_args();
+    let std_args = DocArg::std_config_args(version);
+    let layout_args = DocArg::layout_config_args(version);
+    let shared_args = DocArg::shared_config_args();
 
     let sk = quote!(fireflow_core::validated::keys::StdKey);
     let nsk = quote!(fireflow_core::validated::keys::NonStdKey);
-    let std = quote!(std::collections::HashMap<#sk, String>);
-    let nonstd = quote!(std::collections::HashMap<#nsk, String>);
+    let std: Path = parse_quote!(std::collections::HashMap<#sk, String>);
+    let nonstd: Path = parse_quote!(std::collections::HashMap<#nsk, String>);
 
     let fun_args: Vec<_> = std_args
         .iter()
@@ -1740,12 +1769,14 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
     let std_param = DocArg::new_param(
         "std".into(),
         PyType::new_dict(PyType::Str, PyType::Str),
+        std.clone(),
         format!("Standard keywords. {no_kws}"),
     );
 
     let nonstd_param = DocArg::new_param(
         "nonstd".into(),
         PyType::new_dict(PyType::Str, PyType::Str),
+        nonstd.clone(),
         "Non-Standard keywords.".into(),
     );
 
@@ -1753,7 +1784,7 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
         .iter()
         .chain(layout_args.iter())
         .chain(shared_args.iter())
-        .map(|a| a.doc.clone());
+        .map(|a| a.clone());
 
     let params = [std_param, nonstd_param]
         .into_iter()
@@ -1806,25 +1837,25 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
     let version = split_ident_version_checked("CoreDataset", &ident);
     let pyname = format_ident!("Py{ident}");
 
-    let std_args = ArgData::std_config_args(version);
-    let layout_args = ArgData::layout_config_args(version);
-    let offsets_args = ArgData::offsets_config_args(version);
-    let reader_args = ArgData::reader_config_args();
-    let shared_args = ArgData::shared_config_args();
-
-    let config_args: Vec<_> = std_args
-        .iter()
-        .chain(layout_args.iter())
-        .chain(offsets_args.iter())
-        .chain(reader_args.iter())
-        .chain(shared_args.iter())
-        .collect();
+    let std_args = DocArg::std_config_args(version);
+    let layout_args = DocArg::layout_config_args(version);
+    let offsets_args = DocArg::offsets_config_args(version);
+    let reader_args = DocArg::reader_config_args();
+    let shared_args = DocArg::shared_config_args();
 
     let std_inner_args: Vec<_> = std_args.iter().map(|a| a.inner_arg1()).collect();
     let layout_inner_args: Vec<_> = layout_args.iter().map(|a| a.inner_arg1()).collect();
     let offsets_inner_args: Vec<_> = offsets_args.iter().map(|a| a.inner_arg1()).collect();
     let reader_inner_args: Vec<_> = reader_args.iter().map(|a| a.inner_arg1()).collect();
     let shared_inner_args: Vec<_> = shared_args.iter().map(|a| a.inner_arg1()).collect();
+
+    let config_args: Vec<_> = std_args
+        .into_iter()
+        .chain(layout_args.into_iter())
+        .chain(offsets_args.into_iter())
+        .chain(reader_args.into_iter())
+        .chain(shared_args.into_iter())
+        .collect();
 
     let std_conf = quote!(fireflow_core::config::StdTextReadConfig);
     let layout_conf = quote!(fireflow_core::config::ReadLayoutConfig);
@@ -1835,36 +1866,40 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
 
     let sk_path = quote!(fireflow_core::validated::keys::StdKey);
     let nsk_path = quote!(fireflow_core::validated::keys::NonStdKey);
-    let std_path = quote!(std::collections::HashMap<#sk_path, String>);
-    let nonstd_path = quote!(std::collections::HashMap<#nsk_path, String>);
+    let std_path: Path = parse_quote!(std::collections::HashMap<#sk_path, String>);
+    let nonstd_path: Path = parse_quote!(std::collections::HashMap<#nsk_path, String>);
 
-    let data_seg_path = quote!(fireflow_core::segment::HeaderDataSegment);
-    let analysis_seg_path = quote!(fireflow_core::segment::HeaderAnalysisSegment);
-    let other_segs_path = quote!(Vec<fireflow_core::segment::OtherSegment20>);
+    let data_seg_path: Path = parse_quote!(fireflow_core::segment::HeaderDataSegment);
+    let analysis_seg_path: Path = parse_quote!(fireflow_core::segment::HeaderAnalysisSegment);
+    let other_segs_path: Path = parse_quote!(Vec<fireflow_core::segment::OtherSegment20>);
 
     let path_param = path_param(true);
 
     let std_param = DocArg::new_param(
         "std".into(),
         PyType::new_dict(PyType::Str, PyType::Str),
+        std_path.clone(),
         "Standard keywords.".into(),
     );
 
     let nonstd_param = DocArg::new_param(
         "nonstd".into(),
         PyType::new_dict(PyType::Str, PyType::Str),
+        nonstd_path.clone(),
         "Non-Standard keywords.".into(),
     );
 
     let data_seg_param = DocArg::new_param(
         "data_seg".into(),
         segment_pytype(),
+        data_seg_path.clone(),
         "The *DATA* segment from *HEADER*.".into(),
     );
 
     let analysis_seg_param = DocArg::new_param_def(
         "analysis_seg".into(),
         segment_pytype(),
+        analysis_seg_path.clone(),
         "The *ANALYSIS* segment from *HEADER*.".into(),
         DocDefault::Other(quote!(#analysis_seg_path::default()), "(0, 0)".into()),
     );
@@ -1872,13 +1907,14 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
     let other_segs_param = DocArg::new_param_def(
         "other_segs".into(),
         PyType::new_list(segment_pytype()),
+        other_segs_path.clone(),
         "The *OTHER* segments from *HEADER*.".into(),
         DocDefault::EmptyList,
     );
 
-    let config_params = config_args.iter().map(|a| a.doc.clone());
+    let fun_args: Vec<_> = config_args.iter().map(|a| a.constr_arg()).collect();
 
-    let params = [
+    let all_args = [
         path_param,
         std_param,
         nonstd_param,
@@ -1887,17 +1923,15 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
         other_segs_param,
     ]
     .into_iter()
-    .chain(config_params)
+    .chain(config_args)
     .collect();
 
     let doc = DocString::new_fun(
         "Make new instance from keywords.".into(),
         vec![],
-        params,
+        all_args,
         Some(DocReturn::new(PyType::PyClass(ident.to_string()), None)),
     );
-
-    let fun_args: Vec<_> = config_args.iter().map(|a| a.constr_arg()).collect();
 
     quote! {
         #[pymethods]
@@ -2011,6 +2045,7 @@ pub fn impl_coredataset_truncate_data(input: TokenStream) -> TokenStream {
     let p = DocArg::new_param_def(
         "skip_conv_check".into(),
         PyType::Bool,
+        parse_quote!(bool),
         "If ``True``, silently truncate data; otherwise return warnings when \
          truncation is performed."
             .into(),
@@ -2041,14 +2076,18 @@ pub fn impl_core_set_measurements_and_layout(input: TokenStream) -> TokenStream 
     let i: Ident = syn::parse(input).unwrap();
     let (is_dataset, version) = split_ident_version_pycore(&i);
 
-    let meas_argtype = ArgData::new_measurements_arg(version).rstype;
+    let meas_argtype = DocArg::new_measurements_arg(version).rstype;
 
-    let layout = ArgData::new_layout_arg(version);
-    let layout_pytype = layout.doc.pytype;
+    let layout = DocArg::new_layout_arg(version);
+    let layout_pytype = layout.pytype;
     let layout_argtype = layout.rstype;
 
-    let param_type_set_layout =
-        DocArg::new_param("layout".into(), layout_pytype, "The new layout.".into());
+    let param_type_set_layout = DocArg::new_param(
+        "layout".into(),
+        layout_pytype,
+        layout_argtype.clone(),
+        "The new layout.".into(),
+    );
 
     let s = if is_dataset {
         " and both must match number of columns in existing dataframe"
@@ -2103,11 +2142,16 @@ pub fn impl_coredataset_set_measurements_and_data(input: TokenStream) -> TokenSt
 
     let fcs_df_path = fcs_df_path();
 
-    let meas_argtype = ArgData::new_measurements_arg(version).rstype;
+    let meas_argtype = DocArg::new_measurements_arg(version).rstype;
 
-    let df_pytype = ArgData::new_df_arg().doc.pytype;
+    let df_pytype = DocArg::new_df_arg().pytype;
 
-    let param_type_set_df = DocArg::new_param("data".into(), df_pytype, "The new data.".into());
+    let param_type_set_df = DocArg::new_param(
+        "data".into(),
+        df_pytype,
+        meas_argtype.clone(),
+        "The new data.".into(),
+    );
 
     let doc = DocString::new_method(
         "Set measurements and data at once.".into(),
@@ -2211,15 +2255,15 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let lower_basename = base.to_lowercase();
 
     let scale = if version == Version::FCS2_0 {
-        ArgData::new_scale_arg()
+        DocArg::new_scale_arg()
     } else {
-        ArgData::new_transform_arg()
+        DocArg::new_transform_arg()
     };
 
     let wavelength = if version < Version::FCS3_1 {
-        ArgData::new_meas_kw_opt_arg("Wavelength", "wavelength", "L", PyType::Float)
+        DocArg::new_meas_kw_opt_arg("Wavelength", "wavelength", "L", PyType::Float)
     } else {
-        ArgData::new_meas_kw_opt_arg(
+        DocArg::new_meas_kw_opt_arg(
             "Wavelengths",
             "wavelengths",
             "L",
@@ -2227,14 +2271,14 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         )
     };
 
-    let bin = ArgData::new_meas_kw_arg(
+    let bin = DocArg::new_meas_kw_arg(
         "PeakBin",
         "bin",
         PyType::Int,
         "Value of *$PKn*.".into(),
         Some(DocDefault::Option),
     );
-    let size = ArgData::new_meas_kw_arg(
+    let size = DocArg::new_meas_kw_arg(
         "PeakNumber",
         "size",
         PyType::Int,
@@ -2244,18 +2288,18 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
 
     let all_peak = [bin, size];
 
-    let filter = ArgData::new_meas_kw_opt_arg("Filter", "filter", "F", PyType::Str);
+    let filter = DocArg::new_meas_kw_opt_arg("Filter", "filter", "F", PyType::Str);
 
-    let power = ArgData::new_meas_kw_opt_arg("Power", "power", "O", PyType::Float);
+    let power = DocArg::new_meas_kw_opt_arg("Power", "power", "O", PyType::Float);
 
     let detector_type =
-        ArgData::new_meas_kw_opt_arg("DetectorType", "detector_type", "T", PyType::Str);
+        DocArg::new_meas_kw_opt_arg("DetectorType", "detector_type", "T", PyType::Str);
 
     let percent_emitted =
-        ArgData::new_meas_kw_opt_arg("PercentEmitted", "percent_emitted", "P", PyType::Str);
+        DocArg::new_meas_kw_opt_arg("PercentEmitted", "percent_emitted", "P", PyType::Str);
 
     let detector_voltage =
-        ArgData::new_meas_kw_opt_arg("DetectorVoltage", "detector_voltage", "V", PyType::Float);
+        DocArg::new_meas_kw_opt_arg("DetectorVoltage", "detector_voltage", "V", PyType::Float);
 
     let all_common_optical = [
         filter,
@@ -2265,7 +2309,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         detector_voltage,
     ];
 
-    let calibration3_1 = ArgData::new_meas_kw_arg(
+    let calibration3_1 = DocArg::new_meas_kw_arg(
         "Calibration3_1",
         "calibration",
         calibration3_1_pytype(),
@@ -2273,7 +2317,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         Some(DocDefault::Option),
     );
 
-    let calibration3_2 = ArgData::new_meas_kw_arg(
+    let calibration3_2 = DocArg::new_meas_kw_arg(
         "Calibration3_2",
         "calibration",
         calibration3_2_pytype(),
@@ -2284,7 +2328,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         Some(DocDefault::Option),
     );
 
-    let display = ArgData::new_meas_kw_arg(
+    let display = DocArg::new_meas_kw_arg(
         "Display",
         "display",
         display_pytype(),
@@ -2296,24 +2340,18 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         Some(DocDefault::Option),
     );
 
-    let analyte = ArgData::new_meas_kw_opt_arg("Analyte", "analyte", "ANALYTE", PyType::Str);
+    let analyte = DocArg::new_meas_kw_opt_arg("Analyte", "analyte", "ANALYTE", PyType::Str);
 
-    let feature = ArgData::new_meas_kw_opt_arg("Feature", "feature", "FEATURE", feature_pytype());
+    let feature = DocArg::new_meas_kw_opt_arg("Feature", "feature", "FEATURE", feature_pytype());
 
     let detector_name =
-        ArgData::new_meas_kw_opt_arg("DetectorName", "detector_name", "DET", PyType::Str);
+        DocArg::new_meas_kw_opt_arg("DetectorName", "detector_name", "DET", PyType::Str);
 
-    let tag = ArgData::new_meas_kw_opt_arg("Tag", "tag", "TAG", PyType::Str);
+    let tag = DocArg::new_meas_kw_opt_arg("Tag", "tag", "TAG", PyType::Str);
 
     let measurement_type =
-        ArgData::new_meas_kw_opt_arg("OpticalType", "measurement_type", "TYPE", PyType::Str);
+        DocArg::new_meas_kw_opt_arg("OpticalType", "measurement_type", "TYPE", PyType::Str);
 
-    let has_scale_doc = DocArg::new_ivar_rw_def(
-        "has_scale".into(),
-        PyType::Bool,
-        "``True`` if *$PnE* is set to ``0,0``.".into(),
-        DocDefault::Bool(false),
-    );
     let has_scale_methods = GetSetMethods::new(
         quote! {
             fn get_has_scale(&self) -> bool {
@@ -2330,14 +2368,15 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
             }
         },
     );
-    let has_scale = ArgData::new(has_scale_doc, parse_quote!(bool), has_scale_methods);
-
-    let has_type_doc = DocArg::new_ivar_rw_def(
-        "has_type".into(),
+    let has_scale = DocArg::new_ivar_rw_def(
+        "has_scale".into(),
         PyType::Bool,
-        "``True`` if *$PnTYPE* is set to ``Time``.".into(),
+        parse_quote!(bool),
+        "``True`` if *$PnE* is set to ``0,0``.".into(),
         DocDefault::Bool(false),
+        has_scale_methods,
     );
+
     let has_type_methods = GetSetMethods::new(
         quote! {
             fn get_has_type(&self) -> bool {
@@ -2354,14 +2393,16 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
             }
         },
     );
-    let has_type = ArgData::new(has_type_doc, parse_quote!(bool), has_type_methods);
+    let has_type = DocArg::new_ivar_rw_def(
+        "has_type".into(),
+        PyType::Bool,
+        parse_quote!(bool),
+        "``True`` if *$PnTYPE* is set to ``Time``.".into(),
+        DocDefault::Bool(false),
+        has_type_methods,
+    );
 
     let timestep_path = keyword_path("Timestep");
-    let timestep_doc = DocArg::new_ivar_rw(
-        "timestep".into(),
-        PyType::Float,
-        "Value of *$TIMESTEP*.".into(),
-    );
     let timestep_methods = GetSetMethods::new(
         quote! {
             fn get_timestep(&self) -> #timestep_path {
@@ -2374,11 +2415,17 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
             }
         },
     );
-    let timestep = ArgData::new(timestep_doc, timestep_path, timestep_methods);
+    let timestep = DocArg::new_ivar_rw(
+        "timestep".into(),
+        PyType::Float,
+        timestep_path.clone(),
+        "Value of *$TIMESTEP*.".into(),
+        timestep_methods,
+    );
 
-    let longname = ArgData::new_meas_kw_opt_arg("Longname", "longname", "S", PyType::Str);
+    let longname = DocArg::new_meas_kw_opt_arg("Longname", "longname", "S", PyType::Str);
 
-    let nonstd = ArgData::new_meas_nonstandard_keywords_arg();
+    let nonstd = DocArg::new_meas_nonstandard_keywords_arg();
 
     let all_common = [longname, nonstd];
 
@@ -2438,7 +2485,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         .collect(),
     };
 
-    let params = all_args.iter().map(|x| x.doc.clone().into()).collect();
+    let params = all_args.iter().map(|x| x.clone().into()).collect();
 
     let funargs: Vec<_> = all_args.iter().map(|x| x.constr_arg()).collect();
 
@@ -2495,95 +2542,8 @@ impl Parse for NewCoreInfo {
     }
 }
 
-#[derive(new, Clone)]
-struct ArgData<D, M> {
-    doc: DocArg<D>,
-    rstype: Path,
-    methods: M,
-}
-
-#[derive(From, Clone)]
-enum AnyArgData {
-    Param(ArgDataParam),
-    ROIvar(ArgDataROIvar),
-    RWIvar(ArgDataRWIvar),
-}
-
-type ArgDataParam = ArgData<ArgTypeParam, NoMethods>;
-type ArgDataROIvar = ArgData<ArgTypeIvar<true>, GetMethod>;
-type ArgDataRWIvar = ArgData<ArgTypeIvar<false>, GetSetMethods>;
-
-#[derive(Clone)]
-struct NoMethods;
-
-#[derive(Clone)]
-struct GetMethod(proc_macro2::TokenStream);
-
-#[derive(new, Clone)]
-struct GetSetMethods {
-    get: proc_macro2::TokenStream,
-    set: proc_macro2::TokenStream,
-}
-
-impl ArgDataParam {
-    fn new_param(doc: DocArgParam, rstype: Path) -> Self {
-        Self::new(doc, rstype, NoMethods)
-    }
-}
-
-trait HasMethods {
-    fn quoted_methods(&self) -> proc_macro2::TokenStream;
-}
-
-impl HasMethods for NoMethods {
-    fn quoted_methods(&self) -> proc_macro2::TokenStream {
-        quote!()
-    }
-}
-
-impl HasMethods for GetMethod {
-    fn quoted_methods(&self) -> proc_macro2::TokenStream {
-        let g = &self.0;
-        quote! {
-            #[getter]
-            #g
-        }
-    }
-}
-
-impl HasMethods for GetSetMethods {
-    fn quoted_methods(&self) -> proc_macro2::TokenStream {
-        let g = &self.get;
-        let s = &self.set;
-        quote! {
-            #[getter]
-            #g
-            #[setter]
-            #s
-        }
-    }
-}
-
-impl HasMethods for AnyArgData {
-    fn quoted_methods(&self) -> proc_macro2::TokenStream {
-        match self {
-            Self::Param(x) => x.quoted_methods(),
-            Self::ROIvar(x) => x.quoted_methods(),
-            Self::RWIvar(x) => x.quoted_methods(),
-        }
-    }
-}
-
-impl AnyArgData {
-    fn doc(&self) -> AnyDocArg {
-        match self {
-            Self::Param(x) => x.doc.clone().into(),
-            Self::ROIvar(x) => x.doc.clone().into(),
-            Self::RWIvar(x) => x.doc.clone().into(),
-        }
-    }
-
-    fn constr_arg(&self) -> proc_macro2::TokenStream {
+impl AnyDocArg {
+    fn constr_arg(&self) -> TokenStream2 {
         match self {
             Self::Param(x) => x.constr_arg(),
             Self::ROIvar(x) => x.constr_arg(),
@@ -2591,7 +2551,7 @@ impl AnyArgData {
         }
     }
 
-    fn inner_arg(&self) -> proc_macro2::TokenStream {
+    fn inner_arg(&self) -> TokenStream2 {
         match self {
             Self::Param(x) => x.inner_arg(),
             Self::ROIvar(x) => x.inner_arg(),
@@ -2600,22 +2560,22 @@ impl AnyArgData {
     }
 }
 
-impl<D, M> ArgData<D, M> {
-    fn quoted_methods(&self) -> proc_macro2::TokenStream
+impl<T> DocArg<T> {
+    fn quoted_methods(&self) -> TokenStream2
     where
-        M: HasMethods,
+        T: IsMethods,
     {
         self.methods.quoted_methods()
     }
 
-    fn constr_arg(&self) -> proc_macro2::TokenStream {
-        let n = format_ident!("{}", &self.doc.argname);
+    fn constr_arg(&self) -> TokenStream2 {
+        let n = format_ident!("{}", &self.argname);
         let t = &self.rstype;
         quote!(#n: #t)
     }
 
-    fn inner_arg(&self) -> proc_macro2::TokenStream {
-        let n = format_ident!("{}", &self.doc.argname);
+    fn inner_arg(&self) -> TokenStream2 {
+        let n = format_ident!("{}", &self.argname);
         if unwrap_generic("Option", &self.rstype).1 {
             quote! {#n.map(|x| x.into())}
         } else {
@@ -2623,10 +2583,10 @@ impl<D, M> ArgData<D, M> {
         }
     }
 
-    fn inner_arg1(&self) -> proc_macro2::TokenStream {
+    fn inner_arg1(&self) -> TokenStream2 {
         // let n = format_ident!("{}", &self.doc.argname);
         // quote! {#n: #n.into()}
-        let n = format_ident!("{}", &self.doc.argname);
+        let n = format_ident!("{}", &self.argname);
         if unwrap_generic("Option", &self.rstype).1 {
             quote! {#n: #n.map(|x| x.into())}
         } else {
@@ -2635,7 +2595,7 @@ impl<D, M> ArgData<D, M> {
     }
 }
 
-impl ArgDataRWIvar {
+impl DocArgRWIvar {
     fn new_kw_arg(
         kw: &str,
         name: &str,
@@ -2646,46 +2606,48 @@ impl ArgDataRWIvar {
         let path = keyword_path(kw);
         let get = format_ident!("get_{name}");
         let set = format_ident!("set_{name}");
+        let n = name.to_string();
 
         let _desc = desc.map_or(format!("Value of *${}*.", name.to_uppercase()), |d| {
             d.to_string()
         });
 
-        let (optional, doc) = if let Some(d) = def {
+        let make_methods = |optional: bool, p: &Path| {
+            let get_inner = format_ident!("{}", if optional { "metaroot_opt" } else { "metaroot" });
+            let clone_inner = format_ident!("{}", if optional { "cloned" } else { "clone" });
+            let full_kw = if optional {
+                parse_quote! {Option<#p>}
+            } else {
+                path.clone()
+            };
+
+            GetSetMethods::new(
+                quote! {
+                    fn #get(&self) -> #full_kw {
+                        self.0.#get_inner::<#path>().#clone_inner()
+                    }
+                },
+                quote! {
+                    fn #set(&mut self, x: #full_kw) {
+                        self.0.set_metaroot(x)
+                    }
+                },
+            )
+        };
+
+        if let Some(d) = def {
             let optional = matches!(d, DocDefault::Option);
             let t = if optional {
                 PyType::new_opt(pytype)
             } else {
                 pytype
             };
-            let a = DocArg::new_ivar_rw_def(name.to_string(), t, _desc, d);
-            (optional, a)
+            let m = make_methods(optional, &path);
+            Self::new_ivar_rw_def(n, t, path, _desc, d, m)
         } else {
-            let a = DocArg::new_ivar_rw(name.to_string(), pytype, _desc);
-            (false, a)
-        };
-
-        let get_inner = format_ident!("{}", if optional { "metaroot_opt" } else { "metaroot" });
-        let clone_inner = format_ident!("{}", if optional { "cloned" } else { "clone" });
-        let full_kw = if optional {
-            parse_quote! {Option<#path>}
-        } else {
-            path.clone()
-        };
-
-        let methods = GetSetMethods::new(
-            quote! {
-                fn #get(&self) -> #full_kw {
-                    self.0.#get_inner::<#path>().#clone_inner()
-                }
-            },
-            quote! {
-                fn #set(&mut self, x: #full_kw) {
-                    self.0.set_metaroot(x)
-                }
-            },
-        );
-        Self::new(doc, full_kw, methods)
+            let m = make_methods(false, &path);
+            Self::new_ivar_rw(n, pytype, path, _desc, m)
+        }
     }
 
     fn new_meas_kw_arg(
@@ -2698,45 +2660,47 @@ impl ArgDataRWIvar {
         let path = keyword_path(kw);
         let get = format_ident!("get_{name}");
         let set = format_ident!("set_{name}");
+        let n = name.to_string();
 
         let _desc = desc.map_or(format!("Value of *${}*.", name.to_uppercase()), |d| {
             d.to_string()
         });
 
-        let (optional, doc) = if let Some(d) = def {
+        let make_methods = |optional: bool, p: &Path| {
+            let full_kw = if optional {
+                parse_quote! {Option<#p>}
+            } else {
+                path.clone()
+            };
+
+            GetSetMethods::new(
+                quote! {
+                    fn #get(&self) -> #full_kw {
+                        let x: &#full_kw = self.0.as_ref();
+                        x.as_ref().cloned()
+                    }
+                },
+                quote! {
+                    fn #set(&mut self, x: #full_kw) {
+                        *self.0.as_mut() = x
+                    }
+                },
+            )
+        };
+
+        if let Some(d) = def {
             let optional = matches!(d, DocDefault::Option);
             let t = if optional {
                 PyType::new_opt(pytype)
             } else {
                 pytype
             };
-            let a = DocArg::new_ivar_rw_def(name.to_string(), t, _desc, d);
-            (optional, a)
+            let m = make_methods(optional, &path);
+            DocArg::new_ivar_rw_def(n, t, path, _desc, d, m)
         } else {
-            let a = DocArg::new_ivar_rw(name.to_string(), pytype, _desc);
-            (false, a)
-        };
-
-        let full_kw = if optional {
-            parse_quote! {Option<#path>}
-        } else {
-            path.clone()
-        };
-
-        let methods = GetSetMethods::new(
-            quote! {
-                fn #get(&self) -> #full_kw {
-                    let x: &#full_kw = self.0.as_ref();
-                    x.as_ref().cloned()
-                }
-            },
-            quote! {
-                fn #set(&mut self, x: #full_kw) {
-                    *self.0.as_mut() = x
-                }
-            },
-        );
-        Self::new(doc, full_kw, methods)
+            let m = make_methods(false, &path);
+            DocArg::new_ivar_rw(n, pytype, path, _desc, m)
+        }
     }
 
     fn new_kw_opt_arg(kw: &str, name: &str, pytype: PyType) -> Self {
@@ -2812,12 +2776,6 @@ impl ArgDataRWIvar {
              and *$DATATYPE*."
         };
 
-        let layout_doc = DocArg::new_ivar_rw(
-            layout_argname.to_string(),
-            layout_pytype.clone(),
-            layout_desc.into(),
-        );
-
         let methods = GetSetMethods::new(
             quote! {
                 fn get_layout(&self) -> #layout_ident {
@@ -2831,11 +2789,16 @@ impl ArgDataRWIvar {
             },
         );
 
-        Self::new(layout_doc, parse_quote!(#layout_ident), methods)
+        DocArg::new_ivar_rw(
+            layout_argname.to_string(),
+            layout_pytype.clone(),
+            parse_quote!(#layout_ident),
+            layout_desc.into(),
+            methods,
+        )
     }
 
     fn new_df_arg() -> Self {
-        let df_doc = param_df();
         // use polars df here because we need to manually add names
         let polars_df_type = quote! {pyo3_polars::PyDataFrame};
         let methods = GetSetMethods::new(
@@ -2853,12 +2816,11 @@ impl ArgDataRWIvar {
                 }
             },
         );
-        Self::new(df_doc, fcs_df_path(), methods)
+        param_df().into_rw(methods)
     }
 
     fn new_analysis_arg() -> Self {
         let analysis_rstype = analysis_path();
-        let analysis_doc = param_analysis();
         let methods = GetSetMethods::new(
             quote! {
                 fn analysis(&self) -> #analysis_rstype {
@@ -2871,12 +2833,11 @@ impl ArgDataRWIvar {
                 }
             },
         );
-        Self::new(analysis_doc, analysis_rstype, methods)
+        param_analysis().into_rw(methods)
     }
 
     fn new_others_arg() -> Self {
         let others_rstype = others_path();
-        let others_doc = param_others();
         let methods = GetSetMethods::new(
             quote! {
                 fn others(&self) -> #others_rstype {
@@ -2889,7 +2850,7 @@ impl ArgDataRWIvar {
                 }
             },
         );
-        Self::new(others_doc, others_rstype, methods)
+        param_others().into_rw(methods)
     }
 
     fn new_timestamps_args(time_name: &str) -> [Self; 3] {
@@ -2913,12 +2874,6 @@ impl ArgDataRWIvar {
             let get_naive = format_ident!("{name}_naive");
             let set_naive = format_ident!("set_{name}_naive");
             let desc = format!("Value of *${}*.", name.to_uppercase());
-            let doc = DocArg::new_ivar_rw_def(
-                name.into(),
-                PyType::new_opt(PyType::Time),
-                desc,
-                DocDefault::Option,
-            );
             let methods = GetSetMethods::new(
                 quote! {
                     fn #get(&self) -> #nt {
@@ -2931,15 +2886,15 @@ impl ArgDataRWIvar {
                     }
                 },
             );
-            Self::new(doc, rstype, methods)
+            DocArg::new_ivar_rw_def(
+                name.into(),
+                PyType::new_opt(PyType::Time),
+                rstype,
+                desc,
+                DocDefault::Option,
+                methods,
+            )
         };
-
-        let date_doc = DocArg::new_ivar_rw_def(
-            "date".into(),
-            PyType::new_opt(PyType::Date),
-            "Value of *$DATE*.".into(),
-            DocDefault::Option,
-        );
 
         let date_methods = GetSetMethods::new(
             quote! {
@@ -2954,9 +2909,16 @@ impl ArgDataRWIvar {
             },
         );
 
-        let date = Self::new(date_doc, date_rstype, date_methods);
+        let date_arg = DocArg::new_ivar_rw_def(
+            "date".into(),
+            PyType::new_opt(PyType::Date),
+            date_rstype,
+            "Value of *$DATE*.".into(),
+            DocDefault::Option,
+            date_methods,
+        );
 
-        [make_time_ivar(true), make_time_ivar(false), date]
+        [make_time_ivar(true), make_time_ivar(false), date_arg]
     }
 
     fn new_datetime_arg(is_start: bool) -> Self {
@@ -2970,12 +2932,6 @@ impl ArgDataRWIvar {
         let rstype = parse_quote!(Option<fireflow_core::text::datetimes::#type_ident>);
         let get = format_ident!("{name}");
         let set = format_ident!("set_{name}");
-        let doc = DocArg::new_ivar_rw_def(
-            name.into(),
-            PyType::new_opt(PyType::Datetime),
-            format!("Value for *${}*.", name.to_uppercase()),
-            DocDefault::Option,
-        );
         let methods = GetSetMethods::new(
             quote! {
                 fn #get(&self) -> #dt {
@@ -2988,7 +2944,14 @@ impl ArgDataRWIvar {
                 }
             },
         );
-        Self::new(doc, rstype, methods)
+        DocArg::new_ivar_rw_def(
+            name.into(),
+            PyType::new_opt(PyType::Datetime),
+            rstype,
+            format!("Value for *${}*.", name.to_uppercase()),
+            DocDefault::Option,
+            methods,
+        )
     }
 
     fn new_comp_arg(is_2_0: bool) -> Self {
@@ -3007,20 +2970,21 @@ impl ArgDataRWIvar {
         );
         let desc = if is_2_0 {
             "The compensation matrix. Must be a square array with number of \
-         rows/columns equal to the number of measurements. Non-zero entries \
-         will produce a *$DFCmTOn* keyword."
+             rows/columns equal to the number of measurements. Non-zero entries \
+             will produce a *$DFCmTOn* keyword."
         } else {
             "The value of *$COMP*. Must be a square array with number of \
-         rows/columns equal to the number of measurements."
+             rows/columns equal to the number of measurements."
         }
         .into();
-        let doc = DocArg::new_ivar_rw_def(
+        DocArg::new_ivar_rw_def(
             "comp".into(),
             PyType::new_opt(PyType::PyClass("~numpy.ndarray".into())),
+            rstype,
             desc,
             DocDefault::Option,
-        );
-        Self::new(doc, rstype, methods)
+            methods,
+        )
     }
 
     fn new_spillover_arg() -> Self {
@@ -3037,12 +3001,13 @@ impl ArgDataRWIvar {
                 }
             },
         );
-        let doc = DocArg::new_ivar_rw_def(
+        DocArg::new_ivar_rw_def(
             "spillover".into(),
             PyType::new_opt(PyType::Tuple(vec![
                 PyType::new_list(PyType::Str),
                 PyType::PyClass("~numpy.ndarray".into()),
             ])),
+            rstype,
             "Value for *$SPILLOVER*. First element of tuple the list of measurement \
              names and the second is the matrix. Each measurement name must \
              correspond to a *$PnN*, must be unique, and the length of this list \
@@ -3050,21 +3015,13 @@ impl ArgDataRWIvar {
              must be at least 2x2."
                 .into(),
             DocDefault::Option,
-        );
-        Self::new(doc, rstype, methods)
+            methods,
+        )
     }
 
     fn new_csvflags_arg() -> Self {
         let path = quote!(fireflow_core::core::CSVFlags);
         let rstype = parse_quote!(Option<#path>);
-        let doc = DocArg::new_ivar_rw_def(
-            "csvflags".into(),
-            PyType::new_opt(PyType::new_list(PyType::new_opt(PyType::Int))),
-            "Subset flags. Each element in the list corresponds to *$CSVnFLAG* and \
-         the length of the list corresponds to *$CSMODE*."
-                .into(),
-            DocDefault::Option,
-        );
         let methods = GetSetMethods::new(
             quote! {
                 fn get_csvflags(&self) -> #rstype {
@@ -3077,21 +3034,21 @@ impl ArgDataRWIvar {
                 }
             },
         );
-        Self::new(doc, rstype, methods)
+        DocArg::new_ivar_rw_def(
+            "csvflags".into(),
+            PyType::new_opt(PyType::new_list(PyType::new_opt(PyType::Int))),
+            rstype,
+            "Subset flags. Each element in the list corresponds to *$CSVnFLAG* and \
+             the length of the list corresponds to *$CSMODE*."
+                .into(),
+            DocDefault::Option,
+            methods,
+        )
     }
 
     fn new_trigger_arg() -> Self {
         let path = keyword_path("Trigger");
         let rstype = parse_quote! {Option<#path>};
-
-        let doc = DocArg::new_ivar_rw_def(
-            "tr".into(),
-            PyType::new_opt(PyType::Tuple(vec![PyType::Int, PyType::Str])),
-            "Value for *$TR*. First member of tuple is threshold and second is the \
-             measurement name which must match a *$PnN*."
-                .into(),
-            DocDefault::Option,
-        );
 
         let methods = GetSetMethods::new(
             quote! {
@@ -3105,16 +3062,20 @@ impl ArgDataRWIvar {
                 }
             },
         );
-        Self::new(doc, rstype, methods)
+
+        DocArg::new_ivar_rw_def(
+            "tr".into(),
+            PyType::new_opt(PyType::Tuple(vec![PyType::Int, PyType::Str])),
+            rstype,
+            "Value for *$TR*. First member of tuple is threshold and second is the \
+             measurement name which must match a *$PnN*."
+                .into(),
+            DocDefault::Option,
+            methods,
+        )
     }
 
     fn new_unstainedcenters_arg() -> Self {
-        let doc = DocArg::new_ivar_rw_def(
-            "unstainedcenters".into(),
-            PyType::new_opt(PyType::new_dict(PyType::Str, PyType::Float)),
-            "Value for *$UNSTAINEDCENTERS. Each key must match a *$PnN*.".into(),
-            DocDefault::Option,
-        );
         let path = quote!(fireflow_core::text::unstainedcenters::UnstainedCenters);
         let rstype = parse_quote!(Option<#path>);
         let methods = GetSetMethods::new(
@@ -3129,7 +3090,14 @@ impl ArgDataRWIvar {
                 }
             },
         );
-        Self::new(doc, rstype, methods)
+        DocArg::new_ivar_rw_def(
+            "unstainedcenters".into(),
+            PyType::new_opt(PyType::new_dict(PyType::Str, PyType::Float)),
+            rstype,
+            "Value for *$UNSTAINEDCENTERS. Each key must match a *$PnN*.".into(),
+            DocDefault::Option,
+            methods,
+        )
     }
 
     fn new_applied_gates_arg(version: Version) -> Self {
@@ -3194,8 +3162,6 @@ impl ArgDataRWIvar {
 
         let def = DocDefault::Other(quote!(#rstype::default()), pydef.into());
 
-        let doc = DocArg::new_ivar_rw_def("applied_gates".into(), pytype, desc, def);
-
         let setter_body = if collapsed_version == Version::FCS2_0 {
             quote! {
                 fn set_applied_gates(&mut self, ag: #rstype) {
@@ -3220,21 +3186,17 @@ impl ArgDataRWIvar {
             setter_body,
         );
 
-        Self::new(doc, parse_quote!(#rstype), methods)
+        DocArg::new_ivar_rw_def(
+            "applied_gates".into(),
+            pytype,
+            parse_quote!(#rstype),
+            desc,
+            def,
+            methods,
+        )
     }
 
     fn new_scale_arg() -> Self {
-        let doc = DocArg::new_ivar_rw_def(
-            "scale".into(),
-            PyType::new_opt(PyType::Tuple(vec![
-                PyType::new_unit(),
-                PyType::Tuple(vec![PyType::Float, PyType::Float]),
-            ])),
-            "Value for *$PnE*. Empty tuple means linear scale; 2-tuple encodes \
-             decades and offset for log scale"
-                .into(),
-            DocDefault::Option,
-        );
         let rstype = parse_quote! {Option<fireflow_core::text::scale::Scale>};
         let methods = GetSetMethods::new(
             quote! {
@@ -3248,21 +3210,22 @@ impl ArgDataRWIvar {
                 }
             },
         );
-        Self::new(doc, rstype, methods)
+        DocArg::new_ivar_rw_def(
+            "scale".into(),
+            PyType::new_opt(PyType::Tuple(vec![
+                PyType::new_unit(),
+                PyType::Tuple(vec![PyType::Float, PyType::Float]),
+            ])),
+            rstype,
+            "Value for *$PnE*. Empty tuple means linear scale; 2-tuple encodes \
+             decades and offset for log scale"
+                .into(),
+            DocDefault::Option,
+            methods,
+        )
     }
 
     fn new_transform_arg() -> Self {
-        let doc = DocArg::new_ivar_rw(
-            "transform".into(),
-            PyType::Tuple(vec![
-                PyType::Float,
-                PyType::Tuple(vec![PyType::Float, PyType::Float]),
-            ]),
-            "Value for *$PnE* and/or *$PnG*. Singleton float encodes gain (*$PnG*) \
-             and implies linear scaling (ie *$PnE* is ``0,0``). 2-tuple encodes \
-             decades and offset for log scale, and implies *$PnG* is not set."
-                .into(),
-        );
         let rstype = parse_quote! {fireflow_core::core::ScaleTransform};
         let methods = GetSetMethods::new(
             quote! {
@@ -3276,7 +3239,19 @@ impl ArgDataRWIvar {
                 }
             },
         );
-        Self::new(doc, rstype, methods)
+        DocArg::new_ivar_rw(
+            "transform".into(),
+            PyType::Tuple(vec![
+                PyType::Float,
+                PyType::Tuple(vec![PyType::Float, PyType::Float]),
+            ]),
+            rstype,
+            "Value for *$PnE* and/or *$PnG*. Singleton float encodes gain (*$PnG*) \
+             and implies linear scaling (ie *$PnE* is ``0,0``). 2-tuple encodes \
+             decades and offset for log scale, and implies *$PnG* is not set."
+                .into(),
+            methods,
+        )
     }
 
     fn new_core_nonstandard_keywords_arg() -> Self {
@@ -3296,32 +3271,56 @@ impl ArgDataRWIvar {
         )
     }
 
-    fn new_nonstandard_keywords_arg(desc: &str, root: proc_macro2::TokenStream) -> Self {
+    fn new_nonstandard_keywords_arg(desc: &str, root: TokenStream2) -> Self {
         let nsk = quote!(fireflow_core::validated::keys::NonStdKey);
-        let fun_arg = parse_quote!(std::collections::HashMap<#nsk, String>);
-        let doc = DocArg::new_ivar_rw_def(
-            "nonstandard_keywords".into(),
-            PyType::new_dict(PyType::Str, PyType::Str),
-            desc.into(),
-            DocDefault::EmptyDict,
-        );
+        let rstype = parse_quote!(std::collections::HashMap<#nsk, String>);
         let methods = GetSetMethods::new(
             quote! {
-                fn get_nonstandard_keywords(&self) -> #fun_arg {
+                fn get_nonstandard_keywords(&self) -> #rstype {
                     #root.nonstandard_keywords.clone()
                 }
             },
             quote! {
-                fn set_nonstandard_keywords(&mut self, kws: #fun_arg) {
+                fn set_nonstandard_keywords(&mut self, kws: #rstype) {
                     #root.nonstandard_keywords = kws;
                 }
             },
         );
-        Self::new(doc, fun_arg, methods)
+
+        DocArg::new_ivar_rw_def(
+            "nonstandard_keywords".into(),
+            PyType::new_dict(PyType::Str, PyType::Str),
+            rstype,
+            desc.into(),
+            DocDefault::EmptyDict,
+            methods,
+        )
     }
 }
 
-impl ArgDataParam {
+impl DocArgParam {
+    fn into_ro(self, m: GetMethod) -> DocArgROIvar {
+        DocArgROIvar::new(
+            self.argname,
+            self.pytype,
+            self.rstype,
+            self.desc,
+            self.default,
+            m,
+        )
+    }
+
+    fn into_rw(self, m: GetSetMethods) -> DocArgRWIvar {
+        DocArgRWIvar::new(
+            self.argname,
+            self.pytype,
+            self.rstype,
+            self.desc,
+            self.default,
+            m,
+        )
+    }
+
     fn new_measurements_arg(version: Version) -> Self {
         let (fam_ident, name_pytype) = if version < Version::FCS3_1 {
             (format_ident!("MaybeFamily"), PyType::new_opt(PyType::Str))
@@ -3341,74 +3340,67 @@ impl ArgDataParam {
             ),
         ]);
         let meas_desc = "Measurements corresponding to columns in FCS file. \
-                     Temporal must be given zero or one times.";
-        let meas_doc =
-            DocArg::new_param("measurements".into(), meas_pytype.clone(), meas_desc.into());
+                         Temporal must be given zero or one times.";
         let meas_argtype: Path =
             parse_quote!(PyEithers<#fam_path, #meas_tmp_pyname, #meas_opt_pyname>);
 
-        Self::new_param(meas_doc, meas_argtype.clone())
-    }
-
-    fn new_config_arg(
-        name: String,
-        pytype: PyType,
-        desc: String,
-        def: DocDefault,
-        rstype: Path,
-    ) -> Self {
-        Self::new_param(DocArg::new_param_def(name, pytype, desc, def), rstype)
+        Self::new_param(
+            "measurements".into(),
+            meas_pytype.clone(),
+            meas_argtype,
+            meas_desc.into(),
+        )
     }
 
     fn new_config_bool_arg(name: String, desc: String) -> Self {
-        ArgData::new_config_arg(
+        Self::new_param_def(
             name,
             PyType::Bool,
+            parse_quote!(bool),
             desc,
             DocDefault::Bool(false),
-            parse_quote!(bool),
         )
     }
 
     fn new_config_opt_arg(name: String, pytype: PyType, desc: String, path: Path) -> Self {
-        ArgData::new_config_arg(
+        Self::new_param_def(
             name,
             PyType::new_opt(pytype),
+            parse_quote!(Option<#path>),
             desc,
             DocDefault::Option,
-            parse_quote!(Option<#path>),
         )
     }
 
     fn header_config_args() -> Vec<Self> {
         vec![
-            ArgData::text_correction_arg(),
-            ArgData::data_correction_arg(),
-            ArgData::analysis_correction_arg(),
-            ArgData::other_corrections_arg(),
-            ArgData::max_other_arg(),
-            ArgData::other_width_arg(),
-            ArgData::squish_offsets_arg(),
-            ArgData::allow_negative_arg(),
-            ArgData::truncate_offsets_arg(),
+            Self::text_correction_arg(),
+            Self::data_correction_arg(),
+            Self::analysis_correction_arg(),
+            Self::other_corrections_arg(),
+            Self::max_other_arg(),
+            Self::other_width_arg(),
+            Self::squish_offsets_arg(),
+            Self::allow_negative_arg(),
+            Self::truncate_offsets_arg(),
         ]
     }
 
     fn std_config_args(version: Version) -> Vec<Self> {
-        let trim_intra_value_whitespace = ArgData::trim_intra_value_whitespace();
-        let time_meas_pattern = ArgData::time_meas_pattern_arg();
-        let allow_missing_time = ArgData::allow_missing_time_arg();
-        let force_time_linear = ArgData::force_time_linear_arg();
-        let ignore_time_gain = ArgData::ignore_time_gain_arg();
-        let ignore_time_optical_keys = ArgData::ignore_time_optical_keys_arg();
-        let parse_indexed_spillover = ArgData::parse_indexed_spillover_arg();
-        let date_pattern = ArgData::date_pattern_arg();
-        let time_pattern = ArgData::time_pattern_arg();
-        let allow_pseudostandard = ArgData::allow_pseudostandard_arg();
-        let allow_unused_standard = ArgData::allow_unused_standard_arg();
-        let disallow_deprecated = ArgData::disallow_deprecated_arg();
-        let fix_log_scale_offsets = ArgData::fix_log_scale_offsets_arg();
-        let nonstandard_measurement_pattern = ArgData::nonstandard_measurement_pattern_arg();
+        let trim_intra_value_whitespace = Self::trim_intra_value_whitespace();
+        let time_meas_pattern = Self::time_meas_pattern_arg();
+        let allow_missing_time = Self::allow_missing_time_arg();
+        let force_time_linear = Self::force_time_linear_arg();
+        let ignore_time_gain = Self::ignore_time_gain_arg();
+        let ignore_time_optical_keys = Self::ignore_time_optical_keys_arg();
+        let parse_indexed_spillover = Self::parse_indexed_spillover_arg();
+        let date_pattern = Self::date_pattern_arg();
+        let time_pattern = Self::time_pattern_arg();
+        let allow_pseudostandard = Self::allow_pseudostandard_arg();
+        let allow_unused_standard = Self::allow_unused_standard_arg();
+        let disallow_deprecated = Self::disallow_deprecated_arg();
+        let fix_log_scale_offsets = Self::fix_log_scale_offsets_arg();
+        let nonstandard_measurement_pattern = Self::nonstandard_measurement_pattern_arg();
 
         let std_common_args = [
             trim_intra_value_whitespace,
@@ -3436,9 +3428,9 @@ impl ArgDataParam {
     }
 
     fn layout_config_args(version: Version) -> Vec<Self> {
-        let integer_widths_from_byteord = ArgData::integer_widths_from_byteord_arg();
-        let integer_byteord_override = ArgData::integer_byteord_override_arg();
-        let disallow_range_truncation = ArgData::disallow_range_truncation_arg();
+        let integer_widths_from_byteord = Self::integer_widths_from_byteord_arg();
+        let integer_byteord_override = Self::integer_byteord_override_arg();
+        let disallow_range_truncation = Self::disallow_range_truncation_arg();
 
         match version {
             Version::FCS2_0 | Version::FCS3_0 => [
@@ -3453,13 +3445,13 @@ impl ArgDataParam {
     }
 
     fn offsets_config_args(version: Version) -> Vec<Self> {
-        let text_data_correction = ArgData::text_data_correction();
-        let text_analysis_correction = ArgData::text_analysis_correction();
-        let ignore_text_data_offsets = ArgData::ignore_text_data_offsets();
-        let ignore_text_analysis_offsets = ArgData::ignore_text_analysis_offsets();
-        let allow_header_text_offset_mismatch = ArgData::allow_header_text_offset_mismatch();
-        let allow_missing_required_offsets = ArgData::allow_missing_required_offsets(version);
-        let truncate_text_offsets = ArgData::truncate_text_offsets();
+        let text_data_correction = Self::text_data_correction();
+        let text_analysis_correction = Self::text_analysis_correction();
+        let ignore_text_data_offsets = Self::ignore_text_data_offsets();
+        let ignore_text_analysis_offsets = Self::ignore_text_analysis_offsets();
+        let allow_header_text_offset_mismatch = Self::allow_header_text_offset_mismatch();
+        let allow_missing_required_offsets = Self::allow_missing_required_offsets(version);
+        let truncate_text_offsets = Self::truncate_text_offsets();
 
         match version {
             // none of these apply to 2.0 since there are no offsets in TEXT
@@ -3477,19 +3469,19 @@ impl ArgDataParam {
     }
 
     fn reader_config_args() -> Vec<Self> {
-        let allow_uneven_event_width = ArgData::allow_uneven_event_width();
-        let allow_tot_mismatch = ArgData::allow_tot_mismatch();
+        let allow_uneven_event_width = Self::allow_uneven_event_width();
+        let allow_tot_mismatch = Self::allow_tot_mismatch();
         vec![allow_uneven_event_width, allow_tot_mismatch]
     }
 
     fn shared_config_args() -> Vec<Self> {
-        let warnings_are_errors = ArgData::warnings_are_errors_arg();
+        let warnings_are_errors = Self::warnings_are_errors_arg();
 
         vec![warnings_are_errors]
     }
 
     fn trim_intra_value_whitespace() -> Self {
-        ArgData::new_config_bool_arg(
+        Self::new_config_bool_arg(
             "trim_intra_value_whitespace".into(),
             "If ``True``, trim whitespace between delimiters such as ``,`` \
              and ``;`` within keyword value strings."
@@ -3498,7 +3490,7 @@ impl ArgDataParam {
     }
 
     fn time_meas_pattern_arg() -> Self {
-        ArgData::new_config_opt_arg(
+        Self::new_config_opt_arg(
             "time_meas_pattern".into(),
             PyType::Str,
             format!(
@@ -3511,21 +3503,21 @@ impl ArgDataParam {
     }
 
     fn allow_missing_time_arg() -> Self {
-        ArgData::new_config_bool_arg(
+        Self::new_config_bool_arg(
             "allow_missing_time".into(),
             "If ``True`` allow time measurement to be missing.".into(),
         )
     }
 
     fn force_time_linear_arg() -> Self {
-        ArgData::new_config_bool_arg(
+        Self::new_config_bool_arg(
             "force_time_linear".into(),
             "If ``True`` force time measurement to be linear independent of *$PnE*.".into(),
         )
     }
 
     fn ignore_time_gain_arg() -> Self {
-        ArgData::new_config_bool_arg(
+        Self::new_config_bool_arg(
             "ignore_time_gain".into(),
             "If ``True`` ignore the *$PnG* (gain) keyword. This keyword should not \
              be set according to the standard} however, this library will allow \
@@ -3536,21 +3528,21 @@ impl ArgDataParam {
     }
 
     fn ignore_time_optical_keys_arg() -> Self {
-        ArgData::new_config_arg(
+        Self::new_param_def(
             "ignore_time_optical_keys".into(),
             PyType::new_list(temporal_optical_key_pytype()),
+            parse_quote!(TemporalOpticalKeys),
             "Ignore optical keys in temporal measurement. These keys are \
              nonsensical for time measurements but are not explicitly forbidden in \
              the the standard. Provided keys are the string after the \"Pn\" in \
              the \"PnX\" keywords."
                 .into(),
             DocDefault::Other(quote!(TemporalOpticalKeys::default()), "[]".into()),
-            parse_quote!(TemporalOpticalKeys),
         )
     }
 
     fn parse_indexed_spillover_arg() -> Self {
-        ArgData::new_config_bool_arg(
+        Self::new_config_bool_arg(
             "parse_indexed_spillover".into(),
             "Parse $SPILLOVER with numeric indices rather than strings \
              (ie names or *$PnN*)"
@@ -3559,7 +3551,7 @@ impl ArgDataParam {
     }
 
     fn date_pattern_arg() -> Self {
-        ArgData::new_config_opt_arg(
+        Self::new_config_opt_arg(
             "date_pattern".into(),
             PyType::Str,
             format!(
@@ -3575,7 +3567,7 @@ impl ArgDataParam {
 
     // TODO make this version specific
     fn time_pattern_arg() -> Self {
-        ArgData::new_config_opt_arg(
+        Self::new_config_opt_arg(
             "time_pattern".into(),
             PyType::Str,
             format!(
@@ -3593,7 +3585,7 @@ impl ArgDataParam {
     }
 
     fn allow_pseudostandard_arg() -> Self {
-        ArgData::new_config_bool_arg(
+        Self::new_config_bool_arg(
             "allow_pseudostandard".into(),
             "If ``True`` allow non-standard keywords with a leading *$*. The \
              presence of such keywords often means the version in *HEADER* \
@@ -3603,21 +3595,21 @@ impl ArgDataParam {
     }
 
     fn allow_unused_standard_arg() -> Self {
-        ArgData::new_config_bool_arg(
+        Self::new_config_bool_arg(
             "allow_unused_standard".into(),
             "If ``True`` allow unused standard keywords to be present.".into(),
         )
     }
 
     fn disallow_deprecated_arg() -> Self {
-        ArgData::new_config_bool_arg(
+        Self::new_config_bool_arg(
             "disallow_deprecated".into(),
             "If ``True`` throw error if a deprecated key is encountered.".into(),
         )
     }
 
     fn fix_log_scale_offsets_arg() -> Self {
-        ArgData::new_config_bool_arg(
+        Self::new_config_bool_arg(
             "fix_log_scale_offsets".into(),
             "If ``True`` fix log-scale *PnE* and keywords which have zero offset \
              (ie ``X,0,0`` where ``X`` is non-zero)."
@@ -3626,7 +3618,7 @@ impl ArgDataParam {
     }
 
     fn nonstandard_measurement_pattern_arg() -> Self {
-        ArgData::new_config_opt_arg(
+        Self::new_config_opt_arg(
             "nonstandard_measurement_pattern".into(),
             PyType::Str,
             format!(
@@ -3641,7 +3633,7 @@ impl ArgDataParam {
     }
 
     fn integer_widths_from_byteord_arg() -> Self {
-        ArgData::new_config_bool_arg(
+        Self::new_config_bool_arg(
             "integer_widths_from_byteord".into(),
             "If ``True`` set all *$PnB* to the number of bytes from *$BYTEORD*. \
              Only has an effect for FCS 2.0/3.0 where *$DATATYPE* is ``I``."
@@ -3650,7 +3642,7 @@ impl ArgDataParam {
     }
 
     fn integer_byteord_override_arg() -> Self {
-        ArgData::new_config_opt_arg(
+        Self::new_config_opt_arg(
             "integer_byteord_override".into(),
             PyType::new_list(PyType::Int),
             "Override *$BYTEORD* for integer layouts.".into(),
@@ -3659,7 +3651,7 @@ impl ArgDataParam {
     }
 
     fn disallow_range_truncation_arg() -> Self {
-        ArgData::new_config_bool_arg(
+        Self::new_config_bool_arg(
             "disallow_range_truncation".into(),
             "If ``True`` throw error if *$PnR* values need to be truncated \
              to match the number of bytes specified by *$PnB* and *$DATATYPE*."
@@ -3668,15 +3660,15 @@ impl ArgDataParam {
     }
 
     fn new_config_correction_arg(name: &str, what: &str, location: &str, rstype: Path) -> Self {
-        ArgData::new_config_arg(
+        Self::new_param_def(
             name.into(),
             correction_pytype(),
+            parse_quote!(fireflow_core::segment::#rstype),
             format!("Corrections for *{what}* offsets in *{location}*"),
             DocDefault::Other(
                 quote!(fireflow_core::segment::OffsetCorrection::default()),
                 "(0, 0)".into(),
             ),
-            parse_quote!(fireflow_core::segment::#rstype),
         )
     }
 
@@ -3710,16 +3702,16 @@ impl ArgDataParam {
     fn other_corrections_arg() -> Self {
         let id_path = quote!(fireflow_core::segment::OtherSegmentId);
         let corr_path = quote!(fireflow_core::segment::HeaderCorrection);
-        Self::new_config_arg(
+        Self::new_param_def(
             "other_corrections".into(),
             PyType::new_list(correction_pytype()),
+            parse_quote!(Vec<#corr_path<#id_path>>),
             "Corrections for OTHER offsets if they exist. Each correction will \
              be applied in order. If an offset does not need to be corrected, \
              use ``(0, 0)``. This will not affect the number of OTHER segments \
              that are read; this is controlled by ``max_other``."
                 .into(),
             DocDefault::EmptyList,
-            parse_quote!(Vec<#corr_path<#id_path>>),
         )
     }
 
@@ -3736,14 +3728,15 @@ impl ArgDataParam {
 
     fn other_width_arg() -> Self {
         let path = parse_quote!(fireflow_core::validated::ascii_range::OtherWidth);
-        Self::new_config_arg(
+        let d = quote!(#path::default());
+        Self::new_param_def(
             "other_width".into(),
             PyType::Int,
+            path,
             "Maximum number of OTHER segments that can be parsed. \
              ``None`` means limitless."
                 .into(),
-            DocDefault::Other(quote!(#path::default()), "8".into()),
-            path,
+            DocDefault::Other(d, "8".into()),
         )
     }
 
@@ -3808,21 +3801,21 @@ impl ArgDataParam {
     }
 
     fn ignore_text_data_offsets() -> Self {
-        ArgData::new_config_bool_arg(
+        Self::new_config_bool_arg(
             "ignore_text_data_offsets".into(),
             "If ``True`` ignore *DATA* offsets in *TEXT*".into(),
         )
     }
 
     fn ignore_text_analysis_offsets() -> Self {
-        ArgData::new_config_bool_arg(
+        Self::new_config_bool_arg(
             "ignore_text_analysis_offsets".into(),
             "If ``True`` ignore *ANALYSIS* offsets in *TEXT*".into(),
         )
     }
 
     fn allow_header_text_offset_mismatch() -> Self {
-        ArgData::new_config_bool_arg(
+        Self::new_config_bool_arg(
             "allow_header_text_offset_mismatch".into(),
             "If ``True`` allow *TEXT* and *HEADER* offsets to mismatch.".into(),
         )
@@ -3834,7 +3827,7 @@ impl ArgDataParam {
         } else {
             "*DATA* and *ANALYSIS*"
         };
-        ArgData::new_config_bool_arg(
+        Self::new_config_bool_arg(
             "allow_missing_required_offsets".into(),
             format!(
                 "If ``True`` allow required {s} offsets in *TEXT* to be missing. \
@@ -3844,14 +3837,14 @@ impl ArgDataParam {
     }
 
     fn truncate_text_offsets() -> Self {
-        ArgData::new_config_bool_arg(
+        Self::new_config_bool_arg(
             "truncate_text_offsets".into(),
             "If ``True`` truncate offsets that exceed end of file.".into(),
         )
     }
 
     fn allow_uneven_event_width() -> Self {
-        ArgData::new_config_bool_arg(
+        Self::new_config_bool_arg(
             "allow_uneven_event_width".into(),
             "If ``True`` allow event width to not perfectly divide length of *DATA*. \
             Does not apply to delimited ASCII layouts. "
@@ -3860,7 +3853,7 @@ impl ArgDataParam {
     }
 
     fn allow_tot_mismatch() -> Self {
-        ArgData::new_config_bool_arg(
+        Self::new_config_bool_arg(
             "allow_tot_mismatch".into(),
             "If ``True`` allow *$TOT* to not match number of events as \
              computed by the event width and length of *DATA*. \
@@ -3870,7 +3863,7 @@ impl ArgDataParam {
     }
 
     fn warnings_are_errors_arg() -> Self {
-        ArgData::new_config_bool_arg(
+        Self::new_config_bool_arg(
             "warnings_are_errors".into(),
             "If ``True`` all warnings will be regarded as errors.".into(),
         )
@@ -4146,6 +4139,7 @@ pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
             let param = DocArg::new_param_def(
                 "force".into(),
                 PyType::Bool,
+                parse_quote!(bool),
                 param_desc.into(),
                 DocDefault::Bool(false),
             );
@@ -4202,29 +4196,31 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
         (path, methods)
     };
 
-    let scale_doc: DocArgRWIvar = DocArg::new_ivar_rw_def(
+    let (scale_path, scale_methods) = make_get_set("scale", "GateScale");
+    let scale = DocArg::new_ivar_rw_def(
         "scale".into(),
         PyType::new_opt(PyType::new_union2(
             PyType::new_unit(),
             PyType::Tuple(vec![PyType::Float, PyType::Float]),
         )),
+        scale_path,
         "The *$GmE* keyword. ``()`` means linear scaling and 2-tuple \
          specifies decades and offset for log scaling."
             .into(),
         DocDefault::Option,
+        scale_methods,
     );
-    let (scale_path, scale_methods) = make_get_set("scale", "GateScale");
-    let scale = ArgData::new(scale_doc, scale_path, scale_methods);
 
     let make_arg = |n: &str, kw: &str, t: &str, p: PyType| {
         let (path, methods) = make_get_set(n, t);
-        let doc = DocArg::new_ivar_rw_def(
+        DocArg::new_ivar_rw_def(
             n.into(),
             PyType::new_opt(p),
+            path,
             format!("The *$Gm{kw}* keyword."),
             DocDefault::Option,
-        );
-        ArgData::new(doc, path, methods)
+            methods,
+        )
     };
     let filter = make_arg("filter", "F", "GateFilter", PyType::Str);
     let shortname = make_arg("shortname", "N", "GateShortname", PyType::Str);
@@ -4250,7 +4246,7 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
         detector_voltage,
     ];
 
-    let ps = all_args.iter().map(|x| x.doc.clone().into()).collect();
+    let ps = all_args.iter().map(|x| x.clone().into()).collect();
     let summary = "The *$Gm\\** keywords for one gated measurement.".into();
     let doc = DocString::new_class(summary, vec![], ps);
 
@@ -4277,7 +4273,7 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
     let name = path.segments.last().unwrap().ident.clone();
     let bare_path = path_strip_args(path.clone());
 
-    let chars_param: DocArgROIvar = DocArg::new_ivar_ro(
+    let chars_param = DocArg::new_ivar_ro(
         "ranges".into(),
         PyType::new_list(PyType::Int),
         "The range for each measurement. Equivalent to *$PnR*. The value of \
@@ -4342,7 +4338,7 @@ pub fn impl_new_delim_ascii_layout(input: TokenStream) -> TokenStream {
     let name = path.segments.last().unwrap().ident.clone();
     let bare_path = path_strip_args(path.clone());
 
-    let ranges_param: DocArgROIvar = DocArg::new_ivar_ro(
+    let ranges_param = DocArg::new_ivar_ro(
         "ranges".into(),
         PyType::new_list(PyType::Int),
         "The range for each measurement. Equivalent to the *$PnR* \
@@ -4426,7 +4422,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
 
     let summary = format!("{nbits}-bit ordered {what} layout.");
 
-    let range_param: DocArgROIvar = DocArg::new_ivar_ro(
+    let range_param = DocArg::new_ivar_ro(
         "ranges".into(),
         PyType::new_list(range_pytype),
         range_desc.into(),
@@ -4719,7 +4715,7 @@ fn make_endian_param(n: usize) -> DocArgROIvar {
     )
 }
 
-fn make_byte_width(nbytes: usize) -> proc_macro2::TokenStream {
+fn make_byte_width(nbytes: usize) -> TokenStream2 {
     let s0 = format!("Will always return ``{nbytes}``.");
     let s1 = "This corresponds to the value of *$PnB* divided by 8, which are \
               all the same for this layout."
@@ -4773,7 +4769,7 @@ pub fn impl_layout_byte_widths(input: TokenStream) -> TokenStream {
     .into()
 }
 
-fn make_layout_datatype(dt: &str) -> proc_macro2::TokenStream {
+fn make_layout_datatype(dt: &str) -> TokenStream2 {
     let doc = DocString::new_method(
         "The value of *$DATATYPE* (read-only).".into(),
         vec![format!("Will always return ``\"{dt}\"``.")],
@@ -4911,10 +4907,6 @@ fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
 
     let summary = format!("Make a new FCS {summary_version}-compatible {region_name} region",);
 
-    // TODO these are actually read-only variables
-    let index_param = DocArg::new_ivar_ro("index".into(), index_pytype, index_desc);
-    let gate_param = DocArg::new_ivar_ro(gate_argname.to_string(), gate_pytype, gate_desc);
-
     let index_getter = GetMethod(quote! {
         fn index(&self) -> #index_rstype {
             self.0.index
@@ -4926,19 +4918,29 @@ fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
         }
     });
 
-    let index_arg = ArgData::new(index_param.clone(), index_rstype, index_getter);
-    let gate_arg = ArgData::new(gate_param.clone(), gate_rstype, gate_getter);
+    let index_arg = DocArg::new_ivar_ro(
+        "index".into(),
+        index_pytype,
+        index_rstype,
+        index_desc,
+        index_getter,
+    );
+    let gate_arg = DocArg::new_ivar_ro(
+        gate_argname.to_string(),
+        gate_pytype,
+        gate_rstype,
+        gate_desc,
+        gate_getter,
+    );
 
-    let all_args = [index_arg, gate_arg];
+    let doc = DocString::new_class(summary, vec![], vec![index_arg.into(), gate_arg.into()]);
 
-    let params = all_args.iter().map(|a| a.doc.clone().into()).collect();
-    let fun_args: Vec<_> = all_args.iter().map(|a| a.constr_arg()).collect();
-    let inner_args: Vec<_> = all_args.iter().map(|a| a.inner_arg1()).collect();
-    let methods: Vec<_> = all_args.iter().flat_map(|a| a.quoted_methods()).collect();
+    // let params = all_args.iter().map(|a| a.doc.clone().into()).collect();
+    // let fun_args: Vec<_> = doc.args.iter().map(|a| a.constr_arg()).collect();
+    // let inner_args: Vec<_> = all_args.iter().map(|a| a.inner_arg1()).collect();
+    // let methods: Vec<_> = all_args.iter().flat_map(|a| a.quoted_methods()).collect();
 
     let name = format!("{region_ident}{suffix}");
-
-    let doc = DocString::new_class(summary, vec![], params);
 
     let bare_path = path_strip_args(path.clone());
 
@@ -4957,9 +4959,9 @@ fn impl_new(
     name: String,
     path: Path,
     d: ClassDocString,
-    constr: proc_macro2::TokenStream,
-    rest: proc_macro2::TokenStream,
-) -> (Ident, proc_macro2::TokenStream) {
+    constr: TokenStream2,
+    rest: TokenStream2,
+) -> (Ident, TokenStream2) {
     let (pyname, wrapped) = impl_pywrap(name, path, &d);
     let sig = d.sig();
     let s = quote! {
@@ -4979,7 +4981,7 @@ fn impl_new(
     (pyname, s)
 }
 
-fn impl_pywrap(name: String, path: Path, d: &ClassDocString) -> (Ident, proc_macro2::TokenStream) {
+fn impl_pywrap(name: String, path: Path, d: &ClassDocString) -> (Ident, TokenStream2) {
     let doc = d.doc();
     let pyname = format_ident!("Py{name}");
     let q = quote! {
@@ -5043,6 +5045,7 @@ fn path_param(read: bool) -> DocArgParam {
     DocArg::new_param(
         "path".into(),
         PyType::PyClass("~pathlib.Path".into()),
+        parse_quote!(std::path::PathBuf),
         format!("Path to be {s}"),
     )
 }
@@ -5052,6 +5055,7 @@ fn textdelim_param() -> DocArgParam {
     DocArg::new_param_def(
         "delim".into(),
         PyType::Int,
+        textdelim_path(),
         "Delimiter to use when writing *TEXT*.".into(),
         DocDefault::Other(quote! {#t::default()}, "30".into()),
     )
@@ -5061,6 +5065,7 @@ fn big_other_param() -> DocArgParam {
     DocArg::new_param_def(
         "big_other".into(),
         PyType::Bool,
+        parse_quote!(bool),
         "If ``True`` use 20 chars for OTHER segment offsets, and 8 otherwise.".into(),
         DocDefault::Bool(false),
     )
@@ -5079,6 +5084,7 @@ fn param_allow_shared_names() -> DocArgParam {
     DocArg::new_param_def(
         "allow_shared_names".into(),
         PyType::Bool,
+        parse_quote!(bool),
         "If ``False``, raise exception if any non-measurement keywords reference \
          any *$PnN* keywords. If ``True`` raise exception if any non-measurement \
          keywords reference a *$PnN* which is not present in ``measurements``. \
@@ -5096,6 +5102,7 @@ fn param_skip_index_check() -> DocArgParam {
     DocArg::new_param_def(
         "skip_index_check".into(),
         PyType::Bool,
+        parse_quote!(bool),
         "If ``False``, raise exception if any non-measurement keyword have an \
          index reference to the current measurements. If ``True`` allow such \
          references to exist as long as they do not break (which really means \
@@ -5107,13 +5114,14 @@ fn param_skip_index_check() -> DocArgParam {
 }
 
 fn param_index(desc: &str) -> DocArgParam {
-    DocArg::new_param("index".into(), PyType::Int, desc.into())
+    DocArg::new_param("index".into(), PyType::Int, meas_index_path(), desc.into())
 }
 
 fn param_col() -> DocArgParam {
     DocArg::new_param(
         "col".into(),
         PyType::PyClass("polars.Series".into()),
+        parse_quote!(fireflow_core::validated::dataframe::AnyFCSColumn),
         "Data for measurement. Must be same length as existing columns.".into(),
     )
 }
@@ -5122,6 +5130,7 @@ fn param_name(short_desc: &str) -> DocArgParam {
     DocArg::new_param(
         "name".into(),
         PyType::Str,
+        parse_quote!(String),
         format!("{short_desc}. Corresponds to *$PnN*. Must not contain commas."),
     )
 }
@@ -5130,6 +5139,7 @@ fn param_range() -> DocArgParam {
     DocArg::new_param(
         "range".into(),
         PyType::Float,
+        keyword_path("Range"),
         "Range of measurement. Corresponds to *$PnR*.".into(),
     )
 }
@@ -5138,6 +5148,7 @@ fn param_notrunc() -> DocArgParam {
     DocArg::new_param_def(
         "notrunc".into(),
         PyType::Bool,
+        parse_quote!(bool),
         "If ``False``, raise exception if ``range`` must be truncated to fit \
          into measurement type."
             .into(),
@@ -5145,10 +5156,10 @@ fn param_notrunc() -> DocArgParam {
     )
 }
 
-fn param_df<A>() -> DocArg<A> {
+fn param_df() -> DocArgParam {
     // TODO fix cross-ref in docs here
     let df_pytype = PyType::PyClass("polars.DataFrame".into());
-    DocArg::new(
+    DocArg::new_param_def(
         "data".into(),
         df_pytype,
         "A dataframe encoding the contents of *DATA*. Number of columns must \
@@ -5160,29 +5171,27 @@ fn param_df<A>() -> DocArg<A> {
     )
 }
 
-fn param_analysis<A>() -> DocArg<A> {
+fn param_analysis() -> DocArgParam {
     let analysis_rstype = analysis_path();
-    DocArg::new(
+    let d = quote! {#analysis_rstype::default()};
+    DocArg::new_param_def(
         "analysis".into(),
         PyType::Bytes,
+        analysis_rstype,
         "A byte string encoding the *ANALYSIS* segment".into(),
-        Some(DocDefault::Other(
-            quote! {#analysis_rstype::default()},
-            "b\"\"".to_string(),
-        )),
+        DocDefault::Other(d, "b\"\"".to_string()),
     )
 }
 
-fn param_others<A>() -> DocArg<A> {
+fn param_others() -> DocArgParam {
     let others_rstype = others_path();
-    DocArg::new(
+    let d = quote!(#others_rstype::default());
+    DocArg::new_param_def(
         "others".into(),
         PyType::new_list(PyType::Bytes),
+        others_rstype,
         "A list of byte strings encoding the *OTHER* segments".into(),
-        Some(DocDefault::Other(
-            quote!(#others_rstype::default()),
-            "[]".to_string(),
-        )),
+        DocDefault::Other(d, "[]".to_string()),
     )
 }
 
@@ -5323,7 +5332,7 @@ const CHRONO_REF: &str =
 const REGEXP_REF: &str = "`regexp-syntax <https://docs.rs/regex-syntax/latest/regex_syntax/>`__";
 
 #[derive(Clone, new)]
-pub(crate) struct DocString<A, R, S> {
+struct DocString<A, R, S> {
     summary: String,
     paragraphs: Vec<String>,
     args: Vec<A>,
@@ -5331,15 +5340,15 @@ pub(crate) struct DocString<A, R, S> {
     _selfarg: PhantomData<S>,
 }
 
-pub(crate) type ClassDocString = DocString<AnyDocArg, (), NoSelf>;
-pub(crate) type MethodDocString = DocString<DocArgParam, Option<DocReturn>, SelfArg>;
-pub(crate) type FunDocString = DocString<DocArgParam, Option<DocReturn>, NoSelf>;
+type ClassDocString = DocString<AnyDocArg, (), NoSelf>;
+type MethodDocString = DocString<DocArgParam, Option<DocReturn>, SelfArg>;
+type FunDocString = DocString<DocArgParam, Option<DocReturn>, NoSelf>;
 
-pub(crate) struct NoSelf;
+struct NoSelf;
 
-pub(crate) struct SelfArg;
+struct SelfArg;
 
-pub(crate) trait IsSelfArg {
+trait IsSelfArg {
     const ARG: Option<&'static str>;
 }
 
@@ -5352,27 +5361,83 @@ impl IsSelfArg for SelfArg {
 }
 
 #[derive(Clone, From, Display)]
-pub(crate) enum AnyDocArg {
+enum AnyDocArg {
     RWIvar(DocArgRWIvar),
     ROIvar(DocArgROIvar),
     Param(DocArgParam),
 }
 
-pub(crate) type DocArgRWIvar = DocArg<ArgTypeIvar<false>>;
-pub(crate) type DocArgROIvar = DocArg<ArgTypeIvar<true>>;
-pub(crate) type DocArgParam = DocArg<ArgTypeParam>;
+type DocArgRWIvar = DocArg<GetSetMethods>;
+type DocArgROIvar = DocArg<GetMethod>;
+type DocArgParam = DocArg<NoMethods>;
 
 #[derive(Clone, new)]
-pub(crate) struct DocArg<T> {
-    pub(crate) argname: String,
-    pub(crate) pytype: PyType,
-    pub(crate) desc: String,
-    pub(crate) default: Option<DocDefault>,
-    _argtype: PhantomData<T>,
+struct DocArg<T> {
+    argname: String,
+    pytype: PyType,
+    rstype: Path,
+    desc: String,
+    default: Option<DocDefault>,
+    methods: T,
 }
 
 #[derive(Clone)]
-pub(crate) enum DocDefault {
+struct NoMethods;
+
+#[derive(Clone)]
+struct GetMethod(TokenStream2);
+
+#[derive(new, Clone)]
+struct GetSetMethods {
+    get: TokenStream2,
+    set: TokenStream2,
+}
+
+trait IsMethods {
+    fn quoted_methods(&self) -> TokenStream2;
+}
+
+impl IsMethods for NoMethods {
+    fn quoted_methods(&self) -> TokenStream2 {
+        quote!()
+    }
+}
+
+impl IsMethods for GetMethod {
+    fn quoted_methods(&self) -> TokenStream2 {
+        let g = &self.0;
+        quote! {
+            #[getter]
+            #g
+        }
+    }
+}
+
+impl IsMethods for GetSetMethods {
+    fn quoted_methods(&self) -> TokenStream2 {
+        let g = &self.get;
+        let s = &self.set;
+        quote! {
+            #[getter]
+            #g
+            #[setter]
+            #s
+        }
+    }
+}
+
+impl IsMethods for AnyDocArg {
+    fn quoted_methods(&self) -> TokenStream2 {
+        match self {
+            Self::Param(x) => x.quoted_methods(),
+            Self::ROIvar(x) => x.quoted_methods(),
+            Self::RWIvar(x) => x.quoted_methods(),
+        }
+    }
+}
+
+#[derive(Clone)]
+enum DocDefault {
     Bool(bool),
     EmptyDict,
     // EmptySet,
@@ -5382,19 +5447,19 @@ pub(crate) enum DocDefault {
 }
 
 #[derive(Clone, new)]
-pub(crate) struct DocReturn {
+struct DocReturn {
     rtype: PyType,
     desc: Option<String>,
 }
 
 #[derive(Clone)]
-pub(crate) struct ArgTypeParam;
+struct ArgTypeParam;
 
 #[derive(Clone)]
-pub(crate) struct ArgTypeIvar<const READONLY: bool>;
+struct ArgTypeIvar<const READONLY: bool>;
 
 #[derive(Clone)]
-pub(crate) enum PyType {
+enum PyType {
     Str,
     Bool,
     Bytes,
@@ -5416,52 +5481,69 @@ pub(crate) enum PyType {
 }
 
 impl DocArgROIvar {
-    pub(crate) fn new_ivar_ro(argname: String, pytype: PyType, desc: String) -> Self {
-        Self::new(argname, pytype, desc, None)
-    }
-
-    pub(crate) fn new_ivar_ro_def(
+    fn new_ivar_ro(
         argname: String,
         pytype: PyType,
+        rstype: Path,
+        desc: String,
+        method: GetMethod,
+    ) -> Self {
+        Self::new(argname, pytype, rstype, desc, None, method)
+    }
+
+    fn new_ivar_ro_def(
+        argname: String,
+        pytype: PyType,
+        rstype: Path,
         desc: String,
         def: DocDefault,
+        method: GetMethod,
     ) -> Self {
-        Self::new(argname, pytype, desc, Some(def))
+        Self::new(argname, pytype, rstype, desc, Some(def), method)
     }
 }
 
 impl DocArgRWIvar {
-    pub(crate) fn new_ivar_rw(argname: String, pytype: PyType, desc: String) -> Self {
-        Self::new(argname, pytype, desc, None)
-    }
-
-    pub(crate) fn new_ivar_rw_def(
+    fn new_ivar_rw(
         argname: String,
         pytype: PyType,
+        rstype: Path,
+        desc: String,
+        methods: GetSetMethods,
+    ) -> Self {
+        Self::new(argname, pytype, rstype, desc, None, methods)
+    }
+
+    fn new_ivar_rw_def(
+        argname: String,
+        pytype: PyType,
+        rstype: Path,
         desc: String,
         def: DocDefault,
+        methods: GetSetMethods,
     ) -> Self {
-        Self::new(argname, pytype, desc, Some(def))
+        Self::new(argname, pytype, rstype, desc, Some(def), methods)
     }
 }
 
 impl DocArgParam {
-    pub(crate) fn new_param(argname: String, pytype: PyType, desc: String) -> Self {
-        Self::new(argname, pytype, desc, None)
+    fn new_param(argname: String, pytype: PyType, rstype: Path, desc: String) -> Self {
+        Self::new(argname, pytype, rstype, desc, None, NoMethods)
     }
 
-    pub(crate) fn new_param_def(
+    fn new_param_def(
         argname: String,
         pytype: PyType,
+        rstype: Path,
         desc: String,
         def: DocDefault,
     ) -> Self {
-        Self::new(argname, pytype, desc, Some(def))
+        Self::new(argname, pytype, rstype, desc, Some(def), NoMethods)
     }
 }
 
 impl<T> DocArg<T> {
-    pub(crate) fn default_matches(&self) -> Result<(), String> {
+    fn default_matches(&self) -> Result<(), String> {
         if let Some(d) = self.default.as_ref() {
             if d.matches_pytype(&self.pytype) {
                 Ok(())
@@ -5527,23 +5609,32 @@ impl DocDefault {
     }
 }
 
-pub(crate) trait IsArgType {
+trait IsArgType {
     const TYPENAME: &str;
     const ARGTYPE: &str;
 
     fn readonly() -> bool;
 }
 
-impl<const READONLY: bool> IsArgType for ArgTypeIvar<READONLY> {
+impl IsArgType for GetMethod {
     const TYPENAME: &str = "vartype";
     const ARGTYPE: &str = "ivar";
 
     fn readonly() -> bool {
-        READONLY
+        true
     }
 }
 
-impl IsArgType for ArgTypeParam {
+impl IsArgType for GetSetMethods {
+    const TYPENAME: &str = "vartype";
+    const ARGTYPE: &str = "ivar";
+
+    fn readonly() -> bool {
+        false
+    }
+}
+
+impl IsArgType for NoMethods {
     const TYPENAME: &str = "type";
     const ARGTYPE: &str = "param";
 
@@ -5552,7 +5643,7 @@ impl IsArgType for ArgTypeParam {
     }
 }
 
-pub(crate) trait IsDocArg {
+trait IsDocArg {
     fn argname(&self) -> &str;
 
     // fn pytype(&self) -> &PyType;
@@ -5641,27 +5732,27 @@ impl IsDocArg for AnyDocArg {
 }
 
 impl PyType {
-    pub(crate) fn new_opt(x: PyType) -> Self {
+    fn new_opt(x: PyType) -> Self {
         Self::Option(Box::new(x))
     }
 
-    pub(crate) fn new_list(x: PyType) -> Self {
+    fn new_list(x: PyType) -> Self {
         Self::List(Box::new(x))
     }
 
-    // pub(crate) fn new_set(x: PyType) -> Self {
+    //  fn new_set(x: PyType) -> Self {
     //     Self::Set(Box::new(x))
     // }
 
-    pub(crate) fn new_dict(k: PyType, v: PyType) -> Self {
+    fn new_dict(k: PyType, v: PyType) -> Self {
         Self::Dict(Box::new(k), Box::new(v))
     }
 
-    pub(crate) fn new_union2(x: PyType, y: PyType) -> Self {
+    fn new_union2(x: PyType, y: PyType) -> Self {
         Self::new_union(vec![x, y])
     }
 
-    pub(crate) fn new_union(xs: Vec<PyType>) -> Self {
+    fn new_union(xs: Vec<PyType>) -> Self {
         let mut it = xs.into_iter();
         let x0 = it.next().expect("Union cannot be empty");
         let x1 = it.next().expect("Union must have at least 2 types");
@@ -5669,30 +5760,26 @@ impl PyType {
         Self::Union(Box::new(x0), Box::new(x1), xs)
     }
 
-    pub(crate) fn new_lit(xs: &[&'static str]) -> Self {
+    fn new_lit(xs: &[&'static str]) -> Self {
         let mut it = xs.iter();
         let x0 = it.next().expect("Literal cannot be empty");
         let xs = it.copied().collect();
         Self::Literal(x0, xs)
     }
 
-    pub(crate) fn new_unit() -> Self {
+    fn new_unit() -> Self {
         Self::Tuple(vec![])
     }
 }
 
 impl ClassDocString {
-    pub(crate) fn new_class(
-        summary: String,
-        paragraphs: Vec<String>,
-        args: Vec<AnyDocArg>,
-    ) -> Self {
+    fn new_class(summary: String, paragraphs: Vec<String>, args: Vec<AnyDocArg>) -> Self {
         Self::new(summary, paragraphs, args, ())
     }
 }
 
 impl MethodDocString {
-    pub(crate) fn new_method(
+    fn new_method(
         summary: String,
         paragraphs: Vec<String>,
         args: Vec<DocArgParam>,
@@ -5703,7 +5790,7 @@ impl MethodDocString {
 }
 
 impl FunDocString {
-    pub(crate) fn new_fun(
+    fn new_fun(
         summary: String,
         paragraphs: Vec<String>,
         args: Vec<DocArgParam>,
@@ -5732,7 +5819,7 @@ impl<A, R, S> DocString<A, R, S> {
             })
     }
 
-    pub(crate) fn doc(&self) -> TokenStream2
+    fn doc(&self) -> TokenStream2
     where
         Self: fmt::Display,
     {
@@ -5740,7 +5827,7 @@ impl<A, R, S> DocString<A, R, S> {
         quote! {#[doc = #s]}
     }
 
-    pub(crate) fn sig(&self) -> TokenStream2
+    fn sig(&self) -> TokenStream2
     where
         A: IsDocArg,
         S: IsSelfArg,
@@ -5833,7 +5920,7 @@ impl<A: fmt::Display, S> fmt::Display for DocString<A, Option<DocReturn>, S> {
     }
 }
 
-impl<T: IsArgType + fmt::Display> fmt::Display for DocArg<T> {
+impl<T: IsArgType> fmt::Display for DocArg<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let ro = if T::readonly() { "(read-only) " } else { "" };
         let pt = &self.pytype;

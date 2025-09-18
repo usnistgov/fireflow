@@ -58,6 +58,9 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ff::PyEndianUintLayout>()?;
     m.add_class::<ff::PyMixedLayout>()?;
 
+    m.add_class::<ff::PyHeader>()?;
+    m.add_class::<ff::PyHeaderSegments>()?;
+
     m.add_function(wrap_pyfunction!(ff::fcs_read_header, m)?)?;
 
     Ok(())

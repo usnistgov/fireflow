@@ -65,14 +65,16 @@ Reading *HEADER*
   
   .. autonamedtuple:: pyreflow.api.KeyPatterns
   
-  Outputs
-  -------
-  
-  These are neatly bundled tuples of data returned by each of the ``fcs_*``
-  functions above.
-  
-  .. autonamedtuple:: pyreflow.api.ReadHeaderOutput
-  
+Outputs
+-------
+
+These are neatly bundled tuples of data returned by each of the ``fcs_*``
+functions above.
+
+.. autoclass:: pyreflow.api.Header
+   :members:
+
+..
   .. autonamedtuple:: pyreflow.api.ReadRawTEXTOutput
   
   .. autonamedtuple:: pyreflow.api.ReadStdTEXTOutput
@@ -86,14 +88,16 @@ Reading *HEADER*
   .. autonamedtuple:: pyreflow.api.ReadStdDatasetFromKwsOutput
   
   
-  Common outputs
-  --------------
-  
-  The following are named tuples which are reused when returning data from the
-  above functions.
-  
-  .. autonamedtuple:: pyreflow.api.HeaderSegments
-  
+Common outputs
+--------------
+
+The following are named tuples which are reused when returning data from the
+above functions.
+
+.. autoclass:: pyreflow.api.HeaderSegments
+   :members:
+
+..
   .. autonamedtuple:: pyreflow.api.ParseData
   
   .. autonamedtuple:: pyreflow.api.StdTEXTData

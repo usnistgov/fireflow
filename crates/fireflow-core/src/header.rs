@@ -10,6 +10,7 @@ use crate::validated::textdelim::TEXTDelim;
 use super::core::Other;
 
 use derive_more::{Display, From};
+use derive_new::new;
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use num_traits::identities::Zero;
@@ -63,7 +64,7 @@ impl_version!(Version3_1, FCS3_1);
 impl_version!(Version3_2, FCS3_2);
 
 /// The three segments from the HEADER
-#[derive(Clone)]
+#[derive(Clone, new, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct HeaderSegments<T> {
     pub text: PrimaryTextSegment,
@@ -201,7 +202,7 @@ impl<T> HeaderSegments<T> {
 /// any OTHER segments after the first 58 bytes.
 ///
 /// Only valid segments are to be put in this struct (ie begin <= end).
-#[derive(Clone)]
+#[derive(Clone, new, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct Header {

@@ -23,7 +23,7 @@ use std::str::FromStr;
 use serde::Serialize;
 
 /// A segment that is specific to a region in the FCS file.
-#[derive(Clone, Copy, new)]
+#[derive(Clone, Copy, new, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
 pub struct SpecificSegment<I, S, T> {
@@ -69,41 +69,41 @@ pub(crate) struct GenericSegment {
 }
 
 /// Denotes a segment came from HEADER
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SegmentFromHeader;
 
 /// Denotes a segment came from TEXT
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SegmentFromTEXT;
 
 /// Denotes a segment came from either TEXT or HEADER
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct SegmentFromAnywhere;
 
 /// Denotes the segment pertains to primary TEXT
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PrimaryTextSegmentId;
 
 /// Denotes the segment pertains to supplemental TEXT
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SupplementalTextSegmentId;
 
 /// Denotes the segment pertains to DATA
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DataSegmentId;
 
 /// Denotes the segment pertains to ANALYSIS
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AnalysisSegmentId;
 
 /// Denotes the segment pertains to OTHER (indexed from 0)
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct OtherSegmentId;
 

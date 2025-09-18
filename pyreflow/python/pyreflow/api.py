@@ -1,5 +1,8 @@
 from ._pyreflow import fcs_read_header as fcs_read_header
 
+from ._pyreflow import Header as Header
+from ._pyreflow import HeaderSegments as HeaderSegments
+
 # from ._pyreflow import _api  # type: ignore
 # from pyreflow.typing import (
 #     ByteOrd,

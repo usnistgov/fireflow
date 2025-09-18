@@ -20,7 +20,7 @@ use syn::{
 #[proc_macro]
 pub fn def_fcs_read_header(_: TokenStream) -> TokenStream {
     let fun_path = quote!(fireflow_core::api::fcs_read_header);
-    let ret_path = quote!(fireflow_core::header::Header);
+    let ret_path = quote!(PyHeader);
     let args = DocArgParam::new_header_config_param();
     let inner_args: Vec<_> = args.iter().map(|a| a.record_into()).collect();
     let doc = DocString::new_fun(
@@ -36,45 +36,130 @@ pub fn def_fcs_read_header(_: TokenStream) -> TokenStream {
     quote! {
         #[pyfunction]
         #doc
+        #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_header(#fun_args) -> PyResult<#ret_path> {
             let inner = fireflow_core::config::HeaderConfigInner{
                 #(#inner_args),*
             };
             let conf =  fireflow_core::config::ReadHeaderConfig(inner);
-            #fun_path(&path, &conf).py_termfail_resolve_nowarn()
+            Ok(#fun_path(&path, &conf).py_termfail_resolve_nowarn()?.into())
         }
     }
     .into()
 }
 
-// #[proc_macro]
-// pub fn impl_py_header_segments(input: TokenStream) -> TokenStream {
-//     let path = parse_macro_input!(input as Path);
-//     let name = path.segments.last().unwrap().ident;
-//     let doc = DocString::new(
-//         "The segments from *HEADER*".into(),
-//         vec![],
-//         DocSelf::NoSelf,
-//         vec![],
-//         None,
-//     );
-//     let (pyname, wrapped) = impl_pywrap(name.to_string(), path, &doc);
-//     let text_q = quote! {
-//         #[getter]
-//         fn text(&self) -> fireflow_core::segment::PrimaryTextSegment {
-//             self.0.text
-//         }
-//     };
-//     quote! {
-//         #wrapped
+#[proc_macro]
+pub fn impl_py_header(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
 
-//         #[pymethods]
-//         impl #pyname {
-//             #(#getters)
-//         }
-//     }
-//     .into()
-// }
+    let version_path = version_path();
+    let version_get = GetMethod(quote! {
+        fn version(&self) -> #version_path {
+            self.0.version
+        }
+    });
+    let version = DocArgROIvar::new_ivar_ro(
+        "version".into(),
+        PyType::new_version(),
+        version_path,
+        "The FCS version.".into(),
+        version_get,
+    );
+
+    let segments_path: Path = parse_quote!(PyHeaderSegments);
+    let segments = DocArgROIvar::new_ivar_ro(
+        "segments".into(),
+        PyType::PyClass("HeaderSegments".into()),
+        segments_path.clone(),
+        "The segments from *HEADER*.".into(),
+        GetMethod(quote! {
+            fn segments(&self) -> #segments_path {
+                self.0.segments.clone().into()
+            }
+        }),
+    );
+
+    let args = [version, segments].into_iter().map(|x| x.into()).collect();
+
+    let doc = DocString::new_class(
+        "The *HEADER* segment from an FCS dataset.".into(),
+        vec![],
+        args,
+    );
+    let inner_args = doc.idents_into();
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #path::new(#inner_args).into()
+            }
+        }
+    };
+    doc.into_impl_class(name.to_string(), path.clone(), new, quote!())
+        .1
+        .into()
+}
+
+#[proc_macro]
+pub fn impl_py_header_segments(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let bare_path = path_strip_args(path.clone());
+    let name = path.segments.last().unwrap().ident.clone();
+
+    let make_seg_arg = |seg_ident: Ident, name: &str| {
+        let rstype: Path = parse_quote!(fireflow_core::segment::#seg_ident);
+        let get_name = format_ident!("{name}");
+        let get = GetMethod(quote! {
+            fn #get_name(&self) -> #rstype {
+                self.0.#get_name
+            }
+        });
+        DocArgROIvar::new_ivar_ro(
+            name.into(),
+            PyType::new_segment(),
+            rstype,
+            format!("The *{}* segment offsets.", name.to_uppercase()),
+            get,
+        )
+    };
+    let text = make_seg_arg(parse_quote!(PrimaryTextSegment), "text");
+    let data = make_seg_arg(parse_quote!(HeaderDataSegment), "data");
+    let analysis = make_seg_arg(parse_quote!(HeaderAnalysisSegment), "analysis");
+
+    let other_path: Path = parse_quote!(Vec<fireflow_core::segment::OtherSegment20>);
+    let other_get = GetMethod(quote! {
+        fn other(&self) -> #other_path {
+            self.0.other.clone()
+        }
+    });
+    let other = DocArgROIvar::new_ivar_ro(
+        "other".into(),
+        PyType::new_list(PyType::new_segment()),
+        other_path,
+        "The *OTHER* segment offsets in the order listed (if any).".into(),
+        other_get,
+    );
+
+    let args = [text, data, analysis, other]
+        .into_iter()
+        .map(|x| x.into())
+        .collect();
+
+    let doc = DocString::new_class("The segments from *HEADER*".into(), vec![], args);
+    let inner_args = doc.idents();
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #bare_path::new(#inner_args).into()
+            }
+        }
+    };
+    doc.into_impl_class(name.to_string(), path, new, quote!())
+        .1
+        .into()
+}
 
 #[proc_macro]
 pub fn impl_new_core(input: TokenStream) -> TokenStream {
@@ -316,6 +401,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 pub fn impl_core_version(input: TokenStream) -> TokenStream {
     let t = parse_macro_input!(input as Ident);
     let _ = split_ident_version_pycore(&t);
+    let version_path = version_path();
     let doc = DocString::new_method(
         "Show the FCS version.".into(),
         vec![],
@@ -329,7 +415,7 @@ pub fn impl_core_version(input: TokenStream) -> TokenStream {
         impl #t {
             #doc
             #[getter]
-            fn version(&self) -> Version {
+            fn version(&self) -> #version_path {
                 self.0.fcs_version()
             }
         }
@@ -3490,6 +3576,10 @@ fn path_strip_args(mut path: Path) -> Path {
         segment.arguments = PathArguments::None;
     }
     path
+}
+
+fn version_path() -> Path {
+    parse_quote!(fireflow_core::header::Version)
 }
 
 fn analysis_path() -> Path {

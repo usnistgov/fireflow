@@ -64,7 +64,7 @@ use fireflow_core::data::{
     F64Range, FixedAsciiLayout, KnownTot, LayoutOps, NoMeasDatatype, NonMixedEndianLayout,
 };
 use fireflow_core::error::{MultiResultExt, ResultExt};
-use fireflow_core::header::Version;
+use fireflow_core::header::{self, Version};
 use fireflow_core::python::exceptions::{
     PyTerminalNoErrorResultExt, PyTerminalNoWarnResultExt, PyTerminalResultExt,
 };
@@ -77,6 +77,7 @@ use fireflow_core::text::index::{GateIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::Eithers;
 use fireflow_core::text::optional::MightHave;
+use fireflow_core::validated::ascii_uint::UintSpacePad20;
 use fireflow_core::validated::keys::{StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::Shortname;
 
@@ -100,7 +101,7 @@ use fireflow_python_proc::{
     impl_layout_byte_widths, impl_new_core, impl_new_delim_ascii_layout,
     impl_new_endian_float_layout, impl_new_endian_uint_layout, impl_new_fixed_ascii_layout,
     impl_new_gate_bi_regions, impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout,
-    impl_new_ordered_layout,
+    impl_new_ordered_layout, impl_py_header, impl_py_header_segments,
 };
 
 use derive_more::{From, Into};
@@ -110,11 +111,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 def_fcs_read_header!();
-// #[pyfunction]
-// #[pyo3(name = "_fcs_read_header")]
-// pub fn py_fcs_read_header(p: PathBuf, conf: cfg::ReadHeaderConfig) -> PyResult<Header> {
-//     api::fcs_read_header(&p, &conf).py_termfail_resolve_nowarn()
-// }
+
+impl_py_header!(header::Header);
+impl_py_header_segments!(header::HeaderSegments<UintSpacePad20>);
 
 #[pyfunction]
 #[pyo3(name = "_fcs_read_raw_text")]

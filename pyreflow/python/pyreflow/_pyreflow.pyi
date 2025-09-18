@@ -1527,6 +1527,31 @@ class CoreDataset3_2(
         warnings_are_errors: bool = False,
     ) -> Self: ...
 
+class PyreflowException(Exception): ...
+class PyreflowWarning(Exception): ...
+
+@final
+class HeaderSegments:
+    def __new__(
+        cls, text: Segment, data: Segment, analysis: Segment, other: list[Segment]
+    ) -> Self: ...
+    @property
+    def text(self) -> Segment: ...
+    @property
+    def data(self) -> Segment: ...
+    @property
+    def analysis(self) -> Segment: ...
+    @property
+    def other(self) -> list[Segment]: ...
+
+@final
+class Header:
+    def __new__(cls, version: FCSVersion, segments: HeaderSegments) -> Self: ...
+    @property
+    def version(self) -> FCSVersion: ...
+    @property
+    def segments(self) -> HeaderSegments: ...
+
 def fcs_read_header(
     path: Path,
     text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
@@ -1538,10 +1563,7 @@ def fcs_read_header(
     squish_offsets: bool = False,
     allow_negative: bool = False,
     truncate_offsets: bool = False,
-) -> None: ...
-
-class PyreflowException(Exception): ...
-class PyreflowWarning(Exception): ...
+) -> Header: ...
 
 __version__: str
 
@@ -1588,5 +1610,7 @@ __all__ = [
     "EndianF64Layout",
     "EndianUintLayout",
     "MixedLayout",
+    "Header",
+    "HeaderSegments",
     "fcs_read_header",
 ]

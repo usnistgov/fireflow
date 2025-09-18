@@ -291,23 +291,19 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         }
     };
 
-    let coretext_q = impl_new(
+    let (_, coretext_q) = coretext_doc.into_impl_class(
         coretext_name.to_string(),
         coretext_rstype,
-        coretext_doc,
         coretext_new,
         quote!(),
-    )
-    .1;
+    );
 
-    let coredataset_q = impl_new(
+    let (_, coredataset_q) = coredataset_doc.into_impl_class(
         coredataset_name.to_string(),
         coredataset_rstype,
-        coredataset_doc,
         coredataset_new,
         quote!(),
-    )
-    .1;
+    );
 
     quote! {
         #coretext_q
@@ -1431,19 +1427,18 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
     let element_path = element_path(version);
 
     let make_replace_doc = |is_index: bool| {
-        let (i, i_param, m) = if is_index {
+        let (i_param, m) = if is_index {
             (
-                "index",
                 DocArg::new_index_param("Index to replace."),
                 "measurement at index",
             )
         } else {
             (
-                "name",
                 DocArg::new_name_param("Name to replace."),
                 "named measurement",
             )
         };
+        let i = &i_param.argname;
         let meas_desc = format!("Optical measurement to replace measurement at ``{i}``.");
         let sub = format!("Raise exception if ``{i}`` does not exist.");
         DocString::new_method(
@@ -2319,7 +2314,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         }
     };
 
-    impl_new(name.to_string(), path, doc, new_method, quote!())
+    doc.into_impl_class(name.to_string(), path, new_method, quote!())
         .1
         .into()
 }
@@ -2741,7 +2736,7 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
         }
     };
 
-    impl_new(name.to_string(), path.clone(), doc, new, quote!())
+    doc.into_impl_class(name.to_string(), path.clone(), new, quote!())
         .1
         .into()
 }
@@ -2769,7 +2764,7 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
         chars_getter,
     );
 
-    let constr_doc = DocString::new_class(
+    let doc = DocString::new_class(
         "A fixed-width ASCII layout.".into(),
         vec![],
         vec![chars_param.into()],
@@ -2811,7 +2806,7 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
         #datatype
     };
 
-    impl_new(name.to_string(), path, constr_doc, new, rest)
+    doc.into_impl_class(name.to_string(), path, new, rest)
         .1
         .into()
 }
@@ -2839,7 +2834,7 @@ pub fn impl_new_delim_ascii_layout(input: TokenStream) -> TokenStream {
         ranges_getter,
     );
 
-    let constr_doc = DocString::new_class(
+    let doc = DocString::new_class(
         "A delimited ASCII layout.".into(),
         vec![],
         vec![ranges_param.into()],
@@ -2855,7 +2850,7 @@ pub fn impl_new_delim_ascii_layout(input: TokenStream) -> TokenStream {
 
     let datatype = make_layout_datatype("A");
 
-    impl_new(name.to_string(), path, constr_doc, new, datatype)
+    doc.into_impl_class(name.to_string(), path, new, datatype)
         .1
         .into()
 }
@@ -2968,7 +2963,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
                     }
                 }
             };
-            impl_new(layout_name, full_layout_path, doc, new, rest)
+            doc.into_impl_class(layout_name, full_layout_path, new, rest)
         }
 
         // u16 only has two combinations (big and little) so don't allow a list
@@ -2983,7 +2978,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
                     }
                 }
             };
-            impl_new(layout_name, full_layout_path, doc, new, rest)
+            doc.into_impl_class(layout_name, full_layout_path, new, rest)
         }
 
         // everything else needs the "full" version of byteord, which is big,
@@ -2997,7 +2992,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
                     }
                 }
             };
-            impl_new(layout_name, full_layout_path, doc, new, rest)
+            doc.into_impl_class(layout_name, full_layout_path, new, rest)
         }
     }
     .1
@@ -3039,7 +3034,7 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
 
     let is_big_param = make_endian_param(4);
 
-    let constr_doc = DocString::new_class(
+    let doc = DocString::new_class(
         format!("{nbits}-bit endian float layout"),
         vec![],
         vec![range_param.clone().into(), is_big_param.into()],
@@ -3061,7 +3056,7 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
         #datatype
     };
 
-    impl_new(layout_name, full_layout_path, constr_doc, new, rest)
+    doc.into_impl_class(layout_name, full_layout_path, new, rest)
         .1
         .into()
 }
@@ -3099,7 +3094,7 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
 
     let is_big_param = make_endian_param(4);
 
-    let constr_doc = DocString::new_class(
+    let doc = DocString::new_class(
         "A mixed-width integer layout.".into(),
         vec![],
         vec![ranges_param.into(), is_big_param.into()],
@@ -3116,7 +3111,7 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
 
     let datatype = make_layout_datatype("I");
 
-    impl_new(name.to_string(), layout_path, constr_doc, new, datatype)
+    doc.into_impl_class(name.to_string(), layout_path, new, datatype)
         .1
         .into()
 }
@@ -3153,7 +3148,7 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
 
     let is_big_param = make_endian_param(4);
 
-    let constr_doc = DocString::new_class(
+    let doc = DocString::new_class(
         "A mixed-type layout.".into(),
         vec![],
         vec![types_param.into(), is_big_param.into()],
@@ -3167,7 +3162,7 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
         }
     };
 
-    impl_new(name.to_string(), layout_path, constr_doc, new, quote!())
+    doc.into_impl_class(name.to_string(), layout_path, new, quote!())
         .1
         .into()
 }
@@ -3455,57 +3450,7 @@ fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
         }
     };
 
-    impl_new(name, path, doc, new, quote!()).1.into()
-}
-
-fn impl_new<F>(
-    name: String,
-    path: Path,
-    d: ClassDocString,
-    constr: F,
-    rest: TokenStream2,
-) -> (Ident, TokenStream2)
-where
-    F: FnOnce(TokenStream2) -> TokenStream2,
-{
-    let (pyname, wrapped) = impl_pywrap(name, path, &d);
-    let sig = d.sig();
-    let get_set_methods = d.quoted_methods();
-    let new = constr(d.fun_args());
-    let s = quote! {
-        #wrapped
-
-        // TODO automatically make args here
-        #[pymethods]
-        impl #pyname {
-            #sig
-            #[new]
-            #[allow(clippy::too_many_arguments)]
-            #new
-
-            #get_set_methods
-
-            #rest
-        }
-    };
-    (pyname, s)
-}
-
-fn impl_pywrap(name: String, path: Path, d: &ClassDocString) -> (Ident, TokenStream2) {
-    let doc = d.doc();
-    let pyname = format_ident!("Py{name}");
-    let q = quote! {
-        // pyo3 currently cannot add docstrings to __new__ methods, see
-        // https://github.com/PyO3/pyo3/issues/4326
-        //
-        // workaround, put them on the structs themselves, which works but has the
-        // disadvantage of being not next to the method def itself
-        #doc
-        #[pyclass(name = #name, eq)]
-        #[derive(Clone, From, Into, PartialEq)]
-        pub struct #pyname(#path);
-    };
-    (pyname, q)
+    doc.into_impl_class(name, path, new, quote!()).1.into()
 }
 
 fn unwrap_generic<'a>(name: &str, ty: &'a Path) -> (&'a Path, bool) {
@@ -5616,6 +5561,56 @@ impl PyType {
 impl ClassDocString {
     fn new_class(summary: String, paragraphs: Vec<String>, args: Vec<AnyDocArg>) -> Self {
         Self::new(summary, paragraphs, args, ())
+    }
+
+    fn into_impl_class<F>(
+        self,
+        name: String,
+        path: Path,
+        constr: F,
+        rest: TokenStream2,
+    ) -> (Ident, TokenStream2)
+    where
+        F: FnOnce(TokenStream2) -> TokenStream2,
+    {
+        let (pyname, wrapped) = self.as_impl_wrapped(name, path);
+        let sig = self.sig();
+        let get_set_methods = self.quoted_methods();
+        let new = constr(self.fun_args());
+        let s = quote! {
+            #wrapped
+
+            // TODO automatically make args here
+            #[pymethods]
+            impl #pyname {
+                #sig
+                #[new]
+                #[allow(clippy::too_many_arguments)]
+                #new
+
+                #get_set_methods
+
+                #rest
+            }
+        };
+        (pyname, s)
+    }
+
+    fn as_impl_wrapped(&self, name: String, path: Path) -> (Ident, TokenStream2) {
+        let doc = self.doc();
+        let pyname = format_ident!("Py{name}");
+        let q = quote! {
+            // pyo3 currently cannot add docstrings to __new__ methods, see
+            // https://github.com/PyO3/pyo3/issues/4326
+            //
+            // workaround, put them on the structs themselves, which works but has the
+            // disadvantage of being not next to the method def itself
+            #doc
+            #[pyclass(name = #name, eq)]
+            #[derive(Clone, From, Into, PartialEq)]
+            pub struct #pyname(#path);
+        };
+        (pyname, q)
     }
 }
 

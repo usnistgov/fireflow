@@ -589,19 +589,19 @@ class _CoreReplaceTemporal3_2:
 
 class _CoreTEXTGetSetMeas(Generic[_N, _T, _O]):
     def push_optical(
-        self, meas: _O, name: _N, range: Range, notrunc: bool = False
+        self, name: _N, meas: _O, range: Range, notrunc: bool = False
     ) -> None: ...
     def insert_optical(
-        self, index: MeasIndex, meas: _O, name: _N, range: Range, notrunc: bool = False
+        self, index: MeasIndex, name: _N, meas: _O, range: Range, notrunc: bool = False
     ) -> None: ...
     def push_temporal(
-        self, meas: _T, name: Shortname, range: Range, notrunc: bool = False
+        self, name: Shortname, meas: _T, range: Range, notrunc: bool = False
     ) -> None: ...
     def insert_temporal(
         self,
         index: MeasIndex,
-        meas: _T,
         name: Shortname,
+        meas: _T,
         range: Range,
         notrunc: bool = False,
     ) -> None: ...
@@ -612,31 +612,31 @@ class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
     others: list[OtherBytes]
 
     def push_optical(
-        self, meas: _O, col: Series, name: _N, range: Range, notrunc: bool = False
+        self, name: _N, meas: _O, col: Series, range: Range, notrunc: bool = False
     ) -> None: ...
     def insert_optical(
         self,
         index: MeasIndex,
+        name: _N,
         meas: _O,
         col: Series,
-        name: _N,
         range: Range,
         notrunc: bool = False,
     ) -> None: ...
     def push_temporal(
         self,
+        name: Shortname,
         meas: _T,
         col: Series,
-        name: Shortname,
         range: Range,
         notrunc: bool = False,
     ) -> None: ...
     def insert_temporal(
         self,
         index: MeasIndex,
+        name: Shortname,
         meas: _T,
         col: Series,
-        name: Shortname,
         range: Range,
         notrunc: bool = False,
     ) -> None: ...
@@ -682,7 +682,7 @@ class _CoreDatasetGetSetMeasOrdered(Generic[_O, _T]):
     def set_measurements_and_data(
         self,
         measurements: _RawInput[Shortname | None, _O, _T],
-        df: DataFrame,
+        data: DataFrame,
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
@@ -691,7 +691,7 @@ class _CoreDatasetGetSetMeasEndian(Generic[_O, _T]):
     def set_measurements_and_data(
         self,
         measurements: _RawInput[Shortname, _O, _T],
-        df: DataFrame,
+        data: DataFrame,
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
@@ -791,7 +791,7 @@ class _CoreMeasCalibration(Generic[_C]):
 class _CoreToDataset(Generic[_X]):
     def to_dataset(
         self,
-        df: DataFrame,
+        data: DataFrame,
         analysis: AnalysisBytes = b"",
         others: list[OtherBytes] = [],
     ) -> _X: ...

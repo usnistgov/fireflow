@@ -737,23 +737,20 @@ pub fn impl_core_get_set_timestep(input: TokenStream) -> TokenStream {
             Some("Previous *$TIMESTEP* if present.".into()),
         )),
     );
-    let q = quote! {
-        #get_doc
-        #[getter]
-        fn get_timestep(&self) -> Option<#timestep_path> {
-            self.0.timestep().copied()
-        }
-
-        #set_doc
-        fn set_timestep(&mut self, timestep: #timestep_path) -> Option<#timestep_path> {
-            self.0.set_timestep(timestep)
-        }
-    };
 
     quote! {
         #[pymethods]
         impl #i {
-            #q
+            #get_doc
+            #[getter]
+            fn get_timestep(&self) -> Option<#timestep_path> {
+                self.0.timestep().copied()
+            }
+
+            #set_doc
+            fn set_timestep(&mut self, timestep: #timestep_path) -> Option<#timestep_path> {
+                self.0.set_timestep(timestep)
+            }
         }
     }
     .into()

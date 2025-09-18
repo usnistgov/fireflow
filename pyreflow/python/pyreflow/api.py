@@ -1,4 +1,5 @@
 from ._pyreflow import fcs_read_header as fcs_read_header
+from ._pyreflow import fcs_read_raw_text as fcs_read_raw_text
 
 from ._pyreflow import Header as Header
 from ._pyreflow import HeaderSegments as HeaderSegments

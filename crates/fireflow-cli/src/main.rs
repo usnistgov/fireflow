@@ -131,7 +131,7 @@ fn main() -> Result<(), ()> {
     let allow_non_ascii_keywords = flag_arg(ALLOW_NON_ASCII_KEYWORDS, "allow non-ascii keys");
 
     let allow_missing_stext = flag_arg(
-        ALLOW_MISSING_STEXT,
+        ALLOW_MISSING_SUPP_TEXT,
         "allow supplemental TEXT offsets to be missing",
     );
 
@@ -548,7 +548,7 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
         allow_delim_at_boundary: sargs.get_flag(ALLOW_DELIM_AT_BOUNDARY),
         allow_non_utf8: sargs.get_flag(ALLOW_NON_UTF8),
         allow_non_ascii_keywords: sargs.get_flag(ALLOW_NON_ASCII_KEYWORDS),
-        allow_missing_stext: sargs.get_flag(ALLOW_MISSING_STEXT),
+        allow_missing_supp_text: sargs.get_flag(ALLOW_MISSING_SUPP_TEXT),
         allow_stext_own_delim: sargs.get_flag(ALLOW_STEXT_OWN_DELIM),
         allow_missing_nextdata: sargs.get_flag(ALLOW_MISSING_NEXTDATA),
         trim_value_whitespace: sargs.get_flag(TRIM_VALUE_WHITESPACE),
@@ -815,7 +815,7 @@ const ALLOW_NON_UTF8: &str = "allow-non-utf8";
 
 const ALLOW_NON_ASCII_KEYWORDS: &str = "allow-non-ascii-keywords";
 
-const ALLOW_MISSING_STEXT: &str = "allow-missing-supp-text";
+const ALLOW_MISSING_SUPP_TEXT: &str = "allow-missing-supp-text";
 
 const ALLOW_STEXT_OWN_DELIM: &str = "allow-supp-text-own-delim";
 

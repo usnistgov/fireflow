@@ -1104,7 +1104,7 @@ where
     match version {
         Version::FCS2_0 => Tentative::new1(None),
         Version::FCS3_0 | Version::FCS3_1 => KeyedReqSegment::get_mult(kws, &seg_conf).map_or_else(
-            |es| Tentative::new_either(None, es.into(), !conf.allow_missing_stext),
+            |es| Tentative::new_either(None, es.into(), !conf.allow_missing_supp_text),
             |t| Tentative::new1(Some(t)),
         ),
         Version::FCS3_2 => KeyedOptSegment::get(kws, &seg_conf).warnings_into(),

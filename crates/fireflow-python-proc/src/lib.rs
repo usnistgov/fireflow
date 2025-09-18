@@ -18,10 +18,10 @@ use syn::{
 };
 
 #[proc_macro]
-pub fn def_fcs_read_header(_: TokenStream) -> TokenStream {
-    let fun_path = quote!(fireflow_core::api::fcs_read_header);
+pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
+    let fun_path = parse_macro_input!(input as Path);
     let ret_path = quote!(PyHeader);
-    let args = DocArgParam::new_header_config_param();
+    let args = DocArgParam::new_header_config_params();
     let inner_args: Vec<_> = args.iter().map(|a| a.record_into()).collect();
     let doc = DocString::new_fun(
         "Read the *HEADER* of an FCS file.".into(),
@@ -33,16 +33,66 @@ pub fn def_fcs_read_header(_: TokenStream) -> TokenStream {
         Some(DocReturn::new(PyType::PyClass("Header".into()), None)),
     );
     let fun_args = doc.fun_args();
+    let conf_inner_path = config_path("HeaderConfigInner");
+    let conf_path = config_path("ReadHeaderConfig");
     quote! {
         #[pyfunction]
         #doc
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_header(#fun_args) -> PyResult<#ret_path> {
-            let inner = fireflow_core::config::HeaderConfigInner{
-                #(#inner_args),*
-            };
-            let conf =  fireflow_core::config::ReadHeaderConfig(inner);
+            let conf = #conf_path(#conf_inner_path { #(#inner_args),* });
             Ok(#fun_path(&path, &conf).py_termfail_resolve_nowarn()?.into())
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
+    let fun_path = parse_macro_input!(input as Path);
+    let ret_path = quote!(fireflow_core::api::RawTEXTOutput);
+    let header_conf_path = config_path("HeaderConfigInner");
+    let raw_conf_path = config_path("ReadHeaderAndTEXTConfig");
+    let shared_conf_path = config_path("SharedConfig");
+    let conf_path = config_path("ReadRawTEXTConfig");
+
+    let path_arg = DocArg::new_path_param(true);
+    let header_args = DocArgParam::new_header_config_params();
+    let raw_args = DocArgParam::new_raw_config_params();
+    let shared_args = DocArgParam::new_shared_config_params();
+
+    let header_inner_args: Vec<_> = header_args.iter().map(|a| a.record_into()).collect();
+    let raw_inner_args: Vec<_> = raw_args.iter().map(|a| a.record_into()).collect();
+    let shared_inner_args: Vec<_> = shared_args.iter().map(|a| a.record_into()).collect();
+
+    let doc = DocString::new_fun(
+        "Read the *HEADER* of an FCS file.".into(),
+        vec![],
+        [path_arg]
+            .into_iter()
+            .chain(header_args)
+            .chain(raw_args)
+            .chain(shared_args)
+            .collect(),
+        Some(DocReturn::new(
+            PyType::PyClass("RawTEXTOutput".into()),
+            None,
+        )),
+    );
+
+    let fun_args = doc.fun_args();
+
+    quote! {
+        #[pyfunction]
+        #doc
+        #[allow(clippy::too_many_arguments)]
+        pub fn fcs_read_raw_text(#fun_args) -> PyResult<#ret_path> {
+            let header = #header_conf_path { #(#header_inner_args),* };
+            let raw = #raw_conf_path { header, #(#raw_inner_args),* };
+            let shared = #shared_conf_path { #(#shared_inner_args),* };
+            let conf = #conf_path { raw, shared };
+            // Ok(#fun_path(&path, &conf).py_termfail_resolve()?.into())
+            #fun_path(&path, &conf).py_termfail_resolve()
         }
     }
     .into()
@@ -3606,6 +3656,11 @@ fn keyword_path(n: &str) -> Path {
     parse_quote!(fireflow_core::text::keywords::#t)
 }
 
+fn config_path(n: &str) -> Path {
+    let t = format_ident!("{n}");
+    parse_quote!(fireflow_core::config::#t)
+}
+
 fn fcs_df_path() -> Path {
     parse_quote!(fireflow_core::validated::dataframe::FCSDataFrame)
 }
@@ -3634,6 +3689,18 @@ fn versioned_family_path(version: Version) -> Path {
     }
 }
 
+fn key_pattern_path() -> (Path, DocDefault, String) {
+    let path: Path = parse_quote!(fireflow_core::validated::keys::KeyPatterns);
+    let d = quote!(#path::default());
+    let default = DocDefault::Other(d, "([], [])".into());
+    let desc = format!(
+        "The first member of the tuples is a list of strings which match \
+             literally. The second member is a list of regular expressions \
+             corresponding to {REGEXP_REF}."
+    );
+    (path, default, desc)
+}
+
 fn pyoptical(version: Version) -> Ident {
     format_ident!("PyOptical{}", version.short_underscore())
 }
@@ -3645,18 +3712,6 @@ fn pytemporal(version: Version) -> Ident {
 fn pycoredataset(version: Version) -> Ident {
     format_ident!("PyCoreDataset{}", version.short_underscore())
 }
-
-const ALL_VERSIONS: [Version; 4] = [
-    Version::FCS2_0,
-    Version::FCS3_0,
-    Version::FCS3_1,
-    Version::FCS3_2,
-];
-
-const CHRONO_REF: &str =
-    "`chrono <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>`__";
-
-const REGEXP_REF: &str = "`regexp-syntax <https://docs.rs/regex-syntax/latest/regex_syntax/>`__";
 
 #[derive(Clone, new)]
 struct DocString<A, R, S> {
@@ -4592,7 +4647,7 @@ impl DocArgParam {
             "path".into(),
             PyType::PyClass("~pathlib.Path".into()),
             parse_quote!(std::path::PathBuf),
-            format!("Path to be {s}"),
+            format!("Path to be {s}."),
         )
     }
 
@@ -4782,7 +4837,7 @@ impl DocArgParam {
         )
     }
 
-    fn new_header_config_param() -> Vec<Self> {
+    fn new_header_config_params() -> Vec<Self> {
         vec![
             Self::new_text_correction_param(),
             Self::new_data_correction_param(),
@@ -4793,6 +4848,34 @@ impl DocArgParam {
             Self::new_squish_offsets_param(),
             Self::new_allow_negative_param(),
             Self::new_truncate_offsets_param(),
+        ]
+    }
+
+    fn new_raw_config_params() -> Vec<Self> {
+        vec![
+            Self::new_version_override(),
+            Self::new_supp_text_correction(),
+            Self::new_allow_duplicated_stext(),
+            Self::new_ignore_supp_text(),
+            Self::new_use_literal_delims(),
+            Self::new_allow_non_ascii_delim(),
+            Self::new_allow_missing_final_delim(),
+            Self::new_allow_nonunique(),
+            Self::new_allow_odd(),
+            Self::new_allow_empty(),
+            Self::new_allow_delim_at_boundary(),
+            Self::new_allow_non_utf8(),
+            Self::new_allow_non_ascii_keywords(),
+            Self::new_allow_missing_supp_text(),
+            Self::new_allow_stext_own_delim(),
+            Self::new_allow_missing_nextdata(),
+            Self::new_trim_value_whitespace(),
+            Self::new_ignore_standard_keys(),
+            Self::new_promote_to_standard(),
+            Self::new_demote_from_standard(),
+            Self::new_rename_standard_keys(),
+            Self::new_replace_standard_key_values(),
+            Self::new_append_standard_keywords(),
         ]
     }
 
@@ -5074,7 +5157,7 @@ impl DocArgParam {
             name.into(),
             PyType::new_correction(),
             parse_quote!(fireflow_core::segment::#rstype),
-            format!("Corrections for *{what}* offsets in *{location}*"),
+            format!("Corrections for {what} offsets in *{location}*."),
             DocDefault::Other(
                 quote!(fireflow_core::segment::OffsetCorrection::default()),
                 "(0, 0)".into(),
@@ -5085,7 +5168,7 @@ impl DocArgParam {
     fn new_text_correction_param() -> Self {
         Self::new_config_correction_arg(
             "text_correction",
-            "TEXT",
+            "*TEXT*",
             "HEADER",
             parse_quote!(HeaderCorrection<fireflow_core::segment::PrimaryTextSegmentId>),
         )
@@ -5094,7 +5177,7 @@ impl DocArgParam {
     fn new_data_correction_param() -> Self {
         Self::new_config_correction_arg(
             "data_correction",
-            "DATA",
+            "*DATA*",
             "HEADER",
             parse_quote!(HeaderCorrection<fireflow_core::segment::DataSegmentId>),
         )
@@ -5103,7 +5186,7 @@ impl DocArgParam {
     fn new_analysis_correction_param() -> Self {
         Self::new_config_correction_arg(
             "analysis_correction",
-            "ANALYSIS",
+            "*ANALYSIS*",
             "HEADER",
             parse_quote!(HeaderCorrection<fireflow_core::segment::AnalysisSegmentId>),
         )
@@ -5192,10 +5275,252 @@ impl DocArgParam {
         )
     }
 
+    fn new_version_override() -> Self {
+        Self::new_opt_param(
+            "version_override".into(),
+            PyType::new_version(),
+            "Override the FCS version as seen in *HEADER*.".into(),
+            version_path(),
+        )
+    }
+
+    fn new_supp_text_correction() -> Self {
+        Self::new_config_correction_arg(
+            "supp_text_correction",
+            "Supplemental *TEXT*",
+            "TEXT",
+            parse_quote!(TEXTCorrection<fireflow_core::segment::SupplementalTextSegmentId>),
+        )
+    }
+
+    fn new_allow_duplicated_stext() -> Self {
+        Self::new_bool_param(
+            "allow_duplicated_stext".into(),
+            "If ``True`` allow *sTEXT* offsets to match the *pTEXT* offsets \
+             from *HEADER*. Some vendors will duplicate these two segments \
+             despite *sTEXT* not being present, which is incorrect."
+                .into(),
+        )
+    }
+
+    fn new_ignore_supp_text() -> Self {
+        Self::new_bool_param(
+            "ignore_supp_text".into(),
+            "If ``True``, ignore supplemental *TEXT* entirely.".into(),
+        )
+    }
+
+    fn new_use_literal_delims() -> Self {
+        Self::new_bool_param(
+            "use_literal_delims".into(),
+            "If ``True``, treat every delimiter as literal (turn off escaping). \
+             Without escaping, delimiters cannot be included in keys or values, \
+             but empty values become possible. Use this option for files where \
+             unescaped delimiters results in the 'correct' interpretation of *TEXT*."
+                .into(),
+        )
+    }
+
+    fn new_allow_non_ascii_delim() -> Self {
+        Self::new_bool_param(
+            "allow_non_ascii_delim".into(),
+            "If ``True`` allow non-ASCII delimiters (outside 1-126).".into(),
+        )
+    }
+
+    fn new_allow_missing_final_delim() -> Self {
+        Self::new_bool_param(
+            "allow_missing_final_delim".into(),
+            "If ``True`` allow *TEXT* to not end with a delimiter.".into(),
+        )
+    }
+
+    fn new_allow_nonunique() -> Self {
+        Self::new_bool_param(
+            "allow_nonunique".into(),
+            "If ``True`` allow non-unique keys in *TEXT*. In such cases, \
+             only the first key will be used regardless of this setting; "
+                .into(),
+        )
+    }
+
+    fn new_allow_odd() -> Self {
+        Self::new_bool_param(
+            "allow_odd".into(),
+            "If ``True``, allow *TEXT* to contain odd number of words. \
+             The last 'dangling' word will be dropped independent of this flag."
+                .into(),
+        )
+    }
+
+    fn new_allow_empty() -> Self {
+        Self::new_bool_param(
+            "allow_empty".into(),
+            "If ``True`` allow keys with blank values. Only relevant if \
+             ``use_literal_delims`` is also ``True``."
+                .into(),
+        )
+    }
+
+    fn new_allow_delim_at_boundary() -> Self {
+        Self::new_bool_param(
+            "allow_delim_at_boundary".into(),
+            "If ``True`` allow delimiters at word boundaries. The FCS standard \
+             forbids this because it is impossible to tell if such delimiters \
+             belong to the previous or the next word. Consequently, delimiters \
+             at boundaries will be dropped regardless of this flag. Setting \
+             this to ``True`` will turn this into a warning not an error. Only \
+             relevant if ``use_literal_delims`` is ``False``."
+                .into(),
+        )
+    }
+
+    fn new_allow_non_utf8() -> Self {
+        Self::new_bool_param(
+            "allow_non_utf8".into(),
+            "If ``True`` allow non-UTF8 characters in *TEXT*. Words with such \
+             characters will be dropped regardless; setting this to ``True`` \
+             will turn these cases into warnings not errors."
+                .into(),
+        )
+    }
+
+    fn new_allow_non_ascii_keywords() -> Self {
+        Self::new_bool_param(
+            "allow_non_ascii_keywords".into(),
+            "If ``True`` allow non-ASCII keys. This only applies to \
+             non-standard keywords, as all standardized keywords may only \
+             contain letters, numbers, and start with *$*. Regardless, all \
+             compliant keys must only have ASCII. Setting this to true will \
+             emit an error when encountering such a key. If false, the key will \
+             be kept as a non-standard key."
+                .into(),
+        )
+    }
+
+    fn new_allow_missing_supp_text() -> Self {
+        Self::new_bool_param(
+            "allow_missing_supp_text".into(),
+            "If ``True`` allow supplemental *TEXT* offsets to be missing from \
+             primary *TEXT*."
+                .into(),
+        )
+    }
+
+    fn new_allow_stext_own_delim() -> Self {
+        Self::new_bool_param(
+            "allow_stext_own_delim".into(),
+            "If ``True`` allow supplemental *TEXT* offsets to have a different \
+             delimiter compared to primary *TEXT*."
+                .into(),
+        )
+    }
+
+    fn new_allow_missing_nextdata() -> Self {
+        Self::new_bool_param(
+            "allow_missing_nextdata".into(),
+            "If ``True`` allow *$NEXTDATA* to be missing. This is a required \
+             keyword in all versions. However, most files only have one dataset \
+             in which case this keyword is meaningless."
+                .into(),
+        )
+    }
+
+    fn new_trim_value_whitespace() -> Self {
+        Self::new_bool_param(
+            "trim_value_whitespace".into(),
+            "If ``True`` trim whitespace from all values. If performed, \
+             trimming precedes all other repair steps. Any values which are \
+             entirely spaces will become blanks, in which case it may also be \
+             sensible to enable ``allow_empty``."
+                .into(),
+        )
+    }
+
+    fn new_ignore_standard_keys() -> Self {
+        let (path, default, desc) = key_pattern_path();
+        Self::new_param_def(
+            "ignore_standard_keys".into(),
+            PyType::new_key_patterns(),
+            path,
+            format!(
+                "Remove standard keys from *TEXT*. The leading *$* is implied \
+                 so do not include it. {desc}"
+            ),
+            default,
+        )
+    }
+
+    fn new_promote_to_standard() -> Self {
+        let (path, default, desc) = key_pattern_path();
+        Self::new_param_def(
+            "promote_to_standard".into(),
+            PyType::new_key_patterns(),
+            path,
+            format!("Promote nonstandard keys to standard keys in *TEXT*. {desc}"),
+            default,
+        )
+    }
+
+    fn new_demote_from_standard() -> Self {
+        let (path, default, desc) = key_pattern_path();
+        Self::new_param_def(
+            "demote_from_standard".into(),
+            PyType::new_key_patterns(),
+            path,
+            format!("Demote nonstandard keys from standard keys in *TEXT*. {desc}"),
+            default,
+        )
+    }
+
+    fn new_rename_standard_keys() -> Self {
+        let path = parse_quote!(fireflow_core::validated::keys::KeyStringPairs);
+        let def = DocDefault::Other(quote!(#path::default()), "{}".into());
+        Self::new_param_def(
+            "rename_standard_keys".into(),
+            PyType::new_dict(PyType::Str, PyType::Str),
+            path,
+            "Rename standard keys in *TEXT*. Keys matching the first part of \
+             the pair will be replaced by the second. Comparisons are case \
+             insensitive. The leading *$* is implied so do not include it."
+                .into(),
+            def,
+        )
+    }
+
+    fn new_replace_standard_key_values() -> Self {
+        let path = parse_quote!(fireflow_core::validated::keys::KeyStringValues);
+        let def = DocDefault::Other(quote!(#path::default()), "{}".into());
+        Self::new_param_def(
+            "replace_standard_key_values".into(),
+            PyType::new_dict(PyType::Str, PyType::Str),
+            path,
+            "Replace values for standard keys in *TEXT* Comparisons are case \
+             insensitive. The leading *$* is implied so do not include it."
+                .into(),
+            def,
+        )
+    }
+
+    fn new_append_standard_keywords() -> Self {
+        let path = parse_quote!(fireflow_core::validated::keys::KeyStringValues);
+        let def = DocDefault::Other(quote!(#path::default()), "{}".into());
+        Self::new_param_def(
+            "append_standard_keywords".into(),
+            PyType::new_dict(PyType::Str, PyType::Str),
+            path,
+            "Append standard key/value pairs to *TEXT*. All keys and values \
+             will be included as they appear here. The leading *$* is implied so \
+             do not include it."
+                .into(),
+            def,
+        )
+    }
+
     fn new_text_data_correction_param() -> Self {
         Self::new_config_correction_arg(
             "text_data_correction",
-            "DATA",
+            "*DATA*",
             "TEXT",
             parse_quote!(TEXTCorrection<fireflow_core::segment::DataSegmentId>),
         )
@@ -5204,7 +5529,7 @@ impl DocArgParam {
     fn new_text_analysis_correction_param() -> Self {
         Self::new_config_correction_arg(
             "text_analysis_correction",
-            "ANALYSIS",
+            "*ANALYSIS*",
             "TEXT",
             parse_quote!(TEXTCorrection<fireflow_core::segment::AnalysisSegmentId>),
         )
@@ -5643,6 +5968,13 @@ impl PyType {
             Self::Tuple(vec![Self::Float, Self::Float]),
         )
     }
+
+    fn new_key_patterns() -> Self {
+        PyType::Tuple(vec![
+            PyType::new_list(PyType::Str),
+            PyType::new_list(PyType::Str),
+        ])
+    }
 }
 
 impl ClassDocString {
@@ -6012,3 +6344,15 @@ fn fmt_hanging_indent(width: usize, indent: usize, s: &str) -> String {
 }
 
 const LINE_LEN: usize = 72;
+
+const ALL_VERSIONS: [Version; 4] = [
+    Version::FCS2_0,
+    Version::FCS3_0,
+    Version::FCS3_1,
+    Version::FCS3_2,
+];
+
+const CHRONO_REF: &str =
+    "`chrono <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>`__";
+
+const REGEXP_REF: &str = "`regexp-syntax <https://docs.rs/regex-syntax/latest/regex_syntax/>`__";

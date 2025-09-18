@@ -62,6 +62,7 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ff::PyHeaderSegments>()?;
 
     m.add_function(wrap_pyfunction!(ff::fcs_read_header, m)?)?;
+    m.add_function(wrap_pyfunction!(ff::fcs_read_raw_text, m)?)?;
 
     Ok(())
 }

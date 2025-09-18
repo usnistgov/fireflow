@@ -389,7 +389,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// If true, allow STEXT offsets to be missing from TEXT.
     ///
     /// Does not affect FCS 3.2 since STEXT is optional there.
-    pub allow_missing_stext: bool,
+    pub allow_missing_supp_text: bool,
 
     /// If true, allow STEXT to use a different delimiter than TEXT.
     pub allow_stext_own_delim: bool,

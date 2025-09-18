@@ -9,7 +9,6 @@ Reading *HEADER*
 .. autofunction:: pyreflow.api.fcs_read_header
 
 
-..                  
   Reading *TEXT*
   --------------
   
@@ -24,6 +23,7 @@ Reading *HEADER*
   
   .. autofunction:: pyreflow.api.fcs_read_raw_text
   
+..                  
   .. autofunction:: pyreflow.api.fcs_read_std_text
   
   Reading entire datasets

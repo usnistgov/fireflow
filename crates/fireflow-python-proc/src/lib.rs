@@ -22,7 +22,7 @@ pub fn def_fcs_read_header(_: TokenStream) -> TokenStream {
     let fun_path = quote!(fireflow_core::api::fcs_read_header);
     let ret_path = quote!(fireflow_core::header::Header);
     let args = DocArgParam::new_header_config_param();
-    let inner_args: Vec<_> = args.iter().map(|a| a.inner_arg1()).collect();
+    let inner_args: Vec<_> = args.iter().map(|a| a.record_into()).collect();
     let doc = DocString::new_fun(
         "Read the *HEADER* of an FCS file.".into(),
         vec![],
@@ -260,7 +260,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         .chain([analysis, others])
         .collect();
 
-    let coretext_inner_args: Vec<_> = coretext_args.iter().map(|x| x.inner_arg()).collect();
+    let coretext_inner_args: Vec<_> = coretext_args.iter().map(|x| x.ident_into()).collect();
 
     let coretext_doc = DocString::new_class(
         format!("Represents *TEXT* for an FCS {vs} file."),
@@ -447,7 +447,7 @@ pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
     );
 
     let fun_args = doc.fun_args();
-    let inner_args = doc.inner_args();
+    let inner_args = doc.idents_into();
 
     quote! {
         #[pymethods]
@@ -1215,116 +1215,65 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let (is_dataset, version) = split_ident_version_pycore(&i);
 
-    let otype = pyoptical(version);
-    let ttype = pytemporal(version);
-
-    let range_path = keyword_path("Range");
-    let ver_shortname_path = versioned_shortname_path(version);
-    let any_fcs_col_path = quote!(fireflow_core::validated::dataframe::AnyFCSColumn);
-    let shortname_path = shortname_path();
-
     let push_meas_doc = |is_optical: bool, hasdata: bool| {
-        let (meas_type, what) = if is_optical {
-            (PyType::new_optical(version), "optical")
+        let (meas_type, what, rstype) = if is_optical {
+            (PyType::new_optical(version), "optical", pyoptical(version))
         } else {
-            (PyType::new_temporal(version), "temporal")
+            (
+                PyType::new_temporal(version),
+                "temporal",
+                pytemporal(version),
+            )
         };
         let param_meas = DocArg::new_param(
             "meas".into(),
-            meas_type.clone(),
-            parse_quote!(#otype),
+            meas_type,
+            parse_quote!(#rstype),
             "The measurement to push.".into(),
         );
-        let _param_col = if hasdata {
+        let col_param = if hasdata {
             Some(DocArg::new_col_param())
         } else {
             None
         };
-        let ps: Vec<_> = [param_meas]
-            .into_iter()
-            .chain(_param_col)
-            .chain([
-                DocArg::new_name_param("Name of new measurement."),
-                DocArg::new_range_param(),
-                DocArg::new_notrunc_param(),
-            ])
-            .collect();
+        let ps: Vec<_> = [
+            DocArg::new_name_param("Name of new measurement."),
+            param_meas,
+        ]
+        .into_iter()
+        .chain(col_param)
+        .chain([DocArg::new_range_param(), DocArg::new_notrunc_param()])
+        .collect();
         let summary = format!("Push {what} measurement to end of measurement vector.");
         DocString::new_method(summary, vec![], ps, None)
     };
 
-    let push_opt_doc = push_meas_doc(true, false);
-    let push_tmp_doc = push_meas_doc(false, false);
-    let push_opt_data_doc = push_meas_doc(true, true);
-    let push_tmp_data_doc = push_meas_doc(false, true);
+    let opt_doc = push_meas_doc(true, is_dataset);
+    let tmp_doc = push_meas_doc(false, is_dataset);
 
-    // TODO fix these args
-    let q = if is_dataset {
-        quote! {
-            #push_opt_data_doc
-            fn push_optical(
-                &mut self,
-                meas: #otype,
-                col: #any_fcs_col_path,
-                name: #ver_shortname_path,
-                range: #range_path,
-                notrunc: bool,
-            ) -> PyResult<()> {
-                self.0
-                    .push_optical(name.into(), meas.into(), col, range, notrunc)
-                    .py_termfail_resolve()
-                    .void()
-            }
+    let opt_fun_args = opt_doc.fun_args();
+    let tmp_fun_args = tmp_doc.fun_args();
 
-            #push_tmp_data_doc
-            fn push_temporal(
-                &mut self,
-                meas: #ttype,
-                col: #any_fcs_col_path,
-                name: #shortname_path,
-                range: #range_path,
-                notrunc: bool,
-            ) -> PyResult<()> {
-                self.0
-                    .push_temporal(name, meas.into(), col, range, notrunc)
-                    .py_termfail_resolve()
-            }
-        }
-    } else {
-        quote! {
-            #push_opt_doc
-            fn push_optical(
-                &mut self,
-                meas: #otype,
-                name: #ver_shortname_path,
-                range: #range_path,
-                notrunc: bool,
-            ) -> PyResult<()> {
-                self.0
-                    .push_optical(name.into(), meas.into(), range, notrunc)
-                    .py_termfail_resolve()
-                    .void()
-            }
-
-            #push_tmp_doc
-            fn push_temporal(
-                &mut self,
-                meas: #ttype,
-                name: #shortname_path,
-                range: #range_path,
-                notrunc: bool,
-            ) -> PyResult<()> {
-                self.0
-                    .push_temporal(name, meas.into(), range, notrunc)
-                    .py_termfail_resolve()
-            }
-        }
-    };
+    let opt_inner_args = opt_doc.idents_into();
+    let tmp_inner_args = tmp_doc.idents_into();
 
     quote! {
         #[pymethods]
         impl #i {
-            #q
+            #opt_doc
+            fn push_optical(&mut self, #opt_fun_args) -> PyResult<()> {
+                self.0
+                    .push_optical(#opt_inner_args)
+                    .py_termfail_resolve()
+                    .void()
+            }
+
+            #tmp_doc
+            fn push_temporal(&mut self, #tmp_fun_args) -> PyResult<()> {
+                self.0
+                    .push_temporal(#tmp_inner_args)
+                    .py_termfail_resolve()
+            }
         }
     }
     .into()
@@ -1337,7 +1286,6 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
 
     let element_path = element_path(version);
     let ver_shortname_path = versioned_shortname_path(version);
-    let shortname_path = shortname_path();
     let family_path = versioned_family_path(version);
     let meas_index_path = meas_index_path();
 
@@ -1363,26 +1311,32 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
 
     let bare_element_path = quote!(fireflow_core::text::named_vec::Element);
 
+    let name_arg = by_name_doc.fun_args();
+    let index_arg = by_index_doc.fun_args();
+
+    let name_ident = by_name_doc.idents();
+    let index_ident = by_index_doc.idents();
+
     quote! {
         #[pymethods]
         impl #i {
             #by_name_doc
             fn remove_measurement_by_name(
                 &mut self,
-                name: #shortname_path,
+                #name_arg
             ) -> PyResult<(#meas_index_path, #element_path)> {
                 Ok(self
                    .0
-                   .remove_measurement_by_name(&name)
+                   .remove_measurement_by_name(&#name_ident)
                    .map(|(i, x)| (i, x.inner_into()))?)
             }
 
             #by_index_doc
             fn remove_measurement_by_index(
                 &mut self,
-                index: #meas_index_path,
+                #index_arg
             ) -> PyResult<(#ver_shortname_path, #element_path)> {
-                let r = self.0.remove_measurement_by_index(index)?;
+                let r = self.0.remove_measurement_by_index(#index_ident)?;
                 let (n, v) = #bare_element_path::unzip::<#family_path>(r);
                 Ok((n.0, v.inner_into()))
             }
@@ -1396,27 +1350,24 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let (is_dataset, version) = split_ident_version_pycore(&i);
 
-    let otype = pyoptical(version);
-    let ttype = pytemporal(version);
-    let meas_index_path = meas_index_path();
-    let shortname_path = shortname_path();
-    let ver_shortname_path = versioned_shortname_path(version);
-    let range_path = keyword_path("Range");
-    let any_fcs_col_path = quote!(fireflow_core::validated::dataframe::AnyFCSColumn);
-
+    // TODO not DRY
     let insert_meas_doc = |is_optical: bool, hasdata: bool| {
-        let (meas_type, what) = if is_optical {
-            (PyType::new_optical(version), "optical")
+        let (meas_type, what, rstype) = if is_optical {
+            (PyType::new_optical(version), "optical", pyoptical(version))
         } else {
-            (PyType::new_temporal(version), "temporal")
+            (
+                PyType::new_temporal(version),
+                "temporal",
+                pytemporal(version),
+            )
         };
         let param_meas = DocArg::new_param(
             "meas".into(),
             meas_type.clone(),
-            parse_quote!(#otype),
+            parse_quote!(#rstype),
             "The measurement to insert.".into(),
         );
-        let _param_col = if hasdata {
+        let col_param = if hasdata {
             Some(DocArg::new_col_param())
         } else {
             None
@@ -1424,94 +1375,48 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
         let summary = format!("Insert {what} measurement at position in measurement vector.");
         let ps: Vec<_> = [
             DocArg::new_index_param("Position at which to insert new measurement."),
+            DocArg::new_name_param("Name of new measurement."),
             param_meas,
         ]
         .into_iter()
-        .chain(_param_col)
-        .chain([
-            DocArg::new_name_param("Name of new measurement."),
-            DocArg::new_range_param(),
-            DocArg::new_notrunc_param(),
-        ])
+        .chain(col_param)
+        .chain([DocArg::new_range_param(), DocArg::new_notrunc_param()])
         .collect();
         DocString::new_method(summary, vec![], ps, None)
     };
 
-    let insert_opt_doc = insert_meas_doc(true, false);
-    let insert_tmp_doc = insert_meas_doc(false, false);
-    let insert_opt_data_doc = insert_meas_doc(true, true);
-    let insert_tmp_data_doc = insert_meas_doc(false, true);
+    let opt_doc = insert_meas_doc(true, is_dataset);
+    let tmp_doc = insert_meas_doc(false, is_dataset);
 
-    let q = if is_dataset {
-        quote! {
-            #insert_opt_data_doc
-            fn insert_optical(
-                &mut self,
-                index: #meas_index_path,
-                meas: #otype,
-                col: #any_fcs_col_path,
-                name: #ver_shortname_path,
-                range: #range_path,
-                notrunc: bool,
-            ) -> PyResult<()> {
-                self.0
-                    .insert_optical(index, name.into(), meas.into(), col, range, notrunc)
-                    .py_termfail_resolve()
-                    .void()
-            }
+    let opt_fun_args = opt_doc.fun_args();
+    let tmp_fun_args = tmp_doc.fun_args();
 
-            #insert_tmp_data_doc
-            fn insert_temporal(
-                &mut self,
-                index: #meas_index_path,
-                meas: #ttype,
-                col: #any_fcs_col_path,
-                name: #shortname_path,
-                range: #range_path,
-                notrunc: bool,
-            ) -> PyResult<()> {
-                self.0
-                    .insert_temporal(index, name, meas.into(), col, range, notrunc)
-                    .py_termfail_resolve()
-            }
-        }
-    } else {
-        quote! {
-            #insert_opt_doc
-            fn insert_optical(
-                &mut self,
-                index: #meas_index_path,
-                meas: #otype,
-                name: #ver_shortname_path,
-                range: #range_path,
-                notrunc: bool,
-            ) -> PyResult<()> {
-                self.0
-                    .insert_optical(index, name.into(), meas.into(), range, notrunc)
-                    .py_termfail_resolve()
-                    .void()
-            }
-
-            #insert_tmp_doc
-            fn insert_temporal(
-                &mut self,
-                index: #meas_index_path,
-                meas: #ttype,
-                name: #shortname_path,
-                range: #range_path,
-                notrunc: bool,
-            ) -> PyResult<()> {
-                self.0
-                    .insert_temporal(index, name, meas.into(), range, notrunc)
-                    .py_termfail_resolve()
-            }
-        }
-    };
+    let opt_inner_args = opt_doc.idents_into();
+    let tmp_inner_args = tmp_doc.idents_into();
 
     quote! {
         #[pymethods]
         impl #i {
-            #q
+            #opt_doc
+            fn insert_optical(
+                &mut self,
+                #opt_fun_args
+            ) -> PyResult<()> {
+                self.0
+                    .insert_optical(#opt_inner_args)
+                    .py_termfail_resolve()
+                    .void()
+            }
+
+            #tmp_doc
+            fn insert_temporal(
+                &mut self,
+                #tmp_fun_args
+            ) -> PyResult<()> {
+                self.0
+                    .insert_temporal(#tmp_inner_args)
+                    .py_termfail_resolve()
+            }
         }
     }
     .into()
@@ -1523,9 +1428,7 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
     let version = split_ident_version_pycore(&i).1;
 
     let otype = pyoptical(version);
-    let meas_index_path = meas_index_path();
     let element_path = element_path(version);
-    let shortname_path = shortname_path();
 
     let make_replace_doc = |is_index: bool| {
         let (i, i_param, m) = if is_index {
@@ -1565,25 +1468,19 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
     let replace_at_doc = make_replace_doc(true);
     let replace_named_doc = make_replace_doc(false);
 
+    let index_fun_args = replace_at_doc.fun_args();
+    let name_fun_args = replace_named_doc.fun_args();
+
     quote! {
         #[pymethods]
         impl #i {
             #replace_at_doc
-            fn replace_optical_at(
-                &mut self,
-                index: #meas_index_path,
-                meas: #otype,
-            ) -> PyResult<#element_path> {
-                let ret = self.0.replace_optical_at(index, meas.into())?;
-                Ok(ret.inner_into())
+            fn replace_optical_at(&mut self, #index_fun_args) -> PyResult<#element_path> {
+                Ok(self.0.replace_optical_at(index, meas.into())?.inner_into())
             }
 
             #replace_named_doc
-            fn replace_optical_named(
-                &mut self,
-                name: #shortname_path,
-                meas: #otype,
-            ) -> Option<#element_path> {
+            fn replace_optical_named(&mut self, #name_fun_args) -> Option<#element_path> {
                 self.0
                     .replace_optical_named(&name, meas.into())
                     .map(|r| r.inner_into())
@@ -1599,9 +1496,7 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
     let version = split_ident_version_pycore(&i).1;
 
     let ttype = pytemporal(version);
-    let meas_index_path = meas_index_path();
     let element_path = element_path(version);
-    let shortname_path = shortname_path();
 
     let force_param = DocArg::new_bool_param(
         "force".into(),
@@ -1612,23 +1507,20 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
 
     // the temporal replacement functions for 3.2 are different because they
     // can fail if $PnTYPE is set
-    let (replace_tmp_args, replace_tmp_at_body, replace_tmp_named_body, force) =
-        if version == Version::FCS3_2 {
-            let go = |fun, x| quote!(self.0.#fun(#x, meas.into(), force).py_termfail_resolve()?);
-            (
-                quote! {force: bool},
-                go(quote! {replace_temporal_at_lossy}, quote! {index}),
-                go(quote! {replace_temporal_named_lossy}, quote! {&name}),
-                Some(force_param),
-            )
-        } else {
-            (
-                quote! {},
-                quote! {self.0.replace_temporal_at(index, meas.into())?},
-                quote! {self.0.replace_temporal_named(&name, meas.into())},
-                None,
-            )
-        };
+    let (replace_tmp_at_body, replace_tmp_named_body, force) = if version == Version::FCS3_2 {
+        let go = |fun, x| quote!(self.0.#fun(#x, meas.into(), force).py_termfail_resolve()?);
+        (
+            go(quote! {replace_temporal_at_lossy}, quote! {index}),
+            go(quote! {replace_temporal_named_lossy}, quote! {&name}),
+            Some(force_param),
+        )
+    } else {
+        (
+            quote! {self.0.replace_temporal_at(index, meas.into())?},
+            quote! {self.0.replace_temporal_named(&name, meas.into())},
+            None,
+        )
+    };
 
     let make_replace_doc = |is_index: bool| {
         let (i_param, m) = if is_index {
@@ -1671,15 +1563,16 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
     let replace_at_doc = make_replace_doc(true);
     let replace_named_doc = make_replace_doc(false);
 
+    let index_fun_args = replace_at_doc.fun_args();
+    let name_fun_args = replace_named_doc.fun_args();
+
     quote! {
         #[pymethods]
         impl #i {
             #replace_at_doc
             fn replace_temporal_at(
                 &mut self,
-                index: #meas_index_path,
-                meas: #ttype,
-                #replace_tmp_args
+                #index_fun_args
             ) -> PyResult<#element_path> {
                 let ret = #replace_tmp_at_body;
                 Ok(ret.inner_into())
@@ -1688,9 +1581,7 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
             #replace_named_doc
             fn replace_temporal_named(
                 &mut self,
-                name: #shortname_path,
-                meas: #ttype,
-                #replace_tmp_args
+                #name_fun_args
             ) -> PyResult<Option<#element_path>> {
                 let ret = #replace_tmp_named_body;
                 Ok(ret.map(|r| r.inner_into()))
@@ -1716,9 +1607,9 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
     let std: Path = parse_quote!(std::collections::HashMap<#sk, String>);
     let nonstd: Path = parse_quote!(std::collections::HashMap<#nsk, String>);
 
-    let std_inner_args: Vec<_> = std_args.iter().map(|a| a.inner_arg1()).collect();
-    let layout_inner_args: Vec<_> = layout_args.iter().map(|a| a.inner_arg1()).collect();
-    let shared_inner_args: Vec<_> = shared_args.iter().map(|a| a.inner_arg1()).collect();
+    let std_inner_args: Vec<_> = std_args.iter().map(|a| a.record_into()).collect();
+    let layout_inner_args: Vec<_> = layout_args.iter().map(|a| a.record_into()).collect();
+    let shared_inner_args: Vec<_> = shared_args.iter().map(|a| a.record_into()).collect();
 
     let std_conf = quote!(fireflow_core::config::StdTextReadConfig);
     let layout_conf = quote!(fireflow_core::config::ReadLayoutConfig);
@@ -1810,11 +1701,11 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
     let reader_args = DocArg::new_reader_config_params();
     let shared_args = DocArg::new_shared_config_params();
 
-    let std_inner_args: Vec<_> = std_args.iter().map(|a| a.inner_arg1()).collect();
-    let layout_inner_args: Vec<_> = layout_args.iter().map(|a| a.inner_arg1()).collect();
-    let offsets_inner_args: Vec<_> = offsets_args.iter().map(|a| a.inner_arg1()).collect();
-    let reader_inner_args: Vec<_> = reader_args.iter().map(|a| a.inner_arg1()).collect();
-    let shared_inner_args: Vec<_> = shared_args.iter().map(|a| a.inner_arg1()).collect();
+    let std_inner_args: Vec<_> = std_args.iter().map(|a| a.record_into()).collect();
+    let layout_inner_args: Vec<_> = layout_args.iter().map(|a| a.record_into()).collect();
+    let offsets_inner_args: Vec<_> = offsets_args.iter().map(|a| a.record_into()).collect();
+    let reader_inner_args: Vec<_> = reader_args.iter().map(|a| a.record_into()).collect();
+    let shared_inner_args: Vec<_> = shared_args.iter().map(|a| a.record_into()).collect();
 
     let config_args: Vec<_> = std_args
         .into_iter()
@@ -2013,12 +1904,15 @@ pub fn impl_coredataset_truncate_data(input: TokenStream) -> TokenStream {
         None,
     );
 
+    let fun_arg = doc.fun_args();
+    let inner_arg = doc.idents();
+
     quote! {
         #[pymethods]
         impl #i {
             #doc
-            fn truncate_data(&mut self, skip_conv_check: bool) -> PyResult<()> {
-                self.0.truncate_data(skip_conv_check).py_term_resolve_noerror()
+            fn truncate_data(&mut self, #fun_arg) -> PyResult<()> {
+                self.0.truncate_data(#inner_arg).py_term_resolve_noerror()
             }
         }
     }
@@ -2150,17 +2044,14 @@ pub fn impl_coretext_to_dataset(input: TokenStream) -> TokenStream {
     );
 
     let fun_args = doc.fun_args();
+    let inner_args = doc.idents();
 
     quote! {
         #[pymethods]
         impl #i {
             #doc
             fn to_dataset(&self, #fun_args) -> PyResult<#to_rstype> {
-                Ok(self
-                   .0
-                   .clone()
-                   .into_coredataset(data, analysis, others)?
-                   .into())
+                Ok(self.0.clone().into_coredataset(#inner_args)?.into())
             }
         }
     }
@@ -2301,14 +2192,11 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
             }
         },
     );
-    let has_scale = DocArg::new_ivar_rw_def(
+    let has_scale = DocArg::new_bool_param(
         "has_scale".into(),
-        PyType::Bool,
-        parse_quote!(bool),
         "``True`` if *$PnE* is set to ``0,0``.".into(),
-        DocDefault::Bool(false),
-        has_scale_methods,
-    );
+    )
+    .into_rw(has_scale_methods);
 
     let has_type_methods = GetSetMethods::new(
         quote! {
@@ -2326,14 +2214,11 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
             }
         },
     );
-    let has_type = DocArg::new_ivar_rw_def(
+    let has_type = DocArg::new_bool_param(
         "has_type".into(),
-        PyType::Bool,
-        parse_quote!(bool),
-        "``True`` if *$PnTYPE* is set to ``Time``.".into(),
-        DocDefault::Bool(false),
-        has_type_methods,
-    );
+        "``True`` if *$PnTYPE* is set to ``\"Time\"``.".into(),
+    )
+    .into_rw(has_type_methods);
 
     let timestep_path = keyword_path("Timestep");
     let timestep_methods = GetSetMethods::new(
@@ -2418,7 +2303,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         .collect(),
     };
 
-    let inner_args: Vec<_> = all_args.iter().map(|x| x.inner_arg()).collect();
+    let inner_args: Vec<_> = all_args.iter().map(|x| x.ident_into()).collect();
 
     let doc = DocString::new_class(
         format!("FCS {version_s} *$Pn\\** keywords for {lower_basename} measurement."),
@@ -2846,7 +2731,7 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
     let summary = "The *$Gm\\** keywords for one gated measurement.".into();
     let doc = DocString::new_class(summary, vec![], ps);
 
-    let inner_args: Vec<_> = all_args.iter().map(|x| x.inner_arg()).collect();
+    let inner_args: Vec<_> = all_args.iter().map(|x| x.ident_into()).collect();
 
     let new = |fun_args| {
         quote! {
@@ -3560,7 +3445,7 @@ fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
 
     let bare_path = path_strip_args(path.clone());
 
-    let inner_args: Vec<_> = doc.args.iter().map(|a| a.inner_arg1()).collect();
+    let inner_args: Vec<_> = doc.args.iter().map(|a| a.record_into()).collect();
 
     let new = |fun_args| {
         quote! {
@@ -5475,11 +5360,13 @@ trait IsDocArg {
 
     fn default_matches(&self) -> Result<(), String>;
 
-    fn constr_arg(&self) -> TokenStream2;
+    fn fun_arg(&self) -> TokenStream2;
 
-    fn inner_arg(&self) -> TokenStream2;
+    fn ident(&self) -> Ident;
 
-    fn inner_arg1(&self) -> TokenStream2;
+    fn ident_into(&self) -> TokenStream2;
+
+    fn record_into(&self) -> TokenStream2;
 }
 
 impl<T> IsDocArg for DocArg<T> {
@@ -5515,14 +5402,18 @@ impl<T> IsDocArg for DocArg<T> {
         }
     }
 
-    fn constr_arg(&self) -> TokenStream2 {
+    fn fun_arg(&self) -> TokenStream2 {
         let n = format_ident!("{}", &self.argname);
         let t = &self.rstype;
         quote!(#n: #t)
     }
 
-    fn inner_arg(&self) -> TokenStream2 {
-        let n = format_ident!("{}", &self.argname);
+    fn ident(&self) -> Ident {
+        format_ident!("{}", &self.argname)
+    }
+
+    fn ident_into(&self) -> TokenStream2 {
+        let n = self.ident();
         if unwrap_generic("Option", &self.rstype).1 {
             quote! {#n.map(|x| x.into())}
         } else {
@@ -5530,8 +5421,8 @@ impl<T> IsDocArg for DocArg<T> {
         }
     }
 
-    fn inner_arg1(&self) -> TokenStream2 {
-        let n = format_ident!("{}", &self.argname);
+    fn record_into(&self) -> TokenStream2 {
+        let n = self.ident();
         if unwrap_generic("Option", &self.rstype).1 {
             quote! {#n: #n.map(|x| x.into())}
         } else {
@@ -5581,27 +5472,35 @@ impl IsDocArg for AnyDocArg {
         }
     }
 
-    fn constr_arg(&self) -> TokenStream2 {
+    fn fun_arg(&self) -> TokenStream2 {
         match self {
-            Self::RWIvar(x) => x.constr_arg(),
-            Self::ROIvar(x) => x.constr_arg(),
-            Self::Param(x) => x.constr_arg(),
+            Self::RWIvar(x) => x.fun_arg(),
+            Self::ROIvar(x) => x.fun_arg(),
+            Self::Param(x) => x.fun_arg(),
         }
     }
 
-    fn inner_arg(&self) -> TokenStream2 {
+    fn ident(&self) -> Ident {
         match self {
-            Self::RWIvar(x) => x.inner_arg(),
-            Self::ROIvar(x) => x.inner_arg(),
-            Self::Param(x) => x.inner_arg(),
+            Self::RWIvar(x) => x.ident(),
+            Self::ROIvar(x) => x.ident(),
+            Self::Param(x) => x.ident(),
         }
     }
 
-    fn inner_arg1(&self) -> TokenStream2 {
+    fn ident_into(&self) -> TokenStream2 {
         match self {
-            Self::RWIvar(x) => x.inner_arg1(),
-            Self::ROIvar(x) => x.inner_arg1(),
-            Self::Param(x) => x.inner_arg1(),
+            Self::RWIvar(x) => x.ident_into(),
+            Self::ROIvar(x) => x.ident_into(),
+            Self::Param(x) => x.ident_into(),
+        }
+    }
+
+    fn record_into(&self) -> TokenStream2 {
+        match self {
+            Self::RWIvar(x) => x.record_into(),
+            Self::ROIvar(x) => x.record_into(),
+            Self::Param(x) => x.record_into(),
         }
     }
 }
@@ -5748,15 +5647,24 @@ impl<A, R, S> DocString<A, R, S> {
     where
         A: IsDocArg,
     {
-        let xs: Vec<_> = self.args.iter().map(|a| a.constr_arg()).collect();
+        let xs: Vec<_> = self.args.iter().map(|a| a.fun_arg()).collect();
         quote!(#(#xs),*)
     }
 
-    fn inner_args(&self) -> TokenStream2
+    /// Emit identifiers associated with function arguments
+    fn idents(&self) -> TokenStream2
     where
         A: IsDocArg,
     {
-        let xs: Vec<_> = self.args.iter().map(|a| a.inner_arg()).collect();
+        let xs: Vec<_> = self.args.iter().map(|a| a.ident()).collect();
+        quote!(#(#xs),*)
+    }
+
+    fn idents_into(&self) -> TokenStream2
+    where
+        A: IsDocArg,
+    {
+        let xs: Vec<_> = self.args.iter().map(|a| a.ident_into()).collect();
         quote!(#(#xs),*)
     }
 

@@ -124,3 +124,5 @@ AppliedGates3_2: TypeAlias = tuple[
     dict[int, pf.UnivariateRegion3_2 | pf.BivariateRegion3_2],
     str | None,
 ]
+
+KeyPatterns: TypeAlias = tuple[list[str], list[str]]

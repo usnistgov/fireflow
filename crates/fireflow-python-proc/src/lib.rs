@@ -50,7 +50,8 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
     let fun_path = parse_macro_input!(input as Path);
-    let ret_path = quote!(fireflow_core::api::RawTEXTOutput);
+    let ret_path = quote!(PyRawTEXTOutput);
+
     let header_conf_path = config_path("HeaderConfigInner");
     let raw_conf_path = config_path("ReadHeaderAndTEXTConfig");
     let shared_conf_path = config_path("SharedConfig");
@@ -91,8 +92,7 @@ pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
             let raw = #raw_conf_path { header, #(#raw_inner_args),* };
             let shared = #shared_conf_path { #(#shared_inner_args),* };
             let conf = #conf_path { raw, shared };
-            // Ok(#fun_path(&path, &conf).py_termfail_resolve()?.into())
-            #fun_path(&path, &conf).py_termfail_resolve()
+            Ok(#fun_path(&path, &conf).py_termfail_resolve()?.into())
         }
     }
     .into()
@@ -103,19 +103,7 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
-    let version_path = version_path();
-    let version_get = GetMethod(quote! {
-        fn version(&self) -> #version_path {
-            self.0.version
-        }
-    });
-    let version = DocArgROIvar::new_ivar_ro(
-        "version".into(),
-        PyType::new_version(),
-        version_path,
-        "The FCS version.".into(),
-        version_get,
-    );
+    let version = DocArgROIvar::new_version_ivar();
 
     let segments_path: Path = parse_quote!(PyHeaderSegments);
     let segments = DocArgROIvar::new_ivar_ro(
@@ -207,6 +195,177 @@ pub fn impl_py_header_segments(input: TokenStream) -> TokenStream {
         }
     };
     doc.into_impl_class(name.to_string(), path, new, quote!())
+        .1
+        .into()
+}
+
+#[proc_macro]
+pub fn impl_py_raw_text_output(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+
+    let version = DocArgROIvar::new_version_ivar();
+
+    let std_path = std_kws_path();
+    let std = DocArgROIvar::new_ivar_ro(
+        "std".into(),
+        PyType::new_keywords(),
+        std_path.clone(),
+        "Standard keywords.".into(),
+        GetMethod(quote! {
+            fn std(&self) -> #std_path {
+                self.0.keywords.std.clone().into()
+            }
+        }),
+    );
+
+    let nonstd_path = nonstd_kws_path();
+    let nonstd = DocArgROIvar::new_ivar_ro(
+        "nonstd".into(),
+        PyType::new_keywords(),
+        nonstd_path.clone(),
+        "Non-standard keywords.".into(),
+        GetMethod(quote! {
+            fn nonstd(&self) -> #nonstd_path {
+                self.0.keywords.nonstd.clone().into()
+            }
+        }),
+    );
+
+    let parse_path: Path = parse_quote!(PyRawTEXTParseData);
+    let parse = DocArgROIvar::new_ivar_ro(
+        "parse".into(),
+        PyType::new_keywords(),
+        parse_path.clone(),
+        "Miscellaneous data obtained when parsing *TEXT*.".into(),
+        GetMethod(quote! {
+            fn parse(&self) -> #parse_path {
+                self.0.parse.clone().into()
+            }
+        }),
+    );
+
+    let args = [version, std, nonstd, parse]
+        .into_iter()
+        .map(|x| x.into())
+        .collect();
+
+    let doc = DocString::new_class("Parsed *HEADER* and *TEXT*.".into(), vec![], args);
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                let kws = fireflow_core::validated::keys::ValidKeywords::new(std, nonstd);
+                #path::new(version, kws, parse.into()).into()
+            }
+        }
+    };
+    doc.into_impl_class(name.to_string(), path.clone(), new, quote!())
+        .1
+        .into()
+}
+
+#[proc_macro]
+pub fn impl_py_raw_text_parse_data(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+
+    let segments_path: Path = parse_quote!(PyHeaderSegments);
+    let segments = DocArgROIvar::new_ivar_ro(
+        "header_segments".into(),
+        PyType::new_keywords(),
+        segments_path.clone(),
+        "Segments from *HEADER*.".into(),
+        GetMethod(quote! {
+            fn header_segments(&self) -> #segments_path {
+                self.0.header_segments.clone().into()
+            }
+        }),
+    );
+
+    let supp_path: Path = parse_quote!(Option<fireflow_core::segment::SupplementalTextSegment>);
+    let supp = DocArgROIvar::new_ivar_ro(
+        "supp_text".into(),
+        PyType::new_opt(PyType::new_segment()),
+        supp_path.clone(),
+        "Supplemental *TEXT* offsets if given.".into(),
+        GetMethod(quote! {
+            fn supp_text(&self) -> #supp_path {
+                self.0.supp_text.as_ref().copied()
+            }
+        }),
+    );
+
+    let nextdata = DocArgROIvar::new_ivar_ro(
+        "nextdata".into(),
+        PyType::new_opt(PyType::Int),
+        parse_quote!(Option<u32>),
+        "The value of *$NEXTDATA*.".into(),
+        GetMethod(quote! {
+            fn nextdata(&self) -> Option<u32> {
+                self.0.nextdata
+            }
+        }),
+    );
+
+    let delim = DocArgROIvar::new_ivar_ro(
+        "delimiter".into(),
+        PyType::Int,
+        parse_quote!(u8),
+        "Delimiter used to parse *TEXT*.".into(),
+        GetMethod(quote! {
+            fn delimiter(&self) -> u8 {
+                self.0.delimiter
+            }
+        }),
+    );
+
+    let non_ascii_path: Path = parse_quote!(Vec<(String, String)>);
+    let non_ascii = DocArgROIvar::new_ivar_ro(
+        "non_ascii".into(),
+        PyType::new_list(PyType::Tuple(vec![PyType::Str, PyType::Str])),
+        non_ascii_path.clone(),
+        "Keywords with a non-ASCII but still valid UTF-8 key.".into(),
+        GetMethod(quote! {
+            fn non_ascii(&self) -> #non_ascii_path {
+                self.0.non_ascii.clone()
+            }
+        }),
+    );
+
+    let byte_pairs_path: Path = parse_quote!(Vec<(Vec<u8>, Vec<u8>)>);
+    let byte_pairs = DocArgROIvar::new_ivar_ro(
+        "byte_pairs".into(),
+        PyType::new_list(PyType::Tuple(vec![PyType::Bytes, PyType::Bytes])),
+        byte_pairs_path.clone(),
+        "Keywords with invalid UTF-8 characters.".into(),
+        GetMethod(quote! {
+            fn byte_pairs(&self) -> #byte_pairs_path {
+                self.0.byte_pairs.clone()
+            }
+        }),
+    );
+
+    let args = [segments, supp, nextdata, delim, non_ascii, byte_pairs]
+        .into_iter()
+        .map(|x| x.into())
+        .collect();
+
+    let doc = DocString::new_class(
+        "Miscellaneous data obtained when parsing *TEXT*.".into(),
+        vec![],
+        args,
+    );
+    let inner_args = doc.idents_into();
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #path::new(#inner_args).into()
+            }
+        }
+    };
+    doc.into_impl_class(name.to_string(), path.clone(), new, quote!())
         .1
         .into()
 }
@@ -508,14 +667,14 @@ pub fn impl_core_all_meas_nonstandard_keywords(input: TokenStream) -> TokenStrea
         vec![],
         vec![],
         Some(DocReturn::new(
-            PyType::new_list(PyType::new_dict(PyType::Str, PyType::Str)),
+            PyType::new_list(PyType::new_keywords()),
             Some("A list of non-standard keyword dicts for each measurement.".into()),
         )),
     )
     .doc();
 
-    let nsk = quote!(fireflow_core::validated::keys::NonStdKey);
-    let ret = quote!(Vec<std::collections::HashMap<#nsk, String>>);
+    let path = nonstd_kws_path();
+    let ret = quote!(Vec<#path>);
 
     quote! {
         #[pymethods]
@@ -573,7 +732,7 @@ pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
             make_param(false, false),
         ],
         Some(DocReturn::new(
-            PyType::new_dict(PyType::Str, PyType::Str),
+            PyType::new_keywords(),
             Some("A list of standard keywords.".into()),
         )),
     );
@@ -1730,10 +1889,8 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
     let layout_args = DocArg::new_layout_config_params(version);
     let shared_args = DocArg::new_shared_config_params();
 
-    let sk = quote!(fireflow_core::validated::keys::StdKey);
-    let nsk = quote!(fireflow_core::validated::keys::NonStdKey);
-    let std: Path = parse_quote!(std::collections::HashMap<#sk, String>);
-    let nonstd: Path = parse_quote!(std::collections::HashMap<#nsk, String>);
+    let std = std_kws_path();
+    let nonstd = nonstd_kws_path();
 
     let std_inner_args: Vec<_> = std_args.iter().map(|a| a.record_into()).collect();
     let layout_inner_args: Vec<_> = layout_args.iter().map(|a| a.record_into()).collect();
@@ -1757,14 +1914,14 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
 
     let std_param = DocArg::new_param(
         "std".into(),
-        PyType::new_dict(PyType::Str, PyType::Str),
+        PyType::new_keywords(),
         std.clone(),
         format!("Standard keywords. {no_kws}"),
     );
 
     let nonstd_param = DocArg::new_param(
         "nonstd".into(),
-        PyType::new_dict(PyType::Str, PyType::Str),
+        PyType::new_keywords(),
         nonstd.clone(),
         "Non-Standard keywords.".into(),
     );
@@ -1850,10 +2007,8 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
     let shared_conf = quote!(fireflow_core::config::SharedConfig);
     let core_conf = quote!(fireflow_core::config::ReadStdDatasetFromKeywordsConfig);
 
-    let sk_path = quote!(fireflow_core::validated::keys::StdKey);
-    let nsk_path = quote!(fireflow_core::validated::keys::NonStdKey);
-    let std_path: Path = parse_quote!(std::collections::HashMap<#sk_path, String>);
-    let nonstd_path: Path = parse_quote!(std::collections::HashMap<#nsk_path, String>);
+    let std_path = std_kws_path();
+    let nonstd_path = nonstd_kws_path();
 
     let data_seg_path: Path = parse_quote!(fireflow_core::segment::HeaderDataSegment);
     let analysis_seg_path: Path = parse_quote!(fireflow_core::segment::HeaderAnalysisSegment);
@@ -1863,14 +2018,14 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
 
     let std_param = DocArg::new_param(
         "std".into(),
-        PyType::new_dict(PyType::Str, PyType::Str),
+        PyType::new_keywords(),
         std_path.clone(),
         "Standard keywords.".into(),
     );
 
     let nonstd_param = DocArg::new_param(
         "nonstd".into(),
-        PyType::new_dict(PyType::Str, PyType::Str),
+        PyType::new_keywords(),
         nonstd_path.clone(),
         "Non-Standard keywords.".into(),
     );
@@ -3632,6 +3787,16 @@ fn version_path() -> Path {
     parse_quote!(fireflow_core::header::Version)
 }
 
+fn std_kws_path() -> Path {
+    let sk = quote!(fireflow_core::validated::keys::StdKey);
+    parse_quote!(std::collections::HashMap<#sk, String>)
+}
+
+fn nonstd_kws_path() -> Path {
+    let nsk = quote!(fireflow_core::validated::keys::NonStdKey);
+    parse_quote!(std::collections::HashMap<#nsk, String>)
+}
+
 fn analysis_path() -> Path {
     parse_quote!(fireflow_core::core::Analysis)
 }
@@ -3876,6 +4041,22 @@ impl DocArgROIvar {
         method: GetMethod,
     ) -> Self {
         Self::new(argname, pytype, rstype, desc, Some(def), method)
+    }
+
+    fn new_version_ivar() -> Self {
+        let version_path = version_path();
+        let version_get = GetMethod(quote! {
+            fn version(&self) -> #version_path {
+                self.0.version
+            }
+        });
+        Self::new_ivar_ro(
+            "version".into(),
+            PyType::new_version(),
+            version_path,
+            "The FCS version.".into(),
+            version_get,
+        )
     }
 }
 
@@ -4578,8 +4759,7 @@ impl DocArgRWIvar {
     }
 
     fn new_nonstandard_keywords_ivar(desc: &str, root: TokenStream2) -> Self {
-        let nsk = quote!(fireflow_core::validated::keys::NonStdKey);
-        let rstype = parse_quote!(std::collections::HashMap<#nsk, String>);
+        let rstype = nonstd_kws_path();
         let methods = GetSetMethods::new(
             quote! {
                 fn get_nonstandard_keywords(&self) -> #rstype {
@@ -4595,7 +4775,7 @@ impl DocArgRWIvar {
 
         DocArg::new_ivar_rw_def(
             "nonstandard_keywords".into(),
-            PyType::new_dict(PyType::Str, PyType::Str),
+            PyType::new_keywords(),
             rstype,
             desc.into(),
             DocDefault::EmptyDict,
@@ -4855,7 +5035,7 @@ impl DocArgParam {
         vec![
             Self::new_version_override(),
             Self::new_supp_text_correction(),
-            Self::new_allow_duplicated_stext(),
+            Self::new_allow_duplicated_supp_text(),
             Self::new_ignore_supp_text(),
             Self::new_use_literal_delims(),
             Self::new_allow_non_ascii_delim(),
@@ -4867,7 +5047,7 @@ impl DocArgParam {
             Self::new_allow_non_utf8(),
             Self::new_allow_non_ascii_keywords(),
             Self::new_allow_missing_supp_text(),
-            Self::new_allow_stext_own_delim(),
+            Self::new_allow_supp_text_own_delim(),
             Self::new_allow_missing_nextdata(),
             Self::new_trim_value_whitespace(),
             Self::new_ignore_standard_keys(),
@@ -5293,12 +5473,13 @@ impl DocArgParam {
         )
     }
 
-    fn new_allow_duplicated_stext() -> Self {
+    fn new_allow_duplicated_supp_text() -> Self {
         Self::new_bool_param(
-            "allow_duplicated_stext".into(),
-            "If ``True`` allow *sTEXT* offsets to match the *pTEXT* offsets \
-             from *HEADER*. Some vendors will duplicate these two segments \
-             despite *sTEXT* not being present, which is incorrect."
+            "allow_duplicated_supp_text".into(),
+            "If ``True`` allow supplemental *TEXT* offsets to match the primary \
+             *TEXT* offsets from *HEADER*. Some vendors will duplicate these \
+             two segments despite supplemental *TEXT* not being present, which \
+             is incorrect."
                 .into(),
         )
     }
@@ -5407,9 +5588,9 @@ impl DocArgParam {
         )
     }
 
-    fn new_allow_stext_own_delim() -> Self {
+    fn new_allow_supp_text_own_delim() -> Self {
         Self::new_bool_param(
-            "allow_stext_own_delim".into(),
+            "allow_supp_text_own_delim".into(),
             "If ``True`` allow supplemental *TEXT* offsets to have a different \
              delimiter compared to primary *TEXT*."
                 .into(),
@@ -5493,7 +5674,7 @@ impl DocArgParam {
         let def = DocDefault::Other(quote!(#path::default()), "{}".into());
         Self::new_param_def(
             "replace_standard_key_values".into(),
-            PyType::new_dict(PyType::Str, PyType::Str),
+            PyType::new_keywords(),
             path,
             "Replace values for standard keys in *TEXT* Comparisons are case \
              insensitive. The leading *$* is implied so do not include it."
@@ -5974,6 +6155,10 @@ impl PyType {
             PyType::new_list(PyType::Str),
             PyType::new_list(PyType::Str),
         ])
+    }
+
+    fn new_keywords() -> Self {
+        PyType::new_dict(PyType::Str, PyType::Str)
     }
 }
 

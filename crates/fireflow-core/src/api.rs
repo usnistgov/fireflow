@@ -12,6 +12,7 @@ use crate::validated::dataframe::FCSDataFrame;
 use crate::validated::keys::*;
 
 use derive_more::{Display, From};
+use derive_new::new;
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use std::convert::Infallible;
@@ -196,6 +197,7 @@ pub fn fcs_read_std_dataset_with_keywords(
 }
 
 /// Output from parsing the TEXT segment.
+#[derive(Clone, new, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct RawTEXTOutput {
@@ -270,7 +272,7 @@ pub struct RawDatasetWithKwsOutput {
 }
 
 /// Data pertaining to parsing the TEXT segment.
-#[derive(Clone)]
+#[derive(new, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct RawTEXTParseData {
@@ -841,7 +843,7 @@ fn split_raw_supp_text(
                 delim,
                 supp: *byte0,
             };
-            if conf.allow_stext_own_delim {
+            if conf.allow_supp_text_own_delim {
                 tnt.push_error(x.into());
             } else {
                 tnt.push_warning(x.into());
@@ -1112,7 +1114,7 @@ where
     .and_tentatively(|x| {
         x.map(|seg| {
             if seg.inner.as_u64() == text_segment.inner.as_u64() {
-                Tentative::new_either(None, vec![DuplicatedSuppTEXT], !conf.allow_duplicated_stext)
+                Tentative::new_either(None, vec![DuplicatedSuppTEXT], !conf.allow_duplicated_supp_text)
             } else {
                 Tentative::new1(Some(seg))
             }

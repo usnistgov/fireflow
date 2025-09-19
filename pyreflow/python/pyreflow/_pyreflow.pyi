@@ -44,6 +44,7 @@ from pyreflow.typing import (
     TemporalOpticalKey,
     Segment,
     OffsetCorrection,
+    KeyPatterns,
 )
 
 _X = TypeVar("_X")
@@ -56,6 +57,7 @@ _OpticalKeyVals = list[_X | tuple[()] | None]
 
 _DEFAULT_CORRECTION = (0, 0)
 _DEFAULT_OTHER_WIDTH = 8
+_DEFAULT_KEY_PATTERNS: KeyPatterns = ([], [])
 
 class _LayoutUnmixedCommon:
     @property
@@ -1552,6 +1554,48 @@ class Header:
     @property
     def segments(self) -> HeaderSegments: ...
 
+@final
+class RawTEXTParseData:
+    def __new__(
+        cls,
+        header_segments: HeaderSegments,
+        supp_text: Segment | None,
+        nextdata: int | None,
+        delimiter: int,
+        non_ascii: list[tuple[str, str]],
+        byte_pairs: list[tuple[bytes, bytes]],
+    ) -> Self: ...
+    @property
+    def header_segments(self) -> HeaderSegments: ...
+    @property
+    def supp_text(self) -> Segment | None: ...
+    @property
+    def nextdata(self) -> int | None: ...
+    @property
+    def delimiter(self) -> int: ...
+    @property
+    def non_ascii(self) -> list[tuple[str, str]]: ...
+    @property
+    def byte_pairs(self) -> list[tuple[bytes, bytes]]: ...
+
+@final
+class RawTEXTOutput:
+    def __new__(
+        cls,
+        version: FCSVersion,
+        std: StdKeywords,
+        nonstd: NonStdKeywords,
+        parse: RawTEXTParseData,
+    ) -> Self: ...
+    @property
+    def version(self) -> FCSVersion: ...
+    @property
+    def std(self) -> StdKeywords: ...
+    @property
+    def nonstd(self) -> NonStdKeywords: ...
+    @property
+    def parse(self) -> RawTEXTParseData: ...
+
 def fcs_read_header(
     path: Path,
     text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
@@ -1564,6 +1608,45 @@ def fcs_read_header(
     allow_negative: bool = False,
     truncate_offsets: bool = False,
 ) -> Header: ...
+def fcs_read_raw_text(
+    path: Path,
+    # header args
+    text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    other_corrections: list[OffsetCorrection] = [],
+    max_other: int | None = None,
+    other_width: int = _DEFAULT_OTHER_WIDTH,
+    squish_offsets: bool = False,
+    allow_negative: bool = False,
+    truncate_offsets: bool = False,
+    # raw args
+    version_override: FCSVersion | None = None,
+    supp_text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    allow_duplicated_supp_text: bool = False,
+    ignore_supp_text: bool = False,
+    use_literal_delims: bool = False,
+    allow_non_ascii_delim: bool = False,
+    allow_missing_final_delim: bool = False,
+    allow_nonunique: bool = False,
+    allow_odd: bool = False,
+    allow_empty: bool = False,
+    allow_delim_at_boundary: bool = False,
+    allow_non_utf8: bool = False,
+    allow_non_ascii_keywords: bool = False,
+    allow_missing_supp_text: bool = False,
+    allow_supp_text_own_delim: bool = False,
+    allow_missing_nextdata: bool = False,
+    trim_value_whitespace: bool = False,
+    ignore_standard_keys: KeyPatterns = _DEFAULT_KEY_PATTERNS,
+    promote_to_standard: KeyPatterns = _DEFAULT_KEY_PATTERNS,
+    demote_from_standard: KeyPatterns = _DEFAULT_KEY_PATTERNS,
+    rename_standard_keys: dict[str, str] = {},
+    replace_standard_key_values: dict[str, str] = {},
+    append_standard_keywords: dict[str, str] = {},
+    # shared args
+    warnings_are_errors: bool = False,
+) -> RawTEXTOutput: ...
 
 __version__: str
 
@@ -1612,5 +1695,8 @@ __all__ = [
     "MixedLayout",
     "Header",
     "HeaderSegments",
+    "RawTEXTOutput",
+    "RawTEXTParseData",
     "fcs_read_header",
+    "fcs_read_raw_text",
 ]

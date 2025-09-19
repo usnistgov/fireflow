@@ -309,7 +309,7 @@ pub struct ReadHeaderAndTEXTConfig {
     ///
     /// The STEXT offsets will be regardless of this flag if they are
     /// duplicated.
-    pub allow_duplicated_stext: bool,
+    pub allow_duplicated_supp_text: bool,
 
     /// If true, totally ignore STEXT and its offsets.
     ///
@@ -392,7 +392,7 @@ pub struct ReadHeaderAndTEXTConfig {
     pub allow_missing_supp_text: bool,
 
     /// If true, allow STEXT to use a different delimiter than TEXT.
-    pub allow_stext_own_delim: bool,
+    pub allow_supp_text_own_delim: bool,
 
     /// If true, allow $NEXTDATA to be missing.
     ///

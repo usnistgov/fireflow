@@ -3,6 +3,8 @@ from ._pyreflow import fcs_read_raw_text as fcs_read_raw_text
 
 from ._pyreflow import Header as Header
 from ._pyreflow import HeaderSegments as HeaderSegments
+from ._pyreflow import RawTEXTOutput as RawTEXTOutput
+from ._pyreflow import RawTEXTParseData as RawTEXTParseData
 
 # from ._pyreflow import _api  # type: ignore
 # from pyreflow.typing import (

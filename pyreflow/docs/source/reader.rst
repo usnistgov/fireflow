@@ -74,9 +74,10 @@ functions above.
 .. autoclass:: pyreflow.api.Header
    :members:
 
-..
-  .. autonamedtuple:: pyreflow.api.ReadRawTEXTOutput
+.. autoclass:: pyreflow.api.RawTEXTOutput
+   :members:
   
+..
   .. autonamedtuple:: pyreflow.api.ReadStdTEXTOutput
   
   .. autonamedtuple:: pyreflow.api.ReadRawDatasetOutput
@@ -97,9 +98,10 @@ above functions.
 .. autoclass:: pyreflow.api.HeaderSegments
    :members:
 
+.. autoclass:: pyreflow.api.RawTEXTParseData
+   :members:
+
 ..
-  .. autonamedtuple:: pyreflow.api.ParseData
-  
   .. autonamedtuple:: pyreflow.api.StdTEXTData
   
   .. autonamedtuple:: pyreflow.api.StdDatasetData

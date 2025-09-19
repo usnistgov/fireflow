@@ -120,15 +120,6 @@ impl_py_header_segments!(header::HeaderSegments<UintSpacePad20>);
 impl_py_raw_text_output!(api::RawTEXTOutput);
 impl_py_raw_text_parse_data!(api::RawTEXTParseData);
 
-// #[pyfunction]
-// #[pyo3(name = "_fcs_read_raw_text")]
-// pub fn py_fcs_read_raw_text(
-//     p: PathBuf,
-//     conf: cfg::ReadRawTEXTConfig,
-// ) -> PyResult<api::RawTEXTOutput> {
-//     api::fcs_read_raw_text(&p, &conf).py_termfail_resolve()
-// }
-
 #[pyfunction]
 #[pyo3(name = "_fcs_read_std_text")]
 pub fn py_fcs_read_std_text(

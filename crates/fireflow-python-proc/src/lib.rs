@@ -393,7 +393,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     let mode = if version < Version::FCS3_2 {
         let t = PyType::new_lit(&["L", "U", "C"]);
-        let m = quote!(fireflow_core::text::keywords::Mode::default());
+        let m = parse_quote!(fireflow_core::text::keywords::Mode);
         let d = DocDefault::Other(m, "\"L\"".into());
         DocArg::new_kw_ivar("Mode", "mode", t, None, Some(d))
     } else {
@@ -2041,7 +2041,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
         PyType::new_segment(),
         analysis_seg_path.clone(),
         "The *ANALYSIS* segment from *HEADER*.".into(),
-        DocDefault::Other(quote!(#analysis_seg_path::default()), "(0, 0)".into()),
+        DocDefault::Other(analysis_seg_path, "(0, 0)".into()),
     );
 
     let other_segs_param = DocArg::new_param_def(
@@ -3181,7 +3181,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
     let known_tot_path = quote!(fireflow_core::data::KnownTot);
     let ordered_layout_path = quote!(fireflow_core::data::OrderedLayout);
     let fixed_layout_path = quote!(fireflow_core::data::FixedLayout);
-    let sizedbyteord_path = quote!(fireflow_core::text::byteord::SizedByteOrd);
+    let sizedbyteord_path: Path = parse_quote!(fireflow_core::text::byteord::SizedByteOrd);
 
     let full_layout_path: Path = parse_quote!(#ordered_layout_path<#range_path, #known_tot_path>);
 
@@ -3221,7 +3221,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
              ``\"little\"``, or a list of all integers between 1 and {nbytes} \
              in any order."
         ),
-        DocDefault::Other(quote!(#sizedbyteord_path::default()), "\"little\"".into()),
+        DocDefault::Other(sizedbyteord_path.clone(), "\"little\"".into()),
         byteord_getter,
     );
 
@@ -3458,7 +3458,7 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
 fn make_endian_ord_param(n: usize) -> DocArgROIvar {
     let xs = (1..(n + 1)).join(",");
     let ys = (1..(n + 1)).rev().join(",");
-    let endian = parse_quote!(fireflow_core::text::byteord::Endian);
+    let endian: Path = parse_quote!(fireflow_core::text::byteord::Endian);
     let sizedbyteord_path = quote!(fireflow_core::text::byteord::SizedByteOrd);
     let getter = GetMethod(quote! {
         fn endian(&self) -> #endian {
@@ -3466,16 +3466,15 @@ fn make_endian_ord_param(n: usize) -> DocArgROIvar {
             m.endian()
         }
     });
-    let d = quote!(#endian::Little);
     DocArg::new_ivar_ro_def(
         "endian".into(),
         PyType::new_lit(&["big", "little"]),
-        endian,
+        endian.clone(),
         format!(
             "If ``\"big\"`` use big endian (``{ys}``) for encoding values; \
              if ``\"little\"`` use little endian (``{xs}``)."
         ),
-        DocDefault::Other(d, "\"little\"".into()),
+        DocDefault::Other(endian, "\"little\"".into()),
         getter,
     )
 }
@@ -3483,22 +3482,21 @@ fn make_endian_ord_param(n: usize) -> DocArgROIvar {
 fn make_endian_param(n: usize) -> DocArgROIvar {
     let xs = (1..(n + 1)).join(",");
     let ys = (1..(n + 1)).rev().join(",");
-    let endian = parse_quote!(fireflow_core::text::byteord::Endian);
+    let endian: Path = parse_quote!(fireflow_core::text::byteord::Endian);
     let getter = GetMethod(quote! {
         fn endian(&self) -> #endian {
             *self.0.as_ref()
         }
     });
-    let d = quote!(#endian::Little);
     DocArg::new_ivar_ro_def(
         "endian".into(),
         PyType::new_lit(&["big", "little"]),
-        endian,
+        endian.clone(),
         format!(
             "If ``\"big\"`` use big endian (``{ys}``) for encoding values; \
              if ``\"little\"`` use little endian (``{xs}``)."
         ),
-        DocDefault::Other(d, "\"little\"".into()),
+        DocDefault::Other(endian, "\"little\"".into()),
         getter,
     )
 }
@@ -3855,8 +3853,7 @@ fn versioned_family_path(version: Version) -> Path {
 
 fn key_pattern_path() -> (Path, DocDefault, String) {
     let path: Path = parse_quote!(fireflow_core::validated::keys::KeyPatterns);
-    let d = quote!(#path::default());
-    let default = DocDefault::Other(d, "([], [])".into());
+    let default = DocDefault::Other(path.clone(), "([], [])".into());
     let desc = format!(
         "The first member of the tuples is a list of strings which match \
              literally. The second member is a list of regular expressions \
@@ -3989,7 +3986,7 @@ enum DocDefault {
     // EmptySet,
     EmptyList,
     Option,
-    Other(TokenStream2, String),
+    Other(Path, String),
 }
 
 #[derive(Clone, new)]
@@ -4650,7 +4647,7 @@ impl DocArgRWIvar {
             "({}, None)"
         };
 
-        let def = DocDefault::Other(quote!(#rstype::default()), pydef.into());
+        let def = DocDefault::Other(parse_quote!(#rstype), pydef.into());
 
         let setter_body = if collapsed_version == Version::FCS2_0 {
             quote! {
@@ -4831,13 +4828,12 @@ impl DocArgParam {
     }
 
     fn new_textdelim_param() -> DocArgParam {
-        let t = textdelim_path();
         Self::new_param_def(
             "delim".into(),
             PyType::Int,
             textdelim_path(),
             "Delimiter to use when writing *TEXT*.".into(),
-            DocDefault::Other(quote! {#t::default()}, "30".into()),
+            DocDefault::Other(textdelim_path(), "30".into()),
         )
     }
 
@@ -4942,26 +4938,22 @@ impl DocArgParam {
     }
 
     fn new_analysis_param() -> DocArgParam {
-        let analysis_rstype = analysis_path();
-        let d = quote! {#analysis_rstype::default()};
         Self::new_param_def(
             "analysis".into(),
             PyType::Bytes,
-            analysis_rstype,
+            analysis_path(),
             "A byte string encoding the *ANALYSIS* segment".into(),
-            DocDefault::Other(d, "b\"\"".to_string()),
+            DocDefault::Other(analysis_path(), "b\"\"".to_string()),
         )
     }
 
     fn new_others_param() -> DocArgParam {
-        let others_rstype = others_path();
-        let d = quote!(#others_rstype::default());
         Self::new_param_def(
             "others".into(),
             PyType::new_list(PyType::Bytes),
-            others_rstype,
+            others_path(),
             "A list of byte strings encoding the *OTHER* segments".into(),
-            DocDefault::Other(d, "[]".to_string()),
+            DocDefault::Other(others_path(), "[]".to_string()),
         )
     }
 
@@ -5209,7 +5201,7 @@ impl DocArgParam {
              the the standard. Provided keys are the string after the \"Pn\" in \
              the \"PnX\" keywords."
                 .into(),
-            DocDefault::Other(quote!(TemporalOpticalKeys::default()), "[]".into()),
+            DocDefault::Other(parse_quote!(TemporalOpticalKeys), "[]".into()),
         )
     }
 
@@ -5338,7 +5330,7 @@ impl DocArgParam {
             parse_quote!(fireflow_core::segment::#rstype),
             format!("Corrections for {what} offsets in *{location}*."),
             DocDefault::Other(
-                quote!(fireflow_core::segment::OffsetCorrection::default()),
+                parse_quote!(fireflow_core::segment::OffsetCorrection),
                 "(0, 0)".into(),
             ),
         )
@@ -5399,16 +5391,15 @@ impl DocArgParam {
     }
 
     fn new_other_width_param() -> Self {
-        let path = parse_quote!(fireflow_core::validated::ascii_range::OtherWidth);
-        let d = quote!(#path::default());
+        let path: Path = parse_quote!(fireflow_core::validated::ascii_range::OtherWidth);
         Self::new_param_def(
             "other_width".into(),
             PyType::Int,
-            path,
+            path.clone(),
             "Maximum number of OTHER segments that can be parsed. \
              ``None`` means limitless."
                 .into(),
-            DocDefault::Other(d, "8".into()),
+            DocDefault::Other(path, "8".into()),
         )
     }
 
@@ -5654,8 +5645,8 @@ impl DocArgParam {
     }
 
     fn new_rename_standard_keys() -> Self {
-        let path = parse_quote!(fireflow_core::validated::keys::KeyStringPairs);
-        let def = DocDefault::Other(quote!(#path::default()), "{}".into());
+        let path: Path = parse_quote!(fireflow_core::validated::keys::KeyStringPairs);
+        let def = DocDefault::Other(path.clone(), "{}".into());
         Self::new_param_def(
             "rename_standard_keys".into(),
             PyType::new_dict(PyType::Str, PyType::Str),
@@ -5669,8 +5660,8 @@ impl DocArgParam {
     }
 
     fn new_replace_standard_key_values() -> Self {
-        let path = parse_quote!(fireflow_core::validated::keys::KeyStringValues);
-        let def = DocDefault::Other(quote!(#path::default()), "{}".into());
+        let path: Path = parse_quote!(fireflow_core::validated::keys::KeyStringValues);
+        let def = DocDefault::Other(path.clone(), "{}".into());
         Self::new_param_def(
             "replace_standard_key_values".into(),
             PyType::new_keywords(),
@@ -5683,8 +5674,8 @@ impl DocArgParam {
     }
 
     fn new_append_standard_keywords() -> Self {
-        let path = parse_quote!(fireflow_core::validated::keys::KeyStringValues);
-        let def = DocDefault::Other(quote!(#path::default()), "{}".into());
+        let path: Path = parse_quote!(fireflow_core::validated::keys::KeyStringValues);
+        let def = DocDefault::Other(path.clone(), "{}".into());
         Self::new_param_def(
             "append_standard_keywords".into(),
             PyType::new_dict(PyType::Str, PyType::Str),
@@ -5811,7 +5802,7 @@ impl DocDefault {
             // Self::EmptySet => quote! {std::collections::HashSet::new()},
             Self::EmptyList => quote! {vec![]},
             Self::Option => quote! {None},
-            Self::Other(rs, _) => rs.clone(),
+            Self::Other(rs, _) => quote!(#rs::default()),
         }
     }
 

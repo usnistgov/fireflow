@@ -1275,11 +1275,10 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
             vec![s0, s1],
             vec![],
             Some(DocReturn::new(
-                PyType::new_list(PyType::new_union(vec![
+                PyType::new_list(PyType::new_opt(PyType::new_union2(
                     PyType::new_unit(),
                     log_pytype,
-                    PyType::None,
-                ])),
+                ))),
                 None,
             )),
         )
@@ -4006,7 +4005,7 @@ enum PyType {
     Bytes,
     Int,
     Float,
-    None,
+    // None,
     Datetime,
     Decimal,
     Date,
@@ -6440,7 +6439,7 @@ impl fmt::Display for PyType {
             Self::Int => f.write_str(":py:class:`int`"),
             Self::Float => f.write_str(":py:class:`float`"),
             Self::Bytes => f.write_str(":py:class:`bytes`"),
-            Self::None => f.write_str("None"),
+            // Self::None => f.write_str("None"),
             Self::Date => f.write_str(":py:class:`~datetime.date`"),
             Self::Time => f.write_str(":py:class:`~datetime.time`"),
             Self::Datetime => f.write_str(":py:class:`~datetime.datetime`"),

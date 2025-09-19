@@ -830,7 +830,12 @@ mod python {
             match self {
                 Self::Endian(Endian::Big) => "big".into_bound_py_any(py),
                 Self::Endian(Endian::Little) => "little".into_bound_py_any(py),
-                Self::Order(xs) => xs.into_pyobject(py),
+                // use u32 here since Vec<u8> converts to bytes in python
+                Self::Order(xs) => xs
+                    .into_iter()
+                    .map(u32::from)
+                    .collect::<Vec<_>>()
+                    .into_pyobject(py),
             }
         }
     }

@@ -533,52 +533,26 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 pub fn impl_core_version(input: TokenStream) -> TokenStream {
     let t = parse_macro_input!(input as Ident);
     let _ = split_ident_version_pycore(&t);
-    let doc = DocString::new_method(
+    let doc = DocString::new_ivar(
         "Show the FCS version.",
         [""; 0],
-        [],
-        Some(DocReturn::new(PyType::new_version())),
+        DocReturn::new(PyType::new_version()),
     );
-    let d = doc.doc();
-    let ret_path = doc.ret_path();
-
-    quote! {
-        #[pymethods]
-        impl #t {
-            #d
-            #[getter]
-            fn version(&self) -> #ret_path {
-                self.0.fcs_version()
-            }
-        }
-    }
-    .into()
+    doc.as_impl_get(&t, "version", |_, _| quote!(self.0.fcs_version()))
+        .into()
 }
 
 #[proc_macro]
 pub fn impl_core_par(input: TokenStream) -> TokenStream {
     let t = parse_macro_input!(input as Ident);
     let _ = split_ident_version_pycore(&t);
-    let doc = DocString::new_method(
+    let doc = DocString::new_ivar(
         "The value for *$PAR*.",
         [""; 0],
-        [],
-        Some(DocReturn::new(RsInt::Usize)),
+        DocReturn::new(RsInt::Usize),
     );
-    let d = doc.doc();
-    let ret_path = doc.ret_path();
-
-    quote! {
-        #[pymethods]
-        impl #t {
-            #d
-            #[getter]
-            fn par(&self) -> #ret_path {
-                self.0.par().0
-            }
-        }
-    }
-    .into()
+    doc.as_impl_get(&t, "par", |_, _| quote!(self.0.par().0))
+        .into()
 }
 
 #[proc_macro]
@@ -586,34 +560,29 @@ pub fn impl_core_all_meas_nonstandard_keywords(input: TokenStream) -> TokenStrea
     let t = parse_macro_input!(input as Ident);
     let _ = split_ident_version_pycore(&t);
 
-    let doc = DocString::new_method(
+    let doc = DocString::new_ivar(
         "The non-standard keywords for each measurement.",
         [""; 0],
-        [],
-        Some(DocReturn::new1(
+        DocReturn::new1(
             PyList::new(PyType::new_nonstd_keywords()),
             "A list of non-standard keyword dicts for each measurement.",
-        )),
+        ),
     );
 
-    let d = doc.doc();
-    let ret = doc.ret_path();
-
-    quote! {
-        #[pymethods]
-        impl #t {
-            #d
-            #[getter]
-            fn get_all_meas_nonstandard_keywords(&self) -> #ret {
-                self.0.get_meas_nonstandard().into_iter().map(|x| x.clone()).collect()
-            }
-
-            #[setter]
-            fn set_all_meas_nonstandard_keywords(&mut self, ns: #ret) -> PyResult<()> {
-                Ok(self.0.set_meas_nonstandard(ns)?)
-            }
-        }
-    }
+    doc.as_impl_get_set(
+        &t,
+        "all_meas_nonstandard_keywords",
+        true,
+        |_, _| {
+            quote!(self
+                .0
+                .get_meas_nonstandard()
+                .into_iter()
+                .map(|x| x.clone())
+                .collect())
+        },
+        |n, _| quote!(Ok(self.0.set_meas_nonstandard(#n)?)),
+    )
     .into()
 }
 
@@ -801,46 +770,38 @@ pub fn impl_core_all_peak_attrs(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let _ = split_ident_version_pycore(&i).1;
 
-    let go = |k: &str, i: &str, name: &str| {
-        let p = keyword_path(i);
-        let i = PyOpt::new(PyInt::new(RsInt::U32, p));
-        let inner = i.as_rust_type();
-        let doc = DocString::new_method(
+    let go = |k: &str, kw: &str, name: &str| {
+        let p = keyword_path(kw);
+        let pt = PyOpt::new(PyInt::new(RsInt::U32, p));
+        let inner = pt.as_rust_type();
+        let doc = DocString::new_ivar(
             format!("The value of *$P{k}n* for all measurements."),
             [""; 0],
-            [],
-            Some(DocReturn::new(PyList::new(i))),
+            DocReturn::new(PyList::new(pt)),
         );
-        let d = doc.doc();
-        let ret = doc.ret_path();
-        let get = format_ident!("get_all_{name}");
-        let set = format_ident!("set_all_{name}");
-        quote! {
-            #d
-            #[getter]
-            fn #get(&self) -> #ret {
-                self.0
-                    .get_temporal_optical::<#inner>()
-                    .map(|x| x.as_ref().copied())
-                    .collect()
-            }
 
-            #[setter]
-            fn #set(&mut self, xs: #ret) -> PyResult<()> {
-                Ok(self.0.set_temporal_optical(xs)?)
-            }
-        }
+        doc.as_impl_get_set(
+            &i,
+            format!("all_{name}"),
+            true,
+            |_, _| {
+                quote! {
+                    self.0
+                        .get_temporal_optical::<#inner>()
+                        .map(|x| x.as_ref().copied())
+                        .collect()
+                }
+            },
+            |n, _| quote!(Ok(self.0.set_temporal_optical(#n)?)),
+        )
     };
 
     let pkn = go("K", "PeakBin", "peak_bins");
     let pknn = go("KN", "PeakNumber", "peak_sizes");
 
     quote! {
-        #[pymethods]
-        impl #i {
-            #pkn
-            #pknn
-        }
+        #pkn
+        #pknn
     }
     .into()
 }
@@ -850,70 +811,48 @@ pub fn impl_core_all_shortnames_attr(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let _ = split_ident_version_pycore(&i).1;
 
-    let doc = DocString::new_method(
+    let doc = DocString::new_ivar(
         "Value of *$PnN* for all measurements.",
         ["Strings are unique and cannot contain commas."],
-        [],
-        Some(DocReturn::new(PyList::new(PyType::new_shortname()))),
+        DocReturn::new(PyList::new(PyType::new_shortname())),
     );
-    let d = doc.doc();
-    let ret = doc.ret_path();
 
-    quote! {
-        #[pymethods]
-        impl #i {
-            #d
-            #[getter]
-            fn get_all_shortnames(&self) -> #ret {
-                self.0.all_shortnames()
-            }
-
-            #[setter]
-            fn set_all_shortnames(&mut self, names: #ret) -> PyResult<()> {
-                Ok(self.0.set_all_shortnames(names).void()?)
-            }
-        }
-    }
+    doc.as_impl_get_set(
+        &i,
+        "all_shortnames",
+        true,
+        |_, _| quote!(self.0.all_shortnames()),
+        |n, _| quote!(Ok(self.0.set_all_shortnames(#n).void()?)),
+    )
     .into()
 }
 
-// TODO this can be abstracted into a generic getter/setter method which
-// makes a standalone impl
 #[proc_macro]
 pub fn impl_core_all_shortnames_maybe_attr(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let _ = split_ident_version_pycore(&i).1;
 
-    let doc = DocString::new_method(
+    let doc = DocString::new_ivar(
         "The possibly-empty values of *$PnN* for all measurements.",
         ["*$PnN* is optional for this FCS version so values may be ``None``."],
-        [],
-        Some(DocReturn::new(PyList::new(PyOpt::new(
-            PyType::new_shortname(),
-        )))),
+        DocReturn::new(PyList::new(PyOpt::new(PyType::new_shortname()))),
     );
-    let d = doc.doc();
-    let ret = doc.ret_path();
 
-    quote! {
-        #[pymethods]
-        impl #i {
-            #d
-            #[getter]
-            fn get_all_shortnames_maybe(&self) -> #ret {
+    doc.as_impl_get_set(
+        &i,
+        "all_shortnames_maybe",
+        true,
+        |_, _| {
+            quote! {
                 self.0
                     .shortnames_maybe()
                     .into_iter()
                     .map(|x| x.cloned())
                     .collect()
             }
-
-            #[setter]
-            fn set_all_shortnames_maybe(&mut self, names: #ret) -> PyResult<()> {
-                Ok(self.0.set_measurement_shortnames_maybe(names).void()?)
-            }
-        }
-    }
+        },
+        |n, _| quote!(Ok(self.0.set_measurement_shortnames_maybe(#n).void()?)),
+    )
     .into()
 }
 
@@ -923,12 +862,14 @@ pub fn impl_core_get_set_timestep(input: TokenStream) -> TokenStream {
     let _ = split_ident_version_pycore(&i).1;
 
     let t = PyOpt::new(PyType::new_timestep());
-    let get_doc = DocString::new_method(
+    let get_doc = DocString::new_ivar(
         "The value of *$TIMESTEP*",
         [""; 0],
-        [],
-        Some(DocReturn::new(t.clone())),
+        DocReturn::new(t.clone()),
     );
+
+    let getq = get_doc.as_impl_get(&i, "timestep", |_, _| quote!(self.0.timestep().copied()));
+
     let param = DocArg::new_param(
         "timestep",
         PyType::new_timestep(),
@@ -941,27 +882,20 @@ pub fn impl_core_get_set_timestep(input: TokenStream) -> TokenStream {
         Some(DocReturn::new1(t, "Previous *$TIMESTEP* if present.")),
     );
 
-    let d = get_doc.doc();
-    let get_ret = get_doc.ret_path();
     let set_ret = set_doc.ret_path();
     let set_fun_arg = set_doc.fun_args();
 
-    quote! {
+    let setq = quote! {
         #[pymethods]
         impl #i {
-            #d
-            #[getter]
-            fn get_timestep(&self) -> #get_ret {
-                self.0.timestep().copied()
-            }
-
             #set_doc
             fn set_timestep(&mut self, #set_fun_arg) -> #set_ret {
                 self.0.set_timestep(timestep)
             }
         }
-    }
-    .into()
+    };
+
+    quote!(#getq #setq).into()
 }
 
 #[proc_macro]
@@ -1161,34 +1095,24 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
-    let q = if version == Version::FCS2_0 {
+    if version == Version::FCS2_0 {
         let s0 = "Will be ``()`` for linear scaling (``0,0`` in FCS encoding), \
                    a 2-tuple for log scaling, or ``None`` if missing.";
         let s1 = "The temporal measurement must always be ``()``. Setting it \
                   to another value will raise an exception.";
-        // TODO this will probably end up not being DRY
-        let doc = DocString::new_method(
+        let doc = DocString::new_ivar(
             "The value for *$PnE* for all measurements.",
             [s0, s1],
-            [],
-            Some(DocReturn::new(PyList::new(PyOpt::new(PyType::new_scale(
-                false,
-            ))))),
+            DocReturn::new(PyList::new(PyOpt::new(PyType::new_scale(false)))),
         );
-        let d = doc.doc();
-        let ret = doc.ret_path();
-        quote! {
-            #d
-            #[getter]
-            fn get_all_scales(&self) -> #ret {
-                self.0.scales().collect()
-            }
 
-            #[setter]
-            fn set_all_scales(&mut self, scales: #ret) -> PyResult<()> {
-                self.0.set_scales(scales).py_termfail_resolve_nowarn()
-            }
-        }
+        doc.as_impl_get_set(
+            &i,
+            "all_scales",
+            true,
+            |_, _| quote!(self.0.scales().collect()),
+            |n, _| quote!(self.0.set_scales(#n).py_termfail_resolve_nowarn()),
+        )
     } else {
         let sum = "The value for *$PnE* and/or *$PnG* for all measurements.";
         let s0 = "Collectively these keywords correspond to scale transforms.";
@@ -1200,33 +1124,19 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
         let s3 = "The temporal measurement will always be ``1.0``, corresponding \
                   to an identity transform. Setting it to another value will \
                   raise an exception.";
-        let doc = DocString::new_method(
+        let doc = DocString::new_ivar(
             sum,
             [s0, s1, s2, s3],
-            [],
-            Some(DocReturn::new(PyList::new(PyType::new_transform()))),
+            DocReturn::new(PyList::new(PyType::new_transform())),
         );
-        let d = doc.doc();
-        let ret = doc.ret_path();
-        quote! {
-            #d
-            #[getter]
-            fn get_all_scale_transforms(&self) -> #ret {
-                self.0.transforms().collect()
-            }
 
-            #[setter]
-            fn set_all_scale_transforms(&mut self, transforms: #ret) -> PyResult<()> {
-                self.0.set_transforms(transforms).py_termfail_resolve_nowarn()
-            }
-        }
-    };
-
-    quote! {
-        #[pymethods]
-        impl #i {
-            #q
-        }
+        doc.as_impl_get_set(
+            &i,
+            "all_scale_transforms",
+            true,
+            |_, _| quote!(self.0.transforms().collect()),
+            |n, _| quote!(self.0.set_transforms(#n).py_termfail_resolve_nowarn()),
+        )
     }
     .into()
 }
@@ -1238,37 +1148,26 @@ pub fn impl_core_get_measurements(input: TokenStream) -> TokenStream {
 
     let named_vec_path = quote!(fireflow_core::text::named_vec::NamedVec);
 
-    let doc = DocString::new_method(
+    let doc = DocString::new_ivar(
         "Get all measurements.",
         [""; 0],
-        [],
-        Some(DocReturn::new(PyList::new(PyType::new_measurement(
-            version,
-        )))),
+        DocReturn::new(PyList::new(PyType::new_measurement(version))),
     );
 
-    let d = doc.doc();
-    let ret = doc.ret_path();
-
-    quote! {
-        #[pymethods]
-        impl #i {
-            #d
-            #[getter]
-            fn measurements(&self) -> #ret {
-                // This might seem inefficient since we are cloning
-                // everything, but if we want to map a python lambda
-                // function over the measurements we would need to to do
-                // this anyways, so simply returnig a copied list doesn't
-                // lose anything and keeps this API simpler.
-                let ms: &#named_vec_path<_, _, _, _> = self.0.as_ref();
-                ms.iter()
-                    .map(|(_, e)| e.bimap(|t| t.value.clone(), |o| o.value.clone()))
-                    .map(|v| v.inner_into())
-                    .collect()
-            }
+    doc.as_impl_get(&i, "measurements", |_, _| {
+        quote! {
+            // This might seem inefficient since we are cloning
+            // everything, but if we want to map a python lambda
+            // function over the measurements we would need to to do
+            // this anyways, so simply returnig a copied list doesn't
+            // lose anything and keeps this API simpler.
+            let ms: &#named_vec_path<_, _, _, _> = self.0.as_ref();
+            ms.iter()
+                .map(|(_, e)| e.bimap(|t| t.value.clone(), |o| o.value.clone()))
+                .map(|v| v.inner_into())
+                .collect()
         }
-    }
+    })
     .into()
 }
 
@@ -1277,34 +1176,26 @@ pub fn impl_core_get_temporal(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
-    let doc = DocString::new_method(
+    let doc = DocString::new_ivar(
         "Get the temporal measurement if it exists.",
         [""; 0],
-        [],
-        Some(DocReturn::new1(
+        DocReturn::new1(
             PyOpt::new(PyTuple::new([
                 PyType::new_meas_index(),
                 PyType::new_shortname(),
                 PyType::new_temporal(version),
             ])),
             "Index, name, and measurement or ``None``",
-        )),
+        ),
     );
-    let d = doc.doc();
-    let ret_path = doc.ret_path();
 
-    quote! {
-        #[pymethods]
-        impl #i {
-            #d
-            #[getter]
-            fn get_temporal(&self) -> #ret_path {
-                self.0
-                    .temporal()
-                    .map(|t| (t.index, t.key.clone(), t.value.clone().into()))
-            }
+    doc.as_impl_get(&i, "temporal", |_, _| {
+        quote! {
+            self.0
+                .temporal()
+                .map(|t| (t.index, t.key.clone(), t.value.clone().into()))
         }
-    }
+    })
     .into()
 }
 
@@ -2848,36 +2739,35 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
         }
     };
 
-    let char_widths_doc = DocString::new_method(
+    let (pyname, class) = doc.into_impl_class(name.to_string(), path, new, quote!());
+
+    let char_widths_doc = DocString::new_ivar(
         "The width of each measurement in number of chars (read only).",
         [
             "Equivalent to *$PnB*, which is the number of chars/digits used \
              to encode data for a given measurement.",
         ],
-        [],
-        Some(DocReturn::new(PyList::new(RsInt::U64))),
-    )
-    .doc();
+        DocReturn::new(PyList::new(RsInt::U64)),
+    );
 
-    let datatype = make_layout_datatype("A");
-
-    let rest = quote! {
-        #char_widths_doc
-        #[getter]
-        fn char_widths(&self) -> Vec<u64> {
+    let char_widths = char_widths_doc.as_impl_get(&pyname, "char_widths", |_, _| {
+        quote! {
             self.0
                 .widths()
                 .into_iter()
                 .map(|x| u64::from(u8::from(x)))
                 .collect()
         }
+    });
 
+    let datatype = make_layout_datatype(&pyname, "A");
+
+    quote! {
+        #class
+        #char_widths
         #datatype
-    };
-
-    doc.into_impl_class(name.to_string(), path, new, rest)
-        .1
-        .into()
+    }
+    .into()
 }
 
 #[proc_macro]
@@ -2905,11 +2795,9 @@ pub fn impl_new_delim_ascii_layout(input: TokenStream) -> TokenStream {
         }
     };
 
-    let datatype = make_layout_datatype("A");
-
-    doc.into_impl_class(name.to_string(), path, new, datatype)
-        .1
-        .into()
+    let (pyname, class) = doc.into_impl_class(name.to_string(), path, new, quote!());
+    let datatype = make_layout_datatype(&pyname, "A");
+    quote!(#class #datatype).into()
 }
 
 #[proc_macro]
@@ -2982,19 +2870,11 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
 
     let is_big_param = make_endian_ord_param(2);
 
-    let widths = make_byte_width(nbytes);
-    let datatype = make_layout_datatype(dt);
-
-    let rest = quote! {
-        #widths
-        #datatype
-    };
-
     let make_doc = |args| DocString::new_class(summary, [""; 0], args);
 
     // make different constructors and getters for u8 and u16 since the byteord
     // for these can be simplified
-    match (is_float, nbytes) {
+    let (pyname, class) = match (is_float, nbytes) {
         // u8 doesn't need byteord since only one is possible
         (false, 1) => {
             let doc = make_doc(vec![range_param]);
@@ -3005,7 +2885,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
                     }
                 }
             };
-            doc.into_impl_class(layout_name, full_layout_path, new, rest)
+            doc.into_impl_class(layout_name, full_layout_path, new, quote!())
         }
 
         // u16 only has two combinations (big and little) so don't allow a list
@@ -3020,7 +2900,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
                     }
                 }
             };
-            doc.into_impl_class(layout_name, full_layout_path, new, rest)
+            doc.into_impl_class(layout_name, full_layout_path, new, quote!())
         }
 
         // everything else needs the "full" version of byteord, which is big,
@@ -3034,11 +2914,13 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
                     }
                 }
             };
-            doc.into_impl_class(layout_name, full_layout_path, new, rest)
+            doc.into_impl_class(layout_name, full_layout_path, new, quote!())
         }
-    }
-    .1
-    .into()
+    };
+
+    let widths = make_byte_width(&pyname, nbytes);
+    let datatype = make_layout_datatype(&pyname, dt);
+    quote!(#class #widths #datatype).into()
 }
 
 #[proc_macro]
@@ -3082,17 +2964,12 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
         }
     };
 
-    let widths = make_byte_width(nbytes);
-    let datatype = make_layout_datatype(if nbytes == 4 { "F" } else { "D" });
+    let (pyname, class) = doc.into_impl_class(layout_name, full_layout_path, new, quote!());
 
-    let rest = quote! {
-        #widths
-        #datatype
-    };
+    let widths = make_byte_width(&pyname, nbytes);
+    let datatype = make_layout_datatype(&pyname, if nbytes == 4 { "F" } else { "D" });
 
-    doc.into_impl_class(layout_name, full_layout_path, new, rest)
-        .1
-        .into()
+    quote!(#class #widths #datatype).into()
 }
 
 #[proc_macro]
@@ -3135,11 +3012,9 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
         }
     };
 
-    let datatype = make_layout_datatype("I");
-
-    doc.into_impl_class(name.to_string(), layout_path, new, datatype)
-        .1
-        .into()
+    let (pyname, class) = doc.into_impl_class(name.to_string(), layout_path, new, quote!());
+    let datatype = make_layout_datatype(&pyname, "I");
+    quote!(#class #datatype).into()
 }
 
 #[proc_macro]
@@ -3222,75 +3097,52 @@ fn make_endian_param(n: usize) -> DocArgROIvar {
     )
 }
 
-fn make_byte_width(nbytes: usize) -> TokenStream2 {
+fn make_byte_width(pyname: &Ident, nbytes: usize) -> TokenStream2 {
     let s0 = format!("Will always return ``{nbytes}``.");
     let s1 = "This corresponds to the value of *$PnB* divided by 8, which are \
               all the same for this layout."
         .into();
-    let doc = DocString::new_method(
+    let doc = DocString::new_ivar(
         "The width of each measurement in bytes (read only).",
         [s0, s1],
-        [],
-        Some(DocReturn::new(RsInt::Usize)),
-    )
-    .doc();
-    quote! {
-        #doc
-        #[getter]
-        fn byte_width(&self) -> usize {
-            #nbytes
-        }
-    }
+        DocReturn::new(RsInt::Usize),
+    );
+
+    doc.as_impl_get(pyname, "byte_width", |_, _| quote!(#nbytes))
 }
 
 #[proc_macro]
 pub fn impl_layout_byte_widths(input: TokenStream) -> TokenStream {
     let t = parse_macro_input!(input as Ident);
 
-    let doc = DocString::new_method(
+    let doc = DocString::new_ivar(
         "The width of each measurement in bytes (read-only).",
         [
             "This corresponds to the value of *$PnB* for each measurement \
              divided by 8. Values for each measurement may be different.",
         ],
-        [],
-        Some(DocReturn::new(PyList::new(RsInt::U32))),
-    )
-    .doc();
+        DocReturn::new(PyList::new(RsInt::U32)),
+    );
 
-    quote! {
-        #[pymethods]
-        impl #t {
-            #doc
-            #[getter]
-            fn byte_widths(&self) -> Vec<u32> {
-                self.0
-                    .widths()
-                    .into_iter()
-                    .map(|x| u32::from(u8::from(x)))
-                    .collect()
-            }
+    doc.as_impl_get(&t, "byte_widths", |_, _| {
+        quote! {
+            self.0
+                .widths()
+                .into_iter()
+                .map(|x| u32::from(u8::from(x)))
+                .collect()
         }
-    }
+    })
     .into()
 }
 
-fn make_layout_datatype(dt: &str) -> TokenStream2 {
-    let doc = DocString::new_method(
+fn make_layout_datatype(pyname: &Ident, dt: &str) -> TokenStream2 {
+    let doc = DocString::new_ivar(
         "The value of *$DATATYPE* (read-only).",
         [format!("Will always return ``\"{dt}\"``.")],
-        [],
-        Some(DocReturn::new(PyType::new_datatype())),
+        DocReturn::new(PyType::new_datatype()),
     );
-    let d = doc.doc();
-    let ret = doc.ret_path();
-    quote! {
-        #d
-        #[getter]
-        fn datatype(&self) -> #ret {
-            self.0.datatype().into()
-        }
-    }
+    doc.as_impl_get(pyname, "datatype", |_, _| quote!(self.0.datatype().into()))
 }
 
 struct OrderedLayoutInfo {
@@ -3554,14 +3406,15 @@ fn pycoredataset(version: Version) -> Ident {
 struct DocString<A, R, S> {
     summary: String,
     paragraphs: Vec<String>,
-    args: Vec<A>,
+    args: A,
     returns: R,
     _selfarg: PhantomData<S>,
 }
 
-type ClassDocString = DocString<AnyDocArg, (), NoSelf>;
-type MethodDocString = DocString<DocArgParam, Option<DocReturn>, SelfArg>;
-type FunDocString = DocString<DocArgParam, Option<DocReturn>, NoSelf>;
+type ClassDocString = DocString<Vec<AnyDocArg>, (), NoSelf>;
+type MethodDocString = DocString<Vec<DocArgParam>, Option<DocReturn>, SelfArg>;
+type FunDocString = DocString<Vec<DocArgParam>, Option<DocReturn>, NoSelf>;
+type IvarDocString = DocString<(), DocReturn, SelfArg>;
 
 struct NoSelf;
 
@@ -6304,6 +6157,81 @@ impl MethodDocString {
     }
 }
 
+impl IvarDocString {
+    fn new_ivar(
+        summary: impl Into<String>,
+        paragraphs: impl IntoIterator<Item = impl Into<String>>,
+        returns: DocReturn,
+    ) -> Self {
+        Self::new(
+            summary.into(),
+            paragraphs.into_iter().map(|x| x.into()).collect(),
+            (),
+            returns,
+        )
+    }
+
+    fn as_impl_get(
+        &self,
+        class: &Ident,
+        name: impl Into<String>,
+        f: impl FnOnce(&Ident, &PyType) -> TokenStream2,
+    ) -> TokenStream2 {
+        let i = format_ident!("{}", name.into());
+        let pt = &self.returns.rtype;
+        let rt = pt.as_rust_type();
+        let body = f(&i, pt);
+        let doc = self.doc();
+        quote! {
+            #[pymethods]
+            impl #class {
+                #doc
+                #[getter]
+                fn #i(&self) -> #rt {
+                    #body
+                }
+            }
+        }
+    }
+
+    fn as_impl_get_set(
+        &self,
+        class: &Ident,
+        name: impl Into<String>,
+        fallible: bool,
+        getf: impl FnOnce(&Ident, &PyType) -> TokenStream2,
+        setf: impl FnOnce(&Ident, &PyType) -> TokenStream2,
+    ) -> TokenStream2 {
+        let get = format_ident!("{}", name.into());
+        let set = format_ident!("set_{get}");
+        let pt = &self.returns.rtype;
+        let rt = pt.as_rust_type();
+        let get_body = getf(&get, pt);
+        let set_body = setf(&get, pt);
+        let doc = self.doc();
+        let ret = if fallible {
+            quote!(PyResult<()>)
+        } else {
+            quote!(())
+        };
+        quote! {
+            #[pymethods]
+            impl #class {
+                #doc
+                #[getter]
+                fn #get(&self) -> #rt {
+                    #get_body
+                }
+
+                #[setter]
+                fn #set(&mut self, #get: #rt) -> #ret {
+                    #set_body
+                }
+            }
+        }
+    }
+}
+
 impl FunDocString {
     fn new_fun<S>(
         summary: impl Into<String>,
@@ -6332,7 +6260,7 @@ impl<A, S> DocString<A, Option<DocReturn>, S> {
     }
 }
 
-impl<A, R, S> DocString<A, R, S> {
+impl<A, R, S> DocString<Vec<A>, R, S> {
     /// Emit typed argument list for use in rust function signature
     fn fun_args(&self) -> TokenStream2
     where
@@ -6386,14 +6314,6 @@ impl<A, R, S> DocString<A, R, S> {
             })
     }
 
-    fn doc(&self) -> TokenStream2
-    where
-        Self: fmt::Display,
-    {
-        let s = self.to_string();
-        quote! {#[doc = #s]}
-    }
-
     fn sig(&self) -> TokenStream2
     where
         A: IsDocArg,
@@ -6430,19 +6350,35 @@ impl<A, R, S> DocString<A, R, S> {
             #[pyo3(text_signature = #txt_sig)]
         }
     }
+}
 
-    fn fmt_inner<F>(&self, f_return: F, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error>
+impl<A, R, S> DocString<A, R, S> {
+    fn doc(&self) -> TokenStream2
     where
-        A: fmt::Display,
-        F: FnOnce(&R) -> Option<String>,
+        Self: fmt::Display,
+    {
+        let s = self.to_string();
+        quote! {#[doc = #s]}
+    }
+
+    fn fmt_inner<'a, 'b, F, G, I>(
+        &'a self,
+        f_args: F,
+        f_return: G,
+        f: &mut fmt::Formatter<'b>,
+    ) -> Result<(), fmt::Error>
+    where
+        F: FnOnce(&'a A) -> I,
+        G: FnOnce(&'a R) -> Option<String>,
+        I: Iterator<Item = String> + 'a,
     {
         let ps = self
             .paragraphs
             .iter()
             .map(|s| fmt_docstring_nonparam(s.as_str()));
-        let xs = self.args.iter().map(|s| s.to_string());
-        let r = f_return(&self.returns).into_iter();
-        let rest = ps.chain(xs).chain(r).join("\n\n");
+        let a = f_args(&self.args);
+        let r = f_return(&self.returns);
+        let rest = ps.chain(a).chain(r).join("\n\n");
         if self.summary.len() > LINE_LEN {
             panic!("summary is too long");
         }
@@ -6450,7 +6386,7 @@ impl<A, R, S> DocString<A, R, S> {
     }
 }
 
-impl<A, R, S> ToTokens for DocString<A, R, S>
+impl<A, R, S> ToTokens for DocString<Vec<A>, R, S>
 where
     Self: fmt::Display,
     A: IsDocArg,
@@ -6469,13 +6405,23 @@ where
 
 impl fmt::Display for ClassDocString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        self.fmt_inner(|()| None, f)
+        self.fmt_inner(|a| a.iter().map(|s| s.to_string()), |()| None, f)
     }
 }
 
-impl<A: fmt::Display, S> fmt::Display for DocString<A, Option<DocReturn>, S> {
+impl fmt::Display for IvarDocString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        self.fmt_inner(|r| r.as_ref().map(|s| s.to_string()), f)
+        self.fmt_inner(|()| [].into_iter(), |r| Some(r.to_string()), f)
+    }
+}
+
+impl<A: fmt::Display, S> fmt::Display for DocString<Vec<A>, Option<DocReturn>, S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        self.fmt_inner(
+            |a| a.iter().map(|s| s.to_string()),
+            |r| r.as_ref().map(|s| s.to_string()),
+            f,
+        )
     }
 }
 

@@ -108,7 +108,6 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
     let segments = DocArgROIvar::new_ivar_ro(
         "segments",
         PyClass::new2("HeaderSegments", segments_path.clone()),
-        segments_path.clone(),
         "The segments from *HEADER*.",
         GetMethod(quote! {
             fn segments(&self) -> #segments_path {
@@ -151,7 +150,6 @@ pub fn impl_py_header_segments(input: TokenStream) -> TokenStream {
         DocArgROIvar::new_ivar_ro(
             name,
             PyType::new_segment(ident),
-            rstype,
             format!("The *{}* segment offsets.", name.to_uppercase()),
             get,
         )
@@ -168,11 +166,7 @@ pub fn impl_py_header_segments(input: TokenStream) -> TokenStream {
     });
     let other = DocArgROIvar::new_ivar_ro(
         "other",
-        PyList::new(
-            PyType::new_segment("OtherSegment20"),
-            Some(other_path.clone()),
-        ),
-        other_path,
+        PyList::new1(PyType::new_segment("OtherSegment20"), other_path.clone()),
         "The *OTHER* segment offsets in the order listed (if any).",
         other_get,
     );
@@ -204,8 +198,7 @@ pub fn impl_py_raw_text_output(input: TokenStream) -> TokenStream {
     let std_path = std_kws_path();
     let std = DocArgROIvar::new_ivar_ro(
         "std",
-        PyType::new_keywords(),
-        std_path.clone(),
+        PyType::new_std_keywords(),
         "Standard keywords.",
         GetMethod(quote! {
             fn std(&self) -> #std_path {
@@ -217,8 +210,7 @@ pub fn impl_py_raw_text_output(input: TokenStream) -> TokenStream {
     let nonstd_path = nonstd_kws_path();
     let nonstd = DocArgROIvar::new_ivar_ro(
         "nonstd",
-        PyType::new_keywords(),
-        nonstd_path.clone(),
+        PyType::new_nonstd_keywords(),
         "Non-standard keywords.",
         GetMethod(quote! {
             fn nonstd(&self) -> #nonstd_path {
@@ -230,8 +222,7 @@ pub fn impl_py_raw_text_output(input: TokenStream) -> TokenStream {
     let parse_path: Path = parse_quote!(PyRawTEXTParseData);
     let parse = DocArgROIvar::new_ivar_ro(
         "parse",
-        PyType::new_keywords(),
-        parse_path.clone(),
+        PyClass::new2("RawTEXTParseData", parse_path.clone()),
         "Miscellaneous data obtained when parsing *TEXT*.",
         GetMethod(quote! {
             fn parse(&self) -> #parse_path {
@@ -265,8 +256,7 @@ pub fn impl_py_raw_text_parse_data(input: TokenStream) -> TokenStream {
     let segments_path: Path = parse_quote!(PyHeaderSegments);
     let segments = DocArgROIvar::new_ivar_ro(
         "header_segments",
-        PyType::new_keywords(),
-        segments_path.clone(),
+        PyClass::new2("HeaderSegments", segments_path.clone()),
         "Segments from *HEADER*.",
         GetMethod(quote! {
             fn header_segments(&self) -> #segments_path {
@@ -279,7 +269,6 @@ pub fn impl_py_raw_text_parse_data(input: TokenStream) -> TokenStream {
     let supp = DocArgROIvar::new_ivar_ro(
         "supp_text",
         PyOpt::new(PyType::new_segment("SupplementalTextSegment")),
-        supp_path.clone(),
         "Supplemental *TEXT* offsets if given.",
         GetMethod(quote! {
             fn supp_text(&self) -> #supp_path {
@@ -291,7 +280,6 @@ pub fn impl_py_raw_text_parse_data(input: TokenStream) -> TokenStream {
     let nextdata = DocArgROIvar::new_ivar_ro(
         "nextdata",
         PyOpt::new(RsInt::U32),
-        parse_quote!(Option<u32>),
         "The value of *$NEXTDATA*.",
         GetMethod(quote! {
             fn nextdata(&self) -> Option<u32> {
@@ -303,7 +291,6 @@ pub fn impl_py_raw_text_parse_data(input: TokenStream) -> TokenStream {
     let delim = DocArgROIvar::new_ivar_ro(
         "delimiter",
         RsInt::U8,
-        parse_quote!(u8),
         "Delimiter used to parse *TEXT*.",
         GetMethod(quote! {
             fn delimiter(&self) -> u8 {
@@ -315,8 +302,7 @@ pub fn impl_py_raw_text_parse_data(input: TokenStream) -> TokenStream {
     let non_ascii_path: Path = parse_quote!(Vec<(String, String)>);
     let non_ascii = DocArgROIvar::new_ivar_ro(
         "non_ascii",
-        PyList::new1(PyTuple::new([PyStr::new(), PyStr::new()])),
-        non_ascii_path.clone(),
+        PyList::new(PyTuple::new([PyStr::new(), PyStr::new()])),
         "Keywords with a non-ASCII but still valid UTF-8 key.",
         GetMethod(quote! {
             fn non_ascii(&self) -> #non_ascii_path {
@@ -328,8 +314,7 @@ pub fn impl_py_raw_text_parse_data(input: TokenStream) -> TokenStream {
     let byte_pairs_path: Path = parse_quote!(Vec<(Vec<u8>, Vec<u8>)>);
     let byte_pairs = DocArgROIvar::new_ivar_ro(
         "byte_pairs",
-        PyList::new1(PyTuple::new([PyBytes::new(), PyBytes::new()])),
-        byte_pairs_path.clone(),
+        PyList::new(PyTuple::new([PyBytes::new(), PyBytes::new()])),
         "Keywords with invalid UTF-8 characters.",
         GetMethod(quote! {
             fn byte_pairs(&self) -> #byte_pairs_path {
@@ -411,7 +396,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let cytsn = DocArg::new_kw_opt_ivar("Cytsn", "cytsn", PyStr::new());
 
     let unicode_pytype = PyTuple::new1(
-        [PyType::from(RsInt::U32), PyList::new1(PyStr::new()).into()],
+        [PyType::from(RsInt::U32), PyList::new(PyStr::new()).into()],
         keyword_path("Unicode"),
     );
     let unicode = DocArg::new_kw_opt_ivar("Unicode", "unicode", unicode_pytype);
@@ -668,7 +653,7 @@ pub fn impl_core_all_meas_nonstandard_keywords(input: TokenStream) -> TokenStrea
         [""; 0],
         [],
         Some(DocReturn::new1(
-            PyList::new1(PyType::new_nonstd_keywords()),
+            PyList::new(PyType::new_nonstd_keywords()),
             "A list of non-standard keyword dicts for each measurement.",
         )),
     );
@@ -886,7 +871,7 @@ pub fn impl_core_all_peak_attrs(input: TokenStream) -> TokenStream {
             format!("The value of *$P{k}n* for all measurements."),
             [""; 0],
             [],
-            Some(DocReturn::new(PyList::new1(i))),
+            Some(DocReturn::new(PyList::new(i))),
         );
         let d = doc.doc();
         let ret = doc.ret_path();
@@ -931,7 +916,7 @@ pub fn impl_core_all_shortnames_attr(input: TokenStream) -> TokenStream {
         "Value of *$PnN* for all measurements.",
         ["Strings are unique and cannot contain commas."],
         [],
-        Some(DocReturn::new(PyList::new1(PyType::new_shortname()))),
+        Some(DocReturn::new(PyList::new(PyType::new_shortname()))),
     );
     let d = doc.doc();
     let ret = doc.ret_path();
@@ -965,7 +950,7 @@ pub fn impl_core_all_shortnames_maybe_attr(input: TokenStream) -> TokenStream {
         "The possibly-empty values of *$PnN* for all measurements.",
         ["*$PnN* is optional for this FCS version so values may be ``None``."],
         [],
-        Some(DocReturn::new(PyList::new1(PyOpt::new(
+        Some(DocReturn::new(PyList::new(PyOpt::new(
             PyType::new_shortname(),
         )))),
     );
@@ -1251,7 +1236,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
             "The value for *$PnE* for all measurements.",
             [s0, s1],
             [],
-            Some(DocReturn::new(PyList::new1(PyOpt::new(PyUnion::new2(
+            Some(DocReturn::new(PyList::new(PyOpt::new(PyUnion::new2(
                 PyTuple::default(),
                 log_pytype,
                 scale_path.clone(),
@@ -1285,7 +1270,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
             sum,
             [s0, s1, s2, s3],
             [],
-            Some(DocReturn::new(PyList::new1(PyUnion::new2(
+            Some(DocReturn::new(PyList::new(PyUnion::new2(
                 RsFloat::F32,
                 log_pytype,
                 xform_path.clone(),
@@ -1327,7 +1312,7 @@ pub fn impl_core_get_measurements(input: TokenStream) -> TokenStream {
         "Get all measurements.",
         [""; 0],
         [],
-        Some(DocReturn::new(PyList::new1(PyType::new_measurement(
+        Some(DocReturn::new(PyList::new(PyType::new_measurement(
             version,
         )))),
     )
@@ -1967,7 +1952,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
 
     let other_segs_param = DocArg::new_param_def(
         "other_segs",
-        PyList::new1(PyType::new_segment("OtherSegment20")),
+        PyList::new(PyType::new_segment("OtherSegment20")),
         "The *OTHER* segments from *HEADER*.",
         DocDefault::EmptyList,
     );
@@ -2284,7 +2269,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
             "Wavelengths",
             "wavelengths",
             "L",
-            PyList::new(RsFloat::F32, Some(keyword_path("Wavelengths"))),
+            PyList::new1(RsFloat::F32, keyword_path("Wavelengths")),
         )
     };
 
@@ -2608,7 +2593,7 @@ pub fn impl_core_all_pnl_new(input: TokenStream) -> TokenStream {
         "Wavelengths",
         "wavelengths",
         "L",
-        PyList::new(RsFloat::F32, Some(keyword_path("Wavelengths"))),
+        PyList::new1(RsFloat::F32, keyword_path("Wavelengths")),
     )
 }
 
@@ -2960,8 +2945,7 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
 
     let chars_param = DocArg::new_ivar_ro(
         "ranges",
-        PyList::new1(RsInt::U64),
-        parse_quote!(Vec<u64>),
+        PyList::new(RsInt::U64),
         "The range for each measurement. Equivalent to *$PnR*. The value of \
          *$PnB* will be derived from these and will be equivalent to the number \
          of digits for each value.",
@@ -2985,7 +2969,7 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
              to encode data for a given measurement.",
         ],
         [],
-        Some(DocReturn::new(PyList::new1(RsInt::U64))),
+        Some(DocReturn::new(PyList::new(RsInt::U64))),
     )
     .doc();
 
@@ -3024,8 +3008,7 @@ pub fn impl_new_delim_ascii_layout(input: TokenStream) -> TokenStream {
 
     let ranges_param = DocArg::new_ivar_ro(
         "ranges",
-        PyList::new1(RsInt::U64),
-        parse_quote!(Vec<u64>),
+        PyList::new(RsInt::U64),
         "The range for each measurement. Equivalent to the *$PnR* \
          keyword. This is not used internally and thus only represents \
          documentation at the user level.",
@@ -3062,7 +3045,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
                           This is not used internally so only serves for users' \
                           own purposes.";
         (
-            PyType::from(PyDecimal::new()),
+            PyType::new_float_range(nbytes),
             range_desc,
             "float",
             "F",
@@ -3077,7 +3060,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
                           in ``ranges``. A bitmask will be created which \
                           corresponds to one less the next power of 2.";
         (
-            RsInt::U64.into(),
+            PyType::new_bitmask(nbytes),
             range_desc,
             "integer",
             "Uint",
@@ -3104,8 +3087,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
 
     let range_param = DocArg::new_ivar_ro(
         "ranges",
-        PyList::new1(range_pytype),
-        parse_quote!(Vec<#range_path>),
+        PyList::new(range_pytype),
         range_desc,
         ranges_getter,
     );
@@ -3120,7 +3102,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
         "byteord",
         PyUnion::new2(
             PyLiteral::new1(["big", "little"]),
-            PyList::new1(RsInt::U32),
+            PyList::new(RsInt::U32),
             parse_quote!(#sizedbyteord_path<#nbytes>),
         ),
         parse_quote!(#sizedbyteord_path<#nbytes>),
@@ -3219,8 +3201,7 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
 
     let range_param = DocArg::new_ivar_ro(
         "ranges",
-        PyList::new1(PyDecimal::new1(range_path.clone())),
-        parse_quote!(Vec<#range_path>),
+        PyList::new(PyDecimal::new1(range_path.clone())),
         "The range for each measurement. Corresponds to *$PnR*. This is not \
          used internally so only serves the users' own purposes.",
         ranges_getter,
@@ -3273,8 +3254,7 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
 
     let ranges_param: DocArgROIvar = DocArg::new_ivar_ro(
         "ranges",
-        PyList::new1(RsInt::U64),
-        parse_quote!(Vec<u64>),
+        PyList::new(RsInt::U64),
         "The range of each measurement. Corresponds to the *$PnR* \
          keyword less one. The number of bytes used to encode each \
          measurement (*$PnB*) will be the minimum required to express this \
@@ -3325,7 +3305,7 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
 
     let types_param: DocArgROIvar = DocArg::new_ivar_ro(
         "typed_ranges",
-        PyList::new1(PyUnion::new2(
+        PyList::new(PyUnion::new2(
             PyTuple::new([PyLiteral::new1(["A", "I"]).into(), PyType::from(RsInt::U64)]),
             PyTuple::new([
                 PyLiteral::new1(["F", "D"]).into(),
@@ -3333,7 +3313,6 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
             ]),
             parse_quote!(#null),
         )),
-        parse_quote!(Vec<#null>),
         "The type and range for each measurement corresponding to *$DATATYPE* \
          and/or *$PnDATATYPE* and *$PnR* respectively. These are given \
          as 2-tuples like ``(<type>, <range>)`` where ``type`` is one of \
@@ -3438,7 +3417,7 @@ pub fn impl_layout_byte_widths(input: TokenStream) -> TokenStream {
              divided by 8. Values for each measurement may be different.",
         ],
         [],
-        Some(DocReturn::new(PyList::new1(RsInt::U32))),
+        Some(DocReturn::new(PyList::new(RsInt::U32))),
     )
     .doc();
 
@@ -3536,7 +3515,7 @@ fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
                 "The {index_name} corresponding to a gating measurement \
                  (the *m* in the *$Gm\\** keywords)."
             ),
-            PyType::from(RsInt::NonZeroUsize),
+            PyType::new_gate_index(),
         ),
         "MeasOrGateIndex" => {
             let k = if is_uni { "Must" } else { "Each must" };
@@ -3550,7 +3529,7 @@ fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
                      ``m`` is an integer and the prefix corresponds to a gating or \
                      physical measurement respectively."
                 ),
-                PyStr::new().into(),
+                PyType::new_meas_or_gate_index(),
             )
         }
         "PrefixedMeasIndex" => (
@@ -3560,23 +3539,15 @@ fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
                 "The {index_name} corresponding to a physical measurement \
                  (the *n* in the *$Pn\\** keywords)."
             ),
-            RsInt::NonZeroUsize.into(),
+            PyType::new_prefixed_meas_index(),
         ),
         _ => panic!("unknown index type"),
     };
 
-    let (
-        region_name,
-        gate_rstype,
-        index_rstype,
-        index_pytype,
-        gate_argname,
-        gate_pytype,
-        gate_desc,
-    ) = if is_uni {
+    let (region_name, index_rstype, index_pytype, gate_argname, gate_pytype, gate_desc) = if is_uni
+    {
         (
             "univariate",
-            keyword_path("UniGate"),
             index_path_inner.clone(),
             index_pytype_inner,
             format_ident!("gate"),
@@ -3590,7 +3561,6 @@ fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
         let v = keyword_path("Vertex");
         (
             "bivariate",
-            parse_quote!(#nonempty<#v>),
             parse_quote!(#index_pair<#index_path_inner>),
             PyTuple::new1(
                 vec![index_pytype_inner; 2],
@@ -3598,16 +3568,18 @@ fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
             )
             .into(),
             format_ident!("vertices"),
-            PyList::new1(PyTuple::new1(
-                [RsFloat::F32, RsFloat::F32],
+            PyList::new1(
+                PyTuple::new([RsFloat::F32, RsFloat::F32]),
                 parse_quote!(#nonempty<#v>),
-            ))
+            )
             .into(),
             "The vertices of a polygon gate. Must not be empty.",
         )
     };
 
     let summary = format!("Make a new FCS {summary_version}-compatible {region_name} region",);
+
+    let gate_rstype = gate_pytype.as_rust_type();
 
     let index_getter = GetMethod(quote! {
         fn index(&self) -> #index_rstype {
@@ -3620,17 +3592,10 @@ fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
         }
     });
 
-    let index_arg = DocArg::new_ivar_ro(
-        "index",
-        index_pytype,
-        index_rstype,
-        index_desc,
-        index_getter,
-    );
+    let index_arg = DocArg::new_ivar_ro("index", index_pytype, index_desc, index_getter);
     let gate_arg = DocArg::new_ivar_ro(
         gate_argname.to_string(),
         gate_pytype,
-        gate_rstype,
         gate_desc,
         gate_getter,
     );
@@ -4079,16 +4044,25 @@ struct PyDict {
     rstype: Option<Path>,
 }
 
-#[derive(Clone, new)]
+#[derive(Clone)]
 struct PyList {
-    #[new(into)]
     inner: PyType,
     rstype: Option<Path>,
 }
 
 impl PyList {
-    fn new1(inner: impl Into<PyType>) -> Self {
-        Self::new(inner, None)
+    fn new(inner: impl Into<PyType>) -> Self {
+        Self {
+            inner: inner.into(),
+            rstype: None,
+        }
+    }
+
+    fn new1(inner: impl Into<PyType>, rstype: Path) -> Self {
+        Self {
+            inner: inner.into(),
+            rstype: Some(rstype),
+        }
     }
 }
 
@@ -4177,7 +4151,7 @@ macro_rules! impl_has_rust_path {
 impl_has_rust_path!(PyStr, String);
 impl_has_rust_path!(PyBool, bool);
 impl_has_rust_path!(PyBytes, Vec<u8>);
-impl_has_rust_path!(PyDecimal, big_decimal::BigDecimal);
+impl_has_rust_path!(PyDecimal, bigdecimal::BigDecimal);
 impl_has_rust_path!(PyDate, chrono::NaiveDate);
 impl_has_rust_path!(PyTime, chrono::NaiveTime);
 impl_has_rust_path!(PyDatetime, chrono::DateTime<chrono::FixedOffset>);
@@ -4295,6 +4269,7 @@ impl HasRustPath for RsInt {
     fn as_rust_type(&self) -> Type {
         match self {
             Self::U8 => parse_quote!(u8),
+            Self::U16 => parse_quote!(u16),
             Self::U32 => parse_quote!(u32),
             Self::U64 => parse_quote!(u64),
             Self::Usize => parse_quote!(usize),
@@ -4309,6 +4284,7 @@ impl HasRustPath for RsFloat {
     fn as_rust_type(&self) -> Type {
         match self {
             Self::F32 => parse_quote!(f32),
+            Self::F64 => parse_quote!(f64),
         }
     }
 }
@@ -4316,6 +4292,7 @@ impl HasRustPath for RsFloat {
 #[derive(Clone)]
 enum RsInt {
     U8,
+    U16,
     U32,
     U64,
     I32,
@@ -4327,7 +4304,7 @@ enum RsInt {
 #[derive(Clone)]
 enum RsFloat {
     F32,
-    // F64,
+    F64,
 }
 
 impl PyLiteral {
@@ -4422,18 +4399,12 @@ impl DocArgROIvar {
     fn new_ivar_ro(
         argname: impl Into<String>,
         pytype: impl Into<PyType>,
-        rstype: Path,
         desc: impl Into<String>,
         method: GetMethod,
     ) -> Self {
-        Self::new(
-            argname,
-            pytype.into(),
-            wrap_path_to_type(rstype),
-            desc,
-            None,
-            method,
-        )
+        let pt = pytype.into();
+        let rt = pt.as_rust_type();
+        Self::new(argname, pt, rt, desc, None, method)
     }
 
     fn new_ivar_ro_def(
@@ -4464,7 +4435,6 @@ impl DocArgROIvar {
         Self::new_ivar_ro(
             "version",
             PyType::new_version(),
-            version_path,
             "The FCS version.",
             version_get,
         )
@@ -4924,7 +4894,7 @@ impl DocArgRWIvar {
             "spillover".into(),
             PyTuple::new1(
                 [
-                    PyType::from(PyList::new1(PyStr::new())),
+                    PyType::from(PyList::new(PyStr::new())),
                     PyClass::new1("~numpy.ndarray").into(),
                 ],
                 rstype.clone(),
@@ -4957,7 +4927,7 @@ impl DocArgRWIvar {
         );
         DocArg::new_opt_ivar_rw(
             "csvflags".into(),
-            PyList::new(PyOpt::new(RsInt::U32), Some(path.clone())),
+            PyList::new1(PyOpt::new(RsInt::U32), path.clone()),
             path,
             "Subset flags. Each element in the list corresponds to *$CSVnFLAG* and \
              the length of the list corresponds to *$CSMODE*."
@@ -5032,7 +5002,7 @@ impl DocArgRWIvar {
         let rstype = format_ident!("Py{rstype_inner}");
         let gmtype = if collapsed_version < Version::FCS3_2 {
             Some(
-                PyList::new1(PyClass::new2(
+                PyList::new(PyClass::new2(
                     "GatedMeasurement",
                     parse_quote!(PyGatedMeasurement),
                 ))
@@ -5403,7 +5373,7 @@ impl DocArgParam {
     fn new_others_param() -> Self {
         Self::new_param_def(
             "others",
-            PyList::new(PyBytes::new(), Some(others_path())),
+            PyList::new1(PyBytes::new(), others_path()),
             "A list of byte strings encoding the *OTHER* segments",
             DocDefault::Other(others_path(), "[]".to_string()),
         )
@@ -5616,9 +5586,9 @@ impl DocArgParam {
     fn new_ignore_time_optical_keys_param() -> Self {
         Self::new_param_def(
             "ignore_time_optical_keys",
-            PyList::new(
+            PyList::new1(
                 PyType::new_temporal_optical_key(),
-                Some(parse_quote!(TemporalOpticalKeys)),
+                parse_quote!(TemporalOpticalKeys),
             ),
             "Ignore optical keys in temporal measurement. These keys are \
              nonsensical for time measurements but are not explicitly forbidden in \
@@ -5730,9 +5700,9 @@ impl DocArgParam {
     fn new_integer_byteord_override_param() -> Self {
         Self::new_opt_param(
             "integer_byteord_override",
-            PyList::new(
+            PyList::new1(
                 RsInt::U32,
-                Some(parse_quote!(fireflow_core::text::byteord::ByteOrd2_0)),
+                parse_quote!(fireflow_core::text::byteord::ByteOrd2_0),
             ),
             "Override *$BYTEORD* for integer layouts.",
         )
@@ -5779,7 +5749,7 @@ impl DocArgParam {
     fn new_other_corrections_param() -> Self {
         Self::new_param_def(
             "other_corrections",
-            PyList::new1(PyType::new_correction(true, "OtherSegmentId")),
+            PyList::new(PyType::new_correction(true, "OtherSegmentId")),
             "Corrections for OTHER offsets if they exist. Each correction will \
              be applied in order. If an offset does not need to be corrected, \
              use ``(0, 0)``. This will not affect the number of OTHER segments \
@@ -6523,11 +6493,7 @@ impl PyType {
 
     fn new_key_patterns() -> Self {
         let path: Path = parse_quote!(fireflow_core::validated::keys::KeyPatterns);
-        PyTuple::new1(
-            [PyList::new1(PyStr::new()), PyList::new1(PyStr::new())],
-            path,
-        )
-        .into()
+        PyTuple::new1([PyList::new(PyStr::new()), PyList::new(PyStr::new())], path).into()
     }
 
     fn new_keywords() -> Self {
@@ -6558,6 +6524,54 @@ impl PyType {
 
     fn new_meas_index() -> Self {
         PyInt::new(RsInt::NonZeroUsize, meas_index_path()).into()
+    }
+
+    fn new_gate_index() -> Self {
+        let p = parse_quote!(fireflow_core::text::index::GateIndex);
+        PyInt::new(RsInt::NonZeroUsize, p).into()
+    }
+
+    fn new_meas_or_gate_index() -> Self {
+        let p = parse_quote!(fireflow_core::text::keywords::MeasOrGateIndex);
+        PyStr::new1(p).into()
+    }
+
+    fn new_prefixed_meas_index() -> Self {
+        let p = parse_quote!(fireflow_core::text::keywords::PrefixedMeasIndex);
+        PyInt::new(RsInt::NonZeroUsize, p).into()
+    }
+
+    fn new_range() -> Self {
+        let p = parse_quote!(fireflow_core::text::keywords::Range);
+        PyDecimal::new1(p).into()
+    }
+
+    fn new_bitmask(nbytes: usize) -> Self {
+        let i = format_ident!("Bitmask{:02}", nbytes * 8);
+        let p = parse_quote!(fireflow_core::validated::bitmask::#i);
+        let r = match nbytes {
+            1 => RsInt::U8,
+            2 => RsInt::U16,
+            3 => RsInt::U32,
+            4 => RsInt::U32,
+            5 => RsInt::U64,
+            6 => RsInt::U64,
+            7 => RsInt::U64,
+            8 => RsInt::U64,
+            _ => panic!("invalid number of uint bytes: {nbytes}"),
+        };
+        PyInt::new(r, p).into()
+    }
+
+    fn new_float_range(nbytes: usize) -> Self {
+        let i = format_ident!("F{:02}Range", nbytes * 8);
+        let p = parse_quote!(fireflow_core::data::#i);
+        let r = match nbytes {
+            4 => RsFloat::F32,
+            8 => RsFloat::F64,
+            _ => panic!("invalid number of float bytes: {nbytes}"),
+        };
+        PyFloat::new(r, p).into()
     }
 
     fn new_timestep() -> Self {
@@ -6596,7 +6610,6 @@ impl ClassDocString {
         let s = quote! {
             #wrapped
 
-            // TODO automatically make args here
             #[pymethods]
             impl #pyname {
                 #sig

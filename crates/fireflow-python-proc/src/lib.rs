@@ -3864,14 +3864,7 @@ impl IsMethods for AnyDocArg {
 #[derive(Clone)]
 enum DocDefault {
     Auto,
-    // Option,
     Int(usize),
-    // Bool(bool),
-    // EmptyDict,
-    // EmptySet,
-    // EmptyList,
-    // Option,
-    // Other(&'static str),
 }
 
 #[derive(Clone)]
@@ -6087,15 +6080,8 @@ impl DocArgParam {
 impl DocDefault {
     fn as_value(&self, pytype: &PyType) -> (String, TokenStream2) {
         match (self, pytype) {
-            // (Self::Option, PyType::Option(_)) => pytype.defaults(),
             (Self::Auto, _) => pytype.defaults(),
             (Self::Int(x), PyType::Int(_)) => (x.to_string(), pytype.defaults().1),
-            // (Self::Other(x), _) => {
-            //     let rstype = pytype.as_rust_type();
-            //     let path = unwrap_type_as_path(&rstype);
-            //     let bare = path_strip_args(path.clone());
-            //     (x.to_string(), quote!(#bare::default()))
-            // }
             _ => panic!(
                 "Arg type '{}' does not match default type '{}'",
                 pytype,
@@ -6109,12 +6095,6 @@ impl DocDefault {
         match self {
             Self::Auto => "auto",
             Self::Int(_) => "int",
-            // Self::Bool(_) => "bool",
-            // Self::EmptyDict => "dict",
-            // // Self::EmptySet => "set",
-            // Self::EmptyList => "list",
-            // Self::Option => "option",
-            // Self::Other(_) => "raw",
         }
     }
 }

@@ -1243,7 +1243,6 @@ pub fn impl_core_get_measurements(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
-    let element_path = element_path(version);
     let named_vec_path = quote!(fireflow_core::text::named_vec::NamedVec);
 
     let doc = DocString::new_method(
@@ -1253,15 +1252,17 @@ pub fn impl_core_get_measurements(input: TokenStream) -> TokenStream {
         Some(DocReturn::new(PyList::new(PyType::new_measurement(
             version,
         )))),
-    )
-    .doc();
+    );
+
+    let d = doc.doc();
+    let ret = doc.ret_path();
 
     quote! {
         #[pymethods]
         impl #i {
-            #doc
+            #d
             #[getter]
-            fn measurements(&self) -> Vec<#element_path> {
+            fn measurements(&self) -> #ret {
                 // This might seem inefficient since we are cloning
                 // everything, but if we want to map a python lambda
                 // function over the measurements we would need to to do
@@ -1319,7 +1320,6 @@ pub fn impl_core_get_measurement(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
-    let element_path = element_path(version);
     let named_vec_path = quote!(fireflow_core::text::named_vec::NamedVec);
 
     let doc = DocString::new_method(
@@ -1330,13 +1330,14 @@ pub fn impl_core_get_measurement(input: TokenStream) -> TokenStream {
     );
 
     let fun_args = doc.fun_args();
+    let ret = doc.ret_path();
 
     quote! {
         #[pymethods]
         impl #i {
             // TODO this should return name as well
             #doc
-            fn measurement_at(&self, #fun_args) -> PyResult<#element_path> {
+            fn measurement_at(&self, #fun_args) -> PyResult<#ret> {
                 let ms: &#named_vec_path<_, _, _, _> = self.0.as_ref();
                 let m = ms.get(index)?;
                 Ok(m.bimap(|x| x.1.clone(), |x| x.1.clone()).inner_into())
@@ -1365,7 +1366,7 @@ pub fn impl_core_set_measurements(input: TokenStream) -> TokenStream {
         "Set all measurements at once.",
         ps,
         vec![
-            DocArg::new_type_set_meas_param(version),
+            DocArg::new_set_meas_param(version),
             DocArg::new_allow_shared_names_param(),
             DocArg::new_skip_index_check_param(),
         ],
@@ -1591,8 +1592,6 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
-    let element_path = element_path(version);
-
     let make_replace_doc = |is_index: bool| {
         let (i_param, m) = if is_index {
             (
@@ -1608,6 +1607,12 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
         let i = &i_param.argname;
         let meas_desc = format!("Optical measurement to replace measurement at ``{i}``.");
         let sub = format!("Raise exception if ``{i}`` does not exist.");
+        let meas = PyType::new_measurement(version);
+        let ret = if is_index {
+            meas
+        } else {
+            PyOpt::new(meas).into()
+        };
         DocString::new_method(
             format!("Replace {m} with given optical measurement."),
             [sub],
@@ -1615,10 +1620,7 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
                 i_param,
                 DocArg::new_param("meas", PyType::new_optical(version), meas_desc),
             ],
-            Some(DocReturn::new1(
-                PyType::new_measurement(version),
-                "Replaced measurement object",
-            )),
+            Some(DocReturn::new1(ret, "Replaced measurement object")),
         )
     };
 
@@ -1628,16 +1630,19 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
     let index_fun_args = replace_at_doc.fun_args();
     let name_fun_args = replace_named_doc.fun_args();
 
+    let index_ret = replace_at_doc.ret_path();
+    let named_ret = replace_named_doc.ret_path();
+
     quote! {
         #[pymethods]
         impl #i {
             #replace_at_doc
-            fn replace_optical_at(&mut self, #index_fun_args) -> PyResult<#element_path> {
+            fn replace_optical_at(&mut self, #index_fun_args) -> PyResult<#index_ret> {
                 Ok(self.0.replace_optical_at(index, meas.into())?.inner_into())
             }
 
             #replace_named_doc
-            fn replace_optical_named(&mut self, #name_fun_args) -> Option<#element_path> {
+            fn replace_optical_named(&mut self, #name_fun_args) -> #named_ret {
                 self.0
                     .replace_optical_named(&name, meas.into())
                     .map(|r| r.inner_into())
@@ -1651,8 +1656,6 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
 pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
-
-    let element_path = element_path(version);
 
     let force_param = DocArg::new_bool_param(
         "force",
@@ -1699,14 +1702,17 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
             i_param,
             DocArg::new_param("meas", PyType::new_temporal(version), meas_desc),
         ];
+        let meas = PyType::new_measurement(version);
+        let ret = if is_index {
+            meas
+        } else {
+            PyOpt::new(meas).into()
+        };
         DocString::new_method(
             format!("Replace {m} with given temporal measurement."),
             [sub],
             args.into_iter().chain(force.clone()),
-            Some(DocReturn::new1(
-                PyType::new_measurement(version),
-                "Replaced measurement object",
-            )),
+            Some(DocReturn::new1(ret, "Replaced measurement object")),
         )
     };
 
@@ -1716,6 +1722,9 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
     let index_fun_args = replace_at_doc.fun_args();
     let name_fun_args = replace_named_doc.fun_args();
 
+    let index_ret = replace_at_doc.ret_path();
+    let named_ret = replace_named_doc.ret_path();
+
     quote! {
         #[pymethods]
         impl #i {
@@ -1723,7 +1732,7 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
             fn replace_temporal_at(
                 &mut self,
                 #index_fun_args
-            ) -> PyResult<#element_path> {
+            ) -> PyResult<#index_ret> {
                 let ret = #replace_tmp_at_body;
                 Ok(ret.inner_into())
             }
@@ -1732,7 +1741,7 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
             fn replace_temporal_named(
                 &mut self,
                 #name_fun_args
-            ) -> PyResult<Option<#element_path>> {
+            ) -> PyResult<#named_ret> {
                 let ret = #replace_tmp_named_body;
                 Ok(ret.map(|r| r.inner_into()))
             }
@@ -2065,7 +2074,7 @@ pub fn impl_core_set_measurements_and_layout(input: TokenStream) -> TokenStream 
         "Set all measurements at once.",
         ps,
         [
-            DocArg::new_type_set_meas_param(version),
+            DocArg::new_set_meas_param(version),
             param_type_set_layout.clone(),
             DocArg::new_allow_shared_names_param(),
             DocArg::new_skip_index_check_param(),
@@ -2106,7 +2115,7 @@ pub fn impl_coredataset_set_measurements_and_data(input: TokenStream) -> TokenSt
         "Set measurements and data at once.",
         ["Length of ``measurements`` must match number of columns in ``data``."],
         [
-            DocArg::new_type_set_meas_param(version),
+            DocArg::new_set_meas_param(version),
             param_type_set_df,
             DocArg::new_allow_shared_names_param(),
             DocArg::new_skip_index_check_param(),
@@ -3494,27 +3503,11 @@ fn path_strip_args(mut path: Path) -> Path {
     path
 }
 
-fn version_path() -> Path {
-    parse_quote!(fireflow_core::header::Version)
-}
-
-fn analysis_path() -> Path {
-    parse_quote!(fireflow_core::core::Analysis)
-}
-
-fn others_path() -> Path {
-    parse_quote!(fireflow_core::core::Others)
-}
-
 fn element_path(version: Version) -> Path {
     let otype = pyoptical(version);
     let ttype = pytemporal(version);
     let element_path = quote!(fireflow_core::text::named_vec::Element);
     parse_quote!(#element_path<#ttype, #otype>)
-}
-
-fn meas_index_path() -> Path {
-    parse_quote!(fireflow_core::text::index::MeasIndex)
 }
 
 fn keyword_path(n: &str) -> Path {
@@ -3550,17 +3543,6 @@ fn versioned_family_path(version: Version) -> Path {
         Version::FCS2_0 | Version::FCS3_0 => parse_quote!(#root::MaybeFamily),
         _ => parse_quote!(#root::AlwaysFamily),
     }
-}
-
-// TODO fixme
-fn key_pattern_path() -> (DocDefault, String) {
-    let default = DocDefault::Auto;
-    let desc = format!(
-        "The first member of the tuples is a list of strings which match \
-         literally. The second member is a list of regular expressions \
-         corresponding to {REGEXP_REF}."
-    );
-    (default, desc)
 }
 
 fn pyoptical(version: Version) -> Ident {
@@ -4963,10 +4945,18 @@ impl DocArgParam {
         )
     }
 
-    // TODO ???
-    fn new_type_set_meas_param(version: Version) -> Self {
-        let a = Self::new_measurements_param(version);
-        Self::new_param("measurements", a.pytype, "The new measurements.")
+    fn new_measurements_param(version: Version) -> Self {
+        let meas_desc = "Measurements corresponding to columns in FCS file. \
+                         Temporal must be given zero or one times.";
+        Self::new_param("measurements", PyType::new_meas(version), meas_desc)
+    }
+
+    fn new_set_meas_param(version: Version) -> Self {
+        Self::new_param(
+            "measurements",
+            PyType::new_meas(version),
+            "The new measurements.",
+        )
     }
 
     fn new_allow_shared_names_param() -> Self {
@@ -5043,45 +5033,23 @@ impl DocArgParam {
     }
 
     fn new_analysis_param() -> Self {
+        let path = parse_quote!(fireflow_core::core::Analysis);
         Self::new_param_def(
             "analysis",
-            PyBytes::new1(analysis_path()),
+            PyBytes::new1(path),
             "A byte string encoding the *ANALYSIS* segment",
             DocDefault::Auto,
         )
     }
 
     fn new_others_param() -> Self {
+        let path = parse_quote!(fireflow_core::core::Others);
         Self::new_param_def(
             "others",
-            PyList::new1(PyBytes::new(), others_path()),
+            PyList::new1(PyBytes::new(), path),
             "A list of byte strings encoding the *OTHER* segments",
             DocDefault::Auto,
         )
-    }
-
-    fn new_measurements_param(version: Version) -> Self {
-        let (fam_ident, name_pytype) = if version < Version::FCS3_1 {
-            (
-                format_ident!("MaybeFamily"),
-                PyOpt::new(PyStr::new()).into(),
-            )
-        } else {
-            (format_ident!("AlwaysFamily"), PyType::from(PyStr::new()))
-        };
-        let fam_path = quote!(fireflow_core::text::optional::#fam_ident);
-        let meas_opt_pyname = format_ident!("PyOptical{}", version.short_underscore());
-        let meas_tmp_pyname = format_ident!("PyTemporal{}", version.short_underscore());
-        let meas_argtype: Path =
-            parse_quote!(PyEithers<#fam_path, #meas_tmp_pyname, #meas_opt_pyname>);
-        let meas_pytype = PyTuple::new1(
-            [name_pytype, PyType::new_measurement(version)],
-            meas_argtype.clone(),
-        );
-        let meas_desc = "Measurements corresponding to columns in FCS file. \
-                         Temporal must be given zero or one times.";
-
-        Self::new_param("measurements", meas_pytype.clone(), meas_desc)
     }
 
     fn new_header_config_params() -> Vec<Self> {
@@ -5646,36 +5614,33 @@ impl DocArgParam {
     }
 
     fn new_ignore_standard_keys() -> Self {
-        let (default, desc) = key_pattern_path();
-        Self::new_param_def(
+        Self::new_key_patterns_param(
             "ignore_standard_keys",
-            PyType::new_key_patterns(),
-            format!(
-                "Remove standard keys from *TEXT*. The leading *$* is implied \
-                 so do not include it. {desc}"
-            ),
-            default,
+            "Remove standard keys from *TEXT*. The leading *$* is implied \
+             so do not include it.",
         )
     }
 
     fn new_promote_to_standard() -> Self {
-        let (default, desc) = key_pattern_path();
-        Self::new_param_def(
+        Self::new_key_patterns_param(
             "promote_to_standard",
-            PyType::new_key_patterns(),
-            format!("Promote nonstandard keys to standard keys in *TEXT*. {desc}"),
-            default,
+            "Promote nonstandard keys to standard keys in *TEXT*",
         )
     }
 
     fn new_demote_from_standard() -> Self {
-        let (default, desc) = key_pattern_path();
-        Self::new_param_def(
+        Self::new_key_patterns_param(
             "demote_from_standard",
-            PyType::new_key_patterns(),
-            format!("Demote nonstandard keys from standard keys in *TEXT*. {desc}"),
-            default,
+            "Demote nonstandard keys from standard keys in *TEXT*",
         )
+    }
+
+    fn new_key_patterns_param(argname: &str, desc: &str) -> Self {
+        let common = "The first member of the tuples is a list of strings which \
+                      match literally. The second member is a list of regular \
+                      expressions corresponding to {REGEXP_REF}.";
+        let d = format!("{desc}. {common}");
+        Self::new_param_def(argname, PyType::new_key_patterns(), d, DocDefault::Auto)
     }
 
     fn new_rename_standard_keys() -> Self {
@@ -5981,10 +5946,6 @@ impl IsDocArg for AnyDocArg {
 }
 
 impl PyType {
-    // fn new_opt(x: impl Into<PyType>) -> Self {
-    //     Self::Option(Box::new(x.into()))
-    // }
-
     fn new_optical(version: Version) -> Self {
         let n = format!("Optical{}", version.short_underscore());
         let p = format_ident!("Py{n}");
@@ -6009,7 +5970,7 @@ impl PyType {
     }
 
     fn new_version() -> Self {
-        let path = version_path();
+        let path = parse_quote!(fireflow_core::header::Version);
         PyLiteral::new1(["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"], path).into()
     }
 
@@ -6132,7 +6093,8 @@ impl PyType {
     }
 
     fn new_meas_index() -> Self {
-        PyInt::new(RsInt::NonZeroUsize, meas_index_path()).into()
+        let path = parse_quote!(fireflow_core::text::index::MeasIndex);
+        PyInt::new(RsInt::NonZeroUsize, path).into()
     }
 
     fn new_gate_index() -> Self {
@@ -6204,6 +6166,27 @@ impl PyType {
     fn new_endian() -> Self {
         let endian: Path = parse_quote!(fireflow_core::text::byteord::Endian);
         PyLiteral::new1(["little", "big"], endian).into()
+    }
+
+    fn new_meas(version: Version) -> Self {
+        let (fam_ident, name_pytype) = if version < Version::FCS3_1 {
+            (
+                format_ident!("MaybeFamily"),
+                PyOpt::new(PyStr::new()).into(),
+            )
+        } else {
+            (format_ident!("AlwaysFamily"), PyType::from(PyStr::new()))
+        };
+        let fam_path = quote!(fireflow_core::text::optional::#fam_ident);
+        let meas_opt_pyname = pyoptical(version);
+        let meas_tmp_pyname = pytemporal(version);
+        let meas_argtype: Path =
+            parse_quote!(PyEithers<#fam_path, #meas_tmp_pyname, #meas_opt_pyname>);
+        PyTuple::new1(
+            [name_pytype, PyType::new_measurement(version)],
+            meas_argtype.clone(),
+        )
+        .into()
     }
 
     fn defaults(&self) -> (String, TokenStream2) {

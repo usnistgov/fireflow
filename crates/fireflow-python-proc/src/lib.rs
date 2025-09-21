@@ -1160,10 +1160,7 @@ pub fn impl_core_rename_temporal(input: TokenStream) -> TokenStream {
 pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
-    let scale_path: Path = parse_quote!(fireflow_core::text::scale::Scale);
-    let xform_path: Path = parse_quote!(fireflow_core::core::ScaleTransform);
 
-    let log_pytype = PyTuple::new([RsFloat::F32, RsFloat::F32]);
     let q = if version == Version::FCS2_0 {
         let s0 = "Will be ``()`` for linear scaling (``0,0`` in FCS encoding), \
                    a 2-tuple for log scaling, or ``None`` if missing.";
@@ -1174,22 +1171,21 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
             "The value for *$PnE* for all measurements.",
             [s0, s1],
             [],
-            Some(DocReturn::new(PyList::new(PyOpt::new(PyUnion::new2(
-                PyTuple::default(),
-                log_pytype,
-                scale_path.clone(),
+            Some(DocReturn::new(PyList::new(PyOpt::new(PyType::new_scale(
+                false,
             ))))),
-        )
-        .doc();
+        );
+        let d = doc.doc();
+        let ret = doc.ret_path();
         quote! {
-            #doc
+            #d
             #[getter]
-            fn get_all_scales(&self) -> Vec<Option<#scale_path>> {
+            fn get_all_scales(&self) -> #ret {
                 self.0.scales().collect()
             }
 
             #[setter]
-            fn set_all_scales(&mut self, scales: Vec<Option<#scale_path>>) -> PyResult<()> {
+            fn set_all_scales(&mut self, scales: #ret) -> PyResult<()> {
                 self.0.set_scales(scales).py_termfail_resolve_nowarn()
             }
         }
@@ -1208,22 +1204,19 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
             sum,
             [s0, s1, s2, s3],
             [],
-            Some(DocReturn::new(PyList::new(PyUnion::new2(
-                RsFloat::F32,
-                log_pytype,
-                xform_path.clone(),
-            )))),
-        )
-        .doc();
+            Some(DocReturn::new(PyList::new(PyType::new_transform()))),
+        );
+        let d = doc.doc();
+        let ret = doc.ret_path();
         quote! {
-            #doc
+            #d
             #[getter]
-            fn get_all_scale_transforms(&self) -> Vec<#xform_path> {
+            fn get_all_scale_transforms(&self) -> #ret {
                 self.0.transforms().collect()
             }
 
             #[setter]
-            fn set_all_scale_transforms(&mut self, transforms: Vec<#xform_path>) -> PyResult<()> {
+            fn set_all_scale_transforms(&mut self, transforms: #ret) -> PyResult<()> {
                 self.0.set_transforms(transforms).py_termfail_resolve_nowarn()
             }
         }
@@ -4808,21 +4801,15 @@ impl DocArgRWIvar {
     }
 
     fn new_transform_ivar() -> Self {
-        let rstype: Path = parse_quote! {fireflow_core::core::ScaleTransform};
-        // TODO not dry
         DocArg::new_ivar_rw(
             "transform",
-            PyUnion::new2(
-                RsFloat::F32,
-                PyTuple::new([RsFloat::F32, RsFloat::F32]),
-                rstype,
-            ),
+            PyType::new_transform(),
             "Value for *$PnE* and/or *$PnG*. Singleton float encodes gain (*$PnG*) \
              and implies linear scaling (ie *$PnE* is ``0,0``). 2-tuple encodes \
              decades and offset for log scale, and implies *$PnG* is not set.",
             false,
             |_, _| quote!(self.0.specific.scale),
-            |_, _| quote!(self.0.specific.scale = transform),
+            |n, _| quote!(self.0.specific.scale = #n),
         )
     }
 
@@ -6056,6 +6043,16 @@ impl PyType {
             PyTuple::default(),
             PyTuple::new([RsFloat::F32, RsFloat::F32]),
             p,
+        )
+        .into()
+    }
+
+    fn new_transform() -> Self {
+        let rstype = parse_quote! {fireflow_core::core::ScaleTransform};
+        PyUnion::new2(
+            RsFloat::F32,
+            PyTuple::new([RsFloat::F32, RsFloat::F32]),
+            rstype,
         )
         .into()
     }

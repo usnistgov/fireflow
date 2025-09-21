@@ -366,72 +366,68 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let others = DocArg::new_others_ivar().into();
 
     let mode = if version < Version::FCS3_2 {
-        let m: Path = parse_quote!(fireflow_core::text::keywords::Mode);
-        let t = PyLiteral::new2(["L", "U", "C"], m.clone());
-        let d = DocDefault::Other(m, "\"L\"".into());
+        let t = |p| PyLiteral::new1(["L", "U", "C"], p);
+        let d = DocDefault::Other("\"L\"");
         DocArg::new_kw_ivar("Mode", "mode", t, None, Some(d))
     } else {
-        let m: Path = parse_quote!(fireflow_core::text::keywords::Mode3_2);
-        DocArg::new_kw_opt_ivar("Mode3_2", "mode", PyLiteral::new2(["L"], m))
+        DocArg::new_kw_opt_ivar("Mode3_2", "mode", |p| PyLiteral::new1(["L"], p))
     };
 
     let cyt = if version < Version::FCS3_2 {
-        DocArg::new_kw_opt_ivar("Cyt", "cyt", PyStr::new())
+        DocArg::new_kw_opt_ivar("Cyt", "cyt", PyStr::new1)
     } else {
-        DocArg::new_kw_ivar("Cyt", "cyt", PyStr::new(), None, None)
+        DocArg::new_kw_ivar("Cyt", "cyt", PyStr::new1, None, None)
     };
 
-    let abrt = DocArg::new_kw_opt_ivar("Abrt", "abrt", RsInt::U32);
-    let com = DocArg::new_kw_opt_ivar("Com", "com", PyStr::new());
-    let cells = DocArg::new_kw_opt_ivar("Cells", "cells", PyStr::new());
-    let exp = DocArg::new_kw_opt_ivar("Exp", "exp", PyStr::new());
-    let fil = DocArg::new_kw_opt_ivar("Fil", "fil", PyStr::new());
-    let inst = DocArg::new_kw_opt_ivar("Inst", "inst", PyStr::new());
-    let lost = DocArg::new_kw_opt_ivar("Lost", "lost", RsInt::U32);
-    let op = DocArg::new_kw_opt_ivar("Op", "op", PyStr::new());
-    let proj = DocArg::new_kw_opt_ivar("Proj", "proj", PyStr::new());
-    let smno = DocArg::new_kw_opt_ivar("Smno", "smno", PyStr::new());
-    let src = DocArg::new_kw_opt_ivar("Src", "src", PyStr::new());
-    let sys = DocArg::new_kw_opt_ivar("Sys", "sys", PyStr::new());
-    let cytsn = DocArg::new_kw_opt_ivar("Cytsn", "cytsn", PyStr::new());
+    let to_pyint = |p| PyInt::new(RsInt::U32, p);
 
-    let unicode_pytype = PyTuple::new1(
-        [PyType::from(RsInt::U32), PyList::new(PyStr::new()).into()],
-        keyword_path("Unicode"),
-    );
+    let abrt = DocArg::new_kw_opt_ivar("Abrt", "abrt", to_pyint);
+    let com = DocArg::new_kw_opt_ivar("Com", "com", PyStr::new1);
+    let cells = DocArg::new_kw_opt_ivar("Cells", "cells", PyStr::new1);
+    let exp = DocArg::new_kw_opt_ivar("Exp", "exp", PyStr::new1);
+    let fil = DocArg::new_kw_opt_ivar("Fil", "fil", PyStr::new1);
+    let inst = DocArg::new_kw_opt_ivar("Inst", "inst", PyStr::new1);
+    let lost = DocArg::new_kw_opt_ivar("Lost", "lost", to_pyint);
+    let op = DocArg::new_kw_opt_ivar("Op", "op", PyStr::new1);
+    let proj = DocArg::new_kw_opt_ivar("Proj", "proj", PyStr::new1);
+    let smno = DocArg::new_kw_opt_ivar("Smno", "smno", PyStr::new1);
+    let src = DocArg::new_kw_opt_ivar("Src", "src", PyStr::new1);
+    let sys = DocArg::new_kw_opt_ivar("Sys", "sys", PyStr::new1);
+    let cytsn = DocArg::new_kw_opt_ivar("Cytsn", "cytsn", PyStr::new1);
+
+    let unicode_pytype = |p| {
+        PyTuple::new1(
+            [PyType::from(RsInt::U32), PyList::new(PyStr::new()).into()],
+            p,
+        )
+    };
     let unicode = DocArg::new_kw_opt_ivar("Unicode", "unicode", unicode_pytype);
 
-    let csvbits = DocArg::new_kw_opt_ivar("CSVBits", "csvbits", RsInt::U32);
-    let cstot = DocArg::new_kw_opt_ivar("CSTot", "cstot", RsInt::U32);
+    let csvbits = DocArg::new_kw_opt_ivar("CSVBits", "csvbits", to_pyint);
+    let cstot = DocArg::new_kw_opt_ivar("CSTot", "cstot", to_pyint);
 
     let csvflags = DocArg::new_csvflags_ivar();
 
     let all_subset = [csvbits, cstot, csvflags];
 
-    let last_modifier = DocArg::new_kw_opt_ivar(
-        "LastModifier",
-        "last_modifier",
-        PyDatetime::new1(keyword_path("LastModifier")),
-    );
-    let last_modified = DocArg::new_kw_opt_ivar("LastModified", "last_modified", PyStr::new());
-    let originality = DocArg::new_kw_opt_ivar(
-        "Originality",
-        "originality",
-        PyLiteral::new2(
+    let last_modifier = DocArg::new_kw_opt_ivar("LastModifier", "last_modifier", PyDatetime::new1);
+    let last_modified = DocArg::new_kw_opt_ivar("LastModified", "last_modified", PyStr::new1);
+    let originality = DocArg::new_kw_opt_ivar("Originality", "originality", |p| {
+        PyLiteral::new1(
             ["Original", "NonDataModified", "Appended", "DataModified"],
-            keyword_path("Originality"),
-        ),
-    );
+            p,
+        )
+    });
 
     let all_modified = [last_modifier, last_modified, originality];
 
-    let plateid = DocArg::new_kw_opt_ivar("Plateid", "plateid", PyStr::new());
-    let platename = DocArg::new_kw_opt_ivar("Platename", "platename", PyStr::new());
-    let wellid = DocArg::new_kw_opt_ivar("Wellid", "wellid", PyStr::new());
+    let plateid = DocArg::new_kw_opt_ivar("Plateid", "plateid", PyStr::new1);
+    let platename = DocArg::new_kw_opt_ivar("Platename", "platename", PyStr::new1);
+    let wellid = DocArg::new_kw_opt_ivar("Wellid", "wellid", PyStr::new1);
 
     let all_plate = [plateid, platename, wellid];
 
-    let vol = DocArg::new_kw_opt_ivar("Vol", "vol", RsFloat::F32);
+    let vol = DocArg::new_kw_opt_ivar("Vol", "vol", |p| PyFloat::new(RsFloat::F32, p));
 
     let comp_or_spill = match version {
         Version::FCS2_0 => DocArg::new_comp_ivar(true),
@@ -439,23 +435,23 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         _ => DocArg::new_spillover_ivar(),
     };
 
-    let flowrate = DocArg::new_kw_opt_ivar("Flowrate", "flowrate", PyStr::new());
+    let flowrate = DocArg::new_kw_opt_ivar("Flowrate", "flowrate", PyStr::new1);
 
-    let carrierid = DocArg::new_kw_opt_ivar("Carrierid", "carrierid", PyStr::new());
-    let carriertype = DocArg::new_kw_opt_ivar("Carriertype", "carriertype", PyStr::new());
-    let locationid = DocArg::new_kw_opt_ivar("Locationid", "locationid", PyStr::new());
+    let carrierid = DocArg::new_kw_opt_ivar("Carrierid", "carrierid", PyStr::new1);
+    let carriertype = DocArg::new_kw_opt_ivar("Carriertype", "carriertype", PyStr::new1);
+    let locationid = DocArg::new_kw_opt_ivar("Locationid", "locationid", PyStr::new1);
 
     let all_carrier = [carrierid, carriertype, locationid];
 
     let unstainedcenters = DocArg::new_unstainedcenters_ivar();
-    let unstainedinfo = DocArg::new_kw_opt_ivar("UnstainedInfo", "unstainedinfo", PyStr::new());
+    let unstainedinfo = DocArg::new_kw_opt_ivar("UnstainedInfo", "unstainedinfo", PyStr::new1);
 
     let tr = DocArg::new_trigger_ivar();
 
     let all_timestamps = match version {
-        Version::FCS2_0 => DocArg::new_timestamps_ivar("FCSTime"),
-        Version::FCS3_0 => DocArg::new_timestamps_ivar("FCSTime60"),
-        Version::FCS3_1 | Version::FCS3_2 => DocArg::new_timestamps_ivar("FCSTime100"),
+        Version::FCS2_0 => DocArg::new_timestamps_ivar(),
+        Version::FCS3_0 => DocArg::new_timestamps_ivar(),
+        Version::FCS3_1 | Version::FCS3_2 => DocArg::new_timestamps_ivar(),
     };
 
     let all_datetimes = [
@@ -1925,8 +1921,6 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
     let shared_conf = quote!(fireflow_core::config::SharedConfig);
     let core_conf = quote!(fireflow_core::config::ReadStdDatasetFromKeywordsConfig);
 
-    let analysis_seg_path: Path = parse_quote!(fireflow_core::segment::HeaderAnalysisSegment);
-
     let path_param = DocArg::new_path_param(true);
 
     let std_param = DocArg::new_param("std", PyType::new_std_keywords(), "Standard keywords.");
@@ -1947,7 +1941,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
         "analysis_seg",
         PyType::new_segment("HeaderAnalysisSegment"),
         "The *ANALYSIS* segment from *HEADER*.",
-        DocDefault::Other(analysis_seg_path, "(0, 0)".into()),
+        DocDefault::Other("(0, 0)"),
     );
 
     let other_segs_param = DocArg::new_param_def(
@@ -2262,46 +2256,44 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         DocArg::new_transform_ivar()
     };
 
+    let to_pyfloat = |p| PyFloat::new(RsFloat::F32, p);
+    let to_pyuint = |p| PyInt::new(RsInt::U32, p);
+
     let wavelength = if version < Version::FCS3_1 {
-        DocArg::new_meas_kw_opt_ivar("Wavelength", "wavelength", "L", RsFloat::F32)
+        DocArg::new_meas_kw_opt_ivar("Wavelength", "wavelength", "L", to_pyfloat)
     } else {
-        DocArg::new_meas_kw_opt_ivar(
-            "Wavelengths",
-            "wavelengths",
-            "L",
-            PyList::new1(RsFloat::F32, keyword_path("Wavelengths")),
-        )
+        DocArg::new_meas_kw_opt_ivar("Wavelengths", "wavelengths", "L", to_pyfloat)
     };
 
     let bin = DocArg::new_meas_kw_ivar(
         "PeakBin",
         "bin",
-        RsInt::U32,
+        to_pyuint,
         "Value of *$PKn*.".into(),
         Some(DocDefault::Option),
     );
     let size = DocArg::new_meas_kw_ivar(
         "PeakNumber",
         "size",
-        RsInt::U32,
+        to_pyuint,
         "Value of *$PKNn*.".into(),
         Some(DocDefault::Option),
     );
 
     let all_peak = [bin, size];
 
-    let filter = DocArg::new_meas_kw_opt_ivar("Filter", "filter", "F", PyStr::new());
+    let filter = DocArg::new_meas_kw_opt_ivar("Filter", "filter", "F", PyStr::new1);
 
-    let power = DocArg::new_meas_kw_opt_ivar("Power", "power", "O", RsFloat::F32);
+    let power = DocArg::new_meas_kw_opt_ivar("Power", "power", "O", to_pyuint);
 
     let detector_type =
-        DocArg::new_meas_kw_opt_ivar("DetectorType", "detector_type", "T", PyStr::new());
+        DocArg::new_meas_kw_opt_ivar("DetectorType", "detector_type", "T", PyStr::new1);
 
     let percent_emitted =
-        DocArg::new_meas_kw_opt_ivar("PercentEmitted", "percent_emitted", "P", PyStr::new());
+        DocArg::new_meas_kw_opt_ivar("PercentEmitted", "percent_emitted", "P", PyStr::new1);
 
     let detector_voltage =
-        DocArg::new_meas_kw_opt_ivar("DetectorVoltage", "detector_voltage", "V", RsFloat::F32);
+        DocArg::new_meas_kw_opt_ivar("DetectorVoltage", "detector_voltage", "V", to_pyfloat);
 
     let all_common_optical = [
         filter,
@@ -2314,7 +2306,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let calibration3_1 = DocArg::new_meas_kw_ivar(
         "Calibration3_1",
         "calibration",
-        PyType::new_calibration3_1(),
+        |_| PyType::new_calibration3_1(),
         Some("Value of *$PnCALIBRATION*. Tuple encodes slope and calibration units."),
         Some(DocDefault::Option),
     );
@@ -2322,7 +2314,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let calibration3_2 = DocArg::new_meas_kw_ivar(
         "Calibration3_2",
         "calibration",
-        PyType::new_calibration3_2(),
+        |_| PyType::new_calibration3_2(),
         Some(
             "Value of *$PnCALIBRATION*. Tuple encodes slope, intercept, \
              and calibration units.",
@@ -2333,7 +2325,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let display = DocArg::new_meas_kw_ivar(
         "Display",
         "display",
-        PyType::new_display(),
+        |_| PyType::new_display(),
         Some(
             "Value of *$PnD*. First member of tuple encodes linear or log display \
              (``False`` and ``True`` respectively). The float members encode \
@@ -2342,18 +2334,18 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         Some(DocDefault::Option),
     );
 
-    let analyte = DocArg::new_meas_kw_opt_ivar("Analyte", "analyte", "ANALYTE", PyStr::new());
+    let analyte = DocArg::new_meas_kw_opt_ivar("Analyte", "analyte", "ANALYTE", PyStr::new1);
 
     let feature =
-        DocArg::new_meas_kw_opt_ivar("Feature", "feature", "FEATURE", PyType::new_feature());
+        DocArg::new_meas_kw_opt_ivar("Feature", "feature", "FEATURE", |_| PyType::new_feature());
 
     let detector_name =
-        DocArg::new_meas_kw_opt_ivar("DetectorName", "detector_name", "DET", PyStr::new());
+        DocArg::new_meas_kw_opt_ivar("DetectorName", "detector_name", "DET", PyStr::new1);
 
-    let tag = DocArg::new_meas_kw_opt_ivar("Tag", "tag", "TAG", PyStr::new());
+    let tag = DocArg::new_meas_kw_opt_ivar("Tag", "tag", "TAG", PyStr::new1);
 
     let measurement_type =
-        DocArg::new_meas_kw_opt_ivar("OpticalType", "measurement_type", "TYPE", PyStr::new());
+        DocArg::new_meas_kw_opt_ivar("OpticalType", "measurement_type", "TYPE", PyStr::new1);
 
     let has_scale_methods = GetSetMethods::new(
         quote! {
@@ -2410,12 +2402,11 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let timestep = DocArg::new_ivar_rw(
         "timestep",
         PyType::new_timestep(),
-        timestep_path.clone(),
         "Value of *$TIMESTEP*.",
         timestep_methods,
     );
 
-    let longname = DocArg::new_meas_kw_opt_ivar("Longname", "longname", "S", PyStr::new());
+    let longname = DocArg::new_meas_kw_opt_ivar("Longname", "longname", "S", PyStr::new1);
 
     let nonstd = DocArg::new_meas_nonstandard_keywords_ivar();
 
@@ -2856,50 +2847,42 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
         (rstype, methods)
     };
 
-    let (scale_path, scale_methods) = make_get_set("scale", "GateScale");
+    let (_, scale_methods) = make_get_set("scale", "GateScale");
     let scale = DocArg::new_opt_ivar_rw(
-        "scale".into(),
-        PyType::new_scale(),
-        scale_path,
+        "scale",
+        PyType::new_scale(true),
         "The *$GmE* keyword. ``()`` means linear scaling and 2-tuple \
-         specifies decades and offset for log scaling."
-            .into(),
+         specifies decades and offset for log scaling.",
         scale_methods,
     );
 
-    let make_arg = |n: &str, kw: &str, t: &str, p: PyType| {
+    let make_arg_str = |n: &str, kw: &str, t: &str| {
         let (path, methods) = make_get_set(n, t);
         DocArg::new_opt_ivar_rw(
-            n.into(),
-            p,
-            path,
+            n,
+            PyStr::new1(path),
             format!("The *$Gm{kw}* keyword."),
             methods,
         )
     };
-    let filter = make_arg("filter", "F", "GateFilter", PyStr::new().into());
-    let shortname = make_arg("shortname", "N", "GateShortname", PyStr::new().into());
-    let percent_emitted = make_arg(
-        "percent_emitted",
-        "P",
-        "GatePercentEmitted",
-        PyStr::new().into(),
-    );
+    // TODO wet
+    let make_arg_float = |n: &str, kw: &str, t: &str| {
+        let (path, methods) = make_get_set(n, t);
+        DocArg::new_opt_ivar_rw(
+            n,
+            PyFloat::new(RsFloat::F32, path),
+            format!("The *$Gm{kw}* keyword."),
+            methods,
+        )
+    };
+    let filter = make_arg_str("filter", "F", "GateFilter");
+    let shortname = make_arg_str("shortname", "N", "GateShortname");
+    let percent_emitted = make_arg_str("percent_emitted", "P", "GatePercentEmitted");
     // TODO isn't this a decimal?
-    let range = make_arg("range", "R", "GateRange", RsFloat::F32.into());
-    let longname = make_arg("longname", "S", "GateLongname", PyStr::new().into());
-    let detector_type = make_arg(
-        "detector_type",
-        "T",
-        "GateDetectorType",
-        PyStr::new().into(),
-    );
-    let detector_voltage = make_arg(
-        "detector_voltage",
-        "V",
-        "GateDetectorVoltage",
-        RsFloat::F32.into(),
-    );
+    let range = make_arg_float("range", "R", "GateRange");
+    let longname = make_arg_str("longname", "S", "GateLongname");
+    let detector_type = make_arg_str("detector_type", "T", "GateDetectorType");
+    let detector_voltage = make_arg_float("detector_voltage", "V", "GateDetectorVoltage");
 
     let all_args = [
         scale,
@@ -3101,7 +3084,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
     let byteord_param = DocArg::new_ivar_ro_def(
         "byteord",
         PyUnion::new2(
-            PyLiteral::new1(["big", "little"]),
+            PyLiteral::new(["big", "little"]),
             PyList::new(RsInt::U32),
             parse_quote!(#sizedbyteord_path<#nbytes>),
         ),
@@ -3110,7 +3093,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
              ``\"little\"``, or a list of all integers between 1 and {nbytes} \
              in any order."
         ),
-        DocDefault::Other(sizedbyteord_path.clone(), "\"little\"".into()),
+        DocDefault::Other("\"little\""),
         byteord_getter,
     );
 
@@ -3305,9 +3288,9 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
     let types_param: DocArgROIvar = DocArg::new_ivar_ro(
         "typed_ranges",
         PyList::new(PyUnion::new2(
-            PyTuple::new([PyLiteral::new1(["A", "I"]).into(), PyType::from(RsInt::U64)]),
+            PyTuple::new([PyLiteral::new(["A", "I"]).into(), PyType::from(RsInt::U64)]),
             PyTuple::new([
-                PyLiteral::new1(["F", "D"]).into(),
+                PyLiteral::new(["F", "D"]).into(),
                 PyType::from(PyDecimal::new()),
             ]),
             parse_quote!(#null),
@@ -3351,12 +3334,12 @@ fn make_endian_ord_param(n: usize) -> DocArgROIvar {
     });
     DocArg::new_ivar_ro_def(
         "endian",
-        PyLiteral::new2(["big", "little"], endian.clone()),
+        PyLiteral::new1(["big", "little"], endian),
         format!(
             "If ``\"big\"`` use big endian (``{ys}``) for encoding values; \
              if ``\"little\"`` use little endian (``{xs}``)."
         ),
-        DocDefault::Other(endian, "\"little\"".into()),
+        DocDefault::Other("\"little\""),
         getter,
     )
 }
@@ -3372,12 +3355,12 @@ fn make_endian_param(n: usize) -> DocArgROIvar {
     });
     DocArg::new_ivar_ro_def(
         "endian",
-        PyLiteral::new2(["big", "little"], endian.clone()),
+        PyLiteral::new1(["big", "little"], endian.clone()),
         format!(
             "If ``\"big\"`` use big endian (``{ys}``) for encoding values; \
              if ``\"little\"`` use little endian (``{xs}``)."
         ),
-        DocDefault::Other(endian, "\"little\"".into()),
+        DocDefault::Other("\"little\""),
         getter,
     )
 }
@@ -3541,11 +3524,9 @@ fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
         _ => panic!("unknown index type"),
     };
 
-    let (region_name, index_rstype, index_pytype, gate_argname, gate_pytype, gate_desc) = if is_uni
-    {
+    let (region_name, index_pytype, gate_argname, gate_pytype, gate_desc) = if is_uni {
         (
             "univariate",
-            index_path_inner.clone(),
             index_pytype_inner,
             format_ident!("gate"),
             PyType::from(PyTuple::new1(
@@ -3558,7 +3539,6 @@ fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
         let v = keyword_path("Vertex");
         (
             "bivariate",
-            parse_quote!(#index_pair<#index_path_inner>),
             PyTuple::new1(
                 vec![index_pytype_inner; 2],
                 parse_quote!(#index_pair<#index_path_inner>),
@@ -3576,6 +3556,7 @@ fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
 
     let summary = format!("Make a new FCS {summary_version}-compatible {region_name} region",);
 
+    let index_rstype = index_pytype.as_rust_type();
     let gate_rstype = gate_pytype.as_rust_type();
 
     let index_getter = GetMethod(quote! {
@@ -3752,12 +3733,11 @@ fn versioned_family_path(version: Version) -> Path {
 
 // TODO fixme
 fn key_pattern_path() -> (DocDefault, String) {
-    let path: Path = parse_quote!(fireflow_core::validated::keys::KeyPatterns);
-    let default = DocDefault::Other(path.clone(), "([], [])".into());
+    let default = DocDefault::Other("([], [])");
     let desc = format!(
         "The first member of the tuples is a list of strings which match \
-             literally. The second member is a list of regular expressions \
-             corresponding to {REGEXP_REF}."
+         literally. The second member is a list of regular expressions \
+         corresponding to {REGEXP_REF}."
     );
     (default, desc)
 }
@@ -3889,7 +3869,7 @@ enum DocDefault {
     // EmptySet,
     EmptyList,
     Option,
-    Other(Path, String),
+    Other(&'static str),
 }
 
 #[derive(Clone)]
@@ -4032,13 +4012,27 @@ struct PyOpt {
     rstype: Option<Path>,
 }
 
-#[derive(Clone, new)]
+#[derive(Clone)]
 struct PyDict {
-    #[new(into)]
     key: PyType,
-    #[new(into)]
     value: PyType,
     rstype: Option<Path>,
+}
+
+impl PyDict {
+    fn new(key: impl Into<PyType>, value: impl Into<PyType>) -> Self {
+        Self {
+            key: key.into(),
+            value: value.into(),
+            rstype: None,
+        }
+    }
+
+    fn new1(key: impl Into<PyType>, value: impl Into<PyType>, rstype: Path) -> Self {
+        let mut x = Self::new(key, value);
+        x.rstype = Some(rstype);
+        x
+    }
 }
 
 #[derive(Clone)]
@@ -4305,19 +4299,21 @@ enum RsFloat {
 }
 
 impl PyLiteral {
-    fn new(iter: impl IntoIterator<Item = &'static str>, rstype: Option<Path>) -> Self {
+    fn new(iter: impl IntoIterator<Item = &'static str>) -> Self {
         let mut it = iter.into_iter();
         let head = it.next().expect("Literal cannot be empty");
         let tail = it.collect();
-        Self { head, tail, rstype }
+        Self {
+            head,
+            tail,
+            rstype: None,
+        }
     }
 
-    fn new1(iter: impl IntoIterator<Item = &'static str>) -> Self {
-        Self::new(iter, None)
-    }
-
-    fn new2(iter: impl IntoIterator<Item = &'static str>, rstype: Path) -> Self {
-        Self::new(iter, Some(rstype))
+    fn new1(iter: impl IntoIterator<Item = &'static str>, rstype: Path) -> Self {
+        let mut x = Self::new(iter);
+        x.rstype = Some(rstype);
+        x
     }
 }
 
@@ -4329,12 +4325,12 @@ impl PyOpt {
         }
     }
 
-    fn new1(inner: impl Into<PyType>, rstype: Path) -> Self {
-        Self {
-            inner: inner.into(),
-            rstype: Some(rstype),
-        }
-    }
+    // fn new1(inner: impl Into<PyType>, rstype: Path) -> Self {
+    //     Self {
+    //         inner: inner.into(),
+    //         rstype: Some(rstype),
+    //     }
+    // }
 }
 
 impl PyTuple {
@@ -4436,63 +4432,50 @@ impl DocArgRWIvar {
     fn new_ivar_rw(
         argname: impl Into<String>,
         pytype: impl Into<PyType>,
-        rstype: Path,
         desc: impl Into<String>,
         methods: GetSetMethods,
     ) -> Self {
-        Self::new(
-            argname,
-            pytype,
-            wrap_path_to_type(rstype),
-            desc,
-            None,
-            methods,
-        )
+        let pt = pytype.into();
+        let rt = pt.as_rust_type();
+        Self::new(argname, pt, rt, desc, None, methods)
     }
 
     fn new_ivar_rw_def(
         argname: impl Into<String>,
         pytype: impl Into<PyType>,
-        rstype: Path,
         desc: impl Into<String>,
         def: DocDefault,
         methods: GetSetMethods,
     ) -> Self {
-        Self::new(
-            argname,
-            pytype,
-            wrap_path_to_type(rstype),
-            desc,
-            Some(def),
-            methods,
-        )
+        let pt = pytype.into();
+        let rt = pt.as_rust_type();
+        Self::new(argname, pt, rt, desc, Some(def), methods)
     }
 
     fn new_opt_ivar_rw(
-        argname: String,
+        argname: impl Into<String>,
         pytype: impl Into<PyType>,
-        rstype: Path,
-        desc: String,
+        desc: impl Into<String>,
         methods: GetSetMethods,
     ) -> Self {
-        Self::new(
-            argname,
-            PyOpt::new(pytype.into()),
-            parse_quote!(Option<#rstype>),
-            desc,
-            Some(DocDefault::Option),
-            methods,
-        )
+        let pt = PyOpt::new(pytype.into());
+        let rt = pt.as_rust_type();
+        Self::new(argname, pt, rt, desc, Some(DocDefault::Option), methods)
     }
 
-    fn new_kw_ivar(
+    fn new_kw_ivar<F, T>(
         kw: &str,
         name: &str,
-        pytype: impl Into<PyType>,
+        f: F,
         desc: Option<&str>,
         def: Option<DocDefault>,
-    ) -> Self {
+    ) -> Self
+    where
+        F: FnOnce(Path) -> T,
+        T: Into<PyType>,
+    {
         let path = keyword_path(kw);
+        let pytype: PyType = f(path.clone()).into();
         let get = format_ident!("get_{name}");
         let set = format_ident!("set_{name}");
         let n = name.to_string();
@@ -4509,8 +4492,7 @@ impl DocArgRWIvar {
             } else {
                 path.clone()
             };
-
-            let m = GetSetMethods::new(
+            GetSetMethods::new(
                 quote! {
                     fn #get(&self) -> #full_kw {
                         self.0.#get_inner::<#path>().#clone_inner()
@@ -4521,33 +4503,37 @@ impl DocArgRWIvar {
                         self.0.set_metaroot(x)
                     }
                 },
-            );
-            (full_kw, m)
+            )
         };
 
         if let Some(d) = def {
             let optional = matches!(d, DocDefault::Option);
             let t = if optional {
-                PyType::from(PyOpt::new(pytype))
+                PyOpt::new(pytype).into()
             } else {
-                pytype.into()
+                pytype
             };
-            let (p, m) = make_methods(optional);
-            Self::new_ivar_rw_def(n, t, p, _desc, d, m)
+            let m = make_methods(optional);
+            Self::new_ivar_rw_def(n, t, _desc, d, m)
         } else {
-            let (p, m) = make_methods(false);
-            Self::new_ivar_rw(n, pytype, p, _desc, m)
+            let m = make_methods(false);
+            Self::new_ivar_rw(n, pytype, _desc, m)
         }
     }
 
-    fn new_meas_kw_ivar(
+    fn new_meas_kw_ivar<F, T>(
         kw: &str,
         name: &str,
-        pytype: impl Into<PyType>,
+        f: F,
         desc: Option<&str>,
         def: Option<DocDefault>,
-    ) -> Self {
+    ) -> Self
+    where
+        F: FnOnce(Path) -> T,
+        T: Into<PyType>,
+    {
         let path = keyword_path(kw);
+        let pytype: PyType = f(path.clone()).into();
         let get = format_ident!("get_{name}");
         let set = format_ident!("set_{name}");
         let n = name.to_string();
@@ -4563,7 +4549,7 @@ impl DocArgRWIvar {
                 path.clone()
             };
 
-            let m = GetSetMethods::new(
+            GetSetMethods::new(
                 quote! {
                     fn #get(&self) -> #full_kw {
                         let x: &#full_kw = self.0.as_ref();
@@ -4575,38 +4561,39 @@ impl DocArgRWIvar {
                         *self.0.as_mut() = x
                     }
                 },
-            );
-            (full_kw, m)
+            )
         };
 
         if let Some(d) = def {
             let optional = matches!(d, DocDefault::Option);
             let t = if optional {
-                PyType::from(PyOpt::new(pytype))
+                PyOpt::new(pytype).into()
             } else {
-                pytype.into()
+                pytype
             };
-            let (p, m) = make_methods(optional);
-            DocArg::new_ivar_rw_def(n, t, p, _desc, d, m)
+            let m = make_methods(optional);
+            DocArg::new_ivar_rw_def(n, t, _desc, d, m)
         } else {
-            let (p, m) = make_methods(false);
-            DocArg::new_ivar_rw(n, pytype, p, _desc, m)
+            let m = make_methods(false);
+            DocArg::new_ivar_rw(n, pytype, _desc, m)
         }
     }
 
-    fn new_kw_opt_ivar(kw: &str, name: &str, pytype: impl Into<PyType>) -> Self {
-        Self::new_kw_ivar(kw, name, pytype, None, Some(DocDefault::Option))
+    fn new_kw_opt_ivar<F, T>(kw: &str, name: &str, f: F) -> Self
+    where
+        F: FnOnce(Path) -> T,
+        T: Into<PyType>,
+    {
+        Self::new_kw_ivar(kw, name, f, None, Some(DocDefault::Option))
     }
 
-    fn new_meas_kw_opt_ivar(kw: &str, name: &str, abbr: &str, pytype: impl Into<PyType>) -> Self {
+    fn new_meas_kw_opt_ivar<F, T>(kw: &str, name: &str, abbr: &str, f: F) -> Self
+    where
+        F: FnOnce(Path) -> T,
+        T: Into<PyType>,
+    {
         let desc = format!("Value for *$Pn{abbr}*.");
-        Self::new_meas_kw_ivar(
-            kw,
-            name,
-            pytype,
-            Some(desc.as_str()),
-            Some(DocDefault::Option),
-        )
+        Self::new_meas_kw_ivar(kw, name, f, Some(desc.as_str()), Some(DocDefault::Option))
     }
 
     fn new_layout_ivar(version: Version) -> Self {
@@ -4633,31 +4620,24 @@ impl DocArgRWIvar {
             "OrderedF64Layout",
         ];
 
-        let (layout_name, layout_pytype) = match version {
+        let layout_pytype = match version {
             Version::FCS3_2 => {
                 let ys = non_mixed_layouts
                     .into_iter()
                     .chain(["MixedLayout"])
                     .map(PyClass::new1);
-                ("PyLayout3_2", PyUnion::new(ys, parse_quote!(PyLayout3_2)))
+                PyUnion::new(ys, parse_quote!(PyLayout3_2))
             }
             Version::FCS3_1 => {
                 let ys = non_mixed_layouts.into_iter().map(PyClass::new1);
-                (
-                    "PyNonMixedLayout",
-                    PyUnion::new(ys, parse_quote!(PyNonMixedLayout)),
-                )
+                PyUnion::new(ys, parse_quote!(PyNonMixedLayout))
             }
             _ => {
                 let ys = ordered_layouts.into_iter().map(PyClass::new1);
-                (
-                    "PyOrderedLayout",
-                    PyUnion::new(ys, parse_quote!(PyOrderedLayout)),
-                )
+                PyUnion::new(ys, parse_quote!(PyOrderedLayout))
             }
         };
-        let layout_ident = format_ident!("{layout_name}");
-        let layout_argname = format_ident!("layout");
+        let layout_ident = layout_pytype.as_rust_type();
         let layout_desc = if version == Version::FCS3_2 {
             "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*, \
              *$DATATYPE*, and *$PnDATATYPE*."
@@ -4679,13 +4659,7 @@ impl DocArgRWIvar {
             },
         );
 
-        DocArg::new_ivar_rw(
-            layout_argname.to_string(),
-            layout_pytype.clone(),
-            parse_quote!(#layout_ident),
-            layout_desc,
-            methods,
-        )
+        DocArg::new_ivar_rw("layout", layout_pytype.clone(), layout_desc, methods)
     }
 
     fn new_df_ivar() -> Self {
@@ -4743,22 +4717,13 @@ impl DocArgRWIvar {
         DocArg::new_others_param().into_rw(methods)
     }
 
-    fn new_timestamps_ivar(time_name: &str) -> [Self; 3] {
+    fn new_timestamps_ivar() -> [Self; 3] {
         let nd = quote! {Option<chrono::NaiveDate>};
-        let time_ident = format_ident!("{time_name}");
-        let time_path = quote!(fireflow_core::text::timestamps::#time_ident);
         let date_rstype: Path = parse_quote!(fireflow_core::text::timestamps::FCSDate);
 
         let make_time_ivar = |is_start: bool| {
             let nt = quote! {Option<chrono::NaiveTime>};
-            let (name, wrap) = if is_start {
-                ("btim", "Btim")
-            } else {
-                ("etim", "Etim")
-            };
-            let wrap_ident = format_ident!("{wrap}");
-            let wrap_path = quote!(fireflow_core::text::timestamps::#wrap_ident);
-            let rstype = parse_quote!(#wrap_path<#time_path>);
+            let name = if is_start { "btim" } else { "etim" };
             let get = format_ident!("get_{name}");
             let set = format_ident!("set_{name}");
             let get_naive = format_ident!("{name}_naive");
@@ -4776,7 +4741,7 @@ impl DocArgRWIvar {
                     }
                 },
             );
-            DocArg::new_opt_ivar_rw(name.into(), PyTime::new(), rstype, desc, methods)
+            DocArg::new_opt_ivar_rw(name, PyTime::new(), desc, methods)
         };
 
         let date_methods = GetSetMethods::new(
@@ -4793,10 +4758,9 @@ impl DocArgRWIvar {
         );
 
         let date_arg = DocArg::new_opt_ivar_rw(
-            "date".into(),
+            "date",
             PyDate::new1(date_rstype.clone()),
-            date_rstype,
-            "Value of *$DATE*.".into(),
+            "Value of *$DATE*.",
             date_methods,
         );
 
@@ -4805,13 +4769,11 @@ impl DocArgRWIvar {
 
     fn new_datetime_ivar(is_start: bool) -> Self {
         let dt = quote! {Option<chrono::DateTime<chrono::FixedOffset>>};
-        let (name, type_name) = if is_start {
-            ("begindatetime", "BeginDateTime")
+        let name = if is_start {
+            "begindatetime"
         } else {
-            ("enddatetime", "EndDateTime")
+            "enddatetime"
         };
-        let type_ident = format_ident!("{type_name}");
-        let rstype = parse_quote!(fireflow_core::text::datetimes::#type_ident);
         let get = format_ident!("{name}");
         let set = format_ident!("set_{name}");
         let methods = GetSetMethods::new(
@@ -4827,9 +4789,8 @@ impl DocArgRWIvar {
             },
         );
         DocArg::new_opt_ivar_rw(
-            name.into(),
+            name,
             PyDatetime::new(),
-            rstype,
             format!("Value for *${}*.", name.to_uppercase()),
             methods,
         )
@@ -4856,12 +4817,10 @@ impl DocArgRWIvar {
         } else {
             "The value of *$COMP*. Must be a square array with number of \
              rows/columns equal to the number of measurements."
-        }
-        .into();
+        };
         DocArg::new_opt_ivar_rw(
-            "comp".into(),
+            "comp",
             PyClass::new2("~numpy.ndarray", rstype.clone()),
-            rstype,
             desc,
             methods,
         )
@@ -4882,7 +4841,7 @@ impl DocArgRWIvar {
             },
         );
         DocArg::new_opt_ivar_rw(
-            "spillover".into(),
+            "spillover",
             PyTuple::new1(
                 [
                     PyType::from(PyList::new(PyStr::new())),
@@ -4890,13 +4849,11 @@ impl DocArgRWIvar {
                 ],
                 rstype.clone(),
             ),
-            rstype,
             "Value for *$SPILLOVER*. First element of tuple the list of measurement \
              names and the second is the matrix. Each measurement name must \
              correspond to a *$PnN*, must be unique, and the length of this list \
              must match the number of rows and columns of the matrix. The matrix \
-             must be at least 2x2."
-                .into(),
+             must be at least 2x2.",
             methods,
         )
     }
@@ -4917,43 +4874,36 @@ impl DocArgRWIvar {
             },
         );
         DocArg::new_opt_ivar_rw(
-            "csvflags".into(),
-            PyList::new1(PyOpt::new(RsInt::U32), path.clone()),
-            path,
+            "csvflags",
+            PyList::new1(PyOpt::new(RsInt::U32), path),
             "Subset flags. Each element in the list corresponds to *$CSVnFLAG* and \
-             the length of the list corresponds to *$CSMODE*."
-                .into(),
+             the length of the list corresponds to *$CSMODE*.",
             methods,
         )
     }
 
     fn new_trigger_ivar() -> Self {
-        let path = keyword_path("Trigger");
-        let rstype = quote!(Option<#path>);
+        let pytype = PyType::new_tr();
+        let rstype = pytype.as_rust_type();
 
         let methods = GetSetMethods::new(
             quote! {
-                fn trigger(&self) -> #rstype {
+                fn trigger(&self) -> Option<#rstype> {
                     self.0.metaroot_opt().cloned()
                 }
             },
             quote! {
-                fn set_trigger(&mut self, tr: #rstype) -> PyResult<()> {
+                fn set_trigger(&mut self, tr: Option<#rstype>) -> PyResult<()> {
                     Ok(self.0.set_trigger(tr)?)
                 }
             },
         );
 
         DocArg::new_opt_ivar_rw(
-            "tr".into(),
-            PyOpt::new(PyTuple::new1(
-                [PyType::from(RsInt::U32), PyStr::new().into()],
-                path.clone(),
-            )),
-            path,
+            "tr",
+            pytype,
             "Value for *$TR*. First member of tuple is threshold and second is the \
-             measurement name which must match a *$PnN*."
-                .into(),
+             measurement name which must match a *$PnN*.",
             methods,
         )
     }
@@ -4974,10 +4924,9 @@ impl DocArgRWIvar {
             },
         );
         DocArg::new_opt_ivar_rw(
-            "unstainedcenters".into(),
-            PyDict::new(PyStr::new(), RsFloat::F32, Some(path.clone())),
-            path,
-            "Value for *$UNSTAINEDCENTERS. Each key must match a *$PnN*.".into(),
+            "unstainedcenters",
+            PyDict::new1(PyStr::new(), RsFloat::F32, path),
+            "Value for *$UNSTAINEDCENTERS. Each key must match a *$PnN*.",
             methods,
         )
     }
@@ -5006,10 +4955,10 @@ impl DocArgRWIvar {
         let bvtype = PyClass::new1(format!("BivariateRegion{vsu}"));
         let regtype = format_ident!("PyRegion{vsu}");
         let maptype = parse_quote!(PyRegionMapping<#regtype>);
-        let rtype = PyDict::new(
+        let rtype = PyDict::new1(
             RsInt::NonZeroUsize,
             PyUnion::new2(urtype, bvtype, parse_quote!(#regtype)),
-            Some(maptype),
+            maptype,
         )
         .into();
         let gtype = PyType::from(PyOpt::new(PyStr::new()));
@@ -5057,7 +5006,7 @@ impl DocArgRWIvar {
             "({}, None)"
         };
 
-        let def = DocDefault::Other(parse_quote!(#rstype), pydef.into());
+        let def = DocDefault::Other(pydef);
 
         let setter_body = if collapsed_version == Version::FCS2_0 {
             quote! {
@@ -5083,18 +5032,11 @@ impl DocArgRWIvar {
             setter_body,
         );
 
-        DocArg::new_ivar_rw_def(
-            "applied_gates",
-            pytype,
-            parse_quote!(#rstype),
-            desc,
-            def,
-            methods,
-        )
+        DocArg::new_ivar_rw_def("applied_gates", pytype, desc, def, methods)
     }
 
     fn new_scale_ivar() -> Self {
-        let rstype = parse_quote! {fireflow_core::text::scale::Scale};
+        let rstype: Path = parse_quote! {fireflow_core::text::scale::Scale};
         let methods = GetSetMethods::new(
             quote! {
                 fn get_scale(&self) -> Option<#rstype> {
@@ -5108,12 +5050,10 @@ impl DocArgRWIvar {
             },
         );
         DocArg::new_opt_ivar_rw(
-            "scale".into(),
-            PyType::new_scale(),
-            rstype,
+            "scale",
+            PyType::new_scale(false),
             "Value for *$PnE*. Empty tuple means linear scale; 2-tuple encodes \
-             decades and offset for log scale"
-                .into(),
+             decades and offset for log scale",
             methods,
         )
     }
@@ -5137,9 +5077,8 @@ impl DocArgRWIvar {
             PyUnion::new2(
                 RsFloat::F32,
                 PyTuple::new([RsFloat::F32, RsFloat::F32]),
-                rstype.clone(),
+                rstype,
             ),
-            rstype,
             "Value for *$PnE* and/or *$PnG*. Singleton float encodes gain (*$PnG*) \
              and implies linear scaling (ie *$PnE* is ``0,0``). 2-tuple encodes \
              decades and offset for log scale, and implies *$PnG* is not set.",
@@ -5182,7 +5121,6 @@ impl DocArgRWIvar {
         DocArg::new_ivar_rw_def(
             "nonstandard_keywords",
             PyType::new_nonstd_keywords(),
-            rstype,
             desc,
             DocDefault::EmptyDict,
             methods,
@@ -5260,7 +5198,7 @@ impl DocArgParam {
             "delim",
             PyInt::new(RsInt::U8, textdelim_path()),
             "Delimiter to use when writing *TEXT*.",
-            DocDefault::Other(textdelim_path(), "30".into()),
+            DocDefault::Other("30"),
         )
     }
 
@@ -5357,7 +5295,7 @@ impl DocArgParam {
             "analysis",
             PyBytes::new1(analysis_path()),
             "A byte string encoding the *ANALYSIS* segment",
-            DocDefault::Other(analysis_path(), "b\"\"".to_string()),
+            DocDefault::Other("b\"\""),
         )
     }
 
@@ -5366,7 +5304,7 @@ impl DocArgParam {
             "others",
             PyList::new1(PyBytes::new(), others_path()),
             "A list of byte strings encoding the *OTHER* segments",
-            DocDefault::Other(others_path(), "[]".to_string()),
+            DocDefault::Other("[]"),
         )
     }
 
@@ -5585,7 +5523,7 @@ impl DocArgParam {
              nonsensical for time measurements but are not explicitly forbidden in \
              the the standard. Provided keys are the string after the \"Pn\" in \
              the \"PnX\" keywords.",
-            DocDefault::Other(parse_quote!(TemporalOpticalKeys), "[]".into()),
+            DocDefault::Other("[]"),
         )
     }
 
@@ -5713,10 +5651,7 @@ impl DocArgParam {
             name,
             PyType::new_correction(is_header, id),
             format!("Corrections for {what} offsets in *{location}*."),
-            DocDefault::Other(
-                parse_quote!(fireflow_core::segment::OffsetCorrection),
-                "(0, 0)".into(),
-            ),
+            DocDefault::Other("(0, 0)"),
         )
     }
 
@@ -5765,7 +5700,7 @@ impl DocArgParam {
             PyInt::new(RsInt::NonZeroU8, path.clone()),
             "Maximum number of OTHER segments that can be parsed. \
              ``None`` means limitless.",
-            DocDefault::Other(path, "8".into()),
+            DocDefault::Other("8"),
         )
     }
 
@@ -5993,10 +5928,10 @@ impl DocArgParam {
 
     fn new_rename_standard_keys() -> Self {
         let path: Path = parse_quote!(fireflow_core::validated::keys::KeyStringPairs);
-        let def = DocDefault::Other(path.clone(), "{}".into());
+        let def = DocDefault::Other("{}");
         Self::new_param_def(
             "rename_standard_keys",
-            PyDict::new(PyStr::new(), PyStr::new(), Some(path)),
+            PyDict::new1(PyStr::new(), PyStr::new(), path),
             "Rename standard keys in *TEXT*. Keys matching the first part of \
              the pair will be replaced by the second. Comparisons are case \
              insensitive. The leading *$* is implied so do not include it.",
@@ -6006,10 +5941,10 @@ impl DocArgParam {
 
     fn new_replace_standard_key_values() -> Self {
         let path: Path = parse_quote!(fireflow_core::validated::keys::KeyStringValues);
-        let def = DocDefault::Other(path.clone(), "{}".into());
+        let def = DocDefault::Other("{}");
         Self::new_param_def(
             "replace_standard_key_values",
-            PyDict::new(PyStr::new(), PyStr::new(), Some(path)),
+            PyDict::new1(PyStr::new(), PyStr::new(), path),
             "Replace values for standard keys in *TEXT* Comparisons are case \
              insensitive. The leading *$* is implied so do not include it.",
             def,
@@ -6018,10 +5953,10 @@ impl DocArgParam {
 
     fn new_append_standard_keywords() -> Self {
         let path: Path = parse_quote!(fireflow_core::validated::keys::KeyStringValues);
-        let def = DocDefault::Other(path.clone(), "{}".into());
+        let def = DocDefault::Other("{}");
         Self::new_param_def(
             "append_standard_keywords",
-            PyDict::new(PyStr::new(), PyStr::new(), Some(path)),
+            PyDict::new1(PyStr::new(), PyStr::new(), path),
             "Append standard key/value pairs to *TEXT*. All keys and values \
              will be included as they appear here. The leading *$* is implied so \
              do not include it.",
@@ -6110,45 +6045,56 @@ impl DocArgParam {
     }
 }
 
-impl<T> DocArg<T> {
-    fn default_matches(&self) -> Result<(), String> {
-        if let Some(d) = self.default.as_ref() {
-            if d.matches_pytype(&self.pytype) {
-                Ok(())
-            } else {
-                Err(format!(
-                    "Arg type '{}' does not match default type '{}'",
-                    self.pytype,
-                    d.as_type()
-                ))
-            }
-        } else {
-            Ok(())
-        }
-    }
-}
+// impl<T> DocArg<T> {
+//     fn default_matches(&self) -> Result<(), String> {
+//         if let Some(d) = self.default.as_ref() {
+//             if d.matches_pytype(&self.pytype) {
+//                 Ok(())
+//             } else {
+//                 Err(format!(
+//                     "Arg type '{}' does not match default type '{}'",
+//                     self.pytype,
+//                     d.as_type()
+//                 ))
+//             }
+//         } else {
+//             Ok(())
+//         }
+//     }
+// }
 
 impl DocDefault {
-    fn as_rs_value(&self) -> TokenStream2 {
+    fn as_rs_value(&self, pytype: &PyType) -> TokenStream2 {
         match self {
             Self::Bool(x) => quote! {#x},
             Self::EmptyDict => quote! {std::collections::HashMap::new()},
             // Self::EmptySet => quote! {std::collections::HashSet::new()},
             Self::EmptyList => quote! {vec![]},
             Self::Option => quote! {None},
-            Self::Other(rs, _) => quote!(#rs::default()),
+            Self::Other(_) => {
+                let rstype = pytype.as_rust_type();
+                let path = unwrap_type_as_path(&rstype);
+                let bare = path_strip_args(path.clone());
+                quote!(#bare::default())
+            }
         }
     }
 
-    fn as_py_value(&self) -> String {
+    fn as_py_value(&self) -> &'static str {
         match self {
-            Self::Bool(x) => if *x { "True" } else { "False" }.into(),
-            Self::EmptyDict => "{}".to_string(),
+            Self::Bool(x) => {
+                if *x {
+                    "True"
+                } else {
+                    "False"
+                }
+            }
+            Self::EmptyDict => "{}",
             // this isn't implemented yet: https://peps.python.org/pep-0802/#abstract
             // Self::EmptySet => "{/}".to_string(),
-            Self::EmptyList => "[]".to_string(),
-            Self::Option => "None".to_string(),
-            Self::Other(_, py) => py.clone(),
+            Self::EmptyList => "[]",
+            Self::Option => "None",
+            Self::Other(py) => py,
         }
     }
 
@@ -6160,21 +6106,21 @@ impl DocDefault {
             // Self::EmptySet => "set",
             Self::EmptyList => "list",
             Self::Option => "option",
-            Self::Other(_, _) => "raw",
+            Self::Other(_) => "raw",
         }
     }
 
-    fn matches_pytype(&self, other: &PyType) -> bool {
-        matches!(
-            (self, other),
-            (Self::Bool(_), PyType::Bool(_))
-                | (Self::EmptyDict, PyType::Dict(_))
-                // | (Self::EmptySet, PyType::Set(_))
-                | (Self::EmptyList, PyType::List(_))
-                | (Self::Option, PyType::Option(_))
-                | (Self::Other(_, _), _)
-        )
-    }
+    // fn matches_pytype(&self, other: &PyType) -> bool {
+    //     matches!(
+    //         (self, other),
+    //         (Self::Bool(_), PyType::Bool(_))
+    //             | (Self::EmptyDict, PyType::Dict(_))
+    //             // | (Self::EmptySet, PyType::Set(_))
+    //             | (Self::EmptyList, PyType::List(_))
+    //             | (Self::Option, PyType::Option(_))
+    //             | (Self::Other(_), _)
+    //     )
+    // }
 }
 
 trait IsArgType {
@@ -6214,13 +6160,13 @@ impl IsArgType for NoMethods {
 trait IsDocArg {
     fn argname(&self) -> &str;
 
-    // fn pytype(&self) -> &PyType;
+    fn pytype(&self) -> &PyType;
 
     // fn desc(&self) -> &str;
 
     fn default(&self) -> Option<&DocDefault>;
 
-    fn default_matches(&self) -> Result<(), String>;
+    // fn default_matches(&self) -> Result<(), String>;
 
     fn fun_arg(&self) -> TokenStream2;
 
@@ -6236,9 +6182,9 @@ impl<T> IsDocArg for DocArg<T> {
         self.argname.as_str()
     }
 
-    // fn pytype(&self) -> &PyType {
-    //     &self.pytype
-    // }
+    fn pytype(&self) -> &PyType {
+        &self.pytype
+    }
 
     // fn desc(&self) -> &str {
     //     self.desc.as_str()
@@ -6248,21 +6194,21 @@ impl<T> IsDocArg for DocArg<T> {
         self.default.as_ref()
     }
 
-    fn default_matches(&self) -> Result<(), String> {
-        if let Some(d) = self.default.as_ref() {
-            if d.matches_pytype(&self.pytype) {
-                Ok(())
-            } else {
-                Err(format!(
-                    "Arg type '{}' does not match default type '{}'",
-                    self.pytype,
-                    d.as_type()
-                ))
-            }
-        } else {
-            Ok(())
-        }
-    }
+    // fn default_matches(&self) -> Result<(), String> {
+    //     if let Some(d) = self.default.as_ref() {
+    //         if d.matches_pytype(&self.pytype) {
+    //             Ok(())
+    //         } else {
+    //             Err(format!(
+    //                 "Arg type '{}' does not match default type '{}'",
+    //                 self.pytype,
+    //                 d.as_type()
+    //             ))
+    //         }
+    //     } else {
+    //         Ok(())
+    //     }
+    // }
 
     fn fun_arg(&self) -> TokenStream2 {
         let n = format_ident!("{}", &self.argname);
@@ -6302,13 +6248,13 @@ impl IsDocArg for AnyDocArg {
         }
     }
 
-    // fn pytype(&self) -> &PyType {
-    //     match self {
-    //         Self::RWIvar(x) => x.pytype(),
-    //         Self::ROIvar(x) => x.pytype(),
-    //         Self::Param(x) => x.pytype(),
-    //     }
-    // }
+    fn pytype(&self) -> &PyType {
+        match self {
+            Self::RWIvar(x) => x.pytype(),
+            Self::ROIvar(x) => x.pytype(),
+            Self::Param(x) => x.pytype(),
+        }
+    }
 
     // fn desc(&self) -> &str {
     //     match self {
@@ -6326,13 +6272,13 @@ impl IsDocArg for AnyDocArg {
         }
     }
 
-    fn default_matches(&self) -> Result<(), String> {
-        match self {
-            Self::RWIvar(x) => x.default_matches(),
-            Self::ROIvar(x) => x.default_matches(),
-            Self::Param(x) => x.default_matches(),
-        }
-    }
+    // fn default_matches(&self) -> Result<(), String> {
+    //     match self {
+    //         Self::RWIvar(x) => x.default_matches(),
+    //         Self::ROIvar(x) => x.default_matches(),
+    //         Self::Param(x) => x.default_matches(),
+    //     }
+    // }
 
     fn fun_arg(&self) -> TokenStream2 {
         match self {
@@ -6397,11 +6343,11 @@ impl PyType {
 
     fn new_version() -> Self {
         let path = version_path();
-        PyLiteral::new2(["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"], path).into()
+        PyLiteral::new1(["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"], path).into()
     }
 
     fn new_temporal_optical_key() -> Self {
-        PyLiteral::new2(
+        PyLiteral::new1(
             [
                 "F",
                 "L",
@@ -6422,7 +6368,7 @@ impl PyType {
 
     fn new_datatype() -> Self {
         let path = parse_quote!(fireflow_core::text::keywords::AlphaNumType);
-        PyLiteral::new2(["A", "I", "F", "D"], path).into()
+        PyLiteral::new1(["A", "I", "F", "D"], path).into()
     }
 
     fn new_display() -> Self {
@@ -6439,7 +6385,7 @@ impl PyType {
 
     fn new_feature() -> Self {
         let path = keyword_path("Feature");
-        PyLiteral::new2(["Area", "Width", "Height"], path).into()
+        PyLiteral::new1(["Area", "Width", "Height"], path).into()
     }
 
     fn new_calibration3_1() -> Self {
@@ -6472,12 +6418,16 @@ impl PyType {
         PyTuple::new1([RsInt::I32, RsInt::I32], path).into()
     }
 
-    fn new_scale() -> Self {
-        let scale_path: Path = parse_quote!(fireflow_core::text::scale::Scale);
+    fn new_scale(is_gate: bool) -> Self {
+        let p = if is_gate {
+            keyword_path("GateScale")
+        } else {
+            parse_quote!(fireflow_core::text::scale::Scale)
+        };
         PyUnion::new2(
             PyTuple::default(),
             PyTuple::new([RsFloat::F32, RsFloat::F32]),
-            scale_path,
+            p,
         )
         .into()
     }
@@ -6488,17 +6438,17 @@ impl PyType {
     }
 
     fn new_keywords() -> Self {
-        PyDict::new(PyStr::new(), PyStr::new(), None).into()
+        PyDict::new(PyStr::new(), PyStr::new()).into()
     }
 
     fn new_std_keywords() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::StdKey);
-        PyDict::new(PyStr::new1(path), PyStr::new(), None).into()
+        PyDict::new(PyStr::new1(path), PyStr::new()).into()
     }
 
     fn new_nonstd_keywords() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::NonStdKey);
-        PyDict::new(PyStr::new1(path), PyStr::new(), None).into()
+        PyDict::new(PyStr::new1(path), PyStr::new()).into()
     }
 
     fn new_shortname() -> Self {
@@ -6532,10 +6482,10 @@ impl PyType {
         PyInt::new(RsInt::NonZeroUsize, p).into()
     }
 
-    fn new_range() -> Self {
-        let p = parse_quote!(fireflow_core::text::keywords::Range);
-        PyDecimal::new1(p).into()
-    }
+    // fn new_range() -> Self {
+    //     let p = parse_quote!(fireflow_core::text::keywords::Range);
+    //     PyDecimal::new1(p).into()
+    // }
 
     fn new_bitmask(nbytes: usize) -> Self {
         let i = format_ident!("Bitmask{:02}", nbytes * 8);
@@ -6567,6 +6517,11 @@ impl PyType {
 
     fn new_timestep() -> Self {
         PyFloat::new(RsFloat::F32, keyword_path("Timestep")).into()
+    }
+
+    fn new_tr() -> Self {
+        let path = keyword_path("Trigger");
+        PyTuple::new1([PyType::from(RsInt::U32), PyStr::new().into()], path).into()
     }
 }
 
@@ -6745,14 +6700,14 @@ impl<A, R, S> DocString<A, R, S> {
         A: IsDocArg,
         S: IsSelfArg,
     {
-        if let Err(e) = self
-            .args
-            .iter()
-            .map(|a| a.default_matches())
-            .collect::<Result<Vec<_>, _>>()
-        {
-            panic!("{e}")
-        }
+        // if let Err(e) = self
+        //     .args
+        //     .iter()
+        //     .map(|a| a.default_matches())
+        //     .collect::<Result<Vec<_>, _>>()
+        // {
+        //     panic!("{e}")
+        // }
         if self.has_defaults().is_none() {
             panic!("non-default args after default args");
         }
@@ -6764,7 +6719,7 @@ impl<A, R, S> DocString<A, R, S> {
                 let n = &a.argname();
                 let i = format_ident!("{n}");
                 if let Some(d) = a.default() {
-                    let r = d.as_rs_value();
+                    let r = d.as_rs_value(a.pytype());
                     let t = d.as_py_value();
                     (quote! {#i=#r}, format!("{n}={t}"))
                 } else {

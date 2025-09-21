@@ -3105,7 +3105,6 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
             PyList::new(RsInt::U32),
             parse_quote!(#sizedbyteord_path<#nbytes>),
         ),
-        parse_quote!(#sizedbyteord_path<#nbytes>),
         format!(
             "The byte order to use when encoding values. Must be ``\"big\"``, \
              ``\"little\"``, or a list of all integers between 1 and {nbytes} \
@@ -3353,7 +3352,6 @@ fn make_endian_ord_param(n: usize) -> DocArgROIvar {
     DocArg::new_ivar_ro_def(
         "endian",
         PyLiteral::new2(["big", "little"], endian.clone()),
-        endian.clone(),
         format!(
             "If ``\"big\"`` use big endian (``{ys}``) for encoding values; \
              if ``\"little\"`` use little endian (``{xs}``)."
@@ -3375,7 +3373,6 @@ fn make_endian_param(n: usize) -> DocArgROIvar {
     DocArg::new_ivar_ro_def(
         "endian",
         PyLiteral::new2(["big", "little"], endian.clone()),
-        endian.clone(),
         format!(
             "If ``\"big\"`` use big endian (``{ys}``) for encoding values; \
              if ``\"little\"`` use little endian (``{xs}``)."
@@ -4410,19 +4407,13 @@ impl DocArgROIvar {
     fn new_ivar_ro_def(
         argname: impl Into<String>,
         pytype: impl Into<PyType>,
-        rstype: Path,
         desc: impl Into<String>,
         def: DocDefault,
         method: GetMethod,
     ) -> Self {
-        Self::new(
-            argname,
-            pytype.into(),
-            wrap_path_to_type(rstype),
-            desc,
-            Some(def),
-            method,
-        )
+        let pt = pytype.into();
+        let rt = pt.as_rust_type();
+        Self::new(argname, pt, rt, desc, Some(def), method)
     }
 
     fn new_version_ivar() -> Self {

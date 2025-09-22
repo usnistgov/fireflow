@@ -64,11 +64,10 @@ use fireflow_core::data::{
     F64Range, FixedAsciiLayout, KnownTot, LayoutOps, NoMeasDatatype, NonMixedEndianLayout,
 };
 use fireflow_core::error::{MultiResultExt, ResultExt};
-use fireflow_core::header::{self, Version};
+use fireflow_core::header;
 use fireflow_core::python::exceptions::{
     PyTerminalNoErrorResultExt, PyTerminalNoWarnResultExt, PyTerminalResultExt,
 };
-use fireflow_core::segment::{HeaderAnalysisSegment, HeaderDataSegment, OtherSegment20};
 use fireflow_core::text::gating::{
     AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, BivariateRegion, GatedMeasurement,
     GatingScheme, Region, UnivariateRegion,
@@ -78,7 +77,6 @@ use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::Eithers;
 use fireflow_core::text::optional::MightHave;
 use fireflow_core::validated::ascii_uint::UintSpacePad20;
-use fireflow_core::validated::keys::{StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::Shortname;
 
 use fireflow_python_proc::def_fcs_read_std_dataset_with_keywords;
@@ -112,7 +110,6 @@ use derive_more::{From, Into};
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 def_fcs_read_header!(api::fcs_read_header);
 def_fcs_read_raw_text!(api::fcs_read_raw_text);

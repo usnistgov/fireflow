@@ -26,9 +26,6 @@ use std::path;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-#[cfg(feature = "python")]
-use pyo3::prelude::*;
-
 /// Read HEADER from an FCS file.
 pub fn fcs_read_header(
     p: &path::PathBuf,
@@ -199,7 +196,6 @@ pub fn fcs_read_std_dataset_with_keywords(
 /// Output from parsing the TEXT segment.
 #[derive(Clone, new, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct RawTEXTOutput {
     /// FCS version
     pub version: Version,
@@ -234,7 +230,6 @@ pub struct StdTEXTOutput {
 
 /// Output of parsing one raw dataset (TEXT+DATA) from an FCS file.
 #[derive(Clone, new, PartialEq)]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct RawDatasetOutput {
     /// Output from parsing HEADER+TEXT
     pub text: RawTEXTOutput,
@@ -255,7 +250,6 @@ pub struct StdDatasetOutput {
 
 /// Output of using keywords to read raw TEXT+DATA
 #[derive(Clone, new, PartialEq)]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct RawDatasetWithKwsOutput {
     /// DATA output
     pub data: FCSDataFrame,
@@ -276,7 +270,6 @@ pub struct RawDatasetWithKwsOutput {
 /// Data pertaining to parsing the TEXT segment.
 #[derive(new, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct RawTEXTParseData {
     /// Offsets read from HEADER
     pub header_segments: HeaderSegments<UintSpacePad20>,

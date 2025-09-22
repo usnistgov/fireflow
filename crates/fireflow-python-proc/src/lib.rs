@@ -605,7 +605,7 @@ pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
         };
         DocArg::new_bool_param(
             format!("exclude_{x}_{y}"),
-            format!("Do not include {a} {b} keywords"),
+            format!("Do not include {a} {b} keywords."),
         )
     };
 
@@ -1071,7 +1071,7 @@ pub fn impl_core_rename_temporal(input: TokenStream) -> TokenStream {
         [DocArg::new_name_param("New name to assign.")],
         Some(DocReturn::new1(
             PyOpt::new(PyType::new_shortname()),
-            "Previous name if present",
+            "Previous name if present.",
         )),
     );
 
@@ -1149,7 +1149,7 @@ pub fn impl_core_get_measurements(input: TokenStream) -> TokenStream {
     let named_vec_path = quote!(fireflow_core::text::named_vec::NamedVec);
 
     let doc = DocString::new_ivar(
-        "Get all measurements.",
+        "All measurements.",
         [""; 0],
         DocReturn::new(PyList::new(PyType::new_measurement(version))),
     );
@@ -1177,7 +1177,7 @@ pub fn impl_core_get_temporal(input: TokenStream) -> TokenStream {
     let version = split_ident_version_pycore(&i).1;
 
     let doc = DocString::new_ivar(
-        "Get the temporal measurement if it exists.",
+        "The temporal measurement if it exists.",
         [""; 0],
         DocReturn::new1(
             PyOpt::new(PyTuple::new([
@@ -1185,7 +1185,7 @@ pub fn impl_core_get_temporal(input: TokenStream) -> TokenStream {
                 PyType::new_shortname(),
                 PyType::new_temporal(version),
             ])),
-            "Index, name, and measurement or ``None``",
+            "Index, name, and measurement or ``None``.",
         ),
     );
 
@@ -1350,7 +1350,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
         [DocArg::new_name_param("Name to remove.")],
         Some(DocReturn::new1(
             PyTuple::new([PyType::new_meas_index(), PyType::new_measurement(version)]),
-            "Index and measurement object",
+            "Index and measurement object.",
         )),
     );
 
@@ -1363,7 +1363,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
                 PyType::new_versioned_shortname(version),
                 PyType::new_measurement(version),
             ]),
-            "Name and measurement object",
+            "Name and measurement object.",
         )),
     );
 
@@ -1504,7 +1504,7 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
                 i_param,
                 DocArg::new_param("meas", PyType::new_optical(version), meas_desc),
             ],
-            Some(DocReturn::new1(ret, "Replaced measurement object")),
+            Some(DocReturn::new1(ret, "Replaced measurement object.")),
         )
     };
 
@@ -1596,7 +1596,7 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
             format!("Replace {m} with given temporal measurement."),
             [sub],
             args.into_iter().chain(force.clone()),
-            Some(DocReturn::new1(ret, "Replaced measurement object")),
+            Some(DocReturn::new1(ret, "Replaced measurement object.")),
         )
     };
 
@@ -1861,7 +1861,7 @@ pub fn impl_coretext_unset_measurements(input: TokenStream) -> TokenStream {
     let _ = split_ident_version_checked("PyCoreTEXT", &i);
     let s = "Remove measurements and clear the layout.";
     let p0 = "This is equivalent to deleting all *$Pn\\** keywords and setting \
-              *$PAR* to 0.";
+              *$PAR* to ``0``.";
     let p1 = "Will raise exception if other keywords (such as *$TR*) reference \
               a measurement.";
 
@@ -2616,7 +2616,7 @@ pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
                 [param],
                 Some(DocReturn::new1(
                     PyClass::new2(target_type.to_string(), parse_quote!(#target_pytype)),
-                    format!("A new class conforming to FCS {vs}"),
+                    format!("A new class conforming to FCS {vs}."),
                 )),
             );
             quote! {
@@ -2742,7 +2742,7 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
     let (pyname, class) = doc.into_impl_class(name.to_string(), path, new, quote!());
 
     let char_widths_doc = DocString::new_ivar(
-        "The width of each measurement in number of chars (read only).",
+        "The width of each measurement.",
         [
             "Equivalent to *$PnB*, which is the number of chars/digits used \
              to encode data for a given measurement.",
@@ -2779,9 +2779,8 @@ pub fn impl_new_delim_ascii_layout(input: TokenStream) -> TokenStream {
     let ranges_param = DocArg::new_ivar_ro(
         "ranges",
         PyList::new(RsInt::U64),
-        "The range for each measurement. Equivalent to the *$PnR* \
-         keyword. This is not used internally and thus only represents \
-         documentation at the user level.",
+        "The range for each measurement. Equivalent to the *$PnR* keyword. \
+         This is not used internally.",
         |_, _| quote!(self.0.ranges.clone()),
     );
 
@@ -2861,7 +2860,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
         ),
         format!(
             "The byte order to use when encoding values. Must be ``\"big\"``, \
-             ``\"little\"``, or a list of all integers between 1 and {nbytes} \
+             ``\"little\"``, or a list of all integers from 1 to {nbytes} \
              in any order."
         ),
         DocDefault::Auto,
@@ -2944,7 +2943,7 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
         "ranges",
         PyList::new(PyType::new_float_range(nbytes)),
         "The range for each measurement. Corresponds to *$PnR*. This is not \
-         used internally so only serves the users' own purposes.",
+         used internally.",
         |_, _| quote!(self.0.columns().iter().map(|c| c.clone()).collect()),
     );
 
@@ -3100,10 +3099,10 @@ fn make_endian_param(n: usize) -> DocArgROIvar {
 fn make_byte_width(pyname: &Ident, nbytes: usize) -> TokenStream2 {
     let s0 = format!("Will always return ``{nbytes}``.");
     let s1 = "This corresponds to the value of *$PnB* divided by 8, which are \
-              all the same for this layout."
+              all equal for this layout."
         .into();
     let doc = DocString::new_ivar(
-        "The width of each measurement in bytes (read only).",
+        "The width of each measurement in bytes.",
         [s0, s1],
         DocReturn::new(RsInt::Usize),
     );
@@ -3116,7 +3115,7 @@ pub fn impl_layout_byte_widths(input: TokenStream) -> TokenStream {
     let t = parse_macro_input!(input as Ident);
 
     let doc = DocString::new_ivar(
-        "The width of each measurement in bytes (read-only).",
+        "The width of each measurement in bytes.",
         [
             "This corresponds to the value of *$PnB* for each measurement \
              divided by 8. Values for each measurement may be different.",
@@ -3138,7 +3137,7 @@ pub fn impl_layout_byte_widths(input: TokenStream) -> TokenStream {
 
 fn make_layout_datatype(pyname: &Ident, dt: &str) -> TokenStream2 {
     let doc = DocString::new_ivar(
-        "The value of *$DATATYPE* (read-only).",
+        "The value of *$DATATYPE*.",
         [format!("Will always return ``\"{dt}\"``.")],
         DocReturn::new(PyType::new_datatype()),
     );
@@ -4878,7 +4877,7 @@ impl DocArgParam {
         Self::new_param_def(
             "analysis",
             PyBytes::new1(path),
-            "A byte string encoding the *ANALYSIS* segment",
+            "A byte string encoding the *ANALYSIS* segment.",
             DocDefault::Auto,
         )
     }
@@ -4888,7 +4887,7 @@ impl DocArgParam {
         Self::new_param_def(
             "others",
             PyList::new1(PyBytes::new(), path),
-            "A list of byte strings encoding the *OTHER* segments",
+            "A list of byte strings encoding the *OTHER* segments.",
             DocDefault::Auto,
         )
     }

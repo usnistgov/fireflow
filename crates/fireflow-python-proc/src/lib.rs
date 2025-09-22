@@ -3565,6 +3565,7 @@ impl IsMethods for AnyDocArg {
 enum DocDefault {
     Auto,
     Int(usize),
+    Str(String),
 }
 
 #[derive(Clone)]
@@ -5037,14 +5038,17 @@ impl DocArgParam {
     }
 
     fn new_time_meas_pattern_param() -> Self {
-        Self::new_opt_param(
+        Self::new_param_def(
             "time_meas_pattern",
-            PyStr::new1(parse_quote!(fireflow_core::config::TimeMeasNamePattern)),
+            PyOpt::new(PyStr::new1(parse_quote!(
+                fireflow_core::config::TimeMeasNamePattern
+            ))),
             format!(
                 "A pattern to match the *$PnN* of the time measurement. Must be \
                 a regular expression following syntax described in {REGEXP_REF}. \
                 If ``None``, do not try to find a time measurement."
             ),
+            DocDefault::Str("^TIME|Time$".into()),
         )
     }
 
@@ -5601,14 +5605,24 @@ impl DocArgParam {
 
 impl DocDefault {
     fn as_value(&self, pytype: &PyType) -> (String, TokenStream2) {
-        match (self, pytype) {
-            (Self::Auto, _) => pytype.defaults(),
-            (Self::Int(x), PyType::Int(_)) => (x.to_string(), pytype.defaults().1),
-            _ => panic!(
+        let err = || {
+            panic!(
                 "Arg type '{}' does not match default type '{}'",
                 pytype,
                 self.as_type()
-            ),
+            )
+        };
+        let py_str = |s| format!("\"{s}\"");
+        match (self, pytype) {
+            (Self::Auto, _) => pytype.defaults(),
+            (Self::Int(x), PyType::Int(_)) => (x.to_string(), pytype.defaults().1),
+            (Self::Str(x), PyType::Str(_)) => (py_str(x), pytype.defaults().1),
+            (dt, PyType::Option(pt)) => match (dt, &pt.inner) {
+                (Self::Int(x), PyType::Int(y)) => (x.to_string(), y.defaults().1),
+                (Self::Str(x), PyType::Str(y)) => (py_str(x), y.defaults().1),
+                _ => err(),
+            },
+            _ => err(),
         }
     }
 
@@ -5616,6 +5630,7 @@ impl DocDefault {
     fn as_type(&self) -> &'static str {
         match self {
             Self::Auto => "auto",
+            Self::Str(_) => "str",
             Self::Int(_) => "int",
         }
     }

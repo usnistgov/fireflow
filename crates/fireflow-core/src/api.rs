@@ -243,7 +243,7 @@ pub struct RawDatasetOutput {
 }
 
 /// Output of parsing one standardized dataset (TEXT+DATA) from an FCS file.
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[derive(Clone, new, PartialEq)]
 pub struct StdDatasetOutput {
     /// Standardized data from one FCS dataset
     pub dataset: StdDatasetWithKwsOutput,

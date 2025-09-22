@@ -82,7 +82,7 @@ use fireflow_core::validated::keys::{StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::Shortname;
 
 use fireflow_python_proc::{
-    def_fcs_read_header, def_fcs_read_raw_text, def_fcs_read_std_text,
+    def_fcs_read_header, def_fcs_read_raw_text, def_fcs_read_std_dataset, def_fcs_read_std_text,
     impl_core_all_meas_nonstandard_keywords, impl_core_all_peak_attrs, impl_core_all_pnanalyte,
     impl_core_all_pncal3_1, impl_core_all_pncal3_2, impl_core_all_pnd, impl_core_all_pndet,
     impl_core_all_pnf, impl_core_all_pnfeature, impl_core_all_pnl_new, impl_core_all_pnl_old,
@@ -102,7 +102,7 @@ use fireflow_python_proc::{
     impl_new_endian_float_layout, impl_new_endian_uint_layout, impl_new_fixed_ascii_layout,
     impl_new_gate_bi_regions, impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout,
     impl_new_ordered_layout, impl_py_header, impl_py_header_segments, impl_py_raw_text_output,
-    impl_py_raw_text_parse_data, impl_py_std_text_output,
+    impl_py_raw_text_parse_data, impl_py_std_dataset_output, impl_py_std_text_output,
 };
 
 use derive_more::{From, Into};
@@ -114,6 +114,7 @@ use std::path::PathBuf;
 def_fcs_read_header!(api::fcs_read_header);
 def_fcs_read_raw_text!(api::fcs_read_raw_text);
 def_fcs_read_std_text!(api::fcs_read_std_text);
+def_fcs_read_std_dataset!(api::fcs_read_std_dataset);
 
 impl_py_header!(header::Header);
 impl_py_header_segments!(header::HeaderSegments<UintSpacePad20>);
@@ -122,16 +123,7 @@ impl_py_raw_text_output!(api::RawTEXTOutput);
 impl_py_raw_text_parse_data!(api::RawTEXTParseData);
 
 impl_py_std_text_output!(api::StdTEXTOutput);
-
-// #[pyfunction]
-// #[pyo3(name = "_fcs_read_std_text")]
-// pub fn py_fcs_read_std_text(
-//     p: PathBuf,
-//     conf: cfg::ReadStdTEXTConfig,
-// ) -> PyResult<(PyAnyCoreTEXT, api::StdTEXTOutput)> {
-//     let (core, data) = api::fcs_read_std_text(&p, &conf).py_termfail_resolve()?;
-//     Ok((core.into(), data))
-// }
+impl_py_std_dataset_output!(api::StdDatasetOutput);
 
 #[pyfunction]
 #[pyo3(name = "_fcs_read_raw_dataset")]
@@ -142,15 +134,15 @@ pub fn py_fcs_read_raw_dataset(
     api::fcs_read_raw_dataset(&p, &conf).py_termfail_resolve()
 }
 
-#[pyfunction]
-#[pyo3(name = "_fcs_read_std_dataset")]
-pub fn py_fcs_read_std_dataset(
-    p: PathBuf,
-    conf: cfg::ReadStdDatasetConfig,
-) -> PyResult<(PyAnyCoreDataset, api::StdDatasetOutput)> {
-    let (core, data) = api::fcs_read_std_dataset(&p, &conf).py_termfail_resolve()?;
-    Ok((core.into(), data))
-}
+// #[pyfunction]
+// #[pyo3(name = "_fcs_read_std_dataset")]
+// pub fn py_fcs_read_std_dataset(
+//     p: PathBuf,
+//     conf: cfg::ReadStdDatasetConfig,
+// ) -> PyResult<(PyAnyCoreDataset, api::StdDatasetOutput)> {
+//     let (core, data) = api::fcs_read_std_dataset(&p, &conf).py_termfail_resolve()?;
+//     Ok((core.into(), data))
+// }
 
 #[pyfunction]
 #[pyo3(name = "_fcs_read_raw_dataset_with_keywords")]

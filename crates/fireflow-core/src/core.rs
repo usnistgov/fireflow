@@ -1159,6 +1159,7 @@ pub struct OthersReader<'a> {
 }
 
 /// Output of using keywords to read standardized TEXT+DATA
+#[derive(Clone, new, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct StdDatasetWithKwsOutput {
     /// DATA+ANALYSIS
@@ -1169,6 +1170,7 @@ pub struct StdDatasetWithKwsOutput {
 }
 
 /// Standardized TEXT+DATA+ANALYSIS with DATA+ANALYSIS offsets
+#[derive(Clone, new, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct DatasetSegments {
     /// offsets used to parse DATA

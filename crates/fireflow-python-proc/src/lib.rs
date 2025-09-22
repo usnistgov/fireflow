@@ -26,10 +26,7 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
         "Read the *HEADER* of an FCS file.",
         [""; 0],
         [DocArg::new_path_param(true)].into_iter().chain(args),
-        Some(DocReturn::new(PyClass::new2(
-            "Header",
-            parse_quote!(PyHeader),
-        ))),
+        Some(DocReturn::new(PyClass::new_py("Header"))),
     );
     let fun_args = doc.fun_args();
     let conf_inner_path = config_path("HeaderConfigInner");
@@ -104,10 +101,9 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
 
     let version = DocArgROIvar::new_version_ivar();
 
-    let segments_path: Path = parse_quote!(PyHeaderSegments);
     let segments = DocArgROIvar::new_ivar_ro(
         "segments",
-        PyClass::new2("HeaderSegments", segments_path.clone()),
+        PyClass::new_py("HeaderSegments"),
         "The segments from *HEADER*.",
         |_, _| quote!(self.0.segments.clone().into()),
     );
@@ -193,10 +189,9 @@ pub fn impl_py_raw_text_output(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.keywords.nonstd.clone().into()),
     );
 
-    let parse_path: Path = parse_quote!(PyRawTEXTParseData);
     let parse = DocArgROIvar::new_ivar_ro(
         "parse",
-        PyClass::new2("RawTEXTParseData", parse_path.clone()),
+        PyClass::new_py("RawTEXTParseData"),
         "Miscellaneous data obtained when parsing *TEXT*.",
         |_, _| quote!(self.0.parse.clone().into()),
     );
@@ -223,10 +218,9 @@ pub fn impl_py_raw_text_parse_data(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
-    let segments_path: Path = parse_quote!(PyHeaderSegments);
     let segments = DocArgROIvar::new_ivar_ro(
         "header_segments",
-        PyClass::new2("HeaderSegments", segments_path.clone()),
+        PyClass::new_py("HeaderSegments"),
         "Segments from *HEADER*.",
         |_, _| quote!(self.0.header_segments.clone().into()),
     );
@@ -1674,10 +1668,7 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
         "Make new instance from keywords.",
         [""; 0],
         [std_param, nonstd_param].into_iter().chain(config_params),
-        Some(DocReturn::new(PyClass::new2(
-            ident.to_string(),
-            parse_quote!(#pyname),
-        ))),
+        Some(DocReturn::new(PyClass::new_py(ident.to_string()))),
     );
 
     let fun_args = doc.fun_args();
@@ -1788,10 +1779,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
         "Make new instance from keywords.",
         [""; 0],
         all_args,
-        Some(DocReturn::new(PyClass::new2(
-            ident.to_string(),
-            parse_quote!(#pyname),
-        ))),
+        Some(DocReturn::new(PyClass::new_py(ident.to_string()))),
     );
 
     let fun_args = doc.fun_args();
@@ -2031,10 +2019,7 @@ pub fn impl_coretext_to_dataset(input: TokenStream) -> TokenStream {
         ["This will fully represent an FCS file, as opposed to just \
           representing *HEADER* and *TEXT*."],
         [data, analysis, others],
-        Some(DocReturn::new(PyClass::new2(
-            to_name,
-            parse_quote!(#to_rstype),
-        ))),
+        Some(DocReturn::new(PyClass::new_py(to_name))),
     );
 
     let fun_args = doc.fun_args();
@@ -2561,7 +2546,7 @@ pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
                 [sub],
                 [param],
                 Some(DocReturn::new1(
-                    PyClass::new2(target_type.to_string(), parse_quote!(#target_pytype)),
+                    PyClass::new_py(target_type.to_string()),
                     format!("A new class conforming to FCS {vs}."),
                 )),
             );
@@ -4115,6 +4100,11 @@ impl PyClass {
     fn new2(pyname: impl Into<String>, rstype: Path) -> Self {
         Self::new(pyname, Some(rstype))
     }
+
+    fn new_py(name: impl fmt::Display + Into<String>) -> Self {
+        let pyname = format_ident!("Py{name}");
+        Self::new2(name, parse_quote!(#pyname))
+    }
 }
 
 impl DocArgROIvar {
@@ -4512,13 +4502,7 @@ impl DocArgRWIvar {
         let rstype_inner = format_ident!("AppliedGates{vsu}");
         let rstype = format_ident!("Py{rstype_inner}");
         let gmtype = if collapsed_version < Version::FCS3_2 {
-            Some(
-                PyList::new(PyClass::new2(
-                    "GatedMeasurement",
-                    parse_quote!(PyGatedMeasurement),
-                ))
-                .into(),
-            )
+            Some(PyList::new(PyClass::new_py("GatedMeasurement")).into())
         } else {
             None
         };
@@ -5756,15 +5740,12 @@ impl IsDocArg for AnyDocArg {
 impl PyType {
     fn new_optical(version: Version) -> Self {
         let n = format!("Optical{}", version.short_underscore());
-        let p = format_ident!("Py{n}");
-        PyClass::new2(n, parse_quote!(#p)).into()
+        PyClass::new_py(n).into()
     }
 
     fn new_temporal(version: Version) -> Self {
-        // TODO wet
         let n = format!("Temporal{}", version.short_underscore());
-        let p = format_ident!("Py{n}");
-        PyClass::new2(n, parse_quote!(#p)).into()
+        PyClass::new_py(n).into()
     }
 
     fn new_measurement(version: Version) -> Self {

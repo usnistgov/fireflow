@@ -233,6 +233,7 @@ pub struct StdTEXTOutput {
 }
 
 /// Output of parsing one raw dataset (TEXT+DATA) from an FCS file.
+#[derive(Clone, new, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct RawDatasetOutput {
     /// Output from parsing HEADER+TEXT
@@ -253,6 +254,7 @@ pub struct StdDatasetOutput {
 }
 
 /// Output of using keywords to read raw TEXT+DATA
+#[derive(Clone, new, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct RawDatasetWithKwsOutput {
     /// DATA output

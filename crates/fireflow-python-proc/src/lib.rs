@@ -158,6 +158,68 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
+    let fun_path = parse_macro_input!(input as Path);
+
+    let header_conf_path = config_path("HeaderConfigInner");
+    let raw_conf_path = config_path("ReadHeaderAndTEXTConfig");
+    let layout_conf_path = config_path("ReadLayoutConfig");
+    let offsets_conf_path = config_path("ReadTEXTOffsetsConfig");
+    let data_conf_path = config_path("ReaderConfig");
+    let shared_conf_path = config_path("SharedConfig");
+    let conf_path = config_path("ReadRawDatasetConfig");
+
+    let path_arg = DocArg::new_path_param(true);
+    let header_args = DocArgParam::new_header_config_params();
+    let raw_args = DocArgParam::new_raw_config_params();
+    let layout_args = DocArgParam::new_layout_config_params(None);
+    let offsets_args = DocArgParam::new_offsets_config_params(None);
+    let data_args = DocArgParam::new_reader_config_params();
+    let shared_args = DocArgParam::new_shared_config_params();
+
+    let header_inner_args: Vec<_> = header_args.iter().map(|a| a.record_into()).collect();
+    let raw_inner_args: Vec<_> = raw_args.iter().map(|a| a.record_into()).collect();
+    let layout_inner_args: Vec<_> = layout_args.iter().map(|a| a.record_into()).collect();
+    let offsets_inner_args: Vec<_> = offsets_args.iter().map(|a| a.record_into()).collect();
+    let data_inner_args: Vec<_> = data_args.iter().map(|a| a.record_into()).collect();
+    let shared_inner_args: Vec<_> = shared_args.iter().map(|a| a.record_into()).collect();
+
+    let doc = DocString::new_fun(
+        "Read raw dataset from FCS file.",
+        [""; 0],
+        [path_arg]
+            .into_iter()
+            .chain(header_args)
+            .chain(raw_args)
+            .chain(layout_args)
+            .chain(offsets_args)
+            .chain(data_args)
+            .chain(shared_args),
+        Some(DocReturn::new(PyClass::new_py("RawDatasetOutput"))),
+    );
+
+    let fun_args = doc.fun_args();
+    let ret_path = doc.ret_path();
+
+    quote! {
+        #[pyfunction]
+        #doc
+        #[allow(clippy::too_many_arguments)]
+        pub fn fcs_read_raw_dataset(#fun_args) -> PyResult<#ret_path> {
+            let header = #header_conf_path { #(#header_inner_args),* };
+            let raw = #raw_conf_path { header, #(#raw_inner_args),* };
+            let layout = #layout_conf_path { #(#layout_inner_args),* };
+            let offsets = #offsets_conf_path { #(#offsets_inner_args),* };
+            let data = #data_conf_path { #(#data_inner_args),* };
+            let shared = #shared_conf_path { #(#shared_inner_args),* };
+            let conf = #conf_path { raw, layout, offsets, data, shared };
+            Ok(#fun_path(&path, &conf).py_termfail_resolve()?.into())
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
 pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
     let fun_path = parse_macro_input!(input as Path);
 
@@ -229,6 +291,153 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream {
+    let fun_path = parse_macro_input!(input as Path);
+
+    let offsets_conf_path = config_path("ReadTEXTOffsetsConfig");
+    let layout_conf_path = config_path("ReadLayoutConfig");
+    let shared_conf_path = config_path("SharedConfig");
+    let data_conf_path = config_path("ReaderConfig");
+    let conf_path = config_path("ReadRawDatasetFromKeywordsConfig");
+
+    let path_arg = DocArg::new_path_param(true);
+    let version_arg = DocArg::new_version_param();
+    let std_arg = DocArg::new_std_keywords_param();
+    let data_arg = DocArg::new_data_seg_param(SegmentSrc::Header);
+    let analysis_arg = DocArg::new_analysis_seg_param(SegmentSrc::Header, true);
+    let other_arg = DocArg::new_other_segs_param(true);
+
+    let offsets_args = DocArgParam::new_offsets_config_params(None);
+    let layout_args = DocArgParam::new_layout_config_params(None);
+    let data_args = DocArgParam::new_reader_config_params();
+    let shared_args = DocArgParam::new_shared_config_params();
+
+    let offsets_inner_args: Vec<_> = offsets_args.iter().map(|a| a.record_into()).collect();
+    let layout_inner_args: Vec<_> = layout_args.iter().map(|a| a.record_into()).collect();
+    let data_inner_args: Vec<_> = data_args.iter().map(|a| a.record_into()).collect();
+    let shared_inner_args: Vec<_> = shared_args.iter().map(|a| a.record_into()).collect();
+
+    let doc = DocString::new_fun(
+        "Read raw dataset from FCS file from keywords.",
+        [""; 0],
+        [
+            path_arg,
+            version_arg,
+            std_arg,
+            data_arg,
+            analysis_arg,
+            other_arg,
+        ]
+        .into_iter()
+        .chain(offsets_args)
+        .chain(layout_args)
+        .chain(data_args)
+        .chain(shared_args),
+        Some(DocReturn::new(PyClass::new_py("RawDatasetWithKwsOutput"))),
+    );
+
+    let fun_args = doc.fun_args();
+    let ret_path = doc.ret_path();
+
+    quote! {
+        #[pyfunction]
+        #doc
+        #[allow(clippy::too_many_arguments)]
+        pub fn fcs_read_raw_dataset_with_keywords(#fun_args) -> PyResult<#ret_path> {
+            let offsets = #offsets_conf_path { #(#offsets_inner_args),* };
+            let layout = #layout_conf_path { #(#layout_inner_args),* };
+            let data = #data_conf_path { #(#data_inner_args),* };
+            let shared = #shared_conf_path { #(#shared_inner_args),* };
+            let conf = #conf_path { offsets, layout, data, shared };
+            let ret = #fun_path(
+                &path, version, &std, data_seg, analysis_seg, other_segs, &conf
+            ).py_termfail_resolve()?;
+            Ok(ret.into())
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn def_fcs_read_std_dataset_with_keywords(input: TokenStream) -> TokenStream {
+    let fun_path = parse_macro_input!(input as Path);
+
+    let std_conf_path = config_path("StdTextReadConfig");
+    let offsets_conf_path = config_path("ReadTEXTOffsetsConfig");
+    let layout_conf_path = config_path("ReadLayoutConfig");
+    let shared_conf_path = config_path("SharedConfig");
+    let data_conf_path = config_path("ReaderConfig");
+    let conf_path = config_path("ReadStdDatasetFromKeywordsConfig");
+
+    let path_arg = DocArg::new_path_param(true);
+    let version_arg = DocArg::new_version_param();
+    let std_arg = DocArg::new_std_keywords_param();
+    let nonstd_arg = DocArg::new_nonstd_keywords_param();
+    let data_arg = DocArg::new_data_seg_param(SegmentSrc::Header);
+    let analysis_arg = DocArg::new_analysis_seg_param(SegmentSrc::Header, true);
+    let other_arg = DocArg::new_other_segs_param(true);
+
+    let std_args = DocArgParam::new_std_config_params(None);
+    let offsets_args = DocArgParam::new_offsets_config_params(None);
+    let layout_args = DocArgParam::new_layout_config_params(None);
+    let data_args = DocArgParam::new_reader_config_params();
+    let shared_args = DocArgParam::new_shared_config_params();
+
+    let std_inner_args: Vec<_> = std_args.iter().map(|a| a.record_into()).collect();
+    let offsets_inner_args: Vec<_> = offsets_args.iter().map(|a| a.record_into()).collect();
+    let layout_inner_args: Vec<_> = layout_args.iter().map(|a| a.record_into()).collect();
+    let data_inner_args: Vec<_> = data_args.iter().map(|a| a.record_into()).collect();
+    let shared_inner_args: Vec<_> = shared_args.iter().map(|a| a.record_into()).collect();
+
+    let doc = DocString::new_fun(
+        "Read standardized dataset from FCS file.",
+        [""; 0],
+        [
+            path_arg,
+            version_arg,
+            std_arg,
+            nonstd_arg,
+            data_arg,
+            analysis_arg,
+            other_arg,
+        ]
+        .into_iter()
+        .chain(std_args)
+        .chain(offsets_args)
+        .chain(layout_args)
+        .chain(data_args)
+        .chain(shared_args),
+        Some(DocReturn::new(PyTuple::new([
+            PyClass::new_py("AnyCoreDataset"),
+            PyClass::new_py("StdDatasetWithKwsOutput"),
+        ]))),
+    );
+
+    let fun_args = doc.fun_args();
+    let ret_path = doc.ret_path();
+
+    quote! {
+        #[pyfunction]
+        #doc
+        #[allow(clippy::too_many_arguments)]
+        pub fn fcs_read_std_dataset_with_keywords(#fun_args) -> PyResult<#ret_path> {
+            let kws = fireflow_core::validated::keys::ValidKeywords::new(std, nonstd);
+            let standard = #std_conf_path { #(#std_inner_args),* };
+            let offsets = #offsets_conf_path { #(#offsets_inner_args),* };
+            let layout = #layout_conf_path { #(#layout_inner_args),* };
+            let data = #data_conf_path { #(#data_inner_args),* };
+            let shared = #shared_conf_path { #(#shared_inner_args),* };
+            let conf = #conf_path { standard, offsets, layout, data, shared };
+            let (core, data) = #fun_path(
+                &path, version, kws, data_seg, analysis_seg, other_segs, &conf
+            ).py_termfail_resolve()?;
+            Ok((core.into(), data.into()))
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
 pub fn impl_py_header(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
@@ -265,25 +474,12 @@ pub fn impl_py_header_segments(input: TokenStream) -> TokenStream {
     let bare_path = path_strip_args(path.clone());
     let name = path.segments.last().unwrap().ident.clone();
 
-    let make_seg_arg = |ident: &str, name: &str| {
-        DocArgROIvar::new_ivar_ro(
-            name,
-            PyType::new_segment(ident),
-            format!("The *{}* segment offsets.", name.to_uppercase()),
-            |n, _| quote!(self.0.#n),
-        )
-    };
-    let text = make_seg_arg("PrimaryTextSegment", "text");
-    let data = make_seg_arg("HeaderDataSegment", "data");
-    let analysis = make_seg_arg("HeaderAnalysisSegment", "analysis");
+    let text = DocArg::new_text_seg_param().into_ro(|_, _| quote!(self.0.text));
+    let data = DocArg::new_data_seg_param(SegmentSrc::Header).into_ro(|_, _| quote!(self.0.data));
+    let analysis = DocArg::new_analysis_seg_param(SegmentSrc::Header, false)
+        .into_ro(|_, _| quote!(self.0.analysis));
 
-    let other_path: Path = parse_quote!(Vec<fireflow_core::segment::OtherSegment20>);
-    let other = DocArgROIvar::new_ivar_ro(
-        "other",
-        PyList::new1(PyType::new_segment("OtherSegment20"), other_path.clone()),
-        "The *OTHER* segment offsets in the order listed (if any).",
-        |_, _| quote!(self.0.other.clone()),
-    );
+    let other = DocArg::new_other_segs_param(false).into_ro(|_, _| quote!(self.0.other.clone()));
 
     let args = [text, data, analysis, other];
 
@@ -309,26 +505,14 @@ pub fn impl_py_raw_text_output(input: TokenStream) -> TokenStream {
 
     let version = DocArgROIvar::new_version_ivar();
 
-    let std = DocArgROIvar::new_ivar_ro(
-        "std",
-        PyType::new_std_keywords(),
-        "Standard keywords.",
-        |_, _| quote!(self.0.keywords.std.clone().into()),
-    );
+    let std =
+        DocArg::new_std_keywords_param().into_ro(|_, _| quote!(self.0.keywords.std.clone().into()));
 
-    let nonstd = DocArgROIvar::new_ivar_ro(
-        "nonstd",
-        PyType::new_nonstd_keywords(),
-        "Non-standard keywords.",
-        |_, _| quote!(self.0.keywords.nonstd.clone().into()),
-    );
+    let nonstd = DocArg::new_nonstd_keywords_param()
+        .into_ro(|_, _| quote!(self.0.keywords.nonstd.clone().into()));
 
-    let parse = DocArgROIvar::new_ivar_ro(
-        "parse",
-        PyClass::new_py("RawTEXTParseData"),
-        "Miscellaneous data obtained when parsing *TEXT*.",
-        |_, _| quote!(self.0.parse.clone().into()),
-    );
+    let parse =
+        DocArg::new_parse_output_param().into_ro(|_, _| quote!(self.0.parse.clone().into()));
 
     let args = [version, std, nonstd, parse];
 
@@ -339,6 +523,94 @@ pub fn impl_py_raw_text_output(input: TokenStream) -> TokenStream {
             fn new(#fun_args) -> Self {
                 let kws = fireflow_core::validated::keys::ValidKeywords::new(std, nonstd);
                 #path::new(version, kws, parse.into()).into()
+            }
+        }
+    };
+    doc.into_impl_class(name.to_string(), path.clone(), new, quote!())
+        .1
+        .into()
+}
+
+#[proc_macro]
+pub fn impl_py_raw_dataset_output(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+
+    let version = DocArg::new_version_param().into_ro(|_, _| quote!(self.0.text.version));
+
+    let data = DocArg::new_data_param(false).into_ro(|_, _| quote!(self.0.dataset.data.clone()));
+    let analysis =
+        DocArg::new_analysis_param(false).into_ro(|_, _| quote!(self.0.dataset.analysis.clone()));
+    let others =
+        DocArg::new_others_param(false).into_ro(|_, _| quote!(self.0.dataset.others.clone()));
+
+    let data_seg =
+        DocArg::new_data_seg_param(SegmentSrc::Any).into_ro(|_, _| quote!(self.0.dataset.data_seg));
+    let analysis_seg = DocArg::new_analysis_seg_param(SegmentSrc::Any, false)
+        .into_ro(|_, _| quote!(self.0.dataset.analysis_seg));
+
+    let std = DocArg::new_std_keywords_param()
+        .into_ro(|_, _| quote!(self.0.text.keywords.std.clone().into()));
+
+    let nonstd = DocArg::new_nonstd_keywords_param()
+        .into_ro(|_, _| quote!(self.0.text.keywords.nonstd.clone().into()));
+
+    let parse =
+        DocArg::new_parse_output_param().into_ro(|_, _| quote!(self.0.text.parse.clone().into()));
+
+    let args = [
+        version,
+        data,
+        analysis,
+        others,
+        data_seg,
+        analysis_seg,
+        std,
+        nonstd,
+        parse,
+    ];
+
+    let doc = DocString::new_class("Parsed *HEADER* and *TEXT*.", [""; 0], args);
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                let kws = fireflow_core::validated::keys::ValidKeywords::new(std, nonstd);
+                let text = fireflow_core::api::RawTEXTOutput::new(version, kws, parse.into());
+                let dataset = fireflow_core::api::RawDatasetWithKwsOutput::new(
+                    data, analysis, others, data_seg, analysis_seg
+                );
+                #path::new(text, dataset).into()
+            }
+        }
+    };
+    doc.into_impl_class(name.to_string(), path.clone(), new, quote!())
+        .1
+        .into()
+}
+
+#[proc_macro]
+pub fn impl_py_raw_dataset_with_kws_output(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+
+    let data = DocArg::new_data_param(false).into_ro(|_, _| quote!(self.0.data.clone()));
+    let analysis =
+        DocArg::new_analysis_param(false).into_ro(|_, _| quote!(self.0.analysis.clone()));
+    let others = DocArg::new_others_param(false).into_ro(|_, _| quote!(self.0.others.clone()));
+    let data_seg =
+        DocArg::new_data_seg_param(SegmentSrc::Any).into_ro(|_, _| quote!(self.0.data_seg));
+    let analysis_seg = DocArg::new_analysis_seg_param(SegmentSrc::Any, false)
+        .into_ro(|_, _| quote!(self.0.analysis_seg));
+
+    let args = [data, analysis, others, data_seg, analysis_seg];
+
+    let doc = DocString::new_class("Dataset from parsing raw *TEXT*.", [""; 0], args);
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #path::new(data, analysis, others, data_seg, analysis_seg).into()
             }
         }
     };
@@ -359,19 +631,9 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.tot.as_ref().copied()),
     );
 
-    let data = DocArgROIvar::new_ivar_ro(
-        "data",
-        PyType::new_segment("AnyDataSegment"),
-        "*DATA* offsets from *TEXT*.",
-        |_, _| quote!(self.0.data.clone()),
-    );
-
-    let analysis = DocArgROIvar::new_ivar_ro(
-        "analysis",
-        PyType::new_segment("AnyAnalysisSegment"),
-        "*ANALYSIS* offsets from *TEXT*.",
-        |_, _| quote!(self.0.analysis.clone()),
-    );
+    let data = DocArg::new_data_seg_param(SegmentSrc::Any).into_ro(|_, _| quote!(self.0.data));
+    let analysis = DocArg::new_analysis_seg_param(SegmentSrc::Any, false)
+        .into_ro(|_, _| quote!(self.0.analysis));
 
     let pseudostandard = DocArgROIvar::new_ivar_ro(
         "pseudostandard",
@@ -406,7 +668,7 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
         quote! {
             fn new(#fun_args) -> Self {
                 let extra = fireflow_core::text::parser::ExtraStdKeywords::new(pseudostandard, unused);
-                #path::new(tot, data, analysis, extra, parse.into()).into()
+                #path::new(tot, data_seg, analysis_seg, extra, parse.into()).into()
             }
         }
     };
@@ -420,19 +682,11 @@ pub fn impl_py_std_dataset_output(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
-    let data = DocArgROIvar::new_ivar_ro(
-        "data",
-        PyType::new_segment("AnyDataSegment"),
-        "*DATA* offsets from *TEXT*.",
-        |_, _| quote!(self.0.dataset.standardized.data_seg.clone()),
-    );
+    let data = DocArg::new_data_seg_param(SegmentSrc::Any)
+        .into_ro(|_, _| quote!(self.0.dataset.standardized.data_seg));
 
-    let analysis = DocArgROIvar::new_ivar_ro(
-        "analysis",
-        PyType::new_segment("AnyAnalysisSegment"),
-        "*ANALYSIS* offsets from *TEXT*.",
-        |_, _| quote!(self.0.dataset.standardized.analysis_seg.clone()),
-    );
+    let analysis = DocArg::new_analysis_seg_param(SegmentSrc::Any, false)
+        .into_ro(|_, _| quote!(self.0.dataset.standardized.analysis_seg));
 
     let pseudostandard = DocArgROIvar::new_ivar_ro(
         "pseudostandard",
@@ -466,10 +720,57 @@ pub fn impl_py_std_dataset_output(input: TokenStream) -> TokenStream {
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                let segs = fireflow_core::core::DatasetSegments::new(data, analysis);
+                let segs = fireflow_core::core::DatasetSegments::new(data_seg, analysis_seg);
                 let extra = fireflow_core::text::parser::ExtraStdKeywords::new(pseudostandard, unused);
                 let std = fireflow_core::core::StdDatasetWithKwsOutput::new(segs, extra);
                 #path::new(std, parse.into()).into()
+            }
+        }
+    };
+    doc.into_impl_class(name.to_string(), path.clone(), new, quote!())
+        .1
+        .into()
+}
+
+#[proc_macro]
+pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+
+    let data = DocArg::new_data_seg_param(SegmentSrc::Any)
+        .into_ro(|_, _| quote!(self.0.standardized.data_seg));
+
+    let analysis = DocArg::new_analysis_seg_param(SegmentSrc::Any, false)
+        .into_ro(|_, _| quote!(self.0.standardized.analysis_seg));
+
+    let pseudostandard = DocArgROIvar::new_ivar_ro(
+        "pseudostandard",
+        PyType::new_std_keywords(),
+        "Keywords which start with *$* but are not part of the standard.",
+        |_, _| quote!(self.0.extra.pseudostandard.clone()),
+    );
+
+    let unused = DocArgROIvar::new_ivar_ro(
+        "unused",
+        PyType::new_std_keywords(),
+        "Keywords which are part of the standard but were not used.",
+        |_, _| quote!(self.0.extra.unused.clone()),
+    );
+
+    let args = [data, analysis, pseudostandard, unused];
+
+    let doc = DocString::new_class(
+        "Miscellaneous data when standardizing *TEXT* from keywords.",
+        [""; 0],
+        args,
+    );
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                let segs = fireflow_core::core::DatasetSegments::new(data_seg, analysis_seg);
+                let extra = fireflow_core::text::parser::ExtraStdKeywords::new(pseudostandard, unused);
+                #path::new(segs, extra).into()
             }
         }
     };
@@ -492,7 +793,7 @@ pub fn impl_py_raw_text_parse_data(input: TokenStream) -> TokenStream {
 
     let supp = DocArgROIvar::new_ivar_ro(
         "supp_text",
-        PyOpt::new(PyType::new_segment("SupplementalTextSegment")),
+        PyOpt::new(PyType::new_supp_text_segment()),
         "Supplemental *TEXT* offsets if given.",
         |_, _| quote!(self.0.supp_text.as_ref().copied()),
     );
@@ -2009,25 +2310,9 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
         "Non-Standard keywords.",
     );
 
-    let data_seg_param = DocArg::new_param(
-        "data_seg",
-        PyType::new_segment("HeaderDataSegment"),
-        "The *DATA* segment from *HEADER*.",
-    );
-
-    let analysis_seg_param = DocArg::new_param_def(
-        "analysis_seg",
-        PyType::new_segment("HeaderAnalysisSegment"),
-        "The *ANALYSIS* segment from *HEADER*.",
-        DocDefault::Auto,
-    );
-
-    let other_segs_param = DocArg::new_param_def(
-        "other_segs",
-        PyList::new(PyType::new_segment("OtherSegment20")),
-        "The *OTHER* segments from *HEADER*.",
-        DocDefault::Auto,
-    );
+    let data_seg_param = DocArg::new_data_seg_param(SegmentSrc::Header);
+    let analysis_seg_param = DocArg::new_analysis_seg_param(SegmentSrc::Header, true);
+    let other_segs_param = DocArg::new_other_segs_param(true);
 
     let all_args = [
         path_param,
@@ -2276,8 +2561,8 @@ pub fn impl_coretext_to_dataset(input: TokenStream) -> TokenStream {
     let to_rstype = pycoredataset(version);
 
     let data = DocArg::new_data_param(false);
-    let analysis = DocArg::new_analysis_param();
-    let others = DocArg::new_others_param();
+    let analysis = DocArg::new_analysis_param(false);
+    let others = DocArg::new_others_param(false);
 
     let doc = DocString::new_method(
         "Convert to a dataset object.",
@@ -3555,11 +3840,6 @@ fn keyword_path(n: &str) -> Path {
     parse_quote!(fireflow_core::text::keywords::#t)
 }
 
-fn segment_path(n: &str) -> Path {
-    let t = format_ident!("{n}");
-    parse_quote!(fireflow_core::segment::#t)
-}
-
 fn correction_path(is_header: bool, id: &str) -> Path {
     let src = if is_header {
         "SegmentFromHeader"
@@ -3627,6 +3907,24 @@ impl IsSelfArg for SelfArg {
     const ARG: Option<&'static str> = Some("self");
 }
 
+#[derive(Clone, Copy)]
+enum SegmentSrc {
+    Header,
+    // Text,
+    Any,
+}
+
+impl fmt::Display for SegmentSrc {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let s = match self {
+            Self::Header => "*HEADER*",
+            // Self::Text => "*TEXT*",
+            Self::Any => "*HEADER* or *TEXT*",
+        };
+        f.write_str(s)
+    }
+}
+
 #[derive(Clone, From, Display)]
 enum AnyDocArg {
     RWIvar(DocArgRWIvar),
@@ -3644,7 +3942,6 @@ struct DocArg<T> {
     argname: String,
     #[new(into)]
     pytype: PyType,
-    rstype: Type,
     #[new(into)]
     desc: String,
     default: Option<DocDefault>,
@@ -4380,10 +4677,9 @@ impl DocArgROIvar {
         f: impl FnOnce(&Ident, &PyType) -> TokenStream2,
     ) -> Self {
         let pt = pytype.into();
-        let rt = pt.as_rust_type();
         let a = argname.into();
         let method = GetMethod::from_pytype(a.as_str(), &pt, f);
-        Self::new(a, pt, rt, desc, None, method)
+        Self::new(a, pt, desc, None, method)
     }
 
     fn new_ivar_ro_def(
@@ -4394,10 +4690,9 @@ impl DocArgROIvar {
         f: impl FnOnce(&Ident, &PyType) -> TokenStream2,
     ) -> Self {
         let pt = pytype.into();
-        let rt = pt.as_rust_type();
         let a = argname.into();
         let method = GetMethod::from_pytype(a.as_str(), &pt, f);
-        Self::new(a, pt, rt, desc, Some(def), method)
+        Self::new(a, pt, desc, Some(def), method)
     }
 
     fn new_version_ivar() -> Self {
@@ -4420,10 +4715,9 @@ impl DocArgRWIvar {
         g: impl FnOnce(&Ident, &PyType) -> TokenStream2,
     ) -> Self {
         let pt = pytype.into();
-        let rt = pt.as_rust_type();
         let name = argname.into();
         let methods = GetSetMethods::from_pytype(name.as_str(), &pt, fallible, f, g);
-        Self::new(name, pt, rt, desc, None, methods)
+        Self::new(name, pt, desc, None, methods)
     }
 
     fn new_ivar_rw_def(
@@ -4436,10 +4730,9 @@ impl DocArgRWIvar {
         g: impl FnOnce(&Ident, &PyType) -> TokenStream2,
     ) -> Self {
         let pt = pytype.into();
-        let rt = pt.as_rust_type();
         let name = argname.into();
         let methods = GetSetMethods::from_pytype(name.as_str(), &pt, fallible, f, g);
-        Self::new(name, pt, rt, desc, Some(def), methods)
+        Self::new(name, pt, desc, Some(def), methods)
     }
 
     fn new_opt_ivar_rw(
@@ -4612,7 +4905,7 @@ impl DocArgRWIvar {
     }
 
     fn new_analysis_ivar() -> Self {
-        DocArg::new_analysis_param().into_rw(
+        DocArg::new_analysis_param(true).into_rw(
             false,
             |_, _| quote!(self.0.analysis.clone()),
             |n, _| quote!(self.0.analysis = #n.into()),
@@ -4620,7 +4913,7 @@ impl DocArgRWIvar {
     }
 
     fn new_others_ivar() -> Self {
-        DocArg::new_others_param().into_rw(
+        DocArg::new_others_param(true).into_rw(
             false,
             |_, _| quote!(self.0.others.clone()),
             |n, _| quote!(self.0.others = #n.into()),
@@ -4906,8 +5199,7 @@ impl DocArgParam {
         desc: impl Into<String>,
     ) -> Self {
         let pt = pytype.into();
-        let rt = pt.as_rust_type();
-        Self::new(argname, pt, rt, desc, None, NoMethods)
+        Self::new(argname, pt, desc, None, NoMethods)
     }
 
     fn new_param_def(
@@ -4917,8 +5209,7 @@ impl DocArgParam {
         def: DocDefault,
     ) -> Self {
         let pt = pytype.into();
-        let rt = pt.as_rust_type();
-        Self::new(argname, pt, rt, desc, Some(def), NoMethods)
+        Self::new(argname, pt, desc, Some(def), NoMethods)
     }
 
     fn new_bool_param(name: impl Into<String>, desc: impl Into<String>) -> Self {
@@ -4933,16 +5224,10 @@ impl DocArgParam {
         Self::new_param_def(name, PyOpt::new(pytype), desc, DocDefault::Auto)
     }
 
-    // fn into_ro(self, m: GetMethod) -> DocArgROIvar {
-    //     DocArgROIvar::new(
-    //         self.argname,
-    //         self.pytype,
-    //         self.rstype,
-    //         self.desc,
-    //         self.default,
-    //         m,
-    //     )
-    // }
+    fn into_ro(self, f: impl FnOnce(&Ident, &PyType) -> TokenStream2) -> DocArgROIvar {
+        let methods = GetMethod::from_pytype(self.argname.as_str(), &self.pytype, f);
+        DocArgROIvar::new(self.argname, self.pytype, self.desc, self.default, methods)
+    }
 
     fn into_rw(
         self,
@@ -4952,14 +5237,7 @@ impl DocArgParam {
     ) -> DocArgRWIvar {
         let methods =
             GetSetMethods::from_pytype(self.argname.as_str(), &self.pytype, fallible, f, g);
-        DocArgRWIvar::new(
-            self.argname,
-            self.pytype,
-            self.rstype,
-            self.desc,
-            self.default,
-            methods,
-        )
+        DocArgRWIvar::new(self.argname, self.pytype, self.desc, self.default, methods)
     }
 
     fn new_path_param(read: bool) -> Self {
@@ -4969,6 +5247,74 @@ impl DocArgParam {
             PyClass::new2("~pathlib.Path", parse_quote!(std::path::PathBuf)),
             format!("Path to be {s}."),
         )
+    }
+
+    fn new_version_param() -> Self {
+        Self::new_param(
+            "version",
+            PyType::new_version(),
+            "Version to use when parsing *TEXT*.",
+        )
+    }
+
+    fn new_std_keywords_param() -> Self {
+        DocArg::new_param("std", PyType::new_std_keywords(), "Standard keywords.")
+    }
+
+    fn new_nonstd_keywords_param() -> Self {
+        DocArg::new_param(
+            "nonstd",
+            PyType::new_nonstd_keywords(),
+            "Non-standard keywords.",
+        )
+    }
+
+    fn new_parse_output_param() -> Self {
+        DocArg::new_param(
+            "parse",
+            PyClass::new_py("RawTEXTParseData"),
+            "Miscellaneous data obtained when parsing *TEXT*.",
+        )
+    }
+
+    fn new_text_seg_param() -> Self {
+        DocArg::new_param(
+            "text_seg",
+            PyType::new_text_segment(),
+            "The primary *TEXT* segment from *HEADER*.",
+        )
+    }
+
+    fn new_data_seg_param(src: SegmentSrc) -> Self {
+        DocArg::new_param(
+            "data_seg",
+            PyType::new_data_segment(src),
+            format!("The *DATA* segment from {src}."),
+        )
+    }
+
+    fn new_analysis_seg_param(src: SegmentSrc, default: bool) -> Self {
+        let mut p = DocArg::new_param(
+            "analysis_seg",
+            PyType::new_analysis_segment(src),
+            format!("The *DATA* segment from {src}."),
+        );
+        if default {
+            p.default = Some(DocDefault::Auto);
+        }
+        p
+    }
+
+    fn new_other_segs_param(default: bool) -> Self {
+        let mut p = DocArg::new_param(
+            "other_segs",
+            PyList::new(PyType::new_other_segment()),
+            "The *OTHER* segments from *HEADER*.",
+        );
+        if default {
+            p.default = Some(DocDefault::Auto);
+        }
+        p
     }
 
     fn new_textdelim_param() -> Self {
@@ -5075,23 +5421,31 @@ impl DocArgParam {
         )
     }
 
-    fn new_analysis_param() -> Self {
-        let path = parse_quote!(fireflow_core::core::Analysis);
-        Self::new_param_def(
+    fn new_analysis_param(default: bool) -> Self {
+        Self::new(
             "analysis",
-            PyBytes::new1(path),
-            "A byte string encoding the *ANALYSIS* segment.",
-            DocDefault::Auto,
+            PyType::new_analysis(),
+            "Contents of the *ANALYSIS* segment.",
+            if default {
+                Some(DocDefault::Auto)
+            } else {
+                None
+            },
+            NoMethods,
         )
     }
 
-    fn new_others_param() -> Self {
-        let path = parse_quote!(fireflow_core::core::Others);
-        Self::new_param_def(
+    fn new_others_param(default: bool) -> Self {
+        Self::new(
             "others",
-            PyList::new1(PyBytes::new(), path),
+            PyType::new_others(),
             "A list of byte strings encoding the *OTHER* segments.",
-            DocDefault::Auto,
+            if default {
+                Some(DocDefault::Auto)
+            } else {
+                None
+            },
+            NoMethods,
         )
     }
 
@@ -5911,7 +6265,7 @@ impl<T> IsDocArg for DocArg<T> {
 
     fn fun_arg(&self) -> TokenStream2 {
         let n = format_ident!("{}", &self.argname);
-        let t = &self.rstype;
+        let t = &self.pytype.as_rust_type();
         quote!(#n: #t)
     }
 
@@ -5921,7 +6275,7 @@ impl<T> IsDocArg for DocArg<T> {
 
     fn ident_into(&self) -> TokenStream2 {
         let n = self.ident();
-        if unwrap_generic("Option", unwrap_type_as_path(&self.rstype)).1 {
+        if unwrap_generic("Option", unwrap_type_as_path(&self.pytype.as_rust_type())).1 {
             quote! {#n.map(|x| x.into())}
         } else {
             quote! {#n.into()}
@@ -5930,7 +6284,7 @@ impl<T> IsDocArg for DocArg<T> {
 
     fn record_into(&self) -> TokenStream2 {
         let n = self.ident();
-        if unwrap_generic("Option", unwrap_type_as_path(&self.rstype)).1 {
+        if unwrap_generic("Option", unwrap_type_as_path(&self.pytype.as_rust_type())).1 {
             quote! {#n: #n.map(|x| x.into())}
         } else {
             quote! {#n: #n.into()}
@@ -6092,9 +6446,40 @@ impl PyType {
         .into()
     }
 
+    fn new_text_segment() -> Self {
+        PyType::new_segment("PrimaryTextSegment")
+    }
+
+    fn new_supp_text_segment() -> Self {
+        PyType::new_segment("SupplementalTextSegment")
+    }
+
+    fn new_other_segment() -> Self {
+        PyType::new_segment("OtherSegment20")
+    }
+
+    fn new_data_segment(src: SegmentSrc) -> Self {
+        let id = match src {
+            SegmentSrc::Header => "HeaderDataSegment",
+            // SegmentSrc::Text => "TEXTDataSegment",
+            SegmentSrc::Any => "AnyDataSegment",
+        };
+        PyType::new_segment(id)
+    }
+
+    fn new_analysis_segment(src: SegmentSrc) -> Self {
+        let id = match src {
+            SegmentSrc::Header => "HeaderAnalysisSegment",
+            // SegmentSrc::Text => "TEXTAnalysisSegment",
+            SegmentSrc::Any => "AnyAnalysisSegment",
+        };
+        PyType::new_segment(id)
+    }
+
     fn new_segment(n: &str) -> Self {
-        let path = segment_path(n);
-        PyTuple::new1([RsInt::U64, RsInt::U64], path).into()
+        let t = format_ident!("{n}");
+        let p = parse_quote!(fireflow_core::segment::#t);
+        PyTuple::new1([RsInt::U64, RsInt::U64], p).into()
     }
 
     fn new_correction(is_header: bool, id: &str) -> Self {
@@ -6172,6 +6557,16 @@ impl PyType {
     fn new_prefixed_meas_index() -> Self {
         let p = parse_quote!(fireflow_core::text::keywords::PrefixedMeasIndex);
         PyInt::new(RsInt::NonZeroUsize, p).into()
+    }
+
+    fn new_analysis() -> Self {
+        let path = parse_quote!(fireflow_core::core::Analysis);
+        PyBytes::new1(path).into()
+    }
+
+    fn new_others() -> Self {
+        let path = parse_quote!(fireflow_core::core::Others);
+        PyList::new1(PyBytes::new(), path).into()
     }
 
     fn new_dataframe(polars_type: bool) -> Self {

@@ -538,7 +538,7 @@ pub fn impl_core_version(input: TokenStream) -> TokenStream {
         [""; 0],
         DocReturn::new(PyType::new_version()),
     );
-    doc.as_impl_get(&t, "version", |_, _| quote!(self.0.fcs_version()))
+    doc.into_impl_get(&t, "version", |_, _| quote!(self.0.fcs_version()))
         .into()
 }
 
@@ -551,7 +551,7 @@ pub fn impl_core_par(input: TokenStream) -> TokenStream {
         [""; 0],
         DocReturn::new(RsInt::Usize),
     );
-    doc.as_impl_get(&t, "par", |_, _| quote!(self.0.par().0))
+    doc.into_impl_get(&t, "par", |_, _| quote!(self.0.par().0))
         .into()
 }
 
@@ -569,7 +569,7 @@ pub fn impl_core_all_meas_nonstandard_keywords(input: TokenStream) -> TokenStrea
         ),
     );
 
-    doc.as_impl_get_set(
+    doc.into_impl_get_set(
         &t,
         "all_meas_nonstandard_keywords",
         true,
@@ -780,7 +780,7 @@ pub fn impl_core_all_peak_attrs(input: TokenStream) -> TokenStream {
             DocReturn::new(PyList::new(pt)),
         );
 
-        doc.as_impl_get_set(
+        doc.into_impl_get_set(
             &i,
             format!("all_{name}"),
             true,
@@ -817,7 +817,7 @@ pub fn impl_core_all_shortnames_attr(input: TokenStream) -> TokenStream {
         DocReturn::new(PyList::new(PyType::new_shortname())),
     );
 
-    doc.as_impl_get_set(
+    doc.into_impl_get_set(
         &i,
         "all_shortnames",
         true,
@@ -838,7 +838,7 @@ pub fn impl_core_all_shortnames_maybe_attr(input: TokenStream) -> TokenStream {
         DocReturn::new(PyList::new(PyOpt::new(PyType::new_shortname()))),
     );
 
-    doc.as_impl_get_set(
+    doc.into_impl_get_set(
         &i,
         "all_shortnames_maybe",
         true,
@@ -868,7 +868,7 @@ pub fn impl_core_get_set_timestep(input: TokenStream) -> TokenStream {
         DocReturn::new(t.clone()),
     );
 
-    let getq = get_doc.as_impl_get(&i, "timestep", |_, _| quote!(self.0.timestep().copied()));
+    let getq = get_doc.into_impl_get(&i, "timestep", |_, _| quote!(self.0.timestep().copied()));
 
     let param = DocArg::new_param(
         "timestep",
@@ -1106,7 +1106,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
             DocReturn::new(PyList::new(PyOpt::new(PyType::new_scale(false)))),
         );
 
-        doc.as_impl_get_set(
+        doc.into_impl_get_set(
             &i,
             "all_scales",
             true,
@@ -1130,7 +1130,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
             DocReturn::new(PyList::new(PyType::new_transform())),
         );
 
-        doc.as_impl_get_set(
+        doc.into_impl_get_set(
             &i,
             "all_scale_transforms",
             true,
@@ -1154,7 +1154,7 @@ pub fn impl_core_get_measurements(input: TokenStream) -> TokenStream {
         DocReturn::new(PyList::new(PyType::new_measurement(version))),
     );
 
-    doc.as_impl_get(&i, "measurements", |_, _| {
+    doc.into_impl_get(&i, "measurements", |_, _| {
         quote! {
             // This might seem inefficient since we are cloning
             // everything, but if we want to map a python lambda
@@ -1189,7 +1189,7 @@ pub fn impl_core_get_temporal(input: TokenStream) -> TokenStream {
         ),
     );
 
-    doc.as_impl_get(&i, "temporal", |_, _| {
+    doc.into_impl_get(&i, "temporal", |_, _| {
         quote! {
             self.0
                 .temporal()
@@ -2750,7 +2750,7 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
         DocReturn::new(PyList::new(RsInt::U64)),
     );
 
-    let char_widths = char_widths_doc.as_impl_get(&pyname, "char_widths", |_, _| {
+    let char_widths = char_widths_doc.into_impl_get(&pyname, "char_widths", |_, _| {
         quote! {
             self.0
                 .widths()
@@ -3108,7 +3108,7 @@ fn make_byte_width(pyname: &Ident, nbytes: usize) -> TokenStream2 {
         DocReturn::new(RsInt::Usize),
     );
 
-    doc.as_impl_get(pyname, "byte_width", |_, _| quote!(#nbytes))
+    doc.into_impl_get(pyname, "byte_width", |_, _| quote!(#nbytes))
 }
 
 #[proc_macro]
@@ -3124,7 +3124,7 @@ pub fn impl_layout_byte_widths(input: TokenStream) -> TokenStream {
         DocReturn::new(PyList::new(RsInt::U32)),
     );
 
-    doc.as_impl_get(&t, "byte_widths", |_, _| {
+    doc.into_impl_get(&t, "byte_widths", |_, _| {
         quote! {
             self.0
                 .widths()
@@ -3142,7 +3142,7 @@ fn make_layout_datatype(pyname: &Ident, dt: &str) -> TokenStream2 {
         [format!("Will always return ``\"{dt}\"``.")],
         DocReturn::new(PyType::new_datatype()),
     );
-    doc.as_impl_get(pyname, "datatype", |_, _| quote!(self.0.datatype().into()))
+    doc.into_impl_get(pyname, "datatype", |_, _| quote!(self.0.datatype().into()))
 }
 
 struct OrderedLayoutInfo {
@@ -6171,12 +6171,13 @@ impl IvarDocString {
         )
     }
 
-    fn as_impl_get(
-        &self,
+    fn into_impl_get(
+        mut self,
         class: &Ident,
         name: impl Into<String>,
         f: impl FnOnce(&Ident, &PyType) -> TokenStream2,
     ) -> TokenStream2 {
+        self.append_paragraph("This attribute is read-only.");
         let i = format_ident!("{}", name.into());
         let pt = &self.returns.rtype;
         let rt = pt.as_rust_type();
@@ -6194,14 +6195,15 @@ impl IvarDocString {
         }
     }
 
-    fn as_impl_get_set(
-        &self,
+    fn into_impl_get_set(
+        mut self,
         class: &Ident,
         name: impl Into<String>,
         fallible: bool,
         getf: impl FnOnce(&Ident, &PyType) -> TokenStream2,
         setf: impl FnOnce(&Ident, &PyType) -> TokenStream2,
     ) -> TokenStream2 {
+        self.append_paragraph("This attribute is read-write.");
         let get = format_ident!("{}", name.into());
         let set = format_ident!("set_{get}");
         let pt = &self.returns.rtype;
@@ -6359,6 +6361,10 @@ impl<A, R, S> DocString<A, R, S> {
     {
         let s = self.to_string();
         quote! {#[doc = #s]}
+    }
+
+    fn append_paragraph(&mut self, p: impl Into<String>) {
+        self.paragraphs.extend([p.into()]);
     }
 
     fn fmt_inner<'a, 'b, F, G, I>(

@@ -5606,7 +5606,7 @@ impl DocArgParam {
                 a regular expression following syntax described in {REGEXP_REF}. \
                 If ``None``, do not try to find a time measurement."
             ),
-            DocDefault::Str("^TIME|Time$".into()),
+            DocDefault::Str("^(TIME|Time)$".into()),
         )
     }
 

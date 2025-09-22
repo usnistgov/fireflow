@@ -563,10 +563,7 @@ pub fn impl_core_all_meas_nonstandard_keywords(input: TokenStream) -> TokenStrea
     let doc = DocString::new_ivar(
         "The non-standard keywords for each measurement.",
         [""; 0],
-        DocReturn::new1(
-            PyList::new(PyType::new_nonstd_keywords()),
-            "A list of non-standard keyword dicts for each measurement.",
-        ),
+        DocReturn::new(PyList::new(PyType::new_nonstd_keywords())),
     );
 
     doc.into_impl_get_set(
@@ -1491,12 +1488,7 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
         let i = &i_param.argname;
         let meas_desc = format!("Optical measurement to replace measurement at ``{i}``.");
         let sub = format!("Raise exception if ``{i}`` does not exist.");
-        let meas = PyType::new_measurement(version);
-        let ret = if is_index {
-            meas
-        } else {
-            PyOpt::new(meas).into()
-        };
+        let ret = PyOpt::wrap_if(PyType::new_measurement(version), !is_index);
         DocString::new_method(
             format!("Replace {m} with given optical measurement."),
             [sub],
@@ -1586,12 +1578,7 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
             i_param,
             DocArg::new_param("meas", PyType::new_temporal(version), meas_desc),
         ];
-        let meas = PyType::new_measurement(version);
-        let ret = if is_index {
-            meas
-        } else {
-            PyOpt::new(meas).into()
-        };
+        let ret = PyOpt::wrap_if(PyType::new_measurement(version), !is_index);
         DocString::new_method(
             format!("Replace {m} with given temporal measurement."),
             [sub],
@@ -2346,238 +2333,197 @@ impl<T> DocArg<T> {
 #[proc_macro]
 pub fn impl_core_all_pns(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_meas_attr(&i, "Longname", "longnames", "S", PyStr::new())
+    core_all_meas_attr(&i, "Longname", "longnames", "S", PyStr::new1)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnf(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Filter", "filters", "F", PyStr::new())
+    core_all_optical_attr(&i, "Filter", "filters", "F", PyStr::new1)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pno(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Power", "powers", "O", RsFloat::F32)
+    core_all_optical_attr(&i, "Power", "powers", "O", |p| {
+        PyFloat::new(RsFloat::F32, p)
+    })
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnp(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "PercentEmitted", "percents_emitted", "P", PyStr::new())
+    core_all_optical_attr(&i, "PercentEmitted", "percents_emitted", "P", PyStr::new1)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnt(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "DetectorType", "detector_types", "T", PyStr::new())
+    core_all_optical_attr(&i, "DetectorType", "detector_types", "T", PyStr::new1)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnv(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(
-        &i,
-        "DetectorVoltage",
-        "detector_voltages",
-        "V",
-        RsFloat::F32,
-    )
+    core_all_optical_attr(&i, "DetectorVoltage", "detector_voltages", "V", |p| {
+        PyFloat::new(RsFloat::F32, p)
+    })
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnl_old(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Wavelength", "wavelengths", "L", RsFloat::F32)
+    core_all_optical_attr(&i, "Wavelength", "wavelengths", "L", |p| {
+        PyFloat::new(RsFloat::F32, p)
+    })
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnl_new(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(
-        &i,
-        "Wavelengths",
-        "wavelengths",
-        "L",
-        PyList::new1(RsFloat::F32, keyword_path("Wavelengths")),
-    )
+    core_all_optical_attr(&i, "Wavelengths", "wavelengths", "L", |p| {
+        PyList::new1(RsFloat::F32, p)
+    })
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnd(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_meas_attr(&i, "Display", "displays", "D", PyType::new_display())
+    core_all_meas_attr(&i, "Display", "displays", "D", |_| PyType::new_display())
 }
 
 #[proc_macro]
 pub fn impl_core_all_pndet(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "DetectorName", "detector_names", "DET", PyStr::new())
+    core_all_optical_attr(&i, "DetectorName", "detector_names", "DET", PyStr::new1)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pncal3_1(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(
-        &i,
-        "Calibration3_1",
-        "calibrations",
-        "CALIBRATION",
-        PyType::new_calibration3_1(),
-    )
+    core_all_optical_attr(&i, "Calibration3_1", "calibrations", "CALIBRATION", |_| {
+        PyType::new_calibration3_1()
+    })
 }
 
 #[proc_macro]
 pub fn impl_core_all_pncal3_2(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(
-        &i,
-        "Calibration3_2",
-        "calibrations",
-        "CALIBRATION",
-        PyType::new_calibration3_2(),
-    )
+    core_all_optical_attr(&i, "Calibration3_2", "calibrations", "CALIBRATION", |_| {
+        PyType::new_calibration3_2()
+    })
 }
 
 #[proc_macro]
 pub fn impl_core_all_pntag(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Tag", "tags", "TAG", PyStr::new())
+    core_all_optical_attr(&i, "Tag", "tags", "TAG", PyStr::new1)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "OpticalType", "measurement_types", "TYPE", PyStr::new())
+    core_all_optical_attr(&i, "OpticalType", "measurement_types", "TYPE", PyStr::new1)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnfeature(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Feature", "features", "FEATURE", PyType::new_feature())
+    core_all_optical_attr(&i, "Feature", "features", "FEATURE", |_| {
+        PyType::new_feature()
+    })
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnanalyte(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Analyte", "analytes", "ANALYTE", PyStr::new())
+    core_all_optical_attr(&i, "Analyte", "analytes", "ANALYTE", PyStr::new1)
 }
 
-fn core_all_optical_attr(
+fn core_all_optical_attr<F, T>(t: &Ident, kw: &str, name: &str, suffix: &str, f: F) -> TokenStream
+where
+    F: FnOnce(Path) -> T,
+    T: Into<PyType>,
+{
+    core_all_meas_attr1(t, kw, name, suffix, f, true, true)
+}
+
+fn core_all_meas_attr<F, T>(t: &Ident, kw: &str, name: &str, suffix: &str, f: F) -> TokenStream
+where
+    F: FnOnce(Path) -> T,
+    T: Into<PyType>,
+{
+    core_all_meas_attr1(t, kw, name, suffix, f, true, false)
+}
+
+fn core_all_meas_attr1<F, T>(
     t: &Ident,
     kw: &str,
     name: &str,
     suffix: &str,
-    base_pytype: impl Into<PyType>,
-) -> TokenStream {
-    core_all_meas_attr1(t, kw, name, suffix, base_pytype, true, true)
-}
-
-fn core_all_meas_attr(
-    t: &Ident,
-    kw: &str,
-    name: &str,
-    suffix: &str,
-    base_pytype: impl Into<PyType>,
-) -> TokenStream {
-    core_all_meas_attr1(t, kw, name, suffix, base_pytype, true, false)
-}
-
-fn core_all_meas_attr1(
-    t: &Ident,
-    kw: &str,
-    name: &str,
-    suffix: &str,
-    base_pytype: impl Into<PyType>,
+    f: F,
     is_optional: bool,
     optical_only: bool,
-) -> TokenStream {
+) -> TokenStream
+where
+    F: FnOnce(Path) -> T,
+    T: Into<PyType>,
+{
     let kw_doc = format!("*$Pn{suffix}*");
-    let kw_inner = keyword_path(kw);
+    let base_pytype: PyType = f(keyword_path(kw)).into();
 
     let doc_summary = format!("Value of {kw_doc} for all measurements.");
     let doc_middle = if optical_only {
-        vec![format!(
+        Some(format!(
             "``()`` will be returned for time since {kw_doc} is not \
              defined for temporal measurements."
-        )]
-    } else {
-        vec![]
-    };
-
-    let nce_path: Path = parse_quote!(fireflow_core::text::named_vec::NonCenterElement);
-
-    // TODO flip and opt to base
-    let tmp_pytype = if optical_only {
-        PyType::from(PyUnion::new2(
-            base_pytype,
-            PyTuple::default(),
-            nce_path.clone(),
         ))
     } else {
-        base_pytype.into()
+        None
     };
 
-    let doc_type = if is_optional {
-        PyOpt::new(tmp_pytype).into()
+    let inner_pytype = PyOpt::wrap_if(base_pytype, is_optional);
+
+    let inner_rstype = inner_pytype.as_rust_type();
+
+    let nce_path = parse_quote!(fireflow_core::text::named_vec::NonCenterElement<#inner_rstype>);
+
+    let full_pytype = if optical_only {
+        PyUnion::new2(inner_pytype, PyTuple::default(), nce_path).into()
     } else {
-        tmp_pytype
+        inner_pytype
     };
 
-    let doc =
-        DocString::new_method(doc_summary, doc_middle, [], Some(DocReturn::new(doc_type))).doc();
+    let doc = DocString::new_ivar(
+        doc_summary,
+        doc_middle,
+        DocReturn::new(PyList::new(full_pytype)),
+    );
 
-    let get = format_ident!("get_all_{name}");
-    let set = format_ident!("set_all_{name}");
-
-    let kw = if is_optional {
-        quote! {Option<#kw_inner>}
-    } else {
-        quote! {#kw_inner}
-    };
-
-    let (fn_get, fn_set) = if optical_only {
-        (
-            quote! {
-                fn #get(&self) -> Vec<#nce_path<#kw>> {
+    doc.into_impl_get_set(
+        t,
+        format!("all_{name}"),
+        true,
+        |_, _| {
+            if optical_only {
+                quote! {
                     self.0
                         .optical_opt()
                         .map(|e| e.0.map_non_center(|x| x.cloned()).into())
                         .collect()
                 }
-            },
-            quote! {
-                fn #set(&mut self, xs: Vec<#nce_path<#kw>>) -> PyResult<()> {
-                    self.0.set_optical(xs).py_termfail_resolve_nowarn()
-                }
-            },
-        )
-    } else {
-        (
-            quote! {
-                fn #get(&self) -> Vec<#kw> {
-                    self.0.meas_opt().map(|x| x.cloned()).collect()
-                }
-            },
-            quote! {
-                fn #set(&mut self, xs: Vec<#kw>) -> PyResult<()> {
-                    Ok(self.0.set_meas(xs)?)
-                }
-            },
-        )
-    };
-
-    quote! {
-        #[pymethods]
-        impl #t {
-            #doc
-            #[getter]
-            #fn_get
-
-            #[setter]
-            #fn_set
-        }
-    }
+            } else {
+                quote!(self.0.meas_opt().map(|x| x.cloned()).collect())
+            }
+        },
+        |n, _| {
+            if optical_only {
+                quote!(self.0.set_optical(#n).py_termfail_resolve_nowarn())
+            } else {
+                quote!(Ok(self.0.set_meas(#n)?))
+            }
+        },
+    )
     .into()
 }
 
@@ -4098,6 +4044,14 @@ impl PyOpt {
                 .as_ref()
                 .map_or(quote!(None), |y| quote!(#y::default())),
         )
+    }
+
+    fn wrap_if(inner: impl Into<PyType>, test: bool) -> PyType {
+        if test {
+            Self::new(inner).into()
+        } else {
+            inner.into()
+        }
     }
 
     // fn new1(inner: impl Into<PyType>, rstype: Path) -> Self {
@@ -5639,15 +5593,15 @@ trait IsArgType {
     const TYPENAME: &str;
     const ARGTYPE: &str;
 
-    fn readonly() -> bool;
+    fn readonly() -> Option<bool>;
 }
 
 impl IsArgType for GetMethod {
     const TYPENAME: &str = "vartype";
     const ARGTYPE: &str = "ivar";
 
-    fn readonly() -> bool {
-        true
+    fn readonly() -> Option<bool> {
+        Some(true)
     }
 }
 
@@ -5655,8 +5609,8 @@ impl IsArgType for GetSetMethods {
     const TYPENAME: &str = "vartype";
     const ARGTYPE: &str = "ivar";
 
-    fn readonly() -> bool {
-        false
+    fn readonly() -> Option<bool> {
+        Some(false)
     }
 }
 
@@ -5664,8 +5618,8 @@ impl IsArgType for NoMethods {
     const TYPENAME: &str = "type";
     const ARGTYPE: &str = "param";
 
-    fn readonly() -> bool {
-        false
+    fn readonly() -> Option<bool> {
+        None
     }
 }
 
@@ -5949,11 +5903,7 @@ impl PyType {
     }
 
     fn new_versioned_shortname(version: Version) -> Self {
-        if version < Version::FCS3_1 {
-            PyOpt::new(Self::new_shortname()).into()
-        } else {
-            Self::new_shortname()
-        }
+        PyOpt::wrap_if(Self::new_shortname(), version < Version::FCS3_1)
     }
 
     fn new_meas_index() -> Self {
@@ -6456,7 +6406,11 @@ impl<A: fmt::Display, S> fmt::Display for DocString<Vec<A>, Option<DocReturn>, S
 
 impl<T: IsArgType> fmt::Display for DocArg<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let ro = if T::readonly() { "(read-only) " } else { "" };
+        let ro = match T::readonly() {
+            Some(true) => "(read-only) ",
+            Some(false) => "(read-write) ",
+            None => "",
+        };
         let pt = &self.pytype;
         let n = &self.argname;
         let d = self

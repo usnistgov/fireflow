@@ -5158,7 +5158,7 @@ impl DocArgParam {
         Self::new_bool_param(
             "fix_log_scale_offsets",
             "If ``True`` fix log-scale *PnE* and keywords which have zero offset \
-             (ie ``X,0,0`` where ``X`` is non-zero).",
+             (ie ``X,0.0`` where ``X`` is non-zero).",
         )
     }
 

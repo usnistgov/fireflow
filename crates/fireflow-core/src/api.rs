@@ -212,7 +212,7 @@ pub struct RawTEXTOutput {
 }
 
 /// Output of parsing the TEXT segment and standardizing keywords.
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[derive(Clone, new, PartialEq)]
 pub struct StdTEXTOutput {
     /// TEXT value for $TOT
     ///
@@ -1114,7 +1114,11 @@ where
     .and_tentatively(|x| {
         x.map(|seg| {
             if seg.inner.as_u64() == text_segment.inner.as_u64() {
-                Tentative::new_either(None, vec![DuplicatedSuppTEXT], !conf.allow_duplicated_supp_text)
+                Tentative::new_either(
+                    None,
+                    vec![DuplicatedSuppTEXT],
+                    !conf.allow_duplicated_supp_text,
+                )
             } else {
                 Tentative::new1(Some(seg))
             }

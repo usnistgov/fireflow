@@ -63,17 +63,14 @@ pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
     let shared_inner_args: Vec<_> = shared_args.iter().map(|a| a.record_into()).collect();
 
     let doc = DocString::new_fun(
-        "Read the *HEADER* of an FCS file.",
+        "Read *HEADER* and *TEXT* as key/value pairs from FCS file.",
         [""; 0],
         [path_arg]
             .into_iter()
             .chain(header_args)
             .chain(raw_args)
             .chain(shared_args),
-        Some(DocReturn::new(PyClass::new2(
-            "RawTEXTOutput",
-            parse_quote!(PyRawTEXTOutput),
-        ))),
+        Some(DocReturn::new(PyClass::new_py("RawTEXTOutput"))),
     );
 
     let fun_args = doc.fun_args();
@@ -89,6 +86,72 @@ pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
             let shared = #shared_conf_path { #(#shared_inner_args),* };
             let conf = #conf_path { raw, shared };
             Ok(#fun_path(&path, &conf).py_termfail_resolve()?.into())
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
+    let fun_path = parse_macro_input!(input as Path);
+
+    let header_conf_path = config_path("HeaderConfigInner");
+    let raw_conf_path = config_path("ReadHeaderAndTEXTConfig");
+    let std_conf_path = config_path("StdTextReadConfig");
+    let offsets_conf_path = config_path("ReadTEXTOffsetsConfig");
+    let layout_conf_path = config_path("ReadLayoutConfig");
+    let shared_conf_path = config_path("SharedConfig");
+    let conf_path = config_path("ReadStdTEXTConfig");
+
+    let path_arg = DocArg::new_path_param(true);
+    let header_args = DocArgParam::new_header_config_params();
+    let raw_args = DocArgParam::new_raw_config_params();
+    let std_args = DocArgParam::new_std_config_params(None);
+    let offsets_args = DocArgParam::new_offsets_config_params(None);
+    let layout_args = DocArgParam::new_layout_config_params(None);
+    let shared_args = DocArgParam::new_shared_config_params();
+
+    let header_inner_args: Vec<_> = header_args.iter().map(|a| a.record_into()).collect();
+    let raw_inner_args: Vec<_> = raw_args.iter().map(|a| a.record_into()).collect();
+    let std_inner_args: Vec<_> = std_args.iter().map(|a| a.record_into()).collect();
+    let offsets_inner_args: Vec<_> = offsets_args.iter().map(|a| a.record_into()).collect();
+    let layout_inner_args: Vec<_> = layout_args.iter().map(|a| a.record_into()).collect();
+    let shared_inner_args: Vec<_> = shared_args.iter().map(|a| a.record_into()).collect();
+
+    let doc = DocString::new_fun(
+        "Read *HEADER* and standardized *TEXT* from FCS file.",
+        [""; 0],
+        [path_arg]
+            .into_iter()
+            .chain(header_args)
+            .chain(raw_args)
+            .chain(std_args)
+            .chain(offsets_args)
+            .chain(layout_args)
+            .chain(shared_args),
+        Some(DocReturn::new(PyTuple::new([
+            PyClass::new_py("AnyCoreTEXT"),
+            PyClass::new_py("StdTEXTOutput"),
+        ]))),
+    );
+
+    let fun_args = doc.fun_args();
+    let ret_path = doc.ret_path();
+
+    quote! {
+        #[pyfunction]
+        #doc
+        #[allow(clippy::too_many_arguments)]
+        pub fn fcs_read_std_text(#fun_args) -> PyResult<#ret_path> {
+            let header = #header_conf_path { #(#header_inner_args),* };
+            let raw = #raw_conf_path { header, #(#raw_inner_args),* };
+            let standard = #std_conf_path { #(#std_inner_args),* };
+            let offsets = #offsets_conf_path { #(#offsets_inner_args),* };
+            let layout = #layout_conf_path { #(#layout_inner_args),* };
+            let shared = #shared_conf_path { #(#shared_inner_args),* };
+            let conf = #conf_path { raw, standard, offsets, layout, shared };
+            let (core, data) = #fun_path(&path, &conf).py_termfail_resolve()?;
+            Ok((core.into(), data.into()))
         }
     }
     .into()
@@ -205,6 +268,74 @@ pub fn impl_py_raw_text_output(input: TokenStream) -> TokenStream {
             fn new(#fun_args) -> Self {
                 let kws = fireflow_core::validated::keys::ValidKeywords::new(std, nonstd);
                 #path::new(version, kws, parse.into()).into()
+            }
+        }
+    };
+    doc.into_impl_class(name.to_string(), path.clone(), new, quote!())
+        .1
+        .into()
+}
+
+#[proc_macro]
+pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+
+    let tot = DocArgROIvar::new_ivar_ro(
+        "tot",
+        PyOpt::new(PyInt::new(RsInt::Usize, keyword_path("Tot"))),
+        "Value of *$TOT* from *TEXT*.",
+        |_, _| quote!(self.0.tot.as_ref().copied()),
+    );
+
+    let data = DocArgROIvar::new_ivar_ro(
+        "data",
+        PyType::new_segment("AnyDataSegment"),
+        "*DATA* offsets from *TEXT*.",
+        |_, _| quote!(self.0.data.clone()),
+    );
+
+    let analysis = DocArgROIvar::new_ivar_ro(
+        "analysis",
+        PyType::new_segment("AnyAnalysisSegment"),
+        "*ANALYSIS* offsets from *TEXT*.",
+        |_, _| quote!(self.0.analysis.clone()),
+    );
+
+    let pseudostandard = DocArgROIvar::new_ivar_ro(
+        "pseudostandard",
+        PyType::new_std_keywords(),
+        "Keywords which start with *$* but are not part of the standard.",
+        |_, _| quote!(self.0.extra.pseudostandard.clone()),
+    );
+
+    let unused = DocArgROIvar::new_ivar_ro(
+        "unused",
+        PyType::new_std_keywords(),
+        "Keywords which are part of the standard but were not used.",
+        |_, _| quote!(self.0.extra.unused.clone()),
+    );
+
+    let parse = DocArgROIvar::new_ivar_ro(
+        "parse",
+        PyClass::new_py("RawTEXTParseData"),
+        "Miscellaneous data when parsing *TEXT*.",
+        |_, _| quote!(self.0.parse.clone().into()),
+    );
+
+    let args = [tot, data, analysis, pseudostandard, unused, parse];
+
+    let doc = DocString::new_class(
+        "Miscellaneous data when standardizing *TEXT*.",
+        [""; 0],
+        args,
+    );
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                let extra = fireflow_core::text::parser::ExtraStdKeywords::new(pseudostandard, unused);
+                #path::new(tot, data, analysis, extra, parse.into()).into()
             }
         }
     };
@@ -1622,8 +1753,8 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
     let version = split_ident_version_checked("CoreTEXT", &ident);
     let pyname = format_ident!("Py{ident}");
 
-    let std_args = DocArg::new_std_config_params(version);
-    let layout_args = DocArg::new_layout_config_params(version);
+    let std_args = DocArg::new_std_config_params(Some(version));
+    let layout_args = DocArg::new_layout_config_params(Some(version));
     let shared_args = DocArg::new_shared_config_params();
 
     let std_inner_args: Vec<_> = std_args.iter().map(|a| a.record_into()).collect();
@@ -1707,9 +1838,9 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
     let version = split_ident_version_checked("CoreDataset", &ident);
     let pyname = format_ident!("Py{ident}");
 
-    let std_args = DocArg::new_std_config_params(version);
-    let layout_args = DocArg::new_layout_config_params(version);
-    let offsets_args = DocArg::new_offsets_config_params(version);
+    let std_args = DocArg::new_std_config_params(Some(version));
+    let layout_args = DocArg::new_layout_config_params(Some(version));
+    let offsets_args = DocArg::new_offsets_config_params(Some(version));
     let reader_args = DocArg::new_reader_config_params();
     let shared_args = DocArg::new_shared_config_params();
 
@@ -4872,7 +5003,7 @@ impl DocArgParam {
         ]
     }
 
-    fn new_std_config_params(version: Version) -> Vec<Self> {
+    fn new_std_config_params(version: Option<Version>) -> Vec<Self> {
         let trim_intra_value_whitespace = Self::new_trim_intra_value_whitespace_param();
         let time_meas_pattern = Self::new_time_meas_pattern_param();
         let allow_missing_time = Self::new_allow_missing_time_param();
@@ -4905,32 +5036,34 @@ impl DocArgParam {
         .into_iter();
 
         match version {
-            Version::FCS2_0 => std_common_args.collect(),
-            Version::FCS3_0 => std_common_args.chain([ignore_time_gain]).collect(),
+            Some(Version::FCS2_0) => std_common_args.collect(),
+            Some(Version::FCS3_0) => std_common_args.chain([ignore_time_gain]).collect(),
             _ => std_common_args
                 .chain([ignore_time_gain, parse_indexed_spillover])
                 .collect(),
         }
     }
 
-    fn new_layout_config_params(version: Version) -> Vec<Self> {
+    fn new_layout_config_params(version: Option<Version>) -> Vec<Self> {
         let integer_widths_from_byteord = Self::new_integer_widths_from_byteord_param();
         let integer_byteord_override = Self::new_integer_byteord_override_param();
         let disallow_range_truncation = Self::new_disallow_range_truncation_param();
 
         match version {
-            Version::FCS2_0 | Version::FCS3_0 => [
+            Some(Version::FCS3_1) | Some(Version::FCS3_2) => {
+                [disallow_range_truncation].into_iter().collect()
+            }
+            _ => [
                 integer_widths_from_byteord,
                 integer_byteord_override,
                 disallow_range_truncation,
             ]
             .into_iter()
             .collect(),
-            _ => [disallow_range_truncation].into_iter().collect(),
         }
     }
 
-    fn new_offsets_config_params(version: Version) -> Vec<Self> {
+    fn new_offsets_config_params(version: Option<Version>) -> Vec<Self> {
         let text_data_correction = Self::new_text_data_correction_param();
         let text_analysis_correction = Self::new_text_analysis_correction_param();
         let ignore_text_data_offsets = Self::new_ignore_text_data_offsets_param();
@@ -4942,7 +5075,7 @@ impl DocArgParam {
 
         match version {
             // none of these apply to 2.0 since there are no offsets in TEXT
-            Version::FCS2_0 => vec![],
+            Some(Version::FCS2_0) => vec![],
             _ => vec![
                 text_data_correction,
                 text_analysis_correction,
@@ -5493,11 +5626,11 @@ impl DocArgParam {
         )
     }
 
-    fn new_allow_missing_required_offsets_param(version: Version) -> Self {
-        let s = if version >= Version::FCS3_2 {
-            "*DATA*"
-        } else {
-            "*DATA* and *ANALYSIS*"
+    fn new_allow_missing_required_offsets_param(version: Option<Version>) -> Self {
+        let s = match version {
+            Some(Version::FCS3_2) => "*DATA*",
+            Some(_) => "*DATA* and *ANALYSIS*",
+            None => "*DATA* and *ANALYSIS* (3.1 or lower)",
         };
         Self::new_bool_param(
             "allow_missing_required_offsets",

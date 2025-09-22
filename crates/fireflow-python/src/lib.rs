@@ -82,12 +82,12 @@ use fireflow_core::validated::keys::{StdKeywords, ValidKeywords};
 use fireflow_core::validated::shortname::Shortname;
 
 use fireflow_python_proc::{
-    def_fcs_read_header, def_fcs_read_raw_text, impl_core_all_meas_nonstandard_keywords,
-    impl_core_all_peak_attrs, impl_core_all_pnanalyte, impl_core_all_pncal3_1,
-    impl_core_all_pncal3_2, impl_core_all_pnd, impl_core_all_pndet, impl_core_all_pnf,
-    impl_core_all_pnfeature, impl_core_all_pnl_new, impl_core_all_pnl_old, impl_core_all_pno,
-    impl_core_all_pnp, impl_core_all_pns, impl_core_all_pnt, impl_core_all_pntag,
-    impl_core_all_pntype, impl_core_all_pnv, impl_core_all_shortnames_attr,
+    def_fcs_read_header, def_fcs_read_raw_text, def_fcs_read_std_text,
+    impl_core_all_meas_nonstandard_keywords, impl_core_all_peak_attrs, impl_core_all_pnanalyte,
+    impl_core_all_pncal3_1, impl_core_all_pncal3_2, impl_core_all_pnd, impl_core_all_pndet,
+    impl_core_all_pnf, impl_core_all_pnfeature, impl_core_all_pnl_new, impl_core_all_pnl_old,
+    impl_core_all_pno, impl_core_all_pnp, impl_core_all_pns, impl_core_all_pnt,
+    impl_core_all_pntag, impl_core_all_pntype, impl_core_all_pnv, impl_core_all_shortnames_attr,
     impl_core_all_shortnames_maybe_attr, impl_core_all_transforms_attr, impl_core_get_measurement,
     impl_core_get_measurements, impl_core_get_set_timestep, impl_core_get_temporal,
     impl_core_insert_measurement, impl_core_par, impl_core_push_measurement,
@@ -102,7 +102,7 @@ use fireflow_python_proc::{
     impl_new_endian_float_layout, impl_new_endian_uint_layout, impl_new_fixed_ascii_layout,
     impl_new_gate_bi_regions, impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout,
     impl_new_ordered_layout, impl_py_header, impl_py_header_segments, impl_py_raw_text_output,
-    impl_py_raw_text_parse_data,
+    impl_py_raw_text_parse_data, impl_py_std_text_output,
 };
 
 use derive_more::{From, Into};
@@ -113,6 +113,7 @@ use std::path::PathBuf;
 
 def_fcs_read_header!(api::fcs_read_header);
 def_fcs_read_raw_text!(api::fcs_read_raw_text);
+def_fcs_read_std_text!(api::fcs_read_std_text);
 
 impl_py_header!(header::Header);
 impl_py_header_segments!(header::HeaderSegments<UintSpacePad20>);
@@ -120,15 +121,17 @@ impl_py_header_segments!(header::HeaderSegments<UintSpacePad20>);
 impl_py_raw_text_output!(api::RawTEXTOutput);
 impl_py_raw_text_parse_data!(api::RawTEXTParseData);
 
-#[pyfunction]
-#[pyo3(name = "_fcs_read_std_text")]
-pub fn py_fcs_read_std_text(
-    p: PathBuf,
-    conf: cfg::ReadStdTEXTConfig,
-) -> PyResult<(PyAnyCoreTEXT, api::StdTEXTOutput)> {
-    let (core, data) = api::fcs_read_std_text(&p, &conf).py_termfail_resolve()?;
-    Ok((core.into(), data))
-}
+impl_py_std_text_output!(api::StdTEXTOutput);
+
+// #[pyfunction]
+// #[pyo3(name = "_fcs_read_std_text")]
+// pub fn py_fcs_read_std_text(
+//     p: PathBuf,
+//     conf: cfg::ReadStdTEXTConfig,
+// ) -> PyResult<(PyAnyCoreTEXT, api::StdTEXTOutput)> {
+//     let (core, data) = api::fcs_read_std_text(&p, &conf).py_termfail_resolve()?;
+//     Ok((core.into(), data))
+// }
 
 #[pyfunction]
 #[pyo3(name = "_fcs_read_raw_dataset")]

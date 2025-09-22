@@ -1347,7 +1347,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     let by_name_doc = DocString::new_method(
         "Remove a measurement with a given name.",
         ["Raise exception if ``name`` not found."],
-        [DocArg::new_name_param("Name to remove")],
+        [DocArg::new_name_param("Name to remove.")],
         Some(DocReturn::new1(
             PyTuple::new([PyType::new_meas_index(), PyType::new_measurement(version)]),
             "Index and measurement object",
@@ -4841,7 +4841,7 @@ impl DocArgParam {
         Self::new_param(
             "name",
             PyType::new_shortname(),
-            format!("{short_desc}. Corresponds to *$PnN*. Must not contain commas."),
+            format!("{short_desc} Corresponds to *$PnN*. Must not contain commas."),
         )
     }
 

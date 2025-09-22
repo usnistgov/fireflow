@@ -6192,7 +6192,7 @@ impl IvarDocString {
         name: impl Into<String>,
         f: impl FnOnce(&Ident, &PyType) -> TokenStream2,
     ) -> TokenStream2 {
-        self.append_paragraph("This attribute is read-only.");
+        self.append_summary_or_paragraph("read-only", "This attribute is read-only.");
         let i = format_ident!("{}", name.into());
         let pt = &self.returns.rtype;
         let rt = pt.as_rust_type();
@@ -6218,7 +6218,7 @@ impl IvarDocString {
         getf: impl FnOnce(&Ident, &PyType) -> TokenStream2,
         setf: impl FnOnce(&Ident, &PyType) -> TokenStream2,
     ) -> TokenStream2 {
-        self.append_paragraph("This attribute is read-write.");
+        self.append_summary_or_paragraph("read-write", "This attribute is read-write.");
         let get = format_ident!("{}", name.into());
         let set = format_ident!("set_{get}");
         let pt = &self.returns.rtype;
@@ -6380,6 +6380,15 @@ impl<A, R, S> DocString<A, R, S> {
 
     fn append_paragraph(&mut self, p: impl Into<String>) {
         self.paragraphs.extend([p.into()]);
+    }
+
+    fn append_summary_or_paragraph(&mut self, suffix: impl fmt::Display, para: impl Into<String>) {
+        let new_summary = format!("{} ({suffix}).", self.summary.trim_end_matches("."));
+        if new_summary.len() > LINE_LEN {
+            self.append_paragraph(para)
+        } else {
+            self.summary = new_summary
+        }
     }
 
     fn fmt_inner<'a, 'b, F, G, I>(

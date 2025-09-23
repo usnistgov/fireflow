@@ -60,29 +60,24 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<ff::PyHeader>()?;
     m.add_class::<ff::PyHeaderSegments>()?;
+
     m.add_class::<ff::PyRawTEXTOutput>()?;
+    m.add_class::<ff::PyRawDatasetOutput>()?;
+    m.add_class::<ff::PyRawDatasetWithKwsOutput>()?;
+
+    m.add_class::<ff::PyStdTEXTOutput>()?;
+    m.add_class::<ff::PyStdDatasetOutput>()?;
+    m.add_class::<ff::PyStdDatasetWithKwsOutput>()?;
+
     m.add_class::<ff::PyRawTEXTParseData>()?;
 
     m.add_function(wrap_pyfunction!(ff::fcs_read_header, m)?)?;
     m.add_function(wrap_pyfunction!(ff::fcs_read_raw_text, m)?)?;
+    m.add_function(wrap_pyfunction!(ff::fcs_read_std_text, m)?)?;
+    m.add_function(wrap_pyfunction!(ff::fcs_read_raw_dataset, m)?)?;
+    m.add_function(wrap_pyfunction!(ff::fcs_read_std_dataset, m)?)?;
+    m.add_function(wrap_pyfunction!(ff::fcs_read_raw_dataset_with_keywords, m)?)?;
+    m.add_function(wrap_pyfunction!(ff::fcs_read_std_dataset_with_keywords, m)?)?;
 
     Ok(())
 }
-
-// #[pymodule]
-// fn api(m: &Bound<'_, PyModule>) -> PyResult<()> {
-//     // m.add_function(wrap_pyfunction!(ff::py_fcs_read_raw_text, m)?)?;
-//     // m.add_function(wrap_pyfunction!(ff::py_fcs_read_std_text, m)?)?;
-//     // m.add_function(wrap_pyfunction!(ff::py_fcs_read_std_dataset, m)?)?;
-//     // m.add_function(wrap_pyfunction!(ff::py_fcs_read_raw_dataset, m)?)?;
-//     // m.add_function(wrap_pyfunction!(
-//     //     ff::py_fcs_read_raw_dataset_with_keywords,
-//     //     m
-//     // )?)?;
-//     // m.add_function(wrap_pyfunction!(
-//     //     ff::py_fcs_read_std_dataset_with_keywords,
-//     //     m
-//     // )?)?;
-
-//     Ok(())
-// }

@@ -191,8 +191,8 @@ pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
             .into_iter()
             .chain(header_args)
             .chain(raw_args)
-            .chain(layout_args)
             .chain(offsets_args)
+            .chain(layout_args)
             .chain(data_args)
             .chain(shared_args),
         Some(DocReturn::new(PyClass::new_py("RawDatasetOutput"))),
@@ -2561,8 +2561,8 @@ pub fn impl_coretext_to_dataset(input: TokenStream) -> TokenStream {
     let to_rstype = pycoredataset(version);
 
     let data = DocArg::new_data_param(false);
-    let analysis = DocArg::new_analysis_param(false);
-    let others = DocArg::new_others_param(false);
+    let analysis = DocArg::new_analysis_param(true);
+    let others = DocArg::new_others_param(true);
 
     let doc = DocString::new_method(
         "Convert to a dataset object.",

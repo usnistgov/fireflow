@@ -44,12 +44,12 @@ keywords in *TEXT*.
 Reading entire datasets from a given set of keywords
 ----------------------------------------------------
 
-Sometimes, the flags provided by :func:`pyreflow.api.fcs_read_raw_dataset` and
-:func:`pyreflow.api.fcs_read_std_dataset` are not enough to repair any issues in
-*TEXT* that might make a file unreadable.
+Sometimes, the flags provided by :func:`~pyreflow.api.fcs_read_raw_dataset` and
+:func:`~pyreflow.api.fcs_read_std_dataset` are not enough to repair any issues
+in *TEXT* that might make a file unreadable.
 
 In these cases, one can read *TEXT* in raw mode using
-:func:`pyreflow.api.fcs_read_raw_text`, repair the keywords and/or offsets
+:func:`~pyreflow.api.fcs_read_raw_text`, repair the keywords and/or offsets
 out-of-band, and then feed these into one of the following functions below.
 
 .. autofunction:: pyreflow.api.fcs_read_raw_dataset_with_keywords

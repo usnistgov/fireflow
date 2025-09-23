@@ -59,8 +59,8 @@ out-of-band, and then feed these into one of the following functions below.
 Outputs
 -------
 
-These are neatly bundled tuples of data returned by each of the ``fcs_*``
-functions above.
+These are neatly bundled classes of data returned by each of the functions
+above.
 
 .. autoclass:: pyreflow.api.Header
    :members:
@@ -87,11 +87,19 @@ functions above.
 Common outputs
 --------------
 
-The following are named tuples which are reused when returning data from the
-above functions.
+These are which are reused when returning data from the above functions.
 
 .. autoclass:: pyreflow.api.HeaderSegments
    :members:
 
 .. autoclass:: pyreflow.api.RawTEXTParseData
+   :members:
+
+.. autoclass:: pyreflow.api.ValidKeywords
+   :members:
+
+.. autoclass:: pyreflow.api.ExtraStdKeywords
+   :members:
+
+.. autoclass:: pyreflow.api.DatasetSegments
    :members:

@@ -101,9 +101,10 @@ use fireflow_python_proc::{
     impl_layout_byte_widths, impl_new_core, impl_new_delim_ascii_layout,
     impl_new_endian_float_layout, impl_new_endian_uint_layout, impl_new_fixed_ascii_layout,
     impl_new_gate_bi_regions, impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout,
-    impl_new_ordered_layout, impl_py_header, impl_py_header_segments, impl_py_raw_dataset_output,
-    impl_py_raw_dataset_with_kws_output, impl_py_raw_text_output, impl_py_raw_text_parse_data,
-    impl_py_std_dataset_output, impl_py_std_dataset_with_kws_output, impl_py_std_text_output,
+    impl_new_ordered_layout, impl_py_dataset_segments, impl_py_extra_std_keywords, impl_py_header,
+    impl_py_header_segments, impl_py_raw_dataset_output, impl_py_raw_dataset_with_kws_output,
+    impl_py_raw_text_output, impl_py_raw_text_parse_data, impl_py_std_dataset_output,
+    impl_py_std_dataset_with_kws_output, impl_py_std_text_output, impl_py_valid_keywords,
 };
 
 use derive_more::{From, Into};
@@ -121,6 +122,9 @@ def_fcs_read_std_dataset_with_keywords!(api::fcs_read_std_dataset_with_keywords)
 
 impl_py_header!(header::Header);
 impl_py_header_segments!(header::HeaderSegments<UintSpacePad20>);
+impl_py_valid_keywords!(fireflow_core::validated::keys::ValidKeywords);
+impl_py_extra_std_keywords!(fireflow_core::text::parser::ExtraStdKeywords);
+impl_py_dataset_segments!(core::DatasetSegments);
 
 impl_py_raw_text_output!(api::RawTEXTOutput);
 impl_py_raw_dataset_output!(api::RawDatasetOutput);

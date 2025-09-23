@@ -22,3 +22,6 @@ from ._pyreflow import StdDatasetOutput as StdDatasetOutput
 from ._pyreflow import StdDatasetWithKwsOutput as StdDatasetWithKwsOutput
 
 from ._pyreflow import RawTEXTParseData as RawTEXTParseData
+from ._pyreflow import ValidKeywords as ValidKeywords
+from ._pyreflow import ExtraStdKeywords as ExtraStdKeywords
+from ._pyreflow import DatasetSegments as DatasetSegments

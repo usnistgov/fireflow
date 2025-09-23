@@ -1566,6 +1566,34 @@ class Header:
     def segments(self) -> HeaderSegments: ...
 
 @final
+class ValidKeywords:
+    def __new__(cls, std: StdKeywords, nonstd: NonStdKeywords) -> Self: ...
+    @property
+    def std(self) -> StdKeywords: ...
+    @property
+    def nonstd(self) -> NonStdKeywords: ...
+
+@final
+class ExtraStdKeywords:
+    def __new__(cls, pseudostandard: StdKeywords, unused: StdKeywords) -> Self: ...
+    @property
+    def pseudostandard(self) -> StdKeywords: ...
+    @property
+    def unused(self) -> StdKeywords: ...
+
+@final
+class DatasetSegments:
+    def __new__(
+        cls,
+        data_seg: Segment,
+        analysis_seg: Segment,
+    ) -> Self: ...
+    @property
+    def data_seg(self) -> Segment: ...
+    @property
+    def analysis_seg(self) -> Segment: ...
+
+@final
 class RawTEXTParseData:
     def __new__(
         cls,
@@ -1594,49 +1622,13 @@ class RawTEXTOutput:
     def __new__(
         cls,
         version: FCSVersion,
-        std: StdKeywords,
-        nonstd: NonStdKeywords,
+        kws: ValidKeywords,
         parse: RawTEXTParseData,
     ) -> Self: ...
     @property
     def version(self) -> FCSVersion: ...
     @property
-    def std(self) -> StdKeywords: ...
-    @property
-    def nonstd(self) -> NonStdKeywords: ...
-    @property
-    def parse(self) -> RawTEXTParseData: ...
-
-@final
-class RawDatasetOutput:
-    def __new__(
-        cls,
-        version: FCSVersion,
-        data: DataFrame,
-        analysis: bytes,
-        others: list[bytes],
-        data_seg: Segment,
-        analysis_seg: Segment,
-        std: StdKeywords,
-        nonstd: NonStdKeywords,
-        parse: RawTEXTParseData,
-    ) -> Self: ...
-    @property
-    def version(self) -> FCSVersion: ...
-    @property
-    def data(self) -> DataFrame: ...
-    @property
-    def analysis(self) -> bytes: ...
-    @property
-    def others(self) -> list[bytes]: ...
-    @property
-    def data_seg(self) -> Segment: ...
-    @property
-    def analysis_seg(self) -> Segment: ...
-    @property
-    def std(self) -> StdKeywords: ...
-    @property
-    def nonstd(self) -> NonStdKeywords: ...
+    def kws(self) -> ValidKeywords: ...
     @property
     def parse(self) -> RawTEXTParseData: ...
 
@@ -1647,8 +1639,7 @@ class RawDatasetWithKwsOutput:
         data: DataFrame,
         analysis: bytes,
         others: list[bytes],
-        data_seg: Segment,
-        analysis_seg: Segment,
+        dataset_segs: DatasetSegments,
     ) -> Self: ...
     @property
     def data(self) -> DataFrame: ...
@@ -1657,52 +1648,35 @@ class RawDatasetWithKwsOutput:
     @property
     def others(self) -> list[bytes]: ...
     @property
-    def data_seg(self) -> Segment: ...
+    def dataset_segs(self) -> DatasetSegments: ...
+
+@final
+class RawDatasetOutput:
+    def __new__(
+        cls,
+        text: RawTEXTOutput,
+        dataset: RawDatasetWithKwsOutput,
+    ) -> Self: ...
     @property
-    def analysis_seg(self) -> Segment: ...
+    def text(self) -> RawTEXTOutput: ...
+    @property
+    def dataset(self) -> RawDatasetWithKwsOutput: ...
 
 @final
 class StdTEXTOutput:
     def __new__(
         cls,
         tot: int | None,
-        data_seg: Segment,
-        analysis_seg: Segment,
-        pseudostandard: StdKeywords,
-        unused: StdKeywords,
+        dataset_segs: DatasetSegments,
+        extra: ExtraStdKeywords,
         parse: RawTEXTParseData,
     ) -> Self: ...
     @property
     def tot(self) -> int | None: ...
     @property
-    def data_seg(self) -> Segment: ...
+    def dataset_segs(self) -> DatasetSegments: ...
     @property
-    def analysis_seg(self) -> Segment: ...
-    @property
-    def pseudostandard(self) -> StdKeywords: ...
-    @property
-    def unused(self) -> StdKeywords: ...
-    @property
-    def parse(self) -> RawTEXTParseData: ...
-
-@final
-class StdDatasetOutput:
-    def __new__(
-        cls,
-        data_seg: Segment,
-        analysis_seg: Segment,
-        pseudostandard: StdKeywords,
-        unused: StdKeywords,
-        parse: RawTEXTParseData,
-    ) -> Self: ...
-    @property
-    def data_seg(self) -> Segment: ...
-    @property
-    def analysis_seg(self) -> Segment: ...
-    @property
-    def pseudostandard(self) -> StdKeywords: ...
-    @property
-    def unused(self) -> StdKeywords: ...
+    def extra(self) -> ExtraStdKeywords: ...
     @property
     def parse(self) -> RawTEXTParseData: ...
 
@@ -1710,19 +1684,25 @@ class StdDatasetOutput:
 class StdDatasetWithKwsOutput:
     def __new__(
         cls,
-        data_seg: Segment,
-        analysis_seg: Segment,
-        pseudostandard: StdKeywords,
-        unused: StdKeywords,
+        dataset_segs: DatasetSegments,
+        extra: ExtraStdKeywords,
     ) -> Self: ...
     @property
-    def data_seg(self) -> Segment: ...
+    def dataset_segs(self) -> DatasetSegments: ...
     @property
-    def analysis_seg(self) -> Segment: ...
+    def extra(self) -> ExtraStdKeywords: ...
+
+@final
+class StdDatasetOutput:
+    def __new__(
+        cls,
+        dataset: StdDatasetWithKwsOutput,
+        parse: RawTEXTParseData,
+    ) -> Self: ...
     @property
-    def pseudostandard(self) -> StdKeywords: ...
+    def dataset(self) -> StdDatasetWithKwsOutput: ...
     @property
-    def unused(self) -> StdKeywords: ...
+    def parse(self) -> RawTEXTParseData: ...
 
 def fcs_read_header(
     path: Path,
@@ -2097,6 +2077,9 @@ __all__ = [
     "StdTEXTOutput",
     "StdDatasetOutput",
     "StdDatasetWithKwsOutput",
+    "ExtraStdKeywords",
+    "ValidKeywords",
+    "DatasetSegments",
     "fcs_read_header",
     "fcs_read_raw_text",
     "fcs_read_std_text",

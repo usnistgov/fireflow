@@ -1793,15 +1793,26 @@ class TestLayouts:
 
 class TestReadWrite:
     @staticmethod
-    def _assert_uncore_empty(
-        uncore: pf.api.StdTEXTOutput | pf.api.StdDatasetOutput,
+    def _assert_uncore_text_empty(
+        uncore: pf.api.StdTEXTOutput,
     ) -> None:
         assert uncore.parse.nextdata == 0
         assert uncore.parse.delimiter == 30
         assert len(uncore.parse.non_ascii) == 0
         assert len(uncore.parse.byte_pairs) == 0
-        assert len(uncore.pseudostandard) == 0
-        assert len(uncore.unused) == 0
+        assert len(uncore.extra.pseudostandard) == 0
+        assert len(uncore.extra.unused) == 0
+
+    @staticmethod
+    def _assert_uncore_dataset_empty(
+        uncore: pf.api.StdDatasetOutput,
+    ) -> None:
+        assert uncore.parse.nextdata == 0
+        assert uncore.parse.delimiter == 30
+        assert len(uncore.parse.non_ascii) == 0
+        assert len(uncore.parse.byte_pairs) == 0
+        assert len(uncore.dataset.extra.pseudostandard) == 0
+        assert len(uncore.dataset.extra.unused) == 0
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["blank_text"])
     def test_text_empty(self, tmp_path: Path, core: AnyCoreTEXT) -> None:
@@ -1810,7 +1821,7 @@ class TestReadWrite:
         p = d / "empty_text.fcs"
         core.write_text(p)
         nu_core, un_core = pf.api.fcs_read_std_text(p)
-        self._assert_uncore_empty(un_core)
+        self._assert_uncore_text_empty(un_core)
         assert core == nu_core
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text"])
@@ -1820,7 +1831,7 @@ class TestReadWrite:
         p = d / "text1.fcs"
         core.write_text(p)
         nu_core, un_core = pf.api.fcs_read_std_text(p, time_meas_pattern=None)
-        self._assert_uncore_empty(un_core)
+        self._assert_uncore_text_empty(un_core)
         assert core == nu_core
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text2"])
@@ -1830,7 +1841,7 @@ class TestReadWrite:
         p = d / "text2.fcs"
         core.write_text(p)
         nu_core, un_core = pf.api.fcs_read_std_text(p, time_meas_pattern=LINK_NAME2)
-        self._assert_uncore_empty(un_core)
+        self._assert_uncore_text_empty(un_core)
         assert core == nu_core
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["blank_dataset"])
@@ -1840,7 +1851,7 @@ class TestReadWrite:
         p = d / "empty_dataset.fcs"
         core.write_dataset(p)
         nu_core, un_core = pf.api.fcs_read_std_dataset(p)
-        self._assert_uncore_empty(un_core)
+        self._assert_uncore_dataset_empty(un_core)
         assert core == nu_core
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
@@ -1852,7 +1863,7 @@ class TestReadWrite:
         nu_core, un_core = pf.api.fcs_read_std_dataset(
             p, time_meas_pattern=None, warnings_are_errors=True
         )
-        self._assert_uncore_empty(un_core)
+        self._assert_uncore_dataset_empty(un_core)
         assert core == nu_core
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
@@ -1866,7 +1877,7 @@ class TestReadWrite:
             time_meas_pattern=LINK_NAME2,
             warnings_are_errors=True,
         )
-        self._assert_uncore_empty(un_core)
+        self._assert_uncore_dataset_empty(un_core)
         assert core == nu_core
 
     @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["dataset2"])
@@ -1885,7 +1896,7 @@ class TestReadWrite:
             time_meas_pattern=LINK_NAME2,
             warnings_are_errors=True,
         )
-        self._assert_uncore_empty(un_core)
+        self._assert_uncore_dataset_empty(un_core)
         assert core == nu_core
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])

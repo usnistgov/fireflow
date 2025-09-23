@@ -173,14 +173,11 @@ pub fn fcs_read_std_dataset_with_keywords(
                 &other_segs[..],
                 &st,
             )
-            .def_map_value(|(core, extra, d_seg, a_seg)| {
+            .def_map_value(|(core, extra, dataset_segments)| {
                 (
                     core,
                     StdDatasetWithKwsOutput {
-                        standardized: DatasetSegments {
-                            data_seg: d_seg,
-                            analysis_seg: a_seg,
-                        },
+                        dataset_segments,
                         extra,
                     },
                 )
@@ -215,11 +212,8 @@ pub struct StdTEXTOutput {
     /// This should always be Some for 3.0+ and might be None for 2.0.
     pub tot: Option<Tot>,
 
-    /// Segment for DATA
-    pub data: AnyDataSegment,
-
-    /// Segment for ANALYSIS
-    pub analysis: AnyAnalysisSegment,
+    /// Segments for DATA and ANALYSIS
+    pub dataset_segments: DatasetSegments,
 
     /// Keywords that start with '$' that are not part of the standard
     pub extra: ExtraStdKeywords,
@@ -260,11 +254,8 @@ pub struct RawDatasetWithKwsOutput {
     /// OTHER output(s)
     pub others: Others,
 
-    /// offsets used to parse DATA
-    pub data_seg: AnyDataSegment,
-
-    /// offsets used to parse ANALYSIS
-    pub analysis_seg: AnyAnalysisSegment,
+    /// Offsets used to parse DATA and ANALYSIS
+    pub dataset_segments: DatasetSegments,
 }
 
 /// Data pertaining to parsing the TEXT segment.
@@ -516,7 +507,7 @@ where
 {
     kws_to_df_analysis(version, h, kws, data_seg, analysis_seg, st)
         .def_inner_into()
-        .def_and_maybe(|(data, analysis, _data_seg, _analysis_seg)| {
+        .def_and_maybe(|(data, analysis, dataset_segments)| {
             let or = OthersReader { segs: other_segs };
             or.h_read(h)
                 .into_deferred()
@@ -524,8 +515,7 @@ where
                     data,
                     analysis,
                     others,
-                    data_seg: _data_seg,
-                    analysis_seg: _analysis_seg,
+                    dataset_segments,
                 })
         })
 }
@@ -572,8 +562,7 @@ impl RawTEXTOutput {
                 StdTEXTOutput {
                     parse: self.parse,
                     tot: offsets.tot,
-                    data: offsets.data,
-                    analysis: offsets.analysis,
+                    dataset_segments: *offsets.as_ref(),
                     extra,
                 },
             )
@@ -605,19 +594,13 @@ impl RawTEXTOutput {
             &self.parse.header_segments.other[..],
             st,
         )
-        .def_map_value(|(core, extra, data_seg, analysis_seg)| {
+        .def_map_value(|(core, extra, dataset_segments)| {
             (
                 core,
-                StdDatasetOutput {
-                    dataset: StdDatasetWithKwsOutput {
-                        standardized: DatasetSegments {
-                            data_seg,
-                            analysis_seg,
-                        },
-                        extra,
-                    },
-                    parse: self.parse,
-                },
+                StdDatasetOutput::new(
+                    StdDatasetWithKwsOutput::new(dataset_segments, extra),
+                    self.parse,
+                ),
             )
         })
     }
@@ -631,7 +614,7 @@ fn kws_to_df_analysis<C, R>(
     analysis: HeaderAnalysisSegment,
     st: &ReadState<C>,
 ) -> IODeferredResult<
-    (FCSDataFrame, Analysis, AnyDataSegment, AnyAnalysisSegment),
+    (FCSDataFrame, Analysis, DatasetSegments),
     LookupAndReadDataAnalysisWarning,
     LookupAndReadDataAnalysisError,
 >

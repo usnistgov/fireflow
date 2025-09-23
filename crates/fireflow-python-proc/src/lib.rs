@@ -469,6 +469,31 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+pub fn impl_py_valid_keywords(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+
+    let std = DocArg::new_std_keywords_param().into_ro(|_, _| quote!(self.0.std.clone().into()));
+    let nonstd =
+        DocArg::new_nonstd_keywords_param().into_ro(|_, _| quote!(self.0.nonstd.clone().into()));
+
+    let args = [std, nonstd];
+
+    let doc = DocString::new_class("Standard and non-standard keywords.", [""; 0], args);
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #path::new(std, nonstd).into()
+            }
+        }
+    };
+    doc.into_impl_class(name.to_string(), path.clone(), new, quote!())
+        .1
+        .into()
+}
+
+#[proc_macro]
 pub fn impl_py_header_segments(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let bare_path = path_strip_args(path.clone());
@@ -505,24 +530,20 @@ pub fn impl_py_raw_text_output(input: TokenStream) -> TokenStream {
 
     let version = DocArgROIvar::new_version_ivar();
 
-    let std =
-        DocArg::new_std_keywords_param().into_ro(|_, _| quote!(self.0.keywords.std.clone().into()));
-
-    let nonstd = DocArg::new_nonstd_keywords_param()
-        .into_ro(|_, _| quote!(self.0.keywords.nonstd.clone().into()));
+    let kws =
+        DocArg::new_valid_keywords_param().into_ro(|_, _| quote!(self.0.keywords.clone().into()));
 
     let parse =
         DocArg::new_parse_output_param().into_ro(|_, _| quote!(self.0.parse.clone().into()));
 
-    let args = [version, std, nonstd, parse];
+    let args = [version, kws, parse];
 
     let doc = DocString::new_class("Parsed *HEADER* and *TEXT*.", [""; 0], args);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                let kws = fireflow_core::validated::keys::ValidKeywords::new(std, nonstd);
-                #path::new(version, kws, parse.into()).into()
+                #path::new(version, kws.into(), parse.into()).into()
             }
         }
     };
@@ -536,51 +557,28 @@ pub fn impl_py_raw_dataset_output(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
-    let version = DocArg::new_version_param().into_ro(|_, _| quote!(self.0.text.version));
+    let text = DocArg::new_ivar_ro(
+        "text",
+        PyClass::new_py("RawTEXTOutput"),
+        "Parsed *TEXT* segment.",
+        |_, _| quote!(self.0.text.clone().into()),
+    );
 
-    let data = DocArg::new_data_param(false).into_ro(|_, _| quote!(self.0.dataset.data.clone()));
-    let analysis =
-        DocArg::new_analysis_param(false).into_ro(|_, _| quote!(self.0.dataset.analysis.clone()));
-    let others =
-        DocArg::new_others_param(false).into_ro(|_, _| quote!(self.0.dataset.others.clone()));
+    let dataset = DocArg::new_ivar_ro(
+        "dataset",
+        PyClass::new_py("RawDatasetWithKwsOutput"),
+        "Parsed *DATA*, *ANALYSIS*, and *OTHER* segments.",
+        |_, _| quote!(self.0.dataset.clone().into()),
+    );
 
-    let data_seg =
-        DocArg::new_data_seg_param(SegmentSrc::Any).into_ro(|_, _| quote!(self.0.dataset.data_seg));
-    let analysis_seg = DocArg::new_analysis_seg_param(SegmentSrc::Any, false)
-        .into_ro(|_, _| quote!(self.0.dataset.analysis_seg));
+    let args = [text, dataset];
 
-    let std = DocArg::new_std_keywords_param()
-        .into_ro(|_, _| quote!(self.0.text.keywords.std.clone().into()));
-
-    let nonstd = DocArg::new_nonstd_keywords_param()
-        .into_ro(|_, _| quote!(self.0.text.keywords.nonstd.clone().into()));
-
-    let parse =
-        DocArg::new_parse_output_param().into_ro(|_, _| quote!(self.0.text.parse.clone().into()));
-
-    let args = [
-        version,
-        data,
-        analysis,
-        others,
-        data_seg,
-        analysis_seg,
-        std,
-        nonstd,
-        parse,
-    ];
-
-    let doc = DocString::new_class("Parsed *HEADER* and *TEXT*.", [""; 0], args);
+    let doc = DocString::new_class("Parsed raw dataset from FCS file.", [""; 0], args);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                let kws = fireflow_core::validated::keys::ValidKeywords::new(std, nonstd);
-                let text = fireflow_core::api::RawTEXTOutput::new(version, kws, parse.into());
-                let dataset = fireflow_core::api::RawDatasetWithKwsOutput::new(
-                    data, analysis, others, data_seg, analysis_seg
-                );
-                #path::new(text, dataset).into()
+                #path::new(text.into(), dataset.into()).into()
             }
         }
     };
@@ -598,19 +596,83 @@ pub fn impl_py_raw_dataset_with_kws_output(input: TokenStream) -> TokenStream {
     let analysis =
         DocArg::new_analysis_param(false).into_ro(|_, _| quote!(self.0.analysis.clone()));
     let others = DocArg::new_others_param(false).into_ro(|_, _| quote!(self.0.others.clone()));
-    let data_seg =
-        DocArg::new_data_seg_param(SegmentSrc::Any).into_ro(|_, _| quote!(self.0.data_seg));
-    let analysis_seg = DocArg::new_analysis_seg_param(SegmentSrc::Any, false)
-        .into_ro(|_, _| quote!(self.0.analysis_seg));
+    let dataset_segs =
+        DocArg::new_dataset_segments_param().into_ro(|_, _| quote!(self.0.dataset_segments.into()));
 
-    let args = [data, analysis, others, data_seg, analysis_seg];
-
-    let doc = DocString::new_class("Dataset from parsing raw *TEXT*.", [""; 0], args);
+    let doc = DocString::new_class(
+        "Dataset from parsing raw *TEXT*.",
+        [""; 0],
+        [data, analysis, others, dataset_segs],
+    );
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(data, analysis, others, data_seg, analysis_seg).into()
+                #path::new(data, analysis, others, dataset_segs.into()).into()
+            }
+        }
+    };
+    doc.into_impl_class(name.to_string(), path.clone(), new, quote!())
+        .1
+        .into()
+}
+
+#[proc_macro]
+pub fn impl_py_extra_std_keywords(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+
+    let pseudostandard = DocArgROIvar::new_ivar_ro(
+        "pseudostandard",
+        PyType::new_std_keywords(),
+        "Keywords which start with *$* but are not part of the standard.",
+        |_, _| quote!(self.0.pseudostandard.clone()),
+    );
+
+    let unused = DocArgROIvar::new_ivar_ro(
+        "unused",
+        PyType::new_std_keywords(),
+        "Keywords which are part of the standard but were not used.",
+        |_, _| quote!(self.0.unused.clone()),
+    );
+
+    let doc = DocString::new_class(
+        "Extra keywords from *TEXT* standardization.",
+        [""; 0],
+        [pseudostandard, unused],
+    );
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #path::new(pseudostandard, unused).into()
+            }
+        }
+    };
+    doc.into_impl_class(name.to_string(), path.clone(), new, quote!())
+        .1
+        .into()
+}
+
+#[proc_macro]
+pub fn impl_py_dataset_segments(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+
+    let data = DocArg::new_data_seg_param(SegmentSrc::Any).into_ro(|_, _| quote!(self.0.data));
+    let analysis = DocArg::new_analysis_seg_param(SegmentSrc::Any, false)
+        .into_ro(|_, _| quote!(self.0.analysis));
+
+    let doc = DocString::new_class(
+        "Segments used to parse *DATA* and *ANALYSIS*",
+        [""; 0],
+        [data, analysis],
+    );
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #path::new(data_seg, analysis_seg).into()
             }
         }
     };
@@ -631,23 +693,11 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.tot.as_ref().copied()),
     );
 
-    let data = DocArg::new_data_seg_param(SegmentSrc::Any).into_ro(|_, _| quote!(self.0.data));
-    let analysis = DocArg::new_analysis_seg_param(SegmentSrc::Any, false)
-        .into_ro(|_, _| quote!(self.0.analysis));
+    let dataset_segs =
+        DocArg::new_dataset_segments_param().into_ro(|_, _| quote!(self.0.dataset_segments.into()));
 
-    let pseudostandard = DocArgROIvar::new_ivar_ro(
-        "pseudostandard",
-        PyType::new_std_keywords(),
-        "Keywords which start with *$* but are not part of the standard.",
-        |_, _| quote!(self.0.extra.pseudostandard.clone()),
-    );
-
-    let unused = DocArgROIvar::new_ivar_ro(
-        "unused",
-        PyType::new_std_keywords(),
-        "Keywords which are part of the standard but were not used.",
-        |_, _| quote!(self.0.extra.unused.clone()),
-    );
+    let extra =
+        DocArg::new_extra_std_keywords_param().into_ro(|_, _| quote!(self.0.extra.clone().into()));
 
     let parse = DocArgROIvar::new_ivar_ro(
         "parse",
@@ -656,19 +706,16 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.parse.clone().into()),
     );
 
-    let args = [tot, data, analysis, pseudostandard, unused, parse];
-
     let doc = DocString::new_class(
         "Miscellaneous data when standardizing *TEXT*.",
         [""; 0],
-        args,
+        [tot, dataset_segs, extra, parse],
     );
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                let extra = fireflow_core::text::parser::ExtraStdKeywords::new(pseudostandard, unused);
-                #path::new(tot, data_seg, analysis_seg, extra, parse.into()).into()
+                #path::new(tot, dataset_segs.into(), extra.into(), parse.into()).into()
             }
         }
     };
@@ -682,24 +729,11 @@ pub fn impl_py_std_dataset_output(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
-    let data = DocArg::new_data_seg_param(SegmentSrc::Any)
-        .into_ro(|_, _| quote!(self.0.dataset.standardized.data_seg));
-
-    let analysis = DocArg::new_analysis_seg_param(SegmentSrc::Any, false)
-        .into_ro(|_, _| quote!(self.0.dataset.standardized.analysis_seg));
-
-    let pseudostandard = DocArgROIvar::new_ivar_ro(
-        "pseudostandard",
-        PyType::new_std_keywords(),
-        "Keywords which start with *$* but are not part of the standard.",
-        |_, _| quote!(self.0.dataset.extra.pseudostandard.clone()),
-    );
-
-    let unused = DocArgROIvar::new_ivar_ro(
-        "unused",
-        PyType::new_std_keywords(),
-        "Keywords which are part of the standard but were not used.",
-        |_, _| quote!(self.0.dataset.extra.unused.clone()),
+    let dataset = DocArgROIvar::new_ivar_ro(
+        "dataset",
+        PyClass::new_py("StdDatasetWithKwsOutput"),
+        "Data from parsing standardized *DATA*, *ANALYSIS*, and *OTHER* segments.",
+        |_, _| quote!(self.0.dataset.clone().into()),
     );
 
     let parse = DocArgROIvar::new_ivar_ro(
@@ -709,7 +743,7 @@ pub fn impl_py_std_dataset_output(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.parse.clone().into()),
     );
 
-    let args = [data, analysis, pseudostandard, unused, parse];
+    let args = [dataset, parse];
 
     let doc = DocString::new_class(
         "Miscellaneous data when standardizing *TEXT*.",
@@ -720,10 +754,7 @@ pub fn impl_py_std_dataset_output(input: TokenStream) -> TokenStream {
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                let segs = fireflow_core::core::DatasetSegments::new(data_seg, analysis_seg);
-                let extra = fireflow_core::text::parser::ExtraStdKeywords::new(pseudostandard, unused);
-                let std = fireflow_core::core::StdDatasetWithKwsOutput::new(segs, extra);
-                #path::new(std, parse.into()).into()
+                #path::new(dataset.into(), parse.into()).into()
             }
         }
     };
@@ -737,40 +768,22 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
-    let data = DocArg::new_data_seg_param(SegmentSrc::Any)
-        .into_ro(|_, _| quote!(self.0.standardized.data_seg));
+    let dataset_segs =
+        DocArg::new_dataset_segments_param().into_ro(|_, _| quote!(self.0.dataset_segments.into()));
 
-    let analysis = DocArg::new_analysis_seg_param(SegmentSrc::Any, false)
-        .into_ro(|_, _| quote!(self.0.standardized.analysis_seg));
-
-    let pseudostandard = DocArgROIvar::new_ivar_ro(
-        "pseudostandard",
-        PyType::new_std_keywords(),
-        "Keywords which start with *$* but are not part of the standard.",
-        |_, _| quote!(self.0.extra.pseudostandard.clone()),
-    );
-
-    let unused = DocArgROIvar::new_ivar_ro(
-        "unused",
-        PyType::new_std_keywords(),
-        "Keywords which are part of the standard but were not used.",
-        |_, _| quote!(self.0.extra.unused.clone()),
-    );
-
-    let args = [data, analysis, pseudostandard, unused];
+    let extra =
+        DocArg::new_extra_std_keywords_param().into_ro(|_, _| quote!(self.0.extra.clone().into()));
 
     let doc = DocString::new_class(
         "Miscellaneous data when standardizing *TEXT* from keywords.",
         [""; 0],
-        args,
+        [dataset_segs, extra],
     );
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                let segs = fireflow_core::core::DatasetSegments::new(data_seg, analysis_seg);
-                let extra = fireflow_core::text::parser::ExtraStdKeywords::new(pseudostandard, unused);
-                #path::new(segs, extra).into()
+                #path::new(dataset_segs.into(), extra.into()).into()
             }
         }
     };
@@ -5265,6 +5278,30 @@ impl DocArgParam {
             "nonstd",
             PyType::new_nonstd_keywords(),
             "Non-standard keywords.",
+        )
+    }
+
+    fn new_valid_keywords_param() -> Self {
+        DocArg::new_param(
+            "kws",
+            PyClass::new_py("ValidKeywords"),
+            "Standard and non-standard keywords.",
+        )
+    }
+
+    fn new_extra_std_keywords_param() -> Self {
+        DocArg::new_param(
+            "extra",
+            PyClass::new_py("ExtraStdKeywords"),
+            "Extra keywords from *TEXT* standardization",
+        )
+    }
+
+    fn new_dataset_segments_param() -> Self {
+        DocArg::new_param(
+            "dataset_segs",
+            PyClass::new_py("DatasetSegments"),
+            "Offsets used to parse *DATA* and *ANALYSIS*.",
         )
     }
 

@@ -399,7 +399,7 @@ impl AnyCoreDataset {
         other_segs: &[OtherSegment20],
         conf: &ReadState<C>,
     ) -> IODeferredResult<
-        (Self, ExtraStdKeywords, AnyDataSegment, AnyAnalysisSegment),
+        (Self, ExtraStdKeywords, DatasetSegments),
         StdDatasetFromRawWarning,
         StdDatasetFromRawError,
     >
@@ -419,7 +419,7 @@ impl AnyCoreDataset {
                 other_segs,
                 conf,
             )
-            .def_map_value(|(w, x, y, z)| (w.into(), x, y, z)),
+            .def_map_value(|(w, x, y)| (w.into(), x, y)),
             Version::FCS3_0 => CoreDataset3_0::new_from_keywords_inner(
                 h,
                 kws,
@@ -428,7 +428,7 @@ impl AnyCoreDataset {
                 other_segs,
                 conf,
             )
-            .def_map_value(|(w, x, y, z)| (w.into(), x, y, z)),
+            .def_map_value(|(w, x, y)| (w.into(), x, y)),
             Version::FCS3_1 => CoreDataset3_1::new_from_keywords_inner(
                 h,
                 kws,
@@ -437,7 +437,7 @@ impl AnyCoreDataset {
                 other_segs,
                 conf,
             )
-            .def_map_value(|(w, x, y, z)| (w.into(), x, y, z)),
+            .def_map_value(|(w, x, y)| (w.into(), x, y)),
             Version::FCS3_2 => CoreDataset3_2::new_from_keywords_inner(
                 h,
                 kws,
@@ -446,7 +446,7 @@ impl AnyCoreDataset {
                 other_segs,
                 conf,
             )
-            .def_map_value(|(w, x, y, z)| (w.into(), x, y, z)),
+            .def_map_value(|(w, x, y)| (w.into(), x, y)),
         }
     }
 }
@@ -1163,21 +1163,21 @@ pub struct OthersReader<'a> {
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct StdDatasetWithKwsOutput {
     /// DATA+ANALYSIS
-    pub standardized: DatasetSegments,
+    pub dataset_segments: DatasetSegments,
 
     /// Keywords that start with '$' that are not part of the standard
     pub extra: ExtraStdKeywords,
 }
 
 /// Standardized TEXT+DATA+ANALYSIS with DATA+ANALYSIS offsets
-#[derive(Clone, new, PartialEq)]
+#[derive(Clone, Copy, new, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct DatasetSegments {
     /// offsets used to parse DATA
-    pub data_seg: AnyDataSegment,
+    pub data: AnyDataSegment,
 
     /// offsets used to parse ANALYSIS
-    pub analysis_seg: AnyAnalysisSegment,
+    pub analysis: AnyAnalysisSegment,
 }
 
 mod private {
@@ -1248,13 +1248,13 @@ pub trait Versioned {
         analysis_seg: HeaderAnalysisSegment,
         st: &ReadState<C>,
     ) -> IODeferredResult<
-        (FCSDataFrame, Analysis, AnyDataSegment, AnyAnalysisSegment),
+        (FCSDataFrame, Analysis, DatasetSegments),
         LookupAndReadDataAnalysisWarning,
         LookupAndReadDataAnalysisError,
     >
     where
         R: Read + Seek,
-        Self::Offsets: AsRef<AnyDataSegment> + AsRef<AnyAnalysisSegment>,
+        Self::Offsets: AsRef<DatasetSegments>,
         C: AsRef<ReadLayoutConfig> + AsRef<ReaderConfig> + AsRef<ReadTEXTOffsetsConfig>,
     {
         let layout_res = Self::Layout::lookup_ro(kws, st.conf.as_ref())
@@ -1266,20 +1266,19 @@ pub trait Versioned {
         layout_res
             .def_zip(offset_res)
             .def_and_maybe(|(layout, offsets)| {
+                let dataset_segs = offsets.as_ref();
                 let ar = AnalysisReader {
-                    seg: *offsets.as_ref(),
+                    seg: dataset_segs.analysis,
                 };
                 let read_conf: &ReaderConfig = st.conf.as_ref();
                 let data_res = layout
-                    .h_read_df(h, offsets.tot(), *offsets.as_ref(), read_conf)
+                    .h_read_df(h, offsets.tot(), dataset_segs.data, read_conf)
                     .def_warnings_into()
                     .def_map_errors(|e| e.inner_into());
                 let analysis_res = ar.h_read(h).into_deferred();
                 data_res
                     .def_zip(analysis_res)
-                    .def_map_value(|(data, analysis)| {
-                        (data, analysis, *offsets.as_ref(), *offsets.as_ref())
-                    })
+                    .def_map_value(|(data, analysis)| (data, analysis, *dataset_segs))
             })
     }
 }
@@ -1568,25 +1567,23 @@ pub trait VersionedTEXTOffsets: Sized {
     fn into_common(self) -> TEXTOffsets<Option<Tot>>;
 }
 
-#[derive(AsRef)]
+#[derive(AsRef, new)]
 pub struct TEXTOffsets<T> {
-    #[as_ref(AnyDataSegment)]
-    pub data: AnyDataSegment,
-    #[as_ref(AnyAnalysisSegment)]
-    pub analysis: AnyAnalysisSegment,
+    #[as_ref]
+    pub segs: DatasetSegments,
     pub tot: T,
 }
 
 #[derive(From, AsRef)]
-#[as_ref(AnyDataSegment, AnyAnalysisSegment)]
+#[as_ref(DatasetSegments)]
 pub struct TEXTOffsets2_0(pub TEXTOffsets<Option<Tot>>);
 
 #[derive(From, AsRef)]
-#[as_ref(AnyDataSegment, AnyAnalysisSegment)]
+#[as_ref(DatasetSegments)]
 pub struct TEXTOffsets3_0(pub TEXTOffsets<Tot>);
 
 #[derive(From, AsRef)]
-#[as_ref(AnyDataSegment, AnyAnalysisSegment)]
+#[as_ref(DatasetSegments)]
 pub struct TEXTOffsets3_2(pub TEXTOffsets<Tot>);
 
 impl CommonMeasurement {
@@ -3938,7 +3935,7 @@ where
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical,
         Version: From<M::Ver>,
-        <M::Ver as Versioned>::Offsets: AsRef<AnyDataSegment> + AsRef<AnyAnalysisSegment>,
+        <M::Ver as Versioned>::Offsets: AsRef<DatasetSegments>,
         C: AsRef<StdTextReadConfig>
             + AsRef<ReadLayoutConfig>
             + AsRef<ReaderConfig>
@@ -3954,17 +3951,8 @@ where
             .def_and_maybe(|(st, file)| {
                 let mut h = BufReader::new(file);
                 Self::new_from_keywords_inner(&mut h, kws, data_seg, analysis_seg, other_segs, &st)
-                    .def_map_value(|(core, extra, d_seg, a_seg)| {
-                        (
-                            core,
-                            StdDatasetWithKwsOutput {
-                                standardized: DatasetSegments {
-                                    data_seg: d_seg,
-                                    analysis_seg: a_seg,
-                                },
-                                extra,
-                            },
-                        )
+                    .def_map_value(|(core, extra, dataset_segs)| {
+                        (core, StdDatasetWithKwsOutput::new(dataset_segs, extra))
                     })
             })
             .def_terminate_maybe_warn(StdDatasetWithKwsFailure, sconf.warnings_are_errors, |w| {
@@ -3981,7 +3969,7 @@ where
         st: &ReadState<C>,
         // TODO wrap this in a nice struct
     ) -> IODeferredResult<
-        (Self, ExtraStdKeywords, AnyDataSegment, AnyAnalysisSegment),
+        (Self, ExtraStdKeywords, DatasetSegments),
         StdDatasetFromRawWarning,
         StdDatasetFromRawError,
     >
@@ -3991,7 +3979,7 @@ where
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical,
         Version: From<M::Ver>,
-        <M::Ver as Versioned>::Offsets: AsRef<AnyDataSegment> + AsRef<AnyAnalysisSegment>,
+        <M::Ver as Versioned>::Offsets: AsRef<DatasetSegments>,
         C: AsRef<StdTextReadConfig>
             + AsRef<ReadLayoutConfig>
             + AsRef<ReaderConfig>
@@ -4002,14 +3990,15 @@ where
             .def_inner_into()
             .def_errors_liftio()
             .def_and_maybe(|(text, extra, offsets)| {
+                let dataset_segs = offsets.as_ref();
                 let or = OthersReader { segs: other_segs };
                 let ar = AnalysisReader {
-                    seg: *offsets.as_ref(),
+                    seg: dataset_segs.analysis,
                 };
                 let read_conf: &ReaderConfig = st.conf.as_ref();
                 let data_res = text
                     .layout
-                    .h_read_df(h, offsets.tot(), *offsets.as_ref(), read_conf)
+                    .h_read_df(h, offsets.tot(), dataset_segs.data, read_conf)
                     .def_warnings_into()
                     .def_map_errors(|e| e.inner_into());
                 let analysis_res = ar.h_read(h).into_deferred();
@@ -4024,7 +4013,7 @@ where
                             analysis,
                             others,
                         };
-                        (c, extra, *offsets.as_ref(), *offsets.as_ref())
+                        (c, extra, *dataset_segs)
                     },
                 )
             })
@@ -6930,11 +6919,10 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
                 |t| Tentative::new1(t.0),
             )
             .map(|tot| {
-                TEXTOffsets {
-                    data: data.into_any(),
-                    analysis: analysis.into_any(),
+                TEXTOffsets::new(
+                    DatasetSegments::new(data.into_any(), analysis.into_any()),
                     tot,
-                }
+                )
                 .into()
             }))
     }
@@ -6954,11 +6942,10 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
                 |t| Tentative::new1(t.0),
             )
             .map(|tot| {
-                TEXTOffsets {
-                    data: data.into_any(),
-                    analysis: analysis.into_any(),
+                TEXTOffsets::new(
+                    DatasetSegments::new(data.into_any(), analysis.into_any()),
                     tot,
-                }
+                )
                 .into()
             }))
     }
@@ -6969,11 +6956,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
 
     fn into_common(self) -> TEXTOffsets<Option<Tot>> {
         let x = self.0;
-        TEXTOffsets {
-            tot: x.tot,
-            data: x.data,
-            analysis: x.analysis,
-        }
+        TEXTOffsets::new(x.segs, x.tot)
     }
 }
 
@@ -7021,12 +7004,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         tot_res
             .def_zip3(data_res, analysis_res)
             .def_map_value(|(tot, data, analysis)| {
-                TEXTOffsets {
-                    data,
-                    analysis,
-                    tot,
-                }
-                .into()
+                TEXTOffsets::new(DatasetSegments::new(data, analysis), tot).into()
             })
     }
 
@@ -7071,12 +7049,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         tot_res
             .def_zip3(data_res, analysis_res)
             .def_map_value(|(tot, data, analysis)| {
-                TEXTOffsets {
-                    data,
-                    analysis,
-                    tot,
-                }
-                .into()
+                TEXTOffsets::new(DatasetSegments::new(data, analysis), tot).into()
             })
     }
 
@@ -7086,11 +7059,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
 
     fn into_common(self) -> TEXTOffsets<Option<Tot>> {
         let x = self.0;
-        TEXTOffsets {
-            tot: Some(x.tot),
-            data: x.data,
-            analysis: x.analysis,
-        }
+        TEXTOffsets::new(x.segs, Some(x.tot))
     }
 }
 
@@ -7139,12 +7108,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
                     )
                     .inner_into()
                     .map(|analysis| {
-                        TEXTOffsets {
-                            data,
-                            analysis,
-                            tot,
-                        }
-                        .into()
+                        TEXTOffsets::new(DatasetSegments::new(data, analysis), tot).into()
                     })
                 }
             })
@@ -7190,14 +7154,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
                     },
                 )
                 .inner_into()
-                .map(|analysis| {
-                    TEXTOffsets {
-                        data,
-                        analysis,
-                        tot,
-                    }
-                    .into()
-                })
+                .map(|analysis| TEXTOffsets::new(DatasetSegments::new(data, analysis), tot).into())
             })
     }
 
@@ -7207,11 +7164,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
 
     fn into_common(self) -> TEXTOffsets<Option<Tot>> {
         let x = self.0;
-        TEXTOffsets {
-            tot: Some(x.tot),
-            data: x.data,
-            analysis: x.analysis,
-        }
+        TEXTOffsets::new(x.segs, Some(x.tot))
     }
 }
 

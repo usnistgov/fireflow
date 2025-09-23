@@ -20,8 +20,7 @@ use syn::{
 #[proc_macro]
 pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
     let fun_path = parse_macro_input!(input as Path);
-    let args = DocArgParam::new_header_config_params();
-    let inner_args: Vec<_> = args.iter().map(|a| a.record_into()).collect();
+    let (conf_inner_path, args, inner_args) = DocArgParam::new_header_config_params();
     let doc = DocString::new_fun(
         "Read the *HEADER* of an FCS file.",
         [""; 0],
@@ -29,7 +28,6 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
         Some(DocReturn::new(PyClass::new_py("Header"))),
     );
     let fun_args = doc.fun_args();
-    let conf_inner_path = config_path("HeaderConfigInner");
     let conf_path = config_path("ReadHeaderConfig");
     let ret_path = doc.ret_path();
     quote! {
@@ -48,19 +46,12 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
 pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
     let fun_path = parse_macro_input!(input as Path);
 
-    let header_conf_path = config_path("HeaderConfigInner");
-    let raw_conf_path = config_path("ReadHeaderAndTEXTConfig");
-    let shared_conf_path = config_path("SharedConfig");
     let conf_path = config_path("ReadRawTEXTConfig");
 
     let path_arg = DocArg::new_path_param(true);
-    let header_args = DocArgParam::new_header_config_params();
-    let raw_args = DocArgParam::new_raw_config_params();
-    let shared_args = DocArgParam::new_shared_config_params();
-
-    let header_inner_args: Vec<_> = header_args.iter().map(|a| a.record_into()).collect();
-    let raw_inner_args: Vec<_> = raw_args.iter().map(|a| a.record_into()).collect();
-    let shared_inner_args: Vec<_> = shared_args.iter().map(|a| a.record_into()).collect();
+    let (header_conf, header_args, header_recs) = DocArgParam::new_header_config_params();
+    let (raw_conf, raw_args, raw_recs) = DocArgParam::new_raw_config_params();
+    let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let doc = DocString::new_fun(
         "Read *HEADER* and *TEXT* as key/value pairs from FCS file.",
@@ -81,9 +72,9 @@ pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
         #doc
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_raw_text(#fun_args) -> PyResult<#ret_path> {
-            let header = #header_conf_path { #(#header_inner_args),* };
-            let raw = #raw_conf_path { header, #(#raw_inner_args),* };
-            let shared = #shared_conf_path { #(#shared_inner_args),* };
+            let header = #header_conf { #(#header_recs),* };
+            let raw = #raw_conf { header, #(#raw_recs),* };
+            let shared = #shared_conf { #(#shared_recs),* };
             let conf = #conf_path { raw, shared };
             Ok(#fun_path(&path, &conf).py_termfail_resolve()?.into())
         }
@@ -95,28 +86,15 @@ pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
 pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
     let fun_path = parse_macro_input!(input as Path);
 
-    let header_conf_path = config_path("HeaderConfigInner");
-    let raw_conf_path = config_path("ReadHeaderAndTEXTConfig");
-    let std_conf_path = config_path("StdTextReadConfig");
-    let offsets_conf_path = config_path("ReadTEXTOffsetsConfig");
-    let layout_conf_path = config_path("ReadLayoutConfig");
-    let shared_conf_path = config_path("SharedConfig");
     let conf_path = config_path("ReadStdTEXTConfig");
 
     let path_arg = DocArg::new_path_param(true);
-    let header_args = DocArgParam::new_header_config_params();
-    let raw_args = DocArgParam::new_raw_config_params();
-    let std_args = DocArgParam::new_std_config_params(None);
-    let offsets_args = DocArgParam::new_offsets_config_params(None);
-    let layout_args = DocArgParam::new_layout_config_params(None);
-    let shared_args = DocArgParam::new_shared_config_params();
-
-    let header_inner_args: Vec<_> = header_args.iter().map(|a| a.record_into()).collect();
-    let raw_inner_args: Vec<_> = raw_args.iter().map(|a| a.record_into()).collect();
-    let std_inner_args: Vec<_> = std_args.iter().map(|a| a.record_into()).collect();
-    let offsets_inner_args: Vec<_> = offsets_args.iter().map(|a| a.record_into()).collect();
-    let layout_inner_args: Vec<_> = layout_args.iter().map(|a| a.record_into()).collect();
-    let shared_inner_args: Vec<_> = shared_args.iter().map(|a| a.record_into()).collect();
+    let (header_conf, header_args, header_recs) = DocArgParam::new_header_config_params();
+    let (raw_conf, raw_args, raw_recs) = DocArgParam::new_raw_config_params();
+    let (std_conf, std_args, std_recs) = DocArgParam::new_std_config_params(None);
+    let (offsets_conf, offsets_args, offsets_recs) = DocArgParam::new_offsets_config_params(None);
+    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_layout_config_params(None);
+    let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let doc = DocString::new_fun(
         "Read *HEADER* and standardized *TEXT* from FCS file.",
@@ -143,12 +121,12 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
         #doc
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_std_text(#fun_args) -> PyResult<#ret_path> {
-            let header = #header_conf_path { #(#header_inner_args),* };
-            let raw = #raw_conf_path { header, #(#raw_inner_args),* };
-            let standard = #std_conf_path { #(#std_inner_args),* };
-            let offsets = #offsets_conf_path { #(#offsets_inner_args),* };
-            let layout = #layout_conf_path { #(#layout_inner_args),* };
-            let shared = #shared_conf_path { #(#shared_inner_args),* };
+            let header = #header_conf { #(#header_recs),* };
+            let raw = #raw_conf { header, #(#raw_recs),* };
+            let standard = #std_conf { #(#std_recs),* };
+            let offsets = #offsets_conf { #(#offsets_recs),* };
+            let layout = #layout_conf { #(#layout_recs),* };
+            let shared = #shared_conf { #(#shared_recs),* };
             let conf = #conf_path { raw, standard, offsets, layout, shared };
             let (core, data) = #fun_path(&path, &conf).py_termfail_resolve()?;
             Ok((core.into(), data.into()))
@@ -161,28 +139,15 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
 pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
     let fun_path = parse_macro_input!(input as Path);
 
-    let header_conf_path = config_path("HeaderConfigInner");
-    let raw_conf_path = config_path("ReadHeaderAndTEXTConfig");
-    let layout_conf_path = config_path("ReadLayoutConfig");
-    let offsets_conf_path = config_path("ReadTEXTOffsetsConfig");
-    let data_conf_path = config_path("ReaderConfig");
-    let shared_conf_path = config_path("SharedConfig");
     let conf_path = config_path("ReadRawDatasetConfig");
 
     let path_arg = DocArg::new_path_param(true);
-    let header_args = DocArgParam::new_header_config_params();
-    let raw_args = DocArgParam::new_raw_config_params();
-    let layout_args = DocArgParam::new_layout_config_params(None);
-    let offsets_args = DocArgParam::new_offsets_config_params(None);
-    let data_args = DocArgParam::new_reader_config_params();
-    let shared_args = DocArgParam::new_shared_config_params();
-
-    let header_inner_args: Vec<_> = header_args.iter().map(|a| a.record_into()).collect();
-    let raw_inner_args: Vec<_> = raw_args.iter().map(|a| a.record_into()).collect();
-    let layout_inner_args: Vec<_> = layout_args.iter().map(|a| a.record_into()).collect();
-    let offsets_inner_args: Vec<_> = offsets_args.iter().map(|a| a.record_into()).collect();
-    let data_inner_args: Vec<_> = data_args.iter().map(|a| a.record_into()).collect();
-    let shared_inner_args: Vec<_> = shared_args.iter().map(|a| a.record_into()).collect();
+    let (header_conf, header_args, header_recs) = DocArgParam::new_header_config_params();
+    let (raw_conf, raw_args, raw_recs) = DocArgParam::new_raw_config_params();
+    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_layout_config_params(None);
+    let (offsets_conf, offsets_args, offsets_recs) = DocArgParam::new_offsets_config_params(None);
+    let (data_conf, data_args, data_recs) = DocArgParam::new_reader_config_params();
+    let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let doc = DocString::new_fun(
         "Read raw dataset from FCS file.",
@@ -206,12 +171,12 @@ pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
         #doc
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_raw_dataset(#fun_args) -> PyResult<#ret_path> {
-            let header = #header_conf_path { #(#header_inner_args),* };
-            let raw = #raw_conf_path { header, #(#raw_inner_args),* };
-            let layout = #layout_conf_path { #(#layout_inner_args),* };
-            let offsets = #offsets_conf_path { #(#offsets_inner_args),* };
-            let data = #data_conf_path { #(#data_inner_args),* };
-            let shared = #shared_conf_path { #(#shared_inner_args),* };
+            let header = #header_conf { #(#header_recs),* };
+            let raw = #raw_conf { header, #(#raw_recs),* };
+            let layout = #layout_conf { #(#layout_recs),* };
+            let offsets = #offsets_conf { #(#offsets_recs),* };
+            let data = #data_conf { #(#data_recs),* };
+            let shared = #shared_conf { #(#shared_recs),* };
             let conf = #conf_path { raw, layout, offsets, data, shared };
             Ok(#fun_path(&path, &conf).py_termfail_resolve()?.into())
         }
@@ -223,31 +188,16 @@ pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
 pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
     let fun_path = parse_macro_input!(input as Path);
 
-    let header_conf_path = config_path("HeaderConfigInner");
-    let raw_conf_path = config_path("ReadHeaderAndTEXTConfig");
-    let std_conf_path = config_path("StdTextReadConfig");
-    let offsets_conf_path = config_path("ReadTEXTOffsetsConfig");
-    let layout_conf_path = config_path("ReadLayoutConfig");
-    let shared_conf_path = config_path("SharedConfig");
-    let data_conf_path = config_path("ReaderConfig");
     let conf_path = config_path("ReadStdDatasetConfig");
 
     let path_arg = DocArg::new_path_param(true);
-    let header_args = DocArgParam::new_header_config_params();
-    let raw_args = DocArgParam::new_raw_config_params();
-    let std_args = DocArgParam::new_std_config_params(None);
-    let offsets_args = DocArgParam::new_offsets_config_params(None);
-    let layout_args = DocArgParam::new_layout_config_params(None);
-    let data_args = DocArgParam::new_reader_config_params();
-    let shared_args = DocArgParam::new_shared_config_params();
-
-    let header_inner_args: Vec<_> = header_args.iter().map(|a| a.record_into()).collect();
-    let raw_inner_args: Vec<_> = raw_args.iter().map(|a| a.record_into()).collect();
-    let std_inner_args: Vec<_> = std_args.iter().map(|a| a.record_into()).collect();
-    let offsets_inner_args: Vec<_> = offsets_args.iter().map(|a| a.record_into()).collect();
-    let layout_inner_args: Vec<_> = layout_args.iter().map(|a| a.record_into()).collect();
-    let data_inner_args: Vec<_> = data_args.iter().map(|a| a.record_into()).collect();
-    let shared_inner_args: Vec<_> = shared_args.iter().map(|a| a.record_into()).collect();
+    let (header_conf, header_args, header_recs) = DocArgParam::new_header_config_params();
+    let (raw_conf, raw_args, raw_recs) = DocArgParam::new_raw_config_params();
+    let (std_conf, std_args, std_recs) = DocArgParam::new_std_config_params(None);
+    let (offsets_conf, offsets_args, offsets_recs) = DocArgParam::new_offsets_config_params(None);
+    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_layout_config_params(None);
+    let (data_conf, data_args, data_recs) = DocArgParam::new_reader_config_params();
+    let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let doc = DocString::new_fun(
         "Read standardized dataset from FCS file.",
@@ -275,13 +225,13 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
         #doc
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_std_dataset(#fun_args) -> PyResult<#ret_path> {
-            let header = #header_conf_path { #(#header_inner_args),* };
-            let raw = #raw_conf_path { header, #(#raw_inner_args),* };
-            let standard = #std_conf_path { #(#std_inner_args),* };
-            let offsets = #offsets_conf_path { #(#offsets_inner_args),* };
-            let layout = #layout_conf_path { #(#layout_inner_args),* };
-            let data = #data_conf_path { #(#data_inner_args),* };
-            let shared = #shared_conf_path { #(#shared_inner_args),* };
+            let header = #header_conf { #(#header_recs),* };
+            let raw = #raw_conf { header, #(#raw_recs),* };
+            let standard = #std_conf { #(#std_recs),* };
+            let offsets = #offsets_conf { #(#offsets_recs),* };
+            let layout = #layout_conf { #(#layout_recs),* };
+            let data = #data_conf { #(#data_recs),* };
+            let shared = #shared_conf { #(#shared_recs),* };
             let conf = #conf_path { raw, standard, offsets, layout, data, shared };
             let (core, data) = #fun_path(&path, &conf).py_termfail_resolve()?;
             Ok((core.into(), data.into()))
@@ -294,10 +244,6 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
 pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream {
     let fun_path = parse_macro_input!(input as Path);
 
-    let offsets_conf_path = config_path("ReadTEXTOffsetsConfig");
-    let layout_conf_path = config_path("ReadLayoutConfig");
-    let shared_conf_path = config_path("SharedConfig");
-    let data_conf_path = config_path("ReaderConfig");
     let conf_path = config_path("ReadRawDatasetFromKeywordsConfig");
 
     let path_arg = DocArg::new_path_param(true);
@@ -307,15 +253,10 @@ pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream
     let analysis_arg = DocArg::new_analysis_seg_param(SegmentSrc::Header, true);
     let other_arg = DocArg::new_other_segs_param(true);
 
-    let offsets_args = DocArgParam::new_offsets_config_params(None);
-    let layout_args = DocArgParam::new_layout_config_params(None);
-    let data_args = DocArgParam::new_reader_config_params();
-    let shared_args = DocArgParam::new_shared_config_params();
-
-    let offsets_inner_args: Vec<_> = offsets_args.iter().map(|a| a.record_into()).collect();
-    let layout_inner_args: Vec<_> = layout_args.iter().map(|a| a.record_into()).collect();
-    let data_inner_args: Vec<_> = data_args.iter().map(|a| a.record_into()).collect();
-    let shared_inner_args: Vec<_> = shared_args.iter().map(|a| a.record_into()).collect();
+    let (offsets_conf, offsets_args, offsets_recs) = DocArgParam::new_offsets_config_params(None);
+    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_layout_config_params(None);
+    let (data_conf, data_args, data_recs) = DocArgParam::new_reader_config_params();
+    let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let doc = DocString::new_fun(
         "Read raw dataset from FCS file from keywords.",
@@ -344,10 +285,10 @@ pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream
         #doc
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_raw_dataset_with_keywords(#fun_args) -> PyResult<#ret_path> {
-            let offsets = #offsets_conf_path { #(#offsets_inner_args),* };
-            let layout = #layout_conf_path { #(#layout_inner_args),* };
-            let data = #data_conf_path { #(#data_inner_args),* };
-            let shared = #shared_conf_path { #(#shared_inner_args),* };
+            let offsets = #offsets_conf { #(#offsets_recs),* };
+            let layout = #layout_conf { #(#layout_recs),* };
+            let data = #data_conf { #(#data_recs),* };
+            let shared = #shared_conf { #(#shared_recs),* };
             let conf = #conf_path { offsets, layout, data, shared };
             let ret = #fun_path(
                 &path, version, &std, data_seg, analysis_seg, other_segs, &conf
@@ -362,11 +303,6 @@ pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream
 pub fn def_fcs_read_std_dataset_with_keywords(input: TokenStream) -> TokenStream {
     let fun_path = parse_macro_input!(input as Path);
 
-    let std_conf_path = config_path("StdTextReadConfig");
-    let offsets_conf_path = config_path("ReadTEXTOffsetsConfig");
-    let layout_conf_path = config_path("ReadLayoutConfig");
-    let shared_conf_path = config_path("SharedConfig");
-    let data_conf_path = config_path("ReaderConfig");
     let conf_path = config_path("ReadStdDatasetFromKeywordsConfig");
 
     let path_arg = DocArg::new_path_param(true);
@@ -377,17 +313,11 @@ pub fn def_fcs_read_std_dataset_with_keywords(input: TokenStream) -> TokenStream
     let analysis_arg = DocArg::new_analysis_seg_param(SegmentSrc::Header, true);
     let other_arg = DocArg::new_other_segs_param(true);
 
-    let std_args = DocArgParam::new_std_config_params(None);
-    let offsets_args = DocArgParam::new_offsets_config_params(None);
-    let layout_args = DocArgParam::new_layout_config_params(None);
-    let data_args = DocArgParam::new_reader_config_params();
-    let shared_args = DocArgParam::new_shared_config_params();
-
-    let std_inner_args: Vec<_> = std_args.iter().map(|a| a.record_into()).collect();
-    let offsets_inner_args: Vec<_> = offsets_args.iter().map(|a| a.record_into()).collect();
-    let layout_inner_args: Vec<_> = layout_args.iter().map(|a| a.record_into()).collect();
-    let data_inner_args: Vec<_> = data_args.iter().map(|a| a.record_into()).collect();
-    let shared_inner_args: Vec<_> = shared_args.iter().map(|a| a.record_into()).collect();
+    let (std_conf, std_args, std_recs) = DocArgParam::new_std_config_params(None);
+    let (offsets_conf, offsets_args, offsets_recs) = DocArgParam::new_offsets_config_params(None);
+    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_layout_config_params(None);
+    let (data_conf, data_args, data_recs) = DocArgParam::new_reader_config_params();
+    let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let doc = DocString::new_fun(
         "Read standardized dataset from FCS file.",
@@ -422,11 +352,11 @@ pub fn def_fcs_read_std_dataset_with_keywords(input: TokenStream) -> TokenStream
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_std_dataset_with_keywords(#fun_args) -> PyResult<#ret_path> {
             let kws = fireflow_core::validated::keys::ValidKeywords::new(std, nonstd);
-            let standard = #std_conf_path { #(#std_inner_args),* };
-            let offsets = #offsets_conf_path { #(#offsets_inner_args),* };
-            let layout = #layout_conf_path { #(#layout_inner_args),* };
-            let data = #data_conf_path { #(#data_inner_args),* };
-            let shared = #shared_conf_path { #(#shared_inner_args),* };
+            let standard = #std_conf { #(#std_recs),* };
+            let offsets = #offsets_conf { #(#offsets_recs),* };
+            let layout = #layout_conf { #(#layout_recs),* };
+            let data = #data_conf { #(#data_recs),* };
+            let shared = #shared_conf { #(#shared_recs),* };
             let conf = #conf_path { standard, offsets, layout, data, shared };
             let (core, data) = #fun_path(
                 &path, version, kws, data_seg, analysis_seg, other_segs, &conf
@@ -2201,18 +2131,12 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
     let version = split_ident_version_checked("CoreTEXT", &ident);
     let pyname = format_ident!("Py{ident}");
 
-    let std_args = DocArg::new_std_config_params(Some(version));
-    let layout_args = DocArg::new_layout_config_params(Some(version));
-    let shared_args = DocArg::new_shared_config_params();
+    let core_conf = config_path("NewCoreTEXTConfig");
 
-    let std_inner_args: Vec<_> = std_args.iter().map(|a| a.record_into()).collect();
-    let layout_inner_args: Vec<_> = layout_args.iter().map(|a| a.record_into()).collect();
-    let shared_inner_args: Vec<_> = shared_args.iter().map(|a| a.record_into()).collect();
-
-    let std_conf = quote!(fireflow_core::config::StdTextReadConfig);
-    let layout_conf = quote!(fireflow_core::config::ReadLayoutConfig);
-    let shared_conf = quote!(fireflow_core::config::SharedConfig);
-    let core_conf = quote!(fireflow_core::config::NewCoreTEXTConfig);
+    let (std_conf, std_args, std_recs) = DocArgParam::new_std_config_params(Some(version));
+    let (layout_conf, layout_args, layout_recs) =
+        DocArgParam::new_layout_config_params(Some(version));
+    let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let other_kws = if version == Version::FCS2_0 {
         "*$TOT*"
@@ -2237,16 +2161,14 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
         "Non-Standard keywords.",
     );
 
-    let config_params = std_args
-        .iter()
-        .chain(layout_args.iter())
-        .chain(shared_args.iter())
-        .cloned();
-
     let doc = DocString::new_fun(
         "Make new instance from keywords.",
         [""; 0],
-        [std_param, nonstd_param].into_iter().chain(config_params),
+        [std_param, nonstd_param]
+            .into_iter()
+            .chain(std_args)
+            .chain(layout_args)
+            .chain(shared_args),
         Some(DocReturn::new(PyClass::new_py(ident.to_string()))),
     );
 
@@ -2262,15 +2184,15 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
                 let kws = fireflow_core::validated::keys::ValidKeywords { std, nonstd };
                 #[allow(clippy::needless_update)]
                 let standard = #std_conf {
-                    #(#std_inner_args,)*
+                    #(#std_recs,)*
                     ..#std_conf::default()
                 };
                 #[allow(clippy::needless_update)]
                 let layout = #layout_conf {
-                    #(#layout_inner_args,)*
+                    #(#layout_recs,)*
                     ..#layout_conf::default()
                 };
-                let shared = #shared_conf { #(#shared_inner_args),* };
+                let shared = #shared_conf { #(#shared_recs),* };
                 let conf = #core_conf { standard, layout, shared };
                 Ok(Self(#path::new_from_keywords(kws, &conf).py_termfail_resolve()?))
             }
@@ -2286,32 +2208,23 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
     let version = split_ident_version_checked("CoreDataset", &ident);
     let pyname = format_ident!("Py{ident}");
 
-    let std_args = DocArg::new_std_config_params(Some(version));
-    let layout_args = DocArg::new_layout_config_params(Some(version));
-    let offsets_args = DocArg::new_offsets_config_params(Some(version));
-    let reader_args = DocArg::new_reader_config_params();
-    let shared_args = DocArg::new_shared_config_params();
+    let core_conf = config_path("ReadStdDatasetFromKeywordsConfig");
 
-    let std_inner_args: Vec<_> = std_args.iter().map(|a| a.record_into()).collect();
-    let layout_inner_args: Vec<_> = layout_args.iter().map(|a| a.record_into()).collect();
-    let offsets_inner_args: Vec<_> = offsets_args.iter().map(|a| a.record_into()).collect();
-    let reader_inner_args: Vec<_> = reader_args.iter().map(|a| a.record_into()).collect();
-    let shared_inner_args: Vec<_> = shared_args.iter().map(|a| a.record_into()).collect();
+    let (std_conf, std_args, std_recs) = DocArgParam::new_std_config_params(Some(version));
+    let (layout_conf, layout_args, layout_recs) =
+        DocArgParam::new_layout_config_params(Some(version));
+    let (offsets_conf, offsets_args, offsets_recs) =
+        DocArgParam::new_offsets_config_params(Some(version));
+    let (data_conf, data_args, data_recs) = DocArgParam::new_reader_config_params();
+    let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let config_args: Vec<_> = std_args
         .into_iter()
         .chain(layout_args)
         .chain(offsets_args)
-        .chain(reader_args)
+        .chain(data_args)
         .chain(shared_args)
         .collect();
-
-    let std_conf = quote!(fireflow_core::config::StdTextReadConfig);
-    let layout_conf = quote!(fireflow_core::config::ReadLayoutConfig);
-    let offsets_conf = quote!(fireflow_core::config::ReadTEXTOffsetsConfig);
-    let reader_conf = quote!(fireflow_core::config::ReaderConfig);
-    let shared_conf = quote!(fireflow_core::config::SharedConfig);
-    let core_conf = quote!(fireflow_core::config::ReadStdDatasetFromKeywordsConfig);
 
     let path_param = DocArg::new_path_param(true);
 
@@ -2357,27 +2270,27 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
                 let kws = fireflow_core::validated::keys::ValidKeywords { std, nonstd };
                 #[allow(clippy::needless_update)]
                 let standard = #std_conf {
-                    #(#std_inner_args,)*
+                    #(#std_recs,)*
                     ..#std_conf::default()
                 };
                 #[allow(clippy::needless_update)]
                 let layout = #layout_conf {
-                    #(#layout_inner_args,)*
+                    #(#layout_recs,)*
                     ..#layout_conf::default()
                 };
                 #[allow(clippy::needless_update)]
                 let offsets = #offsets_conf {
-                    #(#offsets_inner_args,)*
+                    #(#offsets_recs,)*
                     ..#offsets_conf::default()
                 };
                 #[allow(clippy::needless_update)]
-                let data = #reader_conf {
-                    #(#reader_inner_args,)*
-                    ..#reader_conf::default()
+                let data = #data_conf {
+                    #(#data_recs,)*
+                    ..#data_conf::default()
                 };
                 #[allow(clippy::needless_update)]
                 let shared = #shared_conf {
-                    #(#shared_inner_args,)*
+                    #(#shared_recs,)*
                     ..#shared_conf::default()
                 };
                 let conf = #core_conf { standard, layout, offsets, data, shared };
@@ -5485,8 +5398,9 @@ impl DocArgParam {
         )
     }
 
-    fn new_header_config_params() -> Vec<Self> {
-        vec![
+    fn new_header_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
+        let conf = config_path("HeaderConfigInner");
+        let ps = vec![
             Self::new_text_correction_param(),
             Self::new_data_correction_param(),
             Self::new_analysis_correction_param(),
@@ -5496,11 +5410,14 @@ impl DocArgParam {
             Self::new_squish_offsets_param(),
             Self::new_allow_negative_param(),
             Self::new_truncate_offsets_param(),
-        ]
+        ];
+        let js = ps.iter().map(|x| x.record_into()).collect();
+        (conf, ps, js)
     }
 
-    fn new_raw_config_params() -> Vec<Self> {
-        vec![
+    fn new_raw_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
+        let conf = config_path("ReadHeaderAndTEXTConfig");
+        let ps = vec![
             Self::new_version_override(),
             Self::new_supp_text_correction(),
             Self::new_allow_duplicated_supp_text(),
@@ -5524,10 +5441,12 @@ impl DocArgParam {
             Self::new_rename_standard_keys(),
             Self::new_replace_standard_key_values(),
             Self::new_append_standard_keywords(),
-        ]
+        ];
+        let js = ps.iter().map(|x| x.record_into()).collect();
+        (conf, ps, js)
     }
 
-    fn new_std_config_params(version: Option<Version>) -> Vec<Self> {
+    fn new_std_config_params(version: Option<Version>) -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let trim_intra_value_whitespace = Self::new_trim_intra_value_whitespace_param();
         let time_meas_pattern = Self::new_time_meas_pattern_param();
         let allow_missing_time = Self::new_allow_missing_time_param();
@@ -5559,21 +5478,25 @@ impl DocArgParam {
         ]
         .into_iter();
 
-        match version {
+        let ps: Vec<_> = match version {
             Some(Version::FCS2_0) => std_common_args.collect(),
             Some(Version::FCS3_0) => std_common_args.chain([ignore_time_gain]).collect(),
             _ => std_common_args
                 .chain([ignore_time_gain, parse_indexed_spillover])
                 .collect(),
-        }
+        };
+
+        let conf = config_path("StdTextReadConfig");
+        let js = ps.iter().map(|x| x.record_into()).collect();
+        (conf, ps, js)
     }
 
-    fn new_layout_config_params(version: Option<Version>) -> Vec<Self> {
+    fn new_layout_config_params(version: Option<Version>) -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let integer_widths_from_byteord = Self::new_integer_widths_from_byteord_param();
         let integer_byteord_override = Self::new_integer_byteord_override_param();
         let disallow_range_truncation = Self::new_disallow_range_truncation_param();
 
-        match version {
+        let ps: Vec<_> = match version {
             Some(Version::FCS3_1) | Some(Version::FCS3_2) => {
                 [disallow_range_truncation].into_iter().collect()
             }
@@ -5584,10 +5507,14 @@ impl DocArgParam {
             ]
             .into_iter()
             .collect(),
-        }
+        };
+
+        let conf = config_path("ReadLayoutConfig");
+        let js = ps.iter().map(|x| x.record_into()).collect();
+        (conf, ps, js)
     }
 
-    fn new_offsets_config_params(version: Option<Version>) -> Vec<Self> {
+    fn new_offsets_config_params(version: Option<Version>) -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let text_data_correction = Self::new_text_data_correction_param();
         let text_analysis_correction = Self::new_text_analysis_correction_param();
         let ignore_text_data_offsets = Self::new_ignore_text_data_offsets_param();
@@ -5597,7 +5524,7 @@ impl DocArgParam {
             Self::new_allow_missing_required_offsets_param(version);
         let truncate_text_offsets = Self::new_truncate_text_offsets_param();
 
-        match version {
+        let ps: Vec<_> = match version {
             // none of these apply to 2.0 since there are no offsets in TEXT
             Some(Version::FCS2_0) => vec![],
             _ => vec![
@@ -5609,18 +5536,28 @@ impl DocArgParam {
                 allow_header_text_offset_mismatch,
                 truncate_text_offsets,
             ],
-        }
+        };
+
+        let conf = config_path("ReadTEXTOffsetsConfig");
+        let js = ps.iter().map(|x| x.record_into()).collect();
+        (conf, ps, js)
     }
 
-    fn new_reader_config_params() -> Vec<Self> {
+    fn new_reader_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let allow_uneven_event_width = Self::new_allow_uneven_event_width_param();
         let allow_tot_mismatch = Self::new_allow_tot_mismatch_param();
-        vec![allow_uneven_event_width, allow_tot_mismatch]
+        let conf = config_path("ReaderConfig");
+        let ps = vec![allow_uneven_event_width, allow_tot_mismatch];
+        let js = ps.iter().map(|x| x.record_into()).collect();
+        (conf, ps, js)
     }
 
-    fn new_shared_config_params() -> Vec<Self> {
+    fn new_shared_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
+        let conf = config_path("SharedConfig");
         let warnings_are_errors = Self::new_warnings_are_errors_param();
-        vec![warnings_are_errors]
+        let ps = vec![warnings_are_errors];
+        let js = ps.iter().map(|x| x.record_into()).collect();
+        (conf, ps, js)
     }
 
     fn new_trim_intra_value_whitespace_param() -> Self {

@@ -9,6 +9,7 @@ derive_more = { workspace = true, features = ["from", "as_ref", "display"] }
 fireflow-core = { version = "0.1.0", path = "../fireflow-core" }
 syn = { version = "*", features = ["extra-traits"] }
 itertools = { workspace = true }
+nonempty = { workspace = true }
 quote = "*"
 proc-macro2 = "*"
 

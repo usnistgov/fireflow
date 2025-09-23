@@ -5,6 +5,7 @@ use fireflow_core::header::Version;
 use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Itertools;
+use nonempty::NonEmpty;
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote, ToTokens};
@@ -4039,13 +4040,81 @@ enum PyType {
     Tuple(PyTuple),
     #[from(PyList)]
     List(Box<PyList>),
-    // Set(Box<PyType>),
     #[from]
     Literal(PyLiteral),
     #[from]
     PyClass(PyClass),
     #[from(PyUnion)]
     Union(Box<PyUnion>),
+}
+
+#[derive(PartialEq)]
+enum PyAtom {
+    Str,
+    Bool,
+    Bytes,
+    Int,
+    Float,
+    Decimal,
+    Datetime,
+    Date,
+    Time,
+    None,
+    Dict(Box<PyAtom>, Box<PyAtom>),
+    Tuple(Vec<PyAtom>),
+    List(Box<PyAtom>),
+    Literal(PyLiteral),
+    PyClass(PyClass),
+    Union(Box<PyAtom>, Box<PyAtom>, Vec<PyAtom>),
+}
+
+impl PyAtom {
+    fn flatten_unions(self) -> Self {
+        fn go(x: PyAtom) -> NonEmpty<PyAtom> {
+            match x {
+                PyAtom::Union(x0, x1, xs) => {
+                    let ys = go(*x0)
+                        .into_iter()
+                        .chain(go(*x1))
+                        .chain(xs.into_iter().flat_map(go));
+                    NonEmpty::collect(ys).unwrap()
+                }
+                y => NonEmpty::new(y.flatten_unions()),
+            }
+        }
+        match self {
+            Self::Union(x0, x1, xs) => {
+                let mut hasnone = false;
+                let mut ys: Vec<_> = go(*x0)
+                    .into_iter()
+                    .chain(go(*x1))
+                    .chain(xs.into_iter().flat_map(go))
+                    .filter(|x| {
+                        if x == &Self::None {
+                            hasnone = true;
+                            false
+                        } else {
+                            true
+                        }
+                    })
+                    .collect();
+                if hasnone {
+                    ys.push(PyAtom::None)
+                }
+                let mut zs = ys.into_iter();
+                // ASSUME this won't fail because if we have all Nones then
+                // another None should be added
+                let n0 = zs.next().unwrap();
+                let n1 = zs.next().expect("Tried to flatten union of all 'None'");
+                let ns = zs.collect();
+                Self::Union(n0.into(), n1.into(), ns)
+            }
+            Self::List(x) => Self::List(x.flatten_unions().into()),
+            Self::Dict(k, v) => Self::Dict(k.flatten_unions().into(), v.flatten_unions().into()),
+            Self::Tuple(xs) => Self::Tuple(xs.into_iter().map(|x| x.flatten_unions()).collect()),
+            x => x,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -4096,7 +4165,7 @@ struct PyDatetime {
     rstype: Option<Path>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct PyLiteral {
     head: &'static str,
     tail: Vec<&'static str>,
@@ -4122,7 +4191,7 @@ struct PyList {
     rstype: Option<Path>,
 }
 
-#[derive(Clone, new)]
+#[derive(Clone, new, PartialEq)]
 struct PyClass {
     #[new(into)]
     pyname: String,
@@ -6701,6 +6770,66 @@ impl PyType {
     }
 }
 
+trait AsPyAtom {
+    fn as_atom(&self) -> PyAtom;
+}
+
+impl AsPyAtom for PyType {
+    fn as_atom(&self) -> PyAtom {
+        match self {
+            Self::Bool(_) => PyAtom::Bool,
+            Self::Bytes(_) => PyAtom::Bytes,
+            Self::Str(_) => PyAtom::Str,
+            Self::Int(_) => PyAtom::Int,
+            Self::Float(_) => PyAtom::Float,
+            Self::Decimal(_) => PyAtom::Decimal,
+            Self::Date(_) => PyAtom::Date,
+            Self::Time(_) => PyAtom::Time,
+            Self::Datetime(_) => PyAtom::Datetime,
+            Self::Literal(x) => PyAtom::Literal(x.clone()),
+            Self::PyClass(x) => PyAtom::PyClass(x.clone()),
+            Self::List(x) => x.as_atom(),
+            Self::Dict(x) => x.as_atom(),
+            Self::Option(x) => x.as_atom(),
+            Self::Tuple(x) => x.as_atom(),
+            Self::Union(x) => x.as_atom(),
+        }
+    }
+}
+
+impl AsPyAtom for PyList {
+    fn as_atom(&self) -> PyAtom {
+        PyAtom::List(self.inner.as_atom().into())
+    }
+}
+
+impl AsPyAtom for PyDict {
+    fn as_atom(&self) -> PyAtom {
+        PyAtom::Dict(self.key.as_atom().into(), self.value.as_atom().into())
+    }
+}
+
+impl AsPyAtom for PyOpt {
+    fn as_atom(&self) -> PyAtom {
+        PyAtom::Union(self.inner.as_atom().into(), PyAtom::None.into(), vec![])
+    }
+}
+
+impl AsPyAtom for PyTuple {
+    fn as_atom(&self) -> PyAtom {
+        PyAtom::Tuple(self.inner.iter().map(|x| x.as_atom()).collect())
+    }
+}
+
+impl AsPyAtom for PyUnion {
+    fn as_atom(&self) -> PyAtom {
+        let x0 = self.head0.as_atom();
+        let x1 = self.head1.as_atom();
+        let xs = self.tail.iter().map(|x| x.as_atom()).collect();
+        PyAtom::Union(x0.into(), x1.into(), xs)
+    }
+}
+
 impl ClassDocString {
     fn new_class(
         summary: impl fmt::Display,
@@ -7104,11 +7233,56 @@ impl fmt::Display for DocReturn {
     }
 }
 
-impl fmt::Display for PyOpt {
+impl fmt::Display for PyAtom {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{} | None", self.inner)
+        match self {
+            Self::Str => PyStr::new().fmt(f),
+            Self::Bool => PyBool::new().fmt(f),
+            Self::Bytes => PyBytes::new().fmt(f),
+            // dummy u8
+            Self::Int => PyInt::from(RsInt::U8).fmt(f),
+            // dummy f32
+            Self::Float => PyFloat::from(RsFloat::F32).fmt(f),
+            Self::Decimal => PyDecimal::new().fmt(f),
+            Self::Datetime => PyDatetime::new().fmt(f),
+            Self::Date => PyDate::new().fmt(f),
+            Self::Time => PyTime::new().fmt(f),
+            Self::None => f.write_str("None"),
+            Self::Dict(k, v) => write!(f, ":py:class:`dict`\\ [{k}, {v}]"),
+            Self::Tuple(xs) => {
+                let s = if xs.is_empty() {
+                    "()".into()
+                } else {
+                    xs.iter().join(", ")
+                };
+                write!(f, ":py:class:`tuple`\\ [{s}]")
+            }
+            Self::List(x) => write!(f, ":py:class:`list`\\ [{x}]"),
+            Self::Literal(x) => x.fmt(f),
+            Self::PyClass(x) => x.fmt(f),
+            Self::Union(x0, x1, xs) => {
+                let s = [&*(*x0), &*(*x1)].into_iter().chain(xs.iter()).join(" | ");
+                write!(f, "{s}",)
+            }
+        }
     }
 }
+
+macro_rules! impl_display_pycomplex {
+    ($t:ident) => {
+        impl fmt::Display for $t {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+                write!(f, "{}", self.as_atom().flatten_unions())
+            }
+        }
+    };
+}
+
+impl_display_pycomplex!(PyOpt);
+impl_display_pycomplex!(PyUnion);
+impl_display_pycomplex!(PyDict);
+impl_display_pycomplex!(PyList);
+impl_display_pycomplex!(PyTuple);
 
 impl fmt::Display for PyLiteral {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -7121,39 +7295,6 @@ impl fmt::Display for PyLiteral {
                 .map(|s| format!("\"{s}\""))
                 .join(", ")
         )
-    }
-}
-
-impl fmt::Display for PyUnion {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s = [&self.head0, &self.head1]
-            .into_iter()
-            .chain(self.tail.iter())
-            .join(" | ");
-        f.write_str(s.as_str())
-    }
-}
-
-impl fmt::Display for PyDict {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, ":py:class:`dict`\\ [{}, {}]", self.key, self.value)
-    }
-}
-
-impl fmt::Display for PyList {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, ":py:class:`list`\\ [{}]", self.inner)
-    }
-}
-
-impl fmt::Display for PyTuple {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s = if self.inner.is_empty() {
-            "()".into()
-        } else {
-            self.inner.iter().join(", ")
-        };
-        write!(f, ":py:class:`tuple`\\ [{s}]")
     }
 }
 

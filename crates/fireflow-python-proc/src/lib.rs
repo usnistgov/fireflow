@@ -25,7 +25,7 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
         "Read the *HEADER* of an FCS file.",
         [""; 0],
         [DocArg::new_path_param(true)].into_iter().chain(args),
-        Some(DocReturn::new(PyClass::new_py("Header"))),
+        Some(DocReturn::new(PyClass::new_py(["api"], "Header"))),
     );
     let fun_args = doc.fun_args();
     let conf_path = config_path("ReadHeaderConfig");
@@ -61,7 +61,7 @@ pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
             .chain(header_args)
             .chain(raw_args)
             .chain(shared_args),
-        Some(DocReturn::new(PyClass::new_py("RawTEXTOutput"))),
+        Some(DocReturn::new(PyClass::new_py(["api"], "RawTEXTOutput"))),
     );
 
     let fun_args = doc.fun_args();
@@ -109,7 +109,7 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
             .chain(shared_args),
         Some(DocReturn::new(PyTuple::new([
             PyType::new_anycoretext(),
-            PyClass::new_py("StdTEXTOutput").into(),
+            PyClass::new_py(["api"], "StdTEXTOutput").into(),
         ]))),
     );
 
@@ -160,7 +160,7 @@ pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
             .chain(layout_args)
             .chain(data_args)
             .chain(shared_args),
-        Some(DocReturn::new(PyClass::new_py("RawDatasetOutput"))),
+        Some(DocReturn::new(PyClass::new_py(["api"], "RawDatasetOutput"))),
     );
 
     let fun_args = doc.fun_args();
@@ -213,7 +213,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
             .chain(shared_args),
         Some(DocReturn::new(PyTuple::new([
             PyType::new_anycoredataset(),
-            PyClass::new_py("StdDatasetOutput").into(),
+            PyClass::new_py(["api"], "StdDatasetOutput").into(),
         ]))),
     );
 
@@ -274,7 +274,10 @@ pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream
         .chain(layout_args)
         .chain(data_args)
         .chain(shared_args),
-        Some(DocReturn::new(PyClass::new_py("RawDatasetWithKwsOutput"))),
+        Some(DocReturn::new(PyClass::new_py(
+            ["api"],
+            "RawDatasetWithKwsOutput",
+        ))),
     );
 
     let fun_args = doc.fun_args();
@@ -338,8 +341,8 @@ pub fn def_fcs_read_std_dataset_with_keywords(input: TokenStream) -> TokenStream
         .chain(data_args)
         .chain(shared_args),
         Some(DocReturn::new(PyTuple::new([
-            PyClass::new_py("AnyCoreDataset"),
-            PyClass::new_py("StdDatasetWithKwsOutput"),
+            PyType::new_anycoredataset(),
+            PyClass::new_py(["api"], "StdDatasetWithKwsOutput").into(),
         ]))),
     );
 
@@ -376,7 +379,7 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
 
     let segments = DocArgROIvar::new_ivar_ro(
         "segments",
-        PyClass::new_py("HeaderSegments"),
+        PyClass::new_py(["api"], "HeaderSegments"),
         "The segments from *HEADER*.",
         |_, _| quote!(self.0.segments.clone().into()),
     );
@@ -489,14 +492,14 @@ pub fn impl_py_raw_dataset_output(input: TokenStream) -> TokenStream {
 
     let text = DocArg::new_ivar_ro(
         "text",
-        PyClass::new_py("RawTEXTOutput"),
+        PyClass::new_py(["api"], "RawTEXTOutput"),
         "Parsed *TEXT* segment.",
         |_, _| quote!(self.0.text.clone().into()),
     );
 
     let dataset = DocArg::new_ivar_ro(
         "dataset",
-        PyClass::new_py("RawDatasetWithKwsOutput"),
+        PyClass::new_py(["api"], "RawDatasetWithKwsOutput"),
         "Parsed *DATA*, *ANALYSIS*, and *OTHER* segments.",
         |_, _| quote!(self.0.dataset.clone().into()),
     );
@@ -631,7 +634,7 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
 
     let parse = DocArgROIvar::new_ivar_ro(
         "parse",
-        PyClass::new_py("RawTEXTParseData"),
+        PyClass::new_py(["api"], "RawTEXTParseData"),
         "Miscellaneous data when parsing *TEXT*.",
         |_, _| quote!(self.0.parse.clone().into()),
     );
@@ -661,14 +664,14 @@ pub fn impl_py_std_dataset_output(input: TokenStream) -> TokenStream {
 
     let dataset = DocArgROIvar::new_ivar_ro(
         "dataset",
-        PyClass::new_py("StdDatasetWithKwsOutput"),
+        PyClass::new_py(["api"], "StdDatasetWithKwsOutput"),
         "Data from parsing standardized *DATA*, *ANALYSIS*, and *OTHER* segments.",
         |_, _| quote!(self.0.dataset.clone().into()),
     );
 
     let parse = DocArgROIvar::new_ivar_ro(
         "parse",
-        PyClass::new_py("RawTEXTParseData"),
+        PyClass::new_py(["api"], "RawTEXTParseData"),
         "Miscellaneous data when parsing *TEXT*.",
         |_, _| quote!(self.0.parse.clone().into()),
     );
@@ -729,7 +732,7 @@ pub fn impl_py_raw_text_parse_data(input: TokenStream) -> TokenStream {
 
     let segments = DocArgROIvar::new_ivar_ro(
         "header_segments",
-        PyClass::new_py("HeaderSegments"),
+        PyClass::new_py(["api"], "HeaderSegments"),
         "Segments from *HEADER*.",
         |_, _| quote!(self.0.header_segments.clone().into()),
     );
@@ -1558,8 +1561,6 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
     .into()
 }
 
-// TODO can do the same thing for return that we are currently doing for args
-// to keep them in sync
 #[proc_macro]
 pub fn impl_core_rename_temporal(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
@@ -2169,10 +2170,14 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
             .chain(std_args)
             .chain(layout_args)
             .chain(shared_args),
-        Some(DocReturn::new(PyClass::new_py(ident.to_string()))),
+        Some(DocReturn::new(PyTuple::new([
+            PyType::new_coretext(version),
+            PyClass::new_py(["api"], "ExtraStdKeywords").into(),
+        ]))),
     );
 
     let fun_args = doc.fun_args();
+    let ret_path = doc.ret_path();
 
     quote! {
         #[pymethods]
@@ -2180,7 +2185,7 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
             #[classmethod]
             #[allow(clippy::too_many_arguments)]
             #doc
-            fn from_kws(_: &Bound<'_, pyo3::types::PyType>, #fun_args) -> PyResult<Self> {
+            fn from_kws(_: &Bound<'_, pyo3::types::PyType>, #fun_args) -> PyResult<#ret_path> {
                 let kws = fireflow_core::validated::keys::ValidKeywords { std, nonstd };
                 #[allow(clippy::needless_update)]
                 let standard = #std_conf {
@@ -2194,7 +2199,8 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
                 };
                 let shared = #shared_conf { #(#shared_recs),* };
                 let conf = #core_conf { standard, layout, shared };
-                Ok(Self(#path::new_from_keywords(kws, &conf).py_termfail_resolve()?))
+                let (core, uncore) = #path::new_from_keywords(kws, &conf).py_termfail_resolve()?;
+                Ok((core.into(), uncore.into()))
             }
         }
     }
@@ -2255,10 +2261,14 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
         "Make new instance from keywords.",
         [""; 0],
         all_args,
-        Some(DocReturn::new(PyClass::new_py(ident.to_string()))),
+        Some(DocReturn::new(PyTuple::new([
+            PyType::new_coredataset(version),
+            PyClass::new_py(["api"], "StdDatasetWithKwsOutput").into(),
+        ]))),
     );
 
     let fun_args = doc.fun_args();
+    let ret_path = doc.ret_path();
 
     quote! {
         #[pymethods]
@@ -2266,7 +2276,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
             #[classmethod]
             #[allow(clippy::too_many_arguments)]
             #doc
-            fn from_kws(_: &Bound<'_, pyo3::types::PyType>, #fun_args) -> PyResult<Self> {
+            fn from_kws(_: &Bound<'_, pyo3::types::PyType>, #fun_args) -> PyResult<#ret_path> {
                 let kws = fireflow_core::validated::keys::ValidKeywords { std, nonstd };
                 #[allow(clippy::needless_update)]
                 let standard = #std_conf {
@@ -2297,9 +2307,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
                 let (core, uncore) = #path::new_from_keywords(
                     path, kws, data_seg, analysis_seg, &other_segs[..], &conf
                 ).py_termfail_resolve()?;
-                // Ok((Self(core), uncore))
-                // TODO return more stuff from this
-                Ok(core.into())
+                Ok((core.into(), uncore.into()))
             }
         }
     }
@@ -2483,8 +2491,6 @@ pub fn impl_coredataset_set_measurements_and_data(input: TokenStream) -> TokenSt
 pub fn impl_coretext_to_dataset(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_checked("PyCoreTEXT", &i);
-    let to_name = format!("CoreDataset{}", version.short_underscore());
-    let to_rstype = pycoredataset(version);
 
     let data = DocArg::new_data_param(false);
     let analysis = DocArg::new_analysis_param(true);
@@ -2495,17 +2501,18 @@ pub fn impl_coretext_to_dataset(input: TokenStream) -> TokenStream {
         ["This will fully represent an FCS file, as opposed to just \
           representing *HEADER* and *TEXT*."],
         [data, analysis, others],
-        Some(DocReturn::new(PyClass::new_py(to_name))),
+        Some(DocReturn::new(PyType::new_coredataset(version))),
     );
 
     let fun_args = doc.fun_args();
     let inner_args = doc.idents();
+    let ret_path = doc.ret_path();
 
     quote! {
         #[pymethods]
         impl #i {
             #doc
-            fn to_dataset(&self, #fun_args) -> PyResult<#to_rstype> {
+            fn to_dataset(&self, #fun_args) -> PyResult<#ret_path> {
                 Ok(self.0.clone().into_coredataset(#inner_args)?.into())
             }
         }
@@ -3002,27 +3009,26 @@ pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
                       they must be discarded. Set to ``True`` to perform the \
                       conversion with such discarding; otherwise, remove the \
                       keywords manually before converting.";
-    let base = if is_dataset {
-        "CoreDataset"
-    } else {
-        "CoreTEXT"
-    };
     let outputs: Vec<_> = ALL_VERSIONS
         .iter()
         .filter(|&&v| v != version)
-        .map(|v| {
+        .map(|&v| {
             let vsu = v.short_underscore();
             let vs = v.short();
             let fn_name = format_ident!("to_version_{vsu}");
-            let target_type = format_ident!("{base}{vsu}");
-            let target_pytype = format_ident!("Py{target_type}");
+            let target_type = if is_dataset {
+                PyType::new_coredataset(v)
+            } else {
+                PyType::new_coretext(v)
+            };
+            let target_pytype = target_type.as_rust_type();
             let param = DocArg::new_bool_param("force", param_desc);
             let doc = DocString::new_method(
                 format!("Convert to FCS {vs}."),
                 [sub],
                 [param],
                 Some(DocReturn::new1(
-                    PyClass::new_py(target_type.to_string()),
+                    target_type,
                     format!("A new class conforming to FCS {vs}."),
                 )),
             );
@@ -3797,10 +3803,6 @@ fn pyoptical(version: Version) -> Ident {
 
 fn pytemporal(version: Version) -> Ident {
     format_ident!("PyTemporal{}", version.short_underscore())
-}
-
-fn pycoredataset(version: Version) -> Ident {
-    format_ident!("PyCoreDataset{}", version.short_underscore())
 }
 
 #[derive(Clone, new)]
@@ -4589,9 +4591,17 @@ impl PyClass {
         Self::new(pyname, Some(rstype))
     }
 
-    fn new_py(name: impl fmt::Display + Into<String>) -> Self {
+    fn new_py(
+        modpath: impl IntoIterator<Item = impl fmt::Display>,
+        name: impl fmt::Display,
+    ) -> Self {
         let pyname = format_ident!("Py{name}");
-        Self::new2(name, parse_quote!(#pyname))
+        let m = ["~pyreflow".into()]
+            .into_iter()
+            .chain(modpath.into_iter().map(|x| x.to_string()))
+            .chain([format!("{name}")])
+            .join(".");
+        Self::new2(m, parse_quote!(#pyname))
     }
 }
 
@@ -4985,7 +4995,7 @@ impl DocArgRWIvar {
         let rstype_inner = format_ident!("AppliedGates{vsu}");
         let rstype = format_ident!("Py{rstype_inner}");
         let gmtype = if collapsed_version < Version::FCS3_2 {
-            Some(PyList::new(PyClass::new_py("GatedMeasurement")).into())
+            Some(PyList::new(PyClass::new_py([""; 0], "GatedMeasurement")).into())
         } else {
             None
         };
@@ -5197,7 +5207,7 @@ impl DocArgParam {
     fn new_valid_keywords_param() -> Self {
         DocArg::new_param(
             "kws",
-            PyClass::new_py("ValidKeywords"),
+            PyClass::new_py(["api"], "ValidKeywords"),
             "Standard and non-standard keywords.",
         )
     }
@@ -5205,7 +5215,7 @@ impl DocArgParam {
     fn new_extra_std_keywords_param() -> Self {
         DocArg::new_param(
             "extra",
-            PyClass::new_py("ExtraStdKeywords"),
+            PyClass::new_py(["api"], "ExtraStdKeywords"),
             "Extra keywords from *TEXT* standardization",
         )
     }
@@ -5213,7 +5223,7 @@ impl DocArgParam {
     fn new_dataset_segments_param() -> Self {
         DocArg::new_param(
             "dataset_segs",
-            PyClass::new_py("DatasetSegments"),
+            PyClass::new_py(["api"], "DatasetSegments"),
             "Offsets used to parse *DATA* and *ANALYSIS*.",
         )
     }
@@ -5221,7 +5231,7 @@ impl DocArgParam {
     fn new_parse_output_param() -> Self {
         DocArg::new_param(
             "parse",
-            PyClass::new_py("RawTEXTParseData"),
+            PyClass::new_py(["api"], "RawTEXTParseData"),
             "Miscellaneous data obtained when parsing *TEXT*.",
         )
     }
@@ -6334,12 +6344,12 @@ impl IsDocArg for AnyDocArg {
 impl PyType {
     fn new_optical(version: Version) -> Self {
         let n = format!("Optical{}", version.short_underscore());
-        PyClass::new_py(n).into()
+        PyClass::new_py([""; 0], n).into()
     }
 
     fn new_temporal(version: Version) -> Self {
         let n = format!("Temporal{}", version.short_underscore());
-        PyClass::new_py(n).into()
+        PyClass::new_py([""; 0], n).into()
     }
 
     fn new_measurement(version: Version) -> Self {
@@ -6602,28 +6612,35 @@ impl PyType {
         let (fam_ident, name_pytype) = if version < Version::FCS3_1 {
             (
                 format_ident!("MaybeFamily"),
-                PyOpt::new(PyStr::new()).into(),
+                PyOpt::new(PyType::new_shortname()).into(),
             )
         } else {
-            (format_ident!("AlwaysFamily"), PyType::from(PyStr::new()))
+            (format_ident!("AlwaysFamily"), PyType::new_shortname())
         };
         let fam_path = quote!(fireflow_core::text::optional::#fam_ident);
         let meas_opt_pyname = pyoptical(version);
         let meas_tmp_pyname = pytemporal(version);
-        let meas_argtype: Path =
-            parse_quote!(PyEithers<#fam_path, #meas_tmp_pyname, #meas_opt_pyname>);
+        let meas_argtype = parse_quote!(PyEithers<#fam_path, #meas_tmp_pyname, #meas_opt_pyname>);
         PyTuple::new1(
             [name_pytype, PyType::new_measurement(version)],
-            meas_argtype.clone(),
+            meas_argtype,
         )
         .into()
     }
 
+    fn new_coretext(version: Version) -> Self {
+        let v = version.short_underscore();
+        PyClass::new_py([""; 0], format!("CoreTEXT{v}")).into()
+    }
+
+    fn new_coredataset(version: Version) -> Self {
+        let v = version.short_underscore();
+        PyClass::new_py([""; 0], format!("CoreDataset{v}")).into()
+    }
+
     fn new_anycoretext() -> Self {
         PyUnion::new(
-            ALL_VERSIONS
-                .iter()
-                .map(|v| PyClass::new_py(format!("CoreTEXT{}", v.short_underscore()))),
+            ALL_VERSIONS.into_iter().map(Self::new_coretext),
             parse_quote!(PyAnyCoreTEXT),
         )
         .into()
@@ -6631,9 +6648,7 @@ impl PyType {
 
     fn new_anycoredataset() -> Self {
         PyUnion::new(
-            ALL_VERSIONS
-                .iter()
-                .map(|v| PyClass::new_py(format!("CoreDataset{}", v.short_underscore()))),
+            ALL_VERSIONS.into_iter().map(Self::new_coredataset),
             parse_quote!(PyAnyCoreDataset),
         )
         .into()

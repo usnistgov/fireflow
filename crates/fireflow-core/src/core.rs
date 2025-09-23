@@ -3683,7 +3683,7 @@ where
         kws: ValidKeywords,
         conf: &C,
     ) -> TerminalResult<
-        Self,
+        (Self, ExtraStdKeywords),
         StdTEXTFromRawWarning,
         StdTEXTFromKeywordsError,
         CoreTEXTFromKeywordsFailure,
@@ -3699,7 +3699,6 @@ where
         let sconf: &SharedConfig = conf.as_ref();
         Self::lookup_inner(kws, conf)
             .def_errors_into()
-            .def_map_value(|(x, _)| x)
             .def_terminate_maybe_warn(
                 CoreTEXTFromKeywordsFailure,
                 sconf.warnings_are_errors,

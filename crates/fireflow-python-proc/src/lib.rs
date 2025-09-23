@@ -20,16 +20,21 @@ use syn::{
 #[proc_macro]
 pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
     let fun_path = parse_macro_input!(input as Path);
+
+    let conf_path = config_path("ReadHeaderConfig");
+
     let (conf_inner_path, args, inner_args) = DocArgParam::new_header_config_params();
+
     let doc = DocString::new_fun(
         "Read the *HEADER* of an FCS file.",
         [""; 0],
         [DocArg::new_path_param(true)].into_iter().chain(args),
         Some(DocReturn::new(PyClass::new_py(["api"], "Header"))),
     );
+
     let fun_args = doc.fun_args();
-    let conf_path = config_path("ReadHeaderConfig");
     let ret_path = doc.ret_path();
+
     quote! {
         #[pyfunction]
         #doc
@@ -396,7 +401,7 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
             }
         }
     };
-    doc.into_impl_class(name.to_string(), path.clone(), new, quote!())
+    doc.into_impl_class(name, path.clone(), new, quote!())
         .1
         .into()
 }
@@ -421,7 +426,7 @@ pub fn impl_py_valid_keywords(input: TokenStream) -> TokenStream {
             }
         }
     };
-    doc.into_impl_class(name.to_string(), path.clone(), new, quote!())
+    doc.into_impl_class(name, path.clone(), new, quote!())
         .1
         .into()
 }
@@ -451,9 +456,7 @@ pub fn impl_py_header_segments(input: TokenStream) -> TokenStream {
             }
         }
     };
-    doc.into_impl_class(name.to_string(), path, new, quote!())
-        .1
-        .into()
+    doc.into_impl_class(name, path, new, quote!()).1.into()
 }
 
 #[proc_macro]
@@ -480,7 +483,7 @@ pub fn impl_py_raw_text_output(input: TokenStream) -> TokenStream {
             }
         }
     };
-    doc.into_impl_class(name.to_string(), path.clone(), new, quote!())
+    doc.into_impl_class(name, path.clone(), new, quote!())
         .1
         .into()
 }
@@ -515,7 +518,7 @@ pub fn impl_py_raw_dataset_output(input: TokenStream) -> TokenStream {
             }
         }
     };
-    doc.into_impl_class(name.to_string(), path.clone(), new, quote!())
+    doc.into_impl_class(name, path.clone(), new, quote!())
         .1
         .into()
 }
@@ -545,7 +548,7 @@ pub fn impl_py_raw_dataset_with_kws_output(input: TokenStream) -> TokenStream {
             }
         }
     };
-    doc.into_impl_class(name.to_string(), path.clone(), new, quote!())
+    doc.into_impl_class(name, path.clone(), new, quote!())
         .1
         .into()
 }
@@ -582,7 +585,7 @@ pub fn impl_py_extra_std_keywords(input: TokenStream) -> TokenStream {
             }
         }
     };
-    doc.into_impl_class(name.to_string(), path.clone(), new, quote!())
+    doc.into_impl_class(name, path.clone(), new, quote!())
         .1
         .into()
 }
@@ -609,7 +612,7 @@ pub fn impl_py_dataset_segments(input: TokenStream) -> TokenStream {
             }
         }
     };
-    doc.into_impl_class(name.to_string(), path.clone(), new, quote!())
+    doc.into_impl_class(name, path.clone(), new, quote!())
         .1
         .into()
 }
@@ -652,7 +655,7 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
             }
         }
     };
-    doc.into_impl_class(name.to_string(), path.clone(), new, quote!())
+    doc.into_impl_class(name, path.clone(), new, quote!())
         .1
         .into()
 }
@@ -691,7 +694,7 @@ pub fn impl_py_std_dataset_output(input: TokenStream) -> TokenStream {
             }
         }
     };
-    doc.into_impl_class(name.to_string(), path.clone(), new, quote!())
+    doc.into_impl_class(name, path.clone(), new, quote!())
         .1
         .into()
 }
@@ -720,7 +723,7 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
             }
         }
     };
-    doc.into_impl_class(name.to_string(), path.clone(), new, quote!())
+    doc.into_impl_class(name, path.clone(), new, quote!())
         .1
         .into()
 }
@@ -788,7 +791,7 @@ pub fn impl_py_raw_text_parse_data(input: TokenStream) -> TokenStream {
             }
         }
     };
-    doc.into_impl_class(name.to_string(), path.clone(), new, quote!())
+    doc.into_impl_class(name, path.clone(), new, quote!())
         .1
         .into()
 }
@@ -1014,15 +1017,11 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         }
     };
 
-    let (_, coretext_q) = coretext_doc.into_impl_class(
-        coretext_name.to_string(),
-        coretext_rstype,
-        coretext_new,
-        quote!(),
-    );
+    let (_, coretext_q) =
+        coretext_doc.into_impl_class(coretext_name, coretext_rstype, coretext_new, quote!());
 
     let (_, coredataset_q) = coredataset_doc.into_impl_class(
-        coredataset_name.to_string(),
+        coredataset_name,
         coredataset_rstype,
         coredataset_new,
         quote!(),
@@ -2754,7 +2753,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         }
     };
 
-    doc.into_impl_class(name.to_string(), path, new_method, quote!())
+    doc.into_impl_class(name, path, new_method, quote!())
         .1
         .into()
 }
@@ -3122,7 +3121,7 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
         }
     };
 
-    doc.into_impl_class(name.to_string(), path.clone(), new, quote!())
+    doc.into_impl_class(name, path.clone(), new, quote!())
         .1
         .into()
 }
@@ -3152,7 +3151,7 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
         }
     };
 
-    let (pyname, class) = doc.into_impl_class(name.to_string(), path, new, quote!());
+    let (pyname, class) = doc.into_impl_class(name, path, new, quote!());
 
     let char_widths_doc = DocString::new_ivar(
         "The width of each measurement.",
@@ -3207,7 +3206,7 @@ pub fn impl_new_delim_ascii_layout(input: TokenStream) -> TokenStream {
         }
     };
 
-    let (pyname, class) = doc.into_impl_class(name.to_string(), path, new, quote!());
+    let (pyname, class) = doc.into_impl_class(name, path, new, quote!());
     let datatype = make_layout_datatype(&pyname, "A");
     quote!(#class #datatype).into()
 }
@@ -3424,7 +3423,7 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
         }
     };
 
-    let (pyname, class) = doc.into_impl_class(name.to_string(), layout_path, new, quote!());
+    let (pyname, class) = doc.into_impl_class(name, layout_path, new, quote!());
     let datatype = make_layout_datatype(&pyname, "I");
     quote!(#class #datatype).into()
 }
@@ -3467,7 +3466,7 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
         }
     };
 
-    doc.into_impl_class(name.to_string(), layout_path, new, quote!())
+    doc.into_impl_class(name, layout_path, new, quote!())
         .1
         .into()
 }
@@ -3681,7 +3680,7 @@ fn make_gate_region(path: Path, is_uni: bool) -> TokenStream {
         quote!(self.0.index)
     });
     let gate_arg = DocArg::new_ivar_ro(
-        gate_argname.to_string(),
+        gate_argname,
         gate_pytype,
         gate_desc,
         |n, _| quote!(self.0.#n.clone()),
@@ -4002,10 +4001,10 @@ impl DocReturn {
         }
     }
 
-    fn new1(rtype: impl Into<PyType>, desc: impl Into<String>) -> Self {
+    fn new1(rtype: impl Into<PyType>, desc: impl fmt::Display) -> Self {
         Self {
             rtype: rtype.into(),
-            desc: Some(desc.into()),
+            desc: Some(desc.to_string()),
         }
     }
 }
@@ -4583,12 +4582,12 @@ impl PyUnion {
 }
 
 impl PyClass {
-    fn new1(pyname: impl Into<String>) -> Self {
-        Self::new(pyname, None)
+    fn new1(pyname: impl fmt::Display) -> Self {
+        Self::new(pyname.to_string(), None)
     }
 
-    fn new2(pyname: impl Into<String>, rstype: Path) -> Self {
-        Self::new(pyname, Some(rstype))
+    fn new2(pyname: impl fmt::Display, rstype: Path) -> Self {
+        Self::new(pyname.to_string(), Some(rstype))
     }
 
     fn new_py(
@@ -4607,28 +4606,28 @@ impl PyClass {
 
 impl DocArgROIvar {
     fn new_ivar_ro(
-        argname: impl Into<String> + Clone,
+        argname: impl fmt::Display + Clone,
         pytype: impl Into<PyType>,
-        desc: impl Into<String>,
+        desc: impl fmt::Display,
         f: impl FnOnce(&Ident, &PyType) -> TokenStream2,
     ) -> Self {
         let pt = pytype.into();
-        let a = argname.into();
+        let a = argname.to_string();
         let method = GetMethod::from_pytype(a.as_str(), &pt, f);
-        Self::new(a, pt, desc, None, method)
+        Self::new(a, pt, desc.to_string(), None, method)
     }
 
     fn new_ivar_ro_def(
-        argname: impl Into<String>,
+        argname: impl fmt::Display,
         pytype: impl Into<PyType>,
-        desc: impl Into<String>,
+        desc: impl fmt::Display,
         def: DocDefault,
         f: impl FnOnce(&Ident, &PyType) -> TokenStream2,
     ) -> Self {
         let pt = pytype.into();
-        let a = argname.into();
+        let a = argname.to_string();
         let method = GetMethod::from_pytype(a.as_str(), &pt, f);
-        Self::new(a, pt, desc, Some(def), method)
+        Self::new(a, pt, desc.to_string(), Some(def), method)
     }
 
     fn new_version_ivar() -> Self {
@@ -4643,38 +4642,38 @@ impl DocArgROIvar {
 
 impl DocArgRWIvar {
     fn new_ivar_rw(
-        argname: impl Into<String>,
+        argname: impl fmt::Display,
         pytype: impl Into<PyType>,
-        desc: impl Into<String>,
+        desc: impl fmt::Display,
         fallible: bool,
         f: impl FnOnce(&Ident, &PyType) -> TokenStream2,
         g: impl FnOnce(&Ident, &PyType) -> TokenStream2,
     ) -> Self {
         let pt = pytype.into();
-        let name = argname.into();
+        let name = argname.to_string();
         let methods = GetSetMethods::from_pytype(name.as_str(), &pt, fallible, f, g);
-        Self::new(name, pt, desc, None, methods)
+        Self::new(name, pt, desc.to_string(), None, methods)
     }
 
     fn new_ivar_rw_def(
-        argname: impl Into<String>,
+        argname: impl fmt::Display,
         pytype: impl Into<PyType>,
-        desc: impl Into<String>,
+        desc: impl fmt::Display,
         def: DocDefault,
         fallible: bool,
         f: impl FnOnce(&Ident, &PyType) -> TokenStream2,
         g: impl FnOnce(&Ident, &PyType) -> TokenStream2,
     ) -> Self {
         let pt = pytype.into();
-        let name = argname.into();
+        let name = argname.to_string();
         let methods = GetSetMethods::from_pytype(name.as_str(), &pt, fallible, f, g);
-        Self::new(name, pt, desc, Some(def), methods)
+        Self::new(name, pt, desc.to_string(), Some(def), methods)
     }
 
     fn new_opt_ivar_rw(
-        argname: impl Into<String>,
+        argname: impl fmt::Display,
         pytype: impl Into<PyType>,
-        desc: impl Into<String>,
+        desc: impl fmt::Display,
         fallible: bool,
         f: impl FnOnce(&Ident, &PyType) -> TokenStream2,
         g: impl FnOnce(&Ident, &PyType) -> TokenStream2,
@@ -5129,32 +5128,38 @@ impl DocArgRWIvar {
 
 impl DocArgParam {
     fn new_param(
-        argname: impl Into<String>,
+        argname: impl fmt::Display,
         pytype: impl Into<PyType>,
-        desc: impl Into<String>,
+        desc: impl fmt::Display,
     ) -> Self {
         let pt = pytype.into();
-        Self::new(argname, pt, desc, None, NoMethods)
+        Self::new(argname.to_string(), pt, desc.to_string(), None, NoMethods)
     }
 
     fn new_param_def(
-        argname: impl Into<String>,
+        argname: impl fmt::Display,
         pytype: impl Into<PyType>,
-        desc: impl Into<String>,
+        desc: impl fmt::Display,
         def: DocDefault,
     ) -> Self {
         let pt = pytype.into();
-        Self::new(argname, pt, desc, Some(def), NoMethods)
+        Self::new(
+            argname.to_string(),
+            pt,
+            desc.to_string(),
+            Some(def),
+            NoMethods,
+        )
     }
 
-    fn new_bool_param(name: impl Into<String>, desc: impl Into<String>) -> Self {
+    fn new_bool_param(name: impl fmt::Display, desc: impl fmt::Display) -> Self {
         Self::new_param_def(name, PyBool::new(), desc, DocDefault::Auto)
     }
 
     fn new_opt_param(
-        name: impl Into<String>,
+        name: impl fmt::Display,
         pytype: impl Into<PyType>,
-        desc: impl Into<String>,
+        desc: impl fmt::Display,
     ) -> Self {
         Self::new_param_def(name, PyOpt::new(pytype), desc, DocDefault::Auto)
     }
@@ -5253,27 +5258,31 @@ impl DocArgParam {
     }
 
     fn new_analysis_seg_param(src: SegmentSrc, default: bool) -> Self {
-        let mut p = DocArg::new_param(
+        DocArg::new(
             "analysis_seg",
             PyType::new_analysis_segment(src),
             format!("The *DATA* segment from {src}."),
-        );
-        if default {
-            p.default = Some(DocDefault::Auto);
-        }
-        p
+            if default {
+                Some(DocDefault::Auto)
+            } else {
+                None
+            },
+            NoMethods,
+        )
     }
 
     fn new_other_segs_param(default: bool) -> Self {
-        let mut p = DocArg::new_param(
+        DocArg::new(
             "other_segs",
             PyList::new(PyType::new_other_segment()),
             "The *OTHER* segments from *HEADER*.",
-        );
-        if default {
-            p.default = Some(DocDefault::Auto);
-        }
-        p
+            if default {
+                Some(DocDefault::Auto)
+            } else {
+                None
+            },
+            NoMethods,
+        )
     }
 
     fn new_textdelim_param() -> Self {
@@ -6694,13 +6703,13 @@ impl PyType {
 
 impl ClassDocString {
     fn new_class(
-        summary: impl Into<String>,
-        paragraphs: impl IntoIterator<Item = impl Into<String>>,
+        summary: impl fmt::Display,
+        paragraphs: impl IntoIterator<Item = impl fmt::Display>,
         args: impl IntoIterator<Item = impl Into<AnyDocArg>>,
     ) -> Self {
         Self::new(
-            summary.into(),
-            paragraphs.into_iter().map(|x| x.into()).collect(),
+            summary.to_string(),
+            paragraphs.into_iter().map(|x| x.to_string()).collect(),
             args.into_iter().map(|x| x.into()).collect(),
             (),
         )
@@ -6708,7 +6717,7 @@ impl ClassDocString {
 
     fn into_impl_class<F>(
         self,
-        name: String,
+        name: impl fmt::Display,
         path: Path,
         constr: F,
         rest: TokenStream2,
@@ -6738,8 +6747,9 @@ impl ClassDocString {
         (pyname, s)
     }
 
-    fn as_impl_wrapped(&self, name: String, path: Path) -> (Ident, TokenStream2) {
+    fn as_impl_wrapped(&self, name: impl fmt::Display, path: Path) -> (Ident, TokenStream2) {
         let doc = self.doc();
+        let n = name.to_string();
         let pyname = format_ident!("Py{name}");
         let q = quote! {
             // pyo3 currently cannot add docstrings to __new__ methods, see
@@ -6748,7 +6758,7 @@ impl ClassDocString {
             // workaround, put them on the structs themselves, which works but has the
             // disadvantage of being not next to the method def itself
             #doc
-            #[pyclass(name = #name, eq)]
+            #[pyclass(name = #n, eq)]
             #[derive(Clone, From, Into, PartialEq)]
             pub struct #pyname(#path);
         };
@@ -6758,14 +6768,14 @@ impl ClassDocString {
 
 impl MethodDocString {
     fn new_method(
-        summary: impl Into<String>,
-        paragraphs: impl IntoIterator<Item = impl Into<String>>,
+        summary: impl fmt::Display,
+        paragraphs: impl IntoIterator<Item = impl fmt::Display>,
         args: impl IntoIterator<Item = DocArgParam>,
         returns: Option<DocReturn>,
     ) -> Self {
         Self::new(
-            summary.into(),
-            paragraphs.into_iter().map(|x| x.into()).collect(),
+            summary.to_string(),
+            paragraphs.into_iter().map(|x| x.to_string()).collect(),
             args.into_iter().collect(),
             returns,
         )
@@ -6774,13 +6784,13 @@ impl MethodDocString {
 
 impl IvarDocString {
     fn new_ivar(
-        summary: impl Into<String>,
-        paragraphs: impl IntoIterator<Item = impl Into<String>>,
+        summary: impl fmt::Display,
+        paragraphs: impl IntoIterator<Item = impl fmt::Display>,
         returns: DocReturn,
     ) -> Self {
         Self::new(
-            summary.into(),
-            paragraphs.into_iter().map(|x| x.into()).collect(),
+            summary.to_string(),
+            paragraphs.into_iter().map(|x| x.to_string()).collect(),
             (),
             returns,
         )
@@ -6789,11 +6799,11 @@ impl IvarDocString {
     fn into_impl_get(
         mut self,
         class: &Ident,
-        name: impl Into<String>,
+        name: impl fmt::Display,
         f: impl FnOnce(&Ident, &PyType) -> TokenStream2,
     ) -> TokenStream2 {
         self.append_summary_or_paragraph("read-only", "This attribute is read-only.");
-        let i = format_ident!("{}", name.into());
+        let i = format_ident!("{name}");
         let pt = &self.returns.rtype;
         let rt = pt.as_rust_type();
         let body = f(&i, pt);
@@ -6813,13 +6823,13 @@ impl IvarDocString {
     fn into_impl_get_set(
         mut self,
         class: &Ident,
-        name: impl Into<String>,
+        name: impl fmt::Display,
         fallible: bool,
         getf: impl FnOnce(&Ident, &PyType) -> TokenStream2,
         setf: impl FnOnce(&Ident, &PyType) -> TokenStream2,
     ) -> TokenStream2 {
         self.append_summary_or_paragraph("read-write", "This attribute is read-write.");
-        let get = format_ident!("{}", name.into());
+        let get = format_ident!("{name}");
         let set = format_ident!("set_{get}");
         let pt = &self.returns.rtype;
         let rt = pt.as_rust_type();
@@ -6851,17 +6861,17 @@ impl IvarDocString {
 
 impl FunDocString {
     fn new_fun<S>(
-        summary: impl Into<String>,
+        summary: impl fmt::Display,
         paragraphs: impl IntoIterator<Item = S>,
         args: impl IntoIterator<Item = DocArgParam>,
         returns: Option<DocReturn>,
     ) -> Self
     where
-        S: Into<String>,
+        S: fmt::Display,
     {
         Self::new(
-            summary.into(),
-            paragraphs.into_iter().map(|x| x.into()).collect(),
+            summary.to_string(),
+            paragraphs.into_iter().map(|x| x.to_string()).collect(),
             args.into_iter().collect(),
             returns,
         )
@@ -6978,11 +6988,11 @@ impl<A, R, S> DocString<A, R, S> {
         quote! {#[doc = #s]}
     }
 
-    fn append_paragraph(&mut self, p: impl Into<String>) {
-        self.paragraphs.extend([p.into()]);
+    fn append_paragraph(&mut self, p: impl fmt::Display) {
+        self.paragraphs.extend([p.to_string()]);
     }
 
-    fn append_summary_or_paragraph(&mut self, suffix: impl fmt::Display, para: impl Into<String>) {
+    fn append_summary_or_paragraph(&mut self, suffix: impl fmt::Display, para: impl fmt::Display) {
         let new_summary = format!("{} ({suffix}).", self.summary.trim_end_matches("."));
         if new_summary.len() > LINE_LEN {
             self.append_paragraph(para)
@@ -7100,60 +7110,6 @@ impl fmt::Display for PyOpt {
     }
 }
 
-impl fmt::Display for PyBool {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str(":py:class:`bool`")
-    }
-}
-
-impl fmt::Display for PyStr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str(":py:class:`str`")
-    }
-}
-
-impl fmt::Display for PyBytes {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str(":py:class:`bytes`")
-    }
-}
-
-impl fmt::Display for PyInt {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str(":py:class:`int`")
-    }
-}
-
-impl fmt::Display for PyFloat {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str(":py:class:`float`")
-    }
-}
-
-impl fmt::Display for PyDecimal {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str(":py:class:`~decimal.Decimal`")
-    }
-}
-
-impl fmt::Display for PyDate {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str(":py:class:`~datetime.date`")
-    }
-}
-
-impl fmt::Display for PyTime {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str(":py:class:`~datetime.time`")
-    }
-}
-
-impl fmt::Display for PyDatetime {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str(":py:class:`~datetime.datetime`")
-    }
-}
-
 impl fmt::Display for PyLiteral {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
@@ -7206,6 +7162,26 @@ impl fmt::Display for PyClass {
         write!(f, ":py:class:`{}`", self.pyname)
     }
 }
+
+macro_rules! impl_display_pytype {
+    ($t:ident, $s:expr) => {
+        impl fmt::Display for $t {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+                f.write_str($s)
+            }
+        }
+    };
+}
+
+impl_display_pytype!(PyBool, ":py:class:`bool`");
+impl_display_pytype!(PyStr, ":py:class:`str`");
+impl_display_pytype!(PyBytes, ":py:class:`bytes`");
+impl_display_pytype!(PyInt, ":py:class:`int`");
+impl_display_pytype!(PyFloat, ":py:class:`float`");
+impl_display_pytype!(PyDecimal, ":py:class:`~decimal.Decimal`");
+impl_display_pytype!(PyDate, ":py:class:`~datetime.date`");
+impl_display_pytype!(PyTime, ":py:class:`~datetime.time`");
+impl_display_pytype!(PyDatetime, ":py:class:`~datetime.datetime`");
 
 fn fmt_docstring_nonparam(s: &str) -> String {
     fmt_hanging_indent(LINE_LEN, 0, s)

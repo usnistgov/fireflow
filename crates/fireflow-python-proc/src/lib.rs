@@ -130,8 +130,8 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
             .chain(layout_args)
             .chain(shared_args),
         Some(DocReturn::new(PyTuple::new([
-            PyClass::new_py("AnyCoreTEXT"),
-            PyClass::new_py("StdTEXTOutput"),
+            PyType::new_anycoretext(),
+            PyClass::new_py("StdTEXTOutput").into(),
         ]))),
     );
 
@@ -262,8 +262,8 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
             .chain(data_args)
             .chain(shared_args),
         Some(DocReturn::new(PyTuple::new([
-            PyClass::new_py("AnyCoreDataset"),
-            PyClass::new_py("StdDatasetOutput"),
+            PyType::new_anycoredataset(),
+            PyClass::new_py("StdDatasetOutput").into(),
         ]))),
     );
 
@@ -4820,17 +4820,9 @@ impl DocArgRWIvar {
     }
 
     fn new_layout_ivar(version: Version) -> Self {
-        let non_mixed_layouts = [
-            "AsciiFixedLayout",
-            "AsciiDelimLayout",
-            "EndianUintLayout",
-            "EndianF32Layout",
-            "EndianF64Layout",
-        ];
-
+        let ascii_layouts = ["FixedAsciiLayout", "DelimAsciiLayout"];
+        let non_mixed_layouts = ["EndianUintLayout", "EndianF32Layout", "EndianF64Layout"];
         let ordered_layouts = [
-            "AsciiFixedLayout",
-            "AsciiDelimLayout",
             "OrderedUint08Layout",
             "OrderedUint16Layout",
             "OrderedUint24Layout",
@@ -4845,18 +4837,25 @@ impl DocArgRWIvar {
 
         let layout_pytype = match version {
             Version::FCS3_2 => {
-                let ys = non_mixed_layouts
+                let ys = ascii_layouts
                     .into_iter()
+                    .chain(non_mixed_layouts)
                     .chain(["MixedLayout"])
                     .map(PyClass::new1);
                 PyUnion::new(ys, parse_quote!(PyLayout3_2))
             }
             Version::FCS3_1 => {
-                let ys = non_mixed_layouts.into_iter().map(PyClass::new1);
+                let ys = ascii_layouts
+                    .into_iter()
+                    .chain(non_mixed_layouts)
+                    .map(PyClass::new1);
                 PyUnion::new(ys, parse_quote!(PyNonMixedLayout))
             }
             _ => {
-                let ys = ordered_layouts.into_iter().map(PyClass::new1);
+                let ys = ascii_layouts
+                    .into_iter()
+                    .chain(ordered_layouts)
+                    .map(PyClass::new1);
                 PyUnion::new(ys, parse_quote!(PyOrderedLayout))
             }
         };
@@ -6642,6 +6641,26 @@ impl PyType {
         PyTuple::new1(
             [name_pytype, PyType::new_measurement(version)],
             meas_argtype.clone(),
+        )
+        .into()
+    }
+
+    fn new_anycoretext() -> Self {
+        PyUnion::new(
+            ALL_VERSIONS
+                .iter()
+                .map(|v| PyClass::new_py(format!("CoreTEXT{}", v.short_underscore()))),
+            parse_quote!(PyAnyCoreTEXT),
+        )
+        .into()
+    }
+
+    fn new_anycoredataset() -> Self {
+        PyUnion::new(
+            ALL_VERSIONS
+                .iter()
+                .map(|v| PyClass::new_py(format!("CoreDataset{}", v.short_underscore()))),
+            parse_quote!(PyAnyCoreDataset),
         )
         .into()
     }

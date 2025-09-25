@@ -20,6 +20,6 @@ jobs:
       - uses: usnistgov/Docs4NIST@0.8
         with:
           docs-folder: pyreflow/docs/
-          formats: |-
-            epub
-            pdf
+          # formats: |-
+          #   epub
+          #   pdf

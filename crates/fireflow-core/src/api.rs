@@ -12,6 +12,7 @@ use crate::validated::dataframe::FCSDataFrame;
 use crate::validated::keys::*;
 
 use derive_more::{Display, From};
+use derive_new::new;
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use std::convert::Infallible;
@@ -24,9 +25,6 @@ use std::path;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
-
-#[cfg(feature = "python")]
-use pyo3::prelude::*;
 
 /// Read HEADER from an FCS file.
 pub fn fcs_read_header(
@@ -175,14 +173,11 @@ pub fn fcs_read_std_dataset_with_keywords(
                 &other_segs[..],
                 &st,
             )
-            .def_map_value(|(core, extra, d_seg, a_seg)| {
+            .def_map_value(|(core, extra, dataset_segments)| {
                 (
                     core,
                     StdDatasetWithKwsOutput {
-                        standardized: DatasetSegments {
-                            data_seg: d_seg,
-                            analysis_seg: a_seg,
-                        },
+                        dataset_segments,
                         extra,
                     },
                 )
@@ -196,8 +191,8 @@ pub fn fcs_read_std_dataset_with_keywords(
 }
 
 /// Output from parsing the TEXT segment.
+#[derive(Clone, new, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct RawTEXTOutput {
     /// FCS version
     pub version: Version,
@@ -210,18 +205,15 @@ pub struct RawTEXTOutput {
 }
 
 /// Output of parsing the TEXT segment and standardizing keywords.
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[derive(Clone, new, PartialEq)]
 pub struct StdTEXTOutput {
     /// TEXT value for $TOT
     ///
     /// This should always be Some for 3.0+ and might be None for 2.0.
     pub tot: Option<Tot>,
 
-    /// Segment for DATA
-    pub data: AnyDataSegment,
-
-    /// Segment for ANALYSIS
-    pub analysis: AnyAnalysisSegment,
+    /// Segments for DATA and ANALYSIS
+    pub dataset_segments: DatasetSegments,
 
     /// Keywords that start with '$' that are not part of the standard
     pub extra: ExtraStdKeywords,
@@ -231,7 +223,7 @@ pub struct StdTEXTOutput {
 }
 
 /// Output of parsing one raw dataset (TEXT+DATA) from an FCS file.
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[derive(Clone, new, PartialEq)]
 pub struct RawDatasetOutput {
     /// Output from parsing HEADER+TEXT
     pub text: RawTEXTOutput,
@@ -241,7 +233,7 @@ pub struct RawDatasetOutput {
 }
 
 /// Output of parsing one standardized dataset (TEXT+DATA) from an FCS file.
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[derive(Clone, new, PartialEq)]
 pub struct StdDatasetOutput {
     /// Standardized data from one FCS dataset
     pub dataset: StdDatasetWithKwsOutput,
@@ -251,7 +243,7 @@ pub struct StdDatasetOutput {
 }
 
 /// Output of using keywords to read raw TEXT+DATA
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[derive(Clone, new, PartialEq)]
 pub struct RawDatasetWithKwsOutput {
     /// DATA output
     pub data: FCSDataFrame,
@@ -262,17 +254,13 @@ pub struct RawDatasetWithKwsOutput {
     /// OTHER output(s)
     pub others: Others,
 
-    /// offsets used to parse DATA
-    pub data_seg: AnyDataSegment,
-
-    /// offsets used to parse ANALYSIS
-    pub analysis_seg: AnyAnalysisSegment,
+    /// Offsets used to parse DATA and ANALYSIS
+    pub dataset_segments: DatasetSegments,
 }
 
 /// Data pertaining to parsing the TEXT segment.
-#[derive(Clone)]
+#[derive(new, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct RawTEXTParseData {
     /// Offsets read from HEADER
     pub header_segments: HeaderSegments<UintSpacePad20>,
@@ -519,7 +507,7 @@ where
 {
     kws_to_df_analysis(version, h, kws, data_seg, analysis_seg, st)
         .def_inner_into()
-        .def_and_maybe(|(data, analysis, _data_seg, _analysis_seg)| {
+        .def_and_maybe(|(data, analysis, dataset_segments)| {
             let or = OthersReader { segs: other_segs };
             or.h_read(h)
                 .into_deferred()
@@ -527,8 +515,7 @@ where
                     data,
                     analysis,
                     others,
-                    data_seg: _data_seg,
-                    analysis_seg: _analysis_seg,
+                    dataset_segments,
                 })
         })
 }
@@ -575,8 +562,7 @@ impl RawTEXTOutput {
                 StdTEXTOutput {
                     parse: self.parse,
                     tot: offsets.tot,
-                    data: offsets.data,
-                    analysis: offsets.analysis,
+                    dataset_segments: *offsets.as_ref(),
                     extra,
                 },
             )
@@ -608,19 +594,13 @@ impl RawTEXTOutput {
             &self.parse.header_segments.other[..],
             st,
         )
-        .def_map_value(|(core, extra, data_seg, analysis_seg)| {
+        .def_map_value(|(core, extra, dataset_segments)| {
             (
                 core,
-                StdDatasetOutput {
-                    dataset: StdDatasetWithKwsOutput {
-                        standardized: DatasetSegments {
-                            data_seg,
-                            analysis_seg,
-                        },
-                        extra,
-                    },
-                    parse: self.parse,
-                },
+                StdDatasetOutput::new(
+                    StdDatasetWithKwsOutput::new(dataset_segments, extra),
+                    self.parse,
+                ),
             )
         })
     }
@@ -634,7 +614,7 @@ fn kws_to_df_analysis<C, R>(
     analysis: HeaderAnalysisSegment,
     st: &ReadState<C>,
 ) -> IODeferredResult<
-    (FCSDataFrame, Analysis, AnyDataSegment, AnyAnalysisSegment),
+    (FCSDataFrame, Analysis, DatasetSegments),
     LookupAndReadDataAnalysisWarning,
     LookupAndReadDataAnalysisError,
 >
@@ -841,7 +821,7 @@ fn split_raw_supp_text(
                 delim,
                 supp: *byte0,
             };
-            if conf.allow_stext_own_delim {
+            if conf.allow_supp_text_own_delim {
                 tnt.push_error(x.into());
             } else {
                 tnt.push_warning(x.into());
@@ -1104,7 +1084,7 @@ where
     match version {
         Version::FCS2_0 => Tentative::new1(None),
         Version::FCS3_0 | Version::FCS3_1 => KeyedReqSegment::get_mult(kws, &seg_conf).map_or_else(
-            |es| Tentative::new_either(None, es.into(), !conf.allow_missing_stext),
+            |es| Tentative::new_either(None, es.into(), !conf.allow_missing_supp_text),
             |t| Tentative::new1(Some(t)),
         ),
         Version::FCS3_2 => KeyedOptSegment::get(kws, &seg_conf).warnings_into(),
@@ -1112,7 +1092,11 @@ where
     .and_tentatively(|x| {
         x.map(|seg| {
             if seg.inner.as_u64() == text_segment.inner.as_u64() {
-                Tentative::new_either(None, vec![DuplicatedSuppTEXT], !conf.allow_duplicated_stext)
+                Tentative::new_either(
+                    None,
+                    vec![DuplicatedSuppTEXT],
+                    !conf.allow_duplicated_supp_text,
+                )
             } else {
                 Tentative::new1(Some(seg))
             }

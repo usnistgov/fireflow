@@ -96,12 +96,12 @@ fn main() -> Result<(), ()> {
         "adjustment for end supplemental TEXT offset",
     );
 
-    let allow_dup_stext = flag_arg(
-        ALLOW_DUP_STEXT,
-        "only throw warning if STEXT is same as TEXT",
+    let allow_dup_supp_text = flag_arg(
+        ALLOW_DUP_SUPP_TEXT,
+        "only throw warning if supplemental TEXT is same as TEXT",
     );
 
-    let ignore_stext = flag_arg(IGNORE_SSTEXT, "ignore STEXT entirely");
+    let ignore_supp_text = flag_arg(IGNORE_SUPP_TEXT, "ignore supplemental TEXT entirely");
 
     let lit_delims = flag_arg(LIT_DELIMS, "treat every delim as literal (no escaping)");
 
@@ -130,13 +130,13 @@ fn main() -> Result<(), ()> {
 
     let allow_non_ascii_keywords = flag_arg(ALLOW_NON_ASCII_KEYWORDS, "allow non-ascii keys");
 
-    let allow_missing_stext = flag_arg(
-        ALLOW_MISSING_STEXT,
+    let allow_missing_supp_text = flag_arg(
+        ALLOW_MISSING_SUPP_TEXT,
         "allow supplemental TEXT offsets to be missing",
     );
 
-    let allow_stext_own_delim = flag_arg(
-        ALLOW_STEXT_OWN_DELIM,
+    let allow_supp_text_own_delim = flag_arg(
+        ALLOW_SUPP_TEXT_OWN_DELIM,
         "allow delimiters in primary and supplemental TEXT to differ",
     );
 
@@ -148,8 +148,8 @@ fn main() -> Result<(), ()> {
         version_override,
         supp_text_correction_begin,
         supp_text_correction_end,
-        allow_dup_stext,
-        ignore_stext,
+        allow_dup_supp_text,
+        ignore_supp_text,
         lit_delims,
         non_ascii_delim,
         missing_final_delim,
@@ -159,8 +159,8 @@ fn main() -> Result<(), ()> {
         allow_delim_at_bound,
         allow_non_utf8,
         allow_non_ascii_keywords,
-        allow_missing_stext,
-        allow_stext_own_delim,
+        allow_missing_supp_text,
+        allow_supp_text_own_delim,
         allow_missing_nextdata,
         trim_value_whitespace,
     ];
@@ -537,8 +537,8 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
         header: parse_header_config(sargs),
         version_override,
         supp_text_correction,
-        allow_duplicated_stext: sargs.get_flag(ALLOW_DUP_STEXT),
-        ignore_supp_text: sargs.get_flag(IGNORE_SSTEXT),
+        allow_duplicated_supp_text: sargs.get_flag(ALLOW_DUP_SUPP_TEXT),
+        ignore_supp_text: sargs.get_flag(IGNORE_SUPP_TEXT),
         use_literal_delims: sargs.get_flag(LIT_DELIMS),
         allow_non_ascii_delim: sargs.get_flag(ALLOW_NON_ASCII_DELIM),
         allow_missing_final_delim: sargs.get_flag(ALLOW_MISSING_FINAL_DELIM),
@@ -548,8 +548,8 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
         allow_delim_at_boundary: sargs.get_flag(ALLOW_DELIM_AT_BOUNDARY),
         allow_non_utf8: sargs.get_flag(ALLOW_NON_UTF8),
         allow_non_ascii_keywords: sargs.get_flag(ALLOW_NON_ASCII_KEYWORDS),
-        allow_missing_stext: sargs.get_flag(ALLOW_MISSING_STEXT),
-        allow_stext_own_delim: sargs.get_flag(ALLOW_STEXT_OWN_DELIM),
+        allow_missing_supp_text: sargs.get_flag(ALLOW_MISSING_SUPP_TEXT),
+        allow_supp_text_own_delim: sargs.get_flag(ALLOW_SUPP_TEXT_OWN_DELIM),
         allow_missing_nextdata: sargs.get_flag(ALLOW_MISSING_NEXTDATA),
         trim_value_whitespace: sargs.get_flag(TRIM_VALUE_WHITESPACE),
         ignore_standard_keys: KeyPatterns::default(),
@@ -793,9 +793,9 @@ const VERSION_OVERRIDE: &str = "version-override";
 const SUPP_TEXT_COR_BEGIN: &str = "supp-text-correction-begin";
 const SUPP_TEXT_COR_END: &str = "supp-text-correction-end";
 
-const ALLOW_DUP_STEXT: &str = "allow-duplicated-supp-text";
+const ALLOW_DUP_SUPP_TEXT: &str = "allow-duplicated-supp-text";
 
-const IGNORE_SSTEXT: &str = "ignore-supp-text";
+const IGNORE_SUPP_TEXT: &str = "ignore-supp-text";
 
 const LIT_DELIMS: &str = "use-literal-delims";
 
@@ -815,9 +815,9 @@ const ALLOW_NON_UTF8: &str = "allow-non-utf8";
 
 const ALLOW_NON_ASCII_KEYWORDS: &str = "allow-non-ascii-keywords";
 
-const ALLOW_MISSING_STEXT: &str = "allow-missing-supp-text";
+const ALLOW_MISSING_SUPP_TEXT: &str = "allow-missing-supp-text";
 
-const ALLOW_STEXT_OWN_DELIM: &str = "allow-supp-text-own-delim";
+const ALLOW_SUPP_TEXT_OWN_DELIM: &str = "allow-supp-text-own-delim";
 
 const ALLOW_MISSING_NEXTDATA: &str = "allow-missing-nextdata";
 

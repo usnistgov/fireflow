@@ -44,57 +44,62 @@ keywords in *TEXT*.
 Reading entire datasets from a given set of keywords
 ----------------------------------------------------
 
-Sometimes, the flags provided by :func:`pyreflow.api.fcs_read_raw_dataset` and
-:func:`pyreflow.api.fcs_read_std_dataset` are not enough to repair any issues in
-*TEXT* that might make a file unreadable.
+Sometimes, the flags provided by :func:`~pyreflow.api.fcs_read_raw_dataset` and
+:func:`~pyreflow.api.fcs_read_std_dataset` are not enough to repair any issues
+in *TEXT* that might make a file unreadable.
 
 In these cases, one can read *TEXT* in raw mode using
-:func:`pyreflow.api.fcs_read_raw_text`, repair the keywords and/or offsets
+:func:`~pyreflow.api.fcs_read_raw_text`, repair the keywords and/or offsets
 out-of-band, and then feed these into one of the following functions below.
 
 .. autofunction:: pyreflow.api.fcs_read_raw_dataset_with_keywords
 
 .. autofunction:: pyreflow.api.fcs_read_std_dataset_with_keywords
-
-
-Inputs
-------
-
-Input types used in the functions above
-
-.. autonamedtuple:: pyreflow.api.KeyPatterns
-
+  
 Outputs
 -------
 
-These are neatly bundled tuples of data returned by each of the ``fcs_*``
-functions above.
+These are neatly bundled classes of data returned by each of the functions
+above.
 
-.. autonamedtuple:: pyreflow.api.ReadHeaderOutput
+.. autoclass:: pyreflow.api.Header
+   :members:
 
-.. autonamedtuple:: pyreflow.api.ReadRawTEXTOutput
+.. autoclass:: pyreflow.api.RawTEXTOutput
+   :members:
+  
+.. autoclass:: pyreflow.api.StdTEXTOutput
+   :members:
 
-.. autonamedtuple:: pyreflow.api.ReadStdTEXTOutput
+.. autoclass:: pyreflow.api.RawDatasetOutput
+   :members:
 
-.. autonamedtuple:: pyreflow.api.ReadRawDatasetOutput
+.. autoclass:: pyreflow.api.StdDatasetOutput
+   :members:
 
-.. autonamedtuple:: pyreflow.api.ReadStdDatasetOutput
+.. autoclass:: pyreflow.api.RawDatasetWithKwsOutput
+   :members:
 
-.. autonamedtuple:: pyreflow.api.ReadRawDatasetFromKwsOutput
-
-.. autonamedtuple:: pyreflow.api.ReadStdDatasetFromKwsOutput
-
-
+.. autoclass:: pyreflow.api.StdDatasetWithKwsOutput
+   :members:
+  
+  
 Common outputs
 --------------
 
-The following are named tuples which are reused when returning data from the
-above functions.
+These are which are reused when returning data from the above functions.
 
-.. autonamedtuple:: pyreflow.api.HeaderSegments
+.. autoclass:: pyreflow.api.HeaderSegments
+   :members:
 
-.. autonamedtuple:: pyreflow.api.ParseData
+.. autoclass:: pyreflow.api.RawTEXTParseData
+   :members:
 
-.. autonamedtuple:: pyreflow.api.StdTEXTData
+.. autoclass:: pyreflow.api.ValidKeywords
+   :members:
 
-.. autonamedtuple:: pyreflow.api.StdDatasetData
+.. autoclass:: pyreflow.api.ExtraStdKeywords
+   :members:
+
+.. autoclass:: pyreflow.api.DatasetSegments
+   :members:

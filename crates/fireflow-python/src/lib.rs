@@ -64,11 +64,10 @@ use fireflow_core::data::{
     F64Range, FixedAsciiLayout, KnownTot, LayoutOps, NoMeasDatatype, NonMixedEndianLayout,
 };
 use fireflow_core::error::{MultiResultExt, ResultExt};
-use fireflow_core::header::{Header, Version};
+use fireflow_core::header;
 use fireflow_core::python::exceptions::{
     PyTerminalNoErrorResultExt, PyTerminalNoWarnResultExt, PyTerminalResultExt,
 };
-use fireflow_core::segment::{HeaderAnalysisSegment, HeaderDataSegment, OtherSegment20};
 use fireflow_core::text::gating::{
     AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, BivariateRegion, GatedMeasurement,
     GatingScheme, Region, UnivariateRegion,
@@ -77,10 +76,13 @@ use fireflow_core::text::index::{GateIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::Eithers;
 use fireflow_core::text::optional::MightHave;
-use fireflow_core::validated::keys::{StdKeywords, ValidKeywords};
+use fireflow_core::validated::ascii_uint::UintSpacePad20;
 use fireflow_core::validated::shortname::Shortname;
 
+use fireflow_python_proc::def_fcs_read_std_dataset_with_keywords;
 use fireflow_python_proc::{
+    def_fcs_read_header, def_fcs_read_raw_dataset, def_fcs_read_raw_dataset_with_keywords,
+    def_fcs_read_raw_text, def_fcs_read_std_dataset, def_fcs_read_std_text,
     impl_core_all_meas_nonstandard_keywords, impl_core_all_peak_attrs, impl_core_all_pnanalyte,
     impl_core_all_pncal3_1, impl_core_all_pncal3_2, impl_core_all_pnd, impl_core_all_pndet,
     impl_core_all_pnf, impl_core_all_pnfeature, impl_core_all_pnl_new, impl_core_all_pnl_old,
@@ -99,105 +101,39 @@ use fireflow_python_proc::{
     impl_layout_byte_widths, impl_new_core, impl_new_delim_ascii_layout,
     impl_new_endian_float_layout, impl_new_endian_uint_layout, impl_new_fixed_ascii_layout,
     impl_new_gate_bi_regions, impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout,
-    impl_new_ordered_layout,
+    impl_new_ordered_layout, impl_py_dataset_segments, impl_py_extra_std_keywords, impl_py_header,
+    impl_py_header_segments, impl_py_raw_dataset_output, impl_py_raw_dataset_with_kws_output,
+    impl_py_raw_text_output, impl_py_raw_text_parse_data, impl_py_std_dataset_output,
+    impl_py_std_dataset_with_kws_output, impl_py_std_text_output, impl_py_valid_keywords,
 };
 
 use derive_more::{From, Into};
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 use std::collections::HashMap;
-use std::path::PathBuf;
 
-#[pyfunction]
-#[pyo3(name = "_fcs_read_header")]
-pub fn py_fcs_read_header(p: PathBuf, conf: cfg::ReadHeaderConfig) -> PyResult<Header> {
-    api::fcs_read_header(&p, &conf).py_termfail_resolve_nowarn()
-}
+def_fcs_read_header!(api::fcs_read_header);
+def_fcs_read_raw_text!(api::fcs_read_raw_text);
+def_fcs_read_std_text!(api::fcs_read_std_text);
+def_fcs_read_raw_dataset!(api::fcs_read_raw_dataset);
+def_fcs_read_std_dataset!(api::fcs_read_std_dataset);
+def_fcs_read_raw_dataset_with_keywords!(api::fcs_read_raw_dataset_with_keywords);
+def_fcs_read_std_dataset_with_keywords!(api::fcs_read_std_dataset_with_keywords);
 
-#[pyfunction]
-#[pyo3(name = "_fcs_read_raw_text")]
-pub fn py_fcs_read_raw_text(
-    p: PathBuf,
-    conf: cfg::ReadRawTEXTConfig,
-) -> PyResult<api::RawTEXTOutput> {
-    api::fcs_read_raw_text(&p, &conf).py_termfail_resolve()
-}
+impl_py_header!(header::Header);
+impl_py_header_segments!(header::HeaderSegments<UintSpacePad20>);
+impl_py_valid_keywords!(fireflow_core::validated::keys::ValidKeywords);
+impl_py_extra_std_keywords!(fireflow_core::text::parser::ExtraStdKeywords);
+impl_py_dataset_segments!(core::DatasetSegments);
 
-#[pyfunction]
-#[pyo3(name = "_fcs_read_std_text")]
-pub fn py_fcs_read_std_text(
-    p: PathBuf,
-    conf: cfg::ReadStdTEXTConfig,
-) -> PyResult<(PyAnyCoreTEXT, api::StdTEXTOutput)> {
-    let (core, data) = api::fcs_read_std_text(&p, &conf).py_termfail_resolve()?;
-    Ok((core.into(), data))
-}
+impl_py_raw_text_output!(api::RawTEXTOutput);
+impl_py_raw_dataset_output!(api::RawDatasetOutput);
+impl_py_raw_text_parse_data!(api::RawTEXTParseData);
+impl_py_raw_dataset_with_kws_output!(api::RawDatasetWithKwsOutput);
 
-#[pyfunction]
-#[pyo3(name = "_fcs_read_raw_dataset")]
-pub fn py_fcs_read_raw_dataset(
-    p: PathBuf,
-    conf: cfg::ReadRawDatasetConfig,
-) -> PyResult<api::RawDatasetOutput> {
-    api::fcs_read_raw_dataset(&p, &conf).py_termfail_resolve()
-}
-
-#[pyfunction]
-#[pyo3(name = "_fcs_read_std_dataset")]
-pub fn py_fcs_read_std_dataset(
-    p: PathBuf,
-    conf: cfg::ReadStdDatasetConfig,
-) -> PyResult<(PyAnyCoreDataset, api::StdDatasetOutput)> {
-    let (core, data) = api::fcs_read_std_dataset(&p, &conf).py_termfail_resolve()?;
-    Ok((core.into(), data))
-}
-
-#[pyfunction]
-#[pyo3(name = "_fcs_read_raw_dataset_with_keywords")]
-pub fn py_fcs_read_raw_dataset_with_keywords(
-    p: PathBuf,
-    version: Version,
-    std: StdKeywords,
-    data_seg: HeaderDataSegment,
-    analysis_seg: HeaderAnalysisSegment,
-    other_segs: Vec<OtherSegment20>,
-    conf: cfg::ReadRawDatasetFromKeywordsConfig,
-) -> PyResult<api::RawDatasetWithKwsOutput> {
-    api::fcs_read_raw_dataset_with_keywords(
-        &p,
-        version,
-        &std,
-        data_seg,
-        analysis_seg,
-        other_segs,
-        &conf,
-    )
-    .py_termfail_resolve()
-}
-
-#[pyfunction]
-#[pyo3(name = "_fcs_read_std_dataset_with_keywords")]
-pub fn py_fcs_read_std_dataset_with_keywords(
-    p: PathBuf,
-    version: Version,
-    kws: ValidKeywords,
-    data_seg: HeaderDataSegment,
-    analysis_seg: HeaderAnalysisSegment,
-    other_segs: Vec<OtherSegment20>,
-    conf: cfg::ReadStdDatasetFromKeywordsConfig,
-) -> PyResult<(PyAnyCoreDataset, core::StdDatasetWithKwsOutput)> {
-    let (core, data) = api::fcs_read_std_dataset_with_keywords(
-        &p,
-        version,
-        kws,
-        data_seg,
-        analysis_seg,
-        other_segs,
-        &conf,
-    )
-    .py_termfail_resolve()?;
-    Ok((core.into(), data))
-}
+impl_py_std_text_output!(api::StdTEXTOutput);
+impl_py_std_dataset_output!(api::StdDatasetOutput);
+impl_py_std_dataset_with_kws_output!(core::StdDatasetWithKwsOutput);
 
 // Implement python classes for core* structs
 //

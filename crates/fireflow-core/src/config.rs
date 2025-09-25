@@ -28,16 +28,11 @@ use std::fmt;
 use std::fs::File;
 use std::path::PathBuf;
 
-#[cfg(feature = "python")]
-use pyo3::prelude::*;
-
 #[derive(Default, Clone, AsRef, From)]
-#[cfg_attr(feature = "python", derive(FromPyObject))]
 pub struct ReadHeaderConfig(pub HeaderConfigInner);
 
 /// Instructions for reading the DATA segment.
 #[derive(Default, Clone, AsRef)]
-#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ReadRawTEXTConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
     pub raw: ReadHeaderAndTEXTConfig,
@@ -46,7 +41,6 @@ pub struct ReadRawTEXTConfig {
 }
 
 #[derive(Default, Clone, AsRef)]
-#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ReadStdTEXTConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
     pub raw: ReadHeaderAndTEXTConfig,
@@ -64,7 +58,6 @@ pub struct ReadStdTEXTConfig {
 }
 
 #[derive(Default, Clone, AsRef)]
-#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ReadRawDatasetConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
     pub raw: ReadHeaderAndTEXTConfig,
@@ -94,7 +87,6 @@ pub struct NewCoreTEXTConfig {
 }
 
 #[derive(Default, Clone, AsRef)]
-#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ReadStdDatasetConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
     pub raw: ReadHeaderAndTEXTConfig,
@@ -115,7 +107,6 @@ pub struct ReadStdDatasetConfig {
 }
 
 #[derive(Default, Clone, AsRef)]
-#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ReadRawDatasetFromKeywordsConfig {
     #[as_ref(ReadLayoutConfig)]
     pub layout: ReadLayoutConfig,
@@ -130,7 +121,6 @@ pub struct ReadRawDatasetFromKeywordsConfig {
 }
 
 #[derive(Default, Clone, AsRef)]
-#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ReadStdDatasetFromKeywordsConfig {
     #[as_ref(StdTextReadConfig)]
     pub standard: StdTextReadConfig,
@@ -150,7 +140,6 @@ pub struct ReadStdDatasetFromKeywordsConfig {
 
 /// Instructions for reading the DATA segment.
 #[derive(Default, Clone)]
-#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct DataReadConfig {
     /// Instructions to read and standardize TEXT.
     pub standard: StdTextReadConfig,
@@ -163,7 +152,6 @@ pub struct DataReadConfig {
 
 /// Instructions for reading the DATA/ANALYSIS segments
 #[derive(Default, Clone)]
-#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ReaderConfig {
     /// If `true`, allow event width to not perfectly divide DATA.
     ///
@@ -213,7 +201,6 @@ pub struct WriteConfig {
 }
 
 #[derive(Default, Clone)]
-#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct HeaderConfigInner {
     /// Corrections for primary TEXT segment
     pub text_correction: HeaderCorrection<PrimaryTextSegmentId>,
@@ -288,7 +275,6 @@ pub struct HeaderConfigInner {
 /// Instructions for reading the TEXT segment as raw key/value pairs.
 // TODO add correction for $NEXTDATA
 #[derive(Default, Clone, AsRef)]
-#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ReadHeaderAndTEXTConfig {
     /// Config for reading HEADER
     #[as_ref(HeaderConfigInner)]
@@ -309,7 +295,7 @@ pub struct ReadHeaderAndTEXTConfig {
     ///
     /// The STEXT offsets will be regardless of this flag if they are
     /// duplicated.
-    pub allow_duplicated_stext: bool,
+    pub allow_duplicated_supp_text: bool,
 
     /// If true, totally ignore STEXT and its offsets.
     ///
@@ -389,10 +375,10 @@ pub struct ReadHeaderAndTEXTConfig {
     /// If true, allow STEXT offsets to be missing from TEXT.
     ///
     /// Does not affect FCS 3.2 since STEXT is optional there.
-    pub allow_missing_stext: bool,
+    pub allow_missing_supp_text: bool,
 
     /// If true, allow STEXT to use a different delimiter than TEXT.
-    pub allow_stext_own_delim: bool,
+    pub allow_supp_text_own_delim: bool,
 
     /// If true, allow $NEXTDATA to be missing.
     ///
@@ -482,7 +468,6 @@ pub struct ReadHeaderAndTEXTConfig {
 }
 
 #[derive(Default, Clone)]
-#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ReadTEXTOffsetsConfig {
     /// Corrections for DATA offsets in TEXT segment
     pub text_data_correction: TEXTCorrection<DataSegmentId>,
@@ -525,7 +510,6 @@ pub struct ReadTEXTOffsetsConfig {
 
 /// Instructions for reading the TEXT segment in a standardized structure.
 #[derive(Default, Clone)]
-#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct StdTextReadConfig {
     /// If `true`, remove whitespace between commas where applicable.
     ///
@@ -626,7 +610,6 @@ pub struct StdTextReadConfig {
 }
 
 #[derive(Default, Clone)]
-#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ReadLayoutConfig {
     /// If given, override $PnB with the number of bytes in $BYTEORD.
     ///
@@ -682,7 +665,6 @@ pub struct ReadLayoutConfig {
 
 /// Configuration options for both reading and writing
 #[derive(Default, Clone)]
-#[cfg_attr(feature = "python", derive(FromPyObject), pyo3(from_item_all))]
 pub struct SharedConfig {
     /// If true, all warnings are considered to be fatal errors.
     pub warnings_are_errors: bool,

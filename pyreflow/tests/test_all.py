@@ -127,7 +127,7 @@ def series2() -> pl.Series:
 def text_2_0(
     blank_text_2_0: pf.CoreTEXT2_0, blank_optical_2_0: pf.Optical2_0
 ) -> pf.CoreTEXT2_0:
-    blank_text_2_0.push_optical(blank_optical_2_0, LINK_NAME1, 9001)
+    blank_text_2_0.push_optical(LINK_NAME1, blank_optical_2_0, 9001)
     return blank_text_2_0
 
 
@@ -135,7 +135,7 @@ def text_2_0(
 def text_3_0(
     blank_text_3_0: pf.CoreTEXT3_0, blank_optical_3_0: pf.Optical3_0
 ) -> pf.CoreTEXT3_0:
-    blank_text_3_0.push_optical(blank_optical_3_0, LINK_NAME1, 9001)
+    blank_text_3_0.push_optical(LINK_NAME1, blank_optical_3_0, 9001)
     return blank_text_3_0
 
 
@@ -143,7 +143,7 @@ def text_3_0(
 def text_3_1(
     blank_text_3_1: pf.CoreTEXT3_1, blank_optical_3_1: pf.Optical3_1
 ) -> pf.CoreTEXT3_1:
-    blank_text_3_1.push_optical(blank_optical_3_1, LINK_NAME1, 9001)
+    blank_text_3_1.push_optical(LINK_NAME1, blank_optical_3_1, 9001)
     return blank_text_3_1
 
 
@@ -151,7 +151,7 @@ def text_3_1(
 def text_3_2(
     blank_text_3_2: pf.CoreTEXT3_2, blank_optical_3_2: pf.Optical3_2
 ) -> pf.CoreTEXT3_2:
-    blank_text_3_2.push_optical(blank_optical_3_2, LINK_NAME1, 9001)
+    blank_text_3_2.push_optical(LINK_NAME1, blank_optical_3_2, 9001)
     return blank_text_3_2
 
 
@@ -161,7 +161,7 @@ def dataset_2_0(
     blank_optical_2_0: pf.Optical2_0,
     series1: pl.Series,
 ) -> pf.CoreDataset2_0:
-    blank_dataset_2_0.push_optical(blank_optical_2_0, series1, LINK_NAME1, 9001)
+    blank_dataset_2_0.push_optical(LINK_NAME1, blank_optical_2_0, series1, 9001)
     return blank_dataset_2_0
 
 
@@ -171,7 +171,7 @@ def dataset_3_0(
     blank_optical_3_0: pf.Optical3_0,
     series1: pl.Series,
 ) -> pf.CoreDataset3_0:
-    blank_dataset_3_0.push_optical(blank_optical_3_0, series1, LINK_NAME1, 9001)
+    blank_dataset_3_0.push_optical(LINK_NAME1, blank_optical_3_0, series1, 9001)
     return blank_dataset_3_0
 
 
@@ -181,7 +181,7 @@ def dataset_3_1(
     blank_optical_3_1: pf.Optical3_1,
     series1: pl.Series,
 ) -> pf.CoreDataset3_1:
-    blank_dataset_3_1.push_optical(blank_optical_3_1, series1, LINK_NAME1, 9001)
+    blank_dataset_3_1.push_optical(LINK_NAME1, blank_optical_3_1, series1, 9001)
     return blank_dataset_3_1
 
 
@@ -191,7 +191,7 @@ def dataset_3_2(
     blank_optical_3_2: pf.Optical3_2,
     series1: pl.Series,
 ) -> pf.CoreDataset3_2:
-    blank_dataset_3_2.push_optical(blank_optical_3_2, series1, LINK_NAME1, 9001)
+    blank_dataset_3_2.push_optical(LINK_NAME1, blank_optical_3_2, series1, 9001)
     return blank_dataset_3_2
 
 
@@ -199,7 +199,7 @@ def dataset_3_2(
 def text2_2_0(
     text_2_0: pf.CoreTEXT2_0, blank_temporal_2_0: pf.Temporal2_0
 ) -> pf.CoreTEXT2_0:
-    text_2_0.push_temporal(blank_temporal_2_0, LINK_NAME2, 9001)
+    text_2_0.push_temporal(LINK_NAME2, blank_temporal_2_0, 9001)
     return text_2_0
 
 
@@ -207,7 +207,7 @@ def text2_2_0(
 def text2_3_0(
     text_3_0: pf.CoreTEXT3_0, blank_temporal_3_0: pf.Temporal3_0
 ) -> pf.CoreTEXT3_0:
-    text_3_0.push_temporal(blank_temporal_3_0, LINK_NAME2, 9001)
+    text_3_0.push_temporal(LINK_NAME2, blank_temporal_3_0, 9001)
     return text_3_0
 
 
@@ -215,7 +215,7 @@ def text2_3_0(
 def text2_3_1(
     text_3_1: pf.CoreTEXT3_1, blank_temporal_3_1: pf.Temporal3_1
 ) -> pf.CoreTEXT3_1:
-    text_3_1.push_temporal(blank_temporal_3_1, LINK_NAME2, 9001)
+    text_3_1.push_temporal(LINK_NAME2, blank_temporal_3_1, 9001)
     return text_3_1
 
 
@@ -223,7 +223,7 @@ def text2_3_1(
 def text2_3_2(
     text_3_2: pf.CoreTEXT3_2, blank_temporal_3_2: pf.Temporal3_2
 ) -> pf.CoreTEXT3_2:
-    text_3_2.push_temporal(blank_temporal_3_2, LINK_NAME2, 9001)
+    text_3_2.push_temporal(LINK_NAME2, blank_temporal_3_2, 9001)
     return text_3_2
 
 
@@ -233,7 +233,7 @@ def dataset2_2_0(
     blank_temporal_2_0: pf.Temporal2_0,
     series2: pl.Series,
 ) -> pf.CoreDataset2_0:
-    dataset_2_0.push_temporal(blank_temporal_2_0, series2, LINK_NAME2, 9001)
+    dataset_2_0.push_temporal(LINK_NAME2, blank_temporal_2_0, series2, 9001)
     return dataset_2_0
 
 
@@ -243,7 +243,7 @@ def dataset2_3_0(
     blank_temporal_3_0: pf.Temporal3_0,
     series2: pl.Series,
 ) -> pf.CoreDataset3_0:
-    dataset_3_0.push_temporal(blank_temporal_3_0, series2, LINK_NAME2, 9001)
+    dataset_3_0.push_temporal(LINK_NAME2, blank_temporal_3_0, series2, 9001)
     return dataset_3_0
 
 
@@ -253,7 +253,7 @@ def dataset2_3_1(
     blank_temporal_3_1: pf.Temporal3_1,
     series2: pl.Series,
 ) -> pf.CoreDataset3_1:
-    dataset_3_1.push_temporal(blank_temporal_3_1, series2, LINK_NAME2, 9001)
+    dataset_3_1.push_temporal(LINK_NAME2, blank_temporal_3_1, series2, 9001)
     return dataset_3_1
 
 
@@ -263,7 +263,7 @@ def dataset2_3_2(
     blank_temporal_3_2: pf.Temporal3_2,
     series2: pl.Series,
 ) -> pf.CoreDataset3_2:
-    dataset_3_2.push_temporal(blank_temporal_3_2, series2, LINK_NAME2, 9001)
+    dataset_3_2.push_temporal(LINK_NAME2, blank_temporal_3_2, series2, 9001)
     return dataset_3_2
 
 
@@ -364,28 +364,28 @@ class TestCore:
 
     @all_core
     def test_trigger(self, core: AnyCore) -> None:
-        assert core.trigger is None
+        assert core.tr is None
         tr = (LINK_NAME1, 0)
-        core.trigger = tr
-        assert core.trigger == tr
+        core.tr = tr
+        assert core.tr == tr
 
     @all_core
     def test_trigger_threshold(self, core: AnyCore) -> None:
         tr = (LINK_NAME1, 0)
-        core.trigger = tr
-        assert core.trigger == tr
+        core.tr = tr
+        assert core.tr == tr
         core.set_trigger_threshold(1)
-        assert core.trigger == (LINK_NAME1, 1)
+        assert core.tr == (LINK_NAME1, 1)
 
     @all_blank_core
     def test_trigger_bad(self, core: AnyCore) -> None:
         with pytest.raises(TypeError):
-            core.trigger = cast(Trigger, "over,9000")
+            core.tr = cast(Trigger, "over,9000")
 
     @all_blank_core
     def test_trigger_nolink(self, core: AnyCore) -> None:
         with pytest.raises(pf.PyreflowException):
-            core.trigger = ("harold", 0)
+            core.tr = ("harold", 0)
 
     @all_core
     def test_par(self, core: AnyCore) -> None:
@@ -616,11 +616,11 @@ class TestCore:
         self,
         core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
     ) -> None:
-        assert core.unstained_centers is None
-        core.unstained_centers = {LINK_NAME1: 42}
-        assert core.unstained_centers == {LINK_NAME1: 42}
-        core.unstained_centers = None
-        assert core.unstained_centers is None
+        assert core.unstainedcenters is None
+        core.unstainedcenters = {LINK_NAME1: 42}
+        assert core.unstainedcenters == {LINK_NAME1: 42}
+        core.unstainedcenters = None
+        assert core.unstainedcenters is None
 
     @parameterize_versions("core", ["2_0"], ["text2", "dataset2"])
     def test_applied_gates_2_0(
@@ -1014,7 +1014,7 @@ class TestCore:
         ],
     )
     def test_text_insert_optical(self, core: AnyCoreTEXT, optical: Any) -> None:
-        core.insert_optical(0, optical, LINK_NAME1, 9001)
+        core.insert_optical(0, LINK_NAME1, optical, 9001)
         assert isinstance(core.measurement_at(0), type(optical))
 
     @pytest.mark.parametrize(
@@ -1030,7 +1030,7 @@ class TestCore:
         ],
     )
     def test_text_insert_temporal(self, core: AnyCoreTEXT, temporal: Any) -> None:
-        core.insert_temporal(0, temporal, LINK_NAME1, 9001)
+        core.insert_temporal(0, LINK_NAME1, temporal, 9001)
         assert isinstance(core.measurement_at(0), type(temporal))
 
     @pytest.mark.parametrize(
@@ -1048,7 +1048,7 @@ class TestCore:
     def test_dataset_insert_optical(
         self, core: AnyCoreDataset, optical: Any, series1: pl.Series
     ) -> None:
-        core.insert_optical(0, optical, series1, LINK_NAME1, 9001)
+        core.insert_optical(0, LINK_NAME1, optical, series1, 9001)
         assert isinstance(core.measurement_at(0), type(optical))
 
     @pytest.mark.parametrize(
@@ -1066,7 +1066,7 @@ class TestCore:
     def test_dataset_insert_temporal(
         self, core: AnyCoreDataset, temporal: Any, series1: pl.Series
     ) -> None:
-        core.insert_temporal(0, temporal, series1, LINK_NAME1, 9001)
+        core.insert_temporal(0, LINK_NAME1, temporal, series1, 9001)
         assert isinstance(core.measurement_at(0), type(temporal))
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text2"])
@@ -1793,8 +1793,8 @@ class TestLayouts:
 
 class TestReadWrite:
     @staticmethod
-    def _assert_uncore_empty(
-        uncore: pf.api.StdTEXTData | pf.api.StdDatasetData,
+    def _assert_uncore_text_empty(
+        uncore: pf.api.StdTEXTOutput,
     ) -> None:
         assert uncore.parse.nextdata == 0
         assert uncore.parse.delimiter == 30
@@ -1803,14 +1803,25 @@ class TestReadWrite:
         assert len(uncore.extra.pseudostandard) == 0
         assert len(uncore.extra.unused) == 0
 
+    @staticmethod
+    def _assert_uncore_dataset_empty(
+        uncore: pf.api.StdDatasetOutput,
+    ) -> None:
+        assert uncore.parse.nextdata == 0
+        assert uncore.parse.delimiter == 30
+        assert len(uncore.parse.non_ascii) == 0
+        assert len(uncore.parse.byte_pairs) == 0
+        assert len(uncore.dataset.extra.pseudostandard) == 0
+        assert len(uncore.dataset.extra.unused) == 0
+
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["blank_text"])
     def test_text_empty(self, tmp_path: Path, core: AnyCoreTEXT) -> None:
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "empty_text.fcs"
         core.write_text(p)
-        nu_core, un_core = pf.fcs_read_std_text(p)
-        self._assert_uncore_empty(un_core)
+        nu_core, un_core = pf.api.fcs_read_std_text(p)
+        self._assert_uncore_text_empty(un_core)
         assert core == nu_core
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text"])
@@ -1819,8 +1830,8 @@ class TestReadWrite:
         d.mkdir(exist_ok=True)
         p = d / "text1.fcs"
         core.write_text(p)
-        nu_core, un_core = pf.fcs_read_std_text(p, time_meas_pattern=None)
-        self._assert_uncore_empty(un_core)
+        nu_core, un_core = pf.api.fcs_read_std_text(p, time_meas_pattern=None)
+        self._assert_uncore_text_empty(un_core)
         assert core == nu_core
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text2"])
@@ -1829,8 +1840,8 @@ class TestReadWrite:
         d.mkdir(exist_ok=True)
         p = d / "text2.fcs"
         core.write_text(p)
-        nu_core, un_core = pf.fcs_read_std_text(p, time_meas_pattern=LINK_NAME2)
-        self._assert_uncore_empty(un_core)
+        nu_core, un_core = pf.api.fcs_read_std_text(p, time_meas_pattern=LINK_NAME2)
+        self._assert_uncore_text_empty(un_core)
         assert core == nu_core
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["blank_dataset"])
@@ -1839,8 +1850,8 @@ class TestReadWrite:
         d.mkdir(exist_ok=True)
         p = d / "empty_dataset.fcs"
         core.write_dataset(p)
-        nu_core, un_core = pf.fcs_read_std_dataset(p)
-        self._assert_uncore_empty(un_core)
+        nu_core, un_core = pf.api.fcs_read_std_dataset(p)
+        self._assert_uncore_dataset_empty(un_core)
         assert core == nu_core
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
@@ -1849,10 +1860,10 @@ class TestReadWrite:
         d.mkdir(exist_ok=True)
         p = d / "dataset1.fcs"
         core.write_dataset(p)
-        nu_core, un_core = pf.fcs_read_std_dataset(
+        nu_core, un_core = pf.api.fcs_read_std_dataset(
             p, time_meas_pattern=None, warnings_are_errors=True
         )
-        self._assert_uncore_empty(un_core)
+        self._assert_uncore_dataset_empty(un_core)
         assert core == nu_core
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
@@ -1861,12 +1872,12 @@ class TestReadWrite:
         d.mkdir(exist_ok=True)
         p = d / "dataset2.fcs"
         core.write_dataset(p)
-        nu_core, un_core = pf.fcs_read_std_dataset(
+        nu_core, un_core = pf.api.fcs_read_std_dataset(
             p,
             time_meas_pattern=LINK_NAME2,
             warnings_are_errors=True,
         )
-        self._assert_uncore_empty(un_core)
+        self._assert_uncore_dataset_empty(un_core)
         assert core == nu_core
 
     @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["dataset2"])
@@ -1880,12 +1891,12 @@ class TestReadWrite:
         v = "I am a puppet." * 7500000
         core.nonstandard_keywords = {k: v}
         core.write_dataset(p)
-        nu_core, un_core = pf.fcs_read_std_dataset(
+        nu_core, un_core = pf.api.fcs_read_std_dataset(
             p,
             time_meas_pattern=LINK_NAME2,
             warnings_are_errors=True,
         )
-        self._assert_uncore_empty(un_core)
+        self._assert_uncore_dataset_empty(un_core)
         assert core == nu_core
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])

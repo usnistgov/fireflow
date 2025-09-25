@@ -3,6 +3,7 @@ use crate::error::*;
 use crate::text::index::IndexFromOne;
 
 use derive_more::{AsRef, Display, From};
+use derive_new::new;
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use regex::Regex;
@@ -108,7 +109,7 @@ pub type NonAsciiPairs = Vec<(String, String)>;
 pub type BytesPairs = Vec<(Vec<u8>, Vec<u8>)>;
 
 /// ['ParsedKeywords'] without the bad stuff
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(
     feature = "python",

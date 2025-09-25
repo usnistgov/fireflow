@@ -18,7 +18,6 @@ release = "0.1.0"
 extensions = [
     "sphinx.ext.intersphinx",
     "sphinx.ext.autodoc",
-    "sphinx_toolbox.more_autodoc.autonamedtuple",
     "sphinx.ext.graphviz",
     "sphinx.ext.githubpages",
 ]

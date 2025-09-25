@@ -45,8 +45,7 @@ testing = [
     "pytest==8.4.1",
 ]
 docs = [
-    "sphinx",
-    "sphinx-toolbox",
+    "sphinx"
 ]
 
 [tool.maturin]

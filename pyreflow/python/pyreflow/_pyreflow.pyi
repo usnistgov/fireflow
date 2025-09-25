@@ -128,7 +128,7 @@ class OrderedUint08Layout(_LayoutUnmixedCommon):
 
 @final
 class OrderedUint16Layout(_LayoutUnmixedCommon):
-    def __new__(cls, ranges: list[IntRange]) -> Self: ...
+    def __new__(cls, ranges: list[IntRange], endian: Endian = "little") -> Self: ...
     @property
     def ranges(self) -> list[FloatRange]: ...
     @property
@@ -178,7 +178,9 @@ class EndianUintLayout(_LayoutEndianCommon, _LayoutUnmixedCommon):
 
 @final
 class MixedLayout(_LayoutEndianCommon):
-    def __new__(cls, ranges: list[MixedType], endian: Endian = "little") -> Self: ...
+    def __new__(
+        cls, typed_ranges: list[MixedType], endian: Endian = "little"
+    ) -> Self: ...
     @property
     def typed_ranges(self) -> list[MixedType]: ...
     @property
@@ -1002,7 +1004,6 @@ class CoreTEXT3_1(
         layout: _AnyNonMixedLayout,
         mode: Mode = "L",
         cyt: str | None = None,
-        comp: Compensation | None = None,
         btim: time | None = None,
         etim: time | None = None,
         date: date | None = None,
@@ -1088,7 +1089,6 @@ class CoreTEXT3_2(
         layout: _AnyMixedLayout,
         cyt: str,
         mode: Mode3_2 | None = None,
-        comp: Compensation | None = None,
         btim: time | None = None,
         etim: time | None = None,
         date: date | None = None,
@@ -1174,8 +1174,8 @@ class CoreDataset2_0(
     def __new__(
         cls,
         measurements: list[tuple[Shortname | None, Optical2_0 | Temporal2_0]],
-        df: DataFrame,
         layout: _AnyOrderedLayout,
+        data: DataFrame,
         mode: Mode = "L",
         cyt: str | None = None,
         comp: npt.NDArray[np.float32] | None = None,
@@ -1260,7 +1260,7 @@ class CoreDataset3_0(
         cls,
         measurements: list[tuple[Shortname | None, Optical3_0 | Temporal3_0]],
         layout: _AnyOrderedLayout,
-        df: DataFrame,
+        data: DataFrame,
         mode: Mode = "L",
         cyt: str | None = None,
         comp: Compensation | None = None,
@@ -1359,10 +1359,9 @@ class CoreDataset3_1(
         cls,
         measurements: list[tuple[Shortname, Optical3_1 | Temporal3_1]],
         layout: _AnyNonMixedLayout,
-        df: DataFrame,
+        data: DataFrame,
         mode: Mode = "L",
         cyt: str | None = None,
-        comp: Compensation | None = None,
         btim: time | None = None,
         etim: time | None = None,
         date: date | None = None,
@@ -1462,10 +1461,9 @@ class CoreDataset3_2(
         cls,
         measurements: list[tuple[Shortname, Optical3_2 | Temporal3_2]],
         layout: _AnyMixedLayout,
-        df: DataFrame,
+        data: DataFrame,
         cyt: str,
         mode: Mode3_2 | None = None,
-        comp: Compensation | None = None,
         btim: time | None = None,
         etim: time | None = None,
         date: date | None = None,
@@ -1546,7 +1544,11 @@ class PyreflowWarning(Exception): ...
 @final
 class HeaderSegments:
     def __new__(
-        cls, text: Segment, data: Segment, analysis: Segment, other: list[Segment]
+        cls,
+        text_seg: Segment,
+        data_seg: Segment,
+        analysis_seg: Segment,
+        other_segs: list[Segment],
     ) -> Self: ...
     @property
     def text_seg(self) -> Segment: ...

@@ -5,7 +5,18 @@ on: [push, pull_request, delete]
 jobs:
   docs:
     runs-on: ubuntu-latest
+
     steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: astral-sh/setup-uv@v6
+
+      - run: make docs
+
       - uses: usnistgov/Docs4NIST@0.8
         with:
           docs-folder: pyreflow/docs/

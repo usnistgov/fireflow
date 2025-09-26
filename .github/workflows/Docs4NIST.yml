@@ -15,11 +15,14 @@ jobs:
 
       - uses: astral-sh/setup-uv@v6
 
-      - uses: usnistgov/Docs4NIST@0.8
+      - name: Install graphviz
+        run: sudo apt install -y graphviz
+
+      - name: Build docs
+        run: make docs
+
+      - name: Push changes
+        uses: ad-m/github-push-action@master
         with:
-          build-html-command: make docs
-          docs-folder: pyreflow/docs/
-          apt-packages: graphviz
-          # formats: |-
-          #   epub
-          #   pdf
+          branch: nist-pages
+          directory: pyreflow/docs

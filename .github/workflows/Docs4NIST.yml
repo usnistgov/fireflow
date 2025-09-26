@@ -19,6 +19,7 @@ jobs:
         with:
           build-html-command: make docs
           docs-folder: pyreflow/docs/
+          apt-packages: graphviz
           # formats: |-
           #   epub
           #   pdf

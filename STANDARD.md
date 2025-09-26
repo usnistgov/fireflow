@@ -45,6 +45,23 @@ Furthermore, `fireflow` will write new FCS files with each of these left-padded
 with zeros up to 20 characters. This makes the length of *TEXT* predictable,
 which in turn allows computing the value of each offset.
 
+### UTF-8
+
+FCS 2.0 and 3.0 only allow ASCII (vs UTF-8) characters in *TEXT*. For 3.0, this
+can be overridden by *$UNICODE* which will permit UTF-8 on a keyword-basis.
+
+`fireflow` is written in a (decenly modern) language that supports UTF-8 out of
+the box. As such there is little reason to penalize 2.0/3.0 files for having
+UTF-8 but non-ASCII characters. Standard keys (in all versions) are ASCII-only,
+so this restriction in theory only ever applies to keyword values and to
+non-standard keys. Furthermore, any downstream application which consumes the
+string values produced by `fireflow` will also likely have UTF-8 support.
+Finally, any standardized values (ie strings parsed to an integer) will fail if
+the characters cannot be interpreted (UTF-8 or not).
+
+Therefore, there is almost nothing to
+gain by enforcing this.
+
 ### *$TR*
 
 For all versions, `fireflow` will ensure the measurement name in this keyword

@@ -9,7 +9,7 @@ themselves.
 The following is an overview of such common issues and how `fireflow` can fix
 them. The `fireflow` flags specified under each issue are written in terms of
 the configuration as defined in [config.rs](crates/fireflow-core/src/config.rs)
-but have identical or near-identical analogues in `fireflow` various APIs.
+but have identical or near-identical analogues in `fireflow`'s various APIs.
 
 # General offset issues
 
@@ -38,27 +38,27 @@ For *TEXT* these options are:
 
 `fireflow` requires that offsets in *HEADER* and *TEXT* which describe the same
 segment are equal unless one is empty. This only applies to *DATA* and
-*ANALYIS*. This means that correcting these offsets usually requires editing
+*ANALYSIS*. This means that correcting these offsets usually requires editing
 both the *HEADER* and *TEXT*. To allow them to mismatch, use
 `allow_header_text_offset_mismatch` which will preferentially use *TEXT* offsets
 upon mismatch.
 
 Offsets in *TEXT* can be ignored entirely with:
 * `ignore_text_data_offsets`
-* `ignore_text_analysis_offsets`.
+* `ignore_text_analysis_offsets`
 * `ignore_supp_text`
 
 In practice, supplemental *TEXT* can probably safely be ignored since this is
-often never used. If the offsets are not in the file to begin with, one can pass
+often never used. If the offsets are not in the file, one can pass
 `allow_missing_supp_text` to permit this.
 
 ## Truncated offsets
 
-Some files are incompletely written. In these cases, the offsets will often
-point beyond the last byte of the files. These files are probably screwed up in
-some way and likely should not be used.
+Some files are incompletely written. In these cases, offsets will often point
+beyond the last byte of the file. These files are probably screwed up and likely
+should not be used.
 
-The *DATA* offset can also point beyond the end if the file if *DATA* is the
+The *DATA* offset can also point beyond the end of the file if *DATA* is the
 last segment and the ending offset for *DATA* is one greater than it is supposed
 to be.
 
@@ -68,28 +68,28 @@ last byte if they exceed the file's length.
 
 ## "Split" offsets in *HEADER*
 
-This refers to offsets in the HEADER which set their start to a non-zero
-interger and their end to zero. This can happen if the end offset is greater
+This refers to offsets in the *HEADER* which set their start to a non-zero
+integer and their end to zero. This can happen if the end offset is greater
 than 8 digits, which presumably means it (and the beginning offset) are stored
 in *TEXT* where the 8-digit limit does not apply.
 
 The standards specify that **both** offsets should be moved to *TEXT* in cases
 like this and that the *HEADER* offsets should be set to `0,0`.
 
-Set the flag `squish_offsets` to treat such offsets as `0,0`. Note this only
-applies to the *DATA* and *ANALYSIS* offsets since *TEXT* must fit within the
-first 99,999,999 bytes. This should also only happen with FCS 3.0+ files.
+Enable `squish_offsets` to treat such offsets as `0,0`. Note this only applies
+to the *DATA* and *ANALYSIS* offsets since *TEXT* must fit within the first
+99,999,999 bytes. This should also only happen in FCS 3.0+ files.
 
 ## Negative offsets in *HEADER*
 
-In practice, the most common case of this seems to be `0,-1` which some people
+In practice, the most common case of this seems to be `0,-1` which some vendors
 (quite logically) interpret to be an "empty" segment.
 
 This stems from the fact that the ending offset refers to the last byte of the
-segment, so `0,0` is actually a 1-byte segment (not an empty segment).
+segment, so `0,0` is actually a 1-byte segment (not empty).
 
-Set `allow_negative` to round any negative numbers up to 0, which will force the
-above case to become `0,0`.
+Set `allow_negative` to set any negative numbers up to 0, in which the above
+case to become `0,0`.
 
 ## Missing required *TEXT* offsets
 
@@ -113,7 +113,7 @@ There are various solutions to this.
 
 ## Incorrect version
 
-Use `version_override` to force the file to be read with a differnt version. It
+Use `version_override` to force the file to be read with a different version. It
 will be as if this version were written in the first 6 bytes.
 
 ## Ignoring or demoting extra keys
@@ -133,7 +133,7 @@ Entirely missing keys can also be given with `append_standard_keywords`.
 
 If a standard key is misnamed, this can be fixed with `rename_standard_keys`.
 
-## Permitting Extra Keys
+## Permitting extra keys
 
 As a last resort, extra keys can simply be permitted.
 
@@ -143,10 +143,10 @@ standard to be included.
 Enable `allow_unused_standard` to allow keys which are part of the standard but
 not used to be included (for example *$TIMESTEP* without a time measurement).
 
-# Issues with keyword values
+# Issues with standard keyword values
 
 Even if a standard key is present, its value may not be parsable. There are a
-variety of solutions to this, listed here from least to most general.
+variety of solutions to this.
 
 Note, only standard keys can be corrected on the fly. This is because `fireflow`
 provides an API for reading non-standard keys after standardization is performed
@@ -157,11 +157,11 @@ incorrect.
 ## *$SPILLOVER* with indexed measurements
 
 The *$SPILLOVER* keyword should use *$PnN* to link the rows/columns of the
-matrix to measurements. In practice, some files use numbers to specify indices.
-Enable `parse_indexed_spillover` to interpret the measurements as indices rather
-than names.
+matrix to measurements. In practice, some files use numbers to specify
+measurement indices. Enable `parse_indexed_spillover` to interpret the
+measurements as indices rather than names.
 
-## Invalid *$DATE*, *$BTIM* and *$ETIM*
+## Invalid *$DATE*, *$BTIM*, and *$ETIM*
 
 These keywords should follow a specified pattern. Use `date_pattern` (for
 *$DATE*) or `time_pattern` (for *$BTIM* and *$ETIM*) to supply a custom pattern
@@ -170,8 +170,8 @@ times correctly.
 
 ## Incorrect *PnE* log offset value
 
-One common error for *$PnE* is specifying something like `X,0.0` where `X` is
-non-zero. This is incorrect because this says "log(0) = linear value of 0".
+One common error for *$PnE* is specifying `X,0.0` where `X` is non-zero. This is
+incorrect because this says "log(0) = linear value of 0".
 
 Enable `fix_log_scale_offsets` to convert `X,0,0` to `X,1.0`.
 
@@ -182,7 +182,7 @@ For FCS 2.0 and 3.0, *$PnB* must match *$BYTEORD*. If this isn't true, enable
 example, a *$BYTEORD* value of `1,2,3` would result in all *$PnB* being set to
 `24` (bits).
 
-This is often seen in file which either have a byte-width which isn't 32 or 64
+This is often seen in files which either have a byte-width other than 32 or 64
 or confuse the *$PnB* with a bitmask (such as setting it to a value of `10` when
 the actual numbers are 16-bit).
 
@@ -191,7 +191,7 @@ latter with `integer_byteord_override`.
 
 ## Large *$PnR* values
 
-Some machines will set *$PnR* to be an absurdely huge number, presumably to mean
+Some machines will set *$PnR* to be an absurdly huge number, presumably to mean
 "infinity." In practice, `fireflow` will coerce *$PnR* to be the type of the
 column. Sometimes (especially in the case of "large values") this will truncate
 *$PnR*.
@@ -219,8 +219,8 @@ of all values in *TEXT*. This will likely create empty values, in which case
 ## Extra whitespace in comma-separated values
 
 Composite values which are represented as comma-separated lists (*$SPILLOVER*
-for example) sometimes have whitespace between the commas. This will fail for
-similar reasons as mentioned in the previous section.
+for example) sometimes have whitespace between the commas. Most of these
+separated values are numbers, which cannot be parsed with space around them.
 
 Enable `trim_intra_value_whitespace` to remove this whitespace.
 
@@ -233,15 +233,15 @@ resort.
 
 # Issues with time measurement
 
-## Weird name
+## Non-standard name
 
 The time measurement should have a *$PnN* with the value `Time`. In practice,
 the standard slightly loosens this restriction and says this should be matched
 case-insensitively.
 
-Some vendors use something like `T1` or `HDR-T` for the time measurement.
-Specify `time_meas_pattern` with a pattern to match the time channel in these
-cases.
+Some vendors use something like `T1` or `HDR-T` for time. Specify
+`time_meas_pattern` with a pattern to match the *$PnN* of the time measurement
+in these cases.
 
 ## Missing time
 
@@ -254,7 +254,7 @@ the time measurement to be missing.
 `1.0` should be fine since this amounts to an identity operation.
 
 Some files will set this to a non-unit value. Enable `ignore_time_gain` to
-ignore this key.
+ignore *$PnG* for the time measurement.
 
 ## Optical keywords
 
@@ -275,6 +275,9 @@ The flag `other_width` allows one to specify this width. Unfortunately it will
 likely require trial-and-error and/or direct inspection of the file to figure
 out what this should be.
 
+*OTHER* segments can be ignored entirely by setting `max_other` to `0`. This
+will bypass parsing of *OTHER* segments entirely.
+
 # Issues parsing *TEXT*
 
 ## Delimiter issues
@@ -286,13 +289,13 @@ occur together.
 
 Delimiters are supposed to be "escapable" which means the delimiter can be
 included in a keyword value if it doesn't appear the the begin/end and if it is
-escaped (preceeded by another delimiter). This precludes empty key values, which
+escaped (preceded by another delimiter). This precludes empty key values, which
 are forbidden by the standard.
 
 Some FCS files use literal delimiters, presumably to allow empty keyword values.
 In this case, enable the flag `use_literal_delims`.
 
-### Non-ASCII
+### Non-ASCII delimiters
 
 Delimiters should be an ASCII character (value between 1 and 126). For files
 which do not follow this, pass `allow_non_ascii_delim`.
@@ -303,7 +306,7 @@ The *TEXT* segment should start and end with a delimiter. If this isn't the
 case, enabling `allow_missing_final_delim` can solve this.
 
 However, this likely means that the boundaries of the *TEXT* segment are
-incorrect and should be fixed by chaning the offsets.
+incorrect and should be fixed by changing the offsets.
 
 ### Boundary delimiters
 
@@ -368,5 +371,5 @@ cases and leaves the possibility for a mismatch.
 In case of such a mismatch, enable `allow_tot_mismatch` to ignore the error.
 
 There is also the possibility that the event width does not evenly divide
-*DATA*. In thise case, enable `allow_uneven_event_width` to permit the file to
-be read without error.
+*DATA*. In this case, enable `allow_uneven_event_width` to permit the file to be
+read without error.

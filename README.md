@@ -25,7 +25,38 @@ Key features:
 
 Pre-release
 
-## Python API
+## API support
+
+In addition to the core Rust library, `fireflow` has several wrappers.
+
+### Python
+
+The Python wrapper for `fireflow` is `pyreflow`.
+
+`pyreflow` is not yet available via PyPI or other package respositories so it
+must be built from source:
+
+Install using pip/git:
+
+``` bash
+pip install git+https://github.com/usnistgov/fireflow.git#subdirectory=pyreflow
+```
+
+This will build and install the master branch into the currently active
+environment.
+
+Alternatively, install into a `conda` environment.
+
+Example `env.yml`:
+
+``` yaml
+channels:
+  - conda-forge
+dependencies:
+  - maturin=1.8.7
+  - pip:
+    - git+https://github.com/usnistgov/fireflow.git#subdirectory=pyreflow
+```
 
 The documentation is currently not hosted, so it needs to be built locally.
 
@@ -37,3 +68,20 @@ make docs
 
 Then open the resulting index file in a web browser: 
 `pyreflow/docs/build/html/index.html`
+
+### Command Line Interface
+
+See [here](crates/fireflow-cli/README.md).
+
+### R
+
+Coming soon
+
+## Development and Support
+
+This library was developed as part of the ongoing efforts of the [NIST Flow
+Cytometry Standards
+Consortium](https://www.nist.gov/programs-projects/nist-flow-cytometry-standards-consortium).
+
+Please submit code-related issues to the issue tracker in this repository.
+Please send general inquiries to njd2@nist.gov.

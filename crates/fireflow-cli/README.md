@@ -6,7 +6,7 @@ interface (and other wrappers such as Python).
 Supported features:
 
 * reading *HEADER* and *TEXT* as JSON blobs
-* exporting *DATA* as a tsv stream
+* exporting *DATA* as a TSV stream
 * raw and standard mode
 * most repair flags
 * dumping the spillover or compensation matrices
@@ -23,8 +23,9 @@ cd fireflow/crates/fireflow-cli
 cargo install --path .
 ```
 
-`fireflow` should now be in `$CARGO_HOME/bin` and can be run directly from a
-shell assuming this directory is added to `$PATH`.
+Ensure `$PATH` includes `$CARGO_HOME/bin`.
+
+Now `fireflow` can be invoked from any shell.
 
 # Examples
 
@@ -63,7 +64,7 @@ For a file which doesn't use escaped delimiters (which also likely means some
 keyword values are empty):
 
 ``` bash
-fireflow raw -i <path/to/file> --allow-empty
+fireflow raw -i <path/to/file> --use-literal-delims --allow-empty
 ```
 
 If successful, this will output the keywords (split by standard and
@@ -78,8 +79,8 @@ For a pristine file:
 fireflow std -i <path/to/file>
 ```
 
-For a file which "lies" about its version (*HEADER* says 3.0 but really it
-should say 3.1).
+For a file which "lies" about its version (*HEADER* says 3.0 but should say
+3.1).
 
 ``` bash
 fireflow std -i <path/to/file> --version-override=3.1
@@ -113,8 +114,8 @@ with *$PnN* as the headers.
 
 ## Show the measurements as a table
 
-This will print all the measurement keywords as a table, where each row is a
-measurement and each column is a meaurement keyword (ie a *$Pn\** keyword).
+This will print all measurement keywords as a table, where each row is a
+measurement and each column is a measurement keyword (ie *$Pn\**).
 
 ``` bash
 fireflow measurements -i <path/to/file>

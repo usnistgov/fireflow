@@ -18,7 +18,7 @@ Key features:
 * Is written in Rust (reliable and fast)
 * Implements/enforces the FCS standard (see [implementation details](STANDARD.md))
 * Can convert between FCS versions
-* Can repair non-compliant FCS files
+* Can repair non-compliant FCS files (see [common issues](COMMON_ISSUES.md))
 * Has API for command line, Python, R (planned)
 
 ## Status

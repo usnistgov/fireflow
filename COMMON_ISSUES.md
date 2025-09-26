@@ -286,9 +286,9 @@ occur together.
 ### Escaping
 
 Delimiters are supposed to be "escapable" which means the delimiter can be
-included in a keyword value if it doesn't appear the the begin/end and if it is
-escaped (preceded by another delimiter). This precludes empty key values, which
-are forbidden by the standard.
+included in a keyword value if it doesn't appear at the beginning/end and if it
+is preceded by another delimiter (escaped). This precludes empty key values,
+which are forbidden by the standard.
 
 Some FCS files use literal delimiters, presumably to allow empty keyword values.
 In this case, enable `use_literal_delims`.
@@ -363,8 +363,8 @@ using hardcoded strings which only contain ASCII.
 
 Unless a file uses delimited ASCII (which is rare if it ever happens), the
 number of events can be computed by dividing the length of *DATA* over the event
-width (the sum of *$PnB* in bytes). This means *$TOT* is unnecessary for this
-cases and leaves the possibility for a mismatch.
+width (the sum of *$PnB* in bytes). *$TOT* is unnecessary in this case and
+leaves the possibility for a mismatch.
 
 In case of such a mismatch, enable `allow_tot_mismatch` to ignore the error.
 

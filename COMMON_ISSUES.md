@@ -1,5 +1,4 @@
-FCS files can have any number of formatting issues that makes them
-"non-compliant".
+FCS files can have many issues that make them "non-compliant."
 
 By default, `fireflow` will error when it encounters any non-conforming data.
 However, it has support for on-the-fly repair of many common issues, so in

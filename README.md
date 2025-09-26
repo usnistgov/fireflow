@@ -1,3 +1,6 @@
+[![CI](https://github.com/usnistgov/fireflow/actions/workflows/ci.yml/badge.svg)](https://github.com/usnistgov/fireflow/actions/workflows/ci.yml)
+[![Documentation](https://github.com/usnistgov/fireflow/actions/workflows/Docs4NIST.yml/badge.svg)](https://github.com/usnistgov/fireflow/actions/workflows/Docs4NIST.yml)
+
 # Fireflow: a library to read and write standards-compliant FCS files
 
 FCS (flow cytometry standard) files are the canonical format for storing data

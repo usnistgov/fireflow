@@ -11,7 +11,7 @@ them. The `fireflow` flags specified under each issue are written in terms of
 the configuration as defined in [config.rs](crates/fireflow-core/src/config.rs)
 but have identical or near-identical analogues in `fireflow`'s various APIs.
 
-# General offset issues
+# Offset issues
 
 The offsets throughout the FCS file are often wrong. Usually, the end is one
 greater than it should be (but not always). This is likely because the end
@@ -171,7 +171,7 @@ times correctly.
 ## Incorrect *$PnE* log offset value
 
 One common error for *$PnE* is specifying `X,0.0` where `X` is non-zero. This is
-incorrect because this says "log(0) = linear value of 0".
+incorrect because it means "log(0) = linear value of 0".
 
 Enable `fix_log_scale_offsets` to convert `X,0,0` to `X,1.0`.
 
@@ -205,12 +205,11 @@ truncated. This may or may not indicate an issue with the file.
 
 ## Extra whitespace
 
-Some values will contain extra whitespace around them. There are various reasons
-(probably?) for this, but one common place this is observed is within the offset
-keywords (*$BEGIN/ENDSTEXT*, etc) in order to make them a fixed length which in
-turn makes the length of *TEXT* easier to compute. This can be a problem since
-the string `"     1"` cannot be parsed as a number (technically it should be
-`"000001"`).
+Some values contain whitespace around them. There are various reasons for this.
+This is commonly observed within the offset keywords (*$BEGIN/ENDSTEXT*, etc) in
+order to make them a fixed length which in turn makes the length of *TEXT*
+easier to compute. This can be a problem since the string `"  1"` cannot be
+parsed as a number (technically it should be `"001"`).
 
 Enable `trim_value_whitespace` to remove whitespace from the beginning and end
 of all values in *TEXT*. This will likely create empty values, in which case
@@ -229,14 +228,14 @@ Enable `trim_intra_value_whitespace` to remove this whitespace.
 Values for standard keys can be totally overriden with
 `replace_standard_key_values`. In practice, there may be other options which are
 more specific to the error which are more robust. This should be used as a last
-resort.
+resort since it requires manually specifying each key and value.
 
 # Issues with time measurement
 
 ## Non-standard name
 
-The time measurement should have a *$PnN* with the value `Time`. In practice,
-the standard slightly loosens this restriction and says this should be matched
+The time measurement should have a *$PnN* with the value `Time`. The standard
+slightly loosens this restriction and says this should be matched
 case-insensitively.
 
 Some vendors use something like `T1` or `HDR-T` for time. Specify
@@ -293,12 +292,12 @@ escaped (preceded by another delimiter). This precludes empty key values, which
 are forbidden by the standard.
 
 Some FCS files use literal delimiters, presumably to allow empty keyword values.
-In this case, enable the flag `use_literal_delims`.
+In this case, enable `use_literal_delims`.
 
 ### Non-ASCII delimiters
 
 Delimiters should be an ASCII character (value between 1 and 126). For files
-which do not follow this, pass `allow_non_ascii_delim`.
+which do not follow this, enable `allow_non_ascii_delim`.
 
 ### Final delimiter
 

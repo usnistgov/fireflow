@@ -168,7 +168,7 @@ These keywords should follow a specified pattern. Use `date_pattern` (for
 for parsing this field in the case of files who do not format their dates and
 times correctly.
 
-## Incorrect *PnE* log offset value
+## Incorrect *$PnE* log offset value
 
 One common error for *$PnE* is specifying `X,0.0` where `X` is non-zero. This is
 incorrect because this says "log(0) = linear value of 0".

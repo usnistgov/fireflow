@@ -15,10 +15,9 @@ jobs:
 
       - uses: astral-sh/setup-uv@v6
 
-      - run: make docs
-
       - uses: usnistgov/Docs4NIST@0.8
         with:
+          build-html-command: make docs
           docs-folder: pyreflow/docs/
           # formats: |-
           #   epub

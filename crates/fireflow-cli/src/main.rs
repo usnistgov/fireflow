@@ -128,6 +128,11 @@ fn main() -> Result<(), ()> {
 
     let allow_non_utf8 = flag_arg(ALLOW_NON_UTF8, "allow non-utf8 characters in TEXT");
 
+    let use_latin1 = flag_arg(
+        USE_LATIN1,
+        "interpret all characters in TEXT as Latin-1 (aka ISO/IEC 8859-1)",
+    );
+
     let allow_non_ascii_keywords = flag_arg(ALLOW_NON_ASCII_KEYWORDS, "allow non-ascii keys");
 
     let allow_missing_supp_text = flag_arg(
@@ -158,6 +163,7 @@ fn main() -> Result<(), ()> {
         allow_empty,
         allow_delim_at_bound,
         allow_non_utf8,
+        use_latin1,
         allow_non_ascii_keywords,
         allow_missing_supp_text,
         allow_supp_text_own_delim,
@@ -550,6 +556,7 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
         allow_empty: sargs.get_flag(ALLOW_EMPTY),
         allow_delim_at_boundary: sargs.get_flag(ALLOW_DELIM_AT_BOUNDARY),
         allow_non_utf8: sargs.get_flag(ALLOW_NON_UTF8),
+        use_latin1: sargs.get_flag(USE_LATIN1),
         allow_non_ascii_keywords: sargs.get_flag(ALLOW_NON_ASCII_KEYWORDS),
         allow_missing_supp_text: sargs.get_flag(ALLOW_MISSING_SUPP_TEXT),
         allow_supp_text_own_delim: sargs.get_flag(ALLOW_SUPP_TEXT_OWN_DELIM),
@@ -820,6 +827,8 @@ const ALLOW_EMPTY: &str = "allow-empty";
 const ALLOW_DELIM_AT_BOUNDARY: &str = "allow-delim-at-boundary";
 
 const ALLOW_NON_UTF8: &str = "allow-non-utf8";
+
+const USE_LATIN1: &str = "use-latin1";
 
 const ALLOW_NON_ASCII_KEYWORDS: &str = "allow-non-ascii-keywords";
 

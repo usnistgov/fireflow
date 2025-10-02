@@ -363,6 +363,9 @@ pub struct ReadHeaderAndTEXTConfig {
     /// cases.
     pub allow_non_utf8: bool,
 
+    /// If true, interpret all bytes in TEXT as Latin-1 instead of UTF-8
+    pub use_latin1: bool,
+
     /// If true, allow keys with non-ASCII characters.
     ///
     /// This only applies to non-standard keywords, as all standardized keywords

@@ -263,7 +263,20 @@ impl KeyString {
         Self(Ascii::new(s))
     }
 
+    fn from_bytes_maybe(xs: &[u8], latin1: bool) -> Option<Self> {
+        if latin1 {
+            Some(Self::new(xs.iter().copied().map(char::from).collect()))
+        } else if is_printable_ascii(xs) {
+            Some(Self::from_bytes(xs))
+        } else {
+            None
+        }
+    }
+
     fn from_bytes(xs: &[u8]) -> Self {
+        if xs.is_empty() {
+            panic!("cannot make KeyString with empty slice")
+        }
         Self::new(unsafe { String::from_utf8_unchecked(xs.to_vec()) })
     }
 }
@@ -457,48 +470,82 @@ impl ParsedKeywords {
     ) -> Result<(), Leveled<KeywordInsertError>> {
         // ASSUME key and value are never blank since we checked both prior to
         // calling this. The FCS standards do not allow either to be blank.
-        let n = k.len();
-
         let to_std = conf.promote_to_standard.as_matcher();
         let to_nonstd = conf.demote_from_standard.as_matcher();
         // TODO this also should skip keys before throwing a blank error
         let ignore = conf.ignore_standard_keys.as_matcher();
 
-        match std::str::from_utf8(v) {
-            Ok(vv) => {
-                // Trim whitespace from value if desired. Warn (or halt) if this
-                // results in a blank.
-                let value = if conf.trim_value_whitespace {
-                    let trimmed = vv.trim();
-                    if trimmed.is_empty() {
-                        let w = BlankValueError(k.to_vec());
-                        return Err(Leveled::new(w.into(), !conf.allow_empty));
-                    } else {
-                        trimmed.to_string()
-                    }
+        let blank_err = || {
+            let w = BlankValueError(k.to_vec());
+            Leveled::<KeywordInsertError>::new(w.into(), !conf.allow_empty)
+        };
+
+        let vv = if conf.use_latin1 {
+            let it = v.iter().copied().map(char::from);
+            if conf.trim_value_whitespace {
+                let trimmed: String = it
+                    .skip_while(char::is_ascii_whitespace)
+                    .take_while(|x| !x.is_ascii_whitespace())
+                    .collect();
+                if trimmed.is_empty() {
+                    return Err(blank_err());
                 } else {
-                    vv.to_string()
-                };
-                if n > 1 && k[0] == STD_PREFIX && is_printable_ascii(&k[1..]) {
-                    // Standard key: starts with '$', check that remaining chars
-                    // are ASCII
-                    let kk = KeyString::from_bytes(&k[1..]);
-                    if ignore.is_match(&kk) {
-                        Ok(())
-                    } else if to_nonstd.is_match(&kk) {
-                        insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
+                    Ok(trimmed)
+                }
+            } else {
+                Ok(it.collect())
+            }
+        } else {
+            match std::str::from_utf8(v) {
+                Ok(vv) => {
+                    if conf.trim_value_whitespace {
+                        let trimmed = vv.trim();
+                        if trimmed.is_empty() {
+                            return Err(blank_err());
+                        } else {
+                            Ok(trimmed.into())
+                        }
                     } else {
-                        let rk = conf.rename_standard_keys.0.get(&kk).cloned().unwrap_or(kk);
-                        insert_nonunique(&mut self.std, StdKey(rk), value, conf)
+                        Ok(vv.into())
                     }
-                } else if n > 0 && is_printable_ascii(k) {
-                    // Non-standard key: does not start with '$' but is still
-                    // ASCII
-                    let kk = KeyString::from_bytes(k);
-                    if to_std.is_match(&kk) {
-                        insert_nonunique(&mut self.std, StdKey(kk), value, conf)
+                }
+                Err(e) => Err(e),
+            }
+        };
+
+        let parse_key = |s: &[u8]| {
+            let (is_std, ss) = if let Some((&STD_PREFIX, sn)) = s.split_first()
+                && !sn.is_empty()
+            {
+                (true, sn)
+            } else {
+                (false, s)
+            };
+            KeyString::from_bytes_maybe(ss, conf.use_latin1).map(|x| (is_std, x))
+        };
+
+        match vv {
+            Ok(value) => {
+                if let Some((is_std, kk)) = parse_key(k) {
+                    if is_std {
+                        // Standard key: starts with '$', check that remaining chars
+                        // are ASCII
+                        if ignore.is_match(&kk) {
+                            Ok(())
+                        } else if to_nonstd.is_match(&kk) {
+                            insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
+                        } else {
+                            let rk = conf.rename_standard_keys.0.get(&kk).cloned().unwrap_or(kk);
+                            insert_nonunique(&mut self.std, StdKey(rk), value, conf)
+                        }
                     } else {
-                        insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
+                        // Non-standard key: does not start with '$' but is still
+                        // ASCII
+                        if to_std.is_match(&kk) {
+                            insert_nonunique(&mut self.std, StdKey(kk), value, conf)
+                        } else {
+                            insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
+                        }
                     }
                 } else if let Ok(kk) = String::from_utf8(k.to_vec()) {
                     // Non-ascii key: these are technically not allowed but save

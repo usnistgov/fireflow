@@ -5518,6 +5518,7 @@ impl DocArgParam {
             Self::new_allow_empty(),
             Self::new_allow_delim_at_boundary(),
             Self::new_allow_non_utf8(),
+            Self::new_use_latin1(),
             Self::new_allow_non_ascii_keywords(),
             Self::new_allow_missing_supp_text(),
             Self::new_allow_supp_text_own_delim(),
@@ -6026,6 +6027,14 @@ impl DocArgParam {
             "If ``True`` allow non-UTF8 characters in *TEXT*. Words with such \
              characters will be dropped regardless; setting this to ``True`` \
              will turn these cases into warnings not errors.",
+        )
+    }
+
+    fn new_use_latin1() -> Self {
+        Self::new_bool_param(
+            "use_latin1",
+            "If ``True`` interpret all characters in *TEXT* as Latin-1 (aka \
+             ISO/IEC 8859-1) instead of UTF-8.",
         )
     }
 

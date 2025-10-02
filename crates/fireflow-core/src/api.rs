@@ -1241,12 +1241,25 @@ impl fmt::Display for NonAsciiKeyError {
 impl fmt::Display for NonUtf8KeywordError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let n = 10;
+        let go = |xs: &Vec<u8>| {
+            let s = xs
+                .iter()
+                .take(n + 1)
+                .copied()
+                .map(char::from)
+                .collect::<String>();
+            if s.len() > n {
+                format!("'{}' (more)", s.chars().take(n).collect::<String>())
+            } else {
+                format!("'{s}'")
+            }
+        };
         write!(
             f,
             "non UTF-8 key/value pair encountered and dropped, \
-             first 10 bytes of both are ({})/({})",
-            self.key.iter().take(n).join(","),
-            self.value.iter().take(n).join(",")
+             first 10 chars of both as Latin-1 are {} and {}",
+            go(&self.key),
+            go(&self.value),
         )
     }
 }

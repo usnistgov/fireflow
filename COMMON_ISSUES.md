@@ -347,6 +347,9 @@ The *TEXT* segment should be composed of UTF-8 text. Enable `allow_non_utf8` to
 permit non-UTF8 characters to be encountered while parsing. Such keys and/or
 values will be dropped.
 
+Alternatively, enable `use_latin1` to interpret each character in *TEXT* as
+Latin-1 aka ISO/IEC 8859-1 if these need to be salvaged.
+
 Technically, FCS2.0 and FCS3.0 (by default) only permit ASCII characters in
 *TEXT*. `fireflow` (being written in a modern language) uses UTF-8 for all
 strings by default so it does not explicitly forbid valid UTF-8 but non-ASCII

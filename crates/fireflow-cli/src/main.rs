@@ -175,7 +175,10 @@ fn main() -> Result<(), ()> {
     let time_meas_pattern = Arg::new(TIME_MEAS_PATTERN)
         .long(TIME_MEAS_PATTERN)
         .value_name("REGEXP")
-        .help("pattern to use when matching time measurement");
+        .help(
+            "pattern to use when matching time measurement (defaults to \
+             '^Time|TIME$', pass 'NoTime' to not look for a time channel)",
+        );
 
     let allow_missing_time = flag_arg(ALLOW_MISSING_TIME, "allow time measurement to be missing");
 
@@ -562,11 +565,16 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
 }
 
 fn parse_std_inner_config(sargs: &ArgMatches) -> config::StdTextReadConfig {
-    // TODO default to "Time|TIME"
-    let time_meas_pattern = sargs
-        .get_one::<String>(TIME_MEAS_PATTERN)
-        .cloned()
-        .map(|s| s.parse::<config::TimeMeasNamePattern>().unwrap());
+    let time_meas_pattern = if let Some(t) = sargs.get_one::<String>(TIME_MEAS_PATTERN) {
+        if t.as_str() == "NoTime" {
+            None
+        } else {
+            Some(t.parse::<config::TimeMeasNamePattern>().unwrap())
+        }
+    } else {
+        Some(config::TimeMeasNamePattern::default())
+    };
+
     let nonstandard_measurement_pattern = sargs
         .get_one::<String>(NS_MEAS_PATTERN)
         .cloned()

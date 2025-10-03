@@ -39,9 +39,6 @@ pub struct StdKey(KeyString);
 #[as_ref(KeyString, str)]
 pub struct NonStdKey(KeyString);
 
-pub type NonStdPairs = Vec<(NonStdKey, String)>;
-pub type NonStdKeywords = HashMap<NonStdKey, String>;
-
 /// The internal string for a key (standard or nonstandard).
 ///
 /// Must be non-empty and contain only ASCII characters. Comparisons will be
@@ -267,9 +264,35 @@ pub(crate) trait BiIndexedKey {
     // }
 }
 
+pub type NonStdKeywords = HashMap<NonStdKey, String>;
+
+pub(crate) trait NonStdKeywordsExt {
+    fn insert_demoted(&mut self, key: StdKey, value: String);
+
+    fn transfer_demoted(&mut self, kws: &mut StdKeywords, key: StdKey) {
+        if let Some(v) = kws.remove(&key) {
+            self.insert_demoted(key, v);
+        }
+    }
+}
+
+impl NonStdKeywordsExt for HashMap<NonStdKey, String> {
+    fn insert_demoted(&mut self, key: StdKey, value: String) {
+        let mut k = NonStdKey(key.0);
+        while self.contains_key(&k) {
+            k.0.disambiguate();
+        }
+        let _ = self.insert(k, value);
+    }
+}
+
 impl KeyString {
     fn new(s: String) -> Self {
         Self(Ascii::new(s))
+    }
+
+    fn disambiguate(&mut self) {
+        self.0.push('_');
     }
 
     fn from_bytes_maybe(xs: &[u8], latin1: bool) -> Option<Self> {

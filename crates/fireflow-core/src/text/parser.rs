@@ -557,11 +557,12 @@ impl fmt::Display for LinkedNameError {
 pub(crate) fn lookup_temporal_scale_3_0(
     kws: &mut StdKeywords,
     i: MeasIndex,
+    nonstd: &mut NonStdKeywords,
     conf: &StdTextReadConfig,
 ) -> LookupResult<TemporalScale> {
     let j = i.into();
     if conf.force_time_linear {
-        let _ = kws.remove(&TemporalScale::std(j));
+        nonstd.transfer_demoted(kws, TemporalScale::std(j));
         Ok(Tentative::new1(TemporalScale))
     } else {
         TemporalScale::lookup_req(kws, j)
@@ -571,11 +572,12 @@ pub(crate) fn lookup_temporal_scale_3_0(
 pub(crate) fn lookup_temporal_gain_3_0(
     kws: &mut StdKeywords,
     i: MeasIndex,
+    nonstd: &mut NonStdKeywords,
     conf: &StdTextReadConfig,
 ) -> LookupTentative<MaybeValue<Gain>, LookupKeysError> {
     let j = i.into();
     if conf.ignore_time_gain {
-        let _ = kws.remove(&Gain::std(j));
+        nonstd.transfer_demoted(kws, Gain::std(j));
         Tentative::default()
     } else {
         let mut tnt_gain = Gain::lookup_opt(kws, j);

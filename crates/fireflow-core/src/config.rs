@@ -18,6 +18,7 @@ use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::keys;
 use crate::validated::keys::IndexedKey;
+use crate::validated::keys::NonStdKeywordsExt;
 use crate::validated::sub_pattern::SubPatterns;
 use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
@@ -767,10 +768,15 @@ impl TemporalOpticalKey {
         }
     }
 
-    pub(crate) fn remove_keys(xs: &HashSet<Self>, kws: &mut keys::StdKeywords, i: MeasIndex) {
+    pub(crate) fn remove_keys(
+        xs: &HashSet<Self>,
+        kws: &mut keys::StdKeywords,
+        nonstd: &mut keys::NonStdKeywords,
+        i: MeasIndex,
+    ) {
         for x in xs.iter() {
             let k = x.std_key(i);
-            let _ = kws.remove(&k);
+            nonstd.transfer_demoted(kws, k);
         }
     }
 }

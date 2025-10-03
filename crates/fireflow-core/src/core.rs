@@ -35,6 +35,7 @@ use itertools::Itertools;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
 use num_traits::identities::{One, Zero};
+use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::fmt;
@@ -1467,6 +1468,7 @@ pub trait LookupTemporal: VersionedTemporal {
     fn lookup_specific(
         kws: &mut StdKeywords,
         n: MeasIndex,
+        nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self>;
 }
@@ -1590,11 +1592,11 @@ impl CommonMeasurement {
     fn lookup<E>(
         kws: &mut StdKeywords,
         i: MeasIndex,
-        nonstd: NonStdPairs,
+        nonstandard_keywords: NonStdKeywords,
     ) -> LookupTentative<Self, E> {
         Longname::lookup_opt(kws, i.into()).map(|longname| Self {
             longname,
-            nonstandard_keywords: nonstd.into_iter().collect(),
+            nonstandard_keywords,
         })
     }
 }
@@ -1610,14 +1612,14 @@ impl<T> Temporal<T> {
     fn lookup_temporal(
         kws: &mut StdKeywords,
         i: MeasIndex,
-        nonstd: NonStdPairs,
+        mut nonstd: NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self>
     where
         T: LookupTemporal,
     {
-        CommonMeasurement::lookup(kws, i, nonstd).and_maybe(|common| {
-            T::lookup_specific(kws, i, conf).def_map_value(|specific| Temporal { common, specific })
+        T::lookup_specific(kws, i, &mut nonstd, conf).def_and_tentatively(|specific| {
+            CommonMeasurement::lookup(kws, i, nonstd).map(|common| Temporal { common, specific })
         })
     }
 
@@ -1692,7 +1694,7 @@ impl<O> Optical<O> {
     fn lookup_optical(
         kws: &mut StdKeywords,
         i: MeasIndex,
-        nonstd: NonStdPairs,
+        nonstd: NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self>
     where
@@ -1899,7 +1901,7 @@ where
     fn lookup_metaroot(
         kws: &mut StdKeywords,
         ms: &Measurements<M::Name, M::Temporal, M::Optical>,
-        nonstd: NonStdPairs,
+        nonstandard_keywords: NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self>
     where
@@ -1941,7 +1943,7 @@ where
                             src,
                             sys,
                             tr,
-                            nonstandard_keywords: nonstd.into_iter().collect(),
+                            nonstandard_keywords,
                             specific,
                         },
                     )
@@ -3468,10 +3470,10 @@ where
     fn lookup_measurements(
         kws: &mut StdKeywords,
         par: Par,
-        nonstd: NonStdPairs,
+        nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> DeferredResult<
-        (Measurements<M::Name, M::Temporal, M::Optical>, NonStdPairs),
+        Measurements<M::Name, M::Temporal, M::Optical>,
         LookupMeasWarning,
         LookupKeysError,
     >
@@ -3485,34 +3487,24 @@ where
         // measurement if they match. Only capture one warning because if the
         // pattern is wrong for one measurement it is probably wrong for all of
         // them.
-        let tnt = if let Some(pat) = conf.nonstandard_measurement_pattern.as_ref() {
-            let res = (0..par.0)
-                .map(|n| pat.apply_index(n.into()))
-                .collect::<Result<Vec<_>, _>>();
-            match res {
-                Ok(ps) => {
-                    let mut meta_nonstd = vec![];
-                    let mut meas_nonstds = vec![vec![]; par.0];
-                    for (k, v) in nonstd {
-                        if let Some(j) = ps
-                            .iter()
-                            .position(|p| p.as_ref().is_match(AsRef::<str>::as_ref(&k)))
-                        {
-                            meas_nonstds[j].push((k, v));
-                        } else {
-                            meta_nonstd.push((k, v));
-                        }
-                    }
-                    Tentative::new1((meta_nonstd, meas_nonstds))
-                }
-                Err(w) => Tentative::new((nonstd, vec![vec![]; par.0]), vec![w.into()], vec![]),
-            }
-        } else {
-            Tentative::new1((nonstd, vec![vec![]; par.0]))
-        };
+        let blank_meas_nonstd = || vec![HashMap::new(); par.0];
+        let tnt = conf.nonstandard_measurement_pattern.as_ref().map_or(
+            Tentative::new1(blank_meas_nonstd()),
+            |pat| {
+                (0..par.0)
+                    .map(|n| {
+                        pat.apply_index(n.into()).map(|p| {
+                            let r: &Regex = p.as_ref();
+                            nonstd.extract_if(|k, _| r.is_match(k.as_ref())).collect()
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .into_tentative_warn(blank_meas_nonstd())
+            },
+        );
 
         // then iterate over each measurement and look for standardized keys
-        tnt.and_maybe(|(meta_nonstd, meas_nonstds)| {
+        tnt.warnings_into().and_maybe(|meas_nonstds| {
             meas_nonstds
                 .into_iter()
                 .enumerate()
@@ -3563,7 +3555,6 @@ where
                     // for the time measurement if it exists, and will scream if
                     // we have more than one time measurement.
                     NamedVec::try_new(xs.into())
-                        .map(|ms| (ms, meta_nonstd))
                         .map_err(|e| LookupKeysError::Misc(e.into()))
                         .into_deferred()
                 })
@@ -3733,17 +3724,16 @@ where
 
         par_res.def_and_maybe(|par| {
             // Lookup measurements/layout/metaroot with $PAR
-            let ns: Vec<_> = kws.nonstd.into_iter().collect();
-            let meas_res =
-                Self::lookup_measurements(&mut kws.std, par, ns, std_conf).def_inner_into();
+            let meas_res = Self::lookup_measurements(&mut kws.std, par, &mut kws.nonstd, std_conf)
+                .def_inner_into();
             let layout_res =
                 <M::Ver as Versioned>::Layout::lookup(&mut kws.std, conf.as_ref(), par)
                     .def_map_errors(Box::new)
                     .def_inner_into();
             meas_res
                 .def_zip(layout_res)
-                .def_and_maybe(|((ms, meta_ns), layout)| {
-                    Metaroot::lookup_metaroot(&mut kws.std, &ms, meta_ns, std_conf)
+                .def_and_maybe(|(ms, layout)| {
+                    Metaroot::lookup_metaroot(&mut kws.std, &ms, kws.nonstd, std_conf)
                         .def_map_value(|metaroot| CoreTEXT::new_unchecked(metaroot, ms, layout))
                         .def_inner_into()
                 })
@@ -6543,17 +6533,18 @@ impl LookupTemporal for InnerTemporal2_0 {
     fn lookup_specific(
         kws: &mut StdKeywords,
         i: MeasIndex,
+        nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let j = i.into();
         let s = if conf.force_time_linear {
-            let _ = kws.remove(&TemporalScale::std(j));
+            nonstd.transfer_demoted(kws, TemporalScale::std(j));
             Tentative::new1(Some(TemporalScale).into())
         } else {
             TemporalScale::lookup_opt(kws, j)
         };
         let p = PeakData::lookup(kws, i);
-        TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, kws, i);
+        TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, kws, nonstd, i);
         Ok(s.zip(p).map(|(scale, peak)| Self { peak, scale }))
     }
 }
@@ -6562,13 +6553,14 @@ impl LookupTemporal for InnerTemporal3_0 {
     fn lookup_specific(
         kws: &mut StdKeywords,
         i: MeasIndex,
+        nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let g = lookup_temporal_gain_3_0(kws, i, conf);
+        let g = lookup_temporal_gain_3_0(kws, i, nonstd, conf);
         let p = PeakData::lookup(kws, i);
-        TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, kws, i);
+        TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, kws, nonstd, i);
         g.zip(p).and_maybe(|(_, peak)| {
-            let s = lookup_temporal_scale_3_0(kws, i, conf);
+            let s = lookup_temporal_scale_3_0(kws, i, nonstd, conf);
             let t = Timestep::lookup_req(kws);
             s.def_zip(t)
                 .def_map_value(|(_, timestep)| Self { timestep, peak })
@@ -6580,14 +6572,15 @@ impl LookupTemporal for InnerTemporal3_1 {
     fn lookup_specific(
         kws: &mut StdKeywords,
         i: MeasIndex,
+        nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let g = lookup_temporal_gain_3_0(kws, i, conf);
+        let g = lookup_temporal_gain_3_0(kws, i, nonstd, conf);
         let d = Display::lookup_opt(kws, i.into());
         let p = PeakData::lookup_dep(kws, i, conf.disallow_deprecated).errors_into();
-        TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, kws, i);
+        TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, kws, nonstd, i);
         g.zip3(d, p).and_maybe(|(_, display, peak)| {
-            let s = lookup_temporal_scale_3_0(kws, i, conf);
+            let s = lookup_temporal_scale_3_0(kws, i, nonstd, conf);
             let t = Timestep::lookup_req(kws);
             s.def_zip(t).def_map_value(|(_, timestep)| Self {
                 timestep,
@@ -6602,14 +6595,15 @@ impl LookupTemporal for InnerTemporal3_2 {
     fn lookup_specific(
         kws: &mut StdKeywords,
         i: MeasIndex,
+        nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let g = lookup_temporal_gain_3_0(kws, i, conf);
+        let g = lookup_temporal_gain_3_0(kws, i, nonstd, conf);
         let di = Display::lookup_opt(kws, i.into());
         let m = TemporalType::lookup_opt(kws, i.into());
-        TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, kws, i);
+        TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, kws, nonstd, i);
         g.zip3(di, m).and_maybe(|(_, display, measurement_type)| {
-            let s = lookup_temporal_scale_3_0(kws, i, conf);
+            let s = lookup_temporal_scale_3_0(kws, i, nonstd, conf);
             let t = Timestep::lookup_req(kws);
             s.def_zip(t).def_map_value(|(_, timestep)| Self {
                 timestep,

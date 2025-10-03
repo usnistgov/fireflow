@@ -126,3 +126,7 @@ AppliedGates3_2: TypeAlias = tuple[
 ]
 
 KeyPatterns: TypeAlias = tuple[list[str], list[str]]
+
+SubPattern: TypeAlias = tuple[str, str, bool]
+
+SubPatterns: TypeAlias = tuple[dict[str, SubPattern], dict[str, SubPattern]]

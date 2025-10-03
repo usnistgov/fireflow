@@ -18,6 +18,7 @@ use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::keys;
 use crate::validated::keys::IndexedKey;
+use crate::validated::sub_pattern::SubPatterns;
 use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
 
@@ -468,6 +469,12 @@ pub struct ReadHeaderAndTEXTConfig {
     /// trigger a deviant keyword warning/error if they do not belong in the
     /// indicated version.
     pub append_standard_keywords: keys::KeyStringValues,
+
+    /// Apply substitution patterns to standard key values.
+    ///
+    /// This is like a substitution operation in sed or perl. Patterns matched
+    /// with a regexp will be replaced, possibly with captures.
+    pub substitute_standard_key_values: SubPatterns,
 }
 
 #[derive(Default, Clone)]

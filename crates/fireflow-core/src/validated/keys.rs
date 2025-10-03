@@ -8,7 +8,7 @@ use itertools::Itertools;
 use nonempty::NonEmpty;
 use regex::Regex;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;
 use std::str;
@@ -74,8 +74,17 @@ pub type KeyStringValues = HashMap<KeyString, String>;
 pub struct NonStdMeasPattern(String);
 
 /// A list of patterns that match standard or non-standard keys.
-#[derive(Clone, Default)]
-pub struct KeyPatterns(Vec<KeyStringOrPattern>);
+pub type KeyPatterns = KeyOrStringPatterns<()>;
+
+/// A list of patterns that match standard or non-standard keys.
+#[derive(Clone)]
+pub struct KeyOrStringPatterns<T>(Vec<(KeyStringOrPattern, T)>);
+
+impl<T> Default for KeyOrStringPatterns<T> {
+    fn default() -> Self {
+        Self(vec![])
+    }
+}
 
 /// Either a literal string or regexp which matches a standard/non-standard key.
 ///
@@ -139,9 +148,9 @@ pub(crate) struct NonStdMeasRegex(CaseInsRegex);
 pub struct CaseInsRegex(Regex);
 
 /// A "compiled" object to match keys efficiently.
-struct KeyMatcher<'a> {
-    literal: HashSet<&'a KeyString>,
-    pattern: Vec<&'a CaseInsRegex>,
+pub(crate) struct KeyMatcher<'a, T> {
+    literal: HashMap<&'a KeyString, T>,
+    pattern: Vec<(&'a CaseInsRegex, T)>,
 }
 
 /// A standard key
@@ -417,47 +426,80 @@ impl FromStr for CaseInsRegex {
     }
 }
 
-impl KeyPatterns {
+impl<T> KeyOrStringPatterns<T> {
     pub fn extend(&mut self, other: Self) {
         self.0.extend(other.0)
     }
 
-    pub fn try_from_literals(ss: Vec<String>) -> Result<Self, AsciiStringError> {
-        ss.into_iter()
-            .unique()
-            .map(|s| s.parse::<KeyString>().map(KeyStringOrPattern::Literal))
+    #[cfg(feature = "python")]
+    fn try_from_iter<F, E>(xs: impl IntoIterator<Item = (String, T)>, f: F) -> Result<Self, E>
+    where
+        F: Fn(&str) -> Result<KeyStringOrPattern, E>,
+    {
+        xs.into_iter()
+            .collect::<HashMap<_, _>>()
+            .into_iter()
+            .map(|(k, v)| f(k.as_str()).map(|x| (x, v)))
             .collect::<Result<Vec<_>, _>>()
-            .map(KeyPatterns)
+            .map(Self)
     }
 
-    pub fn try_from_patterns(ss: Vec<String>) -> Result<Self, regex::Error> {
-        ss.into_iter()
-            .unique()
-            .map(|s| s.parse::<CaseInsRegex>().map(KeyStringOrPattern::Pattern))
-            .collect::<Result<Vec<_>, _>>()
-            .map(KeyPatterns)
+    #[cfg(feature = "python")]
+    pub(crate) fn try_from_literals(
+        xs: impl IntoIterator<Item = (String, T)>,
+    ) -> Result<Self, AsciiStringError> {
+        Self::try_from_iter(xs, |k| {
+            k.parse::<KeyString>().map(KeyStringOrPattern::Literal)
+        })
     }
 
-    fn as_matcher(&self) -> KeyMatcher<'_> {
-        let (literal, pattern): (HashSet<_>, Vec<_>) = self
-            .0
-            .iter()
-            .map(|x| match x {
-                KeyStringOrPattern::Literal(l) => Ok(l),
-                KeyStringOrPattern::Pattern(p) => Err(p),
-            })
-            .partition_result();
-        KeyMatcher { literal, pattern }
+    #[cfg(feature = "python")]
+    pub(crate) fn try_from_patterns(
+        xs: impl IntoIterator<Item = (String, T)>,
+    ) -> Result<Self, regex::Error> {
+        Self::try_from_iter(xs, |k| {
+            k.parse::<CaseInsRegex>().map(KeyStringOrPattern::Pattern)
+        })
+    }
+
+    pub(crate) fn as_matcher<'a>(&'a self) -> KeyMatcher<'a, &'a T> {
+        KeyMatcher::from_iter(self.0.iter().map(|(k, v)| (k, v)))
     }
 }
 
-impl KeyMatcher<'_> {
+impl KeyMatcher<'_, &()> {
     fn is_match(&self, other: &KeyString) -> bool {
-        self.literal.contains(other)
+        self.literal.contains_key(other)
             || self
                 .pattern
                 .iter()
-                .any(|p| p.as_ref().is_match(other.as_ref()))
+                .any(|p| p.0.as_ref().is_match(other.as_ref()))
+    }
+}
+
+impl<T> KeyMatcher<'_, T> {
+    fn get(&self, other: &KeyString) -> Option<&T> {
+        self.literal.get(other).or(self
+            .pattern
+            .iter()
+            .find(|p| p.0.as_ref().is_match(other.as_ref()))
+            .map(|x| &x.1))
+    }
+}
+
+impl<'a, X> FromIterator<(&'a KeyStringOrPattern, X)> for KeyMatcher<'a, X> {
+    fn from_iter<T>(iter: T) -> Self
+    where
+        T: IntoIterator<Item = (&'a KeyStringOrPattern, X)>,
+    {
+        let (literal, pattern): (HashMap<_, _>, Vec<_>) = iter
+            .into_iter()
+            .map(|(k, v)| match k {
+                KeyStringOrPattern::Literal(l) => Ok((l, v)),
+                KeyStringOrPattern::Pattern(p) => Err((p, v)),
+            })
+            .partition_result();
+        Self { literal, pattern }
     }
 }
 
@@ -474,6 +516,8 @@ impl ParsedKeywords {
         let to_nonstd = conf.demote_from_standard.as_matcher();
         // TODO this also should skip keys before throwing a blank error
         let ignore = conf.ignore_standard_keys.as_matcher();
+        let subs = &conf.substitute_standard_key_values.as_matcher();
+        let renames = &conf.rename_standard_keys.0;
 
         let blank_err = || {
             let w = BlankValueError(k.to_vec());
@@ -535,8 +579,13 @@ impl ParsedKeywords {
                         } else if to_nonstd.is_match(&kk) {
                             insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
                         } else {
-                            let rk = conf.rename_standard_keys.0.get(&kk).cloned().unwrap_or(kk);
-                            insert_nonunique(&mut self.std, StdKey(rk), value, conf)
+                            let rk = renames.get(&kk).cloned().unwrap_or(kk);
+                            let rv = if let Some(s) = subs.get(&rk) {
+                                s.sub(value.as_str())
+                            } else {
+                                value
+                            };
+                            insert_nonunique(&mut self.std, StdKey(rk), rv, conf)
                         }
                     } else {
                         // Non-standard key: does not start with '$' but is still
@@ -803,9 +852,9 @@ mod python {
     impl<'py> FromPyObject<'py> for KeyPatterns {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let (lits, pats): (Vec<String>, Vec<String>) = ob.extract()?;
-            let mut ret = KeyPatterns::try_from_literals(lits)?;
+            let mut ret = KeyPatterns::try_from_literals(lits.into_iter().map(|x| (x, ())))?;
             // this is just a regexp error
-            let ps = KeyPatterns::try_from_patterns(pats)
+            let ps = KeyPatterns::try_from_patterns(pats.into_iter().map(|x| (x, ())))
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
             ret.extend(ps);
             Ok(ret)

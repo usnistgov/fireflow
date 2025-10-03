@@ -5530,6 +5530,7 @@ impl DocArgParam {
             Self::new_rename_standard_keys(),
             Self::new_replace_standard_key_values(),
             Self::new_append_standard_keywords(),
+            Self::new_substitute_standard_key_values(),
         ];
         let js = ps.iter().map(|x| x.record_into()).collect();
         (conf, ps, js)
@@ -6128,21 +6129,42 @@ impl DocArgParam {
     }
 
     fn new_replace_standard_key_values() -> Self {
-        let path: Path = parse_quote!(fireflow_core::validated::keys::KeyStringValues);
         Self::new_param_def(
             "replace_standard_key_values",
-            PyDict::new1(PyStr::new(), PyStr::new(), path),
+            PyDict::new(PyType::new_keystring(), PyStr::new()),
             "Replace values for standard keys in *TEXT* Comparisons are case \
              insensitive. The leading *$* is implied so do not include it.",
             DocDefault::Auto,
         )
     }
 
+    fn new_substitute_standard_key_values() -> Self {
+        Self::new_param_def(
+            "substitute_standard_key_values",
+            PyType::new_sub_patterns(),
+            format!(
+                "Apply sed-like substitution operation on matching standard \
+                 keys. The leading *$* is implied when matching keys. The first \
+                 dict corresponds to keys which are matched literally, and the \
+                 second corresponds to keys which are matched via regular \
+                 expression. The members in the 3-tuple values correspond to a \
+                 regular expression, replacement string, and global flag \
+                 respectively. The regular expression may contain capture \
+                 expressions which must be matched exactly in the replacement \
+                 string. If the global flag is ``True``, replace all found \
+                 matches, otherwise only replace the first. Regular expression \
+                 syntax should conform to rules specified in {REGEXP_REF}. Any \
+                 references in replacement string must be given with surrounding \
+                 brackets like ``\"${{1}}\"`` or ``\"${{cygnus}}\"``.",
+            ),
+            DocDefault::Auto,
+        )
+    }
+
     fn new_append_standard_keywords() -> Self {
-        let path: Path = parse_quote!(fireflow_core::validated::keys::KeyStringValues);
         Self::new_param_def(
             "append_standard_keywords",
-            PyDict::new1(PyStr::new(), PyStr::new(), path),
+            PyDict::new(PyType::new_keystring(), PyStr::new()),
             "Append standard key/value pairs to *TEXT*. All keys and values \
              will be included as they appear here. The leading *$* is implied so \
              do not include it.",
@@ -6471,6 +6493,26 @@ impl PyType {
             ],
             parse_quote!(TemporalOpticalKeys),
         )
+        .into()
+    }
+
+    fn new_keystring() -> Self {
+        let path: Path = parse_quote!(fireflow_core::validated::keys::KeyString);
+        PyStr::new1(path).into()
+    }
+
+    fn new_sub_patterns() -> Self {
+        let path: Path = parse_quote!(fireflow_core::validated::sub_pattern::SubPatterns);
+        let d = PyDict::new(PyStr::new(), PyType::new_sub_pattern());
+        PyTuple::new1([d.clone(), d], path).into()
+    }
+
+    fn new_sub_pattern() -> Self {
+        PyTuple::new([
+            PyStr::new().into(),
+            PyStr::new().into(),
+            PyType::from(PyBool::new()),
+        ])
         .into()
     }
 

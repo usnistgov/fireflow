@@ -5,5 +5,6 @@ pub mod dataframe;
 pub mod datepattern;
 pub mod keys;
 pub mod shortname;
+pub mod sub_pattern;
 pub mod textdelim;
 pub mod timepattern;

@@ -474,6 +474,8 @@ impl ParsedKeywords {
         let to_nonstd = conf.demote_from_standard.as_matcher();
         // TODO this also should skip keys before throwing a blank error
         let ignore = conf.ignore_standard_keys.as_matcher();
+        let subs = &conf.substitute_standard_key_values;
+        let renames = &conf.rename_standard_keys.0;
 
         let blank_err = || {
             let w = BlankValueError(k.to_vec());
@@ -535,8 +537,13 @@ impl ParsedKeywords {
                         } else if to_nonstd.is_match(&kk) {
                             insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
                         } else {
-                            let rk = conf.rename_standard_keys.0.get(&kk).cloned().unwrap_or(kk);
-                            insert_nonunique(&mut self.std, StdKey(rk), value, conf)
+                            let rk = renames.get(&kk).cloned().unwrap_or(kk);
+                            let rv = if let Some(s) = subs.get(&rk) {
+                                s.sub(value.as_str())
+                            } else {
+                                value
+                            };
+                            insert_nonunique(&mut self.std, StdKey(rk), rv, conf)
                         }
                     } else {
                         // Non-standard key: does not start with '$' but is still

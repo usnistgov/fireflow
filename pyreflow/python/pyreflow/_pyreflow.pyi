@@ -47,6 +47,7 @@ from pyreflow.typing import (
     KeyPatterns,
     AnyCoreTEXT,
     AnyCoreDataset,
+    SubPattern,
 )
 
 _X = TypeVar("_X")
@@ -1757,6 +1758,7 @@ def fcs_read_raw_text(
     rename_standard_keys: dict[str, str] = {},
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
+    substitute_standard_key_values: dict[str, SubPattern] = {},
     # shared args
     warnings_are_errors: bool = False,
 ) -> RawTEXTOutput: ...
@@ -1799,6 +1801,7 @@ def fcs_read_std_text(
     rename_standard_keys: dict[str, str] = {},
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
+    substitute_standard_key_values: dict[str, SubPattern] = {},
     # standard args
     trim_intra_value_whitespace: bool = False,
     time_meas_pattern: str | None = _DEFAULT_TIME_MEAS_PATTERN,
@@ -1868,6 +1871,7 @@ def fcs_read_raw_dataset(
     rename_standard_keys: dict[str, str] = {},
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
+    substitute_standard_key_values: dict[str, SubPattern] = {},
     # offset args
     text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
@@ -1925,6 +1929,7 @@ def fcs_read_std_dataset(
     rename_standard_keys: dict[str, str] = {},
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
+    substitute_standard_key_values: dict[str, SubPattern] = {},
     # standard args
     trim_intra_value_whitespace: bool = False,
     time_meas_pattern: str | None = _DEFAULT_TIME_MEAS_PATTERN,

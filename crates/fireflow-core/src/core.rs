@@ -1468,6 +1468,7 @@ pub trait LookupTemporal: VersionedTemporal {
     fn lookup_specific(
         kws: &mut StdKeywords,
         n: MeasIndex,
+        nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self>;
 }
@@ -1611,13 +1612,13 @@ impl<T> Temporal<T> {
     fn lookup_temporal(
         kws: &mut StdKeywords,
         i: MeasIndex,
-        nonstd: NonStdKeywords,
+        mut nonstd: NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self>
     where
         T: LookupTemporal,
     {
-        T::lookup_specific(kws, i, conf).def_and_tentatively(|specific| {
+        T::lookup_specific(kws, i, &mut nonstd, conf).def_and_tentatively(|specific| {
             CommonMeasurement::lookup(kws, i, nonstd).map(|common| Temporal { common, specific })
         })
     }
@@ -6532,17 +6533,18 @@ impl LookupTemporal for InnerTemporal2_0 {
     fn lookup_specific(
         kws: &mut StdKeywords,
         i: MeasIndex,
+        nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let j = i.into();
         let s = if conf.force_time_linear {
-            let _ = kws.remove(&TemporalScale::std(j));
+            nonstd.transfer_demoted(kws, TemporalScale::std(j));
             Tentative::new1(Some(TemporalScale).into())
         } else {
             TemporalScale::lookup_opt(kws, j)
         };
         let p = PeakData::lookup(kws, i);
-        TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, kws, i);
+        TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, kws, nonstd, i);
         Ok(s.zip(p).map(|(scale, peak)| Self { peak, scale }))
     }
 }
@@ -6551,13 +6553,14 @@ impl LookupTemporal for InnerTemporal3_0 {
     fn lookup_specific(
         kws: &mut StdKeywords,
         i: MeasIndex,
+        nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let g = lookup_temporal_gain_3_0(kws, i, conf);
+        let g = lookup_temporal_gain_3_0(kws, i, nonstd, conf);
         let p = PeakData::lookup(kws, i);
-        TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, kws, i);
+        TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, kws, nonstd, i);
         g.zip(p).and_maybe(|(_, peak)| {
-            let s = lookup_temporal_scale_3_0(kws, i, conf);
+            let s = lookup_temporal_scale_3_0(kws, i, nonstd, conf);
             let t = Timestep::lookup_req(kws);
             s.def_zip(t)
                 .def_map_value(|(_, timestep)| Self { timestep, peak })
@@ -6569,14 +6572,15 @@ impl LookupTemporal for InnerTemporal3_1 {
     fn lookup_specific(
         kws: &mut StdKeywords,
         i: MeasIndex,
+        nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let g = lookup_temporal_gain_3_0(kws, i, conf);
+        let g = lookup_temporal_gain_3_0(kws, i, nonstd, conf);
         let d = Display::lookup_opt(kws, i.into());
         let p = PeakData::lookup_dep(kws, i, conf.disallow_deprecated).errors_into();
-        TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, kws, i);
+        TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, kws, nonstd, i);
         g.zip3(d, p).and_maybe(|(_, display, peak)| {
-            let s = lookup_temporal_scale_3_0(kws, i, conf);
+            let s = lookup_temporal_scale_3_0(kws, i, nonstd, conf);
             let t = Timestep::lookup_req(kws);
             s.def_zip(t).def_map_value(|(_, timestep)| Self {
                 timestep,
@@ -6591,14 +6595,15 @@ impl LookupTemporal for InnerTemporal3_2 {
     fn lookup_specific(
         kws: &mut StdKeywords,
         i: MeasIndex,
+        nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let g = lookup_temporal_gain_3_0(kws, i, conf);
+        let g = lookup_temporal_gain_3_0(kws, i, nonstd, conf);
         let di = Display::lookup_opt(kws, i.into());
         let m = TemporalType::lookup_opt(kws, i.into());
-        TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, kws, i);
+        TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, kws, nonstd, i);
         g.zip3(di, m).and_maybe(|(_, display, measurement_type)| {
-            let s = lookup_temporal_scale_3_0(kws, i, conf);
+            let s = lookup_temporal_scale_3_0(kws, i, nonstd, conf);
             let t = Timestep::lookup_req(kws);
             s.def_zip(t).def_map_value(|(_, timestep)| Self {
                 timestep,

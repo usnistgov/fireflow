@@ -292,7 +292,7 @@ impl KeyString {
     }
 
     fn disambiguate(&mut self) {
-        self.0.push_str("_");
+        self.0.push('_');
     }
 
     fn from_bytes_maybe(xs: &[u8], latin1: bool) -> Option<Self> {

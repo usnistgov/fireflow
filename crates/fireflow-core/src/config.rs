@@ -18,13 +18,13 @@ use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::keys;
 use crate::validated::keys::IndexedKey;
-use crate::validated::sub_pattern::SubPattern;
+use crate::validated::sub_pattern::SubPatterns;
 use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
 
 use derive_more::{AsRef, Display, From, FromStr};
 use regex::Regex;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fmt;
 use std::fs::File;
 use std::path::PathBuf;
@@ -474,7 +474,7 @@ pub struct ReadHeaderAndTEXTConfig {
     ///
     /// This is like a substitution operation in sed or perl. Patterns matched
     /// with a regexp will be replaced, possibly with captures.
-    pub substitute_standard_key_values: HashMap<keys::KeyString, SubPattern>,
+    pub substitute_standard_key_values: SubPatterns,
 }
 
 #[derive(Default, Clone)]

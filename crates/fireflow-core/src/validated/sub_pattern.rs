@@ -1,3 +1,5 @@
+use super::keys::KeyOrStringPatterns;
+
 use regex::Regex;
 use std::fmt;
 
@@ -8,6 +10,8 @@ pub struct SubPattern {
     to: String,
     global: bool,
 }
+
+pub type SubPatterns = KeyOrStringPatterns<SubPattern>;
 
 impl SubPattern {
     pub fn try_new(from: Regex, to: String, global: bool) -> Result<Self, SubPatternError> {
@@ -146,7 +150,7 @@ mod tests {
 mod python {
     use crate::python::macros::impl_value_err;
 
-    use super::{SubPattern, SubPatternError};
+    use super::{SubPattern, SubPatternError, SubPatterns};
 
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
@@ -163,4 +167,22 @@ mod python {
             Ok(Self::try_new(from, to, global)?)
         }
     }
+
+    type _SubPattern = Vec<(String, SubPattern)>;
+
+    // pass subpatterns via config as a tuple like ({String, (...)}, {String, (...)})
+    // where the first member is literal strings and the second is regex patterns
+    impl<'py> FromPyObject<'py> for SubPatterns {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (lits, pats): (_SubPattern, _SubPattern) = ob.extract()?;
+            let mut ret = SubPatterns::try_from_literals(lits)?;
+            // this is just a regexp error
+            let ps = SubPatterns::try_from_patterns(pats)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            ret.extend(ps);
+            Ok(ret)
+        }
+    }
+
+    // impl_value_err!(KeyStringPairsError);
 }

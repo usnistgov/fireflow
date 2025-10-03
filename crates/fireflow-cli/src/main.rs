@@ -7,6 +7,7 @@ use fireflow_core::segment::HeaderCorrection;
 use fireflow_core::text::byteord::ByteOrd2_0;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::keys::{KeyPatterns, KeyStringPairs, NonStdMeasPattern};
+use fireflow_core::validated::sub_pattern::SubPatterns;
 use fireflow_core::validated::timepattern::TimePattern;
 
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
@@ -569,7 +570,7 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
         demote_from_standard: KeyPatterns::default(),
         replace_standard_key_values: HashMap::new(),
         append_standard_keywords: HashMap::new(),
-        substitute_standard_key_values: HashMap::new(),
+        substitute_standard_key_values: SubPatterns::default(),
     }
 }
 

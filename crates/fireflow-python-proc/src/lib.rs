@@ -6141,19 +6141,21 @@ impl DocArgParam {
     fn new_substitute_standard_key_values() -> Self {
         Self::new_param_def(
             "substitute_standard_key_values",
-            PyDict::new(PyType::new_keystring(), PyType::new_sub_pattern()),
+            PyType::new_sub_patterns(),
             format!(
                 "Apply sed-like substitution operation on matching standard \
-                 keys. The leading *$* is implied when matching keys. The \
-                 members in the 3-tuple values correspond to a regular \
-                 expression, replacement string, and global flag respectively. \
-                 The regular expression may contain capture expressions which \
-                 must be matched exactly in the replacement string. If the \
-                 global flag is ``True``, replace all found matches, otherwise \
-                 only replace the first. Regular expression syntax should \
-                 conform to rules specified in {REGEXP_REF}. Any references in \
-                 replacement string must be given with surrounding brackets \
-                 like ``\"${{1}}\"`` or ``\"${{cygnus}}\"``.",
+                 keys. The leading *$* is implied when matching keys. The first \
+                 dict corresponds to keys which are matched literally, and the \
+                 second corresponds to keys which are matched via regular \
+                 expression. The members in the 3-tuple values correspond to a \
+                 regular expression, replacement string, and global flag \
+                 respectively. The regular expression may contain capture \
+                 expressions which must be matched exactly in the replacement \
+                 string. If the global flag is ``True``, replace all found \
+                 matches, otherwise only replace the first. Regular expression \
+                 syntax should conform to rules specified in {REGEXP_REF}. Any \
+                 references in replacement string must be given with surrounding \
+                 brackets like ``\"${{1}}\"`` or ``\"${{cygnus}}\"``.",
             ),
             DocDefault::Auto,
         )
@@ -6499,16 +6501,18 @@ impl PyType {
         PyStr::new1(path).into()
     }
 
+    fn new_sub_patterns() -> Self {
+        let path: Path = parse_quote!(fireflow_core::validated::sub_pattern::SubPatterns);
+        let d = PyDict::new(PyStr::new(), PyType::new_sub_pattern());
+        PyTuple::new1([d.clone(), d], path).into()
+    }
+
     fn new_sub_pattern() -> Self {
-        let path: Path = parse_quote!(fireflow_core::validated::sub_pattern::SubPattern);
-        PyTuple::new1(
-            [
-                PyStr::new().into(),
-                PyStr::new().into(),
-                PyType::from(PyBool::new()),
-            ],
-            path,
-        )
+        PyTuple::new([
+            PyStr::new().into(),
+            PyStr::new().into(),
+            PyType::from(PyBool::new()),
+        ])
         .into()
     }
 

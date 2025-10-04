@@ -5,8 +5,8 @@ use crate::text::byteord::{Width, WidthToCharsError};
 use crate::text::keywords::{IntRangeError, Range};
 
 use derive_more::{Display, From, Into};
-use std::fmt;
 use std::num::{NonZero, NonZeroU8};
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -14,7 +14,7 @@ use serde::Serialize;
 /// The type of an ASCII column in all versions
 ///
 /// Fields are private to guarantee they are always in sync.
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AsciiRange {
     /// The maximum value of the ASCII column
@@ -29,7 +29,7 @@ pub struct AsciiRange {
 /// The number of chars for an ASCII measurement
 ///
 /// Must be an integer between 1 and 20.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Hash, Display, Into)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Hash, Display, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(NonZeroU8, u8)]
 pub struct Chars(NonZeroU8);
@@ -167,52 +167,27 @@ impl TryFrom<u8> for OtherWidth {
     }
 }
 
+#[derive(Debug, Error)]
+#[error("bits must be <= 20 to be used as number of characters, got {0}")]
 pub struct CharsError(u8);
 
-impl fmt::Display for CharsError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "bits must be <= 20 to be used as number of characters, got {}",
-            self.0
-        )
-    }
-}
-
-#[derive(Display, From)]
+#[derive(Display, From, Debug, Error)]
 pub enum NewAsciiRangeError {
     New(NotEnoughCharsError),
     Width(WidthToCharsError),
     Range(IntRangeError<()>),
 }
 
+#[derive(Debug, Error)]
+#[error("not enough chars to hold {value}, got {chars}")]
 pub struct NotEnoughCharsError {
     chars: Chars,
     value: u64,
 }
 
-impl fmt::Display for NotEnoughCharsError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "not enough chars to hold {}, got {}",
-            self.value, self.chars
-        )
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Error)]
+#[error("OTHER width should be integer b/t 1 and 20, got {0}")]
 pub struct OtherWidthError(u8);
-
-impl fmt::Display for OtherWidthError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "OTHER width should be integer b/t 1 and 20, got {}",
-            self.0
-        )
-    }
-}
 
 #[cfg(test)]
 mod tests {

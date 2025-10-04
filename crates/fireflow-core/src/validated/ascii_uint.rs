@@ -11,6 +11,7 @@ use std::fmt;
 use std::num::{NonZeroU64, ParseIntError, TryFromIntError};
 use std::str;
 use std::str::FromStr;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -23,7 +24,21 @@ use serde::Serialize;
 /// This is used for the offsets in TEXT which must be formatted in a fixed
 /// width.
 #[derive(
-    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromStr, Into, From, Add, Sub, Mul, Zero, One,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    FromStr,
+    Into,
+    From,
+    Add,
+    Sub,
+    Mul,
+    Zero,
+    One,
+    Debug,
 )]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(u64, i128)]
@@ -74,6 +89,7 @@ impl CheckedSub for UintZeroPad20 {
     Zero,
     One,
     Display,
+    Debug,
 )]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(u64, i128)]
@@ -136,7 +152,21 @@ impl HeaderString for UintSpacePad20 {
 /// This is used as-is for HEADER offsets, and used in a wrapper for $NEXTDATA,
 /// both of which have this constraint.
 #[derive(
-    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Display, Into, From, Add, Mul, Sub, Zero, One,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Display,
+    Into,
+    From,
+    Add,
+    Mul,
+    Sub,
+    Zero,
+    One,
+    Debug,
 )]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(u32, u64, i128)]
@@ -201,7 +231,7 @@ impl TryFrom<i128> for UintSpacePad8 {
     }
 }
 
-#[derive(Display, From)]
+#[derive(Display, From, Debug, Error)]
 pub enum ParseFixedUintError {
     Int(ParseIntError),
     NotAscii(BytesNotAscii),
@@ -233,20 +263,6 @@ impl FromStr for UintSpacePad8 {
     }
 }
 
-#[derive(Display, From)]
-pub enum ParseUint8DigitError {
-    Overflow(Uint8DigitOverflow),
-    Int(ParseIntError),
-}
-
-pub struct Uint8DigitOverflow(u64);
-
-impl fmt::Display for Uint8DigitOverflow {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be {} or less, got {}", MAX_HEADER_OFFSET, self.0)
-    }
-}
-
 pub(crate) fn ascii_str_from_bytes(xs: &[u8]) -> Result<&str, BytesNotAscii> {
     if xs.is_ascii() {
         Ok(unsafe { str::from_utf8_unchecked(xs) })
@@ -255,21 +271,23 @@ pub(crate) fn ascii_str_from_bytes(xs: &[u8]) -> Result<&str, BytesNotAscii> {
     }
 }
 
+#[derive(Display, From)]
+pub enum ParseUint8DigitError {
+    Overflow(Uint8DigitOverflow),
+    Int(ParseIntError),
+}
+
+#[derive(Debug, Error)]
+#[error("must be {max} or less, got {0}", max = MAX_HEADER_OFFSET)]
+pub struct Uint8DigitOverflow(u64);
+
+#[derive(Debug, Error)]
+#[error("could not convert to ASCII string: {0:?}")]
 pub struct BytesNotAscii(Vec<u8>);
 
-impl fmt::Display for BytesNotAscii {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "could not convert to ASCII string: {:?}", self.0)
-    }
-}
-
+#[derive(Debug, Error)]
+#[error("HEADER offset is negative: {0}")]
 pub struct NegativeOffsetError(pub i32);
-
-impl fmt::Display for NegativeOffsetError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "HEADER offset is negative: {}", self.0)
-    }
-}
 
 #[cfg(test)]
 mod tests {

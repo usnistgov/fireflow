@@ -1,8 +1,8 @@
 use crate::text::index::MeasIndex;
 
 use derive_more::{AsRef, Display, Into};
-use std::fmt;
 use std::str::FromStr;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -63,13 +63,9 @@ impl From<MeasIndex> for Shortname {
 //     }
 // }
 
+#[derive(Debug, Error)]
+#[error("commas are not allowed in name '{0}'")]
 pub struct ShortnameError(String);
-
-impl fmt::Display for ShortnameError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "commas are not allowed in name '{}'", self.0)
-    }
-}
 
 #[cfg(test)]
 mod tests {

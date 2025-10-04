@@ -1,7 +1,7 @@
 use chrono::{NaiveTime, ParseError, Timelike};
 use derive_more::{AsRef, From};
-use std::fmt;
 use std::str::FromStr;
+use thiserror::Error;
 
 /// A String that matches a time.
 ///
@@ -128,38 +128,24 @@ impl FromStr for TimePattern {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
+#[error(
+    "time pattern must contain specifier for hour (%H/%k for 24 hours \
+     or %I/%l with %p/%P for 12 hours), minute (%M), second (%S), and \
+     optionally sub-second (%f, %3f, %6f, %9f, %.f, %.3f, %.6f, %.9f, \
+     %!, or %@) where '%!' corresponds to 1/60th seconds and '%@' \
+     corresponds to centiseconds; got {0}"
+)]
 pub struct TimePatternError(String);
 
-impl fmt::Display for TimePatternError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "time pattern must contain specifier for hour (%H/%k for 24 hours \
-             or %I/%l with %p/%P for 12 hours), minute (%M), second (%S), and \
-             optionally sub-second (%f, %3f, %6f, %9f, %.f, %.3f, %.6f, %.9f, \
-             %!, or %@) where '%!' corresponds to 1/60th seconds and '%@' \
-             corresponds to centiseconds; got {}",
-            self.0
-        )
-    }
-}
-
-#[derive(From)]
+#[derive(From, Debug, Error)]
 pub enum ParseWithTimePatternError {
+    #[error("{0}")]
     Native(ParseError),
+    #[error("centiseconds exceeded 99")]
     ExceededCenti,
+    #[error("1/60th fraction seconds exceeded 60")]
     ExceededSexa,
-}
-
-impl fmt::Display for ParseWithTimePatternError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Native(e) => e.fmt(f),
-            Self::ExceededCenti => f.write_str("centiseconds exceeded 99"),
-            Self::ExceededSexa => f.write_str("1/60th fraction seconds exceeded 60"),
-        }
-    }
 }
 
 // TODO property tests would likely be useful here

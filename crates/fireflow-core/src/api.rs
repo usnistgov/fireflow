@@ -22,6 +22,7 @@ use std::io::{BufReader, Read, Seek};
 use std::num::NonZeroUsize;
 use std::num::ParseIntError;
 use std::path;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -375,6 +376,8 @@ pub enum STextSegmentWarning {
     Dup(DuplicatedSuppTEXT),
 }
 
+#[derive(Debug, Error)]
+#[error("primary and supplemental TEXT are duplicated")]
 pub struct DuplicatedSuppTEXT;
 
 #[derive(From, Display)]
@@ -396,16 +399,24 @@ pub enum DelimVerifyError {
     Char(DelimCharError),
 }
 
+#[derive(Debug, Error)]
+#[error("delimiter must be ASCII character 1-126 inclusive, got {0}")]
 pub struct DelimCharError(u8);
 
+#[derive(Debug, Error)]
+#[error("Primary TEXT segment is empty")]
 pub struct EmptyTEXTError;
 
+#[derive(Debug, Error)]
+#[error("Primary TEXT has a delimiter and no words")]
 pub struct NoTEXTWordsError;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
+#[error("encountered blank key in {0} TEXT, skipping key and its value")]
 pub struct BlankKeyError(TEXTKind);
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
+#[error("{0} TEXT segment has uneven number of words")]
 pub struct UnevenWordsError(TEXTKind);
 
 #[derive(Debug)]
@@ -415,11 +426,13 @@ pub struct FinalDelimError {
 }
 
 // this can only happen in escaped TEXT
-#[derive(Debug)]
+#[derive(Debug, Error)]
+#[error("Primary TEXT ends with an even number of delimiters and thus are all escaped")]
 pub struct EvenFinalDelimError;
 
 // this can only happen in escaped TEXT
-#[derive(Debug)]
+#[derive(Debug, Error)]
+#[error("delimiter encountered at word boundary in Primary TEXT")]
 pub struct DelimBoundError;
 
 #[derive(Clone, Copy, Debug)]
@@ -428,13 +441,13 @@ pub enum TEXTKind {
     Supplemental,
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum ParsePrimaryTEXTError {
     Keywords(ParseKeywordsIssue),
     Empty(NoTEXTWordsError),
 }
 
-#[derive(Debug, Display, From)]
+#[derive(Display, From, Debug, Error)]
 pub enum ParseKeywordsIssue {
     BlankKey(BlankKeyError),
     BlankValue(BlankValueError),
@@ -447,18 +460,24 @@ pub enum ParseKeywordsIssue {
     Mismatch(DelimMismatch),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum ParseSupplementalTEXTError {
     Keywords(ParseKeywordsIssue),
     Mismatch(DelimMismatch),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Error)]
+#[error(
+    "first byte of supplemental TEXT ({supp}) does not match \
+     delimiter of primary TEXT ({delim})"
+)]
 pub struct DelimMismatch {
     supp: u8,
     delim: u8,
 }
 
+#[derive(Debug, Clone, Error)]
+#[error("non-ASCII key encountered and dropped: {0}")]
 pub struct NonAsciiKeyError(String);
 
 pub struct NonUtf8KeywordError {
@@ -466,6 +485,8 @@ pub struct NonUtf8KeywordError {
     value: Vec<u8>,
 }
 
+#[derive(Debug, Clone, Error)]
+#[error("nonstandard keywords detected")]
 pub struct NonstandardError;
 
 #[allow(clippy::type_complexity)]
@@ -1126,44 +1147,6 @@ fn lookup_nextdata(
     }
 }
 
-impl fmt::Display for DuplicatedSuppTEXT {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str("primary and supplemental TEXT are duplicated")
-    }
-}
-
-impl fmt::Display for DelimCharError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "delimiter must be ASCII character 1-126 inclusive, got {}",
-            self.0
-        )
-    }
-}
-
-impl fmt::Display for EmptyTEXTError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "Primary TEXT segment is empty")
-    }
-}
-
-impl fmt::Display for BlankKeyError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "encountered blank key in {} TEXT, skipping key and its value",
-            self.0
-        )
-    }
-}
-
-impl fmt::Display for UnevenWordsError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{} TEXT segment has uneven number of words", self.0)
-    }
-}
-
 impl fmt::Display for FinalDelimError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let n = self.bytes.len();
@@ -1191,21 +1174,6 @@ impl fmt::Display for FinalDelimError {
     }
 }
 
-impl fmt::Display for EvenFinalDelimError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "Primary TEXT ends with an even number of delimiters and thus are all escaped"
-        )
-    }
-}
-
-impl fmt::Display for DelimBoundError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "delimiter encountered at word boundary in Primary TEXT",)
-    }
-}
-
 impl fmt::Display for TEXTKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let s = match self {
@@ -1213,28 +1181,6 @@ impl fmt::Display for TEXTKind {
             Self::Supplemental => "Supplemental",
         };
         f.write_str(s)
-    }
-}
-
-impl fmt::Display for NoTEXTWordsError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "Primary TEXT has a delimiter and no words",)
-    }
-}
-
-impl fmt::Display for DelimMismatch {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "first byte of supplemental TEXT ({}) does not match delimiter of primary TEXT ({})",
-            self.supp, self.delim
-        )
-    }
-}
-
-impl fmt::Display for NonAsciiKeyError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "non-ASCII key encountered and dropped: {}", self.0)
     }
 }
 
@@ -1261,12 +1207,6 @@ impl fmt::Display for NonUtf8KeywordError {
             go(&self.key),
             go(&self.value),
         )
-    }
-}
-
-impl fmt::Display for NonstandardError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "nonstandard keywords detected")
     }
 }
 

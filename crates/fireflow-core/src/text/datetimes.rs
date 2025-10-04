@@ -10,6 +10,7 @@ use derive_more::{AsRef, Display, From, FromStr, Into};
 use std::fmt;
 use std::mem;
 use std::str::FromStr;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -27,20 +28,20 @@ pub struct Datetimes {
     end: Option<EndDateTime>,
 }
 
-#[derive(Clone, Copy, From, Into, Display, FromStr, PartialEq)]
+#[derive(Clone, Copy, From, Into, Display, FromStr, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(DateTime<FixedOffset>, FCSDateTime)]
 #[into(DateTime<FixedOffset>, FCSDateTime)]
 pub struct BeginDateTime(pub FCSDateTime);
 
-#[derive(Clone, Copy, From, Into, Display, FromStr, PartialEq)]
+#[derive(Clone, Copy, From, Into, Display, FromStr, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(DateTime<FixedOffset>, FCSDateTime)]
 #[into(DateTime<FixedOffset>, FCSDateTime)]
 pub struct EndDateTime(pub FCSDateTime);
 
 /// A datetime as used in the $(BEGIN|END)DATETIME keys (3.2+ only)
-#[derive(Clone, Copy, From, Into, PartialEq)]
+#[derive(Clone, Copy, From, Into, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FCSDateTime(pub DateTime<FixedOffset>);
 
@@ -117,15 +118,11 @@ impl Datetimes {
     }
 }
 
+#[derive(Debug, Error)]
+#[error("$BEGINDATETIME is after $ENDDATETIME")]
 pub struct ReversedDatetimes;
 
 type DatetimesResult<T> = Result<T, ReversedDatetimes>;
-
-impl fmt::Display for ReversedDatetimes {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "$BEGINDATETIME is after $ENDDATETIME")
-    }
-}
 
 impl FromStr for FCSDateTime {
     type Err = FCSDateTimeError;
@@ -169,15 +166,11 @@ impl fmt::Display for FCSDateTime {
     }
 }
 
+#[derive(Debug, Error)]
+#[error("must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'")]
 pub enum FCSDateTimeError {
     Unmapped(String),
     Other,
-}
-
-impl fmt::Display for FCSDateTimeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'")
-    }
 }
 
 #[cfg(test)]

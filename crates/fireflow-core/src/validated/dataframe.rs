@@ -7,9 +7,9 @@ use polars_arrow::array::{Array, PrimitiveArray};
 use polars_arrow::buffer::Buffer;
 use polars_arrow::datatypes::ArrowDataType;
 use std::any::type_name;
-use std::fmt;
 use std::iter;
 use std::slice::Iter;
+use thiserror::Error;
 
 #[cfg(feature = "python")]
 use polars::prelude::*;
@@ -176,34 +176,21 @@ impl AnyFCSColumn {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
+#[error("column lengths to not match")]
 pub struct NewDataframeError;
 
-impl fmt::Display for NewDataframeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "column lengths to not match")
-    }
-}
-
+#[derive(Debug, Error)]
+#[error("column length ({col_len}) is different from number of rows in dataframe ({df_len})")]
 pub struct ColumnLengthError {
     df_len: usize,
     col_len: usize,
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum InsertColumnError {
     Index(BoundaryIndexError),
     Column(ColumnLengthError),
-}
-
-impl fmt::Display for ColumnLengthError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "column length ({}) is different from number of rows in dataframe ({})",
-            self.col_len, self.df_len
-        )
-    }
 }
 
 impl FCSDataFrame {
@@ -397,39 +384,17 @@ where
     }
 }
 
-#[derive(From, Clone, Copy)]
+#[derive(Clone, Copy, Display, Debug, Error)]
 pub enum LossError<E> {
-    #[from]
-    Cast(CastError),
+    Cast(#[from] CastError),
     Other(E),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Error)]
+#[error("data loss occurred when converting from {from} to {to}")]
 pub struct CastError {
     from: &'static str,
     to: &'static str,
-}
-
-impl fmt::Display for CastError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "data loss occurred when converting from {} to {}",
-            self.from, self.to
-        )
-    }
-}
-
-impl<E> fmt::Display for LossError<E>
-where
-    E: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Cast(e) => e.fmt(f),
-            Self::Other(e) => e.fmt(f),
-        }
-    }
 }
 
 impl FCSDataType for u8 {}

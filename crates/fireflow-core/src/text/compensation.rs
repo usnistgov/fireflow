@@ -13,6 +13,7 @@ use nalgebra::DMatrix;
 use std::fmt;
 use std::num::ParseFloatError;
 use std::str::FromStr;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -24,7 +25,7 @@ use serde::Serialize;
 pub struct Compensation2_0(pub Compensation);
 
 /// The value of the $COMP keyword (3.0)
-#[derive(Clone, From, Into, Display, AsRef, PartialEq)]
+#[derive(Clone, From, Into, Display, AsRef, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[as_ref(DMatrix<f32>, Compensation)]
 pub struct Compensation3_0(pub Compensation);
@@ -32,7 +33,7 @@ pub struct Compensation3_0(pub Compensation);
 /// A compensation matrix.
 ///
 /// This is encoded in the $DFCmTOn keywords in 2.0 and $COMP in 3.0.
-#[derive(Clone, AsRef, PartialEq)]
+#[derive(Clone, AsRef, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Compensation {
     /// Values in the comp matrix in row-major order. Assumed to be the
@@ -178,33 +179,26 @@ impl FromStrDelim for Compensation3_0 {
     }
 }
 
-#[derive(From)]
+#[derive(Debug, Error)]
 pub enum ParseCompError {
-    WrongLength {
-        total: usize,
-        expected: usize,
-    },
+    #[error("Expected {expected} entries, found {total}")]
+    WrongLength { total: usize, expected: usize },
+    #[error("Could not determine length")]
     BadLength,
+    #[error("Float could not be parsed")]
     BadFloat,
-    #[from]
-    New(NewCompError),
+    #[error("{0}")]
+    New(#[from] NewCompError),
 }
 
+#[derive(Debug, Error)]
 pub enum NewCompError {
+    #[error("compensation matrix must be square")]
     NotSquare,
+    #[error("compensation matrix must be 2x2 or bigger")]
     TooSmall,
+    #[error("compensation matrix may not have Nan, +Inf, or -Inf")]
     NotFinite,
-}
-
-impl fmt::Display for NewCompError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s = match self {
-            Self::NotSquare => "compensation matrix must be square",
-            Self::TooSmall => "compensation matrix must be 2x2 or bigger",
-            Self::NotFinite => "compensation matrix may not have Nan, +Inf, or -Inf",
-        };
-        write!(f, "{s}")
-    }
 }
 
 impl fmt::Display for Compensation {
@@ -214,19 +208,6 @@ impl fmt::Display for Compensation {
         // row-major
         let xs = self.matrix.transpose().as_slice().iter().join(",");
         write!(f, "{n},{xs}")
-    }
-}
-
-impl fmt::Display for ParseCompError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            ParseCompError::BadFloat => write!(f, "Float could not be parsed"),
-            ParseCompError::WrongLength { total, expected } => {
-                write!(f, "Expected {expected} entries, found {total}")
-            }
-            ParseCompError::BadLength => write!(f, "Could not determine length"),
-            ParseCompError::New(x) => x.fmt(f),
-        }
     }
 }
 

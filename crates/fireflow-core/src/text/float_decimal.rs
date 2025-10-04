@@ -6,12 +6,13 @@ use derive_more::Into;
 use std::any::type_name;
 use std::fmt;
 use std::marker::PhantomData;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
 /// A big decimal which has been validated to be within the range of a float.
-#[derive(Clone, Into, PartialEq)]
+#[derive(Clone, Into, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
 pub struct FloatDecimal<T> {
@@ -107,6 +108,7 @@ impl HasFloatBounds for f64 {
     const ZEROS: u16 = 292;
 }
 
+#[derive(Debug, Error)]
 pub struct DecimalToFloatError {
     pub(crate) src: BigDecimal,
     pub(crate) over: bool,

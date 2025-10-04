@@ -1,6 +1,6 @@
 use derive_more::{Display, From, FromStr, Into};
-use std::fmt;
 use std::num::NonZeroUsize;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -79,38 +79,18 @@ newtype_index!(
     RegionIndex
 );
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
+#[error("0-index must be 0 <= i < {len}, got {x}", x = usize::from(self.index))]
 pub struct IndexError {
     pub index: IndexFromOne, // refers to index of element
     pub len: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
+#[error("0-index must be 0 <= i <= {len}, got {x}", x = usize::from(self.index))]
 pub struct BoundaryIndexError {
     pub index: IndexFromOne, // refers to index between elements
     pub len: usize,
-}
-
-impl fmt::Display for IndexError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "0-index must be 0 <= i < {}, got {}",
-            self.len,
-            usize::from(self.index)
-        )
-    }
-}
-
-impl fmt::Display for BoundaryIndexError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "0-index must be 0 <= i <= {}, got {}",
-            self.len,
-            usize::from(self.index)
-        )
-    }
 }
 
 #[cfg(test)]

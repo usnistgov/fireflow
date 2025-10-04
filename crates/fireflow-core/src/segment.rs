@@ -18,12 +18,13 @@ use std::num::NonZeroU64;
 use std::num::ParseIntError;
 use std::str;
 use std::str::FromStr;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
 /// A segment that is specific to a region in the FCS file.
-#[derive(Clone, Copy, new, PartialEq)]
+#[derive(Clone, Copy, new, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
 pub struct SpecificSegment<I, S, T> {
@@ -60,7 +61,7 @@ pub struct OffsetCorrection<I, S> {
 ///
 /// Useful for bulk operations on lots of segments at once that wouldn't work
 /// if they segments were all different types.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct GenericSegment {
     pub(crate) begin: u64,
     pub(crate) end: u64,
@@ -467,13 +468,13 @@ impl HasRegion for OtherSegmentId {
     const REGION: &'static str = "OTHER";
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum ReqSegmentError {
     Key(ReqKeyError<ParseIntError>),
     Segment(SegmentError<UintZeroPad20>),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum OptSegmentError {
     Key(ParseKeyError<ParseIntError>),
     Segment(SegmentError<UintZeroPad20>),
@@ -969,13 +970,14 @@ impl<T> NonEmptySegment<T> {
     }
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum HeaderSegmentError {
     Standard(SegmentError<UintSpacePad8>),
     Other(SegmentError<UintSpacePad20>),
     Parse(ParseOffsetError),
 }
 
+#[derive(Debug, Error)]
 pub struct SegmentError<T> {
     begin: T,
     end: T,
@@ -986,15 +988,11 @@ pub struct SegmentError<T> {
     src: &'static str,
 }
 
+#[derive(Debug, Error)]
+#[error("{seg0} overlaps with {seg1}")]
 pub struct SegmentOverlapError {
     seg0: GenericSegment,
     seg1: GenericSegment,
-}
-
-impl fmt::Display for SegmentOverlapError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{} overlaps with {}", self.seg0, self.seg1)
-    }
 }
 
 impl fmt::Display for GenericSegment {
@@ -1015,6 +1013,7 @@ pub enum SegmentErrorKind {
     Truncated(u64),
 }
 
+#[derive(Debug)]
 pub struct ParseOffsetError {
     pub(crate) error: ParseFixedUintError,
     pub(crate) is_begin: bool,
@@ -1065,6 +1064,7 @@ where
     }
 }
 
+#[derive(Debug, Error)]
 pub struct SegmentDefaultWarning<I>(PhantomData<I>);
 
 impl<I> Default for SegmentDefaultWarning<I> {
@@ -1087,6 +1087,7 @@ where
     }
 }
 
+#[derive(Debug, Error)]
 pub struct SegmentMismatchWarning<S> {
     header: HeaderSegment<S>,
     text: TEXTSegment<S>,
@@ -1107,79 +1108,22 @@ where
     }
 }
 
+#[derive(From, Display, Debug, Error)]
 pub enum ReqSegmentWithDefaultError<I> {
     Req(ReqSegmentError),
     Mismatch(SegmentMismatchWarning<I>),
 }
 
-impl<I> From<SegmentMismatchWarning<I>> for ReqSegmentWithDefaultError<I> {
-    fn from(value: SegmentMismatchWarning<I>) -> Self {
-        Self::Mismatch(value)
-    }
-}
-
+#[derive(From, Display, Debug, Error)]
 pub enum ReqSegmentWithDefaultWarning<I> {
     Mismatch(SegmentMismatchWarning<I>),
     Lookup(SegmentDefaultWarning<I>),
 }
 
-impl<I> fmt::Display for ReqSegmentWithDefaultError<I>
-where
-    I: HasRegion,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Mismatch(e) => e.fmt(f),
-            Self::Req(e) => e.fmt(f),
-        }
-    }
-}
-
-impl<I> fmt::Display for ReqSegmentWithDefaultWarning<I>
-where
-    I: HasRegion,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Mismatch(e) => e.fmt(f),
-            Self::Lookup(e) => e.fmt(f),
-        }
-    }
-}
-
-impl<I> From<SegmentMismatchWarning<I>> for ReqSegmentWithDefaultWarning<I> {
-    fn from(value: SegmentMismatchWarning<I>) -> Self {
-        Self::Mismatch(value)
-    }
-}
-
-impl<I> From<SegmentDefaultWarning<I>> for ReqSegmentWithDefaultWarning<I> {
-    fn from(value: SegmentDefaultWarning<I>) -> Self {
-        Self::Lookup(value)
-    }
-}
-
+#[derive(From, Display, Debug, Error)]
 pub enum OptSegmentWithDefaultWarning<I> {
     Opt(OptSegmentError),
     Mismatch(SegmentMismatchWarning<I>),
-}
-
-impl<I> From<SegmentMismatchWarning<I>> for OptSegmentWithDefaultWarning<I> {
-    fn from(value: SegmentMismatchWarning<I>) -> Self {
-        Self::Mismatch(value)
-    }
-}
-
-impl<I> fmt::Display for OptSegmentWithDefaultWarning<I>
-where
-    I: HasRegion,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Mismatch(e) => e.fmt(f),
-            Self::Opt(e) => e.fmt(f),
-        }
-    }
 }
 
 #[derive(Default)]

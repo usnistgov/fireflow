@@ -33,6 +33,7 @@ use std::collections::HashSet;
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -48,12 +49,12 @@ use pyo3::prelude::*;
 pub struct Nextdata(pub UintZeroPad20);
 
 /// The value of the $PnG keyword
-#[derive(Clone, Copy, PartialEq, From, Display, FromStr)]
+#[derive(Clone, Copy, PartialEq, From, Display, FromStr, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Gain(pub PositiveFloat);
 
 /// The value of the $TIMESTEP keyword
-#[derive(Clone, Copy, PartialEq, From, Display, FromStr, Into)]
+#[derive(Clone, Copy, PartialEq, From, Display, FromStr, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(f32, PositiveFloat)]
@@ -78,20 +79,12 @@ impl Timestep {
     }
 }
 
+#[derive(Debug, Error)]
+#[error("$TIMESTEP is {0} and will be 1.0 after conversion")]
 pub struct TimestepLossError(Timestep);
 
-impl fmt::Display for TimestepLossError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "$TIMESTEP is {} and will be 1.0 after conversion",
-            self.0
-        )
-    }
-}
-
 /// The value of the $VOL keyword
-#[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq)]
+#[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(NonNegFloat, f32)]
@@ -112,8 +105,11 @@ pub struct Trigger {
     pub threshold: u32,
 }
 
+#[derive(Debug, Error)]
 pub enum TriggerError {
+    #[error("must be like 'string,f'")]
     WrongFieldNumber,
+    #[error("{0}")]
     IntFormat(std::num::ParseIntError),
 }
 
@@ -159,15 +155,6 @@ impl fmt::Display for Trigger {
     }
 }
 
-impl fmt::Display for TriggerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            TriggerError::WrongFieldNumber => write!(f, "must be like 'string,f'"),
-            TriggerError::IntFormat(i) => write!(f, "{}", i),
-        }
-    }
-}
-
 /// The values used for the $MODE key (up to 3.1)
 #[derive(Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -178,6 +165,8 @@ pub enum Mode {
     Correlated,
 }
 
+#[derive(Debug, Error)]
+#[error("must be one of 'C', 'L', or 'U'")]
 pub struct ModeError;
 
 impl FromStr for Mode {
@@ -204,17 +193,13 @@ impl fmt::Display for Mode {
     }
 }
 
-impl fmt::Display for ModeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be one of 'C', 'L', or 'U'")
-    }
-}
-
 /// The value for the $MODE key, which can only contain 'L' (3.2)
 #[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Mode3_2;
 
+#[derive(Debug, Error)]
+#[error("can only be 'L'")]
 pub struct Mode3_2Error;
 
 impl FromStr for Mode3_2 {
@@ -234,12 +219,6 @@ impl fmt::Display for Mode3_2 {
     }
 }
 
-impl fmt::Display for Mode3_2Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "can only be 'L'")
-    }
-}
-
 impl TryFrom<Mode> for Mode3_2 {
     type Error = ModeUpgradeError;
 
@@ -251,16 +230,12 @@ impl TryFrom<Mode> for Mode3_2 {
     }
 }
 
+#[derive(Debug, Error)]
+#[error("pre-3.2 $MODE must be 'L' to upgrade to 3.2 $MODE")]
 pub struct ModeUpgradeError;
 
-impl fmt::Display for ModeUpgradeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "pre-3.2 $MODE must be 'L' to upgrade to 3.2 $MODE")
-    }
-}
-
 /// The value for the $PnDISPLAY key (3.1+)
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Display {
     /// Linear display (value like 'Linear,<lower>,<upper>')
@@ -305,20 +280,14 @@ impl fmt::Display for Display {
     }
 }
 
+#[derive(Debug, Error)]
 pub enum DisplayError {
+    #[error("{0}")]
     FloatError(ParseFloatError),
+    #[error("Type must be either 'Logarithmic' or 'Linear'")]
     InvalidType,
+    #[error("must be like 'string,f1,f2'")]
     FormatError,
-}
-
-impl fmt::Display for DisplayError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            DisplayError::FloatError(x) => write!(f, "{}", x),
-            DisplayError::InvalidType => write!(f, "Type must be either 'Logarithmic' or 'Linear'"),
-            DisplayError::FormatError => write!(f, "must be like 'string,f1,f2'"),
-        }
-    }
 }
 
 /// The three values for the $PnDATATYPE keyword (3.2+)
@@ -352,17 +321,12 @@ impl fmt::Display for NumType {
         }
     }
 }
-
+#[derive(Debug, Error)]
+#[error("must be one of 'F', 'D', or 'A'")]
 pub struct NumTypeError;
 
-impl fmt::Display for NumTypeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be one of 'F', 'D', or 'A'")
-    }
-}
-
 /// The four allowed values for the $DATATYPE keyword.
-#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AlphaNumType {
     Ascii,
@@ -412,13 +376,9 @@ impl fmt::Display for AlphaNumType {
     }
 }
 
+#[derive(Debug, Error)]
+#[error("must be one of 'I', 'F', 'D', or 'A'")]
 pub struct AlphaNumTypeError;
-
-impl fmt::Display for AlphaNumTypeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be one of 'I', 'F', 'D', or 'A'")
-    }
-}
 
 impl From<NumType> for AlphaNumType {
     fn from(value: NumType) -> Self {
@@ -472,18 +432,14 @@ impl fmt::Display for TemporalScale {
     }
 }
 
+#[derive(Debug, Error)]
+#[error("$PnE for time measurement must be '0,0' (linear)")]
 pub struct TemporalScaleError;
-
-impl fmt::Display for TemporalScaleError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "$PnE for time measurement must be '0,0' (linear)")
-    }
-}
 
 /// The value for the $PnCALIBRATION key (3.1 only)
 ///
 /// This should be formatted like '<value>,<unit>'
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Calibration3_1 {
     pub slope: PositiveFloat,
@@ -510,35 +466,22 @@ impl fmt::Display for Calibration3_1 {
     }
 }
 
+#[derive(Debug, Error)]
+#[error("must be like 'f,string'")]
 pub struct CalibrationFormat3_1;
 
-impl fmt::Display for CalibrationFormat3_1 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be like 'f,string'")
-    }
-}
-
+#[derive(Debug, Display, Error)]
 pub enum CalibrationError<C> {
     Float(ParseFloatError),
     Range(RangedFloatError),
     Format(C),
 }
 
-impl<C: fmt::Display> fmt::Display for CalibrationError<C> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            CalibrationError::Float(x) => x.fmt(f),
-            CalibrationError::Range(x) => x.fmt(f),
-            CalibrationError::Format(x) => x.fmt(f),
-        }
-    }
-}
-
 /// The value for the $PnCALIBRATION key (3.2+)
 ///
 /// This should be formatted like '<value>,[<offset>,]<unit>' and differs from
 /// 3.1 with the optional inclusion of "offset" (assumed 0 if not included).
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Calibration3_2 {
     pub slope: PositiveFloat,
@@ -572,16 +515,12 @@ impl fmt::Display for Calibration3_2 {
     }
 }
 
+#[derive(Debug, Error)]
+#[error("must be like 'f1,[f2],string'")]
 pub struct CalibrationFormat3_2;
 
-impl fmt::Display for CalibrationFormat3_2 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be like 'f1,[f2],string'")
-    }
-}
-
 /// The value for the $PnL key (2.0/3.0).
-#[derive(Clone, Copy, From, FromStr, Display, Into, PartialEq)]
+#[derive(Clone, Copy, From, FromStr, Display, Into, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(f32, PositiveFloat)]
@@ -592,7 +531,7 @@ impl_newtype_try_from!(Wavelength, PositiveFloat, f32, RangedFloatError);
 /// The value for the $PnL key (3.1).
 ///
 /// Starting in 3.1 this is a vector rather than a scaler.
-#[derive(Clone, From, PartialEq)]
+#[derive(Clone, From, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct Wavelengths(pub FCSNonEmpty<PositiveFloat>);
@@ -655,37 +594,26 @@ impl Wavelengths {
     }
 }
 
+#[derive(Debug, Error)]
+#[error(
+    "wavelengths is {0} elements long and will \
+     be reduced to first upon conversion"
+)]
 pub struct WavelengthsLossError(pub usize);
 
-impl fmt::Display for WavelengthsLossError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "wavelengths is {} elements long and will be reduced to first upon conversion",
-            self.0
-        )
-    }
-}
-
+#[derive(Debug, Error)]
 pub enum WavelengthsError {
+    #[error("{0}")]
     Num(RangedFloatError),
+    #[error("list must not be empty")]
     Empty,
-}
-
-impl fmt::Display for WavelengthsError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            WavelengthsError::Num(i) => write!(f, "{}", i),
-            WavelengthsError::Empty => write!(f, "list must not be empty"),
-        }
-    }
 }
 
 /// A datetime as used in the $LAST_MODIFIED key (3.1+ only)
 ///
 /// Inner value is private to ensure it always gets parsed/printed using the
 /// correct format
-#[derive(Clone, Copy, From, Into, PartialEq)]
+#[derive(Clone, Copy, From, Into, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct LastModified(pub NaiveDateTime);
@@ -727,16 +655,12 @@ impl fmt::Display for LastModified {
     }
 }
 
+#[derive(Debug, Error)]
+#[error("must be like 'dd-mmm-yyyy hh:mm:ss[.cc]'")]
 pub struct LastModifiedError;
 
-impl fmt::Display for LastModifiedError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be like 'dd-mmm-yyyy hh:mm:ss[.cc]'")
-    }
-}
-
 /// The value for the $ORIGINALITY key (3.1+)
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Originality {
     Original,
@@ -771,17 +695,9 @@ impl fmt::Display for Originality {
     }
 }
 
+#[derive(Debug, Error)]
+#[error("must be one of 'Original', 'NonDataModified', 'Appended', or 'DataModified'")]
 pub struct OriginalityError;
-
-impl fmt::Display for OriginalityError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "Originality must be one of 'Original', 'NonDataModified', \
-                   'Appended', or 'DataModified'"
-        )
-    }
-}
 
 /// The value of the $UNICODE key (3.0 only)
 ///
@@ -789,7 +705,7 @@ impl fmt::Display for OriginalityError {
 /// in this library and is present to be complete. The original purpose was to
 /// indicate keywords which supported UTF-8, but these days it is hard to
 /// write a library that does NOT support UTF-8 ;)
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Unicode {
     pub page: u32,
@@ -837,22 +753,16 @@ impl fmt::Display for Unicode {
     }
 }
 
+#[derive(Debug, Error)]
 pub enum UnicodeError {
+    #[error("No keywords given")]
     Empty,
+    #[error("Must be like 'n,string,[[string],...]'")]
     BadFormat,
 }
 
-impl fmt::Display for UnicodeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            UnicodeError::Empty => write!(f, "No keywords given"),
-            UnicodeError::BadFormat => write!(f, "Must be like 'n,string,[[string],...]'"),
-        }
-    }
-}
-
 /// The value of the $PnTYPE key in optical channels (3.2+)
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum OpticalType {
     ForwardScatter,
@@ -867,6 +777,8 @@ pub enum OpticalType {
     Other(String),
 }
 
+#[derive(Debug, Error)]
+#[error("$PnTYPE for time measurement shall not be 'Time' if given")]
 pub struct OpticalTypeError;
 
 const FORWARD_SCATTER: &str = "Forward Scatter";
@@ -914,21 +826,10 @@ impl fmt::Display for OpticalType {
     }
 }
 
-impl fmt::Display for OpticalTypeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "$PnTYPE for time measurement shall not be 'Time' if given"
-        )
-    }
-}
-
 /// The value of the $PnTYPE key in temporal channels (3.2+)
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct TemporalType;
-
-pub struct TemporalTypeError;
 
 impl FromStr for TemporalType {
     type Err = TemporalTypeError;
@@ -947,14 +848,12 @@ impl fmt::Display for TemporalType {
     }
 }
 
-impl fmt::Display for TemporalTypeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "$PnTYPE for time measurement shall be 'Time' if given")
-    }
-}
+#[derive(Debug, Error)]
+#[error("$PnTYPE for time measurement shall be 'Time' if given")]
+pub struct TemporalTypeError;
 
 /// The value of the $PnFEATURE key (3.2+)
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Feature {
     Area,
@@ -990,13 +889,9 @@ impl fmt::Display for Feature {
     }
 }
 
+#[derive(Debug, Error)]
+#[error("must be one of 'Area', 'Width', or 'Height'")]
 pub struct FeatureError;
-
-impl fmt::Display for FeatureError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be one of 'Area', 'Width', or 'Height'")
-    }
-}
 
 /// The value of the $RnI key (all versions)
 #[derive(Clone, Copy)]
@@ -1168,34 +1063,20 @@ where
     }
 }
 
+#[derive(Debug, Error)]
 pub enum RegionGateIndexError<E> {
-    Format,
+    #[error("{0}")]
     Int(E),
+    #[error("must be either a single value 'x' or a pair 'x,y'")]
+    Format,
 }
 
-impl<E> fmt::Display for RegionGateIndexError<E>
-where
-    E: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Format => write!(f, "must be either a single value 'x' or a pair 'x,y'"),
-            Self::Int(e) => e.fmt(f),
-        }
-    }
-}
-
+#[derive(Debug, Error)]
+#[error(
+    "region index refers to non-existent measurement index: {}",
+    .0.iter().join(",")
+)]
 pub struct RegionIndexError(NonEmpty<MeasIndex>);
-
-impl fmt::Display for RegionIndexError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "region index refers to non-existent measurement index: {}",
-            self.0.iter().join(",")
-        )
-    }
-}
 
 #[derive(Clone, Copy, From, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -1226,8 +1107,11 @@ impl FromStr for MeasOrGateIndex {
     }
 }
 
+#[derive(Debug, Error)]
 pub enum MeasOrGateIndexError {
+    #[error("{0}")]
     Int(ParseIntError),
+    #[error("must be prefixed with either 'P' or 'G'")]
     Format,
 }
 
@@ -1240,16 +1124,7 @@ impl fmt::Display for MeasOrGateIndex {
     }
 }
 
-impl fmt::Display for MeasOrGateIndexError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Int(x) => x.fmt(f),
-            Self::Format => write!(f, "must be prefixed with either 'P' or 'G'"),
-        }
-    }
-}
-
-#[derive(Clone, Copy, From, PartialEq, Into, AsMut)]
+#[derive(Clone, Copy, From, PartialEq, Into, AsMut, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[from(MeasIndex, usize)]
@@ -1277,18 +1152,12 @@ impl fmt::Display for PrefixedMeasIndex {
     }
 }
 
+#[derive(Debug, Error)]
 pub enum PrefixedMeasIndexError {
+    #[error("{0}")]
     Int(ParseIntError),
+    #[error("must be prefixed with 'P'")]
     Format,
-}
-
-impl fmt::Display for PrefixedMeasIndexError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Int(x) => x.fmt(f),
-            Self::Format => write!(f, "must be prefixed with 'P'"),
-        }
-    }
 }
 
 /// The value of the $RnW key (3.0-3.2)
@@ -1429,18 +1298,12 @@ impl fmt::Display for Vertex {
     }
 }
 
+#[derive(Debug, Error)]
 pub enum GatePairError {
+    #[error("{0}")]
     Num(ParseBigDecimalError),
+    #[error("must be a string like 'f1,f2;[f3,f4;...]'")]
     Format,
-}
-
-impl fmt::Display for GatePairError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Num(e) => e.fmt(f),
-            Self::Format => write!(f, "must be a string like 'f1,f2;[f3,f4;...]'"),
-        }
-    }
 }
 
 /// The value of the $GATING key (3.0-3.2)
@@ -1623,29 +1486,22 @@ enum GatingToken {
     Other,
 }
 
+#[derive(Debug, Error)]
 pub enum GatingError {
+    #[error("gating string is empty")]
     Empty,
+    #[error("expected expression which evaluates to a region")]
     ExpectedExpr,
+    #[error("must be like 'f,string'")]
     InvalidOpToken,
+    #[error("expected 'AND', 'OR', or ')'")]
     InvalidExprToken,
+    #[error("extra ')' encountered")]
     ExtraParen,
+    #[error("must be like 'f,string'")]
     MissingParen,
+    #[error("gating contains invalid bytes")]
     NonAscii,
-}
-
-impl fmt::Display for GatingError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s = match self {
-            Self::Empty => "gating string is empty",
-            Self::InvalidExprToken => "expected '(', 'NOT', or 'Rn'",
-            Self::InvalidOpToken => "expected 'AND', 'OR', or ')'",
-            Self::ExpectedExpr => "expected expression which evaluates to a region",
-            Self::ExtraParen => "extra ')' encountered",
-            Self::MissingParen => "missing ')'",
-            Self::NonAscii => "gating contains invalid bytes",
-        };
-        write!(f, "{s}")
-    }
 }
 
 /// The value of the $PnR key.
@@ -1729,12 +1585,14 @@ try_from_range_int!(u16, to_u16);
 try_from_range_int!(u32, to_u32);
 try_from_range_int!(u64, to_u64);
 
+#[derive(Debug, Error)]
 pub struct IntRangeError<T> {
     src_type: &'static str,
     src_num: BigDecimal,
     error_kind: IntRangeErrorKind<T>,
 }
 
+#[derive(Debug)]
 pub enum IntRangeErrorKind<T> {
     Overrange,
     Underrange,
@@ -1801,7 +1659,7 @@ pub struct GateShortname(pub Shortname);
 pub struct GateRange(pub Range);
 
 /// The value of the $PnO key
-#[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq)]
+#[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(NonNegFloat, f32)]
@@ -1810,7 +1668,7 @@ pub struct Power(pub NonNegFloat);
 impl_newtype_try_from!(Power, NonNegFloat, f32, RangedFloatError);
 
 /// The value of the $PnV key
-#[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq)]
+#[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(NonNegFloat, f32)]
@@ -1844,21 +1702,21 @@ impl FromStrStateful for GateScale {
 }
 
 /// The value of the $CSVnFLAG key (2.0-3.0)
-#[derive(Clone, Copy, Display, FromStr, Into, PartialEq)]
+#[derive(Clone, Copy, Display, FromStr, Into, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(u32)]
 pub struct CSVFlag(pub u32);
 
 /// The value of the $PKn key (2.0-3.1)
-#[derive(Clone, Copy, Display, FromStr, Into, PartialEq)]
+#[derive(Clone, Copy, Display, FromStr, Into, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(u32)]
 pub struct PeakBin(pub u32);
 
 /// The value of the $PKNn key (2.0-3.1)
-#[derive(Clone, Copy, Display, FromStr, Into, PartialEq)]
+#[derive(Clone, Copy, Display, FromStr, Into, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(u32)]
@@ -1866,7 +1724,7 @@ pub struct PeakNumber(pub u32);
 
 macro_rules! newtype_string {
     ($t:ident) => {
-        #[derive(Clone, Display, FromStr, From, Into, PartialEq)]
+        #[derive(Clone, Display, FromStr, From, Into, PartialEq, Debug)]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
         pub struct $t(pub String);
@@ -1875,7 +1733,7 @@ macro_rules! newtype_string {
 
 macro_rules! newtype_int {
     ($t:ident, $type:ty) => {
-        #[derive(Clone, Copy, Display, FromStr, From, Into, PartialEq)]
+        #[derive(Clone, Copy, Display, FromStr, From, Into, PartialEq, Debug)]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(IntoPyObject))]
         pub struct $t(pub $type);

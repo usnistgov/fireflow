@@ -7,13 +7,13 @@ use bigdecimal::BigDecimal;
 use derive_more::{Display, From};
 use num_traits::identities::One;
 use num_traits::PrimInt;
-use std::fmt;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
 /// A number representing a value with bitmask up to LEN bits
-#[derive(PartialEq, Clone, Copy, PartialOrd)]
+#[derive(PartialEq, Clone, Copy, PartialOrd, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Bitmask<T, const LEN: usize> {
     /// The value to be masked.
@@ -169,39 +169,22 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
     }
 }
 
+#[derive(Debug, Error)]
+#[error("could not make bitmask for {value} which exceeds {bytes} bytes")]
 pub struct BitmaskTruncationError {
     bytes: u8,
     value: u64,
 }
 
-impl fmt::Display for BitmaskTruncationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "could not make bitmask for {} which exceeds {} bytes",
-            self.value, self.bytes
-        )
-    }
-}
-
-#[derive(Display, From)]
+#[derive(Display, From, Debug, Error)]
 pub enum BitmaskError {
     ToInt(IntRangeError<()>),
     Trunc(BitmaskTruncationError),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Error)]
+#[error("integer data was too big and truncated to bitmask {0}")]
 pub struct BitmaskLossError(pub u64);
-
-impl fmt::Display for BitmaskLossError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "integer data was too big and truncated to bitmask {}",
-            self.0
-        )
-    }
-}
 
 #[cfg(test)]
 mod tests {

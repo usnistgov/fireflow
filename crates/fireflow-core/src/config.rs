@@ -26,9 +26,9 @@ use crate::validated::timepattern::TimePattern;
 use derive_more::{AsRef, Display, From, FromStr};
 use regex::Regex;
 use std::collections::HashSet;
-use std::fmt;
 use std::fs::File;
 use std::path::PathBuf;
+use thiserror::Error;
 
 #[derive(Default, Clone, AsRef, From)]
 pub struct ReadHeaderConfig(pub HeaderConfigInner);
@@ -684,7 +684,7 @@ pub struct SharedConfig {
 /// A pattern to match the $PnN for the time measurement.
 ///
 /// Defaults to matching "TIME" or "Time".
-#[derive(Clone, FromStr, Display)]
+#[derive(Clone, FromStr, Display, Debug)]
 pub struct TimeMeasNamePattern(pub Regex);
 
 /// Measurement keywords which are not allowed for temporal measurements.
@@ -736,17 +736,12 @@ impl std::str::FromStr for TemporalOpticalKey {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
+#[error(
+    "must be one of  'F', 'L', 'O', 'T', 'P', 'V', \
+     'CALIBRATION', 'DET', 'TAG', 'FEATURE', or 'ANALYTE'"
+)]
 pub struct ParseTemporalOpticalKeyError;
-
-impl fmt::Display for ParseTemporalOpticalKeyError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str(
-            "must be one of  'F', 'L', 'O', 'T', 'P', 'V', \
-             'CALIBRATION', 'DET', 'TAG', 'FEATURE', or 'ANALYTE'",
-        )
-    }
-}
 
 impl TemporalOpticalKey {
     pub(crate) fn std_key(&self, i: MeasIndex) -> keys::StdKey {

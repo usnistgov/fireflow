@@ -5,7 +5,7 @@ use nonempty::NonEmpty;
 // A wrapper to bestow supernatural powers to "regular" non-empty. I may also
 // make my own version of this so this makes that a bit easier if I end up
 // deciding in favor.
-#[derive(Into, From, PartialEq, Clone, Default)]
+#[derive(Into, From, PartialEq, Clone, Default, Debug)]
 pub struct FCSNonEmpty<T>(pub NonEmpty<T>);
 
 impl<X> FCSNonEmpty<X> {

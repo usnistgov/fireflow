@@ -44,6 +44,7 @@ use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, Write};
 use std::marker::PhantomData;
 use std::path::PathBuf;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -929,7 +930,7 @@ pub struct InnerOptical3_2 {
 }
 
 /// A scale transform derived from $PnE/$PnG.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum ScaleTransform {
     /// A linear transform ($PnE=0,0 and $PnG=1.0 or is null)
@@ -5363,26 +5364,26 @@ type TemporalConvertTentative<M> = BiTentative<M, TemporalConvertError>;
 
 pub(crate) type LayoutConvertResult<L> = MultiResult<L, LayoutConvertError>;
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum OpticalConvertError {
     NoScale(NoScaleError),
     Wavelengths(WavelengthsLossError),
     Xfer(AnyMeasKeyLossError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum OpticalConvertWarning {
     Wavelengths(WavelengthsLossError),
     Xfer(AnyMeasKeyLossError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum TemporalConvertError {
     Timestep(TimestepLossError),
     Xfer(AnyMeasKeyLossError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum LayoutConvertError {
     OrderToEndian(OrderedToEndianError),
     Width(ConvertWidthError),
@@ -8197,25 +8198,15 @@ impl OthersReader<'_> {
     }
 }
 
+#[derive(Debug, Error)]
+#[error("could not convert from {from} to {to}: {inner}")]
 pub struct ConvertError<E> {
     from: Version,
     to: Version,
     inner: ConvertErrorInner<E>,
 }
 
-impl<E> fmt::Display for ConvertError<E>
-where
-    E: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "could not convert from {} to {}: {}",
-            self.from, self.to, self.inner
-        )
-    }
-}
-
+#[derive(Debug, Display, Error)]
 pub enum ConvertErrorInner<E> {
     Rewrap(IndexedElementError<E>),
     Meta(MetarootConvertError),
@@ -8224,30 +8215,11 @@ pub enum ConvertErrorInner<E> {
     Layout(LayoutConvertError),
 }
 
-impl<E> fmt::Display for ConvertErrorInner<E>
-where
-    E: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Rewrap(e) => e.fmt(f),
-            Self::Meta(e) => e.fmt(f),
-            Self::Optical(e) => e.fmt(f),
-            Self::Temporal(e) => e.fmt(f),
-            Self::Layout(e) => e.fmt(f),
-        }
-    }
-}
-
+#[derive(Debug, Error)]
+#[error("Some $PnN are blank and could not be converted")]
 pub struct BlankShortnames;
 
-impl fmt::Display for BlankShortnames {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "Some $PnN are blank and could not be converted",)
-    }
-}
-
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum StdReaderError {
     Layout(NewDataLayoutError),
     Reader(NewDataReaderError),
@@ -8255,85 +8227,65 @@ pub enum StdReaderError {
 
 pub struct TerminalDataLayoutFailure;
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum StdWriterError {
     Layout(NewDataLayoutError),
     Check(ColumnError<AnyLossError>),
     Overflow(Uint8DigitOverflow),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum StdWriterWarning {
     Column(ColumnError<IntRangeError<()>>),
     Check(ColumnError<AnyLossError>),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum ExistingLinkError {
     Named(ExistingNamedLinkError),
     Index(ExistingIndexLinkError),
 }
 
+#[derive(Debug, Error)]
 pub enum ExistingNamedLinkError {
+    #[error("$TR depends on existing $PnN")]
     Trigger,
+    #[error("$UNSTAINEDCENTERS depends on existing $PnN")]
     UnstainedCenters,
+    #[error("$SPILLOVER depends on existing $PnN")]
     Spillover,
 }
 
-impl fmt::Display for ExistingNamedLinkError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s = match self {
-            Self::Trigger => "$TR",
-            Self::UnstainedCenters => "$UNSTAINEDCENTERS",
-            Self::Spillover => "$SPILLOVER",
-        };
-        write!(f, "{s} depends on existing $PnN")
-    }
-}
-
+#[derive(Debug, Error)]
 pub enum ExistingIndexLinkError {
+    #[error("$COMP refers to existing measurement by index")]
     Comp,
+    // TODO which one?
+    #[error("$RnI refers to existing measurement by index")]
     GateRegion,
 }
 
-impl fmt::Display for ExistingIndexLinkError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s = match self {
-            Self::Comp => "$COMP",
-            Self::GateRegion => "$RnI",
-        };
-        write!(f, "{s} refers to existing measurement by index")
-    }
-}
-
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum SetSpilloverError {
     New(NewSpilloverError),
     Link(SpilloverLinkError),
 }
 
+#[derive(Debug, Error)]
+#[error("all $SPILLOVER names must match a $PnN")]
 pub struct SpilloverLinkError;
 
-impl fmt::Display for SpilloverLinkError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "all $SPILLOVER names must match a $PnN")
-    }
-}
-
+#[derive(Debug, Error)]
+#[error("$TR measurement must match a $PnN")]
 pub struct TriggerLinkError;
 
-impl fmt::Display for TriggerLinkError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "$TR measurement must match a $PnN")
-    }
-}
-
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum SetOpticalError {
     Length(KeyLengthError),
     Mismatch(ColumnError<OpticalMismatchError>),
 }
 
+#[derive(Debug, Error)]
 pub struct OpticalMismatchError {
     new_is_optical: bool,
 }
@@ -8347,143 +8299,123 @@ impl fmt::Display for OpticalMismatchError {
     }
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum SetMeasurementsError {
     New(NewNamedVecError),
     Link(ExistingLinkError),
     Layout(MeasLayoutMismatchError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum SetScalesError {
     Layout(MeasLayoutMismatchError),
     Temporal(NonLinearTemporalScaleError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum SetTransformsError {
     Layout(MeasLayoutMismatchError),
     Temporal(NonLinearTemporalTransformError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum SetMeasurementsAndDataError {
     Meas(SetMeasurementsError),
     Mismatch(MeasDataMismatchError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum ColumnsToDataframeError {
     New(df::NewDataframeError),
     Mismatch(MeasDataMismatchError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum SetMeasurementsOnlyError {
     Meas(SetMeasurementsError),
     Mismatch(MeasDataMismatchError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum RemoveMeasByNameError {
     Link(ExistingLinkError),
     Name(KeyNotFoundError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum RemoveMeasByIndexError {
     Link(ExistingLinkError),
     Index(ElementIndexError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum InsertTemporalError {
     Center(InsertCenterError),
     Layout(AnyRangeError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum PushOpticalError {
     Unique(NonUniqueKeyError),
     Layout(AnyRangeError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum InsertOpticalError {
     Insert(InsertError),
     Layout(AnyRangeError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum PushTemporalToDatasetError {
     Measurement(InsertTemporalError),
     Column(df::ColumnLengthError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum InsertTemporalToDatasetError {
     Measurement(InsertTemporalError),
     Column(df::ColumnLengthError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum PushOpticalToDatasetError {
     Measurement(PushOpticalError),
     Column(df::ColumnLengthError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum InsertOpticalInDatasetError {
     Measurement(InsertOpticalError),
     Column(df::ColumnLengthError),
 }
 
+#[derive(Debug, Error)]
+#[error("measurement number ({meas_n}) does not match dataframe column number ({data_n})")]
 pub struct MeasDataMismatchError {
     meas_n: usize,
     data_n: usize,
 }
 
-impl fmt::Display for MeasDataMismatchError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "measurement number ({}) does not match dataframe column number ({})",
-            self.meas_n, self.data_n
-        )
-    }
-}
-
+#[derive(Debug, Error)]
+#[error("name {0} does not exist in measurements")]
 pub struct MissingMeasurementNameError(Shortname);
 
-impl fmt::Display for MissingMeasurementNameError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "name {} does not exist in measurements", self.0)
-    }
-}
-
+#[derive(Debug, Error)]
+#[error("tried to set temporal $PnE to nonlinear scale")]
 pub struct NonLinearTemporalScaleError;
 
-impl fmt::Display for NonLinearTemporalScaleError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str("tried to set temporal $PnE to nonlinear scale")
-    }
-}
-
+#[derive(Debug, Error)]
+#[error("tried to set temporal $PnE/$PnG to nonlinear transform")]
 pub struct NonLinearTemporalTransformError;
 
-impl fmt::Display for NonLinearTemporalTransformError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str("tried to set temporal $PnE/$PnG to nonlinear transform")
-    }
-}
-
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum StdTEXTFromKeywordsError {
     Error(StdTEXTFromRawError),
     Warn(StdTEXTFromRawWarning),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum StdTEXTFromRawError {
     Metaroot(LookupKeysError),
     Layout(Box<LookupLayoutError>),
@@ -8492,7 +8424,7 @@ pub enum StdTEXTFromRawError {
     Unused(UnusedStandardError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum StdTEXTFromRawWarning {
     Metaroot(LookupKeysWarning),
     Meas(LookupMeasWarning),
@@ -8502,7 +8434,7 @@ pub enum StdTEXTFromRawWarning {
     Unused(UnusedStandardError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum StdDatasetFromRawError {
     TEXT(Box<StdTEXTFromRawError>),
     Dataframe(ReadDataframeError),
@@ -8511,7 +8443,7 @@ pub enum StdDatasetFromRawError {
     // Mismatch(DataSegmentMismatchError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum StdDatasetFromRawWarning {
     TEXT(StdTEXTFromRawWarning),
     Offsets(LookupTEXTOffsetsWarning),
@@ -8519,72 +8451,57 @@ pub enum StdDatasetFromRawWarning {
     // Mismatch(DataSegmentMismatchError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum LookupMeasWarning {
     Parse(LookupKeysWarning),
     Pattern(NonStdMeasRegexError),
 }
 
 // for now this just means $PnE isn't set and should be to convert
+#[derive(Debug, Error)]
+#[error("{} must be set before converting measurement", Scale::std(self.0.into()))]
 pub struct NoScaleError(MeasIndex);
 
-impl fmt::Display for NoScaleError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "{} must be set before converting measurement",
-            Scale::std(self.0.into()),
-        )
-    }
-}
-
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum ReplaceTemporalError {
     ToOptical(TemporalToOpticalError),
     Set(SetCenterError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum SetTemporalError {
     Swap(SwapOpticalTemporalError),
     Set(SetCenterError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum SwapOpticalTemporalError {
     ToTemporal(OpticalToTemporalError),
     ToOptical(TemporalToOpticalError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum OpticalToTemporalError {
     NonLinear(OpticalNonLinearError),
     Loss(AnyOpticalToTemporalKeyLossError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum TemporalToOpticalError {
     Loss(AnyTemporalToOpticalKeyLossError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum SetTemporalIndexError {
     Convert(OpticalToTemporalError),
     Index(SetCenterError),
 }
 
+#[derive(Debug, Error)]
+#[error("$PnE must be '0,0' and $PnG must be null or unity to convert to temporal")]
 pub struct OpticalNonLinearError;
 
-impl fmt::Display for OpticalNonLinearError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "$PnE must be '0,0' and $PnG must be null or unity to convert to temporal"
-        )
-    }
-}
-
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum MetarootConvertError {
     NoCyt(NoCytError),
     Mode(ModeUpgradeError),
@@ -8600,7 +8517,7 @@ pub enum MetarootConvertError {
     Comp2_0(Comp2_0TransferError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum MetarootConvertWarning {
     Mode(ModeUpgradeError),
     Gates3_0To2_0(gating::AppliedGates3_0To2_0Error),
@@ -8614,7 +8531,7 @@ pub enum MetarootConvertWarning {
 }
 
 /// Error when a metaroot keyword will be lost when converting versions
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum AnyMetarootKeyLossError {
     Cytsn(UnitaryKeyLossError<Cytsn>),
     Unicode(UnitaryKeyLossError<Unicode>),
@@ -8641,7 +8558,7 @@ pub enum AnyMetarootKeyLossError {
 }
 
 /// Error when an optical keyword will be lost when converting versions
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum AnyMeasKeyLossError {
     Filter(IndexedKeyLossError<Filter>),
     Power(IndexedKeyLossError<Power>),
@@ -8665,7 +8582,7 @@ pub enum AnyMeasKeyLossError {
 }
 
 /// Error when an optical keyword will be lost when converting to temporal
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum AnyOpticalToTemporalKeyLossError {
     Filter(IndexedKeyLossError<Filter>),
     Power(IndexedKeyLossError<Power>),
@@ -8685,12 +8602,12 @@ pub enum AnyOpticalToTemporalKeyLossError {
 }
 
 /// Error when a temporal keyword will be lost when converting to optical
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum AnyTemporalToOpticalKeyLossError {
     TempType(IndexedKeyLossError<TemporalType>),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum LookupAndReadDataAnalysisError {
     Offsets(LookupTEXTOffsetsError),
     Layout(RawToLayoutError),
@@ -8699,7 +8616,7 @@ pub enum LookupAndReadDataAnalysisError {
     // Mismatch(DataSegmentMismatchError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum LookupAndReadDataAnalysisWarning {
     Offsets(LookupTEXTOffsetsWarning),
     Layout(RawToLayoutWarning),
@@ -8707,7 +8624,7 @@ pub enum LookupAndReadDataAnalysisWarning {
     // Mismatch(DataSegmentMismatchError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum LookupTEXTOffsetsWarning {
     Tot(ParseKeyError<std::num::ParseIntError>),
     ReqData(ReqSegmentWithDefaultWarning<DataSegmentId>),
@@ -8715,7 +8632,7 @@ pub enum LookupTEXTOffsetsWarning {
     MismatchAnalysis(OptSegmentWithDefaultWarning<AnalysisSegmentId>),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum LookupTEXTOffsetsError {
     Tot(ReqKeyError<std::num::ParseIntError>),
     ReqData(ReqSegmentWithDefaultError<DataSegmentId>),
@@ -8724,14 +8641,14 @@ pub enum LookupTEXTOffsetsError {
     MismatchAnalysis(SegmentMismatchWarning<AnalysisSegmentId>),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum NewCoreError {
     Meas(NewNamedVecError),
     Link(ExistingLinkError),
     Layout(MeasLayoutMismatchError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum NewCoreTEXTError {
     Core(NewCoreError),
     Timestamps(ReversedTimestamps),
@@ -8741,17 +8658,11 @@ pub enum NewCoreTEXTError {
 type LookupTEXTOffsetsResult<T> =
     DeferredResult<T, LookupTEXTOffsetsWarning, LookupTEXTOffsetsError>;
 
+#[derive(Debug, Error)]
+#[error("$DFCiTOj keywords are set and not applicable to the target version")]
 pub struct Comp2_0TransferError;
 
-impl fmt::Display for Comp2_0TransferError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "$DFCiTOj keywords are set and not applicable to the target version"
-        )
-    }
-}
-
+#[derive(Debug, Error)]
 pub struct UnitaryKeyLossError<T>(PhantomData<T>);
 
 impl<T> Default for UnitaryKeyLossError<T> {
@@ -8773,6 +8684,7 @@ where
     }
 }
 
+#[derive(Debug, Error)]
 pub struct IndexedKeyLossError<T>(PhantomData<T>, IndexFromOne);
 
 impl<T> IndexedKeyLossError<T> {
@@ -8781,108 +8693,48 @@ impl<T> IndexedKeyLossError<T> {
     }
 }
 
-impl<T> fmt::Display for IndexedKeyLossError<T>
-where
-    T: IndexedKey,
-{
+impl<T: IndexedKey> fmt::Display for IndexedKeyLossError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "{} is set but is not applicable to target version",
-            T::std(self.1)
-        )
+        let k = T::std(self.1);
+        write!(f, "{k} is set but is not applicable to target version")
     }
 }
 
+#[derive(Debug, Error)]
+#[error("$CYT is missing")]
 pub struct NoCytError;
 
-impl fmt::Display for NoCytError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "$CYT is missing")
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Error)]
+#[error("number of columns is {this_len}, input should match but got {other_len}")]
 pub struct ColumnNumberError {
     this_len: usize,
     other_len: usize,
 }
 
-impl fmt::Display for ColumnNumberError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "number of columns is {}, input should match but got {}",
-            self.this_len, self.other_len,
-        )
-    }
-}
-
+#[derive(Debug, Error)]
+#[error(
+    "could not make scale transform with log scale \
+     '{scale}' and non-unit gain '{gain}'"
+)]
 pub struct ScaleTransformError {
     scale: Scale,
     gain: Gain,
 }
 
-impl fmt::Display for ScaleTransformError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "could not make scale transform with log scale '{}' and non-unit gain '{}'",
-            self.scale, self.gain
-        )
-    }
-}
-
-// pub struct EmptyLayoutError;
-
-// impl fmt::Display for EmptyLayoutError {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-//         write!(f, "tried to set measurements with an empty data layout",)
-//     }
-// }
-
+#[derive(Debug, Error)]
+#[error("$COMP must have same row/column number as $PAR ({par}), got {comp}")]
 pub struct CompParMismatchError {
     par: usize,
     comp: usize,
 }
 
-impl fmt::Display for CompParMismatchError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "$COMP must have same row/column number as $PAR ({}), got {}",
-            self.par, self.comp
-        )
-    }
-}
-
+#[derive(Debug, Error)]
+#[error("$RnI references non-existed measurements by index: {}", .0.iter().join(","))]
 pub struct GatingMeasLinkError(NonEmpty<MeasIndex>);
 
-impl fmt::Display for GatingMeasLinkError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "$RnI references non-existed measurements by index: {}",
-            self.0.iter().join(",")
-        )
-    }
-}
-
+#[derive(Debug, Error)]
+#[error("$CSVnFLAGS must not be empty")]
 pub struct NewCSVFlagsError;
-
-impl fmt::Display for NewCSVFlagsError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str("$CSVnFLAGS must not be empty")
-    }
-}
-
-// pub struct DataSegmentMismatchError;
-
-// impl fmt::Display for DataSegmentMismatchError {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-//         f.write_str("$PAR = 0 but DATA segment is not empty")
-//     }
-// }
 
 def_failure!(ConvertFailure, "could not change FCS version");
 

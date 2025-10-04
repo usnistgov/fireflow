@@ -7,6 +7,7 @@ use num_traits::identities::One;
 use std::fmt;
 use std::num::ParseFloatError;
 use std::str::FromStr;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -14,7 +15,7 @@ use serde::Serialize;
 /// The value for the $PnE key (all versions).
 ///
 /// Format is assumed to be 'f1,f2'
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Scale {
     /// Linear scale (ie '0,0')
@@ -24,7 +25,7 @@ pub enum Scale {
     Log(LogScale),
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct LogScale {
     pub decades: PositiveFloat,
@@ -119,22 +120,18 @@ impl fmt::Display for Scale {
     }
 }
 
+#[derive(Debug, Error)]
 pub enum ScaleError {
+    #[error("{0}")]
     FloatError(ParseFloatError),
+    #[error("{0}")]
     LogRange(LogRangeError),
+    #[error("must be like 'f1,f2'")]
     WrongFormat,
 }
 
-impl fmt::Display for ScaleError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            ScaleError::FloatError(x) => write!(f, "{}", x),
-            ScaleError::WrongFormat => write!(f, "must be like 'f1,f2'"),
-            ScaleError::LogRange(r) => r.fmt(f),
-        }
-    }
-}
-
+#[derive(Debug, Error)]
+#[error("decades/offset must both be positive, got '{decades},{offset}'")]
 pub struct LogRangeError {
     decades: f32,
     offset: f32,
@@ -156,16 +153,6 @@ impl LogRangeError {
             });
         }
         Err(self)
-    }
-}
-
-impl fmt::Display for LogRangeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "decades/offset must both be positive, got '{},{}'",
-            self.decades, self.offset,
-        )
     }
 }
 

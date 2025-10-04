@@ -1,7 +1,7 @@
 use super::keys::KeyOrStringPatterns;
 
 use regex::Regex;
-use std::fmt;
+use thiserror::Error;
 
 /// Pattern to match a sed-like substitution operation.
 #[derive(Clone)]
@@ -79,19 +79,11 @@ impl SubPattern {
     }
 }
 
+#[derive(Debug, Error)]
+#[error("References in '{to}' to not match capture patterns in '{from}'")]
 pub struct SubPatternError {
     from: Regex,
     to: String,
-}
-
-impl fmt::Display for SubPatternError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "References in '{}' to not match capture patterns in '{}'",
-            self.to, self.from,
-        )
-    }
 }
 
 #[cfg(test)]

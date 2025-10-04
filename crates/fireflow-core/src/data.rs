@@ -85,6 +85,7 @@ use std::mem;
 use std::num::NonZeroU8;
 use std::num::ParseIntError;
 use std::str;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -248,7 +249,7 @@ type AnyReaderBitmask = AnyBitmask<ColumnReaderFamily>;
 type AnyWriterBitmask<'a> = AnyBitmask<ColumnWriterFamily<'a>>;
 
 /// The type of any floating point column in all versions
-#[derive(PartialEq, Clone, new)]
+#[derive(PartialEq, Clone, new, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
 pub struct FloatRange<T, const LEN: usize> {
@@ -974,6 +975,32 @@ macro_rules! match_any_mixed {
     ($value:expr, $inner:ident, $action:block) => {
         match_many_to_one!($value, MixedType, [Ascii, Uint, F32, F64], $inner, $action)
     };
+}
+
+impl std::fmt::Debug for AnyNullBitmask {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match self {
+            Self::Uint08(x) => write!(f, "Uint08({x:?})"),
+            Self::Uint16(x) => write!(f, "Uint16({x:?})"),
+            Self::Uint24(x) => write!(f, "Uint24({x:?})"),
+            Self::Uint32(x) => write!(f, "Uint32({x:?})"),
+            Self::Uint40(x) => write!(f, "Uint40({x:?})"),
+            Self::Uint48(x) => write!(f, "Uint48({x:?})"),
+            Self::Uint56(x) => write!(f, "Uint56({x:?})"),
+            Self::Uint64(x) => write!(f, "Uint64({x:?})"),
+        }
+    }
+}
+
+impl std::fmt::Debug for NullMixedType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match self {
+            Self::Ascii(x) => write!(f, "Ascii({x:?})"),
+            Self::Uint(x) => write!(f, "Uint({x:?})"),
+            Self::F32(x) => write!(f, "F32({x:?})"),
+            Self::F64(x) => write!(f, "F64({x:?})"),
+        }
+    }
 }
 
 impl PartialEq for NullMixedType {
@@ -3977,15 +4004,17 @@ impl<D> NonMixedEndianLayout<D> {
     }
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum AsciiToUintError {
     NotAscii(NotAsciiError),
     Int(ParseIntError),
 }
 
+#[derive(Debug, Error)]
+#[error("bytestring is not valid ASCII: {0:?}")]
 pub struct NotAsciiError(Vec<u8>);
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum NewDataLayoutError {
     Ascii(ColumnError<ascii_range::NewAsciiRangeError>),
     FixedInt(NewFixedIntLayoutError),
@@ -3995,13 +4024,13 @@ pub enum NewDataLayoutError {
     ByteOrd(ByteOrdToSizedError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum NewFixedIntLayoutError {
     Width(SingleFixedWidthError),
     Column(ColumnError<IntOrderedColumnError>),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum IntOrderedColumnError {
     Order(ByteOrdToSizedError),
     // TODO sloppy nesting
@@ -4009,44 +4038,47 @@ pub enum IntOrderedColumnError {
     Size(BitmaskError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum SingleFixedWidthError {
     Bytes(WidthToBytesError),
     Width(WidthMismatchError),
 }
 
+#[derive(Debug, Error)]
 pub struct WidthMismatchError {
     byteord: ByteOrd2_0,
     found: NonEmpty<Bytes>,
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum NewMixedTypeError {
     Ascii(ascii_range::NewAsciiRangeError),
     Uint(NewUintTypeError),
     Float(FloatWidthError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum NewMixedTypeWarning {
     Ascii(IntRangeError<()>),
     Uint(BitmaskError),
     Float(DecimalToFloatError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum NewUintTypeError {
     Bitmask(BitmaskError),
     Bytes(WidthToBytesError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum FloatWidthError {
     Bytes(WidthToBytesError),
     WrongWidth(WrongFloatWidth),
     Range(DecimalToFloatError),
 }
 
+#[derive(Debug, Error)]
+#[error("expected width to be {expected} but got {width} when determining float type")]
 pub struct WrongFloatWidth {
     pub width: Bytes,
     pub expected: usize,
@@ -4054,7 +4086,7 @@ pub struct WrongFloatWidth {
 
 pub type DataReaderResult<T> = DeferredResult<T, NewDataReaderWarning, NewDataReaderError>;
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum NewDataReaderError {
     TotMismatch(TotEventMismatch),
     ParseTot(ReqKeyError<ParseIntError>),
@@ -4072,41 +4104,44 @@ pub enum NewDataReaderWarning {
     Segment(ReqSegmentWithDefaultWarning<DataSegmentId>),
 }
 
+#[derive(Error, Debug)]
+#[error(
+    "$TOT field is {tot} but number of events that \
+     evenly fit into DATA is {total_events}"
+)]
 pub struct TotEventMismatch {
     tot: Tot,
     total_events: u64,
 }
 
+#[derive(Error, Debug)]
 pub enum UnevenEventWidth {
+    #[error(
+        "Events are {event_width} bytes wide, but this does not evenly divide \
+         DATA segment which is {nbytes} bytes long (remainder of {remainder})"
+    )]
     Remainder {
         event_width: u64,
         nbytes: u64,
         remainder: u64,
     },
+    #[error("DATA segment is {0} bytes but event width is zero")]
     ZeroWidth(u64),
 }
 
-#[derive(From, Display, Clone, Copy)]
+#[derive(From, Display, Clone, Copy, Debug, Error)]
 pub enum AnyLossError {
     Int(LossError<BitmaskLossError>),
     Float(LossError<Infallible>),
     Ascii(LossError<AsciiLossError>),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Error)]
+#[error("ASCII data was too big and truncated into {0} chars")]
 pub struct AsciiLossError(Chars);
 
-impl fmt::Display for AsciiLossError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "ASCII data was too big and truncated into {} chars",
-            self.0
-        )
-    }
-}
-
-#[derive(new)]
+#[derive(new, Debug, Error)]
+#[error("error when processing measurement {index}: {error}")]
 pub struct ColumnError<E> {
     pub index: IndexFromOne,
     pub error: E,
@@ -4126,13 +4161,13 @@ impl<E> ColumnError<E> {
 
 type LookupLayoutResult<T> = DeferredResult<T, LookupLayoutWarning, LookupLayoutError>;
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum LookupLayoutError {
     New(NewDataLayoutError),
     Raw(LookupKeysError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum LookupLayoutWarning {
     New(ColumnError<NewMixedTypeWarning>),
     Raw(LookupKeysWarning),
@@ -4140,19 +4175,19 @@ pub enum LookupLayoutWarning {
 
 type FromRawResult<T> = DeferredResult<T, RawToLayoutWarning, RawToLayoutError>;
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum RawToLayoutError {
     New(NewDataLayoutError),
     Raw(RawParsedError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum RawToLayoutWarning {
     New(ColumnError<NewMixedTypeWarning>),
     Raw(ParseKeyError<NumTypeError>),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum RawParsedError {
     AlphaNumType(ReqKeyError<AlphaNumTypeError>),
     Endian(ReqKeyError<NewEndianError>),
@@ -4161,7 +4196,7 @@ pub enum RawParsedError {
     Range(ReqKeyError<ParseBigDecimalError>),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum ReadDataframeError {
     Ascii(ReadAsciiError),
     Uneven(UnevenEventWidth),
@@ -4171,32 +4206,32 @@ pub enum ReadDataframeError {
     AlphaNum(AsciiToUintError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum ReadAsciiError {
     Delim(ReadDelimAsciiError),
     Fixed(ReadFixedAsciiError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum ReadFixedAsciiError {
     Uneven(UnevenEventWidth),
     Tot(TotEventMismatch),
     ToUint(AsciiToUintError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum ReadDataframeWarning {
     Uneven(UnevenEventWidth),
     Tot(TotEventMismatch),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum ReadDelimAsciiError {
     Rows(ReadDelimWithRowsAsciiError),
     NoRows(ReadDelimAsciiWithoutRowsError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum ReadDelimWithRowsAsciiError {
     RowsExceeded(RowsExceededError),
     Incomplete(DelimIncompleteError),
@@ -4204,70 +4239,31 @@ pub enum ReadDelimWithRowsAsciiError {
 }
 
 // signify that parsing exceeded max rows
+#[derive(Debug, Error)]
+#[error("Exceeded expected number of rows: {0}")]
 pub struct RowsExceededError(usize);
 
 // signify that a parsing ended in the middle of a row
+#[derive(Debug, Error)]
+#[error(
+    "Parsing ended in column {col} and row {row}, \
+     where expected number of rows is {nrows}"
+)]
 pub struct DelimIncompleteError {
     col: usize,
     row: usize,
     nrows: usize,
 }
 
+#[derive(Debug, Error)]
 pub enum ReadDelimAsciiWithoutRowsError {
-    Unequal,
+    #[error("{0}")]
     Parse(AsciiToUintError),
-}
-
-impl fmt::Display for RowsExceededError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "Exceeded expected number of rows: {}", self.0)
-    }
-}
-
-impl fmt::Display for DelimIncompleteError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "Parsing ended in column {} and row {}, where expected number of rows is {}",
-            self.col, self.row, self.nrows
-        )
-    }
-}
-
-impl<E> fmt::Display for ColumnError<E>
-where
-    E: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "error when processing measurement {}: {}",
-            self.index, self.error
-        )
-    }
-}
-
-impl fmt::Display for ReadDelimAsciiWithoutRowsError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Unequal => write!(
-                f,
-                "parsing delimited ASCII without $TOT \
-                 resulted in columns with unequal length"
-            ),
-            Self::Parse(x) => x.fmt(f),
-        }
-    }
-}
-
-impl fmt::Display for NotAsciiError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "bytestring is not valid ASCII: {}",
-            self.0.iter().join(",")
-        )
-    }
+    #[error(
+        "parsing delimited ASCII without $TOT \
+         resulted in columns with unequal length"
+    )]
+    Unequal,
 }
 
 impl fmt::Display for WidthMismatchError {
@@ -4289,162 +4285,77 @@ impl fmt::Display for WidthMismatchError {
     }
 }
 
-impl fmt::Display for WrongFloatWidth {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "expected width to be {} but got {} when determining float type",
-            self.expected, self.width,
-        )
-    }
-}
-
-impl fmt::Display for TotEventMismatch {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "$TOT field is {} but number of events that evenly fit into DATA is {}",
-            self.tot, self.total_events,
-        )
-    }
-}
-
-impl fmt::Display for UnevenEventWidth {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::ZeroWidth(n) => write!(f, "DATA segment is {n} bytes but event width is zero"),
-            Self::Remainder {
-                event_width,
-                nbytes,
-                remainder,
-            } => write!(
-                f,
-                "Events are {event_width} bytes wide, but this does not evenly \
-                 divide DATA segment which is {nbytes} bytes long \
-                 (remainder of {remainder})",
-            ),
-        }
-    }
-}
-
+#[derive(Debug, Error)]
+#[error("integer conversion error in column {index}: {error}")]
 pub struct ConvertWidthError {
     index: MeasIndex,
     error: UintToUintError,
 }
 
-impl fmt::Display for ConvertWidthError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "integer conversion error in column {}: {}",
-            self.index, self.error,
-        )
-    }
-}
-
 pub type MixedToOrderedLayoutError = MixedColumnConvertError<MixedToOrderedConvertError>;
 pub type MixedToNonMixedLayoutError = MixedColumnConvertError<MixedToInnerError>;
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum MixedToOrderedConvertError {
     Integer(MixedToOrderedUintError),
     Other(MixedToInnerError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum AnyRangeError {
     Ascii(IntRangeError<()>),
     Int(BitmaskError),
     Float(DecimalToFloatError),
 }
 
+#[derive(Debug, Error)]
+#[error("mixed conversion error in column {index}: {error}")]
 pub struct MixedColumnConvertError<E> {
     index: MeasIndex,
     error: E,
 }
 
-impl<E: fmt::Display> fmt::Display for MixedColumnConvertError<E> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "mixed conversion error in column {}: {}",
-            self.index, self.error
-        )
-    }
-}
-
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum MixedToOrderedUintError {
     IsWrongInteger(UintToUintError),
     Other(MixedToInnerError),
 }
 
+#[derive(Debug, Error)]
+#[error("could not convert integer from {from} bytes to {to} bytes")]
 pub struct UintToUintError {
     from: NonZeroU8,
     to: u8,
 }
 
-impl fmt::Display for UintToUintError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "could not convert integer from {} bytes to {} bytes",
-            self.from, self.to,
-        )
-    }
-}
-
+#[derive(Debug, Error)]
+#[error("could not convert mixed from {} to {dest_type}", .src.as_alpha_num_type())]
 pub struct MixedToInnerError {
     dest_type: AlphaNumType,
     src: NullMixedType,
 }
 
-impl fmt::Display for MixedToInnerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "could not convert mixed from {} to {}",
-            self.src.as_alpha_num_type(),
-            self.dest_type
-        )
-    }
-}
-
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum MeasLayoutMismatchError {
     Lengths(MeasLayoutLengthsError),
     Scale(ColumnError<ScaleMismatchTransformError>),
 }
 
+#[derive(Debug, Error)]
+#[error("measurement number ({meas_n}) does not match layout column number ({layout_n})")]
 pub struct MeasLayoutLengthsError {
     meas_n: usize,
     layout_n: usize,
 }
 
-impl fmt::Display for MeasLayoutLengthsError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "measurement number ({}) does not match layout column number ({})",
-            self.meas_n, self.layout_n
-        )
-    }
-}
-
+#[derive(Debug, Error)]
+#[error(
+    "only integer columns may have non-unitary scale transforms, \
+     column was '{datatype}' and its scale transform was '{scale}'"
+)]
 pub struct ScaleMismatchTransformError {
     datatype: AlphaNumType,
     scale: ScaleTransform,
-}
-
-impl fmt::Display for ScaleMismatchTransformError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "only integer columns may have non-unitary scale transforms, \
-             column was '{}' and its scale transform was '{}'",
-            self.datatype, self.scale
-        )
-    }
 }
 
 // TODO this seems like it should live somewhere better

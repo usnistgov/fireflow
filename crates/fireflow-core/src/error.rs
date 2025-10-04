@@ -17,8 +17,8 @@
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use std::convert::Infallible;
-use std::fmt;
 use std::io;
+use thiserror::Error;
 
 // TODO add a cap to the error buffer so the user doesn't DOS themselves if
 // their file is particularly screwed up
@@ -93,8 +93,11 @@ pub type MultiResult<X, E> = Result<X, NonEmpty<E>>;
 ///
 /// Used in a similar manner to "IO a" in Haskell to denote IO-based
 /// computations which may fail.
+#[derive(Debug, Error)]
 pub enum ImpureError<E> {
+    #[error("IO error: {0}")]
     IO(io::Error),
+    #[error("{0}")]
     Pure(E),
 }
 
@@ -1576,18 +1579,6 @@ where
 
 impl<V, W, E> IODeferredExt for IODeferredResult<V, W, E> {
     type InnerE = E;
-}
-
-impl<E> fmt::Display for ImpureError<E>
-where
-    E: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::IO(i) => write!(f, "IO error: {i}"),
-            Self::Pure(e) => e.fmt(f),
-        }
-    }
 }
 
 impl<E> ImpureError<E> {

@@ -1,6 +1,6 @@
 use derive_more::{AsRef, Display};
-use std::fmt;
 use std::str::FromStr;
+use thiserror::Error;
 
 /// A String that matches a date.
 ///
@@ -34,19 +34,12 @@ impl FromStr for DatePattern {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
+#[error(
+    "date pattern must contain specifier for year (%y or %Y), \
+     month (%m, %b, or %B), and day (%d or %e), got {0}"
+)]
 pub struct DatePatternError(String);
-
-impl fmt::Display for DatePatternError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "date pattern must contain specifier for year (%y or %Y), \
-                     month (%m, %b, or %B), and day (%d or %e), got {}",
-            self.0
-        )
-    }
-}
 
 // TODO property tests would likely be useful here
 #[cfg(test)]

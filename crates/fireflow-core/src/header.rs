@@ -19,6 +19,7 @@ use std::io;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::iter::repeat;
 use std::str;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -35,7 +36,7 @@ pub const HEADER_LEN: u8 = 58;
 /// All FCS versions this library supports.
 ///
 /// This appears as the first 6 bytes of any valid FCS file.
-#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Version {
     FCS2_0,
@@ -446,39 +447,29 @@ impl fmt::Display for Version {
     }
 }
 
+#[derive(Debug, Error)]
 pub enum HeaderError {
+    #[error("{0}")]
     Segment(HeaderSegmentError),
-    Space,
+    #[error("{0}")]
     Version(VersionError),
+    #[error("{0}")]
     Validation(Box<HeaderValidationError>),
+    #[error("version must be followed by 4 spaces")]
+    Space,
 }
 
-impl fmt::Display for HeaderError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Segment(x) => x.fmt(f),
-            Self::Version(x) => x.fmt(f),
-            Self::Validation(x) => x.fmt(f),
-            Self::Space => f.write_str("version must be followed by 4 spaces"),
-        }
-    }
-}
-
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum HeaderValidationError {
     Overlap(SegmentOverlapError),
     InHeader(InHeaderError),
 }
 
+#[derive(Debug, Error)]
+#[error("{0} is within HEADER region")]
 pub struct InHeaderError(GenericSegment);
 
-impl fmt::Display for InHeaderError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{} is within HEADER region", self.0)
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub struct VersionError(Vec<u8>);
 
 impl fmt::Display for VersionError {

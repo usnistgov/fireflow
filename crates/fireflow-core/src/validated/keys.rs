@@ -14,6 +14,7 @@ use std::hash::Hash;
 use std::str;
 use std::str::FromStr;
 use std::sync::OnceLock;
+use thiserror::Error;
 use unicase::Ascii;
 
 #[cfg(feature = "serde")]
@@ -660,130 +661,15 @@ impl ParsedKeywords {
     }
 }
 
-#[derive(Debug, Display, From, PartialEq)]
+#[derive(Debug, Display, From, PartialEq, Error)]
 pub enum KeywordInsertError {
     StdPresent(StdPresent),
     NonStdPresent(NonStdPresent),
     Blank(BlankValueError),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Error)]
 pub struct BlankValueError(pub Vec<u8>);
-
-#[derive(Debug, PartialEq)]
-pub struct KeyPresent<T> {
-    pub key: T,
-    pub value: String,
-}
-
-pub type StdPresent = KeyPresent<StdKey>;
-pub type NonStdPresent = KeyPresent<NonStdKey>;
-
-#[derive(PartialEq, Debug)]
-pub enum AsciiStringError {
-    Ascii(String),
-    Empty,
-}
-
-#[derive(From, PartialEq, Debug)]
-pub enum StdKeyError {
-    Ascii(AsciiStringError),
-    Prefix(KeyString),
-    Empty,
-}
-
-#[derive(From, PartialEq, Debug)]
-pub enum NonStdKeyError {
-    Ascii(AsciiStringError),
-    Prefix(KeyString),
-}
-
-pub struct NonStdMeasKeyError(String);
-
-#[derive(Debug)]
-pub struct NonStdMeasPatternError(String);
-
-pub struct NonStdMeasRegexError {
-    error: regex::Error,
-    index: IndexFromOne,
-}
-
-pub struct KeyStringPairsError(NonEmpty<KeyString>);
-
-impl<T: fmt::Display> fmt::Display for KeyPresent<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "key '{}' already present, has value '{}'",
-            self.key, self.value
-        )
-    }
-}
-
-impl fmt::Display for AsciiStringError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Empty => f.write_str("Key string must not be empty"),
-            Self::Ascii(s) => write!(f, "string should only have ASCII characters, found '{s}'",),
-        }
-    }
-}
-
-impl fmt::Display for StdKeyError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Ascii(x) => x.fmt(f),
-            Self::Prefix(s) => {
-                write!(f, "Standard key must start with '$', found '{s}'")
-            }
-            Self::Empty => f.write_str("Standard key must not be empty, got '$'"),
-        }
-    }
-}
-
-impl fmt::Display for NonStdKeyError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Ascii(x) => x.fmt(f),
-            Self::Prefix(s) => {
-                write!(f, "Non-standard key must not start with '$', found '{s}'")
-            }
-        }
-    }
-}
-
-impl fmt::Display for NonStdMeasKeyError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "Non standard measurement pattern must not \
-             start with '$', have only ASCII characters, \
-             and should have one '%n', found '{}'",
-            self.0
-        )
-    }
-}
-
-impl fmt::Display for NonStdMeasPatternError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "Non standard measurement pattern must not \
-             start with '$' and should have one '%n', found '{}'",
-            self.0
-        )
-    }
-}
-
-impl fmt::Display for NonStdMeasRegexError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "Regexp error for measurement {}: {}",
-            self.index, self.error
-        )
-    }
-}
 
 impl fmt::Display for BlankValueError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -795,15 +681,59 @@ impl fmt::Display for BlankValueError {
     }
 }
 
-impl fmt::Display for KeyStringPairsError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "The following keys are paired with themselves: {}",
-            self.0.iter().join(",")
-        )
-    }
+#[derive(Debug, PartialEq, Error)]
+#[error("key '{key}' already present, has value '{value}'")]
+pub struct KeyPresent<T> {
+    pub key: T,
+    pub value: String,
 }
+
+pub type StdPresent = KeyPresent<StdKey>;
+pub type NonStdPresent = KeyPresent<NonStdKey>;
+
+#[derive(PartialEq, Debug, Error)]
+pub enum AsciiStringError {
+    #[error("string should only have ASCII characters, found '{0}'")]
+    Ascii(String),
+    #[error("key string must not be empty")]
+    Empty,
+}
+
+#[derive(From, PartialEq, Debug, Error)]
+pub enum StdKeyError {
+    #[error("{0}")]
+    Ascii(AsciiStringError),
+    #[error("standard key must start with '$', found '{0}'")]
+    Prefix(KeyString),
+    #[error("standard key must not be empty, got '$'")]
+    Empty,
+}
+
+#[derive(From, PartialEq, Debug, Error)]
+pub enum NonStdKeyError {
+    #[error("{0}")]
+    Ascii(AsciiStringError),
+    #[error("non-standard key must not start with '$', found '{0}'")]
+    Prefix(KeyString),
+}
+
+#[derive(Error, Debug)]
+#[error(
+    "non standard measurement pattern must not \
+     start with '$' and should have one '%n', found '{0}'"
+)]
+pub struct NonStdMeasPatternError(String);
+
+#[derive(Error, Debug)]
+#[error("regexp error for measurement {index}: {error}")]
+pub struct NonStdMeasRegexError {
+    error: regex::Error,
+    index: IndexFromOne,
+}
+
+#[derive(Error, Debug)]
+#[error("the following keys are paired with themselves: {}", .0.iter().join(","))]
+pub struct KeyStringPairsError(NonEmpty<KeyString>);
 
 fn is_printable_ascii(xs: &[u8]) -> bool {
     xs.iter().all(|x| 32 <= *x && *x <= 126)

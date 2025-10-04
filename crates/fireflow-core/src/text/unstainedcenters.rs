@@ -9,6 +9,7 @@ use itertools::Itertools;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::str::FromStr;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -17,21 +18,29 @@ use serde::Serialize;
 use pyo3::prelude::*;
 
 /// The value for the $UNSTAINEDCENTERS key (3.2+)
-#[derive(Clone, Into, PartialEq)]
+#[derive(Clone, Into, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct UnstainedCenters(HashMap<Shortname, f32>);
 
+#[derive(Debug, Error)]
 pub enum UnstainedCenterError {
+    #[error("Names are not unique")]
     NonUnique,
+    #[error("Unstained centers must not be empty")]
     Empty,
 }
 
+#[derive(Debug, Error)]
 pub enum ParseUnstainedCenterError {
-    BadFloat,
-    BadLength { total: usize, expected: usize },
-    BadN,
+    #[error("{0}")]
     New(UnstainedCenterError),
+    #[error("Expected {expected} values, found {total}")]
+    BadLength { total: usize, expected: usize },
+    #[error("Could not parse N")]
+    BadN,
+    #[error("Error parsing float value(s)")]
+    BadFloat,
 }
 
 impl TryFrom<Vec<(Shortname, f32)>> for UnstainedCenters {
@@ -120,29 +129,6 @@ impl fmt::Display for UnstainedCenters {
         let n = self.0.len();
         let (ms, vs): (Vec<&Shortname>, Vec<f32>) = self.0.iter().unzip();
         write!(f, "{n},{},{}", ms.iter().join(","), vs.iter().join(","))
-    }
-}
-
-impl fmt::Display for UnstainedCenterError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s = match self {
-            UnstainedCenterError::NonUnique => "Names are not unique",
-            UnstainedCenterError::Empty => "Unstained centers must not be empty",
-        };
-        write!(f, "{}", s)
-    }
-}
-
-impl fmt::Display for ParseUnstainedCenterError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            ParseUnstainedCenterError::BadFloat => write!(f, "Error parsing float value(s)"),
-            ParseUnstainedCenterError::BadLength { total, expected } => {
-                write!(f, "Expected {expected} values, found {total}")
-            }
-            ParseUnstainedCenterError::BadN => write!(f, "Could not parse N"),
-            ParseUnstainedCenterError::New(n) => n.fmt(f),
-        }
     }
 }
 

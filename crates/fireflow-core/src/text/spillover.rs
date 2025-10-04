@@ -15,6 +15,7 @@ use std::fmt;
 use std::hash::Hash;
 use std::num::ParseIntError;
 use std::str::FromStr;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -22,7 +23,7 @@ use serde::Serialize;
 pub type Spillover = GenericSpillover<Shortname>;
 
 /// The spillover matrix from the $SPILLOVER keyword (3.1+)
-#[derive(Clone, AsRef, PartialEq)]
+#[derive(Clone, AsRef, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct GenericSpillover<T> {
     /// The measurements in the spillover matrix.
@@ -218,14 +219,19 @@ impl FromStr for Spillover {
     }
 }
 
+#[derive(Debug, Error)]
 pub enum NewSpilloverError {
+    #[error("Matrix is not square")]
     NonSquare,
+    #[error("Name length does not match matrix dimensions")]
     NameLen,
+    #[error("Names are not unique")]
     NonUnique,
+    #[error("Matrix is less than 2x2")]
     TooSmall,
 }
 
-#[derive(From, Display)]
+#[derive(From, Debug, Display, Error)]
 pub enum ParseSpilloverError {
     Generic(ParseGenericSpilloverError),
     BadIndex(MalformedIndexError),
@@ -233,69 +239,25 @@ pub enum ParseSpilloverError {
     NamedLink(LinkedNameError),
 }
 
+#[derive(Debug, Error)]
 pub enum ParseGenericSpilloverError {
-    WrongLength { total: usize, expected: usize },
-    BadFloat,
-    BadN,
+    #[error("{0}")]
     New(NewSpilloverError),
+    #[error("Expected {expected} entries, found {total}")]
+    WrongLength { total: usize, expected: usize },
+    #[error("Float could not be parsed")]
+    BadFloat,
+    #[error("N could not be parsed")]
+    BadN,
 }
 
+#[derive(Debug, Error)]
+#[error("error when parsing index for $SPILLOVER: {0}")]
 pub struct MalformedIndexError(ParseIntError);
 
+#[derive(Debug, Error)]
+#[error("$SPILLOVER indices out of bounds: {}", .0.iter().join(","))]
 pub struct SpilloverIndexError(NonEmpty<MeasIndex>);
-
-// pub struct SpilloverNamedError(NonEmpty<Shortname>);
-
-impl fmt::Display for SpilloverIndexError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "$SPILLOVER indices out of bounds: {}",
-            self.0.iter().join(",")
-        )
-    }
-}
-
-// impl fmt::Display for SpilloverNamedError {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-//         write!(
-//             f,
-//             "$SPILLOVER links to non-existent names: {}",
-//             self.0.iter().join(",")
-//         )
-//     }
-// }
-
-impl fmt::Display for MalformedIndexError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "error when parsing index for $SPILLOVER: {}", self.0)
-    }
-}
-
-impl fmt::Display for ParseGenericSpilloverError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::WrongLength { total, expected } => {
-                write!(f, "Expected {expected} entries, found {total}")
-            }
-            Self::BadFloat => write!(f, "Float could not be parsed"),
-            Self::BadN => write!(f, "N could not be parsed"),
-            Self::New(e) => e.fmt(f),
-        }
-    }
-}
-
-impl fmt::Display for NewSpilloverError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s = match self {
-            NewSpilloverError::NonSquare => "Matrix is not square",
-            NewSpilloverError::NonUnique => "Names are not unique",
-            NewSpilloverError::NameLen => "Name length does not match matrix dimensions",
-            NewSpilloverError::TooSmall => "Matrix is less than 2x2",
-        };
-        write!(f, "{}", s)
-    }
-}
 
 impl OptLinkedKey for Spillover {
     fn names(&self) -> HashSet<&Shortname> {

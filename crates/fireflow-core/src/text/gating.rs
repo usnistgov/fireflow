@@ -14,6 +14,7 @@ use nonempty::NonEmpty;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::str::FromStr;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -1041,153 +1042,77 @@ impl From<AppliedGates3_2> for AppliedGates3_0 {
     }
 }
 
+#[derive(Debug, Error)]
+#[error(
+    "cannot convert region index ({0}) to measurement \
+     index since it refers to a gate"
+)]
 pub struct RegionToMeasIndexError(GateIndex);
 
-impl fmt::Display for RegionToMeasIndexError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "cannot convert region index ({}) to measurement index since \
-                   it refers to a gate",
-            self.0
-        )
-    }
-}
-
+#[derive(Debug, Error)]
+#[error(
+    "cannot convert region index ({0}) to gating index since \
+     it refers to a measurement"
+)]
 pub struct RegionToGateIndexError(MeasIndex);
 
-impl fmt::Display for RegionToGateIndexError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "cannot convert region index ({}) to gating index since \
-                   it refers to a measurement",
-            self.0
-        )
-    }
-}
-
+#[derive(Debug, Error)]
+#[error("cannot convert gate index ({0}) to measurement index")]
 pub struct GateToMeasIndexError(GateIndex);
 
-impl fmt::Display for GateToMeasIndexError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "cannot convert gate index ({}) to measurement index",
-            self.0
-        )
-    }
-}
-
+#[derive(Debug, Error)]
+#[error("cannot convert measurement index ({0}) to gate index")]
 pub struct MeasToGateIndexError(PrefixedMeasIndex);
 
-impl fmt::Display for MeasToGateIndexError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "cannot convert measurement index ({}) to gate index",
-            self.0
-        )
-    }
-}
-
+#[derive(Debug, Error)]
+#[error("$GATING regions reference nonexistent gates: {}", .0.iter().join(","))]
 pub struct GateMeasurementLinkError(NonEmpty<GateIndex>);
 
-impl fmt::Display for GateMeasurementLinkError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "$GATING regions reference nonexistent gates: {}",
-            self.0.iter().join(",")
-        )
-    }
-}
-
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum NewAppliedGatesWithSchemeError {
     Link(GateMeasurementLinkError),
     Scheme(NewGatingSchemeError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum AppliedGates3_0To2_0Error {
     Index(RegionToGateIndexError),
     Scheme(NewGatingSchemeError),
     Link(GateMeasurementLinkError),
 }
 
-#[derive(From)]
+#[derive(Debug, Error)]
 pub enum AppliedGates3_0To3_2Error {
-    #[from]
-    Index(RegionToMeasIndexError),
+    #[error("{0}")]
+    Index(#[from] RegionToMeasIndexError),
+    #[error("$GATING references {0} $Gn* keywords")]
     HasGates(usize),
-    #[from]
-    Scheme(NewGatingSchemeError),
+    #[error("{0}")]
+    Scheme(#[from] NewGatingSchemeError),
 }
 
-impl fmt::Display for AppliedGates3_0To3_2Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Index(x) => x.fmt(f),
-            Self::Scheme(x) => x.fmt(f),
-            Self::HasGates(n) => write!(f, "$GATING references {n} $Gn* keywords"),
-        }
-    }
-}
-
+#[derive(Debug, Error)]
+#[error("cannot convert 2.0 $GATING/$Gn*/$RnI/$RnW keywords to 3.2")]
 pub struct AppliedGates2_0To3_2Error;
 
-impl fmt::Display for AppliedGates2_0To3_2Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "cannot convert 2.0 $GATING/$Gn*/$RnI/$RnW keywords to 3.2"
-        )
-    }
-}
-
+#[derive(Debug, Error)]
+#[error("cannot convert 3.2 $GATING/$RnI/$RnW keywords to 2.0")]
 pub struct AppliedGates3_2To2_0Error;
 
-impl fmt::Display for AppliedGates3_2To2_0Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "cannot convert 3.2 $GATING/$RnI/$RnW keywords to 2.0")
-    }
-}
-
+#[derive(Debug, Error)]
+#[error("values for $RnI and $RnW must both be univariate or bivariate")]
 pub struct MismatchedIndexAndWindowError;
 
-impl fmt::Display for MismatchedIndexAndWindowError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "values for $RnI and $RnW must both be univariate or bivariate"
-        )
-    }
-}
-
+#[derive(Debug, Error)]
+#[error(
+    "cannot remove measurements since it is referenced by a gating region: {}",
+    .0.iter().join(",")
+)]
 pub struct RemoveGateMeasIndexError(NonEmpty<MeasIndex>);
 
-impl fmt::Display for RemoveGateMeasIndexError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "cannot remove measurements since it is referenced by a gating region: {}",
-            self.0.iter().join(",")
-        )
-    }
-}
-
+#[derive(Debug, Error)]
+#[error("could not make gating scheme, regions not found: {}", .0.iter().join(","))]
 pub struct NewGatingSchemeError(NonEmpty<RegionIndex>);
-
-impl fmt::Display for NewGatingSchemeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "could not make gating scheme, regions not found: {}",
-            self.0.iter().join(",")
-        )
-    }
-}
 
 #[cfg(feature = "python")]
 mod python {

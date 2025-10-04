@@ -4,13 +4,14 @@ use crate::validated::shortname::Shortname;
 
 use super::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
 
-use derive_more::{From, Into};
+use derive_more::{Display, From, Into};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::mem;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -1912,138 +1913,64 @@ fn split_at_index<K: MightHave, U, V>(
     }
 }
 
-pub struct KeyNotFoundError(Shortname);
-
-#[derive(Debug)]
+#[derive(Debug, Display, Error)]
 pub enum InsertError {
     Index(BoundaryIndexError),
     NonUnique(NonUniqueKeyError),
 }
 
-#[derive(Debug)]
-pub enum InsertCenterError {
-    Present,
-    Insert(InsertError),
-}
-
-#[derive(Debug)]
+#[derive(Debug, Display, Error)]
 pub enum RenameError {
     Index(ElementIndexError),
     NonUnique(NonUniqueKeyError),
 }
 
-#[derive(From)]
+#[derive(Debug, Error)]
+#[error("'{0}' matches no measurement")]
+pub struct KeyNotFoundError(Shortname);
+
+#[derive(Debug, Error)]
+pub enum InsertCenterError {
+    #[error("Center already exists")]
+    Present,
+    #[error("{0}")]
+    Insert(InsertError),
+}
+
+#[derive(Debug, Error)]
 pub enum SetKeysError {
-    #[from]
-    Names(SetNamesError),
+    #[error("{0}")]
+    Names(#[from] SetNamesError),
+    #[error("center must not be missing")]
     MissingCenter,
 }
 
-#[derive(From)]
+#[derive(Debug, Error)]
 pub enum SetNamesError {
-    #[from]
-    Length(KeyLengthError),
+    #[error("{0}")]
+    Length(#[from] KeyLengthError),
+    #[error("not all supplied keys are unique")]
     NonUnique,
 }
 
-#[derive(Debug, From)]
+#[derive(Debug, Error)]
 pub enum SetCenterError {
+    #[error("{0}")]
+    Index(#[from] ElementIndexError),
+    #[error("index refers to element with no name")]
     NoName,
-    #[from]
-    Index(ElementIndexError),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
+#[error("'{name}' already present")]
 pub struct NonUniqueKeyError {
     name: Shortname,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub struct ElementIndexError {
     index: IndexError,
     center: Option<MeasIndex>,
-}
-
-#[derive(Debug)]
-pub struct KeyLengthError {
-    this_len: usize,
-    other_len: usize,
-    include_center: bool,
-}
-
-pub enum NewNamedVecError {
-    NonUnique,
-    MultiCenter,
-}
-
-pub struct IndexedElementError<E> {
-    error: E,
-    index: MeasIndex,
-}
-
-impl fmt::Display for KeyNotFoundError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "'{}' matches no measurement", self.0)
-    }
-}
-
-impl<E> fmt::Display for IndexedElementError<E>
-where
-    E: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "error for element {}: {}", self.index, self.error)
-    }
-}
-
-impl fmt::Display for NewNamedVecError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s = match self {
-            NewNamedVecError::NonUnique => "names must be unique",
-            NewNamedVecError::MultiCenter => "only zero or one center values allowed",
-        };
-        write!(f, "{s}")
-    }
-}
-
-impl fmt::Display for SetCenterError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            SetCenterError::NoName => write!(f, "index refers to element with no name"),
-            SetCenterError::Index(i) => i.fmt(f),
-        }
-    }
-}
-
-impl fmt::Display for InsertCenterError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            InsertCenterError::Insert(i) => i.fmt(f),
-            InsertCenterError::Present => {
-                write!(f, "Center already exists")
-            }
-        }
-    }
-}
-
-impl fmt::Display for InsertError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            InsertError::Index(i) => i.fmt(f),
-            InsertError::NonUnique(u) => u.fmt(f),
-        }
-    }
-}
-
-impl fmt::Display for RenameError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            RenameError::Index(i) => i.fmt(f),
-            RenameError::NonUnique(k) => {
-                write!(f, "New key named '{k}' already in list")
-            }
-        }
-    }
 }
 
 impl fmt::Display for ElementIndexError {
@@ -2061,43 +1988,31 @@ impl fmt::Display for ElementIndexError {
     }
 }
 
-impl fmt::Display for NonUniqueKeyError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "'{}' already present", self.name)
-    }
+#[derive(Debug, Error)]
+#[error(
+    "supplied list must be {this_len} ({c}including center) \
+     elements long, got {other_len}",
+    c = if self.include_center { "" } else { "not " }
+)]
+pub struct KeyLengthError {
+    this_len: usize,
+    other_len: usize,
+    include_center: bool,
 }
 
-impl fmt::Display for KeyLengthError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s = if self.include_center {
-            "including"
-        } else {
-            "not including"
-        };
-        write!(
-            f,
-            "supplied list must be {} ({} center) elements long, got {}",
-            self.this_len, s, self.other_len
-        )
-    }
+#[derive(Debug, Error)]
+pub enum NewNamedVecError {
+    #[error("names must be unique")]
+    NonUnique,
+    #[error("only zero or one center values allowed")]
+    MultiCenter,
 }
 
-impl fmt::Display for SetNamesError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Length(x) => x.fmt(f),
-            Self::NonUnique => write!(f, "not all supplied keys are unique"),
-        }
-    }
-}
-
-impl fmt::Display for SetKeysError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Names(x) => x.fmt(f),
-            Self::MissingCenter => write!(f, "center must not be missing"),
-        }
-    }
+#[derive(Debug, Error)]
+#[error("error for element {index}: {error}")]
+pub struct IndexedElementError<E> {
+    error: E,
+    index: MeasIndex,
 }
 
 #[cfg(feature = "python")]

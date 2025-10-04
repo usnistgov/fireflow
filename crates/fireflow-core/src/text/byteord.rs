@@ -8,6 +8,7 @@ use std::fmt;
 use std::num::NonZeroU8;
 use std::num::ParseIntError;
 use std::str::FromStr;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -19,7 +20,7 @@ use super::parser::ReqMetarootKey;
 /// This must be a list of integers belonging to the unordered set {1..N} where
 /// N is the total number of bytes. The numbers will be stored as one less the
 /// displayed integers to make array indexing easier.
-#[derive(Clone, Copy, From, Display)]
+#[derive(Clone, Copy, From, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum ByteOrd2_0 {
     O1(SizedByteOrd<1>),
@@ -39,7 +40,7 @@ pub struct ByteOrd3_1(pub Endian);
 /// Endianness
 ///
 /// This is also stored in the $BYTEORD key in 3.1+
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Endian {
     Big,
@@ -66,9 +67,8 @@ pub type NoByteOrd3_1 = NoByteOrd<false>;
 ///
 /// This may also be '*' which means "delimited ASCII" which is only valid when
 /// $DATATYPE=A.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(test, derive(Debug))]
 #[from(Chars)]
 pub enum Width {
     Fixed(BitsOrChars),
@@ -76,9 +76,8 @@ pub enum Width {
 }
 
 /// The number of bytes for a numeric measurement
-#[derive(Clone, Copy, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(test, derive(Debug))]
 #[repr(u8)]
 pub enum Bytes {
     B1 = 1,
@@ -95,15 +94,14 @@ pub enum Bytes {
 ///
 /// Subsequent operations can be used to use it as "bytes" or "characters"
 /// depending on what is needed by the column.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(test, derive(Debug))]
 #[from(Chars)]
 #[into(NonZeroU8, u8)]
 pub struct BitsOrChars(NonZeroU8);
 
 /// $BYTEORD (ordered) with known size in bytes
-#[derive(PartialEq, Eq, Hash, Copy, Clone, From)]
+#[derive(PartialEq, Eq, Hash, Copy, Clone, From, Debug)]
 pub enum SizedByteOrd<const LEN: usize> {
     #[from]
     Endian(Endian),
@@ -522,39 +520,51 @@ impl fmt::Display for Width {
     }
 }
 
+impl fmt::Display for Bytes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        u8::from(*self).fmt(f)
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("bits must be between 1 and 64, got {0}")]
 pub struct BitsError(u8);
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum ParseByteOrdError {
+    #[error("{0}")]
     Order(NewByteOrdError),
+    #[error("could not parse numbers in byte order")]
     Format,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
+#[error("byte order must include 1-{0} uniquely")]
 pub struct NewByteOrdError(usize);
 
+#[derive(Debug, Error)]
+#[error("endian must be either 1,2,3,4 or 4,3,2,1")]
 pub struct NewEndianError;
 
+#[derive(Debug, Error)]
+#[error(
+    "bits must be multiple of 8 and between 8 and 64 \
+     to be used as byte width, got {0}"
+)]
 pub struct BytesError(u8);
 
-pub struct EndianToByteOrdError;
-
-pub struct ByteOrdToEndianError(Vec<u8>);
-
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum ByteOrdToSizedEndianError {
     Ordered(OrderedToEndianError),
     ToSized(ByteOrdToSizedError),
 }
 
+#[derive(Debug, Error)]
+#[error("byte order is not monotonic")]
 pub struct OrderedToEndianError;
 
-impl fmt::Display for OrderedToEndianError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str("byte order is not monotonic")
-    }
-}
-
+#[derive(Debug, Error)]
+#[error("$BYTEORD is {bytes} bytes, expected {length}")]
 pub struct ByteOrdToSizedError {
     bytes: Bytes,
     length: usize,
@@ -566,6 +576,8 @@ pub enum VecToSizedError {
     New(NewByteOrdError),
 }
 
+#[derive(Debug, Error)]
+#[error("could not convert vector to array, was {vec_len} long, needed {req_len}")]
 pub struct VecToArrayError {
     vec_len: usize,
     req_len: usize,
@@ -575,105 +587,12 @@ pub type WidthToCharsError = WidthToFixedError<CharsError>;
 
 pub type WidthToBytesError = WidthToFixedError<BytesError>;
 
+#[derive(Debug, Error)]
 pub enum WidthToFixedError<X> {
+    #[error("width is variable were fixed is needed")]
     Variable,
+    #[error("error when converting fixed bits: {0}")]
     Fixed(X),
-}
-
-impl fmt::Display for ParseByteOrdError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Format => write!(f, "Could not parse numbers in byte order"),
-            Self::Order(x) => x.fmt(f),
-        }
-    }
-}
-
-impl fmt::Display for NewByteOrdError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "Byte order must include 1-{} uniquely", self.0)
-    }
-}
-
-impl fmt::Display for ByteOrdToEndianError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "Byte order must be in order (ascending or descending) to convert \
-             to endian, got {}",
-            self.0.iter().join(",")
-        )
-    }
-}
-
-impl fmt::Display for EndianToByteOrdError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "could not convert ByteOrd, must be either '1,2,3,4' or '4,3,2,1'",
-        )
-    }
-}
-
-impl fmt::Display for Bytes {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        u8::from(*self).fmt(f)
-    }
-}
-
-impl fmt::Display for ByteOrdToSizedError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "$BYTEORD is {} bytes, expected {}",
-            self.bytes, self.length
-        )
-    }
-}
-
-impl fmt::Display for BitsError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "bits must be between 1 and 64, got {}", self.0)
-    }
-}
-
-impl fmt::Display for BytesError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "bits must be multiple of 8 and between 8 and 64 \
-             to be used as byte width, got {}",
-            self.0
-        )
-    }
-}
-
-impl fmt::Display for NewEndianError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "Endian must be either 1,2,3,4 or 4,3,2,1")
-    }
-}
-
-impl<E> fmt::Display for WidthToFixedError<E>
-where
-    E: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Variable => write!(f, "width is variable were fixed is needed"),
-            Self::Fixed(e) => write!(f, "error when converting fixed bits: {e}"),
-        }
-    }
-}
-
-impl fmt::Display for VecToArrayError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "could not convert vector to array, was {} long, needed {}",
-            self.vec_len, self.req_len
-        )
-    }
 }
 
 #[cfg(test)]

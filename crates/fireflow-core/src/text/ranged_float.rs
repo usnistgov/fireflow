@@ -3,6 +3,7 @@ use num_derive::{One, Zero};
 use std::fmt;
 use std::num::ParseFloatError;
 use std::str::FromStr;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -11,14 +12,14 @@ use serde::Serialize;
 use pyo3::prelude::*;
 
 /// A non-negative float
-#[derive(Clone, Copy, PartialEq, Display, Into, Add, Mul, One, Zero)]
+#[derive(Clone, Copy, PartialEq, Display, Into, Add, Mul, One, Zero, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[mul(forward)]
 pub struct NonNegFloat(f32);
 
 /// A positive float
-#[derive(Clone, Copy, PartialEq, Display, Into, Mul, One)]
+#[derive(Clone, Copy, PartialEq, Display, Into, Mul, One, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[mul(forward)]
@@ -56,6 +57,7 @@ macro_rules! impl_ranged_float {
 impl_ranged_float!(PositiveFloat, <, false);
 impl_ranged_float!(NonNegFloat, <=, true);
 
+#[derive(Debug, Error)]
 pub enum RangedFloatError {
     Parse(ParseFloatError),
     Range { x: f32, include_zero: bool },

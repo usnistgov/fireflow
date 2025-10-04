@@ -8,6 +8,7 @@ use std::convert::Infallible;
 use std::fmt;
 use std::marker::PhantomData;
 use std::mem;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -272,19 +273,6 @@ impl<V: Default, E> Default for ClearMaybeError<V, E> {
     }
 }
 
-// impl<V, E> ClearMaybeError<V, E> {
-//     pub(crate) fn new(value: V) -> Self {
-//         Self { value, clear: None }
-//     }
-
-//     pub(crate) fn clear(value: V) -> Self {
-//         Self {
-//             value,
-//             clear: Some(ClearOptionalOr::default()),
-//         }
-//     }
-// }
-
 pub struct ClearMaybeError<V, E> {
     pub value: V,
     pub clear: Option<ClearOptionalOr<E>>,
@@ -305,25 +293,9 @@ impl<V: fmt::Display> MaybeValue<V> {
     }
 }
 
-// impl<T: Serialize> Serialize for MaybeValue<T> {
-//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-//     where
-//         S: serde::Serializer,
-//     {
-//         match self.0.as_ref() {
-//             Some(x) => serializer.serialize_some(x),
-//             None => serializer.serialize_none(),
-//         }
-//     }
-// }
-
+#[derive(Debug, Error)]
+#[error("optional keyword value is blank")]
 pub struct MaybeToAlwaysError;
-
-impl fmt::Display for MaybeToAlwaysError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "optional keyword value is blank",)
-    }
-}
 
 #[cfg(feature = "python")]
 mod python {

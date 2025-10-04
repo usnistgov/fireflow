@@ -13,6 +13,7 @@ use std::fmt;
 use std::mem;
 use std::str::FromStr;
 use std::sync::LazyLock;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -225,15 +226,11 @@ impl<X> Timestamps<X> {
     }
 }
 
+#[derive(Debug, Error)]
+#[error("$ETIM is before $BTIM and $DATE is given")]
 pub struct ReversedTimestamps;
 
 type TimestampsResult<T> = Result<T, ReversedTimestamps>;
-
-impl fmt::Display for ReversedTimestamps {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "$ETIM is before $BTIM and $DATE is given")
-    }
-}
 
 // the "%b" format is case-insensitive so this should work for "Jan", "JAN",
 // "jan", "jaN", etc
@@ -274,13 +271,9 @@ impl fmt::Display for FCSDate {
     }
 }
 
+#[derive(Debug, Error)]
+#[error("must be like 'dd-mmm-yyyy'")]
 pub struct FCSDateError;
-
-impl fmt::Display for FCSDateError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be like 'dd-mmm-yyyy'")
-    }
-}
 
 /// A time as used in the $BTIM/ETIM keys without seconds (2.0 only)
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into)]
@@ -305,24 +298,18 @@ impl fmt::Display for FCSTime {
     }
 }
 
-#[derive(From, Display)]
+#[derive(Display, Debug, Error)]
 pub enum FCSFixedTimeError<E> {
     Native(E),
-    #[from]
-    Patterned(ParseWithTimePatternError),
+    Patterned(#[from] ParseWithTimePatternError),
 }
 
+#[derive(Debug, Error)]
+#[error(
+    "must be like 'hh:mm:ss' where 'hh' is hours (0-23) and 'mm', \
+     'ss', 'tt' are minutes, seconds respectively (0-59)."
+)]
 pub struct FCSTimeError;
-
-impl fmt::Display for FCSTimeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "must be like 'hh:mm:ss' where 'hh' is hours (0-23) and 'mm', \
-             'ss', 'tt' are minutes, seconds respectively (0-59)."
-        )
-    }
-}
 
 /// A time as used in the $BTIM/ETIM keys with 1/60 seconds (3.0 only)
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into)]
@@ -357,18 +344,13 @@ impl fmt::Display for FCSTime60 {
     }
 }
 
+#[derive(Debug, Error)]
+#[error(
+    "must be like 'hh:mm:ss[:tt]' where 'hh' is hours (0-23) and 'mm', \
+     'ss', 'tt' are minutes, seconds, and optional fractional seconds \
+     respectively (0-59)."
+)]
 pub struct FCSTime60Error;
-
-impl fmt::Display for FCSTime60Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "must be like 'hh:mm:ss[:tt]' where 'hh' is hours (0-23) and 'mm', \
-             'ss', 'tt' are minutes, seconds, and optional fractional seconds \
-             respectively (0-59)."
-        )
-    }
-}
 
 /// A time as used in the $BTIM/ETIM keys with centiseconds (3.1+ only)
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into)]
@@ -405,18 +387,13 @@ impl fmt::Display for FCSTime100 {
     }
 }
 
+#[derive(Debug, Error)]
+#[error(
+    "must be like 'hh:mm:ss[.cc]' where 'hh' is hours (0-23) 'mm' and 'ss' \
+     are minutes and seconds respectively (0-59), and 'cc' is optional \
+     centiseconds (0-99)."
+)]
 pub struct FCSTime100Error;
-
-impl fmt::Display for FCSTime100Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "must be like 'hh:mm:ss[.cc]' where 'hh' is hours (0-23) 'mm' and \
-             'ss' are minutes and seconds respectively (0-59), and 'cc' is \
-             optional centiseconds (0-99)."
-        )
-    }
-}
 
 #[cfg(test)]
 mod tests {

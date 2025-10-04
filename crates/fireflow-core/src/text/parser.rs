@@ -28,6 +28,7 @@ use std::convert::Infallible;
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
+use thiserror::Error;
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
@@ -537,21 +538,11 @@ where
         .transpose()
 }
 
+#[derive(Debug, Error)]
+#[error("{key} references non-existent $PnN: {bad}", bad = .names.iter().join(", "))]
 pub struct LinkedNameError {
     pub key: StdKey,
     pub names: NonEmpty<Shortname>,
-}
-
-impl fmt::Display for LinkedNameError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let ns = if self.names.tail.is_empty() {
-            "name"
-        } else {
-            "names"
-        };
-        let bad = self.names.iter().join(", ");
-        write!(f, "{} references non-existent $PnN {ns}: {bad}", self.key)
-    }
 }
 
 pub(crate) fn lookup_temporal_scale_3_0(
@@ -614,14 +605,14 @@ pub(crate) type LookupTentative<V, E> = Tentative<V, LookupKeysWarning, E>;
 pub(crate) type LookupOptional<V, E> = Tentative<MaybeValue<V>, LookupKeysWarning, E>;
 
 // TODO this could be nested better
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum LookupKeysError {
     Parse(Box<ReqKeyError<ParseReqKeyError>>),
     Dep(DeprecatedError),
     Misc(LookupMiscError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum LookupKeysWarning {
     Parse(ParseKeyError<ParseOptKeyWarning>),
     Relation(LookupRelationalWarning),
@@ -630,14 +621,14 @@ pub enum LookupKeysWarning {
     Dep(DeprecatedError),
 }
 
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum DeprecatedError {
     Key(DepKeyWarning),
     Value(DepValueWarning),
 }
 
 /// Error encountered when parsing a required key from a string
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum ParseReqKeyError {
     Range(ParseBigDecimalError),
     AlphaNumType(AlphaNumTypeError),
@@ -653,7 +644,7 @@ pub enum ParseReqKeyError {
 }
 
 /// Error encountered when parsing an optional key from a string
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum ParseOptKeyWarning {
     NumType(NumTypeError),
     Trigger(TriggerError),
@@ -692,7 +683,7 @@ pub enum ParseOptKeyWarning {
 }
 
 /// Misc errors encountered when looking up keywords for standardization
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum LookupMiscError {
     // TODO this should be a configurable warning
     Temporal(TemporalError),
@@ -702,17 +693,23 @@ pub enum LookupMiscError {
 }
 
 /// Error triggered when time measurement is missing but required.
+#[derive(Debug, Error)]
+#[error("Could not find time measurement matching {0}")]
 pub struct MissingTime(pub TimeMeasNamePattern);
 
 /// Errors triggered when time measurement keyword value is invalid
 // TODO add other optical keywords that shouldn't be set for time.
+// TODO include meas idx here
+#[derive(Debug, Error)]
 pub enum TemporalError {
+    #[error("$PnE must be '0,0' for temporal measurement")]
     NonLinear,
+    #[error("$PnG must be 1.0 or not set for temporal measurement")]
     HasGain,
 }
 
 /// Error encountered when relation between two or more keys is invalid
-#[derive(From, Display)]
+#[derive(From, Display, Debug, Error)]
 pub enum LookupRelationalWarning {
     Timestamp(ReversedTimestamps),
     Datetime(ReversedDatetimes),
@@ -725,69 +722,33 @@ pub enum LookupRelationalWarning {
 }
 
 /// Error/warning triggered when encountering a key which is deprecated
+#[derive(Debug, Error)]
+#[error("deprecated key: {0}")]
 pub struct DepKeyWarning(pub StdKey);
 
 /// Error/warning triggered when encountering a key value which is deprecated
+#[derive(Debug, Error)]
 pub enum DepValueWarning {
+    #[error("$DATATYPE=A is deprecated")]
     DatatypeASCII,
+    #[error("$MODE=C is deprecated")]
     ModeCorrelated,
+    #[error("$MODE=U is deprecated")]
     ModeUncorrelated,
 }
 
-impl fmt::Display for DepValueWarning {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s = match self {
-            Self::DatatypeASCII => "$DATATYPE=A is deprecated",
-            Self::ModeCorrelated => "$MODE=C is deprecated",
-            Self::ModeUncorrelated => "$MODE=U is deprecated",
-        };
-        write!(f, "{s}")
-    }
-}
-
-impl fmt::Display for DepKeyWarning {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "deprecated key: {}", self.0)
-    }
-}
-
-impl fmt::Display for MissingTime {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "Could not find time measurement matching {}", self.0)
-    }
-}
-
-impl fmt::Display for TemporalError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        // TODO include meas idx here
-        match self {
-            TemporalError::NonLinear => f.write_str("$PnE must be '0,0' for temporal measurement"),
-            TemporalError::HasGain => {
-                f.write_str("$PnG must be 1.0 or not set for temporal measurement")
-            }
-        }
-    }
-}
-
 /// Error denoting that pseudostandard keyword was found.
+#[derive(Debug, Error)]
+#[error("pseudostandard keyword found: {0}")]
 pub struct PseudostandardError(pub StdKey);
 
 /// Error denoting that unused standard keyword was found.
+#[derive(Debug, Error)]
+#[error("unused standard keyword found: {0}")]
 pub struct UnusedStandardError(pub StdKey);
 
-impl fmt::Display for PseudostandardError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "pseudostandard keyword found: {}", self.0)
-    }
-}
-
-impl fmt::Display for UnusedStandardError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "unused standard keyword found: {}", self.0)
-    }
-}
-
-#[derive(new)]
+#[derive(new, Debug, Error)]
+#[error("{error} (key='{key}', value='{value}')")]
 pub struct ParseKeyError<E> {
     pub error: E,
     pub key: StdKey,
@@ -818,21 +779,11 @@ impl<E> ParseKeyError<E> {
     }
 }
 
-impl<E> fmt::Display for ParseKeyError<E>
-where
-    E: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "{} (key='{}', value='{}')",
-            self.error, self.key, self.value
-        )
-    }
-}
-
+#[derive(Debug, Error)]
 pub enum ReqKeyError<E> {
+    #[error("{0}")]
     Parse(ParseKeyError<E>),
+    #[error("missing required key: {0}")]
     Missing(StdKey),
 }
 
@@ -854,18 +805,6 @@ impl<E> ReqKeyError<E> {
         match self {
             ReqKeyError::Parse(p) => p.with_error(f).map_err(ReqKeyError::Parse),
             ReqKeyError::Missing(m) => Err(ReqKeyError::Missing(m)),
-        }
-    }
-}
-
-impl<E> fmt::Display for ReqKeyError<E>
-where
-    E: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            ReqKeyError::Parse(x) => x.fmt(f),
-            ReqKeyError::Missing(k) => write!(f, "missing required key: {k}"),
         }
     }
 }

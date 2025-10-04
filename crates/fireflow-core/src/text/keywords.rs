@@ -27,6 +27,7 @@ use derive_more::{Add, AsMut, Display, From, FromStr, Into, Sub};
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use num_traits::cast::ToPrimitive;
+use num_traits::identities::One;
 use num_traits::PrimInt;
 use std::any::type_name;
 use std::collections::HashSet;
@@ -64,8 +65,7 @@ impl_newtype_try_from!(Timestep, PositiveFloat, f32, RangedFloatError);
 
 impl Default for Timestep {
     fn default() -> Self {
-        // ASSUME this will never panic...1.0 is still a positive number, right?
-        Timestep(PositiveFloat::try_from(1.0).ok().unwrap())
+        Self(PositiveFloat::one())
     }
 }
 
@@ -555,9 +555,10 @@ pub enum WavelengthsError {
 ///
 /// Inner value is private to ensure it always gets parsed/printed using the
 /// correct format
-#[derive(Clone, Copy, From, Into, PartialEq, Debug)]
+#[derive(Clone, Copy, From, Into, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[display("{}.{:02}", _0.format(DATETIME_FMT), _0.nanosecond() / 10_000_000)]
 pub struct LastModified(pub NaiveDateTime);
 
 const DATETIME_FMT: &str = "%d-%b-%Y %H:%M:%S";
@@ -586,14 +587,6 @@ impl FromStr for LastModified {
                 }
             })
             .map(Self)
-    }
-}
-
-impl fmt::Display for LastModified {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let dt = self.0.format(DATETIME_FMT);
-        let cc = self.0.nanosecond() / 10_000_000;
-        write!(f, "{dt}.{cc:02}")
     }
 }
 
@@ -639,8 +632,9 @@ pub struct OriginalityError;
 /// in this library and is present to be complete. The original purpose was to
 /// indicate keywords which supported UTF-8, but these days it is hard to
 /// write a library that does NOT support UTF-8 ;)
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[display("{page},{}", kws.iter().join(","))]
 pub struct Unicode {
     pub page: u32,
     pub kws: Vec<String>,
@@ -678,12 +672,6 @@ impl FromStrDelim for Unicode {
         } else {
             Err(UnicodeError::BadFormat)
         }
-    }
-}
-
-impl fmt::Display for Unicode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{},{}", self.page, self.kws.iter().join(","))
     }
 }
 
@@ -1560,27 +1548,6 @@ impl FromStrStateful for GateScale {
     }
 }
 
-/// The value of the $CSVnFLAG key (2.0-3.0)
-#[derive(Clone, Copy, Display, FromStr, Into, PartialEq, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
-#[into(u32)]
-pub struct CSVFlag(pub u32);
-
-/// The value of the $PKn key (2.0-3.1)
-#[derive(Clone, Copy, Display, FromStr, Into, PartialEq, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
-#[into(u32)]
-pub struct PeakBin(pub u32);
-
-/// The value of the $PKNn key (2.0-3.1)
-#[derive(Clone, Copy, Display, FromStr, Into, PartialEq, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
-#[into(u32)]
-pub struct PeakNumber(pub u32);
-
 macro_rules! newtype_string {
     ($t:ident) => {
         #[derive(Clone, Display, FromStr, From, Into, PartialEq, Debug)]
@@ -1931,30 +1898,32 @@ kw_opt_meta_int!(CSMode, usize, "CSMODE");
 kw_opt_meta_int!(CSVBits, u32, "CSVBITS");
 kw_opt_meta_int!(CSTot, u32, "CSTOT");
 
+// $CSVnFLAG (3.0/3.1)
+newtype_int!(CSVFlag, u32);
+opt_meas!(CSVFlag);
+
 impl IndexedKey for CSVFlag {
     const PREFIX: &'static str = "CSV";
     const SUFFIX: &'static str = "FLAG";
 }
 
-impl Optional for CSVFlag {}
-impl OptIndexedKey for CSVFlag {}
+// $PKn (2.0-3.1)
+newtype_int!(PeakBin, u32);
+opt_meas!(PeakBin);
 
-// 2.0-3.1 histogram peaks
 impl IndexedKey for PeakBin {
     const PREFIX: &'static str = "PK";
     const SUFFIX: &'static str = "";
 }
 
-impl Optional for PeakBin {}
-impl OptIndexedKey for PeakBin {}
+// $PKNn (2.0-3.1)
+newtype_int!(PeakNumber, u32);
+opt_meas!(PeakNumber);
 
 impl IndexedKey for PeakNumber {
     const PREFIX: &'static str = "PKN";
     const SUFFIX: &'static str = "";
 }
-
-impl Optional for PeakNumber {}
-impl OptIndexedKey for PeakNumber {}
 
 // 2.0-3.1 gating parameters
 kw_opt_meta_int!(Gate, usize, "GATE");
@@ -2169,12 +2138,11 @@ mod python {
     use crate::validated::shortname::Shortname;
 
     use super::{
-        AlphaNumType, AlphaNumTypeError, CSVFlag, Calibration3_1, Calibration3_2, DetectorVoltage,
-        Display, Feature, FeatureError, GateDetectorVoltage, GateRange, GateScale, GateShortname,
-        IndexPair, LastModified, Mode, Mode3_2, Mode3_2Error, ModeError, NumType, NumTypeError,
-        OpticalType, OpticalTypeError, Originality, OriginalityError, PeakBin, PeakNumber, Power,
-        PrefixedMeasIndex, Range, Timestep, Trigger, UniGate, Unicode, Vertex, Vol, Wavelength,
-        Wavelengths,
+        AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, DetectorVoltage, Display,
+        Feature, FeatureError, GateDetectorVoltage, GateRange, GateScale, GateShortname, IndexPair,
+        LastModified, Mode, Mode3_2, Mode3_2Error, ModeError, NumType, NumTypeError, OpticalType,
+        OpticalTypeError, Originality, OriginalityError, Power, PrefixedMeasIndex, Range, Timestep,
+        Trigger, UniGate, Unicode, Vertex, Vol, Wavelength, Wavelengths,
     };
 
     use pyo3::prelude::*;
@@ -2204,15 +2172,12 @@ mod python {
     impl_from_py_transparent!(Range);
     impl_from_py_transparent!(DetectorVoltage);
     impl_from_py_transparent!(Power);
-    impl_from_py_transparent!(PeakBin);
-    impl_from_py_transparent!(PeakNumber);
     impl_from_py_transparent!(GateRange);
     impl_from_py_transparent!(GateScale);
     impl_from_py_transparent!(GateShortname);
     impl_from_py_transparent!(GateDetectorVoltage);
     impl_from_py_transparent!(PrefixedMeasIndex);
     impl_from_py_transparent!(Wavelengths);
-    impl_from_py_transparent!(CSVFlag);
 
     // $PnCALIBRATION (3.1) as (f32, String) tuple in python
     impl<'py> FromPyObject<'py> for Calibration3_1 {

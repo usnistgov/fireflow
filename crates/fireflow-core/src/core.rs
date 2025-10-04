@@ -4294,19 +4294,6 @@ where
 }
 
 impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
-    // TODO this is an unchecked function because $SPILLOVER or $TR could be
-    // set without any measurements and these aren't checked
-    pub(crate) fn new_nomeas(metaroot: Metaroot<M>, datatype: AlphaNumType) -> Self {
-        Self {
-            metaroot,
-            measurements: NamedVec::default(),
-            layout: <M::Ver as Versioned>::Layout::new_empty(datatype),
-            data: (),
-            analysis: (),
-            others: (),
-        }
-    }
-
     pub(crate) fn try_new(
         metaroot: Metaroot<M>,
         measurements: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
@@ -4488,12 +4475,6 @@ impl CoreTEXT2_0 {
         );
         CoreTEXT::try_new(metaroot, measurements, layout).mult_errors_into()
     }
-
-    pub fn new_def(mode: Mode, datatype: AlphaNumType) -> Self {
-        let specific = InnerMetaroot2_0::new_def(mode);
-        let metaroot = Metaroot::new_def(specific);
-        CoreTEXT::new_nomeas(metaroot, datatype)
-    }
 }
 
 impl CoreTEXT3_0 {
@@ -4558,12 +4539,6 @@ impl CoreTEXT3_0 {
             nonstandard_keywords,
         );
         CoreTEXT::try_new(metaroot, measurements, layout).mult_errors_into()
-    }
-
-    pub fn new_def(mode: Mode, datatype: AlphaNumType) -> Self {
-        let specific = InnerMetaroot3_0::new_def(mode);
-        let metaroot = Metaroot::new_def(specific);
-        CoreTEXT::new_nomeas(metaroot, datatype)
     }
 }
 
@@ -4637,12 +4612,6 @@ impl CoreTEXT3_1 {
             nonstandard_keywords,
         );
         CoreTEXT::try_new(metaroot, measurements, layout).mult_errors_into()
-    }
-
-    pub fn new_def(mode: Mode, datatype: AlphaNumType) -> Self {
-        let specific = InnerMetaroot3_1::new_def(mode);
-        let metaroot = Metaroot::new_def(specific);
-        CoreTEXT::new_nomeas(metaroot, datatype)
     }
 }
 
@@ -4724,12 +4693,6 @@ impl CoreTEXT3_2 {
             nonstandard_keywords,
         );
         CoreTEXT::try_new(metaroot, measurements, layout).mult_errors_into()
-    }
-
-    pub fn new_def(cyt: String, datatype: AlphaNumType) -> Self {
-        let specific = InnerMetaroot3_2::new_def(cyt);
-        let metaroot = Metaroot::new_def(specific);
-        CoreTEXT::new_nomeas(metaroot, datatype)
     }
 }
 
@@ -7861,70 +7824,6 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
     }
 }
 
-impl InnerMetaroot2_0 {
-    pub(crate) fn new_def(mode: Mode) -> Self {
-        Self {
-            mode,
-            cyt: None.into(),
-            timestamps: Timestamps::default(),
-            comp: None.into(),
-            applied_gates: AppliedGates2_0::default(),
-        }
-    }
-}
-
-impl InnerMetaroot3_0 {
-    pub(crate) fn new_def(mode: Mode) -> Self {
-        Self {
-            mode,
-            cyt: None.into(),
-            timestamps: Timestamps::default(),
-            cytsn: None.into(),
-            comp: None.into(),
-            unicode: None.into(),
-            subset: SubsetData::default(),
-            applied_gates: AppliedGates3_0::default(),
-        }
-    }
-}
-
-impl InnerMetaroot3_1 {
-    pub(crate) fn new_def(mode: Mode) -> Self {
-        Self {
-            mode,
-            cyt: None.into(),
-            plate: PlateData::default(),
-            timestamps: Timestamps::default(),
-            cytsn: None.into(),
-            modification: ModificationData::default(),
-            spillover: None.into(),
-            vol: None.into(),
-            subset: SubsetData::default(),
-            applied_gates: AppliedGates3_0::default(),
-        }
-    }
-}
-
-impl InnerMetaroot3_2 {
-    pub(crate) fn new_def(cyt: String) -> Self {
-        Self {
-            cyt: cyt.into(),
-            mode: None.into(),
-            carrier: CarrierData::default(),
-            plate: PlateData::default(),
-            datetimes: Datetimes::default(),
-            timestamps: Timestamps::default(),
-            cytsn: None.into(),
-            flowrate: None.into(),
-            modification: ModificationData::default(),
-            unstained: UnstainedData::default(),
-            spillover: None.into(),
-            vol: None.into(),
-            applied_gates: AppliedGates3_2::default(),
-        }
-    }
-}
-
 impl Default for Temporal2_0 {
     fn default() -> Self {
         let specific = InnerTemporal2_0::default();
@@ -8217,8 +8116,6 @@ pub enum StdReaderError {
     Layout(NewDataLayoutError),
     Reader(NewDataReaderError),
 }
-
-pub struct TerminalDataLayoutFailure;
 
 #[derive(From, Display, Debug, Error)]
 pub enum StdWriterError {

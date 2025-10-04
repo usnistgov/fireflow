@@ -95,22 +95,15 @@ impl_newtype_try_from!(Vol, NonNegFloat, f32, RangedFloatError);
 /// The value of the $TR field (all versions)
 ///
 /// This is formatted as 'string,f' where 'string' is a measurement name.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[display("{measurement},{threshold}")]
 pub struct Trigger {
     /// The measurement name (assumed to match a '$PnN' value).
     pub measurement: Shortname,
 
     /// The threshold of the trigger.
     pub threshold: u32,
-}
-
-#[derive(Debug, Error)]
-pub enum TriggerError {
-    #[error("must be like 'string,f'")]
-    WrongFieldNumber,
-    #[error("{0}")]
-    IntFormat(std::num::ParseIntError),
 }
 
 impl FromStrStateful for Trigger {
@@ -149,19 +142,24 @@ impl FromStrDelim for Trigger {
     }
 }
 
-impl fmt::Display for Trigger {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{},{}", self.measurement, self.threshold)
-    }
+#[derive(Debug, Error)]
+pub enum TriggerError {
+    #[error("must be like 'string,f'")]
+    WrongFieldNumber,
+    #[error("{0}")]
+    IntFormat(std::num::ParseIntError),
 }
 
 /// The values used for the $MODE key (up to 3.1)
-#[derive(Clone, PartialEq, Eq, Default)]
+#[derive(Clone, PartialEq, Eq, Default, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Mode {
     #[default]
+    #[display("L")]
     List,
+    #[display("U")]
     Uncorrelated,
+    #[display("C")]
     Correlated,
 }
 
@@ -182,25 +180,11 @@ impl FromStr for Mode {
     }
 }
 
-impl fmt::Display for Mode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let x = match self {
-            Mode::Correlated => "C",
-            Mode::List => "L",
-            Mode::Uncorrelated => "U",
-        };
-        write!(f, "{}", x)
-    }
-}
-
 /// The value for the $MODE key, which can only contain 'L' (3.2)
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[display("L")]
 pub struct Mode3_2;
-
-#[derive(Debug, Error)]
-#[error("can only be 'L'")]
-pub struct Mode3_2Error;
 
 impl FromStr for Mode3_2 {
     type Err = Mode3_2Error;
@@ -210,12 +194,6 @@ impl FromStr for Mode3_2 {
             "L" => Ok(Mode3_2),
             _ => Err(Mode3_2Error),
         }
-    }
-}
-
-impl fmt::Display for Mode3_2 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "L")
     }
 }
 
@@ -231,18 +209,24 @@ impl TryFrom<Mode> for Mode3_2 {
 }
 
 #[derive(Debug, Error)]
+#[error("can only be 'L'")]
+pub struct Mode3_2Error;
+
+#[derive(Debug, Error)]
 #[error("pre-3.2 $MODE must be 'L' to upgrade to 3.2 $MODE")]
 pub struct ModeUpgradeError;
 
 /// The value for the $PnDISPLAY key (3.1+)
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Display {
     /// Linear display (value like 'Linear,<lower>,<upper>')
+    #[display("Linear,{lower},{upper}")]
     Lin { lower: f32, upper: f32 },
 
     // TODO not clear if these can be <0
     /// Logarithmic display (value like 'Logarithmic,<offset>,<decades>')
+    #[display("Logarithmic,{decades},{offset}")]
     Log { offset: f32, decades: f32 },
 }
 
@@ -271,15 +255,6 @@ impl FromStr for Display {
     }
 }
 
-impl fmt::Display for Display {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Display::Lin { lower, upper } => write!(f, "Linear,{lower},{upper}"),
-            Display::Log { offset, decades } => write!(f, "Logarithmic,{decades},{offset}"),
-        }
-    }
-}
-
 #[derive(Debug, Error)]
 pub enum DisplayError {
     #[error("{0}")]
@@ -291,11 +266,14 @@ pub enum DisplayError {
 }
 
 /// The three values for the $PnDATATYPE keyword (3.2+)
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum NumType {
+    #[display("I")]
     Integer,
+    #[display("F")]
     Float,
+    #[display("D")]
     Double,
 }
 
@@ -312,26 +290,21 @@ impl FromStr for NumType {
     }
 }
 
-impl fmt::Display for NumType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            NumType::Integer => write!(f, "I"),
-            NumType::Float => write!(f, "F"),
-            NumType::Double => write!(f, "D"),
-        }
-    }
-}
 #[derive(Debug, Error)]
 #[error("must be one of 'F', 'D', or 'A'")]
 pub struct NumTypeError;
 
 /// The four allowed values for the $DATATYPE keyword.
-#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash, Debug)]
+#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AlphaNumType {
+    #[display("A")]
     Ascii,
+    #[display("I")]
     Integer,
+    #[display("F")]
     Float,
+    #[display("D")]
     Double,
 }
 
@@ -365,17 +338,6 @@ impl FromStr for AlphaNumType {
     }
 }
 
-impl fmt::Display for AlphaNumType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            AlphaNumType::Ascii => write!(f, "A"),
-            AlphaNumType::Integer => write!(f, "I"),
-            AlphaNumType::Float => write!(f, "F"),
-            AlphaNumType::Double => write!(f, "D"),
-        }
-    }
-}
-
 #[derive(Debug, Error)]
 #[error("must be one of 'I', 'F', 'D', or 'A'")]
 pub struct AlphaNumTypeError;
@@ -405,8 +367,9 @@ impl TryFrom<AlphaNumType> for NumType {
 /// The value of the $PnE key for temporal measurements (all versions)
 ///
 /// This can only be linear (0,0)
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[display("0,0")]
 pub struct TemporalScale;
 
 impl TemporalScale {
@@ -426,12 +389,6 @@ impl FromStr for TemporalScale {
     }
 }
 
-impl fmt::Display for TemporalScale {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "0,0")
-    }
-}
-
 #[derive(Debug, Error)]
 #[error("$PnE for time measurement must be '0,0' (linear)")]
 pub struct TemporalScaleError;
@@ -439,8 +396,9 @@ pub struct TemporalScaleError;
 /// The value for the $PnCALIBRATION key (3.1 only)
 ///
 /// This should be formatted like '<value>,<unit>'
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[display("{slope},{unit}")]
 pub struct Calibration3_1 {
     pub slope: PositiveFloat,
     pub unit: String,
@@ -460,12 +418,6 @@ impl FromStr for Calibration3_1 {
     }
 }
 
-impl fmt::Display for Calibration3_1 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{},{}", self.slope, self.unit)
-    }
-}
-
 #[derive(Debug, Error)]
 #[error("must be like 'f,string'")]
 pub struct CalibrationFormat3_1;
@@ -481,8 +433,9 @@ pub enum CalibrationError<C> {
 ///
 /// This should be formatted like '<value>,[<offset>,]<unit>' and differs from
 /// 3.1 with the optional inclusion of "offset" (assumed 0 if not included).
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[display("{slope},{offset},{unit}")]
 pub struct Calibration3_2 {
     pub slope: PositiveFloat,
     pub offset: f32,
@@ -509,12 +462,6 @@ impl FromStr for Calibration3_2 {
     }
 }
 
-impl fmt::Display for Calibration3_2 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{},{},{}", self.slope, self.offset, self.unit)
-    }
-}
-
 #[derive(Debug, Error)]
 #[error("must be like 'f1,[f2],string'")]
 pub struct CalibrationFormat3_2;
@@ -531,9 +478,10 @@ impl_newtype_try_from!(Wavelength, PositiveFloat, f32, RangedFloatError);
 /// The value for the $PnL key (3.1).
 ///
 /// Starting in 3.1 this is a vector rather than a scaler.
-#[derive(Clone, From, PartialEq, Debug)]
+#[derive(Clone, From, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[display("{}", (self.0).0.iter().join(","))]
 pub struct Wavelengths(pub FCSNonEmpty<PositiveFloat>);
 
 impl From<Wavelengths> for Vec<f32> {
@@ -542,12 +490,6 @@ impl From<Wavelengths> for Vec<f32> {
             .into_iter()
             .map(|x| x.into())
             .collect()
-    }
-}
-
-impl fmt::Display for Wavelengths {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", (self.0).0.iter().join(","))
     }
 }
 
@@ -660,12 +602,16 @@ impl fmt::Display for LastModified {
 pub struct LastModifiedError;
 
 /// The value for the $ORIGINALITY key (3.1+)
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Originality {
+    #[display("Original")]
     Original,
+    #[display("NonDataModified")]
     NonDataModified,
+    #[display("Appended")]
     Appended,
+    #[display("DataModified")]
     DataModified,
 }
 
@@ -680,18 +626,6 @@ impl FromStr for Originality {
             "DataModified" => Ok(Originality::DataModified),
             _ => Err(OriginalityError),
         }
-    }
-}
-
-impl fmt::Display for Originality {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let x = match self {
-            Originality::Appended => "Appended",
-            Originality::Original => "Original",
-            Originality::NonDataModified => "NonDataModified",
-            Originality::DataModified => "DataModified",
-        };
-        write!(f, "{x}")
     }
 }
 
@@ -762,18 +696,27 @@ pub enum UnicodeError {
 }
 
 /// The value of the $PnTYPE key in optical channels (3.2+)
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum OpticalType {
+    #[display("{}", FORWARD_SCATTER)]
     ForwardScatter,
+    #[display("{}", SIDE_SCATTER)]
     SideScatter,
+    #[display("{}", RAW_FLUORESCENCE)]
     RawFluorescence,
+    #[display("{}", UNMIXED_FLUORESCENCE)]
     UnmixedFluorescence,
+    #[display("{}", MASS)]
     Mass,
+    #[display("{}", ELECTRONIC_VOLUME)]
     ElectronicVolume,
+    #[display("{}", CLASSIFICATION)]
     Classification,
+    #[display("{}", INDEX)]
     Index,
     // TODO is isn't clear if this is allowed according to the standard
+    #[display("{_0}")]
     Other(String),
 }
 
@@ -810,25 +753,10 @@ impl FromStr for OpticalType {
     }
 }
 
-impl fmt::Display for OpticalType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            OpticalType::ForwardScatter => f.write_str(FORWARD_SCATTER),
-            OpticalType::SideScatter => f.write_str(SIDE_SCATTER),
-            OpticalType::RawFluorescence => f.write_str(RAW_FLUORESCENCE),
-            OpticalType::UnmixedFluorescence => f.write_str(UNMIXED_FLUORESCENCE),
-            OpticalType::Mass => f.write_str(MASS),
-            OpticalType::ElectronicVolume => f.write_str(ELECTRONIC_VOLUME),
-            OpticalType::Classification => f.write_str(CLASSIFICATION),
-            OpticalType::Index => f.write_str(INDEX),
-            OpticalType::Other(s) => write!(f, "{}", s),
-        }
-    }
-}
-
 /// The value of the $PnTYPE key in temporal channels (3.2+)
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[display("{}", TIME)]
 pub struct TemporalType;
 
 impl FromStr for TemporalType {
@@ -842,22 +770,19 @@ impl FromStr for TemporalType {
     }
 }
 
-impl fmt::Display for TemporalType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str(TIME)
-    }
-}
-
 #[derive(Debug, Error)]
 #[error("$PnTYPE for time measurement shall be 'Time' if given")]
 pub struct TemporalTypeError;
 
 /// The value of the $PnFEATURE key (3.2+)
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Feature {
+    #[display("{}", AREA)]
     Area,
+    #[display("{}", WIDTH)]
     Width,
+    #[display("{}", HEIGHT)]
     Height,
 }
 
@@ -878,23 +803,12 @@ impl FromStr for Feature {
     }
 }
 
-impl fmt::Display for Feature {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s = match self {
-            Feature::Area => AREA,
-            Feature::Width => WIDTH,
-            Feature::Height => HEIGHT,
-        };
-        f.write_str(s)
-    }
-}
-
 #[derive(Debug, Error)]
 #[error("must be one of 'Area', 'Width', or 'Height'")]
 pub struct FeatureError;
 
 /// The value of the $RnI key (all versions)
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub(crate) enum RegionGateIndex<I> {
     Univariate(I),
@@ -902,8 +816,9 @@ pub(crate) enum RegionGateIndex<I> {
 }
 
 /// The two indices of a bivariate gate
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[display("{x},{y}")]
 pub struct IndexPair<I> {
     pub x: I,
     pub y: I,
@@ -1042,27 +957,6 @@ impl<I: FromStr> FromStrDelim for RegionGateIndex<I> {
     }
 }
 
-impl<I> fmt::Display for RegionGateIndex<I>
-where
-    I: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            RegionGateIndex::Univariate(i) => write!(f, "{i}"),
-            RegionGateIndex::Bivariate(i) => i.fmt(f),
-        }
-    }
-}
-
-impl<I> fmt::Display for IndexPair<I>
-where
-    I: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{},{}", self.x, self.y)
-    }
-}
-
 #[derive(Debug, Error)]
 pub enum RegionGateIndexError<E> {
     #[error("{0}")]
@@ -1078,10 +972,12 @@ pub enum RegionGateIndexError<E> {
 )]
 pub struct RegionIndexError(NonEmpty<MeasIndex>);
 
-#[derive(Clone, Copy, From, PartialEq)]
+#[derive(Clone, Copy, From, PartialEq, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum MeasOrGateIndex {
+    #[display("P{_0}")]
     Meas(MeasIndex),
+    #[display("G{_0}")]
     Gate(GateIndex),
 }
 
@@ -1115,20 +1011,12 @@ pub enum MeasOrGateIndexError {
     Format,
 }
 
-impl fmt::Display for MeasOrGateIndex {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Meas(x) => write!(f, "P{x}"),
-            Self::Gate(x) => write!(f, "G{x}"),
-        }
-    }
-}
-
-#[derive(Clone, Copy, From, PartialEq, Into, AsMut, Debug)]
+#[derive(Clone, Copy, From, PartialEq, Into, AsMut, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[from(MeasIndex, usize)]
 #[into(MeasIndex, usize)]
+#[display("P{_0}")]
 pub struct PrefixedMeasIndex(pub MeasIndex);
 
 impl FromStr for PrefixedMeasIndex {
@@ -1146,12 +1034,6 @@ impl FromStr for PrefixedMeasIndex {
     }
 }
 
-impl fmt::Display for PrefixedMeasIndex {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "P{}", self.0)
-    }
-}
-
 #[derive(Debug, Error)]
 pub enum PrefixedMeasIndexError {
     #[error("{0}")]
@@ -1164,20 +1046,25 @@ pub enum PrefixedMeasIndexError {
 ///
 /// This is meant to be used internally to construct a higher-level abstraction
 /// over the gating keywords.
+#[derive(Display)]
 pub(crate) enum RegionWindow {
+    #[display("{_0}")]
     Univariate(UniGate),
+    #[display("{}", _0.iter().join(";"))]
     Bivariate(NonEmpty<Vertex>),
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[display("{x},{y}")]
 pub struct Vertex {
     pub x: BigDecimal,
     pub y: BigDecimal,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[display("{lower},{upper}")]
 pub struct UniGate {
     pub lower: BigDecimal,
     pub upper: BigDecimal,
@@ -1223,15 +1110,6 @@ impl FromStrDelim for RegionWindow {
             |x| UniGate::from_str_delim(x, true),
             |x| Vertex::from_str_delim(x, true),
         )
-    }
-}
-
-impl fmt::Display for RegionWindow {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Univariate(x) => x.fmt(f),
-            Self::Bivariate(xs) => write!(f, "{}", xs.iter().join(";")),
-        }
     }
 }
 
@@ -1286,18 +1164,6 @@ fn parse_pair<'a>(
     }
 }
 
-impl fmt::Display for UniGate {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{},{}", self.lower, self.upper)
-    }
-}
-
-impl fmt::Display for Vertex {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{},{}", self.x, self.y)
-    }
-}
-
 #[derive(Debug, Error)]
 pub enum GatePairError {
     #[error("{0}")]
@@ -1307,12 +1173,16 @@ pub enum GatePairError {
 }
 
 /// The value of the $GATING key (3.0-3.2)
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Gating {
+    #[display("R{_0}")]
     Region(RegionIndex),
+    #[display("(NOT {_0})")]
     Not(Box<Gating>),
+    #[display("({_0} AND {_1})")]
     And(Box<Gating>, Box<Gating>),
+    #[display("({_0} OR {_1})")]
     Or(Box<Gating>, Box<Gating>),
 }
 
@@ -1462,17 +1332,6 @@ fn tokenize_gating(s: &str) -> impl Iterator<Item = GatingToken> {
             }
         })
     })
-}
-
-impl fmt::Display for Gating {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Region(r) => write!(f, "R{r}"),
-            Self::Not(r) => write!(f, "(NOT {r})"),
-            Self::And(a, b) => write!(f, "({a} AND {b})"),
-            Self::Or(a, b) => write!(f, "({a} OR {b})"),
-        }
-    }
 }
 
 #[derive(Debug)]

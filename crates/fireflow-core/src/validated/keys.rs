@@ -27,9 +27,10 @@ use pyo3::prelude::*;
 ///
 /// These may only contain ASCII and must start with "$". The "$" is not
 /// actually stored but will be appended when converting to a ['String'].
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, AsRef)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, AsRef, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[as_ref(KeyString, str)]
+#[display("${_0}")]
 pub struct StdKey(KeyString);
 
 /// A non-standard key.
@@ -351,12 +352,6 @@ impl StdKey {
 impl NonStdKey {
     fn new(s: String) -> Self {
         Self(KeyString::new(s))
-    }
-}
-
-impl fmt::Display for StdKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "${}", self.0)
     }
 }
 

@@ -435,9 +435,11 @@ pub struct EvenFinalDelimError;
 #[error("delimiter encountered at word boundary in Primary TEXT")]
 pub struct DelimBoundError;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Display)]
 pub enum TEXTKind {
+    #[display("Primary")]
     Primary,
+    #[display("Supplemental")]
     Supplemental,
 }
 
@@ -1171,16 +1173,6 @@ impl fmt::Display for FinalDelimError {
              {s}{cont}",
             self.kind
         )
-    }
-}
-
-impl fmt::Display for TEXTKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s = match self {
-            Self::Primary => "Primary",
-            Self::Supplemental => "Supplemental",
-        };
-        f.write_str(s)
     }
 }
 

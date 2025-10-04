@@ -930,12 +930,14 @@ pub struct InnerOptical3_2 {
 }
 
 /// A scale transform derived from $PnE/$PnG.
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum ScaleTransform {
     /// A linear transform ($PnE=0,0 and $PnG=1.0 or is null)
+    #[display("Lin({_0})")]
     Lin(PositiveFloat),
     /// A log transform ($PnE!=0,0 and $PnG!=1.0 or is null)
+    #[display("Log({_0})")]
     Log(LogScale),
 }
 
@@ -6094,15 +6096,6 @@ impl Default for ScaleTransform {
     }
 }
 
-impl fmt::Display for ScaleTransform {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Lin(x) => write!(f, "Lin({x})"),
-            Self::Log(x) => write!(f, "Log({x})"),
-        }
-    }
-}
-
 impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal2_0 {
     fn convert_from_temporal(
         value: InnerTemporal3_0,
@@ -8662,7 +8655,9 @@ type LookupTEXTOffsetsResult<T> =
 #[error("$DFCiTOj keywords are set and not applicable to the target version")]
 pub struct Comp2_0TransferError;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Display)]
+#[display(bound(T: Key))]
+#[display("{} is set but is not applicable to target version", T::std())]
 pub struct UnitaryKeyLossError<T>(PhantomData<T>);
 
 impl<T> Default for UnitaryKeyLossError<T> {
@@ -8671,32 +8666,14 @@ impl<T> Default for UnitaryKeyLossError<T> {
     }
 }
 
-impl<T> fmt::Display for UnitaryKeyLossError<T>
-where
-    T: Key,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "{} is set but is not applicable to target version",
-            T::std()
-        )
-    }
-}
-
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Display)]
+#[display(bound(T: IndexedKey))]
+#[display("{} is set but is not applicable to target version", T::std(*_1))]
 pub struct IndexedKeyLossError<T>(PhantomData<T>, IndexFromOne);
 
 impl<T> IndexedKeyLossError<T> {
     pub(crate) fn new(i: IndexFromOne) -> Self {
         Self(PhantomData, i)
-    }
-}
-
-impl<T: IndexedKey> fmt::Display for IndexedKeyLossError<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let k = T::std(self.1);
-        write!(f, "{k} is set but is not applicable to target version")
     }
 }
 

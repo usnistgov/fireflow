@@ -61,7 +61,8 @@ pub struct OffsetCorrection<I, S> {
 ///
 /// Useful for bulk operations on lots of segments at once that wouldn't work
 /// if they segments were all different types.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Display)]
+#[display("segment for {region} from {src} with coords ({begin}, {end})")]
 pub(crate) struct GenericSegment {
     pub(crate) begin: u64,
     pub(crate) end: u64,
@@ -995,16 +996,6 @@ pub struct SegmentOverlapError {
     seg1: GenericSegment,
 }
 
-impl fmt::Display for GenericSegment {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "segment for {} from {} with coords ({}, {})",
-            self.region, self.src, self.begin, self.end
-        )
-    }
-}
-
 #[derive(Debug)]
 pub enum SegmentErrorKind {
     Range,
@@ -1064,7 +1055,12 @@ where
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Display)]
+#[display(bound(I: HasRegion))]
+#[display(
+    "could not obtain {} segment offset from TEXT, using offsets from HEADER",
+    I::REGION
+)]
 pub struct SegmentDefaultWarning<I>(PhantomData<I>);
 
 impl<I> Default for SegmentDefaultWarning<I> {
@@ -1073,39 +1069,17 @@ impl<I> Default for SegmentDefaultWarning<I> {
     }
 }
 
-impl<I> fmt::Display for SegmentDefaultWarning<I>
-where
-    I: HasRegion,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "could not obtain {} segment offset from TEXT, \
-             using offsets from HEADER",
-            I::REGION,
-        )
-    }
-}
-
-#[derive(Debug, Error)]
-pub struct SegmentMismatchWarning<S> {
-    header: HeaderSegment<S>,
-    text: TEXTSegment<S>,
-}
-
-impl<I> fmt::Display for SegmentMismatchWarning<I>
-where
-    I: HasRegion,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "segments differ in HEADER ({}) and TEXT ({}) for {}, using TEXT",
-            self.header.inner.as_u64().fmt_pair(),
-            self.text.inner.as_u64().fmt_pair(),
-            I::REGION,
-        )
-    }
+#[derive(Debug, Error, Display)]
+#[display(bound(I: HasRegion))]
+#[display(
+    "segments differ in HEADER ({}) and TEXT ({}) for {}, using TEXT",
+    header.inner.as_u64().fmt_pair(),
+    text.inner.as_u64().fmt_pair(),
+    I::REGION,
+)]
+pub struct SegmentMismatchWarning<I> {
+    header: HeaderSegment<I>,
+    text: TEXTSegment<I>,
 }
 
 #[derive(From, Display, Debug, Error)]

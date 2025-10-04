@@ -40,11 +40,13 @@ pub struct ByteOrd3_1(pub Endian);
 /// Endianness
 ///
 /// This is also stored in the $BYTEORD key in 3.1+
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Endian {
+    #[display("4,3,2,1")]
     Big,
     #[default]
+    #[display("1,2,3,4")]
     Little,
 }
 
@@ -67,11 +69,13 @@ pub type NoByteOrd3_1 = NoByteOrd<false>;
 ///
 /// This may also be '*' which means "delimited ASCII" which is only valid when
 /// $DATATYPE=A.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(Chars)]
 pub enum Width {
+    #[display("{_0}")]
     Fixed(BitsOrChars),
+    #[display("*")]
     Variable,
 }
 
@@ -94,7 +98,7 @@ pub enum Bytes {
 ///
 /// Subsequent operations can be used to use it as "bytes" or "characters"
 /// depending on what is needed by the column.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(Chars)]
 #[into(NonZeroU8, u8)]
@@ -465,16 +469,6 @@ impl FromStr for Endian {
     }
 }
 
-impl fmt::Display for Endian {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let x = match self {
-            Endian::Big => "4,3,2,1",
-            Endian::Little => "1,2,3,4",
-        };
-        write!(f, "{x}")
-    }
-}
-
 impl FromStr for ByteOrd2_0 {
     type Err = ParseByteOrdError;
 
@@ -507,15 +501,6 @@ impl FromStr for Width {
         match s {
             "*" => Ok(Width::Variable),
             _ => s.parse::<NonZeroU8>().map(|x| Width::Fixed(BitsOrChars(x))),
-        }
-    }
-}
-
-impl fmt::Display for Width {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Width::Fixed(x) => write!(f, "{}", x.0),
-            Width::Variable => write!(f, "*"),
         }
     }
 }

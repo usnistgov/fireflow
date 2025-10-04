@@ -36,12 +36,16 @@ pub const HEADER_LEN: u8 = 58;
 /// All FCS versions this library supports.
 ///
 /// This appears as the first 6 bytes of any valid FCS file.
-#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Version {
+    #[display("FCS2.0")]
     FCS2_0,
+    #[display("FCS3.0")]
     FCS3_0,
+    #[display("FCS3.1")]
     FCS3_1,
+    #[display("FCS3.2")]
     FCS3_2,
 }
 
@@ -432,18 +436,6 @@ impl str::FromStr for Version {
             "FCS3.2" => Ok(Self::FCS3_2),
             _ => Err(VersionError(s.as_bytes().to_vec())),
         }
-    }
-}
-
-impl fmt::Display for Version {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s = match self {
-            Version::FCS2_0 => "FCS2.0",
-            Version::FCS3_0 => "FCS3.0",
-            Version::FCS3_1 => "FCS3.1",
-            Version::FCS3_2 => "FCS3.2",
-        };
-        f.write_str(s)
     }
 }
 

@@ -7,7 +7,6 @@ use super::parser::*;
 
 use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeZone};
 use derive_more::{AsRef, Display, From, FromStr, Into};
-use std::fmt;
 use std::mem;
 use std::str::FromStr;
 use thiserror::Error;
@@ -41,8 +40,9 @@ pub struct BeginDateTime(pub FCSDateTime);
 pub struct EndDateTime(pub FCSDateTime);
 
 /// A datetime as used in the $(BEGIN|END)DATETIME keys (3.2+ only)
-#[derive(Clone, Copy, From, Into, PartialEq, Debug)]
+#[derive(Clone, Copy, From, Into, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[display("{}", _0.format("%Y-%m-%dT%H:%M:%S%.f%:z"))]
 pub struct FCSDateTime(pub DateTime<FixedOffset>);
 
 impl Datetimes {
@@ -157,12 +157,6 @@ impl FromStr for FCSDateTime {
             }
             Err(FCSDateTimeError::Other)
         }
-    }
-}
-
-impl fmt::Display for FCSDateTime {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", self.0.format("%Y-%m-%dT%H:%M:%S%.f%:z"))
     }
 }
 

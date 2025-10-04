@@ -74,8 +74,9 @@ where
 }
 
 /// A date as used in the $DATE key
-#[derive(Clone, Copy, From, Into, AsRef, PartialEq)]
+#[derive(Clone, Copy, From, Into, AsRef, PartialEq, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[display("{}", _0.format(FCS_DATE_FORMAT))]
 pub struct FCSDate(pub NaiveDate);
 
 impl<X> Timestamps<X> {
@@ -265,19 +266,14 @@ impl FromStr for FCSDate {
     }
 }
 
-impl fmt::Display for FCSDate {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", self.0.format(FCS_DATE_FORMAT))
-    }
-}
-
 #[derive(Debug, Error)]
 #[error("must be like 'dd-mmm-yyyy'")]
 pub struct FCSDateError;
 
 /// A time as used in the $BTIM/ETIM keys without seconds (2.0 only)
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[display("{}", _0.format(FCS_TIME_FORMAT))]
 pub struct FCSTime(pub NaiveTime);
 
 const FCS_TIME_FORMAT: &str = "%H:%M:%S";
@@ -289,12 +285,6 @@ impl FromStr for FCSTime {
         NaiveTime::parse_from_str(s, FCS_TIME_FORMAT)
             .map(FCSTime)
             .or(Err(FCSTimeError))
-    }
-}
-
-impl fmt::Display for FCSTime {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", self.0.format(FCS_TIME_FORMAT))
     }
 }
 

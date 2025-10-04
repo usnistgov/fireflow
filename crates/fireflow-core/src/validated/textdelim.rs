@@ -1,5 +1,5 @@
 use derive_more::Into;
-use std::fmt;
+use thiserror::Error;
 
 /// The delimiter used when writing TEXT
 #[derive(Clone, Copy, Into)]
@@ -22,13 +22,9 @@ impl TryFrom<u8> for TEXTDelim {
     }
 }
 
+#[derive(Debug, Error)]
+#[error("delimiter should be char b/t 1 and 126, got {0}")]
 pub struct TEXTDelimError(u8);
-
-impl fmt::Display for TEXTDelimError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "delimiter should be char b/t 1 and 126, got {}", self.0)
-    }
-}
 
 #[cfg(feature = "python")]
 mod python {

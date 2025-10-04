@@ -39,18 +39,14 @@ use serde::Serialize;
     Zero,
     One,
     Debug,
+    Display,
 )]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(u64, i128)]
 #[mul(forward)]
 #[from(u64, NonZeroU64)]
+#[display("{_0:0>20}")]
 pub struct UintZeroPad20(pub u64);
-
-impl fmt::Display for UintZeroPad20 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{:0>20}", self.0)
-    }
-}
 
 impl TryFrom<i128> for UintZeroPad20 {
     type Error = TryFromIntError;

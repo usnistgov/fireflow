@@ -3,8 +3,8 @@ use crate::error::*;
 use crate::text::parser::*;
 use crate::text::ranged_float::*;
 
+use derive_more::Display;
 use num_traits::identities::One;
-use std::fmt;
 use std::num::ParseFloatError;
 use std::str::FromStr;
 use thiserror::Error;
@@ -15,27 +15,24 @@ use serde::Serialize;
 /// The value for the $PnE key (all versions).
 ///
 /// Format is assumed to be 'f1,f2'
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Scale {
     /// Linear scale (ie '0,0')
+    #[display("0,0")]
     Linear,
 
     /// Log scale, where both numbers are positive
+    #[display("{_0}")]
     Log(LogScale),
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[display("{decades},{offset}")]
 pub struct LogScale {
     pub decades: PositiveFloat,
     pub offset: PositiveFloat,
-}
-
-impl fmt::Display for LogScale {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{},{}", self.decades, self.offset)
-    }
 }
 
 impl Scale {
@@ -107,15 +104,6 @@ impl FromStrDelim for Scale {
                 }
             }
             _ => Err(ScaleError::WrongFormat),
-        }
-    }
-}
-
-impl fmt::Display for Scale {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Scale::Log(x) => x.fmt(f),
-            Scale::Linear => write!(f, "0,0"),
         }
     }
 }

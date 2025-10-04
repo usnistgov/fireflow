@@ -1,9 +1,10 @@
 use crate::core::{AnyMetarootKeyLossError, IndexedKeyLossError, UnitaryKeyLossError};
 use crate::error::{BiTentative, Tentative};
+use crate::validated::keys::{IndexedKey, Key, MeasHeader};
 
 use super::index::IndexFromOne;
 
-use derive_more::{AsMut, AsRef};
+use derive_more::{AsMut, AsRef, From};
 use std::convert::Infallible;
 use std::fmt;
 use std::marker::PhantomData;
@@ -20,7 +21,7 @@ use pyo3::prelude::*;
 ///
 /// This is basically [`Option`] but more obvious in what it indicates. It also
 /// allows some nice methods to be built on top of [`Option`].
-#[derive(Debug, Clone, PartialEq, Eq, AsRef, AsMut)]
+#[derive(Debug, Clone, PartialEq, Eq, AsRef, AsMut, From)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct MaybeValue<T>(pub Option<T>);
@@ -87,7 +88,7 @@ impl MightHave for MaybeFamily {
     const INFALLABLE: bool = false;
 
     fn unwrap<T>(x: Self::Wrapper<T>) -> Result<T, Self::Wrapper<T>> {
-        x.0.ok_or(None.into())
+        x.0.ok_or(MaybeValue::default())
     }
 
     fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T> {
@@ -151,12 +152,6 @@ impl<T> From<AlwaysValue<T>> for MaybeValue<T> {
     }
 }
 
-impl<T> From<Option<T>> for MaybeValue<T> {
-    fn from(value: Option<T>) -> Self {
-        MaybeValue(value)
-    }
-}
-
 impl<T> From<MaybeValue<T>> for Option<T> {
     fn from(value: MaybeValue<T>) -> Self {
         value.0
@@ -215,7 +210,7 @@ impl<V> MaybeValue<V> {
         x
     }
 
-    pub(crate) fn check_indexed_key_transfer<E>(&self, i: IndexFromOne) -> Result<(), E>
+    pub(crate) fn check_indexed_key_transfer<E>(&self, i: impl Into<IndexFromOne>) -> Result<(), E>
     where
         E: From<IndexedKeyLossError<V>>,
     {
@@ -228,7 +223,7 @@ impl<V> MaybeValue<V> {
 
     pub(crate) fn check_indexed_key_transfer_own<E>(
         self,
-        i: IndexFromOne,
+        i: impl Into<IndexFromOne>,
         lossless: bool,
     ) -> BiTentative<(), E>
     where
@@ -250,9 +245,47 @@ impl<V> MaybeValue<V> {
     {
         let mut tnt = Tentative::default();
         if self.0.is_some() {
-            tnt.push_error_or_warning(UnitaryKeyLossError::<V>::default(), lossless);
+            tnt.push_error_or_warning(UnitaryKeyLossError::<V>::new(), lossless);
         }
         tnt
+    }
+
+    pub fn as_opt_string(&self) -> Option<String>
+    where
+        V: fmt::Display,
+    {
+        self.0.as_ref().map(|x| x.to_string())
+    }
+
+    pub(crate) fn root_kw_pair(&self) -> (String, Option<String>)
+    where
+        V: Key + fmt::Display,
+    {
+        (V::std().to_string(), self.0.as_ref().map(|s| s.to_string()))
+    }
+
+    pub(crate) fn meas_kw_triple(
+        &self,
+        i: impl Into<IndexFromOne>,
+    ) -> (MeasHeader, String, Option<String>)
+    where
+        V: IndexedKey + fmt::Display,
+    {
+        (
+            V::std_blank(),
+            V::std(i).to_string(),
+            self.0.as_ref().map(|s| s.to_string()),
+        )
+    }
+
+    pub(crate) fn meas_kw_pair(&self, i: impl Into<IndexFromOne>) -> (String, Option<String>)
+    where
+        V: IndexedKey + fmt::Display,
+    {
+        (
+            V::std(i).to_string(),
+            self.0.as_ref().map(|s| s.to_string()),
+        )
     }
 }
 
@@ -285,12 +318,6 @@ pub enum ClearOptionalOr<E> {
     #[default]
     Clear,
     Error(E),
-}
-
-impl<V: fmt::Display> MaybeValue<V> {
-    pub fn as_opt_string(&self) -> Option<String> {
-        self.0.as_ref().map(|x| x.to_string())
-    }
 }
 
 #[derive(Debug, Error)]

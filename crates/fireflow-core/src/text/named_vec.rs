@@ -1075,7 +1075,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             .unwrap()
             .both(|_| true, |(n, _)| K::as_opt(n).is_some())
         {
-            return Err(DeferredFailure::new1(SetCenterError::NoName.into()));
+            return Err(DeferredFailure::new1(SetCenterError::NoName));
         }
 
         let tnt = self
@@ -1267,7 +1267,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             .unwrap()
             .both(|_| true, |(n, _)| K::as_opt(n).is_some())
         {
-            return Err(DeferredFailure::new1(SetCenterError::NoName.into()));
+            return Err(DeferredFailure::new1(SetCenterError::NoName));
         }
         self.check_element_index(index, true)
             .map_err(SetCenterError::Index)

@@ -193,7 +193,7 @@ where
         Self::get_pair(kws)
             .map_err(|es| es.map(|e| e.into()))
             .and_then(|(y0, y1)| {
-                SpecificSegment::try_new(y0.into(), y1.into(), conf).into_mult::<ReqSegmentError>()
+                SpecificSegment::try_new(y0, y1, conf).into_mult::<ReqSegmentError>()
             })
     }
 
@@ -234,7 +234,7 @@ where
         Self::remove_pair(kws)
             .map_err(|es| es.map(|e| e.into()))
             .and_then(|(y0, y1)| {
-                SpecificSegment::try_new(y0.into(), y1.into(), conf).into_mult::<ReqSegmentError>()
+                SpecificSegment::try_new(y0, y1, conf).into_mult::<ReqSegmentError>()
             })
     }
 
@@ -255,7 +255,7 @@ where
             |f| {
                 if allow_missing {
                     let mut tnt = f.unfail_with(default.into_any());
-                    tnt.push_warning(SegmentDefaultWarning::default().into());
+                    tnt.push_warning(SegmentDefaultWarning::default());
                     Ok(tnt)
                 } else {
                     Err(f)
@@ -264,7 +264,7 @@ where
             |tnt| {
                 Ok(tnt.and_tentatively(|other| {
                     default.unless(other).map_or_else(
-                        |(s, w)| Tentative::new_either(s, vec![w], !allow_mismatch),
+                        |(s, w)| Tentative::new_either(s, [w], !allow_mismatch),
                         Tentative::new1,
                     )
                 }))
@@ -321,13 +321,10 @@ where
         Self::get_pair(kws)
             .map_err(|es| es.map(|e| e.into()))
             .and_then(|x| {
-                x.map(|(z0, z1)| SpecificSegment::try_new(z0.into(), z1.into(), conf).into_mult())
+                x.map(|(z0, z1)| SpecificSegment::try_new(z0, z1, conf).into_mult())
                     .transpose()
             })
-            .map_or_else(
-                |ws| Tentative::new(None, ws.into(), vec![]),
-                Tentative::new1,
-            )
+            .map_or_else(|ws| Tentative::new(None, ws, []), Tentative::new1)
     }
 
     fn remove_or(
@@ -356,13 +353,10 @@ where
         Self::remove_pair(kws)
             .map_err(|es| es.map(|e| e.into()))
             .and_then(|x| {
-                x.map(|(z0, z1)| SpecificSegment::try_new(z0.into(), z1.into(), conf).into_mult())
+                x.map(|(z0, z1)| SpecificSegment::try_new(z0, z1, conf).into_mult())
                     .transpose()
             })
-            .map_or_else(
-                |ws| Tentative::new(None, ws.into(), vec![]),
-                Tentative::new1,
-            )
+            .map_or_else(|ws| Tentative::new(None, ws, []), Tentative::new1)
     }
 
     fn default_or(
@@ -380,7 +374,7 @@ where
         res.and_tentatively(|other| {
             other.map_or(Tentative::new1(default.into_any()), |o| {
                 default.unless(o).map_or_else(
-                    |(s, w)| Tentative::new_either(s, vec![w], !allow_mismatch),
+                    |(s, w)| Tentative::new_either(s, [w], !allow_mismatch),
                     Tentative::new1,
                 )
             })
@@ -500,14 +494,18 @@ impl<I, S, T> Default for SpecificSegment<I, S, T> {
 }
 
 impl<I, S, T> SpecificSegment<I, S, T> {
-    fn try_new(begin: T, end: T, conf: &NewSegmentConfig<T, I, S>) -> Result<Self, SegmentError<T>>
+    fn try_new(
+        begin: impl Into<T>,
+        end: impl Into<T>,
+        conf: &NewSegmentConfig<T, I, S>,
+    ) -> Result<Self, SegmentError<T>>
     where
         I: HasRegion,
         S: HasSource,
         T: Zero + One + CheckedSub + Into<u64> + Into<i128> + TryFrom<i128> + Ord + Copy,
         u64: From<T>,
     {
-        Segment::try_new::<I, S>(begin, end, conf).map(Self::new)
+        Segment::try_new::<I, S>(begin.into(), end.into(), conf).map(Self::new)
     }
 
     pub(crate) fn try_new_with_len(
@@ -1100,7 +1098,7 @@ pub enum OptSegmentWithDefaultWarning<I> {
     Mismatch(SegmentMismatchWarning<I>),
 }
 
-#[derive(Default)]
+#[derive(Default, new)]
 pub(crate) struct NewSegmentConfig<T, I, S> {
     pub(crate) corr: OffsetCorrection<I, S>,
     pub(crate) file_len: Option<T>,

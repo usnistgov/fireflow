@@ -175,12 +175,12 @@ pub(crate) trait IndexedKey {
     const PREFIX: &'static str;
     const SUFFIX: &'static str;
 
-    fn std(i: IndexFromOne) -> StdKey {
+    fn std(i: impl Into<IndexFromOne>) -> StdKey {
         // reserve enough space for prefix, suffix, and a number with 3 digits
         let n = Self::PREFIX.len() + 3 + Self::SUFFIX.len();
         let mut s = String::with_capacity(n);
         s.push_str(Self::PREFIX);
-        s.push_str(i.to_string().as_str());
+        s.push_str(i.into().to_string().as_str());
         s.push_str(Self::SUFFIX);
         StdKey::new(s)
     }
@@ -221,15 +221,15 @@ pub(crate) trait BiIndexedKey {
     const MIDDLE: &'static str;
     const SUFFIX: &'static str;
 
-    fn std(i: IndexFromOne, j: IndexFromOne) -> StdKey {
+    fn std(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> StdKey {
         // reserve enough space for prefix, middle, suffix, and two numbers with
         // 2 digits
         let n = Self::PREFIX.len() + Self::MIDDLE.len() + Self::SUFFIX.len() + 4;
         let mut s = String::with_capacity(n);
         s.push_str(Self::PREFIX);
-        s.push_str(i.to_string().as_str());
+        s.push_str(i.into().to_string().as_str());
         s.push_str(Self::MIDDLE);
-        s.push_str(j.to_string().as_str());
+        s.push_str(j.into().to_string().as_str());
         s.push_str(Self::SUFFIX);
         StdKey::new(s)
     }
@@ -423,13 +423,13 @@ impl FromStr for NonStdMeasPattern {
 impl NonStdMeasPattern {
     pub(crate) fn apply_index(
         &self,
-        n: IndexFromOne,
+        n: impl Into<IndexFromOne> + Clone,
     ) -> Result<NonStdMeasRegex, NonStdMeasRegexError> {
         self.0
-            .replace("%n", n.to_string().as_str())
+            .replace("%n", n.clone().into().to_string().as_str())
             .as_str()
             .parse::<CaseInsRegex>()
-            .map_err(|error| NonStdMeasRegexError { error, index: n })
+            .map_err(|error| NonStdMeasRegexError::new(error, n))
             .map(NonStdMeasRegex)
     }
 }
@@ -719,10 +719,11 @@ pub enum NonStdKeyError {
 )]
 pub struct NonStdMeasPatternError(String);
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, new)]
 #[error("regexp error for measurement {index}: {error}")]
 pub struct NonStdMeasRegexError {
     error: regex::Error,
+    #[new(into)]
     index: IndexFromOne,
 }
 

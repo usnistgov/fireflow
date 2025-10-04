@@ -58,7 +58,7 @@ use crate::text::byteord::*;
 use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::*;
-use crate::text::optional::MightHave;
+use crate::text::optional::{MaybeValue, MightHave};
 use crate::text::parser::*;
 use crate::validated::ascii_range;
 use crate::validated::ascii_range::{AsciiRange, Chars};
@@ -278,10 +278,7 @@ struct ColumnWriter<'a, C, T, S> {
 
 impl<C, T, S> ColumnWriter<'_, C, T, S> {
     fn as_err(&self, i: MeasIndex) -> Option<ColumnError<AnyLossError>> {
-        self.loss.as_ref().map(|&error| ColumnError {
-            error,
-            index: i.into(),
-        })
+        self.loss.as_ref().map(|&error| ColumnError::new(i, error))
     }
 }
 
@@ -321,6 +318,7 @@ pub struct HasMeasDatatype;
 pub struct NullMeasDatatype;
 
 /// A struct whose fields map 1-1 with keyword values in one data column
+#[derive(new)]
 pub struct ColumnLayoutValues<D> {
     width: Width,
     range: Range,
@@ -384,15 +382,11 @@ pub trait MeasDatatypeDef {
         kws: &mut StdKeywords,
         i: MeasIndex,
     ) -> LookupResult<ColumnLayoutValues<Self::MeasDatatype>> {
-        let j = i.into();
-        let w = Width::lookup_req(kws, j);
-        let r = Range::lookup_req(kws, j);
+        let w = Width::lookup_req(kws, i);
+        let r = Range::lookup_req(kws, i);
         w.def_zip(r).def_and_tentatively(|(width, range)| {
-            Self::lookup_datatype(kws, i).map(|datatype| ColumnLayoutValues {
-                width,
-                range,
-                datatype,
-            })
+            Self::lookup_datatype(kws, i)
+                .map(|datatype| ColumnLayoutValues::new(width, range, datatype))
         })
     }
 
@@ -404,18 +398,14 @@ pub trait MeasDatatypeDef {
         ParseKeyError<NumTypeError>,
         RawParsedError,
     > {
-        let j = i.into();
-        let w = Width::get_meas_req(kws, j).map_err(|e| e.into());
-        let r = Range::get_meas_req(kws, j).map_err(|e| e.into());
+        let w = Width::get_meas_req(kws, i).map_err(RawParsedError::from);
+        let r = Range::get_meas_req(kws, i).map_err(RawParsedError::from);
         w.zip(r)
             .map(Tentative::new1)
             .map_err(DeferredFailure::new2)
             .def_and_tentatively(|(width, range)| {
-                Self::lookup_datatype_ro(kws, i).map(|datatype| ColumnLayoutValues {
-                    width,
-                    range,
-                    datatype,
-                })
+                Self::lookup_datatype_ro(kws, i)
+                    .map(|datatype| ColumnLayoutValues::new(width, range, datatype))
             })
     }
 }
@@ -533,10 +523,10 @@ pub trait LayoutOps<'a, T>: Sized {
                 // since nobody cares) so here we just treat them like we treat
                 // floating point types to keep the logic simple.
                 if datatype != AlphaNumType::Integer && !scale.is_noop() {
-                    Err(ColumnError {
-                        error: ScaleMismatchTransformError { datatype, scale },
-                        index: i.into(),
-                    })
+                    Err(ColumnError::new(
+                        i,
+                        ScaleMismatchTransformError { datatype, scale },
+                    ))
                 } else {
                     Ok(())
                 }
@@ -708,8 +698,8 @@ pub trait IsFixed {
 
     fn req_meas_keywords(&self, i: MeasIndex) -> [(String, String); 2] {
         [
-            Width::Fixed(self.fixed_width()).pair(i.into()),
-            self.range().pair(i.into()),
+            Width::Fixed(self.fixed_width()).pair(i),
+            self.range().pair(i),
         ]
     }
 }
@@ -1084,11 +1074,7 @@ macro_rules! impl_any_uint {
                     }
                 } else {
                     let dest_type = value.as_alpha_num_type();
-                    Err(MixedToInnerError {
-                        dest_type,
-                        src: value,
-                    }
-                    .into())
+                    Err(MixedToInnerError::new(dest_type, value).into())
                 }
             }
         }
@@ -1210,16 +1196,16 @@ impl MeasDatatypeDef for HasMeasDatatype {
         kws: &mut StdKeywords,
         i: MeasIndex,
     ) -> LookupTentative<Self::MeasDatatype, LookupKeysError> {
-        NumType::lookup_opt(kws, i.into()).map(|x| x.0)
+        NumType::lookup_opt(kws, i).map(|x| x.0)
     }
 
     fn lookup_datatype_ro(
         kws: &StdKeywords,
         i: MeasIndex,
     ) -> Tentative<Self::MeasDatatype, ParseKeyError<NumTypeError>, RawParsedError> {
-        NumType::get_meas_opt(kws, i.into())
+        NumType::get_meas_opt(kws, i)
             .map(|x| x.0)
-            .map_or_else(|e| Tentative::new(None, vec![e], vec![]), Tentative::new1)
+            .map_or_else(|e| Tentative::new(None, [e], []), Tentative::new1)
     }
 }
 
@@ -1302,10 +1288,7 @@ macro_rules! mixed_to_inner {
                 if let MixedType::$var(x) = value {
                     Ok(x)
                 } else {
-                    Err(MixedToInnerError {
-                        dest_type,
-                        src: value,
-                    })
+                    Err(MixedToInnerError::new(dest_type, value))
                 }
             }
         }
@@ -1891,28 +1874,21 @@ impl<D> EndianLayout<NullMixedType, D> {
                     .into_iter()
                     .enumerate()
                     .map(|(i, c)| {
-                        c.try_into().map_err(|e| MixedColumnConvertError {
-                            error: MixedToOrderedConvertError::from(e),
-                            index: (i + 1).into(),
-                        })
+                        c.try_into()
+                            .map_err(|e| MixedColumnConvertError::new(i + 1, e))
                     })
                     .gather()
                     .map(|xs| AnyAsciiLayout::Fixed(FixedLayout::new1(x, xs, NoByteOrd)).into()),
                 MixedType::Uint(x) => x
                     .try_into_one_size(cs, endian, 1)
                     .map(|i| i.into())
-                    .mult_map_errors(|(index, error)| MixedColumnConvertError {
-                        index,
-                        error: error.into(),
-                    }),
+                    .mult_map_errors(|(index, error)| MixedColumnConvertError::new(index, error)),
                 MixedType::F32(x) => cs
                     .into_iter()
                     .enumerate()
                     .map(|(i, c)| {
-                        c.try_into().map_err(|e| MixedColumnConvertError {
-                            error: MixedToOrderedConvertError::from(e),
-                            index: (i + 1).into(),
-                        })
+                        c.try_into()
+                            .map_err(|e| MixedColumnConvertError::new(i + 1, e))
                     })
                     .gather()
                     .map(|xs| FixedLayout::new1(x, xs, endian.into()).into()),
@@ -1920,10 +1896,8 @@ impl<D> EndianLayout<NullMixedType, D> {
                     .into_iter()
                     .enumerate()
                     .map(|(i, c)| {
-                        c.try_into().map_err(|e| MixedColumnConvertError {
-                            error: MixedToOrderedConvertError::from(e),
-                            index: (i + 1).into(),
-                        })
+                        c.try_into()
+                            .map_err(|e| MixedColumnConvertError::new(i + 1, e))
                     })
                     .gather()
                     .map(|xs| FixedLayout::new1(x, xs, endian.into()).into()),
@@ -1959,10 +1933,7 @@ impl<D> EndianLayout<NullMixedType, D> {
                     .gather()
                     .map(|xs| FixedLayout::new1(x, xs, byte_layout).into()),
             }
-            .mult_map_errors(|(i, error)| MixedColumnConvertError {
-                index: (i + 1).into(),
-                error,
-            })
+            .mult_map_errors(|(i, error)| MixedColumnConvertError::new(i + 1, error))
         } else {
             Ok(NonMixedEndianLayout::Integer(FixedLayout::new(
                 vec![],
@@ -2208,11 +2179,7 @@ fn ascii_to_uint(buf: &[u8]) -> Result<u64, AsciiToUintError> {
 
 impl From<ColumnLayoutValues3_2> for ColumnLayoutValues2_0 {
     fn from(value: ColumnLayoutValues3_2) -> Self {
-        Self {
-            width: value.width,
-            range: value.range,
-            datatype: NullMeasDatatype,
-        }
+        Self::new(value.width, value.range, NullMeasDatatype)
     }
 }
 
@@ -2252,8 +2219,8 @@ where
             .iter()
             .enumerate()
             .map(|(i, r)| {
-                let x = Width::Variable.pair(i.into());
-                let y = Range((*r).into()).pair(i.into());
+                let x = Width::Variable.pair(i);
+                let y = Range((*r).into()).pair(i);
                 [x, y]
             })
             .collect()
@@ -2287,10 +2254,7 @@ where
             .enumerate()
             .map(|(i, c)| {
                 c.check_writer::<_, _, u64>(|_| None)
-                    .map_err(|error| ColumnError {
-                        error: AnyLossError::Int(error),
-                        index: i.into(),
-                    })
+                    .map_err(|error| ColumnError::new(i, AnyLossError::Int(error)))
             })
             .gather()
             .void()
@@ -2327,10 +2291,10 @@ where
                 .into_iter()
                 .flatten()
                 .enumerate()
-                .map(|(i, w)| ColumnError::new(i.into(), AnyLossError::Ascii(LossError::Cast(w))))
+                .map(|(i, w)| ColumnError::new(i, AnyLossError::Ascii(LossError::Cast(w))))
                 .collect()
         };
-        Ok(Tentative::new((), ws, vec![]))
+        Ok(Tentative::new((), ws, []))
     }
 
     fn truncate_df<E>(
@@ -2353,12 +2317,12 @@ where
                 }
                 (
                     FCSColumn::from(cs).into(),
-                    w.map(|x| ColumnError::new(i.into(), AnyLossError::Ascii(LossError::Cast(x)))),
+                    w.map(|x| ColumnError::new(i, AnyLossError::Ascii(LossError::Cast(x)))),
                 )
             })
             .unzip();
-        let ws = warnings.into_iter().flatten().collect();
-        Tentative::new(FCSDataFrame::try_new(columns).unwrap(), ws, vec![])
+        let ws = warnings.into_iter().flatten();
+        Tentative::new(FCSDataFrame::try_new(columns).unwrap(), ws, [])
     }
 }
 
@@ -2401,10 +2365,7 @@ impl<T, D, const ORD: bool> DelimAsciiLayout<T, D, ORD> {
             .enumerate()
             .map(|(i, c)| {
                 c.check_writer::<_, _, u64>(|_| None)
-                    .map_err(|error| ColumnError {
-                        error: AnyLossError::Int(error),
-                        index: i.into(),
-                    })
+                    .map_err(|error| ColumnError::new(i, AnyLossError::Int(error)))
             })
             .gather()
             .void()
@@ -2643,10 +2604,7 @@ where
             .map(|(i, (col_type, col_data))| {
                 col_type
                     .check_writer(col_data)
-                    .map_err(|error| ColumnError {
-                        error,
-                        index: i.into(),
-                    })
+                    .map_err(|error| ColumnError::new(i, error))
             })
             .gather()
             .void()
@@ -2685,7 +2643,7 @@ where
                 .flat_map(|(i, c)| c.as_err(i.into()))
                 .collect()
         };
-        Ok(Tentative::new((), ws, vec![]))
+        Ok(Tentative::new((), ws, []))
     }
 
     fn truncate_df<E>(
@@ -2708,9 +2666,8 @@ where
         let ws = warnings
             .into_iter()
             .enumerate()
-            .flat_map(|(i, e)| e.map(|f| ColumnError::new(i.into(), f)))
-            .collect();
-        Tentative::new(FCSDataFrame::try_new(new_columns).unwrap(), ws, vec![])
+            .flat_map(|(i, e)| e.map(|f| ColumnError::new(i, f)));
+        Tentative::new(FCSDataFrame::try_new(new_columns).unwrap(), ws, [])
     }
 }
 
@@ -2799,20 +2756,8 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             .enumerate()
             .map(|(i, c)| {
                 new_col_f(c)
-                    .def_map_errors(|error| {
-                        ColumnError {
-                            error,
-                            index: i.into(),
-                        }
-                        .into()
-                    })
-                    .def_map_warnings(|error| {
-                        ColumnError {
-                            error,
-                            index: i.into(),
-                        }
-                        .into()
-                    })
+                    .def_map_errors(|error| ColumnError::new(i, error).into())
+                    .def_map_warnings(|error| ColumnError::new(i, error).into())
             })
             .gather()
             .map_err(DeferredFailure::mconcat)
@@ -3396,21 +3341,14 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
     where
         D: MeasDatatypeDef,
     {
-        let go = |error: IntRangeError<()>, i: usize| ColumnError {
-            error,
-            index: i.into(),
-        };
+        let go = |error: IntRangeError<()>, i: usize| ColumnError::new(i, error);
         if cs.iter().all(|c| c.width == Width::Variable) {
-            let ts = cs
-                .into_iter()
-                .enumerate()
-                .map(|(i, c)| {
-                    c.range
-                        .into_uint(notrunc)
-                        .map_errors(|e| go(e, i))
-                        .map_warnings(|e| go(e, i))
-                })
-                .collect();
+            let ts = cs.into_iter().enumerate().map(|(i, c)| {
+                c.range
+                    .into_uint(notrunc)
+                    .map_errors(|e| go(e, i))
+                    .map_warnings(|e| go(e, i))
+            });
             let ret = Tentative::mconcat(ts)
                 .map(|ranges| DelimAsciiLayout::new(ranges).into())
                 .map_errors(|e| e.inner_into());
@@ -3622,11 +3560,7 @@ impl VersionedDataLayout for DataLayout3_2 {
             [dt] => {
                 let ds = cs
                     .into_iter()
-                    .map(|c| ColumnLayoutValues {
-                        width: c.width,
-                        range: c.range,
-                        datatype: NullMeasDatatype,
-                    })
+                    .map(|c| ColumnLayoutValues::new(c.width, c.range, NullMeasDatatype))
                     .collect();
                 NonMixedEndianLayout::try_new(dt, endian.0, ds, conf)
                     .def_map_value(|x| Self::NonMixed(x.phantom_into::<HasMeasDatatype>()))
@@ -3651,15 +3585,15 @@ impl InterLayoutOps<HasMeasDatatype> for DataLayout3_2 {
     fn opt_meas_keywords(&self) -> Vec<Vec<(String, Option<String>)>> {
         match self {
             Self::NonMixed(x) => (0..x.ncols())
-                .map(|i| vec![NumType::pair_opt(&None.into(), i.into())])
+                .map(|i| vec![(NumType::std(i).to_string(), None)])
                 .collect(),
             Self::Mixed(x) => x
                 .columns
                 .iter()
                 .enumerate()
                 .map(|(i, c)| {
-                    let y = NumType::try_from(c.datatype()).ok();
-                    vec![NumType::pair_opt(&y.into(), i.into())]
+                    let y: Option<NumType> = NumType::try_from(c.datatype()).ok();
+                    vec![MaybeValue(y).meas_kw_pair(i)]
                 })
                 .collect(),
         }
@@ -4143,7 +4077,9 @@ pub struct AsciiLossError(Chars);
 #[derive(new, Debug, Error)]
 #[error("error when processing measurement {index}: {error}")]
 pub struct ColumnError<E> {
+    #[new(into)]
     pub index: IndexFromOne,
+    #[new(into)]
     pub error: E,
 }
 
@@ -4152,10 +4088,7 @@ impl<E> ColumnError<E> {
     where
         X: From<E>,
     {
-        ColumnError {
-            index: self.index,
-            error: self.error.into(),
-        }
+        ColumnError::new(self.index, self.error)
     }
 }
 
@@ -4308,10 +4241,12 @@ pub enum AnyRangeError {
     Float(DecimalToFloatError),
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, new)]
 #[error("mixed conversion error in column {index}: {error}")]
 pub struct MixedColumnConvertError<E> {
+    #[new(into)]
     index: MeasIndex,
+    #[new(into)]
     error: E,
 }
 
@@ -4328,7 +4263,7 @@ pub struct UintToUintError {
     to: u8,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, new)]
 #[error("could not convert mixed from {} to {dest_type}", .src.as_alpha_num_type())]
 pub struct MixedToInnerError {
     dest_type: AlphaNumType,

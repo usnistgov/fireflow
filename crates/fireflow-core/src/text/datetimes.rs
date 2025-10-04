@@ -92,15 +92,15 @@ impl Datetimes {
                 .map(Tentative::new1)
                 .unwrap_or_else(|w| {
                     let ow = LookupKeysWarning::Relation(w.into());
-                    Tentative::new(Datetimes::default(), vec![ow], vec![])
+                    Tentative::new(Datetimes::default(), [ow], [])
                 })
         })
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
-            OptMetarootKey::pair_opt(&MaybeValue(self.begin)),
-            OptMetarootKey::pair_opt(&MaybeValue(self.end)),
+            MaybeValue(self.begin).root_kw_pair(),
+            MaybeValue(self.end).root_kw_pair(),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
@@ -109,10 +109,10 @@ impl Datetimes {
     pub(crate) fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
         let mut tnt = Tentative::new1(());
         if self.begin.is_some() {
-            tnt.push_error_or_warning(UnitaryKeyLossError::<BeginDateTime>::default(), lossless);
+            tnt.push_error_or_warning(UnitaryKeyLossError::<BeginDateTime>::new(), lossless);
         }
         if self.end.is_some() {
-            tnt.push_error_or_warning(UnitaryKeyLossError::<EndDateTime>::default(), lossless);
+            tnt.push_error_or_warning(UnitaryKeyLossError::<EndDateTime>::new(), lossless);
         }
         tnt
     }

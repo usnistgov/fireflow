@@ -305,7 +305,7 @@ impl AppliedGates2_0 {
             .iter()
             .enumerate()
             .flat_map(|(i, m)| m.opt_keywords(i.into()))
-            .chain([OptMetarootKey::pair(&gate)])
+            .chain([gate.root_pair()])
             .chain(self.scheme.opt_keywords())
     }
 }
@@ -433,7 +433,7 @@ impl AppliedGates3_0 {
             .enumerate()
             .flat_map(|(i, m)| m.opt_keywords(i.into()))
             .chain(self.scheme.opt_keywords())
-            .chain(gate.map(|x| OptMetarootKey::pair(&x)))
+            .chain(gate.map(|x| OptMetarootKey::root_pair(&x)))
     }
 
     pub(crate) fn try_into_2_0(
@@ -540,7 +540,7 @@ impl GatedMeasurement {
         Self::lookup_inner(
             kws,
             i,
-            |k, j| GateScale::lookup_opt_st(k, j.into(), (), conf),
+            |k, j| GateScale::lookup_opt_st(k, j, (), conf),
             GateFilter::lookup_opt,
             GateShortname::lookup_opt,
             GatePercentEmitted::lookup_opt,
@@ -560,7 +560,7 @@ impl GatedMeasurement {
         Self::lookup_inner(
             kws,
             i,
-            |k, j| GateScale::lookup_opt_st_dep(k, j.into(), dd, (), conf),
+            |k, j| GateScale::lookup_opt_st_dep(k, j, dd, (), conf),
             |k, j| GateFilter::lookup_opt_dep(k, j, dd),
             |k, j| GateShortname::lookup_opt_dep(k, j, dd),
             |k, j| GatePercentEmitted::lookup_opt_dep(k, j, dd),
@@ -626,16 +626,15 @@ impl GatedMeasurement {
     }
 
     pub(crate) fn opt_keywords(&self, i: GateIndex) -> impl Iterator<Item = (String, String)> {
-        let j = i.into();
         [
-            OptIndexedKey::pair_opt(&self.scale, j),
-            OptIndexedKey::pair_opt(&self.filter, j),
-            OptIndexedKey::pair_opt(&self.shortname, j),
-            OptIndexedKey::pair_opt(&self.percent_emitted, j),
-            OptIndexedKey::pair_opt(&self.range, j),
-            OptIndexedKey::pair_opt(&self.longname, j),
-            OptIndexedKey::pair_opt(&self.detector_type, j),
-            OptIndexedKey::pair_opt(&self.detector_voltage, j),
+            self.scale.meas_kw_pair(i),
+            self.filter.meas_kw_pair(i),
+            self.shortname.meas_kw_pair(i),
+            self.percent_emitted.meas_kw_pair(i),
+            self.range.meas_kw_pair(i),
+            self.longname.meas_kw_pair(i),
+            self.detector_type.meas_kw_pair(i),
+            self.detector_voltage.meas_kw_pair(i),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
@@ -718,8 +717,7 @@ impl<I> GatingScheme<I> {
                     Tentative::mconcat(
                         g.region_indices()
                             .into_iter()
-                            .map(|ri| lookup_region(kws, ri).map(|x| x.0.map(|y| (ri, y))))
-                            .collect(),
+                            .map(|ri| lookup_region(kws, ri).map(|x| x.0.map(|y| (ri, y)))),
                     )
                 })
                 .unwrap_or_default()
@@ -739,7 +737,7 @@ impl<I> GatingScheme<I> {
         self.regions
             .iter()
             .flat_map(|(ri, r)| r.opt_keywords(*ri))
-            .chain(self.gating.as_ref().map(OptMetarootKey::pair))
+            .chain(self.gating.as_ref().map(OptMetarootKey::root_pair))
     }
 
     fn inner_into<J>(self) -> GatingScheme<J>
@@ -834,9 +832,8 @@ impl<I> Region<I> {
                     .map_or_else(
                         || {
                             let warn =
-                                LookupRelationalWarning::GateRegion(MismatchedIndexAndWindowError)
-                                    .into();
-                            Tentative::new(None, vec![warn], vec![])
+                                LookupRelationalWarning::GateRegion(MismatchedIndexAndWindowError);
+                            Tentative::new(None, [warn.into()], [])
                         },
                         |x| Tentative::new1(Some(x)),
                     )
@@ -849,11 +846,7 @@ impl<I> Region<I> {
         I: Copy + FromStr + fmt::Display,
     {
         let (ri, rw) = self.split();
-        [
-            OptIndexedKey::pair(&ri, i.into()),
-            OptIndexedKey::pair(&rw, i.into()),
-        ]
-        .into_iter()
+        [ri.meas_pair(i), rw.meas_pair(i)].into_iter()
     }
 
     pub(crate) fn split(&self) -> (RegionGateIndex<I>, RegionWindow)
@@ -1016,7 +1009,7 @@ impl GatedMeasurements {
     {
         lookup_gate(kws).and_tentatively(|maybe| {
             if let Some(n) = maybe.0 {
-                let xs = (0..n.0).map(|i| lookup_meas(kws, i.into(), conf)).collect();
+                let xs = (0..n.0).map(|i| lookup_meas(kws, i.into(), conf));
                 return Tentative::mconcat(xs).map(Self);
             }
             Tentative::default()

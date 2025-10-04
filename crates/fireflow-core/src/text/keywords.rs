@@ -372,11 +372,11 @@ impl TryFrom<AlphaNumType> for NumType {
 #[display("0,0")]
 pub struct TemporalScale;
 
-impl TemporalScale {
-    pub(crate) fn pair(i: IndexFromOne) -> (String, String) {
-        (Self::std(i).to_string(), Self.to_string())
-    }
-}
+// impl TemporalScale {
+//     pub(crate) fn pair(i: IndexFromOne) -> (String, String) {
+//         (Self::std(i).to_string(), Self.to_string())
+//     }
+// }
 
 impl FromStr for TemporalScale {
     type Err = TemporalScaleError;
@@ -846,10 +846,10 @@ impl<I> RegionGateIndex<I> {
         for<'a> Self: fmt::Display + FromStrStateful<Payload<'a> = ()>,
         ParseOptKeyWarning: From<<Self as FromStrStateful>::Err>,
     {
-        process_opt(Self::remove_meas_opt_st(kws, i.into(), (), conf)).and_tentatively(|maybe| {
+        process_opt(Self::remove_meas_opt_st(kws, i, (), conf)).and_tentatively(|maybe| {
             if let Some(x) = maybe.0 {
                 Self::check_link(&x, par).map_or_else(
-                    |w| Tentative::new(None, vec![w.into()], vec![]),
+                    |w| Tentative::new(None, [w.into()], []),
                     |_| Tentative::new1(Some(x)),
                 )
             } else {
@@ -872,7 +872,7 @@ impl<I> RegionGateIndex<I> {
         ParseOptKeyWarning: From<<Self as FromStrStateful>::Err>,
     {
         let mut x = Self::lookup_region_opt(kws, i, par, conf);
-        eval_dep_maybe(&mut x, Self::std(i.into()), disallow_dep);
+        eval_dep_maybe(&mut x, Self::std(i), disallow_dep);
         x
     }
 

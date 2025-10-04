@@ -206,7 +206,7 @@ impl<X> Timestamps<X> {
                 .map(Tentative::new1)
                 .unwrap_or_else(|w| {
                     let ow = LookupKeysWarning::Relation(w.into());
-                    Tentative::new(Timestamps::default(), vec![ow], vec![])
+                    Tentative::new(Timestamps::default(), [ow], [])
                 })
         })
     }
@@ -218,9 +218,9 @@ impl<X> Timestamps<X> {
         X: Copy + fmt::Display,
     {
         [
-            OptMetarootKey::pair_opt(&MaybeValue(self.btim)),
-            OptMetarootKey::pair_opt(&MaybeValue(self.etim)),
-            OptMetarootKey::pair_opt(&MaybeValue(self.date)),
+            MaybeValue(self.btim).root_kw_pair(),
+            MaybeValue(self.etim).root_kw_pair(),
+            MaybeValue(self.date).root_kw_pair(),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))

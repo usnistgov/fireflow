@@ -745,21 +745,20 @@ pub struct ParseTemporalOpticalKeyError;
 
 impl TemporalOpticalKey {
     pub(crate) fn std_key(&self, i: MeasIndex) -> keys::StdKey {
-        let j = i.into();
         match self {
-            Self::Filter => kws::Filter::std(j),
+            Self::Filter => kws::Filter::std(i),
             // ASSUME this is the same for all versions
-            Self::Wavelength => kws::Wavelength::std(j),
-            Self::Power => kws::Power::std(j),
-            Self::DetectorType => kws::DetectorType::std(j),
-            Self::DetectorVoltage => kws::DetectorVoltage::std(j),
-            Self::PercentEmitted => kws::PercentEmitted::std(j),
+            Self::Wavelength => kws::Wavelength::std(i),
+            Self::Power => kws::Power::std(i),
+            Self::DetectorType => kws::DetectorType::std(i),
+            Self::DetectorVoltage => kws::DetectorVoltage::std(i),
+            Self::PercentEmitted => kws::PercentEmitted::std(i),
             // ASSUME this is the same for all versions
-            Self::Calibration => kws::Calibration3_1::std(j),
-            Self::DetectorName => kws::DetectorName::std(j),
-            Self::Tag => kws::Tag::std(j),
-            Self::Feature => kws::Feature::std(j),
-            Self::Analyte => kws::Analyte::std(j),
+            Self::Calibration => kws::Calibration3_1::std(i),
+            Self::DetectorName => kws::DetectorName::std(i),
+            Self::Tag => kws::Tag::std(i),
+            Self::Feature => kws::Feature::std(i),
+            Self::Analyte => kws::Analyte::std(i),
         }
     }
 

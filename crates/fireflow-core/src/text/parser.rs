@@ -190,21 +190,21 @@ pub(crate) trait ReqMetarootKey: Sized + Required + Key {
 
 /// Any required key with one index
 pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
-    fn get_meas_req(kws: &StdKeywords, i: IndexFromOne) -> ReqResult<Self>
+    fn get_meas_req(kws: &StdKeywords, i: impl Into<IndexFromOne>) -> ReqResult<Self>
     where
         Self: FromStr,
     {
         Self::get_req(kws, Self::std(i))
     }
 
-    fn remove_meas_req(kws: &mut StdKeywords, i: IndexFromOne) -> ReqResult<Self>
+    fn remove_meas_req(kws: &mut StdKeywords, i: impl Into<IndexFromOne>) -> ReqResult<Self>
     where
         Self: FromStr,
     {
         Self::remove_req(kws, Self::std(i))
     }
 
-    fn lookup_req(kws: &mut StdKeywords, i: IndexFromOne) -> LookupResult<Self>
+    fn lookup_req(kws: &mut StdKeywords, i: impl Into<IndexFromOne>) -> LookupResult<Self>
     where
         Self: FromStr,
         ParseReqKeyError: From<<Self as FromStr>::Err>,
@@ -217,7 +217,7 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
 
     fn lookup_req_st(
         kws: &mut StdKeywords,
-        i: IndexFromOne,
+        i: impl Into<IndexFromOne>,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self>
@@ -231,7 +231,7 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
             .into_deferred()
     }
 
-    fn triple(&self, i: IndexFromOne) -> (MeasHeader, String, String)
+    fn triple(&self, i: impl Into<IndexFromOne>) -> (MeasHeader, String, String)
     where
         Self: fmt::Display,
     {
@@ -242,7 +242,7 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
         )
     }
 
-    fn pair(&self, i: IndexFromOne) -> (String, String)
+    fn pair(&self, i: impl Into<IndexFromOne>) -> (String, String)
     where
         Self: fmt::Display,
     {
@@ -315,17 +315,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         x
     }
 
-    fn pair_opt(opt: &MaybeValue<Self>) -> (String, Option<String>)
-    where
-        Self: fmt::Display,
-    {
-        (
-            Self::std().to_string(),
-            opt.0.as_ref().map(|s| s.to_string()),
-        )
-    }
-
-    fn pair(&self) -> (String, String)
+    fn root_pair(&self) -> (String, String)
     where
         Self: fmt::Display,
     {
@@ -335,14 +325,14 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
 
 /// Any optional key with an index
 pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
-    fn get_meas_opt(kws: &StdKeywords, i: IndexFromOne) -> OptKwResult<Self>
+    fn get_meas_opt(kws: &StdKeywords, i: impl Into<IndexFromOne>) -> OptKwResult<Self>
     where
         Self: FromStr,
     {
         Self::get_opt(kws, Self::std(i))
     }
 
-    fn remove_meas_opt(kws: &mut StdKeywords, i: IndexFromOne) -> OptKwResult<Self>
+    fn remove_meas_opt(kws: &mut StdKeywords, i: impl Into<IndexFromOne>) -> OptKwResult<Self>
     where
         Self: FromStr,
     {
@@ -351,7 +341,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
 
     fn remove_meas_opt_st(
         kws: &mut StdKeywords,
-        i: IndexFromOne,
+        i: impl Into<IndexFromOne>,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
     ) -> Result<MaybeValue<Self>, ParseKeyError<Self::Err>>
@@ -361,7 +351,10 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self::remove_opt_st(kws, Self::std(i), data, conf)
     }
 
-    fn lookup_opt<E>(kws: &mut StdKeywords, i: IndexFromOne) -> LookupTentative<MaybeValue<Self>, E>
+    fn lookup_opt<E>(
+        kws: &mut StdKeywords,
+        i: impl Into<IndexFromOne>,
+    ) -> LookupTentative<MaybeValue<Self>, E>
     where
         Self: FromStr,
         ParseOptKeyWarning: From<<Self as FromStr>::Err>,
@@ -371,7 +364,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
 
     fn lookup_opt_st<E>(
         kws: &mut StdKeywords,
-        i: IndexFromOne,
+        i: impl Into<IndexFromOne> + Copy,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<MaybeValue<Self>, E>
@@ -384,7 +377,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
 
     fn lookup_opt_dep(
         kws: &mut StdKeywords,
-        i: IndexFromOne,
+        i: impl Into<IndexFromOne> + Copy,
         disallow_dep: bool,
     ) -> LookupTentative<MaybeValue<Self>, DeprecatedError>
     where
@@ -398,7 +391,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
 
     fn lookup_opt_st_dep(
         kws: &mut StdKeywords,
-        i: IndexFromOne,
+        i: impl Into<IndexFromOne> + Copy,
         disallow_dep: bool,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
@@ -412,26 +405,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         x
     }
 
-    fn triple(opt: &MaybeValue<Self>, i: IndexFromOne) -> (MeasHeader, String, Option<String>)
-    where
-        Self: fmt::Display,
-    {
-        (
-            Self::std_blank(),
-            Self::std(i).to_string(),
-            opt.0.as_ref().map(|s| s.to_string()),
-        )
-    }
-
-    fn pair_opt(opt: &MaybeValue<Self>, i: IndexFromOne) -> (String, Option<String>)
-    where
-        Self: fmt::Display,
-    {
-        let (_, k, v) = Self::triple(opt, i);
-        (k, v)
-    }
-
-    fn pair(&self, i: IndexFromOne) -> (String, String)
+    fn meas_pair(&self, i: impl Into<IndexFromOne>) -> (String, String)
     where
         Self: fmt::Display,
     {
@@ -488,7 +462,7 @@ where
         process_opt(Self::remove_opt_st(kws, Self::std(), payload, conf)).and_tentatively(|maybe| {
             if let Some(x) = maybe.0 {
                 Self::check_link(&x, names).map_or_else(
-                    |w| Tentative::new(None, vec![w.into()], vec![]),
+                    |w| Tentative::new(None, [w.into()], []),
                     |_| Tentative::new1(Some(x)),
                 )
             } else {
@@ -496,14 +470,6 @@ where
             }
             .map(|x| x.into())
         })
-    }
-
-    // TODO not DRY
-    fn pair_opt(opt: &MaybeValue<Self>) -> (String, Option<String>) {
-        (
-            Self::std().to_string(),
-            opt.0.as_ref().map(|s| s.to_string()),
-        )
     }
 
     fn reassign(&mut self, mapping: &NameMapping);
@@ -551,12 +517,11 @@ pub(crate) fn lookup_temporal_scale_3_0(
     nonstd: &mut NonStdKeywords,
     conf: &StdTextReadConfig,
 ) -> LookupResult<TemporalScale> {
-    let j = i.into();
     if conf.force_time_linear {
-        nonstd.transfer_demoted(kws, TemporalScale::std(j));
+        nonstd.transfer_demoted(kws, TemporalScale::std(i));
         Ok(Tentative::new1(TemporalScale))
     } else {
-        TemporalScale::lookup_req(kws, j)
+        TemporalScale::lookup_req(kws, i)
     }
 }
 
@@ -566,12 +531,11 @@ pub(crate) fn lookup_temporal_gain_3_0(
     nonstd: &mut NonStdKeywords,
     conf: &StdTextReadConfig,
 ) -> LookupTentative<MaybeValue<Gain>, LookupKeysError> {
-    let j = i.into();
     if conf.ignore_time_gain {
-        nonstd.transfer_demoted(kws, Gain::std(j));
+        nonstd.transfer_demoted(kws, Gain::std(i));
         Tentative::default()
     } else {
-        let mut tnt_gain = Gain::lookup_opt(kws, j);
+        let mut tnt_gain = Gain::lookup_opt(kws, i);
         tnt_gain.eval_error(|gain| {
             if gain.0.is_some_and(|g| f32::from(g.0) != 1.0) {
                 Some(LookupKeysError::Misc(TemporalError::HasGain.into()))
@@ -817,7 +781,7 @@ pub(crate) fn eval_dep_maybe<T>(
     if disallow_dep {
         x.eval_error(|v| eval_dep(v, key));
     } else {
-        x.eval_warning(|v| eval_dep(v, key).map(|e| e.into()));
+        x.eval_warning(|v| eval_dep(v, key));
     }
 }
 

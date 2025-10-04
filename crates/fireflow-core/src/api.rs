@@ -700,7 +700,7 @@ where
                             buf.clear();
                             seg.inner
                                 .h_read_contents(h, &mut buf)
-                                .map_err(|e| DeferredFailure::new1(e.into()))?;
+                                .map_err(DeferredFailure::new1)?;
                             split_raw_supp_text(_kws, delim, &buf, conf)
                                 .inner_into()
                                 .errors_liftio()
@@ -732,7 +732,7 @@ where
 
     repair_res.def_and_tentatively(|(delimiter, kws, supp_text_seg)| {
         let mut tnt_parse = lookup_nextdata(&kws.std, conf.allow_missing_nextdata)
-            .errors_into()
+            .errors_into::<ParseRawTEXTError>()
             .map(|nextdata| RawTEXTParseData {
                 header_segments: header.segments,
                 supp_text: supp_text_seg,
@@ -749,7 +749,7 @@ where
             } else {
                 pd.non_ascii
                     .iter()
-                    .map(|(k, _)| ParseRawTEXTError::NonAscii(NonAsciiKeyError(k.clone())))
+                    .map(|(k, _)| NonAsciiKeyError(k.clone()))
                     .collect()
             }
         });
@@ -761,11 +761,9 @@ where
             } else {
                 pd.byte_pairs
                     .iter()
-                    .map(|(k, v)| {
-                        ParseRawTEXTError::NonUtf8(NonUtf8KeywordError {
-                            key: k.clone(),
-                            value: v.clone(),
-                        })
+                    .map(|(k, v)| NonUtf8KeywordError {
+                        key: k.clone(),
+                        value: v.clone(),
                     })
                     .collect()
             }
@@ -779,7 +777,6 @@ where
                 let y = pd.header_segments.overlaps_with(s).mult_errors_into();
                 x.mult_zip(y)
                     .mult_map_errors(Box::new)
-                    .mult_map_errors(ParseRawTEXTError::Header)
                     .err()
                     .map(|n| n.into())
                     .unwrap_or_default()
@@ -793,10 +790,7 @@ where
             .map(|parse| RawTEXTOutput {
                 version: header.version,
                 parse,
-                keywords: ValidKeywords {
-                    std: kws.std,
-                    nonstd: kws.nonstd,
-                },
+                keywords: ValidKeywords::new(kws.std, kws.nonstd),
             })
             .errors_liftio()
     })
@@ -813,7 +807,7 @@ fn split_first_delim<'a>(
         }
         Ok(tnt)
     } else {
-        Err(DeferredFailure::new1(EmptyTEXTError.into()))
+        Err(DeferredFailure::new1(EmptyTEXTError))
     }
 }
 
@@ -824,7 +818,7 @@ fn split_raw_primary_text(
     conf: &ReadHeaderAndTEXTConfig,
 ) -> DeferredResult<ParsedKeywords, ParseKeywordsIssue, ParsePrimaryTEXTError> {
     if bytes.is_empty() {
-        Err(DeferredFailure::new1(NoTEXTWordsError.into()))
+        Err(DeferredFailure::new1(NoTEXTWordsError))
     } else {
         Ok(split_raw_text_inner(kws, delim, bytes, TEXTKind::Primary, conf).errors_into())
     }
@@ -845,9 +839,9 @@ fn split_raw_supp_text(
                 supp: *byte0,
             };
             if conf.allow_supp_text_own_delim {
-                tnt.push_error(x.into());
+                tnt.push_error(x);
             } else {
-                tnt.push_warning(x.into());
+                tnt.push_warning(x);
             }
         }
         tnt
@@ -881,7 +875,7 @@ fn split_raw_text_literal_delim(
     let mut errors = vec![];
     let mut warnings = vec![];
 
-    let mut push_issue = |is_warning, error| {
+    let mut push_issue = |is_warning, error: ParseKeywordsIssue| {
         if is_warning {
             warnings.push(error);
         } else {
@@ -952,7 +946,7 @@ fn split_raw_text_escaped_delim(
 ) -> Tentative<ParsedKeywords, ParseKeywordsIssue, ParseKeywordsIssue> {
     let mut ews = (vec![], vec![]);
 
-    let push_issue = |_ews: &mut (Vec<_>, Vec<_>), is_warning, error| {
+    let push_issue = |_ews: &mut (Vec<_>, Vec<_>), is_warning, error: ParseKeywordsIssue| {
         let warnings = &mut _ews.0;
         let errors = &mut _ews.1;
         if is_warning {
@@ -1107,7 +1101,7 @@ where
     match version {
         Version::FCS2_0 => Tentative::new1(None),
         Version::FCS3_0 | Version::FCS3_1 => KeyedReqSegment::get_mult(kws, &seg_conf).map_or_else(
-            |es| Tentative::new_either(None, es.into(), !conf.allow_missing_supp_text),
+            |es| Tentative::new_either(None, es, !conf.allow_missing_supp_text),
             |t| Tentative::new1(Some(t)),
         ),
         Version::FCS3_2 => KeyedOptSegment::get(kws, &seg_conf).warnings_into(),
@@ -1140,12 +1134,9 @@ fn lookup_nextdata(
 ) -> Tentative<Option<u32>, ParseKeyError<ParseIntError>, ReqKeyError<ParseIntError>> {
     let k = Nextdata::std();
     if enforce {
-        get_req(kws, k).map_or_else(
-            |e| Tentative::new(None, vec![], vec![e]),
-            |t| Tentative::new1(Some(t)),
-        )
+        get_req(kws, k).into_tentative_err_opt()
     } else {
-        get_opt(kws, k).map_or_else(|w| Tentative::new(None, vec![w], vec![]), Tentative::new1)
+        get_opt(kws, k).into_tentative_warn_def()
     }
 }
 

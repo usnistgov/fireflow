@@ -1570,11 +1570,11 @@ pub struct TEXTOffsets3_0(pub TEXTOffsets<Tot>);
 pub struct TEXTOffsets3_2(pub TEXTOffsets<Tot>);
 
 impl CommonMeasurement {
-    fn lookup<E>(
+    fn lookup(
         kws: &mut StdKeywords,
         i: MeasIndex,
         nonstd: NonStdKeywords,
-    ) -> LookupTentative<Self, E> {
+    ) -> LookupTentative<Self> {
         Longname::lookup_opt(kws, i).map(|longname| Self::new(longname, nonstd))
     }
 }
@@ -1590,7 +1590,9 @@ impl<T> Temporal<T> {
         T: LookupTemporal,
     {
         T::lookup_specific(kws, i, &mut nonstd, conf).def_and_tentatively(|specific| {
-            CommonMeasurement::lookup(kws, i, nonstd).map(|common| Temporal::new(common, specific))
+            CommonMeasurement::lookup(kws, i, nonstd)
+                .map(|common| Temporal::new(common, specific))
+                .errors_into()
         })
     }
 
@@ -1674,10 +1676,12 @@ impl<O> Optical<O> {
         f.zip5(p, d, e, v)
             .errors_into()
             .and_maybe(|(f_, p_, d_, e_, v_)| {
-                CommonMeasurement::lookup(kws, i, nonstd).and_maybe(|c_| {
-                    O::lookup_specific(kws, i, conf)
-                        .def_map_value(|s_| Optical::new(c_, f_, p_, d_, e_, v_, s_))
-                })
+                CommonMeasurement::lookup(kws, i, nonstd)
+                    .errors_into()
+                    .and_maybe(|c_| {
+                        O::lookup_specific(kws, i, conf)
+                            .def_map_value(|s_| Optical::new(c_, f_, p_, d_, e_, v_, s_))
+                    })
             })
     }
 
@@ -1858,6 +1862,7 @@ where
         a.zip5(co, ce, e, f)
             .zip5(i, l, o, p)
             .zip5(sm, sr, sy, t)
+            .errors_into()
             .and_maybe(
                 |(((abrt, com, cells, exp, fil), inst, lost, op, proj), smno, src, sys, tr)| {
                     M::lookup_specific(kws, par, &names, &ordered_names, conf).def_map_value(
@@ -2599,7 +2604,10 @@ where
     ///
     /// Return error if resulting $BTIM starts after $ETIM and $DATE is
     /// specified.
-    pub fn set_btim_naive<X>(&mut self, time: Option<NaiveTime>) -> Result<(), ReversedTimestamps>
+    pub fn set_btim_naive<X>(
+        &mut self,
+        time: Option<NaiveTime>,
+    ) -> Result<(), ReversedTimestampsError>
     where
         X: PartialOrd + From<NaiveTime>,
         Metaroot<M>: AsMut<Timestamps<X>>,
@@ -2612,7 +2620,10 @@ where
     ///
     /// Return error if resulting $BTIM starts after $ETIM and $DATE is
     /// specified.
-    pub fn set_etim_naive<X>(&mut self, time: Option<NaiveTime>) -> Result<(), ReversedTimestamps>
+    pub fn set_etim_naive<X>(
+        &mut self,
+        time: Option<NaiveTime>,
+    ) -> Result<(), ReversedTimestampsError>
     where
         X: PartialOrd + From<NaiveTime>,
         Metaroot<M>: AsMut<Timestamps<X>>,
@@ -2633,7 +2644,10 @@ where
     ///
     /// Return error if resulting $BTIM starts after $ETIM and $DATE is
     /// specified.
-    pub fn set_date_naive<X>(&mut self, date: Option<NaiveDate>) -> Result<(), ReversedTimestamps>
+    pub fn set_date_naive<X>(
+        &mut self,
+        date: Option<NaiveDate>,
+    ) -> Result<(), ReversedTimestampsError>
     where
         X: PartialOrd,
         Metaroot<M>: AsMut<Timestamps<X>>,
@@ -2663,7 +2677,7 @@ where
     pub fn set_begindatetime(
         &mut self,
         date: Option<DateTime<FixedOffset>>,
-    ) -> Result<(), ReversedDatetimes>
+    ) -> Result<(), ReversedDatetimesError>
     where
         Metaroot<M>: AsMut<Datetimes>,
     {
@@ -2676,7 +2690,7 @@ where
     pub fn set_enddatetime(
         &mut self,
         date: Option<DateTime<FixedOffset>>,
-    ) -> Result<(), ReversedDatetimes>
+    ) -> Result<(), ReversedDatetimesError>
     where
         Metaroot<M>: AsMut<Datetimes>,
     {
@@ -3657,7 +3671,7 @@ where
                             && !core.measurements.is_empty()
                         {
                             let e = MissingTime(pat.clone());
-                            return Some(LookupKeysError::Misc(e.into()));
+                            return Some(LookupKeysError::WarnAsError(LookupKeysWarning::from(e)));
                         }
                         None
                     });
@@ -4581,11 +4595,11 @@ impl CoreTEXT3_2 {
 }
 
 impl UnstainedData {
-    fn lookup<E>(
+    fn lookup(
         kws: &mut StdKeywords,
         names: &HashSet<&Shortname>,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self, E> {
+    ) -> LookupTentative<Self> {
         let c = UnstainedCenters::lookup_opt_linked_st(kws, names, (), conf);
         let i = UnstainedInfo::lookup_opt(kws);
         c.zip(i)
@@ -4609,7 +4623,7 @@ impl UnstainedData {
 }
 
 impl SubsetData {
-    fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<Self, E> {
+    fn lookup(kws: &mut StdKeywords) -> LookupTentative<Self> {
         let f = CSVFlags::lookup(kws);
         let b = CSVBits::lookup_opt(kws);
         let t = CSTot::lookup_opt(kws);
@@ -4651,7 +4665,7 @@ impl TryFrom<Vec<Option<u32>>> for CSVFlags {
 }
 
 impl CSVFlags {
-    fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<MaybeValue<Self>, E> {
+    fn lookup(kws: &mut StdKeywords) -> LookupOptional<Self> {
         CSMode::lookup_opt(kws)
             .and_tentatively(|m| {
                 if let Some(n) = m.0 {
@@ -4661,9 +4675,7 @@ impl CSVFlags {
                             .into_iter()
                             .map(|x| x.0.map(|y| y.0))
                             .collect::<Vec<_>>();
-                        Self::try_from(xs)
-                            .into_tentative_warn_opt()
-                            .map_warnings(|w| LookupKeysWarning::Relation(w.into()))
+                        Self::try_from(xs).into_tentative_warn_opt().warnings_into()
                     })
                 } else {
                     Tentative::default()
@@ -4696,7 +4708,7 @@ impl CSVFlags {
 }
 
 impl ModificationData {
-    fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<Self, E> {
+    fn lookup(kws: &mut StdKeywords) -> LookupTentative<Self> {
         let lmr = LastModifier::lookup_opt(kws);
         let lmd = LastModified::lookup_opt(kws);
         let ori = Originality::lookup_opt(kws);
@@ -4725,7 +4737,7 @@ impl ModificationData {
 }
 
 impl CarrierData {
-    fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<Self, E> {
+    fn lookup(kws: &mut StdKeywords) -> LookupTentative<Self> {
         let l = Locationid::lookup_opt(kws);
         let i = Carrierid::lookup_opt(kws);
         let t = Carriertype::lookup_opt(kws);
@@ -4753,7 +4765,7 @@ impl CarrierData {
 }
 
 impl PlateData {
-    fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<Self, E> {
+    fn lookup(kws: &mut StdKeywords) -> LookupTentative<Self> {
         let w = Wellid::lookup_opt(kws);
         let n = Platename::lookup_opt(kws);
         let i = Plateid::lookup_opt(kws);
@@ -4761,10 +4773,7 @@ impl PlateData {
             .map(|(wellid, platename, plateid)| Self::new(plateid, platename, wellid))
     }
 
-    fn lookup_dep(
-        kws: &mut StdKeywords,
-        disallow_dep: bool,
-    ) -> LookupTentative<Self, DeprecatedError> {
+    fn lookup_dep(kws: &mut StdKeywords, disallow_dep: bool) -> LookupTentative<Self> {
         let w = Wellid::lookup_opt_dep(kws, disallow_dep);
         let n = Platename::lookup_opt_dep(kws, disallow_dep);
         let i = Plateid::lookup_opt_dep(kws, disallow_dep);
@@ -4791,7 +4800,7 @@ impl PlateData {
 }
 
 impl PeakData {
-    fn lookup<E>(kws: &mut StdKeywords, i: MeasIndex) -> LookupTentative<Self, E> {
+    fn lookup(kws: &mut StdKeywords, i: MeasIndex) -> LookupTentative<Self> {
         let b = PeakBin::lookup_opt(kws, i);
         let s = PeakNumber::lookup_opt(kws, i);
         b.zip(s).map(|(bin, size)| Self::new(bin, size))
@@ -4801,7 +4810,7 @@ impl PeakData {
         kws: &mut StdKeywords,
         i: MeasIndex,
         disallow_dep: bool,
-    ) -> LookupTentative<Self, DeprecatedError> {
+    ) -> LookupTentative<Self> {
         let b = PeakBin::lookup_opt_dep(kws, i, disallow_dep);
         let s = PeakNumber::lookup_opt_dep(kws, i, disallow_dep);
         b.zip(s).map(|(bin, size)| Self::new(bin, size))
@@ -5841,7 +5850,7 @@ impl ScaleTransform {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<ScaleTransform> {
-        Gain::lookup_opt(kws, i).and_maybe(|g| {
+        Gain::lookup_opt(kws, i).errors_into().and_maybe(|g| {
             Scale::lookup_req_st(kws, i, (), conf).def_and_maybe(|s| {
                 ScaleTransform::try_from((s, g))
                     .into_deferred::<_, LookupMiscError>()
@@ -6230,7 +6239,9 @@ impl LookupOptical for InnerOptical2_0 {
         let s = Scale::lookup_opt_st(kws, i, (), conf);
         let w = Wavelength::lookup_opt(kws, i);
         let p = PeakData::lookup(kws, i);
-        Ok(s.zip3(w, p).map(|(si, wi, pi)| Self::new(si, wi, pi)))
+        Ok(s.zip3(w, p)
+            .errors_into()
+            .map(|(si, wi, pi)| Self::new(si, wi, pi)))
     }
 }
 
@@ -6242,7 +6253,7 @@ impl LookupOptical for InnerOptical3_0 {
     ) -> LookupResult<Self> {
         let w = Wavelength::lookup_opt(kws, i);
         let p = PeakData::lookup(kws, i);
-        w.zip(p).and_maybe(|(wi, pi)| {
+        w.zip(p).errors_into().and_maybe(|(wi, pi)| {
             ScaleTransform::lookup(kws, i, conf).def_map_value(|s| Self::new(s, wi, pi))
         })
     }
@@ -6279,12 +6290,12 @@ impl LookupOptical for InnerOptical3_2 {
         let m = OpticalType::lookup_opt(kws, i);
         let f = Feature::lookup_opt(kws, i);
         let a = Analyte::lookup_opt(kws, i);
-        w.zip4(c, d, de)
-            .zip5(ta, m, f, a)
-            .and_maybe(|((wi, ci, di, dni), ti, mti, fi, ai)| {
+        w.zip4(c, d, de).zip5(ta, m, f, a).errors_into().and_maybe(
+            |((wi, ci, di, dni), ti, mti, fi, ai)| {
                 ScaleTransform::lookup(kws, i, conf)
                     .def_map_value(|s| Self::new(s, wi, ci, di, ai, fi, mti, ti, dni))
-            })
+            },
+        )
     }
 }
 
@@ -6303,7 +6314,9 @@ impl LookupTemporal for InnerTemporal2_0 {
         };
         let p = PeakData::lookup(kws, i);
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, kws, nonstd, i);
-        Ok(s.zip(p).map(|(scale, peak)| Self::new(scale, peak)))
+        Ok(s.zip(p)
+            .errors_into()
+            .map(|(scale, peak)| Self::new(scale, peak)))
     }
 }
 
@@ -6317,7 +6330,7 @@ impl LookupTemporal for InnerTemporal3_0 {
         let g = lookup_temporal_gain_3_0(kws, i, nonstd, conf);
         let p = PeakData::lookup(kws, i);
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, kws, nonstd, i);
-        g.zip(p).and_maybe(|(_, peak)| {
+        g.zip(p).errors_into().and_maybe(|(_, peak)| {
             let s = lookup_temporal_scale_3_0(kws, i, nonstd, conf);
             let t = Timestep::lookup_req(kws);
             s.def_zip(t)
@@ -6337,7 +6350,7 @@ impl LookupTemporal for InnerTemporal3_1 {
         let d = Display::lookup_opt(kws, i);
         let p = PeakData::lookup_dep(kws, i, conf.disallow_deprecated).errors_into();
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, kws, nonstd, i);
-        g.zip3(d, p).and_maybe(|(_, di, pi)| {
+        g.zip3(d, p).errors_into().and_maybe(|(_, di, pi)| {
             let s = lookup_temporal_scale_3_0(kws, i, nonstd, conf);
             let t = Timestep::lookup_req(kws);
             s.def_zip(t).def_map_value(|(_, ti)| Self::new(ti, di, pi))
@@ -6356,7 +6369,7 @@ impl LookupTemporal for InnerTemporal3_2 {
         let d = Display::lookup_opt(kws, i);
         let m = TemporalType::lookup_opt(kws, i);
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, kws, nonstd, i);
-        g.zip3(d, m).and_maybe(|(_, di, mti)| {
+        g.zip3(d, m).errors_into().and_maybe(|(_, di, mti)| {
             let s = lookup_temporal_scale_3_0(kws, i, nonstd, conf);
             let t = Timestep::lookup_req(kws);
             s.def_zip(t).def_map_value(|(_, ti)| Self::new(ti, di, mti))
@@ -7071,7 +7084,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         kws: &mut StdKeywords,
         i: MeasIndex,
     ) -> LookupResult<<Self::Name as MightHave>::Wrapper<Shortname>> {
-        Ok(Shortname::lookup_opt(kws, i))
+        Ok(Shortname::lookup_opt(kws, i).errors_into())
     }
 
     fn lookup_specific(
@@ -7098,7 +7111,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         kws: &mut StdKeywords,
         i: MeasIndex,
     ) -> LookupResult<<Self::Name as MightHave>::Wrapper<Shortname>> {
-        Ok(Shortname::lookup_opt(kws, i))
+        Ok(Shortname::lookup_opt(kws, i).errors_into())
     }
 
     fn lookup_specific(
@@ -7115,12 +7128,12 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         let t = Timestamps::lookup(kws, conf);
         let u = Unicode::lookup_opt_st(kws, (), conf);
         let g = AppliedGates3_0::lookup(kws, par, conf);
-        co.zip4(cy, sn, su)
-            .zip4(t, u, g)
-            .and_maybe(|((co_, cy_, sn_, su_), t_, u_, ag_)| {
+        co.zip4(cy, sn, su).zip4(t, u, g).errors_into().and_maybe(
+            |((co_, cy_, sn_, su_), t_, u_, ag_)| {
                 Mode::lookup_req(kws)
                     .def_map_value(|mo_| Self::new(mo_, cy_, co_, t_, sn_, u_, su_, ag_))
-            })
+            },
+        )
     }
 }
 
@@ -7153,13 +7166,14 @@ impl LookupMetaroot for InnerMetaroot3_1 {
             Mode::Uncorrelated => Some(DeprecatedError::Value(DepValueWarning::ModeUncorrelated)),
             Mode::List => None,
         };
-        cy.zip5(sp, sn, su, md).zip5(p, t, v, g).and_maybe(
-            |((c_, sp_, sn_, su_, md_), p_, t_, v_, ag_)| {
+        cy.zip5(sp, sn, su, md)
+            .zip5(p, t, v, g)
+            .errors_into()
+            .and_maybe(|((c_, sp_, sn_, su_, md_), p_, t_, v_, ag_)| {
                 let mut mo = Mode::lookup_req(kws);
                 mo.def_eval_warning(mode_dep);
                 mo.def_map_value(|mo_| Self::new(mo_, c_, t_, sn_, sp_, md_, p_, v_, su_, ag_))
-            },
-        )
+            })
     }
 }
 
@@ -8182,7 +8196,7 @@ pub enum LookupAndReadDataAnalysisWarning {
 
 #[derive(From, Display, Debug, Error)]
 pub enum LookupTEXTOffsetsWarning {
-    Tot(ParseKeyError<std::num::ParseIntError>),
+    Tot(OptKeyError<std::num::ParseIntError>),
     ReqData(ReqSegmentWithDefaultWarning<DataSegmentId>),
     ReqAnalysis(ReqSegmentWithDefaultWarning<AnalysisSegmentId>),
     MismatchAnalysis(OptSegmentWithDefaultWarning<AnalysisSegmentId>),
@@ -8207,8 +8221,8 @@ pub enum NewCoreError {
 #[derive(From, Display, Debug, Error)]
 pub enum NewCoreTEXTError {
     Core(NewCoreError),
-    Timestamps(ReversedTimestamps),
-    Datetimes(ReversedDatetimes),
+    Timestamps(ReversedTimestampsError),
+    Datetimes(ReversedDatetimesError),
 }
 
 type LookupTEXTOffsetsResult<T> =

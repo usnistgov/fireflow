@@ -339,15 +339,12 @@ pub trait ColumnFamily {
 pub trait MeasDatatypeDef {
     type MeasDatatype;
 
-    fn lookup_datatype(
-        kws: &mut StdKeywords,
-        i: MeasIndex,
-    ) -> LookupTentative<Self::MeasDatatype, LookupKeysError>;
+    fn lookup_datatype(kws: &mut StdKeywords, i: MeasIndex) -> LookupTentative<Self::MeasDatatype>;
 
     fn lookup_datatype_ro(
         kws: &StdKeywords,
         i: MeasIndex,
-    ) -> Tentative<Self::MeasDatatype, ParseKeyError<NumTypeError>, RawParsedError>;
+    ) -> Tentative<Self::MeasDatatype, OptKeyError<NumTypeError>, RawParsedError>;
 
     fn lookup_all(
         kws: &mut StdKeywords,
@@ -364,7 +361,7 @@ pub trait MeasDatatypeDef {
         kws: &StdKeywords,
     ) -> DeferredResult<
         Vec<ColumnLayoutValues<Self::MeasDatatype>>,
-        ParseKeyError<NumTypeError>,
+        OptKeyError<NumTypeError>,
         RawParsedError,
     > {
         Par::get_metaroot_req(kws)
@@ -387,6 +384,7 @@ pub trait MeasDatatypeDef {
         w.def_zip(r).def_and_tentatively(|(width, range)| {
             Self::lookup_datatype(kws, i)
                 .map(|datatype| ColumnLayoutValues::new(width, range, datatype))
+                .errors_into()
         })
     }
 
@@ -395,7 +393,7 @@ pub trait MeasDatatypeDef {
         i: MeasIndex,
     ) -> DeferredResult<
         ColumnLayoutValues<Self::MeasDatatype>,
-        ParseKeyError<NumTypeError>,
+        OptKeyError<NumTypeError>,
         RawParsedError,
     > {
         let w = Width::get_meas_req(kws, i).map_err(RawParsedError::from);
@@ -1174,17 +1172,14 @@ impl<'a> From<ColumnWriter<'a, F64Range, f64, Endian>> for WriterMixedType<'a> {
 impl MeasDatatypeDef for NoMeasDatatype {
     type MeasDatatype = NullMeasDatatype;
 
-    fn lookup_datatype(
-        _: &mut StdKeywords,
-        _: MeasIndex,
-    ) -> LookupTentative<Self::MeasDatatype, LookupKeysError> {
+    fn lookup_datatype(_: &mut StdKeywords, _: MeasIndex) -> LookupTentative<Self::MeasDatatype> {
         Tentative::new1(NullMeasDatatype)
     }
 
     fn lookup_datatype_ro(
         _: &StdKeywords,
         _: MeasIndex,
-    ) -> Tentative<Self::MeasDatatype, ParseKeyError<NumTypeError>, RawParsedError> {
+    ) -> Tentative<Self::MeasDatatype, OptKeyError<NumTypeError>, RawParsedError> {
         Tentative::new1(NullMeasDatatype)
     }
 }
@@ -1192,17 +1187,14 @@ impl MeasDatatypeDef for NoMeasDatatype {
 impl MeasDatatypeDef for HasMeasDatatype {
     type MeasDatatype = Option<NumType>;
 
-    fn lookup_datatype(
-        kws: &mut StdKeywords,
-        i: MeasIndex,
-    ) -> LookupTentative<Self::MeasDatatype, LookupKeysError> {
+    fn lookup_datatype(kws: &mut StdKeywords, i: MeasIndex) -> LookupTentative<Self::MeasDatatype> {
         NumType::lookup_opt(kws, i).map(|x| x.0)
     }
 
     fn lookup_datatype_ro(
         kws: &StdKeywords,
         i: MeasIndex,
-    ) -> Tentative<Self::MeasDatatype, ParseKeyError<NumTypeError>, RawParsedError> {
+    ) -> Tentative<Self::MeasDatatype, OptKeyError<NumTypeError>, RawParsedError> {
         NumType::get_meas_opt(kws, i)
             .map(|x| x.0)
             .map_or_else(|e| Tentative::new(None, [e], []), Tentative::new1)
@@ -4032,7 +4024,7 @@ pub enum NewDataReaderError {
 #[derive(From, Display)]
 pub enum NewDataReaderWarning {
     TotMismatch(TotEventMismatch),
-    ParseTot(ParseKeyError<ParseIntError>),
+    ParseTot(OptKeyError<ParseIntError>),
     Layout(ColumnError<IntRangeError<()>>),
     Width(UnevenEventWidth),
     Segment(ReqSegmentWithDefaultWarning<DataSegmentId>),
@@ -4117,7 +4109,7 @@ pub enum RawToLayoutError {
 #[derive(From, Display, Debug, Error)]
 pub enum RawToLayoutWarning {
     New(ColumnError<NewMixedTypeWarning>),
-    Raw(ParseKeyError<NumTypeError>),
+    Raw(OptKeyError<NumTypeError>),
 }
 
 #[derive(From, Display, Debug, Error)]

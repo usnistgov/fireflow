@@ -71,10 +71,7 @@ pub(crate) trait Required {
         Self: FromStr,
     {
         match kws.remove(&k) {
-            Some(v) => v
-                .parse()
-                .map_err(|error| ParseKeyError::new(error, k, v))
-                .map_err(ReqKeyError::Parse),
+            Some(v) => v.parse().map_err(|e| ParseKeyError::new(e, k, v).into()),
             None => Err(ReqKeyError::Missing(k)),
         }
     }
@@ -90,8 +87,7 @@ pub(crate) trait Required {
     {
         match kws.remove(&k) {
             Some(v) => Self::from_str_st(v.as_str(), data, conf)
-                .map_err(|error| ParseKeyError::new(error, k, v))
-                .map_err(ReqKeyError::Parse),
+                .map_err(|e| ParseKeyError::new(e, k, v).into()),
             None => Err(ReqKeyError::Missing(k)),
         }
     }
@@ -109,12 +105,12 @@ pub(crate) trait Optional {
     fn remove_opt(
         kws: &mut StdKeywords,
         k: StdKey,
-    ) -> Result<MaybeValue<Self>, ParseKeyError<Self::Err>>
+    ) -> Result<MaybeValue<Self>, OptKeyError<Self::Err>>
     where
         Self: FromStr,
     {
         kws.remove(&k)
-            .map(|v| v.parse().map_err(|error| ParseKeyError::new(error, k, v)))
+            .map(|v| v.parse().map_err(|e| OptKeyError::new(e, k, v)))
             .transpose()
             .map(|x| x.into())
     }
@@ -124,14 +120,13 @@ pub(crate) trait Optional {
         k: StdKey,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
-    ) -> Result<MaybeValue<Self>, ParseKeyError<Self::Err>>
+    ) -> Result<MaybeValue<Self>, OptKeyError<Self::Err>>
     where
         Self: FromStrStateful,
     {
         kws.remove(&k)
             .map(|v| {
-                Self::from_str_st(v.as_str(), data, conf)
-                    .map_err(|error| ParseKeyError::new(error, k, v))
+                Self::from_str_st(v.as_str(), data, conf).map_err(|e| OptKeyError::new(e, k, v))
             })
             .transpose()
             .map(|x| x.into())
@@ -267,33 +262,30 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self::remove_opt(kws, Self::std())
     }
 
-    fn lookup_opt<E>(kws: &mut StdKeywords) -> LookupTentative<MaybeValue<Self>, E>
+    fn lookup_opt(kws: &mut StdKeywords) -> LookupOptional<Self>
     where
         Self: FromStr,
-        ParseOptKeyWarning: From<<Self as FromStr>::Err>,
+        ParseOptKeyError: From<<Self as FromStr>::Err>,
     {
         process_opt(Self::remove_metaroot_opt(kws))
     }
 
-    fn lookup_opt_st<E>(
+    fn lookup_opt_st(
         kws: &mut StdKeywords,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<MaybeValue<Self>, E>
+    ) -> LookupOptional<Self>
     where
         Self: FromStrStateful,
-        ParseOptKeyWarning: From<<Self as FromStrStateful>::Err>,
+        ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
         process_opt(Self::remove_opt_st(kws, Self::std(), data, conf))
     }
 
-    fn lookup_opt_dep(
-        kws: &mut StdKeywords,
-        disallow_dep: bool,
-    ) -> LookupTentative<MaybeValue<Self>, DeprecatedError>
+    fn lookup_opt_dep(kws: &mut StdKeywords, disallow_dep: bool) -> LookupOptional<Self>
     where
         Self: FromStr,
-        ParseOptKeyWarning: From<<Self as FromStr>::Err>,
+        ParseOptKeyError: From<<Self as FromStr>::Err>,
     {
         let mut x = Self::lookup_opt(kws);
         eval_dep_maybe(&mut x, Self::std(), disallow_dep);
@@ -305,10 +297,10 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         disallow_dep: bool,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<MaybeValue<Self>, DeprecatedError>
+    ) -> LookupOptional<Self>
     where
         Self: FromStrStateful,
-        ParseOptKeyWarning: From<<Self as FromStrStateful>::Err>,
+        ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
         let mut x = Self::lookup_opt_st(kws, data, conf);
         eval_dep_maybe(&mut x, Self::std(), disallow_dep);
@@ -344,33 +336,30 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         i: impl Into<IndexFromOne>,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
-    ) -> Result<MaybeValue<Self>, ParseKeyError<Self::Err>>
+    ) -> Result<MaybeValue<Self>, OptKeyError<Self::Err>>
     where
         Self: FromStrStateful,
     {
         Self::remove_opt_st(kws, Self::std(i), data, conf)
     }
 
-    fn lookup_opt<E>(
-        kws: &mut StdKeywords,
-        i: impl Into<IndexFromOne>,
-    ) -> LookupTentative<MaybeValue<Self>, E>
+    fn lookup_opt(kws: &mut StdKeywords, i: impl Into<IndexFromOne>) -> LookupOptional<Self>
     where
         Self: FromStr,
-        ParseOptKeyWarning: From<<Self as FromStr>::Err>,
+        ParseOptKeyError: From<<Self as FromStr>::Err>,
     {
         process_opt(Self::remove_meas_opt(kws, i))
     }
 
-    fn lookup_opt_st<E>(
+    fn lookup_opt_st(
         kws: &mut StdKeywords,
         i: impl Into<IndexFromOne> + Copy,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<MaybeValue<Self>, E>
+    ) -> LookupOptional<Self>
     where
         Self: FromStrStateful,
-        ParseOptKeyWarning: From<<Self as FromStrStateful>::Err>,
+        ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
         process_opt(Self::remove_opt_st(kws, Self::std(i), data, conf))
     }
@@ -379,10 +368,10 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         kws: &mut StdKeywords,
         i: impl Into<IndexFromOne> + Copy,
         disallow_dep: bool,
-    ) -> LookupTentative<MaybeValue<Self>, DeprecatedError>
+    ) -> LookupOptional<Self>
     where
         Self: FromStr,
-        ParseOptKeyWarning: From<<Self as FromStr>::Err>,
+        ParseOptKeyError: From<<Self as FromStr>::Err>,
     {
         let mut x = Self::lookup_opt(kws, i);
         eval_dep_maybe(&mut x, Self::std(i), disallow_dep);
@@ -395,10 +384,10 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         disallow_dep: bool,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<MaybeValue<Self>, DeprecatedError>
+    ) -> LookupOptional<Self>
     where
         Self: FromStrStateful,
-        ParseOptKeyWarning: From<<Self as FromStrStateful>::Err>,
+        ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
         let mut x = Self::lookup_opt_st(kws, i, data, conf);
         eval_dep_maybe(&mut x, Self::std(i), disallow_dep);
@@ -431,7 +420,7 @@ where
     // fn lookup_opt_linked<E>(
     //     kws: &mut StdKeywords,
     //     names: &HashSet<&Shortname>,
-    // ) -> LookupTentative<MaybeValue<Self>, E>
+    // ) -> LookupOptional<Self, E>
     // where
     //     ParseOptKeyWarning: From<<Self as FromStr>::Err>,
     // {
@@ -448,15 +437,15 @@ where
     //     })
     // }
 
-    fn lookup_opt_linked_st<E, P>(
+    fn lookup_opt_linked_st<P>(
         kws: &mut StdKeywords,
         names: &HashSet<&Shortname>,
         payload: P,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<MaybeValue<Self>, E>
+    ) -> LookupOptional<Self>
     where
         for<'a> Self: FromStrStateful<Payload<'a> = P>,
-        ParseOptKeyWarning: From<<Self as FromStrStateful>::Err>,
+        ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
         // TODO not dry
         process_opt(Self::remove_opt_st(kws, Self::std(), payload, conf)).and_tentatively(|maybe| {
@@ -499,7 +488,7 @@ where
     kws.get(&k)
         .map(|v| {
             v.parse()
-                .map_err(|error| ParseKeyError::new(error, k, v.clone()))
+                .map_err(|error| OptKeyError::new(error, k, v.clone()))
         })
         .transpose()
 }
@@ -530,7 +519,7 @@ pub(crate) fn lookup_temporal_gain_3_0(
     i: MeasIndex,
     nonstd: &mut NonStdKeywords,
     conf: &StdTextReadConfig,
-) -> LookupTentative<MaybeValue<Gain>, LookupKeysError> {
+) -> LookupOptional<Gain> {
     if conf.ignore_time_gain {
         nonstd.transfer_demoted(kws, Gain::std(i));
         Tentative::default()
@@ -538,7 +527,7 @@ pub(crate) fn lookup_temporal_gain_3_0(
         let mut tnt_gain = Gain::lookup_opt(kws, i);
         tnt_gain.eval_error(|gain| {
             if gain.0.is_some_and(|g| f32::from(g.0) != 1.0) {
-                Some(LookupKeysError::Misc(TemporalError::HasGain.into()))
+                Some(TemporalGainError)
             } else {
                 None
             }
@@ -548,10 +537,10 @@ pub(crate) fn lookup_temporal_gain_3_0(
 }
 
 pub(crate) fn process_opt<V, E, W>(
-    res: Result<MaybeValue<V>, ParseKeyError<W>>,
+    res: Result<MaybeValue<V>, OptKeyError<W>>,
 ) -> Tentative<MaybeValue<V>, LookupKeysWarning, E>
 where
-    ParseOptKeyWarning: From<W>,
+    ParseOptKeyError: From<W>,
 {
     res.into_tentative_warn_def()
         .map_warnings(|w| LookupKeysWarning::Parse(w.inner_into()))
@@ -561,27 +550,37 @@ pub(crate) type RawKeywords = HashMap<String, String>;
 
 pub(crate) type ReqResult<T> = Result<T, ReqKeyError<<T as FromStr>::Err>>;
 pub(crate) type ReqStResult<T> = Result<T, ReqKeyError<<T as FromStrStateful>::Err>>;
-pub(crate) type OptResult<T> = Result<Option<T>, ParseKeyError<<T as FromStr>::Err>>;
-pub(crate) type OptKwResult<T> = Result<MaybeValue<T>, ParseKeyError<<T as FromStr>::Err>>;
+pub(crate) type OptResult<T> = Result<Option<T>, OptKeyError<<T as FromStr>::Err>>;
+pub(crate) type OptKwResult<T> = Result<MaybeValue<T>, OptKeyError<<T as FromStr>::Err>>;
 
 pub(crate) type LookupResult<V> = DeferredResult<V, LookupKeysWarning, LookupKeysError>;
-pub(crate) type LookupTentative<V, E> = Tentative<V, LookupKeysWarning, E>;
-pub(crate) type LookupOptional<V, E> = Tentative<MaybeValue<V>, LookupKeysWarning, E>;
+pub(crate) type LookupTentative<V> = BiTentative<V, LookupKeysWarning>;
+pub(crate) type LookupOptional<V> = LookupTentative<MaybeValue<V>>;
 
 // TODO this could be nested better
 #[derive(From, Display, Debug, Error)]
 pub enum LookupKeysError {
     Parse(Box<ReqKeyError<ParseReqKeyError>>),
-    Dep(DeprecatedError),
     Misc(LookupMiscError),
+    WarnAsError(LookupKeysWarning),
 }
 
 #[derive(From, Display, Debug, Error)]
 pub enum LookupKeysWarning {
-    Parse(ParseKeyError<ParseOptKeyWarning>),
-    Relation(LookupRelationalWarning),
+    Parse(OptKeyError<ParseOptKeyError>),
+    Timestamp(ReversedTimestampsError),
+    Datetime(ReversedDatetimesError),
+    CompShape(NewCompError),
+    CSVFlag(NewCSVFlagsError),
+    GateRegion(gating::MismatchedIndexAndWindowError),
+    GateMeasLink(gating::GateMeasurementLinkError),
+    GatingScheme(gating::NewGatingSchemeError),
+    Spillover(SpilloverIndexError),
     LinkedName(LinkedNameError),
     LinkedIndex(RegionIndexError),
+    TemporalGain(TemporalGainError),
+    TemporalLinear(TemporalNonLinearError),
+    MissingTime(MissingTime),
     Dep(DeprecatedError),
 }
 
@@ -609,7 +608,7 @@ pub enum ParseReqKeyError {
 
 /// Error encountered when parsing an optional key from a string
 #[derive(From, Display, Debug, Error)]
-pub enum ParseOptKeyWarning {
+pub enum ParseOptKeyError {
     NumType(NumTypeError),
     Trigger(TriggerError),
     Scale(ScaleError),
@@ -649,10 +648,7 @@ pub enum ParseOptKeyWarning {
 /// Misc errors encountered when looking up keywords for standardization
 #[derive(From, Display, Debug, Error)]
 pub enum LookupMiscError {
-    // TODO this should be a configurable warning
-    Temporal(TemporalError),
     NamedVec(NewNamedVecError),
-    MissingTime(MissingTime),
     InvalidScale(ScaleTransformError),
 }
 
@@ -661,29 +657,14 @@ pub enum LookupMiscError {
 #[error("Could not find time measurement matching {0}")]
 pub struct MissingTime(pub TimeMeasNamePattern);
 
-/// Errors triggered when time measurement keyword value is invalid
-// TODO add other optical keywords that shouldn't be set for time.
 // TODO include meas idx here
 #[derive(Debug, Error)]
-pub enum TemporalError {
-    #[error("$PnE must be '0,0' for temporal measurement")]
-    NonLinear,
-    #[error("$PnG must be 1.0 or not set for temporal measurement")]
-    HasGain,
-}
+#[error("$PnG must be 1.0 or not set for temporal measurement")]
+pub struct TemporalGainError;
 
-/// Error encountered when relation between two or more keys is invalid
-#[derive(From, Display, Debug, Error)]
-pub enum LookupRelationalWarning {
-    Timestamp(ReversedTimestamps),
-    Datetime(ReversedDatetimes),
-    CompShape(NewCompError),
-    CSVFlag(NewCSVFlagsError),
-    GateRegion(gating::MismatchedIndexAndWindowError),
-    GateMeasLink(gating::GateMeasurementLinkError),
-    GatingScheme(gating::NewGatingSchemeError),
-    Spillover(SpilloverIndexError),
-}
+#[derive(Debug, Error)]
+#[error("$PnE must be '0,0' for temporal measurement")]
+pub struct TemporalNonLinearError;
 
 /// Error/warning triggered when encountering a key which is deprecated
 #[derive(Debug, Error)]
@@ -714,6 +695,7 @@ pub struct UnusedStandardError(pub StdKey);
 #[derive(new, Debug, Error)]
 #[error("{error} (key='{key}', value='{value}')")]
 pub struct ParseKeyError<E> {
+    #[new(into)]
     pub error: E,
     pub key: StdKey,
     pub value: String,
@@ -724,26 +706,11 @@ impl<E> ParseKeyError<E> {
     where
         F: From<E>,
     {
-        ParseKeyError {
-            error: self.error.into(),
-            key: self.key,
-            value: self.value,
-        }
-    }
-
-    pub fn with_error<F, X>(self, f: F) -> Result<X, Self>
-    where
-        F: FnOnce(E) -> Result<X, E>,
-    {
-        f(self.error).map_err(|error| Self {
-            error,
-            key: self.key,
-            value: self.value,
-        })
+        ParseKeyError::new(self.error, self.key, self.value)
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(From, Debug, Error)]
 pub enum ReqKeyError<E> {
     #[error("{0}")]
     Parse(ParseKeyError<E>),
@@ -751,33 +718,21 @@ pub enum ReqKeyError<E> {
     Missing(StdKey),
 }
 
+pub type OptKeyError<E> = ParseKeyError<E>;
+
 impl<E> ReqKeyError<E> {
     pub fn inner_into<F>(self) -> ReqKeyError<F>
     where
         F: From<E>,
     {
         match self {
-            ReqKeyError::Parse(e) => ReqKeyError::Parse(e.inner_into()),
-            ReqKeyError::Missing(e) => ReqKeyError::Missing(e),
-        }
-    }
-
-    pub fn with_parse_error<F, X>(self, f: F) -> Result<X, Self>
-    where
-        F: FnOnce(E) -> Result<X, E>,
-    {
-        match self {
-            ReqKeyError::Parse(p) => p.with_error(f).map_err(ReqKeyError::Parse),
-            ReqKeyError::Missing(m) => Err(ReqKeyError::Missing(m)),
+            Self::Parse(e) => ReqKeyError::Parse(e.inner_into()),
+            Self::Missing(e) => ReqKeyError::Missing(e),
         }
     }
 }
 
-pub(crate) fn eval_dep_maybe<T>(
-    x: &mut LookupTentative<MaybeValue<T>, DeprecatedError>,
-    key: StdKey,
-    disallow_dep: bool,
-) {
+pub(crate) fn eval_dep_maybe<T>(x: &mut LookupOptional<T>, key: StdKey, disallow_dep: bool) {
     if disallow_dep {
         x.eval_error(|v| eval_dep(v, key));
     } else {

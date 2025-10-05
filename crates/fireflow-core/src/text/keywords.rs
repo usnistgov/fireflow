@@ -835,16 +835,16 @@ impl<I> IndexPair<I> {
 }
 
 impl<I> RegionGateIndex<I> {
-    pub(crate) fn lookup_region_opt<E>(
+    pub(crate) fn lookup_region_opt(
         kws: &mut StdKeywords,
         i: RegionIndex,
         par: Par,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<MaybeValue<Self>, E>
+    ) -> LookupTentative<MaybeValue<Self>>
     where
         I: fmt::Display + FromStr + gating::LinkedMeasIndex,
         for<'a> Self: fmt::Display + FromStrStateful<Payload<'a> = ()>,
-        ParseOptKeyWarning: From<<Self as FromStrStateful>::Err>,
+        ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
         process_opt(Self::remove_meas_opt_st(kws, i, (), conf)).and_tentatively(|maybe| {
             if let Some(x) = maybe.0 {
@@ -865,11 +865,11 @@ impl<I> RegionGateIndex<I> {
         par: Par,
         disallow_dep: bool,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<MaybeValue<Self>, DeprecatedError>
+    ) -> LookupTentative<MaybeValue<Self>>
     where
         I: fmt::Display + FromStr + gating::LinkedMeasIndex,
         for<'a> Self: fmt::Display + FromStrStateful<Payload<'a> = ()>,
-        ParseOptKeyWarning: From<<Self as FromStrStateful>::Err>,
+        ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
         let mut x = Self::lookup_region_opt(kws, i, par, conf);
         eval_dep_maybe(&mut x, Self::std(i), disallow_dep);

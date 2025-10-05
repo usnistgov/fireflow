@@ -286,7 +286,7 @@ impl AppliedGates2_0 {
         kws: &mut StdKeywords,
         par: Par,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self, DeprecatedError> {
+    ) -> LookupTentative<Self> {
         let ag = GatingScheme::lookup(kws, Gating::lookup_opt, |k, j| {
             Region::lookup(k, j, par, conf)
         });
@@ -294,7 +294,7 @@ impl AppliedGates2_0 {
         ag.zip(gm).and_tentatively(|(scheme, gated_measurements)| {
             Self::try_new(gated_measurements.0, scheme)
                 .into_tentative_warn_def()
-                .map_warnings(|e| LookupKeysWarning::Relation(e.into()))
+                .warnings_into()
         })
     }
 
@@ -371,11 +371,11 @@ impl AppliedGates3_0 {
         self.scheme.indices_difference(indices)
     }
 
-    pub(crate) fn lookup<E>(
+    pub(crate) fn lookup(
         kws: &mut StdKeywords,
         par: Par,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self, E> {
+    ) -> LookupTentative<Self> {
         Self::lookup_inner(
             kws,
             |k| {
@@ -391,7 +391,7 @@ impl AppliedGates3_0 {
         kws: &mut StdKeywords,
         par: Par,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self, DeprecatedError> {
+    ) -> LookupTentative<Self> {
         let dd = conf.disallow_deprecated;
         Self::lookup_inner(
             kws,
@@ -406,21 +406,21 @@ impl AppliedGates3_0 {
         )
     }
 
-    fn lookup_inner<E, F0, F1>(
+    fn lookup_inner<F0, F1>(
         kws: &mut StdKeywords,
         lookup_scheme: F0,
         lookup_meas: F1,
-    ) -> LookupTentative<Self, E>
+    ) -> LookupTentative<Self>
     where
-        F0: FnOnce(&mut StdKeywords) -> LookupTentative<GatingScheme<MeasOrGateIndex>, E>,
-        F1: FnOnce(&mut StdKeywords) -> LookupTentative<GatedMeasurements, E>,
+        F0: FnOnce(&mut StdKeywords) -> LookupTentative<GatingScheme<MeasOrGateIndex>>,
+        F1: FnOnce(&mut StdKeywords) -> LookupTentative<GatedMeasurements>,
     {
         let s = lookup_scheme(kws);
         let ms = lookup_meas(kws);
         s.zip(ms).and_tentatively(|(scheme, gated_measurements)| {
             Self::try_new(gated_measurements.0, scheme)
                 .into_tentative_warn_def()
-                .map_warnings(|e| LookupKeysWarning::Relation(e.into()))
+                .warnings_into()
         })
     }
 
@@ -517,7 +517,7 @@ impl AppliedGates3_2 {
         par: Par,
         disallow_deprecated: bool,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self, DeprecatedError> {
+    ) -> LookupTentative<Self> {
         GatingScheme::lookup(
             kws,
             |k| Gating::lookup_opt_dep(k, disallow_deprecated),
@@ -532,11 +532,11 @@ impl AppliedGates3_2 {
 }
 
 impl GatedMeasurement {
-    fn lookup<E>(
+    fn lookup(
         kws: &mut StdKeywords,
         i: GateIndex,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self, E> {
+    ) -> LookupTentative<Self> {
         Self::lookup_inner(
             kws,
             i,
@@ -555,7 +555,7 @@ impl GatedMeasurement {
         kws: &mut StdKeywords,
         i: GateIndex,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self, DeprecatedError> {
+    ) -> LookupTentative<Self> {
         let dd = conf.disallow_deprecated;
         Self::lookup_inner(
             kws,
@@ -572,7 +572,7 @@ impl GatedMeasurement {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn lookup_inner<E, F0, F1, F2, F3, F4, F5, F6, F7>(
+    fn lookup_inner<F0, F1, F2, F3, F4, F5, F6, F7>(
         kws: &mut StdKeywords,
         i: GateIndex,
         lookup_scale: F0,
@@ -583,16 +583,16 @@ impl GatedMeasurement {
         lookup_longname: F5,
         lookup_det_type: F6,
         lookup_det_volt: F7,
-    ) -> LookupTentative<Self, E>
+    ) -> LookupTentative<Self>
     where
-        F0: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateScale, E>,
-        F1: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GateFilter, E>,
-        F2: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GateShortname, E>,
-        F3: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GatePercentEmitted, E>,
-        F4: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GateRange, E>,
-        F5: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GateLongname, E>,
-        F6: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GateDetectorType, E>,
-        F7: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GateDetectorVoltage, E>,
+        F0: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateScale>,
+        F1: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GateFilter>,
+        F2: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GateShortname>,
+        F3: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GatePercentEmitted>,
+        F4: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GateRange>,
+        F5: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GateLongname>,
+        F6: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GateDetectorType>,
+        F7: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GateDetectorVoltage>,
     {
         let j = i.into();
         let e = lookup_scale(kws, i);
@@ -701,14 +701,14 @@ impl<I> GatingScheme<I> {
         self.regions.iter().flat_map(|(_, v)| v.meas_indices())
     }
 
-    fn lookup<F0, F1, E>(
+    fn lookup<F0, F1>(
         kws: &mut StdKeywords,
         lookup_gating: F0,
         lookup_region: F1,
-    ) -> LookupTentative<Self, E>
+    ) -> LookupTentative<Self>
     where
-        F0: Fn(&mut StdKeywords) -> LookupOptional<Gating, E>,
-        F1: Fn(&mut StdKeywords, RegionIndex) -> LookupOptional<Region<I>, E>,
+        F0: Fn(&mut StdKeywords) -> LookupOptional<Gating>,
+        F1: Fn(&mut StdKeywords, RegionIndex) -> LookupOptional<Region<I>>,
     {
         lookup_gating(kws).map(|g| g.0).and_tentatively(|gating| {
             gating
@@ -725,7 +725,7 @@ impl<I> GatingScheme<I> {
                     let regions = rs.into_iter().flatten().collect();
                     Self::try_new(gating, regions)
                         .into_tentative_warn_def()
-                        .map_warnings(|e| LookupKeysWarning::Relation(e.into()))
+                        .warnings_into()
                 })
         })
     }
@@ -771,15 +771,15 @@ impl<I> Region<I> {
         }
     }
 
-    fn lookup<E>(
+    fn lookup(
         kws: &mut StdKeywords,
         i: RegionIndex,
         par: Par,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<MaybeValue<Self>, E>
+    ) -> LookupOptional<Self>
     where
         I: FromStr + fmt::Display + LinkedMeasIndex,
-        ParseOptKeyWarning: From<<RegionGateIndex<I> as FromStr>::Err>,
+        ParseOptKeyError: From<<RegionGateIndex<I> as FromStr>::Err>,
     {
         Self::lookup_inner(
             kws,
@@ -795,10 +795,10 @@ impl<I> Region<I> {
         par: Par,
         disallow_dep: bool,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<MaybeValue<Self>, DeprecatedError>
+    ) -> LookupOptional<Self>
     where
         I: FromStr + fmt::Display + LinkedMeasIndex,
-        ParseOptKeyWarning: From<<RegionGateIndex<I> as FromStr>::Err>,
+        ParseOptKeyError: From<<RegionGateIndex<I> as FromStr>::Err>,
     {
         Self::lookup_inner(
             kws,
@@ -808,20 +808,17 @@ impl<I> Region<I> {
         )
     }
 
-    fn lookup_inner<F0, F1, E>(
+    fn lookup_inner<F0, F1>(
         kws: &mut StdKeywords,
         i: RegionIndex,
         lookup_index: F0,
         lookup_window: F1,
-    ) -> LookupTentative<MaybeValue<Self>, E>
+    ) -> LookupOptional<Self>
     where
-        F0: FnOnce(
-            &mut StdKeywords,
-            RegionIndex,
-        ) -> LookupTentative<MaybeValue<RegionGateIndex<I>>, E>,
-        F1: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupTentative<MaybeValue<RegionWindow>, E>,
+        F0: FnOnce(&mut StdKeywords, RegionIndex) -> LookupOptional<RegionGateIndex<I>>,
+        F1: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<RegionWindow>,
         I: FromStr + fmt::Display,
-        ParseOptKeyWarning: From<<RegionGateIndex<I> as FromStr>::Err>,
+        ParseOptKeyError: From<<RegionGateIndex<I> as FromStr>::Err>,
     {
         let n = lookup_index(kws, i);
         let w = lookup_window(kws, i.into());
@@ -831,8 +828,7 @@ impl<I> Region<I> {
                     .and_then(|(gi, win)| Self::try_new(gi, win).map(|x| x.inner_into()))
                     .map_or_else(
                         || {
-                            let warn =
-                                LookupRelationalWarning::GateRegion(MismatchedIndexAndWindowError);
+                            let warn = MismatchedIndexAndWindowError;
                             Tentative::new(None, [warn.into()], [])
                         },
                         |x| Tentative::new1(Some(x)),
@@ -976,14 +972,11 @@ impl TryFrom<PrefixedMeasIndex> for GateIndex {
 }
 
 impl GatedMeasurements {
-    fn lookup<E>(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self, E> {
+    fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
         Self::lookup_inner(kws, Gate::lookup_opt, GatedMeasurement::lookup, conf)
     }
 
-    fn lookup_dep(
-        kws: &mut StdKeywords,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self, DeprecatedError> {
+    fn lookup_dep(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
         let dd = conf.disallow_deprecated;
         Self::lookup_inner(
             kws,
@@ -993,19 +986,19 @@ impl GatedMeasurements {
         )
     }
 
-    fn lookup_inner<E, F0, F1>(
+    fn lookup_inner<F0, F1>(
         kws: &mut StdKeywords,
         lookup_gate: F0,
         lookup_meas: F1,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self, E>
+    ) -> LookupTentative<Self>
     where
-        F0: FnOnce(&mut StdKeywords) -> LookupOptional<Gate, E>,
+        F0: FnOnce(&mut StdKeywords) -> LookupOptional<Gate>,
         F1: Fn(
             &mut StdKeywords,
             GateIndex,
             &StdTextReadConfig,
-        ) -> LookupTentative<GatedMeasurement, E>,
+        ) -> LookupTentative<GatedMeasurement>,
     {
         lookup_gate(kws).and_tentatively(|maybe| {
             if let Some(n) = maybe.0 {

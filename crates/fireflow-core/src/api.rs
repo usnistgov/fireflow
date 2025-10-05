@@ -340,7 +340,7 @@ pub enum ParseRawTEXTWarning {
     Char(DelimCharError),
     Keywords(ParseKeywordsIssue),
     SuppOffsets(STextSegmentWarning),
-    Nextdata(ParseKeyError<ParseIntError>),
+    Nextdata(OptKeyError<ParseIntError>),
     Nonstandard(NonstandardError),
 }
 
@@ -1131,7 +1131,7 @@ where
 fn lookup_nextdata(
     kws: &StdKeywords,
     enforce: bool,
-) -> Tentative<Option<u32>, ParseKeyError<ParseIntError>, ReqKeyError<ParseIntError>> {
+) -> Tentative<Option<u32>, OptKeyError<ParseIntError>, ReqKeyError<ParseIntError>> {
     let k = Nextdata::std();
     if enforce {
         get_req(kws, k).into_tentative_err_opt()

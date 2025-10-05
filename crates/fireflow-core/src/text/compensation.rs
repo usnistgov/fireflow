@@ -42,10 +42,7 @@ pub struct Compensation {
 }
 
 impl Compensation2_0 {
-    pub(crate) fn lookup<E>(
-        kws: &mut StdKeywords,
-        par: Par,
-    ) -> LookupTentative<MaybeValue<Self>, E> {
+    pub(crate) fn lookup(kws: &mut StdKeywords, par: Par) -> LookupTentative<MaybeValue<Self>> {
         // column = src measurement
         // row = target measurement
         // These are "flipped" in 2.0, where "column" goes TO the "row"
@@ -67,7 +64,7 @@ impl Compensation2_0 {
             let matrix = DMatrix::from_row_iterator(n, n, ys);
             Compensation::try_from(matrix)
                 .map(|x| Some(Self(x)))
-                .map_err(|e| LookupKeysWarning::Relation(e.into()))
+                .map_err(LookupKeysWarning::CompShape)
                 .map_or(Tentative::default(), Tentative::new1)
         };
         tnt.extend_warnings(warnings.into_iter().flatten());
@@ -214,10 +211,10 @@ impl fmt::Display for Compensation {
 pub(crate) fn lookup_dfc(
     kws: &mut StdKeywords,
     k: StdKey,
-) -> Result<Option<f32>, ParseKeyError<ParseFloatError>> {
+) -> Result<Option<f32>, OptKeyError<ParseFloatError>> {
     kws.remove(&k).map_or(Ok(None), |v| {
         v.parse::<f32>()
-            .map_err(|e| ParseKeyError {
+            .map_err(|e| OptKeyError {
                 error: e,
                 key: k,
                 value: v.clone(),

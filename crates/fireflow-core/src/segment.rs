@@ -384,7 +384,7 @@ where
     #[allow(clippy::type_complexity)]
     fn get_pair(
         kws: &StdKeywords,
-    ) -> MultiResult<Option<(Self::B, Self::E)>, ParseKeyError<ParseIntError>> {
+    ) -> MultiResult<Option<(Self::B, Self::E)>, OptKeyError<ParseIntError>> {
         let x0 = Self::B::get_metaroot_opt(kws).map(|x| x.0);
         let x1 = Self::E::get_metaroot_opt(kws).map(|x| x.0);
         x0.zip(x1).map(|(x, y)| x.zip(y))
@@ -393,7 +393,7 @@ where
     #[allow(clippy::type_complexity)]
     fn remove_pair(
         kws: &mut StdKeywords,
-    ) -> MultiResult<Option<(Self::B, Self::E)>, ParseKeyError<ParseIntError>> {
+    ) -> MultiResult<Option<(Self::B, Self::E)>, OptKeyError<ParseIntError>> {
         let x0 = Self::B::remove_metaroot_opt(kws).map(|x| x.0);
         let x1 = Self::E::remove_metaroot_opt(kws).map(|x| x.0);
         x0.zip(x1).map(|(x, y)| x.zip(y))
@@ -471,7 +471,7 @@ pub enum ReqSegmentError {
 
 #[derive(From, Display, Debug, Error)]
 pub enum OptSegmentError {
-    Key(ParseKeyError<ParseIntError>),
+    Key(OptKeyError<ParseIntError>),
     Segment(SegmentError<UintZeroPad20>),
 }
 

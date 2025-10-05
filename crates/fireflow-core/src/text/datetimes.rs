@@ -54,24 +54,24 @@ impl Datetimes {
         if ret.valid() {
             Ok(ret)
         } else {
-            Err(ReversedDatetimes)
+            Err(ReversedDatetimesError)
         }
     }
 
-    pub fn set_begin(&mut self, time: Option<BeginDateTime>) -> Result<(), ReversedDatetimes> {
+    pub fn set_begin(&mut self, time: Option<BeginDateTime>) -> Result<(), ReversedDatetimesError> {
         let tmp = mem::replace(&mut self.begin, time);
         if !self.valid() {
             self.begin = tmp;
-            return Err(ReversedDatetimes);
+            return Err(ReversedDatetimesError);
         }
         Ok(())
     }
 
-    pub fn set_end(&mut self, time: Option<EndDateTime>) -> Result<(), ReversedDatetimes> {
+    pub fn set_end(&mut self, time: Option<EndDateTime>) -> Result<(), ReversedDatetimesError> {
         let tmp = mem::replace(&mut self.end, time);
         if !self.valid() {
             self.end = tmp;
-            return Err(ReversedDatetimes);
+            return Err(ReversedDatetimesError);
         }
         Ok(())
     }
@@ -84,16 +84,13 @@ impl Datetimes {
         }
     }
 
-    pub(crate) fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<Self, E> {
+    pub(crate) fn lookup(kws: &mut StdKeywords) -> LookupTentative<Self> {
         let b = BeginDateTime::lookup_opt(kws);
         let e = EndDateTime::lookup_opt(kws);
         b.zip(e).and_tentatively(|(begin, end)| {
             Datetimes::try_new(begin.0, end.0)
                 .map(Tentative::new1)
-                .unwrap_or_else(|w| {
-                    let ow = LookupKeysWarning::Relation(w.into());
-                    Tentative::new(Datetimes::default(), [ow], [])
-                })
+                .unwrap_or_else(|w| Tentative::new(Datetimes::default(), [w.into()], []))
         })
     }
 
@@ -120,9 +117,9 @@ impl Datetimes {
 
 #[derive(Debug, Error)]
 #[error("$BEGINDATETIME is after $ENDDATETIME")]
-pub struct ReversedDatetimes;
+pub struct ReversedDatetimesError;
 
-type DatetimesResult<T> = Result<T, ReversedDatetimes>;
+type DatetimesResult<T> = Result<T, ReversedDatetimesError>;
 
 impl FromStr for FCSDateTime {
     type Err = FCSDateTimeError;
@@ -212,10 +209,10 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{BeginDateTime, EndDateTime, FCSDateTime, ReversedDatetimes};
+    use super::{BeginDateTime, EndDateTime, FCSDateTime, ReversedDatetimesError};
     use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
 
-    impl_pyreflow_err!(ReversedDatetimes);
+    impl_pyreflow_err!(ReversedDatetimesError);
 
     impl_from_py_transparent!(FCSDateTime);
     impl_from_py_transparent!(BeginDateTime);

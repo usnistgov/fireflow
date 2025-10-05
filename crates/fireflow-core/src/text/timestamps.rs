@@ -92,7 +92,7 @@ impl<X> Timestamps<X> {
         if ret.valid() {
             Ok(ret)
         } else {
-            Err(ReversedTimestamps)
+            Err(ReversedTimestampsError)
         }
     }
 
@@ -103,7 +103,7 @@ impl<X> Timestamps<X> {
         let tmp = mem::replace(&mut self.btim, time);
         if !self.valid() {
             self.btim = tmp;
-            return Err(ReversedTimestamps);
+            return Err(ReversedTimestampsError);
         }
         Ok(())
     }
@@ -115,7 +115,7 @@ impl<X> Timestamps<X> {
         let tmp = mem::replace(&mut self.etim, time);
         if !self.valid() {
             self.etim = tmp;
-            return Err(ReversedTimestamps);
+            return Err(ReversedTimestampsError);
         }
         Ok(())
     }
@@ -127,7 +127,7 @@ impl<X> Timestamps<X> {
         let tmp = mem::replace(&mut self.date, date);
         if !self.valid() {
             self.date = tmp;
-            return Err(ReversedTimestamps);
+            return Err(ReversedTimestampsError);
         }
         Ok(())
     }
@@ -158,14 +158,11 @@ impl<X> Timestamps<X> {
         }
     }
 
-    pub(crate) fn lookup<E>(
-        kws: &mut StdKeywords,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self, E>
+    pub(crate) fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self>
     where
         Btim<X>: OptMetarootKey,
         Etim<X>: OptMetarootKey,
-        ParseOptKeyWarning:
+        ParseOptKeyError:
             From<<Btim<X> as FromStrStateful>::Err> + From<<Etim<X> as FromStrStateful>::Err>,
         for<'a> X: PartialOrd + FromStr + From<NaiveTime>,
     {
@@ -179,11 +176,11 @@ impl<X> Timestamps<X> {
         kws: &mut StdKeywords,
         conf: &StdTextReadConfig,
         disallow_dep: bool,
-    ) -> LookupTentative<Self, DeprecatedError>
+    ) -> LookupTentative<Self>
     where
         Btim<X>: OptMetarootKey,
         Etim<X>: OptMetarootKey,
-        ParseOptKeyWarning:
+        ParseOptKeyError:
             From<<Btim<X> as FromStrStateful>::Err> + From<<Etim<X> as FromStrStateful>::Err>,
         for<'a> X: PartialOrd + FromStr + From<NaiveTime>,
     {
@@ -193,21 +190,18 @@ impl<X> Timestamps<X> {
         Self::process_lookup(b, e, d)
     }
 
-    fn process_lookup<E>(
-        b: LookupTentative<MaybeValue<Btim<X>>, E>,
-        e: LookupTentative<MaybeValue<Etim<X>>, E>,
-        d: LookupTentative<MaybeValue<FCSDate>, E>,
-    ) -> LookupTentative<Self, E>
+    fn process_lookup(
+        b: LookupTentative<MaybeValue<Btim<X>>>,
+        e: LookupTentative<MaybeValue<Etim<X>>>,
+        d: LookupTentative<MaybeValue<FCSDate>>,
+    ) -> LookupTentative<Self>
     where
         X: PartialOrd,
     {
         b.zip3(e, d).and_tentatively(|(btim, etim, date)| {
             Timestamps::try_new(btim.0, etim.0, date.0)
                 .map(Tentative::new1)
-                .unwrap_or_else(|w| {
-                    let ow = LookupKeysWarning::Relation(w.into());
-                    Tentative::new(Timestamps::default(), [ow], [])
-                })
+                .unwrap_or_else(|w| Tentative::new(Timestamps::default(), [w.into()], []))
         })
     }
 
@@ -229,9 +223,9 @@ impl<X> Timestamps<X> {
 
 #[derive(Debug, Error)]
 #[error("$ETIM is before $BTIM and $DATE is given")]
-pub struct ReversedTimestamps;
+pub struct ReversedTimestampsError;
 
-type TimestampsResult<T> = Result<T, ReversedTimestamps>;
+type TimestampsResult<T> = Result<T, ReversedTimestampsError>;
 
 // the "%b" format is case-insensitive so this should work for "Jan", "JAN",
 // "jan", "jaN", etc
@@ -416,12 +410,12 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{FCSDate, FCSTime, FCSTime100, FCSTime60, ReversedTimestamps, Xtim};
+    use super::{FCSDate, FCSTime, FCSTime100, FCSTime60, ReversedTimestampsError, Xtim};
     use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
 
     use pyo3::prelude::*;
 
-    impl_pyreflow_err!(ReversedTimestamps);
+    impl_pyreflow_err!(ReversedTimestampsError);
 
     impl_from_py_transparent!(FCSDate);
     impl_from_py_transparent!(FCSTime);

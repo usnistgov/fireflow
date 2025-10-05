@@ -797,10 +797,7 @@ impl ExtraStdKeywords {
         F: FnMut(&StdKey) -> bool,
     {
         let unused: HashMap<_, _> = kws.extract_if(|k, _| f(k)).collect();
-        Self {
-            pseudostandard: kws,
-            unused,
-        }
+        Self::new(kws, unused)
     }
 
     fn matches_kw_2_0(k: &StdKey) -> bool {
@@ -869,8 +866,8 @@ impl ExtraStdKeywords {
 pub(crate) fn truncate_string(s: &str, n: usize) -> String {
     // TODO this is the length in bytes, not chars (ie doesn't care about utf-8)
     if s.len() > n {
-        format!("{}...(more)", s.chars().take(n).collect::<String>())
+        format!("{}…(more)", s.chars().take(n).collect::<String>())
     } else {
-        format!("{s}")
+        s.to_string()
     }
 }

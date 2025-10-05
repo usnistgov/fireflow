@@ -1025,7 +1025,7 @@ impl fmt::Display for ParseOffsetError {
 
 impl<T> fmt::Display for SegmentError<T>
 where
-    T: fmt::Display,
+    T: Into<u64> + Copy,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let offset_text = |x, delta| {
@@ -1035,8 +1035,8 @@ where
                 format!("{} ({}))", x, delta)
             }
         };
-        let begin_text = offset_text(&self.begin, self.corr_begin);
-        let end_text = offset_text(&self.end, self.corr_end);
+        let begin_text = offset_text(self.begin.into(), self.corr_begin);
+        let end_text = offset_text(self.end.into(), self.corr_end);
         let kind_text = match &self.kind {
             SegmentErrorKind::Range => "Offset out of range".to_string(),
             SegmentErrorKind::Inverted => "Begin after end".to_string(),

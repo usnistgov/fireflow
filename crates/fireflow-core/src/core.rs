@@ -3657,18 +3657,20 @@ where
                 .map(|mut tnt_core| {
                     // Check that the time measurement is present if we want
                     // it and the measurement vector is non-empty
-                    tnt_core.eval_error(|core| {
+                    let go = |core: &Self| {
                         if let Some(pat) = std_conf.time_meas_pattern.as_ref()
-                            && !std_conf.allow_missing_time
                             && core.measurements.as_center().is_none()
                             && !core.measurements.is_empty()
                         {
-                            let e = LookupKeysWarning::from(MissingTime(pat.clone()));
-                            return Some(LookupKeysError::WarnAsError(e));
+                            return Some(LookupKeysWarning::from(MissingTime(pat.clone())));
                         }
                         None
-                    });
-
+                    };
+                    if std_conf.allow_missing_time {
+                        tnt_core.eval_warning(go)
+                    } else {
+                        tnt_core.eval_error(|c| go(c).map(LookupKeysError::WarnAsError))
+                    }
                     let esks = match version {
                         Version::FCS2_0 => ExtraStdKeywords::split_2_0(kws.std),
                         Version::FCS3_0 => ExtraStdKeywords::split_3_0(kws.std),
@@ -4647,27 +4649,25 @@ impl SubsetData {
     }
 }
 
-impl TryFrom<Vec<Option<u32>>> for CSVFlags {
-    type Error = NewCSVFlagsError;
-    fn try_from(value: Vec<Option<u32>>) -> Result<Self, Self::Error> {
+impl CSVFlags {
+    fn try_from_iter(
+        value: impl IntoIterator<Item = Option<u32>>,
+    ) -> Result<Self, NewCSVFlagsError> {
         NonEmpty::collect(value.into_iter().map(|x| x.map(CSVFlag).into()))
             .ok_or(NewCSVFlagsError)
             .map(|xs| Self(xs.into()))
     }
-}
 
-impl CSVFlags {
     fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupOptional<Self> {
         CSMode::lookup_opt(kws, conf)
             .and_tentatively(|m| {
                 if let Some(n) = m.0 {
                     let fs = (0..n.0).map(|i| CSVFlag::lookup_opt(kws, i, conf));
                     Tentative::mconcat(fs).and_tentatively(|flags| {
-                        let xs = flags
-                            .into_iter()
-                            .map(|x| x.0.map(|y| y.0))
-                            .collect::<Vec<_>>();
-                        Self::try_from(xs).into_tentative_warn_opt().warnings_into()
+                        let xs = flags.into_iter().map(|x| x.0.map(|y| y.0));
+                        Self::try_from_iter(xs)
+                            .into_tentative_opt(!conf.allow_optional_dropping)
+                            .inner_into()
                     })
                 } else {
                     Tentative::default()
@@ -7088,7 +7088,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         _: &[&Shortname],
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let co = Compensation2_0::lookup(kws, par);
+        let co = Compensation2_0::lookup(kws, par, conf);
         let cy = Cyt::lookup_opt(kws, conf);
         let t = Timestamps::lookup(kws, conf);
         let g = AppliedGates2_0::lookup(kws, par, conf);

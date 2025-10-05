@@ -357,8 +357,7 @@ impl<V, W, E> Tentative<V, W, E> {
 
     pub fn extend_errors_or_warnings<X>(&mut self, xs: impl Iterator<Item = X>, is_error: bool)
     where
-        W: From<X>,
-        E: From<X>,
+        X: Into<W> + Into<E>,
     {
         if is_error {
             self.extend_errors(xs);
@@ -373,13 +372,6 @@ impl<V, W, E> Tentative<V, W, E> {
 
     pub fn extend_errors(&mut self, xs: impl Iterator<Item = impl Into<E>>) {
         self.errors.extend(xs.map(|x| x.into()))
-    }
-
-    pub fn map<F, X>(self, f: F) -> Tentative<X, W, E>
-    where
-        F: FnOnce(V) -> X,
-    {
-        Tentative::new(f(self.value), self.warnings, self.errors)
     }
 
     pub fn and_finally<F, X, T>(mut self, mut f: F) -> TerminalResult<X, W, E, T>
@@ -459,39 +451,31 @@ impl<V, W, E> Tentative<V, W, E> {
             .extend(f(&self.value).into_iter().map(|x| x.into()));
     }
 
-    pub fn map_warnings<F, X>(self, f: F) -> Tentative<V, X, E>
-    where
-        F: Fn(W) -> X,
-    {
+    pub fn map<F: FnOnce(V) -> X, X>(self, f: F) -> Tentative<X, W, E> {
+        Tentative::new(f(self.value), self.warnings, self.errors)
+    }
+
+    pub fn map_warnings<F: Fn(W) -> X, X>(self, f: F) -> Tentative<V, X, E> {
         Tentative::new(self.value, self.warnings.into_iter().map(f), self.errors)
     }
 
-    pub fn map_errors<F, X>(self, f: F) -> Tentative<V, W, X>
-    where
-        F: Fn(E) -> X,
-    {
+    pub fn map_errors<F: Fn(E) -> X, X>(self, f: F) -> Tentative<V, W, X> {
         Tentative::new(self.value, self.warnings, self.errors.into_iter().map(f))
     }
 
-    pub fn warnings_into<X>(self) -> Tentative<V, X, E>
-    where
-        X: From<W>,
-    {
+    pub fn value_into<X: From<V>>(self) -> Tentative<X, W, E> {
+        self.map(|v| v.into())
+    }
+
+    pub fn warnings_into<X: From<W>>(self) -> Tentative<V, X, E> {
         self.map_warnings(|w| w.into())
     }
 
-    pub fn errors_into<X>(self) -> Tentative<V, W, X>
-    where
-        X: From<E>,
-    {
+    pub fn errors_into<X: From<E>>(self) -> Tentative<V, W, X> {
         self.map_errors(|e| e.into())
     }
 
-    pub fn inner_into<X, Y>(self) -> Tentative<V, X, Y>
-    where
-        X: From<W>,
-        Y: From<E>,
-    {
+    pub fn inner_into<X: From<W>, Y: From<E>>(self) -> Tentative<V, X, Y> {
         self.errors_into().warnings_into()
     }
 

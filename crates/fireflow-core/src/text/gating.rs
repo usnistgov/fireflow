@@ -291,12 +291,13 @@ impl AppliedGates2_0 {
             kws,
             |k| Gating::lookup_opt(k, conf),
             |k, j| Region::lookup(k, j, par, conf),
+            conf,
         );
         let gm = GatedMeasurements::lookup(kws, conf);
         ag.zip(gm).and_tentatively(|(scheme, gated_measurements)| {
             Self::try_new(gated_measurements.0, scheme)
-                .into_tentative_warn_def()
-                .warnings_into()
+                .into_tentative_def(!conf.allow_optional_dropping)
+                .inner_into()
         })
     }
 
@@ -385,6 +386,7 @@ impl AppliedGates3_0 {
                     k,
                     |kws_| Gating::lookup_opt(kws_, conf),
                     |kk, j| Region::lookup(kk, j, par, conf),
+                    conf,
                 )
             },
             |k| GatedMeasurements::lookup(k, conf),
@@ -403,6 +405,7 @@ impl AppliedGates3_0 {
                     k,
                     |kk| Gating::lookup_opt_dep(kk, conf),
                     |kk, i| Region::lookup_dep(kk, i, par, conf),
+                    conf,
                 )
             },
             |k| GatedMeasurements::lookup_dep(k, conf),
@@ -524,6 +527,7 @@ impl AppliedGates3_2 {
             kws,
             |k| Gating::lookup_opt_dep(k, conf),
             |k, i| Region::lookup_dep(k, i, par, conf),
+            conf,
         )
         .map(Self)
     }
@@ -706,6 +710,7 @@ impl<I> GatingScheme<I> {
         kws: &mut StdKeywords,
         lookup_gating: F0,
         lookup_region: F1,
+        conf: &StdTextReadConfig,
     ) -> LookupTentative<Self>
     where
         F0: Fn(&mut StdKeywords) -> LookupOptional<Gating>,
@@ -725,8 +730,8 @@ impl<I> GatingScheme<I> {
                 .and_tentatively(|rs| {
                     let regions = rs.into_iter().flatten().collect();
                     Self::try_new(gating, regions)
-                        .into_tentative_warn_def()
-                        .warnings_into()
+                        .into_tentative_def(!conf.allow_optional_dropping)
+                        .inner_into()
                 })
         })
     }
@@ -787,6 +792,7 @@ impl<I> Region<I> {
             i,
             |k, j| RegionGateIndex::lookup_region_opt(k, j, par, conf),
             |k, j| RegionWindow::lookup_opt_st(k, j, (), conf),
+            conf,
         )
     }
 
@@ -805,6 +811,7 @@ impl<I> Region<I> {
             i,
             |k, j| RegionGateIndex::lookup_region_opt_dep(k, j, par, conf),
             |k, j| RegionWindow::lookup_opt_st_dep(k, j, (), conf),
+            conf,
         )
     }
 
@@ -813,6 +820,7 @@ impl<I> Region<I> {
         i: RegionIndex,
         lookup_index: F0,
         lookup_window: F1,
+        conf: &StdTextReadConfig,
     ) -> LookupOptional<Self>
     where
         F0: FnOnce(&mut StdKeywords, RegionIndex) -> LookupOptional<RegionGateIndex<I>>,
@@ -826,15 +834,11 @@ impl<I> Region<I> {
             .and_tentatively(|(_n, _y)| {
                 _n.0.zip(_y.0)
                     .and_then(|(gi, win)| Self::try_new(gi, win).map(|x| x.inner_into()))
-                    .map_or_else(
-                        || {
-                            let warn = MismatchedIndexAndWindowError;
-                            Tentative::new(None, [warn.into()], [])
-                        },
-                        |x| Tentative::new1(Some(x)),
-                    )
+                    .ok_or(MismatchedIndexAndWindowError)
+                    .into_tentative_opt(!conf.allow_optional_dropping)
+                    .inner_into()
             })
-            .map(|x| x.into())
+            .value_into()
     }
 
     pub(crate) fn opt_keywords(&self, i: RegionIndex) -> impl Iterator<Item = (String, String)>

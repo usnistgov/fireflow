@@ -412,12 +412,8 @@ where
 {
     fn check_link(&self, names: &HashSet<&Shortname>) -> Result<(), LinkedNameError> {
         NonEmpty::collect(self.names().difference(names).copied().cloned())
-            .map(|common_names| LinkedNameError {
-                names: common_names,
-                key: Self::std(),
-            })
-            .map(Err)
-            .unwrap_or(Ok(()))
+            .map(|common_names| LinkedNameError::new(Self::std(), common_names))
+            .map_or(Ok(()), Err)
     }
 
     // fn lookup_opt_linked<E>(
@@ -454,14 +450,14 @@ where
         process_opt(Self::remove_opt_st(kws, Self::std(), payload, conf), conf).and_tentatively(
             |maybe| {
                 if let Some(x) = maybe.0 {
-                    Self::check_link(&x, names).map_or_else(
-                        |w| Tentative::new(None, [w.into()], []),
-                        |_| Tentative::new1(Some(x)),
-                    )
+                    Self::check_link(&x, names)
+                        .map(|_| x)
+                        .into_tentative_opt(!conf.allow_optional_dropping)
+                        .inner_into()
                 } else {
                     Tentative::new1(None)
                 }
-                .map(|x| x.into())
+                .value_into()
             },
         )
     }
@@ -498,7 +494,7 @@ where
         .transpose()
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, new)]
 #[error("{key} references non-existent $PnN: {bad}", bad = .names.iter().join(", "))]
 pub struct LinkedNameError {
     pub key: StdKey,
@@ -529,14 +525,19 @@ pub(crate) fn lookup_temporal_gain_3_0(
         nonstd.transfer_demoted(kws, Gain::std(i));
         Tentative::default()
     } else {
-        let mut tnt_gain = Gain::lookup_opt(kws, i, conf);
-        tnt_gain.eval_error(|gain| {
+        let go = |gain: &MaybeValue<Gain>| {
             if gain.0.is_some_and(|g| f32::from(g.0) != 1.0) {
                 Some(TemporalGainError(i))
             } else {
                 None
             }
-        });
+        };
+        let mut tnt_gain = Gain::lookup_opt(kws, i, conf);
+        if conf.allow_optional_dropping {
+            tnt_gain.eval_warning(go);
+        } else {
+            tnt_gain.eval_error(go);
+        }
         tnt_gain
     }
 }
@@ -592,7 +593,7 @@ pub enum LookupKeysWarning {
     Parse(OptKeyError<ParseOptKeyError>),
     Timestamp(ReversedTimestampsError),
     Datetime(ReversedDatetimesError),
-    CompShape(NewCompError),
+    Comp(NewCompError),
     CSVFlag(NewCSVFlagsError),
     GateRegion(gating::MismatchedIndexAndWindowError),
     GateMeasLink(gating::GateMeasurementLinkError),

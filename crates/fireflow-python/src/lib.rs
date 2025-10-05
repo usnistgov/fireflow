@@ -425,7 +425,7 @@ impl<'py> FromPyObject<'py> for PyAppliedGates3_0 {
             Option<kws::Gating>,
         ) = ob.extract()?;
         let scheme = GatingScheme::try_new(gating, regions.into())?;
-        Ok(AppliedGates3_0::try_new(gated_measurements.into(), scheme)?.into())
+        Ok(AppliedGates3_0::try_new(Vec::from(gated_measurements), scheme)?.into())
     }
 }
 

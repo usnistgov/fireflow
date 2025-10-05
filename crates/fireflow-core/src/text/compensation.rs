@@ -42,11 +42,16 @@ pub struct Compensation {
 }
 
 impl Compensation2_0 {
-    pub(crate) fn lookup(kws: &mut StdKeywords, par: Par) -> LookupTentative<MaybeValue<Self>> {
+    pub(crate) fn lookup(
+        kws: &mut StdKeywords,
+        par: Par,
+        conf: &StdTextReadConfig,
+    ) -> LookupOptional<Self> {
         // column = src measurement
         // row = target measurement
         // These are "flipped" in 2.0, where "column" goes TO the "row"
         let n = par.0;
+        let is_err = !conf.allow_optional_dropping;
         let (xs, warnings): (Vec<_>, Vec<_>) = (0..n)
             .cartesian_product(0..n)
             .map(|(r, c)| {
@@ -64,10 +69,10 @@ impl Compensation2_0 {
             let matrix = DMatrix::from_row_iterator(n, n, ys);
             Compensation::try_from(matrix)
                 .map(|x| Some(Self(x)))
-                .map_err(LookupKeysWarning::CompShape)
-                .map_or(Tentative::default(), Tentative::new1)
+                .map_err(LookupKeysWarning::Comp)
+                .into_tentative_def(is_err)
         };
-        tnt.extend_warnings(warnings.into_iter().flatten());
+        tnt.extend_errors_or_warnings(warnings.into_iter().flatten(), is_err);
         tnt.map(MaybeValue)
     }
 

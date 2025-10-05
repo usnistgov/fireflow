@@ -842,14 +842,14 @@ impl<I> RegionGateIndex<I> {
     {
         process_opt(Self::remove_meas_opt_st(kws, i, (), conf), conf).and_tentatively(|maybe| {
             if let Some(x) = maybe.0 {
-                Self::check_link(&x, par).map_or_else(
-                    |w| Tentative::new(None, [w.into()], []),
-                    |_| Tentative::new1(Some(x)),
-                )
+                Self::check_link(&x, par)
+                    .map(|_| x)
+                    .into_tentative_opt(!conf.allow_optional_dropping)
+                    .inner_into()
             } else {
                 Tentative::default()
             }
-            .map(|x| x.into())
+            .value_into()
         })
     }
 

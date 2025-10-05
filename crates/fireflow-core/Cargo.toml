@@ -10,7 +10,7 @@ Core library code for fireflow.
 chrono = { workspace = true, features = ["clock"] }
 thiserror = "2.0.17"
 regex = "1.11.1"
-derive_more = { workspace = true, features = ["from", "into", "display", "from_str", "as_ref", "add", "mul"] }
+derive_more = { workspace = true, features = ["from", "into", "display", "from_str", "as_ref", "add", "mul", "into_iterator"] }
 derive-new = { workspace = true }
 itertools = { workspace = true }
 num_enum = { workspace = true }

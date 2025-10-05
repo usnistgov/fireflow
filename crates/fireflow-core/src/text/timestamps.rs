@@ -169,7 +169,7 @@ impl<X> Timestamps<X> {
         let b = Btim::lookup_opt_st(kws, (), conf);
         let e = Etim::lookup_opt_st(kws, (), conf);
         let d = FCSDate::lookup_opt_st(kws, (), conf);
-        Self::process_lookup(b, e, d)
+        Self::process_lookup(b, e, d, conf)
     }
 
     pub(crate) fn lookup_dep(
@@ -187,21 +187,22 @@ impl<X> Timestamps<X> {
         let b = Btim::lookup_opt_st_dep(kws, dd, (), conf);
         let e = Etim::lookup_opt_st_dep(kws, dd, (), conf);
         let d = FCSDate::lookup_opt_st_dep(kws, dd, (), conf);
-        Self::process_lookup(b, e, d)
+        Self::process_lookup(b, e, d, conf)
     }
 
     fn process_lookup(
-        b: LookupTentative<MaybeValue<Btim<X>>>,
-        e: LookupTentative<MaybeValue<Etim<X>>>,
-        d: LookupTentative<MaybeValue<FCSDate>>,
+        b: LookupOptional<Btim<X>>,
+        e: LookupOptional<Etim<X>>,
+        d: LookupOptional<FCSDate>,
+        conf: &StdTextReadConfig,
     ) -> LookupTentative<Self>
     where
         X: PartialOrd,
     {
         b.zip3(e, d).and_tentatively(|(btim, etim, date)| {
             Timestamps::try_new(btim.0, etim.0, date.0)
-                .map(Tentative::new1)
-                .unwrap_or_else(|w| Tentative::new(Timestamps::default(), [w.into()], []))
+                .into_tentative_def(!conf.allow_optional_dropping)
+                .inner_into()
         })
     }
 

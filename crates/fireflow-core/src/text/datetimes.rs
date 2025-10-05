@@ -90,8 +90,8 @@ impl Datetimes {
         let e = EndDateTime::lookup_opt(kws, conf);
         b.zip(e).and_tentatively(|(begin, end)| {
             Datetimes::try_new(begin.0, end.0)
-                .map(Tentative::new1)
-                .unwrap_or_else(|w| Tentative::new(Datetimes::default(), [w.into()], []))
+                .into_tentative_def(!conf.allow_optional_dropping)
+                .inner_into()
         })
     }
 

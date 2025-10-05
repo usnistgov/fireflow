@@ -7,6 +7,7 @@ use super::named_vec::NameMapping;
 use super::parser::{FromStrStateful, LinkedNameError, OptLinkedKey};
 
 use derive_more::{AsRef, Display, From};
+use derive_new::new;
 use itertools::Itertools;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
@@ -23,7 +24,7 @@ use serde::Serialize;
 pub type Spillover = GenericSpillover<Shortname>;
 
 /// The spillover matrix from the $SPILLOVER keyword (3.1+)
-#[derive(Clone, AsRef, PartialEq, Debug)]
+#[derive(Clone, AsRef, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct GenericSpillover<T> {
     /// The measurements in the spillover matrix.

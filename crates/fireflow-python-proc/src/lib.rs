@@ -5647,7 +5647,8 @@ impl DocArgParam {
     fn new_shared_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let conf = config_path("SharedConfig");
         let warnings_are_errors = Self::new_warnings_are_errors_param();
-        let ps = vec![warnings_are_errors];
+        let hide_warnings = Self::new_hide_warnings_param();
+        let ps = vec![warnings_are_errors, hide_warnings];
         let js = ps.iter().map(|x| x.record_into()).collect();
         (conf, ps, js)
     }
@@ -6260,6 +6261,10 @@ impl DocArgParam {
             "warnings_are_errors",
             "If ``True`` all warnings will be regarded as errors.",
         )
+    }
+
+    fn new_hide_warnings_param() -> Self {
+        Self::new_bool_param("hide_warnings", "If ``True`` hide all warnings.")
     }
 }
 

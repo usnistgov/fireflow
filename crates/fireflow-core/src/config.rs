@@ -682,6 +682,9 @@ pub struct ReadLayoutConfig {
 pub struct SharedConfig {
     /// If true, all warnings are considered to be fatal errors.
     pub warnings_are_errors: bool,
+
+    /// If true, do not emit warnings.
+    pub hide_warnings: bool,
 }
 
 /// A pattern to match the $PnN for the time measurement.

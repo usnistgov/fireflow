@@ -14,6 +14,8 @@
 //! to the user at the API boundary. The only way to get the value out of
 //! such a result is to run a function to process the errors/warnings.
 
+use crate::config::SharedConfig;
+
 use derive_new::new;
 use itertools::Itertools;
 use nonempty::NonEmpty;
@@ -41,9 +43,14 @@ pub struct Terminal<V, W> {
 }
 
 /// Final failed result with either one error or multiple errors with a summary.
+#[derive(new)]
+#[new(visibility = "")]
 pub struct TerminalFailure<W, E, T> {
+    #[new(into_iter = "W")]
     warnings: Vec<W>,
+    #[new(into)]
     errors: Box<NonEmpty<E>>,
+    #[new(into)]
     reason: T,
 }
 
@@ -149,16 +156,6 @@ impl<V, W> Terminal<V, W> {
         Self::new(value, [])
     }
 
-    pub fn warnings_to_errors<T, E, F>(self, reason: T, f: F) -> TerminalResult<V, W, E, T>
-    where
-        F: Fn(W) -> E,
-    {
-        match NonEmpty::from_vec(self.warnings) {
-            None => Ok(Terminal::new1(self.value)),
-            Some(ws) => Err(TerminalFailure::new1(ws.map(f), reason)),
-        }
-    }
-
     pub fn value_into<U: From<V>>(self) -> Terminal<U, W> {
         self.map(|v| v.into())
     }
@@ -204,7 +201,7 @@ impl<V, W> Terminal<V, W> {
                 self.warnings.extend(e.warnings);
                 // termination will throw away the passthru value so this
                 // only needs to be a dummy
-                Err(DeferredFailure::new(self.warnings, e.errors, ()).terminate(reason))
+                Err(DeferredFailure::new(self.warnings, *e.errors, ()).terminate(reason))
             }
         }
     }
@@ -224,6 +221,16 @@ impl<V, W> Terminal<V, W> {
     {
         (self.value, f(self.warnings))
     }
+
+    fn warnings_to_errors<T, E, F>(self, reason: T, f: F) -> TerminalResult<V, W, E, T>
+    where
+        F: Fn(W) -> E,
+    {
+        match NonEmpty::from_vec(self.warnings) {
+            None => Ok(Terminal::new1(self.value)),
+            Some(ws) => Err(TerminalFailure::new1(ws.map(f), reason)),
+        }
+    }
 }
 
 impl<V> Terminal<V, Infallible> {
@@ -233,19 +240,7 @@ impl<V> Terminal<V, Infallible> {
 }
 
 impl<W, E, T> TerminalFailure<W, E, T> {
-    pub fn new(
-        warnings: impl IntoIterator<Item = W>,
-        errors: NonEmpty<impl Into<E>>,
-        reason: impl Into<T>,
-    ) -> Self {
-        TerminalFailure {
-            warnings: warnings.into_iter().collect(),
-            errors: errors.map(|x| x.into()).into(),
-            reason: reason.into(),
-        }
-    }
-
-    pub fn new1(errors: NonEmpty<impl Into<E>>, reason: T) -> Self {
+    pub fn new1(errors: NonEmpty<E>, reason: T) -> Self {
         TerminalFailure::new([], errors, reason)
     }
 
@@ -308,7 +303,7 @@ impl<W, E, T> TerminalFailure<W, E, T> {
         F: Fn(W) -> E,
     {
         self.errors.extend(self.warnings.into_iter().map(f));
-        Self::new([], *self.errors, self.reason)
+        Self::new([], self.errors, self.reason)
     }
 
     pub fn resolve<F, G, X, Y>(self, f: F, g: G) -> (X, Y)
@@ -541,13 +536,20 @@ impl<V, W, E> Tentative<V, W, E> {
         }
     }
 
-    pub fn terminate_nowarn<F, T>(self, reason: T, f: F) -> TerminalResult<V, W, E, T>
+    pub fn terminate_warn2err<F, T>(self, reason: T, f: F) -> TerminalResult<V, W, E, T>
     where
         F: Fn(W) -> E,
     {
         match self.terminate_inner(reason) {
             Ok((t, r)) => t.warnings_to_errors(r, f),
             Err(e) => Err(e.warnings_to_errors(f)),
+        }
+    }
+
+    pub fn terminate_nowarn<T>(self, reason: T) -> TerminalResult<V, W, E, T> {
+        match NonEmpty::from_vec(self.errors) {
+            None => Ok(Terminal::new1(self.value)),
+            Some(e) => Err(TerminalFailure::new([], e, reason)),
         }
     }
 
@@ -740,7 +742,7 @@ impl<P, W, E> DeferredFailure<P, W, E> {
     }
 
     pub fn drop(self) -> DeferredFailure<(), W, E> {
-        DeferredFailure::new(self.warnings, *self.errors, ())
+        DeferredFailure::new(self.warnings, self.errors, ())
     }
 
     pub fn zip<P1>(self, a: DeferredFailure<P1, W, E>) -> DeferredFailure<(P, P1), W, E> {
@@ -835,15 +837,15 @@ impl<W, E> DeferredFailure<(), W, E> {
     }
 
     pub fn terminate<T>(self, reason: T) -> TerminalFailure<W, E, T> {
-        TerminalFailure::new(self.warnings, *self.errors, reason)
+        TerminalFailure::new(self.warnings, self.errors, reason)
     }
 
-    pub fn terminate_nowarn<T, F>(mut self, reason: T, f: F) -> TerminalFailure<W, E, T>
+    pub fn terminate_warn2err<T, F>(mut self, reason: T, f: F) -> TerminalFailure<W, E, T>
     where
         F: Fn(W) -> E,
     {
         self.errors.extend(self.warnings.into_iter().map(f));
-        TerminalFailure::new([], *self.errors, reason)
+        TerminalFailure::new([], self.errors, reason)
     }
 
     pub fn unfail_with<V>(self, value: V) -> Tentative<V, W, E> {
@@ -1329,7 +1331,7 @@ pub trait DeferredExt: Sized + PassthruExt {
 
     fn def_terminate<T>(self, reason: T) -> TerminalResult<Self::V, Self::W, Self::E, T>;
 
-    fn def_terminate_nowarn<T, F>(
+    fn def_terminate_warn2err<T, F>(
         self,
         reason: T,
         f: F,
@@ -1337,17 +1339,21 @@ pub trait DeferredExt: Sized + PassthruExt {
     where
         F: Fn(Self::W) -> Self::E;
 
+    fn def_terminate_nowarn<T>(self, reason: T) -> TerminalResult<Self::V, Self::W, Self::E, T>;
+
     fn def_terminate_maybe_warn<T, F>(
         self,
         reason: T,
-        warn_to_error: bool,
+        conf: &SharedConfig,
         f: F,
     ) -> TerminalResult<Self::V, Self::W, Self::E, T>
     where
         F: Fn(Self::W) -> Self::E,
     {
-        if warn_to_error {
-            self.def_terminate_nowarn(reason, f)
+        if conf.warnings_are_errors {
+            self.def_terminate_warn2err(reason, f)
+        } else if conf.hide_warnings {
+            self.def_terminate_nowarn(reason)
         } else {
             self.def_terminate(reason)
         }
@@ -1404,7 +1410,7 @@ impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
         }
     }
 
-    fn def_terminate_nowarn<T, F>(
+    fn def_terminate_warn2err<T, F>(
         self,
         reason: T,
         f: F,
@@ -1413,8 +1419,15 @@ impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
         F: Fn(W) -> E,
     {
         match self {
-            Ok(t) => t.terminate_nowarn(reason, f),
-            Err(e) => Err(e.terminate_nowarn(reason, f)),
+            Ok(t) => t.terminate_warn2err(reason, f),
+            Err(e) => Err(e.terminate_warn2err(reason, f)),
+        }
+    }
+
+    fn def_terminate_nowarn<T>(self, reason: T) -> TerminalResult<Self::V, Self::W, Self::E, T> {
+        match self {
+            Ok(t) => t.terminate_nowarn(reason),
+            Err(e) => Err(TerminalFailure::new([], *e.errors, reason)),
         }
     }
 

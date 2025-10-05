@@ -48,7 +48,7 @@ pub fn fcs_read_raw_text(
 ) -> IOTerminalResult<RawTEXTOutput, ParseRawTEXTWarning, HeaderOrRawError, RawTEXTFailure> {
     read_fcs_raw_text_inner(p, conf)
         .def_map_value(|(x, _, _)| x)
-        .def_terminate_maybe_warn(RawTEXTFailure, conf.shared.warnings_are_errors, |w| {
+        .def_terminate_maybe_warn(RawTEXTFailure, &conf.shared, |w| {
             ImpureError::Pure(w.into())
         })
 }
@@ -62,7 +62,7 @@ pub fn fcs_read_std_text(
         .def_map_value(|(x, _, st)| (x, st))
         .def_io_into()
         .def_and_maybe(|(raw, st)| raw.into_std_text(&st).def_inner_into().def_errors_liftio())
-        .def_terminate_maybe_warn(StdTEXTFailure, conf.shared.warnings_are_errors, |w| {
+        .def_terminate_maybe_warn(StdTEXTFailure, &conf.shared, |w| {
             ImpureError::Pure(StdTEXTError::from(w))
         })
 }
@@ -87,7 +87,7 @@ pub fn fcs_read_raw_dataset(
             .def_map_value(|dataset| RawDatasetOutput { text: raw, dataset })
             .def_io_into()
         })
-        .def_terminate_maybe_warn(RawDatasetFailure, conf.shared.warnings_are_errors, |w| {
+        .def_terminate_maybe_warn(RawDatasetFailure, &conf.shared, |w| {
             ImpureError::Pure(RawDatasetError::from(w))
         })
 }
@@ -105,7 +105,7 @@ pub fn fcs_read_std_dataset(
     read_fcs_raw_text_inner(p, conf)
         .def_io_into()
         .def_and_maybe(|(raw, mut h, st)| raw.into_std_dataset(&mut h, &st).def_io_into())
-        .def_terminate_maybe_warn(StdDatasetFailure, conf.shared.warnings_are_errors, |w| {
+        .def_terminate_maybe_warn(StdDatasetFailure, &conf.shared, |w| {
             ImpureError::Pure(StdDatasetError::from(w))
         })
 }
@@ -139,11 +139,9 @@ pub fn fcs_read_raw_dataset_with_keywords(
                 &st,
             )
         })
-        .def_terminate_maybe_warn(
-            RawDatasetWithKwsFailure,
-            conf.shared.warnings_are_errors,
-            |w| ImpureError::Pure(LookupAndReadDataAnalysisError::from(w)),
-        )
+        .def_terminate_maybe_warn(RawDatasetWithKwsFailure, &conf.shared, |w| {
+            ImpureError::Pure(LookupAndReadDataAnalysisError::from(w))
+        })
 }
 
 /// Read DATA/ANALYSIS in FCS file using provided keywords to be standardized.
@@ -184,11 +182,9 @@ pub fn fcs_read_std_dataset_with_keywords(
                 )
             })
         })
-        .def_terminate_maybe_warn(
-            StdDatasetWithKwsFailure,
-            conf.shared.warnings_are_errors,
-            |w| ImpureError::Pure(StdDatasetFromRawError::from(w)),
-        )
+        .def_terminate_maybe_warn(StdDatasetWithKwsFailure, &conf.shared, |w| {
+            ImpureError::Pure(StdDatasetFromRawError::from(w))
+        })
 }
 
 /// Output from parsing the TEXT segment.

@@ -368,7 +368,9 @@ fn main() -> Result<(), ()> {
 
     let warnings_are_errors = flag_arg(WARNINGS_ARE_ERRORS, "treat all warnings as fatal errors");
 
-    let all_shared_args = [warnings_are_errors];
+    let hide_warnings = flag_arg(HIDE_WARNINGS, "hide all warnings");
+
+    let all_shared_args = [warnings_are_errors, hide_warnings];
 
     // other args
 
@@ -696,6 +698,7 @@ fn parse_dataset_inner_config(sargs: &ArgMatches) -> config::ReaderConfig {
 fn parse_shared_config(sargs: &ArgMatches) -> config::SharedConfig {
     config::SharedConfig {
         warnings_are_errors: sargs.get_flag(WARNINGS_ARE_ERRORS),
+        hide_warnings: sargs.get_flag(HIDE_WARNINGS),
     }
 }
 
@@ -855,6 +858,8 @@ const DATE_PATTERN: &str = "date-pattern";
 const TIME_PATTERN: &str = "time-pattern";
 
 const WARNINGS_ARE_ERRORS: &str = "warnings-are-errors";
+
+const HIDE_WARNINGS: &str = "hide-warnings";
 
 const TRIM_INTRA_VALUE_WHITESPACE: &str = "trim-intra-value-whitespace";
 

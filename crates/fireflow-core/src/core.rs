@@ -3610,14 +3610,9 @@ where
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
         C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<SharedConfig>,
     {
-        let sconf: &SharedConfig = conf.as_ref();
         Self::lookup_inner(kws, conf)
             .def_errors_into()
-            .def_terminate_maybe_warn(
-                CoreTEXTFromKeywordsFailure,
-                sconf.warnings_are_errors,
-                |w| w.into(),
-            )
+            .def_terminate_maybe_warn(CoreTEXTFromKeywordsFailure, conf.as_ref(), |w| w.into())
     }
 
     fn lookup_inner<C>(
@@ -3853,7 +3848,6 @@ where
             + AsRef<ReadTEXTOffsetsConfig>
             + AsRef<SharedConfig>,
     {
-        let sconf: &SharedConfig = conf.as_ref();
         File::options()
             .read(true)
             .open(p)
@@ -3866,7 +3860,7 @@ where
                         (core, StdDatasetWithKwsOutput::new(dataset_segs, extra))
                     })
             })
-            .def_terminate_maybe_warn(StdDatasetWithKwsFailure, sconf.warnings_are_errors, |w| {
+            .def_terminate_maybe_warn(StdDatasetWithKwsFailure, conf.as_ref(), |w| {
                 ImpureError::Pure(StdDatasetFromRawError::from(w))
             })
     }

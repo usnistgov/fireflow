@@ -890,6 +890,7 @@ class CoreTEXT2_0(
         integer_byteord_override: list[int] | None = None,
         disallow_range_truncation: bool = False,
         warnings_are_errors: bool = False,
+        hide_warnings: bool = False,
     ) -> Self: ...
 
 @final
@@ -972,6 +973,7 @@ class CoreTEXT3_0(
         integer_byteord_override: list[int] | None = None,
         disallow_range_truncation: bool = False,
         warnings_are_errors: bool = False,
+        hide_warnings: bool = False,
     ) -> Self: ...
 
 @final
@@ -1060,6 +1062,7 @@ class CoreTEXT3_1(
         parse_indexed_spillover: bool = False,
         disallow_range_truncation: bool = False,
         warnings_are_errors: bool = False,
+        hide_warnings: bool = False,
     ) -> Self: ...
 
 @final
@@ -1151,6 +1154,7 @@ class CoreTEXT3_2(
         parse_indexed_spillover: bool = False,
         disallow_range_truncation: bool = False,
         warnings_are_errors: bool = False,
+        hide_warnings: bool = False,
     ) -> Self: ...
 
 @final
@@ -1233,6 +1237,7 @@ class CoreDataset2_0(
         allow_uneven_event_width: bool = False,
         allow_tot_mismatch: bool = False,
         warnings_are_errors: bool = False,
+        hide_warnings: bool = False,
     ) -> Self: ...
 
 @final
@@ -1332,6 +1337,7 @@ class CoreDataset3_0(
         allow_uneven_event_width: bool = False,
         allow_tot_mismatch: bool = False,
         warnings_are_errors: bool = False,
+        hide_warnings: bool = False,
     ) -> Self: ...
 
 @final
@@ -1437,6 +1443,7 @@ class CoreDataset3_1(
         allow_uneven_event_width: bool = False,
         allow_tot_mismatch: bool = False,
         warnings_are_errors: bool = False,
+        hide_warnings: bool = False,
     ) -> Self: ...
 
 @final
@@ -1545,6 +1552,7 @@ class CoreDataset3_2(
         allow_uneven_event_width: bool = False,
         allow_tot_mismatch: bool = False,
         warnings_are_errors: bool = False,
+        hide_warnings: bool = False,
     ) -> Self: ...
 
 class PyreflowException(Exception): ...
@@ -1769,6 +1777,7 @@ def fcs_read_raw_text(
     substitute_standard_key_values: SubPatterns = ({}, {}),
     # shared args
     warnings_are_errors: bool = False,
+    hide_warnings: bool = False,
 ) -> RawTEXTOutput: ...
 
 #
@@ -1840,6 +1849,7 @@ def fcs_read_std_text(
     disallow_range_truncation: bool = False,
     # shared args
     warnings_are_errors: bool = False,
+    hide_warnings: bool = False,
 ) -> tuple[AnyCoreTEXT, StdTEXTOutput]: ...
 
 #
@@ -1898,6 +1908,7 @@ def fcs_read_raw_dataset(
     allow_tot_mismatch: bool = False,
     # shared args
     warnings_are_errors: bool = False,
+    hide_warnings: bool = False,
 ) -> RawTEXTOutput: ...
 
 #
@@ -1972,6 +1983,7 @@ def fcs_read_std_dataset(
     allow_tot_mismatch: bool = False,
     # shared args
     warnings_are_errors: bool = False,
+    hide_warnings: bool = False,
 ) -> tuple[AnyCoreDataset, StdDatasetOutput]: ...
 
 #
@@ -1999,6 +2011,7 @@ def fcs_read_raw_dataset_with_keywords(
     allow_tot_mismatch: bool = False,
     # shared args
     warnings_are_errors: bool = False,
+    hide_warnings: bool = False,
 ) -> RawDatasetWithKwsOutput: ...
 
 #
@@ -2043,6 +2056,7 @@ def fcs_read_std_dataset_with_keywords(
     allow_tot_mismatch: bool = False,
     # shared args
     warnings_are_errors: bool = False,
+    hide_warnings: bool = False,
 ) -> StdDatasetWithKwsOutput: ...
 
 __version__: str

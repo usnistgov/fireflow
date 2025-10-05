@@ -532,7 +532,7 @@ pub(crate) fn lookup_temporal_gain_3_0(
         let mut tnt_gain = Gain::lookup_opt(kws, i, conf);
         tnt_gain.eval_error(|gain| {
             if gain.0.is_some_and(|g| f32::from(g.0) != 1.0) {
-                Some(TemporalGainError)
+                Some(TemporalGainError(i))
             } else {
                 None
             }
@@ -672,10 +672,9 @@ pub enum ParseOptKeyError {
 pub struct MissingTime(pub TimeMeasNamePattern);
 
 /// Error triggered when time measurement has $PnG
-// TODO include meas idx here
 #[derive(Debug, Error)]
-#[error("$PnG must be 1.0 or not set for temporal measurement")]
-pub struct TemporalGainError;
+#[error("$P{0}G must be 1.0 or not set for temporal measurement")]
+pub struct TemporalGainError(MeasIndex);
 
 /// Error/warning triggered when encountering a key which is deprecated
 #[derive(Debug, Error)]

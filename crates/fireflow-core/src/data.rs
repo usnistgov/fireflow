@@ -48,7 +48,7 @@
 //! DATA, hoping that all columns have the same length. For fixed layouts, we
 //! can compute $TOT using $PnB and the length of DATA.
 
-use crate::config::{ReadLayoutConfig, ReaderConfig};
+use crate::config::{ReadLayoutConfig, ReaderConfig, StdTextReadConfig};
 use crate::core::*;
 use crate::error::*;
 use crate::macros::match_many_to_one;
@@ -339,7 +339,11 @@ pub trait ColumnFamily {
 pub trait MeasDatatypeDef {
     type MeasDatatype;
 
-    fn lookup_datatype(kws: &mut StdKeywords, i: MeasIndex) -> LookupTentative<Self::MeasDatatype>;
+    fn lookup_datatype(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+        conf: &StdTextReadConfig,
+    ) -> LookupTentative<Self::MeasDatatype>;
 
     fn lookup_datatype_ro(
         kws: &StdKeywords,
@@ -349,9 +353,10 @@ pub trait MeasDatatypeDef {
     fn lookup_all(
         kws: &mut StdKeywords,
         par: Par,
+        conf: &StdTextReadConfig,
     ) -> LookupResult<Vec<ColumnLayoutValues<Self::MeasDatatype>>> {
         (0..par.0)
-            .map(|i| Self::lookup_one(kws, i.into()))
+            .map(|i| Self::lookup_one(kws, i.into(), conf))
             .gather()
             .map(Tentative::mconcat)
             .map_err(DeferredFailure::mconcat)
@@ -378,11 +383,12 @@ pub trait MeasDatatypeDef {
     fn lookup_one(
         kws: &mut StdKeywords,
         i: MeasIndex,
+        conf: &StdTextReadConfig,
     ) -> LookupResult<ColumnLayoutValues<Self::MeasDatatype>> {
         let w = Width::lookup_req(kws, i);
         let r = Range::lookup_req(kws, i);
         w.def_zip(r).def_and_tentatively(|(width, range)| {
-            Self::lookup_datatype(kws, i)
+            Self::lookup_datatype(kws, i, conf)
                 .map(|datatype| ColumnLayoutValues::new(width, range, datatype))
                 .errors_into()
         })
@@ -580,8 +586,9 @@ where
     type MeasDTDef: MeasDatatypeDef;
     type TotDef: TotDefinition;
 
-    fn lookup(kws: &mut StdKeywords, conf: &ReadLayoutConfig, par: Par)
-        -> LookupLayoutResult<Self>;
+    fn lookup<C>(kws: &mut StdKeywords, conf: &C, par: Par) -> LookupLayoutResult<Self>
+    where
+        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>;
 
     fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self>;
 
@@ -1172,7 +1179,11 @@ impl<'a> From<ColumnWriter<'a, F64Range, f64, Endian>> for WriterMixedType<'a> {
 impl MeasDatatypeDef for NoMeasDatatype {
     type MeasDatatype = NullMeasDatatype;
 
-    fn lookup_datatype(_: &mut StdKeywords, _: MeasIndex) -> LookupTentative<Self::MeasDatatype> {
+    fn lookup_datatype(
+        _: &mut StdKeywords,
+        _: MeasIndex,
+        _: &StdTextReadConfig,
+    ) -> LookupTentative<Self::MeasDatatype> {
         Tentative::new1(NullMeasDatatype)
     }
 
@@ -1187,8 +1198,12 @@ impl MeasDatatypeDef for NoMeasDatatype {
 impl MeasDatatypeDef for HasMeasDatatype {
     type MeasDatatype = Option<NumType>;
 
-    fn lookup_datatype(kws: &mut StdKeywords, i: MeasIndex) -> LookupTentative<Self::MeasDatatype> {
-        NumType::lookup_opt(kws, i).map(|x| x.0)
+    fn lookup_datatype(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+        conf: &StdTextReadConfig,
+    ) -> LookupTentative<Self::MeasDatatype> {
+        NumType::lookup_opt(kws, i, conf).map(|x| x.0)
     }
 
     fn lookup_datatype_ro(
@@ -3396,11 +3411,10 @@ impl VersionedDataLayout for DataLayout2_0 {
     type MeasDTDef = NoMeasDatatype;
     type TotDef = MaybeTot;
 
-    fn lookup(
-        kws: &mut StdKeywords,
-        conf: &ReadLayoutConfig,
-        par: Par,
-    ) -> LookupLayoutResult<Self> {
+    fn lookup<C>(kws: &mut StdKeywords, conf: &C, par: Par) -> LookupLayoutResult<Self>
+    where
+        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+    {
         AnyOrderedLayout::lookup(kws, conf, par).def_map_value(|x| x.into())
     }
 
@@ -3429,11 +3443,10 @@ impl VersionedDataLayout for DataLayout3_0 {
     type MeasDTDef = NoMeasDatatype;
     type TotDef = KnownTot;
 
-    fn lookup(
-        kws: &mut StdKeywords,
-        conf: &ReadLayoutConfig,
-        par: Par,
-    ) -> LookupLayoutResult<Self> {
+    fn lookup<C>(kws: &mut StdKeywords, conf: &C, par: Par) -> LookupLayoutResult<Self>
+    where
+        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+    {
         AnyOrderedLayout::lookup(kws, conf, par).def_map_value(|x| x.into())
     }
 
@@ -3462,11 +3475,10 @@ impl VersionedDataLayout for DataLayout3_1 {
     type MeasDTDef = NoMeasDatatype;
     type TotDef = KnownTot;
 
-    fn lookup(
-        kws: &mut StdKeywords,
-        conf: &ReadLayoutConfig,
-        par: Par,
-    ) -> LookupLayoutResult<Self> {
+    fn lookup<C>(kws: &mut StdKeywords, conf: &C, par: Par) -> LookupLayoutResult<Self>
+    where
+        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+    {
         NonMixedEndianLayout::lookup(kws, conf, par).def_map_value(|x| x.into())
     }
 
@@ -3495,18 +3507,17 @@ impl VersionedDataLayout for DataLayout3_2 {
     type MeasDTDef = HasMeasDatatype;
     type TotDef = KnownTot;
 
-    fn lookup(
-        kws: &mut StdKeywords,
-        conf: &ReadLayoutConfig,
-        par: Par,
-    ) -> LookupLayoutResult<Self> {
+    fn lookup<C>(kws: &mut StdKeywords, conf: &C, par: Par) -> LookupLayoutResult<Self>
+    where
+        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+    {
         let d = AlphaNumType::lookup_req_check_ascii(kws);
         let e = ByteOrd3_1::lookup_req(kws);
-        let cs = HasMeasDatatype::lookup_all(kws, par);
+        let cs = HasMeasDatatype::lookup_all(kws, par, conf.as_ref());
         d.def_zip3(e, cs)
             .def_inner_into()
             .def_and_maybe(|(datatype, endian, columns)| {
-                Self::try_new(datatype, endian, columns, conf).def_inner_into()
+                Self::try_new(datatype, endian, columns, conf.as_ref()).def_inner_into()
             })
     }
 
@@ -3707,18 +3718,17 @@ impl<T> Default for AnyOrderedLayout<T> {
 }
 
 impl<T> AnyOrderedLayout<T> {
-    fn lookup(
-        kws: &mut StdKeywords,
-        conf: &ReadLayoutConfig,
-        par: Par,
-    ) -> LookupLayoutResult<Self> {
-        let cs = NoMeasDatatype::lookup_all(kws, par);
+    fn lookup<C>(kws: &mut StdKeywords, conf: &C, par: Par) -> LookupLayoutResult<Self>
+    where
+        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+    {
+        let cs = NoMeasDatatype::lookup_all(kws, par, conf.as_ref());
         let d = AlphaNumType::lookup_req(kws);
         let b = ByteOrd2_0::lookup_req(kws);
         d.def_zip3(b, cs)
             .def_inner_into()
             .def_and_maybe(|(datatype, byteord, columns)| {
-                Self::try_new(datatype, byteord, columns, conf).def_inner_into()
+                Self::try_new(datatype, byteord, columns, conf.as_ref()).def_inner_into()
             })
     }
 
@@ -3826,18 +3836,17 @@ impl<T> AnyOrderedLayout<T> {
 }
 
 impl NonMixedEndianLayout<NoMeasDatatype> {
-    fn lookup(
-        kws: &mut StdKeywords,
-        conf: &ReadLayoutConfig,
-        par: Par,
-    ) -> LookupLayoutResult<Self> {
-        let cs = NoMeasDatatype::lookup_all(kws, par);
+    fn lookup<C>(kws: &mut StdKeywords, conf: &C, par: Par) -> LookupLayoutResult<Self>
+    where
+        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+    {
+        let cs = NoMeasDatatype::lookup_all(kws, par, conf.as_ref());
         let d = AlphaNumType::lookup_req_check_ascii(kws);
         let n = ByteOrd3_1::lookup_req(kws);
         d.def_zip3(n, cs)
             .def_inner_into()
             .def_and_maybe(|(datatype, byteord, columns)| {
-                Self::try_new(datatype, byteord.0, columns, conf).def_inner_into()
+                Self::try_new(datatype, byteord.0, columns, conf.as_ref()).def_inner_into()
             })
     }
 

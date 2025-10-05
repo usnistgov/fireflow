@@ -217,6 +217,11 @@ fn main() -> Result<(), ()> {
 
     let allow_unused_standard = flag_arg(ALLOW_UNUSED_STANDARD, "allow unused standard keywords");
 
+    let allow_optional_dropping = flag_arg(
+        ALLOW_OPTIONAL_DROPPING,
+        "drop optional keys if they cause an error",
+    );
+
     let disallow_deprecated = flag_arg(
         DISALLOW_DEPRECATED,
         "throw error if any deprecated keywords are present",
@@ -257,6 +262,7 @@ fn main() -> Result<(), ()> {
         time_pattern,
         allow_pseudostandard,
         allow_unused_standard,
+        allow_optional_dropping,
         disallow_deprecated,
         fix_log_scale_offset,
         ns_meas_pattern,
@@ -614,6 +620,7 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::StdTextReadConfig {
         time_pattern,
         allow_pseudostandard: sargs.get_flag(ALLOW_PSEUDOSTANDARD),
         allow_unused_standard: sargs.get_flag(ALLOW_UNUSED_STANDARD),
+        allow_optional_dropping: sargs.get_flag(ALLOW_OPTIONAL_DROPPING),
         disallow_deprecated: sargs.get_flag(DISALLOW_DEPRECATED),
         fix_log_scale_offsets: sargs.get_flag(FIX_LOG_SCALE_OFFSETS),
         nonstandard_measurement_pattern,
@@ -866,6 +873,8 @@ const IGNORE_TIME_OPTICAL_KEYS: &str = "ignore-time-optical-keys";
 const ALLOW_PSEUDOSTANDARD: &str = "allow-pseudostandard";
 
 const ALLOW_UNUSED_STANDARD: &str = "allow-unused-standard";
+
+const ALLOW_OPTIONAL_DROPPING: &str = "allow-optional-dropping";
 
 const DISALLOW_DEPRECATED: &str = "disallow-deprecated";
 

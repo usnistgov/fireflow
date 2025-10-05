@@ -287,9 +287,11 @@ impl AppliedGates2_0 {
         par: Par,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self> {
-        let ag = GatingScheme::lookup(kws, Gating::lookup_opt, |k, j| {
-            Region::lookup(k, j, par, conf)
-        });
+        let ag = GatingScheme::lookup(
+            kws,
+            |k| Gating::lookup_opt(k, conf),
+            |k, j| Region::lookup(k, j, par, conf),
+        );
         let gm = GatedMeasurements::lookup(kws, conf);
         ag.zip(gm).and_tentatively(|(scheme, gated_measurements)| {
             Self::try_new(gated_measurements.0, scheme)
@@ -379,9 +381,11 @@ impl AppliedGates3_0 {
         Self::lookup_inner(
             kws,
             |k| {
-                GatingScheme::lookup(k, Gating::lookup_opt, |kk, j| {
-                    Region::lookup(kk, j, par, conf)
-                })
+                GatingScheme::lookup(
+                    k,
+                    |kws_| Gating::lookup_opt(kws_, conf),
+                    |kk, j| Region::lookup(kk, j, par, conf),
+                )
             },
             |k| GatedMeasurements::lookup(k, conf),
         )
@@ -392,14 +396,13 @@ impl AppliedGates3_0 {
         par: Par,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self> {
-        let dd = conf.disallow_deprecated;
         Self::lookup_inner(
             kws,
             |k| {
                 GatingScheme::lookup(
                     k,
-                    |kk| Gating::lookup_opt_dep(kk, dd),
-                    |kk, i| Region::lookup_dep(kk, i, par, dd, conf),
+                    |kk| Gating::lookup_opt_dep(kk, conf),
+                    |kk, i| Region::lookup_dep(kk, i, par, conf),
                 )
             },
             |k| GatedMeasurements::lookup_dep(k, conf),
@@ -515,13 +518,12 @@ impl AppliedGates3_2 {
     pub(crate) fn lookup(
         kws: &mut StdKeywords,
         par: Par,
-        disallow_deprecated: bool,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self> {
         GatingScheme::lookup(
             kws,
-            |k| Gating::lookup_opt_dep(k, disallow_deprecated),
-            |k, i| Region::lookup_dep(k, i, par, disallow_deprecated, conf),
+            |k| Gating::lookup_opt_dep(k, conf),
+            |k, i| Region::lookup_dep(k, i, par, conf),
         )
         .map(Self)
     }
@@ -541,13 +543,13 @@ impl GatedMeasurement {
             kws,
             i,
             |k, j| GateScale::lookup_opt_st(k, j, (), conf),
-            GateFilter::lookup_opt,
-            GateShortname::lookup_opt,
-            GatePercentEmitted::lookup_opt,
-            GateRange::lookup_opt,
-            GateLongname::lookup_opt,
-            GateDetectorType::lookup_opt,
-            GateDetectorVoltage::lookup_opt,
+            |k, j| GateFilter::lookup_opt(k, j, conf),
+            |k, j| GateShortname::lookup_opt(k, j, conf),
+            |k, j| GatePercentEmitted::lookup_opt(k, j, conf),
+            |k, j| GateRange::lookup_opt(k, j, conf),
+            |k, j| GateLongname::lookup_opt(k, j, conf),
+            |k, j| GateDetectorType::lookup_opt(k, j, conf),
+            |k, j| GateDetectorVoltage::lookup_opt(k, j, conf),
         )
     }
 
@@ -556,18 +558,17 @@ impl GatedMeasurement {
         i: GateIndex,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self> {
-        let dd = conf.disallow_deprecated;
         Self::lookup_inner(
             kws,
             i,
-            |k, j| GateScale::lookup_opt_st_dep(k, j, dd, (), conf),
-            |k, j| GateFilter::lookup_opt_dep(k, j, dd),
-            |k, j| GateShortname::lookup_opt_dep(k, j, dd),
-            |k, j| GatePercentEmitted::lookup_opt_dep(k, j, dd),
-            |k, j| GateRange::lookup_opt_dep(k, j, dd),
-            |k, j| GateLongname::lookup_opt_dep(k, j, dd),
-            |k, j| GateDetectorType::lookup_opt_dep(k, j, dd),
-            |k, j| GateDetectorVoltage::lookup_opt_dep(k, j, dd),
+            |k, j| GateScale::lookup_opt_st_dep(k, j, (), conf),
+            |k, j| GateFilter::lookup_opt_dep(k, j, conf),
+            |k, j| GateShortname::lookup_opt_dep(k, j, conf),
+            |k, j| GatePercentEmitted::lookup_opt_dep(k, j, conf),
+            |k, j| GateRange::lookup_opt_dep(k, j, conf),
+            |k, j| GateLongname::lookup_opt_dep(k, j, conf),
+            |k, j| GateDetectorType::lookup_opt_dep(k, j, conf),
+            |k, j| GateDetectorVoltage::lookup_opt_dep(k, j, conf),
         )
     }
 
@@ -793,7 +794,6 @@ impl<I> Region<I> {
         kws: &mut StdKeywords,
         i: RegionIndex,
         par: Par,
-        disallow_dep: bool,
         conf: &StdTextReadConfig,
     ) -> LookupOptional<Self>
     where
@@ -803,8 +803,8 @@ impl<I> Region<I> {
         Self::lookup_inner(
             kws,
             i,
-            |k, j| RegionGateIndex::lookup_region_opt_dep(k, j, par, disallow_dep, conf),
-            |k, j| RegionWindow::lookup_opt_st_dep(k, j, disallow_dep, (), conf),
+            |k, j| RegionGateIndex::lookup_region_opt_dep(k, j, par, conf),
+            |k, j| RegionWindow::lookup_opt_st_dep(k, j, (), conf),
         )
     }
 
@@ -973,14 +973,18 @@ impl TryFrom<PrefixedMeasIndex> for GateIndex {
 
 impl GatedMeasurements {
     fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
-        Self::lookup_inner(kws, Gate::lookup_opt, GatedMeasurement::lookup, conf)
+        Self::lookup_inner(
+            kws,
+            |k| Gate::lookup_opt(k, conf),
+            GatedMeasurement::lookup,
+            conf,
+        )
     }
 
     fn lookup_dep(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
-        let dd = conf.disallow_deprecated;
         Self::lookup_inner(
             kws,
-            |k| Gate::lookup_opt_dep(k, dd),
+            |k| Gate::lookup_opt_dep(k, conf),
             GatedMeasurement::lookup_dep,
             conf,
         )

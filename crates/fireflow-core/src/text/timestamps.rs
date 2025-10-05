@@ -175,7 +175,6 @@ impl<X> Timestamps<X> {
     pub(crate) fn lookup_dep(
         kws: &mut StdKeywords,
         conf: &StdTextReadConfig,
-        disallow_dep: bool,
     ) -> LookupTentative<Self>
     where
         Btim<X>: OptMetarootKey,
@@ -184,9 +183,10 @@ impl<X> Timestamps<X> {
             From<<Btim<X> as FromStrStateful>::Err> + From<<Etim<X> as FromStrStateful>::Err>,
         for<'a> X: PartialOrd + FromStr + From<NaiveTime>,
     {
-        let b = Btim::lookup_opt_st_dep(kws, disallow_dep, (), conf);
-        let e = Etim::lookup_opt_st_dep(kws, disallow_dep, (), conf);
-        let d = FCSDate::lookup_opt_st_dep(kws, disallow_dep, (), conf);
+        let dd = conf.disallow_deprecated;
+        let b = Btim::lookup_opt_st_dep(kws, dd, (), conf);
+        let e = Etim::lookup_opt_st_dep(kws, dd, (), conf);
+        let d = FCSDate::lookup_opt_st_dep(kws, dd, (), conf);
         Self::process_lookup(b, e, d)
     }
 

@@ -5548,6 +5548,7 @@ impl DocArgParam {
         let time_pattern = Self::new_time_pattern_param();
         let allow_pseudostandard = Self::new_allow_pseudostandard_param();
         let allow_unused_standard = Self::new_allow_unused_standard_param();
+        let allow_optional_dropping = Self::new_allow_optional_dropping();
         let disallow_deprecated = Self::new_disallow_deprecated_param();
         let fix_log_scale_offsets = Self::new_fix_log_scale_offsets_param();
         let nonstandard_measurement_pattern = Self::new_nonstandard_measurement_pattern_param();
@@ -5562,6 +5563,7 @@ impl DocArgParam {
             time_pattern,
             allow_pseudostandard,
             allow_unused_standard,
+            allow_optional_dropping,
             disallow_deprecated,
             fix_log_scale_offsets,
             nonstandard_measurement_pattern,
@@ -5769,6 +5771,14 @@ impl DocArgParam {
         Self::new_bool_param(
             "allow_unused_standard",
             "If ``True`` allow unused standard keywords to be present.",
+        )
+    }
+
+    fn new_allow_optional_dropping() -> Self {
+        Self::new_bool_param(
+            "allow_optional_dropping",
+            "If ``True`` drop optional keys that cause an error and emit \
+             warning instead.",
         )
     }
 

@@ -372,12 +372,6 @@ impl TryFrom<AlphaNumType> for NumType {
 #[display("0,0")]
 pub struct TemporalScale;
 
-// impl TemporalScale {
-//     pub(crate) fn pair(i: IndexFromOne) -> (String, String) {
-//         (Self::std(i).to_string(), Self.to_string())
-//     }
-// }
-
 impl FromStr for TemporalScale {
     type Err = TemporalScaleError;
 
@@ -390,7 +384,7 @@ impl FromStr for TemporalScale {
 }
 
 #[derive(Debug, Error)]
-#[error("$PnE for time measurement must be '0,0' (linear)")]
+#[error("time measurement must have linear scaling")]
 pub struct TemporalScaleError;
 
 /// The value for the $PnCALIBRATION key (3.1 only)
@@ -846,7 +840,7 @@ impl<I> RegionGateIndex<I> {
         for<'a> Self: fmt::Display + FromStrStateful<Payload<'a> = ()>,
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
-        process_opt(Self::remove_meas_opt_st(kws, i, (), conf)).and_tentatively(|maybe| {
+        process_opt(Self::remove_meas_opt_st(kws, i, (), conf), conf).and_tentatively(|maybe| {
             if let Some(x) = maybe.0 {
                 Self::check_link(&x, par).map_or_else(
                     |w| Tentative::new(None, [w.into()], []),
@@ -863,7 +857,6 @@ impl<I> RegionGateIndex<I> {
         kws: &mut StdKeywords,
         i: RegionIndex,
         par: Par,
-        disallow_dep: bool,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<MaybeValue<Self>>
     where
@@ -872,7 +865,7 @@ impl<I> RegionGateIndex<I> {
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
         let mut x = Self::lookup_region_opt(kws, i, par, conf);
-        eval_dep_maybe(&mut x, Self::std(i), disallow_dep);
+        eval_dep_maybe(&mut x, Self::std(i), conf.disallow_deprecated);
         x
     }
 

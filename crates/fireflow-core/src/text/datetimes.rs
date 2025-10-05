@@ -1,3 +1,4 @@
+use crate::config::StdTextReadConfig;
 use crate::core::{AnyMetarootKeyLossError, UnitaryKeyLossError};
 use crate::error::*;
 use crate::validated::keys::*;
@@ -84,9 +85,9 @@ impl Datetimes {
         }
     }
 
-    pub(crate) fn lookup(kws: &mut StdKeywords) -> LookupTentative<Self> {
-        let b = BeginDateTime::lookup_opt(kws);
-        let e = EndDateTime::lookup_opt(kws);
+    pub(crate) fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
+        let b = BeginDateTime::lookup_opt(kws, conf);
+        let e = EndDateTime::lookup_opt(kws, conf);
         b.zip(e).and_tentatively(|(begin, end)| {
             Datetimes::try_new(begin.0, end.0)
                 .map(Tentative::new1)

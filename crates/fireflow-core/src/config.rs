@@ -590,6 +590,9 @@ pub struct StdTextReadConfig {
     /// if $TIMESTEP is present but no time measurement is present.
     pub allow_unused_standard: bool,
 
+    /// If true, allow optional keys to be dropped on error with a warning.
+    pub allow_optional_dropping: bool,
+
     /// If true, throw an error if TEXT includes any deprecated features.
     ///
     /// If false, merely throw a warning.

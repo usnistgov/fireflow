@@ -1169,7 +1169,7 @@ impl fmt::Display for FinalDelimError {
 
 impl fmt::Display for NonUtf8KeywordError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let n = 10;
+        let n = 20;
         let go = |xs: &Vec<u8>| {
             let s = xs
                 .iter()
@@ -1177,16 +1177,12 @@ impl fmt::Display for NonUtf8KeywordError {
                 .copied()
                 .map(char::from)
                 .collect::<String>();
-            if s.len() > n {
-                format!("'{}' (more)", s.chars().take(n).collect::<String>())
-            } else {
-                format!("'{s}'")
-            }
+            truncate_string(s.as_str(), n)
         };
         write!(
             f,
             "non UTF-8 key/value pair encountered and dropped, \
-             first 10 chars of both as Latin-1 are {} and {}",
+             first {n} chars of both as Latin-1 are '{}' and '{}'",
             go(&self.key),
             go(&self.value),
         )

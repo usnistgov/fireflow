@@ -703,12 +703,22 @@ pub struct PseudostandardError(pub StdKey);
 pub struct UnusedStandardError(pub StdKey);
 
 #[derive(new, Debug, Error)]
-#[error("{error} (key='{key}', value='{value}')")]
 pub struct ParseKeyError<E> {
     #[new(into)]
     pub error: E,
     pub key: StdKey,
     pub value: String,
+}
+
+impl<E: fmt::Display> fmt::Display for ParseKeyError<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let value = truncate_string(self.value.as_str(), 30);
+        write!(
+            f,
+            "key '{}' with value '{value}' could not be parsed: {}",
+            self.key, self.error
+        )
+    }
 }
 
 impl<E> ParseKeyError<E> {
@@ -853,5 +863,14 @@ impl ExtraStdKeywords {
             || DetectorType::matches(k)
             || PercentEmitted::matches(k)
             || DetectorVoltage::matches(k)
+    }
+}
+
+pub(crate) fn truncate_string(s: &str, n: usize) -> String {
+    // TODO this is the length in bytes, not chars (ie doesn't care about utf-8)
+    if s.len() > n {
+        format!("{}...(more)", s.chars().take(n).collect::<String>())
+    } else {
+        format!("{s}")
     }
 }

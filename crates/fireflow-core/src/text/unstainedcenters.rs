@@ -59,14 +59,6 @@ impl TryFrom<Vec<(Shortname, f32)>> for UnstainedCenters {
 }
 
 impl UnstainedCenters {
-    pub fn new_1(k: Shortname, v: f32) -> Self {
-        Self([(k, v)].into_iter().collect())
-    }
-
-    pub fn inner(&self) -> &HashMap<Shortname, f32> {
-        &self.0
-    }
-
     pub(crate) fn names_difference(
         &self,
         names: &HashSet<&Shortname>,

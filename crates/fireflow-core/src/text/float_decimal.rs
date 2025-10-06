@@ -3,6 +3,7 @@ use crate::text::keywords::Range;
 use bigdecimal::num_bigint::{BigUint, Sign};
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use derive_more::Into;
+use derive_new::new;
 use std::any::type_name;
 use std::fmt;
 use std::marker::PhantomData;
@@ -12,22 +13,13 @@ use thiserror::Error;
 use serde::Serialize;
 
 /// A big decimal which has been validated to be within the range of a float.
-#[derive(Clone, Into, PartialEq, Debug)]
+#[derive(Clone, Into, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
 pub struct FloatDecimal<T> {
     #[into]
     value: BigDecimal,
     _t: PhantomData<T>,
-}
-
-impl<T> FloatDecimal<T> {
-    fn new(range: BigDecimal) -> Self {
-        Self {
-            value: range,
-            _t: PhantomData,
-        }
-    }
 }
 
 impl TryFrom<f32> for FloatDecimal<f32> {
@@ -87,12 +79,14 @@ pub trait HasFloatBounds: Sized {
     const DIGITS: u64;
     const ZEROS: u16;
 
+    #[must_use]
     fn max_decimal() -> FloatDecimal<Self> {
         let u = BigUint::from(Self::DIGITS);
         let s = -i64::from(Self::ZEROS);
         FloatDecimal::new(BigDecimal::from_biguint(u, s))
     }
 
+    #[must_use]
     fn min_decimal() -> FloatDecimal<Self> {
         FloatDecimal::new(-Self::max_decimal().value)
     }

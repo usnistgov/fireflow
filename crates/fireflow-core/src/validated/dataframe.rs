@@ -116,6 +116,7 @@ impl<T> From<Vec<T>> for FCSColumn<T> {
 }
 
 impl AnyFCSColumn {
+    #[must_use]
     pub fn len(&self) -> usize {
         match_many_to_one!(self, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], x, {
             x.0.len()
@@ -132,11 +133,13 @@ impl AnyFCSColumn {
         })
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     /// Convert number at index to string
+    #[must_use]
     pub fn pos_to_string(&self, i: usize) -> String {
         match_many_to_one!(self, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], x, {
             x.0[i].to_string()
@@ -144,6 +147,7 @@ impl AnyFCSColumn {
     }
 
     /// The number of bytes occupied by the column if written as ASCII
+    #[must_use]
     pub fn ascii_nbytes(&self) -> u32 {
         match self {
             Self::U08(xs) => u8::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
@@ -206,6 +210,7 @@ impl FCSDataFrame {
         }
     }
 
+    #[must_use]
     pub fn new1(column: AnyFCSColumn) -> Self {
         Self {
             nrows: column.len(),
@@ -222,6 +227,7 @@ impl FCSDataFrame {
         self.columns.iter()
     }
 
+    #[must_use]
     pub fn nrows(&self) -> usize {
         if self.is_empty() {
             0
@@ -230,10 +236,12 @@ impl FCSDataFrame {
         }
     }
 
+    #[must_use]
     pub fn ncols(&self) -> usize {
         self.columns.len()
     }
 
+    #[must_use]
     pub fn size(&self) -> u64 {
         (self.ncols() * self.nrows()) as u64
     }
@@ -323,6 +331,7 @@ impl FCSDataFrame {
     }
 
     #[cfg(feature = "python")]
+    #[must_use]
     pub fn as_polars_dataframe(&self, names: &[Shortname]) -> DataFrame {
         // ASSUME names is same length as columns
         let columns = self

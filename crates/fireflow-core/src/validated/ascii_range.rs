@@ -104,6 +104,7 @@ impl AsciiRange {
         self.chars
     }
 
+    #[must_use]
     pub fn value(&self) -> u64 {
         self.value
     }

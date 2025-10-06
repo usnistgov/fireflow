@@ -312,6 +312,7 @@ impl From<NoByteOrd<false>> for ByteOrd3_1 {
 }
 
 impl SizedByteOrd<2> {
+    #[must_use]
     pub fn endian(&self) -> Endian {
         let [x, y] = (*self).into();
         (y > x).into()
@@ -319,6 +320,7 @@ impl SizedByteOrd<2> {
 }
 
 impl ByteOrd2_0 {
+    #[must_use]
     pub fn nbytes(&self) -> Bytes {
         match self {
             Self::O1(_) => SizedByteOrd::<1>::nbytes(),
@@ -332,6 +334,7 @@ impl ByteOrd2_0 {
         }
     }
 
+    #[must_use]
     pub fn as_vec(&self) -> Vec<NonZeroU8> {
         match self {
             Self::O1(x) => <[NonZeroU8; 1]>::from(*x).to_vec(),

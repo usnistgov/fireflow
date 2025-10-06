@@ -78,6 +78,7 @@ impl Compensation2_0 {
         tnt.map(MaybeValue)
     }
 
+    #[must_use]
     pub fn opt_keywords(&self) -> Vec<(String, String)> {
         let m = &self.0.matrix;
         let n = m.ncols();

@@ -372,12 +372,14 @@ macro_rules! match_anycore {
 }
 
 impl<A, D, O> AnyCore<A, D, O> {
+    #[must_use]
     pub fn version(&self) -> Version {
         match_many_to_one!(self, Self, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
             (*x).fcs_version()
         })
     }
 
+    #[must_use]
     pub fn shortnames(&self) -> Vec<Shortname> {
         match_anycore!(self, x, { x.all_shortnames() })
     }
@@ -440,6 +442,7 @@ impl AnyCoreTEXT {
 }
 
 impl AnyCoreDataset {
+    #[must_use]
     pub fn as_data(&self) -> &FCSDataFrame {
         match_anycore!(self, x, { &x.data })
     }
@@ -7570,6 +7573,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
 
 impl Temporal2_0 {
     #[allow(clippy::too_many_arguments)]
+    #[must_use]
     pub fn new_2_0(
         has_scale: bool,
         bin: Option<PeakBin>,
@@ -7586,6 +7590,7 @@ impl Temporal2_0 {
 
 impl Temporal3_0 {
     #[allow(clippy::too_many_arguments)]
+    #[must_use]
     pub fn new_3_0(
         timestep: Timestep,
         bin: Option<PeakBin>,
@@ -7601,6 +7606,7 @@ impl Temporal3_0 {
 
 impl Temporal3_1 {
     #[allow(clippy::too_many_arguments)]
+    #[must_use]
     pub fn new_3_1(
         timestep: Timestep,
         display: Option<Display>,
@@ -7617,6 +7623,7 @@ impl Temporal3_1 {
 
 impl Temporal3_2 {
     #[allow(clippy::too_many_arguments)]
+    #[must_use]
     pub fn new_3_2(
         timestep: Timestep,
         display: Option<Display>,
@@ -7633,6 +7640,7 @@ impl Temporal3_2 {
 
 impl Optical2_0 {
     #[allow(clippy::too_many_arguments)]
+    #[must_use]
     pub fn new_2_0(
         scale: Option<Scale>,
         wavelength: Option<Wavelength>,
@@ -7662,6 +7670,7 @@ impl Optical2_0 {
 
 impl Optical3_0 {
     #[allow(clippy::too_many_arguments)]
+    #[must_use]
     pub fn new_3_0(
         transform: ScaleTransform,
         wavelength: Option<Wavelength>,
@@ -7691,6 +7700,7 @@ impl Optical3_0 {
 
 impl Optical3_1 {
     #[allow(clippy::too_many_arguments)]
+    #[must_use]
     pub fn new_3_1(
         transform: ScaleTransform,
         wavelengths: Option<Wavelengths>,
@@ -7728,6 +7738,7 @@ impl Optical3_1 {
 
 impl Optical3_2 {
     #[allow(clippy::too_many_arguments)]
+    #[must_use]
     pub fn new_3_2(
         transform: ScaleTransform,
         wavelengths: Option<Wavelengths>,

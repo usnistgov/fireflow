@@ -816,6 +816,7 @@ impl<W, E> DeferredFailure<(), W, E> {
         self.errors.extend(*other.errors);
     }
 
+    #[must_use]
     pub fn mconcat(es: NonEmpty<Self>) -> Self {
         let mut acc = es.head;
         for x in es.tail {
@@ -850,6 +851,7 @@ impl<T> Leveled<T> {
         }
     }
 
+    #[must_use]
     pub fn many_to_tentative(xs: Vec<Self>) -> BiTentative<(), T> {
         let (ws, es): (Vec<_>, Vec<_>) = xs
             .into_iter()
@@ -1481,6 +1483,7 @@ impl<E> ImpureError<E> {
 }
 
 impl ImpureError<Infallible> {
+    #[must_use]
     pub fn infallible<E>(self) -> ImpureError<E> {
         match self {
             ImpureError::IO(e) => ImpureError::IO(e),

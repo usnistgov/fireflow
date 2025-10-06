@@ -77,6 +77,7 @@ impl Datetimes {
         Ok(())
     }
 
+    #[must_use]
     pub fn valid(&self) -> bool {
         if let (Some(b), Some(e)) = (&self.begin, &self.end) {
             (b.0).0 < (e.0).0

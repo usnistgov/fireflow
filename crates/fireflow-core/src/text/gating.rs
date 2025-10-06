@@ -268,6 +268,7 @@ impl AppliedGates2_0 {
         Ok(Self::try_new(gated_measurements, scheme)?)
     }
 
+    #[must_use]
     pub fn split(
         self,
     ) -> (
@@ -351,6 +352,7 @@ impl AppliedGates3_0 {
         Ok(Self::try_new(gated_measurements, scheme)?)
     }
 
+    #[must_use]
     pub fn split(
         self,
     ) -> (
@@ -501,6 +503,7 @@ impl AppliedGates3_2 {
         GatingScheme::try_new(gating, regions).map(Self)
     }
 
+    #[must_use]
     pub fn split(self) -> (HashMap<RegionIndex, Region3_2>, Option<Gating>) {
         (self.0.regions, self.0.gating)
     }

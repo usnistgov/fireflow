@@ -460,6 +460,7 @@ pub trait TotDefinition {
         )
     }
 
+    #[must_use]
     fn check_tot_inner(
         total_events: u64,
         tot: Tot,
@@ -3284,6 +3285,7 @@ impl<T> Default for AnyOrderedUintLayout<T> {
 }
 
 impl<T> AnyOrderedUintLayout<T> {
+    #[must_use]
     pub fn phantom_into<X>(self) -> AnyOrderedUintLayout<X> {
         match_any_uint!(self, Self, l, { l.phantom_into().into() })
     }
@@ -3360,6 +3362,7 @@ impl<T, D, const ORD: bool> Default for AnyAsciiLayout<T, D, ORD> {
 }
 
 impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
+    #[must_use]
     pub fn phantom_into<T1, D1, const ORD_1: bool>(self) -> AnyAsciiLayout<T1, D1, ORD_1> {
         match self {
             Self::Delimited(x) => DelimAsciiLayout::new(x.ranges).into(),
@@ -3409,6 +3412,7 @@ impl<T, D, const ORD: bool> FixedAsciiLayout<T, D, ORD> {
         Self::new_ascii(rs)
     }
 
+    #[must_use]
     pub fn new_ascii(ranges: Vec<AsciiRange>) -> Self {
         Self::new(ranges, NoByteOrd)
     }
@@ -3418,6 +3422,7 @@ impl<T, const LEN: usize, Tot> OrderedLayout<Bitmask<T, LEN>, Tot>
 where
     Bitmask<T, LEN>: HasNativeWidth<Order = SizedByteOrd<LEN>>,
 {
+    #[must_use]
     pub fn new_endian_uint(ranges: Vec<Bitmask<T, LEN>>, endian: Endian) -> Self {
         Self::new(ranges, SizedByteOrd::Endian(endian))
     }
@@ -3427,6 +3432,7 @@ impl<T, const LEN: usize, Tot> OrderedLayout<FloatRange<T, LEN>, Tot>
 where
     FloatRange<T, LEN>: HasNativeWidth<Order = SizedByteOrd<LEN>>,
 {
+    #[must_use]
     pub fn new_endian_float(ranges: Vec<FloatRange<T, LEN>>, endian: Endian) -> Self {
         Self::new(ranges, SizedByteOrd::Endian(endian))
     }
@@ -3699,6 +3705,7 @@ impl DataLayout3_2 {
         }
     }
 
+    #[must_use]
     pub fn new_mixed(ranges: Vec<NullMixedType>, endian: Endian) -> Self {
         // Check if the mixed types are all the same, in which case we can use a
         // simpler layout. This clone thing is not ideal but it will only be
@@ -3769,14 +3776,17 @@ impl<T> AnyOrderedLayout<T> {
             })
     }
 
+    #[must_use]
     pub fn new_ascii_fixed(ranges: Vec<AsciiRange>) -> Self {
         AnyAsciiLayout::new_fixed(ranges).into()
     }
 
+    #[must_use]
     pub fn new_ascii_delim(ranges: Vec<u64>) -> Self {
         AnyAsciiLayout::new_delim(ranges).into()
     }
 
+    #[must_use]
     pub fn new_uint<U, const LEN: usize>(
         columns: Vec<Bitmask<U, LEN>>,
         byte_layout: SizedByteOrd<LEN>,
@@ -3788,10 +3798,12 @@ impl<T> AnyOrderedLayout<T> {
         Self::Integer(FixedLayout::new(columns, byte_layout).into())
     }
 
+    #[must_use]
     pub fn new_f32(ranges: Vec<F32Range>, byte_layout: SizedByteOrd<4>) -> Self {
         FixedLayout::new(ranges, byte_layout).into()
     }
 
+    #[must_use]
     pub fn new_f64(ranges: Vec<F64Range>, byte_layout: SizedByteOrd<8>) -> Self {
         FixedLayout::new(ranges, byte_layout).into()
     }
@@ -3836,6 +3848,7 @@ impl<T> AnyOrderedLayout<T> {
         }
     }
 
+    #[must_use]
     pub fn phantom_into<X>(self) -> AnyOrderedLayout<X> {
         match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, {
             x.phantom_into().into()
@@ -3929,22 +3942,27 @@ impl<D> NonMixedEndianLayout<D> {
         }
     }
 
+    #[must_use]
     pub fn new_ascii_fixed(ranges: Vec<AsciiRange>) -> Self {
         AnyAsciiLayout::new_fixed(ranges).into()
     }
 
+    #[must_use]
     pub fn new_ascii_delim(ranges: Vec<u64>) -> Self {
         AnyAsciiLayout::new_delim(ranges).into()
     }
 
+    #[must_use]
     pub fn new_uint(columns: Vec<AnyNullBitmask>, endian: Endian) -> Self {
         FixedLayout::new(columns, endian).into()
     }
 
+    #[must_use]
     pub fn new_f32(ranges: Vec<F32Range>, endian: Endian) -> Self {
         FixedLayout::new(ranges, endian).into()
     }
 
+    #[must_use]
     pub fn new_f64(ranges: Vec<F64Range>, endian: Endian) -> Self {
         FixedLayout::new(ranges, endian).into()
     }
@@ -3958,6 +3976,7 @@ impl<D> NonMixedEndianLayout<D> {
         }
     }
 
+    #[must_use]
     pub fn phantom_into<D1>(self) -> NonMixedEndianLayout<D1> {
         match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, {
             x.phantom_into().into()

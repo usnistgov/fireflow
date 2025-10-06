@@ -399,6 +399,7 @@ impl Version {
         }
     }
 
+    #[must_use]
     pub fn short(&self) -> &'static str {
         match self {
             Self::FCS2_0 => "2.0",
@@ -408,6 +409,7 @@ impl Version {
         }
     }
 
+    #[must_use]
     pub fn short_underscore(&self) -> &'static str {
         match self {
             Self::FCS2_0 => "2_0",
@@ -417,6 +419,7 @@ impl Version {
         }
     }
 
+    #[must_use]
     pub fn from_short(s: &str) -> Option<Self> {
         match s {
             "2.0" => Some(Self::FCS2_0),
@@ -427,6 +430,7 @@ impl Version {
         }
     }
 
+    #[must_use]
     pub fn from_short_underscore(s: &str) -> Option<Self> {
         match s {
             "2_0" => Some(Self::FCS2_0),

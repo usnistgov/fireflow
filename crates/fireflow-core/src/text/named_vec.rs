@@ -1720,6 +1720,7 @@ impl<K: MightHave, U, V> Eithers<K, U, V> {
             .filter_map(|x| x.as_ref().non_center().and_then(|v| K::as_opt(&v.0)))
     }
 
+    #[must_use]
     pub fn inner_into<U0, V0>(self) -> Eithers<K, U0, V0>
     where
         U0: From<U>,

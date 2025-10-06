@@ -202,10 +202,11 @@ pub enum AnyAsciiLayout<T, D, const ORD: bool> {
 pub type FixedAsciiLayout<T, D, const ORD: bool> = FixedLayout<AsciiRange, NoByteOrd<ORD>, T, D>;
 
 /// Byte layout for delimited ASCII.
-#[derive(Clone, Default, PartialEq, new)]
+#[derive(Clone, Default, PartialEq, new, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DelimAsciiLayout<T, D, const ORD: bool> {
-    pub ranges: Vec<u64>,
+    #[as_ref([u64])]
+    ranges: Vec<u64>,
     _tot_def: PhantomData<T>,
     _meas_data_def: PhantomData<D>,
 }

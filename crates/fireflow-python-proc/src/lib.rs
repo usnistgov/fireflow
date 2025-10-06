@@ -3130,7 +3130,7 @@ pub fn impl_new_delim_ascii_layout(input: TokenStream) -> TokenStream {
         PyList::new(RsInt::U64),
         "The range for each measurement. Equivalent to the *$PnR* keyword. \
          This is not used internally.",
-        |_, _| quote!(self.0.ranges.clone()),
+        |_, _| quote!(self.0.as_ref().to_vec()),
     );
 
     let doc = DocString::new_class("A delimited ASCII layout.", [""; 0], [ranges_param]);

@@ -4558,9 +4558,7 @@ impl PyUnion {
             rstype,
         }
     }
-}
 
-impl PyUnion {
     fn new2(x: impl Into<PyType>, y: impl Into<PyType>, rstype: Path) -> Self {
         Self {
             head0: x.into(),

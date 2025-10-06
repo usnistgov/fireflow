@@ -5,7 +5,7 @@ use super::named_vec::NameMapping;
 use super::parser::{FromStrDelim, FromStrStateful, OptLinkedKey};
 
 use derive_more::Into;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::str::FromStr;

@@ -1,10 +1,10 @@
 use crate::config::StdTextReadConfig;
-use crate::error::ResultExt;
+use crate::error::ResultExt as _;
 use crate::text::parser::{FromStrDelim, FromStrStateful};
 use crate::text::ranged_float::PositiveFloat;
 
 use derive_more::Display;
-use num_traits::identities::One;
+use num_traits::identities::One as _;
 use std::num::ParseFloatError;
 use std::str::FromStr;
 use thiserror::Error;
@@ -168,7 +168,7 @@ mod python {
 
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
-    use pyo3::IntoPyObjectExt;
+    use pyo3::IntoPyObjectExt as _;
 
     // $PnE (2.0) as either () or (f32, f32) tuples in python
     impl<'py> FromPyObject<'py> for Scale {

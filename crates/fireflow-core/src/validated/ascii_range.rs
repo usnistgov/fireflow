@@ -1,6 +1,6 @@
 //! Types representing $PnR/$PnB keys for an Ascii column.
 
-use crate::error::{DeferredExt, DeferredResult, ResultExt};
+use crate::error::{DeferredExt as _, DeferredResult, ResultExt as _};
 use crate::text::byteord::{Width, WidthToCharsError};
 use crate::text::keywords::{IntRangeError, Range};
 

@@ -3,7 +3,7 @@ use crate::text::index::BoundaryIndexError;
 use crate::validated::ascii_range::Chars;
 
 use derive_more::{Display, From};
-use num_traits::identities::Zero;
+use num_traits::identities::Zero as _;
 use polars_arrow::array::{Array, PrimitiveArray};
 use polars_arrow::buffer::Buffer;
 use polars_arrow::datatypes::ArrowDataType;

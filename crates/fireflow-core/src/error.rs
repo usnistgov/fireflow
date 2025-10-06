@@ -17,7 +17,7 @@
 use crate::config::SharedConfig;
 
 use derive_new::new;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use std::convert::Infallible;
 use std::io;

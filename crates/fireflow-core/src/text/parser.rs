@@ -1,8 +1,8 @@
 use crate::config::{StdTextReadConfig, TimeMeasNamePattern};
 use crate::core::{NewCSVFlagsError, ScaleTransformError};
-use crate::error::{BiTentative, DeferredResult, ResultExt, Tentative};
+use crate::error::{BiTentative, DeferredResult, ResultExt as _, Tentative};
 use crate::validated::keys::{
-    BiIndexedKey, IndexedKey, Key, MeasHeader, NonStdKeywords, NonStdKeywordsExt, StdKey,
+    BiIndexedKey as _, IndexedKey, Key, MeasHeader, NonStdKeywords, NonStdKeywordsExt as _, StdKey,
     StdKeywords,
 };
 use crate::validated::shortname::{Shortname, ShortnameError};
@@ -36,9 +36,9 @@ use super::unstainedcenters::ParseUnstainedCenterError;
 use bigdecimal::ParseBigDecimalError;
 use derive_more::{Display, From};
 use derive_new::new;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use nonempty::NonEmpty;
-use num_traits::identities::One;
+use num_traits::identities::One as _;
 use thiserror::Error;
 
 use std::collections::{HashMap, HashSet};

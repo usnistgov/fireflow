@@ -1,12 +1,12 @@
 use crate::config::StdTextReadConfig;
 use crate::core::{AnyMetarootKeyLossError, UnitaryKeyLossError};
-use crate::error::{BiTentative, ResultExt, Tentative};
+use crate::error::{BiTentative, ResultExt as _, Tentative};
 use crate::validated::keys::StdKeywords;
 
 use super::optional::MaybeValue;
-use super::parser::{LookupTentative, OptMetarootKey};
+use super::parser::{LookupTentative, OptMetarootKey as _};
 
-use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeZone};
+use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeZone as _};
 use derive_more::{AsRef, Display, From, FromStr, Into};
 use std::mem;
 use std::str::FromStr;

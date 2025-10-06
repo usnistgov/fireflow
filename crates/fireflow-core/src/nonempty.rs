@@ -1,5 +1,5 @@
 use derive_more::{From, Into};
-use itertools::Itertools;
+use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use std::hash::Hash;
 
@@ -86,7 +86,7 @@ impl<X> FCSNonEmpty<X> {
 #[cfg(feature = "serde")]
 mod serialize {
     use super::FCSNonEmpty;
-    use serde::{ser::SerializeSeq, Serialize};
+    use serde::{ser::SerializeSeq as _, Serialize};
 
     impl<I: Serialize> Serialize for FCSNonEmpty<I> {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

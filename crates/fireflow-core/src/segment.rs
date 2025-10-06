@@ -1,5 +1,6 @@
 use crate::error::{
-    DeferredResult, ImpureError, MultiResult, MultiResultExt, PassthruExt, ResultExt, Tentative,
+    DeferredResult, ImpureError, MultiResult, MultiResultExt as _, PassthruExt as _,
+    ResultExt as _, Tentative,
 };
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
 use crate::text::parser::{OptKeyError, OptMetarootKey, ReqKeyError, ReqMetarootKey};
@@ -10,7 +11,7 @@ use crate::validated::keys::{Key, StdKeywords};
 
 use derive_more::{Display, From};
 use derive_new::new;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use num_traits::identities::{One, Zero};
 use num_traits::ops::checked::CheckedSub;
@@ -1102,7 +1103,7 @@ pub(crate) struct NewSegmentConfig<T, I, S> {
 mod serialize {
     use super::Segment;
 
-    use serde::ser::{Serialize, SerializeStruct, Serializer};
+    use serde::ser::{Serialize, SerializeStruct as _, Serializer};
 
     impl<T: Serialize> Serialize for Segment<T> {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

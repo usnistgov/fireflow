@@ -1,4 +1,4 @@
-use chrono::{NaiveTime, ParseError, Timelike};
+use chrono::{NaiveTime, ParseError, Timelike as _};
 use derive_more::{AsRef, From};
 use std::str::FromStr;
 use thiserror::Error;

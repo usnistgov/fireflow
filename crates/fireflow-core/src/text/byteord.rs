@@ -2,7 +2,7 @@ use crate::macros::match_many_to_one;
 use crate::validated::ascii_range::{Chars, CharsError};
 
 use derive_more::{Display, From, FromStr, Into};
-use itertools::Itertools;
+use itertools::Itertools as _;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::fmt;
 use std::num::NonZeroU8;
@@ -671,7 +671,7 @@ mod python {
     use super::{ByteOrd2_0, Endian, NewByteOrdError, SizedByteOrd, VecToSizedError};
     use crate::python::macros::impl_value_err;
 
-    use pyo3::{exceptions::PyValueError, prelude::*, types::PyString, IntoPyObjectExt};
+    use pyo3::{exceptions::PyValueError, prelude::*, types::PyString, IntoPyObjectExt as _};
     use std::convert::Infallible;
     use std::num::NonZeroU8;
 

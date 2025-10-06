@@ -1,6 +1,6 @@
 use crate::config::StdTextReadConfig;
-use crate::error::{ResultExt, Tentative};
-use crate::validated::keys::{BiIndexedKey, StdKey, StdKeywords};
+use crate::error::{ResultExt as _, Tentative};
+use crate::validated::keys::{BiIndexedKey as _, StdKey, StdKeywords};
 
 use super::index::MeasIndex;
 use super::keywords::{Dfc, Par};
@@ -10,7 +10,7 @@ use super::parser::{
 };
 
 use derive_more::{AsRef, Display, From, Into};
-use itertools::Itertools;
+use itertools::Itertools as _;
 use nalgebra::DMatrix;
 use std::fmt;
 use std::num::ParseFloatError;
@@ -278,7 +278,7 @@ mod python {
 
     use super::{Compensation, Compensation2_0, Compensation3_0, NewCompError};
 
-    use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
+    use numpy::{PyArray2, PyReadonlyArray2, ToPyArray as _};
     use pyo3::prelude::*;
     use std::convert::Infallible;
 

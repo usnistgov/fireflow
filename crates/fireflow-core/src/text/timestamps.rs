@@ -1,5 +1,5 @@
 use crate::config::StdTextReadConfig;
-use crate::error::ResultExt;
+use crate::error::ResultExt as _;
 use crate::validated::keys::StdKeywords;
 use crate::validated::timepattern::ParseWithTimePatternError;
 
@@ -8,7 +8,7 @@ use super::parser::{
     FromStrStateful, LookupOptional, LookupTentative, OptMetarootKey, ParseOptKeyError,
 };
 
-use chrono::{NaiveDate, NaiveTime, Timelike};
+use chrono::{NaiveDate, NaiveTime, Timelike as _};
 use derive_more::{AsRef, Display, From, FromStr, Into};
 use regex::Regex;
 use std::fmt;

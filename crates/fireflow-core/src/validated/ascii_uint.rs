@@ -5,7 +5,7 @@ use crate::validated::ascii_range::Chars;
 
 use derive_more::{Add, Display, From, FromStr, Into, Mul, Sub};
 use num_derive::{One, Zero};
-use num_traits::identities::Zero;
+use num_traits::identities::Zero as _;
 use num_traits::ops::checked::CheckedSub;
 use std::fmt;
 use std::num::{NonZeroU64, ParseIntError, TryFromIntError};

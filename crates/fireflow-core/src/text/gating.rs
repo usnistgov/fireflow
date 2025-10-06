@@ -1,5 +1,7 @@
 use crate::config::StdTextReadConfig;
-use crate::error::{BiDeferredResult, DeferredExt, PassthruExt, ResultExt, Tentative};
+use crate::error::{
+    BiDeferredResult, DeferredExt as _, PassthruExt as _, ResultExt as _, Tentative,
+};
 use crate::nonempty::FCSNonEmpty;
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keywords::{
@@ -9,13 +11,13 @@ use crate::text::keywords::{
 };
 use crate::text::optional::MaybeValue;
 use crate::text::parser::{
-    LookupOptional, LookupTentative, OptIndexedKey, OptMetarootKey, ParseOptKeyError,
+    LookupOptional, LookupTentative, OptIndexedKey as _, OptMetarootKey, ParseOptKeyError,
 };
 use crate::validated::keys::StdKeywords;
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use std::collections::{HashMap, HashSet};
 use std::fmt;

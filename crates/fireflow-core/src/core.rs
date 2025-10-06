@@ -8509,7 +8509,7 @@ mod python {
     use derive_more::{Display, From};
     use pyo3::exceptions::{PyIndexError, PyValueError};
     use pyo3::prelude::*;
-    use pyo3::IntoPyObjectExt;
+    use pyo3::IntoPyObjectExt as _;
 
     impl_from_py_transparent!(Analysis);
     impl_from_py_transparent!(Other);

@@ -1,5 +1,5 @@
 use crate::config::StdTextReadConfig;
-use crate::error::{BiTentative, PassthruExt, ResultExt, Tentative};
+use crate::error::{BiTentative, PassthruExt as _, ResultExt as _, Tentative};
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
 use crate::validated::ascii_uint::UintZeroPad20;
@@ -26,12 +26,12 @@ use super::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime100, FCSTime60, Xti
 use super::unstainedcenters::UnstainedCenters;
 
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
-use chrono::{NaiveDateTime, NaiveTime, Timelike};
+use chrono::{NaiveDateTime, NaiveTime, Timelike as _};
 use derive_more::{Add, AsMut, Display, From, FromStr, Into, Sub};
-use itertools::Itertools;
+use itertools::Itertools as _;
 use nonempty::NonEmpty;
-use num_traits::cast::ToPrimitive;
-use num_traits::identities::One;
+use num_traits::cast::ToPrimitive as _;
+use num_traits::identities::One as _;
 use num_traits::PrimInt;
 use thiserror::Error;
 

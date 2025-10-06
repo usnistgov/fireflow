@@ -1,6 +1,6 @@
 use crate::error::{
-    DeferredExt, DeferredFailure, DeferredResult, ErrorIter, InfalliblePassthruExt, MultiResult,
-    MultiResultExt, PassthruExt, PassthruResult, ResultExt, Tentative,
+    DeferredExt as _, DeferredFailure, DeferredResult, ErrorIter as _, InfalliblePassthruExt as _,
+    MultiResult, MultiResultExt as _, PassthruExt as _, PassthruResult, ResultExt as _, Tentative,
 };
 use crate::text::optional::MightHave;
 use crate::validated::shortname::Shortname;

@@ -1,10 +1,10 @@
 use crate::config::ReadHeaderAndTEXTConfig;
-use crate::error::{ErrorIter, Leveled, MultiResult, ResultExt};
+use crate::error::{ErrorIter as _, Leveled, MultiResult, ResultExt as _};
 use crate::text::index::IndexFromOne;
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use regex::Regex;
 use std::collections::hash_map::Entry;

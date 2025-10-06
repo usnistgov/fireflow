@@ -51,8 +51,9 @@
 use crate::config::{ReadLayoutConfig, ReaderConfig, StdTextReadConfig};
 use crate::core::{AsScaleTransform, LayoutConvertResult, Measurements, ScaleTransform};
 use crate::error::{
-    BiTentative, DeferredExt, DeferredFailure, DeferredResult, ErrorIter, IODeferredResult,
-    IOResult, ImpureError, MultiResult, MultiResultExt, PassthruExt, ResultExt, Tentative,
+    BiTentative, DeferredExt as _, DeferredFailure, DeferredResult, ErrorIter as _,
+    IODeferredResult, IOResult, ImpureError, MultiResult, MultiResultExt as _, PassthruExt as _,
+    ResultExt as _, Tentative,
 };
 use crate::macros::match_many_to_one;
 use crate::nonempty::FCSNonEmpty;
@@ -74,8 +75,8 @@ use crate::text::{
     },
     optional::{MaybeValue, MightHave},
     parser::{
-        LookupKeysError, LookupKeysWarning, LookupResult, LookupTentative, OptIndexedKey,
-        OptKeyError, ReqIndexedKey, ReqKeyError, ReqMetarootKey,
+        LookupKeysError, LookupKeysWarning, LookupResult, LookupTentative, OptIndexedKey as _,
+        OptKeyError, ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _,
     },
 };
 
@@ -89,14 +90,14 @@ use crate::validated::{
         AllFCSCast, AnyFCSColumn, CastResult, FCSColIter, FCSColumn, FCSDataFrame, FCSDataType,
         LossError,
     },
-    keys::{IndexedKey, MeasHeader, StdKeywords},
+    keys::{IndexedKey as _, MeasHeader, StdKeywords},
 };
 
 use ambassador::{delegatable_trait, Delegate};
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use num_traits::PrimInt;
 use thiserror::Error;

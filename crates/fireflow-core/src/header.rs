@@ -1,5 +1,5 @@
 use crate::config::{HeaderConfigInner, ReadState};
-use crate::error::{ErrorIter, ImpureError, MultiResult, MultiResultExt, ResultExt};
+use crate::error::{ErrorIter as _, ImpureError, MultiResult, MultiResultExt as _, ResultExt as _};
 use crate::segment::{
     GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderCorrection,
     HeaderDataSegment, HeaderSegment, HeaderSegmentError, NewSegmentConfig, OffsetCorrection,
@@ -9,18 +9,18 @@ use crate::segment::{
 use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, Nextdata,
 };
-use crate::text::parser::ReqMetarootKey;
+use crate::text::parser::ReqMetarootKey as _;
 use crate::validated::ascii_uint::{
     HeaderString, Uint8DigitOverflow, UintSpacePad20, UintSpacePad8, UintZeroPad20,
 };
-use crate::validated::keys::Key;
+use crate::validated::keys::Key as _;
 use crate::validated::textdelim::TEXTDelim;
 
 use super::core::Other;
 
 use derive_more::{Display, From};
 use derive_new::new;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use num_traits::identities::Zero;
 use thiserror::Error;

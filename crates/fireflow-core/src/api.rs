@@ -8,12 +8,13 @@ use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
     LookupAndReadDataAnalysisWarning, Others, OthersReader, StdDatasetFromRawError,
     StdDatasetFromRawWarning, StdDatasetWithKwsFailure, StdDatasetWithKwsOutput,
-    StdTEXTFromRawError, StdTEXTFromRawWarning, Versioned,
+    StdTEXTFromRawError, StdTEXTFromRawWarning, Versioned as _,
 };
 use crate::data::{NewDataReaderError, NewDataReaderWarning, RawToLayoutError, RawToLayoutWarning};
 use crate::error::{
-    DeferredExt, DeferredFailure, DeferredResult, IODeferredExt, IODeferredResult,
-    IOTerminalResult, ImpureError, Leveled, MultiResultExt, PassthruExt, ResultExt, Tentative,
+    DeferredExt as _, DeferredFailure, DeferredResult, IODeferredExt as _, IODeferredResult,
+    IOTerminalResult, ImpureError, Leveled, MultiResultExt as _, PassthruExt as _, ResultExt as _,
+    Tentative,
 };
 use crate::header::{
     Header, HeaderError, HeaderSegments, HeaderValidationError, Version, Version2_0, Version3_0,
@@ -31,13 +32,13 @@ use crate::text::parser::{
 use crate::validated::ascii_uint::UintSpacePad20;
 use crate::validated::dataframe::FCSDataFrame;
 use crate::validated::keys::{
-    BlankValueError, BytesPairs, Key, KeywordInsertError, NonAsciiPairs, ParsedKeywords,
+    BlankValueError, BytesPairs, Key as _, KeywordInsertError, NonAsciiPairs, ParsedKeywords,
     StdKeywords, ValidKeywords,
 };
 
 use derive_more::{Display, From};
 use derive_new::new;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use thiserror::Error;
 
@@ -45,8 +46,7 @@ use std::convert::Infallible;
 use std::fmt;
 use std::fs;
 use std::io::{BufReader, Read, Seek};
-use std::num::NonZeroUsize;
-use std::num::ParseIntError;
+use std::num::{NonZeroUsize, ParseIntError};
 use std::path;
 
 #[cfg(feature = "serde")]

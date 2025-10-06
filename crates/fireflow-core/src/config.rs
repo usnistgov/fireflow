@@ -20,8 +20,8 @@ use crate::text::keywords as kws;
 use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::keys::{
-    IndexedKey, KeyPatterns, KeyStringPairs, KeyStringValues, NonStdKeywords, NonStdKeywordsExt,
-    NonStdMeasPattern, StdKey, StdKeywords,
+    IndexedKey as _, KeyPatterns, KeyStringPairs, KeyStringValues, NonStdKeywords,
+    NonStdKeywordsExt as _, NonStdMeasPattern, StdKey, StdKeywords,
 };
 use crate::validated::sub_pattern::SubPatterns;
 use crate::validated::textdelim::TEXTDelim;

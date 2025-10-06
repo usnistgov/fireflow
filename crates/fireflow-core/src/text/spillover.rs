@@ -1,5 +1,5 @@
 use crate::config::StdTextReadConfig;
-use crate::error::ErrorIter;
+use crate::error::ErrorIter as _;
 use crate::validated::shortname::Shortname;
 
 use super::index::MeasIndex;
@@ -8,7 +8,7 @@ use super::parser::{FromStrStateful, LinkedNameError, OptLinkedKey};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
 use std::collections::HashSet;
@@ -312,7 +312,7 @@ mod python {
 
     use super::{NewSpilloverError, Spillover};
 
-    use numpy::{PyReadonlyArray2, ToPyArray};
+    use numpy::{PyReadonlyArray2, ToPyArray as _};
     use pyo3::{prelude::*, types::PyTuple};
 
     // TODO is this ok?

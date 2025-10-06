@@ -1033,8 +1033,8 @@ where
     T: Into<u64> + Copy,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let offset_text = |x, delta| {
-            if delta == 0 {
+        let offset_text = |x, delta: i32| {
+            if delta.is_zero() {
                 format!("{x}")
             } else {
                 format!("{x} ({delta}))")

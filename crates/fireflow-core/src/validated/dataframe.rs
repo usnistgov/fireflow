@@ -3,6 +3,7 @@ use crate::text::index::BoundaryIndexError;
 use crate::validated::ascii_range::Chars;
 
 use derive_more::{Display, From};
+use num_traits::identities::Zero;
 use polars_arrow::array::{Array, PrimitiveArray};
 use polars_arrow::buffer::Buffer;
 use polars_arrow::datatypes::ArrowDataType;
@@ -482,7 +483,7 @@ macro_rules! impl_cast_float_to_int_lossy {
                 let has_loss = x.is_nan()
                     || x.is_infinite()
                     || x.is_sign_negative()
-                    || x.fract() != 0.0
+                    || x.fract().is_zero()
                     || x > $to::MAX as $from;
                 CastResult::new::<$from>(x as $to, has_loss)
             }
@@ -666,19 +667,19 @@ mod tests {
     fn test_u64_to_f32() {
         assert_eq!(
             f32::from_truncated(1_u64),
-            CastResult::new::<u64>(1.0, false)
+            CastResult::new::<u64>(1.0_f32, false)
         );
         assert_eq!(
             f32::from_truncated(0x0100_0000_u64),
-            CastResult::new::<u64>(16_777_216.0, false)
+            CastResult::new::<u64>(16_777_216.0_f32, false)
         );
         assert_eq!(
             f32::from_truncated(0x0100_0001_u64),
-            CastResult::new::<u64>(16_777_216.0, true)
+            CastResult::new::<u64>(16_777_216.0_f32, true)
         );
         assert_eq!(
             f32::from_truncated(0x0100_0002_u64),
-            CastResult::new::<u64>(16_777_218.0, false)
+            CastResult::new::<u64>(16_777_218.0_f32, false)
         );
     }
 
@@ -689,19 +690,19 @@ mod tests {
     fn test_u64_to_f64() {
         assert_eq!(
             f64::from_truncated(1_u64),
-            CastResult::new::<u64>(1.0, false)
+            CastResult::new::<u64>(1.0_f64, false)
         );
         assert_eq!(
             f64::from_truncated(0x0020_0000_0000_0000_u64),
-            CastResult::new::<u64>(9_007_199_254_740_992.0, false)
+            CastResult::new::<u64>(9_007_199_254_740_992.0_f64, false)
         );
         assert_eq!(
             f64::from_truncated(0x0020_0000_0000_0001_u64),
-            CastResult::new::<u64>(9_007_199_254_740_992.0, true)
+            CastResult::new::<u64>(9_007_199_254_740_992.0_f64, true)
         );
         assert_eq!(
             f64::from_truncated(0x0020_0000_0000_0002_u64),
-            CastResult::new::<u64>(9_007_199_254_740_994.0, false)
+            CastResult::new::<u64>(9_007_199_254_740_994.0_f64, false)
         );
     }
 

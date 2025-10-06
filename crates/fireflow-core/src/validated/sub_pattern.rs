@@ -53,7 +53,7 @@ impl SubPattern {
             key = format!("${{{i}}}");
             blank_match(key.as_str());
         }
-        let mut ndollar = 0;
+        let mut ndollar: u8 = 0;
         for &c in tmp.as_bytes() {
             if c == b'$' {
                 ndollar += 1;

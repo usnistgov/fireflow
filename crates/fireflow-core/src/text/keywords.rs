@@ -729,7 +729,7 @@ impl FromStr for OpticalType {
             ELECTRONIC_VOLUME => Ok(OpticalType::ElectronicVolume),
             INDEX => Ok(OpticalType::Index),
             CLASSIFICATION => Ok(OpticalType::Classification),
-            s => Ok(OpticalType::Other(String::from(s))),
+            x => Ok(OpticalType::Other(String::from(x))),
         }
     }
 }

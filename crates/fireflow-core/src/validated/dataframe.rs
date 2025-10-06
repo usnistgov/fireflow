@@ -483,7 +483,7 @@ macro_rules! impl_cast_float_to_int_lossy {
                 let has_loss = x.is_nan()
                     || x.is_infinite()
                     || x.is_sign_negative()
-                    || x.fract().is_zero()
+                    || !x.fract().is_zero()
                     || x > $to::MAX as $from;
                 CastResult::new::<$from>(x as $to, has_loss)
             }

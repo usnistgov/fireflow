@@ -644,8 +644,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             NamedVec::Split(s, _) => {
                 let ln = s.left.len();
                 match i.cmp(&ln) {
-                    Less => s.left.insert(i, p),
-                    Equal => unreachable!(),
+                    Less | Equal => s.left.insert(i, p),
                     Greater => s.right.insert(i - ln - 1, p),
                 }
             }

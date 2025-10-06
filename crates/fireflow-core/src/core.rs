@@ -96,6 +96,7 @@ use std::fs::File;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, Write};
 use std::marker::PhantomData;
+use std::num::ParseIntError;
 use std::path::PathBuf;
 use std::string::ToString;
 
@@ -8309,7 +8310,7 @@ pub enum LookupAndReadDataAnalysisWarning {
 
 #[derive(From, Display, Debug, Error)]
 pub enum LookupTEXTOffsetsWarning {
-    Tot(OptKeyError<std::num::ParseIntError>),
+    Tot(OptKeyError<ParseIntError>),
     ReqData(ReqSegmentWithDefaultWarning<DataSegmentId>),
     ReqAnalysis(ReqSegmentWithDefaultWarning<AnalysisSegmentId>),
     MismatchAnalysis(OptSegmentWithDefaultWarning<AnalysisSegmentId>),
@@ -8317,7 +8318,7 @@ pub enum LookupTEXTOffsetsWarning {
 
 #[derive(From, Display, Debug, Error)]
 pub enum LookupTEXTOffsetsError {
-    Tot(ReqKeyError<std::num::ParseIntError>),
+    Tot(ReqKeyError<ParseIntError>),
     ReqData(ReqSegmentWithDefaultError<DataSegmentId>),
     ReqAnalysis(ReqSegmentWithDefaultError<AnalysisSegmentId>),
     MismatchData(SegmentMismatchWarning<DataSegmentId>),

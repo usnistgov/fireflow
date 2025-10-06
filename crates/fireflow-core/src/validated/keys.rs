@@ -557,7 +557,7 @@ impl ParsedKeywords {
                 Ok(it.collect())
             }
         } else {
-            match std::str::from_utf8(v) {
+            match str::from_utf8(v) {
                 Ok(vv) => {
                     if conf.trim_value_whitespace {
                         let trimmed = vv.trim();
@@ -740,7 +740,7 @@ fn insert_nonunique<K>(
     conf: &ReadHeaderAndTEXTConfig,
 ) -> Result<(), Leveled<KeywordInsertError>>
 where
-    K: std::hash::Hash + Eq + Clone + AsRef<KeyString>,
+    K: Hash + Eq + Clone + AsRef<KeyString>,
     KeywordInsertError: From<KeyPresent<K>>,
 {
     match kws.entry(k) {

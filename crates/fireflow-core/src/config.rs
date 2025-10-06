@@ -31,7 +31,9 @@ use derive_more::{AsRef, Display, From, FromStr};
 use regex::Regex;
 use std::collections::HashSet;
 use std::fs::File;
+use std::io;
 use std::path::PathBuf;
+use std::str::FromStr;
 use thiserror::Error;
 
 #[derive(Default, Clone, AsRef, From)]
@@ -729,7 +731,7 @@ pub enum TemporalOpticalKey {
     Analyte,
 }
 
-impl std::str::FromStr for TemporalOpticalKey {
+impl FromStr for TemporalOpticalKey {
     type Err = ParseTemporalOpticalKeyError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
@@ -801,14 +803,14 @@ pub struct ReadState<C> {
 }
 
 impl<C> ReadState<C> {
-    pub(crate) fn open(p: &PathBuf, conf: C) -> std::io::Result<(Self, File)> {
+    pub(crate) fn open(p: &PathBuf, conf: C) -> io::Result<(Self, File)> {
         File::options()
             .read(true)
             .open(p)
             .and_then(|file| Self::init(&file, conf).map(|st| (st, file)))
     }
 
-    pub(crate) fn init(f: &File, conf: C) -> std::io::Result<Self> {
+    pub(crate) fn init(f: &File, conf: C) -> io::Result<Self> {
         f.metadata().map(|m| Self {
             file_len: m.len(),
             conf,

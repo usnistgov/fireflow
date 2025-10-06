@@ -76,7 +76,9 @@ use fireflow_core::text::index::{GateIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::Eithers;
 use fireflow_core::text::optional::MightHave;
+use fireflow_core::text::parser;
 use fireflow_core::validated::ascii_uint::UintSpacePad20;
+use fireflow_core::validated::keys;
 use fireflow_core::validated::shortname::Shortname;
 
 use fireflow_python_proc::def_fcs_read_std_dataset_with_keywords;
@@ -110,7 +112,7 @@ use fireflow_python_proc::{
 use derive_more::{From, Into};
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 
 def_fcs_read_header!(api::fcs_read_header);
@@ -123,8 +125,8 @@ def_fcs_read_std_dataset_with_keywords!(api::fcs_read_std_dataset_with_keywords)
 
 impl_py_header!(header::Header);
 impl_py_header_segments!(header::HeaderSegments<UintSpacePad20>);
-impl_py_valid_keywords!(fireflow_core::validated::keys::ValidKeywords);
-impl_py_extra_std_keywords!(fireflow_core::text::parser::ExtraStdKeywords);
+impl_py_valid_keywords!(keys::ValidKeywords);
+impl_py_extra_std_keywords!(parser::ExtraStdKeywords);
 impl_py_dataset_segments!(core::DatasetSegments);
 
 impl_py_raw_text_output!(api::RawTEXTOutput);
@@ -849,7 +851,7 @@ impl From<PyNonMixedLayout> for NonMixedEndianLayout<NoMeasDatatype> {
 /// This is a hack to get default arguments to work in python, which will
 /// be interpreted as a list since there is no empty set symbol (yet).
 #[derive(Into, Default)]
-pub struct TemporalOpticalKeys(std::collections::HashSet<cfg::TemporalOpticalKey>);
+pub struct TemporalOpticalKeys(HashSet<cfg::TemporalOpticalKey>);
 
 impl<'py> FromPyObject<'py> for TemporalOpticalKeys {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {

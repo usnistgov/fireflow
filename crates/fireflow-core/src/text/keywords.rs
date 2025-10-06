@@ -152,7 +152,7 @@ pub enum TriggerError {
     #[error("must be like 'string,f'")]
     WrongFieldNumber,
     #[error("{0}")]
-    IntFormat(std::num::ParseIntError),
+    IntFormat(ParseIntError),
 }
 
 /// The values used for the $MODE key (up to 3.1)

@@ -280,6 +280,7 @@ mod python {
 
     use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
     use pyo3::prelude::*;
+    use std::convert::Infallible;
 
     impl_value_err!(NewCompError);
 
@@ -293,7 +294,7 @@ mod python {
     impl<'py> IntoPyObject<'py> for Compensation {
         type Target = PyArray2<f32>;
         type Output = Bound<'py, Self::Target>;
-        type Error = std::convert::Infallible;
+        type Error = Infallible;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             Ok(self.matrix.to_pyarray(py))

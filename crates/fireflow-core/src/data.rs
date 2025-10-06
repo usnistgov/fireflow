@@ -103,12 +103,10 @@ use thiserror::Error;
 
 use std::convert::Infallible;
 use std::fmt;
-use std::io;
-use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::marker::PhantomData;
 use std::mem;
-use std::num::NonZeroU8;
-use std::num::ParseIntError;
+use std::num::{NonZeroU8, ParseIntError};
 use std::str;
 
 #[cfg(feature = "serde")]
@@ -293,11 +291,12 @@ struct ColumnReader<C, T, S> {
 type UintColumnReader<C> = ColumnReader<C, <C as HasNativeType>::Native, Endian>;
 
 /// Instructions to write one column using an iterator
+#[derive(new)]
 struct ColumnWriter<'a, C, T, S> {
     column_type: C,
     data: AnySource<'a, T>,
-    byte_layout: PhantomData<S>,
     loss: Option<AnyLossError>,
+    byte_layout: PhantomData<S>,
 }
 
 impl<C, T, S> ColumnWriter<'_, C, T, S> {
@@ -316,7 +315,7 @@ pub struct ColumnNullFamily;
 struct ColumnReaderFamily;
 
 /// Marker type for columns which are in a layout and have data for writing
-struct ColumnWriterFamily<'a>(std::marker::PhantomData<&'a ()>);
+struct ColumnWriterFamily<'a>(PhantomData<&'a ()>);
 
 /// Marker type for layouts that might have $TOT
 #[derive(Clone, PartialEq)]
@@ -781,12 +780,7 @@ where
             + From<FCSColIter<'a, f32, Self::Native>>
             + From<FCSColIter<'a, f64, Self::Native>>,
     {
-        ColumnWriter {
-            column_type: self,
-            data: AnySource::new(c),
-            byte_layout: PhantomData,
-            loss: None,
-        }
+        ColumnWriter::new(self, AnySource::new(c), None)
     }
 
     fn check_native_writer(&self, col: &AnyFCSColumn) -> Result<(), LossError<Self::Error>>
@@ -1000,8 +994,8 @@ macro_rules! match_any_mixed {
     };
 }
 
-impl std::fmt::Debug for AnyNullBitmask {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+impl fmt::Debug for AnyNullBitmask {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             Self::Uint08(x) => write!(f, "Uint08({x:?})"),
             Self::Uint16(x) => write!(f, "Uint16({x:?})"),
@@ -1015,8 +1009,8 @@ impl std::fmt::Debug for AnyNullBitmask {
     }
 }
 
-impl std::fmt::Debug for NullMixedType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+impl fmt::Debug for NullMixedType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             Self::Ascii(x) => write!(f, "Ascii({x:?})"),
             Self::Uint(x) => write!(f, "Uint({x:?})"),
@@ -1702,7 +1696,7 @@ where
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: S) -> io::Result<()> {
         let x = self.data.next().unwrap();
         let loss = self.column_type.h_write(h, x, byte_layout)?;
-        self.loss = std::mem::take(&mut self.loss).or(loss);
+        self.loss = mem::take(&mut self.loss).or(loss);
         Ok(())
     }
 
@@ -1713,7 +1707,7 @@ where
         for x in self.data {
             let (y, w) = self.column_type.with_cast(x);
             if skip_conv_check {
-                warn = std::mem::take(&mut warn).or(w);
+                warn = mem::take(&mut warn).or(w);
             }
             xs.push(y);
         }
@@ -2311,7 +2305,7 @@ where
             for (col, xs) in column_srcs.iter_mut().enumerate() {
                 let x = xs.next().unwrap();
                 let s = x.new.to_string();
-                loss_ws[col] = std::mem::take(&mut loss_ws[col]).or(x.as_err());
+                loss_ws[col] = mem::take(&mut loss_ws[col]).or(x.as_err());
                 let buf = s.as_bytes();
                 h.write_all(buf).into_deferred()?;
                 // write delimiter after all but last value
@@ -2348,7 +2342,7 @@ where
                 for x in AnySource::<'_, u64>::new(c) {
                     cs.push(x.new);
                     if !skip_conv_check {
-                        w = std::mem::take(&mut w).or(x.as_err());
+                        w = mem::take(&mut w).or(x.as_err());
                     }
                 }
                 (
@@ -4345,13 +4339,14 @@ mod python {
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
+    use std::fmt;
 
     impl<'py, T, const LEN: usize> FromPyObject<'py> for FloatRange<T, LEN>
     where
         for<'a> T: FromPyObjectBound<'a, 'py>,
         T: HasFloatBounds,
         FloatDecimal<T>: TryFrom<BigDecimal>,
-        <FloatDecimal<T> as TryFrom<BigDecimal>>::Error: std::fmt::Display,
+        <FloatDecimal<T> as TryFrom<BigDecimal>>::Error: fmt::Display,
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let x = ob.extract::<BigDecimal>()?;

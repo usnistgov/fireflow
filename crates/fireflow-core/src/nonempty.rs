@@ -1,6 +1,7 @@
 use derive_more::{From, Into};
 use itertools::Itertools;
 use nonempty::NonEmpty;
+use std::hash::Hash;
 
 // A wrapper to bestow supernatural powers to "regular" non-empty. I may also
 // make my own version of this so this makes that a bit easier if I end up
@@ -33,7 +34,7 @@ impl<X> FCSNonEmpty<X> {
 
     pub(crate) fn unique(self) -> Self
     where
-        X: Clone + std::hash::Hash + Eq,
+        X: Clone + Hash + Eq,
     {
         NonEmpty::collect(self.0.into_iter().unique())
             .unwrap()

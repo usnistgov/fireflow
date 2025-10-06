@@ -7,6 +7,7 @@ use bigdecimal::BigDecimal;
 use derive_more::{Display, From};
 use num_traits::identities::One;
 use num_traits::PrimInt;
+use std::mem::size_of;
 use thiserror::Error;
 
 #[cfg(feature = "serde")]
@@ -124,7 +125,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
     {
         // ASSUME number of bits will never exceed 64 (or 255 for that matter)
         // and thus will fit in a u8
-        let native_bits = u8::try_from(std::mem::size_of::<T>() * 8).unwrap();
+        let native_bits = u8::try_from(size_of::<T>() * 8).unwrap();
         let value_bits = native_bits - u8::try_from(value.leading_zeros()).unwrap();
         let truncated = value_bits > Self::bits();
         let bits = value_bits.min(Self::bits());
@@ -253,10 +254,12 @@ mod python {
     use pyo3::exceptions::PyOverflowError;
     use pyo3::prelude::*;
 
+    use std::fmt;
+
     impl<'py, T, const LEN: usize> FromPyObject<'py> for super::Bitmask<T, LEN>
     where
         for<'a> T: FromPyObjectBound<'a, 'py>,
-        T: num_traits::PrimInt + std::fmt::Display,
+        T: num_traits::PrimInt + fmt::Display,
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let x = ob.extract::<T>()?;

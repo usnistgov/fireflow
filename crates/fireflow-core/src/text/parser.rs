@@ -880,6 +880,6 @@ pub(crate) fn truncate_string(s: &str, n: usize) -> String {
     if s.len() > n {
         format!("{}…(more)", s.chars().take(n).collect::<String>())
     } else {
-        s.to_string()
+        s.into()
     }
 }

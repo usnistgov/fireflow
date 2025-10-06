@@ -64,7 +64,7 @@ impl FromStr for TimePattern {
         let has_spec = |spec: &'static str| {
             let n = s.match_indices(spec).count();
             if n > 1 {
-                Err(TimePatternError(s.to_string()))
+                Err(TimePatternError(s.into()))
             } else {
                 Ok(n == 1)
             }
@@ -121,11 +121,11 @@ impl FromStr for TimePattern {
             } else if ncenti {
                 (s.replace("%@", "%f"), FractionType::Centisecond)
             } else {
-                (s.to_string(), FractionType::Native)
+                (s.into(), FractionType::Native)
             };
             Ok(Self { pat, fraction })
         } else {
-            Err(TimePatternError(s.to_string()))
+            Err(TimePatternError(s.into()))
         }
     }
 }

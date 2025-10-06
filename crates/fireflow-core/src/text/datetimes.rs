@@ -137,7 +137,7 @@ impl FromStr for FCSDateTime {
                 .from_local_datetime(&naive)
                 .single()
                 .map_or_else(
-                    || Err(FCSDateTimeError::Unmapped(s.to_string())),
+                    || Err(FCSDateTimeError::Unmapped(s.into())),
                     |t| Ok(FCSDateTime(t.fixed_offset())),
                 )
         } else {

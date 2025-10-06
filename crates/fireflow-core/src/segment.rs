@@ -1031,9 +1031,9 @@ where
         let begin_text = offset_text(self.begin.into(), self.corr_begin);
         let end_text = offset_text(self.end.into(), self.corr_end);
         let kind_text = match &self.kind {
-            SegmentErrorKind::Range => "Offset out of range".to_string(),
-            SegmentErrorKind::Inverted => "Begin after end".to_string(),
-            SegmentErrorKind::InHeader => "Begins within HEADER".to_string(),
+            SegmentErrorKind::Range => "Offset out of range".into(),
+            SegmentErrorKind::Inverted => "Begin after end".into(),
+            SegmentErrorKind::InHeader => "Begins within HEADER".into(),
             SegmentErrorKind::Truncated(size) => {
                 format!("Segment exceeds file size ({size} bytes)")
             }

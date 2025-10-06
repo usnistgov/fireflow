@@ -38,9 +38,9 @@ impl FromStr for Shortname {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.contains(',') {
-            Err(ShortnameError(s.to_string()))
+            Err(ShortnameError(s.into()))
         } else {
-            Ok(Shortname(s.to_string()))
+            Ok(Shortname(s.into()))
         }
     }
 }

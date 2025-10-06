@@ -1617,25 +1617,25 @@ impl<const ORD: bool> NativeWritable<NoByteOrd<ORD>> for AsciiRange {
         x: CastResult<Self::Native>,
         _: NoByteOrd<ORD>,
     ) -> io::Result<Option<AnyLossError>> {
-        let (y, trunc) = self.with_cast(x);
-        let s = y.to_string();
-        let w: usize = u8::from(self.chars()).into();
-        let e = if s.len() > w {
+        let (value, trunc) = self.with_cast(x);
+        let str_value = value.to_string();
+        let width: usize = u8::from(self.chars()).into();
+        let err = if str_value.len() > width {
             // if string is greater than allocated chars, only write a fraction
             // starting from the left
-            let offset = s.len() - w;
-            h.write_all(&s.as_bytes()[offset..])?;
+            let offset = str_value.len() - width;
+            h.write_all(&str_value.as_bytes()[offset..])?;
             Some(LossError::Other(AsciiLossError(self.chars())))
         } else {
             // if string less than allocated chars, pad left side with zero before
             // writing number
-            for _ in 0..(w - s.len()) {
+            for _ in 0..(width - str_value.len()) {
                 h.write_all(&[30])?;
             }
-            h.write_all(s.as_bytes())?;
+            h.write_all(str_value.as_bytes())?;
             None
         };
-        Ok(e.map(AnyLossError::Ascii).or(trunc))
+        Ok(err.map(AnyLossError::Ascii).or(trunc))
     }
 }
 

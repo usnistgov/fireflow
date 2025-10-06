@@ -573,6 +573,7 @@ impl<V, W, E> Tentative<V, W, E> {
             .map(|((x, ax, bx, cx), dx)| (x, ax, bx, cx, dx))
     }
 
+    #[allow(clippy::many_single_char_names)]
     pub fn zip6<A, B, C, D, F>(
         self,
         a: Tentative<A, W, E>,

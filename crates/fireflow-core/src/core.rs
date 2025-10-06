@@ -1719,23 +1719,24 @@ impl<O> Optical<O> {
         Version: From<O::Ver>,
     {
         let version = O::Ver::fcs_version();
-        let f = Filter::lookup_opt(kws, i, conf);
-        let p = Power::lookup_opt(kws, i, conf);
-        let d = DetectorType::lookup_opt(kws, i, conf);
-        let e = if Version::from(version) == Version::FCS3_2 {
+        let filter = Filter::lookup_opt(kws, i, conf);
+        let power = Power::lookup_opt(kws, i, conf);
+        let det_type = DetectorType::lookup_opt(kws, i, conf);
+        let perc_emit = if Version::from(version) == Version::FCS3_2 {
             PercentEmitted::lookup_opt_dep(kws, i, conf)
         } else {
             PercentEmitted::lookup_opt(kws, i, conf)
         };
-        let v = DetectorVoltage::lookup_opt(kws, i, conf);
-        f.zip5(p, d, e, v)
+        let det_volt = DetectorVoltage::lookup_opt(kws, i, conf);
+        filter
+            .zip5(power, det_type, perc_emit, det_volt)
             .errors_into()
-            .and_maybe(|(f_, p_, d_, e_, v_)| {
+            .and_maybe(|(f, p, d, e, v)| {
                 CommonMeasurement::lookup(kws, i, nonstd, conf)
                     .errors_into()
-                    .and_maybe(|c_| {
+                    .and_maybe(|c| {
                         O::lookup_specific(kws, i, conf)
-                            .def_map_value(|s_| Optical::new(c_, f_, p_, d_, e_, v_, s_))
+                            .def_map_value(|s| Optical::new(c, f, p, d, e, v, s))
                     })
             })
     }
@@ -1850,12 +1851,15 @@ impl<O> Optical<O> {
         &self,
         i: MeasIndex,
     ) -> MultiResult<(), AnyOpticalToTemporalKeyLossError> {
-        let f = self.filter.check_indexed_key_transfer(i);
-        let o = self.power.check_indexed_key_transfer(i);
-        let t = self.detector_type.check_indexed_key_transfer(i);
-        let p = self.percent_emitted.check_indexed_key_transfer(i);
-        let v = self.detector_voltage.check_indexed_key_transfer(i);
-        f.zip3(o, t).mult_zip(p.zip(v)).map(|_| ())
+        let filter = self.filter.check_indexed_key_transfer(i);
+        let power = self.power.check_indexed_key_transfer(i);
+        let det_type = self.detector_type.check_indexed_key_transfer(i);
+        let per_emit = self.percent_emitted.check_indexed_key_transfer(i);
+        let det_volt = self.detector_voltage.check_indexed_key_transfer(i);
+        filter
+            .zip3(power, det_type)
+            .mult_zip(per_emit.zip(det_volt))
+            .void()
     }
 }
 
@@ -1901,30 +1905,36 @@ where
         let par = Par(ms.len());
         let names: HashSet<_> = ms.indexed_names().map(|(_, n)| n).collect();
         let ordered_names: Vec<_> = ms.indexed_names().map(|(_, n)| n).collect();
-        let a = Abrt::lookup_opt(kws, conf);
-        let co = Com::lookup_opt(kws, conf);
-        let ce = Cells::lookup_opt(kws, conf);
-        let e = Exp::lookup_opt(kws, conf);
-        let f = Fil::lookup_opt(kws, conf);
-        let i = Inst::lookup_opt(kws, conf);
-        let l = Lost::lookup_opt(kws, conf);
-        let o = Op::lookup_opt(kws, conf);
-        let p = Proj::lookup_opt(kws, conf);
-        let sm = Smno::lookup_opt(kws, conf);
-        let sr = Src::lookup_opt(kws, conf);
-        let sy = Sys::lookup_opt(kws, conf);
-        let t = Trigger::lookup_opt_linked_st(kws, &names, (), conf);
-        a.zip5(co, ce, e, f)
-            .zip5(i, l, o, p)
-            .zip5(sm, sr, sy, t)
+        let abrt = Abrt::lookup_opt(kws, conf);
+        let com = Com::lookup_opt(kws, conf);
+        let cells = Cells::lookup_opt(kws, conf);
+        let exp = Exp::lookup_opt(kws, conf);
+        let fil = Fil::lookup_opt(kws, conf);
+        let inst = Inst::lookup_opt(kws, conf);
+        let lost = Lost::lookup_opt(kws, conf);
+        let op = Op::lookup_opt(kws, conf);
+        let proj = Proj::lookup_opt(kws, conf);
+        let smno = Smno::lookup_opt(kws, conf);
+        let src = Src::lookup_opt(kws, conf);
+        let sys = Sys::lookup_opt(kws, conf);
+        let tr = Trigger::lookup_opt_linked_st(kws, &names, (), conf);
+        abrt.zip5(com, cells, exp, fil)
+            .zip5(inst, lost, op, proj)
+            .zip5(smno, src, sys, tr)
             .errors_into()
             .and_maybe(
-                |(((abrt, com, cells, exp, fil), inst, lost, op, proj), smno, src, sys, tr)| {
+                |(
+                    ((abrt_, com_, cells_, exp_, fil_), inst_, lost_, op_, proj_),
+                    smno_,
+                    src_,
+                    sys_,
+                    tr_,
+                )| {
                     M::lookup_specific(kws, par, &names, &ordered_names, conf).def_map_value(
                         |specific| {
                             Metaroot::new(
-                                abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys,
-                                tr, specific, nonstd,
+                                abrt_, com_, cells_, exp_, fil_, inst_, lost_, op_, proj_, smno_,
+                                src_, sys_, tr_, specific, nonstd,
                             )
                         },
                     )
@@ -4976,14 +4986,14 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical2_0 {
         i: MeasIndex,
         force: bool,
     ) -> OpticalConvertResult<Self> {
-        let s = ScaleTransform::try_convert_to_scale(value.scale, i, force);
-        let c = value.calibration.check_indexed_key_transfer_own(i, !force);
-        let d = value.display.check_indexed_key_transfer_own(i, !force);
-        let w = convert_wavelengths(value.wavelengths, force).inner_into();
-        let out = s
-            .zip3(c, d)
+        let xform = ScaleTransform::try_convert_to_scale(value.scale, i, force);
+        let cal = value.calibration.check_indexed_key_transfer_own(i, !force);
+        let dpy = value.display.check_indexed_key_transfer_own(i, !force);
+        let wave = convert_wavelengths(value.wavelengths, force).inner_into();
+        let out = xform
+            .zip3(cal, dpy)
             .inner_into()
-            .zip(w)
+            .zip(wave)
             .map(|((scale, (), ()), wavelength)| Self::new(Some(scale), wavelength, value.peak));
         Ok(out)
     }
@@ -4995,22 +5005,27 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical2_0 {
         i: MeasIndex,
         force: bool,
     ) -> OpticalConvertResult<Self> {
-        let s = ScaleTransform::try_convert_to_scale(value.scale, i, force);
-        let c = value.calibration.check_indexed_key_transfer_own(i, !force);
-        let d = value.display.check_indexed_key_transfer_own(i, !force);
-        let a = value.analyte.check_indexed_key_transfer_own(i, !force);
-        let f = value.feature.check_indexed_key_transfer_own(i, !force);
-        let m = value
+        let xform = ScaleTransform::try_convert_to_scale(value.scale, i, force);
+        let cal = value.calibration.check_indexed_key_transfer_own(i, !force);
+        let dpy = value.display.check_indexed_key_transfer_own(i, !force);
+        let anal = value.analyte.check_indexed_key_transfer_own(i, !force);
+        let feat = value.feature.check_indexed_key_transfer_own(i, !force);
+        let meas = value
             .measurement_type
             .check_indexed_key_transfer_own(i, !force);
-        let t = value.tag.check_indexed_key_transfer_own(i, !force);
-        let n = value
+        let tag = value.tag.check_indexed_key_transfer_own(i, !force);
+        let det_name = value
             .detector_name
             .check_indexed_key_transfer_own(i, !force);
         let w = convert_wavelengths(value.wavelengths, force).inner_into();
-        let out = n.zip6(c, d, a, f, m).zip3(t, s).inner_into().zip(w).map(
-            |((_, (), scale), wavelength)| Self::new(Some(scale), wavelength, PeakData::default()),
-        );
+        let out = det_name
+            .zip6(cal, dpy, anal, feat, meas)
+            .zip3(tag, xform)
+            .inner_into()
+            .zip(w)
+            .map(|((_, (), scale), wavelength)| {
+                Self::new(Some(scale), wavelength, PeakData::default())
+            });
         Ok(out)
     }
 }
@@ -5036,15 +5051,15 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_0 {
         i: MeasIndex,
         force: bool,
     ) -> OpticalConvertResult<Self> {
-        let c = value
+        let cal = value
             .calibration
             .check_indexed_key_transfer_own::<AnyMeasKeyLossError>(i, !force);
-        let d = value.display.check_indexed_key_transfer_own(i, !force);
-        let w = convert_wavelengths(value.wavelengths, force).inner_into();
-        let out = c
-            .zip(d)
+        let dpy = value.display.check_indexed_key_transfer_own(i, !force);
+        let wave = convert_wavelengths(value.wavelengths, force).inner_into();
+        let out = cal
+            .zip(dpy)
             .inner_into()
-            .zip(w)
+            .zip(wave)
             .map(|(_, wavelength)| Self::new(value.scale, wavelength, value.peak));
         Ok(out)
     }
@@ -5056,25 +5071,25 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_0 {
         i: MeasIndex,
         force: bool,
     ) -> OpticalConvertResult<Self> {
-        let c = value
+        let cal = value
             .calibration
             .check_indexed_key_transfer_own::<AnyMeasKeyLossError>(i, !force);
-        let d = value.display.check_indexed_key_transfer_own(i, !force);
-        let a = value.analyte.check_indexed_key_transfer_own(i, !force);
-        let f = value.feature.check_indexed_key_transfer_own(i, !force);
-        let m = value
+        let dpy = value.display.check_indexed_key_transfer_own(i, !force);
+        let anal = value.analyte.check_indexed_key_transfer_own(i, !force);
+        let feat = value.feature.check_indexed_key_transfer_own(i, !force);
+        let meas = value
             .measurement_type
             .check_indexed_key_transfer_own(i, !force);
-        let t = value.tag.check_indexed_key_transfer_own(i, !force);
-        let n = value
+        let tag = value.tag.check_indexed_key_transfer_own(i, !force);
+        let det_name = value
             .detector_name
             .check_indexed_key_transfer_own(i, !force);
-        let w = convert_wavelengths(value.wavelengths, force).inner_into();
-        let out = c
-            .zip5(d, a, f, m)
-            .zip3(t, n)
+        let wave = convert_wavelengths(value.wavelengths, force).inner_into();
+        let out = cal
+            .zip5(dpy, anal, feat, meas)
+            .zip3(tag, det_name)
             .inner_into()
-            .zip(w)
+            .zip(wave)
             .map(|(_, wavelength)| Self::new(value.scale, wavelength, PeakData::default()));
         Ok(out)
     }
@@ -5117,27 +5132,31 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_1 {
         i: MeasIndex,
         force: bool,
     ) -> OpticalConvertResult<Self> {
-        let a = value
+        let anal = value
             .analyte
             .check_indexed_key_transfer_own::<AnyMeasKeyLossError>(i, !force);
-        let f = value.feature.check_indexed_key_transfer_own(i, !force);
+        let feat = value.feature.check_indexed_key_transfer_own(i, !force);
         let m = value
             .measurement_type
             .check_indexed_key_transfer_own(i, !force);
-        let t = value.tag.check_indexed_key_transfer_own(i, !force);
-        let n = value
+        let tag = value.tag.check_indexed_key_transfer_own(i, !force);
+        let det_name = value
             .detector_name
             .check_indexed_key_transfer_own(i, !force);
-        let out = a.zip3(f, m).zip3(t, n).inner_into().map(|_| {
-            Self::new(
-                value.scale,
-                value.wavelengths,
-                // TODO warn offset might be lost here
-                value.calibration.map(Into::into),
-                value.display,
-                PeakData::default(),
-            )
-        });
+        let out = anal
+            .zip3(feat, m)
+            .zip3(tag, det_name)
+            .inner_into()
+            .map(|_| {
+                Self::new(
+                    value.scale,
+                    value.wavelengths,
+                    // TODO warn offset might be lost here
+                    value.calibration.map(Into::into),
+                    value.display,
+                    PeakData::default(),
+                )
+            });
         Ok(out)
     }
 }
@@ -5537,28 +5556,31 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
         value: InnerMetaroot3_1,
         lossless: bool,
     ) -> MetarootConvertResult<Self> {
-        let c = value.cytsn.check_key_transfer(lossless);
-        let v = value.vol.check_key_transfer(lossless);
-        let s = value.spillover.check_key_transfer(lossless);
-        let m = value.modification.check_loss(lossless);
-        let p = value.plate.check_loss(lossless);
-        let ss = value.subset.check_loss(lossless);
-        let out = c.zip6(v, s, m, p, ss).inner_into().and_tentatively(|_| {
-            value
-                .applied_gates
-                .try_into_2_0(lossless)
-                .def_unfail_default()
-                .inner_into()
-                .map(|applied_gates| {
-                    Self::new(
-                        value.mode,
-                        value.cyt,
-                        None,
-                        value.timestamps.map(Into::into),
-                        applied_gates,
-                    )
-                })
-        });
+        let cytsn = value.cytsn.check_key_transfer(lossless);
+        let vol = value.vol.check_key_transfer(lossless);
+        let spill = value.spillover.check_key_transfer(lossless);
+        let modi = value.modification.check_loss(lossless);
+        let plate = value.plate.check_loss(lossless);
+        let subset = value.subset.check_loss(lossless);
+        let out = cytsn
+            .zip6(vol, spill, modi, plate, subset)
+            .inner_into()
+            .and_tentatively(|_| {
+                value
+                    .applied_gates
+                    .try_into_2_0(lossless)
+                    .def_unfail_default()
+                    .inner_into()
+                    .map(|applied_gates| {
+                        Self::new(
+                            value.mode,
+                            value.cyt,
+                            None,
+                            value.timestamps.map(Into::into),
+                            applied_gates,
+                        )
+                    })
+            });
         Ok(out)
     }
 }
@@ -5568,24 +5590,28 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
         value: InnerMetaroot3_2,
         lossless: bool,
     ) -> MetarootConvertResult<Self> {
-        let cy = value.cytsn.check_key_transfer(lossless);
-        let v = value.vol.check_key_transfer(lossless);
-        let s = value.spillover.check_key_transfer(lossless);
-        let f = value.flowrate.check_key_transfer(lossless);
-        let m = value.modification.check_loss(lossless);
-        let p = value.plate.check_loss(lossless);
-        let d = value.datetimes.check_loss(lossless);
-        let ca = value.carrier.check_loss(lossless);
-        let u = value.unstained.check_loss(lossless);
-        let mut ret = cy.zip6(v, s, f, m, p).zip4(d, ca, u).inner_into().map(|_| {
-            Self::new(
-                Mode::List,
-                Some(value.cyt),
-                None,
-                value.timestamps.map(Into::into),
-                AppliedGates2_0::default(),
-            )
-        });
+        let cytsn = value.cytsn.check_key_transfer(lossless);
+        let vol = value.vol.check_key_transfer(lossless);
+        let spill = value.spillover.check_key_transfer(lossless);
+        let flow = value.flowrate.check_key_transfer(lossless);
+        let modi = value.modification.check_loss(lossless);
+        let plate = value.plate.check_loss(lossless);
+        let dt = value.datetimes.check_loss(lossless);
+        let carrier = value.carrier.check_loss(lossless);
+        let us = value.unstained.check_loss(lossless);
+        let mut ret = cytsn
+            .zip6(vol, spill, flow, modi, plate)
+            .zip4(dt, carrier, us)
+            .inner_into()
+            .map(|_| {
+                Self::new(
+                    Mode::List,
+                    Some(value.cyt),
+                    None,
+                    value.timestamps.map(Into::into),
+                    AppliedGates2_0::default(),
+                )
+            });
         if !value.applied_gates.is_empty() {
             ret.push_error_or_warning(gating::AppliedGates3_2To2_0Error, lossless);
         }
@@ -5613,10 +5639,10 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_0 {
         value: InnerMetaroot3_1,
         lossless: bool,
     ) -> MetarootConvertResult<Self> {
-        let p = value.plate.check_loss(lossless);
-        let m = value.modification.check_loss(lossless);
-        let v = value.vol.check_key_transfer(lossless);
-        let out = p.zip3(m, v).inner_into().map(|_| {
+        let plate = value.plate.check_loss(lossless);
+        let modi = value.modification.check_loss(lossless);
+        let vol = value.vol.check_key_transfer(lossless);
+        let out = plate.zip3(modi, vol).inner_into().map(|_| {
             Self::new(
                 value.mode,
                 value.cyt,
@@ -5637,25 +5663,29 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
         value: InnerMetaroot3_2,
         lossless: bool,
     ) -> MetarootConvertResult<Self> {
-        let v = value.vol.check_key_transfer(lossless);
-        let f = value.flowrate.check_key_transfer(lossless);
-        let m = value.modification.check_loss(lossless);
-        let p = value.plate.check_loss(lossless);
-        let d = value.datetimes.check_loss(lossless);
-        let ca = value.carrier.check_loss(lossless);
-        let u = value.unstained.check_loss(lossless);
-        let out = v.zip6(f, m, p, d, ca).zip(u).inner_into().map(|_| {
-            Self::new(
-                Mode::List,
-                Some(value.cyt),
-                None,
-                value.timestamps.map(Into::into),
-                value.cytsn,
-                None,
-                SubsetData::default(),
-                value.applied_gates,
-            )
-        });
+        let vol = value.vol.check_key_transfer(lossless);
+        let flow = value.flowrate.check_key_transfer(lossless);
+        let modi = value.modification.check_loss(lossless);
+        let plate = value.plate.check_loss(lossless);
+        let dt = value.datetimes.check_loss(lossless);
+        let carrier = value.carrier.check_loss(lossless);
+        let us = value.unstained.check_loss(lossless);
+        let out = vol
+            .zip6(flow, modi, plate, dt, carrier)
+            .zip(us)
+            .inner_into()
+            .map(|_| {
+                Self::new(
+                    Mode::List,
+                    Some(value.cyt),
+                    None,
+                    value.timestamps.map(Into::into),
+                    value.cytsn,
+                    None,
+                    SubsetData::default(),
+                    value.applied_gates,
+                )
+            });
         Ok(out)
     }
 }
@@ -5689,9 +5719,9 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_1 {
         value: InnerMetaroot3_0,
         lossless: bool,
     ) -> MetarootConvertResult<Self> {
-        let c = value.comp.check_key_transfer(lossless);
-        let u = value.unicode.check_key_transfer(lossless);
-        let out = c.zip(u).inner_into().map(|_| {
+        let comp = value.comp.check_key_transfer(lossless);
+        let us = value.unicode.check_key_transfer(lossless);
+        let out = comp.zip(us).inner_into().map(|_| {
             Self::new(
                 value.mode,
                 value.cyt,
@@ -5714,11 +5744,11 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
         value: InnerMetaroot3_2,
         lossless: bool,
     ) -> MetarootConvertResult<Self> {
-        let d = value.datetimes.check_loss(lossless);
-        let ca = value.carrier.check_loss(lossless);
-        let u = value.unstained.check_loss(lossless);
-        let f = value.flowrate.check_key_transfer(lossless);
-        let ret = d.zip4(ca, u, f).inner_into().map(|_| {
+        let dt = value.datetimes.check_loss(lossless);
+        let carrier = value.carrier.check_loss(lossless);
+        let us = value.unstained.check_loss(lossless);
+        let flow = value.flowrate.check_key_transfer(lossless);
+        let ret = dt.zip4(carrier, us, flow).inner_into().map(|_| {
             Self::new(
                 Mode::List,
                 Some(value.cyt),
@@ -5783,10 +5813,10 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
         value: InnerMetaroot3_0,
         lossless: bool,
     ) -> MetarootConvertResult<Self> {
-        let u = value.unicode.check_key_transfer(lossless);
-        let co = value.comp.check_key_transfer(lossless);
-        let ss = value.subset.check_loss(lossless);
-        u.zip3(co, ss).inner_into().and_maybe(|_| {
+        let uni = value.unicode.check_key_transfer(lossless);
+        let comp = value.comp.check_key_transfer(lossless);
+        let subset = value.subset.check_loss(lossless);
+        uni.zip3(comp, subset).inner_into().and_maybe(|_| {
             value
                 .applied_gates
                 .try_into_3_2(lossless)
@@ -6279,10 +6309,11 @@ impl LookupOptical for InnerOptical2_0 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let s = Scale::lookup_opt_st(kws, i, (), conf);
-        let w = Wavelength::lookup_opt(kws, i, conf);
-        let p = PeakData::lookup(kws, i, conf);
-        Ok(s.zip3(w, p)
+        let scale = Scale::lookup_opt_st(kws, i, (), conf);
+        let wave = Wavelength::lookup_opt(kws, i, conf);
+        let peak = PeakData::lookup(kws, i, conf);
+        Ok(scale
+            .zip3(wave, peak)
             .errors_into()
             .map(|(si, wi, pi)| Self::new(si, wi, pi)))
     }
@@ -6294,9 +6325,9 @@ impl LookupOptical for InnerOptical3_0 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let w = Wavelength::lookup_opt(kws, i, conf);
-        let p = PeakData::lookup(kws, i, conf);
-        w.zip(p).errors_into().and_maybe(|(wi, pi)| {
+        let wave = Wavelength::lookup_opt(kws, i, conf);
+        let peak = PeakData::lookup(kws, i, conf);
+        wave.zip(peak).errors_into().and_maybe(|(wi, pi)| {
             ScaleTransform::lookup(kws, i, conf).def_map_value(|s| Self::new(s, wi, pi))
         })
     }
@@ -6308,14 +6339,16 @@ impl LookupOptical for InnerOptical3_1 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let w = Wavelengths::lookup_opt_st(kws, i, (), conf);
-        let c = Calibration3_1::lookup_opt(kws, i, conf);
-        let d = Display::lookup_opt(kws, i, conf);
-        let p = PeakData::lookup_dep(kws, i, conf);
-        w.zip4(c, d, p).errors_into().and_maybe(|(wi, ci, di, pi)| {
-            ScaleTransform::lookup(kws, i, conf)
-                .def_map_value(|scale| Self::new(scale, wi, ci, di, pi))
-        })
+        let wave = Wavelengths::lookup_opt_st(kws, i, (), conf);
+        let cal = Calibration3_1::lookup_opt(kws, i, conf);
+        let dpy = Display::lookup_opt(kws, i, conf);
+        let peak = PeakData::lookup_dep(kws, i, conf);
+        wave.zip4(cal, dpy, peak)
+            .errors_into()
+            .and_maybe(|(wi, ci, di, pi)| {
+                ScaleTransform::lookup(kws, i, conf)
+                    .def_map_value(|scale| Self::new(scale, wi, ci, di, pi))
+            })
     }
 }
 
@@ -6325,20 +6358,21 @@ impl LookupOptical for InnerOptical3_2 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let w = Wavelengths::lookup_opt_st(kws, i, (), conf);
-        let c = Calibration3_2::lookup_opt(kws, i, conf);
-        let d = Display::lookup_opt(kws, i, conf);
-        let de = DetectorName::lookup_opt(kws, i, conf);
-        let ta = Tag::lookup_opt(kws, i, conf);
-        let m = OpticalType::lookup_opt(kws, i, conf);
-        let f = Feature::lookup_opt(kws, i, conf);
-        let a = Analyte::lookup_opt(kws, i, conf);
-        w.zip4(c, d, de).zip5(ta, m, f, a).errors_into().and_maybe(
-            |((wi, ci, di, dni), ti, mti, fi, ai)| {
+        let wave = Wavelengths::lookup_opt_st(kws, i, (), conf);
+        let cal = Calibration3_2::lookup_opt(kws, i, conf);
+        let dpy = Display::lookup_opt(kws, i, conf);
+        let det_name = DetectorName::lookup_opt(kws, i, conf);
+        let tag = Tag::lookup_opt(kws, i, conf);
+        let meas = OpticalType::lookup_opt(kws, i, conf);
+        let feat = Feature::lookup_opt(kws, i, conf);
+        let anal = Analyte::lookup_opt(kws, i, conf);
+        wave.zip4(cal, dpy, det_name)
+            .zip5(tag, meas, feat, anal)
+            .errors_into()
+            .and_maybe(|((w, c, d, n), t, m, f, a)| {
                 ScaleTransform::lookup(kws, i, conf)
-                    .def_map_value(|s| Self::new(s, wi, ci, di, ai, fi, mti, ti, dni))
-            },
-        )
+                    .def_map_value(|s| Self::new(s, w, c, d, a, f, m, t, n))
+            })
     }
 }
 
@@ -6349,17 +6383,15 @@ impl LookupTemporal for InnerTemporal2_0 {
         nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let s = if conf.force_time_linear {
+        let scale = if conf.force_time_linear {
             nonstd.transfer_demoted(kws, TemporalScale::std(i));
             Tentative::new1(Some(TemporalScale).into())
         } else {
             TemporalScale::lookup_opt(kws, i, conf)
         };
-        let p = PeakData::lookup(kws, i, conf);
+        let peak = PeakData::lookup(kws, i, conf);
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, kws, nonstd, i);
-        Ok(s.zip(p)
-            .errors_into()
-            .map(|(scale, peak)| Self::new(scale, peak)))
+        Ok(scale.zip(peak).errors_into().map(|(s, p)| Self::new(s, p)))
     }
 }
 
@@ -6370,14 +6402,15 @@ impl LookupTemporal for InnerTemporal3_0 {
         nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let g = lookup_temporal_gain_3_0(kws, i, nonstd, conf);
-        let p = PeakData::lookup(kws, i, conf);
+        let gain = lookup_temporal_gain_3_0(kws, i, nonstd, conf);
+        let peak = PeakData::lookup(kws, i, conf);
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, kws, nonstd, i);
-        g.zip(p).errors_into().and_maybe(|(_, peak)| {
-            let s = lookup_temporal_scale_3_0(kws, i, nonstd, conf);
-            let t = Timestep::lookup_req(kws);
-            s.def_zip(t)
-                .def_map_value(|(_, timestep)| Self::new(timestep, peak))
+        gain.zip(peak).errors_into().and_maybe(|(_, p)| {
+            let scale = lookup_temporal_scale_3_0(kws, i, nonstd, conf);
+            let timestep = Timestep::lookup_req(kws);
+            scale
+                .def_zip(timestep)
+                .def_map_value(|(_, t)| Self::new(t, p))
         })
     }
 }
@@ -6389,14 +6422,16 @@ impl LookupTemporal for InnerTemporal3_1 {
         nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let g = lookup_temporal_gain_3_0(kws, i, nonstd, conf);
-        let d = Display::lookup_opt(kws, i, conf);
-        let p = PeakData::lookup_dep(kws, i, conf).errors_into();
+        let gain = lookup_temporal_gain_3_0(kws, i, nonstd, conf);
+        let dpy = Display::lookup_opt(kws, i, conf);
+        let peak = PeakData::lookup_dep(kws, i, conf).errors_into();
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, kws, nonstd, i);
-        g.zip3(d, p).errors_into().and_maybe(|(_, di, pi)| {
-            let s = lookup_temporal_scale_3_0(kws, i, nonstd, conf);
-            let t = Timestep::lookup_req(kws);
-            s.def_zip(t).def_map_value(|(_, ti)| Self::new(ti, di, pi))
+        gain.zip3(dpy, peak).errors_into().and_maybe(|(_, d, p)| {
+            let scale = lookup_temporal_scale_3_0(kws, i, nonstd, conf);
+            let timestep = Timestep::lookup_req(kws);
+            scale
+                .def_zip(timestep)
+                .def_map_value(|(_, t)| Self::new(t, d, p))
         })
     }
 }
@@ -6408,14 +6443,16 @@ impl LookupTemporal for InnerTemporal3_2 {
         nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let g = lookup_temporal_gain_3_0(kws, i, nonstd, conf);
-        let d = Display::lookup_opt(kws, i, conf);
-        let m = TemporalType::lookup_opt(kws, i, conf);
+        let gain = lookup_temporal_gain_3_0(kws, i, nonstd, conf);
+        let dpy = Display::lookup_opt(kws, i, conf);
+        let meas = TemporalType::lookup_opt(kws, i, conf);
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, kws, nonstd, i);
-        g.zip3(d, m).errors_into().and_maybe(|(_, di, mti)| {
-            let s = lookup_temporal_scale_3_0(kws, i, nonstd, conf);
-            let t = Timestep::lookup_req(kws);
-            s.def_zip(t).def_map_value(|(_, ti)| Self::new(ti, di, mti))
+        gain.zip3(dpy, meas).errors_into().and_maybe(|(_, d, m)| {
+            let scale = lookup_temporal_scale_3_0(kws, i, nonstd, conf);
+            let timestep = Timestep::lookup_req(kws);
+            scale
+                .def_zip(timestep)
+                .def_map_value(|(_, t)| Self::new(t, d, m))
         })
     }
 }
@@ -6558,18 +6595,18 @@ impl VersionedOptical for InnerOptical3_2 {
     }
 
     fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
-        let c = self
+        let cal = self
             .calibration
             .check_indexed_key_transfer::<AnyOpticalToTemporalKeyLossError>(i);
-        let w = self.wavelengths.check_indexed_key_transfer(i);
-        let m = self.measurement_type.check_indexed_key_transfer(i);
-        let a = self.analyte.check_indexed_key_transfer(i);
-        let t = self.tag.check_indexed_key_transfer(i);
-        let n = self.detector_name.check_indexed_key_transfer(i);
-        let f = self.feature.check_indexed_key_transfer(i);
-        let res = c
-            .zip3(w, m)
-            .mult_zip3(a.zip(t), n.zip(f))
+        let wave = self.wavelengths.check_indexed_key_transfer(i);
+        let meas = self.measurement_type.check_indexed_key_transfer(i);
+        let anal = self.analyte.check_indexed_key_transfer(i);
+        let tag = self.tag.check_indexed_key_transfer(i);
+        let det_name = self.detector_name.check_indexed_key_transfer(i);
+        let feat = self.feature.check_indexed_key_transfer(i);
+        let res = cal
+            .zip3(wave, meas)
+            .mult_zip3(anal.zip(tag), det_name.zip(feat))
             .mult_errors_into();
         let s = if self.scale.is_noop() {
             Ok(())
@@ -7151,14 +7188,14 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         _: &[&Shortname],
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let co = Compensation2_0::lookup(kws, par, conf);
-        let cy = Cyt::lookup_opt(kws, conf);
-        let t = Timestamps::lookup(kws, conf);
-        let g = AppliedGates2_0::lookup(kws, par, conf);
-        co.zip4(cy, t, g)
+        let comp = Compensation2_0::lookup(kws, par, conf);
+        let cytn = Cyt::lookup_opt(kws, conf);
+        let ts = Timestamps::lookup(kws, conf);
+        let ag = AppliedGates2_0::lookup(kws, par, conf);
+        comp.zip4(cytn, ts, ag)
             .errors_into()
-            .and_maybe(|(co_, cy_, t_, ag_)| {
-                Mode::lookup_req(kws).def_map_value(|mo_| Self::new(mo_, cy_, co_, t_, ag_))
+            .and_maybe(|(co, cy, t, g)| {
+                Mode::lookup_req(kws).def_map_value(|mo_| Self::new(mo_, cy, co, t, g))
             })
     }
 }
@@ -7179,19 +7216,19 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         _: &[&Shortname],
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let co = Compensation3_0::lookup_opt(kws, conf);
-        let cy = Cyt::lookup_opt(kws, conf);
-        let sn = Cytsn::lookup_opt(kws, conf);
-        let su = SubsetData::lookup(kws, conf);
-        let t = Timestamps::lookup(kws, conf);
-        let u = Unicode::lookup_opt_st(kws, (), conf);
-        let g = AppliedGates3_0::lookup(kws, par, conf);
-        co.zip4(cy, sn, su).zip4(t, u, g).errors_into().and_maybe(
-            |((co_, cy_, sn_, su_), t_, u_, ag_)| {
-                Mode::lookup_req(kws)
-                    .def_map_value(|mo_| Self::new(mo_, cy_, co_, t_, sn_, u_, su_, ag_))
-            },
-        )
+        let comp = Compensation3_0::lookup_opt(kws, conf);
+        let cyt = Cyt::lookup_opt(kws, conf);
+        let cytsn = Cytsn::lookup_opt(kws, conf);
+        let subset = SubsetData::lookup(kws, conf);
+        let ts = Timestamps::lookup(kws, conf);
+        let uni = Unicode::lookup_opt_st(kws, (), conf);
+        let ag = AppliedGates3_0::lookup(kws, par, conf);
+        comp.zip4(cyt, cytsn, subset)
+            .zip4(ts, uni, ag)
+            .errors_into()
+            .and_maybe(|((co, cy, sn, su), t, u, g)| {
+                Mode::lookup_req(kws).def_map_value(|mo| Self::new(mo, cy, co, t, sn, u, su, g))
+            })
     }
 }
 
@@ -7211,27 +7248,27 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         ordered_names: &[&Shortname],
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let cy = Cyt::lookup_opt(kws, conf);
-        let sp = Spillover::lookup_opt_st(kws, (names, ordered_names), conf);
-        let sn = Cytsn::lookup_opt(kws, conf);
-        let su = SubsetData::lookup(kws, conf);
-        let md = ModificationData::lookup(kws, conf);
-        let p = PlateData::lookup(kws, conf);
-        let t = Timestamps::lookup(kws, conf);
-        let v = Vol::lookup_opt(kws, conf);
-        let g = AppliedGates3_0::lookup_dep(kws, par, conf).errors_into();
+        let cyt = Cyt::lookup_opt(kws, conf);
+        let spill = Spillover::lookup_opt_st(kws, (names, ordered_names), conf);
+        let cytsn = Cytsn::lookup_opt(kws, conf);
+        let subset = SubsetData::lookup(kws, conf);
+        let modif = ModificationData::lookup(kws, conf);
+        let plate = PlateData::lookup(kws, conf);
+        let ts = Timestamps::lookup(kws, conf);
+        let vol = Vol::lookup_opt(kws, conf);
+        let ag = AppliedGates3_0::lookup_dep(kws, par, conf).errors_into();
         let mode_dep = |m: &Mode| match m {
             Mode::Correlated => Some(DeprecatedError::Value(DepValueWarning::ModeCorrelated)),
             Mode::Uncorrelated => Some(DeprecatedError::Value(DepValueWarning::ModeUncorrelated)),
             Mode::List => None,
         };
-        cy.zip5(sp, sn, su, md)
-            .zip5(p, t, v, g)
+        cyt.zip5(spill, cytsn, subset, modif)
+            .zip5(plate, ts, vol, ag)
             .errors_into()
-            .and_maybe(|((c_, sp_, sn_, su_, md_), p_, t_, v_, ag_)| {
-                let mut mo = Mode::lookup_req(kws);
-                mo.def_eval_warning(mode_dep);
-                mo.def_map_value(|mo_| Self::new(mo_, c_, t_, sn_, sp_, md_, p_, v_, su_, ag_))
+            .and_maybe(|((c, sp, sn, su, md), p, t, v, g)| {
+                let mut mode = Mode::lookup_req(kws);
+                mode.def_eval_warning(mode_dep);
+                mode.def_map_value(|mo| Self::new(mo, c, t, sn, sp, md, p, v, su, g))
             })
     }
 }
@@ -7252,21 +7289,22 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         ordered_names: &[&Shortname],
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let ca = CarrierData::lookup(kws, conf);
-        let d = Datetimes::lookup(kws, conf);
-        let f = Flowrate::lookup_opt(kws, conf);
-        let md = ModificationData::lookup(kws, conf);
-        let mo = Mode3_2::lookup_opt_dep(kws, conf);
-        let sp = Spillover::lookup_opt_st(kws, (names, ordered_names), conf);
-        let sn = Cytsn::lookup_opt(kws, conf);
-        let p = PlateData::lookup_dep(kws, conf);
-        let t = Timestamps::lookup_dep(kws, conf);
-        let u = UnstainedData::lookup(kws, names, conf);
-        let v = Vol::lookup_opt(kws, conf);
-        let g = AppliedGates3_2::lookup(kws, par, conf);
-        ca.zip6(d, f, md, mo, sp)
-            .zip6(sn, p, t, u, v)
-            .zip(g)
+        let carrier = CarrierData::lookup(kws, conf);
+        let dt = Datetimes::lookup(kws, conf);
+        let flow = Flowrate::lookup_opt(kws, conf);
+        let modif = ModificationData::lookup(kws, conf);
+        let mode = Mode3_2::lookup_opt_dep(kws, conf);
+        let spill = Spillover::lookup_opt_st(kws, (names, ordered_names), conf);
+        let cytsn = Cytsn::lookup_opt(kws, conf);
+        let plate = PlateData::lookup_dep(kws, conf);
+        let ts = Timestamps::lookup_dep(kws, conf);
+        let us = UnstainedData::lookup(kws, names, conf);
+        let vol = Vol::lookup_opt(kws, conf);
+        let ag = AppliedGates3_2::lookup(kws, par, conf);
+        carrier
+            .zip6(dt, flow, modif, mode, spill)
+            .zip6(cytsn, plate, ts, us, vol)
+            .zip(ag)
             .errors_into()
             .and_maybe(
                 |(((ca_, d_, f_, md_, mo_, sp_), sn_, p_, t_, u_, v_), ag_)| {
@@ -7933,9 +7971,13 @@ pub struct OpticalMismatchError {
 
 impl fmt::Display for OpticalMismatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let o = "optical";
-        let t = "temporal";
-        let (x, y) = if self.new_is_optical { (o, t) } else { (t, o) };
+        let opt = "optical";
+        let tmp = "temporal";
+        let (x, y) = if self.new_is_optical {
+            (opt, tmp)
+        } else {
+            (tmp, opt)
+        };
         write!(f, "tried to assign {x} value to {y} measurement")
     }
 }

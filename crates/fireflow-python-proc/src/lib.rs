@@ -1064,8 +1064,8 @@ pub fn impl_core_all_meas_nonstandard_keywords(input: TokenStream) -> TokenStrea
 // TODO make this return $TOT, $NEXTDATA, etc
 #[proc_macro]
 pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
-    let t = parse_macro_input!(input as Ident);
-    let _ = split_ident_version_pycore(&t);
+    let ident = parse_macro_input!(input as Ident);
+    let _ = split_ident_version_pycore(&ident);
 
     let make_param = |req: bool, root: bool| {
         let (x, a) = if req {
@@ -1104,7 +1104,7 @@ pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
 
     quote! {
         #[pymethods]
-        impl #t {
+        impl #ident {
             #doc
             fn standard_keywords(&self, #fun_args) -> #ret_path {
                 self.0.standard_keywords(#inner_args)

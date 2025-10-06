@@ -270,6 +270,7 @@ impl<const LEN: usize> Serialize for SizedByteOrd<LEN> {
     }
 }
 
+#[allow(clippy::many_single_char_names)]
 impl TryFrom<&[NonZeroU8]> for ByteOrd2_0 {
     type Error = NewByteOrdError;
     fn try_from(xs: &[NonZeroU8]) -> Result<Self, Self::Error> {

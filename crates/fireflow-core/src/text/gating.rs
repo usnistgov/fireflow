@@ -600,43 +600,26 @@ impl GatedMeasurement {
     ) -> LookupTentative<Self>
     where
         F0: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateScale>,
-        F1: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GateFilter>,
-        F2: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GateShortname>,
-        F3: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GatePercentEmitted>,
-        F4: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GateRange>,
-        F5: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GateLongname>,
-        F6: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GateDetectorType>,
-        F7: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<GateDetectorVoltage>,
+        F1: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateFilter>,
+        F2: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateShortname>,
+        F3: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GatePercentEmitted>,
+        F4: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateRange>,
+        F5: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateLongname>,
+        F6: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateDetectorType>,
+        F7: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateDetectorVoltage>,
     {
-        let j = i.into();
-        let e = lookup_scale(kws, i);
-        let f = lookup_filter(kws, j);
-        let n = lookup_shortname(kws, j);
-        let p = lookup_pe(kws, j);
-        let r = lookup_range(kws, j);
-        let s = lookup_longname(kws, j);
-        let t = lookup_det_type(kws, j);
-        let v = lookup_det_volt(kws, j);
-        e.zip4(f, n, p).zip5(r, s, t, v).map(
-            |(
-                (scale, filter, shortname, percent_emitted),
-                range,
-                longname,
-                detector_type,
-                detector_voltage,
-            )| {
-                Self {
-                    scale,
-                    filter,
-                    shortname,
-                    percent_emitted,
-                    range,
-                    longname,
-                    detector_type,
-                    detector_voltage,
-                }
-            },
-        )
+        let scale = lookup_scale(kws, i);
+        let filter = lookup_filter(kws, i);
+        let shortname = lookup_shortname(kws, i);
+        let perc_emit = lookup_pe(kws, i);
+        let rng = lookup_range(kws, i);
+        let longname = lookup_longname(kws, i);
+        let det_type = lookup_det_type(kws, i);
+        let det_volt = lookup_det_volt(kws, i);
+        scale
+            .zip4(filter, shortname, perc_emit)
+            .zip5(rng, longname, det_type, det_volt)
+            .map(|((e, f, n, p), r, s, t, v)| Self::new(e, f, n, p, r, s, t, v))
     }
 
     pub(crate) fn opt_keywords(&self, i: GateIndex) -> impl Iterator<Item = (String, String)> {

@@ -520,10 +520,10 @@ fn main() -> Result<(), ()> {
 }
 
 fn parse_header_config(sargs: &ArgMatches) -> config::HeaderConfigInner {
-    fn get_correction<I>(s: &ArgMatches, b: &str, e: &str) -> HeaderCorrection<I> {
-        let x = s.get_one(b).copied();
-        let y = s.get_one(e).copied();
-        (x, y).into()
+    fn get_correction<I>(am: &ArgMatches, x0: &str, x1: &str) -> HeaderCorrection<I> {
+        let y0 = am.get_one(x0).copied();
+        let y1 = am.get_one(x1).copied();
+        (y0, y1).into()
     }
     let text_correction = get_correction(sargs, TEXT_COR_BEGIN, TEXT_COR_END);
     let data_correction = get_correction(sargs, DATA_COR_BEGIN, DATA_COR_END);

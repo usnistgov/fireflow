@@ -90,8 +90,8 @@ impl FromStrDelim for Scale {
     type Err = ScaleError;
     const DELIM: char = ',';
 
-    fn from_iter<'a>(ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        let xs: Vec<_> = ss.collect();
+    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        let xs: Vec<_> = iter.collect();
         match &xs[..] {
             [ds, os] => {
                 let f1 = ds.parse().map_err(ScaleError::FloatError)?;

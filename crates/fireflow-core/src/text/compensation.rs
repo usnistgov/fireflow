@@ -154,12 +154,12 @@ impl FromStrDelim for Compensation3_0 {
     type Err = ParseCompError;
     const DELIM: char = ',';
 
-    fn from_iter<'a>(mut ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        if let Some(first) = ss.next().and_then(|x| x.parse::<usize>().ok()) {
+    fn from_iter<'a>(mut iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        if let Some(first) = iter.next().and_then(|x| x.parse::<usize>().ok()) {
             let n = first;
             let nn = n * n;
-            let values: Vec<_> = ss.by_ref().take(nn).collect();
-            let remainder = ss.by_ref().count();
+            let values: Vec<_> = iter.by_ref().take(nn).collect();
+            let remainder = iter.by_ref().count();
             let total = values.len() + remainder;
             if total == nn {
                 if let Ok(fvalues) = values

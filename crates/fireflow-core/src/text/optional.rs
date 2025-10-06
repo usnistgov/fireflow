@@ -225,28 +225,28 @@ impl<V> MaybeValue<V> {
     pub(crate) fn check_indexed_key_transfer_own<E>(
         self,
         i: impl Into<IndexFromOne>,
-        lossless: bool,
+        allow_loss: bool,
     ) -> BiTentative<(), E>
     where
         E: From<IndexedKeyLossError<V>>,
     {
         let mut tnt = Tentative::default();
         if self.0.is_some() {
-            tnt.push_error_or_warning(IndexedKeyLossError::<V>::new(i), lossless);
+            tnt.push_error_or_warning(IndexedKeyLossError::<V>::new(i), !allow_loss);
         }
         tnt
     }
 
     pub(crate) fn check_key_transfer(
         self,
-        lossless: bool,
+        allow_loss: bool,
     ) -> BiTentative<(), AnyMetarootKeyLossError>
     where
         AnyMetarootKeyLossError: From<UnitaryKeyLossError<V>>,
     {
         let mut tnt = Tentative::default();
         if self.0.is_some() {
-            tnt.push_error_or_warning(UnitaryKeyLossError::<V>::new(), lossless);
+            tnt.push_error_or_warning(UnitaryKeyLossError::<V>::new(), !allow_loss);
         }
         tnt
     }

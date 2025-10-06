@@ -88,13 +88,13 @@ impl AsciiRange {
     pub(crate) fn from_width_and_range(
         width: Width,
         range: Range,
-        notrunc: bool,
+        disallow_trunc: bool,
     ) -> DeferredResult<Self, IntRangeError<()>, NewAsciiRangeError> {
         Chars::try_from(width)
             .into_deferred()
             .def_and_maybe(|chars| {
                 range
-                    .into_uint(notrunc)
+                    .into_uint(disallow_trunc)
                     .inner_into()
                     .and_maybe(|value| Self::try_new(value, chars).into_deferred())
             })

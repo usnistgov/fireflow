@@ -452,7 +452,7 @@ impl AppliedGates3_0 {
 
     pub(crate) fn try_into_2_0(
         self,
-        lossless: bool,
+        allow_loss: bool,
     ) -> BiDeferredResult<AppliedGates2_0, AppliedGates3_0To2_0Error> {
         // ASSUME region indices will still be unique in new hash table
         let (regions, es): (HashMap<_, _>, Vec<_>) = self
@@ -467,14 +467,14 @@ impl AppliedGates3_0 {
                 AppliedGates2_0::try_new(self.gated_measurements.0, scheme).into_deferred()
             });
         for e in es {
-            res.def_push_error_or_warning(AppliedGates3_0To2_0Error::Index(e), lossless);
+            res.def_push_error_or_warning(AppliedGates3_0To2_0Error::Index(e), !allow_loss);
         }
         res
     }
 
     pub(crate) fn try_into_3_2(
         self,
-        lossless: bool,
+        allow_loss: bool,
     ) -> BiDeferredResult<AppliedGates3_2, AppliedGates3_0To3_2Error> {
         // ASSUME region indices will still be unique in new hash table
         let (regions, es): (HashMap<_, _>, Vec<_>) = self
@@ -485,11 +485,14 @@ impl AppliedGates3_0 {
             .partition_result();
         let mut res = AppliedGates3_2::try_new(self.scheme.gating, regions).into_deferred();
         for e in es {
-            res.def_push_error_or_warning(AppliedGates3_0To3_2Error::Index(e), lossless);
+            res.def_push_error_or_warning(AppliedGates3_0To3_2Error::Index(e), !allow_loss);
         }
         let n_gates = self.gated_measurements.0.len();
         if n_gates > 0 {
-            res.def_push_error_or_warning(AppliedGates3_0To3_2Error::HasGates(n_gates), lossless);
+            res.def_push_error_or_warning(
+                AppliedGates3_0To3_2Error::HasGates(n_gates),
+                !allow_loss,
+            );
         }
         res
     }

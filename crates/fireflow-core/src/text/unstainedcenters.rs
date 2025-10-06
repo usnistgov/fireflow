@@ -88,12 +88,16 @@ impl FromStrDelim for UnstainedCenters {
     type Err = ParseUnstainedCenterError;
     const DELIM: char = ',';
 
-    fn from_iter<'a>(mut xs: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        if let Some(n) = xs.next().and_then(|x| x.parse().ok()) {
+    fn from_iter<'a>(mut iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        if let Some(n) = iter.next().and_then(|x| x.parse().ok()) {
             // This should be safe since we are splitting by commas
-            let measurements: Vec<_> = xs.by_ref().take(n).map(Shortname::new_unchecked).collect();
-            let values: Vec<_> = xs.by_ref().take(n).collect();
-            let remainder = xs.by_ref().count();
+            let measurements: Vec<_> = iter
+                .by_ref()
+                .take(n)
+                .map(Shortname::new_unchecked)
+                .collect();
+            let values: Vec<_> = iter.by_ref().take(n).collect();
+            let remainder = iter.by_ref().count();
             let total = values.len() + measurements.len() + remainder;
             let expected = 2 * n;
             if total == expected {

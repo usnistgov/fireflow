@@ -75,10 +75,10 @@ impl Default for Timestep {
 }
 
 impl Timestep {
-    pub(crate) fn check_conversion(self, force: bool) -> BiTentative<(), TimestepLossError> {
+    pub(crate) fn check_conversion(self, allow_loss: bool) -> BiTentative<(), TimestepLossError> {
         let mut tnt = Tentative::default();
         if !self.0.is_one() {
-            tnt.push_error_or_warning(TimestepLossError(self), !force);
+            tnt.push_error_or_warning(TimestepLossError(self), !allow_loss);
         }
         tnt
     }
@@ -132,8 +132,8 @@ impl FromStrDelim for Trigger {
     type Err = TriggerError;
     const DELIM: char = ',';
 
-    fn from_iter<'a>(ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        let xs: Vec<_> = ss.collect();
+    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        let xs: Vec<_> = iter.collect();
         match &xs[..] {
             [p, n1] => n1
                 .parse()
@@ -507,8 +507,8 @@ impl FromStrDelim for Wavelengths {
     type Err = WavelengthsError;
     const DELIM: char = ',';
 
-    fn from_iter<'a>(ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        let xs = NonEmpty::collect(ss).ok_or(WavelengthsError::Empty)?;
+    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        let xs = NonEmpty::collect(iter).ok_or(WavelengthsError::Empty)?;
         let ys = xs.try_map(|x| x.parse().map_err(WavelengthsError::Num))?;
         Ok(Self(FCSNonEmpty(ys)))
     }
@@ -517,13 +517,13 @@ impl FromStrDelim for Wavelengths {
 impl Wavelengths {
     pub(crate) fn into_wavelength(
         self,
-        lossless: bool,
+        allow_loss: bool,
     ) -> Tentative<Wavelength, WavelengthsLossError, WavelengthsLossError> {
         let ws = self.0;
         let n = ws.0.len();
         let mut tnt = Tentative::new1(Wavelength(ws.0.head));
         if n > 1 {
-            tnt.push_error_or_warning(WavelengthsLossError(n), lossless);
+            tnt.push_error_or_warning(WavelengthsLossError(n), !allow_loss);
         }
         tnt
     }
@@ -654,9 +654,9 @@ impl FromStrDelim for Unicode {
     type Err = UnicodeError;
     const DELIM: char = ',';
 
-    fn from_iter<'a>(mut xs: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        if let Some(page) = xs.next().and_then(|x| x.parse().ok()) {
-            let kws: Vec<String> = xs.map(String::from).collect();
+    fn from_iter<'a>(mut iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        if let Some(page) = iter.next().and_then(|x| x.parse().ok()) {
+            let kws: Vec<String> = iter.map(String::from).collect();
             if kws.is_empty() {
                 Err(UnicodeError::Empty)
             } else {
@@ -918,8 +918,8 @@ impl<I: FromStr> FromStrDelim for RegionGateIndex<I> {
     type Err = RegionGateIndexError<<I as FromStr>::Err>;
     const DELIM: char = ',';
 
-    fn from_iter<'a>(ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        let xs: Vec<_> = ss.collect();
+    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        let xs: Vec<_> = iter.collect();
         match &xs[..] {
             [x] => x
                 .parse()
@@ -1084,9 +1084,9 @@ impl FromStrDelim for RegionWindow {
         }
     }
 
-    fn from_iter<'a>(ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
         Self::from_iter_inner(
-            ss,
+            iter,
             |x| UniGate::from_str_delim(x, true),
             |x| Vertex::from_str_delim(x, true),
         )
@@ -1117,8 +1117,8 @@ impl FromStrDelim for UniGate {
     type Err = GatePairError;
     const DELIM: char = ',';
 
-    fn from_iter<'a>(ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        parse_pair(ss).map(|(lower, upper)| Self { lower, upper })
+    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        parse_pair(iter).map(|(lower, upper)| Self { lower, upper })
     }
 }
 
@@ -1126,8 +1126,8 @@ impl FromStrDelim for Vertex {
     type Err = GatePairError;
     const DELIM: char = ',';
 
-    fn from_iter<'a>(ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        parse_pair(ss).map(|(x, y)| Self { x, y })
+    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        parse_pair(iter).map(|(x, y)| Self { x, y })
     }
 }
 
@@ -1346,7 +1346,7 @@ pub enum GatingError {
 pub struct Range(pub BigDecimal);
 
 impl Range {
-    pub(crate) fn into_uint<T>(self, notrunc: bool) -> BiTentative<T, IntRangeError<()>>
+    pub(crate) fn into_uint<T>(self, disallow_trunc: bool) -> BiTentative<T, IntRangeError<()>>
     where
         T: TryFrom<Self, Error = IntRangeError<T>> + PrimInt,
     {
@@ -1358,12 +1358,12 @@ impl Range {
             },
             |x| (x, None),
         );
-        BiTentative::new_either1(b, e, notrunc)
+        BiTentative::new_either1(b, e, disallow_trunc)
     }
 
     pub(crate) fn into_float<T>(
         self,
-        notrunc: bool,
+        disallow_trunc: bool,
     ) -> BiTentative<FloatDecimal<T>, DecimalToFloatError>
     where
         FloatDecimal<T>: TryFrom<BigDecimal, Error = DecimalToFloatError>,
@@ -1380,7 +1380,7 @@ impl Range {
             },
             |x| (x, None),
         );
-        BiTentative::new_either1(x, e, notrunc)
+        BiTentative::new_either1(x, e, disallow_trunc)
     }
 }
 

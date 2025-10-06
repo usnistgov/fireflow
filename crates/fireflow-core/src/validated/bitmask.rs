@@ -81,7 +81,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
 
     pub(crate) fn from_native_tnt(
         value: T,
-        notrunc: bool,
+        disallow_trunc: bool,
     ) -> BiTentative<Self, BitmaskTruncationError>
     where
         T: PrimInt,
@@ -92,7 +92,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
             bytes: Self::bits(),
             value: u64::from(value),
         });
-        BiTentative::new_either1(bitmask, error, notrunc)
+        BiTentative::new_either1(bitmask, error, disallow_trunc)
     }
 
     // fn from_u64_tnt(value: u64, notrunc: bool) -> BiTentative<Self, BitmaskTruncationError>

@@ -105,13 +105,13 @@ impl Datetimes {
         .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
-    pub(crate) fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
+    pub(crate) fn check_loss(self, allow_loss: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
         let mut tnt = Tentative::new1(());
         if self.begin.is_some() {
-            tnt.push_error_or_warning(UnitaryKeyLossError::<BeginDateTime>::new(), lossless);
+            tnt.push_error_or_warning(UnitaryKeyLossError::<BeginDateTime>::new(), allow_loss);
         }
         if self.end.is_some() {
-            tnt.push_error_or_warning(UnitaryKeyLossError::<EndDateTime>::new(), lossless);
+            tnt.push_error_or_warning(UnitaryKeyLossError::<EndDateTime>::new(), allow_loss);
         }
         tnt
     }

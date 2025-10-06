@@ -1385,15 +1385,15 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
             PyType::new_timestep(),
             "The value of *$TIMESTEP* to use.",
         ));
-        let force = DocArg::new_bool_param(
-            "force",
+        let allow_loss = DocArg::new_bool_param(
+            "allow_loss",
             "If ``True`` remove any optical-specific metadata (detectors, \
-             lasers, etc) without raising an exception. Defauls to ``False``.",
+             lasers, etc) without raising an exception.",
         );
         DocString::new_method(
             format!("Set the temporal measurement to a given {i}."),
             [""; 0],
-            [p].into_iter().chain(timestep).chain([force]),
+            [p].into_iter().chain(timestep).chain([allow_loss]),
             Some(DocReturn::new1(
                 PyBool::new(),
                 format!(
@@ -1413,12 +1413,12 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
         quote! {
             #name_doc
             fn set_temporal(&mut self, #name_fun_args) -> PyResult<bool> {
-                self.0.set_temporal(&name, (), force).py_termfail_resolve()
+                self.0.set_temporal(&name, (), allow_loss).py_termfail_resolve()
             }
 
             #index_doc
             fn set_temporal_at(&mut self, #index_fun_args) -> PyResult<bool> {
-                self.0.set_temporal_at(index, (), force).py_termfail_resolve()
+                self.0.set_temporal_at(index, (), allow_loss).py_termfail_resolve()
             }
         }
     } else {
@@ -1430,14 +1430,14 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
             #name_doc
             fn set_temporal(&mut self, #name_fun_args) -> PyResult<bool> {
                 self.0
-                    .set_temporal(&name, timestep, force)
+                    .set_temporal(&name, timestep, allow_loss)
                     .py_termfail_resolve()
             }
 
             #index_doc
             fn set_temporal_at(&mut self, #index_fun_args) -> PyResult<bool> {
                 self.0
-                    .set_temporal_at(index, timestep, force)
+                    .set_temporal_at(index, timestep, allow_loss)
                     .py_termfail_resolve()
             }
         }
@@ -1457,11 +1457,11 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
-    let make_doc = |has_timestep: bool, has_force: bool| {
+    let make_doc = |has_timestep: bool, has_allow_loss: bool| {
         let s = "Convert the temporal measurement to an optical measurement.";
-        let p = has_force
+        let p = has_allow_loss
             .then_some(DocArg::new_bool_param(
-                "force",
+                "allow_loss",
                 "If ``True`` and current time measurement has data which cannot \
                  be converted to optical, force the conversion anyways. \
                  Otherwise raise an exception.",
@@ -1505,8 +1505,8 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
         let ret = doc.ret_path();
         quote! {
             #doc
-            fn unset_temporal(&mut self, force: bool) -> PyResult<#ret> {
-                self.0.unset_temporal_lossy(force).py_termfail_resolve()
+            fn unset_temporal(&mut self, allow_loss: bool) -> PyResult<#ret> {
+                self.0.unset_temporal_lossy(allow_loss).py_termfail_resolve()
             }
         }
     };
@@ -1988,20 +1988,20 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
     let ident: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&ident).1;
 
-    let force_param = DocArg::new_bool_param(
-        "force",
+    let allow_loss_param = DocArg::new_bool_param(
+        "allow_loss",
         "If ``True``, do not raise exception if existing temporal measurement \
          cannot be converted to optical measurement.",
     );
 
     // the temporal replacement functions for 3.2 are different because they
     // can fail if $PnTYPE is set
-    let (replace_tmp_at_body, replace_tmp_named_body, force) = if version == Version::FCS3_2 {
-        let go = |fun, x| quote!(self.0.#fun(#x, meas.into(), force).py_termfail_resolve()?);
+    let (replace_tmp_at_body, replace_tmp_named_body, allow_loss) = if version == Version::FCS3_2 {
+        let go = |fun, x| quote!(self.0.#fun(#x, meas.into(), allow_loss).py_termfail_resolve()?);
         (
             go(quote! {replace_temporal_at_lossy}, quote! {index}),
             go(quote! {replace_temporal_named_lossy}, quote! {&name}),
-            Some(force_param),
+            Some(allow_loss_param),
         )
     } else {
         (
@@ -2037,7 +2037,7 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
         DocString::new_method(
             format!("Replace {m} with given temporal measurement."),
             [sub],
-            args.into_iter().chain(force.clone()),
+            args.into_iter().chain(allow_loss.clone()),
             Some(DocReturn::new1(ret, "Replaced measurement object.")),
         )
     };
@@ -2960,7 +2960,7 @@ pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
                 PyType::new_coretext(v)
             };
             let target_pytype = target_type.as_rust_type();
-            let param = DocArg::new_bool_param("force", param_desc);
+            let param = DocArg::new_bool_param("allow_loss", param_desc);
             let doc = DocString::new_method(
                 format!("Convert to FCS {vs}."),
                 [sub],
@@ -2972,8 +2972,8 @@ pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
             );
             quote! {
                 #doc
-                fn #fn_name(&self, force: bool) -> PyResult<#target_pytype> {
-                    self.0.clone().try_convert(force).py_termfail_resolve().map(Into::into)
+                fn #fn_name(&self, allow_loss: bool) -> PyResult<#target_pytype> {
+                    self.0.clone().try_convert(allow_loss).py_termfail_resolve().map(Into::into)
                 }
             }
         })
@@ -5349,7 +5349,7 @@ impl DocArgParam {
 
     fn new_notrunc_param() -> Self {
         Self::new_bool_param(
-            "notrunc",
+            "disallow_trunc",
             "If ``False``, raise exception if ``range`` must be truncated to fit \
              into measurement type.",
         )

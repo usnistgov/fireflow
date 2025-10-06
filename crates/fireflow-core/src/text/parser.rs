@@ -54,7 +54,7 @@ pub trait FromStrDelim: Sized {
     type Err;
     const DELIM: char;
 
-    fn from_iter<'a>(ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err>;
+    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err>;
 
     fn from_str_delim(s: &str, trim_whitespace: bool) -> Result<Self, Self::Err> {
         let it = s.split(Self::DELIM);

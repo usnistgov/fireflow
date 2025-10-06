@@ -705,8 +705,8 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     ///
     /// Return none if name is not present.
     pub(crate) fn replace_named(&mut self, name: &Shortname, value: V) -> Option<Element<U, V>> {
-        self.find_with_name(name)
-            .and_then(|index| self.replace_at(index, value).ok())
+        let index = self.find_with_name(name)?;
+        self.replace_at(index, value).ok()
     }
 
     /// Rename an element at index.

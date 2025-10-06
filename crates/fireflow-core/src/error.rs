@@ -1380,7 +1380,8 @@ impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
     where
         F: FnOnce(Self::V) -> DeferredResult<X, Self::W, Self::E>,
     {
-        self.and_then(|x| x.and_maybe(f))
+        let x = self?;
+        x.and_maybe(f)
     }
 
     fn def_and_then<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>

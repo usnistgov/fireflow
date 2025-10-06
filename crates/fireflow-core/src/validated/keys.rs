@@ -372,22 +372,19 @@ impl FromStr for StdKey {
     type Err = StdKeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.parse::<KeyString>()
-            .map_err(StdKeyError::Ascii)
-            .and_then(|ks| {
-                // ASSUME this will not fail because we know the string is
-                // non-empty
-                let (y, ys) = ks.as_ref().as_bytes().split_first().unwrap();
-                if ys.is_empty() {
-                    Err(StdKeyError::Empty)
-                } else if *y != STD_PREFIX {
-                    Err(StdKeyError::Prefix(ks))
-                } else {
-                    // ASSUME this will not fail because we know the string has
-                    // only ASCII bytes
-                    Ok(Self(KeyString::from_bytes(ys)))
-                }
-            })
+        let ks = s.parse::<KeyString>().map_err(StdKeyError::Ascii)?;
+        // ASSUME this will not fail because we know the string is
+        // non-empty
+        let (y, ys) = ks.as_ref().as_bytes().split_first().unwrap();
+        if ys.is_empty() {
+            Err(StdKeyError::Empty)
+        } else if *y != STD_PREFIX {
+            Err(StdKeyError::Prefix(ks))
+        } else {
+            // ASSUME this will not fail because we know the string has
+            // only ASCII bytes
+            Ok(Self(KeyString::from_bytes(ys)))
+        }
     }
 }
 
@@ -395,15 +392,12 @@ impl FromStr for NonStdKey {
     type Err = NonStdKeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.parse::<KeyString>()
-            .map_err(NonStdKeyError::Ascii)
-            .and_then(|ks| {
-                if has_no_std_prefix(ks.as_ref().as_bytes()) {
-                    Ok(Self::new(ks.to_string()))
-                } else {
-                    Err(NonStdKeyError::Prefix(ks))
-                }
-            })
+        let ks = s.parse::<KeyString>().map_err(NonStdKeyError::Ascii)?;
+        if has_no_std_prefix(ks.as_ref().as_bytes()) {
+            Ok(Self::new(ks.to_string()))
+        } else {
+            Err(NonStdKeyError::Prefix(ks))
+        }
     }
 }
 

@@ -236,37 +236,34 @@ impl Header {
         C: AsRef<HeaderConfigInner>,
         R: Read,
     {
-        h_read_required_header(h, st).and_then(|(version, text, data, analysis)| {
-            [
-                text.inner.try_coords(),
-                data.inner.try_coords(),
-                analysis.inner.try_coords(),
-            ]
-            .iter()
-            .flatten()
-            .map(|(x, _)| x)
-            .min()
-            .map_or(Ok(vec![]), |earliest_begin| {
-                h_read_other_segments(h, *earliest_begin, st)
-            })
-            .map(|other| Self {
-                version,
-                segments: HeaderSegments {
-                    text,
-                    data,
-                    analysis,
-                    other,
-                },
-            })
-            .and_then(|hdr| {
-                hdr.segments
-                    .validate()
-                    .mult_map_errors(Box::new)
-                    .mult_map_errors(HeaderError::Validation)
-                    .mult_map_errors(ImpureError::Pure)?;
-                Ok(hdr)
-            })
+        let (version, text, data, analysis) = h_read_required_header(h, st)?;
+        let hdr = [
+            text.inner.try_coords(),
+            data.inner.try_coords(),
+            analysis.inner.try_coords(),
+        ]
+        .iter()
+        .flatten()
+        .map(|(x, _)| x)
+        .min()
+        .map_or(Ok(vec![]), |earliest_begin| {
+            h_read_other_segments(h, *earliest_begin, st)
         })
+        .map(|other| Self {
+            version,
+            segments: HeaderSegments {
+                text,
+                data,
+                analysis,
+                other,
+            },
+        })?;
+        hdr.segments
+            .validate()
+            .mult_map_errors(Box::new)
+            .mult_map_errors(HeaderError::Validation)
+            .mult_map_errors(ImpureError::Pure)?;
+        Ok(hdr)
     }
 }
 

@@ -250,9 +250,8 @@ impl FromStr for UintSpacePad8 {
     type Err = ParseUint8DigitError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.parse::<u64>()
-            .map_err(ParseUint8DigitError::Int)
-            .and_then(|x| x.try_into().map_err(ParseUint8DigitError::Overflow))
+        let x = s.parse::<u64>().map_err(ParseUint8DigitError::Int)?;
+        x.try_into().map_err(ParseUint8DigitError::Overflow)
     }
 }
 

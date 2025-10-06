@@ -804,10 +804,8 @@ pub struct ReadState<C> {
 
 impl<C> ReadState<C> {
     pub(crate) fn open(p: &PathBuf, conf: C) -> io::Result<(Self, File)> {
-        File::options()
-            .read(true)
-            .open(p)
-            .and_then(|file| Self::init(&file, conf).map(|st| (st, file)))
+        let file = File::options().read(true).open(p)?;
+        Self::init(&file, conf).map(|st| (st, file))
     }
 
     pub(crate) fn init(f: &File, conf: C) -> io::Result<Self> {

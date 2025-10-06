@@ -195,11 +195,8 @@ where
         kws: &StdKeywords,
         conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> MultiResult<TEXTSegment<Self>, ReqSegmentError> {
-        Self::get_pair(kws)
-            .map_err(|es| es.map(Into::into))
-            .and_then(|(y0, y1)| {
-                SpecificSegment::try_new(y0, y1, conf).into_mult::<ReqSegmentError>()
-            })
+        let (y0, y1) = Self::get_pair(kws).map_err(|es| es.map(Into::into))?;
+        SpecificSegment::try_new(y0, y1, conf).into_mult()
     }
 
     fn remove_or(
@@ -236,11 +233,8 @@ where
         kws: &mut StdKeywords,
         conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> MultiResult<TEXTSegment<Self>, ReqSegmentError> {
-        Self::remove_pair(kws)
-            .map_err(|es| es.map(Into::into))
-            .and_then(|(y0, y1)| {
-                SpecificSegment::try_new(y0, y1, conf).into_mult::<ReqSegmentError>()
-            })
+        let (y0, y1) = Self::remove_pair(kws).map_err(|es| es.map(Into::into))?;
+        SpecificSegment::try_new(y0, y1, conf).into_mult()
     }
 
     fn default_or(
@@ -686,12 +680,8 @@ impl<I: Copy> HeaderSegment<I> {
 
         let begin_res = parse_one(bs0, true);
         let end_res = parse_one(bs1, false);
-        begin_res
-            .zip(end_res)
-            .mult_errors_into()
-            .and_then(|(begin, end)| {
-                SpecificSegment::try_new_squish(begin, end, squish_offsets, conf).into_mult()
-            })
+        let (begin, end) = begin_res.zip(end_res).mult_errors_into()?;
+        SpecificSegment::try_new_squish(begin, end, squish_offsets, conf).into_mult()
     }
 
     pub(crate) fn unless(
@@ -753,10 +743,8 @@ impl OtherSegment20 {
 
         let begin_res = parse_one(bs0, true);
         let end_res = parse_one(bs1, false);
-        begin_res
-            .zip(end_res)
-            .mult_errors_into()
-            .and_then(|(begin, end)| SpecificSegment::try_new(begin, end, conf).into_mult())
+        let (begin, end) = begin_res.zip(end_res).mult_errors_into()?;
+        SpecificSegment::try_new(begin, end, conf).into_mult()
     }
 }
 

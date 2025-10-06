@@ -543,11 +543,9 @@ pub(crate) fn lookup_temporal_gain_3_0(
         Tentative::default()
     } else {
         let go = |gain: &MaybeValue<Gain>| {
-            if gain.0.is_some_and(|g| !g.0.is_one()) {
-                Some(TemporalGainError(i))
-            } else {
-                None
-            }
+            gain.0
+                .is_some_and(|g| !g.0.is_one())
+                .then_some(TemporalGainError(i))
         };
         let mut tnt_gain = Gain::lookup_opt(kws, i, conf);
         if conf.allow_optional_dropping {
@@ -779,11 +777,7 @@ pub(crate) fn eval_dep_maybe<T>(x: &mut LookupOptional<T>, key: StdKey, disallow
 }
 
 fn eval_dep<T>(v: &MaybeValue<T>, key: StdKey) -> Option<DeprecatedError> {
-    if v.0.is_some() {
-        Some(DeprecatedError::Key(DepKeyWarning(key)))
-    } else {
-        None
-    }
+    v.0.is_some().then_some(DepKeyWarning(key).into())
 }
 
 #[derive(Clone, new, PartialEq)]

@@ -2148,7 +2148,7 @@ where
             xs: impl Iterator<Item = (String, String)>,
             exclude: bool,
         ) -> impl Iterator<Item = (String, String)> {
-            if exclude { None } else { Some(xs) }.into_iter().flatten()
+            (!exclude).then_some(xs).into_iter().flatten()
         }
 
         go(self.req_root_keywords(), exclude_req_root)
@@ -3343,11 +3343,7 @@ where
     }
 
     fn opt_meas_keywords(&self) -> impl Iterator<Item = (String, String)> {
-        let ns = if M::Name::INFALLABLE {
-            None
-        } else {
-            Some(self.shortname_keywords())
-        };
+        let ns = (!M::Name::INFALLABLE).then(|| self.shortname_keywords());
         let lv = self.layout.opt_meas_keywords();
         self.measurements
             .iter_with(
@@ -3364,11 +3360,7 @@ where
     }
 
     fn req_meas_keywords(&self) -> impl Iterator<Item = (String, String)> {
-        let ns = if M::Name::INFALLABLE {
-            Some(self.shortname_keywords())
-        } else {
-            None
-        };
+        let ns = M::Name::INFALLABLE.then(|| self.shortname_keywords());
         let lv = self.layout.req_meas_keywords();
         self.measurements
             .iter_with(
@@ -7629,7 +7621,7 @@ impl Temporal2_0 {
         nonstandard_keywords: NonStdKeywords,
     ) -> Self {
         let common = CommonMeasurement::new(longname, nonstandard_keywords);
-        let scale = if has_scale { Some(TemporalScale) } else { None };
+        let scale = has_scale.then_some(TemporalScale);
         let specific = InnerTemporal2_0::new(scale, PeakData::new(bin, size));
         Self::new(common, specific)
     }
@@ -7679,7 +7671,7 @@ impl Temporal3_2 {
         nonstandard_keywords: NonStdKeywords,
     ) -> Self {
         let common = CommonMeasurement::new(longname, nonstandard_keywords);
-        let meas_type = if has_type { Some(TemporalType) } else { None };
+        let meas_type = has_type.then_some(TemporalType);
         let specific = InnerTemporal3_2::new(timestep, display, meas_type);
         Self::new(common, specific)
     }

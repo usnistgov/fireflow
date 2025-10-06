@@ -75,11 +75,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
     {
         let b = self.bitmask;
         let trunc = value > b;
-        let e = if trunc {
-            Some(BitmaskLossError(u64::from(b)))
-        } else {
-            None
-        };
+        let e = trunc.then(|| BitmaskLossError(u64::from(b)));
         (e, b.min(value))
     }
 
@@ -92,14 +88,10 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
         u64: From<T>,
     {
         let (bitmask, truncated) = Bitmask::from_native(value);
-        let error = if truncated {
-            Some(BitmaskTruncationError {
-                bytes: Self::bits(),
-                value: u64::from(value),
-            })
-        } else {
-            None
-        };
+        let error = truncated.then(|| BitmaskTruncationError {
+            bytes: Self::bits(),
+            value: u64::from(value),
+        });
         BiTentative::new_either1(bitmask, error, notrunc)
     }
 

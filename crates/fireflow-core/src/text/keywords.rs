@@ -322,11 +322,8 @@ impl AlphaNumType {
 }
 
 fn check_datatype_ascii(datatype: AlphaNumType) -> Option<LookupKeysWarning> {
-    if datatype == AlphaNumType::Ascii {
-        Some(DeprecatedError::Value(DepValueWarning::DatatypeASCII).into())
-    } else {
-        None
-    }
+    (datatype == AlphaNumType::Ascii)
+        .then(|| DeprecatedError::Value(DepValueWarning::DatatypeASCII).into())
 }
 
 impl FromStr for AlphaNumType {

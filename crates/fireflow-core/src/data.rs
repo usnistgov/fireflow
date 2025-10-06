@@ -1761,11 +1761,7 @@ where
     type Error = BitmaskLossError;
 
     fn check_other_loss(&self, x: T) -> Option<Self::Error> {
-        if x > self.bitmask() {
-            Some(BitmaskLossError(u64::from(self.bitmask())))
-        } else {
-            None
-        }
+        (x > self.bitmask()).then(|| BitmaskLossError(u64::from(self.bitmask())))
     }
 }
 
@@ -1787,11 +1783,7 @@ impl ToNativeWriter for AsciiRange {
     where
         u64: From<Self::Native>,
     {
-        if Chars::from_u64(x) > self.chars() {
-            Some(AsciiLossError(self.chars()))
-        } else {
-            None
-        }
+        (Chars::from_u64(x) > self.chars()).then(|| AsciiLossError(self.chars()))
     }
 }
 
@@ -2878,15 +2870,11 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         } else {
             let total_events = n / w;
             let remainder = n % w;
-            let e = if remainder > 0 {
-                Some(UnevenEventWidth::Remainder {
-                    event_width: w,
-                    nbytes: n,
-                    remainder,
-                })
-            } else {
-                None
-            };
+            let e = (remainder > 0).then_some(UnevenEventWidth::Remainder {
+                event_width: w,
+                nbytes: n,
+                remainder,
+            });
             (Some(total_events), e)
         };
         let mut tnt = Tentative::new1(t);

@@ -1149,11 +1149,8 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
-    let write_2_0_warning = if version == Version::FCS2_0 {
-        Some("Will raise exception if file cannot fit within 99,999,999 bytes.")
-    } else {
-        None
-    };
+    let write_2_0_warning = (version == Version::FCS2_0)
+        .then_some("Will raise exception if file cannot fit within 99,999,999 bytes.");
 
     let doc = DocString::new_method(
         "Write data to path.",
@@ -1189,11 +1186,8 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
-    let write_2_0_warning = if version == Version::FCS2_0 {
-        Some("Will raise exception if file cannot fit within 99,999,999 bytes.")
-    } else {
-        None
-    };
+    let write_2_0_warning = (version == Version::FCS2_0)
+        .then_some("Will raise exception if file cannot fit within 99,999,999 bytes.");
 
     let doc = DocString::new_method(
         "Write data as an FCS file.",
@@ -1386,15 +1380,11 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
         } else {
             ("name", name)
         };
-        let timestep = if has_timestep {
-            Some(DocArg::new_param(
-                "timestep",
-                PyType::new_timestep(),
-                "The value of *$TIMESTEP* to use.",
-            ))
-        } else {
-            None
-        };
+        let timestep = has_timestep.then_some(DocArg::new_param(
+            "timestep",
+            PyType::new_timestep(),
+            "The value of *$TIMESTEP* to use.",
+        ));
         let force = DocArg::new_bool_param(
             "force",
             "If ``True`` remove any optical-specific metadata (detectors, \
@@ -1469,17 +1459,14 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
 
     let make_doc = |has_timestep: bool, has_force: bool| {
         let s = "Convert the temporal measurement to an optical measurement.";
-        let p = if has_force {
-            Some(DocArg::new_bool_param(
+        let p = has_force
+            .then_some(DocArg::new_bool_param(
                 "force",
                 "If ``True`` and current time measurement has data which cannot \
                  be converted to optical, force the conversion anyways. \
                  Otherwise raise an exception.",
             ))
-        } else {
-            None
-        }
-        .into_iter();
+            .into_iter();
         let (rt, rd) = if has_timestep {
             (
                 PyOpt::new(PyType::new_timestep()).into(),
@@ -1762,11 +1749,7 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
             (PyType::new_temporal(version), "temporal")
         };
         let param_meas = DocArg::new_param("meas", meas_type, "The measurement to push.");
-        let col_param = if hasdata {
-            Some(DocArg::new_col_param())
-        } else {
-            None
-        };
+        let col_param = hasdata.then_some(DocArg::new_col_param());
         let ps = [
             DocArg::new_name_param("Name of new measurement."),
             param_meas,
@@ -1890,11 +1873,7 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
             (PyType::new_temporal(version), "temporal")
         };
         let param_meas = DocArg::new_param("meas", meas_type.clone(), "The measurement to insert.");
-        let col_param = if hasdata {
-            Some(DocArg::new_col_param())
-        } else {
-            None
-        };
+        let col_param = hasdata.then_some(DocArg::new_col_param());
         let summary = format!("Insert {what} measurement at position in measurement vector.");
         let ps = [
             DocArg::new_index_param("Position at which to insert new measurement."),
@@ -2904,14 +2883,10 @@ where
     let base_pytype: PyType = f(keyword_path(kw)).into();
 
     let doc_summary = format!("Value of {kw_doc} for all measurements.");
-    let doc_middle = if optical_only {
-        Some(format!(
-            "``()`` will be returned for time since {kw_doc} is not \
-             defined for temporal measurements."
-        ))
-    } else {
-        None
-    };
+    let doc_middle = optical_only.then_some(format!(
+        "``()`` will be returned for time since {kw_doc} is not \
+         defined for temporal measurements."
+    ));
 
     let inner_pytype = PyOpt::wrap_if(base_pytype, is_optional);
 
@@ -5008,11 +4983,8 @@ impl DocArgRWIvar {
         let vsu = collapsed_version.short_underscore();
         let rstype_inner = format_ident!("AppliedGates{vsu}");
         let rstype = format_ident!("Py{rstype_inner}");
-        let gm_pytype = if collapsed_version < Version::FCS3_2 {
-            Some(PyList::new(PyClass::new_py([""; 0], "GatedMeasurement")).into())
-        } else {
-            None
-        };
+        let gm_pytype = (collapsed_version < Version::FCS3_2)
+            .then(|| PyList::new(PyClass::new_py([""; 0], "GatedMeasurement")).into());
         let ur_pytype = PyClass::new1(format!("UnivariateRegion{vsu}"));
         let bv_pytype = PyClass::new1(format!("BivariateRegion{vsu}"));
         let reg_rstype = format_ident!("PyRegion{vsu}");
@@ -5277,11 +5249,7 @@ impl DocArgParam {
             "analysis_seg",
             PyType::new_analysis_segment(src),
             format!("The *DATA* segment from {src}."),
-            if default {
-                Some(DocDefault::Auto)
-            } else {
-                None
-            },
+            default.then_some(DocDefault::Auto),
             NoMethods,
         )
     }
@@ -5291,11 +5259,7 @@ impl DocArgParam {
             "other_segs",
             PyList::new(PyType::new_other_segment()),
             "The *OTHER* segments from *HEADER*.",
-            if default {
-                Some(DocDefault::Auto)
-            } else {
-                None
-            },
+            default.then_some(DocDefault::Auto),
             NoMethods,
         )
     }
@@ -5409,11 +5373,7 @@ impl DocArgParam {
             "analysis",
             PyType::new_analysis(),
             "Contents of the *ANALYSIS* segment.",
-            if default {
-                Some(DocDefault::Auto)
-            } else {
-                None
-            },
+            default.then_some(DocDefault::Auto),
             NoMethods,
         )
     }
@@ -5423,11 +5383,7 @@ impl DocArgParam {
             "others",
             PyType::new_others(),
             "A list of byte strings encoding the *OTHER* segments.",
-            if default {
-                Some(DocDefault::Auto)
-            } else {
-                None
-            },
+            default.then_some(DocDefault::Auto),
             NoMethods,
         )
     }

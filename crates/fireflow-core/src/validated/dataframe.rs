@@ -422,11 +422,7 @@ pub(crate) struct CastResult<T> {
 
 impl<T> CastResult<T> {
     fn new<FromT>(new: T, has_loss: bool) -> Self {
-        let lossy = if has_loss {
-            Some(type_name::<FromT>())
-        } else {
-            None
-        };
+        let lossy = has_loss.then_some(type_name::<FromT>());
         Self { new, lossy }
     }
 

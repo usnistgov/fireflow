@@ -1741,7 +1741,7 @@ impl<U, V> Element<U, V> {
         U1: From<U>,
         V1: From<V>,
     {
-        self.bimap(|y| y.into(), |y| y.into())
+        self.bimap(Into::into, Into::into)
     }
 
     pub fn unzip<K: MightHave>(e: EitherPair<K, U, V>) -> (K::Wrapper<Shortname>, Self) {

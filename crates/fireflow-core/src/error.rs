@@ -141,7 +141,7 @@ pub(crate) trait ErrorIter<T, E>: Iterator<Item = Result<T, E>> + Sized {
             }
         }
         if let Some(h) = error_head {
-            let tail = self.filter_map(|x| x.err()).collect();
+            let tail = self.filter_map(Result::err).collect();
             Err((h, tail).into())
         } else {
             Ok(pass)
@@ -157,7 +157,7 @@ impl<V, W> Terminal<V, W> {
     }
 
     pub fn value_into<U: From<V>>(self) -> Terminal<U, W> {
-        self.map(|v| v.into())
+        self.map(Into::into)
     }
 
     pub fn map<F: FnOnce(V) -> X, X>(self, f: F) -> Terminal<X, W> {
@@ -169,7 +169,7 @@ impl<V, W> Terminal<V, W> {
     }
 
     pub fn warnings_into<X: From<W>>(self) -> Terminal<V, X> {
-        self.warnings_map(|w| w.into())
+        self.warnings_map(Into::into)
     }
 
     pub fn and_finally<E, T, F, X>(mut self, f: F) -> TerminalResult<X, W, E, T>
@@ -281,21 +281,21 @@ impl<W, E, T> TerminalFailure<W, E, T> {
     // where
     //     X: From<W>,
     // {
-    //     self.map_warnings(|w| w.into())
+    //     self.map_warnings(Into::into)
     // }
 
     // pub fn errors_into<X>(self) -> TerminalFailure<W, X, T>
     // where
     //     X: From<E>,
     // {
-    //     self.map_errors(|e| e.into())
+    //     self.map_errors(Into::into)
     // }
 
     // pub fn value_into<X>(self) -> TerminalFailure<W, E, X>
     // where
     //     X: From<T>,
     // {
-    //     self.map_reason(|e| e.into())
+    //     self.map_reason(Into::into)
     // }
 
     fn warnings_to_errors<F>(mut self, f: F) -> Self
@@ -326,9 +326,9 @@ impl<V, W, E> Tentative<V, W, E> {
         W: From<M>,
     {
         if are_errors {
-            Self::new(value, [], msgs.into_iter().map(|m| m.into()))
+            Self::new(value, [], msgs.into_iter().map(Into::into))
         } else {
-            Self::new(value, msgs.into_iter().map(|m| m.into()), [])
+            Self::new(value, msgs.into_iter().map(Into::into), [])
         }
     }
 
@@ -367,11 +367,11 @@ impl<V, W, E> Tentative<V, W, E> {
     }
 
     pub fn extend_warnings(&mut self, xs: impl Iterator<Item = impl Into<W>>) {
-        self.warnings.extend(xs.map(|x| x.into()));
+        self.warnings.extend(xs.map(Into::into));
     }
 
     pub fn extend_errors(&mut self, xs: impl Iterator<Item = impl Into<E>>) {
-        self.errors.extend(xs.map(|x| x.into()));
+        self.errors.extend(xs.map(Into::into));
     }
 
     pub fn and_finally<F, X, T>(mut self, mut f: F) -> TerminalResult<X, W, E, T>
@@ -449,7 +449,7 @@ impl<V, W, E> Tentative<V, W, E> {
         I: IntoIterator<Item = X>,
     {
         self.errors
-            .extend(f(&self.value).into_iter().map(|x| x.into()));
+            .extend(f(&self.value).into_iter().map(Into::into));
     }
 
     pub fn map<F: FnOnce(V) -> X, X>(self, f: F) -> Tentative<X, W, E> {
@@ -465,15 +465,15 @@ impl<V, W, E> Tentative<V, W, E> {
     }
 
     pub fn value_into<X: From<V>>(self) -> Tentative<X, W, E> {
-        self.map(|v| v.into())
+        self.map(Into::into)
     }
 
     pub fn warnings_into<X: From<W>>(self) -> Tentative<V, X, E> {
-        self.map_warnings(|w| w.into())
+        self.map_warnings(Into::into)
     }
 
     pub fn errors_into<X: From<E>>(self) -> Tentative<V, W, X> {
-        self.map_errors(|e| e.into())
+        self.map_errors(Into::into)
     }
 
     pub fn inner_into<X: From<W>, Y: From<E>>(self) -> Tentative<V, X, Y> {
@@ -712,14 +712,14 @@ impl<P, W, E> DeferredFailure<P, W, E> {
     where
         X: From<W>,
     {
-        self.map_warnings(|w| w.into())
+        self.map_warnings(Into::into)
     }
 
     pub fn errors_into<X>(self) -> DeferredFailure<P, W, X>
     where
         X: From<E>,
     {
-        self.map_errors(|e| e.into())
+        self.map_errors(Into::into)
     }
 
     pub fn unfail(self) -> Tentative<P, W, E> {
@@ -881,7 +881,7 @@ impl<T> Leveled<T> {
     where
         X: From<T>,
     {
-        self.map(|x| x.into())
+        self.map(Into::into)
     }
 
     pub fn map<F, X>(self, f: F) -> Leveled<X>
@@ -939,7 +939,7 @@ pub trait ResultExt: Sized {
         Self::V: Default,
     {
         self.into_tentative_opt(is_error)
-            .map(|x| x.unwrap_or_default())
+            .map(Option::unwrap_or_default)
     }
 
     fn into_tentative_warn_def<X>(self) -> Tentative<Self::V, Self::E, X>
@@ -947,14 +947,14 @@ pub trait ResultExt: Sized {
         Self::V: Default,
     {
         self.into_tentative_warn_opt()
-            .map(|x| x.unwrap_or_default())
+            .map(Option::unwrap_or_default)
     }
 
     fn into_tentative_err_def<X>(self) -> Tentative<Self::V, X, Self::E>
     where
         Self::V: Default,
     {
-        self.into_tentative_err_opt().map(|x| x.unwrap_or_default())
+        self.into_tentative_err_opt().map(Option::unwrap_or_default)
     }
 
     fn into_tentative_opt(self, is_error: bool) -> Tentative<Option<Self::V>, Self::E, Self::E>;
@@ -1062,7 +1062,7 @@ pub trait MultiResultExt: Sized {
     where
         ToE: From<Self::E>,
     {
-        self.mult_map_errors(|e| e.into())
+        self.mult_map_errors(Into::into)
     }
 
     fn mult_map_errors<F, X>(self, f: F) -> MultiResult<Self::V, X>
@@ -1126,7 +1126,7 @@ pub trait PassthruExt: Sized {
     where
         ToV: From<Self::V>,
     {
-        self.def_map_value(|x| x.into())
+        self.def_map_value(Into::into)
     }
 
     fn def_inner_into<ToW, ToE>(self) -> PassthruResult<Self::V, Self::P, ToW, ToE>
@@ -1141,7 +1141,7 @@ pub trait PassthruExt: Sized {
     where
         ToE: From<Self::E>,
     {
-        self.def_map_errors(|e| e.into())
+        self.def_map_errors(Into::into)
     }
 
     fn def_errors_liftio(self) -> PassthruResult<Self::V, Self::P, Self::W, ImpureError<Self::E>> {
@@ -1152,7 +1152,7 @@ pub trait PassthruExt: Sized {
     where
         ToW: From<Self::W>,
     {
-        self.def_map_warnings(|w| w.into())
+        self.def_map_warnings(Into::into)
     }
 
     fn def_map_value<F, X>(self, f: F) -> PassthruResult<X, Self::P, Self::W, Self::E>
@@ -1274,7 +1274,7 @@ impl<V, P, W, E> PassthruExt for PassthruResult<V, P, W, E> {
     }
 
     fn def_void_passthru(self) -> DeferredResult<Self::V, Self::W, Self::E> {
-        self.map_err(|e| e.void())
+        self.map_err(DeferredFailure::void)
     }
 }
 
@@ -1288,17 +1288,13 @@ impl<V> InfalliblePassthruExt for PassthruResult<V, (), Infallible, Infallible> 
     type V = V;
 
     fn def_unwrap_infallible(self) -> V {
-        self.map_err(|e| e.unwrap_infallible())
+        self.map_err(DeferredFailure::unwrap_infallible)
             .unwrap()
             .unwrap_infallible()
     }
 }
 
 pub trait DeferredExt: Sized + PassthruExt {
-    // type V;
-    // type E;
-    // type W;
-
     fn def_zip<V1>(
         self,
         a: DeferredResult<V1, Self::W, Self::E>,
@@ -1444,7 +1440,8 @@ where
         ToE: From<Self::InnerE>,
         ToW: From<Self::W>,
     {
-        self.def_map_errors(|e| e.inner_into()).def_warnings_into()
+        self.def_map_errors(ImpureError::inner_into)
+            .def_warnings_into()
     }
 
     fn def_io_push_error_or_warning<X>(&mut self, x: X, is_error: bool)
@@ -1468,7 +1465,7 @@ impl<E> ImpureError<E> {
     where
         F: From<E>,
     {
-        self.map_inner(|e| e.into())
+        self.map_inner(Into::into)
     }
 
     pub fn map_inner<F, X>(self, f: F) -> ImpureError<X>

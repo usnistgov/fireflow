@@ -64,7 +64,7 @@ impl Compensation2_0 {
                 }
             })
             .unzip();
-        let mut tnt = if xs.iter().all(|x| x.is_none()) || xs.is_empty() {
+        let mut tnt = if xs.iter().all(Option::is_none) || xs.is_empty() {
             Tentative::default()
         } else {
             let ys = xs.into_iter().map(|x| x.unwrap_or(0.0));
@@ -162,11 +162,11 @@ impl FromStrDelim for Compensation3_0 {
             let remainder = ss.by_ref().count();
             let total = values.len() + remainder;
             if total == nn {
-                let fvalues: Vec<_> = values
+                if let Ok(fvalues) = values
                     .into_iter()
-                    .filter_map(|x| x.parse::<f32>().ok())
-                    .collect();
-                if fvalues.len() == nn {
+                    .map(str::parse::<f32>)
+                    .collect::<Result<Vec<_>, _>>()
+                {
                     let matrix = DMatrix::from_row_iterator(n, n, fvalues);
                     Ok(Compensation::try_from(matrix).map(Self)?)
                 } else {

@@ -199,7 +199,7 @@ pub enum InsertColumnError {
 
 impl FCSDataFrame {
     pub fn try_new(columns: Vec<AnyFCSColumn>) -> Result<Self, NewDataframeError> {
-        if let Some(nrows) = columns.first().map(|c| c.len()) {
+        if let Some(nrows) = columns.first().map(AnyFCSColumn::len) {
             if columns.iter().all(|c| c.len() == nrows) {
                 Ok(Self { columns, nrows })
             } else {
@@ -326,7 +326,7 @@ impl FCSDataFrame {
             return 0;
         }
         let ndelim = n - 1;
-        let ndigits: u32 = self.iter_columns().map(|c| c.ascii_nbytes()).sum();
+        let ndigits: u32 = self.iter_columns().map(AnyFCSColumn::ascii_nbytes).sum();
         u64::from(ndigits) + ndelim
     }
 

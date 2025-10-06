@@ -485,10 +485,7 @@ pub struct Wavelengths(pub FCSNonEmpty<PositiveFloat>);
 
 impl From<Wavelengths> for Vec<f32> {
     fn from(value: Wavelengths) -> Self {
-        Vec::from((value.0).0)
-            .into_iter()
-            .map(|x| x.into())
-            .collect()
+        Vec::from((value.0).0).into_iter().map(Into::into).collect()
     }
 }
 
@@ -975,11 +972,11 @@ impl FromStr for MeasOrGateIndex {
             match prefix {
                 "P" => rest
                     .parse::<MeasIndex>()
-                    .map(|x| x.into())
+                    .map(Into::into)
                     .map_err(MeasOrGateIndexError::Int),
                 "G" => rest
                     .parse::<GateIndex>()
-                    .map(|x| x.into())
+                    .map(Into::into)
                     .map_err(MeasOrGateIndexError::Int),
                 _ => Err(MeasOrGateIndexError::Format),
             }
@@ -1080,7 +1077,7 @@ impl FromStrDelim for RegionWindow {
     fn from_str_delim(s: &str, trim_whitespace: bool) -> Result<Self, Self::Err> {
         let it = s.split(Self::DELIM);
         if trim_whitespace {
-            Self::from_iter(it.map(|x| x.trim()))
+            Self::from_iter(it.map(str::trim))
         } else {
             Self::from_iter_inner(
                 it,

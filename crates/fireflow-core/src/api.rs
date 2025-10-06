@@ -581,7 +581,7 @@ impl RawTEXTOutput {
                 if let Some(v) = conf.version_override {
                     header.version = v;
                 }
-                h_read_raw_text_from_header(h, header, st).def_map_errors(|e| e.inner_into())
+                h_read_raw_text_from_header(h, header, st).def_map_errors(ImpureError::inner_into)
             })
     }
 
@@ -765,7 +765,7 @@ where
 
         tnt_parse.eval_errors(|v| v.as_non_ascii_errors(conf));
         tnt_parse.eval_errors(|v| v.as_byte_errors(conf));
-        tnt_parse.eval_errors(|v| v.as_overlapping_segment_error());
+        tnt_parse.eval_errors(RawTEXTParseData::as_overlapping_segment_error);
 
         let vkws = ValidKeywords::new(kws.std, kws.nonstd);
 

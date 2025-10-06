@@ -459,7 +459,7 @@ impl AppliedGates3_0 {
             .scheme
             .regions
             .into_iter()
-            .map(|(ri, r)| r.try_map(|i| i.try_into()).map(|x| (ri, x)))
+            .map(|(ri, r)| r.try_map(TryInto::try_into).map(|x| (ri, x)))
             .partition_result();
         let mut res = GatingScheme::try_new(self.scheme.gating, regions)
             .into_deferred()
@@ -481,7 +481,7 @@ impl AppliedGates3_0 {
             .scheme
             .regions
             .into_iter()
-            .map(|(ri, r)| r.try_map(|i| i.try_into()).map(|x| (ri, x)))
+            .map(|(ri, r)| r.try_map(TryInto::try_into).map(|x| (ri, x)))
             .partition_result();
         let mut res = AppliedGates3_2::try_new(self.scheme.gating, regions).into_deferred();
         for e in es {
@@ -755,10 +755,7 @@ impl<I> GatingScheme<I> {
             .chain(self.gating.as_ref().map(OptMetarootKey::root_pair))
     }
 
-    fn inner_into<J>(self) -> GatingScheme<J>
-    where
-        J: From<I>,
-    {
+    fn inner_into<J: From<I>>(self) -> GatingScheme<J> {
         GatingScheme {
             gating: self.gating,
             regions: self
@@ -842,7 +839,7 @@ impl<I> Region<I> {
         n.zip(w)
             .and_tentatively(|(n_, y_)| {
                 n_.0.zip(y_.0)
-                    .and_then(|(gi, win)| Self::try_new(gi, win).map(|x| x.inner_into()))
+                    .and_then(|(gi, win)| Self::try_new(gi, win).map(Region::inner_into))
                     .ok_or(MismatchedIndexAndWindowError)
                     .into_tentative_opt(!conf.allow_optional_dropping)
                     .inner_into()
@@ -895,11 +892,8 @@ impl<I> Region<I> {
         }
     }
 
-    pub(crate) fn inner_into<J>(self) -> Region<J>
-    where
-        J: From<I>,
-    {
-        self.map(|i| i.into())
+    pub(crate) fn inner_into<J: From<I>>(self) -> Region<J> {
+        self.map(Into::into)
     }
 
     pub(crate) fn indices(&self) -> NonEmpty<I>

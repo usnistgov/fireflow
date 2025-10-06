@@ -90,13 +90,14 @@ use regex::Regex;
 use thiserror::Error;
 
 use std::collections::{HashMap, HashSet};
-use std::convert::Infallible;
+use std::convert::{AsRef, Infallible};
 use std::fmt;
 use std::fs::File;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, Write};
 use std::marker::PhantomData;
 use std::path::PathBuf;
+use std::string::ToString;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -392,7 +393,7 @@ impl<A, D, O> AnyCore<A, D, O> {
         if let Some((names, matrix)) = self.spillover_or_comp_table() {
             let header = ["[-]"]
                 .into_iter()
-                .chain(names.iter().map(|n| n.as_ref()))
+                .chain(names.iter().map(AsRef::as_ref))
                 .join(delim);
             println!("{header}");
             for (r, n) in matrix.row_iter().zip(&names[..]) {
@@ -1256,13 +1257,13 @@ pub trait HasCompensation: AsRef<Option<Self::Comp>> {
 
     // set wrapped inner type with common outer type (Compensation)
     fn set_comp(&mut self, comp: Option<Compensation>, _: private::NoTouchy) {
-        *self.comp_mut(private::NoTouchy) = comp.map(|c| c.into());
+        *self.comp_mut(private::NoTouchy) = comp.map(Into::into);
     }
 
     // almost like as_ref, except the reference needs to go on the inside since
     // the newtype wrapper needs to be removed
     fn comp(&self, _: private::NoTouchy) -> Option<&Compensation> {
-        self.as_ref().as_ref().map(|x| x.as_ref())
+        self.as_ref().as_ref().map(AsRef::as_ref)
     }
 
     // private as_mut
@@ -1805,7 +1806,7 @@ impl<O> Optical<O> {
         O: VersionedOptical,
     {
         let na = || "NA".into();
-        [i.to_string(), n.map_or(na(), |x| x.to_string())]
+        [i.to_string(), n.map_or(na(), ToString::to_string)]
             .into_iter()
             .chain(req_layout)
             .chain(
@@ -2606,7 +2607,7 @@ where
             )
             .into_mult()
             .and_then(|rs| {
-                NonEmpty::collect(rs.into_iter().filter_map(|r| r.err()))
+                NonEmpty::collect(rs.into_iter().filter_map(Result::err))
                     .map_or(Ok(()), Err)
                     .mult_errors_into()
             })
@@ -2711,7 +2712,7 @@ where
         X: PartialOrd,
         Metaroot<M>: AsMut<Timestamps<X>>,
     {
-        self.metaroot.as_mut().set_date(date.map(|x| x.into()))
+        self.metaroot.as_mut().set_date(date.map(Into::into))
     }
 
     /// Get $BEGINDATETIME as a [`DateTime<FixedOffset>`]
@@ -2719,7 +2720,7 @@ where
     where
         Metaroot<M>: AsRef<Option<BeginDateTime>>,
     {
-        self.metaroot.as_ref().as_ref().map(|&x| x.into())
+        self.metaroot.as_ref().as_ref().copied().map(Into::into)
     }
 
     /// Get $ENDDATETIME as a [`DateTime<FixedOffset>`]
@@ -2727,7 +2728,7 @@ where
     where
         Metaroot<M>: AsRef<Option<EndDateTime>>,
     {
-        self.metaroot.as_ref().as_ref().map(|&x| x.into())
+        self.metaroot.as_ref().as_ref().copied().map(Into::into)
     }
 
     /// Set $BEGINDATETIME as a [`DateTime<FixedOffset>`]
@@ -2740,7 +2741,7 @@ where
     where
         Metaroot<M>: AsMut<Datetimes>,
     {
-        self.metaroot.as_mut().set_begin(date.map(|x| x.into()))
+        self.metaroot.as_mut().set_begin(date.map(Into::into))
     }
 
     /// Set $ENDDATETIME as a [`DateTime<FixedOffset>`]
@@ -2753,7 +2754,7 @@ where
     where
         Metaroot<M>: AsMut<Datetimes>,
     {
-        self.metaroot.as_mut().set_end(date.map(|x| x.into()))
+        self.metaroot.as_mut().set_end(date.map(Into::into))
     }
 
     /// Get $TIMESTEP value if the time measurement exists.
@@ -3397,7 +3398,7 @@ where
         M::Optical: OpticalFromTemporal<M::Temporal> + Clone,
     {
         let ms = &self.measurements;
-        if let Some(m0) = ms.get(0.into()).ok().and_then(|x| x.non_center()) {
+        if let Some(m0) = ms.get(0.into()).ok().and_then(Element::non_center) {
             let lt = &self.layout;
             let req_layout: Vec<_> = lt
                 .req_meas_keywords()
@@ -3670,7 +3671,7 @@ where
     {
         Self::lookup_inner(kws, conf)
             .def_errors_into()
-            .def_terminate_maybe_warn(CoreTEXTFromKeywordsFailure, conf.as_ref(), |w| w.into())
+            .def_terminate_maybe_warn(CoreTEXTFromKeywordsFailure, conf.as_ref(), Into::into)
     }
 
     fn lookup_inner<C>(
@@ -3963,7 +3964,7 @@ where
                     .layout
                     .h_read_df(h, offsets.tot(), dataset_segs.data, read_conf)
                     .def_warnings_into()
-                    .def_map_errors(|e| e.inner_into());
+                    .def_map_errors(ImpureError::inner_into);
                 let analysis_res = ar.h_read(h).into_deferred();
                 let others_res = or.h_read(h).into_deferred();
                 data_res.def_zip3(analysis_res, others_res).def_map_value(
@@ -4024,7 +4025,7 @@ where
                         others,
                     )
                 }
-                .map_err(|e| e.inner_into())
+                .map_err(ImpureError::inner_into)
                 .map_err(DeferredFailure::new1)?;
 
                 // write DATA; conversion check flag is flipped from above since
@@ -4367,7 +4368,7 @@ where
         &mut self,
         ns: Vec<Option<Shortname>>,
     ) -> Result<NameMapping, SetKeysError> {
-        let ks = ns.into_iter().map(|n| n.into()).collect();
+        let ks = ns.into_iter().map(Into::into).collect();
         let mapping = self.measurements.set_keys(ks)?;
         self.metaroot.rename_meas_links(&mapping);
         Ok(mapping)
@@ -4405,7 +4406,7 @@ impl CoreTEXT2_0 {
     ) -> MultiResult<Self, NewCoreTEXTError> {
         let timestamps = Timestamps::try_new(btim, etim, date).into_mult()?;
         let specific =
-            InnerMetaroot2_0::new(mode, cyt, comp.map(|x| x.into()), timestamps, applied_gates);
+            InnerMetaroot2_0::new(mode, cyt, comp.map(Into::into), timestamps, applied_gates);
         let metaroot = Metaroot::new(
             abrt,
             com,
@@ -4464,7 +4465,7 @@ impl CoreTEXT3_0 {
         let specific = InnerMetaroot3_0::new(
             mode,
             cyt,
-            comp.map(|x| x.into()),
+            comp.map(Into::into),
             timestamps,
             cytsn,
             unicode,
@@ -4692,7 +4693,7 @@ impl SubsetData {
                     .0
                     .as_ref()
                     .into_iter()
-                    .flat_map(|f| f.opt_keywords()),
+                    .flat_map(CSVFlags::opt_keywords),
             )
     }
 
@@ -4731,7 +4732,7 @@ impl CSVFlags {
                     Tentative::default()
                 }
             })
-            .map(|x| x.into())
+            .value_into()
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -4955,7 +4956,7 @@ fn convert_wavelengths(
 ) -> BiTentative<MaybeValue<Wavelength>, WavelengthsLossError> {
     w.0.map(|x| x.into_wavelength(!force))
         .map_or(Tentative::new1(None), |tnt| tnt.map(Some))
-        .map(|x| x.into())
+        .value_into()
 }
 
 impl ConvertFromOptical<InnerOptical3_0> for InnerOptical2_0 {
@@ -5091,15 +5092,7 @@ impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_1 {
             .scale
             .0
             .ok_or(NoScaleError(i))
-            .map(|s| {
-                Self::new(
-                    s,
-                    value.wavelength.map(|x| x.into()),
-                    None,
-                    None,
-                    value.peak,
-                )
-            })
+            .map(|s| Self::new(s, value.wavelength.map(Into::into), None, None, value.peak))
             .into_deferred()
     }
 }
@@ -5112,7 +5105,7 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical3_1 {
     ) -> OpticalConvertResult<Self> {
         Ok(Tentative::new1(Self::new(
             value.scale,
-            value.wavelength.map(|x| x.into()),
+            value.wavelength.map(Into::into),
             None,
             None,
             value.peak,
@@ -5142,7 +5135,7 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_1 {
                 value.scale,
                 value.wavelengths,
                 // TODO warn offset might be lost here
-                value.calibration.map(|x| x.into()),
+                value.calibration.map(Into::into),
                 value.display,
                 PeakData::default(),
             )
@@ -5169,7 +5162,7 @@ impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_2 {
                     .map(|s| {
                         Self::new(
                             s,
-                            value.wavelength.map(|x| x.into()),
+                            value.wavelength.map(Into::into),
                             None,
                             None,
                             None,
@@ -5193,7 +5186,7 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical3_2 {
         let out = value.peak.check_loss(i, !force).inner_into().map(|()| {
             Self::new(
                 value.scale,
-                value.wavelength.map(|x| x.into()),
+                value.wavelength.map(Into::into),
                 None,
                 None,
                 None,
@@ -5217,7 +5210,7 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_2 {
             Self::new(
                 value.scale,
                 value.wavelengths,
-                value.calibration.map(|x| x.into()),
+                value.calibration.map(Into::into),
                 value.display,
                 None,
                 None,
@@ -5532,7 +5525,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
                         value.mode,
                         value.cyt,
                         value.comp.map(|x| x.0.into()),
-                        value.timestamps.map(|d| d.into()),
+                        value.timestamps.map(Into::into),
                         ag,
                     )
                 })
@@ -5563,7 +5556,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
                         value.mode,
                         value.cyt,
                         None,
-                        value.timestamps.map(|d| d.into()),
+                        value.timestamps.map(Into::into),
                         applied_gates,
                     )
                 })
@@ -5591,7 +5584,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
                 Mode::List,
                 Some(value.cyt),
                 None,
-                value.timestamps.map(|x| x.into()),
+                value.timestamps.map(Into::into),
                 AppliedGates2_0::default(),
             )
         });
@@ -5608,7 +5601,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_0 {
             value.mode,
             value.cyt,
             value.comp.map(|x| x.0.into()),
-            value.timestamps.map(|d| d.into()),
+            value.timestamps.map(Into::into),
             None,
             None,
             SubsetData::default(),
@@ -5630,7 +5623,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_0 {
                 value.mode,
                 value.cyt,
                 None,
-                value.timestamps.map(|d| d.into()),
+                value.timestamps.map(Into::into),
                 value.cytsn,
                 None,
                 SubsetData::default(),
@@ -5658,7 +5651,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
                 Mode::List,
                 Some(value.cyt),
                 None,
-                value.timestamps.map(|x| x.into()),
+                value.timestamps.map(Into::into),
                 value.cytsn,
                 None,
                 SubsetData::default(),
@@ -5677,7 +5670,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_1 {
         let mut out = Tentative::new1(Self::new(
             value.mode,
             value.cyt,
-            value.timestamps.map(|d| d.into()),
+            value.timestamps.map(Into::into),
             None,
             None,
             ModificationData::default(),
@@ -5704,7 +5697,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_1 {
             Self::new(
                 value.mode,
                 value.cyt,
-                value.timestamps.map(|d| d.into()),
+                value.timestamps.map(Into::into),
                 value.cytsn,
                 None,
                 ModificationData::default(),
@@ -5762,7 +5755,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
                     .map(|mode| {
                         Self::new(
                             mode,
-                            value.timestamps.map(|d| d.into()),
+                            value.timestamps.map(Into::into),
                             Datetimes::default(),
                             cyt,
                             None,
@@ -5814,7 +5807,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
                                 .map(|mode| {
                                     Self::new(
                                         mode,
-                                        value.timestamps.map(|d| d.into()),
+                                        value.timestamps.map(Into::into),
                                         Datetimes::default(),
                                         cyt,
                                         None,
@@ -6155,13 +6148,13 @@ impl ConvertFromLayout<DataLayout3_0> for DataLayout2_0 {
 
 impl ConvertFromLayout<DataLayout3_1> for DataLayout2_0 {
     fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
-        value.into_ordered().map(|x| x.into())
+        value.into_ordered().map(Into::into)
     }
 }
 
 impl ConvertFromLayout<DataLayout3_2> for DataLayout2_0 {
     fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
-        value.into_ordered().map(|x| x.into())
+        value.into_ordered().map(Into::into)
     }
 }
 
@@ -6173,13 +6166,13 @@ impl ConvertFromLayout<DataLayout2_0> for DataLayout3_0 {
 
 impl ConvertFromLayout<DataLayout3_1> for DataLayout3_0 {
     fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
-        value.into_ordered().map(|x| x.into())
+        value.into_ordered().map(Into::into)
     }
 }
 
 impl ConvertFromLayout<DataLayout3_2> for DataLayout3_0 {
     fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
-        value.into_ordered().map(|x| x.into())
+        value.into_ordered().map(Into::into)
     }
 }
 
@@ -6260,7 +6253,7 @@ impl Versioned for Version3_2 {
 
 impl AsScaleTransform for InnerOptical2_0 {
     fn as_transform(&self) -> ScaleTransform {
-        self.scale.0.map(|s| s.into()).unwrap_or_default()
+        self.scale.0.map(Into::into).unwrap_or_default()
     }
 }
 
@@ -7318,7 +7311,11 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
             .filter_map(|(k, v)| v.map(|x| (k, x)))
             .chain(self.applied_gates.opt_keywords())
             .chain(self.timestamps.opt_keywords())
-            .chain(self.comp.as_ref_opt().map_or(vec![], |c| c.opt_keywords()))
+            .chain(
+                self.comp
+                    .as_ref_opt()
+                    .map_or(vec![], Compensation2_0::opt_keywords),
+            )
     }
 
     fn swap_optical_temporal_inner(

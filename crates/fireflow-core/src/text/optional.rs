@@ -9,6 +9,7 @@ use std::convert::Infallible;
 use std::fmt;
 use std::marker::PhantomData;
 use std::mem;
+use std::string::ToString;
 use thiserror::Error;
 
 #[cfg(feature = "serde")]
@@ -254,14 +255,17 @@ impl<V> MaybeValue<V> {
     where
         V: fmt::Display,
     {
-        self.0.as_ref().map(|x| x.to_string())
+        self.0.as_ref().map(ToString::to_string)
     }
 
     pub(crate) fn root_kw_pair(&self) -> (String, Option<String>)
     where
         V: Key + fmt::Display,
     {
-        (V::std().to_string(), self.0.as_ref().map(|s| s.to_string()))
+        (
+            V::std().to_string(),
+            self.0.as_ref().map(ToString::to_string),
+        )
     }
 
     pub(crate) fn meas_kw_triple(
@@ -274,7 +278,7 @@ impl<V> MaybeValue<V> {
         (
             V::std_blank(),
             V::std(i).to_string(),
-            self.0.as_ref().map(|s| s.to_string()),
+            self.0.as_ref().map(ToString::to_string),
         )
     }
 
@@ -284,14 +288,14 @@ impl<V> MaybeValue<V> {
     {
         (
             V::std(i).to_string(),
-            self.0.as_ref().map(|s| s.to_string()),
+            self.0.as_ref().map(ToString::to_string),
         )
     }
 }
 
 impl<V, E> MaybeValue<Result<V, E>> {
     pub fn transpose(self) -> Result<MaybeValue<V>, E> {
-        self.0.transpose().map(|x| x.into())
+        self.0.transpose().map(Into::into)
     }
 }
 

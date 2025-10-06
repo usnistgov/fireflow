@@ -196,7 +196,7 @@ where
         conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> MultiResult<TEXTSegment<Self>, ReqSegmentError> {
         Self::get_pair(kws)
-            .map_err(|es| es.map(|e| e.into()))
+            .map_err(|es| es.map(Into::into))
             .and_then(|(y0, y1)| {
                 SpecificSegment::try_new(y0, y1, conf).into_mult::<ReqSegmentError>()
             })
@@ -237,7 +237,7 @@ where
         conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> MultiResult<TEXTSegment<Self>, ReqSegmentError> {
         Self::remove_pair(kws)
-            .map_err(|es| es.map(|e| e.into()))
+            .map_err(|es| es.map(Into::into))
             .and_then(|(y0, y1)| {
                 SpecificSegment::try_new(y0, y1, conf).into_mult::<ReqSegmentError>()
             })
@@ -324,7 +324,7 @@ where
         conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> Tentative<Option<TEXTSegment<Self>>, OptSegmentError, E> {
         Self::get_pair(kws)
-            .map_err(|es| es.map(|e| e.into()))
+            .map_err(|es| es.map(Into::into))
             .and_then(|x| {
                 x.map(|(z0, z1)| SpecificSegment::try_new(z0, z1, conf).into_mult())
                     .transpose()
@@ -356,7 +356,7 @@ where
         conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> Tentative<Option<TEXTSegment<Self>>, OptSegmentError, E> {
         Self::remove_pair(kws)
-            .map_err(|es| es.map(|e| e.into()))
+            .map_err(|es| es.map(Into::into))
             .and_then(|x| {
                 x.map(|(z0, z1)| SpecificSegment::try_new(z0, z1, conf).into_mult())
                     .transpose()

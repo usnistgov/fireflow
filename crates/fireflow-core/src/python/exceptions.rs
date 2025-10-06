@@ -50,7 +50,7 @@ impl<V, E: fmt::Display, T: fmt::Display> PyTerminalNoWarnResultExt
     type V = V;
 
     fn py_termfail_resolve_nowarn(self) -> PyResult<Self::V> {
-        self.map_err(handle_failure_nowarn).map(|x| x.inner())
+        self.map_err(handle_failure_nowarn).map(Terminal::inner)
     }
 }
 

@@ -11,6 +11,7 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote, ToTokens};
 use std::fmt;
 use std::marker::PhantomData;
+use std::string::ToString;
 use syn::{
     parse::{Parse, ParseStream},
     parse_macro_input, parse_quote,
@@ -913,7 +914,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             .into_iter()
             .chain(all_timestamps)
             .chain(common_kws)
-            .map(|x| x.into())
+            .map(Into::into)
             .collect(),
         Version::FCS3_0 => [mode, cyt, comp_or_spill]
             .into_iter()
@@ -921,7 +922,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             .chain([cytsn, unicode])
             .chain(all_subset)
             .chain(common_kws)
-            .map(|x| x.into())
+            .map(Into::into)
             .collect(),
         Version::FCS3_1 => [mode, cyt]
             .into_iter()
@@ -932,7 +933,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             .chain([vol])
             .chain(all_subset)
             .chain(common_kws)
-            .map(|x| x.into())
+            .map(Into::into)
             .collect(),
         Version::FCS3_2 => [cyt, mode]
             .into_iter()
@@ -945,7 +946,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             .chain(all_carrier)
             .chain([unstainedinfo, unstainedcenters, flowrate])
             .chain(common_kws)
-            .map(|x| x.into())
+            .map(Into::into)
             .collect(),
     };
 
@@ -962,7 +963,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         .chain([analysis, others])
         .collect();
 
-    let coretext_inner_args: Vec<_> = coretext_args.iter().map(|x| x.ident_into()).collect();
+    let coretext_inner_args: Vec<_> = coretext_args.iter().map(IsDocArg::ident_into).collect();
 
     let coretext_doc = DocString::new_class(
         format!("Represents *TEXT* for an FCS {vs} file."),
@@ -2704,7 +2705,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         .collect(),
     };
 
-    let inner_args: Vec<_> = all_args.iter().map(|x| x.ident_into()).collect();
+    let inner_args: Vec<_> = all_args.iter().map(IsDocArg::ident_into).collect();
 
     let doc = DocString::new_class(
         format!("FCS {version_short} *$Pn\\** keywords for {lower_basename} measurement."),
@@ -2997,7 +2998,7 @@ pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
             quote! {
                 #doc
                 fn #fn_name(&self, force: bool) -> PyResult<#target_pytype> {
-                    self.0.clone().try_convert(force).py_termfail_resolve().map(|x| x.into())
+                    self.0.clone().try_convert(force).py_termfail_resolve().map(Into::into)
                 }
             }
         })
@@ -3071,7 +3072,7 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
     ]
     .map(AnyDocArg::from);
 
-    let inner_args: Vec<_> = all_args.iter().map(|x| x.ident_into()).collect();
+    let inner_args: Vec<_> = all_args.iter().map(IsDocArg::ident_into).collect();
 
     let summary = "The *$Gm\\** keywords for one gated measurement.";
     let doc = DocString::new_class(summary, [""; 0], all_args);
@@ -3640,7 +3641,7 @@ fn make_gate_region(path: &Path, is_uni: bool) -> TokenStream {
 
     let name = format!("{region_ident}{suffix}");
     let bare_path = path_strip_args(path.clone());
-    let inner_args: Vec<_> = doc.args.iter().map(|a| a.record_into()).collect();
+    let inner_args: Vec<_> = doc.args.iter().map(IsDocArg::record_into).collect();
 
     let new = |fun_args| {
         quote! {
@@ -4055,7 +4056,7 @@ impl PyAtom {
             }
             Self::List(x) => Self::List(x.flatten_unions().into()),
             Self::Dict(k, v) => Self::Dict(k.flatten_unions().into(), v.flatten_unions().into()),
-            Self::Tuple(xs) => Self::Tuple(xs.into_iter().map(|x| x.flatten_unions()).collect()),
+            Self::Tuple(xs) => Self::Tuple(xs.into_iter().map(PyAtom::flatten_unions).collect()),
             x => x,
         }
     }
@@ -4374,7 +4375,7 @@ impl HasRustPath for PyTuple {
         if let Some(x) = self.rstype.as_ref() {
             parse_quote!(#x)
         } else {
-            let vs: Vec<_> = self.inner.iter().map(|x| x.as_rust_type()).collect();
+            let vs: Vec<_> = self.inner.iter().map(HasRustPath::as_rust_type).collect();
             parse_quote!((#(#vs),*))
         }
     }
@@ -4553,7 +4554,7 @@ impl PyOpt {
 impl PyTuple {
     fn new(iter: impl IntoIterator<Item = impl Into<PyType>>) -> Self {
         Self {
-            inner: iter.into_iter().map(|x| x.into()).collect(),
+            inner: iter.into_iter().map(Into::into).collect(),
             rstype: None,
         }
     }
@@ -4574,7 +4575,7 @@ impl PyUnion {
         let mut it = iter.into_iter();
         let x0 = it.next().expect("Union cannot be empty");
         let x1 = it.next().expect("Union must have at least 2 types");
-        let xs = it.map(|x| x.into()).collect();
+        let xs = it.map(Into::into).collect();
         Self {
             head0: x0.into(),
             head1: x1.into(),
@@ -5444,7 +5445,7 @@ impl DocArgParam {
             Self::new_allow_negative_param(),
             Self::new_truncate_offsets_param(),
         ];
-        let js = ps.iter().map(|x| x.record_into()).collect();
+        let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
     }
 
@@ -5477,7 +5478,7 @@ impl DocArgParam {
             Self::new_append_standard_keywords(),
             Self::new_substitute_standard_key_values(),
         ];
-        let js = ps.iter().map(|x| x.record_into()).collect();
+        let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
     }
 
@@ -5524,7 +5525,7 @@ impl DocArgParam {
         };
 
         let conf = config_path("StdTextReadConfig");
-        let js = ps.iter().map(|x| x.record_into()).collect();
+        let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
     }
 
@@ -5547,7 +5548,7 @@ impl DocArgParam {
         };
 
         let conf = config_path("ReadLayoutConfig");
-        let js = ps.iter().map(|x| x.record_into()).collect();
+        let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
     }
 
@@ -5576,7 +5577,7 @@ impl DocArgParam {
         };
 
         let conf = config_path("ReadTEXTOffsetsConfig");
-        let js = ps.iter().map(|x| x.record_into()).collect();
+        let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
     }
 
@@ -5585,7 +5586,7 @@ impl DocArgParam {
         let allow_tot_mismatch = Self::new_allow_tot_mismatch_param();
         let conf = config_path("ReaderConfig");
         let ps = vec![allow_uneven_event_width, allow_tot_mismatch];
-        let js = ps.iter().map(|x| x.record_into()).collect();
+        let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
     }
 
@@ -5594,7 +5595,7 @@ impl DocArgParam {
         let warnings_are_errors = Self::new_warnings_are_errors_param();
         let hide_warnings = Self::new_hide_warnings_param();
         let ps = vec![warnings_are_errors, hide_warnings];
-        let js = ps.iter().map(|x| x.record_into()).collect();
+        let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
     }
 
@@ -6328,7 +6329,7 @@ impl<T> IsDocArg for DocArg<T> {
     fn ident_into(&self) -> TokenStream2 {
         let n = self.ident();
         if unwrap_generic("Option", unwrap_type_as_path(&self.pytype.as_rust_type())).1 {
-            quote! {#n.map(|x| x.into())}
+            quote! {#n.map(Into::into)}
         } else {
             quote! {#n.into()}
         }
@@ -6337,7 +6338,7 @@ impl<T> IsDocArg for DocArg<T> {
     fn record_into(&self) -> TokenStream2 {
         let n = self.ident();
         if unwrap_generic("Option", unwrap_type_as_path(&self.pytype.as_rust_type())).1 {
-            quote! {#n: #n.map(|x| x.into())}
+            quote! {#n: #n.map(Into::into)}
         } else {
             quote! {#n: #n.into()}
         }
@@ -6774,7 +6775,7 @@ impl PyType {
                 (pt, quote!(#rt::default()))
             }
             Self::Tuple(xs) => {
-                let (ps, rs): (Vec<_>, Vec<_>) = xs.inner.iter().map(|x| x.defaults()).unzip();
+                let (ps, rs): (Vec<_>, Vec<_>) = xs.inner.iter().map(PyType::defaults).unzip();
                 (
                     format!("({})", ps.into_iter().join(", ")),
                     xs.rstype.as_ref().map_or(quote!((#(#rs),*)), |y| {
@@ -6838,7 +6839,7 @@ impl AsPyAtom for PyOpt {
 
 impl AsPyAtom for PyTuple {
     fn as_atom(&self) -> PyAtom {
-        PyAtom::Tuple(self.inner.iter().map(|x| x.as_atom()).collect())
+        PyAtom::Tuple(self.inner.iter().map(AsPyAtom::as_atom).collect())
     }
 }
 
@@ -6846,7 +6847,7 @@ impl AsPyAtom for PyUnion {
     fn as_atom(&self) -> PyAtom {
         let x0 = self.head0.as_atom();
         let x1 = self.head1.as_atom();
-        let xs = self.tail.iter().map(|x| x.as_atom()).collect();
+        let xs = self.tail.iter().map(AsPyAtom::as_atom).collect();
         PyAtom::Union(x0.into(), x1.into(), xs)
     }
 }
@@ -6860,7 +6861,7 @@ impl ClassDocString {
         Self::new(
             summary.to_string(),
             paragraphs.into_iter().map(|x| x.to_string()).collect(),
-            args.into_iter().map(|x| x.into()).collect(),
+            args.into_iter().map(Into::into).collect(),
             (),
         )
     }
@@ -7040,7 +7041,7 @@ impl<A, R, S> DocString<Vec<A>, R, S> {
     where
         A: IsDocArg,
     {
-        let xs: Vec<_> = self.args.iter().map(|a| a.fun_arg()).collect();
+        let xs: Vec<_> = self.args.iter().map(IsDocArg::fun_arg).collect();
         quote!(#(#xs),*)
     }
 
@@ -7049,7 +7050,7 @@ impl<A, R, S> DocString<Vec<A>, R, S> {
     where
         A: IsDocArg,
     {
-        let xs: Vec<_> = self.args.iter().map(|a| a.ident()).collect();
+        let xs: Vec<_> = self.args.iter().map(IsDocArg::ident).collect();
         quote!(#(#xs),*)
     }
 
@@ -7057,7 +7058,7 @@ impl<A, R, S> DocString<Vec<A>, R, S> {
     where
         A: IsDocArg,
     {
-        let xs: Vec<_> = self.args.iter().map(|a| a.ident_into()).collect();
+        let xs: Vec<_> = self.args.iter().map(IsDocArg::ident_into).collect();
         quote!(#(#xs),*)
     }
 
@@ -7066,7 +7067,7 @@ impl<A, R, S> DocString<Vec<A>, R, S> {
     where
         A: IsMethods,
     {
-        let xs: Vec<_> = self.args.iter().map(|a| a.quoted_methods()).collect();
+        let xs: Vec<_> = self.args.iter().map(IsMethods::quoted_methods).collect();
         quote!(#(#xs)*)
     }
 
@@ -7117,7 +7118,7 @@ impl<A, R, S> DocString<Vec<A>, R, S> {
             "({})",
             S::ARG
                 .into_iter()
-                .chain(txt_sig_.iter().map(|s| s.as_str()))
+                .chain(txt_sig_.iter().map(String::as_str))
                 .join(", ")
         );
         quote! {
@@ -7191,7 +7192,7 @@ where
 
 impl fmt::Display for ClassDocString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        self.fmt_inner(|a| a.iter().map(|s| s.to_string()), |()| None, f)
+        self.fmt_inner(|a| a.iter().map(ToString::to_string), |()| None, f)
     }
 }
 
@@ -7204,8 +7205,8 @@ impl fmt::Display for IvarDocString {
 impl<A: fmt::Display, S> fmt::Display for DocString<Vec<A>, Option<DocReturn>, S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         self.fmt_inner(
-            |a| a.iter().map(|s| s.to_string()),
-            |r| r.as_ref().map(|s| s.to_string()),
+            |a| a.iter().map(ToString::to_string),
+            |r| r.as_ref().map(ToString::to_string),
             f,
         )
     }

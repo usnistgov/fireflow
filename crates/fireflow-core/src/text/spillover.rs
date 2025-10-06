@@ -139,11 +139,11 @@ impl<T> GenericSpillover<T> {
             let values: Vec<_> = xs.collect();
             let total = measurements.len() + values.len();
             if total == expected {
-                let fvalues: Vec<_> = values
+                if let Ok(fvalues) = values
                     .into_iter()
-                    .filter_map(|x| x.parse::<f32>().ok())
-                    .collect();
-                if fvalues.len() == nn {
+                    .map(str::parse::<f32>)
+                    .collect::<Result<Vec<_>, _>>()
+                {
                     let matrix = DMatrix::from_row_iterator(n, n, fvalues);
                     Ok(Self::try_new(measurements, matrix)
                         .map_err(ParseGenericSpilloverError::New)?)
@@ -166,7 +166,7 @@ impl<T> GenericSpillover<T> {
     {
         let it = s.split(',');
         if trim_intra {
-            Self::from_iter(it.map(|x| x.trim()), parse_meas)
+            Self::from_iter(it.map(str::trim), parse_meas)
         } else {
             Self::from_iter(it, parse_meas)
         }

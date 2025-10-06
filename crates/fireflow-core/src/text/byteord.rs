@@ -478,10 +478,8 @@ impl FromStr for ByteOrd2_0 {
     type Err = ParseByteOrdError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (pass, fail): (Vec<_>, Vec<_>) = s
-            .split(',')
-            .map(|x| x.parse::<NonZeroU8>())
-            .partition_result();
+        let (pass, fail): (Vec<_>, Vec<_>) =
+            s.split(',').map(str::parse::<NonZeroU8>).partition_result();
         if fail.is_empty() {
             ByteOrd2_0::try_from(&pass[..]).map_err(ParseByteOrdError::Order)
         } else {

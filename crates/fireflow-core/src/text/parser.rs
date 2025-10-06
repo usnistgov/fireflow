@@ -59,7 +59,7 @@ pub trait FromStrDelim: Sized {
     fn from_str_delim(s: &str, trim_whitespace: bool) -> Result<Self, Self::Err> {
         let it = s.split(Self::DELIM);
         if trim_whitespace {
-            Self::from_iter(it.map(|x| x.trim()))
+            Self::from_iter(it.map(str::trim))
         } else {
             Self::from_iter(it)
         }
@@ -116,7 +116,7 @@ pub(crate) trait Optional {
     where
         Self: FromStr,
     {
-        get_opt(kws, k).map(|x| x.into())
+        get_opt(kws, k).map(Into::into)
     }
 
     fn remove_opt(
@@ -129,7 +129,7 @@ pub(crate) trait Optional {
         kws.remove(&k)
             .map(|v| v.parse().map_err(|e| OptKeyError::new(e, k, v)))
             .transpose()
-            .map(|x| x.into())
+            .map(Into::into)
     }
 
     fn remove_opt_st(
@@ -146,7 +146,7 @@ pub(crate) trait Optional {
                 Self::from_str_st(v.as_str(), data, conf).map_err(|e| OptKeyError::new(e, k, v))
             })
             .transpose()
-            .map(|x| x.into())
+            .map(Into::into)
     }
 }
 
@@ -172,7 +172,7 @@ pub(crate) trait ReqMetarootKey: Sized + Required + Key {
         ParseReqKeyError: From<<Self as FromStr>::Err>,
     {
         Self::remove_metaroot_req(kws)
-            .map_err(|e| e.inner_into())
+            .map_err(ReqKeyError::inner_into)
             .map_err(Box::new)
             .into_deferred()
     }
@@ -222,7 +222,7 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
         ParseReqKeyError: From<<Self as FromStr>::Err>,
     {
         Self::remove_meas_req(kws, i)
-            .map_err(|e| e.inner_into())
+            .map_err(ReqKeyError::inner_into)
             .map_err(Box::new)
             .into_deferred()
     }
@@ -238,7 +238,7 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
         ParseReqKeyError: From<<Self as FromStrStateful>::Err>,
     {
         Self::remove_req_st(kws, Self::std(i), data, conf)
-            .map_err(|e| e.inner_into())
+            .map_err(ReqKeyError::inner_into)
             .map_err(Box::new)
             .into_deferred()
     }
@@ -449,7 +449,7 @@ where
     //         } else {
     //             Tentative::new1(None)
     //         }
-    //         .map(|x| x.into())
+    //         .map(Into::into)
     //     })
     // }
 

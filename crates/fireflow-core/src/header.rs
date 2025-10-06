@@ -104,7 +104,7 @@ impl<T> HeaderSegments<T> {
         .into_iter()
         // TODO the other segments will each be 20 chars wide and padded with 0,
         // which is probably overkill
-        .chain(self.other.iter().map(|x| x.header_string()))
+        .chain(self.other.iter().map(SpecificSegment::header_string))
         {
             h.write_all(s.as_bytes())?;
         }
@@ -727,7 +727,7 @@ impl<T> HeaderKeywordsToWrite<T> {
             .iter()
             .filter_map(|x| x.inner.try_next_byte())
             .last()
-            .map_or(begin, |x| x.into());
+            .map_or(begin, Into::into);
         Ok((ret, next))
     }
 }

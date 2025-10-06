@@ -590,7 +590,7 @@ impl From<PyGatedMeasurements> for Vec<GatedMeasurement> {
 
 impl From<Vec<GatedMeasurement>> for PyGatedMeasurements {
     fn from(value: Vec<GatedMeasurement>) -> PyGatedMeasurements {
-        Self(value.into_iter().map(|x| x.into()).collect())
+        Self(value.into_iter().map(Into::into).collect())
     }
 }
 

@@ -13,6 +13,7 @@ use std::fmt;
 use std::hash::Hash;
 use std::str;
 use std::str::FromStr;
+use std::string::ToString;
 use std::sync::OnceLock;
 use thiserror::Error;
 use unicase::Ascii;
@@ -752,7 +753,7 @@ where
             let v = conf
                 .replace_standard_key_values
                 .get(e.key().as_ref())
-                .map(|v| v.to_string())
+                .map(ToString::to_string)
                 .unwrap_or(value);
             e.insert(v);
             Ok(())

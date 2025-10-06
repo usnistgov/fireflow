@@ -148,13 +148,13 @@ impl<T> GenericSpillover<T> {
                     Ok(Self::try_new(measurements, matrix)
                         .map_err(ParseGenericSpilloverError::New)?)
                 } else {
-                    Err(ParseGenericSpilloverError::BadFloat)?
+                    Err(ParseGenericSpilloverError::BadFloat.into())
                 }
             } else {
-                Err(ParseGenericSpilloverError::WrongLength { total, expected })?
+                Err(ParseGenericSpilloverError::WrongLength { total, expected }.into())
             }
         } else {
-            Err(ParseGenericSpilloverError::BadN)?
+            Err(ParseGenericSpilloverError::BadN.into())
         }
     }
 

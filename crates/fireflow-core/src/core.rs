@@ -2570,7 +2570,7 @@ where
                 |m, x| *m.value.as_mut() = x,
                 |m, x| *m.value.as_mut() = x,
             )
-            .map(|_| ())
+            .void()
     }
 
     /// Return field from all optical measurements as an iterator
@@ -2922,7 +2922,7 @@ where
                     |m, x| *m.value.specific.scale_mut(private::NoTouchy) = x,
                     |_, _| (),
                 )
-                .map(|_| ())
+                .void()
                 .unwrap();
             Ok(())
         };
@@ -2953,7 +2953,7 @@ where
                     |m, x| *m.value.specific.transform_mut(private::NoTouchy) = x,
                     |_, _| (),
                 )
-                .map(|_| ())
+                .void()
                 .unwrap();
             Ok(())
         };

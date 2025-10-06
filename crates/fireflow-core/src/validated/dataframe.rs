@@ -589,8 +589,8 @@ mod tests {
     fn test_u16_to_u8() {
         assert_eq!(u8::from_truncated(1_u16).lossy, None);
         assert_eq!(
-            u8::from_truncated(256_u16),
-            CastResult::new::<u16>(255, true)
+            u8::from_truncated(0x100_u16),
+            CastResult::new::<u16>(0xFF, true)
         );
     }
 
@@ -598,8 +598,8 @@ mod tests {
     fn test_u32_to_u8() {
         assert_eq!(u8::from_truncated(1_u32).lossy, None);
         assert_eq!(
-            u8::from_truncated(256_u32),
-            CastResult::new::<u32>(255, true)
+            u8::from_truncated(0x100_u32),
+            CastResult::new::<u32>(0xFF, true)
         );
     }
 
@@ -607,8 +607,8 @@ mod tests {
     fn test_u64_to_u8() {
         assert_eq!(u8::from_truncated(1_u64).lossy, None);
         assert_eq!(
-            u8::from_truncated(256_u64),
-            CastResult::new::<u64>(255, true)
+            u8::from_truncated(0x100_u64),
+            CastResult::new::<u64>(0xFF, true)
         );
     }
 
@@ -616,8 +616,8 @@ mod tests {
     fn test_u32_to_u16() {
         assert_eq!(u16::from_truncated(1_u32).lossy, None);
         assert_eq!(
-            u16::from_truncated(65_536_u32),
-            CastResult::new::<u32>(65_535, true)
+            u16::from_truncated(0x0001_0000_u32),
+            CastResult::new::<u32>(0xFFFF, true)
         );
     }
 
@@ -625,8 +625,8 @@ mod tests {
     fn test_u64_to_u16() {
         assert_eq!(u16::from_truncated(1_u64).lossy, None);
         assert_eq!(
-            u16::from_truncated(65_536_u64),
-            CastResult::new::<u64>(65_535, true)
+            u16::from_truncated(0x0001_0000_u64),
+            CastResult::new::<u64>(0xFFFF, true)
         );
     }
 
@@ -634,8 +634,8 @@ mod tests {
     fn test_u64_to_u32() {
         assert_eq!(u32::from_truncated(1_u64).lossy, None);
         assert_eq!(
-            u32::from_truncated(4_294_967_296_u64),
-            CastResult::new::<u64>(4_294_967_295, true)
+            u32::from_truncated(0x0001_0000_0000_u64),
+            CastResult::new::<u64>(0xFFFF_FFFF, true)
         );
     }
 
@@ -649,15 +649,15 @@ mod tests {
             CastResult::new::<u64>(1.0, false)
         );
         assert_eq!(
-            f32::from_truncated(16_777_216_u32),
+            f32::from_truncated(0x0100_0000_u32),
             CastResult::new::<u32>(16_777_216.0, false)
         );
         assert_eq!(
-            f32::from_truncated(16_777_217_u32),
+            f32::from_truncated(0x0100_0001_u32),
             CastResult::new::<u32>(16_777_216.0, true)
         );
         assert_eq!(
-            f32::from_truncated(16_777_218_u32),
+            f32::from_truncated(0x0100_0002_u32),
             CastResult::new::<u32>(16_777_218.0, false)
         );
     }
@@ -669,15 +669,15 @@ mod tests {
             CastResult::new::<u64>(1.0, false)
         );
         assert_eq!(
-            f32::from_truncated(16_777_216_u64),
+            f32::from_truncated(0x0100_0000_u64),
             CastResult::new::<u64>(16_777_216.0, false)
         );
         assert_eq!(
-            f32::from_truncated(16_777_217_u64),
+            f32::from_truncated(0x0100_0001_u64),
             CastResult::new::<u64>(16_777_216.0, true)
         );
         assert_eq!(
-            f32::from_truncated(16_777_218_u64),
+            f32::from_truncated(0x0100_0002_u64),
             CastResult::new::<u64>(16_777_218.0, false)
         );
     }
@@ -692,15 +692,15 @@ mod tests {
             CastResult::new::<u64>(1.0, false)
         );
         assert_eq!(
-            f64::from_truncated(9_007_199_254_740_992_u64),
+            f64::from_truncated(0x0020_0000_0000_0000_u64),
             CastResult::new::<u64>(9_007_199_254_740_992.0, false)
         );
         assert_eq!(
-            f64::from_truncated(9_007_199_254_740_993_u64),
+            f64::from_truncated(0x0020_0000_0000_0001_u64),
             CastResult::new::<u64>(9_007_199_254_740_992.0, true)
         );
         assert_eq!(
-            f64::from_truncated(9_007_199_254_740_994_u64),
+            f64::from_truncated(0x0020_0000_0000_0002_u64),
             CastResult::new::<u64>(9_007_199_254_740_994.0, false)
         );
     }

@@ -658,11 +658,11 @@ mod tests {
     #[test]
     fn test_bytes_from_u64() {
         assert_eq!(Bytes::B1, Bytes::from_u64(0));
-        assert_eq!(Bytes::B1, Bytes::from_u64(255));
-        assert_eq!(Bytes::B2, Bytes::from_u64(256));
-        assert_eq!(Bytes::B2, Bytes::from_u64(65_535));
-        assert_eq!(Bytes::B3, Bytes::from_u64(65_536));
-        assert_eq!(Bytes::B8, Bytes::from_u64(18_446_744_073_709_551_615));
+        assert_eq!(Bytes::B1, Bytes::from_u64(0x00FF));
+        assert_eq!(Bytes::B2, Bytes::from_u64(0x0100));
+        assert_eq!(Bytes::B2, Bytes::from_u64(0xFFFF));
+        assert_eq!(Bytes::B3, Bytes::from_u64(0x0001_0000));
+        assert_eq!(Bytes::B8, Bytes::from_u64(0xFFFF_FFFF_FFFF_FFFF));
     }
 }
 

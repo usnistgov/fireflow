@@ -5,7 +5,7 @@ use thiserror::Error;
 
 /// A String that matches a time.
 ///
-/// To be used when parsing time using ['NaiveTime::parse_from_str'].
+/// To be used when parsing time using [`NaiveTime::parse_from_str`].
 ///
 /// This will contain all the formatting specificers native to chrono which
 /// encode for time (hours, minutes, seconds, less than seconds). Additionally,
@@ -88,13 +88,13 @@ impl FromStr for TimePattern {
         let nS = has_spec("%S")?;
         // fractions of second (native)
         let nf = has_spec("%f")?;
-        let n3f = has_spec("%3f")?;
-        let n6f = has_spec("%6f")?;
-        let n9f = has_spec("%9f")?;
+        let n_3_f = has_spec("%3f")?;
+        let n_6_f = has_spec("%6f")?;
+        let n_9_f = has_spec("%9f")?;
         let n_f = has_spec("%.f")?;
-        let n_3f = has_spec("%.3f")?;
-        let n_6f = has_spec("%.6f")?;
-        let n_9f = has_spec("%.9f")?;
+        let n_d_3_f = has_spec("%.3f")?;
+        let n_d_6_f = has_spec("%.6f")?;
+        let n_d_9_f = has_spec("%.9f")?;
         // fractions of second (non-native)
         let nsexa = has_spec("%!")?;
         let ncenti = has_spec("%@")?;
@@ -105,14 +105,16 @@ impl FromStr for TimePattern {
             (x_nH, x_nk, false, false, false, false) => x_nH != x_nk,
             // if 12 hour, include one number and am/pm spec and exclude 24 hour
             #[allow(non_snake_case)]
-            (false, false, x_nI, x_nl, x_nP, x_np) => (x_nI != x_nl) && (x_nP != x_np),
+            (false, false, x_nI, x_n_l, x_nP, x_n_p) => (x_nI != x_n_l) && (x_nP != x_n_p),
             _ => false,
         };
         // only zero or one fractional patterns allowed
-        let n_frac: u8 = [nf, n3f, n6f, n9f, n_f, n_3f, n_6f, n_9f, nsexa, ncenti]
-            .map(u8::from)
-            .iter()
-            .sum();
+        let n_frac: u8 = [
+            nf, n_3_f, n_6_f, n_9_f, n_f, n_d_3_f, n_d_6_f, n_d_9_f, nsexa, ncenti,
+        ]
+        .map(u8::from)
+        .iter()
+        .sum();
         if h && nM && nS && n_frac < 2 {
             let (pat, fraction) = if nsexa {
                 (s.replace("%!", "%f"), FractionType::Sexagesimal)

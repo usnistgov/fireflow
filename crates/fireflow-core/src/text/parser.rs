@@ -1,34 +1,51 @@
 use crate::config::{StdTextReadConfig, TimeMeasNamePattern};
-use crate::core::*;
-use crate::error::*;
-use crate::validated::keys::*;
-use crate::validated::shortname::*;
+use crate::core::{NewCSVFlagsError, ScaleTransformError};
+use crate::error::{BiTentative, DeferredResult, ResultExt, Tentative};
+use crate::validated::keys::{
+    BiIndexedKey, IndexedKey, Key, MeasHeader, NonStdKeywords, NonStdKeywordsExt, StdKey,
+    StdKeywords,
+};
+use crate::validated::shortname::{Shortname, ShortnameError};
 
-use super::byteord::*;
-use super::compensation::*;
-use super::datetimes::*;
+use super::byteord::{NewEndianError, ParseByteOrdError, Width};
+use super::compensation::{NewCompError, ParseCompError};
+use super::datetimes::{FCSDateTimeError, ReversedDatetimesError};
 use super::gating;
-use super::index::*;
-use super::keywords::*;
-use super::named_vec::*;
-use super::optional::*;
+use super::index::{IndexFromOne, MeasIndex};
+use super::keywords::{
+    AlphaNumTypeError, Analyte, Beginanalysis, Begindata, Calibration3_1, Calibration3_2,
+    CalibrationError, CalibrationFormat3_1, CalibrationFormat3_2, DetectorName, DetectorType,
+    DetectorVoltage, Dfc, Display, DisplayError, Endanalysis, Enddata, Feature, FeatureError, Gain,
+    GatePairError, GatingError, LastModifiedError, Longname, MeasOrGateIndexError, Mode3_2Error,
+    ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError, OriginalityError,
+    PercentEmitted, Power, PrefixedMeasIndexError, Range, RegionGateIndexError, RegionIndexError,
+    Tag, TemporalScale, TemporalScaleError, TemporalTypeError, Timestep, Tot, TriggerError,
+    UnicodeError, WavelengthsError,
+};
+use super::named_vec::{NameMapping, NewNamedVecError};
+use super::optional::MaybeValue;
 use super::ranged_float::RangedFloatError;
-use super::scale::*;
-use super::spillover::*;
-use super::timestamps::*;
-use super::unstainedcenters::*;
+use super::scale::{Scale, ScaleError};
+use super::spillover::{ParseSpilloverError, SpilloverIndexError};
+use super::timestamps::{
+    FCSDateError, FCSFixedTimeError, FCSTime100Error, FCSTime60Error, FCSTimeError,
+    ReversedTimestampsError,
+};
+use super::unstainedcenters::ParseUnstainedCenterError;
 
 use bigdecimal::ParseBigDecimalError;
 use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Itertools;
 use nonempty::NonEmpty;
+use num_traits::identities::One;
+use thiserror::Error;
+
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
-use thiserror::Error;
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
@@ -451,7 +468,7 @@ where
             |maybe| {
                 if let Some(x) = maybe.0 {
                     Self::check_link(&x, names)
-                        .map(|_| x)
+                        .map(|()| x)
                         .into_tentative_opt(!conf.allow_optional_dropping)
                         .inner_into()
                 } else {
@@ -526,7 +543,7 @@ pub(crate) fn lookup_temporal_gain_3_0(
         Tentative::default()
     } else {
         let go = |gain: &MaybeValue<Gain>| {
-            if gain.0.is_some_and(|g| f32::from(g.0) != 1.0) {
+            if gain.0.is_some_and(|g| !g.0.is_one()) {
                 Some(TemporalGainError(i))
             } else {
                 None

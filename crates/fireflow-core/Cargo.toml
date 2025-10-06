@@ -31,3 +31,6 @@ numpy = { version = "0.25", features = ["nalgebra"], optional = true }
 [features]
 serde = ["dep:serde", "nalgebra/serde-serialize", "bigdecimal/serde", "chrono/serde"]
 python = ["dep:pyo3", "dep:pyo3-polars", "dep:polars", "dep:numpy"]
+
+[lints]
+workspace = true

@@ -1,32 +1,83 @@
-use crate::config::*;
-use crate::data::*;
-use crate::error::*;
-use crate::header::*;
+use crate::config::{
+    ReadLayoutConfig, ReadState, ReadTEXTOffsetsConfig, ReaderConfig, SharedConfig,
+    StdTextReadConfig, TemporalOpticalKey, WriteConfig,
+};
+use crate::data::{
+    req_meas_headers, AnyLossError, AnyRangeError, ColumnError, ConvertWidthError, DataLayout2_0,
+    DataLayout3_0, DataLayout3_1, DataLayout3_2, InterLayoutOps, KnownTot, LayoutOps,
+    LookupLayoutError, LookupLayoutWarning, MaybeTot, MeasLayoutMismatchError,
+    MixedToNonMixedLayoutError, MixedToOrderedLayoutError, NewDataLayoutError, NewDataReaderError,
+    RawToLayoutError, RawToLayoutWarning, ReadDataframeError, ReadDataframeWarning, TotDefinition,
+    VersionedDataLayout,
+};
+use crate::error::{
+    BiTentative, DeferredExt, DeferredFailure, DeferredResult, ErrorIter, IODeferredExt,
+    IODeferredResult, IOResult, IOTerminalResult, ImpureError, InfalliblePassthruExt, MultiResult,
+    MultiResultExt, PassthruExt, PassthruResult, ResultExt, Tentative, Terminal, TerminalResult,
+};
+use crate::header::{
+    HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
+};
 use crate::macros::{def_failure, match_many_to_one};
 use crate::nonempty::FCSNonEmpty;
-use crate::segment::*;
-use crate::text::byteord::*;
-use crate::text::compensation::*;
-use crate::text::datetimes::*;
-use crate::text::gating::{self, AppliedGates2_0, AppliedGates3_0, AppliedGates3_2};
-use crate::text::index::*;
-use crate::text::keywords::*;
-use crate::text::named_vec::*;
-use crate::text::optional::*;
-use crate::text::parser::*;
-use crate::text::ranged_float::PositiveFloat;
-use crate::text::scale::*;
-use crate::text::spillover::*;
-use crate::text::timestamps::*;
-use crate::text::unstainedcenters::*;
-use crate::validated::ascii_uint::{
-    HeaderString, Uint8DigitOverflow, UintSpacePad20, UintSpacePad8,
+use crate::segment::{
+    AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId, HeaderAnalysisSegment,
+    HeaderDataSegment, KeyedOptSegment, KeyedReqSegment, NewSegmentConfig,
+    OptSegmentWithDefaultWarning, OtherSegment20, ReqSegmentWithDefaultError,
+    ReqSegmentWithDefaultWarning, SegmentMismatchWarning,
 };
-use crate::validated::dataframe as df;
-use crate::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
-use crate::validated::keys::*;
-use crate::validated::shortname::*;
-use crate::validated::textdelim::TEXTDelim;
+
+use crate::text::{
+    byteord::OrderedToEndianError,
+    compensation::{Compensation, Compensation2_0, Compensation3_0},
+    datetimes::{BeginDateTime, Datetimes, EndDateTime, ReversedDatetimesError},
+    gating::{self, AppliedGates2_0, AppliedGates3_0, AppliedGates3_2},
+    index::{IndexFromOne, MeasIndex},
+    keywords::{
+        Abrt, Analyte, Beginstext, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2,
+        Carrierid, Carriertype, Cells, Com, Cyt, Cytsn, DetectorName, DetectorType,
+        DetectorVoltage, Display, Endstext, Exp, Feature, Fil, Filter, Flowrate, Gain, Inst,
+        IntRangeError, LastModified, LastModifier, Locationid, Longname, Lost, Mode, Mode3_2,
+        ModeUpgradeError, Nextdata, Op, OpticalType, Originality, Par, PeakBin, PeakNumber,
+        PercentEmitted, Plateid, Platename, Power, Proj, Range, Smno, Src, Sys, Tag, TemporalScale,
+        TemporalType, Timestep, TimestepLossError, Tot, Trigger, Unicode, UnstainedInfo, Vol,
+        Wavelength, Wavelengths, WavelengthsLossError, Wellid,
+    },
+    named_vec::{
+        EitherPair, Eithers, Element, ElementIndexError, IndexedElement, IndexedElementError,
+        InsertCenterError, InsertError, KeyLengthError, KeyNotFoundError, NameMapping, NamedVec,
+        NewNamedVecError, NonCenterElement, NonUniqueKeyError, RenameError, SetCenterError,
+        SetKeysError, SetNamesError,
+    },
+    optional::{AlwaysFamily, AlwaysValue, MaybeFamily, MaybeValue, MightHave},
+    parser::{
+        lookup_temporal_gain_3_0, lookup_temporal_scale_3_0, DepValueWarning, DeprecatedError,
+        ExtraStdKeywords, LookupKeysError, LookupKeysWarning, LookupOptional, LookupResult,
+        LookupTentative, MissingTime, OptIndexedKey, OptKeyError, OptLinkedKey, OptMetarootKey,
+        PseudostandardError, RawKeywords, ReqIndexedKey, ReqKeyError, ReqMetarootKey,
+        UnusedStandardError,
+    },
+    ranged_float::PositiveFloat,
+    scale::{LogScale, Scale},
+    spillover::{NewSpilloverError, Spillover},
+    timestamps::{
+        Btim, Etim, FCSDate, FCSTime, FCSTime100, FCSTime60, ReversedTimestampsError, Timestamps,
+        Xtim,
+    },
+    unstainedcenters::UnstainedCenters,
+};
+
+use crate::validated::{
+    ascii_uint::{HeaderString, Uint8DigitOverflow, UintSpacePad20, UintSpacePad8},
+    dataframe as df,
+    dataframe::{AnyFCSColumn, FCSDataFrame},
+    keys::{
+        IndexedKey, Key, MeasHeader, NonStdKey, NonStdKeywords, NonStdKeywordsExt,
+        NonStdMeasRegexError, StdKeywords, ValidKeywords,
+    },
+    shortname::Shortname,
+    textdelim::TEXTDelim,
+};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, Timelike};
 use derive_more::{AsMut, AsRef, Display, From};
@@ -36,6 +87,8 @@ use nalgebra::DMatrix;
 use nonempty::NonEmpty;
 use num_traits::identities::{One, Zero};
 use regex::Regex;
+use thiserror::Error;
+
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::fmt;
@@ -44,7 +97,6 @@ use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, Write};
 use std::marker::PhantomData;
 use std::path::PathBuf;
-use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -331,7 +383,7 @@ impl<A, D, O> AnyCore<A, D, O> {
     }
 
     pub fn print_meas_table(&self, delim: &str) {
-        match_anycore!(self, x, { x.print_meas_table(delim) })
+        match_anycore!(self, x, { x.print_meas_table(delim) });
     }
 
     pub fn print_comp_or_spillover_table(&self, delim: &str) {
@@ -345,7 +397,7 @@ impl<A, D, O> AnyCore<A, D, O> {
                 println!("{n}{delim}{}", r.iter().join(delim));
             }
         } else {
-            println!("[]")
+            println!("[]");
         }
     }
 
@@ -1626,7 +1678,7 @@ impl<T> Temporal<T> {
     {
         [self.common.longname.meas_kw_pair(i)]
             .into_iter()
-            .flat_map(|(k, v)| v.map(|x| (k, x)))
+            .filter_map(|(k, v)| v.map(|x| (k, x)))
             .chain(self.specific.opt_meas_keywords_inner(i))
     }
 
@@ -1901,7 +1953,7 @@ where
             self.tr.root_kw_pair(),
         ]
         .into_iter()
-        .flat_map(|(k, v)| v.map(|x| (k, x)))
+        .filter_map(|(k, v)| v.map(|x| (k, x)))
         .chain(self.specific.keywords_opt_inner())
         .map(|(k, v)| (k.to_string(), v))
         .chain(
@@ -1912,7 +1964,9 @@ where
     }
 
     fn rename_trigger_meas_link(&mut self, mapping: &NameMapping) {
-        self.tr.0.as_mut().map_or((), |tr| tr.reassign(mapping))
+        if let Some(tr) = self.tr.0.as_mut() {
+            tr.reassign(mapping);
+        }
     }
 
     fn rename_meas_links(&mut self, mapping: &NameMapping) {
@@ -2056,7 +2110,7 @@ where
     {
         // TODO do something useful with $NEXTDATA
         let other_lens: Vec<_> = other_segs.iter().map(|s| s.0.len() as u64).collect();
-        self.header_and_raw_keywords(tot, data_len, analysis_len, other_lens, false)
+        self.header_and_raw_keywords(tot, data_len, analysis_len, &other_lens[..], false)
             .map_err(ImpureError::Pure)
             .and_then(|hdr_kws: HeaderKeywordsToWrite<T>| {
                 Ok(hdr_kws.h_write(h, M::Ver::fcs_version().into(), delim, other_segs)?)
@@ -2068,6 +2122,8 @@ where
     /// Thiw will only include keywords that can be directly derived from
     /// [`CoreTEXT`]. This means it will not include $TOT, since this depends on
     /// the DATA segment.
+    // TODO fix clippy issue here (it has a good point)
+    #[allow(clippy::fn_params_excessive_bools)]
     pub fn standard_keywords(
         &self,
         exclude_req_root: bool,
@@ -2096,7 +2152,7 @@ where
         let ns = self.measurement_names();
         if tr.as_ref().is_some_and(|t| !ns.contains(&t.measurement)) {
             return Err(TriggerLinkError);
-        };
+        }
         self.metaroot.tr = tr.into();
         Ok(())
     }
@@ -2467,7 +2523,7 @@ where
     where
         Metaroot<M>: AsMut<X>,
     {
-        *self.metaroot.as_mut() = x
+        *self.metaroot.as_mut() = x;
     }
 
     /// Get a field from all measurements as an interator
@@ -2542,13 +2598,12 @@ where
                 },
                 |m, x| {
                     x.0.center()
-                        .map(|_| ())
                         .ok_or(ColumnError::new(m.index, OpticalMismatchError::new(true)))
                 },
             )
             .into_mult()
             .and_then(|rs| {
-                NonEmpty::collect(rs.into_iter().flat_map(|r| r.err()))
+                NonEmpty::collect(rs.into_iter().filter_map(|r| r.err()))
                     .map_or(Ok(()), Err)
                     .mult_errors_into()
             })
@@ -2744,7 +2799,7 @@ where
             let comp = m.as_ref().ncols();
             let par = self.measurements.len();
             if comp != par {
-                return Err(CompParMismatchError { comp, par });
+                return Err(CompParMismatchError { par, comp });
             }
         }
         self.metaroot.specific.set_comp(matrix, private::NoTouchy);
@@ -3081,7 +3136,7 @@ where
         self.measurements
             .push_center(n, m)
             .into_deferred()
-            .def_and_tentatively(|_| self.layout.push(r, notrunc).inner_into())
+            .def_and_tentatively(|()| self.layout.push(r, notrunc).inner_into())
     }
 
     fn insert_temporal_inner(
@@ -3096,7 +3151,7 @@ where
         self.measurements
             .insert_center(i, n, m)
             .into_deferred()
-            .def_and_tentatively(|_| self.layout.insert_nocheck(i, r, notrunc).inner_into())
+            .def_and_tentatively(|()| self.layout.insert_nocheck(i, r, notrunc).inner_into())
     }
 
     fn push_optical_inner(
@@ -3112,7 +3167,7 @@ where
         self.measurements
             .push(n, m)
             .into_deferred()
-            .def_and_tentatively(|ret| self.layout.push(r, notrunc).errors_into().map(|_| ret))
+            .def_and_tentatively(|ret| self.layout.push(r, notrunc).errors_into().map(|()| ret))
     }
 
     fn insert_optical_inner(
@@ -3130,7 +3185,7 @@ where
             .def_and_tentatively(|ret| {
                 self.layout
                     .insert_nocheck(i, r, notrunc)
-                    .map(|_| ret)
+                    .map(|()| ret)
                     .errors_into()
             })
     }
@@ -3237,7 +3292,7 @@ where
         tot: Tot,
         data_len: u64,
         analysis_len: u64,
-        other_lens: Vec<u64>,
+        other_lens: &[u64],
         has_nextdata: bool,
     ) -> Result<HeaderKeywordsToWrite<T>, Uint8DigitOverflow>
     where
@@ -3275,10 +3330,10 @@ where
     }
 
     fn opt_meas_keywords(&self) -> impl Iterator<Item = (String, String)> {
-        let ns = if !M::Name::INFALLABLE {
-            Some(self.shortname_keywords())
-        } else {
+        let ns = if M::Name::INFALLABLE {
             None
+        } else {
+            Some(self.shortname_keywords())
         };
         let lv = self.layout.opt_meas_keywords();
         self.measurements
@@ -3291,7 +3346,7 @@ where
             .chain(
                 lv.into_iter()
                     .flatten()
-                    .flat_map(|(k, v)| v.map(|x| (k, x))),
+                    .filter_map(|(k, v)| v.map(|x| (k, x))),
             )
     }
 
@@ -3387,7 +3442,7 @@ where
         M::Optical: OpticalFromTemporal<M::Temporal> + Clone,
     {
         for e in self.meas_table(delim) {
-            println!("{}", e);
+            println!("{e}");
         }
     }
 
@@ -3667,9 +3722,9 @@ where
                         None
                     };
                     if std_conf.allow_missing_time {
-                        tnt_core.eval_warning(go)
+                        tnt_core.eval_warning(go);
                     } else {
-                        tnt_core.eval_error(|c| go(c).map(LookupKeysError::WarnAsError))
+                        tnt_core.eval_error(|c| go(c).map(LookupKeysError::WarnAsError));
                     }
                     let esks = match version {
                         Version::FCS2_0 => ExtraStdKeywords::split_2_0(kws.std),
@@ -4086,7 +4141,7 @@ where
     ) -> TerminalResult<(), AnyRangeError, PushTemporalToDatasetError, PushTemporalFailure> {
         self.push_temporal_inner(n, m, r, notrunc)
             .def_errors_into()
-            .def_and_maybe(|_| self.data.push_column(col).into_deferred())
+            .def_and_maybe(|()| self.data.push_column(col).into_deferred())
             .def_terminate(PushTemporalFailure)
     }
 
@@ -4106,7 +4161,7 @@ where
     {
         self.insert_temporal_inner(i, n, m, r, notrunc)
             .def_errors_into()
-            .def_and_maybe(|_| {
+            .def_and_maybe(|()| {
                 // ASSUME index is within bounds here since it was checked above
                 self.data
                     .insert_column_nocheck(i.into(), col)
@@ -4133,7 +4188,7 @@ where
                 self.data
                     .push_column(col)
                     .into_deferred()
-                    .def_map_value(|_| k)
+                    .def_map_value(|()| k)
             })
             .def_terminate(PushOpticalFailure)
     }
@@ -4158,7 +4213,7 @@ where
                 self.data
                     .insert_column_nocheck(i.into(), col)
                     .into_deferred()
-                    .def_map_value(|_| k)
+                    .def_map_value(|()| k)
             })
             .def_terminate(InsertOpticalFailure)
     }
@@ -4447,7 +4502,7 @@ impl CoreTEXT3_1 {
         cytsn: Option<Cytsn>,
         spillover: Option<Spillover>,
         last_modifier: Option<LastModifier>,
-        last_modified: Option<LastModified>,
+        last_mod_date: Option<LastModified>,
         originality: Option<Originality>,
         plateid: Option<Plateid>,
         platename: Option<Platename>,
@@ -4480,7 +4535,7 @@ impl CoreTEXT3_1 {
             timestamps,
             cytsn,
             spillover,
-            ModificationData::new(last_modifier, last_modified, originality),
+            ModificationData::new(last_modifier, last_mod_date, originality),
             PlateData::new(plateid, platename, wellid),
             vol,
             subset,
@@ -4522,7 +4577,7 @@ impl CoreTEXT3_2 {
         cytsn: Option<Cytsn>,
         spillover: Option<Spillover>,
         last_modifier: Option<LastModifier>,
-        last_modified: Option<LastModified>,
+        last_mod_date: Option<LastModified>,
         originality: Option<Originality>,
         plateid: Option<Plateid>,
         platename: Option<Platename>,
@@ -4559,7 +4614,7 @@ impl CoreTEXT3_2 {
             cyt,
             spillover,
             cytsn,
-            ModificationData::new(last_modifier, last_modified, originality),
+            ModificationData::new(last_modifier, last_mod_date, originality),
             PlateData::new(plateid, platename, wellid),
             vol,
             CarrierData::new(carrierid, carriertype, locationid),
@@ -4606,7 +4661,7 @@ impl UnstainedData {
             self.unstainedinfo.root_kw_pair(),
         ]
         .into_iter()
-        .flat_map(|(k, v)| v.map(|x| (k, x)))
+        .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
     fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
@@ -4628,7 +4683,7 @@ impl SubsetData {
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [self.bits.root_kw_pair(), self.tot.root_kw_pair()]
             .into_iter()
-            .flat_map(|(k, v)| v.map(|x| (k, x)))
+            .filter_map(|(k, v)| v.map(|x| (k, x)))
             .chain(
                 self.flags
                     .0
@@ -4683,7 +4738,7 @@ impl CSVFlags {
             .iter()
             .enumerate()
             .map(|(i, f)| f.meas_kw_pair(i))
-            .flat_map(|(k, v)| v.map(|x| (k, x)))
+            .filter_map(|(k, v)| v.map(|x| (k, x)))
             .chain([m.root_pair()])
     }
 
@@ -4701,10 +4756,11 @@ impl CSVFlags {
 
 impl ModificationData {
     fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
-        let lmr = LastModifier::lookup_opt(kws, conf);
-        let lmd = LastModified::lookup_opt(kws, conf);
+        let last_mod = LastModifier::lookup_opt(kws, conf);
+        let last_mod_date = LastModified::lookup_opt(kws, conf);
         let ori = Originality::lookup_opt(kws, conf);
-        lmr.zip3(lmd, ori)
+        last_mod
+            .zip3(last_mod_date, ori)
             .map(|(last_modifier, last_modified, originality)| {
                 Self::new(last_modifier, last_modified, originality)
             })
@@ -4717,7 +4773,7 @@ impl ModificationData {
             self.originality.root_kw_pair(),
         ]
         .into_iter()
-        .flat_map(|(k, v)| v.map(|x| (k, x)))
+        .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
     fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
@@ -4745,7 +4801,7 @@ impl CarrierData {
             self.locationid.root_kw_pair(),
         ]
         .into_iter()
-        .flat_map(|(k, v)| v.map(|x| (k, x)))
+        .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
     fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
@@ -4780,7 +4836,7 @@ impl PlateData {
             self.plateid.root_kw_pair(),
         ]
         .into_iter()
-        .flat_map(|(k, v)| v.map(|x| (k, x)))
+        .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
     fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
@@ -4926,7 +4982,7 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical2_0 {
             .zip3(c, d)
             .inner_into()
             .zip(w)
-            .map(|((scale, _, _), wavelength)| Self::new(Some(scale), wavelength, value.peak));
+            .map(|((scale, (), ()), wavelength)| Self::new(Some(scale), wavelength, value.peak));
         Ok(out)
     }
 }
@@ -4951,7 +5007,7 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical2_0 {
             .check_indexed_key_transfer_own(i, !force);
         let w = convert_wavelengths(value.wavelengths, force).inner_into();
         let out = n.zip6(c, d, a, f, m).zip3(t, s).inner_into().zip(w).map(
-            |((_, _, scale), wavelength)| Self::new(Some(scale), wavelength, PeakData::default()),
+            |((_, (), scale), wavelength)| Self::new(Some(scale), wavelength, PeakData::default()),
         );
         Ok(out)
     }
@@ -5102,7 +5158,7 @@ impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_2 {
             .peak
             .check_loss(i, !force)
             .inner_into()
-            .and_maybe(|_| {
+            .and_maybe(|()| {
                 value
                     .scale
                     .0
@@ -5131,7 +5187,7 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical3_2 {
         i: MeasIndex,
         force: bool,
     ) -> OpticalConvertResult<Self> {
-        let out = value.peak.check_loss(i, !force).inner_into().map(|_| {
+        let out = value.peak.check_loss(i, !force).inner_into().map(|()| {
             Self::new(
                 value.scale,
                 value.wavelength.map(|x| x.into()),
@@ -5154,7 +5210,7 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_2 {
         i: MeasIndex,
         force: bool,
     ) -> OpticalConvertResult<Self> {
-        let out = value.peak.check_loss(i, !force).inner_into().map(|_| {
+        let out = value.peak.check_loss(i, !force).inner_into().map(|()| {
             Self::new(
                 value.scale,
                 value.wavelengths,
@@ -5786,7 +5842,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
             .try_into_3_2(lossless)
             .def_unfail_default()
             .inner_into();
-        ss.zip(a).and_maybe(|(_, applied_gates)| {
+        ss.zip(a).and_maybe(|((), applied_gates)| {
             value
                 .cyt
                 .0
@@ -5832,7 +5888,7 @@ impl ScaleTransform {
         match self {
             Self::Lin(x) => {
                 let mut ret = Tentative::new1(Scale::Linear);
-                if f32::from(x) != 1.0 {
+                if !x.is_one() {
                     ret.push_error_or_warning(IndexedKeyLossError::<Gain>::new(i), !force);
                 }
                 ret
@@ -5902,10 +5958,10 @@ impl TryFrom<(Scale, MaybeValue<Gain>)> for ScaleTransform {
         let scale = value.0;
         let gain = (value.1).0;
         match scale {
-            Scale::Linear => Ok(Self::Lin(gain.map(|g| g.0).unwrap_or(PositiveFloat::one()))),
+            Scale::Linear => Ok(Self::Lin(gain.map_or(PositiveFloat::one(), |g| g.0))),
             Scale::Log(l) => {
                 if let Some(g) = gain
-                    && f32::from(g.0) != 1.0
+                    && !g.0.is_one()
                 {
                     return Err(ScaleTransformError { scale, gain: g });
                 }
@@ -5930,7 +5986,7 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal2_0 {
         value
             .timestep
             .check_conversion(force)
-            .map(|_| Self::new(Some(TemporalScale), value.peak))
+            .map(|()| Self::new(Some(TemporalScale), value.peak))
             .inner_into()
     }
 }
@@ -5990,7 +6046,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_0 {
             .display
             .check_indexed_key_transfer_own::<AnyMeasKeyLossError>(i, !force)
             .inner_into()
-            .map(|_| Self::new(value.timestep, value.peak))
+            .map(|()| Self::new(value.timestep, value.peak))
     }
 }
 
@@ -6042,7 +6098,7 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_1 {
             .measurement_type
             .check_indexed_key_transfer_own::<AnyMeasKeyLossError>(i, !force)
             .inner_into()
-            .map(|_| Self::new(value.timestep, value.display, PeakData::default()))
+            .map(|()| Self::new(value.timestep, value.display, PeakData::default()))
     }
 }
 
@@ -6056,7 +6112,7 @@ impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_2 {
             .peak
             .check_loss(i, !force)
             .inner_into()
-            .map(|_| Self::new(Timestep::default(), None, None))
+            .map(|()| Self::new(Timestep::default(), None, None))
     }
 }
 
@@ -6070,7 +6126,7 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal3_2 {
             .peak
             .check_loss(i, !force)
             .inner_into()
-            .map(|_| Self::new(value.timestep, None, None))
+            .map(|()| Self::new(value.timestep, None, None))
     }
 }
 
@@ -6084,7 +6140,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_2 {
             .peak
             .check_loss(i, !force)
             .inner_into()
-            .map(|_| Self::new(value.timestep, value.display, None))
+            .map(|()| Self::new(value.timestep, value.display, None))
     }
 }
 
@@ -6430,10 +6486,10 @@ impl VersionedOptical for InnerOptical3_0 {
             .wavelength
             .check_indexed_key_transfer(i)
             .map_err(OpticalToTemporalError::Loss);
-        let s = if !self.scale.is_noop() {
-            Err(OpticalNonLinearError.into())
-        } else {
+        let s = if self.scale.is_noop() {
             Ok(())
+        } else {
+            Err(OpticalNonLinearError.into())
         };
         w.zip(s).void()
     }
@@ -6471,10 +6527,10 @@ impl VersionedOptical for InnerOptical3_1 {
             .wavelengths
             .check_indexed_key_transfer(i)
             .map_err(OpticalToTemporalError::Loss);
-        let s = if !self.scale.is_noop() {
-            Err(OpticalNonLinearError.into())
-        } else {
+        let s = if self.scale.is_noop() {
             Ok(())
+        } else {
+            Err(OpticalNonLinearError.into())
         };
         c.zip3(w, s).void()
     }
@@ -6521,10 +6577,10 @@ impl VersionedOptical for InnerOptical3_2 {
             .zip3(w, m)
             .mult_zip3(a.zip(t), n.zip(f))
             .mult_errors_into();
-        let s = if !self.scale.is_noop() {
-            Err(OpticalNonLinearError)
-        } else {
+        let s = if self.scale.is_noop() {
             Ok(())
+        } else {
+            Err(OpticalNonLinearError)
         };
         res.mult_zip(s.into_mult()).void()
     }
@@ -6543,7 +6599,7 @@ impl VersionedTemporal for InnerTemporal2_0 {
             .opt_keywords(i)
             .map(|(_, k, v)| (k, v))
             .chain([self.scale.meas_kw_pair(i)])
-            .flat_map(|(k, v)| v.map(|x| (k, x)))
+            .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
     fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult<(), Self::Err> {
@@ -6570,7 +6626,7 @@ impl VersionedTemporal for InnerTemporal3_0 {
     fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
         self.peak
             .opt_keywords(i)
-            .flat_map(|(_, k, v)| v.map(|x| (k, x)))
+            .filter_map(|(_, k, v)| v.map(|x| (k, x)))
             .chain([TemporalScale.meas_pair(i)])
     }
 
@@ -6600,7 +6656,7 @@ impl VersionedTemporal for InnerTemporal3_1 {
             .opt_keywords(i)
             .map(|(_, k, v)| (k, v))
             .chain([self.display.meas_kw_pair(i)])
-            .flat_map(|(k, v)| v.map(|x| (k, x)))
+            .filter_map(|(k, v)| v.map(|x| (k, x)))
             .chain([TemporalScale.meas_pair(i)])
     }
 
@@ -6628,7 +6684,7 @@ impl VersionedTemporal for InnerTemporal3_2 {
     fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
         [self.display.meas_kw_pair(i)]
             .into_iter()
-            .flat_map(|(k, v)| v.map(|x| (k, x)))
+            .filter_map(|(k, v)| v.map(|x| (k, x)))
             .chain([TemporalScale.meas_pair(i)])
     }
 
@@ -6920,7 +6976,7 @@ impl OpticalFromTemporal<InnerTemporal2_0> for InnerOptical2_0 {
     fn from_temporal(
         t: Temporal<InnerTemporal2_0>,
         i: MeasIndex,
-        _: Self::Loss,
+        (): Self::Loss,
     ) -> PassthruResult<
         (Optical<Self>, Self::TData),
         Box<Temporal<InnerTemporal2_0>>,
@@ -6947,7 +7003,7 @@ impl OpticalFromTemporal<InnerTemporal3_0> for InnerOptical3_0 {
     fn from_temporal(
         t: Temporal<InnerTemporal3_0>,
         i: MeasIndex,
-        _: Self::Loss,
+        (): Self::Loss,
     ) -> PassthruResult<
         (Optical<Self>, Self::TData),
         Box<Temporal<InnerTemporal3_0>>,
@@ -6974,7 +7030,7 @@ impl OpticalFromTemporal<InnerTemporal3_1> for InnerOptical3_1 {
     fn from_temporal(
         t: Temporal<InnerTemporal3_1>,
         i: MeasIndex,
-        _: Self::Loss,
+        (): Self::Loss,
     ) -> PassthruResult<
         (Optical<Self>, Self::TData),
         Box<Temporal<InnerTemporal3_1>>,
@@ -7039,7 +7095,7 @@ impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
 impl TemporalFromOptical<InnerOptical2_0> for InnerTemporal2_0 {
     type TData = ();
 
-    fn from_optical_inner(o: InnerOptical2_0, _: Self::TData) -> Self {
+    fn from_optical_inner(o: InnerOptical2_0, (): Self::TData) -> Self {
         Self::new(o.scale.map(|_| TemporalScale), o.peak)
     }
 }
@@ -7256,7 +7312,7 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
     fn keywords_opt_inner(&self) -> impl Iterator<Item = (String, String)> {
         [self.cyt.root_kw_pair()]
             .into_iter()
-            .flat_map(|(k, v)| v.map(|x| (k, x)))
+            .filter_map(|(k, v)| v.map(|x| (k, x)))
             .chain(self.applied_gates.opt_keywords())
             .chain(self.timestamps.opt_keywords())
             .chain(self.comp.as_ref_opt().map_or(vec![], |c| c.opt_keywords()))
@@ -7321,7 +7377,7 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
             self.unicode.root_kw_pair(),
         ]
         .into_iter()
-        .flat_map(|(k, v)| v.map(|x| (k, x)))
+        .filter_map(|(k, v)| v.map(|x| (k, x)))
         .chain(self.applied_gates.opt_keywords())
         .chain(self.subset.opt_keywords())
         .chain(self.timestamps.opt_keywords())
@@ -7392,7 +7448,7 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
             self.vol.root_kw_pair(),
         ]
         .into_iter()
-        .flat_map(|(k, v)| v.map(|x| (k, x)))
+        .filter_map(|(k, v)| v.map(|x| (k, x)))
         .chain(self.applied_gates.opt_keywords())
         .chain(self.subset.opt_keywords())
         .chain(self.modification.opt_keywords())
@@ -7482,7 +7538,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
             self.flowrate.root_kw_pair(),
         ]
         .into_iter()
-        .flat_map(|(k, v)| v.map(|x| (k, x)))
+        .filter_map(|(k, v)| v.map(|x| (k, x)))
         .chain(self.applied_gates.opt_keywords())
         .chain(self.unstained.opt_keywords())
         .chain(self.modification.opt_keywords())
@@ -7755,7 +7811,7 @@ impl OthersReader<'_> {
     pub(crate) fn h_read<R: Read + Seek>(&self, h: &mut BufReader<R>) -> io::Result<Others> {
         let mut buf = vec![];
         let mut others = vec![];
-        for s in self.segs.iter() {
+        for s in self.segs {
             s.inner.h_read_contents(h, &mut buf)?;
             others.push(Other(buf.clone()));
             buf.clear();

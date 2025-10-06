@@ -22,7 +22,7 @@ pub struct AsciiRange {
 
     /// Number of chars used to express this range.
     ///
-    /// Must be able to hold ['value'] in ASCII digits but can be greater.
+    /// Must be able to hold `value` in ASCII digits but can be greater.
     chars: Chars,
 }
 
@@ -68,7 +68,7 @@ impl AsciiRange {
     pub fn try_new(value: u64, chars: Chars) -> Result<Self, NotEnoughCharsError> {
         let needed = Chars::from_u64(value);
         if chars < needed {
-            Err(NotEnoughCharsError { value, chars })
+            Err(NotEnoughCharsError { chars, value })
         } else {
             Ok(Self { value, chars })
         }
@@ -115,7 +115,7 @@ impl Chars {
         // ASSUME the max possible value is 20 thus will always fit in u8
         Chars(
             x.checked_ilog10()
-                .map(|y| y as u8)
+                .map(|y| u8::try_from(y).unwrap())
                 .and_then(|y| NonZero::new(y + 1))
                 .unwrap_or(NonZeroU8::MIN),
         )

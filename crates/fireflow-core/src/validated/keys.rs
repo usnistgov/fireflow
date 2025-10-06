@@ -1,5 +1,5 @@
 use crate::config::ReadHeaderAndTEXTConfig;
-use crate::error::*;
+use crate::error::{ErrorIter, Leveled, MultiResult, ResultExt};
 use crate::text::index::IndexFromOne;
 
 use derive_more::{AsRef, Display, From};
@@ -26,7 +26,7 @@ use pyo3::prelude::*;
 /// A standard key.
 ///
 /// These may only contain ASCII and must start with "$". The "$" is not
-/// actually stored but will be appended when converting to a ['String'].
+/// actually stored but will be appended when converting to a [`String`].
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, AsRef, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[as_ref(KeyString, str)]
@@ -116,7 +116,7 @@ pub type StdKeywords = HashMap<StdKey, String>;
 pub type NonAsciiPairs = Vec<(String, String)>;
 pub type BytesPairs = Vec<(Vec<u8>, Vec<u8>)>;
 
-/// ['ParsedKeywords'] without the bad stuff
+/// [`ParsedKeywords`] without the bad stuff
 #[derive(Clone, Default, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(
@@ -137,7 +137,7 @@ pub struct MeasHeader(pub String);
 
 /// A regular expression which matches a non-standard measurement key.
 ///
-/// This must be derived from ['NonStdMeasPattern'].
+/// This must be derived from [`NonStdMeasPattern`].
 #[derive(AsRef)]
 #[as_ref(Regex)]
 pub(crate) struct NonStdMeasRegex(CaseInsRegex);
@@ -308,9 +308,7 @@ impl KeyString {
     }
 
     fn from_bytes(xs: &[u8]) -> Self {
-        if xs.is_empty() {
-            panic!("cannot make KeyString with empty slice")
-        }
+        assert!(!xs.is_empty(), "cannot make KeyString with empty slice");
         Self::new(unsafe { String::from_utf8_unchecked(xs.to_vec()) })
     }
 }
@@ -330,7 +328,7 @@ impl TryFrom<HashMap<KeyString, KeyString>> for KeyStringPairs {
 
     fn try_from(value: HashMap<KeyString, KeyString>) -> Result<Self, Self::Error> {
         let mut names = vec![];
-        for (k, v) in value.iter() {
+        for (k, v) in &value {
             if k == v {
                 names.push(k.clone());
             }
@@ -447,7 +445,7 @@ impl FromStr for CaseInsRegex {
 
 impl<T> KeyOrStringPatterns<T> {
     pub fn extend(&mut self, other: Self) {
-        self.0.extend(other.0)
+        self.0.extend(other.0);
     }
 
     #[cfg(feature = "python")]
@@ -481,8 +479,8 @@ impl<T> KeyOrStringPatterns<T> {
         })
     }
 
-    pub(crate) fn as_matcher<'a>(&'a self) -> KeyMatcher<'a, &'a T> {
-        KeyMatcher::from_iter(self.0.iter().map(|(k, v)| (k, v)))
+    pub(crate) fn as_matcher(&self) -> KeyMatcher<'_, &T> {
+        self.0.iter().map(|(k, v)| (k, v)).collect()
     }
 }
 
@@ -552,9 +550,8 @@ impl ParsedKeywords {
                     .collect();
                 if trimmed.is_empty() {
                     return Err(blank_err());
-                } else {
-                    Ok(trimmed)
                 }
+                Ok(trimmed)
             } else {
                 Ok(it.collect())
             }
@@ -565,9 +562,8 @@ impl ParsedKeywords {
                         let trimmed = vv.trim();
                         if trimmed.is_empty() {
                             return Err(blank_err());
-                        } else {
-                            Ok(trimmed.into())
                         }
+                        Ok(trimmed.into())
                     } else {
                         Ok(vv.into())
                     }
@@ -587,49 +583,46 @@ impl ParsedKeywords {
             KeyString::from_bytes_maybe(ss, conf.use_latin1).map(|x| (is_std, x))
         };
 
-        match vv {
-            Ok(value) => {
-                if let Some((is_std, kk)) = parse_key(k) {
-                    if is_std {
-                        // Standard key: starts with '$', check that remaining chars
-                        // are ASCII
-                        if ignore.is_match(&kk) {
-                            Ok(())
-                        } else if to_nonstd.is_match(&kk) {
-                            insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
-                        } else {
-                            let rk = renames.get(&kk).cloned().unwrap_or(kk);
-                            let rv = if let Some(s) = subs.get(&rk) {
-                                s.sub(value.as_str())
-                            } else {
-                                value
-                            };
-                            insert_nonunique(&mut self.std, StdKey(rk), rv, conf)
-                        }
+        if let Ok(value) = vv {
+            if let Some((is_std, kk)) = parse_key(k) {
+                if is_std {
+                    // Standard key: starts with '$', check that remaining chars
+                    // are ASCII
+                    if ignore.is_match(&kk) {
+                        Ok(())
+                    } else if to_nonstd.is_match(&kk) {
+                        insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
                     } else {
-                        // Non-standard key: does not start with '$' but is still
-                        // ASCII
-                        if to_std.is_match(&kk) {
-                            insert_nonunique(&mut self.std, StdKey(kk), value, conf)
+                        let rk = renames.get(&kk).cloned().unwrap_or(kk);
+                        let rv = if let Some(s) = subs.get(&rk) {
+                            s.sub(value.as_str())
                         } else {
-                            insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
-                        }
+                            value
+                        };
+                        insert_nonunique(&mut self.std, StdKey(rk), rv, conf)
                     }
-                } else if let Ok(kk) = String::from_utf8(k.to_vec()) {
-                    // Non-ascii key: these are technically not allowed but save
-                    // them anyways in case the user cares. If key isn't UTF-8
-                    // then give up.
-                    self.non_ascii.push((kk, value));
-                    Ok(())
                 } else {
-                    self.byte_pairs.push((k.to_vec(), value.into()));
-                    Ok(())
+                    // Non-standard key: does not start with '$' but is still
+                    // ASCII
+                    if to_std.is_match(&kk) {
+                        insert_nonunique(&mut self.std, StdKey(kk), value, conf)
+                    } else {
+                        insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
+                    }
                 }
-            }
-            _ => {
-                self.byte_pairs.push((k.to_vec(), v.to_vec()));
+            } else if let Ok(kk) = String::from_utf8(k.to_vec()) {
+                // Non-ascii key: these are technically not allowed but save
+                // them anyways in case the user cares. If key isn't UTF-8
+                // then give up.
+                self.non_ascii.push((kk, value));
+                Ok(())
+            } else {
+                self.byte_pairs.push((k.to_vec(), value.into()));
                 Ok(())
             }
+        } else {
+            self.byte_pairs.push((k.to_vec(), v.to_vec()));
+            Ok(())
         }
     }
 

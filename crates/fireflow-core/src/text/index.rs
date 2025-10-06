@@ -45,21 +45,21 @@ macro_rules! newtype_index {
 }
 
 impl IndexFromOne {
-    pub(crate) fn check_index(&self, len: usize) -> Result<usize, IndexError> {
-        let i = (*self).into();
+    pub(crate) fn check_index(self, len: usize) -> Result<usize, IndexError> {
+        let i = self.into();
         if i < len {
             Ok(i)
         } else {
-            Err(IndexError { index: *self, len })
+            Err(IndexError { index: self, len })
         }
     }
 
-    pub(crate) fn check_boundary_index(&self, len: usize) -> Result<usize, BoundaryIndexError> {
-        let i = (*self).into();
+    pub(crate) fn check_boundary_index(self, len: usize) -> Result<usize, BoundaryIndexError> {
+        let i = self.into();
         if i <= len {
             Ok(i)
         } else {
-            Err(BoundaryIndexError { index: *self, len })
+            Err(BoundaryIndexError { index: self, len })
         }
     }
 }

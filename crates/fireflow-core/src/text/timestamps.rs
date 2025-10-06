@@ -1,10 +1,12 @@
 use crate::config::StdTextReadConfig;
-use crate::error::*;
-use crate::validated::keys::*;
+use crate::error::ResultExt;
+use crate::validated::keys::StdKeywords;
 use crate::validated::timepattern::ParseWithTimePatternError;
 
-use super::optional::*;
-use super::parser::*;
+use super::optional::MaybeValue;
+use super::parser::{
+    FromStrStateful, LookupOptional, LookupTentative, OptMetarootKey, ParseOptKeyError,
+};
 
 use chrono::{NaiveDate, NaiveTime, Timelike};
 use derive_more::{AsRef, Display, From, FromStr, Into};
@@ -63,7 +65,7 @@ where
     type Err = FCSFixedTimeError<<T as FromStr>::Err>;
     type Payload<'a> = ();
 
-    fn from_str_st<'a>(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_st<'a>(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         let ret = if let Some(pat) = conf.time_pattern.as_ref() {
             pat.parse_str(s)?.into()
         } else {
@@ -218,7 +220,7 @@ impl<X> Timestamps<X> {
             MaybeValue(self.date).root_kw_pair(),
         ]
         .into_iter()
-        .flat_map(|(k, v)| v.map(|x| (k, x)))
+        .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 }
 
@@ -236,7 +238,7 @@ impl FromStrStateful for FCSDate {
     type Err = FCSDateError;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         if let Some(pattern) = &conf.date_pattern {
             Self::parse_with_pattern(s, pattern.as_ref())
         } else {
@@ -306,7 +308,7 @@ impl FromStr for FCSTime60 {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         NaiveTime::parse_from_str(s, "%H:%M:%S")
-            .or_else(|_| match s.split(":").collect::<Vec<_>>()[..] {
+            .or_else(|_| match s.split(':').collect::<Vec<_>>()[..] {
                 [s1, s2, s3, s4] => {
                     let hh: u32 = s1.parse().or(Err(FCSTime60Error))?;
                     let mm: u32 = s2.parse().or(Err(FCSTime60Error))?;
@@ -397,7 +399,7 @@ mod tests {
         // TODO should probably avoid stuff like this
         assert_from_to_str_almost::<FCSTime60>("23:58:00:13", "23:58:00:12");
         // this is an overflow
-        assert!("23:58:00:60".parse::<FCSTime60>().is_err())
+        assert!("23:58:00:60".parse::<FCSTime60>().is_err());
     }
 
     #[test]
@@ -405,7 +407,7 @@ mod tests {
         assert_from_to_str_almost::<FCSTime100>("23:58:00", "23:58:00.00");
         assert_from_to_str::<FCSTime100>("23:58:00.30");
         // this is an overflow
-        assert!("23:58:00.100".parse::<FCSTime100>().is_err())
+        assert!("23:58:00.100".parse::<FCSTime100>().is_err());
     }
 }
 

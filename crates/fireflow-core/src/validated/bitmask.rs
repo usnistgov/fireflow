@@ -21,11 +21,11 @@ pub struct Bitmask<T, const LEN: usize> {
     /// This can be any integer up to LEN bits.
     value: T,
 
-    /// The bitmask corresponding to ['range'].
+    /// The bitmask corresponding to `value`.
     ///
     /// Will always be a power of 2 minus 1 (ie, some number of contiguous bits
-    /// in binary). This will be able to hold ['range'] but will mask out any
-    /// bits beyond those needed to express ['range'].
+    /// in binary). This will be able to hold `value` but will mask out any
+    /// bits beyond those needed to express `value`.
     bitmask: T,
 }
 
@@ -124,8 +124,8 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
     {
         // ASSUME number of bits will never exceed 64 (or 255 for that matter)
         // and thus will fit in a u8
-        let native_bits = (std::mem::size_of::<T>() * 8) as u8;
-        let value_bits = native_bits - (value.leading_zeros() as u8);
+        let native_bits = u8::try_from(std::mem::size_of::<T>() * 8).unwrap();
+        let value_bits = native_bits - u8::try_from(value.leading_zeros()).unwrap();
         let truncated = value_bits > Self::bits();
         let bits = value_bits.min(Self::bits());
         let mask = if bits == 0 {
@@ -161,7 +161,8 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
     }
 
     fn bytes() -> u8 {
-        LEN as u8
+        // ASSUME 'LEN' will never exceed 8
+        LEN.try_into().unwrap()
     }
 
     fn bits() -> u8 {
@@ -213,9 +214,9 @@ mod tests {
 
     #[test]
     fn test_int_to_bitmask_max_native() {
-        let x = 65535;
+        let x = 65_535;
         let (b, trunc) = Bitmask::<u16, 2>::from_native(x);
-        assert_eq!((b.value, b.bitmask(), trunc), (65535, 65535, false));
+        assert_eq!((b.value, b.bitmask(), trunc), (65_535, 65_535, false));
     }
 
     #[test]
@@ -234,13 +235,13 @@ mod tests {
     #[test]
     fn test_max_2_byte() {
         let b = Bitmask::<u16, 2>::max();
-        assert_eq!((b.value, b.bitmask()), (65535, 65535));
+        assert_eq!((b.value, b.bitmask()), (65_535, 65_535));
     }
 
     #[test]
     fn test_max_3_byte() {
         let b = Bitmask::<u32, 3>::max();
-        assert_eq!((b.value, b.bitmask()), (16777215, 16777215));
+        assert_eq!((b.value, b.bitmask()), (16_777_215, 16_777_215));
     }
 }
 

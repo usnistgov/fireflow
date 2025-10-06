@@ -207,7 +207,9 @@ macro_rules! byteord_from_sized {
             fn from(value: SizedByteOrd<$len>) -> [NonZeroU8; $len] {
                 let arr = match value {
                     SizedByteOrd::Endian(e) => {
-                        let mut o = std::array::from_fn(|i| i as u8);
+                        // ASSUME this will never fail because we will only
+                        // call this for ints 1-8
+                        let mut o = std::array::from_fn(|i| u8::try_from(i).unwrap());
                         if e == Endian::Big {
                             o.reverse();
                         };
@@ -377,9 +379,10 @@ impl TryFrom<Width> for Bytes {
 impl TryFrom<Width> for BitsOrChars {
     type Error = ();
     fn try_from(value: Width) -> Result<Self, Self::Error> {
-        match value {
-            Width::Fixed(x) => Ok(x),
-            _ => Err(()),
+        if let Width::Fixed(x) = value {
+            Ok(x)
+        } else {
+            Err(())
         }
     }
 }
@@ -398,7 +401,7 @@ impl TryFrom<BitsOrChars> for Bytes {
     /// Return error if bits is not divisible by 8 and within [1,64].
     fn try_from(value: BitsOrChars) -> Result<Self, Self::Error> {
         let x = u8::from(value.0);
-        if (x & 0b111) == 0 {
+        if x.trailing_zeros() >= 3 {
             return (x >> 3).try_into().or(Err(BytesError(x)));
         }
         Err(BytesError(x))
@@ -421,9 +424,7 @@ impl From<Bytes> for BitsOrChars {
 
 impl From<Option<NonZeroU8>> for Width {
     fn from(value: Option<NonZeroU8>) -> Self {
-        value
-            .map(|x| Width::Fixed(BitsOrChars(x)))
-            .unwrap_or(Width::Variable)
+        value.map_or(Width::Variable, |x| Width::Fixed(BitsOrChars(x)))
     }
 }
 
@@ -439,9 +440,10 @@ impl From<Width> for Option<NonZeroU8> {
 impl TryFrom<Width> for NonZeroU8 {
     type Error = ();
     fn try_from(value: Width) -> Result<Self, Self::Error> {
-        match value {
-            Width::Fixed(x) => Ok(x.0),
-            _ => Err(()),
+        if let Width::Fixed(x) = value {
+            Ok(x.0)
+        } else {
+            Err(())
         }
     }
 }
@@ -474,7 +476,7 @@ impl FromStr for ByteOrd2_0 {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let (pass, fail): (Vec<_>, Vec<_>) = s
-            .split(",")
+            .split(',')
             .map(|x| x.parse::<NonZeroU8>())
             .partition_result();
         if fail.is_empty() {
@@ -656,9 +658,9 @@ mod tests {
         assert_eq!(Bytes::B1, Bytes::from_u64(0));
         assert_eq!(Bytes::B1, Bytes::from_u64(255));
         assert_eq!(Bytes::B2, Bytes::from_u64(256));
-        assert_eq!(Bytes::B2, Bytes::from_u64(65535));
-        assert_eq!(Bytes::B3, Bytes::from_u64(65536));
-        assert_eq!(Bytes::B8, Bytes::from_u64(18446744073709551615));
+        assert_eq!(Bytes::B2, Bytes::from_u64(65_535));
+        assert_eq!(Bytes::B3, Bytes::from_u64(65_536));
+        assert_eq!(Bytes::B8, Bytes::from_u64(18_446_744_073_709_551_615));
     }
 }
 

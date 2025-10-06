@@ -1,7 +1,9 @@
-use fireflow_core::api::*;
+use fireflow_core::api::{
+    fcs_read_header, fcs_read_raw_text, fcs_read_std_dataset, fcs_read_std_text,
+};
 use fireflow_core::config;
 use fireflow_core::core::AnyCoreDataset;
-use fireflow_core::error::*;
+use fireflow_core::error::{Terminal, TerminalFailure};
 use fireflow_core::header::Version;
 use fireflow_core::segment::HeaderCorrection;
 use fireflow_core::text::byteord::ByteOrd2_0;
@@ -17,6 +19,7 @@ use std::convert::Infallible;
 use std::fmt::Display;
 use std::path::PathBuf;
 
+#[allow(clippy::too_many_lines)]
 fn main() -> Result<(), ()> {
     let correction_arg = |long: &'static str, help: &'static str| {
         Arg::new(long)
@@ -658,13 +661,13 @@ fn parse_dataset_config(sargs: &ArgMatches) -> config::ReadStdDatasetConfig {
 }
 
 fn parse_offsets_config(sargs: &ArgMatches) -> config::ReadTEXTOffsetsConfig {
-    let td0 = sargs.get_one(TEXT_DATA_COR_BEGIN).copied();
-    let td1 = sargs.get_one(TEXT_DATA_COR_END).copied();
-    let text_data_correction = (td0, td1).into();
+    let data_corr0 = sargs.get_one(TEXT_DATA_COR_BEGIN).copied();
+    let data_corr1 = sargs.get_one(TEXT_DATA_COR_END).copied();
+    let text_data_correction = (data_corr0, data_corr1).into();
 
-    let ta0 = sargs.get_one(TEXT_ANALYSIS_COR_BEGIN).copied();
-    let ta1 = sargs.get_one(TEXT_ANALYSIS_COR_END).copied();
-    let text_analysis_correction = (ta0, ta1).into();
+    let anal_corr0 = sargs.get_one(TEXT_ANALYSIS_COR_BEGIN).copied();
+    let anal_corr1 = sargs.get_one(TEXT_ANALYSIS_COR_END).copied();
+    let text_analysis_correction = (anal_corr0, anal_corr1).into();
 
     config::ReadTEXTOffsetsConfig {
         text_data_correction,
@@ -730,9 +733,7 @@ pub fn print_parsed_data(core: &AnyCoreDataset, delim: &str) {
     for r in 0..nrows {
         println!();
         print!("{}", cols[0].pos_to_string(r));
-        (1..ncols)
-            .map(|c| print!("{delim}{}", cols[c].pos_to_string(r)))
-            .collect()
+        (1..ncols).for_each(|c| print!("{delim}{}", cols[c].pos_to_string(r)));
     }
 }
 
@@ -749,7 +750,7 @@ where
     W: Display,
 {
     for w in ws {
-        eprintln!("WARNING: {}", w)
+        eprintln!("WARNING: {w}");
     }
 }
 

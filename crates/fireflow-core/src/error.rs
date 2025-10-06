@@ -141,7 +141,7 @@ pub(crate) trait ErrorIter<T, E>: Iterator<Item = Result<T, E>> + Sized {
             }
         }
         if let Some(h) = error_head {
-            let tail = self.flat_map(|x| x.err()).collect();
+            let tail = self.filter_map(|x| x.err()).collect();
             Err((h, tail).into())
         } else {
             Ok(pass)
@@ -337,11 +337,11 @@ impl<V, W, E> Tentative<V, W, E> {
     }
 
     pub fn push_warning(&mut self, x: impl Into<W>) {
-        self.warnings.push(x.into())
+        self.warnings.push(x.into());
     }
 
     pub fn push_error(&mut self, x: impl Into<E>) {
-        self.errors.push(x.into())
+        self.errors.push(x.into());
     }
 
     pub fn push_error_or_warning<X>(&mut self, x: X, is_error: bool)
@@ -367,11 +367,11 @@ impl<V, W, E> Tentative<V, W, E> {
     }
 
     pub fn extend_warnings(&mut self, xs: impl Iterator<Item = impl Into<W>>) {
-        self.warnings.extend(xs.map(|x| x.into()))
+        self.warnings.extend(xs.map(|x| x.into()));
     }
 
     pub fn extend_errors(&mut self, xs: impl Iterator<Item = impl Into<E>>) {
-        self.errors.extend(xs.map(|x| x.into()))
+        self.errors.extend(xs.map(|x| x.into()));
     }
 
     pub fn and_finally<F, X, T>(mut self, mut f: F) -> TerminalResult<X, W, E, T>
@@ -442,10 +442,11 @@ impl<V, W, E> Tentative<V, W, E> {
         }
     }
 
-    pub fn eval_errors<F, X>(&mut self, f: F)
+    pub fn eval_errors<F, X, I>(&mut self, f: F)
     where
         E: From<X>,
-        F: FnOnce(&V) -> Vec<X>,
+        F: FnOnce(&V) -> I,
+        I: IntoIterator<Item = X>,
     {
         self.errors
             .extend(f(&self.value).into_iter().map(|x| x.into()));
@@ -668,11 +669,11 @@ impl<V: Default, W> Default for Terminal<V, W> {
 
 impl<P, W, E> DeferredFailure<P, W, E> {
     pub fn push_warning(&mut self, x: impl Into<W>) {
-        self.warnings.push(x.into())
+        self.warnings.push(x.into());
     }
 
     pub fn push_error(&mut self, x: impl Into<E>) {
-        self.errors.push(x.into())
+        self.errors.push(x.into());
     }
 
     pub fn push_error_or_warning<X>(&mut self, x: X, is_error: bool)
@@ -810,14 +811,17 @@ impl<W, E> DeferredFailure<(), W, E> {
         Self::new([], errors, ())
     }
 
-    pub fn mappend(mut self, other: Self) -> Self {
+    pub fn mappend(&mut self, other: Self) {
         self.warnings.extend(other.warnings);
         self.errors.extend(*other.errors);
-        Self::new(self.warnings, self.errors, ())
     }
 
     pub fn mconcat(es: NonEmpty<Self>) -> Self {
-        es.tail.into_iter().fold(es.head, |acc, x| acc.mappend(x))
+        let mut acc = es.head;
+        for x in es.tail {
+            acc.mappend(x);
+        }
+        acc
     }
 
     pub fn terminate<T>(self, reason: T) -> TerminalFailure<W, E, T> {
@@ -1184,9 +1188,9 @@ pub trait PassthruExt: Sized {
         X: Into<Self::W> + Into<Self::E>,
     {
         if is_error {
-            self.def_push_error(x)
+            self.def_push_error(x);
         } else {
-            self.def_push_warning(x)
+            self.def_push_warning(x);
         }
     }
 
@@ -1239,7 +1243,7 @@ impl<V, P, W, E> PassthruExt for PassthruResult<V, P, W, E> {
         F: FnOnce(&Self::V) -> Option<X>,
     {
         if let Ok(tnt) = self.as_mut() {
-            tnt.eval_error(f)
+            tnt.eval_error(f);
         }
     }
 
@@ -1249,7 +1253,7 @@ impl<V, P, W, E> PassthruExt for PassthruResult<V, P, W, E> {
         F: FnOnce(&Self::V) -> Option<X>,
     {
         if let Ok(tnt) = self.as_mut() {
-            tnt.eval_warning(f)
+            tnt.eval_warning(f);
         }
     }
 
@@ -1446,9 +1450,9 @@ where
         X: Into<Self::W> + Into<Self::InnerE>,
     {
         if is_error {
-            self.def_push_error(ImpureError::Pure(x.into()))
+            self.def_push_error(ImpureError::Pure(x.into()));
         } else {
-            self.def_push_warning(x)
+            self.def_push_warning(x);
         }
     }
 }

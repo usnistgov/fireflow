@@ -1,20 +1,46 @@
-use crate::config::*;
-use crate::core::*;
-use crate::data::*;
-use crate::error::*;
-use crate::header::*;
+use crate::config::{
+    HeaderConfigInner, ReadHeaderAndTEXTConfig, ReadHeaderConfig, ReadLayoutConfig,
+    ReadRawDatasetConfig, ReadRawDatasetFromKeywordsConfig, ReadRawTEXTConfig, ReadState,
+    ReadStdDatasetConfig, ReadStdDatasetFromKeywordsConfig, ReadStdTEXTConfig,
+    ReadTEXTOffsetsConfig, ReaderConfig, StdTextReadConfig,
+};
+use crate::core::{
+    Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
+    LookupAndReadDataAnalysisWarning, Others, OthersReader, StdDatasetFromRawError,
+    StdDatasetFromRawWarning, StdDatasetWithKwsFailure, StdDatasetWithKwsOutput,
+    StdTEXTFromRawError, StdTEXTFromRawWarning, Versioned,
+};
+use crate::data::{NewDataReaderError, NewDataReaderWarning, RawToLayoutError, RawToLayoutWarning};
+use crate::error::{
+    DeferredExt, DeferredFailure, DeferredResult, IODeferredExt, IODeferredResult,
+    IOTerminalResult, ImpureError, Leveled, MultiResultExt, PassthruExt, ResultExt, Tentative,
+};
+use crate::header::{
+    Header, HeaderError, HeaderSegments, HeaderValidationError, Version, Version2_0, Version3_0,
+    Version3_1, Version3_2,
+};
 use crate::macros::def_failure;
-use crate::segment::*;
-use crate::text::keywords::*;
-use crate::text::parser::*;
+use crate::segment::{
+    HeaderAnalysisSegment, HeaderDataSegment, KeyedOptSegment, KeyedReqSegment, NewSegmentConfig,
+    OptSegmentError, OtherSegment20, PrimaryTextSegment, ReqSegmentError, SupplementalTextSegment,
+};
+use crate::text::keywords::{Beginstext, Endstext, Nextdata, Tot};
+use crate::text::parser::{
+    get_opt, get_req, truncate_string, ExtraStdKeywords, OptKeyError, ReqKeyError,
+};
 use crate::validated::ascii_uint::UintSpacePad20;
 use crate::validated::dataframe::FCSDataFrame;
-use crate::validated::keys::*;
+use crate::validated::keys::{
+    BlankValueError, BytesPairs, Key, KeywordInsertError, NonAsciiPairs, ParsedKeywords,
+    StdKeywords, ValidKeywords,
+};
 
 use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Itertools;
 use nonempty::NonEmpty;
+use thiserror::Error;
+
 use std::convert::Infallible;
 use std::fmt;
 use std::fs;
@@ -22,7 +48,6 @@ use std::io::{BufReader, Read, Seek};
 use std::num::NonZeroUsize;
 use std::num::ParseIntError;
 use std::path;
-use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -117,7 +142,7 @@ pub fn fcs_read_raw_dataset_with_keywords(
     std: &StdKeywords,
     data_seg: HeaderDataSegment,
     analysis_seg: HeaderAnalysisSegment,
-    other_segs: Vec<OtherSegment20>,
+    other_segs: &[OtherSegment20],
     conf: &ReadRawDatasetFromKeywordsConfig,
 ) -> IOTerminalResult<
     RawDatasetWithKwsOutput,
@@ -135,7 +160,7 @@ pub fn fcs_read_raw_dataset_with_keywords(
                 std,
                 data_seg,
                 analysis_seg,
-                &other_segs[..],
+                other_segs,
                 &st,
             )
         })
@@ -151,7 +176,7 @@ pub fn fcs_read_std_dataset_with_keywords(
     kws: ValidKeywords,
     data_seg: HeaderDataSegment,
     analysis_seg: HeaderAnalysisSegment,
-    other_segs: Vec<OtherSegment20>,
+    other_segs: &[OtherSegment20],
     conf: &ReadStdDatasetFromKeywordsConfig,
 ) -> IOTerminalResult<
     (AnyCoreDataset, StdDatasetWithKwsOutput),
@@ -169,7 +194,7 @@ pub fn fcs_read_std_dataset_with_keywords(
                 kws,
                 data_seg,
                 analysis_seg,
-                &other_segs[..],
+                other_segs,
                 &st,
             )
             .def_map_value(|(core, extra, dataset_segments)| {
@@ -188,7 +213,7 @@ pub fn fcs_read_std_dataset_with_keywords(
 }
 
 /// Output from parsing the TEXT segment.
-#[derive(Clone, new, PartialEq)]
+#[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct RawTEXTOutput {
     /// FCS version
@@ -554,7 +579,7 @@ impl RawTEXTOutput {
             .def_and_maybe(|mut header| {
                 let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
                 if let Some(v) = conf.version_override {
-                    header.version = v
+                    header.version = v;
                 }
                 h_read_raw_text_from_header(h, header, st).def_map_errors(|e| e.inner_into())
             })
@@ -676,7 +701,7 @@ where
             split_raw_primary_text(kws, delim, bytes, conf)
                 .def_inner_into()
                 .def_errors_liftio()
-                .def_map_value(|_kws| (delim, _kws))
+                .def_map_value(|kws_| (delim, kws_))
         })
         .def_and_maybe(|(delim, mut kws)| {
             if conf.ignore_supp_text {
@@ -687,21 +712,19 @@ where
                 Ok(Tentative::new1((delim, kws, None)))
             } else {
                 lookup_stext_offsets(&mut kws.std, header.version, ptext_seg, st)
-                    .errors_into()
+                    .inner_into()
                     .errors_liftio()
-                    .warnings_into()
-                    .map(|s| (s, kws))
-                    .and_maybe(|(maybe_supp_seg, _kws)| {
+                    .and_maybe(|maybe_supp_seg| {
                         let tnt_supp_kws = if let Some(seg) = maybe_supp_seg {
                             buf.clear();
                             seg.inner
                                 .h_read_contents(h, &mut buf)
                                 .map_err(DeferredFailure::new1)?;
-                            split_raw_supp_text(_kws, delim, &buf, conf)
+                            split_raw_supp_text(kws, delim, &buf, conf)
                                 .inner_into()
                                 .errors_liftio()
                         } else {
-                            Tentative::new1(_kws)
+                            Tentative::new1(kws)
                         };
                         Ok(tnt_supp_kws.map(|k| (delim, k, maybe_supp_seg)))
                     })
@@ -709,7 +732,7 @@ where
         });
 
     let repair_res = kws_res.def_and_tentatively(|(delim, mut kws, supp_text_seg)| {
-        append_keywords(&mut kws, conf)
+        kws.append_std(&conf.append_standard_keywords, conf.allow_nonunique)
             .map_or_else(
                 |es| {
                     Leveled::many_to_tentative(es.into())
@@ -721,73 +744,34 @@ where
                         .inner_into()
                         .errors_liftio()
                 },
-                |_| Tentative::default(),
+                |()| Tentative::default(),
             )
-            .map(|_| (delim, kws, supp_text_seg))
+            .map(|()| (delim, kws, supp_text_seg))
     });
 
     repair_res.def_and_tentatively(|(delimiter, kws, supp_text_seg)| {
         let mut tnt_parse = lookup_nextdata(&kws.std, conf.allow_missing_nextdata)
             .errors_into::<ParseRawTEXTError>()
-            .map(|nextdata| RawTEXTParseData {
-                header_segments: header.segments,
-                supp_text: supp_text_seg,
-                nextdata,
-                delimiter,
-                non_ascii: kws.non_ascii,
-                byte_pairs: kws.byte_pairs,
+            .map(|nextdata| {
+                RawTEXTParseData::new(
+                    header.segments,
+                    supp_text_seg,
+                    nextdata,
+                    delimiter,
+                    kws.non_ascii,
+                    kws.byte_pairs,
+                )
             });
 
-        // throw errors if we found any non-ascii keywords and we want to know
-        tnt_parse.eval_errors(|pd| {
-            if conf.allow_non_ascii_keywords {
-                vec![]
-            } else {
-                pd.non_ascii
-                    .iter()
-                    .map(|(k, _)| NonAsciiKeyError(k.clone()))
-                    .collect()
-            }
-        });
+        tnt_parse.eval_errors(|v| v.as_non_ascii_errors(conf));
+        tnt_parse.eval_errors(|v| v.as_byte_errors(conf));
+        tnt_parse.eval_errors(|v| v.as_overlapping_segment_error());
 
-        // throw errors if we found any non-utf8 keywords and we want to know
-        tnt_parse.eval_errors(|pd| {
-            if conf.allow_non_utf8 {
-                vec![]
-            } else {
-                pd.byte_pairs
-                    .iter()
-                    .map(|(k, v)| NonUtf8KeywordError {
-                        key: k.clone(),
-                        value: v.clone(),
-                    })
-                    .collect()
-            }
-        });
-
-        // throw errors if the supp text segment overlaps with HEADER or
-        // anything else
-        tnt_parse.eval_errors(|pd| {
-            if let Some(s) = pd.supp_text {
-                let x = pd.header_segments.contains_text_segment(s).into_mult();
-                let y = pd.header_segments.overlaps_with(s).mult_errors_into();
-                x.mult_zip(y)
-                    .mult_map_errors(Box::new)
-                    .err()
-                    .map(|n| n.into())
-                    .unwrap_or_default()
-            } else {
-                vec![]
-            }
-        });
+        let vkws = ValidKeywords::new(kws.std, kws.nonstd);
 
         tnt_parse
             .inner_into()
-            .map(|parse| RawTEXTOutput {
-                version: header.version,
-                parse,
-                keywords: ValidKeywords::new(kws.std, kws.nonstd),
-            })
+            .map(|parse| RawTEXTOutput::new(header.version, vkws, parse))
             .errors_liftio()
     })
 }
@@ -942,9 +926,9 @@ fn split_raw_text_escaped_delim(
 ) -> Tentative<ParsedKeywords, ParseKeywordsIssue, ParseKeywordsIssue> {
     let mut ews = (vec![], vec![]);
 
-    let push_issue = |_ews: &mut (Vec<_>, Vec<_>), is_warning, error: ParseKeywordsIssue| {
-        let warnings = &mut _ews.0;
-        let errors = &mut _ews.1;
+    let push_issue = |ews_: &mut (Vec<_>, Vec<_>), is_warning, error: ParseKeywordsIssue| {
+        let warnings = &mut ews_.0;
+        let errors = &mut ews_.1;
         if is_warning {
             warnings.push(error);
         } else {
@@ -952,11 +936,11 @@ fn split_raw_text_escaped_delim(
         }
     };
 
-    let mut push_pair = |_ews: &mut (Vec<_>, Vec<_>), kb: &Vec<_>, vb: &Vec<_>| {
+    let mut push_pair = |ews_: &mut (Vec<_>, Vec<_>), kb: &Vec<_>, vb: &Vec<_>| {
         if let Err(lvl) = kws.insert(kb, vb, conf) {
             match lvl.inner_into() {
-                Leveled::Error(e) => push_issue(_ews, false, e),
-                Leveled::Warning(w) => push_issue(_ews, true, w),
+                Leveled::Error(e) => push_issue(ews_, false, e),
+                Leveled::Warning(w) => push_issue(ews_, true, w),
             }
         }
     };
@@ -1005,15 +989,15 @@ fn split_raw_text_escaped_delim(
                 // delimiters to whatever the current word is. Then push to
                 // key or value
                 push_delim(&mut keybuf, &mut valuebuf, consec_blanks);
-                if !valuebuf.is_empty() {
-                    valuebuf.extend_from_slice(segment);
-                } else {
+                if valuebuf.is_empty() {
                     keybuf.extend_from_slice(segment);
+                } else {
+                    valuebuf.extend_from_slice(segment);
                 }
             }
             consec_blanks = 0;
         }
-        lastbuf = segment
+        lastbuf = segment;
     }
 
     // If all went perfectly, we should have one consecutive blank at this point
@@ -1072,13 +1056,6 @@ fn split_raw_text_escaped_delim(
     Tentative::new(kws, ews.0, ews.1)
 }
 
-fn append_keywords(
-    kws: &mut ParsedKeywords,
-    conf: &ReadHeaderAndTEXTConfig,
-) -> MultiResult<(), Leveled<StdPresent>> {
-    kws.append_std(&conf.append_standard_keywords, conf.allow_nonunique)
-}
-
 fn lookup_stext_offsets<C>(
     kws: &mut StdKeywords,
     version: Version,
@@ -1103,7 +1080,7 @@ where
         Version::FCS3_2 => KeyedOptSegment::get(kws, &seg_conf).warnings_into(),
     }
     .and_tentatively(|x| {
-        x.map(|seg| {
+        x.map_or(Tentative::default(), |seg| {
             if seg.inner.as_u64() == text_segment.inner.as_u64() {
                 Tentative::new_either(
                     None,
@@ -1114,7 +1091,6 @@ where
                 Tentative::new1(Some(seg))
             }
         })
-        .unwrap_or(Tentative::new1(None))
     })
 }
 
@@ -1136,10 +1112,52 @@ fn lookup_nextdata(
     }
 }
 
+impl RawTEXTParseData {
+    fn as_non_ascii_errors(&self, conf: &ReadHeaderAndTEXTConfig) -> Vec<NonAsciiKeyError> {
+        if conf.allow_non_ascii_keywords {
+            vec![]
+        } else {
+            self.non_ascii
+                .iter()
+                .map(|(k, _)| NonAsciiKeyError(k.clone()))
+                .collect()
+        }
+    }
+
+    fn as_byte_errors(&self, conf: &ReadHeaderAndTEXTConfig) -> Vec<NonUtf8KeywordError> {
+        if conf.allow_non_utf8 {
+            vec![]
+        } else {
+            self.byte_pairs
+                .iter()
+                .cloned()
+                .map(|(key, value)| NonUtf8KeywordError { key, value })
+                .collect()
+        }
+    }
+
+    fn as_overlapping_segment_error(&self) -> Vec<ParseRawTEXTError> {
+        if let Some(s) = self.supp_text {
+            let x = self
+                .header_segments
+                .contains_text_segment(&s)
+                .into_mult::<HeaderValidationError>();
+            let y = self.header_segments.overlaps_with(&s).mult_errors_into();
+            x.mult_zip(y)
+                .mult_map_errors(|e| ParseRawTEXTError::from(Box::new(e)))
+                .err()
+                .map(Vec::from)
+                .unwrap_or_default()
+        } else {
+            vec![]
+        }
+    }
+}
+
 impl fmt::Display for FinalDelimError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let n = self.bytes.len();
         const MAX_FINAL_BYTES: usize = 20;
+        let n = self.bytes.len();
         let xs: Vec<_> = self.bytes.iter().copied().take(MAX_FINAL_BYTES).collect();
         let (what, s) = if let Ok(s) = str::from_utf8(&xs[..]) {
             ("string", format!("'{s}'"))
@@ -1152,7 +1170,7 @@ impl fmt::Display for FinalDelimError {
         {
             format!(" ({diff} more)")
         } else {
-            "".to_string()
+            String::new()
         };
         write!(
             f,
@@ -1225,7 +1243,7 @@ mod tests {
         let es = out.errors();
         let ws = out.warnings();
         assert_eq!(("$P4F".to_string(), "700/75 BP".to_string()), v);
-        assert!(es.is_empty(), "errors: {:?}", es);
-        assert!(ws.is_empty(), "warnings: {:?}", ws);
+        assert!(es.is_empty(), "errors: {es:?}");
+        assert!(ws.is_empty(), "warnings: {ws:?}");
     }
 }

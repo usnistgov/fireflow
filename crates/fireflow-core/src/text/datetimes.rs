@@ -1,10 +1,10 @@
 use crate::config::StdTextReadConfig;
 use crate::core::{AnyMetarootKeyLossError, UnitaryKeyLossError};
-use crate::error::*;
-use crate::validated::keys::*;
+use crate::error::{BiTentative, ResultExt, Tentative};
+use crate::validated::keys::StdKeywords;
 
-use super::optional::*;
-use super::parser::*;
+use super::optional::MaybeValue;
+use super::parser::{LookupTentative, OptMetarootKey};
 
 use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeZone};
 use derive_more::{AsRef, Display, From, FromStr, Into};
@@ -101,7 +101,7 @@ impl Datetimes {
             MaybeValue(self.end).root_kw_pair(),
         ]
         .into_iter()
-        .flat_map(|(k, v)| v.map(|x| (k, x)))
+        .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
     pub(crate) fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {

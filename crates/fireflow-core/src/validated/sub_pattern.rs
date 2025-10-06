@@ -47,11 +47,11 @@ impl SubPattern {
         };
         for n in from.capture_names().flatten() {
             key = format!("${{{n}}}");
-            blank_match(key.as_str())
+            blank_match(key.as_str());
         }
         for i in 0..from.captures_len() {
             key = format!("${{{i}}}");
-            blank_match(key.as_str())
+            blank_match(key.as_str());
         }
         let mut ndollar = 0;
         for &c in tmp.as_bytes() {
@@ -60,7 +60,7 @@ impl SubPattern {
             } else if ndollar & 1 == 1 {
                 break;
             } else {
-                ndollar = 0
+                ndollar = 0;
             }
         }
         if ndollar & 1 == 1 {

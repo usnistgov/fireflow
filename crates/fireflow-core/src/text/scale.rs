@@ -1,7 +1,7 @@
 use crate::config::StdTextReadConfig;
-use crate::error::*;
-use crate::text::parser::*;
-use crate::text::ranged_float::*;
+use crate::error::ResultExt;
+use crate::text::parser::{FromStrDelim, FromStrStateful};
+use crate::text::ranged_float::PositiveFloat;
 
 use derive_more::Display;
 use num_traits::identities::One;
@@ -60,7 +60,7 @@ impl FromStrStateful for Scale {
     type Err = ScaleError;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         let res = Self::from_str_delim(s, conf.trim_intra_value_whitespace);
         if conf.fix_log_scale_offsets {
             res.or_else(|e| {

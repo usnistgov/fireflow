@@ -49,25 +49,48 @@
 //! can compute $TOT using $PnB and the length of DATA.
 
 use crate::config::{ReadLayoutConfig, ReaderConfig, StdTextReadConfig};
-use crate::core::*;
-use crate::error::*;
+use crate::core::{AsScaleTransform, LayoutConvertResult, Measurements, ScaleTransform};
+use crate::error::{
+    BiTentative, DeferredExt, DeferredFailure, DeferredResult, ErrorIter, IODeferredResult,
+    IOResult, ImpureError, MultiResult, MultiResultExt, PassthruExt, ResultExt, Tentative,
+};
 use crate::macros::match_many_to_one;
 use crate::nonempty::FCSNonEmpty;
-use crate::segment::*;
-use crate::text::byteord::*;
-use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
-use crate::text::index::{IndexFromOne, MeasIndex};
-use crate::text::keywords::*;
-use crate::text::optional::{MaybeValue, MightHave};
-use crate::text::parser::*;
-use crate::validated::ascii_range;
-use crate::validated::ascii_range::{AsciiRange, Chars};
-use crate::validated::bitmask::{
-    Bitmask, Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56,
-    Bitmask64, BitmaskError, BitmaskLossError,
+use crate::segment::{
+    AnyDataSegment, DataSegmentId, ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning,
+    SegmentMismatchWarning,
 };
-use crate::validated::dataframe::*;
-use crate::validated::keys::*;
+
+use crate::text::{
+    byteord::{
+        BitsOrChars, ByteOrd2_0, ByteOrd3_1, ByteOrdToSizedEndianError, ByteOrdToSizedError, Bytes,
+        Endian, HasByteOrd, NewEndianError, NoByteOrd, NoByteOrd3_1, OrderedToEndianError,
+        ParseByteOrdError, SizedByteOrd, Width, WidthToBytesError,
+    },
+    float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds},
+    index::{IndexFromOne, MeasIndex},
+    keywords::{
+        AlphaNumType, AlphaNumTypeError, IntRangeError, NumType, NumTypeError, Par, Range, Tot,
+    },
+    optional::{MaybeValue, MightHave},
+    parser::{
+        LookupKeysError, LookupKeysWarning, LookupResult, LookupTentative, OptIndexedKey,
+        OptKeyError, ReqIndexedKey, ReqKeyError, ReqMetarootKey,
+    },
+};
+
+use crate::validated::{
+    ascii_range::{AsciiRange, Chars, NewAsciiRangeError},
+    bitmask::{
+        Bitmask, Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56,
+        Bitmask64, BitmaskError, BitmaskLossError,
+    },
+    dataframe::{
+        AllFCSCast, AnyFCSColumn, CastResult, FCSColIter, FCSColumn, FCSDataFrame, FCSDataType,
+        LossError,
+    },
+    keys::{IndexedKey, MeasHeader, StdKeywords},
+};
 
 use ambassador::{delegatable_trait, Delegate};
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
@@ -76,6 +99,8 @@ use derive_new::new;
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use num_traits::PrimInt;
+use thiserror::Error;
+
 use std::convert::Infallible;
 use std::fmt;
 use std::io;
@@ -85,7 +110,6 @@ use std::mem;
 use std::num::NonZeroU8;
 use std::num::ParseIntError;
 use std::str;
-use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -431,8 +455,8 @@ pub trait TotDefinition {
         Self::with_tot(
             (),
             tot,
-            |_, t| Self::check_tot_inner(total_events, t, allow_mismatch),
-            |_| Tentative::new1(()),
+            |(), t| Self::check_tot_inner(total_events, t, allow_mismatch),
+            |()| Tentative::new1(()),
         )
     }
 
@@ -441,11 +465,13 @@ pub trait TotDefinition {
         tot: Tot,
         allow_mismatch: bool,
     ) -> BiTentative<(), TotEventMismatch> {
-        if tot.0 != (total_events as usize) {
+        let count = usize::try_from(total_events)
+            .expect("event count exceeded maximum platform pointer size");
+        if tot.0 == count {
+            Tentative::new1(())
+        } else {
             let i = TotEventMismatch { tot, total_events };
             Tentative::new_either((), vec![i], !allow_mismatch)
-        } else {
-            Tentative::new1(())
         }
     }
 }
@@ -638,9 +664,10 @@ where
         // is wrong.
         let par = self.ncols();
         let ncols = df.ncols();
-        if ncols != par {
-            panic!("datafame columns ({ncols}) unequal to number of measurements ({par})");
-        }
+        debug_assert!(
+            ncols == par,
+            "dataframe columns ({ncols}) unequal to number of measurements ({par})"
+        );
         self.h_write_df_inner(h, df, skip_conv_check)
     }
 
@@ -2246,12 +2273,13 @@ where
         _: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
         let rs = &self.ranges;
-        let nbytes = seg.inner.len() as usize;
+        let nbytes = usize::try_from(seg.inner.len())
+            .expect("DATA segment size exceeded platform pointer size");
         T::with_tot(
             h,
             tot,
-            |_h, t| h_read_delim_with_rows(rs, _h, t, nbytes).map_err(|e| e.inner_into()),
-            |_h| h_read_delim_without_rows(rs, _h, nbytes).map_err(|e| e.inner_into()),
+            |h_, t| h_read_delim_with_rows(rs, h_, t, nbytes).map_err(|e| e.inner_into()),
+            |h_| h_read_delim_without_rows(rs, h_, nbytes).map_err(|e| e.inner_into()),
         )
         .into_deferred()
     }
@@ -2362,7 +2390,7 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
     }
 
     fn clear(&mut self) {
-        self.ranges.clear()
+        self.ranges.clear();
     }
 }
 
@@ -2469,11 +2497,11 @@ fn h_read_delim_without_rows<R: Read>(
     }
     let mut col = 0;
     let mut last_was_delim = false;
-    let go = |_data: &mut Vec<Vec<u64>>, _col: usize, _buf: &[u8]| {
-        ascii_to_uint(_buf)
+    let go = |data_: &mut Vec<Vec<u64>>, col_: usize, buf_: &[u8]| {
+        ascii_to_uint(buf_)
             .map_err(ReadDelimAsciiWithoutRowsError::Parse)
             .map_err(ImpureError::Pure)
-            .map(|x| _data[_col].push(x))
+            .map(|x| data_[col_].push(x))
     };
     // Delimiters are tab, newline, carriage return, space, or comma. Any
     // consecutive delimiter counts as one, and delimiters can be mixed.
@@ -2588,11 +2616,13 @@ where
             .errors_liftio()
             .and_maybe(|nrows| {
                 if let Some(n) = nrows {
+                    let nn = usize::try_from(n)
+                        .expect("number of rows exceeded maximum platform pointer size");
                     T::check_tot(n, tot, conf.allow_tot_mismatch)
                         .inner_into()
                         .errors_liftio()
-                        .and_maybe(|_| {
-                            self.h_read_unchecked_df(h, n as usize, buf)
+                        .and_maybe(|()| {
+                            self.h_read_unchecked_df(h, nn, buf)
                                 .map_err(|e| e.inner_into())
                                 .into_deferred()
                         })
@@ -2632,7 +2662,7 @@ where
             .map(|(col_type, col_data)| col_type.clone().into_writer(col_data))
             .collect();
         for _ in 0..nrows {
-            for c in cs.iter_mut() {
+            for c in &mut cs {
                 c.h_write(h, self.byte_layout).into_deferred()?;
             }
         }
@@ -2647,7 +2677,7 @@ where
         } else {
             cs.iter()
                 .enumerate()
-                .flat_map(|(i, c)| c.as_err(i.into()))
+                .filter_map(|(i, c)| c.as_err(i.into()))
                 .collect()
         };
         Ok(Tentative::new((), ws, []))
@@ -2673,7 +2703,7 @@ where
         let ws = warnings
             .into_iter()
             .enumerate()
-            .flat_map(|(i, e)| e.map(|f| ColumnError::new(i, f)));
+            .filter_map(|(i, e)| e.map(|f| ColumnError::new(i, f)));
         Tentative::new(FCSDataFrame::try_new(new_columns).unwrap(), ws, [])
     }
 }
@@ -2714,7 +2744,7 @@ where
     }
 
     fn clear(&mut self) {
-        self.columns.clear()
+        self.columns.clear();
     }
 }
 
@@ -2790,7 +2820,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             .map(|c| c.clone().into_reader(nrows))
             .collect();
         for row in 0..nrows {
-            for c in col_readers.iter_mut() {
+            for c in &mut col_readers {
                 c.h_read(h, row, self.byte_layout, buf)
                     .map_err(|e| e.inner_into())?;
             }
@@ -2803,11 +2833,11 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
     }
 
     fn insert_column(&mut self, index: MeasIndex, col: C) {
-        self.columns.insert(index.into(), col)
+        self.columns.insert(index.into(), col);
     }
 
     fn push_column(&mut self, col: C) {
-        self.columns.push(col)
+        self.columns.push(col);
     }
 
     fn columns_into<X>(self) -> FixedLayout<X, S, T, D>
@@ -2879,7 +2909,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         };
         let mut tnt = Tentative::new1(t);
         if let Some(err) = e {
-            tnt.push_error_or_warning(err, !conf.allow_uneven_event_width)
+            tnt.push_error_or_warning(err, !conf.allow_uneven_event_width);
         }
         tnt
     }
@@ -3309,7 +3339,7 @@ impl<T> AnyOrderedUintLayout<T> {
         // based on ByteOrd. It is necessary to check the columns first because
         // the bitmask won't necessarily fail even if it is larger than the
         // target type.
-        width_res.mult_to_deferred().def_and_maybe(|_| {
+        width_res.mult_to_deferred().def_and_maybe(|()| {
             match_many_to_one!(real_bo, ByteOrd2_0, [O1, O2, O3, O4, O5, O6, O7, O8], o, {
                 FixedLayout::try_new(cs, o, |c| {
                     // NOTE at this point $PnB doesn't matter, so assume we
@@ -3340,11 +3370,7 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
     pub(crate) fn try_new(
         cs: Vec<ColumnLayoutValues<D::MeasDatatype>>,
         notrunc: bool,
-    ) -> DeferredResult<
-        Self,
-        ColumnError<IntRangeError<()>>,
-        ColumnError<ascii_range::NewAsciiRangeError>,
-    >
+    ) -> DeferredResult<Self, ColumnError<IntRangeError<()>>, ColumnError<NewAsciiRangeError>>
     where
         D: MeasDatatypeDef,
     {
@@ -3548,7 +3574,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         let notrunc = conf.disallow_range_truncation;
         let unique_dt: Vec<_> = cs
             .iter()
-            .map(|c| c.datatype.map(|x| x.into()).unwrap_or(datatype))
+            .map(|c| c.datatype.map_or(datatype, |x| x.into()))
             .unique()
             .collect();
         match unique_dt[..] {
@@ -3612,7 +3638,7 @@ impl InterLayoutOps<HasMeasDatatype> for DataLayout3_2 {
             // If layout is mixed, interpret range as a mixed type
             Self::Mixed(mut x) => x
                 .insert_nocheck(index, range, notrunc)
-                .map(|_| Self::Mixed(x)),
+                .map(|()| Self::Mixed(x)),
             // If layout is non-mixed, interpret range as an ASCII range and
             // keep the layout as ASCII. Otherwise, interpret as a mixed range
             // and convert the layout to a mixed layout if the interpreted
@@ -3620,7 +3646,7 @@ impl InterLayoutOps<HasMeasDatatype> for DataLayout3_2 {
             Self::NonMixed(x) => match x {
                 NonMixedEndianLayout::Ascii(mut y) => y
                     .insert_nocheck(index, range, notrunc)
-                    .map(|_| Self::NonMixed(y.into())),
+                    .map(|()| Self::NonMixed(y.into())),
                 NonMixedEndianLayout::Integer(y) => y.insert_mixed(index, range, notrunc),
                 NonMixedEndianLayout::F32(y) => y.insert_mixed(index, range, notrunc),
                 NonMixedEndianLayout::F64(y) => y.insert_mixed(index, range, notrunc),
@@ -3633,10 +3659,10 @@ impl InterLayoutOps<HasMeasDatatype> for DataLayout3_2 {
 
     fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), AnyRangeError> {
         match mem::replace(self, Self::mixed_dummy()) {
-            Self::Mixed(mut x) => x.push(range, notrunc).map(|_| Self::Mixed(x)),
+            Self::Mixed(mut x) => x.push(range, notrunc).map(|()| Self::Mixed(x)),
             Self::NonMixed(x) => match x {
                 NonMixedEndianLayout::Ascii(mut y) => {
-                    y.push(range, notrunc).map(|_| Self::NonMixed(y.into()))
+                    y.push(range, notrunc).map(|()| Self::NonMixed(y.into()))
                 }
                 NonMixedEndianLayout::Integer(y) => y.push_mixed(range, notrunc),
                 NonMixedEndianLayout::F32(y) => y.push_mixed(range, notrunc),
@@ -3705,7 +3731,7 @@ impl DataLayout3_2 {
     //     }
     // }
 
-    /// A dummy layout, used to make ['std::mem::replace'] work; not meaninful.
+    /// A dummy layout, used to make [`std::mem::replace`] work; not meaninful.
     fn mixed_dummy() -> Self {
         NonMixedEndianLayout::from(AnyAsciiLayout::from(DelimAsciiLayout::new(vec![]))).into()
     }
@@ -3951,7 +3977,7 @@ pub struct NotAsciiError(Vec<u8>);
 
 #[derive(From, Display, Debug, Error)]
 pub enum NewDataLayoutError {
-    Ascii(ColumnError<ascii_range::NewAsciiRangeError>),
+    Ascii(ColumnError<NewAsciiRangeError>),
     FixedInt(NewFixedIntLayoutError),
     Float(ColumnError<FloatWidthError>),
     VariableInt(ColumnError<NewUintTypeError>),
@@ -3987,7 +4013,7 @@ pub struct WidthMismatchError {
 
 #[derive(From, Display, Debug, Error)]
 pub enum NewMixedTypeError {
-    Ascii(ascii_range::NewAsciiRangeError),
+    Ascii(NewAsciiRangeError),
     Uint(NewUintTypeError),
     Float(FloatWidthError),
 }

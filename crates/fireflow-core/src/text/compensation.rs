@@ -1,11 +1,13 @@
 use crate::config::StdTextReadConfig;
-use crate::error::*;
+use crate::error::{ResultExt, Tentative};
 use crate::validated::keys::{BiIndexedKey, StdKey, StdKeywords};
 
 use super::index::MeasIndex;
 use super::keywords::{Dfc, Par};
-use super::optional::*;
-use super::parser::*;
+use super::optional::MaybeValue;
+use super::parser::{
+    FromStrDelim, FromStrStateful, LookupKeysWarning, LookupOptional, OptKeyError,
+};
 
 use derive_more::{AsRef, Display, From, Into};
 use itertools::Itertools;
@@ -81,13 +83,13 @@ impl Compensation2_0 {
         let n = m.ncols();
         m.iter()
             .enumerate()
-            .flat_map(|(i, x)| {
-                if *x != 0.0 {
+            .filter_map(|(i, x)| {
+                if *x == 0.0 {
+                    None
+                } else {
                     let row = i / n;
                     let col = i % n;
                     Some((Dfc::std(row, col).to_string(), x.to_string()))
-                } else {
-                    None
                 }
             })
             .collect()
@@ -134,7 +136,7 @@ impl FromStrStateful for Compensation3_0 {
     type Err = ParseCompError;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -158,22 +160,22 @@ impl FromStrDelim for Compensation3_0 {
             let values: Vec<_> = ss.by_ref().take(nn).collect();
             let remainder = ss.by_ref().count();
             let total = values.len() + remainder;
-            if total != nn {
-                Err(ParseCompError::WrongLength {
-                    expected: nn,
-                    total,
-                })
-            } else {
+            if total == nn {
                 let fvalues: Vec<_> = values
                     .into_iter()
                     .filter_map(|x| x.parse::<f32>().ok())
                     .collect();
-                if fvalues.len() != nn {
-                    Err(ParseCompError::BadFloat)
-                } else {
+                if fvalues.len() == nn {
                     let matrix = DMatrix::from_row_iterator(n, n, fvalues);
                     Ok(Compensation::try_from(matrix).map(Self)?)
+                } else {
+                    Err(ParseCompError::BadFloat)
                 }
+            } else {
+                Err(ParseCompError::WrongLength {
+                    expected: nn,
+                    total,
+                })
             }
         } else {
             Err(ParseCompError::BadLength)

@@ -1,8 +1,12 @@
-use crate::error::*;
-use crate::text::keywords::*;
-use crate::text::parser::*;
-use crate::validated::ascii_uint::*;
-use crate::validated::keys::*;
+use crate::error::{
+    DeferredResult, ImpureError, MultiResult, MultiResultExt, PassthruExt, ResultExt, Tentative,
+};
+use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
+use crate::text::parser::{OptKeyError, OptMetarootKey, ReqKeyError, ReqMetarootKey};
+use crate::validated::ascii_uint::{
+    HeaderString, ParseFixedUintError, UintSpacePad20, UintSpacePad8, UintZeroPad20,
+};
+use crate::validated::keys::{Key, StdKeywords};
 
 use derive_more::{Display, From};
 use derive_new::new;
@@ -10,6 +14,8 @@ use itertools::Itertools;
 use nonempty::NonEmpty;
 use num_traits::identities::{One, Zero};
 use num_traits::ops::checked::CheckedSub;
+use thiserror::Error;
+
 use std::fmt;
 use std::io;
 use std::io::{BufReader, Read, Seek, SeekFrom};
@@ -18,7 +24,6 @@ use std::num::NonZeroU64;
 use std::num::ParseIntError;
 use std::str;
 use std::str::FromStr;
-use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -575,7 +580,7 @@ impl GenericSegment {
                     prev = z;
                 }
             }
-            NonEmpty::from_vec(errors).map(Err).unwrap_or(Ok(()))
+            NonEmpty::from_vec(errors).map_or(Ok(()), Err)
         } else {
             Ok(())
         }
@@ -647,8 +652,8 @@ impl<I: Copy> HeaderSegment<I> {
         h.read_exact(&mut buf0).into_mult()?;
         h.read_exact(&mut buf1).into_mult()?;
         Self::parse(
-            &buf0,
-            &buf1,
+            buf0,
+            buf1,
             allow_blank,
             allow_negative,
             squish_offsets,
@@ -658,8 +663,8 @@ impl<I: Copy> HeaderSegment<I> {
     }
 
     pub(crate) fn parse(
-        bs0: &[u8; 8],
-        bs1: &[u8; 8],
+        bs0: [u8; 8],
+        bs1: [u8; 8],
         allow_blank: bool,
         allow_negative: bool,
         squish_offsets: bool,
@@ -902,7 +907,7 @@ impl<T> Segment<T> {
         T: Default + Copy + fmt::Display,
     {
         let (b, e) = self.try_coords().unwrap_or((T::default(), T::default()));
-        format!("{},{}", b, e)
+        format!("{b},{e}")
     }
 
     pub fn as_u64(&self) -> Segment<u64>
@@ -1030,9 +1035,9 @@ where
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let offset_text = |x, delta| {
             if delta == 0 {
-                format!("{}", x)
+                format!("{x}")
             } else {
-                format!("{} ({}))", x, delta)
+                format!("{x} ({delta}))")
             }
         };
         let begin_text = offset_text(self.begin.into(), self.corr_begin);
@@ -1107,7 +1112,7 @@ pub(crate) struct NewSegmentConfig<T, I, S> {
 
 #[cfg(feature = "serde")]
 mod serialize {
-    use super::*;
+    use super::Segment;
 
     use serde::ser::{Serialize, SerializeStruct, Serializer};
 
@@ -1131,7 +1136,7 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::*;
+    use super::{NonEmptySegment, Segment, SpecificSegment, Zero};
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;

@@ -99,12 +99,12 @@ pub trait HasFloatBounds: Sized {
 }
 
 impl HasFloatBounds for f32 {
-    const DIGITS: u64 = 34028235;
+    const DIGITS: u64 = 34_028_235;
     const ZEROS: u16 = 31;
 }
 
 impl HasFloatBounds for f64 {
-    const DIGITS: u64 = 17976931348623157;
+    const DIGITS: u64 = 17_976_931_348_623_157;
     const ZEROS: u16 = 292;
 }
 

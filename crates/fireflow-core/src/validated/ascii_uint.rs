@@ -111,9 +111,7 @@ impl UintSpacePad20 {
     ///
     /// Will panic if parsed digit is more than 20 digits long.
     pub(crate) fn from_bytes(bs: &[u8], allow_negative: bool) -> Result<Self, ParseFixedUintError> {
-        if bs.len() > 20 {
-            panic!("cannot parse more than 20 bytes")
-        }
+        debug_assert!(bs.len() > 20, "cannot parse more than 20 bytes");
         let x = ascii_str_from_bytes(bs)?.trim_start().parse::<i32>()?;
         if x < 0 {
             if allow_negative {
@@ -122,9 +120,8 @@ impl UintSpacePad20 {
                 Err(ParseFixedUintError::Negative(NegativeOffsetError(x)))
             }
         } else {
-            // ASSUME this will never fail because we checked the
-            // sign above
-            Ok(Self(x as u64))
+            // ASSUME this will never fail because we checked the sign above
+            Ok(Self(x.try_into().unwrap()))
         }
     }
 }
@@ -179,11 +176,11 @@ impl CheckedSub for UintSpacePad8 {
 impl UintSpacePad8 {
     /// Parse from a buffer that contains 8 bytes.
     pub(crate) fn from_bytes(
-        bs: &[u8; 8],
+        bs: [u8; 8],
         allow_blank: bool,
         allow_negative: bool,
     ) -> Result<Self, ParseFixedUintError> {
-        let s = ascii_str_from_bytes(bs).map_err(ParseFixedUintError::NotAscii)?;
+        let s = ascii_str_from_bytes(&bs[..]).map_err(ParseFixedUintError::NotAscii)?;
         let trimmed = s.trim_start();
         if allow_blank && trimmed.is_empty() {
             return Ok(UintSpacePad8::zero());
@@ -199,7 +196,7 @@ impl UintSpacePad8 {
             // ASSUME this will never wrap since the max digits we can read are
             // 8, which is only ~1e9 which is much less than 4e10 which is the
             // max of a u32.
-            Ok(Self(x as u32))
+            Ok(Self(x.try_into().unwrap()))
         }
     }
 }

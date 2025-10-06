@@ -70,7 +70,7 @@ impl<X> FCSNonEmpty<X> {
         X: Eq,
     {
         let mut counts = NonEmpty::new((&self.0.head, 1));
-        for d in self.0.tail.iter() {
+        for d in &self.0.tail {
             if counts.last().0 == d {
                 counts.last_mut().1 += 1;
             } else {

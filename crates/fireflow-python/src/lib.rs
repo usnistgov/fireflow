@@ -111,6 +111,7 @@ use derive_more::{From, Into};
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 use std::collections::HashMap;
+use std::hash::BuildHasher;
 
 def_fcs_read_header!(api::fcs_read_header);
 def_fcs_read_raw_text!(api::fcs_read_raw_text);
@@ -557,9 +558,10 @@ where
     }
 }
 
-impl<I, R> From<PyRegionMapping<R>> for HashMap<RegionIndex, Region<I>>
+impl<I, R, S> From<PyRegionMapping<R>> for HashMap<RegionIndex, Region<I>, S>
 where
     Region<I>: From<R>,
+    S: BuildHasher + Default,
 {
     fn from(value: PyRegionMapping<R>) -> Self {
         value.0.into_iter().map(|(k, v)| (k, v.into())).collect()

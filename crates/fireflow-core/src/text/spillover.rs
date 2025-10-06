@@ -1,6 +1,6 @@
 use crate::config::StdTextReadConfig;
 use crate::error::ErrorIter;
-use crate::validated::shortname::*;
+use crate::validated::shortname::Shortname;
 
 use super::index::MeasIndex;
 use super::named_vec::NameMapping;
@@ -138,20 +138,20 @@ impl<T> GenericSpillover<T> {
                 .collect::<Result<Vec<_>, _>>()?;
             let values: Vec<_> = xs.collect();
             let total = measurements.len() + values.len();
-            if total != expected {
-                Err(ParseGenericSpilloverError::WrongLength { total, expected })?
-            } else {
+            if total == expected {
                 let fvalues: Vec<_> = values
                     .into_iter()
                     .filter_map(|x| x.parse::<f32>().ok())
                     .collect();
-                if fvalues.len() != nn {
-                    Err(ParseGenericSpilloverError::BadFloat)?
-                } else {
+                if fvalues.len() == nn {
                     let matrix = DMatrix::from_row_iterator(n, n, fvalues);
                     Ok(Self::try_new(measurements, matrix)
                         .map_err(ParseGenericSpilloverError::New)?)
+                } else {
+                    Err(ParseGenericSpilloverError::BadFloat)?
                 }
+            } else {
+                Err(ParseGenericSpilloverError::WrongLength { total, expected })?
             }
         } else {
             Err(ParseGenericSpilloverError::BadN)?
@@ -164,7 +164,7 @@ impl<T> GenericSpillover<T> {
         F: Fn(&str) -> Result<T, EM>,
         T: Eq + Hash,
     {
-        let it = s.split(",");
+        let it = s.split(',');
         if trim_intra {
             Self::from_iter(it.map(|x| x.trim()), parse_meas)
         } else {
@@ -267,7 +267,7 @@ impl OptLinkedKey for Spillover {
 
     fn reassign(&mut self, mapping: &NameMapping) {
         // ASSUME mapping is such that new names will be unique
-        for n in self.measurements.iter_mut() {
+        for n in &mut self.measurements {
             if let Some(new) = mapping.get(n) {
                 *n = (*new).clone();
             }

@@ -1,11 +1,17 @@
-use crate::config::*;
-use crate::error::*;
+use crate::config::StdTextReadConfig;
+use crate::error::{BiDeferredResult, DeferredExt, PassthruExt, ResultExt, Tentative};
 use crate::nonempty::FCSNonEmpty;
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
-use crate::text::keywords::*;
-use crate::text::optional::*;
-use crate::text::parser::*;
-use crate::validated::keys::*;
+use crate::text::keywords::{
+    Gate, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted,
+    GateRange, GateScale, GateShortname, Gating, IndexPair, MeasOrGateIndex, Par,
+    PrefixedMeasIndex, RegionGateIndex, RegionWindow, UniGate, Vertex,
+};
+use crate::text::optional::MaybeValue;
+use crate::text::parser::{
+    LookupOptional, LookupTentative, OptIndexedKey, OptMetarootKey, ParseOptKeyError,
+};
+use crate::validated::keys::StdKeywords;
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -21,7 +27,7 @@ use serde::Serialize;
 
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0)
 ///
-/// Each region is assumed to point to a member of ['gated_measurements'].
+/// Each region is assumed to point to a member of `gated_measurements`.
 #[derive(Clone, PartialEq, Default, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AppliedGates2_0 {
@@ -34,8 +40,8 @@ pub struct AppliedGates2_0 {
 
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (3.0-3.1)
 ///
-/// Each region is assumed to point to a member of ['gated_measurements'] or
-/// a measurement in the ['Core'] struct
+/// Each region is assumed to point to a member of `gated_measurements` or
+/// a measurement in the [`Core`] struct
 #[derive(Clone, PartialEq, Default, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AppliedGates3_0 {
@@ -48,7 +54,7 @@ pub struct AppliedGates3_0 {
 
 /// The $GATING/$RnI/$RnW keywords in a unified bundle (3.2)
 ///
-/// Each region is assumed to point to a measurement in the ['Core'] struct
+/// Each region is assumed to point to a measurement in the [`Core`] struct
 #[derive(Clone, PartialEq, Default, AsRef)]
 #[as_ref(Option<Gating>)]
 #[as_ref(HashMap<RegionIndex, Region3_2>)]
@@ -642,7 +648,7 @@ impl GatedMeasurement {
             self.detector_voltage.meas_kw_pair(i),
         ]
         .into_iter()
-        .flat_map(|(k, v)| v.map(|x| (k, x)))
+        .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 }
 
@@ -687,8 +693,8 @@ impl<I> GatingScheme<I> {
     where
         I: LinkedMeasIndex,
     {
-        for (_, r) in self.regions.iter_mut() {
-            r.shift_after_insert(i)
+        for r in self.regions.values_mut() {
+            r.shift_after_insert(i);
         }
     }
 
@@ -765,7 +771,7 @@ impl<I> Region<I> {
     pub(crate) fn try_new(r_index: RegionGateIndex<I>, window: RegionWindow) -> Option<Self> {
         match (r_index, window) {
             (RegionGateIndex::Univariate(index), RegionWindow::Univariate(gate)) => {
-                Some(Region::Univariate(UnivariateRegion { index, gate }))
+                Some(Region::Univariate(UnivariateRegion { gate, index }))
             }
             (RegionGateIndex::Bivariate(index), RegionWindow::Bivariate(vs)) => {
                 Some(Region::Bivariate(BivariateRegion {
@@ -831,8 +837,8 @@ impl<I> Region<I> {
         let n = lookup_index(kws, i);
         let w = lookup_window(kws, i.into());
         n.zip(w)
-            .and_tentatively(|(_n, _y)| {
-                _n.0.zip(_y.0)
+            .and_tentatively(|(n_, y_)| {
+                n_.0.zip(y_.0)
                     .and_then(|(gi, win)| Self::try_new(gi, win).map(|x| x.inner_into()))
                     .ok_or(MismatchedIndexAndWindowError)
                     .into_tentative_opt(!conf.allow_optional_dropping)
@@ -1113,12 +1119,9 @@ mod python {
     use crate::python::macros::{
         impl_from_py_via_fromstr, impl_pyreflow_err, impl_to_py_via_display, impl_value_err,
     };
-    use crate::text::keywords::{Gating, GatingError, MeasOrGateIndex};
+    use crate::text::keywords::{Gating, GatingError, MeasOrGateIndex, MeasOrGateIndexError};
 
-    use super::{
-        GateMeasurementLinkError, MeasOrGateIndexError, NewAppliedGatesWithSchemeError,
-        NewGatingSchemeError,
-    };
+    use super::{GateMeasurementLinkError, NewAppliedGatesWithSchemeError, NewGatingSchemeError};
 
     impl_from_py_via_fromstr!(Gating);
     impl_to_py_via_display!(Gating);

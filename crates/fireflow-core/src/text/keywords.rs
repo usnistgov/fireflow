@@ -1,25 +1,29 @@
 use crate::config::StdTextReadConfig;
-use crate::error::*;
+use crate::error::{BiTentative, PassthruExt, ResultExt, Tentative};
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
-use crate::validated::ascii_uint::*;
-use crate::validated::keys::*;
-use crate::validated::shortname::*;
+use crate::validated::ascii_uint::UintZeroPad20;
+use crate::validated::keys::{BiIndexedKey, IndexedKey, Key, StdKeywords};
+use crate::validated::shortname::Shortname;
 
-use super::byteord::*;
-use super::compensation::*;
-use super::datetimes::*;
+use super::byteord::{ByteOrd2_0, ByteOrd3_1, Width};
+use super::compensation::Compensation3_0;
+use super::datetimes::{BeginDateTime, EndDateTime};
 use super::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use super::gating;
-use super::index::*;
+use super::index::{GateIndex, MeasIndex, RegionIndex};
 use super::named_vec::NameMapping;
-use super::optional::*;
-use super::parser::*;
-use super::ranged_float::*;
-use super::scale::*;
-use super::spillover::*;
-use super::timestamps::*;
-use super::unstainedcenters::*;
+use super::optional::MaybeValue;
+use super::parser::{
+    eval_dep_maybe, process_opt, DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful,
+    LookupKeysWarning, LookupResult, LookupTentative, OptIndexedKey, OptLinkedKey, OptMetarootKey,
+    Optional, ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
+};
+use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
+use super::scale::{Scale, ScaleError};
+use super::spillover::Spillover;
+use super::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime100, FCSTime60, Xtim};
+use super::unstainedcenters::UnstainedCenters;
 
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use chrono::{NaiveDateTime, NaiveTime, Timelike};
@@ -29,12 +33,13 @@ use nonempty::NonEmpty;
 use num_traits::cast::ToPrimitive;
 use num_traits::identities::One;
 use num_traits::PrimInt;
+use thiserror::Error;
+
 use std::any::type_name;
 use std::collections::HashSet;
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
-use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -70,10 +75,10 @@ impl Default for Timestep {
 }
 
 impl Timestep {
-    pub(crate) fn check_conversion(&self, force: bool) -> BiTentative<(), TimestepLossError> {
+    pub(crate) fn check_conversion(self, force: bool) -> BiTentative<(), TimestepLossError> {
         let mut tnt = Tentative::default();
-        if f32::from(self.0) != 1.0 {
-            tnt.push_error_or_warning(TimestepLossError(*self), !force);
+        if !self.0.is_one() {
+            tnt.push_error_or_warning(TimestepLossError(self), !force);
         }
         tnt
     }
@@ -110,7 +115,7 @@ impl FromStrStateful for Trigger {
     type Err = TriggerError;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -234,7 +239,7 @@ impl FromStr for Display {
     type Err = DisplayError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.split(",").collect::<Vec<_>>()[..] {
+        match s.split(',').collect::<Vec<_>>()[..] {
             [which, s1, s2] => {
                 let f1 = s1.parse().map_err(DisplayError::FloatError)?;
                 let f2 = s2.parse().map_err(DisplayError::FloatError)?;
@@ -311,13 +316,13 @@ pub enum AlphaNumType {
 impl AlphaNumType {
     pub(crate) fn lookup_req_check_ascii(kws: &mut StdKeywords) -> LookupResult<Self> {
         let mut d = AlphaNumType::lookup_req(kws);
-        d.def_eval_warning(check_datatype_ascii);
+        d.def_eval_warning(|v| check_datatype_ascii(*v));
         d
     }
 }
 
-fn check_datatype_ascii(datatype: &AlphaNumType) -> Option<LookupKeysWarning> {
-    if *datatype == AlphaNumType::Ascii {
+fn check_datatype_ascii(datatype: AlphaNumType) -> Option<LookupKeysWarning> {
+    if datatype == AlphaNumType::Ascii {
         Some(DeprecatedError::Value(DepValueWarning::DatatypeASCII).into())
     } else {
         None
@@ -402,7 +407,7 @@ impl FromStr for Calibration3_1 {
     type Err = CalibrationError<CalibrationFormat3_1>;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.split(",").collect::<Vec<_>>()[..] {
+        match s.split(',').collect::<Vec<_>>()[..] {
             [value, unit] => Ok(Calibration3_1 {
                 slope: value.parse().map_err(CalibrationError::Range)?,
                 unit: String::from(unit),
@@ -440,7 +445,7 @@ impl FromStr for Calibration3_2 {
     type Err = CalibrationError<CalibrationFormat3_2>;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (slope, offset, unit) = match s.split(",").collect::<Vec<_>>()[..] {
+        let (slope, offset, unit) = match s.split(',').collect::<Vec<_>>()[..] {
             [slope, unit] => Ok((slope, 0.0, unit)),
             [slope, soffset, unit] => {
                 let f2 = soffset.parse().map_err(CalibrationError::Float)?;
@@ -499,7 +504,7 @@ impl FromStrStateful for Wavelengths {
     type Err = WavelengthsError;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -561,7 +566,7 @@ impl FromStr for LastModified {
     type Err = LastModifiedError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (t, cc) = match &s.split(".").collect::<Vec<_>>()[..] {
+        let (t, cc) = match &s.split('.').collect::<Vec<_>>()[..] {
             [t] => (*t, ""),
             [t, cc] => (*t, *cc),
             _ => return Err(LastModifiedError),
@@ -638,7 +643,7 @@ impl FromStrStateful for Unicode {
     type Err = UnicodeError;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -843,7 +848,7 @@ impl<I> RegionGateIndex<I> {
         process_opt(Self::remove_meas_opt_st(kws, i, (), conf), conf).and_tentatively(|maybe| {
             if let Some(x) = maybe.0 {
                 Self::check_link(&x, par)
-                    .map(|_| x)
+                    .map(|()| x)
                     .into_tentative_opt(!conf.allow_optional_dropping)
                     .inner_into()
             } else {
@@ -899,7 +904,7 @@ impl<I: FromStr> FromStrStateful for RegionGateIndex<I> {
     type Err = RegionGateIndexError<<I as FromStr>::Err>;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -1055,7 +1060,7 @@ impl FromStrStateful for RegionWindow {
     type Err = GatePairError;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -1172,12 +1177,7 @@ impl Gating {
         let xs = match self {
             Self::Region(x) => NonEmpty::new(*x),
             Self::Not(x) => Self::region_indices(x),
-            Self::And(x, y) => {
-                let mut acc = Self::region_indices(x);
-                acc.extend(Self::region_indices(y));
-                acc
-            }
-            Self::Or(x, y) => {
+            Self::And(x, y) | Self::Or(x, y) => {
                 let mut acc = Self::region_indices(x);
                 acc.extend(Self::region_indices(y));
                 acc

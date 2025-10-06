@@ -1,5 +1,5 @@
 use crate::config::StdTextReadConfig;
-use crate::validated::shortname::*;
+use crate::validated::shortname::Shortname;
 
 use super::named_vec::NameMapping;
 use super::parser::{FromStrDelim, FromStrStateful, OptLinkedKey};
@@ -79,7 +79,7 @@ impl FromStrStateful for UnstainedCenters {
     type Err = ParseUnstainedCenterError;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -109,11 +109,11 @@ impl FromStrDelim for UnstainedCenters {
                     .into_iter()
                     .filter_map(|x| x.parse::<f32>().ok())
                     .collect();
-                if fvalues.len() != n {
-                    Err(ParseUnstainedCenterError::BadFloat)
-                } else {
+                if fvalues.len() == n {
                     let ys: Vec<_> = measurements.into_iter().zip(fvalues).collect();
                     UnstainedCenters::try_from(ys).map_err(ParseUnstainedCenterError::New)
+                } else {
+                    Err(ParseUnstainedCenterError::BadFloat)
                 }
             } else {
                 Err(ParseUnstainedCenterError::BadLength { total, expected })

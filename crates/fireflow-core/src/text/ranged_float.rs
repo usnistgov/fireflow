@@ -84,14 +84,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_positive_float() {
+    fn positive_float() {
         assert!(PositiveFloat::try_from(1.0_f32).is_ok());
         assert!(PositiveFloat::try_from(0.0_f32).is_err());
         assert!(PositiveFloat::try_from(-1.0_f32).is_err());
     }
 
     #[test]
-    fn test_non_neg_float() {
+    fn non_neg_float() {
         assert!(NonNegFloat::try_from(1.0_f32).is_ok());
         assert!(NonNegFloat::try_from(0.0_f32).is_ok());
         assert!(NonNegFloat::try_from(-1.0_f32).is_err());

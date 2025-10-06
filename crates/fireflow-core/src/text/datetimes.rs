@@ -172,12 +172,12 @@ mod tests {
     use crate::test::*;
 
     #[test]
-    fn test_str_to_datetime_local() {
+    fn str_to_datetime_local() {
         assert!("2112-01-01T00:00:00.0".parse::<FCSDateTime>().is_ok());
     }
 
     #[test]
-    fn test_datetime_utc() {
+    fn datetime_utc() {
         assert_from_to_str_almost::<FCSDateTime>(
             "2112-01-01T00:00:00.0Z",
             "2112-01-01T00:00:00+00:00",
@@ -185,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    fn test_datetime_hh() {
+    fn datetime_hh() {
         assert_from_to_str_almost::<FCSDateTime>(
             "2112-01-01T00:00:00.0+01",
             "2112-01-01T00:00:00+01:00",
@@ -193,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn test_datetime_hh_mm() {
+    fn datetime_hh_mm() {
         assert_from_to_str_almost::<FCSDateTime>(
             "2112-01-01T00:00:00.0+00:01",
             "2112-01-01T00:00:00+00:01",
@@ -201,7 +201,7 @@ mod tests {
     }
 
     #[test]
-    fn test_datetime_hhmm() {
+    fn datetime_hhmm() {
         assert_from_to_str_almost::<FCSDateTime>(
             "2112-01-01T00:00:00.0+0001",
             "2112-01-01T00:00:00+00:01",

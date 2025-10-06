@@ -238,35 +238,35 @@ mod tests {
     use nalgebra::DMatrix;
 
     #[test]
-    fn test_str_compensation() {
+    fn str_compensation() {
         assert_from_to_str::<Compensation3_0>("2,0,0,0,0");
         assert_from_to_str::<Compensation3_0>("3,0,0,0,0,0,0,0,0,0");
         assert_from_to_str::<Compensation3_0>("2,1.1,1,0,-1.5");
     }
 
     #[test]
-    fn test_str_compensation_too_small() {
+    fn str_compensation_too_small() {
         assert!("1,0".parse::<Compensation3_0>().is_err());
     }
 
     #[test]
-    fn test_str_compensation_mismatch() {
+    fn str_compensation_mismatch() {
         assert!("2,0,0,0".parse::<Compensation3_0>().is_err());
     }
 
     #[test]
-    fn test_str_compensation_badfloats() {
+    fn str_compensation_badfloats() {
         assert!("2,zero,0,coconut".parse::<Compensation3_0>().is_err());
     }
 
     #[test]
-    fn test_str_compensation_not_finite() {
+    fn str_compensation_not_finite() {
         let m = DMatrix::from_row_slice(2, 2, &[0.0, 0.0, 0.0, f32::NAN]);
         assert!(Compensation::try_from(m).is_err());
     }
 
     #[test]
-    fn test_str_compensation_not_square() {
+    fn str_compensation_not_square() {
         let m = DMatrix::from_row_slice(2, 3, &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
         assert!(Compensation::try_from(m).is_err());
     }

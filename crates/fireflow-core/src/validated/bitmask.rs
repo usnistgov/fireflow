@@ -185,54 +185,54 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_int_to_bitmask() {
+    fn int_to_bitmask() {
         let x = 0xFF;
         let (b, trunc) = Bitmask::<u16, 1>::from_native(x);
         assert_eq!((b.value, b.bitmask(), trunc), (0xFF, 0xFF, false));
     }
 
     #[test]
-    fn test_int_to_bitmask_roundup() {
+    fn int_to_bitmask_roundup() {
         let x = 0xFE;
         let (b, trunc) = Bitmask::<u16, 1>::from_native(x);
         assert_eq!((b.value, b.bitmask(), trunc), (0xFE, 0xFF, false));
     }
 
     #[test]
-    fn test_int_to_bitmask_trunc() {
+    fn int_to_bitmask_trunc() {
         let x = 0x100;
         let (b, trunc) = Bitmask::<u16, 1>::from_native(x);
         assert_eq!((b.value, b.bitmask(), trunc), (0xFF, 0xFF, true));
     }
 
     #[test]
-    fn test_int_to_bitmask_max_native() {
+    fn int_to_bitmask_max_native() {
         let x = 0xFFFF;
         let (b, trunc) = Bitmask::<u16, 2>::from_native(x);
         assert_eq!((b.value, b.bitmask(), trunc), (0xFFFF, 0xFFFF, false));
     }
 
     #[test]
-    fn test_int_to_bitmask_zero() {
+    fn int_to_bitmask_zero() {
         let x = 0;
         let (b, trunc) = Bitmask::<u16, 2>::from_native(x);
         assert_eq!((b.value, b.bitmask(), trunc), (0, 0, false));
     }
 
     #[test]
-    fn test_max_1_byte() {
+    fn max_1_byte() {
         let b = Bitmask::<u8, 1>::max();
         assert_eq!((b.value, b.bitmask()), (0xFF, 0xFF));
     }
 
     #[test]
-    fn test_max_2_byte() {
+    fn max_2_byte() {
         let b = Bitmask::<u16, 2>::max();
         assert_eq!((b.value, b.bitmask()), (0xFFFF, 0xFFFF));
     }
 
     #[test]
-    fn test_max_3_byte() {
+    fn max_3_byte() {
         let b = Bitmask::<u32, 3>::max();
         assert_eq!((b.value, b.bitmask()), (0x00FF_FFFF, 0x00FF_FFFF));
     }

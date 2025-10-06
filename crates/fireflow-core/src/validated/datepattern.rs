@@ -47,7 +47,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_str_to_pattern() {
+    fn str_to_pattern() {
         assert!("%y%m%d".parse::<DatePattern>().is_ok());
         assert!("%yrandom%mmorerandom%d".parse::<DatePattern>().is_ok(),);
         assert!("%y%y%m%d".parse::<DatePattern>().is_err());

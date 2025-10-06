@@ -150,13 +150,13 @@ mod tests {
     use crate::test::*;
 
     #[test]
-    fn test_scale() {
+    fn scale() {
         assert_from_to_str::<Scale>("0,0");
         assert_from_to_str::<Scale>("4.5,0.01");
     }
 
     #[test]
-    fn test_scale_invalid() {
+    fn scale_invalid() {
         assert!("4.5,0".parse::<Scale>().is_err());
     }
 }

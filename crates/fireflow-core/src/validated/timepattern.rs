@@ -156,7 +156,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_str_to_pattern() {
+    fn str_to_pattern() {
         assert!("%H:%M:%S".parse::<TimePattern>().is_ok());
         assert!("%H::::::::%M:::::::%S".parse::<TimePattern>().is_ok());
         assert!("%H%H:%M:%S".parse::<TimePattern>().is_err());

@@ -388,12 +388,12 @@ mod tests {
     use crate::test::*;
 
     #[test]
-    fn test_str_timestamps2_0() {
+    fn str_timestamps2_0() {
         assert_from_to_str::<FCSTime>("23:58:00");
     }
 
     #[test]
-    fn test_str_timestamps3_0() {
+    fn str_timestamps3_0() {
         assert_from_to_str_almost::<FCSTime60>("23:58:00", "23:58:00:00");
         assert_from_to_str::<FCSTime60>("23:58:00:30");
         // TODO should probably avoid stuff like this
@@ -403,7 +403,7 @@ mod tests {
     }
 
     #[test]
-    fn test_str_timestamps3_1() {
+    fn str_timestamps3_1() {
         assert_from_to_str_almost::<FCSTime100>("23:58:00", "23:58:00.00");
         assert_from_to_str::<FCSTime100>("23:58:00.30");
         // this is an overflow

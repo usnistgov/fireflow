@@ -1226,7 +1226,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_split_text_escape() {
+    fn split_text_escape() {
         let kws = ParsedKeywords::default();
         let conf = ReadHeaderAndTEXTConfig::default();
         // NOTE should not start with delim

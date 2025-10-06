@@ -154,17 +154,17 @@ mod tests {
 
     // TODO this is hard(er) to test since the order will be random
     #[test]
-    fn test_unstained_centers() {
+    fn unstained_centers() {
         assert_from_to_str::<UnstainedCenters>("1,X,0");
     }
 
     #[test]
-    fn test_unstained_centers_wrong_len() {
+    fn unstained_centers_wrong_len() {
         assert!("2,X,0".parse::<UnstainedCenters>().is_err());
     }
 
     #[test]
-    fn test_unstained_centers_nonunique() {
+    fn unstained_centers_nonunique() {
         assert!("3,Y,Y,Z,0,0,0".parse::<UnstainedCenters>().is_err());
     }
 }

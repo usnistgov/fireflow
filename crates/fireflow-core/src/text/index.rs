@@ -99,7 +99,7 @@ mod tests {
     use std::num::NonZero;
 
     #[test]
-    fn test_zero() {
+    fn zero() {
         let i = 0_usize;
         let i0 = IndexFromOne::from(i);
         let i1 = usize::from(i0);

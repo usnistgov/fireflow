@@ -590,7 +590,7 @@ mod tests {
     use crate::test::*;
 
     #[test]
-    fn test_str_to_byteord_valid() {
+    fn str_to_byteord_valid() {
         assert_from_to_str::<ByteOrd2_0>("1");
         assert_from_to_str::<ByteOrd2_0>("1,2,3,4");
         assert_from_to_str::<ByteOrd2_0>("1,2,3,4");
@@ -600,35 +600,35 @@ mod tests {
     }
 
     #[test]
-    fn test_str_to_byteord_tolong() {
+    fn str_to_byteord_tolong() {
         assert!("1,2,3,4,5,6,7,8,9".parse::<ByteOrd2_0>().is_err());
     }
 
     #[test]
-    fn test_str_to_byteord_bad_digits() {
+    fn str_to_byteord_bad_digits() {
         assert!("0".parse::<ByteOrd2_0>().is_err());
         assert!("2".parse::<ByteOrd2_0>().is_err());
     }
 
     #[test]
-    fn test_str_to_byteord_skipped() {
+    fn str_to_byteord_skipped() {
         assert!("1,3".parse::<ByteOrd2_0>().is_err());
     }
 
     #[test]
-    fn test_str_to_byteord_repeat() {
+    fn str_to_byteord_repeat() {
         assert!("1,1".parse::<ByteOrd2_0>().is_err());
     }
 
     #[test]
-    fn test_str_to_byteord_garbage() {
+    fn str_to_byteord_garbage() {
         assert!("fortytwo".parse::<ByteOrd2_0>().is_err());
         assert!("".parse::<ByteOrd2_0>().is_err());
         assert!("one,two,three".parse::<ByteOrd2_0>().is_err());
     }
 
     #[test]
-    fn test_str_to_endian() {
+    fn str_to_endian() {
         assert!("1,2,3,4".parse::<ByteOrd3_1>().is_ok());
         assert!("4,3,2,1".parse::<ByteOrd3_1>().is_ok());
         assert!("1,2,3".parse::<ByteOrd3_1>().is_err());
@@ -636,7 +636,7 @@ mod tests {
     }
 
     #[test]
-    fn test_str_to_width() {
+    fn str_to_width() {
         assert_eq!("*".parse::<Width>(), Ok(Width::Variable));
         assert!("1".parse::<Width>().is_ok(),);
         assert!("255".parse::<Width>().is_ok());
@@ -645,7 +645,7 @@ mod tests {
     }
 
     #[test]
-    fn test_str_to_width_as_bytes() {
+    fn str_to_width_as_bytes() {
         assert!(Bytes::try_from("8".parse::<Width>().unwrap()).is_ok());
         assert!(Bytes::try_from("16".parse::<Width>().unwrap()).is_ok());
         assert!(Bytes::try_from("64".parse::<Width>().unwrap()).is_ok());
@@ -656,7 +656,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bytes_from_u64() {
+    fn bytes_from_u64() {
         assert_eq!(Bytes::B1, Bytes::from_u64(0));
         assert_eq!(Bytes::B1, Bytes::from_u64(0x00FF));
         assert_eq!(Bytes::B2, Bytes::from_u64(0x0100));

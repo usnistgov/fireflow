@@ -91,7 +91,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_sub_pattern_nocap() {
+    fn sub_pattern_nocap() {
         let r = Regex::new("a").unwrap();
         assert!(SubPattern::try_new(r.clone(), "b".into(), true).is_ok());
         assert!(SubPattern::try_new(r.clone(), "$$b".into(), true).is_ok());
@@ -103,7 +103,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sub_pattern_icap1() {
+    fn sub_pattern_icap1() {
         let r = Regex::new("b(a)").unwrap();
         assert!(SubPattern::try_new(r.clone(), "b".into(), true).is_ok());
         assert!(SubPattern::try_new(r.clone(), "$$b".into(), true).is_ok());
@@ -114,7 +114,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sub_pattern_ncap1() {
+    fn sub_pattern_ncap1() {
         let r = Regex::new("b(?<x>a)").unwrap();
         assert!(SubPattern::try_new(r.clone(), "b".into(), true).is_ok());
         assert!(SubPattern::try_new(r.clone(), "$$b".into(), true).is_ok());
@@ -125,7 +125,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sub_pattern_cap2() {
+    fn sub_pattern_cap2() {
         let r = Regex::new("baaaaaa(?<x>a)waaaaaaa([42]+)").unwrap();
         assert!(SubPattern::try_new(r.clone(), "b".into(), true).is_ok());
         assert!(SubPattern::try_new(r.clone(), "$$b".into(), true).is_ok());

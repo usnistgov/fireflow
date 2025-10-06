@@ -72,7 +72,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_str_to_shortname() {
+    fn str_to_shortname() {
         assert!("Thunderfist Chronicles".parse::<Shortname>().is_ok());
         assert!("Thunderfist,Chronicles".parse::<Shortname>().is_err());
     }

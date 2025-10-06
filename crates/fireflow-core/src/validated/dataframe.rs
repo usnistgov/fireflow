@@ -583,7 +583,7 @@ mod tests {
     // only test lossy cases, assume the others will simply noop
 
     #[test]
-    fn test_u16_to_u8() {
+    fn u16_to_u8() {
         assert_eq!(u8::from_truncated(1_u16).lossy, None);
         assert_eq!(
             u8::from_truncated(0x100_u16),
@@ -592,7 +592,7 @@ mod tests {
     }
 
     #[test]
-    fn test_u32_to_u8() {
+    fn u32_to_u8() {
         assert_eq!(u8::from_truncated(1_u32).lossy, None);
         assert_eq!(
             u8::from_truncated(0x100_u32),
@@ -601,7 +601,7 @@ mod tests {
     }
 
     #[test]
-    fn test_u64_to_u8() {
+    fn u64_to_u8() {
         assert_eq!(u8::from_truncated(1_u64).lossy, None);
         assert_eq!(
             u8::from_truncated(0x100_u64),
@@ -610,7 +610,7 @@ mod tests {
     }
 
     #[test]
-    fn test_u32_to_u16() {
+    fn u32_to_u16() {
         assert_eq!(u16::from_truncated(1_u32).lossy, None);
         assert_eq!(
             u16::from_truncated(0x0001_0000_u32),
@@ -619,7 +619,7 @@ mod tests {
     }
 
     #[test]
-    fn test_u64_to_u16() {
+    fn u64_to_u16() {
         assert_eq!(u16::from_truncated(1_u64).lossy, None);
         assert_eq!(
             u16::from_truncated(0x0001_0000_u64),
@@ -628,7 +628,7 @@ mod tests {
     }
 
     #[test]
-    fn test_u64_to_u32() {
+    fn u64_to_u32() {
         assert_eq!(u32::from_truncated(1_u64).lossy, None);
         assert_eq!(
             u32::from_truncated(0x0001_0000_0000_u64),
@@ -640,7 +640,7 @@ mod tests {
     // start rounding to nearest even number (and beyond as we get higher)
 
     #[test]
-    fn test_u32_to_f32() {
+    fn u32_to_f32() {
         assert_eq!(
             f32::from_truncated(1_u32),
             CastResult::new::<u64>(1.0, false)
@@ -660,7 +660,7 @@ mod tests {
     }
 
     #[test]
-    fn test_u64_to_f32() {
+    fn u64_to_f32() {
         assert_eq!(
             f32::from_truncated(1_u64),
             CastResult::new::<u64>(1.0_f32, false)
@@ -683,7 +683,7 @@ mod tests {
     // start rounding to nearest even number (and beyond as we get higher)
 
     #[test]
-    fn test_u64_to_f64() {
+    fn u64_to_f64() {
         assert_eq!(
             f64::from_truncated(1_u64),
             CastResult::new::<u64>(1.0_f64, false)
@@ -741,47 +741,47 @@ mod tests {
     }
 
     #[test]
-    fn test_f32_to_u8() {
+    fn f32_to_u8() {
         test_float_to_int!(f32, u8);
     }
 
     #[test]
-    fn test_f32_to_u16() {
+    fn f32_to_u16() {
         test_float_to_int!(f32, u16);
     }
 
     #[test]
-    fn test_f32_to_u32() {
+    fn f32_to_u32() {
         test_float_to_int!(f32, u32);
     }
 
     #[test]
-    fn test_f32_to_u64() {
+    fn f32_to_u64() {
         test_float_to_int!(f32, u64);
     }
 
     #[test]
-    fn test_f64_to_u8() {
+    fn f64_to_u8() {
         test_float_to_int!(f64, u8);
     }
 
     #[test]
-    fn test_f64_to_u16() {
+    fn f64_to_u16() {
         test_float_to_int!(f64, u16);
     }
 
     #[test]
-    fn test_f64_to_u32() {
+    fn f64_to_u32() {
         test_float_to_int!(f64, u32);
     }
 
     #[test]
-    fn test_f64_to_u64() {
+    fn f64_to_u64() {
         test_float_to_int!(f64, u64);
     }
 
     #[test]
-    fn test_f64_to_f32() {
+    fn f64_to_f32() {
         // this should obviously pass
         assert_eq!(
             f32::from_truncated(0.0_f64),

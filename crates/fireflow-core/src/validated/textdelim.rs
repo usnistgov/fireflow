@@ -41,7 +41,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_u8_to_delim() {
+    fn u8_to_delim() {
         assert!(TEXTDelim::try_from(1_u8).is_ok());
         assert!(TEXTDelim::try_from(126_u8).is_ok());
         assert!(TEXTDelim::try_from(0_u8).is_err());

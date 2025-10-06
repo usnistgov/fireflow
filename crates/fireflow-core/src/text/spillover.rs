@@ -281,24 +281,24 @@ mod tests {
     use crate::test::*;
 
     #[test]
-    fn test_str_compensation() {
+    fn str_compensation() {
         assert_from_to_str::<Spillover>("2,X,Y,0,0,0,0");
         assert_from_to_str::<Spillover>("3,X,Y,Z,0,0,0,0,0,0,0,0,0");
         assert_from_to_str::<Spillover>("2,X,Y,1.1,1,0,-1.5");
     }
 
     #[test]
-    fn test_str_compensation_unique() {
+    fn str_compensation_unique() {
         assert!("3,Y,Y,Z,0,0,0,0,0,0,0,0,0".parse::<Spillover>().is_err());
     }
 
     #[test]
-    fn test_str_compensation_toosmall() {
+    fn str_compensation_toosmall() {
         assert!("1,potato,0".parse::<Spillover>().is_err());
     }
 
     #[test]
-    fn test_str_compensation_name_length() {
+    fn str_compensation_name_length() {
         assert!("2,moody,padfoot,prongs,0,0,0,0"
             .parse::<Spillover>()
             .is_err());

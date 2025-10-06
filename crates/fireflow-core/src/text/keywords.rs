@@ -1971,24 +1971,24 @@ mod tests {
     use crate::test::*;
 
     #[test]
-    fn test_tr() {
+    fn tr() {
         assert_from_to_str::<Trigger>("Wooden Leg Pt 3,456");
     }
 
     #[test]
-    fn test_mode() {
+    fn mode() {
         assert_from_to_str::<Mode>("C");
         assert_from_to_str::<Mode>("L");
         assert_from_to_str::<Mode>("U");
     }
 
     #[test]
-    fn test_mode_3_2() {
+    fn mode_3_2() {
         assert_from_to_str::<Mode3_2>("L");
     }
 
     #[test]
-    fn test_pnd() {
+    fn pnd() {
         assert_from_to_str::<Display>("Linear,0,1");
         // TODO seems like this shouldn't be allowed
         assert_from_to_str::<Display>("Linear,1,0");
@@ -1998,14 +1998,14 @@ mod tests {
     }
 
     #[test]
-    fn test_datatype() {
+    fn datatype() {
         assert_from_to_str::<NumType>("I");
         assert_from_to_str::<NumType>("F");
         assert_from_to_str::<NumType>("D");
     }
 
     #[test]
-    fn test_pndatetype() {
+    fn pndatetype() {
         assert_from_to_str::<AlphaNumType>("I");
         assert_from_to_str::<AlphaNumType>("F");
         assert_from_to_str::<AlphaNumType>("D");
@@ -2013,28 +2013,28 @@ mod tests {
     }
 
     #[test]
-    fn test_pne_time() {
+    fn pne_time() {
         assert_from_to_str::<TemporalScale>("0,0");
     }
 
     #[test]
-    fn test_pncalibration_3_1() {
+    fn pncalibration_3_1() {
         assert_from_to_str::<Calibration3_1>("0.1,cubic imperial lightyears");
     }
 
     #[test]
-    fn test_pncalibration_3_2() {
+    fn pncalibration_3_2() {
         assert_from_to_str::<Calibration3_2>("1.1,3.5813,progressive metal albums");
     }
 
     #[test]
-    fn test_pnl_3_1() {
+    fn pnl_3_1() {
         assert_from_to_str::<Wavelengths>("1");
         assert_from_to_str::<Wavelengths>("1,2");
     }
 
     #[test]
-    fn test_last_modified() {
+    fn last_modified() {
         assert_from_to_str_almost::<LastModified>(
             "01-Jan-2112 00:00:00",
             "01-Jan-2112 00:00:00.00",
@@ -2043,7 +2043,7 @@ mod tests {
     }
 
     #[test]
-    fn test_originality() {
+    fn originality() {
         assert_from_to_str::<Originality>("Original");
         assert_from_to_str::<Originality>("NonDataModified");
         assert_from_to_str::<Originality>("Appended");
@@ -2051,7 +2051,7 @@ mod tests {
     }
 
     #[test]
-    fn test_unicode() {
+    fn unicode() {
         assert_from_to_str::<Unicode>("42,$BYTEORD");
         // we don't actually check that the keyword is valid, likely nobody
         // will notice ;)
@@ -2059,7 +2059,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pntype_optical() {
+    fn pntype_optical() {
         assert_from_to_str::<OpticalType>("Forward Scatter");
         assert_from_to_str::<OpticalType>("Side Scatter");
         assert_from_to_str::<OpticalType>("Raw Fluorescence");
@@ -2071,25 +2071,25 @@ mod tests {
     }
 
     #[test]
-    fn test_pntype_time() {
+    fn pntype_time() {
         assert_from_to_str::<TemporalType>("Time");
     }
 
     #[test]
-    fn test_pnfeature() {
+    fn pnfeature() {
         assert_from_to_str::<Feature>("Area");
         assert_from_to_str::<Feature>("Width");
         assert_from_to_str::<Feature>("Height");
     }
 
     #[test]
-    fn test_rni_2_0() {
+    fn rni_2_0() {
         assert_from_to_str::<RegionGateIndex<GateIndex>>("1");
         assert_from_to_str::<RegionGateIndex<GateIndex>>("1,2");
     }
 
     #[test]
-    fn test_rni_3_0() {
+    fn rni_3_0() {
         assert_from_to_str::<RegionGateIndex<MeasOrGateIndex>>("P1");
         assert_from_to_str::<RegionGateIndex<MeasOrGateIndex>>("P1,P2");
         assert_from_to_str::<RegionGateIndex<MeasOrGateIndex>>("G1");
@@ -2097,19 +2097,19 @@ mod tests {
     }
 
     #[test]
-    fn test_rni_3_2() {
+    fn rni_3_2() {
         assert_from_to_str::<RegionGateIndex<PrefixedMeasIndex>>("P1");
         assert_from_to_str::<RegionGateIndex<PrefixedMeasIndex>>("P1,P2");
     }
 
     #[test]
-    fn test_rnw() {
+    fn rnw() {
         assert_from_to_str::<RegionWindow>("1,1");
         assert_from_to_str::<RegionWindow>("1,1;2,3;5,8;13,21");
     }
 
     #[test]
-    fn test_gating() {
+    fn gating() {
         assert_from_to_str::<Gating>("R1");
         assert_from_to_str_almost::<Gating>("R1 AND (R2.OR.R3)", "(R1 AND (R2 OR R3))");
         assert_from_to_str::<Gating>("((NOT R1) AND R2)");

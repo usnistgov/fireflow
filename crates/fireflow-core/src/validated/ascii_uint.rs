@@ -287,7 +287,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_u32_to_uint8digit() {
+    fn u32_to_uint8digit() {
         assert!(UintSpacePad8::try_from(0_u64).is_ok());
         assert!(UintSpacePad8::try_from(1_u64).is_ok());
         assert!(UintSpacePad8::try_from(99_999_999_u64).is_ok());
@@ -295,7 +295,7 @@ mod tests {
     }
 
     #[test]
-    fn test_str_to_uint8digit() {
+    fn str_to_uint8digit() {
         assert!("0".parse::<UintSpacePad8>().is_ok());
         assert!("99999999".parse::<UintSpacePad8>().is_ok());
         assert!("100000000".parse::<UintSpacePad8>().is_err());

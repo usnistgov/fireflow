@@ -4,7 +4,7 @@ use fireflow_core::header::Version;
 
 use derive_more::{Display, From};
 use derive_new::new;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;

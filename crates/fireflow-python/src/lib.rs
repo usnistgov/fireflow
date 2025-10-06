@@ -61,12 +61,12 @@ use fireflow_core::core;
 use fireflow_core::data::{
     AnyAsciiLayout, AnyNullBitmask, AnyOrderedLayout, AnyOrderedUintLayout, DataLayout2_0,
     DataLayout3_0, DataLayout3_1, DataLayout3_2, DelimAsciiLayout, EndianLayout, F32Range,
-    F64Range, FixedAsciiLayout, KnownTot, LayoutOps, NoMeasDatatype, NonMixedEndianLayout,
+    F64Range, FixedAsciiLayout, KnownTot, LayoutOps as _, NoMeasDatatype, NonMixedEndianLayout,
 };
-use fireflow_core::error::{MultiResultExt, ResultExt};
+use fireflow_core::error::{MultiResultExt as _, ResultExt as _};
 use fireflow_core::header;
 use fireflow_core::python::exceptions::{
-    PyTerminalNoErrorResultExt, PyTerminalNoWarnResultExt, PyTerminalResultExt,
+    PyTerminalNoErrorResultExt as _, PyTerminalNoWarnResultExt as _, PyTerminalResultExt as _,
 };
 use fireflow_core::text::gating::{
     AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, BivariateRegion, GatedMeasurement,

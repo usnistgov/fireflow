@@ -4,16 +4,17 @@ use crate::config::{
 };
 use crate::data::{
     req_meas_headers, AnyLossError, AnyRangeError, ColumnError, ConvertWidthError, DataLayout2_0,
-    DataLayout3_0, DataLayout3_1, DataLayout3_2, InterLayoutOps, KnownTot, LayoutOps,
+    DataLayout3_0, DataLayout3_1, DataLayout3_2, InterLayoutOps as _, KnownTot, LayoutOps as _,
     LookupLayoutError, LookupLayoutWarning, MaybeTot, MeasLayoutMismatchError,
     MixedToNonMixedLayoutError, MixedToOrderedLayoutError, NewDataLayoutError, NewDataReaderError,
     RawToLayoutError, RawToLayoutWarning, ReadDataframeError, ReadDataframeWarning, TotDefinition,
     VersionedDataLayout,
 };
 use crate::error::{
-    BiTentative, DeferredExt, DeferredFailure, DeferredResult, ErrorIter, IODeferredExt,
-    IODeferredResult, IOResult, IOTerminalResult, ImpureError, InfalliblePassthruExt, MultiResult,
-    MultiResultExt, PassthruExt, PassthruResult, ResultExt, Tentative, Terminal, TerminalResult,
+    BiTentative, DeferredExt as _, DeferredFailure, DeferredResult, ErrorIter as _,
+    IODeferredExt as _, IODeferredResult, IOResult, IOTerminalResult, ImpureError,
+    InfalliblePassthruExt as _, MultiResult, MultiResultExt as _, PassthruExt as _, PassthruResult,
+    ResultExt as _, Tentative, Terminal, TerminalResult,
 };
 use crate::header::{
     HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
@@ -53,9 +54,9 @@ use crate::text::{
     parser::{
         lookup_temporal_gain_3_0, lookup_temporal_scale_3_0, DepValueWarning, DeprecatedError,
         ExtraStdKeywords, LookupKeysError, LookupKeysWarning, LookupOptional, LookupResult,
-        LookupTentative, MissingTime, OptIndexedKey, OptKeyError, OptLinkedKey, OptMetarootKey,
-        PseudostandardError, RawKeywords, ReqIndexedKey, ReqKeyError, ReqMetarootKey,
-        UnusedStandardError,
+        LookupTentative, MissingTime, OptIndexedKey as _, OptKeyError, OptLinkedKey as _,
+        OptMetarootKey as _, PseudostandardError, RawKeywords, ReqIndexedKey as _, ReqKeyError,
+        ReqMetarootKey as _, UnusedStandardError,
     },
     ranged_float::PositiveFloat,
     scale::{LogScale, Scale},
@@ -72,20 +73,20 @@ use crate::validated::{
     dataframe as df,
     dataframe::{AnyFCSColumn, FCSDataFrame},
     keys::{
-        IndexedKey, Key, MeasHeader, NonStdKey, NonStdKeywords, NonStdKeywordsExt,
+        IndexedKey, Key, MeasHeader, NonStdKey, NonStdKeywords, NonStdKeywordsExt as _,
         NonStdMeasRegexError, StdKeywords, ValidKeywords,
     },
     shortname::Shortname,
     textdelim::TEXTDelim,
 };
 
-use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, Timelike};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, Timelike as _};
 use derive_more::{AsMut, AsRef, Display, From};
 use derive_new::new;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
-use num_traits::identities::{One, Zero};
+use num_traits::identities::{One as _, Zero};
 use regex::Regex;
 use thiserror::Error;
 
@@ -8455,7 +8456,7 @@ def_failure!(
 #[cfg(feature = "serde")]
 mod serialize {
     use crate::core::AnyCore;
-    use serde::{ser::SerializeStruct, Serialize};
+    use serde::{ser::SerializeStruct as _, Serialize};
 
     impl<A, D, O> Serialize for AnyCore<A, D, O>
     where

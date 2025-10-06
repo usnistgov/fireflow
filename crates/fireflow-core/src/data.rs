@@ -677,7 +677,7 @@ where
         meas: &Measurements<N, T, O>,
     ) -> MultiResult<(), MeasLayoutMismatchError> {
         let xforms: Vec<_> = meas
-            .iter_with(&|_, t| t.value.as_transform(), &|_, m| {
+            .iter_with(&|_, _| ScaleTransform::default(), &|_, m| {
                 m.value.as_transform()
             })
             .collect();
@@ -2392,19 +2392,6 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
 
     fn clear(&mut self) {
         self.ranges.clear();
-    }
-}
-
-impl<T, D, const ORD: bool> DelimAsciiLayout<T, D, ORD> {
-    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
-        df.iter_columns()
-            .enumerate()
-            .map(|(i, c)| {
-                c.check_writer::<_, _, u64>(|_| None)
-                    .map_err(|error| ColumnError::new(i, AnyLossError::Int(error)))
-            })
-            .gather()
-            .void()
     }
 }
 

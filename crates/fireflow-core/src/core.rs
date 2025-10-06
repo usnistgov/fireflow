@@ -1505,6 +1505,8 @@ pub trait VersionedTemporal: Sized {
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)>;
 
+    fn req_meas_keywords_inner(&self, _: MeasIndex) -> impl Iterator<Item = (String, String)>;
+
     fn opt_meas_keywords_inner(&self, _: MeasIndex) -> impl Iterator<Item = (String, String)>;
 
     fn can_convert_to_optical(&self, i: MeasIndex) -> MultiResult<(), Self::Err>;
@@ -1662,11 +1664,11 @@ impl<T> Temporal<T> {
             .map(|specific| Temporal::new(self.common, specific))
     }
 
-    fn req_meas_keywords(&self, _: MeasIndex) -> impl Iterator<Item = (String, String)>
+    fn req_meas_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)>
     where
         T: VersionedTemporal,
     {
-        [].into_iter()
+        self.specific.req_meas_keywords_inner(i)
     }
 
     fn req_meta_keywords(&self) -> impl Iterator<Item = (String, String)>
@@ -1684,10 +1686,6 @@ impl<T> Temporal<T> {
             .into_iter()
             .filter_map(|(k, v)| v.map(|x| (k, x)))
             .chain(self.specific.opt_meas_keywords_inner(i))
-    }
-
-    pub(crate) fn as_transform(&self) -> ScaleTransform {
-        ScaleTransform::default()
     }
 }
 
@@ -6590,6 +6588,10 @@ impl VersionedTemporal for InnerTemporal2_0 {
         [].into_iter()
     }
 
+    fn req_meas_keywords_inner(&self, _: MeasIndex) -> impl Iterator<Item = (String, String)> {
+        [].into_iter()
+    }
+
     fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
         self.peak
             .opt_keywords(i)
@@ -6619,11 +6621,14 @@ impl VersionedTemporal for InnerTemporal3_0 {
         [self.timestep.pair()].into_iter()
     }
 
+    fn req_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
+        [TemporalScale.meas_pair(i)].into_iter()
+    }
+
     fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
         self.peak
             .opt_keywords(i)
             .filter_map(|(_, k, v)| v.map(|x| (k, x)))
-            .chain([TemporalScale.meas_pair(i)])
     }
 
     fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult<(), Self::Err> {
@@ -6647,13 +6652,16 @@ impl VersionedTemporal for InnerTemporal3_1 {
         [self.timestep.pair()].into_iter()
     }
 
+    fn req_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
+        [TemporalScale.meas_pair(i)].into_iter()
+    }
+
     fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
         self.peak
             .opt_keywords(i)
             .map(|(_, k, v)| (k, v))
             .chain([self.display.meas_kw_pair(i)])
             .filter_map(|(k, v)| v.map(|x| (k, x)))
-            .chain([TemporalScale.meas_pair(i)])
     }
 
     fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult<(), Self::Err> {
@@ -6677,11 +6685,14 @@ impl VersionedTemporal for InnerTemporal3_2 {
         [self.timestep.pair()].into_iter()
     }
 
+    fn req_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
+        [TemporalScale.meas_pair(i)].into_iter()
+    }
+
     fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
         [self.display.meas_kw_pair(i)]
             .into_iter()
             .filter_map(|(k, v)| v.map(|x| (k, x)))
-            .chain([TemporalScale.meas_pair(i)])
     }
 
     fn can_convert_to_optical(&self, i: MeasIndex) -> MultiResult<(), Self::Err> {

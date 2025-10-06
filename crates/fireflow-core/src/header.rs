@@ -3,7 +3,7 @@ use crate::error::{ErrorIter as _, ImpureError, MultiResult, MultiResultExt as _
 use crate::segment::{
     GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderCorrection,
     HeaderDataSegment, HeaderSegment, HeaderSegmentError, NewSegmentConfig, OffsetCorrection,
-    OtherSegment, OtherSegment20, PrimaryTextSegment, SegmentOverlapError, SpecificSegment,
+    OtherSegment, OtherSegment20, PrimaryTextSegment, SegmentOverlapError, Segment,
     SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment, TEXTSegment,
 };
 use crate::text::keywords::{
@@ -104,7 +104,7 @@ impl<T> HeaderSegments<T> {
         .into_iter()
         // TODO the other segments will each be 20 chars wide and padded with 0,
         // which is probably overkill
-        .chain(self.other.iter().map(SpecificSegment::header_string))
+        .chain(self.other.iter().map(Segment::header_string))
         {
             h.write_all(s.as_bytes())?;
         }
@@ -165,7 +165,7 @@ impl<T> HeaderSegments<T> {
 
     fn contains_header_segment<I, S, T0>(
         &self,
-        s: &SpecificSegment<I, S, T0>,
+        s: &Segment<I, S, T0>,
     ) -> Result<(), InHeaderError>
     where
         I: HasRegion,
@@ -237,27 +237,23 @@ impl Header {
         R: Read,
     {
         let (version, text, data, analysis) = h_read_required_header(h, st)?;
-        let hdr = [
-            text.inner.try_coords(),
-            data.inner.try_coords(),
-            analysis.inner.try_coords(),
-        ]
-        .iter()
-        .flatten()
-        .map(|(x, _)| x)
-        .min()
-        .map_or(Ok(vec![]), |earliest_begin| {
-            h_read_other_segments(h, *earliest_begin, st)
-        })
-        .map(|other| Self {
-            version,
-            segments: HeaderSegments {
-                text,
-                data,
-                analysis,
-                other,
-            },
-        })?;
+        let hdr = [text.try_coords(), data.try_coords(), analysis.try_coords()]
+            .iter()
+            .flatten()
+            .map(|(x, _)| x)
+            .min()
+            .map_or(Ok(vec![]), |earliest_begin| {
+                h_read_other_segments(h, *earliest_begin, st)
+            })
+            .map(|other| Self {
+                version,
+                segments: HeaderSegments {
+                    text,
+                    data,
+                    analysis,
+                    other,
+                },
+            })?;
         hdr.segments
             .validate()
             .mult_map_errors(Box::new)
@@ -521,18 +517,17 @@ impl<T> HeaderKeywordsToWrite<T> {
             raw_keywords_length(&req[..]) + raw_keywords_length(&opt[..]) + nextdata_len() + 1;
         let text_seg = PrimaryTextSegment::try_new_with_len(text_begin, text_len)?;
 
-        let other_begin = text_seg.inner.try_next_byte().map_or(text_begin, u64::from);
+        let other_begin = text_seg.try_next_byte().map_or(text_begin, u64::from);
         let (other_segs, data_begin) = Self::other_segments(other_begin, other_lens)?;
 
         let data_seg = HeaderDataSegment::try_new_with_len(data_begin, data_len)?;
 
-        let analysis_begin = data_seg.inner.try_next_byte().map_or(text_begin, u64::from);
+        let analysis_begin = data_seg.try_next_byte().map_or(text_begin, u64::from);
         let analysis_seg = HeaderAnalysisSegment::try_new_with_len(analysis_begin, analysis_len)?;
 
         let nextdata = Nextdata(if has_nextdata {
             UintZeroPad20(
                 analysis_seg
-                    .inner
                     .try_next_byte()
                     .map_or(analysis_begin, u64::from),
             )
@@ -590,7 +585,7 @@ impl<T> HeaderKeywordsToWrite<T> {
 
         let make_text_seg = |len| {
             PrimaryTextSegment::try_new_with_len(prim_text_begin, len).map(|seg| {
-                let other_begin = seg.inner.try_next_byte().map_or(prim_text_begin, u64::from);
+                let other_begin = seg.try_next_byte().map_or(prim_text_begin, u64::from);
                 (seg, other_begin)
             })
         };
@@ -613,7 +608,6 @@ impl<T> HeaderKeywordsToWrite<T> {
                 let supp_text_seg =
                     SupplementalTextSegment::new_with_len(supp_text_begin, supp_text_len);
                 let data_begin = supp_text_seg
-                    .inner
                     .try_next_byte()
                     .map_or(supp_text_begin, u64::from);
                 (prim_text_seg, other_segs, supp_text_seg, data_begin)
@@ -621,7 +615,7 @@ impl<T> HeaderKeywordsToWrite<T> {
 
         let data_seg = TEXTDataSegment::new_with_len(data_begin, data_len);
 
-        let analysis_begin = data_seg.inner.try_next_byte().map_or(data_begin, u64::from);
+        let analysis_begin = data_seg.try_next_byte().map_or(data_begin, u64::from);
         let analysis_seg = TEXTAnalysisSegment::new_with_len(analysis_begin, analysis_len);
 
         let h_analysis_seg = analysis_seg.as_header();
@@ -630,7 +624,6 @@ impl<T> HeaderKeywordsToWrite<T> {
         let nextdata = Nextdata(if has_nextdata {
             UintZeroPad20(
                 analysis_seg
-                    .inner
                     .try_next_byte()
                     .map_or(analysis_begin, u64::from),
             )
@@ -648,7 +641,7 @@ impl<T> HeaderKeywordsToWrite<T> {
             .chain([nextdata.pair()])
             .chain(req);
 
-        let (primary, supplemental) = if supp_text_seg.inner.is_empty() {
+        let (primary, supplemental) = if supp_text_seg.is_empty() {
             (all_req.chain(opt).collect(), vec![])
         } else {
             (all_req.collect(), opt)
@@ -722,7 +715,7 @@ impl<T> HeaderKeywordsToWrite<T> {
             .collect::<Result<Vec<_>, _>>()?;
         let next = ret
             .iter()
-            .filter_map(|x| x.inner.try_next_byte())
+            .filter_map(Segment::try_next_byte)
             .last()
             .map_or(begin, Into::into);
         Ok((ret, next))

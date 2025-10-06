@@ -7857,7 +7857,7 @@ impl<X> AsRef<CommonMeasurement> for Temporal<X> {
 impl AnalysisReader {
     pub(crate) fn h_read<R: Read + Seek>(&self, h: &mut BufReader<R>) -> io::Result<Analysis> {
         let mut buf = vec![];
-        self.seg.inner.h_read_contents(h, &mut buf)?;
+        self.seg.h_read_contents(h, &mut buf)?;
         Ok(buf.into())
     }
 }
@@ -7867,7 +7867,7 @@ impl OthersReader<'_> {
         let mut buf = vec![];
         let mut others = vec![];
         for s in self.segs {
-            s.inner.h_read_contents(h, &mut buf)?;
+            s.h_read_contents(h, &mut buf)?;
             others.push(Other(buf.clone()));
             buf.clear();
         }

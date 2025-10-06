@@ -686,10 +686,7 @@ where
     let conf = st.conf.as_ref();
     let mut buf = vec![];
     let ptext_seg = header.segments.text;
-    ptext_seg
-        .inner
-        .h_read_contents(h, &mut buf)
-        .into_deferred()?;
+    ptext_seg.h_read_contents(h, &mut buf).into_deferred()?;
 
     let tnt_delim = split_first_delim(&buf, conf)
         .def_inner_into()
@@ -717,8 +714,7 @@ where
                     .and_maybe(|maybe_supp_seg| {
                         let tnt_supp_kws = if let Some(seg) = maybe_supp_seg {
                             buf.clear();
-                            seg.inner
-                                .h_read_contents(h, &mut buf)
+                            seg.h_read_contents(h, &mut buf)
                                 .map_err(DeferredFailure::new1)?;
                             split_raw_supp_text(kws, delim, &buf, conf)
                                 .inner_into()
@@ -1081,7 +1077,8 @@ where
     }
     .and_tentatively(|x| {
         x.map_or(Tentative::default(), |seg| {
-            if seg.inner.as_u64() == text_segment.inner.as_u64() {
+            // TODO confusing
+            if seg.as_u64().try_coords() == text_segment.as_u64().try_coords() {
                 Tentative::new_either(
                     None,
                     vec![DuplicatedSuppTEXT],

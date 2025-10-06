@@ -642,7 +642,7 @@ where
         // more complex. Good enough to pass the buffer and only use it when
         // needed.
         let mut buf = vec![];
-        seg.inner.as_u64().try_coords().map_or(
+        seg.as_u64().try_coords().map_or(
             Ok(Tentative::new1(FCSDataFrame::default())),
             |(begin, _)| {
                 h.seek(SeekFrom::Start(begin)).into_deferred()?;
@@ -2261,8 +2261,8 @@ where
         _: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
         let rs = &self.ranges;
-        let nbytes = usize::try_from(seg.inner.len())
-            .expect("DATA segment size exceeded platform pointer size");
+        let nbytes =
+            usize::try_from(seg.len()).expect("DATA segment size exceeded platform pointer size");
         T::with_tot(
             h,
             tot,
@@ -2864,7 +2864,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         S: Clone,
         C: IsFixed,
     {
-        let n = seg.inner.len();
+        let n = seg.len();
         let w = self.event_width();
         let (t, e) = if w == 0 {
             (None, Some(UnevenEventWidth::ZeroWidth(n)))

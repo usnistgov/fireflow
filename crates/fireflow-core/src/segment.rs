@@ -29,36 +29,22 @@ use std::str::FromStr;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-/// A segment that is specific to a region in the FCS file.
-#[derive(Clone, Copy, new, PartialEq, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "serde", serde(transparent))]
-pub struct SpecificSegment<I, S, T> {
-    pub inner: Segment<T>,
+/// Denotes a correction for a segment
+#[derive(Default, Clone, Copy, new)]
+pub struct OffsetCorrection<I, S> {
+    begin: i32,
+    end: i32,
     _id: PhantomData<I>,
     _src: PhantomData<S>,
 }
 
-/// A segment in an FCS file which is denoted by a pair of offsets
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub enum Segment<T> {
-    NonEmpty(NonEmptySegment<T>),
-    #[default]
-    Empty,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// A segment that is specific to a region in the FCS file.
+#[derive(Clone, Copy, new, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct NonEmptySegment<T> {
-    begin: T,
-    end: T,
-}
-
-/// Denotes a correction for a segment
-#[derive(Default, Clone, Copy, new)]
-pub struct OffsetCorrection<I, S> {
-    pub begin: i32,
-    pub end: i32,
+#[cfg_attr(feature = "serde", serde(transparent))]
+#[new(visibility = "")]
+pub struct Segment<I, S, T> {
+    inner: InnerSegment<T>,
     _id: PhantomData<I>,
     _src: PhantomData<S>,
 }
@@ -115,22 +101,21 @@ pub struct AnalysisSegmentId;
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct OtherSegmentId;
 
-pub type PrimaryTextSegment =
-    SpecificSegment<PrimaryTextSegmentId, SegmentFromHeader, UintSpacePad8>;
+pub type PrimaryTextSegment = Segment<PrimaryTextSegmentId, SegmentFromHeader, UintSpacePad8>;
 pub type SupplementalTextSegment =
-    SpecificSegment<SupplementalTextSegmentId, SegmentFromTEXT, UintZeroPad20>;
+    Segment<SupplementalTextSegmentId, SegmentFromTEXT, UintZeroPad20>;
 
-type DataSegment<S, T> = SpecificSegment<DataSegmentId, S, T>;
+type DataSegment<S, T> = Segment<DataSegmentId, S, T>;
 pub type HeaderDataSegment = DataSegment<SegmentFromHeader, UintSpacePad8>;
 pub type TEXTDataSegment = DataSegment<SegmentFromTEXT, UintZeroPad20>;
 
-type AnalysisSegment<S, T> = SpecificSegment<AnalysisSegmentId, S, T>;
+type AnalysisSegment<S, T> = Segment<AnalysisSegmentId, S, T>;
 pub type HeaderAnalysisSegment = AnalysisSegment<SegmentFromHeader, UintSpacePad8>;
 pub type TEXTAnalysisSegment = AnalysisSegment<SegmentFromTEXT, UintZeroPad20>;
 
-pub type HeaderSegment<I> = SpecificSegment<I, SegmentFromHeader, UintSpacePad8>;
-pub type TEXTSegment<I> = SpecificSegment<I, SegmentFromTEXT, UintZeroPad20>;
-pub type AnySegment<I> = SpecificSegment<I, SegmentFromAnywhere, u64>;
+pub type HeaderSegment<I> = Segment<I, SegmentFromHeader, UintSpacePad8>;
+pub type TEXTSegment<I> = Segment<I, SegmentFromTEXT, UintZeroPad20>;
+pub type AnySegment<I> = Segment<I, SegmentFromAnywhere, u64>;
 
 pub type HeaderCorrection<I> = OffsetCorrection<I, SegmentFromHeader>;
 pub type TEXTCorrection<I> = OffsetCorrection<I, SegmentFromTEXT>;
@@ -138,7 +123,7 @@ pub type TEXTCorrection<I> = OffsetCorrection<I, SegmentFromTEXT>;
 pub type AnyDataSegment = DataSegment<SegmentFromAnywhere, u64>;
 pub type AnyAnalysisSegment = AnalysisSegment<SegmentFromAnywhere, u64>;
 
-pub type OtherSegment<T> = SpecificSegment<OtherSegmentId, SegmentFromHeader, T>;
+pub type OtherSegment<T> = Segment<OtherSegmentId, SegmentFromHeader, T>;
 pub type OtherSegment8 = OtherSegment<UintSpacePad20>;
 pub type OtherSegment20 = OtherSegment<UintSpacePad20>;
 
@@ -147,6 +132,21 @@ pub(crate) type ReqSegResult<T> =
 
 pub(crate) type OptSegTentative<T> =
     Tentative<AnySegment<T>, OptSegmentWithDefaultWarning<T>, SegmentMismatchWarning<T>>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+enum InnerSegment<T> {
+    NonEmpty(NonEmptySegment<T>),
+    #[default]
+    Empty,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, new)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[new(visibility = "")]
+struct NonEmptySegment<T> {
+    begin: T,
+    end: T,
+}
 
 /// Operations to obtain optional segment from TEXT keywords
 pub(crate) trait KeyedSegment
@@ -197,7 +197,7 @@ where
         conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> MultiResult<TEXTSegment<Self>, ReqSegmentError> {
         let (y0, y1) = Self::get_pair(kws).map_err(|es| es.map(Into::into))?;
-        SpecificSegment::try_new(y0, y1, conf).into_mult()
+        Segment::try_new(y0, y1, conf).into_mult()
     }
 
     fn remove_or(
@@ -235,7 +235,7 @@ where
         conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> MultiResult<TEXTSegment<Self>, ReqSegmentError> {
         let (y0, y1) = Self::remove_pair(kws).map_err(|es| es.map(Into::into))?;
-        SpecificSegment::try_new(y0, y1, conf).into_mult()
+        Segment::try_new(y0, y1, conf).into_mult()
     }
 
     fn default_or(
@@ -321,7 +321,7 @@ where
         Self::get_pair(kws)
             .map_err(|es| es.map(Into::into))
             .and_then(|x| {
-                x.map(|(z0, z1)| SpecificSegment::try_new(z0, z1, conf).into_mult())
+                x.map(|(z0, z1)| Segment::try_new(z0, z1, conf).into_mult())
                     .transpose()
             })
             .map_or_else(|ws| Tentative::new(None, ws, []), Tentative::new1)
@@ -353,7 +353,7 @@ where
         Self::remove_pair(kws)
             .map_err(|es| es.map(Into::into))
             .and_then(|x| {
-                x.map(|(z0, z1)| SpecificSegment::try_new(z0, z1, conf).into_mult())
+                x.map(|(z0, z1)| Segment::try_new(z0, z1, conf).into_mult())
                     .transpose()
             })
             .map_or_else(|ws| Tentative::new(None, ws, []), Tentative::new1)
@@ -487,25 +487,77 @@ impl<I, S> From<(Option<i32>, Option<i32>)> for OffsetCorrection<I, S> {
     }
 }
 
-impl<I, S, T> Default for SpecificSegment<I, S, T> {
+impl<I, S, T> Default for Segment<I, S, T> {
     fn default() -> Self {
-        Self::new(Segment::Empty)
+        Self::new(InnerSegment::Empty)
     }
 }
 
-impl<I, S, T> SpecificSegment<I, S, T> {
-    fn try_new(
-        begin: impl Into<T>,
-        end: impl Into<T>,
-        conf: &NewSegmentConfig<T, I, S>,
-    ) -> Result<Self, SegmentError<T>>
+impl<I, S, T> Segment<I, S, T> {
+    /// Return the first and last byte or `None` if empty.
+    pub(crate) fn try_coords(&self) -> Option<(T, T)>
     where
-        I: HasRegion,
-        S: HasSource,
-        T: Zero + One + CheckedSub + Into<u64> + Into<i128> + TryFrom<i128> + Ord + Copy,
-        u64: From<T>,
+        T: Copy,
     {
-        Segment::try_new::<I, S>(begin.into(), end.into(), conf).map(Self::new)
+        self.inner.try_as_nonempty().map(|x| x.coords())
+    }
+
+    /// Read bytes within this segment
+    pub(crate) fn h_read_contents<R: Read + Seek>(
+        &self,
+        h: &mut BufReader<R>,
+        buf: &mut Vec<u8>,
+    ) -> io::Result<()>
+    where
+        T: Into<u64> + Copy,
+    {
+        match self.inner {
+            InnerSegment::Empty => Ok(()),
+            InnerSegment::NonEmpty(s) => {
+                let begin = s.begin.into();
+                let nbytes = u64::from(s.nbytes());
+
+                h.seek(SeekFrom::Start(begin))?;
+                h.take(nbytes).read_to_end(buf)?;
+                Ok(())
+            }
+        }
+    }
+
+    /// Return true if segment has 0 bytes
+    pub(crate) fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// Return the number of bytes in this segment
+    pub(crate) fn len(&self) -> u64
+    where
+        T: Copy + Into<u64>,
+    {
+        // NOTE In FCS a 0,0 means "empty" but this also means one byte
+        // according to the spec's on definitions. The first number points to
+        // the first byte in a segment, and the second number points to the last
+        // byte, therefore 0,0 means "0 is both the first and last byte, which
+        // also means there is one byte".
+        self.inner
+            .try_as_nonempty()
+            .map_or(0, |s| u64::from(s.nbytes()))
+    }
+
+    /// Return byte after end of segment if applicable
+    pub(crate) fn try_next_byte(&self) -> Option<NonZeroU64>
+    where
+        T: Copy + Into<u64>,
+    {
+        self.inner.try_as_nonempty().map(|x| x.next_byte())
+    }
+
+    /// Convert offsets to u64
+    pub(crate) fn as_u64(&self) -> Segment<I, S, u64>
+    where
+        T: Into<u64> + Copy,
+    {
+        Segment::new(self.inner.as_u64())
     }
 
     pub(crate) fn try_new_with_len(
@@ -516,12 +568,27 @@ impl<I, S, T> SpecificSegment<I, S, T> {
         T: TryFrom<u64> + Copy,
     {
         let s = if length == 0 {
-            Segment::default()
+            InnerSegment::default()
         } else {
             let end = (begin + length - 1).try_into()?;
-            Segment::NonEmpty(NonEmptySegment::new_unchecked(begin.try_into()?, end))
+            // TODO this seems sketchy
+            InnerSegment::NonEmpty(NonEmptySegment::new(begin.try_into()?, end))
         };
         Ok(Self::new(s))
+    }
+
+    pub(crate) fn new_with_len(begin: u64, length: u64) -> Self
+    where
+        T: From<u64> + Copy,
+    {
+        let inner = if length == 0 {
+            InnerSegment::default()
+        } else {
+            let end = (begin + length - 1).into();
+            // TODO this seems sketchy
+            InnerSegment::NonEmpty(NonEmptySegment::new(begin.into(), end))
+        };
+        Self::new(inner)
     }
 
     // TODO this is just tryfrom
@@ -540,6 +607,28 @@ impl<I, S, T> SpecificSegment<I, S, T> {
                 region: I::REGION,
             }
         })
+    }
+
+    fn fmt_pair(&self) -> String
+    where
+        T: Default + Copy + fmt::Display,
+    {
+        let (b, e) = self.try_coords().unwrap_or((T::default(), T::default()));
+        format!("{b},{e}")
+    }
+
+    fn try_new(
+        begin: impl Into<T>,
+        end: impl Into<T>,
+        conf: &NewSegmentConfig<T, I, S>,
+    ) -> Result<Self, SegmentError<T>>
+    where
+        I: HasRegion,
+        S: HasSource,
+        T: Zero + One + CheckedSub + Into<u64> + Into<i128> + TryFrom<i128> + Ord + Copy,
+        u64: From<T>,
+    {
+        InnerSegment::try_new::<I, S>(begin.into(), end.into(), conf).map(Self::new)
     }
 }
 
@@ -582,48 +671,30 @@ impl GenericSegment {
     }
 }
 
-impl<I, S, T> SpecificSegment<I, S, T> {
-    pub(crate) fn new_with_len(begin: u64, length: u64) -> Self
-    where
-        T: From<u64> + Copy,
-    {
-        let inner = if length == 0 {
-            Segment::default()
-        } else {
-            let end = (begin + length - 1).into();
-            Segment::NonEmpty(NonEmptySegment::new_unchecked(begin.into(), end))
-        };
-        Self::new(inner)
-    }
-}
-
 impl<I> TEXTSegment<I> {
     /// Convert TEXT segment to HEADER segment.
     ///
     /// If offsets are too big, return an empty segment.
     pub(crate) fn as_header(&self) -> HeaderSegment<I> {
-        let inner = self
-            .inner
-            .try_coords()
-            .map_or(Segment::default(), |(b, e)| {
-                let br = u64::from(b).try_into();
-                let er = u64::from(e).try_into();
-                if let (Ok(begin), Ok(end)) = (br, er) {
-                    Segment::NonEmpty(NonEmptySegment::new_unchecked(begin, end))
-                } else {
-                    Segment::default()
-                }
-            });
-        SpecificSegment::new(inner)
+        let inner = self.try_coords().map_or(InnerSegment::default(), |(b, e)| {
+            let br = u64::from(b).try_into();
+            let er = u64::from(e).try_into();
+            if let (Ok(begin), Ok(end)) = (br, er) {
+                InnerSegment::NonEmpty(NonEmptySegment::new(begin, end))
+            } else {
+                InnerSegment::default()
+            }
+        });
+        Segment::new(inner)
     }
 }
 
-impl<I, T> SpecificSegment<I, SegmentFromHeader, T> {
+impl<I, T> Segment<I, SegmentFromHeader, T> {
     pub(crate) fn header_string(&self) -> String
     where
         T: Zero + HeaderString,
     {
-        let (b, e) = self.inner.try_coords().unwrap_or((T::zero(), T::zero()));
+        let (b, e) = self.try_coords().unwrap_or((T::zero(), T::zero()));
         let mut s = String::new();
         s.push_str(&b.header_string());
         s.push_str(&e.header_string());
@@ -682,7 +753,7 @@ impl<I: Copy> HeaderSegment<I> {
         let begin_res = parse_one(bs0, true);
         let end_res = parse_one(bs1, false);
         let (begin, end) = begin_res.zip(end_res).mult_errors_into()?;
-        SpecificSegment::try_new_squish(begin, end, squish_offsets, conf).into_mult()
+        Segment::try_new_squish(begin, end, squish_offsets, conf).into_mult()
     }
 
     pub(crate) fn unless(
@@ -698,12 +769,12 @@ impl<I: Copy> HeaderSegment<I> {
                 },
             ))
         } else {
-            Ok(SpecificSegment::new(other.inner.as_u64()))
+            Ok(Segment::new(other.inner.as_u64()))
         }
     }
 
     pub(crate) fn into_any(self) -> AnySegment<I> {
-        SpecificSegment::new(self.inner.as_u64())
+        Segment::new(self.inner.as_u64())
     }
 
     fn try_new_squish(
@@ -722,7 +793,7 @@ impl<I: Copy> HeaderSegment<I> {
         } else {
             (begin, end)
         };
-        SpecificSegment::try_new(b, e, conf)
+        Segment::try_new(b, e, conf)
     }
 }
 
@@ -745,7 +816,7 @@ impl OtherSegment20 {
         let begin_res = parse_one(bs0, true);
         let end_res = parse_one(bs1, false);
         let (begin, end) = begin_res.zip(end_res).mult_errors_into()?;
-        SpecificSegment::try_new(begin, end, conf).into_mult()
+        Segment::try_new(begin, end, conf).into_mult()
     }
 }
 
@@ -766,8 +837,8 @@ impl<I> TEXTSegment<I> {
     {
         let i = self.inner;
         let (b, e) = match i {
-            Segment::Empty => (UintZeroPad20::zero(), UintZeroPad20::zero()),
-            Segment::NonEmpty(x) => (x.begin, x.end),
+            InnerSegment::Empty => (UintZeroPad20::zero(), UintZeroPad20::zero()),
+            InnerSegment::NonEmpty(x) => (x.begin, x.end),
         };
         [
             ReqMetarootKey::pair(&I::B::from(b)),
@@ -776,20 +847,11 @@ impl<I> TEXTSegment<I> {
     }
 }
 
-impl<T> Segment<T> {
-    /// Make new segment and check bounds to ensure validity
-    ///
-    /// Will return error explaining why bounds were invalid if failed.
-    ///
-    /// Begin and End are treated as they are in an FCS file, where Begin points
-    /// to first byte and End points to last byte. As such, the only way to
-    /// make a zero-length segment is to have (b, b-1) since the real ending
-    /// *offset* will be one after End.
-    ///
-    /// As a consequence of the above, "unset segments" given as (0,0) are
-    /// actually 1 byte long. There is no way to represent a zero-length segment
-    /// starting at 0 unless we use signed ints.
-    pub(crate) fn try_new<I: HasRegion, S: HasSource>(
+impl<T> InnerSegment<T> {
+    // TODO technically the minimum coords for these segments should be (58, 58)
+    // since a segment can never start in a header. Obviously it will be even
+    // longer if we have OTHER segments
+    fn try_new<I: HasRegion, S: HasSource>(
         begin: T,
         end: T,
         conf: &NewSegmentConfig<T, I, S>,
@@ -829,83 +891,24 @@ impl<T> Segment<T> {
                     } else {
                         Ok(new_end)
                     }
-                    .map(|e| Self::NonEmpty(NonEmptySegment::new_unchecked(new_begin, e)))
+                    .map(|e| Self::NonEmpty(NonEmptySegment::new(new_begin, e)))
                 }
             }
             (_, _) => Err(err(SegmentErrorKind::Range)),
         }
     }
 
-    pub(crate) fn h_read_contents<R: Read + Seek>(
-        &self,
-        h: &mut BufReader<R>,
-        buf: &mut Vec<u8>,
-    ) -> io::Result<()>
-    where
-        T: Into<u64> + Copy,
-    {
-        match self {
-            Self::Empty => Ok(()),
-            Self::NonEmpty(s) => {
-                let begin = s.begin.into();
-                let nbytes = u64::from(s.nbytes());
-
-                h.seek(SeekFrom::Start(begin))?;
-                h.take(nbytes).read_to_end(buf)?;
-                Ok(())
-            }
-        }
-    }
-
-    /// Return the first and last byte if applicable
-    pub fn try_coords(&self) -> Option<(T, T)>
-    where
-        T: Copy,
-    {
-        self.try_as_nonempty().map(|x| x.coords())
-    }
-
-    /// Return byte after end of segment if applicable
-    pub(crate) fn try_next_byte(&self) -> Option<NonZeroU64>
-    where
-        T: Copy + Into<u64>,
-    {
-        self.try_as_nonempty().map(|x| x.next_byte())
-    }
-
-    /// Return the number of bytes in this segment
-    pub(crate) fn len(&self) -> u64
-    where
-        T: Copy + Into<u64>,
-    {
-        // NOTE In FCS a 0,0 means "empty" but this also means one byte
-        // according to the spec's on definitions. The first number points to
-        // the first byte in a segment, and the second number points to the last
-        // byte, therefore 0,0 means "0 is both the first and last byte, which
-        // also means there is one byte".
-        self.try_as_nonempty().map_or(0, |s| u64::from(s.nbytes()))
-    }
-
-    /// Return true if segment has 0 bytes
-    pub(crate) fn is_empty(&self) -> bool {
+    fn is_empty(&self) -> bool {
         matches!(self, Self::Empty)
     }
 
-    fn fmt_pair(&self) -> String
-    where
-        T: Default + Copy + fmt::Display,
-    {
-        let (b, e) = self.try_coords().unwrap_or((T::default(), T::default()));
-        format!("{b},{e}")
-    }
-
-    pub fn as_u64(&self) -> Segment<u64>
+    fn as_u64(&self) -> InnerSegment<u64>
     where
         T: Into<u64> + Copy,
     {
         match self {
-            Self::Empty => Segment::Empty,
-            Self::NonEmpty(x) => Segment::NonEmpty(x.as_u64()),
+            Self::Empty => InnerSegment::Empty,
+            Self::NonEmpty(x) => InnerSegment::NonEmpty(x.as_u64()),
         }
     }
 
@@ -923,7 +926,7 @@ impl<T> Segment<T> {
 
 impl<T> NonEmptySegment<T> {
     /// Return the number of bytes in this segment
-    pub fn nbytes(&self) -> NonZeroU64
+    fn nbytes(&self) -> NonZeroU64
     where
         T: Into<u64> + Copy,
     {
@@ -931,7 +934,7 @@ impl<T> NonEmptySegment<T> {
     }
 
     /// Return the first and last byte or this segment
-    pub fn coords(&self) -> (T, T)
+    fn coords(&self) -> (T, T)
     where
         T: Copy,
     {
@@ -939,7 +942,7 @@ impl<T> NonEmptySegment<T> {
     }
 
     /// Return the next byte after this segment
-    pub fn next_byte(&self) -> NonZeroU64
+    fn next_byte(&self) -> NonZeroU64
     where
         T: Into<u64> + Copy,
     {
@@ -948,11 +951,7 @@ impl<T> NonEmptySegment<T> {
         NonZeroU64::MIN.saturating_add(self.end.into())
     }
 
-    fn new_unchecked(begin: T, end: T) -> Self {
-        Self { begin, end }
-    }
-
-    pub fn as_u64(&self) -> NonEmptySegment<u64>
+    fn as_u64(&self) -> NonEmptySegment<u64>
     where
         T: Into<u64> + Copy,
     {
@@ -1065,8 +1064,8 @@ impl<I> Default for SegmentDefaultWarning<I> {
 #[display(bound(I: HasRegion))]
 #[display(
     "segments differ in HEADER ({}) and TEXT ({}) for {}, using TEXT",
-    header.inner.as_u64().fmt_pair(),
-    text.inner.as_u64().fmt_pair(),
+    header.as_u64().fmt_pair(),
+    text.as_u64().fmt_pair(),
     I::REGION,
 )]
 pub struct SegmentMismatchWarning<I> {
@@ -1101,11 +1100,11 @@ pub(crate) struct NewSegmentConfig<T, I, S> {
 
 #[cfg(feature = "serde")]
 mod serialize {
-    use super::Segment;
+    use super::InnerSegment;
 
     use serde::ser::{Serialize, SerializeStruct as _, Serializer};
 
-    impl<T: Serialize> Serialize for Segment<T> {
+    impl<T: Serialize> Serialize for InnerSegment<T> {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
             S: Serializer,
@@ -1125,31 +1124,35 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{NonEmptySegment, Segment, SpecificSegment, Zero};
+    use super::{InnerSegment, NonEmptySegment, Segment, Zero};
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
 
     // segments will be returned as tuples like (u32, u32) reflecting their
     // exact representation in an FCS file
-    impl<'py, T> FromPyObject<'py> for Segment<T>
+    //
+    // pyo3 apparently can't deal with phantomdata, this is basically just
+    // converting the inner segment which already has this trait
+    impl<'py, I, S, T> FromPyObject<'py> for Segment<I, S, T>
     where
         T: FromPyObject<'py> + Zero + Ord,
         u64: From<T>,
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let (begin, end): (T, T) = ob.extract()?;
-            if begin > end {
+            let ret = if begin > end {
                 Err(PyValueError::new_err("offset begin is greater than end"))
             } else if begin == T::zero() && end == T::zero() {
-                Ok(Self::Empty)
+                Ok(InnerSegment::Empty)
             } else {
-                Ok(Self::NonEmpty(NonEmptySegment::new_unchecked(begin, end)))
-            }
+                Ok(InnerSegment::NonEmpty(NonEmptySegment::new(begin, end)))
+            };
+            ret.map(Self::new)
         }
     }
 
-    impl<'py, T> IntoPyObject<'py> for Segment<T>
+    impl<'py, I, S, T> IntoPyObject<'py> for Segment<I, S, T>
     where
         T: Copy,
         u64: From<T>,
@@ -1163,32 +1166,6 @@ mod python {
                 .try_coords()
                 .unwrap_or((0, 0))
                 .into_pyobject(py)
-        }
-    }
-
-    // pyo3 apparently can't deal with phantomdata, this is basically just
-    // converting the inner segment which already has this trait
-    impl<'py, I, S, T> FromPyObject<'py> for SpecificSegment<I, S, T>
-    where
-        Segment<T>: FromPyObject<'py>,
-    {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            Ok(Self::new(ob.extract()?))
-        }
-    }
-
-    impl<'py, I, S, T> IntoPyObject<'py> for SpecificSegment<I, S, T>
-    where
-        T: Copy,
-        u64: From<T>,
-        Segment<T>: IntoPyObject<'py>,
-    {
-        type Target = <Segment<T> as IntoPyObject<'py>>::Target;
-        type Output = <Segment<T> as IntoPyObject<'py>>::Output;
-        type Error = <Segment<T> as IntoPyObject<'py>>::Error;
-
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            self.inner.into_pyobject(py)
         }
     }
 }

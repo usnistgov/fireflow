@@ -3652,7 +3652,7 @@ fn split_ident_version(name: &Ident) -> (String, Version) {
     let n = name.to_string();
     let (ret, v) = n.split_at(n.len() - 3);
     let version = Version::from_short_underscore(v).expect("version should be like 'X_Y'");
-    (ret.to_string(), version)
+    (ret.into(), version)
 }
 
 fn split_ident_version_checked(which: &'static str, name: &Ident) -> Version {
@@ -4678,9 +4678,7 @@ impl DocArgRWIvar {
         let path = keyword_path(kw);
         let pytype: PyType = f(path.clone()).into();
 
-        let d = desc.map_or(format!("Value of *${}*.", name.to_uppercase()), |d| {
-            d.to_string()
-        });
+        let d = desc.map_or(format!("Value of *${}*.", name.to_uppercase()), Into::into);
 
         let get_f = |_: &Ident, pt: &PyType| {
             let optional = matches!(pt, PyType::Option(_));
@@ -4706,9 +4704,7 @@ impl DocArgRWIvar {
         let pytype: PyType = f(path.clone()).into();
         let full_path = pytype.as_rust_type();
 
-        let d = desc.map_or(format!("Value of *${}*.", name.to_uppercase()), |d| {
-            d.to_string()
-        });
+        let d = desc.map_or(format!("Value of *${}*.", name.to_uppercase()), Into::into);
 
         let get_f = |_: &Ident, _: &PyType| {
             quote! {
@@ -7064,7 +7060,7 @@ impl<A, R, S> DocString<Vec<A>, R, S> {
                     // let t = d.as_py_value();
                     (quote! {#i=#r}, format!("{n}={t}"))
                 } else {
-                    (quote! {#i}, (*n).to_string())
+                    (quote! {#i}, (*n).into())
                 }
             })
             .unzip();

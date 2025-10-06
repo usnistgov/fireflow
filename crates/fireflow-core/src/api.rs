@@ -1242,7 +1242,7 @@ mod tests {
             .unwrap();
         let es = out.errors();
         let ws = out.warnings();
-        assert_eq!(("$P4F".to_string(), "700/75 BP".to_string()), v);
+        assert_eq!(("$P4F".into(), "700/75 BP".into()), v);
         assert!(es.is_empty(), "errors: {es:?}");
         assert!(ws.is_empty(), "warnings: {ws:?}");
     }

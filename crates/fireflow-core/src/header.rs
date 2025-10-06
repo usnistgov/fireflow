@@ -96,7 +96,7 @@ impl<T> HeaderSegments<T> {
         // ASSUME this is a total of 58 bytes long (sans OTHER)
         for s in [
             version.to_string(),           // 6 bytes
-            "    ".to_string(),            // 4 bytes
+            "    ".into(),                 // 4 bytes
             self.text.header_string(),     // 16 bytes
             self.data.header_string(),     // 16 bytes
             self.analysis.header_string(), // 16 bytes

@@ -161,7 +161,7 @@ pub(crate) trait Key {
     const C: &'static str;
 
     fn std() -> StdKey {
-        StdKey::new(Self::C.to_string())
+        StdKey::new(Self::C.into())
     }
 
     fn len() -> u64 {
@@ -361,9 +361,9 @@ impl FromStr for KeyString {
         if s.is_empty() {
             Err(AsciiStringError::Empty)
         } else if !is_printable_ascii(s.as_ref()) {
-            Err(AsciiStringError::Ascii(s.to_string()))
+            Err(AsciiStringError::Ascii(s.into()))
         } else {
-            Ok(Self(Ascii::new(s.to_string())))
+            Ok(Self(Ascii::new(s.into())))
         }
     }
 }
@@ -406,9 +406,9 @@ impl FromStr for NonStdMeasPattern {
 
     fn from_str(s: &str) -> Result<Self, NonStdMeasPatternError> {
         if has_no_std_prefix(s.as_bytes()) || s.match_indices("%n").count() == 1 {
-            Ok(NonStdMeasPattern(s.to_string()))
+            Ok(NonStdMeasPattern(s.into()))
         } else {
-            Err(NonStdMeasPatternError(s.to_string()))
+            Err(NonStdMeasPatternError(s.into()))
         }
     }
 }
@@ -836,7 +836,7 @@ mod tests {
         let k = s.parse::<StdKey>().unwrap();
         assert_eq!(StdKey(KeyString(Ascii::new("MAJESTY".into()))), k);
         // reverse process should give back original string
-        assert_eq!(k.to_string(), s.to_string());
+        assert_eq!(k.to_string(), s.to_owned());
         // and such a valid key should behave the same when inserted into
         // the hash table
         let mut p = ParsedKeywords::default();
@@ -847,7 +847,7 @@ mod tests {
         );
         assert_eq!(Ok(()), res);
         assert_eq!(
-            s.to_string(),
+            s.to_owned(),
             p.std.into_iter().next().unwrap().0.to_string()
         );
     }
@@ -866,10 +866,7 @@ mod tests {
     fn fromstr_std_key_noprefix() {
         let s = "IMBROKE";
         let k = s.parse::<StdKey>();
-        assert_eq!(
-            Err(StdKeyError::Prefix(KeyString(Ascii::new(s.to_string())))),
-            k
-        );
+        assert_eq!(Err(StdKeyError::Prefix(KeyString(Ascii::new(s.into())))), k);
     }
 
     #[test]
@@ -892,7 +889,7 @@ mod tests {
         let k = s.parse::<NonStdKey>().unwrap();
         assert_eq!(NonStdKey(KeyString(Ascii::new("YTSEJAM".into()))), k);
         // reverse process should give back original string
-        assert_eq!(k.to_string(), s.to_string());
+        assert_eq!(k.to_string(), s.to_owned());
         // and such a valid key should behave the same when inserted into
         // the hash table
         let mut p = ParsedKeywords::default();
@@ -903,7 +900,7 @@ mod tests {
         );
         assert_eq!(Ok(()), res);
         assert_eq!(
-            s.to_string(),
+            s.to_owned(),
             p.nonstd.into_iter().next().unwrap().0.to_string()
         );
     }
@@ -923,7 +920,7 @@ mod tests {
         let s = "$IMRICH";
         let k = s.parse::<NonStdKey>();
         assert_eq!(
-            Err(NonStdKeyError::Prefix(KeyString(Ascii::new(s.to_string())))),
+            Err(NonStdKeyError::Prefix(KeyString(Ascii::new(s.into())))),
             k
         );
     }

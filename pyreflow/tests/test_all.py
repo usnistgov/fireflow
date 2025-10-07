@@ -725,10 +725,7 @@ class TestCore:
     @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
     @pytest.mark.parametrize(
         "attr",
-        [
-            f"all_{x}"
-            for x in ["detector_names", "tags", "analytes", "measurement_types"]
-        ],
+        [f"all_{x}" for x in ["detector_names", "tags", "analytes"]],
     )
     def test_meas_3_2_str(
         self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2, attr: str
@@ -739,6 +736,19 @@ class TestCore:
         getattr(core, attr) == [new, ()]
         with pytest.raises(TypeError):
             setattr(core, attr, [10000000000000000000000, ()])
+
+    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
+    @pytest.mark.parametrize("attr", ["all_measurement_types"])
+    def test_meas_3_2_measurement_types(
+        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2, attr: str
+    ) -> None:
+        new = "--- --"
+        getattr(core, attr) == [None, None]
+        setattr(core, attr, [new, "Time"])
+        getattr(core, attr) == [new, "Time"]
+        with pytest.raises(TypeError):
+            setattr(core, attr, [10000000000000000000000, None])
+            setattr(core, attr, ["-.--.----..", "time"])
 
     @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
     def test_meas_3_2_feature(self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2) -> None:

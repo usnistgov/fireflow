@@ -2120,8 +2120,9 @@ mod python {
         AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, DetectorVoltage, Display,
         Feature, FeatureError, GateDetectorVoltage, GateRange, GateScale, GateShortname, IndexPair,
         LastModified, Mode, Mode3_2, Mode3_2Error, ModeError, NumType, NumTypeError, OpticalType,
-        OpticalTypeError, Originality, OriginalityError, Power, PrefixedMeasIndex, Range, Timestep,
-        Trigger, UniGate, Unicode, Vertex, Vol, Wavelength, Wavelengths,
+        OpticalTypeError, Originality, OriginalityError, Power, PrefixedMeasIndex, Range,
+        TemporalType, TemporalTypeError, Timestep, Trigger, UniGate, Unicode, Vertex, Vol,
+        Wavelength, Wavelengths,
     };
 
     use pyo3::prelude::*;
@@ -2143,6 +2144,7 @@ mod python {
     impl_str_py!(Mode, ModeError);
     impl_str_py!(Mode3_2, Mode3_2Error);
     impl_str_py!(OpticalType, OpticalTypeError);
+    impl_str_py!(TemporalType, TemporalTypeError);
 
     impl_from_py_transparent!(Wavelength);
     impl_from_py_transparent!(Vol);

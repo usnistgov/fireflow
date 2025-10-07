@@ -48,6 +48,7 @@ from pyreflow.typing import (
     AnyCoreTEXT,
     AnyCoreDataset,
     SubPatterns,
+    TemporalType,
 )
 
 _X = TypeVar("_X")
@@ -574,6 +575,7 @@ class _CoreGetSetMeas(Generic[_N, _O, _T]):
     ) -> tuple[MeasIndex, _O | _T]: ...
     def remove_measurement_by_index(self, index: MeasIndex) -> tuple[_N, _O | _T]: ...
     def measurement_at(self, index: MeasIndex) -> _O | _T: ...
+    def measurement_named(self, name: Shortname) -> _O | _T: ...
     def replace_optical_at(self, index: MeasIndex, meas: _O) -> _O | _T: ...
     def replace_optical_named(self, name: Shortname, meas: _O) -> _O | _T | None: ...
     def rename_temporal(self, name: Shortname) -> Shortname | None: ...
@@ -803,9 +805,7 @@ class _Core3_2:
     all_tags: _OpticalKeyVals[str]
     all_features: _OpticalKeyVals[Feature]
     all_analytes: _OpticalKeyVals[str]
-    # TODO this can return a list of all types including the time channel since
-    # they share the same kw
-    all_measurement_types: _OpticalKeyVals[str]
+    all_measurement_types: list[str | TemporalType | None]
 
 class _CoreMeasCalibration(Generic[_C]):
     all_calibrations: _OpticalKeyVals[_C]

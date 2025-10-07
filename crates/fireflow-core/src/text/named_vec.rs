@@ -1,3 +1,4 @@
+use crate::data::ColumnError;
 use crate::error::{
     DeferredExt as _, DeferredFailure, DeferredResult, ErrorIter as _, InfalliblePassthruExt as _,
     MultiResult, MultiResultExt as _, PassthruExt as _, PassthruResult, ResultExt as _, Tentative,
@@ -304,21 +305,6 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         )
     }
 
-    // /// Alter values with a function
-    // ///
-    // /// Center and non-center values will be projected to a common type.
-    // pub(crate) fn alter_common_values<F, R, T>(&mut self, f: F) -> Vec<R>
-    // where
-    //     F: Fn(MeasIndex, &mut T) -> R,
-    //     U: AsMut<T>,
-    //     V: AsMut<T>,
-    // {
-    //     self.alter_values(
-    //         |v| f(v.index, v.value.as_mut()),
-    //         |v| f(v.index, v.value.as_mut()),
-    //     )
-    // }
-
     /// Apply functions to values with payload, altering them in place.
     ///
     /// This will alter all values, including center and non-center values. The
@@ -335,18 +321,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         G: Fn(IndexedElement<&Shortname, &mut U>, X) -> R,
     {
         self.check_keys_length(&xs[..], true)?;
-        let go = |zs: &mut PairedVec<K::Wrapper<Shortname>, V>, ys: Vec<X>, offset: usize| {
-            zs.iter_mut()
-                .zip(ys)
-                .enumerate()
-                .map(|(i, (y, x))| {
-                    f(
-                        IndexedElement::new((i + offset).into(), &y.key, &mut y.value),
-                        x,
-                    )
-                })
-                .collect()
-        };
+        let go = |zs, ys, offset| Self::alter_paired_vec(zs, ys, offset, &f);
         let x = match self {
             Self::Split(s, _) => {
                 let nleft = s.left.len();
@@ -367,6 +342,62 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                     .collect()
             }
             Self::Unsplit(u) => go(&mut u.members, xs, 0),
+        };
+        Ok(x)
+    }
+
+    pub(crate) fn alter_elements_zip<F, G, X, Y, R>(
+        &mut self,
+        xs: Vec<Element<X, Y>>,
+        f: F,
+        g: G,
+    ) -> MultiResult<Vec<R>, SetElementsError>
+    where
+        F: Fn(IndexedElement<&K::Wrapper<Shortname>, &mut V>, Y) -> R,
+        G: Fn(IndexedElement<&Shortname, &mut U>, X) -> R,
+    {
+        self.check_keys_length(&xs[..], true).into_mult()?;
+        let go = |zs, ys, offset| Self::alter_paired_vec(zs, ys, offset, &f);
+        let check_optical = |ys: Vec<Element<X, Y>>| {
+            ys.into_iter()
+                .enumerate()
+                .map(|(i, x)| x.both(|_| Err(i), Ok))
+                .gather()
+                .mult_map_errors(|i| ColumnError::new(i, OpticalMismatchError::new(false)))
+                .mult_errors_into()
+        };
+        let x = match self {
+            Self::Split(s, _) => {
+                let nleft = s.left.len();
+                let mut it = xs.into_iter();
+                // ASSUME this won't fail because we already counted
+                let xs_left = it.by_ref().take(nleft).collect();
+                let x_center = it.by_ref().next().unwrap();
+                let xs_right = it.collect();
+                let left_res = check_optical(xs_left);
+                let center_res = x_center
+                    .center()
+                    .ok_or(ColumnError::new(nleft, OpticalMismatchError::new(false)))
+                    .into_mult();
+                let right_res = check_optical(xs_right);
+                let (ys_left, y_center, ys_right) = left_res.mult_zip3(center_res, right_res)?;
+                let left_out = go(&mut s.left, ys_left, 0);
+                let c = &mut s.center;
+                let center_out = g(
+                    IndexedElement::new(nleft.into(), &c.key, &mut c.value),
+                    y_center,
+                );
+                let right_out = go(&mut s.right, ys_right, 1 + nleft);
+                left_out
+                    .into_iter()
+                    .chain([center_out])
+                    .chain(right_out)
+                    .collect()
+            }
+            Self::Unsplit(u) => {
+                let ys = check_optical(xs)?;
+                go(&mut u.members, ys, 0)
+            }
         };
         Ok(x)
     }
@@ -1124,6 +1155,28 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         Ok(ret)
     }
 
+    fn alter_paired_vec<X, F, R>(
+        zs: &mut PairedVec<K::Wrapper<Shortname>, V>,
+        ys: Vec<X>,
+        offset: usize,
+        f: &F,
+    ) -> Vec<R>
+    where
+        F: Fn(IndexedElement<&K::Wrapper<Shortname>, &mut V>, X) -> R,
+    {
+        // ASSUME both vectors are the same length
+        zs.iter_mut()
+            .zip(ys)
+            .enumerate()
+            .map(|(i, (y, x))| {
+                f(
+                    IndexedElement::new((i + offset).into(), &y.key, &mut y.value),
+                    x,
+                )
+            })
+            .collect()
+    }
+
     fn replace_center_at_inner<F, W, E>(
         &mut self,
         index: MeasIndex,
@@ -1835,6 +1888,12 @@ impl<U, V> Element<U, V> {
     }
 }
 
+impl<X> Element<X, X> {
+    pub fn unwrap(self) -> X {
+        self.both(|x| x, |y| y)
+    }
+}
+
 fn to_opt_or_indexed<X: MightHave>(x: X::Wrapper<&Shortname>, i: MeasIndex) -> Shortname {
     X::to_opt(x).cloned().unwrap_or(i.into())
 }
@@ -2003,6 +2062,30 @@ pub enum NewNamedVecError {
 pub struct IndexedElementError<E> {
     error: E,
     index: MeasIndex,
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum SetElementsError {
+    Length(KeyLengthError),
+    Mismatch(ColumnError<OpticalMismatchError>),
+}
+
+#[derive(Debug, Error, new)]
+pub struct OpticalMismatchError {
+    new_is_optical: bool,
+}
+
+impl fmt::Display for OpticalMismatchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let opt = "optical";
+        let tmp = "temporal";
+        let (x, y) = if self.new_is_optical {
+            (opt, tmp)
+        } else {
+            (tmp, opt)
+        };
+        write!(f, "tried to assign {x} value to {y} measurement")
+    }
 }
 
 #[cfg(feature = "python")]

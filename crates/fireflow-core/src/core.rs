@@ -48,7 +48,7 @@ use crate::text::{
         EitherPair, Eithers, Element, ElementIndexError, IndexedElement, IndexedElementError,
         InsertCenterError, InsertError, KeyLengthError, KeyNotFoundError, NameMapping, NamedVec,
         NewNamedVecError, NonCenterElement, NonUniqueKeyError, RenameError, SetCenterError,
-        SetKeysError, SetNamesError,
+        SetElementsError, SetKeysError, SetNamesError,
     },
     optional::{AlwaysFamily, AlwaysValue, MaybeFamily, MaybeValue, MightHave},
     parser::{
@@ -750,7 +750,6 @@ pub struct InnerTemporal2_0 {
     ///
     /// Unlike subsequent versions, included here because it is optional rather
     /// than required and constant.
-    // TODO add get/set for this
     #[new(into)]
     pub scale: MaybeValue<TemporalScale>,
 
@@ -824,7 +823,8 @@ pub struct InnerTemporal3_2 {
     pub display: MaybeValue<Display>,
 
     /// Value for $PnTYPE
-    // TODO add get/set for this
+    #[as_ref(Option<TemporalType>)]
+    #[as_mut(Option<TemporalType>)]
     #[new(into)]
     pub measurement_type: MaybeValue<TemporalType>,
 }
@@ -2603,45 +2603,44 @@ where
             .map(|e| e.0.map_non_center(|x| x.as_ref()).into())
     }
 
+    // /// Return optional field from all optical measurements as an iterator
+    // pub fn optical_temporal_opt<'a, X: 'a, Y: 'a>(
+    //     &'a self,
+    // ) -> impl Iterator<Item = Element<Option<&'a X>, Option<&'a Y>>>
+    // where
+    //     Optical<M::Optical>: AsRef<Option<X>>,
+    //     Temporal<M::Temporal>: AsRef<Option<Y>>,
+    // {
+    //     self.optical()
+    //         .map(|e| e.0.bimap(|x| x.as_ref(), |y| y.as_ref()))
+    // }
+
     /// Set fields on all optical measurements to values in a vector
     pub fn set_optical<X>(
         &mut self,
         xs: Vec<NonCenterElement<X>>,
-    ) -> TerminalResult<(), Infallible, SetOpticalError, SetOpticalFailure>
+    ) -> TerminalResult<(), Infallible, SetElementsError, SetOpticalFailure>
     where
         Optical<M::Optical>: AsMut<X>,
     {
+        let ys = xs.into_iter().map(|x| x.0).collect();
         self.measurements
-            .alter_values_zip(
-                xs,
-                |m, x| {
-                    x.0.non_center()
-                        .map(|v| *m.value.as_mut() = v)
-                        .ok_or(ColumnError::new(m.index, OpticalMismatchError::new(false)))
-                },
-                |m, x| {
-                    x.0.center()
-                        .ok_or(ColumnError::new(m.index, OpticalMismatchError::new(true)))
-                },
-            )
-            .into_mult()
-            .and_then(|rs| {
-                NonEmpty::collect(rs.into_iter().filter_map(Result::err))
-                    .map_or(Ok(()), Err)
-                    .mult_errors_into()
-            })
+            .alter_elements_zip(ys, |m, x| *m.value.as_mut() = x, |_, ()| ())
+            .void()
             .mult_terminate(SetOpticalFailure)
     }
 
     /// Get field which is on both optical and temporal measurement types
-    pub fn get_temporal_optical<'a, T: 'a>(&'a self) -> impl Iterator<Item = &'a T>
+    pub fn get_temporal_optical<'a, X: 'a, Y: 'a>(
+        &'a self,
+    ) -> impl Iterator<Item = Element<&'a X, &'a Y>>
     where
-        Optical<M::Optical>: AsRef<T>,
-        Temporal<M::Temporal>: AsRef<T>,
+        Temporal<M::Temporal>: AsRef<X>,
+        Optical<M::Optical>: AsRef<Y>,
     {
         self.measurements
             .iter()
-            .map(|x| x.both(|m| m.value.as_ref(), |m| m.value.as_ref()))
+            .map(|x| x.bimap(|m| m.value.as_ref(), |m| m.value.as_ref()))
     }
 
     /// Set field which is on both optical and temporal measurement types
@@ -2657,6 +2656,25 @@ where
                 |m, x| *m.value.as_mut() = x,
             )
             .void()
+    }
+
+    /// Set field which is on both optical and temporal measurement types
+    pub fn set_temporal_optical2<X, Y>(
+        &mut self,
+        xs: Vec<Element<X, Y>>,
+    ) -> TerminalResult<(), Infallible, SetElementsError, SetOpticalFailure>
+    where
+        Temporal<M::Temporal>: AsMut<X>,
+        Optical<M::Optical>: AsMut<Y>,
+    {
+        self.measurements
+            .alter_elements_zip(
+                xs,
+                |m, x| *m.value.as_mut() = x,
+                |m, y| *m.value.as_mut() = y,
+            )
+            .void()
+            .mult_terminate(SetOpticalFailure)
     }
 
     /// Get value for $BTIM as a [`NaiveTime`]
@@ -5499,7 +5517,13 @@ impl_ref_specific_rw!(
     Option<PeakNumber>
 );
 
-impl_ref_specific_rw!(Temporal, InnerTemporal3_2, Timestep, Option<Display>);
+impl_ref_specific_rw!(
+    Temporal,
+    InnerTemporal3_2,
+    Timestep,
+    Option<Display>,
+    Option<TemporalType>
+);
 
 impl_ref_specific_ro!(
     Metaroot,
@@ -7956,30 +7980,6 @@ pub struct SpilloverLinkError;
 #[derive(Debug, Error)]
 #[error("$TR measurement must match a $PnN")]
 pub struct TriggerLinkError;
-
-#[derive(From, Display, Debug, Error)]
-pub enum SetOpticalError {
-    Length(KeyLengthError),
-    Mismatch(ColumnError<OpticalMismatchError>),
-}
-
-#[derive(Debug, Error, new)]
-pub struct OpticalMismatchError {
-    new_is_optical: bool,
-}
-
-impl fmt::Display for OpticalMismatchError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let opt = "optical";
-        let tmp = "temporal";
-        let (x, y) = if self.new_is_optical {
-            (opt, tmp)
-        } else {
-            (tmp, opt)
-        };
-        write!(f, "tried to assign {x} value to {y} measurement")
-    }
-}
 
 #[derive(From, Display, Debug, Error)]
 pub enum SetMeasurementsError {

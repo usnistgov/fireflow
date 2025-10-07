@@ -1251,8 +1251,8 @@ pub fn impl_core_all_peak_attrs(input: TokenStream) -> TokenStream {
             |_, _| {
                 quote! {
                     self.0
-                        .get_temporal_optical::<#inner>()
-                        .map(|x| x.as_ref().copied())
+                        .get_temporal_optical::<#inner, #inner>()
+                        .map(|x| x.unwrap().as_ref().copied())
                         .collect()
                 }
             },
@@ -2604,36 +2604,27 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let measurement_type =
         DocArg::new_meas_kw_opt_ivar("OpticalType", "measurement_type", "TYPE", PyStr::new1);
 
-    let has_scale = DocArg::new_bool_param("has_scale", "``True`` if *$PnE* is set to ``0,0``.")
-        .into_rw(
+    let make_quasi_bool = |what: &str, sym: &str, val: &str, rstype: &str, fieldname: &str| {
+        let r = format_ident!("{rstype}");
+        let f = format_ident!("{fieldname}");
+        let p: Path = parse_quote!(fireflow_core::text::keywords::#r);
+        let argname = format!("has_{what}");
+        let desc = format!("``True`` if *$Pn{sym}* is set to ``{val}``.");
+        DocArg::new_bool_param(argname, desc).into_rw(
             false,
-            |_, _| quote!(self.0.specific.scale.0.is_some()),
-            |n, _| {
-                quote! {
-                    self.0.specific.scale = if #n {
-                        Some(fireflow_core::text::keywords::TemporalScale)
-                    } else {
-                        None
-                    }.into();
-                }
-            },
-        );
+            |_, _| quote!(self.0.specific.#f.0.is_some()),
+            |n, _| quote!(self.0.specific.#f = #n.then_some(#p).into();),
+        )
+    };
 
-    let has_type =
-        DocArg::new_bool_param("has_type", "``True`` if *$PnTYPE* is set to ``\"Time\"``.")
-            .into_rw(
-                false,
-                |_, _| quote!(self.0.specific.measurement_type.0.is_some()),
-                |n, _| {
-                    quote! {
-                        self.0.specific.measurement_type = if #n {
-                            Some(fireflow_core::text::keywords::TemporalType)
-                        } else {
-                            None
-                        }.into();
-                    }
-                },
-            );
+    let has_scale = make_quasi_bool("scale", "E", "0,0", "TemporalScale", "scale");
+    let has_type = make_quasi_bool(
+        "type",
+        "TYPE",
+        "\"Time\"",
+        "TemporalType",
+        "measurement_type",
+    );
 
     let timestep = DocArg::new_ivar_rw(
         "timestep",
@@ -2841,7 +2832,45 @@ pub fn impl_core_all_pntag(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "OpticalType", "measurement_types", "TYPE", PyStr::new1)
+
+    let opt_pytype = PyStr::new1(keyword_path("OpticalType"));
+    let tmp_pytype = PyLiteral::new1(["Time"], keyword_path("TemporalType"));
+
+    let inner_opt_pytype = PyOpt::new(opt_pytype);
+    let inner_tmp_pytype = PyOpt::new(tmp_pytype);
+
+    let inner_opt_rstype = inner_opt_pytype.as_rust_type();
+    let inner_tmp_rstype = inner_tmp_pytype.as_rust_type();
+
+    let doc_summary = "Value of *$PnTYPE* for all measurements.";
+    let doc_middle = "``\"Time\"`` or ``None`` will be returned for the time measurement.";
+
+    let nce_path =
+        parse_quote!(fireflow_core::text::named_vec::Element<#inner_tmp_rstype, #inner_opt_rstype>);
+
+    let full_pytype = PyUnion::new2(inner_opt_pytype, inner_tmp_pytype, nce_path);
+
+    let doc = DocString::new_ivar(
+        doc_summary,
+        [doc_middle],
+        DocReturn::new(PyList::new(full_pytype)),
+    );
+
+    doc.into_impl_get_set(
+        &i,
+        "all_measurement_types",
+        true,
+        |_, _| {
+            quote! {
+                self.0
+                    .get_temporal_optical::<#inner_tmp_rstype, #inner_opt_rstype>()
+                    .map(|e| e.bimap(|x| x.clone(), |y| y.clone()))
+                    .collect()
+            }
+        },
+        |n, _| quote!(self.0.set_temporal_optical2(#n).py_termfail_resolve_nowarn()),
+    )
+    .into()
 }
 
 #[proc_macro]
@@ -3976,7 +4005,7 @@ enum PyType {
     Union(Box<PyUnion>),
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Hash, Eq, Clone)]
 enum PyAtom {
     Str,
     Bool,
@@ -4025,6 +4054,7 @@ impl PyAtom {
                             true
                         }
                     })
+                    .unique()
                     .collect();
                 if hasnone {
                     ys.push(Self::None);
@@ -4093,7 +4123,7 @@ struct PyDatetime {
     rstype: Option<Path>,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Hash, Eq)]
 struct PyLiteral {
     head: &'static str,
     tail: Vec<&'static str>,
@@ -4119,7 +4149,7 @@ struct PyList {
     rstype: Option<Path>,
 }
 
-#[derive(Clone, new, PartialEq)]
+#[derive(Clone, new, PartialEq, Hash, Eq)]
 struct PyClass {
     #[new(into)]
     pyname: String,

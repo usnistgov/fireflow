@@ -4341,7 +4341,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         Ok(Self::new(metaroot, ms, layout, (), (), ()))
     }
 
-    pub(crate) fn new_unchecked(
+    fn new_unchecked(
         metaroot: Metaroot<M>,
         measurements: Measurements<M::Name, M::Temporal, M::Optical>,
         layout: <M::Ver as Versioned>::Layout,

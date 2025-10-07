@@ -257,6 +257,7 @@ impl FromStr for UintSpacePad8 {
 
 pub(crate) fn ascii_str_from_bytes(xs: &[u8]) -> Result<&str, BytesNotAscii> {
     if xs.is_ascii() {
+        // SAFETY: we just checked that all bytes are ASCII
         Ok(unsafe { str::from_utf8_unchecked(xs) })
     } else {
         Err(BytesNotAscii(xs.to_vec()))

@@ -302,14 +302,16 @@ impl KeyString {
         if latin1 {
             Some(Self::new(xs.iter().copied().map(char::from).collect()))
         } else if is_printable_ascii(xs) {
-            Some(Self::from_bytes(xs))
+            // SAFETY: we just checked that the bytes are only ASCII chars
+            Some(unsafe { Self::from_bytes(xs) })
         } else {
             None
         }
     }
 
-    fn from_bytes(xs: &[u8]) -> Self {
+    unsafe fn from_bytes(xs: &[u8]) -> Self {
         assert!(!xs.is_empty(), "cannot make KeyString with empty slice");
+        // SAFETY: this function is marked unsafe since the caller must check
         Self::new(unsafe { String::from_utf8_unchecked(xs.to_vec()) })
     }
 }
@@ -381,9 +383,9 @@ impl FromStr for StdKey {
         } else if *y != STD_PREFIX {
             Err(StdKeyError::Prefix(ks))
         } else {
-            // ASSUME this will not fail because we know the string has
-            // only ASCII bytes
-            Ok(Self(KeyString::from_bytes(ys)))
+            // SAFETY: this will not fail because we know the string has only
+            // ASCII bytes and we checked that the slice is non-empty
+            Ok(Self(unsafe { KeyString::from_bytes(ys) }))
         }
     }
 }
@@ -575,7 +577,8 @@ impl ParsedKeywords {
             } else {
                 (false, s)
             };
-            KeyString::from_bytes_maybe(ss, conf.use_latin1).map(|x| (is_std, x))
+            let ks = KeyString::from_bytes_maybe(ss, conf.use_latin1)?;
+            Some((is_std, ks))
         };
 
         if let Ok(value) = vv {

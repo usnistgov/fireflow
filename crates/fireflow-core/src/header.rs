@@ -3,7 +3,7 @@ use crate::error::{ErrorIter as _, ImpureError, MultiResult, MultiResultExt as _
 use crate::segment::{
     GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderCorrection,
     HeaderDataSegment, HeaderSegment, HeaderSegmentError, NewSegmentConfig, OffsetCorrection,
-    OtherSegment, OtherSegment20, PrimaryTextSegment, SegmentOverlapError, Segment,
+    OtherSegment, OtherSegment20, PrimaryTextSegment, Segment, SegmentOverlapError,
     SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment, TEXTSegment,
 };
 use crate::text::keywords::{
@@ -163,10 +163,7 @@ impl<T> HeaderSegments<T> {
         t.zip3(d, a).mult_zip(os).void()
     }
 
-    fn contains_header_segment<I, S, T0>(
-        &self,
-        s: &Segment<I, S, T0>,
-    ) -> Result<(), InHeaderError>
+    fn contains_header_segment<I, S, T0>(&self, s: &Segment<I, S, T0>) -> Result<(), InHeaderError>
     where
         I: HasRegion,
         S: HasSource,
@@ -385,6 +382,7 @@ impl Version {
         let mut buf = [0; 6];
         h.read_exact(&mut buf)?;
         if buf.is_ascii() {
+            // SAFETY: we just checked that all bytes are ASCII
             let s = unsafe { str::from_utf8_unchecked(&buf) };
             s.parse().map_err(ImpureError::Pure)
         } else {

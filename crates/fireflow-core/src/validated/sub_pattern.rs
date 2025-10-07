@@ -23,10 +23,6 @@ impl SubPattern {
         // To do this, look for all capture references and 'blank' them in 'to'.
         // If 'to' is valid, it should have no more references (ie no unescaped
         // '$' characters).
-        //
-        // ASSUME We can get away using raw bytes to access 'to' in the blanking
-        // step since we know that the only characters that should match will be
-        // ASCII characters.
         let mut tmp = to.clone();
         let mut key;
         let mut blank_match = |k: &str| {
@@ -41,6 +37,9 @@ impl SubPattern {
                     .take_while(|&&c| c == b'$')
                     .count();
                 if preceeding_dollar & 1 == 0 {
+                    // SAFETY: We can get away using raw bytes to access 'to' in
+                    // the blanking step since we know that the only characters
+                    // that should match will be ASCII characters.
                     unsafe { tmp.as_bytes_mut()[i0] = 32 }
                 }
             }

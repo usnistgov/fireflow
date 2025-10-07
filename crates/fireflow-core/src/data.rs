@@ -2193,6 +2193,7 @@ impl AnyNullBitmask {
 
 fn ascii_to_uint(buf: &[u8]) -> Result<u64, AsciiToUintError> {
     if buf.is_ascii() {
+        // SAFETY: we just checked that all bytes are ASCII
         let s = unsafe { str::from_utf8_unchecked(buf) };
         s.parse().map_err(AsciiToUintError::from)
     } else {

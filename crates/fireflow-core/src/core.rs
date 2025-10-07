@@ -464,7 +464,7 @@ impl AnyCoreDataset {
         other_segs: &[OtherSegment20],
         conf: &ReadState<C>,
     ) -> IODeferredResult<
-        (Self, ExtraStdKeywords, DatasetSegments),
+        (Self, StdDatasetWithKwsOutput),
         StdDatasetFromRawWarning,
         StdDatasetFromRawError,
     >
@@ -484,7 +484,7 @@ impl AnyCoreDataset {
                 other_segs,
                 conf,
             )
-            .def_map_value(|(w, x, y)| (w.into(), x, y)),
+            .def_map_value(|(x, y)| (x.into(), y)),
             Version::FCS3_0 => CoreDataset3_0::new_from_keywords_inner(
                 h,
                 kws,
@@ -493,7 +493,7 @@ impl AnyCoreDataset {
                 other_segs,
                 conf,
             )
-            .def_map_value(|(w, x, y)| (w.into(), x, y)),
+            .def_map_value(|(x, y)| (x.into(), y)),
             Version::FCS3_1 => CoreDataset3_1::new_from_keywords_inner(
                 h,
                 kws,
@@ -502,7 +502,7 @@ impl AnyCoreDataset {
                 other_segs,
                 conf,
             )
-            .def_map_value(|(w, x, y)| (w.into(), x, y)),
+            .def_map_value(|(x, y)| (x.into(), y)),
             Version::FCS3_2 => CoreDataset3_2::new_from_keywords_inner(
                 h,
                 kws,
@@ -511,7 +511,7 @@ impl AnyCoreDataset {
                 other_segs,
                 conf,
             )
-            .def_map_value(|(w, x, y)| (w.into(), x, y)),
+            .def_map_value(|(x, y)| (x.into(), y)),
         }
     }
 }
@@ -3447,7 +3447,6 @@ where
                 .map(|xs| xs.into_iter().map(|(_, v)| v).collect::<Vec<_>>())
                 .collect();
             let header = m0.1.table_header(lt.opt_meas_headers());
-            // TODO probably a more elegant way to do this
             let rows = self
                 .measurements
                 .iter()
@@ -3950,9 +3949,6 @@ where
             .def_and_maybe(|(st, file)| {
                 let mut h = BufReader::new(file);
                 Self::new_from_keywords_inner(&mut h, kws, data_seg, analysis_seg, other_segs, &st)
-                    .def_map_value(|(core, extra, dataset_segs)| {
-                        (core, StdDatasetWithKwsOutput::new(dataset_segs, extra))
-                    })
             })
             .def_terminate_maybe_warn(StdDatasetWithKwsFailure, conf.as_ref(), |w| {
                 ImpureError::Pure(StdDatasetFromRawError::from(w))
@@ -3966,9 +3962,8 @@ where
         analysis_seg: HeaderAnalysisSegment,
         other_segs: &[OtherSegment20],
         st: &ReadState<C>,
-        // TODO wrap this in a nice struct
     ) -> IODeferredResult<
-        (Self, ExtraStdKeywords, DatasetSegments),
+        (Self, StdDatasetWithKwsOutput),
         StdDatasetFromRawWarning,
         StdDatasetFromRawError,
     >
@@ -4000,10 +3995,11 @@ where
                     .def_map_errors(ImpureError::inner_into);
                 let analysis_res = ar.h_read(h).into_deferred();
                 let others_res = or.h_read(h).into_deferred();
+                let out = StdDatasetWithKwsOutput::new(*dataset_segs, extra);
                 data_res.def_zip3(analysis_res, others_res).def_map_value(
                     |(data, analysis, others)| {
                         let c = text.into_coredataset_unchecked(data, analysis, others);
-                        (c, extra, *dataset_segs)
+                        (c, out)
                     },
                 )
             })

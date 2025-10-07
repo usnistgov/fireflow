@@ -197,15 +197,6 @@ pub fn fcs_read_std_dataset_with_keywords(
                 other_segs,
                 &st,
             )
-            .def_map_value(|(core, extra, dataset_segments)| {
-                (
-                    core,
-                    StdDatasetWithKwsOutput {
-                        dataset_segments,
-                        extra,
-                    },
-                )
-            })
         })
         .def_terminate_maybe_warn(StdDatasetWithKwsFailure, &conf.shared, |w| {
             ImpureError::Pure(StdDatasetFromRawError::from(w))
@@ -638,15 +629,7 @@ impl RawTEXTOutput {
             &self.parse.header_segments.other[..],
             st,
         )
-        .def_map_value(|(core, extra, dataset_segments)| {
-            (
-                core,
-                StdDatasetOutput::new(
-                    StdDatasetWithKwsOutput::new(dataset_segments, extra),
-                    self.parse,
-                ),
-            )
-        })
+        .def_map_value(|(core, out)| (core, StdDatasetOutput::new(out, self.parse)))
     }
 }
 

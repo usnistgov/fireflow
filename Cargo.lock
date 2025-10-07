@@ -689,6 +689,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "fireflow-core",
+ "nonempty",
  "serde",
  "serde_json",
 ]

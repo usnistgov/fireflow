@@ -13,6 +13,7 @@ use fireflow_core::validated::sub_pattern::SubPatterns;
 use fireflow_core::validated::timepattern::TimePattern;
 
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
+use nonempty::NonEmpty;
 use serde::ser::Serialize;
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -737,7 +738,6 @@ pub fn print_parsed_data(core: &AnyCoreDataset, delim: &str) {
     }
 }
 
-// TODO use warnings_are_errors flag
 fn handle_warnings<X, W>(t: Terminal<X, W>) -> X
 where
     W: Display,
@@ -754,19 +754,13 @@ where
     }
 }
 
-// TODO use warnings_are_errors flag
 fn handle_failure<W, E, T>(f: TerminalFailure<W, E, T>)
 where
     E: Display,
     T: Display,
     W: Display,
 {
-    f.resolve(print_warnings, |es, r| {
-        eprintln!("TOPLEVEL ERROR: {r}");
-        for e in es {
-            eprintln!("  ERROR: {e}");
-        }
-    });
+    f.resolve(print_warnings, print_errors);
 }
 
 fn handle_failure_nowarn<E, T>(f: TerminalFailure<Infallible, E, T>)
@@ -774,16 +768,14 @@ where
     E: Display,
     T: Display,
 {
-    // TODO not DRY
-    f.resolve(
-        |_| (),
-        |es, r| {
-            eprintln!("TOPLEVEL ERROR: {r}");
-            for e in es {
-                eprintln!("  ERROR: {e}");
-            }
-        },
-    );
+    f.resolve(|_| (), print_errors);
+}
+
+fn print_errors<E: Display, T: Display>(es: NonEmpty<E>, r: T) {
+    eprintln!("TOPLEVEL ERROR: {r}");
+    for e in es {
+        eprintln!("  ERROR: {e}");
+    }
 }
 
 const SUBCMD_HEADER: &str = "header";

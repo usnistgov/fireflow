@@ -123,7 +123,7 @@ use pyo3::prelude::*;
 /// These are not included because this struct will also be used to encode the
 /// TEXT data when writing a new FCS file, and the keywords that are not
 /// included can be computed on the fly when writing.
-#[derive(Clone, AsRef, PartialEq, new)]
+#[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[new(visibility = "")]
 // NOTE fields are private since metaroot, measurements, and layout are all
@@ -133,7 +133,6 @@ pub struct Core<A, D, O, M, T, P, N, W, L> {
     ///
     /// This includes all keywords that are not part of measurements or the data
     /// layout (ie the "root" of the metadata if thought of as a hierarchy)
-    #[as_ref(Metaroot<M>)]
     metaroot: Metaroot<M>,
 
     /// All measurement TEXT keywords.
@@ -141,7 +140,6 @@ pub struct Core<A, D, O, M, T, P, N, W, L> {
     /// Specifically these are denoted by "$Pn*" keywords where "n" is the index
     /// of the measurement which also corresponds to its column in the DATA
     /// segment. The index of each measurement in this vector is n - 1.
-    #[as_ref(NamedVec<N, W, Temporal<T>, Optical<P>>)]
     measurements: NamedVec<N, W, Temporal<T>, Optical<P>>,
 
     /// The byte layout of the DATA segment

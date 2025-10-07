@@ -1602,8 +1602,6 @@ pub fn impl_core_get_measurements(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
-    let named_vec_path = quote!(fireflow_core::text::named_vec::NamedVec);
-
     let doc = DocString::new_ivar(
         "All measurements.",
         [""; 0],
@@ -1617,8 +1615,9 @@ pub fn impl_core_get_measurements(input: TokenStream) -> TokenStream {
             // function over the measurements we would need to to do
             // this anyways, so simply returnig a copied list doesn't
             // lose anything and keeps this API simpler.
-            let ms: &#named_vec_path<_, _, _, _> = self.0.as_ref();
-            ms.iter()
+            self.0
+                .measurements()
+                .iter()
                 .map(|e| e.bimap(|t| t.value.clone(), |o| o.value.clone()))
                 .map(|v| v.inner_into())
                 .collect()
@@ -1660,8 +1659,6 @@ pub fn impl_core_get_measurement(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
-    let named_vec_path = quote!(fireflow_core::text::named_vec::NamedVec);
-
     let doc = DocString::new_method(
         "Return measurement at index.",
         ["Raise exception if ``index`` not found."],
@@ -1678,8 +1675,7 @@ pub fn impl_core_get_measurement(input: TokenStream) -> TokenStream {
             // TODO this should return name as well
             #doc
             fn measurement_at(&self, #fun_args) -> PyResult<#ret> {
-                let ms: &#named_vec_path<_, _, _, _> = self.0.as_ref();
-                let m = ms.get(index)?;
+                let m = self.0.measurements().get(index)?;
                 Ok(m.bimap(|x| x.1.clone(), |x| x.1.clone()).inner_into())
             }
 

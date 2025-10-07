@@ -3572,9 +3572,8 @@ impl InterLayoutOps<HasMeasDatatype> for DataLayout3_2 {
         vec![NumType::std_blank()]
     }
 
-    // TODO add a way to remove keys which match $DATATYPE so we don't have
-    // lots of redundant $PnDATATYPE keys
     fn opt_meas_keywords(&self) -> Vec<Vec<(String, Option<String>)>> {
+        let dt = self.datatype();
         match self {
             Self::NonMixed(x) => (0..x.ncols())
                 .map(|i| vec![(NumType::std(i).to_string(), None)])
@@ -3584,7 +3583,9 @@ impl InterLayoutOps<HasMeasDatatype> for DataLayout3_2 {
                 .iter()
                 .enumerate()
                 .map(|(i, c)| {
-                    let y: Option<NumType> = NumType::try_from(c.datatype()).ok();
+                    let y: Option<NumType> = NumType::try_from(c.datatype())
+                        .ok()
+                        .and_then(|y| (AlphaNumType::from(y) != dt).then_some(y));
                     vec![MaybeValue(y).meas_kw_pair(i)]
                 })
                 .collect(),

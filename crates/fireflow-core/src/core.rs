@@ -131,7 +131,8 @@ pub struct Core<A, D, O, M, T, P, N, W, L> {
     ///
     /// This includes all keywords that are not part of measurements or the data
     /// layout (ie the "root" of the metadata if thought of as a hierarchy)
-    pub metaroot: Metaroot<M>,
+    #[as_ref(Metaroot<M>)]
+    metaroot: Metaroot<M>,
 
     /// All measurement TEXT keywords.
     ///
@@ -151,10 +152,10 @@ pub struct Core<A, D, O, M, T, P, N, W, L> {
     data: D,
 
     /// ANALYSIS segment (if applicable)
-    pub analysis: A,
+    analysis: A,
 
     /// Other segments (if applicable)
-    pub others: O,
+    others: O,
     // TODO add CRC
 }
 
@@ -3006,6 +3007,16 @@ where
         Ok(())
     }
 
+    /// Get reference to non-standard keywords.
+    pub fn nonstandard_keywords(&self) -> &NonStdKeywords {
+        &self.metaroot.nonstandard_keywords
+    }
+
+    /// Set non-standard keywords to new hash map.
+    pub fn set_nonstandard_keywords(&mut self, kws: NonStdKeywords) {
+        self.metaroot.nonstandard_keywords = kws;
+    }
+
     /// Convert to another FCS version.
     ///
     /// Conversion may fail if some required keywords in the target version
@@ -3218,6 +3229,11 @@ where
                     .map(|()| ret)
                     .errors_into()
             })
+    }
+
+    /// Get reference to measurement vector.
+    pub fn measurements(&self) -> &Measurements<M::Name, M::Temporal, M::Optical> {
+        &self.measurements
     }
 
     // TODO don't set names here, do that separately so we can decouple PnN link
@@ -4060,9 +4076,29 @@ where
             .def_terminate(WriteDatasetFailure)
     }
 
-    /// Return DATA
+    /// Return reference to DATA segment as dataframe.
     pub fn data(&self) -> &FCSDataFrame {
         &self.data
+    }
+
+    /// Return reference to ANALYSIS segment as byte string.
+    pub fn analysis(&self) -> &Analysis {
+        &self.analysis
+    }
+
+    /// Return mutable reference to ANALYSIS segment as byte string.
+    pub fn analysis_mut(&mut self) -> &mut Analysis {
+        &mut self.analysis
+    }
+
+    /// Return reference to OTHER segments as byte strings.
+    pub fn others(&self) -> &Others {
+        &self.others
+    }
+
+    /// Return mutable reference to OTHER segments as byte strings.
+    pub fn others_mut(&mut self) -> &mut Others {
+        &mut self.others
     }
 
     /// Add columns to this dataset.
@@ -5508,24 +5544,6 @@ impl_ref_specific_ro!(Optical, InnerOptical3_0, ScaleTransform);
 impl_ref_specific_ro!(Optical, InnerOptical3_1, ScaleTransform);
 
 impl_ref_specific_ro!(Optical, InnerOptical3_2, ScaleTransform);
-
-impl<M, T, P, N, W, L> AsRef<FCSDataFrame> for CoreDataset<M, T, P, N, W, L> {
-    fn as_ref(&self) -> &FCSDataFrame {
-        &self.data
-    }
-}
-
-impl<M, T, P, N, W, L> AsRef<Analysis> for CoreDataset<M, T, P, N, W, L> {
-    fn as_ref(&self) -> &Analysis {
-        &self.analysis
-    }
-}
-
-impl<M, T, P, N, W, L> AsRef<Others> for CoreDataset<M, T, P, N, W, L> {
-    fn as_ref(&self) -> &Others {
-        &self.others
-    }
-}
 
 impl<X, M, const IS_ETIM: bool> AsRef<Option<Xtim<IS_ETIM, X>>> for Metaroot<M>
 where

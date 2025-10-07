@@ -4825,16 +4825,16 @@ impl DocArgRWIvar {
     fn new_analysis_ivar() -> Self {
         DocArg::new_analysis_param(true).into_rw(
             false,
-            |_, _| quote!(self.0.analysis.clone()),
-            |n, _| quote!(self.0.analysis = #n.into()),
+            |_, _| quote!(self.0.analysis().clone()),
+            |n, _| quote!(*self.0.analysis_mut() = #n.into()),
         )
     }
 
     fn new_others_ivar() -> Self {
         DocArg::new_others_param(true).into_rw(
             false,
-            |_, _| quote!(self.0.others.clone()),
-            |n, _| quote!(self.0.others = #n.into()),
+            |_, _| quote!(self.0.others().clone()),
+            |n, _| quote!(*self.0.others_mut() = #n.into()),
         )
     }
 
@@ -5080,7 +5080,8 @@ impl DocArgRWIvar {
     fn new_core_nonstandard_keywords_ivar() -> Self {
         Self::new_nonstandard_keywords_ivar(
             "Pairs of non-standard keyword values. Keys must not start with *$*.",
-            &quote!(self.0.metaroot),
+            |_, _| quote!(self.0.nonstandard_keywords().clone()),
+            |n, _| quote!(self.0.set_nonstandard_keywords(#n)),
         )
     }
 
@@ -5090,19 +5091,24 @@ impl DocArgRWIvar {
              should start with *$*. Realistically each key should follow a pattern \
              corresponding to the measurement index, something like prefixing with \
              \"P\" followed by the index. This is not enforced.",
-            &quote!(self.0.common),
+            |_, _| quote!(self.0.common.nonstandard_keywords.clone()),
+            |n, _| quote!(self.0.common.nonstandard_keywords = #n),
         )
     }
 
-    fn new_nonstandard_keywords_ivar(desc: &str, root: &TokenStream2) -> Self {
+    fn new_nonstandard_keywords_ivar(
+        desc: &str,
+        f: impl FnOnce(&Ident, &PyType) -> TokenStream2,
+        g: impl FnOnce(&Ident, &PyType) -> TokenStream2,
+    ) -> Self {
         DocArg::new_ivar_rw_def(
             "nonstandard_keywords",
             PyType::new_nonstd_keywords(),
             desc,
             DocDefault::Auto,
             false,
-            |_, _| quote!(#root.nonstandard_keywords.clone()),
-            |n, _| quote!(#root.nonstandard_keywords = #n),
+            f,
+            g,
         )
     }
 }

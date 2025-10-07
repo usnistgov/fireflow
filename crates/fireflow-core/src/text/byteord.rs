@@ -250,8 +250,8 @@ impl Bytes {
             .iter()
             .rposition(|i| *i > 0)
             .and_then(|i| u8::try_from(i + 1).ok())
-            .and_then(|i| Bytes::try_from(i).ok())
-            .unwrap_or(Bytes::B1)
+            .and_then(|i| Self::try_from(i).ok())
+            .unwrap_or(Self::B1)
     }
 }
 
@@ -413,14 +413,14 @@ impl TryFrom<BitsOrChars> for Bytes {
 }
 
 impl From<Bytes> for NonZeroU8 {
-    fn from(value: Bytes) -> NonZeroU8 {
+    fn from(value: Bytes) -> Self {
         // ASSUME this will never fail
         Self::new(u8::from(value)).unwrap()
     }
 }
 
 impl From<Bytes> for BitsOrChars {
-    fn from(value: Bytes) -> BitsOrChars {
+    fn from(value: Bytes) -> Self {
         // ASSUME this will never fail
         Self(NonZeroU8::new(u8::from(value) * 8).unwrap())
     }
@@ -428,7 +428,7 @@ impl From<Bytes> for BitsOrChars {
 
 impl From<Option<NonZeroU8>> for Width {
     fn from(value: Option<NonZeroU8>) -> Self {
-        value.map_or(Width::Variable, |x| Width::Fixed(BitsOrChars(x)))
+        value.map_or(Self::Variable, |x| Self::Fixed(BitsOrChars(x)))
     }
 }
 
@@ -468,8 +468,8 @@ impl FromStr for Endian {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "1,2,3,4" => Ok(Endian::Little),
-            "4,3,2,1" => Ok(Endian::Big),
+            "1,2,3,4" => Ok(Self::Little),
+            "4,3,2,1" => Ok(Self::Big),
             _ => Err(NewEndianError),
         }
     }
@@ -482,7 +482,7 @@ impl FromStr for ByteOrd2_0 {
         let (pass, fail): (Vec<_>, Vec<_>) =
             s.split(',').map(str::parse::<NonZeroU8>).partition_result();
         if fail.is_empty() {
-            ByteOrd2_0::try_from(&pass[..]).map_err(ParseByteOrdError::Order)
+            Self::try_from(&pass[..]).map_err(ParseByteOrdError::Order)
         } else {
             Err(ParseByteOrdError::Format)
         }
@@ -491,7 +491,7 @@ impl FromStr for ByteOrd2_0 {
 
 impl<const LEN: usize> fmt::Display for SizedByteOrd<LEN>
 where
-    [NonZeroU8; LEN]: From<SizedByteOrd<LEN>>,
+    [NonZeroU8; LEN]: From<Self>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "{}", <[NonZeroU8; LEN]>::from(*self).iter().join(","))
@@ -503,8 +503,8 @@ impl FromStr for Width {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "*" => Ok(Width::Variable),
-            _ => s.parse::<NonZeroU8>().map(|x| Width::Fixed(BitsOrChars(x))),
+            "*" => Ok(Self::Variable),
+            _ => s.parse::<NonZeroU8>().map(|x| Self::Fixed(BitsOrChars(x))),
         }
     }
 }
@@ -703,14 +703,14 @@ mod python {
     impl<'py> FromPyObject<'py> for ByteOrd2_0 {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let xs: Vec<NonZeroU8> = ob.extract()?;
-            let ret = ByteOrd2_0::try_from(&xs[..])?;
+            let ret = Self::try_from(&xs[..])?;
             Ok(ret)
         }
     }
 
     impl<'py, const LEN: usize> FromPyObject<'py> for SizedByteOrd<LEN>
     where
-        SizedByteOrd<LEN>: TryFrom<Vec<NonZeroU8>, Error = VecToSizedError>,
+        Self: TryFrom<Vec<NonZeroU8>, Error = VecToSizedError>,
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let err = || PyValueError::new_err("must be \"little\", \"big\", or a list");
@@ -720,9 +720,9 @@ mod python {
                     "big" => Ok(Endian::Big),
                     _ => Err(err()),
                 }
-                .map(SizedByteOrd::from)
+                .map(Self::from)
             } else if let Ok(xs) = ob.extract::<Vec<NonZeroU8>>() {
-                Ok(SizedByteOrd::<LEN>::try_from(xs)?)
+                Ok(Self::try_from(xs)?)
             } else {
                 Err(err())
             }

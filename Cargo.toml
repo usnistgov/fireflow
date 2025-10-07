@@ -117,3 +117,6 @@ string_lit_chars_any = "warn"
 try_err = "warn"
 unused_trait_names = "warn"
 verbose_file_reads = "warn"
+
+# nursery
+use_self = "warn"

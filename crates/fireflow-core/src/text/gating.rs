@@ -759,10 +759,10 @@ impl<I> Region<I> {
     pub(crate) fn try_new(r_index: RegionGateIndex<I>, window: RegionWindow) -> Option<Self> {
         match (r_index, window) {
             (RegionGateIndex::Univariate(index), RegionWindow::Univariate(gate)) => {
-                Some(Region::Univariate(UnivariateRegion { gate, index }))
+                Some(Self::Univariate(UnivariateRegion { gate, index }))
             }
             (RegionGateIndex::Bivariate(index), RegionWindow::Bivariate(vs)) => {
-                Some(Region::Bivariate(BivariateRegion {
+                Some(Self::Bivariate(BivariateRegion {
                     index,
                     vertices: vs.into(),
                 }))
@@ -827,7 +827,7 @@ impl<I> Region<I> {
         n.zip(w)
             .and_tentatively(|(n_, y_)| {
                 n_.0.zip(y_.0)
-                    .and_then(|(gi, win)| Self::try_new(gi, win).map(Region::inner_into))
+                    .and_then(|(gi, win)| Self::try_new(gi, win).map(Self::inner_into))
                     .ok_or(MismatchedIndexAndWindowError)
                     .into_tentative_opt(!conf.allow_optional_dropping)
                     .inner_into()

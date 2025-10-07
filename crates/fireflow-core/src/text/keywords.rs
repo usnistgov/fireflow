@@ -138,7 +138,7 @@ impl FromStrDelim for Trigger {
             [p, n1] => n1
                 .parse()
                 .map_err(TriggerError::IntFormat)
-                .map(|threshold| Trigger {
+                .map(|threshold| Self {
                     measurement: Shortname::new_unchecked(p),
                     threshold,
                 }),
@@ -177,9 +177,9 @@ impl FromStr for Mode {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "C" => Ok(Mode::Correlated),
-            "L" => Ok(Mode::List),
-            "U" => Ok(Mode::Uncorrelated),
+            "C" => Ok(Self::Correlated),
+            "L" => Ok(Self::List),
+            "U" => Ok(Self::Uncorrelated),
             _ => Err(ModeError),
         }
     }
@@ -196,7 +196,7 @@ impl FromStr for Mode3_2 {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "L" => Ok(Mode3_2),
+            "L" => Ok(Self),
             _ => Err(Mode3_2Error),
         }
     }
@@ -207,7 +207,7 @@ impl TryFrom<Mode> for Mode3_2 {
 
     fn try_from(value: Mode) -> Result<Self, Self::Error> {
         match value {
-            Mode::List => Ok(Mode3_2),
+            Mode::List => Ok(Self),
             _ => Err(ModeUpgradeError),
         }
     }
@@ -244,11 +244,11 @@ impl FromStr for Display {
                 let f1 = s1.parse().map_err(DisplayError::FloatError)?;
                 let f2 = s2.parse().map_err(DisplayError::FloatError)?;
                 match which {
-                    "Linear" => Ok(Display::Lin {
+                    "Linear" => Ok(Self::Lin {
                         lower: f1,
                         upper: f2,
                     }),
-                    "Logarithmic" => Ok(Display::Log {
+                    "Logarithmic" => Ok(Self::Log {
                         decades: f1,
                         offset: f2,
                     }),
@@ -287,9 +287,9 @@ impl FromStr for NumType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "I" => Ok(NumType::Integer),
-            "F" => Ok(NumType::Float),
-            "D" => Ok(NumType::Double),
+            "I" => Ok(Self::Integer),
+            "F" => Ok(Self::Float),
+            "D" => Ok(Self::Double),
             _ => Err(NumTypeError),
         }
     }
@@ -315,7 +315,7 @@ pub enum AlphaNumType {
 
 impl AlphaNumType {
     pub(crate) fn lookup_req_check_ascii(kws: &mut StdKeywords) -> LookupResult<Self> {
-        let mut d = AlphaNumType::lookup_req(kws);
+        let mut d = Self::lookup_req(kws);
         d.def_eval_warning(|v| check_datatype_ascii(*v));
         d
     }
@@ -331,10 +331,10 @@ impl FromStr for AlphaNumType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "I" => Ok(AlphaNumType::Integer),
-            "F" => Ok(AlphaNumType::Float),
-            "D" => Ok(AlphaNumType::Double),
-            "A" => Ok(AlphaNumType::Ascii),
+            "I" => Ok(Self::Integer),
+            "F" => Ok(Self::Float),
+            "D" => Ok(Self::Double),
+            "A" => Ok(Self::Ascii),
             _ => Err(AlphaNumTypeError),
         }
     }
@@ -347,9 +347,9 @@ pub struct AlphaNumTypeError;
 impl From<NumType> for AlphaNumType {
     fn from(value: NumType) -> Self {
         match value {
-            NumType::Integer => AlphaNumType::Integer,
-            NumType::Float => AlphaNumType::Float,
-            NumType::Double => AlphaNumType::Double,
+            NumType::Integer => Self::Integer,
+            NumType::Float => Self::Float,
+            NumType::Double => Self::Double,
         }
     }
 }
@@ -358,9 +358,9 @@ impl TryFrom<AlphaNumType> for NumType {
     type Error = ();
     fn try_from(value: AlphaNumType) -> Result<Self, Self::Error> {
         match value {
-            AlphaNumType::Integer => Ok(NumType::Integer),
-            AlphaNumType::Float => Ok(NumType::Float),
-            AlphaNumType::Double => Ok(NumType::Double),
+            AlphaNumType::Integer => Ok(Self::Integer),
+            AlphaNumType::Float => Ok(Self::Float),
+            AlphaNumType::Double => Ok(Self::Double),
             AlphaNumType::Ascii => Err(()),
         }
     }
@@ -379,7 +379,7 @@ impl FromStr for TemporalScale {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.parse::<Scale>() {
-            Ok(Scale::Linear) => Ok(TemporalScale),
+            Ok(Scale::Linear) => Ok(Self),
             _ => Err(TemporalScaleError),
         }
     }
@@ -405,7 +405,7 @@ impl FromStr for Calibration3_1 {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.split(',').collect::<Vec<_>>()[..] {
-            [value, unit] => Ok(Calibration3_1 {
+            [value, unit] => Ok(Self {
                 slope: value.parse().map_err(CalibrationError::Range)?,
                 unit: String::from(unit),
             }),
@@ -450,7 +450,7 @@ impl FromStr for Calibration3_2 {
             }
             _ => Err(CalibrationError::Format(CalibrationFormat3_2)),
         }?;
-        Ok(Calibration3_2 {
+        Ok(Self {
             slope: slope.parse().map_err(CalibrationError::Range)?,
             offset,
             unit: unit.into(),
@@ -606,10 +606,10 @@ impl FromStr for Originality {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "Original" => Ok(Originality::Original),
-            "NonDataModified" => Ok(Originality::NonDataModified),
-            "Appended" => Ok(Originality::Appended),
-            "DataModified" => Ok(Originality::DataModified),
+            "Original" => Ok(Self::Original),
+            "NonDataModified" => Ok(Self::NonDataModified),
+            "Appended" => Ok(Self::Appended),
+            "DataModified" => Ok(Self::DataModified),
             _ => Err(OriginalityError),
         }
     }
@@ -660,7 +660,7 @@ impl FromStrDelim for Unicode {
             if kws.is_empty() {
                 Err(UnicodeError::Empty)
             } else {
-                Ok(Unicode { page, kws })
+                Ok(Self { page, kws })
             }
         } else {
             Err(UnicodeError::BadFormat)
@@ -721,15 +721,15 @@ impl FromStr for OpticalType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             TIME => Err(OpticalTypeError),
-            FORWARD_SCATTER => Ok(OpticalType::ForwardScatter),
-            SIDE_SCATTER => Ok(OpticalType::SideScatter),
-            RAW_FLUORESCENCE => Ok(OpticalType::RawFluorescence),
-            UNMIXED_FLUORESCENCE => Ok(OpticalType::UnmixedFluorescence),
-            MASS => Ok(OpticalType::Mass),
-            ELECTRONIC_VOLUME => Ok(OpticalType::ElectronicVolume),
-            INDEX => Ok(OpticalType::Index),
-            CLASSIFICATION => Ok(OpticalType::Classification),
-            x => Ok(OpticalType::Other(String::from(x))),
+            FORWARD_SCATTER => Ok(Self::ForwardScatter),
+            SIDE_SCATTER => Ok(Self::SideScatter),
+            RAW_FLUORESCENCE => Ok(Self::RawFluorescence),
+            UNMIXED_FLUORESCENCE => Ok(Self::UnmixedFluorescence),
+            MASS => Ok(Self::Mass),
+            ELECTRONIC_VOLUME => Ok(Self::ElectronicVolume),
+            INDEX => Ok(Self::Index),
+            CLASSIFICATION => Ok(Self::Classification),
+            x => Ok(Self::Other(x.into())),
         }
     }
 }
@@ -745,7 +745,7 @@ impl FromStr for TemporalType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            TIME => Ok(TemporalType),
+            TIME => Ok(Self),
             _ => Err(TemporalTypeError),
         }
     }
@@ -776,9 +776,9 @@ impl FromStr for Feature {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            AREA => Ok(Feature::Area),
-            WIDTH => Ok(Feature::Width),
-            HEIGHT => Ok(Feature::Height),
+            AREA => Ok(Self::Area),
+            WIDTH => Ok(Self::Width),
+            HEIGHT => Ok(Self::Height),
             _ => Err(FeatureError),
         }
     }
@@ -885,8 +885,8 @@ impl<I> RegionGateIndex<I> {
         I: gating::LinkedMeasIndex,
     {
         match self {
-            RegionGateIndex::Univariate(i) => i.meas_index().into_iter().collect(),
-            RegionGateIndex::Bivariate(i) => [i.x.meas_index(), i.y.meas_index()]
+            Self::Univariate(i) => i.meas_index().into_iter().collect(),
+            Self::Bivariate(i) => [i.x.meas_index(), i.y.meas_index()]
                 .into_iter()
                 .flatten()
                 .collect(),
@@ -927,10 +927,7 @@ impl<I: FromStr> FromStrDelim for RegionGateIndex<I> {
                 .map_err(RegionGateIndexError::Int),
             [x, y] => x
                 .parse()
-                .and_then(|a| {
-                    y.parse()
-                        .map(|b| RegionGateIndex::Bivariate(IndexPair { x: a, y: b }))
-                })
+                .and_then(|a| y.parse().map(|b| Self::Bivariate(IndexPair { x: a, y: b })))
                 .map_err(RegionGateIndexError::Int),
             _ => Err(RegionGateIndexError::Format),
         }

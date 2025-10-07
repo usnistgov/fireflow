@@ -408,7 +408,7 @@ impl FromStr for NonStdMeasPattern {
 
     fn from_str(s: &str) -> Result<Self, NonStdMeasPatternError> {
         if has_no_std_prefix(s.as_bytes()) || s.match_indices("%n").count() == 1 {
-            Ok(NonStdMeasPattern(s.into()))
+            Ok(Self(s.into()))
         } else {
             Err(NonStdMeasPatternError(s.into()))
         }
@@ -792,9 +792,9 @@ mod python {
     impl<'py> FromPyObject<'py> for KeyPatterns {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let (lits, pats): (Vec<String>, Vec<String>) = ob.extract()?;
-            let mut ret = KeyPatterns::try_from_literals(lits.into_iter().map(|x| (x, ())))?;
+            let mut ret = Self::try_from_literals(lits.into_iter().map(|x| (x, ())))?;
             // this is just a regexp error
-            let ps = KeyPatterns::try_from_patterns(pats.into_iter().map(|x| (x, ())))
+            let ps = Self::try_from_patterns(pats.into_iter().map(|x| (x, ())))
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
             ret.extend(ps);
             Ok(ret)

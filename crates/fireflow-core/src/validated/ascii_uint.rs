@@ -183,7 +183,7 @@ impl UintSpacePad8 {
         let s = ascii_str_from_bytes(&bs[..]).map_err(ParseFixedUintError::NotAscii)?;
         let trimmed = s.trim_start();
         if allow_blank && trimmed.is_empty() {
-            return Ok(UintSpacePad8::zero());
+            return Ok(Self::zero());
         }
         let x = trimmed.parse::<i32>().map_err(ParseFixedUintError::Int)?;
         if x < 0 {

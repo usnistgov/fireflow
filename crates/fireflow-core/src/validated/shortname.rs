@@ -29,7 +29,7 @@ pub struct Shortname(String);
 
 impl Shortname {
     pub fn new_unchecked<T: AsRef<str>>(s: T) -> Self {
-        Shortname(s.as_ref().to_owned())
+        Self(s.as_ref().to_owned())
     }
 }
 
@@ -40,7 +40,7 @@ impl FromStr for Shortname {
         if s.contains(',') {
             Err(ShortnameError(s.into()))
         } else {
-            Ok(Shortname(s.into()))
+            Ok(Self(s.into()))
         }
     }
 }

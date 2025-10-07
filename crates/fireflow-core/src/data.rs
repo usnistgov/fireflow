@@ -1340,7 +1340,7 @@ impl ToNativeReader for AsciiRange {}
 
 impl<T, const LEN: usize> NativeReadable<Endian> for Bitmask<T, LEN>
 where
-    Bitmask<T, LEN>: HasNativeType<Native = T>,
+    Self: HasNativeType<Native = T>,
     T: Ord + Copy + IntFromBytes<LEN>,
 {
     fn h_read_native<R: Read>(
@@ -1356,7 +1356,7 @@ where
 
 impl<T, const LEN: usize> NativeReadable<SizedByteOrd<LEN>> for Bitmask<T, LEN>
 where
-    Bitmask<T, LEN>: HasNativeType<Native = T>,
+    Self: HasNativeType<Native = T>,
     T: Ord + Copy + IntFromBytes<LEN>,
 {
     fn h_read_native<R: Read>(
@@ -1372,7 +1372,7 @@ where
 
 impl<T, const LEN: usize> NativeReadable<Endian> for FloatRange<T, LEN>
 where
-    FloatRange<T, LEN>: HasNativeType<Native = T>,
+    Self: HasNativeType<Native = T>,
     T: Copy + FloatFromBytes<LEN>,
 {
     fn h_read_native<R: Read>(
@@ -1388,7 +1388,7 @@ where
 
 impl<T, const LEN: usize> NativeReadable<SizedByteOrd<LEN>> for FloatRange<T, LEN>
 where
-    FloatRange<T, LEN>: HasNativeType<Native = T>,
+    Self: HasNativeType<Native = T>,
     T: Copy + FloatFromBytes<LEN>,
 {
     fn h_read_native<R: Read>(
@@ -1478,10 +1478,10 @@ impl Readable<Endian> for ReaderMixedType {
         buf: &mut Vec<u8>,
     ) -> IOResult<(), ReadDataframeError> {
         match self {
-            MixedType::Ascii(c) => c.h_read(h, row, NoByteOrd, buf),
-            MixedType::Uint(c) => c.h_read(h, row, byte_layout, buf),
-            MixedType::F32(c) => c.h_read(h, row, byte_layout, buf),
-            MixedType::F64(c) => c.h_read(h, row, byte_layout, buf),
+            Self::Ascii(c) => c.h_read(h, row, NoByteOrd, buf),
+            Self::Uint(c) => c.h_read(h, row, byte_layout, buf),
+            Self::F32(c) => c.h_read(h, row, byte_layout, buf),
+            Self::F64(c) => c.h_read(h, row, byte_layout, buf),
         }
     }
 }
@@ -1682,10 +1682,10 @@ impl<'a> IntoWriter<'a, Endian> for NullMixedType {
 
     fn check_writer(&self, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
         match self {
-            MixedType::Ascii(c) => IntoWriter::<NoByteOrd3_1>::check_writer(c, col),
-            MixedType::Uint(c) => c.check_writer(col),
-            MixedType::F32(c) => c.check_native_writer(col).map_err(Into::into),
-            MixedType::F64(c) => c.check_native_writer(col).map_err(Into::into),
+            Self::Ascii(c) => IntoWriter::<NoByteOrd3_1>::check_writer(c, col),
+            Self::Uint(c) => c.check_writer(col),
+            Self::F32(c) => c.check_native_writer(col).map_err(Into::into),
+            Self::F64(c) => c.check_native_writer(col).map_err(Into::into),
         }
     }
 }
@@ -1866,7 +1866,7 @@ impl<D> EndianLayout<AnyNullBitmask, D> {
     where
         D: MeasDatatypeDef,
     {
-        FixedLayout::try_new(cs, e, |c| {
+        Self::try_new(cs, e, |c| {
             AnyBitmask::from_width_and_range(c.width, c.range, disallow_trunc).def_errors_into()
         })
     }
@@ -2134,7 +2134,7 @@ impl From<u64> for AnyNullBitmask {
 impl From<AnyNullBitmask> for u64 {
     /// Convert bitmask range (not bitmask itself) to u64.
     fn from(value: AnyNullBitmask) -> Self {
-        match_any_uint!(value, AnyNullBitmask, x, { u64::from(x) })
+        match_any_uint!(value, AnyNullBitmask, x, { Self::from(x) })
     }
 }
 
@@ -2899,7 +2899,7 @@ impl<C> EndianLayout<C, HasMeasDatatype> {
     where
         C: TryFrom<NullMixedType, Error = MixedToInnerError>,
         NullMixedType: From<C>,
-        NonMixedEndianLayout<HasMeasDatatype>: From<EndianLayout<C, HasMeasDatatype>>,
+        NonMixedEndianLayout<HasMeasDatatype>: From<Self>,
     {
         NullMixedType::from_range(range, disallow_trunc).map(|col| match col.try_into() {
             Ok(c) => {
@@ -2922,7 +2922,7 @@ impl<C> EndianLayout<C, HasMeasDatatype> {
     where
         C: TryFrom<NullMixedType, Error = MixedToInnerError>,
         NullMixedType: From<C>,
-        NonMixedEndianLayout<HasMeasDatatype>: From<EndianLayout<C, HasMeasDatatype>>,
+        NonMixedEndianLayout<HasMeasDatatype>: From<Self>,
     {
         NullMixedType::from_range(range, disallow_trunc).map(|col| match col.try_into() {
             Ok(c) => {
@@ -3038,7 +3038,7 @@ where
         (range - Range::from(1_u8))
             .into_uint(disallow_trunc)
             .inner_into()
-            .and_tentatively(|x| Bitmask::from_native_tnt(x, disallow_trunc).inner_into())
+            .and_tentatively(|x| Self::from_native_tnt(x, disallow_trunc).inner_into())
     }
 }
 
@@ -3061,7 +3061,7 @@ impl FromRange for AsciiRange {
     /// The number of chars will be automatically selected as the minimum
     /// required to express the range.
     fn from_range(range: Range, disallow_trunc: bool) -> BiTentative<Self, Self::Error> {
-        range.into_uint::<u64>(disallow_trunc).map(AsciiRange::from)
+        range.into_uint::<u64>(disallow_trunc).map(Self::from)
     }
 }
 
@@ -4343,7 +4343,7 @@ mod python {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let x = ob.extract::<BigDecimal>()?;
             FloatDecimal::try_from(x)
-                .map(FloatRange::new)
+                .map(Self::new)
                 // this is a ParseBigDecimalError
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         }

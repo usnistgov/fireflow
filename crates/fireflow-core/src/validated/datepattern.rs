@@ -27,7 +27,7 @@ impl FromStr for DatePattern {
         let m = matches!((nm, nb, nB), (1, 0, 0) | (0, 1, 0) | (0, 0, 1));
         let d = matches!((nd, ne), (1, 0) | (0, 1));
         if y && m && d {
-            Ok(DatePattern(s.into()))
+            Ok(Self(s.into()))
         } else {
             Err(DatePatternError(s.into()))
         }

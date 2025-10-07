@@ -97,9 +97,9 @@ impl FromStrDelim for Scale {
                 let f1 = ds.parse().map_err(ScaleError::FloatError)?;
                 let f2 = os.parse().map_err(ScaleError::FloatError)?;
                 match (f1, f2) {
-                    (0.0, 0.0) => Ok(Scale::Linear),
+                    (0.0, 0.0) => Ok(Self::Linear),
                     (decades, offset) => {
-                        Scale::try_new_log(decades, offset).map_err(ScaleError::LogRange)
+                        Self::try_new_log(decades, offset).map_err(ScaleError::LogRange)
                     }
                 }
             }

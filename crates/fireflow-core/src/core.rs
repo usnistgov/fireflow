@@ -1670,7 +1670,7 @@ impl<T> Temporal<T> {
     {
         T::lookup_specific(std, i, &mut nonstd, conf).def_and_tentatively(|specific| {
             CommonMeasurement::lookup(std, i, nonstd, conf)
-                .map(|common| Temporal::new(common, specific))
+                .map(|common| Self::new(common, specific))
                 .errors_into()
         })
     }
@@ -1755,7 +1755,7 @@ impl<O> Optical<O> {
                     .errors_into()
                     .and_maybe(|c| {
                         O::lookup_specific(std, i, conf)
-                            .def_map_value(|s| Optical::new(c, f, p, d, e, v, s))
+                            .def_map_value(|s| Self::new(c, f, p, d, e, v, s))
                     })
             })
     }
@@ -1951,7 +1951,7 @@ where
                 )| {
                     M::lookup_specific(std, par, &names, &ordered_names, conf).def_map_value(
                         |specific| {
-                            Metaroot::new(
+                            Self::new(
                                 abrt_, com_, cells_, exp_, fil_, inst_, lost_, op_, proj_, smno_,
                                 src_, sys_, tr_, specific, nonstd,
                             )
@@ -3760,7 +3760,7 @@ where
                 .def_zip(layout_res)
                 .def_and_maybe(|(ms, layout)| {
                     Metaroot::lookup_metaroot(&mut kws.std, &ms, kws.nonstd, std_conf)
-                        .def_map_value(|metaroot| CoreTEXT::new_unchecked(metaroot, ms, layout))
+                        .def_map_value(|metaroot| Self::new_unchecked(metaroot, ms, layout))
                         .def_inner_into()
                 })
                 .map(|mut tnt_core| {
@@ -4495,7 +4495,7 @@ impl CoreTEXT2_0 {
             specific,
             nonstandard_keywords,
         );
-        CoreTEXT::try_new(metaroot, measurements, layout).mult_errors_into()
+        Self::try_new(metaroot, measurements, layout).mult_errors_into()
     }
 }
 
@@ -4560,7 +4560,7 @@ impl CoreTEXT3_0 {
             specific,
             nonstandard_keywords,
         );
-        CoreTEXT::try_new(metaroot, measurements, layout).mult_errors_into()
+        Self::try_new(metaroot, measurements, layout).mult_errors_into()
     }
 }
 
@@ -4633,7 +4633,7 @@ impl CoreTEXT3_1 {
             specific,
             nonstandard_keywords,
         );
-        CoreTEXT::try_new(metaroot, measurements, layout).mult_errors_into()
+        Self::try_new(metaroot, measurements, layout).mult_errors_into()
     }
 }
 
@@ -4714,7 +4714,7 @@ impl CoreTEXT3_2 {
             specific,
             nonstandard_keywords,
         );
-        CoreTEXT::try_new(metaroot, measurements, layout).mult_errors_into()
+        Self::try_new(metaroot, measurements, layout).mult_errors_into()
     }
 }
 
@@ -5564,7 +5564,7 @@ impl_ref_specific_ro!(Optical, InnerOptical3_2, ScaleTransform);
 
 impl<X, M, const IS_ETIM: bool> AsRef<Option<Xtim<IS_ETIM, X>>> for Metaroot<M>
 where
-    Metaroot<M>: AsRef<Timestamps<X>>,
+    Self: AsRef<Timestamps<X>>,
     Timestamps<X>: AsRef<Option<Xtim<IS_ETIM, X>>>,
 {
     fn as_ref(&self) -> &Option<Xtim<IS_ETIM, X>> {
@@ -5970,14 +5970,10 @@ impl ScaleTransform {
         }
     }
 
-    fn lookup(
-        kws: &mut StdKeywords,
-        i: MeasIndex,
-        conf: &StdTextReadConfig,
-    ) -> LookupResult<ScaleTransform> {
+    fn lookup(kws: &mut StdKeywords, i: MeasIndex, conf: &StdTextReadConfig) -> LookupResult<Self> {
         Gain::lookup_opt(kws, i, conf).errors_into().and_maybe(|g| {
             Scale::lookup_req_st(kws, i, (), conf)
-                .def_and_maybe(|s| ScaleTransform::try_from((s, g)).into_deferred())
+                .def_and_maybe(|s| Self::try_from((s, g)).into_deferred())
         })
     }
 
@@ -6288,7 +6284,7 @@ impl ConvertFromLayout<DataLayout3_0> for DataLayout3_2 {
 
 impl ConvertFromLayout<DataLayout3_1> for DataLayout3_2 {
     fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
-        Ok(DataLayout3_2::NonMixed(value.0.phantom_into()))
+        Ok(Self::NonMixed(value.0.phantom_into()))
     }
 }
 
@@ -6297,7 +6293,7 @@ impl Versioned for Version2_0 {
     type Offsets = TEXTOffsets2_0;
 
     fn fcs_version() -> Self {
-        Version2_0
+        Self
     }
 }
 
@@ -6306,7 +6302,7 @@ impl Versioned for Version3_0 {
     type Offsets = TEXTOffsets3_0;
 
     fn fcs_version() -> Self {
-        Version3_0
+        Self
     }
 }
 
@@ -6315,7 +6311,7 @@ impl Versioned for Version3_1 {
     type Offsets = TEXTOffsets3_0;
 
     fn fcs_version() -> Self {
-        Version3_1
+        Self
     }
 }
 
@@ -6324,7 +6320,7 @@ impl Versioned for Version3_2 {
     type Offsets = TEXTOffsets3_2;
 
     fn fcs_version() -> Self {
-        Version3_2
+        Self
     }
 }
 

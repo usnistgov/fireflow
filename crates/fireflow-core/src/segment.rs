@@ -633,7 +633,7 @@ impl<I, S, T> Segment<I, S, T> {
 }
 
 impl GenericSegment {
-    pub(crate) fn overlaps(&self, other: &GenericSegment) -> Result<(), SegmentOverlapError> {
+    pub(crate) fn overlaps(&self, other: &Self) -> Result<(), SegmentOverlapError> {
         if (self.begin < other.begin && self.end < other.begin)
             || (other.begin < self.begin && other.end < self.begin)
         {
@@ -753,7 +753,7 @@ impl<I: Copy> HeaderSegment<I> {
         let begin_res = parse_one(bs0, true);
         let end_res = parse_one(bs1, false);
         let (begin, end) = begin_res.zip(end_res).mult_errors_into()?;
-        Segment::try_new_squish(begin, end, squish_offsets, conf).into_mult()
+        Self::try_new_squish(begin, end, squish_offsets, conf).into_mult()
     }
 
     pub(crate) fn unless(
@@ -793,7 +793,7 @@ impl<I: Copy> HeaderSegment<I> {
         } else {
             (begin, end)
         };
-        Segment::try_new(b, e, conf)
+        Self::try_new(b, e, conf)
     }
 }
 
@@ -816,7 +816,7 @@ impl OtherSegment20 {
         let begin_res = parse_one(bs0, true);
         let end_res = parse_one(bs1, false);
         let (begin, end) = begin_res.zip(end_res).mult_errors_into()?;
-        Segment::try_new(begin, end, conf).into_mult()
+        Self::try_new(begin, end, conf).into_mult()
     }
 }
 
@@ -1056,7 +1056,7 @@ pub struct SegmentDefaultWarning<I>(PhantomData<I>);
 
 impl<I> Default for SegmentDefaultWarning<I> {
     fn default() -> Self {
-        SegmentDefaultWarning(PhantomData)
+        Self(PhantomData)
     }
 }
 

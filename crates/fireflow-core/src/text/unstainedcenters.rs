@@ -107,7 +107,7 @@ impl FromStrDelim for UnstainedCenters {
                     .collect();
                 if fvalues.len() == n {
                     let ys: Vec<_> = measurements.into_iter().zip(fvalues).collect();
-                    UnstainedCenters::try_from(ys).map_err(ParseUnstainedCenterError::New)
+                    Self::try_from(ys).map_err(ParseUnstainedCenterError::New)
                 } else {
                     Err(ParseUnstainedCenterError::BadFloat)
                 }

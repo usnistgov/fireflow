@@ -130,7 +130,7 @@ impl MightHave for AlwaysFamily {
 
 impl<T> From<T> for AlwaysValue<T> {
     fn from(value: T) -> Self {
-        AlwaysValue(value)
+        Self(value)
     }
 }
 
@@ -162,8 +162,8 @@ impl<T> From<MaybeValue<T>> for Option<T> {
 impl<T: Copy> Copy for MaybeValue<T> {}
 
 impl<T> Default for MaybeValue<T> {
-    fn default() -> MaybeValue<T> {
-        MaybeValue(None)
+    fn default() -> Self {
+        Self(None)
     }
 }
 

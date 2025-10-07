@@ -47,7 +47,7 @@ impl TryFrom<Range> for Chars {
     type Error = IntRangeError<u64>;
 
     fn try_from(value: Range) -> Result<Self, Self::Error> {
-        u64::try_from(value).map(Chars::from_u64)
+        u64::try_from(value).map(Self::from_u64)
     }
 }
 
@@ -114,7 +114,7 @@ impl Chars {
     /// Return number of chars needed to express the given u64.
     pub(crate) fn from_u64(x: u64) -> Self {
         // ASSUME the max possible value is 20 thus will always fit in u8
-        Chars(
+        Self(
             x.checked_ilog10()
                 .map(|y| u8::try_from(y).unwrap())
                 .and_then(|y| NonZero::new(y + 1))
@@ -153,8 +153,8 @@ impl TryFrom<NonZeroU8> for Chars {
 }
 
 impl Default for OtherWidth {
-    fn default() -> OtherWidth {
-        OtherWidth(Chars(NonZeroU8::new(8).unwrap()))
+    fn default() -> Self {
+        Self(Chars(NonZeroU8::new(8).unwrap()))
     }
 }
 

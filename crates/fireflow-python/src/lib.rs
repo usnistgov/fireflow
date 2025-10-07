@@ -585,13 +585,13 @@ impl_gated_meas!(GatedMeasurement);
 struct PyGatedMeasurements(Vec<PyGatedMeasurement>);
 
 impl From<PyGatedMeasurements> for Vec<GatedMeasurement> {
-    fn from(value: PyGatedMeasurements) -> Vec<GatedMeasurement> {
+    fn from(value: PyGatedMeasurements) -> Self {
         value.0.into_iter().map(|x| x.0).collect()
     }
 }
 
 impl From<Vec<GatedMeasurement>> for PyGatedMeasurements {
-    fn from(value: Vec<GatedMeasurement>) -> PyGatedMeasurements {
+    fn from(value: Vec<GatedMeasurement>) -> Self {
         Self(value.into_iter().map(Into::into).collect())
     }
 }
@@ -643,7 +643,7 @@ pub enum PyAnyCoreTEXT {
 }
 
 impl From<core::AnyCoreTEXT> for PyAnyCoreTEXT {
-    fn from(value: core::AnyCoreTEXT) -> PyAnyCoreTEXT {
+    fn from(value: core::AnyCoreTEXT) -> Self {
         match value {
             core::AnyCoreTEXT::FCS2_0(x) => (*x).into(),
             core::AnyCoreTEXT::FCS3_0(x) => (*x).into(),
@@ -666,7 +666,7 @@ pub enum PyAnyCoreDataset {
 }
 
 impl From<core::AnyCoreDataset> for PyAnyCoreDataset {
-    fn from(value: core::AnyCoreDataset) -> PyAnyCoreDataset {
+    fn from(value: core::AnyCoreDataset) -> Self {
         match value {
             core::AnyCoreDataset::FCS2_0(x) => (*x).into(),
             core::AnyCoreDataset::FCS3_0(x) => (*x).into(),

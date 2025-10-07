@@ -511,7 +511,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         analysis_len: u64,
         other_lens: &[u64],
         has_nextdata: bool,
-    ) -> Result<HeaderKeywordsToWrite<T>, Uint8DigitOverflow>
+    ) -> Result<Self, Uint8DigitOverflow>
     where
         T: TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
     {
@@ -555,7 +555,7 @@ impl<T> HeaderKeywordsToWrite<T> {
                 .collect(),
         );
 
-        Ok(HeaderKeywordsToWrite {
+        Ok(Self {
             header,
             primary,
             supplemental: KeywordsWriter::default(),
@@ -574,7 +574,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         analysis_len: u64,
         other_lens: &[u64],
         has_nextdata: bool,
-    ) -> Result<HeaderKeywordsToWrite<T>, Uint8DigitOverflow>
+    ) -> Result<Self, Uint8DigitOverflow>
     where
         T: TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
     {
@@ -658,7 +658,7 @@ impl<T> HeaderKeywordsToWrite<T> {
             other: other_segs,
         };
 
-        Ok(HeaderKeywordsToWrite {
+        Ok(Self {
             header,
             primary: KeywordsWriter(primary),
             supplemental: KeywordsWriter(supplemental),

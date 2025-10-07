@@ -832,9 +832,9 @@ mod python {
     impl<'py> FromPyObject<'py> for TimeMeasNamePattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let s: String = ob.extract()?;
+            // this should be an error from regexp parsing
             let n = s
-                .parse::<TimeMeasNamePattern>()
-                // this should be an error from regexp parsing
+                .parse::<Self>()
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
             Ok(n)
         }

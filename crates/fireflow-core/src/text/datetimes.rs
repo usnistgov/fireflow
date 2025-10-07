@@ -90,7 +90,7 @@ impl Datetimes {
         let b = BeginDateTime::lookup_opt(kws, conf);
         let e = EndDateTime::lookup_opt(kws, conf);
         b.zip(e).and_tentatively(|(begin, end)| {
-            Datetimes::try_new(begin.0, end.0)
+            Self::try_new(begin.0, end.0)
                 .into_tentative_def(!conf.allow_optional_dropping)
                 .inner_into()
         })
@@ -138,7 +138,7 @@ impl FromStr for FCSDateTime {
                 .single()
                 .map_or_else(
                     || Err(FCSDateTimeError::Unmapped(s.into())),
-                    |t| Ok(FCSDateTime(t.fixed_offset())),
+                    |t| Ok(Self(t.fixed_offset())),
                 )
         } else {
             // If zone information is present, try any number of formats which
@@ -151,7 +151,7 @@ impl FromStr for FCSDateTime {
             ];
             for f in formats {
                 if let Ok(t) = DateTime::parse_from_str(s, f) {
-                    return Ok(FCSDateTime(t));
+                    return Ok(Self(t));
                 }
             }
             Err(FCSDateTimeError::Other)

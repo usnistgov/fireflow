@@ -47,16 +47,16 @@ where
     fn from(value: &Bitmask<T, LEN>) -> Self {
         // NOTE add 1 since the spec treats int ranges as one less than they
         // appear in TEXT
-        Range::from(u64::from(value.value)) + Range::from(BigDecimal::one())
+        Self::from(u64::from(value.value)) + Self::from(BigDecimal::one())
     }
 }
 
 impl<T, const LEN: usize> From<Bitmask<T, LEN>> for u64
 where
-    u64: From<T>,
+    Self: From<T>,
 {
     fn from(value: Bitmask<T, LEN>) -> Self {
-        u64::from(value.value)
+        value.value.into()
     }
 }
 
@@ -87,7 +87,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
         T: PrimInt,
         u64: From<T>,
     {
-        let (bitmask, truncated) = Bitmask::from_native(value);
+        let (bitmask, truncated) = Self::from_native(value);
         let error = truncated.then(|| BitmaskTruncationError {
             bytes: Self::bits(),
             value: u64::from(value),
@@ -150,7 +150,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
     where
         T: PrimInt,
     {
-        Bitmask::from_native(T::max_value()).0
+        Self::from_native(T::max_value()).0
     }
 
     fn bytes() -> u8 {
@@ -255,7 +255,7 @@ mod python {
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let x = ob.extract::<T>()?;
-            let (ret, trunc) = Bitmask::from_native(x);
+            let (ret, trunc) = Self::from_native(x);
             if trunc {
                 let e = format!("could not make {LEN}-byte bitmask from {x}");
                 Err(PyOverflowError::new_err(e))

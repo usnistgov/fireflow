@@ -166,10 +166,10 @@ mod python {
     impl<'py> FromPyObject<'py> for SubPatterns {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let (lits, pats): (_SubPattern, _SubPattern) = ob.extract()?;
-            let mut ret = SubPatterns::try_from_literals(lits)?;
+            let mut ret = Self::try_from_literals(lits)?;
             // this is just a regexp error
-            let ps = SubPatterns::try_from_patterns(pats)
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            let ps =
+                Self::try_from_patterns(pats).map_err(|e| PyValueError::new_err(e.to_string()))?;
             ret.extend(ps);
             Ok(ret)
         }

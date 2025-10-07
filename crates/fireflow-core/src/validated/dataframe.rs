@@ -53,7 +53,7 @@ impl PartialEq for AnyFCSColumn {
     /// example, a `1` / `1.0` will be equal regardless of datatype because
     /// it can be losslessly converted between all possible types for a column
     /// (u8-64 and f32/f64).
-    fn eq(&self, other: &AnyFCSColumn) -> bool {
+    fn eq(&self, other: &Self) -> bool {
         fn go<From, To>(xs: &FCSColumn<From>, ys: &FCSColumn<To>) -> bool
         where
             To: NumCast<From> + FCSDataType + PartialEq,
@@ -112,16 +112,14 @@ impl PartialEq for AnyFCSColumn {
 
 impl<T> From<Vec<T>> for FCSColumn<T> {
     fn from(value: Vec<T>) -> Self {
-        FCSColumn(value.into())
+        Self(value.into())
     }
 }
 
 impl AnyFCSColumn {
     #[must_use]
     pub fn len(&self) -> usize {
-        match_many_to_one!(self, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], x, {
-            x.0.len()
-        })
+        match_many_to_one!(self, Self, [U08, U16, U32, U64, F32, F64], x, { x.0.len() })
     }
 
     pub(crate) fn check_writer<E, F, ToType>(&self, f: F) -> Result<(), LossError<E>>
@@ -142,7 +140,7 @@ impl AnyFCSColumn {
     /// Convert number at index to string
     #[must_use]
     pub fn pos_to_string(&self, i: usize) -> String {
-        match_many_to_one!(self, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], x, {
+        match_many_to_one!(self, Self, [U08, U16, U32, U64, F32, F64], x, {
             x.0[i].to_string()
         })
     }
@@ -554,7 +552,7 @@ impl NumCast<f64> for f32 {
     #[allow(clippy::float_cmp)]
     #[allow(clippy::as_conversions)]
     fn from_truncated(x: f64) -> CastResult<Self> {
-        let new = x as f32;
+        let new = x as Self;
         let old = f64::from(new);
         CastResult::new::<f64>(new, old != x)
     }

@@ -6,8 +6,8 @@ use thiserror::Error;
 pub struct TEXTDelim(u8);
 
 impl Default for TEXTDelim {
-    fn default() -> TEXTDelim {
-        TEXTDelim(30) // record separator
+    fn default() -> Self {
+        Self(30) // record separator
     }
 }
 

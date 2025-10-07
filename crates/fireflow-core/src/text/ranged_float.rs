@@ -66,8 +66,8 @@ pub enum RangedFloatError {
 impl fmt::Display for RangedFloatError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            RangedFloatError::Parse(e) => e.fmt(f),
-            RangedFloatError::Range { x, include_zero } => {
+            Self::Parse(e) => e.fmt(f),
+            Self::Range { x, include_zero } => {
                 let gt = if *include_zero {
                     "greater than/equal to"
                 } else {

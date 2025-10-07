@@ -202,7 +202,7 @@ impl<X> Timestamps<X> {
         X: PartialOrd,
     {
         b.zip3(e, d).and_tentatively(|(btim, etim, date)| {
-            Timestamps::try_new(btim.0, etim.0, date.0)
+            Self::try_new(btim.0, etim.0, date.0)
                 .into_tentative_def(!conf.allow_optional_dropping)
                 .inner_into()
         })
@@ -242,7 +242,7 @@ impl FromStrStateful for FCSDate {
         if let Some(pattern) = &conf.date_pattern {
             Self::parse_with_pattern(s, pattern.as_ref())
         } else {
-            s.parse::<FCSDate>()
+            s.parse::<Self>()
         }
     }
 }

@@ -227,7 +227,7 @@ impl<V, W> Terminal<V, W> {
         F: Fn(W) -> E,
     {
         match NonEmpty::from_vec(self.warnings) {
-            None => Ok(Terminal::new1(self.value)),
+            None => Ok(Self::new1(self.value)),
             Some(ws) => Err(TerminalFailure::new1(ws.map(f), reason)),
         }
     }
@@ -241,7 +241,7 @@ impl<V> Terminal<V, Infallible> {
 
 impl<W, E, T> TerminalFailure<W, E, T> {
     pub fn new1(errors: NonEmpty<E>, reason: T) -> Self {
-        TerminalFailure::new([], errors, reason)
+        Self::new([], errors, reason)
     }
 
     // pub fn map_warnings<F, X>(self, f: F) -> TerminalFailure<X, E, T>
@@ -316,11 +316,7 @@ impl<W, E, T> TerminalFailure<W, E, T> {
 }
 
 impl<V, W, E> Tentative<V, W, E> {
-    pub fn new_either<M>(
-        value: V,
-        msgs: impl IntoIterator<Item = M>,
-        are_errors: bool,
-    ) -> Tentative<V, W, E>
+    pub fn new_either<M>(value: V, msgs: impl IntoIterator<Item = M>, are_errors: bool) -> Self
     where
         E: From<M>,
         W: From<M>,
@@ -620,12 +616,12 @@ impl<V, E> BiTentative<V, E> {
     pub fn new_either1(x: V, error: Option<E>, is_error: bool) -> Self {
         if let Some(e) = error {
             if is_error {
-                Tentative::new(x, [], [e])
+                Self::new(x, [], [e])
             } else {
-                Tentative::new(x, [e], [])
+                Self::new(x, [e], [])
             }
         } else {
-            Tentative::new1(x)
+            Self::new1(x)
         }
     }
 }
@@ -642,7 +638,7 @@ impl<V> BiTentative<V, Infallible> {
     }
 
     pub fn new_infallible(value: V) -> Self {
-        Tentative::new1(value)
+        Self::new1(value)
     }
 }
 
@@ -1485,7 +1481,7 @@ impl ImpureError<Infallible> {
     #[must_use]
     pub fn infallible<E>(self) -> ImpureError<E> {
         match self {
-            ImpureError::IO(e) => ImpureError::IO(e),
+            Self::IO(e) => ImpureError::IO(e),
         }
     }
 }

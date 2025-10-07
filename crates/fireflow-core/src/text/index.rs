@@ -24,7 +24,7 @@ impl From<usize> for IndexFromOne {
 
 impl From<IndexFromOne> for usize {
     fn from(value: IndexFromOne) -> Self {
-        usize::from(value.0) - 1
+        Self::from(value.0) - 1
     }
 }
 

@@ -203,7 +203,7 @@ impl FromStrStateful for Spillover {
             )?;
             Ok(m.try_into_named(ordered_names)?)
         } else {
-            let m = s.parse::<Spillover>()?;
+            let m = s.parse::<Self>()?;
             m.check_link(names)?;
             Ok(m)
         }
@@ -215,7 +215,7 @@ impl FromStr for Spillover {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         {
-            GenericSpillover::from_str(s, false, |m| Ok(Shortname::new_unchecked(m)))
+            Self::from_str(s, false, |m| Ok(Shortname::new_unchecked(m)))
         }
     }
 }

@@ -49,7 +49,7 @@ impl<T: HasFloatBounds> TryFrom<BigDecimal> for FloatDecimal<T> {
 
     fn try_from(value: BigDecimal) -> Result<Self, Self::Error> {
         let over = match value.sign() {
-            Sign::NoSign => return Ok(FloatDecimal::new(value)),
+            Sign::NoSign => return Ok(Self::new(value)),
             Sign::Minus => false,
             Sign::Plus => true,
         };

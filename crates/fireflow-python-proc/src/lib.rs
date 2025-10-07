@@ -1672,14 +1672,39 @@ pub fn impl_core_get_measurement(input: TokenStream) -> TokenStream {
     quote! {
         #[pymethods]
         impl #i {
-            // TODO this should return name as well
             #doc
             fn measurement_at(&self, #fun_args) -> PyResult<#ret> {
                 let m = self.0.measurements().get(index)?;
                 Ok(m.bimap(|x| x.1.clone(), |x| x.1.clone()).inner_into())
             }
+        }
+    }
+    .into()
+}
 
-            // TODO return measurement with name
+#[proc_macro]
+pub fn impl_core_get_named_measurement(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let version = split_ident_version_pycore(&i).1;
+
+    let doc = DocString::new_method(
+        "Return measurement with name.",
+        ["Raise exception if ``name`` not found."],
+        [DocArg::new_name_param("Name to retrieve.")],
+        Some(DocReturn::new(PyType::new_measurement(version))),
+    );
+
+    let fun_args = doc.fun_args();
+    let ret = doc.ret_path();
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #doc
+            fn measurement_named(&self, #fun_args) -> PyResult<#ret> {
+                let (_, m) = self.0.measurements().get_name(&name)?;
+                Ok(m.bimap(|x| x.clone(), |x| x.clone()).inner_into())
+            }
         }
     }
     .into()

@@ -544,27 +544,45 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         .map(|x| x.bimap(|p| (&p.key, &p.value), |p| (&p.key, &p.value)))
     }
 
-    /// Get mutable reference at position.
-    #[allow(clippy::type_complexity)]
-    pub fn get_mut(
-        &mut self,
-        index: MeasIndex,
-    ) -> Result<Element<(&Shortname, &mut U), (&K::Wrapper<Shortname>, &mut V)>, ElementIndexError>
-    {
-        let i = self.check_element_index(index, true)?;
-        match self {
-            Self::Split(s, _) => {
-                let left_len = s.left.len();
-                match i.cmp(&left_len) {
-                    Less => Ok(Element::NonCenter(&mut s.left[i])),
-                    Equal => Ok(Element::Center(&mut s.center)),
-                    Greater => Ok(Element::NonCenter(&mut s.left[i - left_len - 1])),
-                }
-            }
-            Self::Unsplit(u) => Ok(Element::NonCenter(&mut u.members[i])),
-        }
-        .map(|x| x.bimap(|p| (&p.key, &mut p.value), |p| (&p.key, &mut p.value)))
+    /// Get reference with name.
+    pub fn get_name(
+        &self,
+        n: &Shortname,
+    ) -> Result<(MeasIndex, Element<&U, &V>), KeyNotFoundError> {
+        self.iter()
+            .enumerate()
+            .find_map(|(i, e)| {
+                let x = e.as_ref();
+                x.both(
+                    |t| &t.key == n,
+                    |o| K::as_opt(&o.key).is_some_and(|kn| kn == n),
+                )
+                .then_some((i.into(), e.bimap(|p| &p.value, |p| &p.value)))
+            })
+            .ok_or_else(|| KeyNotFoundError(n.clone()))
     }
+
+    // /// Get mutable reference at position.
+    // #[allow(clippy::type_complexity)]
+    // pub fn get_mut(
+    //     &mut self,
+    //     index: MeasIndex,
+    // ) -> Result<Element<(&Shortname, &mut U), (&K::Wrapper<Shortname>, &mut V)>, ElementIndexError>
+    // {
+    //     let i = self.check_element_index(index, true)?;
+    //     match self {
+    //         Self::Split(s, _) => {
+    //             let left_len = s.left.len();
+    //             match i.cmp(&left_len) {
+    //                 Less => Ok(Element::NonCenter(&mut s.left[i])),
+    //                 Equal => Ok(Element::Center(&mut s.center)),
+    //                 Greater => Ok(Element::NonCenter(&mut s.left[i - left_len - 1])),
+    //             }
+    //         }
+    //         Self::Unsplit(u) => Ok(Element::NonCenter(&mut u.members[i])),
+    //     }
+    //     .map(|x| x.bimap(|p| (&p.key, &mut p.value), |p| (&p.key, &mut p.value)))
+    // }
 
     // /// Get reference to value with name.
     // pub(crate) fn get_name(&self, n: &Shortname) -> Option<(MeasIndex, Element<&U, &V>)> {

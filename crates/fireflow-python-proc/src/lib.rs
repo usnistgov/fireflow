@@ -2832,10 +2832,9 @@ pub fn impl_core_all_pntag(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    // core_all_optical_attr(&i, "OpticalType", "measurement_types", "TYPE", PyStr::new1)
 
     let opt_pytype = PyStr::new1(keyword_path("OpticalType"));
-    let tmp_pytype = PyStr::new1(keyword_path("TemporalType"));
+    let tmp_pytype = PyLiteral::new1(["Time"], keyword_path("TemporalType"));
 
     let inner_opt_pytype = PyOpt::new(opt_pytype);
     let inner_tmp_pytype = PyOpt::new(tmp_pytype);
@@ -2844,9 +2843,7 @@ pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
     let inner_tmp_rstype = inner_tmp_pytype.as_rust_type();
 
     let doc_summary = "Value of *$PnTYPE* for all measurements.";
-    let doc_middle = "``()`` or ``None`` will be returned for time since \
-                      *$PnTYPE* can only be ``\"Time\"`` or unset for \
-                      temporal measurements.";
+    let doc_middle = "``\"Time\"`` or ``None`` will be returned for the time measurement.";
 
     let nce_path =
         parse_quote!(fireflow_core::text::named_vec::Element<#inner_tmp_rstype, #inner_opt_rstype>);

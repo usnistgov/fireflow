@@ -161,3 +161,10 @@ shadow_same = "warn"                    # ditto
 shadow_unrelated = "warn"               # ditto
 unseparated_literal_suffix = "warn"     # be consistent with typed numerals
 unused_trait_names = "warn"             # keep namespace clean
+
+# TODO fix these once the crate is fully published
+cargo = { level = "warn", priority = -1 }
+cargo_common_metadata = "allow"
+
+# try and fix these; dependencies might make this impossible
+multiple_crate_versions = "allow"

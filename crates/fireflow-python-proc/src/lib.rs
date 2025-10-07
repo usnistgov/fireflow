@@ -1619,7 +1619,7 @@ pub fn impl_core_get_measurements(input: TokenStream) -> TokenStream {
             // lose anything and keeps this API simpler.
             let ms: &#named_vec_path<_, _, _, _> = self.0.as_ref();
             ms.iter()
-                .map(|(_, e)| e.bimap(|t| t.value.clone(), |o| o.value.clone()))
+                .map(|e| e.bimap(|t| t.value.clone(), |o| o.value.clone()))
                 .map(|v| v.inner_into())
                 .collect()
         }

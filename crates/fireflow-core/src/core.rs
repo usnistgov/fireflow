@@ -1835,8 +1835,6 @@ impl<O> Optical<O> {
             .collect()
     }
 
-    // TODO this name is weird, this is standard+nonstandard keywords
-    // after filtering out None values
     fn all_req_keywords(&self, n: MeasIndex) -> impl Iterator<Item = (String, String)>
     where
         O: VersionedOptical,
@@ -1889,7 +1887,6 @@ where
         self,
         allow_loss: bool,
     ) -> MetarootConvertResult<Metaroot<ToM>> {
-        // TODO this seems silly, break struct up into common bits
         ToM::convert_from_metaroot(self.specific, allow_loss).def_map_value(|specific| {
             Metaroot::new(
                 self.abrt,
@@ -2202,7 +2199,7 @@ where
     pub fn shortnames_maybe(&self) -> Vec<Option<&Shortname>> {
         self.measurements
             .iter()
-            .map(|(_, x)| x.both(|t| Some(&t.key), |m| M::Name::as_opt(&m.key)))
+            .map(|x| x.both(|t| Some(&t.key), |m| M::Name::as_opt(&m.key)))
             .collect()
     }
 
@@ -2284,7 +2281,6 @@ where
     ///
     /// Return true if a time measurement existed and was converted, false
     /// otherwise.
-    // TODO why not throw error if name not found?
     pub fn unset_temporal(
         &mut self,
     ) -> Option<<M::Optical as OpticalFromTemporal<M::Temporal>>::TData>
@@ -2330,10 +2326,7 @@ where
     ///
     /// This includes the time measurement if present.
     pub fn get_meas_nonstandard(&self) -> Vec<&HashMap<NonStdKey, String>> {
-        self.measurements
-            .iter_common_values()
-            .map(|(_, x)| x)
-            .collect()
+        self.measurements.iter_common_values().collect()
     }
 
     /// Set nonstandard key/value pairs for each measurement.
@@ -2567,7 +2560,7 @@ where
     {
         self.measurements
             .iter()
-            .map(|(_, x)| x.both(|t| t.value.as_ref(), |m| m.value.as_ref()))
+            .map(|x| x.both(|t| t.value.as_ref(), |m| m.value.as_ref()))
     }
 
     /// Get an optional field from all measurements as an interator
@@ -2601,7 +2594,7 @@ where
     {
         self.measurements
             .iter()
-            .map(|(_, e)| e.bimap(|_| (), |v| v.value.as_ref()).into())
+            .map(|e| e.bimap(|_| (), |v| v.value.as_ref()).into())
     }
 
     /// Return optional field from all optical measurements as an iterator
@@ -2651,7 +2644,7 @@ where
     {
         self.measurements
             .iter()
-            .map(|(_, x)| x.both(|m| m.value.as_ref(), |m| m.value.as_ref()))
+            .map(|x| x.both(|m| m.value.as_ref(), |m| m.value.as_ref()))
     }
 
     /// Set field which is on both optical and temporal measurement types
@@ -2896,7 +2889,7 @@ where
     where
         Optical<M::Optical>: AsRef<Option<Scale>>,
     {
-        self.measurements.iter().map(|(_, x)| {
+        self.measurements.iter().map(|x| {
             x.both(
                 |_| Some(Scale::Linear),
                 |m| m.value.as_ref().as_ref().copied(),
@@ -2911,7 +2904,7 @@ where
     {
         self.measurements
             .iter()
-            .map(|(_, x)| x.both(|_| ScaleTransform::default(), |m| *m.value.as_ref()))
+            .map(|x| x.both(|_| ScaleTransform::default(), |m| *m.value.as_ref()))
     }
 
     /// Set $PnE (2.0)
@@ -3243,8 +3236,6 @@ where
         &self.measurements
     }
 
-    // TODO don't set names here, do that separately so we can decouple PnN link
-    // checking, or just check the links to make sure they are all still valid
     /// Set measurements.
     ///
     /// Return error if names are not unique, if there is more than one
@@ -3262,6 +3253,9 @@ where
         self.set_measurements_inner(xs, allow_shared_names, skip_index_check)
             .mult_terminate(SetMeasurementsFailure)
     }
+
+    // TODO add replace measurements function which doesn't touch PnN but
+    // requires time meas to be in the same location
 
     /// Get reference to data layout
     pub fn layout(&self) -> &<M::Ver as Versioned>::Layout {
@@ -3457,20 +3451,21 @@ where
             let rows = self
                 .measurements
                 .iter()
-                .map(|(i, r)| {
+                .map(|r| {
                     // NOTE this will force-convert all fields in the time
                     // measurement, which for this is actually want we want
                     r.both(
                         |t| {
                             let v = M::Optical::from_temporal_unchecked(t.value.clone());
-                            (i, v.0, Some(&t.key))
+                            (v.0, Some(&t.key))
                         },
-                        |o| (i, o.value.clone(), M::Name::as_opt(&o.key)),
+                        |o| (o.value.clone(), M::Name::as_opt(&o.key)),
                     )
                 })
                 .zip(req_layout)
                 .zip(opt_layout)
-                .map(|(((i, v, n), lr), lo)| v.table_row(i, n, lr, lo));
+                .enumerate()
+                .map(|(i, (((v, n), lr), lo))| v.table_row(i.into(), n, lr, lo));
             once(header).chain(rows).map(|r| r.join(delim)).collect()
         } else {
             vec![]

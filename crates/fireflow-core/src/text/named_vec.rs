@@ -9,6 +9,7 @@ use super::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
 
 use derive_more::{Display, From, Into};
 use derive_new::new;
+use itertools::Itertools as _;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -201,41 +202,26 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     // }
 
     /// Return iterator over all elements with indices
-    #[allow(clippy::type_complexity)]
     pub fn iter<'a>(
         &'a self,
-    ) -> impl Iterator<
-        Item = (
-            MeasIndex,
-            Element<&'a Pair<Shortname, U>, &'a WrappedPair<K, V>>,
-        ),
-    > + 'a {
-        let go = |xs: &'a [WrappedPair<K, V>], offset: usize| {
-            xs.iter()
-                .zip(offset..)
-                .map(|(p, i)| (i.into(), Element::NonCenter(p)))
-        };
+    ) -> impl Iterator<Item = Element<&'a Pair<Shortname, U>, &'a WrappedPair<K, V>>> + 'a {
+        let go = |xs: &'a [WrappedPair<K, V>]| xs.iter().map(Element::NonCenter);
         match self {
             Self::Split(s, _) => {
-                let ln = s.left.len();
-                let c = (ln.into(), Element::Center(&(*s.center)));
-                go(&s.left, 0).chain(vec![c]).chain(go(&s.right, ln + 1))
+                let c = Element::Center(&(*s.center));
+                go(&s.left).chain(vec![c]).chain(go(&s.right))
             }
-            Self::Unsplit(u) => go(&u.members, 0)
-                .chain(vec![])
-                .chain(go(&u.members[0..0], 0)),
+            Self::Unsplit(u) => go(&u.members).chain(vec![]).chain(go(&u.members[0..0])),
         }
     }
 
-    pub(crate) fn iter_common_values<'a, T: 'a>(
-        &'a self,
-    ) -> impl Iterator<Item = (MeasIndex, &'a T)> + 'a
+    pub(crate) fn iter_common_values<'a, T: 'a>(&'a self) -> impl Iterator<Item = &'a T> + 'a
     where
         U: AsRef<T>,
         V: AsRef<T>,
     {
         self.iter()
-            .map(|(i, x)| (i, x.both(|l| l.value.as_ref(), |r| r.value.as_ref())))
+            .map(|x| x.both(|l| l.value.as_ref(), |r| r.value.as_ref()))
     }
 
     pub(crate) fn iter_with<'a, T, F, G>(
@@ -247,7 +233,9 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         F: Fn(MeasIndex, &'a Pair<Shortname, U>) -> T,
         G: Fn(MeasIndex, &'a WrappedPair<K, V>) -> T,
     {
-        self.iter().map(|(i, e)| e.both(|x| f(i, x), |x| g(i, x)))
+        self.iter()
+            .enumerate()
+            .map(|(i, e)| e.both(|x| f(i.into(), x), |x| g(i.into(), x)))
     }
 
     // /// Return iterator over borrowed non-center values
@@ -264,9 +252,9 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
 
     /// Return all existing names in the vector with their indices
     pub(crate) fn indexed_names(&self) -> impl Iterator<Item = (MeasIndex, &Shortname)> + '_ {
-        self.iter().filter_map(|(i, r)| {
+        self.iter().enumerate().filter_map(|(i, r)| {
             r.both(|x| Some(&x.key), |x| K::as_opt(&x.key))
-                .map(|x| (i, x))
+                .map(|x| (i.into(), x))
         })
     }
 
@@ -284,10 +272,14 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Return iterator over key names with non-existent names as default.
     // TODO seems like we should give a different type for this
     pub(crate) fn iter_all_names(&self) -> impl Iterator<Item = Shortname> + '_ {
-        self.iter().map(|(i, r)| {
+        self.iter().enumerate().map(|(i, r)| {
             r.both(
                 |x| x.key.clone(),
-                |x| K::as_opt(&x.key).cloned().unwrap_or(i.into()),
+                |x| {
+                    K::as_opt(&x.key)
+                        .cloned()
+                        .unwrap_or(MeasIndex::from(i).into())
+                },
             )
         })
     }
@@ -523,7 +515,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
 
     /// Return number of non-center elements.
     pub(crate) fn len_non_center(&self) -> usize {
-        self.iter().filter(|(_, r)| r.is_non_center()).count()
+        self.iter().filter(Element::is_non_center).count()
     }
 
     /// Return true if there are no contained elements.
@@ -1361,7 +1353,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     ///
     /// Has no effect if there already is no center element.
     ///
-    /// Return true if vector is updated.
+    /// Return old center element if vector is updated.
     pub(crate) fn unset_center<F, W, E, X>(&mut self, to_v: F) -> Tentative<Option<X>, W, E>
     where
         F: FnOnce(MeasIndex, U) -> PassthruResult<(V, X), Box<U>, W, E>,
@@ -1555,13 +1547,13 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
 
     fn find_with_name(&self, name: &Shortname) -> Option<MeasIndex> {
         self.iter()
-            .find(|(_, x)| {
+            .find_position(|x| {
                 x.as_ref().both(
                     |l| &l.key == name,
                     |r| K::as_opt(&r.key).is_some_and(|k| k == name),
                 )
             })
-            .map(|(i, _)| i)
+            .map(|(i, _)| i.into())
     }
 
     fn new_split(

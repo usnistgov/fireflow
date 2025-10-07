@@ -158,7 +158,6 @@ pub struct Core<A, D, O, M, T, P, N, W, L> {
 
     /// Other segments (if applicable)
     others: O,
-    // TODO add CRC
 }
 
 /// The ANALYSIS segment, which is just a string of bytes
@@ -4144,7 +4143,7 @@ where
             .into_terminal()
     }
 
-    // TODO add function to append event(s)
+    // TODO add function to append event(s)?
 
     /// Remove a measurement matching the given name.
     ///
@@ -4427,8 +4426,6 @@ where
 
 impl CoreTEXT2_0 {
     #[allow(clippy::too_many_arguments)]
-    // TODO the applied gates arg doesn't need to be optional but this makes
-    // python happy since we can use None in the text sig
     pub fn try_new_2_0(
         measurements: Eithers<MaybeFamily, Temporal<InnerTemporal2_0>, Optical<InnerOptical2_0>>,
         layout: DataLayout2_0,
@@ -5182,7 +5179,7 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_1 {
             .analyte
             .check_indexed_key_transfer_own::<AnyMeasKeyLossError>(i, allow_loss);
         let feat = value.feature.check_indexed_key_transfer_own(i, allow_loss);
-        let m = value
+        let meas = value
             .measurement_type
             .check_indexed_key_transfer_own(i, allow_loss);
         let tag = value.tag.check_indexed_key_transfer_own(i, allow_loss);
@@ -5190,7 +5187,7 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_1 {
             .detector_name
             .check_indexed_key_transfer_own(i, allow_loss);
         let out = anal
-            .zip3(feat, m)
+            .zip3(feat, meas)
             .zip3(tag, det_name)
             .inner_into()
             .map(|_| {
@@ -7943,7 +7940,7 @@ pub enum ExistingNamedLinkError {
 pub enum ExistingIndexLinkError {
     #[error("$COMP refers to existing measurement by index")]
     Comp,
-    // TODO which one?
+    // TODO which ones?
     #[error("$RnI refers to existing measurement by index")]
     GateRegion,
 }

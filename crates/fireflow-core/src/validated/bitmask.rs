@@ -1,6 +1,7 @@
 //! Types to represent the $PnB and $PnR values for a uint column.
 
-use crate::error::BiTentative;
+use crate::error::{BiTentative, ErrorIter as _, MultiResult};
+use crate::text::index::MeasIndex;
 use crate::text::keywords::{IntRangeError, Range};
 
 use bigdecimal::BigDecimal;
@@ -160,6 +161,19 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
 
     fn bits() -> u8 {
         Self::bytes() * 8
+    }
+
+    pub(crate) fn try_from_many<E, X>(
+        xs: Vec<X>,
+        starting_index: usize,
+    ) -> MultiResult<Vec<Self>, (MeasIndex, E)>
+    where
+        Self: TryFrom<X, Error = E>,
+    {
+        xs.into_iter()
+            .enumerate()
+            .map(|(i, c)| Self::try_from(c).map_err(|e| ((i + starting_index).into(), e)))
+            .gather()
     }
 }
 

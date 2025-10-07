@@ -752,7 +752,6 @@ trait ToNativeReader: HasNativeType {
     }
 }
 
-// TODO can't this just be with the native reader type?
 trait NativeReadable<S>: HasNativeType {
     fn h_read_native<R: Read>(
         &self,
@@ -1966,32 +1965,34 @@ impl<D> EndianLayout<NullMixedType, D> {
     }
 }
 
-// TODO doesn't num_traits have this?
+// NOTE num_traits has this but it doesn't have a nice way to init a default
+// buffer, this will probably be easier and cleaner anyways once we can use
+// const expressions
 macro_rules! impl_num_props {
     ($size:expr, $t:ty) => {
         impl NumProps for $t {
             const LEN: usize = $size;
             type BUF = [u8; $size];
 
-            fn read_buf<R: Read>(h: &mut BufReader<R>) -> io::Result<[u8; $size]> {
-                let mut buf = [0; $size];
+            fn read_buf<R: Read>(h: &mut BufReader<R>) -> io::Result<Self::BUF> {
+                let mut buf = Self::BUF::default();
                 h.read_exact(&mut buf)?;
                 Ok(buf)
             }
 
-            fn to_big(self) -> [u8; $size] {
+            fn to_big(self) -> Self::BUF {
                 <$t>::to_be_bytes(self)
             }
 
-            fn to_little(self) -> [u8; $size] {
+            fn to_little(self) -> Self::BUF {
                 <$t>::to_le_bytes(self)
             }
 
-            fn from_big(buf: [u8; $size]) -> Self {
+            fn from_big(buf: Self::BUF) -> Self {
                 <$t>::from_be_bytes(buf)
             }
 
-            fn from_little(buf: [u8; $size]) -> Self {
+            fn from_little(buf: Self::BUF) -> Self {
                 <$t>::from_le_bytes(buf)
             }
         }
@@ -2027,22 +2028,6 @@ impl IntFromBytes<5> for u64 {}
 impl IntFromBytes<6> for u64 {}
 impl IntFromBytes<7> for u64 {}
 impl IntFromBytes<8> for u64 {}
-
-// TODO move to source crate
-impl<T, const LEN: usize> Bitmask<T, LEN> {
-    fn try_from_many<E, X>(
-        xs: Vec<X>,
-        starting_index: usize,
-    ) -> MultiResult<Vec<Self>, (MeasIndex, E)>
-    where
-        Self: TryFrom<X, Error = E>,
-    {
-        xs.into_iter()
-            .enumerate()
-            .map(|(i, c)| Self::try_from(c).map_err(|e| ((i + starting_index).into(), e)))
-            .gather()
-    }
-}
 
 impl<T, const LEN: usize> FloatRange<T, LEN> {
     /// Make new float range from $PnB and $PnR values.
@@ -2791,7 +2776,6 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         C: IsFixed + Clone + IntoReader<S>,
         <C as IntoReader<S>>::Target: Readable<S>,
     {
-        // TODO to clone
         let mut col_readers: Vec<_> = self
             .columns
             .iter()
@@ -2868,6 +2852,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         C: IsFixed,
     {
         let n = seg.len();
+        // TODO is this always not zero?
         let w = self.event_width();
         let (t, e) = if w == 0 {
             (None, Some(UnevenEventWidth::ZeroWidth(n)))
@@ -3020,7 +3005,7 @@ impl HasDatatype for NullMixedType {
                     (*FCSNonEmpty::from(ds).mode().0).into()
                 })
         } else {
-            // TODO sensible default?
+            // NOTE this is a totally arbitrary default
             AlphaNumType::Integer
         }
     }
@@ -3152,7 +3137,6 @@ where
     }
 
     fn range(&self) -> Range {
-        // TODO clone?
         self.range.clone().into()
     }
 }
@@ -3986,7 +3970,6 @@ pub enum NewFixedIntLayoutError {
 #[derive(From, Display, Debug, Error)]
 pub enum IntOrderedColumnError {
     Order(ByteOrdToSizedError),
-    // TODO sloppy nesting
     Endian(ByteOrdToSizedEndianError),
     Size(BitmaskError),
 }

@@ -3,11 +3,11 @@ use crate::config::{
     StdTextReadConfig, TemporalOpticalKey, WriteConfig,
 };
 use crate::data::{
-    req_meas_headers, AnyLossError, AnyRangeError, ColumnError, ConvertWidthError, DataLayout2_0,
-    DataLayout3_0, DataLayout3_1, DataLayout3_2, InterLayoutOps as _, KnownTot, LayoutOps as _,
-    LookupLayoutError, LookupLayoutWarning, MaybeTot, MeasLayoutMismatchError,
-    MixedToNonMixedLayoutError, MixedToOrderedLayoutError, NewDataLayoutError, NewDataReaderError,
-    RawToLayoutError, RawToLayoutWarning, ReadDataframeError, ReadDataframeWarning, TotDefinition,
+    AnyLossError, AnyRangeError, ColumnError, ConvertWidthError, DataLayout2_0, DataLayout3_0,
+    DataLayout3_1, DataLayout3_2, InterLayoutOps as _, KnownTot, LayoutOps as _, LookupLayoutError,
+    LookupLayoutWarning, MaybeTot, MeasLayoutMismatchError, MixedToNonMixedLayoutError,
+    MixedToOrderedLayoutError, NewDataLayoutError, NewDataReaderError, RawToLayoutError,
+    RawToLayoutWarning, ReadDataframeError, ReadDataframeWarning, TotDefinition,
     VersionedDataLayout,
 };
 use crate::error::{
@@ -100,10 +100,9 @@ use std::iter::once;
 use std::marker::PhantomData;
 use std::num::ParseIntError;
 use std::path::PathBuf;
-use std::string::ToString;
 
 #[cfg(feature = "serde")]
-use serde::Serialize;
+use {crate::data::req_meas_headers, serde::Serialize, std::string::ToString as _};
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
@@ -392,6 +391,7 @@ impl<A, D, O> AnyCore<A, D, O> {
         match_anycore!(self, x, { x.all_shortnames() })
     }
 
+    #[cfg(feature = "serde")]
     pub fn print_meas_table(&self, delim: &str) {
         match_anycore!(self, x, { x.print_meas_table(delim) });
     }
@@ -708,7 +708,6 @@ pub struct InnerMetaroot3_2 {
     pub cytsn: MaybeValue<Cytsn>,
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
-    // TODO it makes sense to verify this isn't before the file was created
     #[as_ref(Option<LastModifier>, Option<LastModified>, Option<Originality>)]
     #[as_mut(Option<LastModifier>, Option<LastModified>, Option<Originality>)]
     pub modification: ModificationData,
@@ -754,7 +753,7 @@ pub struct InnerTemporal2_0 {
     ///
     /// Unlike subsequent versions, included here because it is optional rather
     /// than required and constant.
-    // TODO this can just be a bool
+    // TODO add get/set for this
     #[new(into)]
     pub scale: MaybeValue<TemporalScale>,
 
@@ -828,7 +827,7 @@ pub struct InnerTemporal3_2 {
     pub display: MaybeValue<Display>,
 
     /// Value for $PnTYPE
-    // TODO this can just be a bool
+    // TODO add get/set for this
     #[new(into)]
     pub measurement_type: MaybeValue<TemporalType>,
 }
@@ -1785,8 +1784,7 @@ impl<O> Optical<O> {
         .chain(self.specific.opt_suffixes_inner(i))
     }
 
-    // TODO move out, this is specific to the CLI interface
-    // for table
+    #[cfg(feature = "serde")]
     fn table_pairs(&self) -> impl Iterator<Item = (MeasHeader, Option<String>)>
     where
         O: VersionedOptical,
@@ -1798,6 +1796,7 @@ impl<O> Optical<O> {
             .chain(self.opt_keywords(n).map(|(k, _, v)| (k, v)))
     }
 
+    #[cfg(feature = "serde")]
     fn table_header(&self, opt_layout: Vec<MeasHeader>) -> Vec<String>
     where
         O: VersionedOptical,
@@ -1812,6 +1811,7 @@ impl<O> Optical<O> {
             .collect()
     }
 
+    #[cfg(feature = "serde")]
     fn table_row(
         &self,
         i: MeasIndex,
@@ -3433,6 +3433,7 @@ where
             .map(|(i, n)| (Shortname::std(i).to_string(), n.to_string()))
     }
 
+    #[cfg(feature = "serde")]
     fn meas_table(&self, delim: &str) -> Vec<String>
     where
         M::Temporal: Clone,
@@ -3476,7 +3477,7 @@ where
         }
     }
 
-    // TOOD moveme
+    #[cfg(feature = "serde")]
     pub(crate) fn print_meas_table(&self, delim: &str)
     where
         M::Temporal: Clone,

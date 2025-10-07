@@ -4312,7 +4312,7 @@ pub struct ScaleMismatchTransformError {
     scale: ScaleTransform,
 }
 
-// TODO this seems like it should live somewhere better
+#[cfg(feature = "serde")]
 pub(crate) fn req_meas_headers() -> [MeasHeader; 2] {
     [Width::std_blank(), Range::std_blank()]
 }

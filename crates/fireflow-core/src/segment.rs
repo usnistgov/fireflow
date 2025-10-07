@@ -560,6 +560,14 @@ impl<I, S, T> Segment<I, S, T> {
         Segment::new(self.inner.as_u64())
     }
 
+    pub(crate) fn same_coords<I_, S_, T_>(&self, other: &Segment<I_, S_, T_>) -> bool
+    where
+        T: Into<u64> + Copy,
+        T_: Into<u64> + Copy,
+    {
+        self.as_u64().try_coords() == other.as_u64().try_coords()
+    }
+
     pub(crate) fn try_new_with_len(
         begin: u64,
         length: u64,

@@ -1077,8 +1077,7 @@ where
     }
     .and_tentatively(|x| {
         x.map_or(Tentative::default(), |seg| {
-            // TODO confusing
-            if seg.as_u64().try_coords() == text_segment.as_u64().try_coords() {
+            if seg.same_coords(&text_segment) {
                 Tentative::new_either(
                     None,
                     vec![DuplicatedSuppTEXT],

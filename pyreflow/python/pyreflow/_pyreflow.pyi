@@ -533,8 +533,8 @@ class _CoreShortnamesMaybe:
     all_shortnames_maybe: list[Shortname | None]
 
 class _CoreTemporal2_0:
-    def set_temporal(self, name: Shortname, force: bool = False) -> bool: ...
-    def set_temporal_at(self, index: MeasIndex, force: bool = False) -> bool: ...
+    def set_temporal(self, name: Shortname, allow_loss: bool = False) -> bool: ...
+    def set_temporal_at(self, index: MeasIndex, allow_loss: bool = False) -> bool: ...
     def unset_temporal(self) -> bool: ...
 
 class _CoreTemporal3_0:
@@ -542,13 +542,13 @@ class _CoreTemporal3_0:
         self,
         name: Shortname,
         timestep: Timestep,
-        force: bool = False,
+        allow_loss: bool = False,
     ) -> bool: ...
     def set_temporal_at(
         self,
         index: MeasIndex,
         timestep: Timestep,
-        force: bool = False,
+        allow_loss: bool = False,
     ) -> bool: ...
     def unset_temporal(self) -> float | None: ...
 
@@ -557,12 +557,12 @@ class _CoreTemporal3_2:
         self,
         name: Shortname,
         timestep: Timestep,
-        force: bool = False,
+        allow_loss: bool = False,
     ) -> bool: ...
     def set_temporal_at(
-        self, index: MeasIndex, timestep: Timestep, force: bool = False
+        self, index: MeasIndex, timestep: Timestep, allow_loss: bool = False
     ) -> bool: ...
-    def unset_temporal(self, force: bool = False) -> float | None: ...
+    def unset_temporal(self, allow_loss: bool = False) -> float | None: ...
 
 class _CoreGetSetMeas(Generic[_N, _O, _T]):
     @property
@@ -587,24 +587,29 @@ class _CoreReplaceTemporal3_2:
         self,
         index: MeasIndex,
         meas: Temporal3_2,
-        force: bool = False,
+        allow_loss: bool = False,
     ) -> Optical3_2 | Temporal3_2: ...
     def replace_temporal_named(
         self,
         name: Shortname,
         meas: Temporal3_2,
-        force: bool = False,
+        allow_loss: bool = False,
     ) -> Optical3_2 | Temporal3_2 | None: ...
 
 class _CoreTEXTGetSetMeas(Generic[_N, _T, _O]):
     def push_optical(
-        self, name: _N, meas: _O, range: Range, notrunc: bool = False
+        self, name: _N, meas: _O, range: Range, disallow_trunc: bool = False
     ) -> None: ...
     def insert_optical(
-        self, index: MeasIndex, name: _N, meas: _O, range: Range, notrunc: bool = False
+        self,
+        index: MeasIndex,
+        name: _N,
+        meas: _O,
+        range: Range,
+        disallow_trunc: bool = False,
     ) -> None: ...
     def push_temporal(
-        self, name: Shortname, meas: _T, range: Range, notrunc: bool = False
+        self, name: Shortname, meas: _T, range: Range, disallow_trunc: bool = False
     ) -> None: ...
     def insert_temporal(
         self,
@@ -612,7 +617,7 @@ class _CoreTEXTGetSetMeas(Generic[_N, _T, _O]):
         name: Shortname,
         meas: _T,
         range: Range,
-        notrunc: bool = False,
+        disallow_trunc: bool = False,
     ) -> None: ...
     def unset_measurements(self) -> None: ...
 
@@ -621,7 +626,12 @@ class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
     others: list[OtherBytes]
 
     def push_optical(
-        self, name: _N, meas: _O, col: Series, range: Range, notrunc: bool = False
+        self,
+        name: _N,
+        meas: _O,
+        col: Series,
+        range: Range,
+        disallow_trunc: bool = False,
     ) -> None: ...
     def insert_optical(
         self,
@@ -630,7 +640,7 @@ class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
         meas: _O,
         col: Series,
         range: Range,
-        notrunc: bool = False,
+        disallow_trunc: bool = False,
     ) -> None: ...
     def push_temporal(
         self,
@@ -638,7 +648,7 @@ class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
         meas: _T,
         col: Series,
         range: Range,
-        notrunc: bool = False,
+        disallow_trunc: bool = False,
     ) -> None: ...
     def insert_temporal(
         self,
@@ -647,7 +657,7 @@ class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
         meas: _T,
         col: Series,
         range: Range,
-        notrunc: bool = False,
+        disallow_trunc: bool = False,
     ) -> None: ...
     def unset_data(self) -> None: ...
     def truncate_data(self, skip_conv_check: bool = False) -> None: ...
@@ -809,16 +819,16 @@ class _CoreToDataset(Generic[_X]):
     ) -> _X: ...
 
 class _CoreTo2_0(Generic[_X]):
-    def to_version_2_0(self, force: bool = False) -> _X: ...
+    def to_version_2_0(self, allow_loss: bool = False) -> _X: ...
 
 class _CoreTo3_0(Generic[_X]):
-    def to_version_3_0(self, force: bool = False) -> _X: ...
+    def to_version_3_0(self, allow_loss: bool = False) -> _X: ...
 
 class _CoreTo3_1(Generic[_X]):
-    def to_version_3_1(self, force: bool = False) -> _X: ...
+    def to_version_3_1(self, allow_loss: bool = False) -> _X: ...
 
 class _CoreTo3_2(Generic[_X]):
-    def to_version_3_2(self, force: bool = False) -> _X: ...
+    def to_version_3_2(self, allow_loss: bool = False) -> _X: ...
 
 @final
 class CoreTEXT2_0(
@@ -882,6 +892,7 @@ class CoreTEXT2_0(
         time_pattern: str | None = None,
         allow_pseudostandard: bool = False,
         allow_unused_standard: bool = False,
+        allow_optional_dropping: bool = False,
         disallow_deprecated: bool = False,
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = None,
@@ -889,6 +900,7 @@ class CoreTEXT2_0(
         integer_byteord_override: list[int] | None = None,
         disallow_range_truncation: bool = False,
         warnings_are_errors: bool = False,
+        hide_warnings: bool = False,
     ) -> Self: ...
 
 @final
@@ -962,6 +974,7 @@ class CoreTEXT3_0(
         time_pattern: str | None = None,
         allow_pseudostandard: bool = False,
         allow_unused_standard: bool = False,
+        allow_optional_dropping: bool = False,
         disallow_deprecated: bool = False,
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = None,
@@ -970,6 +983,7 @@ class CoreTEXT3_0(
         integer_byteord_override: list[int] | None = None,
         disallow_range_truncation: bool = False,
         warnings_are_errors: bool = False,
+        hide_warnings: bool = False,
     ) -> Self: ...
 
 @final
@@ -1050,6 +1064,7 @@ class CoreTEXT3_1(
         time_pattern: str | None = None,
         allow_pseudostandard: bool = False,
         allow_unused_standard: bool = False,
+        allow_optional_dropping: bool = False,
         disallow_deprecated: bool = False,
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = None,
@@ -1057,6 +1072,7 @@ class CoreTEXT3_1(
         parse_indexed_spillover: bool = False,
         disallow_range_truncation: bool = False,
         warnings_are_errors: bool = False,
+        hide_warnings: bool = False,
     ) -> Self: ...
 
 @final
@@ -1140,6 +1156,7 @@ class CoreTEXT3_2(
         time_pattern: str | None = None,
         allow_pseudostandard: bool = False,
         allow_unused_standard: bool = False,
+        allow_optional_dropping: bool = False,
         disallow_deprecated: bool = False,
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = None,
@@ -1147,6 +1164,7 @@ class CoreTEXT3_2(
         parse_indexed_spillover: bool = False,
         disallow_range_truncation: bool = False,
         warnings_are_errors: bool = False,
+        hide_warnings: bool = False,
     ) -> Self: ...
 
 @final
@@ -1219,6 +1237,7 @@ class CoreDataset2_0(
         time_pattern: str | None = None,
         allow_pseudostandard: bool = False,
         allow_unused_standard: bool = False,
+        allow_optional_dropping: bool = False,
         disallow_deprecated: bool = False,
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = None,
@@ -1228,6 +1247,7 @@ class CoreDataset2_0(
         allow_uneven_event_width: bool = False,
         allow_tot_mismatch: bool = False,
         warnings_are_errors: bool = False,
+        hide_warnings: bool = False,
     ) -> Self: ...
 
 @final
@@ -1309,6 +1329,7 @@ class CoreDataset3_0(
         time_pattern: str | None = None,
         allow_pseudostandard: bool = False,
         allow_unused_standard: bool = False,
+        allow_optional_dropping: bool = False,
         disallow_deprecated: bool = False,
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = None,
@@ -1326,6 +1347,7 @@ class CoreDataset3_0(
         allow_uneven_event_width: bool = False,
         allow_tot_mismatch: bool = False,
         warnings_are_errors: bool = False,
+        hide_warnings: bool = False,
     ) -> Self: ...
 
 @final
@@ -1414,6 +1436,7 @@ class CoreDataset3_1(
         time_pattern: str | None = None,
         allow_pseudostandard: bool = False,
         allow_unused_standard: bool = False,
+        allow_optional_dropping: bool = False,
         disallow_deprecated: bool = False,
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = None,
@@ -1430,6 +1453,7 @@ class CoreDataset3_1(
         allow_uneven_event_width: bool = False,
         allow_tot_mismatch: bool = False,
         warnings_are_errors: bool = False,
+        hide_warnings: bool = False,
     ) -> Self: ...
 
 @final
@@ -1521,6 +1545,7 @@ class CoreDataset3_2(
         time_pattern: str | None = None,
         allow_pseudostandard: bool = False,
         allow_unused_standard: bool = False,
+        allow_optional_dropping: bool = False,
         disallow_deprecated: bool = False,
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = None,
@@ -1537,6 +1562,7 @@ class CoreDataset3_2(
         allow_uneven_event_width: bool = False,
         allow_tot_mismatch: bool = False,
         warnings_are_errors: bool = False,
+        hide_warnings: bool = False,
     ) -> Self: ...
 
 class PyreflowException(Exception): ...
@@ -1761,6 +1787,7 @@ def fcs_read_raw_text(
     substitute_standard_key_values: SubPatterns = ({}, {}),
     # shared args
     warnings_are_errors: bool = False,
+    hide_warnings: bool = False,
 ) -> RawTEXTOutput: ...
 
 #
@@ -1812,6 +1839,7 @@ def fcs_read_std_text(
     time_pattern: str | None = None,
     allow_pseudostandard: bool = False,
     allow_unused_standard: bool = False,
+    allow_optional_dropping: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = None,
@@ -1831,6 +1859,7 @@ def fcs_read_std_text(
     disallow_range_truncation: bool = False,
     # shared args
     warnings_are_errors: bool = False,
+    hide_warnings: bool = False,
 ) -> tuple[AnyCoreTEXT, StdTEXTOutput]: ...
 
 #
@@ -1889,6 +1918,7 @@ def fcs_read_raw_dataset(
     allow_tot_mismatch: bool = False,
     # shared args
     warnings_are_errors: bool = False,
+    hide_warnings: bool = False,
 ) -> RawTEXTOutput: ...
 
 #
@@ -1940,6 +1970,7 @@ def fcs_read_std_dataset(
     time_pattern: str | None = None,
     allow_pseudostandard: bool = False,
     allow_unused_standard: bool = False,
+    allow_optional_dropping: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = None,
@@ -1962,6 +1993,7 @@ def fcs_read_std_dataset(
     allow_tot_mismatch: bool = False,
     # shared args
     warnings_are_errors: bool = False,
+    hide_warnings: bool = False,
 ) -> tuple[AnyCoreDataset, StdDatasetOutput]: ...
 
 #
@@ -1989,6 +2021,7 @@ def fcs_read_raw_dataset_with_keywords(
     allow_tot_mismatch: bool = False,
     # shared args
     warnings_are_errors: bool = False,
+    hide_warnings: bool = False,
 ) -> RawDatasetWithKwsOutput: ...
 
 #
@@ -2010,6 +2043,7 @@ def fcs_read_std_dataset_with_keywords(
     time_pattern: str | None = None,
     allow_pseudostandard: bool = False,
     allow_unused_standard: bool = False,
+    allow_optional_dropping: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = None,
@@ -2032,6 +2066,7 @@ def fcs_read_std_dataset_with_keywords(
     allow_tot_mismatch: bool = False,
     # shared args
     warnings_are_errors: bool = False,
+    hide_warnings: bool = False,
 ) -> StdDatasetWithKwsOutput: ...
 
 __version__: str

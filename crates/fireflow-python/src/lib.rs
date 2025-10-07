@@ -61,12 +61,12 @@ use fireflow_core::core;
 use fireflow_core::data::{
     AnyAsciiLayout, AnyNullBitmask, AnyOrderedLayout, AnyOrderedUintLayout, DataLayout2_0,
     DataLayout3_0, DataLayout3_1, DataLayout3_2, DelimAsciiLayout, EndianLayout, F32Range,
-    F64Range, FixedAsciiLayout, KnownTot, LayoutOps, NoMeasDatatype, NonMixedEndianLayout,
+    F64Range, FixedAsciiLayout, KnownTot, LayoutOps as _, NoMeasDatatype, NonMixedEndianLayout,
 };
-use fireflow_core::error::{MultiResultExt, ResultExt};
+use fireflow_core::error::{MultiResultExt as _, ResultExt as _};
 use fireflow_core::header;
 use fireflow_core::python::exceptions::{
-    PyTerminalNoErrorResultExt, PyTerminalNoWarnResultExt, PyTerminalResultExt,
+    PyTerminalNoErrorResultExt as _, PyTerminalNoWarnResultExt as _, PyTerminalResultExt as _,
 };
 use fireflow_core::text::gating::{
     AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, BivariateRegion, GatedMeasurement,
@@ -76,7 +76,9 @@ use fireflow_core::text::index::{GateIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::Eithers;
 use fireflow_core::text::optional::MightHave;
+use fireflow_core::text::parser;
 use fireflow_core::validated::ascii_uint::UintSpacePad20;
+use fireflow_core::validated::keys;
 use fireflow_core::validated::shortname::Shortname;
 
 use fireflow_python_proc::def_fcs_read_std_dataset_with_keywords;
@@ -110,7 +112,8 @@ use fireflow_python_proc::{
 use derive_more::{From, Into};
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::hash::BuildHasher;
 
 def_fcs_read_header!(api::fcs_read_header);
 def_fcs_read_raw_text!(api::fcs_read_raw_text);
@@ -122,8 +125,8 @@ def_fcs_read_std_dataset_with_keywords!(api::fcs_read_std_dataset_with_keywords)
 
 impl_py_header!(header::Header);
 impl_py_header_segments!(header::HeaderSegments<UintSpacePad20>);
-impl_py_valid_keywords!(fireflow_core::validated::keys::ValidKeywords);
-impl_py_extra_std_keywords!(fireflow_core::text::parser::ExtraStdKeywords);
+impl_py_valid_keywords!(keys::ValidKeywords);
+impl_py_extra_std_keywords!(parser::ExtraStdKeywords);
 impl_py_dataset_segments!(core::DatasetSegments);
 
 impl_py_raw_text_output!(api::RawTEXTOutput);
@@ -425,7 +428,7 @@ impl<'py> FromPyObject<'py> for PyAppliedGates3_0 {
             Option<kws::Gating>,
         ) = ob.extract()?;
         let scheme = GatingScheme::try_new(gating, regions.into())?;
-        Ok(AppliedGates3_0::try_new(gated_measurements.into(), scheme)?.into())
+        Ok(AppliedGates3_0::try_new(Vec::from(gated_measurements), scheme)?.into())
     }
 }
 
@@ -557,9 +560,10 @@ where
     }
 }
 
-impl<I, R> From<PyRegionMapping<R>> for HashMap<RegionIndex, Region<I>>
+impl<I, R, S> From<PyRegionMapping<R>> for HashMap<RegionIndex, Region<I>, S>
 where
     Region<I>: From<R>,
+    S: BuildHasher + Default,
 {
     fn from(value: PyRegionMapping<R>) -> Self {
         value.0.into_iter().map(|(k, v)| (k, v.into())).collect()
@@ -581,14 +585,14 @@ impl_gated_meas!(GatedMeasurement);
 struct PyGatedMeasurements(Vec<PyGatedMeasurement>);
 
 impl From<PyGatedMeasurements> for Vec<GatedMeasurement> {
-    fn from(value: PyGatedMeasurements) -> Vec<GatedMeasurement> {
+    fn from(value: PyGatedMeasurements) -> Self {
         value.0.into_iter().map(|x| x.0).collect()
     }
 }
 
 impl From<Vec<GatedMeasurement>> for PyGatedMeasurements {
-    fn from(value: Vec<GatedMeasurement>) -> PyGatedMeasurements {
-        Self(value.into_iter().map(|x| x.into()).collect())
+    fn from(value: Vec<GatedMeasurement>) -> Self {
+        Self(value.into_iter().map(Into::into).collect())
     }
 }
 
@@ -639,7 +643,7 @@ pub enum PyAnyCoreTEXT {
 }
 
 impl From<core::AnyCoreTEXT> for PyAnyCoreTEXT {
-    fn from(value: core::AnyCoreTEXT) -> PyAnyCoreTEXT {
+    fn from(value: core::AnyCoreTEXT) -> Self {
         match value {
             core::AnyCoreTEXT::FCS2_0(x) => (*x).into(),
             core::AnyCoreTEXT::FCS3_0(x) => (*x).into(),
@@ -662,7 +666,7 @@ pub enum PyAnyCoreDataset {
 }
 
 impl From<core::AnyCoreDataset> for PyAnyCoreDataset {
-    fn from(value: core::AnyCoreDataset) -> PyAnyCoreDataset {
+    fn from(value: core::AnyCoreDataset) -> Self {
         match value {
             core::AnyCoreDataset::FCS2_0(x) => (*x).into(),
             core::AnyCoreDataset::FCS3_0(x) => (*x).into(),
@@ -847,7 +851,7 @@ impl From<PyNonMixedLayout> for NonMixedEndianLayout<NoMeasDatatype> {
 /// This is a hack to get default arguments to work in python, which will
 /// be interpreted as a list since there is no empty set symbol (yet).
 #[derive(Into, Default)]
-pub struct TemporalOpticalKeys(std::collections::HashSet<cfg::TemporalOpticalKey>);
+pub struct TemporalOpticalKeys(HashSet<cfg::TemporalOpticalKey>);
 
 impl<'py> FromPyObject<'py> for TemporalOpticalKeys {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {

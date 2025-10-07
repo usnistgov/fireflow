@@ -9,6 +9,7 @@ use std::convert::Infallible;
 use std::fmt;
 use std::marker::PhantomData;
 use std::mem;
+use std::string::ToString;
 use thiserror::Error;
 
 #[cfg(feature = "serde")]
@@ -129,7 +130,7 @@ impl MightHave for AlwaysFamily {
 
 impl<T> From<T> for AlwaysValue<T> {
     fn from(value: T) -> Self {
-        AlwaysValue(value)
+        Self(value)
     }
 }
 
@@ -161,8 +162,8 @@ impl<T> From<MaybeValue<T>> for Option<T> {
 impl<T: Copy> Copy for MaybeValue<T> {}
 
 impl<T> Default for MaybeValue<T> {
-    fn default() -> MaybeValue<T> {
-        MaybeValue(None)
+    fn default() -> Self {
+        Self(None)
     }
 }
 
@@ -224,28 +225,28 @@ impl<V> MaybeValue<V> {
     pub(crate) fn check_indexed_key_transfer_own<E>(
         self,
         i: impl Into<IndexFromOne>,
-        lossless: bool,
+        allow_loss: bool,
     ) -> BiTentative<(), E>
     where
         E: From<IndexedKeyLossError<V>>,
     {
         let mut tnt = Tentative::default();
         if self.0.is_some() {
-            tnt.push_error_or_warning(IndexedKeyLossError::<V>::new(i), lossless);
+            tnt.push_error_or_warning(IndexedKeyLossError::<V>::new(i), !allow_loss);
         }
         tnt
     }
 
     pub(crate) fn check_key_transfer(
         self,
-        lossless: bool,
+        allow_loss: bool,
     ) -> BiTentative<(), AnyMetarootKeyLossError>
     where
         AnyMetarootKeyLossError: From<UnitaryKeyLossError<V>>,
     {
         let mut tnt = Tentative::default();
         if self.0.is_some() {
-            tnt.push_error_or_warning(UnitaryKeyLossError::<V>::new(), lossless);
+            tnt.push_error_or_warning(UnitaryKeyLossError::<V>::new(), !allow_loss);
         }
         tnt
     }
@@ -254,14 +255,17 @@ impl<V> MaybeValue<V> {
     where
         V: fmt::Display,
     {
-        self.0.as_ref().map(|x| x.to_string())
+        self.0.as_ref().map(ToString::to_string)
     }
 
     pub(crate) fn root_kw_pair(&self) -> (String, Option<String>)
     where
         V: Key + fmt::Display,
     {
-        (V::std().to_string(), self.0.as_ref().map(|s| s.to_string()))
+        (
+            V::std().to_string(),
+            self.0.as_ref().map(ToString::to_string),
+        )
     }
 
     pub(crate) fn meas_kw_triple(
@@ -274,7 +278,7 @@ impl<V> MaybeValue<V> {
         (
             V::std_blank(),
             V::std(i).to_string(),
-            self.0.as_ref().map(|s| s.to_string()),
+            self.0.as_ref().map(ToString::to_string),
         )
     }
 
@@ -284,14 +288,14 @@ impl<V> MaybeValue<V> {
     {
         (
             V::std(i).to_string(),
-            self.0.as_ref().map(|s| s.to_string()),
+            self.0.as_ref().map(ToString::to_string),
         )
     }
 }
 
 impl<V, E> MaybeValue<Result<V, E>> {
     pub fn transpose(self) -> Result<MaybeValue<V>, E> {
-        self.0.transpose().map(|x| x.into())
+        self.0.transpose().map(Into::into)
     }
 }
 

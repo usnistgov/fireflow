@@ -2,7 +2,7 @@ use crate::macros::match_many_to_one;
 use crate::validated::ascii_range::{Chars, CharsError};
 
 use derive_more::{Display, From, FromStr, Into};
-use itertools::Itertools;
+use itertools::Itertools as _;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::fmt;
 use std::num::NonZeroU8;
@@ -207,7 +207,9 @@ macro_rules! byteord_from_sized {
             fn from(value: SizedByteOrd<$len>) -> [NonZeroU8; $len] {
                 let arr = match value {
                     SizedByteOrd::Endian(e) => {
-                        let mut o = std::array::from_fn(|i| i as u8);
+                        // ASSUME this will never fail because we will only
+                        // call this for ints 1-8
+                        let mut o = std::array::from_fn(|i| u8::try_from(i).unwrap());
                         if e == Endian::Big {
                             o.reverse();
                         };
@@ -248,8 +250,8 @@ impl Bytes {
             .iter()
             .rposition(|i| *i > 0)
             .and_then(|i| u8::try_from(i + 1).ok())
-            .and_then(|i| Bytes::try_from(i).ok())
-            .unwrap_or(Bytes::B1)
+            .and_then(|i| Self::try_from(i).ok())
+            .unwrap_or(Self::B1)
     }
 }
 
@@ -268,6 +270,7 @@ impl<const LEN: usize> Serialize for SizedByteOrd<LEN> {
     }
 }
 
+#[allow(clippy::many_single_char_names)]
 impl TryFrom<&[NonZeroU8]> for ByteOrd2_0 {
     type Error = NewByteOrdError;
     fn try_from(xs: &[NonZeroU8]) -> Result<Self, Self::Error> {
@@ -310,6 +313,7 @@ impl From<NoByteOrd<false>> for ByteOrd3_1 {
 }
 
 impl SizedByteOrd<2> {
+    #[must_use]
     pub fn endian(&self) -> Endian {
         let [x, y] = (*self).into();
         (y > x).into()
@@ -317,6 +321,7 @@ impl SizedByteOrd<2> {
 }
 
 impl ByteOrd2_0 {
+    #[must_use]
     pub fn nbytes(&self) -> Bytes {
         match self {
             Self::O1(_) => SizedByteOrd::<1>::nbytes(),
@@ -330,6 +335,7 @@ impl ByteOrd2_0 {
         }
     }
 
+    #[must_use]
     pub fn as_vec(&self) -> Vec<NonZeroU8> {
         match self {
             Self::O1(x) => <[NonZeroU8; 1]>::from(*x).to_vec(),
@@ -377,9 +383,10 @@ impl TryFrom<Width> for Bytes {
 impl TryFrom<Width> for BitsOrChars {
     type Error = ();
     fn try_from(value: Width) -> Result<Self, Self::Error> {
-        match value {
-            Width::Fixed(x) => Ok(x),
-            _ => Err(()),
+        if let Width::Fixed(x) = value {
+            Ok(x)
+        } else {
+            Err(())
         }
     }
 }
@@ -398,7 +405,7 @@ impl TryFrom<BitsOrChars> for Bytes {
     /// Return error if bits is not divisible by 8 and within [1,64].
     fn try_from(value: BitsOrChars) -> Result<Self, Self::Error> {
         let x = u8::from(value.0);
-        if (x & 0b111) == 0 {
+        if x.trailing_zeros() >= 3 {
             return (x >> 3).try_into().or(Err(BytesError(x)));
         }
         Err(BytesError(x))
@@ -406,14 +413,14 @@ impl TryFrom<BitsOrChars> for Bytes {
 }
 
 impl From<Bytes> for NonZeroU8 {
-    fn from(value: Bytes) -> NonZeroU8 {
+    fn from(value: Bytes) -> Self {
         // ASSUME this will never fail
         Self::new(u8::from(value)).unwrap()
     }
 }
 
 impl From<Bytes> for BitsOrChars {
-    fn from(value: Bytes) -> BitsOrChars {
+    fn from(value: Bytes) -> Self {
         // ASSUME this will never fail
         Self(NonZeroU8::new(u8::from(value) * 8).unwrap())
     }
@@ -421,9 +428,7 @@ impl From<Bytes> for BitsOrChars {
 
 impl From<Option<NonZeroU8>> for Width {
     fn from(value: Option<NonZeroU8>) -> Self {
-        value
-            .map(|x| Width::Fixed(BitsOrChars(x)))
-            .unwrap_or(Width::Variable)
+        value.map_or(Self::Variable, |x| Self::Fixed(BitsOrChars(x)))
     }
 }
 
@@ -439,9 +444,10 @@ impl From<Width> for Option<NonZeroU8> {
 impl TryFrom<Width> for NonZeroU8 {
     type Error = ();
     fn try_from(value: Width) -> Result<Self, Self::Error> {
-        match value {
-            Width::Fixed(x) => Ok(x.0),
-            _ => Err(()),
+        if let Width::Fixed(x) = value {
+            Ok(x.0)
+        } else {
+            Err(())
         }
     }
 }
@@ -462,8 +468,8 @@ impl FromStr for Endian {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "1,2,3,4" => Ok(Endian::Little),
-            "4,3,2,1" => Ok(Endian::Big),
+            "1,2,3,4" => Ok(Self::Little),
+            "4,3,2,1" => Ok(Self::Big),
             _ => Err(NewEndianError),
         }
     }
@@ -473,12 +479,10 @@ impl FromStr for ByteOrd2_0 {
     type Err = ParseByteOrdError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (pass, fail): (Vec<_>, Vec<_>) = s
-            .split(",")
-            .map(|x| x.parse::<NonZeroU8>())
-            .partition_result();
+        let (pass, fail): (Vec<_>, Vec<_>) =
+            s.split(',').map(str::parse::<NonZeroU8>).partition_result();
         if fail.is_empty() {
-            ByteOrd2_0::try_from(&pass[..]).map_err(ParseByteOrdError::Order)
+            Self::try_from(&pass[..]).map_err(ParseByteOrdError::Order)
         } else {
             Err(ParseByteOrdError::Format)
         }
@@ -487,7 +491,7 @@ impl FromStr for ByteOrd2_0 {
 
 impl<const LEN: usize> fmt::Display for SizedByteOrd<LEN>
 where
-    [NonZeroU8; LEN]: From<SizedByteOrd<LEN>>,
+    [NonZeroU8; LEN]: From<Self>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "{}", <[NonZeroU8; LEN]>::from(*self).iter().join(","))
@@ -499,8 +503,8 @@ impl FromStr for Width {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "*" => Ok(Width::Variable),
-            _ => s.parse::<NonZeroU8>().map(|x| Width::Fixed(BitsOrChars(x))),
+            "*" => Ok(Self::Variable),
+            _ => s.parse::<NonZeroU8>().map(|x| Self::Fixed(BitsOrChars(x))),
         }
     }
 }
@@ -586,7 +590,7 @@ mod tests {
     use crate::test::*;
 
     #[test]
-    fn test_str_to_byteord_valid() {
+    fn str_to_byteord_valid() {
         assert_from_to_str::<ByteOrd2_0>("1");
         assert_from_to_str::<ByteOrd2_0>("1,2,3,4");
         assert_from_to_str::<ByteOrd2_0>("1,2,3,4");
@@ -596,35 +600,35 @@ mod tests {
     }
 
     #[test]
-    fn test_str_to_byteord_tolong() {
+    fn str_to_byteord_tolong() {
         assert!("1,2,3,4,5,6,7,8,9".parse::<ByteOrd2_0>().is_err());
     }
 
     #[test]
-    fn test_str_to_byteord_bad_digits() {
+    fn str_to_byteord_bad_digits() {
         assert!("0".parse::<ByteOrd2_0>().is_err());
         assert!("2".parse::<ByteOrd2_0>().is_err());
     }
 
     #[test]
-    fn test_str_to_byteord_skipped() {
+    fn str_to_byteord_skipped() {
         assert!("1,3".parse::<ByteOrd2_0>().is_err());
     }
 
     #[test]
-    fn test_str_to_byteord_repeat() {
+    fn str_to_byteord_repeat() {
         assert!("1,1".parse::<ByteOrd2_0>().is_err());
     }
 
     #[test]
-    fn test_str_to_byteord_garbage() {
+    fn str_to_byteord_garbage() {
         assert!("fortytwo".parse::<ByteOrd2_0>().is_err());
         assert!("".parse::<ByteOrd2_0>().is_err());
         assert!("one,two,three".parse::<ByteOrd2_0>().is_err());
     }
 
     #[test]
-    fn test_str_to_endian() {
+    fn str_to_endian() {
         assert!("1,2,3,4".parse::<ByteOrd3_1>().is_ok());
         assert!("4,3,2,1".parse::<ByteOrd3_1>().is_ok());
         assert!("1,2,3".parse::<ByteOrd3_1>().is_err());
@@ -632,7 +636,7 @@ mod tests {
     }
 
     #[test]
-    fn test_str_to_width() {
+    fn str_to_width() {
         assert_eq!("*".parse::<Width>(), Ok(Width::Variable));
         assert!("1".parse::<Width>().is_ok(),);
         assert!("255".parse::<Width>().is_ok());
@@ -641,7 +645,7 @@ mod tests {
     }
 
     #[test]
-    fn test_str_to_width_as_bytes() {
+    fn str_to_width_as_bytes() {
         assert!(Bytes::try_from("8".parse::<Width>().unwrap()).is_ok());
         assert!(Bytes::try_from("16".parse::<Width>().unwrap()).is_ok());
         assert!(Bytes::try_from("64".parse::<Width>().unwrap()).is_ok());
@@ -652,13 +656,13 @@ mod tests {
     }
 
     #[test]
-    fn test_bytes_from_u64() {
+    fn bytes_from_u64() {
         assert_eq!(Bytes::B1, Bytes::from_u64(0));
-        assert_eq!(Bytes::B1, Bytes::from_u64(255));
-        assert_eq!(Bytes::B2, Bytes::from_u64(256));
-        assert_eq!(Bytes::B2, Bytes::from_u64(65535));
-        assert_eq!(Bytes::B3, Bytes::from_u64(65536));
-        assert_eq!(Bytes::B8, Bytes::from_u64(18446744073709551615));
+        assert_eq!(Bytes::B1, Bytes::from_u64(0x00FF));
+        assert_eq!(Bytes::B2, Bytes::from_u64(0x0100));
+        assert_eq!(Bytes::B2, Bytes::from_u64(0xFFFF));
+        assert_eq!(Bytes::B3, Bytes::from_u64(0x0001_0000));
+        assert_eq!(Bytes::B8, Bytes::from_u64(0xFFFF_FFFF_FFFF_FFFF));
     }
 }
 
@@ -667,7 +671,7 @@ mod python {
     use super::{ByteOrd2_0, Endian, NewByteOrdError, SizedByteOrd, VecToSizedError};
     use crate::python::macros::impl_value_err;
 
-    use pyo3::{exceptions::PyValueError, prelude::*, types::PyString, IntoPyObjectExt};
+    use pyo3::{exceptions::PyValueError, prelude::*, types::PyString, IntoPyObjectExt as _};
     use std::convert::Infallible;
     use std::num::NonZeroU8;
 
@@ -699,14 +703,14 @@ mod python {
     impl<'py> FromPyObject<'py> for ByteOrd2_0 {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let xs: Vec<NonZeroU8> = ob.extract()?;
-            let ret = ByteOrd2_0::try_from(&xs[..])?;
+            let ret = Self::try_from(&xs[..])?;
             Ok(ret)
         }
     }
 
     impl<'py, const LEN: usize> FromPyObject<'py> for SizedByteOrd<LEN>
     where
-        SizedByteOrd<LEN>: TryFrom<Vec<NonZeroU8>, Error = VecToSizedError>,
+        Self: TryFrom<Vec<NonZeroU8>, Error = VecToSizedError>,
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let err = || PyValueError::new_err("must be \"little\", \"big\", or a list");
@@ -716,9 +720,9 @@ mod python {
                     "big" => Ok(Endian::Big),
                     _ => Err(err()),
                 }
-                .map(SizedByteOrd::from)
+                .map(Self::from)
             } else if let Ok(xs) = ob.extract::<Vec<NonZeroU8>>() {
-                Ok(SizedByteOrd::<LEN>::try_from(xs)?)
+                Ok(Self::try_from(xs)?)
             } else {
                 Err(err())
             }

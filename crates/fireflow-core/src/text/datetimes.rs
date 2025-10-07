@@ -1,11 +1,12 @@
+use crate::config::StdTextReadConfig;
 use crate::core::{AnyMetarootKeyLossError, UnitaryKeyLossError};
-use crate::error::*;
-use crate::validated::keys::*;
+use crate::error::{BiTentative, ResultExt as _, Tentative};
+use crate::validated::keys::StdKeywords;
 
-use super::optional::*;
-use super::parser::*;
+use super::optional::MaybeValue;
+use super::parser::{LookupTentative, OptMetarootKey as _};
 
-use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeZone};
+use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeZone as _};
 use derive_more::{AsRef, Display, From, FromStr, Into};
 use std::mem;
 use std::str::FromStr;
@@ -54,28 +55,29 @@ impl Datetimes {
         if ret.valid() {
             Ok(ret)
         } else {
-            Err(ReversedDatetimes)
+            Err(ReversedDatetimesError)
         }
     }
 
-    pub fn set_begin(&mut self, time: Option<BeginDateTime>) -> Result<(), ReversedDatetimes> {
+    pub fn set_begin(&mut self, time: Option<BeginDateTime>) -> Result<(), ReversedDatetimesError> {
         let tmp = mem::replace(&mut self.begin, time);
         if !self.valid() {
             self.begin = tmp;
-            return Err(ReversedDatetimes);
+            return Err(ReversedDatetimesError);
         }
         Ok(())
     }
 
-    pub fn set_end(&mut self, time: Option<EndDateTime>) -> Result<(), ReversedDatetimes> {
+    pub fn set_end(&mut self, time: Option<EndDateTime>) -> Result<(), ReversedDatetimesError> {
         let tmp = mem::replace(&mut self.end, time);
         if !self.valid() {
             self.end = tmp;
-            return Err(ReversedDatetimes);
+            return Err(ReversedDatetimesError);
         }
         Ok(())
     }
 
+    #[must_use]
     pub fn valid(&self) -> bool {
         if let (Some(b), Some(e)) = (&self.begin, &self.end) {
             (b.0).0 < (e.0).0
@@ -84,16 +86,13 @@ impl Datetimes {
         }
     }
 
-    pub(crate) fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<Self, E> {
-        let b = BeginDateTime::lookup_opt(kws);
-        let e = EndDateTime::lookup_opt(kws);
+    pub(crate) fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
+        let b = BeginDateTime::lookup_opt(kws, conf);
+        let e = EndDateTime::lookup_opt(kws, conf);
         b.zip(e).and_tentatively(|(begin, end)| {
-            Datetimes::try_new(begin.0, end.0)
-                .map(Tentative::new1)
-                .unwrap_or_else(|w| {
-                    let ow = LookupKeysWarning::Relation(w.into());
-                    Tentative::new(Datetimes::default(), [ow], [])
-                })
+            Self::try_new(begin.0, end.0)
+                .into_tentative_def(!conf.allow_optional_dropping)
+                .inner_into()
         })
     }
 
@@ -103,16 +102,16 @@ impl Datetimes {
             MaybeValue(self.end).root_kw_pair(),
         ]
         .into_iter()
-        .flat_map(|(k, v)| v.map(|x| (k, x)))
+        .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
-    pub(crate) fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
+    pub(crate) fn check_loss(self, allow_loss: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
         let mut tnt = Tentative::new1(());
         if self.begin.is_some() {
-            tnt.push_error_or_warning(UnitaryKeyLossError::<BeginDateTime>::new(), lossless);
+            tnt.push_error_or_warning(UnitaryKeyLossError::<BeginDateTime>::new(), allow_loss);
         }
         if self.end.is_some() {
-            tnt.push_error_or_warning(UnitaryKeyLossError::<EndDateTime>::new(), lossless);
+            tnt.push_error_or_warning(UnitaryKeyLossError::<EndDateTime>::new(), allow_loss);
         }
         tnt
     }
@@ -120,9 +119,9 @@ impl Datetimes {
 
 #[derive(Debug, Error)]
 #[error("$BEGINDATETIME is after $ENDDATETIME")]
-pub struct ReversedDatetimes;
+pub struct ReversedDatetimesError;
 
-type DatetimesResult<T> = Result<T, ReversedDatetimes>;
+type DatetimesResult<T> = Result<T, ReversedDatetimesError>;
 
 impl FromStr for FCSDateTime {
     type Err = FCSDateTimeError;
@@ -138,8 +137,8 @@ impl FromStr for FCSDateTime {
                 .from_local_datetime(&naive)
                 .single()
                 .map_or_else(
-                    || Err(FCSDateTimeError::Unmapped(s.to_string())),
-                    |t| Ok(FCSDateTime(t.fixed_offset())),
+                    || Err(FCSDateTimeError::Unmapped(s.into())),
+                    |t| Ok(Self(t.fixed_offset())),
                 )
         } else {
             // If zone information is present, try any number of formats which
@@ -152,7 +151,7 @@ impl FromStr for FCSDateTime {
             ];
             for f in formats {
                 if let Ok(t) = DateTime::parse_from_str(s, f) {
-                    return Ok(FCSDateTime(t));
+                    return Ok(Self(t));
                 }
             }
             Err(FCSDateTimeError::Other)
@@ -173,12 +172,12 @@ mod tests {
     use crate::test::*;
 
     #[test]
-    fn test_str_to_datetime_local() {
+    fn str_to_datetime_local() {
         assert!("2112-01-01T00:00:00.0".parse::<FCSDateTime>().is_ok());
     }
 
     #[test]
-    fn test_datetime_utc() {
+    fn datetime_utc() {
         assert_from_to_str_almost::<FCSDateTime>(
             "2112-01-01T00:00:00.0Z",
             "2112-01-01T00:00:00+00:00",
@@ -186,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    fn test_datetime_hh() {
+    fn datetime_hh() {
         assert_from_to_str_almost::<FCSDateTime>(
             "2112-01-01T00:00:00.0+01",
             "2112-01-01T00:00:00+01:00",
@@ -194,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn test_datetime_hh_mm() {
+    fn datetime_hh_mm() {
         assert_from_to_str_almost::<FCSDateTime>(
             "2112-01-01T00:00:00.0+00:01",
             "2112-01-01T00:00:00+00:01",
@@ -202,7 +201,7 @@ mod tests {
     }
 
     #[test]
-    fn test_datetime_hhmm() {
+    fn datetime_hhmm() {
         assert_from_to_str_almost::<FCSDateTime>(
             "2112-01-01T00:00:00.0+0001",
             "2112-01-01T00:00:00+00:01",
@@ -212,10 +211,10 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{BeginDateTime, EndDateTime, FCSDateTime, ReversedDatetimes};
+    use super::{BeginDateTime, EndDateTime, FCSDateTime, ReversedDatetimesError};
     use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
 
-    impl_pyreflow_err!(ReversedDatetimes);
+    impl_pyreflow_err!(ReversedDatetimesError);
 
     impl_from_py_transparent!(FCSDateTime);
     impl_from_py_transparent!(BeginDateTime);

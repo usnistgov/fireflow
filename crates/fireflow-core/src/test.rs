@@ -1,8 +1,11 @@
+use std::fmt::Display;
+use std::str::FromStr;
+
 /// Assert that Display and FromStr are perfect inverses for given input
-pub(crate) fn assert_from_to_str<T>(s: &str)
+pub fn assert_from_to_str<T>(s: &str)
 where
-    T: std::str::FromStr + std::fmt::Display,
-    <T as std::str::FromStr>::Err: std::fmt::Display,
+    T: FromStr + Display,
+    <T as FromStr>::Err: Display,
 {
     match s.parse::<T>() {
         Ok(x) => {
@@ -14,10 +17,10 @@ where
 }
 
 /// Assert that Display and FromStr are near-perfect inverses for given input
-pub(crate) fn assert_from_to_str_almost<T>(s0: &str, s1: &str)
+pub fn assert_from_to_str_almost<T>(s0: &str, s1: &str)
 where
-    T: std::str::FromStr + std::fmt::Display,
-    <T as std::str::FromStr>::Err: std::fmt::Display,
+    T: FromStr + Display,
+    <T as FromStr>::Err: Display,
 {
     match s0.parse::<T>() {
         Ok(x) => {

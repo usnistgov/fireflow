@@ -1,40 +1,46 @@
 use crate::config::StdTextReadConfig;
-use crate::error::*;
+use crate::error::{BiTentative, PassthruExt as _, ResultExt as _, Tentative};
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
-use crate::validated::ascii_uint::*;
-use crate::validated::keys::*;
-use crate::validated::shortname::*;
+use crate::validated::ascii_uint::UintZeroPad20;
+use crate::validated::keys::{BiIndexedKey, IndexedKey, Key, StdKeywords};
+use crate::validated::shortname::Shortname;
 
-use super::byteord::*;
-use super::compensation::*;
-use super::datetimes::*;
+use super::byteord::{ByteOrd2_0, ByteOrd3_1, Width};
+use super::compensation::Compensation3_0;
+use super::datetimes::{BeginDateTime, EndDateTime};
 use super::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use super::gating;
-use super::index::*;
+use super::index::{GateIndex, MeasIndex, RegionIndex};
 use super::named_vec::NameMapping;
-use super::optional::*;
-use super::parser::*;
-use super::ranged_float::*;
-use super::scale::*;
-use super::spillover::*;
-use super::timestamps::*;
-use super::unstainedcenters::*;
+use super::optional::MaybeValue;
+use super::parser::{
+    eval_dep_maybe, process_opt, DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful,
+    LookupKeysWarning, LookupResult, LookupTentative, OptIndexedKey, OptLinkedKey, OptMetarootKey,
+    Optional, ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
+};
+use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
+use super::scale::{Scale, ScaleError};
+use super::spillover::Spillover;
+use super::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime100, FCSTime60, Xtim};
+use super::unstainedcenters::UnstainedCenters;
 
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
-use chrono::{NaiveDateTime, NaiveTime, Timelike};
+use chrono::{NaiveDateTime, NaiveTime, Timelike as _};
 use derive_more::{Add, AsMut, Display, From, FromStr, Into, Sub};
-use itertools::Itertools;
+use itertools::Itertools as _;
 use nonempty::NonEmpty;
-use num_traits::cast::ToPrimitive;
-use num_traits::identities::One;
+use num_traits::cast::ToPrimitive as _;
+use num_traits::identities::One as _;
 use num_traits::PrimInt;
+use std::iter::once;
+use thiserror::Error;
+
 use std::any::type_name;
 use std::collections::HashSet;
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
-use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -70,10 +76,10 @@ impl Default for Timestep {
 }
 
 impl Timestep {
-    pub(crate) fn check_conversion(&self, force: bool) -> BiTentative<(), TimestepLossError> {
+    pub(crate) fn check_conversion(self, allow_loss: bool) -> BiTentative<(), TimestepLossError> {
         let mut tnt = Tentative::default();
-        if f32::from(self.0) != 1.0 {
-            tnt.push_error_or_warning(TimestepLossError(*self), !force);
+        if !self.0.is_one() {
+            tnt.push_error_or_warning(TimestepLossError(self), !allow_loss);
         }
         tnt
     }
@@ -110,7 +116,7 @@ impl FromStrStateful for Trigger {
     type Err = TriggerError;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -127,13 +133,13 @@ impl FromStrDelim for Trigger {
     type Err = TriggerError;
     const DELIM: char = ',';
 
-    fn from_iter<'a>(ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        let xs: Vec<_> = ss.collect();
+    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        let xs: Vec<_> = iter.collect();
         match &xs[..] {
             [p, n1] => n1
                 .parse()
                 .map_err(TriggerError::IntFormat)
-                .map(|threshold| Trigger {
+                .map(|threshold| Self {
                     measurement: Shortname::new_unchecked(p),
                     threshold,
                 }),
@@ -147,7 +153,7 @@ pub enum TriggerError {
     #[error("must be like 'string,f'")]
     WrongFieldNumber,
     #[error("{0}")]
-    IntFormat(std::num::ParseIntError),
+    IntFormat(ParseIntError),
 }
 
 /// The values used for the $MODE key (up to 3.1)
@@ -172,9 +178,9 @@ impl FromStr for Mode {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "C" => Ok(Mode::Correlated),
-            "L" => Ok(Mode::List),
-            "U" => Ok(Mode::Uncorrelated),
+            "C" => Ok(Self::Correlated),
+            "L" => Ok(Self::List),
+            "U" => Ok(Self::Uncorrelated),
             _ => Err(ModeError),
         }
     }
@@ -191,7 +197,7 @@ impl FromStr for Mode3_2 {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "L" => Ok(Mode3_2),
+            "L" => Ok(Self),
             _ => Err(Mode3_2Error),
         }
     }
@@ -202,7 +208,7 @@ impl TryFrom<Mode> for Mode3_2 {
 
     fn try_from(value: Mode) -> Result<Self, Self::Error> {
         match value {
-            Mode::List => Ok(Mode3_2),
+            Mode::List => Ok(Self),
             _ => Err(ModeUpgradeError),
         }
     }
@@ -234,16 +240,16 @@ impl FromStr for Display {
     type Err = DisplayError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.split(",").collect::<Vec<_>>()[..] {
+        match s.split(',').collect::<Vec<_>>()[..] {
             [which, s1, s2] => {
                 let f1 = s1.parse().map_err(DisplayError::FloatError)?;
                 let f2 = s2.parse().map_err(DisplayError::FloatError)?;
                 match which {
-                    "Linear" => Ok(Display::Lin {
+                    "Linear" => Ok(Self::Lin {
                         lower: f1,
                         upper: f2,
                     }),
-                    "Logarithmic" => Ok(Display::Log {
+                    "Logarithmic" => Ok(Self::Log {
                         decades: f1,
                         offset: f2,
                     }),
@@ -282,9 +288,9 @@ impl FromStr for NumType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "I" => Ok(NumType::Integer),
-            "F" => Ok(NumType::Float),
-            "D" => Ok(NumType::Double),
+            "I" => Ok(Self::Integer),
+            "F" => Ok(Self::Float),
+            "D" => Ok(Self::Double),
             _ => Err(NumTypeError),
         }
     }
@@ -310,18 +316,15 @@ pub enum AlphaNumType {
 
 impl AlphaNumType {
     pub(crate) fn lookup_req_check_ascii(kws: &mut StdKeywords) -> LookupResult<Self> {
-        let mut d = AlphaNumType::lookup_req(kws);
-        d.def_eval_warning(check_datatype_ascii);
+        let mut d = Self::lookup_req(kws);
+        d.def_eval_warning(|v| check_datatype_ascii(*v));
         d
     }
 }
 
-fn check_datatype_ascii(datatype: &AlphaNumType) -> Option<LookupKeysWarning> {
-    if *datatype == AlphaNumType::Ascii {
-        Some(DeprecatedError::Value(DepValueWarning::DatatypeASCII).into())
-    } else {
-        None
-    }
+fn check_datatype_ascii(datatype: AlphaNumType) -> Option<LookupKeysWarning> {
+    (datatype == AlphaNumType::Ascii)
+        .then(|| DeprecatedError::Value(DepValueWarning::DatatypeASCII).into())
 }
 
 impl FromStr for AlphaNumType {
@@ -329,10 +332,10 @@ impl FromStr for AlphaNumType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "I" => Ok(AlphaNumType::Integer),
-            "F" => Ok(AlphaNumType::Float),
-            "D" => Ok(AlphaNumType::Double),
-            "A" => Ok(AlphaNumType::Ascii),
+            "I" => Ok(Self::Integer),
+            "F" => Ok(Self::Float),
+            "D" => Ok(Self::Double),
+            "A" => Ok(Self::Ascii),
             _ => Err(AlphaNumTypeError),
         }
     }
@@ -345,9 +348,9 @@ pub struct AlphaNumTypeError;
 impl From<NumType> for AlphaNumType {
     fn from(value: NumType) -> Self {
         match value {
-            NumType::Integer => AlphaNumType::Integer,
-            NumType::Float => AlphaNumType::Float,
-            NumType::Double => AlphaNumType::Double,
+            NumType::Integer => Self::Integer,
+            NumType::Float => Self::Float,
+            NumType::Double => Self::Double,
         }
     }
 }
@@ -356,9 +359,9 @@ impl TryFrom<AlphaNumType> for NumType {
     type Error = ();
     fn try_from(value: AlphaNumType) -> Result<Self, Self::Error> {
         match value {
-            AlphaNumType::Integer => Ok(NumType::Integer),
-            AlphaNumType::Float => Ok(NumType::Float),
-            AlphaNumType::Double => Ok(NumType::Double),
+            AlphaNumType::Integer => Ok(Self::Integer),
+            AlphaNumType::Float => Ok(Self::Float),
+            AlphaNumType::Double => Ok(Self::Double),
             AlphaNumType::Ascii => Err(()),
         }
     }
@@ -372,25 +375,19 @@ impl TryFrom<AlphaNumType> for NumType {
 #[display("0,0")]
 pub struct TemporalScale;
 
-// impl TemporalScale {
-//     pub(crate) fn pair(i: IndexFromOne) -> (String, String) {
-//         (Self::std(i).to_string(), Self.to_string())
-//     }
-// }
-
 impl FromStr for TemporalScale {
     type Err = TemporalScaleError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.parse::<Scale>() {
-            Ok(Scale::Linear) => Ok(TemporalScale),
+            Ok(Scale::Linear) => Ok(Self),
             _ => Err(TemporalScaleError),
         }
     }
 }
 
 #[derive(Debug, Error)]
-#[error("$PnE for time measurement must be '0,0' (linear)")]
+#[error("time measurement must have linear scaling")]
 pub struct TemporalScaleError;
 
 /// The value for the $PnCALIBRATION key (3.1 only)
@@ -408,8 +405,8 @@ impl FromStr for Calibration3_1 {
     type Err = CalibrationError<CalibrationFormat3_1>;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.split(",").collect::<Vec<_>>()[..] {
-            [value, unit] => Ok(Calibration3_1 {
+        match s.split(',').collect::<Vec<_>>()[..] {
+            [value, unit] => Ok(Self {
                 slope: value.parse().map_err(CalibrationError::Range)?,
                 unit: String::from(unit),
             }),
@@ -446,7 +443,7 @@ impl FromStr for Calibration3_2 {
     type Err = CalibrationError<CalibrationFormat3_2>;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (slope, offset, unit) = match s.split(",").collect::<Vec<_>>()[..] {
+        let (slope, offset, unit) = match s.split(',').collect::<Vec<_>>()[..] {
             [slope, unit] => Ok((slope, 0.0, unit)),
             [slope, soffset, unit] => {
                 let f2 = soffset.parse().map_err(CalibrationError::Float)?;
@@ -454,7 +451,7 @@ impl FromStr for Calibration3_2 {
             }
             _ => Err(CalibrationError::Format(CalibrationFormat3_2)),
         }?;
-        Ok(Calibration3_2 {
+        Ok(Self {
             slope: slope.parse().map_err(CalibrationError::Range)?,
             offset,
             unit: unit.into(),
@@ -486,10 +483,7 @@ pub struct Wavelengths(pub FCSNonEmpty<PositiveFloat>);
 
 impl From<Wavelengths> for Vec<f32> {
     fn from(value: Wavelengths) -> Self {
-        Vec::from((value.0).0)
-            .into_iter()
-            .map(|x| x.into())
-            .collect()
+        Vec::from((value.0).0).into_iter().map(Into::into).collect()
     }
 }
 
@@ -505,7 +499,7 @@ impl FromStrStateful for Wavelengths {
     type Err = WavelengthsError;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -514,8 +508,8 @@ impl FromStrDelim for Wavelengths {
     type Err = WavelengthsError;
     const DELIM: char = ',';
 
-    fn from_iter<'a>(ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        let xs = NonEmpty::collect(ss).ok_or(WavelengthsError::Empty)?;
+    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        let xs = NonEmpty::collect(iter).ok_or(WavelengthsError::Empty)?;
         let ys = xs.try_map(|x| x.parse().map_err(WavelengthsError::Num))?;
         Ok(Self(FCSNonEmpty(ys)))
     }
@@ -524,13 +518,13 @@ impl FromStrDelim for Wavelengths {
 impl Wavelengths {
     pub(crate) fn into_wavelength(
         self,
-        lossless: bool,
+        allow_loss: bool,
     ) -> Tentative<Wavelength, WavelengthsLossError, WavelengthsLossError> {
         let ws = self.0;
         let n = ws.0.len();
         let mut tnt = Tentative::new1(Wavelength(ws.0.head));
         if n > 1 {
-            tnt.push_error_or_warning(WavelengthsLossError(n), lossless);
+            tnt.push_error_or_warning(WavelengthsLossError(n), !allow_loss);
         }
         tnt
     }
@@ -567,7 +561,7 @@ impl FromStr for LastModified {
     type Err = LastModifiedError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (t, cc) = match &s.split(".").collect::<Vec<_>>()[..] {
+        let (t, cc) = match &s.split('.').collect::<Vec<_>>()[..] {
             [t] => (*t, ""),
             [t, cc] => (*t, *cc),
             _ => return Err(LastModifiedError),
@@ -613,10 +607,10 @@ impl FromStr for Originality {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "Original" => Ok(Originality::Original),
-            "NonDataModified" => Ok(Originality::NonDataModified),
-            "Appended" => Ok(Originality::Appended),
-            "DataModified" => Ok(Originality::DataModified),
+            "Original" => Ok(Self::Original),
+            "NonDataModified" => Ok(Self::NonDataModified),
+            "Appended" => Ok(Self::Appended),
+            "DataModified" => Ok(Self::DataModified),
             _ => Err(OriginalityError),
         }
     }
@@ -644,7 +638,7 @@ impl FromStrStateful for Unicode {
     type Err = UnicodeError;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -661,13 +655,13 @@ impl FromStrDelim for Unicode {
     type Err = UnicodeError;
     const DELIM: char = ',';
 
-    fn from_iter<'a>(mut xs: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        if let Some(page) = xs.next().and_then(|x| x.parse().ok()) {
-            let kws: Vec<String> = xs.map(String::from).collect();
+    fn from_iter<'a>(mut iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        if let Some(page) = iter.next().and_then(|x| x.parse().ok()) {
+            let kws: Vec<String> = iter.map(String::from).collect();
             if kws.is_empty() {
                 Err(UnicodeError::Empty)
             } else {
-                Ok(Unicode { page, kws })
+                Ok(Self { page, kws })
             }
         } else {
             Err(UnicodeError::BadFormat)
@@ -728,15 +722,15 @@ impl FromStr for OpticalType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             TIME => Err(OpticalTypeError),
-            FORWARD_SCATTER => Ok(OpticalType::ForwardScatter),
-            SIDE_SCATTER => Ok(OpticalType::SideScatter),
-            RAW_FLUORESCENCE => Ok(OpticalType::RawFluorescence),
-            UNMIXED_FLUORESCENCE => Ok(OpticalType::UnmixedFluorescence),
-            MASS => Ok(OpticalType::Mass),
-            ELECTRONIC_VOLUME => Ok(OpticalType::ElectronicVolume),
-            INDEX => Ok(OpticalType::Index),
-            CLASSIFICATION => Ok(OpticalType::Classification),
-            s => Ok(OpticalType::Other(String::from(s))),
+            FORWARD_SCATTER => Ok(Self::ForwardScatter),
+            SIDE_SCATTER => Ok(Self::SideScatter),
+            RAW_FLUORESCENCE => Ok(Self::RawFluorescence),
+            UNMIXED_FLUORESCENCE => Ok(Self::UnmixedFluorescence),
+            MASS => Ok(Self::Mass),
+            ELECTRONIC_VOLUME => Ok(Self::ElectronicVolume),
+            INDEX => Ok(Self::Index),
+            CLASSIFICATION => Ok(Self::Classification),
+            x => Ok(Self::Other(x.into())),
         }
     }
 }
@@ -752,7 +746,7 @@ impl FromStr for TemporalType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            TIME => Ok(TemporalType),
+            TIME => Ok(Self),
             _ => Err(TemporalTypeError),
         }
     }
@@ -783,9 +777,9 @@ impl FromStr for Feature {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            AREA => Ok(Feature::Area),
-            WIDTH => Ok(Feature::Width),
-            HEIGHT => Ok(Feature::Height),
+            AREA => Ok(Self::Area),
+            WIDTH => Ok(Self::Width),
+            HEIGHT => Ok(Self::Height),
             _ => Err(FeatureError),
         }
     }
@@ -835,27 +829,27 @@ impl<I> IndexPair<I> {
 }
 
 impl<I> RegionGateIndex<I> {
-    pub(crate) fn lookup_region_opt<E>(
+    pub(crate) fn lookup_region_opt(
         kws: &mut StdKeywords,
         i: RegionIndex,
         par: Par,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<MaybeValue<Self>, E>
+    ) -> LookupTentative<MaybeValue<Self>>
     where
         I: fmt::Display + FromStr + gating::LinkedMeasIndex,
         for<'a> Self: fmt::Display + FromStrStateful<Payload<'a> = ()>,
-        ParseOptKeyWarning: From<<Self as FromStrStateful>::Err>,
+        ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
-        process_opt(Self::remove_meas_opt_st(kws, i, (), conf)).and_tentatively(|maybe| {
+        process_opt(Self::remove_meas_opt_st(kws, i, (), conf), conf).and_tentatively(|maybe| {
             if let Some(x) = maybe.0 {
-                Self::check_link(&x, par).map_or_else(
-                    |w| Tentative::new(None, [w.into()], []),
-                    |_| Tentative::new1(Some(x)),
-                )
+                Self::check_link(&x, par)
+                    .map(|()| x)
+                    .into_tentative_opt(!conf.allow_optional_dropping)
+                    .inner_into()
             } else {
                 Tentative::default()
             }
-            .map(|x| x.into())
+            .value_into()
         })
     }
 
@@ -863,16 +857,15 @@ impl<I> RegionGateIndex<I> {
         kws: &mut StdKeywords,
         i: RegionIndex,
         par: Par,
-        disallow_dep: bool,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<MaybeValue<Self>, DeprecatedError>
+    ) -> LookupTentative<MaybeValue<Self>>
     where
         I: fmt::Display + FromStr + gating::LinkedMeasIndex,
         for<'a> Self: fmt::Display + FromStrStateful<Payload<'a> = ()>,
-        ParseOptKeyWarning: From<<Self as FromStrStateful>::Err>,
+        ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
         let mut x = Self::lookup_region_opt(kws, i, par, conf);
-        eval_dep_maybe(&mut x, Self::std(i), disallow_dep);
+        eval_dep_maybe(&mut x, Self::std(i), conf.disallow_deprecated);
         x
     }
 
@@ -893,8 +886,8 @@ impl<I> RegionGateIndex<I> {
         I: gating::LinkedMeasIndex,
     {
         match self {
-            RegionGateIndex::Univariate(i) => i.meas_index().into_iter().collect(),
-            RegionGateIndex::Bivariate(i) => [i.x.meas_index(), i.y.meas_index()]
+            Self::Univariate(i) => i.meas_index().into_iter().collect(),
+            Self::Bivariate(i) => [i.x.meas_index(), i.y.meas_index()]
                 .into_iter()
                 .flatten()
                 .collect(),
@@ -906,7 +899,7 @@ impl<I: FromStr> FromStrStateful for RegionGateIndex<I> {
     type Err = RegionGateIndexError<<I as FromStr>::Err>;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -926,8 +919,8 @@ impl<I: FromStr> FromStrDelim for RegionGateIndex<I> {
     type Err = RegionGateIndexError<<I as FromStr>::Err>;
     const DELIM: char = ',';
 
-    fn from_iter<'a>(ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        let xs: Vec<_> = ss.collect();
+    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        let xs: Vec<_> = iter.collect();
         match &xs[..] {
             [x] => x
                 .parse()
@@ -935,10 +928,7 @@ impl<I: FromStr> FromStrDelim for RegionGateIndex<I> {
                 .map_err(RegionGateIndexError::Int),
             [x, y] => x
                 .parse()
-                .and_then(|a| {
-                    y.parse()
-                        .map(|b| RegionGateIndex::Bivariate(IndexPair { x: a, y: b }))
-                })
+                .and_then(|a| y.parse().map(|b| Self::Bivariate(IndexPair { x: a, y: b })))
                 .map_err(RegionGateIndexError::Int),
             _ => Err(RegionGateIndexError::Format),
         }
@@ -977,11 +967,11 @@ impl FromStr for MeasOrGateIndex {
             match prefix {
                 "P" => rest
                     .parse::<MeasIndex>()
-                    .map(|x| x.into())
+                    .map(Into::into)
                     .map_err(MeasOrGateIndexError::Int),
                 "G" => rest
                     .parse::<GateIndex>()
-                    .map(|x| x.into())
+                    .map(Into::into)
                     .map_err(MeasOrGateIndexError::Int),
                 _ => Err(MeasOrGateIndexError::Format),
             }
@@ -1062,7 +1052,7 @@ impl FromStrStateful for RegionWindow {
     type Err = GatePairError;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -1082,7 +1072,7 @@ impl FromStrDelim for RegionWindow {
     fn from_str_delim(s: &str, trim_whitespace: bool) -> Result<Self, Self::Err> {
         let it = s.split(Self::DELIM);
         if trim_whitespace {
-            Self::from_iter(it.map(|x| x.trim()))
+            Self::from_iter(it.map(str::trim))
         } else {
             Self::from_iter_inner(
                 it,
@@ -1092,9 +1082,9 @@ impl FromStrDelim for RegionWindow {
         }
     }
 
-    fn from_iter<'a>(ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
         Self::from_iter_inner(
-            ss,
+            iter,
             |x| UniGate::from_str_delim(x, true),
             |x| Vertex::from_str_delim(x, true),
         )
@@ -1125,8 +1115,8 @@ impl FromStrDelim for UniGate {
     type Err = GatePairError;
     const DELIM: char = ',';
 
-    fn from_iter<'a>(ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        parse_pair(ss).map(|(lower, upper)| Self { lower, upper })
+    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        parse_pair(iter).map(|(lower, upper)| Self { lower, upper })
     }
 }
 
@@ -1134,8 +1124,8 @@ impl FromStrDelim for Vertex {
     type Err = GatePairError;
     const DELIM: char = ',';
 
-    fn from_iter<'a>(ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        parse_pair(ss).map(|(x, y)| Self { x, y })
+    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        parse_pair(iter).map(|(x, y)| Self { x, y })
     }
 }
 
@@ -1179,12 +1169,7 @@ impl Gating {
         let xs = match self {
             Self::Region(x) => NonEmpty::new(*x),
             Self::Not(x) => Self::region_indices(x),
-            Self::And(x, y) => {
-                let mut acc = Self::region_indices(x);
-                acc.extend(Self::region_indices(y));
-                acc
-            }
-            Self::Or(x, y) => {
+            Self::And(x, y) | Self::Or(x, y) => {
                 let mut acc = Self::region_indices(x);
                 acc.extend(Self::region_indices(y));
                 acc
@@ -1359,7 +1344,7 @@ pub enum GatingError {
 pub struct Range(pub BigDecimal);
 
 impl Range {
-    pub(crate) fn into_uint<T>(self, notrunc: bool) -> BiTentative<T, IntRangeError<()>>
+    pub(crate) fn into_uint<T>(self, disallow_trunc: bool) -> BiTentative<T, IntRangeError<()>>
     where
         T: TryFrom<Self, Error = IntRangeError<T>> + PrimInt,
     {
@@ -1371,12 +1356,12 @@ impl Range {
             },
             |x| (x, None),
         );
-        BiTentative::new_either1(b, e, notrunc)
+        BiTentative::new_either1(b, e, disallow_trunc)
     }
 
     pub(crate) fn into_float<T>(
         self,
-        notrunc: bool,
+        disallow_trunc: bool,
     ) -> BiTentative<FloatDecimal<T>, DecimalToFloatError>
     where
         FloatDecimal<T>: TryFrom<BigDecimal, Error = DecimalToFloatError>,
@@ -1393,7 +1378,7 @@ impl Range {
             },
             |x| (x, None),
         );
-        BiTentative::new_either1(x, e, notrunc)
+        BiTentative::new_either1(x, e, disallow_trunc)
     }
 }
 
@@ -1764,7 +1749,7 @@ impl Optional for Trigger {}
 
 impl OptLinkedKey for Trigger {
     fn names(&self) -> HashSet<&Shortname> {
-        [&self.measurement].into_iter().collect()
+        once(&self.measurement).collect()
     }
 
     fn reassign(&mut self, mapping: &NameMapping) {
@@ -1946,12 +1931,7 @@ impl<I> IndexedKey for RegionGateIndex<I> {
 }
 
 impl<I> Optional for RegionGateIndex<I> {}
-impl<I> OptIndexedKey for RegionGateIndex<I>
-where
-    I: fmt::Display,
-    I: FromStr,
-{
-}
+impl<I> OptIndexedKey for RegionGateIndex<I> where I: fmt::Display + FromStr {}
 
 // offsets for all versions
 kw_req_meta!(Nextdata, "NEXTDATA");
@@ -1984,24 +1964,24 @@ mod tests {
     use crate::test::*;
 
     #[test]
-    fn test_tr() {
+    fn tr() {
         assert_from_to_str::<Trigger>("Wooden Leg Pt 3,456");
     }
 
     #[test]
-    fn test_mode() {
+    fn mode() {
         assert_from_to_str::<Mode>("C");
         assert_from_to_str::<Mode>("L");
         assert_from_to_str::<Mode>("U");
     }
 
     #[test]
-    fn test_mode_3_2() {
+    fn mode_3_2() {
         assert_from_to_str::<Mode3_2>("L");
     }
 
     #[test]
-    fn test_pnd() {
+    fn pnd() {
         assert_from_to_str::<Display>("Linear,0,1");
         // TODO seems like this shouldn't be allowed
         assert_from_to_str::<Display>("Linear,1,0");
@@ -2011,14 +1991,14 @@ mod tests {
     }
 
     #[test]
-    fn test_datatype() {
+    fn datatype() {
         assert_from_to_str::<NumType>("I");
         assert_from_to_str::<NumType>("F");
         assert_from_to_str::<NumType>("D");
     }
 
     #[test]
-    fn test_pndatetype() {
+    fn pndatetype() {
         assert_from_to_str::<AlphaNumType>("I");
         assert_from_to_str::<AlphaNumType>("F");
         assert_from_to_str::<AlphaNumType>("D");
@@ -2026,28 +2006,28 @@ mod tests {
     }
 
     #[test]
-    fn test_pne_time() {
+    fn pne_time() {
         assert_from_to_str::<TemporalScale>("0,0");
     }
 
     #[test]
-    fn test_pncalibration_3_1() {
+    fn pncalibration_3_1() {
         assert_from_to_str::<Calibration3_1>("0.1,cubic imperial lightyears");
     }
 
     #[test]
-    fn test_pncalibration_3_2() {
+    fn pncalibration_3_2() {
         assert_from_to_str::<Calibration3_2>("1.1,3.5813,progressive metal albums");
     }
 
     #[test]
-    fn test_pnl_3_1() {
+    fn pnl_3_1() {
         assert_from_to_str::<Wavelengths>("1");
         assert_from_to_str::<Wavelengths>("1,2");
     }
 
     #[test]
-    fn test_last_modified() {
+    fn last_modified() {
         assert_from_to_str_almost::<LastModified>(
             "01-Jan-2112 00:00:00",
             "01-Jan-2112 00:00:00.00",
@@ -2056,7 +2036,7 @@ mod tests {
     }
 
     #[test]
-    fn test_originality() {
+    fn originality() {
         assert_from_to_str::<Originality>("Original");
         assert_from_to_str::<Originality>("NonDataModified");
         assert_from_to_str::<Originality>("Appended");
@@ -2064,7 +2044,7 @@ mod tests {
     }
 
     #[test]
-    fn test_unicode() {
+    fn unicode() {
         assert_from_to_str::<Unicode>("42,$BYTEORD");
         // we don't actually check that the keyword is valid, likely nobody
         // will notice ;)
@@ -2072,7 +2052,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pntype_optical() {
+    fn pntype_optical() {
         assert_from_to_str::<OpticalType>("Forward Scatter");
         assert_from_to_str::<OpticalType>("Side Scatter");
         assert_from_to_str::<OpticalType>("Raw Fluorescence");
@@ -2084,25 +2064,25 @@ mod tests {
     }
 
     #[test]
-    fn test_pntype_time() {
+    fn pntype_time() {
         assert_from_to_str::<TemporalType>("Time");
     }
 
     #[test]
-    fn test_pnfeature() {
+    fn pnfeature() {
         assert_from_to_str::<Feature>("Area");
         assert_from_to_str::<Feature>("Width");
         assert_from_to_str::<Feature>("Height");
     }
 
     #[test]
-    fn test_rni_2_0() {
+    fn rni_2_0() {
         assert_from_to_str::<RegionGateIndex<GateIndex>>("1");
         assert_from_to_str::<RegionGateIndex<GateIndex>>("1,2");
     }
 
     #[test]
-    fn test_rni_3_0() {
+    fn rni_3_0() {
         assert_from_to_str::<RegionGateIndex<MeasOrGateIndex>>("P1");
         assert_from_to_str::<RegionGateIndex<MeasOrGateIndex>>("P1,P2");
         assert_from_to_str::<RegionGateIndex<MeasOrGateIndex>>("G1");
@@ -2110,19 +2090,19 @@ mod tests {
     }
 
     #[test]
-    fn test_rni_3_2() {
+    fn rni_3_2() {
         assert_from_to_str::<RegionGateIndex<PrefixedMeasIndex>>("P1");
         assert_from_to_str::<RegionGateIndex<PrefixedMeasIndex>>("P1,P2");
     }
 
     #[test]
-    fn test_rnw() {
+    fn rnw() {
         assert_from_to_str::<RegionWindow>("1,1");
         assert_from_to_str::<RegionWindow>("1,1;2,3;5,8;13,21");
     }
 
     #[test]
-    fn test_gating() {
+    fn gating() {
         assert_from_to_str::<Gating>("R1");
         assert_from_to_str_almost::<Gating>("R1 AND (R2.OR.R3)", "(R1 AND (R2 OR R3))");
         assert_from_to_str::<Gating>("((NOT R1) AND R2)");

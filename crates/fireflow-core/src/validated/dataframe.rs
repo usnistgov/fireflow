@@ -3,6 +3,7 @@ use crate::text::index::BoundaryIndexError;
 use crate::validated::ascii_range::Chars;
 
 use derive_more::{Display, From};
+use num_traits::identities::Zero as _;
 use polars_arrow::array::{Array, PrimitiveArray};
 use polars_arrow::buffer::Buffer;
 use polars_arrow::datatypes::ArrowDataType;
@@ -52,7 +53,7 @@ impl PartialEq for AnyFCSColumn {
     /// example, a `1` / `1.0` will be equal regardless of datatype because
     /// it can be losslessly converted between all possible types for a column
     /// (u8-64 and f32/f64).
-    fn eq(&self, other: &AnyFCSColumn) -> bool {
+    fn eq(&self, other: &Self) -> bool {
         fn go<From, To>(xs: &FCSColumn<From>, ys: &FCSColumn<To>) -> bool
         where
             To: NumCast<From> + FCSDataType + PartialEq,
@@ -111,15 +112,14 @@ impl PartialEq for AnyFCSColumn {
 
 impl<T> From<Vec<T>> for FCSColumn<T> {
     fn from(value: Vec<T>) -> Self {
-        FCSColumn(value.into())
+        Self(value.into())
     }
 }
 
 impl AnyFCSColumn {
+    #[must_use]
     pub fn len(&self) -> usize {
-        match_many_to_one!(self, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], x, {
-            x.0.len()
-        })
+        match_many_to_one!(self, Self, [U08, U16, U32, U64, F32, F64], x, { x.0.len() })
     }
 
     pub(crate) fn check_writer<E, F, ToType>(&self, f: F) -> Result<(), LossError<E>>
@@ -132,26 +132,29 @@ impl AnyFCSColumn {
         })
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     /// Convert number at index to string
+    #[must_use]
     pub fn pos_to_string(&self, i: usize) -> String {
-        match_many_to_one!(self, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], x, {
+        match_many_to_one!(self, Self, [U08, U16, U32, U64, F32, F64], x, {
             x.0[i].to_string()
         })
     }
 
     /// The number of bytes occupied by the column if written as ASCII
+    #[must_use]
     pub fn ascii_nbytes(&self) -> u32 {
         match self {
-            Self::U08(xs) => u8::as_col_iter::<u64>(xs).map(cast_nbytes).sum(),
-            Self::U16(xs) => u16::as_col_iter::<u64>(xs).map(cast_nbytes).sum(),
-            Self::U32(xs) => u32::as_col_iter::<u64>(xs).map(cast_nbytes).sum(),
-            Self::U64(xs) => u64::as_col_iter::<u64>(xs).map(cast_nbytes).sum(),
-            Self::F32(xs) => f32::as_col_iter::<u64>(xs).map(cast_nbytes).sum(),
-            Self::F64(xs) => f64::as_col_iter::<u64>(xs).map(cast_nbytes).sum(),
+            Self::U08(xs) => u8::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
+            Self::U16(xs) => u16::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
+            Self::U32(xs) => u32::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
+            Self::U64(xs) => u64::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
+            Self::F32(xs) => f32::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
+            Self::F64(xs) => f64::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
         }
     }
 
@@ -195,7 +198,7 @@ pub enum InsertColumnError {
 
 impl FCSDataFrame {
     pub fn try_new(columns: Vec<AnyFCSColumn>) -> Result<Self, NewDataframeError> {
-        if let Some(nrows) = columns.first().map(|c| c.len()) {
+        if let Some(nrows) = columns.first().map(AnyFCSColumn::len) {
             if columns.iter().all(|c| c.len() == nrows) {
                 Ok(Self { columns, nrows })
             } else {
@@ -206,6 +209,7 @@ impl FCSDataFrame {
         }
     }
 
+    #[must_use]
     pub fn new1(column: AnyFCSColumn) -> Self {
         Self {
             nrows: column.len(),
@@ -222,6 +226,7 @@ impl FCSDataFrame {
         self.columns.iter()
     }
 
+    #[must_use]
     pub fn nrows(&self) -> usize {
         if self.is_empty() {
             0
@@ -230,12 +235,14 @@ impl FCSDataFrame {
         }
     }
 
+    #[must_use]
     pub fn ncols(&self) -> usize {
         self.columns.len()
     }
 
+    #[must_use]
     pub fn size(&self) -> u64 {
-        (self.ncols() * self.nrows()) as u64
+        u64::try_from(self.ncols() * self.nrows()).expect("cells in dataframe exceed 2^64")
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -318,11 +325,12 @@ impl FCSDataFrame {
             return 0;
         }
         let ndelim = n - 1;
-        let ndigits: u32 = self.iter_columns().map(|c| c.ascii_nbytes()).sum();
+        let ndigits: u32 = self.iter_columns().map(AnyFCSColumn::ascii_nbytes).sum();
         u64::from(ndigits) + ndelim
     }
 
     #[cfg(feature = "python")]
+    #[must_use]
     pub fn as_polars_dataframe(&self, names: &[Shortname]) -> DataFrame {
         // ASSUME names is same length as columns
         let columns = self
@@ -341,8 +349,7 @@ pub(crate) type FCSColIter<'a, FromType, ToType> =
 
 pub(crate) trait FCSDataType
 where
-    Self: Sized,
-    Self: Copy,
+    Self: Sized + Copy,
     [Self]: ToOwned,
 {
     /// Return iterator for column, converting to native type on the fly.
@@ -365,7 +372,7 @@ where
     /// This only applies to the case where we want to crash if any loss will
     /// occur. If we only wish to warn the user and use lossy conversion
     /// anyways, this only requires one iteration since the iterator itself will
-    /// return a ['CastResult'] which carries a flag if loss occurred.
+    /// return a [`CastResult`] which carries a flag if loss occurred.
     fn check_writer<E, F: Fn(ToType) -> Option<E>, ToType: NumCast<Self>>(
         c: &FCSColumn<Self>,
         f: F,
@@ -412,11 +419,7 @@ pub(crate) struct CastResult<T> {
 
 impl<T> CastResult<T> {
     fn new<FromT>(new: T, has_loss: bool) -> Self {
-        let lossy = if has_loss {
-            Some(type_name::<FromT>())
-        } else {
-            None
-        };
+        let lossy = has_loss.then_some(type_name::<FromT>());
         Self { new, lossy }
     }
 
@@ -453,9 +456,11 @@ macro_rules! impl_cast_int_lossy {
     ($from:ident, $to:ident) => {
         impl NumCast<$from> for $to {
             fn from_truncated(x: $from) -> CastResult<Self> {
-                let has_loss = $to::try_from(x).is_err();
-                let new = if has_loss { $to::MAX } else { x as $to };
-                CastResult::new::<$from>(new, has_loss)
+                if let Ok(new) = $to::try_from(x) {
+                    CastResult::new::<$from>(new, false)
+                } else {
+                    CastResult::new::<$from>($to::MAX, true)
+                }
             }
         }
     };
@@ -464,11 +469,16 @@ macro_rules! impl_cast_int_lossy {
 macro_rules! impl_cast_float_to_int_lossy {
     ($from:ident, $to:ident) => {
         impl NumCast<$from> for $to {
+            #[allow(clippy::cast_precision_loss)]
+            #[allow(clippy::cast_sign_loss)]
+            #[allow(clippy::cast_lossless)]
+            #[allow(clippy::cast_possible_truncation)]
+            #[allow(clippy::as_conversions)]
             fn from_truncated(x: $from) -> CastResult<Self> {
                 let has_loss = x.is_nan()
                     || x.is_infinite()
                     || x.is_sign_negative()
-                    || x.floor() != x
+                    || !x.fract().is_zero()
                     || x > $to::MAX as $from;
                 CastResult::new::<$from>(x as $to, has_loss)
             }
@@ -479,6 +489,10 @@ macro_rules! impl_cast_float_to_int_lossy {
 macro_rules! impl_cast_int_to_float_lossy {
     ($from:ident, $to:ident) => {
         impl NumCast<$from> for $to {
+            #[allow(clippy::cast_precision_loss)]
+            #[allow(clippy::cast_sign_loss)]
+            #[allow(clippy::cast_possible_truncation)]
+            #[allow(clippy::as_conversions)]
             fn from_truncated(x: $from) -> CastResult<Self> {
                 let new = x as $to;
                 let old = new as $from;
@@ -533,16 +547,19 @@ impl_cast_float_to_int_lossy!(f64, u64);
 // TODO there are plenty of cases where this isn't lossy, but it's not clear
 // where the line should be drawn
 impl NumCast<f64> for f32 {
+    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::float_cmp)]
+    #[allow(clippy::as_conversions)]
     fn from_truncated(x: f64) -> CastResult<Self> {
-        let new = x as f32;
-        let old = new as f64;
+        let new = x as Self;
+        let old = f64::from(new);
         CastResult::new::<f64>(new, old != x)
     }
 }
 
 impl_cast_noloss!(f64, f64);
 
-pub(crate) fn cast_nbytes(x: CastResult<u64>) -> u32 {
+pub(crate) fn cast_nbytes(x: &CastResult<u64>) -> u32 {
     u8::from(Chars::from_u64(x.new)).into()
 }
 
@@ -567,56 +584,56 @@ mod tests {
     // only test lossy cases, assume the others will simply noop
 
     #[test]
-    fn test_u16_to_u8() {
+    fn u16_to_u8() {
         assert_eq!(u8::from_truncated(1_u16).lossy, None);
         assert_eq!(
-            u8::from_truncated(256_u16),
-            CastResult::new::<u16>(255, true)
+            u8::from_truncated(0x100_u16),
+            CastResult::new::<u16>(0xFF, true)
         );
     }
 
     #[test]
-    fn test_u32_to_u8() {
+    fn u32_to_u8() {
         assert_eq!(u8::from_truncated(1_u32).lossy, None);
         assert_eq!(
-            u8::from_truncated(256_u32),
-            CastResult::new::<u32>(255, true)
+            u8::from_truncated(0x100_u32),
+            CastResult::new::<u32>(0xFF, true)
         );
     }
 
     #[test]
-    fn test_u64_to_u8() {
+    fn u64_to_u8() {
         assert_eq!(u8::from_truncated(1_u64).lossy, None);
         assert_eq!(
-            u8::from_truncated(256_u64),
-            CastResult::new::<u64>(255, true)
+            u8::from_truncated(0x100_u64),
+            CastResult::new::<u64>(0xFF, true)
         );
     }
 
     #[test]
-    fn test_u32_to_u16() {
+    fn u32_to_u16() {
         assert_eq!(u16::from_truncated(1_u32).lossy, None);
         assert_eq!(
-            u16::from_truncated(65536_u32),
-            CastResult::new::<u32>(65535, true)
+            u16::from_truncated(0x0001_0000_u32),
+            CastResult::new::<u32>(0xFFFF, true)
         );
     }
 
     #[test]
-    fn test_u64_to_u16() {
+    fn u64_to_u16() {
         assert_eq!(u16::from_truncated(1_u64).lossy, None);
         assert_eq!(
-            u16::from_truncated(65536_u64),
-            CastResult::new::<u64>(65535, true)
+            u16::from_truncated(0x0001_0000_u64),
+            CastResult::new::<u64>(0xFFFF, true)
         );
     }
 
     #[test]
-    fn test_u64_to_u32() {
+    fn u64_to_u32() {
         assert_eq!(u32::from_truncated(1_u64).lossy, None);
         assert_eq!(
-            u32::from_truncated(4294967296_u64),
-            CastResult::new::<u64>(4294967295, true)
+            u32::from_truncated(0x0001_0000_0000_u64),
+            CastResult::new::<u64>(0xFFFF_FFFF, true)
         );
     }
 
@@ -624,42 +641,42 @@ mod tests {
     // start rounding to nearest even number (and beyond as we get higher)
 
     #[test]
-    fn test_u32_to_f32() {
+    fn u32_to_f32() {
         assert_eq!(
             f32::from_truncated(1_u32),
             CastResult::new::<u64>(1.0, false)
         );
         assert_eq!(
-            f32::from_truncated(16777216_u32),
-            CastResult::new::<u32>(16777216.0, false)
+            f32::from_truncated(0x0100_0000_u32),
+            CastResult::new::<u32>(16_777_216.0, false)
         );
         assert_eq!(
-            f32::from_truncated(16777217_u32),
-            CastResult::new::<u32>(16777216.0, true)
+            f32::from_truncated(0x0100_0001_u32),
+            CastResult::new::<u32>(16_777_216.0, true)
         );
         assert_eq!(
-            f32::from_truncated(16777218_u32),
-            CastResult::new::<u32>(16777218.0, false)
+            f32::from_truncated(0x0100_0002_u32),
+            CastResult::new::<u32>(16_777_218.0, false)
         );
     }
 
     #[test]
-    fn test_u64_to_f32() {
+    fn u64_to_f32() {
         assert_eq!(
             f32::from_truncated(1_u64),
-            CastResult::new::<u64>(1.0, false)
+            CastResult::new::<u64>(1.0_f32, false)
         );
         assert_eq!(
-            f32::from_truncated(16777216_u64),
-            CastResult::new::<u64>(16777216.0, false)
+            f32::from_truncated(0x0100_0000_u64),
+            CastResult::new::<u64>(16_777_216.0_f32, false)
         );
         assert_eq!(
-            f32::from_truncated(16777217_u64),
-            CastResult::new::<u64>(16777216.0, true)
+            f32::from_truncated(0x0100_0001_u64),
+            CastResult::new::<u64>(16_777_216.0_f32, true)
         );
         assert_eq!(
-            f32::from_truncated(16777218_u64),
-            CastResult::new::<u64>(16777218.0, false)
+            f32::from_truncated(0x0100_0002_u64),
+            CastResult::new::<u64>(16_777_218.0_f32, false)
         );
     }
 
@@ -667,22 +684,22 @@ mod tests {
     // start rounding to nearest even number (and beyond as we get higher)
 
     #[test]
-    fn test_u64_to_f64() {
+    fn u64_to_f64() {
         assert_eq!(
             f64::from_truncated(1_u64),
-            CastResult::new::<u64>(1.0, false)
+            CastResult::new::<u64>(1.0_f64, false)
         );
         assert_eq!(
-            f64::from_truncated(9007199254740992_u64),
-            CastResult::new::<u64>(9007199254740992.0, false)
+            f64::from_truncated(0x0020_0000_0000_0000_u64),
+            CastResult::new::<u64>(9_007_199_254_740_992.0_f64, false)
         );
         assert_eq!(
-            f64::from_truncated(9007199254740993_u64),
-            CastResult::new::<u64>(9007199254740992.0, true)
+            f64::from_truncated(0x0020_0000_0000_0001_u64),
+            CastResult::new::<u64>(9_007_199_254_740_992.0_f64, true)
         );
         assert_eq!(
-            f64::from_truncated(9007199254740994_u64),
-            CastResult::new::<u64>(9007199254740994.0, false)
+            f64::from_truncated(0x0020_0000_0000_0002_u64),
+            CastResult::new::<u64>(9_007_199_254_740_994.0_f64, false)
         );
     }
 
@@ -696,10 +713,12 @@ mod tests {
                 $int::from_truncated(zero),
                 CastResult::new::<$float>(0, false)
             );
-            assert_eq!(
-                $int::from_truncated($int::MAX as $float),
-                CastResult::new::<$float>($int::MAX, false)
-            );
+            #[allow(clippy::cast_possible_truncation)]
+            #[allow(clippy::cast_precision_loss)]
+            #[allow(clippy::cast_lossless)]
+            #[allow(clippy::as_conversions)]
+            let x = $int::from_truncated($int::MAX as $float);
+            assert_eq!(x, CastResult::new::<$float>($int::MAX, false));
             assert_eq!(
                 $int::from_truncated(nonzero),
                 CastResult::new::<$float>(1, true)
@@ -724,47 +743,47 @@ mod tests {
     }
 
     #[test]
-    fn test_f32_to_u8() {
+    fn f32_to_u8() {
         test_float_to_int!(f32, u8);
     }
 
     #[test]
-    fn test_f32_to_u16() {
+    fn f32_to_u16() {
         test_float_to_int!(f32, u16);
     }
 
     #[test]
-    fn test_f32_to_u32() {
+    fn f32_to_u32() {
         test_float_to_int!(f32, u32);
     }
 
     #[test]
-    fn test_f32_to_u64() {
+    fn f32_to_u64() {
         test_float_to_int!(f32, u64);
     }
 
     #[test]
-    fn test_f64_to_u8() {
+    fn f64_to_u8() {
         test_float_to_int!(f64, u8);
     }
 
     #[test]
-    fn test_f64_to_u16() {
+    fn f64_to_u16() {
         test_float_to_int!(f64, u16);
     }
 
     #[test]
-    fn test_f64_to_u32() {
+    fn f64_to_u32() {
         test_float_to_int!(f64, u32);
     }
 
     #[test]
-    fn test_f64_to_u64() {
+    fn f64_to_u64() {
         test_float_to_int!(f64, u64);
     }
 
     #[test]
-    fn test_f64_to_f32() {
+    fn f64_to_f32() {
         // this should obviously pass
         assert_eq!(
             f32::from_truncated(0.0_f64),
@@ -774,12 +793,12 @@ mod tests {
         // going above this will start to induce rounding errors that don't
         // happen in f64
         assert_eq!(
-            f32::from_truncated(16777216.0_f64),
-            CastResult::new::<f64>(16777216.0, false)
+            f32::from_truncated(16_777_216.0_f64),
+            CastResult::new::<f64>(16_777_216.0, false)
         );
         assert_eq!(
-            f32::from_truncated(16777217.0_f64),
-            CastResult::new::<f64>(16777216.0, true)
+            f32::from_truncated(16_777_217.0_f64),
+            CastResult::new::<f64>(16_777_216.0, true)
         );
         // this is a decimal that can be represented perfectly in both
         assert_eq!(

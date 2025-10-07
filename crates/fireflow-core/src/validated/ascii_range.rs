@@ -1,6 +1,6 @@
 //! Types representing $PnR/$PnB keys for an Ascii column.
 
-use crate::error::{DeferredExt, DeferredResult, ResultExt};
+use crate::error::{DeferredExt as _, DeferredResult, ResultExt as _};
 use crate::text::byteord::{Width, WidthToCharsError};
 use crate::text::keywords::{IntRangeError, Range};
 
@@ -22,7 +22,7 @@ pub struct AsciiRange {
 
     /// Number of chars used to express this range.
     ///
-    /// Must be able to hold ['value'] in ASCII digits but can be greater.
+    /// Must be able to hold `value` in ASCII digits but can be greater.
     chars: Chars,
 }
 
@@ -47,7 +47,7 @@ impl TryFrom<Range> for Chars {
     type Error = IntRangeError<u64>;
 
     fn try_from(value: Range) -> Result<Self, Self::Error> {
-        u64::try_from(value).map(Chars::from_u64)
+        u64::try_from(value).map(Self::from_u64)
     }
 }
 
@@ -68,7 +68,7 @@ impl AsciiRange {
     pub fn try_new(value: u64, chars: Chars) -> Result<Self, NotEnoughCharsError> {
         let needed = Chars::from_u64(value);
         if chars < needed {
-            Err(NotEnoughCharsError { value, chars })
+            Err(NotEnoughCharsError { chars, value })
         } else {
             Ok(Self { value, chars })
         }
@@ -88,13 +88,13 @@ impl AsciiRange {
     pub(crate) fn from_width_and_range(
         width: Width,
         range: Range,
-        notrunc: bool,
+        disallow_trunc: bool,
     ) -> DeferredResult<Self, IntRangeError<()>, NewAsciiRangeError> {
         Chars::try_from(width)
             .into_deferred()
             .def_and_maybe(|chars| {
                 range
-                    .into_uint(notrunc)
+                    .into_uint(disallow_trunc)
                     .inner_into()
                     .and_maybe(|value| Self::try_new(value, chars).into_deferred())
             })
@@ -104,6 +104,7 @@ impl AsciiRange {
         self.chars
     }
 
+    #[must_use]
     pub fn value(&self) -> u64 {
         self.value
     }
@@ -113,9 +114,9 @@ impl Chars {
     /// Return number of chars needed to express the given u64.
     pub(crate) fn from_u64(x: u64) -> Self {
         // ASSUME the max possible value is 20 thus will always fit in u8
-        Chars(
+        Self(
             x.checked_ilog10()
-                .map(|y| y as u8)
+                .map(|y| u8::try_from(y).unwrap())
                 .and_then(|y| NonZero::new(y + 1))
                 .unwrap_or(NonZeroU8::MIN),
         )
@@ -152,8 +153,8 @@ impl TryFrom<NonZeroU8> for Chars {
 }
 
 impl Default for OtherWidth {
-    fn default() -> OtherWidth {
-        OtherWidth(Chars(NonZeroU8::new(8).unwrap()))
+    fn default() -> Self {
+        Self(Chars(NonZeroU8::new(8).unwrap()))
     }
 }
 
@@ -194,7 +195,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_u8_to_chars() {
+    fn u8_to_chars() {
         assert!(Chars::try_from(1_u8).is_ok());
         assert!(Chars::try_from(0_u8).is_err());
         assert!(Chars::try_from(20_u8).is_ok());

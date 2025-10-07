@@ -1,13 +1,14 @@
 use crate::config::StdTextReadConfig;
-use crate::error::ErrorIter;
-use crate::validated::shortname::*;
+use crate::error::ErrorIter as _;
+use crate::validated::shortname::Shortname;
 
 use super::index::MeasIndex;
 use super::named_vec::NameMapping;
 use super::parser::{FromStrStateful, LinkedNameError, OptLinkedKey};
 
 use derive_more::{AsRef, Display, From};
-use itertools::Itertools;
+use derive_new::new;
+use itertools::Itertools as _;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
 use std::collections::HashSet;
@@ -23,7 +24,7 @@ use serde::Serialize;
 pub type Spillover = GenericSpillover<Shortname>;
 
 /// The spillover matrix from the $SPILLOVER keyword (3.1+)
-#[derive(Clone, AsRef, PartialEq, Debug)]
+#[derive(Clone, AsRef, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct GenericSpillover<T> {
     /// The measurements in the spillover matrix.
@@ -137,23 +138,23 @@ impl<T> GenericSpillover<T> {
                 .collect::<Result<Vec<_>, _>>()?;
             let values: Vec<_> = xs.collect();
             let total = measurements.len() + values.len();
-            if total != expected {
-                Err(ParseGenericSpilloverError::WrongLength { total, expected })?
-            } else {
-                let fvalues: Vec<_> = values
+            if total == expected {
+                if let Ok(fvalues) = values
                     .into_iter()
-                    .filter_map(|x| x.parse::<f32>().ok())
-                    .collect();
-                if fvalues.len() != nn {
-                    Err(ParseGenericSpilloverError::BadFloat)?
-                } else {
+                    .map(str::parse::<f32>)
+                    .collect::<Result<Vec<_>, _>>()
+                {
                     let matrix = DMatrix::from_row_iterator(n, n, fvalues);
                     Ok(Self::try_new(measurements, matrix)
                         .map_err(ParseGenericSpilloverError::New)?)
+                } else {
+                    Err(ParseGenericSpilloverError::BadFloat.into())
                 }
+            } else {
+                Err(ParseGenericSpilloverError::WrongLength { total, expected }.into())
             }
         } else {
-            Err(ParseGenericSpilloverError::BadN)?
+            Err(ParseGenericSpilloverError::BadN.into())
         }
     }
 
@@ -163,9 +164,9 @@ impl<T> GenericSpillover<T> {
         F: Fn(&str) -> Result<T, EM>,
         T: Eq + Hash,
     {
-        let it = s.split(",");
+        let it = s.split(',');
         if trim_intra {
-            Self::from_iter(it.map(|x| x.trim()), parse_meas)
+            Self::from_iter(it.map(str::trim), parse_meas)
         } else {
             Self::from_iter(it, parse_meas)
         }
@@ -202,7 +203,7 @@ impl FromStrStateful for Spillover {
             )?;
             Ok(m.try_into_named(ordered_names)?)
         } else {
-            let m = s.parse::<Spillover>()?;
+            let m = s.parse::<Self>()?;
             m.check_link(names)?;
             Ok(m)
         }
@@ -214,7 +215,7 @@ impl FromStr for Spillover {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         {
-            GenericSpillover::from_str(s, false, |m| Ok(Shortname::new_unchecked(m)))
+            Self::from_str(s, false, |m| Ok(Shortname::new_unchecked(m)))
         }
     }
 }
@@ -266,7 +267,7 @@ impl OptLinkedKey for Spillover {
 
     fn reassign(&mut self, mapping: &NameMapping) {
         // ASSUME mapping is such that new names will be unique
-        for n in self.measurements.iter_mut() {
+        for n in &mut self.measurements {
             if let Some(new) = mapping.get(n) {
                 *n = (*new).clone();
             }
@@ -280,24 +281,24 @@ mod tests {
     use crate::test::*;
 
     #[test]
-    fn test_str_compensation() {
+    fn str_compensation() {
         assert_from_to_str::<Spillover>("2,X,Y,0,0,0,0");
         assert_from_to_str::<Spillover>("3,X,Y,Z,0,0,0,0,0,0,0,0,0");
         assert_from_to_str::<Spillover>("2,X,Y,1.1,1,0,-1.5");
     }
 
     #[test]
-    fn test_str_compensation_unique() {
+    fn str_compensation_unique() {
         assert!("3,Y,Y,Z,0,0,0,0,0,0,0,0,0".parse::<Spillover>().is_err());
     }
 
     #[test]
-    fn test_str_compensation_toosmall() {
+    fn str_compensation_toosmall() {
         assert!("1,potato,0".parse::<Spillover>().is_err());
     }
 
     #[test]
-    fn test_str_compensation_name_length() {
+    fn str_compensation_name_length() {
         assert!("2,moody,padfoot,prongs,0,0,0,0"
             .parse::<Spillover>()
             .is_err());
@@ -311,7 +312,7 @@ mod python {
 
     use super::{NewSpilloverError, Spillover};
 
-    use numpy::{PyReadonlyArray2, ToPyArray};
+    use numpy::{PyReadonlyArray2, ToPyArray as _};
     use pyo3::{prelude::*, types::PyTuple};
 
     // TODO is this ok?

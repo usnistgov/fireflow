@@ -1,25 +1,36 @@
 use crate::config::{HeaderConfigInner, ReadState};
-use crate::error::*;
-use crate::segment::*;
-use crate::text::keywords::*;
-use crate::text::parser::*;
-use crate::validated::ascii_uint::*;
-use crate::validated::keys::*;
+use crate::error::{ErrorIter as _, ImpureError, MultiResult, MultiResultExt as _, ResultExt as _};
+use crate::segment::{
+    GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderCorrection,
+    HeaderDataSegment, HeaderSegment, HeaderSegmentError, NewSegmentConfig, OffsetCorrection,
+    OtherSegment, OtherSegment20, PrimaryTextSegment, Segment, SegmentOverlapError,
+    SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment, TEXTSegment,
+};
+use crate::text::keywords::{
+    Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, Nextdata,
+};
+use crate::text::parser::ReqMetarootKey as _;
+use crate::validated::ascii_uint::{
+    HeaderString, Uint8DigitOverflow, UintSpacePad20, UintSpacePad8, UintZeroPad20,
+};
+use crate::validated::keys::Key as _;
 use crate::validated::textdelim::TEXTDelim;
 
 use super::core::Other;
 
 use derive_more::{Display, From};
 use derive_new::new;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use num_traits::identities::Zero;
+use std::iter::once;
+use thiserror::Error;
+
 use std::fmt;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::iter::repeat;
 use std::str;
-use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -86,7 +97,7 @@ impl<T> HeaderSegments<T> {
         // ASSUME this is a total of 58 bytes long (sans OTHER)
         for s in [
             version.to_string(),           // 6 bytes
-            "    ".to_string(),            // 4 bytes
+            "    ".into(),                 // 4 bytes
             self.text.header_string(),     // 16 bytes
             self.data.header_string(),     // 16 bytes
             self.analysis.header_string(), // 16 bytes
@@ -94,7 +105,7 @@ impl<T> HeaderSegments<T> {
         .into_iter()
         // TODO the other segments will each be 20 chars wide and padded with 0,
         // which is probably overkill
-        .chain(self.other.iter().map(|x| x.header_string()))
+        .chain(self.other.iter().map(Segment::header_string))
         {
             h.write_all(s.as_bytes())?;
         }
@@ -102,9 +113,10 @@ impl<T> HeaderSegments<T> {
     }
 
     /// Check if TEXT segment starts within HEADER
-    pub(crate) fn contains_text_segment<I>(&self, s: TEXTSegment<I>) -> Result<(), InHeaderError>
+    pub(crate) fn contains_text_segment<I>(&self, s: &TEXTSegment<I>) -> Result<(), InHeaderError>
     where
         I: HasRegion,
+        T: HeaderString,
     {
         s.try_as_generic()
             .map_or(Ok(()), |q| self.contains_segment(q))
@@ -113,7 +125,10 @@ impl<T> HeaderSegments<T> {
     /// Check if TEXT segment overlaps with any in HEADER.
     ///
     /// Assume HEADER itself has no overlapping segments.
-    pub(crate) fn overlaps_with<I>(&self, s: TEXTSegment<I>) -> MultiResult<(), SegmentOverlapError>
+    pub(crate) fn overlaps_with<I>(
+        &self,
+        s: &TEXTSegment<I>,
+    ) -> MultiResult<(), SegmentOverlapError>
     where
         I: HasRegion,
         T: Copy + Into<u64>,
@@ -128,7 +143,7 @@ impl<T> HeaderSegments<T> {
     /// Ensure HEADER segments don't overlap and start after HEADER itself
     fn validate(&self) -> MultiResult<(), HeaderValidationError>
     where
-        T: Copy + Into<u64>,
+        T: Copy + Into<u64> + HeaderString,
     {
         let x = self.overlapping_segments().mult_errors_into();
         let y = self.contains_header_segments().mult_errors_into();
@@ -137,25 +152,22 @@ impl<T> HeaderSegments<T> {
 
     fn contains_header_segments(&self) -> MultiResult<(), InHeaderError>
     where
-        T: Copy + Into<u64>,
+        T: Copy + Into<u64> + HeaderString,
     {
-        let t = self.contains_header_segment(self.text);
-        let d = self.contains_header_segment(self.data);
-        let a = self.contains_header_segment(self.analysis);
+        let t = self.contains_header_segment(&self.text);
+        let d = self.contains_header_segment(&self.data);
+        let a = self.contains_header_segment(&self.analysis);
         let os = self
             .other
             .iter()
-            .copied()
             .map(|o| self.contains_header_segment(o))
             .gather();
         t.zip3(d, a).mult_zip(os).void()
     }
 
-    fn contains_header_segment<I, S, T0>(
-        &self,
-        s: SpecificSegment<I, S, T0>,
-    ) -> Result<(), InHeaderError>
+    fn contains_header_segment<I, S, T0>(&self, s: &Segment<I, S, T0>) -> Result<(), InHeaderError>
     where
+        T: HeaderString,
         I: HasRegion,
         S: HasSource,
         T0: Into<u64> + Copy,
@@ -164,7 +176,10 @@ impl<T> HeaderSegments<T> {
             .map_or(Ok(()), |q| self.contains_segment(q))
     }
 
-    fn contains_segment(&self, s: GenericSegment) -> Result<(), InHeaderError> {
+    fn contains_segment(&self, s: GenericSegment) -> Result<(), InHeaderError>
+    where
+        T: HeaderString,
+    {
         if s.begin < self.nbytes() {
             Err(InHeaderError(s))
         } else {
@@ -180,8 +195,11 @@ impl<T> HeaderSegments<T> {
     }
 
     /// Return number of bytes required to encode HEADER
-    fn nbytes(&self) -> u64 {
-        u64::from(HEADER_LEN) + (self.other.len() as u64) * 16
+    fn nbytes(&self) -> u64
+    where
+        T: HeaderString,
+    {
+        HeaderKeywordsToWrite::<T>::header_len(self.other.len())
     }
 
     fn as_generics(&self) -> impl Iterator<Item = GenericSegment>
@@ -224,12 +242,8 @@ impl Header {
         C: AsRef<HeaderConfigInner>,
         R: Read,
     {
-        h_read_required_header(h, st).and_then(|(version, text, data, analysis)| {
-            [
-                text.inner.try_coords(),
-                data.inner.try_coords(),
-                analysis.inner.try_coords(),
-            ]
+        let (version, text, data, analysis) = h_read_required_header(h, st)?;
+        let hdr = [text.try_coords(), data.try_coords(), analysis.try_coords()]
             .iter()
             .flatten()
             .map(|(x, _)| x)
@@ -245,16 +259,13 @@ impl Header {
                     analysis,
                     other,
                 },
-            })
-            .and_then(|hdr| {
-                hdr.segments
-                    .validate()
-                    .mult_map_errors(Box::new)
-                    .mult_map_errors(HeaderError::Validation)
-                    .mult_map_errors(ImpureError::Pure)?;
-                Ok(hdr)
-            })
-        })
+            })?;
+        hdr.segments
+            .validate()
+            .mult_map_errors(Box::new)
+            .mult_map_errors(HeaderError::Validation)
+            .mult_map_errors(ImpureError::Pure)?;
+        Ok(hdr)
     }
 }
 
@@ -342,13 +353,14 @@ where
     let w = u8::from(conf.other_width);
     let mut buf0 = vec![];
     let mut buf1 = vec![];
-    let n_segs = (n / (u64::from(w) * 2)) as usize;
+    // ASSUME this will never fail, if it does I'll be impressed ;)
+    let n_segs = usize::try_from(n / (u64::from(w) * 2)).unwrap();
 
     conf.other_corrections
         .iter()
         .copied()
         .chain(repeat(OffsetCorrection::default()))
-        .take(conf.max_other.map(|x| x.min(n_segs)).unwrap_or(n_segs))
+        .take(conf.max_other.map_or(n_segs, |x| x.min(n_segs)))
         .map(|corr| {
             buf0.clear();
             buf1.clear();
@@ -379,6 +391,7 @@ impl Version {
         let mut buf = [0; 6];
         h.read_exact(&mut buf)?;
         if buf.is_ascii() {
+            // SAFETY: we just checked that all bytes are ASCII
             let s = unsafe { str::from_utf8_unchecked(&buf) };
             s.parse().map_err(ImpureError::Pure)
         } else {
@@ -386,6 +399,7 @@ impl Version {
         }
     }
 
+    #[must_use]
     pub fn short(&self) -> &'static str {
         match self {
             Self::FCS2_0 => "2.0",
@@ -395,6 +409,7 @@ impl Version {
         }
     }
 
+    #[must_use]
     pub fn short_underscore(&self) -> &'static str {
         match self {
             Self::FCS2_0 => "2_0",
@@ -404,6 +419,7 @@ impl Version {
         }
     }
 
+    #[must_use]
     pub fn from_short(s: &str) -> Option<Self> {
         match s {
             "2.0" => Some(Self::FCS2_0),
@@ -414,6 +430,7 @@ impl Version {
         }
     }
 
+    #[must_use]
     pub fn from_short_underscore(s: &str) -> Option<Self> {
         match s {
             "2_0" => Some(Self::FCS2_0),
@@ -493,38 +510,35 @@ impl<T> HeaderKeywordsToWrite<T> {
         opt: Vec<(String, String)>,
         data_len: u64,
         analysis_len: u64,
-        other_lens: Vec<u64>,
+        other_lens: &[u64],
         has_nextdata: bool,
-    ) -> Result<HeaderKeywordsToWrite<T>, Uint8DigitOverflow>
+    ) -> Result<Self, Uint8DigitOverflow>
     where
         T: TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
     {
-        let other_header_len = Self::other_header_len(&other_lens[..]);
+        let text_begin = Self::header_len(other_lens.len());
 
-        let text_begin = u64::from(HEADER_LEN) + other_header_len;
         // +1 at end accounts for first delimiter
         let text_len: u64 =
             raw_keywords_length(&req[..]) + raw_keywords_length(&opt[..]) + nextdata_len() + 1;
         let text_seg = PrimaryTextSegment::try_new_with_len(text_begin, text_len)?;
 
-        let other_begin = text_seg.inner.try_next_byte().map_or(text_begin, u64::from);
-        let (other_segs, data_begin) = Self::other_segments(other_begin, &other_lens[..])?;
+        let other_begin = text_seg.try_next_byte().map_or(text_begin, u64::from);
+        let (other_segs, data_begin) = Self::other_segments(other_begin, other_lens)?;
 
         let data_seg = HeaderDataSegment::try_new_with_len(data_begin, data_len)?;
 
-        let analysis_begin = data_seg.inner.try_next_byte().map_or(text_begin, u64::from);
+        let analysis_begin = data_seg.try_next_byte().map_or(text_begin, u64::from);
         let analysis_seg = HeaderAnalysisSegment::try_new_with_len(analysis_begin, analysis_len)?;
 
-        let nextdata = Nextdata(if !has_nextdata {
-            UintZeroPad20(0)
-        } else {
+        let nextdata = Nextdata(if has_nextdata {
             UintZeroPad20(
                 analysis_seg
-                    .inner
                     .try_next_byte()
-                    .map(u64::from)
-                    .unwrap_or(analysis_begin),
+                    .map_or(analysis_begin, u64::from),
             )
+        } else {
+            UintZeroPad20(0)
         });
 
         let header = HeaderSegments {
@@ -534,15 +548,9 @@ impl<T> HeaderKeywordsToWrite<T> {
             other: other_segs,
         };
 
-        let primary = KeywordsWriter(
-            [nextdata.pair()]
-                .into_iter()
-                .chain(req)
-                .chain(opt)
-                .collect(),
-        );
+        let primary = KeywordsWriter(once(nextdata.pair()).chain(req).chain(opt).collect());
 
-        Ok(HeaderKeywordsToWrite {
+        Ok(Self {
             header,
             primary,
             supplemental: KeywordsWriter::default(),
@@ -559,14 +567,13 @@ impl<T> HeaderKeywordsToWrite<T> {
         opt: Vec<(String, String)>,
         data_len: u64,
         analysis_len: u64,
-        other_lens: Vec<u64>,
+        other_lens: &[u64],
         has_nextdata: bool,
-    ) -> Result<HeaderKeywordsToWrite<T>, Uint8DigitOverflow>
+    ) -> Result<Self, Uint8DigitOverflow>
     where
         T: TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
     {
-        let other_header_len = Self::other_header_len(&other_lens[..]);
-        let prim_text_begin = u64::from(HEADER_LEN) + other_header_len;
+        let prim_text_begin = Self::header_len(other_lens.len());
 
         let nooffset_req_text_len = raw_keywords_length(&req[..]);
         let opt_text_len = raw_keywords_length(&opt[..]);
@@ -577,11 +584,7 @@ impl<T> HeaderKeywordsToWrite<T> {
 
         let make_text_seg = |len| {
             PrimaryTextSegment::try_new_with_len(prim_text_begin, len).map(|seg| {
-                let other_begin = seg
-                    .inner
-                    .try_next_byte()
-                    .map(u64::from)
-                    .unwrap_or(prim_text_begin);
+                let other_begin = seg.try_next_byte().map_or(prim_text_begin, u64::from);
                 (seg, other_begin)
             })
         };
@@ -589,53 +592,42 @@ impl<T> HeaderKeywordsToWrite<T> {
         // include STEXT only if the optional keywords don't fit within the first
         // 99,999,999 bytes
         let prim_text_res = make_text_seg(all_text_len);
-        let (prim_text_seg, other_segs, supp_text_seg, data_begin) = match prim_text_res {
-            Ok((prim_text_seg, other_begin)) => {
-                let (other_segs, next_begin) = Self::other_segments(other_begin, &other_lens[..])?;
+        let (prim_text_seg, other_segs, supp_text_seg, data_begin) =
+            if let Ok((prim_text_seg, other_begin)) = prim_text_res {
+                let (other_segs, next_begin) = Self::other_segments(other_begin, other_lens)?;
                 (
                     prim_text_seg,
                     other_segs,
                     SupplementalTextSegment::default(),
                     next_begin,
                 )
-            }
-            Err(_) => {
+            } else {
                 let (prim_text_seg, other_begin) = make_text_seg(nosupp_text_len)?;
-                let (other_segs, supp_text_begin) =
-                    Self::other_segments(other_begin, &other_lens[..])?;
+                let (other_segs, supp_text_begin) = Self::other_segments(other_begin, other_lens)?;
                 let supp_text_seg =
                     SupplementalTextSegment::new_with_len(supp_text_begin, supp_text_len);
                 let data_begin = supp_text_seg
-                    .inner
                     .try_next_byte()
-                    .map(u64::from)
-                    .unwrap_or(supp_text_begin);
+                    .map_or(supp_text_begin, u64::from);
                 (prim_text_seg, other_segs, supp_text_seg, data_begin)
-            }
-        };
+            };
 
         let data_seg = TEXTDataSegment::new_with_len(data_begin, data_len);
 
-        let analysis_begin = data_seg
-            .inner
-            .try_next_byte()
-            .map(u64::from)
-            .unwrap_or(data_begin);
+        let analysis_begin = data_seg.try_next_byte().map_or(data_begin, u64::from);
         let analysis_seg = TEXTAnalysisSegment::new_with_len(analysis_begin, analysis_len);
 
         let h_analysis_seg = analysis_seg.as_header();
         let h_data_seg = data_seg.as_header();
 
-        let nextdata = Nextdata(if !has_nextdata {
-            UintZeroPad20(0)
-        } else {
+        let nextdata = Nextdata(if has_nextdata {
             UintZeroPad20(
                 analysis_seg
-                    .inner
                     .try_next_byte()
-                    .map(u64::from)
-                    .unwrap_or(analysis_begin),
+                    .map_or(analysis_begin, u64::from),
             )
+        } else {
+            UintZeroPad20(0)
         });
 
         // NOTE in 3.2 *DATA and *SDATA are technically optional, but it is much
@@ -648,7 +640,7 @@ impl<T> HeaderKeywordsToWrite<T> {
             .chain([nextdata.pair()])
             .chain(req);
 
-        let (primary, supplemental) = if supp_text_seg.inner.is_empty() {
+        let (primary, supplemental) = if supp_text_seg.is_empty() {
             (all_req.chain(opt).collect(), vec![])
         } else {
             (all_req.collect(), opt)
@@ -661,7 +653,7 @@ impl<T> HeaderKeywordsToWrite<T> {
             other: other_segs,
         };
 
-        Ok(HeaderKeywordsToWrite {
+        Ok(Self {
             header,
             primary: KeywordsWriter(primary),
             supplemental: KeywordsWriter(supplemental),
@@ -686,7 +678,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         self.primary.h_write(h, delim.into())?;
 
         // write OTHER
-        for o in other_segs.iter() {
+        for o in other_segs {
             h.write_all(&o.0)?;
         }
 
@@ -697,11 +689,19 @@ impl<T> HeaderKeywordsToWrite<T> {
         Ok(())
     }
 
-    fn other_header_len(other_lens: &[u64]) -> u64
+    fn header_len(other_n: usize) -> u64
     where
         T: HeaderString,
     {
-        (other_lens.len() as u64) * u64::from(T::WIDTH) * 2
+        u64::from(HEADER_LEN) + Self::other_header_len(other_n)
+    }
+
+    fn other_header_len(other_n: usize) -> u64
+    where
+        T: HeaderString,
+    {
+        let n = u64::try_from(other_n).expect("OTHER segment count exceeds 2^64");
+        n * u64::from(T::WIDTH) * 2
     }
 
     #[allow(clippy::type_complexity)]
@@ -722,10 +722,9 @@ impl<T> HeaderKeywordsToWrite<T> {
             .collect::<Result<Vec<_>, _>>()?;
         let next = ret
             .iter()
-            .flat_map(|x| x.inner.try_next_byte())
+            .filter_map(Segment::try_next_byte)
             .last()
-            .map(|x| x.into())
-            .unwrap_or(begin);
+            .map_or(begin, Into::into);
         Ok((ret, next))
     }
 }
@@ -745,7 +744,8 @@ impl KeywordsWriter {
 }
 
 fn raw_keywords_length(ks: &[(String, String)]) -> u64 {
-    ks.iter().map(|(k, v)| k.len() + v.len() + 2).sum::<usize>() as u64
+    let n = ks.iter().map(|(k, v)| k.len() + v.len() + 2).sum::<usize>();
+    u64::try_from(n).expect("length of TEXT exceeds 2^64")
 }
 
 /// Length of $(BEGIN/END)(STEXT/ANALYSIS/DATA) and $NEXTDATA offset length.

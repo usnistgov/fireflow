@@ -24,7 +24,7 @@ impl From<usize> for IndexFromOne {
 
 impl From<IndexFromOne> for usize {
     fn from(value: IndexFromOne) -> Self {
-        usize::from(value.0) - 1
+        Self::from(value.0) - 1
     }
 }
 
@@ -45,21 +45,21 @@ macro_rules! newtype_index {
 }
 
 impl IndexFromOne {
-    pub(crate) fn check_index(&self, len: usize) -> Result<usize, IndexError> {
-        let i = (*self).into();
+    pub(crate) fn check_index(self, len: usize) -> Result<usize, IndexError> {
+        let i = self.into();
         if i < len {
             Ok(i)
         } else {
-            Err(IndexError { index: *self, len })
+            Err(IndexError { index: self, len })
         }
     }
 
-    pub(crate) fn check_boundary_index(&self, len: usize) -> Result<usize, BoundaryIndexError> {
-        let i = (*self).into();
+    pub(crate) fn check_boundary_index(self, len: usize) -> Result<usize, BoundaryIndexError> {
+        let i = self.into();
         if i <= len {
             Ok(i)
         } else {
-            Err(BoundaryIndexError { index: *self, len })
+            Err(BoundaryIndexError { index: self, len })
         }
     }
 }
@@ -99,7 +99,7 @@ mod tests {
     use std::num::NonZero;
 
     #[test]
-    fn test_zero() {
+    fn zero() {
         let i = 0_usize;
         let i0 = IndexFromOne::from(i);
         let i1 = usize::from(i0);

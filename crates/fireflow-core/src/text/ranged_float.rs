@@ -66,8 +66,8 @@ pub enum RangedFloatError {
 impl fmt::Display for RangedFloatError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            RangedFloatError::Parse(e) => e.fmt(f),
-            RangedFloatError::Range { x, include_zero } => {
+            Self::Parse(e) => e.fmt(f),
+            Self::Range { x, include_zero } => {
                 let gt = if *include_zero {
                     "greater than/equal to"
                 } else {
@@ -84,14 +84,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_positive_float() {
+    fn positive_float() {
         assert!(PositiveFloat::try_from(1.0_f32).is_ok());
         assert!(PositiveFloat::try_from(0.0_f32).is_err());
         assert!(PositiveFloat::try_from(-1.0_f32).is_err());
     }
 
     #[test]
-    fn test_non_neg_float() {
+    fn non_neg_float() {
         assert!(NonNegFloat::try_from(1.0_f32).is_ok());
         assert!(NonNegFloat::try_from(0.0_f32).is_ok());
         assert!(NonNegFloat::try_from(-1.0_f32).is_err());

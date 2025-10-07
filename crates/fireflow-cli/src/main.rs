@@ -1,7 +1,9 @@
-use fireflow_core::api::*;
+use fireflow_core::api::{
+    fcs_read_header, fcs_read_raw_text, fcs_read_std_dataset, fcs_read_std_text,
+};
 use fireflow_core::config;
 use fireflow_core::core::AnyCoreDataset;
-use fireflow_core::error::*;
+use fireflow_core::error::{Terminal, TerminalFailure};
 use fireflow_core::header::Version;
 use fireflow_core::segment::HeaderCorrection;
 use fireflow_core::text::byteord::ByteOrd2_0;
@@ -17,6 +19,7 @@ use std::convert::Infallible;
 use std::fmt::Display;
 use std::path::PathBuf;
 
+#[allow(clippy::too_many_lines)]
 fn main() -> Result<(), ()> {
     let correction_arg = |long: &'static str, help: &'static str| {
         Arg::new(long)
@@ -217,6 +220,11 @@ fn main() -> Result<(), ()> {
 
     let allow_unused_standard = flag_arg(ALLOW_UNUSED_STANDARD, "allow unused standard keywords");
 
+    let allow_optional_dropping = flag_arg(
+        ALLOW_OPTIONAL_DROPPING,
+        "drop optional keys if they cause an error",
+    );
+
     let disallow_deprecated = flag_arg(
         DISALLOW_DEPRECATED,
         "throw error if any deprecated keywords are present",
@@ -257,6 +265,7 @@ fn main() -> Result<(), ()> {
         time_pattern,
         allow_pseudostandard,
         allow_unused_standard,
+        allow_optional_dropping,
         disallow_deprecated,
         fix_log_scale_offset,
         ns_meas_pattern,
@@ -362,7 +371,9 @@ fn main() -> Result<(), ()> {
 
     let warnings_are_errors = flag_arg(WARNINGS_ARE_ERRORS, "treat all warnings as fatal errors");
 
-    let all_shared_args = [warnings_are_errors];
+    let hide_warnings = flag_arg(HIDE_WARNINGS, "hide all warnings");
+
+    let all_shared_args = [warnings_are_errors, hide_warnings];
 
     // other args
 
@@ -509,10 +520,10 @@ fn main() -> Result<(), ()> {
 }
 
 fn parse_header_config(sargs: &ArgMatches) -> config::HeaderConfigInner {
-    fn get_correction<I>(s: &ArgMatches, b: &str, e: &str) -> HeaderCorrection<I> {
-        let x = s.get_one(b).copied();
-        let y = s.get_one(e).copied();
-        (x, y).into()
+    fn get_correction<I>(am: &ArgMatches, x0: &str, x1: &str) -> HeaderCorrection<I> {
+        let y0 = am.get_one(x0).copied();
+        let y1 = am.get_one(x1).copied();
+        (y0, y1).into()
     }
     let text_correction = get_correction(sargs, TEXT_COR_BEGIN, TEXT_COR_END);
     let data_correction = get_correction(sargs, DATA_COR_BEGIN, DATA_COR_END);
@@ -614,6 +625,7 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::StdTextReadConfig {
         time_pattern,
         allow_pseudostandard: sargs.get_flag(ALLOW_PSEUDOSTANDARD),
         allow_unused_standard: sargs.get_flag(ALLOW_UNUSED_STANDARD),
+        allow_optional_dropping: sargs.get_flag(ALLOW_OPTIONAL_DROPPING),
         disallow_deprecated: sargs.get_flag(DISALLOW_DEPRECATED),
         fix_log_scale_offsets: sargs.get_flag(FIX_LOG_SCALE_OFFSETS),
         nonstandard_measurement_pattern,
@@ -649,13 +661,13 @@ fn parse_dataset_config(sargs: &ArgMatches) -> config::ReadStdDatasetConfig {
 }
 
 fn parse_offsets_config(sargs: &ArgMatches) -> config::ReadTEXTOffsetsConfig {
-    let td0 = sargs.get_one(TEXT_DATA_COR_BEGIN).copied();
-    let td1 = sargs.get_one(TEXT_DATA_COR_END).copied();
-    let text_data_correction = (td0, td1).into();
+    let data_corr0 = sargs.get_one(TEXT_DATA_COR_BEGIN).copied();
+    let data_corr1 = sargs.get_one(TEXT_DATA_COR_END).copied();
+    let text_data_correction = (data_corr0, data_corr1).into();
 
-    let ta0 = sargs.get_one(TEXT_ANALYSIS_COR_BEGIN).copied();
-    let ta1 = sargs.get_one(TEXT_ANALYSIS_COR_END).copied();
-    let text_analysis_correction = (ta0, ta1).into();
+    let anal_corr0 = sargs.get_one(TEXT_ANALYSIS_COR_BEGIN).copied();
+    let anal_corr1 = sargs.get_one(TEXT_ANALYSIS_COR_END).copied();
+    let text_analysis_correction = (anal_corr0, anal_corr1).into();
 
     config::ReadTEXTOffsetsConfig {
         text_data_correction,
@@ -689,6 +701,7 @@ fn parse_dataset_inner_config(sargs: &ArgMatches) -> config::ReaderConfig {
 fn parse_shared_config(sargs: &ArgMatches) -> config::SharedConfig {
     config::SharedConfig {
         warnings_are_errors: sargs.get_flag(WARNINGS_ARE_ERRORS),
+        hide_warnings: sargs.get_flag(HIDE_WARNINGS),
     }
 }
 
@@ -720,9 +733,7 @@ pub fn print_parsed_data(core: &AnyCoreDataset, delim: &str) {
     for r in 0..nrows {
         println!();
         print!("{}", cols[0].pos_to_string(r));
-        (1..ncols)
-            .map(|c| print!("{delim}{}", cols[c].pos_to_string(r)))
-            .collect()
+        (1..ncols).for_each(|c| print!("{delim}{}", cols[c].pos_to_string(r)));
     }
 }
 
@@ -739,7 +750,7 @@ where
     W: Display,
 {
     for w in ws {
-        eprintln!("WARNING: {}", w)
+        eprintln!("WARNING: {w}");
     }
 }
 
@@ -849,6 +860,8 @@ const TIME_PATTERN: &str = "time-pattern";
 
 const WARNINGS_ARE_ERRORS: &str = "warnings-are-errors";
 
+const HIDE_WARNINGS: &str = "hide-warnings";
+
 const TRIM_INTRA_VALUE_WHITESPACE: &str = "trim-intra-value-whitespace";
 
 const TIME_MEAS_PATTERN: &str = "time-meas-pattern";
@@ -866,6 +879,8 @@ const IGNORE_TIME_OPTICAL_KEYS: &str = "ignore-time-optical-keys";
 const ALLOW_PSEUDOSTANDARD: &str = "allow-pseudostandard";
 
 const ALLOW_UNUSED_STANDARD: &str = "allow-unused-standard";
+
+const ALLOW_OPTIONAL_DROPPING: &str = "allow-optional-dropping";
 
 const DISALLOW_DEPRECATED: &str = "disallow-deprecated";
 

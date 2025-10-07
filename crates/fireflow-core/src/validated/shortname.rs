@@ -29,7 +29,7 @@ pub struct Shortname(String);
 
 impl Shortname {
     pub fn new_unchecked<T: AsRef<str>>(s: T) -> Self {
-        Shortname(s.as_ref().to_owned())
+        Self(s.as_ref().to_owned())
     }
 }
 
@@ -38,9 +38,9 @@ impl FromStr for Shortname {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.contains(',') {
-            Err(ShortnameError(s.to_string()))
+            Err(ShortnameError(s.into()))
         } else {
-            Ok(Shortname(s.to_string()))
+            Ok(Self(s.into()))
         }
     }
 }
@@ -72,7 +72,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_str_to_shortname() {
+    fn str_to_shortname() {
         assert!("Thunderfist Chronicles".parse::<Shortname>().is_ok());
         assert!("Thunderfist,Chronicles".parse::<Shortname>().is_err());
     }

@@ -1,10 +1,10 @@
 use crate::config::ReadHeaderAndTEXTConfig;
-use crate::error::*;
+use crate::error::{ErrorIter as _, Leveled, MultiResult, ResultExt as _};
 use crate::text::index::IndexFromOne;
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use regex::Regex;
 use std::collections::hash_map::Entry;
@@ -13,6 +13,7 @@ use std::fmt;
 use std::hash::Hash;
 use std::str;
 use std::str::FromStr;
+use std::string::ToString;
 use std::sync::OnceLock;
 use thiserror::Error;
 use unicase::Ascii;
@@ -26,7 +27,7 @@ use pyo3::prelude::*;
 /// A standard key.
 ///
 /// These may only contain ASCII and must start with "$". The "$" is not
-/// actually stored but will be appended when converting to a ['String'].
+/// actually stored but will be appended when converting to a [`String`].
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, AsRef, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[as_ref(KeyString, str)]
@@ -116,7 +117,7 @@ pub type StdKeywords = HashMap<StdKey, String>;
 pub type NonAsciiPairs = Vec<(String, String)>;
 pub type BytesPairs = Vec<(Vec<u8>, Vec<u8>)>;
 
-/// ['ParsedKeywords'] without the bad stuff
+/// [`ParsedKeywords`] without the bad stuff
 #[derive(Clone, Default, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(
@@ -137,7 +138,7 @@ pub struct MeasHeader(pub String);
 
 /// A regular expression which matches a non-standard measurement key.
 ///
-/// This must be derived from ['NonStdMeasPattern'].
+/// This must be derived from [`NonStdMeasPattern`].
 #[derive(AsRef)]
 #[as_ref(Regex)]
 pub(crate) struct NonStdMeasRegex(CaseInsRegex);
@@ -160,11 +161,11 @@ pub(crate) trait Key {
     const C: &'static str;
 
     fn std() -> StdKey {
-        StdKey::new(Self::C.to_string())
+        StdKey::new(Self::C.into())
     }
 
     fn len() -> u64 {
-        (Self::C.len() + 1) as u64
+        u64::try_from(Self::C.len() + 1).unwrap()
     }
 }
 
@@ -301,16 +302,16 @@ impl KeyString {
         if latin1 {
             Some(Self::new(xs.iter().copied().map(char::from).collect()))
         } else if is_printable_ascii(xs) {
-            Some(Self::from_bytes(xs))
+            // SAFETY: we just checked that the bytes are only ASCII chars
+            Some(unsafe { Self::from_bytes(xs) })
         } else {
             None
         }
     }
 
-    fn from_bytes(xs: &[u8]) -> Self {
-        if xs.is_empty() {
-            panic!("cannot make KeyString with empty slice")
-        }
+    unsafe fn from_bytes(xs: &[u8]) -> Self {
+        assert!(!xs.is_empty(), "cannot make KeyString with empty slice");
+        // SAFETY: this function is marked unsafe since the caller must check
         Self::new(unsafe { String::from_utf8_unchecked(xs.to_vec()) })
     }
 }
@@ -330,7 +331,7 @@ impl TryFrom<HashMap<KeyString, KeyString>> for KeyStringPairs {
 
     fn try_from(value: HashMap<KeyString, KeyString>) -> Result<Self, Self::Error> {
         let mut names = vec![];
-        for (k, v) in value.iter() {
+        for (k, v) in &value {
             if k == v {
                 names.push(k.clone());
             }
@@ -362,9 +363,9 @@ impl FromStr for KeyString {
         if s.is_empty() {
             Err(AsciiStringError::Empty)
         } else if !is_printable_ascii(s.as_ref()) {
-            Err(AsciiStringError::Ascii(s.to_string()))
+            Err(AsciiStringError::Ascii(s.into()))
         } else {
-            Ok(Self(Ascii::new(s.to_string())))
+            Ok(Self(Ascii::new(s.into())))
         }
     }
 }
@@ -373,22 +374,19 @@ impl FromStr for StdKey {
     type Err = StdKeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.parse::<KeyString>()
-            .map_err(StdKeyError::Ascii)
-            .and_then(|ks| {
-                // ASSUME this will not fail because we know the string is
-                // non-empty
-                let (y, ys) = ks.as_ref().as_bytes().split_first().unwrap();
-                if ys.is_empty() {
-                    Err(StdKeyError::Empty)
-                } else if *y != STD_PREFIX {
-                    Err(StdKeyError::Prefix(ks))
-                } else {
-                    // ASSUME this will not fail because we know the string has
-                    // only ASCII bytes
-                    Ok(Self(KeyString::from_bytes(ys)))
-                }
-            })
+        let ks = s.parse::<KeyString>().map_err(StdKeyError::Ascii)?;
+        // ASSUME this will not fail because we know the string is
+        // non-empty
+        let (y, ys) = ks.as_ref().as_bytes().split_first().unwrap();
+        if ys.is_empty() {
+            Err(StdKeyError::Empty)
+        } else if *y != STD_PREFIX {
+            Err(StdKeyError::Prefix(ks))
+        } else {
+            // SAFETY: this will not fail because we know the string has only
+            // ASCII bytes and we checked that the slice is non-empty
+            Ok(Self(unsafe { KeyString::from_bytes(ys) }))
+        }
     }
 }
 
@@ -396,15 +394,12 @@ impl FromStr for NonStdKey {
     type Err = NonStdKeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.parse::<KeyString>()
-            .map_err(NonStdKeyError::Ascii)
-            .and_then(|ks| {
-                if has_no_std_prefix(ks.as_ref().as_bytes()) {
-                    Ok(Self::new(ks.to_string()))
-                } else {
-                    Err(NonStdKeyError::Prefix(ks))
-                }
-            })
+        let ks = s.parse::<KeyString>().map_err(NonStdKeyError::Ascii)?;
+        if has_no_std_prefix(ks.as_ref().as_bytes()) {
+            Ok(Self::new(ks.to_string()))
+        } else {
+            Err(NonStdKeyError::Prefix(ks))
+        }
     }
 }
 
@@ -413,9 +408,9 @@ impl FromStr for NonStdMeasPattern {
 
     fn from_str(s: &str) -> Result<Self, NonStdMeasPatternError> {
         if has_no_std_prefix(s.as_bytes()) || s.match_indices("%n").count() == 1 {
-            Ok(NonStdMeasPattern(s.to_string()))
+            Ok(Self(s.into()))
         } else {
-            Err(NonStdMeasPatternError(s.to_string()))
+            Err(NonStdMeasPatternError(s.into()))
         }
     }
 }
@@ -447,7 +442,7 @@ impl FromStr for CaseInsRegex {
 
 impl<T> KeyOrStringPatterns<T> {
     pub fn extend(&mut self, other: Self) {
-        self.0.extend(other.0)
+        self.0.extend(other.0);
     }
 
     #[cfg(feature = "python")]
@@ -481,8 +476,8 @@ impl<T> KeyOrStringPatterns<T> {
         })
     }
 
-    pub(crate) fn as_matcher<'a>(&'a self) -> KeyMatcher<'a, &'a T> {
-        KeyMatcher::from_iter(self.0.iter().map(|(k, v)| (k, v)))
+    pub(crate) fn as_matcher(&self) -> KeyMatcher<'_, &T> {
+        self.0.iter().map(|(k, v)| (k, v)).collect()
     }
 }
 
@@ -552,22 +547,20 @@ impl ParsedKeywords {
                     .collect();
                 if trimmed.is_empty() {
                     return Err(blank_err());
-                } else {
-                    Ok(trimmed)
                 }
+                Ok(trimmed)
             } else {
                 Ok(it.collect())
             }
         } else {
-            match std::str::from_utf8(v) {
+            match str::from_utf8(v) {
                 Ok(vv) => {
                     if conf.trim_value_whitespace {
                         let trimmed = vv.trim();
                         if trimmed.is_empty() {
                             return Err(blank_err());
-                        } else {
-                            Ok(trimmed.into())
                         }
+                        Ok(trimmed.into())
                     } else {
                         Ok(vv.into())
                     }
@@ -584,52 +577,50 @@ impl ParsedKeywords {
             } else {
                 (false, s)
             };
-            KeyString::from_bytes_maybe(ss, conf.use_latin1).map(|x| (is_std, x))
+            let ks = KeyString::from_bytes_maybe(ss, conf.use_latin1)?;
+            Some((is_std, ks))
         };
 
-        match vv {
-            Ok(value) => {
-                if let Some((is_std, kk)) = parse_key(k) {
-                    if is_std {
-                        // Standard key: starts with '$', check that remaining chars
-                        // are ASCII
-                        if ignore.is_match(&kk) {
-                            Ok(())
-                        } else if to_nonstd.is_match(&kk) {
-                            insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
-                        } else {
-                            let rk = renames.get(&kk).cloned().unwrap_or(kk);
-                            let rv = if let Some(s) = subs.get(&rk) {
-                                s.sub(value.as_str())
-                            } else {
-                                value
-                            };
-                            insert_nonunique(&mut self.std, StdKey(rk), rv, conf)
-                        }
+        if let Ok(value) = vv {
+            if let Some((is_std, kk)) = parse_key(k) {
+                if is_std {
+                    // Standard key: starts with '$', check that remaining chars
+                    // are ASCII
+                    if ignore.is_match(&kk) {
+                        Ok(())
+                    } else if to_nonstd.is_match(&kk) {
+                        insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
                     } else {
-                        // Non-standard key: does not start with '$' but is still
-                        // ASCII
-                        if to_std.is_match(&kk) {
-                            insert_nonunique(&mut self.std, StdKey(kk), value, conf)
+                        let rk = renames.get(&kk).cloned().unwrap_or(kk);
+                        let rv = if let Some(s) = subs.get(&rk) {
+                            s.sub(value.as_str())
                         } else {
-                            insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
-                        }
+                            value
+                        };
+                        insert_nonunique(&mut self.std, StdKey(rk), rv, conf)
                     }
-                } else if let Ok(kk) = String::from_utf8(k.to_vec()) {
-                    // Non-ascii key: these are technically not allowed but save
-                    // them anyways in case the user cares. If key isn't UTF-8
-                    // then give up.
-                    self.non_ascii.push((kk, value));
-                    Ok(())
                 } else {
-                    self.byte_pairs.push((k.to_vec(), value.into()));
-                    Ok(())
+                    // Non-standard key: does not start with '$' but is still
+                    // ASCII
+                    if to_std.is_match(&kk) {
+                        insert_nonunique(&mut self.std, StdKey(kk), value, conf)
+                    } else {
+                        insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
+                    }
                 }
-            }
-            _ => {
-                self.byte_pairs.push((k.to_vec(), v.to_vec()));
+            } else if let Ok(kk) = String::from_utf8(k.to_vec()) {
+                // Non-ascii key: these are technically not allowed but save
+                // them anyways in case the user cares. If key isn't UTF-8
+                // then give up.
+                self.non_ascii.push((kk, value));
+                Ok(())
+            } else {
+                self.byte_pairs.push((k.to_vec(), value.into()));
                 Ok(())
             }
+        } else {
+            self.byte_pairs.push((k.to_vec(), v.to_vec()));
+            Ok(())
         }
     }
 
@@ -746,7 +737,7 @@ fn insert_nonunique<K>(
     conf: &ReadHeaderAndTEXTConfig,
 ) -> Result<(), Leveled<KeywordInsertError>>
 where
-    K: std::hash::Hash + Eq + Clone + AsRef<KeyString>,
+    K: Hash + Eq + Clone + AsRef<KeyString>,
     KeywordInsertError: From<KeyPresent<K>>,
 {
     match kws.entry(k) {
@@ -759,7 +750,7 @@ where
             let v = conf
                 .replace_standard_key_values
                 .get(e.key().as_ref())
-                .map(|v| v.to_string())
+                .map(ToString::to_string)
                 .unwrap_or(value);
             e.insert(v);
             Ok(())
@@ -801,9 +792,9 @@ mod python {
     impl<'py> FromPyObject<'py> for KeyPatterns {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let (lits, pats): (Vec<String>, Vec<String>) = ob.extract()?;
-            let mut ret = KeyPatterns::try_from_literals(lits.into_iter().map(|x| (x, ())))?;
+            let mut ret = Self::try_from_literals(lits.into_iter().map(|x| (x, ())))?;
             // this is just a regexp error
-            let ps = KeyPatterns::try_from_patterns(pats.into_iter().map(|x| (x, ())))
+            let ps = Self::try_from_patterns(pats.into_iter().map(|x| (x, ())))
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
             ret.extend(ps);
             Ok(ret)
@@ -826,7 +817,7 @@ mod serialize {
     use serde::Serialize;
     use std::collections::{BTreeMap, HashMap};
 
-    pub(crate) fn ordered_map<K: Serialize + Clone + Ord, S>(
+    pub fn ordered_map<K: Serialize + Clone + Ord, S>(
         value: &HashMap<K, String>,
         serializer: S,
     ) -> Result<S::Ok, S::Error>
@@ -848,7 +839,7 @@ mod tests {
         let k = s.parse::<StdKey>().unwrap();
         assert_eq!(StdKey(KeyString(Ascii::new("MAJESTY".into()))), k);
         // reverse process should give back original string
-        assert_eq!(k.to_string(), s.to_string());
+        assert_eq!(k.to_string(), s.to_owned());
         // and such a valid key should behave the same when inserted into
         // the hash table
         let mut p = ParsedKeywords::default();
@@ -859,7 +850,7 @@ mod tests {
         );
         assert_eq!(Ok(()), res);
         assert_eq!(
-            s.to_string(),
+            s.to_owned(),
             p.std.into_iter().next().unwrap().0.to_string()
         );
     }
@@ -878,10 +869,7 @@ mod tests {
     fn fromstr_std_key_noprefix() {
         let s = "IMBROKE";
         let k = s.parse::<StdKey>();
-        assert_eq!(
-            Err(StdKeyError::Prefix(KeyString(Ascii::new(s.to_string())))),
-            k
-        );
+        assert_eq!(Err(StdKeyError::Prefix(KeyString(Ascii::new(s.into())))), k);
     }
 
     #[test]
@@ -904,7 +892,7 @@ mod tests {
         let k = s.parse::<NonStdKey>().unwrap();
         assert_eq!(NonStdKey(KeyString(Ascii::new("YTSEJAM".into()))), k);
         // reverse process should give back original string
-        assert_eq!(k.to_string(), s.to_string());
+        assert_eq!(k.to_string(), s.to_owned());
         // and such a valid key should behave the same when inserted into
         // the hash table
         let mut p = ParsedKeywords::default();
@@ -915,7 +903,7 @@ mod tests {
         );
         assert_eq!(Ok(()), res);
         assert_eq!(
-            s.to_string(),
+            s.to_owned(),
             p.nonstd.into_iter().next().unwrap().0.to_string()
         );
     }
@@ -935,7 +923,7 @@ mod tests {
         let s = "$IMRICH";
         let k = s.parse::<NonStdKey>();
         assert_eq!(
-            Err(NonStdKeyError::Prefix(KeyString(Ascii::new(s.to_string())))),
+            Err(NonStdKeyError::Prefix(KeyString(Ascii::new(s.into())))),
             k
         );
     }

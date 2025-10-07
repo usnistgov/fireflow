@@ -6,8 +6,8 @@ use thiserror::Error;
 pub struct TEXTDelim(u8);
 
 impl Default for TEXTDelim {
-    fn default() -> TEXTDelim {
-        TEXTDelim(30) // record separator
+    fn default() -> Self {
+        Self(30) // record separator
     }
 }
 
@@ -41,7 +41,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_u8_to_delim() {
+    fn u8_to_delim() {
         assert!(TEXTDelim::try_from(1_u8).is_ok());
         assert!(TEXTDelim::try_from(126_u8).is_ok());
         assert!(TEXTDelim::try_from(0_u8).is_err());

@@ -1,11 +1,11 @@
 use crate::config::StdTextReadConfig;
-use crate::validated::shortname::*;
+use crate::validated::shortname::Shortname;
 
 use super::named_vec::NameMapping;
 use super::parser::{FromStrDelim, FromStrStateful, OptLinkedKey};
 
 use derive_more::Into;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::str::FromStr;
@@ -59,14 +59,6 @@ impl TryFrom<Vec<(Shortname, f32)>> for UnstainedCenters {
 }
 
 impl UnstainedCenters {
-    pub fn new_1(k: Shortname, v: f32) -> Self {
-        Self([(k, v)].into_iter().collect())
-    }
-
-    pub fn inner(&self) -> &HashMap<Shortname, f32> {
-        &self.0
-    }
-
     pub(crate) fn names_difference(
         &self,
         names: &HashSet<&Shortname>,
@@ -79,7 +71,7 @@ impl FromStrStateful for UnstainedCenters {
     type Err = ParseUnstainedCenterError;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -96,12 +88,16 @@ impl FromStrDelim for UnstainedCenters {
     type Err = ParseUnstainedCenterError;
     const DELIM: char = ',';
 
-    fn from_iter<'a>(mut xs: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        if let Some(n) = xs.next().and_then(|x| x.parse().ok()) {
+    fn from_iter<'a>(mut iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        if let Some(n) = iter.next().and_then(|x| x.parse().ok()) {
             // This should be safe since we are splitting by commas
-            let measurements: Vec<_> = xs.by_ref().take(n).map(Shortname::new_unchecked).collect();
-            let values: Vec<_> = xs.by_ref().take(n).collect();
-            let remainder = xs.by_ref().count();
+            let measurements: Vec<_> = iter
+                .by_ref()
+                .take(n)
+                .map(Shortname::new_unchecked)
+                .collect();
+            let values: Vec<_> = iter.by_ref().take(n).collect();
+            let remainder = iter.by_ref().count();
             let total = values.len() + measurements.len() + remainder;
             let expected = 2 * n;
             if total == expected {
@@ -109,11 +105,11 @@ impl FromStrDelim for UnstainedCenters {
                     .into_iter()
                     .filter_map(|x| x.parse::<f32>().ok())
                     .collect();
-                if fvalues.len() != n {
-                    Err(ParseUnstainedCenterError::BadFloat)
-                } else {
+                if fvalues.len() == n {
                     let ys: Vec<_> = measurements.into_iter().zip(fvalues).collect();
-                    UnstainedCenters::try_from(ys).map_err(ParseUnstainedCenterError::New)
+                    Self::try_from(ys).map_err(ParseUnstainedCenterError::New)
+                } else {
+                    Err(ParseUnstainedCenterError::BadFloat)
                 }
             } else {
                 Err(ParseUnstainedCenterError::BadLength { total, expected })
@@ -162,17 +158,17 @@ mod tests {
 
     // TODO this is hard(er) to test since the order will be random
     #[test]
-    fn test_unstained_centers() {
+    fn unstained_centers() {
         assert_from_to_str::<UnstainedCenters>("1,X,0");
     }
 
     #[test]
-    fn test_unstained_centers_wrong_len() {
+    fn unstained_centers_wrong_len() {
         assert!("2,X,0".parse::<UnstainedCenters>().is_err());
     }
 
     #[test]
-    fn test_unstained_centers_nonunique() {
+    fn unstained_centers_nonunique() {
         assert!("3,Y,Y,Z,0,0,0".parse::<UnstainedCenters>().is_err());
     }
 }

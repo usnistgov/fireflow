@@ -1,10 +1,10 @@
 use crate::config::StdTextReadConfig;
-use crate::error::*;
-use crate::text::parser::*;
-use crate::text::ranged_float::*;
+use crate::error::ResultExt as _;
+use crate::text::parser::{FromStrDelim, FromStrStateful};
+use crate::text::ranged_float::PositiveFloat;
 
 use derive_more::Display;
-use num_traits::identities::One;
+use num_traits::identities::One as _;
 use std::num::ParseFloatError;
 use std::str::FromStr;
 use thiserror::Error;
@@ -60,7 +60,7 @@ impl FromStrStateful for Scale {
     type Err = ScaleError;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         let res = Self::from_str_delim(s, conf.trim_intra_value_whitespace);
         if conf.fix_log_scale_offsets {
             res.or_else(|e| {
@@ -90,16 +90,16 @@ impl FromStrDelim for Scale {
     type Err = ScaleError;
     const DELIM: char = ',';
 
-    fn from_iter<'a>(ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        let xs: Vec<_> = ss.collect();
+    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        let xs: Vec<_> = iter.collect();
         match &xs[..] {
             [ds, os] => {
                 let f1 = ds.parse().map_err(ScaleError::FloatError)?;
                 let f2 = os.parse().map_err(ScaleError::FloatError)?;
                 match (f1, f2) {
-                    (0.0, 0.0) => Ok(Scale::Linear),
+                    (0.0, 0.0) => Ok(Self::Linear),
                     (decades, offset) => {
-                        Scale::try_new_log(decades, offset).map_err(ScaleError::LogRange)
+                        Self::try_new_log(decades, offset).map_err(ScaleError::LogRange)
                     }
                 }
             }
@@ -150,13 +150,13 @@ mod tests {
     use crate::test::*;
 
     #[test]
-    fn test_scale() {
+    fn scale() {
         assert_from_to_str::<Scale>("0,0");
         assert_from_to_str::<Scale>("4.5,0.01");
     }
 
     #[test]
-    fn test_scale_invalid() {
+    fn scale_invalid() {
         assert!("4.5,0".parse::<Scale>().is_err());
     }
 }
@@ -168,7 +168,7 @@ mod python {
 
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
-    use pyo3::IntoPyObjectExt;
+    use pyo3::IntoPyObjectExt as _;
 
     // $PnE (2.0) as either () or (f32, f32) tuples in python
     impl<'py> FromPyObject<'py> for Scale {

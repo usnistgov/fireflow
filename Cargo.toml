@@ -23,3 +23,148 @@ nalgebra = "0.33.2"
 nonempty = "0.11.0"
 polars = { version = "0.49.0", features = ["dtype-u8", "dtype-u16", "fmt"] }
 pyo3 = "0.25.1"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+
+# TODO fix these once we have the docs published
+doc_markdown = "allow"
+missing_panics_doc = "allow"
+missing_errors_doc = "allow"
+
+# Try to prevent "x as y" as much as possible. This library is not doing much
+# math so it can get away with this, however it is quite annoying. In general,
+# it seems to benefits of avoiding silent logic errors with a bit of extra
+# syntax is justified. Also, there are a few cases where the "as" syntax does
+# exactly the right thing, so these are allowed explicitly in the code.
+as_conversions = "warn"
+
+# TODO for similar reasons as above, this might be good to enable. However, it
+# is much more annoying and the extra syntax might not be worth catching the
+# (probably unlikely) logic errors due to wrapping/truncation.
+# arithmetic_side_effects = "warn"
+
+# This is not a deamon so there should be no infinite loops
+infinite_loop = "warn"
+
+# Prevent likely mistakes that lead to logic errors
+literal_string_with_formatting_args = "warn"
+lossy_float_literal = "warn"
+read_zero_byte_vec = "warn"
+suspicious_xor_used_as_pow = "warn"
+uninhabited_references = "warn"
+
+# Prevent likely bad ideas that could lead to mistakes
+as_pointer_underscore = "warn"
+as_underscore = "warn"
+cfg_not_test = "warn"
+default_numeric_fallback = "warn"
+exit = "warn"
+float_cmp_const = "warn"
+fn_to_numeric_cast_any = "warn"
+multiple_unsafe_ops_per_block = "warn"
+non_zero_suggestions = "warn"
+partial_pub_fields = "warn"
+string_lit_as_bytes = "warn"
+string_slice = "warn"
+tests_outside_test_module = "warn"
+undocumented_unsafe_blocks = "warn"
+unused_result_ok = "warn"
+
+# TODO these should probably be fixed and may indicate unhandled errors
+# let_underscore_must_use = "warn"
+# let_underscore_untyped = "warn"
+
+# TODO make public API more explicit which will justify these
+# exhaustive_enums = "warn"
+# exhaustive_structs = "warn"
+# field_scoped_visibility_modifiers = "warn"
+
+# TODO this should be restricted but currently gives a FP for ambassador
+# pub_use = "warn"
+
+# Potential mistakes which make be correct but may impact performance
+collection_is_never_read = "warn" # find potentially unused data
+large_include_file = "warn"
+missing_asserts_for_indexing = "warn"
+needless_collect = "warn"
+needless_pass_by_ref_mut = "warn"
+redundant_clone = "warn"
+string_lit_chars_any = "warn"
+unused_peekable = "warn"
+unused_rounding = "warn"
+
+# Catch possibly unfinished/leftover debug code
+dbg_macro = "warn"
+missing_assert_message = "warn"
+todo = "warn"
+unimplemented = "warn"
+unreachable = "warn"
+use_debug = "warn"
+
+# Reduce redundancy ie syntax patterns which are probably correct but almost
+# always have an unamibuousely shorter/cleaner way to express (in my opinion)
+branches_sharing_code = "warn"
+empty_drop = "warn"
+empty_enum_variants_with_brackets = "warn"
+empty_structs_with_brackets = "warn"
+equatable_if_let = "warn"
+get_unwrap = "warn"
+if_then_some_else_none = "warn"
+iter_on_empty_collections = "warn"
+iter_on_single_items = "warn"
+map_with_unused_argument_over_ranges = "warn"
+multiple_inherent_impl = "warn"
+redundant_pub_crate = "warn"
+redundant_test_prefix = "warn"
+redundant_type_annotations = "warn"
+rest_pat_in_fully_bound_structs = "warn"
+return_and_then = "warn"
+single_option_map = "warn"
+trait_duplication_in_bounds = "warn"
+too_long_first_doc_paragraph = "warn"
+tuple_array_conversions = "warn"
+type_repetition_in_bounds = "warn"
+unnecessary_safety_comment = "warn"
+unnecessary_safety_doc = "warn"
+unnecessary_self_imports = "warn"
+unnecessary_struct_initialization = "warn"
+unneeded_field_pattern = "warn"
+useless_let_if_seq = "warn"
+use_self = "warn"
+verbose_file_reads = "warn"
+
+# Prevent syntax which is generally confusing
+clone_on_ref_ptr = "warn"
+error_impl_error = "warn"
+filetype_is_file = "warn"
+mixed_read_write_in_expression = "warn"
+nonstandard_macro_braces = "warn"
+precedence_bits = "warn"
+str_to_string = "warn"
+try_err = "warn"
+
+# Force consistent naming in traits. This is a somewhat-arbitrary style choice
+# since names in different impl's might be named differently to be more specific
+# to context, but here it makes sense to keep them all the same so that if the
+# meaning of a variable changes it is immediately obvious that everything else
+# needs to change.
+renamed_function_params = "warn"
+
+# Enforce arbitrary style choices
+absolute_paths = "warn"                 # keep all imports together at the top
+decimal_literal_representation = "warn" # use hex for large binary numbers
+pub_without_shorthand = "warn"          # be consistent with "pub(crate)"
+semicolon_inside_block = "warn"         # be consistent with semicolons
+shadow_reuse = "warn"                   # shadowing is icky and confusing
+shadow_same = "warn"                    # ditto
+shadow_unrelated = "warn"               # ditto
+unseparated_literal_suffix = "warn"     # be consistent with typed numerals
+unused_trait_names = "warn"             # keep namespace clean
+
+# TODO fix these once the crate is fully published
+cargo = { level = "warn", priority = -1 }
+cargo_common_metadata = "allow"
+
+# try and fix these; dependencies might make this impossible
+multiple_crate_versions = "allow"

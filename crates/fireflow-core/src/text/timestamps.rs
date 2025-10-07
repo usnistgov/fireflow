@@ -1,12 +1,14 @@
 use crate::config::StdTextReadConfig;
-use crate::error::*;
-use crate::validated::keys::*;
+use crate::error::ResultExt as _;
+use crate::validated::keys::StdKeywords;
 use crate::validated::timepattern::ParseWithTimePatternError;
 
-use super::optional::*;
-use super::parser::*;
+use super::optional::MaybeValue;
+use super::parser::{
+    FromStrStateful, LookupOptional, LookupTentative, OptMetarootKey, ParseOptKeyError,
+};
 
-use chrono::{NaiveDate, NaiveTime, Timelike};
+use chrono::{NaiveDate, NaiveTime, Timelike as _};
 use derive_more::{AsRef, Display, From, FromStr, Into};
 use regex::Regex;
 use std::fmt;
@@ -63,7 +65,7 @@ where
     type Err = FCSFixedTimeError<<T as FromStr>::Err>;
     type Payload<'a> = ();
 
-    fn from_str_st<'a>(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_st<'a>(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         let ret = if let Some(pat) = conf.time_pattern.as_ref() {
             pat.parse_str(s)?.into()
         } else {
@@ -92,7 +94,7 @@ impl<X> Timestamps<X> {
         if ret.valid() {
             Ok(ret)
         } else {
-            Err(ReversedTimestamps)
+            Err(ReversedTimestampsError)
         }
     }
 
@@ -103,7 +105,7 @@ impl<X> Timestamps<X> {
         let tmp = mem::replace(&mut self.btim, time);
         if !self.valid() {
             self.btim = tmp;
-            return Err(ReversedTimestamps);
+            return Err(ReversedTimestampsError);
         }
         Ok(())
     }
@@ -115,7 +117,7 @@ impl<X> Timestamps<X> {
         let tmp = mem::replace(&mut self.etim, time);
         if !self.valid() {
             self.etim = tmp;
-            return Err(ReversedTimestamps);
+            return Err(ReversedTimestampsError);
         }
         Ok(())
     }
@@ -127,7 +129,7 @@ impl<X> Timestamps<X> {
         let tmp = mem::replace(&mut self.date, date);
         if !self.valid() {
             self.date = tmp;
-            return Err(ReversedTimestamps);
+            return Err(ReversedTimestampsError);
         }
         Ok(())
     }
@@ -158,56 +160,51 @@ impl<X> Timestamps<X> {
         }
     }
 
-    pub(crate) fn lookup<E>(
-        kws: &mut StdKeywords,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self, E>
+    pub(crate) fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self>
     where
         Btim<X>: OptMetarootKey,
         Etim<X>: OptMetarootKey,
-        ParseOptKeyWarning:
+        ParseOptKeyError:
             From<<Btim<X> as FromStrStateful>::Err> + From<<Etim<X> as FromStrStateful>::Err>,
         for<'a> X: PartialOrd + FromStr + From<NaiveTime>,
     {
         let b = Btim::lookup_opt_st(kws, (), conf);
         let e = Etim::lookup_opt_st(kws, (), conf);
         let d = FCSDate::lookup_opt_st(kws, (), conf);
-        Self::process_lookup(b, e, d)
+        Self::process_lookup(b, e, d, conf)
     }
 
     pub(crate) fn lookup_dep(
         kws: &mut StdKeywords,
         conf: &StdTextReadConfig,
-        disallow_dep: bool,
-    ) -> LookupTentative<Self, DeprecatedError>
+    ) -> LookupTentative<Self>
     where
         Btim<X>: OptMetarootKey,
         Etim<X>: OptMetarootKey,
-        ParseOptKeyWarning:
+        ParseOptKeyError:
             From<<Btim<X> as FromStrStateful>::Err> + From<<Etim<X> as FromStrStateful>::Err>,
         for<'a> X: PartialOrd + FromStr + From<NaiveTime>,
     {
-        let b = Btim::lookup_opt_st_dep(kws, disallow_dep, (), conf);
-        let e = Etim::lookup_opt_st_dep(kws, disallow_dep, (), conf);
-        let d = FCSDate::lookup_opt_st_dep(kws, disallow_dep, (), conf);
-        Self::process_lookup(b, e, d)
+        let dd = conf.disallow_deprecated;
+        let b = Btim::lookup_opt_st_dep(kws, dd, (), conf);
+        let e = Etim::lookup_opt_st_dep(kws, dd, (), conf);
+        let d = FCSDate::lookup_opt_st_dep(kws, dd, (), conf);
+        Self::process_lookup(b, e, d, conf)
     }
 
-    fn process_lookup<E>(
-        b: LookupTentative<MaybeValue<Btim<X>>, E>,
-        e: LookupTentative<MaybeValue<Etim<X>>, E>,
-        d: LookupTentative<MaybeValue<FCSDate>, E>,
-    ) -> LookupTentative<Self, E>
+    fn process_lookup(
+        b: LookupOptional<Btim<X>>,
+        e: LookupOptional<Etim<X>>,
+        d: LookupOptional<FCSDate>,
+        conf: &StdTextReadConfig,
+    ) -> LookupTentative<Self>
     where
         X: PartialOrd,
     {
         b.zip3(e, d).and_tentatively(|(btim, etim, date)| {
-            Timestamps::try_new(btim.0, etim.0, date.0)
-                .map(Tentative::new1)
-                .unwrap_or_else(|w| {
-                    let ow = LookupKeysWarning::Relation(w.into());
-                    Tentative::new(Timestamps::default(), [ow], [])
-                })
+            Self::try_new(btim.0, etim.0, date.0)
+                .into_tentative_def(!conf.allow_optional_dropping)
+                .inner_into()
         })
     }
 
@@ -223,15 +220,15 @@ impl<X> Timestamps<X> {
             MaybeValue(self.date).root_kw_pair(),
         ]
         .into_iter()
-        .flat_map(|(k, v)| v.map(|x| (k, x)))
+        .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 }
 
 #[derive(Debug, Error)]
 #[error("$ETIM is before $BTIM and $DATE is given")]
-pub struct ReversedTimestamps;
+pub struct ReversedTimestampsError;
 
-type TimestampsResult<T> = Result<T, ReversedTimestamps>;
+type TimestampsResult<T> = Result<T, ReversedTimestampsError>;
 
 // the "%b" format is case-insensitive so this should work for "Jan", "JAN",
 // "jan", "jaN", etc
@@ -241,11 +238,11 @@ impl FromStrStateful for FCSDate {
     type Err = FCSDateError;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         if let Some(pattern) = &conf.date_pattern {
             Self::parse_with_pattern(s, pattern.as_ref())
         } else {
-            s.parse::<FCSDate>()
+            s.parse::<Self>()
         }
     }
 }
@@ -311,7 +308,7 @@ impl FromStr for FCSTime60 {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         NaiveTime::parse_from_str(s, "%H:%M:%S")
-            .or_else(|_| match s.split(":").collect::<Vec<_>>()[..] {
+            .or_else(|_| match s.split(':').collect::<Vec<_>>()[..] {
                 [s1, s2, s3, s4] => {
                     let hh: u32 = s1.parse().or(Err(FCSTime60Error))?;
                     let mm: u32 = s2.parse().or(Err(FCSTime60Error))?;
@@ -391,37 +388,37 @@ mod tests {
     use crate::test::*;
 
     #[test]
-    fn test_str_timestamps2_0() {
+    fn str_timestamps2_0() {
         assert_from_to_str::<FCSTime>("23:58:00");
     }
 
     #[test]
-    fn test_str_timestamps3_0() {
+    fn str_timestamps3_0() {
         assert_from_to_str_almost::<FCSTime60>("23:58:00", "23:58:00:00");
         assert_from_to_str::<FCSTime60>("23:58:00:30");
         // TODO should probably avoid stuff like this
         assert_from_to_str_almost::<FCSTime60>("23:58:00:13", "23:58:00:12");
         // this is an overflow
-        assert!("23:58:00:60".parse::<FCSTime60>().is_err())
+        assert!("23:58:00:60".parse::<FCSTime60>().is_err());
     }
 
     #[test]
-    fn test_str_timestamps3_1() {
+    fn str_timestamps3_1() {
         assert_from_to_str_almost::<FCSTime100>("23:58:00", "23:58:00.00");
         assert_from_to_str::<FCSTime100>("23:58:00.30");
         // this is an overflow
-        assert!("23:58:00.100".parse::<FCSTime100>().is_err())
+        assert!("23:58:00.100".parse::<FCSTime100>().is_err());
     }
 }
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{FCSDate, FCSTime, FCSTime100, FCSTime60, ReversedTimestamps, Xtim};
+    use super::{FCSDate, FCSTime, FCSTime100, FCSTime60, ReversedTimestampsError, Xtim};
     use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
 
     use pyo3::prelude::*;
 
-    impl_pyreflow_err!(ReversedTimestamps);
+    impl_pyreflow_err!(ReversedTimestampsError);
 
     impl_from_py_transparent!(FCSDate);
     impl_from_py_transparent!(FCSTime);

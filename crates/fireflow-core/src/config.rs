@@ -10,15 +10,19 @@
 /// an error. This will work in most cases, with a few exceptions where the
 /// standard is unclear.
 use crate::header::Version;
-use crate::segment::*;
+use crate::segment::{
+    AnalysisSegmentId, DataSegmentId, HeaderCorrection, OtherSegmentId, PrimaryTextSegmentId,
+    SupplementalTextSegmentId, TEXTCorrection,
+};
 use crate::text::byteord::ByteOrd2_0;
 use crate::text::index::MeasIndex;
 use crate::text::keywords as kws;
 use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
-use crate::validated::keys;
-use crate::validated::keys::IndexedKey;
-use crate::validated::keys::NonStdKeywordsExt;
+use crate::validated::keys::{
+    IndexedKey as _, KeyPatterns, KeyStringPairs, KeyStringValues, NonStdKeywords,
+    NonStdKeywordsExt as _, NonStdMeasPattern, StdKey, StdKeywords,
+};
 use crate::validated::sub_pattern::SubPatterns;
 use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
@@ -27,7 +31,9 @@ use derive_more::{AsRef, Display, From, FromStr};
 use regex::Regex;
 use std::collections::HashSet;
 use std::fs::File;
+use std::io;
 use std::path::PathBuf;
+use std::str::FromStr;
 use thiserror::Error;
 
 #[derive(Default, Clone, AsRef, From)]
@@ -217,7 +223,7 @@ pub struct HeaderConfigInner {
     ///
     /// Each correction will be applied in order. If an offset does not need
     /// to be corrected, use 0,0. This will not affect the number of OTHER
-    /// segments that are read; this is controlled by ['max_other'].
+    /// segments that are read; this is controlled by [`max_other`].
     pub other_corrections: Vec<HeaderCorrection<OtherSegmentId>>,
 
     /// Maximum number of OTHER segments that can be parsed.
@@ -277,6 +283,7 @@ pub struct HeaderConfigInner {
 /// Instructions for reading the TEXT segment as raw key/value pairs.
 // TODO add correction for $NEXTDATA
 #[derive(Default, Clone, AsRef)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct ReadHeaderAndTEXTConfig {
     /// Config for reading HEADER
     #[as_ref(HeaderConfigInner)]
@@ -410,7 +417,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// relatively small performance hit since no additional string allocations
     /// are needed. If anything, it may improve performance since values that
     /// are entirely whitespace will become empty and thus be dropped. Note
-    /// that these will result in errors if ['allow_empty'] is false.
+    /// that these will result in errors if [`allow_empty`] is false.
     pub trim_value_whitespace: bool,
 
     /// Remove standard keys from TEXT.
@@ -418,9 +425,9 @@ pub struct ReadHeaderAndTEXTConfig {
     /// Comparisons will be case-insensitive. Members of this list should not
     /// try to match the leading "$" as this is implied.
     ///
-    /// This will be applied before ['rename_standard_keys'],
-    /// ['promote_to_standard'], and ['demote_from_standard'].
-    pub ignore_standard_keys: keys::KeyPatterns,
+    /// This will be applied before [`rename_standard_keys`],
+    /// [`promote_to_standard`], and [`demote_from_standard`].
+    pub ignore_standard_keys: KeyPatterns,
 
     /// Rename standard keys in TEXT.
     ///
@@ -428,16 +435,16 @@ pub struct ReadHeaderAndTEXTConfig {
     /// The leading "$" is implied so keys in this table should not include it.
     /// Comparisons are case-insensitive.
     ///
-    /// Keys are renamed before ['promote_to_standard'] and
-    /// ['demote_from_standard'] are applied.
-    pub rename_standard_keys: keys::KeyStringPairs,
+    /// Keys are renamed before [`promote_to_standard`] and
+    /// [`demote_from_standard`] are applied.
+    pub rename_standard_keys: KeyStringPairs,
 
     /// A list of nonstandard keywords to be "promoted" to standard.
     ///
     /// All matching keywords will be prefixed with a "$" and added to the pool
     /// of standard keywords to be processed downstream when deriving data
     /// layouts, measurement metadata, etc. Matching will be case-insensitive.
-    pub promote_to_standard: keys::KeyPatterns,
+    pub promote_to_standard: KeyPatterns,
 
     /// A list of standard keywords to be "demoted" to non-standard.
     ///
@@ -450,14 +457,14 @@ pub struct ReadHeaderAndTEXTConfig {
     /// processed downstream.
     ///
     /// Useful for surgically correcting "pseudostandard" keywords without
-    /// using ['allow_pseudostandard'], which is a crude sledgehammer.
-    pub demote_from_standard: keys::KeyPatterns,
+    /// using [`allow_pseudostandard`], which is a crude sledgehammer.
+    pub demote_from_standard: KeyPatterns,
 
     /// Replace values of standard keys.
     ///
     /// Keys will be matched in case-insensitive manner. The leading "$" is
     /// implied, so keys in this table should not include it.
-    pub replace_standard_key_values: keys::KeyStringValues,
+    pub replace_standard_key_values: KeyStringValues,
 
     /// Append standard key/value pairs to those read from TEXT.
     ///
@@ -469,7 +476,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// and existing value will not be overwritten in such cases. This will also
     /// trigger a deviant keyword warning/error if they do not belong in the
     /// indicated version.
-    pub append_standard_keywords: keys::KeyStringValues,
+    pub append_standard_keywords: KeyStringValues,
 
     /// Apply substitution patterns to standard key values.
     ///
@@ -479,6 +486,7 @@ pub struct ReadHeaderAndTEXTConfig {
 }
 
 #[derive(Default, Clone)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct ReadTEXTOffsetsConfig {
     /// Corrections for DATA offsets in TEXT segment
     pub text_data_correction: TEXTCorrection<DataSegmentId>,
@@ -521,6 +529,7 @@ pub struct ReadTEXTOffsetsConfig {
 
 /// Instructions for reading the TEXT segment in a standardized structure.
 #[derive(Default, Clone)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct StdTextReadConfig {
     /// If `true`, remove whitespace between commas where applicable.
     ///
@@ -536,7 +545,7 @@ pub struct StdTextReadConfig {
     /// set to '0,0'.
     pub time_meas_pattern: Option<TimeMeasNamePattern>,
 
-    /// If true, allow time to not be present even if we specify ['pattern'].
+    /// If true, allow time to not be present even if we specify [`pattern`].
     pub allow_missing_time: bool,
 
     /// If ``true`` force, force scale to be linear for temporal measurement.
@@ -590,6 +599,9 @@ pub struct StdTextReadConfig {
     /// if $TIMESTEP is present but no time measurement is present.
     pub allow_unused_standard: bool,
 
+    /// If true, allow optional keys to be dropped on error with a warning.
+    pub allow_optional_dropping: bool,
+
     /// If true, throw an error if TEXT includes any deprecated features.
     ///
     /// If false, merely throw a warning.
@@ -617,7 +629,7 @@ pub struct StdTextReadConfig {
     /// This will matching something like 'P7FOO' which would be 'FOO' for
     /// measurement 7. These may be used when converting between different
     /// FCS versions.
-    pub nonstandard_measurement_pattern: Option<keys::NonStdMeasPattern>,
+    pub nonstandard_measurement_pattern: Option<NonStdMeasPattern>,
 }
 
 #[derive(Default, Clone)]
@@ -630,7 +642,7 @@ pub struct ReadLayoutConfig {
     ///
     /// Setting this will force all $PnB to match $BYTEORD. Obviously this
     /// assumed $BYTEORD is correct. If not, override this using
-    /// ['integer_byteord_override']. All $PnB will still be read regardless of
+    /// [`integer_byteord_override`]. All $PnB will still be read regardless of
     /// this flag, so this will not fix badly-formatted values (ie $PnB that
     /// aren't numbers or are out of range). These will require manual
     /// intervention.
@@ -646,7 +658,7 @@ pub struct ReadLayoutConfig {
     /// $BYTEORD value, which will need a different intervention.
     ///
     /// Obviously this must match the actual layout of the numbers in DATA. If
-    /// $PnB is also incorrect, use ['integer_widths_from_byteord'] to override
+    /// $PnB is also incorrect, use [`integer_widths_from_byteord`] to override
     /// those values as well.
     pub integer_byteord_override: Option<ByteOrd2_0>,
 
@@ -679,6 +691,9 @@ pub struct ReadLayoutConfig {
 pub struct SharedConfig {
     /// If true, all warnings are considered to be fatal errors.
     pub warnings_are_errors: bool,
+
+    /// If true, do not emit warnings.
+    pub hide_warnings: bool,
 }
 
 /// A pattern to match the $PnN for the time measurement.
@@ -716,7 +731,7 @@ pub enum TemporalOpticalKey {
     Analyte,
 }
 
-impl std::str::FromStr for TemporalOpticalKey {
+impl FromStr for TemporalOpticalKey {
     type Err = ParseTemporalOpticalKeyError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
@@ -744,7 +759,7 @@ impl std::str::FromStr for TemporalOpticalKey {
 pub struct ParseTemporalOpticalKeyError;
 
 impl TemporalOpticalKey {
-    pub(crate) fn std_key(&self, i: MeasIndex) -> keys::StdKey {
+    pub(crate) fn std_key(&self, i: MeasIndex) -> StdKey {
         match self {
             Self::Filter => kws::Filter::std(i),
             // ASSUME this is the same for all versions
@@ -764,11 +779,11 @@ impl TemporalOpticalKey {
 
     pub(crate) fn remove_keys(
         xs: &HashSet<Self>,
-        kws: &mut keys::StdKeywords,
-        nonstd: &mut keys::NonStdKeywords,
+        kws: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         i: MeasIndex,
     ) {
-        for x in xs.iter() {
+        for x in xs {
             let k = x.std_key(i);
             nonstd.transfer_demoted(kws, k);
         }
@@ -788,14 +803,12 @@ pub struct ReadState<C> {
 }
 
 impl<C> ReadState<C> {
-    pub(crate) fn open(p: &PathBuf, conf: C) -> std::io::Result<(Self, File)> {
-        File::options()
-            .read(true)
-            .open(p)
-            .and_then(|file| Self::init(&file, conf).map(|st| (st, file)))
+    pub(crate) fn open(p: &PathBuf, conf: C) -> io::Result<(Self, File)> {
+        let file = File::options().read(true).open(p)?;
+        Self::init(&file, conf).map(|st| (st, file))
     }
 
-    pub(crate) fn init(f: &File, conf: C) -> std::io::Result<Self> {
+    pub(crate) fn init(f: &File, conf: C) -> io::Result<Self> {
         f.metadata().map(|m| Self {
             file_len: m.len(),
             conf,
@@ -806,10 +819,9 @@ impl<C> ReadState<C> {
 #[cfg(feature = "python")]
 mod python {
     use crate::python::macros::{impl_from_py_via_fromstr, impl_value_err};
+    use crate::segment::OffsetCorrection;
 
-    use super::{
-        OffsetCorrection, ParseTemporalOpticalKeyError, TemporalOpticalKey, TimeMeasNamePattern,
-    };
+    use super::{ParseTemporalOpticalKeyError, TemporalOpticalKey, TimeMeasNamePattern};
 
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
@@ -820,9 +832,9 @@ mod python {
     impl<'py> FromPyObject<'py> for TimeMeasNamePattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let s: String = ob.extract()?;
+            // this should be an error from regexp parsing
             let n = s
-                .parse::<TimeMeasNamePattern>()
-                // this should be an error from regexp parsing
+                .parse::<Self>()
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
             Ok(n)
         }

@@ -1,6 +1,7 @@
 use derive_more::{From, Into};
-use itertools::Itertools;
+use itertools::Itertools as _;
 use nonempty::NonEmpty;
+use std::hash::Hash;
 
 // A wrapper to bestow supernatural powers to "regular" non-empty. I may also
 // make my own version of this so this makes that a bit easier if I end up
@@ -33,7 +34,7 @@ impl<X> FCSNonEmpty<X> {
 
     pub(crate) fn unique(self) -> Self
     where
-        X: Clone + std::hash::Hash + Eq,
+        X: Clone + Hash + Eq,
     {
         NonEmpty::collect(self.0.into_iter().unique())
             .unwrap()
@@ -70,7 +71,7 @@ impl<X> FCSNonEmpty<X> {
         X: Eq,
     {
         let mut counts = NonEmpty::new((&self.0.head, 1));
-        for d in self.0.tail.iter() {
+        for d in &self.0.tail {
             if counts.last().0 == d {
                 counts.last_mut().1 += 1;
             } else {
@@ -85,7 +86,7 @@ impl<X> FCSNonEmpty<X> {
 #[cfg(feature = "serde")]
 mod serialize {
     use super::FCSNonEmpty;
-    use serde::{ser::SerializeSeq, Serialize};
+    use serde::{ser::SerializeSeq as _, Serialize};
 
     impl<I: Serialize> Serialize for FCSNonEmpty<I> {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

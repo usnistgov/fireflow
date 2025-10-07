@@ -4,7 +4,7 @@ use thiserror::Error;
 
 /// A String that matches a date.
 ///
-/// To be used when parsing date using ['NaiveDate::parse_from_str'].
+/// To be used when parsing date using [`NaiveDate::parse_from_str`].
 #[derive(Clone, Debug, AsRef, Display)]
 #[as_ref(str)]
 pub struct DatePattern(String);
@@ -27,9 +27,9 @@ impl FromStr for DatePattern {
         let m = matches!((nm, nb, nB), (1, 0, 0) | (0, 1, 0) | (0, 0, 1));
         let d = matches!((nd, ne), (1, 0) | (0, 1));
         if y && m && d {
-            Ok(DatePattern(s.to_string()))
+            Ok(Self(s.into()))
         } else {
-            Err(DatePatternError(s.to_string()))
+            Err(DatePatternError(s.into()))
         }
     }
 }
@@ -47,7 +47,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_str_to_pattern() {
+    fn str_to_pattern() {
         assert!("%y%m%d".parse::<DatePattern>().is_ok());
         assert!("%yrandom%mmorerandom%d".parse::<DatePattern>().is_ok(),);
         assert!("%y%y%m%d".parse::<DatePattern>().is_err());

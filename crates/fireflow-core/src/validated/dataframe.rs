@@ -349,8 +349,7 @@ pub(crate) type FCSColIter<'a, FromType, ToType> =
 
 pub(crate) trait FCSDataType
 where
-    Self: Sized,
-    Self: Copy,
+    Self: Sized + Copy,
     [Self]: ToOwned,
 {
     /// Return iterator for column, converting to native type on the fly.

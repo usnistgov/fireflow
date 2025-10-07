@@ -708,7 +708,7 @@ where
                 let _ = kws.std.remove(&Endstext::std());
                 Ok(Tentative::new1((delim, kws, None)))
             } else {
-                lookup_stext_offsets(&mut kws.std, header.version, ptext_seg, st)
+                lookup_stext_offsets(&kws.std, header.version, ptext_seg, st)
                     .inner_into()
                     .errors_liftio()
                     .and_maybe(|maybe_supp_seg| {
@@ -1053,7 +1053,7 @@ fn split_raw_text_escaped_delim(
 }
 
 fn lookup_stext_offsets<C>(
-    kws: &mut StdKeywords,
+    kws: &StdKeywords,
     version: Version,
     text_segment: PrimaryTextSegment,
     st: &ReadState<C>,
@@ -1227,7 +1227,7 @@ mod tests {
         let kws = ParsedKeywords::default();
         let conf = ReadHeaderAndTEXTConfig::default();
         // NOTE should not start with delim
-        let bytes = "$P4F/700//75 BP/".as_bytes();
+        let bytes = b"$P4F/700//75 BP/";
         let delim = 47;
         let out = split_raw_text_escaped_delim(kws, delim, bytes, TEXTKind::Primary, &conf);
         let v = out

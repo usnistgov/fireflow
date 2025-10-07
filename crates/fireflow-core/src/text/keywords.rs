@@ -1931,12 +1931,7 @@ impl<I> IndexedKey for RegionGateIndex<I> {
 }
 
 impl<I> Optional for RegionGateIndex<I> {}
-impl<I> OptIndexedKey for RegionGateIndex<I>
-where
-    I: fmt::Display,
-    I: FromStr,
-{
-}
+impl<I> OptIndexedKey for RegionGateIndex<I> where I: fmt::Display + FromStr {}
 
 // offsets for all versions
 kw_req_meta!(Nextdata, "NEXTDATA");

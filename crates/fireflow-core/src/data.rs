@@ -4335,8 +4335,7 @@ mod python {
 
     impl<'py, T, const LEN: usize> FromPyObject<'py> for FloatRange<T, LEN>
     where
-        for<'a> T: FromPyObjectBound<'a, 'py>,
-        T: HasFloatBounds,
+        for<'a> T: FromPyObjectBound<'a, 'py> + HasFloatBounds,
         FloatDecimal<T>: TryFrom<BigDecimal>,
         <FloatDecimal<T> as TryFrom<BigDecimal>>::Error: fmt::Display,
     {

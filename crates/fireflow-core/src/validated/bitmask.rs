@@ -250,8 +250,7 @@ mod python {
 
     impl<'py, T, const LEN: usize> FromPyObject<'py> for super::Bitmask<T, LEN>
     where
-        for<'a> T: FromPyObjectBound<'a, 'py>,
-        T: num_traits::PrimInt + fmt::Display,
+        for<'a> T: FromPyObjectBound<'a, 'py> + num_traits::PrimInt + fmt::Display,
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let x = ob.extract::<T>()?;

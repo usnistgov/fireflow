@@ -3045,17 +3045,12 @@ where
         ConvertFailure,
     >
     where
-        Version: From<M::Ver>,
-        Version: From<ToM::Ver>,
+        Version: From<M::Ver> + From<ToM::Ver>,
         M::Name: Clone,
-        ToM: VersionedMetaroot,
-        ToM: ConvertFromMetaroot<M>,
-        ToM::Optical: VersionedOptical,
-        ToM::Temporal: VersionedTemporal,
-        ToM::Name: MightHave,
-        ToM::Name: Clone,
-        ToM::Optical: ConvertFromOptical<M::Optical>,
-        ToM::Temporal: ConvertFromTemporal<M::Temporal>,
+        ToM: VersionedMetaroot + ConvertFromMetaroot<M>,
+        ToM::Optical: VersionedOptical + ConvertFromOptical<M::Optical>,
+        ToM::Temporal: VersionedTemporal + ConvertFromTemporal<M::Temporal>,
+        ToM::Name: MightHave + Clone,
         <ToM::Ver as Versioned>::Layout: ConvertFromLayout<<M::Ver as Versioned>::Layout>,
         <ToM::Name as MightHave>::Wrapper<Shortname>:
             TryFrom<<M::Name as MightHave>::Wrapper<Shortname>>,

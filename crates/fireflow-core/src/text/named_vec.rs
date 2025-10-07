@@ -271,7 +271,6 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     // }
 
     /// Return iterator over key names with non-existent names as default.
-    // TODO seems like we should give a different type for this
     pub(crate) fn iter_all_names(&self) -> impl Iterator<Item = Shortname> + '_ {
         self.iter().enumerate().map(|(i, r)| {
             r.both(

@@ -850,7 +850,6 @@ impl<I> Region<I> {
         match self {
             Self::Univariate(r) => (
                 RegionGateIndex::Univariate(r.index),
-                // TODO clone
                 RegionWindow::Univariate(r.gate.clone()),
             ),
             Self::Bivariate(r) => (

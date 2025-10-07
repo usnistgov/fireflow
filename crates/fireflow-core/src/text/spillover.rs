@@ -315,7 +315,6 @@ mod python {
     use numpy::{PyReadonlyArray2, ToPyArray as _};
     use pyo3::{prelude::*, types::PyTuple};
 
-    // TODO is this ok?
     impl_value_err!(NewSpilloverError);
 
     impl<'py> FromPyObject<'py> for Spillover {

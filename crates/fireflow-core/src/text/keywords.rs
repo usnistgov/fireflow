@@ -697,7 +697,6 @@ pub enum OpticalType {
     Classification,
     #[display("{}", INDEX)]
     Index,
-    // TODO is isn't clear if this is allowed according to the standard
     #[display("{_0}")]
     Other(String),
 }

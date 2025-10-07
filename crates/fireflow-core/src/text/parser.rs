@@ -876,7 +876,9 @@ impl ExtraStdKeywords {
 }
 
 pub(crate) fn truncate_string(s: &str, n: usize) -> String {
-    // TODO this is the length in bytes, not chars (ie doesn't care about utf-8)
+    // NOTE this is the length in bytes, not chars (ie doesn't care about
+    // utf-8), since this is just meant to make strings "shorter" it doesn't
+    // matter that much
     if s.len() > n {
         format!("{}…(more)", s.chars().take(n).collect::<String>())
     } else {

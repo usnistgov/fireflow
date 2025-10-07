@@ -128,7 +128,6 @@ impl fmt::Display for UnstainedCenters {
     }
 }
 
-// TODO define in same mode as type
 impl OptLinkedKey for UnstainedCenters {
     fn names(&self) -> HashSet<&Shortname> {
         self.0.keys().collect()

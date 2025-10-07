@@ -1412,7 +1412,6 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         })
     }
 
-    // TODO this seems like it could be more general (like "map_keys" or something)
     /// Unwrap and rewrap the non-center names of vector.
     ///
     /// This may fail if the original wrapped name cannot be converted.

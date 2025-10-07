@@ -295,29 +295,6 @@ impl FCSDataFrame {
         }
     }
 
-    // pub(crate) fn insert_column(
-    //     &mut self,
-    //     i: usize,
-    //     col: AnyFCSColumn,
-    // ) -> Result<(), InsertColumnError> {
-    //     let ncol = self.columns.len();
-    //     let df_len = self.nrows();
-    //     let col_len = col.len();
-    //     if i > ncol {
-    //         // TODO this error is more general than just named_vec
-    //         Err(BoundaryIndexError {
-    //             index: i.into(),
-    //             len: ncol,
-    //         }
-    //         .into())
-    //     } else if col_len != df_len {
-    //         Err(ColumnLengthError { df_len, col_len }.into())
-    //     } else {
-    //         self.columns.insert(i, col);
-    //         Ok(())
-    //     }
-    // }
-
     /// Return number of bytes this will occupy if written as delimited ASCII
     pub(crate) fn ascii_nbytes(&self) -> u64 {
         let n = self.size();

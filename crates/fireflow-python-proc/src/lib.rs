@@ -1058,7 +1058,6 @@ pub fn impl_core_all_meas_nonstandard_keywords(input: TokenStream) -> TokenStrea
     .into()
 }
 
-// TODO make this return $TOT, $NEXTDATA, etc
 #[proc_macro]
 pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
     let ident = parse_macro_input!(input as Ident);

@@ -4008,7 +4008,7 @@ enum PyType {
     Union(Box<PyUnion>),
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Hash, Eq, Clone)]
 enum PyAtom {
     Str,
     Bool,
@@ -4057,6 +4057,7 @@ impl PyAtom {
                             true
                         }
                     })
+                    .unique()
                     .collect();
                 if hasnone {
                     ys.push(Self::None);
@@ -4125,7 +4126,7 @@ struct PyDatetime {
     rstype: Option<Path>,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Hash, Eq)]
 struct PyLiteral {
     head: &'static str,
     tail: Vec<&'static str>,
@@ -4151,7 +4152,7 @@ struct PyList {
     rstype: Option<Path>,
 }
 
-#[derive(Clone, new, PartialEq)]
+#[derive(Clone, new, PartialEq, Hash, Eq)]
 struct PyClass {
     #[new(into)]
     pyname: String,

@@ -103,8 +103,6 @@ impl<T> HeaderSegments<T> {
             self.analysis.header_string(), // 16 bytes
         ]
         .into_iter()
-        // TODO the other segments will each be 20 chars wide and padded with 0,
-        // which is probably overkill
         .chain(self.other.iter().map(Segment::header_string))
         {
             h.write_all(s.as_bytes())?;
@@ -499,7 +497,6 @@ pub(crate) struct HeaderKeywordsToWrite<T> {
     pub(crate) header: HeaderSegments<T>,
     pub(crate) primary: KeywordsWriter,
     pub(crate) supplemental: KeywordsWriter,
-    // TODO do something useful with this
     pub(crate) _nextdata: Nextdata,
 }
 

@@ -599,7 +599,6 @@ impl<I, S, T> Segment<I, S, T> {
         Self::new(inner)
     }
 
-    // TODO this is just tryfrom
     pub(crate) fn try_as_generic(&self) -> Option<GenericSegment>
     where
         I: HasRegion,
@@ -920,7 +919,6 @@ impl<T> InnerSegment<T> {
         }
     }
 
-    // TODO this is just tryfrom
     fn try_as_nonempty(&self) -> Option<NonEmptySegment<T>>
     where
         T: Copy,
@@ -954,9 +952,7 @@ impl<T> NonEmptySegment<T> {
     where
         T: Into<u64> + Copy,
     {
-        // TODO technically this should return option since it isn't guaranteed
-        // that the next byte won't wrap
-        NonZeroU64::MIN.saturating_add(self.end.into())
+        NonZeroU64::MIN.checked_add(self.end.into()).unwrap()
     }
 
     fn as_u64(&self) -> NonEmptySegment<u64>

@@ -1251,8 +1251,8 @@ pub fn impl_core_all_peak_attrs(input: TokenStream) -> TokenStream {
             |_, _| {
                 quote! {
                     self.0
-                        .get_temporal_optical::<#inner>()
-                        .map(|x| x.as_ref().copied())
+                        .get_temporal_optical::<#inner, #inner>()
+                        .map(|x| x.unwrap().as_ref().copied())
                         .collect()
                 }
             },
@@ -2832,7 +2832,48 @@ pub fn impl_core_all_pntag(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "OpticalType", "measurement_types", "TYPE", PyStr::new1)
+    // core_all_optical_attr(&i, "OpticalType", "measurement_types", "TYPE", PyStr::new1)
+
+    let opt_pytype = PyStr::new1(keyword_path("OpticalType"));
+    let tmp_pytype = PyStr::new1(keyword_path("TemporalType"));
+
+    let inner_opt_pytype = PyOpt::new(opt_pytype);
+    let inner_tmp_pytype = PyOpt::new(tmp_pytype);
+
+    let inner_opt_rstype = inner_opt_pytype.as_rust_type();
+    let inner_tmp_rstype = inner_tmp_pytype.as_rust_type();
+
+    let doc_summary = "Value of *$PnTYPE* for all measurements.";
+    let doc_middle = "``()`` or ``None`` will be returned for time since \
+                      *$PnTYPE* can only be ``\"Time\"`` or unset for \
+                      temporal measurements.";
+
+    let nce_path =
+        parse_quote!(fireflow_core::text::named_vec::Element<#inner_tmp_rstype, #inner_opt_rstype>);
+
+    let full_pytype = PyUnion::new2(inner_opt_pytype, inner_tmp_pytype, nce_path);
+
+    let doc = DocString::new_ivar(
+        doc_summary,
+        [doc_middle],
+        DocReturn::new(PyList::new(full_pytype)),
+    );
+
+    doc.into_impl_get_set(
+        &i,
+        "all_measurement_types",
+        true,
+        |_, _| {
+            quote! {
+                self.0
+                    .get_temporal_optical::<#inner_tmp_rstype, #inner_opt_rstype>()
+                    .map(|e| e.bimap(|x| x.clone(), |y| y.clone()))
+                    .collect()
+            }
+        },
+        |n, _| quote!(self.0.set_temporal_optical2(#n).py_termfail_resolve_nowarn()),
+    )
+    .into()
 }
 
 #[proc_macro]

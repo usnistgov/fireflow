@@ -89,6 +89,8 @@ TemporalOpticalKey = Literal[
     "ANALYTE",
 ]
 
+TemporalType: TypeAlias = Literal["Time"]
+
 AnyCoreTEXT: TypeAlias = (
     pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreTEXT3_1 | pf.CoreTEXT3_2
 )

@@ -23,6 +23,7 @@ use derive_new::new;
 use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use num_traits::identities::Zero;
+use std::iter::once;
 use thiserror::Error;
 
 use std::fmt;
@@ -547,13 +548,7 @@ impl<T> HeaderKeywordsToWrite<T> {
             other: other_segs,
         };
 
-        let primary = KeywordsWriter(
-            [nextdata.pair()]
-                .into_iter()
-                .chain(req)
-                .chain(opt)
-                .collect(),
-        );
+        let primary = KeywordsWriter(once(nextdata.pair()).chain(req).chain(opt).collect());
 
         Ok(Self {
             header,

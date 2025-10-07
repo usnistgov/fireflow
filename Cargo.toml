@@ -120,3 +120,8 @@ verbose_file_reads = "warn"
 
 # nursery
 use_self = "warn"
+branches_sharing_code = "warn"
+collection_is_never_read = "warn"
+equatable_if_let = "warn"
+iter_on_empty_collections = "warn"
+iter_on_single_items = "warn"

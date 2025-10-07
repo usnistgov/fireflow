@@ -33,6 +33,7 @@ use nonempty::NonEmpty;
 use num_traits::cast::ToPrimitive as _;
 use num_traits::identities::One as _;
 use num_traits::PrimInt;
+use std::iter::once;
 use thiserror::Error;
 
 use std::any::type_name;
@@ -1748,7 +1749,7 @@ impl Optional for Trigger {}
 
 impl OptLinkedKey for Trigger {
     fn names(&self) -> HashSet<&Shortname> {
-        [&self.measurement].into_iter().collect()
+        once(&self.measurement).collect()
     }
 
     fn reassign(&mut self, mapping: &NameMapping) {

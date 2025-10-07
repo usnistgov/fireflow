@@ -1,5 +1,6 @@
 use crate::error::{Terminal, TerminalFailure, TerminalResult};
 
+use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyWarning};
@@ -7,6 +8,7 @@ use pyo3::prelude::*;
 use std::convert::Infallible;
 use std::ffi::CString;
 use std::fmt;
+use std::iter::once;
 
 create_exception!(
     _pyreflow,
@@ -120,12 +122,8 @@ where
     E: fmt::Display,
     T: fmt::Display,
 {
-    let s = {
-        let xs: Vec<_> = [format!("Toplevel Error: {r}")]
-            .into_iter()
-            .chain(es.into_iter().map(|x| x.to_string()))
-            .collect();
-        xs[..].join("\n").to_string()
-    };
+    let s = once(format!("Toplevel Error: {r}"))
+        .chain(es.into_iter().map(|x| x.to_string()))
+        .join("\n");
     PyreflowException::new_err(s)
 }

@@ -96,6 +96,7 @@ use std::fmt;
 use std::fs::File;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, Write};
+use std::iter::once;
 use std::marker::PhantomData;
 use std::num::ParseIntError;
 use std::path::PathBuf;
@@ -397,8 +398,7 @@ impl<A, D, O> AnyCore<A, D, O> {
 
     pub fn print_comp_or_spillover_table(&self, delim: &str) {
         if let Some((names, matrix)) = self.spillover_or_comp_table() {
-            let header = ["[-]"]
-                .into_iter()
+            let header = once("[-]")
                 .chain(names.iter().map(AsRef::as_ref))
                 .join(delim);
             println!("{header}");
@@ -1701,8 +1701,7 @@ impl<T> Temporal<T> {
     where
         T: VersionedTemporal,
     {
-        [self.common.longname.meas_kw_pair(i)]
-            .into_iter()
+        once(self.common.longname.meas_kw_pair(i))
             .filter_map(|(k, v)| v.map(|x| (k, x)))
             .chain(self.specific.opt_meas_keywords_inner(i))
     }
@@ -1962,9 +1961,7 @@ where
     }
 
     fn all_req_keywords(&self, par: Par) -> impl Iterator<Item = (String, String)> {
-        [par.pair()]
-            .into_iter()
-            .chain(self.specific.keywords_req_inner())
+        once(par.pair()).chain(self.specific.keywords_req_inner())
     }
 
     fn all_opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -2488,7 +2485,7 @@ where
         key: <M::Name as MightHave>::Wrapper<Shortname>,
     ) -> Result<(Shortname, Shortname), RenameError> {
         self.measurements.rename(index, key).map(|(old, new)| {
-            let mapping = [(old.clone(), new.clone())].into_iter().collect();
+            let mapping = once((old.clone(), new.clone())).collect();
             self.metaroot.rename_meas_links(&mapping);
             (old, new)
         })
@@ -3479,11 +3476,7 @@ where
                 .zip(req_layout)
                 .zip(opt_layout)
                 .map(|(((i, v, n), lr), lo)| v.table_row(i, n, lr, lo));
-            [header]
-                .into_iter()
-                .chain(rows)
-                .map(|r| r.join(delim))
-                .collect()
+            once(header).chain(rows).map(|r| r.join(delim)).collect()
         } else {
             vec![]
         }
@@ -6551,8 +6544,7 @@ impl VersionedOptical for InnerOptical3_0 {
         &self,
         i: MeasIndex,
     ) -> impl Iterator<Item = (MeasHeader, String, Option<String>)> {
-        [self.wavelength.meas_kw_triple(i)]
-            .into_iter()
+        once(self.wavelength.meas_kw_triple(i))
             .chain(self.peak.opt_keywords(i))
             .chain(self.scale.opt_suffixes(i))
     }
@@ -6772,9 +6764,7 @@ impl VersionedTemporal for InnerTemporal3_2 {
     }
 
     fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
-        [self.display.meas_kw_pair(i)]
-            .into_iter()
-            .filter_map(|(k, v)| v.map(|x| (k, x)))
+        once(self.display.meas_kw_pair(i)).filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
     fn can_convert_to_optical(&self, i: MeasIndex) -> MultiResult<(), Self::Err> {
@@ -7390,8 +7380,7 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
     }
 
     fn keywords_opt_inner(&self) -> impl Iterator<Item = (String, String)> {
-        [self.cyt.root_kw_pair()]
-            .into_iter()
+        once(self.cyt.root_kw_pair())
             .filter_map(|(k, v)| v.map(|x| (k, x)))
             .chain(self.applied_gates.opt_keywords())
             .chain(self.timestamps.opt_keywords())

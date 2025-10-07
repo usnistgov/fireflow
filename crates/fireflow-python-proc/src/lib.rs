@@ -10,6 +10,7 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote, ToTokens};
 use std::fmt;
+use std::iter::once;
 use std::marker::PhantomData;
 use std::string::ToString;
 use syn::{
@@ -30,7 +31,7 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
     let doc = DocString::new_fun(
         "Read the *HEADER* of an FCS file.",
         [""; 0],
-        [DocArg::new_path_param(true)].into_iter().chain(args),
+        once(DocArg::new_path_param(true)).chain(args),
         Some(DocReturn::new(PyClass::new_py(["api"], "Header"))),
     );
 
@@ -63,8 +64,7 @@ pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
     let doc = DocString::new_fun(
         "Read *HEADER* and *TEXT* as key/value pairs from FCS file.",
         [""; 0],
-        [path_arg]
-            .into_iter()
+        once(path_arg)
             .chain(header_args)
             .chain(raw_args)
             .chain(shared_args),
@@ -106,8 +106,7 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
     let doc = DocString::new_fun(
         "Read *HEADER* and standardized *TEXT* from FCS file.",
         [""; 0],
-        [path_arg]
-            .into_iter()
+        once(path_arg)
             .chain(header_args)
             .chain(raw_args)
             .chain(std_args)
@@ -159,8 +158,7 @@ pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
     let doc = DocString::new_fun(
         "Read raw dataset from FCS file.",
         [""; 0],
-        [path_arg]
-            .into_iter()
+        once(path_arg)
             .chain(header_args)
             .chain(raw_args)
             .chain(offsets_args)
@@ -209,8 +207,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
     let doc = DocString::new_fun(
         "Read standardized dataset from FCS file.",
         [""; 0],
-        [path_arg]
-            .into_iter()
+        once(path_arg)
             .chain(header_args)
             .chain(raw_args)
             .chain(std_args)
@@ -1154,9 +1151,7 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
 
     let doc = DocString::new_method(
         "Write data to path.",
-        ["Resulting FCS file will include *HEADER* and *TEXT*."]
-            .into_iter()
-            .chain(write_2_0_warning),
+        once("Resulting FCS file will include *HEADER* and *TEXT*.").chain(write_2_0_warning),
         [
             DocArg::new_path_param(false),
             DocArg::new_textdelim_param(),
@@ -1191,9 +1186,10 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
 
     let doc = DocString::new_method(
         "Write data as an FCS file.",
-        ["The resulting file will include *HEADER*, *TEXT*, *DATA*, \
-            *ANALYSIS*, and *OTHER* as they present from this class."]
-        .into_iter()
+        once(
+            "The resulting file will include *HEADER*, *TEXT*, *DATA*, \
+            *ANALYSIS*, and *OTHER* as they present from this class.",
+        )
         .chain(write_2_0_warning),
         [
             DocArg::new_path_param(false),
@@ -1393,7 +1389,7 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
         DocString::new_method(
             format!("Set the temporal measurement to a given {i}."),
             [""; 0],
-            [p].into_iter().chain(timestep).chain([allow_loss]),
+            once(p).chain(timestep).chain([allow_loss]),
             Some(DocReturn::new1(
                 PyBool::new(),
                 format!(
@@ -2635,16 +2631,8 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let all_common = [longname, nonstd];
 
     let all_args: Vec<_> = match (version, is_temporal) {
-        (Version::FCS2_0, true) => [has_scale]
-            .into_iter()
-            .chain(all_peak)
-            .chain(all_common)
-            .collect(),
-        (Version::FCS3_0, true) => [timestep]
-            .into_iter()
-            .chain(all_peak)
-            .chain(all_common)
-            .collect(),
+        (Version::FCS2_0, true) => once(has_scale).chain(all_peak).chain(all_common).collect(),
+        (Version::FCS3_0, true) => once(timestep).chain(all_peak).chain(all_common).collect(),
         (Version::FCS3_1, true) => [timestep, display]
             .into_iter()
             .chain(all_peak)
@@ -4583,8 +4571,7 @@ impl PyClass {
         name: impl fmt::Display,
     ) -> Self {
         let pyname = format_ident!("Py{name}");
-        let m = ["~pyreflow".into()]
-            .into_iter()
+        let m = once("~pyreflow".into())
             .chain(modpath.into_iter().map(|x| x.to_string()))
             .chain([format!("{name}")])
             .join(".");
@@ -5491,9 +5478,7 @@ impl DocArgParam {
         let disallow_range_truncation = Self::new_disallow_range_truncation_param();
 
         let ps: Vec<_> = match version {
-            Some(Version::FCS3_1 | Version::FCS3_2) => {
-                [disallow_range_truncation].into_iter().collect()
-            }
+            Some(Version::FCS3_1 | Version::FCS3_2) => once(disallow_range_truncation).collect(),
             _ => [
                 integer_widths_from_byteord,
                 integer_byteord_override,
@@ -7259,8 +7244,7 @@ impl fmt::Display for PyLiteral {
         write!(
             f,
             ":obj:`~typing.Literal`\\ [{}]",
-            [&self.head]
-                .into_iter()
+            once(&self.head)
                 .chain(self.tail.iter())
                 .map(|s| format!("\"{s}\""))
                 .join(", ")

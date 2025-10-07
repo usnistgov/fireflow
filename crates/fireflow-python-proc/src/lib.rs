@@ -2604,36 +2604,27 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let measurement_type =
         DocArg::new_meas_kw_opt_ivar("OpticalType", "measurement_type", "TYPE", PyStr::new1);
 
-    let has_scale = DocArg::new_bool_param("has_scale", "``True`` if *$PnE* is set to ``0,0``.")
-        .into_rw(
+    let make_quasi_bool = |what: &str, sym: &str, val: &str, rstype: &str, fieldname: &str| {
+        let r = format_ident!("{rstype}");
+        let f = format_ident!("{fieldname}");
+        let p: Path = parse_quote!(fireflow_core::text::keywords::#r);
+        let argname = format!("has_{what}");
+        let desc = format!("``True`` if *$Pn{sym}* is set to ``{val}``.");
+        DocArg::new_bool_param(argname, desc).into_rw(
             false,
-            |_, _| quote!(self.0.specific.scale.0.is_some()),
-            |n, _| {
-                quote! {
-                    self.0.specific.scale = if #n {
-                        Some(fireflow_core::text::keywords::TemporalScale)
-                    } else {
-                        None
-                    }.into();
-                }
-            },
-        );
+            |_, _| quote!(self.0.specific.#f.0.is_some()),
+            |n, _| quote!(self.0.specific.#f = #n.then_some(#p).into();),
+        )
+    };
 
-    let has_type =
-        DocArg::new_bool_param("has_type", "``True`` if *$PnTYPE* is set to ``\"Time\"``.")
-            .into_rw(
-                false,
-                |_, _| quote!(self.0.specific.measurement_type.0.is_some()),
-                |n, _| {
-                    quote! {
-                        self.0.specific.measurement_type = if #n {
-                            Some(fireflow_core::text::keywords::TemporalType)
-                        } else {
-                            None
-                        }.into();
-                    }
-                },
-            );
+    let has_scale = make_quasi_bool("scale", "E", "0,0", "TemporalScale", "scale");
+    let has_type = make_quasi_bool(
+        "type",
+        "TYPE",
+        "\"Time\"",
+        "TemporalType",
+        "measurement_type",
+    );
 
     let timestep = DocArg::new_ivar_rw(
         "timestep",

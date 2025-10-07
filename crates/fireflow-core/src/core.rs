@@ -126,6 +126,8 @@ use pyo3::prelude::*;
 #[derive(Clone, AsRef, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[new(visibility = "")]
+// NOTE fields are private since metaroot, measurements, and layout are all
+// related to each other and must be kept in sync
 pub struct Core<A, D, O, M, T, P, N, W, L> {
     /// Metaroot TEXT keywords.
     ///
@@ -258,7 +260,8 @@ pub struct Metaroot<X> {
     /// Value of $TR
     #[as_ref(Option<Trigger>)]
     #[new(into)]
-    tr: MaybeValue<Trigger>,
+    // NOTE not mutable to prevent mutation when part of Core
+    pub tr: MaybeValue<Trigger>,
 
     /// Version-specific data
     pub specific: X,
@@ -531,7 +534,8 @@ pub struct InnerMetaroot2_0 {
     /// Compensation matrix derived from 'DFCnTOm' key/value pairs
     #[as_ref(Option<Compensation2_0>)]
     #[new(into)]
-    comp: MaybeValue<Compensation2_0>,
+    // NOTE not mutable to prevent mutation when part of Core
+    pub comp: MaybeValue<Compensation2_0>,
 
     /// Values of $BTIM/ETIM/$DATE
     #[as_ref(Timestamps2_0, Option<FCSDate>)]
@@ -541,7 +545,8 @@ pub struct InnerMetaroot2_0 {
     /// Values of $Gm*/$RnI/$RnW/$GATING/$GATE
     #[as_ref(AppliedGates2_0)]
     #[as_mut(AppliedGates2_0)]
-    applied_gates: AppliedGates2_0,
+    // NOTE not mutable to prevent mutation when part of Core
+    pub applied_gates: AppliedGates2_0,
 }
 
 /// Metaroot fields specific to version 3.0
@@ -563,7 +568,8 @@ pub struct InnerMetaroot3_0 {
     /// Value of $COMP
     #[as_ref(Option<Compensation3_0>)]
     #[new(into)]
-    comp: MaybeValue<Compensation3_0>,
+    // NOTE not mutable to prevent mutation when part of Core
+    pub comp: MaybeValue<Compensation3_0>,
 
     /// Values of $BTIM/ETIM/$DATE
     #[as_ref(Timestamps3_0, Option<FCSDate>)]
@@ -594,7 +600,8 @@ pub struct InnerMetaroot3_0 {
     /// Values of $Gm*/$RnI/$RnW/$GATING/$GATE
     #[as_ref(AppliedGates3_0)]
     #[new(into)]
-    applied_gates: AppliedGates3_0,
+    // NOTE not mutable to prevent mutation when part of Core
+    pub applied_gates: AppliedGates3_0,
 }
 
 /// Metaroot fields specific to version 3.1
@@ -627,7 +634,8 @@ pub struct InnerMetaroot3_1 {
     /// Value of $SPILLOVER
     #[as_ref(Option<Spillover>)]
     #[new(into)]
-    spillover: MaybeValue<Spillover>,
+    // NOTE not mutable to prevent mutation when part of Core
+    pub spillover: MaybeValue<Spillover>,
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
     #[as_ref(Option<LastModifier>, Option<LastModified>, Option<Originality>)]
@@ -657,7 +665,8 @@ pub struct InnerMetaroot3_1 {
     /// Values of $Gm*/$RnI/$RnW/$GATING/$GATE
     #[as_ref(AppliedGates3_0)]
     #[new(into)]
-    applied_gates: AppliedGates3_0,
+    // NOTE not mutable to prevent mutation when part of Core
+    pub applied_gates: AppliedGates3_0,
 }
 
 /// Metaroot fields specific to version 3.2
@@ -689,7 +698,8 @@ pub struct InnerMetaroot3_2 {
     /// Value of $SPILLOVER
     #[as_ref(Option<Spillover>)]
     #[new(into)]
-    spillover: MaybeValue<Spillover>,
+    // NOTE not mutable to prevent mutation when part of Core
+    pub spillover: MaybeValue<Spillover>,
 
     /// Value of $CYTSN
     #[as_ref(Option<Cytsn>)]
@@ -732,7 +742,8 @@ pub struct InnerMetaroot3_2 {
 
     /// Values of $RnI/$RnW/$GATING
     #[as_ref(AppliedGates3_2)]
-    applied_gates: AppliedGates3_2,
+    // NOTE not mutable to prevent mutation when part of Core
+    pub applied_gates: AppliedGates3_2,
 }
 
 /// Temporal measurement fields specific to version 2.0
@@ -1108,7 +1119,8 @@ pub struct PlateData {
 pub struct UnstainedData {
     #[as_ref(Option<UnstainedCenters>)]
     #[new(into)]
-    unstainedcenters: MaybeValue<UnstainedCenters>,
+    // NOTE not mutable to prevent mutation when part of Core
+    pub unstainedcenters: MaybeValue<UnstainedCenters>,
 
     #[as_ref(Option<UnstainedInfo>)]
     #[as_mut(Option<UnstainedInfo>)]
@@ -2799,6 +2811,7 @@ where
         })
     }
 
+    /// Show $COMP.
     pub fn compensation(&self) -> Option<&Compensation>
     where
         M: HasCompensation,
@@ -2806,7 +2819,7 @@ where
         self.metaroot.specific.comp(private::NoTouchy)
     }
 
-    /// Set matrix for $COMP
+    /// Set matrix for $COMP.
     ///
     /// Return true if successfully set. Return false if matrix is either not
     /// square or rows/columns are not the same length as $PAR.

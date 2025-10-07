@@ -1983,7 +1983,6 @@ where
         .into_iter()
         .filter_map(|(k, v)| v.map(|x| (k, x)))
         .chain(self.specific.keywords_opt_inner())
-        .map(|(k, v)| (k.to_string(), v))
         .chain(
             self.nonstandard_keywords
                 .iter()

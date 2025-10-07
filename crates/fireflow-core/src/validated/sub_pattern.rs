@@ -98,7 +98,7 @@ mod tests {
         assert!(SubPattern::try_new(r.clone(), "${0}b".into(), true).is_ok());
         assert!(SubPattern::try_new(r.clone(), "${1}b".into(), true).is_err());
         assert!(SubPattern::try_new(r.clone(), "$b".into(), true).is_err());
-        assert!(SubPattern::try_new(r.clone(), "$$$b".into(), true).is_err());
+        assert!(SubPattern::try_new(r, "$$$b".into(), true).is_err());
     }
 
     #[test]
@@ -109,7 +109,7 @@ mod tests {
         assert!(SubPattern::try_new(r.clone(), "${0}b".into(), true).is_ok());
         assert!(SubPattern::try_new(r.clone(), "${1}b".into(), true).is_ok());
         assert!(SubPattern::try_new(r.clone(), "${2}b".into(), true).is_err());
-        assert!(SubPattern::try_new(r.clone(), "${x}b".into(), true).is_err());
+        assert!(SubPattern::try_new(r, "${x}b".into(), true).is_err());
     }
 
     #[test]
@@ -120,7 +120,7 @@ mod tests {
         assert!(SubPattern::try_new(r.clone(), "${0}b".into(), true).is_ok());
         assert!(SubPattern::try_new(r.clone(), "${1}b".into(), true).is_ok());
         assert!(SubPattern::try_new(r.clone(), "${x}b".into(), true).is_ok());
-        assert!(SubPattern::try_new(r.clone(), "${2}b".into(), true).is_err());
+        assert!(SubPattern::try_new(r, "${2}b".into(), true).is_err());
     }
 
     #[test]
@@ -133,7 +133,7 @@ mod tests {
         assert!(SubPattern::try_new(r.clone(), "${2}b".into(), true).is_ok());
         assert!(SubPattern::try_new(r.clone(), "${x}b".into(), true).is_ok());
         assert!(SubPattern::try_new(r.clone(), "${x}b${0}${1}".into(), true).is_ok());
-        assert!(SubPattern::try_new(r.clone(), "${y}b".into(), true).is_err());
+        assert!(SubPattern::try_new(r, "${y}b".into(), true).is_err());
     }
 }
 

@@ -2,7 +2,7 @@ use std::fmt::Display;
 use std::str::FromStr;
 
 /// Assert that Display and FromStr are perfect inverses for given input
-pub(crate) fn assert_from_to_str<T>(s: &str)
+pub fn assert_from_to_str<T>(s: &str)
 where
     T: FromStr + Display,
     <T as FromStr>::Err: Display,
@@ -17,7 +17,7 @@ where
 }
 
 /// Assert that Display and FromStr are near-perfect inverses for given input
-pub(crate) fn assert_from_to_str_almost<T>(s0: &str, s1: &str)
+pub fn assert_from_to_str_almost<T>(s0: &str, s1: &str)
 where
     T: FromStr + Display,
     <T as FromStr>::Err: Display,

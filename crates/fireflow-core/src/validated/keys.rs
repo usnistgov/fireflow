@@ -817,7 +817,7 @@ mod serialize {
     use serde::Serialize;
     use std::collections::{BTreeMap, HashMap};
 
-    pub(crate) fn ordered_map<K: Serialize + Clone + Ord, S>(
+    pub fn ordered_map<K: Serialize + Clone + Ord, S>(
         value: &HashMap<K, String>,
         serializer: S,
     ) -> Result<S::Ok, S::Error>

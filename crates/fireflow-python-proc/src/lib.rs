@@ -1868,7 +1868,7 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
         } else {
             (PyType::new_temporal(version), "temporal")
         };
-        let param_meas = DocArg::new_param("meas", meas_type.clone(), "The measurement to insert.");
+        let param_meas = DocArg::new_param("meas", meas_type, "The measurement to insert.");
         let col_param = hasdata.then_some(DocArg::new_col_param());
         let summary = format!("Insert {what} measurement at position in measurement vector.");
         let ps = [
@@ -2365,7 +2365,7 @@ pub fn impl_core_set_measurements_and_layout(input: TokenStream) -> TokenStream 
         ps,
         [
             DocArg::new_set_meas_param(version),
-            param_type_set_layout.clone(),
+            param_type_set_layout,
             DocArg::new_allow_shared_names_param(),
             DocArg::new_skip_index_check_param(),
         ],
@@ -3289,7 +3289,7 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
     let doc = DocString::new_class(
         format!("{nbits}-bit endian float layout"),
         [""; 0],
-        [range_param.clone(), is_big_param],
+        [range_param, is_big_param],
     );
 
     let new = |fun_args| {
@@ -4688,7 +4688,7 @@ impl DocArgRWIvar {
         T: Into<PyType>,
     {
         let path = keyword_path(kw);
-        let pytype: PyType = f(path.clone()).into();
+        let pytype: PyType = f(path).into();
         let full_path = pytype.as_rust_type();
 
         let d = desc.map_or(format!("Value of *${}*.", name.to_uppercase()), Into::into);
@@ -4775,7 +4775,7 @@ impl DocArgRWIvar {
 
         Self::new_ivar_rw(
             "layout",
-            layout_pytype.clone(),
+            layout_pytype,
             layout_desc,
             true,
             |_, _| quote!(self.0.layout().clone().into()),
@@ -4900,7 +4900,7 @@ impl DocArgRWIvar {
                     PyType::from(PyList::new(PyStr::new())),
                     PyClass::new1("~numpy.ndarray").into(),
                 ],
-                rstype.clone(),
+                rstype,
             ),
             "Value for *$SPILLOVER*. First element of tuple the list of measurement \
              names and the second is the matrix. Each measurement name must \
@@ -5780,7 +5780,7 @@ impl DocArgParam {
         let path: Path = parse_quote!(fireflow_core::validated::ascii_range::OtherWidth);
         Self::new_param_def(
             "other_width",
-            PyInt::new(RsInt::NonZeroU8, path.clone()),
+            PyInt::new(RsInt::NonZeroU8, path),
             "Maximum number of OTHER segments that can be parsed. \
              ``None`` means limitless.",
             DocDefault::Int(8),

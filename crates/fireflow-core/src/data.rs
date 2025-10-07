@@ -2550,7 +2550,8 @@ where
     }
 
     fn nbytes(&self, df: &FCSDataFrame) -> u64 {
-        self.event_width() * (df.nrows() as u64)
+        let nrows = u64::try_from(df.nrows()).expect("rows in dataframe exceed 2^64");
+        self.event_width() * nrows
     }
 
     fn datatype(&self) -> AlphaNumType {

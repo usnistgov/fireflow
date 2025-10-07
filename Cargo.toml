@@ -36,7 +36,7 @@ missing_errors_doc = "allow"
 # restriction lints: footguns (stuff that likely implies a mistake)
 ###
 # arithmetic_side_effects = "warn"
-# as_conversions = "warn"
+as_conversions = "warn"
 as_pointer_underscore = "warn"
 as_underscore = "warn"
 default_numeric_fallback = "warn"

@@ -165,7 +165,7 @@ pub(crate) trait Key {
     }
 
     fn len() -> u64 {
-        (Self::C.len() + 1) as u64
+        u64::try_from(Self::C.len() + 1).unwrap()
     }
 }
 

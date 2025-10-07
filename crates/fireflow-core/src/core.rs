@@ -2140,7 +2140,10 @@ where
         T: Zero + TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
     {
         // TODO do something useful with $NEXTDATA
-        let other_lens: Vec<_> = other_segs.iter().map(|s| s.0.len() as u64).collect();
+        let other_lens: Vec<_> = other_segs
+            .iter()
+            .map(|s| u64::try_from(s.0.len()).expect("OTHER segment length exceeds 2^64"))
+            .collect();
         let hdr_kws: HeaderKeywordsToWrite<T> = self
             .header_and_raw_keywords(tot, data_len, analysis_len, &other_lens[..], false)
             .map_err(ImpureError::Pure)?;
@@ -4036,7 +4039,8 @@ where
         let layout = &self.layout;
         let delim = conf.delim;
         let tot = Tot(df.nrows());
-        let analysis_len = self.analysis.0.len() as u64;
+        let analysis_len =
+            u64::try_from(self.analysis.0.len()).expect("ANALYSIS segment length exceeds 2^64");
         let others = &self.others.0[..];
 
         let check_res = if conf.skip_conversion_check {

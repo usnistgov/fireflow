@@ -244,7 +244,7 @@ impl FCSDataFrame {
 
     #[must_use]
     pub fn size(&self) -> u64 {
-        (self.ncols() * self.nrows()) as u64
+        u64::try_from(self.ncols() * self.nrows()).expect("cells in dataframe exceed 2^64")
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -458,11 +458,12 @@ macro_rules! impl_cast_noloss {
 macro_rules! impl_cast_int_lossy {
     ($from:ident, $to:ident) => {
         impl NumCast<$from> for $to {
-            #[allow(clippy::cast_possible_truncation)]
             fn from_truncated(x: $from) -> CastResult<Self> {
-                let has_loss = $to::try_from(x).is_err();
-                let new = if has_loss { $to::MAX } else { x as $to };
-                CastResult::new::<$from>(new, has_loss)
+                if let Ok(new) = $to::try_from(x) {
+                    CastResult::new::<$from>(new, false)
+                } else {
+                    CastResult::new::<$from>($to::MAX, true)
+                }
             }
         }
     };
@@ -475,6 +476,7 @@ macro_rules! impl_cast_float_to_int_lossy {
             #[allow(clippy::cast_sign_loss)]
             #[allow(clippy::cast_lossless)]
             #[allow(clippy::cast_possible_truncation)]
+            #[allow(clippy::as_conversions)]
             fn from_truncated(x: $from) -> CastResult<Self> {
                 let has_loss = x.is_nan()
                     || x.is_infinite()
@@ -493,6 +495,7 @@ macro_rules! impl_cast_int_to_float_lossy {
             #[allow(clippy::cast_precision_loss)]
             #[allow(clippy::cast_sign_loss)]
             #[allow(clippy::cast_possible_truncation)]
+            #[allow(clippy::as_conversions)]
             fn from_truncated(x: $from) -> CastResult<Self> {
                 let new = x as $to;
                 let old = new as $from;
@@ -549,6 +552,7 @@ impl_cast_float_to_int_lossy!(f64, u64);
 impl NumCast<f64> for f32 {
     #[allow(clippy::cast_possible_truncation)]
     #[allow(clippy::float_cmp)]
+    #[allow(clippy::as_conversions)]
     fn from_truncated(x: f64) -> CastResult<Self> {
         let new = x as f32;
         let old = f64::from(new);
@@ -715,6 +719,7 @@ mod tests {
             #[allow(clippy::cast_possible_truncation)]
             #[allow(clippy::cast_precision_loss)]
             #[allow(clippy::cast_lossless)]
+            #[allow(clippy::as_conversions)]
             let x = $int::from_truncated($int::MAX as $float);
             assert_eq!(x, CastResult::new::<$float>($int::MAX, false));
             assert_eq!(

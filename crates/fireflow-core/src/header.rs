@@ -115,6 +115,7 @@ impl<T> HeaderSegments<T> {
     pub(crate) fn contains_text_segment<I>(&self, s: &TEXTSegment<I>) -> Result<(), InHeaderError>
     where
         I: HasRegion,
+        T: HeaderString,
     {
         s.try_as_generic()
             .map_or(Ok(()), |q| self.contains_segment(q))
@@ -141,7 +142,7 @@ impl<T> HeaderSegments<T> {
     /// Ensure HEADER segments don't overlap and start after HEADER itself
     fn validate(&self) -> MultiResult<(), HeaderValidationError>
     where
-        T: Copy + Into<u64>,
+        T: Copy + Into<u64> + HeaderString,
     {
         let x = self.overlapping_segments().mult_errors_into();
         let y = self.contains_header_segments().mult_errors_into();
@@ -150,7 +151,7 @@ impl<T> HeaderSegments<T> {
 
     fn contains_header_segments(&self) -> MultiResult<(), InHeaderError>
     where
-        T: Copy + Into<u64>,
+        T: Copy + Into<u64> + HeaderString,
     {
         let t = self.contains_header_segment(&self.text);
         let d = self.contains_header_segment(&self.data);
@@ -165,6 +166,7 @@ impl<T> HeaderSegments<T> {
 
     fn contains_header_segment<I, S, T0>(&self, s: &Segment<I, S, T0>) -> Result<(), InHeaderError>
     where
+        T: HeaderString,
         I: HasRegion,
         S: HasSource,
         T0: Into<u64> + Copy,
@@ -173,7 +175,10 @@ impl<T> HeaderSegments<T> {
             .map_or(Ok(()), |q| self.contains_segment(q))
     }
 
-    fn contains_segment(&self, s: GenericSegment) -> Result<(), InHeaderError> {
+    fn contains_segment(&self, s: GenericSegment) -> Result<(), InHeaderError>
+    where
+        T: HeaderString,
+    {
         if s.begin < self.nbytes() {
             Err(InHeaderError(s))
         } else {
@@ -189,8 +194,11 @@ impl<T> HeaderSegments<T> {
     }
 
     /// Return number of bytes required to encode HEADER
-    fn nbytes(&self) -> u64 {
-        u64::from(HEADER_LEN) + (self.other.len() as u64) * 16
+    fn nbytes(&self) -> u64
+    where
+        T: HeaderString,
+    {
+        HeaderKeywordsToWrite::<T>::header_len(self.other.len())
     }
 
     fn as_generics(&self) -> impl Iterator<Item = GenericSegment>
@@ -507,9 +515,8 @@ impl<T> HeaderKeywordsToWrite<T> {
     where
         T: TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
     {
-        let other_header_len = Self::other_header_len(other_lens);
+        let text_begin = Self::header_len(other_lens.len());
 
-        let text_begin = u64::from(HEADER_LEN) + other_header_len;
         // +1 at end accounts for first delimiter
         let text_len: u64 =
             raw_keywords_length(&req[..]) + raw_keywords_length(&opt[..]) + nextdata_len() + 1;
@@ -571,8 +578,7 @@ impl<T> HeaderKeywordsToWrite<T> {
     where
         T: TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
     {
-        let other_header_len = Self::other_header_len(other_lens);
-        let prim_text_begin = u64::from(HEADER_LEN) + other_header_len;
+        let prim_text_begin = Self::header_len(other_lens.len());
 
         let nooffset_req_text_len = raw_keywords_length(&req[..]);
         let opt_text_len = raw_keywords_length(&opt[..]);
@@ -688,11 +694,19 @@ impl<T> HeaderKeywordsToWrite<T> {
         Ok(())
     }
 
-    fn other_header_len(other_lens: &[u64]) -> u64
+    fn header_len(other_n: usize) -> u64
     where
         T: HeaderString,
     {
-        (other_lens.len() as u64) * u64::from(T::WIDTH) * 2
+        u64::from(HEADER_LEN) + Self::other_header_len(other_n)
+    }
+
+    fn other_header_len(other_n: usize) -> u64
+    where
+        T: HeaderString,
+    {
+        let n = u64::try_from(other_n).expect("OTHER segment count exceeds 2^64");
+        n * u64::from(T::WIDTH) * 2
     }
 
     #[allow(clippy::type_complexity)]
@@ -735,7 +749,8 @@ impl KeywordsWriter {
 }
 
 fn raw_keywords_length(ks: &[(String, String)]) -> u64 {
-    ks.iter().map(|(k, v)| k.len() + v.len() + 2).sum::<usize>() as u64
+    let n = ks.iter().map(|(k, v)| k.len() + v.len() + 2).sum::<usize>();
+    u64::try_from(n).expect("length of TEXT exceeds 2^64")
 }
 
 /// Length of $(BEGIN/END)(STEXT/ANALYSIS/DATA) and $NEXTDATA offset length.

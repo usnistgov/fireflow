@@ -225,13 +225,7 @@ fn main() -> Result<(), ()> {
         .value_name("KEY,SUB")
         .help(format!(
             "Edit standard key values using KEY and SUB (separated by comma). \
-             Leading '$' is implied for KEY. SUB is a sed-like pattern which \
-             will be used to edit the value of KEY. It must be a string like \
-             's<D><FROM><D><TO>[<D>g]' where 'D' is a delimiter (any character), \
-             FROM is a regular expression and TO is a replacement pattern. \
-             FROM and TO must follow the syntax outlined in {REGEXP_REF} and \
-             {REGEXP_REP_REF} respectively, with the caveat that only \
-             bracketed replacement syntax is allowed."
+             Leading '$' is implied for KEY. See '{SUB_SECTION}' below for details."
         ));
 
     let sub_std_pat_key_vals = Arg::new(SUB_STD_PAT_KEY_VALS)
@@ -240,8 +234,7 @@ fn main() -> Result<(), ()> {
         .value_name("REGEXP,SUB")
         .help(format!(
             "Edit standard keys matching REGEXP with SUB (separated by comma). \
-             Leading '$' is implied for KEY. See '{SUB_STD_LIT_KEY_VALS}' for \
-             full explanation of SUB."
+             Leading '$' is implied for KEY. See '{SUB_SECTION}' below for details."
         ));
 
     let all_raw_args = vec![
@@ -492,6 +485,17 @@ fn main() -> Result<(), ()> {
         .help("path to FCS file to parse")
         .required(true);
 
+    let substitution_help = format!(
+        "{SUB_SECTION}:\n\n    \
+         The SUB part in --{SUB_STD_LIT_KEY_VALS} and --{SUB_STD_PAT_KEY_VALS} \
+         is a sed-like pattern which will be used to edit the value of KEY. \
+         It must be a string like 's<D><FROM><D><TO>[<D>g]' where 'D' is a \
+         delimiter (any character), FROM is a regular expression and TO is a \
+         replacement pattern. FROM and TO must follow the syntax outlined in \
+         {REGEXP_REF} and {REGEXP_REP_REF} respectively, with the caveat that \
+         only bracketed replacement syntax is allowed."
+    );
+
     let cmd = Command::new("fireflow")
         .about("read and write FCS files")
         .arg_required_else_help(true)
@@ -509,7 +513,8 @@ fn main() -> Result<(), ()> {
                 .arg(&input_arg)
                 .args(&all_header_args)
                 .args(&all_raw_args)
-                .args(&all_shared_args),
+                .args(&all_shared_args)
+                .after_long_help(&substitution_help),
         )
         .subcommand(
             Command::new(SUBCMD_STD)
@@ -520,7 +525,8 @@ fn main() -> Result<(), ()> {
                 .args(&all_std_args)
                 .args(&all_offset_args)
                 .args(&all_layout_args)
-                .args(&all_shared_args),
+                .args(&all_shared_args)
+                .after_long_help(&substitution_help),
         )
         .subcommand(
             Command::new(SUBCMD_MEAS)
@@ -532,7 +538,8 @@ fn main() -> Result<(), ()> {
                 .args(&all_offset_args)
                 .args(&all_layout_args)
                 .args(&all_shared_args)
-                .arg(&delim_arg),
+                .arg(&delim_arg)
+                .after_long_help(&substitution_help),
         )
         .subcommand(
             Command::new(SUBCMD_SPILL)
@@ -544,7 +551,8 @@ fn main() -> Result<(), ()> {
                 .args(&all_offset_args)
                 .args(&all_layout_args)
                 .args(&all_shared_args)
-                .arg(&delim_arg),
+                .arg(&delim_arg)
+                .after_long_help(&substitution_help),
         )
         .subcommand(
             Command::new(SUBCMD_DATA)
@@ -557,7 +565,8 @@ fn main() -> Result<(), ()> {
                 .args(&all_layout_args)
                 .args(&all_dataset_args)
                 .args(&all_shared_args)
-                .arg(&delim_arg),
+                .arg(&delim_arg)
+                .after_long_help(&substitution_help),
         );
 
     let args = cmd.get_matches();
@@ -1114,6 +1123,8 @@ const DISALLOW_RANGE_TRUNCATION: &str = "disallow-range-truncation";
 const ALLOW_UNEVEN_EVENT_WIDTH: &str = "allow-uneven-event-width";
 
 const ALLOW_TOT_MISMATCH: &str = "allow-tot-mismatch";
+
+const SUB_SECTION: &str = "SUBSTITUTION";
 
 const DELIM: &str = "delimiter";
 

@@ -63,6 +63,8 @@ pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
     let (raw_conf, raw_args, raw_recs) = DocArgParam::new_raw_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
+    let exc = PyException::new("PyreflowException");
+
     let doc = DocString::new_fun(
         "Read *HEADER* and *TEXT* as key/value pairs from FCS file.",
         [""; 0],
@@ -70,7 +72,7 @@ pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
             .chain(header_args)
             .chain(raw_args)
             .chain(shared_args),
-        Some(DocReturn::new(PyClass::new_py(["api"], "RawTEXTOutput"))),
+        Some(DocReturn::new(PyClass::new_py(["api"], "RawTEXTOutput")).exc([exc])),
     );
 
     let fun_args = doc.fun_args();
@@ -80,7 +82,7 @@ pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
         #[pyfunction]
         #doc
         #[allow(clippy::too_many_arguments)]
-        pub fn fcs_read_raw_text(#fun_args) -> PyResult<#ret_path> {
+        pub fn fcs_read_raw_text(#fun_args) -> #ret_path {
             let header = #header_conf { #(#header_recs),* };
             let raw = #raw_conf { header, #(#raw_recs),* };
             let shared = #shared_conf { #(#shared_recs),* };
@@ -105,6 +107,8 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
     let (layout_conf, layout_args, layout_recs) = DocArgParam::new_layout_config_params(None);
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
+    let exc = PyException::new("PyreflowException");
+
     let doc = DocString::new_fun(
         "Read *HEADER* and standardized *TEXT* from FCS file.",
         [""; 0],
@@ -115,10 +119,13 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
             .chain(offsets_args)
             .chain(layout_args)
             .chain(shared_args),
-        Some(DocReturn::new(PyTuple::new([
-            PyType::new_anycoretext(),
-            PyClass::new_py(["api"], "StdTEXTOutput").into(),
-        ]))),
+        Some(
+            DocReturn::new(PyTuple::new([
+                PyType::new_anycoretext(),
+                PyClass::new_py(["api"], "StdTEXTOutput").into(),
+            ]))
+            .exc([exc]),
+        ),
     );
 
     let fun_args = doc.fun_args();
@@ -128,7 +135,7 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
         #[pyfunction]
         #doc
         #[allow(clippy::too_many_arguments)]
-        pub fn fcs_read_std_text(#fun_args) -> PyResult<#ret_path> {
+        pub fn fcs_read_std_text(#fun_args) -> #ret_path {
             let header = #header_conf { #(#header_recs),* };
             let raw = #raw_conf { header, #(#raw_recs),* };
             let standard = #std_conf { #(#std_recs),* };
@@ -157,6 +164,8 @@ pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
     let (data_conf, data_args, data_recs) = DocArgParam::new_reader_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
+    let exc = PyException::new("PyreflowException");
+
     let doc = DocString::new_fun(
         "Read raw dataset from FCS file.",
         [""; 0],
@@ -167,7 +176,7 @@ pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
             .chain(layout_args)
             .chain(data_args)
             .chain(shared_args),
-        Some(DocReturn::new(PyClass::new_py(["api"], "RawDatasetOutput"))),
+        Some(DocReturn::new(PyClass::new_py(["api"], "RawDatasetOutput")).exc([exc])),
     );
 
     let fun_args = doc.fun_args();
@@ -177,7 +186,7 @@ pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
         #[pyfunction]
         #doc
         #[allow(clippy::too_many_arguments)]
-        pub fn fcs_read_raw_dataset(#fun_args) -> PyResult<#ret_path> {
+        pub fn fcs_read_raw_dataset(#fun_args) -> #ret_path {
             let header = #header_conf { #(#header_recs),* };
             let raw = #raw_conf { header, #(#raw_recs),* };
             let layout = #layout_conf { #(#layout_recs),* };
@@ -206,6 +215,8 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
     let (data_conf, data_args, data_recs) = DocArgParam::new_reader_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
+    let exc = PyException::new("PyreflowException");
+
     let doc = DocString::new_fun(
         "Read standardized dataset from FCS file.",
         [""; 0],
@@ -217,10 +228,13 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
             .chain(layout_args)
             .chain(data_args)
             .chain(shared_args),
-        Some(DocReturn::new(PyTuple::new([
-            PyType::new_anycoredataset(),
-            PyClass::new_py(["api"], "StdDatasetOutput").into(),
-        ]))),
+        Some(
+            DocReturn::new(PyTuple::new([
+                PyType::new_anycoredataset(),
+                PyClass::new_py(["api"], "StdDatasetOutput").into(),
+            ]))
+            .exc([exc]),
+        ),
     );
 
     let fun_args = doc.fun_args();
@@ -230,7 +244,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
         #[pyfunction]
         #doc
         #[allow(clippy::too_many_arguments)]
-        pub fn fcs_read_std_dataset(#fun_args) -> PyResult<#ret_path> {
+        pub fn fcs_read_std_dataset(#fun_args) -> #ret_path {
             let header = #header_conf { #(#header_recs),* };
             let raw = #raw_conf { header, #(#raw_recs),* };
             let standard = #std_conf { #(#std_recs),* };
@@ -264,6 +278,8 @@ pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream
     let (data_conf, data_args, data_recs) = DocArgParam::new_reader_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
+    let exc = PyException::new("PyreflowException");
+
     let doc = DocString::new_fun(
         "Read raw dataset from FCS file from keywords.",
         [""; 0],
@@ -280,10 +296,7 @@ pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream
         .chain(layout_args)
         .chain(data_args)
         .chain(shared_args),
-        Some(DocReturn::new(PyClass::new_py(
-            ["api"],
-            "RawDatasetWithKwsOutput",
-        ))),
+        Some(DocReturn::new(PyClass::new_py(["api"], "RawDatasetWithKwsOutput")).exc([exc])),
     );
 
     let fun_args = doc.fun_args();
@@ -293,7 +306,7 @@ pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream
         #[pyfunction]
         #doc
         #[allow(clippy::too_many_arguments)]
-        pub fn fcs_read_raw_dataset_with_keywords(#fun_args) -> PyResult<#ret_path> {
+        pub fn fcs_read_raw_dataset_with_keywords(#fun_args) -> #ret_path {
             let offsets = #offsets_conf { #(#offsets_recs),* };
             let layout = #layout_conf { #(#layout_recs),* };
             let data = #data_conf { #(#data_recs),* };
@@ -328,6 +341,8 @@ pub fn def_fcs_read_std_dataset_with_keywords(input: TokenStream) -> TokenStream
     let (data_conf, data_args, data_recs) = DocArgParam::new_reader_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
+    let exc = PyException::new("PyreflowException");
+
     let doc = DocString::new_fun(
         "Read standardized dataset from FCS file.",
         [""; 0],
@@ -346,10 +361,13 @@ pub fn def_fcs_read_std_dataset_with_keywords(input: TokenStream) -> TokenStream
         .chain(layout_args)
         .chain(data_args)
         .chain(shared_args),
-        Some(DocReturn::new(PyTuple::new([
-            PyType::new_anycoredataset(),
-            PyClass::new_py(["api"], "StdDatasetWithKwsOutput").into(),
-        ]))),
+        Some(
+            DocReturn::new(PyTuple::new([
+                PyType::new_anycoredataset(),
+                PyClass::new_py(["api"], "StdDatasetWithKwsOutput").into(),
+            ]))
+            .exc([exc]),
+        ),
     );
 
     let fun_args = doc.fun_args();
@@ -359,7 +377,7 @@ pub fn def_fcs_read_std_dataset_with_keywords(input: TokenStream) -> TokenStream
         #[pyfunction]
         #doc
         #[allow(clippy::too_many_arguments)]
-        pub fn fcs_read_std_dataset_with_keywords(#fun_args) -> PyResult<#ret_path> {
+        pub fn fcs_read_std_dataset_with_keywords(#fun_args) -> #ret_path {
             let kws = fireflow_core::validated::keys::ValidKeywords::new(std, nonstd);
             let standard = #std_conf { #(#std_recs),* };
             let offsets = #offsets_conf { #(#offsets_recs),* };

@@ -156,17 +156,40 @@ fn main() -> Result<(), ()> {
 
     let trim_value_whitespace = flag_arg(TRIM_VALUE_WHITESPACE, "trim whitespace from all values");
 
-    let ignore_std_lit_key = Arg::new(IGNORE_STD_LIT_KEY)
-        .long(IGNORE_STD_LIT_KEY)
-        .action(ArgAction::Append)
-        .value_name("KEY")
-        .help("standard key to ignore; the leading '$' is implied");
+    let make_key_str_args = |lit_flag, pat_flag, lit_help, pat_help| {
+        let lit_arg = Arg::new(lit_flag)
+            .long(lit_flag)
+            .action(ArgAction::Append)
+            .value_name("KEY")
+            .help(lit_help);
+        let pat_arg = Arg::new(pat_flag)
+            .long(pat_flag)
+            .action(ArgAction::Append)
+            .value_name("REGEXP")
+            .help(pat_help);
+        (lit_arg, pat_arg)
+    };
 
-    let ignore_std_pat_key = Arg::new(IGNORE_STD_PAT_KEY)
-        .long(IGNORE_STD_PAT_KEY)
-        .action(ArgAction::Append)
-        .value_name("REGEXP")
-        .help("ignore standard keys matching the given pattern; the leading '$' is implied");
+    let (ignore_std_lit_key, ignore_std_pat_key) = make_key_str_args(
+        IGNORE_STD_LIT_KEY,
+        IGNORE_STD_PAT_KEY,
+        "standard key to ignore; the leading '$' is implied",
+        "ignore standard keys matching the given pattern; the leading '$' is implied",
+    );
+
+    let (promote_lit_to_std, promote_pat_to_std) = make_key_str_args(
+        PROMOTE_LIT_TO_STD,
+        PROMOTE_PAT_TO_STD,
+        "promote key to standard; the leading '$' is implied",
+        "promote keys matching the given pattern to standard; the leading '$' is implied",
+    );
+
+    let (demote_lit_from_std, demote_pat_from_std) = make_key_str_args(
+        DEMOTE_LIT_FROM_STD,
+        DEMOTE_PAT_FROM_STD,
+        "demote key from standard; the leading '$' is implied",
+        "demote keys matching the given pattern from standard; the leading '$' is implied",
+    );
 
     let all_raw_args = [
         version_override,
@@ -190,6 +213,10 @@ fn main() -> Result<(), ()> {
         trim_value_whitespace,
         ignore_std_lit_key,
         ignore_std_pat_key,
+        promote_lit_to_std,
+        promote_pat_to_std,
+        demote_lit_from_std,
+        demote_pat_from_std,
     ];
 
     // std args
@@ -565,25 +592,30 @@ fn parse_header_config(sargs: &ArgMatches) -> config::HeaderConfigInner {
 }
 
 fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXTConfig {
+    let parse_key_or_pat = |lit_flag, pat_flag| {
+        let ignore_std_lit_keys = sargs
+            .get_many::<String>(lit_flag)
+            .unwrap_or_default()
+            .map(|x| (x.clone(), ()));
+        let ignore_std_pat_keys = sargs
+            .get_many::<String>(pat_flag)
+            .unwrap_or_default()
+            .map(|x| (x.clone(), ()));
+        KeyOrStringPatterns::try_from_literals_and_patterns(
+            ignore_std_lit_keys,
+            ignore_std_pat_keys,
+        )
+    };
+
     let version_override = sargs
         .get_one::<String>(VERSION_OVERRIDE)
         .map(|s| s.parse::<Version>().unwrap());
     let stext0 = sargs.get_one(SUPP_TEXT_COR_BEGIN).copied();
     let stext1 = sargs.get_one(SUPP_TEXT_COR_END).copied();
     let supp_text_correction = (stext0, stext1).into();
-    let ignore_std_lit_keys = sargs
-        .get_many::<String>(IGNORE_STD_LIT_KEY)
-        .unwrap_or_default()
-        .map(|x| (x.clone(), ()));
-    let ignore_std_pat_keys = sargs
-        .get_many::<String>(IGNORE_STD_PAT_KEY)
-        .unwrap_or_default()
-        .map(|x| (x.clone(), ()));
-    let ignore_standard_keys = KeyOrStringPatterns::try_from_literals_and_patterns(
-        ignore_std_lit_keys,
-        ignore_std_pat_keys,
-    )
-    .unwrap();
+    let ignore_standard_keys = parse_key_or_pat(IGNORE_STD_LIT_KEY, IGNORE_STD_PAT_KEY).unwrap();
+    let promote_to_standard = parse_key_or_pat(PROMOTE_LIT_TO_STD, PROMOTE_PAT_TO_STD).unwrap();
+    let demote_from_standard = parse_key_or_pat(DEMOTE_LIT_FROM_STD, DEMOTE_PAT_FROM_STD).unwrap();
     config::ReadHeaderAndTEXTConfig {
         header: parse_header_config(sargs),
         version_override,
@@ -607,8 +639,8 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
         // TODO add options for these
         ignore_standard_keys,
         rename_standard_keys: KeyStringPairs::default(),
-        promote_to_standard: KeyPatterns::default(),
-        demote_from_standard: KeyPatterns::default(),
+        promote_to_standard,
+        demote_from_standard,
         replace_standard_key_values: HashMap::new(),
         append_standard_keywords: HashMap::new(),
         substitute_standard_key_values: SubPatterns::default(),
@@ -878,6 +910,14 @@ const TRIM_VALUE_WHITESPACE: &str = "trim-value-whitespace";
 const IGNORE_STD_LIT_KEY: &str = "ignore-std-literal-key";
 
 const IGNORE_STD_PAT_KEY: &str = "ignore-std-pattern-key";
+
+const PROMOTE_LIT_TO_STD: &str = "promote-lit-to-std";
+
+const PROMOTE_PAT_TO_STD: &str = "promote-pat-to-std";
+
+const DEMOTE_LIT_FROM_STD: &str = "demote-lit-from-std";
+
+const DEMOTE_PAT_FROM_STD: &str = "demote-pat-from-std";
 
 const DATE_PATTERN: &str = "date-pattern";
 

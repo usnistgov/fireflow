@@ -42,37 +42,38 @@ fn main() -> Result<(), ()> {
 
     // header args
 
-    let text_correction_begin = correction_arg(TEXT_COR_BEGIN, "adjustment for begin TEXT offset");
-    let text_correction_end = correction_arg(TEXT_COR_END, "adjustment for end TEXT offset");
+    let text_correction_begin = correction_arg(TEXT_COR_BEGIN, "Adjustment for begin TEXT offset.");
+    let text_correction_end = correction_arg(TEXT_COR_END, "Adjustment for end TEXT offset.");
 
-    let data_correction_begin = correction_arg(DATA_COR_BEGIN, "adjustment for begin DATA offset");
-    let data_correction_end = correction_arg(DATA_COR_END, "adjustment for end DATA offset");
+    let data_correction_begin = correction_arg(DATA_COR_BEGIN, "Adjustment for begin DATA offset.");
+    let data_correction_end = correction_arg(DATA_COR_END, "Adjustment for end DATA offset.");
 
     let analysis_correction_begin =
-        correction_arg(ANALYSIS_COR_BEGIN, "adjustment for begin ANALYSIS offset");
+        correction_arg(ANALYSIS_COR_BEGIN, "Adjustment for begin ANALYSIS offset.");
     let analysis_correction_end =
-        correction_arg(ANALYSIS_COR_END, "adjustment for end ANALYSIS offset");
+        correction_arg(ANALYSIS_COR_END, "Adjustment for end ANALYSIS offset.");
 
     let max_other = Arg::new(MAX_OTHER)
         .long(MAX_OTHER)
         .value_name("BYTES")
-        .help("max number of OTHER segments to parse")
+        .help("Max number of OTHER segments to parse.")
         .value_parser(value_parser!(usize));
 
     let other_width = Arg::new(OTHER_WIDTH)
         .long(OTHER_WIDTH)
         .value_name("WIDTH")
-        .help("width of OTHER segments")
+        .help("Width of OTHER segments.")
         .value_parser(value_parser!(u8));
 
     let squish_offsets = flag_arg(
         SQUISH_OFFSETS,
-        "squish DATA/ANALYSIS, offsets that end in 0",
+        "If DATA/ANALYSIS end in 0, use 0 for start as well. \
+         Should not be used for FCS 2.0 files.",
     );
 
-    let allow_negative = flag_arg(ALLOW_NEGATIVE, "substitute 0 for negative offsets");
+    let allow_negative = flag_arg(ALLOW_NEGATIVE, "Substitute 0 for negative offsets.");
 
-    let truncate_offsets = flag_arg(TRUNCATE_OFFSETS, "truncate offsets that exceed file size");
+    let truncate_offsets = flag_arg(TRUNCATE_OFFSETS, "Truncate offsets that exceed file size.");
 
     let all_header_args = [
         text_correction_begin,
@@ -93,69 +94,78 @@ fn main() -> Result<(), ()> {
     let version_override = Arg::new(VERSION_OVERRIDE)
         .long(VERSION_OVERRIDE)
         .value_name("VERSION")
-        .help("override the FCS version from HEADER");
+        .help("Override the FCS version from HEADER.");
 
     let supp_text_correction_begin = correction_arg(
         SUPP_TEXT_COR_BEGIN,
-        "adjustment for begin supplemental TEXT offset",
+        "Adjustment for begin supplemental TEXT offset.",
     );
     let supp_text_correction_end = correction_arg(
         SUPP_TEXT_COR_END,
-        "adjustment for end supplemental TEXT offset",
+        "Adjustment for end supplemental TEXT offset.",
     );
 
     let allow_dup_supp_text = flag_arg(
         ALLOW_DUP_SUPP_TEXT,
-        "only throw warning if supplemental TEXT is same as TEXT",
+        "Allow supplemental TEXT offsets to be the same as those for primary TEXT.",
     );
 
-    let ignore_supp_text = flag_arg(IGNORE_SUPP_TEXT, "ignore supplemental TEXT entirely");
+    let ignore_supp_text = flag_arg(IGNORE_SUPP_TEXT, "Ignore supplemental TEXT entirely.");
 
-    let lit_delims = flag_arg(LIT_DELIMS, "treat every delim as literal (no escaping)");
+    let lit_delims = flag_arg(
+        LIT_DELIMS,
+        "Treat every TEXT delimiter as literal (no escaping).",
+    );
 
     let non_ascii_delim = flag_arg(
         ALLOW_NON_ASCII_DELIM,
-        "allow delim to be non-ascii character",
+        "Allow TEXT delimiter to be non-ASCII character.",
     );
 
     let missing_final_delim = flag_arg(
         ALLOW_MISSING_FINAL_DELIM,
-        "allow final delimiter to be missing from TEXT",
+        "Allow final TEXT delimiter to be missing.",
     );
 
-    let allow_non_unique = flag_arg(ALLOW_NON_UNIQUE, "allow non-unique keys to exist");
+    let allow_non_unique = flag_arg(ALLOW_NON_UNIQUE, "Allow non-unique keys to exist in TEXT.");
 
-    let allow_odd = flag_arg(ALLOW_ODD, "allow odd number of words in TEXT");
+    let allow_odd = flag_arg(ALLOW_ODD, "Allow odd number of words.");
 
-    let allow_empty = flag_arg(ALLOW_EMPTY, "allow keys to have blank values");
+    let allow_empty = flag_arg(ALLOW_EMPTY, "Allow keys to have blank values.");
 
     let allow_delim_at_bound = flag_arg(
         ALLOW_DELIM_AT_BOUNDARY,
-        "allow delims to be at word boundaries",
+        "Allow TEXT delimiter(s) to be at word boundaries.",
     );
 
-    let allow_non_utf8 = flag_arg(ALLOW_NON_UTF8, "allow non-utf8 characters in TEXT");
+    let allow_non_utf8 = flag_arg(ALLOW_NON_UTF8, "Allow non-UTF8 characters in TEXT segment.");
 
     let use_latin1 = flag_arg(
         USE_LATIN1,
-        "interpret all characters in TEXT as Latin-1 (aka ISO/IEC 8859-1)",
+        "Interpret all characters in TEXT as Latin-1 (aka ISO/IEC 8859-1).",
     );
 
-    let allow_non_ascii_keywords = flag_arg(ALLOW_NON_ASCII_KEYWORDS, "allow non-ascii keys");
+    let allow_non_ascii_keywords = flag_arg(
+        ALLOW_NON_ASCII_KEYWORDS,
+        "Allow non-ASCII characters in keys.",
+    );
 
     let allow_missing_supp_text = flag_arg(
         ALLOW_MISSING_SUPP_TEXT,
-        "allow supplemental TEXT offsets to be missing",
+        "Allow supplemental TEXT offsets to be missing.",
     );
 
     let allow_supp_text_own_delim = flag_arg(
         ALLOW_SUPP_TEXT_OWN_DELIM,
-        "allow delimiters in primary and supplemental TEXT to differ",
+        "Allow delimiters in primary and supplemental TEXT to differ.",
     );
 
-    let allow_missing_nextdata = flag_arg(ALLOW_MISSING_NEXTDATA, "allow $NEXTDATA to be missing");
+    let allow_missing_nextdata = flag_arg(ALLOW_MISSING_NEXTDATA, "Allow $NEXTDATA to be missing.");
 
-    let trim_value_whitespace = flag_arg(TRIM_VALUE_WHITESPACE, "trim whitespace from all values");
+    let trim_value_whitespace = flag_arg(
+        TRIM_VALUE_WHITESPACE,
+        "Trim whitespace from beginning and end of all values.",
+    );
 
     let make_key_str_args = |lit_flag, pat_flag, lit_help, pat_help| {
         let lit_arg = Arg::new(lit_flag)
@@ -174,40 +184,37 @@ fn main() -> Result<(), ()> {
     let (ignore_std_lit_key, ignore_std_pat_key) = make_key_str_args(
         IGNORE_STD_LIT_KEY,
         IGNORE_STD_PAT_KEY,
-        "standard key to ignore; the leading '$' is implied",
-        "ignore standard keys matching the given pattern; the leading '$' is implied",
+        "Ignore standard keys exactly matching KEY. The leading '$' is implied.",
+        "Ignore standard keys matching REGEXP. The leading '$' is implied.",
     );
 
     let (promote_lit_to_std, promote_pat_to_std) = make_key_str_args(
         PROMOTE_LIT_TO_STD,
         PROMOTE_PAT_TO_STD,
-        "promote key to standard; the leading '$' is implied",
-        "promote keys matching the given pattern to standard; the leading '$' is implied",
+        "Promote non-standard keys matching KEY to standard.",
+        "Promote non-standard keys matching REGEXP to standard.",
     );
 
     let (demote_lit_from_std, demote_pat_from_std) = make_key_str_args(
         DEMOTE_LIT_FROM_STD,
         DEMOTE_PAT_FROM_STD,
-        "demote key from standard; the leading '$' is implied",
-        "demote keys matching the given pattern from standard; the leading '$' is implied",
+        "Demote standard keys matching KEY to non-standard. The leading '$' is implied.",
+        "Demote standard keys matching REGEXP to non-standard. The leading '$' is implied.",
     );
 
     let rename_standard_keys = Arg::new(RENAME_STD_KEYS)
         .long(RENAME_STD_KEYS)
         .action(ArgAction::Append)
         .value_name("OLD,NEW")
-        .help(
-            "rename standard keys from OLD to NEW (separated by comma); \
-             leading '$' is implied",
-        );
+        .help("Rename standard keys from OLD to NEW. The leading '$' is implied.");
 
     let replace_std_key_vals = Arg::new(REPLACE_STD_KEY_VALS)
         .long(REPLACE_STD_KEY_VALS)
         .action(ArgAction::Append)
         .value_name("KEY,VAL")
         .help(
-            "replace values of standard keys matching KEY with VAl \
-             (separated by comma); leading '$' is implied for the key",
+            "Replace values of standard keys matching KEY with VAl. \
+             The leading '$' is implied for the key.",
         );
 
     let append_std_key_vals = Arg::new(APPEND_STD_KEY_VALS)
@@ -215,8 +222,8 @@ fn main() -> Result<(), ()> {
         .action(ArgAction::Append)
         .value_name("KEY,VAL")
         .help(
-            "append standard keys with KEY and VAL (separated by comma) \
-             to list of standard keys; leading '$' is implied for KEY",
+            "Append standard keys with KEY and VAL to list of existing standard \
+             keys. The leading '$' is implied for KEY.",
         );
 
     let sub_std_lit_key_vals = Arg::new(SUB_STD_LIT_KEY_VALS)
@@ -224,8 +231,8 @@ fn main() -> Result<(), ()> {
         .action(ArgAction::Append)
         .value_name("KEY,SUB")
         .help(format!(
-            "Edit standard key values using KEY and SUB (separated by comma). \
-             Leading '$' is implied for KEY. See '{SUB_SECTION}' below for details."
+            "Edit standard key values using KEY and SUB. The leading '$' \
+             is implied for KEY. See '{SUB_SECTION}' below for details."
         ));
 
     let sub_std_pat_key_vals = Arg::new(SUB_STD_PAT_KEY_VALS)
@@ -233,8 +240,8 @@ fn main() -> Result<(), ()> {
         .action(ArgAction::Append)
         .value_name("REGEXP,SUB")
         .help(format!(
-            "Edit standard keys matching REGEXP with SUB (separated by comma). \
-             Leading '$' is implied for KEY. See '{SUB_SECTION}' below for details."
+            "Edit standard keys matching REGEXP with SUB. The leading '$' is \
+             implied for KEY. See '{SUB_SECTION}' below for details."
         ));
 
     let all_raw_args = vec![
@@ -274,78 +281,87 @@ fn main() -> Result<(), ()> {
 
     let trim_intra_value_whitespace = flag_arg(
         TRIM_INTRA_VALUE_WHITESPACE,
-        "remove spaces between comma-separated values",
+        "Remove spaces between comma-separated values.",
     );
 
     let time_meas_pattern = Arg::new(TIME_MEAS_PATTERN)
         .long(TIME_MEAS_PATTERN)
         .value_name("REGEXP")
         .help(
-            "pattern to use when matching time measurement (defaults to \
-             '^Time|TIME$', pass 'NoTime' to not look for a time channel)",
+            "Use REGEXP when matching time measurement (defaults to \
+             '^Time|TIME$', pass 'NoTime' to not look for a time channel).",
         );
 
     let allow_missing_time = flag_arg(ALLOW_MISSING_TIME, "allow time measurement to be missing");
 
     let force_time_linear = flag_arg(
         FORCE_TIME_LINEAR,
-        "force $PnE for time measurement to be linear",
+        "Force $PnE for time measurement to be linear.",
     );
 
-    let ignore_time_gain = flag_arg(IGNORE_TIME_GAIN, "ignore $PnG for time measurement");
+    let ignore_time_gain = flag_arg(IGNORE_TIME_GAIN, "Ignore $PnG for time measurement.");
 
     let ignore_time_optical_keys = Arg::new(IGNORE_TIME_OPTICAL_KEYS)
         .long(IGNORE_TIME_OPTICAL_KEYS)
         .action(ArgAction::Append)
         .value_name("SYMS")
         .help(
-            "optical keywords to ignore on temporal measurement, must be a \
-             comma-separated list of strings like the X in 'PnX'",
+            "Ignore optical keywords for temporal measurement. Must be a \
+             comma-separated list of strings like the X in '$PnX'.",
         );
 
     let parse_indexed_spillover = flag_arg(
         PARSE_INDEXED_SPILLOVER,
-        "parse numeric indices for $SPILLOVER rather than string names ($PnN)",
+        "Parse numeric indices for $SPILLOVER rather than string names ($PnN).",
     );
 
     let allow_pseudostandard = flag_arg(
         ALLOW_PSEUDOSTANDARD,
-        "allow non-standard keywords that start with a '$'",
+        "Allow non-standard keywords that start with a '$'.",
     );
 
-    let allow_unused_standard = flag_arg(ALLOW_UNUSED_STANDARD, "allow unused standard keywords");
+    let allow_unused_standard = flag_arg(
+        ALLOW_UNUSED_STANDARD,
+        "Allow unused standard keywords. For example, \
+         $TIMESTAMP may be unused if no time measurement is wanted.",
+    );
 
     let allow_optional_dropping = flag_arg(
         ALLOW_OPTIONAL_DROPPING,
-        "drop optional keys if they cause an error",
+        "Drop optional keys if they cause an error.",
     );
 
     let disallow_deprecated = flag_arg(
         DISALLOW_DEPRECATED,
-        "throw error if any deprecated keywords are present",
+        "Throw error if any deprecated keywords are present.",
     );
 
     let fix_log_scale_offset = flag_arg(
         FIX_LOG_SCALE_OFFSETS,
-        "fix PnE keys that have log scaling with zero offset (ie 'X,0.0')",
+        "Fix $PnE keys that have log scaling with zero offset. \
+         Specifically, this will replace values like 'X,0.0' with 'X,1.0' \
+         where 'X' is a positive decimal number. Having '0.0' for log offset \
+         is mathematical nonsense.",
     );
 
+    // TODO add section for this
     let date_pattern = Arg::new(DATE_PATTERN)
         .long(DATE_PATTERN)
         .value_name("PATTERN")
-        .help("pattern to match $DATE keyword if it is non-conferment");
+        .help("Pattern to match $DATE keyword.");
 
+    // TODO add section for this
     let time_pattern = Arg::new(TIME_PATTERN)
         .long(TIME_PATTERN)
         .value_name("PATTERN")
-        .help("pattern to match $BTIM/$ETIM keywords if non-conferment");
+        .help("Pattern to match $BTIM/$ETIM keywords.");
 
     let ns_meas_pattern = Arg::new(NS_MEAS_PATTERN)
         .long(NS_MEAS_PATTERN)
         .value_name("REGEXP")
         .help(
-            "pattern to use when matching non-standard measurement keywords, \
-             must include '%n' which will be replaced with measurement index",
+            "Pattern to use when matching non-standard measurement keywords. \
+             It must include '%n' which will be replaced with measurement index.",
         );
 
     let all_std_args = [
@@ -370,45 +386,47 @@ fn main() -> Result<(), ()> {
 
     let text_data_correction_begin = correction_arg(
         TEXT_DATA_COR_BEGIN,
-        "adjustment for begin DATA offset from TEXT",
+        "Adjustment for begin DATA offset from TEXT.",
     );
     let text_data_correction_end = correction_arg(
         TEXT_DATA_COR_END,
-        "adjustment for end DATA offset from TEXT",
+        "Adjustment for end DATA offset from TEXT.",
     );
 
     let text_analysis_correction_begin = correction_arg(
         TEXT_ANALYSIS_COR_BEGIN,
-        "adjustment for begin ANALYSIS offset from TEXT",
+        "Adjustment for begin ANALYSIS offset from TEXT.",
     );
     let text_analysis_correction_end = correction_arg(
         TEXT_ANALYSIS_COR_END,
-        "adjustment for end ANALYSIS offset from TEXT",
+        "Adjustment for end ANALYSIS offset from TEXT.",
     );
 
     let ignore_text_data_offsets = flag_arg(
         IGNORE_TEXT_DATA_OFFSETS,
-        "ignore offsets for DATA from TEXT",
+        "Ignore offsets for DATA from TEXT.",
     );
 
     let ignore_text_analysis_offsets = flag_arg(
         IGNORE_TEXT_ANALYSIS_OFFSETS,
-        "ignore offsets for ANALYSIS from TEXT",
+        "Ignore offsets for ANALYSIS from TEXT.",
     );
 
     let allow_header_text_offset_mismatch = flag_arg(
         ALLOW_HEADER_TEXT_OFFSET_MISMATCH,
-        "allow HEADER and TEXT offsets to be different, in which case HEADER will be used",
+        "Allow HEADER and TEXT offsets to be different, \
+         in which case HEADER will be used.",
     );
 
     let allow_missing_required_offsets = flag_arg(
         ALLOW_MISSING_REQUIRED_OFFSETS,
-        "allow required offsets to be missing from TEXT (3.0/3.1)",
+        "Allow required offsets to be missing from TEXT. \
+         Only applies to FCS 3.0/3.1.",
     );
 
     let truncate_text_offsets = flag_arg(
         TRUNCATE_TEXT_OFFSETS,
-        "truncate offsets in TEXT if they exceed end of file",
+        "Truncate offsets in TEXT if they exceed end of file.",
     );
 
     let all_offset_args = [
@@ -427,19 +445,23 @@ fn main() -> Result<(), ()> {
 
     let int_widths_from_byteord = flag_arg(
         INT_WIDTHS_FROM_BYTEORD,
-        "set $PnB based on length of $BYTEORD; \
-         only has effect on integer layouts in 2.0/3.0",
+        "Set $PnB based on length of $BYTEORD. \
+         Only has effect on integer layouts in FCS 2.0/3.0.",
     );
 
     let int_byteord_override = Arg::new(INT_BYTEORD_OVERRIDE)
         .long(INT_BYTEORD_OVERRIDE)
         .value_name("BYTEORD")
-        .help("override the value of $BYTEORD; only has effect on integer layouts in 2.0/3.0");
+        .help(
+            "Override the value of $BYTEORD. \
+             Only has effect on integer layouts in FCS 2.0/3.0.",
+        );
 
     let disallow_range_truncation = flag_arg(
         DISALLOW_RANGE_TRUNCATION,
-        "throw error if $PnR values need to be truncated to fit in type \
-         dictated by $DATATYPE and $PnB.",
+        "Throw error if $PnR values need to be truncated to fit in type \
+         dictated by $DATATYPE (and $PnDATATYPE for FCS 3.2) and $PnB for \
+         a given measurement.",
     );
 
     let all_layout_args = [
@@ -452,21 +474,21 @@ fn main() -> Result<(), ()> {
 
     let allow_uneven_event_width = flag_arg(
         ALLOW_UNEVEN_EVENT_WIDTH,
-        "allow event width to not evenly divide length of DATA",
+        "Allow event width to not evenly divide length of DATA.",
     );
 
     let allow_tot_mismatch = flag_arg(
         ALLOW_TOT_MISMATCH,
-        "allow $TOT to mismatch the number of events that are actually in DATA",
+        "Allow $TOT to mismatch the number of events that are actually in DATA.",
     );
 
     let all_dataset_args = [allow_uneven_event_width, allow_tot_mismatch];
 
     // shared args
 
-    let warnings_are_errors = flag_arg(WARNINGS_ARE_ERRORS, "treat all warnings as fatal errors");
+    let warnings_are_errors = flag_arg(WARNINGS_ARE_ERRORS, "Treat all warnings as fatal errors.");
 
-    let hide_warnings = flag_arg(HIDE_WARNINGS, "hide all warnings");
+    let hide_warnings = flag_arg(HIDE_WARNINGS, "Hide all warnings.");
 
     let all_shared_args = [warnings_are_errors, hide_warnings];
 
@@ -475,14 +497,14 @@ fn main() -> Result<(), ()> {
     let delim_arg = Arg::new(DELIM)
         .long(DELIM)
         .short('d')
-        .help("delimiter to use for the table")
+        .help("Delimiter to use for tabular output.")
         .default_value("\t");
 
     let input_arg = Arg::new(INPUT_PATH)
         .short('i')
         .long(INPUT_PATH)
         .value_parser(value_parser!(PathBuf))
-        .help("path to FCS file to parse")
+        .help("Path to FCS file to parse.")
         .required(true);
 
     let substitution_help = format!(
@@ -503,13 +525,13 @@ fn main() -> Result<(), ()> {
         .max_term_width(80)
         .subcommand(
             Command::new(SUBCMD_HEADER)
-                .about("show header as JSON")
+                .about("Show header as JSON.")
                 .arg(&input_arg)
                 .args(&all_header_args),
         )
         .subcommand(
             Command::new(SUBCMD_RAW)
-                .about("show raw keywords as JSON")
+                .about("Show raw keywords as JSON.")
                 .arg(&input_arg)
                 .args(&all_header_args)
                 .args(&all_raw_args)
@@ -518,7 +540,7 @@ fn main() -> Result<(), ()> {
         )
         .subcommand(
             Command::new(SUBCMD_STD)
-                .about("dump standardized keywords as JSON")
+                .about("Dump standardized keywords as JSON.")
                 .arg(&input_arg)
                 .args(&all_header_args)
                 .args(&all_raw_args)
@@ -530,7 +552,7 @@ fn main() -> Result<(), ()> {
         )
         .subcommand(
             Command::new(SUBCMD_MEAS)
-                .about("show a table of standardized measurement values")
+                .about("Show a table of standardized measurement values.")
                 .arg(&input_arg)
                 .args(&all_header_args)
                 .args(&all_raw_args)
@@ -543,7 +565,7 @@ fn main() -> Result<(), ()> {
         )
         .subcommand(
             Command::new(SUBCMD_SPILL)
-                .about("dump the spillover matrix if present")
+                .about("Dump the spillover matrix if present.")
                 .arg(&input_arg)
                 .args(&all_header_args)
                 .args(&all_raw_args)
@@ -556,7 +578,7 @@ fn main() -> Result<(), ()> {
         )
         .subcommand(
             Command::new(SUBCMD_DATA)
-                .about("show a table of the DATA segment")
+                .about("Show a table of the DATA segment.")
                 .arg(&input_arg)
                 .args(&all_header_args)
                 .args(&all_raw_args)

@@ -11,6 +11,7 @@ edition = "2024"
 rust-version = "1.88"
 
 [workspace.dependencies]
+regex = "1.11.1"
 chrono = "0.4.40"
 itertools = "0.14.0"
 num_enum = "0.7.4"

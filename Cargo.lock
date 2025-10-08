@@ -690,6 +690,7 @@ dependencies = [
  "clap",
  "fireflow-core",
  "nonempty",
+ "regex",
  "serde",
  "serde_json",
 ]

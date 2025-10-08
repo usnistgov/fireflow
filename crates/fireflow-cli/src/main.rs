@@ -8,9 +8,12 @@ use fireflow_core::header::Version;
 use fireflow_core::segment::HeaderCorrection;
 use fireflow_core::text::byteord::ByteOrd2_0;
 use fireflow_core::validated::datepattern::DatePattern;
-use fireflow_core::validated::keys::{KeyOrStringPatterns, KeyString, NonStdMeasPattern};
-use fireflow_core::validated::sub_pattern::SubPatterns;
+use fireflow_core::validated::keys::{
+    KeyOrStringPatterns, KeyOrStringPatternsError, KeyString, NonStdMeasPattern,
+};
+use fireflow_core::validated::sub_pattern::SubPattern;
 use fireflow_core::validated::timepattern::TimePattern;
+use regex::Regex;
 
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
 use nonempty::NonEmpty;
@@ -216,6 +219,31 @@ fn main() -> Result<(), ()> {
              to list of standard keys; leading '$' is implied for KEY",
         );
 
+    let sub_std_lit_key_vals = Arg::new(SUB_STD_LIT_KEY_VALS)
+        .long(SUB_STD_LIT_KEY_VALS)
+        .action(ArgAction::Append)
+        .value_name("KEY,SUB")
+        .help(format!(
+            "Edit standard key values using KEY and SUB (separated by comma). \
+             Leading '$' is implied for KEY. SUB is a sed-like pattern which \
+             will be used to edit the value of KEY. It must be a string like \
+             's<D><FROM><D><TO>[<D>g]' where 'D' is a delimiter (any character), \
+             FROM is a regular expression and TO is a replacement pattern. \
+             FROM and TO must follow the syntax outlined in {REGEXP_REF} and \
+             {REGEXP_REP_REF} respectively, with the caveat that only \
+             bracketed replacement syntax is allowed."
+        ));
+
+    let sub_std_pat_key_vals = Arg::new(SUB_STD_PAT_KEY_VALS)
+        .long(SUB_STD_PAT_KEY_VALS)
+        .action(ArgAction::Append)
+        .value_name("REGEXP,SUB")
+        .help(format!(
+            "Edit standard keys matching REGEXP with SUB (separated by comma). \
+             Leading '$' is implied for KEY. See '{SUB_STD_LIT_KEY_VALS}' for \
+             full explanation of SUB."
+        ));
+
     let all_raw_args = vec![
         version_override,
         supp_text_correction_begin,
@@ -245,6 +273,8 @@ fn main() -> Result<(), ()> {
         rename_standard_keys,
         replace_std_key_vals,
         append_std_key_vals,
+        sub_std_lit_key_vals,
+        sub_std_pat_key_vals,
     ];
 
     // std args
@@ -620,21 +650,6 @@ fn parse_header_config(sargs: &ArgMatches) -> config::HeaderConfigInner {
 }
 
 fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXTConfig {
-    let parse_key_or_pat = |lit_flag, pat_flag| {
-        let ignore_std_lit_keys = sargs
-            .get_many::<String>(lit_flag)
-            .unwrap_or_default()
-            .map(|x| (x.clone(), ()));
-        let ignore_std_pat_keys = sargs
-            .get_many::<String>(pat_flag)
-            .unwrap_or_default()
-            .map(|x| (x.clone(), ()));
-        KeyOrStringPatterns::try_from_literals_and_patterns(
-            ignore_std_lit_keys,
-            ignore_std_pat_keys,
-        )
-    };
-
     let version_override = sargs
         .get_one::<String>(VERSION_OVERRIDE)
         .map(|s| s.parse::<Version>().unwrap());
@@ -642,9 +657,15 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
     let stext1 = sargs.get_one(SUPP_TEXT_COR_END).copied();
     let supp_text_correction = (stext0, stext1).into();
 
-    let ignore_standard_keys = parse_key_or_pat(IGNORE_STD_LIT_KEY, IGNORE_STD_PAT_KEY).unwrap();
-    let promote_to_standard = parse_key_or_pat(PROMOTE_LIT_TO_STD, PROMOTE_PAT_TO_STD).unwrap();
-    let demote_from_standard = parse_key_or_pat(DEMOTE_LIT_FROM_STD, DEMOTE_PAT_FROM_STD).unwrap();
+    let to_blank = |s: &str| (s.to_owned(), ());
+
+    let ignore_standard_keys =
+        parse_key_or_pat(sargs, IGNORE_STD_LIT_KEY, IGNORE_STD_PAT_KEY, to_blank).unwrap();
+
+    let promote_to_standard =
+        parse_key_or_pat(sargs, PROMOTE_LIT_TO_STD, PROMOTE_PAT_TO_STD, to_blank).unwrap();
+    let demote_from_standard =
+        parse_key_or_pat(sargs, DEMOTE_LIT_FROM_STD, DEMOTE_PAT_FROM_STD, to_blank).unwrap();
 
     let rename_standard_keys =
         parse_hashmap(sargs, RENAME_STD_KEYS, |s| s.parse::<KeyString>().unwrap())
@@ -653,6 +674,14 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
 
     let replace_standard_key_values = parse_hashmap(sargs, REPLACE_STD_KEY_VALS, Into::into);
     let append_standard_keywords = parse_hashmap(sargs, APPEND_STD_KEY_VALS, Into::into);
+
+    let to_sub = |s: &str| {
+        let (k, v) = s.split_once(',').unwrap();
+        (k.to_owned(), parse_sub_pattern(v))
+    };
+
+    let substitute_standard_key_values =
+        parse_key_or_pat(sargs, SUB_STD_LIT_KEY_VALS, SUB_STD_PAT_KEY_VALS, to_sub).unwrap();
 
     config::ReadHeaderAndTEXTConfig {
         header: parse_header_config(sargs),
@@ -674,14 +703,13 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
         allow_supp_text_own_delim: sargs.get_flag(ALLOW_SUPP_TEXT_OWN_DELIM),
         allow_missing_nextdata: sargs.get_flag(ALLOW_MISSING_NEXTDATA),
         trim_value_whitespace: sargs.get_flag(TRIM_VALUE_WHITESPACE),
-        // TODO add options for these
         ignore_standard_keys,
         rename_standard_keys,
         promote_to_standard,
         demote_from_standard,
         replace_standard_key_values,
         append_standard_keywords,
-        substitute_standard_key_values: SubPatterns::default(),
+        substitute_standard_key_values,
     }
 }
 
@@ -806,6 +834,23 @@ fn parse_shared_config(sargs: &ArgMatches) -> config::SharedConfig {
     }
 }
 
+fn parse_key_or_pat<'a, 'b, 'c, T, F: Fn(&'a str) -> (String, T)>(
+    sargs: &'a ArgMatches,
+    lit_flag: &'b str,
+    pat_flag: &'c str,
+    f: F,
+) -> Result<KeyOrStringPatterns<T>, KeyOrStringPatternsError> {
+    let ignore_std_lit_keys = sargs
+        .get_many::<String>(lit_flag)
+        .unwrap_or_default()
+        .map(|s| f(s.as_str()));
+    let ignore_std_pat_keys = sargs
+        .get_many::<String>(pat_flag)
+        .unwrap_or_default()
+        .map(|s| f(s.as_str()));
+    KeyOrStringPatterns::try_from_literals_and_patterns(ignore_std_lit_keys, ignore_std_pat_keys)
+}
+
 fn parse_hashmap<'a, 'b, T, F: Fn(&'a str) -> T>(
     sargs: &'a ArgMatches,
     flag: &'b str,
@@ -822,6 +867,28 @@ fn parse_hashmap<'a, 'b, T, F: Fn(&'a str) -> T>(
             (k.parse::<KeyString>().unwrap(), f(v))
         })
         .collect::<HashMap<_, _>>()
+}
+
+fn parse_sub_pattern(s: &str) -> SubPattern {
+    // TODO maybe should handle errors like an adult (eventually)
+    let (op, r0) = s
+        .split_at_checked(1)
+        .expect("sub pattern string must start with 's'");
+    assert!(op == "s", "sub pattern string must start with 's'");
+    let (delim, r1) = r0
+        .split_at_checked(1)
+        .expect("sub pattern delimiter is not a valid UTF-8 byte");
+    let parts: Vec<_> = r1.split(delim).collect();
+    let (from, to, global) = match &parts[..] {
+        [x, y] => (*x, *y, false),
+        [x, y, "g"] => (*x, *y, true),
+        _ => panic!(
+            "sub pattern string must be like 's<D><FROM><D><TO>[<D>g]' \
+             where 'D' is a delimiter (any character), FROM is a \
+             regular expression and TO is a replacement pattern"
+        ),
+    };
+    SubPattern::try_new(Regex::new(from).unwrap(), to.to_owned(), global).unwrap()
 }
 
 fn parse_input_path(sargs: &ArgMatches) -> &PathBuf {
@@ -982,6 +1049,10 @@ const REPLACE_STD_KEY_VALS: &str = "replace-std-key-vals";
 
 const APPEND_STD_KEY_VALS: &str = "append-std-key-vals";
 
+const SUB_STD_LIT_KEY_VALS: &str = "sub-std-lit-key-vals";
+
+const SUB_STD_PAT_KEY_VALS: &str = "sub-std-pat-key-vals";
+
 const DATE_PATTERN: &str = "date-pattern";
 
 const TIME_PATTERN: &str = "time-pattern";
@@ -1045,3 +1116,7 @@ const ALLOW_TOT_MISMATCH: &str = "allow-tot-mismatch";
 const DELIM: &str = "delimiter";
 
 const INPUT_PATH: &str = "input-path";
+
+const REGEXP_REF: &str = "https://docs.rs/regex/latest/regex/#syntax";
+
+const REGEXP_REP_REF: &str = "https://docs.rs/regex/latest/regex/struct.Regex.html#method.replace";

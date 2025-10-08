@@ -28,11 +28,13 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
 
     let (conf_inner_path, args, inner_args) = DocArgParam::new_header_config_params();
 
+    let exc = PyException::new("PyreflowException");
+
     let doc = DocString::new_fun(
         "Read the *HEADER* of an FCS file.",
         [""; 0],
         once(DocArg::new_path_param(true)).chain(args),
-        Some(DocReturn::new(PyClass::new_py(["api"], "Header"))),
+        Some(DocReturn::new(PyClass::new_py(["api"], "Header")).exc([exc])),
     );
 
     let fun_args = doc.fun_args();
@@ -42,7 +44,7 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
         #[pyfunction]
         #doc
         #[allow(clippy::too_many_arguments)]
-        pub fn fcs_read_header(#fun_args) -> PyResult<#ret_path> {
+        pub fn fcs_read_header(#fun_args) -> #ret_path {
             let conf = #conf_path(#conf_inner_path { #(#inner_args),* });
             Ok(#fun_path(&path, &conf).py_termfail_resolve_nowarn()?.into())
         }
@@ -1088,10 +1090,7 @@ pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
              offset keywords since these are not encoded in this class.",
         ],
         [(true, true), (false, true), (true, false), (false, false)].map(|(x, y)| make_param(x, y)),
-        Some(DocReturn::new1(
-            PyType::new_keywords(),
-            "A list of standard keywords.",
-        )),
+        Some(DocReturn::new(PyType::new_keywords()).desc("A list of standard keywords.")),
     );
 
     let fun_args = doc.fun_args();
@@ -1119,10 +1118,7 @@ pub fn impl_core_set_tr_threshold(input: TokenStream) -> TokenStream {
         "Set the threshold for *$TR*.",
         [""; 0],
         [p],
-        Some(DocReturn::new1(
-            PyBool::new(),
-            "``True`` if trigger is set and was updated.",
-        )),
+        Some(DocReturn::new(PyBool::new()).desc("``True`` if trigger is set and was updated.")),
     );
 
     let fun_arg = doc.fun_args();
@@ -1343,7 +1339,7 @@ pub fn impl_core_get_set_timestep(input: TokenStream) -> TokenStream {
         "Set the *$TIMESTEP* if time measurement is present.",
         [""; 0],
         [param],
-        Some(DocReturn::new1(t, "Previous *$TIMESTEP* if present.")),
+        Some(DocReturn::new(t).desc("Previous *$TIMESTEP* if present.")),
     );
 
     let set_ret = set_doc.ret_path();
@@ -1389,14 +1385,11 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
             format!("Set the temporal measurement to a given {i}."),
             [""; 0],
             once(p).chain(timestep).chain([allow_loss]),
-            Some(DocReturn::new1(
-                PyBool::new(),
-                format!(
-                    "``True`` if temporal measurement was set, which will \
-                     happen for all cases except when the time measurement is \
-                     already set to ``{i}``."
-                ),
-            )),
+            Some(DocReturn::new(PyBool::new()).desc(format!(
+                "``True`` if temporal measurement was set, which will \
+                 happen for all cases except when the time measurement is \
+                 already set to ``{i}``."
+            ))),
         )
     };
 
@@ -1474,7 +1467,7 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
                  ``False`` if there was not a temporal measurement.",
             )
         };
-        DocString::new_method(s, [""; 0], p, Some(DocReturn::new1(rt, rd)))
+        DocString::new_method(s, [""; 0], p, Some(DocReturn::new(rt).desc(rd)))
     };
 
     let q = if version == Version::FCS2_0 {
@@ -1524,10 +1517,7 @@ pub fn impl_core_rename_temporal(input: TokenStream) -> TokenStream {
         "Rename temporal measurement if present.",
         [""; 0],
         [DocArg::new_name_param("New name to assign.")],
-        Some(DocReturn::new1(
-            PyOpt::new(PyType::new_shortname()),
-            "Previous name if present.",
-        )),
+        Some(DocReturn::new(PyOpt::new(PyType::new_shortname())).desc("Previous name if present.")),
     );
 
     let fun_args = doc.fun_args();
@@ -1633,14 +1623,12 @@ pub fn impl_core_get_temporal(input: TokenStream) -> TokenStream {
     let doc = DocString::new_ivar(
         "The temporal measurement if it exists.",
         [""; 0],
-        DocReturn::new1(
-            PyOpt::new(PyTuple::new([
-                PyType::new_meas_index(),
-                PyType::new_shortname(),
-                PyType::new_temporal(version),
-            ])),
-            "Index, name, and measurement or ``None``.",
-        ),
+        DocReturn::new(PyOpt::new(PyTuple::new([
+            PyType::new_meas_index(),
+            PyType::new_shortname(),
+            PyType::new_temporal(version),
+        ])))
+        .desc("Index, name, and measurement or ``None``."),
     );
 
     doc.into_impl_get(&i, "temporal", |_, _| {
@@ -1820,23 +1808,26 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
         "Remove a measurement with a given name.",
         ["Raise exception if ``name`` not found."],
         [DocArg::new_name_param("Name to remove.")],
-        Some(DocReturn::new1(
-            PyTuple::new([PyType::new_meas_index(), PyType::new_measurement(version)]),
-            "Index and measurement object.",
-        )),
+        Some(
+            DocReturn::new(PyTuple::new([
+                PyType::new_meas_index(),
+                PyType::new_measurement(version),
+            ]))
+            .desc("Index and measurement object."),
+        ),
     );
 
     let by_index_doc = DocString::new_method(
         "Remove a measurement with a given index.",
         ["Raise exception if ``index`` not found."],
         [DocArg::new_index_param("Index to remove")],
-        Some(DocReturn::new1(
-            PyTuple::new([
+        Some(
+            DocReturn::new(PyTuple::new([
                 PyType::new_versioned_shortname(version),
                 PyType::new_measurement(version),
-            ]),
-            "Name and measurement object.",
-        )),
+            ]))
+            .desc("Name and measurement object."),
+        ),
     );
 
     let name_arg = by_name_doc.fun_args();
@@ -1967,7 +1958,7 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
                 i_param,
                 DocArg::new_param("meas", PyType::new_optical(version), meas_desc),
             ],
-            Some(DocReturn::new1(ret, "Replaced measurement object.")),
+            Some(DocReturn::new(ret).desc("Replaced measurement object.")),
         )
     };
 
@@ -2054,7 +2045,7 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
             format!("Replace {m} with given temporal measurement."),
             [sub],
             args.into_iter().chain(allow_loss.clone()),
-            Some(DocReturn::new1(ret, "Replaced measurement object.")),
+            Some(DocReturn::new(ret).desc("Replaced measurement object.")),
         )
     };
 
@@ -3004,10 +2995,10 @@ pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
                 format!("Convert to FCS {vs}."),
                 [sub],
                 [param],
-                Some(DocReturn::new1(
-                    target_type,
-                    format!("A new class conforming to FCS {vs}."),
-                )),
+                Some(
+                    DocReturn::new(target_type)
+                        .desc(format!("A new class conforming to FCS {vs}.")),
+                ),
             );
             quote! {
                 #doc
@@ -3944,6 +3935,7 @@ enum DocDefault {
 struct DocReturn {
     rtype: PyType,
     desc: Option<String>,
+    exceptions: Vec<PyException>,
 }
 
 impl DocReturn {
@@ -3951,15 +3943,45 @@ impl DocReturn {
         Self {
             rtype: rtype.into(),
             desc: None,
+            exceptions: vec![],
         }
     }
 
-    fn new1(rtype: impl Into<PyType>, desc: impl fmt::Display) -> Self {
+    fn desc(self, desc: impl fmt::Display) -> Self {
         Self {
-            rtype: rtype.into(),
             desc: Some(desc.to_string()),
+            ..self
         }
     }
+
+    fn exc(self, exceptions: impl IntoIterator<Item = PyException>) -> Self {
+        Self {
+            exceptions: exceptions.into_iter().collect(),
+            ..self
+        }
+    }
+}
+
+#[derive(Clone)]
+struct PyException {
+    pyname: String,
+    desc: Option<String>,
+}
+
+impl PyException {
+    fn new(pyname: impl fmt::Display) -> Self {
+        Self {
+            pyname: pyname.to_string(),
+            desc: None,
+        }
+    }
+
+    // fn desc(self, desc: impl fmt::Display) -> Self {
+    //     Self {
+    //         desc: Some(desc.to_string()),
+    //         ..self
+    //     }
+    // }
 }
 
 #[derive(Clone, From, Display)]
@@ -7012,7 +7034,14 @@ impl<A, S> DocString<A, Option<DocReturn>, S> {
     fn ret_path(&self) -> TokenStream2 {
         self.returns
             .as_ref()
-            .map(|x| x.rtype.as_rust_type().to_token_stream())
+            .map(|x| {
+                let inner = x.rtype.as_rust_type().to_token_stream();
+                if x.exceptions.is_empty() {
+                    inner
+                } else {
+                    quote!(PyResult<#inner>)
+                }
+            })
             .unwrap_or(quote!(()))
     }
 }
@@ -7190,7 +7219,27 @@ impl<A: fmt::Display, S> fmt::Display for DocString<Vec<A>, Option<DocReturn>, S
             |a| a.iter().map(ToString::to_string),
             |r| r.as_ref().map(ToString::to_string),
             f,
-        )
+        )?;
+        let excs = self
+            .returns
+            .as_ref()
+            .map(|x| &x.exceptions)
+            .into_iter()
+            .flatten();
+        for e in excs {
+            write!(f, "\n{e}")?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for PyException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        if let Some(d) = self.desc.as_ref() {
+            write!(f, ":raises {}: {d}", self.pyname)
+        } else {
+            write!(f, ":raises {}:", self.pyname)
+        }
     }
 }
 

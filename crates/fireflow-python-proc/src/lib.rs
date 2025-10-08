@@ -2547,7 +2547,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         DocArg::new_meas_kw_opt_ivar("DetectorType", "detector_type", "T", PyStr::new1);
 
     let percent_emitted =
-        DocArg::new_meas_kw_opt_ivar("PercentEmitted", "percent_emitted", "P", PyStr::new1);
+        DocArg::new_meas_kw_opt_ivar("PercentEmitted", "percent_emitted", "P", to_pyfloat);
 
     let detector_voltage =
         DocArg::new_meas_kw_opt_ivar("DetectorVoltage", "detector_voltage", "V", to_pyfloat);
@@ -2762,7 +2762,9 @@ pub fn impl_core_all_pno(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_all_pnp(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "PercentEmitted", "percents_emitted", "P", PyStr::new1)
+    core_all_optical_attr(&i, "PercentEmitted", "percents_emitted", "P", |p| {
+        PyFloat::new(RsFloat::F32, p)
+    })
 }
 
 #[proc_macro]
@@ -3040,37 +3042,30 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
         |n, _| quote!(self.0.#n.0 = #n.into()),
     );
 
-    let make_arg_str = |kw_name: &str, kw_sym: &str, t: &str| {
+    let make_arg = |kw_name: &str, kw_sym: &str, t: &str, is_float: bool| {
         let kw_path = keyword_path(t);
+        let pytype = if is_float {
+            PyFloat::new(RsFloat::F32, kw_path).into()
+        } else {
+            PyType::from(PyStr::new1(kw_path))
+        };
         DocArg::new_opt_ivar_rw(
             kw_name,
-            PyStr::new1(kw_path),
+            pytype,
             format!("The *$Gm{kw_sym}* keyword."),
             false,
             |n, _| quote!(self.0.#n.0.as_ref().cloned()),
             |n, _| quote!(self.0.#n.0 = #n.into()),
         )
     };
-    // TODO wet
-    let make_arg_float = |kw_name: &str, kw_sym: &str, t: &str| {
-        let kw_path = keyword_path(t);
-        DocArg::new_opt_ivar_rw(
-            kw_name,
-            PyFloat::new(RsFloat::F32, kw_path),
-            format!("The *$Gm{kw_sym}* keyword."),
-            false,
-            |n, _| quote!(self.0.#n.0.as_ref().cloned()),
-            |n, _| quote!(self.0.#n.0 = #n.into()),
-        )
-    };
-    let filter = make_arg_str("filter", "F", "GateFilter");
-    let shortname = make_arg_str("shortname", "N", "GateShortname");
-    let percent_emitted = make_arg_str("percent_emitted", "P", "GatePercentEmitted");
+    let filter = make_arg("filter", "F", "GateFilter", false);
+    let shortname = make_arg("shortname", "N", "GateShortname", false);
+    let percent_emitted = make_arg("percent_emitted", "P", "GatePercentEmitted", true);
     // TODO isn't this a decimal?
-    let range = make_arg_float("range", "R", "GateRange");
-    let longname = make_arg_str("longname", "S", "GateLongname");
-    let detector_type = make_arg_str("detector_type", "T", "GateDetectorType");
-    let detector_voltage = make_arg_float("detector_voltage", "V", "GateDetectorVoltage");
+    let range = make_arg("range", "R", "GateRange", true);
+    let longname = make_arg("longname", "S", "GateLongname", false);
+    let detector_type = make_arg("detector_type", "T", "GateDetectorType", false);
+    let detector_voltage = make_arg("detector_voltage", "V", "GateDetectorVoltage", true);
 
     let all_args = [
         scale,

@@ -677,7 +677,7 @@ class TestCore:
     # each of these should be strings or None
     @all_core2
     @pytest.mark.parametrize(
-        "attr", [f"all_{x}" for x in ["filters", "percents_emitted", "detector_types"]]
+        "attr", [f"all_{x}" for x in ["filters", "detector_types"]]
     )
     def test_meas_opt_strs(self, attr: str, core: AnyCore) -> None:
         assert getattr(core, attr) == [None, ()]
@@ -690,7 +690,8 @@ class TestCore:
     # each of these should be a non-negative float
     @all_core2
     @pytest.mark.parametrize(
-        "attr", [f"all_{x}" for x in ["powers", "detector_voltages"]]
+        "attr",
+        [f"all_{x}" for x in ["powers", "percents_emitted", "detector_voltages"]],
     )
     def test_meas_opt_floats(self, attr: str, core: AnyCore) -> None:
         assert getattr(core, attr) == [None, ()]
@@ -1522,17 +1523,19 @@ class TestGating:
         with pytest.raises(ValueError):
             blank_gated_meas.range = cast(float, "hail stan")
 
-    def test_voltage(self, blank_gated_meas: pf.GatedMeasurement) -> None:
-        assert blank_gated_meas.detector_voltage is None
-        blank_gated_meas.detector_voltage = 1.0
-        assert blank_gated_meas.detector_voltage == 1.0
-        with pytest.raises(ValueError):
-            blank_gated_meas.detector_voltage = cast(float, -1.0)
+    @pytest.mark.parametrize("attr", ["percent_emitted", "detector_voltage"])
+    def test_floats(self, blank_gated_meas: pf.GatedMeasurement, attr: str) -> None:
+        assert getattr(blank_gated_meas, attr) is None
+        new = 1.0
+        setattr(blank_gated_meas, attr, new)
+        assert getattr(blank_gated_meas, attr) == new
+        with pytest.raises(TypeError):
+            setattr(blank_gated_meas, attr, "3.14...4...4...4...4...uuuuuuuuhhhhh")
 
     @pytest.mark.parametrize(
-        "attr", ["filter", "shortname", "percent_emitted", "longname", "detector_type"]
+        "attr", ["filter", "shortname", "longname", "detector_type"]
     )
-    def test_floats(self, blank_gated_meas: pf.GatedMeasurement, attr: str) -> None:
+    def test_strs(self, blank_gated_meas: pf.GatedMeasurement, attr: str) -> None:
         assert getattr(blank_gated_meas, attr) is None
         new = "this is sweet revenge and karma's a"
         setattr(blank_gated_meas, attr, new)
@@ -1591,14 +1594,24 @@ class TestMeas:
             meas.longname = cast(str, 666666666666666666666666)
 
     @all_blank_optical
-    @pytest.mark.parametrize("attr", ["filter", "detector_type", "percent_emitted"])
+    @pytest.mark.parametrize("attr", ["detector_voltage", "percent_emitted"])
+    def test_optical_float(self, meas: AnyOptical, attr: str) -> None:
+        assert getattr(meas, attr) is None
+        new = 1.0
+        setattr(meas, attr, new)
+        assert getattr(meas, attr) == new
+        with pytest.raises(TypeError):
+            setattr(meas, attr, "the one")
+
+    @all_blank_optical
+    @pytest.mark.parametrize("attr", ["filter", "detector_type"])
     def test_optical_str(self, meas: AnyOptical, attr: str) -> None:
         assert getattr(meas, attr) is None
         new = "punky bruster"
         setattr(meas, attr, new)
         assert getattr(meas, attr) == new
         with pytest.raises(TypeError):
-            meas.longname = cast(str, 13)
+            setattr(meas, attr, 13)
 
     @parameterize_versions("meas", ["3_1", "3_2"], ["blank_optical", "blank_temporal"])
     def test_display(

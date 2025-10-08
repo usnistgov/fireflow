@@ -1489,32 +1489,46 @@ pub struct GateShortname(pub Shortname);
 #[from(u64)]
 pub struct GateRange(pub Range);
 
-/// The value of the $PnO key
-#[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
-#[into(NonNegFloat, f32)]
-pub struct Power(pub NonNegFloat);
+macro_rules! impl_non_neg_float {
+    ($(#[$meta:meta])* $t:ident) => {
+        $(#[$meta])*
+        #[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq, Debug)]
+        #[cfg_attr(feature = "serde", derive(Serialize))]
+        #[cfg_attr(feature = "python", derive(IntoPyObject))]
+        #[into(NonNegFloat, f32)]
+        pub struct $t(pub NonNegFloat);
 
-impl_newtype_try_from!(Power, NonNegFloat, f32, RangedFloatError);
+        impl_newtype_try_from!($t, NonNegFloat, f32, RangedFloatError);
 
-/// The value of the $PnV key
-#[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
-#[into(NonNegFloat, f32)]
-pub struct DetectorVoltage(pub NonNegFloat);
+        #[cfg(feature = "python")]
+        impl_from_py_transparent!($t);
+    };
+}
 
-impl_newtype_try_from!(DetectorVoltage, NonNegFloat, f32, RangedFloatError);
+impl_non_neg_float! {
+    /// The value of the $PnO key.
+    Power
+}
 
-/// The value of the $GmV key
-#[derive(Clone, Copy, Display, FromStr, Into, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
-#[into(f32)]
-pub struct GateDetectorVoltage(pub NonNegFloat);
+impl_non_neg_float! {
+    /// The value of the $PnP key.
+    PercentEmitted
+}
 
-impl_newtype_try_from!(GateDetectorVoltage, NonNegFloat, f32, RangedFloatError);
+impl_non_neg_float! {
+    /// The value of the $PnV key.
+    DetectorVoltage
+}
+
+impl_non_neg_float! {
+    /// The value of the $GmV key.
+    GateDetectorVoltage
+}
+
+impl_non_neg_float! {
+    /// The value of the $GmP key.
+    GatePercentEmitted
+}
 
 /// The value of the $GmE key
 #[derive(Clone, Copy, Display, FromStr, PartialEq)]
@@ -1830,8 +1844,7 @@ kw_req_meta!(ByteOrd3_1, "BYTEORD"); // 3.1+
 kw_req_meas!(Width, "B");
 kw_opt_meas_string!(Filter, "F");
 kw_opt_meas!(Power, "O");
-// TODO why is this a string?
-kw_opt_meas_string!(PercentEmitted, "P");
+kw_opt_meas!(PercentEmitted, "P");
 kw_req_meas!(Range, "R");
 kw_opt_meas_string!(Longname, "S");
 kw_opt_meas_string!(DetectorType, "T");
@@ -1914,7 +1927,7 @@ kw_opt_meta_int!(Gate, usize, "GATE");
 
 kw_opt_gate!(GateScale, "E");
 kw_opt_gate_string!(GateFilter, "F");
-kw_opt_gate_string!(GatePercentEmitted, "P");
+kw_opt_gate!(GatePercentEmitted, "P");
 kw_opt_gate!(GateRange, "R");
 kw_opt_gate!(GateShortname, "N");
 kw_opt_gate_string!(GateLongname, "S");
@@ -2117,12 +2130,11 @@ mod python {
     use crate::validated::shortname::Shortname;
 
     use super::{
-        AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, DetectorVoltage, Display,
-        Feature, FeatureError, GateDetectorVoltage, GateRange, GateScale, GateShortname, IndexPair,
-        LastModified, Mode, Mode3_2, Mode3_2Error, ModeError, NumType, NumTypeError, OpticalType,
-        OpticalTypeError, Originality, OriginalityError, Power, PrefixedMeasIndex, Range,
-        TemporalType, TemporalTypeError, Timestep, Trigger, UniGate, Unicode, Vertex, Vol,
-        Wavelength, Wavelengths,
+        AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Display, Feature,
+        FeatureError, GateRange, GateScale, GateShortname, IndexPair, LastModified, Mode, Mode3_2,
+        Mode3_2Error, ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError, Originality,
+        OriginalityError, PrefixedMeasIndex, Range, TemporalType, TemporalTypeError, Timestep,
+        Trigger, UniGate, Unicode, Vertex, Vol, Wavelength, Wavelengths,
     };
 
     use pyo3::prelude::*;
@@ -2151,12 +2163,9 @@ mod python {
     impl_from_py_transparent!(Timestep);
     impl_from_py_transparent!(LastModified);
     impl_from_py_transparent!(Range);
-    impl_from_py_transparent!(DetectorVoltage);
-    impl_from_py_transparent!(Power);
     impl_from_py_transparent!(GateRange);
     impl_from_py_transparent!(GateScale);
     impl_from_py_transparent!(GateShortname);
-    impl_from_py_transparent!(GateDetectorVoltage);
     impl_from_py_transparent!(PrefixedMeasIndex);
     impl_from_py_transparent!(Wavelengths);
 

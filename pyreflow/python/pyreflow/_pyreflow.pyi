@@ -244,7 +244,7 @@ class _OpticalCommon:
     detector_type: str | None
     detector_voltage: float | None
     power: float | None
-    percent_emitted: str | None
+    percent_emitted: float | None
 
 class _OpticalScaleTransform:
     transform: ScaleTransform
@@ -265,7 +265,7 @@ class Optical2_0(_MeasCommon, _OpticalCommon, _OpticalWavelength, _PeakCommon):
         filter: str | None = None,
         power: float | None = None,
         detector_type: str | None = None,
-        percent_emitted: str | None = None,
+        percent_emitted: float | None = None,
         detector_voltage: float | None = None,
         longname: str | None = None,
         nonstandard_keywords: NonStdKeywords = {},
@@ -284,7 +284,7 @@ class Optical3_0(
         filter: str | None = None,
         power: float | None = None,
         detector_type: str | None = None,
-        percent_emitted: str | None = None,
+        percent_emitted: float | None = None,
         detector_voltage: float | None = None,
         longname: str | None = None,
         nonstandard_keywords: NonStdKeywords = {},
@@ -312,7 +312,7 @@ class Optical3_1(
         filter: str | None = None,
         power: float | None = None,
         detector_type: str | None = None,
-        percent_emitted: str | None = None,
+        percent_emitted: float | None = None,
         detector_voltage: float | None = None,
         longname: str | None = None,
         nonstandard_keywords: NonStdKeywords = {},
@@ -348,7 +348,7 @@ class Optical3_2(
         filter: str | None = None,
         power: float | None = None,
         detector_type: str | None = None,
-        percent_emitted: str | None = None,
+        percent_emitted: float | None = None,
         detector_voltage: float | None = None,
         longname: str | None = None,
         nonstandard_keywords: NonStdKeywords = {},
@@ -415,7 +415,7 @@ class GatedMeasurement:
         scale: tuple[()] | tuple[float, float] | None = None,
         filter: str | None = None,
         shortname: str | None = None,
-        percent_emitted: str | None = None,
+        percent_emitted: float | None = None,
         range: float | None = None,
         longname: str | None = None,
         detector_type: str | None = None,
@@ -424,7 +424,7 @@ class GatedMeasurement:
     scale: tuple[()] | tuple[float, float] | None
     filter: str | None
     shortname: str | None
-    percent_emitted: str | None
+    percent_emitted: float | None
     range: float | None
     longname: str | None
     detector_type: str | None

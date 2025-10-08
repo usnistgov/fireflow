@@ -7380,4 +7380,4 @@ const ALL_VERSIONS: [Version; 4] = [
 const CHRONO_REF: &str =
     "`chrono <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>`__";
 
-const REGEXP_REF: &str = "`regexp-syntax <https://docs.rs/regex-syntax/latest/regex_syntax/>`__";
+const REGEXP_REF: &str = "`regexp-syntax <https://docs.rs/regex/latest/regex/#syntax>`__";

@@ -8,7 +8,9 @@ use fireflow_core::header::Version;
 use fireflow_core::segment::HeaderCorrection;
 use fireflow_core::text::byteord::ByteOrd2_0;
 use fireflow_core::validated::datepattern::DatePattern;
-use fireflow_core::validated::keys::{KeyPatterns, KeyStringPairs, NonStdMeasPattern};
+use fireflow_core::validated::keys::{
+    KeyOrStringPatterns, KeyPatterns, KeyStringPairs, NonStdMeasPattern,
+};
 use fireflow_core::validated::sub_pattern::SubPatterns;
 use fireflow_core::validated::timepattern::TimePattern;
 
@@ -154,6 +156,18 @@ fn main() -> Result<(), ()> {
 
     let trim_value_whitespace = flag_arg(TRIM_VALUE_WHITESPACE, "trim whitespace from all values");
 
+    let ignore_std_lit_key = Arg::new(IGNORE_STD_LIT_KEY)
+        .long(IGNORE_STD_LIT_KEY)
+        .action(ArgAction::Append)
+        .value_name("KEY")
+        .help("standard key to ignore; the leading '$' is implied");
+
+    let ignore_std_pat_key = Arg::new(IGNORE_STD_PAT_KEY)
+        .long(IGNORE_STD_PAT_KEY)
+        .action(ArgAction::Append)
+        .value_name("REGEXP")
+        .help("ignore standard keys matching the given pattern; the leading '$' is implied");
+
     let all_raw_args = [
         version_override,
         supp_text_correction_begin,
@@ -174,6 +188,8 @@ fn main() -> Result<(), ()> {
         allow_supp_text_own_delim,
         allow_missing_nextdata,
         trim_value_whitespace,
+        ignore_std_lit_key,
+        ignore_std_pat_key,
     ];
 
     // std args
@@ -200,13 +216,13 @@ fn main() -> Result<(), ()> {
 
     let ignore_time_gain = flag_arg(IGNORE_TIME_GAIN, "ignore $PnG for time measurement");
 
-    let ignore_time_optical_keys = Arg::new(IGNORE_TIME_OPTICAL_KEYS)
-        .long(IGNORE_TIME_OPTICAL_KEYS)
+    let ignore_time_optical_keys = Arg::new(IGNORE_TIME_OPTICAL_KEY)
+        .long(IGNORE_TIME_OPTICAL_KEY)
         .action(ArgAction::Append)
-        .value_name("KEY")
+        .value_name("SYM")
         .help(
             "optical keywords to ignore on temporal measurement, must be a \
-             single file like the X in 'PnX'",
+             single letter like the X in 'PnX'",
         );
 
     let parse_indexed_spillover = flag_arg(
@@ -555,6 +571,19 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
     let stext0 = sargs.get_one(SUPP_TEXT_COR_BEGIN).copied();
     let stext1 = sargs.get_one(SUPP_TEXT_COR_END).copied();
     let supp_text_correction = (stext0, stext1).into();
+    let ignore_std_lit_keys = sargs
+        .get_many::<String>(IGNORE_STD_LIT_KEY)
+        .unwrap_or_default()
+        .map(|x| (x.clone(), ()));
+    let ignore_std_pat_keys = sargs
+        .get_many::<String>(IGNORE_STD_PAT_KEY)
+        .unwrap_or_default()
+        .map(|x| (x.clone(), ()));
+    let ignore_standard_keys = KeyOrStringPatterns::try_from_literals_and_patterns(
+        ignore_std_lit_keys,
+        ignore_std_pat_keys,
+    )
+    .unwrap();
     config::ReadHeaderAndTEXTConfig {
         header: parse_header_config(sargs),
         version_override,
@@ -576,7 +605,7 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
         allow_missing_nextdata: sargs.get_flag(ALLOW_MISSING_NEXTDATA),
         trim_value_whitespace: sargs.get_flag(TRIM_VALUE_WHITESPACE),
         // TODO add options for these
-        ignore_standard_keys: KeyPatterns::default(),
+        ignore_standard_keys,
         rename_standard_keys: KeyStringPairs::default(),
         promote_to_standard: KeyPatterns::default(),
         demote_from_standard: KeyPatterns::default(),
@@ -602,7 +631,7 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::StdTextReadConfig {
         .cloned()
         .map(|s| s.parse::<NonStdMeasPattern>().unwrap());
     let ignore_time_optical_keys = sargs
-        .get_many::<String>(IGNORE_TIME_OPTICAL_KEYS)
+        .get_many::<String>(IGNORE_TIME_OPTICAL_KEY)
         .unwrap_or_default()
         .map(|s| s.parse::<config::TemporalOpticalKey>().unwrap())
         .collect();
@@ -846,6 +875,10 @@ const ALLOW_MISSING_NEXTDATA: &str = "allow-missing-nextdata";
 
 const TRIM_VALUE_WHITESPACE: &str = "trim-value-whitespace";
 
+const IGNORE_STD_LIT_KEY: &str = "ignore-std-literal-key";
+
+const IGNORE_STD_PAT_KEY: &str = "ignore-std-pattern-key";
+
 const DATE_PATTERN: &str = "date-pattern";
 
 const TIME_PATTERN: &str = "time-pattern";
@@ -866,7 +899,7 @@ const FORCE_TIME_LINEAR: &str = "force-time-linear";
 
 const IGNORE_TIME_GAIN: &str = "ignore-time-gain";
 
-const IGNORE_TIME_OPTICAL_KEYS: &str = "ignore-time-optical-keys";
+const IGNORE_TIME_OPTICAL_KEY: &str = "ignore-time-optical-key";
 
 const ALLOW_PSEUDOSTANDARD: &str = "allow-pseudostandard";
 

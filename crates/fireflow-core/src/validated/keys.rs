@@ -441,11 +441,20 @@ impl FromStr for CaseInsRegex {
 }
 
 impl<T> KeyOrStringPatterns<T> {
-    pub fn extend(&mut self, other: Self) {
+    pub fn try_from_literals_and_patterns(
+        lits: impl IntoIterator<Item = (String, T)>,
+        pats: impl IntoIterator<Item = (String, T)>,
+    ) -> Result<Self, KeyOrStringPatternsError> {
+        let mut ret = Self::try_from_literals(lits)?;
+        let ps = Self::try_from_patterns(pats)?;
+        ret.extend(ps);
+        Ok(ret)
+    }
+
+    fn extend(&mut self, other: Self) {
         self.0.extend(other.0);
     }
 
-    #[cfg(feature = "python")]
     fn try_from_iter<F, E>(xs: impl IntoIterator<Item = (String, T)>, f: F) -> Result<Self, E>
     where
         F: Fn(&str) -> Result<KeyStringOrPattern, E>,
@@ -458,8 +467,7 @@ impl<T> KeyOrStringPatterns<T> {
             .map(Self)
     }
 
-    #[cfg(feature = "python")]
-    pub(crate) fn try_from_literals(
+    fn try_from_literals(
         xs: impl IntoIterator<Item = (String, T)>,
     ) -> Result<Self, AsciiStringError> {
         Self::try_from_iter(xs, |k| {
@@ -467,10 +475,7 @@ impl<T> KeyOrStringPatterns<T> {
         })
     }
 
-    #[cfg(feature = "python")]
-    pub(crate) fn try_from_patterns(
-        xs: impl IntoIterator<Item = (String, T)>,
-    ) -> Result<Self, regex::Error> {
+    fn try_from_patterns(xs: impl IntoIterator<Item = (String, T)>) -> Result<Self, regex::Error> {
         Self::try_from_iter(xs, |k| {
             k.parse::<CaseInsRegex>().map(KeyStringOrPattern::Pattern)
         })
@@ -648,6 +653,12 @@ impl ParsedKeywords {
 }
 
 #[derive(Debug, Display, From, PartialEq, Error)]
+pub enum KeyOrStringPatternsError {
+    Regexp(regex::Error),
+    Ascii(AsciiStringError),
+}
+
+#[derive(Debug, Display, From, PartialEq, Error)]
 pub enum KeywordInsertError {
     StdPresent(StdPresent),
     NonStdPresent(NonStdPresent),
@@ -763,8 +774,9 @@ const STD_PREFIX: u8 = 36; // '$'
 #[cfg(feature = "python")]
 mod python {
     use super::{
-        AsciiStringError, KeyPatterns, KeyString, KeyStringPairs, KeyStringPairsError, NonStdKey,
-        NonStdKeyError, NonStdMeasPattern, NonStdMeasPatternError, StdKey, StdKeyError,
+        AsciiStringError, KeyOrStringPatternsError, KeyPatterns, KeyString, KeyStringPairs,
+        KeyStringPairsError, NonStdKey, NonStdKeyError, NonStdMeasPattern, NonStdMeasPatternError,
+        StdKey, StdKeyError,
     };
     use crate::python::macros::{impl_from_py_via_fromstr, impl_to_py_via_display, impl_value_err};
 
@@ -787,16 +799,17 @@ mod python {
     impl_to_py_via_display!(KeyString);
     impl_value_err!(AsciiStringError);
 
+    impl_value_err!(KeyOrStringPatternsError);
+
     // pass keypatterns via config as a tuple like ([String], [String]) where the
     // first member is literal strings and the second is regex patterns
     impl<'py> FromPyObject<'py> for KeyPatterns {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let (lits, pats): (Vec<String>, Vec<String>) = ob.extract()?;
-            let mut ret = Self::try_from_literals(lits.into_iter().map(|x| (x, ())))?;
-            // this is just a regexp error
-            let ps = Self::try_from_patterns(pats.into_iter().map(|x| (x, ())))
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
-            ret.extend(ps);
+            let ret = Self::try_from_literals_and_patterns(
+                lits.into_iter().map(|x| (x, ())),
+                pats.into_iter().map(|x| (x, ())),
+            )?;
             Ok(ret)
         }
     }

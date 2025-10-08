@@ -166,14 +166,8 @@ mod python {
     impl<'py> FromPyObject<'py> for SubPatterns {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let (lits, pats): (_SubPattern, _SubPattern) = ob.extract()?;
-            let mut ret = Self::try_from_literals(lits)?;
-            // this is just a regexp error
-            let ps =
-                Self::try_from_patterns(pats).map_err(|e| PyValueError::new_err(e.to_string()))?;
-            ret.extend(ps);
+            let ret = Self::try_from_literals_and_patterns(lits, pats)?;
             Ok(ret)
         }
     }
-
-    // impl_value_err!(KeyStringPairsError);
 }

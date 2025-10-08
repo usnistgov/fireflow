@@ -1158,9 +1158,9 @@ const ALLOW_MISSING_NEXTDATA: &str = "allow-missing-nextdata";
 
 const TRIM_VALUE_WHITESPACE: &str = "trim-value-whitespace";
 
-const IGNORE_STD_LIT_KEY: &str = "ignore-std-literal-key";
+const IGNORE_STD_LIT_KEY: &str = "ignore-std-lit-key";
 
-const IGNORE_STD_PAT_KEY: &str = "ignore-std-pattern-key";
+const IGNORE_STD_PAT_KEY: &str = "ignore-std-pat-key";
 
 const PROMOTE_LIT_TO_STD: &str = "promote-lit-to-std";
 

@@ -495,6 +495,8 @@ fn main() -> Result<(), ()> {
     let cmd = Command::new("fireflow")
         .about("read and write FCS files")
         .arg_required_else_help(true)
+        .next_line_help(true)
+        .max_term_width(80)
         .subcommand(
             Command::new(SUBCMD_HEADER)
                 .about("show header as JSON")

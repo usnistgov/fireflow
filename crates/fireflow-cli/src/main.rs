@@ -8,7 +8,7 @@ use fireflow_core::header::Version;
 use fireflow_core::segment::HeaderCorrection;
 use fireflow_core::text::byteord::ByteOrd2_0;
 use fireflow_core::validated::datepattern::DatePattern;
-use fireflow_core::validated::keys::{KeyOrStringPatterns, KeyStringPairs, NonStdMeasPattern};
+use fireflow_core::validated::keys::{KeyOrStringPatterns, KeyString, NonStdMeasPattern};
 use fireflow_core::validated::sub_pattern::SubPatterns;
 use fireflow_core::validated::timepattern::TimePattern;
 
@@ -189,7 +189,34 @@ fn main() -> Result<(), ()> {
         "demote keys matching the given pattern from standard; the leading '$' is implied",
     );
 
-    let all_raw_args = [
+    let rename_standard_keys = Arg::new(RENAME_STD_KEYS)
+        .long(RENAME_STD_KEYS)
+        .action(ArgAction::Append)
+        .value_name("OLD,NEW")
+        .help(
+            "rename standard keys from OLD to NEW (separated by comma); \
+             leading '$' is implied",
+        );
+
+    let replace_std_key_vals = Arg::new(REPLACE_STD_KEY_VALS)
+        .long(REPLACE_STD_KEY_VALS)
+        .action(ArgAction::Append)
+        .value_name("KEY,VAL")
+        .help(
+            "replace values of standard keys matching KEY with VAl; \
+             leading '$' is implied for the key",
+        );
+
+    let append_std_key_vals = Arg::new(APPEND_STD_KEY_VALS)
+        .long(APPEND_STD_KEY_VALS)
+        .action(ArgAction::Append)
+        .value_name("KEY,VAL")
+        .help(
+            "append standard keys with KEY and VAL to list of standard keys; \
+             leading '$' is implied for KEY",
+        );
+
+    let all_raw_args = vec![
         version_override,
         supp_text_correction_begin,
         supp_text_correction_end,
@@ -215,6 +242,9 @@ fn main() -> Result<(), ()> {
         promote_pat_to_std,
         demote_lit_from_std,
         demote_pat_from_std,
+        rename_standard_keys,
+        replace_std_key_vals,
+        append_std_key_vals,
     ];
 
     // std args
@@ -611,9 +641,19 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
     let stext0 = sargs.get_one(SUPP_TEXT_COR_BEGIN).copied();
     let stext1 = sargs.get_one(SUPP_TEXT_COR_END).copied();
     let supp_text_correction = (stext0, stext1).into();
+
     let ignore_standard_keys = parse_key_or_pat(IGNORE_STD_LIT_KEY, IGNORE_STD_PAT_KEY).unwrap();
     let promote_to_standard = parse_key_or_pat(PROMOTE_LIT_TO_STD, PROMOTE_PAT_TO_STD).unwrap();
     let demote_from_standard = parse_key_or_pat(DEMOTE_LIT_FROM_STD, DEMOTE_PAT_FROM_STD).unwrap();
+
+    let rename_standard_keys =
+        parse_hashmap(sargs, RENAME_STD_KEYS, |s| s.parse::<KeyString>().unwrap())
+            .try_into()
+            .unwrap();
+
+    let replace_standard_key_values = parse_hashmap(sargs, REPLACE_STD_KEY_VALS, Into::into);
+    let append_standard_keywords = parse_hashmap(sargs, APPEND_STD_KEY_VALS, Into::into);
+
     config::ReadHeaderAndTEXTConfig {
         header: parse_header_config(sargs),
         version_override,
@@ -636,11 +676,11 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
         trim_value_whitespace: sargs.get_flag(TRIM_VALUE_WHITESPACE),
         // TODO add options for these
         ignore_standard_keys,
-        rename_standard_keys: KeyStringPairs::default(),
+        rename_standard_keys,
         promote_to_standard,
         demote_from_standard,
-        replace_standard_key_values: HashMap::new(),
-        append_standard_keywords: HashMap::new(),
+        replace_standard_key_values,
+        append_standard_keywords,
         substitute_standard_key_values: SubPatterns::default(),
     }
 }
@@ -764,6 +804,21 @@ fn parse_shared_config(sargs: &ArgMatches) -> config::SharedConfig {
         warnings_are_errors: sargs.get_flag(WARNINGS_ARE_ERRORS),
         hide_warnings: sargs.get_flag(HIDE_WARNINGS),
     }
+}
+
+fn parse_hashmap<'a, 'b, T, F: Fn(&'a str) -> T>(
+    sargs: &'a ArgMatches,
+    flag: &'b str,
+    f: F,
+) -> HashMap<KeyString, T> {
+    sargs
+        .get_many::<String>(flag)
+        .unwrap_or_default()
+        .map(|s| {
+            let (k, v) = s.split_once(',').unwrap();
+            (k.parse::<KeyString>().unwrap(), f(v))
+        })
+        .collect::<HashMap<_, _>>()
 }
 
 fn parse_input_path(sargs: &ArgMatches) -> &PathBuf {
@@ -917,6 +972,12 @@ const PROMOTE_PAT_TO_STD: &str = "promote-pat-to-std";
 const DEMOTE_LIT_FROM_STD: &str = "demote-lit-from-std";
 
 const DEMOTE_PAT_FROM_STD: &str = "demote-pat-from-std";
+
+const RENAME_STD_KEYS: &str = "rename-std-keys";
+
+const REPLACE_STD_KEY_VALS: &str = "replace-std-key-vals";
+
+const APPEND_STD_KEY_VALS: &str = "append-std-key-vals";
 
 const DATE_PATTERN: &str = "date-pattern";
 

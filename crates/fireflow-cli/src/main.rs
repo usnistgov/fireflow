@@ -203,8 +203,8 @@ fn main() -> Result<(), ()> {
         .action(ArgAction::Append)
         .value_name("KEY,VAL")
         .help(
-            "replace values of standard keys matching KEY with VAl; \
-             leading '$' is implied for the key",
+            "replace values of standard keys matching KEY with VAl \
+             (separated by comma); leading '$' is implied for the key",
         );
 
     let append_std_key_vals = Arg::new(APPEND_STD_KEY_VALS)
@@ -212,8 +212,8 @@ fn main() -> Result<(), ()> {
         .action(ArgAction::Append)
         .value_name("KEY,VAL")
         .help(
-            "append standard keys with KEY and VAL to list of standard keys; \
-             leading '$' is implied for KEY",
+            "append standard keys with KEY and VAL (separated by comma) \
+             to list of standard keys; leading '$' is implied for KEY",
         );
 
     let all_raw_args = vec![
@@ -815,6 +815,9 @@ fn parse_hashmap<'a, 'b, T, F: Fn(&'a str) -> T>(
         .get_many::<String>(flag)
         .unwrap_or_default()
         .map(|s| {
+            // NOTE we can get away with this because we know that keys in FCS
+            // cannot contain commas, and we are only using these as the keys
+            // in this particular hash table
             let (k, v) = s.split_once(',').unwrap();
             (k.parse::<KeyString>().unwrap(), f(v))
         })

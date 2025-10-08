@@ -38,7 +38,9 @@ impl FromStr for Shortname {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.contains(',') {
-            Err(ShortnameError(s.into()))
+            Err(ShortnameError::Commas(s.into()))
+        } else if s.is_empty() {
+            Err(ShortnameError::Empty)
         } else {
             Ok(Self(s.into()))
         }
@@ -64,8 +66,12 @@ impl From<MeasIndex> for Shortname {
 // }
 
 #[derive(Debug, Error)]
-#[error("commas are not allowed in name '{0}'")]
-pub struct ShortnameError(String);
+pub enum ShortnameError {
+    #[error("commas are not allowed in name '{0}'")]
+    Commas(String),
+    #[error("name cannot be empty")]
+    Empty,
+}
 
 #[cfg(test)]
 mod tests {

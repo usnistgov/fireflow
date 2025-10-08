@@ -8,9 +8,7 @@ use fireflow_core::header::Version;
 use fireflow_core::segment::HeaderCorrection;
 use fireflow_core::text::byteord::ByteOrd2_0;
 use fireflow_core::validated::datepattern::DatePattern;
-use fireflow_core::validated::keys::{
-    KeyOrStringPatterns, KeyPatterns, KeyStringPairs, NonStdMeasPattern,
-};
+use fireflow_core::validated::keys::{KeyOrStringPatterns, KeyStringPairs, NonStdMeasPattern};
 use fireflow_core::validated::sub_pattern::SubPatterns;
 use fireflow_core::validated::timepattern::TimePattern;
 
@@ -243,13 +241,13 @@ fn main() -> Result<(), ()> {
 
     let ignore_time_gain = flag_arg(IGNORE_TIME_GAIN, "ignore $PnG for time measurement");
 
-    let ignore_time_optical_keys = Arg::new(IGNORE_TIME_OPTICAL_KEY)
-        .long(IGNORE_TIME_OPTICAL_KEY)
+    let ignore_time_optical_keys = Arg::new(IGNORE_TIME_OPTICAL_KEYS)
+        .long(IGNORE_TIME_OPTICAL_KEYS)
         .action(ArgAction::Append)
-        .value_name("SYM")
+        .value_name("SYMS")
         .help(
             "optical keywords to ignore on temporal measurement, must be a \
-             single letter like the X in 'PnX'",
+             comma-separated list of strings like the X in 'PnX'",
         );
 
     let parse_indexed_spillover = flag_arg(
@@ -663,8 +661,9 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::StdTextReadConfig {
         .cloned()
         .map(|s| s.parse::<NonStdMeasPattern>().unwrap());
     let ignore_time_optical_keys = sargs
-        .get_many::<String>(IGNORE_TIME_OPTICAL_KEY)
-        .unwrap_or_default()
+        .get_one::<String>(IGNORE_TIME_OPTICAL_KEYS)
+        .into_iter()
+        .flat_map(|s| s.split(','))
         .map(|s| s.parse::<config::TemporalOpticalKey>().unwrap())
         .collect();
     let date_pattern = sargs
@@ -939,7 +938,7 @@ const FORCE_TIME_LINEAR: &str = "force-time-linear";
 
 const IGNORE_TIME_GAIN: &str = "ignore-time-gain";
 
-const IGNORE_TIME_OPTICAL_KEY: &str = "ignore-time-optical-key";
+const IGNORE_TIME_OPTICAL_KEYS: &str = "ignore-time-optical-keys";
 
 const ALLOW_PSEUDOSTANDARD: &str = "allow-pseudostandard";
 

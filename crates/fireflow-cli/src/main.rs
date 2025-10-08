@@ -15,60 +15,115 @@ use fireflow_core::validated::sub_pattern::SubPattern;
 use fireflow_core::validated::timepattern::TimePattern;
 use regex::Regex;
 
-use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
+use ansi_term::{ANSIString, Style};
+use clap::{
+    builder::IntoResettable, builder::StyledStr, value_parser, Arg, ArgAction, ArgMatches, Command,
+};
+use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use serde::ser::Serialize;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::fmt::Display;
+use std::iter::once;
 use std::path::PathBuf;
 
 #[allow(clippy::too_many_lines)]
 fn main() -> Result<(), ()> {
-    let correction_arg = |long: &'static str, help: &'static str| {
+    let kw_style = Style::new().italic();
+    let seg_style = Style::new().italic();
+
+    let header_seg = seg_style.paint("HEADER");
+    let text_seg = seg_style.paint("TEXT");
+    let prim_text_seg = seg_style.paint("primary TEXT");
+    let supp_text_seg = seg_style.paint("supplemental TEXT");
+    let data_seg = seg_style.paint("DATA");
+    let analysis_seg = seg_style.paint("ANALYSIS");
+    let other_seg = seg_style.paint("OTHER");
+
+    let (sub_header, sub_help) = format_section(
+        "SUBSTITUTION",
+        [format!(
+            "The SUB part in --{SUB_STD_LIT_KEY_VALS} and --{SUB_STD_PAT_KEY_VALS} \
+             is a sed-like pattern which will be used to edit the value of KEY. \
+             It must be a string like 's<D><FROM><D><TO>[<D>g]' where 'D' is a \
+             delimiter (any character), FROM is a regular expression and TO is a \
+             replacement pattern. FROM and TO must follow the syntax outlined in \
+             {REGEXP_REF} and {REGEXP_REP_REF} respectively, with the caveat that \
+             only bracketed replacement syntax is allowed."
+        )],
+    );
+
+    let (date_header, date_help) = format_section(
+        "DATE PATTERN",
+        [format!(
+            "The value for --{DATE_PATTERN} will be used as an alternative pattern when \
+             parsing {kw}. It should have specifiers for year, month, and \
+             day as outlined in {CHRONO_REF}. If not supplied, {kw} will \
+             be parsed according to the standard pattern which is \
+             '%d-%b-%Y'.",
+            kw = kw_style.paint("$DATE"),
+        )],
+    );
+
+    let (time_header, time_help) = format_section(
+        "TIME PATTERN",
+        [format!(
+            "If supplied, will be used as an alternative pattern when \
+             parsing {b} and {e} It should have specifiers for \
+             hours, minutes, and seconds as outlined in {CHRONO_REF}. It may \
+             optionally also have a sub-seconds specifier as shown in the \
+             same link. Furthermore, the specifiers '%!' and %@' may be used \
+             to match 1/60 and centiseconds respectively. If not supplied, \
+             {b} and {e} will be parsed according to the standard \
+             pattern which is version-specific.",
+            b = kw_style.paint("$BTIM"),
+            e = kw_style.paint("$ETIM"),
+        )],
+    );
+
+    let raw_long_help = &sub_help;
+    let std_long_help = [&sub_help, &date_help, &time_help].iter().join("\n\n");
+
+    let correction_arg = |long: &'static str, is_begin: bool, seg: &ANSIString| {
+        let loc = if is_begin { "begin" } else { "end" };
+        let h = format!("Adjustment for {loc} {seg} offset.");
         Arg::new(long)
             .long(long)
             .value_name("OFFSET")
-            .help(help)
+            .help(h)
             .value_parser(value_parser!(i32))
-    };
-
-    let flag_arg = |long: &'static str, help: &'static str| {
-        Arg::new(long)
-            .long(long)
-            .action(ArgAction::SetTrue)
-            .help(help)
     };
 
     // header args
 
-    let text_correction_begin = correction_arg(TEXT_COR_BEGIN, "Adjustment for begin TEXT offset.");
-    let text_correction_end = correction_arg(TEXT_COR_END, "Adjustment for end TEXT offset.");
+    let text_correction_begin = correction_arg(TEXT_COR_BEGIN, true, &text_seg);
+    let text_correction_end = correction_arg(TEXT_COR_END, false, &text_seg);
 
-    let data_correction_begin = correction_arg(DATA_COR_BEGIN, "Adjustment for begin DATA offset.");
-    let data_correction_end = correction_arg(DATA_COR_END, "Adjustment for end DATA offset.");
+    let data_correction_begin = correction_arg(DATA_COR_BEGIN, true, &data_seg);
+    let data_correction_end = correction_arg(DATA_COR_END, false, &data_seg);
 
-    let analysis_correction_begin =
-        correction_arg(ANALYSIS_COR_BEGIN, "Adjustment for begin ANALYSIS offset.");
-    let analysis_correction_end =
-        correction_arg(ANALYSIS_COR_END, "Adjustment for end ANALYSIS offset.");
+    let analysis_correction_begin = correction_arg(ANALYSIS_COR_BEGIN, true, &analysis_seg);
+    let analysis_correction_end = correction_arg(ANALYSIS_COR_END, false, &analysis_seg);
 
     let max_other = Arg::new(MAX_OTHER)
         .long(MAX_OTHER)
         .value_name("BYTES")
-        .help("Max number of OTHER segments to parse.")
+        .help(format!("Max number of {other_seg} segments to parse."))
         .value_parser(value_parser!(usize));
 
     let other_width = Arg::new(OTHER_WIDTH)
         .long(OTHER_WIDTH)
         .value_name("WIDTH")
-        .help("Width of OTHER segments.")
+        .help(format!("Width of {other_seg} segments."))
         .value_parser(value_parser!(u8));
 
     let squish_offsets = flag_arg(
         SQUISH_OFFSETS,
-        "If DATA/ANALYSIS end in 0, use 0 for start as well. \
-         Should not be used for FCS 2.0 files.",
+        format!(
+            "If {data_seg}/{analysis_seg} end in 0, use 0 for start as well. \
+             Should not be used for FCS 2.0 files."
+        ),
     );
 
     let allow_negative = flag_arg(ALLOW_NEGATIVE, "Substitute 0 for negative offsets.");
@@ -94,40 +149,40 @@ fn main() -> Result<(), ()> {
     let version_override = Arg::new(VERSION_OVERRIDE)
         .long(VERSION_OVERRIDE)
         .value_name("VERSION")
-        .help("Override the FCS version from HEADER.");
+        .help(format!("Override the FCS version from {header_seg}."));
 
-    let supp_text_correction_begin = correction_arg(
-        SUPP_TEXT_COR_BEGIN,
-        "Adjustment for begin supplemental TEXT offset.",
-    );
-    let supp_text_correction_end = correction_arg(
-        SUPP_TEXT_COR_END,
-        "Adjustment for end supplemental TEXT offset.",
-    );
+    let supp_text_correction_begin = correction_arg(SUPP_TEXT_COR_BEGIN, true, &supp_text_seg);
+    let supp_text_correction_end = correction_arg(SUPP_TEXT_COR_END, false, &supp_text_seg);
 
     let allow_dup_supp_text = flag_arg(
         ALLOW_DUP_SUPP_TEXT,
-        "Allow supplemental TEXT offsets to be the same as those for primary TEXT.",
+        format!("Allow {supp_text_seg} offsets to be the same as those for {prim_text_seg}."),
     );
 
-    let ignore_supp_text = flag_arg(IGNORE_SUPP_TEXT, "Ignore supplemental TEXT entirely.");
+    let ignore_supp_text = flag_arg(
+        IGNORE_SUPP_TEXT,
+        format!("Ignore {supp_text_seg} entirely."),
+    );
 
     let lit_delims = flag_arg(
         LIT_DELIMS,
-        "Treat every TEXT delimiter as literal (no escaping).",
+        format!("Treat every {text_seg} delimiter as literal (no escaping)."),
     );
 
     let non_ascii_delim = flag_arg(
         ALLOW_NON_ASCII_DELIM,
-        "Allow TEXT delimiter to be non-ASCII character.",
+        format!("Allow {text_seg} delimiter to be non-ASCII character."),
     );
 
     let missing_final_delim = flag_arg(
         ALLOW_MISSING_FINAL_DELIM,
-        "Allow final TEXT delimiter to be missing.",
+        format!("Allow final {text_seg} delimiter to be missing."),
     );
 
-    let allow_non_unique = flag_arg(ALLOW_NON_UNIQUE, "Allow non-unique keys to exist in TEXT.");
+    let allow_non_unique = flag_arg(
+        ALLOW_NON_UNIQUE,
+        format!("Allow non-unique keys to exist in {text_seg}."),
+    );
 
     let allow_odd = flag_arg(ALLOW_ODD, "Allow odd number of words.");
 
@@ -135,14 +190,17 @@ fn main() -> Result<(), ()> {
 
     let allow_delim_at_bound = flag_arg(
         ALLOW_DELIM_AT_BOUNDARY,
-        "Allow TEXT delimiter(s) to be at word boundaries.",
+        format!("Allow {text_seg} delimiter(s) to be at word boundaries."),
     );
 
-    let allow_non_utf8 = flag_arg(ALLOW_NON_UTF8, "Allow non-UTF8 characters in TEXT segment.");
+    let allow_non_utf8 = flag_arg(
+        ALLOW_NON_UTF8,
+        format!("Allow non-UTF8 characters in {text_seg} segment."),
+    );
 
     let use_latin1 = flag_arg(
         USE_LATIN1,
-        "Interpret all characters in TEXT as Latin-1 (aka ISO/IEC 8859-1).",
+        format!("Interpret all characters in {text_seg} as Latin-1 (aka ISO/IEC 8859-1)."),
     );
 
     let allow_non_ascii_keywords = flag_arg(
@@ -152,15 +210,18 @@ fn main() -> Result<(), ()> {
 
     let allow_missing_supp_text = flag_arg(
         ALLOW_MISSING_SUPP_TEXT,
-        "Allow supplemental TEXT offsets to be missing.",
+        format!("Allow {supp_text_seg} offsets to be missing."),
     );
 
     let allow_supp_text_own_delim = flag_arg(
         ALLOW_SUPP_TEXT_OWN_DELIM,
-        "Allow delimiters in primary and supplemental TEXT to differ.",
+        format!("Allow delimiters in {prim_text_seg} and {supp_text_seg} to differ."),
     );
 
-    let allow_missing_nextdata = flag_arg(ALLOW_MISSING_NEXTDATA, "Allow $NEXTDATA to be missing.");
+    let allow_missing_nextdata = flag_arg(
+        ALLOW_MISSING_NEXTDATA,
+        format!("Allow {} to be missing.", kw_style.paint("$NEXTDATA")),
+    );
 
     let trim_value_whitespace = flag_arg(
         TRIM_VALUE_WHITESPACE,
@@ -232,7 +293,7 @@ fn main() -> Result<(), ()> {
         .value_name("KEY,SUB")
         .help(format!(
             "Edit standard key values using KEY and SUB. The leading '$' \
-             is implied for KEY. See '{SUB_SECTION}' below for details."
+             is implied for KEY. See {sub_header} for details."
         ));
 
     let sub_std_pat_key_vals = Arg::new(SUB_STD_PAT_KEY_VALS)
@@ -241,7 +302,7 @@ fn main() -> Result<(), ()> {
         .value_name("REGEXP,SUB")
         .help(format!(
             "Edit standard keys matching REGEXP with SUB. The leading '$' is \
-             implied for KEY. See '{SUB_SECTION}' below for details."
+             implied for KEY. See {sub_header} for details."
         ));
 
     let all_raw_args = vec![
@@ -296,7 +357,10 @@ fn main() -> Result<(), ()> {
 
     let force_time_linear = flag_arg(
         FORCE_TIME_LINEAR,
-        "Force $PnE for time measurement to be linear.",
+        format!(
+            "Force {} for time measurement to be linear.",
+            kw_style.paint("$PnE")
+        ),
     );
 
     let ignore_time_gain = flag_arg(IGNORE_TIME_GAIN, "Ignore $PnG for time measurement.");
@@ -305,14 +369,19 @@ fn main() -> Result<(), ()> {
         .long(IGNORE_TIME_OPTICAL_KEYS)
         .action(ArgAction::Append)
         .value_name("SYMS")
-        .help(
+        .help(format!(
             "Ignore optical keywords for temporal measurement. Must be a \
-             comma-separated list of strings like the X in '$PnX'.",
-        );
+             comma-separated list of strings like the X in {}.",
+            kw_style.paint("$PnX")
+        ));
 
     let parse_indexed_spillover = flag_arg(
         PARSE_INDEXED_SPILLOVER,
-        "Parse numeric indices for $SPILLOVER rather than string names ($PnN).",
+        format!(
+            "Parse numeric indices for {} rather than string names ({}).",
+            kw_style.paint("$SPILLOVER"),
+            kw_style.paint("$PnN")
+        ),
     );
 
     let allow_pseudostandard = flag_arg(
@@ -322,8 +391,11 @@ fn main() -> Result<(), ()> {
 
     let allow_unused_standard = flag_arg(
         ALLOW_UNUSED_STANDARD,
-        "Allow unused standard keywords. For example, \
-         $TIMESTAMP may be unused if no time measurement is wanted.",
+        format!(
+            "Allow unused standard keywords. For example, \
+             {} may be unused if no time measurement is wanted.",
+            kw_style.paint("$TIMESTAMP"),
+        ),
     );
 
     let allow_optional_dropping = flag_arg(
@@ -338,23 +410,31 @@ fn main() -> Result<(), ()> {
 
     let fix_log_scale_offset = flag_arg(
         FIX_LOG_SCALE_OFFSETS,
-        "Fix $PnE keys that have log scaling with zero offset. \
-         Specifically, this will replace values like 'X,0.0' with 'X,1.0' \
-         where 'X' is a positive decimal number. Having '0.0' for log offset \
-         is mathematical nonsense.",
+        format!(
+            "Fix {} keys that have log scaling with zero offset. \
+             Specifically, this will replace values like 'X,0.0' with 'X,1.0' \
+             where 'X' is a positive decimal number. Having '0.0' for log offset \
+             is mathematical nonsense.",
+            kw_style.paint("$PnE")
+        ),
     );
 
-    // TODO add section for this
     let date_pattern = Arg::new(DATE_PATTERN)
         .long(DATE_PATTERN)
         .value_name("PATTERN")
-        .help("Pattern to match $DATE keyword.");
+        .help(format!(
+            "Pattern to match {} keyword. See {date_header}.",
+            kw_style.paint("$DATE")
+        ));
 
-    // TODO add section for this
     let time_pattern = Arg::new(TIME_PATTERN)
         .long(TIME_PATTERN)
         .value_name("PATTERN")
-        .help("Pattern to match $BTIM/$ETIM keywords.");
+        .help(format!(
+            "Pattern to match {}/{} keywords. See {time_header}.",
+            kw_style.paint("$BTIM"),
+            kw_style.paint("$ETIM"),
+        ));
 
     let ns_meas_pattern = Arg::new(NS_MEAS_PATTERN)
         .long(NS_MEAS_PATTERN)
@@ -384,49 +464,42 @@ fn main() -> Result<(), ()> {
 
     // offset args
 
-    let text_data_correction_begin = correction_arg(
-        TEXT_DATA_COR_BEGIN,
-        "Adjustment for begin DATA offset from TEXT.",
-    );
-    let text_data_correction_end = correction_arg(
-        TEXT_DATA_COR_END,
-        "Adjustment for end DATA offset from TEXT.",
-    );
+    let text_data_correction_begin = correction_arg(TEXT_DATA_COR_BEGIN, true, &data_seg);
+    let text_data_correction_end = correction_arg(TEXT_DATA_COR_END, false, &data_seg);
 
-    let text_analysis_correction_begin = correction_arg(
-        TEXT_ANALYSIS_COR_BEGIN,
-        "Adjustment for begin ANALYSIS offset from TEXT.",
-    );
-    let text_analysis_correction_end = correction_arg(
-        TEXT_ANALYSIS_COR_END,
-        "Adjustment for end ANALYSIS offset from TEXT.",
-    );
+    let text_analysis_correction_begin =
+        correction_arg(TEXT_ANALYSIS_COR_BEGIN, true, &analysis_seg);
+    let text_analysis_correction_end = correction_arg(TEXT_ANALYSIS_COR_END, false, &analysis_seg);
 
     let ignore_text_data_offsets = flag_arg(
         IGNORE_TEXT_DATA_OFFSETS,
-        "Ignore offsets for DATA from TEXT.",
+        format!("Ignore offsets for {data_seg} from {text_seg}."),
     );
 
     let ignore_text_analysis_offsets = flag_arg(
         IGNORE_TEXT_ANALYSIS_OFFSETS,
-        "Ignore offsets for ANALYSIS from TEXT.",
+        format!("Ignore offsets for {analysis_seg} from {text_seg}."),
     );
 
     let allow_header_text_offset_mismatch = flag_arg(
         ALLOW_HEADER_TEXT_OFFSET_MISMATCH,
-        "Allow HEADER and TEXT offsets to be different, \
-         in which case HEADER will be used.",
+        format!(
+            "Allow {header_seg} and {text_seg} offsets to be different, \
+             in which case {header_seg} will be used."
+        ),
     );
 
     let allow_missing_required_offsets = flag_arg(
         ALLOW_MISSING_REQUIRED_OFFSETS,
-        "Allow required offsets to be missing from TEXT. \
-         Only applies to FCS 3.0/3.1.",
+        format!(
+            "Allow required offsets to be missing from {text_seg}. \
+             Only applies to FCS 3.0/3.1."
+        ),
     );
 
     let truncate_text_offsets = flag_arg(
         TRUNCATE_TEXT_OFFSETS,
-        "Truncate offsets in TEXT if they exceed end of file.",
+        format!("Truncate offsets in {text_seg} if they exceed end of file."),
     );
 
     let all_offset_args = [
@@ -445,23 +518,33 @@ fn main() -> Result<(), ()> {
 
     let int_widths_from_byteord = flag_arg(
         INT_WIDTHS_FROM_BYTEORD,
-        "Set $PnB based on length of $BYTEORD. \
-         Only has effect on integer layouts in FCS 2.0/3.0.",
+        format!(
+            "Set {} based on length of {}. Only has effect \
+             on integer layouts in FCS 2.0/3.0.",
+            kw_style.paint("$PnB"),
+            kw_style.paint("$BYTEORD"),
+        ),
     );
 
     let int_byteord_override = Arg::new(INT_BYTEORD_OVERRIDE)
         .long(INT_BYTEORD_OVERRIDE)
         .value_name("BYTEORD")
-        .help(
-            "Override the value of $BYTEORD. \
+        .help(format!(
+            "Override the value of {}. \
              Only has effect on integer layouts in FCS 2.0/3.0.",
-        );
+            kw_style.paint("$BYTEORD"),
+        ));
 
     let disallow_range_truncation = flag_arg(
         DISALLOW_RANGE_TRUNCATION,
-        "Throw error if $PnR values need to be truncated to fit in type \
-         dictated by $DATATYPE (and $PnDATATYPE for FCS 3.2) and $PnB for \
-         a given measurement.",
+        format!(
+            "Throw error if {} values need to be truncated to fit in type \
+             dictated by {} (and {} for FCS 3.2) and {} for a given measurement.",
+            kw_style.paint("$PnR"),
+            kw_style.paint("$DATATYPE"),
+            kw_style.paint("$PnDATATYPE"),
+            kw_style.paint("$PnB"),
+        ),
     );
 
     let all_layout_args = [
@@ -474,12 +557,15 @@ fn main() -> Result<(), ()> {
 
     let allow_uneven_event_width = flag_arg(
         ALLOW_UNEVEN_EVENT_WIDTH,
-        "Allow event width to not evenly divide length of DATA.",
+        format!("Allow event width to not evenly divide length of {data_seg}."),
     );
 
     let allow_tot_mismatch = flag_arg(
         ALLOW_TOT_MISMATCH,
-        "Allow $TOT to mismatch the number of events that are actually in DATA.",
+        format!(
+            "Allow {} to mismatch the number of events that are actually in {data_seg}.",
+            kw_style.paint("$TOT")
+        ),
     );
 
     let all_dataset_args = [allow_uneven_event_width, allow_tot_mismatch];
@@ -507,17 +593,6 @@ fn main() -> Result<(), ()> {
         .help("Path to FCS file to parse.")
         .required(true);
 
-    let substitution_help = format!(
-        "{SUB_SECTION}:\n\n    \
-         The SUB part in --{SUB_STD_LIT_KEY_VALS} and --{SUB_STD_PAT_KEY_VALS} \
-         is a sed-like pattern which will be used to edit the value of KEY. \
-         It must be a string like 's<D><FROM><D><TO>[<D>g]' where 'D' is a \
-         delimiter (any character), FROM is a regular expression and TO is a \
-         replacement pattern. FROM and TO must follow the syntax outlined in \
-         {REGEXP_REF} and {REGEXP_REP_REF} respectively, with the caveat that \
-         only bracketed replacement syntax is allowed."
-    );
-
     let cmd = Command::new("fireflow")
         .about("read and write FCS files")
         .arg_required_else_help(true)
@@ -536,7 +611,7 @@ fn main() -> Result<(), ()> {
                 .args(&all_header_args)
                 .args(&all_raw_args)
                 .args(&all_shared_args)
-                .after_long_help(&substitution_help),
+                .after_long_help(raw_long_help),
         )
         .subcommand(
             Command::new(SUBCMD_STD)
@@ -548,7 +623,7 @@ fn main() -> Result<(), ()> {
                 .args(&all_offset_args)
                 .args(&all_layout_args)
                 .args(&all_shared_args)
-                .after_long_help(&substitution_help),
+                .after_long_help(&std_long_help),
         )
         .subcommand(
             Command::new(SUBCMD_MEAS)
@@ -561,7 +636,7 @@ fn main() -> Result<(), ()> {
                 .args(&all_layout_args)
                 .args(&all_shared_args)
                 .arg(&delim_arg)
-                .after_long_help(&substitution_help),
+                .after_long_help(&std_long_help),
         )
         .subcommand(
             Command::new(SUBCMD_SPILL)
@@ -574,11 +649,11 @@ fn main() -> Result<(), ()> {
                 .args(&all_layout_args)
                 .args(&all_shared_args)
                 .arg(&delim_arg)
-                .after_long_help(&substitution_help),
+                .after_long_help(&std_long_help),
         )
         .subcommand(
             Command::new(SUBCMD_DATA)
-                .about("Show a table of the DATA segment.")
+                .about(format!("Show a table of the {data_seg} segment."))
                 .arg(&input_arg)
                 .args(&all_header_args)
                 .args(&all_raw_args)
@@ -588,7 +663,7 @@ fn main() -> Result<(), ()> {
                 .args(&all_dataset_args)
                 .args(&all_shared_args)
                 .arg(&delim_arg)
-                .after_long_help(&substitution_help),
+                .after_long_help(&std_long_help),
         );
 
     let args = cmd.get_matches();
@@ -652,6 +727,25 @@ fn main() -> Result<(), ()> {
 
         _ => Ok(()),
     }
+}
+
+fn flag_arg(long: &'static str, help: impl IntoResettable<StyledStr>) -> Arg {
+    Arg::new(long)
+        .long(long)
+        .action(ArgAction::SetTrue)
+        .help(help)
+}
+
+fn format_section(
+    header: &'_ str,
+    paragraphs: impl IntoIterator<Item = impl Display>,
+) -> (ANSIString<'_>, String) {
+    let header_style = Style::new().bold();
+    let h = header_style.paint(header);
+    let s = once(format!("{h}:"))
+        .chain(paragraphs.into_iter().map(|s| s.to_string()))
+        .join("\n\n    ");
+    (h, s)
 }
 
 fn parse_header_config(sargs: &ArgMatches) -> config::HeaderConfigInner {
@@ -1146,11 +1240,11 @@ const ALLOW_UNEVEN_EVENT_WIDTH: &str = "allow-uneven-event-width";
 
 const ALLOW_TOT_MISMATCH: &str = "allow-tot-mismatch";
 
-const SUB_SECTION: &str = "SUBSTITUTION";
-
 const DELIM: &str = "delimiter";
 
 const INPUT_PATH: &str = "input-path";
+
+const CHRONO_REF: &str = "https://docs.rs/chrono/latest/chrono/format/strftime/index.html";
 
 const REGEXP_REF: &str = "https://docs.rs/regex/latest/regex/#syntax";
 

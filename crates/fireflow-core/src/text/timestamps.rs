@@ -185,10 +185,9 @@ impl<X> Timestamps<X> {
             From<<Btim<X> as FromStrStateful>::Err> + From<<Etim<X> as FromStrStateful>::Err>,
         for<'a> X: PartialOrd + FromStr + From<NaiveTime>,
     {
-        let dd = conf.disallow_deprecated;
-        let b = Btim::lookup_opt_st_dep(kws, dd, (), conf);
-        let e = Etim::lookup_opt_st_dep(kws, dd, (), conf);
-        let d = FCSDate::lookup_opt_st_dep(kws, dd, (), conf);
+        let b = Btim::lookup_opt_st_dep(kws, (), conf);
+        let e = Etim::lookup_opt_st_dep(kws, (), conf);
+        let d = FCSDate::lookup_opt_st_dep(kws, (), conf);
         Self::process_lookup(b, e, d, conf)
     }
 

@@ -863,9 +863,10 @@ impl<I> RegionGateIndex<I> {
         for<'a> Self: fmt::Display + FromStrStateful<Payload<'a> = ()>,
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
-        let mut x = Self::lookup_region_opt(kws, i, par, conf);
+        // TODO fix lame wrap thing
+        let mut x = Self::lookup_region_opt(kws, i, par, conf).map(|x| x.0);
         eval_dep_maybe(&mut x, Self::std(i), conf.disallow_deprecated);
-        x
+        x.map(Into::into)
     }
 
     fn check_link(&self, par: Par) -> Result<(), RegionIndexError>

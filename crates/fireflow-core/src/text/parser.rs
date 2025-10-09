@@ -110,6 +110,18 @@ pub(crate) trait Optional: Sized {
     {
         kws.remove(&k).map(|v| f(k, v)).transpose().map(Into::into)
     }
+
+    fn remove_opt_tnt<F, W, E>(
+        kws: &mut StdKeywords,
+        k: StdKey,
+        f: F,
+    ) -> Tentative<MaybeValue<Self>, W, E>
+    where
+        F: FnOnce(StdKey, String) -> Tentative<Option<Self>, W, E>,
+    {
+        kws.remove(&k)
+            .map_or(Tentative::default(), |v| f(k, v).map(Into::into))
+    }
 }
 
 /// A required metaroot key
@@ -255,7 +267,13 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self: FromStr,
         ParseOptKeyError: From<<Self as FromStr>::Err>,
     {
-        process_opt(Self::remove_metaroot_opt(kws), conf)
+        Self::remove_opt_tnt(kws, Self::std(), |k, v| {
+            v.parse()
+                .map_err(|e| OptKeyError::new(e, k, v))
+                .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
+                .into_tentative_opt(!conf.allow_optional_dropping)
+                .errors_into()
+        })
     }
 
     fn lookup_opt_st(
@@ -267,12 +285,13 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self: FromStrStateful,
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
-        process_opt(
-            Self::remove_opt(kws, Self::std(), |k, v| {
-                Self::from_str_st(v.as_str(), data, conf).map_err(|e| OptKeyError::new(e, k, v))
-            }),
-            conf,
-        )
+        Self::remove_opt_tnt(kws, Self::std(), |k, v| {
+            Self::from_str_st(v.as_str(), data, conf)
+                .map_err(|e| OptKeyError::new(e, k, v))
+                .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
+                .into_tentative_opt(!conf.allow_optional_dropping)
+                .errors_into()
+        })
     }
 
     fn lookup_opt_dep(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupOptional<Self>
@@ -280,14 +299,20 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self: FromStr,
         ParseOptKeyError: From<<Self as FromStr>::Err>,
     {
-        let mut x = Self::lookup_opt(kws, conf);
-        eval_dep_maybe(&mut x, Self::std(), conf.disallow_deprecated);
-        x
+        Self::remove_opt_tnt(kws, Self::std(), |k, v| {
+            let mut tnt = v
+                .parse()
+                .map_err(|e| OptKeyError::new(e, k.clone(), v))
+                .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
+                .into_tentative_opt(!conf.allow_optional_dropping)
+                .errors_into();
+            eval_dep_maybe(&mut tnt, k, conf.disallow_deprecated);
+            tnt
+        })
     }
 
     fn lookup_opt_st_dep(
         kws: &mut StdKeywords,
-        disallow_dep: bool,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
     ) -> LookupOptional<Self>
@@ -295,9 +320,15 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self: FromStrStateful,
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
-        let mut x = Self::lookup_opt_st(kws, data, conf);
-        eval_dep_maybe(&mut x, Self::std(), disallow_dep);
-        x
+        Self::remove_opt_tnt(kws, Self::std(), |k, v| {
+            let mut tnt = Self::from_str_st(v.as_str(), data, conf)
+                .map_err(|e| OptKeyError::new(e, k.clone(), v))
+                .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
+                .into_tentative_opt(!conf.allow_optional_dropping)
+                .errors_into();
+            eval_dep_maybe(&mut tnt, k, conf.disallow_deprecated);
+            tnt
+        })
     }
 
     fn root_pair(&self) -> (String, String)
@@ -317,14 +348,14 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self::get_opt(kws, Self::std(i))
     }
 
-    fn remove_meas_opt(kws: &mut StdKeywords, i: impl Into<IndexFromOne>) -> OptKwResult<Self>
-    where
-        Self: FromStr,
-    {
-        Self::remove_opt(kws, Self::std(i), |k, v| {
-            v.parse().map_err(|e| OptKeyError::new(e, k, v))
-        })
-    }
+    // fn remove_meas_opt(kws: &mut StdKeywords, i: impl Into<IndexFromOne>) -> OptKwResult<Self>
+    // where
+    //     Self: FromStr,
+    // {
+    //     Self::remove_opt(kws, Self::std(i), |k, v| {
+    //         v.parse().map_err(|e| OptKeyError::new(e, k, v))
+    //     })
+    // }
 
     fn remove_meas_opt_st(
         kws: &mut StdKeywords,
@@ -349,7 +380,13 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self: FromStr,
         ParseOptKeyError: From<<Self as FromStr>::Err>,
     {
-        process_opt(Self::remove_meas_opt(kws, i), conf)
+        Self::remove_opt_tnt(kws, Self::std(i), |k, v| {
+            v.parse()
+                .map_err(|e| OptKeyError::new(e, k, v))
+                .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
+                .into_tentative_opt(!conf.allow_optional_dropping)
+                .errors_into()
+        })
     }
 
     fn lookup_opt_st(
@@ -362,12 +399,13 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self: FromStrStateful,
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
-        process_opt(
-            Self::remove_opt(kws, Self::std(i), |k, v| {
-                Self::from_str_st(v.as_str(), data, conf).map_err(|e| OptKeyError::new(e, k, v))
-            }),
-            conf,
-        )
+        Self::remove_opt_tnt(kws, Self::std(i), |k, v| {
+            Self::from_str_st(v.as_str(), data, conf)
+                .map_err(|e| OptKeyError::new(e, k, v))
+                .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
+                .into_tentative_opt(!conf.allow_optional_dropping)
+                .errors_into()
+        })
     }
 
     fn lookup_opt_dep(
@@ -379,9 +417,16 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self: FromStr,
         ParseOptKeyError: From<<Self as FromStr>::Err>,
     {
-        let mut x = Self::lookup_opt(kws, i, conf);
-        eval_dep_maybe(&mut x, Self::std(i), conf.disallow_deprecated);
-        x
+        Self::remove_opt_tnt(kws, Self::std(i), |k, v| {
+            let mut tnt = v
+                .parse()
+                .map_err(|e| OptKeyError::new(e, k.clone(), v))
+                .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
+                .into_tentative_opt(!conf.allow_optional_dropping)
+                .errors_into();
+            eval_dep_maybe(&mut tnt, k, conf.disallow_deprecated);
+            tnt
+        })
     }
 
     fn lookup_opt_st_dep(
@@ -394,9 +439,15 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self: FromStrStateful,
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
-        let mut x = Self::lookup_opt_st(kws, i, data, conf);
-        eval_dep_maybe(&mut x, Self::std(i), conf.disallow_deprecated);
-        x
+        Self::remove_opt_tnt(kws, Self::std(i), |k, v| {
+            let mut tnt = Self::from_str_st(v.as_str(), data, conf)
+                .map_err(|e| OptKeyError::new(e, k.clone(), v))
+                .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
+                .into_tentative_opt(!conf.allow_optional_dropping)
+                .errors_into();
+            eval_dep_maybe(&mut tnt, k, conf.disallow_deprecated);
+            tnt
+        })
     }
 
     fn meas_pair(&self, i: impl Into<IndexFromOne>) -> (String, String)
@@ -756,17 +807,24 @@ impl<E> ReqKeyError<E> {
     }
 }
 
-pub(crate) fn eval_dep_maybe<T>(x: &mut LookupOptional<T>, key: StdKey, disallow_dep: bool) {
+pub(crate) fn eval_dep_maybe<T>(
+    x: &mut LookupTentative<Option<T>>,
+    key: StdKey,
+    disallow_dep: bool,
+) {
+    let go = |v: &Option<T>| -> Option<DeprecatedError> {
+        v.is_some().then_some(DepKeyWarning(key).into())
+    };
     if disallow_dep {
-        x.eval_error(|v| eval_dep(v, key));
+        x.eval_error(go);
     } else {
-        x.eval_warning(|v| eval_dep(v, key));
+        x.eval_warning(go);
     }
 }
 
-fn eval_dep<T>(v: &MaybeValue<T>, key: StdKey) -> Option<DeprecatedError> {
-    v.0.is_some().then_some(DepKeyWarning(key).into())
-}
+// fn eval_dep<T>(v: &MaybeValue<T>, key: StdKey) -> Option<DeprecatedError> {
+//     v.0.is_some().then_some(DepKeyWarning(key).into())
+// }
 
 #[derive(Clone, new, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]

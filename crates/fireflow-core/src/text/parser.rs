@@ -257,9 +257,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     where
         Self: FromStr,
     {
-        Self::remove_opt(kws, Self::std(), |k, v| {
-            v.parse().map_err(|e| OptKeyError::new(e, k, v))
-        })
+        Self::remove_opt(kws, Self::std(), parse_opt)
     }
 
     fn lookup_opt(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupOptional<Self>
@@ -267,13 +265,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self: FromStr,
         ParseOptKeyError: From<<Self as FromStr>::Err>,
     {
-        Self::remove_opt_tnt(kws, Self::std(), |k, v| {
-            v.parse()
-                .map_err(|e| OptKeyError::new(e, k, v))
-                .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
-                .into_tentative_opt(!conf.allow_optional_dropping)
-                .errors_into()
-        })
+        Self::remove_opt_tnt(kws, Self::std(), |k, v| parse_opt_tnt(k, v, false, conf))
     }
 
     fn lookup_opt_st(
@@ -286,11 +278,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
         Self::remove_opt_tnt(kws, Self::std(), |k, v| {
-            Self::from_str_st(v.as_str(), data, conf)
-                .map_err(|e| OptKeyError::new(e, k, v))
-                .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
-                .into_tentative_opt(!conf.allow_optional_dropping)
-                .errors_into()
+            parse_opt_tnt_st(k, v, false, data, conf)
         })
     }
 
@@ -299,16 +287,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self: FromStr,
         ParseOptKeyError: From<<Self as FromStr>::Err>,
     {
-        Self::remove_opt_tnt(kws, Self::std(), |k, v| {
-            let mut tnt = v
-                .parse()
-                .map_err(|e| OptKeyError::new(e, k.clone(), v))
-                .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
-                .into_tentative_opt(!conf.allow_optional_dropping)
-                .errors_into();
-            eval_dep_maybe(&mut tnt, k, conf.disallow_deprecated);
-            tnt
-        })
+        Self::remove_opt_tnt(kws, Self::std(), |k, v| parse_opt_tnt(k, v, true, conf))
     }
 
     fn lookup_opt_st_dep(
@@ -321,13 +300,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
         Self::remove_opt_tnt(kws, Self::std(), |k, v| {
-            let mut tnt = Self::from_str_st(v.as_str(), data, conf)
-                .map_err(|e| OptKeyError::new(e, k.clone(), v))
-                .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
-                .into_tentative_opt(!conf.allow_optional_dropping)
-                .errors_into();
-            eval_dep_maybe(&mut tnt, k, conf.disallow_deprecated);
-            tnt
+            parse_opt_tnt_st(k, v, true, data, conf)
         })
     }
 
@@ -380,13 +353,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self: FromStr,
         ParseOptKeyError: From<<Self as FromStr>::Err>,
     {
-        Self::remove_opt_tnt(kws, Self::std(i), |k, v| {
-            v.parse()
-                .map_err(|e| OptKeyError::new(e, k, v))
-                .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
-                .into_tentative_opt(!conf.allow_optional_dropping)
-                .errors_into()
-        })
+        Self::remove_opt_tnt(kws, Self::std(i), |k, v| parse_opt_tnt(k, v, false, conf))
     }
 
     fn lookup_opt_st(
@@ -400,11 +367,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
         Self::remove_opt_tnt(kws, Self::std(i), |k, v| {
-            Self::from_str_st(v.as_str(), data, conf)
-                .map_err(|e| OptKeyError::new(e, k, v))
-                .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
-                .into_tentative_opt(!conf.allow_optional_dropping)
-                .errors_into()
+            parse_opt_tnt_st(k, v, false, data, conf)
         })
     }
 
@@ -417,16 +380,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self: FromStr,
         ParseOptKeyError: From<<Self as FromStr>::Err>,
     {
-        Self::remove_opt_tnt(kws, Self::std(i), |k, v| {
-            let mut tnt = v
-                .parse()
-                .map_err(|e| OptKeyError::new(e, k.clone(), v))
-                .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
-                .into_tentative_opt(!conf.allow_optional_dropping)
-                .errors_into();
-            eval_dep_maybe(&mut tnt, k, conf.disallow_deprecated);
-            tnt
-        })
+        Self::remove_opt_tnt(kws, Self::std(i), |k, v| parse_opt_tnt(k, v, true, conf))
     }
 
     fn lookup_opt_st_dep(
@@ -440,13 +394,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
         Self::remove_opt_tnt(kws, Self::std(i), |k, v| {
-            let mut tnt = Self::from_str_st(v.as_str(), data, conf)
-                .map_err(|e| OptKeyError::new(e, k.clone(), v))
-                .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
-                .into_tentative_opt(!conf.allow_optional_dropping)
-                .errors_into();
-            eval_dep_maybe(&mut tnt, k, conf.disallow_deprecated);
-            tnt
+            parse_opt_tnt_st(k, v, true, data, conf)
         })
     }
 
@@ -492,7 +440,7 @@ where
     fn lookup_opt_linked_st<P>(
         kws: &mut StdKeywords,
         names: &HashSet<&Shortname>,
-        payload: P,
+        data: P,
         conf: &StdTextReadConfig,
     ) -> LookupOptional<Self>
     where
@@ -500,27 +448,78 @@ where
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
         Self::remove_opt_tnt(kws, Self::std(), |k, v| {
-            Self::from_str_st(v.as_str(), payload, conf)
-                .map_err(|e| OptKeyError::new(e, k, v))
-                .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
-                .into_tentative_opt(!conf.allow_optional_dropping)
-                .errors_into()
-                .and_tentatively(|maybe| {
-                    maybe
-                        .map(|x| {
-                            Self::check_link(&x, names)
-                                .map(|()| x)
-                                .into_tentative_opt(!conf.allow_optional_dropping)
-                                .inner_into()
-                        })
-                        .unwrap_or_default()
-                })
+            parse_opt_tnt_st(k, v, false, data, conf).and_tentatively(|maybe| {
+                maybe
+                    .map(|x| {
+                        Self::check_link(&x, names)
+                            .map(|()| x)
+                            .into_tentative_opt(!conf.allow_optional_dropping)
+                            .inner_into()
+                    })
+                    .unwrap_or_default()
+            })
         })
     }
 
     fn reassign(&mut self, mapping: &NameMapping);
 
     fn names(&self) -> HashSet<&Shortname>;
+}
+
+pub(crate) fn parse_opt<T: FromStr>(k: StdKey, v: String) -> Result<T, OptKeyError<T::Err>> {
+    v.parse().map_err(|e| OptKeyError::new(e, k, v))
+}
+
+pub(crate) fn parse_opt_tnt<T: FromStr>(
+    k: StdKey,
+    v: String,
+    is_deprecated: bool,
+    conf: &StdTextReadConfig,
+) -> LookupTentative<Option<T>>
+where
+    ParseOptKeyError: From<T::Err>,
+{
+    let mut tnt = parse_opt(k.clone(), v)
+        .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
+        .into_tentative_opt(!conf.allow_optional_dropping)
+        .errors_into();
+    if is_deprecated {
+        tnt.eval_error_or_warning(conf.disallow_deprecated, |x| -> Option<DeprecatedError> {
+            x.is_some().then_some(DepKeyWarning(k).into())
+        });
+    }
+    tnt
+}
+
+pub(crate) fn parse_opt_st<T: FromStrStateful>(
+    k: StdKey,
+    v: String,
+    data: T::Payload<'_>,
+    conf: &StdTextReadConfig,
+) -> Result<T, OptKeyError<T::Err>> {
+    T::from_str_st(v.as_str(), data, conf).map_err(|e| OptKeyError::new(e, k, v))
+}
+
+pub(crate) fn parse_opt_tnt_st<T: FromStrStateful>(
+    k: StdKey,
+    v: String,
+    is_deprecated: bool,
+    data: T::Payload<'_>,
+    conf: &StdTextReadConfig,
+) -> LookupTentative<Option<T>>
+where
+    ParseOptKeyError: From<T::Err>,
+{
+    let mut tnt = parse_opt_st(k.clone(), v, data, conf)
+        .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
+        .into_tentative_opt(!conf.allow_optional_dropping)
+        .errors_into();
+    if is_deprecated {
+        tnt.eval_error_or_warning(conf.disallow_deprecated, |x| -> Option<DeprecatedError> {
+            x.is_some().then_some(DepKeyWarning(k).into())
+        });
+    }
+    tnt
 }
 
 /// Find a required standard key in a hash table

@@ -874,7 +874,8 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let all_carrier = [carrierid, carriertype, locationid];
 
     let unstainedcenters = DocArg::new_unstainedcenters_ivar();
-    let unstainedinfo = DocArg::new_kw_opt_ivar("UnstainedInfo", "unstainedinfo", PyStr::new1);
+    let unstainedinfo =
+        DocArg::new_kw_ivar("UnstainedInfo", "unstainedinfo", PyStr::new1, None, true);
 
     let tr = DocArg::new_trigger_ivar();
 

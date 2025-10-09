@@ -726,8 +726,8 @@ pub struct InnerMetaroot3_2 {
     pub carrier: CarrierData,
 
     /// Values of $UNSTAINEDINFO/$UNSTAINEDCENTERS
-    #[as_ref(Option<UnstainedCenters>, Option<UnstainedInfo>)]
-    #[as_mut(Option<UnstainedInfo>)]
+    #[as_ref(Option<UnstainedCenters>, UnstainedInfo)]
+    #[as_mut(UnstainedInfo)]
     pub unstained: UnstainedData,
 
     /// Value of $FLOWRATE
@@ -1118,10 +1118,10 @@ pub struct UnstainedData {
     // NOTE not mutable to prevent mutation when part of Core
     pub unstainedcenters: MaybeValue<UnstainedCenters>,
 
-    #[as_ref(Option<UnstainedInfo>)]
-    #[as_mut(Option<UnstainedInfo>)]
+    #[as_ref(UnstainedInfo)]
+    #[as_mut(UnstainedInfo)]
     #[new(into)]
-    pub unstainedinfo: MaybeValue<UnstainedInfo>,
+    pub unstainedinfo: UnstainedInfo,
 }
 
 /// A bundle for $CARRIERID, $CARRIERTYPE, $LOCATIONID (3.2+)
@@ -4666,7 +4666,7 @@ impl CoreTEXT3_2 {
         carrierid: Carrierid,
         carriertype: Carriertype,
         locationid: Locationid,
-        unstainedinfo: Option<UnstainedInfo>,
+        unstainedinfo: UnstainedInfo,
         unstainedcenters: Option<UnstainedCenters>,
         flowrate: Option<Flowrate>,
         abrt: Option<Abrt>,
@@ -4738,7 +4738,7 @@ impl UnstainedData {
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
             self.unstainedcenters.root_kw_pair(),
-            self.unstainedinfo.root_kw_pair(),
+            self.unstainedinfo.metaroot_opt_pair(),
         ]
         .into_iter()
         .filter_map(|(k, v)| v.map(|x| (k, x)))
@@ -5452,7 +5452,7 @@ impl_ref_specific_rw!(
     Locationid,
     Option<Vol>,
     Option<Flowrate>,
-    Option<UnstainedInfo>,
+    UnstainedInfo,
     Timestamps3_1
 );
 

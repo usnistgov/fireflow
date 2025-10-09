@@ -2540,12 +2540,12 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
 
     let all_peak = [bin, size];
 
-    let filter = DocArg::new_meas_kw_opt_ivar("Filter", "filter", "F", PyStr::new1);
+    let filter = DocArg::new_meas_kw_ivar1("Filter", "filter", "F", PyStr::new1);
 
     let power = DocArg::new_meas_kw_opt_ivar("Power", "power", "O", to_pyuint);
 
     let detector_type =
-        DocArg::new_meas_kw_opt_ivar("DetectorType", "detector_type", "T", PyStr::new1);
+        DocArg::new_meas_kw_ivar1("DetectorType", "detector_type", "T", PyStr::new1);
 
     let percent_emitted =
         DocArg::new_meas_kw_opt_ivar("PercentEmitted", "percent_emitted", "P", to_pyfloat);
@@ -2749,7 +2749,7 @@ pub fn impl_core_all_pns(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_all_pnf(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Filter", "filters", "F", PyStr::new1)
+    core_all_meas_attr1(&i, "Filter", "filters", "F", PyStr::new1, false, true)
 }
 
 #[proc_macro]
@@ -2771,7 +2771,15 @@ pub fn impl_core_all_pnp(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_all_pnt(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "DetectorType", "detector_types", "T", PyStr::new1)
+    core_all_meas_attr1(
+        &i,
+        "DetectorType",
+        "detector_types",
+        "T",
+        PyStr::new1,
+        false,
+        true,
+    )
 }
 
 #[proc_macro]

@@ -320,10 +320,10 @@ pub struct Optical<X> {
     pub common: CommonMeasurement,
 
     /// Value for $PnF
-    #[as_ref(Option<Filter>)]
-    #[as_mut(Option<Filter>)]
+    #[as_ref(Filter)]
+    #[as_mut(Filter)]
     #[new(into)]
-    pub filter: MaybeValue<Filter>,
+    pub filter: Filter,
 
     /// Value for $PnO
     #[as_ref(Option<Power>)]
@@ -332,10 +332,10 @@ pub struct Optical<X> {
     pub power: MaybeValue<Power>,
 
     /// Value for $PnD
-    #[as_ref(Option<DetectorType>)]
-    #[as_mut(Option<DetectorType>)]
+    #[as_ref(DetectorType)]
+    #[as_mut(DetectorType)]
     #[new(into)]
-    pub detector_type: MaybeValue<DetectorType>,
+    pub detector_type: DetectorType,
 
     /// Value for $PnP
     #[as_ref(Option<PercentEmitted>)]
@@ -1462,7 +1462,15 @@ pub trait VersionedMetaroot: Sized {
     > {
         let go = |old_t: Temporal<Self::Temporal>, old_o: Optical<Self::Optical>| {
             let (so, st) = Self::swap_optical_temporal_inner(old_t.specific, old_o.specific);
-            let new_o = Optical::new(old_t.common, None, None, None, None, None, so);
+            let new_o = Optical::new(
+                old_t.common,
+                Filter::default(),
+                None,
+                DetectorType::default(),
+                None,
+                None,
+                so,
+            );
             let new_t = Temporal::new(old_o.common, st);
             (new_o, new_t)
         };
@@ -1591,7 +1599,15 @@ pub trait OpticalFromTemporal<T: VersionedTemporal>: Sized {
 
     fn from_temporal_unchecked(t: Temporal<T>) -> (Optical<Self>, Self::TData) {
         let (specific, td) = Self::from_temporal_inner(t.specific);
-        let new = Optical::new(t.common, None, None, None, None, None, specific);
+        let new = Optical::new(
+            t.common,
+            Filter::default(),
+            None,
+            DetectorType::default(),
+            None,
+            None,
+            specific,
+        );
         (new, td)
     }
 
@@ -1768,9 +1784,9 @@ impl<O> Optical<O> {
     {
         [
             self.common.longname.meas_opt_triple(i),
-            self.filter.meas_kw_triple(i),
+            self.filter.meas_opt_triple(i),
             self.power.meas_kw_triple(i),
-            self.detector_type.meas_kw_triple(i),
+            self.detector_type.meas_opt_triple(i),
             self.percent_emitted.meas_kw_triple(i),
             self.detector_voltage.meas_kw_triple(i),
         ]
@@ -2035,9 +2051,9 @@ where
     fn from(value: Temporal<T>) -> Self {
         Self::new(
             value.common,
+            Filter::default(),
             None,
-            None,
-            None,
+            DetectorType::default(),
             None,
             None,
             value.specific.into(),
@@ -7700,9 +7716,9 @@ impl Optical2_0 {
         wavelength: Option<Wavelength>,
         bin: Option<PeakBin>,
         size: Option<PeakNumber>,
-        filter: Option<Filter>,
+        filter: Filter,
         power: Option<Power>,
-        detector_type: Option<DetectorType>,
+        detector_type: DetectorType,
         percent_emitted: Option<PercentEmitted>,
         detector_voltage: Option<DetectorVoltage>,
         longname: Longname,
@@ -7730,9 +7746,9 @@ impl Optical3_0 {
         wavelength: Option<Wavelength>,
         bin: Option<PeakBin>,
         size: Option<PeakNumber>,
-        filter: Option<Filter>,
+        filter: Filter,
         power: Option<Power>,
-        detector_type: Option<DetectorType>,
+        detector_type: DetectorType,
         percent_emitted: Option<PercentEmitted>,
         detector_voltage: Option<DetectorVoltage>,
         longname: Longname,
@@ -7762,9 +7778,9 @@ impl Optical3_1 {
         display: Option<Display>,
         bin: Option<PeakBin>,
         size: Option<PeakNumber>,
-        filter: Option<Filter>,
+        filter: Filter,
         power: Option<Power>,
-        detector_type: Option<DetectorType>,
+        detector_type: DetectorType,
         percent_emitted: Option<PercentEmitted>,
         detector_voltage: Option<DetectorVoltage>,
         longname: Longname,
@@ -7803,9 +7819,9 @@ impl Optical3_2 {
         tag: Tag,
         measurement_type: Option<OpticalType>,
         detector_name: DetectorName,
-        filter: Option<Filter>,
+        filter: Filter,
         power: Option<Power>,
-        detector_type: Option<DetectorType>,
+        detector_type: DetectorType,
         percent_emitted: Option<PercentEmitted>,
         detector_voltage: Option<DetectorVoltage>,
         longname: Longname,

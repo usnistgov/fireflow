@@ -168,9 +168,9 @@ impl<X> Timestamps<X> {
             From<<Btim<X> as FromStrStateful>::Err> + From<<Etim<X> as FromStrStateful>::Err>,
         for<'a> X: PartialOrd + FromStr + From<NaiveTime>,
     {
-        let b = Btim::lookup_opt_st(kws, (), conf);
-        let e = Etim::lookup_opt_st(kws, (), conf);
-        let d = FCSDate::lookup_opt_st(kws, (), conf);
+        let b = Btim::lookup_metatroot_opt_st(kws, (), conf);
+        let e = Etim::lookup_metatroot_opt_st(kws, (), conf);
+        let d = FCSDate::lookup_metatroot_opt_st(kws, (), conf);
         Self::process_lookup(b, e, d, conf)
     }
 
@@ -185,9 +185,9 @@ impl<X> Timestamps<X> {
             From<<Btim<X> as FromStrStateful>::Err> + From<<Etim<X> as FromStrStateful>::Err>,
         for<'a> X: PartialOrd + FromStr + From<NaiveTime>,
     {
-        let b = Btim::lookup_opt_st_dep(kws, (), conf);
-        let e = Etim::lookup_opt_st_dep(kws, (), conf);
-        let d = FCSDate::lookup_opt_st_dep(kws, (), conf);
+        let b = Btim::lookup_metaroot_opt_st_dep(kws, (), conf);
+        let e = Etim::lookup_metaroot_opt_st_dep(kws, (), conf);
+        let d = FCSDate::lookup_metaroot_opt_st_dep(kws, (), conf);
         Self::process_lookup(b, e, d, conf)
     }
 

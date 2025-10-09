@@ -1650,7 +1650,7 @@ impl CommonMeasurement {
         nonstd: NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self> {
-        Longname::lookup_opt(std, i, conf).map(|longname| Self::new(longname, nonstd))
+        Longname::lookup_meas_opt(std, i, conf).map(|longname| Self::new(longname, nonstd))
     }
 }
 
@@ -1733,15 +1733,15 @@ impl<O> Optical<O> {
         Version: From<O::Ver>,
     {
         let version = O::Ver::fcs_version();
-        let filter = Filter::lookup_opt(std, i, conf);
-        let power = Power::lookup_opt(std, i, conf);
-        let det_type = DetectorType::lookup_opt(std, i, conf);
+        let filter = Filter::lookup_meas_opt(std, i, conf);
+        let power = Power::lookup_meas_opt(std, i, conf);
+        let det_type = DetectorType::lookup_meas_opt(std, i, conf);
         let perc_emit = if Version::from(version) == Version::FCS3_2 {
-            PercentEmitted::lookup_opt_dep(std, i, conf)
+            PercentEmitted::lookup_meas_opt_dep(std, i, conf)
         } else {
-            PercentEmitted::lookup_opt(std, i, conf)
+            PercentEmitted::lookup_meas_opt(std, i, conf)
         };
-        let det_volt = DetectorVoltage::lookup_opt(std, i, conf);
+        let det_volt = DetectorVoltage::lookup_meas_opt(std, i, conf);
         filter
             .zip5(power, det_type, perc_emit, det_volt)
             .errors_into()
@@ -4784,7 +4784,7 @@ impl CSVFlags {
         CSMode::lookup_opt(kws, conf)
             .and_tentatively(|m| {
                 if let Some(n) = m.0 {
-                    let fs = (0..n.0).map(|i| CSVFlag::lookup_opt(kws, i, conf));
+                    let fs = (0..n.0).map(|i| CSVFlag::lookup_meas_opt(kws, i, conf));
                     Tentative::mconcat(fs).and_tentatively(|flags| {
                         let xs = flags.into_iter().map(|x| x.0.map(|y| y.0));
                         Self::try_from_iter(xs)
@@ -4806,7 +4806,7 @@ impl CSVFlags {
             .enumerate()
             .map(|(i, f)| f.meas_kw_pair(i))
             .filter_map(|(k, v)| v.map(|x| (k, x)))
-            .chain([m.root_pair()])
+            .chain([m.metaroot_pair()])
     }
 
     fn check_loss(self, allow_loss: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
@@ -4889,9 +4889,9 @@ impl PlateData {
     }
 
     fn lookup_dep(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
-        let w = Wellid::lookup_opt_dep(kws, conf);
-        let n = Platename::lookup_opt_dep(kws, conf);
-        let i = Plateid::lookup_opt_dep(kws, conf);
+        let w = Wellid::lookup_metaroot_opt_dep(kws, conf);
+        let n = Platename::lookup_metaroot_opt_dep(kws, conf);
+        let i = Plateid::lookup_metaroot_opt_dep(kws, conf);
         w.zip3(n, i)
             .map(|(wellid, platename, plateid)| Self::new(plateid, platename, wellid))
     }
@@ -4920,8 +4920,8 @@ impl PeakData {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self> {
-        let b = PeakBin::lookup_opt(kws, i, conf);
-        let s = PeakNumber::lookup_opt(kws, i, conf);
+        let b = PeakBin::lookup_meas_opt(kws, i, conf);
+        let s = PeakNumber::lookup_meas_opt(kws, i, conf);
         b.zip(s).map(|(bin, size)| Self::new(bin, size))
     }
 
@@ -4930,8 +4930,8 @@ impl PeakData {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self> {
-        let b = PeakBin::lookup_opt_dep(kws, i, conf);
-        let s = PeakNumber::lookup_opt_dep(kws, i, conf);
+        let b = PeakBin::lookup_meas_opt_dep(kws, i, conf);
+        let s = PeakNumber::lookup_meas_opt_dep(kws, i, conf);
         b.zip(s).map(|(bin, size)| Self::new(bin, size))
     }
 
@@ -5969,7 +5969,7 @@ impl ScaleTransform {
     }
 
     fn lookup(kws: &mut StdKeywords, i: MeasIndex, conf: &StdTextReadConfig) -> LookupResult<Self> {
-        Gain::lookup_opt(kws, i, conf).errors_into().and_maybe(|g| {
+        Gain::lookup_meas_opt(kws, i, conf).errors_into().and_maybe(|g| {
             Scale::lookup_req_st(kws, i, (), conf)
                 .def_and_maybe(|s| Self::try_from((s, g)).into_deferred())
         })
@@ -6352,8 +6352,8 @@ impl LookupOptical for InnerOptical2_0 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let scale = Scale::lookup_opt_st(kws, i, (), conf);
-        let wave = Wavelength::lookup_opt(kws, i, conf);
+        let scale = Scale::lookup_meas_opt_st(kws, i, (), conf);
+        let wave = Wavelength::lookup_meas_opt(kws, i, conf);
         let peak = PeakData::lookup(kws, i, conf);
         Ok(scale
             .zip3(wave, peak)
@@ -6368,7 +6368,7 @@ impl LookupOptical for InnerOptical3_0 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let wave = Wavelength::lookup_opt(kws, i, conf);
+        let wave = Wavelength::lookup_meas_opt(kws, i, conf);
         let peak = PeakData::lookup(kws, i, conf);
         wave.zip(peak).errors_into().and_maybe(|(wi, pi)| {
             ScaleTransform::lookup(kws, i, conf).def_map_value(|s| Self::new(s, wi, pi))
@@ -6382,9 +6382,9 @@ impl LookupOptical for InnerOptical3_1 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let wave = Wavelengths::lookup_opt_st(kws, i, (), conf);
-        let cal = Calibration3_1::lookup_opt(kws, i, conf);
-        let dpy = Display::lookup_opt(kws, i, conf);
+        let wave = Wavelengths::lookup_meas_opt_st(kws, i, (), conf);
+        let cal = Calibration3_1::lookup_meas_opt(kws, i, conf);
+        let dpy = Display::lookup_meas_opt(kws, i, conf);
         let peak = PeakData::lookup_dep(kws, i, conf);
         wave.zip4(cal, dpy, peak)
             .errors_into()
@@ -6401,14 +6401,14 @@ impl LookupOptical for InnerOptical3_2 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let wave = Wavelengths::lookup_opt_st(kws, i, (), conf);
-        let cal = Calibration3_2::lookup_opt(kws, i, conf);
-        let dpy = Display::lookup_opt(kws, i, conf);
-        let det_name = DetectorName::lookup_opt(kws, i, conf);
-        let tag = Tag::lookup_opt(kws, i, conf);
-        let meas = OpticalType::lookup_opt(kws, i, conf);
-        let feat = Feature::lookup_opt(kws, i, conf);
-        let anal = Analyte::lookup_opt(kws, i, conf);
+        let wave = Wavelengths::lookup_meas_opt_st(kws, i, (), conf);
+        let cal = Calibration3_2::lookup_meas_opt(kws, i, conf);
+        let dpy = Display::lookup_meas_opt(kws, i, conf);
+        let det_name = DetectorName::lookup_meas_opt(kws, i, conf);
+        let tag = Tag::lookup_meas_opt(kws, i, conf);
+        let meas = OpticalType::lookup_meas_opt(kws, i, conf);
+        let feat = Feature::lookup_meas_opt(kws, i, conf);
+        let anal = Analyte::lookup_meas_opt(kws, i, conf);
         wave.zip4(cal, dpy, det_name)
             .zip5(tag, meas, feat, anal)
             .errors_into()
@@ -6430,7 +6430,7 @@ impl LookupTemporal for InnerTemporal2_0 {
             nonstd.transfer_demoted(std, TemporalScale::std(i));
             Tentative::new1(Some(TemporalScale).into())
         } else {
-            TemporalScale::lookup_opt(std, i, conf)
+            TemporalScale::lookup_meas_opt(std, i, conf)
         };
         let peak = PeakData::lookup(std, i, conf);
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, std, nonstd, i);
@@ -6466,7 +6466,7 @@ impl LookupTemporal for InnerTemporal3_1 {
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let gain = lookup_temporal_gain_3_0(std, i, nonstd, conf);
-        let dpy = Display::lookup_opt(std, i, conf);
+        let dpy = Display::lookup_meas_opt(std, i, conf);
         let peak = PeakData::lookup_dep(std, i, conf).errors_into();
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, std, nonstd, i);
         gain.zip3(dpy, peak).errors_into().and_maybe(|(_, d, p)| {
@@ -6487,8 +6487,8 @@ impl LookupTemporal for InnerTemporal3_2 {
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let gain = lookup_temporal_gain_3_0(std, i, nonstd, conf);
-        let dpy = Display::lookup_opt(std, i, conf);
-        let meas = TemporalType::lookup_opt(std, i, conf);
+        let dpy = Display::lookup_meas_opt(std, i, conf);
+        let meas = TemporalType::lookup_meas_opt(std, i, conf);
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, std, nonstd, i);
         gain.zip3(dpy, meas).errors_into().and_maybe(|(_, d, m)| {
             let scale = lookup_temporal_scale_3_0(std, i, nonstd, conf);
@@ -7208,7 +7208,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<<Self::Name as MightHave>::Wrapper<Shortname>> {
-        Ok(Shortname::lookup_opt(kws, i, conf).errors_into())
+        Ok(Shortname::lookup_meas_opt(kws, i, conf).errors_into())
     }
 
     fn lookup_specific(
@@ -7236,7 +7236,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<<Self::Name as MightHave>::Wrapper<Shortname>> {
-        Ok(Shortname::lookup_opt(kws, i, conf).errors_into())
+        Ok(Shortname::lookup_meas_opt(kws, i, conf).errors_into())
     }
 
     fn lookup_specific(
@@ -7251,7 +7251,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         let cytsn = Cytsn::lookup_opt(kws, conf);
         let subset = SubsetData::lookup(kws, conf);
         let ts = Timestamps::lookup(kws, conf);
-        let uni = Unicode::lookup_opt_st(kws, (), conf);
+        let uni = Unicode::lookup_metatroot_opt_st(kws, (), conf);
         let ag = AppliedGates3_0::lookup(kws, par, conf);
         comp.zip4(cyt, cytsn, subset)
             .zip4(ts, uni, ag)
@@ -7279,7 +7279,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let cyt = Cyt::lookup_opt(kws, conf);
-        let spill = Spillover::lookup_opt_st(kws, (names, ordered_names), conf);
+        let spill = Spillover::lookup_metatroot_opt_st(kws, (names, ordered_names), conf);
         let cytsn = Cytsn::lookup_opt(kws, conf);
         let subset = SubsetData::lookup(kws, conf);
         let modif = ModificationData::lookup(kws, conf);
@@ -7323,8 +7323,8 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         let dt = Datetimes::lookup(kws, conf);
         let flow = Flowrate::lookup_opt(kws, conf);
         let modif = ModificationData::lookup(kws, conf);
-        let mode = Mode3_2::lookup_opt_dep(kws, conf);
-        let spill = Spillover::lookup_opt_st(kws, (names, ordered_names), conf);
+        let mode = Mode3_2::lookup_metaroot_opt_dep(kws, conf);
+        let spill = Spillover::lookup_metatroot_opt_st(kws, (names, ordered_names), conf);
         let cytsn = Cytsn::lookup_opt(kws, conf);
         let plate = PlateData::lookup_dep(kws, conf);
         let ts = Timestamps::lookup_dep(kws, conf);

@@ -317,7 +317,7 @@ impl AppliedGates2_0 {
             .iter()
             .enumerate()
             .flat_map(|(i, m)| m.opt_keywords(i.into()))
-            .chain([gate.root_pair()])
+            .chain([gate.metaroot_pair()])
             .chain(self.scheme.opt_keywords())
     }
 }
@@ -413,7 +413,7 @@ impl AppliedGates3_0 {
             |k| {
                 GatingScheme::lookup(
                     k,
-                    |kk| Gating::lookup_opt_dep(kk, conf),
+                    |kk| Gating::lookup_metaroot_opt_dep(kk, conf),
                     |kk, i| Region::lookup_dep(kk, i, par, conf),
                     conf,
                 )
@@ -449,7 +449,7 @@ impl AppliedGates3_0 {
             .enumerate()
             .flat_map(|(i, m)| m.opt_keywords(i.into()))
             .chain(self.scheme.opt_keywords())
-            .chain(gate.map(|x| OptMetarootKey::root_pair(&x)))
+            .chain(gate.map(|x| OptMetarootKey::metaroot_pair(&x)))
     }
 
     pub(crate) fn try_into_2_0(
@@ -539,7 +539,7 @@ impl AppliedGates3_2 {
     ) -> LookupTentative<Self> {
         GatingScheme::lookup(
             kws,
-            |k| Gating::lookup_opt_dep(k, conf),
+            |k| Gating::lookup_metaroot_opt_dep(k, conf),
             |k, i| Region::lookup_dep(k, i, par, conf),
             conf,
         )
@@ -560,14 +560,14 @@ impl GatedMeasurement {
         Self::lookup_inner(
             kws,
             i,
-            |k, j| GateScale::lookup_opt_st(k, j, (), conf),
-            |k, j| GateFilter::lookup_opt(k, j, conf),
-            |k, j| GateShortname::lookup_opt(k, j, conf),
-            |k, j| GatePercentEmitted::lookup_opt(k, j, conf),
-            |k, j| GateRange::lookup_opt(k, j, conf),
-            |k, j| GateLongname::lookup_opt(k, j, conf),
-            |k, j| GateDetectorType::lookup_opt(k, j, conf),
-            |k, j| GateDetectorVoltage::lookup_opt(k, j, conf),
+            |k, j| GateScale::lookup_meas_opt_st(k, j, (), conf),
+            |k, j| GateFilter::lookup_meas_opt(k, j, conf),
+            |k, j| GateShortname::lookup_meas_opt(k, j, conf),
+            |k, j| GatePercentEmitted::lookup_meas_opt(k, j, conf),
+            |k, j| GateRange::lookup_meas_opt(k, j, conf),
+            |k, j| GateLongname::lookup_meas_opt(k, j, conf),
+            |k, j| GateDetectorType::lookup_meas_opt(k, j, conf),
+            |k, j| GateDetectorVoltage::lookup_meas_opt(k, j, conf),
         )
     }
 
@@ -579,14 +579,14 @@ impl GatedMeasurement {
         Self::lookup_inner(
             kws,
             i,
-            |k, j| GateScale::lookup_opt_st_dep(k, j, (), conf),
-            |k, j| GateFilter::lookup_opt_dep(k, j, conf),
-            |k, j| GateShortname::lookup_opt_dep(k, j, conf),
-            |k, j| GatePercentEmitted::lookup_opt_dep(k, j, conf),
-            |k, j| GateRange::lookup_opt_dep(k, j, conf),
-            |k, j| GateLongname::lookup_opt_dep(k, j, conf),
-            |k, j| GateDetectorType::lookup_opt_dep(k, j, conf),
-            |k, j| GateDetectorVoltage::lookup_opt_dep(k, j, conf),
+            |k, j| GateScale::lookup_meas_opt_st_dep(k, j, (), conf),
+            |k, j| GateFilter::lookup_meas_opt_dep(k, j, conf),
+            |k, j| GateShortname::lookup_meas_opt_dep(k, j, conf),
+            |k, j| GatePercentEmitted::lookup_meas_opt_dep(k, j, conf),
+            |k, j| GateRange::lookup_meas_opt_dep(k, j, conf),
+            |k, j| GateLongname::lookup_meas_opt_dep(k, j, conf),
+            |k, j| GateDetectorType::lookup_meas_opt_dep(k, j, conf),
+            |k, j| GateDetectorVoltage::lookup_meas_opt_dep(k, j, conf),
         )
     }
 
@@ -740,7 +740,7 @@ impl<I> GatingScheme<I> {
         self.regions
             .iter()
             .flat_map(|(ri, r)| r.opt_keywords(*ri))
-            .chain(self.gating.as_ref().map(OptMetarootKey::root_pair))
+            .chain(self.gating.as_ref().map(OptMetarootKey::metaroot_pair))
     }
 
     fn inner_into<J: From<I>>(self) -> GatingScheme<J> {
@@ -785,7 +785,7 @@ impl<I> Region<I> {
             kws,
             i,
             |k, j| RegionGateIndex::lookup_region_opt(k, j, par, conf),
-            |k, j| RegionWindow::lookup_opt_st(k, j, (), conf),
+            |k, j| RegionWindow::lookup_meas_opt_st(k, j, (), conf),
             conf,
         )
     }
@@ -804,7 +804,7 @@ impl<I> Region<I> {
             kws,
             i,
             |k, j| RegionGateIndex::lookup_region_opt_dep(k, j, par, conf),
-            |k, j| RegionWindow::lookup_opt_st_dep(k, j, (), conf),
+            |k, j| RegionWindow::lookup_meas_opt_st_dep(k, j, (), conf),
             conf,
         )
     }
@@ -978,7 +978,7 @@ impl GatedMeasurements {
     fn lookup_dep(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
         Self::lookup_inner(
             kws,
-            |k| Gate::lookup_opt_dep(k, conf),
+            |k| Gate::lookup_metaroot_opt_dep(k, conf),
             GatedMeasurement::lookup_dep,
             conf,
         )

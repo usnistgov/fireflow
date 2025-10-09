@@ -1226,7 +1226,7 @@ impl MeasDatatypeDef for HasMeasDatatype {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self::MeasDatatype> {
-        NumType::lookup_opt(kws, i, conf).map(|x| x.0)
+        NumType::lookup_meas_opt(kws, i, conf).map(|x| x.0)
     }
 
     fn lookup_datatype_ro(

@@ -839,7 +839,7 @@ impl<I> RegionGateIndex<I> {
         for<'a> Self: fmt::Display + FromStrStateful<Payload<'a> = ()>,
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
-        Self::lookup_opt_st(kws, i, (), conf).and_tentatively(|maybe| {
+        Self::lookup_meas_opt_st(kws, i, (), conf).and_tentatively(|maybe| {
             if let Some(x) = maybe.0 {
                 Self::check_link(&x, par)
                     .map(|()| x)

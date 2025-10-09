@@ -268,7 +268,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self::remove_opt_tnt(kws, Self::std(), |k, v| parse_opt_tnt(k, v, false, conf))
     }
 
-    fn lookup_opt_st(
+    fn lookup_metatroot_opt_st(
         kws: &mut StdKeywords,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
@@ -282,7 +282,10 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         })
     }
 
-    fn lookup_opt_dep(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupOptional<Self>
+    fn lookup_metaroot_opt_dep(
+        kws: &mut StdKeywords,
+        conf: &StdTextReadConfig,
+    ) -> LookupOptional<Self>
     where
         Self: FromStr,
         ParseOptKeyError: From<<Self as FromStr>::Err>,
@@ -290,7 +293,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self::remove_opt_tnt(kws, Self::std(), |k, v| parse_opt_tnt(k, v, true, conf))
     }
 
-    fn lookup_opt_st_dep(
+    fn lookup_metaroot_opt_st_dep(
         kws: &mut StdKeywords,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
@@ -304,7 +307,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         })
     }
 
-    fn root_pair(&self) -> (String, String)
+    fn metaroot_pair(&self) -> (String, String)
     where
         Self: fmt::Display,
     {
@@ -344,7 +347,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     //     })
     // }
 
-    fn lookup_opt(
+    fn lookup_meas_opt(
         kws: &mut StdKeywords,
         i: impl Into<IndexFromOne>,
         conf: &StdTextReadConfig,
@@ -356,7 +359,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self::remove_opt_tnt(kws, Self::std(i), |k, v| parse_opt_tnt(k, v, false, conf))
     }
 
-    fn lookup_opt_st(
+    fn lookup_meas_opt_st(
         kws: &mut StdKeywords,
         i: impl Into<IndexFromOne> + Copy,
         data: Self::Payload<'_>,
@@ -371,7 +374,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         })
     }
 
-    fn lookup_opt_dep(
+    fn lookup_meas_opt_dep(
         kws: &mut StdKeywords,
         i: impl Into<IndexFromOne> + Copy,
         conf: &StdTextReadConfig,
@@ -383,7 +386,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self::remove_opt_tnt(kws, Self::std(i), |k, v| parse_opt_tnt(k, v, true, conf))
     }
 
-    fn lookup_opt_st_dep(
+    fn lookup_meas_opt_st_dep(
         kws: &mut StdKeywords,
         i: impl Into<IndexFromOne> + Copy,
         data: Self::Payload<'_>,
@@ -585,7 +588,7 @@ pub(crate) fn lookup_temporal_gain_3_0(
                 .is_some_and(|g| !g.0.is_one())
                 .then_some(TemporalGainError(i))
         };
-        let mut tnt_gain = Gain::lookup_opt(kws, i, conf);
+        let mut tnt_gain = Gain::lookup_meas_opt(kws, i, conf);
         if conf.allow_optional_dropping {
             tnt_gain.eval_warning(go);
         } else {

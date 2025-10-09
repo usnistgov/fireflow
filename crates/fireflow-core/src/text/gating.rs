@@ -298,7 +298,7 @@ impl AppliedGates2_0 {
     ) -> LookupTentative<Self> {
         let ag = GatingScheme::lookup(
             kws,
-            |k| Gating::lookup_opt(k, conf),
+            |k| Gating::lookup_metaroot_opt(k, conf),
             |k, j| Region::lookup(k, j, par, conf),
             conf,
         );
@@ -394,7 +394,7 @@ impl AppliedGates3_0 {
             |k| {
                 GatingScheme::lookup(
                     k,
-                    |kws_| Gating::lookup_opt(kws_, conf),
+                    |kws_| Gating::lookup_metaroot_opt(kws_, conf),
                     |kk, j| Region::lookup(kk, j, par, conf),
                     conf,
                 )
@@ -969,7 +969,7 @@ impl GatedMeasurements {
     fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
         Self::lookup_inner(
             kws,
-            |k| Gate::lookup_opt(k, conf),
+            |k| Gate::lookup_metaroot_opt(k, conf),
             GatedMeasurement::lookup,
             conf,
         )

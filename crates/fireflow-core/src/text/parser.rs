@@ -260,7 +260,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self::remove_opt(kws, Self::std(), parse_opt)
     }
 
-    fn lookup_opt(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupOptional<Self>
+    fn lookup_metaroot_opt(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupOptional<Self>
     where
         Self: FromStr,
         ParseOptKeyError: From<<Self as FromStr>::Err>,

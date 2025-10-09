@@ -87,8 +87,8 @@ impl Datetimes {
     }
 
     pub(crate) fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
-        let b = BeginDateTime::lookup_opt(kws, conf);
-        let e = EndDateTime::lookup_opt(kws, conf);
+        let b = BeginDateTime::lookup_metaroot_opt(kws, conf);
+        let e = EndDateTime::lookup_metaroot_opt(kws, conf);
         b.zip(e).and_tentatively(|(begin, end)| {
             Self::try_new(begin.0, end.0)
                 .into_tentative_def(!conf.allow_optional_dropping)

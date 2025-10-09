@@ -1917,18 +1917,18 @@ where
         let par = Par(ms.len());
         let names: HashSet<_> = ms.indexed_names().map(|(_, n)| n).collect();
         let ordered_names: Vec<_> = ms.indexed_names().map(|(_, n)| n).collect();
-        let abrt = Abrt::lookup_opt(std, conf);
-        let com = Com::lookup_opt(std, conf);
-        let cells = Cells::lookup_opt(std, conf);
-        let exp = Exp::lookup_opt(std, conf);
-        let fil = Fil::lookup_opt(std, conf);
-        let inst = Inst::lookup_opt(std, conf);
-        let lost = Lost::lookup_opt(std, conf);
-        let op = Op::lookup_opt(std, conf);
-        let proj = Proj::lookup_opt(std, conf);
-        let smno = Smno::lookup_opt(std, conf);
-        let src = Src::lookup_opt(std, conf);
-        let sys = Sys::lookup_opt(std, conf);
+        let abrt = Abrt::lookup_metaroot_opt(std, conf);
+        let com = Com::lookup_metaroot_opt(std, conf);
+        let cells = Cells::lookup_metaroot_opt(std, conf);
+        let exp = Exp::lookup_metaroot_opt(std, conf);
+        let fil = Fil::lookup_metaroot_opt(std, conf);
+        let inst = Inst::lookup_metaroot_opt(std, conf);
+        let lost = Lost::lookup_metaroot_opt(std, conf);
+        let op = Op::lookup_metaroot_opt(std, conf);
+        let proj = Proj::lookup_metaroot_opt(std, conf);
+        let smno = Smno::lookup_metaroot_opt(std, conf);
+        let src = Src::lookup_metaroot_opt(std, conf);
+        let sys = Sys::lookup_metaroot_opt(std, conf);
         let tr = Trigger::lookup_opt_linked_st(std, &names, (), conf);
         abrt.zip5(com, cells, exp, fil)
             .zip5(inst, lost, op, proj)
@@ -4717,7 +4717,7 @@ impl UnstainedData {
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self> {
         let c = UnstainedCenters::lookup_opt_linked_st(kws, names, (), conf);
-        let i = UnstainedInfo::lookup_opt(kws, conf);
+        let i = UnstainedInfo::lookup_metaroot_opt(kws, conf);
         c.zip(i)
             .map(|(unstainedcenters, unstainedinfo)| Self::new(unstainedcenters, unstainedinfo))
     }
@@ -4741,8 +4741,8 @@ impl UnstainedData {
 impl SubsetData {
     fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
         let f = CSVFlags::lookup(kws, conf);
-        let b = CSVBits::lookup_opt(kws, conf);
-        let t = CSTot::lookup_opt(kws, conf);
+        let b = CSVBits::lookup_metaroot_opt(kws, conf);
+        let t = CSTot::lookup_metaroot_opt(kws, conf);
         f.zip3(b, t)
             .map(|(flags, bits, tot)| Self::new(bits, tot, flags))
     }
@@ -4781,7 +4781,7 @@ impl CSVFlags {
     }
 
     fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupOptional<Self> {
-        CSMode::lookup_opt(kws, conf)
+        CSMode::lookup_metaroot_opt(kws, conf)
             .and_tentatively(|m| {
                 if let Some(n) = m.0 {
                     let fs = (0..n.0).map(|i| CSVFlag::lookup_meas_opt(kws, i, conf));
@@ -4823,9 +4823,9 @@ impl CSVFlags {
 
 impl ModificationData {
     fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
-        let last_mod = LastModifier::lookup_opt(kws, conf);
-        let last_mod_date = LastModified::lookup_opt(kws, conf);
-        let ori = Originality::lookup_opt(kws, conf);
+        let last_mod = LastModifier::lookup_metaroot_opt(kws, conf);
+        let last_mod_date = LastModified::lookup_metaroot_opt(kws, conf);
+        let ori = Originality::lookup_metaroot_opt(kws, conf);
         last_mod
             .zip3(last_mod_date, ori)
             .map(|(last_modifier, last_modified, originality)| {
@@ -4853,9 +4853,9 @@ impl ModificationData {
 
 impl CarrierData {
     fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
-        let l = Locationid::lookup_opt(kws, conf);
-        let i = Carrierid::lookup_opt(kws, conf);
-        let t = Carriertype::lookup_opt(kws, conf);
+        let l = Locationid::lookup_metaroot_opt(kws, conf);
+        let i = Carrierid::lookup_metaroot_opt(kws, conf);
+        let t = Carriertype::lookup_metaroot_opt(kws, conf);
         l.zip3(i, t).map(|(locationid, carrierid, carriertype)| {
             Self::new(carrierid, carriertype, locationid)
         })
@@ -4881,9 +4881,9 @@ impl CarrierData {
 
 impl PlateData {
     fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
-        let w = Wellid::lookup_opt(kws, conf);
-        let n = Platename::lookup_opt(kws, conf);
-        let i = Plateid::lookup_opt(kws, conf);
+        let w = Wellid::lookup_metaroot_opt(kws, conf);
+        let n = Platename::lookup_metaroot_opt(kws, conf);
+        let i = Plateid::lookup_metaroot_opt(kws, conf);
         w.zip3(n, i)
             .map(|(wellid, platename, plateid)| Self::new(plateid, platename, wellid))
     }
@@ -7219,7 +7219,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let comp = Compensation2_0::lookup(kws, par, conf);
-        let cytn = Cyt::lookup_opt(kws, conf);
+        let cytn = Cyt::lookup_metaroot_opt(kws, conf);
         let ts = Timestamps::lookup(kws, conf);
         let ag = AppliedGates2_0::lookup(kws, par, conf);
         comp.zip4(cytn, ts, ag)
@@ -7246,9 +7246,9 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         _: &[&Shortname],
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let comp = Compensation3_0::lookup_opt(kws, conf);
-        let cyt = Cyt::lookup_opt(kws, conf);
-        let cytsn = Cytsn::lookup_opt(kws, conf);
+        let comp = Compensation3_0::lookup_metaroot_opt(kws, conf);
+        let cyt = Cyt::lookup_metaroot_opt(kws, conf);
+        let cytsn = Cytsn::lookup_metaroot_opt(kws, conf);
         let subset = SubsetData::lookup(kws, conf);
         let ts = Timestamps::lookup(kws, conf);
         let uni = Unicode::lookup_metatroot_opt_st(kws, (), conf);
@@ -7278,14 +7278,14 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         ordered_names: &[&Shortname],
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let cyt = Cyt::lookup_opt(kws, conf);
+        let cyt = Cyt::lookup_metaroot_opt(kws, conf);
         let spill = Spillover::lookup_metatroot_opt_st(kws, (names, ordered_names), conf);
-        let cytsn = Cytsn::lookup_opt(kws, conf);
+        let cytsn = Cytsn::lookup_metaroot_opt(kws, conf);
         let subset = SubsetData::lookup(kws, conf);
         let modif = ModificationData::lookup(kws, conf);
         let plate = PlateData::lookup(kws, conf);
         let ts = Timestamps::lookup(kws, conf);
-        let vol = Vol::lookup_opt(kws, conf);
+        let vol = Vol::lookup_metaroot_opt(kws, conf);
         let ag = AppliedGates3_0::lookup_dep(kws, par, conf).errors_into();
         let mode_dep = |m: &Mode| match m {
             Mode::Correlated => Some(DeprecatedError::Value(DepValueWarning::ModeCorrelated)),
@@ -7321,15 +7321,15 @@ impl LookupMetaroot for InnerMetaroot3_2 {
     ) -> LookupResult<Self> {
         let carrier = CarrierData::lookup(kws, conf);
         let dt = Datetimes::lookup(kws, conf);
-        let flow = Flowrate::lookup_opt(kws, conf);
+        let flow = Flowrate::lookup_metaroot_opt(kws, conf);
         let modif = ModificationData::lookup(kws, conf);
         let mode = Mode3_2::lookup_metaroot_opt_dep(kws, conf);
         let spill = Spillover::lookup_metatroot_opt_st(kws, (names, ordered_names), conf);
-        let cytsn = Cytsn::lookup_opt(kws, conf);
+        let cytsn = Cytsn::lookup_metaroot_opt(kws, conf);
         let plate = PlateData::lookup_dep(kws, conf);
         let ts = Timestamps::lookup_dep(kws, conf);
         let us = UnstainedData::lookup(kws, names, conf);
-        let vol = Vol::lookup_opt(kws, conf);
+        let vol = Vol::lookup_metaroot_opt(kws, conf);
         let ag = AppliedGates3_2::lookup(kws, par, conf);
         carrier
             .zip6(dt, flow, modif, mode, spill)

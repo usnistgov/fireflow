@@ -2636,7 +2636,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.specific.timestep = timestep),
     );
 
-    let longname = DocArg::new_meas_kw_opt_ivar("Longname", "longname", "S", PyStr::new1);
+    let longname = DocArg::new_meas_kw_ivar1("Longname", "longname", "S", PyStr::new1);
 
     let nonstd = DocArg::new_meas_nonstandard_keywords_ivar();
 
@@ -2743,7 +2743,7 @@ impl<T> DocArg<T> {
 #[proc_macro]
 pub fn impl_core_all_pns(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_meas_attr(&i, "Longname", "longnames", "S", PyStr::new1)
+    core_all_meas_attr1(&i, "Longname", "longnames", "S", PyStr::new1, false, false)
 }
 
 #[proc_macro]
@@ -2946,12 +2946,19 @@ where
         DocReturn::new(PyList::new(full_pytype)),
     );
 
+    let get_body = if is_optional {
+        quote!(self.0.meas_opt().map(|x| x.cloned()).collect())
+    } else {
+        quote!(self.0.meas::<#inner_rstype>().cloned().collect())
+    };
+
     doc.into_impl_get_set(
         t,
         format!("all_{name}"),
         true,
         |_, _| {
             if optical_only {
+                // TOOD this is hardcoded for optional
                 quote! {
                     self.0
                         .optical_opt()
@@ -2959,7 +2966,7 @@ where
                         .collect()
                 }
             } else {
-                quote!(self.0.meas_opt().map(|x| x.cloned()).collect())
+                get_body
             }
         },
         |n, _| {
@@ -4739,10 +4746,17 @@ impl DocArgRWIvar {
 
         let d = desc.map_or(format!("Value of *${}*.", name.to_uppercase()), Into::into);
 
-        let get_f = |_: &Ident, _: &PyType| {
-            quote! {
-                let x: &#full_path = self.0.as_ref();
-                x.as_ref().cloned()
+        let get_f = |_: &Ident, pt: &PyType| {
+            if matches!(pt, PyType::Option(_)) {
+                quote! {
+                    let x: &#full_path = self.0.as_ref();
+                    x.as_ref().cloned()
+                }
+            } else {
+                quote! {
+                    let x: &#full_path = self.0.as_ref();
+                    x.clone()
+                }
             }
         };
         let set_f = |n: &Ident, _: &PyType| quote!(*self.0.as_mut() = #n);
@@ -4762,13 +4776,21 @@ impl DocArgRWIvar {
         Self::new_kw_ivar(kw, name, |p| PyOpt::new(f(p)), None, true)
     }
 
-    fn new_meas_kw_opt_ivar<F, T>(kw: &str, name: &str, abbr: &str, f: F) -> Self
+    fn new_meas_kw_ivar1<F, T>(kw: &str, name: &str, abbr: &str, f: F) -> Self
     where
         F: FnOnce(Path) -> T,
         T: Into<PyType>,
     {
         let desc = format!("Value for *$Pn{abbr}*.");
-        Self::new_meas_kw_ivar(kw, name, |p| PyOpt::new(f(p)), Some(desc.as_str()), true)
+        Self::new_meas_kw_ivar(kw, name, f, Some(desc.as_str()), true)
+    }
+
+    fn new_meas_kw_opt_ivar<F, T>(kw: &str, name: &str, abbr: &str, f: F) -> Self
+    where
+        F: FnOnce(Path) -> T,
+        T: Into<PyType>,
+    {
+        Self::new_meas_kw_ivar1(kw, name, abbr, |p| PyOpt::new(f(p)))
     }
 
     fn new_layout_ivar(version: Version) -> Self {

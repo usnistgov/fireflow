@@ -400,6 +400,22 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     {
         (Self::std(i).to_string(), self.to_string())
     }
+
+    fn meas_opt_pair(&self, i: impl Into<IndexFromOne>) -> (String, Option<String>)
+    where
+        Self: fmt::Display + Optional<Outer = Self>,
+        for<'a> &'a Self: Into<Option<String>>,
+    {
+        (Self::std(i).to_string(), self.into())
+    }
+
+    fn meas_opt_triple(&self, i: impl Into<IndexFromOne>) -> (MeasHeader, String, Option<String>)
+    where
+        Self: fmt::Display + Optional<Outer = Self>,
+        for<'a> &'a Self: Into<Option<String>>,
+    {
+        (Self::std_blank(), Self::std(i).to_string(), self.into())
+    }
 }
 
 /// Any key which references $PnN in its value

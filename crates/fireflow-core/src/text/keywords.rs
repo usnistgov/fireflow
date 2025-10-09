@@ -1659,9 +1659,9 @@ macro_rules! req_meas {
 }
 
 macro_rules! opt_meas {
-    ($t:ident) => {
+    ($t:ident, $outer:path) => {
         impl Optional for $t {
-            type Outer = MaybeValue<Self>;
+            type Outer = $outer;
         }
         impl OptIndexedKey for $t {}
     };
@@ -1689,9 +1689,9 @@ macro_rules! kw_req_meas {
 }
 
 macro_rules! kw_opt_meas {
-    ($t:ident, $sfx:expr) => {
+    ($t:ident, $sfx:expr, $outer:path) => {
         kw_meas!($t, $sfx);
-        opt_meas!($t);
+        opt_meas!($t, $outer);
     };
 }
 
@@ -1705,7 +1705,7 @@ macro_rules! kw_opt_meta_string {
 macro_rules! kw_opt_meas_string {
     ($t:ident, $sfx:expr) => {
         kw_meas_string!($t, $sfx);
-        opt_meas!($t);
+        opt_meas!($t, Self);
     };
 }
 
@@ -1743,7 +1743,7 @@ macro_rules! kw_opt_gate {
             const PREFIX: &'static str = "G";
             const SUFFIX: &'static str = $sfx;
         }
-        opt_meas!($t);
+        opt_meas!($t, MaybeValue<Self>);
     };
 }
 
@@ -1760,7 +1760,7 @@ macro_rules! kw_opt_region {
             const PREFIX: &'static str = "R";
             const SUFFIX: &'static str = $sfx;
         }
-        opt_meas!($t);
+        opt_meas!($t, MaybeValue<Self>);
     };
 }
 
@@ -1875,43 +1875,43 @@ kw_req_meta!(ByteOrd3_1, "BYTEORD"); // 3.1+
 // all versions
 kw_req_meas!(Width, "B");
 kw_opt_meas_string!(Filter, "F");
-kw_opt_meas!(Power, "O");
-kw_opt_meas!(PercentEmitted, "P");
+kw_opt_meas!(Power, "O", MaybeValue<Self>);
+kw_opt_meas!(PercentEmitted, "P", MaybeValue<Self>);
 kw_req_meas!(Range, "R");
 kw_opt_meas_string!(Longname, "S");
 kw_opt_meas_string!(DetectorType, "T");
-kw_opt_meas!(DetectorVoltage, "V");
+kw_opt_meas!(DetectorVoltage, "V", MaybeValue<Self>);
 
 // 3.0+
-kw_opt_meas!(Gain, "G");
+kw_opt_meas!(Gain, "G", MaybeValue<Self>);
 
 // 3.1+
-kw_opt_meas!(Display, "D");
+kw_opt_meas!(Display, "D", MaybeValue<Self>);
 
 // 3.2+
-kw_opt_meas!(Feature, "FEATURE");
-kw_opt_meas!(OpticalType, "TYPE");
-kw_opt_meas!(TemporalType, "TYPE");
-kw_opt_meas!(NumType, "DATATYPE");
+kw_opt_meas!(Feature, "FEATURE", MaybeValue<Self>);
+kw_opt_meas!(OpticalType, "TYPE", MaybeValue<Self>);
+kw_opt_meas!(TemporalType, "TYPE", MaybeValue<Self>);
+kw_opt_meas!(NumType, "DATATYPE", MaybeValue<Self>);
 kw_opt_meas_string!(Analyte, "ANALYTE");
 kw_opt_meas_string!(Tag, "TAG");
 kw_opt_meas_string!(DetectorName, "DET");
 
 // version specific
-kw_opt_meas!(Shortname, "N"); // optional for 2.0/3.0
+kw_opt_meas!(Shortname, "N", MaybeValue<Self>); // optional for 2.0/3.0
 req_meas!(Shortname); // required for 3.1+
 
-kw_opt_meas!(Scale, "E"); // optional for 2.0
+kw_opt_meas!(Scale, "E", MaybeValue<Self>); // optional for 2.0
 req_meas!(Scale); // required for 3.0+
 
-kw_opt_meas!(TemporalScale, "E"); // optional for 2.0
+kw_opt_meas!(TemporalScale, "E", MaybeValue<Self>); // optional for 2.0
 req_meas!(TemporalScale); // required for 3.0+
 
-kw_opt_meas!(Wavelength, "L"); // scaler in 2.0/3.0
-kw_opt_meas!(Wavelengths, "L"); // vector in 3.1+
+kw_opt_meas!(Wavelength, "L", MaybeValue<Self>); // scaler in 2.0/3.0
+kw_opt_meas!(Wavelengths, "L", MaybeValue<Self>); // vector in 3.1+
 
-kw_opt_meas!(Calibration3_1, "CALIBRATION"); // 3.1 doesn't have offset
-kw_opt_meas!(Calibration3_2, "CALIBRATION"); // 3.2+ includes offset
+kw_opt_meas!(Calibration3_1, "CALIBRATION", MaybeValue<Self>); // 3.1 doesn't have offset
+kw_opt_meas!(Calibration3_2, "CALIBRATION", MaybeValue<Self>); // 3.2+ includes offset
 
 // 2.0 compensation matrix
 pub struct Dfc;
@@ -1929,7 +1929,7 @@ kw_opt_meta_int!(CSTot, u32, "CSTOT");
 
 // $CSVnFLAG (3.0/3.1)
 newtype_int!(CSVFlag, u32);
-opt_meas!(CSVFlag);
+opt_meas!(CSVFlag, MaybeValue<Self>);
 
 impl IndexedKey for CSVFlag {
     const PREFIX: &'static str = "CSV";
@@ -1938,7 +1938,7 @@ impl IndexedKey for CSVFlag {
 
 // $PKn (2.0-3.1)
 newtype_int!(PeakBin, u32);
-opt_meas!(PeakBin);
+opt_meas!(PeakBin, MaybeValue<Self>);
 
 impl IndexedKey for PeakBin {
     const PREFIX: &'static str = "PK";
@@ -1947,7 +1947,7 @@ impl IndexedKey for PeakBin {
 
 // $PKNn (2.0-3.1)
 newtype_int!(PeakNumber, u32);
-opt_meas!(PeakNumber);
+opt_meas!(PeakNumber, MaybeValue<Self>);
 
 impl IndexedKey for PeakNumber {
     const PREFIX: &'static str = "PKN";

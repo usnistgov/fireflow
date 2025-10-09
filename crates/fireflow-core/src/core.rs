@@ -278,10 +278,10 @@ pub struct Metaroot<X> {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct CommonMeasurement {
     /// Value for $PnS
-    #[as_ref(Option<Longname>)]
-    #[as_mut(Option<Longname>)]
+    #[as_ref(Longname)]
+    #[as_mut(Longname)]
     #[new(into)]
-    pub longname: MaybeValue<Longname>,
+    pub longname: Longname,
 
     /// Non standard keywords that belong to this measurement.
     ///
@@ -1697,7 +1697,7 @@ impl<T> Temporal<T> {
     where
         T: VersionedTemporal,
     {
-        once(self.common.longname.meas_kw_pair(i))
+        once(self.common.longname.meas_opt_pair(i))
             .filter_map(|(k, v)| v.map(|x| (k, x)))
             .chain(self.specific.opt_meas_keywords_inner(i))
     }
@@ -1767,7 +1767,7 @@ impl<O> Optical<O> {
         O: VersionedOptical,
     {
         [
-            self.common.longname.meas_kw_triple(i),
+            self.common.longname.meas_opt_triple(i),
             self.filter.meas_kw_triple(i),
             self.power.meas_kw_triple(i),
             self.detector_type.meas_kw_triple(i),
@@ -7632,7 +7632,7 @@ impl Temporal2_0 {
         has_scale: bool,
         bin: Option<PeakBin>,
         size: Option<PeakNumber>,
-        longname: Option<Longname>,
+        longname: Longname,
         nonstandard_keywords: NonStdKeywords,
     ) -> Self {
         let common = CommonMeasurement::new(longname, nonstandard_keywords);
@@ -7649,7 +7649,7 @@ impl Temporal3_0 {
         timestep: Timestep,
         bin: Option<PeakBin>,
         size: Option<PeakNumber>,
-        longname: Option<Longname>,
+        longname: Longname,
         nonstandard_keywords: NonStdKeywords,
     ) -> Self {
         let common = CommonMeasurement::new(longname, nonstandard_keywords);
@@ -7666,7 +7666,7 @@ impl Temporal3_1 {
         display: Option<Display>,
         bin: Option<PeakBin>,
         size: Option<PeakNumber>,
-        longname: Option<Longname>,
+        longname: Longname,
         nonstandard_keywords: NonStdKeywords,
     ) -> Self {
         let common = CommonMeasurement::new(longname, nonstandard_keywords);
@@ -7682,7 +7682,7 @@ impl Temporal3_2 {
         timestep: Timestep,
         display: Option<Display>,
         has_type: bool,
-        longname: Option<Longname>,
+        longname: Longname,
         nonstandard_keywords: NonStdKeywords,
     ) -> Self {
         let common = CommonMeasurement::new(longname, nonstandard_keywords);
@@ -7705,7 +7705,7 @@ impl Optical2_0 {
         detector_type: Option<DetectorType>,
         percent_emitted: Option<PercentEmitted>,
         detector_voltage: Option<DetectorVoltage>,
-        longname: Option<Longname>,
+        longname: Longname,
         nonstandard_keywords: NonStdKeywords,
     ) -> Self {
         let common = CommonMeasurement::new(longname, nonstandard_keywords);
@@ -7735,7 +7735,7 @@ impl Optical3_0 {
         detector_type: Option<DetectorType>,
         percent_emitted: Option<PercentEmitted>,
         detector_voltage: Option<DetectorVoltage>,
-        longname: Option<Longname>,
+        longname: Longname,
         nonstandard_keywords: NonStdKeywords,
     ) -> Self {
         let common = CommonMeasurement::new(longname, nonstandard_keywords);
@@ -7767,7 +7767,7 @@ impl Optical3_1 {
         detector_type: Option<DetectorType>,
         percent_emitted: Option<PercentEmitted>,
         detector_voltage: Option<DetectorVoltage>,
-        longname: Option<Longname>,
+        longname: Longname,
         nonstandard_keywords: NonStdKeywords,
     ) -> Self {
         let common = CommonMeasurement::new(longname, nonstandard_keywords);
@@ -7808,7 +7808,7 @@ impl Optical3_2 {
         detector_type: Option<DetectorType>,
         percent_emitted: Option<PercentEmitted>,
         detector_voltage: Option<DetectorVoltage>,
-        longname: Option<Longname>,
+        longname: Longname,
         nonstandard_keywords: NonStdKeywords,
     ) -> Self {
         let common = CommonMeasurement::new(longname, nonstandard_keywords);

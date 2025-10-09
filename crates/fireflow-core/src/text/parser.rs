@@ -357,19 +357,19 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     //     })
     // }
 
-    fn remove_meas_opt_st(
-        kws: &mut StdKeywords,
-        i: impl Into<IndexFromOne>,
-        data: Self::Payload<'_>,
-        conf: &StdTextReadConfig,
-    ) -> Result<MaybeValue<Self>, OptKeyError<Self::Err>>
-    where
-        Self: FromStrStateful,
-    {
-        Self::remove_opt(kws, Self::std(i), |k, v| {
-            Self::from_str_st(v.as_str(), data, conf).map_err(|e| OptKeyError::new(e, k, v))
-        })
-    }
+    // fn remove_meas_opt_st(
+    //     kws: &mut StdKeywords,
+    //     i: impl Into<IndexFromOne>,
+    //     data: Self::Payload<'_>,
+    //     conf: &StdTextReadConfig,
+    // ) -> Result<MaybeValue<Self>, OptKeyError<Self::Err>>
+    // where
+    //     Self: FromStrStateful,
+    // {
+    //     Self::remove_opt(kws, Self::std(i), |k, v| {
+    //         Self::from_str_st(v.as_str(), data, conf).map_err(|e| OptKeyError::new(e, k, v))
+    //     })
+    // }
 
     fn lookup_opt(
         kws: &mut StdKeywords,
@@ -499,24 +499,22 @@ where
         for<'a> Self: FromStrStateful<Payload<'a> = P>,
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
-        // TODO not dry
         Self::remove_opt_tnt(kws, Self::std(), |k, v| {
             Self::from_str_st(v.as_str(), payload, conf)
                 .map_err(|e| OptKeyError::new(e, k, v))
                 .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
                 .into_tentative_opt(!conf.allow_optional_dropping)
                 .errors_into()
-        })
-        .and_tentatively(|maybe| {
-            if let Some(x) = maybe.0 {
-                Self::check_link(&x, names)
-                    .map(|()| x)
-                    .into_tentative_opt(!conf.allow_optional_dropping)
-                    .inner_into()
-            } else {
-                Tentative::new1(None)
-            }
-            .value_into()
+                .and_tentatively(|maybe| {
+                    maybe
+                        .map(|x| {
+                            Self::check_link(&x, names)
+                                .map(|()| x)
+                                .into_tentative_opt(!conf.allow_optional_dropping)
+                                .inner_into()
+                        })
+                        .unwrap_or_default()
+                })
         })
     }
 
@@ -597,18 +595,6 @@ pub(crate) fn lookup_temporal_gain_3_0(
         tnt_gain
     }
 }
-
-// pub(crate) fn process_opt<V, W>(
-//     res: Result<MaybeValue<V>, OptKeyError<W>>,
-//     conf: &StdTextReadConfig,
-// ) -> LookupOptional<V>
-// where
-//     ParseOptKeyError: From<W>,
-// {
-//     res.map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
-//         .into_tentative_def(!conf.allow_optional_dropping)
-//         .errors_into()
-// }
 
 pub(crate) type RawKeywords = HashMap<String, String>;
 

@@ -851,9 +851,9 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     let all_modified = [last_modifier, last_mod_date, originality];
 
-    let plateid = DocArg::new_kw_opt_ivar("Plateid", "plateid", PyStr::new1);
-    let platename = DocArg::new_kw_opt_ivar("Platename", "platename", PyStr::new1);
-    let wellid = DocArg::new_kw_opt_ivar("Wellid", "wellid", PyStr::new1);
+    let plateid = DocArg::new_kw_ivar("Plateid", "plateid", PyStr::new1, None, true);
+    let platename = DocArg::new_kw_ivar("Platename", "platename", PyStr::new1, None, true);
+    let wellid = DocArg::new_kw_ivar("Wellid", "wellid", PyStr::new1, None, true);
 
     let all_plate = [plateid, platename, wellid];
 
@@ -867,9 +867,9 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     let flowrate = DocArg::new_kw_opt_ivar("Flowrate", "flowrate", PyStr::new1);
 
-    let carrierid = DocArg::new_kw_opt_ivar("Carrierid", "carrierid", PyStr::new1);
-    let carriertype = DocArg::new_kw_opt_ivar("Carriertype", "carriertype", PyStr::new1);
-    let locationid = DocArg::new_kw_opt_ivar("Locationid", "locationid", PyStr::new1);
+    let carrierid = DocArg::new_kw_ivar("Carrierid", "carrierid", PyStr::new1, None, true);
+    let carriertype = DocArg::new_kw_ivar("Carriertype", "carriertype", PyStr::new1, None, true);
+    let locationid = DocArg::new_kw_ivar("Locationid", "locationid", PyStr::new1, None, true);
 
     let all_carrier = [carrierid, carriertype, locationid];
 

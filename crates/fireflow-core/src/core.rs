@@ -640,8 +640,8 @@ pub struct InnerMetaroot3_1 {
     pub modification: ModificationData,
 
     /// Values of $PLATEID/$PLATENAME/$WELLID
-    #[as_ref(Option<Plateid>, Option<Wellid>, Option<Platename>)]
-    #[as_mut(Option<Plateid>, Option<Wellid>, Option<Platename>)]
+    #[as_ref(Plateid, Wellid, Platename)]
+    #[as_mut(Plateid, Wellid, Platename)]
     pub plate: PlateData,
 
     /// Value of $VOL
@@ -710,8 +710,8 @@ pub struct InnerMetaroot3_2 {
     pub modification: ModificationData,
 
     /// Values of $PLATEID/$PLATENAME/$WELLID
-    #[as_ref(Option<Plateid>, Option<Wellid>, Option<Platename>)]
-    #[as_mut(Option<Plateid>, Option<Wellid>, Option<Platename>)]
+    #[as_ref(Plateid, Wellid, Platename)]
+    #[as_mut(Plateid, Wellid, Platename)]
     pub plate: PlateData,
 
     /// Value of $VOL
@@ -721,8 +721,8 @@ pub struct InnerMetaroot3_2 {
     pub vol: MaybeValue<Vol>,
 
     /// Values of $CARRIERID/$CARRIERTYPE/$LOCATIONID
-    #[as_ref(Option<Carrierid>, Option<Carriertype>, Option<Locationid>)]
-    #[as_mut(Option<Carrierid>, Option<Carriertype>, Option<Locationid>)]
+    #[as_ref(Carrierid, Carriertype, Locationid)]
+    #[as_mut(Carrierid, Carriertype, Locationid)]
     pub carrier: CarrierData,
 
     /// Values of $UNSTAINEDINFO/$UNSTAINEDCENTERS
@@ -1093,20 +1093,20 @@ pub struct ModificationData {
 #[derive(Clone, Default, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PlateData {
-    #[as_ref(Option<Plateid>)]
-    #[as_mut(Option<Plateid>)]
+    #[as_ref(Plateid)]
+    #[as_mut(Plateid)]
     #[new(into)]
-    pub plateid: MaybeValue<Plateid>,
+    pub plateid: Plateid,
 
-    #[as_ref(Option<Platename>)]
-    #[as_mut(Option<Platename>)]
+    #[as_ref(Platename)]
+    #[as_mut(Platename)]
     #[new(into)]
-    pub platename: MaybeValue<Platename>,
+    pub platename: Platename,
 
-    #[as_ref(Option<Wellid>)]
-    #[as_mut(Option<Wellid>)]
+    #[as_ref(Wellid)]
+    #[as_mut(Wellid)]
     #[new(into)]
-    pub wellid: MaybeValue<Wellid>,
+    pub wellid: Wellid,
 }
 
 /// A bundle for $UNSTAINEDCENTERS and $UNSTAINEDINFO (3.2+)
@@ -1128,20 +1128,20 @@ pub struct UnstainedData {
 #[derive(Clone, Default, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct CarrierData {
-    #[as_ref(Option<Carrierid>)]
-    #[as_mut(Option<Carrierid>)]
+    #[as_ref(Carrierid)]
+    #[as_mut(Carrierid)]
     #[new(into)]
-    pub carrierid: MaybeValue<Carrierid>,
+    pub carrierid: Carrierid,
 
-    #[as_ref(Option<Carriertype>)]
-    #[as_mut(Option<Carriertype>)]
+    #[as_ref(Carriertype)]
+    #[as_mut(Carriertype)]
     #[new(into)]
-    pub carriertype: MaybeValue<Carriertype>,
+    pub carriertype: Carriertype,
 
-    #[as_ref(Option<Locationid>)]
-    #[as_mut(Option<Locationid>)]
+    #[as_ref(Locationid)]
+    #[as_mut(Locationid)]
     #[new(into)]
-    pub locationid: MaybeValue<Locationid>,
+    pub locationid: Locationid,
 }
 
 pub type Temporal2_0 = Temporal<InnerTemporal2_0>;
@@ -4584,9 +4584,9 @@ impl CoreTEXT3_1 {
         last_modifier: LastModifier,
         last_mod_date: Option<LastModified>,
         originality: Option<Originality>,
-        plateid: Option<Plateid>,
-        platename: Option<Platename>,
-        wellid: Option<Wellid>,
+        plateid: Plateid,
+        platename: Platename,
+        wellid: Wellid,
         vol: Option<Vol>,
         csvbits: Option<CSVBits>,
         cstot: Option<CSTot>,
@@ -4659,13 +4659,13 @@ impl CoreTEXT3_2 {
         last_modifier: LastModifier,
         last_mod_date: Option<LastModified>,
         originality: Option<Originality>,
-        plateid: Option<Plateid>,
-        platename: Option<Platename>,
-        wellid: Option<Wellid>,
+        plateid: Plateid,
+        platename: Platename,
+        wellid: Wellid,
         vol: Option<Vol>,
-        carrierid: Option<Carrierid>,
-        carriertype: Option<Carriertype>,
-        locationid: Option<Locationid>,
+        carrierid: Carrierid,
+        carriertype: Carriertype,
+        locationid: Locationid,
         unstainedinfo: Option<UnstainedInfo>,
         unstainedcenters: Option<UnstainedCenters>,
         flowrate: Option<Flowrate>,
@@ -4878,9 +4878,9 @@ impl CarrierData {
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
-            self.carrierid.root_kw_pair(),
-            self.carriertype.root_kw_pair(),
-            self.locationid.root_kw_pair(),
+            self.carrierid.metaroot_opt_pair(),
+            self.carriertype.metaroot_opt_pair(),
+            self.locationid.metaroot_opt_pair(),
         ]
         .into_iter()
         .filter_map(|(k, v)| v.map(|x| (k, x)))
@@ -4909,9 +4909,9 @@ impl PlateData {
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
-            self.wellid.root_kw_pair(),
-            self.platename.root_kw_pair(),
-            self.plateid.root_kw_pair(),
+            self.wellid.metaroot_opt_pair(),
+            self.platename.metaroot_opt_pair(),
+            self.plateid.metaroot_opt_pair(),
         ]
         .into_iter()
         .filter_map(|(k, v)| v.map(|x| (k, x)))
@@ -5424,9 +5424,9 @@ impl_ref_specific_rw!(
     LastModifier,
     Option<LastModified>,
     Option<Originality>,
-    Option<Plateid>,
-    Option<Wellid>,
-    Option<Platename>,
+    Plateid,
+    Wellid,
+    Platename,
     Option<Vol>,
     Option<CSVBits>,
     Option<CSTot>,
@@ -5444,12 +5444,12 @@ impl_ref_specific_rw!(
     LastModifier,
     Option<LastModified>,
     Option<Originality>,
-    Option<Plateid>,
-    Option<Wellid>,
-    Option<Platename>,
-    Option<Carrierid>,
-    Option<Carriertype>,
-    Option<Locationid>,
+    Plateid,
+    Wellid,
+    Platename,
+    Carrierid,
+    Carriertype,
+    Locationid,
     Option<Vol>,
     Option<Flowrate>,
     Option<UnstainedInfo>,

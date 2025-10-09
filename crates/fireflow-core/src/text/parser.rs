@@ -98,7 +98,7 @@ pub(crate) trait Required: Sized {
 
 /// Any optional key
 pub(crate) trait Optional: Sized {
-    type Outer: Default + From<Option<Self>>;
+    type Outer: Default + From<Self>;
 
     fn get_opt(kws: &StdKeywords, k: StdKey) -> OptKwResult<Self>
     where
@@ -111,7 +111,10 @@ pub(crate) trait Optional: Sized {
     where
         F: FnOnce(StdKey, String) -> Result<Self, E>,
     {
-        kws.remove(&k).map(|v| f(k, v)).transpose().map(Into::into)
+        kws.remove(&k)
+            .map(|v| f(k, v))
+            .transpose()
+            .map(|x| x.map(Into::into).unwrap_or_default())
     }
 
     fn remove_opt_tnt<F, W, E>(
@@ -122,8 +125,9 @@ pub(crate) trait Optional: Sized {
     where
         F: FnOnce(StdKey, String) -> Tentative<Option<Self>, W, E>,
     {
-        kws.remove(&k)
-            .map_or(Tentative::default(), |v| f(k, v).map(Into::into))
+        kws.remove(&k).map_or(Tentative::default(), |v| {
+            f(k, v).map(|x| x.map(Into::into).unwrap_or_default())
+        })
     }
 }
 
@@ -302,6 +306,14 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self: fmt::Display,
     {
         (Self::std().to_string(), self.to_string())
+    }
+
+    fn metaroot_opt_pair(&self) -> (String, Option<String>)
+    where
+        Self: fmt::Display + Optional<Outer = Self>,
+        for<'a> &'a Self: Into<Option<String>>,
+    {
+        (Self::std().to_string(), self.into())
     }
 }
 

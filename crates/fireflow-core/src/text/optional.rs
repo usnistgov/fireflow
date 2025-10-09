@@ -4,7 +4,7 @@ use crate::validated::keys::{IndexedKey, Key, MeasHeader};
 
 use super::index::IndexFromOne;
 
-use derive_more::{AsMut, AsRef, From};
+use derive_more::{AsMut, AsRef, Display, From, FromStr};
 use std::convert::Infallible;
 use std::fmt;
 use std::marker::PhantomData;
@@ -36,6 +36,11 @@ pub struct AlwaysValue<T>(pub T);
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct NeverValue<T>(pub PhantomData<T>);
+
+#[derive(Debug, Clone, PartialEq, Eq, AsRef, AsMut, From, Default, Display, FromStr)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+pub struct OptionalString(pub String);
 
 /// Encodes a type which might have something in it.
 ///

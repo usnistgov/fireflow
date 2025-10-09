@@ -39,10 +39,10 @@ use crate::text::{
         Carrierid, Carriertype, Cells, Com, Cyt, Cyt3_2, Cytsn, DetectorName, DetectorType,
         DetectorVoltage, Display, Endstext, Exp, Feature, Fil, Filter, Flowrate, Gain, Inst,
         IntRangeError, LastModified, LastModifier, Locationid, Longname, Lost, Mode, Mode3_2,
-        ModeUpgradeError, Nextdata, Op, OpticalType, Originality, Par, PeakBin, PeakNumber,
-        PercentEmitted, Plateid, Platename, Power, Proj, Range, Smno, Src, Sys, Tag, TemporalScale,
-        TemporalType, Timestep, TimestepLossError, Tot, Trigger, Unicode, UnstainedInfo, Vol,
-        Wavelength, Wavelengths, WavelengthsLossError, Wellid,
+        ModeUpgradeError, Nextdata, NoCytError, Op, OpticalType, Originality, Par, PeakBin,
+        PeakNumber, PercentEmitted, Plateid, Platename, Power, Proj, Range, Smno, Src, Sys, Tag,
+        TemporalScale, TemporalType, Timestep, TimestepLossError, Tot, Trigger, Unicode,
+        UnstainedInfo, Vol, Wavelength, Wavelengths, WavelengthsLossError, Wellid,
     },
     named_vec::{
         EitherPair, Eithers, Element, ElementIndexError, IndexedElement, IndexedElementError,
@@ -523,10 +523,10 @@ pub struct InnerMetaroot2_0 {
     pub mode: Mode,
 
     /// Value of $CYT
-    #[as_ref(Option<Cyt>)]
-    #[as_mut(Option<Cyt>)]
+    #[as_ref(Cyt)]
+    #[as_mut(Cyt)]
     #[new(into)]
-    pub cyt: MaybeValue<Cyt>,
+    pub cyt: Cyt,
 
     /// Compensation matrix derived from 'DFCnTOm' key/value pairs
     #[as_ref(Option<Compensation2_0>)]
@@ -557,10 +557,10 @@ pub struct InnerMetaroot3_0 {
     pub mode: Mode,
 
     /// Value of $CYT
-    #[as_ref(Option<Cyt>)]
-    #[as_mut(Option<Cyt>)]
+    #[as_ref(Cyt)]
+    #[as_mut(Cyt)]
     #[new(into)]
-    pub cyt: MaybeValue<Cyt>,
+    pub cyt: Cyt,
 
     /// Value of $COMP
     #[as_ref(Option<Compensation3_0>)]
@@ -612,10 +612,10 @@ pub struct InnerMetaroot3_1 {
     pub mode: Mode,
 
     /// Value of $CYT
-    #[as_ref(Option<Cyt>)]
-    #[as_mut(Option<Cyt>)]
+    #[as_ref(Cyt)]
+    #[as_mut(Cyt)]
     #[new(into)]
-    pub cyt: MaybeValue<Cyt>,
+    pub cyt: Cyt,
 
     /// Values of $BTIM/ETIM/$DATE
     #[as_ref(Timestamps3_1, Option<FCSDate>)]
@@ -4443,7 +4443,7 @@ impl CoreTEXT2_0 {
         measurements: Eithers<MaybeFamily, Temporal<InnerTemporal2_0>, Optical<InnerOptical2_0>>,
         layout: DataLayout2_0,
         mode: Mode,
-        cyt: Option<Cyt>,
+        cyt: Cyt,
         comp: Option<Compensation>,
         btim: Option<Btim<FCSTime>>,
         etim: Option<Etim<FCSTime>>,
@@ -4494,7 +4494,7 @@ impl CoreTEXT3_0 {
         measurements: Eithers<MaybeFamily, Temporal<InnerTemporal3_0>, Optical<InnerOptical3_0>>,
         layout: DataLayout3_0,
         mode: Mode,
-        cyt: Option<Cyt>,
+        cyt: Cyt,
         comp: Option<Compensation>,
         btim: Option<Btim<FCSTime60>>,
         etim: Option<Etim<FCSTime60>>,
@@ -4559,7 +4559,7 @@ impl CoreTEXT3_1 {
         measurements: Eithers<AlwaysFamily, Temporal<InnerTemporal3_1>, Optical<InnerOptical3_1>>,
         layout: DataLayout3_1,
         mode: Mode,
-        cyt: Option<Cyt>,
+        cyt: Cyt,
         btim: Option<Btim<FCSTime100>>,
         etim: Option<Etim<FCSTime100>>,
         date: Option<FCSDate>,
@@ -5381,7 +5381,7 @@ impl_ref_specific_rw!(
     Metaroot,
     InnerMetaroot2_0,
     Mode,
-    Option<Cyt>,
+    Cyt,
     Timestamps2_0,
     AppliedGates2_0
 );
@@ -5390,7 +5390,7 @@ impl_ref_specific_rw!(
     Metaroot,
     InnerMetaroot3_0,
     Mode,
-    Option<Cyt>,
+    Cyt,
     Option<Cytsn>,
     Option<Unicode>,
     Option<CSVBits>,
@@ -5403,7 +5403,7 @@ impl_ref_specific_rw!(
     Metaroot,
     InnerMetaroot3_1,
     Mode,
-    Option<Cyt>,
+    Cyt,
     Option<Cytsn>,
     Option<LastModifier>,
     Option<LastModified>,
@@ -5639,7 +5639,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
             .map(|_| {
                 Self::new(
                     Mode::List,
-                    Some(value.cyt.into()),
+                    value.cyt,
                     None,
                     value.timestamps.map(Into::into),
                     AppliedGates2_0::default(),
@@ -5710,7 +5710,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
             .map(|_| {
                 Self::new(
                     Mode::List,
-                    Some(value.cyt.into()),
+                    value.cyt,
                     None,
                     value.timestamps.map(Into::into),
                     value.cytsn,
@@ -5784,7 +5784,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
         let ret = dt.zip4(carrier, us, flow).inner_into().map(|_| {
             Self::new(
                 Mode::List,
-                Some(value.cyt.into()),
+                value.cyt,
                 value.timestamps,
                 value.cytsn,
                 value.spillover,
@@ -5806,8 +5806,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
     ) -> MetarootConvertResult<Self> {
         let mut res = value
             .cyt
-            .0
-            .ok_or(NoCytError)
+            .try_into()
             .into_deferred()
             .def_and_tentatively(|cyt| {
                 Mode3_2::try_from(value.mode)
@@ -5818,8 +5817,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
                             mode,
                             value.timestamps.map(Into::into),
                             Datetimes::default(),
-                            // TODO duck tape fix
-                            Cyt3_2(cyt.0.parse().unwrap()),
+                            cyt,
                             None,
                             None,
                             ModificationData::default(),
@@ -5859,8 +5857,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
                 .and_maybe(|applied_gates| {
                     value
                         .cyt
-                        .0
-                        .ok_or(NoCytError)
+                        .try_into()
                         .into_deferred()
                         .def_and_tentatively(|cyt| {
                             Mode3_2::try_from(value.mode)
@@ -5871,7 +5868,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
                                         mode,
                                         value.timestamps.map(Into::into),
                                         Datetimes::default(),
-                                        Cyt3_2(cyt.0.parse().unwrap()),
+                                        cyt,
                                         None,
                                         value.cytsn,
                                         ModificationData::default(),
@@ -5903,8 +5900,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
         ss.zip(a).and_maybe(|((), applied_gates)| {
             value
                 .cyt
-                .0
-                .ok_or(NoCytError)
+                .try_into()
                 .into_deferred()
                 .def_and_tentatively(|cyt| {
                     Mode3_2::try_from(value.mode)
@@ -5915,7 +5911,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
                                 mode,
                                 value.timestamps,
                                 Datetimes::default(),
-                                Cyt3_2(cyt.0.parse().unwrap()),
+                                cyt,
                                 value.spillover,
                                 value.cytsn,
                                 value.modification,
@@ -7374,7 +7370,7 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
     }
 
     fn keywords_opt_inner(&self) -> impl Iterator<Item = (String, String)> {
-        once(self.cyt.root_kw_pair())
+        once(self.cyt.metaroot_opt_pair())
             .filter_map(|(k, v)| v.map(|x| (k, x)))
             .chain(self.applied_gates.opt_keywords())
             .chain(self.timestamps.opt_keywords())
@@ -7438,7 +7434,7 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
 
     fn keywords_opt_inner(&self) -> impl Iterator<Item = (String, String)> {
         [
-            self.cyt.root_kw_pair(),
+            self.cyt.metaroot_opt_pair(),
             self.comp.root_kw_pair(),
             self.cytsn.root_kw_pair(),
             self.unicode.root_kw_pair(),
@@ -7509,7 +7505,7 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
 
     fn keywords_opt_inner(&self) -> impl Iterator<Item = (String, String)> {
         [
-            self.cyt.root_kw_pair(),
+            self.cyt.metaroot_opt_pair(),
             self.spillover.root_kw_pair(),
             self.cytsn.root_kw_pair(),
             self.vol.root_kw_pair(),
@@ -8342,10 +8338,6 @@ pub struct UnitaryKeyLossError<T>(PhantomData<T>);
 #[display(bound(T: IndexedKey))]
 #[display("{} is set but is not applicable to target version", T::std(*_1))]
 pub struct IndexedKeyLossError<T>(PhantomData<T>, #[new(into)] IndexFromOne);
-
-#[derive(Debug, Error)]
-#[error("$CYT is missing")]
-pub struct NoCytError;
 
 #[derive(Debug, Error)]
 #[error("number of columns is {this_len}, input should match but got {other_len}")]

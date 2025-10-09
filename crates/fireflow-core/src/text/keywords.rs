@@ -14,7 +14,7 @@ use super::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use super::gating;
 use super::index::{GateIndex, MeasIndex, RegionIndex};
 use super::named_vec::NameMapping;
-use super::optional::MaybeValue;
+use super::optional::{MaybeValue, OptionalString};
 use super::parser::{
     DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful, LookupKeysWarning,
     LookupResult, LookupTentative, OptIndexedKey, OptLinkedKey, OptMetarootKey, Optional,
@@ -1543,16 +1543,39 @@ pub struct Cyt3_2(pub NonEmptyString);
 
 impl From<Cyt3_2> for Cyt {
     fn from(value: Cyt3_2) -> Self {
-        Self(value.0.into())
+        Self(OptionalString(value.0.into()))
     }
 }
 
+impl TryFrom<Cyt> for Cyt3_2 {
+    type Error = NoCytError;
+
+    fn try_from(value: Cyt) -> Result<Self, Self::Error> {
+        (value.0).0.parse().map_err(|_| NoCytError)
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("$CYT is missing")]
+pub struct NoCytError;
+
 macro_rules! newtype_string {
     ($t:ident) => {
-        #[derive(Clone, Display, FromStr, From, Into, PartialEq, Debug)]
+        #[derive(Clone, Display, FromStr, From, Into, PartialEq, Debug, Default)]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
-        pub struct $t(pub String);
+        pub struct $t(pub OptionalString);
+
+        impl From<&$t> for Option<String> {
+            fn from(value: &$t) -> Self {
+                let s = &(&value.0).0;
+                if s.is_empty() {
+                    None
+                } else {
+                    Some(s.to_owned())
+                }
+            }
+        }
     };
 }
 
@@ -1620,9 +1643,9 @@ macro_rules! req_meta {
 }
 
 macro_rules! opt_meta {
-    ($t:ident) => {
+    ($t:ident, $outer:path) => {
         impl Optional for $t {
-            type Outer = MaybeValue<Self>;
+            type Outer = $outer;
         }
         impl OptMetarootKey for $t {}
     };
@@ -1652,9 +1675,9 @@ macro_rules! kw_req_meta {
 }
 
 macro_rules! kw_opt_meta {
-    ($t:ident, $sfx:expr) => {
+    ($t:ident, $sfx:expr, $outer:path) => {
         kw_meta!($t, $sfx);
-        opt_meta!($t);
+        opt_meta!($t, $outer);
     };
 }
 
@@ -1675,7 +1698,7 @@ macro_rules! kw_opt_meas {
 macro_rules! kw_opt_meta_string {
     ($t:ident, $sfx:expr) => {
         kw_meta_string!($t, $sfx);
-        opt_meta!($t);
+        opt_meta!($t, Self);
     };
 }
 
@@ -1696,7 +1719,7 @@ macro_rules! kw_req_meta_int {
 macro_rules! kw_opt_meta_int {
     ($t:ident, $type:ident, $sfx:expr) => {
         kw_meta_int!($t, $type, $sfx);
-        opt_meta!($t);
+        opt_meta!($t, MaybeValue<Self>);
     };
 }
 
@@ -1704,7 +1727,7 @@ macro_rules! kw_time {
     ($outer:ident, $wrap:ident, $inner:ident, $err:ident, $key:expr) => {
         type $outer = $wrap<$inner>;
 
-        kw_opt_meta!($outer, $key);
+        kw_opt_meta!($outer, $key, MaybeValue<Self>);
 
         impl From<NaiveTime> for $outer {
             fn from(value: NaiveTime) -> Self {
@@ -1747,7 +1770,7 @@ kw_opt_meta_int!(Abrt, u32, "ABRT");
 kw_opt_meta_string!(Cytsn, "CYTSN");
 kw_opt_meta_string!(Com, "COM");
 kw_opt_meta_string!(Cells, "CELLS");
-kw_opt_meta!(FCSDate, "DATE");
+kw_opt_meta!(FCSDate, "DATE", MaybeValue<Self>);
 kw_opt_meta_string!(Exp, "EXP");
 kw_opt_meta_string!(Fil, "FIL");
 kw_opt_meta_string!(Inst, "INST");
@@ -1792,16 +1815,16 @@ kw_time!(Btim3_1, Btim, FCSTime100, FCSTime100Error, "BTIM");
 kw_time!(Etim3_1, Etim, FCSTime100, FCSTime100Error, "ETIM");
 
 // 3.0 only
-kw_opt_meta!(Compensation3_0, "COMP");
-kw_opt_meta!(Unicode, "UNICODE");
+kw_opt_meta!(Compensation3_0, "COMP", MaybeValue<Self>);
+kw_opt_meta!(Unicode, "UNICODE", MaybeValue<Self>);
 
 // for 3.0+
 kw_req_meta!(Timestep, "TIMESTEP");
 
 // for 3.1+
 kw_opt_meta_string!(LastModifier, "LAST_MODIFIER");
-kw_opt_meta!(Originality, "ORIGINALITY");
-kw_opt_meta!(LastModified, "LAST_MODIFIED");
+kw_opt_meta!(Originality, "ORIGINALITY", MaybeValue<Self>);
+kw_opt_meta!(LastModified, "LAST_MODIFIED", MaybeValue<Self>);
 
 kw_opt_meta_string!(Plateid, "PLATEID");
 kw_opt_meta_string!(Platename, "PLATENAME");
@@ -1812,17 +1835,17 @@ kw_opt_meta_string!(Wellid, "WELLID");
 // }
 
 // impl Optional for Spillover {}
-kw_opt_meta!(Spillover, "SPILLOVER");
+kw_opt_meta!(Spillover, "SPILLOVER", MaybeValue<Self>);
 
-kw_opt_meta!(Vol, "VOL");
+kw_opt_meta!(Vol, "VOL", MaybeValue<Self>);
 
 // for 3.2+
 kw_opt_meta_string!(Carrierid, "CARRIERID");
 kw_opt_meta_string!(Carriertype, "CARRIERTYPE");
 kw_opt_meta_string!(Locationid, "LOCATIONID");
 
-kw_opt_meta!(BeginDateTime, "BEGINDATETIME");
-kw_opt_meta!(EndDateTime, "ENDDATETIME");
+kw_opt_meta!(BeginDateTime, "BEGINDATETIME", MaybeValue<Self>);
+kw_opt_meta!(EndDateTime, "ENDDATETIME", MaybeValue<Self>);
 
 impl Key for UnstainedCenters {
     const C: &'static str = "UNSTAINEDCENTERS";
@@ -1841,7 +1864,7 @@ kw_opt_meta_int!(Tot, usize, "TOT"); // optional in 2.0
 req_meta!(Tot); // required in 3.0+
 
 kw_req_meta!(Mode, "MODE"); // for 2.0-3.1
-kw_opt_meta!(Mode3_2, "MODE"); // for 3.2+
+kw_opt_meta!(Mode3_2, "MODE", MaybeValue<Self>); // for 3.2+
 
 kw_opt_meta_string!(Cyt, "CYT"); // optional for 2.0-3.1
 kw_req_meta!(Cyt3_2, "CYT"); // required for 3.2+
@@ -1942,7 +1965,7 @@ kw_opt_gate!(GateShortname, "N");
 kw_opt_gate_string!(GateLongname, "S");
 kw_opt_gate_string!(GateDetectorType, "T");
 kw_opt_gate!(GateDetectorVoltage, "V");
-kw_opt_meta!(Gating, "GATING");
+kw_opt_meta!(Gating, "GATING", MaybeValue<Self>);
 
 kw_opt_region!(RegionWindow, "W");
 
@@ -1976,10 +1999,10 @@ kw_offset!(Endanalysis, "ENDANALYSIS");
 kw_offset!(Enddata, "ENDDATA");
 kw_offset!(Endstext, "ENDSTEXT");
 
-opt_meta!(Beginanalysis);
-opt_meta!(Endanalysis);
-opt_meta!(Beginstext);
-opt_meta!(Endstext);
+opt_meta!(Beginanalysis, MaybeValue<Self>);
+opt_meta!(Endanalysis, MaybeValue<Self>);
+opt_meta!(Beginstext, MaybeValue<Self>);
+opt_meta!(Endstext, MaybeValue<Self>);
 
 #[cfg(test)]
 mod tests {

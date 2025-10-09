@@ -5,6 +5,7 @@ use crate::validated::keys::{
     BiIndexedKey as _, IndexedKey, Key, MeasHeader, NonStdKeywords, NonStdKeywordsExt as _, StdKey,
     StdKeywords,
 };
+use crate::validated::nonempty_string::NonEmptyStringError;
 use crate::validated::shortname::{Shortname, ShortnameError};
 
 use super::byteord::{NewEndianError, ParseByteOrdError, Width};
@@ -628,6 +629,7 @@ pub enum ParseReqKeyError {
     Range(ParseBigDecimalError),
     AlphaNumType(AlphaNumTypeError),
     String(Infallible),
+    NonEmptyString(NonEmptyStringError),
     Int(ParseIntError),
     Scale(ScaleError),
     TemporalScale(TemporalScaleError),

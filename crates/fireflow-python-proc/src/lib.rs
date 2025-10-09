@@ -805,7 +805,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let cyt = if version < Version::FCS3_2 {
         DocArg::new_kw_opt_ivar("Cyt", "cyt", PyStr::new1)
     } else {
-        DocArg::new_kw_ivar("Cyt", "cyt", PyStr::new1, None, false)
+        DocArg::new_kw_ivar("Cyt3_2", "cyt", PyStr::new1, None, false)
     };
 
     let to_pyint = |p| PyInt::new(RsInt::U32, p);

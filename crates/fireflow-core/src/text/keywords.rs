@@ -4,6 +4,7 @@ use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
 use crate::validated::ascii_uint::UintZeroPad20;
 use crate::validated::keys::{BiIndexedKey, IndexedKey, Key, StdKeywords};
+use crate::validated::nonempty_string::NonEmptyString;
 use crate::validated::shortname::Shortname;
 
 use super::byteord::{ByteOrd2_0, ByteOrd3_1, Width};
@@ -1531,6 +1532,21 @@ impl FromStrStateful for GateScale {
     }
 }
 
+/// The value of the $CYT key (3.2).
+///
+/// This is not a normal string because it is required in 3.2 and thus cannot
+/// be empty.
+#[derive(Clone, Display, FromStr, PartialEq, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct Cyt3_2(pub NonEmptyString);
+
+impl From<Cyt3_2> for Cyt {
+    fn from(value: Cyt3_2) -> Self {
+        Self(value.0.into())
+    }
+}
+
 macro_rules! newtype_string {
     ($t:ident) => {
         #[derive(Clone, Display, FromStr, From, Into, PartialEq, Debug)]
@@ -1606,7 +1622,7 @@ macro_rules! req_meta {
 macro_rules! opt_meta {
     ($t:ident) => {
         impl Optional for $t {
-            type Outer = MaybeValue<$t>;
+            type Outer = MaybeValue<Self>;
         }
         impl OptMetarootKey for $t {}
     };
@@ -1622,7 +1638,7 @@ macro_rules! req_meas {
 macro_rules! opt_meas {
     ($t:ident) => {
         impl Optional for $t {
-            type Outer = MaybeValue<$t>;
+            type Outer = MaybeValue<Self>;
         }
         impl OptIndexedKey for $t {}
     };
@@ -1748,7 +1764,7 @@ impl Key for Trigger {
 }
 
 impl Optional for Trigger {
-    type Outer = MaybeValue<Trigger>;
+    type Outer = MaybeValue<Self>;
 }
 
 impl OptLinkedKey for Trigger {
@@ -1813,7 +1829,7 @@ impl Key for UnstainedCenters {
 }
 
 impl Optional for UnstainedCenters {
-    type Outer = MaybeValue<UnstainedCenters>;
+    type Outer = MaybeValue<Self>;
 }
 
 kw_opt_meta_string!(UnstainedInfo, "UNSTAINEDINFO");
@@ -1828,7 +1844,7 @@ kw_req_meta!(Mode, "MODE"); // for 2.0-3.1
 kw_opt_meta!(Mode3_2, "MODE"); // for 3.2+
 
 kw_opt_meta_string!(Cyt, "CYT"); // optional for 2.0-3.1
-req_meta!(Cyt); // required for 3.2+
+kw_req_meta!(Cyt3_2, "CYT"); // required for 3.2+
 
 kw_req_meta!(ByteOrd2_0, "BYTEORD"); // 2.0/3.0
 kw_req_meta!(ByteOrd3_1, "BYTEORD"); // 3.1+
@@ -1936,7 +1952,7 @@ impl<I> IndexedKey for RegionGateIndex<I> {
 }
 
 impl<I> Optional for RegionGateIndex<I> {
-    type Outer = MaybeValue<RegionGateIndex<I>>;
+    type Outer = MaybeValue<Self>;
 }
 impl<I> OptIndexedKey for RegionGateIndex<I> where I: fmt::Display + FromStr {}
 
@@ -2125,7 +2141,7 @@ mod python {
     use crate::validated::shortname::Shortname;
 
     use super::{
-        AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Display, Feature,
+        AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Cyt3_2, Display, Feature,
         FeatureError, GateRange, GateScale, GateShortname, IndexPair, LastModified, Mode, Mode3_2,
         Mode3_2Error, ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError, Originality,
         OriginalityError, PrefixedMeasIndex, Range, TemporalType, TemporalTypeError, Timestep,
@@ -2152,6 +2168,8 @@ mod python {
     impl_str_py!(Mode3_2, Mode3_2Error);
     impl_str_py!(OpticalType, OpticalTypeError);
     impl_str_py!(TemporalType, TemporalTypeError);
+
+    impl_from_py_transparent!(Cyt3_2);
 
     impl_from_py_transparent!(Wavelength);
     impl_from_py_transparent!(Vol);

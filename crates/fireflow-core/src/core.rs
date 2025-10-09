@@ -36,7 +36,7 @@ use crate::text::{
     index::{IndexFromOne, MeasIndex},
     keywords::{
         Abrt, Analyte, Beginstext, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2,
-        Carrierid, Carriertype, Cells, Com, Cyt, Cytsn, DetectorName, DetectorType,
+        Carrierid, Carriertype, Cells, Com, Cyt, Cyt3_2, Cytsn, DetectorName, DetectorType,
         DetectorVoltage, Display, Endstext, Exp, Feature, Fil, Filter, Flowrate, Gain, Inst,
         IntRangeError, LastModified, LastModifier, Locationid, Longname, Lost, Mode, Mode3_2,
         ModeUpgradeError, Nextdata, Op, OpticalType, Originality, Par, PeakBin, PeakNumber,
@@ -688,9 +688,9 @@ pub struct InnerMetaroot3_2 {
     pub datetimes: Datetimes,
 
     /// Value of $CYT
-    #[as_ref(Cyt)]
-    #[as_mut(Cyt)]
-    pub cyt: Cyt,
+    #[as_ref(Cyt3_2)]
+    #[as_mut(Cyt3_2)]
+    pub cyt: Cyt3_2,
 
     /// Value of $SPILLOVER
     #[as_ref(Option<Spillover>)]
@@ -4631,7 +4631,7 @@ impl CoreTEXT3_2 {
     pub fn try_new_3_2(
         measurements: Eithers<AlwaysFamily, Temporal<InnerTemporal3_2>, Optical<InnerOptical3_2>>,
         layout: DataLayout3_2,
-        cyt: Cyt,
+        cyt: Cyt3_2,
         mode: Option<Mode3_2>,
         btim: Option<Btim<FCSTime100>>,
         etim: Option<Etim<FCSTime100>>,
@@ -5421,7 +5421,7 @@ impl_ref_specific_rw!(
 impl_ref_specific_rw!(
     Metaroot,
     InnerMetaroot3_2,
-    Cyt,
+    Cyt3_2,
     Datetimes,
     Option<Mode3_2>,
     Option<Cytsn>,
@@ -5639,7 +5639,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
             .map(|_| {
                 Self::new(
                     Mode::List,
-                    Some(value.cyt),
+                    Some(value.cyt.into()),
                     None,
                     value.timestamps.map(Into::into),
                     AppliedGates2_0::default(),
@@ -5710,7 +5710,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
             .map(|_| {
                 Self::new(
                     Mode::List,
-                    Some(value.cyt),
+                    Some(value.cyt.into()),
                     None,
                     value.timestamps.map(Into::into),
                     value.cytsn,
@@ -5784,7 +5784,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
         let ret = dt.zip4(carrier, us, flow).inner_into().map(|_| {
             Self::new(
                 Mode::List,
-                Some(value.cyt),
+                Some(value.cyt.into()),
                 value.timestamps,
                 value.cytsn,
                 value.spillover,
@@ -5818,7 +5818,8 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
                             mode,
                             value.timestamps.map(Into::into),
                             Datetimes::default(),
-                            cyt,
+                            // TODO duck tape fix
+                            Cyt3_2(cyt.0.parse().unwrap()),
                             None,
                             None,
                             ModificationData::default(),
@@ -5870,7 +5871,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
                                         mode,
                                         value.timestamps.map(Into::into),
                                         Datetimes::default(),
-                                        cyt,
+                                        Cyt3_2(cyt.0.parse().unwrap()),
                                         None,
                                         value.cytsn,
                                         ModificationData::default(),
@@ -5914,7 +5915,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
                                 mode,
                                 value.timestamps,
                                 Datetimes::default(),
-                                cyt,
+                                Cyt3_2(cyt.0.parse().unwrap()),
                                 value.spillover,
                                 value.cytsn,
                                 value.modification,
@@ -7326,7 +7327,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
             .errors_into()
             .and_maybe(
                 |(((ca_, d_, f_, md_, mo_, sp_), sn_, p_, t_, u_, v_), ag_)| {
-                    Cyt::lookup_req(kws).def_map_value(|c_| {
+                    Cyt3_2::lookup_req(kws).def_map_value(|c_| {
                         Self::new(mo_, t_, d_, c_, sp_, sn_, md_, p_, v_, ca_, u_, f_, ag_)
                     })
                 },

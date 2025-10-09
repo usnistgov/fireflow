@@ -500,12 +500,13 @@ where
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
         // TODO not dry
-        process_opt(
-            Self::remove_opt(kws, Self::std(), |k, v| {
-                Self::from_str_st(v.as_str(), payload, conf).map_err(|e| OptKeyError::new(e, k, v))
-            }),
-            conf,
-        )
+        Self::remove_opt_tnt(kws, Self::std(), |k, v| {
+            Self::from_str_st(v.as_str(), payload, conf)
+                .map_err(|e| OptKeyError::new(e, k, v))
+                .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
+                .into_tentative_opt(!conf.allow_optional_dropping)
+                .errors_into()
+        })
         .and_tentatively(|maybe| {
             if let Some(x) = maybe.0 {
                 Self::check_link(&x, names)
@@ -597,17 +598,17 @@ pub(crate) fn lookup_temporal_gain_3_0(
     }
 }
 
-pub(crate) fn process_opt<V, W>(
-    res: Result<MaybeValue<V>, OptKeyError<W>>,
-    conf: &StdTextReadConfig,
-) -> LookupOptional<V>
-where
-    ParseOptKeyError: From<W>,
-{
-    res.map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
-        .into_tentative_def(!conf.allow_optional_dropping)
-        .errors_into()
-}
+// pub(crate) fn process_opt<V, W>(
+//     res: Result<MaybeValue<V>, OptKeyError<W>>,
+//     conf: &StdTextReadConfig,
+// ) -> LookupOptional<V>
+// where
+//     ParseOptKeyError: From<W>,
+// {
+//     res.map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
+//         .into_tentative_def(!conf.allow_optional_dropping)
+//         .errors_into()
+// }
 
 pub(crate) type RawKeywords = HashMap<String, String>;
 
@@ -815,16 +816,8 @@ pub(crate) fn eval_dep_maybe<T>(
     let go = |v: &Option<T>| -> Option<DeprecatedError> {
         v.is_some().then_some(DepKeyWarning(key).into())
     };
-    if disallow_dep {
-        x.eval_error(go);
-    } else {
-        x.eval_warning(go);
-    }
+    x.eval_error_or_warning(disallow_dep, go);
 }
-
-// fn eval_dep<T>(v: &MaybeValue<T>, key: StdKey) -> Option<DeprecatedError> {
-//     v.0.is_some().then_some(DepKeyWarning(key).into())
-// }
 
 #[derive(Clone, new, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]

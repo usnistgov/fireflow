@@ -438,6 +438,18 @@ impl<V, W, E> Tentative<V, W, E> {
         }
     }
 
+    pub fn eval_error_or_warning<F, X>(&mut self, is_error: bool, f: F)
+    where
+        X: Into<W> + Into<E>,
+        F: FnOnce(&V) -> Option<X>,
+    {
+        if is_error {
+            self.eval_error(f);
+        } else {
+            self.eval_warning(f);
+        }
+    }
+
     pub fn eval_errors<F, X, I>(&mut self, f: F)
     where
         E: From<X>,

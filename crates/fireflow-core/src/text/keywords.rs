@@ -15,7 +15,7 @@ use super::index::{GateIndex, MeasIndex, RegionIndex};
 use super::named_vec::NameMapping;
 use super::optional::MaybeValue;
 use super::parser::{
-    eval_dep_maybe, process_opt, DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful,
+    eval_dep_maybe, DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful,
     LookupKeysWarning, LookupResult, LookupTentative, OptIndexedKey, OptLinkedKey, OptMetarootKey,
     Optional, ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
 };
@@ -839,7 +839,7 @@ impl<I> RegionGateIndex<I> {
         for<'a> Self: fmt::Display + FromStrStateful<Payload<'a> = ()>,
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
-        process_opt(Self::remove_meas_opt_st(kws, i, (), conf), conf).and_tentatively(|maybe| {
+        Self::lookup_opt_st(kws, i, (), conf).and_tentatively(|maybe| {
             if let Some(x) = maybe.0 {
                 Self::check_link(&x, par)
                     .map(|()| x)

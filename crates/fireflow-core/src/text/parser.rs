@@ -1,5 +1,7 @@
 use crate::config::{StdTextReadConfig, TimeMeasNamePattern};
-use crate::core::{NewCSVFlagsError, ScaleTransformError};
+use crate::core::{
+    AnyMetarootKeyLossError, NewCSVFlagsError, ScaleTransformError, UnitaryKeyLossError,
+};
 use crate::error::{BiTentative, DeferredResult, ResultExt as _, Tentative};
 use crate::validated::keys::{
     BiIndexedKey as _, IndexedKey, Key, MeasHeader, NonStdKeywords, NonStdKeywordsExt as _, StdKey,
@@ -24,7 +26,7 @@ use super::keywords::{
     UnicodeError, WavelengthsError,
 };
 use super::named_vec::{NameMapping, NewNamedVecError};
-use super::optional::MaybeValue;
+use super::optional::{MaybeValue, OptionalString};
 use super::ranged_float::RangedFloatError;
 use super::scale::{Scale, ScaleError};
 use super::spillover::{ParseSpilloverError, SpilloverIndexError};
@@ -314,6 +316,18 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         for<'a> &'a Self: Into<Option<String>>,
     {
         (Self::std().to_string(), self.into())
+    }
+
+    fn check_key_transfer(self, allow_loss: bool) -> BiTentative<(), AnyMetarootKeyLossError>
+    where
+        Self: fmt::Display + Optional<Outer = Self> + Into<OptionalString>,
+        AnyMetarootKeyLossError: From<UnitaryKeyLossError<Self>>,
+    {
+        let mut tnt = Tentative::default();
+        if self.into().0.is_empty() {
+            tnt.push_error_or_warning(UnitaryKeyLossError::<Self>::new(), !allow_loss);
+        }
+        tnt
     }
 }
 

@@ -811,18 +811,18 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let to_pyint = |p| PyInt::new(RsInt::U32, p);
 
     let abrt = DocArg::new_kw_opt_ivar("Abrt", "abrt", to_pyint);
-    let com = DocArg::new_kw_opt_ivar("Com", "com", PyStr::new1);
-    let cells = DocArg::new_kw_opt_ivar("Cells", "cells", PyStr::new1);
-    let exp = DocArg::new_kw_opt_ivar("Exp", "exp", PyStr::new1);
-    let fil = DocArg::new_kw_opt_ivar("Fil", "fil", PyStr::new1);
-    let inst = DocArg::new_kw_opt_ivar("Inst", "inst", PyStr::new1);
+    let com = DocArg::new_kw_ivar("Com", "com", PyStr::new1, None, true);
+    let cells = DocArg::new_kw_ivar("Cells", "cells", PyStr::new1, None, true);
+    let exp = DocArg::new_kw_ivar("Exp", "exp", PyStr::new1, None, true);
+    let fil = DocArg::new_kw_ivar("Fil", "fil", PyStr::new1, None, true);
+    let inst = DocArg::new_kw_ivar("Inst", "inst", PyStr::new1, None, true);
     let lost = DocArg::new_kw_opt_ivar("Lost", "lost", to_pyint);
-    let op = DocArg::new_kw_opt_ivar("Op", "op", PyStr::new1);
-    let proj = DocArg::new_kw_opt_ivar("Proj", "proj", PyStr::new1);
-    let smno = DocArg::new_kw_opt_ivar("Smno", "smno", PyStr::new1);
-    let src = DocArg::new_kw_opt_ivar("Src", "src", PyStr::new1);
-    let sys = DocArg::new_kw_opt_ivar("Sys", "sys", PyStr::new1);
-    let cytsn = DocArg::new_kw_opt_ivar("Cytsn", "cytsn", PyStr::new1);
+    let op = DocArg::new_kw_ivar("Op", "op", PyStr::new1, None, true);
+    let proj = DocArg::new_kw_ivar("Proj", "proj", PyStr::new1, None, true);
+    let smno = DocArg::new_kw_ivar("Smno", "smno", PyStr::new1, None, true);
+    let src = DocArg::new_kw_ivar("Src", "src", PyStr::new1, None, true);
+    let sys = DocArg::new_kw_ivar("Sys", "sys", PyStr::new1, None, true);
+    let cytsn = DocArg::new_kw_ivar("Cytsn", "cytsn", PyStr::new1, None, true);
 
     let unicode_pytype = |p| {
         PyTuple::new1(
@@ -839,7 +839,8 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     let all_subset = [csvbits, cstot, csvflags];
 
-    let last_modifier = DocArg::new_kw_opt_ivar("LastModifier", "last_modifier", PyStr::new1);
+    let last_modifier =
+        DocArg::new_kw_ivar("LastModifier", "last_modifier", PyStr::new1, None, true);
     let last_mod_date = DocArg::new_kw_opt_ivar("LastModified", "last_modified", PyDatetime::new1);
     let originality = DocArg::new_kw_opt_ivar("Originality", "originality", |p| {
         PyLiteral::new1(

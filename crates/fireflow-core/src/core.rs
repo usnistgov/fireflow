@@ -189,34 +189,34 @@ pub struct Metaroot<X> {
     pub abrt: MaybeValue<Abrt>,
 
     /// Value of $COM
-    #[as_ref(Option<Com>)]
-    #[as_mut(Option<Com>)]
+    #[as_ref(Com)]
+    #[as_mut(Com)]
     #[new(into)]
-    pub com: MaybeValue<Com>,
+    pub com: Com,
 
     /// Value of $CELLS
-    #[as_ref(Option<Cells>)]
-    #[as_mut(Option<Cells>)]
+    #[as_ref(Cells)]
+    #[as_mut(Cells)]
     #[new(into)]
-    pub cells: MaybeValue<Cells>,
+    pub cells: Cells,
 
     /// Value of $EXP
-    #[as_ref(Option<Exp>)]
-    #[as_mut(Option<Exp>)]
+    #[as_ref(Exp)]
+    #[as_mut(Exp)]
     #[new(into)]
-    pub exp: MaybeValue<Exp>,
+    pub exp: Exp,
 
     /// Value of $FIL
-    #[as_ref(Option<Fil>)]
-    #[as_mut(Option<Fil>)]
+    #[as_ref(Fil)]
+    #[as_mut(Fil)]
     #[new(into)]
-    pub fil: MaybeValue<Fil>,
+    pub fil: Fil,
 
     /// Value of $INST
-    #[as_ref(Option<Inst>)]
-    #[as_mut(Option<Inst>)]
+    #[as_ref(Inst)]
+    #[as_mut(Inst)]
     #[new(into)]
-    pub inst: MaybeValue<Inst>,
+    pub inst: Inst,
 
     /// Value of $LOST
     #[as_ref(Option<Lost>)]
@@ -225,34 +225,34 @@ pub struct Metaroot<X> {
     pub lost: MaybeValue<Lost>,
 
     /// Value of $OP
-    #[as_ref(Option<Op>)]
-    #[as_mut(Option<Op>)]
+    #[as_ref(Op)]
+    #[as_mut(Op)]
     #[new(into)]
-    pub op: MaybeValue<Op>,
+    pub op: Op,
 
     /// Value of $PROJ
-    #[as_ref(Option<Proj>)]
-    #[as_mut(Option<Proj>)]
+    #[as_ref(Proj)]
+    #[as_mut(Proj)]
     #[new(into)]
-    pub proj: MaybeValue<Proj>,
+    pub proj: Proj,
 
     /// Value of $SMNO
-    #[as_ref(Option<Smno>)]
-    #[as_mut(Option<Smno>)]
+    #[as_ref(Smno)]
+    #[as_mut(Smno)]
     #[new(into)]
-    pub smno: MaybeValue<Smno>,
+    pub smno: Smno,
 
     /// Value of $SRC
-    #[as_ref(Option<Src>)]
-    #[as_mut(Option<Src>)]
+    #[as_ref(Src)]
+    #[as_mut(Src)]
     #[new(into)]
-    pub src: MaybeValue<Src>,
+    pub src: Src,
 
     /// Value of $SYS
-    #[as_ref(Option<Sys>)]
-    #[as_mut(Option<Sys>)]
+    #[as_ref(Sys)]
+    #[as_mut(Sys)]
     #[new(into)]
-    pub sys: MaybeValue<Sys>,
+    pub sys: Sys,
 
     /// Value of $TR
     #[as_ref(Option<Trigger>)]
@@ -574,10 +574,10 @@ pub struct InnerMetaroot3_0 {
     pub timestamps: Timestamps3_0,
 
     /// Value of $CYTSN
-    #[as_ref(Option<Cytsn>)]
-    #[as_mut(Option<Cytsn>)]
+    #[as_ref(Cytsn)]
+    #[as_mut(Cytsn)]
     #[new(into)]
-    pub cytsn: MaybeValue<Cytsn>,
+    pub cytsn: Cytsn,
 
     /// Value of $UNICODE
     #[as_ref(Option<Unicode>)]
@@ -623,10 +623,10 @@ pub struct InnerMetaroot3_1 {
     pub timestamps: Timestamps3_1,
 
     /// Value of $CYTSN
-    #[as_ref(Option<Cytsn>)]
-    #[as_mut(Option<Cytsn>)]
+    #[as_ref(Cytsn)]
+    #[as_mut(Cytsn)]
     #[new(into)]
-    pub cytsn: MaybeValue<Cytsn>,
+    pub cytsn: Cytsn,
 
     /// Value of $SPILLOVER
     #[as_ref(Option<Spillover>)]
@@ -635,8 +635,8 @@ pub struct InnerMetaroot3_1 {
     pub spillover: MaybeValue<Spillover>,
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
-    #[as_ref(Option<LastModifier>, Option<LastModified>, Option<Originality>)]
-    #[as_mut(Option<LastModifier>, Option<LastModified>, Option<Originality>)]
+    #[as_ref(LastModifier, Option<LastModified>, Option<Originality>)]
+    #[as_mut(LastModifier, Option<LastModified>, Option<Originality>)]
     pub modification: ModificationData,
 
     /// Values of $PLATEID/$PLATENAME/$WELLID
@@ -699,14 +699,14 @@ pub struct InnerMetaroot3_2 {
     pub spillover: MaybeValue<Spillover>,
 
     /// Value of $CYTSN
-    #[as_ref(Option<Cytsn>)]
-    #[as_mut(Option<Cytsn>)]
+    #[as_ref(Cytsn)]
+    #[as_mut(Cytsn)]
     #[new(into)]
-    pub cytsn: MaybeValue<Cytsn>,
+    pub cytsn: Cytsn,
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
-    #[as_ref(Option<LastModifier>, Option<LastModified>, Option<Originality>)]
-    #[as_mut(Option<LastModifier>, Option<LastModified>, Option<Originality>)]
+    #[as_ref(LastModifier, Option<LastModified>, Option<Originality>)]
+    #[as_mut(LastModifier, Option<LastModified>, Option<Originality>)]
     pub modification: ModificationData,
 
     /// Values of $PLATEID/$PLATENAME/$WELLID
@@ -1073,10 +1073,10 @@ pub struct CSVFlags(pub FCSNonEmpty<MaybeValue<CSVFlag>>);
 #[derive(Clone, Default, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ModificationData {
-    #[as_ref(Option<LastModifier>)]
-    #[as_mut(Option<LastModifier>)]
+    #[as_ref(LastModifier)]
+    #[as_mut(LastModifier)]
     #[new(into)]
-    pub last_modifier: MaybeValue<LastModifier>,
+    pub last_modifier: LastModifier,
 
     #[as_ref(Option<LastModified>)]
     #[as_mut(Option<LastModified>)]
@@ -1958,17 +1958,17 @@ where
     fn all_opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
             self.abrt.root_kw_pair(),
-            self.com.root_kw_pair(),
-            self.cells.root_kw_pair(),
-            self.exp.root_kw_pair(),
-            self.fil.root_kw_pair(),
-            self.inst.root_kw_pair(),
+            self.com.metaroot_opt_pair(),
+            self.cells.metaroot_opt_pair(),
+            self.exp.metaroot_opt_pair(),
+            self.fil.metaroot_opt_pair(),
+            self.inst.metaroot_opt_pair(),
             self.lost.root_kw_pair(),
-            self.op.root_kw_pair(),
-            self.proj.root_kw_pair(),
-            self.smno.root_kw_pair(),
-            self.src.root_kw_pair(),
-            self.sys.root_kw_pair(),
+            self.op.metaroot_opt_pair(),
+            self.proj.metaroot_opt_pair(),
+            self.smno.metaroot_opt_pair(),
+            self.src.metaroot_opt_pair(),
+            self.sys.metaroot_opt_pair(),
             self.tr.root_kw_pair(),
         ]
         .into_iter()
@@ -4449,17 +4449,17 @@ impl CoreTEXT2_0 {
         etim: Option<Etim<FCSTime>>,
         date: Option<FCSDate>,
         abrt: Option<Abrt>,
-        com: Option<Com>,
-        cells: Option<Cells>,
-        exp: Option<Exp>,
-        fil: Option<Fil>,
-        inst: Option<Inst>,
+        com: Com,
+        cells: Cells,
+        exp: Exp,
+        fil: Fil,
+        inst: Inst,
         lost: Option<Lost>,
-        op: Option<Op>,
-        proj: Option<Proj>,
-        smno: Option<Smno>,
-        src: Option<Src>,
-        sys: Option<Sys>,
+        op: Op,
+        proj: Proj,
+        smno: Smno,
+        src: Src,
+        sys: Sys,
         tr: Option<Trigger>,
         applied_gates: AppliedGates2_0,
         nonstandard_keywords: NonStdKeywords,
@@ -4499,23 +4499,23 @@ impl CoreTEXT3_0 {
         btim: Option<Btim<FCSTime60>>,
         etim: Option<Etim<FCSTime60>>,
         date: Option<FCSDate>,
-        cytsn: Option<Cytsn>,
+        cytsn: Cytsn,
         unicode: Option<Unicode>,
         csvbits: Option<CSVBits>,
         cstot: Option<CSTot>,
         csvflags: Option<CSVFlags>,
         abrt: Option<Abrt>,
-        com: Option<Com>,
-        cells: Option<Cells>,
-        exp: Option<Exp>,
-        fil: Option<Fil>,
-        inst: Option<Inst>,
+        com: Com,
+        cells: Cells,
+        exp: Exp,
+        fil: Fil,
+        inst: Inst,
         lost: Option<Lost>,
-        op: Option<Op>,
-        proj: Option<Proj>,
-        smno: Option<Smno>,
-        src: Option<Src>,
-        sys: Option<Sys>,
+        op: Op,
+        proj: Proj,
+        smno: Smno,
+        src: Src,
+        sys: Sys,
         tr: Option<Trigger>,
         applied_gates: AppliedGates3_0,
         nonstandard_keywords: NonStdKeywords,
@@ -4563,9 +4563,9 @@ impl CoreTEXT3_1 {
         btim: Option<Btim<FCSTime100>>,
         etim: Option<Etim<FCSTime100>>,
         date: Option<FCSDate>,
-        cytsn: Option<Cytsn>,
+        cytsn: Cytsn,
         spillover: Option<Spillover>,
-        last_modifier: Option<LastModifier>,
+        last_modifier: LastModifier,
         last_mod_date: Option<LastModified>,
         originality: Option<Originality>,
         plateid: Option<Plateid>,
@@ -4576,17 +4576,17 @@ impl CoreTEXT3_1 {
         cstot: Option<CSTot>,
         csvflags: Option<CSVFlags>,
         abrt: Option<Abrt>,
-        com: Option<Com>,
-        cells: Option<Cells>,
-        exp: Option<Exp>,
-        fil: Option<Fil>,
-        inst: Option<Inst>,
+        com: Com,
+        cells: Cells,
+        exp: Exp,
+        fil: Fil,
+        inst: Inst,
         lost: Option<Lost>,
-        op: Option<Op>,
-        proj: Option<Proj>,
-        smno: Option<Smno>,
-        src: Option<Src>,
-        sys: Option<Sys>,
+        op: Op,
+        proj: Proj,
+        smno: Smno,
+        src: Src,
+        sys: Sys,
         tr: Option<Trigger>,
         applied_gates: AppliedGates3_0,
         nonstandard_keywords: NonStdKeywords,
@@ -4638,9 +4638,9 @@ impl CoreTEXT3_2 {
         date: Option<FCSDate>,
         begindatetime: Option<BeginDateTime>,
         enddatetime: Option<EndDateTime>,
-        cytsn: Option<Cytsn>,
+        cytsn: Cytsn,
         spillover: Option<Spillover>,
-        last_modifier: Option<LastModifier>,
+        last_modifier: LastModifier,
         last_mod_date: Option<LastModified>,
         originality: Option<Originality>,
         plateid: Option<Plateid>,
@@ -4654,17 +4654,17 @@ impl CoreTEXT3_2 {
         unstainedcenters: Option<UnstainedCenters>,
         flowrate: Option<Flowrate>,
         abrt: Option<Abrt>,
-        com: Option<Com>,
-        cells: Option<Cells>,
-        exp: Option<Exp>,
-        fil: Option<Fil>,
-        inst: Option<Inst>,
+        com: Com,
+        cells: Cells,
+        exp: Exp,
+        fil: Fil,
+        inst: Inst,
         lost: Option<Lost>,
-        op: Option<Op>,
-        proj: Option<Proj>,
-        smno: Option<Smno>,
-        src: Option<Src>,
-        sys: Option<Sys>,
+        op: Op,
+        proj: Proj,
+        smno: Smno,
+        src: Src,
+        sys: Sys,
         tr: Option<Trigger>,
         applied_gates: AppliedGates3_2,
         nonstandard_keywords: NonStdKeywords,
@@ -4834,7 +4834,7 @@ impl ModificationData {
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
-            self.last_modifier.root_kw_pair(),
+            self.last_modifier.metaroot_opt_pair(),
             self.last_modified.root_kw_pair(),
             self.originality.root_kw_pair(),
         ]
@@ -5391,7 +5391,7 @@ impl_ref_specific_rw!(
     InnerMetaroot3_0,
     Mode,
     Cyt,
-    Option<Cytsn>,
+    Cytsn,
     Option<Unicode>,
     Option<CSVBits>,
     Option<CSTot>,
@@ -5404,8 +5404,8 @@ impl_ref_specific_rw!(
     InnerMetaroot3_1,
     Mode,
     Cyt,
-    Option<Cytsn>,
-    Option<LastModifier>,
+    Cytsn,
+    LastModifier,
     Option<LastModified>,
     Option<Originality>,
     Option<Plateid>,
@@ -5424,8 +5424,8 @@ impl_ref_specific_rw!(
     Cyt3_2,
     Datetimes,
     Option<Mode3_2>,
-    Option<Cytsn>,
-    Option<LastModifier>,
+    Cytsn,
+    LastModifier,
     Option<LastModified>,
     Option<Originality>,
     Option<Plateid>,
@@ -5659,7 +5659,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_0 {
             value.cyt,
             value.comp.map(|x| x.0.into()),
             value.timestamps.map(Into::into),
-            None,
+            Cytsn::default(),
             None,
             SubsetData::default(),
             value.applied_gates,
@@ -5732,7 +5732,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_1 {
             value.mode,
             value.cyt,
             value.timestamps.map(Into::into),
-            None,
+            Cytsn::default(),
             None,
             ModificationData::default(),
             PlateData::default(),
@@ -5819,7 +5819,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
                             Datetimes::default(),
                             cyt,
                             None,
-                            None,
+                            Cytsn::default(),
                             ModificationData::default(),
                             PlateData::default(),
                             None,
@@ -7436,7 +7436,7 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
         [
             self.cyt.metaroot_opt_pair(),
             self.comp.root_kw_pair(),
-            self.cytsn.root_kw_pair(),
+            self.cytsn.metaroot_opt_pair(),
             self.unicode.root_kw_pair(),
         ]
         .into_iter()
@@ -7507,7 +7507,7 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
         [
             self.cyt.metaroot_opt_pair(),
             self.spillover.root_kw_pair(),
-            self.cytsn.root_kw_pair(),
+            self.cytsn.metaroot_opt_pair(),
             self.vol.root_kw_pair(),
         ]
         .into_iter()
@@ -7590,7 +7590,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
     fn keywords_opt_inner(&self) -> impl Iterator<Item = (String, String)> {
         [
             self.spillover.root_kw_pair(),
-            self.cytsn.root_kw_pair(),
+            self.cytsn.metaroot_opt_pair(),
             self.vol.root_kw_pair(),
             self.flowrate.root_kw_pair(),
         ]

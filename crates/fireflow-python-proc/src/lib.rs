@@ -2592,15 +2592,15 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         true,
     );
 
-    let analyte = DocArg::new_meas_kw_opt_ivar("Analyte", "analyte", "ANALYTE", PyStr::new1);
+    let analyte = DocArg::new_meas_kw_ivar1("Analyte", "analyte", "ANALYTE", PyStr::new1);
 
     let feature =
         DocArg::new_meas_kw_opt_ivar("Feature", "feature", "FEATURE", |_| PyType::new_feature());
 
     let detector_name =
-        DocArg::new_meas_kw_opt_ivar("DetectorName", "detector_name", "DET", PyStr::new1);
+        DocArg::new_meas_kw_ivar1("DetectorName", "detector_name", "DET", PyStr::new1);
 
-    let tag = DocArg::new_meas_kw_opt_ivar("Tag", "tag", "TAG", PyStr::new1);
+    let tag = DocArg::new_meas_kw_ivar1("Tag", "tag", "TAG", PyStr::new1);
 
     let measurement_type =
         DocArg::new_meas_kw_opt_ivar("OpticalType", "measurement_type", "TYPE", PyStr::new1);
@@ -2807,7 +2807,15 @@ pub fn impl_core_all_pnd(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_all_pndet(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "DetectorName", "detector_names", "DET", PyStr::new1)
+    core_all_meas_attr1(
+        &i,
+        "DetectorName",
+        "detector_names",
+        "DET",
+        PyStr::new1,
+        false,
+        true,
+    )
 }
 
 #[proc_macro]
@@ -2829,7 +2837,7 @@ pub fn impl_core_all_pncal3_2(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_all_pntag(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Tag", "tags", "TAG", PyStr::new1)
+    core_all_meas_attr1(&i, "Tag", "tags", "TAG", PyStr::new1, false, true)
 }
 
 #[proc_macro]
@@ -2887,7 +2895,15 @@ pub fn impl_core_all_pnfeature(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_all_pnanalyte(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Analyte", "analytes", "ANALYTE", PyStr::new1)
+    core_all_meas_attr1(
+        &i,
+        "Analyte",
+        "analytes",
+        "ANALYTE",
+        PyStr::new1,
+        false,
+        true,
+    )
 }
 
 fn core_all_optical_attr<F, T>(t: &Ident, kw: &str, name: &str, suffix: &str, f: F) -> TokenStream
@@ -2946,6 +2962,22 @@ where
         DocReturn::new(PyList::new(full_pytype)),
     );
 
+    let get_optical_body = if is_optional {
+        quote! {
+            self.0
+                .optical_opt()
+                .map(|e| e.0.map_non_center(|x| x.cloned()).into())
+                .collect()
+        }
+    } else {
+        quote! {
+            self.0
+                .optical::<#inner_rstype>()
+                .map(|e| e.0.map_non_center(|x| x.clone()).into())
+                .collect()
+        }
+    };
+
     let get_body = if is_optional {
         quote!(self.0.meas_opt().map(|x| x.cloned()).collect())
     } else {
@@ -2958,13 +2990,7 @@ where
         true,
         |_, _| {
             if optical_only {
-                // TOOD this is hardcoded for optional
-                quote! {
-                    self.0
-                        .optical_opt()
-                        .map(|e| e.0.map_non_center(|x| x.cloned()).into())
-                        .collect()
-                }
+                get_optical_body
             } else {
                 get_body
             }

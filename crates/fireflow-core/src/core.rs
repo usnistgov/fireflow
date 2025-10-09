@@ -971,10 +971,10 @@ pub struct InnerOptical3_2 {
     pub display: MaybeValue<Display>,
 
     /// Value for $PnANALYTE
-    #[as_ref(Option<Analyte>)]
-    #[as_mut(Option<Analyte>)]
+    #[as_ref(Analyte)]
+    #[as_mut(Analyte)]
     #[new(into)]
-    pub analyte: MaybeValue<Analyte>,
+    pub analyte: Analyte,
 
     /// Value for $PnFEATURE
     #[as_ref(Option<Feature>)]
@@ -989,16 +989,16 @@ pub struct InnerOptical3_2 {
     pub measurement_type: MaybeValue<OpticalType>,
 
     /// Value for $PnTAG
-    #[as_ref(Option<Tag>)]
-    #[as_mut(Option<Tag>)]
+    #[as_ref(Tag)]
+    #[as_mut(Tag)]
     #[new(into)]
-    pub tag: MaybeValue<Tag>,
+    pub tag: Tag,
 
     /// Value for $PnDET
-    #[as_ref(Option<DetectorName>)]
-    #[as_mut(Option<DetectorName>)]
+    #[as_ref(DetectorName)]
+    #[as_mut(DetectorName)]
     #[new(into)]
-    pub detector_name: MaybeValue<DetectorName>,
+    pub detector_name: DetectorName,
 }
 
 /// A scale transform derived from $PnE/$PnG.
@@ -5227,11 +5227,11 @@ impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_2 {
                             value.wavelength.map(Into::into),
                             None,
                             None,
+                            Analyte::default(),
                             None,
                             None,
-                            None,
-                            None,
-                            None,
+                            Tag::default(),
+                            DetectorName::default(),
                         )
                     })
                     .into_deferred()
@@ -5251,11 +5251,11 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical3_2 {
                 value.wavelength.map(Into::into),
                 None,
                 None,
+                Analyte::default(),
                 None,
                 None,
-                None,
-                None,
-                None,
+                Tag::default(),
+                DetectorName::default(),
             )
         });
         Ok(out)
@@ -5274,11 +5274,11 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_2 {
                 value.wavelengths,
                 value.calibration.map(Into::into),
                 value.display,
+                Analyte::default(),
                 None,
                 None,
-                None,
-                None,
-                None,
+                Tag::default(),
+                DetectorName::default(),
             )
         });
         Ok(out)
@@ -5472,11 +5472,11 @@ impl_ref_specific_rw!(
     Option<Wavelengths>,
     Option<Calibration3_2>,
     Option<Display>,
-    Option<Analyte>,
+    Analyte,
     Option<Feature>,
     Option<OpticalType>,
-    Option<Tag>,
-    Option<DetectorName>
+    Tag,
+    DetectorName
 );
 
 impl_ref_specific_rw!(
@@ -6611,11 +6611,11 @@ impl VersionedOptical for InnerOptical3_2 {
             self.wavelengths.meas_kw_triple(i),
             self.calibration.meas_kw_triple(i),
             self.display.meas_kw_triple(i),
-            self.detector_name.meas_kw_triple(i),
-            self.tag.meas_kw_triple(i),
+            self.detector_name.meas_opt_triple(i),
+            self.tag.meas_opt_triple(i),
             self.measurement_type.meas_kw_triple(i),
             self.feature.meas_kw_triple(i),
-            self.analyte.meas_kw_triple(i),
+            self.analyte.meas_opt_triple(i),
         ]
         .into_iter()
         .chain(self.scale.opt_suffixes(i))
@@ -7141,11 +7141,11 @@ impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
             None,
             None,
             t.display,
+            Analyte::default(),
             None,
             None,
-            None,
-            None,
-            None,
+            Tag::default(),
+            DetectorName::default(),
         );
         (new, t.timestep)
     }
@@ -7615,11 +7615,11 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
             None,
             None,
             t.display,
+            Analyte::default(),
             None,
             None,
-            None,
-            None,
-            None,
+            Tag::default(),
+            DetectorName::default(),
         );
         (new_o, new_t)
     }
@@ -7798,11 +7798,11 @@ impl Optical3_2 {
         wavelengths: Option<Wavelengths>,
         calibration: Option<Calibration3_2>,
         display: Option<Display>,
-        analyte: Option<Analyte>,
+        analyte: Analyte,
         feature: Option<Feature>,
-        tag: Option<Tag>,
+        tag: Tag,
         measurement_type: Option<OpticalType>,
-        detector_name: Option<DetectorName>,
+        detector_name: DetectorName,
         filter: Option<Filter>,
         power: Option<Power>,
         detector_type: Option<DetectorType>,

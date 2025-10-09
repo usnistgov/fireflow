@@ -40,6 +40,7 @@ pub struct NeverValue<T>(pub PhantomData<T>);
 #[derive(Debug, Clone, PartialEq, Eq, AsRef, AsMut, From, Default, Display, FromStr)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+#[as_ref(str)]
 pub struct OptionalString(pub String);
 
 /// Encodes a type which might have something in it.

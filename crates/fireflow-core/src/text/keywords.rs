@@ -28,7 +28,7 @@ use super::unstainedcenters::UnstainedCenters;
 
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use chrono::{NaiveDateTime, NaiveTime, Timelike as _};
-use derive_more::{Add, AsMut, Display, From, FromStr, Into, Sub};
+use derive_more::{Add, AsMut, AsRef, Display, From, FromStr, Into, Sub};
 use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use num_traits::cast::ToPrimitive as _;
@@ -1561,9 +1561,10 @@ pub struct NoCytError;
 
 macro_rules! newtype_string {
     ($t:ident) => {
-        #[derive(Clone, Display, FromStr, From, Into, PartialEq, Debug, Default)]
+        #[derive(Clone, Display, FromStr, From, Into, PartialEq, Debug, Default, AsRef)]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+        #[as_ref(str)]
         pub struct $t(pub OptionalString);
 
         impl From<&$t> for Option<String> {

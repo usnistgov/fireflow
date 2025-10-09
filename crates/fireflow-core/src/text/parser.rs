@@ -1,6 +1,7 @@
 use crate::config::{StdTextReadConfig, TimeMeasNamePattern};
 use crate::core::{
-    AnyMetarootKeyLossError, NewCSVFlagsError, ScaleTransformError, UnitaryKeyLossError,
+    AnyMetarootKeyLossError, IndexedKeyLossError, NewCSVFlagsError, ScaleTransformError,
+    UnitaryKeyLossError,
 };
 use crate::error::{BiTentative, DeferredResult, ResultExt as _, Tentative};
 use crate::validated::keys::{
@@ -324,7 +325,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         AnyMetarootKeyLossError: From<UnitaryKeyLossError<Self>>,
     {
         let mut tnt = Tentative::default();
-        if self.into().0.is_empty() {
+        if !self.into().0.is_empty() {
             tnt.push_error_or_warning(UnitaryKeyLossError::<Self>::new(), !allow_loss);
         }
         tnt
@@ -415,6 +416,34 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         for<'a> &'a Self: Into<Option<String>>,
     {
         (Self::std_blank(), Self::std(i).to_string(), self.into())
+    }
+
+    fn check_indexed_key_transfer_own<E>(
+        self,
+        i: impl Into<IndexFromOne>,
+        allow_loss: bool,
+    ) -> BiTentative<(), E>
+    where
+        Self: fmt::Display + Optional<Outer = Self> + Into<OptionalString>,
+        E: From<IndexedKeyLossError<Self>>,
+    {
+        let mut tnt = Tentative::default();
+        if !self.into().0.is_empty() {
+            tnt.push_error_or_warning(IndexedKeyLossError::<Self>::new(i), !allow_loss);
+        }
+        tnt
+    }
+
+    fn check_indexed_key_transfer<E>(&self, i: impl Into<IndexFromOne>) -> Result<(), E>
+    where
+        Self: fmt::Display + Optional<Outer = Self> + AsRef<str>,
+        E: From<IndexedKeyLossError<Self>>,
+    {
+        if !self.as_ref().is_empty() {
+            Err(IndexedKeyLossError::<Self>::new(i).into())
+        } else {
+            Ok(())
+        }
     }
 }
 

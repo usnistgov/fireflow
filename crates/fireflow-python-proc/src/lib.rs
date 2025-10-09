@@ -629,7 +629,7 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
 
     let tot = DocArgROIvar::new_ivar_ro(
         "tot",
-        PyOpt::new(PyInt::new(RsInt::Usize, keyword_path("Tot"))),
+        PyOpt::new(PyType::new_uint(RsInt::Usize, keyword_path("Tot"))),
         "Value of *$TOT* from *TEXT*.",
         |_, _| quote!(self.0.tot.as_ref().copied()),
     );
@@ -823,26 +823,24 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     };
 
     let cyt = if version < Version::FCS3_2 {
-        DocArg::new_kw_opt_ivar("Cyt", "cyt", PyStr::new1)
+        DocArg::new_kw_opt_ivar("Cyt", "cyt", |p| PyStr::new1(RsType::new(p)))
     } else {
-        DocArg::new_kw_ivar("Cyt", "cyt", PyStr::new1, None, false)
+        DocArg::new_kw_ivar("Cyt", "cyt", |p| PyStr::new1(RsType::new(p)), None, false)
     };
 
-    let to_pyint = |p| PyInt::new(RsInt::U32, p);
-
-    let abrt = DocArg::new_kw_opt_ivar("Abrt", "abrt", to_pyint);
-    let com = DocArg::new_kw_opt_ivar("Com", "com", PyStr::new1);
-    let cells = DocArg::new_kw_opt_ivar("Cells", "cells", PyStr::new1);
-    let exp = DocArg::new_kw_opt_ivar("Exp", "exp", PyStr::new1);
-    let fil = DocArg::new_kw_opt_ivar("Fil", "fil", PyStr::new1);
-    let inst = DocArg::new_kw_opt_ivar("Inst", "inst", PyStr::new1);
-    let lost = DocArg::new_kw_opt_ivar("Lost", "lost", to_pyint);
-    let op = DocArg::new_kw_opt_ivar("Op", "op", PyStr::new1);
-    let proj = DocArg::new_kw_opt_ivar("Proj", "proj", PyStr::new1);
-    let smno = DocArg::new_kw_opt_ivar("Smno", "smno", PyStr::new1);
-    let src = DocArg::new_kw_opt_ivar("Src", "src", PyStr::new1);
-    let sys = DocArg::new_kw_opt_ivar("Sys", "sys", PyStr::new1);
-    let cytsn = DocArg::new_kw_opt_ivar("Cytsn", "cytsn", PyStr::new1);
+    let abrt = DocArg::new_kw_opt_ivar("Abrt", "abrt", PyType::new_u32);
+    let com = DocArg::new_kw_opt_ivar("Com", "com", |p| PyStr::new1(RsType::new(p)));
+    let cells = DocArg::new_kw_opt_ivar("Cells", "cells", |p| PyStr::new1(RsType::new(p)));
+    let exp = DocArg::new_kw_opt_ivar("Exp", "exp", |p| PyStr::new1(RsType::new(p)));
+    let fil = DocArg::new_kw_opt_ivar("Fil", "fil", |p| PyStr::new1(RsType::new(p)));
+    let inst = DocArg::new_kw_opt_ivar("Inst", "inst", |p| PyStr::new1(RsType::new(p)));
+    let lost = DocArg::new_kw_opt_ivar("Lost", "lost", PyType::new_u32);
+    let op = DocArg::new_kw_opt_ivar("Op", "op", |p| PyStr::new1(RsType::new(p)));
+    let proj = DocArg::new_kw_opt_ivar("Proj", "proj", |p| PyStr::new1(RsType::new(p)));
+    let smno = DocArg::new_kw_opt_ivar("Smno", "smno", |p| PyStr::new1(RsType::new(p)));
+    let src = DocArg::new_kw_opt_ivar("Src", "src", |p| PyStr::new1(RsType::new(p)));
+    let sys = DocArg::new_kw_opt_ivar("Sys", "sys", |p| PyStr::new1(RsType::new(p)));
+    let cytsn = DocArg::new_kw_opt_ivar("Cytsn", "cytsn", |p| PyStr::new1(RsType::new(p)));
 
     let unicode_pytype = |p| {
         PyTuple::new1(
@@ -852,15 +850,19 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     };
     let unicode = DocArg::new_kw_opt_ivar("Unicode", "unicode", unicode_pytype);
 
-    let csvbits = DocArg::new_kw_opt_ivar("CSVBits", "csvbits", to_pyint);
-    let cstot = DocArg::new_kw_opt_ivar("CSTot", "cstot", to_pyint);
+    let csvbits = DocArg::new_kw_opt_ivar("CSVBits", "csvbits", |p| PyStr::new1(RsType::new(p)));
+    let cstot = DocArg::new_kw_opt_ivar("CSTot", "cstot", |p| PyStr::new1(RsType::new(p)));
 
     let csvflags = DocArg::new_csvflags_ivar();
 
     let all_subset = [csvbits, cstot, csvflags];
 
-    let last_modifier = DocArg::new_kw_opt_ivar("LastModifier", "last_modifier", PyStr::new1);
-    let last_mod_date = DocArg::new_kw_opt_ivar("LastModified", "last_modified", PyDatetime::new1);
+    let last_modifier = DocArg::new_kw_opt_ivar("LastModifier", "last_modifier", |p| {
+        PyStr::new1(RsType::new(p))
+    });
+    let last_mod_date = DocArg::new_kw_opt_ivar("LastModified", "last_modified", |p| {
+        PyDatetime::new1(RsType::new(p))
+    });
     let originality = DocArg::new_kw_opt_ivar("Originality", "originality", |p| {
         PyLiteral::new1(
             ["Original", "NonDataModified", "Appended", "DataModified"],
@@ -870,13 +872,14 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     let all_modified = [last_modifier, last_mod_date, originality];
 
-    let plateid = DocArg::new_kw_opt_ivar("Plateid", "plateid", PyStr::new1);
-    let platename = DocArg::new_kw_opt_ivar("Platename", "platename", PyStr::new1);
-    let wellid = DocArg::new_kw_opt_ivar("Wellid", "wellid", PyStr::new1);
+    let plateid = DocArg::new_kw_opt_ivar("Plateid", "plateid", |p| PyStr::new1(RsType::new(p)));
+    let platename =
+        DocArg::new_kw_opt_ivar("Platename", "platename", |p| PyStr::new1(RsType::new(p)));
+    let wellid = DocArg::new_kw_opt_ivar("Wellid", "wellid", |p| PyStr::new1(RsType::new(p)));
 
     let all_plate = [plateid, platename, wellid];
 
-    let vol = DocArg::new_kw_opt_ivar("Vol", "vol", |p| PyFloat::new(RsFloat::F32, p));
+    let vol = DocArg::new_kw_opt_ivar("Vol", "vol", PyType::new_non_negative_float);
 
     let comp_or_spill = match version {
         Version::FCS2_0 => DocArg::new_comp_ivar(true),
@@ -884,16 +887,22 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         _ => DocArg::new_spillover_ivar(),
     };
 
-    let flowrate = DocArg::new_kw_opt_ivar("Flowrate", "flowrate", PyStr::new1);
+    let flowrate = DocArg::new_kw_opt_ivar("Flowrate", "flowrate", |p| PyStr::new1(RsType::new(p)));
 
-    let carrierid = DocArg::new_kw_opt_ivar("Carrierid", "carrierid", PyStr::new1);
-    let carriertype = DocArg::new_kw_opt_ivar("Carriertype", "carriertype", PyStr::new1);
-    let locationid = DocArg::new_kw_opt_ivar("Locationid", "locationid", PyStr::new1);
+    let carrierid =
+        DocArg::new_kw_opt_ivar("Carrierid", "carrierid", |p| PyStr::new1(RsType::new(p)));
+    let carriertype = DocArg::new_kw_opt_ivar("Carriertype", "carriertype", |p| {
+        PyStr::new1(RsType::new(p))
+    });
+    let locationid =
+        DocArg::new_kw_opt_ivar("Locationid", "locationid", |p| PyStr::new1(RsType::new(p)));
 
     let all_carrier = [carrierid, carriertype, locationid];
 
     let unstainedcenters = DocArg::new_unstainedcenters_ivar();
-    let unstainedinfo = DocArg::new_kw_opt_ivar("UnstainedInfo", "unstainedinfo", PyStr::new1);
+    let unstainedinfo = DocArg::new_kw_opt_ivar("UnstainedInfo", "unstainedinfo", |p| {
+        PyStr::new1(RsType::new(p))
+    });
 
     let tr = DocArg::new_trigger_ivar();
 
@@ -1250,7 +1259,7 @@ pub fn impl_core_all_peak_attrs(input: TokenStream) -> TokenStream {
 
     let go = |k: &str, kw: &str, name: &str| {
         let p = keyword_path(kw);
-        let pt = PyOpt::new(PyInt::new(RsInt::U32, p));
+        let pt = PyOpt::new(PyType::new_u32(p));
         let inner = pt.as_rust_type();
         let doc = DocString::new_ivar(
             format!("The value of *$P{k}n* for all measurements."),
@@ -2496,6 +2505,8 @@ pub fn impl_coretext_to_dataset(input: TokenStream) -> TokenStream {
     .into()
 }
 
+// TODO it seems like there is no compile error if the types don't match between
+// the python and rs interfaces. This seems sketchy
 #[proc_macro]
 #[allow(clippy::too_many_lines)]
 pub fn impl_new_meas(input: TokenStream) -> TokenStream {
@@ -2522,44 +2533,57 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         DocArg::new_transform_ivar()
     };
 
-    let to_pyfloat = |p| PyFloat::new(RsFloat::F32, p);
-    let to_pyuint = |p| PyInt::new(RsInt::U32, p);
-
     let wavelength = if version < Version::FCS3_1 {
-        DocArg::new_meas_kw_opt_ivar("Wavelength", "wavelength", "L", to_pyfloat)
+        DocArg::new_meas_kw_opt_ivar("Wavelength", "wavelength", "L", PyType::new_positive_float)
     } else {
-        DocArg::new_meas_kw_opt_ivar("Wavelengths", "wavelengths", "L", to_pyfloat)
+        // TODO this is wrong, should be a list
+        DocArg::new_meas_kw_opt_ivar(
+            "Wavelengths",
+            "wavelengths",
+            "L",
+            PyType::new_positive_float,
+        )
     };
 
     let bin = DocArg::new_meas_kw_ivar(
         "PeakBin",
         "bin",
-        |p| PyOpt::new(to_pyuint(p)),
+        PyType::new_u32,
         "Value of *$PKn*.".into(),
         true,
     );
     let size = DocArg::new_meas_kw_ivar(
         "PeakNumber",
         "size",
-        |p| PyOpt::new(to_pyuint(p)),
+        PyType::new_u32,
         "Value of *$PKNn*.".into(),
         true,
     );
 
     let all_peak = [bin, size];
 
-    let filter = DocArg::new_meas_kw_opt_ivar("Filter", "filter", "F", PyStr::new1);
+    let filter =
+        DocArg::new_meas_kw_opt_ivar("Filter", "filter", "F", |p| PyStr::new1(RsType::new(p)));
 
-    let power = DocArg::new_meas_kw_opt_ivar("Power", "power", "O", to_pyuint);
+    let power = DocArg::new_meas_kw_opt_ivar("Power", "power", "O", PyType::new_non_negative_float);
 
-    let detector_type =
-        DocArg::new_meas_kw_opt_ivar("DetectorType", "detector_type", "T", PyStr::new1);
+    let detector_type = DocArg::new_meas_kw_opt_ivar("DetectorType", "detector_type", "T", |p| {
+        PyStr::new1(RsType::new(p))
+    });
 
-    let percent_emitted =
-        DocArg::new_meas_kw_opt_ivar("PercentEmitted", "percent_emitted", "P", to_pyfloat);
+    let percent_emitted = DocArg::new_meas_kw_opt_ivar(
+        "PercentEmitted",
+        "percent_emitted",
+        "P",
+        PyType::new_non_negative_float,
+    );
 
-    let detector_voltage =
-        DocArg::new_meas_kw_opt_ivar("DetectorVoltage", "detector_voltage", "V", to_pyfloat);
+    let detector_voltage = DocArg::new_meas_kw_opt_ivar(
+        "DetectorVoltage",
+        "detector_voltage",
+        "V",
+        PyType::new_non_negative_float,
+    );
 
     let all_common_optical = [
         filter,
@@ -2600,18 +2624,23 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         true,
     );
 
-    let analyte = DocArg::new_meas_kw_opt_ivar("Analyte", "analyte", "ANALYTE", PyStr::new1);
+    let analyte = DocArg::new_meas_kw_opt_ivar("Analyte", "analyte", "ANALYTE", |p| {
+        PyStr::new1(RsType::new(p))
+    });
 
     let feature =
         DocArg::new_meas_kw_opt_ivar("Feature", "feature", "FEATURE", |_| PyType::new_feature());
 
-    let detector_name =
-        DocArg::new_meas_kw_opt_ivar("DetectorName", "detector_name", "DET", PyStr::new1);
+    let detector_name = DocArg::new_meas_kw_opt_ivar("DetectorName", "detector_name", "DET", |p| {
+        PyStr::new1(RsType::new(p))
+    });
 
-    let tag = DocArg::new_meas_kw_opt_ivar("Tag", "tag", "TAG", PyStr::new1);
+    let tag = DocArg::new_meas_kw_opt_ivar("Tag", "tag", "TAG", |p| PyStr::new1(RsType::new(p)));
 
     let measurement_type =
-        DocArg::new_meas_kw_opt_ivar("OpticalType", "measurement_type", "TYPE", PyStr::new1);
+        DocArg::new_meas_kw_opt_ivar("OpticalType", "measurement_type", "TYPE", |p| {
+            PyStr::new1(RsType::new(p))
+        });
 
     let make_quasi_bool = |what: &str, sym: &str, val: &str, rstype: &str, fieldname: &str| {
         let r = format_ident!("{rstype}");
@@ -2644,7 +2673,8 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.specific.timestep = timestep),
     );
 
-    let longname = DocArg::new_meas_kw_opt_ivar("Longname", "longname", "S", PyStr::new1);
+    let longname =
+        DocArg::new_meas_kw_opt_ivar("Longname", "longname", "S", |p| PyStr::new1(RsType::new(p)));
 
     let nonstd = DocArg::new_meas_nonstandard_keywords_ivar();
 
@@ -2751,51 +2781,67 @@ impl<T> DocArg<T> {
 #[proc_macro]
 pub fn impl_core_all_pns(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_meas_attr(&i, "Longname", "longnames", "S", PyStr::new1)
+    core_all_meas_attr(&i, "Longname", "longnames", "S", |p| {
+        PyStr::new1(RsType::new(p))
+    })
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnf(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Filter", "filters", "F", PyStr::new1)
+    core_all_optical_attr(&i, "Filter", "filters", "F", |p| {
+        PyStr::new1(RsType::new(p))
+    })
 }
 
 #[proc_macro]
 pub fn impl_core_all_pno(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Power", "powers", "O", |p| {
-        PyFloat::new(RsFloat::F32, p)
-    })
+    core_all_optical_attr(&i, "Power", "powers", "O", PyType::new_non_negative_float)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnp(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "PercentEmitted", "percents_emitted", "P", |p| {
-        PyFloat::new(RsFloat::F32, p)
-    })
+    core_all_optical_attr(
+        &i,
+        "PercentEmitted",
+        "percents_emitted",
+        "P",
+        PyType::new_non_negative_float,
+    )
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnt(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "DetectorType", "detector_types", "T", PyStr::new1)
+    core_all_optical_attr(&i, "DetectorType", "detector_types", "T", |p| {
+        PyStr::new1(RsType::new(p))
+    })
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnv(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "DetectorVoltage", "detector_voltages", "V", |p| {
-        PyFloat::new(RsFloat::F32, p)
-    })
+    core_all_optical_attr(
+        &i,
+        "DetectorVoltage",
+        "detector_voltages",
+        "V",
+        PyType::new_non_negative_float,
+    )
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnl_old(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Wavelength", "wavelengths", "L", |p| {
-        PyFloat::new(RsFloat::F32, p)
-    })
+    core_all_optical_attr(
+        &i,
+        "Wavelength",
+        "wavelengths",
+        "L",
+        PyType::new_positive_float,
+    )
 }
 
 #[proc_macro]
@@ -2815,7 +2861,9 @@ pub fn impl_core_all_pnd(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_all_pndet(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "DetectorName", "detector_names", "DET", PyStr::new1)
+    core_all_optical_attr(&i, "DetectorName", "detector_names", "DET", |p| {
+        PyStr::new1(RsType::new(p))
+    })
 }
 
 #[proc_macro]
@@ -2837,14 +2885,14 @@ pub fn impl_core_all_pncal3_2(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_all_pntag(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Tag", "tags", "TAG", PyStr::new1)
+    core_all_optical_attr(&i, "Tag", "tags", "TAG", |p| PyStr::new1(RsType::new(p)))
 }
 
 #[proc_macro]
 pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
 
-    let opt_pytype = PyStr::new1(keyword_path("OpticalType"));
+    let opt_pytype = PyStr::new1(RsType::new(keyword_path("OpticalType")));
     let tmp_pytype = PyLiteral::new1(["Time"], keyword_path("TemporalType"));
 
     let inner_opt_pytype = PyOpt::new(opt_pytype);
@@ -2895,7 +2943,9 @@ pub fn impl_core_all_pnfeature(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_all_pnanalyte(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Analyte", "analytes", "ANALYTE", PyStr::new1)
+    core_all_optical_attr(&i, "Analyte", "analytes", "ANALYTE", |p| {
+        PyStr::new1(RsType::new(p))
+    })
 }
 
 fn core_all_optical_attr<F, T>(t: &Ident, kw: &str, name: &str, suffix: &str, f: F) -> TokenStream
@@ -3051,13 +3101,7 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
         |n, _| quote!(self.0.#n.0 = #n.into()),
     );
 
-    let make_arg = |kw_name: &str, kw_sym: &str, t: &str, is_float: bool| {
-        let kw_path = keyword_path(t);
-        let pytype = if is_float {
-            PyFloat::new(RsFloat::F32, kw_path).into()
-        } else {
-            PyType::from(PyStr::new1(kw_path))
-        };
+    let make_arg = |kw_name: &str, kw_sym: &str, pytype: PyType| {
         DocArg::new_opt_ivar_rw(
             kw_name,
             pytype,
@@ -3067,14 +3111,29 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
             |n, _| quote!(self.0.#n.0 = #n.into()),
         )
     };
-    let filter = make_arg("filter", "F", "GateFilter", false);
-    let shortname = make_arg("shortname", "N", "GateShortname", false);
-    let percent_emitted = make_arg("percent_emitted", "P", "GatePercentEmitted", true);
-    // TODO isn't this a decimal?
-    let range = make_arg("range", "R", "GateRange", true);
-    let longname = make_arg("longname", "S", "GateLongname", false);
-    let detector_type = make_arg("detector_type", "T", "GateDetectorType", false);
-    let detector_voltage = make_arg("detector_voltage", "V", "GateDetectorVoltage", true);
+
+    let make_float_arg = |kw_name: &str, kw_sym: &str, t: &str| {
+        let path = keyword_path(t);
+        let pt = PyType::new_non_negative_float(path);
+        make_arg(kw_name, kw_sym, pt)
+    };
+    let percent_emitted = make_float_arg("percent_emitted", "P", "GatePercentEmitted");
+    let detector_voltage = make_float_arg("detector_voltage", "V", "GateDetectorVoltage");
+
+    let make_str_arg = |kw_name: &str, kw_sym: &str, t: &str| {
+        let path = keyword_path(t);
+        let pt = PyStr::new1(RsType::new(path)).into();
+        make_arg(kw_name, kw_sym, pt)
+    };
+    let filter = make_str_arg("filter", "F", "GateFilter");
+    let longname = make_str_arg("longname", "S", "GateLongname");
+    let detector_type = make_str_arg("detector_type", "T", "GateDetectorType");
+
+    let pt_shortname = PyType::new_shortname_inner(keyword_path("GateShortname"));
+    let shortname = make_arg("shortname", "N", pt_shortname);
+
+    let pt_range = PyDecimal::new1(RsType::new(keyword_path("GateRange"))).into();
+    let range = make_arg("range", "R", pt_range);
 
     let all_args = [
         scale,
@@ -3994,12 +4053,51 @@ impl PyException {
         }
     }
 
-    // fn desc(self, desc: impl fmt::Display) -> Self {
-    //     Self {
-    //         desc: Some(desc.to_string()),
-    //         ..self
-    //     }
-    // }
+    fn new_value_error() -> Self {
+        Self::new("ValueError")
+    }
+
+    fn new_overflow_error() -> Self {
+        Self::new("OverflowError")
+    }
+
+    fn desc(self, desc: impl fmt::Display) -> Self {
+        Self {
+            desc: Some(desc.to_string()),
+            ..self
+        }
+    }
+}
+
+#[derive(Clone)]
+struct RsType {
+    path: Path,
+    from_exc: Option<PyException>,
+    to_exc: Option<PyException>,
+}
+
+impl RsType {
+    fn new(path: Path) -> Self {
+        Self {
+            path,
+            from_exc: None,
+            to_exc: None,
+        }
+    }
+
+    fn from_exc(self, from: PyException) -> Self {
+        Self {
+            from_exc: Some(from),
+            ..self
+        }
+    }
+
+    fn to_exc(self, to: PyException) -> Self {
+        Self {
+            to_exc: Some(to),
+            ..self
+        }
+    }
 }
 
 #[derive(Clone, From, Display)]
@@ -4113,49 +4211,49 @@ impl PyAtom {
 #[derive(Clone)]
 struct PyInt {
     rs: RsInt,
-    rstype: Option<Path>,
+    rstype: Option<RsType>,
 }
 
 #[derive(Clone, From)]
 struct PyFloat {
     #[from]
     rs: RsFloat,
-    rstype: Option<Path>,
+    rstype: Option<RsType>,
 }
 
 #[derive(Clone)]
 struct PyStr {
-    rstype: Option<Path>,
+    rstype: Option<RsType>,
 }
 
 #[derive(Clone)]
 struct PyBool {
-    rstype: Option<Path>,
+    rstype: Option<RsType>,
 }
 
 #[derive(Clone)]
 struct PyBytes {
-    rstype: Option<Path>,
+    rstype: Option<RsType>,
 }
 
 #[derive(Clone)]
 struct PyDecimal {
-    rstype: Option<Path>,
+    rstype: Option<RsType>,
 }
 
 #[derive(Clone)]
 struct PyTime {
-    rstype: Option<Path>,
+    rstype: Option<RsType>,
 }
 
 #[derive(Clone)]
 struct PyDate {
-    rstype: Option<Path>,
+    rstype: Option<RsType>,
 }
 
 #[derive(Clone)]
 struct PyDatetime {
-    rstype: Option<Path>,
+    rstype: Option<RsType>,
 }
 
 #[derive(Clone, PartialEq, Hash, Eq)]
@@ -4215,7 +4313,7 @@ macro_rules! impl_py_prim_new {
 
 macro_rules! impl_py_prim_new1 {
     () => {
-        fn new1(rstype: Path) -> Self {
+        fn new1(rstype: RsType) -> Self {
             Self {
                 rstype: Some(rstype),
             }
@@ -4245,7 +4343,7 @@ macro_rules! impl_py_num_defaults {
                 self.rstype
                     .as_ref()
                     .map_or(quote!(#rt::default()), |y| {
-                        let z = path_strip_args(y.clone());
+                        let z = path_strip_args(y.path.clone());
                         quote!(#z::default())
                     }),
             )
@@ -4254,7 +4352,7 @@ macro_rules! impl_py_num_defaults {
 }
 
 impl PyInt {
-    fn new(rs: RsInt, rstype: Path) -> Self {
+    fn new(rs: RsInt, rstype: RsType) -> Self {
         Self {
             rs,
             rstype: Some(rstype),
@@ -4265,7 +4363,7 @@ impl PyInt {
 }
 
 impl PyFloat {
-    fn new(rs: RsFloat, rstype: Path) -> Self {
+    fn new(rs: RsFloat, rstype: RsType) -> Self {
         Self {
             rs,
             rstype: Some(rstype),
@@ -5862,12 +5960,12 @@ impl DocArgParam {
     }
 
     fn new_other_width_param() -> Self {
-        let path: Path = parse_quote!(fireflow_core::validated::ascii_range::OtherWidth);
+        let path = parse_quote!(fireflow_core::validated::ascii_range::OtherWidth);
+        let pt = PyType::new_uint(RsInt::NonZeroU8, path);
         Self::new_param_def(
             "other_width",
-            PyInt::new(RsInt::NonZeroU8, path),
-            "Maximum number of OTHER segments that can be parsed. \
-             ``None`` means limitless.",
+            pt,
+            "Width (in bytes) to use when parsing *OTHER* offsets.",
             DocDefault::Int(8),
         )
     }
@@ -6485,7 +6583,10 @@ impl PyType {
 
     fn new_keystring() -> Self {
         let path: Path = parse_quote!(fireflow_core::validated::keys::KeyString);
-        PyStr::new1(path).into()
+        let e = PyException::new_value_error()
+            .desc("if string contains non-ASCII characters or is empty");
+        let rt = RsType::new(path).from_exc(e);
+        PyStr::new1(rt).into()
     }
 
     fn new_sub_patterns() -> Self {
@@ -6621,17 +6722,33 @@ impl PyType {
 
     fn new_std_keywords() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::StdKey);
-        PyDict::new(PyStr::new1(path), PyStr::new()).into()
+        let e = PyException::new_value_error().desc(
+            "if key string is empty, does not start with \
+             ``\"$\"``, or is only a ``\"$\"``",
+        );
+        let rt = RsType::new(path).from_exc(e);
+        PyDict::new(PyStr::new1(rt), PyStr::new()).into()
     }
 
     fn new_nonstd_keywords() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::NonStdKey);
-        PyDict::new(PyStr::new1(path), PyStr::new()).into()
+        let e =
+            PyException::new_value_error().desc("if key string is empty or starts with ``\"$\"``");
+        let rt = RsType::new(path).from_exc(e);
+        PyDict::new(PyStr::new1(rt), PyStr::new()).into()
     }
 
     fn new_shortname() -> Self {
         let path = parse_quote!(fireflow_core::validated::shortname::Shortname);
-        PyStr::new1(path).into()
+        let e = PyException::new_value_error().desc("if string is empty or contains commas");
+        let rt = RsType::new(path).from_exc(e);
+        PyStr::new1(rt).into()
+    }
+
+    fn new_shortname_inner(path: Path) -> Self {
+        let e = PyException::new_value_error().desc("if string is empty or contains commas");
+        let rt = RsType::new(path).from_exc(e);
+        PyStr::new1(rt).into()
     }
 
     fn new_versioned_shortname(version: Version) -> Self {
@@ -6639,28 +6756,52 @@ impl PyType {
     }
 
     fn new_meas_index() -> Self {
-        let path = parse_quote!(fireflow_core::text::index::MeasIndex);
-        PyInt::new(RsInt::NonZeroUsize, path).into()
+        let p = parse_quote!(fireflow_core::text::index::MeasIndex);
+        Self::new_nonzero_usize(p)
     }
 
     fn new_gate_index() -> Self {
         let p = parse_quote!(fireflow_core::text::index::GateIndex);
-        PyInt::new(RsInt::NonZeroUsize, p).into()
+        Self::new_nonzero_usize(p)
     }
 
     fn new_meas_or_gate_index() -> Self {
         let p = parse_quote!(fireflow_core::text::keywords::MeasOrGateIndex);
-        PyStr::new1(p).into()
+        let e = PyException::new_overflow_error().desc(
+            "if value is not like ``P<X>`` or ``G<X>`` \
+             where ``X`` is an integer one or greater",
+        );
+        let rt = RsType::new(p).from_exc(e);
+        PyStr::new1(rt).into()
     }
 
     fn new_prefixed_meas_index() -> Self {
         let p = parse_quote!(fireflow_core::text::keywords::PrefixedMeasIndex);
-        PyInt::new(RsInt::NonZeroUsize, p).into()
+        Self::new_nonzero_usize(p)
+    }
+
+    fn new_u32(path: Path) -> Self {
+        Self::new_uint(RsInt::U32, path)
+    }
+
+    fn new_nonzero_usize(path: Path) -> Self {
+        Self::new_uint(RsInt::NonZeroUsize, path)
+    }
+
+    fn new_uint(intkind: RsInt, path: Path) -> Self {
+        let lower = match intkind {
+            RsInt::NonZeroU8 | RsInt::NonZeroUsize => 1,
+            _ => 0,
+        };
+        let desc = format!("if value is less than {lower}");
+        let e = PyException::new_overflow_error().desc(desc);
+        let rt = RsType::new(path).from_exc(e);
+        PyInt::new(intkind, rt).into()
     }
 
     fn new_analysis() -> Self {
-        let path = parse_quote!(fireflow_core::core::Analysis);
-        PyBytes::new1(path).into()
+        let r = RsType::new(parse_quote!(fireflow_core::core::Analysis));
+        PyBytes::new1(r).into()
     }
 
     fn new_others() -> Self {
@@ -6678,13 +6819,14 @@ impl PyType {
     }
 
     fn new_range() -> Self {
-        let p = parse_quote!(fireflow_core::text::keywords::Range);
+        // ASSUME this will never fail because mypy will only allow Decimal
+        // in the sig
+        let p = RsType::new(parse_quote!(fireflow_core::text::keywords::Range));
         PyDecimal::new1(p).into()
     }
 
     fn new_bitmask(nbytes: usize) -> Self {
         let i = format_ident!("Bitmask{:02}", nbytes * 8);
-        let p = parse_quote!(fireflow_core::validated::bitmask::#i);
         let r = match nbytes {
             1 => RsInt::U8,
             2 => RsInt::U16,
@@ -6692,22 +6834,44 @@ impl PyType {
             5..=8 => RsInt::U64,
             _ => panic!("invalid number of uint bytes: {nbytes}"),
         };
-        PyInt::new(r, p).into()
+        let msg = format!("if value exceeds 2^{}-1", nbytes * 8);
+        let e = PyException::new_value_error().desc(msg);
+        let rt = RsType::new(parse_quote!(fireflow_core::validated::bitmask::#i)).from_exc(e);
+        PyInt::new(r, rt).into()
     }
 
     fn new_float_range(nbytes: usize) -> Self {
         let i = format_ident!("F{:02}Range", nbytes * 8);
-        let p = parse_quote!(fireflow_core::data::#i);
         let r = match nbytes {
             4 => RsFloat::F32,
             8 => RsFloat::F64,
             _ => panic!("invalid number of float bytes: {nbytes}"),
         };
-        PyFloat::new(r, p).into()
+        let msg = format!(
+            "if value is ``NaN``, ``inf``, ``-inf``, \
+             or outside the bounds of a {}-bit float",
+            nbytes * 8,
+        );
+        let e = PyException::new_value_error().desc(msg);
+        let rt = RsType::new(parse_quote!(fireflow_core::data::#i)).from_exc(e);
+        PyFloat::new(r, rt).into()
     }
 
     fn new_timestep() -> Self {
-        PyFloat::new(RsFloat::F32, keyword_path("Timestep")).into()
+        let path = keyword_path("Timestep");
+        Self::new_positive_float(path)
+    }
+
+    fn new_positive_float(path: Path) -> Self {
+        let e = PyException::new_value_error().desc("if float is zero or less");
+        let rt = RsType::new(path).from_exc(e);
+        PyFloat::new(RsFloat::F32, rt).into()
+    }
+
+    fn new_non_negative_float(path: Path) -> Self {
+        let e = PyException::new_value_error().desc("if float is less than zero");
+        let rt = RsType::new(path).from_exc(e);
+        PyFloat::new(RsFloat::F32, rt).into()
     }
 
     fn new_tr() -> Self {

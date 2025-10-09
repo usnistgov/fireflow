@@ -260,16 +260,26 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self::remove_opt(kws, Self::std(), parse_opt)
     }
 
-    fn lookup_metaroot_opt(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupOptional<Self>
+    // TODO it might be easier to move the deprecation flag to the type itself
+    // so that way we don't need to pass a bool down a zillion layers worth of
+    // call stack
+    fn lookup_metaroot_opt(
+        kws: &mut StdKeywords,
+        is_deprecated: bool,
+        conf: &StdTextReadConfig,
+    ) -> LookupOptional<Self>
     where
         Self: FromStr,
         ParseOptKeyError: From<<Self as FromStr>::Err>,
     {
-        Self::remove_opt_tnt(kws, Self::std(), |k, v| parse_opt_tnt(k, v, false, conf))
+        Self::remove_opt_tnt(kws, Self::std(), |k, v| {
+            parse_opt_tnt(k, v, is_deprecated, conf)
+        })
     }
 
     fn lookup_metatroot_opt_st(
         kws: &mut StdKeywords,
+        is_deprecated: bool,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
     ) -> LookupOptional<Self>
@@ -278,32 +288,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
         Self::remove_opt_tnt(kws, Self::std(), |k, v| {
-            parse_opt_tnt_st(k, v, false, data, conf)
-        })
-    }
-
-    fn lookup_metaroot_opt_dep(
-        kws: &mut StdKeywords,
-        conf: &StdTextReadConfig,
-    ) -> LookupOptional<Self>
-    where
-        Self: FromStr,
-        ParseOptKeyError: From<<Self as FromStr>::Err>,
-    {
-        Self::remove_opt_tnt(kws, Self::std(), |k, v| parse_opt_tnt(k, v, true, conf))
-    }
-
-    fn lookup_metaroot_opt_st_dep(
-        kws: &mut StdKeywords,
-        data: Self::Payload<'_>,
-        conf: &StdTextReadConfig,
-    ) -> LookupOptional<Self>
-    where
-        Self: FromStrStateful,
-        ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
-    {
-        Self::remove_opt_tnt(kws, Self::std(), |k, v| {
-            parse_opt_tnt_st(k, v, true, data, conf)
+            parse_opt_tnt_st(k, v, is_deprecated, data, conf)
         })
     }
 
@@ -350,18 +335,22 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     fn lookup_meas_opt(
         kws: &mut StdKeywords,
         i: impl Into<IndexFromOne>,
+        is_deprecated: bool,
         conf: &StdTextReadConfig,
     ) -> LookupOptional<Self>
     where
         Self: FromStr,
         ParseOptKeyError: From<<Self as FromStr>::Err>,
     {
-        Self::remove_opt_tnt(kws, Self::std(i), |k, v| parse_opt_tnt(k, v, false, conf))
+        Self::remove_opt_tnt(kws, Self::std(i), |k, v| {
+            parse_opt_tnt(k, v, is_deprecated, conf)
+        })
     }
 
     fn lookup_meas_opt_st(
         kws: &mut StdKeywords,
         i: impl Into<IndexFromOne> + Copy,
+        is_deprecated: bool,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
     ) -> LookupOptional<Self>
@@ -370,34 +359,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
         Self::remove_opt_tnt(kws, Self::std(i), |k, v| {
-            parse_opt_tnt_st(k, v, false, data, conf)
-        })
-    }
-
-    fn lookup_meas_opt_dep(
-        kws: &mut StdKeywords,
-        i: impl Into<IndexFromOne> + Copy,
-        conf: &StdTextReadConfig,
-    ) -> LookupOptional<Self>
-    where
-        Self: FromStr,
-        ParseOptKeyError: From<<Self as FromStr>::Err>,
-    {
-        Self::remove_opt_tnt(kws, Self::std(i), |k, v| parse_opt_tnt(k, v, true, conf))
-    }
-
-    fn lookup_meas_opt_st_dep(
-        kws: &mut StdKeywords,
-        i: impl Into<IndexFromOne> + Copy,
-        data: Self::Payload<'_>,
-        conf: &StdTextReadConfig,
-    ) -> LookupOptional<Self>
-    where
-        Self: FromStrStateful,
-        ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
-    {
-        Self::remove_opt_tnt(kws, Self::std(i), |k, v| {
-            parse_opt_tnt_st(k, v, true, data, conf)
+            parse_opt_tnt_st(k, v, is_deprecated, data, conf)
         })
     }
 
@@ -588,7 +550,7 @@ pub(crate) fn lookup_temporal_gain_3_0(
                 .is_some_and(|g| !g.0.is_one())
                 .then_some(TemporalGainError(i))
         };
-        let mut tnt_gain = Gain::lookup_meas_opt(kws, i, conf);
+        let mut tnt_gain = Gain::lookup_meas_opt(kws, i, false, conf);
         if conf.allow_optional_dropping {
             tnt_gain.eval_warning(go);
         } else {
@@ -794,17 +756,6 @@ impl<E> ReqKeyError<E> {
             Self::Missing(e) => ReqKeyError::Missing(e),
         }
     }
-}
-
-pub(crate) fn eval_dep_maybe<T>(
-    x: &mut LookupTentative<Option<T>>,
-    key: StdKey,
-    disallow_dep: bool,
-) {
-    let go = |v: &Option<T>| -> Option<DeprecatedError> {
-        v.is_some().then_some(DepKeyWarning(key).into())
-    };
-    x.eval_error_or_warning(disallow_dep, go);
 }
 
 #[derive(Clone, new, PartialEq)]

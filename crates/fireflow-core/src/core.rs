@@ -1650,7 +1650,7 @@ impl CommonMeasurement {
         nonstd: NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self> {
-        Longname::lookup_meas_opt(std, i, conf).map(|longname| Self::new(longname, nonstd))
+        Longname::lookup_meas_opt(std, i, false, conf).map(|longname| Self::new(longname, nonstd))
     }
 }
 
@@ -1733,15 +1733,12 @@ impl<O> Optical<O> {
         Version: From<O::Ver>,
     {
         let version = O::Ver::fcs_version();
-        let filter = Filter::lookup_meas_opt(std, i, conf);
-        let power = Power::lookup_meas_opt(std, i, conf);
-        let det_type = DetectorType::lookup_meas_opt(std, i, conf);
-        let perc_emit = if Version::from(version) == Version::FCS3_2 {
-            PercentEmitted::lookup_meas_opt_dep(std, i, conf)
-        } else {
-            PercentEmitted::lookup_meas_opt(std, i, conf)
-        };
-        let det_volt = DetectorVoltage::lookup_meas_opt(std, i, conf);
+        let filter = Filter::lookup_meas_opt(std, i, false, conf);
+        let power = Power::lookup_meas_opt(std, i, false, conf);
+        let det_type = DetectorType::lookup_meas_opt(std, i, false, conf);
+        let pe_dep = Version::from(version) == Version::FCS3_2;
+        let perc_emit = PercentEmitted::lookup_meas_opt(std, i, pe_dep, conf);
+        let det_volt = DetectorVoltage::lookup_meas_opt(std, i, false, conf);
         filter
             .zip5(power, det_type, perc_emit, det_volt)
             .errors_into()
@@ -1917,18 +1914,18 @@ where
         let par = Par(ms.len());
         let names: HashSet<_> = ms.indexed_names().map(|(_, n)| n).collect();
         let ordered_names: Vec<_> = ms.indexed_names().map(|(_, n)| n).collect();
-        let abrt = Abrt::lookup_metaroot_opt(std, conf);
-        let com = Com::lookup_metaroot_opt(std, conf);
-        let cells = Cells::lookup_metaroot_opt(std, conf);
-        let exp = Exp::lookup_metaroot_opt(std, conf);
-        let fil = Fil::lookup_metaroot_opt(std, conf);
-        let inst = Inst::lookup_metaroot_opt(std, conf);
-        let lost = Lost::lookup_metaroot_opt(std, conf);
-        let op = Op::lookup_metaroot_opt(std, conf);
-        let proj = Proj::lookup_metaroot_opt(std, conf);
-        let smno = Smno::lookup_metaroot_opt(std, conf);
-        let src = Src::lookup_metaroot_opt(std, conf);
-        let sys = Sys::lookup_metaroot_opt(std, conf);
+        let abrt = Abrt::lookup_metaroot_opt(std, false, conf);
+        let com = Com::lookup_metaroot_opt(std, false, conf);
+        let cells = Cells::lookup_metaroot_opt(std, false, conf);
+        let exp = Exp::lookup_metaroot_opt(std, false, conf);
+        let fil = Fil::lookup_metaroot_opt(std, false, conf);
+        let inst = Inst::lookup_metaroot_opt(std, false, conf);
+        let lost = Lost::lookup_metaroot_opt(std, false, conf);
+        let op = Op::lookup_metaroot_opt(std, false, conf);
+        let proj = Proj::lookup_metaroot_opt(std, false, conf);
+        let smno = Smno::lookup_metaroot_opt(std, false, conf);
+        let src = Src::lookup_metaroot_opt(std, false, conf);
+        let sys = Sys::lookup_metaroot_opt(std, false, conf);
         let tr = Trigger::lookup_opt_linked_st(std, &names, (), conf);
         abrt.zip5(com, cells, exp, fil)
             .zip5(inst, lost, op, proj)
@@ -4717,7 +4714,7 @@ impl UnstainedData {
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self> {
         let c = UnstainedCenters::lookup_opt_linked_st(kws, names, (), conf);
-        let i = UnstainedInfo::lookup_metaroot_opt(kws, conf);
+        let i = UnstainedInfo::lookup_metaroot_opt(kws, false, conf);
         c.zip(i)
             .map(|(unstainedcenters, unstainedinfo)| Self::new(unstainedcenters, unstainedinfo))
     }
@@ -4741,8 +4738,8 @@ impl UnstainedData {
 impl SubsetData {
     fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
         let f = CSVFlags::lookup(kws, conf);
-        let b = CSVBits::lookup_metaroot_opt(kws, conf);
-        let t = CSTot::lookup_metaroot_opt(kws, conf);
+        let b = CSVBits::lookup_metaroot_opt(kws, false, conf);
+        let t = CSTot::lookup_metaroot_opt(kws, false, conf);
         f.zip3(b, t)
             .map(|(flags, bits, tot)| Self::new(bits, tot, flags))
     }
@@ -4780,11 +4777,13 @@ impl CSVFlags {
             .map(|xs| Self(xs.into()))
     }
 
+    // TODO technically these should be marked deprecated because they were
+    // taken out in 3.2, but the standards don't say so
     fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupOptional<Self> {
-        CSMode::lookup_metaroot_opt(kws, conf)
+        CSMode::lookup_metaroot_opt(kws, false, conf)
             .and_tentatively(|m| {
                 if let Some(n) = m.0 {
-                    let fs = (0..n.0).map(|i| CSVFlag::lookup_meas_opt(kws, i, conf));
+                    let fs = (0..n.0).map(|i| CSVFlag::lookup_meas_opt(kws, i, false, conf));
                     Tentative::mconcat(fs).and_tentatively(|flags| {
                         let xs = flags.into_iter().map(|x| x.0.map(|y| y.0));
                         Self::try_from_iter(xs)
@@ -4823,9 +4822,9 @@ impl CSVFlags {
 
 impl ModificationData {
     fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
-        let last_mod = LastModifier::lookup_metaroot_opt(kws, conf);
-        let last_mod_date = LastModified::lookup_metaroot_opt(kws, conf);
-        let ori = Originality::lookup_metaroot_opt(kws, conf);
+        let last_mod = LastModifier::lookup_metaroot_opt(kws, false, conf);
+        let last_mod_date = LastModified::lookup_metaroot_opt(kws, false, conf);
+        let ori = Originality::lookup_metaroot_opt(kws, false, conf);
         last_mod
             .zip3(last_mod_date, ori)
             .map(|(last_modifier, last_modified, originality)| {
@@ -4853,9 +4852,9 @@ impl ModificationData {
 
 impl CarrierData {
     fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
-        let l = Locationid::lookup_metaroot_opt(kws, conf);
-        let i = Carrierid::lookup_metaroot_opt(kws, conf);
-        let t = Carriertype::lookup_metaroot_opt(kws, conf);
+        let l = Locationid::lookup_metaroot_opt(kws, false, conf);
+        let i = Carrierid::lookup_metaroot_opt(kws, false, conf);
+        let t = Carriertype::lookup_metaroot_opt(kws, false, conf);
         l.zip3(i, t).map(|(locationid, carrierid, carriertype)| {
             Self::new(carrierid, carriertype, locationid)
         })
@@ -4880,18 +4879,14 @@ impl CarrierData {
 }
 
 impl PlateData {
-    fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
-        let w = Wellid::lookup_metaroot_opt(kws, conf);
-        let n = Platename::lookup_metaroot_opt(kws, conf);
-        let i = Plateid::lookup_metaroot_opt(kws, conf);
-        w.zip3(n, i)
-            .map(|(wellid, platename, plateid)| Self::new(plateid, platename, wellid))
-    }
-
-    fn lookup_dep(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
-        let w = Wellid::lookup_metaroot_opt_dep(kws, conf);
-        let n = Platename::lookup_metaroot_opt_dep(kws, conf);
-        let i = Plateid::lookup_metaroot_opt_dep(kws, conf);
+    fn lookup(
+        kws: &mut StdKeywords,
+        is_deprecated: bool,
+        conf: &StdTextReadConfig,
+    ) -> LookupTentative<Self> {
+        let w = Wellid::lookup_metaroot_opt(kws, is_deprecated, conf);
+        let n = Platename::lookup_metaroot_opt(kws, is_deprecated, conf);
+        let i = Plateid::lookup_metaroot_opt(kws, is_deprecated, conf);
         w.zip3(n, i)
             .map(|(wellid, platename, plateid)| Self::new(plateid, platename, wellid))
     }
@@ -4918,20 +4913,11 @@ impl PeakData {
     fn lookup(
         kws: &mut StdKeywords,
         i: MeasIndex,
+        is_deprecated: bool,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self> {
-        let b = PeakBin::lookup_meas_opt(kws, i, conf);
-        let s = PeakNumber::lookup_meas_opt(kws, i, conf);
-        b.zip(s).map(|(bin, size)| Self::new(bin, size))
-    }
-
-    fn lookup_dep(
-        kws: &mut StdKeywords,
-        i: MeasIndex,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self> {
-        let b = PeakBin::lookup_meas_opt_dep(kws, i, conf);
-        let s = PeakNumber::lookup_meas_opt_dep(kws, i, conf);
+        let b = PeakBin::lookup_meas_opt(kws, i, is_deprecated, conf);
+        let s = PeakNumber::lookup_meas_opt(kws, i, is_deprecated, conf);
         b.zip(s).map(|(bin, size)| Self::new(bin, size))
     }
 
@@ -5969,10 +5955,12 @@ impl ScaleTransform {
     }
 
     fn lookup(kws: &mut StdKeywords, i: MeasIndex, conf: &StdTextReadConfig) -> LookupResult<Self> {
-        Gain::lookup_meas_opt(kws, i, conf).errors_into().and_maybe(|g| {
-            Scale::lookup_req_st(kws, i, (), conf)
-                .def_and_maybe(|s| Self::try_from((s, g)).into_deferred())
-        })
+        Gain::lookup_meas_opt(kws, i, false, conf)
+            .errors_into()
+            .and_maybe(|g| {
+                Scale::lookup_req_st(kws, i, (), conf)
+                    .def_and_maybe(|s| Self::try_from((s, g)).into_deferred())
+            })
     }
 
     fn req_suffixes(&self, i: MeasIndex) -> impl Iterator<Item = (MeasHeader, String, String)> {
@@ -6352,9 +6340,9 @@ impl LookupOptical for InnerOptical2_0 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let scale = Scale::lookup_meas_opt_st(kws, i, (), conf);
-        let wave = Wavelength::lookup_meas_opt(kws, i, conf);
-        let peak = PeakData::lookup(kws, i, conf);
+        let scale = Scale::lookup_meas_opt_st(kws, i, false, (), conf);
+        let wave = Wavelength::lookup_meas_opt(kws, i, false, conf);
+        let peak = PeakData::lookup(kws, i, false, conf);
         Ok(scale
             .zip3(wave, peak)
             .errors_into()
@@ -6368,8 +6356,8 @@ impl LookupOptical for InnerOptical3_0 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let wave = Wavelength::lookup_meas_opt(kws, i, conf);
-        let peak = PeakData::lookup(kws, i, conf);
+        let wave = Wavelength::lookup_meas_opt(kws, i, false, conf);
+        let peak = PeakData::lookup(kws, i, false, conf);
         wave.zip(peak).errors_into().and_maybe(|(wi, pi)| {
             ScaleTransform::lookup(kws, i, conf).def_map_value(|s| Self::new(s, wi, pi))
         })
@@ -6382,10 +6370,10 @@ impl LookupOptical for InnerOptical3_1 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let wave = Wavelengths::lookup_meas_opt_st(kws, i, (), conf);
-        let cal = Calibration3_1::lookup_meas_opt(kws, i, conf);
-        let dpy = Display::lookup_meas_opt(kws, i, conf);
-        let peak = PeakData::lookup_dep(kws, i, conf);
+        let wave = Wavelengths::lookup_meas_opt_st(kws, i, false, (), conf);
+        let cal = Calibration3_1::lookup_meas_opt(kws, i, false, conf);
+        let dpy = Display::lookup_meas_opt(kws, i, false, conf);
+        let peak = PeakData::lookup(kws, i, true, conf);
         wave.zip4(cal, dpy, peak)
             .errors_into()
             .and_maybe(|(wi, ci, di, pi)| {
@@ -6401,14 +6389,14 @@ impl LookupOptical for InnerOptical3_2 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let wave = Wavelengths::lookup_meas_opt_st(kws, i, (), conf);
-        let cal = Calibration3_2::lookup_meas_opt(kws, i, conf);
-        let dpy = Display::lookup_meas_opt(kws, i, conf);
-        let det_name = DetectorName::lookup_meas_opt(kws, i, conf);
-        let tag = Tag::lookup_meas_opt(kws, i, conf);
-        let meas = OpticalType::lookup_meas_opt(kws, i, conf);
-        let feat = Feature::lookup_meas_opt(kws, i, conf);
-        let anal = Analyte::lookup_meas_opt(kws, i, conf);
+        let wave = Wavelengths::lookup_meas_opt_st(kws, i, false, (), conf);
+        let cal = Calibration3_2::lookup_meas_opt(kws, i, false, conf);
+        let dpy = Display::lookup_meas_opt(kws, i, false, conf);
+        let det_name = DetectorName::lookup_meas_opt(kws, i, false, conf);
+        let tag = Tag::lookup_meas_opt(kws, i, false, conf);
+        let meas = OpticalType::lookup_meas_opt(kws, i, false, conf);
+        let feat = Feature::lookup_meas_opt(kws, i, false, conf);
+        let anal = Analyte::lookup_meas_opt(kws, i, false, conf);
         wave.zip4(cal, dpy, det_name)
             .zip5(tag, meas, feat, anal)
             .errors_into()
@@ -6430,9 +6418,9 @@ impl LookupTemporal for InnerTemporal2_0 {
             nonstd.transfer_demoted(std, TemporalScale::std(i));
             Tentative::new1(Some(TemporalScale).into())
         } else {
-            TemporalScale::lookup_meas_opt(std, i, conf)
+            TemporalScale::lookup_meas_opt(std, i, false, conf)
         };
-        let peak = PeakData::lookup(std, i, conf);
+        let peak = PeakData::lookup(std, i, false, conf);
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, std, nonstd, i);
         Ok(scale.zip(peak).errors_into().map(|(s, p)| Self::new(s, p)))
     }
@@ -6446,7 +6434,7 @@ impl LookupTemporal for InnerTemporal3_0 {
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let gain = lookup_temporal_gain_3_0(std, i, nonstd, conf);
-        let peak = PeakData::lookup(std, i, conf);
+        let peak = PeakData::lookup(std, i, false, conf);
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, std, nonstd, i);
         gain.zip(peak).errors_into().and_maybe(|(_, p)| {
             let scale = lookup_temporal_scale_3_0(std, i, nonstd, conf);
@@ -6466,8 +6454,8 @@ impl LookupTemporal for InnerTemporal3_1 {
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let gain = lookup_temporal_gain_3_0(std, i, nonstd, conf);
-        let dpy = Display::lookup_meas_opt(std, i, conf);
-        let peak = PeakData::lookup_dep(std, i, conf).errors_into();
+        let dpy = Display::lookup_meas_opt(std, i, false, conf);
+        let peak = PeakData::lookup(std, i, true, conf).errors_into();
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, std, nonstd, i);
         gain.zip3(dpy, peak).errors_into().and_maybe(|(_, d, p)| {
             let scale = lookup_temporal_scale_3_0(std, i, nonstd, conf);
@@ -6487,8 +6475,8 @@ impl LookupTemporal for InnerTemporal3_2 {
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let gain = lookup_temporal_gain_3_0(std, i, nonstd, conf);
-        let dpy = Display::lookup_meas_opt(std, i, conf);
-        let meas = TemporalType::lookup_meas_opt(std, i, conf);
+        let dpy = Display::lookup_meas_opt(std, i, false, conf);
+        let meas = TemporalType::lookup_meas_opt(std, i, false, conf);
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, std, nonstd, i);
         gain.zip3(dpy, meas).errors_into().and_maybe(|(_, d, m)| {
             let scale = lookup_temporal_scale_3_0(std, i, nonstd, conf);
@@ -7208,7 +7196,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<<Self::Name as MightHave>::Wrapper<Shortname>> {
-        Ok(Shortname::lookup_meas_opt(kws, i, conf).errors_into())
+        Ok(Shortname::lookup_meas_opt(kws, i, false, conf).errors_into())
     }
 
     fn lookup_specific(
@@ -7219,8 +7207,8 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let comp = Compensation2_0::lookup(kws, par, conf);
-        let cytn = Cyt::lookup_metaroot_opt(kws, conf);
-        let ts = Timestamps::lookup(kws, conf);
+        let cytn = Cyt::lookup_metaroot_opt(kws, false, conf);
+        let ts = Timestamps::lookup(kws, false, conf);
         let ag = AppliedGates2_0::lookup(kws, par, conf);
         comp.zip4(cytn, ts, ag)
             .errors_into()
@@ -7236,7 +7224,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<<Self::Name as MightHave>::Wrapper<Shortname>> {
-        Ok(Shortname::lookup_meas_opt(kws, i, conf).errors_into())
+        Ok(Shortname::lookup_meas_opt(kws, i, false, conf).errors_into())
     }
 
     fn lookup_specific(
@@ -7246,13 +7234,13 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         _: &[&Shortname],
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let comp = Compensation3_0::lookup_metaroot_opt(kws, conf);
-        let cyt = Cyt::lookup_metaroot_opt(kws, conf);
-        let cytsn = Cytsn::lookup_metaroot_opt(kws, conf);
+        let comp = Compensation3_0::lookup_metaroot_opt(kws, false, conf);
+        let cyt = Cyt::lookup_metaroot_opt(kws, false, conf);
+        let cytsn = Cytsn::lookup_metaroot_opt(kws, false, conf);
         let subset = SubsetData::lookup(kws, conf);
-        let ts = Timestamps::lookup(kws, conf);
-        let uni = Unicode::lookup_metatroot_opt_st(kws, (), conf);
-        let ag = AppliedGates3_0::lookup(kws, par, conf);
+        let ts = Timestamps::lookup(kws, false, conf);
+        let uni = Unicode::lookup_metatroot_opt_st(kws, false, (), conf);
+        let ag = AppliedGates3_0::lookup(kws, par, false, conf);
         comp.zip4(cyt, cytsn, subset)
             .zip4(ts, uni, ag)
             .errors_into()
@@ -7278,15 +7266,15 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         ordered_names: &[&Shortname],
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let cyt = Cyt::lookup_metaroot_opt(kws, conf);
-        let spill = Spillover::lookup_metatroot_opt_st(kws, (names, ordered_names), conf);
-        let cytsn = Cytsn::lookup_metaroot_opt(kws, conf);
+        let cyt = Cyt::lookup_metaroot_opt(kws, false, conf);
+        let spill = Spillover::lookup_metatroot_opt_st(kws, false, (names, ordered_names), conf);
+        let cytsn = Cytsn::lookup_metaroot_opt(kws, false, conf);
         let subset = SubsetData::lookup(kws, conf);
         let modif = ModificationData::lookup(kws, conf);
-        let plate = PlateData::lookup(kws, conf);
-        let ts = Timestamps::lookup(kws, conf);
-        let vol = Vol::lookup_metaroot_opt(kws, conf);
-        let ag = AppliedGates3_0::lookup_dep(kws, par, conf).errors_into();
+        let plate = PlateData::lookup(kws, false, conf);
+        let ts = Timestamps::lookup(kws, false, conf);
+        let vol = Vol::lookup_metaroot_opt(kws, false, conf);
+        let ag = AppliedGates3_0::lookup(kws, par, true, conf).errors_into();
         let mode_dep = |m: &Mode| match m {
             Mode::Correlated => Some(DeprecatedError::Value(DepValueWarning::ModeCorrelated)),
             Mode::Uncorrelated => Some(DeprecatedError::Value(DepValueWarning::ModeUncorrelated)),
@@ -7321,15 +7309,15 @@ impl LookupMetaroot for InnerMetaroot3_2 {
     ) -> LookupResult<Self> {
         let carrier = CarrierData::lookup(kws, conf);
         let dt = Datetimes::lookup(kws, conf);
-        let flow = Flowrate::lookup_metaroot_opt(kws, conf);
+        let flow = Flowrate::lookup_metaroot_opt(kws, false, conf);
         let modif = ModificationData::lookup(kws, conf);
-        let mode = Mode3_2::lookup_metaroot_opt_dep(kws, conf);
-        let spill = Spillover::lookup_metatroot_opt_st(kws, (names, ordered_names), conf);
-        let cytsn = Cytsn::lookup_metaroot_opt(kws, conf);
-        let plate = PlateData::lookup_dep(kws, conf);
-        let ts = Timestamps::lookup_dep(kws, conf);
+        let mode = Mode3_2::lookup_metaroot_opt(kws, true, conf);
+        let spill = Spillover::lookup_metatroot_opt_st(kws, false, (names, ordered_names), conf);
+        let cytsn = Cytsn::lookup_metaroot_opt(kws, false, conf);
+        let plate = PlateData::lookup(kws, true, conf);
+        let ts = Timestamps::lookup(kws, true, conf);
         let us = UnstainedData::lookup(kws, names, conf);
-        let vol = Vol::lookup_metaroot_opt(kws, conf);
+        let vol = Vol::lookup_metaroot_opt(kws, false, conf);
         let ag = AppliedGates3_2::lookup(kws, par, conf);
         carrier
             .zip6(dt, flow, modif, mode, spill)

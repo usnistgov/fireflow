@@ -15,9 +15,9 @@ use super::index::{GateIndex, MeasIndex, RegionIndex};
 use super::named_vec::NameMapping;
 use super::optional::MaybeValue;
 use super::parser::{
-    eval_dep_maybe, DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful,
-    LookupKeysWarning, LookupResult, LookupTentative, OptIndexedKey, OptLinkedKey, OptMetarootKey,
-    Optional, ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
+    DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful, LookupKeysWarning,
+    LookupResult, LookupTentative, OptIndexedKey, OptLinkedKey, OptMetarootKey, Optional,
+    ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
 };
 use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use super::scale::{Scale, ScaleError};
@@ -832,6 +832,7 @@ impl<I> RegionGateIndex<I> {
         kws: &mut StdKeywords,
         i: RegionIndex,
         par: Par,
+        is_deprecated: bool,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<MaybeValue<Self>>
     where
@@ -839,7 +840,7 @@ impl<I> RegionGateIndex<I> {
         for<'a> Self: fmt::Display + FromStrStateful<Payload<'a> = ()>,
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
-        Self::lookup_meas_opt_st(kws, i, (), conf).and_tentatively(|maybe| {
+        Self::lookup_meas_opt_st(kws, i, is_deprecated, (), conf).and_tentatively(|maybe| {
             if let Some(x) = maybe.0 {
                 Self::check_link(&x, par)
                     .map(|()| x)
@@ -850,23 +851,6 @@ impl<I> RegionGateIndex<I> {
             }
             .value_into()
         })
-    }
-
-    pub(crate) fn lookup_region_opt_dep(
-        kws: &mut StdKeywords,
-        i: RegionIndex,
-        par: Par,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<MaybeValue<Self>>
-    where
-        I: fmt::Display + FromStr + gating::LinkedMeasIndex,
-        for<'a> Self: fmt::Display + FromStrStateful<Payload<'a> = ()>,
-        ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
-    {
-        // TODO fix lame wrap thing
-        let mut x = Self::lookup_region_opt(kws, i, par, conf).map(|x| x.0);
-        eval_dep_maybe(&mut x, Self::std(i), conf.disallow_deprecated);
-        x.map(Into::into)
     }
 
     fn check_link(&self, par: Par) -> Result<(), RegionIndexError>

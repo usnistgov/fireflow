@@ -97,6 +97,8 @@ pub(crate) trait Required: Sized {
 
 /// Any optional key
 pub(crate) trait Optional: Sized {
+    type Outer: Default + From<Option<Self>>;
+
     fn get_opt(kws: &StdKeywords, k: StdKey) -> OptKwResult<Self>
     where
         Self: FromStr,
@@ -104,7 +106,7 @@ pub(crate) trait Optional: Sized {
         get_opt(kws, k).map(Into::into)
     }
 
-    fn remove_opt<F, E>(kws: &mut StdKeywords, k: StdKey, f: F) -> Result<MaybeValue<Self>, E>
+    fn remove_opt<F, E>(kws: &mut StdKeywords, k: StdKey, f: F) -> Result<Self::Outer, E>
     where
         F: FnOnce(StdKey, String) -> Result<Self, E>,
     {
@@ -115,7 +117,7 @@ pub(crate) trait Optional: Sized {
         kws: &mut StdKeywords,
         k: StdKey,
         f: F,
-    ) -> Tentative<MaybeValue<Self>, W, E>
+    ) -> Tentative<Self::Outer, W, E>
     where
         F: FnOnce(StdKey, String) -> Tentative<Option<Self>, W, E>,
     {
@@ -253,7 +255,9 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self::get_opt(kws, Self::std())
     }
 
-    fn remove_metaroot_opt(kws: &mut StdKeywords) -> OptKwResult<Self>
+    fn remove_metaroot_opt(
+        kws: &mut StdKeywords,
+    ) -> Result<Self::Outer, ParseKeyError<<Self as FromStr>::Err>>
     where
         Self: FromStr,
     {
@@ -267,7 +271,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         kws: &mut StdKeywords,
         is_deprecated: bool,
         conf: &StdTextReadConfig,
-    ) -> LookupOptional<Self>
+    ) -> LookupTentative<Self::Outer>
     where
         Self: FromStr,
         ParseOptKeyError: From<<Self as FromStr>::Err>,
@@ -282,7 +286,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         is_deprecated: bool,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
-    ) -> LookupOptional<Self>
+    ) -> LookupTentative<Self::Outer>
     where
         Self: FromStrStateful,
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
@@ -337,7 +341,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         i: impl Into<IndexFromOne>,
         is_deprecated: bool,
         conf: &StdTextReadConfig,
-    ) -> LookupOptional<Self>
+    ) -> LookupTentative<Self::Outer>
     where
         Self: FromStr,
         ParseOptKeyError: From<<Self as FromStr>::Err>,
@@ -353,7 +357,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         is_deprecated: bool,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
-    ) -> LookupOptional<Self>
+    ) -> LookupTentative<Self::Outer>
     where
         Self: FromStrStateful,
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
@@ -375,6 +379,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
 pub(crate) trait OptLinkedKey
 where
     Self: Key + Optional + fmt::Display + FromStr + Sized,
+    Option<Self>: From<Self::Outer>,
 {
     fn check_link(&self, names: &HashSet<&Shortname>) -> Result<(), LinkedNameError> {
         NonEmpty::collect(self.names().difference(names).copied().cloned())
@@ -407,7 +412,7 @@ where
         names: &HashSet<&Shortname>,
         data: P,
         conf: &StdTextReadConfig,
-    ) -> LookupOptional<Self>
+    ) -> LookupTentative<Self::Outer>
     where
         for<'a> Self: FromStrStateful<Payload<'a> = P>,
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,

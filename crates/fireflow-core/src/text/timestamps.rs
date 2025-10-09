@@ -4,7 +4,7 @@ use crate::validated::keys::StdKeywords;
 use crate::validated::timepattern::ParseWithTimePatternError;
 
 use super::optional::MaybeValue;
-use super::parser::{FromStrStateful, LookupTentative, OptMetarootKey, ParseOptKeyError};
+use super::parser::{FromStrStateful, LookupTentative, OptMetarootKey, Optional, ParseOptKeyError};
 
 use chrono::{NaiveDate, NaiveTime, Timelike as _};
 use derive_more::{AsRef, Display, From, FromStr, Into};
@@ -164,8 +164,8 @@ impl<X> Timestamps<X> {
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self>
     where
-        Btim<X>: OptMetarootKey,
-        Etim<X>: OptMetarootKey,
+        Btim<X>: OptMetarootKey + Optional<Outer = MaybeValue<Btim<X>>>,
+        Etim<X>: OptMetarootKey + Optional<Outer = MaybeValue<Etim<X>>>,
         ParseOptKeyError:
             From<<Btim<X> as FromStrStateful>::Err> + From<<Etim<X> as FromStrStateful>::Err>,
         for<'a> X: PartialOrd + FromStr + From<NaiveTime>,

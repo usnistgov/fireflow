@@ -1605,7 +1605,9 @@ macro_rules! req_meta {
 
 macro_rules! opt_meta {
     ($t:ident) => {
-        impl Optional for $t {}
+        impl Optional for $t {
+            type Outer = MaybeValue<$t>;
+        }
         impl OptMetarootKey for $t {}
     };
 }
@@ -1619,7 +1621,9 @@ macro_rules! req_meas {
 
 macro_rules! opt_meas {
     ($t:ident) => {
-        impl Optional for $t {}
+        impl Optional for $t {
+            type Outer = MaybeValue<$t>;
+        }
         impl OptIndexedKey for $t {}
     };
 }
@@ -1743,7 +1747,9 @@ impl Key for Trigger {
     const C: &'static str = "TR";
 }
 
-impl Optional for Trigger {}
+impl Optional for Trigger {
+    type Outer = MaybeValue<Trigger>;
+}
 
 impl OptLinkedKey for Trigger {
     fn names(&self) -> HashSet<&Shortname> {
@@ -1806,7 +1812,9 @@ impl Key for UnstainedCenters {
     const C: &'static str = "UNSTAINEDCENTERS";
 }
 
-impl Optional for UnstainedCenters {}
+impl Optional for UnstainedCenters {
+    type Outer = MaybeValue<UnstainedCenters>;
+}
 
 kw_opt_meta_string!(UnstainedInfo, "UNSTAINEDINFO");
 
@@ -1927,7 +1935,9 @@ impl<I> IndexedKey for RegionGateIndex<I> {
     const SUFFIX: &'static str = "I";
 }
 
-impl<I> Optional for RegionGateIndex<I> {}
+impl<I> Optional for RegionGateIndex<I> {
+    type Outer = MaybeValue<RegionGateIndex<I>>;
+}
 impl<I> OptIndexedKey for RegionGateIndex<I> where I: fmt::Display + FromStr {}
 
 // offsets for all versions

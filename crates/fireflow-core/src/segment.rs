@@ -3,7 +3,8 @@ use crate::error::{
     ResultExt as _, Tentative,
 };
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
-use crate::text::parser::{OptKeyError, OptMetarootKey, ReqKeyError, ReqMetarootKey};
+use crate::text::optional::MaybeValue;
+use crate::text::parser::{OptKeyError, OptMetarootKey, Optional, ReqKeyError, ReqMetarootKey};
 use crate::validated::ascii_uint::{
     HeaderString, ParseFixedUintError, UintSpacePad20, UintSpacePad8, UintZeroPad20,
 };
@@ -291,8 +292,14 @@ where
 pub(crate) trait KeyedOptSegment
 where
     Self: KeyedSegment + HasRegion,
-    Self::B: Into<UintZeroPad20> + OptMetarootKey + FromStr<Err = ParseIntError>,
-    Self::E: Into<UintZeroPad20> + OptMetarootKey + FromStr<Err = ParseIntError>,
+    Self::B: Into<UintZeroPad20>
+        + OptMetarootKey
+        + Optional<Outer = MaybeValue<Self::B>>
+        + FromStr<Err = ParseIntError>,
+    Self::E: Into<UintZeroPad20>
+        + OptMetarootKey
+        + Optional<Outer = MaybeValue<Self::E>>
+        + FromStr<Err = ParseIntError>,
 {
     fn get_or(
         kws: &StdKeywords,

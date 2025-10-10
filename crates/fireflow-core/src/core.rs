@@ -50,7 +50,7 @@ use crate::text::{
         NewNamedVecError, NonCenterElement, NonUniqueKeyError, RenameError, SetCenterError,
         SetElementsError, SetKeysError, SetNamesError,
     },
-    optional::{AlwaysFamily, AlwaysValue, MaybeFamily, MaybeValue, MightHave},
+    optional::{AlwaysFamily, AlwaysValue, DisplayMaybe as _, MaybeFamily, MaybeValue, MightHave},
     parser::{
         lookup_temporal_gain_3_0, lookup_temporal_scale_3_0, DepValueWarning, DeprecatedError,
         ExtraStdKeywords, LookupKeysError, LookupKeysWarning, LookupOptional, LookupResult,
@@ -1785,10 +1785,10 @@ impl<O> Optical<O> {
         [
             self.common.longname.meas_opt_triple(i),
             self.filter.meas_opt_triple(i),
-            self.power.meas_kw_triple(i),
+            self.power.meas_opt_triple(i),
             self.detector_type.meas_opt_triple(i),
-            self.percent_emitted.meas_kw_triple(i),
-            self.detector_voltage.meas_kw_triple(i),
+            self.percent_emitted.meas_opt_triple(i),
+            self.detector_voltage.meas_opt_triple(i),
         ]
         .into_iter()
         .chain(self.specific.opt_suffixes_inner(i))
@@ -1973,19 +1973,19 @@ where
 
     fn all_opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
-            self.abrt.root_kw_pair(),
+            self.abrt.metaroot_opt_pair(),
             self.com.metaroot_opt_pair(),
             self.cells.metaroot_opt_pair(),
             self.exp.metaroot_opt_pair(),
             self.fil.metaroot_opt_pair(),
             self.inst.metaroot_opt_pair(),
-            self.lost.root_kw_pair(),
+            self.lost.metaroot_opt_pair(),
             self.op.metaroot_opt_pair(),
             self.proj.metaroot_opt_pair(),
             self.smno.metaroot_opt_pair(),
             self.src.metaroot_opt_pair(),
             self.sys.metaroot_opt_pair(),
-            self.tr.root_kw_pair(),
+            self.tr.metaroot_opt_pair(),
         ]
         .into_iter()
         .filter_map(|(k, v)| v.map(|x| (k, x)))
@@ -4737,7 +4737,7 @@ impl UnstainedData {
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
-            self.unstainedcenters.root_kw_pair(),
+            self.unstainedcenters.metaroot_opt_pair(),
             self.unstainedinfo.metaroot_opt_pair(),
         ]
         .into_iter()
@@ -4761,7 +4761,7 @@ impl SubsetData {
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
-        [self.bits.root_kw_pair(), self.tot.root_kw_pair()]
+        [self.bits.metaroot_opt_pair(), self.tot.metaroot_opt_pair()]
             .into_iter()
             .filter_map(|(k, v)| v.map(|x| (k, x)))
             .chain(
@@ -4819,7 +4819,7 @@ impl CSVFlags {
             .0
             .iter()
             .enumerate()
-            .map(|(i, f)| f.meas_kw_pair(i))
+            .map(|(i, f)| f.meas_opt_pair(i))
             .filter_map(|(k, v)| v.map(|x| (k, x)))
             .chain([m.metaroot_pair()])
     }
@@ -4851,8 +4851,8 @@ impl ModificationData {
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
             self.last_modifier.metaroot_opt_pair(),
-            self.last_modified.root_kw_pair(),
-            self.originality.root_kw_pair(),
+            self.last_modified.metaroot_opt_pair(),
+            self.originality.metaroot_opt_pair(),
         ]
         .into_iter()
         .filter_map(|(k, v)| v.map(|x| (k, x)))
@@ -4941,7 +4941,7 @@ impl PeakData {
         &self,
         i: MeasIndex,
     ) -> impl Iterator<Item = (MeasHeader, String, Option<String>)> {
-        [self.bin.meas_kw_triple(i), self.size.meas_kw_triple(i)].into_iter()
+        [self.bin.meas_opt_triple(i), self.size.meas_opt_triple(i)].into_iter()
     }
 
     fn check_loss(self, i: MeasIndex, allow_loss: bool) -> BiTentative<(), AnyMeasKeyLossError> {
@@ -5986,7 +5986,7 @@ impl ScaleTransform {
         i: MeasIndex,
     ) -> impl Iterator<Item = (MeasHeader, String, Option<String>)> {
         let (_, gain): (_, MaybeValue<Gain>) = (*self).into();
-        [gain.meas_kw_triple(i)].into_iter()
+        [gain.meas_opt_triple(i)].into_iter()
     }
 
     pub(crate) fn is_noop(&self) -> bool {
@@ -6515,8 +6515,8 @@ impl VersionedOptical for InnerOptical2_0 {
         i: MeasIndex,
     ) -> impl Iterator<Item = (MeasHeader, String, Option<String>)> {
         [
-            self.scale.meas_kw_triple(i),
-            self.wavelength.meas_kw_triple(i),
+            self.scale.meas_opt_triple(i),
+            self.wavelength.meas_opt_triple(i),
         ]
         .into_iter()
         .chain(self.peak.opt_keywords(i))
@@ -6550,7 +6550,7 @@ impl VersionedOptical for InnerOptical3_0 {
         &self,
         i: MeasIndex,
     ) -> impl Iterator<Item = (MeasHeader, String, Option<String>)> {
-        once(self.wavelength.meas_kw_triple(i))
+        once(self.wavelength.meas_opt_triple(i))
             .chain(self.peak.opt_keywords(i))
             .chain(self.scale.opt_suffixes(i))
     }
@@ -6583,9 +6583,9 @@ impl VersionedOptical for InnerOptical3_1 {
         i: MeasIndex,
     ) -> impl Iterator<Item = (MeasHeader, String, Option<String>)> {
         [
-            self.wavelengths.meas_kw_triple(i),
-            self.calibration.meas_kw_triple(i),
-            self.display.meas_kw_triple(i),
+            self.wavelengths.meas_opt_triple(i),
+            self.calibration.meas_opt_triple(i),
+            self.display.meas_opt_triple(i),
         ]
         .into_iter()
         .chain(self.peak.opt_keywords(i))
@@ -6624,13 +6624,13 @@ impl VersionedOptical for InnerOptical3_2 {
         i: MeasIndex,
     ) -> impl Iterator<Item = (MeasHeader, String, Option<String>)> {
         [
-            self.wavelengths.meas_kw_triple(i),
-            self.calibration.meas_kw_triple(i),
-            self.display.meas_kw_triple(i),
+            self.wavelengths.meas_opt_triple(i),
+            self.calibration.meas_opt_triple(i),
+            self.display.meas_opt_triple(i),
             self.detector_name.meas_opt_triple(i),
             self.tag.meas_opt_triple(i),
-            self.measurement_type.meas_kw_triple(i),
-            self.feature.meas_kw_triple(i),
+            self.measurement_type.meas_opt_triple(i),
+            self.feature.meas_opt_triple(i),
             self.analyte.meas_opt_triple(i),
         ]
         .into_iter()
@@ -6676,7 +6676,7 @@ impl VersionedTemporal for InnerTemporal2_0 {
         self.peak
             .opt_keywords(i)
             .map(|(_, k, v)| (k, v))
-            .chain([self.scale.meas_kw_pair(i)])
+            .chain([self.scale.meas_opt_pair(i)])
             .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
@@ -6740,7 +6740,7 @@ impl VersionedTemporal for InnerTemporal3_1 {
         self.peak
             .opt_keywords(i)
             .map(|(_, k, v)| (k, v))
-            .chain([self.display.meas_kw_pair(i)])
+            .chain([self.display.meas_opt_pair(i)])
             .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
@@ -6770,7 +6770,7 @@ impl VersionedTemporal for InnerTemporal3_2 {
     }
 
     fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
-        once(self.display.meas_kw_pair(i)).filter_map(|(k, v)| v.map(|x| (k, x)))
+        once(self.display.meas_opt_pair(i)).filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
     fn can_convert_to_optical(&self, i: MeasIndex) -> MultiResult<(), Self::Err> {
@@ -7451,9 +7451,9 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
     fn keywords_opt_inner(&self) -> impl Iterator<Item = (String, String)> {
         [
             self.cyt.metaroot_opt_pair(),
-            self.comp.root_kw_pair(),
+            self.comp.metaroot_opt_pair(),
             self.cytsn.metaroot_opt_pair(),
-            self.unicode.root_kw_pair(),
+            self.unicode.metaroot_opt_pair(),
         ]
         .into_iter()
         .filter_map(|(k, v)| v.map(|x| (k, x)))
@@ -7522,9 +7522,9 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
     fn keywords_opt_inner(&self) -> impl Iterator<Item = (String, String)> {
         [
             self.cyt.metaroot_opt_pair(),
-            self.spillover.root_kw_pair(),
+            self.spillover.metaroot_opt_pair(),
             self.cytsn.metaroot_opt_pair(),
-            self.vol.root_kw_pair(),
+            self.vol.metaroot_opt_pair(),
         ]
         .into_iter()
         .filter_map(|(k, v)| v.map(|x| (k, x)))
@@ -7605,10 +7605,10 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
 
     fn keywords_opt_inner(&self) -> impl Iterator<Item = (String, String)> {
         [
-            self.spillover.root_kw_pair(),
+            self.spillover.metaroot_opt_pair(),
             self.cytsn.metaroot_opt_pair(),
-            self.vol.root_kw_pair(),
-            self.flowrate.root_kw_pair(),
+            self.vol.metaroot_opt_pair(),
+            self.flowrate.metaroot_opt_pair(),
         ]
         .into_iter()
         .filter_map(|(k, v)| v.map(|x| (k, x)))

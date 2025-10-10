@@ -14,7 +14,7 @@ use super::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use super::gating;
 use super::index::{GateIndex, MeasIndex, RegionIndex};
 use super::named_vec::NameMapping;
-use super::optional::{MaybeValue, OptionalString};
+use super::optional::{DisplayMaybe, MaybeValue, OptionalString};
 use super::parser::{
     DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful, LookupKeysWarning,
     LookupResult, LookupTentative, OptIndexedKey, OptLinkedKey, OptMetarootKey, Optional,
@@ -1567,9 +1567,10 @@ macro_rules! newtype_string {
         #[as_ref(str)]
         pub struct $t(pub OptionalString);
 
-        impl From<&$t> for Option<String> {
-            fn from(value: &$t) -> Self {
-                let s = &(&value.0).0;
+        impl DisplayMaybe for $t {
+            type Inner = $t;
+            fn display_maybe(&self) -> Option<String> {
+                let s = &(&self.0).0;
                 if s.is_empty() {
                     None
                 } else {
@@ -1728,7 +1729,7 @@ macro_rules! kw_time {
     ($outer:ident, $wrap:ident, $inner:ident, $err:ident, $key:expr) => {
         type $outer = $wrap<$inner>;
 
-        kw_opt_meta!($outer, $key, MaybeValue<Self>);
+        kw_opt_meta!($outer, $key, Option<Self>);
 
         impl From<NaiveTime> for $outer {
             fn from(value: NaiveTime) -> Self {
@@ -1771,7 +1772,7 @@ kw_opt_meta_int!(Abrt, u32, "ABRT");
 kw_opt_meta_string!(Cytsn, "CYTSN");
 kw_opt_meta_string!(Com, "COM");
 kw_opt_meta_string!(Cells, "CELLS");
-kw_opt_meta!(FCSDate, "DATE", MaybeValue<Self>);
+kw_opt_meta!(FCSDate, "DATE", Option<Self>);
 kw_opt_meta_string!(Exp, "EXP");
 kw_opt_meta_string!(Fil, "FIL");
 kw_opt_meta_string!(Inst, "INST");
@@ -1845,8 +1846,8 @@ kw_opt_meta_string!(Carrierid, "CARRIERID");
 kw_opt_meta_string!(Carriertype, "CARRIERTYPE");
 kw_opt_meta_string!(Locationid, "LOCATIONID");
 
-kw_opt_meta!(BeginDateTime, "BEGINDATETIME", MaybeValue<Self>);
-kw_opt_meta!(EndDateTime, "ENDDATETIME", MaybeValue<Self>);
+kw_opt_meta!(BeginDateTime, "BEGINDATETIME", Option<Self>);
+kw_opt_meta!(EndDateTime, "ENDDATETIME", Option<Self>);
 
 impl Key for UnstainedCenters {
     const C: &'static str = "UNSTAINEDCENTERS";

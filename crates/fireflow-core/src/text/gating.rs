@@ -9,7 +9,7 @@ use crate::text::keywords::{
     GateRange, GateScale, GateShortname, Gating, IndexPair, MeasOrGateIndex, Par,
     PrefixedMeasIndex, RegionGateIndex, RegionWindow, UniGate, Vertex,
 };
-use crate::text::optional::MaybeValue;
+use crate::text::optional::{DisplayMaybe as _, MaybeValue};
 use crate::text::parser::{
     LookupOptional, LookupTentative, OptIndexedKey as _, OptMetarootKey, ParseOptKeyError,
 };
@@ -593,14 +593,14 @@ impl GatedMeasurement {
 
     pub(crate) fn opt_keywords(&self, i: GateIndex) -> impl Iterator<Item = (String, String)> {
         [
-            self.scale.meas_kw_pair(i),
-            self.filter.meas_kw_pair(i),
-            self.shortname.meas_kw_pair(i),
-            self.percent_emitted.meas_kw_pair(i),
-            self.range.meas_kw_pair(i),
-            self.longname.meas_kw_pair(i),
-            self.detector_type.meas_kw_pair(i),
-            self.detector_voltage.meas_kw_pair(i),
+            self.scale.meas_opt_pair(i),
+            self.filter.meas_opt_pair(i),
+            self.shortname.meas_opt_pair(i),
+            self.percent_emitted.meas_opt_pair(i),
+            self.range.meas_opt_pair(i),
+            self.longname.meas_opt_pair(i),
+            self.detector_type.meas_opt_pair(i),
+            self.detector_voltage.meas_opt_pair(i),
         ]
         .into_iter()
         .filter_map(|(k, v)| v.map(|x| (k, x)))

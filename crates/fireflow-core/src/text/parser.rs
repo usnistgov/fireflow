@@ -311,20 +311,13 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         (Self::std().to_string(), self.to_string())
     }
 
-    fn metaroot_opt_pair(&self) -> (String, Option<String>)
-    where
-        Self: fmt::Display + Optional<Outer = Self> + IsDefault,
-    {
-        (Self::std().to_string(), self.display_maybe())
-    }
-
     fn check_key_transfer(self, allow_loss: bool) -> BiTentative<(), AnyMetarootKeyLossError>
     where
-        Self: Optional<Outer = Self> + Default + PartialEq,
+        Self: Optional<Outer = Self> + IsDefault,
         AnyMetarootKeyLossError: From<UnitaryKeyLossError<Self>>,
     {
         let mut tnt = Tentative::default();
-        if self != Self::default() {
+        if !self.is_default() {
             tnt.push_error_or_warning(UnitaryKeyLossError::<Self>::new(), !allow_loss);
         }
         tnt
@@ -401,35 +394,17 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         (Self::std(i).to_string(), self.to_string())
     }
 
-    fn meas_opt_pair(&self, i: impl Into<IndexFromOne>) -> (String, Option<String>)
-    where
-        Self: fmt::Display + Optional<Outer = Self> + IsDefault,
-    {
-        (Self::std(i).to_string(), self.display_maybe())
-    }
-
-    fn meas_opt_triple(&self, i: impl Into<IndexFromOne>) -> (MeasHeader, String, Option<String>)
-    where
-        Self: fmt::Display + Optional<Outer = Self> + IsDefault,
-    {
-        (
-            Self::std_blank(),
-            Self::std(i).to_string(),
-            self.display_maybe(),
-        )
-    }
-
     fn check_indexed_key_transfer_own<E>(
         self,
         i: impl Into<IndexFromOne>,
         allow_loss: bool,
     ) -> BiTentative<(), E>
     where
-        Self: Optional<Outer = Self> + Default + PartialEq,
+        Self: Optional<Outer = Self> + IsDefault,
         E: From<IndexedKeyLossError<Self>>,
     {
         let mut tnt = Tentative::default();
-        if self != Self::default() {
+        if !self.is_default() {
             tnt.push_error_or_warning(IndexedKeyLossError::<Self>::new(i), !allow_loss);
         }
         tnt
@@ -437,10 +412,10 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
 
     fn check_indexed_key_transfer<E>(&self, i: impl Into<IndexFromOne>) -> Result<(), E>
     where
-        Self: Optional<Outer = Self> + Default + PartialEq,
+        Self: Optional<Outer = Self> + IsDefault,
         E: From<IndexedKeyLossError<Self>>,
     {
-        if *self == Self::default() {
+        if self.is_default() {
             Ok(())
         } else {
             Err(IndexedKeyLossError::<Self>::new(i).into())

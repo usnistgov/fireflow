@@ -1,9 +1,9 @@
 use crate::config::StdTextReadConfig;
 use crate::error::ResultExt as _;
-use crate::validated::keys::StdKeywords;
+use crate::validated::keys::{Key, StdKeywords};
 use crate::validated::timepattern::ParseWithTimePatternError;
 
-use super::optional::MaybeValue;
+use super::optional::DisplayMaybe;
 use super::parser::{FromStrStateful, LookupTentative, OptMetarootKey, Optional, ParseOptKeyError};
 
 use chrono::{NaiveDate, NaiveTime, Timelike as _};
@@ -164,8 +164,8 @@ impl<X> Timestamps<X> {
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self>
     where
-        Btim<X>: OptMetarootKey + Optional<Outer = MaybeValue<Btim<X>>>,
-        Etim<X>: OptMetarootKey + Optional<Outer = MaybeValue<Etim<X>>>,
+        Btim<X>: OptMetarootKey + Optional<Outer = Option<Btim<X>>>,
+        Etim<X>: OptMetarootKey + Optional<Outer = Option<Etim<X>>>,
         ParseOptKeyError:
             From<<Btim<X> as FromStrStateful>::Err> + From<<Etim<X> as FromStrStateful>::Err>,
         for<'a> X: PartialOrd + FromStr + From<NaiveTime>,
@@ -174,7 +174,7 @@ impl<X> Timestamps<X> {
         let e = Etim::lookup_metatroot_opt_st(kws, is_deprecated, (), conf);
         let d = FCSDate::lookup_metatroot_opt_st(kws, is_deprecated, (), conf);
         b.zip3(e, d).and_tentatively(|(btim, etim, date)| {
-            Self::try_new(btim.0, etim.0, date.0)
+            Self::try_new(btim, etim, date)
                 .into_tentative_def(!conf.allow_optional_dropping)
                 .inner_into()
         })
@@ -182,14 +182,16 @@ impl<X> Timestamps<X> {
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)>
     where
-        Btim<X>: OptMetarootKey,
-        Etim<X>: OptMetarootKey,
+        Btim<X>: Key,
+        Etim<X>: Key,
+        Option<Btim<X>>: DisplayMaybe<Inner = Btim<X>>,
+        Option<Etim<X>>: DisplayMaybe<Inner = Etim<X>>,
         X: Copy + fmt::Display,
     {
         [
-            MaybeValue(self.btim).root_kw_pair(),
-            MaybeValue(self.etim).root_kw_pair(),
-            MaybeValue(self.date).root_kw_pair(),
+            self.btim.metaroot_opt_pair(),
+            self.etim.metaroot_opt_pair(),
+            self.date.metaroot_opt_pair(),
         ]
         .into_iter()
         .filter_map(|(k, v)| v.map(|x| (k, x)))

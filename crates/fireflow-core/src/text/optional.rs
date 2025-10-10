@@ -45,22 +45,56 @@ pub struct OptionalString(pub String);
 
 pub trait IsDefault {
     fn is_default(&self) -> bool;
-
-    fn display_maybe(&self) -> Option<String>
-    where
-        Self: fmt::Display,
-    {
-        if self.is_default() {
-            None
-        } else {
-            Some(self.to_string())
-        }
-    }
 }
 
 impl<T: Default + PartialEq> IsDefault for T {
     fn is_default(&self) -> bool {
         self == &T::default()
+    }
+}
+
+pub trait DisplayMaybe: IsDefault {
+    type Inner;
+
+    fn display_maybe(&self) -> Option<String>;
+
+    fn metaroot_opt_pair(&self) -> (String, Option<String>)
+    where
+        Self::Inner: Key,
+    {
+        (Self::Inner::std().to_string(), self.display_maybe())
+    }
+
+    fn meas_opt_pair(&self, i: impl Into<IndexFromOne>) -> (String, Option<String>)
+    where
+        Self::Inner: IndexedKey,
+    {
+        (Self::Inner::std(i).to_string(), self.display_maybe())
+    }
+
+    fn meas_opt_triple(&self, i: impl Into<IndexFromOne>) -> (MeasHeader, String, Option<String>)
+    where
+        Self::Inner: IndexedKey,
+    {
+        (
+            Self::Inner::std_blank(),
+            Self::Inner::std(i).to_string(),
+            self.display_maybe(),
+        )
+    }
+}
+
+impl<T: fmt::Display + PartialEq> DisplayMaybe for MaybeValue<T> {
+    type Inner = T;
+    fn display_maybe(&self) -> Option<String> {
+        self.0.display_maybe()
+    }
+}
+
+impl<T: fmt::Display + PartialEq> DisplayMaybe for Option<T> {
+    type Inner = T;
+    fn display_maybe(&self) -> Option<String> {
+        self.as_ref().map(ToString::to_string)
     }
 }
 
@@ -276,47 +310,6 @@ impl<V> MaybeValue<V> {
             tnt.push_error_or_warning(UnitaryKeyLossError::<V>::new(), !allow_loss);
         }
         tnt
-    }
-
-    pub fn as_opt_string(&self) -> Option<String>
-    where
-        V: fmt::Display,
-    {
-        self.0.as_ref().map(ToString::to_string)
-    }
-
-    pub(crate) fn root_kw_pair(&self) -> (String, Option<String>)
-    where
-        V: Key + fmt::Display,
-    {
-        (
-            V::std().to_string(),
-            self.0.as_ref().map(ToString::to_string),
-        )
-    }
-
-    pub(crate) fn meas_kw_triple(
-        &self,
-        i: impl Into<IndexFromOne>,
-    ) -> (MeasHeader, String, Option<String>)
-    where
-        V: IndexedKey + fmt::Display,
-    {
-        (
-            V::std_blank(),
-            V::std(i).to_string(),
-            self.0.as_ref().map(ToString::to_string),
-        )
-    }
-
-    pub(crate) fn meas_kw_pair(&self, i: impl Into<IndexFromOne>) -> (String, Option<String>)
-    where
-        V: IndexedKey + fmt::Display,
-    {
-        (
-            V::std(i).to_string(),
-            self.0.as_ref().map(ToString::to_string),
-        )
     }
 }
 

@@ -3,7 +3,7 @@ use crate::core::{AnyMetarootKeyLossError, UnitaryKeyLossError};
 use crate::error::{BiTentative, ResultExt as _, Tentative};
 use crate::validated::keys::StdKeywords;
 
-use super::optional::MaybeValue;
+use super::optional::DisplayMaybe;
 use super::parser::{LookupTentative, OptMetarootKey as _};
 
 use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeZone as _};
@@ -90,19 +90,16 @@ impl Datetimes {
         let b = BeginDateTime::lookup_metaroot_opt(kws, false, conf);
         let e = EndDateTime::lookup_metaroot_opt(kws, false, conf);
         b.zip(e).and_tentatively(|(begin, end)| {
-            Self::try_new(begin.0, end.0)
+            Self::try_new(begin, end)
                 .into_tentative_def(!conf.allow_optional_dropping)
                 .inner_into()
         })
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
-        [
-            MaybeValue(self.begin).root_kw_pair(),
-            MaybeValue(self.end).root_kw_pair(),
-        ]
-        .into_iter()
-        .filter_map(|(k, v)| v.map(|x| (k, x)))
+        [self.begin.metaroot_opt_pair(), self.end.metaroot_opt_pair()]
+            .into_iter()
+            .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
     pub(crate) fn check_loss(self, allow_loss: bool) -> BiTentative<(), AnyMetarootKeyLossError> {

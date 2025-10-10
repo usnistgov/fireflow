@@ -73,7 +73,7 @@ use crate::text::{
     keywords::{
         AlphaNumType, AlphaNumTypeError, IntRangeError, NumType, NumTypeError, Par, Range, Tot,
     },
-    optional::{MaybeValue, MightHave},
+    optional::{DisplayMaybe as _, MaybeValue, MightHave},
     parser::{
         LookupKeysError, LookupKeysWarning, LookupResult, LookupTentative, OptIndexedKey as _,
         OptKeyError, ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _,
@@ -3586,7 +3586,7 @@ impl InterLayoutOps<HasMeasDatatype> for DataLayout3_2 {
                     let y: Option<NumType> = NumType::try_from(c.datatype())
                         .ok()
                         .and_then(|y| (AlphaNumType::from(y) != dt).then_some(y));
-                    vec![MaybeValue(y).meas_kw_pair(i)]
+                    vec![MaybeValue(y).meas_opt_pair(i)]
                 })
                 .collect(),
         }

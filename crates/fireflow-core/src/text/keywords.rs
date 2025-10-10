@@ -14,7 +14,7 @@ use super::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use super::gating;
 use super::index::{GateIndex, MeasIndex, RegionIndex};
 use super::named_vec::NameMapping;
-use super::optional::{DisplayMaybe, MaybeValue, OptionalString};
+use super::optional::{CheckMaybe, DisplayMaybe, MaybeValue, OptionalString};
 use super::parser::{
     DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful, LookupKeysWarning,
     LookupResult, LookupTentative, OptIndexedKey, OptLinkedKey, OptMetarootKey, Optional,
@@ -1577,6 +1577,10 @@ macro_rules! newtype_string {
                     Some(s.to_owned())
                 }
             }
+        }
+
+        impl CheckMaybe for $t {
+            type Inner = $t;
         }
     };
 }

@@ -1,8 +1,5 @@
 use crate::config::{StdTextReadConfig, TimeMeasNamePattern};
-use crate::core::{
-    AnyMetarootKeyLossError, IndexedKeyLossError, NewCSVFlagsError, ScaleTransformError,
-    UnitaryKeyLossError,
-};
+use crate::core::{NewCSVFlagsError, ScaleTransformError};
 use crate::error::{BiTentative, DeferredResult, ResultExt as _, Tentative};
 use crate::validated::keys::{
     BiIndexedKey as _, IndexedKey, Key, MeasHeader, NonStdKeywords, NonStdKeywordsExt as _, StdKey,
@@ -27,7 +24,7 @@ use super::keywords::{
     UnicodeError, WavelengthsError,
 };
 use super::named_vec::{NameMapping, NewNamedVecError};
-use super::optional::{IsDefault, MaybeValue};
+use super::optional::MaybeValue;
 use super::ranged_float::RangedFloatError;
 use super::scale::{Scale, ScaleError};
 use super::spillover::{ParseSpilloverError, SpilloverIndexError};
@@ -310,18 +307,6 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     {
         (Self::std().to_string(), self.to_string())
     }
-
-    fn check_key_transfer(self, allow_loss: bool) -> BiTentative<(), AnyMetarootKeyLossError>
-    where
-        Self: Optional<Outer = Self> + IsDefault,
-        AnyMetarootKeyLossError: From<UnitaryKeyLossError<Self>>,
-    {
-        let mut tnt = Tentative::default();
-        if !self.is_default() {
-            tnt.push_error_or_warning(UnitaryKeyLossError::<Self>::new(), !allow_loss);
-        }
-        tnt
-    }
 }
 
 /// Any optional key with an index
@@ -392,34 +377,6 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self: fmt::Display,
     {
         (Self::std(i).to_string(), self.to_string())
-    }
-
-    fn check_indexed_key_transfer_own<E>(
-        self,
-        i: impl Into<IndexFromOne>,
-        allow_loss: bool,
-    ) -> BiTentative<(), E>
-    where
-        Self: Optional<Outer = Self> + IsDefault,
-        E: From<IndexedKeyLossError<Self>>,
-    {
-        let mut tnt = Tentative::default();
-        if !self.is_default() {
-            tnt.push_error_or_warning(IndexedKeyLossError::<Self>::new(i), !allow_loss);
-        }
-        tnt
-    }
-
-    fn check_indexed_key_transfer<E>(&self, i: impl Into<IndexFromOne>) -> Result<(), E>
-    where
-        Self: Optional<Outer = Self> + IsDefault,
-        E: From<IndexedKeyLossError<Self>>,
-    {
-        if self.is_default() {
-            Ok(())
-        } else {
-            Err(IndexedKeyLossError::<Self>::new(i).into())
-        }
     }
 }
 

@@ -84,6 +84,47 @@ pub(crate) trait DisplayMaybe: IsDefault {
     }
 }
 
+pub(crate) trait CheckMaybe: Sized + IsDefault {
+    type Inner;
+
+    fn check_key_transfer(&self, allow_loss: bool) -> BiTentative<(), AnyMetarootKeyLossError>
+    where
+        AnyMetarootKeyLossError: From<UnitaryKeyLossError<Self::Inner>>,
+    {
+        let mut tnt = Tentative::default();
+        if !self.is_default() {
+            tnt.push_error_or_warning(UnitaryKeyLossError::<Self::Inner>::new(), !allow_loss);
+        }
+        tnt
+    }
+
+    fn check_indexed_key_transfer_tnt<E>(
+        &self,
+        i: impl Into<IndexFromOne>,
+        allow_loss: bool,
+    ) -> BiTentative<(), E>
+    where
+        E: From<IndexedKeyLossError<Self::Inner>>,
+    {
+        let mut tnt = Tentative::default();
+        if !self.is_default() {
+            tnt.push_error_or_warning(IndexedKeyLossError::<Self::Inner>::new(i), !allow_loss);
+        }
+        tnt
+    }
+
+    fn check_indexed_key_transfer<E>(&self, i: impl Into<IndexFromOne>) -> Result<(), E>
+    where
+        E: From<IndexedKeyLossError<Self::Inner>>,
+    {
+        if self.is_default() {
+            Ok(())
+        } else {
+            Err(IndexedKeyLossError::<Self::Inner>::new(i).into())
+        }
+    }
+}
+
 impl<T: fmt::Display + PartialEq> DisplayMaybe for MaybeValue<T> {
     type Inner = T;
     fn display_maybe(&self) -> Option<String> {
@@ -96,6 +137,14 @@ impl<T: fmt::Display + PartialEq> DisplayMaybe for Option<T> {
     fn display_maybe(&self) -> Option<String> {
         self.as_ref().map(ToString::to_string)
     }
+}
+
+impl<T: fmt::Display + PartialEq> CheckMaybe for MaybeValue<T> {
+    type Inner = T;
+}
+
+impl<T: fmt::Display + PartialEq> CheckMaybe for Option<T> {
+    type Inner = T;
 }
 
 /// Encodes a type which might have something in it.
@@ -270,46 +319,6 @@ impl<V> MaybeValue<V> {
     {
         let Ok(x) = self.mut_or_unset(f);
         x
-    }
-
-    pub(crate) fn check_indexed_key_transfer<E>(&self, i: impl Into<IndexFromOne>) -> Result<(), E>
-    where
-        E: From<IndexedKeyLossError<V>>,
-    {
-        if self.0.is_some() {
-            Err(IndexedKeyLossError::<V>::new(i).into())
-        } else {
-            Ok(())
-        }
-    }
-
-    pub(crate) fn check_indexed_key_transfer_own<E>(
-        self,
-        i: impl Into<IndexFromOne>,
-        allow_loss: bool,
-    ) -> BiTentative<(), E>
-    where
-        E: From<IndexedKeyLossError<V>>,
-    {
-        let mut tnt = Tentative::default();
-        if self.0.is_some() {
-            tnt.push_error_or_warning(IndexedKeyLossError::<V>::new(i), !allow_loss);
-        }
-        tnt
-    }
-
-    pub(crate) fn check_key_transfer(
-        self,
-        allow_loss: bool,
-    ) -> BiTentative<(), AnyMetarootKeyLossError>
-    where
-        AnyMetarootKeyLossError: From<UnitaryKeyLossError<V>>,
-    {
-        let mut tnt = Tentative::default();
-        if self.0.is_some() {
-            tnt.push_error_or_warning(UnitaryKeyLossError::<V>::new(), !allow_loss);
-        }
-        tnt
     }
 }
 

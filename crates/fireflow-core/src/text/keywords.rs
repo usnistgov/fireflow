@@ -476,15 +476,31 @@ impl_newtype_try_from!(Wavelength, PositiveFloat, f32, RangedFloatError);
 /// The value for the $PnL key (3.1).
 ///
 /// Starting in 3.1 this is a vector rather than a scaler.
-#[derive(Clone, From, PartialEq, Debug, Display)]
+// TODO this shouldn't impl display directly since a blank string is not valid for this kw
+#[derive(Clone, From, PartialEq, Debug, Display, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
-#[display("{}", (self.0).0.iter().join(","))]
-pub struct Wavelengths(pub FCSNonEmpty<PositiveFloat>);
+#[display("{}", (self.0).iter().join(","))]
+pub struct Wavelengths(pub Vec<PositiveFloat>);
+
+impl DisplayMaybe for Wavelengths {
+    type Inner = Self;
+    fn display_maybe(&self) -> Option<String> {
+        if self.0.is_empty() {
+            None
+        } else {
+            Some(self.to_string())
+        }
+    }
+}
+
+impl CheckMaybe for Wavelengths {
+    type Inner = Self;
+}
 
 impl From<Wavelengths> for Vec<f32> {
     fn from(value: Wavelengths) -> Self {
-        Vec::from((value.0).0).into_iter().map(Into::into).collect()
+        value.0.into_iter().map(Into::into).collect()
     }
 }
 
@@ -512,7 +528,7 @@ impl FromStrDelim for Wavelengths {
     fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
         let xs = NonEmpty::collect(iter).ok_or(WavelengthsError::Empty)?;
         let ys = xs.try_map(|x| x.parse().map_err(WavelengthsError::Num))?;
-        Ok(Self(FCSNonEmpty(ys)))
+        Ok(Self(ys.into()))
     }
 }
 
@@ -520,14 +536,15 @@ impl Wavelengths {
     pub(crate) fn into_wavelength(
         self,
         allow_loss: bool,
-    ) -> Tentative<Wavelength, WavelengthsLossError, WavelengthsLossError> {
-        let ws = self.0;
-        let n = ws.0.len();
-        let mut tnt = Tentative::new1(Wavelength(ws.0.head));
-        if n > 1 {
-            tnt.push_error_or_warning(WavelengthsLossError(n), !allow_loss);
-        }
-        tnt
+    ) -> Tentative<Option<Wavelength>, WavelengthsLossError, WavelengthsLossError> {
+        NonEmpty::from_vec(self.0).map_or(Tentative::default(), |ws| {
+            let n = ws.len();
+            let mut tnt = Tentative::new1(Some(Wavelength(ws.head)));
+            if n > 1 {
+                tnt.push_error_or_warning(WavelengthsLossError(n), !allow_loss);
+            }
+            tnt
+        })
     }
 }
 
@@ -1568,7 +1585,7 @@ macro_rules! newtype_string {
         pub struct $t(pub OptionalString);
 
         impl DisplayMaybe for $t {
-            type Inner = $t;
+            type Inner = Self;
             fn display_maybe(&self) -> Option<String> {
                 let s = &(&self.0).0;
                 if s.is_empty() {
@@ -1580,7 +1597,7 @@ macro_rules! newtype_string {
         }
 
         impl CheckMaybe for $t {
-            type Inner = $t;
+            type Inner = Self;
         }
     };
 }
@@ -1914,7 +1931,7 @@ kw_opt_meas!(TemporalScale, "E", MaybeValue<Self>); // optional for 2.0
 req_meas!(TemporalScale); // required for 3.0+
 
 kw_opt_meas!(Wavelength, "L", MaybeValue<Self>); // scaler in 2.0/3.0
-kw_opt_meas!(Wavelengths, "L", MaybeValue<Self>); // vector in 3.1+
+kw_opt_meas!(Wavelengths, "L", Self); // vector in 3.1+
 
 kw_opt_meas!(Calibration3_1, "CALIBRATION", MaybeValue<Self>); // 3.1 doesn't have offset
 kw_opt_meas!(Calibration3_2, "CALIBRATION", MaybeValue<Self>); // 3.2+ includes offset

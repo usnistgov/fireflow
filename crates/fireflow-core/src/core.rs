@@ -912,10 +912,10 @@ pub struct InnerOptical3_1 {
     pub scale: ScaleTransform,
 
     /// Value for $PnL
-    #[as_ref(Option<Wavelengths>)]
-    #[as_mut(Option<Wavelengths>)]
+    #[as_ref(Wavelengths)]
+    #[as_mut(Wavelengths)]
     #[new(into)]
-    pub wavelengths: MaybeValue<Wavelengths>,
+    pub wavelengths: Wavelengths,
 
     /// Value for $PnCALIBRATION
     #[as_ref(Option<Calibration3_1>)]
@@ -956,10 +956,10 @@ pub struct InnerOptical3_2 {
     pub scale: ScaleTransform,
 
     /// Value for $PnL
-    #[as_ref(Option<Wavelengths>)]
-    #[as_mut(Option<Wavelengths>)]
+    #[as_ref(Wavelengths)]
+    #[as_mut(Wavelengths)]
     #[new(into)]
-    pub wavelengths: MaybeValue<Wavelengths>,
+    pub wavelengths: Wavelengths,
 
     /// Value for $PnCALIBRATION
     #[as_ref(Option<Calibration3_2>)]
@@ -4994,7 +4994,7 @@ impl From<FCSTime100> for FCSTime60 {
 
 impl From<Wavelength> for Wavelengths {
     fn from(value: Wavelength) -> Self {
-        Self(FCSNonEmpty::new(value.0))
+        Self(vec![value.0])
     }
 }
 
@@ -5015,16 +5015,6 @@ impl From<Calibration3_2> for Calibration3_1 {
             slope: value.slope,
         }
     }
-}
-
-// TODO this is awkward
-fn convert_wavelengths(
-    w: MaybeValue<Wavelengths>,
-    allow_loss: bool,
-) -> BiTentative<MaybeValue<Wavelength>, WavelengthsLossError> {
-    w.0.map(|x| x.into_wavelength(allow_loss))
-        .map_or(Tentative::new1(None), |tnt| tnt.map(Some))
-        .value_into()
 }
 
 impl ConvertFromOptical<InnerOptical3_0> for InnerOptical2_0 {
@@ -5051,7 +5041,7 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical2_0 {
             .calibration
             .check_indexed_key_transfer_tnt(i, allow_loss);
         let dpy = value.display.check_indexed_key_transfer_tnt(i, allow_loss);
-        let wave = convert_wavelengths(value.wavelengths, allow_loss).inner_into();
+        let wave = value.wavelengths.into_wavelength(allow_loss).inner_into();
         let out = xform
             .zip3(cal, dpy)
             .inner_into()
@@ -5081,7 +5071,7 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical2_0 {
         let det_name = value
             .detector_name
             .check_indexed_key_transfer_tnt(i, allow_loss);
-        let w = convert_wavelengths(value.wavelengths, allow_loss).inner_into();
+        let w = value.wavelengths.into_wavelength(allow_loss).inner_into();
         let out = det_name
             .zip6(cal, dpy, anal, feat, meas)
             .zip3(tag, xform)
@@ -5119,7 +5109,7 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_0 {
             .calibration
             .check_indexed_key_transfer_tnt::<AnyMeasKeyLossError>(i, allow_loss);
         let dpy = value.display.check_indexed_key_transfer_tnt(i, allow_loss);
-        let wave = convert_wavelengths(value.wavelengths, allow_loss).inner_into();
+        let wave = value.wavelengths.into_wavelength(allow_loss).inner_into();
         let out = cal
             .zip(dpy)
             .inner_into()
@@ -5148,7 +5138,7 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_0 {
         let det_name = value
             .detector_name
             .check_indexed_key_transfer_tnt(i, allow_loss);
-        let wave = convert_wavelengths(value.wavelengths, allow_loss).inner_into();
+        let wave = value.wavelengths.into_wavelength(allow_loss).inner_into();
         let out = cal
             .zip5(dpy, anal, feat, meas)
             .zip3(tag, det_name)
@@ -5165,11 +5155,16 @@ impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_1 {
         i: MeasIndex,
         _: bool,
     ) -> OpticalConvertResult<Self> {
+        let wave = value
+            .wavelength
+            .map(Wavelengths::from)
+            .0
+            .unwrap_or_default();
         value
             .scale
             .0
             .ok_or(NoScaleError(i))
-            .map(|s| Self::new(s, value.wavelength.map(Into::into), None, None, value.peak))
+            .map(|s| Self::new(s, wave, None, None, value.peak))
             .into_deferred()
     }
 }
@@ -5180,9 +5175,14 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical3_1 {
         _: MeasIndex,
         _: bool,
     ) -> OpticalConvertResult<Self> {
+        let wave = value
+            .wavelength
+            .map(Wavelengths::from)
+            .0
+            .unwrap_or_default();
         Ok(Tentative::new1(Self::new(
             value.scale,
-            value.wavelength.map(Into::into),
+            wave,
             None,
             None,
             value.peak,
@@ -5231,6 +5231,11 @@ impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_2 {
         i: MeasIndex,
         allow_loss: bool,
     ) -> OpticalConvertResult<Self> {
+        let wave = value
+            .wavelength
+            .map(Wavelengths::from)
+            .0
+            .unwrap_or_default();
         value
             .peak
             .check_loss(i, allow_loss)
@@ -5243,7 +5248,7 @@ impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_2 {
                     .map(|s| {
                         Self::new(
                             s,
-                            value.wavelength.map(Into::into),
+                            wave,
                             None,
                             None,
                             Analyte::default(),
@@ -5264,10 +5269,15 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical3_2 {
         i: MeasIndex,
         allow_loss: bool,
     ) -> OpticalConvertResult<Self> {
+        let wave = value
+            .wavelength
+            .map(Wavelengths::from)
+            .0
+            .unwrap_or_default();
         let out = value.peak.check_loss(i, allow_loss).inner_into().map(|()| {
             Self::new(
                 value.scale,
-                value.wavelength.map(Into::into),
+                wave,
                 None,
                 None,
                 Analyte::default(),
@@ -5478,7 +5488,7 @@ impl_ref_specific_rw!(
 impl_ref_specific_rw!(
     Optical,
     InnerOptical3_1,
-    Option<Wavelengths>,
+    Wavelengths,
     Option<PeakBin>,
     Option<PeakNumber>,
     Option<Calibration3_1>,
@@ -5488,7 +5498,7 @@ impl_ref_specific_rw!(
 impl_ref_specific_rw!(
     Optical,
     InnerOptical3_2,
-    Option<Wavelengths>,
+    Wavelengths,
     Option<Calibration3_2>,
     Option<Display>,
     Analyte,
@@ -7122,7 +7132,13 @@ impl OpticalFromTemporal<InnerTemporal3_1> for InnerOptical3_1 {
     }
 
     fn from_temporal_inner(t: InnerTemporal3_1) -> (Self, Self::TData) {
-        let new = Self::new(ScaleTransform::default(), None, None, t.display, t.peak);
+        let new = Self::new(
+            ScaleTransform::default(),
+            Wavelengths::default(),
+            None,
+            t.display,
+            t.peak,
+        );
         (new, t.timestep)
     }
 }
@@ -7157,7 +7173,7 @@ impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
     fn from_temporal_inner(t: InnerTemporal3_2) -> (Self, Self::TData) {
         let new = Self::new(
             ScaleTransform::default(),
-            None,
+            Wavelengths::default(),
             None,
             t.display,
             Analyte::default(),
@@ -7543,7 +7559,13 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
         o: Self::Optical,
     ) -> (Self::Optical, Self::Temporal) {
         let new_t = Self::Temporal::new(t.timestep, o.display, o.peak);
-        let new_o = Self::Optical::new(ScaleTransform::default(), None, None, t.display, t.peak);
+        let new_o = Self::Optical::new(
+            ScaleTransform::default(),
+            Wavelengths::default(),
+            None,
+            t.display,
+            t.peak,
+        );
         (new_o, new_t)
     }
 }
@@ -7631,7 +7653,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
         let new_t = Self::Temporal::new(t.timestep, o.display, None);
         let new_o = Self::Optical::new(
             ScaleTransform::default(),
-            None,
+            Wavelengths::default(),
             None,
             t.display,
             Analyte::default(),
@@ -7776,7 +7798,7 @@ impl Optical3_1 {
     #[must_use]
     pub fn new_3_1(
         transform: ScaleTransform,
-        wavelengths: Option<Wavelengths>,
+        wavelengths: Wavelengths,
         calibration: Option<Calibration3_1>,
         display: Option<Display>,
         bin: Option<PeakBin>,
@@ -7814,7 +7836,7 @@ impl Optical3_2 {
     #[must_use]
     pub fn new_3_2(
         transform: ScaleTransform,
-        wavelengths: Option<Wavelengths>,
+        wavelengths: Wavelengths,
         calibration: Option<Calibration3_2>,
         display: Option<Display>,
         analyte: Analyte,

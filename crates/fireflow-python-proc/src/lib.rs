@@ -2521,7 +2521,9 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let wavelength = if version < Version::FCS3_1 {
         DocArg::new_meas_kw_opt_ivar("Wavelength", "wavelength", "L", to_pyfloat)
     } else {
-        DocArg::new_meas_kw_opt_ivar("Wavelengths", "wavelengths", "L", to_pyfloat)
+        DocArg::new_meas_kw_ivar1("Wavelengths", "wavelengths", "L", |p| {
+            PyList::new1(RsFloat::F32, p)
+        })
     };
 
     let bin = DocArg::new_meas_kw_ivar(
@@ -2802,9 +2804,15 @@ pub fn impl_core_all_pnl_old(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_all_pnl_new(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Wavelengths", "wavelengths", "L", |p| {
-        PyList::new1(RsFloat::F32, p)
-    })
+    core_all_meas_attr1(
+        &i,
+        "Wavelengths",
+        "wavelengths",
+        "L",
+        |p| PyList::new1(RsFloat::F32, p),
+        false,
+        true,
+    )
 }
 
 #[proc_macro]

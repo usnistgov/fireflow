@@ -3,7 +3,7 @@ use crate::error::ResultExt as _;
 use crate::validated::keys::{Key, StdKeywords};
 use crate::validated::timepattern::ParseWithTimePatternError;
 
-use super::optional::DisplayMaybe;
+use super::optional::KeywordPairMaybe;
 use super::parser::{FromStrStateful, LookupTentative, OptMetarootKey, Optional, ParseOptKeyError};
 
 use chrono::{NaiveDate, NaiveTime, Timelike as _};
@@ -184,8 +184,8 @@ impl<X> Timestamps<X> {
     where
         Btim<X>: Key,
         Etim<X>: Key,
-        Option<Btim<X>>: DisplayMaybe<Inner = Btim<X>>,
-        Option<Etim<X>>: DisplayMaybe<Inner = Etim<X>>,
+        Option<Btim<X>>: KeywordPairMaybe<Inner = Btim<X>>,
+        Option<Etim<X>>: KeywordPairMaybe<Inner = Etim<X>>,
         X: Copy + fmt::Display,
     {
         [

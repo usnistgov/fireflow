@@ -9,7 +9,7 @@ use crate::text::keywords::{
     GateRange, GateScale, GateShortname, Gating, IndexPair, MeasOrGateIndex, Par,
     PrefixedMeasIndex, RegionGateIndex, RegionWindow, UniGate, Vertex,
 };
-use crate::text::optional::{DisplayMaybe as _, MaybeValue};
+use crate::text::optional::{KeywordPairMaybe as _, MaybeValue};
 use crate::text::parser::{
     LookupOptional, LookupTentative, OptIndexedKey as _, OptMetarootKey, ParseOptKeyError,
 };
@@ -123,8 +123,7 @@ pub struct GatedMeasurement {
     pub scale: MaybeValue<GateScale>,
 
     /// Value for $GmF
-    #[new(into)]
-    pub filter: MaybeValue<GateFilter>,
+    pub filter: GateFilter,
 
     /// Value for $GmN
     ///
@@ -141,12 +140,10 @@ pub struct GatedMeasurement {
     pub range: MaybeValue<GateRange>,
 
     /// Value for $GmS
-    #[new(into)]
-    pub longname: MaybeValue<GateLongname>,
+    pub longname: GateLongname,
 
     /// Value for $GmT
-    #[new(into)]
-    pub detector_type: MaybeValue<GateDetectorType>,
+    pub detector_type: GateDetectorType,
 
     /// Value for $GmV
     #[new(into)]
@@ -569,12 +566,12 @@ impl GatedMeasurement {
     ) -> LookupTentative<Self>
     where
         F0: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateScale>,
-        F1: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateFilter>,
+        F1: FnOnce(&mut StdKeywords, GateIndex) -> LookupTentative<GateFilter>,
         F2: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateShortname>,
         F3: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GatePercentEmitted>,
         F4: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateRange>,
-        F5: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateLongname>,
-        F6: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateDetectorType>,
+        F5: FnOnce(&mut StdKeywords, GateIndex) -> LookupTentative<GateLongname>,
+        F6: FnOnce(&mut StdKeywords, GateIndex) -> LookupTentative<GateDetectorType>,
         F7: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateDetectorVoltage>,
     {
         let scale = lookup_scale(kws, i);

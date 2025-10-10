@@ -51,7 +51,7 @@ use crate::text::{
         SetElementsError, SetKeysError, SetNamesError,
     },
     optional::{
-        AlwaysFamily, AlwaysValue, CheckMaybe as _, DisplayMaybe as _, MaybeFamily, MaybeValue,
+        AlwaysFamily, AlwaysValue, CheckMaybe as _, KeywordPairMaybe as _, MaybeFamily, MaybeValue,
         MightHave,
     },
     parser::{
@@ -734,10 +734,10 @@ pub struct InnerMetaroot3_2 {
     pub unstained: UnstainedData,
 
     /// Value of $FLOWRATE
-    #[as_ref(Option<Flowrate>)]
-    #[as_mut(Option<Flowrate>)]
+    #[as_ref(Flowrate)]
+    #[as_mut(Flowrate)]
     #[new(into)]
-    pub flowrate: MaybeValue<Flowrate>,
+    pub flowrate: Flowrate,
 
     /// Values of $RnI/$RnW/$GATING
     #[as_ref(AppliedGates3_2)]
@@ -4671,7 +4671,7 @@ impl CoreTEXT3_2 {
         locationid: Locationid,
         unstainedinfo: UnstainedInfo,
         unstainedcenters: Option<UnstainedCenters>,
-        flowrate: Option<Flowrate>,
+        flowrate: Flowrate,
         abrt: Option<Abrt>,
         com: Com,
         cells: Cells,
@@ -5464,7 +5464,7 @@ impl_ref_specific_rw!(
     Carriertype,
     Locationid,
     Option<Vol>,
-    Option<Flowrate>,
+    Flowrate,
     UnstainedInfo,
     Timestamps3_1
 );
@@ -5854,7 +5854,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
                             None,
                             CarrierData::default(),
                             UnstainedData::default(),
-                            None,
+                            Flowrate::default(),
                             AppliedGates3_2::default(),
                         )
                     })
@@ -5905,7 +5905,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
                                         None,
                                         CarrierData::default(),
                                         UnstainedData::default(),
-                                        None,
+                                        Flowrate::default(),
                                         applied_gates,
                                     )
                                 })
@@ -5948,7 +5948,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
                                 value.vol,
                                 CarrierData::default(),
                                 UnstainedData::default(),
-                                None,
+                                Flowrate::default(),
                                 applied_gates,
                             )
                         })

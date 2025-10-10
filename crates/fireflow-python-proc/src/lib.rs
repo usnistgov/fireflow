@@ -865,7 +865,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         _ => DocArg::new_spillover_ivar(),
     };
 
-    let flowrate = DocArg::new_kw_opt_ivar("Flowrate", "flowrate", PyStr::new1);
+    let flowrate = DocArg::new_kw_ivar("Flowrate", "flowrate", PyStr::new1, None, true);
 
     let carrierid = DocArg::new_kw_ivar("Carrierid", "carrierid", PyStr::new1, None, true);
     let carriertype = DocArg::new_kw_ivar("Carriertype", "carriertype", PyStr::new1, None, true);
@@ -3093,6 +3093,23 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
         |n, _| quote!(self.0.#n.0 = #n.into()),
     );
 
+    let make_arg_str = |kw_name: &str, kw_sym: &str, t: &str| {
+        let kw_path = keyword_path(t);
+        DocArg::new_ivar_rw_def(
+            kw_name,
+            PyStr::new1(kw_path),
+            format!("The *$Gm{kw_sym}* keyword."),
+            DocDefault::Auto,
+            false,
+            |n, _| quote!(self.0.#n.clone()),
+            |n, _| quote!(self.0.#n = #n),
+        )
+    };
+
+    let filter = make_arg_str("filter", "F", "GateFilter");
+    let longname = make_arg_str("longname", "S", "GateLongname");
+    let detector_type = make_arg_str("detector_type", "T", "GateDetectorType");
+
     let make_arg = |kw_name: &str, kw_sym: &str, t: &str, is_float: bool| {
         let kw_path = keyword_path(t);
         let pytype = if is_float {
@@ -3100,22 +3117,21 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
         } else {
             PyType::from(PyStr::new1(kw_path))
         };
+
         DocArg::new_opt_ivar_rw(
             kw_name,
             pytype,
             format!("The *$Gm{kw_sym}* keyword."),
             false,
             |n, _| quote!(self.0.#n.0.as_ref().cloned()),
-            |n, _| quote!(self.0.#n.0 = #n.into()),
+            |n, _| quote!(self.0.#n.0 = #n),
         )
     };
-    let filter = make_arg("filter", "F", "GateFilter", false);
+
     let shortname = make_arg("shortname", "N", "GateShortname", false);
     let percent_emitted = make_arg("percent_emitted", "P", "GatePercentEmitted", true);
     // TODO isn't this a decimal?
     let range = make_arg("range", "R", "GateRange", true);
-    let longname = make_arg("longname", "S", "GateLongname", false);
-    let detector_type = make_arg("detector_type", "T", "GateDetectorType", false);
     let detector_voltage = make_arg("detector_voltage", "V", "GateDetectorVoltage", true);
 
     let all_args = [

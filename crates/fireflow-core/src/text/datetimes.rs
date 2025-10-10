@@ -3,7 +3,7 @@ use crate::core::{AnyMetarootKeyLossError, UnitaryKeyLossError};
 use crate::error::{BiTentative, ResultExt as _, Tentative};
 use crate::validated::keys::StdKeywords;
 
-use super::optional::DisplayMaybe as _;
+use super::optional::KeywordPairMaybe as _;
 use super::parser::{LookupTentative, OptMetarootKey as _};
 
 use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeZone as _};

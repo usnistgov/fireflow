@@ -37,7 +37,7 @@ pub struct AlwaysValue<T>(pub T);
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct NeverValue<T>(pub PhantomData<T>);
 
-#[derive(Debug, Clone, PartialEq, Eq, AsRef, AsMut, From, Default, Display, FromStr)]
+#[derive(Debug, Clone, PartialEq, Eq, AsRef, AsMut, From, Default, FromStr)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 #[as_ref(str)]
@@ -54,9 +54,11 @@ impl<T: Default + PartialEq> IsDefault for T {
 }
 
 pub(crate) trait DisplayMaybe: IsDefault {
-    type Inner;
-
     fn display_maybe(&self) -> Option<String>;
+}
+
+pub(crate) trait KeywordPairMaybe: IsDefault + DisplayMaybe {
+    type Inner;
 
     fn metaroot_opt_pair(&self) -> (String, Option<String>)
     where
@@ -126,18 +128,34 @@ pub(crate) trait CheckMaybe: Sized + IsDefault {
     }
 }
 
+impl DisplayMaybe for OptionalString {
+    fn display_maybe(&self) -> Option<String> {
+        if self.0.is_empty() {
+            None
+        } else {
+            Some(self.0.to_owned())
+        }
+    }
+}
+
 impl<T: fmt::Display + PartialEq> DisplayMaybe for MaybeValue<T> {
-    type Inner = T;
     fn display_maybe(&self) -> Option<String> {
         self.0.display_maybe()
     }
 }
 
 impl<T: fmt::Display + PartialEq> DisplayMaybe for Option<T> {
-    type Inner = T;
     fn display_maybe(&self) -> Option<String> {
         self.as_ref().map(ToString::to_string)
     }
+}
+
+impl<T: fmt::Display + PartialEq> KeywordPairMaybe for MaybeValue<T> {
+    type Inner = T;
+}
+
+impl<T: fmt::Display + PartialEq> KeywordPairMaybe for Option<T> {
+    type Inner = T;
 }
 
 impl<T: fmt::Display + PartialEq> CheckMaybe for MaybeValue<T> {

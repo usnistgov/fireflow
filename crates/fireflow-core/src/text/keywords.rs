@@ -14,7 +14,7 @@ use super::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use super::gating;
 use super::index::{GateIndex, MeasIndex, RegionIndex};
 use super::named_vec::NameMapping;
-use super::optional::{CheckMaybe, DisplayMaybe, MaybeValue, OptionalString};
+use super::optional::{CheckMaybe, DisplayMaybe, KeywordPairMaybe, MaybeValue, OptionalString};
 use super::parser::{
     DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful, LookupKeysWarning,
     LookupResult, LookupTentative, OptIndexedKey, OptLinkedKey, OptMetarootKey, Optional,
@@ -476,22 +476,23 @@ impl_newtype_try_from!(Wavelength, PositiveFloat, f32, RangedFloatError);
 /// The value for the $PnL key (3.1).
 ///
 /// Starting in 3.1 this is a vector rather than a scaler.
-// TODO this shouldn't impl display directly since a blank string is not valid for this kw
-#[derive(Clone, From, PartialEq, Debug, Display, Default)]
+#[derive(Clone, From, PartialEq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
-#[display("{}", (self.0).iter().join(","))]
 pub struct Wavelengths(pub Vec<PositiveFloat>);
 
 impl DisplayMaybe for Wavelengths {
-    type Inner = Self;
     fn display_maybe(&self) -> Option<String> {
         if self.0.is_empty() {
             None
         } else {
-            Some(self.to_string())
+            Some(self.0.iter().join(","))
         }
     }
+}
+
+impl KeywordPairMaybe for Wavelengths {
+    type Inner = Self;
 }
 
 impl CheckMaybe for Wavelengths {
@@ -1578,22 +1579,20 @@ pub struct NoCytError;
 
 macro_rules! newtype_string {
     ($t:ident) => {
-        #[derive(Clone, Display, FromStr, From, Into, PartialEq, Debug, Default, AsRef)]
+        #[derive(Clone, FromStr, From, Into, PartialEq, Debug, Default, AsRef)]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
         #[as_ref(str)]
         pub struct $t(pub OptionalString);
 
         impl DisplayMaybe for $t {
-            type Inner = Self;
             fn display_maybe(&self) -> Option<String> {
-                let s = &(&self.0).0;
-                if s.is_empty() {
-                    None
-                } else {
-                    Some(s.to_owned())
-                }
+                self.0.display_maybe()
             }
+        }
+
+        impl KeywordPairMaybe for $t {
+            type Inner = Self;
         }
 
         impl CheckMaybe for $t {
@@ -1761,19 +1760,25 @@ macro_rules! kw_time {
 }
 
 macro_rules! kw_opt_gate {
-    ($t:ident, $sfx:expr) => {
+    ($t:ident, $sfx:expr, $outer:path) => {
         impl IndexedKey for $t {
             const PREFIX: &'static str = "G";
             const SUFFIX: &'static str = $sfx;
         }
-        opt_meas!($t, MaybeValue<Self>);
+        opt_meas!($t, $outer);
+    };
+}
+
+macro_rules! kw_opt_gate_other {
+    ($t:ident, $sfx:expr) => {
+        kw_opt_gate!($t, $sfx, MaybeValue<Self>);
     };
 }
 
 macro_rules! kw_opt_gate_string {
     ($t:ident, $sfx:expr) => {
         newtype_string!($t);
-        kw_opt_gate!($t, $sfx);
+        kw_opt_gate!($t, $sfx, Self);
     };
 }
 
@@ -1980,14 +1985,14 @@ impl IndexedKey for PeakNumber {
 // 2.0-3.1 gating parameters
 kw_opt_meta_int!(Gate, usize, "GATE");
 
-kw_opt_gate!(GateScale, "E");
+kw_opt_gate_other!(GateScale, "E");
 kw_opt_gate_string!(GateFilter, "F");
-kw_opt_gate!(GatePercentEmitted, "P");
-kw_opt_gate!(GateRange, "R");
-kw_opt_gate!(GateShortname, "N");
+kw_opt_gate_other!(GatePercentEmitted, "P");
+kw_opt_gate_other!(GateRange, "R");
+kw_opt_gate_other!(GateShortname, "N");
 kw_opt_gate_string!(GateLongname, "S");
 kw_opt_gate_string!(GateDetectorType, "T");
-kw_opt_gate!(GateDetectorVoltage, "V");
+kw_opt_gate_other!(GateDetectorVoltage, "V");
 kw_opt_meta!(Gating, "GATING", MaybeValue<Self>);
 
 kw_opt_region!(RegionWindow, "W");

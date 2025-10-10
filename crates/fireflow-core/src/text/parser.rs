@@ -27,7 +27,7 @@ use super::keywords::{
     UnicodeError, WavelengthsError,
 };
 use super::named_vec::{NameMapping, NewNamedVecError};
-use super::optional::MaybeValue;
+use super::optional::{IsDefault, MaybeValue};
 use super::ranged_float::RangedFloatError;
 use super::scale::{Scale, ScaleError};
 use super::spillover::{ParseSpilloverError, SpilloverIndexError};
@@ -313,10 +313,9 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
 
     fn metaroot_opt_pair(&self) -> (String, Option<String>)
     where
-        Self: fmt::Display + Optional<Outer = Self>,
-        for<'a> &'a Self: Into<Option<String>>,
+        Self: fmt::Display + Optional<Outer = Self> + IsDefault,
     {
-        (Self::std().to_string(), self.into())
+        (Self::std().to_string(), self.display_maybe())
     }
 
     fn check_key_transfer(self, allow_loss: bool) -> BiTentative<(), AnyMetarootKeyLossError>
@@ -404,18 +403,20 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
 
     fn meas_opt_pair(&self, i: impl Into<IndexFromOne>) -> (String, Option<String>)
     where
-        Self: fmt::Display + Optional<Outer = Self>,
-        for<'a> &'a Self: Into<Option<String>>,
+        Self: fmt::Display + Optional<Outer = Self> + IsDefault,
     {
-        (Self::std(i).to_string(), self.into())
+        (Self::std(i).to_string(), self.display_maybe())
     }
 
     fn meas_opt_triple(&self, i: impl Into<IndexFromOne>) -> (MeasHeader, String, Option<String>)
     where
-        Self: fmt::Display + Optional<Outer = Self>,
-        for<'a> &'a Self: Into<Option<String>>,
+        Self: fmt::Display + Optional<Outer = Self> + IsDefault,
     {
-        (Self::std_blank(), Self::std(i).to_string(), self.into())
+        (
+            Self::std_blank(),
+            Self::std(i).to_string(),
+            self.display_maybe(),
+        )
     }
 
     fn check_indexed_key_transfer_own<E>(

@@ -43,6 +43,27 @@ pub struct NeverValue<T>(pub PhantomData<T>);
 #[as_ref(str)]
 pub struct OptionalString(pub String);
 
+pub trait IsDefault {
+    fn is_default(&self) -> bool;
+
+    fn display_maybe(&self) -> Option<String>
+    where
+        Self: fmt::Display,
+    {
+        if self.is_default() {
+            None
+        } else {
+            Some(self.to_string())
+        }
+    }
+}
+
+impl<T: Default + PartialEq> IsDefault for T {
+    fn is_default(&self) -> bool {
+        self == &T::default()
+    }
+}
+
 /// Encodes a type which might have something in it.
 ///
 /// Intended to be used as a "type family" pattern.

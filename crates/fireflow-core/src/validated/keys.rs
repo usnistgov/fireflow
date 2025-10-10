@@ -780,7 +780,6 @@ mod python {
     };
     use crate::python::macros::{impl_from_py_via_fromstr, impl_to_py_via_display, impl_value_err};
 
-    use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
     use std::collections::HashMap;
 

@@ -43,7 +43,7 @@ pub struct NeverValue<T>(pub PhantomData<T>);
 #[as_ref(str)]
 pub struct OptionalString(pub String);
 
-pub trait IsDefault {
+pub(crate) trait IsDefault {
     fn is_default(&self) -> bool;
 }
 
@@ -53,7 +53,7 @@ impl<T: Default + PartialEq> IsDefault for T {
     }
 }
 
-pub trait DisplayMaybe: IsDefault {
+pub(crate) trait DisplayMaybe: IsDefault {
     type Inner;
 
     fn display_maybe(&self) -> Option<String>;

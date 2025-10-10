@@ -917,31 +917,10 @@ impl GatedMeasurements {
         is_deprecated: bool,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self> {
-        Self::lookup_inner(
-            kws,
-            |k| Gate::lookup_metaroot_opt(k, is_deprecated, conf),
-            |k, v, conf| GatedMeasurement::lookup(k, v, is_deprecated, conf),
-            conf,
-        )
-    }
-
-    fn lookup_inner<F0, F1>(
-        kws: &mut StdKeywords,
-        lookup_gate: F0,
-        lookup_meas: F1,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self>
-    where
-        F0: FnOnce(&mut StdKeywords) -> LookupOptional<Gate>,
-        F1: Fn(
-            &mut StdKeywords,
-            GateIndex,
-            &StdTextReadConfig,
-        ) -> LookupTentative<GatedMeasurement>,
-    {
-        lookup_gate(kws).and_tentatively(|maybe| {
+        Gate::lookup_metaroot_opt(kws, is_deprecated, conf).and_tentatively(|maybe| {
             if let Some(n) = maybe.0 {
-                let xs = (0..n.0).map(|i| lookup_meas(kws, i.into(), conf));
+                let xs =
+                    (0..n.0).map(|i| GatedMeasurement::lookup(kws, i.into(), is_deprecated, conf));
                 return Tentative::mconcat(xs).map(Self);
             }
             Tentative::default()

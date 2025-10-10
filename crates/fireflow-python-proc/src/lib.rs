@@ -2608,10 +2608,9 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let measurement_type =
         DocArg::new_meas_kw_opt_ivar("OpticalType", "measurement_type", "TYPE", PyStr::new1);
 
-    let has_type =
-        DocArg::new_meas_kw_ivar1("TemporalType", "measurement_type", "TYPE", PyBool::new1);
+    let has_type = DocArg::new_meas_kw_ivar1("TemporalType", "has_type", "TYPE", PyBool::new1);
 
-    let has_scale = DocArg::new_meas_kw_ivar1("TemporalScale", "scale", "E", PyBool::new1);
+    let has_scale = DocArg::new_meas_kw_ivar1("TemporalScale", "has_scale", "E", PyBool::new1);
 
     // let make_quasi_bool = |what: &str, sym: &str, val: &str, rstype: &str, fieldname: &str| {
     //     let r = format_ident!("{rstype}");

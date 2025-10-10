@@ -2272,8 +2272,8 @@ mod tests {
 
     #[test]
     fn pnl_3_1() {
-        assert_from_to_str::<Wavelengths>("1");
-        assert_from_to_str::<Wavelengths>("1,2");
+        assert_from_to_str_maybe::<Wavelengths>("1");
+        assert_from_to_str_maybe::<Wavelengths>("1,2");
     }
 
     #[test]
@@ -2315,7 +2315,7 @@ mod tests {
 
     #[test]
     fn pntype_time() {
-        assert_from_to_str::<TemporalType>("Time");
+        assert_from_to_str_maybe::<TemporalType>("Time");
     }
 
     #[test]
@@ -2361,7 +2361,7 @@ mod tests {
     // TODO this is hard(er) to test since the order will be random
     #[test]
     fn unstained_centers() {
-        assert_from_to_str::<UnstainedCenters>("1,X,0");
+        assert_from_to_str_maybe::<UnstainedCenters>("1,X,0");
     }
 
     #[test]

@@ -14,7 +14,9 @@ use super::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use super::gating;
 use super::index::{GateIndex, MeasIndex, RegionIndex};
 use super::named_vec::NameMapping;
-use super::optional::{CheckMaybe, DisplayMaybe, KeywordPairMaybe, MaybeValue, OptionalString};
+use super::optional::{
+    CheckMaybe, DisplayMaybe, KeywordPairMaybe, MaybeValue, OptionalString, OptionalZST,
+};
 use super::parser::{
     DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful, LookupKeysWarning,
     LookupResult, LookupTentative, OptIndexedKey, OptLinkedKey, OptMetarootKey, Optional,
@@ -370,12 +372,11 @@ impl TryFrom<AlphaNumType> for NumType {
 /// The value of the $PnE key for temporal measurements (all versions)
 ///
 /// This can only be linear (0,0)
-#[derive(Clone, PartialEq, Display)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
+#[derive(Clone, PartialEq, Display, Debug, Default)]
 #[display("0,0")]
-pub struct TemporalScale;
+pub struct TemporalScaleInner;
 
-impl FromStr for TemporalScale {
+impl FromStr for TemporalScaleInner {
     type Err = TemporalScaleError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -384,6 +385,20 @@ impl FromStr for TemporalScale {
             _ => Err(TemporalScaleError),
         }
     }
+}
+
+/// The value of the $PnE key for temporal measurements (3.0+)
+#[derive(Clone, PartialEq, Display, Debug, Default, FromStr)]
+pub struct TemporalScale3_0(pub TemporalScaleInner);
+
+impl DisplayMaybe for TemporalScale3_0 {
+    fn display_maybe(&self) -> Option<String> {
+        Some(self.0.to_string())
+    }
+}
+
+impl KeywordPairMaybe for TemporalScale3_0 {
+    type Inner = Self;
 }
 
 #[derive(Debug, Error)]
@@ -753,12 +768,11 @@ impl FromStr for OpticalType {
 }
 
 /// The value of the $PnTYPE key in temporal channels (3.2+)
-#[derive(Clone, PartialEq, Debug, Display)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
+#[derive(Clone, PartialEq, Debug, Display, Default)]
 #[display("{}", TIME)]
-pub struct TemporalType;
+pub struct TemporalTypeInner;
 
-impl FromStr for TemporalType {
+impl FromStr for TemporalTypeInner {
     type Err = TemporalTypeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -1917,6 +1931,43 @@ macro_rules! kw_opt_region {
     };
 }
 
+macro_rules! meas_opt_zst {
+    ($t:ident, $sym:expr, $inner:ident, $err:ident) => {
+        #[derive(Clone, PartialEq, Debug, Default, From, Into)]
+        #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+        #[cfg_attr(feature = "serde", derive(Serialize))]
+        #[from(bool)]
+        #[into(bool)]
+        pub struct $t(pub OptionalZST<$inner>);
+
+        kw_opt_meas!($t, $sym, Self);
+
+        impl FromStr for $t {
+            type Err = $err;
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                s.parse::<$inner>()
+                    .map(Some)
+                    .map(OptionalZST::from)
+                    .map(Self)
+            }
+        }
+
+        impl DisplayMaybe for $t {
+            fn display_maybe(&self) -> Option<String> {
+                self.0.display_maybe()
+            }
+        }
+
+        impl CheckMaybe for $t {
+            type Inner = Self;
+        }
+
+        impl KeywordPairMaybe for $t {
+            type Inner = Self;
+        }
+    };
+}
+
 // all versions
 kw_req_meta!(AlphaNumType, "DATATYPE");
 kw_opt_meta_int!(Abrt, u32, "ABRT");
@@ -2044,7 +2095,7 @@ kw_opt_meas!(Display, "D", MaybeValue<Self>);
 // 3.2+
 kw_opt_meas!(Feature, "FEATURE", MaybeValue<Self>);
 kw_opt_meas!(OpticalType, "TYPE", MaybeValue<Self>);
-kw_opt_meas!(TemporalType, "TYPE", MaybeValue<Self>);
+meas_opt_zst!(TemporalType, "TYPE", TemporalTypeInner, TemporalTypeError);
 kw_opt_meas!(NumType, "DATATYPE", MaybeValue<Self>);
 kw_opt_meas_string!(Analyte, "ANALYTE");
 kw_opt_meas_string!(Tag, "TAG");
@@ -2057,8 +2108,8 @@ req_meas!(Shortname); // required for 3.1+
 kw_opt_meas!(Scale, "E", MaybeValue<Self>); // optional for 2.0
 req_meas!(Scale); // required for 3.0+
 
-kw_opt_meas!(TemporalScale, "E", MaybeValue<Self>); // optional for 2.0
-req_meas!(TemporalScale); // required for 3.0+
+meas_opt_zst!(TemporalScale, "E", TemporalScaleInner, TemporalScaleError); // optional for 2.0
+kw_req_meas!(TemporalScale3_0, "E"); // required for 3.0+
 
 kw_opt_meas!(Wavelength, "L", MaybeValue<Self>); // scaler in 2.0/3.0
 kw_opt_meas!(Wavelengths, "L", Self); // vector in 3.1+
@@ -2206,7 +2257,7 @@ mod tests {
 
     #[test]
     fn pne_time() {
-        assert_from_to_str::<TemporalScale>("0,0");
+        assert_from_to_str::<TemporalScale3_0>("0,0");
     }
 
     #[test]
@@ -2336,8 +2387,8 @@ mod python {
         AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Cyt3_2, Display, Feature,
         FeatureError, GateRange, GateScale, GateShortname, IndexPair, LastModified, Mode, Mode3_2,
         Mode3_2Error, ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError, Originality,
-        OriginalityError, PrefixedMeasIndex, Range, TemporalType, TemporalTypeError, Timestep,
-        Trigger, UniGate, Unicode, UnstainedCenters, Vertex, Vol, Wavelength, Wavelengths,
+        OriginalityError, PrefixedMeasIndex, Range, Timestep, Trigger, UniGate, Unicode,
+        UnstainedCenters, Vertex, Vol, Wavelength, Wavelengths,
     };
 
     use pyo3::prelude::*;
@@ -2359,7 +2410,6 @@ mod python {
     impl_str_py!(Mode, ModeError);
     impl_str_py!(Mode3_2, Mode3_2Error);
     impl_str_py!(OpticalType, OpticalTypeError);
-    impl_str_py!(TemporalType, TemporalTypeError);
 
     impl_from_py_transparent!(Cyt3_2);
     impl_from_py_transparent!(UnstainedCenters);

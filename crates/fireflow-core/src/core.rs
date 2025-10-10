@@ -41,9 +41,9 @@ use crate::text::{
         IntRangeError, LastModified, LastModifier, Locationid, Longname, Lost, Mode, Mode3_2,
         ModeUpgradeError, Nextdata, NoCytError, Op, OpticalType, Originality, Par, PeakBin,
         PeakNumber, PercentEmitted, Plateid, Platename, Power, Proj, Range, Smno, Src, Sys, Tag,
-        TemporalScale, TemporalType, Timestep, TimestepLossError, Tot, Trigger, Unicode,
-        UnstainedCenters, UnstainedInfo, Vol, Wavelength, Wavelengths, WavelengthsLossError,
-        Wellid,
+        TemporalScale, TemporalScale3_0, TemporalType, Timestep, TimestepLossError, Tot, Trigger,
+        Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength, Wavelengths,
+        WavelengthsLossError, Wellid,
     },
     named_vec::{
         EitherPair, Eithers, Element, ElementIndexError, IndexedElement, IndexedElementError,
@@ -753,8 +753,10 @@ pub struct InnerTemporal2_0 {
     ///
     /// Unlike subsequent versions, included here because it is optional rather
     /// than required and constant.
+    #[as_ref(TemporalScale)]
+    #[as_mut(TemporalScale)]
     #[new(into)]
-    pub scale: MaybeValue<TemporalScale>,
+    pub scale: TemporalScale,
 
     /// Values of $Pkn/$PKNn
     #[as_ref(Option<PeakBin>)]
@@ -826,10 +828,10 @@ pub struct InnerTemporal3_2 {
     pub display: MaybeValue<Display>,
 
     /// Value for $PnTYPE
-    #[as_ref(Option<TemporalType>)]
-    #[as_mut(Option<TemporalType>)]
+    #[as_ref(TemporalType)]
+    #[as_mut(TemporalType)]
     #[new(into)]
-    pub measurement_type: MaybeValue<TemporalType>,
+    pub measurement_type: TemporalType,
 }
 
 /// Optical measurement fields specific to version 2.0
@@ -5510,6 +5512,7 @@ impl_ref_specific_rw!(
 impl_ref_specific_rw!(
     Temporal,
     InnerTemporal2_0,
+    TemporalScale,
     Option<PeakBin>,
     Option<PeakNumber>
 );
@@ -5536,7 +5539,7 @@ impl_ref_specific_rw!(
     InnerTemporal3_2,
     Timestep,
     Option<Display>,
-    Option<TemporalType>
+    TemporalType
 );
 
 impl_ref_specific_ro!(
@@ -6066,7 +6069,7 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal2_0 {
         value
             .timestep
             .check_conversion(allow_loss)
-            .map(|()| Self::new(Some(TemporalScale), value.peak))
+            .map(|()| Self::new(true, value.peak))
             .inner_into()
     }
 }
@@ -6082,7 +6085,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal2_0 {
             .display
             .check_indexed_key_transfer_tnt::<AnyMeasKeyLossError>(i, allow_loss)
             .inner_into();
-        t.zip(d).map(|_| Self::new(Some(TemporalScale), value.peak))
+        t.zip(d).map(|_| Self::new(true, value.peak))
     }
 }
 
@@ -6102,7 +6105,7 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal2_0 {
         di.zip(m)
             .inner_into()
             .zip(t)
-            .map(|_| Self::new(Some(TemporalScale), PeakData::default()))
+            .map(|_| Self::new(true, PeakData::default()))
     }
 }
 
@@ -6192,7 +6195,7 @@ impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_2 {
             .peak
             .check_loss(i, allow_loss)
             .inner_into()
-            .map(|()| Self::new(Timestep::default(), None, None))
+            .map(|()| Self::new(Timestep::default(), None, TemporalType::default()))
     }
 }
 
@@ -6206,7 +6209,7 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal3_2 {
             .peak
             .check_loss(i, allow_loss)
             .inner_into()
-            .map(|()| Self::new(value.timestep, None, None))
+            .map(|()| Self::new(value.timestep, None, TemporalType::default()))
     }
 }
 
@@ -6220,7 +6223,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_2 {
             .peak
             .check_loss(i, allow_loss)
             .inner_into()
-            .map(|()| Self::new(value.timestep, value.display, None))
+            .map(|()| Self::new(value.timestep, value.display, TemporalType::default()))
     }
 }
 
@@ -6441,7 +6444,7 @@ impl LookupTemporal for InnerTemporal2_0 {
     ) -> LookupResult<Self> {
         let scale = if conf.force_time_linear {
             nonstd.transfer_demoted(std, TemporalScale::std(i));
-            Tentative::new1(Some(TemporalScale).into())
+            Tentative::new1(true.into())
         } else {
             TemporalScale::lookup_meas_opt(std, i, false, conf)
         };
@@ -6466,7 +6469,7 @@ impl LookupTemporal for InnerTemporal3_0 {
             let timestep = Timestep::lookup_req(std);
             scale
                 .def_zip(timestep)
-                .def_map_value(|(_, t)| Self::new(t, p))
+                .def_map_value(|((), t)| Self::new(t, p))
         })
     }
 }
@@ -6487,7 +6490,7 @@ impl LookupTemporal for InnerTemporal3_1 {
             let timestep = Timestep::lookup_req(std);
             scale
                 .def_zip(timestep)
-                .def_map_value(|(_, t)| Self::new(t, d, p))
+                .def_map_value(|((), t)| Self::new(t, d, p))
         })
     }
 }
@@ -6508,7 +6511,7 @@ impl LookupTemporal for InnerTemporal3_2 {
             let timestep = Timestep::lookup_req(std);
             scale
                 .def_zip(timestep)
-                .def_map_value(|(_, t)| Self::new(t, d, m))
+                .def_map_value(|((), t)| Self::new(t, d, m))
         })
     }
 }
@@ -6714,7 +6717,7 @@ impl VersionedTemporal for InnerTemporal3_0 {
     }
 
     fn req_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
-        [TemporalScale.meas_pair(i)].into_iter()
+        [TemporalScale3_0::default().meas_pair(i)].into_iter()
     }
 
     fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
@@ -6745,7 +6748,7 @@ impl VersionedTemporal for InnerTemporal3_1 {
     }
 
     fn req_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
-        [TemporalScale.meas_pair(i)].into_iter()
+        [TemporalScale3_0::default().meas_pair(i)].into_iter()
     }
 
     fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
@@ -6778,7 +6781,7 @@ impl VersionedTemporal for InnerTemporal3_2 {
     }
 
     fn req_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
-        [TemporalScale.meas_pair(i)].into_iter()
+        [TemporalScale3_0::default().meas_pair(i)].into_iter()
     }
 
     fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
@@ -7189,7 +7192,7 @@ impl TemporalFromOptical<InnerOptical2_0> for InnerTemporal2_0 {
     type TData = ();
 
     fn from_optical_inner(o: InnerOptical2_0, (): Self::TData) -> Self {
-        Self::new(o.scale.map(|_| TemporalScale), o.peak)
+        Self::new(o.scale.0.is_some(), o.peak)
     }
 }
 
@@ -7213,7 +7216,7 @@ impl TemporalFromOptical<InnerOptical3_2> for InnerTemporal3_2 {
     type TData = Timestep;
 
     fn from_optical_inner(o: InnerOptical3_2, d: Self::TData) -> Self {
-        Self::new(d, o.display, None)
+        Self::new(d, o.display, TemporalType::default())
     }
 }
 
@@ -7419,8 +7422,8 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
         t: Self::Temporal,
         o: Self::Optical,
     ) -> (Self::Optical, Self::Temporal) {
-        let new_t = Self::Temporal::new(o.scale.map(|_| TemporalScale), o.peak);
-        let new_o = Self::Optical::new(t.scale.map(|_| Scale::Linear), None, t.peak);
+        let new_t = Self::Temporal::new(o.scale.0.is_some(), o.peak);
+        let new_o = Self::Optical::new(bool::from(t.scale).then_some(Scale::Linear), None, t.peak);
         (new_o, new_t)
     }
 }
@@ -7614,7 +7617,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
         if let Some(x) = self.spillover.0.as_mut() {
             x.reassign(mapping);
         }
-        self.unstained.unstainedcenters.reassign(mapping)
+        self.unstained.unstainedcenters.reassign(mapping);
     }
 
     fn insert_meas_index_inner(&mut self, i: MeasIndex) {
@@ -7647,7 +7650,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
         t: Self::Temporal,
         o: Self::Optical,
     ) -> (Self::Optical, Self::Temporal) {
-        let new_t = Self::Temporal::new(t.timestep, o.display, None);
+        let new_t = Self::Temporal::new(t.timestep, o.display, TemporalType::default());
         let new_o = Self::Optical::new(
             ScaleTransform::default(),
             Wavelengths::default(),
@@ -7674,8 +7677,7 @@ impl Temporal2_0 {
         nonstandard_keywords: NonStdKeywords,
     ) -> Self {
         let common = CommonMeasurement::new(longname, nonstandard_keywords);
-        let scale = has_scale.then_some(TemporalScale);
-        let specific = InnerTemporal2_0::new(scale, PeakData::new(bin, size));
+        let specific = InnerTemporal2_0::new(has_scale, PeakData::new(bin, size));
         Self::new(common, specific)
     }
 }
@@ -7724,8 +7726,7 @@ impl Temporal3_2 {
         nonstandard_keywords: NonStdKeywords,
     ) -> Self {
         let common = CommonMeasurement::new(longname, nonstandard_keywords);
-        let meas_type = has_type.then_some(TemporalType);
-        let specific = InnerTemporal3_2::new(timestep, display, meas_type);
+        let specific = InnerTemporal3_2::new(timestep, display, has_type);
         Self::new(common, specific)
     }
 }

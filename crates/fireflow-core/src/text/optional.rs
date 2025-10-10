@@ -37,11 +37,34 @@ pub struct AlwaysValue<T>(pub T);
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct NeverValue<T>(pub PhantomData<T>);
 
+/// A string that is stored as-is but will not be displayed/written if blank.
 #[derive(Debug, Clone, PartialEq, Eq, AsRef, AsMut, From, Default, FromStr)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 #[as_ref(str)]
 pub struct OptionalString(pub String);
+
+/// A value that can either have one value or be empty.
+///
+/// This is like a bool but the `true` value is meant to have a displayed value
+/// associated with it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, AsRef, AsMut, From, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", serde(into = "bool"))]
+#[cfg_attr(feature = "serde", serde(bound = "T: Clone"))]
+pub struct OptionalZST<T>(pub Option<T>);
+
+impl<T: Default> From<bool> for OptionalZST<T> {
+    fn from(value: bool) -> Self {
+        Self(value.then_some(T::default()))
+    }
+}
+
+impl<T> From<OptionalZST<T>> for bool {
+    fn from(value: OptionalZST<T>) -> Self {
+        value.0.is_some()
+    }
+}
 
 pub(crate) trait IsDefault {
     fn is_default(&self) -> bool;
@@ -133,8 +156,14 @@ impl DisplayMaybe for OptionalString {
         if self.0.is_empty() {
             None
         } else {
-            Some(self.0.to_owned())
+            Some(self.0.clone())
         }
+    }
+}
+
+impl<T: fmt::Display + PartialEq + Default> DisplayMaybe for OptionalZST<T> {
+    fn display_maybe(&self) -> Option<String> {
+        self.0.as_ref().map(ToString::to_string)
     }
 }
 
@@ -378,9 +407,11 @@ pub struct MaybeToAlwaysError;
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{AlwaysValue, MaybeValue};
+    use super::{AlwaysValue, MaybeValue, OptionalZST};
 
     use pyo3::prelude::*;
+    use pyo3::types::PyBool;
+    use std::convert::Infallible;
 
     impl<'py, T> FromPyObject<'py> for AlwaysValue<T>
     where
@@ -397,6 +428,23 @@ mod python {
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             Ok(Self(ob.extract()?))
+        }
+    }
+
+    impl<'py, T: Default> FromPyObject<'py> for OptionalZST<T> {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let x: bool = ob.extract()?;
+            Ok(Self(x.then_some(T::default())))
+        }
+    }
+
+    impl<'py, T> IntoPyObject<'py> for OptionalZST<T> {
+        type Target = PyBool;
+        type Output = Bound<'py, Self::Target>;
+        type Error = Infallible;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            Ok(PyBool::new(py, self.0.is_some()).to_owned())
         }
     }
 }

@@ -732,8 +732,8 @@ pub trait IsFixed {
 
     fn req_meas_keywords(&self, i: MeasIndex) -> [(String, String); 2] {
         [
-            Width::Fixed(self.fixed_width()).pair(i),
-            self.range().pair(i),
+            Width::Fixed(self.fixed_width()).meas_pair(i),
+            self.range().meas_pair(i),
         ]
     }
 }
@@ -2228,8 +2228,8 @@ where
             .iter()
             .enumerate()
             .map(|(i, r)| {
-                let x = Width::Variable.pair(i);
-                let y = Range((*r).into()).pair(i);
+                let x = Width::Variable.meas_pair(i);
+                let y = Range((*r).into()).meas_pair(i);
                 [x, y]
             })
             .collect()

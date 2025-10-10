@@ -2608,27 +2608,32 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let measurement_type =
         DocArg::new_meas_kw_opt_ivar("OpticalType", "measurement_type", "TYPE", PyStr::new1);
 
-    let make_quasi_bool = |what: &str, sym: &str, val: &str, rstype: &str, fieldname: &str| {
-        let r = format_ident!("{rstype}");
-        let f = format_ident!("{fieldname}");
-        let p: Path = parse_quote!(fireflow_core::text::keywords::#r);
-        let argname = format!("has_{what}");
-        let desc = format!("``True`` if *$Pn{sym}* is set to ``{val}``.");
-        DocArg::new_bool_param(argname, desc).into_rw(
-            false,
-            |_, _| quote!(self.0.specific.#f.0.is_some()),
-            |n, _| quote!(self.0.specific.#f = #n.then_some(#p).into();),
-        )
-    };
+    let has_type =
+        DocArg::new_meas_kw_ivar1("TemporalType", "measurement_type", "TYPE", PyBool::new1);
 
-    let has_scale = make_quasi_bool("scale", "E", "0,0", "TemporalScale", "scale");
-    let has_type = make_quasi_bool(
-        "type",
-        "TYPE",
-        "\"Time\"",
-        "TemporalType",
-        "measurement_type",
-    );
+    let has_scale = DocArg::new_meas_kw_ivar1("TemporalScale", "scale", "E", PyBool::new1);
+
+    // let make_quasi_bool = |what: &str, sym: &str, val: &str, rstype: &str, fieldname: &str| {
+    //     let r = format_ident!("{rstype}");
+    //     let f = format_ident!("{fieldname}");
+    //     let p: Path = parse_quote!(fireflow_core::text::keywords::#r);
+    //     let argname = format!("has_{what}");
+    //     let desc = format!("``True`` if *$Pn{sym}* is set to ``{val}``.");
+    //     DocArg::new_bool_param(argname, desc).into_rw(
+    //         false,
+    //         |_, _| quote!(self.0.specific.#f.0.is_some()),
+    //         |n, _| quote!(self.0.specific.#f = #n.then_some(#p).into();),
+    //     )
+    // };
+
+    // let has_scale = make_quasi_bool("scale", "E", "0,0", "TemporalScale", "scale");
+    // let has_type = make_quasi_bool(
+    //     "type",
+    //     "TYPE",
+    //     "\"Time\"",
+    //     "TemporalType",
+    //     "measurement_type",
+    // );
 
     let timestep = DocArg::new_ivar_rw(
         "timestep",
@@ -2862,10 +2867,9 @@ pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
 
     let opt_pytype = PyStr::new1(keyword_path("OpticalType"));
-    let tmp_pytype = PyLiteral::new1(["Time"], keyword_path("TemporalType"));
+    let inner_tmp_pytype = PyBool::new1(keyword_path("TemporalType"));
 
     let inner_opt_pytype = PyOpt::new(opt_pytype);
-    let inner_tmp_pytype = PyOpt::new(tmp_pytype);
 
     let inner_opt_rstype = inner_opt_pytype.as_rust_type();
     let inner_tmp_rstype = inner_tmp_pytype.as_rust_type();
@@ -4310,7 +4314,7 @@ impl PyStr {
 
 impl PyBool {
     impl_py_prim_new!();
-    // impl_py_prim_new1!();
+    impl_py_prim_new1!();
     impl_py_prim_defaults!("False".into(), bool);
 }
 

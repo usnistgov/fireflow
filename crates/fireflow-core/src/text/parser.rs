@@ -20,8 +20,9 @@ use super::keywords::{
     GatePairError, GatingError, LastModifiedError, Longname, MeasOrGateIndexError, Mode3_2Error,
     ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError, OriginalityError,
     ParseUnstainedCenterError, PercentEmitted, Power, PrefixedMeasIndexError, Range,
-    RegionGateIndexError, RegionIndexError, Tag, TemporalScale, TemporalScaleError,
-    TemporalTypeError, Timestep, Tot, TriggerError, UnicodeError, WavelengthsError,
+    RegionGateIndexError, RegionIndexError, Tag, TemporalScale, TemporalScale3_0,
+    TemporalScaleError, TemporalTypeError, Timestep, Tot, TriggerError, UnicodeError,
+    WavelengthsError,
 };
 use super::named_vec::{NameMapping, NewNamedVecError};
 use super::optional::MaybeValue;
@@ -241,7 +242,7 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
         )
     }
 
-    fn pair(&self, i: impl Into<IndexFromOne>) -> (String, String)
+    fn meas_pair(&self, i: impl Into<IndexFromOne>) -> (String, String)
     where
         Self: fmt::Display,
     {
@@ -535,12 +536,12 @@ pub(crate) fn lookup_temporal_scale_3_0(
     i: MeasIndex,
     nonstd: &mut NonStdKeywords,
     conf: &StdTextReadConfig,
-) -> LookupResult<TemporalScale> {
+) -> LookupResult<()> {
     if conf.force_time_linear {
         nonstd.transfer_demoted(kws, TemporalScale::std(i));
-        Ok(Tentative::new1(TemporalScale))
+        Ok(Tentative::default())
     } else {
-        TemporalScale::lookup_req(kws, i)
+        TemporalScale3_0::lookup_req(kws, i).map(Tentative::void)
     }
 }
 

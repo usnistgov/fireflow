@@ -10,9 +10,9 @@ use std::hash::Hash;
 pub struct FCSNonEmpty<T>(pub NonEmpty<T>);
 
 impl<X> FCSNonEmpty<X> {
-    pub(crate) fn new(head: X) -> Self {
-        Self(NonEmpty::new(head))
-    }
+    // pub(crate) fn new(head: X) -> Self {
+    //     Self(NonEmpty::new(head))
+    // }
 
     // pub(crate) fn new1(head: X, tail: Vec<X>) -> Self {
     //     Self(NonEmpty { head, tail })

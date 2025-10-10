@@ -5066,13 +5066,14 @@ impl DocArgRWIvar {
     }
 
     fn new_unstainedcenters_ivar() -> Self {
-        let path: Path = parse_quote!(fireflow_core::text::unstainedcenters::UnstainedCenters);
-        Self::new_opt_ivar_rw(
+        let path = keyword_path("UnstainedCenters");
+        Self::new_ivar_rw_def(
             "unstainedcenters",
             PyDict::new1(PyStr::new(), RsFloat::F32, path.clone()),
             "Value for *$UNSTAINEDCENTERS. Each key must match a *$PnN*.",
+            DocDefault::Auto,
             true,
-            |_, _| quote!(self.0.metaroot_opt::<#path>().map(|y| y.clone())),
+            |_, _| quote!(self.0.metaroot::<#path>().clone()),
             |n, _| {
                 quote!(self
                     .0

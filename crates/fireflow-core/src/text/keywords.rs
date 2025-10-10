@@ -24,7 +24,6 @@ use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use super::scale::{Scale, ScaleError};
 use super::spillover::Spillover;
 use super::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime100, FCSTime60, Xtim};
-use super::unstainedcenters::UnstainedCenters;
 
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use chrono::{NaiveDateTime, NaiveTime, Timelike as _};
@@ -38,7 +37,7 @@ use std::iter::once;
 use thiserror::Error;
 
 use std::any::type_name;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
@@ -1577,6 +1576,132 @@ impl TryFrom<Cyt> for Cyt3_2 {
 #[error("$CYT is missing")]
 pub struct NoCytError;
 
+/// The value for the $UNSTAINEDCENTERS key (3.2+)
+#[derive(Clone, Into, PartialEq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct UnstainedCenters(pub HashMap<Shortname, f32>);
+
+#[derive(Debug, Error)]
+pub enum ParseUnstainedCenterError {
+    #[error("Names are not unique")]
+    NonUnique,
+    #[error("Expected {expected} values, found {total}")]
+    BadLength { total: usize, expected: usize },
+    #[error("Could not parse N")]
+    BadN,
+    #[error("Error parsing float value(s)")]
+    BadFloat,
+}
+
+impl UnstainedCenters {
+    pub(crate) fn names_difference(
+        &self,
+        names: &HashSet<&Shortname>,
+    ) -> impl Iterator<Item = &Shortname> {
+        self.0.keys().filter(|n| !names.contains(n))
+    }
+}
+
+impl FromStrStateful for UnstainedCenters {
+    type Err = ParseUnstainedCenterError;
+    type Payload<'a> = ();
+
+    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
+    }
+}
+
+impl FromStr for UnstainedCenters {
+    type Err = ParseUnstainedCenterError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_str_delim(s, false)
+    }
+}
+
+impl FromStrDelim for UnstainedCenters {
+    type Err = ParseUnstainedCenterError;
+    const DELIM: char = ',';
+
+    fn from_iter<'a>(mut iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        // NOTE the standard does not say if this is allowed to be empty or not
+        // (ie the string "0") so do not enforce here. However, if empty we will
+        // not save the keyword when writing the file.
+        if let Some(n) = iter.next().and_then(|x| x.parse().ok()) {
+            // This should be safe since we are splitting by commas
+            let measurements: Vec<_> = iter
+                .by_ref()
+                .take(n)
+                .map(Shortname::new_unchecked)
+                .collect();
+            if measurements.iter().unique().count() < measurements.len() {
+                return Err(ParseUnstainedCenterError::NonUnique);
+            }
+            let values: Vec<_> = iter
+                .by_ref()
+                .take(n)
+                .map(str::parse::<f32>)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| ParseUnstainedCenterError::BadFloat)?;
+            let remainder = iter.by_ref().count();
+            let total = values.len() + measurements.len() + remainder;
+            let expected = 2 * n;
+            if total == expected {
+                let ys = measurements.into_iter().zip(values).collect();
+                Ok(Self(ys))
+            } else {
+                Err(ParseUnstainedCenterError::BadLength { total, expected })
+            }
+        } else {
+            Err(ParseUnstainedCenterError::BadN)
+        }
+    }
+}
+
+impl DisplayMaybe for UnstainedCenters {
+    fn display_maybe(&self) -> Option<String> {
+        if self.0.is_empty() {
+            None
+        } else {
+            let n = self.0.len();
+            let k = self.0.keys().join(",");
+            let v = self.0.values().join(",");
+            Some(format!("{n},{k},{v}"))
+        }
+    }
+}
+
+impl KeywordPairMaybe for UnstainedCenters {
+    type Inner = Self;
+}
+
+impl CheckMaybe for UnstainedCenters {
+    type Inner = Self;
+}
+
+impl OptLinkedKey for UnstainedCenters {
+    fn names(&self) -> HashSet<&Shortname> {
+        self.0.keys().collect()
+    }
+
+    fn reassign(&mut self, mapping: &NameMapping) {
+        // keys can't be mutated in place so need to rebuild the hashmap with
+        // new keys from the mapping
+        let new: HashMap<_, _> = self
+            .0
+            .iter()
+            .map(|(k, v)| {
+                (
+                    mapping.get(k).map(|x| (*x).clone()).unwrap_or(k.clone()),
+                    *v,
+                )
+            })
+            .collect();
+        self.0 = new;
+    }
+}
+
 macro_rules! newtype_string {
     ($t:ident) => {
         #[derive(Clone, FromStr, From, Into, PartialEq, Debug, Default, AsRef)]
@@ -1880,7 +2005,7 @@ impl Key for UnstainedCenters {
 }
 
 impl Optional for UnstainedCenters {
-    type Outer = MaybeValue<Self>;
+    type Outer = Self;
 }
 
 kw_opt_meta_string!(UnstainedInfo, "UNSTAINEDINFO");
@@ -2181,6 +2306,22 @@ mod tests {
         assert_from_to_str_almost::<Gating>("R1 AND (R2.OR.R3)", "(R1 AND (R2 OR R3))");
         assert_from_to_str::<Gating>("((NOT R1) AND R2)");
     }
+
+    // TODO this is hard(er) to test since the order will be random
+    #[test]
+    fn unstained_centers() {
+        assert_from_to_str::<UnstainedCenters>("1,X,0");
+    }
+
+    #[test]
+    fn unstained_centers_wrong_len() {
+        assert!("2,X,0".parse::<UnstainedCenters>().is_err());
+    }
+
+    #[test]
+    fn unstained_centers_nonunique() {
+        assert!("3,Y,Y,Z,0,0,0".parse::<UnstainedCenters>().is_err());
+    }
 }
 
 #[cfg(feature = "python")]
@@ -2196,7 +2337,7 @@ mod python {
         FeatureError, GateRange, GateScale, GateShortname, IndexPair, LastModified, Mode, Mode3_2,
         Mode3_2Error, ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError, Originality,
         OriginalityError, PrefixedMeasIndex, Range, TemporalType, TemporalTypeError, Timestep,
-        Trigger, UniGate, Unicode, Vertex, Vol, Wavelength, Wavelengths,
+        Trigger, UniGate, Unicode, UnstainedCenters, Vertex, Vol, Wavelength, Wavelengths,
     };
 
     use pyo3::prelude::*;
@@ -2221,6 +2362,7 @@ mod python {
     impl_str_py!(TemporalType, TemporalTypeError);
 
     impl_from_py_transparent!(Cyt3_2);
+    impl_from_py_transparent!(UnstainedCenters);
 
     impl_from_py_transparent!(Wavelength);
     impl_from_py_transparent!(Vol);

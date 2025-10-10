@@ -19,9 +19,9 @@ use super::keywords::{
     DetectorVoltage, Dfc, Display, DisplayError, Endanalysis, Enddata, Feature, FeatureError, Gain,
     GatePairError, GatingError, LastModifiedError, Longname, MeasOrGateIndexError, Mode3_2Error,
     ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError, OriginalityError,
-    PercentEmitted, Power, PrefixedMeasIndexError, Range, RegionGateIndexError, RegionIndexError,
-    Tag, TemporalScale, TemporalScaleError, TemporalTypeError, Timestep, Tot, TriggerError,
-    UnicodeError, WavelengthsError,
+    ParseUnstainedCenterError, PercentEmitted, Power, PrefixedMeasIndexError, Range,
+    RegionGateIndexError, RegionIndexError, Tag, TemporalScale, TemporalScaleError,
+    TemporalTypeError, Timestep, Tot, TriggerError, UnicodeError, WavelengthsError,
 };
 use super::named_vec::{NameMapping, NewNamedVecError};
 use super::optional::MaybeValue;
@@ -32,7 +32,6 @@ use super::timestamps::{
     FCSDateError, FCSFixedTimeError, FCSTime100Error, FCSTime60Error, FCSTimeError,
     ReversedTimestampsError,
 };
-use super::unstainedcenters::ParseUnstainedCenterError;
 
 use bigdecimal::ParseBigDecimalError;
 use derive_more::{Display, From};
@@ -383,7 +382,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
 /// Any key which references $PnN in its value
 pub(crate) trait OptLinkedKey
 where
-    Self: Key + Optional + fmt::Display + FromStr + Sized,
+    Self: Key + Optional + FromStr + Sized,
     Option<Self>: From<Self::Outer>,
 {
     fn check_link(&self, names: &HashSet<&Shortname>) -> Result<(), LinkedNameError> {

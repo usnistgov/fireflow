@@ -4,7 +4,7 @@ use crate::validated::keys::{IndexedKey, Key, MeasHeader};
 
 use super::index::IndexFromOne;
 
-use derive_more::{AsMut, AsRef, Display, From, FromStr};
+use derive_more::{AsMut, AsRef, From, FromStr};
 use std::convert::Infallible;
 use std::fmt;
 use std::marker::PhantomData;

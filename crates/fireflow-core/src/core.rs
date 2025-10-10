@@ -42,7 +42,8 @@ use crate::text::{
         ModeUpgradeError, Nextdata, NoCytError, Op, OpticalType, Originality, Par, PeakBin,
         PeakNumber, PercentEmitted, Plateid, Platename, Power, Proj, Range, Smno, Src, Sys, Tag,
         TemporalScale, TemporalType, Timestep, TimestepLossError, Tot, Trigger, Unicode,
-        UnstainedInfo, Vol, Wavelength, Wavelengths, WavelengthsLossError, Wellid,
+        UnstainedCenters, UnstainedInfo, Vol, Wavelength, Wavelengths, WavelengthsLossError,
+        Wellid,
     },
     named_vec::{
         EitherPair, Eithers, Element, ElementIndexError, IndexedElement, IndexedElementError,
@@ -68,7 +69,6 @@ use crate::text::{
         Btim, Etim, FCSDate, FCSTime, FCSTime100, FCSTime60, ReversedTimestampsError, Timestamps,
         Xtim,
     },
-    unstainedcenters::UnstainedCenters,
 };
 
 use crate::validated::{
@@ -729,7 +729,7 @@ pub struct InnerMetaroot3_2 {
     pub carrier: CarrierData,
 
     /// Values of $UNSTAINEDINFO/$UNSTAINEDCENTERS
-    #[as_ref(Option<UnstainedCenters>, UnstainedInfo)]
+    #[as_ref(UnstainedCenters, UnstainedInfo)]
     #[as_mut(UnstainedInfo)]
     pub unstained: UnstainedData,
 
@@ -1116,10 +1116,10 @@ pub struct PlateData {
 #[derive(Clone, Default, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct UnstainedData {
-    #[as_ref(Option<UnstainedCenters>)]
+    #[as_ref(UnstainedCenters)]
     #[new(into)]
     // NOTE not mutable to prevent mutation when part of Core
-    pub unstainedcenters: MaybeValue<UnstainedCenters>,
+    pub unstainedcenters: UnstainedCenters,
 
     #[as_ref(UnstainedInfo)]
     #[as_mut(UnstainedInfo)]
@@ -1300,7 +1300,7 @@ pub trait HasScaleTransform {
 
 pub trait HasUnstainedCenters {
     // private as_mut
-    fn unstainedcenters_mut(&mut self, _: private::NoTouchy) -> &mut Option<UnstainedCenters>;
+    fn unstainedcenters_mut(&mut self, _: private::NoTouchy) -> &mut UnstainedCenters;
 }
 
 pub trait HasAppliedGates3_0 {
@@ -2894,18 +2894,17 @@ where
     /// Will return error for each name that is not in $PnN.
     pub fn set_unstained_centers(
         &mut self,
-        us: Option<UnstainedCenters>,
+        us: UnstainedCenters,
     ) -> TerminalResult<(), Infallible, MissingMeasurementNameError, SetUnstainedFailure>
     where
         M: HasUnstainedCenters,
     {
         let ms = self.measurement_names();
-        if let Some(es) = us.as_ref().map(|xs| xs.names()).and_then(|ns| {
-            NonEmpty::collect(
-                ns.difference(&ms)
-                    .map(|&n| MissingMeasurementNameError(n.clone())),
-            )
-        }) {
+        let ns = us.names();
+        if let Some(es) = NonEmpty::collect(
+            ns.difference(&ms)
+                .map(|&n| MissingMeasurementNameError(n.clone())),
+        ) {
             return Err(es).mult_terminate(SetUnstainedFailure);
         }
         *self
@@ -4393,8 +4392,8 @@ impl HasSpillover for InnerMetaroot3_2 {
 }
 
 impl HasUnstainedCenters for InnerMetaroot3_2 {
-    fn unstainedcenters_mut(&mut self, _: private::NoTouchy) -> &mut Option<UnstainedCenters> {
-        &mut self.unstained.unstainedcenters.0
+    fn unstainedcenters_mut(&mut self, _: private::NoTouchy) -> &mut UnstainedCenters {
+        &mut self.unstained.unstainedcenters
     }
 }
 
@@ -4670,7 +4669,7 @@ impl CoreTEXT3_2 {
         carriertype: Carriertype,
         locationid: Locationid,
         unstainedinfo: UnstainedInfo,
-        unstainedcenters: Option<UnstainedCenters>,
+        unstainedcenters: UnstainedCenters,
         flowrate: Flowrate,
         abrt: Option<Abrt>,
         com: Com,
@@ -5563,7 +5562,7 @@ impl_ref_specific_ro!(
     Option<FCSDate>,
     Option<BeginDateTime>,
     Option<EndDateTime>,
-    Option<UnstainedCenters>,
+    UnstainedCenters,
     AppliedGates3_2
 );
 
@@ -7590,9 +7589,9 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
         } else if self
             .unstained
             .unstainedcenters
-            .0
-            .as_ref()
-            .is_some_and(|u| u.names_difference(names).count() > 0)
+            .names_difference(names)
+            .count()
+            > 0
         {
             Err(ExistingNamedLinkError::UnstainedCenters)
         } else {
@@ -7615,9 +7614,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
         if let Some(x) = self.spillover.0.as_mut() {
             x.reassign(mapping);
         }
-        if let Some(x) = self.unstained.unstainedcenters.0.as_mut() {
-            x.reassign(mapping);
-        }
+        self.unstained.unstainedcenters.reassign(mapping)
     }
 
     fn insert_meas_index_inner(&mut self, i: MeasIndex) {

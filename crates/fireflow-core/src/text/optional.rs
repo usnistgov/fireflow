@@ -91,11 +91,11 @@ pub(crate) trait CheckMaybe: Sized + IsDefault {
     where
         AnyMetarootKeyLossError: From<UnitaryKeyLossError<Self::Inner>>,
     {
-        let mut tnt = Tentative::default();
-        if !self.is_default() {
-            tnt.push_error_or_warning(UnitaryKeyLossError::<Self::Inner>::new(), !allow_loss);
+        if self.is_default() {
+            Tentative::default()
+        } else {
+            Tentative::new_either((), [UnitaryKeyLossError::<Self::Inner>::new()], !allow_loss)
         }
-        tnt
     }
 
     fn check_indexed_key_transfer_tnt<E>(
@@ -106,11 +106,12 @@ pub(crate) trait CheckMaybe: Sized + IsDefault {
     where
         E: From<IndexedKeyLossError<Self::Inner>>,
     {
-        let mut tnt = Tentative::default();
-        if !self.is_default() {
-            tnt.push_error_or_warning(IndexedKeyLossError::<Self::Inner>::new(i), !allow_loss);
+        if self.is_default() {
+            Tentative::default()
+        } else {
+            let e = IndexedKeyLossError::<Self::Inner>::new(i);
+            Tentative::new_either((), [e], !allow_loss)
         }
-        tnt
     }
 
     fn check_indexed_key_transfer<E>(&self, i: impl Into<IndexFromOne>) -> Result<(), E>

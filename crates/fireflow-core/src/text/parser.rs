@@ -27,7 +27,7 @@ use super::keywords::{
     UnicodeError, WavelengthsError,
 };
 use super::named_vec::{NameMapping, NewNamedVecError};
-use super::optional::{MaybeValue, OptionalString};
+use super::optional::MaybeValue;
 use super::ranged_float::RangedFloatError;
 use super::scale::{Scale, ScaleError};
 use super::spillover::{ParseSpilloverError, SpilloverIndexError};
@@ -321,11 +321,11 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
 
     fn check_key_transfer(self, allow_loss: bool) -> BiTentative<(), AnyMetarootKeyLossError>
     where
-        Self: fmt::Display + Optional<Outer = Self> + Into<OptionalString>,
+        Self: Optional<Outer = Self> + Default + PartialEq,
         AnyMetarootKeyLossError: From<UnitaryKeyLossError<Self>>,
     {
         let mut tnt = Tentative::default();
-        if !self.into().0.is_empty() {
+        if self != Self::default() {
             tnt.push_error_or_warning(UnitaryKeyLossError::<Self>::new(), !allow_loss);
         }
         tnt
@@ -424,11 +424,11 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         allow_loss: bool,
     ) -> BiTentative<(), E>
     where
-        Self: fmt::Display + Optional<Outer = Self> + Into<OptionalString>,
+        Self: Optional<Outer = Self> + Default + PartialEq,
         E: From<IndexedKeyLossError<Self>>,
     {
         let mut tnt = Tentative::default();
-        if !self.into().0.is_empty() {
+        if self != Self::default() {
             tnt.push_error_or_warning(IndexedKeyLossError::<Self>::new(i), !allow_loss);
         }
         tnt
@@ -436,13 +436,13 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
 
     fn check_indexed_key_transfer<E>(&self, i: impl Into<IndexFromOne>) -> Result<(), E>
     where
-        Self: fmt::Display + Optional<Outer = Self> + AsRef<str>,
+        Self: Optional<Outer = Self> + Default + PartialEq,
         E: From<IndexedKeyLossError<Self>>,
     {
-        if !self.as_ref().is_empty() {
-            Err(IndexedKeyLossError::<Self>::new(i).into())
-        } else {
+        if *self == Self::default() {
             Ok(())
+        } else {
+            Err(IndexedKeyLossError::<Self>::new(i).into())
         }
     }
 }

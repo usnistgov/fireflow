@@ -1752,6 +1752,58 @@ macro_rules! newtype_int {
     };
 }
 
+macro_rules! impl_display_maybe_self {
+    ($t:ident) => {
+        impl DisplayMaybe for $t {
+            fn display_maybe(&self) -> Option<String> {
+                self.0.display_maybe()
+            }
+        }
+
+        impl CheckMaybe for $t {
+            type Inner = Self;
+        }
+
+        impl KeywordPairMaybe for $t {
+            type Inner = Self;
+        }
+    };
+}
+
+macro_rules! newtype_opt_int {
+    ($t:ident, $inner:ident) => {
+        #[derive(Clone, Default, PartialEq, Eq, FromStr, Debug)]
+        #[cfg_attr(feature = "serde", derive(Serialize))]
+        #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
+        pub struct $t(pub OptionalInt<$inner>);
+
+        impl_display_maybe_self!($t);
+    };
+}
+
+macro_rules! newtype_opt_bool {
+    ($t:ident, $inner:ident, $err:ident) => {
+        #[derive(Clone, PartialEq, Debug, Default, From, Into)]
+        #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+        #[cfg_attr(feature = "serde", derive(Serialize))]
+        #[from(bool)]
+        #[into(bool)]
+        pub struct $t(pub OptionalZST<$inner>);
+
+        impl FromStr for $t {
+            type Err = $err;
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                s.parse::<$inner>()
+                    .map(Some)
+                    .map(OptionalZST::from)
+                    .map(Self)
+            }
+        }
+
+        impl_display_maybe_self!($t);
+    };
+}
+
 macro_rules! kw_meta {
     ($t:ident, $k:expr) => {
         impl Key for $t {
@@ -1933,38 +1985,15 @@ macro_rules! kw_opt_region {
 
 macro_rules! meas_opt_zst {
     ($t:ident, $sym:expr, $inner:ident, $err:ident) => {
-        #[derive(Clone, PartialEq, Debug, Default, From, Into)]
-        #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
-        #[cfg_attr(feature = "serde", derive(Serialize))]
-        #[from(bool)]
-        #[into(bool)]
-        pub struct $t(pub OptionalZST<$inner>);
-
+        newtype_opt_bool!($t, $inner, $err);
         kw_opt_meas!($t, $sym, Self);
+    };
+}
 
-        impl FromStr for $t {
-            type Err = $err;
-            fn from_str(s: &str) -> Result<Self, Self::Err> {
-                s.parse::<$inner>()
-                    .map(Some)
-                    .map(OptionalZST::from)
-                    .map(Self)
-            }
-        }
-
-        impl DisplayMaybe for $t {
-            fn display_maybe(&self) -> Option<String> {
-                self.0.display_maybe()
-            }
-        }
-
-        impl CheckMaybe for $t {
-            type Inner = Self;
-        }
-
-        impl KeywordPairMaybe for $t {
-            type Inner = Self;
-        }
+macro_rules! kw_opt_meta_opt_int {
+    ($t:ident, $inner:ident, $sym:expr) => {
+        newtype_opt_int!($t, $inner);
+        kw_opt_meta!($t, $sym, Self);
     };
 }
 
@@ -2033,10 +2062,6 @@ kw_opt_meta!(LastModified, "LAST_MODIFIED", Option<Self>);
 kw_opt_meta_string!(Plateid, "PLATEID");
 kw_opt_meta_string!(Platename, "PLATENAME");
 kw_opt_meta_string!(Wellid, "WELLID");
-
-// impl Key for Spillover {
-//     const C: &'static str = "SPILLOVER";
-// }
 
 // impl Optional for Spillover {}
 kw_opt_meta!(Spillover, "SPILLOVER", Option<Self>);
@@ -2128,31 +2153,6 @@ impl BiIndexedKey for Dfc {
 
 // 3.0/3.1 subsets
 kw_opt_meta_int!(CSMode, usize, "CSMODE");
-
-macro_rules! kw_opt_meta_opt_int {
-    ($t:ident, $inner:ident, $sym:expr) => {
-        kw_opt_meta!($t, $sym, Self);
-
-        #[derive(Clone, Default, PartialEq, Eq, FromStr, Debug)]
-        #[cfg_attr(feature = "serde", derive(Serialize))]
-        #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
-        pub struct $t(pub OptionalInt<$inner>);
-
-        impl DisplayMaybe for $t {
-            fn display_maybe(&self) -> Option<String> {
-                self.0.display_maybe()
-            }
-        }
-
-        impl CheckMaybe for $t {
-            type Inner = Self;
-        }
-
-        impl KeywordPairMaybe for $t {
-            type Inner = Self;
-        }
-    };
-}
 
 kw_opt_meta_opt_int!(CSTot, u32, "CSTOT");
 kw_opt_meta_opt_int!(CSVBits, u32, "CSVBITS");

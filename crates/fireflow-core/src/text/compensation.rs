@@ -4,7 +4,6 @@ use crate::validated::keys::{BiIndexedKey as _, StdKey, StdKeywords};
 
 use super::index::MeasIndex;
 use super::keywords::{Dfc, Par};
-use super::optional::MaybeValue;
 use super::parser::{
     FromStrDelim, FromStrStateful, LookupKeysWarning, LookupOptional, OptKeyError,
 };
@@ -75,7 +74,7 @@ impl Compensation2_0 {
                 .into_tentative_def(is_err)
         };
         tnt.extend_errors_or_warnings(warnings.into_iter().flatten(), is_err);
-        tnt.map(MaybeValue)
+        tnt
     }
 
     #[must_use]

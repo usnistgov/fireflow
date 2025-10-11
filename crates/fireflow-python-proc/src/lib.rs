@@ -803,26 +803,26 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     };
 
     let cyt = if version < Version::FCS3_2 {
-        DocArg::new_kw_opt_ivar("Cyt", "cyt", PyStr::new1)
+        DocArg::new_kw_ivar("Cyt", "cyt", PyStr::new1, None, true)
     } else {
-        DocArg::new_kw_ivar("Cyt", "cyt", PyStr::new1, None, false)
+        DocArg::new_kw_ivar("Cyt3_2", "cyt", PyStr::new1, None, false)
     };
 
     let to_pyint = |p| PyInt::new(RsInt::U32, p);
 
     let abrt = DocArg::new_kw_opt_ivar("Abrt", "abrt", to_pyint);
-    let com = DocArg::new_kw_opt_ivar("Com", "com", PyStr::new1);
-    let cells = DocArg::new_kw_opt_ivar("Cells", "cells", PyStr::new1);
-    let exp = DocArg::new_kw_opt_ivar("Exp", "exp", PyStr::new1);
-    let fil = DocArg::new_kw_opt_ivar("Fil", "fil", PyStr::new1);
-    let inst = DocArg::new_kw_opt_ivar("Inst", "inst", PyStr::new1);
+    let com = DocArg::new_kw_ivar("Com", "com", PyStr::new1, None, true);
+    let cells = DocArg::new_kw_ivar("Cells", "cells", PyStr::new1, None, true);
+    let exp = DocArg::new_kw_ivar("Exp", "exp", PyStr::new1, None, true);
+    let fil = DocArg::new_kw_ivar("Fil", "fil", PyStr::new1, None, true);
+    let inst = DocArg::new_kw_ivar("Inst", "inst", PyStr::new1, None, true);
     let lost = DocArg::new_kw_opt_ivar("Lost", "lost", to_pyint);
-    let op = DocArg::new_kw_opt_ivar("Op", "op", PyStr::new1);
-    let proj = DocArg::new_kw_opt_ivar("Proj", "proj", PyStr::new1);
-    let smno = DocArg::new_kw_opt_ivar("Smno", "smno", PyStr::new1);
-    let src = DocArg::new_kw_opt_ivar("Src", "src", PyStr::new1);
-    let sys = DocArg::new_kw_opt_ivar("Sys", "sys", PyStr::new1);
-    let cytsn = DocArg::new_kw_opt_ivar("Cytsn", "cytsn", PyStr::new1);
+    let op = DocArg::new_kw_ivar("Op", "op", PyStr::new1, None, true);
+    let proj = DocArg::new_kw_ivar("Proj", "proj", PyStr::new1, None, true);
+    let smno = DocArg::new_kw_ivar("Smno", "smno", PyStr::new1, None, true);
+    let src = DocArg::new_kw_ivar("Src", "src", PyStr::new1, None, true);
+    let sys = DocArg::new_kw_ivar("Sys", "sys", PyStr::new1, None, true);
+    let cytsn = DocArg::new_kw_ivar("Cytsn", "cytsn", PyStr::new1, None, true);
 
     let unicode_pytype = |p| {
         PyTuple::new1(
@@ -832,14 +832,15 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     };
     let unicode = DocArg::new_kw_opt_ivar("Unicode", "unicode", unicode_pytype);
 
-    let csvbits = DocArg::new_kw_opt_ivar("CSVBits", "csvbits", to_pyint);
-    let cstot = DocArg::new_kw_opt_ivar("CSTot", "cstot", to_pyint);
+    let csvbits = DocArg::new_kw_ivar("CSVBits", "csvbits", to_pyint, None, true);
+    let cstot = DocArg::new_kw_ivar("CSTot", "cstot", to_pyint, None, true);
 
     let csvflags = DocArg::new_csvflags_ivar();
 
     let all_subset = [csvbits, cstot, csvflags];
 
-    let last_modifier = DocArg::new_kw_opt_ivar("LastModifier", "last_modifier", PyStr::new1);
+    let last_modifier =
+        DocArg::new_kw_ivar("LastModifier", "last_modifier", PyStr::new1, None, true);
     let last_mod_date = DocArg::new_kw_opt_ivar("LastModified", "last_modified", PyDatetime::new1);
     let originality = DocArg::new_kw_opt_ivar("Originality", "originality", |p| {
         PyLiteral::new1(
@@ -850,9 +851,9 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     let all_modified = [last_modifier, last_mod_date, originality];
 
-    let plateid = DocArg::new_kw_opt_ivar("Plateid", "plateid", PyStr::new1);
-    let platename = DocArg::new_kw_opt_ivar("Platename", "platename", PyStr::new1);
-    let wellid = DocArg::new_kw_opt_ivar("Wellid", "wellid", PyStr::new1);
+    let plateid = DocArg::new_kw_ivar("Plateid", "plateid", PyStr::new1, None, true);
+    let platename = DocArg::new_kw_ivar("Platename", "platename", PyStr::new1, None, true);
+    let wellid = DocArg::new_kw_ivar("Wellid", "wellid", PyStr::new1, None, true);
 
     let all_plate = [plateid, platename, wellid];
 
@@ -864,16 +865,17 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         _ => DocArg::new_spillover_ivar(),
     };
 
-    let flowrate = DocArg::new_kw_opt_ivar("Flowrate", "flowrate", PyStr::new1);
+    let flowrate = DocArg::new_kw_ivar("Flowrate", "flowrate", PyStr::new1, None, true);
 
-    let carrierid = DocArg::new_kw_opt_ivar("Carrierid", "carrierid", PyStr::new1);
-    let carriertype = DocArg::new_kw_opt_ivar("Carriertype", "carriertype", PyStr::new1);
-    let locationid = DocArg::new_kw_opt_ivar("Locationid", "locationid", PyStr::new1);
+    let carrierid = DocArg::new_kw_ivar("Carrierid", "carrierid", PyStr::new1, None, true);
+    let carriertype = DocArg::new_kw_ivar("Carriertype", "carriertype", PyStr::new1, None, true);
+    let locationid = DocArg::new_kw_ivar("Locationid", "locationid", PyStr::new1, None, true);
 
     let all_carrier = [carrierid, carriertype, locationid];
 
     let unstainedcenters = DocArg::new_unstainedcenters_ivar();
-    let unstainedinfo = DocArg::new_kw_opt_ivar("UnstainedInfo", "unstainedinfo", PyStr::new1);
+    let unstainedinfo =
+        DocArg::new_kw_ivar("UnstainedInfo", "unstainedinfo", PyStr::new1, None, true);
 
     let tr = DocArg::new_trigger_ivar();
 
@@ -1261,7 +1263,7 @@ pub fn impl_core_all_peak_attrs(input: TokenStream) -> TokenStream {
     };
 
     let pkn = go("K", "PeakBin", "peak_bins");
-    let pknn = go("KN", "PeakNumber", "peak_sizes");
+    let pknn = go("KN", "PeakIndex", "peak_sizes");
 
     quote! {
         #pkn
@@ -1869,7 +1871,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
             ) -> PyResult<#index_ret> {
                 let r = self.0.remove_measurement_by_index(#index_ident)?;
                 let (n, v) = #element_path::unzip::<#family_path>(r);
-                Ok((n.0, v.inner_into()))
+                Ok((n, v.inner_into()))
             }
         }
     }
@@ -2519,7 +2521,9 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let wavelength = if version < Version::FCS3_1 {
         DocArg::new_meas_kw_opt_ivar("Wavelength", "wavelength", "L", to_pyfloat)
     } else {
-        DocArg::new_meas_kw_opt_ivar("Wavelengths", "wavelengths", "L", to_pyfloat)
+        DocArg::new_meas_kw_ivar1("Wavelengths", "wavelengths", "L", |p| {
+            PyList::new1(RsFloat::F32, p)
+        })
     };
 
     let bin = DocArg::new_meas_kw_ivar(
@@ -2530,7 +2534,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         true,
     );
     let size = DocArg::new_meas_kw_ivar(
-        "PeakNumber",
+        "PeakIndex",
         "size",
         |p| PyOpt::new(to_pyuint(p)),
         "Value of *$PKNn*.".into(),
@@ -2539,12 +2543,12 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
 
     let all_peak = [bin, size];
 
-    let filter = DocArg::new_meas_kw_opt_ivar("Filter", "filter", "F", PyStr::new1);
+    let filter = DocArg::new_meas_kw_ivar1("Filter", "filter", "F", PyStr::new1);
 
     let power = DocArg::new_meas_kw_opt_ivar("Power", "power", "O", to_pyuint);
 
     let detector_type =
-        DocArg::new_meas_kw_opt_ivar("DetectorType", "detector_type", "T", PyStr::new1);
+        DocArg::new_meas_kw_ivar1("DetectorType", "detector_type", "T", PyStr::new1);
 
     let percent_emitted =
         DocArg::new_meas_kw_opt_ivar("PercentEmitted", "percent_emitted", "P", to_pyfloat);
@@ -2591,40 +2595,22 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         true,
     );
 
-    let analyte = DocArg::new_meas_kw_opt_ivar("Analyte", "analyte", "ANALYTE", PyStr::new1);
+    let analyte = DocArg::new_meas_kw_ivar1("Analyte", "analyte", "ANALYTE", PyStr::new1);
 
     let feature =
         DocArg::new_meas_kw_opt_ivar("Feature", "feature", "FEATURE", |_| PyType::new_feature());
 
     let detector_name =
-        DocArg::new_meas_kw_opt_ivar("DetectorName", "detector_name", "DET", PyStr::new1);
+        DocArg::new_meas_kw_ivar1("DetectorName", "detector_name", "DET", PyStr::new1);
 
-    let tag = DocArg::new_meas_kw_opt_ivar("Tag", "tag", "TAG", PyStr::new1);
+    let tag = DocArg::new_meas_kw_ivar1("Tag", "tag", "TAG", PyStr::new1);
 
     let measurement_type =
-        DocArg::new_meas_kw_opt_ivar("OpticalType", "measurement_type", "TYPE", PyStr::new1);
+        DocArg::new_meas_kw_ivar1("OpticalType", "measurement_type", "TYPE", PyStr::new1);
 
-    let make_quasi_bool = |what: &str, sym: &str, val: &str, rstype: &str, fieldname: &str| {
-        let r = format_ident!("{rstype}");
-        let f = format_ident!("{fieldname}");
-        let p: Path = parse_quote!(fireflow_core::text::keywords::#r);
-        let argname = format!("has_{what}");
-        let desc = format!("``True`` if *$Pn{sym}* is set to ``{val}``.");
-        DocArg::new_bool_param(argname, desc).into_rw(
-            false,
-            |_, _| quote!(self.0.specific.#f.0.is_some()),
-            |n, _| quote!(self.0.specific.#f = #n.then_some(#p).into();),
-        )
-    };
+    let has_type = DocArg::new_meas_kw_ivar1("TemporalType", "has_type", "TYPE", PyBool::new1);
 
-    let has_scale = make_quasi_bool("scale", "E", "0,0", "TemporalScale", "scale");
-    let has_type = make_quasi_bool(
-        "type",
-        "TYPE",
-        "\"Time\"",
-        "TemporalType",
-        "measurement_type",
-    );
+    let has_scale = DocArg::new_meas_kw_ivar1("TemporalScale", "has_scale", "E", PyBool::new1);
 
     let timestep = DocArg::new_ivar_rw(
         "timestep",
@@ -2635,7 +2621,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.specific.timestep = timestep),
     );
 
-    let longname = DocArg::new_meas_kw_opt_ivar("Longname", "longname", "S", PyStr::new1);
+    let longname = DocArg::new_meas_kw_ivar1("Longname", "longname", "S", PyStr::new1);
 
     let nonstd = DocArg::new_meas_nonstandard_keywords_ivar();
 
@@ -2742,13 +2728,13 @@ impl<T> DocArg<T> {
 #[proc_macro]
 pub fn impl_core_all_pns(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_meas_attr(&i, "Longname", "longnames", "S", PyStr::new1)
+    core_all_meas_attr1(&i, "Longname", "longnames", "S", PyStr::new1, false, false)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnf(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Filter", "filters", "F", PyStr::new1)
+    core_all_meas_attr1(&i, "Filter", "filters", "F", PyStr::new1, false, true)
 }
 
 #[proc_macro]
@@ -2770,7 +2756,15 @@ pub fn impl_core_all_pnp(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_all_pnt(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "DetectorType", "detector_types", "T", PyStr::new1)
+    core_all_meas_attr1(
+        &i,
+        "DetectorType",
+        "detector_types",
+        "T",
+        PyStr::new1,
+        false,
+        true,
+    )
 }
 
 #[proc_macro]
@@ -2792,9 +2786,15 @@ pub fn impl_core_all_pnl_old(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_all_pnl_new(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Wavelengths", "wavelengths", "L", |p| {
-        PyList::new1(RsFloat::F32, p)
-    })
+    core_all_meas_attr1(
+        &i,
+        "Wavelengths",
+        "wavelengths",
+        "L",
+        |p| PyList::new1(RsFloat::F32, p),
+        false,
+        true,
+    )
 }
 
 #[proc_macro]
@@ -2806,7 +2806,15 @@ pub fn impl_core_all_pnd(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_all_pndet(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "DetectorName", "detector_names", "DET", PyStr::new1)
+    core_all_meas_attr1(
+        &i,
+        "DetectorName",
+        "detector_names",
+        "DET",
+        PyStr::new1,
+        false,
+        true,
+    )
 }
 
 #[proc_macro]
@@ -2828,7 +2836,7 @@ pub fn impl_core_all_pncal3_2(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_all_pntag(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Tag", "tags", "TAG", PyStr::new1)
+    core_all_meas_attr1(&i, "Tag", "tags", "TAG", PyStr::new1, false, true)
 }
 
 #[proc_macro]
@@ -2836,21 +2844,19 @@ pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
 
     let opt_pytype = PyStr::new1(keyword_path("OpticalType"));
-    let tmp_pytype = PyLiteral::new1(["Time"], keyword_path("TemporalType"));
+    let tmp_pytype = PyBool::new1(keyword_path("TemporalType"));
 
-    let inner_opt_pytype = PyOpt::new(opt_pytype);
-    let inner_tmp_pytype = PyOpt::new(tmp_pytype);
-
-    let inner_opt_rstype = inner_opt_pytype.as_rust_type();
-    let inner_tmp_rstype = inner_tmp_pytype.as_rust_type();
+    let inner_opt_rstype = opt_pytype.as_rust_type();
+    let inner_tmp_rstype = tmp_pytype.as_rust_type();
 
     let doc_summary = "Value of *$PnTYPE* for all measurements.";
-    let doc_middle = "``\"Time\"`` or ``None`` will be returned for the time measurement.";
+    let doc_middle = "A bool will be returned for the time measurement where \
+                      ``True`` indicates it is set to ``\"Time\"``.";
 
     let nce_path =
         parse_quote!(fireflow_core::text::named_vec::Element<#inner_tmp_rstype, #inner_opt_rstype>);
 
-    let full_pytype = PyUnion::new2(inner_opt_pytype, inner_tmp_pytype, nce_path);
+    let full_pytype = PyUnion::new2(opt_pytype, tmp_pytype, nce_path);
 
     let doc = DocString::new_ivar(
         doc_summary,
@@ -2886,7 +2892,15 @@ pub fn impl_core_all_pnfeature(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_all_pnanalyte(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Analyte", "analytes", "ANALYTE", PyStr::new1)
+    core_all_meas_attr1(
+        &i,
+        "Analyte",
+        "analytes",
+        "ANALYTE",
+        PyStr::new1,
+        false,
+        true,
+    )
 }
 
 fn core_all_optical_attr<F, T>(t: &Ident, kw: &str, name: &str, suffix: &str, f: F) -> TokenStream
@@ -2945,20 +2959,37 @@ where
         DocReturn::new(PyList::new(full_pytype)),
     );
 
+    let get_optical_body = if is_optional {
+        quote! {
+            self.0
+                .optical_opt()
+                .map(|e| e.0.map_non_center(|x| x.cloned()).into())
+                .collect()
+        }
+    } else {
+        quote! {
+            self.0
+                .optical::<#inner_rstype>()
+                .map(|e| e.0.map_non_center(|x| x.clone()).into())
+                .collect()
+        }
+    };
+
+    let get_body = if is_optional {
+        quote!(self.0.meas_opt().map(|x| x.cloned()).collect())
+    } else {
+        quote!(self.0.meas::<#inner_rstype>().cloned().collect())
+    };
+
     doc.into_impl_get_set(
         t,
         format!("all_{name}"),
         true,
         |_, _| {
             if optical_only {
-                quote! {
-                    self.0
-                        .optical_opt()
-                        .map(|e| e.0.map_non_center(|x| x.cloned()).into())
-                        .collect()
-                }
+                get_optical_body
             } else {
-                quote!(self.0.meas_opt().map(|x| x.cloned()).collect())
+                get_body
             }
         },
         |n, _| {
@@ -3038,9 +3069,26 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
         "The *$GmE* keyword. ``()`` means linear scaling and 2-tuple \
          specifies decades and offset for log scaling.",
         false,
-        |n, _| quote!(self.0.#n.0.as_ref().cloned()),
-        |n, _| quote!(self.0.#n.0 = #n.into()),
+        |n, _| quote!(self.0.#n.as_ref().cloned()),
+        |n, _| quote!(self.0.#n = #n.into()),
     );
+
+    let make_arg_str = |kw_name: &str, kw_sym: &str, t: &str| {
+        let kw_path = keyword_path(t);
+        DocArg::new_ivar_rw_def(
+            kw_name,
+            PyStr::new1(kw_path),
+            format!("The *$Gm{kw_sym}* keyword."),
+            DocDefault::Auto,
+            false,
+            |n, _| quote!(self.0.#n.clone()),
+            |n, _| quote!(self.0.#n = #n),
+        )
+    };
+
+    let filter = make_arg_str("filter", "F", "GateFilter");
+    let longname = make_arg_str("longname", "S", "GateLongname");
+    let detector_type = make_arg_str("detector_type", "T", "GateDetectorType");
 
     let make_arg = |kw_name: &str, kw_sym: &str, t: &str, is_float: bool| {
         let kw_path = keyword_path(t);
@@ -3049,22 +3097,21 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
         } else {
             PyType::from(PyStr::new1(kw_path))
         };
+
         DocArg::new_opt_ivar_rw(
             kw_name,
             pytype,
             format!("The *$Gm{kw_sym}* keyword."),
             false,
-            |n, _| quote!(self.0.#n.0.as_ref().cloned()),
-            |n, _| quote!(self.0.#n.0 = #n.into()),
+            |n, _| quote!(self.0.#n.as_ref().cloned()),
+            |n, _| quote!(self.0.#n = #n),
         )
     };
-    let filter = make_arg("filter", "F", "GateFilter", false);
+
     let shortname = make_arg("shortname", "N", "GateShortname", false);
     let percent_emitted = make_arg("percent_emitted", "P", "GatePercentEmitted", true);
     // TODO isn't this a decimal?
     let range = make_arg("range", "R", "GateRange", true);
-    let longname = make_arg("longname", "S", "GateLongname", false);
-    let detector_type = make_arg("detector_type", "T", "GateDetectorType", false);
     let detector_voltage = make_arg("detector_voltage", "V", "GateDetectorVoltage", true);
 
     let all_args = [
@@ -4243,7 +4290,7 @@ impl PyStr {
 
 impl PyBool {
     impl_py_prim_new!();
-    // impl_py_prim_new1!();
+    impl_py_prim_new1!();
     impl_py_prim_defaults!("False".into(), bool);
 }
 
@@ -4738,10 +4785,17 @@ impl DocArgRWIvar {
 
         let d = desc.map_or(format!("Value of *${}*.", name.to_uppercase()), Into::into);
 
-        let get_f = |_: &Ident, _: &PyType| {
-            quote! {
-                let x: &#full_path = self.0.as_ref();
-                x.as_ref().cloned()
+        let get_f = |_: &Ident, pt: &PyType| {
+            if matches!(pt, PyType::Option(_)) {
+                quote! {
+                    let x: &#full_path = self.0.as_ref();
+                    x.as_ref().cloned()
+                }
+            } else {
+                quote! {
+                    let x: &#full_path = self.0.as_ref();
+                    x.clone()
+                }
             }
         };
         let set_f = |n: &Ident, _: &PyType| quote!(*self.0.as_mut() = #n);
@@ -4761,13 +4815,21 @@ impl DocArgRWIvar {
         Self::new_kw_ivar(kw, name, |p| PyOpt::new(f(p)), None, true)
     }
 
-    fn new_meas_kw_opt_ivar<F, T>(kw: &str, name: &str, abbr: &str, f: F) -> Self
+    fn new_meas_kw_ivar1<F, T>(kw: &str, name: &str, abbr: &str, f: F) -> Self
     where
         F: FnOnce(Path) -> T,
         T: Into<PyType>,
     {
         let desc = format!("Value for *$Pn{abbr}*.");
-        Self::new_meas_kw_ivar(kw, name, |p| PyOpt::new(f(p)), Some(desc.as_str()), true)
+        Self::new_meas_kw_ivar(kw, name, f, Some(desc.as_str()), true)
+    }
+
+    fn new_meas_kw_opt_ivar<F, T>(kw: &str, name: &str, abbr: &str, f: F) -> Self
+    where
+        F: FnOnce(Path) -> T,
+        T: Into<PyType>,
+    {
+        Self::new_meas_kw_ivar1(kw, name, abbr, |p| PyOpt::new(f(p)))
     }
 
     fn new_layout_ivar(version: Version) -> Self {
@@ -4960,13 +5022,14 @@ impl DocArgRWIvar {
 
     fn new_csvflags_ivar() -> Self {
         let path: Path = parse_quote!(fireflow_core::core::CSVFlags);
-        Self::new_opt_ivar_rw(
+        Self::new_ivar_rw_def(
             "csvflags",
             PyList::new1(PyOpt::new(RsInt::U32), path.clone()),
             "Subset flags. Each element in the list corresponds to *$CSVnFLAG* and \
              the length of the list corresponds to *$CSMODE*.",
+            DocDefault::Auto,
             false,
-            |_, _| quote!(self.0.metaroot_opt::<#path>().cloned()),
+            |_, _| quote!(self.0.metaroot::<#path>().clone()),
             |n, _| quote!(self.0.set_metaroot(#n)),
         )
     }
@@ -4984,13 +5047,14 @@ impl DocArgRWIvar {
     }
 
     fn new_unstainedcenters_ivar() -> Self {
-        let path: Path = parse_quote!(fireflow_core::text::unstainedcenters::UnstainedCenters);
-        Self::new_opt_ivar_rw(
+        let path = keyword_path("UnstainedCenters");
+        Self::new_ivar_rw_def(
             "unstainedcenters",
             PyDict::new1(PyStr::new(), RsFloat::F32, path.clone()),
             "Value for *$UNSTAINEDCENTERS. Each key must match a *$PnN*.",
+            DocDefault::Auto,
             true,
-            |_, _| quote!(self.0.metaroot_opt::<#path>().map(|y| y.clone())),
+            |_, _| quote!(self.0.metaroot::<#path>().clone()),
             |n, _| {
                 quote!(self
                     .0
@@ -5091,7 +5155,7 @@ impl DocArgRWIvar {
             "Value for *$PnE*. Empty tuple means linear scale; 2-tuple encodes \
              decades and offset for log scale",
             false,
-            |_, _| quote!(self.0.specific.scale.0.as_ref().map(|&x| x)),
+            |_, _| quote!(self.0.specific.scale.as_ref().map(|&x| x)),
             |n, _| quote!(self.0.specific.scale = #n.into()),
         )
     }
@@ -6595,7 +6659,13 @@ impl PyType {
     }
 
     fn new_versioned_shortname(version: Version) -> Self {
-        PyOpt::wrap_if(Self::new_shortname(), version < Version::FCS3_1)
+        if version < Version::FCS3_1 {
+            PyOpt::new(Self::new_shortname()).into()
+        } else {
+            let inner = quote!(fireflow_core::validated::shortname::Shortname);
+            let outer = parse_quote!(fireflow_core::text::optional::AlwaysValue<#inner>);
+            PyStr::new1(outer).into()
+        }
     }
 
     fn new_meas_index() -> Self {

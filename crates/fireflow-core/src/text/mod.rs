@@ -12,4 +12,3 @@ pub mod ranged_float;
 pub mod scale;
 pub mod spillover;
 pub mod timestamps;
-pub mod unstainedcenters;

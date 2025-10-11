@@ -336,7 +336,7 @@ class TestCore:
     )
     def test_metaroot_opt_str(self, attr: str, core: AnyCore) -> None:
         good = "spongebob"
-        assert getattr(core, attr) is None
+        assert getattr(core, attr) == ""
         setattr(core, attr, good)
         assert getattr(core, attr) == good
         with pytest.raises(TypeError):
@@ -431,7 +431,7 @@ class TestCore:
 
     @all_core
     def test_longnames(self, core: AnyCore) -> None:
-        assert core.all_longnames == [None]
+        assert core.all_longnames == [""]
         new_name = "I can haz IP"
         core.all_longnames = [new_name]
         assert core.all_longnames == [new_name]
@@ -456,14 +456,14 @@ class TestCore:
 
     @parameterize_versions("core", ["3_1", "3_2"], ["text2", "dataset2"])
     @pytest.mark.parametrize(
-        "attr,value",
+        "attr,value,default",
         [
-            ("originality", "Original"),
-            ("last_modified", datetime(2112, 1, 1, 0, 0)),
-            ("last_modifier", "you, obviously"),
-            ("platename", "juice malouse"),
-            ("plateid", "666"),
-            ("wellid", "9.75"),
+            ("originality", "Original", None),
+            ("last_modified", datetime(2112, 1, 1, 0, 0), None),
+            ("last_modifier", "you, obviously", ""),
+            ("platename", "juice malouse", ""),
+            ("plateid", "666", ""),
+            ("wellid", "9.75", ""),
         ],
     )
     def test_modified_plate(
@@ -471,8 +471,9 @@ class TestCore:
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
         attr: str,
         value: Any,
+        default: Any,
     ) -> None:
-        assert getattr(core, attr) is None
+        assert getattr(core, attr) == default
         setattr(core, attr, value)
         assert getattr(core, attr) == value
         with pytest.raises(TypeError):
@@ -518,7 +519,7 @@ class TestCore:
         | pf.CoreDataset3_1
         | pf.CoreDataset3_2,
     ) -> None:
-        assert core.cytsn is None
+        assert core.cytsn == ""
         new = "12345"
         core.cytsn = new
         assert core.cytsn == new
@@ -562,7 +563,7 @@ class TestCore:
         | pf.CoreDataset3_0
         | pf.CoreDataset3_1,
     ) -> None:
-        assert core.cyt is None
+        assert core.cyt == ""
         core.cyt = "meat grinder"
         assert core.cyt == "meat grinder"
 
@@ -579,22 +580,24 @@ class TestCore:
 
     @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
     @pytest.mark.parametrize(
-        "attr, good, bad",
+        "attr, good, bad, default",
         [
-            ("flowrate", "plaid", 0.5),
-            ("unstainedinfo", "(redacted)", 1.61),
-            ("carriertype", "pigeon", -39),
-            ("carrierid", "bloodwing", 0xDEADBEEF),
-            ("locationid", "0", 3),
+            ("flowrate", "plaid", 0.5, ""),
+            ("unstainedinfo", "(redacted)", 1.61, ""),
+            ("carriertype", "pigeon", -39, ""),
+            ("carrierid", "bloodwing", 0xDEADBEEF, ""),
+            ("locationid", "0", 3, ""),
             (
                 "begindatetime",
                 datetime(2112, 1, 1, tzinfo=timezone(timedelta(hours=-5))),
                 "root",
+                None,
             ),
             (
                 "enddatetime",
                 datetime(2112, 1, 2, tzinfo=timezone(timedelta(hours=-5))),
                 "octave",
+                None,
             ),
         ],
     )
@@ -604,8 +607,9 @@ class TestCore:
         attr: str,
         good: Any,
         bad: Any,
+        default: Any,
     ) -> None:
-        assert getattr(core, attr) is None
+        assert getattr(core, attr) == default
         setattr(core, attr, good)
         assert getattr(core, attr) == good
         with pytest.raises(TypeError):
@@ -616,11 +620,9 @@ class TestCore:
         self,
         core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
     ) -> None:
-        assert core.unstainedcenters is None
+        assert core.unstainedcenters == {}
         core.unstainedcenters = {LINK_NAME1: 42}
         assert core.unstainedcenters == {LINK_NAME1: 42}
-        core.unstainedcenters = None
-        assert core.unstainedcenters is None
 
     @parameterize_versions("core", ["2_0"], ["text2", "dataset2"])
     def test_applied_gates_2_0(
@@ -680,7 +682,7 @@ class TestCore:
         "attr", [f"all_{x}" for x in ["filters", "detector_types"]]
     )
     def test_meas_opt_strs(self, attr: str, core: AnyCore) -> None:
-        assert getattr(core, attr) == [None, ()]
+        assert getattr(core, attr) == ["", ()]
         new = ["bla", ()]
         setattr(core, attr, new)
         assert getattr(core, attr) == new
@@ -744,12 +746,12 @@ class TestCore:
         self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2, attr: str
     ) -> None:
         new = "--- --"
-        getattr(core, attr) == [None, None]
-        setattr(core, attr, [new, "Time"])
-        getattr(core, attr) == [new, "Time"]
+        getattr(core, attr) == ["", False]
+        setattr(core, attr, [new, True])
+        getattr(core, attr) == [new, True]
         with pytest.raises(TypeError):
             setattr(core, attr, [10000000000000000000000, None])
-            setattr(core, attr, ["-.--.----..", "time"])
+            setattr(core, attr, ["-.--.----..", "false"])
 
     @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
     def test_meas_3_2_feature(self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2) -> None:
@@ -799,7 +801,7 @@ class TestCore:
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
     ) -> None:
-        assert core.all_wavelengths == [None, ()]
+        assert core.all_wavelengths == [[], ()]
         new = [1.0, 2.0]
         core.all_wavelengths = [new, ()]
         assert core.all_wavelengths == [new, ()]
@@ -807,8 +809,6 @@ class TestCore:
             core.all_wavelengths = [[0.0], ()]
         with pytest.raises(ValueError):
             core.all_wavelengths = [[-1.0], ()]
-        with pytest.raises(ValueError):
-            core.all_wavelengths = [[], ()]
 
     @parameterize_versions("core", ["3_1", "3_2"], ["text2", "dataset2"])
     def test_meas_displays(
@@ -1532,16 +1532,22 @@ class TestGating:
         with pytest.raises(TypeError):
             setattr(blank_gated_meas, attr, "3.14...4...4...4...4...uuuuuuuuhhhhh")
 
-    @pytest.mark.parametrize(
-        "attr", ["filter", "shortname", "longname", "detector_type"]
-    )
+    @pytest.mark.parametrize("attr", ["filter", "longname", "detector_type"])
     def test_strs(self, blank_gated_meas: pf.GatedMeasurement, attr: str) -> None:
-        assert getattr(blank_gated_meas, attr) is None
+        assert getattr(blank_gated_meas, attr) == ""
         new = "this is sweet revenge and karma's a"
         setattr(blank_gated_meas, attr, new)
         assert getattr(blank_gated_meas, attr) == new
         with pytest.raises(TypeError):
             setattr(blank_gated_meas, attr, 1.0)
+
+    def test_shortname(self, blank_gated_meas: pf.GatedMeasurement) -> None:
+        assert blank_gated_meas.shortname is None
+        new = "shorty"
+        blank_gated_meas.shortname = new
+        blank_gated_meas.shortname == new
+        with pytest.raises(TypeError):
+            blank_gated_meas.shortname = cast(str, 1.0)
 
     def test_uvregion2_0(self) -> None:
         r = pf.UnivariateRegion2_0(0, (0.0, 1.0))
@@ -1586,7 +1592,7 @@ class TestGating:
 class TestMeas:
     @all_blank_meas
     def test_longname(self, meas: AnyMeas) -> None:
-        assert meas.longname is None
+        assert meas.longname == ""
         new = "Headbangeeeeeeeeeeeerrrrrrrrrrrrrrrrrrrrrrrrrrr!!!!!!"
         meas.longname = new
         assert meas.longname == new
@@ -1606,7 +1612,7 @@ class TestMeas:
     @all_blank_optical
     @pytest.mark.parametrize("attr", ["filter", "detector_type"])
     def test_optical_str(self, meas: AnyOptical, attr: str) -> None:
-        assert getattr(meas, attr) is None
+        assert getattr(meas, attr) == ""
         new = "punky bruster"
         setattr(meas, attr, new)
         assert getattr(meas, attr) == new
@@ -1668,12 +1674,10 @@ class TestMeas:
 
     @parameterize_versions("meas", ["3_1", "3_2"], ["blank_optical"])
     def test_wavelength_3_1(self, meas: pf.Optical3_1 | pf.Optical3_2) -> None:
-        assert meas.wavelengths is None
+        assert meas.wavelengths == []
         new = [1.0, 2.0]
         meas.wavelengths = new
         assert meas.wavelengths == new
-        with pytest.raises(ValueError):
-            meas.wavelengths = []
         with pytest.raises(ValueError):
             meas.wavelengths = [-1.0]
         with pytest.raises(ValueError):
@@ -1706,16 +1710,23 @@ class TestMeas:
             meas.feature = "under da curv"  # type: ignore
 
     @parameterize_versions("meas", ["3_2"], ["blank_optical"])
-    @pytest.mark.parametrize(
-        "attr", ["detector_name", "tag", "measurement_type", "analyte"]
-    )
+    @pytest.mark.parametrize("attr", ["detector_name", "tag", "analyte"])
     def test_optical_3_2(self, meas: AnyOptical, attr: str) -> None:
-        assert getattr(meas, attr) is None
+        assert getattr(meas, attr) == ""
         new = "heavy metal kitten pix"
         setattr(meas, attr, new)
         assert getattr(meas, attr) == new
         with pytest.raises(TypeError):
-            meas.longname = cast(str, 555)
+            setattr(meas, attr, 555)
+
+    @parameterize_versions("meas", ["3_2"], ["blank_optical"])
+    def test_optical_meas_type(self, meas: pf.Optical3_2) -> None:
+        meas.measurement_type is None
+        new = "heavy metal kitten pix"
+        meas.measurement_type = new
+        meas.measurement_type == new
+        with pytest.raises(TypeError):
+            meas.measurement_type = cast(str, 555)
 
     @parameterize_versions("meas", ["3_2"], ["blank_temporal"])
     def test_temporal_type(self, meas: pf.Temporal3_2) -> None:

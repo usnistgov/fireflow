@@ -73,7 +73,7 @@ use crate::text::{
     keywords::{
         AlphaNumType, AlphaNumTypeError, IntRangeError, NumType, NumTypeError, Par, Range, Tot,
     },
-    optional::{MaybeValue, MightHave},
+    optional::{KeywordPairMaybe as _, MightHave},
     parser::{
         LookupKeysError, LookupKeysWarning, LookupResult, LookupTentative, OptIndexedKey as _,
         OptKeyError, ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _,
@@ -732,8 +732,8 @@ pub trait IsFixed {
 
     fn req_meas_keywords(&self, i: MeasIndex) -> [(String, String); 2] {
         [
-            Width::Fixed(self.fixed_width()).pair(i),
-            self.range().pair(i),
+            Width::Fixed(self.fixed_width()).meas_pair(i),
+            self.range().meas_pair(i),
         ]
     }
 }
@@ -1226,7 +1226,7 @@ impl MeasDatatypeDef for HasMeasDatatype {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self::MeasDatatype> {
-        NumType::lookup_opt(kws, i, conf).map(|x| x.0)
+        NumType::lookup_meas_opt(kws, i, false, conf)
     }
 
     fn lookup_datatype_ro(
@@ -1234,7 +1234,6 @@ impl MeasDatatypeDef for HasMeasDatatype {
         i: MeasIndex,
     ) -> Tentative<Self::MeasDatatype, OptKeyError<NumTypeError>, RawParsedError> {
         NumType::get_meas_opt(kws, i)
-            .map(|x| x.0)
             .map_or_else(|e| Tentative::new(None, [e], []), Tentative::new1)
     }
 }
@@ -2228,8 +2227,8 @@ where
             .iter()
             .enumerate()
             .map(|(i, r)| {
-                let x = Width::Variable.pair(i);
-                let y = Range((*r).into()).pair(i);
+                let x = Width::Variable.meas_pair(i);
+                let y = Range((*r).into()).meas_pair(i);
                 [x, y]
             })
             .collect()
@@ -3586,7 +3585,7 @@ impl InterLayoutOps<HasMeasDatatype> for DataLayout3_2 {
                     let y: Option<NumType> = NumType::try_from(c.datatype())
                         .ok()
                         .and_then(|y| (AlphaNumType::from(y) != dt).then_some(y));
-                    vec![MaybeValue(y).meas_kw_pair(i)]
+                    vec![y.meas_opt_pair(i)]
                 })
                 .collect(),
         }

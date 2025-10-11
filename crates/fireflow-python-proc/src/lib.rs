@@ -2,7 +2,7 @@ extern crate proc_macro;
 
 use fireflow_core::header::Version;
 
-use derive_more::{Display, From};
+use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
 use nonempty::NonEmpty;
@@ -10,7 +10,7 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote, ToTokens};
 use std::fmt;
-use std::iter::once;
+use std::iter::{empty, once};
 use std::marker::PhantomData;
 use std::string::ToString;
 use syn::{
@@ -3988,10 +3988,11 @@ type DocArgRWIvar = DocArg<GetSetMethods>;
 type DocArgROIvar = DocArg<GetMethod>;
 type DocArgParam = DocArg<NoMethods>;
 
-#[derive(Clone, new)]
+#[derive(Clone, new, AsRef)]
 struct DocArg<T> {
     #[new(into)]
     argname: String,
+    #[as_ref(PyType)]
     #[new(into)]
     pytype: PyType,
     #[new(into)]
@@ -4177,7 +4178,7 @@ impl PyException {
 struct RsType {
     path: Path,
     from_exc: Option<PyException>,
-    to_exc: Option<PyException>,
+    // to_exc: Option<PyException>,
 }
 
 impl RsType {
@@ -4185,7 +4186,7 @@ impl RsType {
         Self {
             path,
             from_exc: None,
-            to_exc: None,
+            // to_exc: None,
         }
     }
 
@@ -4196,12 +4197,12 @@ impl RsType {
         }
     }
 
-    fn to_exc(self, to: PyException) -> Self {
-        Self {
-            to_exc: Some(to),
-            ..self
-        }
-    }
+    // fn to_exc(self, to: PyException) -> Self {
+    //     Self {
+    //         to_exc: Some(to),
+    //         ..self
+    //     }
+    // }
 }
 
 #[derive(Clone, From, Display)]
@@ -7163,6 +7164,42 @@ impl PyType {
             Self::PyClass(_) => panic!("No default for arbitrary class"),
         }
     }
+
+    fn as_exceptions<'a>(&'a self) -> Vec<&'a PyException> {
+        let go = |rt: &'a Option<RsType>| rt.iter().flat_map(|x| x.from_exc.iter()).collect();
+        let walk = |mut acc: Vec<&'a PyException>, pt: &'a Self| {
+            acc.extend(pt.as_exceptions());
+            acc
+        };
+        match self {
+            Self::Bool(x) => go(&x.rstype),
+            Self::Bytes(x) => go(&x.rstype),
+            Self::Str(x) => go(&x.rstype),
+            Self::Int(x) => go(&x.rstype),
+            Self::Float(x) => go(&x.rstype),
+            Self::Decimal(x) => go(&x.rstype),
+            Self::List(x) => go(&x.rstype),
+            Self::Dict(x) => go(&x.rstype),
+            Self::Date(x) => go(&x.rstype),
+            Self::Time(x) => go(&x.rstype),
+            Self::Datetime(x) => go(&x.rstype),
+            Self::PyClass(x) => go(&x.rstype),
+            Self::Option(x) => walk(vec![], &x.inner),
+            Self::Union(x) => {
+                let acc = walk(walk(vec![], &x.head0), &x.head1);
+                x.tail.iter().fold(acc, walk)
+            }
+            Self::Tuple(xs) => {
+                if let Some((y, ys)) = &xs.inner[..].split_first() {
+                    let acc = walk(vec![], y);
+                    ys.iter().fold(acc, walk)
+                } else {
+                    vec![]
+                }
+            }
+            Self::Literal(_) => vec![],
+        }
+    }
 }
 
 trait AsPyAtom {
@@ -7530,16 +7567,22 @@ impl<A, R, S> DocString<A, R, S> {
         }
     }
 
-    fn fmt_inner<'a, 'b, F, G, I>(
+    fn fmt_inner<'a, 'b, F0, F1, F2, F3, I0, I1, I2>(
         &'a self,
-        f_args: F,
-        f_return: G,
+        f_args: F0,
+        f_return: F1,
+        f_args_exc: F2,
+        f_return_exc: F3,
         f: &mut fmt::Formatter<'b>,
     ) -> Result<(), fmt::Error>
     where
-        F: FnOnce(&'a A) -> I,
-        G: FnOnce(&'a R) -> Option<String>,
-        I: Iterator<Item = String> + 'a,
+        F0: FnOnce(&'a A) -> I0,
+        F1: FnOnce(&'a R) -> Option<String>,
+        F2: FnOnce(&'a A) -> I1,
+        F3: FnOnce(&'a R) -> I2,
+        I0: Iterator<Item = String> + 'a,
+        I1: Iterator<Item = &'a PyException> + 'a,
+        I2: Iterator<Item = &'a PyException> + 'a,
     {
         let ps = self
             .paragraphs
@@ -7548,8 +7591,11 @@ impl<A, R, S> DocString<A, R, S> {
         let a = f_args(&self.args);
         let r = f_return(&self.returns);
         let rest = ps.chain(a).chain(r).join("\n\n");
+        let es = f_args_exc(&self.args)
+            .chain(f_return_exc(&self.returns))
+            .join("\n");
         assert!(self.summary.len() <= MAX_LINE_LEN, "summary is too long");
-        write!(f, "{}\n\n{rest}", self.summary)
+        write!(f, "{}\n\n{rest}\n\n{es}", self.summary)
     }
 }
 
@@ -7572,33 +7618,37 @@ where
 
 impl fmt::Display for ClassDocString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        self.fmt_inner(|a| a.iter().map(ToString::to_string), |()| None, f)
+        self.fmt_inner(
+            |a| a.iter().map(ToString::to_string),
+            |()| None,
+            |a| a.iter().flat_map(|x| x.pytype().as_exceptions()),
+            |()| empty(),
+            f,
+        )
     }
 }
 
 impl fmt::Display for IvarDocString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        self.fmt_inner(|()| [].into_iter(), |r| Some(r.to_string()), f)
+        self.fmt_inner(
+            |()| empty(),
+            |r| Some(r.to_string()),
+            |()| empty(),
+            |r| r.exceptions.iter(),
+            f,
+        )
     }
 }
 
-impl<A: fmt::Display, S> fmt::Display for DocString<Vec<A>, Option<DocReturn>, S> {
+impl<A: fmt::Display + AsRef<PyType>, S> fmt::Display for DocString<Vec<A>, Option<DocReturn>, S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         self.fmt_inner(
             |a| a.iter().map(ToString::to_string),
             |r| r.as_ref().map(ToString::to_string),
+            |a| a.iter().flat_map(|x| x.as_ref().as_exceptions()),
+            |r| r.as_ref().map(|x| &x.exceptions).into_iter().flatten(),
             f,
-        )?;
-        let excs = self
-            .returns
-            .as_ref()
-            .map(|x| &x.exceptions)
-            .into_iter()
-            .flatten();
-        for e in excs {
-            write!(f, "\n{e}")?;
-        }
-        Ok(())
+        )
     }
 }
 

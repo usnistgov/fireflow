@@ -2850,7 +2850,8 @@ pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
     let inner_tmp_rstype = tmp_pytype.as_rust_type();
 
     let doc_summary = "Value of *$PnTYPE* for all measurements.";
-    let doc_middle = "``\"Time\"`` or ``None`` will be returned for the time measurement.";
+    let doc_middle = "A bool will be returned for the time measurement where \
+                      ``True`` indicates it is set to ``\"Time\"``.";
 
     let nce_path =
         parse_quote!(fireflow_core::text::named_vec::Element<#inner_tmp_rstype, #inner_opt_rstype>);

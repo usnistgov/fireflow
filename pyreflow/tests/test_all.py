@@ -607,7 +607,7 @@ class TestCore:
         attr: str,
         good: Any,
         bad: Any,
-        default: Any
+        default: Any,
     ) -> None:
         assert getattr(core, attr) == default
         setattr(core, attr, good)
@@ -1532,9 +1532,7 @@ class TestGating:
         with pytest.raises(TypeError):
             setattr(blank_gated_meas, attr, "3.14...4...4...4...4...uuuuuuuuhhhhh")
 
-    @pytest.mark.parametrize(
-        "attr", ["filter", "longname", "detector_type"]
-    )
+    @pytest.mark.parametrize("attr", ["filter", "longname", "detector_type"])
     def test_strs(self, blank_gated_meas: pf.GatedMeasurement, attr: str) -> None:
         assert getattr(blank_gated_meas, attr) == ""
         new = "this is sweet revenge and karma's a"
@@ -1549,7 +1547,7 @@ class TestGating:
         blank_gated_meas.shortname = new
         blank_gated_meas.shortname == new
         with pytest.raises(TypeError):
-            blank_gated_meas.shortname = 1.0
+            blank_gated_meas.shortname = cast(str, 1.0)
 
     def test_uvregion2_0(self) -> None:
         r = pf.UnivariateRegion2_0(0, (0.0, 1.0))
@@ -1712,9 +1710,7 @@ class TestMeas:
             meas.feature = "under da curv"  # type: ignore
 
     @parameterize_versions("meas", ["3_2"], ["blank_optical"])
-    @pytest.mark.parametrize(
-        "attr", ["detector_name", "tag", "analyte"]
-    )
+    @pytest.mark.parametrize("attr", ["detector_name", "tag", "analyte"])
     def test_optical_3_2(self, meas: AnyOptical, attr: str) -> None:
         assert getattr(meas, attr) == ""
         new = "heavy metal kitten pix"
@@ -1724,7 +1720,7 @@ class TestMeas:
             setattr(meas, attr, 555)
 
     @parameterize_versions("meas", ["3_2"], ["blank_optical"])
-    def test_optical_meas_type(self, meas: AnyOptical) -> None:
+    def test_optical_meas_type(self, meas: pf.Optical3_2) -> None:
         meas.measurement_type is None
         new = "heavy metal kitten pix"
         meas.measurement_type = new

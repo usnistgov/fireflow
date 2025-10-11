@@ -737,11 +737,11 @@ class _CoreGates(Generic[_X]):
 
 class _CoreSubset:
     @property
-    def cstot(self) -> int | None: ...
+    def cstot(self) -> int: ...
     @property
-    def csvbits(self) -> int | None: ...
+    def csvbits(self) -> int: ...
     @property
-    def csvflags(self) -> CsvFlags | None: ...
+    def csvflags(self) -> CsvFlags: ...
 
 class _CoreModified:
     originality: Originality | None
@@ -940,9 +940,9 @@ class CoreTEXT3_0(
         date: date | None = None,
         cytsn: str = "",
         unicode: Unicode | None = None,
-        csvbits: int | None = None,
-        cstot: int | None = None,
-        csvflags: CsvFlags | None = None,
+        csvbits: int = 0,
+        cstot: int = 0,
+        csvflags: CsvFlags = [],
         abrt: int | None = None,
         com: str = "",
         cells: str = "",
@@ -1030,9 +1030,9 @@ class CoreTEXT3_1(
         platename: str = "",
         wellid: str = "",
         vol: float | None = None,
-        csvbits: int | None = None,
-        cstot: int | None = None,
-        csvflags: CsvFlags | None = None,
+        csvbits: int = 0,
+        cstot: int = 0,
+        csvflags: CsvFlags = [],
         abrt: int | None = None,
         com: str = "",
         cells: str = "",
@@ -1289,9 +1289,9 @@ class CoreDataset3_0(
         date: date | None = None,
         cytsn: str = "",
         unicode: Unicode | None = None,
-        csvbits: int | None = None,
-        cstot: int | None = None,
-        csvflags: CsvFlags | None = None,
+        csvbits: int = 0,
+        cstot: int = 0,
+        csvflags: CsvFlags = [],
         abrt: int | None = None,
         com: str = "",
         cells: str = "",
@@ -1396,9 +1396,9 @@ class CoreDataset3_1(
         platename: str = "",
         wellid: str = "",
         vol: float | None = None,
-        csvbits: int | None = None,
-        cstot: int | None = None,
-        csvflags: CsvFlags | None = None,
+        csvbits: int = 0,
+        cstot: int = 0,
+        csvflags: CsvFlags = [],
         abrt: int | None = None,
         com: str = "",
         cells: str = "",

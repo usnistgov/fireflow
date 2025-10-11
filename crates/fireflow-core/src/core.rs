@@ -4801,22 +4801,25 @@ impl CSVFlags {
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
-        let m = CSMode(self.0.len());
-        (self.0)
+        let m = (!self.0.is_empty()).then(|| CSMode(self.0.len()).metaroot_pair());
+        self.0
             .iter()
             .enumerate()
             .map(|(i, f)| f.meas_opt_pair(i))
             .filter_map(|(k, v)| v.map(|x| (k, x)))
-            .chain([m.metaroot_pair()])
+            .chain(m)
     }
 
     fn check_loss(self, allow_loss: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
-        let xs = (self.0)
-            .into_iter()
+        let xs = self
+            .0
+            .iter()
             .enumerate()
             .map(|(i, f)| f.check_indexed_key_transfer_tnt(i, allow_loss));
         let mut tnt = Tentative::mconcat(xs).void();
-        tnt.push_error_or_warning(UnitaryKeyLossError::<CSMode>::new(), allow_loss);
+        if !self.0.is_empty() {
+            tnt.push_error_or_warning(UnitaryKeyLossError::<CSMode>::new(), allow_loss);
+        }
         tnt
     }
 }

@@ -2606,7 +2606,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let tag = DocArg::new_meas_kw_ivar1("Tag", "tag", "TAG", PyStr::new1);
 
     let measurement_type =
-        DocArg::new_meas_kw_opt_ivar("OpticalType", "measurement_type", "TYPE", PyStr::new1);
+        DocArg::new_meas_kw_ivar1("OpticalType", "measurement_type", "TYPE", PyStr::new1);
 
     let has_type = DocArg::new_meas_kw_ivar1("TemporalType", "has_type", "TYPE", PyBool::new1);
 
@@ -2844,12 +2844,10 @@ pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
 
     let opt_pytype = PyStr::new1(keyword_path("OpticalType"));
-    let inner_tmp_pytype = PyBool::new1(keyword_path("TemporalType"));
+    let tmp_pytype = PyBool::new1(keyword_path("TemporalType"));
 
-    let inner_opt_pytype = PyOpt::new(opt_pytype);
-
-    let inner_opt_rstype = inner_opt_pytype.as_rust_type();
-    let inner_tmp_rstype = inner_tmp_pytype.as_rust_type();
+    let inner_opt_rstype = opt_pytype.as_rust_type();
+    let inner_tmp_rstype = tmp_pytype.as_rust_type();
 
     let doc_summary = "Value of *$PnTYPE* for all measurements.";
     let doc_middle = "``\"Time\"`` or ``None`` will be returned for the time measurement.";
@@ -2857,7 +2855,7 @@ pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
     let nce_path =
         parse_quote!(fireflow_core::text::named_vec::Element<#inner_tmp_rstype, #inner_opt_rstype>);
 
-    let full_pytype = PyUnion::new2(inner_opt_pytype, inner_tmp_pytype, nce_path);
+    let full_pytype = PyUnion::new2(opt_pytype, tmp_pytype, nce_path);
 
     let doc = DocString::new_ivar(
         doc_summary,

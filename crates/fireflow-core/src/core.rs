@@ -986,10 +986,10 @@ pub struct InnerOptical3_2 {
     pub feature: Option<Feature>,
 
     /// Value for $PnTYPE
-    #[as_ref(Option<OpticalType>)]
-    #[as_mut(Option<OpticalType>)]
+    #[as_ref(OpticalType)]
+    #[as_mut(OpticalType)]
     #[new(into)]
-    pub measurement_type: Option<OpticalType>,
+    pub measurement_type: OpticalType,
 
     /// Value for $PnTAG
     #[as_ref(Tag)]
@@ -5223,7 +5223,7 @@ impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_2 {
                             None,
                             Analyte::default(),
                             None,
-                            None,
+                            OpticalType::default(),
                             Tag::default(),
                             DetectorName::default(),
                         )
@@ -5248,7 +5248,7 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical3_2 {
                 None,
                 Analyte::default(),
                 None,
-                None,
+                OpticalType::default(),
                 Tag::default(),
                 DetectorName::default(),
             )
@@ -5271,7 +5271,7 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_2 {
                 value.display,
                 Analyte::default(),
                 None,
-                None,
+                OpticalType::default(),
                 Tag::default(),
                 DetectorName::default(),
             )
@@ -5469,7 +5469,7 @@ impl_ref_specific_rw!(
     Option<Display>,
     Analyte,
     Option<Feature>,
-    Option<OpticalType>,
+    OpticalType,
     Tag,
     DetectorName
 );
@@ -7142,7 +7142,7 @@ impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
             t.display,
             Analyte::default(),
             None,
-            None,
+            OpticalType::default(),
             Tag::default(),
             DetectorName::default(),
         );
@@ -7618,7 +7618,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
             t.display,
             Analyte::default(),
             None,
-            None,
+            OpticalType::default(),
             Tag::default(),
             DetectorName::default(),
         );
@@ -7800,7 +7800,7 @@ impl Optical3_2 {
         analyte: Analyte,
         feature: Option<Feature>,
         tag: Tag,
-        measurement_type: Option<OpticalType>,
+        measurement_type: OpticalType,
         detector_name: DetectorName,
         filter: Filter,
         power: Option<Power>,

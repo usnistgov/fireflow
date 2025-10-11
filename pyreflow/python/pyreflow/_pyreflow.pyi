@@ -328,8 +328,7 @@ class Optical3_2(
     calibration: Calibration3_2 | None
     detector_name: str | None
     tag: str | None
-    # TODO literal string
-    measurement_type: str | None
+    measurement_type: str
     feature: Feature | None
     analyte: str | None
 
@@ -342,7 +341,7 @@ class Optical3_2(
         analyte: str = "",
         feature: Feature | None = None,
         tag: str = "",
-        measurement_type: str | None = None,
+        measurement_type: str = "",
         detector_name: str = "",
         filter: str = "",
         power: float | None = None,
@@ -804,7 +803,7 @@ class _Core3_2:
     all_tags: _OpticalKeyVals[str]
     all_features: _OpticalKeyVals[Feature]
     all_analytes: _OpticalKeyVals[str]
-    all_measurement_types: list[str | bool]
+    all_measurement_types: list[str]
 
 class _CoreMeasCalibration(Generic[_C]):
     all_calibrations: _OpticalKeyVals[_C]

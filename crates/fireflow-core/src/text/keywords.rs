@@ -711,41 +711,15 @@ pub enum UnicodeError {
 }
 
 /// The value of the $PnTYPE key in optical channels (3.2+)
-#[derive(Clone, PartialEq, Debug, Display)]
+#[derive(Clone, PartialEq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum OpticalType {
-    #[display("{}", FORWARD_SCATTER)]
-    ForwardScatter,
-    #[display("{}", SIDE_SCATTER)]
-    SideScatter,
-    #[display("{}", RAW_FLUORESCENCE)]
-    RawFluorescence,
-    #[display("{}", UNMIXED_FLUORESCENCE)]
-    UnmixedFluorescence,
-    #[display("{}", MASS)]
-    Mass,
-    #[display("{}", ELECTRONIC_VOLUME)]
-    ElectronicVolume,
-    #[display("{}", CLASSIFICATION)]
-    Classification,
-    #[display("{}", INDEX)]
-    Index,
-    #[display("{_0}")]
-    Other(String),
-}
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct OpticalType(pub OptionalString);
 
 #[derive(Debug, Error)]
 #[error("$PnTYPE for time measurement shall not be 'Time' if given")]
 pub struct OpticalTypeError;
 
-const FORWARD_SCATTER: &str = "Forward Scatter";
-const SIDE_SCATTER: &str = "Side Scatter";
-const RAW_FLUORESCENCE: &str = "Raw Fluorescence";
-const UNMIXED_FLUORESCENCE: &str = "Unmixed Fluorescence";
-const MASS: &str = "Mass";
-const INDEX: &str = "Index";
-const ELECTRONIC_VOLUME: &str = "Electronic Volume";
-const CLASSIFICATION: &str = "Classification";
 const TIME: &str = "Time";
 
 impl FromStr for OpticalType {
@@ -754,15 +728,7 @@ impl FromStr for OpticalType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             TIME => Err(OpticalTypeError),
-            FORWARD_SCATTER => Ok(Self::ForwardScatter),
-            SIDE_SCATTER => Ok(Self::SideScatter),
-            RAW_FLUORESCENCE => Ok(Self::RawFluorescence),
-            UNMIXED_FLUORESCENCE => Ok(Self::UnmixedFluorescence),
-            MASS => Ok(Self::Mass),
-            ELECTRONIC_VOLUME => Ok(Self::ElectronicVolume),
-            INDEX => Ok(Self::Index),
-            CLASSIFICATION => Ok(Self::Classification),
-            x => Ok(Self::Other(x.into())),
+            _ => Ok(Self(s.to_owned().into())),
         }
     }
 }
@@ -1774,17 +1740,20 @@ macro_rules! newtype_opt_int {
     ($t:ident, $inner:ident) => {
         #[derive(Clone, Default, PartialEq, Eq, FromStr, Debug)]
         #[cfg_attr(feature = "serde", derive(Serialize))]
-        #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
+        #[cfg_attr(feature = "python", derive(IntoPyObject))]
         pub struct $t(pub OptionalInt<$inner>);
 
         impl_display_maybe_self!($t);
+
+        #[cfg(feature = "python")]
+        impl_from_py_transparent!($t);
     };
 }
 
 macro_rules! newtype_opt_bool {
     ($t:ident, $inner:ident, $err:ident) => {
         #[derive(Clone, PartialEq, Debug, Default, From, Into)]
-        #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+        #[cfg_attr(feature = "python", derive(IntoPyObject))]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[from(bool)]
         #[into(bool)]
@@ -1801,6 +1770,9 @@ macro_rules! newtype_opt_bool {
         }
 
         impl_display_maybe_self!($t);
+
+        #[cfg(feature = "python")]
+        impl_from_py_transparent!($t);
     };
 }
 
@@ -2119,12 +2091,14 @@ kw_opt_meas!(Display, "D", Option<Self>);
 
 // 3.2+
 kw_opt_meas!(Feature, "FEATURE", Option<Self>);
-kw_opt_meas!(OpticalType, "TYPE", Option<Self>);
 meas_opt_zst!(TemporalType, "TYPE", TemporalTypeInner, TemporalTypeError);
 kw_opt_meas!(NumType, "DATATYPE", Option<Self>);
 kw_opt_meas_string!(Analyte, "ANALYTE");
 kw_opt_meas_string!(Tag, "TAG");
 kw_opt_meas_string!(DetectorName, "DET");
+
+impl_display_maybe_self!(OpticalType);
+kw_opt_meas!(OpticalType, "TYPE", Self);
 
 // version specific
 kw_opt_meas!(Shortname, "N", Option<Self>); // optional for 2.0/3.0
@@ -2329,14 +2303,14 @@ mod tests {
 
     #[test]
     fn pntype_optical() {
-        assert_from_to_str::<OpticalType>("Forward Scatter");
-        assert_from_to_str::<OpticalType>("Side Scatter");
-        assert_from_to_str::<OpticalType>("Raw Fluorescence");
-        assert_from_to_str::<OpticalType>("Unmixed Fluorescence");
-        assert_from_to_str::<OpticalType>("Mass");
-        assert_from_to_str::<OpticalType>("Electronic Volume");
-        assert_from_to_str::<OpticalType>("Index");
-        assert_from_to_str::<OpticalType>("Classification");
+        assert_from_to_str_maybe::<OpticalType>("Forward Scatter");
+        assert_from_to_str_maybe::<OpticalType>("Side Scatter");
+        assert_from_to_str_maybe::<OpticalType>("Raw Fluorescence");
+        assert_from_to_str_maybe::<OpticalType>("Unmixed Fluorescence");
+        assert_from_to_str_maybe::<OpticalType>("Mass");
+        assert_from_to_str_maybe::<OpticalType>("Electronic Volume");
+        assert_from_to_str_maybe::<OpticalType>("Index");
+        assert_from_to_str_maybe::<OpticalType>("Classification");
     }
 
     #[test]
@@ -2435,7 +2409,6 @@ mod python {
     impl_str_py!(Feature, FeatureError);
     impl_str_py!(Mode, ModeError);
     impl_str_py!(Mode3_2, Mode3_2Error);
-    impl_str_py!(OpticalType, OpticalTypeError);
 
     impl_from_py_transparent!(Cyt3_2);
     impl_from_py_transparent!(UnstainedCenters);
@@ -2450,6 +2423,9 @@ mod python {
     impl_from_py_transparent!(GateShortname);
     impl_from_py_transparent!(PrefixedMeasIndex);
     impl_from_py_transparent!(Wavelengths);
+
+    impl_from_py_via_fromstr!(OpticalType);
+    impl_value_err!(OpticalTypeError);
 
     // $PnCALIBRATION (3.1) as (f32, String) tuple in python
     impl<'py> FromPyObject<'py> for Calibration3_1 {

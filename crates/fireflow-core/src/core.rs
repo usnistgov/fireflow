@@ -20,7 +20,6 @@ use crate::header::{
     HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use crate::macros::{def_failure, match_many_to_one};
-use crate::nonempty::FCSNonEmpty;
 use crate::segment::{
     AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId, HeaderAnalysisSegment,
     HeaderDataSegment, KeyedOptSegment, KeyedReqSegment, NewSegmentConfig,
@@ -56,10 +55,10 @@ use crate::text::{
     },
     parser::{
         lookup_temporal_gain_3_0, lookup_temporal_scale_3_0, DepValueWarning, DeprecatedError,
-        ExtraStdKeywords, LookupKeysError, LookupKeysWarning, LookupOptional, LookupResult,
-        LookupTentative, MissingTime, OptIndexedKey as _, OptKeyError, OptLinkedKey as _,
-        OptMetarootKey as _, PseudostandardError, RawKeywords, ReqIndexedKey as _, ReqKeyError,
-        ReqMetarootKey as _, UnusedStandardError,
+        ExtraStdKeywords, LookupKeysError, LookupKeysWarning, LookupResult, LookupTentative,
+        MissingTime, OptIndexedKey as _, OptKeyError, OptLinkedKey as _, OptMetarootKey as _,
+        PseudostandardError, RawKeywords, ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _,
+        UnusedStandardError,
     },
     ranged_float::PositiveFloat,
     scale::{LogScale, Scale},
@@ -592,8 +591,8 @@ pub struct InnerMetaroot3_0 {
     #[as_mut(CSVBits)]
     #[as_ref(CSTot)]
     #[as_mut(CSTot)]
-    #[as_ref(Option<CSVFlags>)]
-    #[as_mut(Option<CSVFlags>)]
+    #[as_ref(CSVFlags)]
+    #[as_mut(CSVFlags)]
     pub subset: SubsetData,
 
     /// Values of $Gm*/$RnI/$RnW/$GATING/$GATE
@@ -657,8 +656,8 @@ pub struct InnerMetaroot3_1 {
     #[as_mut(CSVBits)]
     #[as_ref(CSTot)]
     #[as_mut(CSTot)]
-    #[as_ref(Option<CSVFlags>)]
-    #[as_mut(Option<CSVFlags>)]
+    #[as_ref(CSVFlags)]
+    #[as_mut(CSVFlags)]
     pub subset: SubsetData,
 
     /// Values of $Gm*/$RnI/$RnW/$GATING/$GATE
@@ -1061,17 +1060,17 @@ pub struct SubsetData {
     #[new(into)]
     pub tot: CSTot,
 
-    #[as_ref(Option<CSVFlags>)]
-    #[as_mut(Option<CSVFlags>)]
+    #[as_ref(CSVFlags)]
+    #[as_mut(CSVFlags)]
     #[new(into)]
-    pub flags: Option<CSVFlags>,
+    pub flags: CSVFlags,
 }
 
 /// Values of $CSVnFLAG if given, with length equal to $CSMODE
-#[derive(Clone, PartialEq, From)]
+#[derive(Clone, PartialEq, From, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
-pub struct CSVFlags(pub FCSNonEmpty<Option<CSVFlag>>);
+pub struct CSVFlags(pub Vec<Option<CSVFlag>>);
 
 /// A bundle for $ORIGINALITY, $LAST_MODIFIER, and $LAST_MODIFIED (3.1+)
 #[derive(Clone, Default, AsRef, AsMut, PartialEq, new)]
@@ -4520,7 +4519,7 @@ impl CoreTEXT3_0 {
         unicode: Option<Unicode>,
         csvbits: CSVBits,
         cstot: CSTot,
-        csvflags: Option<CSVFlags>,
+        csvflags: CSVFlags,
         abrt: Option<Abrt>,
         com: Com,
         cells: Cells,
@@ -4591,7 +4590,7 @@ impl CoreTEXT3_1 {
         vol: Option<Vol>,
         csvbits: CSVBits,
         cstot: CSTot,
-        csvflags: Option<CSVFlags>,
+        csvflags: CSVFlags,
         abrt: Option<Abrt>,
         com: Com,
         cells: Cells,
@@ -4765,57 +4764,45 @@ impl SubsetData {
         [self.bits.metaroot_opt_pair(), self.tot.metaroot_opt_pair()]
             .into_iter()
             .filter_map(|(k, v)| v.map(|x| (k, x)))
-            .chain(
-                self.flags
-                    .as_ref()
-                    .into_iter()
-                    .flat_map(CSVFlags::opt_keywords),
-            )
+            .chain(self.flags.opt_keywords())
     }
 
     fn check_loss(self, allow_loss: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
         self.bits
             .check_key_transfer(allow_loss)
-            .and_tentatively(|()| {
-                self.flags
-                    .map_or(Tentative::default(), |flags| flags.check_loss(allow_loss))
-            })
+            .and_tentatively(|()| self.flags.check_loss(allow_loss))
     }
 }
 
 impl CSVFlags {
-    fn try_from_iter(
-        value: impl IntoIterator<Item = Option<u32>>,
-    ) -> Result<Self, NewCSVFlagsError> {
-        NonEmpty::collect(value.into_iter().map(|x| x.map(CSVFlag)))
-            .ok_or(NewCSVFlagsError)
-            .map(|xs| Self(xs.into()))
-    }
-
     // TODO technically these should be marked deprecated because they were
     // taken out in 3.2, but the standards don't say so
-    fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupOptional<Self> {
+    fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
         CSMode::lookup_metaroot_opt(kws, false, conf)
             .and_tentatively(|m| {
                 if let Some(n) = m {
                     let fs = (0..n.0).map(|i| CSVFlag::lookup_meas_opt(kws, i, false, conf));
                     Tentative::mconcat(fs).and_tentatively(|flags| {
-                        let xs = flags.into_iter().map(|x| x.map(|y| y.0));
-                        Self::try_from_iter(xs)
-                            .into_tentative_opt(!conf.allow_optional_dropping)
-                            .inner_into()
+                        if flags.is_empty() {
+                            Tentative::new_either(
+                                flags,
+                                [NewCSVFlagsError],
+                                !conf.allow_optional_dropping,
+                            )
+                        } else {
+                            Tentative::new(flags, [], [])
+                        }
                     })
                 } else {
                     Tentative::default()
                 }
             })
-            .value_into()
+            .map(Self)
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
-        let m = CSMode((self.0).0.len());
+        let m = CSMode(self.0.len());
         (self.0)
-            .0
             .iter()
             .enumerate()
             .map(|(i, f)| f.meas_opt_pair(i))
@@ -4825,7 +4812,6 @@ impl CSVFlags {
 
     fn check_loss(self, allow_loss: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
         let xs = (self.0)
-            .0
             .into_iter()
             .enumerate()
             .map(|(i, f)| f.check_indexed_key_transfer_tnt(i, allow_loss));
@@ -5401,7 +5387,7 @@ impl_ref_specific_rw!(
     Option<Unicode>,
     CSVBits,
     CSTot,
-    Option<CSVFlags>,
+    CSVFlags,
     Timestamps3_0
 );
 
@@ -5420,7 +5406,7 @@ impl_ref_specific_rw!(
     Option<Vol>,
     CSVBits,
     CSTot,
-    Option<CSVFlags>,
+    CSVFlags,
     Timestamps3_1
 );
 

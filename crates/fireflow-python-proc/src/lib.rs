@@ -5023,13 +5023,14 @@ impl DocArgRWIvar {
 
     fn new_csvflags_ivar() -> Self {
         let path: Path = parse_quote!(fireflow_core::core::CSVFlags);
-        Self::new_opt_ivar_rw(
+        Self::new_ivar_rw_def(
             "csvflags",
             PyList::new1(PyOpt::new(RsInt::U32), path.clone()),
             "Subset flags. Each element in the list corresponds to *$CSVnFLAG* and \
              the length of the list corresponds to *$CSMODE*.",
+            DocDefault::Auto,
             false,
-            |_, _| quote!(self.0.metaroot_opt::<#path>().cloned()),
+            |_, _| quote!(self.0.metaroot::<#path>().clone()),
             |n, _| quote!(self.0.set_metaroot(#n)),
         )
     }

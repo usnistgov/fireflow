@@ -25,7 +25,6 @@ use super::keywords::{
     WavelengthsError,
 };
 use super::named_vec::{NameMapping, NewNamedVecError};
-use super::optional::MaybeValue;
 use super::ranged_float::RangedFloatError;
 use super::scale::{Scale, ScaleError};
 use super::spillover::{ParseSpilloverError, SpilloverIndexError};
@@ -104,7 +103,7 @@ pub(crate) trait Optional: Sized {
     where
         Self: FromStr,
     {
-        get_opt(kws, k).map(Into::into)
+        get_opt(kws, k)
     }
 
     fn remove_opt<F, E>(kws: &mut StdKeywords, k: StdKey, f: F) -> Result<Self::Outer, E>
@@ -555,9 +554,8 @@ pub(crate) fn lookup_temporal_gain_3_0(
         nonstd.transfer_demoted(kws, Gain::std(i));
         Tentative::default()
     } else {
-        let go = |gain: &MaybeValue<Gain>| {
-            gain.0
-                .is_some_and(|g| !g.0.is_one())
+        let go = |gain: &Option<Gain>| {
+            gain.is_some_and(|g| !g.0.is_one())
                 .then_some(TemporalGainError(i))
         };
         let mut tnt_gain = Gain::lookup_meas_opt(kws, i, false, conf);
@@ -574,11 +572,11 @@ pub(crate) type RawKeywords = HashMap<String, String>;
 
 pub(crate) type ReqResult<T> = Result<T, ReqKeyError<<T as FromStr>::Err>>;
 pub(crate) type OptResult<T> = Result<Option<T>, OptKeyError<<T as FromStr>::Err>>;
-pub(crate) type OptKwResult<T> = Result<MaybeValue<T>, OptKeyError<<T as FromStr>::Err>>;
+pub(crate) type OptKwResult<T> = Result<Option<T>, OptKeyError<<T as FromStr>::Err>>;
 
 pub(crate) type LookupResult<V> = DeferredResult<V, LookupKeysWarning, LookupKeysError>;
 pub(crate) type LookupTentative<V> = BiTentative<V, LookupKeysWarning>;
-pub(crate) type LookupOptional<V> = LookupTentative<MaybeValue<V>>;
+pub(crate) type LookupOptional<V> = LookupTentative<Option<V>>;
 
 /// Errors when looking up any key.
 ///

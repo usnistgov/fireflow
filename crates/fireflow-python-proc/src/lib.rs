@@ -1871,7 +1871,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
             ) -> PyResult<#index_ret> {
                 let r = self.0.remove_measurement_by_index(#index_ident)?;
                 let (n, v) = #element_path::unzip::<#family_path>(r);
-                Ok((n.0, v.inner_into()))
+                Ok((n, v.inner_into()))
             }
         }
     }
@@ -2612,28 +2612,6 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
 
     let has_scale = DocArg::new_meas_kw_ivar1("TemporalScale", "has_scale", "E", PyBool::new1);
 
-    // let make_quasi_bool = |what: &str, sym: &str, val: &str, rstype: &str, fieldname: &str| {
-    //     let r = format_ident!("{rstype}");
-    //     let f = format_ident!("{fieldname}");
-    //     let p: Path = parse_quote!(fireflow_core::text::keywords::#r);
-    //     let argname = format!("has_{what}");
-    //     let desc = format!("``True`` if *$Pn{sym}* is set to ``{val}``.");
-    //     DocArg::new_bool_param(argname, desc).into_rw(
-    //         false,
-    //         |_, _| quote!(self.0.specific.#f.0.is_some()),
-    //         |n, _| quote!(self.0.specific.#f = #n.then_some(#p).into();),
-    //     )
-    // };
-
-    // let has_scale = make_quasi_bool("scale", "E", "0,0", "TemporalScale", "scale");
-    // let has_type = make_quasi_bool(
-    //     "type",
-    //     "TYPE",
-    //     "\"Time\"",
-    //     "TemporalType",
-    //     "measurement_type",
-    // );
-
     let timestep = DocArg::new_ivar_rw(
         "timestep",
         PyType::new_timestep(),
@@ -3092,8 +3070,8 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
         "The *$GmE* keyword. ``()`` means linear scaling and 2-tuple \
          specifies decades and offset for log scaling.",
         false,
-        |n, _| quote!(self.0.#n.0.as_ref().cloned()),
-        |n, _| quote!(self.0.#n.0 = #n.into()),
+        |n, _| quote!(self.0.#n.as_ref().cloned()),
+        |n, _| quote!(self.0.#n = #n.into()),
     );
 
     let make_arg_str = |kw_name: &str, kw_sym: &str, t: &str| {
@@ -3126,8 +3104,8 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
             pytype,
             format!("The *$Gm{kw_sym}* keyword."),
             false,
-            |n, _| quote!(self.0.#n.0.as_ref().cloned()),
-            |n, _| quote!(self.0.#n.0 = #n),
+            |n, _| quote!(self.0.#n.as_ref().cloned()),
+            |n, _| quote!(self.0.#n = #n),
         )
     };
 
@@ -5177,7 +5155,7 @@ impl DocArgRWIvar {
             "Value for *$PnE*. Empty tuple means linear scale; 2-tuple encodes \
              decades and offset for log scale",
             false,
-            |_, _| quote!(self.0.specific.scale.0.as_ref().map(|&x| x)),
+            |_, _| quote!(self.0.specific.scale.as_ref().map(|&x| x)),
             |n, _| quote!(self.0.specific.scale = #n.into()),
         )
     }
@@ -6681,7 +6659,13 @@ impl PyType {
     }
 
     fn new_versioned_shortname(version: Version) -> Self {
-        PyOpt::wrap_if(Self::new_shortname(), version < Version::FCS3_1)
+        if version < Version::FCS3_1 {
+            PyOpt::new(Self::new_shortname()).into()
+        } else {
+            let inner = quote!(fireflow_core::validated::shortname::Shortname);
+            let outer = parse_quote!(fireflow_core::text::optional::AlwaysValue<#inner>);
+            PyStr::new1(outer).into()
+        }
     }
 
     fn new_meas_index() -> Self {

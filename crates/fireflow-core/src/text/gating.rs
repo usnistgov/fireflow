@@ -9,7 +9,7 @@ use crate::text::keywords::{
     GateRange, GateScale, GateShortname, Gating, IndexPair, MeasOrGateIndex, Par,
     PrefixedMeasIndex, RegionGateIndex, RegionWindow, UniGate, Vertex,
 };
-use crate::text::optional::{KeywordPairMaybe as _, MaybeValue};
+use crate::text::optional::KeywordPairMaybe as _;
 use crate::text::parser::{
     LookupOptional, LookupTentative, OptIndexedKey as _, OptMetarootKey, ParseOptKeyError,
 };
@@ -120,7 +120,7 @@ pub struct BivariateRegion<I> {
 pub struct GatedMeasurement {
     /// Value for $GmE
     #[new(into)]
-    pub scale: MaybeValue<GateScale>,
+    pub scale: Option<GateScale>,
 
     /// Value for $GmF
     pub filter: GateFilter,
@@ -129,15 +129,15 @@ pub struct GatedMeasurement {
     ///
     /// Unlike $PnN, this is not validated to be without commas
     #[new(into)]
-    pub shortname: MaybeValue<GateShortname>,
+    pub shortname: Option<GateShortname>,
 
     /// Value for $GmP
     #[new(into)]
-    pub percent_emitted: MaybeValue<GatePercentEmitted>,
+    pub percent_emitted: Option<GatePercentEmitted>,
 
     /// Value for $GmR
     #[new(into)]
-    pub range: MaybeValue<GateRange>,
+    pub range: Option<GateRange>,
 
     /// Value for $GmS
     pub longname: GateLongname,
@@ -147,7 +147,7 @@ pub struct GatedMeasurement {
 
     /// Value for $GmV
     #[new(into)]
-    pub detector_voltage: MaybeValue<GateDetectorVoltage>,
+    pub detector_voltage: Option<GateDetectorVoltage>,
 }
 
 pub(crate) trait LinkedMeasIndex: Sized {
@@ -674,14 +674,14 @@ impl<I> GatingScheme<I> {
         F0: Fn(&mut StdKeywords) -> LookupOptional<Gating>,
         F1: Fn(&mut StdKeywords, RegionIndex) -> LookupOptional<Region<I>>,
     {
-        lookup_gating(kws).map(|g| g.0).and_tentatively(|gating| {
+        lookup_gating(kws).and_tentatively(|gating| {
             gating
                 .as_ref()
                 .map(|g| {
                     Tentative::mconcat(
                         g.region_indices()
                             .into_iter()
-                            .map(|ri| lookup_region(kws, ri).map(|x| x.0.map(|y| (ri, y)))),
+                            .map(|ri| lookup_region(kws, ri).map(|x| x.map(|y| (ri, y)))),
                     )
                 })
                 .unwrap_or_default()
@@ -769,7 +769,7 @@ impl<I> Region<I> {
         let w = lookup_window(kws, i.into());
         n.zip(w)
             .and_tentatively(|(n_, y_)| {
-                n_.0.zip(y_.0)
+                n_.zip(y_)
                     .and_then(|(gi, win)| Self::try_new(gi, win).map(Self::inner_into))
                     .ok_or(MismatchedIndexAndWindowError)
                     .into_tentative_opt(!conf.allow_optional_dropping)
@@ -915,7 +915,7 @@ impl GatedMeasurements {
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self> {
         Gate::lookup_metaroot_opt(kws, is_deprecated, conf).and_tentatively(|maybe| {
-            if let Some(n) = maybe.0 {
+            if let Some(n) = maybe {
                 let xs =
                     (0..n.0).map(|i| GatedMeasurement::lookup(kws, i.into(), is_deprecated, conf));
                 return Tentative::mconcat(xs).map(Self);

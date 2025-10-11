@@ -3,7 +3,6 @@ use crate::error::{
     ResultExt as _, Tentative,
 };
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
-use crate::text::optional::MaybeValue;
 use crate::text::parser::{OptKeyError, OptMetarootKey, Optional, ReqKeyError, ReqMetarootKey};
 use crate::validated::ascii_uint::{
     HeaderString, ParseFixedUintError, UintSpacePad20, UintSpacePad8, UintZeroPad20,
@@ -294,11 +293,11 @@ where
     Self: KeyedSegment + HasRegion,
     Self::B: Into<UintZeroPad20>
         + OptMetarootKey
-        + Optional<Outer = MaybeValue<Self::B>>
+        + Optional<Outer = Option<Self::B>>
         + FromStr<Err = ParseIntError>,
     Self::E: Into<UintZeroPad20>
         + OptMetarootKey
-        + Optional<Outer = MaybeValue<Self::E>>
+        + Optional<Outer = Option<Self::E>>
         + FromStr<Err = ParseIntError>,
 {
     fn get_or(
@@ -392,8 +391,8 @@ where
     fn get_pair(
         kws: &StdKeywords,
     ) -> MultiResult<Option<(Self::B, Self::E)>, OptKeyError<ParseIntError>> {
-        let x0 = Self::B::get_metaroot_opt(kws).map(|x| x.0);
-        let x1 = Self::E::get_metaroot_opt(kws).map(|x| x.0);
+        let x0 = Self::B::get_metaroot_opt(kws);
+        let x1 = Self::E::get_metaroot_opt(kws);
         x0.zip(x1).map(|(x, y)| x.zip(y))
     }
 
@@ -401,8 +400,8 @@ where
     fn remove_pair(
         kws: &mut StdKeywords,
     ) -> MultiResult<Option<(Self::B, Self::E)>, OptKeyError<ParseIntError>> {
-        let x0 = Self::B::remove_metaroot_opt(kws).map(|x| x.0);
-        let x1 = Self::E::remove_metaroot_opt(kws).map(|x| x.0);
+        let x0 = Self::B::remove_metaroot_opt(kws);
+        let x1 = Self::E::remove_metaroot_opt(kws);
         x0.zip(x1).map(|(x, y)| x.zip(y))
     }
 }

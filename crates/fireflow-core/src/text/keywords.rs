@@ -15,8 +15,7 @@ use super::gating;
 use super::index::{GateIndex, MeasIndex, RegionIndex};
 use super::named_vec::NameMapping;
 use super::optional::{
-    CheckMaybe, DisplayMaybe, KeywordPairMaybe, MaybeValue, OptionalInt, OptionalString,
-    OptionalZST,
+    CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString, OptionalZST,
 };
 use super::parser::{
     DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful, LookupKeysWarning,
@@ -867,14 +866,14 @@ impl<I> RegionGateIndex<I> {
         par: Par,
         is_deprecated: bool,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<MaybeValue<Self>>
+    ) -> LookupTentative<Option<Self>>
     where
         I: fmt::Display + FromStr + gating::LinkedMeasIndex,
         for<'a> Self: fmt::Display + FromStrStateful<Payload<'a> = ()>,
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
         Self::lookup_meas_opt_st(kws, i, is_deprecated, (), conf).and_tentatively(|maybe| {
-            if let Some(x) = maybe.0 {
+            if let Some(x) = maybe {
                 Self::check_link(&x, par)
                     .map(|()| x)
                     .into_tentative_opt(!conf.allow_optional_dropping)
@@ -1881,7 +1880,7 @@ macro_rules! kw_req_meta_int {
 macro_rules! kw_opt_meta_int {
     ($t:ident, $type:ident, $sfx:expr) => {
         kw_meta_int!($t, $type, $sfx);
-        opt_meta!($t, MaybeValue<Self>);
+        opt_meta!($t, Option<Self>);
     };
 }
 
@@ -1911,7 +1910,7 @@ macro_rules! kw_opt_gate {
 
 macro_rules! kw_opt_gate_other {
     ($t:ident, $sfx:expr) => {
-        kw_opt_gate!($t, $sfx, MaybeValue<Self>);
+        kw_opt_gate!($t, $sfx, Option<Self>);
     };
 }
 
@@ -1928,7 +1927,7 @@ macro_rules! kw_opt_region {
             const PREFIX: &'static str = "R";
             const SUFFIX: &'static str = $sfx;
         }
-        opt_meas!($t, MaybeValue<Self>);
+        opt_meas!($t, Option<Self>);
     };
 }
 
@@ -1992,7 +1991,7 @@ impl Key for Trigger {
 }
 
 impl Optional for Trigger {
-    type Outer = MaybeValue<Self>;
+    type Outer = Option<Self>;
 }
 
 impl OptLinkedKey for Trigger {
@@ -2020,16 +2019,16 @@ kw_time!(Btim3_1, Btim, FCSTime100, FCSTime100Error, "BTIM");
 kw_time!(Etim3_1, Etim, FCSTime100, FCSTime100Error, "ETIM");
 
 // 3.0 only
-kw_opt_meta!(Compensation3_0, "COMP", MaybeValue<Self>);
-kw_opt_meta!(Unicode, "UNICODE", MaybeValue<Self>);
+kw_opt_meta!(Compensation3_0, "COMP", Option<Self>);
+kw_opt_meta!(Unicode, "UNICODE", Option<Self>);
 
 // for 3.0+
 kw_req_meta!(Timestep, "TIMESTEP");
 
 // for 3.1+
 kw_opt_meta_string!(LastModifier, "LAST_MODIFIER");
-kw_opt_meta!(Originality, "ORIGINALITY", MaybeValue<Self>);
-kw_opt_meta!(LastModified, "LAST_MODIFIED", MaybeValue<Self>);
+kw_opt_meta!(Originality, "ORIGINALITY", Option<Self>);
+kw_opt_meta!(LastModified, "LAST_MODIFIED", Option<Self>);
 
 kw_opt_meta_string!(Plateid, "PLATEID");
 kw_opt_meta_string!(Platename, "PLATENAME");
@@ -2040,9 +2039,9 @@ kw_opt_meta_string!(Wellid, "WELLID");
 // }
 
 // impl Optional for Spillover {}
-kw_opt_meta!(Spillover, "SPILLOVER", MaybeValue<Self>);
+kw_opt_meta!(Spillover, "SPILLOVER", Option<Self>);
 
-kw_opt_meta!(Vol, "VOL", MaybeValue<Self>);
+kw_opt_meta!(Vol, "VOL", Option<Self>);
 
 // for 3.2+
 kw_opt_meta_string!(Carrierid, "CARRIERID");
@@ -2069,7 +2068,7 @@ kw_opt_meta_int!(Tot, usize, "TOT"); // optional in 2.0
 req_meta!(Tot); // required in 3.0+
 
 kw_req_meta!(Mode, "MODE"); // for 2.0-3.1
-kw_opt_meta!(Mode3_2, "MODE", MaybeValue<Self>); // for 3.2+
+kw_opt_meta!(Mode3_2, "MODE", Option<Self>); // for 3.2+
 
 kw_opt_meta_string!(Cyt, "CYT"); // optional for 2.0-3.1
 kw_req_meta!(Cyt3_2, "CYT"); // required for 3.2+
@@ -2080,43 +2079,43 @@ kw_req_meta!(ByteOrd3_1, "BYTEORD"); // 3.1+
 // all versions
 kw_req_meas!(Width, "B");
 kw_opt_meas_string!(Filter, "F");
-kw_opt_meas!(Power, "O", MaybeValue<Self>);
-kw_opt_meas!(PercentEmitted, "P", MaybeValue<Self>);
+kw_opt_meas!(Power, "O", Option<Self>);
+kw_opt_meas!(PercentEmitted, "P", Option<Self>);
 kw_req_meas!(Range, "R");
 kw_opt_meas_string!(Longname, "S");
 kw_opt_meas_string!(DetectorType, "T");
-kw_opt_meas!(DetectorVoltage, "V", MaybeValue<Self>);
+kw_opt_meas!(DetectorVoltage, "V", Option<Self>);
 
 // 3.0+
-kw_opt_meas!(Gain, "G", MaybeValue<Self>);
+kw_opt_meas!(Gain, "G", Option<Self>);
 
 // 3.1+
-kw_opt_meas!(Display, "D", MaybeValue<Self>);
+kw_opt_meas!(Display, "D", Option<Self>);
 
 // 3.2+
-kw_opt_meas!(Feature, "FEATURE", MaybeValue<Self>);
-kw_opt_meas!(OpticalType, "TYPE", MaybeValue<Self>);
+kw_opt_meas!(Feature, "FEATURE", Option<Self>);
+kw_opt_meas!(OpticalType, "TYPE", Option<Self>);
 meas_opt_zst!(TemporalType, "TYPE", TemporalTypeInner, TemporalTypeError);
-kw_opt_meas!(NumType, "DATATYPE", MaybeValue<Self>);
+kw_opt_meas!(NumType, "DATATYPE", Option<Self>);
 kw_opt_meas_string!(Analyte, "ANALYTE");
 kw_opt_meas_string!(Tag, "TAG");
 kw_opt_meas_string!(DetectorName, "DET");
 
 // version specific
-kw_opt_meas!(Shortname, "N", MaybeValue<Self>); // optional for 2.0/3.0
+kw_opt_meas!(Shortname, "N", Option<Self>); // optional for 2.0/3.0
 req_meas!(Shortname); // required for 3.1+
 
-kw_opt_meas!(Scale, "E", MaybeValue<Self>); // optional for 2.0
+kw_opt_meas!(Scale, "E", Option<Self>); // optional for 2.0
 req_meas!(Scale); // required for 3.0+
 
 meas_opt_zst!(TemporalScale, "E", TemporalScaleInner, TemporalScaleError); // optional for 2.0
 kw_req_meas!(TemporalScale3_0, "E"); // required for 3.0+
 
-kw_opt_meas!(Wavelength, "L", MaybeValue<Self>); // scaler in 2.0/3.0
+kw_opt_meas!(Wavelength, "L", Option<Self>); // scaler in 2.0/3.0
 kw_opt_meas!(Wavelengths, "L", Self); // vector in 3.1+
 
-kw_opt_meas!(Calibration3_1, "CALIBRATION", MaybeValue<Self>); // 3.1 doesn't have offset
-kw_opt_meas!(Calibration3_2, "CALIBRATION", MaybeValue<Self>); // 3.2+ includes offset
+kw_opt_meas!(Calibration3_1, "CALIBRATION", Option<Self>); // 3.1 doesn't have offset
+kw_opt_meas!(Calibration3_2, "CALIBRATION", Option<Self>); // 3.2+ includes offset
 
 // 2.0 compensation matrix
 pub struct Dfc;
@@ -2160,7 +2159,7 @@ kw_opt_meta_opt_int!(CSVBits, u32, "CSVBITS");
 
 // $CSVnFLAG (3.0/3.1)
 newtype_int!(CSVFlag, u32);
-opt_meas!(CSVFlag, MaybeValue<Self>);
+opt_meas!(CSVFlag, Option<Self>);
 
 impl IndexedKey for CSVFlag {
     const PREFIX: &'static str = "CSV";
@@ -2169,7 +2168,7 @@ impl IndexedKey for CSVFlag {
 
 // $PKn (2.0-3.1)
 newtype_int!(PeakBin, u32);
-opt_meas!(PeakBin, MaybeValue<Self>);
+opt_meas!(PeakBin, Option<Self>);
 
 impl IndexedKey for PeakBin {
     const PREFIX: &'static str = "PK";
@@ -2178,7 +2177,7 @@ impl IndexedKey for PeakBin {
 
 // $PKNn (2.0-3.1)
 newtype_int!(PeakNumber, u32);
-opt_meas!(PeakNumber, MaybeValue<Self>);
+opt_meas!(PeakNumber, Option<Self>);
 
 impl IndexedKey for PeakNumber {
     const PREFIX: &'static str = "PKN";
@@ -2196,7 +2195,7 @@ kw_opt_gate_other!(GateShortname, "N");
 kw_opt_gate_string!(GateLongname, "S");
 kw_opt_gate_string!(GateDetectorType, "T");
 kw_opt_gate_other!(GateDetectorVoltage, "V");
-kw_opt_meta!(Gating, "GATING", MaybeValue<Self>);
+kw_opt_meta!(Gating, "GATING", Option<Self>);
 
 kw_opt_region!(RegionWindow, "W");
 
@@ -2206,7 +2205,7 @@ impl<I> IndexedKey for RegionGateIndex<I> {
 }
 
 impl<I> Optional for RegionGateIndex<I> {
-    type Outer = MaybeValue<Self>;
+    type Outer = Option<Self>;
 }
 impl<I> OptIndexedKey for RegionGateIndex<I> where I: fmt::Display + FromStr {}
 
@@ -2230,10 +2229,10 @@ kw_offset!(Endanalysis, "ENDANALYSIS");
 kw_offset!(Enddata, "ENDDATA");
 kw_offset!(Endstext, "ENDSTEXT");
 
-opt_meta!(Beginanalysis, MaybeValue<Self>);
-opt_meta!(Endanalysis, MaybeValue<Self>);
-opt_meta!(Beginstext, MaybeValue<Self>);
-opt_meta!(Endstext, MaybeValue<Self>);
+opt_meta!(Beginanalysis, Option<Self>);
+opt_meta!(Endanalysis, Option<Self>);
+opt_meta!(Beginstext, Option<Self>);
+opt_meta!(Endstext, Option<Self>);
 
 #[cfg(test)]
 mod tests {

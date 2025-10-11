@@ -5,10 +5,8 @@ use crate::validated::keys::{IndexedKey, Key, MeasHeader};
 use super::index::IndexFromOne;
 
 use derive_more::{AsMut, AsRef, From, FromStr};
-use std::convert::Infallible;
 use std::fmt;
 use std::marker::PhantomData;
-use std::mem;
 use std::string::ToString;
 use thiserror::Error;
 
@@ -18,18 +16,10 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
-/// A value that might exist.
-///
-/// This is basically [`Option`] but more obvious in what it indicates. It also
-/// allows some nice methods to be built on top of [`Option`].
-#[derive(Debug, Clone, PartialEq, Eq, AsRef, AsMut, From)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
-pub struct MaybeValue<T>(pub Option<T>);
-
 /// A value that always exists.
 #[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct AlwaysValue<T>(pub T);
 
 /// A value that always exists.
@@ -183,27 +173,13 @@ impl<T: fmt::Display + PartialEq + Default> DisplayMaybe for OptionalZST<T> {
     }
 }
 
-impl<T: fmt::Display + PartialEq> DisplayMaybe for MaybeValue<T> {
-    fn display_maybe(&self) -> Option<String> {
-        self.0.display_maybe()
-    }
-}
-
 impl<T: fmt::Display + PartialEq> DisplayMaybe for Option<T> {
     fn display_maybe(&self) -> Option<String> {
         self.as_ref().map(ToString::to_string)
     }
 }
 
-impl<T: fmt::Display + PartialEq> KeywordPairMaybe for MaybeValue<T> {
-    type Inner = T;
-}
-
 impl<T: fmt::Display + PartialEq> KeywordPairMaybe for Option<T> {
-    type Inner = T;
-}
-
-impl<T: fmt::Display + PartialEq> CheckMaybe for MaybeValue<T> {
     type Inner = T;
 }
 
@@ -259,11 +235,11 @@ pub trait MightHave {
 pub struct MaybeFamily;
 
 impl MightHave for MaybeFamily {
-    type Wrapper<T> = MaybeValue<T>;
+    type Wrapper<T> = Option<T>;
     const INFALLABLE: bool = false;
 
     fn unwrap<T>(x: Self::Wrapper<T>) -> Result<T, Self::Wrapper<T>> {
-        x.0.ok_or(MaybeValue::default())
+        x.ok_or(None)
     }
 
     fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T> {
@@ -274,7 +250,7 @@ impl MightHave for MaybeFamily {
     where
         F: FnOnce(T) -> T0,
     {
-        x.0.map(f).into()
+        x.map(f)
     }
 }
 
@@ -308,113 +284,17 @@ impl<T> From<T> for AlwaysValue<T> {
     }
 }
 
-impl<T> From<T> for MaybeValue<T> {
-    fn from(value: T) -> Self {
-        Some(value).into()
-    }
-}
-
-impl<T> TryFrom<MaybeValue<T>> for AlwaysValue<T> {
+impl<T> TryFrom<Option<T>> for AlwaysValue<T> {
     type Error = MaybeToAlwaysError;
-    fn try_from(value: MaybeValue<T>) -> Result<Self, Self::Error> {
-        value.0.ok_or(MaybeToAlwaysError).map(AlwaysValue)
+    fn try_from(value: Option<T>) -> Result<Self, Self::Error> {
+        value.ok_or(MaybeToAlwaysError).map(AlwaysValue)
     }
 }
 
-impl<T> From<AlwaysValue<T>> for MaybeValue<T> {
+impl<T> From<AlwaysValue<T>> for Option<T> {
     fn from(value: AlwaysValue<T>) -> Self {
-        Some(value.0).into()
+        Some(value.0)
     }
-}
-
-impl<T> From<MaybeValue<T>> for Option<T> {
-    fn from(value: MaybeValue<T>) -> Self {
-        value.0
-    }
-}
-
-impl<T: Copy> Copy for MaybeValue<T> {}
-
-impl<T> Default for MaybeValue<T> {
-    fn default() -> Self {
-        Self(None)
-    }
-}
-
-impl<V> MaybeValue<V> {
-    pub fn as_ref(&self) -> MaybeValue<&V> {
-        MaybeValue(self.0.as_ref())
-    }
-
-    pub fn as_ref_opt(&self) -> Option<&V> {
-        self.0.as_ref()
-    }
-
-    pub fn map<F, W>(self, f: F) -> MaybeValue<W>
-    where
-        F: Fn(V) -> W,
-    {
-        MaybeValue(self.0.map(f))
-    }
-
-    /// Mutate thing in Option if present, and possibly unset Option entirely
-    pub fn mut_or_unset<E, F, X>(&mut self, f: F) -> Result<Option<X>, E>
-    where
-        F: Fn(&mut V) -> ClearMaybeError<X, E>,
-    {
-        match mem::replace(self, None.into()).0 {
-            None => Ok(None),
-            Some(mut x) => {
-                let c = f(&mut x);
-                let (ret, newself) = match c.clear {
-                    None => (Ok(Some(c.value)), Some(x).into()),
-                    Some(ClearOptionalOr::Error(e)) => (Err(e), Some(x).into()),
-                    Some(ClearOptionalOr::Clear) => (Ok(Some(c.value)), None.into()),
-                };
-                *self = newself;
-                ret
-            }
-        }
-    }
-
-    pub fn mut_or_unset_nofail<F, X>(&mut self, f: F) -> Option<X>
-    where
-        F: Fn(&mut V) -> ClearMaybe<X>,
-    {
-        let Ok(x) = self.mut_or_unset(f);
-        x
-    }
-}
-
-impl<V, E> MaybeValue<Result<V, E>> {
-    pub fn transpose(self) -> Result<MaybeValue<V>, E> {
-        self.0.transpose().map(Into::into)
-    }
-}
-
-pub type ClearMaybe<V> = ClearMaybeError<V, Infallible>;
-
-impl<V: Default, E> Default for ClearMaybeError<V, E> {
-    fn default() -> Self {
-        Self {
-            value: V::default(),
-            clear: None,
-        }
-    }
-}
-
-pub struct ClearMaybeError<V, E> {
-    pub value: V,
-    pub clear: Option<ClearOptionalOr<E>>,
-}
-
-pub type ClearOptional = ClearOptionalOr<Infallible>;
-
-#[derive(Default)]
-pub enum ClearOptionalOr<E> {
-    #[default]
-    Clear,
-    Error(E),
 }
 
 #[derive(Debug, Error)]
@@ -423,22 +303,13 @@ pub struct MaybeToAlwaysError;
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{AlwaysValue, MaybeValue, OptionalZST};
+    use super::{AlwaysValue, OptionalZST};
 
     use pyo3::prelude::*;
     use pyo3::types::PyBool;
     use std::convert::Infallible;
 
     impl<'py, T> FromPyObject<'py> for AlwaysValue<T>
-    where
-        T: FromPyObject<'py>,
-    {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            Ok(Self(ob.extract()?))
-        }
-    }
-
-    impl<'py, T> FromPyObject<'py> for MaybeValue<T>
     where
         T: FromPyObject<'py>,
     {

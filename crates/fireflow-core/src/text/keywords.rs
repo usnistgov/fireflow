@@ -2150,10 +2150,10 @@ impl IndexedKey for PeakBin {
 }
 
 // $PKNn (2.0-3.1)
-newtype_int!(PeakNumber, u32);
-opt_meas!(PeakNumber, Option<Self>);
+newtype_int!(PeakIndex, MeasIndex);
+opt_meas!(PeakIndex, Option<Self>);
 
-impl IndexedKey for PeakNumber {
+impl IndexedKey for PeakIndex {
     const PREFIX: &'static str = "PKN";
     const SUFFIX: &'static str = "";
 }

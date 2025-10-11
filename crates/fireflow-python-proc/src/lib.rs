@@ -1263,7 +1263,7 @@ pub fn impl_core_all_peak_attrs(input: TokenStream) -> TokenStream {
     };
 
     let pkn = go("K", "PeakBin", "peak_bins");
-    let pknn = go("KN", "PeakNumber", "peak_sizes");
+    let pknn = go("KN", "PeakIndex", "peak_sizes");
 
     quote! {
         #pkn
@@ -2534,7 +2534,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         true,
     );
     let size = DocArg::new_meas_kw_ivar(
-        "PeakNumber",
+        "PeakIndex",
         "size",
         |p| PyOpt::new(to_pyuint(p)),
         "Value of *$PKNn*.".into(),

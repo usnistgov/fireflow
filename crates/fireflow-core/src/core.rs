@@ -39,7 +39,7 @@ use crate::text::{
         DetectorVoltage, Display, Endstext, Exp, Feature, Fil, Filter, Flowrate, Gain, Inst,
         IntRangeError, LastModified, LastModifier, Locationid, Longname, Lost, Mode, Mode3_2,
         ModeUpgradeError, Nextdata, NoCytError, Op, OpticalType, Originality, Par, PeakBin,
-        PeakNumber, PercentEmitted, Plateid, Platename, Power, Proj, Range, Smno, Src, Sys, Tag,
+        PeakIndex, PercentEmitted, Plateid, Platename, Power, Proj, Range, Smno, Src, Sys, Tag,
         TemporalScale, TemporalScale3_0, TemporalType, Timestep, TimestepLossError, Tot, Trigger,
         Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength, Wavelengths,
         WavelengthsLossError, Wellid,
@@ -758,9 +758,9 @@ pub struct InnerTemporal2_0 {
 
     /// Values of $Pkn/$PKNn
     #[as_ref(Option<PeakBin>)]
-    #[as_ref(Option<PeakNumber>)]
+    #[as_ref(Option<PeakIndex>)]
     #[as_mut(Option<PeakBin>)]
-    #[as_mut(Option<PeakNumber>)]
+    #[as_mut(Option<PeakIndex>)]
     pub peak: PeakData,
 }
 
@@ -777,9 +777,9 @@ pub struct InnerTemporal3_0 {
 
     /// Values of $Pkn/$PKNn
     #[as_ref(Option<PeakBin>)]
-    #[as_ref(Option<PeakNumber>)]
+    #[as_ref(Option<PeakIndex>)]
     #[as_mut(Option<PeakBin>)]
-    #[as_mut(Option<PeakNumber>)]
+    #[as_mut(Option<PeakIndex>)]
     pub peak: PeakData,
 }
 
@@ -802,9 +802,9 @@ pub struct InnerTemporal3_1 {
 
     /// Values of $Pkn/$PKNn
     #[as_ref(Option<PeakBin>)]
-    #[as_ref(Option<PeakNumber>)]
+    #[as_ref(Option<PeakIndex>)]
     #[as_mut(Option<PeakBin>)]
-    #[as_mut(Option<PeakNumber>)]
+    #[as_mut(Option<PeakIndex>)]
     pub peak: PeakData,
 }
 
@@ -857,9 +857,9 @@ pub struct InnerOptical2_0 {
 
     /// Values of $Pkn/$PKNn
     #[as_ref(Option<PeakBin>)]
-    #[as_ref(Option<PeakNumber>)]
+    #[as_ref(Option<PeakIndex>)]
     #[as_mut(Option<PeakBin>)]
-    #[as_mut(Option<PeakNumber>)]
+    #[as_mut(Option<PeakIndex>)]
     pub peak: PeakData,
 }
 
@@ -888,9 +888,9 @@ pub struct InnerOptical3_0 {
 
     /// Values of $Pkn/$PKNn
     #[as_ref(Option<PeakBin>)]
-    #[as_ref(Option<PeakNumber>)]
+    #[as_ref(Option<PeakIndex>)]
     #[as_mut(Option<PeakBin>)]
-    #[as_mut(Option<PeakNumber>)]
+    #[as_mut(Option<PeakIndex>)]
     pub peak: PeakData,
 }
 
@@ -931,9 +931,9 @@ pub struct InnerOptical3_1 {
 
     /// Values of $Pkn/$PKNn
     #[as_ref(Option<PeakBin>)]
-    #[as_ref(Option<PeakNumber>)]
+    #[as_ref(Option<PeakIndex>)]
     #[as_mut(Option<PeakBin>)]
-    #[as_mut(Option<PeakNumber>)]
+    #[as_mut(Option<PeakIndex>)]
     pub peak: PeakData,
 }
 
@@ -1031,10 +1031,10 @@ pub struct PeakData {
     pub bin: Option<PeakBin>,
 
     /// Value of $PkNn
-    #[as_ref(Option<PeakNumber>)]
-    #[as_mut(Option<PeakNumber>)]
+    #[as_ref(Option<PeakIndex>)]
+    #[as_mut(Option<PeakIndex>)]
     #[new(into)]
-    pub size: Option<PeakNumber>,
+    pub size: Option<PeakIndex>,
 }
 
 /// A bundle for $CSMODE, $CSVBITS, and $CSVnFLAG (3.0, 3.1)
@@ -4921,7 +4921,7 @@ impl PeakData {
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self> {
         let b = PeakBin::lookup_meas_opt(kws, i, is_deprecated, conf);
-        let s = PeakNumber::lookup_meas_opt(kws, i, is_deprecated, conf);
+        let s = PeakIndex::lookup_meas_opt(kws, i, is_deprecated, conf);
         b.zip(s).map(|(bin, size)| Self::new(bin, size))
     }
 
@@ -5440,7 +5440,7 @@ impl_ref_specific_rw!(
     InnerOptical2_0,
     Option<Wavelength>,
     Option<PeakBin>,
-    Option<PeakNumber>
+    Option<PeakIndex>
 );
 
 impl_ref_specific_rw!(
@@ -5448,7 +5448,7 @@ impl_ref_specific_rw!(
     InnerOptical3_0,
     Option<Wavelength>,
     Option<PeakBin>,
-    Option<PeakNumber>
+    Option<PeakIndex>
 );
 
 impl_ref_specific_rw!(
@@ -5456,7 +5456,7 @@ impl_ref_specific_rw!(
     InnerOptical3_1,
     Wavelengths,
     Option<PeakBin>,
-    Option<PeakNumber>,
+    Option<PeakIndex>,
     Option<Calibration3_1>,
     Option<Display>
 );
@@ -5479,7 +5479,7 @@ impl_ref_specific_rw!(
     InnerTemporal2_0,
     TemporalScale,
     Option<PeakBin>,
-    Option<PeakNumber>
+    Option<PeakIndex>
 );
 
 impl_ref_specific_rw!(
@@ -5487,7 +5487,7 @@ impl_ref_specific_rw!(
     InnerTemporal3_0,
     Timestep,
     Option<PeakBin>,
-    Option<PeakNumber>
+    Option<PeakIndex>
 );
 
 impl_ref_specific_rw!(
@@ -5496,7 +5496,7 @@ impl_ref_specific_rw!(
     Timestep,
     Option<Display>,
     Option<PeakBin>,
-    Option<PeakNumber>
+    Option<PeakIndex>
 );
 
 impl_ref_specific_rw!(
@@ -7632,7 +7632,7 @@ impl Temporal2_0 {
     pub fn new_2_0(
         has_scale: bool,
         bin: Option<PeakBin>,
-        size: Option<PeakNumber>,
+        size: Option<PeakIndex>,
         longname: Longname,
         nonstandard_keywords: NonStdKeywords,
     ) -> Self {
@@ -7648,7 +7648,7 @@ impl Temporal3_0 {
     pub fn new_3_0(
         timestep: Timestep,
         bin: Option<PeakBin>,
-        size: Option<PeakNumber>,
+        size: Option<PeakIndex>,
         longname: Longname,
         nonstandard_keywords: NonStdKeywords,
     ) -> Self {
@@ -7665,7 +7665,7 @@ impl Temporal3_1 {
         timestep: Timestep,
         display: Option<Display>,
         bin: Option<PeakBin>,
-        size: Option<PeakNumber>,
+        size: Option<PeakIndex>,
         longname: Longname,
         nonstandard_keywords: NonStdKeywords,
     ) -> Self {
@@ -7698,7 +7698,7 @@ impl Optical2_0 {
         scale: Option<Scale>,
         wavelength: Option<Wavelength>,
         bin: Option<PeakBin>,
-        size: Option<PeakNumber>,
+        size: Option<PeakIndex>,
         filter: Filter,
         power: Option<Power>,
         detector_type: DetectorType,
@@ -7728,7 +7728,7 @@ impl Optical3_0 {
         transform: ScaleTransform,
         wavelength: Option<Wavelength>,
         bin: Option<PeakBin>,
-        size: Option<PeakNumber>,
+        size: Option<PeakIndex>,
         filter: Filter,
         power: Option<Power>,
         detector_type: DetectorType,
@@ -7760,7 +7760,7 @@ impl Optical3_1 {
         calibration: Option<Calibration3_1>,
         display: Option<Display>,
         bin: Option<PeakBin>,
-        size: Option<PeakNumber>,
+        size: Option<PeakIndex>,
         filter: Filter,
         power: Option<Power>,
         detector_type: DetectorType,
@@ -8242,7 +8242,7 @@ pub enum AnyMeasKeyLossError {
     DetectorName(IndexedKeyLossError<DetectorName>),
     Feature(IndexedKeyLossError<Feature>),
     PeakBin(IndexedKeyLossError<PeakBin>),
-    PeakNumber(IndexedKeyLossError<PeakNumber>),
+    PeakNumber(IndexedKeyLossError<PeakIndex>),
     Calibration3_1(IndexedKeyLossError<Calibration3_1>),
     Calibration3_2(IndexedKeyLossError<Calibration3_2>),
 }

@@ -48,7 +48,6 @@ from pyreflow.typing import (
     AnyCoreTEXT,
     AnyCoreDataset,
     SubPatterns,
-    TemporalType,
 )
 
 _X = TypeVar("_X")
@@ -224,13 +223,13 @@ _AnyMixedLayout = Union[
 
 class _MeasCommon:
     nonstandard_keywords: NonStdKeywords
-    longname: str | None
+    longname: str
 
 class _OpticalWavelength:
     wavelength: float | None
 
 class _OpticalWavelengths:
-    wavelengths: list[float] | None
+    wavelengths: list[float]
 
 class _MeasDisplay:
     display: Display
@@ -240,8 +239,8 @@ class _PeakCommon:
     bin: int
 
 class _OpticalCommon:
-    filter: str | None
-    detector_type: str | None
+    filter: str
+    detector_type: str
     detector_voltage: float | None
     power: float | None
     percent_emitted: float | None
@@ -262,12 +261,12 @@ class Optical2_0(_MeasCommon, _OpticalCommon, _OpticalWavelength, _PeakCommon):
         wavelength: float | None = None,
         bin: int | None = None,
         size: int | None = None,
-        filter: str | None = None,
+        filter: str = "",
         power: float | None = None,
-        detector_type: str | None = None,
+        detector_type: str = "",
         percent_emitted: float | None = None,
         detector_voltage: float | None = None,
-        longname: str | None = None,
+        longname: str = "",
         nonstandard_keywords: NonStdKeywords = {},
     ) -> Self: ...
 
@@ -281,12 +280,12 @@ class Optical3_0(
         wavelength: float | None = None,
         bin: int | None = None,
         size: int | None = None,
-        filter: str | None = None,
+        filter: str = "",
         power: float | None = None,
-        detector_type: str | None = None,
+        detector_type: str = "",
         percent_emitted: float | None = None,
         detector_voltage: float | None = None,
-        longname: str | None = None,
+        longname: str = "",
         nonstandard_keywords: NonStdKeywords = {},
     ) -> Self: ...
 
@@ -304,17 +303,17 @@ class Optical3_1(
     def __new__(
         cls,
         transform: ScaleTransform,
-        wavelengths: list[float] | None = None,
+        wavelengths: list[float] = [],
         calibration: Calibration3_1 | None = None,
         display: Display | None = None,
         bin: int | None = None,
         size: int | None = None,
-        filter: str | None = None,
+        filter: str = "",
         power: float | None = None,
-        detector_type: str | None = None,
+        detector_type: str = "",
         percent_emitted: float | None = None,
         detector_voltage: float | None = None,
-        longname: str | None = None,
+        longname: str = "",
         nonstandard_keywords: NonStdKeywords = {},
     ) -> Self: ...
 
@@ -329,28 +328,27 @@ class Optical3_2(
     calibration: Calibration3_2 | None
     detector_name: str | None
     tag: str | None
-    # TODO literal string
-    measurement_type: str | None
+    measurement_type: str
     feature: Feature | None
     analyte: str | None
 
     def __new__(
         cls,
         transform: ScaleTransform,
-        wavelengths: list[float] | None = None,
+        wavelengths: list[float] = [],
         calibration: Calibration3_2 | None = None,
         display: Display | None = None,
-        analyte: str | None = None,
+        analyte: str = "",
         feature: Feature | None = None,
-        tag: str | None = None,
-        measurement_type: str | None = None,
-        detector_name: str | None = None,
-        filter: str | None = None,
+        tag: str = "",
+        measurement_type: str = "",
+        detector_name: str = "",
+        filter: str = "",
         power: float | None = None,
-        detector_type: str | None = None,
+        detector_type: str = "",
         percent_emitted: float | None = None,
         detector_voltage: float | None = None,
-        longname: str | None = None,
+        longname: str = "",
         nonstandard_keywords: NonStdKeywords = {},
     ) -> Self: ...
 
@@ -361,7 +359,7 @@ class Temporal2_0(_MeasCommon, _PeakCommon):
         has_scale: bool = False,
         bin: int | None = None,
         size: int | None = None,
-        longname: str | None = None,
+        longname: str = "",
         nonstandard_keywords: NonStdKeywords = {},
     ) -> Self: ...
 
@@ -374,7 +372,7 @@ class Temporal3_0(_MeasCommon, _TemporalTimestep, _PeakCommon):
         timestep: float,
         bin: int | None = None,
         size: int | None = None,
-        longname: str | None = None,
+        longname: str = "",
         nonstandard_keywords: NonStdKeywords = {},
     ) -> Self: ...
 
@@ -386,7 +384,7 @@ class Temporal3_1(_MeasCommon, _MeasDisplay, _TemporalTimestep, _PeakCommon):
         display: Display | None = None,
         bin: int | None = None,
         size: int | None = None,
-        longname: str | None = None,
+        longname: str = "",
         nonstandard_keywords: NonStdKeywords = {},
     ) -> Self: ...
 
@@ -399,7 +397,7 @@ class Temporal3_2(_MeasCommon, _MeasDisplay, _TemporalTimestep):
         timestep: float,
         display: Display | None = None,
         has_type: bool = False,
-        longname: str | None = None,
+        longname: str = "",
         nonstandard_keywords: NonStdKeywords = {},
     ) -> Self: ...
 
@@ -413,21 +411,21 @@ class GatedMeasurement:
     def __new__(
         cls,
         scale: tuple[()] | tuple[float, float] | None = None,
-        filter: str | None = None,
+        filter: str = "",
         shortname: str | None = None,
         percent_emitted: float | None = None,
         range: float | None = None,
-        longname: str | None = None,
-        detector_type: str | None = None,
+        longname: str = "",
+        detector_type: str = "",
         detector_voltage: float | None = None,
     ) -> Self: ...
     scale: tuple[()] | tuple[float, float] | None
-    filter: str | None
+    filter: str
     shortname: str | None
     percent_emitted: float | None
     range: float | None
-    longname: str | None
-    detector_type: str | None
+    longname: str
+    detector_type: str
     detector_voltage: float | None
 
 class _UnivariateRegion(Generic[_X]):
@@ -738,11 +736,11 @@ class _CoreGates(Generic[_X]):
 
 class _CoreSubset:
     @property
-    def cstot(self) -> int | None: ...
+    def cstot(self) -> int: ...
     @property
-    def csvbits(self) -> int | None: ...
+    def csvbits(self) -> int: ...
     @property
-    def csvflags(self) -> CsvFlags | None: ...
+    def csvflags(self) -> CsvFlags: ...
 
 class _CoreModified:
     originality: Originality | None
@@ -794,7 +792,7 @@ class _Core3_2:
     flowrate: str | None
     cyt: str
     unstainedinfo: str | None
-    unstainedcenters: dict[Shortname, float] | None
+    unstainedcenters: dict[Shortname, float]
     carriertype: str | None
     carrierid: str | None
     locationid: str | None
@@ -805,7 +803,7 @@ class _Core3_2:
     all_tags: _OpticalKeyVals[str]
     all_features: _OpticalKeyVals[Feature]
     all_analytes: _OpticalKeyVals[str]
-    all_measurement_types: list[str | TemporalType | None]
+    all_measurement_types: list[str]
 
 class _CoreMeasCalibration(Generic[_C]):
     all_calibrations: _OpticalKeyVals[_C]
@@ -857,23 +855,23 @@ class CoreTEXT2_0(
         measurements: list[tuple[Shortname | None, Optical2_0 | Temporal2_0]],
         layout: _AnyOrderedLayout,
         mode: Mode = "L",
-        cyt: str | None = None,
+        cyt: str = "",
         comp: npt.NDArray[np.float32] | None = None,
         btim: time | None = None,
         etim: time | None = None,
         date: date | None = None,
         abrt: int | None = None,
-        com: str | None = None,
-        cells: str | None = None,
-        exp: str | None = None,
-        fil: str | None = None,
-        inst: str | None = None,
+        com: str = "",
+        cells: str = "",
+        exp: str = "",
+        fil: str = "",
+        inst: str = "",
         lost: int | None = None,
-        op: str | None = None,
-        proj: str | None = None,
-        smno: str | None = None,
-        src: str | None = None,
-        sys: str | None = None,
+        op: str = "",
+        proj: str = "",
+        smno: str = "",
+        src: str = "",
+        sys: str = "",
         tr: Trigger | None = None,
         applied_gates: AppliedGates2_0 = ([], {}, None),
         nonstandard_keywords: NonStdKeywords = {},
@@ -934,28 +932,28 @@ class CoreTEXT3_0(
         measurements: list[tuple[Shortname | None, Optical3_0 | Temporal3_0]],
         layout: _AnyOrderedLayout,
         mode: Mode = "L",
-        cyt: str | None = None,
+        cyt: str = "",
         comp: Compensation | None = None,
         btim: time | None = None,
         etim: time | None = None,
         date: date | None = None,
-        cytsn: str | None = None,
+        cytsn: str = "",
         unicode: Unicode | None = None,
-        csvbits: int | None = None,
-        cstot: int | None = None,
-        csvflags: CsvFlags | None = None,
+        csvbits: int = 0,
+        cstot: int = 0,
+        csvflags: CsvFlags = [],
         abrt: int | None = None,
-        com: str | None = None,
-        cells: str | None = None,
-        exp: str | None = None,
-        fil: str | None = None,
-        inst: str | None = None,
+        com: str = "",
+        cells: str = "",
+        exp: str = "",
+        fil: str = "",
+        inst: str = "",
         lost: int | None = None,
-        op: str | None = None,
-        proj: str | None = None,
-        smno: str | None = None,
-        src: str | None = None,
-        sys: str | None = None,
+        op: str = "",
+        proj: str = "",
+        smno: str = "",
+        src: str = "",
+        sys: str = "",
         tr: Trigger | None = None,
         applied_gates: AppliedGates3_0 = ([], {}, None),
         nonstandard_keywords: NonStdKeywords = {},
@@ -1018,34 +1016,34 @@ class CoreTEXT3_1(
         measurements: list[tuple[Shortname, Optical3_1 | Temporal3_1]],
         layout: _AnyNonMixedLayout,
         mode: Mode = "L",
-        cyt: str | None = None,
+        cyt: str = "",
         btim: time | None = None,
         etim: time | None = None,
         date: date | None = None,
-        cytsn: str | None = None,
+        cytsn: str = "",
         spillover: Spillover | None = None,
-        last_modifier: str | None = None,
+        last_modifier: str = "",
         last_modified: datetime | None = None,
         originality: Originality | None = None,
-        plateid: str | None = None,
-        platename: str | None = None,
-        wellid: str | None = None,
+        plateid: str = "",
+        platename: str = "",
+        wellid: str = "",
         vol: float | None = None,
-        csvbits: int | None = None,
-        cstot: int | None = None,
-        csvflags: CsvFlags | None = None,
+        csvbits: int = 0,
+        cstot: int = 0,
+        csvflags: CsvFlags = [],
         abrt: int | None = None,
-        com: str | None = None,
-        cells: str | None = None,
-        exp: str | None = None,
-        fil: str | None = None,
-        inst: str | None = None,
+        com: str = "",
+        cells: str = "",
+        exp: str = "",
+        fil: str = "",
+        inst: str = "",
         lost: int | None = None,
-        op: str | None = None,
-        proj: str | None = None,
-        smno: str | None = None,
-        src: str | None = None,
-        sys: str | None = None,
+        op: str = "",
+        proj: str = "",
+        smno: str = "",
+        src: str = "",
+        sys: str = "",
         tr: Trigger | None = None,
         applied_gates: AppliedGates3_0 = ([], {}, None),
         nonstandard_keywords: NonStdKeywords = {},
@@ -1111,33 +1109,33 @@ class CoreTEXT3_2(
         date: date | None = None,
         begindatetime: datetime | None = None,
         enddatetime: datetime | None = None,
-        cytsn: str | None = None,
+        cytsn: str = "",
         spillover: Spillover | None = None,
-        last_modifier: str | None = None,
+        last_modifier: str = "",
         last_modified: datetime | None = None,
         originality: Originality | None = None,
-        plateid: str | None = None,
-        platename: str | None = None,
-        wellid: str | None = None,
+        plateid: str = "",
+        platename: str = "",
+        wellid: str = "",
         vol: float | None = None,
-        carrierid: str | None = None,
-        carriertype: str | None = None,
-        locationid: str | None = None,
-        unstainedinfo: str | None = None,
-        unstainedcenters: UnstainedCenters | None = None,
-        flowrate: str | None = None,
+        carrierid: str = "",
+        carriertype: str = "",
+        locationid: str = "",
+        unstainedinfo: str = "",
+        unstainedcenters: UnstainedCenters = {},
+        flowrate: str = "",
         abrt: int | None = None,
-        com: str | None = None,
-        cells: str | None = None,
-        exp: str | None = None,
-        fil: str | None = None,
-        inst: str | None = None,
+        com: str = "",
+        cells: str = "",
+        exp: str = "",
+        fil: str = "",
+        inst: str = "",
         lost: int | None = None,
-        op: str | None = None,
-        proj: str | None = None,
-        smno: str | None = None,
-        src: str | None = None,
-        sys: str | None = None,
+        op: str = "",
+        proj: str = "",
+        smno: str = "",
+        src: str = "",
+        sys: str = "",
         tr: Trigger | None = None,
         applied_gates: AppliedGates3_2 = ({}, None),
         nonstandard_keywords: NonStdKeywords = {},
@@ -1196,23 +1194,23 @@ class CoreDataset2_0(
         layout: _AnyOrderedLayout,
         data: DataFrame,
         mode: Mode = "L",
-        cyt: str | None = None,
+        cyt: str = "",
         comp: npt.NDArray[np.float32] | None = None,
         btim: time | None = None,
         etim: time | None = None,
         date: date | None = None,
         abrt: int | None = None,
-        com: str | None = None,
-        cells: str | None = None,
-        exp: str | None = None,
-        fil: str | None = None,
-        inst: str | None = None,
+        com: str = "",
+        cells: str = "",
+        exp: str = "",
+        fil: str = "",
+        inst: str = "",
         lost: int | None = None,
-        op: str | None = None,
-        proj: str | None = None,
-        smno: str | None = None,
-        src: str | None = None,
-        sys: str | None = None,
+        op: str = "",
+        proj: str = "",
+        smno: str = "",
+        src: str = "",
+        sys: str = "",
         tr: Trigger | None = None,
         applied_gates: AppliedGates2_0 = ([], {}, None),
         nonstandard_keywords: NonStdKeywords = {},
@@ -1283,28 +1281,28 @@ class CoreDataset3_0(
         layout: _AnyOrderedLayout,
         data: DataFrame,
         mode: Mode = "L",
-        cyt: str | None = None,
+        cyt: str = "",
         comp: Compensation | None = None,
         btim: time | None = None,
         etim: time | None = None,
         date: date | None = None,
-        cytsn: str | None = None,
+        cytsn: str = "",
         unicode: Unicode | None = None,
-        csvbits: int | None = None,
-        cstot: int | None = None,
-        csvflags: CsvFlags | None = None,
+        csvbits: int = 0,
+        cstot: int = 0,
+        csvflags: CsvFlags = [],
         abrt: int | None = None,
-        com: str | None = None,
-        cells: str | None = None,
-        exp: str | None = None,
-        fil: str | None = None,
-        inst: str | None = None,
+        com: str = "",
+        cells: str = "",
+        exp: str = "",
+        fil: str = "",
+        inst: str = "",
         lost: int | None = None,
-        op: str | None = None,
-        proj: str | None = None,
-        smno: str | None = None,
-        src: str | None = None,
-        sys: str | None = None,
+        op: str = "",
+        proj: str = "",
+        smno: str = "",
+        src: str = "",
+        sys: str = "",
         tr: Trigger | None = None,
         applied_gates: AppliedGates3_0 = ([], {}, None),
         nonstandard_keywords: NonStdKeywords = {},
@@ -1384,34 +1382,34 @@ class CoreDataset3_1(
         layout: _AnyNonMixedLayout,
         data: DataFrame,
         mode: Mode = "L",
-        cyt: str | None = None,
+        cyt: str = "",
         btim: time | None = None,
         etim: time | None = None,
         date: date | None = None,
-        cytsn: str | None = None,
+        cytsn: str = "",
         spillover: Spillover | None = None,
-        last_modifier: str | None = None,
+        last_modifier: str = "",
         last_modified: datetime | None = None,
         originality: Originality | None = None,
-        plateid: str | None = None,
-        platename: str | None = None,
-        wellid: str | None = None,
+        plateid: str = "",
+        platename: str = "",
+        wellid: str = "",
         vol: float | None = None,
-        csvbits: int | None = None,
-        cstot: int | None = None,
-        csvflags: CsvFlags | None = None,
+        csvbits: int = 0,
+        cstot: int = 0,
+        csvflags: CsvFlags = [],
         abrt: int | None = None,
-        com: str | None = None,
-        cells: str | None = None,
-        exp: str | None = None,
-        fil: str | None = None,
-        inst: str | None = None,
+        com: str = "",
+        cells: str = "",
+        exp: str = "",
+        fil: str = "",
+        inst: str = "",
         lost: int | None = None,
-        op: str | None = None,
-        proj: str | None = None,
-        smno: str | None = None,
-        src: str | None = None,
-        sys: str | None = None,
+        op: str = "",
+        proj: str = "",
+        smno: str = "",
+        src: str = "",
+        sys: str = "",
         tr: Trigger | None = None,
         applied_gates: AppliedGates3_0 = ([], {}, None),
         nonstandard_keywords: NonStdKeywords = {},
@@ -1494,33 +1492,33 @@ class CoreDataset3_2(
         date: date | None = None,
         begindatetime: datetime | None = None,
         enddatetime: datetime | None = None,
-        cytsn: str | None = None,
+        cytsn: str = "",
         spillover: Spillover | None = None,
-        last_modifier: str | None = None,
+        last_modifier: str = "",
         last_modified: datetime | None = None,
         originality: Originality | None = None,
-        plateid: str | None = None,
-        platename: str | None = None,
-        wellid: str | None = None,
+        plateid: str = "",
+        platename: str = "",
+        wellid: str = "",
         vol: float | None = None,
-        carrierid: str | None = None,
-        carriertype: str | None = None,
-        locationid: str | None = None,
-        unstainedinfo: str | None = None,
-        unstainedcenters: UnstainedCenters | None = None,
-        flowrate: str | None = None,
+        carrierid: str = "",
+        carriertype: str = "",
+        locationid: str = "",
+        unstainedinfo: str = "",
+        unstainedcenters: UnstainedCenters = {},
+        flowrate: str = "",
         abrt: int | None = None,
-        com: str | None = None,
-        cells: str | None = None,
-        exp: str | None = None,
-        fil: str | None = None,
-        inst: str | None = None,
+        com: str = "",
+        cells: str = "",
+        exp: str = "",
+        fil: str = "",
+        inst: str = "",
         lost: int | None = None,
-        op: str | None = None,
-        proj: str | None = None,
-        smno: str | None = None,
-        src: str | None = None,
-        sys: str | None = None,
+        op: str = "",
+        proj: str = "",
+        smno: str = "",
+        src: str = "",
+        sys: str = "",
         tr: Trigger | None = None,
         applied_gates: AppliedGates3_2 = ({}, None),
         nonstandard_keywords: NonStdKeywords = {},

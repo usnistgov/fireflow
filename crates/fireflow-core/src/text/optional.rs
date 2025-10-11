@@ -4,11 +4,9 @@ use crate::validated::keys::{IndexedKey, Key, MeasHeader};
 
 use super::index::IndexFromOne;
 
-use derive_more::{AsMut, AsRef, From};
-use std::convert::Infallible;
+use derive_more::{AsMut, AsRef, From, FromStr};
 use std::fmt;
 use std::marker::PhantomData;
-use std::mem;
 use std::string::ToString;
 use thiserror::Error;
 
@@ -18,24 +16,176 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
-/// A value that might exist.
-///
-/// This is basically [`Option`] but more obvious in what it indicates. It also
-/// allows some nice methods to be built on top of [`Option`].
-#[derive(Debug, Clone, PartialEq, Eq, AsRef, AsMut, From)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
-pub struct MaybeValue<T>(pub Option<T>);
-
 /// A value that always exists.
 #[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct AlwaysValue<T>(pub T);
 
 /// A value that always exists.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct NeverValue<T>(pub PhantomData<T>);
+
+/// A string that is stored as-is but will not be displayed/written if blank.
+#[derive(Debug, Clone, PartialEq, Eq, AsRef, AsMut, From, Default, FromStr)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+#[as_ref(str)]
+pub struct OptionalString(pub String);
+
+/// A string that is stored as-is but will not be displayed/written if zero.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, From, Default, FromStr)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+pub struct OptionalInt<T>(pub T);
+
+/// A value that can either have one value or be empty.
+///
+/// This is like a bool but the `true` value is meant to have a displayed value
+/// associated with it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, AsRef, AsMut, From, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", serde(into = "bool"))]
+#[cfg_attr(feature = "serde", serde(bound = "T: Clone"))]
+pub struct OptionalZST<T>(pub Option<T>);
+
+impl<T: Default> From<bool> for OptionalZST<T> {
+    fn from(value: bool) -> Self {
+        Self(value.then_some(T::default()))
+    }
+}
+
+impl<T> From<OptionalZST<T>> for bool {
+    fn from(value: OptionalZST<T>) -> Self {
+        value.0.is_some()
+    }
+}
+
+pub(crate) trait IsDefault {
+    fn is_default(&self) -> bool;
+}
+
+impl<T: Default + PartialEq> IsDefault for T {
+    fn is_default(&self) -> bool {
+        self == &T::default()
+    }
+}
+
+pub(crate) trait DisplayMaybe: IsDefault {
+    fn display_maybe(&self) -> Option<String>;
+}
+
+pub(crate) trait KeywordPairMaybe: IsDefault + DisplayMaybe {
+    type Inner;
+
+    fn metaroot_opt_pair(&self) -> (String, Option<String>)
+    where
+        Self::Inner: Key,
+    {
+        (Self::Inner::std().to_string(), self.display_maybe())
+    }
+
+    fn meas_opt_pair(&self, i: impl Into<IndexFromOne>) -> (String, Option<String>)
+    where
+        Self::Inner: IndexedKey,
+    {
+        (Self::Inner::std(i).to_string(), self.display_maybe())
+    }
+
+    fn meas_opt_triple(&self, i: impl Into<IndexFromOne>) -> (MeasHeader, String, Option<String>)
+    where
+        Self::Inner: IndexedKey,
+    {
+        (
+            Self::Inner::std_blank(),
+            Self::Inner::std(i).to_string(),
+            self.display_maybe(),
+        )
+    }
+}
+
+pub(crate) trait CheckMaybe: Sized + IsDefault {
+    type Inner;
+
+    fn check_key_transfer(&self, allow_loss: bool) -> BiTentative<(), AnyMetarootKeyLossError>
+    where
+        AnyMetarootKeyLossError: From<UnitaryKeyLossError<Self::Inner>>,
+    {
+        if self.is_default() {
+            Tentative::default()
+        } else {
+            Tentative::new_either((), [UnitaryKeyLossError::<Self::Inner>::new()], !allow_loss)
+        }
+    }
+
+    fn check_indexed_key_transfer_tnt<E>(
+        &self,
+        i: impl Into<IndexFromOne>,
+        allow_loss: bool,
+    ) -> BiTentative<(), E>
+    where
+        E: From<IndexedKeyLossError<Self::Inner>>,
+    {
+        if self.is_default() {
+            Tentative::default()
+        } else {
+            let e = IndexedKeyLossError::<Self::Inner>::new(i);
+            Tentative::new_either((), [e], !allow_loss)
+        }
+    }
+
+    fn check_indexed_key_transfer<E>(&self, i: impl Into<IndexFromOne>) -> Result<(), E>
+    where
+        E: From<IndexedKeyLossError<Self::Inner>>,
+    {
+        if self.is_default() {
+            Ok(())
+        } else {
+            Err(IndexedKeyLossError::<Self::Inner>::new(i).into())
+        }
+    }
+}
+
+impl DisplayMaybe for OptionalString {
+    fn display_maybe(&self) -> Option<String> {
+        if self.0.is_empty() {
+            None
+        } else {
+            Some(self.0.clone())
+        }
+    }
+}
+
+impl<T: fmt::Display + PartialEq + Default> DisplayMaybe for OptionalInt<T> {
+    fn display_maybe(&self) -> Option<String> {
+        if self.0 == T::default() {
+            None
+        } else {
+            Some(self.0.to_string())
+        }
+    }
+}
+
+impl<T: fmt::Display + PartialEq + Default> DisplayMaybe for OptionalZST<T> {
+    fn display_maybe(&self) -> Option<String> {
+        self.0.as_ref().map(ToString::to_string)
+    }
+}
+
+impl<T: fmt::Display + PartialEq> DisplayMaybe for Option<T> {
+    fn display_maybe(&self) -> Option<String> {
+        self.as_ref().map(ToString::to_string)
+    }
+}
+
+impl<T: fmt::Display + PartialEq> KeywordPairMaybe for Option<T> {
+    type Inner = T;
+}
+
+impl<T: fmt::Display + PartialEq> CheckMaybe for Option<T> {
+    type Inner = T;
+}
 
 /// Encodes a type which might have something in it.
 ///
@@ -85,11 +235,11 @@ pub trait MightHave {
 pub struct MaybeFamily;
 
 impl MightHave for MaybeFamily {
-    type Wrapper<T> = MaybeValue<T>;
+    type Wrapper<T> = Option<T>;
     const INFALLABLE: bool = false;
 
     fn unwrap<T>(x: Self::Wrapper<T>) -> Result<T, Self::Wrapper<T>> {
-        x.0.ok_or(MaybeValue::default())
+        x.ok_or(None)
     }
 
     fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T> {
@@ -100,7 +250,7 @@ impl MightHave for MaybeFamily {
     where
         F: FnOnce(T) -> T0,
     {
-        x.0.map(f).into()
+        x.map(f)
     }
 }
 
@@ -134,194 +284,17 @@ impl<T> From<T> for AlwaysValue<T> {
     }
 }
 
-impl<T> From<T> for MaybeValue<T> {
-    fn from(value: T) -> Self {
-        Some(value).into()
-    }
-}
-
-impl<T> TryFrom<MaybeValue<T>> for AlwaysValue<T> {
+impl<T> TryFrom<Option<T>> for AlwaysValue<T> {
     type Error = MaybeToAlwaysError;
-    fn try_from(value: MaybeValue<T>) -> Result<Self, Self::Error> {
-        value.0.ok_or(MaybeToAlwaysError).map(AlwaysValue)
+    fn try_from(value: Option<T>) -> Result<Self, Self::Error> {
+        value.ok_or(MaybeToAlwaysError).map(AlwaysValue)
     }
 }
 
-impl<T> From<AlwaysValue<T>> for MaybeValue<T> {
+impl<T> From<AlwaysValue<T>> for Option<T> {
     fn from(value: AlwaysValue<T>) -> Self {
-        Some(value.0).into()
+        Some(value.0)
     }
-}
-
-impl<T> From<MaybeValue<T>> for Option<T> {
-    fn from(value: MaybeValue<T>) -> Self {
-        value.0
-    }
-}
-
-impl<T: Copy> Copy for MaybeValue<T> {}
-
-impl<T> Default for MaybeValue<T> {
-    fn default() -> Self {
-        Self(None)
-    }
-}
-
-impl<V> MaybeValue<V> {
-    pub fn as_ref(&self) -> MaybeValue<&V> {
-        MaybeValue(self.0.as_ref())
-    }
-
-    pub fn as_ref_opt(&self) -> Option<&V> {
-        self.0.as_ref()
-    }
-
-    pub fn map<F, W>(self, f: F) -> MaybeValue<W>
-    where
-        F: Fn(V) -> W,
-    {
-        MaybeValue(self.0.map(f))
-    }
-
-    /// Mutate thing in Option if present, and possibly unset Option entirely
-    pub fn mut_or_unset<E, F, X>(&mut self, f: F) -> Result<Option<X>, E>
-    where
-        F: Fn(&mut V) -> ClearMaybeError<X, E>,
-    {
-        match mem::replace(self, None.into()).0 {
-            None => Ok(None),
-            Some(mut x) => {
-                let c = f(&mut x);
-                let (ret, newself) = match c.clear {
-                    None => (Ok(Some(c.value)), Some(x).into()),
-                    Some(ClearOptionalOr::Error(e)) => (Err(e), Some(x).into()),
-                    Some(ClearOptionalOr::Clear) => (Ok(Some(c.value)), None.into()),
-                };
-                *self = newself;
-                ret
-            }
-        }
-    }
-
-    pub fn mut_or_unset_nofail<F, X>(&mut self, f: F) -> Option<X>
-    where
-        F: Fn(&mut V) -> ClearMaybe<X>,
-    {
-        let Ok(x) = self.mut_or_unset(f);
-        x
-    }
-
-    pub(crate) fn check_indexed_key_transfer<E>(&self, i: impl Into<IndexFromOne>) -> Result<(), E>
-    where
-        E: From<IndexedKeyLossError<V>>,
-    {
-        if self.0.is_some() {
-            Err(IndexedKeyLossError::<V>::new(i).into())
-        } else {
-            Ok(())
-        }
-    }
-
-    pub(crate) fn check_indexed_key_transfer_own<E>(
-        self,
-        i: impl Into<IndexFromOne>,
-        allow_loss: bool,
-    ) -> BiTentative<(), E>
-    where
-        E: From<IndexedKeyLossError<V>>,
-    {
-        let mut tnt = Tentative::default();
-        if self.0.is_some() {
-            tnt.push_error_or_warning(IndexedKeyLossError::<V>::new(i), !allow_loss);
-        }
-        tnt
-    }
-
-    pub(crate) fn check_key_transfer(
-        self,
-        allow_loss: bool,
-    ) -> BiTentative<(), AnyMetarootKeyLossError>
-    where
-        AnyMetarootKeyLossError: From<UnitaryKeyLossError<V>>,
-    {
-        let mut tnt = Tentative::default();
-        if self.0.is_some() {
-            tnt.push_error_or_warning(UnitaryKeyLossError::<V>::new(), !allow_loss);
-        }
-        tnt
-    }
-
-    pub fn as_opt_string(&self) -> Option<String>
-    where
-        V: fmt::Display,
-    {
-        self.0.as_ref().map(ToString::to_string)
-    }
-
-    pub(crate) fn root_kw_pair(&self) -> (String, Option<String>)
-    where
-        V: Key + fmt::Display,
-    {
-        (
-            V::std().to_string(),
-            self.0.as_ref().map(ToString::to_string),
-        )
-    }
-
-    pub(crate) fn meas_kw_triple(
-        &self,
-        i: impl Into<IndexFromOne>,
-    ) -> (MeasHeader, String, Option<String>)
-    where
-        V: IndexedKey + fmt::Display,
-    {
-        (
-            V::std_blank(),
-            V::std(i).to_string(),
-            self.0.as_ref().map(ToString::to_string),
-        )
-    }
-
-    pub(crate) fn meas_kw_pair(&self, i: impl Into<IndexFromOne>) -> (String, Option<String>)
-    where
-        V: IndexedKey + fmt::Display,
-    {
-        (
-            V::std(i).to_string(),
-            self.0.as_ref().map(ToString::to_string),
-        )
-    }
-}
-
-impl<V, E> MaybeValue<Result<V, E>> {
-    pub fn transpose(self) -> Result<MaybeValue<V>, E> {
-        self.0.transpose().map(Into::into)
-    }
-}
-
-pub type ClearMaybe<V> = ClearMaybeError<V, Infallible>;
-
-impl<V: Default, E> Default for ClearMaybeError<V, E> {
-    fn default() -> Self {
-        Self {
-            value: V::default(),
-            clear: None,
-        }
-    }
-}
-
-pub struct ClearMaybeError<V, E> {
-    pub value: V,
-    pub clear: Option<ClearOptionalOr<E>>,
-}
-
-pub type ClearOptional = ClearOptionalOr<Infallible>;
-
-#[derive(Default)]
-pub enum ClearOptionalOr<E> {
-    #[default]
-    Clear,
-    Error(E),
 }
 
 #[derive(Debug, Error)]
@@ -330,9 +303,11 @@ pub struct MaybeToAlwaysError;
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{AlwaysValue, MaybeValue};
+    use super::{AlwaysValue, OptionalZST};
 
     use pyo3::prelude::*;
+    use pyo3::types::PyBool;
+    use std::convert::Infallible;
 
     impl<'py, T> FromPyObject<'py> for AlwaysValue<T>
     where
@@ -343,12 +318,20 @@ mod python {
         }
     }
 
-    impl<'py, T> FromPyObject<'py> for MaybeValue<T>
-    where
-        T: FromPyObject<'py>,
-    {
+    impl<'py, T: Default> FromPyObject<'py> for OptionalZST<T> {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            Ok(Self(ob.extract()?))
+            let x: bool = ob.extract()?;
+            Ok(Self(x.then_some(T::default())))
+        }
+    }
+
+    impl<'py, T> IntoPyObject<'py> for OptionalZST<T> {
+        type Target = PyBool;
+        type Output = Bound<'py, Self::Target>;
+        type Error = Infallible;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            Ok(PyBool::new(py, self.0.is_some()).to_owned())
         }
     }
 }

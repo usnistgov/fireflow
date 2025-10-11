@@ -4,6 +4,7 @@ pub mod bitmask;
 pub mod dataframe;
 pub mod datepattern;
 pub mod keys;
+pub mod nonempty_string;
 pub mod shortname;
 pub mod sub_pattern;
 pub mod textdelim;

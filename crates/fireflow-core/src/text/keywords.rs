@@ -4,6 +4,7 @@ use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
 use crate::validated::ascii_uint::UintZeroPad20;
 use crate::validated::keys::{BiIndexedKey, IndexedKey, Key, StdKeywords};
+use crate::validated::nonempty_string::NonEmptyString;
 use crate::validated::shortname::Shortname;
 
 use super::byteord::{ByteOrd2_0, ByteOrd3_1, Width};
@@ -13,21 +14,22 @@ use super::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use super::gating;
 use super::index::{GateIndex, MeasIndex, RegionIndex};
 use super::named_vec::NameMapping;
-use super::optional::MaybeValue;
+use super::optional::{
+    CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString, OptionalZST,
+};
 use super::parser::{
-    eval_dep_maybe, process_opt, DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful,
-    LookupKeysWarning, LookupResult, LookupTentative, OptIndexedKey, OptLinkedKey, OptMetarootKey,
-    Optional, ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
+    DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful, LookupKeysWarning,
+    LookupResult, LookupTentative, OptIndexedKey, OptLinkedKey, OptMetarootKey, Optional,
+    ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
 };
 use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use super::scale::{Scale, ScaleError};
 use super::spillover::Spillover;
 use super::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime100, FCSTime60, Xtim};
-use super::unstainedcenters::UnstainedCenters;
 
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use chrono::{NaiveDateTime, NaiveTime, Timelike as _};
-use derive_more::{Add, AsMut, Display, From, FromStr, Into, Sub};
+use derive_more::{Add, AsMut, AsRef, Display, From, FromStr, Into, Sub};
 use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use num_traits::cast::ToPrimitive as _;
@@ -37,7 +39,7 @@ use std::iter::once;
 use thiserror::Error;
 
 use std::any::type_name;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
@@ -370,12 +372,11 @@ impl TryFrom<AlphaNumType> for NumType {
 /// The value of the $PnE key for temporal measurements (all versions)
 ///
 /// This can only be linear (0,0)
-#[derive(Clone, PartialEq, Display)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
+#[derive(Clone, PartialEq, Display, Debug, Default)]
 #[display("0,0")]
-pub struct TemporalScale;
+pub struct TemporalScaleInner;
 
-impl FromStr for TemporalScale {
+impl FromStr for TemporalScaleInner {
     type Err = TemporalScaleError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -384,6 +385,20 @@ impl FromStr for TemporalScale {
             _ => Err(TemporalScaleError),
         }
     }
+}
+
+/// The value of the $PnE key for temporal measurements (3.0+)
+#[derive(Clone, PartialEq, Display, Debug, Default, FromStr)]
+pub struct TemporalScale3_0(pub TemporalScaleInner);
+
+impl DisplayMaybe for TemporalScale3_0 {
+    fn display_maybe(&self) -> Option<String> {
+        Some(self.0.to_string())
+    }
+}
+
+impl KeywordPairMaybe for TemporalScale3_0 {
+    type Inner = Self;
 }
 
 #[derive(Debug, Error)]
@@ -475,15 +490,32 @@ impl_newtype_try_from!(Wavelength, PositiveFloat, f32, RangedFloatError);
 /// The value for the $PnL key (3.1).
 ///
 /// Starting in 3.1 this is a vector rather than a scaler.
-#[derive(Clone, From, PartialEq, Debug, Display)]
+#[derive(Clone, From, PartialEq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
-#[display("{}", (self.0).0.iter().join(","))]
-pub struct Wavelengths(pub FCSNonEmpty<PositiveFloat>);
+pub struct Wavelengths(pub Vec<PositiveFloat>);
+
+impl DisplayMaybe for Wavelengths {
+    fn display_maybe(&self) -> Option<String> {
+        if self.0.is_empty() {
+            None
+        } else {
+            Some(self.0.iter().join(","))
+        }
+    }
+}
+
+impl KeywordPairMaybe for Wavelengths {
+    type Inner = Self;
+}
+
+impl CheckMaybe for Wavelengths {
+    type Inner = Self;
+}
 
 impl From<Wavelengths> for Vec<f32> {
     fn from(value: Wavelengths) -> Self {
-        Vec::from((value.0).0).into_iter().map(Into::into).collect()
+        value.0.into_iter().map(Into::into).collect()
     }
 }
 
@@ -511,7 +543,7 @@ impl FromStrDelim for Wavelengths {
     fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
         let xs = NonEmpty::collect(iter).ok_or(WavelengthsError::Empty)?;
         let ys = xs.try_map(|x| x.parse().map_err(WavelengthsError::Num))?;
-        Ok(Self(FCSNonEmpty(ys)))
+        Ok(Self(ys.into()))
     }
 }
 
@@ -519,14 +551,15 @@ impl Wavelengths {
     pub(crate) fn into_wavelength(
         self,
         allow_loss: bool,
-    ) -> Tentative<Wavelength, WavelengthsLossError, WavelengthsLossError> {
-        let ws = self.0;
-        let n = ws.0.len();
-        let mut tnt = Tentative::new1(Wavelength(ws.0.head));
-        if n > 1 {
-            tnt.push_error_or_warning(WavelengthsLossError(n), !allow_loss);
-        }
-        tnt
+    ) -> Tentative<Option<Wavelength>, WavelengthsLossError, WavelengthsLossError> {
+        NonEmpty::from_vec(self.0).map_or(Tentative::default(), |ws| {
+            let n = ws.len();
+            let mut tnt = Tentative::new1(Some(Wavelength(ws.head)));
+            if n > 1 {
+                tnt.push_error_or_warning(WavelengthsLossError(n), !allow_loss);
+            }
+            tnt
+        })
     }
 }
 
@@ -678,41 +711,15 @@ pub enum UnicodeError {
 }
 
 /// The value of the $PnTYPE key in optical channels (3.2+)
-#[derive(Clone, PartialEq, Debug, Display)]
+#[derive(Clone, PartialEq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum OpticalType {
-    #[display("{}", FORWARD_SCATTER)]
-    ForwardScatter,
-    #[display("{}", SIDE_SCATTER)]
-    SideScatter,
-    #[display("{}", RAW_FLUORESCENCE)]
-    RawFluorescence,
-    #[display("{}", UNMIXED_FLUORESCENCE)]
-    UnmixedFluorescence,
-    #[display("{}", MASS)]
-    Mass,
-    #[display("{}", ELECTRONIC_VOLUME)]
-    ElectronicVolume,
-    #[display("{}", CLASSIFICATION)]
-    Classification,
-    #[display("{}", INDEX)]
-    Index,
-    #[display("{_0}")]
-    Other(String),
-}
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct OpticalType(pub OptionalString);
 
 #[derive(Debug, Error)]
 #[error("$PnTYPE for time measurement shall not be 'Time' if given")]
 pub struct OpticalTypeError;
 
-const FORWARD_SCATTER: &str = "Forward Scatter";
-const SIDE_SCATTER: &str = "Side Scatter";
-const RAW_FLUORESCENCE: &str = "Raw Fluorescence";
-const UNMIXED_FLUORESCENCE: &str = "Unmixed Fluorescence";
-const MASS: &str = "Mass";
-const INDEX: &str = "Index";
-const ELECTRONIC_VOLUME: &str = "Electronic Volume";
-const CLASSIFICATION: &str = "Classification";
 const TIME: &str = "Time";
 
 impl FromStr for OpticalType {
@@ -721,26 +728,17 @@ impl FromStr for OpticalType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             TIME => Err(OpticalTypeError),
-            FORWARD_SCATTER => Ok(Self::ForwardScatter),
-            SIDE_SCATTER => Ok(Self::SideScatter),
-            RAW_FLUORESCENCE => Ok(Self::RawFluorescence),
-            UNMIXED_FLUORESCENCE => Ok(Self::UnmixedFluorescence),
-            MASS => Ok(Self::Mass),
-            ELECTRONIC_VOLUME => Ok(Self::ElectronicVolume),
-            INDEX => Ok(Self::Index),
-            CLASSIFICATION => Ok(Self::Classification),
-            x => Ok(Self::Other(x.into())),
+            _ => Ok(Self(s.to_owned().into())),
         }
     }
 }
 
 /// The value of the $PnTYPE key in temporal channels (3.2+)
-#[derive(Clone, PartialEq, Debug, Display)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
+#[derive(Clone, PartialEq, Debug, Display, Default)]
 #[display("{}", TIME)]
-pub struct TemporalType;
+pub struct TemporalTypeInner;
 
-impl FromStr for TemporalType {
+impl FromStr for TemporalTypeInner {
     type Err = TemporalTypeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -832,15 +830,16 @@ impl<I> RegionGateIndex<I> {
         kws: &mut StdKeywords,
         i: RegionIndex,
         par: Par,
+        is_deprecated: bool,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<MaybeValue<Self>>
+    ) -> LookupTentative<Option<Self>>
     where
         I: fmt::Display + FromStr + gating::LinkedMeasIndex,
         for<'a> Self: fmt::Display + FromStrStateful<Payload<'a> = ()>,
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
-        process_opt(Self::remove_meas_opt_st(kws, i, (), conf), conf).and_tentatively(|maybe| {
-            if let Some(x) = maybe.0 {
+        Self::lookup_meas_opt_st(kws, i, is_deprecated, (), conf).and_tentatively(|maybe| {
+            if let Some(x) = maybe {
                 Self::check_link(&x, par)
                     .map(|()| x)
                     .into_tentative_opt(!conf.allow_optional_dropping)
@@ -850,22 +849,6 @@ impl<I> RegionGateIndex<I> {
             }
             .value_into()
         })
-    }
-
-    pub(crate) fn lookup_region_opt_dep(
-        kws: &mut StdKeywords,
-        i: RegionIndex,
-        par: Par,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<MaybeValue<Self>>
-    where
-        I: fmt::Display + FromStr + gating::LinkedMeasIndex,
-        for<'a> Self: fmt::Display + FromStrStateful<Payload<'a> = ()>,
-        ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
-    {
-        let mut x = Self::lookup_region_opt(kws, i, par, conf);
-        eval_dep_maybe(&mut x, Self::std(i), conf.disallow_deprecated);
-        x
     }
 
     fn check_link(&self, par: Par) -> Result<(), RegionIndexError>
@@ -1546,12 +1529,180 @@ impl FromStrStateful for GateScale {
     }
 }
 
+/// The value of the $CYT key (3.2).
+///
+/// This is not a normal string because it is required in 3.2 and thus cannot
+/// be empty.
+#[derive(Clone, Display, FromStr, PartialEq, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct Cyt3_2(pub NonEmptyString);
+
+impl From<Cyt3_2> for Cyt {
+    fn from(value: Cyt3_2) -> Self {
+        Self(OptionalString(value.0.into()))
+    }
+}
+
+impl TryFrom<Cyt> for Cyt3_2 {
+    type Error = NoCytError;
+
+    fn try_from(value: Cyt) -> Result<Self, Self::Error> {
+        (value.0).0.parse().map_err(|_| NoCytError)
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("$CYT is missing")]
+pub struct NoCytError;
+
+/// The value for the $UNSTAINEDCENTERS key (3.2+)
+#[derive(Clone, Into, PartialEq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct UnstainedCenters(pub HashMap<Shortname, f32>);
+
+#[derive(Debug, Error)]
+pub enum ParseUnstainedCenterError {
+    #[error("Names are not unique")]
+    NonUnique,
+    #[error("Expected {expected} values, found {total}")]
+    BadLength { total: usize, expected: usize },
+    #[error("Could not parse N")]
+    BadN,
+    #[error("Error parsing float value(s)")]
+    BadFloat,
+}
+
+impl UnstainedCenters {
+    pub(crate) fn names_difference(
+        &self,
+        names: &HashSet<&Shortname>,
+    ) -> impl Iterator<Item = &Shortname> {
+        self.0.keys().filter(|n| !names.contains(n))
+    }
+}
+
+impl FromStrStateful for UnstainedCenters {
+    type Err = ParseUnstainedCenterError;
+    type Payload<'a> = ();
+
+    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
+    }
+}
+
+impl FromStr for UnstainedCenters {
+    type Err = ParseUnstainedCenterError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_str_delim(s, false)
+    }
+}
+
+impl FromStrDelim for UnstainedCenters {
+    type Err = ParseUnstainedCenterError;
+    const DELIM: char = ',';
+
+    fn from_iter<'a>(mut iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        // NOTE the standard does not say if this is allowed to be empty or not
+        // (ie the string "0") so do not enforce here. However, if empty we will
+        // not save the keyword when writing the file.
+        if let Some(n) = iter.next().and_then(|x| x.parse().ok()) {
+            // This should be safe since we are splitting by commas
+            let measurements: Vec<_> = iter
+                .by_ref()
+                .take(n)
+                .map(Shortname::new_unchecked)
+                .collect();
+            if measurements.iter().unique().count() < measurements.len() {
+                return Err(ParseUnstainedCenterError::NonUnique);
+            }
+            let values: Vec<_> = iter
+                .by_ref()
+                .take(n)
+                .map(str::parse::<f32>)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| ParseUnstainedCenterError::BadFloat)?;
+            let remainder = iter.by_ref().count();
+            let total = values.len() + measurements.len() + remainder;
+            let expected = 2 * n;
+            if total == expected {
+                let ys = measurements.into_iter().zip(values).collect();
+                Ok(Self(ys))
+            } else {
+                Err(ParseUnstainedCenterError::BadLength { total, expected })
+            }
+        } else {
+            Err(ParseUnstainedCenterError::BadN)
+        }
+    }
+}
+
+impl DisplayMaybe for UnstainedCenters {
+    fn display_maybe(&self) -> Option<String> {
+        if self.0.is_empty() {
+            None
+        } else {
+            let n = self.0.len();
+            let k = self.0.keys().join(",");
+            let v = self.0.values().join(",");
+            Some(format!("{n},{k},{v}"))
+        }
+    }
+}
+
+impl KeywordPairMaybe for UnstainedCenters {
+    type Inner = Self;
+}
+
+impl CheckMaybe for UnstainedCenters {
+    type Inner = Self;
+}
+
+impl OptLinkedKey for UnstainedCenters {
+    fn names(&self) -> HashSet<&Shortname> {
+        self.0.keys().collect()
+    }
+
+    fn reassign(&mut self, mapping: &NameMapping) {
+        // keys can't be mutated in place so need to rebuild the hashmap with
+        // new keys from the mapping
+        let new: HashMap<_, _> = self
+            .0
+            .iter()
+            .map(|(k, v)| {
+                (
+                    mapping.get(k).map(|x| (*x).clone()).unwrap_or(k.clone()),
+                    *v,
+                )
+            })
+            .collect();
+        self.0 = new;
+    }
+}
+
 macro_rules! newtype_string {
     ($t:ident) => {
-        #[derive(Clone, Display, FromStr, From, Into, PartialEq, Debug)]
+        #[derive(Clone, FromStr, From, Into, PartialEq, Debug, Default, AsRef)]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
-        pub struct $t(pub String);
+        #[as_ref(str)]
+        pub struct $t(pub OptionalString);
+
+        impl DisplayMaybe for $t {
+            fn display_maybe(&self) -> Option<String> {
+                self.0.display_maybe()
+            }
+        }
+
+        impl KeywordPairMaybe for $t {
+            type Inner = Self;
+        }
+
+        impl CheckMaybe for $t {
+            type Inner = Self;
+        }
     };
 }
 
@@ -1561,6 +1712,64 @@ macro_rules! newtype_int {
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(IntoPyObject))]
         pub struct $t(pub $type);
+
+        #[cfg(feature = "python")]
+        impl_from_py_transparent!($t);
+    };
+}
+
+macro_rules! impl_display_maybe_self {
+    ($t:ident) => {
+        impl DisplayMaybe for $t {
+            fn display_maybe(&self) -> Option<String> {
+                self.0.display_maybe()
+            }
+        }
+
+        impl CheckMaybe for $t {
+            type Inner = Self;
+        }
+
+        impl KeywordPairMaybe for $t {
+            type Inner = Self;
+        }
+    };
+}
+
+macro_rules! newtype_opt_int {
+    ($t:ident, $inner:ident) => {
+        #[derive(Clone, Default, PartialEq, Eq, FromStr, Debug)]
+        #[cfg_attr(feature = "serde", derive(Serialize))]
+        #[cfg_attr(feature = "python", derive(IntoPyObject))]
+        pub struct $t(pub OptionalInt<$inner>);
+
+        impl_display_maybe_self!($t);
+
+        #[cfg(feature = "python")]
+        impl_from_py_transparent!($t);
+    };
+}
+
+macro_rules! newtype_opt_bool {
+    ($t:ident, $inner:ident, $err:ident) => {
+        #[derive(Clone, PartialEq, Debug, Default, From, Into)]
+        #[cfg_attr(feature = "python", derive(IntoPyObject))]
+        #[cfg_attr(feature = "serde", derive(Serialize))]
+        #[from(bool)]
+        #[into(bool)]
+        pub struct $t(pub OptionalZST<$inner>);
+
+        impl FromStr for $t {
+            type Err = $err;
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                s.parse::<$inner>()
+                    .map(Some)
+                    .map(OptionalZST::from)
+                    .map(Self)
+            }
+        }
+
+        impl_display_maybe_self!($t);
 
         #[cfg(feature = "python")]
         impl_from_py_transparent!($t);
@@ -1619,8 +1828,10 @@ macro_rules! req_meta {
 }
 
 macro_rules! opt_meta {
-    ($t:ident) => {
-        impl Optional for $t {}
+    ($t:ident, $outer:path) => {
+        impl Optional for $t {
+            type Outer = $outer;
+        }
         impl OptMetarootKey for $t {}
     };
 }
@@ -1633,8 +1844,10 @@ macro_rules! req_meas {
 }
 
 macro_rules! opt_meas {
-    ($t:ident) => {
-        impl Optional for $t {}
+    ($t:ident, $outer:path) => {
+        impl Optional for $t {
+            type Outer = $outer;
+        }
         impl OptIndexedKey for $t {}
     };
 }
@@ -1647,9 +1860,9 @@ macro_rules! kw_req_meta {
 }
 
 macro_rules! kw_opt_meta {
-    ($t:ident, $sfx:expr) => {
+    ($t:ident, $sfx:expr, $outer:path) => {
         kw_meta!($t, $sfx);
-        opt_meta!($t);
+        opt_meta!($t, $outer);
     };
 }
 
@@ -1661,23 +1874,23 @@ macro_rules! kw_req_meas {
 }
 
 macro_rules! kw_opt_meas {
-    ($t:ident, $sfx:expr) => {
+    ($t:ident, $sfx:expr, $outer:path) => {
         kw_meas!($t, $sfx);
-        opt_meas!($t);
+        opt_meas!($t, $outer);
     };
 }
 
 macro_rules! kw_opt_meta_string {
     ($t:ident, $sfx:expr) => {
         kw_meta_string!($t, $sfx);
-        opt_meta!($t);
+        opt_meta!($t, Self);
     };
 }
 
 macro_rules! kw_opt_meas_string {
     ($t:ident, $sfx:expr) => {
         kw_meas_string!($t, $sfx);
-        opt_meas!($t);
+        opt_meas!($t, Self);
     };
 }
 
@@ -1691,7 +1904,7 @@ macro_rules! kw_req_meta_int {
 macro_rules! kw_opt_meta_int {
     ($t:ident, $type:ident, $sfx:expr) => {
         kw_meta_int!($t, $type, $sfx);
-        opt_meta!($t);
+        opt_meta!($t, Option<Self>);
     };
 }
 
@@ -1699,7 +1912,7 @@ macro_rules! kw_time {
     ($outer:ident, $wrap:ident, $inner:ident, $err:ident, $key:expr) => {
         type $outer = $wrap<$inner>;
 
-        kw_opt_meta!($outer, $key);
+        kw_opt_meta!($outer, $key, Option<Self>);
 
         impl From<NaiveTime> for $outer {
             fn from(value: NaiveTime) -> Self {
@@ -1710,19 +1923,25 @@ macro_rules! kw_time {
 }
 
 macro_rules! kw_opt_gate {
-    ($t:ident, $sfx:expr) => {
+    ($t:ident, $sfx:expr, $outer:path) => {
         impl IndexedKey for $t {
             const PREFIX: &'static str = "G";
             const SUFFIX: &'static str = $sfx;
         }
-        opt_meas!($t);
+        opt_meas!($t, $outer);
+    };
+}
+
+macro_rules! kw_opt_gate_other {
+    ($t:ident, $sfx:expr) => {
+        kw_opt_gate!($t, $sfx, Option<Self>);
     };
 }
 
 macro_rules! kw_opt_gate_string {
     ($t:ident, $sfx:expr) => {
         newtype_string!($t);
-        kw_opt_gate!($t, $sfx);
+        kw_opt_gate!($t, $sfx, Self);
     };
 }
 
@@ -1732,7 +1951,21 @@ macro_rules! kw_opt_region {
             const PREFIX: &'static str = "R";
             const SUFFIX: &'static str = $sfx;
         }
-        opt_meas!($t);
+        opt_meas!($t, Option<Self>);
+    };
+}
+
+macro_rules! meas_opt_zst {
+    ($t:ident, $sym:expr, $inner:ident, $err:ident) => {
+        newtype_opt_bool!($t, $inner, $err);
+        kw_opt_meas!($t, $sym, Self);
+    };
+}
+
+macro_rules! kw_opt_meta_opt_int {
+    ($t:ident, $inner:ident, $sym:expr) => {
+        newtype_opt_int!($t, $inner);
+        kw_opt_meta!($t, $sym, Self);
     };
 }
 
@@ -1742,7 +1975,7 @@ kw_opt_meta_int!(Abrt, u32, "ABRT");
 kw_opt_meta_string!(Cytsn, "CYTSN");
 kw_opt_meta_string!(Com, "COM");
 kw_opt_meta_string!(Cells, "CELLS");
-kw_opt_meta!(FCSDate, "DATE");
+kw_opt_meta!(FCSDate, "DATE", Option<Self>);
 kw_opt_meta_string!(Exp, "EXP");
 kw_opt_meta_string!(Fil, "FIL");
 kw_opt_meta_string!(Inst, "INST");
@@ -1758,7 +1991,9 @@ impl Key for Trigger {
     const C: &'static str = "TR";
 }
 
-impl Optional for Trigger {}
+impl Optional for Trigger {
+    type Outer = Option<Self>;
+}
 
 impl OptLinkedKey for Trigger {
     fn names(&self) -> HashSet<&Shortname> {
@@ -1785,43 +2020,41 @@ kw_time!(Btim3_1, Btim, FCSTime100, FCSTime100Error, "BTIM");
 kw_time!(Etim3_1, Etim, FCSTime100, FCSTime100Error, "ETIM");
 
 // 3.0 only
-kw_opt_meta!(Compensation3_0, "COMP");
-kw_opt_meta!(Unicode, "UNICODE");
+kw_opt_meta!(Compensation3_0, "COMP", Option<Self>);
+kw_opt_meta!(Unicode, "UNICODE", Option<Self>);
 
 // for 3.0+
 kw_req_meta!(Timestep, "TIMESTEP");
 
 // for 3.1+
 kw_opt_meta_string!(LastModifier, "LAST_MODIFIER");
-kw_opt_meta!(Originality, "ORIGINALITY");
-kw_opt_meta!(LastModified, "LAST_MODIFIED");
+kw_opt_meta!(Originality, "ORIGINALITY", Option<Self>);
+kw_opt_meta!(LastModified, "LAST_MODIFIED", Option<Self>);
 
 kw_opt_meta_string!(Plateid, "PLATEID");
 kw_opt_meta_string!(Platename, "PLATENAME");
 kw_opt_meta_string!(Wellid, "WELLID");
 
-// impl Key for Spillover {
-//     const C: &'static str = "SPILLOVER";
-// }
-
 // impl Optional for Spillover {}
-kw_opt_meta!(Spillover, "SPILLOVER");
+kw_opt_meta!(Spillover, "SPILLOVER", Option<Self>);
 
-kw_opt_meta!(Vol, "VOL");
+kw_opt_meta!(Vol, "VOL", Option<Self>);
 
 // for 3.2+
 kw_opt_meta_string!(Carrierid, "CARRIERID");
 kw_opt_meta_string!(Carriertype, "CARRIERTYPE");
 kw_opt_meta_string!(Locationid, "LOCATIONID");
 
-kw_opt_meta!(BeginDateTime, "BEGINDATETIME");
-kw_opt_meta!(EndDateTime, "ENDDATETIME");
+kw_opt_meta!(BeginDateTime, "BEGINDATETIME", Option<Self>);
+kw_opt_meta!(EndDateTime, "ENDDATETIME", Option<Self>);
 
 impl Key for UnstainedCenters {
     const C: &'static str = "UNSTAINEDCENTERS";
 }
 
-impl Optional for UnstainedCenters {}
+impl Optional for UnstainedCenters {
+    type Outer = Self;
+}
 
 kw_opt_meta_string!(UnstainedInfo, "UNSTAINEDINFO");
 
@@ -1832,10 +2065,10 @@ kw_opt_meta_int!(Tot, usize, "TOT"); // optional in 2.0
 req_meta!(Tot); // required in 3.0+
 
 kw_req_meta!(Mode, "MODE"); // for 2.0-3.1
-kw_opt_meta!(Mode3_2, "MODE"); // for 3.2+
+kw_opt_meta!(Mode3_2, "MODE", Option<Self>); // for 3.2+
 
 kw_opt_meta_string!(Cyt, "CYT"); // optional for 2.0-3.1
-req_meta!(Cyt); // required for 3.2+
+kw_req_meta!(Cyt3_2, "CYT"); // required for 3.2+
 
 kw_req_meta!(ByteOrd2_0, "BYTEORD"); // 2.0/3.0
 kw_req_meta!(ByteOrd3_1, "BYTEORD"); // 3.1+
@@ -1843,43 +2076,45 @@ kw_req_meta!(ByteOrd3_1, "BYTEORD"); // 3.1+
 // all versions
 kw_req_meas!(Width, "B");
 kw_opt_meas_string!(Filter, "F");
-kw_opt_meas!(Power, "O");
-kw_opt_meas!(PercentEmitted, "P");
+kw_opt_meas!(Power, "O", Option<Self>);
+kw_opt_meas!(PercentEmitted, "P", Option<Self>);
 kw_req_meas!(Range, "R");
 kw_opt_meas_string!(Longname, "S");
 kw_opt_meas_string!(DetectorType, "T");
-kw_opt_meas!(DetectorVoltage, "V");
+kw_opt_meas!(DetectorVoltage, "V", Option<Self>);
 
 // 3.0+
-kw_opt_meas!(Gain, "G");
+kw_opt_meas!(Gain, "G", Option<Self>);
 
 // 3.1+
-kw_opt_meas!(Display, "D");
+kw_opt_meas!(Display, "D", Option<Self>);
 
 // 3.2+
-kw_opt_meas!(Feature, "FEATURE");
-kw_opt_meas!(OpticalType, "TYPE");
-kw_opt_meas!(TemporalType, "TYPE");
-kw_opt_meas!(NumType, "DATATYPE");
+kw_opt_meas!(Feature, "FEATURE", Option<Self>);
+meas_opt_zst!(TemporalType, "TYPE", TemporalTypeInner, TemporalTypeError);
+kw_opt_meas!(NumType, "DATATYPE", Option<Self>);
 kw_opt_meas_string!(Analyte, "ANALYTE");
 kw_opt_meas_string!(Tag, "TAG");
 kw_opt_meas_string!(DetectorName, "DET");
 
+impl_display_maybe_self!(OpticalType);
+kw_opt_meas!(OpticalType, "TYPE", Self);
+
 // version specific
-kw_opt_meas!(Shortname, "N"); // optional for 2.0/3.0
+kw_opt_meas!(Shortname, "N", Option<Self>); // optional for 2.0/3.0
 req_meas!(Shortname); // required for 3.1+
 
-kw_opt_meas!(Scale, "E"); // optional for 2.0
+kw_opt_meas!(Scale, "E", Option<Self>); // optional for 2.0
 req_meas!(Scale); // required for 3.0+
 
-kw_opt_meas!(TemporalScale, "E"); // optional for 2.0
-req_meas!(TemporalScale); // required for 3.0+
+meas_opt_zst!(TemporalScale, "E", TemporalScaleInner, TemporalScaleError); // optional for 2.0
+kw_req_meas!(TemporalScale3_0, "E"); // required for 3.0+
 
-kw_opt_meas!(Wavelength, "L"); // scaler in 2.0/3.0
-kw_opt_meas!(Wavelengths, "L"); // vector in 3.1+
+kw_opt_meas!(Wavelength, "L", Option<Self>); // scaler in 2.0/3.0
+kw_opt_meas!(Wavelengths, "L", Self); // vector in 3.1+
 
-kw_opt_meas!(Calibration3_1, "CALIBRATION"); // 3.1 doesn't have offset
-kw_opt_meas!(Calibration3_2, "CALIBRATION"); // 3.2+ includes offset
+kw_opt_meas!(Calibration3_1, "CALIBRATION", Option<Self>); // 3.1 doesn't have offset
+kw_opt_meas!(Calibration3_2, "CALIBRATION", Option<Self>); // 3.2+ includes offset
 
 // 2.0 compensation matrix
 pub struct Dfc;
@@ -1892,12 +2127,13 @@ impl BiIndexedKey for Dfc {
 
 // 3.0/3.1 subsets
 kw_opt_meta_int!(CSMode, usize, "CSMODE");
-kw_opt_meta_int!(CSVBits, u32, "CSVBITS");
-kw_opt_meta_int!(CSTot, u32, "CSTOT");
+
+kw_opt_meta_opt_int!(CSTot, u32, "CSTOT");
+kw_opt_meta_opt_int!(CSVBits, u32, "CSVBITS");
 
 // $CSVnFLAG (3.0/3.1)
 newtype_int!(CSVFlag, u32);
-opt_meas!(CSVFlag);
+opt_meas!(CSVFlag, Option<Self>);
 
 impl IndexedKey for CSVFlag {
     const PREFIX: &'static str = "CSV";
@@ -1906,7 +2142,7 @@ impl IndexedKey for CSVFlag {
 
 // $PKn (2.0-3.1)
 newtype_int!(PeakBin, u32);
-opt_meas!(PeakBin);
+opt_meas!(PeakBin, Option<Self>);
 
 impl IndexedKey for PeakBin {
     const PREFIX: &'static str = "PK";
@@ -1914,10 +2150,10 @@ impl IndexedKey for PeakBin {
 }
 
 // $PKNn (2.0-3.1)
-newtype_int!(PeakNumber, u32);
-opt_meas!(PeakNumber);
+newtype_int!(PeakIndex, MeasIndex);
+opt_meas!(PeakIndex, Option<Self>);
 
-impl IndexedKey for PeakNumber {
+impl IndexedKey for PeakIndex {
     const PREFIX: &'static str = "PKN";
     const SUFFIX: &'static str = "";
 }
@@ -1925,15 +2161,15 @@ impl IndexedKey for PeakNumber {
 // 2.0-3.1 gating parameters
 kw_opt_meta_int!(Gate, usize, "GATE");
 
-kw_opt_gate!(GateScale, "E");
+kw_opt_gate_other!(GateScale, "E");
 kw_opt_gate_string!(GateFilter, "F");
-kw_opt_gate!(GatePercentEmitted, "P");
-kw_opt_gate!(GateRange, "R");
-kw_opt_gate!(GateShortname, "N");
+kw_opt_gate_other!(GatePercentEmitted, "P");
+kw_opt_gate_other!(GateRange, "R");
+kw_opt_gate_other!(GateShortname, "N");
 kw_opt_gate_string!(GateLongname, "S");
 kw_opt_gate_string!(GateDetectorType, "T");
-kw_opt_gate!(GateDetectorVoltage, "V");
-kw_opt_meta!(Gating, "GATING");
+kw_opt_gate_other!(GateDetectorVoltage, "V");
+kw_opt_meta!(Gating, "GATING", Option<Self>);
 
 kw_opt_region!(RegionWindow, "W");
 
@@ -1942,7 +2178,9 @@ impl<I> IndexedKey for RegionGateIndex<I> {
     const SUFFIX: &'static str = "I";
 }
 
-impl<I> Optional for RegionGateIndex<I> {}
+impl<I> Optional for RegionGateIndex<I> {
+    type Outer = Option<Self>;
+}
 impl<I> OptIndexedKey for RegionGateIndex<I> where I: fmt::Display + FromStr {}
 
 // offsets for all versions
@@ -1965,10 +2203,10 @@ kw_offset!(Endanalysis, "ENDANALYSIS");
 kw_offset!(Enddata, "ENDDATA");
 kw_offset!(Endstext, "ENDSTEXT");
 
-opt_meta!(Beginanalysis);
-opt_meta!(Endanalysis);
-opt_meta!(Beginstext);
-opt_meta!(Endstext);
+opt_meta!(Beginanalysis, Option<Self>);
+opt_meta!(Endanalysis, Option<Self>);
+opt_meta!(Beginstext, Option<Self>);
+opt_meta!(Endstext, Option<Self>);
 
 #[cfg(test)]
 mod tests {
@@ -2019,7 +2257,7 @@ mod tests {
 
     #[test]
     fn pne_time() {
-        assert_from_to_str::<TemporalScale>("0,0");
+        assert_from_to_str::<TemporalScale3_0>("0,0");
     }
 
     #[test]
@@ -2034,8 +2272,8 @@ mod tests {
 
     #[test]
     fn pnl_3_1() {
-        assert_from_to_str::<Wavelengths>("1");
-        assert_from_to_str::<Wavelengths>("1,2");
+        assert_from_to_str_maybe::<Wavelengths>("1");
+        assert_from_to_str_maybe::<Wavelengths>("1,2");
     }
 
     #[test]
@@ -2065,19 +2303,19 @@ mod tests {
 
     #[test]
     fn pntype_optical() {
-        assert_from_to_str::<OpticalType>("Forward Scatter");
-        assert_from_to_str::<OpticalType>("Side Scatter");
-        assert_from_to_str::<OpticalType>("Raw Fluorescence");
-        assert_from_to_str::<OpticalType>("Unmixed Fluorescence");
-        assert_from_to_str::<OpticalType>("Mass");
-        assert_from_to_str::<OpticalType>("Electronic Volume");
-        assert_from_to_str::<OpticalType>("Index");
-        assert_from_to_str::<OpticalType>("Classification");
+        assert_from_to_str_maybe::<OpticalType>("Forward Scatter");
+        assert_from_to_str_maybe::<OpticalType>("Side Scatter");
+        assert_from_to_str_maybe::<OpticalType>("Raw Fluorescence");
+        assert_from_to_str_maybe::<OpticalType>("Unmixed Fluorescence");
+        assert_from_to_str_maybe::<OpticalType>("Mass");
+        assert_from_to_str_maybe::<OpticalType>("Electronic Volume");
+        assert_from_to_str_maybe::<OpticalType>("Index");
+        assert_from_to_str_maybe::<OpticalType>("Classification");
     }
 
     #[test]
     fn pntype_time() {
-        assert_from_to_str::<TemporalType>("Time");
+        assert_from_to_str_maybe::<TemporalType>("Time");
     }
 
     #[test]
@@ -2119,6 +2357,22 @@ mod tests {
         assert_from_to_str_almost::<Gating>("R1 AND (R2.OR.R3)", "(R1 AND (R2 OR R3))");
         assert_from_to_str::<Gating>("((NOT R1) AND R2)");
     }
+
+    // TODO this is hard(er) to test since the order will be random
+    #[test]
+    fn unstained_centers() {
+        assert_from_to_str_maybe::<UnstainedCenters>("1,X,0");
+    }
+
+    #[test]
+    fn unstained_centers_wrong_len() {
+        assert!("2,X,0".parse::<UnstainedCenters>().is_err());
+    }
+
+    #[test]
+    fn unstained_centers_nonunique() {
+        assert!("3,Y,Y,Z,0,0,0".parse::<UnstainedCenters>().is_err());
+    }
 }
 
 #[cfg(feature = "python")]
@@ -2130,11 +2384,11 @@ mod python {
     use crate::validated::shortname::Shortname;
 
     use super::{
-        AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Display, Feature,
+        AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Cyt3_2, Display, Feature,
         FeatureError, GateRange, GateScale, GateShortname, IndexPair, LastModified, Mode, Mode3_2,
         Mode3_2Error, ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError, Originality,
-        OriginalityError, PrefixedMeasIndex, Range, TemporalType, TemporalTypeError, Timestep,
-        Trigger, UniGate, Unicode, Vertex, Vol, Wavelength, Wavelengths,
+        OriginalityError, PrefixedMeasIndex, Range, Timestep, Trigger, UniGate, Unicode,
+        UnstainedCenters, Vertex, Vol, Wavelength, Wavelengths,
     };
 
     use pyo3::prelude::*;
@@ -2155,8 +2409,9 @@ mod python {
     impl_str_py!(Feature, FeatureError);
     impl_str_py!(Mode, ModeError);
     impl_str_py!(Mode3_2, Mode3_2Error);
-    impl_str_py!(OpticalType, OpticalTypeError);
-    impl_str_py!(TemporalType, TemporalTypeError);
+
+    impl_from_py_transparent!(Cyt3_2);
+    impl_from_py_transparent!(UnstainedCenters);
 
     impl_from_py_transparent!(Wavelength);
     impl_from_py_transparent!(Vol);
@@ -2168,6 +2423,9 @@ mod python {
     impl_from_py_transparent!(GateShortname);
     impl_from_py_transparent!(PrefixedMeasIndex);
     impl_from_py_transparent!(Wavelengths);
+
+    impl_from_py_via_fromstr!(OpticalType);
+    impl_value_err!(OpticalTypeError);
 
     // $PnCALIBRATION (3.1) as (f32, String) tuple in python
     impl<'py> FromPyObject<'py> for Calibration3_1 {

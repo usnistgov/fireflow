@@ -15,7 +15,8 @@ use super::gating;
 use super::index::{GateIndex, MeasIndex, RegionIndex};
 use super::named_vec::NameMapping;
 use super::optional::{
-    CheckMaybe, DisplayMaybe, KeywordPairMaybe, MaybeValue, OptionalString, OptionalZST,
+    CheckMaybe, DisplayMaybe, KeywordPairMaybe, MaybeValue, OptionalInt, OptionalString,
+    OptionalZST,
 };
 use super::parser::{
     DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful, LookupKeysWarning,
@@ -2128,8 +2129,34 @@ impl BiIndexedKey for Dfc {
 
 // 3.0/3.1 subsets
 kw_opt_meta_int!(CSMode, usize, "CSMODE");
-kw_opt_meta_int!(CSVBits, u32, "CSVBITS");
-kw_opt_meta_int!(CSTot, u32, "CSTOT");
+
+macro_rules! kw_opt_meta_opt_int {
+    ($t:ident, $inner:ident, $sym:expr) => {
+        kw_opt_meta!($t, $sym, Self);
+
+        #[derive(Clone, Default, PartialEq, Eq, FromStr, Debug)]
+        #[cfg_attr(feature = "serde", derive(Serialize))]
+        #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
+        pub struct $t(pub OptionalInt<$inner>);
+
+        impl DisplayMaybe for $t {
+            fn display_maybe(&self) -> Option<String> {
+                self.0.display_maybe()
+            }
+        }
+
+        impl CheckMaybe for $t {
+            type Inner = Self;
+        }
+
+        impl KeywordPairMaybe for $t {
+            type Inner = Self;
+        }
+    };
+}
+
+kw_opt_meta_opt_int!(CSTot, u32, "CSTOT");
+kw_opt_meta_opt_int!(CSVBits, u32, "CSVBITS");
 
 // $CSVnFLAG (3.0/3.1)
 newtype_int!(CSVFlag, u32);

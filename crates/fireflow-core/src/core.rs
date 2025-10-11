@@ -589,10 +589,10 @@ pub struct InnerMetaroot3_0 {
     pub unicode: MaybeValue<Unicode>,
 
     /// Aggregated values for $CS* keywords
-    #[as_ref(Option<CSVBits>)]
-    #[as_mut(Option<CSVBits>)]
-    #[as_ref(Option<CSTot>)]
-    #[as_mut(Option<CSTot>)]
+    #[as_ref(CSVBits)]
+    #[as_mut(CSVBits)]
+    #[as_ref(CSTot)]
+    #[as_mut(CSTot)]
     #[as_ref(Option<CSVFlags>)]
     #[as_mut(Option<CSVFlags>)]
     pub subset: SubsetData,
@@ -654,10 +654,10 @@ pub struct InnerMetaroot3_1 {
     pub vol: MaybeValue<Vol>,
 
     /// Aggregated values for $CS* keywords
-    #[as_ref(Option<CSVBits>)]
-    #[as_mut(Option<CSVBits>)]
-    #[as_ref(Option<CSTot>)]
-    #[as_mut(Option<CSTot>)]
+    #[as_ref(CSVBits)]
+    #[as_mut(CSVBits)]
+    #[as_ref(CSTot)]
+    #[as_mut(CSTot)]
     #[as_ref(Option<CSVFlags>)]
     #[as_mut(Option<CSVFlags>)]
     pub subset: SubsetData,
@@ -1051,16 +1051,16 @@ pub struct PeakData {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SubsetData {
     /// Value of $CSBITS if given
-    #[as_ref(Option<CSVBits>)]
-    #[as_mut(Option<CSVBits>)]
+    #[as_ref(CSVBits)]
+    #[as_mut(CSVBits)]
     #[new(into)]
-    pub bits: MaybeValue<CSVBits>,
+    pub bits: CSVBits,
 
     /// Value of $CSTOT if given
-    #[as_ref(Option<CSTot>)]
-    #[as_mut(Option<CSTot>)]
+    #[as_ref(CSTot)]
+    #[as_mut(CSTot)]
     #[new(into)]
-    pub tot: MaybeValue<CSTot>,
+    pub tot: CSTot,
 
     #[as_ref(Option<CSVFlags>)]
     #[as_mut(Option<CSVFlags>)]
@@ -4521,8 +4521,8 @@ impl CoreTEXT3_0 {
         date: Option<FCSDate>,
         cytsn: Cytsn,
         unicode: Option<Unicode>,
-        csvbits: Option<CSVBits>,
-        cstot: Option<CSTot>,
+        csvbits: CSVBits,
+        cstot: CSTot,
         csvflags: Option<CSVFlags>,
         abrt: Option<Abrt>,
         com: Com,
@@ -4592,8 +4592,8 @@ impl CoreTEXT3_1 {
         platename: Platename,
         wellid: Wellid,
         vol: Option<Vol>,
-        csvbits: Option<CSVBits>,
-        cstot: Option<CSTot>,
+        csvbits: CSVBits,
+        cstot: CSTot,
         csvflags: Option<CSVFlags>,
         abrt: Option<Abrt>,
         com: Com,
@@ -5423,8 +5423,8 @@ impl_ref_specific_rw!(
     Cyt,
     Cytsn,
     Option<Unicode>,
-    Option<CSVBits>,
-    Option<CSTot>,
+    CSVBits,
+    CSTot,
     Option<CSVFlags>,
     Timestamps3_0
 );
@@ -5442,8 +5442,8 @@ impl_ref_specific_rw!(
     Wellid,
     Platename,
     Option<Vol>,
-    Option<CSVBits>,
-    Option<CSTot>,
+    CSVBits,
+    CSTot,
     Option<CSVFlags>,
     Timestamps3_1
 );

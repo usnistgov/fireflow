@@ -832,8 +832,8 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     };
     let unicode = DocArg::new_kw_opt_ivar("Unicode", "unicode", unicode_pytype);
 
-    let csvbits = DocArg::new_kw_opt_ivar("CSVBits", "csvbits", to_pyint);
-    let cstot = DocArg::new_kw_opt_ivar("CSTot", "cstot", to_pyint);
+    let csvbits = DocArg::new_kw_ivar("CSVBits", "csvbits", to_pyint, None, true);
+    let cstot = DocArg::new_kw_ivar("CSTot", "cstot", to_pyint, None, true);
 
     let csvflags = DocArg::new_csvflags_ivar();
 

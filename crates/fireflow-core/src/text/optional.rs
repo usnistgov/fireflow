@@ -44,6 +44,12 @@ pub struct NeverValue<T>(pub PhantomData<T>);
 #[as_ref(str)]
 pub struct OptionalString(pub String);
 
+/// A string that is stored as-is but will not be displayed/written if zero.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, From, Default, FromStr)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+pub struct OptionalInt<T>(pub T);
+
 /// A value that can either have one value or be empty.
 ///
 /// This is like a bool but the `true` value is meant to have a displayed value
@@ -157,6 +163,16 @@ impl DisplayMaybe for OptionalString {
             None
         } else {
             Some(self.0.clone())
+        }
+    }
+}
+
+impl<T: fmt::Display + PartialEq + Default> DisplayMaybe for OptionalInt<T> {
+    fn display_maybe(&self) -> Option<String> {
+        if self.0 == T::default() {
+            None
+        } else {
+            Some(self.0.to_string())
         }
     }
 }

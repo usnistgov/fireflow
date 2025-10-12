@@ -6503,9 +6503,11 @@ impl DocArgParam {
     }
 
     fn new_key_patterns_param(argname: &str, desc: &str) -> Self {
-        let common = "The first member of the tuples is a list of strings which \
-                      match literally. The second member is a list of regular \
-                      expressions corresponding to {REGEXP_REF}.";
+        let common = format!(
+            "The first member of the tuples is a list of strings which \
+             match literally. The second member is a list of regular \
+             expressions corresponding to {REGEXP_REF}."
+        );
         let d = format!("{desc}. {common}");
         Self::new_param_def(argname, PyType::new_key_patterns(), d, DocDefault::Auto)
     }
@@ -7072,7 +7074,7 @@ impl ArgPyType {
             RsInt::NonZeroU8 | RsInt::NonZeroUsize => 1,
             _ => 0,
         };
-        let desc = format!("if %x is less than {lower}");
+        let desc = format!("if %x is less than ``{lower}``");
         let e = PyException::new_overflow_error().desc(desc);
         let rt = RsType::new(path).exc_from(e);
         PyInt::new(intkind, rt).into()
@@ -7135,7 +7137,8 @@ impl ArgPyType {
     }
 
     fn new_positive_float(path: Path) -> Self {
-        let e = PyException::new_value_error().desc("if %x is zero or less");
+        let e = PyException::new_value_error()
+            .desc("if %x is negative, ``0.0``, ``NaN``, ``inf``, or ``-inf``");
         let rt = RsType::new(path).exc_from(e);
         PyFloat::new(RsFloat::F32, rt).into()
     }
@@ -7147,7 +7150,8 @@ impl ArgPyType {
     }
 
     fn new_non_negative_float(path: Path) -> Self {
-        let e = PyException::new_value_error().desc("if %x is less than zero");
+        let e =
+            PyException::new_value_error().desc("if %x is negative, ``NaN``, ``inf``, or ``-inf``");
         let rt = RsType::new(path).exc_from(e);
         PyFloat::new(RsFloat::F32, rt).into()
     }
@@ -7254,6 +7258,12 @@ impl ArgPyType {
         }
     }
 
+    // TODO make this more specific by editing the values of the description so
+    // that they refer to the proper fields. For example, an exception in the
+    // key of a dict would replace '%x' with 'key in %x', list would be
+    // 'any in %x', and tuple would be 'field 1 in %x'. A list in a tuple
+    // would become 'any in field 1 in %x' (left to right corresponds as inner
+    // to outer type, finishing with the argument name)
     fn as_exceptions<'a>(&'a self) -> Vec<&'a ArgPyException> {
         let go = |rt: &'a Option<RsType>| rt.iter().flat_map(|x| x.exc_from.iter()).collect();
         let walk = |mut acc: Vec<&'a ArgPyException>, pt: &'a Self| {

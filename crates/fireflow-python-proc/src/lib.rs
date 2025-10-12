@@ -4164,6 +4164,25 @@ struct ReturnPyException(PyException);
 #[derive(Clone, PartialEq, Eq, Hash, From)]
 struct ArgPyException(PyException);
 
+impl ArgPyException {
+    fn map_desc<F>(self, f: F) -> Self
+    where
+        F: FnOnce(String) -> String,
+    {
+        Self(PyException {
+            pyname: self.0.pyname,
+            desc: self.0.desc.map(f),
+        })
+    }
+
+    fn into_named(self, name: impl Into<String>) -> NamedPyException {
+        NamedPyException {
+            inner: self.0,
+            name: name.into(),
+        }
+    }
+}
+
 struct NamedPyException {
     inner: PyException,
     name: String,
@@ -4193,15 +4212,6 @@ impl PyException {
     }
 }
 
-impl ArgPyException {
-    fn into_named(self, name: impl Into<String>) -> NamedPyException {
-        NamedPyException {
-            inner: self.0,
-            name: name.into(),
-        }
-    }
-}
-
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct RsType {
     path: Path,
@@ -4222,6 +4232,16 @@ impl RsType {
         Self {
             exc_from: Some(from.into()),
             ..self
+        }
+    }
+
+    fn map_exc<F>(self, f: F) -> Self
+    where
+        F: FnOnce(ArgPyException) -> ArgPyException,
+    {
+        Self {
+            path: self.path,
+            exc_from: self.exc_from.map(f),
         }
     }
 
@@ -4487,6 +4507,15 @@ macro_rules! impl_py_prim_into_ret {
                 rstype: self.rstype.map(|x| x.path),
             }
         }
+
+        fn map_exc<F>(self, f: F) -> $t<RsType>
+        where
+            F: FnOnce(ArgPyException) -> ArgPyException,
+        {
+            $t {
+                rstype: self.rstype.map(|x| x.map_exc(f)),
+            }
+        }
     };
 }
 
@@ -4525,6 +4554,16 @@ impl PyInt<RsType> {
             rstype: self.rstype.map(|x| x.path),
         }
     }
+
+    fn map_exc<F>(self, f: F) -> Self
+    where
+        F: FnOnce(ArgPyException) -> ArgPyException,
+    {
+        Self {
+            rs: self.rs,
+            rstype: self.rstype.map(|x| x.map_exc(f)),
+        }
+    }
 }
 
 impl<R> PyFloat<R> {
@@ -4543,6 +4582,16 @@ impl PyFloat<RsType> {
         PyFloat {
             rs: self.rs,
             rstype: self.rstype.map(|x| x.path),
+        }
+    }
+
+    fn map_exc<F>(self, f: F) -> Self
+    where
+        F: FnOnce(ArgPyException) -> ArgPyException,
+    {
+        Self {
+            rs: self.rs,
+            rstype: self.rstype.map(|x| x.map_exc(f)),
         }
     }
 }
@@ -4638,6 +4687,17 @@ impl PyDict<RsType> {
         x.rstype = self.rstype.map(|y| y.path);
         x
     }
+
+    fn map_exc<F>(self, f: F) -> Self
+    where
+        F: Clone + Fn(ArgPyException) -> ArgPyException,
+    {
+        Self {
+            rstype: self.rstype.map(|x| x.map_exc(&f)),
+            key: self.key.map_exc(f.clone()),
+            value: self.value.map_exc(f),
+        }
+    }
 }
 
 impl<R> PyList<R> {
@@ -4663,6 +4723,16 @@ impl PyList<RsType> {
         let mut x = PyList::new(self.inner.into_ret());
         x.rstype = self.rstype.map(|y| y.path);
         x
+    }
+
+    fn map_exc<F>(self, f: F) -> Self
+    where
+        F: Clone + Fn(ArgPyException) -> ArgPyException,
+    {
+        Self {
+            rstype: self.rstype.map(|x| x.map_exc(&f)),
+            inner: self.inner.map_exc(f),
+        }
     }
 }
 
@@ -4928,6 +4998,16 @@ impl PyOpt<RsType> {
     fn into_ret(self) -> PyOpt<Path> {
         PyOpt::new(self.inner.into_ret())
     }
+
+    fn map_exc<F>(self, f: F) -> Self
+    where
+        F: Clone + Fn(ArgPyException) -> ArgPyException,
+    {
+        Self {
+            inner: self.inner.map_exc(f),
+            rstype: self.rstype,
+        }
+    }
 }
 
 impl<R> PyTuple<R> {
@@ -4950,6 +5030,20 @@ impl PyTuple<RsType> {
         let mut x = PyTuple::new(self.inner.into_iter().map(PyType::into_ret));
         x.rstype = self.rstype.map(|y| y.path);
         x
+    }
+
+    fn map_exc<F>(self, f: F) -> Self
+    where
+        F: Clone + Fn(ArgPyException) -> ArgPyException,
+    {
+        Self {
+            inner: self
+                .inner
+                .into_iter()
+                .map(|x| x.map_exc(f.clone()))
+                .collect(),
+            rstype: self.rstype.map(|x| x.map_exc(f)),
+        }
     }
 }
 
@@ -4990,6 +5084,22 @@ impl PyUnion<RsType> {
             rstype: self.rstype.path,
         }
     }
+
+    fn map_exc<F>(self, f: F) -> Self
+    where
+        F: Clone + Fn(ArgPyException) -> ArgPyException,
+    {
+        Self {
+            head0: self.head0.map_exc(f.clone()),
+            head1: self.head1.map_exc(f.clone()),
+            tail: self
+                .tail
+                .into_iter()
+                .map(|x| x.map_exc(f.clone()))
+                .collect(),
+            rstype: self.rstype.map_exc(f),
+        }
+    }
 }
 
 impl<R> PyClass<R> {
@@ -5019,6 +5129,16 @@ impl PyClass<RsType> {
         PyClass {
             pyname: self.pyname,
             rstype: self.rstype.map(|x| x.path),
+        }
+    }
+
+    fn map_exc<F>(self, f: F) -> Self
+    where
+        F: FnOnce(ArgPyException) -> ArgPyException,
+    {
+        Self {
+            pyname: self.pyname,
+            rstype: self.rstype.map(|x| x.map_exc(f)),
         }
     }
 }
@@ -7009,8 +7129,7 @@ impl ArgPyType {
 
     fn new_nonstd_keywords() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::NonStdKey);
-        let e =
-            PyException::new_value_error().desc("if key string is empty or starts with ``\"$\"``");
+        let e = PyException::new_value_error().desc("if %x is empty or starts with ``\"$\"``");
         let rt = RsType::new(path).exc_from(e);
         PyDict::new(PyStr::new1(rt), PyStr::new()).into()
     }
@@ -7264,12 +7383,13 @@ impl ArgPyType {
     // 'any in %x', and tuple would be 'field 1 in %x'. A list in a tuple
     // would become 'any in field 1 in %x' (left to right corresponds as inner
     // to outer type, finishing with the argument name)
-    fn as_exceptions<'a>(&'a self) -> Vec<&'a ArgPyException> {
-        let go = |rt: &'a Option<RsType>| rt.iter().flat_map(|x| x.exc_from.iter()).collect();
-        let walk = |mut acc: Vec<&'a ArgPyException>, pt: &'a Self| {
+    fn as_exceptions(&self) -> Vec<ArgPyException> {
+        let go = |rt: &Option<RsType>| rt.iter().flat_map(|x| x.exc_from.iter()).cloned().collect();
+        let walk = |mut acc: Vec<ArgPyException>, pt: &Self| {
             acc.extend(pt.as_exceptions());
             acc
         };
+        // TODO clean this up
         match self {
             Self::Bool(x) => go(&x.rstype),
             Self::Bytes(x) => go(&x.rstype),
@@ -7277,8 +7397,6 @@ impl ArgPyType {
             Self::Int(x) => go(&x.rstype),
             Self::Float(x) => go(&x.rstype),
             Self::Decimal(x) => go(&x.rstype),
-            Self::List(x) => go(&x.rstype),
-            Self::Dict(x) => go(&x.rstype),
             Self::Date(x) => go(&x.rstype),
             Self::Time(x) => go(&x.rstype),
             Self::Datetime(x) => go(&x.rstype),
@@ -7288,10 +7406,49 @@ impl ArgPyType {
                 let acc = walk(walk(vec![], &x.head0), &x.head1);
                 x.tail.iter().fold(acc, walk)
             }
+            Self::List(x) => {
+                let y = x
+                    .inner
+                    .clone()
+                    .map_exc(|e| e.map_desc(|s| s.replace("%x", "any of %x")))
+                    .as_exceptions();
+                x.rstype
+                    .iter()
+                    .flat_map(|z| z.exc_from.iter())
+                    .cloned()
+                    .chain(y)
+                    .collect()
+            }
+            Self::Dict(x) => {
+                let k = x
+                    .key
+                    .clone()
+                    .map_exc(|e| e.map_desc(|s| s.replace("%x", "key of %x")))
+                    .as_exceptions();
+                let v = x
+                    .value
+                    .clone()
+                    .map_exc(|e| e.map_desc(|s| s.replace("%x", "value of %x")))
+                    .as_exceptions();
+                x.rstype
+                    .iter()
+                    .flat_map(|z| z.exc_from.iter())
+                    .cloned()
+                    .chain(k)
+                    .chain(v)
+                    .collect()
+            }
             Self::Tuple(xs) => {
-                if let Some((y, ys)) = &xs.inner[..].split_first() {
-                    let acc = walk(vec![], y);
-                    ys.iter().fold(acc, walk)
+                let fmt = |i, s: String| s.replace("%x", &format!("field {i} of %x"));
+                let mut ys = xs
+                    .inner
+                    .iter()
+                    .cloned()
+                    .enumerate()
+                    .map(|(i, x)| x.map_exc(|e| e.map_desc(|s| fmt(i + 1, s))));
+                if let Some(y) = ys.next() {
+                    let acc = walk(vec![], &y);
+                    ys.fold(acc, |a, x| walk(a, &x))
                 } else {
                     vec![]
                 }
@@ -7317,6 +7474,30 @@ impl ArgPyType {
             Self::Option(x) => x.into_ret().into(),
             Self::Union(x) => x.into_ret().into(),
             Self::Tuple(xs) => xs.into_ret().into(),
+            Self::Literal(x) => x.into(),
+        }
+    }
+
+    fn map_exc<F>(self, f: F) -> Self
+    where
+        F: Clone + Fn(ArgPyException) -> ArgPyException,
+    {
+        match self {
+            Self::Bool(x) => x.map_exc(f).into(),
+            Self::Bytes(x) => x.map_exc(f).into(),
+            Self::Str(x) => x.map_exc(f).into(),
+            Self::Int(x) => x.map_exc(f).into(),
+            Self::Float(x) => x.map_exc(f).into(),
+            Self::Decimal(x) => x.map_exc(f).into(),
+            Self::List(x) => x.map_exc(f).into(),
+            Self::Dict(x) => x.map_exc(f).into(),
+            Self::Date(x) => x.map_exc(f).into(),
+            Self::Time(x) => x.map_exc(f).into(),
+            Self::Datetime(x) => x.map_exc(f).into(),
+            Self::PyClass(x) => x.map_exc(f).into(),
+            Self::Option(x) => x.map_exc(f).into(),
+            Self::Union(x) => x.map_exc(f).into(),
+            Self::Tuple(xs) => xs.map_exc(f).into(),
             Self::Literal(x) => x.into(),
         }
     }
@@ -7828,7 +8009,6 @@ impl fmt::Display for ClassDocString {
                     x.pytype()
                         .as_exceptions()
                         .into_iter()
-                        .cloned()
                         .map(|e| e.into_named(x.argname()))
                 })
             },
@@ -7862,7 +8042,6 @@ impl<A: fmt::Display + IsDocArg, S> fmt::Display
                     x.pytype()
                         .as_exceptions()
                         .into_iter()
-                        .cloned()
                         .map(|e| e.into_named(x.argname()))
                 })
             },

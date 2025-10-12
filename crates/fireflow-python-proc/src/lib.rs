@@ -844,7 +844,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let cytsn = DocArg::new_kw_ivar_str("Cytsn", "cytsn");
 
     let unicode_pytype = |p| {
-        // TODO which exceptions does this throw?
         PyTuple::new1(
             [PyType::from(RsInt::U32), PyList::new(PyStr::new()).into()],
             RsType::new(p),
@@ -3408,19 +3407,10 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
             quote!(self.0.columns().iter().map(|c| c.clone()).collect())
         });
 
-    // TODO exception for invalid byteord
     let byteord_param = DocArg::new_ivar_ro_def(
         "byteord",
-        PyUnion::new2(
-            PyType::new_endian(),
-            PyList::new(RsInt::U32),
-            RsType::new(parse_quote!(#sizedbyteord_path<#nbytes>)),
-        ),
-        format!(
-            "The byte order to use when encoding values. Must be ``\"big\"``, \
-             ``\"little\"``, or a list of all integers from 1 to {nbytes} \
-             in any order."
-        ),
+        PyType::new_byteord(nbytes),
+        "The byte order to use when encoding values.",
         DocDefault::Auto,
         |_, _| quote!(*self.0.as_ref()),
     );
@@ -4934,6 +4924,35 @@ enum RsInt {
     Usize,
     NonZeroU8,
     NonZeroUsize,
+}
+
+impl RsInt {
+    fn lower(&self) -> &'static str {
+        match self {
+            Self::U8 | Self::U16 | Self::U32 | Self::U64 | Self::Usize => "0",
+            Self::NonZeroU8 | Self::NonZeroUsize => "1",
+            Self::I32 => "-2**31",
+        }
+    }
+
+    fn upper(&self) -> String {
+        match self {
+            Self::U8 | Self::NonZeroU8 => "255".into(),
+            Self::U16 => "2**16-1".into(),
+            Self::U32 => "2**32-1".into(),
+            Self::I32 => "2**31-1".into(),
+            Self::U64 => "2**64-1".into(),
+            Self::Usize | Self::NonZeroUsize => format!("2**{}-1", usize::BITS),
+        }
+    }
+
+    fn exc_desc(&self) -> String {
+        format!(
+            "if %x is less than ``{}`` or greater than ``{}``",
+            self.lower(),
+            self.upper()
+        )
+    }
 }
 
 #[derive(Clone)]
@@ -7189,11 +7208,7 @@ impl ArgPyType {
     }
 
     fn new_uint(intkind: RsInt, path: Path) -> Self {
-        let lower: u8 = match intkind {
-            RsInt::NonZeroU8 | RsInt::NonZeroUsize => 1,
-            _ => 0,
-        };
-        let desc = format!("if %x is less than ``{lower}``");
+        let desc = intkind.exc_desc();
         let e = PyException::new_overflow_error().desc(desc);
         let rt = RsType::new(path).exc_from(e);
         PyInt::new(intkind, rt).into()
@@ -7227,10 +7242,20 @@ impl ArgPyType {
             5..=8 => RsInt::U64,
             _ => panic!("invalid number of uint bytes: {nbytes}"),
         };
-        let msg = format!("if %x exceeds 2^{}-1", nbytes * 8);
+        let msg = r.exc_desc();
         let e = PyException::new_value_error().desc(msg);
         let rt = RsType::new(parse_quote!(fireflow_core::validated::bitmask::#i)).exc_from(e);
         PyInt::new(r, rt).into()
+    }
+
+    fn new_byteord(nbytes: usize) -> Self {
+        let sizedbyteord_path: Path = parse_quote!(fireflow_core::text::byteord::SizedByteOrd);
+        let exc = PyException::new_value_error().desc(format!(
+            "if %x is not \"little\", \"big\", or a list of \
+             all integers from 1 to {nbytes} in any order"
+        ));
+        let rt = RsType::new(parse_quote!(#sizedbyteord_path<#nbytes>)).exc_from(exc);
+        PyUnion::new2(Self::new_endian(), PyList::new(RsInt::U32), rt).into()
     }
 
     fn new_float_range(nbytes: usize) -> Self {
@@ -7403,8 +7428,9 @@ impl ArgPyType {
             Self::PyClass(x) => go(&x.rstype),
             Self::Option(x) => walk(vec![], &x.inner),
             Self::Union(x) => {
-                let acc = walk(walk(vec![], &x.head0), &x.head1);
-                x.tail.iter().fold(acc, walk)
+                let acc0 = x.rstype.exc_from.iter().cloned().collect();
+                let acc1 = walk(walk(acc0, &x.head0), &x.head1);
+                x.tail.iter().fold(acc1, walk)
             }
             Self::List(x) => {
                 let y = x

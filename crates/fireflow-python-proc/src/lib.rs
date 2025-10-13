@@ -763,14 +763,14 @@ pub fn impl_py_raw_text_parse_data(input: TokenStream) -> TokenStream {
 
     let non_ascii = DocArgROIvar::new_ivar_ro(
         "non_ascii",
-        PyList::new1(PyTuple::new1([PyStr::new1(), PyStr::new1()])),
+        PyList::new1(PyTuple::new1([PyStr::default(), PyStr::default()])),
         "Keywords with a non-ASCII but still valid UTF-8 key.",
         |_, _| quote!(self.0.non_ascii.clone()),
     );
 
     let byte_pairs = DocArgROIvar::new_ivar_ro(
         "byte_pairs",
-        PyList::new1(PyTuple::new1([PyBytes::new1(), PyBytes::new1()])),
+        PyList::new1(PyTuple::new1([PyBytes::default(), PyBytes::default()])),
         "Keywords with invalid UTF-8 characters.",
         |_, _| quote!(self.0.byte_pairs.clone()),
     );
@@ -844,10 +844,11 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let cytsn = DocArg::new_kw_ivar_str("Cytsn", "cytsn");
 
     let unicode_pytype = |p| {
-        PyTuple::new2(
-            [PyType::from(RsInt::U32), PyList::new1(PyStr::new1()).into()],
-            p,
-        )
+        PyTuple::new1([
+            PyType::from(RsInt::U32),
+            PyList::new1(PyStr::default()).into(),
+        ])
+        .rstype(p)
     };
     let unicode = DocArg::new_kw_opt_ivar("Unicode", "unicode", unicode_pytype);
 
@@ -859,8 +860,9 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let all_subset = [csvbits, cstot, csvflags];
 
     let last_modifier = DocArg::new_kw_ivar_str("LastModifier", "last_modifier");
-    let last_mod_date =
-        DocArg::new_kw_opt_ivar("LastModified", "last_modified", |p| PyDatetime::new2(p));
+    let last_mod_date = DocArg::new_kw_opt_ivar("LastModified", "last_modified", |p| {
+        PyDatetime::default().rstype(p)
+    });
     let originality = DocArg::new_kw_opt_ivar("Originality", "originality", |p| {
         PyLiteral::new2(
             ["Original", "NonDataModified", "Appended", "DataModified"],
@@ -1136,7 +1138,7 @@ pub fn impl_core_set_tr_threshold(input: TokenStream) -> TokenStream {
         "Set the threshold for *$TR*.",
         [""; 0],
         [p],
-        Some(DocReturn::new(PyBool::new1()).desc("``True`` if trigger is set and was updated.")),
+        Some(DocReturn::new(PyBool::default()).desc("``True`` if trigger is set and was updated.")),
     );
 
     let fun_arg = doc.fun_args();
@@ -1403,7 +1405,7 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
             format!("Set the temporal measurement to a given {i}."),
             [""; 0],
             once(p).chain(timestep).chain([allow_loss]),
-            Some(DocReturn::new(PyBool::new1()).desc(format!(
+            Some(DocReturn::new(PyBool::default()).desc(format!(
                 "``True`` if temporal measurement was set, which will \
                  happen for all cases except when the time measurement is \
                  already set to ``{i}``."
@@ -1480,7 +1482,7 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
             )
         } else {
             (
-                PyType::from(PyBool::new1()),
+                PyType::from(PyBool::default()),
                 "``True`` if temporal measurement was present and converted, \
                  ``False`` if there was not a temporal measurement.",
             )
@@ -2635,11 +2637,13 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
 
     let measurement_type = DocArg::new_meas_kw_str("OpticalType", "measurement_type", "TYPE");
 
-    let has_type =
-        DocArg::new_meas_kw_ivar1("TemporalType", "has_type", "TYPE", |p| PyBool::new2(p));
+    let has_type = DocArg::new_meas_kw_ivar1("TemporalType", "has_type", "TYPE", |p| {
+        PyBool::default().rstype(p)
+    });
 
-    let has_scale =
-        DocArg::new_meas_kw_ivar1("TemporalScale", "has_scale", "E", |p| PyBool::new2(p));
+    let has_scale = DocArg::new_meas_kw_ivar1("TemporalScale", "has_scale", "E", |p| {
+        PyBool::default().rstype(p)
+    });
 
     let timestep = DocArg::new_ivar_rw(
         "timestep",
@@ -2762,7 +2766,7 @@ pub fn impl_core_all_pns(input: TokenStream) -> TokenStream {
         "Longname",
         "longnames",
         "S",
-        |p| PyStr::new2(p),
+        |p| PyStr::default().rstype(p),
         false,
         false,
     )
@@ -2776,7 +2780,7 @@ pub fn impl_core_all_pnf(input: TokenStream) -> TokenStream {
         "Filter",
         "filters",
         "F",
-        |p| PyStr::new2(p),
+        |p| PyStr::default().rstype(p),
         false,
         true,
     )
@@ -2808,7 +2812,7 @@ pub fn impl_core_all_pnt(input: TokenStream) -> TokenStream {
         "DetectorType",
         "detector_types",
         "T",
-        |p| PyStr::new2(p),
+        |p| PyStr::default().rstype(p),
         false,
         true,
     )
@@ -2867,7 +2871,7 @@ pub fn impl_core_all_pndet(input: TokenStream) -> TokenStream {
         "DetectorName",
         "detector_names",
         "DET",
-        |p| PyStr::new2(p),
+        |p| PyStr::default().rstype(p),
         false,
         true,
     )
@@ -2892,15 +2896,23 @@ pub fn impl_core_all_pncal3_2(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_all_pntag(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_meas_attr1(&i, "Tag", "tags", "TAG", |p| PyStr::new2(p), false, true)
+    core_all_meas_attr1(
+        &i,
+        "Tag",
+        "tags",
+        "TAG",
+        |p| PyStr::default().rstype(p),
+        false,
+        true,
+    )
 }
 
 #[proc_macro]
 pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
 
-    let opt_pytype = PyStr::new2(keyword_path("OpticalType"));
-    let tmp_pytype = PyBool::new2(keyword_path("TemporalType"));
+    let opt_pytype = PyStr::default().rstype(keyword_path("OpticalType"));
+    let tmp_pytype = PyBool::default().rstype(keyword_path("TemporalType"));
 
     let inner_opt_rstype = opt_pytype.as_rust_type();
     let inner_tmp_rstype = tmp_pytype.as_rust_type();
@@ -2954,7 +2966,7 @@ pub fn impl_core_all_pnanalyte(input: TokenStream) -> TokenStream {
         "Analyte",
         "analytes",
         "ANALYTE",
-        |p| PyStr::new2(p),
+        |p| PyStr::default().rstype(p),
         false,
         true,
     )
@@ -3135,7 +3147,7 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
         let kw_path = keyword_path(t);
         DocArg::new_ivar_rw_def(
             kw_name,
-            PyStr::new2(kw_path),
+            PyStr::default().rstype(kw_path),
             format!("The *$Gm{kw_sym}* keyword."),
             DocDefault::Auto,
             false,
@@ -3518,7 +3530,7 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
             PyTuple::new1([PyLiteral::new1(["A", "I"]).into(), PyType::from(RsInt::U64)]),
             PyTuple::new1([
                 PyLiteral::new1(["F", "D"]).into(),
-                PyType::from(PyDecimal::new1()),
+                PyType::from(PyDecimal::default()),
             ]),
             parse_quote!(#null),
         )),
@@ -3729,11 +3741,9 @@ fn make_gate_region(path: &Path, is_uni: bool) -> TokenStream {
         // TODO exception if empty
         (
             "bivariate",
-            PyTuple::new2(
-                vec![index_pytype_inner; 2],
-                parse_quote!(#index_pair<#index_path_inner>),
-            )
-            .into(),
+            PyTuple::new1(vec![index_pytype_inner; 2])
+                .rstype(parse_quote!(#index_pair<#index_path_inner>))
+                .into(),
             "vertices",
             PyType::new_vertices(),
             "The vertices of a polygon gate. Must not be empty.",
@@ -4141,86 +4151,45 @@ impl PyException {
     }
 }
 
-// #[derive(Clone, PartialEq, Eq, Hash)]
-// struct RsType {
-//     path: Path,
-//     exc_from: Option<ArgPyException>,
-//     // to_exc: Option<PyException>,
-// }
-
-// impl RsType {
-//     fn new(path: Path) -> Self {
-//         Self {
-//             path,
-//             exc_from: None,
-//             // to_exc: None,
-//         }
-//     }
-
-//     fn exc_from(self, from: impl Into<ArgPyException>) -> Self {
-//         Self {
-//             exc_from: Some(from.into()),
-//             ..self
-//         }
-//     }
-
-//     fn map_exc<F>(self, f: F) -> Self
-//     where
-//         F: FnOnce(ArgPyException) -> ArgPyException,
-//     {
-//         Self {
-//             path: self.path,
-//             exc_from: self.exc_from.map(f),
-//         }
-//     }
-
-//     // fn to_exc(self, to: PyException) -> Self {
-//     //     Self {
-//     //         to_exc: Some(to),
-//     //         ..self
-//     //     }
-//     // }
-// }
-
 type ArgPyType = PyType<ArgPyException>;
 type RetPyType = PyType<()>;
 
 #[derive(Clone, From, Display)]
-enum PyType<R> {
+enum PyType<E> {
     #[from]
-    Str(PyStr<R>),
+    Str(PyStr<E>),
     #[from]
-    Bool(PyBool<R>),
+    Bool(PyBool<E>),
     #[from]
-    Bytes(PyBytes<R>),
+    Bytes(PyBytes<E>),
     #[from(RsInt)]
-    #[from(PyInt<R>)]
-    Int(PyInt<R>),
+    #[from(PyInt<E>)]
+    Int(PyInt<E>),
     #[from(RsFloat)]
-    #[from(PyFloat<R>)]
-    Float(PyFloat<R>),
+    #[from(PyFloat<E>)]
+    Float(PyFloat<E>),
     #[from]
-    Decimal(PyDecimal<R>),
+    Decimal(PyDecimal<E>),
     #[from]
-    Datetime(PyDatetime<R>),
+    Datetime(PyDatetime<E>),
     #[from]
-    Date(PyDate<R>),
+    Date(PyDate<E>),
     #[from]
-    Time(PyTime<R>),
-    #[from(PyOpt<R>)]
-    Option(Box<PyOpt<R>>),
-    #[from(PyDict<R>)]
-    Dict(Box<PyDict<R>>),
+    Time(PyTime<E>),
+    #[from(PyOpt<E>)]
+    Option(Box<PyOpt<E>>),
+    #[from(PyDict<E>)]
+    Dict(Box<PyDict<E>>),
     #[from]
-    Tuple(PyTuple<R>),
-    #[from(PyList<R>)]
-    List(Box<PyList<R>>),
+    Tuple(PyTuple<E>),
+    #[from(PyList<E>)]
+    List(Box<PyList<E>>),
     #[from]
     Literal(PyLiteral),
     #[from]
-    PyClass(PyClass<R>),
-    #[from(PyUnion<R>)]
-    Union(Box<PyUnion<R>>),
+    PyClass(PyClass<E>),
+    #[from(PyUnion<E>)]
+    Union(Box<PyUnion<E>>),
 }
 
 #[derive(PartialEq, Hash, Eq, Clone)]
@@ -4308,43 +4277,43 @@ struct PyFloat<E> {
     exc: Option<E>,
 }
 
-#[derive(Clone, new)]
+#[derive(Clone, Default, new)]
 struct PyStr<E> {
     rstype: Option<Path>,
     exc: Option<E>,
 }
 
-#[derive(Clone, new)]
+#[derive(Clone, Default, new)]
 struct PyBool<E> {
     rstype: Option<Path>,
     exc: Option<E>,
 }
 
-#[derive(Clone, new)]
+#[derive(Clone, Default, new)]
 struct PyBytes<E> {
     rstype: Option<Path>,
     exc: Option<E>,
 }
 
-#[derive(Clone, new)]
+#[derive(Clone, Default, new)]
 struct PyDecimal<E> {
     rstype: Option<Path>,
     exc: Option<E>,
 }
 
-#[derive(Clone, new)]
+#[derive(Clone, Default, new)]
 struct PyTime<E> {
     rstype: Option<Path>,
     exc: Option<E>,
 }
 
-#[derive(Clone, new)]
+#[derive(Clone, Default, new)]
 struct PyDate<E> {
     rstype: Option<Path>,
     exc: Option<E>,
 }
 
-#[derive(Clone, new)]
+#[derive(Clone, Default, new)]
 struct PyDatetime<E> {
     rstype: Option<Path>,
     exc: Option<E>,
@@ -4419,18 +4388,28 @@ impl<E> Default for PyTuple<E> {
     }
 }
 
-macro_rules! impl_py_prim_new {
-    () => {
-        fn new1() -> Self {
-            Self::new(None, None)
+macro_rules! impl_py_prim_default {
+    ($t:ident) => {
+        impl<E> $t<E> {
+            fn default() -> Self {
+                Self::new(None, None)
+            }
         }
     };
 }
 
-macro_rules! impl_py_prim_new2 {
+macro_rules! impl_py_prim_rstype {
     () => {
-        fn new2(rstype: Path) -> Self {
-            Self::new(Some(rstype), None)
+        fn rstype(self, rstype: Path) -> Self {
+            Self::new(Some(rstype), self.exc)
+        }
+    };
+}
+
+macro_rules! impl_py_prim_exc {
+    () => {
+        fn exc(self, exc: impl Into<E>) -> Self {
+            Self::new(self.rstype, Some(exc.into()))
         }
     };
 }
@@ -4442,21 +4421,14 @@ macro_rules! impl_py_prim_defaults {
                 $py,
                 self.rstype
                     .as_ref()
-                    // .map(|x| &x.path)
                     .map_or(quote!($rs::default()), |y| quote!(#y::default()))
             )
         }
     };
 }
 
-macro_rules! impl_py_prim_into_ret {
+macro_rules! impl_py_prim_map_exc {
     ($t:ident) => {
-        // fn into_ret(self) -> $t<PyException> {
-        //     $t {
-        //         rstype: self.rstype.map(|x| x.path),
-        //     }
-        // }
-
         fn map_exc<F: FnOnce(E) -> E1, E1>(self, f: F) -> $t<E1> {
             $t::new(self.rstype, self.exc.map(f))
         }
@@ -4480,9 +4452,25 @@ macro_rules! impl_py_num_defaults {
     };
 }
 
+impl<R> From<RsInt> for PyInt<R> {
+    fn from(rs: RsInt) -> Self {
+        Self::new(rs, None, None)
+    }
+}
+
+impl<R> From<RsFloat> for PyFloat<R> {
+    fn from(rs: RsFloat) -> Self {
+        Self::new(rs, None, None)
+    }
+}
+
 impl<E> PyInt<E> {
-    fn new2(rs: RsInt, rstype: Path) -> Self {
-        Self::new(rs, Some(rstype), None)
+    fn rstype(self, rstype: Path) -> Self {
+        Self::new(self.rs, Some(rstype), self.exc)
+    }
+
+    fn exc(self, exc: impl Into<E>) -> Self {
+        Self::new(self.rs, self.rstype, Some(exc.into()))
     }
 
     fn map_exc<F, E1>(self, f: F) -> PyInt<E1>
@@ -4496,8 +4484,12 @@ impl<E> PyInt<E> {
 }
 
 impl<E> PyFloat<E> {
-    fn new2(rs: RsFloat, rstype: Path) -> Self {
-        Self::new(rs, Some(rstype), None)
+    fn rstype(self, rstype: Path) -> Self {
+        Self::new(self.rs, Some(rstype), self.exc)
+    }
+
+    fn exc(self, exc: impl Into<E>) -> Self {
+        Self::new(self.rs, self.rstype, Some(exc.into()))
     }
 
     fn map_exc<F, E1>(self, f: F) -> PyFloat<E1>
@@ -4510,50 +4502,50 @@ impl<E> PyFloat<E> {
     impl_py_num_defaults!("0.0".into());
 }
 
+impl_py_prim_default!(PyStr);
+impl_py_prim_default!(PyBool);
+impl_py_prim_default!(PyBytes);
+impl_py_prim_default!(PyDecimal);
+impl_py_prim_default!(PyDate);
+impl_py_prim_default!(PyTime);
+impl_py_prim_default!(PyDatetime);
+
 impl<E> PyStr<E> {
-    impl_py_prim_new!();
-    impl_py_prim_new2!();
+    impl_py_prim_rstype!();
+    impl_py_prim_exc!();
     impl_py_prim_defaults!("\"\"".into(), String);
-    impl_py_prim_into_ret!(PyStr);
+    impl_py_prim_map_exc!(PyStr);
 }
 
 impl<E> PyBool<E> {
-    impl_py_prim_new!();
-    impl_py_prim_new2!();
+    impl_py_prim_rstype!();
     impl_py_prim_defaults!("False".into(), bool);
-    impl_py_prim_into_ret!(PyBool);
+    impl_py_prim_map_exc!(PyBool);
 }
 
 impl<E> PyBytes<E> {
-    impl_py_prim_new!();
-    impl_py_prim_new2!();
+    impl_py_prim_rstype!();
     impl_py_prim_defaults!("b\"\"".into(), Vec);
-    impl_py_prim_into_ret!(PyBytes);
+    impl_py_prim_map_exc!(PyBytes);
 }
 
 impl<E> PyDecimal<E> {
-    impl_py_prim_new!();
-    impl_py_prim_new2!();
+    impl_py_prim_rstype!();
     impl_py_prim_defaults!("0".into(), bigdecimal::BigDecimal);
-    impl_py_prim_into_ret!(PyDecimal);
+    impl_py_prim_map_exc!(PyDecimal);
 }
 
 impl<E> PyDate<E> {
-    impl_py_prim_new!();
-    // impl_py_prim_new1!();
-    impl_py_prim_into_ret!(PyDate);
+    impl_py_prim_map_exc!(PyDate);
 }
 
 impl<E> PyTime<E> {
-    impl_py_prim_new!();
-    // impl_py_prim_new1!();
-    impl_py_prim_into_ret!(PyTime);
+    impl_py_prim_map_exc!(PyTime);
 }
 
 impl<E> PyDatetime<E> {
-    impl_py_prim_new!();
-    impl_py_prim_new2!();
-    impl_py_prim_into_ret!(PyDatetime);
+    impl_py_prim_rstype!();
+    impl_py_prim_map_exc!(PyDatetime);
 }
 
 impl<E> PyDict<E> {
@@ -4562,14 +4554,6 @@ impl<E> PyDict<E> {
     }
 
     impl_py_prim_defaults!("{}".into(), std::collections::HashMap);
-
-    // fn into_ret(self) -> PyDict<Path> {
-    //     PyDict::new(
-    //         self.key.map_exc(|_| ()),
-    //         self.value.map_exc(|_| ()),
-    //         self.rstype.map(|y| y.path),
-    //     )
-    // }
 
     fn map_exc<F: Clone + Fn(E) -> E1, E1>(self, f: F) -> PyDict<E1> {
         PyDict::new(
@@ -4586,30 +4570,138 @@ impl<E> PyList<E> {
         Self::new(inner, None, None)
     }
 
-    impl_py_prim_defaults!("[]".into(), Vec);
+    // TODO impl rstype?
 
-    // fn into_ret(self) -> PyList<Path> {
-    //     PyList::new(self.inner.map_exc(|_| ()), self.rstype.map(|y| y.path))
-    // }
+    impl_py_prim_defaults!("[]".into(), Vec);
 
     fn map_exc<F: Clone + Fn(E) -> E1, E1>(self, f: F) -> PyList<E1> {
         PyList::new(self.inner.map_exc(f.clone()), self.rstype, self.exc.map(f))
     }
 }
 
-// impl HasRustPath for Path {
-//     fn as_rust_type(&self) -> Type {
-//         let x = self;
-//         parse_quote!(#x)
-//     }
-// }
+impl PyLiteral {
+    fn new1(iter: impl IntoIterator<Item = &'static str>) -> Self {
+        let mut it = iter.into_iter();
+        let head = it.next().expect("Literal cannot be empty");
+        Self::new(head, it, None)
+    }
 
-// impl HasRustPath for RsType {
-//     fn as_rust_type(&self) -> Type {
-//         let x = &self.path;
-//         parse_quote!(#x)
-//     }
-// }
+    fn new2(iter: impl IntoIterator<Item = &'static str>, rstype: Path) -> Self {
+        let mut x = Self::new1(iter);
+        x.rstype = Some(rstype);
+        x
+    }
+}
+
+impl<E> PyOpt<E> {
+    fn defaults() -> (String, TokenStream2) {
+        ("None".into(), quote!(None))
+    }
+
+    fn wrap_if(inner: impl Into<PyType<E>>, test: bool) -> PyType<E> {
+        if test {
+            Self::new(inner).into()
+        } else {
+            inner.into()
+        }
+    }
+
+    fn map_exc<F: Clone + Fn(E) -> E1, E1>(self, f: F) -> PyOpt<E1> {
+        PyOpt::new(self.inner.map_exc(f))
+    }
+}
+
+impl<E> PyTuple<E> {
+    fn new1(iter: impl IntoIterator<Item = impl Into<PyType<E>>>) -> Self {
+        Self::new(iter.into_iter().map(Into::into).collect(), None, None)
+    }
+
+    fn rstype(self, rstype: Path) -> Self {
+        Self::new(self.inner, Some(rstype), self.exc)
+    }
+
+    // fn exc(self, exc: impl Into<E>) -> Self {
+    //     Self::new(self.inner, self.rstype, Some(exc.into()))
+    // }
+
+    fn map_exc<F: Clone + Fn(E) -> E1, E1>(self, f: F) -> PyTuple<E1> {
+        PyTuple::new(
+            self.inner
+                .into_iter()
+                .map(|x| x.map_exc(f.clone()))
+                .collect(),
+            self.rstype,
+            self.exc.map(f),
+        )
+    }
+}
+
+impl<E> PyUnion<E> {
+    fn new1<T, A>(iter: T, rstype: Path) -> Self
+    where
+        T: IntoIterator<Item = A>,
+        A: Into<PyType<E>>,
+    {
+        let mut it = iter.into_iter();
+        let x0 = it.next().expect("Union cannot be empty");
+        let x1 = it.next().expect("Union must have at least 2 types");
+        let xs = it.map(Into::into).collect();
+        Self::new(x0, x1, xs, rstype, None)
+    }
+
+    fn new2(x: impl Into<PyType<E>>, y: impl Into<PyType<E>>, rstype: Path) -> Self {
+        Self::new(x, y, vec![], rstype, None)
+    }
+
+    fn exc(self, exc: impl Into<E>) -> Self {
+        Self::new(
+            self.head0,
+            self.head1,
+            self.tail,
+            self.rstype,
+            Some(exc.into()),
+        )
+    }
+
+    fn map_exc<F: Clone + Fn(E) -> E1, E1>(self, f: F) -> PyUnion<E1> {
+        PyUnion::new(
+            self.head0.map_exc(f.clone()),
+            self.head1.map_exc(f.clone()),
+            self.tail
+                .into_iter()
+                .map(|x| x.map_exc(f.clone()))
+                .collect(),
+            self.rstype,
+            self.exc.map(f),
+        )
+    }
+}
+
+impl<E> PyClass<E> {
+    fn new1(pyname: impl fmt::Display) -> Self {
+        Self::new(pyname.to_string(), None, None)
+    }
+
+    fn rstype(self, rstype: Path) -> Self {
+        Self::new(self.pyname, Some(rstype), None)
+    }
+
+    fn new_py(
+        modpath: impl IntoIterator<Item = impl fmt::Display>,
+        name: impl fmt::Display,
+    ) -> Self {
+        let pyname = format_ident!("Py{name}");
+        let m = once("~pyreflow".into())
+            .chain(modpath.into_iter().map(|x| x.to_string()))
+            .chain([format!("{name}")])
+            .join(".");
+        Self::new1(m).rstype(parse_quote!(#pyname))
+    }
+
+    fn map_exc<F: FnOnce(E) -> E1, E1>(self, f: F) -> PyClass<E1> {
+        PyClass::new(self.pyname, self.rstype, self.exc.map(f))
+    }
+}
 
 impl<E> HasRustPath for PyType<E> {
     fn as_rust_type(&self) -> Type {
@@ -4745,18 +4837,6 @@ macro_rules! impl_prim_num {
 impl_prim_num!(PyInt);
 impl_prim_num!(PyFloat);
 
-impl<R> From<RsInt> for PyInt<R> {
-    fn from(rs: RsInt) -> Self {
-        Self::new(rs, None, None)
-    }
-}
-
-impl<R> From<RsFloat> for PyFloat<R> {
-    fn from(rs: RsFloat) -> Self {
-        Self::new(rs, None, None)
-    }
-}
-
 impl HasRustPath for RsInt {
     fn as_rust_type(&self) -> Type {
         match self {
@@ -4826,140 +4906,6 @@ impl RsInt {
 enum RsFloat {
     F32,
     F64,
-}
-
-impl PyLiteral {
-    fn new1(iter: impl IntoIterator<Item = &'static str>) -> Self {
-        let mut it = iter.into_iter();
-        let head = it.next().expect("Literal cannot be empty");
-        Self::new(head, it, None)
-    }
-
-    fn new2(iter: impl IntoIterator<Item = &'static str>, rstype: Path) -> Self {
-        let mut x = Self::new1(iter);
-        x.rstype = Some(rstype);
-        x
-    }
-}
-
-impl<R> PyOpt<R> {
-    fn defaults() -> (String, TokenStream2) {
-        ("None".into(), quote!(None))
-    }
-
-    fn wrap_if(inner: impl Into<PyType<R>>, test: bool) -> PyType<R> {
-        if test {
-            Self::new(inner).into()
-        } else {
-            inner.into()
-        }
-    }
-}
-
-impl<E> PyOpt<E> {
-    // fn into_ret(self) -> PyOpt<Path> {
-    //     PyOpt::new(self.inner.map_exc(|_| ()))
-    // }
-
-    fn map_exc<F: Clone + Fn(E) -> E1, E1>(self, f: F) -> PyOpt<E1> {
-        PyOpt::new(self.inner.map_exc(f))
-    }
-}
-
-impl<E> PyTuple<E> {
-    fn new1(iter: impl IntoIterator<Item = impl Into<PyType<E>>>) -> Self {
-        Self::new(iter.into_iter().map(Into::into).collect(), None, None)
-    }
-
-    fn new2(iter: impl IntoIterator<Item = impl Into<PyType<E>>>, rstype: Path) -> Self {
-        let mut x = Self::new1(iter);
-        x.rstype = Some(rstype);
-        x
-    }
-
-    // fn into_ret(self) -> PyTuple<Path> {
-    //     PyTuple::new(
-    //         self.inner.into_iter().map(PyType::into_ret).collect(),
-    //         self.rstype.map(|y| y.path),
-    //     )
-    // }
-
-    fn map_exc<F: Clone + Fn(E) -> E1, E1>(self, f: F) -> PyTuple<E1> {
-        PyTuple::new(
-            self.inner
-                .into_iter()
-                .map(|x| x.map_exc(f.clone()))
-                .collect(),
-            self.rstype,
-            self.exc.map(f),
-        )
-    }
-}
-
-impl<E> PyUnion<E> {
-    fn new1<T, A>(iter: T, rstype: Path) -> Self
-    where
-        T: IntoIterator<Item = A>,
-        A: Into<PyType<E>>,
-    {
-        let mut it = iter.into_iter();
-        let x0 = it.next().expect("Union cannot be empty");
-        let x1 = it.next().expect("Union must have at least 2 types");
-        let xs = it.map(Into::into).collect();
-        Self::new(x0, x1, xs, rstype, None)
-    }
-
-    fn new2(x: impl Into<PyType<E>>, y: impl Into<PyType<E>>, rstype: Path) -> Self {
-        Self::new(x, y, vec![], rstype, None)
-    }
-
-    // fn into_ret(self) -> PyUnion<Path> {
-    //     PyUnion::new(
-    //         self.head0.map_exc(|_| ()),
-    //         self.head1.map_exc(|_| ()),
-    //         self.tail.into_iter().map(PyType::into_ret).collect(),
-    //         self.rstype.path,
-    //     )
-    // }
-
-    fn map_exc<F: Clone + Fn(E) -> E1, E1>(self, f: F) -> PyUnion<E1> {
-        PyUnion::new(
-            self.head0.map_exc(f.clone()),
-            self.head1.map_exc(f.clone()),
-            self.tail
-                .into_iter()
-                .map(|x| x.map_exc(f.clone()))
-                .collect(),
-            self.rstype,
-            self.exc.map(f),
-        )
-    }
-}
-
-impl<E> PyClass<E> {
-    fn new1(pyname: impl fmt::Display) -> Self {
-        Self::new(pyname.to_string(), None, None)
-    }
-
-    fn new2(pyname: impl fmt::Display, rstype: Path) -> Self {
-        Self::new(pyname.to_string(), Some(rstype), None)
-    }
-
-    fn new_py(
-        modpath: impl IntoIterator<Item = impl fmt::Display>,
-        name: impl fmt::Display,
-    ) -> Self {
-        let pyname = format_ident!("Py{name}");
-        let m = once("~pyreflow".into())
-            .chain(modpath.into_iter().map(|x| x.to_string()))
-            .chain([format!("{name}")])
-            .join(".");
-        Self::new2(m, parse_quote!(#pyname))
-    }
-
-    fn map_exc<F: FnOnce(E) -> E1, E1>(self, f: F) -> PyClass<E1> {
-        PyClass::new(self.pyname, self.rstype, self.exc.map(f))
-    }
 }
 
 impl DocArgROIvar {
@@ -5066,7 +5012,7 @@ impl DocArgRWIvar {
     }
 
     fn new_kw_ivar_str(kw: &str, name: &str) -> Self {
-        Self::new_kw_ivar(kw, name, |p| PyStr::new2(p), None, true)
+        Self::new_kw_ivar(kw, name, |p| PyStr::default().rstype(p), None, true)
     }
 
     fn new_meas_kw_ivar<F, T>(kw: &str, name: &str, f: F, desc: Option<&str>, def: bool) -> Self
@@ -5128,7 +5074,7 @@ impl DocArgRWIvar {
     }
 
     fn new_meas_kw_str(kw: &str, name: &str, abbr: &str) -> Self {
-        Self::new_meas_kw_ivar1(kw, name, abbr, |p| PyStr::new2(p))
+        Self::new_meas_kw_ivar1(kw, name, abbr, |p| PyStr::default().rstype(p))
     }
 
     fn new_layout_ivar(version: Version) -> Self {
@@ -5239,7 +5185,7 @@ impl DocArgRWIvar {
             let desc = format!("Value of *${}*.", name.to_uppercase());
             Self::new_opt_ivar_rw(
                 name,
-                PyTime::new1(),
+                PyTime::default(),
                 desc,
                 true,
                 |_, _| quote!(self.0.#get_naive()),
@@ -5249,7 +5195,7 @@ impl DocArgRWIvar {
 
         let date_arg = Self::new_opt_ivar_rw(
             "date",
-            PyDate::new1(),
+            PyDate::default(),
             "Value of *$DATE*.",
             true,
             |_, _| quote!(self.0.date_naive()),
@@ -5269,7 +5215,7 @@ impl DocArgRWIvar {
         let set = format_ident!("set_{name}");
         Self::new_opt_ivar_rw(
             name,
-            PyDatetime::new1(),
+            PyDatetime::default(),
             format!("Value for *${}*.", name.to_uppercase()),
             true,
             |_, _| quote!(self.0.#get()),
@@ -5289,7 +5235,7 @@ impl DocArgRWIvar {
         };
         Self::new_opt_ivar_rw(
             "comp",
-            PyClass::new2("~numpy.ndarray", rstype),
+            PyClass::new1("~numpy.ndarray").rstype(rstype),
             desc,
             true,
             |_, _| quote!(self.0.compensation().cloned()),
@@ -5302,13 +5248,11 @@ impl DocArgRWIvar {
         // TODO so many exceptions...
         Self::new_opt_ivar_rw(
             "spillover",
-            PyTuple::new2(
-                [
-                    PyType::from(PyList::new1(PyStr::new1())),
-                    PyClass::new1("~numpy.ndarray").into(),
-                ],
-                rstype,
-            ),
+            PyTuple::new1([
+                PyType::from(PyList::new1(PyStr::default())),
+                PyClass::new1("~numpy.ndarray").into(),
+            ])
+            .rstype(rstype),
             "Value for *$SPILLOVER*. First element of tuple the list of measurement \
              names and the second is the matrix. Each measurement name must \
              correspond to a *$PnN*, must be unique, and the length of this list \
@@ -5352,7 +5296,7 @@ impl DocArgRWIvar {
         // TODO exceptions for links
         Self::new_ivar_rw_def(
             "unstainedcenters",
-            PyDict::new(PyStr::new1(), RsFloat::F32, path.clone(), None),
+            PyDict::new(PyStr::default(), RsFloat::F32, path.clone(), None),
             "Value for *$UNSTAINEDCENTERS. Each key must match a *$PnN*.",
             DocDefault::Auto,
             true,
@@ -5389,11 +5333,9 @@ impl DocArgRWIvar {
             None,
         )
         .into();
-        let gtype = PyType::from(PyOpt::new(PyStr::new1()));
-        let pytype = PyTuple::new2(
-            gm_pytype.into_iter().chain([reg_pytype, gtype]),
-            parse_quote!(#rstype),
-        );
+        let gtype = PyType::from(PyOpt::new(PyStr::default()));
+        let pytype = PyTuple::new1(gm_pytype.into_iter().chain([reg_pytype, gtype]))
+            .rstype(parse_quote!(#rstype));
 
         let desc = if collapsed_version == Version::FCS2_0 {
             "Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords. The first member of \
@@ -5540,7 +5482,7 @@ impl DocArgParam {
     }
 
     fn new_bool_param(name: impl fmt::Display, desc: impl fmt::Display) -> Self {
-        Self::new_param_def(name, PyBool::new1(), desc, DocDefault::Auto)
+        Self::new_param_def(name, PyBool::default(), desc, DocDefault::Auto)
     }
 
     fn new_opt_param(
@@ -5571,7 +5513,7 @@ impl DocArgParam {
         let s = if read { "read" } else { "written" };
         Self::new_param(
             "path",
-            PyClass::new2("~pathlib.Path", parse_quote!(std::path::PathBuf)),
+            PyClass::new1("~pathlib.Path").rstype(parse_quote!(std::path::PathBuf)),
             format!("Path to be {s}."),
         )
     }
@@ -5666,9 +5608,8 @@ impl DocArgParam {
 
     fn new_textdelim_param() -> Self {
         let path = parse_quote!(fireflow_core::validated::textdelim::TEXTDelim);
-        // let exc = PyException::new_value_error().desc("if %x is not between 1 and 126");
-        // let rt = path.exc_from(exc);
-        let pytype = PyInt::new2(RsInt::U8, path);
+        let exc = PyException::new_value_error().desc("if %x is not between 1 and 126");
+        let pytype = PyInt::from(RsInt::U8).rstype(path).exc(exc);
         Self::new_param_def(
             "delim",
             pytype,
@@ -5732,7 +5673,7 @@ impl DocArgParam {
         let path: Path = parse_quote!(fireflow_core::validated::dataframe::AnyFCSColumn);
         Self::new_param(
             "col",
-            PyClass::new2("polars.Series", path),
+            PyClass::new1("polars.Series").rstype(path),
             "Data for measurement. Must be same length as existing columns.",
         )
     }
@@ -5967,9 +5908,8 @@ impl DocArgParam {
 
     fn new_time_meas_pattern_param() -> Self {
         let path = parse_quote!(fireflow_core::config::TimeMeasNamePattern);
-        // let exc = PyException::new_value_error().desc("if %x is not a valid regular expression");
-        // let rt = path.exc_from(exc);
-        let pytype = PyOpt::new(PyStr::new2(path));
+        let exc = PyException::new_value_error().desc("if %x is not a valid regular expression");
+        let pytype = PyOpt::new(PyStr::default().rstype(path).exc(exc));
         Self::new_param_def(
             "time_meas_pattern",
             pytype,
@@ -6034,9 +5974,8 @@ impl DocArgParam {
 
     fn new_date_pattern_param() -> Self {
         let path = parse_quote!(fireflow_core::validated::datepattern::DatePattern);
-        // let exc = PyException::new_value_error().desc("if %x is not a valid date pattern");
-        // let rt = path.exc_from(exc);
-        let pytype = PyStr::new2(path);
+        let exc = PyException::new_value_error().desc("if %x is not a valid date pattern");
+        let pytype = PyStr::default().rstype(path).exc(exc);
         Self::new_opt_param(
             "date_pattern",
             pytype,
@@ -6053,9 +5992,8 @@ impl DocArgParam {
     // TODO make this version specific
     fn new_time_pattern_param() -> Self {
         let path = parse_quote!(fireflow_core::validated::timepattern::TimePattern);
-        // let exc = PyException::new_value_error().desc("if %x is not a valid time pattern");
-        // let rt = path.exc_from(exc);
-        let pytype = PyStr::new2(path);
+        let exc = PyException::new_value_error().desc("if %x is not a valid time pattern");
+        let pytype = PyStr::default().rstype(path).exc(exc);
         Self::new_opt_param(
             "time_pattern",
             pytype,
@@ -6113,9 +6051,8 @@ impl DocArgParam {
 
     fn new_nonstandard_measurement_pattern_param() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::NonStdMeasPattern);
-        // let exc = PyException::new_value_error().desc("if %x does not have ``\"%n\"``");
-        // let rt = path.exc_from(exc);
-        let pytype = PyStr::new2(path);
+        let exc = PyException::new_value_error().desc("if %x does not have ``\"%n\"``");
+        let pytype = PyStr::default().rstype(path).exc(exc);
         Self::new_opt_param(
             "nonstandard_measurement_pattern",
             pytype,
@@ -6451,7 +6388,7 @@ impl DocArgParam {
         // TODO exception for leading $
         Self::new_param_def(
             "rename_standard_keys",
-            PyDict::new(PyStr::new1(), PyStr::new1(), path, None),
+            PyDict::new(PyStr::default(), PyStr::default(), path, None),
             "Rename standard keys in *TEXT*. Keys matching the first part of \
              the pair will be replaced by the second. Comparisons are case \
              insensitive. The leading *$* is implied so do not include it.",
@@ -6462,7 +6399,7 @@ impl DocArgParam {
     fn new_replace_standard_key_values() -> Self {
         Self::new_param_def(
             "replace_standard_key_values",
-            PyDict::new1(PyType::new_keystring(), PyStr::new1()),
+            PyDict::new1(PyType::new_keystring(), PyStr::default()),
             "Replace values for standard keys in *TEXT* Comparisons are case \
              insensitive. The leading *$* is implied so do not include it.",
             DocDefault::Auto,
@@ -6495,7 +6432,7 @@ impl DocArgParam {
     fn new_append_standard_keywords() -> Self {
         Self::new_param_def(
             "append_standard_keywords",
-            PyDict::new1(PyType::new_keystring(), PyStr::new1()),
+            PyDict::new1(PyType::new_keystring(), PyStr::default()),
             "Append standard key/value pairs to *TEXT*. All keys and values \
              will be included as they appear here. The leading *$* is implied so \
              do not include it.",
@@ -6868,50 +6805,44 @@ impl ArgPyType {
 
     fn new_keystring() -> Self {
         let path: Path = parse_quote!(fireflow_core::validated::keys::KeyString);
-        // let e =
-        //     PyException::new_value_error().desc("if %x contains non-ASCII characters or is empty");
-        // let rt = path.exc_from(e);
-        PyStr::new2(path).into()
+        // TODO what if it starts with "$"?
+        let e =
+            PyException::new_value_error().desc("if %x contains non-ASCII characters or is empty");
+        PyStr::default().rstype(path).exc(e).into()
     }
 
     fn new_sub_patterns() -> Self {
         let path: Path = parse_quote!(fireflow_core::validated::sub_pattern::SubPatterns);
-        let d = PyDict::new1(PyStr::new1(), Self::new_sub_pattern());
+        let d = PyDict::new1(PyStr::default(), Self::new_sub_pattern());
         // TODO exception if leading $
-        PyTuple::new2([d.clone(), d], path).into()
+        PyTuple::new1([d.clone(), d]).rstype(path).into()
     }
 
     fn new_display() -> Self {
         // TODO exception if log not both positive
-        PyTuple::new2(
-            [
-                Self::from(PyBool::new1()),
-                RsFloat::F32.into(),
-                RsFloat::F32.into(),
-            ],
-            keyword_path("Display"),
-        )
+        PyTuple::new1([
+            Self::from(PyBool::default()),
+            RsFloat::F32.into(),
+            RsFloat::F32.into(),
+        ])
+        .rstype(keyword_path("Display"))
         .into()
     }
 
     fn new_calibration3_1() -> Self {
-        PyTuple::new2(
-            [Self::from(RsFloat::F32), PyStr::new1().into()],
-            keyword_path("Calibration3_1"),
-        )
-        .into()
+        PyTuple::new1([Self::from(RsFloat::F32), PyStr::default().into()])
+            .rstype(keyword_path("Calibration3_1"))
+            .into()
     }
 
     fn new_calibration3_2() -> Self {
         // TODO exception for non-neg float
-        PyTuple::new2(
-            [
-                Self::from(RsFloat::F32),
-                RsFloat::F32.into(),
-                PyStr::new1().into(),
-            ],
-            keyword_path("Calibration3_2"),
-        )
+        PyTuple::new1([
+            Self::from(RsFloat::F32),
+            RsFloat::F32.into(),
+            PyStr::default().into(),
+        ])
+        .rstype(keyword_path("Calibration3_2"))
         .into()
     }
 
@@ -6919,13 +6850,13 @@ impl ArgPyType {
         let t = format_ident!("{n}");
         let p = parse_quote!(fireflow_core::segment::#t);
         // TODO many exceptions
-        PyTuple::new2([RsInt::U64, RsInt::U64], p).into()
+        PyTuple::new1([RsInt::U64, RsInt::U64]).rstype(p).into()
     }
 
     fn new_correction(is_header: bool, id: &str) -> Self {
         let path = correction_path(is_header, id);
         // TODO technically overflow error if not i32
-        PyTuple::new2([RsInt::I32, RsInt::I32], path).into()
+        PyTuple::new1([RsInt::I32, RsInt::I32]).rstype(path).into()
     }
 
     fn new_scale(is_gate: bool) -> Self {
@@ -6934,37 +6865,39 @@ impl ArgPyType {
         } else {
             parse_quote!(fireflow_core::text::scale::Scale)
         };
-        // let exc = PyException::new_value_error()
-        //     .desc("if %x has log scale floats which are not both positive");
-        // let rt = p.exc_from(exc);
+        let exc = PyException::new_value_error()
+            .desc("if %x has log scale floats which are not both positive");
         PyUnion::new2(
             PyTuple::default(),
             PyTuple::new1([RsFloat::F32, RsFloat::F32]),
             path,
         )
+        .exc(exc)
         .into()
     }
 
     fn new_transform() -> Self {
         let path = parse_quote! {fireflow_core::core::ScaleTransform};
-        // let exc = PyException::new_value_error()
-        //     .desc("if %x has log scale floats which are not both positive");
-        // let rt = path.exc_from(exc);
+        let exc = PyException::new_value_error()
+            .desc("if %x has log scale floats which are not both positive");
+        // TODO the linear gain should also be positive
         PyUnion::new2(
             RsFloat::F32,
             PyTuple::new1([RsFloat::F32, RsFloat::F32]),
             path,
         )
+        .exc(exc)
         .into()
     }
 
     fn new_key_patterns() -> Self {
         let path: Path = parse_quote!(fireflow_core::validated::keys::KeyPatterns);
         // TODO excpetion if $ (I think?)
-        PyTuple::new2(
-            [PyList::new1(PyStr::new1()), PyList::new1(PyStr::new1())],
-            path,
-        )
+        PyTuple::new1([
+            PyList::new1(PyStr::default()),
+            PyList::new1(PyStr::default()),
+        ])
+        .rstype(path)
         .into()
     }
 
@@ -6998,19 +6931,17 @@ impl ArgPyType {
 
     fn new_std_keywords() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::StdKey);
-        // let e = PyException::new_value_error().desc(
-        //     "if %x is empty, does not start with \
-        //      ``\"$\"``, or is only a ``\"$\"``",
-        // );
-        // let rt = path.exc_from(e);
-        PyDict::new1(PyStr::new2(path), PyStr::new1()).into()
+        let e = PyException::new_value_error().desc(
+            "if %x is empty, does not start with \
+             ``\"$\"``, or is only a ``\"$\"``",
+        );
+        PyDict::new1(PyStr::default().rstype(path).exc(e), PyStr::default()).into()
     }
 
     fn new_nonstd_keywords() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::NonStdKey);
-        // let e = PyException::new_value_error().desc("if %x is empty or starts with ``\"$\"``");
-        // let rt = path.exc_from(e);
-        PyDict::new1(PyStr::new2(path), PyStr::new1()).into()
+        let e = PyException::new_value_error().desc("if %x is empty or starts with ``\"$\"``");
+        PyDict::new1(PyStr::default().rstype(path).exc(e), PyStr::default()).into()
     }
 
     fn new_shortname() -> Self {
@@ -7019,9 +6950,8 @@ impl ArgPyType {
     }
 
     fn new_shortname_inner(path: Path) -> Self {
-        // let e = PyException::new_value_error().desc("if %x is empty or contains commas");
-        // let rt = path.exc_from(e);
-        PyStr::new2(path).into()
+        let e = PyException::new_value_error().desc("if %x is empty or contains commas");
+        PyStr::default().rstype(path).exc(e).into()
     }
 
     fn new_versioned_shortname(version: Version) -> Self {
@@ -7030,18 +6960,17 @@ impl ArgPyType {
         } else {
             let inner = quote!(fireflow_core::validated::shortname::Shortname);
             let outer = parse_quote!(fireflow_core::text::optional::AlwaysValue<#inner>);
-            PyStr::new2(outer).into()
+            PyStr::default().rstype(outer).into()
         }
     }
 
     fn new_meas_or_gate_index() -> Self {
         let path = parse_quote!(fireflow_core::text::keywords::MeasOrGateIndex);
-        // let e = PyException::new_overflow_error().desc(
-        //     "if %x is not like ``P<X>`` or ``G<X>`` \
-        //      where ``X`` is an integer one or greater",
-        // );
-        // let rt = p.exc_from(e);
-        PyStr::new2(path).into()
+        let e = PyException::new_value_error().desc(
+            "if %x is not like ``P<X>`` or ``G<X>`` \
+             where ``X`` is an integer one or greater",
+        );
+        PyStr::default().rstype(path).exc(e).into()
     }
 
     fn new_meas_index() -> Self {
@@ -7068,19 +6997,18 @@ impl ArgPyType {
     }
 
     fn new_uint(intkind: RsInt, path: Path) -> Self {
-        // let desc = intkind.exc_desc();
-        // let e = PyException::new_overflow_error().desc(desc);
-        PyInt::new2(intkind, path).into()
+        let e = PyException::new_overflow_error().desc(intkind.exc_desc());
+        PyInt::from(intkind).rstype(path).exc(e).into()
     }
 
     fn new_analysis() -> Self {
         let r = parse_quote!(fireflow_core::core::Analysis);
-        PyBytes::new2(r).into()
+        PyBytes::default().rstype(r).into()
     }
 
     fn new_others() -> Self {
         let path: Path = parse_quote!(fireflow_core::core::Others);
-        PyList::new(PyBytes::new1(), path, None).into()
+        PyList::new(PyBytes::default(), path, None).into()
     }
 
     fn new_dataframe(polars_type: bool) -> Self {
@@ -7089,7 +7017,7 @@ impl ArgPyType {
         } else {
             parse_quote!(fireflow_core::validated::dataframe::FCSDataFrame)
         };
-        PyClass::new2("polars.DataFrame", path).into()
+        PyClass::new1("polars.DataFrame").rstype(path).into()
     }
 
     fn new_bitmask(nbytes: usize) -> Self {
@@ -7101,20 +7029,21 @@ impl ArgPyType {
             5..=8 => RsInt::U64,
             _ => panic!("invalid number of uint bytes: {nbytes}"),
         };
-        // let msg = r.exc_desc();
-        // let e = PyException::new_value_error().desc(msg);
+        let e = PyException::new_value_error().desc(r.exc_desc());
         let path = parse_quote!(fireflow_core::validated::bitmask::#i);
-        PyInt::new2(r, path).into()
+        PyInt::from(r).rstype(path).exc(e).into()
     }
 
     fn new_byteord(nbytes: usize) -> Self {
         let sizedbyteord_path: Path = parse_quote!(fireflow_core::text::byteord::SizedByteOrd);
-        // let exc = PyException::new_value_error().desc(format!(
-        //     "if %x is not \"little\", \"big\", or a list of \
-        //      all integers from 1 to {nbytes} in any order"
-        // ));
+        let exc = PyException::new_value_error().desc(format!(
+            "if %x is not \"little\", \"big\", or a list of \
+             all integers from 1 to {nbytes} in any order"
+        ));
         let path = parse_quote!(#sizedbyteord_path<#nbytes>);
-        PyUnion::new2(Self::new_endian(), PyList::new1(RsInt::U32), path).into()
+        PyUnion::new2(Self::new_endian(), PyList::new1(RsInt::U32), path)
+            .exc(exc)
+            .into()
     }
 
     fn new_float_range(nbytes: usize) -> Self {
@@ -7124,14 +7053,14 @@ impl ArgPyType {
             8 => RsFloat::F64,
             _ => panic!("invalid number of float bytes: {nbytes}"),
         };
-        // let msg = format!(
-        //     "if %x is ``NaN``, ``inf``, ``-inf``, \
-        //      or outside the bounds of a {}-bit float",
-        //     nbytes * 8,
-        // );
-        // let e = PyException::new_value_error().desc(msg);
+        let msg = format!(
+            "if %x is ``NaN``, ``inf``, ``-inf``, \
+             or outside the bounds of a {}-bit float",
+            nbytes * 8,
+        );
+        let e = PyException::new_value_error().desc(msg);
         let path = parse_quote!(fireflow_core::data::#i);
-        PyFloat::new2(r, path).into()
+        PyFloat::from(r).rstype(path).exc(e).into()
     }
 
     fn new_timestep() -> Self {
@@ -7140,23 +7069,20 @@ impl ArgPyType {
     }
 
     fn new_positive_float(path: Path) -> Self {
-        // let e = PyException::new_value_error()
-        //     .desc("if %x is negative, ``0.0``, ``NaN``, ``inf``, or ``-inf``");
-        // let rt = path.exc_from(e);
-        PyFloat::new2(RsFloat::F32, path).into()
+        let e = PyException::new_value_error()
+            .desc("if %x is negative, ``0.0``, ``NaN``, ``inf``, or ``-inf``");
+        PyFloat::from(RsFloat::F32).rstype(path).exc(e).into()
     }
 
     fn new_non_empty_str(path: Path) -> Self {
-        // let e = PyException::new_value_error().desc("if %x is empty");
-        // let rt = path.exc_from(e);
-        PyStr::new2(path).into()
+        let e = PyException::new_value_error().desc("if %x is empty");
+        PyStr::default().rstype(path).exc(e).into()
     }
 
     fn new_non_negative_float(path: Path) -> Self {
-        // let e =
-        //     PyException::new_value_error().desc("if %x is negative, ``NaN``, ``inf``, or ``-inf``");
-        // let rt = path.exc_from(e);
-        PyFloat::new2(RsFloat::F32, path).into()
+        let e =
+            PyException::new_value_error().desc("if %x is negative, ``NaN``, ``inf``, or ``-inf``");
+        PyFloat::from(RsFloat::F32).rstype(path).exc(e).into()
     }
 
     fn new_tr() -> Self {
@@ -7164,7 +7090,9 @@ impl ArgPyType {
         // TODO exception for mismatch PnN
         // TODO overflow error
         // TODO invalid shortname
-        PyTuple::new2([Self::from(RsInt::U32), PyStr::new1().into()], path).into()
+        PyTuple::new1([Self::from(RsInt::U32), PyStr::default().into()])
+            .rstype(path)
+            .into()
     }
 
     fn new_range() -> Self {
@@ -7175,7 +7103,7 @@ impl ArgPyType {
     }
 
     fn new_range_inner(path: Path) -> Self {
-        PyDecimal::new2(path).into()
+        PyDecimal::default().rstype(path).into()
     }
 
     fn new_meas(version: Version) -> Self {
@@ -7193,15 +7121,15 @@ impl ArgPyType {
         let meas_opt_pyname = pyoptical(version);
         let meas_tmp_pyname = pytemporal(version);
         let meas_argtype = parse_quote!(PyEithers<#fam_path, #meas_tmp_pyname, #meas_opt_pyname>);
-        PyTuple::new2([name_pytype, Self::new_measurement(version)], meas_argtype).into()
+        PyTuple::new1([name_pytype, Self::new_measurement(version)])
+            .rstype(meas_argtype)
+            .into()
     }
 
     fn new_unigate() -> Self {
-        PyTuple::new2(
-            [PyDecimal::new1(), PyDecimal::new1()],
-            keyword_path("UniGate"),
-        )
-        .into()
+        PyTuple::new1([PyDecimal::default(), PyDecimal::default()])
+            .rstype(keyword_path("UniGate"))
+            .into()
     }
 
     fn new_vertices() -> Self {
@@ -7344,9 +7272,9 @@ impl<R> PyType<R> {
 
     fn new_sub_pattern() -> Self {
         PyTuple::new1([
-            PyStr::new1().into(),
-            PyStr::new1().into(),
-            Self::from(PyBool::new1()),
+            PyStr::default().into(),
+            PyStr::default().into(),
+            Self::from(PyBool::default()),
         ])
         .into()
     }
@@ -7362,7 +7290,7 @@ impl<R> PyType<R> {
     }
 
     fn new_keywords() -> Self {
-        PyDict::new1(PyStr::new1(), PyStr::new1()).into()
+        PyDict::new1(PyStr::default(), PyStr::default()).into()
     }
 
     fn new_endian() -> Self {
@@ -7905,17 +7833,17 @@ impl<T: fmt::Display> fmt::Display for DocReturn<T> {
 impl<R> fmt::Display for PyAtom<R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            Self::Str => PyStr::<R>::new1().fmt(f),
-            Self::Bool => PyBool::<R>::new1().fmt(f),
-            Self::Bytes => PyBytes::<R>::new1().fmt(f),
+            Self::Str => PyStr::<R>::default().fmt(f),
+            Self::Bool => PyBool::<R>::default().fmt(f),
+            Self::Bytes => PyBytes::<R>::default().fmt(f),
             // dummy u8
             Self::Int => PyInt::<R>::from(RsInt::U8).fmt(f),
             // dummy f32
             Self::Float => PyFloat::<R>::from(RsFloat::F32).fmt(f),
-            Self::Decimal => PyDecimal::<R>::new1().fmt(f),
-            Self::Datetime => PyDatetime::<R>::new1().fmt(f),
-            Self::Date => PyDate::<R>::new1().fmt(f),
-            Self::Time => PyTime::<R>::new1().fmt(f),
+            Self::Decimal => PyDecimal::<R>::default().fmt(f),
+            Self::Datetime => PyDatetime::<R>::default().fmt(f),
+            Self::Date => PyDate::<R>::default().fmt(f),
+            Self::Time => PyTime::<R>::default().fmt(f),
             Self::None => f.write_str("None"),
             Self::Dict(k, v) => write!(f, ":py:class:`dict`\\ [{k}, {v}]"),
             Self::Tuple(xs) => {

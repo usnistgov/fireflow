@@ -9,6 +9,7 @@ use nonempty::NonEmpty;
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote, ToTokens};
+use std::cmp::Ordering;
 use std::fmt;
 use std::hash::Hash;
 use std::iter::{empty, once};
@@ -4089,14 +4090,14 @@ struct ReturnPyException(PyException);
 #[derive(Clone, PartialEq, Eq, Hash, new)]
 struct ArgPyException {
     inner: PyException,
-    argmod: ArgExcModifier,
+    argmod: ExcNameMod,
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, Default)]
-enum ArgExcModifier {
+#[derive(Clone, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
+enum ExcNameMod {
     #[default]
     NoMod,
-    Field(usize, Box<Self>),
+    Field(NonEmpty<usize>, Box<Self>),
     List(Box<Self>),
     DictKey(Box<Self>),
     DictVal(Box<Self>),
@@ -4104,7 +4105,7 @@ enum ArgExcModifier {
 
 impl From<PyException> for ArgPyException {
     fn from(value: PyException) -> Self {
-        Self::new(value, ArgExcModifier::default())
+        Self::new(value, ExcNameMod::default())
     }
 }
 
@@ -4112,9 +4113,9 @@ impl From<PyException> for () {
     fn from(_: PyException) {}
 }
 
-impl ArgExcModifier {
+impl ExcNameMod {
     fn add_field(self, f: usize) -> Self {
-        Self::Field(f, self.into())
+        Self::Field(NonEmpty::new(f), self.into())
     }
 
     fn add_list(self) -> Self {
@@ -4132,18 +4133,91 @@ impl ArgExcModifier {
     fn fmt(&self, s: &str) -> String {
         match self {
             Self::NoMod => s.to_owned(),
-            Self::Field(x, i) => format!("field {x} in {}", i.fmt(s)),
+            Self::Field(fs, i) => {
+                let xs: Vec<_> = fs.into_iter().map(|x| x + 1).collect();
+                let x = fmt_comma_sep_list(&xs[..], "or");
+                format!("field {x} in {}", i.fmt(s))
+            }
             Self::List(i) => format!("any in {}", i.fmt(s)),
             Self::DictKey(i) => format!("dict key in {}", i.fmt(s)),
             Self::DictVal(i) => format!("dict value in {}", i.fmt(s)),
         }
+    }
+
+    fn merge(xs: impl IntoIterator<Item = Self>) -> Vec<Self> {
+        // group by top-level types taking field number into account
+        let mut has_nomod = false;
+        let mut field_trees = vec![];
+        let mut list_trees = vec![];
+        let mut dict_key_trees = vec![];
+        let mut dict_val_trees = vec![];
+        for x in xs {
+            match x {
+                Self::Field(f, t) => field_trees.push((f.head, *t)),
+                Self::List(t) => list_trees.push(*t),
+                Self::DictKey(t) => dict_key_trees.push(*t),
+                Self::DictVal(t) => dict_val_trees.push(*t),
+                Self::NoMod => has_nomod = true,
+            }
+        }
+
+        // if we only have leaves, return early to avoid recursion
+        if field_trees.is_empty()
+            && list_trees.is_empty()
+            && dict_key_trees.is_empty()
+            && dict_val_trees.is_empty()
+        {
+            return has_nomod.then_some(Self::NoMod).into_iter().collect();
+        }
+
+        // split trees apart by field number, and group everything underneath
+        let mut grouped_field_trees = vec![];
+
+        for (i, ys) in field_trees.into_iter().into_group_map() {
+            grouped_field_trees.extend(Self::merge(ys).into_iter().map(|x| (x, i)));
+        }
+
+        // now group field by the underlying tree and collect indices
+        let grouped_field_trees_ = grouped_field_trees
+            .into_iter()
+            .into_group_map()
+            .into_iter()
+            .map(|(tree, fs)| {
+                let fs_ = NonEmpty::collect(fs.into_iter().sorted()).unwrap();
+                Self::Field(fs_, tree.into())
+            });
+
+        // the others are easy, just recurse and collect
+        let list_trees_ = Self::merge(list_trees)
+            .into_iter()
+            .map(Box::new)
+            .map(Self::List);
+        let dict_key_trees_ = Self::merge(dict_key_trees)
+            .into_iter()
+            .map(Box::new)
+            .map(Self::DictKey);
+        let dict_val_trees_ = Self::merge(dict_val_trees)
+            .into_iter()
+            .map(Box::new)
+            .map(Self::DictVal);
+
+        // glue everything together
+        has_nomod
+            .then_some(Self::NoMod)
+            .into_iter()
+            .chain(grouped_field_trees_)
+            .chain(list_trees_)
+            .chain(dict_key_trees_)
+            .chain(dict_val_trees_)
+            .sorted()
+            .collect()
     }
 }
 
 impl ArgPyException {
     fn map_mod<F>(self, f: F) -> Self
     where
-        F: FnOnce(ArgExcModifier) -> ArgExcModifier,
+        F: FnOnce(ExcNameMod) -> ExcNameMod,
     {
         Self::new(self.inner, f(self.argmod))
     }
@@ -4151,14 +4225,15 @@ impl ArgPyException {
     fn into_named(self, name: impl Into<String>) -> NamedPyException {
         NamedPyException {
             inner: self,
-            name: name.into(),
+            names: NonEmpty::new(name.into()),
         }
     }
 }
 
+#[derive(new)]
 struct NamedPyException {
+    names: NonEmpty<String>,
     inner: ArgPyException,
-    name: String,
 }
 
 impl PyException {
@@ -4182,6 +4257,33 @@ impl PyException {
             desc: Some(desc.to_string()),
             ..self
         }
+    }
+}
+
+impl NamedPyException {
+    // TODO keep arg order when sorting names
+    fn merge(xs: impl IntoIterator<Item = Self>) -> Vec<Self> {
+        xs.into_iter()
+            .map(|x| ((x.names.head, x.inner.inner), x.inner.argmod))
+            .into_group_map()
+            .into_iter()
+            .flat_map(|((name, exc), argmod)| {
+                ExcNameMod::merge(argmod)
+                    .into_iter()
+                    .sorted()
+                    .map(|a| ((a, exc.clone()), name.clone()))
+                    .collect::<Vec<_>>()
+            })
+            .into_group_map()
+            .into_iter()
+            .sorted()
+            .map(|((argmod, exc), names)| {
+                Self::new(
+                    NonEmpty::collect(names.into_iter().sorted()).unwrap(),
+                    ArgPyException::new(exc, argmod),
+                )
+            })
+            .collect()
     }
 }
 
@@ -6002,7 +6104,7 @@ impl DocArgParam {
         let ignore_time_optical_keys = Self::new_ignore_time_optical_keys_param();
         let parse_indexed_spillover = Self::new_parse_indexed_spillover_param();
         let date_pattern = Self::new_date_pattern_param();
-        let time_pattern = Self::new_time_pattern_param();
+        let time_pattern = Self::new_time_pattern_param(version);
         let allow_pseudostandard = Self::new_allow_pseudostandard_param();
         let allow_unused_standard = Self::new_allow_unused_standard_param();
         let allow_optional_dropping = Self::new_allow_optional_dropping();
@@ -6178,40 +6280,63 @@ impl DocArgParam {
 
     fn new_date_pattern_param() -> Self {
         let path = parse_quote!(fireflow_core::validated::datepattern::DatePattern);
-        let exc = PyException::new_value_error().desc("if %x is not a valid date pattern");
+        let desc = format!(
+            "if %x does not have year, month, and day specifiers \
+             as outlined in {CHRONO_REF}"
+        );
+        let exc = PyException::new_value_error().desc(desc);
         let pytype = PyStr::default().rstype(path).exc(exc);
         Self::new_opt_param(
             "date_pattern",
             pytype,
-            format!(
-                "If supplied, will be used as an alternative pattern when \
-                 parsing *$DATE*. It should have specifiers for year, month, and \
-                 day as outlined in {CHRONO_REF}. If not supplied, *$DATE* will \
-                 be parsed according to the standard pattern which is \
-                 ``%d-%b-%Y``."
-            ),
+            "If supplied, will be used as an alternative pattern when parsing \
+             *$DATE*. If not supplied, *$DATE* will be parsed according to \
+             the standard pattern which is ``%d-%b-%Y``.",
         )
     }
 
-    // TODO make this version specific
-    fn new_time_pattern_param() -> Self {
+    fn new_time_pattern_param(version: Option<Version>) -> Self {
+        const CORE_PAT: &str = "%H:%M:%S";
+        const SUB3_0: &str = "%!";
+        const SUB3_1: &str = "%@";
+        const NAME3_0: &str = "1/60 seconds";
+        const NAME3_1: &str = "centiseconds";
+
+        let fmt = |s: &str| format!("``\"{s}\"``");
+        let sub3_0 = fmt(SUB3_0);
+        let sub3_1 = fmt(SUB3_1);
+
+        // format exception description
+        let exc_desc = format!(
+            "if %x does not have specifiers for hours, minutes, \
+             seconds, and optionally sub-seconds (where {sub3_0} and {sub3_1} \
+             correspond to {NAME3_0} and {NAME3_1} respectively) as outlined \
+             in {CHRONO_REF}"
+        );
+        let exc = PyException::new_value_error().desc(exc_desc);
+
+        // format arg description
+        let std_pat = match version {
+            None => "version-specific".into(),
+            Some(Version::FCS2_0) => fmt(CORE_PAT),
+            Some(Version::FCS3_0) => fmt(&format!("{CORE_PAT}:{SUB3_0}")),
+            _ => fmt(&format!("{CORE_PAT}.{SUB3_1}")),
+        };
+        let line1 = "If supplied, will be used as an alternative pattern when \
+                     parsing *$BTIM* and *$ETIM*.";
+        let line2 = format!(
+            "The values {sub3_0} or {sub3_1} may be used to \
+             match {NAME3_0} or {NAME3_1} respectively."
+        );
+        let line3 = format!(
+            "If not supplied, *$BTIM* and *$ETIM* will be parsed \
+             according to the standard pattern which is {std_pat}."
+        );
+        let arg_desc = [line1.to_owned(), line2, line3].into_iter().join(" ");
+
         let path = parse_quote!(fireflow_core::validated::timepattern::TimePattern);
-        let exc = PyException::new_value_error().desc("if %x is not a valid time pattern");
         let pytype = PyStr::default().rstype(path).exc(exc);
-        Self::new_opt_param(
-            "time_pattern",
-            pytype,
-            format!(
-                "If supplied, will be used as an alternative pattern when \
-                 parsing *$BTIM* and *$ETIM*. It should have specifiers for \
-                 hours, minutes, and seconds as outlined in {CHRONO_REF}. It may \
-                 optionally also have a sub-seconds specifier as shown in the \
-                 same link. Furthermore, the specifiers '%!' and %@' may be used \
-                 to match 1/60 and centiseconds respectively. If not supplied, \
-                 *$BTIM* and *$ETIM* will be parsed according to the standard \
-                 pattern which is version-specific."
-            ),
-        )
+        Self::new_opt_param("time_pattern", pytype, arg_desc)
     }
 
     fn new_allow_pseudostandard_param() -> Self {
@@ -7215,7 +7340,7 @@ impl ArgPyType {
                 let y = x
                     .inner
                     .clone()
-                    .map_exc(|e| e.map_mod(ArgExcModifier::add_list))
+                    .map_exc(|e| e.map_mod(ExcNameMod::add_list))
                     .as_exceptions();
                 x.exc.iter().cloned().chain(y).collect()
             }
@@ -7223,18 +7348,17 @@ impl ArgPyType {
                 let k = x
                     .key
                     .clone()
-                    .map_exc(|e| e.map_mod(ArgExcModifier::add_dict_key))
+                    .map_exc(|e| e.map_mod(ExcNameMod::add_dict_key))
                     .as_exceptions();
                 let v = x
                     .value
                     .clone()
-                    .map_exc(|e| e.map_mod(ArgExcModifier::add_dict_val))
+                    .map_exc(|e| e.map_mod(ExcNameMod::add_dict_val))
                     .as_exceptions();
                 x.exc.iter().cloned().chain(k).chain(v).collect()
             }
             Self::Tuple(xs) => {
-                let fmt =
-                    |i, x: Self| x.map_exc(|e| e.map_mod(|m| ArgExcModifier::add_field(m, i)));
+                let fmt = |i, x: Self| x.map_exc(|e| e.map_mod(|m| ExcNameMod::add_field(m, i)));
                 let mut ys = xs.inner.iter().cloned().enumerate().map(|(i, x)| fmt(i, x));
                 if let Some(y) = ys.next() {
                     let acc = walk(vec![], &y);
@@ -7741,12 +7865,13 @@ impl fmt::Display for ClassDocString {
             |a| a.iter().map(ToString::to_string),
             |()| None,
             |a| {
-                a.iter().flat_map(|x| {
+                let es = a.iter().flat_map(|x| {
                     x.pytype()
                         .as_exceptions()
                         .into_iter()
                         .map(|e| e.into_named(x.argname()))
-                })
+                });
+                NamedPyException::merge(es).into_iter()
             },
             |()| empty(),
             f,
@@ -7774,12 +7899,13 @@ impl<A: fmt::Display + IsDocArg, S> fmt::Display
             |a| a.iter().map(ToString::to_string),
             |r| r.as_ref().map(ToString::to_string),
             |a| {
-                a.iter().flat_map(|x| {
+                let es = a.iter().flat_map(|x| {
                     x.pytype()
                         .as_exceptions()
                         .into_iter()
                         .map(|e| e.into_named(x.argname()))
-                })
+                });
+                NamedPyException::merge(es).into_iter()
             },
             |r| r.as_ref().map(|x| &x.exceptions).into_iter().flatten(),
             f,
@@ -7790,7 +7916,9 @@ impl<A: fmt::Display + IsDocArg, S> fmt::Display
 impl fmt::Display for NamedPyException {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let pn = &self.inner.inner.pyname;
-        let n = self.inner.argmod.fmt(&format!("``{}``", &self.name));
+        let ns: Vec<_> = self.names.iter().map(|n| format!("``{n}``")).collect();
+        let ns_ = fmt_comma_sep_list(&ns[..], "or");
+        let n = self.inner.argmod.fmt(&ns_);
         if let Some(d) = self.inner.inner.desc.as_ref() {
             assert!(d.contains("%x"), "does not contain name ref: {d}");
             let dd = d.replace("%x", &n);
@@ -7987,6 +8115,20 @@ fn fmt_hanging_indent(width: usize, indent: usize, s: &str) -> String {
     }
     zs.push(tmp.iter().join(" "));
     zs.iter().join("\n")
+}
+
+fn fmt_comma_sep_list<X: fmt::Display>(xs: &[X], conj: &str) -> String {
+    let n = xs.len();
+    match n.cmp(&2) {
+        Ordering::Less => xs.iter().join(""),
+        Ordering::Equal => xs.iter().join(&format!(" {conj} ")),
+        Ordering::Greater => {
+            let mut it = xs.iter();
+            let x0 = it.by_ref().take(n - 1).join(", ");
+            let c = format!(", {conj} ");
+            once(x0).chain(it.map(ToString::to_string)).join(&c)
+        }
+    }
 }
 
 const MAX_LINE_LEN: usize = 72;

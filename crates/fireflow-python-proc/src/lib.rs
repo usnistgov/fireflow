@@ -2707,43 +2707,6 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     doc.into_impl_class(name, &path, new_method).1.into()
 }
 
-struct NewCoreInfo {
-    coretext_path: Path,
-    coredataset_path: Path,
-    coretext_name: Ident,
-    coredataset_name: Ident,
-    version: Version,
-}
-
-impl Parse for NewCoreInfo {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let coretext_path = input.parse::<Path>()?;
-        let _: Comma = input.parse()?;
-        let coredataset_path = input.parse::<Path>()?;
-        let coretext_name = coretext_path.segments.last().unwrap().ident.clone();
-        let coredataset_name = coredataset_path.segments.last().unwrap().ident.clone();
-        let v0 = split_ident_version_checked("CoreTEXT", &coretext_name);
-        let v1 = split_ident_version_checked("CoreDataset", &coredataset_name);
-        assert!(v0 == v1, "Versions don't match");
-        Ok(Self {
-            coretext_path,
-            coredataset_path,
-            coretext_name,
-            coredataset_name,
-            version: v0,
-        })
-    }
-}
-
-impl<T> DocArg<T> {
-    fn quoted_methods(&self) -> TokenStream2
-    where
-        T: IsMethods,
-    {
-        self.methods.quoted_methods()
-    }
-}
-
 #[proc_macro]
 pub fn impl_core_all_pns(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
@@ -3341,7 +3304,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
         |_, _| quote!(*self.0.as_ref()),
     );
 
-    let is_big_param = make_endian_ord_param(2);
+    let is_big_param = DocArgROIvar::new_endian_ord_param(2);
 
     let make_doc = |args| DocString::new_class(summary, [""; 0], args);
 
@@ -3421,7 +3384,7 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.columns().iter().map(|c| c.clone()).collect()),
     );
 
-    let is_big_param = make_endian_param(4);
+    let is_big_param = DocArgROIvar::new_endian_param(4);
 
     let doc = DocString::new_class(
         format!("{nbits}-bit endian float layout"),
@@ -3468,7 +3431,7 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.columns().iter().map(|c| u64::from(*c)).collect()),
     );
 
-    let is_big_param = make_endian_param(4);
+    let is_big_param = DocArgROIvar::new_endian_param(4);
 
     let doc = DocString::new_class(
         "A mixed-width integer layout.",
@@ -3521,7 +3484,7 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.columns().iter().map(|c| c.clone()).collect()),
     );
 
-    let is_big_param = make_endian_param(4);
+    let is_big_param = DocArgROIvar::new_endian_param(4);
 
     let doc = DocString::new_class("A mixed-type layout.", [""; 0], [types_param, is_big_param]);
 
@@ -3534,57 +3497,6 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
     };
 
     doc.into_impl_class(name, &layout_path, new).1.into()
-}
-
-// TODO not DRY
-fn make_endian_ord_param(n: usize) -> DocArgROIvar {
-    let xs = (1..=n).join(",");
-    let ys = (1..=n).rev().join(",");
-    let sizedbyteord_path = quote!(fireflow_core::text::byteord::SizedByteOrd);
-    DocArg::new_ivar_ro_def(
-        "endian",
-        PyLiteral::new_endian(),
-        format!(
-            "If ``\"big\"`` use big endian (``{ys}``) for encoding values; \
-             if ``\"little\"`` use little endian (``{xs}``)."
-        ),
-        DocDefault::Auto,
-        |_, _| {
-            quote! {
-                let m: #sizedbyteord_path<2> = *self.0.as_ref();
-                m.endian()
-            }
-        },
-    )
-}
-
-fn make_endian_param(n: usize) -> DocArgROIvar {
-    let xs = (1..=n).join(",");
-    let ys = (1..=n).rev().join(",");
-    DocArg::new_ivar_ro_def(
-        "endian",
-        PyLiteral::new_endian(),
-        format!(
-            "If ``\"big\"`` use big endian (``{ys}``) for encoding values; \
-             if ``\"little\"`` use little endian (``{xs}``)."
-        ),
-        DocDefault::Auto,
-        |_, _| quote!(*self.0.as_ref()),
-    )
-}
-
-fn make_byte_width(pyname: &Ident, nbytes: usize) -> TokenStream2 {
-    let s0 = format!("Will always return ``{nbytes}``.");
-    let s1 = "This corresponds to the value of *$PnB* divided by 8, which are \
-              all equal for this layout."
-        .into();
-    let doc = DocString::new_ivar(
-        "The width of each measurement in bytes.",
-        [s0, s1],
-        DocReturn::new(RsInt::Usize),
-    );
-
-    doc.into_impl_get(pyname, "byte_width", |_| quote!(#nbytes))
 }
 
 #[proc_macro]
@@ -3610,32 +3522,6 @@ pub fn impl_layout_byte_widths(input: TokenStream) -> TokenStream {
         }
     })
     .into()
-}
-
-fn make_layout_datatype(pyname: &Ident, dt: &str) -> TokenStream2 {
-    let doc = DocString::new_ivar(
-        "The value of *$DATATYPE*.",
-        [format!("Will always return ``\"{dt}\"``.")],
-        DocReturn::new(PyLiteral::new_datatype()),
-    );
-    doc.into_impl_get(pyname, "datatype", |_| quote!(self.0.datatype().into()))
-}
-
-struct OrderedLayoutInfo {
-    nbytes: usize,
-    is_float: bool,
-}
-
-impl Parse for OrderedLayoutInfo {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let nbytes = input
-            .parse::<LitInt>()?
-            .base10_parse::<usize>()
-            .expect("Number of bytes must be an unsigned integer");
-        let _: Comma = input.parse()?;
-        let is_float = input.parse::<LitBool>()?.value();
-        Ok(Self { nbytes, is_float })
-    }
 }
 
 #[proc_macro]
@@ -3758,102 +3644,54 @@ fn make_gate_region(path: &Path, is_uni: bool) -> TokenStream {
     doc.into_impl_class(name, path, new).1.into()
 }
 
-fn unwrap_type_as_path(ty: &Type) -> &Path {
-    if let Type::Path(p) = ty {
-        &p.path
-    } else {
-        panic!("not a path")
+/// Macro args for implementing new Core* classes
+struct NewCoreInfo {
+    coretext_path: Path,
+    coredataset_path: Path,
+    coretext_name: Ident,
+    coredataset_name: Ident,
+    version: Version,
+}
+
+impl Parse for NewCoreInfo {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let coretext_path = input.parse::<Path>()?;
+        let _: Comma = input.parse()?;
+        let coredataset_path = input.parse::<Path>()?;
+        let coretext_name = coretext_path.segments.last().unwrap().ident.clone();
+        let coredataset_name = coredataset_path.segments.last().unwrap().ident.clone();
+        let v0 = split_ident_version_checked("CoreTEXT", &coretext_name);
+        let v1 = split_ident_version_checked("CoreDataset", &coredataset_name);
+        assert!(v0 == v1, "Versions don't match");
+        Ok(Self {
+            coretext_path,
+            coredataset_path,
+            coretext_name,
+            coredataset_name,
+            version: v0,
+        })
     }
 }
 
-fn unwrap_generic<'a>(name: &str, ty: &'a Path) -> (&'a Path, bool) {
-    if let Some(segment) = ty.segments.last()
-        && segment.ident == name
-        && let PathArguments::AngleBracketed(args) = &segment.arguments
-        && let Some(GenericArgument::Type(Type::Path(inner_type))) = args.args.first()
-    {
-        return (&inner_type.path, true);
-    }
-    (ty, false)
+/// Macro args for implementing new ordered layout
+struct OrderedLayoutInfo {
+    nbytes: usize,
+    is_float: bool,
 }
 
-fn split_ident_version(name: &Ident) -> (String, Version) {
-    let n = name.to_string();
-    let (ret, v) = n.split_at(n.len() - 3);
-    let version = Version::from_short_underscore(v).expect("version should be like 'X_Y'");
-    (ret.into(), version)
-}
-
-fn split_ident_version_checked(which: &'static str, name: &Ident) -> Version {
-    let (n, v) = split_ident_version(name);
-    assert!(
-        n.as_str() == which,
-        "identifier should be like '{which}X_Y'"
-    );
-    v
-}
-
-fn split_ident_version_pycore(name: &Ident) -> (bool, Version) {
-    let (base, version) = split_ident_version(name);
-    assert!(
-        base == "PyCoreTEXT" || base == "PyCoreDataset",
-        "must be PyCore(TEXT|Dataset)X_Y"
-    );
-    (base == "PyCoreDataset", version)
-}
-
-fn path_strip_args(mut path: Path) -> Path {
-    for segment in &mut path.segments {
-        segment.arguments = PathArguments::None;
-    }
-    path
-}
-
-fn element_path(version: Version) -> Path {
-    let otype = pyoptical(version);
-    let ttype = pytemporal(version);
-    let element_path = quote!(fireflow_core::text::named_vec::Element);
-    parse_quote!(#element_path<#ttype, #otype>)
-}
-
-fn keyword_path(n: &str) -> Path {
-    let t = format_ident!("{n}");
-    parse_quote!(fireflow_core::text::keywords::#t)
-}
-
-fn correction_path(is_header: bool, id: &str) -> Path {
-    let src = if is_header {
-        "SegmentFromHeader"
-    } else {
-        "SegmentFromTEXT"
-    };
-    let s = format_ident!("{src}");
-    let i = format_ident!("{id}");
-    let root = quote!(fireflow_core::segment);
-    parse_quote! (#root::OffsetCorrection<#root::#i, #root::#s>)
-}
-
-fn config_path(n: &str) -> Path {
-    let t = format_ident!("{n}");
-    parse_quote!(fireflow_core::config::#t)
-}
-
-fn versioned_family_path(version: Version) -> Path {
-    let root = quote!(fireflow_core::text::optional);
-    match version {
-        Version::FCS2_0 | Version::FCS3_0 => parse_quote!(#root::MaybeFamily),
-        _ => parse_quote!(#root::AlwaysFamily),
+impl Parse for OrderedLayoutInfo {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let nbytes = input
+            .parse::<LitInt>()?
+            .base10_parse::<usize>()
+            .expect("Number of bytes must be an unsigned integer");
+        let _: Comma = input.parse()?;
+        let is_float = input.parse::<LitBool>()?.value();
+        Ok(Self { nbytes, is_float })
     }
 }
 
-fn pyoptical(version: Version) -> Ident {
-    format_ident!("PyOptical{}", version.short_underscore())
-}
-
-fn pytemporal(version: Version) -> Ident {
-    format_ident!("PyTemporal{}", version.short_underscore())
-}
-
+/// A docstring for any python function/method/class
 #[derive(Clone, new)]
 struct DocString<A, R, S> {
     summary: String,
@@ -3868,40 +3706,20 @@ type MethodDocString = DocString<Vec<DocArgParam>, Option<DocReturn<RetPyType>>,
 type FunDocString = DocString<Vec<DocArgParam>, Option<DocReturn<RetPyType>>, NoSelf>;
 type IvarDocString = DocString<(), DocReturn<ArgPyType>, SelfArg>;
 
+/// Represents a method which does not have a self arg
 struct NoSelf;
 
+/// Represents a method which has a self arg
 struct SelfArg;
 
-trait IsSelfArg {
-    const ARG: Option<&'static str>;
-}
-
-impl IsSelfArg for NoSelf {
-    const ARG: Option<&'static str> = None;
-}
-
-impl IsSelfArg for SelfArg {
-    const ARG: Option<&'static str> = Some("self");
-}
-
+/// The origin of a segment
 #[derive(Clone, Copy)]
 enum SegmentSrc {
     Header,
-    // Text,
     Any,
 }
 
-impl fmt::Display for SegmentSrc {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s = match self {
-            Self::Header => "*HEADER*",
-            // Self::Text => "*TEXT*",
-            Self::Any => "*HEADER* or *TEXT*",
-        };
-        f.write_str(s)
-    }
-}
-
+/// Any python argument documentation type
 #[derive(Clone, From, Display)]
 enum AnyDocArg {
     RWIvar(DocArgRWIvar),
@@ -3913,29 +3731,774 @@ type DocArgRWIvar = DocArg<GetSetMethods>;
 type DocArgROIvar = DocArg<GetMethod>;
 type DocArgParam = DocArg<NoMethods>;
 
+/// Python documentation for one argument
 #[derive(Clone, new, AsRef)]
 struct DocArg<T> {
+    /// Name of the arg
     #[new(into)]
     argname: String,
+
+    /// Python type of the arg
     #[as_ref(ArgPyType)]
     #[new(into)]
     pytype: ArgPyType,
+
+    /// Description of the arg to do in docs
     #[new(into)]
     desc: String,
+
+    /// Default value of the arg
     default: Option<DocDefault>,
+
+    /// Methods to get/set the arg
     methods: T,
 }
 
+/// Denotes that a Python argument does not have get/set methods
 #[derive(Clone)]
 struct NoMethods;
 
+/// Get methods for a python argument
 #[derive(Clone)]
 struct GetMethod(TokenStream2);
 
+/// Get and set methods for a python argument
 #[derive(new, Clone)]
 struct GetSetMethods {
     get: TokenStream2,
     set: TokenStream2,
+}
+
+/// Default value for a Python argument
+#[derive(Clone)]
+enum DocDefault {
+    Auto,
+    Int(usize),
+    Str(String),
+}
+
+/// Return value for a python method/function
+#[derive(Clone)]
+struct DocReturn<T> {
+    rtype: T,
+    desc: Option<String>,
+    // TODO this should always be empty for ivars
+    exceptions: Vec<ReturnPyException>,
+}
+
+/// Documentation for a Python exception
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+struct PyException {
+    pyname: String,
+    desc: Option<String>,
+}
+
+/// A Python exceptiion returned from a function
+#[derive(Clone, PartialEq, Eq, Hash, From)]
+struct ReturnPyException(PyException);
+
+/// A Python exceptiion thrown when an argument value is converted into Rust
+#[derive(Clone, PartialEq, Eq, Hash, new)]
+struct ArgPyException {
+    inner: PyException,
+    argmod: ExcNameMod,
+}
+
+/// A wrapper that modifies the origin name of an exception
+#[derive(Clone, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
+enum ExcNameMod {
+    #[default]
+    NoMod,
+    /// For tuples, adds "field 1 in {}"
+    Field(NonEmpty<usize>, Box<Self>),
+    /// For lists, adds "any in {}"
+    List(Box<Self>),
+    /// For dict keys, adds "dict key in {}"
+    DictKey(Box<Self>),
+    /// For dict keys, adds "dict value in {}"
+    DictVal(Box<Self>),
+}
+
+/// A Python exception attached to at least one argmenent
+#[derive(new)]
+struct NamedPyException {
+    names: NonEmpty<String>,
+    inner: ArgPyException,
+}
+
+/// A Python type associated with an argument or return value
+#[derive(Clone, From, Display)]
+enum PyType<E> {
+    #[from]
+    Str(PyStr<E>),
+    #[from]
+    Bool(PyBool<E>),
+    #[from]
+    Bytes(PyBytes<E>),
+    #[from(RsInt)]
+    #[from(PyInt<E>)]
+    Int(PyInt<E>),
+    #[from(RsFloat)]
+    #[from(PyFloat<E>)]
+    Float(PyFloat<E>),
+    #[from]
+    Decimal(PyDecimal<E>),
+    #[from]
+    Datetime(PyDatetime<E>),
+    #[from]
+    Date(PyDate<E>),
+    #[from]
+    Time(PyTime<E>),
+    #[from(PyOpt<E>)]
+    Option(Box<PyOpt<E>>),
+    #[from(PyDict<E>)]
+    Dict(Box<PyDict<E>>),
+    #[from]
+    Tuple(PyTuple<E>),
+    #[from(PyList<E>)]
+    List(Box<PyList<E>>),
+    #[from]
+    Literal(PyLiteral),
+    #[from]
+    PyClass(PyClass<E>),
+    #[from(PyUnion<E>)]
+    Union(Box<PyUnion<E>>),
+}
+
+type ArgPyType = PyType<ArgPyException>;
+type RetPyType = PyType<()>;
+
+/// A "broken-down" python type.
+///
+/// This is mostly used to resolve the ambiguities that arise when dealing with
+/// "Option" (in rust) as "X | None" (in Python) and the ugly implications this
+/// has with Enums and Unions.
+#[derive(PartialEq, Hash, Eq, Clone)]
+enum PyAtom<R> {
+    Str,
+    Bool,
+    Bytes,
+    Int,
+    Float,
+    Decimal,
+    Datetime,
+    Date,
+    Time,
+    None,
+    Dict(Box<PyAtom<R>>, Box<PyAtom<R>>),
+    Tuple(Vec<PyAtom<R>>),
+    List(Box<PyAtom<R>>),
+    Literal(PyLiteral),
+    PyClass(PyClass<R>),
+    Union(Box<PyAtom<R>>, Box<PyAtom<R>>, Vec<PyAtom<R>>),
+}
+
+/// A Python 'int'
+#[derive(Clone, new)]
+struct PyInt<E> {
+    rs: RsInt,
+    rstype: Option<Path>,
+    exc: Option<E>,
+}
+
+/// A Python 'float'
+#[derive(Clone, From, new)]
+struct PyFloat<E> {
+    #[from]
+    rs: RsFloat,
+    rstype: Option<Path>,
+    exc: Option<E>,
+}
+
+/// A Python 'str'
+#[derive(Clone, Default, new)]
+struct PyStr<E> {
+    rstype: Option<Path>,
+    exc: Option<E>,
+}
+
+/// A Python 'bool'
+#[derive(Clone, Default, new)]
+struct PyBool<E> {
+    rstype: Option<Path>,
+    exc: Option<E>,
+}
+
+/// A Python 'bytes'
+#[derive(Clone, Default, new)]
+struct PyBytes<E> {
+    rstype: Option<Path>,
+    exc: Option<E>,
+}
+
+/// A Python 'Decimal' class
+#[derive(Clone, Default, new)]
+struct PyDecimal<E> {
+    rstype: Option<Path>,
+    exc: Option<E>,
+}
+
+/// A Python 'datetime.time' class
+#[derive(Clone, Default, new)]
+struct PyTime<E> {
+    rstype: Option<Path>,
+    exc: Option<E>,
+}
+
+/// A Python 'datetime.date' class
+#[derive(Clone, Default, new)]
+struct PyDate<E> {
+    rstype: Option<Path>,
+    exc: Option<E>,
+}
+
+/// A Python 'datetime.datetime' class
+#[derive(Clone, Default, new)]
+struct PyDatetime<E> {
+    rstype: Option<Path>,
+    exc: Option<E>,
+}
+
+/// A Python 'typing.Literal'
+#[derive(Clone, PartialEq, Hash, Eq, new)]
+struct PyLiteral {
+    #[new(into)]
+    head: &'static str,
+    #[new(into_iter = "&'static str")]
+    tail: Vec<&'static str>,
+    #[new(into)]
+    rstype: Option<Path>,
+}
+
+/// A Python 'Optional[X]' aka 'X | None'
+#[derive(Clone, new)]
+struct PyOpt<R> {
+    #[new(into)]
+    inner: PyType<R>,
+}
+
+/// A Python 'dict[X, Y]'
+#[derive(Clone, new)]
+struct PyDict<E> {
+    #[new(into)]
+    key: PyType<E>,
+    #[new(into)]
+    value: PyType<E>,
+    #[new(into)]
+    rstype: Option<Path>,
+    exc: Option<E>,
+}
+
+/// A Python 'list[X]'
+#[derive(Clone, new)]
+struct PyList<E> {
+    #[new(into)]
+    inner: PyType<E>,
+    #[new(into)]
+    rstype: Option<Path>,
+    exc: Option<E>,
+}
+
+/// An arbitrary Python class
+#[derive(Clone, new, PartialEq, Hash, Eq)]
+struct PyClass<E> {
+    #[new(into)]
+    pyname: String,
+    #[new(into)]
+    rstype: Option<Path>,
+    exc: Option<E>,
+}
+
+/// A Python 'Union[...]' aka 'A | B | ...'
+#[derive(Clone, new)]
+struct PyUnion<E> {
+    #[new(into)]
+    head0: PyType<E>,
+    #[new(into)]
+    head1: PyType<E>,
+    tail: Vec<PyType<E>>,
+    rstype: Path,
+    exc: Option<E>,
+}
+
+/// A Python 'tuple[...]'
+#[derive(Clone, new)]
+struct PyTuple<E> {
+    inner: Vec<PyType<E>>,
+    rstype: Option<Path>,
+    exc: Option<E>,
+}
+
+/// A rust integer type for use in making a python int more specific
+#[derive(Clone)]
+enum RsInt {
+    U8,
+    U16,
+    U32,
+    U64,
+    I32,
+    Usize,
+    NonZeroU8,
+    NonZeroUsize,
+}
+
+/// A rust float type for use in making a python float more specific
+#[derive(Clone)]
+enum RsFloat {
+    F32,
+    F64,
+}
+
+/// A type which represents 'Self' in python (or not)
+trait IsSelfArg {
+    const ARG: Option<&'static str>;
+}
+
+/// A type which can be converted to a tokenstream representing get/set rust methods
+trait IsMethods {
+    fn quoted_methods(&self) -> TokenStream2;
+}
+
+/// A Python type which has a Rust type (as a quoted path)
+trait HasRustPath {
+    fn as_rust_type(&self) -> Type;
+}
+
+/// Defines argument properties for given methods configurations
+trait IsArgType {
+    const TYPENAME: &str;
+    const ARGTYPE: &str;
+
+    fn readonly() -> Option<bool>;
+}
+
+/// General methods for args which may be documented
+trait IsDocArg {
+    fn argname(&self) -> &str;
+
+    fn pytype(&self) -> &ArgPyType;
+
+    // fn desc(&self) -> &str;
+
+    fn default(&self) -> Option<&DocDefault>;
+
+    fn fun_arg(&self) -> TokenStream2;
+
+    fn ident(&self) -> Ident;
+
+    fn ident_into(&self) -> TokenStream2;
+
+    fn record_into(&self) -> TokenStream2;
+}
+
+/// A pytype which may be converted to a pyatom
+trait AsPyAtom<R> {
+    fn as_atom(&self) -> PyAtom<R>;
+}
+
+impl IsSelfArg for NoSelf {
+    const ARG: Option<&'static str> = None;
+}
+
+impl IsSelfArg for SelfArg {
+    const ARG: Option<&'static str> = Some("self");
+}
+
+impl IsMethods for NoMethods {
+    fn quoted_methods(&self) -> TokenStream2 {
+        quote!()
+    }
+}
+
+impl IsMethods for GetMethod {
+    fn quoted_methods(&self) -> TokenStream2 {
+        let g = &self.0;
+        quote! {
+            #[getter]
+            #g
+        }
+    }
+}
+
+impl IsMethods for GetSetMethods {
+    fn quoted_methods(&self) -> TokenStream2 {
+        let g = &self.get;
+        let s = &self.set;
+        quote! {
+            #[getter]
+            #g
+            #[setter]
+            #s
+        }
+    }
+}
+
+impl IsMethods for AnyDocArg {
+    fn quoted_methods(&self) -> TokenStream2 {
+        match self {
+            Self::Param(x) => x.quoted_methods(),
+            Self::ROIvar(x) => x.quoted_methods(),
+            Self::RWIvar(x) => x.quoted_methods(),
+        }
+    }
+}
+
+impl<E> HasRustPath for PyType<E> {
+    fn as_rust_type(&self) -> Type {
+        match self {
+            Self::Str(x) => x.as_rust_type(),
+            Self::Bool(x) => x.as_rust_type(),
+            Self::Bytes(x) => x.as_rust_type(),
+            Self::Int(x) => x.as_rust_type(),
+            Self::Float(x) => x.as_rust_type(),
+            Self::Decimal(x) => x.as_rust_type(),
+            Self::Datetime(x) => x.as_rust_type(),
+            Self::Date(x) => x.as_rust_type(),
+            Self::Time(x) => x.as_rust_type(),
+            Self::Option(x) => x.as_rust_type(),
+            Self::Dict(x) => x.as_rust_type(),
+            Self::List(x) => x.as_rust_type(),
+            Self::Tuple(x) => x.as_rust_type(),
+            Self::Union(x) => x.as_rust_type(),
+            Self::Literal(x) => x.as_rust_type(),
+            Self::PyClass(x) => x.as_rust_type(),
+        }
+    }
+}
+
+macro_rules! impl_has_rust_path {
+    ($t:ident, $p:path) => {
+        impl<E> HasRustPath for $t<E> {
+            fn as_rust_type(&self) -> Type {
+                if let Some(x) = self.rstype.as_ref() {
+                    parse_quote!(#x)
+                } else {
+                    parse_quote!($p)
+                }
+            }
+        }
+    };
+}
+
+impl_has_rust_path!(PyStr, String);
+impl_has_rust_path!(PyBool, bool);
+impl_has_rust_path!(PyBytes, Vec<u8>);
+impl_has_rust_path!(PyDecimal, bigdecimal::BigDecimal);
+impl_has_rust_path!(PyDate, chrono::NaiveDate);
+impl_has_rust_path!(PyTime, chrono::NaiveTime);
+impl_has_rust_path!(PyDatetime, chrono::DateTime<chrono::FixedOffset>);
+
+impl<E> HasRustPath for PyOpt<E> {
+    fn as_rust_type(&self) -> Type {
+        let i = self.inner.as_rust_type();
+        parse_quote!(Option<#i>)
+    }
+}
+
+impl<E> HasRustPath for PyDict<E> {
+    fn as_rust_type(&self) -> Type {
+        if let Some(x) = self.rstype.as_ref() {
+            parse_quote!(#x)
+        } else {
+            let k = &self.key.as_rust_type();
+            let v = &self.value.as_rust_type();
+            parse_quote!(std::collections::HashMap<#k, #v>)
+        }
+    }
+}
+
+impl<E> HasRustPath for PyTuple<E> {
+    fn as_rust_type(&self) -> Type {
+        if let Some(x) = self.rstype.as_ref() {
+            parse_quote!(#x)
+        } else {
+            let vs: Vec<_> = self.inner.iter().map(HasRustPath::as_rust_type).collect();
+            parse_quote!((#(#vs),*))
+        }
+    }
+}
+
+impl<E> HasRustPath for PyList<E> {
+    fn as_rust_type(&self) -> Type {
+        if let Some(x) = self.rstype.as_ref() {
+            parse_quote!(#x)
+        } else {
+            let v = &self.inner.as_rust_type();
+            parse_quote!(Vec<#v>)
+        }
+    }
+}
+
+impl<E> HasRustPath for PyClass<E> {
+    fn as_rust_type(&self) -> Type {
+        let x = self
+            .rstype
+            .as_ref()
+            .expect("PyClass does not have a rust type");
+        parse_quote!(#x)
+    }
+}
+
+impl HasRustPath for PyLiteral {
+    fn as_rust_type(&self) -> Type {
+        let x = self
+            .rstype
+            .as_ref()
+            .expect("PyLiteral does not have a rust type");
+        parse_quote!(#x)
+    }
+}
+
+impl<E> HasRustPath for PyUnion<E> {
+    fn as_rust_type(&self) -> Type {
+        let x = &self.rstype;
+        parse_quote!(#x)
+    }
+}
+
+macro_rules! impl_prim_num {
+    ($t:ident) => {
+        impl<E> HasRustPath for $t<E> {
+            fn as_rust_type(&self) -> Type {
+                if let Some(x) = self.rstype.as_ref() {
+                    parse_quote!(#x)
+                } else {
+                    self.rs.as_rust_type()
+                }
+            }
+        }
+    };
+}
+
+impl_prim_num!(PyInt);
+impl_prim_num!(PyFloat);
+
+impl HasRustPath for RsInt {
+    fn as_rust_type(&self) -> Type {
+        match self {
+            Self::U8 => parse_quote!(u8),
+            Self::U16 => parse_quote!(u16),
+            Self::U32 => parse_quote!(u32),
+            Self::U64 => parse_quote!(u64),
+            Self::Usize => parse_quote!(usize),
+            Self::NonZeroU8 => parse_quote!(std::num::NonZeroU8),
+            Self::NonZeroUsize => parse_quote!(std::num::NonZeroUsize),
+            Self::I32 => parse_quote!(i32),
+        }
+    }
+}
+
+impl HasRustPath for RsFloat {
+    fn as_rust_type(&self) -> Type {
+        match self {
+            Self::F32 => parse_quote!(f32),
+            Self::F64 => parse_quote!(f64),
+        }
+    }
+}
+
+impl IsArgType for GetMethod {
+    const TYPENAME: &str = "vartype";
+    const ARGTYPE: &str = "ivar";
+
+    fn readonly() -> Option<bool> {
+        Some(true)
+    }
+}
+
+impl IsArgType for GetSetMethods {
+    const TYPENAME: &str = "vartype";
+    const ARGTYPE: &str = "ivar";
+
+    fn readonly() -> Option<bool> {
+        Some(false)
+    }
+}
+
+impl IsArgType for NoMethods {
+    const TYPENAME: &str = "type";
+    const ARGTYPE: &str = "param";
+
+    fn readonly() -> Option<bool> {
+        None
+    }
+}
+
+impl<T> IsDocArg for DocArg<T> {
+    fn argname(&self) -> &str {
+        self.argname.as_str()
+    }
+
+    fn pytype(&self) -> &ArgPyType {
+        &self.pytype
+    }
+
+    // fn desc(&self) -> &str {
+    //     self.desc.as_str()
+    // }
+
+    fn default(&self) -> Option<&DocDefault> {
+        self.default.as_ref()
+    }
+
+    fn fun_arg(&self) -> TokenStream2 {
+        let n = format_ident!("{}", &self.argname);
+        let t = &self.pytype.as_rust_type();
+        quote!(#n: #t)
+    }
+
+    fn ident(&self) -> Ident {
+        format_ident!("{}", &self.argname)
+    }
+
+    fn ident_into(&self) -> TokenStream2 {
+        let n = self.ident();
+        if unwrap_generic("Option", unwrap_type_as_path(&self.pytype.as_rust_type())).1 {
+            quote! {#n.map(Into::into)}
+        } else {
+            quote! {#n.into()}
+        }
+    }
+
+    fn record_into(&self) -> TokenStream2 {
+        let n = self.ident();
+        if unwrap_generic("Option", unwrap_type_as_path(&self.pytype.as_rust_type())).1 {
+            quote! {#n: #n.map(Into::into)}
+        } else {
+            quote! {#n: #n.into()}
+        }
+    }
+}
+
+impl IsDocArg for AnyDocArg {
+    fn argname(&self) -> &str {
+        match self {
+            Self::RWIvar(x) => x.argname(),
+            Self::ROIvar(x) => x.argname(),
+            Self::Param(x) => x.argname(),
+        }
+    }
+
+    fn pytype(&self) -> &ArgPyType {
+        match self {
+            Self::RWIvar(x) => x.pytype(),
+            Self::ROIvar(x) => x.pytype(),
+            Self::Param(x) => x.pytype(),
+        }
+    }
+
+    // fn desc(&self) -> &str {
+    //     match self {
+    //         Self::RWIvar(x) => x.desc(),
+    //         Self::ROIvar(x) => x.desc(),
+    //         Self::Param(x) => x.desc(),
+    //     }
+    // }
+
+    fn default(&self) -> Option<&DocDefault> {
+        match self {
+            Self::RWIvar(x) => x.default(),
+            Self::ROIvar(x) => x.default(),
+            Self::Param(x) => x.default(),
+        }
+    }
+
+    fn fun_arg(&self) -> TokenStream2 {
+        match self {
+            Self::RWIvar(x) => x.fun_arg(),
+            Self::ROIvar(x) => x.fun_arg(),
+            Self::Param(x) => x.fun_arg(),
+        }
+    }
+
+    fn ident(&self) -> Ident {
+        match self {
+            Self::RWIvar(x) => x.ident(),
+            Self::ROIvar(x) => x.ident(),
+            Self::Param(x) => x.ident(),
+        }
+    }
+
+    fn ident_into(&self) -> TokenStream2 {
+        match self {
+            Self::RWIvar(x) => x.ident_into(),
+            Self::ROIvar(x) => x.ident_into(),
+            Self::Param(x) => x.ident_into(),
+        }
+    }
+
+    fn record_into(&self) -> TokenStream2 {
+        match self {
+            Self::RWIvar(x) => x.record_into(),
+            Self::ROIvar(x) => x.record_into(),
+            Self::Param(x) => x.record_into(),
+        }
+    }
+}
+
+impl<R: Clone> AsPyAtom<R> for PyType<R> {
+    fn as_atom(&self) -> PyAtom<R> {
+        match self {
+            Self::Bool(_) => PyAtom::Bool,
+            Self::Bytes(_) => PyAtom::Bytes,
+            Self::Str(_) => PyAtom::Str,
+            Self::Int(_) => PyAtom::Int,
+            Self::Float(_) => PyAtom::Float,
+            Self::Decimal(_) => PyAtom::Decimal,
+            Self::Date(_) => PyAtom::Date,
+            Self::Time(_) => PyAtom::Time,
+            Self::Datetime(_) => PyAtom::Datetime,
+            Self::Literal(x) => PyAtom::Literal(x.clone()),
+            Self::PyClass(x) => PyAtom::PyClass(x.clone()),
+            Self::List(x) => x.as_atom(),
+            Self::Dict(x) => x.as_atom(),
+            Self::Option(x) => x.as_atom(),
+            Self::Tuple(x) => x.as_atom(),
+            Self::Union(x) => x.as_atom(),
+        }
+    }
+}
+
+impl<R: Clone> AsPyAtom<R> for PyList<R> {
+    fn as_atom(&self) -> PyAtom<R> {
+        PyAtom::List(self.inner.as_atom().into())
+    }
+}
+
+impl<R: Clone> AsPyAtom<R> for PyDict<R> {
+    fn as_atom(&self) -> PyAtom<R> {
+        PyAtom::Dict(self.key.as_atom().into(), self.value.as_atom().into())
+    }
+}
+
+impl<R: Clone> AsPyAtom<R> for PyOpt<R> {
+    fn as_atom(&self) -> PyAtom<R> {
+        PyAtom::Union(self.inner.as_atom().into(), PyAtom::None.into(), vec![])
+    }
+}
+
+impl<R: Clone> AsPyAtom<R> for PyTuple<R> {
+    fn as_atom(&self) -> PyAtom<R> {
+        PyAtom::Tuple(self.inner.iter().map(AsPyAtom::as_atom).collect())
+    }
+}
+
+impl<R: Clone> AsPyAtom<R> for PyUnion<R> {
+    fn as_atom(&self) -> PyAtom<R> {
+        let x0 = self.head0.as_atom();
+        let x1 = self.head1.as_atom();
+        let xs = self.tail.iter().map(AsPyAtom::as_atom).collect();
+        PyAtom::Union(x0.into(), x1.into(), xs)
+    }
+}
+
+impl<T> DocArg<T> {
+    fn quoted_methods(&self) -> TokenStream2
+    where
+        T: IsMethods,
+    {
+        self.methods.quoted_methods()
+    }
 }
 
 impl GetMethod {
@@ -3988,64 +4551,6 @@ impl GetSetMethods {
     }
 }
 
-trait IsMethods {
-    fn quoted_methods(&self) -> TokenStream2;
-}
-
-impl IsMethods for NoMethods {
-    fn quoted_methods(&self) -> TokenStream2 {
-        quote!()
-    }
-}
-
-impl IsMethods for GetMethod {
-    fn quoted_methods(&self) -> TokenStream2 {
-        let g = &self.0;
-        quote! {
-            #[getter]
-            #g
-        }
-    }
-}
-
-impl IsMethods for GetSetMethods {
-    fn quoted_methods(&self) -> TokenStream2 {
-        let g = &self.get;
-        let s = &self.set;
-        quote! {
-            #[getter]
-            #g
-            #[setter]
-            #s
-        }
-    }
-}
-
-impl IsMethods for AnyDocArg {
-    fn quoted_methods(&self) -> TokenStream2 {
-        match self {
-            Self::Param(x) => x.quoted_methods(),
-            Self::ROIvar(x) => x.quoted_methods(),
-            Self::RWIvar(x) => x.quoted_methods(),
-        }
-    }
-}
-
-#[derive(Clone)]
-enum DocDefault {
-    Auto,
-    Int(usize),
-    Str(String),
-}
-
-#[derive(Clone)]
-struct DocReturn<T> {
-    rtype: T,
-    desc: Option<String>,
-    // TODO this should always be empty for ivars
-    exceptions: Vec<ReturnPyException>,
-}
-
 impl<T> DocReturn<T> {
     fn new(rtype: impl Into<T>) -> Self {
         Self {
@@ -4068,31 +4573,6 @@ impl<T> DocReturn<T> {
             ..self
         }
     }
-}
-
-#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-struct PyException {
-    pyname: String,
-    desc: Option<String>,
-}
-
-#[derive(Clone, PartialEq, Eq, Hash, From)]
-struct ReturnPyException(PyException);
-
-#[derive(Clone, PartialEq, Eq, Hash, new)]
-struct ArgPyException {
-    inner: PyException,
-    argmod: ExcNameMod,
-}
-
-#[derive(Clone, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
-enum ExcNameMod {
-    #[default]
-    NoMod,
-    Field(NonEmpty<usize>, Box<Self>),
-    List(Box<Self>),
-    DictKey(Box<Self>),
-    DictVal(Box<Self>),
 }
 
 impl From<PyException> for ArgPyException {
@@ -4222,12 +4702,6 @@ impl ArgPyException {
     }
 }
 
-#[derive(new)]
-struct NamedPyException {
-    names: NonEmpty<String>,
-    inner: ArgPyException,
-}
-
 impl PyException {
     fn new(pyname: impl fmt::Display) -> Self {
         Self {
@@ -4279,67 +4753,6 @@ impl NamedPyException {
     }
 }
 
-type ArgPyType = PyType<ArgPyException>;
-type RetPyType = PyType<()>;
-
-#[derive(Clone, From, Display)]
-enum PyType<E> {
-    #[from]
-    Str(PyStr<E>),
-    #[from]
-    Bool(PyBool<E>),
-    #[from]
-    Bytes(PyBytes<E>),
-    #[from(RsInt)]
-    #[from(PyInt<E>)]
-    Int(PyInt<E>),
-    #[from(RsFloat)]
-    #[from(PyFloat<E>)]
-    Float(PyFloat<E>),
-    #[from]
-    Decimal(PyDecimal<E>),
-    #[from]
-    Datetime(PyDatetime<E>),
-    #[from]
-    Date(PyDate<E>),
-    #[from]
-    Time(PyTime<E>),
-    #[from(PyOpt<E>)]
-    Option(Box<PyOpt<E>>),
-    #[from(PyDict<E>)]
-    Dict(Box<PyDict<E>>),
-    #[from]
-    Tuple(PyTuple<E>),
-    #[from(PyList<E>)]
-    List(Box<PyList<E>>),
-    #[from]
-    Literal(PyLiteral),
-    #[from]
-    PyClass(PyClass<E>),
-    #[from(PyUnion<E>)]
-    Union(Box<PyUnion<E>>),
-}
-
-#[derive(PartialEq, Hash, Eq, Clone)]
-enum PyAtom<R> {
-    Str,
-    Bool,
-    Bytes,
-    Int,
-    Float,
-    Decimal,
-    Datetime,
-    Date,
-    Time,
-    None,
-    Dict(Box<PyAtom<R>>, Box<PyAtom<R>>),
-    Tuple(Vec<PyAtom<R>>),
-    List(Box<PyAtom<R>>),
-    Literal(PyLiteral),
-    PyClass(PyClass<R>),
-    Union(Box<PyAtom<R>>, Box<PyAtom<R>>, Vec<PyAtom<R>>),
-}
-
 impl<R: Clone + PartialEq + Eq + Hash> PyAtom<R> {
     fn flatten_unions(self) -> Self {
         fn go<Q: Clone + PartialEq + Eq + Hash>(x: PyAtom<Q>) -> NonEmpty<PyAtom<Q>> {
@@ -4388,126 +4801,6 @@ impl<R: Clone + PartialEq + Eq + Hash> PyAtom<R> {
             x => x,
         }
     }
-}
-
-#[derive(Clone, new)]
-struct PyInt<E> {
-    rs: RsInt,
-    rstype: Option<Path>,
-    exc: Option<E>,
-}
-
-#[derive(Clone, From, new)]
-struct PyFloat<E> {
-    #[from]
-    rs: RsFloat,
-    rstype: Option<Path>,
-    exc: Option<E>,
-}
-
-#[derive(Clone, Default, new)]
-struct PyStr<E> {
-    rstype: Option<Path>,
-    exc: Option<E>,
-}
-
-#[derive(Clone, Default, new)]
-struct PyBool<E> {
-    rstype: Option<Path>,
-    exc: Option<E>,
-}
-
-#[derive(Clone, Default, new)]
-struct PyBytes<E> {
-    rstype: Option<Path>,
-    exc: Option<E>,
-}
-
-#[derive(Clone, Default, new)]
-struct PyDecimal<E> {
-    rstype: Option<Path>,
-    exc: Option<E>,
-}
-
-#[derive(Clone, Default, new)]
-struct PyTime<E> {
-    rstype: Option<Path>,
-    exc: Option<E>,
-}
-
-#[derive(Clone, Default, new)]
-struct PyDate<E> {
-    rstype: Option<Path>,
-    exc: Option<E>,
-}
-
-#[derive(Clone, Default, new)]
-struct PyDatetime<E> {
-    rstype: Option<Path>,
-    exc: Option<E>,
-}
-
-#[derive(Clone, PartialEq, Hash, Eq, new)]
-struct PyLiteral {
-    #[new(into)]
-    head: &'static str,
-    #[new(into_iter = "&'static str")]
-    tail: Vec<&'static str>,
-    #[new(into)]
-    rstype: Option<Path>,
-}
-
-#[derive(Clone, new)]
-struct PyOpt<R> {
-    #[new(into)]
-    inner: PyType<R>,
-}
-
-#[derive(Clone, new)]
-struct PyDict<E> {
-    #[new(into)]
-    key: PyType<E>,
-    #[new(into)]
-    value: PyType<E>,
-    #[new(into)]
-    rstype: Option<Path>,
-    exc: Option<E>,
-}
-
-#[derive(Clone, new)]
-struct PyList<E> {
-    #[new(into)]
-    inner: PyType<E>,
-    #[new(into)]
-    rstype: Option<Path>,
-    exc: Option<E>,
-}
-
-#[derive(Clone, new, PartialEq, Hash, Eq)]
-struct PyClass<E> {
-    #[new(into)]
-    pyname: String,
-    #[new(into)]
-    rstype: Option<Path>,
-    exc: Option<E>,
-}
-
-#[derive(Clone, new)]
-struct PyUnion<E> {
-    #[new(into)]
-    head0: PyType<E>,
-    #[new(into)]
-    head1: PyType<E>,
-    tail: Vec<PyType<E>>,
-    rstype: Path,
-    exc: Option<E>,
-}
-
-#[derive(Clone, new)]
-struct PyTuple<E> {
-    inner: Vec<PyType<E>>,
-    rstype: Option<Path>,
-    exc: Option<E>,
 }
 
 impl<E> Default for PyTuple<E> {
@@ -5289,174 +5582,137 @@ impl<E: From<PyException>> PyClass<E> {
     }
 }
 
-impl<E> HasRustPath for PyType<E> {
-    fn as_rust_type(&self) -> Type {
+impl<E> PyType<E> {
+    fn map_exc<F: Clone + Fn(E) -> E1, E1>(self, f: F) -> PyType<E1> {
         match self {
-            Self::Str(x) => x.as_rust_type(),
-            Self::Bool(x) => x.as_rust_type(),
-            Self::Bytes(x) => x.as_rust_type(),
-            Self::Int(x) => x.as_rust_type(),
-            Self::Float(x) => x.as_rust_type(),
-            Self::Decimal(x) => x.as_rust_type(),
-            Self::Datetime(x) => x.as_rust_type(),
-            Self::Date(x) => x.as_rust_type(),
-            Self::Time(x) => x.as_rust_type(),
-            Self::Option(x) => x.as_rust_type(),
-            Self::Dict(x) => x.as_rust_type(),
-            Self::List(x) => x.as_rust_type(),
-            Self::Tuple(x) => x.as_rust_type(),
-            Self::Union(x) => x.as_rust_type(),
-            Self::Literal(x) => x.as_rust_type(),
-            Self::PyClass(x) => x.as_rust_type(),
+            Self::Bool(x) => x.map_exc(f).into(),
+            Self::Bytes(x) => x.map_exc(f).into(),
+            Self::Str(x) => x.map_exc(f).into(),
+            Self::Int(x) => x.map_exc(f).into(),
+            Self::Float(x) => x.map_exc(f).into(),
+            Self::Decimal(x) => x.map_exc(f).into(),
+            Self::List(x) => x.map_exc(f).into(),
+            Self::Dict(x) => x.map_exc(f).into(),
+            Self::Date(x) => x.map_exc(f).into(),
+            Self::Time(x) => x.map_exc(f).into(),
+            Self::Datetime(x) => x.map_exc(f).into(),
+            Self::PyClass(x) => x.map_exc(f).into(),
+            Self::Option(x) => x.map_exc(f).into(),
+            Self::Union(x) => x.map_exc(f).into(),
+            Self::Tuple(xs) => xs.map_exc(f).into(),
+            Self::Literal(x) => x.into(),
+        }
+    }
+
+    fn defaults(&self) -> (String, TokenStream2) {
+        match self {
+            Self::Bool(x) => x.defaults(),
+            Self::Bytes(x) => x.defaults(),
+            Self::Str(x) => x.defaults(),
+            Self::Int(x) => x.defaults(),
+            Self::Float(x) => x.defaults(),
+            Self::Decimal(x) => x.defaults(),
+            Self::List(x) => x.defaults(),
+            Self::Dict(x) => x.defaults(),
+            Self::Option(_) => PyOpt::<E>::defaults(),
+            Self::Literal(x) => {
+                let rt = &x.rstype;
+                (format!("\"{}\"", x.head), quote!(#rt::default()))
+            }
+            Self::Union(x) => {
+                let rt = path_strip_args(x.rstype.clone());
+                let (pt, _) = x.head0.defaults();
+                (pt, quote!(#rt::default()))
+            }
+            Self::Tuple(xs) => {
+                let (ps, rs): (Vec<_>, Vec<_>) = xs.inner.iter().map(Self::defaults).unzip();
+                (
+                    format!("({})", ps.into_iter().join(", ")),
+                    xs.rstype.as_ref().map_or(quote!((#(#rs),*)), |y| {
+                        let z = path_strip_args(y.clone());
+                        quote!(#z::default())
+                    }),
+                )
+            }
+            Self::Date(_) => panic!("No default for date"),
+            Self::Time(_) => panic!("No default for time"),
+            Self::Datetime(_) => panic!("No default for datetime"),
+            Self::PyClass(_) => panic!("No default for arbitrary class"),
         }
     }
 }
 
-macro_rules! impl_has_rust_path {
-    ($t:ident, $p:path) => {
-        impl<E> HasRustPath for $t<E> {
-            fn as_rust_type(&self) -> Type {
-                if let Some(x) = self.rstype.as_ref() {
-                    parse_quote!(#x)
+impl<E: From<PyException>> PyType<E> {
+    fn new_versioned_shortname(version: Version) -> Self {
+        if version < Version::FCS3_1 {
+            PyOpt::new(PyStr::new_shortname()).into()
+        } else {
+            let inner = quote!(fireflow_core::validated::shortname::Shortname);
+            let outer = parse_quote!(fireflow_core::text::optional::AlwaysValue<#inner>);
+            PyStr::new_shortname().rstype(outer).into()
+        }
+    }
+}
+
+impl ArgPyType {
+    fn as_exceptions(&self) -> Vec<ArgPyException> {
+        let go = |e: &Option<ArgPyException>| e.iter().cloned().collect();
+        let walk = |mut acc: Vec<ArgPyException>, pt: &Self| {
+            acc.extend(pt.as_exceptions());
+            acc
+        };
+        // TODO clean this up
+        match self {
+            Self::Bool(x) => go(&x.exc),
+            Self::Bytes(x) => go(&x.exc),
+            Self::Str(x) => go(&x.exc),
+            Self::Int(x) => go(&x.exc),
+            Self::Float(x) => go(&x.exc),
+            Self::Decimal(x) => go(&x.exc),
+            Self::Date(x) => go(&x.exc),
+            Self::Time(x) => go(&x.exc),
+            Self::Datetime(x) => go(&x.exc),
+            Self::PyClass(x) => go(&x.exc),
+            Self::Option(x) => walk(vec![], &x.inner),
+            Self::Union(x) => {
+                let acc0 = x.exc.iter().cloned().collect();
+                let acc1 = walk(walk(acc0, &x.head0), &x.head1);
+                x.tail.iter().fold(acc1, walk)
+            }
+            Self::List(x) => {
+                let y = x
+                    .inner
+                    .clone()
+                    .map_exc(|e| e.map_mod(ExcNameMod::add_list))
+                    .as_exceptions();
+                x.exc.iter().cloned().chain(y).collect()
+            }
+            Self::Dict(x) => {
+                let k = x
+                    .key
+                    .clone()
+                    .map_exc(|e| e.map_mod(ExcNameMod::add_dict_key))
+                    .as_exceptions();
+                let v = x
+                    .value
+                    .clone()
+                    .map_exc(|e| e.map_mod(ExcNameMod::add_dict_val))
+                    .as_exceptions();
+                x.exc.iter().cloned().chain(k).chain(v).collect()
+            }
+            Self::Tuple(xs) => {
+                let fmt = |i, x: Self| x.map_exc(|e| e.map_mod(|m| ExcNameMod::add_field(m, i)));
+                let mut ys = xs.inner.iter().cloned().enumerate().map(|(i, x)| fmt(i, x));
+                if let Some(y) = ys.next() {
+                    let acc = walk(vec![], &y);
+                    ys.fold(acc, |a, x| walk(a, &x))
                 } else {
-                    parse_quote!($p)
+                    vec![]
                 }
             }
-        }
-    };
-}
-
-impl_has_rust_path!(PyStr, String);
-impl_has_rust_path!(PyBool, bool);
-impl_has_rust_path!(PyBytes, Vec<u8>);
-impl_has_rust_path!(PyDecimal, bigdecimal::BigDecimal);
-impl_has_rust_path!(PyDate, chrono::NaiveDate);
-impl_has_rust_path!(PyTime, chrono::NaiveTime);
-impl_has_rust_path!(PyDatetime, chrono::DateTime<chrono::FixedOffset>);
-
-impl<E> HasRustPath for PyOpt<E> {
-    fn as_rust_type(&self) -> Type {
-        let i = self.inner.as_rust_type();
-        parse_quote!(Option<#i>)
-    }
-}
-
-impl<E> HasRustPath for PyDict<E> {
-    fn as_rust_type(&self) -> Type {
-        if let Some(x) = self.rstype.as_ref() {
-            parse_quote!(#x)
-        } else {
-            let k = &self.key.as_rust_type();
-            let v = &self.value.as_rust_type();
-            parse_quote!(std::collections::HashMap<#k, #v>)
+            Self::Literal(_) => vec![],
         }
     }
-}
-
-impl<E> HasRustPath for PyTuple<E> {
-    fn as_rust_type(&self) -> Type {
-        if let Some(x) = self.rstype.as_ref() {
-            parse_quote!(#x)
-        } else {
-            let vs: Vec<_> = self.inner.iter().map(HasRustPath::as_rust_type).collect();
-            parse_quote!((#(#vs),*))
-        }
-    }
-}
-
-impl<E> HasRustPath for PyList<E> {
-    fn as_rust_type(&self) -> Type {
-        if let Some(x) = self.rstype.as_ref() {
-            parse_quote!(#x)
-        } else {
-            let v = &self.inner.as_rust_type();
-            parse_quote!(Vec<#v>)
-        }
-    }
-}
-
-impl<E> HasRustPath for PyClass<E> {
-    fn as_rust_type(&self) -> Type {
-        let x = self
-            .rstype
-            .as_ref()
-            .expect("PyClass does not have a rust type");
-        parse_quote!(#x)
-    }
-}
-
-impl HasRustPath for PyLiteral {
-    fn as_rust_type(&self) -> Type {
-        let x = self
-            .rstype
-            .as_ref()
-            .expect("PyLiteral does not have a rust type");
-        parse_quote!(#x)
-    }
-}
-
-impl<E> HasRustPath for PyUnion<E> {
-    fn as_rust_type(&self) -> Type {
-        let x = &self.rstype;
-        parse_quote!(#x)
-    }
-}
-
-trait HasRustPath {
-    fn as_rust_type(&self) -> Type;
-}
-
-macro_rules! impl_prim_num {
-    ($t:ident) => {
-        impl<E> HasRustPath for $t<E> {
-            fn as_rust_type(&self) -> Type {
-                if let Some(x) = self.rstype.as_ref() {
-                    parse_quote!(#x)
-                } else {
-                    self.rs.as_rust_type()
-                }
-            }
-        }
-    };
-}
-
-impl_prim_num!(PyInt);
-impl_prim_num!(PyFloat);
-
-impl HasRustPath for RsInt {
-    fn as_rust_type(&self) -> Type {
-        match self {
-            Self::U8 => parse_quote!(u8),
-            Self::U16 => parse_quote!(u16),
-            Self::U32 => parse_quote!(u32),
-            Self::U64 => parse_quote!(u64),
-            Self::Usize => parse_quote!(usize),
-            Self::NonZeroU8 => parse_quote!(std::num::NonZeroU8),
-            Self::NonZeroUsize => parse_quote!(std::num::NonZeroUsize),
-            Self::I32 => parse_quote!(i32),
-        }
-    }
-}
-
-impl HasRustPath for RsFloat {
-    fn as_rust_type(&self) -> Type {
-        match self {
-            Self::F32 => parse_quote!(f32),
-            Self::F64 => parse_quote!(f64),
-        }
-    }
-}
-
-#[derive(Clone)]
-enum RsInt {
-    U8,
-    U16,
-    U32,
-    U64,
-    I32,
-    Usize,
-    NonZeroU8,
-    NonZeroUsize,
 }
 
 impl RsInt {
@@ -5484,48 +5740,6 @@ impl RsInt {
             "if %x is less than ``{}`` or greater than ``{}``",
             self.lower(),
             self.upper()
-        )
-    }
-}
-
-#[derive(Clone)]
-enum RsFloat {
-    F32,
-    F64,
-}
-
-impl DocArgROIvar {
-    fn new_ivar_ro(
-        argname: impl fmt::Display + Clone,
-        pytype: impl Into<ArgPyType>,
-        desc: impl fmt::Display,
-        f: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
-    ) -> Self {
-        let pt = pytype.into();
-        let a = argname.to_string();
-        let method = GetMethod::from_pytype(a.as_str(), &pt, f);
-        Self::new(a, pt, desc.to_string(), None, method)
-    }
-
-    fn new_ivar_ro_def(
-        argname: impl fmt::Display,
-        pytype: impl Into<ArgPyType>,
-        desc: impl fmt::Display,
-        def: DocDefault,
-        f: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
-    ) -> Self {
-        let pt = pytype.into();
-        let a = argname.to_string();
-        let method = GetMethod::from_pytype(a.as_str(), &pt, f);
-        Self::new(a, pt, desc.to_string(), Some(def), method)
-    }
-
-    fn new_version_ivar() -> Self {
-        Self::new_ivar_ro(
-            "version",
-            PyLiteral::new_version(),
-            "The FCS version.",
-            |_, _| quote!(self.0.version),
         )
     }
 }
@@ -6045,6 +6259,78 @@ impl DocArgRWIvar {
             false,
             f,
             g,
+        )
+    }
+}
+
+impl DocArgROIvar {
+    fn new_ivar_ro(
+        argname: impl fmt::Display + Clone,
+        pytype: impl Into<ArgPyType>,
+        desc: impl fmt::Display,
+        f: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
+    ) -> Self {
+        let pt = pytype.into();
+        let a = argname.to_string();
+        let method = GetMethod::from_pytype(a.as_str(), &pt, f);
+        Self::new(a, pt, desc.to_string(), None, method)
+    }
+
+    fn new_ivar_ro_def(
+        argname: impl fmt::Display,
+        pytype: impl Into<ArgPyType>,
+        desc: impl fmt::Display,
+        def: DocDefault,
+        f: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
+    ) -> Self {
+        let pt = pytype.into();
+        let a = argname.to_string();
+        let method = GetMethod::from_pytype(a.as_str(), &pt, f);
+        Self::new(a, pt, desc.to_string(), Some(def), method)
+    }
+
+    fn new_version_ivar() -> Self {
+        Self::new_ivar_ro(
+            "version",
+            PyLiteral::new_version(),
+            "The FCS version.",
+            |_, _| quote!(self.0.version),
+        )
+    }
+
+    fn new_endian_param(n: usize) -> Self {
+        let xs = (1..=n).join(",");
+        let ys = (1..=n).rev().join(",");
+        Self::new_ivar_ro_def(
+            "endian",
+            PyLiteral::new_endian(),
+            format!(
+                "If ``\"big\"`` use big endian (``{ys}``) for encoding values; \
+             if ``\"little\"`` use little endian (``{xs}``)."
+            ),
+            DocDefault::Auto,
+            |_, _| quote!(*self.0.as_ref()),
+        )
+    }
+
+    fn new_endian_ord_param(n: usize) -> Self {
+        let xs = (1..=n).join(",");
+        let ys = (1..=n).rev().join(",");
+        let sizedbyteord_path = quote!(fireflow_core::text::byteord::SizedByteOrd);
+        Self::new_ivar_ro_def(
+            "endian",
+            PyLiteral::new_endian(),
+            format!(
+                "If ``\"big\"`` use big endian (``{ys}``) for encoding values; \
+             if ``\"little\"`` use little endian (``{xs}``)."
+            ),
+            DocDefault::Auto,
+            |_, _| {
+                quote! {
+                    let m: #sizedbyteord_path<2> = *self.0.as_ref();
+                    m.endian()
+                }
+            },
         )
     }
 }
@@ -7137,363 +7423,6 @@ impl DocDefault {
     }
 }
 
-trait IsArgType {
-    const TYPENAME: &str;
-    const ARGTYPE: &str;
-
-    fn readonly() -> Option<bool>;
-}
-
-impl IsArgType for GetMethod {
-    const TYPENAME: &str = "vartype";
-    const ARGTYPE: &str = "ivar";
-
-    fn readonly() -> Option<bool> {
-        Some(true)
-    }
-}
-
-impl IsArgType for GetSetMethods {
-    const TYPENAME: &str = "vartype";
-    const ARGTYPE: &str = "ivar";
-
-    fn readonly() -> Option<bool> {
-        Some(false)
-    }
-}
-
-impl IsArgType for NoMethods {
-    const TYPENAME: &str = "type";
-    const ARGTYPE: &str = "param";
-
-    fn readonly() -> Option<bool> {
-        None
-    }
-}
-
-trait IsDocArg {
-    fn argname(&self) -> &str;
-
-    fn pytype(&self) -> &ArgPyType;
-
-    // fn desc(&self) -> &str;
-
-    fn default(&self) -> Option<&DocDefault>;
-
-    fn fun_arg(&self) -> TokenStream2;
-
-    fn ident(&self) -> Ident;
-
-    fn ident_into(&self) -> TokenStream2;
-
-    fn record_into(&self) -> TokenStream2;
-}
-
-impl<T> IsDocArg for DocArg<T> {
-    fn argname(&self) -> &str {
-        self.argname.as_str()
-    }
-
-    fn pytype(&self) -> &ArgPyType {
-        &self.pytype
-    }
-
-    // fn desc(&self) -> &str {
-    //     self.desc.as_str()
-    // }
-
-    fn default(&self) -> Option<&DocDefault> {
-        self.default.as_ref()
-    }
-
-    fn fun_arg(&self) -> TokenStream2 {
-        let n = format_ident!("{}", &self.argname);
-        let t = &self.pytype.as_rust_type();
-        quote!(#n: #t)
-    }
-
-    fn ident(&self) -> Ident {
-        format_ident!("{}", &self.argname)
-    }
-
-    fn ident_into(&self) -> TokenStream2 {
-        let n = self.ident();
-        if unwrap_generic("Option", unwrap_type_as_path(&self.pytype.as_rust_type())).1 {
-            quote! {#n.map(Into::into)}
-        } else {
-            quote! {#n.into()}
-        }
-    }
-
-    fn record_into(&self) -> TokenStream2 {
-        let n = self.ident();
-        if unwrap_generic("Option", unwrap_type_as_path(&self.pytype.as_rust_type())).1 {
-            quote! {#n: #n.map(Into::into)}
-        } else {
-            quote! {#n: #n.into()}
-        }
-    }
-}
-
-impl IsDocArg for AnyDocArg {
-    fn argname(&self) -> &str {
-        match self {
-            Self::RWIvar(x) => x.argname(),
-            Self::ROIvar(x) => x.argname(),
-            Self::Param(x) => x.argname(),
-        }
-    }
-
-    fn pytype(&self) -> &ArgPyType {
-        match self {
-            Self::RWIvar(x) => x.pytype(),
-            Self::ROIvar(x) => x.pytype(),
-            Self::Param(x) => x.pytype(),
-        }
-    }
-
-    // fn desc(&self) -> &str {
-    //     match self {
-    //         Self::RWIvar(x) => x.desc(),
-    //         Self::ROIvar(x) => x.desc(),
-    //         Self::Param(x) => x.desc(),
-    //     }
-    // }
-
-    fn default(&self) -> Option<&DocDefault> {
-        match self {
-            Self::RWIvar(x) => x.default(),
-            Self::ROIvar(x) => x.default(),
-            Self::Param(x) => x.default(),
-        }
-    }
-
-    fn fun_arg(&self) -> TokenStream2 {
-        match self {
-            Self::RWIvar(x) => x.fun_arg(),
-            Self::ROIvar(x) => x.fun_arg(),
-            Self::Param(x) => x.fun_arg(),
-        }
-    }
-
-    fn ident(&self) -> Ident {
-        match self {
-            Self::RWIvar(x) => x.ident(),
-            Self::ROIvar(x) => x.ident(),
-            Self::Param(x) => x.ident(),
-        }
-    }
-
-    fn ident_into(&self) -> TokenStream2 {
-        match self {
-            Self::RWIvar(x) => x.ident_into(),
-            Self::ROIvar(x) => x.ident_into(),
-            Self::Param(x) => x.ident_into(),
-        }
-    }
-
-    fn record_into(&self) -> TokenStream2 {
-        match self {
-            Self::RWIvar(x) => x.record_into(),
-            Self::ROIvar(x) => x.record_into(),
-            Self::Param(x) => x.record_into(),
-        }
-    }
-}
-
-impl<E> PyType<E> {
-    fn map_exc<F: Clone + Fn(E) -> E1, E1>(self, f: F) -> PyType<E1> {
-        match self {
-            Self::Bool(x) => x.map_exc(f).into(),
-            Self::Bytes(x) => x.map_exc(f).into(),
-            Self::Str(x) => x.map_exc(f).into(),
-            Self::Int(x) => x.map_exc(f).into(),
-            Self::Float(x) => x.map_exc(f).into(),
-            Self::Decimal(x) => x.map_exc(f).into(),
-            Self::List(x) => x.map_exc(f).into(),
-            Self::Dict(x) => x.map_exc(f).into(),
-            Self::Date(x) => x.map_exc(f).into(),
-            Self::Time(x) => x.map_exc(f).into(),
-            Self::Datetime(x) => x.map_exc(f).into(),
-            Self::PyClass(x) => x.map_exc(f).into(),
-            Self::Option(x) => x.map_exc(f).into(),
-            Self::Union(x) => x.map_exc(f).into(),
-            Self::Tuple(xs) => xs.map_exc(f).into(),
-            Self::Literal(x) => x.into(),
-        }
-    }
-
-    fn defaults(&self) -> (String, TokenStream2) {
-        match self {
-            Self::Bool(x) => x.defaults(),
-            Self::Bytes(x) => x.defaults(),
-            Self::Str(x) => x.defaults(),
-            Self::Int(x) => x.defaults(),
-            Self::Float(x) => x.defaults(),
-            Self::Decimal(x) => x.defaults(),
-            Self::List(x) => x.defaults(),
-            Self::Dict(x) => x.defaults(),
-            Self::Option(_) => PyOpt::<E>::defaults(),
-            Self::Literal(x) => {
-                let rt = &x.rstype;
-                (format!("\"{}\"", x.head), quote!(#rt::default()))
-            }
-            Self::Union(x) => {
-                let rt = path_strip_args(x.rstype.clone());
-                let (pt, _) = x.head0.defaults();
-                (pt, quote!(#rt::default()))
-            }
-            Self::Tuple(xs) => {
-                let (ps, rs): (Vec<_>, Vec<_>) = xs.inner.iter().map(Self::defaults).unzip();
-                (
-                    format!("({})", ps.into_iter().join(", ")),
-                    xs.rstype.as_ref().map_or(quote!((#(#rs),*)), |y| {
-                        let z = path_strip_args(y.clone());
-                        quote!(#z::default())
-                    }),
-                )
-            }
-            Self::Date(_) => panic!("No default for date"),
-            Self::Time(_) => panic!("No default for time"),
-            Self::Datetime(_) => panic!("No default for datetime"),
-            Self::PyClass(_) => panic!("No default for arbitrary class"),
-        }
-    }
-}
-
-impl<E: From<PyException>> PyType<E> {
-    fn new_versioned_shortname(version: Version) -> Self {
-        if version < Version::FCS3_1 {
-            PyOpt::new(PyStr::new_shortname()).into()
-        } else {
-            let inner = quote!(fireflow_core::validated::shortname::Shortname);
-            let outer = parse_quote!(fireflow_core::text::optional::AlwaysValue<#inner>);
-            PyStr::new_shortname().rstype(outer).into()
-        }
-    }
-}
-
-impl ArgPyType {
-    fn as_exceptions(&self) -> Vec<ArgPyException> {
-        let go = |e: &Option<ArgPyException>| e.iter().cloned().collect();
-        let walk = |mut acc: Vec<ArgPyException>, pt: &Self| {
-            acc.extend(pt.as_exceptions());
-            acc
-        };
-        // TODO clean this up
-        match self {
-            Self::Bool(x) => go(&x.exc),
-            Self::Bytes(x) => go(&x.exc),
-            Self::Str(x) => go(&x.exc),
-            Self::Int(x) => go(&x.exc),
-            Self::Float(x) => go(&x.exc),
-            Self::Decimal(x) => go(&x.exc),
-            Self::Date(x) => go(&x.exc),
-            Self::Time(x) => go(&x.exc),
-            Self::Datetime(x) => go(&x.exc),
-            Self::PyClass(x) => go(&x.exc),
-            Self::Option(x) => walk(vec![], &x.inner),
-            Self::Union(x) => {
-                let acc0 = x.exc.iter().cloned().collect();
-                let acc1 = walk(walk(acc0, &x.head0), &x.head1);
-                x.tail.iter().fold(acc1, walk)
-            }
-            Self::List(x) => {
-                let y = x
-                    .inner
-                    .clone()
-                    .map_exc(|e| e.map_mod(ExcNameMod::add_list))
-                    .as_exceptions();
-                x.exc.iter().cloned().chain(y).collect()
-            }
-            Self::Dict(x) => {
-                let k = x
-                    .key
-                    .clone()
-                    .map_exc(|e| e.map_mod(ExcNameMod::add_dict_key))
-                    .as_exceptions();
-                let v = x
-                    .value
-                    .clone()
-                    .map_exc(|e| e.map_mod(ExcNameMod::add_dict_val))
-                    .as_exceptions();
-                x.exc.iter().cloned().chain(k).chain(v).collect()
-            }
-            Self::Tuple(xs) => {
-                let fmt = |i, x: Self| x.map_exc(|e| e.map_mod(|m| ExcNameMod::add_field(m, i)));
-                let mut ys = xs.inner.iter().cloned().enumerate().map(|(i, x)| fmt(i, x));
-                if let Some(y) = ys.next() {
-                    let acc = walk(vec![], &y);
-                    ys.fold(acc, |a, x| walk(a, &x))
-                } else {
-                    vec![]
-                }
-            }
-            Self::Literal(_) => vec![],
-        }
-    }
-}
-
-trait AsPyAtom<R> {
-    fn as_atom(&self) -> PyAtom<R>;
-}
-
-impl<R: Clone> AsPyAtom<R> for PyType<R> {
-    fn as_atom(&self) -> PyAtom<R> {
-        match self {
-            Self::Bool(_) => PyAtom::Bool,
-            Self::Bytes(_) => PyAtom::Bytes,
-            Self::Str(_) => PyAtom::Str,
-            Self::Int(_) => PyAtom::Int,
-            Self::Float(_) => PyAtom::Float,
-            Self::Decimal(_) => PyAtom::Decimal,
-            Self::Date(_) => PyAtom::Date,
-            Self::Time(_) => PyAtom::Time,
-            Self::Datetime(_) => PyAtom::Datetime,
-            Self::Literal(x) => PyAtom::Literal(x.clone()),
-            Self::PyClass(x) => PyAtom::PyClass(x.clone()),
-            Self::List(x) => x.as_atom(),
-            Self::Dict(x) => x.as_atom(),
-            Self::Option(x) => x.as_atom(),
-            Self::Tuple(x) => x.as_atom(),
-            Self::Union(x) => x.as_atom(),
-        }
-    }
-}
-
-impl<R: Clone> AsPyAtom<R> for PyList<R> {
-    fn as_atom(&self) -> PyAtom<R> {
-        PyAtom::List(self.inner.as_atom().into())
-    }
-}
-
-impl<R: Clone> AsPyAtom<R> for PyDict<R> {
-    fn as_atom(&self) -> PyAtom<R> {
-        PyAtom::Dict(self.key.as_atom().into(), self.value.as_atom().into())
-    }
-}
-
-impl<R: Clone> AsPyAtom<R> for PyOpt<R> {
-    fn as_atom(&self) -> PyAtom<R> {
-        PyAtom::Union(self.inner.as_atom().into(), PyAtom::None.into(), vec![])
-    }
-}
-
-impl<R: Clone> AsPyAtom<R> for PyTuple<R> {
-    fn as_atom(&self) -> PyAtom<R> {
-        PyAtom::Tuple(self.inner.iter().map(AsPyAtom::as_atom).collect())
-    }
-}
-
-impl<R: Clone> AsPyAtom<R> for PyUnion<R> {
-    fn as_atom(&self) -> PyAtom<R> {
-        let x0 = self.head0.as_atom();
-        let x1 = self.head1.as_atom();
-        let xs = self.tail.iter().map(AsPyAtom::as_atom).collect();
-        PyAtom::Union(x0.into(), x1.into(), xs)
-    }
-}
-
 impl ClassDocString {
     fn new_class(
         summary: impl fmt::Display,
@@ -8060,6 +7989,16 @@ impl_display_pytype!(PyDate, ":py:class:`~datetime.date`");
 impl_display_pytype!(PyTime, ":py:class:`~datetime.time`");
 impl_display_pytype!(PyDatetime, ":py:class:`~datetime.datetime`");
 
+impl fmt::Display for SegmentSrc {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let s = match self {
+            Self::Header => "*HEADER*",
+            Self::Any => "*HEADER* or *TEXT*",
+        };
+        f.write_str(s)
+    }
+}
+
 fn fmt_docstring_nonparam(s: &str) -> String {
     fmt_hanging_indent(MAX_LINE_LEN, 0, s)
 }
@@ -8117,6 +8056,125 @@ fn fmt_comma_sep_list<X: fmt::Display>(xs: &[X], conj: &str) -> String {
             once(x0).chain(it.map(ToString::to_string)).join(&c)
         }
     }
+}
+
+fn unwrap_type_as_path(ty: &Type) -> &Path {
+    if let Type::Path(p) = ty {
+        &p.path
+    } else {
+        panic!("not a path")
+    }
+}
+
+fn unwrap_generic<'a>(name: &str, ty: &'a Path) -> (&'a Path, bool) {
+    if let Some(segment) = ty.segments.last()
+        && segment.ident == name
+        && let PathArguments::AngleBracketed(args) = &segment.arguments
+        && let Some(GenericArgument::Type(Type::Path(inner_type))) = args.args.first()
+    {
+        return (&inner_type.path, true);
+    }
+    (ty, false)
+}
+
+fn split_ident_version(name: &Ident) -> (String, Version) {
+    let n = name.to_string();
+    let (ret, v) = n.split_at(n.len() - 3);
+    let version = Version::from_short_underscore(v).expect("version should be like 'X_Y'");
+    (ret.into(), version)
+}
+
+fn split_ident_version_checked(which: &'static str, name: &Ident) -> Version {
+    let (n, v) = split_ident_version(name);
+    assert!(
+        n.as_str() == which,
+        "identifier should be like '{which}X_Y'"
+    );
+    v
+}
+
+fn split_ident_version_pycore(name: &Ident) -> (bool, Version) {
+    let (base, version) = split_ident_version(name);
+    assert!(
+        base == "PyCoreTEXT" || base == "PyCoreDataset",
+        "must be PyCore(TEXT|Dataset)X_Y"
+    );
+    (base == "PyCoreDataset", version)
+}
+
+fn path_strip_args(mut path: Path) -> Path {
+    for segment in &mut path.segments {
+        segment.arguments = PathArguments::None;
+    }
+    path
+}
+
+fn element_path(version: Version) -> Path {
+    let otype = pyoptical(version);
+    let ttype = pytemporal(version);
+    let element_path = quote!(fireflow_core::text::named_vec::Element);
+    parse_quote!(#element_path<#ttype, #otype>)
+}
+
+fn keyword_path(n: &str) -> Path {
+    let t = format_ident!("{n}");
+    parse_quote!(fireflow_core::text::keywords::#t)
+}
+
+fn correction_path(is_header: bool, id: &str) -> Path {
+    let src = if is_header {
+        "SegmentFromHeader"
+    } else {
+        "SegmentFromTEXT"
+    };
+    let s = format_ident!("{src}");
+    let i = format_ident!("{id}");
+    let root = quote!(fireflow_core::segment);
+    parse_quote! (#root::OffsetCorrection<#root::#i, #root::#s>)
+}
+
+fn config_path(n: &str) -> Path {
+    let t = format_ident!("{n}");
+    parse_quote!(fireflow_core::config::#t)
+}
+
+fn versioned_family_path(version: Version) -> Path {
+    let root = quote!(fireflow_core::text::optional);
+    match version {
+        Version::FCS2_0 | Version::FCS3_0 => parse_quote!(#root::MaybeFamily),
+        _ => parse_quote!(#root::AlwaysFamily),
+    }
+}
+
+fn pyoptical(version: Version) -> Ident {
+    format_ident!("PyOptical{}", version.short_underscore())
+}
+
+fn pytemporal(version: Version) -> Ident {
+    format_ident!("PyTemporal{}", version.short_underscore())
+}
+
+fn make_layout_datatype(pyname: &Ident, dt: &str) -> TokenStream2 {
+    let doc = DocString::new_ivar(
+        "The value of *$DATATYPE*.",
+        [format!("Will always return ``\"{dt}\"``.")],
+        DocReturn::new(PyLiteral::new_datatype()),
+    );
+    doc.into_impl_get(pyname, "datatype", |_| quote!(self.0.datatype().into()))
+}
+
+fn make_byte_width(pyname: &Ident, nbytes: usize) -> TokenStream2 {
+    let s0 = format!("Will always return ``{nbytes}``.");
+    let s1 = "This corresponds to the value of *$PnB* divided by 8, which are \
+              all equal for this layout."
+        .into();
+    let doc = DocString::new_ivar(
+        "The width of each measurement in bytes.",
+        [s0, s1],
+        DocReturn::new(RsInt::Usize),
+    );
+
+    doc.into_impl_get(pyname, "byte_width", |_| quote!(#nbytes))
 }
 
 const MAX_LINE_LEN: usize = 72;

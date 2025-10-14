@@ -1487,9 +1487,9 @@ pub trait VersionedMetaroot: Sized {
             Ok(_) => Ok(Tentative::new1(go(t, o))),
             Err(es) => {
                 if allow_loss {
-                    Ok(Tentative::new(go(t, o), es, []))
+                    Ok(Tentative::new_vec(go(t, o), es, []))
                 } else {
-                    Err(DeferredFailure::new([], es, Box::new((t, o))))
+                    Err(DeferredFailure::new_vec([], es, Box::new((t, o))))
                 }
             }
         }
@@ -1574,9 +1574,13 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
             Ok(_) => Ok(Tentative::new1(Self::from_optical_unchecked(o, d))),
             Err(es) => {
                 if allow_loss {
-                    Ok(Tentative::new(Self::from_optical_unchecked(o, d), es, []))
+                    Ok(Tentative::new_vec(
+                        Self::from_optical_unchecked(o, d),
+                        es,
+                        [],
+                    ))
                 } else {
-                    Err(DeferredFailure::new([], es, Box::new(o)))
+                    Err(DeferredFailure::new_vec([], es, Box::new(o)))
                 }
             }
         }
@@ -2303,7 +2307,7 @@ where
             .unset_center(|i, old_t| {
                 <M::Optical as OpticalFromTemporal<M::Temporal>>::from_temporal(old_t, i, ())
             })
-            .unwrap_infallible()
+            .def_unwrap_infallible()
     }
 
     /// Convert time measurement to optical measurement.
@@ -2330,7 +2334,7 @@ where
                     old_t, i, allow_loss,
                 )
             })
-            .terminate(UnsetTemporalFailure)
+            .def_terminate(UnsetTemporalFailure)
     }
 
     /// Read nonstandard key/value pairs for each measurement.
@@ -4092,7 +4096,8 @@ where
                 // conversion loss.
                 layout
                     .h_write_df(h, df, !conf.skip_conversion_check)
-                    .def_warnings_into()?;
+                    .def_warnings_into()
+                    .def_map_errors(ImpureError::IO)?;
 
                 // write ANALYSIS
                 h.write_all(&self.analysis.0).into_deferred()
@@ -4783,13 +4788,13 @@ impl CSVFlags {
                     let fs = (0..n.0).map(|i| CSVFlag::lookup_meas_opt(kws, i, false, conf));
                     Tentative::mconcat(fs).and_tentatively(|flags| {
                         if flags.is_empty() {
-                            Tentative::new_either(
+                            Tentative::new_vec_either(
                                 flags,
                                 [NewCSVFlagsError],
                                 !conf.allow_optional_dropping,
                             )
                         } else {
-                            Tentative::new(flags, [], [])
+                            Tentative::new_vec(flags, [], [])
                         }
                     })
                 } else {
@@ -7125,9 +7130,9 @@ impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
             Ok(()) => Ok(Tentative::new1(Self::from_temporal_unchecked(t))),
             Err(es) => {
                 if allow_loss {
-                    Ok(Tentative::new(Self::from_temporal_unchecked(t), es, []))
+                    Ok(Tentative::new_vec(Self::from_temporal_unchecked(t), es, []))
                 } else {
-                    Err(DeferredFailure::new([], es, Box::new(t)))
+                    Err(DeferredFailure::new_vec([], es, Box::new(t)))
                 }
             }
         }

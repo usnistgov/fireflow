@@ -1,7 +1,8 @@
 use crate::data::ColumnError;
 use crate::error::{
-    DeferredExt as _, DeferredFailure, DeferredResult, ErrorIter as _, InfalliblePassthruExt as _,
-    MultiResult, MultiResultExt as _, PassthruExt as _, PassthruResult, ResultExt as _, Tentative,
+    DeferredExt as _, DeferredFailure, DeferredFailureInner, DeferredResult, ErrorIter as _,
+    InfalliblePassthruExt as _, MultiResult, MultiResultExt as _, PassthruExt as _, PassthruResult,
+    ResultExt as _, Tentative, TentativeInner,
 };
 use crate::text::optional::MightHave;
 use crate::validated::shortname::Shortname;
@@ -1311,8 +1312,13 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         to_u: FtoU,
     ) -> DeferredResult<bool, W, E>
     where
-        Fswap: FnOnce(MeasIndex, U, V) -> PassthruResult<(V, U), Box<(U, V)>, W, E>,
-        FtoU: FnOnce(MeasIndex, V) -> PassthruResult<U, Box<V>, W, E>,
+        Fswap: FnOnce(
+            MeasIndex,
+            U,
+            V,
+        )
+            -> Result<Tentative<(V, U), W, E>, DeferredFailure<Box<(U, V)>, W, E>>,
+        FtoU: FnOnce(MeasIndex, V) -> Result<Tentative<U, W, E>, DeferredFailure<Box<V>, W, E>>,
         E: From<SetCenterError>,
     {
         if !self
@@ -1320,103 +1326,103 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             .unwrap()
             .both(|_| true, |(n, _)| K::as_opt(n).is_some())
         {
-            return Err(DeferredFailure::new1(SetCenterError::NoName));
+            return Err(DeferredFailureInner::new1(SetCenterError::NoName));
         }
-        self.check_element_index(index, true)
+        let i = self
+            .check_element_index(index, true)
             .map_err(SetCenterError::Index)
-            .into_deferred()
-            .def_and_tentatively(|i| match mem::replace(self, dummy()) {
-                Self::Split(s, p) => match split_at_index::<K, U, V>(s, i) {
-                    PartialSplit::Left(left, center, right) => {
-                        let center_key = center.key;
-                        match swap(i.into(), center.value, left.selected.value) {
-                            Ok(tnt) => tnt.map(|(right_value, center_value)| {
-                                let sp = Self::new_split_from_left(
+            .map_err(E::from)?;
+
+        let res = match mem::replace(self, dummy()) {
+            Self::Split(s, p) => match split_at_index::<K, U, V>(s, i) {
+                PartialSplit::Left(left, center, right) => {
+                    let center_key = center.key;
+                    match swap(i.into(), center.value, left.selected.value) {
+                        Ok(tnt) => Ok(tnt.map(|(right_value, center_value)| {
+                            let sp = Self::new_split_from_left(
+                                left.left,
+                                left.selected.key,
+                                center_value,
+                                left.right,
+                                center_key,
+                                right_value,
+                                right,
+                            )
+                            .unwrap();
+                            (sp, true)
+                        })),
+                        Err(fail) => Err(fail.map_passthru(|x| *x).map_passthru(
+                            |(center_value, left_value)| {
+                                Self::recover_split_from_left(
                                     left.left,
                                     left.selected.key,
-                                    center_value,
+                                    left_value,
                                     left.right,
                                     center_key,
-                                    right_value,
+                                    center_value,
                                     right,
                                 )
-                                .unwrap();
-                                (sp, true)
-                            }),
-                            Err(fail) => {
-                                fail.unfail().map(|x| *x).map(|(center_value, left_value)| {
-                                    let sp = Self::recover_split_from_left(
-                                        left.left,
-                                        left.selected.key,
-                                        left_value,
-                                        left.right,
-                                        center_key,
-                                        center_value,
-                                        right,
-                                    );
-                                    (sp, false)
-                                })
-                            }
-                        }
-                    }
-
-                    PartialSplit::Center(sc) => Tentative::new1((Self::Split(sc, p), false)),
-
-                    PartialSplit::Right(left, center, right) => {
-                        let center_key = center.key;
-                        match swap(i.into(), center.value, right.selected.value) {
-                            Ok(tnt) => tnt.map(|(right_value, center_value)| {
-                                let sp = Self::new_split_from_right(
-                                    left,
-                                    center_key,
-                                    right_value,
-                                    right.left,
-                                    right.selected.key,
-                                    center_value,
-                                    right.right,
-                                )
-                                .unwrap();
-                                (sp, true)
-                            }),
-                            Err(fail) => {
-                                fail.unfail()
-                                    .map(|x| *x)
-                                    .map(|(center_value, right_value)| {
-                                        let sp = Self::recover_split_from_right(
-                                            left,
-                                            center_key,
-                                            center_value,
-                                            right.left,
-                                            right.selected.key,
-                                            right_value,
-                                            right.right,
-                                        );
-                                        (sp, false)
-                                    })
-                            }
-                        }
-                    }
-                },
-
-                Self::Unsplit(u) => {
-                    let x = split_paired_vec::<K, V>(u.members, i);
-                    match to_u(i.into(), x.selected.value) {
-                        Ok(tnt) => tnt.map(|new_value| {
-                            let center = Pair::new(K::to_opt(x.selected.key).unwrap(), new_value);
-                            (Self::new_split(x.left, center, x.right), true)
-                        }),
-                        Err(fail) => fail.unfail().map(|old_value| {
-                            let center = Pair::new(x.selected.key, *old_value);
-                            let new = x.left.into_iter().chain([center]).chain(x.right).collect();
-                            (Self::new_unsplit(new), false)
-                        }),
+                            },
+                        )),
                     }
                 }
-            })
-            .def_map_value(|(newself, flag)| {
-                *self = newself;
-                flag
-            })
+
+                PartialSplit::Center(sc) => Ok(TentativeInner::new1((Self::Split(sc, p), false))),
+
+                PartialSplit::Right(left, center, right) => {
+                    let center_key = center.key;
+                    match swap(i.into(), center.value, right.selected.value) {
+                        Ok(tnt) => Ok(tnt.map(|(right_value, center_value)| {
+                            let sp = Self::new_split_from_right(
+                                left,
+                                center_key,
+                                right_value,
+                                right.left,
+                                right.selected.key,
+                                center_value,
+                                right.right,
+                            )
+                            .unwrap();
+                            (sp, true)
+                        })),
+                        Err(fail) => Err(fail.map_passthru(|x| *x).map_passthru(
+                            |(center_value, right_value)| {
+                                Self::recover_split_from_right(
+                                    left,
+                                    center_key,
+                                    center_value,
+                                    right.left,
+                                    right.selected.key,
+                                    right_value,
+                                    right.right,
+                                )
+                            },
+                        )),
+                    }
+                }
+            },
+
+            Self::Unsplit(u) => {
+                let x = split_paired_vec::<K, V>(u.members, i);
+                match to_u(i.into(), x.selected.value) {
+                    Ok(tnt) => Ok(tnt.map(|new_value| {
+                        let center = Pair::new(K::to_opt(x.selected.key).unwrap(), new_value);
+                        (Self::new_split(x.left, center, x.right), true)
+                    })),
+                    Err(fail) => Err(fail.map_passthru(|old_value| {
+                        let center = Pair::new(x.selected.key, *old_value);
+                        let new = x.left.into_iter().chain([center]).chain(x.right).collect();
+                        Self::new_unsplit(new)
+                    })),
+                }
+            }
+        };
+        res.def_map_value(|(newself, flag)| {
+            *self = newself;
+            flag
+        })
+        // TODO make a map passthru function
+        .map_err(|e| e.map_passthru(|newself| *self = newself).void())
     }
 
     /// Convert the center element into a non-center element.
@@ -1424,7 +1430,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Has no effect if there already is no center element.
     ///
     /// Return old center element if vector is updated.
-    pub(crate) fn unset_center<F, W, E, X>(&mut self, to_v: F) -> Tentative<Option<X>, W, E>
+    pub(crate) fn unset_center<F, W, E, X>(&mut self, to_v: F) -> DeferredResult<Option<X>, W, E>
     where
         F: FnOnce(MeasIndex, U) -> PassthruResult<(V, X), Box<U>, W, E>,
     {
@@ -1433,11 +1439,8 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 let center_key = s.center.key;
                 let index = (s.left.len()).into();
                 match to_v(index, s.center.value) {
-                    Ok(tnt) => tnt.map(|(value, ret)| {
-                        let non_center = Pair {
-                            key: K::wrap(center_key),
-                            value,
-                        };
+                    Ok(tnt) => Ok(tnt.map(|(value, ret)| {
+                        let non_center = Pair::new(K::wrap(center_key), value);
                         let members = s
                             .left
                             .into_iter()
@@ -1445,22 +1448,23 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                             .chain(s.right)
                             .collect();
                         (Self::new_unsplit(members), Some(ret))
-                    }),
-                    Err(fail) => fail.unfail().map(|value| {
-                        let center = Pair {
-                            key: center_key,
-                            value: *value,
-                        };
-                        let sp = Self::new_split(s.left, center, s.right);
-                        (sp, None)
-                    }),
+                    })),
+                    Err(fail) => Err(fail.map_passthru(|value| {
+                        let center = Pair::new(center_key, *value);
+                        Self::new_split(s.left, center, s.right)
+                    })),
                 }
             }
-            Self::Unsplit(u) => Tentative::new1((Self::Unsplit(u), None)),
+            Self::Unsplit(u) => Ok(TentativeInner::new1((Self::Unsplit(u), None))),
         }
-        .map(|(newself, flag)| {
+        .def_map_value(|(newself, flag)| {
             *self = newself;
             flag
+        })
+        .map_err(|e| {
+            e.map_passthru(|newself| {
+                *self = newself;
+            })
         })
     }
 

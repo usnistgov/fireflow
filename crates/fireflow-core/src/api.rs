@@ -893,7 +893,7 @@ fn split_raw_text_literal_delim(
         );
     }
 
-    Tentative::new(kws, warnings, errors)
+    Tentative::new_vec(kws, warnings, errors)
 }
 
 fn split_raw_text_escaped_delim(
@@ -1032,7 +1032,7 @@ fn split_raw_text_escaped_delim(
         push_pair(&mut ews, &keybuf, &valuebuf);
     }
 
-    Tentative::new(kws, ews.0, ews.1)
+    Tentative::new_vec(kws, ews.0, ews.1)
 }
 
 fn lookup_stext_offsets<C>(
@@ -1053,7 +1053,7 @@ where
     match version {
         Version::FCS2_0 => Tentative::new1(None),
         Version::FCS3_0 | Version::FCS3_1 => KeyedReqSegment::get_mult(kws, &seg_conf).map_or_else(
-            |es| Tentative::new_either(None, es, !conf.allow_missing_supp_text),
+            |es| Tentative::new_vec_either(None, es, !conf.allow_missing_supp_text),
             |t| Tentative::new1(Some(t)),
         ),
         Version::FCS3_2 => KeyedOptSegment::get(kws, &seg_conf).warnings_into(),
@@ -1061,7 +1061,7 @@ where
     .and_tentatively(|x| {
         x.map_or(Tentative::default(), |seg| {
             if seg.same_coords(&text_segment) {
-                Tentative::new_either(
+                Tentative::new_vec_either(
                     None,
                     vec![DuplicatedSuppTEXT],
                     !conf.allow_duplicated_supp_text,

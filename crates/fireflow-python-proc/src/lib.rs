@@ -1104,6 +1104,7 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
 
     let fun_args = doc.fun_args();
 
+    // TODO document exception here (either an IO error or an overflow, the former is implied)
     quote! {
         #[pymethods]
         impl #i {

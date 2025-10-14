@@ -53,7 +53,7 @@ use crate::core::{AsScaleTransform, LayoutConvertResult, Measurements, ScaleTran
 use crate::error::{
     BiTentative, DeferredExt as _, DeferredFailure, DeferredResult, ErrorIter as _,
     IODeferredResult, IOResult, ImpureError, MultiResult, MultiResultExt as _, PassthruExt as _,
-    ResultExt as _, Tentative,
+    ResultExt as _, Tentative, VecFamily,
 };
 use crate::macros::match_many_to_one;
 use crate::nonempty::FCSNonEmpty;
@@ -473,7 +473,7 @@ pub trait TotDefinition {
             Tentative::new1(())
         } else {
             let i = TotEventMismatch { tot, total_events };
-            Tentative::new_either((), vec![i], !allow_mismatch)
+            Tentative::new_vec_either((), vec![i], !allow_mismatch)
         }
     }
 }
@@ -517,12 +517,12 @@ pub trait LayoutOps<'a, T>: Sized {
 
     fn check_writer(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>>;
 
-    fn h_write_df_inner<W: Write, E>(
+    fn h_write_df_inner<W: Write>(
         &self,
         h: &mut BufWriter<W>,
         df: &'a FCSDataFrame,
         skip_conv_check: bool,
-    ) -> IODeferredResult<(), ColumnError<AnyLossError>, E>;
+    ) -> DeferredResult<(), ColumnError<AnyLossError>, io::Error>;
 
     fn check_transforms_and_len(
         &self,
@@ -652,12 +652,12 @@ where
         )
     }
 
-    fn h_write_df<W, E>(
+    fn h_write_df<W>(
         &self,
         h: &mut BufWriter<W>,
         df: &FCSDataFrame,
         skip_conv_check: bool,
-    ) -> IODeferredResult<(), ColumnError<AnyLossError>, E>
+    ) -> DeferredResult<(), ColumnError<AnyLossError>, io::Error>
     where
         W: Write,
     {
@@ -1234,7 +1234,7 @@ impl MeasDatatypeDef for HasMeasDatatype {
         i: MeasIndex,
     ) -> Tentative<Self::MeasDatatype, OptKeyError<NumTypeError>, RawParsedError> {
         NumType::get_meas_opt(kws, i)
-            .map_or_else(|e| Tentative::new(None, [e], []), Tentative::new1)
+            .map_or_else(|e| Tentative::new_vec(None, [e], []), Tentative::new1)
     }
 }
 
@@ -2269,12 +2269,12 @@ where
             .void()
     }
 
-    fn h_write_df_inner<W: Write, E>(
+    fn h_write_df_inner<W: Write>(
         &self,
         h: &mut BufWriter<W>,
         df: &FCSDataFrame,
         skip_conv_check: bool,
-    ) -> IODeferredResult<(), ColumnError<AnyLossError>, E> {
+    ) -> DeferredResult<(), ColumnError<AnyLossError>, io::Error> {
         let ncols = df.ncols();
         let nrows = df.nrows();
         // ASSUME dataframe has correct number of columns
@@ -2303,7 +2303,7 @@ where
                 .map(|(i, w)| ColumnError::new(i, AnyLossError::Ascii(LossError::Cast(w))))
                 .collect()
         };
-        Ok(Tentative::new((), ws, []))
+        Ok(Tentative::new_vec((), ws, []))
     }
 
     fn truncate_df<E>(
@@ -2331,7 +2331,7 @@ where
             })
             .unzip();
         let ws = warnings.into_iter().flatten();
-        Tentative::new(FCSDataFrame::try_new(columns).unwrap(), ws, [])
+        Tentative::new_vec(FCSDataFrame::try_new(columns).unwrap(), ws, [])
     }
 }
 
@@ -2609,12 +2609,12 @@ where
             .void()
     }
 
-    fn h_write_df_inner<W: Write, E>(
+    fn h_write_df_inner<W: Write>(
         &self,
         h: &mut BufWriter<W>,
         df: &'a FCSDataFrame,
         skip_conv_check: bool,
-    ) -> IODeferredResult<(), ColumnError<AnyLossError>, E> {
+    ) -> DeferredResult<(), ColumnError<AnyLossError>, io::Error> {
         let nrows = df.nrows();
         // ASSUME df has same number of columns as layout
         let mut cs: Vec<_> = self
@@ -2642,7 +2642,7 @@ where
                 .filter_map(|(i, c)| c.as_err(i.into()))
                 .collect()
         };
-        Ok(Tentative::new((), ws, []))
+        Ok(Tentative::new_vec((), ws, []))
     }
 
     fn truncate_df<E>(
@@ -2666,7 +2666,7 @@ where
             .into_iter()
             .enumerate()
             .filter_map(|(i, e)| e.map(|f| ColumnError::new(i, f)));
-        Tentative::new(FCSDataFrame::try_new(new_columns).unwrap(), ws, [])
+        Tentative::new_vec(FCSDataFrame::try_new(new_columns).unwrap(), ws, [])
     }
 }
 

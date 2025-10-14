@@ -115,7 +115,7 @@ pub(crate) trait CheckMaybe: Sized + IsDefault {
         if self.is_default() {
             Tentative::default()
         } else {
-            Tentative::new_either((), [UnitaryKeyLossError::<Self::Inner>::new()], !allow_loss)
+            Tentative::new_vec_either((), [UnitaryKeyLossError::<Self::Inner>::new()], !allow_loss)
         }
     }
 
@@ -131,7 +131,7 @@ pub(crate) trait CheckMaybe: Sized + IsDefault {
             Tentative::default()
         } else {
             let e = IndexedKeyLossError::<Self::Inner>::new(i);
-            Tentative::new_either((), [e], !allow_loss)
+            Tentative::new_vec_either((), [e], !allow_loss)
         }
     }
 

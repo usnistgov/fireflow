@@ -15,65 +15,96 @@
 //! such a result is to run a function to process the errors/warnings.
 
 use crate::config::SharedConfig;
+use crate::text::optional::{AlwaysValue, NeverValue};
 
 use derive_new::new;
 use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use std::convert::Infallible;
 use std::io;
+use std::marker::PhantomData;
 use thiserror::Error;
 
 // TODO add a cap to the error buffer so the user doesn't DOS themselves if
 // their file is particularly screwed up
 
-/// Final result which may be passing or not passing
+/// Final result which may be passing or not passing in IO context.
+///
+/// Passing side may have multiple warnings and failure side has at least one IO
+/// failure, an error summary, and may have multiple warnings.
+pub type IOTerminalResult<V, W, E, T> = TerminalResult<V, W, ImpureError<E>, T>;
+
+/// Final result which may be passing or not passing in IO context.
+///
+/// Passing side may have multiple warnings and failure side has at least one
+/// failure, an error summary, and may have multiple warnings.
 pub type TerminalResult<V, W, E, T> = Result<Terminal<V, W>, TerminalFailure<W, E, T>>;
 
-/// Final result which may be passing or not passing in IO context
-pub type IOTerminalResult<V, W, E, T> = TerminalResult<V, W, ImpureError<E>, T>;
+/// Final result which may be passing or not passing in IO context.
+///
+/// Passing side may have one warnings and failure side has one error.
+pub type IOTerminalResultOne<V, W, E> = TerminalResultOne<V, W, ImpureError<E>>;
+
+/// Final result which may be passing or not passing.
+///
+/// Passing side may have one warnings and failure side has one error.
+pub type TerminalResultOne<V, W, E> = Result<TerminalOne<V, W>, TerminalFailureOne<E>>;
+
+/// Passing result with 0 or 1 warning.
+pub type TerminalOne<V, W> = TerminalInner<V, W, OptionFamily>;
+
+/// Passing result with possibly many warnings.
+pub type Terminal<V, W> = TerminalInner<V, W, VecFamily>;
 
 /// Final passing result, possibly with warnings
 #[derive(new)]
 #[new(visibility = "")]
-pub struct Terminal<V, W> {
-    #[new(into)]
+pub struct TerminalInner<V, W, I: ZeroOrMore> {
     value: V,
-    #[new(into_iter = "W")]
-    warnings: Vec<W>,
+    warnings: I::Wrapper<W>,
 }
+
+/// Failure with at least one error, an error summary, and possibly many warnings.
+pub type TerminalFailure<W, E, T> = TerminalFailureInner<W, E, T, VecFamily, NonEmptyFamily>;
+
+/// Failure with one error.
+pub type TerminalFailureOne<E> =
+    TerminalFailureInner<Infallible, E, (), NullFamily, SingletonFamily>;
 
 /// Final failed result with either one error or multiple errors with a summary.
 #[derive(new)]
 #[new(visibility = "")]
-pub struct TerminalFailure<W, E, T> {
-    #[new(into_iter = "W")]
-    warnings: Vec<W>,
-    #[new(into)]
-    errors: Box<NonEmpty<E>>,
-    #[new(into)]
+pub struct TerminalFailureInner<W, E, T, WI: ZeroOrMore, EI: OneOrMore> {
+    warnings: WI::Wrapper<W>,
+    errors: Box<EI::Wrapper<E>>,
     reason: T,
 }
 
 /// Result which may have at least one error
 pub type DeferredResult<V, W, E> = Result<Tentative<V, W, E>, DeferredFailure<(), W, E>>;
+pub type DeferredResultOne<V, W, E> = Result<TentativeOne<V, W>, DeferredFailureOne<(), E>>;
 
 pub type BiDeferredResult<V, E> = DeferredResult<V, E, E>;
 
 /// Result which may have at least one error (with passthru)
 pub type PassthruResult<V, P, W, E> = Result<Tentative<V, W, E>, DeferredFailure<P, W, E>>;
+pub type PassthruResultOne<V, P, W, E> = Result<TentativeOne<V, W>, DeferredFailureOne<P, E>>;
+pub type PassthruResultInner<V, P, W, E, WI0, WI1, EI0, EI1> =
+    Result<TentativeInner<V, W, E, WI0, EI0>, DeferredFailureInner<P, W, E, WI1, EI1>>;
 
 /// Result which may have at least one error in IO context
 pub type IODeferredResult<V, W, E> = DeferredResult<V, W, ImpureError<E>>;
+pub type IODeferredResultOne<V, W, E> = DeferredResultOne<V, W, ImpureError<E>>;
+
+pub type Tentative<V, W, E> = TentativeInner<V, W, E, VecFamily, VecFamily>;
+pub type TentativeOne<V, W> = TentativeInner<V, W, Infallible, OptionFamily, NullFamily>;
 
 /// Result which might have warnings or errors
 #[derive(new)]
-pub struct Tentative<V, W, E> {
-    #[new(into)]
+pub struct TentativeInner<V, W, E, WI: ZeroOrMore, EI: ZeroOrMore> {
     value: V,
-    #[new(into_iter = "W")]
-    warnings: Vec<W>,
-    #[new(into_iter = "E")]
-    errors: Vec<E>,
+    warnings: WI::Wrapper<W>,
+    errors: EI::Wrapper<E>,
 }
 
 /// A type that may be either an error or warning.
@@ -89,6 +120,11 @@ pub enum Leveled<T> {
 /// Tentative where both error and warning are the same type
 pub type BiTentative<V, T> = Tentative<V, T, T>;
 
+pub type DeferredFailure<P, W, E> = DeferredFailureInner<P, W, E, VecFamily, NonEmptyFamily>;
+
+pub type DeferredFailureOne<P, E> =
+    DeferredFailureInner<P, Infallible, E, NullFamily, SingletonFamily>;
+
 /// Result which has 1+ errors, 0+ warnings, and the input type.
 ///
 /// Passthru is meant to hold the input type for the failed computation such
@@ -97,12 +133,9 @@ pub type BiTentative<V, T> = Tentative<V, T, T>;
 /// we may want to do something with the original value after trying and failing
 /// to convert it.
 #[derive(new)]
-pub struct DeferredFailure<P, W, E> {
-    #[new(into_iter = "W")]
-    warnings: Vec<W>,
-    #[new(into)]
-    errors: Box<NonEmpty<E>>,
-    #[new(into)]
+pub struct DeferredFailureInner<P, W, E, WI: ZeroOrMore, EI: OneOrMore> {
+    warnings: WI::Wrapper<W>,
+    errors: Box<EI::Wrapper<E>>,
     passthru: P,
 }
 
@@ -151,25 +184,182 @@ pub(crate) trait ErrorIter<T, E>: Iterator<Item = Result<T, E>> + Sized {
 
 impl<I: Iterator<Item = Result<T, E>>, T, E> ErrorIter<T, E> for I {}
 
-impl<V, W> Terminal<V, W> {
-    pub fn new1(value: impl Into<V>) -> Self {
-        Self::new(value, [])
+/// Generic higher-order type for something which has zero or more things.
+///
+/// Use cases: Option, Vec, and NeverValue
+pub trait ZeroOrMore {
+    type Wrapper<T>;
+
+    fn map<F, X, Y>(t: Self::Wrapper<X>, f: F) -> Self::Wrapper<Y>
+    where
+        F: Fn(X) -> Y;
+}
+
+/// Generic higher-order type for something which has at least one thing.
+///
+/// Use cases: NonEmpty and AlwaysValue
+pub trait OneOrMore {
+    type Wrapper<T>;
+
+    fn map<F, X, Y>(t: Self::Wrapper<X>, f: F) -> Self::Wrapper<Y>
+    where
+        F: Fn(X) -> Y;
+
+    fn from_one<X>(x: X) -> Self::Wrapper<X>
+    where
+        Self: HoldsOne<Inner<X> = Self::Wrapper<X>>,
+    {
+        Self::wrap(x)
+    }
+}
+
+/// Generic higher-order type for anything which holds one thing.
+///
+/// Use cases: Option, Vec, NonEmpty, Alwaysvalue
+pub trait HoldsOne {
+    type Inner<T>;
+
+    fn wrap<X>(x: X) -> Self::Inner<X>;
+}
+
+pub struct OptionFamily;
+
+pub struct VecFamily;
+
+pub struct SingletonFamily;
+
+pub struct NonEmptyFamily;
+
+pub struct NullFamily;
+
+impl ZeroOrMore for OptionFamily {
+    type Wrapper<T> = Option<T>;
+
+    fn map<F, X, Y>(t: Self::Wrapper<X>, f: F) -> Self::Wrapper<Y>
+    where
+        F: Fn(X) -> Y,
+    {
+        t.map(f)
+    }
+}
+
+impl ZeroOrMore for VecFamily {
+    type Wrapper<T> = Vec<T>;
+
+    fn map<F, X, Y>(t: Self::Wrapper<X>, f: F) -> Self::Wrapper<Y>
+    where
+        F: Fn(X) -> Y,
+    {
+        t.into_iter().map(f).collect()
+    }
+}
+
+impl ZeroOrMore for NullFamily {
+    type Wrapper<T> = NeverValue<T>;
+
+    fn map<F, X, Y>(_: Self::Wrapper<X>, _: F) -> Self::Wrapper<Y>
+    where
+        F: Fn(X) -> Y,
+    {
+        NeverValue(PhantomData)
+    }
+}
+
+impl OneOrMore for SingletonFamily {
+    type Wrapper<T> = AlwaysValue<T>;
+
+    fn map<F, X, Y>(t: Self::Wrapper<X>, f: F) -> Self::Wrapper<Y>
+    where
+        F: Fn(X) -> Y,
+    {
+        AlwaysValue(f(t.0))
+    }
+}
+
+impl OneOrMore for NonEmptyFamily {
+    type Wrapper<T> = NonEmpty<T>;
+
+    fn map<F, X, Y>(t: Self::Wrapper<X>, f: F) -> Self::Wrapper<Y>
+    where
+        F: Fn(X) -> Y,
+    {
+        t.map(f)
+    }
+}
+
+impl HoldsOne for OptionFamily {
+    type Inner<T> = Option<T>;
+
+    fn wrap<X>(x: X) -> Self::Inner<X> {
+        Some(x)
+    }
+}
+
+impl HoldsOne for VecFamily {
+    type Inner<T> = Vec<T>;
+
+    fn wrap<X>(x: X) -> Self::Inner<X> {
+        vec![x]
+    }
+}
+
+impl HoldsOne for SingletonFamily {
+    type Inner<T> = AlwaysValue<T>;
+
+    fn wrap<X>(x: X) -> Self::Inner<X> {
+        AlwaysValue(x)
+    }
+}
+
+impl HoldsOne for NonEmptyFamily {
+    type Inner<T> = NonEmpty<T>;
+
+    fn wrap<X>(x: X) -> Self::Inner<X> {
+        NonEmpty::new(x)
+    }
+}
+
+impl<V, W, I: ZeroOrMore> TerminalInner<V, W, I> {
+    fn new1(value: impl Into<V>) -> Self
+    where
+        I::Wrapper<W>: Default,
+    {
+        Self::new(value.into(), I::Wrapper::<W>::default())
     }
 
-    pub fn value_into<U: From<V>>(self) -> Terminal<U, W> {
+    pub fn value_into<U: From<V>>(self) -> TerminalInner<U, W, I> {
         self.map(Into::into)
     }
 
-    pub fn map<F: FnOnce(V) -> X, X>(self, f: F) -> Terminal<X, W> {
-        Terminal::new(f(self.value), self.warnings)
+    pub fn map<F: FnOnce(V) -> X, X>(self, f: F) -> TerminalInner<X, W, I> {
+        TerminalInner::new(f(self.value), self.warnings)
     }
 
-    pub fn warnings_map<F: Fn(W) -> X, X>(self, f: F) -> Terminal<V, X> {
-        Terminal::new(self.value, self.warnings.into_iter().map(f))
-    }
-
-    pub fn warnings_into<X: From<W>>(self) -> Terminal<V, X> {
+    pub fn warnings_into<X: From<W>>(self) -> TerminalInner<V, X, I> {
         self.warnings_map(Into::into)
+    }
+
+    pub fn warnings_map<F: Fn(W) -> X, X>(self, f: F) -> TerminalInner<V, X, I> {
+        TerminalInner::new(self.value, I::map(self.warnings, f))
+    }
+
+    pub fn resolve<F, X>(self, f: F) -> (V, X)
+    where
+        F: FnOnce(I::Wrapper<W>) -> X,
+    {
+        (self.value, f(self.warnings))
+    }
+}
+
+impl<V, I: ZeroOrMore> TerminalInner<V, Infallible, I> {
+    pub fn inner(self) -> V {
+        self.value
+    }
+}
+
+impl<V, W> Terminal<V, W> {
+    fn new_vec(value: impl Into<V>, warnings: impl IntoIterator<Item = W>) -> Self {
+        Self::new(value.into(), warnings.into_iter().collect())
     }
 
     pub fn and_finally<E, T, F, X>(mut self, f: F) -> TerminalResult<X, W, E, T>
@@ -179,11 +369,11 @@ impl<V, W> Terminal<V, W> {
         match f(self.value) {
             Ok(s) => {
                 self.warnings.extend(s.warnings);
-                Ok(Terminal::new(s.value, self.warnings))
+                Ok(Terminal::new_vec(s.value, self.warnings))
             }
             Err(e) => {
                 self.warnings.extend(e.warnings);
-                Err(TerminalFailure::new(self.warnings, *e.errors, e.reason))
+                Err(TerminalFailure::new_vec(self.warnings, *e.errors, e.reason))
             }
         }
     }
@@ -195,13 +385,13 @@ impl<V, W> Terminal<V, W> {
         match f(self.value) {
             Ok(s) => {
                 self.warnings.extend(s.warnings);
-                Tentative::new(s.value, self.warnings, s.errors).terminate(reason)
+                Tentative::new_vec(s.value, self.warnings, s.errors).terminate(reason)
             }
             Err(e) => {
                 self.warnings.extend(e.warnings);
                 // termination will throw away the passthru value so this
                 // only needs to be a dummy
-                Err(DeferredFailure::new(self.warnings, *e.errors, ()).terminate(reason))
+                Err(DeferredFailureInner::new(self.warnings, e.errors, ()).terminate(reason))
             }
         }
     }
@@ -212,14 +402,7 @@ impl<V, W> Terminal<V, W> {
     {
         let s = f(self.value);
         self.warnings.extend(s.warnings);
-        Tentative::new(s.value, self.warnings, s.errors).terminate(reason)
-    }
-
-    pub fn resolve<F, X>(self, f: F) -> (V, X)
-    where
-        F: FnOnce(Vec<W>) -> X,
-    {
-        (self.value, f(self.warnings))
+        Tentative::new_vec(s.value, self.warnings, s.errors).terminate(reason)
     }
 
     fn warnings_to_errors<T, E, F>(self, reason: T, f: F) -> TerminalResult<V, W, E, T>
@@ -233,15 +416,27 @@ impl<V, W> Terminal<V, W> {
     }
 }
 
-impl<V> Terminal<V, Infallible> {
-    pub fn inner(self) -> V {
-        self.value
+impl<W, E, T, WI: ZeroOrMore, EI: OneOrMore> TerminalFailureInner<W, E, T, WI, EI> {
+    pub fn resolve<F, G, X, Y>(self, f: F, g: G) -> (X, Y)
+    where
+        F: FnOnce(WI::Wrapper<W>) -> X,
+        G: FnOnce(EI::Wrapper<E>, T) -> Y,
+    {
+        (f(self.warnings), g(*self.errors, self.reason))
     }
 }
 
 impl<W, E, T> TerminalFailure<W, E, T> {
-    pub fn new1(errors: NonEmpty<E>, reason: T) -> Self {
-        Self::new([], errors, reason)
+    fn new_vec(
+        warnings: impl IntoIterator<Item = W>,
+        errors: impl Into<Box<NonEmpty<E>>>,
+        reason: impl Into<T>,
+    ) -> Self {
+        Self::new(warnings.into_iter().collect(), errors.into(), reason.into())
+    }
+
+    fn new1(errors: NonEmpty<E>, reason: T) -> Self {
+        Self::new_vec([], errors, reason)
     }
 
     // pub fn map_warnings<F, X>(self, f: F) -> TerminalFailure<X, E, T>
@@ -303,33 +498,95 @@ impl<W, E, T> TerminalFailure<W, E, T> {
         F: Fn(W) -> E,
     {
         self.errors.extend(self.warnings.into_iter().map(f));
-        Self::new([], self.errors, self.reason)
+        Self::new_vec([], self.errors, self.reason)
+    }
+}
+
+impl<V, W, E, WI: ZeroOrMore, EI: ZeroOrMore> TentativeInner<V, W, E, WI, EI> {
+    pub fn new1(value: V) -> Self
+    where
+        WI::Wrapper<W>: Default,
+        EI::Wrapper<E>: Default,
+    {
+        Self::new(
+            value,
+            WI::Wrapper::<W>::default(),
+            EI::Wrapper::<E>::default(),
+        )
     }
 
-    pub fn resolve<F, G, X, Y>(self, f: F, g: G) -> (X, Y)
+    pub fn new_either<M>(value: V, msg: M, are_errors: bool) -> Self
     where
-        F: FnOnce(Vec<W>) -> X,
-        G: FnOnce(NonEmpty<E>, T) -> Y,
+        E: From<M>,
+        W: From<M>,
+        WI: HoldsOne<Inner<W> = WI::Wrapper<W>>,
+        EI: HoldsOne<Inner<E> = EI::Wrapper<E>>,
+        WI::Wrapper<W>: Default,
+        EI::Wrapper<E>: Default,
     {
-        (f(self.warnings), g(*self.errors, self.reason))
+        if are_errors {
+            Self::new(value, WI::Wrapper::<W>::default(), EI::wrap(E::from(msg)))
+        } else {
+            Self::new(value, WI::wrap(W::from(msg)), EI::Wrapper::<E>::default())
+        }
+    }
+
+    pub fn map<F: FnOnce(V) -> X, X>(self, f: F) -> TentativeInner<X, W, E, WI, EI> {
+        TentativeInner::new(f(self.value), self.warnings, self.errors)
+    }
+
+    pub fn map_warnings<F: Fn(W) -> X, X>(self, f: F) -> TentativeInner<V, X, E, WI, EI> {
+        TentativeInner::new(self.value, WI::map(self.warnings, f), self.errors)
+    }
+
+    pub fn map_errors<F: Fn(E) -> X, X>(self, f: F) -> TentativeInner<V, W, X, WI, EI> {
+        TentativeInner::new(self.value, self.warnings, EI::map(self.errors, f))
+    }
+
+    pub fn value_into<X: From<V>>(self) -> TentativeInner<X, W, E, WI, EI> {
+        self.map(Into::into)
+    }
+
+    pub fn warnings_into<X: From<W>>(self) -> TentativeInner<V, X, E, WI, EI> {
+        self.map_warnings(Into::into)
+    }
+
+    pub fn errors_into<X: From<E>>(self) -> TentativeInner<V, W, X, WI, EI> {
+        self.map_errors(Into::into)
+    }
+
+    pub fn inner_into<X: From<W>, Y: From<E>>(self) -> TentativeInner<V, X, Y, WI, EI> {
+        self.errors_into().warnings_into()
+    }
+
+    pub fn errors_liftio(self) -> TentativeInner<V, W, ImpureError<E>, WI, EI> {
+        self.map_errors(ImpureError::Pure)
     }
 }
 
 impl<V, W, E> Tentative<V, W, E> {
-    pub fn new_either<M>(value: V, msgs: impl IntoIterator<Item = M>, are_errors: bool) -> Self
+    pub fn new_vec(
+        value: impl Into<V>,
+        warnings: impl IntoIterator<Item = W>,
+        errors: impl IntoIterator<Item = E>,
+    ) -> Self {
+        Self::new(
+            value.into(),
+            warnings.into_iter().collect(),
+            errors.into_iter().collect(),
+        )
+    }
+
+    pub fn new_vec_either<M>(value: V, msgs: impl IntoIterator<Item = M>, are_errors: bool) -> Self
     where
         E: From<M>,
         W: From<M>,
     {
         if are_errors {
-            Self::new(value, [], msgs.into_iter().map(Into::into))
+            Self::new_vec(value, [], msgs.into_iter().map(Into::into))
         } else {
-            Self::new(value, msgs.into_iter().map(Into::into), [])
+            Self::new_vec(value, msgs.into_iter().map(Into::into), [])
         }
-    }
-
-    pub fn new1(value: V) -> Self {
-        Self::new(value, [], [])
     }
 
     pub fn push_warning(&mut self, x: impl Into<W>) {
@@ -377,11 +634,11 @@ impl<V, W, E> Tentative<V, W, E> {
         match f(self.value) {
             Ok(s) => {
                 self.warnings.extend(s.warnings);
-                Ok(Terminal::new(s.value, self.warnings))
+                Ok(Terminal::new_vec(s.value, self.warnings))
             }
             Err(e) => {
                 self.warnings.extend(e.warnings);
-                Err(TerminalFailure::new(self.warnings, *e.errors, e.reason))
+                Err(TerminalFailure::new_vec(self.warnings, *e.errors, e.reason))
             }
         }
     }
@@ -394,12 +651,12 @@ impl<V, W, E> Tentative<V, W, E> {
             Ok(s) => {
                 self.warnings.extend(s.warnings);
                 self.errors.extend(s.errors);
-                Ok(Tentative::new(s.value, self.warnings, self.errors))
+                Ok(Tentative::new_vec(s.value, self.warnings, self.errors))
             }
             Err(e) => {
                 self.warnings.extend(e.warnings);
                 self.errors.extend(*e.errors);
-                Err(DeferredFailure::new(
+                Err(DeferredFailure::new_vec(
                     self.warnings,
                     NonEmpty::from_vec(self.errors).unwrap(),
                     e.passthru,
@@ -415,7 +672,7 @@ impl<V, W, E> Tentative<V, W, E> {
         let s = f(self.value);
         self.warnings.extend(s.warnings);
         self.errors.extend(s.errors);
-        Tentative::new(s.value, self.warnings, self.errors)
+        Tentative::new_vec(s.value, self.warnings, self.errors)
     }
 
     pub fn eval_error<F, X>(&mut self, f: F)
@@ -460,38 +717,6 @@ impl<V, W, E> Tentative<V, W, E> {
             .extend(f(&self.value).into_iter().map(Into::into));
     }
 
-    pub fn map<F: FnOnce(V) -> X, X>(self, f: F) -> Tentative<X, W, E> {
-        Tentative::new(f(self.value), self.warnings, self.errors)
-    }
-
-    pub fn map_warnings<F: Fn(W) -> X, X>(self, f: F) -> Tentative<V, X, E> {
-        Tentative::new(self.value, self.warnings.into_iter().map(f), self.errors)
-    }
-
-    pub fn map_errors<F: Fn(E) -> X, X>(self, f: F) -> Tentative<V, W, X> {
-        Tentative::new(self.value, self.warnings, self.errors.into_iter().map(f))
-    }
-
-    pub fn value_into<X: From<V>>(self) -> Tentative<X, W, E> {
-        self.map(Into::into)
-    }
-
-    pub fn warnings_into<X: From<W>>(self) -> Tentative<V, X, E> {
-        self.map_warnings(Into::into)
-    }
-
-    pub fn errors_into<X: From<E>>(self) -> Tentative<V, W, X> {
-        self.map_errors(Into::into)
-    }
-
-    pub fn inner_into<X: From<W>, Y: From<E>>(self) -> Tentative<V, X, Y> {
-        self.errors_into().warnings_into()
-    }
-
-    pub fn errors_liftio(self) -> Tentative<V, W, ImpureError<E>> {
-        self.map_errors(ImpureError::Pure)
-    }
-
     pub fn mconcat(xs: impl IntoIterator<Item = Self>) -> Tentative<Vec<V>, W, E> {
         let mut ret = Tentative::new1(vec![]);
         for x in xs {
@@ -511,7 +736,7 @@ impl<V, W, E> Tentative<V, W, E> {
             ws.extend(x.warnings);
             es.extend(x.errors);
         }
-        Tentative::new(vs, ws, es)
+        Tentative::new_vec(vs, ws, es)
     }
 
     pub fn terminate<T>(self, reason: T) -> TerminalResult<V, W, E, T> {
@@ -524,8 +749,8 @@ impl<V, W, E> Tentative<V, W, E> {
         reason: T,
     ) -> Result<(Terminal<V, W>, T), TerminalFailure<W, E, T>> {
         match NonEmpty::from_vec(self.errors) {
-            Some(errors) => Err(TerminalFailure::new(self.warnings, errors, reason)),
-            None => Ok((Terminal::new(self.value, self.warnings), reason)),
+            Some(errors) => Err(TerminalFailure::new_vec(self.warnings, errors, reason)),
+            None => Ok((Terminal::new_vec(self.value, self.warnings), reason)),
         }
     }
 
@@ -542,7 +767,7 @@ impl<V, W, E> Tentative<V, W, E> {
     pub fn terminate_nowarn<T>(self, reason: T) -> TerminalResult<V, W, E, T> {
         match NonEmpty::from_vec(self.errors) {
             None => Ok(Terminal::new1(self.value)),
-            Some(e) => Err(TerminalFailure::new([], e, reason)),
+            Some(e) => Err(TerminalFailure::new_vec([], e, reason)),
         }
     }
 
@@ -601,11 +826,11 @@ impl<V, W, E> Tentative<V, W, E> {
     {
         self.warnings.extend(other.warnings);
         self.errors.extend(other.errors);
-        Tentative::new(f(self.value, other.value), self.warnings, self.errors)
+        Tentative::new_vec(f(self.value, other.value), self.warnings, self.errors)
     }
 
     pub fn void(self) -> Tentative<(), W, E> {
-        Tentative::new((), self.warnings, self.errors)
+        Tentative::new_vec((), self.warnings, self.errors)
     }
 
     #[cfg(test)]
@@ -628,9 +853,9 @@ impl<V, E> BiTentative<V, E> {
     pub fn new_either1(x: V, error: Option<E>, is_error: bool) -> Self {
         if let Some(e) = error {
             if is_error {
-                Self::new(x, [], [e])
+                Self::new_vec(x, [], [e])
             } else {
-                Self::new(x, [e], [])
+                Self::new_vec(x, [e], [])
             }
         } else {
             Self::new1(x)
@@ -640,7 +865,7 @@ impl<V, E> BiTentative<V, E> {
 
 impl<V, W> Tentative<V, W, Infallible> {
     pub fn into_terminal(self) -> Terminal<V, W> {
-        Terminal::new(self.value, self.warnings)
+        Terminal::new_vec(self.value, self.warnings)
     }
 }
 
@@ -654,29 +879,108 @@ impl<V> BiTentative<V, Infallible> {
     }
 }
 
-impl<V, W, E> Tentative<Option<V>, W, E> {
-    pub fn transpose(self) -> Option<Tentative<V, W, E>> {
+impl<V, W, E, WI: ZeroOrMore, EI: ZeroOrMore> TentativeInner<Option<V>, W, E, WI, EI> {
+    pub fn transpose(self) -> Option<TentativeInner<V, W, E, WI, EI>> {
         if let Some(value) = self.value {
-            Some(Tentative::new(value, self.warnings, self.errors))
+            Some(TentativeInner::new(value, self.warnings, self.errors))
         } else {
             None
         }
     }
 }
 
-impl<V: Default, W, E> Default for Tentative<V, W, E> {
+impl<V, W, E, WI, EI> Default for TentativeInner<V, W, E, WI, EI>
+where
+    V: Default,
+    WI: ZeroOrMore,
+    EI: ZeroOrMore,
+    WI::Wrapper<W>: Default,
+    EI::Wrapper<E>: Default,
+{
     fn default() -> Self {
         Self::new1(V::default())
     }
 }
 
-impl<V: Default, W> Default for Terminal<V, W> {
+impl<V, W, WI> Default for TerminalInner<V, W, WI>
+where
+    V: Default,
+    WI: ZeroOrMore,
+    WI::Wrapper<W>: Default,
+{
     fn default() -> Self {
         Self::new1(V::default())
+    }
+}
+
+impl<P, W, E, WI: ZeroOrMore, EI: OneOrMore> DeferredFailureInner<P, W, E, WI, EI> {
+    pub fn map_passthru<F, X>(self, f: F) -> DeferredFailureInner<X, W, E, WI, EI>
+    where
+        F: FnOnce(P) -> X,
+    {
+        DeferredFailureInner::new(self.warnings, self.errors, f(self.passthru))
+    }
+
+    pub fn map_warnings<F, X>(self, f: F) -> DeferredFailureInner<P, X, E, WI, EI>
+    where
+        F: Fn(W) -> X,
+    {
+        DeferredFailureInner::new(WI::map(self.warnings, f), self.errors, self.passthru)
+    }
+
+    pub fn map_errors<F, X>(self, f: F) -> DeferredFailureInner<P, W, X, WI, EI>
+    where
+        F: Fn(E) -> X,
+    {
+        DeferredFailureInner::new(
+            self.warnings,
+            EI::map(*self.errors, f).into(),
+            self.passthru,
+        )
+    }
+
+    pub fn warnings_into<X>(self) -> DeferredFailureInner<P, X, E, WI, EI>
+    where
+        X: From<W>,
+    {
+        self.map_warnings(Into::into)
+    }
+
+    pub fn errors_into<X>(self) -> DeferredFailureInner<P, W, X, WI, EI>
+    where
+        X: From<E>,
+    {
+        self.map_errors(Into::into)
+    }
+
+    pub fn void(self) -> DeferredFailureInner<(), W, E, WI, EI> {
+        DeferredFailureInner::new(self.warnings, self.errors, ())
+    }
+
+    pub fn terminate<T>(self, reason: T) -> TerminalFailureInner<W, E, T, WI, EI> {
+        TerminalFailureInner::new(self.warnings, self.errors, reason)
+    }
+}
+
+impl<P, WI: ZeroOrMore, EI: OneOrMore> DeferredFailureInner<P, Infallible, Infallible, WI, EI> {
+    pub fn unwrap_infallible(self) -> P {
+        self.passthru
     }
 }
 
 impl<P, W, E> DeferredFailure<P, W, E> {
+    pub fn new_vec(
+        warnings: impl IntoIterator<Item = W>,
+        errors: impl Into<Box<NonEmpty<E>>>,
+        passthru: impl Into<P>,
+    ) -> Self {
+        Self::new(
+            warnings.into_iter().collect(),
+            errors.into(),
+            passthru.into(),
+        )
+    }
+
     pub fn push_warning(&mut self, x: impl Into<W>) {
         self.warnings.push(x.into());
     }
@@ -696,48 +1000,9 @@ impl<P, W, E> DeferredFailure<P, W, E> {
         }
     }
 
-    pub fn map_passthru<F, X>(self, f: F) -> DeferredFailure<X, W, E>
-    where
-        F: FnOnce(P) -> X,
-    {
-        DeferredFailure::new(self.warnings, self.errors, f(self.passthru))
-    }
-
-    pub fn map_warnings<F, X>(self, f: F) -> DeferredFailure<P, X, E>
-    where
-        F: Fn(W) -> X,
-    {
-        DeferredFailure::new(self.warnings.into_iter().map(f), self.errors, self.passthru)
-    }
-
-    pub fn map_errors<F, X>(self, f: F) -> DeferredFailure<P, W, X>
-    where
-        F: Fn(E) -> X,
-    {
-        DeferredFailure::new(self.warnings, self.errors.map(f), self.passthru)
-    }
-
-    pub fn warnings_into<X>(self) -> DeferredFailure<P, X, E>
-    where
-        X: From<W>,
-    {
-        self.map_warnings(Into::into)
-    }
-
-    pub fn errors_into<X>(self) -> DeferredFailure<P, W, X>
-    where
-        X: From<E>,
-    {
-        self.map_errors(Into::into)
-    }
-
-    pub fn unfail(self) -> Tentative<P, W, E> {
-        Tentative::new(self.passthru, self.warnings, *self.errors)
-    }
-
-    pub fn drop(self) -> DeferredFailure<(), W, E> {
-        DeferredFailure::new(self.warnings, self.errors, ())
-    }
+    // pub fn unfail(self) -> Tentative<P, W, E> {
+    //     Tentative::new_vec(self.passthru, self.warnings, *self.errors)
+    // }
 
     pub fn zip<P1>(self, a: DeferredFailure<P1, W, E>) -> DeferredFailure<(P, P1), W, E> {
         self.zip_with(a, |x, y| (x, y))
@@ -797,27 +1062,27 @@ impl<P, W, E> DeferredFailure<P, W, E> {
     {
         self.warnings.extend(other.warnings);
         self.errors.extend(*other.errors);
-        DeferredFailure::new(self.warnings, self.errors, f(self.passthru, other.passthru))
-    }
-
-    pub fn void(self) -> DeferredFailure<(), W, E> {
-        DeferredFailure::new(self.warnings, self.errors, ())
+        DeferredFailure::new_vec(self.warnings, self.errors, f(self.passthru, other.passthru))
     }
 }
 
-impl<P> DeferredFailure<P, Infallible, Infallible> {
-    pub fn unwrap_infallible(self) -> P {
-        self.passthru
+impl<W, E, WI: ZeroOrMore, EI: OneOrMore> DeferredFailureInner<(), W, E, WI, EI> {
+    pub fn new1(e: impl Into<E>) -> Self
+    where
+        WI::Wrapper<W>: Default,
+        EI: HoldsOne<Inner<E> = EI::Wrapper<E>>,
+    {
+        Self::new(
+            WI::Wrapper::<W>::default(),
+            EI::from_one(e.into()).into(),
+            (),
+        )
     }
 }
 
 impl<W, E> DeferredFailure<(), W, E> {
-    pub fn new1(e: impl Into<E>) -> Self {
-        Self::new([], NonEmpty::new(e.into()), ())
-    }
-
     pub fn new2(errors: NonEmpty<E>) -> Self {
-        Self::new([], errors, ())
+        Self::new_vec([], errors, ())
     }
 
     pub fn mappend(&mut self, other: Self) {
@@ -834,20 +1099,16 @@ impl<W, E> DeferredFailure<(), W, E> {
         acc
     }
 
-    pub fn terminate<T>(self, reason: T) -> TerminalFailure<W, E, T> {
-        TerminalFailure::new(self.warnings, self.errors, reason)
-    }
-
     pub fn terminate_warn2err<T, F>(mut self, reason: T, f: F) -> TerminalFailure<W, E, T>
     where
         F: Fn(W) -> E,
     {
         self.errors.extend(self.warnings.into_iter().map(f));
-        TerminalFailure::new([], self.errors, reason)
+        TerminalFailure::new_vec([], self.errors, reason)
     }
 
     pub fn unfail_with<V>(self, value: V) -> Tentative<V, W, E> {
-        Tentative::new(value, self.warnings, *self.errors)
+        Tentative::new_vec(value, self.warnings, *self.errors)
     }
 }
 
@@ -869,7 +1130,7 @@ impl<T> Leveled<T> {
                 Self::Error(y) => Err(y),
             })
             .partition_result();
-        Tentative::new((), ws, es)
+        Tentative::new_vec((), ws, es)
     }
 
     // pub fn many_to_deferred(xs: Vec<Self>) -> BiDeferredResult<(), T> {
@@ -914,6 +1175,23 @@ pub trait ResultExt: Sized {
 
     fn into_deferred<W, E1>(self) -> DeferredResult<Self::V, W, E1>
     where
+        E1: From<Self::E>,
+    {
+        self.into_deferred_inner()
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn into_deferred_inner<W, E1, WI0, WI1, EI0, EI1>(
+        self,
+    ) -> Result<TentativeInner<Self::V, W, E1, WI0, EI0>, DeferredFailureInner<(), W, E1, WI1, EI1>>
+    where
+        WI0: ZeroOrMore,
+        WI1: ZeroOrMore,
+        EI0: ZeroOrMore,
+        EI1: OneOrMore + HoldsOne<Inner<E1> = EI1::Wrapper<E1>>,
+        WI0::Wrapper<W>: Default,
+        WI1::Wrapper<W>: Default,
+        EI0::Wrapper<E1>: Default,
         E1: From<Self::E>;
 
     fn zip<A>(self, a: Result<A, Self::E>) -> MultiResult<(Self::V, A), Self::E>;
@@ -926,51 +1204,112 @@ pub trait ResultExt: Sized {
 
     fn void(self) -> Result<(), Self::E>;
 
-    fn into_tentative(
+    fn into_tentative<WI, EI>(
         self,
         default: Self::V,
         is_error: bool,
-    ) -> Tentative<Self::V, Self::E, Self::E> {
+    ) -> TentativeInner<Self::V, Self::E, Self::E, WI, EI>
+    where
+        WI: ZeroOrMore + HoldsOne<Inner<Self::E> = WI::Wrapper<Self::E>>,
+        EI: ZeroOrMore + HoldsOne<Inner<Self::E> = EI::Wrapper<Self::E>>,
+        WI::Wrapper<Self::E>: Default,
+        EI::Wrapper<Self::E>: Default,
+    {
         self.into_tentative_opt(is_error)
             .map(|x| x.unwrap_or(default))
     }
 
-    fn into_tentative_warn<X>(self, default: Self::V) -> Tentative<Self::V, Self::E, X> {
+    fn into_tentative_warn<X, WI, EI>(
+        self,
+        default: Self::V,
+    ) -> TentativeInner<Self::V, Self::E, X, WI, EI>
+    where
+        WI: ZeroOrMore + HoldsOne<Inner<Self::E> = WI::Wrapper<Self::E>>,
+        EI: ZeroOrMore,
+        WI::Wrapper<Self::E>: Default,
+        EI::Wrapper<X>: Default,
+    {
         self.into_tentative_warn_opt().map(|x| x.unwrap_or(default))
     }
 
-    fn into_tentative_err<X>(self, default: Self::V) -> Tentative<Self::V, X, Self::E> {
+    fn into_tentative_err<X, WI, EI>(
+        self,
+        default: Self::V,
+    ) -> TentativeInner<Self::V, X, Self::E, WI, EI>
+    where
+        WI: ZeroOrMore,
+        EI: ZeroOrMore + HoldsOne<Inner<Self::E> = EI::Wrapper<Self::E>>,
+        WI::Wrapper<X>: Default,
+        EI::Wrapper<Self::E>: Default,
+    {
         self.into_tentative_err_opt().map(|x| x.unwrap_or(default))
     }
 
-    fn into_tentative_def(self, is_error: bool) -> Tentative<Self::V, Self::E, Self::E>
+    fn into_tentative_def<WI, EI>(
+        self,
+        is_error: bool,
+    ) -> TentativeInner<Self::V, Self::E, Self::E, WI, EI>
     where
         Self::V: Default,
+        WI: ZeroOrMore + HoldsOne<Inner<Self::E> = WI::Wrapper<Self::E>>,
+        EI: ZeroOrMore + HoldsOne<Inner<Self::E> = EI::Wrapper<Self::E>>,
+        WI::Wrapper<Self::E>: Default,
+        EI::Wrapper<Self::E>: Default,
     {
         self.into_tentative_opt(is_error)
             .map(Option::unwrap_or_default)
     }
 
-    fn into_tentative_warn_def<X>(self) -> Tentative<Self::V, Self::E, X>
+    fn into_tentative_warn_def<X, WI, EI>(self) -> TentativeInner<Self::V, Self::E, X, WI, EI>
     where
         Self::V: Default,
+        WI: ZeroOrMore + HoldsOne<Inner<Self::E> = WI::Wrapper<Self::E>>,
+        EI: ZeroOrMore,
+        WI::Wrapper<Self::E>: Default,
+        EI::Wrapper<X>: Default,
     {
         self.into_tentative_warn_opt()
             .map(Option::unwrap_or_default)
     }
 
-    fn into_tentative_err_def<X>(self) -> Tentative<Self::V, X, Self::E>
+    fn into_tentative_err_def<X, WI, EI>(self) -> TentativeInner<Self::V, X, Self::E, WI, EI>
     where
         Self::V: Default,
+        WI: ZeroOrMore,
+        EI: ZeroOrMore + HoldsOne<Inner<Self::E> = EI::Wrapper<Self::E>>,
+        WI::Wrapper<X>: Default,
+        EI::Wrapper<Self::E>: Default,
     {
         self.into_tentative_err_opt().map(Option::unwrap_or_default)
     }
 
-    fn into_tentative_opt(self, is_error: bool) -> Tentative<Option<Self::V>, Self::E, Self::E>;
+    fn into_tentative_opt<WI, EI>(
+        self,
+        is_error: bool,
+    ) -> TentativeInner<Option<Self::V>, Self::E, Self::E, WI, EI>
+    where
+        WI: ZeroOrMore + HoldsOne<Inner<Self::E> = WI::Wrapper<Self::E>>,
+        EI: ZeroOrMore + HoldsOne<Inner<Self::E> = EI::Wrapper<Self::E>>,
+        WI::Wrapper<Self::E>: Default,
+        EI::Wrapper<Self::E>: Default;
 
-    fn into_tentative_warn_opt<X>(self) -> Tentative<Option<Self::V>, Self::E, X>;
+    fn into_tentative_warn_opt<X, WI, EI>(
+        self,
+    ) -> TentativeInner<Option<Self::V>, Self::E, X, WI, EI>
+    where
+        WI: ZeroOrMore + HoldsOne<Inner<Self::E> = WI::Wrapper<Self::E>>,
+        EI: ZeroOrMore,
+        WI::Wrapper<Self::E>: Default,
+        EI::Wrapper<X>: Default;
 
-    fn into_tentative_err_opt<X>(self) -> Tentative<Option<Self::V>, X, Self::E>;
+    fn into_tentative_err_opt<X, WI, EI>(
+        self,
+    ) -> TentativeInner<Option<Self::V>, X, Self::E, WI, EI>
+    where
+        WI: ZeroOrMore,
+        EI: ZeroOrMore + HoldsOne<Inner<Self::E> = EI::Wrapper<Self::E>>,
+        WI::Wrapper<X>: Default,
+        EI::Wrapper<Self::E>: Default;
 
     fn terminate<T, W>(self, reason: T) -> TerminalResult<Self::V, W, Self::E, T>;
 }
@@ -986,11 +1325,21 @@ impl<V, E> ResultExt for Result<V, E> {
         self.map_err(|e| NonEmpty::new(e.into()))
     }
 
-    fn into_deferred<W, E1>(self) -> DeferredResult<Self::V, W, E1>
+    fn into_deferred_inner<W, E1, WI0, WI1, EI0, EI1>(
+        self,
+    ) -> Result<TentativeInner<Self::V, W, E1, WI0, EI0>, DeferredFailureInner<(), W, E1, WI1, EI1>>
     where
+        WI0: ZeroOrMore,
+        WI1: ZeroOrMore,
+        EI0: ZeroOrMore,
+        EI1: OneOrMore + HoldsOne<Inner<E1> = EI1::Wrapper<E1>>,
+        WI0::Wrapper<W>: Default,
+        WI1::Wrapper<W>: Default,
+        EI0::Wrapper<E1>: Default,
         E1: From<Self::E>,
     {
-        self.map(Tentative::new1).map_err(DeferredFailure::new1)
+        self.map(TentativeInner::new1)
+            .map_err(DeferredFailureInner::new1)
     }
 
     fn zip<A>(self, a: Result<A, Self::E>) -> MultiResult<(Self::V, A), Self::E> {
@@ -1024,24 +1373,49 @@ impl<V, E> ResultExt for Result<V, E> {
         self.map(|_| ())
     }
 
-    fn into_tentative_opt(self, is_error: bool) -> Tentative<Option<Self::V>, Self::E, Self::E> {
+    fn into_tentative_opt<WI, EI>(
+        self,
+        is_error: bool,
+    ) -> TentativeInner<Option<Self::V>, Self::E, Self::E, WI, EI>
+    where
+        WI: ZeroOrMore + HoldsOne<Inner<Self::E> = WI::Wrapper<Self::E>>,
+        EI: ZeroOrMore + HoldsOne<Inner<Self::E> = EI::Wrapper<Self::E>>,
+        WI::Wrapper<Self::E>: Default,
+        EI::Wrapper<Self::E>: Default,
+    {
         self.map_or_else(
-            |e| Tentative::new_either(None, [e], is_error),
-            |v| Tentative::new1(Some(v)),
+            |e| TentativeInner::new_either(None, e, is_error),
+            |v| TentativeInner::new1(Some(v)),
         )
     }
 
-    fn into_tentative_warn_opt<X>(self) -> Tentative<Option<Self::V>, Self::E, X> {
+    fn into_tentative_warn_opt<X, WI, EI>(
+        self,
+    ) -> TentativeInner<Option<Self::V>, Self::E, X, WI, EI>
+    where
+        WI: ZeroOrMore + HoldsOne<Inner<Self::E> = WI::Wrapper<Self::E>>,
+        EI: ZeroOrMore,
+        WI::Wrapper<Self::E>: Default,
+        EI::Wrapper<X>: Default,
+    {
         self.map_or_else(
-            |e| Tentative::new(None, [e], []),
-            |v| Tentative::new1(Some(v)),
+            |e| TentativeInner::new(None, WI::wrap(e), EI::Wrapper::<X>::default()),
+            |v| TentativeInner::new1(Some(v)),
         )
     }
 
-    fn into_tentative_err_opt<X>(self) -> Tentative<Option<Self::V>, X, Self::E> {
+    fn into_tentative_err_opt<X, WI, EI>(
+        self,
+    ) -> TentativeInner<Option<Self::V>, X, Self::E, WI, EI>
+    where
+        WI: ZeroOrMore,
+        EI: ZeroOrMore + HoldsOne<Inner<Self::E> = EI::Wrapper<Self::E>>,
+        WI::Wrapper<X>: Default,
+        EI::Wrapper<Self::E>: Default,
+    {
         self.map_or_else(
-            |e| Tentative::new(None, [], [e]),
-            |v| Tentative::new1(Some(v)),
+            |e| TentativeInner::new(None, WI::Wrapper::<X>::default(), EI::wrap(e)),
+            |v| TentativeInner::new1(Some(v)),
         )
     }
 
@@ -1423,7 +1797,7 @@ impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
     fn def_terminate_nowarn<T>(self, reason: T) -> TerminalResult<Self::V, Self::W, Self::E, T> {
         match self {
             Ok(t) => t.terminate_nowarn(reason),
-            Err(e) => Err(TerminalFailure::new([], *e.errors, reason)),
+            Err(e) => Err(TerminalFailure::new_vec([], *e.errors, reason)),
         }
     }
 
@@ -1495,6 +1869,17 @@ impl ImpureError<Infallible> {
         match self {
             Self::IO(e) => ImpureError::IO(e),
         }
+    }
+}
+
+impl<W, E, WI, EI> From<E> for DeferredFailureInner<(), W, E, WI, EI>
+where
+    WI: ZeroOrMore,
+    WI::Wrapper<W>: Default,
+    EI: OneOrMore + HoldsOne<Inner<E> = EI::Wrapper<E>>,
+{
+    fn from(value: E) -> Self {
+        DeferredFailureInner::new1(value)
     }
 }
 

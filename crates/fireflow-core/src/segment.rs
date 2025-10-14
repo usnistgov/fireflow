@@ -264,7 +264,7 @@ where
             |tnt| {
                 Ok(tnt.and_tentatively(|other| {
                     default.unless(other).map_or_else(
-                        |(s, w)| Tentative::new_either(s, [w], !allow_mismatch),
+                        |(s, w)| Tentative::new_vec_either(s, [w], !allow_mismatch),
                         Tentative::new1,
                     )
                 }))
@@ -330,7 +330,7 @@ where
                 x.map(|(z0, z1)| Segment::try_new(z0, z1, conf).into_mult())
                     .transpose()
             })
-            .map_or_else(|ws| Tentative::new(None, ws, []), Tentative::new1)
+            .map_or_else(|ws| Tentative::new_vec(None, ws, []), Tentative::new1)
     }
 
     fn remove_or(
@@ -362,7 +362,7 @@ where
                 x.map(|(z0, z1)| Segment::try_new(z0, z1, conf).into_mult())
                     .transpose()
             })
-            .map_or_else(|ws| Tentative::new(None, ws, []), Tentative::new1)
+            .map_or_else(|ws| Tentative::new_vec(None, ws, []), Tentative::new1)
     }
 
     fn default_or(
@@ -380,7 +380,7 @@ where
         res.and_tentatively(|other| {
             other.map_or(Tentative::new1(default.into_any()), |o| {
                 default.unless(o).map_or_else(
-                    |(s, w)| Tentative::new_either(s, [w], !allow_mismatch),
+                    |(s, w)| Tentative::new_vec_either(s, [w], !allow_mismatch),
                     Tentative::new1,
                 )
             })

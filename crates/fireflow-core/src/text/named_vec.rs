@@ -1,8 +1,9 @@
 use crate::data::ColumnError;
 use crate::error::{
-    DeferredExt as _, DeferredFailure, DeferredFailureInner, DeferredResult, ErrorIter as _,
-    InfalliblePassthruExt as _, MultiResult, MultiResultExt as _, PassthruExt as _, PassthruResult,
-    ResultExt as _, Tentative, TentativeInner,
+    DeferredExt as _, DeferredFailure, DeferredFailureInner, DeferredResult, DeferredResultInner,
+    ErrorIter as _, HoldsOne, InfalliblePassthruExt as _, MultiResult, MultiResultExt as _,
+    OneOrMore, PassthruExt as _, PassthruResult, PassthruResultInner, ResultExt as _, Tentative,
+    TentativeInner, ZeroOrMore,
 };
 use crate::text::optional::MightHave;
 use crate::validated::shortname::Shortname;
@@ -1305,21 +1306,28 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Set center to be the element with index if it exists.
-    pub(crate) fn set_center_by_index<Fswap, FtoU, W, E>(
+    pub(crate) fn set_center_by_index<Fswap, FtoU, W, E, TWI, TEI, FWI, FEI>(
         &mut self,
         index: MeasIndex,
         swap: Fswap,
         to_u: FtoU,
-    ) -> DeferredResult<bool, W, E>
+    ) -> DeferredResultInner<bool, W, E, TWI, TEI, FWI, FEI>
     where
         Fswap: FnOnce(
             MeasIndex,
             U,
             V,
         )
-            -> Result<Tentative<(V, U), W, E>, DeferredFailure<Box<(U, V)>, W, E>>,
-        FtoU: FnOnce(MeasIndex, V) -> Result<Tentative<U, W, E>, DeferredFailure<Box<V>, W, E>>,
+            -> PassthruResultInner<(V, U), Box<(U, V)>, W, E, TWI, TEI, FWI, FEI>,
+        FtoU: FnOnce(MeasIndex, V) -> PassthruResultInner<U, Box<V>, W, E, TWI, TEI, FWI, FEI>,
         E: From<SetCenterError>,
+        TWI: ZeroOrMore,
+        TEI: ZeroOrMore,
+        FWI: ZeroOrMore + HoldsOne<Inner<W> = FWI::Wrapper<W>>,
+        FEI: OneOrMore + HoldsOne<Inner<E> = FEI::Wrapper<E>>,
+        TWI::Wrapper<W>: Default,
+        TEI::Wrapper<E>: Default,
+        FWI::Wrapper<W>: Default,
     {
         if !self
             .get(index)
@@ -1417,11 +1425,13 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 }
             }
         };
-        res.def_map_value(|(newself, flag)| {
-            *self = newself;
-            flag
+        // TODO make these methods generic
+        res.map(|tnt| {
+            tnt.map(|(newself, flag)| {
+                *self = newself;
+                flag
+            })
         })
-        // TODO make a map passthru function
         .map_err(|e| e.map_passthru(|newself| *self = newself).void())
     }
 

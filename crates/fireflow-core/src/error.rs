@@ -83,13 +83,15 @@ pub struct TerminalFailureInner<W, E, T, WI: ZeroOrMore, EI: OneOrMore> {
 /// Result which may have at least one error
 pub type DeferredResult<V, W, E> = Result<Tentative<V, W, E>, DeferredFailure<(), W, E>>;
 pub type DeferredResultOne<V, W, E> = Result<TentativeOne<V, W>, DeferredFailureOne<(), E>>;
+pub type DeferredResultInner<V, W, E, TWI, TEI, FWI, FEI> =
+    PassthruResultInner<V, (), W, E, TWI, TEI, FWI, FEI>;
 
 pub type BiDeferredResult<V, E> = DeferredResult<V, E, E>;
 
 /// Result which may have at least one error (with passthru)
 pub type PassthruResult<V, P, W, E> = Result<Tentative<V, W, E>, DeferredFailure<P, W, E>>;
 pub type PassthruResultOne<V, P, W, E> = Result<TentativeOne<V, W>, DeferredFailureOne<P, E>>;
-pub type PassthruResultInner<V, P, W, E, WI0, WI1, EI0, EI1> =
+pub type PassthruResultInner<V, P, W, E, WI0, EI0, WI1, EI1> =
     Result<TentativeInner<V, W, E, WI0, EI0>, DeferredFailureInner<P, W, E, WI1, EI1>>;
 
 /// Result which may have at least one error in IO context

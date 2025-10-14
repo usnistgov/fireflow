@@ -4513,6 +4513,14 @@ impl<T> DocArg<T> {
     fn def_auto(self) -> Self {
         self.def(DocDefault::Auto)
     }
+
+    fn def_auto_if(self, test: bool) -> Self {
+        if test {
+            self.def_auto()
+        } else {
+            self
+        }
+    }
 }
 
 impl GetMethod {
@@ -5767,10 +5775,7 @@ impl DocArgRWIvar {
         f: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
         g: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
     ) -> Self {
-        let pt = pytype.into();
-        let name = argname.to_string();
-        let methods = GetSetMethods::from_pytype(name.as_str(), &pt, fallible, f, g);
-        Self::new(name, pt, desc.to_string(), None, methods)
+        DocArgParam::new_param(argname, pytype, desc).into_rw(fallible, f, g)
     }
 
     fn new_opt_ivar_rw(
@@ -5803,12 +5808,7 @@ impl DocArgRWIvar {
         };
         let set_f = |n: &Ident, _: &ArgPyType| quote!(self.0.set_metaroot(#n));
 
-        let ret = Self::new_ivar_rw(name, pytype, d, false, get_f, set_f);
-        if def {
-            ret.def_auto()
-        } else {
-            ret
-        }
+        Self::new_ivar_rw(name, pytype, d, false, get_f, set_f).def_auto_if(def)
     }
 
     fn new_kw_ivar_str(kw: &str, name: &str) -> Self {
@@ -5841,12 +5841,7 @@ impl DocArgRWIvar {
         };
         let set_f = |n: &Ident, _: &ArgPyType| quote!(*self.0.as_mut() = #n);
 
-        let ret = Self::new_ivar_rw(name, pytype, d, false, get_f, set_f);
-        if def {
-            ret.def_auto()
-        } else {
-            ret
-        }
+        Self::new_ivar_rw(name, pytype, d, false, get_f, set_f).def_auto_if(def)
     }
 
     fn new_kw_opt_ivar<F, T>(kw: &str, name: &str, f: F) -> Self
@@ -6270,10 +6265,7 @@ impl DocArgROIvar {
         desc: impl fmt::Display,
         f: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
     ) -> Self {
-        let pt = pytype.into();
-        let a = argname.to_string();
-        let method = GetMethod::from_pytype(a.as_str(), &pt, f);
-        Self::new(a, pt, desc.to_string(), None, method)
+        DocArgParam::new_param(argname, pytype, desc).into_ro(f)
     }
 
     fn new_version_ivar() -> Self {
@@ -6381,71 +6373,52 @@ impl DocArgParam {
     }
 
     fn new_valid_keywords_param() -> Self {
-        Self::new_param(
-            "kws",
-            PyClass::new_py(["api"], "ValidKeywords"),
-            "Standard and non-standard keywords.",
-        )
+        let desc = "Standard and non-standard keywords.";
+        Self::new_param("kws", PyClass::new_py(["api"], "ValidKeywords"), desc)
     }
 
     fn new_extra_std_keywords_param() -> Self {
-        Self::new_param(
-            "extra",
-            PyClass::new_py(["api"], "ExtraStdKeywords"),
-            "Extra keywords from *TEXT* standardization",
-        )
+        let desc = "Extra keywords from *TEXT* standardization";
+        Self::new_param("extra", PyClass::new_py(["api"], "ExtraStdKeywords"), desc)
     }
 
     fn new_dataset_segments_param() -> Self {
+        let desc = "Offsets used to parse *DATA* and *ANALYSIS*.";
         Self::new_param(
             "dataset_segs",
             PyClass::new_py(["api"], "DatasetSegments"),
-            "Offsets used to parse *DATA* and *ANALYSIS*.",
+            desc,
         )
     }
 
     fn new_parse_output_param() -> Self {
-        Self::new_param(
-            "parse",
-            PyClass::new_py(["api"], "RawTEXTParseData"),
-            "Miscellaneous data obtained when parsing *TEXT*.",
-        )
+        let desc = "Miscellaneous data obtained when parsing *TEXT*.";
+        Self::new_param("parse", PyClass::new_py(["api"], "RawTEXTParseData"), desc)
     }
 
     fn new_text_seg_param() -> Self {
-        Self::new_param(
-            "text_seg",
-            PyTuple::new_text_segment(),
-            "The primary *TEXT* segment from *HEADER*.",
-        )
+        let desc = "The primary *TEXT* segment from *HEADER*.";
+        Self::new_param("text_seg", PyTuple::new_text_segment(), desc)
     }
 
     fn new_data_seg_param(src: SegmentSrc) -> Self {
-        Self::new_param(
-            "data_seg",
-            PyTuple::new_data_segment(src),
-            format!("The *DATA* segment from {src}."),
-        )
+        let desc = format!("The *DATA* segment from {src}.");
+        Self::new_param("data_seg", PyTuple::new_data_segment(src), desc)
     }
 
     fn new_analysis_seg_param(src: SegmentSrc, default: bool) -> Self {
-        Self::new(
-            "analysis_seg",
-            PyTuple::new_analysis_segment(src),
-            format!("The *DATA* segment from {src}."),
-            default.then_some(DocDefault::Auto),
-            NoMethods,
-        )
+        let desc = format!("The *DATA* segment from {src}.");
+        Self::new_param("analysis_seg", PyTuple::new_analysis_segment(src), desc)
+            .def_auto_if(default)
     }
 
     fn new_other_segs_param(default: bool) -> Self {
-        Self::new(
+        Self::new_param(
             "other_segs",
             PyList::new1(PyTuple::new_other_segment()),
             "The *OTHER* segments from *HEADER*.",
-            default.then_some(DocDefault::Auto),
-            NoMethods,
         )
+        .def_auto_if(default)
     }
 
     fn new_textdelim_param() -> Self {
@@ -6468,24 +6441,19 @@ impl DocArgParam {
     }
 
     fn new_set_meas_param(version: Version) -> Self {
-        Self::new_param(
-            "measurements",
-            PyTuple::new_meas(version),
-            "The new measurements. The first member of the tuple corresponds to \
-             the measurement name and the second is the measurement object.",
-        )
+        let d = "The new measurements. The first member of the tuple corresponds to \
+                 the measurement name and the second is the measurement object.";
+        Self::new_param("measurements", PyTuple::new_meas(version), d)
     }
 
     fn new_allow_shared_names_param() -> Self {
-        Self::new_bool_param(
-            "allow_shared_names",
-            "If ``False``, raise exception if any non-measurement keywords reference \
-             any *$PnN* keywords. If ``True`` raise exception if any non-measurement \
-             keywords reference a *$PnN* which is not present in ``measurements``. \
-             In other words, ``False`` forbids named references to exist, and \
-             ``True`` allows named references to be updated. References cannot \
-             be broken in either case.",
-        )
+        let d = "If ``False``, raise exception if any non-measurement keywords reference \
+                 any *$PnN* keywords. If ``True`` raise exception if any non-measurement \
+                 keywords reference a *$PnN* which is not present in ``measurements``. \
+                 In other words, ``False`` forbids named references to exist, and \
+                 ``True`` allows named references to be updated. References cannot \
+                 be broken in either case.";
+        Self::new_bool_param("allow_shared_names", d)
     }
 
     // TODO this can be specific to each version, for instance, we can call out
@@ -6537,23 +6505,13 @@ impl DocArgParam {
     }
 
     fn new_analysis_param(default: bool) -> Self {
-        Self::new(
-            "analysis",
-            PyBytes::new_analysis(),
-            "Contents of the *ANALYSIS* segment.",
-            default.then_some(DocDefault::Auto),
-            NoMethods,
-        )
+        let desc = "Contents of the *ANALYSIS* segment.";
+        Self::new_param("analysis", PyBytes::new_analysis(), desc).def_auto_if(default)
     }
 
     fn new_others_param(default: bool) -> Self {
-        Self::new(
-            "others",
-            PyList::new_others(),
-            "A list of byte strings encoding the *OTHER* segments.",
-            default.then_some(DocDefault::Auto),
-            NoMethods,
-        )
+        let desc = "A list of byte strings encoding the *OTHER* segments.";
+        Self::new_param("others", PyList::new_others(), desc).def_auto_if(default)
     }
 
     fn new_header_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
@@ -6722,11 +6680,9 @@ impl DocArgParam {
     }
 
     fn new_trim_intra_value_whitespace_param() -> Self {
-        Self::new_bool_param(
-            "trim_intra_value_whitespace",
-            "If ``True``, trim whitespace between delimiters such as ``,`` \
-             and ``;`` within keyword value strings.",
-        )
+        let d = "If ``True``, trim whitespace between delimiters such as ``,`` \
+                 and ``;`` within keyword value strings.";
+        Self::new_bool_param("trim_intra_value_whitespace", d)
     }
 
     fn new_time_meas_pattern_param() -> Self {
@@ -6742,27 +6698,21 @@ impl DocArgParam {
     }
 
     fn new_allow_missing_time_param() -> Self {
-        Self::new_bool_param(
-            "allow_missing_time",
-            "If ``True`` allow time measurement to be missing.",
-        )
+        let d = "If ``True`` allow time measurement to be missing.";
+        Self::new_bool_param("allow_missing_time", d)
     }
 
     fn new_force_time_linear_param() -> Self {
-        Self::new_bool_param(
-            "force_time_linear",
-            "If ``True`` force time measurement to be linear independent of *$PnE*.",
-        )
+        let d = "If ``True`` force time measurement to be linear independent of *$PnE*.";
+        Self::new_bool_param("force_time_linear", d)
     }
 
     fn new_ignore_time_gain_param() -> Self {
-        Self::new_bool_param(
-            "ignore_time_gain",
-            "If ``True`` ignore the *$PnG* (gain) keyword. This keyword should not \
-             be set according to the standard} however, this library will allow \
-             gain to be 1.0 since this equates to identity. If gain is not 1.0, \
-             this is nonsense and it can be ignored with this flag.",
-        )
+        let d = "If ``True`` ignore the *$PnG* (gain) keyword. This keyword should not \
+                 be set according to the standard} however, this library will allow \
+                 gain to be 1.0 since this equates to identity. If gain is not 1.0, \
+                 this is nonsense and it can be ignored with this flag.";
+        Self::new_bool_param("ignore_time_gain", d)
     }
 
     fn new_ignore_time_optical_keys_param() -> Self {
@@ -6782,11 +6732,9 @@ impl DocArgParam {
     }
 
     fn new_parse_indexed_spillover_param() -> Self {
-        Self::new_bool_param(
-            "parse_indexed_spillover",
-            "Parse $SPILLOVER with numeric indices rather than strings \
-             (ie names or *$PnN*)",
-        )
+        let d = "Parse $SPILLOVER with numeric indices rather than strings \
+             (ie names or *$PnN*)";
+        Self::new_bool_param("parse_indexed_spillover", d)
     }
 
     fn new_date_pattern_param() -> Self {
@@ -6851,42 +6799,31 @@ impl DocArgParam {
     }
 
     fn new_allow_pseudostandard_param() -> Self {
-        Self::new_bool_param(
-            "allow_pseudostandard",
-            "If ``True`` allow non-standard keywords with a leading *$*. The \
-             presence of such keywords often means the version in *HEADER* \
-             is incorrect.",
-        )
+        let d = "If ``True`` allow non-standard keywords with a leading *$*. The \
+                 presence of such keywords often means the version in *HEADER* \
+                 is incorrect.";
+        Self::new_bool_param("allow_pseudostandard", d)
     }
 
     fn new_allow_unused_standard_param() -> Self {
-        Self::new_bool_param(
-            "allow_unused_standard",
-            "If ``True`` allow unused standard keywords to be present.",
-        )
+        let d = "If ``True`` allow unused standard keywords to be present.";
+        Self::new_bool_param("allow_unused_standard", d)
     }
 
     fn new_allow_optional_dropping() -> Self {
-        Self::new_bool_param(
-            "allow_optional_dropping",
-            "If ``True`` drop optional keys that cause an error and emit \
-             warning instead.",
-        )
+        let d = "If ``True`` drop optional keys that cause an error and emit warning instead.";
+        Self::new_bool_param("allow_optional_dropping", d)
     }
 
     fn new_disallow_deprecated_param() -> Self {
-        Self::new_bool_param(
-            "disallow_deprecated",
-            "If ``True`` throw error if a deprecated key is encountered.",
-        )
+        let d = "If ``True`` throw error if a deprecated key is encountered.";
+        Self::new_bool_param("disallow_deprecated", d)
     }
 
     fn new_fix_log_scale_offsets_param() -> Self {
-        Self::new_bool_param(
-            "fix_log_scale_offsets",
-            "If ``True`` fix log-scale *PnE* and keywords which have zero offset \
-             (ie ``X,0.0`` where ``X`` is non-zero).",
-        )
+        let d = "If ``True`` fix log-scale *PnE* and keywords which have zero offset \
+                 (ie ``X,0.0`` where ``X`` is non-zero).";
+        Self::new_bool_param("fix_log_scale_offsets", d)
     }
 
     fn new_nonstandard_measurement_pattern_param() -> Self {
@@ -6908,11 +6845,9 @@ impl DocArgParam {
     }
 
     fn new_integer_widths_from_byteord_param() -> Self {
-        Self::new_bool_param(
-            "integer_widths_from_byteord",
-            "If ``True`` set all *$PnB* to the number of bytes from *$BYTEORD*. \
-             Only has an effect for FCS 2.0/3.0 where *$DATATYPE* is ``I``.",
-        )
+        let d = "If ``True`` set all *$PnB* to the number of bytes from *$BYTEORD*. \
+                 Only has an effect for FCS 2.0/3.0 where *$DATATYPE* is ``I``.";
+        Self::new_bool_param("integer_widths_from_byteord", d)
     }
 
     fn new_integer_byteord_override_param() -> Self {
@@ -6929,11 +6864,9 @@ impl DocArgParam {
     }
 
     fn new_disallow_range_truncation_param() -> Self {
-        Self::new_bool_param(
-            "disallow_range_truncation",
-            "If ``True`` throw error if *$PnR* values need to be truncated \
-             to match the number of bytes specified by *$PnB* and *$DATATYPE*.",
-        )
+        let d = "If ``True`` throw error if *$PnR* values need to be truncated \
+                 to match the number of bytes specified by *$PnB* and *$DATATYPE*.";
+        Self::new_bool_param("disallow_range_truncation", d)
     }
 
     fn new_config_correction_arg(name: &str, what: &str, is_header: bool, id: &str) -> Self {
@@ -6976,12 +6909,9 @@ impl DocArgParam {
     }
 
     fn new_max_other_param() -> Self {
-        Self::new_opt_param(
-            "max_other",
-            RsInt::Usize,
-            "Maximum number of OTHER segments that can be parsed. \
-             ``None`` means limitless.",
-        )
+        let desc = "Maximum number of OTHER segments that can be parsed. \
+                    ``None`` means limitless.";
+        Self::new_opt_param("max_other", RsInt::Usize, desc)
     }
 
     fn new_other_width_param() -> Self {
@@ -6993,49 +6923,40 @@ impl DocArgParam {
 
     // this only matters for 3.0+ files
     fn new_squish_offsets_param() -> Self {
-        Self::new_bool_param(
-            "squish_offsets",
-            "If ``True`` and a segment's ending offset is zero, treat entire \
-             offset as empty. This might happen if the ending offset is longer \
-             than 8 digits, in which case it must be written in *TEXT*. If this \
-             happens, the standards mandate that both offsets be written to \
-             *TEXT* and that the *HEADER* offsets be set to ``0,0``, so only \
-             writing one is an error unless this flag is set. This should only \
-             happen in FCS 3.0 files and above.",
-        )
+        let d = "If ``True`` and a segment's ending offset is zero, treat entire \
+                 offset as empty. This might happen if the ending offset is longer \
+                 than 8 digits, in which case it must be written in *TEXT*. If this \
+                 happens, the standards mandate that both offsets be written to \
+                 *TEXT* and that the *HEADER* offsets be set to ``0,0``, so only \
+                 writing one is an error unless this flag is set. This should only \
+                 happen in FCS 3.0 files and above.";
+        Self::new_bool_param("squish_offsets", d)
     }
 
     fn new_allow_negative_param() -> Self {
-        Self::new_bool_param(
-            "allow_negative",
-            "If true, allow negative values in a HEADER offset. If negative \
-             offsets are found, they will be replaced with ``0``. Some files \
-             will denote an \"empty\" offset as ``0,-1``, which is logically \
-             correct since the last offset points to the last byte, thus ``0,0`` \
-             is actually 1 byte long. Unfortunately this is not what the \
-             standards say, so specifying ``0,-1`` is an error unless this \
-             flag is set.",
-        )
+        let d = "If true, allow negative values in a HEADER offset. If negative \
+                 offsets are found, they will be replaced with ``0``. Some files \
+                 will denote an \"empty\" offset as ``0,-1``, which is logically \
+                 correct since the last offset points to the last byte, thus ``0,0`` \
+                 is actually 1 byte long. Unfortunately this is not what the \
+                 standards say, so specifying ``0,-1`` is an error unless this \
+                 flag is set.";
+        Self::new_bool_param("allow_negative", d)
     }
 
     fn new_truncate_offsets_param() -> Self {
-        Self::new_bool_param(
-            "truncate_offsets",
-            "If true, truncate offsets that exceed the end of the file. \
-             In some cases the DATA offset (usually) might exceed the end of the \
-             file by 1, which is usually a mistake and should be corrected with \
-             ``data_correction`` (or analogous for the offending offset). If this \
-             is not the case, the file is likely corrupted. This flag will allow \
-             such files to be read conveniently if desired.",
-        )
+        let d = "If true, truncate offsets that exceed the end of the file. \
+                 In some cases the DATA offset (usually) might exceed the end of the \
+                 file by 1, which is usually a mistake and should be corrected with \
+                 ``data_correction`` (or analogous for the offending offset). If this \
+                 is not the case, the file is likely corrupted. This flag will allow \
+                 such files to be read conveniently if desired.";
+        Self::new_bool_param("truncate_offsets", d)
     }
 
     fn new_version_override() -> Self {
-        Self::new_opt_param(
-            "version_override",
-            PyLiteral::new_version(),
-            "Override the FCS version as seen in *HEADER*.",
-        )
+        let d = "Override the FCS version as seen in *HEADER*.";
+        Self::new_opt_param("version_override", PyLiteral::new_version(), d)
     }
 
     fn new_supp_text_correction() -> Self {
@@ -7048,13 +6969,11 @@ impl DocArgParam {
     }
 
     fn new_allow_duplicated_supp_text() -> Self {
-        Self::new_bool_param(
-            "allow_duplicated_supp_text",
-            "If ``True`` allow supplemental *TEXT* offsets to match the primary \
-             *TEXT* offsets from *HEADER*. Some vendors will duplicate these \
-             two segments despite supplemental *TEXT* not being present, which \
-             is incorrect.",
-        )
+        let d = "If ``True`` allow supplemental *TEXT* offsets to match the primary \
+                 *TEXT* offsets from *HEADER*. Some vendors will duplicate these \
+                 two segments despite supplemental *TEXT* not being present, which \
+                 is incorrect.";
+        Self::new_bool_param("allow_duplicated_supp_text", d)
     }
 
     fn new_ignore_supp_text() -> Self {
@@ -7065,13 +6984,11 @@ impl DocArgParam {
     }
 
     fn new_use_literal_delims() -> Self {
-        Self::new_bool_param(
-            "use_literal_delims",
-            "If ``True``, treat every delimiter as literal (turn off escaping). \
-             Without escaping, delimiters cannot be included in keys or values, \
-             but empty values become possible. Use this option for files where \
-             unescaped delimiters results in the 'correct' interpretation of *TEXT*.",
-        )
+        let d = "If ``True``, treat every delimiter as literal (turn off escaping). \
+                 Without escaping, delimiters cannot be included in keys or values, \
+                 but empty values become possible. Use this option for files where \
+                 unescaped delimiters results in the 'correct' interpretation of *TEXT*.";
+        Self::new_bool_param("use_literal_delims", d)
     }
 
     fn new_allow_non_ascii_delim() -> Self {
@@ -7082,132 +6999,102 @@ impl DocArgParam {
     }
 
     fn new_allow_missing_final_delim() -> Self {
-        Self::new_bool_param(
-            "allow_missing_final_delim",
-            "If ``True`` allow *TEXT* to not end with a delimiter.",
-        )
+        let d = "If ``True`` allow *TEXT* to not end with a delimiter.";
+        Self::new_bool_param("allow_missing_final_delim", d)
     }
 
     fn new_allow_nonunique() -> Self {
-        Self::new_bool_param(
-            "allow_nonunique",
-            "If ``True`` allow non-unique keys in *TEXT*. In such cases, \
-             only the first key will be used regardless of this setting; ",
-        )
+        let d = "If ``True`` allow non-unique keys in *TEXT*. In such cases, \
+                 only the first key will be used regardless of this setting; ";
+        Self::new_bool_param("allow_nonunique", d)
     }
 
     fn new_allow_odd() -> Self {
-        Self::new_bool_param(
-            "allow_odd",
-            "If ``True``, allow *TEXT* to contain odd number of words. \
-             The last 'dangling' word will be dropped independent of this flag.",
-        )
+        let d = "If ``True``, allow *TEXT* to contain odd number of words. \
+                 The last 'dangling' word will be dropped independent of this flag.";
+        Self::new_bool_param("allow_odd", d)
     }
 
     fn new_allow_empty() -> Self {
-        Self::new_bool_param(
-            "allow_empty",
-            "If ``True`` allow keys with blank values. Only relevant if \
-             ``use_literal_delims`` is also ``True``.",
-        )
+        let d = "If ``True`` allow keys with blank values. Only relevant if \
+                 ``use_literal_delims`` is also ``True``.";
+        Self::new_bool_param("allow_empty", d)
     }
 
     fn new_allow_delim_at_boundary() -> Self {
-        Self::new_bool_param(
-            "allow_delim_at_boundary",
-            "If ``True`` allow delimiters at word boundaries. The FCS standard \
-             forbids this because it is impossible to tell if such delimiters \
-             belong to the previous or the next word. Consequently, delimiters \
-             at boundaries will be dropped regardless of this flag. Setting \
-             this to ``True`` will turn this into a warning not an error. Only \
-             relevant if ``use_literal_delims`` is ``False``.",
-        )
+        let d = "If ``True`` allow delimiters at word boundaries. The FCS standard \
+                 forbids this because it is impossible to tell if such delimiters \
+                 belong to the previous or the next word. Consequently, delimiters \
+                 at boundaries will be dropped regardless of this flag. Setting \
+                 this to ``True`` will turn this into a warning not an error. Only \
+                 relevant if ``use_literal_delims`` is ``False``.";
+        Self::new_bool_param("allow_delim_at_boundary", d)
     }
 
     fn new_allow_non_utf8() -> Self {
-        Self::new_bool_param(
-            "allow_non_utf8",
-            "If ``True`` allow non-UTF8 characters in *TEXT*. Words with such \
+        let d = "If ``True`` allow non-UTF8 characters in *TEXT*. Words with such \
              characters will be dropped regardless; setting this to ``True`` \
-             will turn these cases into warnings not errors.",
-        )
+             will turn these cases into warnings not errors.";
+        Self::new_bool_param("allow_non_utf8", d)
     }
 
     fn new_use_latin1() -> Self {
-        Self::new_bool_param(
-            "use_latin1",
-            "If ``True`` interpret all characters in *TEXT* as Latin-1 (aka \
-             ISO/IEC 8859-1) instead of UTF-8.",
-        )
+        let d = "If ``True`` interpret all characters in *TEXT* as Latin-1 (aka \
+             ISO/IEC 8859-1) instead of UTF-8.";
+        Self::new_bool_param("use_latin1", d)
     }
 
     fn new_allow_non_ascii_keywords() -> Self {
-        Self::new_bool_param(
-            "allow_non_ascii_keywords",
-            "If ``True`` allow non-ASCII keys. This only applies to \
-             non-standard keywords, as all standardized keywords may only \
-             contain letters, numbers, and start with *$*. Regardless, all \
-             compliant keys must only have ASCII. Setting this to true will \
-             emit an error when encountering such a key. If false, the key will \
-             be kept as a non-standard key.",
-        )
+        let d = "If ``True`` allow non-ASCII keys. This only applies to \
+                 non-standard keywords, as all standardized keywords may only \
+                 contain letters, numbers, and start with *$*. Regardless, all \
+                 compliant keys must only have ASCII. Setting this to true will \
+                 emit an error when encountering such a key. If false, the key will \
+                 be kept as a non-standard key.";
+        Self::new_bool_param("allow_non_ascii_keywords", d)
     }
 
     fn new_allow_missing_supp_text() -> Self {
-        Self::new_bool_param(
-            "allow_missing_supp_text",
-            "If ``True`` allow supplemental *TEXT* offsets to be missing from \
-             primary *TEXT*.",
-        )
+        let d = "If ``True`` allow supplemental *TEXT* offsets to be missing from \
+                 primary *TEXT*.";
+        Self::new_bool_param("allow_missing_supp_text", d)
     }
 
     fn new_allow_supp_text_own_delim() -> Self {
-        Self::new_bool_param(
-            "allow_supp_text_own_delim",
-            "If ``True`` allow supplemental *TEXT* offsets to have a different \
-             delimiter compared to primary *TEXT*.",
-        )
+        let d = "If ``True`` allow supplemental *TEXT* offsets to have a different \
+                 delimiter compared to primary *TEXT*.";
+        Self::new_bool_param("allow_supp_text_own_delim", d)
     }
 
     fn new_allow_missing_nextdata() -> Self {
-        Self::new_bool_param(
-            "allow_missing_nextdata",
-            "If ``True`` allow *$NEXTDATA* to be missing. This is a required \
-             keyword in all versions. However, most files only have one dataset \
-             in which case this keyword is meaningless.",
-        )
+        let d = "If ``True`` allow *$NEXTDATA* to be missing. This is a required \
+                 keyword in all versions. However, most files only have one dataset \
+                 in which case this keyword is meaningless.";
+        Self::new_bool_param("allow_missing_nextdata", d)
     }
 
     fn new_trim_value_whitespace() -> Self {
-        Self::new_bool_param(
-            "trim_value_whitespace",
-            "If ``True`` trim whitespace from all values. If performed, \
-             trimming precedes all other repair steps. Any values which are \
-             entirely spaces will become blanks, in which case it may also be \
-             sensible to enable ``allow_empty``.",
-        )
+        let d = "If ``True`` trim whitespace from all values. If performed, \
+                 trimming precedes all other repair steps. Any values which are \
+                 entirely spaces will become blanks, in which case it may also be \
+                 sensible to enable ``allow_empty``.";
+        Self::new_bool_param("trim_value_whitespace", d)
     }
 
     fn new_ignore_standard_keys() -> Self {
-        Self::new_key_patterns_param(
-            "ignore_standard_keys",
-            "Remove standard keys from *TEXT*. The leading *$* is implied \
-             so do not include it.",
-        )
+        let d = "Remove standard keys from *TEXT*. The leading *$* is implied \
+                 so do not include it.";
+        Self::new_key_patterns_param("ignore_standard_keys", d)
     }
 
     fn new_promote_to_standard() -> Self {
-        Self::new_key_patterns_param(
-            "promote_to_standard",
-            "Promote nonstandard keys to standard keys in *TEXT*",
-        )
+        let d = "Promote nonstandard keys to standard keys in *TEXT*";
+        Self::new_key_patterns_param("promote_to_standard", d)
     }
 
     fn new_demote_from_standard() -> Self {
-        Self::new_key_patterns_param(
-            "demote_from_standard",
-            "Demote nonstandard keys from standard keys in *TEXT*",
-        )
+        let d = "Demote nonstandard keys from standard keys in *TEXT*";
+        Self::new_key_patterns_param("demote_from_standard", d)
     }
 
     fn new_key_patterns_param(argname: &str, desc: &str) -> Self {
@@ -7221,14 +7108,10 @@ impl DocArgParam {
     }
 
     fn new_rename_standard_keys() -> Self {
-        Self::new_param(
-            "rename_standard_keys",
-            PyDict::new_keystring_pairs(),
-            "Rename standard keys in *TEXT*. Keys matching the first part of \
-             the pair will be replaced by the second. Comparisons are case \
-             insensitive. The leading *$* is implied so do not include it.",
-        )
-        .def_auto()
+        let d = "Rename standard keys in *TEXT*. Keys matching the first part of \
+                 the pair will be replaced by the second. Comparisons are case \
+                 insensitive. The leading *$* is implied so do not include it.";
+        Self::new_param("rename_standard_keys", PyDict::new_keystring_pairs(), d).def_auto()
     }
 
     fn new_replace_standard_key_values() -> Self {
@@ -7242,23 +7125,20 @@ impl DocArgParam {
     }
 
     fn new_substitute_standard_key_values() -> Self {
-        Self::new_param(
-            "substitute_standard_key_values",
-            PyTuple::new_sub_patterns(),
-            "Apply sed-like substitution operation on matching standard \
-             keys. The leading *$* is implied when matching keys. The first \
-             dict corresponds to keys which are matched literally, and the \
-             second corresponds to keys which are matched via regular \
-             expression. The members in the 3-tuple values correspond to a \
-             regular expression, replacement string, and global flag \
-             respectively. The regular expression may contain capture \
-             expressions which must be matched exactly in the replacement \
-             string. If the global flag is ``True``, replace all found \
-             matches, otherwise only replace the first. Any references in \
-             replacement string must be given with surrounding brackets \
-             like ``\"${{1}}\"`` or ``\"${{cygnus}}\"``.",
-        )
-        .def_auto()
+        let d = "Apply sed-like substitution operation on matching standard \
+                 keys. The leading *$* is implied when matching keys. The first \
+                 dict corresponds to keys which are matched literally, and the \
+                 second corresponds to keys which are matched via regular \
+                 expression. The members in the 3-tuple values correspond to a \
+                 regular expression, replacement string, and global flag \
+                 respectively. The regular expression may contain capture \
+                 expressions which must be matched exactly in the replacement \
+                 string. If the global flag is ``True``, replace all found \
+                 matches, otherwise only replace the first. Any references in \
+                 replacement string must be given with surrounding brackets \
+                 like ``\"${{1}}\"`` or ``\"${{cygnus}}\"``.";
+        let p = PyTuple::new_sub_patterns();
+        Self::new_param("substitute_standard_key_values", p, d).def_auto()
     }
 
     fn new_append_standard_keywords() -> Self {
@@ -7286,24 +7166,18 @@ impl DocArgParam {
     }
 
     fn new_ignore_text_data_offsets_param() -> Self {
-        Self::new_bool_param(
-            "ignore_text_data_offsets",
-            "If ``True`` ignore *DATA* offsets in *TEXT*",
-        )
+        let d = "If ``True`` ignore *DATA* offsets in *TEXT*";
+        Self::new_bool_param("ignore_text_data_offsets", d)
     }
 
     fn new_ignore_text_analysis_offsets_param() -> Self {
-        Self::new_bool_param(
-            "ignore_text_analysis_offsets",
-            "If ``True`` ignore *ANALYSIS* offsets in *TEXT*",
-        )
+        let d = "If ``True`` ignore *ANALYSIS* offsets in *TEXT*";
+        Self::new_bool_param("ignore_text_analysis_offsets", d)
     }
 
     fn new_allow_header_text_offset_mismatch_param() -> Self {
-        Self::new_bool_param(
-            "allow_header_text_offset_mismatch",
-            "If ``True`` allow *TEXT* and *HEADER* offsets to mismatch.",
-        )
+        let d = "If ``True`` allow *TEXT* and *HEADER* offsets to mismatch.";
+        Self::new_bool_param("allow_header_text_offset_mismatch", d)
     }
 
     fn new_allow_missing_required_offsets_param(version: Option<Version>) -> Self {
@@ -7322,34 +7196,26 @@ impl DocArgParam {
     }
 
     fn new_truncate_text_offsets_param() -> Self {
-        Self::new_bool_param(
-            "truncate_text_offsets",
-            "If ``True`` truncate offsets that exceed end of file.",
-        )
+        let d = "If ``True`` truncate offsets that exceed end of file.";
+        Self::new_bool_param("truncate_text_offsets", d)
     }
 
     fn new_allow_uneven_event_width_param() -> Self {
-        Self::new_bool_param(
-            "allow_uneven_event_width",
-            "If ``True`` allow event width to not perfectly divide length of *DATA*. \
-            Does not apply to delimited ASCII layouts. ",
-        )
+        let d = "If ``True`` allow event width to not perfectly divide length \
+                 of *DATA*. Does not apply to delimited ASCII layouts. ";
+        Self::new_bool_param("allow_uneven_event_width", d)
     }
 
     fn new_allow_tot_mismatch_param() -> Self {
-        Self::new_bool_param(
-            "allow_tot_mismatch",
-            "If ``True`` allow *$TOT* to not match number of events as \
-             computed by the event width and length of *DATA*. \
-             Does not apply to delimited ASCII layouts.",
-        )
+        let d = "If ``True`` allow *$TOT* to not match number of events as \
+                 computed by the event width and length of *DATA*. \
+                 Does not apply to delimited ASCII layouts.";
+        Self::new_bool_param("allow_tot_mismatch", d)
     }
 
     fn new_warnings_are_errors_param() -> Self {
-        Self::new_bool_param(
-            "warnings_are_errors",
-            "If ``True`` all warnings will be regarded as errors.",
-        )
+        let d = "If ``True`` all warnings will be regarded as errors.";
+        Self::new_bool_param("warnings_are_errors", d)
     }
 
     fn new_hide_warnings_param() -> Self {

@@ -1039,7 +1039,7 @@ pub fn impl_core_version(input: TokenStream) -> TokenStream {
         [""; 0],
         DocReturn::new(PyLiteral::new_version()),
     );
-    doc.into_impl_get(&t, "version", |_, _| quote!(self.0.fcs_version()))
+    doc.into_impl_get(&t, "version", |_| quote!(self.0.fcs_version()))
         .into()
 }
 
@@ -1052,7 +1052,7 @@ pub fn impl_core_par(input: TokenStream) -> TokenStream {
         [""; 0],
         DocReturn::new(RsInt::Usize),
     );
-    doc.into_impl_get(&t, "par", |_, _| quote!(self.0.par().0))
+    doc.into_impl_get(&t, "par", |_| quote!(self.0.par().0))
         .into()
 }
 
@@ -1071,7 +1071,7 @@ pub fn impl_core_all_meas_nonstandard_keywords(input: TokenStream) -> TokenStrea
         &t,
         "all_meas_nonstandard_keywords",
         true,
-        |_, _| {
+        |_| {
             quote!(self
                 .0
                 .get_meas_nonstandard()
@@ -1268,7 +1268,7 @@ pub fn impl_core_all_peak_attrs(input: TokenStream) -> TokenStream {
             &i,
             format!("all_{name}"),
             true,
-            |_, _| {
+            |_| {
                 quote! {
                     self.0
                         .get_temporal_optical::<#inner, #inner>()
@@ -1305,7 +1305,7 @@ pub fn impl_core_all_shortnames_attr(input: TokenStream) -> TokenStream {
         &i,
         "all_shortnames",
         true,
-        |_, _| quote!(self.0.all_shortnames()),
+        |_| quote!(self.0.all_shortnames()),
         |n, _| quote!(Ok(self.0.set_all_shortnames(#n).void()?)),
     )
     .into()
@@ -1326,7 +1326,7 @@ pub fn impl_core_all_shortnames_maybe_attr(input: TokenStream) -> TokenStream {
         &i,
         "all_shortnames_maybe",
         true,
-        |_, _| {
+        |_| {
             quote! {
                 self.0
                     .shortnames_maybe()
@@ -1352,7 +1352,7 @@ pub fn impl_core_get_set_timestep(input: TokenStream) -> TokenStream {
         DocReturn::new(t.clone()),
     );
 
-    let getq = get_doc.into_impl_get(&i, "timestep", |_, _| quote!(self.0.timestep().copied()));
+    let getq = get_doc.into_impl_get(&i, "timestep", |_| quote!(self.0.timestep().copied()));
 
     let param = DocArg::new_param(
         "timestep",
@@ -1579,7 +1579,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
             &i,
             "all_scales",
             true,
-            |_, _| quote!(self.0.scales().collect()),
+            |_| quote!(self.0.scales().collect()),
             |n, _| quote!(self.0.set_scales(#n).py_termfail_resolve_nowarn()),
         )
     } else {
@@ -1603,7 +1603,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
             &i,
             "all_scale_transforms",
             true,
-            |_, _| quote!(self.0.transforms().collect()),
+            |_| quote!(self.0.transforms().collect()),
             |n, _| quote!(self.0.set_transforms(#n).py_termfail_resolve_nowarn()),
         )
     }
@@ -1621,7 +1621,7 @@ pub fn impl_core_get_measurements(input: TokenStream) -> TokenStream {
         DocReturn::new(PyList::new1(PyUnion::new_measurement(version))),
     );
 
-    doc.into_impl_get(&i, "measurements", |_, _| {
+    doc.into_impl_get(&i, "measurements", |_| {
         quote! {
             // This might seem inefficient since we are cloning
             // everything, but if we want to map a python lambda
@@ -1655,7 +1655,7 @@ pub fn impl_core_get_temporal(input: TokenStream) -> TokenStream {
         .desc("Index, name, and measurement or ``None``."),
     );
 
-    doc.into_impl_get(&i, "temporal", |_, _| {
+    doc.into_impl_get(&i, "temporal", |_| {
         quote! {
             self.0
                 .temporal()
@@ -2912,7 +2912,7 @@ pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
         &i,
         "all_measurement_types",
         true,
-        |_, _| {
+        |_| {
             quote! {
                 self.0
                     .get_temporal_optical::<#inner_tmp_rstype, #inner_opt_rstype>()
@@ -3030,7 +3030,7 @@ where
         t,
         format!("all_{name}"),
         true,
-        |_, _| {
+        |_| {
             if optical_only {
                 get_optical_body
             } else {
@@ -3232,7 +3232,7 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
         DocReturn::new(PyList::new1(RsInt::U64)),
     );
 
-    let char_widths = char_widths_doc.into_impl_get(&pyname, "char_widths", |_, _| {
+    let char_widths = char_widths_doc.into_impl_get(&pyname, "char_widths", |_| {
         quote! {
             self.0
                 .widths()
@@ -3584,7 +3584,7 @@ fn make_byte_width(pyname: &Ident, nbytes: usize) -> TokenStream2 {
         DocReturn::new(RsInt::Usize),
     );
 
-    doc.into_impl_get(pyname, "byte_width", |_, _| quote!(#nbytes))
+    doc.into_impl_get(pyname, "byte_width", |_| quote!(#nbytes))
 }
 
 #[proc_macro]
@@ -3600,7 +3600,7 @@ pub fn impl_layout_byte_widths(input: TokenStream) -> TokenStream {
         DocReturn::new(PyList::new1(RsInt::U32)),
     );
 
-    doc.into_impl_get(&t, "byte_widths", |_, _| {
+    doc.into_impl_get(&t, "byte_widths", |_| {
         quote! {
             self.0
                 .widths()
@@ -3618,7 +3618,7 @@ fn make_layout_datatype(pyname: &Ident, dt: &str) -> TokenStream2 {
         [format!("Will always return ``\"{dt}\"``.")],
         DocReturn::new(PyLiteral::new_datatype()),
     );
-    doc.into_impl_get(pyname, "datatype", |_, _| quote!(self.0.datatype().into()))
+    doc.into_impl_get(pyname, "datatype", |_| quote!(self.0.datatype().into()))
 }
 
 struct OrderedLayoutInfo {
@@ -7590,13 +7590,13 @@ impl IvarDocString {
         mut self,
         class: &Ident,
         name: impl fmt::Display,
-        f: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
+        f: impl FnOnce(&ArgPyType) -> TokenStream2,
     ) -> TokenStream2 {
         self.append_summary_or_paragraph("read-only", "This attribute is read-only.");
         let i = format_ident!("{name}");
         let pt = &self.returns.rtype;
         let rt = pt.as_rust_type();
-        let body = f(&i, pt);
+        let body = f(pt);
         let doc = self.doc();
         quote! {
             #[pymethods]
@@ -7615,7 +7615,7 @@ impl IvarDocString {
         class: &Ident,
         name: impl fmt::Display,
         fallible: bool,
-        get_fun: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
+        get_fun: impl FnOnce(&ArgPyType) -> TokenStream2,
         set_fun: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
     ) -> TokenStream2 {
         self.append_summary_or_paragraph("read-write", "This attribute is read-write.");
@@ -7623,7 +7623,7 @@ impl IvarDocString {
         let set = format_ident!("set_{get}");
         let pt = &self.returns.rtype;
         let rt = pt.as_rust_type();
-        let get_body = get_fun(&get, pt);
+        let get_body = get_fun(pt);
         let set_body = set_fun(&get, pt);
         let doc = self.doc();
         let ret = if fallible {

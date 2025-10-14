@@ -114,10 +114,10 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
         .args(layout_args)
         .args(shared_args)
         .returns(
-            DocReturn::new(PyTuple::new1([
-                PyType::from(PyUnion::new_anycoretext()),
-                PyClass::new_py(["api"], "StdTEXTOutput").into(),
-            ]))
+            DocReturn::new(
+                PyTuple::new1(PyUnion::new_anycoretext())
+                    .add(PyClass::new_py(["api"], "StdTEXTOutput")),
+            )
             .exc([exc]),
         );
 
@@ -217,10 +217,10 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
         .args(data_args)
         .args(shared_args)
         .returns(
-            DocReturn::new(PyTuple::new1([
-                PyType::from(PyUnion::new_anycoredataset()),
-                PyClass::new_py(["api"], "StdDatasetOutput").into(),
-            ]))
+            DocReturn::new(
+                PyTuple::new1(PyUnion::new_anycoredataset())
+                    .add(PyClass::new_py(["api"], "StdDatasetOutput")),
+            )
             .exc([exc]),
         );
 
@@ -338,10 +338,10 @@ pub fn def_fcs_read_std_dataset_with_keywords(input: TokenStream) -> TokenStream
         .args(data_args)
         .args(shared_args)
         .returns(
-            DocReturn::new(PyTuple::new1([
-                PyType::from(PyUnion::new_anycoredataset()),
-                PyClass::new_py(["api"], "StdDatasetWithKwsOutput").into(),
-            ]))
+            DocReturn::new(
+                PyTuple::new1(PyUnion::new_anycoredataset())
+                    .add(PyClass::new_py(["api"], "StdDatasetWithKwsOutput")),
+            )
             .exc([exc]),
         );
 
@@ -718,14 +718,14 @@ pub fn impl_py_raw_text_parse_data(input: TokenStream) -> TokenStream {
 
     let non_ascii = DocArgROIvar::new_ivar_ro(
         "non_ascii",
-        PyList::new1(PyTuple::new1([PyStr::default(), PyStr::default()])),
+        PyList::new1(PyTuple::new2(vec![PyStr::default(); 2])),
         "Keywords with a non-ASCII but still valid UTF-8 key.",
         |_, _| quote!(self.0.non_ascii.clone()),
     );
 
     let byte_pairs = DocArgROIvar::new_ivar_ro(
         "byte_pairs",
-        PyList::new1(PyTuple::new1([PyBytes::default(), PyBytes::default()])),
+        PyList::new1(PyTuple::new2(vec![PyBytes::default(); 2])),
         "Keywords with invalid UTF-8 characters.",
         |_, _| quote!(self.0.byte_pairs.clone()),
     );
@@ -798,11 +798,9 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let cytsn = DocArg::new_kw_ivar_str("Cytsn", "cytsn");
 
     let unicode_pytype = |p| {
-        PyTuple::new1([
-            PyType::from(RsInt::U32),
-            PyList::new1(PyStr::default()).into(),
-        ])
-        .rstype(p)
+        PyTuple::new1(RsInt::U32)
+            .add(PyList::new1(PyStr::default()))
+            .rstype(p)
     };
     let unicode = DocArg::new_kw_opt_ivar("Unicode", "unicode", unicode_pytype);
 
@@ -1552,11 +1550,11 @@ pub fn impl_core_get_temporal(input: TokenStream) -> TokenStream {
 
     let doc = DocString::new_ivar(
         "The temporal measurement if it exists.",
-        PyOpt::new(PyTuple::new1([
-            PyInt::new_meas_index().into(),
-            PyStr::new_shortname().into(),
-            PyType::from(PyClass::new_temporal(version)),
-        ])),
+        PyOpt::new(
+            PyTuple::new1(PyInt::new_meas_index())
+                .add(PyStr::new_shortname())
+                .add(PyClass::new_temporal(version)),
+        ),
     )
     .ret_desc("Index, name, and measurement or ``None``.");
 
@@ -1725,10 +1723,9 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
         .para("Raise exception if ``name`` not found.")
         .arg(DocArg::new_name_param("Name to remove."))
         .returns(
-            DocReturn::new(PyTuple::new1([
-                PyType::from(PyInt::new_meas_index()),
-                PyUnion::new_measurement(version).into(),
-            ]))
+            DocReturn::new(
+                PyTuple::new1(PyInt::new_meas_index()).add(PyUnion::new_measurement(version)),
+            )
             .desc("Index and measurement object."),
         );
 
@@ -1736,10 +1733,10 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
         .para("Raise exception if ``index`` not found.")
         .arg(DocArg::new_index_param("Index to remove."))
         .returns(
-            DocReturn::new(PyTuple::new1([
-                PyType::new_versioned_shortname(version),
-                PyUnion::new_measurement(version).into(),
-            ]))
+            DocReturn::new(
+                PyTuple::new1(PyType::new_versioned_shortname(version))
+                    .add(PyUnion::new_measurement(version)),
+            )
             .desc("Name and measurement object."),
         );
 
@@ -2034,7 +2031,7 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
         .args(std_args)
         .args(layout_args)
         .args(shared_args)
-        .returns(DocReturn::new(PyTuple::new1([
+        .returns(DocReturn::new(PyTuple::new2([
             PyClass::new_coretext(version),
             PyClass::new_py(["api"], "ExtraStdKeywords"),
         ])));
@@ -2117,7 +2114,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
         .arg(analysis_seg_param)
         .arg(other_segs_param)
         .args(config_args)
-        .returns(DocReturn::new(PyTuple::new1([
+        .returns(DocReturn::new(PyTuple::new2([
             PyClass::new_coredataset(version),
             PyClass::new_py(["api"], "StdDatasetWithKwsOutput"),
         ])));
@@ -3294,11 +3291,8 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
                 when field 1 is ``\"A\"`` or ``\"I\"``";
     let exc = PyException::new_value_error().desc(desc);
     let range_pytype = PyList::new1(PyUnion::new2(
-        PyTuple::new1([PyLiteral::new1(["A", "I"]).into(), PyType::from(RsInt::U64)]),
-        PyTuple::new1([
-            PyLiteral::new1(["F", "D"]).into(),
-            PyType::from(PyDecimal::default()),
-        ]),
+        PyTuple::new1(PyLiteral::new1(["A", "I"])).add(RsInt::U64),
+        PyTuple::new1(PyLiteral::new1(["F", "D"])).add(PyDecimal::default()),
         parse_quote!(#null),
     ))
     .exc(exc);
@@ -3435,7 +3429,7 @@ fn make_gate_region(path: &Path, is_uni: bool) -> TokenStream {
     } else {
         (
             "bivariate",
-            PyTuple::new1(vec![index_pytype_inner; 2])
+            PyTuple::new2(vec![index_pytype_inner; 2])
                 .rstype(parse_quote!(#index_pair<#index_path_inner>))
                 .into(),
             "vertices",
@@ -5023,7 +5017,7 @@ impl<E: From<PyException>> PyList<E> {
 
     fn new_vertices() -> Self {
         let inner_path = keyword_path("Vertex");
-        let inner = PyTuple::new1([RsFloat::F32, RsFloat::F32]);
+        let inner = PyTuple::new2(vec![RsFloat::F32; 2]);
         Self::new_non_empty(inner, &inner_path)
     }
 }
@@ -5106,8 +5100,17 @@ impl<E> Default for PyTuple<E> {
 }
 
 impl<E> PyTuple<E> {
-    fn new1(iter: impl IntoIterator<Item = impl Into<PyType<E>>>) -> Self {
+    fn new1(x: impl Into<PyType<E>>) -> Self {
+        Self::new(vec![x.into()], None, None)
+    }
+
+    fn new2(iter: impl IntoIterator<Item = impl Into<PyType<E>>>) -> Self {
         Self::new(iter.into_iter().map(Into::into).collect(), None, None)
+    }
+
+    fn add(mut self, x: impl Into<PyType<E>>) -> Self {
+        self.inner.push(x.into());
+        self
     }
 
     fn rstype(self, rstype: Path) -> Self {
@@ -5135,49 +5138,41 @@ impl<E: From<PyException>> PyTuple<E> {
         let path: Path = parse_quote!(fireflow_core::validated::sub_pattern::SubPatterns);
         let lit = PyDict::new1(PyStr::new_keystring(), Self::new_sub_pattern());
         let pat = PyDict::new1(PyStr::new_regexp(), Self::new_sub_pattern());
-        Self::new1([lit, pat]).rstype(path)
+        Self::new2([lit, pat]).rstype(path)
     }
 
     fn new_sub_pattern() -> Self {
         let desc = "if references in replacement string in %x \
                     do not match captures in regular expression";
         let exc = PyException::new_value_error().desc(desc);
-        Self::new1([
-            PyStr::new_regexp().into(),
-            PyStr::default().into(),
-            PyType::from(PyBool::default()),
-        ])
-        .exc(exc)
+        Self::new1(PyStr::new_regexp())
+            .add(PyStr::default())
+            .add(PyBool::default())
+            .exc(exc)
     }
 
     fn new_calibration3_1() -> Self {
-        Self::new1([
-            PyType::from(PyFloat::new_positive_float()),
-            PyStr::default().into(),
-        ])
-        .rstype(keyword_path("Calibration3_1"))
+        Self::new1(PyFloat::new_positive_float())
+            .add(PyStr::default())
+            .rstype(keyword_path("Calibration3_1"))
     }
 
     fn new_calibration3_2() -> Self {
-        Self::new1([
-            PyType::from(PyFloat::new_positive_float()),
-            RsFloat::F32.into(),
-            PyStr::default().into(),
-        ])
-        .rstype(keyword_path("Calibration3_2"))
+        Self::new1(PyFloat::new_positive_float())
+            .add(RsFloat::F32)
+            .add(PyStr::default())
+            .rstype(keyword_path("Calibration3_2"))
     }
 
     fn new_display() -> Self {
         let desc = "if %x represents a log display (field 1 is ``True``) and \
                     the two floats are not both positive";
         let exc = PyException::new_value_error().desc(desc);
-        Self::new1([
-            PyType::from(PyBool::default()),
-            RsFloat::F32.into(),
-            RsFloat::F32.into(),
-        ])
-        .exc(exc)
-        .rstype(keyword_path("Display"))
+        Self::new1(PyBool::default())
+            .add(RsFloat::F32)
+            .add(RsFloat::F32)
+            .exc(exc)
+            .rstype(keyword_path("Display"))
     }
 
     fn new_segment(n: &str) -> Self {
@@ -5189,7 +5184,7 @@ impl<E: From<PyException>> PyTuple<E> {
         let exc = PyException::new_value_error().desc(desc);
         // NOTE don't use ints with overflow exceptions since this is captured
         // in the overall exception for the entire type
-        Self::new1([RsInt::U64, RsInt::U64]).exc(exc).rstype(p)
+        Self::new2(vec![RsInt::U64; 2]).exc(exc).rstype(p)
     }
 
     fn new_text_segment() -> Self {
@@ -5222,16 +5217,14 @@ impl<E: From<PyException>> PyTuple<E> {
 
     fn new_correction(is_header: bool, id: &str) -> Self {
         let path = correction_path(is_header, id);
-        Self::new1([PyInt::new_int(RsInt::I32), PyInt::new_int(RsInt::I32)]).rstype(path)
+        Self::new2([PyInt::new_int(RsInt::I32), PyInt::new_int(RsInt::I32)]).rstype(path)
     }
 
     fn new_tr() -> Self {
         let path = keyword_path("Trigger");
-        Self::new1([
-            PyType::from(PyInt::new_u32()),
-            PyStr::new_shortname().into(),
-        ])
-        .rstype(path)
+        Self::new1(PyInt::new_u32())
+            .add(PyStr::new_shortname())
+            .rstype(path)
     }
 
     fn new_meas(version: Version) -> Self {
@@ -5250,16 +5243,18 @@ impl<E: From<PyException>> PyTuple<E> {
         let meas_opt_pyname = pyoptical(version);
         let meas_tmp_pyname = pytemporal(version);
         let meas_argtype = parse_quote!(PyEithers<#fam_path, #meas_tmp_pyname, #meas_opt_pyname>);
-        Self::new1([name_pytype, PyUnion::new_measurement(version).into()]).rstype(meas_argtype)
+        Self::new1(name_pytype)
+            .add(PyUnion::new_measurement(version))
+            .rstype(meas_argtype)
     }
 
     fn new_unigate() -> Self {
-        Self::new1([PyDecimal::default(), PyDecimal::default()]).rstype(keyword_path("UniGate"))
+        Self::new2([PyDecimal::default(), PyDecimal::default()]).rstype(keyword_path("UniGate"))
     }
 
     fn new_key_patterns() -> Self {
         let path: Path = parse_quote!(fireflow_core::validated::keys::KeyPatterns);
-        Self::new1([
+        Self::new2([
             PyList::new1(PyStr::new_keystring()),
             PyList::new1(PyStr::new_regexp()),
         ])
@@ -5328,7 +5323,7 @@ impl<E: From<PyException>> PyUnion<E> {
             .desc("if %x has log scale floats which are not both positive");
         Self::new2(
             PyTuple::default(),
-            PyTuple::new1([RsFloat::F32, RsFloat::F32]),
+            PyTuple::new2(vec![RsFloat::F32; 2]),
             path,
         )
         .exc(exc)
@@ -5339,12 +5334,7 @@ impl<E: From<PyException>> PyUnion<E> {
         let exc = PyException::new_value_error()
             .desc("if %x has log scale floats which are not both positive");
         // TODO the linear gain should also be positive
-        Self::new2(
-            RsFloat::F32,
-            PyTuple::new1([RsFloat::F32, RsFloat::F32]),
-            path,
-        )
-        .exc(exc)
+        Self::new2(RsFloat::F32, PyTuple::new2(vec![RsFloat::F32; 2]), path).exc(exc)
     }
 
     fn new_byteord(nbytes: usize) -> Self {
@@ -5880,12 +5870,10 @@ impl DocArgRWIvar {
         // TODO exception on non-unique names
         Self::new_opt_ivar_rw(
             "spillover",
-            PyTuple::new1([
-                PyType::from(PyList::new1(PyStr::new_shortname())),
-                PyClass::new1("~numpy.ndarray").exc(matrix_exc).into(),
-            ])
-            .rstype(rstype)
-            .exc(spill_exc),
+            PyTuple::new1(PyList::new1(PyStr::new_shortname()))
+                .add(PyClass::new1("~numpy.ndarray").exc(matrix_exc))
+                .rstype(rstype)
+                .exc(spill_exc),
             "Value for *$SPILLOVER*. First element of tuple the list of measurement \
              names and the second is the matrix. Each measurement name must \
              correspond to a *$PnN*, must be unique, and the length of this list \
@@ -5967,7 +5955,7 @@ impl DocArgRWIvar {
         )
         .into();
         let gtype = PyType::from(PyOpt::new(PyStr::default()));
-        let pytype = PyTuple::new1(gm_pytype.into_iter().chain([reg_pytype, gtype]))
+        let pytype = PyTuple::new2(gm_pytype.into_iter().chain([reg_pytype, gtype]))
             .rstype(parse_quote!(#rstype));
 
         let desc = if collapsed_version == Version::FCS2_0 {

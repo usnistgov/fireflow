@@ -24,6 +24,7 @@ create_exception!(
     "Warning created by internal pyreflow."
 );
 
+// TODO make this work on generic version
 pub trait PyTerminalResultExt {
     type V;
 

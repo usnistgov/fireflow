@@ -27,6 +27,12 @@ pub struct AlwaysValue<T>(pub T);
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct NeverValue<T>(pub PhantomData<T>);
 
+impl<T> Default for NeverValue<T> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
+
 /// A string that is stored as-is but will not be displayed/written if blank.
 #[derive(Debug, Clone, PartialEq, Eq, AsRef, AsMut, From, Default, FromStr)]
 #[cfg_attr(feature = "serde", derive(Serialize))]

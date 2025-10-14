@@ -2286,10 +2286,10 @@ where
                 let s = x.new.to_string();
                 loss_ws[col] = mem::take(&mut loss_ws[col]).or(x.as_err());
                 let buf = s.as_bytes();
-                h.write_all(buf).into_deferred()?;
+                h.write_all(buf)?;
                 // write delimiter after all but last value
                 if !(row == nrows - 1 && col == ncols - 1) {
-                    h.write_all(&[32]).into_deferred()?; // 32 = space in ASCII
+                    h.write_all(&[32])?; // 32 = space in ASCII
                 }
             }
         }
@@ -2625,7 +2625,7 @@ where
             .collect();
         for _ in 0..nrows {
             for c in &mut cs {
-                c.h_write(h, self.byte_layout).into_deferred()?;
+                c.h_write(h, self.byte_layout)?;
             }
         }
         // TODO perhaps a microoptization, if we don't need conversion warnings

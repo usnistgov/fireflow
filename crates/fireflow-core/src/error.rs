@@ -50,6 +50,11 @@ pub type IOTerminalResultOne<V, W, E> = TerminalResultOne<V, W, ImpureError<E>>;
 /// Passing side may have one warnings and failure side has one error.
 pub type TerminalResultOne<V, W, E> = Result<TerminalOne<V, W>, TerminalFailureOne<E>>;
 
+pub type TerminalResultNoWarn<V, E, T> = Result<
+    TerminalInner<V, Infallible, NullFamily>,
+    TerminalFailureInner<Infallible, E, T, NullFamily, NonEmptyFamily>,
+>;
+
 /// Passing result with 0 or 1 warning.
 pub type TerminalOne<V, W> = TerminalInner<V, W, OptionFamily>;
 
@@ -419,6 +424,13 @@ impl<V, W> Terminal<V, W> {
 }
 
 impl<W, E, T, WI: ZeroOrMore, EI: OneOrMore> TerminalFailureInner<W, E, T, WI, EI> {
+    fn new1(errors: EI::Wrapper<E>, reason: T) -> Self
+    where
+        WI::Wrapper<W>: Default,
+    {
+        Self::new(WI::Wrapper::<W>::default(), errors.into(), reason)
+    }
+
     pub fn resolve<F, G, X, Y>(self, f: F, g: G) -> (X, Y)
     where
         F: FnOnce(WI::Wrapper<W>) -> X,
@@ -435,10 +447,6 @@ impl<W, E, T> TerminalFailure<W, E, T> {
         reason: impl Into<T>,
     ) -> Self {
         Self::new(warnings.into_iter().collect(), errors.into(), reason.into())
-    }
-
-    fn new1(errors: NonEmpty<E>, reason: T) -> Self {
-        Self::new_vec([], errors, reason)
     }
 
     // pub fn map_warnings<F, X>(self, f: F) -> TerminalFailure<X, E, T>
@@ -1881,7 +1889,63 @@ where
     EI: OneOrMore + HoldsOne<Inner<E> = EI::Wrapper<E>>,
 {
     fn from(value: E) -> Self {
-        DeferredFailureInner::new1(value)
+        Self::new1(value)
+    }
+}
+
+impl<W, E, WI> From<NonEmpty<E>> for DeferredFailureInner<(), W, E, WI, NonEmptyFamily>
+where
+    WI: ZeroOrMore,
+    WI::Wrapper<W>: Default,
+{
+    fn from(value: NonEmpty<E>) -> Self {
+        Self::new(WI::Wrapper::<W>::default(), value.into(), ())
+    }
+}
+
+impl<W, E, WI, EI> From<io::Error> for DeferredFailureInner<(), W, ImpureError<E>, WI, EI>
+where
+    WI: ZeroOrMore,
+    WI::Wrapper<W>: Default,
+    EI: OneOrMore + HoldsOne<Inner<ImpureError<E>> = EI::Wrapper<ImpureError<E>>>,
+{
+    fn from(value: io::Error) -> Self {
+        Self::new1(value)
+    }
+}
+
+impl<W, E, WI, EI, T> From<E> for TerminalFailureInner<W, E, T, WI, EI>
+where
+    WI: ZeroOrMore,
+    WI::Wrapper<W>: Default,
+    EI: OneOrMore + HoldsOne<Inner<E> = EI::Wrapper<E>>,
+    T: Default,
+{
+    fn from(value: E) -> Self {
+        Self::new1(EI::wrap(value), T::default())
+    }
+}
+
+impl<W, E, WI, T> From<NonEmpty<E>> for TerminalFailureInner<W, E, T, WI, NonEmptyFamily>
+where
+    WI: ZeroOrMore,
+    WI::Wrapper<W>: Default,
+    T: Default,
+{
+    fn from(value: NonEmpty<E>) -> Self {
+        Self::new1(value, T::default())
+    }
+}
+
+impl<W, E, WI, EI, T> From<io::Error> for TerminalFailureInner<W, ImpureError<E>, T, WI, EI>
+where
+    WI: ZeroOrMore,
+    WI::Wrapper<W>: Default,
+    EI: OneOrMore + HoldsOne<Inner<ImpureError<E>> = EI::Wrapper<ImpureError<E>>>,
+    T: Default,
+{
+    fn from(value: io::Error) -> Self {
+        Self::new1(EI::wrap(ImpureError::from(value)), T::default())
     }
 }
 

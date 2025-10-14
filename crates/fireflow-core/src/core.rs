@@ -2248,6 +2248,9 @@ where
     where
         M::Temporal: TemporalFromOptical<M::Optical>,
     {
+        // TODO the inner methods in this generate multiple errors that should
+        // be displayed at once but should be independent of the other errors
+        // here (like not finding the name)
         self.measurements
             .set_center_by_name(
                 n,
@@ -2275,6 +2278,7 @@ where
     where
         M::Temporal: TemporalFromOptical<M::Optical>,
     {
+        // TODO ditto above
         self.measurements
             .set_center_by_index(
                 index,
@@ -2328,6 +2332,7 @@ where
         M::Optical: OpticalFromTemporal<M::Temporal, Loss = bool>,
         M::Temporal: VersionedTemporal<Err = TemporalToOpticalError>,
     {
+        // TODO ditto above
         self.measurements
             .unset_center(|i, old_t| {
                 <M::Optical as OpticalFromTemporal<M::Temporal>>::from_temporal(
@@ -2903,12 +2908,13 @@ where
     {
         let ms = self.measurement_names();
         let ns = us.names();
-        if let Some(es) = NonEmpty::collect(
+        NonEmpty::collect(
             ns.difference(&ms)
-                .map(|&n| MissingMeasurementNameError(n.clone())),
-        ) {
-            return Err(es).mult_terminate(SetUnstainedFailure);
-        }
+                .copied()
+                .cloned()
+                .map(MissingMeasurementNameError),
+        )
+        .map_or(Ok(()), Err)?;
         *self
             .metaroot
             .specific
@@ -3305,9 +3311,7 @@ where
     where
         M::Optical: AsScaleTransform,
     {
-        layout
-            .check_measurement_vector(&self.measurements)
-            .mult_terminate(SetLayoutFailure)?;
+        layout.check_measurement_vector(&self.measurements)?;
         self.layout = layout;
         Ok(Terminal::default())
     }
@@ -3327,16 +3331,13 @@ where
     where
         M::Optical: AsScaleTransform,
     {
-        let go = || {
-            self.check_new_meas_links(&measurements, allow_shared_names, skip_index_check)
-                .into_mult()?;
-            let ms = NamedVec::try_new(measurements).into_mult()?;
-            layout.check_measurement_vector(&ms).mult_errors_into()?;
-            self.measurements = ms;
-            self.layout = layout;
-            Ok(())
-        };
-        go().mult_terminate(SetMeasurementsAndLayoutFailure)
+        self.check_new_meas_links(&measurements, allow_shared_names, skip_index_check)
+            .into_mult()?;
+        let ms = NamedVec::try_new(measurements).into_mult()?;
+        layout.check_measurement_vector(&ms).mult_errors_into()?;
+        self.measurements = ms;
+        self.layout = layout;
+        Ok(Terminal::default())
     }
 
     pub fn set_measurements_inner(
@@ -4087,8 +4088,7 @@ where
                         others,
                     )
                 }
-                .map_err(ImpureError::inner_into)
-                .map_err(DeferredFailure::new1)?;
+                .map_err(ImpureError::inner_into)?;
 
                 // write DATA; conversion check flag is flipped from above since
                 // we want to emit warnings as we are writing if we did not run

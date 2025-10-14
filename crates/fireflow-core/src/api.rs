@@ -697,8 +697,7 @@ where
                     .and_maybe(|maybe_supp_seg| {
                         let tnt_supp_kws = if let Some(seg) = maybe_supp_seg {
                             buf.clear();
-                            seg.h_read_contents(h, &mut buf)
-                                .map_err(DeferredFailure::new1)?;
+                            seg.h_read_contents(h, &mut buf)?;
                             split_raw_supp_text(kws, delim, &buf, conf)
                                 .inner_into()
                                 .errors_liftio()

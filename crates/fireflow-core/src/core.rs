@@ -2265,7 +2265,7 @@ where
                     .def_inner_into()
                 },
             )
-            .def_terminate(SetTemporalFailure)
+            .def_terminate_def()
     }
 
     /// Set the measurement at given index to the time measurement.
@@ -2293,7 +2293,7 @@ where
                     .def_inner_into()
                 },
             )
-            .def_terminate(SetTemporalFailure)
+            .def_terminate_def()
     }
 
     /// Convert time measurement to optical measurement.
@@ -2339,7 +2339,7 @@ where
                     old_t, i, allow_loss,
                 )
             })
-            .def_terminate(UnsetTemporalFailure)
+            .def_terminate_def()
     }
 
     /// Read nonstandard key/value pairs for each measurement.
@@ -2434,7 +2434,7 @@ where
                 .def_inner_into()
                 .def_map_value(|(x, _)| x)
             })
-            .def_terminate(ReplaceTemporalFailure)
+            .def_terminate_def()
     }
 
     /// Replace temporal measurement at index.
@@ -2482,7 +2482,7 @@ where
                 .def_inner_into()
                 .def_map_value(|(x, _)| x)
             })
-            .def_terminate(ReplaceTemporalFailure)
+            .def_terminate_def()
     }
 
     /// Rename a measurement
@@ -2650,7 +2650,7 @@ where
         self.measurements
             .alter_elements_zip(ys, |m, x| *m.value.as_mut() = x, |_, ()| ())
             .void()
-            .mult_terminate(SetOpticalFailure)
+            .mult_terminate_def()
     }
 
     /// Get field which is on both optical and temporal measurement types
@@ -2697,7 +2697,7 @@ where
                 |m, y| *m.value.as_mut() = y,
             )
             .void()
-            .mult_terminate(SetOpticalFailure)
+            .mult_terminate_def()
     }
 
     /// Get value for $BTIM as a [`NaiveTime`]
@@ -2979,7 +2979,7 @@ where
                 .unwrap();
             Ok(())
         };
-        go().mult_terminate(SetScalesFailure)
+        go().mult_terminate_def()
     }
 
     /// Set $PnE/$PnG (3.0+)
@@ -3010,7 +3010,7 @@ where
                 .unwrap();
             Ok(())
         };
-        go().mult_terminate(SetTransformsFailure)
+        go().mult_terminate_def()
     }
 
     /// Return $PAR, which is simply the number of measurements in this struct
@@ -3121,7 +3121,7 @@ where
             .def_map_errors(|error| {
                 ConvertError::new(M::Ver::fcs_version(), ToM::Ver::fcs_version(), error)
             })
-            .def_terminate(ConvertFailure)
+            .def_terminate_def()
     }
 
     fn named_compensation(&self) -> Option<(Vec<Shortname>, DMatrix<f32>)>
@@ -3289,7 +3289,7 @@ where
         M::Optical: AsScaleTransform,
     {
         self.set_measurements_inner(xs, allow_shared_names, skip_index_check)
-            .mult_terminate(SetMeasurementsFailure)
+            .mult_terminate_def()
     }
 
     // TODO add replace measurements function which doesn't touch PnN but
@@ -3855,7 +3855,7 @@ where
         disallow_trunc: bool,
     ) -> TerminalResult<(), AnyRangeError, InsertTemporalError, PushTemporalFailure> {
         self.push_temporal_inner(n, m, r, disallow_trunc)
-            .def_terminate(PushTemporalFailure)
+            .def_terminate_def()
     }
 
     /// Add time measurement at the given position
@@ -3871,7 +3871,7 @@ where
         disallow_trunc: bool,
     ) -> TerminalResult<(), AnyRangeError, InsertTemporalError, InsertTemporalFailure> {
         self.insert_temporal_inner(i, n, m, r, disallow_trunc)
-            .def_terminate(InsertTemporalFailure)
+            .def_terminate_def()
     }
 
     /// Add optical measurement to the end of the measurement vector
@@ -3885,7 +3885,7 @@ where
         disallow_trunc: bool,
     ) -> TerminalResult<Shortname, AnyRangeError, PushOpticalError, PushOpticalFailure> {
         self.push_optical_inner(n, m, r, disallow_trunc)
-            .def_terminate(PushOpticalFailure)
+            .def_terminate_def()
     }
 
     /// Add optical measurement at a given position
@@ -3900,7 +3900,7 @@ where
         disallow_trunc: bool,
     ) -> TerminalResult<Shortname, AnyRangeError, InsertOpticalError, InsertOpticalFailure> {
         self.insert_optical_inner(i, n, m, r, disallow_trunc)
-            .def_terminate(InsertOpticalFailure)
+            .def_terminate_def()
     }
 
     /// Remove measurements
@@ -4102,7 +4102,7 @@ where
                 // write ANALYSIS
                 h.write_all(&self.analysis.0).into_deferred()
             })
-            .def_terminate(WriteDatasetFailure)
+            .def_terminate_def()
     }
 
     /// Return reference to DATA segment as dataframe.
@@ -4229,7 +4229,7 @@ where
         self.push_temporal_inner(n, m, r, disallow_trunc)
             .def_errors_into()
             .def_and_maybe(|()| self.data.push_column(col).into_deferred())
-            .def_terminate(PushTemporalFailure)
+            .def_terminate_def()
     }
 
     /// Add time measurement at the given position
@@ -4254,7 +4254,7 @@ where
                     .insert_column_nocheck(i.into(), col)
                     .into_deferred()
             })
-            .def_terminate(InsertTemporalFailure)
+            .def_terminate_def()
     }
 
     /// Add measurement to the end of the measurement vector
@@ -4277,7 +4277,7 @@ where
                     .into_deferred()
                     .def_map_value(|()| k)
             })
-            .def_terminate(PushOpticalFailure)
+            .def_terminate_def()
     }
 
     /// Add measurement at a given position
@@ -4302,7 +4302,7 @@ where
                     .into_deferred()
                     .def_map_value(|()| k)
             })
-            .def_terminate(InsertOpticalFailure)
+            .def_terminate_def()
     }
 
     /// Convert this struct into a CoreTEXT.
@@ -4337,7 +4337,7 @@ where
             self.data = df;
             Ok(())
         };
-        go().mult_terminate(SetMeasurementsAndDataFailure)
+        go().mult_terminate_def()
     }
 }
 

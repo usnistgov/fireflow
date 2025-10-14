@@ -753,6 +753,10 @@ impl<V, W, E> Tentative<V, W, E> {
         self.terminate_inner(reason).map(|(t, _)| t)
     }
 
+    pub fn terminate_def<T: Default>(self, reason: T) -> TerminalResult<V, W, E, T> {
+        self.terminate(T::default())
+    }
+
     #[allow(clippy::type_complexity)]
     fn terminate_inner<T>(
         self,
@@ -1464,6 +1468,10 @@ pub trait MultiResultExt: Sized {
 
     fn mult_terminate<T>(self, reason: T) -> TerminalResult<Self::V, Infallible, Self::E, T>;
 
+    fn mult_terminate_def<T: Default>(self) -> TerminalResult<Self::V, Infallible, Self::E, T> {
+        self.mult_terminate(T::default())
+    }
+
     fn mult_head(self) -> Result<Self::V, Self::E>;
 }
 
@@ -1710,6 +1718,10 @@ pub trait DeferredExt: Sized + PassthruExt {
 
     fn def_terminate<T>(self, reason: T) -> TerminalResult<Self::V, Self::W, Self::E, T>;
 
+    fn def_terminate_def<T: Default>(self) -> TerminalResult<Self::V, Self::W, Self::E, T> {
+        self.def_terminate(T::default())
+    }
+
     fn def_terminate_warn2err<T, F>(
         self,
         reason: T,
@@ -1717,6 +1729,16 @@ pub trait DeferredExt: Sized + PassthruExt {
     ) -> TerminalResult<Self::V, Self::W, Self::E, T>
     where
         F: Fn(Self::W) -> Self::E;
+
+    fn def_terminate_warn2err_def<T: Default, F>(
+        self,
+        f: F,
+    ) -> TerminalResult<Self::V, Self::W, Self::E, T>
+    where
+        F: Fn(Self::W) -> Self::E,
+    {
+        self.def_terminate_warn2err(T::default(), f)
+    }
 
     fn def_terminate_nowarn<T>(self, reason: T) -> TerminalResult<Self::V, Self::W, Self::E, T>;
 
@@ -1736,6 +1758,17 @@ pub trait DeferredExt: Sized + PassthruExt {
         } else {
             self.def_terminate(reason)
         }
+    }
+
+    fn def_terminate_maybe_warn_def<T: Default, F>(
+        self,
+        conf: &SharedConfig,
+        f: F,
+    ) -> TerminalResult<Self::V, Self::W, Self::E, T>
+    where
+        F: Fn(Self::W) -> Self::E,
+    {
+        self.def_terminate_maybe_warn(T::default(), conf, f)
     }
 
     fn def_unfail(self) -> Tentative<Option<Self::V>, Self::W, Self::E>;

@@ -5991,27 +5991,22 @@ impl DocArgRWIvar {
              member."
         };
 
+        let param = DocArgParam::new_param("applied_gates", pytype, desc).def_auto();
+
         if collapsed_version == Version::FCS2_0 {
-            Self::new_ivar_rw(
-                "applied_gates",
-                pytype,
-                desc,
+            param.into_rw(
                 false,
                 |_, _| quote!(self.0.metaroot::<#rstype_inner>().clone().into()),
                 |n, _| quote!(self.0.set_metaroot::<#rstype_inner>(#n.into())),
             )
         } else {
             let setter = format_ident!("set_applied_gates_{vsu}");
-            Self::new_ivar_rw(
-                "applied_gates",
-                pytype,
-                desc,
+            param.into_rw(
                 true,
                 |_, _| quote!(self.0.metaroot::<#rstype_inner>().clone().into()),
                 |n, _| quote!(Ok(self.0.#setter(#n.into())?)),
             )
         }
-        .def_auto()
     }
 
     fn new_scale_ivar() -> Self {
@@ -6290,11 +6285,8 @@ impl DocArgParam {
 
     fn new_col_param() -> Self {
         let path: Path = parse_quote!(fireflow_core::validated::dataframe::AnyFCSColumn);
-        Self::new_param(
-            "col",
-            PyClass::new1("polars.Series").rstype(path),
-            "Data for measurement. Must be same length as existing columns.",
-        )
+        let d = "Data for measurement. Must be same length as existing columns.";
+        Self::new_param("col", PyClass::new1("polars.Series").rstype(path), d)
     }
 
     fn new_name_param(short_desc: &str) -> Self {
@@ -6382,36 +6374,23 @@ impl DocArgParam {
     }
 
     fn new_std_config_params(version: Option<Version>) -> (Path, Vec<Self>, Vec<TokenStream2>) {
-        let trim_intra_value_whitespace = Self::new_trim_intra_value_whitespace_param();
-        let time_meas_pattern = Self::new_time_meas_pattern_param();
-        let allow_missing_time = Self::new_allow_missing_time_param();
-        let force_time_linear = Self::new_force_time_linear_param();
         let ignore_time_gain = Self::new_ignore_time_gain_param();
-        let ignore_time_optical_keys = Self::new_ignore_time_optical_keys_param();
         let parse_indexed_spillover = Self::new_parse_indexed_spillover_param();
-        let date_pattern = Self::new_date_pattern_param();
-        let time_pattern = Self::new_time_pattern_param(version);
-        let allow_pseudostandard = Self::new_allow_pseudostandard_param();
-        let allow_unused_standard = Self::new_allow_unused_standard_param();
-        let allow_optional_dropping = Self::new_allow_optional_dropping();
-        let disallow_deprecated = Self::new_disallow_deprecated_param();
-        let fix_log_scale_offsets = Self::new_fix_log_scale_offsets_param();
-        let nonstandard_measurement_pattern = Self::new_nonstandard_measurement_pattern_param();
 
         let std_common_args = [
-            trim_intra_value_whitespace,
-            time_meas_pattern,
-            allow_missing_time,
-            force_time_linear,
-            ignore_time_optical_keys,
-            date_pattern,
-            time_pattern,
-            allow_pseudostandard,
-            allow_unused_standard,
-            allow_optional_dropping,
-            disallow_deprecated,
-            fix_log_scale_offsets,
-            nonstandard_measurement_pattern,
+            Self::new_trim_intra_value_whitespace_param(),
+            Self::new_time_meas_pattern_param(),
+            Self::new_allow_missing_time_param(),
+            Self::new_force_time_linear_param(),
+            Self::new_ignore_time_optical_keys_param(),
+            Self::new_date_pattern_param(),
+            Self::new_time_pattern_param(version),
+            Self::new_allow_pseudostandard_param(),
+            Self::new_allow_unused_standard_param(),
+            Self::new_allow_optional_dropping(),
+            Self::new_disallow_deprecated_param(),
+            Self::new_fix_log_scale_offsets_param(),
+            Self::new_nonstandard_measurement_pattern_param(),
         ]
         .into_iter();
 
@@ -6450,26 +6429,17 @@ impl DocArgParam {
     }
 
     fn new_offsets_config_params(version: Option<Version>) -> (Path, Vec<Self>, Vec<TokenStream2>) {
-        let text_data_correction = Self::new_text_data_correction_param();
-        let text_analysis_correction = Self::new_text_analysis_correction_param();
-        let ignore_text_data_offsets = Self::new_ignore_text_data_offsets_param();
-        let ignore_text_analysis_offsets = Self::new_ignore_text_analysis_offsets_param();
-        let allow_header_text_offset_mismatch = Self::new_allow_header_text_offset_mismatch_param();
-        let allow_missing_required_offsets =
-            Self::new_allow_missing_required_offsets_param(version);
-        let truncate_text_offsets = Self::new_truncate_text_offsets_param();
-
         let ps: Vec<_> = match version {
             // none of these apply to 2.0 since there are no offsets in TEXT
             Some(Version::FCS2_0) => vec![],
             _ => vec![
-                text_data_correction,
-                text_analysis_correction,
-                ignore_text_data_offsets,
-                ignore_text_analysis_offsets,
-                allow_missing_required_offsets,
-                allow_header_text_offset_mismatch,
-                truncate_text_offsets,
+                Self::new_text_data_correction_param(),
+                Self::new_text_analysis_correction_param(),
+                Self::new_ignore_text_data_offsets_param(),
+                Self::new_ignore_text_analysis_offsets_param(),
+                Self::new_allow_header_text_offset_mismatch_param(),
+                Self::new_allow_missing_required_offsets_param(version),
+                Self::new_truncate_text_offsets_param(),
             ],
         };
 
@@ -6505,13 +6475,9 @@ impl DocArgParam {
     fn new_time_meas_pattern_param() -> Self {
         let path = parse_quote!(fireflow_core::config::TimeMeasNamePattern);
         let pytype = PyOpt::new(PyStr::new_regexp().rstype(path));
-        Self::new_param(
-            "time_meas_pattern",
-            pytype,
-            "A pattern to match the *$PnN* of the time measurement. \
-             If ``None``, do not try to find a time measurement.",
-        )
-        .def(DocDefault::Str("^(TIME|Time)$".into()))
+        let d = "A pattern to match the *$PnN* of the time measurement. \
+                 If ``None``, do not try to find a time measurement.";
+        Self::new_param("time_meas_pattern", pytype, d).def(DocDefault::Str("^(TIME|Time)$".into()))
     }
 
     fn new_allow_missing_time_param() -> Self {
@@ -6533,24 +6499,21 @@ impl DocArgParam {
     }
 
     fn new_ignore_time_optical_keys_param() -> Self {
-        Self::new_param(
-            "ignore_time_optical_keys",
-            PyList::new(
-                PyLiteral::new_temporal_optical_key(),
-                Some(parse_quote!(TemporalOpticalKeys)),
-                None,
-            ),
-            "Ignore optical keys in temporal measurement. These keys are \
-             nonsensical for time measurements but are not explicitly forbidden in \
-             the the standard. Provided keys are the string after the \"Pn\" in \
-             the \"PnX\" keywords.",
-        )
-        .def_auto()
+        let p = PyList::new(
+            PyLiteral::new_temporal_optical_key(),
+            Some(parse_quote!(TemporalOpticalKeys)),
+            None,
+        );
+        let d = "Ignore optical keys in temporal measurement. These keys are \
+                 nonsensical for time measurements but are not explicitly forbidden in \
+                 the the standard. Provided keys are the string after the \"Pn\" in \
+                 the \"PnX\" keywords.";
+        Self::new_param("ignore_time_optical_keys", p, d).def_auto()
     }
 
     fn new_parse_indexed_spillover_param() -> Self {
         let d = "Parse $SPILLOVER with numeric indices rather than strings \
-             (ie names or *$PnN*)";
+                 (ie names or *$PnN*)";
         Self::new_bool_param("parse_indexed_spillover", d)
     }
 
@@ -6562,13 +6525,10 @@ impl DocArgParam {
         );
         let exc = PyException::new_value_error().desc(desc);
         let pytype = PyStr::default().rstype(path).exc(exc);
-        Self::new_opt_param(
-            "date_pattern",
-            pytype,
-            "If supplied, will be used as an alternative pattern when parsing \
-             *$DATE*. If not supplied, *$DATE* will be parsed according to \
-             the standard pattern which is ``%d-%b-%Y``.",
-        )
+        let d = "If supplied, will be used as an alternative pattern when parsing \
+                 *$DATE*. If not supplied, *$DATE* will be parsed according to \
+                 the standard pattern which is ``%d-%b-%Y``.";
+        Self::new_opt_param("date_pattern", pytype, d)
     }
 
     fn new_time_pattern_param(version: Option<Version>) -> Self {
@@ -6648,17 +6608,14 @@ impl DocArgParam {
         // TODO could clean this up with default regexp exception
         let exc = PyException::new_value_error().desc("if %x does not have ``\"%n\"``");
         let pytype = PyStr::default().rstype(path).exc(exc);
-        Self::new_opt_param(
-            "nonstandard_measurement_pattern",
-            pytype,
-            format!(
-                "Pattern to use when matching nonstandard measurement keys. Must \
-                 be a regular expression pattern with ``%n`` which will \
-                 represent the measurement index and should not start with *$*. \
-                 Otherwise should be a normal regular expression as defined in \
-                 {REGEXP_REF}."
-            ),
-        )
+        let d = format!(
+            "Pattern to use when matching nonstandard measurement keys. Must \
+             be a regular expression pattern with ``%n`` which will \
+             represent the measurement index and should not start with *$*. \
+             Otherwise should be a normal regular expression as defined in \
+             {REGEXP_REF}."
+        );
+        Self::new_opt_param("nonstandard_measurement_pattern", pytype, d)
     }
 
     fn new_integer_widths_from_byteord_param() -> Self {
@@ -6688,12 +6645,8 @@ impl DocArgParam {
 
     fn new_config_correction_arg(name: &str, what: &str, is_header: bool, id: &str) -> Self {
         let location = if is_header { "HEADER" } else { "TEXT" };
-        Self::new_param(
-            name,
-            PyTuple::new_correction(is_header, id),
-            format!("Corrections for {what} offsets in *{location}*."),
-        )
-        .def_auto()
+        let d = format!("Corrections for {what} offsets in *{location}*.");
+        Self::new_param(name, PyTuple::new_correction(is_header, id), d).def_auto()
     }
 
     fn new_text_correction_param() -> Self {

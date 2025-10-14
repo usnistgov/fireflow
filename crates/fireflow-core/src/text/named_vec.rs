@@ -743,10 +743,14 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Return value that was replaced.
     ///
     /// Return none if name is not present.
-    pub(crate) fn replace_named(&mut self, name: &Shortname, value: V) -> Option<Element<U, V>> {
-        // TODO this should return an error
-        let index = self.find_with_name(name).ok()?;
-        self.replace_at(index, value).ok()
+    pub(crate) fn replace_named(
+        &mut self,
+        name: &Shortname,
+        value: V,
+    ) -> Result<Element<U, V>, KeyNotFoundError> {
+        let index = self.find_with_name(name)?;
+        // ASSUME this won't fail because we have a valid index from above
+        Ok(self.replace_at(index, value).unwrap())
     }
 
     /// Rename an element at index.
@@ -891,12 +895,9 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         n: &Shortname,
     ) -> Result<(MeasIndex, Element<U, V>), KeyNotFoundError> {
         let go = |xs: &mut Vec<_>| {
-            if let Some(i) = Self::position_by_name(xs, n) {
-                let p = xs.remove(i);
-                Ok((i.into(), p.value))
-            } else {
-                Err(KeyNotFoundError(n.clone()))
-            }
+            let i = Self::position_by_name(xs, n)?;
+            let p = xs.remove(i);
+            Ok((i.into(), p.value))
         };
         let (newself, ret) = match mem::replace(self, dummy()) {
             Self::Split(mut s, p) => {
@@ -1051,23 +1052,20 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         Ok(mapping)
     }
 
+    // TODO make this generic
     /// Replace any value with a center value with name.
     pub(crate) fn replace_center_by_name<F, W, E>(
         &mut self,
         n: &Shortname,
         value: U,
         to_v: F,
-    ) -> DeferredResult<Option<Element<U, V>>, W, E>
+    ) -> DeferredResult<Element<U, V>, W, E>
     where
         F: FnOnce(MeasIndex, U) -> PassthruResult<V, Box<U>, W, E>,
-        E: From<SetCenterError>,
+        E: From<SetCenterError> + From<KeyNotFoundError>,
     {
-        Tentative::new1(self.find_with_name(n)).and_maybe(|x| {
-            x.map_or(Ok(Tentative::new1(None)), |index| {
-                self.replace_center_at(index, value, to_v)
-                    .def_map_value(Some)
-            })
-        })
+        let index = self.find_with_name(n).map_err(E::from)?;
+        self.replace_center_at(index, value, to_v)
     }
 
     /// Replace any value with a center value with name.
@@ -1076,14 +1074,13 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         n: &Shortname,
         value: U,
         to_v: F,
-    ) -> Option<Element<U, V>>
+    ) -> Result<Element<U, V>, KeyNotFoundError>
     where
         F: FnOnce(MeasIndex, U) -> V,
     {
-        // TODO return error if name not found
-        self.find_with_name(n)
-            .ok()
-            .map(|index| self.replace_center_at_nofail(index, value, to_v).unwrap())
+        let index = self.find_with_name(n)?;
+        // ASSUME this won't fail since the index above is valid
+        Ok(self.replace_center_at_nofail(index, value, to_v).unwrap())
     }
 
     /// Replace any value with a center value under index.
@@ -1447,6 +1444,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         .map_err(|e| e.map_passthru(|newself| *self = newself).void())
     }
 
+    // TODO make this generic
     /// Convert the center element into a non-center element.
     ///
     /// Has no effect if there already is no center element.
@@ -1552,9 +1550,13 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     //     }
     // }
 
-    fn position_by_name(xs: &WrappedPairedVec<K, V>, n: &Shortname) -> Option<usize> {
+    fn position_by_name(
+        xs: &WrappedPairedVec<K, V>,
+        n: &Shortname,
+    ) -> Result<usize, KeyNotFoundError> {
         xs.iter()
             .position(|p| K::as_opt(&p.key).is_some_and(|kn| kn == n))
+            .ok_or(KeyNotFoundError(n.to_owned()))
     }
 
     // fn value_by_name_mut<'a>(

@@ -2385,7 +2385,7 @@ where
         &mut self,
         name: &Shortname,
         m: Optical<M::Optical>,
-    ) -> Option<Element<Temporal<M::Temporal>, Optical<M::Optical>>> {
+    ) -> Result<Element<Temporal<M::Temporal>, Optical<M::Optical>>, KeyNotFoundError> {
         self.measurements.replace_named(name, m)
     }
 
@@ -2443,7 +2443,7 @@ where
         &mut self,
         name: &Shortname,
         m: Temporal<M::Temporal>,
-    ) -> Option<Element<Temporal<M::Temporal>, Optical<M::Optical>>>
+    ) -> Result<Element<Temporal<M::Temporal>, Optical<M::Optical>>, KeyNotFoundError>
     where
         M::Optical: OpticalFromTemporal<M::Temporal, Loss = ()>,
         M::Temporal: VersionedTemporal<Err = Infallible>,
@@ -2465,7 +2465,7 @@ where
         m: Temporal<M::Temporal>,
         allow_loss: bool,
     ) -> TerminalResult<
-        Option<Element<Temporal<M::Temporal>, Optical<M::Optical>>>,
+        Element<Temporal<M::Temporal>, Optical<M::Optical>>,
         ReplaceTemporalError,
         ReplaceTemporalError,
         ReplaceTemporalFailure,
@@ -8136,6 +8136,7 @@ pub struct NoScaleError(MeasIndex);
 pub enum ReplaceTemporalError {
     ToOptical(TemporalToOpticalError),
     Set(SetCenterError),
+    Name(KeyNotFoundError),
 }
 
 #[derive(From, Display, Debug, Error)]

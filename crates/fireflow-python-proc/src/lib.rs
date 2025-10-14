@@ -1860,7 +1860,7 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
         let i = &i_param.argname;
         let meas_desc = format!("Optical measurement to replace measurement at ``{i}``.");
         let sub = format!("Raise exception if ``{i}`` does not exist.");
-        let ret = PyOpt::wrap_if(PyUnion::new_measurement(version), !is_index);
+        let ret = PyUnion::new_measurement(version);
         DocString::new_method(format!("Replace {m} with given optical measurement."))
             .para(sub)
             .arg(i_param)
@@ -1890,10 +1890,9 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
             }
 
             #replace_named_doc
-            fn replace_optical_named(&mut self, #name_fun_args) -> #named_ret {
-                self.0
-                    .replace_optical_named(&name, meas.into())
-                    .map(|r| r.inner_into())
+            fn replace_optical_named(&mut self, #name_fun_args) -> PyResult<#named_ret> {
+                let ret = self.0.replace_optical_named(&name, meas.into())?;
+                Ok(ret.inner_into())
             }
         }
     }
@@ -1923,7 +1922,7 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
     } else {
         (
             quote! {self.0.replace_temporal_at(index, meas.into())?},
-            quote! {self.0.replace_temporal_named(&name, meas.into())},
+            quote! {self.0.replace_temporal_named(&name, meas.into())?},
             None,
         )
     };
@@ -1946,7 +1945,7 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
             "Raise exception if ``{i}`` does not exist  or there \
              is already a temporal measurement in a different position."
         );
-        let ret = PyOpt::wrap_if(PyUnion::new_measurement(version), !is_index);
+        let ret = PyUnion::new_measurement(version);
         let meas = DocArg::new_param("meas", PyClass::new_temporal(version), meas_desc);
         DocString::new_method(format!("Replace {m} with given temporal measurement."))
             .para(sub)
@@ -1983,7 +1982,7 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
                 #name_fun_args
             ) -> PyResult<#named_ret> {
                 let ret = #replace_tmp_named_body;
-                Ok(ret.map(|r| r.inner_into()))
+                Ok(ret.inner_into())
             }
         }
     }

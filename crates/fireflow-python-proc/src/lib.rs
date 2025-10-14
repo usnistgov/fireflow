@@ -1039,7 +1039,7 @@ pub fn impl_core_version(input: TokenStream) -> TokenStream {
         [""; 0],
         DocReturn::new(PyLiteral::new_version()),
     );
-    doc.into_impl_get(&t, "version", |_| quote!(self.0.fcs_version()))
+    doc.into_impl_get(&t, "version", |_, _| quote!(self.0.fcs_version()))
         .into()
 }
 
@@ -1052,7 +1052,7 @@ pub fn impl_core_par(input: TokenStream) -> TokenStream {
         [""; 0],
         DocReturn::new(RsInt::Usize),
     );
-    doc.into_impl_get(&t, "par", |_| quote!(self.0.par().0))
+    doc.into_impl_get(&t, "par", |_, _| quote!(self.0.par().0))
         .into()
 }
 
@@ -1071,7 +1071,7 @@ pub fn impl_core_all_meas_nonstandard_keywords(input: TokenStream) -> TokenStrea
         &t,
         "all_meas_nonstandard_keywords",
         true,
-        |_| {
+        |_, _| {
             quote!(self
                 .0
                 .get_meas_nonstandard()
@@ -1268,7 +1268,7 @@ pub fn impl_core_all_peak_attrs(input: TokenStream) -> TokenStream {
             &i,
             format!("all_{name}"),
             true,
-            |_| {
+            |_, _| {
                 quote! {
                     self.0
                         .get_temporal_optical::<#inner, #inner>()
@@ -1305,7 +1305,7 @@ pub fn impl_core_all_shortnames_attr(input: TokenStream) -> TokenStream {
         &i,
         "all_shortnames",
         true,
-        |_| quote!(self.0.all_shortnames()),
+        |_, _| quote!(self.0.all_shortnames()),
         |n, _| quote!(Ok(self.0.set_all_shortnames(#n).void()?)),
     )
     .into()
@@ -1326,7 +1326,7 @@ pub fn impl_core_all_shortnames_maybe_attr(input: TokenStream) -> TokenStream {
         &i,
         "all_shortnames_maybe",
         true,
-        |_| {
+        |_, _| {
             quote! {
                 self.0
                     .shortnames_maybe()
@@ -1352,7 +1352,7 @@ pub fn impl_core_get_set_timestep(input: TokenStream) -> TokenStream {
         DocReturn::new(t.clone()),
     );
 
-    let getq = get_doc.into_impl_get(&i, "timestep", |_| quote!(self.0.timestep().copied()));
+    let getq = get_doc.into_impl_get(&i, "timestep", |_, _| quote!(self.0.timestep().copied()));
 
     let param = DocArg::new_param(
         "timestep",
@@ -1579,7 +1579,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
             &i,
             "all_scales",
             true,
-            |_| quote!(self.0.scales().collect()),
+            |_, _| quote!(self.0.scales().collect()),
             |n, _| quote!(self.0.set_scales(#n).py_termfail_resolve_nowarn()),
         )
     } else {
@@ -1603,7 +1603,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
             &i,
             "all_scale_transforms",
             true,
-            |_| quote!(self.0.transforms().collect()),
+            |_, _| quote!(self.0.transforms().collect()),
             |n, _| quote!(self.0.set_transforms(#n).py_termfail_resolve_nowarn()),
         )
     }
@@ -1621,7 +1621,7 @@ pub fn impl_core_get_measurements(input: TokenStream) -> TokenStream {
         DocReturn::new(PyList::new1(PyUnion::new_measurement(version))),
     );
 
-    doc.into_impl_get(&i, "measurements", |_| {
+    doc.into_impl_get(&i, "measurements", |_, _| {
         quote! {
             // This might seem inefficient since we are cloning
             // everything, but if we want to map a python lambda
@@ -1655,7 +1655,7 @@ pub fn impl_core_get_temporal(input: TokenStream) -> TokenStream {
         .desc("Index, name, and measurement or ``None``."),
     );
 
-    doc.into_impl_get(&i, "temporal", |_| {
+    doc.into_impl_get(&i, "temporal", |_, _| {
         quote! {
             self.0
                 .temporal()
@@ -2875,7 +2875,7 @@ pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
         &i,
         "all_measurement_types",
         true,
-        |_| {
+        |_, _| {
             quote! {
                 self.0
                     .get_temporal_optical::<#inner_tmp_rstype, #inner_opt_rstype>()
@@ -2993,7 +2993,7 @@ where
         t,
         format!("all_{name}"),
         true,
-        |_| {
+        |_, _| {
             if optical_only {
                 get_optical_body
             } else {
@@ -3083,15 +3083,15 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
 
     let make_arg_str = |kw_name: &str, kw_sym: &str, t: &str| {
         let kw_path = keyword_path(t);
-        DocArg::new_ivar_rw_def(
+        DocArg::new_ivar_rw(
             kw_name,
             PyStr::default().rstype(kw_path),
             format!("The *$Gm{kw_sym}* keyword."),
-            DocDefault::Auto,
             false,
             |n, _| quote!(self.0.#n.clone()),
             |n, _| quote!(self.0.#n = #n),
         )
+        .def_auto()
     };
 
     let filter = make_arg_str("filter", "F", "GateFilter");
@@ -3195,7 +3195,7 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
         DocReturn::new(PyList::new1(RsInt::U64)),
     );
 
-    let char_widths = char_widths_doc.into_impl_get(&pyname, "char_widths", |_| {
+    let char_widths = char_widths_doc.into_impl_get(&pyname, "char_widths", |_, _| {
         quote! {
             self.0
                 .widths()
@@ -3296,13 +3296,13 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
             quote!(self.0.columns().iter().map(|c| c.clone()).collect())
         });
 
-    let byteord_param = DocArg::new_ivar_ro_def(
+    let byteord_param = DocArg::new_ivar_ro(
         "byteord",
         PyUnion::new_byteord(nbytes),
         "The byte order to use when encoding values.",
-        DocDefault::Auto,
         |_, _| quote!(*self.0.as_ref()),
-    );
+    )
+    .def_auto();
 
     let is_big_param = DocArgROIvar::new_endian_ord_param(2);
 
@@ -3512,7 +3512,7 @@ pub fn impl_layout_byte_widths(input: TokenStream) -> TokenStream {
         DocReturn::new(PyList::new1(RsInt::U32)),
     );
 
-    doc.into_impl_get(&t, "byte_widths", |_| {
+    doc.into_impl_get(&t, "byte_widths", |_, _| {
         quote! {
             self.0
                 .widths()
@@ -4499,6 +4499,20 @@ impl<T> DocArg<T> {
     {
         self.methods.quoted_methods()
     }
+
+    fn def(self, def: DocDefault) -> Self {
+        Self::new(
+            self.argname,
+            self.pytype,
+            self.desc,
+            Some(def),
+            self.methods,
+        )
+    }
+
+    fn def_auto(self) -> Self {
+        self.def(DocDefault::Auto)
+    }
 }
 
 impl GetMethod {
@@ -4803,9 +4817,15 @@ impl<R: Clone + PartialEq + Eq + Hash> PyAtom<R> {
     }
 }
 
-impl<E> Default for PyTuple<E> {
-    fn default() -> Self {
-        Self::new(vec![], None, None)
+impl<R> From<RsInt> for PyInt<R> {
+    fn from(rs: RsInt) -> Self {
+        Self::new(rs, None, None)
+    }
+}
+
+impl<R> From<RsFloat> for PyFloat<R> {
+    fn from(rs: RsFloat) -> Self {
+        Self::new(rs, None, None)
     }
 }
 
@@ -4818,6 +4838,14 @@ macro_rules! impl_py_prim_default {
         }
     };
 }
+
+impl_py_prim_default!(PyStr);
+impl_py_prim_default!(PyBool);
+impl_py_prim_default!(PyBytes);
+impl_py_prim_default!(PyDecimal);
+impl_py_prim_default!(PyDate);
+impl_py_prim_default!(PyTime);
+impl_py_prim_default!(PyDatetime);
 
 macro_rules! impl_py_prim_rstype {
     () => {
@@ -4835,9 +4863,9 @@ macro_rules! impl_py_prim_exc {
     };
 }
 
-macro_rules! impl_py_prim_defaults {
+macro_rules! impl_py_prim_doc_default {
     ($py:expr, $rs:path) => {
-        fn defaults(&self) -> (String, TokenStream2) {
+        fn doc_default(&self) -> (String, TokenStream2) {
             (
                 $py,
                 self.rstype
@@ -4858,7 +4886,7 @@ macro_rules! impl_py_prim_map_exc {
 
 macro_rules! impl_py_num_defaults {
     ($py:expr) => {
-        fn defaults(&self) -> (String, TokenStream2) {
+        fn doc_default(&self) -> (String, TokenStream2) {
             let rt = self.rs.as_rust_type();
             (
                 $py,
@@ -4871,18 +4899,6 @@ macro_rules! impl_py_num_defaults {
             )
         }
     };
-}
-
-impl<R> From<RsInt> for PyInt<R> {
-    fn from(rs: RsInt) -> Self {
-        Self::new(rs, None, None)
-    }
-}
-
-impl<R> From<RsFloat> for PyFloat<R> {
-    fn from(rs: RsFloat) -> Self {
-        Self::new(rs, None, None)
-    }
 }
 
 impl<E> PyInt<E> {
@@ -5003,18 +5019,10 @@ impl<E: From<PyException>> PyFloat<E> {
     }
 }
 
-impl_py_prim_default!(PyStr);
-impl_py_prim_default!(PyBool);
-impl_py_prim_default!(PyBytes);
-impl_py_prim_default!(PyDecimal);
-impl_py_prim_default!(PyDate);
-impl_py_prim_default!(PyTime);
-impl_py_prim_default!(PyDatetime);
-
 impl<E> PyStr<E> {
     impl_py_prim_rstype!();
     impl_py_prim_exc!();
-    impl_py_prim_defaults!("\"\"".into(), String);
+    impl_py_prim_doc_default!("\"\"".into(), String);
     impl_py_prim_map_exc!(PyStr);
 }
 
@@ -5055,13 +5063,13 @@ impl<E: From<PyException>> PyStr<E> {
 
 impl<E> PyBool<E> {
     impl_py_prim_rstype!();
-    impl_py_prim_defaults!("False".into(), bool);
+    impl_py_prim_doc_default!("False".into(), bool);
     impl_py_prim_map_exc!(PyBool);
 }
 
 impl<E> PyBytes<E> {
     impl_py_prim_rstype!();
-    impl_py_prim_defaults!("b\"\"".into(), Vec);
+    impl_py_prim_doc_default!("b\"\"".into(), Vec);
     impl_py_prim_map_exc!(PyBytes);
 }
 
@@ -5074,7 +5082,7 @@ impl<E: From<PyException>> PyBytes<E> {
 
 impl<E> PyDecimal<E> {
     impl_py_prim_rstype!();
-    impl_py_prim_defaults!("0".into(), bigdecimal::BigDecimal);
+    impl_py_prim_doc_default!("0".into(), bigdecimal::BigDecimal);
     impl_py_prim_map_exc!(PyDecimal);
 }
 
@@ -5103,7 +5111,7 @@ impl<E> PyDict<E> {
         Self::new(key.into(), value.into(), None, None)
     }
 
-    impl_py_prim_defaults!("{}".into(), std::collections::HashMap);
+    impl_py_prim_doc_default!("{}".into(), std::collections::HashMap);
 
     fn map_exc<F: Clone + Fn(E) -> E1, E1>(self, f: F) -> PyDict<E1> {
         PyDict::new(
@@ -5153,7 +5161,7 @@ impl<E> PyList<E> {
         Self::new(self.inner, self.rstype, Some(exc.into()))
     }
 
-    impl_py_prim_defaults!("[]".into(), Vec);
+    impl_py_prim_doc_default!("[]".into(), Vec);
 
     fn map_exc<F: Clone + Fn(E) -> E1, E1>(self, f: F) -> PyList<E1> {
         PyList::new(self.inner.map_exc(f.clone()), self.rstype, self.exc.map(f))
@@ -5237,7 +5245,7 @@ impl PyLiteral {
 }
 
 impl<E> PyOpt<E> {
-    fn defaults() -> (String, TokenStream2) {
+    fn doc_default() -> (String, TokenStream2) {
         ("None".into(), quote!(None))
     }
 
@@ -5251,6 +5259,12 @@ impl<E> PyOpt<E> {
 
     fn map_exc<F: Clone + Fn(E) -> E1, E1>(self, f: F) -> PyOpt<E1> {
         PyOpt::new(self.inner.map_exc(f))
+    }
+}
+
+impl<E> Default for PyTuple<E> {
+    fn default() -> Self {
+        Self::new(vec![], None, None)
     }
 }
 
@@ -5604,28 +5618,28 @@ impl<E> PyType<E> {
         }
     }
 
-    fn defaults(&self) -> (String, TokenStream2) {
+    fn doc_default(&self) -> (String, TokenStream2) {
         match self {
-            Self::Bool(x) => x.defaults(),
-            Self::Bytes(x) => x.defaults(),
-            Self::Str(x) => x.defaults(),
-            Self::Int(x) => x.defaults(),
-            Self::Float(x) => x.defaults(),
-            Self::Decimal(x) => x.defaults(),
-            Self::List(x) => x.defaults(),
-            Self::Dict(x) => x.defaults(),
-            Self::Option(_) => PyOpt::<E>::defaults(),
+            Self::Bool(x) => x.doc_default(),
+            Self::Bytes(x) => x.doc_default(),
+            Self::Str(x) => x.doc_default(),
+            Self::Int(x) => x.doc_default(),
+            Self::Float(x) => x.doc_default(),
+            Self::Decimal(x) => x.doc_default(),
+            Self::List(x) => x.doc_default(),
+            Self::Dict(x) => x.doc_default(),
+            Self::Option(_) => PyOpt::<E>::doc_default(),
             Self::Literal(x) => {
                 let rt = &x.rstype;
                 (format!("\"{}\"", x.head), quote!(#rt::default()))
             }
             Self::Union(x) => {
                 let rt = path_strip_args(x.rstype.clone());
-                let (pt, _) = x.head0.defaults();
+                let (pt, _) = x.head0.doc_default();
                 (pt, quote!(#rt::default()))
             }
             Self::Tuple(xs) => {
-                let (ps, rs): (Vec<_>, Vec<_>) = xs.inner.iter().map(Self::defaults).unzip();
+                let (ps, rs): (Vec<_>, Vec<_>) = xs.inner.iter().map(Self::doc_default).unzip();
                 (
                     format!("({})", ps.into_iter().join(", ")),
                     xs.rstype.as_ref().map_or(quote!((#(#rs),*)), |y| {
@@ -5759,21 +5773,6 @@ impl DocArgRWIvar {
         Self::new(name, pt, desc.to_string(), None, methods)
     }
 
-    fn new_ivar_rw_def(
-        argname: impl fmt::Display,
-        pytype: impl Into<ArgPyType>,
-        desc: impl fmt::Display,
-        def: DocDefault,
-        fallible: bool,
-        f: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
-        g: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
-    ) -> Self {
-        let pt = pytype.into();
-        let name = argname.to_string();
-        let methods = GetSetMethods::from_pytype(name.as_str(), &pt, fallible, f, g);
-        Self::new(name, pt, desc.to_string(), Some(def), methods)
-    }
-
     fn new_opt_ivar_rw(
         argname: impl fmt::Display,
         pytype: impl Into<ArgPyType>,
@@ -5783,7 +5782,7 @@ impl DocArgRWIvar {
         g: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
     ) -> Self {
         let pt = PyOpt::new(pytype.into());
-        Self::new_ivar_rw_def(argname, pt, desc, DocDefault::Auto, fallible, f, g)
+        Self::new_ivar_rw(argname, pt, desc, fallible, f, g).def_auto()
     }
 
     fn new_kw_ivar<F, T>(kw: &str, name: &str, f: F, desc: Option<&str>, def: bool) -> Self
@@ -5804,10 +5803,11 @@ impl DocArgRWIvar {
         };
         let set_f = |n: &Ident, _: &ArgPyType| quote!(self.0.set_metaroot(#n));
 
+        let ret = Self::new_ivar_rw(name, pytype, d, false, get_f, set_f);
         if def {
-            Self::new_ivar_rw_def(name, pytype, d, DocDefault::Auto, false, get_f, set_f)
+            ret.def_auto()
         } else {
-            Self::new_ivar_rw(name, pytype, d, false, get_f, set_f)
+            ret
         }
     }
 
@@ -5841,10 +5841,11 @@ impl DocArgRWIvar {
         };
         let set_f = |n: &Ident, _: &ArgPyType| quote!(*self.0.as_mut() = #n);
 
+        let ret = Self::new_ivar_rw(name, pytype, d, false, get_f, set_f);
         if def {
-            Self::new_ivar_rw_def(name, pytype, d, DocDefault::Auto, false, get_f, set_f)
+            ret.def_auto()
         } else {
-            Self::new_ivar_rw(name, pytype, d, false, get_f, set_f)
+            ret
         }
     }
 
@@ -6074,16 +6075,16 @@ impl DocArgRWIvar {
 
     fn new_csvflags_ivar() -> Self {
         let path: Path = parse_quote!(fireflow_core::core::CSVFlags);
-        Self::new_ivar_rw_def(
+        Self::new_ivar_rw(
             "csvflags",
             PyList::new(PyOpt::new(PyInt::new_u32()), path.clone(), None),
             "Subset flags. Each element in the list corresponds to *$CSVnFLAG* and \
              the length of the list corresponds to *$CSMODE*.",
-            DocDefault::Auto,
             false,
             |_, _| quote!(self.0.metaroot::<#path>().clone()),
             |n, _| quote!(self.0.set_metaroot(#n)),
         )
+        .def_auto()
     }
 
     // TODO exception for mismatch PnN
@@ -6102,11 +6103,10 @@ impl DocArgRWIvar {
     fn new_unstainedcenters_ivar() -> Self {
         let path = keyword_path("UnstainedCenters");
         // TODO exceptions for links
-        Self::new_ivar_rw_def(
+        Self::new_ivar_rw(
             "unstainedcenters",
             PyDict::new(PyStr::new_shortname(), RsFloat::F32, path.clone(), None),
             "Value for *$UNSTAINEDCENTERS. Each key must match a *$PnN*.",
-            DocDefault::Auto,
             true,
             |_, _| quote!(self.0.metaroot::<#path>().clone()),
             |n, _| {
@@ -6116,6 +6116,7 @@ impl DocArgRWIvar {
                     .py_termfail_resolve_nowarn())
             },
         )
+        .def_auto()
     }
 
     fn new_applied_gates_ivar(version: Version) -> Self {
@@ -6179,27 +6180,26 @@ impl DocArgRWIvar {
         };
 
         if collapsed_version == Version::FCS2_0 {
-            Self::new_ivar_rw_def(
+            Self::new_ivar_rw(
                 "applied_gates",
                 pytype,
                 desc,
-                DocDefault::Auto,
                 false,
                 |_, _| quote!(self.0.metaroot::<#rstype_inner>().clone().into()),
                 |n, _| quote!(self.0.set_metaroot::<#rstype_inner>(#n.into())),
             )
         } else {
             let setter = format_ident!("set_applied_gates_{vsu}");
-            Self::new_ivar_rw_def(
+            Self::new_ivar_rw(
                 "applied_gates",
                 pytype,
                 desc,
-                DocDefault::Auto,
                 true,
                 |_, _| quote!(self.0.metaroot::<#rstype_inner>().clone().into()),
                 |n, _| quote!(Ok(self.0.#setter(#n.into())?)),
             )
         }
+        .def_auto()
     }
 
     fn new_scale_ivar() -> Self {
@@ -6251,15 +6251,15 @@ impl DocArgRWIvar {
         f: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
         g: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
     ) -> Self {
-        Self::new_ivar_rw_def(
+        Self::new_ivar_rw(
             "nonstandard_keywords",
             PyDict::new_nonstd_keywords(),
             desc,
-            DocDefault::Auto,
             false,
             f,
             g,
         )
+        .def_auto()
     }
 }
 
@@ -6276,19 +6276,6 @@ impl DocArgROIvar {
         Self::new(a, pt, desc.to_string(), None, method)
     }
 
-    fn new_ivar_ro_def(
-        argname: impl fmt::Display,
-        pytype: impl Into<ArgPyType>,
-        desc: impl fmt::Display,
-        def: DocDefault,
-        f: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
-    ) -> Self {
-        let pt = pytype.into();
-        let a = argname.to_string();
-        let method = GetMethod::from_pytype(a.as_str(), &pt, f);
-        Self::new(a, pt, desc.to_string(), Some(def), method)
-    }
-
     fn new_version_ivar() -> Self {
         Self::new_ivar_ro(
             "version",
@@ -6301,30 +6288,29 @@ impl DocArgROIvar {
     fn new_endian_param(n: usize) -> Self {
         let xs = (1..=n).join(",");
         let ys = (1..=n).rev().join(",");
-        Self::new_ivar_ro_def(
+        Self::new_ivar_ro(
             "endian",
             PyLiteral::new_endian(),
             format!(
                 "If ``\"big\"`` use big endian (``{ys}``) for encoding values; \
              if ``\"little\"`` use little endian (``{xs}``)."
             ),
-            DocDefault::Auto,
             |_, _| quote!(*self.0.as_ref()),
         )
+        .def_auto()
     }
 
     fn new_endian_ord_param(n: usize) -> Self {
         let xs = (1..=n).join(",");
         let ys = (1..=n).rev().join(",");
         let sizedbyteord_path = quote!(fireflow_core::text::byteord::SizedByteOrd);
-        Self::new_ivar_ro_def(
+        Self::new_ivar_ro(
             "endian",
             PyLiteral::new_endian(),
             format!(
                 "If ``\"big\"`` use big endian (``{ys}``) for encoding values; \
              if ``\"little\"`` use little endian (``{xs}``)."
             ),
-            DocDefault::Auto,
             |_, _| {
                 quote! {
                     let m: #sizedbyteord_path<2> = *self.0.as_ref();
@@ -6332,6 +6318,7 @@ impl DocArgROIvar {
                 }
             },
         )
+        .def_auto()
     }
 }
 
@@ -6345,24 +6332,8 @@ impl DocArgParam {
         Self::new(argname.to_string(), pt, desc.to_string(), None, NoMethods)
     }
 
-    fn new_param_def(
-        argname: impl fmt::Display,
-        pytype: impl Into<ArgPyType>,
-        desc: impl fmt::Display,
-        def: DocDefault,
-    ) -> Self {
-        let pt = pytype.into();
-        Self::new(
-            argname.to_string(),
-            pt,
-            desc.to_string(),
-            Some(def),
-            NoMethods,
-        )
-    }
-
     fn new_bool_param(name: impl fmt::Display, desc: impl fmt::Display) -> Self {
-        Self::new_param_def(name, PyBool::default(), desc, DocDefault::Auto)
+        Self::new_param(name, PyBool::default(), desc).def_auto()
     }
 
     fn new_opt_param(
@@ -6370,7 +6341,7 @@ impl DocArgParam {
         pytype: impl Into<ArgPyType>,
         desc: impl fmt::Display,
     ) -> Self {
-        Self::new_param_def(name, PyOpt::new(pytype), desc, DocDefault::Auto)
+        Self::new_param(name, PyOpt::new(pytype), desc).def_auto()
     }
 
     fn into_ro(self, f: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2) -> DocArgROIvar {
@@ -6482,7 +6453,7 @@ impl DocArgParam {
         let exc = PyException::new_value_error().desc("if %x is not between 1 and 126");
         let pytype = PyInt::from(RsInt::U8).rstype(path).exc(exc);
         let desc = "Delimiter to use when writing *TEXT*.";
-        Self::new_param_def("delim", pytype, desc, DocDefault::Int(30))
+        Self::new_param("delim", pytype, desc).def(DocDefault::Int(30))
     }
 
     fn new_big_other_param() -> Self {
@@ -6761,13 +6732,13 @@ impl DocArgParam {
     fn new_time_meas_pattern_param() -> Self {
         let path = parse_quote!(fireflow_core::config::TimeMeasNamePattern);
         let pytype = PyOpt::new(PyStr::new_regexp().rstype(path));
-        Self::new_param_def(
+        Self::new_param(
             "time_meas_pattern",
             pytype,
             "A pattern to match the *$PnN* of the time measurement. \
              If ``None``, do not try to find a time measurement.",
-            DocDefault::Str("^(TIME|Time)$".into()),
         )
+        .def(DocDefault::Str("^(TIME|Time)$".into()))
     }
 
     fn new_allow_missing_time_param() -> Self {
@@ -6795,7 +6766,7 @@ impl DocArgParam {
     }
 
     fn new_ignore_time_optical_keys_param() -> Self {
-        Self::new_param_def(
+        Self::new_param(
             "ignore_time_optical_keys",
             PyList::new(
                 PyLiteral::new_temporal_optical_key(),
@@ -6806,8 +6777,8 @@ impl DocArgParam {
              nonsensical for time measurements but are not explicitly forbidden in \
              the the standard. Provided keys are the string after the \"Pn\" in \
              the \"PnX\" keywords.",
-            DocDefault::Auto,
         )
+        .def_auto()
     }
 
     fn new_parse_indexed_spillover_param() -> Self {
@@ -6967,12 +6938,12 @@ impl DocArgParam {
 
     fn new_config_correction_arg(name: &str, what: &str, is_header: bool, id: &str) -> Self {
         let location = if is_header { "HEADER" } else { "TEXT" };
-        Self::new_param_def(
+        Self::new_param(
             name,
             PyTuple::new_correction(is_header, id),
             format!("Corrections for {what} offsets in *{location}*."),
-            DocDefault::Auto,
         )
+        .def_auto()
     }
 
     fn new_text_correction_param() -> Self {
@@ -6993,15 +6964,15 @@ impl DocArgParam {
     }
 
     fn new_other_corrections_param() -> Self {
-        Self::new_param_def(
+        Self::new_param(
             "other_corrections",
             PyList::new1(PyTuple::new_correction(true, "OtherSegmentId")),
             "Corrections for OTHER offsets if they exist. Each correction will \
              be applied in order. If an offset does not need to be corrected, \
              use ``(0, 0)``. This will not affect the number of OTHER segments \
              that are read; this is controlled by ``max_other``.",
-            DocDefault::Auto,
         )
+        .def_auto()
     }
 
     fn new_max_other_param() -> Self {
@@ -7016,12 +6987,8 @@ impl DocArgParam {
     fn new_other_width_param() -> Self {
         let path = parse_quote!(fireflow_core::validated::ascii_range::OtherWidth);
         let pt = PyInt::new_int(RsInt::NonZeroU8).rstype(path);
-        Self::new_param_def(
-            "other_width",
-            pt,
-            "Width (in bytes) to use when parsing *OTHER* offsets.",
-            DocDefault::Int(8),
-        )
+        let desc = "Width (in bytes) to use when parsing *OTHER* offsets.";
+        Self::new_param("other_width", pt, desc).def(DocDefault::Int(8))
     }
 
     // this only matters for 3.0+ files
@@ -7250,32 +7217,32 @@ impl DocArgParam {
              expressions corresponding to {REGEXP_REF}."
         );
         let d = format!("{desc}. {common}");
-        Self::new_param_def(argname, PyTuple::new_key_patterns(), d, DocDefault::Auto)
+        Self::new_param(argname, PyTuple::new_key_patterns(), d).def_auto()
     }
 
     fn new_rename_standard_keys() -> Self {
-        Self::new_param_def(
+        Self::new_param(
             "rename_standard_keys",
             PyDict::new_keystring_pairs(),
             "Rename standard keys in *TEXT*. Keys matching the first part of \
              the pair will be replaced by the second. Comparisons are case \
              insensitive. The leading *$* is implied so do not include it.",
-            DocDefault::Auto,
         )
+        .def_auto()
     }
 
     fn new_replace_standard_key_values() -> Self {
-        Self::new_param_def(
+        Self::new_param(
             "replace_standard_key_values",
             PyDict::new1(PyStr::new_keystring(), PyStr::default()),
             "Replace values for standard keys in *TEXT* Comparisons are case \
              insensitive. The leading *$* is implied so do not include it.",
-            DocDefault::Auto,
         )
+        .def_auto()
     }
 
     fn new_substitute_standard_key_values() -> Self {
-        Self::new_param_def(
+        Self::new_param(
             "substitute_standard_key_values",
             PyTuple::new_sub_patterns(),
             "Apply sed-like substitution operation on matching standard \
@@ -7290,19 +7257,19 @@ impl DocArgParam {
              matches, otherwise only replace the first. Any references in \
              replacement string must be given with surrounding brackets \
              like ``\"${{1}}\"`` or ``\"${{cygnus}}\"``.",
-            DocDefault::Auto,
         )
+        .def_auto()
     }
 
     fn new_append_standard_keywords() -> Self {
-        Self::new_param_def(
+        Self::new_param(
             "append_standard_keywords",
             PyDict::new1(PyStr::new_keystring(), PyStr::default()),
             "Append standard key/value pairs to *TEXT*. All keys and values \
              will be included as they appear here. The leading *$* is implied so \
              do not include it.",
-            DocDefault::Auto,
         )
+        .def_auto()
     }
 
     fn new_text_data_correction_param() -> Self {
@@ -7401,12 +7368,12 @@ impl DocDefault {
         };
         let py_str = |s| format!("\"{s}\"");
         match (self, pytype) {
-            (Self::Auto, _) => pytype.defaults(),
-            (Self::Int(x), PyType::Int(_)) => (x.to_string(), pytype.defaults().1),
-            (Self::Str(x), PyType::Str(_)) => (py_str(x), pytype.defaults().1),
+            (Self::Auto, _) => pytype.doc_default(),
+            (Self::Int(x), PyType::Int(_)) => (x.to_string(), pytype.doc_default().1),
+            (Self::Str(x), PyType::Str(_)) => (py_str(x), pytype.doc_default().1),
             (dt, PyType::Option(pt)) => match (dt, &pt.inner) {
-                (Self::Int(x), PyType::Int(y)) => (x.to_string(), y.defaults().1),
-                (Self::Str(x), PyType::Str(y)) => (py_str(x), y.defaults().1),
+                (Self::Int(x), PyType::Int(y)) => (x.to_string(), y.doc_default().1),
+                (Self::Str(x), PyType::Str(y)) => (py_str(x), y.doc_default().1),
                 _ => err(),
             },
             _ => err(),
@@ -7519,13 +7486,13 @@ impl IvarDocString {
         mut self,
         class: &Ident,
         name: impl fmt::Display,
-        f: impl FnOnce(&ArgPyType) -> TokenStream2,
+        f: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
     ) -> TokenStream2 {
         self.append_summary_or_paragraph("read-only", "This attribute is read-only.");
         let i = format_ident!("{name}");
         let pt = &self.returns.rtype;
         let rt = pt.as_rust_type();
-        let body = f(pt);
+        let body = f(&i, pt);
         let doc = self.doc();
         quote! {
             #[pymethods]
@@ -7544,7 +7511,7 @@ impl IvarDocString {
         class: &Ident,
         name: impl fmt::Display,
         fallible: bool,
-        get_fun: impl FnOnce(&ArgPyType) -> TokenStream2,
+        get_fun: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
         set_fun: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
     ) -> TokenStream2 {
         self.append_summary_or_paragraph("read-write", "This attribute is read-write.");
@@ -7552,7 +7519,7 @@ impl IvarDocString {
         let set = format_ident!("set_{get}");
         let pt = &self.returns.rtype;
         let rt = pt.as_rust_type();
-        let get_body = get_fun(pt);
+        let get_body = get_fun(&get, pt);
         let set_body = set_fun(&get, pt);
         let doc = self.doc();
         let ret = if fallible {
@@ -8160,7 +8127,7 @@ fn make_layout_datatype(pyname: &Ident, dt: &str) -> TokenStream2 {
         [format!("Will always return ``\"{dt}\"``.")],
         DocReturn::new(PyLiteral::new_datatype()),
     );
-    doc.into_impl_get(pyname, "datatype", |_| quote!(self.0.datatype().into()))
+    doc.into_impl_get(pyname, "datatype", |_, _| quote!(self.0.datatype().into()))
 }
 
 fn make_byte_width(pyname: &Ident, nbytes: usize) -> TokenStream2 {
@@ -8174,7 +8141,7 @@ fn make_byte_width(pyname: &Ident, nbytes: usize) -> TokenStream2 {
         DocReturn::new(RsInt::Usize),
     );
 
-    doc.into_impl_get(pyname, "byte_width", |_| quote!(#nbytes))
+    doc.into_impl_get(pyname, "byte_width", |_, _| quote!(#nbytes))
 }
 
 const MAX_LINE_LEN: usize = 72;

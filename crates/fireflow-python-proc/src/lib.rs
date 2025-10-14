@@ -123,7 +123,7 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
             .chain(shared_args),
         Some(
             DocReturn::new(PyTuple::new1([
-                PyType::new_anycoretext(),
+                PyType::from(PyUnion::new_anycoretext()),
                 PyClass::new_py(["api"], "StdTEXTOutput").into(),
             ]))
             .exc([exc]),
@@ -232,7 +232,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
             .chain(shared_args),
         Some(
             DocReturn::new(PyTuple::new1([
-                PyType::new_anycoredataset(),
+                PyType::from(PyUnion::new_anycoredataset()),
                 PyClass::new_py(["api"], "StdDatasetOutput").into(),
             ]))
             .exc([exc]),
@@ -365,7 +365,7 @@ pub fn def_fcs_read_std_dataset_with_keywords(input: TokenStream) -> TokenStream
         .chain(shared_args),
         Some(
             DocReturn::new(PyTuple::new1([
-                PyType::new_anycoredataset(),
+                PyType::from(PyUnion::new_anycoredataset()),
                 PyClass::new_py(["api"], "StdDatasetWithKwsOutput").into(),
             ]))
             .exc([exc]),
@@ -571,14 +571,14 @@ pub fn impl_py_extra_std_keywords(input: TokenStream) -> TokenStream {
 
     let pseudostandard = DocArgROIvar::new_ivar_ro(
         "pseudostandard",
-        PyType::new_std_keywords(),
+        PyDict::new_std_keywords(),
         "Keywords which start with *$* but are not part of the standard.",
         |_, _| quote!(self.0.pseudostandard.clone()),
     );
 
     let unused = DocArgROIvar::new_ivar_ro(
         "unused",
-        PyType::new_std_keywords(),
+        PyDict::new_std_keywords(),
         "Keywords which are part of the standard but were not used.",
         |_, _| quote!(self.0.unused.clone()),
     );
@@ -827,7 +827,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let cyt = if version < Version::FCS3_2 {
         DocArg::new_kw_ivar_str("Cyt", "cyt")
     } else {
-        DocArg::new_kw_ivar("Cyt3_2", "cyt", PyType::new_non_empty_str, None, false)
+        DocArg::new_kw_ivar("Cyt3_2", "cyt", PyStr::new_non_empty_str, None, false)
     };
 
     let py_float = |p| PyFloat::new_non_negative_float().rstype(p);
@@ -1037,7 +1037,7 @@ pub fn impl_core_version(input: TokenStream) -> TokenStream {
     let doc = DocString::new_ivar(
         "Show the FCS version.",
         [""; 0],
-        DocReturn::new(PyType::new_version()),
+        DocReturn::new(PyLiteral::new_version()),
     );
     doc.into_impl_get(&t, "version", |_, _| quote!(self.0.fcs_version()))
         .into()
@@ -1064,7 +1064,7 @@ pub fn impl_core_all_meas_nonstandard_keywords(input: TokenStream) -> TokenStrea
     let doc = DocString::new_ivar(
         "The non-standard keywords for each measurement.",
         [""; 0],
-        DocReturn::new(PyList::new1(PyType::new_nonstd_keywords())),
+        DocReturn::new(PyList::new1(PyDict::new_nonstd_keywords())),
     );
 
     doc.into_impl_get_set(
@@ -1114,7 +1114,7 @@ pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
              offset keywords since these are not encoded in this class.",
         ],
         [(true, true), (false, true), (true, false), (false, false)].map(|(x, y)| make_param(x, y)),
-        Some(DocReturn::new(PyType::new_keywords()).desc("A list of standard keywords.")),
+        Some(DocReturn::new(PyDict::new_keywords()).desc("A list of standard keywords.")),
     );
 
     let fun_args = doc.fun_args();
@@ -1345,7 +1345,7 @@ pub fn impl_core_get_set_timestep(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let _ = split_ident_version_pycore(&i).1;
 
-    let t = PyOpt::new(PyType::new_timestep());
+    let t = PyOpt::new(PyFloat::new_timestep());
     let get_doc = DocString::new_ivar(
         "The value of *$TIMESTEP*",
         [""; 0],
@@ -1356,7 +1356,7 @@ pub fn impl_core_get_set_timestep(input: TokenStream) -> TokenStream {
 
     let param = DocArg::new_param(
         "timestep",
-        PyType::new_timestep(),
+        PyFloat::new_timestep(),
         "The timestep to set. Must be greater than zero.",
     );
     let set_doc = DocString::new_method(
@@ -1397,7 +1397,7 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
         };
         let timestep = has_timestep.then_some(DocArg::new_param(
             "timestep",
-            PyType::new_timestep(),
+            PyFloat::new_timestep(),
             "The value of *$TIMESTEP* to use.",
         ));
         let allow_loss = DocArg::new_bool_param(
@@ -1481,7 +1481,7 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
             .into_iter();
         let (rt, rd) = if has_timestep {
             (
-                PyOpt::new(PyType::new_timestep()).into(),
+                PyOpt::new(PyFloat::new_timestep()).into(),
                 "Value of *$TIMESTEP* if time measurement was present.",
             )
         } else {
@@ -1491,12 +1491,7 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
                  ``False`` if there was not a temporal measurement.",
             )
         };
-        DocString::new_method(
-            s,
-            [""; 0],
-            p,
-            Some(DocReturn::new(rt.map_exc(|_| ())).desc(rd)),
-        )
+        DocString::new_method(s, [""; 0], p, Some(DocReturn::new(rt).desc(rd)))
     };
 
     let q = if version == Version::FCS2_0 {
@@ -1577,7 +1572,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
         let doc = DocString::new_ivar(
             "The value for *$PnE* for all measurements.",
             [s0, s1],
-            DocReturn::new(PyList::new1(PyOpt::new(PyType::new_scale(false)))),
+            DocReturn::new(PyList::new1(PyOpt::new(PyUnion::new_scale(false)))),
         );
 
         doc.into_impl_get_set(
@@ -1601,7 +1596,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
         let doc = DocString::new_ivar(
             sum,
             [s0, s1, s2, s3],
-            DocReturn::new(PyList::new1(PyType::new_transform())),
+            DocReturn::new(PyList::new1(PyUnion::new_transform())),
         );
 
         doc.into_impl_get_set(
@@ -1623,7 +1618,7 @@ pub fn impl_core_get_measurements(input: TokenStream) -> TokenStream {
     let doc = DocString::new_ivar(
         "All measurements.",
         [""; 0],
-        DocReturn::new(PyList::new1(PyType::new_measurement(version))),
+        DocReturn::new(PyList::new1(PyUnion::new_measurement(version))),
     );
 
     doc.into_impl_get(&i, "measurements", |_, _| {
@@ -1655,7 +1650,7 @@ pub fn impl_core_get_temporal(input: TokenStream) -> TokenStream {
         DocReturn::new(PyOpt::new(PyTuple::new1([
             PyInt::new_meas_index().into(),
             PyStr::new_shortname().into(),
-            PyType::new_temporal(version),
+            PyType::from(PyClass::new_temporal(version)),
         ])))
         .desc("Index, name, and measurement or ``None``."),
     );
@@ -1679,9 +1674,7 @@ pub fn impl_core_get_measurement(input: TokenStream) -> TokenStream {
         "Return measurement at index.",
         ["Raise exception if ``index`` not found."],
         [DocArg::new_index_param("Index to retrieve.")],
-        Some(DocReturn::new(
-            PyType::new_measurement(version).map_exc(|_| ()),
-        )),
+        Some(DocReturn::new(PyUnion::new_measurement(version))),
     );
 
     let fun_args = doc.fun_args();
@@ -1709,9 +1702,7 @@ pub fn impl_core_get_named_measurement(input: TokenStream) -> TokenStream {
         "Return measurement with name.",
         ["Raise exception if ``name`` not found."],
         [DocArg::new_name_param("Name to retrieve.")],
-        Some(DocReturn::new(
-            PyType::new_measurement(version).map_exc(|_| ()),
-        )),
+        Some(DocReturn::new(PyUnion::new_measurement(version))),
     );
 
     let fun_args = doc.fun_args();
@@ -1781,9 +1772,9 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
 
     let push_meas_doc = |is_optical: bool, hasdata: bool| {
         let (meas_type, what) = if is_optical {
-            (PyType::new_optical(version), "optical")
+            (PyClass::new_optical(version), "optical")
         } else {
-            (PyType::new_temporal(version), "temporal")
+            (PyClass::new_temporal(version), "temporal")
         };
         let param_meas = DocArg::new_param("meas", meas_type, "The measurement to push.");
         let col_param = hasdata.then_some(DocArg::new_col_param());
@@ -1842,13 +1833,10 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
         ["Raise exception if ``name`` not found."],
         [DocArg::new_name_param("Name to remove.")],
         Some(
-            DocReturn::new(
-                PyTuple::new1([
-                    PyInt::new_meas_index().into(),
-                    PyType::new_measurement(version),
-                ])
-                .map_exc(|_| ()),
-            )
+            DocReturn::new(PyTuple::new1([
+                PyType::from(PyInt::new_meas_index()),
+                PyUnion::new_measurement(version).into(),
+            ]))
             .desc("Index and measurement object."),
         ),
     );
@@ -1858,13 +1846,10 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
         ["Raise exception if ``index`` not found."],
         [DocArg::new_index_param("Index to remove.")],
         Some(
-            DocReturn::new(
-                PyTuple::new1([
-                    PyType::new_versioned_shortname(version),
-                    PyType::new_measurement(version),
-                ])
-                .map_exc(|_| ()),
-            )
+            DocReturn::new(PyTuple::new1([
+                PyType::new_versioned_shortname(version),
+                PyUnion::new_measurement(version).into(),
+            ]))
             .desc("Name and measurement object."),
         ),
     );
@@ -1914,9 +1899,9 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
     // TODO not DRY
     let insert_meas_doc = |is_optical: bool, hasdata: bool| {
         let (meas_type, what) = if is_optical {
-            (PyType::new_optical(version), "optical")
+            (PyClass::new_optical(version), "optical")
         } else {
-            (PyType::new_temporal(version), "temporal")
+            (PyClass::new_temporal(version), "temporal")
         };
         let param_meas = DocArg::new_param("meas", meas_type, "The measurement to insert.");
         let col_param = hasdata.then_some(DocArg::new_col_param());
@@ -1989,15 +1974,15 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
         let i = &i_param.argname;
         let meas_desc = format!("Optical measurement to replace measurement at ``{i}``.");
         let sub = format!("Raise exception if ``{i}`` does not exist.");
-        let ret = PyOpt::wrap_if(PyType::new_measurement(version), !is_index);
+        let ret = PyOpt::wrap_if(PyUnion::new_measurement(version), !is_index);
         DocString::new_method(
             format!("Replace {m} with given optical measurement."),
             [sub],
             [
                 i_param,
-                DocArg::new_param("meas", PyType::new_optical(version), meas_desc),
+                DocArg::new_param("meas", PyClass::new_optical(version), meas_desc),
             ],
-            Some(DocReturn::new(ret.map_exc(|_| ())).desc("Replaced measurement object.")),
+            Some(DocReturn::new(ret).desc("Replaced measurement object.")),
         )
     };
 
@@ -2077,14 +2062,14 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
         );
         let args = [
             i_param,
-            DocArg::new_param("meas", PyType::new_temporal(version), meas_desc),
+            DocArg::new_param("meas", PyClass::new_temporal(version), meas_desc),
         ];
-        let ret = PyOpt::wrap_if(PyType::new_measurement(version), !is_index);
+        let ret = PyOpt::wrap_if(PyUnion::new_measurement(version), !is_index);
         DocString::new_method(
             format!("Replace {m} with given temporal measurement."),
             [sub],
             args.into_iter().chain(allow_loss.clone()),
-            Some(DocReturn::new(ret.map_exc(|_| ())).desc("Replaced measurement object.")),
+            Some(DocReturn::new(ret).desc("Replaced measurement object.")),
         )
     };
 
@@ -2149,13 +2134,13 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
 
     let std_param = DocArg::new_param(
         "std",
-        PyType::new_std_keywords(),
+        PyDict::new_std_keywords(),
         format!("Standard keywords. {no_kws}"),
     );
 
     let nonstd_param = DocArg::new_param(
         "nonstd",
-        PyType::new_nonstd_keywords(),
+        PyDict::new_nonstd_keywords(),
         "Non-Standard keywords.",
     );
 
@@ -2168,8 +2153,8 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
             .chain(layout_args)
             .chain(shared_args),
         Some(DocReturn::new(PyTuple::new1([
-            PyType::new_coretext(version),
-            PyClass::new_py(["api"], "ExtraStdKeywords").into(),
+            PyClass::new_coretext(version),
+            PyClass::new_py(["api"], "ExtraStdKeywords"),
         ]))),
     );
 
@@ -2231,11 +2216,11 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
 
     let path_param = DocArg::new_path_param(true);
 
-    let std_param = DocArg::new_param("std", PyType::new_std_keywords(), "Standard keywords.");
+    let std_param = DocArg::new_param("std", PyDict::new_std_keywords(), "Standard keywords.");
 
     let nonstd_param = DocArg::new_param(
         "nonstd",
-        PyType::new_nonstd_keywords(),
+        PyDict::new_nonstd_keywords(),
         "Non-Standard keywords.",
     );
 
@@ -2259,8 +2244,8 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
         [""; 0],
         all_args,
         Some(DocReturn::new(PyTuple::new1([
-            PyType::new_coredataset(version),
-            PyClass::new_py(["api"], "StdDatasetWithKwsOutput").into(),
+            PyClass::new_coredataset(version),
+            PyClass::new_py(["api"], "StdDatasetWithKwsOutput"),
         ]))),
     );
 
@@ -2449,7 +2434,7 @@ pub fn impl_coredataset_set_measurements_and_data(input: TokenStream) -> TokenSt
     let version = split_ident_version_checked("PyCoreDataset", &i);
 
     let param_type_set_df =
-        DocArg::new_param("data", PyType::new_dataframe(false), "The new data.");
+        DocArg::new_param("data", PyClass::new_dataframe(false), "The new data.");
 
     let doc = DocString::new_method(
         "Set measurements and data at once.",
@@ -2498,7 +2483,7 @@ pub fn impl_coretext_to_dataset(input: TokenStream) -> TokenStream {
         ["This will fully represent an FCS file, as opposed to just \
           representing *HEADER* and *TEXT*."],
         [data, analysis, others],
-        Some(DocReturn::new(PyType::new_coredataset(version))),
+        Some(DocReturn::new(PyClass::new_coredataset(version))),
     );
 
     let fun_args = doc.fun_args();
@@ -2517,8 +2502,9 @@ pub fn impl_coretext_to_dataset(input: TokenStream) -> TokenStream {
     .into()
 }
 
-// TODO it seems like there is no compile error if the types don't match between
-// the python and rs interfaces. This seems sketchy
+// NOTE None of these types will trigger a compile error on mismatch because
+// the are encapsulated by a newtype which doesn't have a direct mapping to a
+// type in python. The only way to ensure things line up is using unit tests.
 #[proc_macro]
 #[allow(clippy::too_many_lines)]
 pub fn impl_new_meas(input: TokenStream) -> TokenStream {
@@ -2627,8 +2613,9 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
 
     let analyte = DocArg::new_meas_kw_str("Analyte", "analyte", "ANALYTE");
 
-    let feature =
-        DocArg::new_meas_kw_opt_ivar("Feature", "feature", "FEATURE", |_| PyType::new_feature());
+    let feature = DocArg::new_meas_kw_opt_ivar("Feature", "feature", "FEATURE", |_| {
+        PyLiteral::new_feature()
+    });
 
     let detector_name = DocArg::new_meas_kw_str("DetectorName", "detector_name", "DET");
 
@@ -2646,7 +2633,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
 
     let timestep = DocArg::new_ivar_rw(
         "timestep",
-        PyType::new_timestep(),
+        PyFloat::new_timestep(),
         "Value of *$TIMESTEP*.",
         false,
         |_, _| quote!(self.0.specific.timestep),
@@ -2942,7 +2929,7 @@ pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
 pub fn impl_core_all_pnfeature(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     core_all_optical_attr(&i, "Feature", "features", "FEATURE", |_| {
-        PyType::new_feature()
+        PyLiteral::new_feature()
     })
 }
 
@@ -3083,9 +3070,9 @@ pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
             let vs = v.short();
             let fn_name = format_ident!("to_version_{vsu}");
             let target_type = if is_dataset {
-                PyType::new_coredataset(v)
+                PyClass::new_coredataset(v)
             } else {
-                PyType::new_coretext(v)
+                PyClass::new_coretext(v)
             };
             let target_pytype = target_type.as_rust_type();
             let param = DocArg::new_bool_param("allow_loss", param_desc);
@@ -3123,7 +3110,7 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
 
     let scale = DocArg::new_opt_ivar_rw(
         "scale",
-        PyType::new_scale(true),
+        PyUnion::new_scale(true),
         "The *$GmE* keyword. ``()`` means linear scaling and 2-tuple \
          specifies decades and offset for log scaling.",
         false,
@@ -3307,7 +3294,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
                           This is not used internally so only serves for users' \
                           own purposes.";
         (
-            PyType::new_float_range(nbytes),
+            PyFloat::new_float_range(nbytes).into(),
             range_desc,
             "float",
             "F",
@@ -3322,7 +3309,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
                           in ``ranges``. A bitmask will be created which \
                           corresponds to one less the next power of 2.";
         (
-            PyType::new_bitmask(nbytes),
+            PyType::from(PyInt::new_bitmask(nbytes)),
             range_desc,
             "integer",
             "Uint",
@@ -3348,7 +3335,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
 
     let byteord_param = DocArg::new_ivar_ro_def(
         "byteord",
-        PyType::new_byteord(nbytes),
+        PyUnion::new_byteord(nbytes),
         "The byte order to use when encoding values.",
         DocDefault::Auto,
         |_, _| quote!(*self.0.as_ref()),
@@ -3428,7 +3415,7 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
 
     let range_param = DocArg::new_ivar_ro(
         "ranges",
-        PyList::new1(PyType::new_float_range(nbytes)),
+        PyList::new1(PyFloat::new_float_range(nbytes)),
         "The range for each measurement. Corresponds to *$PnR*. This is not \
          used internally.",
         |_, _| quote!(self.0.columns().iter().map(|c| c.clone()).collect()),
@@ -3511,17 +3498,21 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
     let null = quote!(fireflow_core::data::NullMixedType);
     let fixed = quote!(fireflow_core::data::FixedLayout);
 
-    // TODO exception if invalid range types
+    let desc = "if field 2 of %x is less than ``0`` or greater than ``2**64-1`` \
+                when field 1 is ``\"A\"`` or ``\"I\"``";
+    let exc = PyException::new_value_error().desc(desc);
+    let range_pytype = PyList::new1(PyUnion::new2(
+        PyTuple::new1([PyLiteral::new1(["A", "I"]).into(), PyType::from(RsInt::U64)]),
+        PyTuple::new1([
+            PyLiteral::new1(["F", "D"]).into(),
+            PyType::from(PyDecimal::default()),
+        ]),
+        parse_quote!(#null),
+    ))
+    .exc(exc);
     let types_param: DocArgROIvar = DocArg::new_ivar_ro(
         "typed_ranges",
-        PyList::new1(PyUnion::new2(
-            PyTuple::new1([PyLiteral::new1(["A", "I"]).into(), PyType::from(RsInt::U64)]),
-            PyTuple::new1([
-                PyLiteral::new1(["F", "D"]).into(),
-                PyType::from(PyDecimal::default()),
-            ]),
-            parse_quote!(#null),
-        )),
+        range_pytype,
         "The type and range for each measurement corresponding to *$DATATYPE* \
          and/or *$PnDATATYPE* and *$PnR* respectively. These are given \
          as 2-tuples like ``(<type>, <range>)`` where ``type`` is one of \
@@ -3552,7 +3543,7 @@ fn make_endian_ord_param(n: usize) -> DocArgROIvar {
     let sizedbyteord_path = quote!(fireflow_core::text::byteord::SizedByteOrd);
     DocArg::new_ivar_ro_def(
         "endian",
-        PyType::new_endian(),
+        PyLiteral::new_endian(),
         format!(
             "If ``\"big\"`` use big endian (``{ys}``) for encoding values; \
              if ``\"little\"`` use little endian (``{xs}``)."
@@ -3572,7 +3563,7 @@ fn make_endian_param(n: usize) -> DocArgROIvar {
     let ys = (1..=n).rev().join(",");
     DocArg::new_ivar_ro_def(
         "endian",
-        PyType::new_endian(),
+        PyLiteral::new_endian(),
         format!(
             "If ``\"big\"`` use big endian (``{ys}``) for encoding values; \
              if ``\"little\"`` use little endian (``{xs}``)."
@@ -3625,7 +3616,7 @@ fn make_layout_datatype(pyname: &Ident, dt: &str) -> TokenStream2 {
     let doc = DocString::new_ivar(
         "The value of *$DATATYPE*.",
         [format!("Will always return ``\"{dt}\"``.")],
-        DocReturn::new(PyType::new_datatype()),
+        DocReturn::new(PyLiteral::new_datatype()),
     );
     doc.into_impl_get(pyname, "datatype", |_, _| quote!(self.0.datatype().into()))
 }
@@ -3659,6 +3650,7 @@ pub fn impl_new_gate_bi_regions(input: TokenStream) -> TokenStream {
     make_gate_region(&path, false)
 }
 
+// TODO doc exceptions here
 fn make_gate_region(path: &Path, is_uni: bool) -> TokenStream {
     let index_name = if is_uni { "index" } else { "x/y indices" };
     let region_ident = path.segments.last().unwrap().ident.clone();
@@ -3702,7 +3694,7 @@ fn make_gate_region(path: &Path, is_uni: bool) -> TokenStream {
                      ``m`` is an integer and the prefix corresponds to a gating or \
                      physical measurement respectively."
                 ),
-                PyType::new_meas_or_gate_index(),
+                PyType::from(PyStr::new_meas_or_gate_index()),
             )
         }
         "PrefixedMeasIndex" => (
@@ -3722,7 +3714,7 @@ fn make_gate_region(path: &Path, is_uni: bool) -> TokenStream {
             "univariate",
             index_pytype_inner,
             "gate",
-            PyType::new_unigate(),
+            PyType::from(PyTuple::new_unigate()),
             "The lower and upper bounds of the gate.",
         )
     } else {
@@ -3732,7 +3724,7 @@ fn make_gate_region(path: &Path, is_uni: bool) -> TokenStream {
                 .rstype(parse_quote!(#index_pair<#index_path_inner>))
                 .into(),
             "vertices",
-            PyType::new_vertices(),
+            PyList::new_vertices().into(),
             "The vertices of a polygon gate. Must not be empty.",
         )
     };
@@ -4647,6 +4639,20 @@ impl<E: From<PyException>> PyInt<E> {
         let e = PyException::new_overflow_error().desc(intkind.exc_desc());
         Self::from(intkind).exc(e)
     }
+
+    fn new_bitmask(nbytes: usize) -> Self {
+        let i = format_ident!("Bitmask{:02}", nbytes * 8);
+        let r = match nbytes {
+            1 => RsInt::U8,
+            2 => RsInt::U16,
+            3 | 4 => RsInt::U32,
+            5..=8 => RsInt::U64,
+            _ => panic!("invalid number of uint bytes: {nbytes}"),
+        };
+        let e = PyException::new_value_error().desc(r.exc_desc());
+        let path = parse_quote!(fireflow_core::validated::bitmask::#i);
+        Self::from(r).rstype(path).exc(e)
+    }
 }
 
 impl<E> PyFloat<E> {
@@ -4679,6 +4685,28 @@ impl<E: From<PyException>> PyFloat<E> {
         let e = PyException::new_value_error()
             .desc("if %x is negative, ``0.0``, ``NaN``, ``inf``, or ``-inf``");
         Self::from(RsFloat::F32).exc(e)
+    }
+
+    fn new_float_range(nbytes: usize) -> Self {
+        let i = format_ident!("F{:02}Range", nbytes * 8);
+        let r = match nbytes {
+            4 => RsFloat::F32,
+            8 => RsFloat::F64,
+            _ => panic!("invalid number of float bytes: {nbytes}"),
+        };
+        let msg = format!(
+            "if %x is ``NaN``, ``inf``, ``-inf``, \
+             or outside the bounds of a {}-bit float",
+            nbytes * 8,
+        );
+        let e = PyException::new_value_error().desc(msg);
+        let path = parse_quote!(fireflow_core::data::#i);
+        Self::from(r).rstype(path).exc(e)
+    }
+
+    fn new_timestep() -> Self {
+        let path = keyword_path("Timestep");
+        Self::new_positive_float().rstype(path)
     }
 }
 
@@ -4716,6 +4744,20 @@ impl<E: From<PyException>> PyStr<E> {
         let exc = PyException::new_value_error().desc(desc);
         Self::default().exc(exc)
     }
+
+    fn new_meas_or_gate_index() -> Self {
+        let path = parse_quote!(fireflow_core::text::keywords::MeasOrGateIndex);
+        let e = PyException::new_value_error().desc(
+            "if %x is not like ``P<X>`` or ``G<X>`` \
+             where ``X`` is an integer one or greater",
+        );
+        Self::default().rstype(path).exc(e)
+    }
+
+    fn new_non_empty_str(path: Path) -> Self {
+        let e = PyException::new_value_error().desc("if %x is empty");
+        Self::default().rstype(path).exc(e)
+    }
 }
 
 impl<E> PyBool<E> {
@@ -4728,6 +4770,13 @@ impl<E> PyBytes<E> {
     impl_py_prim_rstype!();
     impl_py_prim_defaults!("b\"\"".into(), Vec);
     impl_py_prim_map_exc!(PyBytes);
+}
+
+impl<E: From<PyException>> PyBytes<E> {
+    fn new_analysis() -> Self {
+        let r = parse_quote!(fireflow_core::core::Analysis);
+        Self::default().rstype(r)
+    }
 }
 
 impl<E> PyDecimal<E> {
@@ -4779,6 +4828,25 @@ impl<E: From<PyException>> PyDict<E> {
         // TODO exception if dict keys are not unique
         Self::new(PyStr::new_keystring(), PyStr::new_keystring(), path, None)
     }
+
+    fn new_std_keywords() -> Self {
+        let path = parse_quote!(fireflow_core::validated::keys::StdKey);
+        let e = PyException::new_value_error().desc(
+            "if %x is empty, does not start with \
+             ``\"$\"``, or is only a ``\"$\"``",
+        );
+        Self::new1(PyStr::default().rstype(path).exc(e), PyStr::default())
+    }
+
+    fn new_nonstd_keywords() -> Self {
+        let path = parse_quote!(fireflow_core::validated::keys::NonStdKey);
+        let e = PyException::new_value_error().desc("if %x is empty or starts with ``\"$\"``");
+        Self::new1(PyStr::default().rstype(path).exc(e), PyStr::default())
+    }
+
+    fn new_keywords() -> Self {
+        Self::new1(PyStr::default(), PyStr::default())
+    }
 }
 
 impl<E> PyList<E> {
@@ -4788,9 +4856,9 @@ impl<E> PyList<E> {
 
     // TODO impl rstype?
 
-    // fn exc(self, exc: impl Into<E>) -> Self {
-    //     Self::new(self.inner, self.rstype, Some(exc.into()))
-    // }
+    fn exc(self, exc: impl Into<E>) -> Self {
+        Self::new(self.inner, self.rstype, Some(exc.into()))
+    }
 
     impl_py_prim_defaults!("[]".into(), Vec);
 
@@ -4809,6 +4877,17 @@ impl<E: From<PyException>> PyList<E> {
             Some(e.into()),
         )
     }
+
+    fn new_others() -> Self {
+        let path: Path = parse_quote!(fireflow_core::core::Others);
+        Self::new(PyBytes::default(), path, None)
+    }
+
+    fn new_vertices() -> Self {
+        let inner_path = keyword_path("Vertex");
+        let inner = PyTuple::new1([RsFloat::F32, RsFloat::F32]);
+        Self::new_non_empty(inner, &inner_path)
+    }
 }
 
 impl PyLiteral {
@@ -4822,6 +4901,45 @@ impl PyLiteral {
         let mut x = Self::new1(iter);
         x.rstype = Some(rstype);
         x
+    }
+
+    fn new_version() -> Self {
+        let path = parse_quote!(fireflow_core::header::Version);
+        Self::new2(["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"], path)
+    }
+
+    fn new_temporal_optical_key() -> Self {
+        Self::new2(
+            [
+                "F",
+                "L",
+                "O",
+                "T",
+                "P",
+                "V",
+                "CALIBRATION",
+                "DET",
+                "TAG",
+                "FEATURE",
+                "ANALYTE",
+            ],
+            parse_quote!(TemporalOpticalKeys),
+        )
+    }
+
+    fn new_datatype() -> Self {
+        let path = parse_quote!(fireflow_core::text::keywords::AlphaNumType);
+        Self::new2(["A", "I", "F", "D"], path)
+    }
+
+    fn new_feature() -> Self {
+        let path = keyword_path("Feature");
+        Self::new2(["Area", "Width", "Height"], path)
+    }
+
+    fn new_endian() -> Self {
+        let endian: Path = parse_quote!(fireflow_core::text::byteord::Endian);
+        Self::new2(["little", "big"], endian)
     }
 }
 
@@ -4962,6 +5080,47 @@ impl<E: From<PyException>> PyTuple<E> {
         let path = correction_path(is_header, id);
         Self::new1([PyInt::new_int(RsInt::I32), PyInt::new_int(RsInt::I32)]).rstype(path)
     }
+
+    fn new_tr() -> Self {
+        let path = keyword_path("Trigger");
+        Self::new1([
+            PyType::from(PyInt::new_u32()),
+            PyStr::new_shortname().into(),
+        ])
+        .rstype(path)
+    }
+
+    fn new_meas(version: Version) -> Self {
+        let (fam_ident, name_pytype) = if version < Version::FCS3_1 {
+            (
+                format_ident!("MaybeFamily"),
+                PyOpt::new(PyStr::<E>::new_shortname()).into(),
+            )
+        } else {
+            (
+                format_ident!("AlwaysFamily"),
+                PyType::from(PyStr::new_shortname()),
+            )
+        };
+        let fam_path = quote!(fireflow_core::text::optional::#fam_ident);
+        let meas_opt_pyname = pyoptical(version);
+        let meas_tmp_pyname = pytemporal(version);
+        let meas_argtype = parse_quote!(PyEithers<#fam_path, #meas_tmp_pyname, #meas_opt_pyname>);
+        Self::new1([name_pytype, PyUnion::new_measurement(version).into()]).rstype(meas_argtype)
+    }
+
+    fn new_unigate() -> Self {
+        Self::new1([PyDecimal::default(), PyDecimal::default()]).rstype(keyword_path("UniGate"))
+    }
+
+    fn new_key_patterns() -> Self {
+        let path: Path = parse_quote!(fireflow_core::validated::keys::KeyPatterns);
+        Self::new1([
+            PyList::new1(PyStr::new_keystring()),
+            PyList::new1(PyStr::new_regexp()),
+        ])
+        .rstype(path)
+    }
 }
 
 impl<E> PyUnion<E> {
@@ -5005,6 +5164,70 @@ impl<E> PyUnion<E> {
     }
 }
 
+impl<E: From<PyException>> PyUnion<E> {
+    fn new_measurement(version: Version) -> Self {
+        let element_path = element_path(version);
+        Self::new2(
+            PyClass::new_optical(version),
+            PyClass::new_temporal(version),
+            element_path,
+        )
+    }
+
+    fn new_scale(is_gate: bool) -> Self {
+        let path = if is_gate {
+            keyword_path("GateScale")
+        } else {
+            parse_quote!(fireflow_core::text::scale::Scale)
+        };
+        let exc = PyException::new_value_error()
+            .desc("if %x has log scale floats which are not both positive");
+        Self::new2(
+            PyTuple::default(),
+            PyTuple::new1([RsFloat::F32, RsFloat::F32]),
+            path,
+        )
+        .exc(exc)
+    }
+
+    fn new_transform() -> Self {
+        let path = parse_quote! {fireflow_core::core::ScaleTransform};
+        let exc = PyException::new_value_error()
+            .desc("if %x has log scale floats which are not both positive");
+        // TODO the linear gain should also be positive
+        Self::new2(
+            RsFloat::F32,
+            PyTuple::new1([RsFloat::F32, RsFloat::F32]),
+            path,
+        )
+        .exc(exc)
+    }
+
+    fn new_byteord(nbytes: usize) -> Self {
+        let sizedbyteord_path: Path = parse_quote!(fireflow_core::text::byteord::SizedByteOrd);
+        let exc = PyException::new_value_error().desc(format!(
+            "if %x is not \"little\", \"big\", or a list of \
+             all integers from 1 to {nbytes} in any order"
+        ));
+        let path = parse_quote!(#sizedbyteord_path<#nbytes>);
+        Self::new2(PyLiteral::new_endian(), PyList::new1(RsInt::U32), path).exc(exc)
+    }
+
+    fn new_anycoretext() -> Self {
+        Self::new1(
+            ALL_VERSIONS.into_iter().map(PyClass::new_coretext),
+            parse_quote!(PyAnyCoreTEXT),
+        )
+    }
+
+    fn new_anycoredataset() -> Self {
+        Self::new1(
+            ALL_VERSIONS.into_iter().map(PyClass::new_coredataset),
+            parse_quote!(PyAnyCoreDataset),
+        )
+    }
+}
+
 impl<E> PyClass<E> {
     fn new1(pyname: impl fmt::Display) -> Self {
         Self::new(pyname.to_string(), None, None)
@@ -5032,6 +5255,37 @@ impl<E> PyClass<E> {
 
     fn map_exc<F: FnOnce(E) -> E1, E1>(self, f: F) -> PyClass<E1> {
         PyClass::new(self.pyname, self.rstype, self.exc.map(f))
+    }
+}
+
+impl<E: From<PyException>> PyClass<E> {
+    fn new_optical(version: Version) -> Self {
+        let n = format!("Optical{}", version.short_underscore());
+        Self::new_py([""; 0], n)
+    }
+
+    fn new_temporal(version: Version) -> Self {
+        let n = format!("Temporal{}", version.short_underscore());
+        Self::new_py([""; 0], n)
+    }
+
+    fn new_dataframe(polars_type: bool) -> Self {
+        let path = if polars_type {
+            parse_quote!(pyo3_polars::PyDataFrame)
+        } else {
+            parse_quote!(fireflow_core::validated::dataframe::FCSDataFrame)
+        };
+        Self::new1("polars.DataFrame").rstype(path)
+    }
+
+    fn new_coretext(version: Version) -> Self {
+        let v = version.short_underscore();
+        Self::new_py([""; 0], format!("CoreTEXT{v}"))
+    }
+
+    fn new_coredataset(version: Version) -> Self {
+        let v = version.short_underscore();
+        Self::new_py([""; 0], format!("CoreDataset{v}"))
     }
 }
 
@@ -5269,7 +5523,7 @@ impl DocArgROIvar {
     fn new_version_ivar() -> Self {
         Self::new_ivar_ro(
             "version",
-            PyType::new_version(),
+            PyLiteral::new_version(),
             "The FCS version.",
             |_, _| quote!(self.0.version),
         )
@@ -5622,7 +5876,7 @@ impl DocArgRWIvar {
     fn new_trigger_ivar() -> Self {
         Self::new_opt_ivar_rw(
             "tr",
-            PyType::new_tr(),
+            PyTuple::new_tr(),
             "Value for *$TR*. First member of tuple is threshold and second is the \
              measurement name which must match a *$PnN*.",
             true,
@@ -5737,7 +5991,7 @@ impl DocArgRWIvar {
     fn new_scale_ivar() -> Self {
         Self::new_opt_ivar_rw(
             "scale",
-            PyType::new_scale(false),
+            PyUnion::new_scale(false),
             "Value for *$PnE*. Empty tuple means linear scale; 2-tuple encodes \
              decades and offset for log scale",
             false,
@@ -5749,7 +6003,7 @@ impl DocArgRWIvar {
     fn new_transform_ivar() -> Self {
         Self::new_ivar_rw(
             "transform",
-            PyType::new_transform(),
+            PyUnion::new_transform(),
             "Value for *$PnE* and/or *$PnG*. Singleton float encodes gain (*$PnG*) \
              and implies linear scaling (ie *$PnE* is ``0,0``). 2-tuple encodes \
              decades and offset for log scale, and implies *$PnG* is not set.",
@@ -5785,7 +6039,7 @@ impl DocArgRWIvar {
     ) -> Self {
         Self::new_ivar_rw_def(
             "nonstandard_keywords",
-            PyType::new_nonstd_keywords(),
+            PyDict::new_nonstd_keywords(),
             desc,
             DocDefault::Auto,
             false,
@@ -5857,16 +6111,16 @@ impl DocArgParam {
 
     fn new_version_param() -> Self {
         let desc = "Version to use when parsing *TEXT*.";
-        Self::new_param("version", PyType::new_version(), desc)
+        Self::new_param("version", PyLiteral::new_version(), desc)
     }
 
     fn new_std_keywords_param() -> Self {
-        Self::new_param("std", PyType::new_std_keywords(), "Standard keywords.")
+        Self::new_param("std", PyDict::new_std_keywords(), "Standard keywords.")
     }
 
     fn new_nonstd_keywords_param() -> Self {
         let desc = "Non-standard keywords.";
-        Self::new_param("nonstd", PyType::new_nonstd_keywords(), desc)
+        Self::new_param("nonstd", PyDict::new_nonstd_keywords(), desc)
     }
 
     fn new_valid_keywords_param() -> Self {
@@ -5953,13 +6207,13 @@ impl DocArgParam {
     fn new_measurements_param(version: Version) -> Self {
         let meas_desc = "Measurements corresponding to columns in FCS file. \
                          Temporal must be given zero or one times.";
-        Self::new_param("measurements", PyType::new_meas(version), meas_desc)
+        Self::new_param("measurements", PyTuple::new_meas(version), meas_desc)
     }
 
     fn new_set_meas_param(version: Version) -> Self {
         Self::new_param(
             "measurements",
-            PyType::new_meas(version),
+            PyTuple::new_meas(version),
             "The new measurements. The first member of the tuple corresponds to \
              the measurement name and the second is the measurement object.",
         )
@@ -6022,13 +6276,13 @@ impl DocArgParam {
                     columns must match number of measurements. May be empty. \
                     Types do not necessarily need to correspond to those in the \
                     data layout but mismatches may result in truncation.";
-        Self::new_param("data", PyType::new_dataframe(polars_type), desc)
+        Self::new_param("data", PyClass::new_dataframe(polars_type), desc)
     }
 
     fn new_analysis_param(default: bool) -> Self {
         Self::new(
             "analysis",
-            PyType::new_analysis(),
+            PyBytes::new_analysis(),
             "Contents of the *ANALYSIS* segment.",
             default.then_some(DocDefault::Auto),
             NoMethods,
@@ -6038,7 +6292,7 @@ impl DocArgParam {
     fn new_others_param(default: bool) -> Self {
         Self::new(
             "others",
-            PyType::new_others(),
+            PyList::new_others(),
             "A list of byte strings encoding the *OTHER* segments.",
             default.then_some(DocDefault::Auto),
             NoMethods,
@@ -6258,7 +6512,7 @@ impl DocArgParam {
         Self::new_param_def(
             "ignore_time_optical_keys",
             PyList::new(
-                PyType::new_temporal_optical_key(),
+                PyLiteral::new_temporal_optical_key(),
                 Some(parse_quote!(TemporalOpticalKeys)),
                 None,
             ),
@@ -6526,7 +6780,7 @@ impl DocArgParam {
     fn new_version_override() -> Self {
         Self::new_opt_param(
             "version_override",
-            PyType::new_version(),
+            PyLiteral::new_version(),
             "Override the FCS version as seen in *HEADER*.",
         )
     }
@@ -6710,7 +6964,7 @@ impl DocArgParam {
              expressions corresponding to {REGEXP_REF}."
         );
         let d = format!("{desc}. {common}");
-        Self::new_param_def(argname, PyType::new_key_patterns(), d, DocDefault::Auto)
+        Self::new_param_def(argname, PyTuple::new_key_patterns(), d, DocDefault::Auto)
     }
 
     fn new_rename_standard_keys() -> Self {
@@ -7107,83 +7361,7 @@ impl<E> PyType<E> {
     }
 }
 
-impl ArgPyType {
-    fn new_optical(version: Version) -> Self {
-        let n = format!("Optical{}", version.short_underscore());
-        PyClass::new_py([""; 0], n).into()
-    }
-
-    fn new_temporal(version: Version) -> Self {
-        let n = format!("Temporal{}", version.short_underscore());
-        PyClass::new_py([""; 0], n).into()
-    }
-
-    fn new_measurement(version: Version) -> Self {
-        let element_path = element_path(version);
-        PyUnion::new2(
-            Self::new_optical(version),
-            Self::new_temporal(version),
-            element_path,
-        )
-        .into()
-    }
-
-    fn new_scale(is_gate: bool) -> Self {
-        let path = if is_gate {
-            keyword_path("GateScale")
-        } else {
-            parse_quote!(fireflow_core::text::scale::Scale)
-        };
-        let exc = PyException::new_value_error()
-            .desc("if %x has log scale floats which are not both positive");
-        PyUnion::new2(
-            PyTuple::default(),
-            PyTuple::new1([RsFloat::F32, RsFloat::F32]),
-            path,
-        )
-        .exc(exc)
-        .into()
-    }
-
-    fn new_transform() -> Self {
-        let path = parse_quote! {fireflow_core::core::ScaleTransform};
-        let exc = PyException::new_value_error()
-            .desc("if %x has log scale floats which are not both positive");
-        // TODO the linear gain should also be positive
-        PyUnion::new2(
-            RsFloat::F32,
-            PyTuple::new1([RsFloat::F32, RsFloat::F32]),
-            path,
-        )
-        .exc(exc)
-        .into()
-    }
-
-    fn new_key_patterns() -> Self {
-        let path: Path = parse_quote!(fireflow_core::validated::keys::KeyPatterns);
-        PyTuple::new1([
-            PyList::new1(PyStr::new_keystring()),
-            PyList::new1(PyStr::new_regexp()),
-        ])
-        .rstype(path)
-        .into()
-    }
-
-    fn new_std_keywords() -> Self {
-        let path = parse_quote!(fireflow_core::validated::keys::StdKey);
-        let e = PyException::new_value_error().desc(
-            "if %x is empty, does not start with \
-             ``\"$\"``, or is only a ``\"$\"``",
-        );
-        PyDict::new1(PyStr::default().rstype(path).exc(e), PyStr::default()).into()
-    }
-
-    fn new_nonstd_keywords() -> Self {
-        let path = parse_quote!(fireflow_core::validated::keys::NonStdKey);
-        let e = PyException::new_value_error().desc("if %x is empty or starts with ``\"$\"``");
-        PyDict::new1(PyStr::default().rstype(path).exc(e), PyStr::default()).into()
-    }
-
+impl<E: From<PyException>> PyType<E> {
     fn new_versioned_shortname(version: Version) -> Self {
         if version < Version::FCS3_1 {
             PyOpt::new(PyStr::new_shortname()).into()
@@ -7193,125 +7371,9 @@ impl ArgPyType {
             PyStr::new_shortname().rstype(outer).into()
         }
     }
+}
 
-    fn new_meas_or_gate_index() -> Self {
-        let path = parse_quote!(fireflow_core::text::keywords::MeasOrGateIndex);
-        let e = PyException::new_value_error().desc(
-            "if %x is not like ``P<X>`` or ``G<X>`` \
-             where ``X`` is an integer one or greater",
-        );
-        PyStr::default().rstype(path).exc(e).into()
-    }
-
-    fn new_analysis() -> Self {
-        let r = parse_quote!(fireflow_core::core::Analysis);
-        PyBytes::default().rstype(r).into()
-    }
-
-    fn new_others() -> Self {
-        let path: Path = parse_quote!(fireflow_core::core::Others);
-        PyList::new(PyBytes::default(), path, None).into()
-    }
-
-    fn new_dataframe(polars_type: bool) -> Self {
-        let path = if polars_type {
-            parse_quote!(pyo3_polars::PyDataFrame)
-        } else {
-            parse_quote!(fireflow_core::validated::dataframe::FCSDataFrame)
-        };
-        PyClass::new1("polars.DataFrame").rstype(path).into()
-    }
-
-    fn new_bitmask(nbytes: usize) -> Self {
-        let i = format_ident!("Bitmask{:02}", nbytes * 8);
-        let r = match nbytes {
-            1 => RsInt::U8,
-            2 => RsInt::U16,
-            3 | 4 => RsInt::U32,
-            5..=8 => RsInt::U64,
-            _ => panic!("invalid number of uint bytes: {nbytes}"),
-        };
-        let e = PyException::new_value_error().desc(r.exc_desc());
-        let path = parse_quote!(fireflow_core::validated::bitmask::#i);
-        PyInt::from(r).rstype(path).exc(e).into()
-    }
-
-    fn new_byteord(nbytes: usize) -> Self {
-        let sizedbyteord_path: Path = parse_quote!(fireflow_core::text::byteord::SizedByteOrd);
-        let exc = PyException::new_value_error().desc(format!(
-            "if %x is not \"little\", \"big\", or a list of \
-             all integers from 1 to {nbytes} in any order"
-        ));
-        let path = parse_quote!(#sizedbyteord_path<#nbytes>);
-        PyUnion::new2(Self::new_endian(), PyList::new1(RsInt::U32), path)
-            .exc(exc)
-            .into()
-    }
-
-    fn new_float_range(nbytes: usize) -> Self {
-        let i = format_ident!("F{:02}Range", nbytes * 8);
-        let r = match nbytes {
-            4 => RsFloat::F32,
-            8 => RsFloat::F64,
-            _ => panic!("invalid number of float bytes: {nbytes}"),
-        };
-        let msg = format!(
-            "if %x is ``NaN``, ``inf``, ``-inf``, \
-             or outside the bounds of a {}-bit float",
-            nbytes * 8,
-        );
-        let e = PyException::new_value_error().desc(msg);
-        let path = parse_quote!(fireflow_core::data::#i);
-        PyFloat::from(r).rstype(path).exc(e).into()
-    }
-
-    fn new_timestep() -> Self {
-        let path = keyword_path("Timestep");
-        PyFloat::new_positive_float().rstype(path).into()
-    }
-
-    fn new_non_empty_str(path: Path) -> Self {
-        let e = PyException::new_value_error().desc("if %x is empty");
-        PyStr::default().rstype(path).exc(e).into()
-    }
-
-    fn new_tr() -> Self {
-        let path = keyword_path("Trigger");
-        PyTuple::new1([Self::from(PyInt::new_u32()), PyStr::new_shortname().into()])
-            .rstype(path)
-            .into()
-    }
-
-    fn new_meas(version: Version) -> Self {
-        let (fam_ident, name_pytype) = if version < Version::FCS3_1 {
-            (
-                format_ident!("MaybeFamily"),
-                PyOpt::new(PyStr::new_shortname()).into(),
-            )
-        } else {
-            (format_ident!("AlwaysFamily"), PyStr::new_shortname().into())
-        };
-        let fam_path = quote!(fireflow_core::text::optional::#fam_ident);
-        let meas_opt_pyname = pyoptical(version);
-        let meas_tmp_pyname = pytemporal(version);
-        let meas_argtype = parse_quote!(PyEithers<#fam_path, #meas_tmp_pyname, #meas_opt_pyname>);
-        PyTuple::new1([name_pytype, Self::new_measurement(version)])
-            .rstype(meas_argtype)
-            .into()
-    }
-
-    fn new_unigate() -> Self {
-        PyTuple::new1([PyDecimal::default(), PyDecimal::default()])
-            .rstype(keyword_path("UniGate"))
-            .into()
-    }
-
-    fn new_vertices() -> Self {
-        let inner_path = keyword_path("Vertex");
-        let inner = PyTuple::new1([RsFloat::F32, RsFloat::F32]);
-        PyList::new_non_empty(inner, &inner_path).into()
-    }
-
+impl ArgPyType {
     fn as_exceptions(&self) -> Vec<ArgPyException> {
         let go = |e: &Option<ArgPyException>| e.iter().cloned().collect();
         let walk = |mut acc: Vec<ArgPyException>, pt: &Self| {
@@ -7369,80 +7431,6 @@ impl ArgPyType {
             }
             Self::Literal(_) => vec![],
         }
-    }
-}
-
-impl RetPyType {
-    fn new_coretext(version: Version) -> Self {
-        let v = version.short_underscore();
-        PyClass::new_py([""; 0], format!("CoreTEXT{v}")).into()
-    }
-
-    fn new_coredataset(version: Version) -> Self {
-        let v = version.short_underscore();
-        PyClass::new_py([""; 0], format!("CoreDataset{v}")).into()
-    }
-
-    fn new_anycoretext() -> Self {
-        PyUnion::new1(
-            ALL_VERSIONS.into_iter().map(Self::new_coretext),
-            parse_quote!(PyAnyCoreTEXT),
-        )
-        .into()
-    }
-
-    fn new_anycoredataset() -> Self {
-        PyUnion::new1(
-            ALL_VERSIONS.into_iter().map(Self::new_coredataset),
-            parse_quote!(PyAnyCoreDataset),
-        )
-        .into()
-    }
-}
-
-impl<E> PyType<E> {
-    fn new_version() -> Self {
-        let path = parse_quote!(fireflow_core::header::Version);
-        PyLiteral::new2(["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"], path).into()
-    }
-
-    fn new_temporal_optical_key() -> Self {
-        PyLiteral::new2(
-            [
-                "F",
-                "L",
-                "O",
-                "T",
-                "P",
-                "V",
-                "CALIBRATION",
-                "DET",
-                "TAG",
-                "FEATURE",
-                "ANALYTE",
-            ],
-            parse_quote!(TemporalOpticalKeys),
-        )
-        .into()
-    }
-
-    fn new_datatype() -> Self {
-        let path = parse_quote!(fireflow_core::text::keywords::AlphaNumType);
-        PyLiteral::new2(["A", "I", "F", "D"], path).into()
-    }
-
-    fn new_feature() -> Self {
-        let path = keyword_path("Feature");
-        PyLiteral::new2(["Area", "Width", "Height"], path).into()
-    }
-
-    fn new_keywords() -> Self {
-        PyDict::new1(PyStr::default(), PyStr::default()).into()
-    }
-
-    fn new_endian() -> Self {
-        let endian: Path = parse_quote!(fireflow_core::text::byteord::Endian);
-        PyLiteral::new2(["little", "big"], endian).into()
     }
 }
 

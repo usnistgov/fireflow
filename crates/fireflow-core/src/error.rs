@@ -1497,3 +1497,20 @@ impl ImpureError<Infallible> {
         }
     }
 }
+
+#[cfg(feature = "python")]
+mod python {
+    use super::ImpureError;
+
+    use pyo3::prelude::*;
+
+    impl<T: Into<Self>> From<ImpureError<T>> for PyErr {
+        fn from(value: ImpureError<T>) -> Self {
+            match value {
+                ImpureError::Pure(e) => e.into(),
+                // This should be an OSError of some kind
+                ImpureError::IO(e) => e.into(),
+            }
+        }
+    }
+}

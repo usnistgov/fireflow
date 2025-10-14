@@ -2107,7 +2107,7 @@ where
         h: &mut BufWriter<W>,
         delim: TEXTDelim,
         big_other: bool,
-    ) -> IOTerminalResult<(), Infallible, Uint8DigitOverflow, WriteTEXTFailure>
+    ) -> IOResult<(), Uint8DigitOverflow>
     where
         Version: From<M::Ver>,
     {
@@ -2122,13 +2122,12 @@ where
         &self,
         h: &mut BufWriter<W>,
         delim: TEXTDelim,
-    ) -> IOTerminalResult<(), Infallible, Uint8DigitOverflow, WriteTEXTFailure>
+    ) -> IOResult<(), Uint8DigitOverflow>
     where
         Version: From<M::Ver>,
         T: Zero + TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
     {
         self.h_write_text_inner::<_, T>(h, delim, Tot(0), 0, 0, &[])
-            .terminate(WriteTEXTFailure)
     }
 
     fn h_write_text_inner<W: Write, T>(

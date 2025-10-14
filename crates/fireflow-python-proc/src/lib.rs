@@ -1111,7 +1111,7 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
             fn write_text(&self, #fun_args) -> PyResult<()> {
                 let f = std::fs::File::options().write(true).create(true).open(path)?;
                 let mut h = std::io::BufWriter::new(f);
-                self.0.h_write_text(&mut h, delim, big_other).py_termfail_resolve_nowarn()
+                Ok(self.0.h_write_text(&mut h, delim, big_other)?)
             }
         }
     }

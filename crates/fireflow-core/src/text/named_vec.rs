@@ -744,7 +744,8 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     ///
     /// Return none if name is not present.
     pub(crate) fn replace_named(&mut self, name: &Shortname, value: V) -> Option<Element<U, V>> {
-        let index = self.find_with_name(name)?;
+        // TODO this should return an error
+        let index = self.find_with_name(name).ok()?;
         self.replace_at(index, value).ok()
     }
 
@@ -1079,7 +1080,9 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     where
         F: FnOnce(MeasIndex, U) -> V,
     {
+        // TODO return error if name not found
         self.find_with_name(n)
+            .ok()
             .map(|index| self.replace_center_at_nofail(index, value, to_v).unwrap())
     }
 
@@ -1287,22 +1290,31 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Set center to be the element with name if it exists.
-    pub(crate) fn set_center_by_name<Fswap, FtoU, W, E>(
+    pub(crate) fn set_center_by_name<Fswap, FtoU, W, E, TWI, TEI, FWI, FEI>(
         &mut self,
         n: &Shortname,
         swap: Fswap,
         to_u: FtoU,
-    ) -> DeferredResult<bool, W, E>
+    ) -> DeferredResultInner<bool, W, E, TWI, TEI, FWI, FEI>
     where
-        Fswap: FnOnce(MeasIndex, U, V) -> PassthruResult<(V, U), Box<(U, V)>, W, E>,
-        FtoU: FnOnce(MeasIndex, V) -> PassthruResult<U, Box<V>, W, E>,
-        E: From<SetCenterError>,
+        Fswap: FnOnce(
+            MeasIndex,
+            U,
+            V,
+        )
+            -> PassthruResultInner<(V, U), Box<(U, V)>, W, E, TWI, TEI, FWI, FEI>,
+        FtoU: FnOnce(MeasIndex, V) -> PassthruResultInner<U, Box<V>, W, E, TWI, TEI, FWI, FEI>,
+        E: From<SetCenterError> + From<KeyNotFoundError>,
+        TWI: ZeroOrMore,
+        TEI: ZeroOrMore,
+        FWI: ZeroOrMore + HoldsOne<Inner<W> = FWI::Wrapper<W>>,
+        FEI: OneOrMore + HoldsOne<Inner<E> = FEI::Wrapper<E>>,
+        TWI::Wrapper<W>: Default,
+        TEI::Wrapper<E>: Default,
+        FWI::Wrapper<W>: Default,
     {
-        Tentative::new1(self.find_with_name(n)).and_maybe(|x| {
-            x.map_or(Ok(Tentative::new1(false)), |index| {
-                self.set_center_by_index(index, swap, to_u)
-            })
-        })
+        let index = self.find_with_name(n).map_err(E::from)?;
+        self.set_center_by_index(index, swap, to_u)
     }
 
     /// Set center to be the element with index if it exists.
@@ -1628,7 +1640,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         Ok(())
     }
 
-    fn find_with_name(&self, name: &Shortname) -> Option<MeasIndex> {
+    fn find_with_name(&self, name: &Shortname) -> Result<MeasIndex, KeyNotFoundError> {
         self.iter()
             .find_position(|x| {
                 x.as_ref().both(
@@ -1637,6 +1649,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 )
             })
             .map(|(i, _)| i.into())
+            .ok_or(KeyNotFoundError(name.to_owned()))
     }
 
     fn new_split(

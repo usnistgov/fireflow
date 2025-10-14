@@ -8142,6 +8142,7 @@ pub enum ReplaceTemporalError {
 pub enum SetTemporalError {
     Swap(SwapOpticalTemporalError),
     Set(SetCenterError),
+    Name(KeyNotFoundError),
 }
 
 #[derive(From, Display, Debug, Error)]

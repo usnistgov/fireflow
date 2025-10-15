@@ -1701,6 +1701,8 @@ pub trait DeferredExt: Sized + PassthruExt {
         a: DeferredResult<V1, Self::W, Self::E>,
     ) -> DeferredResult<(Self::V, V1), Self::W, Self::E>;
 
+    // TODO this will bypass errors/warnings in the left side if any error
+    // exists
     #[allow(clippy::type_complexity)]
     fn def_zip3<V1, V2>(
         self,

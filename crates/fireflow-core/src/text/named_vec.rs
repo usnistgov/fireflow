@@ -1062,6 +1062,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     ) -> DeferredResult<Element<U, V>, W, E>
     where
         F: FnOnce(MeasIndex, U) -> PassthruResult<V, Box<U>, W, E>,
+        // TODO set center error is not needed since we get the index from name
         E: From<SetCenterError> + From<KeyNotFoundError>,
     {
         let index = self.find_with_name(n).map_err(E::from)?;

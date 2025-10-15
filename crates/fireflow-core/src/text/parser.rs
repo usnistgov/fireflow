@@ -1,6 +1,6 @@
 use crate::config::{StdTextReadConfig, TimeMeasNamePattern};
 use crate::core::{NewCSVFlagsError, ScaleTransformError};
-use crate::error::{BiTentative, DeferredResult, ResultExt as _, Tentative};
+use crate::error::{BiTentative, DeferredResult, ResultExt as _, Tentative, VecFamily};
 use crate::validated::keys::{
     BiIndexedKey as _, IndexedKey, Key, MeasHeader, NonStdKeywords, NonStdKeywordsExt as _, StdKey,
     StdKeywords,
@@ -427,7 +427,9 @@ where
                     .map(|x| {
                         Self::check_link(&x, names)
                             .map(|()| x)
-                            .into_tentative_opt(!conf.allow_optional_dropping)
+                            .into_tentative_opt::<VecFamily, VecFamily>(
+                                !conf.allow_optional_dropping,
+                            )
                             .inner_into()
                     })
                     .unwrap_or_default()

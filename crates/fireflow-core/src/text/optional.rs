@@ -4,8 +4,9 @@ use crate::validated::keys::{IndexedKey, Key, MeasHeader};
 
 use super::index::IndexFromOne;
 
-use derive_more::{AsMut, AsRef, From, FromStr};
+use derive_more::{AsMut, AsRef, From, FromStr, IntoIterator};
 use std::fmt;
+use std::iter;
 use std::marker::PhantomData;
 use std::string::ToString;
 use thiserror::Error;
@@ -22,10 +23,26 @@ use pyo3::prelude::*;
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct AlwaysValue<T>(pub T);
 
+impl<T> IntoIterator for AlwaysValue<T> {
+    type Item = T;
+    type IntoIter = iter::Once<T>;
+    fn into_iter(self) -> Self::IntoIter {
+        iter::once(self.0)
+    }
+}
+
 /// A value that always exists.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct NeverValue<T>(pub PhantomData<T>);
+
+impl<T> IntoIterator for NeverValue<T> {
+    type Item = T;
+    type IntoIter = iter::Empty<T>;
+    fn into_iter(self) -> Self::IntoIter {
+        iter::empty()
+    }
+}
 
 impl<T> Default for NeverValue<T> {
     fn default() -> Self {

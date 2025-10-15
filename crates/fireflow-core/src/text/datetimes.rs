@@ -1,6 +1,6 @@
 use crate::config::StdTextReadConfig;
 use crate::core::{AnyMetarootKeyLossError, UnitaryKeyLossError};
-use crate::error::{BiTentative, ResultExt as _, Tentative};
+use crate::error::{BiTentative, ResultExt as _, Tentative, VecFamily};
 use crate::validated::keys::StdKeywords;
 
 use super::optional::KeywordPairMaybe as _;
@@ -91,7 +91,7 @@ impl Datetimes {
         let e = EndDateTime::lookup_metaroot_opt(kws, false, conf);
         b.zip(e).and_tentatively(|(begin, end)| {
             Self::try_new(begin, end)
-                .into_tentative_def(!conf.allow_optional_dropping)
+                .into_tentative_def::<VecFamily, VecFamily>(!conf.allow_optional_dropping)
                 .inner_into()
         })
     }

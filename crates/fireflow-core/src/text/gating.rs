@@ -1,6 +1,6 @@
 use crate::config::StdTextReadConfig;
 use crate::error::{
-    BiDeferredResult, DeferredExt as _, PassthruExt as _, ResultExt as _, Tentative,
+    BiDeferredResult, DeferredExt as _, PassthruExt as _, ResultExt as _, Tentative, VecFamily,
 };
 use crate::nonempty::FCSNonEmpty;
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
@@ -302,7 +302,7 @@ impl AppliedGates2_0 {
         let gm = GatedMeasurements::lookup(kws, false, conf);
         ag.zip(gm).and_tentatively(|(scheme, gated_measurements)| {
             Self::try_new(gated_measurements.0, scheme)
-                .into_tentative_def(!conf.allow_optional_dropping)
+                .into_tentative_def::<VecFamily, VecFamily>(!conf.allow_optional_dropping)
                 .inner_into()
         })
     }
@@ -414,7 +414,7 @@ impl AppliedGates3_0 {
         let ms = lookup_meas(kws);
         s.zip(ms).and_tentatively(|(scheme, gated_measurements)| {
             Self::try_new(gated_measurements.0, scheme)
-                .into_tentative_warn_def()
+                .into_tentative_warn_def::<_, VecFamily, VecFamily>()
                 .warnings_into()
         })
     }
@@ -674,7 +674,7 @@ impl<I> GatingScheme<I> {
         F0: Fn(&mut StdKeywords) -> LookupOptional<Gating>,
         F1: Fn(&mut StdKeywords, RegionIndex) -> LookupOptional<Region<I>>,
     {
-        lookup_gating(kws).and_tentatively(|gating| {
+        lookup_gating(kws).and_tentatively::<_, _, VecFamily, VecFamily, _, _>(|gating| {
             gating
                 .as_ref()
                 .map(|g| {
@@ -688,7 +688,7 @@ impl<I> GatingScheme<I> {
                 .and_tentatively(|rs| {
                     let regions = rs.into_iter().flatten().collect();
                     Self::try_new(gating, regions)
-                        .into_tentative_def(!conf.allow_optional_dropping)
+                        .into_tentative_def::<VecFamily, VecFamily>(!conf.allow_optional_dropping)
                         .inner_into()
                 })
         })
@@ -772,7 +772,7 @@ impl<I> Region<I> {
                 n_.zip(y_)
                     .and_then(|(gi, win)| Self::try_new(gi, win).map(Self::inner_into))
                     .ok_or(MismatchedIndexAndWindowError)
-                    .into_tentative_opt(!conf.allow_optional_dropping)
+                    .into_tentative_opt::<VecFamily, VecFamily>(!conf.allow_optional_dropping)
                     .inner_into()
             })
             .value_into()

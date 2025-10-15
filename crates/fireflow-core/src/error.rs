@@ -195,7 +195,7 @@ impl<I: Iterator<Item = Result<T, E>>, T, E> ErrorIter<T, E> for I {}
 ///
 /// Use cases: Option, Vec, and NeverValue
 pub trait ZeroOrMore {
-    type Wrapper<T>;
+    type Wrapper<T>: IntoIterator<Item = T>;
 
     fn map<F, X, Y>(t: Self::Wrapper<X>, f: F) -> Self::Wrapper<Y>
     where
@@ -205,8 +205,8 @@ pub trait ZeroOrMore {
 /// Generic higher-order type for something which has at least one thing.
 ///
 /// Use cases: NonEmpty and AlwaysValue
-pub trait OneOrMore {
-    type Wrapper<T>;
+pub trait OneOrMore: HoldsOne {
+    type Wrapper<T>: IntoIterator<Item = T>;
 
     fn map<F, X, Y>(t: Self::Wrapper<X>, f: F) -> Self::Wrapper<Y>
     where
@@ -214,7 +214,7 @@ pub trait OneOrMore {
 
     fn from_one<X>(x: X) -> Self::Wrapper<X>
     where
-        Self: HoldsOne<Inner<X> = Self::Wrapper<X>>,
+        Self: HoldsOne<InnerOne<X> = Self::Wrapper<X>>,
     {
         Self::wrap(x)
     }
@@ -224,10 +224,113 @@ pub trait OneOrMore {
 ///
 /// Use cases: Option, Vec, NonEmpty, Alwaysvalue
 pub trait HoldsOne {
-    type Inner<T>;
+    type InnerOne<T>;
 
-    fn wrap<X>(x: X) -> Self::Inner<X>;
+    fn wrap<X>(x: X) -> Self::InnerOne<X>;
 }
+
+/// Generic higher-order type for anything which holds up to infinite things
+///
+/// Use cases: Vec, NonEmpty
+pub trait HoldsMany {
+    type InnerMany<T>;
+
+    fn push<X>(t: &mut Self::InnerMany<X>, x: X);
+
+    fn extend<X>(t: &mut Self::InnerMany<X>, x: impl IntoIterator<Item = X>);
+}
+
+/// Generic "adder" for types
+pub trait Appendable<Other> {
+    type Out;
+    fn append_het(self, other: Other) -> Self::Out;
+}
+
+macro_rules! impl_concat_null_left {
+    ($t:ident) => {
+        impl<T> Appendable<$t<T>> for NeverValue<T> {
+            type Out = $t<T>;
+            fn append_het(self, other: $t<T>) -> Self::Out {
+                other
+            }
+        }
+    };
+}
+
+macro_rules! impl_concat_null_right {
+    ($t:ident) => {
+        impl<T> Appendable<NeverValue<T>> for $t<T> {
+            type Out = $t<T>;
+            fn append_het(self, _: NeverValue<T>) -> Self::Out {
+                self
+            }
+        }
+    };
+}
+
+macro_rules! impl_concat_chain_iter {
+    ($a:ident, $b:ident) => {
+        impl<T> Appendable<$b<T>> for $a<T> {
+            type Out = Vec<T>;
+            fn append_het(self, other: $b<T>) -> Self::Out {
+                self.into_iter().chain(other).collect()
+            }
+        }
+    };
+}
+
+macro_rules! impl_concat_chain_iter_ne {
+    ($a:ident) => {
+        impl<T> Appendable<NonEmpty<T>> for $a<T> {
+            type Out = NonEmpty<T>;
+            fn append_het(self, other: NonEmpty<T>) -> Self::Out {
+                NonEmpty::collect(self.into_iter().chain(other)).unwrap()
+            }
+        }
+    };
+}
+
+macro_rules! impl_concat_extend {
+    ($a:ident, $b:ident, $c:ident) => {
+        impl<T> Appendable<$b<T>> for $a<T> {
+            type Out = $c<T>;
+            fn append_het(mut self, other: $b<T>) -> Self::Out {
+                self.extend(other);
+                self
+            }
+        }
+    };
+}
+
+impl_concat_null_left!(Vec);
+impl_concat_null_left!(NonEmpty);
+impl_concat_null_left!(Option);
+impl_concat_null_left!(AlwaysValue);
+impl_concat_null_left!(NeverValue);
+
+impl_concat_null_right!(Vec);
+impl_concat_null_right!(NonEmpty);
+impl_concat_null_right!(AlwaysValue);
+impl_concat_null_right!(Option);
+
+impl_concat_chain_iter!(Option, Option);
+impl_concat_chain_iter!(Option, Vec);
+impl_concat_chain_iter!(Option, AlwaysValue);
+impl_concat_chain_iter!(Vec, Option);
+impl_concat_chain_iter!(Vec, Vec);
+impl_concat_chain_iter!(Vec, AlwaysValue);
+impl_concat_chain_iter!(AlwaysValue, Option);
+impl_concat_chain_iter!(AlwaysValue, Vec);
+impl_concat_chain_iter!(AlwaysValue, AlwaysValue);
+
+impl_concat_chain_iter_ne!(Option);
+impl_concat_chain_iter_ne!(Vec);
+impl_concat_chain_iter_ne!(AlwaysValue);
+
+impl_concat_extend!(NonEmpty, NonEmpty, NonEmpty);
+impl_concat_extend!(NonEmpty, Vec, NonEmpty);
+impl_concat_extend!(NonEmpty, Option, NonEmpty);
+impl_concat_extend!(NonEmpty, AlwaysValue, NonEmpty);
 
 pub struct OptionFamily;
 
@@ -295,36 +398,55 @@ impl OneOrMore for NonEmptyFamily {
 }
 
 impl HoldsOne for OptionFamily {
-    type Inner<T> = Option<T>;
+    type InnerOne<T> = Option<T>;
 
-    fn wrap<X>(x: X) -> Self::Inner<X> {
+    fn wrap<X>(x: X) -> Self::InnerOne<X> {
         Some(x)
     }
 }
 
 impl HoldsOne for VecFamily {
-    type Inner<T> = Vec<T>;
+    type InnerOne<T> = Vec<T>;
 
-    fn wrap<X>(x: X) -> Self::Inner<X> {
+    fn wrap<X>(x: X) -> Self::InnerOne<X> {
         vec![x]
     }
 }
 
 impl HoldsOne for SingletonFamily {
-    type Inner<T> = AlwaysValue<T>;
+    type InnerOne<T> = AlwaysValue<T>;
 
-    fn wrap<X>(x: X) -> Self::Inner<X> {
+    fn wrap<X>(x: X) -> Self::InnerOne<X> {
         AlwaysValue(x)
     }
 }
 
 impl HoldsOne for NonEmptyFamily {
-    type Inner<T> = NonEmpty<T>;
+    type InnerOne<T> = NonEmpty<T>;
 
-    fn wrap<X>(x: X) -> Self::Inner<X> {
+    fn wrap<X>(x: X) -> Self::InnerOne<X> {
         NonEmpty::new(x)
     }
 }
+
+macro_rules! impl_holds_many {
+    ($t:ident, $inner:ident) => {
+        impl HoldsMany for $t {
+            type InnerMany<T> = $inner<T>;
+
+            fn push<X>(t: &mut Self::InnerMany<X>, x: X) {
+                t.push(x);
+            }
+
+            fn extend<X>(t: &mut Self::InnerMany<X>, xs: impl IntoIterator<Item = X>) {
+                t.extend(xs);
+            }
+        }
+    };
+}
+
+impl_holds_many!(VecFamily, Vec);
+impl_holds_many!(NonEmptyFamily, NonEmpty);
 
 impl<V, W, I: ZeroOrMore> TerminalInner<V, W, I> {
     fn new1(value: impl Into<V>) -> Self
@@ -529,8 +651,8 @@ impl<V, W, E, WI: ZeroOrMore, EI: ZeroOrMore> TentativeInner<V, W, E, WI, EI> {
     where
         E: From<M>,
         W: From<M>,
-        WI: HoldsOne<Inner<W> = WI::Wrapper<W>>,
-        EI: HoldsOne<Inner<E> = EI::Wrapper<E>>,
+        WI: HoldsOne<InnerOne<W> = WI::Wrapper<W>>,
+        EI: HoldsOne<InnerOne<E> = EI::Wrapper<E>>,
         WI::Wrapper<W>: Default,
         EI::Wrapper<E>: Default,
     {
@@ -572,6 +694,144 @@ impl<V, W, E, WI: ZeroOrMore, EI: ZeroOrMore> TentativeInner<V, W, E, WI, EI> {
     pub fn errors_liftio(self) -> TentativeInner<V, W, ImpureError<E>, WI, EI> {
         self.map_errors(ImpureError::Pure)
     }
+
+    pub fn and_tentatively<F, X, WI0, EI0, WIF, EIF>(
+        self,
+        f: F,
+    ) -> TentativeInner<X, W, E, WIF, EIF>
+    where
+        WI::Wrapper<W>: Appendable<WI0::Wrapper<W>, Out = WIF::Wrapper<W>>,
+        EI::Wrapper<E>: Appendable<EI0::Wrapper<E>, Out = EIF::Wrapper<E>>,
+        WI0: ZeroOrMore,
+        EI0: ZeroOrMore,
+        WIF: ZeroOrMore,
+        EIF: ZeroOrMore,
+        F: FnOnce(V) -> TentativeInner<X, W, E, WI0, EI0>,
+    {
+        let s = f(self.value);
+        let ws = WI::Wrapper::<W>::append_het(self.warnings, s.warnings);
+        let es = EI::Wrapper::<E>::append_het(self.errors, s.errors);
+        TentativeInner::new(s.value, ws, es)
+    }
+
+    pub fn push_error(&mut self, x: impl Into<E>)
+    where
+        EI: HoldsMany<InnerMany<E> = EI::Wrapper<E>>,
+    {
+        EI::push(&mut self.errors, x.into());
+    }
+
+    pub fn push_warning(&mut self, x: impl Into<W>)
+    where
+        WI: HoldsMany<InnerMany<W> = WI::Wrapper<W>>,
+    {
+        WI::push(&mut self.warnings, x.into());
+    }
+
+    pub fn push_error_or_warning<X>(&mut self, x: X, is_error: bool)
+    where
+        X: Into<E> + Into<W>,
+        WI: HoldsMany<InnerMany<W> = WI::Wrapper<W>>,
+        EI: HoldsMany<InnerMany<E> = EI::Wrapper<E>>,
+    {
+        if is_error {
+            self.push_error(x);
+        } else {
+            self.push_warning(x);
+        }
+    }
+
+    pub fn extend_warnings(&mut self, xs: impl Iterator<Item = impl Into<W>>)
+    where
+        WI: HoldsMany<InnerMany<W> = WI::Wrapper<W>>,
+    {
+        WI::extend(&mut self.warnings, xs.map(Into::into));
+    }
+
+    pub fn extend_errors(&mut self, xs: impl Iterator<Item = impl Into<E>>)
+    where
+        EI: HoldsMany<InnerMany<E> = EI::Wrapper<E>>,
+    {
+        EI::extend(&mut self.errors, xs.map(Into::into));
+    }
+
+    pub fn extend_errors_or_warnings<X>(&mut self, xs: impl Iterator<Item = X>, is_error: bool)
+    where
+        X: Into<W> + Into<E>,
+        WI: HoldsMany<InnerMany<W> = WI::Wrapper<W>>,
+        EI: HoldsMany<InnerMany<E> = EI::Wrapper<E>>,
+    {
+        if is_error {
+            self.extend_errors(xs);
+        } else {
+            self.extend_warnings(xs);
+        }
+    }
+
+    pub fn eval_warning<F, X>(&mut self, f: F)
+    where
+        X: Into<W>,
+        F: FnOnce(&V) -> Option<X>,
+        WI: HoldsMany<InnerMany<W> = WI::Wrapper<W>>,
+    {
+        if let Some(e) = f(&self.value) {
+            self.push_warning(e.into());
+        }
+    }
+
+    pub fn eval_error<F, X>(&mut self, f: F)
+    where
+        X: Into<E>,
+        F: FnOnce(&V) -> Option<X>,
+        EI: HoldsMany<InnerMany<E> = EI::Wrapper<E>>,
+    {
+        if let Some(e) = f(&self.value) {
+            self.push_error(e.into());
+        }
+    }
+
+    pub fn eval_error_or_warning<F, X>(&mut self, is_error: bool, f: F)
+    where
+        X: Into<W> + Into<E>,
+        F: FnOnce(&V) -> Option<X>,
+        WI: HoldsMany<InnerMany<W> = WI::Wrapper<W>>,
+        EI: HoldsMany<InnerMany<E> = EI::Wrapper<E>>,
+    {
+        if is_error {
+            self.eval_error(f);
+        } else {
+            self.eval_warning(f);
+        }
+    }
+
+    pub fn eval_errors<F, X, I>(&mut self, f: F)
+    where
+        E: From<X>,
+        F: FnOnce(&V) -> I,
+        I: IntoIterator<Item = X>,
+        EI: HoldsMany<InnerMany<E> = EI::Wrapper<E>>,
+    {
+        self.extend_errors(f(&self.value).into_iter());
+    }
+
+    pub fn void(self) -> TentativeInner<(), W, E, WI, EI> {
+        TentativeInner::new((), self.warnings, self.errors)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn value(&self) -> &V {
+        &self.value
+    }
+
+    #[cfg(test)]
+    pub(crate) fn errors(&self) -> &[E] {
+        &self.errors[..]
+    }
+
+    #[cfg(test)]
+    pub(crate) fn warnings(&self) -> &[W] {
+        &self.warnings[..]
+    }
 }
 
 impl<V, W, E> Tentative<V, W, E> {
@@ -597,44 +857,6 @@ impl<V, W, E> Tentative<V, W, E> {
         } else {
             Self::new_vec(value, msgs.into_iter().map(Into::into), [])
         }
-    }
-
-    pub fn push_warning(&mut self, x: impl Into<W>) {
-        self.warnings.push(x.into());
-    }
-
-    pub fn push_error(&mut self, x: impl Into<E>) {
-        self.errors.push(x.into());
-    }
-
-    pub fn push_error_or_warning<X>(&mut self, x: X, is_error: bool)
-    where
-        X: Into<E> + Into<W>,
-    {
-        if is_error {
-            self.push_error(x);
-        } else {
-            self.push_warning(x);
-        }
-    }
-
-    pub fn extend_errors_or_warnings<X>(&mut self, xs: impl Iterator<Item = X>, is_error: bool)
-    where
-        X: Into<W> + Into<E>,
-    {
-        if is_error {
-            self.extend_errors(xs);
-        } else {
-            self.extend_warnings(xs);
-        }
-    }
-
-    pub fn extend_warnings(&mut self, xs: impl Iterator<Item = impl Into<W>>) {
-        self.warnings.extend(xs.map(Into::into));
-    }
-
-    pub fn extend_errors(&mut self, xs: impl Iterator<Item = impl Into<E>>) {
-        self.errors.extend(xs.map(Into::into));
     }
 
     pub fn and_finally<F, X, T>(mut self, mut f: F) -> TerminalResult<X, W, E, T>
@@ -675,58 +897,6 @@ impl<V, W, E> Tentative<V, W, E> {
         }
     }
 
-    pub fn and_tentatively<F, X>(mut self, f: F) -> Tentative<X, W, E>
-    where
-        F: FnOnce(V) -> Tentative<X, W, E>,
-    {
-        let s = f(self.value);
-        self.warnings.extend(s.warnings);
-        self.errors.extend(s.errors);
-        Tentative::new_vec(s.value, self.warnings, self.errors)
-    }
-
-    pub fn eval_error<F, X>(&mut self, f: F)
-    where
-        X: Into<E>,
-        F: FnOnce(&V) -> Option<X>,
-    {
-        if let Some(e) = f(&self.value) {
-            self.errors.push(e.into());
-        }
-    }
-
-    pub fn eval_warning<F, X>(&mut self, f: F)
-    where
-        X: Into<W>,
-        F: FnOnce(&V) -> Option<X>,
-    {
-        if let Some(e) = f(&self.value) {
-            self.warnings.push(e.into());
-        }
-    }
-
-    pub fn eval_error_or_warning<F, X>(&mut self, is_error: bool, f: F)
-    where
-        X: Into<W> + Into<E>,
-        F: FnOnce(&V) -> Option<X>,
-    {
-        if is_error {
-            self.eval_error(f);
-        } else {
-            self.eval_warning(f);
-        }
-    }
-
-    pub fn eval_errors<F, X, I>(&mut self, f: F)
-    where
-        E: From<X>,
-        F: FnOnce(&V) -> I,
-        I: IntoIterator<Item = X>,
-    {
-        self.errors
-            .extend(f(&self.value).into_iter().map(Into::into));
-    }
-
     pub fn mconcat(xs: impl IntoIterator<Item = Self>) -> Tentative<Vec<V>, W, E> {
         let mut ret = Tentative::new1(vec![]);
         for x in xs {
@@ -753,7 +923,7 @@ impl<V, W, E> Tentative<V, W, E> {
         self.terminate_inner(reason).map(|(t, _)| t)
     }
 
-    pub fn terminate_def<T: Default>(self, reason: T) -> TerminalResult<V, W, E, T> {
+    pub fn terminate_def<T: Default>(self) -> TerminalResult<V, W, E, T> {
         self.terminate(T::default())
     }
 
@@ -841,25 +1011,6 @@ impl<V, W, E> Tentative<V, W, E> {
         self.warnings.extend(other.warnings);
         self.errors.extend(other.errors);
         Tentative::new_vec(f(self.value, other.value), self.warnings, self.errors)
-    }
-
-    pub fn void(self) -> Tentative<(), W, E> {
-        Tentative::new_vec((), self.warnings, self.errors)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn value(&self) -> &V {
-        &self.value
-    }
-
-    #[cfg(test)]
-    pub(crate) fn errors(&self) -> &[E] {
-        &self.errors[..]
-    }
-
-    #[cfg(test)]
-    pub(crate) fn warnings(&self) -> &[W] {
-        &self.warnings[..]
     }
 }
 
@@ -967,6 +1118,33 @@ impl<P, W, E, WI: ZeroOrMore, EI: OneOrMore> DeferredFailureInner<P, W, E, WI, E
         self.map_errors(Into::into)
     }
 
+    pub fn push_warning(&mut self, x: impl Into<W>)
+    where
+        WI: HoldsMany<InnerMany<W> = WI::Wrapper<W>>,
+    {
+        WI::push(&mut self.warnings, x.into());
+    }
+
+    pub fn push_error(&mut self, x: impl Into<E>)
+    where
+        EI: HoldsMany<InnerMany<E> = EI::Wrapper<E>>,
+    {
+        EI::push(&mut *self.errors, x.into());
+    }
+
+    pub fn push_error_or_warning<X>(&mut self, x: X, is_error: bool)
+    where
+        X: Into<E> + Into<W>,
+        WI: HoldsMany<InnerMany<W> = WI::Wrapper<W>>,
+        EI: HoldsMany<InnerMany<E> = EI::Wrapper<E>>,
+    {
+        if is_error {
+            self.push_error(x);
+        } else {
+            self.push_warning(x);
+        }
+    }
+
     pub fn void(self) -> DeferredFailureInner<(), W, E, WI, EI> {
         DeferredFailureInner::new(self.warnings, self.errors, ())
     }
@@ -993,25 +1171,6 @@ impl<P, W, E> DeferredFailure<P, W, E> {
             errors.into(),
             passthru.into(),
         )
-    }
-
-    pub fn push_warning(&mut self, x: impl Into<W>) {
-        self.warnings.push(x.into());
-    }
-
-    pub fn push_error(&mut self, x: impl Into<E>) {
-        self.errors.push(x.into());
-    }
-
-    pub fn push_error_or_warning<X>(&mut self, x: X, is_error: bool)
-    where
-        X: Into<E> + Into<W>,
-    {
-        if is_error {
-            self.push_error(x);
-        } else {
-            self.push_warning(x);
-        }
     }
 
     // pub fn unfail(self) -> Tentative<P, W, E> {
@@ -1084,7 +1243,7 @@ impl<W, E, WI: ZeroOrMore, EI: OneOrMore> DeferredFailureInner<(), W, E, WI, EI>
     pub fn new1(e: impl Into<E>) -> Self
     where
         WI::Wrapper<W>: Default,
-        EI: HoldsOne<Inner<E> = EI::Wrapper<E>>,
+        EI: HoldsOne<InnerOne<E> = EI::Wrapper<E>>,
     {
         Self::new(
             WI::Wrapper::<W>::default(),
@@ -1202,7 +1361,7 @@ pub trait ResultExt: Sized {
         WI0: ZeroOrMore,
         WI1: ZeroOrMore,
         EI0: ZeroOrMore,
-        EI1: OneOrMore + HoldsOne<Inner<E1> = EI1::Wrapper<E1>>,
+        EI1: OneOrMore + HoldsOne<InnerOne<E1> = EI1::Wrapper<E1>>,
         WI0::Wrapper<W>: Default,
         WI1::Wrapper<W>: Default,
         EI0::Wrapper<E1>: Default,
@@ -1224,8 +1383,8 @@ pub trait ResultExt: Sized {
         is_error: bool,
     ) -> TentativeInner<Self::V, Self::E, Self::E, WI, EI>
     where
-        WI: ZeroOrMore + HoldsOne<Inner<Self::E> = WI::Wrapper<Self::E>>,
-        EI: ZeroOrMore + HoldsOne<Inner<Self::E> = EI::Wrapper<Self::E>>,
+        WI: ZeroOrMore + HoldsOne<InnerOne<Self::E> = WI::Wrapper<Self::E>>,
+        EI: ZeroOrMore + HoldsOne<InnerOne<Self::E> = EI::Wrapper<Self::E>>,
         WI::Wrapper<Self::E>: Default,
         EI::Wrapper<Self::E>: Default,
     {
@@ -1238,7 +1397,7 @@ pub trait ResultExt: Sized {
         default: Self::V,
     ) -> TentativeInner<Self::V, Self::E, X, WI, EI>
     where
-        WI: ZeroOrMore + HoldsOne<Inner<Self::E> = WI::Wrapper<Self::E>>,
+        WI: ZeroOrMore + HoldsOne<InnerOne<Self::E> = WI::Wrapper<Self::E>>,
         EI: ZeroOrMore,
         WI::Wrapper<Self::E>: Default,
         EI::Wrapper<X>: Default,
@@ -1252,7 +1411,7 @@ pub trait ResultExt: Sized {
     ) -> TentativeInner<Self::V, X, Self::E, WI, EI>
     where
         WI: ZeroOrMore,
-        EI: ZeroOrMore + HoldsOne<Inner<Self::E> = EI::Wrapper<Self::E>>,
+        EI: ZeroOrMore + HoldsOne<InnerOne<Self::E> = EI::Wrapper<Self::E>>,
         WI::Wrapper<X>: Default,
         EI::Wrapper<Self::E>: Default,
     {
@@ -1265,8 +1424,8 @@ pub trait ResultExt: Sized {
     ) -> TentativeInner<Self::V, Self::E, Self::E, WI, EI>
     where
         Self::V: Default,
-        WI: ZeroOrMore + HoldsOne<Inner<Self::E> = WI::Wrapper<Self::E>>,
-        EI: ZeroOrMore + HoldsOne<Inner<Self::E> = EI::Wrapper<Self::E>>,
+        WI: ZeroOrMore + HoldsOne<InnerOne<Self::E> = WI::Wrapper<Self::E>>,
+        EI: ZeroOrMore + HoldsOne<InnerOne<Self::E> = EI::Wrapper<Self::E>>,
         WI::Wrapper<Self::E>: Default,
         EI::Wrapper<Self::E>: Default,
     {
@@ -1277,7 +1436,7 @@ pub trait ResultExt: Sized {
     fn into_tentative_warn_def<X, WI, EI>(self) -> TentativeInner<Self::V, Self::E, X, WI, EI>
     where
         Self::V: Default,
-        WI: ZeroOrMore + HoldsOne<Inner<Self::E> = WI::Wrapper<Self::E>>,
+        WI: ZeroOrMore + HoldsOne<InnerOne<Self::E> = WI::Wrapper<Self::E>>,
         EI: ZeroOrMore,
         WI::Wrapper<Self::E>: Default,
         EI::Wrapper<X>: Default,
@@ -1290,7 +1449,7 @@ pub trait ResultExt: Sized {
     where
         Self::V: Default,
         WI: ZeroOrMore,
-        EI: ZeroOrMore + HoldsOne<Inner<Self::E> = EI::Wrapper<Self::E>>,
+        EI: ZeroOrMore + HoldsOne<InnerOne<Self::E> = EI::Wrapper<Self::E>>,
         WI::Wrapper<X>: Default,
         EI::Wrapper<Self::E>: Default,
     {
@@ -1302,8 +1461,8 @@ pub trait ResultExt: Sized {
         is_error: bool,
     ) -> TentativeInner<Option<Self::V>, Self::E, Self::E, WI, EI>
     where
-        WI: ZeroOrMore + HoldsOne<Inner<Self::E> = WI::Wrapper<Self::E>>,
-        EI: ZeroOrMore + HoldsOne<Inner<Self::E> = EI::Wrapper<Self::E>>,
+        WI: ZeroOrMore + HoldsOne<InnerOne<Self::E> = WI::Wrapper<Self::E>>,
+        EI: ZeroOrMore + HoldsOne<InnerOne<Self::E> = EI::Wrapper<Self::E>>,
         WI::Wrapper<Self::E>: Default,
         EI::Wrapper<Self::E>: Default;
 
@@ -1311,7 +1470,7 @@ pub trait ResultExt: Sized {
         self,
     ) -> TentativeInner<Option<Self::V>, Self::E, X, WI, EI>
     where
-        WI: ZeroOrMore + HoldsOne<Inner<Self::E> = WI::Wrapper<Self::E>>,
+        WI: ZeroOrMore + HoldsOne<InnerOne<Self::E> = WI::Wrapper<Self::E>>,
         EI: ZeroOrMore,
         WI::Wrapper<Self::E>: Default,
         EI::Wrapper<X>: Default;
@@ -1321,7 +1480,7 @@ pub trait ResultExt: Sized {
     ) -> TentativeInner<Option<Self::V>, X, Self::E, WI, EI>
     where
         WI: ZeroOrMore,
-        EI: ZeroOrMore + HoldsOne<Inner<Self::E> = EI::Wrapper<Self::E>>,
+        EI: ZeroOrMore + HoldsOne<InnerOne<Self::E> = EI::Wrapper<Self::E>>,
         WI::Wrapper<X>: Default,
         EI::Wrapper<Self::E>: Default;
 
@@ -1346,7 +1505,7 @@ impl<V, E> ResultExt for Result<V, E> {
         WI0: ZeroOrMore,
         WI1: ZeroOrMore,
         EI0: ZeroOrMore,
-        EI1: OneOrMore + HoldsOne<Inner<E1> = EI1::Wrapper<E1>>,
+        EI1: OneOrMore + HoldsOne<InnerOne<E1> = EI1::Wrapper<E1>>,
         WI0::Wrapper<W>: Default,
         WI1::Wrapper<W>: Default,
         EI0::Wrapper<E1>: Default,
@@ -1392,8 +1551,8 @@ impl<V, E> ResultExt for Result<V, E> {
         is_error: bool,
     ) -> TentativeInner<Option<Self::V>, Self::E, Self::E, WI, EI>
     where
-        WI: ZeroOrMore + HoldsOne<Inner<Self::E> = WI::Wrapper<Self::E>>,
-        EI: ZeroOrMore + HoldsOne<Inner<Self::E> = EI::Wrapper<Self::E>>,
+        WI: ZeroOrMore + HoldsOne<InnerOne<Self::E> = WI::Wrapper<Self::E>>,
+        EI: ZeroOrMore + HoldsOne<InnerOne<Self::E> = EI::Wrapper<Self::E>>,
         WI::Wrapper<Self::E>: Default,
         EI::Wrapper<Self::E>: Default,
     {
@@ -1407,7 +1566,7 @@ impl<V, E> ResultExt for Result<V, E> {
         self,
     ) -> TentativeInner<Option<Self::V>, Self::E, X, WI, EI>
     where
-        WI: ZeroOrMore + HoldsOne<Inner<Self::E> = WI::Wrapper<Self::E>>,
+        WI: ZeroOrMore + HoldsOne<InnerOne<Self::E> = WI::Wrapper<Self::E>>,
         EI: ZeroOrMore,
         WI::Wrapper<Self::E>: Default,
         EI::Wrapper<X>: Default,
@@ -1423,7 +1582,7 @@ impl<V, E> ResultExt for Result<V, E> {
     ) -> TentativeInner<Option<Self::V>, X, Self::E, WI, EI>
     where
         WI: ZeroOrMore,
-        EI: ZeroOrMore + HoldsOne<Inner<Self::E> = EI::Wrapper<Self::E>>,
+        EI: ZeroOrMore + HoldsOne<InnerOne<Self::E> = EI::Wrapper<Self::E>>,
         WI::Wrapper<X>: Default,
         EI::Wrapper<Self::E>: Default,
     {
@@ -1522,15 +1681,32 @@ pub trait PassthruExt: Sized {
     type V;
     type E;
     type W;
+    type LWI: ZeroOrMore;
+    type LEI: ZeroOrMore;
+    type RWI: ZeroOrMore;
+    type REI: OneOrMore;
 
-    fn def_value_into<ToV>(self) -> PassthruResult<ToV, Self::P, Self::W, Self::E>
+    fn def_value_into<ToV>(
+        self,
+    ) -> PassthruResultInner<
+        ToV,
+        Self::P,
+        Self::W,
+        Self::E,
+        Self::LWI,
+        Self::LEI,
+        Self::RWI,
+        Self::REI,
+    >
     where
         ToV: From<Self::V>,
     {
         self.def_map_value(Into::into)
     }
 
-    fn def_inner_into<ToW, ToE>(self) -> PassthruResult<Self::V, Self::P, ToW, ToE>
+    fn def_inner_into<ToW, ToE>(
+        self,
+    ) -> PassthruResultInner<Self::V, Self::P, ToW, ToE, Self::LWI, Self::LEI, Self::RWI, Self::REI>
     where
         ToW: From<Self::W>,
         ToE: From<Self::E>,
@@ -1538,57 +1714,122 @@ pub trait PassthruExt: Sized {
         self.def_errors_into().def_warnings_into()
     }
 
-    fn def_errors_into<ToE>(self) -> PassthruResult<Self::V, Self::P, Self::W, ToE>
+    fn def_errors_into<ToE>(
+        self,
+    ) -> PassthruResultInner<
+        Self::V,
+        Self::P,
+        Self::W,
+        ToE,
+        Self::LWI,
+        Self::LEI,
+        Self::RWI,
+        Self::REI,
+    >
     where
         ToE: From<Self::E>,
     {
         self.def_map_errors(Into::into)
     }
 
-    fn def_errors_liftio(self) -> PassthruResult<Self::V, Self::P, Self::W, ImpureError<Self::E>> {
+    fn def_errors_liftio(
+        self,
+    ) -> PassthruResultInner<
+        Self::V,
+        Self::P,
+        Self::W,
+        ImpureError<Self::E>,
+        Self::LWI,
+        Self::LEI,
+        Self::RWI,
+        Self::REI,
+    > {
         self.def_map_errors(ImpureError::Pure)
     }
 
-    fn def_warnings_into<ToW>(self) -> PassthruResult<Self::V, Self::P, ToW, Self::E>
+    fn def_warnings_into<ToW>(
+        self,
+    ) -> PassthruResultInner<
+        Self::V,
+        Self::P,
+        ToW,
+        Self::E,
+        Self::LWI,
+        Self::LEI,
+        Self::RWI,
+        Self::REI,
+    >
     where
         ToW: From<Self::W>,
     {
         self.def_map_warnings(Into::into)
     }
 
-    fn def_map_value<F, X>(self, f: F) -> PassthruResult<X, Self::P, Self::W, Self::E>
+    fn def_map_value<F, X>(
+        self,
+        f: F,
+    ) -> PassthruResultInner<X, Self::P, Self::W, Self::E, Self::LWI, Self::LEI, Self::RWI, Self::REI>
     where
         F: FnOnce(Self::V) -> X;
 
-    fn def_map_warnings<F, X>(self, f: F) -> PassthruResult<Self::V, Self::P, X, Self::E>
+    fn def_map_warnings<F, X>(
+        self,
+        f: F,
+    ) -> PassthruResultInner<Self::V, Self::P, X, Self::E, Self::LWI, Self::LEI, Self::RWI, Self::REI>
     where
         F: Fn(Self::W) -> X;
 
-    fn def_map_errors<F, X>(self, f: F) -> PassthruResult<Self::V, Self::P, Self::W, X>
+    fn def_map_errors<F, X>(
+        self,
+        f: F,
+    ) -> PassthruResultInner<Self::V, Self::P, Self::W, X, Self::LWI, Self::LEI, Self::RWI, Self::REI>
     where
         F: Fn(Self::E) -> X;
 
-    fn def_and_tentatively<F, X>(self, f: F) -> PassthruResult<X, Self::P, Self::W, Self::E>
+    fn def_and_tentatively<F, X, LWI0, LEI0, LWIF, LEIF>(
+        self,
+        f: F,
+    ) -> PassthruResultInner<X, Self::P, Self::W, Self::E, LWIF, LEIF, Self::RWI, Self::REI>
     where
-        F: FnOnce(Self::V) -> Tentative<X, Self::W, Self::E>;
+        <Self::LWI as ZeroOrMore>::Wrapper<Self::W>:
+            Appendable<LWI0::Wrapper<Self::W>, Out = LWIF::Wrapper<Self::W>>,
+        <Self::LEI as ZeroOrMore>::Wrapper<Self::E>:
+            Appendable<LEI0::Wrapper<Self::E>, Out = LEIF::Wrapper<Self::E>>,
+        LWI0: ZeroOrMore,
+        LEI0: ZeroOrMore,
+        LWIF: ZeroOrMore,
+        LEIF: ZeroOrMore,
+        F: FnOnce(Self::V) -> TentativeInner<X, Self::W, Self::E, LWI0, LEI0>;
 
     fn def_eval_error<F, X>(&mut self, f: F)
     where
         X: Into<Self::E>,
-        F: FnOnce(&Self::V) -> Option<X>;
+        F: FnOnce(&Self::V) -> Option<X>,
+        Self::LEI: HoldsMany<InnerMany<Self::E> = <Self::LEI as ZeroOrMore>::Wrapper<Self::E>>;
 
     fn def_eval_warning<F, X>(&mut self, f: F)
     where
         X: Into<Self::W>,
-        F: FnOnce(&Self::V) -> Option<X>;
+        F: FnOnce(&Self::V) -> Option<X>,
+        Self::LWI: HoldsMany<InnerMany<Self::W> = <Self::LWI as ZeroOrMore>::Wrapper<Self::W>>;
 
-    fn def_push_error(&mut self, e: impl Into<Self::E>);
+    fn def_push_error(&mut self, e: impl Into<Self::E>)
+    where
+        Self::LEI: HoldsMany<InnerMany<Self::E> = <Self::LEI as ZeroOrMore>::Wrapper<Self::E>>,
+        Self::REI: HoldsMany<InnerMany<Self::E> = <Self::REI as OneOrMore>::Wrapper<Self::E>>;
 
-    fn def_push_warning(&mut self, w: impl Into<Self::W>);
+    fn def_push_warning(&mut self, w: impl Into<Self::W>)
+    where
+        Self::LWI: HoldsMany<InnerMany<Self::W> = <Self::LWI as ZeroOrMore>::Wrapper<Self::W>>,
+        Self::RWI: HoldsMany<InnerMany<Self::W> = <Self::RWI as ZeroOrMore>::Wrapper<Self::W>>;
 
     fn def_push_error_or_warning<X>(&mut self, x: X, is_error: bool)
     where
         X: Into<Self::W> + Into<Self::E>,
+        Self::LWI: HoldsMany<InnerMany<Self::W> = <Self::LWI as ZeroOrMore>::Wrapper<Self::W>>,
+        Self::LEI: HoldsMany<InnerMany<Self::E> = <Self::LEI as ZeroOrMore>::Wrapper<Self::E>>,
+        Self::RWI: HoldsMany<InnerMany<Self::W> = <Self::RWI as ZeroOrMore>::Wrapper<Self::W>>,
+        Self::REI: HoldsMany<InnerMany<Self::E> = <Self::REI as OneOrMore>::Wrapper<Self::E>>,
     {
         if is_error {
             self.def_push_error(x);
@@ -1597,23 +1838,36 @@ pub trait PassthruExt: Sized {
         }
     }
 
-    fn def_void_passthru(self) -> DeferredResult<Self::V, Self::W, Self::E>;
+    fn def_void_passthru(
+        self,
+    ) -> DeferredResultInner<Self::V, Self::W, Self::E, Self::LWI, Self::LEI, Self::RWI, Self::REI>;
 }
 
-impl<V, P, W, E> PassthruExt for PassthruResult<V, P, W, E> {
+impl<V, P, W, E, LWI, LEI, RWI, REI> PassthruExt
+    for PassthruResultInner<V, P, W, E, LWI, LEI, RWI, REI>
+where
+    LWI: ZeroOrMore,
+    LEI: ZeroOrMore,
+    RWI: ZeroOrMore,
+    REI: OneOrMore,
+{
     type V = V;
     type P = P;
     type W = W;
     type E = E;
+    type LWI = LWI;
+    type LEI = LEI;
+    type RWI = RWI;
+    type REI = REI;
 
-    fn def_map_value<F, X>(self, f: F) -> PassthruResult<X, Self::P, Self::W, Self::E>
+    fn def_map_value<F, X>(self, f: F) -> PassthruResultInner<X, P, W, E, LWI, LEI, RWI, REI>
     where
         F: FnOnce(Self::V) -> X,
     {
         self.map(|x| x.map(f))
     }
 
-    fn def_map_warnings<F, X>(self, f: F) -> PassthruResult<Self::V, Self::P, X, Self::E>
+    fn def_map_warnings<F, X>(self, f: F) -> PassthruResultInner<V, P, X, E, LWI, LEI, RWI, REI>
     where
         F: Fn(Self::W) -> X,
     {
@@ -1623,7 +1877,7 @@ impl<V, P, W, E> PassthruExt for PassthruResult<V, P, W, E> {
         }
     }
 
-    fn def_map_errors<F, X>(self, f: F) -> PassthruResult<Self::V, Self::P, Self::W, X>
+    fn def_map_errors<F, X>(self, f: F) -> PassthruResultInner<V, P, W, X, LWI, LEI, RWI, REI>
     where
         F: Fn(Self::E) -> X,
     {
@@ -1633,17 +1887,28 @@ impl<V, P, W, E> PassthruExt for PassthruResult<V, P, W, E> {
         }
     }
 
-    fn def_and_tentatively<F, X>(self, f: F) -> PassthruResult<X, Self::P, Self::W, Self::E>
+    fn def_and_tentatively<F, X, LWI0, LEI0, LWIF, LEIF>(
+        self,
+        f: F,
+    ) -> PassthruResultInner<X, P, W, E, LWIF, LEIF, RWI, REI>
     where
-        F: FnOnce(Self::V) -> Tentative<X, Self::W, Self::E>,
+        LWI::Wrapper<W>: Appendable<LWI0::Wrapper<W>, Out = LWIF::Wrapper<W>>,
+        LEI::Wrapper<E>: Appendable<LEI0::Wrapper<E>, Out = LEIF::Wrapper<E>>,
+        LWI0: ZeroOrMore,
+        LEI0: ZeroOrMore,
+        LWIF: ZeroOrMore,
+        LEIF: ZeroOrMore,
+        F: FnOnce(Self::V) -> TentativeInner<X, W, E, LWI0, LEI0>,
     {
         self.map(|x| x.and_tentatively(f))
     }
 
+    // TODO this won't add the error to the right side
     fn def_eval_error<F, X>(&mut self, f: F)
     where
         X: Into<Self::E>,
         F: FnOnce(&Self::V) -> Option<X>,
+        LEI: HoldsMany<InnerMany<E> = LEI::Wrapper<E>>,
     {
         if let Ok(tnt) = self.as_mut() {
             tnt.eval_error(f);
@@ -1654,28 +1919,37 @@ impl<V, P, W, E> PassthruExt for PassthruResult<V, P, W, E> {
     where
         X: Into<Self::W>,
         F: FnOnce(&Self::V) -> Option<X>,
+        LWI: HoldsMany<InnerMany<W> = LWI::Wrapper<W>>,
     {
         if let Ok(tnt) = self.as_mut() {
             tnt.eval_warning(f);
         }
     }
 
-    fn def_push_error(&mut self, e: impl Into<Self::E>) {
+    fn def_push_error(&mut self, e: impl Into<E>)
+    where
+        LEI: HoldsMany<InnerMany<E> = LEI::Wrapper<E>>,
+        REI: HoldsMany<InnerMany<E> = REI::Wrapper<E>>,
+    {
         match self {
             Ok(tnt) => tnt.push_error(e),
             Err(f) => f.push_error(e),
         }
     }
 
-    fn def_push_warning(&mut self, w: impl Into<Self::W>) {
+    fn def_push_warning(&mut self, w: impl Into<W>)
+    where
+        LWI: HoldsMany<InnerMany<W> = LWI::Wrapper<W>>,
+        RWI: HoldsMany<InnerMany<W> = RWI::Wrapper<W>>,
+    {
         match self {
             Ok(tnt) => tnt.push_warning(w),
             Err(f) => f.push_warning(w),
         }
     }
 
-    fn def_void_passthru(self) -> DeferredResult<Self::V, Self::W, Self::E> {
-        self.map_err(DeferredFailure::void)
+    fn def_void_passthru(self) -> DeferredResultInner<V, W, E, LWI, LEI, RWI, REI> {
+        self.map_err(DeferredFailureInner::void)
     }
 }
 
@@ -1863,7 +2137,9 @@ where
 {
     type InnerE;
 
-    fn def_io_into<ToE, ToW>(self) -> IODeferredResult<Self::V, ToW, ToE>
+    fn def_io_into<ToE, ToW>(
+        self,
+    ) -> DeferredResultInner<Self::V, ToW, Self::E, Self::LWI, Self::LEI, Self::RWI, Self::REI>
     where
         Self: PassthruExt<P = ()>,
         ToE: From<Self::InnerE>,
@@ -1876,6 +2152,10 @@ where
     fn def_io_push_error_or_warning<X>(&mut self, x: X, is_error: bool)
     where
         X: Into<Self::W> + Into<Self::InnerE>,
+        Self::LWI: HoldsMany<InnerMany<Self::W> = <Self::LWI as ZeroOrMore>::Wrapper<Self::W>>,
+        Self::LEI: HoldsMany<InnerMany<Self::E> = <Self::LEI as ZeroOrMore>::Wrapper<Self::E>>,
+        Self::RWI: HoldsMany<InnerMany<Self::W> = <Self::RWI as ZeroOrMore>::Wrapper<Self::W>>,
+        Self::REI: HoldsMany<InnerMany<Self::E> = <Self::REI as OneOrMore>::Wrapper<Self::E>>,
     {
         if is_error {
             self.def_push_error(ImpureError::Pure(x.into()));
@@ -1921,7 +2201,7 @@ impl<W, E, WI, EI> From<E> for DeferredFailureInner<(), W, E, WI, EI>
 where
     WI: ZeroOrMore,
     WI::Wrapper<W>: Default,
-    EI: OneOrMore + HoldsOne<Inner<E> = EI::Wrapper<E>>,
+    EI: OneOrMore + HoldsOne<InnerOne<E> = EI::Wrapper<E>>,
 {
     fn from(value: E) -> Self {
         Self::new1(value)
@@ -1942,7 +2222,7 @@ impl<W, E, WI, EI> From<io::Error> for DeferredFailureInner<(), W, ImpureError<E
 where
     WI: ZeroOrMore,
     WI::Wrapper<W>: Default,
-    EI: OneOrMore + HoldsOne<Inner<ImpureError<E>> = EI::Wrapper<ImpureError<E>>>,
+    EI: OneOrMore + HoldsOne<InnerOne<ImpureError<E>> = EI::Wrapper<ImpureError<E>>>,
 {
     fn from(value: io::Error) -> Self {
         Self::new1(value)
@@ -1953,7 +2233,7 @@ impl<W, E, WI, EI, T> From<E> for TerminalFailureInner<W, E, T, WI, EI>
 where
     WI: ZeroOrMore,
     WI::Wrapper<W>: Default,
-    EI: OneOrMore + HoldsOne<Inner<E> = EI::Wrapper<E>>,
+    EI: OneOrMore + HoldsOne<InnerOne<E> = EI::Wrapper<E>>,
     T: Default,
 {
     fn from(value: E) -> Self {
@@ -1976,7 +2256,7 @@ impl<W, E, WI, EI, T> From<io::Error> for TerminalFailureInner<W, ImpureError<E>
 where
     WI: ZeroOrMore,
     WI::Wrapper<W>: Default,
-    EI: OneOrMore + HoldsOne<Inner<ImpureError<E>> = EI::Wrapper<ImpureError<E>>>,
+    EI: OneOrMore + HoldsOne<InnerOne<ImpureError<E>> = EI::Wrapper<ImpureError<E>>>,
     T: Default,
 {
     fn from(value: io::Error) -> Self {

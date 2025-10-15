@@ -14,7 +14,7 @@ use crate::data::{NewDataReaderError, NewDataReaderWarning, RawToLayoutError, Ra
 use crate::error::{
     DeferredExt as _, DeferredFailure, DeferredResult, IODeferredExt as _, IODeferredResult,
     IOTerminalResult, ImpureError, Leveled, MultiResultExt as _, PassthruExt as _, ResultExt as _,
-    Tentative,
+    Tentative, VecFamily,
 };
 use crate::header::{
     Header, HeaderError, HeaderSegments, HeaderValidationError, Version, Version2_0, Version3_0,
@@ -707,49 +707,54 @@ where
             }
         });
 
-    let repair_res = kws_res.def_and_tentatively(|(delim, mut kws, supp_text_seg)| {
-        kws.append_std(&conf.append_standard_keywords, conf.allow_nonunique)
-            .map_or_else(
-                |es| {
-                    Leveled::many_to_tentative(es.into())
-                        .map_errors(KeywordInsertError::from)
-                        .map_errors(ParseKeywordsIssue::from)
-                        .map_errors(ParsePrimaryTEXTError::from)
-                        .map_warnings(KeywordInsertError::from)
-                        .map_warnings(ParseKeywordsIssue::from)
-                        .inner_into()
-                        .errors_liftio()
-                },
-                |()| Tentative::default(),
-            )
-            .map(|()| (delim, kws, supp_text_seg))
-    });
+    let repair_res = kws_res
+        .def_and_tentatively::<_, _, VecFamily, VecFamily, VecFamily, VecFamily>(
+            |(delim, mut kws, supp_text_seg)| {
+                kws.append_std(&conf.append_standard_keywords, conf.allow_nonunique)
+                    .map_or_else(
+                        |es| {
+                            Leveled::many_to_tentative(es.into())
+                                .map_errors(KeywordInsertError::from)
+                                .map_errors(ParseKeywordsIssue::from)
+                                .map_errors(ParsePrimaryTEXTError::from)
+                                .map_warnings(KeywordInsertError::from)
+                                .map_warnings(ParseKeywordsIssue::from)
+                                .inner_into()
+                                .errors_liftio()
+                        },
+                        |()| Tentative::default(),
+                    )
+                    .map(|()| (delim, kws, supp_text_seg))
+            },
+        );
 
-    repair_res.def_and_tentatively(|(delimiter, kws, supp_text_seg)| {
-        let mut tnt_parse = lookup_nextdata(&kws.std, conf.allow_missing_nextdata)
-            .errors_into::<ParseRawTEXTError>()
-            .map(|nextdata| {
-                RawTEXTParseData::new(
-                    header.segments,
-                    supp_text_seg,
-                    nextdata,
-                    delimiter,
-                    kws.non_ascii,
-                    kws.byte_pairs,
-                )
-            });
+    repair_res.def_and_tentatively::<_, _, VecFamily, VecFamily, VecFamily, VecFamily>(
+        |(delimiter, kws, supp_text_seg)| {
+            let mut tnt_parse = lookup_nextdata(&kws.std, conf.allow_missing_nextdata)
+                .errors_into::<ParseRawTEXTError>()
+                .map(|nextdata| {
+                    RawTEXTParseData::new(
+                        header.segments,
+                        supp_text_seg,
+                        nextdata,
+                        delimiter,
+                        kws.non_ascii,
+                        kws.byte_pairs,
+                    )
+                });
 
-        tnt_parse.eval_errors(|v| v.as_non_ascii_errors(conf));
-        tnt_parse.eval_errors(|v| v.as_byte_errors(conf));
-        tnt_parse.eval_errors(RawTEXTParseData::as_overlapping_segment_error);
+            tnt_parse.eval_errors(|v| v.as_non_ascii_errors(conf));
+            tnt_parse.eval_errors(|v| v.as_byte_errors(conf));
+            tnt_parse.eval_errors(RawTEXTParseData::as_overlapping_segment_error);
 
-        let vkws = ValidKeywords::new(kws.std, kws.nonstd);
+            let vkws = ValidKeywords::new(kws.std, kws.nonstd);
 
-        tnt_parse
-            .inner_into()
-            .map(|parse| RawTEXTOutput::new(header.version, vkws, parse))
-            .errors_liftio()
-    })
+            tnt_parse
+                .inner_into()
+                .map(|parse| RawTEXTOutput::new(header.version, vkws, parse))
+                .errors_liftio()
+        },
+    )
 }
 
 fn split_first_delim<'a>(

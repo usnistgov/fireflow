@@ -116,16 +116,6 @@ pub struct TentativeInner<V, W, E, WI: ZeroOrMore, EI: ZeroOrMore> {
     errors: EI::Wrapper<E>,
 }
 
-// /// A type that may be either an error or warning.
-// ///
-// /// Useful for functions which only return one error or warning for which
-// /// using a tentative would be unnecessary.
-// #[derive(Debug, PartialEq)]
-// pub enum Leveled<T> {
-//     Error(T),
-//     Warning(T),
-// }
-
 /// Tentative where both error and warning are the same type
 pub type BiTentative<V, T> = Tentative<V, T, T>;
 
@@ -857,6 +847,24 @@ impl<V, W, E, WI: ZeroOrMore, EI: ZeroOrMore> TentativeInner<V, W, E, WI, EI> {
             ret.errors = EIF::Wrapper::<E>::append_het(ret.errors, x.errors);
         }
         ret
+    }
+
+    pub fn repack_warnings<WIF>(self) -> TentativeInner<V, W, E, WIF, EI>
+    where
+        WI: IntoZeroOrMore<WIF>,
+        WIF: ZeroOrMore,
+    {
+        let ws = WI::into_zero_or_more(self.warnings);
+        TentativeInner::new(self.value, ws, self.errors)
+    }
+
+    pub fn repack_errors<EIF>(self) -> TentativeInner<V, W, E, WI, EIF>
+    where
+        EI: IntoZeroOrMore<EIF>,
+        EIF: ZeroOrMore,
+    {
+        let es = EI::into_zero_or_more(self.errors);
+        TentativeInner::new(self.value, self.warnings, es)
     }
 
     pub fn map<F: FnOnce(V) -> X, X>(self, f: F) -> TentativeInner<X, W, E, WI, EI> {
@@ -1646,59 +1654,6 @@ pub type MutexResult<V, E> =
 pub type MultiMutexResult<V, E> =
     DeferredResultInner<V, E, E, VecFamily, NullFamily, VecFamily, NonEmptyFamily>;
 
-// impl<T> Leveled<T> {
-//     pub fn new(value: T, is_error: bool) -> Self {
-//         if is_error {
-//             Self::Error(value)
-//         } else {
-//             Self::Warning(value)
-//         }
-//     }
-
-//     #[must_use]
-//     pub fn many_to_tentative(xs: Vec<Self>) -> BiTentative<(), T> {
-//         let (ws, es): (Vec<_>, Vec<_>) = xs
-//             .into_iter()
-//             .map(|x| match x {
-//                 Self::Warning(y) => Ok(y),
-//                 Self::Error(y) => Err(y),
-//             })
-//             .partition_result();
-//         Tentative::new_vec((), ws, es)
-//     }
-
-//     // pub fn many_to_deferred(xs: Vec<Self>) -> BiDeferredResult<(), T> {
-//     //     let (ws, es): (Vec<_>, Vec<_>) = xs
-//     //         .into_iter()
-//     //         .map(|x| match x {
-//     //             Self::Warning(y) => Ok(y),
-//     //             Self::Error(y) => Err(y),
-//     //         })
-//     //         .partition_result();
-//     //     match NonEmpty::from_vec(es) {
-//     //         None => Ok(Tentative::new((), ws, vec![])),
-//     //         Some(xs) => Err(DeferredFailure::new(ws, xs, ())),
-//     //     }
-//     // }
-
-//     pub fn inner_into<X>(self) -> Leveled<X>
-//     where
-//         X: From<T>,
-//     {
-//         self.map(Into::into)
-//     }
-
-//     pub fn map<F, X>(self, f: F) -> Leveled<X>
-//     where
-//         F: FnOnce(T) -> X,
-//     {
-//         match self {
-//             Self::Error(x) => Leveled::Error(f(x)),
-//             Self::Warning(x) => Leveled::Warning(f(x)),
-//         }
-//     }
-// }
-
 pub trait ResultExt: Sized {
     type V;
     type E;
@@ -2240,6 +2195,26 @@ pub trait PassthruExt: Sized {
     fn def_void_passthru(
         self,
     ) -> DeferredResultInner<Self::V, Self::W, Self::E, Self::LWI, Self::LEI, Self::RWI, Self::REI>;
+
+    #[allow(clippy::type_complexity)]
+    fn def_repack_warnings<LWIF, RWIF>(
+        self,
+    ) -> PassthruResultInner<Self::V, Self::P, Self::W, Self::E, LWIF, Self::LEI, RWIF, Self::REI>
+    where
+        Self::LWI: IntoZeroOrMore<LWIF>,
+        Self::RWI: IntoZeroOrMore<RWIF>,
+        LWIF: ZeroOrMore,
+        RWIF: ZeroOrMore;
+
+    #[allow(clippy::type_complexity)]
+    fn def_repack_errors<LEIF, REIF>(
+        self,
+    ) -> PassthruResultInner<Self::V, Self::P, Self::W, Self::E, Self::LWI, LEIF, Self::RWI, REIF>
+    where
+        Self::LEI: IntoZeroOrMore<LEIF>,
+        Self::REI: IntoOneOrMore<REIF>,
+        LEIF: ZeroOrMore,
+        REIF: OneOrMore;
 }
 
 impl<V, P, W, E, LWI, LEI, RWI, REI> PassthruExt
@@ -2348,6 +2323,32 @@ where
 
     fn def_void_passthru(self) -> DeferredResultInner<V, W, E, LWI, LEI, RWI, REI> {
         self.map_err(DeferredFailureInner::void)
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn def_repack_warnings<LWIF, RWIF>(
+        self,
+    ) -> PassthruResultInner<V, P, W, E, LWIF, LEI, RWIF, REI>
+    where
+        LWI: IntoZeroOrMore<LWIF>,
+        RWI: IntoZeroOrMore<RWIF>,
+        LWIF: ZeroOrMore,
+        RWIF: ZeroOrMore,
+    {
+        self.map(|tnt| tnt.repack_warnings())
+            .map_err(|fail| fail.repack_warnings())
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn def_repack_errors<LEIF, REIF>(self) -> PassthruResultInner<V, P, W, E, LWI, LEIF, RWI, REIF>
+    where
+        LEI: IntoZeroOrMore<LEIF>,
+        REI: IntoOneOrMore<REIF>,
+        LEIF: ZeroOrMore,
+        REIF: OneOrMore,
+    {
+        self.map(|tnt| tnt.repack_errors())
+            .map_err(|fail| fail.repack_errors())
     }
 }
 

@@ -1,10 +1,9 @@
 use crate::config::ReadHeaderAndTEXTConfig;
 use crate::error::{
-    DeferredFailureInner, ErrorIter as _, ErrorIter1 as _, MultiMutexResult, MutexResult,
-    PassthruExt, ResultExt as _, TentativeInner,
+    ErrorIter1 as _, MultiMutexResult, MutexResult, PassthruExt as _, ResultExt as _,
+    TentativeInner,
 };
 use crate::text::index::IndexFromOne;
-use crate::text::optional::NeverValue;
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -757,18 +756,18 @@ where
     KeywordInsertError: From<KeyPresent<K>>,
 {
     match kws.entry(k) {
-        Entry::Occupied(e) => {
-            let key = e.key().clone();
-            let e = KeyPresent { key, value };
-            Result::new_mutex((), e.into(), !conf.allow_nonunique)
+        Entry::Occupied(ent) => {
+            let key = ent.key().clone();
+            let err = KeyPresent { key, value };
+            Result::new_mutex((), err.into(), !conf.allow_nonunique)
         }
-        Entry::Vacant(e) => {
+        Entry::Vacant(ent) => {
             let v = conf
                 .replace_standard_key_values
-                .get(e.key().as_ref())
+                .get(ent.key().as_ref())
                 .map(ToString::to_string)
                 .unwrap_or(value);
-            e.insert(v);
+            ent.insert(v);
             Ok(TentativeInner::default())
         }
     }

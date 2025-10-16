@@ -12,9 +12,9 @@ use crate::core::{
 };
 use crate::data::{NewDataReaderError, NewDataReaderWarning, RawToLayoutError, RawToLayoutWarning};
 use crate::error::{
-    DeferredExt as _, DeferredFailure, DeferredResult, IODeferredExt as _, IODeferredResult,
-    IOTerminalResult, ImpureError, MultiResultExt as _, PassthruExt as _, ResultExt as _,
-    Tentative, TentativeInner, TerminalExt as _, VecFamily,
+    DeferredExt as _, DeferredFailure, DeferredResult, ErrorIter1 as _, IODeferredExt as _,
+    IODeferredResult, IOTerminalResult, ImpureError, MultiMutexResult, MultiResultExt as _,
+    PassthruExt as _, ResultExt as _, Tentative, TentativeInner, TerminalExt as _, VecFamily,
 };
 use crate::header::{
     Header, HeaderError, HeaderSegments, HeaderValidationError, Version, Version2_0, Version3_0,
@@ -437,7 +437,7 @@ pub struct BlankKeyError(TEXTKind);
 #[error("{0} TEXT segment has uneven number of words")]
 pub struct UnevenWordsError(TEXTKind);
 
-#[derive(Debug)]
+#[derive(Debug, new)]
 pub struct FinalDelimError {
     kind: TEXTKind,
     bytes: NonEmpty<u8>,
@@ -486,7 +486,7 @@ pub enum ParseSupplementalTEXTError {
     Mismatch(DelimMismatch),
 }
 
-#[derive(Debug, Clone, Error)]
+#[derive(Debug, Clone, Error, new)]
 #[error(
     "first byte of supplemental TEXT ({supp}) does not match \
      delimiter of primary TEXT ({delim})"
@@ -682,12 +682,13 @@ where
         .def_errors_liftio()?;
 
     let kws_res = tnt_delim
+        // TODO these next two sections can probably be combined
         .and_maybe(|(delim, bytes)| {
-            let kws = ParsedKeywords::default();
-            split_raw_primary_text(kws, delim, bytes, conf)
+            let mut kws = ParsedKeywords::default();
+            split_raw_primary_text(&mut kws, delim, bytes, conf)
                 .def_inner_into()
                 .def_errors_liftio()
-                .def_map_value(|kws_| (delim, kws_))
+                .def_map_value(|()| (delim, kws))
         })
         .def_and_maybe(|(delim, mut kws)| {
             if conf.ignore_supp_text {
@@ -704,13 +705,13 @@ where
                         let tnt_supp_kws = if let Some(seg) = maybe_supp_seg {
                             buf.clear();
                             seg.h_read_contents(h, &mut buf)?;
-                            split_raw_supp_text(kws, delim, &buf, conf)
-                                .inner_into()
-                                .errors_liftio()
+                            split_raw_supp_text(&mut kws, delim, &buf, conf)
+                                .def_inner_into()
+                                .def_errors_liftio()
                         } else {
-                            TentativeInner::new1(kws)
+                            Ok(TentativeInner::default())
                         };
-                        Ok(tnt_supp_kws.map(|k| (delim, k, maybe_supp_seg)))
+                        tnt_supp_kws.def_map_value(|()| (delim, kws, maybe_supp_seg))
                     })
             }
         });
@@ -775,52 +776,49 @@ fn split_first_delim<'a>(
 }
 
 fn split_raw_primary_text(
-    kws: ParsedKeywords,
+    kws: &mut ParsedKeywords,
     delim: u8,
     bytes: &[u8],
     conf: &ReadHeaderAndTEXTConfig,
-) -> DeferredResult<ParsedKeywords, ParseKeywordsIssue, ParsePrimaryTEXTError> {
+) -> DeferredResult<(), ParseKeywordsIssue, ParsePrimaryTEXTError> {
     if bytes.is_empty() {
         Err(DeferredFailure::new1(NoTEXTWordsError))
     } else {
-        Ok(split_raw_text_inner(kws, delim, bytes, TEXTKind::Primary, conf).errors_into())
+        split_raw_text_inner(kws, delim, bytes, TEXTKind::Primary, conf)
+            .def_errors_into()
+            .def_repack_errors()
     }
 }
 
 fn split_raw_supp_text(
-    kws: ParsedKeywords,
+    kws: &mut ParsedKeywords,
     delim: u8,
     bytes: &[u8],
     conf: &ReadHeaderAndTEXTConfig,
-) -> Tentative<ParsedKeywords, ParseKeywordsIssue, ParseSupplementalTEXTError> {
+) -> DeferredResult<(), ParseKeywordsIssue, ParseSupplementalTEXTError> {
     if let Some((byte0, rest)) = bytes.split_first() {
-        let mut tnt =
-            split_raw_text_inner(kws, *byte0, rest, TEXTKind::Supplemental, conf).errors_into();
+        let mut tnt = split_raw_text_inner(kws, *byte0, rest, TEXTKind::Supplemental, conf)
+            .def_errors_into()
+            .def_repack_errors();
         if *byte0 != delim {
-            let x = DelimMismatch {
-                delim,
-                supp: *byte0,
-            };
-            if conf.allow_supp_text_own_delim {
-                tnt.push_error(x);
-            } else {
-                tnt.push_warning(x);
-            }
+            let x = DelimMismatch::new(delim, *byte0);
+            tnt.def_push_error_or_warning(x, !conf.allow_supp_text_own_delim);
         }
         tnt
     } else {
         // if empty do nothing, this is expected for most files
-        Tentative::new1(kws)
+        Ok(Tentative::default())
     }
 }
 
+// TODO this will fail early
 fn split_raw_text_inner(
-    kws: ParsedKeywords,
+    kws: &mut ParsedKeywords,
     delim: u8,
     bytes: &[u8],
     tk: TEXTKind,
     conf: &ReadHeaderAndTEXTConfig,
-) -> Tentative<ParsedKeywords, ParseKeywordsIssue, ParseKeywordsIssue> {
+) -> MultiMutexResult<(), ParseKeywordsIssue> {
     if conf.use_literal_delims {
         split_raw_text_literal_delim(kws, delim, bytes, tk, conf)
     } else {
@@ -828,22 +826,18 @@ fn split_raw_text_inner(
     }
 }
 
+// TODO this will fail early
 fn split_raw_text_literal_delim(
-    mut kws: ParsedKeywords,
+    kws: &mut ParsedKeywords,
     delim: u8,
     bytes: &[u8],
     tk: TEXTKind,
     conf: &ReadHeaderAndTEXTConfig,
-) -> Tentative<ParsedKeywords, ParseKeywordsIssue, ParseKeywordsIssue> {
-    let mut errors = vec![];
-    let mut warnings = vec![];
+) -> MultiMutexResult<(), ParseKeywordsIssue> {
+    let mut results = vec![];
 
-    let mut push_issue = |is_warning, error: ParseKeywordsIssue| {
-        if is_warning {
-            warnings.push(error);
-        } else {
-            errors.push(error);
-        }
+    let push_issue = |res: &mut Vec<_>, is_warning: bool, error: ParseKeywordsIssue| {
+        res.push(Result::new_mutex((), error, !is_warning));
     };
 
     // ASSUME input slice does not start with delim
@@ -858,7 +852,7 @@ fn split_raw_text_literal_delim(
             if let Some(value) = it.next() {
                 prev_was_key = false;
                 prev_word = value;
-                push_issue(conf.allow_empty, BlankKeyError(tk).into());
+                push_issue(&mut results, conf.allow_empty, BlankKeyError(tk).into());
             } else {
                 // if everything is correct, we should exit here since the
                 // last word will be the blank slice after the final delim
@@ -868,9 +862,11 @@ fn split_raw_text_literal_delim(
             prev_was_key = false;
             prev_word = value;
             if value.is_empty() {
-                push_issue(conf.allow_empty, BlankValueError(key.to_vec()).into());
+                let e = BlankValueError(key.to_vec()).into();
+                push_issue(&mut results, conf.allow_empty, e);
             } else {
-                let e = kws.insert(key, value, conf);
+                let e = kws.insert(key, value, conf).def_inner_into();
+                results.push(e);
                 // TODO need to somehow process warnings and errors from here,
                 // the ideal way is to just push them all to a stack and deal
                 // with them later, but to use the current system I would need
@@ -889,50 +885,33 @@ fn split_raw_text_literal_delim(
     }
 
     if !prev_was_key {
-        push_issue(conf.allow_odd, UnevenWordsError(tk).into());
+        push_issue(&mut results, conf.allow_odd, UnevenWordsError(tk).into());
     }
 
     if let Some(bs) = NonEmpty::from_slice(prev_word) {
-        push_issue(
-            conf.allow_missing_final_delim,
-            FinalDelimError {
-                kind: tk,
-                bytes: bs,
-            }
-            .into(),
-        );
+        let e = FinalDelimError::new(tk, bs).into();
+        push_issue(&mut results, conf.allow_missing_final_delim, e);
     }
 
-    Tentative::new_vec(kws, warnings, errors)
+    results.into_iter().gather1().def_void_passthru().def_void()
 }
 
 fn split_raw_text_escaped_delim(
-    mut kws: ParsedKeywords,
+    kws: &mut ParsedKeywords,
     delim: u8,
     bytes: &[u8],
     tk: TEXTKind,
     conf: &ReadHeaderAndTEXTConfig,
-) -> Tentative<ParsedKeywords, ParseKeywordsIssue, ParseKeywordsIssue> {
-    let mut ews = (vec![], vec![]);
+) -> MultiMutexResult<(), ParseKeywordsIssue> {
+    let mut results = vec![];
 
-    let push_issue = |ews_: &mut (Vec<_>, Vec<_>), is_warning, error: ParseKeywordsIssue| {
-        let warnings = &mut ews_.0;
-        let errors = &mut ews_.1;
-        if is_warning {
-            warnings.push(error);
-        } else {
-            errors.push(error);
-        }
+    let push_issue = |res: &mut Vec<_>, is_warning: bool, error: ParseKeywordsIssue| {
+        res.push(Result::new_mutex((), error, !is_warning));
     };
 
-    let mut push_pair = |ews_: &mut (Vec<_>, Vec<_>), kb: &Vec<_>, vb: &Vec<_>| {
-        let e = kws.insert(kb, vb, conf);
-        // if let Err(lvl) = kws.insert(kb, vb, conf) {
-        //     match lvl.inner_into() {
-        //         Leveled::Error(e) => push_issue(ews_, false, e),
-        //         Leveled::Warning(w) => push_issue(ews_, true, w),
-        //     }
-        // }
+    let mut push_pair = |res: &mut Vec<_>, kb: &Vec<_>, vb: &Vec<_>| {
+        let e = kws.insert(kb, vb, conf).def_inner_into();
+        res.push(e);
     };
 
     let push_delim = |kb: &mut Vec<_>, vb: &mut Vec<_>, k: usize| {
@@ -957,7 +936,7 @@ fn split_raw_text_escaped_delim(
                 // Previous number of delimiters is odd, treat this as a word
                 // boundary
                 if !valuebuf.is_empty() {
-                    push_pair(&mut ews, &keybuf, &valuebuf);
+                    push_pair(&mut results, &keybuf, &valuebuf);
                     keybuf.clear();
                     valuebuf.clear();
                     keybuf.extend_from_slice(segment);
@@ -969,7 +948,7 @@ fn split_raw_text_escaped_delim(
                 }
                 if consec_blanks > 0 {
                     push_issue(
-                        &mut ews,
+                        &mut results,
                         conf.allow_delim_at_boundary,
                         DelimBoundError.into(),
                     );
@@ -1009,41 +988,28 @@ fn split_raw_text_escaped_delim(
     // delimiter (not an error).
 
     if let Some(bs) = NonEmpty::from_slice(lastbuf) {
-        push_issue(
-            &mut ews,
-            conf.allow_missing_final_delim,
-            FinalDelimError {
-                kind: tk,
-                bytes: bs,
-            }
-            .into(),
-        );
+        let e = FinalDelimError::new(tk, bs).into();
+        push_issue(&mut results, conf.allow_missing_final_delim, e);
     }
 
     if consec_blanks > 1 {
-        push_issue(
-            &mut ews,
-            conf.allow_delim_at_boundary,
-            DelimBoundError.into(),
-        );
+        let be = DelimBoundError.into();
+        push_issue(&mut results, conf.allow_delim_at_boundary, be);
         push_delim(&mut keybuf, &mut valuebuf, consec_blanks);
 
         if consec_blanks & 1 == 1 {
-            push_issue(
-                &mut ews,
-                conf.allow_missing_final_delim,
-                EvenFinalDelimError.into(),
-            );
+            let fe = EvenFinalDelimError.into();
+            push_issue(&mut results, conf.allow_missing_final_delim, fe);
         }
     }
 
     if valuebuf.is_empty() {
-        push_issue(&mut ews, conf.allow_odd, UnevenWordsError(tk).into());
+        push_issue(&mut results, conf.allow_odd, UnevenWordsError(tk).into());
     } else {
-        push_pair(&mut ews, &keybuf, &valuebuf);
+        push_pair(&mut results, &keybuf, &valuebuf);
     }
 
-    Tentative::new_vec(kws, ews.0, ews.1)
+    results.into_iter().gather1().def_void_passthru().def_void()
 }
 
 fn lookup_stext_offsets<C>(

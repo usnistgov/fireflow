@@ -675,7 +675,7 @@ impl<I> GatingScheme<I> {
         F0: Fn(&mut StdKeywords) -> LookupOptional<Gating>,
         F1: Fn(&mut StdKeywords, RegionIndex) -> LookupOptional<Region<I>>,
     {
-        lookup_gating(kws).and_tentatively::<_, _, VecFamily, VecFamily, _, _>(|gating| {
+        lookup_gating(kws).and_tentatively(|gating| {
             gating
                 .as_ref()
                 .map(|g| {

@@ -790,7 +790,7 @@ impl<V, W, E, WI: ZeroOrMore, EI: ZeroOrMore> TentativeInner<V, W, E, WI, EI> {
         TentativeInner::new(f(self.value, other.value), ws, es)
     }
 
-    pub fn and_tentatively<F, X, WI0, EI0, WIF, EIF>(
+    pub fn and_tentatively_gen<F, X, WI0, EI0, WIF, EIF>(
         self,
         f: F,
     ) -> TentativeInner<X, W, E, WIF, EIF>
@@ -809,7 +809,16 @@ impl<V, W, E, WI: ZeroOrMore, EI: ZeroOrMore> TentativeInner<V, W, E, WI, EI> {
         TentativeInner::new(s.value, ws, es)
     }
 
-    pub fn and_maybe<F, X, P, LWI0, LEI0, LWIF, LEIF, RWI0, REI0, RWIF, REIF>(
+    pub fn and_tentatively<F, X>(self, f: F) -> TentativeInner<X, W, E, WI, EI>
+    where
+        F: FnOnce(V) -> TentativeInner<X, W, E, WI, EI>,
+        WI::Wrapper<W>: Appendable<WI::Wrapper<W>, Out = WI::Wrapper<W>>,
+        EI::Wrapper<E>: Appendable<EI::Wrapper<E>, Out = EI::Wrapper<E>>,
+    {
+        self.and_tentatively_gen::<F, X, WI, EI, WI, EI>(f)
+    }
+
+    pub fn and_maybe_gen<F, X, P, LWI0, LEI0, LWIF, LEIF, RWI0, REI0, RWIF, REIF>(
         self,
         f: F,
     ) -> PassthruResultInner<P, X, W, E, LWIF, LEIF, RWIF, REIF>
@@ -840,6 +849,22 @@ impl<V, W, E, WI: ZeroOrMore, EI: ZeroOrMore> TentativeInner<V, W, E, WI, EI> {
                 Err(DeferredFailureInner::new(ws, es.into(), e.passthru))
             }
         }
+    }
+
+    pub fn and_maybe<F, X, P, RWIF, REIF>(
+        self,
+        f: F,
+    ) -> PassthruResultInner<P, X, W, E, WI, EI, RWIF, REIF>
+    where
+        F: FnOnce(V) -> PassthruResultInner<P, X, W, E, WI, EI, RWIF, REIF>,
+        WI::Wrapper<W>: Appendable<WI::Wrapper<W>, Out = WI::Wrapper<W>>
+            + Appendable<RWIF::Wrapper<W>, Out = RWIF::Wrapper<W>>,
+        EI::Wrapper<E>: Appendable<EI::Wrapper<E>, Out = EI::Wrapper<E>>
+            + Appendable<REIF::Wrapper<E>, Out = REIF::Wrapper<E>>,
+        RWIF: ZeroOrMore,
+        REIF: OneOrMore,
+    {
+        self.and_maybe_gen::<F, X, P, WI, EI, WI, EI, RWIF, REIF, RWIF, REIF>(f)
     }
 
     pub fn and_fail<F, P, RWI0, REI0, RWIF, REIF>(
@@ -2109,7 +2134,7 @@ where
         LEIF: ZeroOrMore,
         F: FnOnce(Self::V) -> TentativeInner<X, W, E, LWI0, LEI0>,
     {
-        self.map(|x| x.and_tentatively(f))
+        self.map(|x| x.and_tentatively_gen(f))
     }
 
     fn def_eval_error<F, X>(&mut self, f: F)
@@ -2413,7 +2438,7 @@ where
             + Appendable<REI::Wrapper<Self::E>, Out = REI::Wrapper<Self::E>>,
     {
         let x = self?;
-        x.and_maybe(f)
+        x.and_maybe_gen(f)
     }
 }
 

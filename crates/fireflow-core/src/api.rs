@@ -13,8 +13,8 @@ use crate::core::{
 use crate::data::{NewDataReaderError, NewDataReaderWarning, RawToLayoutError, RawToLayoutWarning};
 use crate::error::{
     DeferredExt as _, DeferredFailure, DeferredResult, IODeferredExt as _, IODeferredResult,
-    IOTerminalResult, ImpureError, Leveled, MultiResultExt as _, NonEmptyFamily, PassthruExt as _,
-    ResultExt as _, Tentative, TentativeInner, TerminalExt as _, VecFamily,
+    IOTerminalResult, ImpureError, Leveled, MultiResultExt as _, PassthruExt as _, ResultExt as _,
+    Tentative, TentativeInner, TerminalExt as _, VecFamily,
 };
 use crate::header::{
     Header, HeaderError, HeaderSegments, HeaderValidationError, Version, Version2_0, Version3_0,
@@ -700,20 +700,18 @@ where
                 lookup_stext_offsets(&kws.std, header.version, ptext_seg, st)
                     .inner_into()
                     .errors_liftio()
-                    .and_maybe::<_, _, _, _, _, _, _, VecFamily, NonEmptyFamily, _, _>(
-                        |maybe_supp_seg| {
-                            let tnt_supp_kws = if let Some(seg) = maybe_supp_seg {
-                                buf.clear();
-                                seg.h_read_contents(h, &mut buf)?;
-                                split_raw_supp_text(kws, delim, &buf, conf)
-                                    .inner_into()
-                                    .errors_liftio()
-                            } else {
-                                TentativeInner::new1(kws)
-                            };
-                            Ok(tnt_supp_kws.map(|k| (delim, k, maybe_supp_seg)))
-                        },
-                    )
+                    .and_maybe(|maybe_supp_seg| {
+                        let tnt_supp_kws = if let Some(seg) = maybe_supp_seg {
+                            buf.clear();
+                            seg.h_read_contents(h, &mut buf)?;
+                            split_raw_supp_text(kws, delim, &buf, conf)
+                                .inner_into()
+                                .errors_liftio()
+                        } else {
+                            TentativeInner::new1(kws)
+                        };
+                        Ok(tnt_supp_kws.map(|k| (delim, k, maybe_supp_seg)))
+                    })
             }
         });
 

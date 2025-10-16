@@ -14,7 +14,7 @@ use crate::error::{
     BiTentative, DeferredExt as _, DeferredFailure, DeferredResult, ErrorIter as _,
     IODeferredExt as _, IODeferredResult, IOResult, IOTerminalResult, ImpureError,
     InfalliblePassthruExt as _, MultiResult, MultiResultExt as _, PassthruExt as _, PassthruResult,
-    ResultExt as _, Tentative, Terminal, TerminalResult,
+    ResultExt as _, Tentative, Terminal, TerminalExt as _, TerminalResult,
 };
 use crate::header::{
     HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
@@ -1350,6 +1350,7 @@ pub trait Versioned {
                 let read_conf: &ReaderConfig = st.conf.as_ref();
                 let data_res = layout
                     .h_read_df(h, offsets.tot(), dataset_segs.data, read_conf)
+                    .def_warnings_into()
                     .def_io_into();
                 let analysis_res = ar.h_read(h).into_deferred();
                 data_res
@@ -1762,16 +1763,13 @@ impl<O> Optical<O> {
         let pe_dep = Version::from(version) == Version::FCS3_2;
         let perc_emit = PercentEmitted::lookup_meas_opt(std, i, pe_dep, conf);
         let det_volt = DetectorVoltage::lookup_meas_opt(std, i, false, conf);
+        let common = CommonMeasurement::lookup(std, i, nonstd, conf);
         filter
             .zip5(power, det_type, perc_emit, det_volt)
+            .zip(common)
             .errors_into()
-            .and_maybe(|(f, p, d, e, v)| {
-                CommonMeasurement::lookup(std, i, nonstd, conf)
-                    .errors_into()
-                    .and_maybe(|c| {
-                        O::lookup_specific(std, i, conf)
-                            .def_map_value(|s| Self::new(c, f, p, d, e, v, s))
-                    })
+            .and_maybe(|((f, p, d, e, v), c)| {
+                O::lookup_specific(std, i, conf).def_map_value(|s| Self::new(c, f, p, d, e, v, s))
             })
     }
 
@@ -5568,7 +5566,6 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
             value
                 .applied_gates
                 .try_into_2_0(allow_loss)
-                .def_unfail_default()
                 .inner_into()
                 .map(|ag| {
                     Self::new(
@@ -5602,7 +5599,6 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
                 value
                     .applied_gates
                     .try_into_2_0(allow_loss)
-                    .def_unfail_default()
                     .inner_into()
                     .map(|applied_gates| {
                         Self::new(
@@ -5804,32 +5800,28 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
         value: InnerMetaroot2_0,
         allow_loss: bool,
     ) -> MetarootConvertResult<Self> {
-        let mut res = value
-            .cyt
-            .try_into()
-            .into_deferred()
-            .def_and_tentatively(|cyt| {
-                Mode3_2::try_from(value.mode)
-                    .into_tentative_opt(allow_loss)
-                    .inner_into()
-                    .map(|mode| {
-                        Self::new(
-                            mode,
-                            value.timestamps.map(Into::into),
-                            Datetimes::default(),
-                            cyt,
-                            None,
-                            Cytsn::default(),
-                            ModificationData::default(),
-                            PlateData::default(),
-                            None,
-                            CarrierData::default(),
-                            UnstainedData::default(),
-                            Flowrate::default(),
-                            AppliedGates3_2::default(),
-                        )
-                    })
-            });
+        let m: Tentative<_, _, _> = Mode3_2::try_from(value.mode)
+            .into_tentative_opt(allow_loss)
+            .inner_into();
+        let mut res = m.and_maybe(|mode| {
+            value.cyt.try_into().into_deferred().def_map_value(|cyt| {
+                Self::new(
+                    mode,
+                    value.timestamps.map(Into::into),
+                    Datetimes::default(),
+                    cyt,
+                    None,
+                    Cytsn::default(),
+                    ModificationData::default(),
+                    PlateData::default(),
+                    None,
+                    CarrierData::default(),
+                    UnstainedData::default(),
+                    Flowrate::default(),
+                    AppliedGates3_2::default(),
+                )
+            })
+        });
         if !value.applied_gates.is_empty() {
             res.def_push_error_or_warning(gating::AppliedGates2_0To3_2Error, allow_loss);
         }
@@ -5848,41 +5840,32 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
         let uni = value.unicode.check_key_transfer(allow_loss);
         let comp = value.comp.check_key_transfer(allow_loss);
         let subset = value.subset.check_loss(allow_loss);
-        uni.zip3(comp, subset).inner_into().and_maybe(|_| {
-            value
-                .applied_gates
-                .try_into_3_2(allow_loss)
-                .def_unfail_default()
-                .inner_into()
-                .and_maybe(|applied_gates| {
-                    value
-                        .cyt
-                        .try_into()
-                        .into_deferred()
-                        .def_and_tentatively(|cyt| {
-                            Mode3_2::try_from(value.mode)
-                                .into_tentative_opt(allow_loss)
-                                .inner_into()
-                                .map(|mode| {
-                                    Self::new(
-                                        mode,
-                                        value.timestamps.map(Into::into),
-                                        Datetimes::default(),
-                                        cyt,
-                                        None,
-                                        value.cytsn,
-                                        ModificationData::default(),
-                                        PlateData::default(),
-                                        None,
-                                        CarrierData::default(),
-                                        UnstainedData::default(),
-                                        Flowrate::default(),
-                                        applied_gates,
-                                    )
-                                })
-                        })
+        let ag = value.applied_gates.try_into_3_2(allow_loss).inner_into();
+        let m = Mode3_2::try_from(value.mode)
+            .into_tentative_opt(allow_loss)
+            .inner_into();
+        uni.zip3(comp, subset)
+            .inner_into()
+            .zip3(ag, m)
+            .and_maybe(|(_, applied_gates, mode)| {
+                value.cyt.try_into().into_deferred().def_map_value(|cyt| {
+                    Self::new(
+                        mode,
+                        value.timestamps.map(Into::into),
+                        Datetimes::default(),
+                        cyt,
+                        None,
+                        value.cytsn,
+                        ModificationData::default(),
+                        PlateData::default(),
+                        None,
+                        CarrierData::default(),
+                        UnstainedData::default(),
+                        Flowrate::default(),
+                        applied_gates,
+                    )
                 })
-        })
+            })
     }
 }
 
@@ -5892,38 +5875,28 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
         allow_loss: bool,
     ) -> MetarootConvertResult<Self> {
         let ss = value.subset.check_loss(allow_loss).inner_into();
-        let a = value
-            .applied_gates
-            .try_into_3_2(allow_loss)
-            .def_unfail_default()
+        let a = value.applied_gates.try_into_3_2(allow_loss).inner_into();
+        let m = Mode3_2::try_from(value.mode)
+            .into_tentative_opt(allow_loss)
             .inner_into();
-        ss.zip(a).and_maybe(|((), applied_gates)| {
-            value
-                .cyt
-                .try_into()
-                .into_deferred()
-                .def_and_tentatively(|cyt| {
-                    Mode3_2::try_from(value.mode)
-                        .into_tentative_opt(allow_loss)
-                        .inner_into()
-                        .map(|mode| {
-                            Self::new(
-                                mode,
-                                value.timestamps,
-                                Datetimes::default(),
-                                cyt,
-                                value.spillover,
-                                value.cytsn,
-                                value.modification,
-                                value.plate,
-                                value.vol,
-                                CarrierData::default(),
-                                UnstainedData::default(),
-                                Flowrate::default(),
-                                applied_gates,
-                            )
-                        })
-                })
+        ss.zip3(a, m).and_maybe(|((), applied_gates, mode)| {
+            value.cyt.try_into().into_deferred().def_map_value(|cyt| {
+                Self::new(
+                    mode,
+                    value.timestamps,
+                    Datetimes::default(),
+                    cyt,
+                    value.spillover,
+                    value.cytsn,
+                    value.modification,
+                    value.plate,
+                    value.vol,
+                    CarrierData::default(),
+                    UnstainedData::default(),
+                    Flowrate::default(),
+                    applied_gates,
+                )
+            })
         })
     }
 }

@@ -1,7 +1,5 @@
 use crate::config::StdTextReadConfig;
-use crate::error::{
-    BiDeferredResult, DeferredExt as _, PassthruExt as _, ResultExt as _, Tentative, VecFamily,
-};
+use crate::error::{BiTentative, ResultExt as _, Tentative, VecFamily};
 use crate::nonempty::FCSNonEmpty;
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keywords::{
@@ -434,7 +432,7 @@ impl AppliedGates3_0 {
     pub(crate) fn try_into_2_0(
         self,
         allow_loss: bool,
-    ) -> BiDeferredResult<AppliedGates2_0, AppliedGates3_0To2_0Error> {
+    ) -> BiTentative<AppliedGates2_0, AppliedGates3_0To2_0Error> {
         // ASSUME region indices will still be unique in new hash table
         let (regions, es): (HashMap<_, _>, Vec<_>) = self
             .scheme
@@ -443,12 +441,16 @@ impl AppliedGates3_0 {
             .map(|(ri, r)| r.try_map(TryInto::try_into).map(|x| (ri, x)))
             .partition_result();
         let mut res = GatingScheme::try_new(self.scheme.gating, regions)
-            .into_deferred()
-            .def_and_maybe(|scheme| {
-                AppliedGates2_0::try_new(self.gated_measurements.0, scheme).into_deferred()
+            .into_tentative_err_opt::<_, VecFamily, VecFamily>()
+            .errors_into()
+            .and_tentatively(|scheme| match scheme {
+                Some(s) => AppliedGates2_0::try_new(self.gated_measurements.0, s)
+                    .into_tentative_err_def()
+                    .errors_into(),
+                None => Tentative::default(),
             });
         for e in es {
-            res.def_push_error_or_warning(AppliedGates3_0To2_0Error::Index(e), !allow_loss);
+            res.push_error_or_warning(AppliedGates3_0To2_0Error::Index(e), !allow_loss);
         }
         res
     }
@@ -456,7 +458,7 @@ impl AppliedGates3_0 {
     pub(crate) fn try_into_3_2(
         self,
         allow_loss: bool,
-    ) -> BiDeferredResult<AppliedGates3_2, AppliedGates3_0To3_2Error> {
+    ) -> BiTentative<AppliedGates3_2, AppliedGates3_0To3_2Error> {
         // ASSUME region indices will still be unique in new hash table
         let (regions, es): (HashMap<_, _>, Vec<_>) = self
             .scheme
@@ -464,16 +466,15 @@ impl AppliedGates3_0 {
             .into_iter()
             .map(|(ri, r)| r.try_map(TryInto::try_into).map(|x| (ri, x)))
             .partition_result();
-        let mut res = AppliedGates3_2::try_new(self.scheme.gating, regions).into_deferred();
+        let mut res = AppliedGates3_2::try_new(self.scheme.gating, regions)
+            .into_tentative_err_def()
+            .errors_into();
         for e in es {
-            res.def_push_error_or_warning(AppliedGates3_0To3_2Error::Index(e), !allow_loss);
+            res.push_error_or_warning(AppliedGates3_0To3_2Error::Index(e), !allow_loss);
         }
         let n_gates = self.gated_measurements.0.len();
         if n_gates > 0 {
-            res.def_push_error_or_warning(
-                AppliedGates3_0To3_2Error::HasGates(n_gates),
-                !allow_loss,
-            );
+            res.push_error_or_warning(AppliedGates3_0To3_2Error::HasGates(n_gates), !allow_loss);
         }
         res
     }

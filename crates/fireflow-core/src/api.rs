@@ -13,8 +13,8 @@ use crate::core::{
 use crate::data::{NewDataReaderError, NewDataReaderWarning, RawToLayoutError, RawToLayoutWarning};
 use crate::error::{
     DeferredExt as _, DeferredFailure, DeferredResult, IODeferredExt as _, IODeferredResult,
-    IOTerminalResult, ImpureError, Leveled, MultiResultExt as _, PassthruExt as _, ResultExt as _,
-    Tentative, VecFamily,
+    IOTerminalResult, ImpureError, Leveled, MultiResultExt as _, NonEmptyFamily, PassthruExt as _,
+    ResultExt as _, Tentative, TentativeInner, TerminalExt as _, VecFamily,
 };
 use crate::header::{
     Header, HeaderError, HeaderSegments, HeaderValidationError, Version, Version2_0, Version3_0,
@@ -85,6 +85,7 @@ pub fn fcs_read_std_text(
 ) -> IOTerminalResult<(AnyCoreTEXT, StdTEXTOutput), StdTEXTWarning, StdTEXTError, StdTEXTFailure> {
     read_fcs_raw_text_inner(p, conf)
         .def_map_value(|(x, _, st)| (x, st))
+        .def_warnings_into()
         .def_io_into()
         .def_and_maybe(|(raw, st)| raw.into_std_text(&st).def_inner_into().def_errors_liftio())
         .def_terminate_maybe_warn_def(&conf.shared, |w| ImpureError::Pure(StdTEXTError::from(w)))
@@ -96,6 +97,7 @@ pub fn fcs_read_raw_dataset(
     conf: &ReadRawDatasetConfig,
 ) -> IOTerminalResult<RawDatasetOutput, RawDatasetWarning, RawDatasetError, RawDatasetFailure> {
     read_fcs_raw_text_inner(p, conf)
+        .def_warnings_into()
         .def_io_into()
         .def_and_maybe(|(raw, mut h, st)| {
             h_read_dataset_from_kws(
@@ -108,6 +110,7 @@ pub fn fcs_read_raw_dataset(
                 &st,
             )
             .def_map_value(|dataset| RawDatasetOutput { text: raw, dataset })
+            .def_warnings_into()
             .def_io_into()
         })
         .def_terminate_maybe_warn_def(&conf.shared, |w| {
@@ -126,8 +129,13 @@ pub fn fcs_read_std_dataset(
     StdDatasetFailure,
 > {
     read_fcs_raw_text_inner(p, conf)
+        .def_warnings_into()
         .def_io_into()
-        .def_and_maybe(|(raw, mut h, st)| raw.into_std_dataset(&mut h, &st).def_io_into())
+        .def_and_maybe(|(raw, mut h, st)| {
+            raw.into_std_dataset(&mut h, &st)
+                .def_warnings_into()
+                .def_io_into()
+        })
         .def_terminate_maybe_warn_def(&conf.shared, |w| {
             ImpureError::Pure(StdDatasetError::from(w))
         })
@@ -692,18 +700,20 @@ where
                 lookup_stext_offsets(&kws.std, header.version, ptext_seg, st)
                     .inner_into()
                     .errors_liftio()
-                    .and_maybe(|maybe_supp_seg| {
-                        let tnt_supp_kws = if let Some(seg) = maybe_supp_seg {
-                            buf.clear();
-                            seg.h_read_contents(h, &mut buf)?;
-                            split_raw_supp_text(kws, delim, &buf, conf)
-                                .inner_into()
-                                .errors_liftio()
-                        } else {
-                            Tentative::new1(kws)
-                        };
-                        Ok(tnt_supp_kws.map(|k| (delim, k, maybe_supp_seg)))
-                    })
+                    .and_maybe::<_, _, _, _, _, _, _, VecFamily, NonEmptyFamily, _, _>(
+                        |maybe_supp_seg| {
+                            let tnt_supp_kws = if let Some(seg) = maybe_supp_seg {
+                                buf.clear();
+                                seg.h_read_contents(h, &mut buf)?;
+                                split_raw_supp_text(kws, delim, &buf, conf)
+                                    .inner_into()
+                                    .errors_liftio()
+                            } else {
+                                TentativeInner::new1(kws)
+                            };
+                            Ok(tnt_supp_kws.map(|k| (delim, k, maybe_supp_seg)))
+                        },
+                    )
             }
         });
 

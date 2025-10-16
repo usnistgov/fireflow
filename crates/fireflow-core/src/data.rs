@@ -51,9 +51,9 @@
 use crate::config::{ReadLayoutConfig, ReaderConfig, StdTextReadConfig};
 use crate::core::{AsScaleTransform, LayoutConvertResult, Measurements, ScaleTransform};
 use crate::error::{
-    BiTentative, DeferredExt as _, DeferredFailure, DeferredResult, ErrorIter as _,
-    IODeferredResult, IOResult, ImpureError, MultiResult, MultiResultExt as _, PassthruExt as _,
-    ResultExt as _, Tentative, VecFamily,
+    BiDeferredResult, BiTentative, DeferredExt as _, DeferredFailure, DeferredResult,
+    ErrorIter as _, IODeferredResult, IOResult, ImpureError, MultiResult, MultiResultExt as _,
+    PassthruExt as _, ResultExt as _, Tentative,
 };
 use crate::macros::match_many_to_one;
 use crate::nonempty::FCSNonEmpty;
@@ -2574,23 +2574,18 @@ where
         T: TotDefinition,
     {
         self.compute_nrows(seg, conf)
-            .inner_into()
-            .errors_liftio()
-            .and_maybe(|nrows| {
-                if let Some(n) = nrows {
-                    let nn = usize::try_from(n)
-                        .expect("number of rows exceeded maximum platform pointer size");
-                    T::check_tot(n, tot, conf.allow_tot_mismatch)
-                        .inner_into()
-                        .errors_liftio()
-                        .and_maybe(|()| {
-                            self.h_read_unchecked_df(h, nn, buf)
-                                .map_err(ImpureError::inner_into)
-                                .into_deferred()
-                        })
-                } else {
-                    Ok(Tentative::new1(FCSDataFrame::default()))
-                }
+            .def_inner_into()
+            .def_errors_liftio()
+            .def_and_maybe(|n| {
+                T::check_tot(n, tot, conf.allow_tot_mismatch)
+                    .inner_into()
+                    .errors_liftio()
+                    .and_maybe(|()| {
+                        let nn = usize::try_from(n).expect("nrows exceeds usize");
+                        self.h_read_unchecked_df(h, nn, buf)
+                            .map_err(ImpureError::inner_into)
+                            .into_deferred()
+                    })
             })
     }
 
@@ -2845,7 +2840,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         &self,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> BiTentative<Option<u64>, UnevenEventWidth>
+    ) -> BiDeferredResult<u64, UnevenEventWidth>
     where
         S: Clone,
         C: IsFixed,
@@ -2853,8 +2848,9 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         let n = seg.len();
         // TODO is this always not zero?
         let w = self.event_width();
-        let (t, e) = if w == 0 {
-            (None, Some(UnevenEventWidth::ZeroWidth(n)))
+        if w == 0 {
+            // TODO this should be a separate error since it will always fail
+            Err(DeferredFailure::new1(UnevenEventWidth::ZeroWidth(n)))
         } else {
             let total_events = n / w;
             let remainder = n % w;
@@ -2863,13 +2859,12 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
                 nbytes: n,
                 remainder,
             });
-            (Some(total_events), e)
-        };
-        let mut tnt = Tentative::new1(t);
-        if let Some(err) = e {
-            tnt.push_error_or_warning(err, !conf.allow_uneven_event_width);
+            let mut tnt = Tentative::new1(total_events);
+            if let Some(err) = e {
+                tnt.push_error_or_warning(err, !conf.allow_uneven_event_width);
+            }
+            Ok(tnt)
         }
-        tnt
     }
 }
 

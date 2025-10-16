@@ -1,9 +1,9 @@
 use crate::data::ColumnError;
 use crate::error::{
-    DeferredExt as _, DeferredFailure, DeferredFailureInner, DeferredResult, DeferredResultInner,
-    ErrorIter as _, HoldsOne, InfalliblePassthruExt as _, MultiResult, MultiResultExt as _,
-    OneOrMore, PassthruExt as _, PassthruResult, PassthruResultInner, ResultExt as _, Tentative,
-    TentativeInner, ZeroOrMore,
+    CanHoldOne, DeferredExt as _, DeferredFailure, DeferredFailureInner, DeferredResult,
+    DeferredResultInner, ErrorIter as _, InfalliblePassthruExt as _, MultiResult,
+    MultiResultExt as _, OneOrMore, PassthruExt as _, PassthruResult, PassthruResultInner,
+    ResultExt as _, Tentative, TentativeInner, ZeroOrMore,
 };
 use crate::text::optional::MightHave;
 use crate::validated::shortname::Shortname;
@@ -1305,8 +1305,8 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         E: From<SetCenterError> + From<KeyNotFoundError>,
         TWI: ZeroOrMore,
         TEI: ZeroOrMore,
-        FWI: ZeroOrMore + HoldsOne<InnerOne<W> = FWI::Wrapper<W>>,
-        FEI: OneOrMore + HoldsOne<InnerOne<E> = FEI::Wrapper<E>>,
+        FWI: ZeroOrMore + CanHoldOne,
+        FEI: OneOrMore + CanHoldOne,
         TWI::Wrapper<W>: Default,
         TEI::Wrapper<E>: Default,
         FWI::Wrapper<W>: Default,
@@ -1333,8 +1333,8 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         E: From<SetCenterError>,
         TWI: ZeroOrMore,
         TEI: ZeroOrMore,
-        FWI: ZeroOrMore + HoldsOne<InnerOne<W> = FWI::Wrapper<W>>,
-        FEI: OneOrMore + HoldsOne<InnerOne<E> = FEI::Wrapper<E>>,
+        FWI: ZeroOrMore + CanHoldOne,
+        FEI: OneOrMore + CanHoldOne,
         TWI::Wrapper<W>: Default,
         TEI::Wrapper<E>: Default,
         FWI::Wrapper<W>: Default,

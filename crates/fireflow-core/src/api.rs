@@ -13,7 +13,7 @@ use crate::core::{
 use crate::data::{NewDataReaderError, NewDataReaderWarning, RawToLayoutError, RawToLayoutWarning};
 use crate::error::{
     DeferredExt as _, DeferredFailure, DeferredResult, IODeferredExt as _, IODeferredResult,
-    IOTerminalResult, ImpureError, Leveled, MultiResultExt as _, PassthruExt as _, ResultExt as _,
+    IOTerminalResult, ImpureError, MultiResultExt as _, PassthruExt as _, ResultExt as _,
     Tentative, TentativeInner, TerminalExt as _, VecFamily,
 };
 use crate::header::{
@@ -715,26 +715,20 @@ where
             }
         });
 
-    let repair_res = kws_res
-        .def_and_tentatively::<_, _, VecFamily, VecFamily, VecFamily, VecFamily>(
-            |(delim, mut kws, supp_text_seg)| {
-                kws.append_std(&conf.append_standard_keywords, conf.allow_nonunique)
-                    .map_or_else(
-                        |es| {
-                            Leveled::many_to_tentative(es.into())
-                                .map_errors(KeywordInsertError::from)
-                                .map_errors(ParseKeywordsIssue::from)
-                                .map_errors(ParsePrimaryTEXTError::from)
-                                .map_warnings(KeywordInsertError::from)
-                                .map_warnings(ParseKeywordsIssue::from)
-                                .inner_into()
-                                .errors_liftio()
-                        },
-                        |()| Tentative::default(),
-                    )
-                    .map(|()| (delim, kws, supp_text_seg))
-            },
-        );
+    let repair_res: DeferredResult<_, _, _> =
+        kws_res.def_and_maybe_gen(|(delim, mut kws, supp_text_seg)| {
+            // TODO this will fail early unnecessarily since it returns unit and
+            // thus the original inputs are still usable
+            kws.append_std(&conf.append_standard_keywords, conf.allow_nonunique)
+                .def_map_errors(KeywordInsertError::from)
+                .def_map_errors(ParseKeywordsIssue::from)
+                .def_map_errors(ParsePrimaryTEXTError::from)
+                .def_map_warnings(KeywordInsertError::from)
+                .def_map_warnings(ParseKeywordsIssue::from)
+                .def_inner_into()
+                .def_errors_liftio()
+                .def_map_value(|()| (delim, kws, supp_text_seg))
+        });
 
     repair_res.def_and_tentatively::<_, _, VecFamily, VecFamily, VecFamily, VecFamily>(
         |(delimiter, kws, supp_text_seg)| {
@@ -875,11 +869,17 @@ fn split_raw_text_literal_delim(
             prev_word = value;
             if value.is_empty() {
                 push_issue(conf.allow_empty, BlankValueError(key.to_vec()).into());
-            } else if let Err(lvl) = kws.insert(key, value, conf) {
-                match lvl.inner_into() {
-                    Leveled::Error(e) => push_issue(false, e),
-                    Leveled::Warning(w) => push_issue(true, w),
-                }
+            } else {
+                let e = kws.insert(key, value, conf);
+                // TODO need to somehow process warnings and errors from here,
+                // the ideal way is to just push them all to a stack and deal
+                // with them later, but to use the current system I would need
+                // to unpack the warning and error individually and push it
+                // to a vector
+                // match lvl.inner_into() {
+                //     Leveled::Error(e) => push_issue(false, e),
+                //     Leveled::Warning(w) => push_issue(true, w),
+                // }
             }
         } else {
             // exiting here means we found a key without a value and also didn't
@@ -926,12 +926,13 @@ fn split_raw_text_escaped_delim(
     };
 
     let mut push_pair = |ews_: &mut (Vec<_>, Vec<_>), kb: &Vec<_>, vb: &Vec<_>| {
-        if let Err(lvl) = kws.insert(kb, vb, conf) {
-            match lvl.inner_into() {
-                Leveled::Error(e) => push_issue(ews_, false, e),
-                Leveled::Warning(w) => push_issue(ews_, true, w),
-            }
-        }
+        let e = kws.insert(kb, vb, conf);
+        // if let Err(lvl) = kws.insert(kb, vb, conf) {
+        //     match lvl.inner_into() {
+        //         Leveled::Error(e) => push_issue(ews_, false, e),
+        //         Leveled::Warning(w) => push_issue(ews_, true, w),
+        //     }
+        // }
     };
 
     let push_delim = |kb: &mut Vec<_>, vb: &mut Vec<_>, k: usize| {

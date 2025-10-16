@@ -18,7 +18,6 @@ use crate::config::SharedConfig;
 use crate::text::optional::{AlwaysValue, NeverValue};
 
 use derive_new::new;
-use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use std::convert::Infallible;
 use std::io;
@@ -117,15 +116,15 @@ pub struct TentativeInner<V, W, E, WI: ZeroOrMore, EI: ZeroOrMore> {
     errors: EI::Wrapper<E>,
 }
 
-/// A type that may be either an error or warning.
-///
-/// Useful for functions which only return one error or warning for which
-/// using a tentative would be unnecessary.
-#[derive(Debug, PartialEq)]
-pub enum Leveled<T> {
-    Error(T),
-    Warning(T),
-}
+// /// A type that may be either an error or warning.
+// ///
+// /// Useful for functions which only return one error or warning for which
+// /// using a tentative would be unnecessary.
+// #[derive(Debug, PartialEq)]
+// pub enum Leveled<T> {
+//     Error(T),
+//     Warning(T),
+// }
 
 /// Tentative where both error and warning are the same type
 pub type BiTentative<V, T> = Tentative<V, T, T>;
@@ -243,14 +242,19 @@ pub trait Appendable<Other> {
     fn append_het(self, other: Other) -> Self::Out;
 }
 
-/// Lifting containers that many hold values into those that may hold more..
+/// Convert containers that many hold values into those that may hold more.
 pub trait IntoZeroOrMore<Other: ZeroOrMore>: ZeroOrMore {
     fn into_zero_or_more<X>(x: Self::Wrapper<X>) -> Other::Wrapper<X>;
 }
 
-/// Lifting container that holds some number of values into those that hold many.
-pub trait IntoOneOrMore<Other: OneOrMore>: ZeroOrMore {
-    fn into_one_or_more<X>(x: Self::Wrapper<X>) -> Option<Other::Wrapper<X>>;
+/// Convert containers that many hold values into those that may hold more.
+pub trait IntoOneOrMore<Other: OneOrMore>: OneOrMore {
+    fn into_one_or_more<X>(x: Self::Wrapper<X>) -> Other::Wrapper<X>;
+}
+
+/// Convert container which may hold zero+ to those with 1+.
+pub trait TryIntoOneOrMore<Other: OneOrMore>: ZeroOrMore {
+    fn try_into_one_or_more<X>(x: Self::Wrapper<X>) -> Option<Other::Wrapper<X>>;
 }
 
 pub struct OptionFamily;
@@ -461,20 +465,8 @@ impl_concat_extend!(NonEmpty, Vec, NonEmpty);
 impl_concat_extend!(NonEmpty, Option, NonEmpty);
 impl_concat_extend!(NonEmpty, AlwaysValue, NonEmpty);
 
-impl IntoZeroOrMore<Self> for NullFamily {
-    fn into_zero_or_more<X>(x: Self::Wrapper<X>) -> NeverValue<X> {
-        x
-    }
-}
-
-impl IntoZeroOrMore<Self> for VecFamily {
-    fn into_zero_or_more<X>(x: Self::Wrapper<X>) -> Vec<X> {
-        x
-    }
-}
-
-impl IntoZeroOrMore<Self> for OptionFamily {
-    fn into_zero_or_more<X>(x: Self::Wrapper<X>) -> Option<X> {
+impl<T: ZeroOrMore> IntoZeroOrMore<T> for T {
+    fn into_zero_or_more<X>(x: Self::Wrapper<X>) -> T::Wrapper<X> {
         x
     }
 }
@@ -497,20 +489,32 @@ impl IntoZeroOrMore<VecFamily> for OptionFamily {
     }
 }
 
-impl IntoOneOrMore<SingletonFamily> for OptionFamily {
-    fn into_one_or_more<X>(x: Self::Wrapper<X>) -> Option<AlwaysValue<X>> {
+impl<T: OneOrMore> IntoOneOrMore<T> for T {
+    fn into_one_or_more<X>(x: Self::Wrapper<X>) -> T::Wrapper<X> {
+        x
+    }
+}
+
+impl IntoOneOrMore<NonEmptyFamily> for SingletonFamily {
+    fn into_one_or_more<X>(x: Self::Wrapper<X>) -> NonEmpty<X> {
+        NonEmpty::new(x.0)
+    }
+}
+
+impl TryIntoOneOrMore<SingletonFamily> for OptionFamily {
+    fn try_into_one_or_more<X>(x: Self::Wrapper<X>) -> Option<AlwaysValue<X>> {
         x.map(AlwaysValue)
     }
 }
 
-impl IntoOneOrMore<NonEmptyFamily> for OptionFamily {
-    fn into_one_or_more<X>(x: Self::Wrapper<X>) -> Option<NonEmpty<X>> {
+impl TryIntoOneOrMore<NonEmptyFamily> for OptionFamily {
+    fn try_into_one_or_more<X>(x: Self::Wrapper<X>) -> Option<NonEmpty<X>> {
         NonEmpty::collect(x)
     }
 }
 
-impl IntoOneOrMore<NonEmptyFamily> for VecFamily {
-    fn into_one_or_more<X>(x: Self::Wrapper<X>) -> Option<NonEmpty<X>> {
+impl TryIntoOneOrMore<NonEmptyFamily> for VecFamily {
+    fn try_into_one_or_more<X>(x: Self::Wrapper<X>) -> Option<NonEmpty<X>> {
         NonEmpty::collect(x)
     }
 }
@@ -553,11 +557,11 @@ impl<V, W, WI: ZeroOrMore> TerminalInner<V, W, WI> {
     ) -> Result<Self, TerminalFailureInner<W, E, T, WI, EI>>
     where
         F: Fn(W) -> E,
-        WI: IntoOneOrMore<EI>,
+        WI: TryIntoOneOrMore<EI>,
         EI: OneOrMore,
         WI::Wrapper<W>: Default,
     {
-        match WI::into_one_or_more(self.warnings) {
+        match WI::try_into_one_or_more(self.warnings) {
             None => Ok(Self::new1(self.value)),
             Some(ws) => Err(TerminalFailureInner::new1(EI::map(ws, f), reason)),
         }
@@ -889,7 +893,7 @@ impl<V, W, E, WI: ZeroOrMore, EI: ZeroOrMore> TentativeInner<V, W, E, WI, EI> {
     pub fn terminate<T, REI>(self, reason: T) -> TerminalResultInner<V, W, E, T, WI, WI, REI>
     where
         REI: OneOrMore,
-        EI: IntoOneOrMore<REI>,
+        EI: TryIntoOneOrMore<REI>,
     {
         self.terminate_inner(reason).map(|(t, _)| t)
     }
@@ -897,7 +901,7 @@ impl<V, W, E, WI: ZeroOrMore, EI: ZeroOrMore> TentativeInner<V, W, E, WI, EI> {
     pub fn terminate_def<T: Default, REI>(self) -> TerminalResultInner<V, W, E, T, WI, WI, REI>
     where
         REI: OneOrMore,
-        EI: IntoOneOrMore<REI>,
+        EI: TryIntoOneOrMore<REI>,
     {
         self.terminate(T::default())
     }
@@ -909,9 +913,9 @@ impl<V, W, E, WI: ZeroOrMore, EI: ZeroOrMore> TentativeInner<V, W, E, WI, EI> {
     ) -> Result<(TerminalInner<V, W, WI>, T), TerminalFailureInner<W, E, T, WI, REI>>
     where
         REI: OneOrMore,
-        EI: IntoOneOrMore<REI>,
+        EI: TryIntoOneOrMore<REI>,
     {
-        match EI::into_one_or_more(self.errors) {
+        match EI::try_into_one_or_more(self.errors) {
             Some(errors) => Err(TerminalFailureInner::new(
                 self.warnings,
                 errors.into(),
@@ -929,8 +933,8 @@ impl<V, W, E, WI: ZeroOrMore, EI: ZeroOrMore> TentativeInner<V, W, E, WI, EI> {
     where
         F: Fn(W) -> E,
         WI::Wrapper<W>: Default,
-        WI: IntoOneOrMore<REI>,
-        EI: IntoOneOrMore<REI>,
+        WI: TryIntoOneOrMore<REI>,
+        EI: TryIntoOneOrMore<REI>,
         REI: OneOrMore + CanHoldMany,
     {
         match self.terminate_inner(reason) {
@@ -942,10 +946,10 @@ impl<V, W, E, WI: ZeroOrMore, EI: ZeroOrMore> TentativeInner<V, W, E, WI, EI> {
     pub fn terminate_nowarn<T, REI>(self, reason: T) -> TerminalResultInner<V, W, E, T, WI, WI, REI>
     where
         WI::Wrapper<W>: Default,
-        EI: IntoOneOrMore<REI>,
+        EI: TryIntoOneOrMore<REI>,
         REI: OneOrMore + CanHoldMany,
     {
-        match EI::into_one_or_more(self.errors) {
+        match EI::try_into_one_or_more(self.errors) {
             None => Ok(TerminalInner::new1(self.value)),
             Some(e) => Err(TerminalFailureInner::new1(e, reason)),
         }
@@ -1281,19 +1285,38 @@ impl<P, W, E, WI: ZeroOrMore, EI: OneOrMore> DeferredFailureInner<P, W, E, WI, E
     pub fn mconcat<WIF>(es: NonEmpty<Self>) -> DeferredFailureInner<(), W, E, WIF, NonEmptyFamily>
     where
         WI: IntoZeroOrMore<WIF>,
+        EI: IntoOneOrMore<NonEmptyFamily>,
         WIF::Wrapper<W>: Appendable<WI::Wrapper<W>, Out = WIF::Wrapper<W>>,
         NonEmpty<E>: Appendable<EI::Wrapper<E>, Out = NonEmpty<E>>,
         WIF: ZeroOrMore,
     {
-        let mut acc = DeferredFailureInner::new(
-            WI::into_zero_or_more(es.head.warnings),
-            EI::into_nonempty(*es.head.errors).into(),
-            (),
-        );
+        let mut acc = es
+            .head
+            .repack_errors::<NonEmptyFamily>()
+            .repack_warnings()
+            .void();
         for x in es.tail {
             acc = acc.mappend::<_, _, _, WI, EI, WIF, NonEmptyFamily>(x, |(), _| ());
         }
         acc
+    }
+
+    pub fn repack_warnings<WIF>(self) -> DeferredFailureInner<P, W, E, WIF, EI>
+    where
+        WI: IntoZeroOrMore<WIF>,
+        WIF: ZeroOrMore,
+    {
+        let ws = WI::into_zero_or_more(self.warnings);
+        DeferredFailureInner::new(ws, self.errors, self.passthru)
+    }
+
+    pub fn repack_errors<EIF>(self) -> DeferredFailureInner<P, W, E, WI, EIF>
+    where
+        EI: IntoOneOrMore<EIF>,
+        EIF: OneOrMore,
+    {
+        let es = EI::into_one_or_more(*self.errors);
+        DeferredFailureInner::new(self.warnings, es.into(), self.passthru)
     }
 
     pub fn and_tentatively<F, V, WI0, EI0, WIF, EIF>(
@@ -1509,62 +1532,82 @@ impl<W, E> DeferredFailure<(), W, E> {
     }
 }
 
-impl<T> Leveled<T> {
-    pub fn new(value: T, is_error: bool) -> Self {
-        if is_error {
-            Self::Error(value)
-        } else {
-            Self::Warning(value)
-        }
-    }
+// TODO this name is confusing, the "mutex" refers to the warning and error
+// being mutually exclusive, nothing to do with IO locks
+pub type MutexResult<V, E> =
+    DeferredResultInner<V, E, E, OptionFamily, NullFamily, NullFamily, SingletonFamily>;
 
-    #[must_use]
-    pub fn many_to_tentative(xs: Vec<Self>) -> BiTentative<(), T> {
-        let (ws, es): (Vec<_>, Vec<_>) = xs
-            .into_iter()
-            .map(|x| match x {
-                Self::Warning(y) => Ok(y),
-                Self::Error(y) => Err(y),
-            })
-            .partition_result();
-        Tentative::new_vec((), ws, es)
-    }
+pub type MultiMutexResult<V, E> =
+    DeferredResultInner<V, E, E, VecFamily, NullFamily, NullFamily, NonEmptyFamily>;
 
-    // pub fn many_to_deferred(xs: Vec<Self>) -> BiDeferredResult<(), T> {
-    //     let (ws, es): (Vec<_>, Vec<_>) = xs
-    //         .into_iter()
-    //         .map(|x| match x {
-    //             Self::Warning(y) => Ok(y),
-    //             Self::Error(y) => Err(y),
-    //         })
-    //         .partition_result();
-    //     match NonEmpty::from_vec(es) {
-    //         None => Ok(Tentative::new((), ws, vec![])),
-    //         Some(xs) => Err(DeferredFailure::new(ws, xs, ())),
-    //     }
-    // }
+// impl<T> Leveled<T> {
+//     pub fn new(value: T, is_error: bool) -> Self {
+//         if is_error {
+//             Self::Error(value)
+//         } else {
+//             Self::Warning(value)
+//         }
+//     }
 
-    pub fn inner_into<X>(self) -> Leveled<X>
-    where
-        X: From<T>,
-    {
-        self.map(Into::into)
-    }
+//     #[must_use]
+//     pub fn many_to_tentative(xs: Vec<Self>) -> BiTentative<(), T> {
+//         let (ws, es): (Vec<_>, Vec<_>) = xs
+//             .into_iter()
+//             .map(|x| match x {
+//                 Self::Warning(y) => Ok(y),
+//                 Self::Error(y) => Err(y),
+//             })
+//             .partition_result();
+//         Tentative::new_vec((), ws, es)
+//     }
 
-    pub fn map<F, X>(self, f: F) -> Leveled<X>
-    where
-        F: FnOnce(T) -> X,
-    {
-        match self {
-            Self::Error(x) => Leveled::Error(f(x)),
-            Self::Warning(x) => Leveled::Warning(f(x)),
-        }
-    }
-}
+//     // pub fn many_to_deferred(xs: Vec<Self>) -> BiDeferredResult<(), T> {
+//     //     let (ws, es): (Vec<_>, Vec<_>) = xs
+//     //         .into_iter()
+//     //         .map(|x| match x {
+//     //             Self::Warning(y) => Ok(y),
+//     //             Self::Error(y) => Err(y),
+//     //         })
+//     //         .partition_result();
+//     //     match NonEmpty::from_vec(es) {
+//     //         None => Ok(Tentative::new((), ws, vec![])),
+//     //         Some(xs) => Err(DeferredFailure::new(ws, xs, ())),
+//     //     }
+//     // }
+
+//     pub fn inner_into<X>(self) -> Leveled<X>
+//     where
+//         X: From<T>,
+//     {
+//         self.map(Into::into)
+//     }
+
+//     pub fn map<F, X>(self, f: F) -> Leveled<X>
+//     where
+//         F: FnOnce(T) -> X,
+//     {
+//         match self {
+//             Self::Error(x) => Leveled::Error(f(x)),
+//             Self::Warning(x) => Leveled::Warning(f(x)),
+//         }
+//     }
+// }
 
 pub trait ResultExt: Sized {
     type V;
     type E;
+
+    fn new_mutex(value: Self::V, error: Self::E, is_error: bool) -> MutexResult<Self::V, Self::E> {
+        if is_error {
+            Err(DeferredFailureInner::new1(error))
+        } else {
+            Ok(TentativeInner::new(
+                value,
+                Some(error),
+                NeverValue::default(),
+            ))
+        }
+    }
 
     fn into_mult<ToE>(self) -> MultiResult<Self::V, ToE>
     where
@@ -2322,6 +2365,38 @@ pub trait DeferredExt: Sized + PassthruExt {
     }
 
     #[allow(clippy::type_complexity)]
+    fn def_and_maybe_gen<F, X, LWI0, LEI0, RWI0, REI0, LWIF, LEIF, RWIF, REIF>(
+        self,
+        f: F,
+    ) -> DeferredResultInner<X, Self::W, Self::E, LWIF, LEIF, RWIF, REIF>
+    where
+        F: FnOnce(Self::V) -> DeferredResultInner<X, Self::W, Self::E, LWI0, LEI0, RWI0, REI0>,
+        <Self::LWI as Container>::Wrapper<Self::W>: Appendable<
+                <LWI0 as Container>::Wrapper<Self::W>,
+                Out = <LWIF as Container>::Wrapper<Self::W>,
+            > + Appendable<
+                <RWI0 as Container>::Wrapper<Self::W>,
+                Out = <RWIF as Container>::Wrapper<Self::W>,
+            >,
+        <Self::LEI as Container>::Wrapper<Self::E>: Appendable<
+                <LEI0 as Container>::Wrapper<Self::E>,
+                Out = <LEIF as Container>::Wrapper<Self::E>,
+            > + Appendable<
+                <REI0 as Container>::Wrapper<Self::E>,
+                Out = <REIF as Container>::Wrapper<Self::E>,
+            >,
+        Self::RWI: IntoZeroOrMore<RWIF>,
+        Self::REI: IntoOneOrMore<REIF>,
+        LWI0: ZeroOrMore,
+        LEI0: ZeroOrMore,
+        LWIF: ZeroOrMore,
+        LEIF: ZeroOrMore,
+        RWI0: ZeroOrMore,
+        REI0: OneOrMore,
+        RWIF: ZeroOrMore,
+        REIF: OneOrMore;
+
+    #[allow(clippy::type_complexity)]
     fn def_and_maybe<F, X>(
         self,
         f: F,
@@ -2351,7 +2426,12 @@ pub trait DeferredExt: Sized + PassthruExt {
             > + Appendable<
                 <Self::REI as Container>::Wrapper<Self::E>,
                 Out = <Self::REI as Container>::Wrapper<Self::E>,
-            >;
+            >,
+        Self::RWI: IntoZeroOrMore<Self::RWI>,
+        Self::REI: IntoOneOrMore<Self::REI>,
+    {
+        self.def_and_maybe_gen::<F, X, Self::LWI, Self::LEI, Self::RWI, Self::REI, Self::LWI, Self::LEI, Self::RWI, Self::REI>(f)
+    }
 
     // TODO the result can be generalized into the above
     #[allow(clippy::type_complexity)]
@@ -2377,6 +2457,8 @@ pub trait DeferredExt: Sized + PassthruExt {
             > + Default,
         <Self::RWI as Container>::Wrapper<Self::W>: Default,
         Self::REI: CanHoldOne,
+        Self::RWI: IntoZeroOrMore<Self::RWI>,
+        Self::REI: IntoOneOrMore<Self::REI>,
     {
         self.def_and_maybe(|x| {
             f(x).map(TentativeInner::new1)
@@ -2426,18 +2508,28 @@ where
         }
     }
 
-    fn def_and_maybe<F, X>(
+    fn def_and_maybe_gen<F, X, LWI0, LEI0, RWI0, REI0, LWIF, LEIF, RWIF, REIF>(
         self,
         f: F,
-    ) -> DeferredResultInner<X, W, E, Self::LWI, Self::LEI, Self::RWI, Self::REI>
+    ) -> DeferredResultInner<X, W, E, LWIF, LEIF, RWIF, REIF>
     where
-        F: FnOnce(V) -> DeferredResultInner<X, W, E, Self::LWI, Self::LEI, Self::RWI, Self::REI>,
-        LWI::Wrapper<Self::W>: Appendable<LWI::Wrapper<Self::W>, Out = LWI::Wrapper<Self::W>>
-            + Appendable<RWI::Wrapper<Self::W>, Out = RWI::Wrapper<Self::W>>,
-        LEI::Wrapper<Self::E>: Appendable<LEI::Wrapper<Self::E>, Out = LEI::Wrapper<Self::E>>
-            + Appendable<REI::Wrapper<Self::E>, Out = REI::Wrapper<Self::E>>,
+        F: FnOnce(V) -> DeferredResultInner<X, W, E, LWI0, LEI0, RWI0, REI0>,
+        LWI::Wrapper<Self::W>: Appendable<LWI0::Wrapper<Self::W>, Out = LWIF::Wrapper<Self::W>>
+            + Appendable<RWI0::Wrapper<Self::W>, Out = RWIF::Wrapper<Self::W>>,
+        LEI::Wrapper<Self::E>: Appendable<LEI0::Wrapper<Self::E>, Out = LEIF::Wrapper<Self::E>>
+            + Appendable<REI0::Wrapper<Self::E>, Out = REIF::Wrapper<Self::E>>,
+        RWI: IntoZeroOrMore<RWIF>,
+        REI: IntoOneOrMore<REIF>,
+        LWI0: ZeroOrMore,
+        LEI0: ZeroOrMore,
+        LWIF: ZeroOrMore,
+        LEIF: ZeroOrMore,
+        RWI0: ZeroOrMore,
+        REI0: OneOrMore,
+        RWIF: ZeroOrMore,
+        REIF: OneOrMore,
     {
-        let x = self?;
+        let x = self.map_err(|e| e.repack_errors().repack_warnings())?;
         x.and_maybe_gen(f)
     }
 }
@@ -2449,14 +2541,14 @@ pub trait TerminalExt: Sized + DeferredExt {
         reason: T,
     ) -> TerminalResultInner<Self::V, Self::W, Self::E, T, Self::RWI, Self::RWI, Self::REI>
     where
-        Self::LEI: IntoOneOrMore<Self::REI>;
+        Self::LEI: TryIntoOneOrMore<Self::REI>;
 
     #[allow(clippy::type_complexity)]
     fn def_terminate_def<T: Default>(
         self,
     ) -> TerminalResultInner<Self::V, Self::W, Self::E, T, Self::RWI, Self::RWI, Self::REI>
     where
-        Self::LEI: IntoOneOrMore<Self::REI>,
+        Self::LEI: TryIntoOneOrMore<Self::REI>,
     {
         self.def_terminate(T::default())
     }
@@ -2470,8 +2562,8 @@ pub trait TerminalExt: Sized + DeferredExt {
     where
         F: Fn(Self::W) -> Self::E,
         <Self::LWI as Container>::Wrapper<Self::W>: Default,
-        Self::LWI: IntoOneOrMore<Self::REI>,
-        Self::LEI: IntoOneOrMore<Self::REI>,
+        Self::LWI: TryIntoOneOrMore<Self::REI>,
+        Self::LEI: TryIntoOneOrMore<Self::REI>,
         Self::REI: CanHoldMany;
 
     #[allow(clippy::type_complexity)]
@@ -2482,8 +2574,8 @@ pub trait TerminalExt: Sized + DeferredExt {
     where
         F: Fn(Self::W) -> Self::E,
         <Self::LWI as Container>::Wrapper<Self::W>: Default,
-        Self::LWI: IntoOneOrMore<Self::REI>,
-        Self::LEI: IntoOneOrMore<Self::REI>,
+        Self::LWI: TryIntoOneOrMore<Self::REI>,
+        Self::LEI: TryIntoOneOrMore<Self::REI>,
         Self::REI: CanHoldMany,
     {
         self.def_terminate_warn2err(T::default(), f)
@@ -2496,7 +2588,7 @@ pub trait TerminalExt: Sized + DeferredExt {
     ) -> TerminalResultInner<Self::V, Self::W, Self::E, T, Self::RWI, Self::RWI, Self::REI>
     where
         <Self::LWI as Container>::Wrapper<Self::W>: Default,
-        Self::LEI: IntoOneOrMore<Self::REI>,
+        Self::LEI: TryIntoOneOrMore<Self::REI>,
         Self::REI: OneOrMore + CanHoldMany;
 
     #[allow(clippy::type_complexity)]
@@ -2509,8 +2601,8 @@ pub trait TerminalExt: Sized + DeferredExt {
     where
         F: Fn(Self::W) -> Self::E,
         <Self::LWI as Container>::Wrapper<Self::W>: Default,
-        Self::LEI: IntoOneOrMore<Self::REI>,
-        Self::LWI: IntoOneOrMore<Self::REI>,
+        Self::LEI: TryIntoOneOrMore<Self::REI>,
+        Self::LWI: TryIntoOneOrMore<Self::REI>,
         Self::REI: OneOrMore + CanHoldMany,
     {
         if conf.warnings_are_errors {
@@ -2531,8 +2623,8 @@ pub trait TerminalExt: Sized + DeferredExt {
     where
         F: Fn(Self::W) -> Self::E,
         <Self::LWI as Container>::Wrapper<Self::W>: Default,
-        Self::LEI: IntoOneOrMore<Self::REI>,
-        Self::LWI: IntoOneOrMore<Self::REI>,
+        Self::LEI: TryIntoOneOrMore<Self::REI>,
+        Self::LWI: TryIntoOneOrMore<Self::REI>,
         Self::REI: OneOrMore + CanHoldMany,
     {
         self.def_terminate_maybe_warn(T::default(), conf, f)
@@ -2553,7 +2645,7 @@ where
         TerminalFailureInner<Self::W, Self::E, T, Self::RWI, Self::REI>,
     >
     where
-        LEI: IntoOneOrMore<REI>,
+        LEI: TryIntoOneOrMore<REI>,
     {
         match self {
             Ok(t) => t.terminate(reason),
@@ -2569,8 +2661,8 @@ where
     where
         F: Fn(W) -> E,
         LWI::Wrapper<W>: Default,
-        LWI: IntoOneOrMore<REI>,
-        LEI: IntoOneOrMore<REI>,
+        LWI: TryIntoOneOrMore<REI>,
+        LEI: TryIntoOneOrMore<REI>,
         REI: OneOrMore + CanHoldMany,
     {
         match self {
@@ -2585,7 +2677,7 @@ where
     ) -> TerminalResultInner<Self::V, Self::W, Self::E, T, Self::LWI, Self::RWI, Self::REI>
     where
         LWI::Wrapper<W>: Default,
-        LEI: IntoOneOrMore<REI>,
+        LEI: TryIntoOneOrMore<REI>,
         REI: OneOrMore + CanHoldMany,
     {
         match self {

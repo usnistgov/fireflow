@@ -1,6 +1,10 @@
 use crate::config::ReadHeaderAndTEXTConfig;
-use crate::error::{ErrorIter as _, MultiMutexResult, MutexResult, ResultExt as _, TentativeInner};
+use crate::error::{
+    DeferredFailureInner, ErrorIter as _, ErrorIter1 as _, MultiMutexResult, MutexResult,
+    PassthruExt, ResultExt as _, TentativeInner,
+};
 use crate::text::index::IndexFromOne;
+use crate::text::optional::NeverValue;
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -647,8 +651,9 @@ impl ParsedKeywords {
                     Ok(TentativeInner::default())
                 }
             })
-            .gather()
-            .void()
+            .gather1()
+            .def_void_passthru()
+            .def_void()
     }
 }
 

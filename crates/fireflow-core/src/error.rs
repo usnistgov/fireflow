@@ -191,7 +191,99 @@ pub(crate) trait ErrorIter<T, E>: Iterator<Item = Result<T, E>> + Sized {
     }
 }
 
+pub(crate) trait ErrorIter1<T, P, W, E, LWI, LEI, RWI, REI>:
+    Iterator<Item = PassthruResultInner<T, P, W, E, LWI, LEI, RWI, REI>> + Sized
+where
+    LWI: ZeroOrMore,
+    LEI: ZeroOrMore,
+    RWI: ZeroOrMore,
+    REI: OneOrMore,
+{
+    #[allow(clippy::type_complexity)]
+    fn gather1<LWIF, LEIF, RWIF>(
+        mut self,
+    ) -> PassthruResultInner<Vec<T>, (Vec<T>, Vec<P>), W, E, LWIF, LEIF, RWIF, NonEmptyFamily>
+    where
+        LWIF: ZeroOrMore + IntoZeroOrMore<RWIF>,
+        LEIF: ZeroOrMore + TryIntoOneOrMore<NonEmptyFamily>,
+        RWIF: ZeroOrMore,
+        LWIF::Wrapper<W>: Default + Appendable<LWI::Wrapper<W>, Out = LWIF::Wrapper<W>>,
+        LEIF::Wrapper<E>: Default + Appendable<LEI::Wrapper<E>, Out = LEIF::Wrapper<E>>,
+        RWIF::Wrapper<W>: Appendable<LWI::Wrapper<W>, Out = RWIF::Wrapper<W>>
+            + Appendable<RWI::Wrapper<W>, Out = RWIF::Wrapper<W>>,
+        REI: IntoOneOrMore<NonEmptyFamily>,
+    {
+        let mut left_vs = vec![];
+        let mut left_ws = LWIF::Wrapper::<W>::default();
+        let mut left_es = LEIF::Wrapper::<E>::default();
+        let mut error_head = None;
+        for x in self.by_ref() {
+            match x {
+                Ok(y) => {
+                    left_vs.push(y.value);
+                    left_ws = LWIF::Wrapper::<W>::append_het(left_ws, y.warnings);
+                    left_es = LEIF::Wrapper::<E>::append_het(left_es, y.errors);
+                }
+                Err(y) => {
+                    error_head = Some(y);
+                    break;
+                }
+            }
+        }
+        if let Some(h) = error_head {
+            let mut right_vs = vec![h.passthru];
+            let mut right_ws = LWIF::into_zero_or_more(left_ws);
+            let mut right_es = match LEIF::try_into_one_or_more(left_es) {
+                Some(mut xs) => {
+                    xs.extend(*h.errors);
+                    xs
+                }
+                None => REI::into_one_or_more(*h.errors),
+            };
+            for x in self {
+                match x {
+                    Ok(y) => {
+                        left_vs.push(y.value);
+                        right_ws = RWIF::Wrapper::<W>::append_het(right_ws, y.warnings);
+                        right_es.extend(y.errors);
+                    }
+                    Err(y) => {
+                        right_vs.push(y.passthru);
+                        right_ws = RWIF::Wrapper::<W>::append_het(right_ws, y.warnings);
+                        right_es.extend(*y.errors);
+                    }
+                }
+            }
+            Err(DeferredFailureInner::new(
+                right_ws,
+                right_es.into(),
+                (left_vs, right_vs),
+            ))
+        } else {
+            Ok(TentativeInner::new(left_vs, left_ws, left_es))
+        }
+    }
+}
+
 impl<I: Iterator<Item = Result<T, E>>, T, E> ErrorIter<T, E> for I {}
+impl<
+        I: Iterator<Item = PassthruResultInner<T, P, W, E, LWI, LEI, RWI, REI>>,
+        T,
+        P,
+        W,
+        E,
+        LWI,
+        LEI,
+        RWI,
+        REI,
+    > ErrorIter1<T, P, W, E, LWI, LEI, RWI, REI> for I
+where
+    LWI: ZeroOrMore,
+    LEI: ZeroOrMore,
+    RWI: ZeroOrMore,
+    REI: OneOrMore,
+{
+}
 
 /// Generic higher-order type for something which has zero or more things.
 ///
@@ -501,6 +593,12 @@ impl IntoOneOrMore<NonEmptyFamily> for SingletonFamily {
     }
 }
 
+impl<T: OneOrMore> TryIntoOneOrMore<T> for NullFamily {
+    fn try_into_one_or_more<X>(_: Self::Wrapper<X>) -> Option<T::Wrapper<X>> {
+        None
+    }
+}
+
 impl TryIntoOneOrMore<SingletonFamily> for OptionFamily {
     fn try_into_one_or_more<X>(x: Self::Wrapper<X>) -> Option<AlwaysValue<X>> {
         x.map(AlwaysValue)
@@ -741,6 +839,24 @@ impl<V, W, E, WI: ZeroOrMore, EI: ZeroOrMore> TentativeInner<V, W, E, WI, EI> {
         } else {
             Self::new(value, WI::wrap(W::from(msg)), EI::Wrapper::<E>::default())
         }
+    }
+
+    pub fn mconcat<WIF, EIF>(
+        xs: impl IntoIterator<Item = Self>,
+    ) -> TentativeInner<Vec<V>, W, E, WIF, EIF>
+    where
+        WIF::Wrapper<W>: Default + Appendable<WI::Wrapper<W>, Out = WIF::Wrapper<W>>,
+        EIF::Wrapper<E>: Default + Appendable<EI::Wrapper<E>, Out = EIF::Wrapper<E>>,
+        WIF: ZeroOrMore,
+        EIF: ZeroOrMore,
+    {
+        let mut ret = TentativeInner::new1(vec![]);
+        for x in xs {
+            ret.value.push(x.value);
+            ret.warnings = WIF::Wrapper::<W>::append_het(ret.warnings, x.warnings);
+            ret.errors = EIF::Wrapper::<E>::append_het(ret.errors, x.errors);
+        }
+        ret
     }
 
     pub fn map<F: FnOnce(V) -> X, X>(self, f: F) -> TentativeInner<X, W, E, WI, EI> {
@@ -1114,16 +1230,6 @@ impl<V, W, E> Tentative<V, W, E> {
                 Err(TerminalFailure::new_vec(self.warnings, *e.errors, e.reason))
             }
         }
-    }
-
-    pub fn mconcat(xs: impl IntoIterator<Item = Self>) -> Tentative<Vec<V>, W, E> {
-        let mut ret = Tentative::new1(vec![]);
-        for x in xs {
-            ret.value.push(x.value);
-            ret.warnings.extend(x.warnings);
-            ret.errors.extend(x.errors);
-        }
-        ret
     }
 
     pub fn mconcat_ne(xs: NonEmpty<Self>) -> Tentative<NonEmpty<V>, W, E> {
@@ -1538,7 +1644,7 @@ pub type MutexResult<V, E> =
     DeferredResultInner<V, E, E, OptionFamily, NullFamily, NullFamily, SingletonFamily>;
 
 pub type MultiMutexResult<V, E> =
-    DeferredResultInner<V, E, E, VecFamily, NullFamily, NullFamily, NonEmptyFamily>;
+    DeferredResultInner<V, E, E, VecFamily, NullFamily, VecFamily, NonEmptyFamily>;
 
 // impl<T> Leveled<T> {
 //     pub fn new(value: T, is_error: bool) -> Self {
@@ -2115,6 +2221,22 @@ pub trait PassthruExt: Sized {
     }
 
     #[allow(clippy::type_complexity)]
+    fn def_void(
+        self,
+    ) -> PassthruResultInner<
+        (),
+        Self::P,
+        Self::W,
+        Self::E,
+        Self::LWI,
+        Self::LEI,
+        Self::RWI,
+        Self::REI,
+    > {
+        self.def_map_value(|_| ())
+    }
+
+    #[allow(clippy::type_complexity)]
     fn def_void_passthru(
         self,
     ) -> DeferredResultInner<Self::V, Self::W, Self::E, Self::LWI, Self::LEI, Self::RWI, Self::REI>;
@@ -2456,9 +2578,8 @@ pub trait DeferredExt: Sized + PassthruExt {
                 Out = <Self::REI as Container>::Wrapper<Self::E>,
             > + Default,
         <Self::RWI as Container>::Wrapper<Self::W>: Default,
-        Self::REI: CanHoldOne,
+        Self::REI: IntoOneOrMore<Self::REI> + CanHoldOne,
         Self::RWI: IntoZeroOrMore<Self::RWI>,
-        Self::REI: IntoOneOrMore<Self::REI>,
     {
         self.def_and_maybe(|x| {
             f(x).map(TentativeInner::new1)

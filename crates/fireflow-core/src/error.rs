@@ -1331,6 +1331,16 @@ impl<V, W> Tentative<V, W, Infallible> {
     }
 }
 
+impl<V, WI: ZeroOrMore, EI: ZeroOrMore> TentativeInner<V, (), Infallible, WI, EI> {
+    pub fn from_infallible<W, E>(self) -> TentativeInner<V, W, E, WI, EI>
+    where
+        WI::Wrapper<W>: Default,
+        EI::Wrapper<E>: Default,
+    {
+        TentativeInner::new1(self.value)
+    }
+}
+
 impl<V> BiTentative<V, Infallible> {
     pub fn unwrap_infallible(self) -> V {
         self.value
@@ -1654,9 +1664,31 @@ pub type MutexResult<V, E> =
 pub type MultiMutexResult<V, E> =
     DeferredResultInner<V, E, E, VecFamily, NullFamily, VecFamily, NonEmptyFamily>;
 
+pub type MultiResult1<V, E> =
+    DeferredResultInner<V, (), E, NullFamily, NullFamily, NullFamily, NonEmptyFamily>;
+
+pub type SingletonResult<V, E> =
+    DeferredResultInner<V, (), E, NullFamily, NullFamily, NullFamily, SingletonFamily>;
+
 pub trait ResultExt: Sized {
     type V;
     type E;
+
+    fn new_singleton(
+        value: Self::V,
+        error: Self::E,
+        is_error: bool,
+    ) -> SingletonResult<Self::V, Self::E> {
+        if is_error {
+            Err(DeferredFailureInner::new1(error))
+        } else {
+            Ok(TentativeInner::new(
+                value,
+                NeverValue::default(),
+                NeverValue::default(),
+            ))
+        }
+    }
 
     fn new_mutex(value: Self::V, error: Self::E, is_error: bool) -> MutexResult<Self::V, Self::E> {
         if is_error {
@@ -1668,6 +1700,19 @@ pub trait ResultExt: Sized {
                 NeverValue::default(),
             ))
         }
+    }
+
+    // TODO necessary?
+    fn new_multi_value(value: Self::V) -> MultiResult1<Self::V, Self::E> {
+        Ok(TentativeInner::new1(value))
+    }
+
+    fn new_multi_error(errors: NonEmpty<Self::E>) -> MultiResult1<Self::V, Self::E> {
+        Err(DeferredFailureInner::new(
+            NeverValue::default(),
+            errors.into(),
+            (),
+        ))
     }
 
     fn into_mult<ToE>(self) -> MultiResult<Self::V, ToE>
@@ -2335,8 +2380,8 @@ where
         LWIF: ZeroOrMore,
         RWIF: ZeroOrMore,
     {
-        self.map(|tnt| tnt.repack_warnings())
-            .map_err(|fail| fail.repack_warnings())
+        self.map(TentativeInner::repack_warnings)
+            .map_err(DeferredFailureInner::repack_warnings)
     }
 
     #[allow(clippy::type_complexity)]
@@ -2347,8 +2392,8 @@ where
         LEIF: ZeroOrMore,
         REIF: OneOrMore,
     {
-        self.map(|tnt| tnt.repack_errors())
-            .map_err(|fail| fail.repack_errors())
+        self.map(TentativeInner::repack_errors)
+            .map_err(DeferredFailureInner::repack_errors)
     }
 }
 
@@ -2365,6 +2410,64 @@ impl<V> InfalliblePassthruExt for PassthruResult<V, (), Infallible, Infallible> 
         self.map_err(DeferredFailure::unwrap_infallible)
             .unwrap()
             .unwrap_infallible()
+    }
+}
+
+pub(crate) trait InfalliblePassthruExt1 {
+    type V;
+    type P;
+    type W;
+    type LWI: ZeroOrMore;
+    type LEI: ZeroOrMore;
+    type RWI: ZeroOrMore;
+    type REI: OneOrMore;
+
+    fn def_unwrap_infallible1<X>(self) -> TentativeInner<Self::V, Self::W, X, Self::LWI, Self::LEI>
+    where
+        <Self::LEI as Container>::Wrapper<X>: Default;
+}
+
+impl<V, P, W, LWI, LEI, RWI, REI> InfalliblePassthruExt1
+    for PassthruResultInner<V, P, W, Infallible, LWI, LEI, RWI, REI>
+where
+    LWI: ZeroOrMore,
+    LEI: ZeroOrMore,
+    RWI: ZeroOrMore,
+    REI: OneOrMore,
+{
+    type V = V;
+    type P = P;
+    type W = W;
+    type LWI = LWI;
+    type LEI = LEI;
+    type RWI = RWI;
+    type REI = REI;
+
+    fn def_unwrap_infallible1<X>(self) -> TentativeInner<Self::V, Self::W, X, Self::LWI, Self::LEI>
+    where
+        <Self::LEI as Container>::Wrapper<X>: Default,
+    {
+        // NOTE dirty hack because rust can't tell if a higher order type (the
+        // Wrapper in this case) has an Infallible in it. In this case, the
+        // wrapper needs to have at least one value in it (NonEmpty or
+        // AlwaysValue), and since these can never be constructed with an
+        // Infallible inside the whole Error side can never be constructed. I
+        // guess rust disagrees because it can't figure out that the Wrapper
+        // type may have PhantomData inside (ie is a phantom type) which can
+        // be constructed with Infallible.
+        //
+        // TODO One way to make this much nicer would be to move the single
+        // value out into its own field. This has the advantage of making the
+        // container types uniform and doesn't require NonEmpty/AlwaysValue. It
+        // would also solve this infallible problem.
+        match self {
+            Ok(tnt) => {
+                let es = <Self::LEI as Container>::Wrapper::<X>::default();
+                Some(TentativeInner::new(tnt.value, tnt.warnings, es))
+            }
+            Err(_) => None,
+        }
+        .expect("infallible result should not happen")
     }
 }
 

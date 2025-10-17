@@ -1,5 +1,5 @@
 use crate::core::{AnyMetarootKeyLossError, IndexedKeyLossError, UnitaryKeyLossError};
-use crate::error::{BiTentative, Tentative};
+use crate::error::{BiTentative, DeferredFailureInner, SingletonResult, Tentative, TentativeInner};
 use crate::validated::keys::{IndexedKey, Key, MeasHeader};
 
 use super::index::IndexFromOne;
@@ -158,14 +158,15 @@ pub(crate) trait CheckMaybe: Sized + IsDefault {
         }
     }
 
-    fn check_indexed_key_transfer<E>(&self, i: impl Into<IndexFromOne>) -> Result<(), E>
+    fn check_indexed_key_transfer<E>(&self, i: impl Into<IndexFromOne>) -> SingletonResult<(), E>
     where
         E: From<IndexedKeyLossError<Self::Inner>>,
     {
         if self.is_default() {
-            Ok(())
+            Ok(TentativeInner::default())
         } else {
-            Err(IndexedKeyLossError::<Self::Inner>::new(i).into())
+            let e = IndexedKeyLossError::<Self::Inner>::new(i);
+            Err(DeferredFailureInner::new1(e))
         }
     }
 }

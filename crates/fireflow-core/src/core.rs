@@ -12,9 +12,10 @@ use crate::data::{
 };
 use crate::error::{
     BiTentative, DeferredExt as _, DeferredFailure, DeferredResult, ErrorIter as _,
-    IODeferredExt as _, IODeferredResult, IOResult, IOTerminalResult, ImpureError,
-    InfalliblePassthruExt as _, MultiResult, MultiResultExt as _, PassthruExt as _, PassthruResult,
-    ResultExt as _, Tentative, Terminal, TerminalExt as _, TerminalResult,
+    ErrorIter1 as _, IODeferredExt as _, IODeferredResult, IOResult, IOTerminalResult, ImpureError,
+    InfalliblePassthruExt as _, InfalliblePassthruExt1 as _, MultiResult, MultiResult1,
+    MultiResultExt as _, PassthruExt as _, PassthruResult, ResultExt as _, Tentative,
+    TentativeInner, Terminal, TerminalExt as _, TerminalResult,
 };
 use crate::header::{
     HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
@@ -1478,20 +1479,24 @@ pub trait VersionedMetaroot: Sized {
             let new_t = Temporal::new(old_o.common, st);
             (new_o, new_t)
         };
-        let t_res = o.specific.can_convert_to_temporal(i).mult_errors_into();
+        let t_res = o.specific.can_convert_to_temporal(i).def_errors_into();
         let o_specific_res = t.specific.can_convert_to_optical_swap(i);
         let o_common_res = o
             .check_keys_transfer(i)
-            .mult_errors_into::<OpticalToTemporalError>()
-            .mult_errors_into();
-        match t_res.mult_zip3(o_specific_res, o_common_res) {
+            .def_errors_into::<OpticalToTemporalError>()
+            .def_errors_into();
+        match t_res.def_zip3(o_specific_res, o_common_res) {
             Ok(_) => Ok(Tentative::new1(go(t, o))),
-            Err(es) => {
-                if allow_loss {
-                    Ok(Tentative::new_vec(go(t, o), es, []))
-                } else {
-                    Err(DeferredFailure::new_vec([], es, Box::new((t, o))))
-                }
+            // TODO need a path to downgrade the errors from above into warnings
+            // and return a left Result with result from 'go'
+            // Err(es) => {
+            Err(_) => {
+                unimplemented!()
+                // if allow_loss {
+                //     Ok(Tentative::new_vec(go(t, o), es, []))
+                // } else {
+                //     Err(DeferredFailure::new_vec([], es, Box::new((t, o))))
+                // }
             }
         }
     }
@@ -1515,7 +1520,7 @@ pub trait VersionedOptical: Sized {
         i: MeasIndex,
     ) -> impl Iterator<Item = (MeasHeader, String, Option<String>)>;
 
-    fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError>;
+    fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult1<(), OpticalToTemporalError>;
 }
 
 pub trait LookupOptical: Sized + VersionedOptical {
@@ -1536,12 +1541,12 @@ pub trait VersionedTemporal: Sized {
 
     fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)>;
 
-    fn can_convert_to_optical(&self, i: MeasIndex) -> MultiResult<(), Self::Err>;
+    fn can_convert_to_optical(&self, i: MeasIndex) -> MultiResult1<(), Self::Err>;
 
     fn can_convert_to_optical_swap(
         &self,
         i: MeasIndex,
-    ) -> MultiResult<(), SwapOpticalTemporalError>;
+    ) -> MultiResult1<(), SwapOpticalTemporalError>;
 }
 
 pub trait LookupTemporal: VersionedTemporal {
@@ -1569,20 +1574,22 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
     > {
         let opt_common_res = o
             .check_keys_transfer(i)
-            .mult_errors_into::<OpticalToTemporalError>();
-        let opt_specific_res = o.specific.can_convert_to_temporal(i).mult_errors_into();
-        match opt_common_res.mult_zip(opt_specific_res) {
+            .def_errors_into::<OpticalToTemporalError>();
+        let opt_specific_res = o.specific.can_convert_to_temporal(i).def_errors_into();
+        match opt_common_res.def_zip(opt_specific_res) {
             Ok(_) => Ok(Tentative::new1(Self::from_optical_unchecked(o, d))),
-            Err(es) => {
-                if allow_loss {
-                    Ok(Tentative::new_vec(
-                        Self::from_optical_unchecked(o, d),
-                        es,
-                        [],
-                    ))
-                } else {
-                    Err(DeferredFailure::new_vec([], es, Box::new(o)))
-                }
+            // Err(es) => {
+            Err(_) => {
+                unimplemented!()
+                // if allow_loss {
+                //     Ok(Tentative::new_vec(
+                //         Self::from_optical_unchecked(o, d),
+                //         es,
+                //         [],
+                //     ))
+                // } else {
+                //     Err(DeferredFailure::new_vec([], es, Box::new(o)))
+                // }
             }
         }
     }
@@ -1881,16 +1888,17 @@ impl<O> Optical<O> {
     fn check_keys_transfer(
         &self,
         i: MeasIndex,
-    ) -> MultiResult<(), AnyOpticalToTemporalKeyLossError> {
+    ) -> MultiResult1<(), AnyOpticalToTemporalKeyLossError> {
         let filter = self.filter.check_indexed_key_transfer(i);
         let power = self.power.check_indexed_key_transfer(i);
         let det_type = self.detector_type.check_indexed_key_transfer(i);
         let per_emit = self.percent_emitted.check_indexed_key_transfer(i);
         let det_volt = self.detector_voltage.check_indexed_key_transfer(i);
-        filter
-            .zip3(power, det_type)
-            .mult_zip(per_emit.zip(det_volt))
-            .void()
+        [filter, power, det_type, per_emit, det_volt]
+            .into_iter()
+            .gather1()
+            .def_void()
+            .def_void_passthru()
     }
 }
 
@@ -6478,16 +6486,16 @@ impl VersionedOptical for InnerOptical2_0 {
         .chain(self.peak.opt_keywords(i))
     }
 
-    fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
+    fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult1<(), OpticalToTemporalError> {
         let mut res = self
             .wavelength
             .check_indexed_key_transfer(i)
-            .map_err(OpticalToTemporalError::Loss)
-            .into_mult();
-        if let Err(err) = res.as_mut()
+            .def_map_errors(OpticalToTemporalError::Loss)
+            .def_repack_errors();
+        if let Err(fail) = res.as_mut()
             && !self.scale.as_ref().is_some_and(|s| *s == Scale::Linear)
         {
-            err.push(OpticalNonLinearError.into());
+            fail.push_error(OpticalNonLinearError);
         }
         res
     }
@@ -6511,17 +6519,15 @@ impl VersionedOptical for InnerOptical3_0 {
             .chain(self.scale.opt_suffixes(i))
     }
 
-    fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
+    fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult1<(), OpticalToTemporalError> {
         let w = self
             .wavelength
             .check_indexed_key_transfer(i)
-            .map_err(OpticalToTemporalError::Loss);
-        let s = if self.scale.is_noop() {
-            Ok(())
-        } else {
-            Err(OpticalNonLinearError.into())
-        };
-        w.zip(s).void()
+            .def_repack_errors()
+            .def_map_errors(OpticalToTemporalError::Loss);
+        let nle = OpticalNonLinearError.into();
+        let s = Result::new_singleton((), nle, !self.scale.is_noop());
+        w.def_zip(s.def_repack_errors()).def_void()
     }
 }
 
@@ -6548,21 +6554,20 @@ impl VersionedOptical for InnerOptical3_1 {
         .chain(self.scale.opt_suffixes(i))
     }
 
-    fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
+    fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult1<(), OpticalToTemporalError> {
         let c = self
             .calibration
             .check_indexed_key_transfer(i)
-            .map_err(OpticalToTemporalError::Loss);
+            .def_map_errors(OpticalToTemporalError::Loss)
+            .def_repack_errors();
         let w = self
             .wavelengths
             .check_indexed_key_transfer(i)
-            .map_err(OpticalToTemporalError::Loss);
-        let s = if self.scale.is_noop() {
-            Ok(())
-        } else {
-            Err(OpticalNonLinearError.into())
-        };
-        c.zip3(w, s).void()
+            .def_map_errors(OpticalToTemporalError::Loss)
+            .def_repack_errors();
+        let nle = OpticalNonLinearError.into();
+        let s = Result::new_singleton((), nle, !self.scale.is_noop()).def_repack_errors();
+        c.def_zip3(w, s).def_void()
     }
 }
 
@@ -6593,7 +6598,7 @@ impl VersionedOptical for InnerOptical3_2 {
         .chain(self.scale.opt_suffixes(i))
     }
 
-    fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
+    fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult1<(), OpticalToTemporalError> {
         let cal = self
             .calibration
             .check_indexed_key_transfer::<AnyOpticalToTemporalKeyLossError>(i);
@@ -6603,16 +6608,16 @@ impl VersionedOptical for InnerOptical3_2 {
         let tag = self.tag.check_indexed_key_transfer(i);
         let det_name = self.detector_name.check_indexed_key_transfer(i);
         let feat = self.feature.check_indexed_key_transfer(i);
-        let res = cal
-            .zip3(wave, meas)
-            .mult_zip3(anal.zip(tag), det_name.zip(feat))
-            .mult_errors_into();
-        let s = if self.scale.is_noop() {
-            Ok(())
-        } else {
-            Err(OpticalNonLinearError)
-        };
-        res.mult_zip(s.into_mult()).void()
+
+        let nle = OpticalNonLinearError.into();
+        let s = Result::new_singleton((), nle, !self.scale.is_noop()).def_repack_errors();
+        [cal, wave, meas, anal, tag, det_name, feat]
+            .into_iter()
+            .gather1()
+            .def_errors_into()
+            .def_void_passthru()
+            .def_zip(s)
+            .def_void()
     }
 }
 
@@ -6636,16 +6641,15 @@ impl VersionedTemporal for InnerTemporal2_0 {
             .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
-    fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult<(), Self::Err> {
-        Ok(())
+    fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult1<(), Self::Err> {
+        Ok(TentativeInner::default())
     }
 
     fn can_convert_to_optical_swap(
         &self,
         i: MeasIndex,
-    ) -> MultiResult<(), SwapOpticalTemporalError> {
-        let Ok(ret) = self.can_convert_to_optical(i);
-        Ok(ret)
+    ) -> MultiResult1<(), SwapOpticalTemporalError> {
+        Ok(self.can_convert_to_optical(i).def_unwrap_infallible1())
     }
 }
 
@@ -6667,16 +6671,15 @@ impl VersionedTemporal for InnerTemporal3_0 {
             .filter_map(|(_, k, v)| v.map(|x| (k, x)))
     }
 
-    fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult<(), Self::Err> {
-        Ok(())
+    fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult1<(), Self::Err> {
+        Ok(TentativeInner::default())
     }
 
     fn can_convert_to_optical_swap(
         &self,
         i: MeasIndex,
-    ) -> MultiResult<(), SwapOpticalTemporalError> {
-        let Ok(ret) = self.can_convert_to_optical(i);
-        Ok(ret)
+    ) -> MultiResult1<(), SwapOpticalTemporalError> {
+        Ok(self.can_convert_to_optical(i).def_unwrap_infallible1())
     }
 }
 
@@ -6700,16 +6703,15 @@ impl VersionedTemporal for InnerTemporal3_1 {
             .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
-    fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult<(), Self::Err> {
-        Ok(())
+    fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult1<(), Self::Err> {
+        Ok(TentativeInner::default())
     }
 
     fn can_convert_to_optical_swap(
         &self,
         i: MeasIndex,
-    ) -> MultiResult<(), SwapOpticalTemporalError> {
-        let Ok(ret) = self.can_convert_to_optical(i);
-        Ok(ret)
+    ) -> MultiResult1<(), SwapOpticalTemporalError> {
+        Ok(self.can_convert_to_optical(i).def_unwrap_infallible1())
     }
 }
 
@@ -6729,18 +6731,18 @@ impl VersionedTemporal for InnerTemporal3_2 {
         once(self.display.meas_opt_pair(i)).filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
-    fn can_convert_to_optical(&self, i: MeasIndex) -> MultiResult<(), Self::Err> {
+    fn can_convert_to_optical(&self, i: MeasIndex) -> MultiResult1<(), Self::Err> {
         self.measurement_type
             .check_indexed_key_transfer(i)
-            .map_err(TemporalToOpticalError::Loss)
-            .map_err(NonEmpty::new)
+            .def_map_errors(TemporalToOpticalError::Loss)
+            .def_repack_errors()
     }
 
     fn can_convert_to_optical_swap(
         &self,
         i: MeasIndex,
-    ) -> MultiResult<(), SwapOpticalTemporalError> {
-        self.can_convert_to_optical(i).mult_errors_into()
+    ) -> MultiResult1<(), SwapOpticalTemporalError> {
+        self.can_convert_to_optical(i).def_errors_into()
     }
 }
 
@@ -7012,9 +7014,11 @@ impl OpticalFromTemporal<InnerTemporal2_0> for InnerOptical2_0 {
         Infallible,
         Infallible,
     > {
+        // TODO ???
         t.specific
             .can_convert_to_optical(i)
-            .unwrap_or_else(|e| match e {});
+            .def_unwrap_infallible1::<Infallible>();
+        // .unwrap_or_else(|e| match e {});
         Ok(Tentative::new1(Self::from_temporal_unchecked(t)))
     }
 
@@ -7041,7 +7045,8 @@ impl OpticalFromTemporal<InnerTemporal3_0> for InnerOptical3_0 {
     > {
         t.specific
             .can_convert_to_optical(i)
-            .unwrap_or_else(|e| match e {});
+            .def_unwrap_infallible1::<Infallible>();
+        // .unwrap_or_else(|e| match e {});
         Ok(Tentative::new1(Self::from_temporal_unchecked(t)))
     }
 
@@ -7068,7 +7073,8 @@ impl OpticalFromTemporal<InnerTemporal3_1> for InnerOptical3_1 {
     > {
         t.specific
             .can_convert_to_optical(i)
-            .unwrap_or_else(|e| match e {});
+            .def_unwrap_infallible1::<Infallible>();
+        // .unwrap_or_else(|e| match e {});
         Ok(Tentative::new1(Self::from_temporal_unchecked(t)))
     }
 
@@ -7100,14 +7106,16 @@ impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
         TemporalToOpticalError,
     > {
         match t.specific.can_convert_to_optical(i) {
-            Ok(()) => Ok(Tentative::new1(Self::from_temporal_unchecked(t))),
-            Err(es) => {
-                if allow_loss {
-                    Ok(Tentative::new_vec(Self::from_temporal_unchecked(t), es, []))
-                } else {
-                    Err(DeferredFailure::new_vec([], es, Box::new(t)))
-                }
-            }
+            Ok(_) => Ok(Tentative::new1(Self::from_temporal_unchecked(t))),
+            // TODO fixme
+            Err(_) => unimplemented!(),
+            // Err(es) => {
+            //     if allow_loss {
+            //         Ok(Tentative::new_vec(Self::from_temporal_unchecked(t), es, []))
+            //     } else {
+            //         Err(DeferredFailure::new_vec([], es, Box::new(t)))
+            //     }
+            // }
         }
     }
 

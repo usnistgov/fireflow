@@ -1,7 +1,6 @@
-use crate::error::{Terminal, TerminalFailure, TerminalResult};
+use crate::error::{GenNonEmpty, Terminal, TerminalFailure, TerminalResult, VecFamily};
 
 use itertools::Itertools as _;
-use nonempty::NonEmpty;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyWarning};
 use pyo3::prelude::*;
@@ -118,7 +117,7 @@ where
     f.resolve(|_| (), emit_failure).1
 }
 
-fn emit_failure<E, T>(es: NonEmpty<E>, r: T) -> PyErr
+fn emit_failure<E, T>(es: GenNonEmpty<E, VecFamily>, r: T) -> PyErr
 where
     E: fmt::Display,
     T: fmt::Display,

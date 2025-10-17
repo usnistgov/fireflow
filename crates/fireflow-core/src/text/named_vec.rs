@@ -1,9 +1,9 @@
 use crate::data::ColumnError;
 use crate::error::{
     CanHoldOne, DeferredExt as _, DeferredFailure, DeferredFailureInner, DeferredResult,
-    DeferredResultInner, ErrorIter as _, InfalliblePassthruExt as _, MultiResult,
-    MultiResultExt as _, OneOrMore, PassthruExt as _, PassthruResult, PassthruResultInner,
-    ResultExt as _, Tentative, TentativeInner, ZeroOrMore,
+    DeferredResultInner, ErrorIter as _, ErrorIter1 as _, InfalliblePassthruExt as _, MultiResult,
+    MultiResultExt as _, PassthruExt as _, PassthruResult, PassthruResultInner, ResultExt as _,
+    Tentative, TentativeInner, ZeroOrMore,
 };
 use crate::text::optional::MightHave;
 use crate::validated::shortname::Shortname;
@@ -522,9 +522,8 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                             error,
                         })
                 })
-                .gather()
-                .map_err(DeferredFailure::mconcat)
-                .map(Tentative::mconcat)
+                .gather1()
+                .def_void_passthru()
         };
         match self {
             Self::Split(s, _) => {
@@ -1306,7 +1305,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         TWI: ZeroOrMore,
         TEI: ZeroOrMore,
         FWI: ZeroOrMore + CanHoldOne,
-        FEI: OneOrMore + CanHoldOne,
+        FEI: ZeroOrMore + CanHoldOne,
         TWI::Wrapper<W>: Default,
         TEI::Wrapper<E>: Default,
         FWI::Wrapper<W>: Default,
@@ -1334,7 +1333,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         TWI: ZeroOrMore,
         TEI: ZeroOrMore,
         FWI: ZeroOrMore + CanHoldOne,
-        FEI: OneOrMore + CanHoldOne,
+        FEI: ZeroOrMore + CanHoldOne,
         TWI::Wrapper<W>: Default,
         TEI::Wrapper<E>: Default,
         FWI::Wrapper<W>: Default,

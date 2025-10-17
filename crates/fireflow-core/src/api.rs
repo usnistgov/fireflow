@@ -716,20 +716,20 @@ where
             }
         });
 
-    let repair_res: DeferredResult<_, _, _> =
-        kws_res.def_and_maybe_gen(|(delim, mut kws, supp_text_seg)| {
-            // TODO this will fail early unnecessarily since it returns unit and
-            // thus the original inputs are still usable
-            kws.append_std(&conf.append_standard_keywords, conf.allow_nonunique)
-                .def_map_errors(KeywordInsertError::from)
-                .def_map_errors(ParseKeywordsIssue::from)
-                .def_map_errors(ParsePrimaryTEXTError::from)
-                .def_map_warnings(KeywordInsertError::from)
-                .def_map_warnings(ParseKeywordsIssue::from)
-                .def_inner_into()
-                .def_errors_liftio()
-                .def_map_value(|()| (delim, kws, supp_text_seg))
-        });
+    let repair_res = kws_res.def_and_maybe(|(delim, mut kws, supp_text_seg)| {
+        // TODO this will fail early unnecessarily since it returns unit and
+        // thus the original inputs are still usable
+        kws.append_std(&conf.append_standard_keywords, conf.allow_nonunique)
+            .def_map_errors(KeywordInsertError::from)
+            .def_map_errors(ParseKeywordsIssue::from)
+            .def_map_errors(ParsePrimaryTEXTError::from)
+            .def_map_warnings(KeywordInsertError::from)
+            .def_map_warnings(ParseKeywordsIssue::from)
+            .def_inner_into()
+            .def_errors_liftio()
+            .def_map_value(|()| (delim, kws, supp_text_seg))
+            .def_repack_errors()
+    });
 
     repair_res.def_and_tentatively::<_, _, VecFamily, VecFamily, VecFamily, VecFamily>(
         |(delimiter, kws, supp_text_seg)| {

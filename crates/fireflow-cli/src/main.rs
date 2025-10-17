@@ -3,7 +3,7 @@ use fireflow_core::api::{
 };
 use fireflow_core::config;
 use fireflow_core::core::AnyCoreDataset;
-use fireflow_core::error::{Terminal, TerminalFailure};
+use fireflow_core::error::{GenNonEmpty, Terminal, TerminalFailure, VecFamily};
 use fireflow_core::header::Version;
 use fireflow_core::segment::HeaderCorrection;
 use fireflow_core::text::byteord::ByteOrd2_0;
@@ -20,7 +20,6 @@ use clap::{
     builder::IntoResettable, builder::StyledStr, value_parser, Arg, ArgAction, ArgMatches, Command,
 };
 use itertools::Itertools as _;
-use nonempty::NonEmpty;
 use serde::ser::Serialize;
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -1083,7 +1082,7 @@ where
     f.resolve(|_| (), print_errors);
 }
 
-fn print_errors<E: Display, T: Display>(es: NonEmpty<E>, r: T) {
+fn print_errors<E: Display, T: Display>(es: GenNonEmpty<E, VecFamily>, r: T) {
     eprintln!("TOPLEVEL ERROR: {r}");
     for e in es {
         eprintln!("  ERROR: {e}");

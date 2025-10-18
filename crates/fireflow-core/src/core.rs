@@ -15,7 +15,7 @@ use crate::error::{
     ErrorIter1 as _, IODeferredExt as _, IODeferredResult, IOResult, IOTerminalResult, ImpureError,
     InfalliblePassthruExt as _, InfalliblePassthruExt1 as _, MultiResult, MultiResult1,
     MultiResultExt as _, PassthruExt as _, PassthruResult, ResultExt as _, Tentative,
-    TentativeInner, Terminal, TerminalExt as _, TerminalResult,
+    TentativeInner, Terminal, TerminalExt as _, TerminalResult, VecFamily,
 };
 use crate::header::{
     HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
@@ -6559,14 +6559,15 @@ impl VersionedOptical for InnerOptical3_1 {
             .calibration
             .check_indexed_key_transfer(i)
             .def_map_errors(OpticalToTemporalError::Loss)
-            .def_repack_errors();
+            .def_repack_errors::<VecFamily, VecFamily>();
         let w = self
             .wavelengths
             .check_indexed_key_transfer(i)
             .def_map_errors(OpticalToTemporalError::Loss)
-            .def_repack_errors();
+            .def_repack_errors::<VecFamily, VecFamily>();
         let nle = OpticalNonLinearError.into();
-        let s = Result::new_singleton((), nle, !self.scale.is_noop()).def_repack_errors();
+        let s = Result::new_singleton((), nle, !self.scale.is_noop())
+            .def_repack_errors::<VecFamily, VecFamily>();
         c.def_zip3(w, s).def_void()
     }
 }

@@ -731,33 +731,31 @@ where
             .def_repack_errors()
     });
 
-    repair_res.def_and_tentatively::<_, _, VecFamily, VecFamily, VecFamily, VecFamily>(
-        |(delimiter, kws, supp_text_seg)| {
-            let mut tnt_parse = lookup_nextdata(&kws.std, conf.allow_missing_nextdata)
-                .errors_into::<ParseRawTEXTError>()
-                .map(|nextdata| {
-                    RawTEXTParseData::new(
-                        header.segments,
-                        supp_text_seg,
-                        nextdata,
-                        delimiter,
-                        kws.non_ascii,
-                        kws.byte_pairs,
-                    )
-                });
+    repair_res.def_and_tentatively(|(delimiter, kws, supp_text_seg)| {
+        let mut tnt_parse = lookup_nextdata(&kws.std, conf.allow_missing_nextdata)
+            .errors_into::<ParseRawTEXTError>()
+            .map(|nextdata| {
+                RawTEXTParseData::new(
+                    header.segments,
+                    supp_text_seg,
+                    nextdata,
+                    delimiter,
+                    kws.non_ascii,
+                    kws.byte_pairs,
+                )
+            });
 
-            tnt_parse.eval_errors(|v| v.as_non_ascii_errors(conf));
-            tnt_parse.eval_errors(|v| v.as_byte_errors(conf));
-            tnt_parse.eval_errors(RawTEXTParseData::as_overlapping_segment_error);
+        tnt_parse.eval_errors(|v| v.as_non_ascii_errors(conf));
+        tnt_parse.eval_errors(|v| v.as_byte_errors(conf));
+        tnt_parse.eval_errors(RawTEXTParseData::as_overlapping_segment_error);
 
-            let vkws = ValidKeywords::new(kws.std, kws.nonstd);
+        let vkws = ValidKeywords::new(kws.std, kws.nonstd);
 
-            tnt_parse
-                .inner_into()
-                .map(|parse| RawTEXTOutput::new(header.version, vkws, parse))
-                .errors_liftio()
-        },
-    )
+        tnt_parse
+            .inner_into()
+            .map(|parse| RawTEXTOutput::new(header.version, vkws, parse))
+            .errors_liftio()
+    })
 }
 
 fn split_first_delim<'a>(

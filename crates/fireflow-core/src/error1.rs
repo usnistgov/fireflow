@@ -15,26 +15,31 @@ pub type PolyResult<V, P, E> = SimpleResult<V, P, E, VecFamily>;
 pub type MonoWarnableResult<V, P, E> = WarnableResult<V, P, E, OptFamily, NullFamily>;
 pub type PolyWarnableResult<V, P, E> = WarnableResult<V, P, E, VecFamily, VecFamily>;
 
-pub type WarningOrErrorResult<V, P, W, E> = DependentResult<V, P, W, E, OptFamily, NullFamily>;
-pub type WarningsOrErrorResult<V, P, W, E> = DependentResult<V, P, W, E, VecFamily, NullFamily>;
-pub type WarningOrErrorsResult<V, P, W, E> = DependentResult<V, P, W, E, OptFamily, VecFamily>;
-pub type WarningsOrErrorsResult<V, P, W, E> = DependentResult<V, P, W, E, VecFamily, VecFamily>;
+pub type WarningOrErrorResult<V, P, W, E> = TransResult<V, P, W, E, OptFamily, NullFamily>;
+pub type WarningsOrErrorResult<V, P, W, E> = TransResult<V, P, W, E, VecFamily, NullFamily>;
+pub type WarningOrErrorsResult<V, P, W, E> = TransResult<V, P, W, E, OptFamily, VecFamily>;
+pub type WarningsOrErrorsResult<V, P, W, E> = TransResult<V, P, W, E, VecFamily, VecFamily>;
 
-pub type WarningAndErrorResult<V, P, W, E> = IndependentResult<V, P, W, E, OptFamily, NullFamily>;
-pub type WarningsAndErrorResult<V, P, W, E> = IndependentResult<V, P, W, E, VecFamily, NullFamily>;
-pub type WarningAndErrorsResult<V, P, W, E> = IndependentResult<V, P, W, E, OptFamily, VecFamily>;
-pub type WarningsAndErrorsResult<V, P, W, E> = IndependentResult<V, P, W, E, VecFamily, VecFamily>;
+pub type WarningAndErrorResult<V, P, W, E> = CisResult<V, P, W, E, OptFamily, NullFamily>;
+pub type WarningsAndErrorResult<V, P, W, E> = CisResult<V, P, W, E, VecFamily, NullFamily>;
+pub type WarningAndErrorsResult<V, P, W, E> = CisResult<V, P, W, E, OptFamily, VecFamily>;
+pub type WarningsAndErrorsResult<V, P, W, E> = CisResult<V, P, W, E, VecFamily, VecFamily>;
 
-pub type SimpleResult<V, P, E, EC> = GenericResult<V, P, (), E, NullFamily, NullFamily, EC>;
+pub type SimpleResult<V, P, E, EC> = CommutativeResult<V, P, (), E, NullFamily, EC>;
 
-pub type WarnableResult<V, P, E, WC, EC> = GenericResult<V, P, E, E, WC, NullFamily, EC>;
+pub type WarnableResult<V, P, E, WC, EC> = NonCommutativeResult<V, P, E, E, WC, EC>;
 
-pub type DependentResult<V, P, W, E, WC, EC> = GenericResult<V, P, W, E, WC, NullFamily, EC>;
+pub type TransResult<V, P, W, E, WC, EC> = NonCommutativeResult<V, P, W, E, WC, EC>;
 
-pub type IndependentResult<V, P, W, E, WC, EC> = GenericResult<V, P, W, E, WC, WC, EC>;
+pub type CisResult<V, P, W, E, WC, EC> = CommutativeResult<V, P, W, E, WC, EC>;
 
-pub type GenericResult<V, P, W, E, LWC, RWC, EC> =
-    Result<Success<V, W, LWC>, Failure<P, W, E, RWC, EC>>;
+pub type CommutativeResult<V, P, W, E, WC, EC> = GenericResult<V, P, W, W, E, WC, WC, EC>;
+
+pub type NonCommutativeResult<V, P, W, E, WC, EC> =
+    GenericResult<V, P, W, (), E, WC, NullFamily, EC>;
+
+pub type GenericResult<V, P, LW, RW, E, LWC, RWC, EC> =
+    Result<Success<V, LW, LWC>, Failure<P, RW, E, RWC, EC>>;
 
 #[derive(new)]
 #[new(visibility = "")]
@@ -80,7 +85,7 @@ pub struct VecFamily;
 
 pub struct NullFamily;
 
-pub trait ZeroOrMore: Sized {
+pub(crate) trait ZeroOrMore: Sized {
     type Wrapper<T>: IntoIterator<Item = T> + Default;
     type IterOne<X>: Iterator<Item = X>;
 
@@ -93,11 +98,11 @@ pub trait ZeroOrMore: Sized {
     fn try_into_one_or_more<X>(x: Self::Wrapper<X>) -> Option<GenNonEmpty<X, Self>>;
 }
 
-pub trait IntoZeroOrMore<Other: ZeroOrMore>: ZeroOrMore {
+pub(crate) trait IntoZeroOrMore<Other: ZeroOrMore>: ZeroOrMore {
     fn into_zero_or_more<X>(x: Self::Wrapper<X>) -> Other::Wrapper<X>;
 }
 
-pub trait Concatable {
+pub(crate) trait Concatable {
     type Out;
     fn concat(self, other: Self) -> Self::Out;
 }
@@ -222,7 +227,7 @@ impl<V, W, WC: ZeroOrMore> Success<V, W, WC> {
         Self::new(value.into(), WC::Wrapper::<W>::default())
     }
 
-    pub fn repack_warnings<WIF>(self) -> Success<V, W, WIF>
+    fn repack_warnings<WIF>(self) -> Success<V, W, WIF>
     where
         WC: IntoZeroOrMore<WIF>,
         WIF: ZeroOrMore,
@@ -230,30 +235,30 @@ impl<V, W, WC: ZeroOrMore> Success<V, W, WC> {
         Success::new(self.value, WC::into_zero_or_more(self.warnings))
     }
 
-    pub fn value_into<U: From<V>>(self) -> Success<U, W, WC> {
+    fn value_into<U: From<V>>(self) -> Success<U, W, WC> {
         self.map(Into::into)
     }
 
-    pub fn map<F: FnOnce(V) -> X, X>(self, f: F) -> Success<X, W, WC> {
+    fn map<F: FnOnce(V) -> X, X>(self, f: F) -> Success<X, W, WC> {
         Success::new(f(self.value), self.warnings)
     }
 
-    pub fn warnings_into<X: From<W>>(self) -> Success<V, X, WC> {
+    fn warnings_into<X: From<W>>(self) -> Success<V, X, WC> {
         self.map_warnings(Into::into)
     }
 
-    pub fn map_warnings<F: Fn(W) -> ToW, ToW>(self, f: F) -> Success<V, ToW, WC> {
+    fn map_warnings<F: Fn(W) -> ToW, ToW>(self, f: F) -> Success<V, ToW, WC> {
         Success::new(self.value, WC::map(self.warnings, f))
     }
 
-    pub fn push_warning(&mut self, w: W)
+    fn push_warning(&mut self, w: W)
     where
         WC::Wrapper<W>: Extend<W>,
     {
         self.warnings.extend(iter::once(w));
     }
 
-    pub fn eval_warning<F>(&mut self, f: F)
+    fn eval_warning<F>(&mut self, f: F)
     where
         F: FnOnce(&V) -> Option<W>,
         WC::Wrapper<W>: Extend<W>,
@@ -263,12 +268,12 @@ impl<V, W, WC: ZeroOrMore> Success<V, W, WC> {
         }
     }
 
-    pub fn and_maybe<F, ToV, P, E, WCF, EC>(self, f: F) -> GenericResult<ToV, P, W, E, WCF, WCF, EC>
+    fn and_maybe<F, ToV, P, E, WCf, EC>(self, f: F) -> CommutativeResult<ToV, P, W, E, WCf, EC>
     where
-        F: FnOnce(V) -> GenericResult<ToV, P, W, E, WC, WC, EC>,
+        F: FnOnce(V) -> CommutativeResult<ToV, P, W, E, WC, EC>,
         EC: ZeroOrMore,
-        WCF: ZeroOrMore,
-        WC::Wrapper<W>: Concatable<Out = WCF::Wrapper<W>>,
+        WCf: ZeroOrMore,
+        WC::Wrapper<W>: Concatable<Out = WCf::Wrapper<W>>,
     {
         match f(self.value) {
             Ok(s) => {
@@ -282,46 +287,43 @@ impl<V, W, WC: ZeroOrMore> Success<V, W, WC> {
         }
     }
 
-    pub fn fail<E, EC>(self, errors: GenNonEmpty<E, EC>) -> Failure<V, W, E, WC, EC>
+    fn fail<E, EC>(self, errors: GenNonEmpty<E, EC>) -> Failure<V, W, E, WC, EC>
     where
         EC: ZeroOrMore,
     {
         Failure::new(self.warnings, errors, self.value)
     }
 
-    pub fn with_failure<F, P, PF, E, WCF, EC>(
+    fn with_failure<F, P, PF, E, WCf, EC>(
         self,
         other: Failure<P, W, E, WC, EC>,
         f: F,
-    ) -> Failure<PF, W, E, WCF, EC>
+    ) -> Failure<PF, W, E, WCf, EC>
     where
         F: FnOnce(V, P) -> PF,
-        WCF: ZeroOrMore,
+        WCf: ZeroOrMore,
         EC: ZeroOrMore,
-        WC::Wrapper<W>: Concatable<Out = WCF::Wrapper<W>>,
+        WC::Wrapper<W>: Concatable<Out = WCf::Wrapper<W>>,
     {
         let ws = self.warnings.concat(other.warnings);
         Failure::new(ws, other.errors, f(self.value, other.passthru))
     }
 
-    pub fn zip_with<F, V0, VF, WCF>(self, other: Success<V0, W, WC>, f: F) -> Success<VF, W, WCF>
+    fn zip_with<F, V0, VF, WCf>(self, other: Success<V0, W, WC>, f: F) -> Success<VF, W, WCf>
     where
         F: FnOnce(V, V0) -> VF,
-        WCF: ZeroOrMore,
-        WC::Wrapper<W>: Concatable<Out = WCF::Wrapper<W>>,
+        WCf: ZeroOrMore,
+        WC::Wrapper<W>: Concatable<Out = WCf::Wrapper<W>>,
     {
         let ws = self.warnings.concat(other.warnings);
         Success::new(f(self.value, other.value), ws)
     }
 
-    fn remove_warnings<WF, WCF>(self) -> Success<V, WF, WCF>
-    where
-        WCF: ZeroOrMore,
-    {
+    fn remove_warnings(self) -> Success<V, (), NullFamily> {
         Success::new1(self.value)
     }
 
-    fn warnings_to_errors<E, F, WF, EC>(self, f: F) -> GenericResult<V, V, WF, E, WC, WC, EC>
+    fn warnings_to_errors<E, F, EC>(self, f: F) -> NonCommutativeResult<V, V, (), E, NullFamily, EC>
     where
         F: Fn(W) -> E,
         EC: ZeroOrMore,
@@ -333,11 +335,17 @@ impl<V, W, WC: ZeroOrMore> Success<V, W, WC> {
         }
     }
 
-    pub fn resolve<F, X>(self, f: F) -> (V, X)
+    fn resolve<F, X>(self, f: F) -> (V, X)
     where
         F: FnOnce(WC::Wrapper<W>) -> X,
     {
         (self.value, f(self.warnings))
+    }
+}
+
+impl<V> Success<V, (), NullFamily> {
+    fn lift_simple<W, WC: ZeroOrMore>(self) -> Success<V, W, WC> {
+        Success::new1(self.value)
     }
 }
 
@@ -350,7 +358,7 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         Self::new(WC::Wrapper::<W>::default(), errors.into(), passthru)
     }
 
-    pub fn repack_warnings<WIF>(self) -> Failure<P, W, E, WIF, EC>
+    fn repack_warnings<WIF>(self) -> Failure<P, W, E, WIF, EC>
     where
         WC: IntoZeroOrMore<WIF>,
         WIF: ZeroOrMore,
@@ -362,15 +370,15 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         )
     }
 
-    pub fn repack_errors<ECF>(self) -> Failure<P, W, E, WC, ECF>
+    fn repack_errors<ECf>(self) -> Failure<P, W, E, WC, ECf>
     where
-        EC: IntoZeroOrMore<ECF>,
-        ECF: ZeroOrMore,
+        EC: IntoZeroOrMore<ECf>,
+        ECf: ZeroOrMore,
     {
         Failure::new(self.warnings, self.errors.repack(), self.passthru)
     }
 
-    pub fn map_warnings<F, ToW>(self, f: F) -> Failure<P, ToW, E, WC, EC>
+    fn map_warnings<F, ToW>(self, f: F) -> Failure<P, ToW, E, WC, EC>
     where
         F: Fn(W) -> ToW,
     {
@@ -381,7 +389,7 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         }
     }
 
-    pub fn map_errors<F, ToE>(self, f: F) -> Failure<P, W, ToE, WC, EC>
+    fn map_errors<F, ToE>(self, f: F) -> Failure<P, W, ToE, WC, EC>
     where
         F: Fn(E) -> ToE,
     {
@@ -392,21 +400,21 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         }
     }
 
-    pub fn map_passthru<F, ToP>(self, f: F) -> Failure<ToP, W, E, WC, EC>
+    fn map_passthru<F, ToP>(self, f: F) -> Failure<ToP, W, E, WC, EC>
     where
         F: FnOnce(P) -> ToP,
     {
         Failure::new(self.warnings, self.errors, f(self.passthru))
     }
 
-    pub fn push_warning(&mut self, w: W)
+    fn push_warning(&mut self, w: W)
     where
         WC::Wrapper<W>: Extend<W>,
     {
         self.warnings.extend(iter::once(w));
     }
 
-    pub fn eval_warning<F>(&mut self, f: F)
+    fn eval_warning<F>(&mut self, f: F)
     where
         F: FnOnce(&P) -> Option<W>,
         WC::Wrapper<W>: Extend<W>,
@@ -416,14 +424,14 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         }
     }
 
-    pub fn push_error(&mut self, e: E)
+    fn push_error(&mut self, e: E)
     where
         EC::Wrapper<E>: Extend<E>,
     {
         self.errors.extend(iter::once(e));
     }
 
-    pub fn eval_error<F>(&mut self, f: F)
+    fn eval_error<F>(&mut self, f: F)
     where
         F: FnOnce(&P) -> Option<E>,
         EC::Wrapper<E>: Extend<E>,
@@ -433,14 +441,11 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         }
     }
 
-    pub fn with_passthru<F, V, ToP, WCF>(
-        mut self,
-        f: F,
-    ) -> GenericResult<V, ToP, W, E, WCF, WCF, EC>
+    fn with_passthru<F, V, Pf, WCf>(mut self, f: F) -> CommutativeResult<V, Pf, W, E, WCf, EC>
     where
-        F: FnOnce(P) -> GenericResult<V, ToP, W, E, WC, WC, EC>,
-        WCF: ZeroOrMore,
-        WC::Wrapper<W>: Concatable<Out = WCF::Wrapper<W>>,
+        F: FnOnce(P) -> CommutativeResult<V, Pf, W, E, WC, EC>,
+        WCf: ZeroOrMore,
+        WC::Wrapper<W>: Concatable<Out = WCf::Wrapper<W>>,
         EC::Wrapper<E>: Extend<E>,
     {
         match f(self.passthru) {
@@ -456,18 +461,18 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         }
     }
 
-    pub fn zip_with<F, P0, PF, WCF, ECF>(
+    fn zip_with<F, P0, Pf, WCf, ECf>(
         self,
         other: Failure<P0, W, E, WC, EC>,
         f: F,
-    ) -> Failure<PF, W, E, WCF, ECF>
+    ) -> Failure<Pf, W, E, WCf, ECf>
     where
-        F: FnOnce(P, P0) -> PF,
-        WCF: ZeroOrMore,
-        ECF: ZeroOrMore,
-        EC: IntoZeroOrMore<ECF>,
-        WC::Wrapper<W>: Concatable<Out = WCF::Wrapper<W>>,
-        ECF::Wrapper<E>: Extend<E>,
+        F: FnOnce(P, P0) -> Pf,
+        WCf: ZeroOrMore,
+        ECf: ZeroOrMore,
+        EC: IntoZeroOrMore<ECf>,
+        WC::Wrapper<W>: Concatable<Out = WCf::Wrapper<W>>,
+        ECf::Wrapper<E>: Extend<E>,
     {
         let ws = self.warnings.concat(other.warnings);
         let mut es = self.errors.into_zero_or_more();
@@ -475,7 +480,7 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         Failure::new(ws, es, f(self.passthru, other.passthru))
     }
 
-    pub fn gather_errors<F, EF>(self, f: F) -> Failure<P, W, EF, WC, NullFamily>
+    fn gather_errors<F, EF>(self, f: F) -> Failure<P, W, EF, WC, NullFamily>
     where
         F: FnOnce(GenNonEmpty<E, EC>) -> EF,
     {
@@ -483,41 +488,34 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         Failure::new(self.warnings, es, self.passthru)
     }
 
-    pub fn summarize_errors<S>(
-        self,
-        summary: S,
-    ) -> Failure<P, W, ErrorSummary<E, S>, WC, NullFamily>
+    fn summarize_errors<S>(self, summary: S) -> Failure<P, W, ErrorSummary<E, S>, WC, NullFamily>
     where
         EC: IntoZeroOrMore<VecFamily>,
     {
         self.gather_errors(|es| ErrorSummary::new(summary, es.into_zero_or_more()))
     }
 
-    pub fn with_success<F, V, PF, WCF>(
+    fn with_success<F, V, PF, WCf>(
         self,
         other: Success<V, W, WC>,
         f: F,
-    ) -> Failure<PF, W, E, WCF, EC>
+    ) -> Failure<PF, W, E, WCf, EC>
     where
         F: FnOnce(P, V) -> PF,
-        WCF: ZeroOrMore,
-        WC::Wrapper<W>: Concatable<Out = WCF::Wrapper<W>>,
+        WCf: ZeroOrMore,
+        WC::Wrapper<W>: Concatable<Out = WCf::Wrapper<W>>,
     {
         let ws = self.warnings.concat(other.warnings);
         Failure::new(ws, self.errors, f(self.passthru, other.value))
     }
 
-    fn remove_warnings<WF, WCF>(self) -> Failure<P, WF, E, WCF, EC>
-    where
-        WCF: ZeroOrMore,
-    {
-        Failure::new(WCF::Wrapper::<WF>::default(), self.errors, self.passthru)
+    fn remove_warnings(self) -> Failure<P, (), E, NullFamily, EC> {
+        Failure::new(NeverValue::default(), self.errors, self.passthru)
     }
 
-    fn warnings_to_errors<F, WF, WCF>(mut self, f: F) -> Failure<P, WF, E, WCF, EC>
+    fn warnings_to_errors<F>(mut self, f: F) -> Failure<P, (), E, NullFamily, EC>
     where
         F: Fn(W) -> E,
-        WCF: ZeroOrMore,
         EC::Wrapper<E>: Extend<E>,
     {
         self.errors.extend(WC::map(self.warnings, f));
@@ -525,8 +523,14 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
     }
 }
 
+impl<P, E, EC: ZeroOrMore> Failure<P, (), E, NullFamily, EC> {
+    fn lift_simple<W, WC: ZeroOrMore>(self) -> Failure<P, W, E, WC, EC> {
+        Failure::new_from_many(self.errors, self.passthru)
+    }
+}
+
 impl<W, E, P, WC: ZeroOrMore> Failure<P, W, E, WC, NullFamily> {
-    pub fn resolve<F, G, X, Y>(self, f: F, g: G) -> (X, Y)
+    fn resolve<F, G, X, Y>(self, f: F, g: G) -> (X, Y)
     where
         F: FnOnce(WC::Wrapper<W>) -> X,
         G: FnOnce(E) -> Y,
@@ -629,49 +633,23 @@ pub trait ResultExt: Sized {
 
     fn as_result_mut(&mut self) -> Result<&mut Self::Ok, &mut Self::Error>;
 
-    fn into_generic<W, LWC, RWC, EC>(
+    fn into_generic<LW, RW, LWC, RWC, EC>(
         self,
-    ) -> GenericResult<Self::Ok, (), W, Self::Error, LWC, RWC, EC>
-    where
-        LWC: ZeroOrMore,
-        RWC: ZeroOrMore,
-        EC: ZeroOrMore;
-
-    fn map_ok<ToOk, F>(self, f: F) -> Result<ToOk, Self::Error>
-    where
-        F: FnOnce(Self::Ok) -> ToOk;
-
-    fn map_error<ToError, F>(self, f: F) -> Result<Self::Ok, ToError>
-    where
-        F: FnOnce(Self::Error) -> ToError;
-
-    fn bind_ok<F, ToOk>(self, f: F) -> Result<ToOk, Self::Error>
-    where
-        F: FnOnce(Self::Ok) -> Result<ToOk, Self::Error>;
-
-    fn bind_error<F, ToError>(self, f: F) -> Result<Self::Ok, ToError>
-    where
-        F: FnOnce(Self::Error) -> Result<Self::Ok, ToError>;
-
-    fn bibind<F, G, ToOk, ToError>(self, f: F, g: G) -> Result<ToOk, ToError>
-    where
-        F: FnOnce(Self::Ok) -> Result<ToOk, ToError>,
-        G: FnOnce(Self::Error) -> Result<ToOk, ToError>;
-}
-
-impl<V, E> ResultExt for Result<V, E> {
-    type Ok = V;
-    type Error = E;
-
-    fn into_generic<W, LWC, RWC, EC>(self) -> GenericResult<V, (), W, E, LWC, RWC, EC>
+    ) -> GenericResult<Self::Ok, (), LW, RW, Self::Error, LWC, RWC, EC>
     where
         LWC: ZeroOrMore,
         RWC: ZeroOrMore,
         EC: ZeroOrMore,
     {
-        self.map(Success::new1)
+        self.into_result()
+            .map(Success::new1)
             .map_err(|e| Failure::new_from_one(e, ()))
     }
+}
+
+impl<V, E> ResultExt for Result<V, E> {
+    type Ok = V;
+    type Error = E;
 
     fn into_result(self) -> Result<V, E> {
         self
@@ -684,87 +662,65 @@ impl<V, E> ResultExt for Result<V, E> {
     fn as_result_mut(&mut self) -> Result<&mut V, &mut E> {
         self.as_mut()
     }
-
-    fn map_ok<ToV, F>(self, f: F) -> Result<ToV, E>
-    where
-        F: FnOnce(V) -> ToV,
-    {
-        self.map(f)
-    }
-
-    fn map_error<ToE, F>(self, f: F) -> Result<V, ToE>
-    where
-        F: FnOnce(E) -> ToE,
-    {
-        self.map_err(f)
-    }
-
-    fn bind_ok<F, ToV>(self, f: F) -> Result<ToV, E>
-    where
-        F: FnOnce(V) -> Result<ToV, E>,
-    {
-        f(self?)
-    }
-
-    fn bind_error<F, ToE>(self, f: F) -> Result<V, ToE>
-    where
-        F: FnOnce(E) -> Result<V, ToE>,
-    {
-        match self {
-            Ok(x) => Ok(x),
-            Err(e) => f(e),
-        }
-    }
-
-    fn bibind<F, G, ToV, ToE>(self, f: F, g: G) -> Result<ToV, ToE>
-    where
-        F: FnOnce(V) -> Result<ToV, ToE>,
-        G: FnOnce(E) -> Result<ToV, ToE>,
-    {
-        match self {
-            Ok(x) => f(x),
-            Err(e) => g(e),
-        }
-    }
 }
 
 pub trait GenericResultExt
 where
     Self: Sized
         + ResultExt<
-            Ok = Success<Self::V, Self::W, Self::LWC>,
-            Error = Failure<Self::P, Self::W, Self::E, Self::RWC, Self::EC>,
+            Ok = Success<Self::V, Self::LW, Self::LWC>,
+            Error = Failure<Self::P, Self::RW, Self::E, Self::RWC, Self::EC>,
         >,
 {
     type V;
     type P;
     type E;
-    type W;
+    type LW;
+    type RW;
     type LWC: ZeroOrMore;
     type RWC: ZeroOrMore;
     type EC: ZeroOrMore;
 
     fn value_into<ToV>(
         self,
-    ) -> GenericResult<ToV, Self::P, Self::W, Self::E, Self::LWC, Self::RWC, Self::EC>
+    ) -> GenericResult<ToV, Self::P, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
     where
         ToV: From<Self::V>,
     {
         self.map_value(Into::into)
     }
 
-    fn warnings_into<ToW>(
+    fn warnings_into<Wf>(
         self,
-    ) -> GenericResult<Self::V, Self::P, ToW, Self::E, Self::LWC, Self::RWC, Self::EC>
+    ) -> GenericResult<Self::V, Self::P, Wf, Wf, Self::E, Self::LWC, Self::RWC, Self::EC>
     where
-        ToW: From<Self::W>,
+        Wf: From<Self::LW>,
+        Self: GenericResultExt<LW = <Self as GenericResultExt>::RW>,
     {
         self.map_warnings(Into::into)
     }
 
+    fn left_warnings_into<Wf>(
+        self,
+    ) -> GenericResult<Self::V, Self::P, Wf, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
+    where
+        Wf: From<Self::LW>,
+    {
+        self.map_left_warnings(Into::into)
+    }
+
+    fn right_warnings_into<Wf>(
+        self,
+    ) -> GenericResult<Self::V, Self::P, Wf, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
+    where
+        Wf: From<Self::LW>,
+    {
+        self.map_left_warnings(Into::into)
+    }
+
     fn errors_into<ToE>(
         self,
-    ) -> GenericResult<Self::V, Self::P, Self::W, ToE, Self::LWC, Self::RWC, Self::EC>
+    ) -> GenericResult<Self::V, Self::P, Self::LW, Self::RW, ToE, Self::LWC, Self::RWC, Self::EC>
     where
         ToE: From<Self::E>,
     {
@@ -774,42 +730,64 @@ where
     fn map_value<F, ToV>(
         self,
         f: F,
-    ) -> GenericResult<ToV, Self::P, Self::W, Self::E, Self::LWC, Self::RWC, Self::EC>
+    ) -> GenericResult<ToV, Self::P, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
     where
         F: FnOnce(Self::V) -> ToV,
     {
-        self.map_ok(|s| s.map(f))
+        self.into_result().map(|s| s.map(f))
     }
 
     fn map_passthru<F, ToP>(
         self,
         f: F,
-    ) -> GenericResult<Self::V, ToP, Self::W, Self::E, Self::LWC, Self::RWC, Self::EC>
+    ) -> GenericResult<Self::V, ToP, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
     where
         F: FnOnce(Self::P) -> ToP,
     {
-        self.map_error(|e| e.map_passthru(f))
+        self.into_result().map_err(|e| e.map_passthru(f))
     }
 
-    fn map_warnings<F, ToW>(
+    fn map_warnings<F, Wf>(
         self,
         f: F,
-    ) -> GenericResult<Self::V, Self::P, ToW, Self::E, Self::LWC, Self::RWC, Self::EC>
+    ) -> GenericResult<Self::V, Self::P, Wf, Wf, Self::E, Self::LWC, Self::RWC, Self::EC>
     where
-        F: Fn(Self::W) -> ToW,
+        F: Fn(Self::LW) -> Wf,
+        Self: GenericResultExt<LW = <Self as GenericResultExt>::RW>,
     {
-        self.map_ok(|s| s.map_warnings(&f))
-            .map_error(|e| e.map_warnings(f))
+        self.into_result()
+            .map(|s| s.map_warnings(&f))
+            .map_err(|e| e.map_warnings(f))
+    }
+
+    fn map_left_warnings<F, Wf>(
+        self,
+        f: F,
+    ) -> GenericResult<Self::V, Self::P, Wf, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
+    where
+        F: Fn(Self::LW) -> Wf,
+    {
+        self.into_result().map(|s| s.map_warnings(f))
+    }
+
+    fn map_right_warnings<F, Wf>(
+        self,
+        f: F,
+    ) -> GenericResult<Self::V, Self::P, Self::LW, Wf, Self::E, Self::LWC, Self::RWC, Self::EC>
+    where
+        F: Fn(Self::RW) -> Wf,
+    {
+        self.into_result().map_err(|s| s.map_warnings(f))
     }
 
     fn map_errors<F, ToE>(
         self,
         f: F,
-    ) -> GenericResult<Self::V, Self::P, Self::W, ToE, Self::LWC, Self::RWC, Self::EC>
+    ) -> GenericResult<Self::V, Self::P, Self::LW, Self::RW, ToE, Self::LWC, Self::RWC, Self::EC>
     where
         F: Fn(Self::E) -> ToE,
     {
-        self.map_error(|e| e.map_errors(f))
+        self.into_result().map_err(|e| e.map_errors(f))
     }
 
     fn liftio_errors(
@@ -817,7 +795,8 @@ where
     ) -> GenericResult<
         Self::V,
         Self::P,
-        Self::W,
+        Self::LW,
+        Self::RW,
         ImpureError<Self::E>,
         Self::LWC,
         Self::RWC,
@@ -826,342 +805,96 @@ where
         self.map_errors(ImpureError::Pure)
     }
 
-    fn repack<LWCF, RWCF, ECF>(
+    fn repack<LWCf, RWCf, ECf>(
         self,
-    ) -> GenericResult<Self::V, Self::P, Self::W, Self::E, LWCF, RWCF, ECF>
+    ) -> GenericResult<Self::V, Self::P, Self::LW, Self::RW, Self::E, LWCf, RWCf, ECf>
     where
-        Self::LWC: IntoZeroOrMore<LWCF>,
-        LWCF: ZeroOrMore,
-        Self::RWC: IntoZeroOrMore<RWCF>,
-        RWCF: ZeroOrMore,
-        Self::EC: IntoZeroOrMore<ECF>,
-        ECF: ZeroOrMore,
+        Self::LWC: IntoZeroOrMore<LWCf>,
+        LWCf: ZeroOrMore,
+        Self::RWC: IntoZeroOrMore<RWCf>,
+        RWCf: ZeroOrMore,
+        Self::EC: IntoZeroOrMore<ECf>,
+        ECf: ZeroOrMore,
     {
         self.repack_left_warnings()
             .repack_right_warnings()
             .repack_errors()
     }
 
-    fn repack_left_warnings<LWCF>(
+    fn repack_left_warnings<LWCf>(
         self,
-    ) -> GenericResult<Self::V, Self::P, Self::W, Self::E, LWCF, Self::RWC, Self::EC>
+    ) -> GenericResult<Self::V, Self::P, Self::LW, Self::RW, Self::E, LWCf, Self::RWC, Self::EC>
     where
-        Self::LWC: IntoZeroOrMore<LWCF>,
-        LWCF: ZeroOrMore,
+        Self::LWC: IntoZeroOrMore<LWCf>,
+        LWCf: ZeroOrMore,
     {
-        self.map_ok(Success::repack_warnings)
+        self.into_result().map(Success::repack_warnings)
     }
 
-    fn repack_right_warnings<RWCF>(
+    fn repack_right_warnings<RWCf>(
         self,
-    ) -> GenericResult<Self::V, Self::P, Self::W, Self::E, Self::LWC, RWCF, Self::EC>
+    ) -> GenericResult<Self::V, Self::P, Self::LW, Self::RW, Self::E, Self::LWC, RWCf, Self::EC>
     where
-        Self::RWC: IntoZeroOrMore<RWCF>,
-        RWCF: ZeroOrMore,
+        Self::RWC: IntoZeroOrMore<RWCf>,
+        RWCf: ZeroOrMore,
     {
-        self.map_error(Failure::repack_warnings)
+        self.into_result().map_err(Failure::repack_warnings)
     }
 
-    fn repack_errors<ECF>(
+    fn repack_errors<ECf>(
         self,
-    ) -> GenericResult<Self::V, Self::P, Self::W, Self::E, Self::LWC, Self::RWC, ECF>
+    ) -> GenericResult<Self::V, Self::P, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, ECf>
     where
-        Self::EC: IntoZeroOrMore<ECF>,
-        ECF: ZeroOrMore,
+        Self::EC: IntoZeroOrMore<ECf>,
+        ECf: ZeroOrMore,
     {
-        self.map_error(Failure::repack_errors)
-    }
-
-    fn eval_dep_warning<F>(&mut self, f: F)
-    where
-        F: FnOnce(&Self::V) -> Option<Self::W>,
-        <Self::LWC as ZeroOrMore>::Wrapper<Self::W>: Extend<Self::W>,
-        <Self::RWC as ZeroOrMore>::Wrapper<Self::W>: Extend<Self::W>,
-        Self: GenericResultExt<V = <Self as GenericResultExt>::P>,
-    {
-        match self.as_result_mut() {
-            Ok(s) => s.eval_warning(f),
-            Err(e) => e.eval_warning(f),
-        }
-    }
-
-    fn eval_indep_warning<F>(&mut self, f: F)
-    where
-        F: FnOnce(&Self::V) -> Option<Self::W>,
-        <Self::LWC as ZeroOrMore>::Wrapper<Self::W>: Extend<Self::W>,
-    {
-        if let Ok(s) = self.as_result_mut() {
-            s.eval_warning(f)
-        }
-    }
-
-    fn eval_error<F>(
-        self,
-        f: F,
-    ) -> GenericResult<Self::V, Self::P, Self::W, Self::E, Self::LWC, Self::RWC, Self::EC>
-    where
-        F: FnOnce(&Self::V) -> Option<Self::E>,
-        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
-        Self: GenericResultExt<
-            V = <Self as GenericResultExt>::P,
-            LWC = <Self as GenericResultExt>::RWC,
-        >,
-    {
-        match self.into_result() {
-            Ok(succ) => match f(&succ.value) {
-                Some(e) => Err(succ.fail(GenNonEmpty::new1(e))),
-                None => Ok(succ),
-            },
-            Err(mut err) => {
-                if let Some(e) = f(&err.passthru) {
-                    err.push_error(e);
-                };
-                Err(err)
-            }
-        }
-    }
-
-    fn push_dep_warning(&mut self, w: Self::W)
-    where
-        <Self::LWC as ZeroOrMore>::Wrapper<Self::W>: Extend<Self::W>,
-    {
-        if let Ok(s) = self.as_result_mut() {
-            s.push_warning(w)
-        }
-    }
-
-    fn push_indep_warning(&mut self, w: Self::W)
-    where
-        <Self::LWC as ZeroOrMore>::Wrapper<Self::W>: Extend<Self::W>,
-        <Self::RWC as ZeroOrMore>::Wrapper<Self::W>: Extend<Self::W>,
-    {
-        match self.as_result_mut() {
-            Ok(s) => s.push_warning(w),
-            Err(e) => e.push_warning(w),
-        }
-    }
-
-    fn push_error(
-        self,
-        e: Self::E,
-    ) -> GenericResult<Self::V, Self::P, Self::W, Self::E, Self::LWC, Self::RWC, Self::EC>
-    where
-        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
-        Self: GenericResultExt<
-            V = <Self as GenericResultExt>::P,
-            LWC = <Self as GenericResultExt>::RWC,
-        >,
-    {
-        match self.into_result() {
-            Ok(succ) => Err(succ.fail(GenNonEmpty::new1(e))),
-            Err(mut err) => {
-                err.push_error(e);
-                Err(err)
-            }
-        }
-    }
-
-    fn push_error_or_warning<X>(
-        mut self,
-        x: X,
-        is_error: bool,
-    ) -> GenericResult<Self::V, Self::P, Self::W, Self::E, Self::LWC, Self::RWC, Self::EC>
-    where
-        X: Into<Self::W> + Into<Self::E>,
-        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
-        <Self::LWC as ZeroOrMore>::Wrapper<Self::W>: Extend<Self::W>,
-        Self: GenericResultExt<
-            V = <Self as GenericResultExt>::P,
-            LWC = <Self as GenericResultExt>::RWC,
-        >,
-    {
-        if is_error {
-            self.push_error(x.into())
-        } else {
-            // NOTE call independent warning version to ensure warning goes
-            // on both sides
-            self.push_indep_warning(x.into());
-            self.into_result()
-        }
+        self.into_result().map_err(Failure::repack_errors)
     }
 
     fn void_value(
         self,
-    ) -> GenericResult<(), Self::P, Self::W, Self::E, Self::LWC, Self::RWC, Self::EC> {
+    ) -> GenericResult<(), Self::P, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
+    {
         self.map_value(|_| ())
     }
 
     fn void_passthru(
         self,
-    ) -> GenericResult<Self::V, (), Self::W, Self::E, Self::LWC, Self::RWC, Self::EC> {
+    ) -> GenericResult<Self::V, (), Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
+    {
         self.map_passthru(|_| ())
     }
 
-    fn and_maybe<F, ToV, WCF>(
-        self,
-        f: F,
-    ) -> GenericResult<ToV, Self::P, Self::W, Self::E, WCF, WCF, Self::EC>
-    where
-        F: FnOnce(
-            Self::V,
-        )
-            -> GenericResult<ToV, Self::P, Self::W, Self::E, Self::LWC, Self::RWC, Self::EC>,
-        Self: GenericResultExt<LWC = <Self as GenericResultExt>::RWC>,
-        <Self::LWC as ZeroOrMore>::Wrapper<Self::W>: Concatable<Out = WCF::Wrapper<Self::W>>,
-        WCF: ZeroOrMore,
-        Self::RWC: IntoZeroOrMore<WCF>,
-    {
-        self.map_error(|e| e.repack_warnings())
-            .bind_ok(|s| s.and_maybe(f))
+    fn remove_warnings(self) -> SimpleResult<Self::V, Self::P, Self::E, Self::EC> {
+        self.into_result()
+            .map(|s| s.remove_warnings())
+            .map_err(|e| e.remove_warnings())
     }
 
-    fn and_tentatively<F, ToV, ToP, WCF>(
-        self,
-        f: F,
-    ) -> GenericResult<ToV, ToP, Self::W, Self::E, WCF, WCF, Self::EC>
+    fn warnings_to_errors<F>(self, f: F) -> SimpleResult<Self::V, Self::P, Self::E, Self::EC>
     where
-        F: FnOnce(
-            Self::V,
-        )
-            -> GenericResult<ToV, ToP, Self::W, Self::E, Self::LWC, Self::RWC, Self::EC>,
-        Self: GenericResultExt<
-            LWC = <Self as GenericResultExt>::RWC,
-            V = <Self as GenericResultExt>::P,
-        >,
-        <Self::LWC as ZeroOrMore>::Wrapper<Self::W>: Concatable<Out = WCF::Wrapper<Self::W>>,
+        F: Fn(Self::LW) -> Self::E,
+        Self::LWC: IntoZeroOrMore<Self::EC>,
         <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
-        WCF: ZeroOrMore,
+        Self: GenericResultExt<
+            P = <Self as GenericResultExt>::V,
+            LW = <Self as GenericResultExt>::RW,
+        >,
     {
         match self.into_result() {
-            Ok(s) => s.and_maybe(f),
-            Err(e) => e.with_passthru(f),
+            Ok(s) => s.warnings_to_errors(f),
+            Err(e) => Err(e.warnings_to_errors(f)),
         }
     }
 
-    fn zip<V1, WCF, ECF>(
-        self,
-        a: GenericResult<V1, (), Self::W, Self::E, Self::LWC, Self::RWC, Self::EC>,
-    ) -> GenericResult<(Self::V, V1), (), Self::W, Self::E, WCF, WCF, ECF>
-    where
-        WCF: ZeroOrMore,
-        ECF: ZeroOrMore,
-        ECF::Wrapper<Self::E>: Extend<Self::E>,
-        Self::EC: IntoZeroOrMore<ECF>,
-        <Self::LWC as ZeroOrMore>::Wrapper<Self::W>: Concatable<Out = WCF::Wrapper<Self::W>>,
-        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
-        Self: GenericResultExt<P = (), LWC = <Self as GenericResultExt>::RWC>,
-    {
-        match (self.into_result(), a) {
-            (Ok(ax), Ok(bx)) => Ok(ax.zip_with(bx, |x, y| (x, y))),
-            (Ok(ax), Err(bx)) => Err(ax.with_failure(bx, |_, ()| ()).repack_errors()),
-            (Err(ax), Ok(bx)) => Err(ax.with_success(bx, |(), _| ()).repack_errors()),
-            (Err(ax), Err(bx)) => Err(ax.zip_with(bx, |(), ()| ())),
-        }
-    }
-
-    fn zip3<V1, V2, WCF, ECF>(
-        self,
-        a: GenericResult<V1, (), Self::W, Self::E, Self::LWC, Self::RWC, Self::EC>,
-        b: GenericResult<V2, (), Self::W, Self::E, Self::LWC, Self::RWC, Self::EC>,
-    ) -> GenericResult<(Self::V, V1, V2), (), Self::W, Self::E, WCF, WCF, ECF>
-    where
-        WCF: ZeroOrMore,
-        ECF: ZeroOrMore,
-        ECF::Wrapper<Self::E>: Extend<Self::E>,
-        Self::EC: IntoZeroOrMore<ECF>,
-        <Self::LWC as ZeroOrMore>::Wrapper<Self::W>: Concatable<Out = WCF::Wrapper<Self::W>>,
-        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
-        Self: GenericResultExt<P = (), LWC = <Self as GenericResultExt>::RWC>,
-        Self::LWC: IntoZeroOrMore<WCF>,
-        Self::EC: IntoZeroOrMore<ECF>,
-        WCF::Wrapper<Self::W>: Concatable<Out = WCF::Wrapper<Self::W>>,
-    {
-        let res = self.zip(a);
-        let b_ = b.repack();
-        GenericResultExt::zip(res, b_).map_value(|((ax, bx), cx)| (ax, bx, cx))
-    }
-
-    fn zip4<V1, V2, V3, WCF, ECF>(
-        self,
-        a: GenericResult<V1, (), Self::W, Self::E, Self::LWC, Self::RWC, Self::EC>,
-        b: GenericResult<V2, (), Self::W, Self::E, Self::LWC, Self::RWC, Self::EC>,
-        c: GenericResult<V3, (), Self::W, Self::E, Self::LWC, Self::RWC, Self::EC>,
-    ) -> GenericResult<(Self::V, V1, V2, V3), (), Self::W, Self::E, WCF, WCF, ECF>
-    where
-        WCF: ZeroOrMore,
-        ECF: ZeroOrMore,
-        ECF::Wrapper<Self::E>: Extend<Self::E>,
-        Self::EC: IntoZeroOrMore<ECF>,
-        <Self::LWC as ZeroOrMore>::Wrapper<Self::W>: Concatable<Out = WCF::Wrapper<Self::W>>,
-        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
-        Self: GenericResultExt<P = (), LWC = <Self as GenericResultExt>::RWC>,
-        Self::LWC: IntoZeroOrMore<WCF>,
-        Self::EC: IntoZeroOrMore<ECF>,
-        WCF::Wrapper<Self::W>: Concatable<Out = WCF::Wrapper<Self::W>>,
-    {
-        let res = self.zip3(a, b);
-        let c_ = c.repack();
-        GenericResultExt::zip(res, c_).map_value(|((ax, bx, cx), dx)| (ax, bx, cx, dx))
-    }
-
-    fn zip5<V1, V2, V3, V4, WCF, ECF>(
-        self,
-        a: GenericResult<V1, (), Self::W, Self::E, Self::LWC, Self::RWC, Self::EC>,
-        b: GenericResult<V2, (), Self::W, Self::E, Self::LWC, Self::RWC, Self::EC>,
-        c: GenericResult<V3, (), Self::W, Self::E, Self::LWC, Self::RWC, Self::EC>,
-        d: GenericResult<V4, (), Self::W, Self::E, Self::LWC, Self::RWC, Self::EC>,
-    ) -> GenericResult<(Self::V, V1, V2, V3, V4), (), Self::W, Self::E, WCF, WCF, ECF>
-    where
-        WCF: ZeroOrMore,
-        ECF: ZeroOrMore,
-        ECF::Wrapper<Self::E>: Extend<Self::E>,
-        Self::EC: IntoZeroOrMore<ECF>,
-        <Self::LWC as ZeroOrMore>::Wrapper<Self::W>: Concatable<Out = WCF::Wrapper<Self::W>>,
-        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
-        Self: GenericResultExt<P = (), LWC = <Self as GenericResultExt>::RWC>,
-        Self::LWC: IntoZeroOrMore<WCF>,
-        Self::EC: IntoZeroOrMore<ECF>,
-        WCF::Wrapper<Self::W>: Concatable<Out = WCF::Wrapper<Self::W>>,
-    {
-        let res = self.zip4(a, b, c);
-        let d_ = d.repack();
-        GenericResultExt::zip(res, d_).map_value(|((ax, bx, cx, dx), ex)| (ax, bx, cx, dx, ex))
-    }
-
-    fn zip6<V1, V2, V3, V4, V5, WCF, ECF>(
-        self,
-        a: GenericResult<V1, (), Self::W, Self::E, Self::LWC, Self::RWC, Self::EC>,
-        b: GenericResult<V2, (), Self::W, Self::E, Self::LWC, Self::RWC, Self::EC>,
-        c: GenericResult<V3, (), Self::W, Self::E, Self::LWC, Self::RWC, Self::EC>,
-        d: GenericResult<V4, (), Self::W, Self::E, Self::LWC, Self::RWC, Self::EC>,
-        e: GenericResult<V5, (), Self::W, Self::E, Self::LWC, Self::RWC, Self::EC>,
-    ) -> GenericResult<(Self::V, V1, V2, V3, V4, V5), (), Self::W, Self::E, WCF, WCF, ECF>
-    where
-        WCF: ZeroOrMore,
-        ECF: ZeroOrMore,
-        ECF::Wrapper<Self::E>: Extend<Self::E>,
-        Self::EC: IntoZeroOrMore<ECF>,
-        <Self::LWC as ZeroOrMore>::Wrapper<Self::W>: Concatable<Out = WCF::Wrapper<Self::W>>,
-        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
-        Self: GenericResultExt<P = (), LWC = <Self as GenericResultExt>::RWC>,
-        Self::LWC: IntoZeroOrMore<WCF>,
-        Self::EC: IntoZeroOrMore<ECF>,
-        WCF::Wrapper<Self::W>: Concatable<Out = WCF::Wrapper<Self::W>>,
-    {
-        let res = self.zip5(a, b, c, d);
-        let e_ = e.repack();
-        GenericResultExt::zip(res, e_)
-            .map_value(|((ax, bx, cx, dx, ex), fx)| (ax, bx, cx, dx, ex, fx))
-    }
-
-    fn gather_errors<F, EF>(
+    fn gather_errors<F, Ef>(
         self,
         f: F,
-    ) -> GenericResult<Self::V, Self::P, Self::W, EF, Self::LWC, Self::RWC, NullFamily>
+    ) -> GenericResult<Self::V, Self::P, Self::LW, Self::RW, Ef, Self::LWC, Self::RWC, NullFamily>
     where
-        F: FnOnce(GenNonEmpty<Self::E, Self::EC>) -> EF,
+        F: FnOnce(GenNonEmpty<Self::E, Self::EC>) -> Ef,
     {
-        self.map_error(|e| e.gather_errors(f))
+        self.into_result().map_err(|e| e.gather_errors(f))
     }
 
     fn summarize_errors<S>(
@@ -1170,7 +903,8 @@ where
     ) -> GenericResult<
         Self::V,
         Self::P,
-        Self::W,
+        Self::LW,
+        Self::RW,
         ErrorSummary<Self::E, S>,
         Self::LWC,
         Self::RWC,
@@ -1179,12 +913,12 @@ where
     where
         Self::EC: IntoZeroOrMore<VecFamily>,
     {
-        self.map_error(|e| e.summarize_errors(summary))
+        self.into_result().map_err(|e| e.summarize_errors(summary))
     }
 
     fn from_infallible<PF, EF>(
         self,
-    ) -> GenericResult<Self::V, PF, Self::W, EF, Self::LWC, Self::RWC, Self::EC>
+    ) -> GenericResult<Self::V, PF, Self::LW, Self::RW, EF, Self::LWC, Self::RWC, Self::EC>
     where
         Self: GenericResultExt<E = Infallible>,
     {
@@ -1226,7 +960,7 @@ where
     ) -> Result<(WarnRes, Self::V), ErrRes>
     where
         Self: GenericResultExt<EC = NullFamily, RWC = NullFamily>,
-        Fwarn: FnOnce(<Self::LWC as ZeroOrMore>::Wrapper<Self::W>) -> WarnRes,
+        Fwarn: FnOnce(<Self::LWC as ZeroOrMore>::Wrapper<Self::LW>) -> WarnRes,
         Ferr: FnOnce(Self::E) -> ErrRes,
     {
         match self.into_result() {
@@ -1247,8 +981,12 @@ where
         f_errors: Ferr,
     ) -> (WarnRes, Result<Self::V, ErrRes>)
     where
-        Self: GenericResultExt<EC = NullFamily, LWC = <Self as GenericResultExt>::RWC>,
-        Fwarn: FnOnce(<Self::LWC as ZeroOrMore>::Wrapper<Self::W>) -> WarnRes,
+        Self: GenericResultExt<
+            EC = NullFamily,
+            LW = <Self as GenericResultExt>::RW,
+            LWC = <Self as GenericResultExt>::RWC,
+        >,
+        Fwarn: FnOnce(<Self::LWC as ZeroOrMore>::Wrapper<Self::LW>) -> WarnRes,
         Ferr: FnOnce(Self::E) -> ErrRes,
     {
         match self.into_result() {
@@ -1264,7 +1002,302 @@ where
     }
 }
 
-impl<V, P, W, E, LWC, RWC, EC> GenericResultExt for GenericResult<V, P, W, E, LWC, RWC, EC>
+pub trait NonCommutativeResultExt
+where
+    Self: Sized + GenericResultExt<RW = (), RWC = NullFamily>,
+{
+    fn eval_non_commutative_warning<F>(&mut self, f: F)
+    where
+        F: FnOnce(&Self::V) -> Option<Self::LW>,
+        <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Extend<Self::LW>,
+    {
+        if let Ok(s) = self.as_result_mut() {
+            s.eval_warning(f)
+        }
+    }
+
+    fn push_non_commutative_warning(&mut self, w: Self::LW)
+    where
+        <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Extend<Self::LW>,
+    {
+        if let Ok(s) = self.as_result_mut() {
+            s.push_warning(w)
+        }
+    }
+
+    fn into_commutative(
+        self,
+    ) -> CommutativeResult<Self::V, Self::P, Self::LW, Self::E, Self::LWC, Self::EC> {
+        self.into_result().map_err(|e| e.lift_simple())
+    }
+}
+
+pub trait CommutativeResultExt
+where
+    Self: Sized
+        + GenericResultExt<LW = <Self as GenericResultExt>::RW, LWC = <Self as GenericResultExt>::RWC>,
+{
+    fn eval_warning<F>(&mut self, f: F)
+    where
+        F: FnOnce(&Self::V) -> Option<Self::LW>,
+        <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Extend<Self::LW>,
+        Self: GenericResultExt<V = <Self as GenericResultExt>::P>,
+    {
+        match self.as_result_mut() {
+            Ok(s) => s.eval_warning(f),
+            Err(e) => e.eval_warning(f),
+        }
+    }
+
+    fn eval_error<F>(
+        self,
+        f: F,
+    ) -> CommutativeResult<Self::V, Self::P, Self::LW, Self::E, Self::LWC, Self::EC>
+    where
+        F: FnOnce(&Self::V) -> Option<Self::E>,
+        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
+        Self: GenericResultExt<V = <Self as GenericResultExt>::P>,
+    {
+        match self.into_result() {
+            Ok(succ) => match f(&succ.value) {
+                Some(e) => Err(succ.fail(GenNonEmpty::new1(e))),
+                None => Ok(succ),
+            },
+            Err(mut err) => {
+                if let Some(e) = f(&err.passthru) {
+                    err.push_error(e);
+                };
+                Err(err)
+            }
+        }
+    }
+
+    fn push_warning(&mut self, w: Self::LW)
+    where
+        <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Extend<Self::LW>,
+    {
+        match self.as_result_mut() {
+            Ok(s) => s.push_warning(w),
+            Err(e) => e.push_warning(w),
+        }
+    }
+
+    fn push_error(
+        self,
+        e: Self::E,
+    ) -> CommutativeResult<Self::V, Self::P, Self::LW, Self::E, Self::LWC, Self::EC>
+    where
+        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
+        Self: GenericResultExt<V = <Self as GenericResultExt>::P>,
+    {
+        match self.into_result() {
+            Ok(succ) => Err(succ.fail(GenNonEmpty::new1(e))),
+            Err(mut err) => {
+                err.push_error(e);
+                Err(err)
+            }
+        }
+    }
+
+    fn push_error_or_warning<X>(
+        mut self,
+        x: X,
+        is_error: bool,
+    ) -> CommutativeResult<Self::V, Self::P, Self::LW, Self::E, Self::LWC, Self::EC>
+    where
+        X: Into<Self::LW> + Into<Self::E>,
+        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
+        <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Extend<Self::LW>,
+        Self: GenericResultExt<V = <Self as GenericResultExt>::P>,
+    {
+        if is_error {
+            self.push_error(x.into())
+        } else {
+            self.push_warning(x.into());
+            self.into_result()
+        }
+    }
+
+    fn and_maybe<F, ToV, WCf>(
+        self,
+        f: F,
+    ) -> CommutativeResult<ToV, Self::P, Self::LW, Self::E, WCf, Self::EC>
+    where
+        F: FnOnce(
+            Self::V,
+        )
+            -> CommutativeResult<ToV, Self::P, Self::LW, Self::E, Self::LWC, Self::EC>,
+        <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Concatable<Out = WCf::Wrapper<Self::LW>>,
+        WCf: ZeroOrMore,
+        Self::RWC: IntoZeroOrMore<WCf>,
+    {
+        match self.into_result() {
+            Ok(s) => s.and_maybe(f),
+            Err(e) => Err(e.repack_warnings()),
+        }
+    }
+
+    fn and_tentatively<F, ToV, ToP, WCf>(
+        self,
+        f: F,
+    ) -> CommutativeResult<ToV, ToP, Self::LW, Self::E, WCf, Self::EC>
+    where
+        F: FnOnce(Self::V) -> CommutativeResult<ToV, ToP, Self::LW, Self::E, Self::LWC, Self::EC>,
+        Self: GenericResultExt<V = <Self as GenericResultExt>::P>,
+        <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Concatable<Out = WCf::Wrapper<Self::LW>>,
+        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
+        WCf: ZeroOrMore,
+    {
+        match self.into_result() {
+            Ok(s) => s.and_maybe(f),
+            Err(e) => e.with_passthru(f),
+        }
+    }
+
+    fn zip<V1, WCf, ECf>(
+        self,
+        a: CommutativeResult<V1, (), Self::LW, Self::E, Self::LWC, Self::EC>,
+    ) -> CommutativeResult<(Self::V, V1), (), Self::LW, Self::E, WCf, ECf>
+    where
+        WCf: ZeroOrMore,
+        ECf: ZeroOrMore,
+        ECf::Wrapper<Self::E>: Extend<Self::E>,
+        Self::EC: IntoZeroOrMore<ECf>,
+        <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Concatable<Out = WCf::Wrapper<Self::LW>>,
+        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
+        Self: GenericResultExt<P = ()>,
+    {
+        match (self.into_result(), a) {
+            (Ok(ax), Ok(bx)) => Ok(ax.zip_with(bx, |x, y| (x, y))),
+            (Ok(ax), Err(bx)) => Err(ax.with_failure(bx, |_, ()| ()).repack_errors()),
+            (Err(ax), Ok(bx)) => Err(ax.with_success(bx, |(), _| ()).repack_errors()),
+            (Err(ax), Err(bx)) => Err(ax.zip_with(bx, |(), ()| ())),
+        }
+    }
+
+    fn zip3<V1, V2, WCf, ECf>(
+        self,
+        a: CommutativeResult<V1, (), Self::LW, Self::E, Self::LWC, Self::EC>,
+        b: CommutativeResult<V2, (), Self::LW, Self::E, Self::LWC, Self::EC>,
+    ) -> CommutativeResult<(Self::V, V1, V2), (), Self::LW, Self::E, WCf, ECf>
+    where
+        WCf: ZeroOrMore,
+        ECf: ZeroOrMore,
+        ECf::Wrapper<Self::E>: Extend<Self::E>,
+        Self::EC: IntoZeroOrMore<ECf>,
+        <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Concatable<Out = WCf::Wrapper<Self::LW>>,
+        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
+        Self: GenericResultExt<P = ()>,
+        Self::LWC: IntoZeroOrMore<WCf>,
+        Self::EC: IntoZeroOrMore<ECf>,
+        WCf::Wrapper<Self::LW>: Concatable<Out = WCf::Wrapper<Self::LW>>,
+    {
+        let res = self.zip(a);
+        let b_ = b.repack();
+        CommutativeResultExt::zip(res, b_).map_value(|((ax, bx), cx)| (ax, bx, cx))
+    }
+
+    fn zip4<V1, V2, V3, WCf, ECf>(
+        self,
+        a: CommutativeResult<V1, (), Self::LW, Self::E, Self::LWC, Self::EC>,
+        b: CommutativeResult<V2, (), Self::LW, Self::E, Self::LWC, Self::EC>,
+        c: CommutativeResult<V3, (), Self::LW, Self::E, Self::LWC, Self::EC>,
+    ) -> CommutativeResult<(Self::V, V1, V2, V3), (), Self::LW, Self::E, WCf, ECf>
+    where
+        WCf: ZeroOrMore,
+        ECf: ZeroOrMore,
+        ECf::Wrapper<Self::E>: Extend<Self::E>,
+        Self::EC: IntoZeroOrMore<ECf>,
+        <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Concatable<Out = WCf::Wrapper<Self::LW>>,
+        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
+        Self: GenericResultExt<P = ()>,
+        Self::LWC: IntoZeroOrMore<WCf>,
+        Self::EC: IntoZeroOrMore<ECf>,
+        WCf::Wrapper<Self::LW>: Concatable<Out = WCf::Wrapper<Self::LW>>,
+    {
+        let res = self.zip3(a, b);
+        let c_ = c.repack();
+        CommutativeResultExt::zip(res, c_).map_value(|((ax, bx, cx), dx)| (ax, bx, cx, dx))
+    }
+
+    fn zip5<V1, V2, V3, V4, WCf, ECf>(
+        self,
+        a: CommutativeResult<V1, (), Self::LW, Self::E, Self::LWC, Self::EC>,
+        b: CommutativeResult<V2, (), Self::LW, Self::E, Self::LWC, Self::EC>,
+        c: CommutativeResult<V3, (), Self::LW, Self::E, Self::LWC, Self::EC>,
+        d: CommutativeResult<V4, (), Self::LW, Self::E, Self::LWC, Self::EC>,
+    ) -> CommutativeResult<(Self::V, V1, V2, V3, V4), (), Self::LW, Self::E, WCf, ECf>
+    where
+        WCf: ZeroOrMore,
+        ECf: ZeroOrMore,
+        ECf::Wrapper<Self::E>: Extend<Self::E>,
+        Self::EC: IntoZeroOrMore<ECf>,
+        <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Concatable<Out = WCf::Wrapper<Self::LW>>,
+        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
+        Self: GenericResultExt<P = ()>,
+        Self::LWC: IntoZeroOrMore<WCf>,
+        Self::EC: IntoZeroOrMore<ECf>,
+        WCf::Wrapper<Self::LW>: Concatable<Out = WCf::Wrapper<Self::LW>>,
+    {
+        let res = self.zip4(a, b, c);
+        let d_ = d.repack();
+        CommutativeResultExt::zip(res, d_).map_value(|((ax, bx, cx, dx), ex)| (ax, bx, cx, dx, ex))
+    }
+
+    fn zip6<V1, V2, V3, V4, V5, WCf, ECf>(
+        self,
+        a: CommutativeResult<V1, (), Self::LW, Self::E, Self::LWC, Self::EC>,
+        b: CommutativeResult<V2, (), Self::LW, Self::E, Self::LWC, Self::EC>,
+        c: CommutativeResult<V3, (), Self::LW, Self::E, Self::LWC, Self::EC>,
+        d: CommutativeResult<V4, (), Self::LW, Self::E, Self::LWC, Self::EC>,
+        e: CommutativeResult<V5, (), Self::LW, Self::E, Self::LWC, Self::EC>,
+    ) -> CommutativeResult<(Self::V, V1, V2, V3, V4, V5), (), Self::LW, Self::E, WCf, ECf>
+    where
+        WCf: ZeroOrMore,
+        ECf: ZeroOrMore,
+        ECf::Wrapper<Self::E>: Extend<Self::E>,
+        Self::EC: IntoZeroOrMore<ECf>,
+        <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Concatable<Out = WCf::Wrapper<Self::LW>>,
+        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
+        Self: GenericResultExt<P = ()>,
+        Self::LWC: IntoZeroOrMore<WCf>,
+        Self::EC: IntoZeroOrMore<ECf>,
+        WCf::Wrapper<Self::LW>: Concatable<Out = WCf::Wrapper<Self::LW>>,
+    {
+        let res = self.zip5(a, b, c, d);
+        let e_ = e.repack();
+        CommutativeResultExt::zip(res, e_)
+            .map_value(|((ax, bx, cx, dx, ex), fx)| (ax, bx, cx, dx, ex, fx))
+    }
+}
+
+pub trait SimpleResultExt
+where
+    Self: Sized + NonCommutativeResultExt<LW = (), RW = (), LWC = NullFamily, RWC = NullFamily>,
+{
+    fn simple_into_non_commutative<Wf, LWCf>(
+        self,
+    ) -> NonCommutativeResult<Self::V, Self::P, Wf, Self::E, LWCf, Self::EC>
+    where
+        LWCf: ZeroOrMore,
+    {
+        self.into_result().map(|s| s.lift_simple())
+    }
+
+    fn simple_into_commutative<Wf, LWCf>(
+        self,
+    ) -> CommutativeResult<Self::V, Self::P, Wf, Self::E, LWCf, Self::EC>
+    where
+        LWCf: ZeroOrMore,
+    {
+        self.into_result()
+            .map(|s| s.lift_simple())
+            .into_commutative()
+    }
+}
+
+impl<V, P, LW, RW, E, LWC, RWC, EC> GenericResultExt
+    for GenericResult<V, P, LW, RW, E, LWC, RWC, EC>
 where
     LWC: ZeroOrMore,
     RWC: ZeroOrMore,
@@ -1273,28 +1306,45 @@ where
     type V = V;
     type P = P;
     type E = E;
-    type W = W;
+    type LW = LW;
+    type RW = RW;
     type LWC = LWC;
     type RWC = RWC;
     type EC = EC;
 }
 
+impl<V, P, W, E, WC, EC> NonCommutativeResultExt for NonCommutativeResult<V, P, W, E, WC, EC>
+where
+    WC: ZeroOrMore,
+    EC: ZeroOrMore,
+{
+}
+
+impl<V, P, W, E, WC, EC> CommutativeResultExt for CommutativeResult<V, P, W, E, WC, EC>
+where
+    WC: ZeroOrMore,
+    EC: ZeroOrMore,
+{
+}
+
+impl<V, P, E, EC: ZeroOrMore> SimpleResultExt for SimpleResult<V, P, E, EC> {}
+
 pub(crate) trait ErrorIter<T, P, W, E, WC, EC>:
-    Iterator<Item = GenericResult<T, P, W, E, WC, WC, EC>> + Sized
+    Iterator<Item = CommutativeResult<T, P, W, E, WC, EC>> + Sized
 where
     WC: ZeroOrMore,
     EC: ZeroOrMore,
 {
     #[allow(clippy::type_complexity)]
-    fn gather<WCF>(mut self) -> GenericResult<Vec<T>, (Vec<T>, Vec<P>), W, E, WCF, WCF, EC>
+    fn gather<WCf>(mut self) -> CommutativeResult<Vec<T>, (Vec<T>, Vec<P>), W, E, WCf, EC>
     where
-        WC: IntoZeroOrMore<WCF>,
-        WCF: ZeroOrMore,
-        WCF::Wrapper<W>: Extend<W>,
+        WC: IntoZeroOrMore<WCf>,
+        WCf: ZeroOrMore,
+        WCf::Wrapper<W>: Extend<W>,
         EC::Wrapper<E>: Extend<E>,
     {
         let mut left_vs = vec![];
-        let mut ws = WCF::Wrapper::<W>::default();
+        let mut ws = WCf::Wrapper::<W>::default();
         let mut error_head = None;
         for x in self.by_ref() {
             match x {
@@ -1333,8 +1383,28 @@ where
 
 impl<I, V, P, W, E, WC, EC> ErrorIter<V, P, W, E, WC, EC> for I
 where
-    I: Iterator<Item = GenericResult<V, P, W, E, WC, WC, EC>>,
+    I: Iterator<Item = CommutativeResult<V, P, W, E, WC, EC>>,
     WC: ZeroOrMore,
     EC: ZeroOrMore,
 {
+}
+
+impl<W, E, WC, EC> From<io::Error> for Failure<(), W, ImpureError<E>, WC, EC>
+where
+    WC: ZeroOrMore,
+    EC: ZeroOrMore,
+{
+    fn from(value: io::Error) -> Self {
+        Self::new_from_one(value.into(), ())
+    }
+}
+
+impl<W, E, WC, EC> From<E> for Failure<(), W, E, WC, EC>
+where
+    WC: ZeroOrMore,
+    EC: ZeroOrMore,
+{
+    fn from(value: E) -> Self {
+        Self::new_from_one(value, ())
+    }
 }

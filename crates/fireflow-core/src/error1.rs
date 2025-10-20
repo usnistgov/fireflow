@@ -12,8 +12,8 @@ use thiserror::Error;
 pub type ErrorResult<V, P, E> = NowarnResult<V, P, E, NullFamily>;
 pub type ErrorsResult<V, P, E> = NowarnResult<V, P, E, VecFamily>;
 
-pub type FungibleErrorResult<V, P, E> = NonCmtFungibleResult<V, P, E, OptFamily, NullFamily>;
-pub type FungibleErrorsResult<V, P, E> = NonCmtFungibleResult<V, P, E, VecFamily, VecFamily>;
+pub type FungibleErrorResult<V, P, E> = NonCmtFungibleResult<V, P, E, NullFamily>;
+pub type FungibleErrorsResult<V, P, E> = NonCmtFungibleResult<V, P, E, VecFamily>;
 
 pub type WarningOrErrorResult<V, P, W, E> = NonCmtResult<V, P, W, E, OptFamily, NullFamily>;
 pub type WarningsOrErrorResult<V, P, W, E> = NonCmtResult<V, P, W, E, VecFamily, NullFamily>;
@@ -23,10 +23,10 @@ pub type WarningsOrErrorsResult<V, P, W, E> = NonCmtResult<V, P, W, E, VecFamily
 pub type WarningAndErrorResult<V, P, W, E> = CmtResult<V, P, W, E, OptFamily, NullFamily>;
 pub type WarningsAndErrorResult<V, P, W, E> = CmtResult<V, P, W, E, VecFamily, NullFamily>;
 pub type WarningAndErrorsResult<V, P, W, E> = CmtResult<V, P, W, E, OptFamily, VecFamily>;
-pub type WarningsAndErrorssResult<V, P, W, E> = CmtResult<V, P, W, E, VecFamily, VecFamily>;
+pub type WarningsAndErrorsResult<V, P, W, E> = CmtResult<V, P, W, E, VecFamily, VecFamily>;
 
 pub type CmtFungibleErrorResult<V, P, E> = WarningAndErrorResult<V, P, E, E>;
-pub type CmtFungibleErrorsResult<V, P, E> = WarningsAndErrorssResult<V, P, E, E>;
+pub type CmtFungibleErrorsResult<V, P, E> = WarningsAndErrorsResult<V, P, E, E>;
 
 //
 
@@ -36,15 +36,17 @@ pub type DeferredErrors<V, E> = NowarnResult<V, V, E, VecFamily>;
 pub type DeferredWarningAndError<V, W, E> = WarningAndErrorResult<V, V, W, E>;
 pub type DeferredWarningsAndError<V, W, E> = WarningsAndErrorResult<V, V, W, E>;
 pub type DeferredWarningAndErrors<V, W, E> = WarningAndErrorsResult<V, V, W, E>;
-pub type DeferredWarningsAndErrors<V, W, E> = WarningsAndErrorssResult<V, V, W, E>;
+pub type DeferredWarningsAndErrors<V, W, E> = WarningsAndErrorsResult<V, V, W, E>;
 
 pub type DeferredFungibleError<V, E> = CmtFungibleErrorResult<V, V, E>;
 pub type DeferredFungibleErrors<V, E> = CmtFungibleErrorsResult<V, V, E>;
 
 //
 
-pub type NonCmtFungibleResult<V, P, E, WC, EC> = NonCmtResult<V, P, E, E, WC, EC>;
-pub type CmtFungibleResult<V, P, E, WC, EC> = CmtResult<V, P, E, E, WC, EC>;
+pub type NonCmtFungibleResult<V, P, E, EC> =
+    NonCmtResult<V, P, E, E, <EC as FungibleErrorFamily>::WarnFam, EC>;
+pub type CmtFungibleResult<V, P, E, EC> =
+    CmtResult<V, P, E, E, <EC as FungibleErrorFamily>::WarnFam, EC>;
 
 pub type NowarnResult<V, P, E, EC> = CmtResult<V, P, (), E, NullFamily, EC>;
 
@@ -52,11 +54,14 @@ pub type Deferred<V, W, E, WC, EC> = CmtResult<V, V, W, E, WC, EC>;
 
 pub type DeferredNowarn<V, E, EC> = NowarnResult<V, V, E, EC>;
 
-pub type DeferredFungible<V, E, WC, EC> = Deferred<V, E, E, WC, EC>;
+pub type DeferredFungible<V, E, EC> = Deferred<V, E, E, <EC as FungibleErrorFamily>::WarnFam, EC>;
 
 pub type CmtResult<V, P, W, E, WC, EC> = GenericResult<V, P, W, W, E, WC, WC, EC>;
 
 pub type NonCmtResult<V, P, W, E, WC, EC> = GenericResult<V, P, W, (), E, WC, NullFamily, EC>;
+
+pub type FungibleResult<V, P, W, E, RWC, EC> =
+    GenericResult<V, P, E, W, E, <EC as FungibleErrorFamily>::WarnFam, RWC, EC>;
 
 pub type GenericResult<V, P, LW, RW, E, LWC, RWC, EC> =
     Result<Success<V, LW, LWC>, Failure<P, RW, E, RWC, EC>>;
@@ -131,6 +136,10 @@ pub(crate) trait Semigroup: Concatable<Out = Self> {}
 
 pub trait CanHoldOne: ZeroOrMore {
     fn wrap<X>(x: X) -> Self::Wrapper<X>;
+}
+
+pub trait FungibleErrorFamily: ZeroOrMore {
+    type WarnFam: ZeroOrMore;
 }
 
 impl ZeroOrMore for NullFamily {
@@ -260,6 +269,18 @@ impl<T> Concatable for Vec<T> {
     }
 }
 
+impl<T> Semigroup for Vec<T> {}
+
+impl<T> Semigroup for NeverValue<T> {}
+
+impl FungibleErrorFamily for VecFamily {
+    type WarnFam = VecFamily;
+}
+
+impl FungibleErrorFamily for NullFamily {
+    type WarnFam = OptFamily;
+}
+
 impl<V, W, WC: ZeroOrMore> Success<V, W, WC> {
     fn new1(value: V) -> Self {
         Self::new(value, WC::Wrapper::<W>::default())
@@ -285,7 +306,7 @@ impl<V, W, WC: ZeroOrMore> Success<V, W, WC> {
         self.map_warnings(Into::into)
     }
 
-    fn map_warnings<F: Fn(W) -> ToW, ToW>(self, f: F) -> Success<V, ToW, WC> {
+    fn map_warnings<F: Fn(W) -> Wf, Wf>(self, f: F) -> Success<V, Wf, WC> {
         Success::new(self.value, WC::map(self.warnings, f))
     }
 
@@ -431,9 +452,9 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         Failure::new(self.warnings, self.errors.repack(), self.passthru)
     }
 
-    fn map_warnings<F, ToW>(self, f: F) -> Failure<P, ToW, E, WC, EC>
+    fn map_warnings<F, Wf>(self, f: F) -> Failure<P, Wf, E, WC, EC>
     where
-        F: Fn(W) -> ToW,
+        F: Fn(W) -> Wf,
     {
         Failure {
             warnings: WC::map(self.warnings, f),
@@ -442,15 +463,11 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         }
     }
 
-    fn map_errors<F, ToE>(self, f: F) -> Failure<P, W, ToE, WC, EC>
+    fn map_errors<F, Ef>(self, f: F) -> Failure<P, W, Ef, WC, EC>
     where
-        F: Fn(E) -> ToE,
+        F: Fn(E) -> Ef,
     {
-        Failure {
-            warnings: self.warnings,
-            errors: self.errors.map(f),
-            passthru: self.passthru,
-        }
+        Failure::new(self.warnings, self.errors.map(f), self.passthru)
     }
 
     fn map_passthru<F, ToP>(self, f: F) -> Failure<ToP, W, E, WC, EC>
@@ -688,11 +705,27 @@ pub trait ResultExt: Sized {
         Ok(Success::new1(value))
     }
 
-    fn new_mono(
+    fn new_ok_def<P, LW, RW, LWC, RWC, EC>(
+    ) -> GenericResult<Self::Ok, P, LW, RW, Self::Error, LWC, RWC, EC>
+    where
+        Self::Ok: Default,
+        LWC: ZeroOrMore,
+        RWC: ZeroOrMore,
+        EC: ZeroOrMore,
+    {
+        Self::new_ok(Self::Ok::default())
+    }
+
+    fn new_non_fungible<P, LW, RW, LWC, RWC, EC>(
         value: Self::Ok,
         error: Self::Error,
         is_error: bool,
-    ) -> ErrorResult<Self::Ok, (), Self::Error> {
+    ) -> GenericResult<Self::Ok, (), LW, RW, Self::Error, LWC, RWC, EC>
+    where
+        LWC: ZeroOrMore,
+        RWC: ZeroOrMore,
+        EC: ZeroOrMore,
+    {
         if is_error {
             Err(Failure::new_from_one(error, ()))
         } else {
@@ -700,15 +733,37 @@ pub trait ResultExt: Sized {
         }
     }
 
-    fn new_mono_warnable<P>(
+    fn new_fungible<W, RWC, EC>(
         value: Self::Ok,
         error: Self::Error,
         is_error: bool,
-    ) -> FungibleErrorResult<Self::Ok, (), Self::Error> {
+    ) -> FungibleResult<Self::Ok, (), W, Self::Error, RWC, EC>
+    where
+        RWC: ZeroOrMore,
+        EC: FungibleErrorFamily,
+        EC::WarnFam: CanHoldOne,
+    {
         if is_error {
             Err(Failure::new_from_one(error, ()))
         } else {
-            Ok(Success::new(value, Some(error)))
+            Ok(Success::new(value, EC::WarnFam::wrap(error)))
+        }
+    }
+
+    fn new_deferred_fungible<W, RWC, EC>(
+        value: Self::Ok,
+        error: Self::Error,
+        is_error: bool,
+    ) -> FungibleResult<Self::Ok, Self::Ok, W, Self::Error, RWC, EC>
+    where
+        RWC: ZeroOrMore,
+        EC: FungibleErrorFamily,
+        EC::WarnFam: CanHoldOne,
+    {
+        if is_error {
+            Err(Failure::new_from_one(error, value))
+        } else {
+            Ok(Success::new(value, EC::WarnFam::wrap(error)))
         }
     }
 
@@ -717,6 +772,14 @@ pub trait ResultExt: Sized {
     fn as_result(&self) -> Result<&Self::Ok, &Self::Error>;
 
     fn as_result_mut(&mut self) -> Result<&mut Self::Ok, &mut Self::Error>;
+
+    fn into_nowarn1(self) -> NowarnResult<Self::Ok, (), Self::Error, NullFamily> {
+        self.into_generic()
+    }
+
+    fn into_warn1(self) -> NowarnResult<Self::Ok, (), Self::Error, NullFamily> {
+        self.into_generic()
+    }
 
     fn into_generic<LW, RW, LWC, RWC, EC>(
         self,
@@ -731,14 +794,14 @@ pub trait ResultExt: Sized {
             .map_err(|e| Failure::new_from_one(e, ()))
     }
 
-    fn into_deferred_fungible<WC, EC>(
+    fn into_deferred_fungible<EC>(
         self,
         is_error: bool,
-    ) -> DeferredFungible<Self::Ok, Self::Error, WC, EC>
+    ) -> DeferredFungible<Self::Ok, Self::Error, EC>
     where
         Self::Ok: Default,
-        WC: ZeroOrMore + CanHoldOne,
-        EC: ZeroOrMore,
+        EC: FungibleErrorFamily,
+        <EC as FungibleErrorFamily>::WarnFam: CanHoldOne,
     {
         match self.into_result() {
             Ok(s) => Ok(Success::new1(s)),
@@ -746,95 +809,96 @@ pub trait ResultExt: Sized {
                 if is_error {
                     Err(Failure::new_from_one(e, Self::Ok::default()))
                 } else {
-                    Ok(Success::new(Self::Ok::default(), WC::wrap(e)))
+                    Ok(Success::new(Self::Ok::default(), EC::WarnFam::wrap(e)))
                 }
             }
         }
     }
 
-    fn into_deferred_fungible_opt<WC, EC>(
+    fn into_deferred_fungible_opt<EC>(
         self,
         is_error: bool,
-    ) -> DeferredFungible<Option<Self::Ok>, Self::Error, WC, EC>
+    ) -> DeferredFungible<Option<Self::Ok>, Self::Error, EC>
     where
-        WC: ZeroOrMore + CanHoldOne,
-        EC: ZeroOrMore,
+        EC: FungibleErrorFamily,
+        <EC as FungibleErrorFamily>::WarnFam: CanHoldOne,
     {
         self.into_result()
             .map(Some)
             .into_deferred_fungible(is_error)
     }
 
-    fn into_deferred_fungible_def<WC, EC>(
+    fn into_deferred_fungible_def<EC>(
         self,
         default: Self::Ok,
         is_error: bool,
-    ) -> DeferredFungible<Self::Ok, Self::Error, WC, EC>
+    ) -> DeferredFungible<Self::Ok, Self::Error, EC>
     where
-        WC: ZeroOrMore + CanHoldOne,
-        EC: ZeroOrMore,
+        EC: FungibleErrorFamily,
+        <EC as FungibleErrorFamily>::WarnFam: CanHoldOne,
     {
         self.into_result()
             .into_deferred_fungible_opt(is_error)
             .def_map_value(|v| v.unwrap_or(default))
     }
 
-    fn into_deferred_fungible_err<WC, EC>(self) -> DeferredFungible<Self::Ok, Self::Error, WC, EC>
+    fn into_deferred_fungible_err<EC>(self) -> DeferredFungible<Self::Ok, Self::Error, EC>
     where
         Self::Ok: Default,
-        WC: ZeroOrMore + CanHoldOne,
-        EC: ZeroOrMore,
+        EC: FungibleErrorFamily,
+        <EC as FungibleErrorFamily>::WarnFam: CanHoldOne,
     {
         self.into_deferred_fungible(true)
     }
 
-    fn into_deferred_fungible_err_opt<WC, EC>(
+    fn into_deferred_fungible_err_opt<EC>(
         self,
-    ) -> DeferredFungible<Option<Self::Ok>, Self::Error, WC, EC>
+    ) -> DeferredFungible<Option<Self::Ok>, Self::Error, EC>
     where
-        WC: ZeroOrMore + CanHoldOne,
-        EC: ZeroOrMore,
+        EC: FungibleErrorFamily,
+        <EC as FungibleErrorFamily>::WarnFam: CanHoldOne,
     {
         self.into_deferred_fungible_opt(true)
     }
 
-    fn into_deferred_fungible_err_def<WC, EC>(
+    fn into_deferred_fungible_err_def<EC>(
         self,
         default: Self::Ok,
-    ) -> DeferredFungible<Self::Ok, Self::Error, WC, EC>
+    ) -> DeferredFungible<Self::Ok, Self::Error, EC>
     where
-        WC: ZeroOrMore + CanHoldOne,
-        EC: ZeroOrMore,
+        EC: FungibleErrorFamily,
+        <EC as FungibleErrorFamily>::WarnFam: CanHoldOne,
     {
         self.into_deferred_fungible_def(default, true)
     }
 
-    fn into_deferred_fungible_warn<WC, EC>(self) -> DeferredFungible<Self::Ok, Self::Error, WC, EC>
+    fn into_deferred_fungible_warn<EC>(self) -> DeferredFungible<Self::Ok, Self::Error, EC>
     where
         Self::Ok: Default,
-        WC: ZeroOrMore + CanHoldOne,
-        EC: ZeroOrMore,
+        EC: FungibleErrorFamily,
+        <EC as FungibleErrorFamily>::WarnFam: CanHoldOne,
     {
         self.into_deferred_fungible(false)
     }
 
-    fn into_deferred_fungible_warn_opt<WC, EC>(
+    fn into_deferred_fungible_warn_opt<EC>(
         self,
-    ) -> DeferredFungible<Option<Self::Ok>, Self::Error, WC, EC>
+    ) -> DeferredFungible<Option<Self::Ok>, Self::Error, EC>
     where
-        WC: ZeroOrMore + CanHoldOne,
-        EC: ZeroOrMore,
+        EC: FungibleErrorFamily,
+        <EC as FungibleErrorFamily>::WarnFam: CanHoldOne,
     {
         self.into_deferred_fungible_opt(false)
     }
 
-    fn into_deferred_fungible_warn_def<WC, EC>(
+    fn into_deferred_fungible_warn_def<EC>(
         self,
         default: Self::Ok,
-    ) -> DeferredFungible<Self::Ok, Self::Error, WC, EC>
+    ) -> DeferredFungible<Self::Ok, Self::Error, EC>
     where
-        WC: ZeroOrMore + CanHoldOne,
-        EC: ZeroOrMore,
+        Self::Ok: Default,
+        EC: FungibleErrorFamily,
+        <EC as FungibleErrorFamily>::WarnFam: CanHoldOne,
     {
         self.into_deferred_fungible_def(default, false)
     }
@@ -950,6 +1014,14 @@ where
         self.map_passthru(|_| ())
     }
 
+    /// Set value of deferred result to `()`
+    fn def_void(self) -> Deferred<(), Self::LW, Self::E, Self::LWC, Self::EC>
+    where
+        Self: DeferredExt,
+    {
+        self.def_map_value(|_| ())
+    }
+
     /// Convert warnings of a non-commutative Result
     fn non_cmt_warnings_into<Wf>(
         self,
@@ -1028,23 +1100,21 @@ where
     }
 
     /// Convert errors in commutative/fungible Results
-    fn non_cmt_fung_errors_into<Ef>(
-        self,
-    ) -> NonCmtFungibleResult<Self::V, Self::P, Ef, Self::LWC, Self::EC>
+    fn non_cmt_fung_errors_into<Ef>(self) -> NonCmtFungibleResult<Self::V, Self::P, Ef, Self::EC>
     where
         Self::E: Into<Ef>,
         Self: NonCommutativeResultExt + FungibleExt,
+        Self::EC: FungibleErrorFamily,
     {
         self.map_non_cmt_fung_errors(Into::into)
     }
 
     /// Map function over errors in commutative/fungible Results
-    fn cmt_fung_errors_into<Ef>(
-        self,
-    ) -> CmtFungibleResult<Self::V, Self::P, Ef, Self::LWC, Self::EC>
+    fn cmt_fung_errors_into<Ef>(self) -> CmtFungibleResult<Self::V, Self::P, Ef, Self::EC>
     where
         Self::E: Into<Ef>,
         Self: CommutativeResultExt + FungibleExt,
+        Self::EC: FungibleErrorFamily,
     {
         self.map_cmt_fung_errors(Into::into)
     }
@@ -1053,10 +1123,11 @@ where
     fn map_non_cmt_fung_errors<F, Ef>(
         self,
         f: F,
-    ) -> NonCmtFungibleResult<Self::V, Self::P, Ef, Self::LWC, Self::EC>
+    ) -> NonCmtFungibleResult<Self::V, Self::P, Ef, Self::EC>
     where
         F: Fn(Self::E) -> Ef,
         Self: NonCommutativeResultExt + FungibleExt,
+        Self::EC: FungibleErrorFamily,
     {
         match self.into_result() {
             Ok(s) => Ok(s.map_warnings(f)),
@@ -1065,13 +1136,11 @@ where
     }
 
     /// Map function over errors in non-commutative/fungible Results
-    fn map_cmt_fung_errors<F, Ef>(
-        self,
-        f: F,
-    ) -> CmtFungibleResult<Self::V, Self::P, Ef, Self::LWC, Self::EC>
+    fn map_cmt_fung_errors<F, Ef>(self, f: F) -> CmtFungibleResult<Self::V, Self::P, Ef, Self::EC>
     where
         F: Fn(Self::E) -> Ef,
         Self: CommutativeResultExt + FungibleExt,
+        Self::EC: FungibleErrorFamily,
     {
         match self.into_result() {
             Ok(s) => Ok(s.map_warnings(f)),
@@ -1195,11 +1264,12 @@ where
         self,
         f: F,
         g: G,
-    ) -> NonCmtFungibleResult<Self::V, Self::P, Ef, OptFamily, NullFamily>
+    ) -> NonCmtFungibleResult<Self::V, Self::P, Ef, NullFamily>
     where
         F: FnOnce(<Self::LWC as ZeroOrMore>::Wrapper<Self::E>) -> Ef,
         G: FnOnce(GenNonEmpty<Self::E, Self::EC>) -> Ef,
         Self: NonCommutativeResultExt + FungibleExt,
+        Self::EC: FungibleErrorFamily,
     {
         match self.into_result() {
             Ok(s) => Ok(s.aggregate_warnings(f)),
@@ -1212,11 +1282,12 @@ where
         self,
         f: F,
         g: G,
-    ) -> CmtFungibleResult<Self::V, Self::P, Ef, OptFamily, NullFamily>
+    ) -> CmtFungibleResult<Self::V, Self::P, Ef, NullFamily>
     where
         F: FnOnce(<Self::LWC as ZeroOrMore>::Wrapper<Self::E>) -> Ef,
         G: FnOnce(GenNonEmpty<Self::E, Self::EC>) -> Ef,
         Self: CommutativeResultExt + FungibleExt,
+        Self::EC: FungibleErrorFamily,
     {
         match self.into_result() {
             Ok(s) => Ok(s.aggregate_warnings(f)),
@@ -1294,6 +1365,24 @@ where
                 (warn_res, Ok(v))
             }
             Err(e) => (f_warnings(e.warnings), Err(f_errors(e.errors.head))),
+        }
+    }
+
+    /// Push a warning based on the Ok value of a non-deferred Result.
+    ///
+    /// The emitted error must be convertible to the type of the Ok warning.
+    /// This is meant to be used for cases where a Result may have any
+    /// given type configuration but we have a warning subclassed in this type
+    /// which requires the value. In this sense, this is a non-commutative error
+    /// but emitted within a warning type that may not be.
+    fn eval_non_def_warning<F, W>(&mut self, f: F)
+    where
+        F: FnOnce(&Self::V) -> Option<W>,
+        W: Into<Self::LW>,
+        <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Extend<Self::LW>,
+    {
+        if let Ok(s) = self.as_result_mut() {
+            s.eval_warning(|v| f(v).map(Into::into))
         }
     }
 
@@ -1461,12 +1550,13 @@ where
         mut self,
         is_error: bool,
         f: F,
-    ) -> DeferredFungible<Self::V, Self::E, Self::LWC, Self::EC>
+    ) -> DeferredFungible<Self::V, Self::E, Self::EC>
     where
         F: FnOnce(&Self::V) -> Option<Self::E>,
         <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Extend<Self::LW>,
         <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
         Self: FungibleExt + DeferredExt,
+        Self::EC: FungibleErrorFamily,
     {
         if is_error {
             self.eval_def_error(f)
@@ -1486,11 +1576,12 @@ where
         self,
         e: Self::E,
         is_error: bool,
-    ) -> DeferredFungible<Self::V, Self::E, Self::LWC, Self::EC>
+    ) -> DeferredFungible<Self::V, Self::E, Self::EC>
     where
         <Self::LWC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
         <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
         Self: FungibleExt + DeferredExt,
+        Self::EC: FungibleErrorFamily,
     {
         self.extend_def_fung_errors(iter::once(e), is_error)
     }
@@ -1505,11 +1596,12 @@ where
         mut self,
         xs: impl IntoIterator<Item = Self::E>,
         is_error: bool,
-    ) -> DeferredFungible<Self::V, Self::E, Self::LWC, Self::EC>
+    ) -> DeferredFungible<Self::V, Self::E, Self::EC>
     where
         <Self::LWC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
         <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
         Self: FungibleExt + DeferredExt,
+        Self::EC: FungibleErrorFamily,
     {
         if is_error {
             self.extend_def_errors(xs.into_iter().map(Into::into))
@@ -1588,7 +1680,6 @@ where
     where
         Self::EC: IntoZeroOrMore<VecFamily>,
         <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Semigroup,
-        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
         Self: CommutativeResultExt<P = ()>,
     {
         match (self.into_result(), a) {
@@ -1615,7 +1706,6 @@ where
     where
         Self::EC: IntoZeroOrMore<VecFamily>,
         <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Semigroup,
-        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
         Self: DeferredExt,
     {
         match (self.into_result(), a) {
@@ -1635,7 +1725,6 @@ where
     where
         Self::EC: IntoZeroOrMore<VecFamily>,
         <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Semigroup,
-        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
         Self: DeferredExt,
     {
         self.zip_def(a)
@@ -1653,7 +1742,6 @@ where
     where
         Self::EC: IntoZeroOrMore<VecFamily>,
         <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Semigroup,
-        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
         Self: DeferredExt,
     {
         self.zip3_def(a, b)
@@ -1672,7 +1760,6 @@ where
     where
         Self::EC: IntoZeroOrMore<VecFamily>,
         <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Semigroup,
-        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
         Self: DeferredExt,
     {
         self.zip4_def(a, b, c)
@@ -1692,7 +1779,6 @@ where
     where
         Self::EC: IntoZeroOrMore<VecFamily>,
         <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Semigroup,
-        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
         Self: DeferredExt,
     {
         self.zip5_def(a, b, c, d)
@@ -1732,7 +1818,7 @@ impl<V, P, W, E, WC: ZeroOrMore, EC: ZeroOrMore> NonCommutativeResultExt
 ///
 /// Warning cardinality and type must match between Ok and Error sides
 pub trait CommutativeResultExt:
-    GenericResultExt<LW = <Self as GenericResultExt>::RW, LWC = <Self as GenericResultExt>::RWC>
+    GenericResultExt<RW = <Self as GenericResultExt>::LW, RWC = <Self as GenericResultExt>::LWC>
 {
 }
 
@@ -1751,10 +1837,18 @@ impl<V, W, E, WC: ZeroOrMore, EC: ZeroOrMore> DeferredExt for Deferred<V, W, E, 
 /// Constraint for fungible results.
 ///
 /// Error and warning must have the same cardinality and type.
-pub trait FungibleExt: GenericResultExt<E = <Self as GenericResultExt>::LW> {}
+pub trait FungibleExt:
+    GenericResultExt<
+    LW = <Self as GenericResultExt>::E,
+    LWC = <<Self as GenericResultExt>::EC as FungibleErrorFamily>::WarnFam,
+>
+where
+    Self::EC: FungibleErrorFamily,
+{
+}
 
-impl<V, P, E, RW, LWC: ZeroOrMore, RWC: ZeroOrMore, EC: ZeroOrMore> FungibleExt
-    for GenericResult<V, P, E, RW, E, LWC, RWC, EC>
+impl<V, P, E, RW, RWC: ZeroOrMore, EC: FungibleErrorFamily> FungibleExt
+    for GenericResult<V, P, E, RW, E, EC::WarnFam, RWC, EC>
 {
 }
 

@@ -11,11 +11,16 @@ use crate::core::{
     StdTEXTFromRawError, StdTEXTFromRawWarning, Versioned as _,
 };
 use crate::data::{NewDataReaderError, NewDataReaderWarning, RawToLayoutError, RawToLayoutWarning};
-use crate::error::{
-    DeferredExt as _, DeferredFailure, DeferredResult, ErrorIter1 as _, IODeferredExt as _,
-    IODeferredResult, IOTerminalResult, ImpureError, MultiMutexResult, MultiResultExt as _,
-    PassthruExt as _, ResultExt as _, Tentative, TentativeInner, TerminalExt as _, VecFamily,
+use crate::error1::{
+    DeferredErrors, DeferredFungibleErrors, DeferredIter as _, DeferredWarningsAndErrors,
+    ErrorsResult, GenericResultExt as _, ImpureError, ResultExt, WarningAndErrorResult,
+    WarningsAndErrorsResult,
 };
+// use crate::error::{
+//     DeferredExt as _, DeferredFailure, DeferredResult, ErrorIter1 as _, IODeferredExt as _,
+//     IODeferredResult, IOTerminalResult, ImpureError, MultiMutexResult, MultiResultExt as _,
+//     PassthruExt as _, ResultExt as _, Tentative, TentativeInner, TerminalExt as _, VecFamily,
+// };
 use crate::header::{
     Header, HeaderError, HeaderSegments, HeaderValidationError, Version, Version2_0, Version3_0,
     Version3_1, Version3_2,
@@ -42,7 +47,6 @@ use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use thiserror::Error;
 
-use std::convert::Infallible;
 use std::fmt;
 use std::fs;
 use std::io::{BufReader, Read, Seek};
@@ -56,50 +60,55 @@ use serde::Serialize;
 pub fn fcs_read_header(
     p: &path::PathBuf,
     conf: &ReadHeaderConfig,
-) -> IOTerminalResult<Header, Infallible, HeaderError, HeaderFailure> {
+) -> ErrorsResult<Header, (), ImpureError<HeaderError>> {
     ReadState::open(p, conf)
-        .into_deferred()
-        .def_and_maybe(|(st, file)| {
+        .into_generic()
+        .non_fung_errors_into()
+        .and_then_cmt(|(st, file)| {
             let mut reader = BufReader::new(file);
-            Header::h_read(&mut reader, &st).mult_to_deferred()
+            Header::h_read(&mut reader, &st)
         })
-        .def_terminate_def()
 }
 
 /// Read HEADER and key/value pairs from TEXT in an FCS file.
 pub fn fcs_read_raw_text(
     p: &path::PathBuf,
     conf: &ReadRawTEXTConfig,
-) -> IOTerminalResult<RawTEXTOutput, ParseRawTEXTWarning, HeaderOrRawError, RawTEXTFailure> {
+) -> WarningsAndErrorsResult<RawTEXTOutput, (), ParseRawTEXTWarning, ImpureError<HeaderOrRawError>>
+{
     read_fcs_raw_text_inner(p, conf)
-        .def_map_value(|(x, _, _)| x)
-        .def_terminate_maybe_warn(RawTEXTFailure, &conf.shared, |w| {
-            ImpureError::Pure(w.into())
-        })
+        .map_value(|(x, _, _)| x)
+        .cmt_warnings_to_errors(&conf.shared, |w| ImpureError::Pure(w.into()))
 }
 
 /// Read HEADER and standardized TEXT from an FCS file.
 pub fn fcs_read_std_text(
     p: &path::PathBuf,
     conf: &ReadStdTEXTConfig,
-) -> IOTerminalResult<(AnyCoreTEXT, StdTEXTOutput), StdTEXTWarning, StdTEXTError, StdTEXTFailure> {
+) -> WarningsAndErrorsResult<
+    (AnyCoreTEXT, StdTEXTOutput),
+    (),
+    StdTEXTWarning,
+    ImpureError<StdTEXTError>,
+> {
     read_fcs_raw_text_inner(p, conf)
-        .def_map_value(|(x, _, st)| (x, st))
-        .def_warnings_into()
-        .def_io_into()
-        .def_and_maybe(|(raw, st)| raw.into_std_text(&st).def_inner_into().def_errors_liftio())
-        .def_terminate_maybe_warn_def(&conf.shared, |w| ImpureError::Pure(StdTEXTError::from(w)))
+        .map_value(|(x, _, st)| (x, st))
+        .cmt_warnings_into()
+        .map_non_fung_errors(|e| e.inner_into())
+        .and_then_cmt(|(raw, st)| raw.into_std_text(&st).def_inner_into().def_errors_liftio())
+        .cmt_warnings_to_errors(&conf.shared, |w| ImpureError::Pure(StdTEXTError::from(w)))
 }
 
 /// Read dataset from FCS file using standardized TEXT.
 pub fn fcs_read_raw_dataset(
     p: &path::PathBuf,
     conf: &ReadRawDatasetConfig,
-) -> IOTerminalResult<RawDatasetOutput, RawDatasetWarning, RawDatasetError, RawDatasetFailure> {
+) -> WarningsAndErrorsResult<RawDatasetOutput, (), RawDatasetWarning, ImpureError<RawDatasetError>>
+{
     read_fcs_raw_text_inner(p, conf)
-        .def_warnings_into()
-        .def_io_into()
-        .def_and_maybe(|(raw, mut h, st)| {
+        .cmt_warnings_into()
+        .map_non_fung_errors(|e| e.inner_into())
+        .and_then_cmt(|(raw, mut h, st)| {
             h_read_dataset_from_kws(
                 &mut h,
                 raw.version,
@@ -109,11 +118,11 @@ pub fn fcs_read_raw_dataset(
                 &raw.parse.header_segments.other[..],
                 &st,
             )
-            .def_map_value(|dataset| RawDatasetOutput { text: raw, dataset })
-            .def_warnings_into()
-            .def_io_into()
+            .map_value(|dataset| RawDatasetOutput { text: raw, dataset })
+            .cmt_warnings_into()
+            .map_non_fung_errors(|e| e.inner_into())
         })
-        .def_terminate_maybe_warn_def(&conf.shared, |w| {
+        .cmt_warnings_to_errors(&conf.shared, |w| {
             ImpureError::Pure(RawDatasetError::from(w))
         })
 }
@@ -262,7 +271,7 @@ pub struct StdDatasetOutput {
 }
 
 /// Output of using keywords to read raw TEXT+DATA
-#[derive(Clone, new, PartialEq)]
+#[derive(Clone, PartialEq, new)]
 pub struct RawDatasetWithKwsOutput {
     /// DATA output
     pub data: FCSDataFrame,
@@ -513,8 +522,9 @@ pub struct NonstandardError;
 fn read_fcs_raw_text_inner<C>(
     p: &path::PathBuf,
     conf: C,
-) -> DeferredResult<
+) -> WarningsAndErrorsResult<
     (RawTEXTOutput, BufReader<fs::File>, ReadState<C>),
+    (),
     ParseRawTEXTWarning,
     ImpureError<HeaderOrRawError>,
 >
@@ -522,10 +532,11 @@ where
     C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<HeaderConfigInner>,
 {
     ReadState::open(p, conf)
-        .into_deferred()
-        .def_and_maybe(|(st, file)| {
+        .into_generic()
+        .non_fung_errors_into()
+        .and_then_cmt(|(st, file)| {
             let mut h = BufReader::new(file);
-            RawTEXTOutput::h_read(&mut h, &st).def_map_value(|x| (x, h, st))
+            RawTEXTOutput::h_read(&mut h, &st).map_value(|x| (x, h, st))
         })
 }
 
@@ -537,10 +548,11 @@ fn h_read_dataset_from_kws<C, R>(
     analysis_seg: HeaderAnalysisSegment,
     other_segs: &[OtherSegment20],
     st: &ReadState<C>,
-) -> IODeferredResult<
+) -> WarningsAndErrorsResult<
     RawDatasetWithKwsOutput,
+    (),
     LookupAndReadDataAnalysisWarning,
-    LookupAndReadDataAnalysisError,
+    ImpureError<LookupAndReadDataAnalysisError>,
 >
 where
     R: Read + Seek,
@@ -550,14 +562,9 @@ where
         .def_inner_into()
         .def_and_maybe(|(data, analysis, dataset_segments)| {
             let or = OthersReader { segs: other_segs };
-            or.h_read(h)
-                .into_deferred()
-                .def_map_value(|others| RawDatasetWithKwsOutput {
-                    data,
-                    analysis,
-                    others,
-                    dataset_segments,
-                })
+            or.h_read(h).into_generic().map_value(|others| {
+                RawDatasetWithKwsOutput::new(data, analysis, others, dataset_segments)
+            })
         })
 }
 
@@ -614,8 +621,9 @@ impl RawTEXTOutput {
         self,
         h: &mut BufReader<R>,
         st: &ReadState<C>,
-    ) -> DeferredResult<
+    ) -> WarningsAndErrorsResult<
         (AnyCoreDataset, StdDatasetOutput),
+        (),
         StdDatasetFromRawWarning,
         ImpureError<StdDatasetFromRawError>,
     >
@@ -635,7 +643,7 @@ impl RawTEXTOutput {
             &self.parse.header_segments.other[..],
             st,
         )
-        .def_map_value(|(core, out)| (core, StdDatasetOutput::new(out, self.parse)))
+        .map_value(|(core, out)| (core, StdDatasetOutput::new(out, self.parse)))
     }
 }
 
@@ -646,8 +654,9 @@ fn kws_to_df_analysis<C, R>(
     data: HeaderDataSegment,
     analysis: HeaderAnalysisSegment,
     st: &ReadState<C>,
-) -> IODeferredResult<
+) -> WarningsAndErrorsResult<
     (FCSDataFrame, Analysis, DatasetSegments),
+    (),
     LookupAndReadDataAnalysisWarning,
     LookupAndReadDataAnalysisError,
 >
@@ -667,7 +676,7 @@ fn h_read_raw_text_from_header<C, R>(
     h: &mut BufReader<R>,
     header: Header,
     st: &ReadState<C>,
-) -> IODeferredResult<RawTEXTOutput, ParseRawTEXTWarning, ParseRawTEXTError>
+) -> WarningsAndErrorsResult<RawTEXTOutput, (), ParseRawTEXTWarning, ImpureError<ParseRawTEXTError>>
 where
     R: Read + Seek,
     C: AsRef<ReadHeaderAndTEXTConfig>,
@@ -675,28 +684,26 @@ where
     let conf = st.conf.as_ref();
     let mut buf = vec![];
     let ptext_seg = header.segments.text;
-    ptext_seg.h_read_contents(h, &mut buf).into_deferred()?;
+    ptext_seg.h_read_contents(h, &mut buf)?;
 
-    let tnt_delim = split_first_delim(&buf, conf)
-        .def_inner_into()
-        .def_errors_liftio()?;
+    let tnt_delim =
+        split_first_delim(&buf, conf).map_non_fung_errors(|e| ImpureError::Pure(e.into()))?;
 
     let kws_res = tnt_delim
         // TODO these next two sections can probably be combined
         .and_maybe(|(delim, bytes)| {
             let mut kws = ParsedKeywords::default();
             split_raw_primary_text(&mut kws, delim, bytes, conf)
-                .def_inner_into()
-                .def_errors_liftio()
+                .map_non_fung_errors(|e| ImpureError::Pure(e.into()))
                 .def_map_value(|()| (delim, kws))
         })
-        .def_and_maybe(|(delim, mut kws)| {
+        .and_then_def(|(delim, mut kws)| {
             if conf.ignore_supp_text {
                 // NOTE rip out the STEXT keywords so they don't trigger a false
                 // positive pseudostandard keyword error later
                 let _ = kws.std.remove(&Beginstext::std());
                 let _ = kws.std.remove(&Endstext::std());
-                Ok(Tentative::new1((delim, kws, None)))
+                Result::new_ok((delim, kws, None))
             } else {
                 lookup_stext_offsets(&kws.std, header.version, ptext_seg, st)
                     .inner_into()
@@ -706,17 +713,17 @@ where
                             buf.clear();
                             seg.h_read_contents(h, &mut buf)?;
                             split_raw_supp_text(&mut kws, delim, &buf, conf)
-                                .def_inner_into()
-                                .def_errors_liftio()
+                                .non_fung_errors_into()
+                                .map_non_fung_errors(ImpureError::Pure)
                         } else {
-                            Ok(TentativeInner::default())
+                            Result::new_ok_def()
                         };
                         tnt_supp_kws.def_map_value(|()| (delim, kws, maybe_supp_seg))
                     })
             }
         });
 
-    let repair_res = kws_res.def_and_maybe(|(delim, mut kws, supp_text_seg)| {
+    let repair_res = kws_res.and_then_cmt(|(delim, mut kws, supp_text_seg)| {
         // TODO this will fail early unnecessarily since it returns unit and
         // thus the original inputs are still usable
         kws.append_std(&conf.append_standard_keywords, conf.allow_nonunique)
@@ -731,7 +738,7 @@ where
             .def_repack_errors()
     });
 
-    repair_res.def_and_tentatively(|(delimiter, kws, supp_text_seg)| {
+    repair_res.and_then_def(|(delimiter, kws, supp_text_seg)| {
         let mut tnt_parse = lookup_nextdata(&kws.std, conf.allow_missing_nextdata)
             .errors_into::<ParseRawTEXTError>()
             .map(|nextdata| {
@@ -761,15 +768,18 @@ where
 fn split_first_delim<'a>(
     bytes: &'a [u8],
     conf: &ReadHeaderAndTEXTConfig,
-) -> DeferredResult<(u8, &'a [u8]), DelimCharError, DelimVerifyError> {
+) -> WarningAndErrorResult<(u8, &'a [u8]), (), DelimCharError, DelimVerifyError> {
     if let Some((delim, rest)) = bytes.split_first() {
-        let mut tnt = Tentative::new1((*delim, rest));
+        let x = (*delim, rest);
         if !(1..=126).contains(delim) {
-            tnt.push_error_or_warning(DelimCharError(*delim), !conf.allow_non_ascii_delim);
+            let e = DelimCharError(*delim);
+            let res = Result::new_fungible(x, (), e, !conf.allow_non_ascii_delim);
+            res.non_fung_errors_into()
+        } else {
+            Result::new_ok(x)
         }
-        Ok(tnt)
     } else {
-        Err(DeferredFailure::new1(EmptyTEXTError))
+        Result::new_err1(EmptyTEXTError.into())
     }
 }
 
@@ -778,13 +788,11 @@ fn split_raw_primary_text(
     delim: u8,
     bytes: &[u8],
     conf: &ReadHeaderAndTEXTConfig,
-) -> DeferredResult<(), ParseKeywordsIssue, ParsePrimaryTEXTError> {
+) -> DeferredWarningsAndErrors<(), ParseKeywordsIssue, ParsePrimaryTEXTError> {
     if bytes.is_empty() {
-        Err(DeferredFailure::new1(NoTEXTWordsError))
+        Result::new_err1(NoTEXTWordsError.into())
     } else {
-        split_raw_text_inner(kws, delim, bytes, TEXTKind::Primary, conf)
-            .def_errors_into()
-            .def_repack_errors()
+        split_raw_text_inner(kws, delim, bytes, TEXTKind::Primary, conf).non_fung_errors_into()
     }
 }
 
@@ -793,19 +801,17 @@ fn split_raw_supp_text(
     delim: u8,
     bytes: &[u8],
     conf: &ReadHeaderAndTEXTConfig,
-) -> DeferredResult<(), ParseKeywordsIssue, ParseSupplementalTEXTError> {
+) -> DeferredWarningsAndErrors<(), ParseKeywordsIssue, ParseSupplementalTEXTError> {
     if let Some((byte0, rest)) = bytes.split_first() {
-        let mut tnt = split_raw_text_inner(kws, *byte0, rest, TEXTKind::Supplemental, conf)
-            .def_errors_into()
-            .def_repack_errors();
+        let mut res = split_raw_text_inner(kws, *byte0, rest, TEXTKind::Supplemental, conf);
         if *byte0 != delim {
-            let x = DelimMismatch::new(delim, *byte0);
-            tnt.def_push_error_or_warning(x, !conf.allow_supp_text_own_delim);
+            let e = DelimMismatch::new(delim, *byte0).into();
+            res = res.push_def_fung_error(e, !conf.allow_supp_text_own_delim);
         }
-        tnt
+        res.non_fung_errors_into()
     } else {
         // if empty do nothing, this is expected for most files
-        Ok(Tentative::default())
+        Result::new_ok(())
     }
 }
 
@@ -816,7 +822,7 @@ fn split_raw_text_inner(
     bytes: &[u8],
     tk: TEXTKind,
     conf: &ReadHeaderAndTEXTConfig,
-) -> MultiMutexResult<(), ParseKeywordsIssue> {
+) -> DeferredFungibleErrors<(), ParseKeywordsIssue> {
     if conf.use_literal_delims {
         split_raw_text_literal_delim(kws, delim, bytes, tk, conf)
     } else {
@@ -831,11 +837,14 @@ fn split_raw_text_literal_delim(
     bytes: &[u8],
     tk: TEXTKind,
     conf: &ReadHeaderAndTEXTConfig,
-) -> MultiMutexResult<(), ParseKeywordsIssue> {
+) -> DeferredFungibleErrors<(), ParseKeywordsIssue> {
+    // TODO probably more elegant way to do this. This method will allocate
+    // a vector of results which themselves have vectors which store the errors
+    // which then get mappend-ed at the end.
     let mut results = vec![];
 
     let push_issue = |res: &mut Vec<_>, is_warning: bool, error: ParseKeywordsIssue| {
-        res.push(Result::new_mutex((), error, !is_warning));
+        res.push(Result::new_deferred_fungible((), error, !is_warning));
     };
 
     // ASSUME input slice does not start with delim
@@ -863,7 +872,7 @@ fn split_raw_text_literal_delim(
                 let e = BlankValueError(key.to_vec()).into();
                 push_issue(&mut results, conf.allow_empty, e);
             } else {
-                let e = kws.insert(key, value, conf).def_inner_into();
+                let e = kws.insert(key, value, conf).cmt_fung_errors_into();
                 results.push(e);
                 // TODO need to somehow process warnings and errors from here,
                 // the ideal way is to just push them all to a stack and deal
@@ -891,7 +900,11 @@ fn split_raw_text_literal_delim(
         push_issue(&mut results, conf.allow_missing_final_delim, e);
     }
 
-    results.into_iter().gather1().def_void_passthru().def_void()
+    results
+        .into_iter()
+        .map(|r| r.repack())
+        .mappend_def()
+        .def_void()
 }
 
 fn split_raw_text_escaped_delim(
@@ -900,15 +913,15 @@ fn split_raw_text_escaped_delim(
     bytes: &[u8],
     tk: TEXTKind,
     conf: &ReadHeaderAndTEXTConfig,
-) -> MultiMutexResult<(), ParseKeywordsIssue> {
+) -> DeferredFungibleErrors<(), ParseKeywordsIssue> {
     let mut results = vec![];
 
     let push_issue = |res: &mut Vec<_>, is_warning: bool, error: ParseKeywordsIssue| {
-        res.push(Result::new_mutex((), error, !is_warning));
+        res.push(Result::new_deferred_fungible((), error, !is_warning));
     };
 
     let mut push_pair = |res: &mut Vec<_>, kb: &Vec<_>, vb: &Vec<_>| {
-        let e = kws.insert(kb, vb, conf).def_inner_into();
+        let e = kws.insert(kb, vb, conf).cmt_fung_errors_into();
         res.push(e);
     };
 
@@ -1007,7 +1020,11 @@ fn split_raw_text_escaped_delim(
         push_pair(&mut results, &keybuf, &valuebuf);
     }
 
-    results.into_iter().gather1().def_void_passthru().def_void()
+    results
+        .into_iter()
+        .map(|r| r.repack())
+        .mappend_def()
+        .def_void()
 }
 
 fn lookup_stext_offsets<C>(

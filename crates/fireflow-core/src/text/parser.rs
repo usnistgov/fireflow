@@ -1,6 +1,10 @@
 use crate::config::{StdTextReadConfig, TimeMeasNamePattern};
 use crate::core::{NewCSVFlagsError, ScaleTransformError};
-use crate::error::{BiTentative, DeferredResult, ResultExt as _, Tentative, VecFamily};
+// use crate::error::{BiTentative, DeferredResult, ResultExt as _, Tentative, VecFamily};
+use crate::error1::{
+    DeferredFungibleErrors, DeferredWarningsAndErrors, GenericResultExt as _, ResultExt as _,
+    WarningsAndErrorsResult,
+};
 use crate::validated::keys::{
     BiIndexedKey as _, IndexedKey, Key, MeasHeader, NonStdKeywords, NonStdKeywordsExt as _, StdKey,
     StdKeywords,
@@ -120,13 +124,14 @@ pub(crate) trait Optional: Sized {
         kws: &mut StdKeywords,
         k: StdKey,
         f: F,
-    ) -> Tentative<Self::Outer, W, E>
+    ) -> DeferredWarningsAndErrors<Self::Outer, W, E>
     where
-        F: FnOnce(StdKey, String) -> Tentative<Option<Self>, W, E>,
+        F: FnOnce(StdKey, String) -> DeferredWarningsAndErrors<Option<Self>, W, E>,
     {
-        kws.remove(&k).map_or(Tentative::default(), |v| {
-            f(k, v).map(|x| x.map(Into::into).unwrap_or_default())
-        })
+        kws.remove(&k)
+            .map_or(Result::new_ok(Self::Outer::default()), |v| {
+                f(k, v).def_map_value(|x| x.map(Into::into).unwrap_or_default())
+            })
     }
 }
 
@@ -156,7 +161,8 @@ pub(crate) trait ReqMetarootKey: Sized + Required + Key {
         Self::remove_metaroot_req(kws)
             .map_err(ReqKeyError::inner_into)
             .map_err(Box::new)
-            .into_deferred()
+            .map_err(Into::into)
+            .into_generic()
     }
 
     // fn lookup_req_st(
@@ -208,7 +214,8 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
         Self::remove_meas_req(kws, i)
             .map_err(ReqKeyError::inner_into)
             .map_err(Box::new)
-            .into_deferred()
+            .map_err(Into::into)
+            .into_generic()
     }
 
     fn lookup_req_st(
@@ -227,7 +234,8 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
         })
         .map_err(ReqKeyError::inner_into)
         .map_err(Box::new)
-        .into_deferred()
+        .map_err(Into::into)
+        .into_generic()
     }
 
     fn triple(&self, i: impl Into<IndexFromOne>) -> (MeasHeader, String, String)
@@ -422,17 +430,13 @@ where
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
         Self::remove_opt_tnt(kws, Self::std(), |k, v| {
-            parse_opt_tnt_st(k, v, false, data, conf).and_tentatively(|maybe| {
-                maybe
-                    .map(|x| {
-                        Self::check_link(&x, names)
-                            .map(|()| x)
-                            .into_tentative_opt::<VecFamily, VecFamily>(
-                                !conf.allow_optional_dropping,
-                            )
-                            .inner_into()
-                    })
-                    .unwrap_or_default()
+            parse_opt_tnt_st(k, v, false, data, conf).and_then_def(|maybe| {
+                maybe.map_or(Result::new_ok(None), |x| {
+                    Self::check_link(&x, names)
+                        .map(|()| x)
+                        .into_deferred_fungible_opt(!conf.allow_optional_dropping)
+                        .cmt_fung_errors_into()
+                })
             })
         })
     }
@@ -455,16 +459,14 @@ pub(crate) fn parse_opt_tnt<T: FromStr>(
 where
     ParseOptKeyError: From<T::Err>,
 {
-    let mut tnt = parse_opt(k.clone(), v)
+    parse_opt(k.clone(), v)
         .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
-        .into_tentative_opt(!conf.allow_optional_dropping)
-        .errors_into();
-    if is_deprecated {
-        tnt.eval_error_or_warning(conf.disallow_deprecated, |x| -> Option<DeprecatedError> {
-            x.is_some().then_some(DepKeyWarning(k).into())
-        });
-    }
-    tnt
+        .into_deferred_fungible_opt(!conf.allow_optional_dropping)
+        .cmt_fung_errors_into()
+        .eval_def_fung_error(!conf.disallow_deprecated, |val| {
+            (is_deprecated && val.is_some())
+                .then_some(DeprecatedError::Key(DepKeyWarning(k)).into())
+        })
 }
 
 pub(crate) fn parse_opt_st<T: FromStrStateful>(
@@ -486,16 +488,14 @@ pub(crate) fn parse_opt_tnt_st<T: FromStrStateful>(
 where
     ParseOptKeyError: From<T::Err>,
 {
-    let mut tnt = parse_opt_st(k.clone(), v, data, conf)
+    parse_opt_st(k.clone(), v, data, conf)
         .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
-        .into_tentative_opt(!conf.allow_optional_dropping)
-        .errors_into();
-    if is_deprecated {
-        tnt.eval_error_or_warning(conf.disallow_deprecated, |x| -> Option<DeprecatedError> {
-            x.is_some().then_some(DepKeyWarning(k).into())
-        });
-    }
-    tnt
+        .into_deferred_fungible_opt(!conf.allow_optional_dropping)
+        .cmt_fung_errors_into()
+        .eval_def_fung_error(!conf.disallow_deprecated, |val| {
+            (is_deprecated && val.is_some())
+                .then_some(DeprecatedError::Key(DepKeyWarning(k)).into())
+        })
 }
 
 /// Find a required standard key in a hash table
@@ -540,9 +540,9 @@ pub(crate) fn lookup_temporal_scale_3_0(
 ) -> LookupResult<()> {
     if conf.force_time_linear {
         nonstd.transfer_demoted(kws, TemporalScale::std(i));
-        Ok(Tentative::default())
+        Result::new_ok(())
     } else {
-        TemporalScale3_0::lookup_req(kws, i).map(Tentative::void)
+        TemporalScale3_0::lookup_req(kws, i).void_value()
     }
 }
 
@@ -554,19 +554,15 @@ pub(crate) fn lookup_temporal_gain_3_0(
 ) -> LookupOptional<Gain> {
     if conf.ignore_time_gain {
         nonstd.transfer_demoted(kws, Gain::std(i));
-        Tentative::default()
+        Result::new_ok(None)
     } else {
-        let go = |gain: &Option<Gain>| {
-            gain.is_some_and(|g| !g.0.is_one())
-                .then_some(TemporalGainError(i))
-        };
-        let mut tnt_gain = Gain::lookup_meas_opt(kws, i, false, conf);
-        if conf.allow_optional_dropping {
-            tnt_gain.eval_warning(go);
-        } else {
-            tnt_gain.eval_error(go);
-        }
-        tnt_gain
+        Gain::lookup_meas_opt(kws, i, false, conf).eval_def_fung_error(
+            !conf.allow_optional_dropping,
+            |gain| {
+                gain.is_some_and(|g| !g.0.is_one())
+                    .then_some(TemporalGainError(i).into())
+            },
+        )
     }
 }
 
@@ -576,8 +572,9 @@ pub(crate) type ReqResult<T> = Result<T, ReqKeyError<<T as FromStr>::Err>>;
 pub(crate) type OptResult<T> = Result<Option<T>, OptKeyError<<T as FromStr>::Err>>;
 pub(crate) type OptKwResult<T> = Result<Option<T>, OptKeyError<<T as FromStr>::Err>>;
 
-pub(crate) type LookupResult<V> = DeferredResult<V, LookupKeysWarning, LookupKeysError>;
-pub(crate) type LookupTentative<V> = BiTentative<V, LookupKeysWarning>;
+pub(crate) type LookupResult<V> =
+    WarningsAndErrorsResult<V, (), LookupKeysWarning, LookupKeysError>;
+pub(crate) type LookupTentative<V> = DeferredFungibleErrors<V, LookupKeysWarning>;
 pub(crate) type LookupOptional<V> = LookupTentative<Option<V>>;
 
 /// Errors when looking up any key.

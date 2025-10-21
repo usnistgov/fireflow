@@ -1,6 +1,6 @@
-use crate::error::{
-    DeferredResult, ImpureError, MultiResult, MultiResultExt as _, PassthruExt as _,
-    ResultExt as _, Tentative,
+use crate::error1::{
+    DeferredErrors, DeferredFungibleErrors, ErrorsResult, GenericResultExt, ImpureError,
+    OptionExt as _, RecoverableErrorsResult, ResultExt, WarningsAndErrorsResult,
 };
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
 use crate::text::parser::{OptKeyError, OptMetarootKey, Optional, ReqKeyError, ReqMetarootKey};
@@ -127,11 +127,15 @@ pub type OtherSegment<T> = Segment<OtherSegmentId, SegmentFromHeader, T>;
 pub type OtherSegment8 = OtherSegment<UintSpacePad20>;
 pub type OtherSegment20 = OtherSegment<UintSpacePad20>;
 
-pub(crate) type ReqSegResult<T> =
-    DeferredResult<AnySegment<T>, ReqSegmentWithDefaultWarning<T>, ReqSegmentWithDefaultError<T>>;
+pub(crate) type ReqSegResult<T> = WarningsAndErrorsResult<
+    AnySegment<T>,
+    (),
+    ReqSegmentWithDefaultWarning<T>,
+    ReqSegmentWithDefaultError<T>,
+>;
 
 pub(crate) type OptSegTentative<T> =
-    Tentative<AnySegment<T>, OptSegmentWithDefaultWarning<T>, SegmentMismatchWarning<T>>;
+    DeferredFungibleErrors<AnySegment<T>, OptSegmentWithDefaultWarning<T>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 enum InnerSegment<T> {
@@ -178,26 +182,24 @@ where
         Self: Copy,
     {
         if force_default {
-            Ok(Tentative::new1(default.into_any()))
+            Result::new_ok(default.into_any())
         } else {
-            let res = Self::get(kws, conf).def_map_errors(ReqSegmentWithDefaultError::Req);
+            let res = Self::get(kws, conf);
             Self::default_or(res, default, allow_mismatch, allow_missing)
         }
     }
 
-    fn get<W>(
+    fn get(
         kws: &StdKeywords,
         conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
-    ) -> DeferredResult<TEXTSegment<Self>, W, ReqSegmentError> {
-        Self::get_mult(kws, conf).mult_to_deferred()
-    }
-
-    fn get_mult(
-        kws: &StdKeywords,
-        conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
-    ) -> MultiResult<TEXTSegment<Self>, ReqSegmentError> {
-        let (y0, y1) = Self::get_pair(kws).map_err(|es| es.map(Into::into))?;
-        Segment::try_new(y0, y1, conf).into_mult()
+    ) -> RecoverableErrorsResult<TEXTSegment<Self>, ReqSegmentError> {
+        Self::get_pair(kws)
+            .non_fung_errors_into()
+            .and_then_cmt(|(y0, y1)| {
+                Segment::try_new(y0, y1, conf)
+                    .map_err(Into::into)
+                    .into_generic()
+            })
     }
 
     fn remove_or(
@@ -216,34 +218,28 @@ where
         // return the default segment
         if force_default {
             let _ = Self::remove_pair(kws);
-            Ok(Tentative::new1(default.into_any()))
+            Result::new_ok(default.into_any())
         } else {
-            let res = Self::remove(kws, conf).def_map_errors(ReqSegmentWithDefaultError::Req);
+            let res = Self::remove(kws, conf);
             Self::default_or(res, default, allow_mismatch, allow_missing)
         }
     }
 
-    fn remove<W>(
+    fn remove(
         kws: &mut StdKeywords,
         conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
-    ) -> DeferredResult<TEXTSegment<Self>, W, ReqSegmentError> {
-        Self::remove_mult(kws, conf).mult_to_deferred()
-    }
-
-    fn remove_mult(
-        kws: &mut StdKeywords,
-        conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
-    ) -> MultiResult<TEXTSegment<Self>, ReqSegmentError> {
-        let (y0, y1) = Self::remove_pair(kws).map_err(|es| es.map(Into::into))?;
-        Segment::try_new(y0, y1, conf).into_mult()
+    ) -> RecoverableErrorsResult<TEXTSegment<Self>, ReqSegmentError> {
+        Self::remove_pair(kws)
+            .non_fung_errors_into()
+            .and_then_cmt(|(y0, y1)| {
+                Segment::try_new(y0, y1, conf)
+                    .map_err(Into::into)
+                    .into_generic()
+            })
     }
 
     fn default_or(
-        res: DeferredResult<
-            TEXTSegment<Self>,
-            ReqSegmentWithDefaultWarning<Self>,
-            ReqSegmentWithDefaultError<Self>,
-        >,
+        res: RecoverableErrorsResult<TEXTSegment<Self>, ReqSegmentError>,
         default: HeaderSegment<Self>,
         allow_mismatch: bool,
         allow_missing: bool,
@@ -251,39 +247,42 @@ where
     where
         Self: Copy,
     {
-        res.map_or_else(
-            |f| {
+        res.recover_with(
+            |es| {
                 if allow_missing {
-                    let mut tnt = f.unfail_with(default.into_any());
-                    tnt.push_warning(SegmentDefaultWarning::default());
-                    Ok(tnt)
+                    let mut succ = Result::new_ok(default.into_any());
+                    succ.extend_cmt_warnings(es.into_iter().map(Into::into));
+                    succ.push_cmt_warning(SegmentDefaultWarning::default().into());
+                    succ
                 } else {
-                    Err(f)
+                    Result::new_err(es).non_fung_errors_into()
                 }
             },
-            |tnt| {
-                Ok(tnt.and_tentatively(|other| {
-                    default.unless(other).map_or_else(
-                        |(s, w)| Tentative::new_vec_either(s, [w], !allow_mismatch),
-                        Tentative::new1,
-                    )
-                }))
+            |other| {
+                let (seg, warn) = default.unless(other);
+                warn.map_or(Result::new_ok(seg), |w| {
+                    Result::new_fungible(seg, (), w, !allow_mismatch)
+                        .non_fung_errors_into()
+                        .cmt_warnings_into()
+                })
             },
         )
     }
 
-    fn get_pair(kws: &StdKeywords) -> MultiResult<(Self::B, Self::E), ReqKeyError<ParseIntError>> {
-        let x0 = Self::B::get_metaroot_req(kws);
-        let x1 = Self::E::get_metaroot_req(kws);
-        x0.zip(x1)
+    fn get_pair(
+        kws: &StdKeywords,
+    ) -> RecoverableErrorsResult<(Self::B, Self::E), ReqKeyError<ParseIntError>> {
+        let x0 = Self::B::get_metaroot_req(kws).into_nowarn1();
+        let x1 = Self::E::get_metaroot_req(kws).into_nowarn1();
+        x0.zip_cmt(x1)
     }
 
     fn remove_pair(
         kws: &mut StdKeywords,
-    ) -> MultiResult<(Self::B, Self::E), ReqKeyError<ParseIntError>> {
-        let x0 = Self::B::remove_metaroot_req(kws);
-        let x1 = Self::E::remove_metaroot_req(kws);
-        x0.zip(x1)
+    ) -> RecoverableErrorsResult<(Self::B, Self::E), ReqKeyError<ParseIntError>> {
+        let x0 = Self::B::remove_metaroot_req(kws).into_nowarn1();
+        let x1 = Self::E::remove_metaroot_req(kws).into_nowarn1();
+        x0.zip_cmt(x1)
     }
 }
 
@@ -305,6 +304,7 @@ where
         default: HeaderSegment<Self>,
         force_default: bool,
         allow_mismatch: bool,
+        allow_dropping: bool,
         conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> OptSegTentative<Self>
     where
@@ -313,24 +313,27 @@ where
         Self::E: OptMetarootKey,
     {
         if force_default {
-            Tentative::new1(default.into_any())
+            Result::new_ok(default.into_any())
         } else {
-            let res = Self::get(kws, conf).map_warnings(OptSegmentWithDefaultWarning::Opt);
-            Self::default_or(res, default, allow_mismatch)
+            let res = Self::get(kws, conf);
+            Self::default_or(res, default, allow_mismatch, allow_dropping)
         }
     }
 
-    fn get<E>(
+    fn get(
         kws: &StdKeywords,
         conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
-    ) -> Tentative<Option<TEXTSegment<Self>>, OptSegmentError, E> {
+    ) -> RecoverableErrorsResult<Option<TEXTSegment<Self>>, OptSegmentError> {
         Self::get_pair(kws)
-            .map_err(|es| es.map(Into::into))
-            .and_then(|x| {
-                x.map(|(z0, z1)| Segment::try_new(z0, z1, conf).into_mult())
-                    .transpose()
+            .non_fung_errors_into()
+            .and_then_cmt(|pair| {
+                pair.map(|(z0, z1)| {
+                    Segment::try_new(z0, z1, conf)
+                        .into_generic()
+                        .non_fung_errors_into()
+                })
+                .transpose_generic_result()
             })
-            .map_or_else(|ws| Tentative::new_vec(None, ws, []), Tentative::new1)
     }
 
     fn remove_or(
@@ -338,6 +341,7 @@ where
         default: HeaderSegment<Self>,
         force_default: bool,
         allow_mismatch: bool,
+        allow_dropping: bool,
         conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> OptSegTentative<Self>
     where
@@ -345,64 +349,76 @@ where
     {
         if force_default {
             let _ = Self::remove_pair(kws);
-            Tentative::new1(default.into_any())
+            Result::new_ok(default.into_any())
         } else {
-            let res = Self::remove(kws, conf).map_warnings(OptSegmentWithDefaultWarning::Opt);
-            Self::default_or(res, default, allow_mismatch)
+            let res = Self::remove(kws, conf);
+            Self::default_or(res, default, allow_mismatch, allow_dropping)
         }
     }
 
-    fn remove<E>(
+    fn remove(
         kws: &mut StdKeywords,
         conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
-    ) -> Tentative<Option<TEXTSegment<Self>>, OptSegmentError, E> {
+    ) -> RecoverableErrorsResult<Option<TEXTSegment<Self>>, OptSegmentError> {
         Self::remove_pair(kws)
-            .map_err(|es| es.map(Into::into))
-            .and_then(|x| {
-                x.map(|(z0, z1)| Segment::try_new(z0, z1, conf).into_mult())
-                    .transpose()
+            .non_fung_errors_into()
+            .and_then_cmt(|pair| {
+                pair.map(|(z0, z1)| {
+                    Segment::try_new(z0, z1, conf)
+                        .map_err(Into::into)
+                        .into_generic()
+                })
+                .transpose_generic_result()
             })
-            .map_or_else(|ws| Tentative::new_vec(None, ws, []), Tentative::new1)
     }
 
     fn default_or(
-        res: Tentative<
-            Option<TEXTSegment<Self>>,
-            OptSegmentWithDefaultWarning<Self>,
-            SegmentMismatchWarning<Self>,
-        >,
+        res: RecoverableErrorsResult<Option<TEXTSegment<Self>>, OptSegmentError>,
         default: HeaderSegment<Self>,
         allow_mismatch: bool,
+        allow_dropping: bool,
     ) -> OptSegTentative<Self>
     where
         Self: Copy,
     {
-        res.and_tentatively(|other| {
-            other.map_or(Tentative::new1(default.into_any()), |o| {
-                default.unless(o).map_or_else(
-                    |(s, w)| Tentative::new_vec_either(s, [w], !allow_mismatch),
-                    Tentative::new1,
-                )
-            })
-        })
+        let def = default.into_any();
+        res.recover_with(
+            |es| {
+                if allow_dropping {
+                    let mut succ = Result::new_ok(def);
+                    succ.extend_cmt_warnings(es.into_iter().map(Into::into));
+                    succ
+                } else {
+                    Result::new_err(es)
+                        .map_passthru(|_| def)
+                        .non_fung_errors_into()
+                }
+            },
+            |other| {
+                other.map_or(Result::new_ok(def), |o| {
+                    let (seg, warn) = default.unless(o);
+                    warn.map_or(Result::new_ok(seg), |w| {
+                        Result::new_fungible(seg, def, w.into(), !allow_mismatch)
+                    })
+                })
+            },
+        )
     }
 
-    #[allow(clippy::type_complexity)]
     fn get_pair(
         kws: &StdKeywords,
-    ) -> MultiResult<Option<(Self::B, Self::E)>, OptKeyError<ParseIntError>> {
-        let x0 = Self::B::get_metaroot_opt(kws);
-        let x1 = Self::E::get_metaroot_opt(kws);
-        x0.zip(x1).map(|(x, y)| x.zip(y))
+    ) -> RecoverableErrorsResult<Option<(Self::B, Self::E)>, OptKeyError<ParseIntError>> {
+        let x0 = Self::B::get_metaroot_opt(kws).into_nowarn1();
+        let x1 = Self::E::get_metaroot_opt(kws).into_nowarn1();
+        x0.zip_cmt(x1).map_value(|(x, y)| x.zip(y))
     }
 
-    #[allow(clippy::type_complexity)]
     fn remove_pair(
         kws: &mut StdKeywords,
-    ) -> MultiResult<Option<(Self::B, Self::E)>, OptKeyError<ParseIntError>> {
-        let x0 = Self::B::remove_metaroot_opt(kws);
-        let x1 = Self::E::remove_metaroot_opt(kws);
-        x0.zip(x1).map(|(x, y)| x.zip(y))
+    ) -> RecoverableErrorsResult<Option<(Self::B, Self::E)>, OptKeyError<ParseIntError>> {
+        let x0 = Self::B::remove_metaroot_opt(kws).into_nowarn1();
+        let x1 = Self::E::remove_metaroot_opt(kws).into_nowarn1();
+        x0.zip_cmt(x1).map_value(|(x, y)| x.zip(y))
     }
 }
 
@@ -659,7 +675,7 @@ impl GenericSegment {
         }
     }
 
-    pub(crate) fn find_overlaps(mut xs: Vec<Self>) -> MultiResult<(), SegmentOverlapError> {
+    pub(crate) fn find_overlaps(mut xs: Vec<Self>) -> DeferredErrors<(), SegmentOverlapError> {
         xs.sort_by_key(|x| x.begin);
         if let Some(ys) = NonEmpty::from_vec(xs) {
             let mut prev = ys.head;
@@ -677,9 +693,9 @@ impl GenericSegment {
                     prev = z;
                 }
             }
-            NonEmpty::from_vec(errors).map_or(Ok(()), Err)
+            Result::new_err_from_iter(errors, ())
         } else {
-            Ok(())
+            Result::new_ok(())
         }
     }
 }
@@ -722,14 +738,14 @@ impl<I: Copy> HeaderSegment<I> {
         allow_negative: bool,
         squish_offsets: bool,
         conf: &NewSegmentConfig<UintSpacePad8, I, SegmentFromHeader>,
-    ) -> MultiResult<Self, ImpureError<HeaderSegmentError>>
+    ) -> ErrorsResult<Self, (), ImpureError<HeaderSegmentError>>
     where
         I: HasRegion,
     {
         let mut buf0 = [0_u8; 8];
         let mut buf1 = [0_u8; 8];
-        h.read_exact(&mut buf0).into_mult()?;
-        h.read_exact(&mut buf1).into_mult()?;
+        h.read_exact(&mut buf0)?;
+        h.read_exact(&mut buf1)?;
         Self::parse(
             buf0,
             buf1,
@@ -738,7 +754,7 @@ impl<I: Copy> HeaderSegment<I> {
             squish_offsets,
             conf,
         )
-        .mult_map_errors(ImpureError::Pure)
+        .map_non_fung_errors(ImpureError::Pure)
     }
 
     pub(crate) fn parse(
@@ -748,41 +764,37 @@ impl<I: Copy> HeaderSegment<I> {
         allow_negative: bool,
         squish_offsets: bool,
         conf: &NewSegmentConfig<UintSpacePad8, I, SegmentFromHeader>,
-    ) -> MultiResult<Self, HeaderSegmentError>
+    ) -> ErrorsResult<Self, (), HeaderSegmentError>
     where
         I: HasRegion,
     {
         let parse_one = |bs, is_begin| {
             UintSpacePad8::from_bytes(bs, allow_blank, allow_negative).map_err(|error| {
-                ParseOffsetError {
-                    error,
-                    is_begin,
-                    location: I::REGION,
-                    source: bs.to_vec(),
-                }
+                ParseOffsetError::new(error, is_begin, I::REGION, bs.to_vec()).into()
             })
         };
 
-        let begin_res = parse_one(bs0, true);
-        let end_res = parse_one(bs1, false);
-        let (begin, end) = begin_res.zip(end_res).mult_errors_into()?;
-        Self::try_new_squish(begin, end, squish_offsets, conf).into_mult()
+        let begin_res = parse_one(bs0, true).into_nowarn1();
+        let end_res = parse_one(bs1, false).into_nowarn1();
+        begin_res.zip_cmt(end_res).and_then_cmt(|(begin, end)| {
+            Self::try_new_squish(begin, end, squish_offsets, conf)
+                .into_generic()
+                .non_fung_errors_into()
+        })
     }
 
     pub(crate) fn unless(
         self,
         other: TEXTSegment<I>,
-    ) -> Result<AnySegment<I>, (AnySegment<I>, SegmentMismatchWarning<I>)> {
+    ) -> (AnySegment<I>, Option<SegmentMismatchWarning<I>>) {
         if other.inner.as_u64() != self.inner.as_u64() && !self.inner.is_empty() {
-            Err((
-                self.into_any(),
-                SegmentMismatchWarning {
-                    header: self,
-                    text: other,
-                },
-            ))
+            let e = SegmentMismatchWarning {
+                header: self,
+                text: other,
+            };
+            (self.into_any(), Some(e))
         } else {
-            Ok(Segment::new(other.inner.as_u64()))
+            (Segment::new(other.inner.as_u64()), None)
         }
     }
 
@@ -816,20 +828,20 @@ impl OtherSegment20 {
         bs1: &[u8],
         allow_negative: bool,
         conf: &NewSegmentConfig<UintSpacePad20, OtherSegmentId, SegmentFromHeader>,
-    ) -> MultiResult<Self, HeaderSegmentError> {
+    ) -> ErrorsResult<Self, (), HeaderSegmentError> {
         let parse_one = |bs: &[u8], is_begin| {
-            UintSpacePad20::from_bytes(bs, allow_negative).map_err(|error| ParseOffsetError {
-                error,
-                is_begin,
-                location: OtherSegmentId::REGION,
-                source: bs.to_vec(),
+            UintSpacePad20::from_bytes(bs, allow_negative).map_err(|error| {
+                ParseOffsetError::new(error, is_begin, OtherSegmentId::REGION, bs.to_vec()).into()
             })
         };
 
-        let begin_res = parse_one(bs0, true);
-        let end_res = parse_one(bs1, false);
-        let (begin, end) = begin_res.zip(end_res).mult_errors_into()?;
-        Self::try_new(begin, end, conf).into_mult()
+        let begin_res = parse_one(bs0, true).into_nowarn1();
+        let end_res = parse_one(bs1, false).into_nowarn1();
+        begin_res.zip_cmt(end_res).and_then_cmt(|(begin, end)| {
+            Self::try_new(begin, end, conf)
+                .into_generic()
+                .non_fung_errors_into()
+        })
     }
 }
 
@@ -1005,7 +1017,7 @@ pub enum SegmentErrorKind {
     Truncated(u64),
 }
 
-#[derive(Debug)]
+#[derive(Debug, new)]
 pub struct ParseOffsetError {
     pub(crate) error: ParseFixedUintError,
     pub(crate) is_begin: bool,
@@ -1093,6 +1105,7 @@ pub enum ReqSegmentWithDefaultError<I> {
 pub enum ReqSegmentWithDefaultWarning<I> {
     Mismatch(SegmentMismatchWarning<I>),
     Lookup(SegmentDefaultWarning<I>),
+    Req(ReqSegmentError),
 }
 
 #[derive(From, Display, Debug, Error)]

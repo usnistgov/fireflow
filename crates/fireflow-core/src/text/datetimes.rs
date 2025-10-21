@@ -1,6 +1,6 @@
 use crate::config::StdTextReadConfig;
 use crate::core::{AnyMetarootKeyLossError, UnitaryKeyLossError};
-use crate::error::{BiTentative, ResultExt as _, Tentative, VecFamily};
+use crate::error1::{DeferredFungibleErrors, GenericResultExt as _, ResultExt as _};
 use crate::validated::keys::StdKeywords;
 
 use super::optional::KeywordPairMaybe as _;
@@ -89,10 +89,10 @@ impl Datetimes {
     pub(crate) fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
         let b = BeginDateTime::lookup_metaroot_opt(kws, false, conf);
         let e = EndDateTime::lookup_metaroot_opt(kws, false, conf);
-        b.zip(e).and_tentatively(|(begin, end)| {
+        b.zip_def(e).and_then_def(|(begin, end)| {
             Self::try_new(begin, end)
-                .into_tentative_def::<VecFamily, VecFamily>(!conf.allow_optional_dropping)
-                .inner_into()
+                .into_deferred_fungible(!conf.allow_optional_dropping)
+                .cmt_fung_errors_into()
         })
     }
 
@@ -102,15 +102,20 @@ impl Datetimes {
             .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
-    pub(crate) fn check_loss(self, allow_loss: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
-        let mut tnt = Tentative::new1(());
+    pub(crate) fn check_loss(
+        self,
+        allow_loss: bool,
+    ) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
+        let mut res = Result::new_ok(());
         if self.begin.is_some() {
-            tnt.push_error_or_warning(UnitaryKeyLossError::<BeginDateTime>::new(), allow_loss);
+            let e = UnitaryKeyLossError::<BeginDateTime>::new().into();
+            res = res.push_def_fung_error(e, allow_loss);
         }
         if self.end.is_some() {
-            tnt.push_error_or_warning(UnitaryKeyLossError::<EndDateTime>::new(), allow_loss);
+            let e = UnitaryKeyLossError::<EndDateTime>::new().into();
+            res = res.push_def_fung_error(e, allow_loss);
         }
-        tnt
+        res
     }
 }
 

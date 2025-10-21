@@ -1,7 +1,7 @@
 use crate::config::ReadHeaderAndTEXTConfig;
-use crate::error::{
-    ErrorIter1 as _, MultiMutexResult, MutexResult, PassthruExt as _, ResultExt as _,
-    TentativeInner,
+use crate::error1::{
+    DeferredFungibleError, DeferredFungibleErrors, DeferredIter as _, GenericResultExt as _,
+    ResultExt as _,
 };
 use crate::text::index::IndexFromOne;
 
@@ -531,7 +531,7 @@ impl ParsedKeywords {
         k: &[u8],
         v: &[u8],
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> MutexResult<(), KeywordInsertError> {
+    ) -> DeferredFungibleError<(), KeywordInsertError> {
         // ASSUME key and value are never blank since we checked both prior to
         // calling this. The FCS standards do not allow either to be blank.
         let to_std = conf.promote_to_standard.as_matcher();
@@ -543,7 +543,7 @@ impl ParsedKeywords {
 
         let blank_err = || {
             let e = KeywordInsertError::from(BlankValueError(k.to_vec()));
-            Result::new_mutex((), e, !conf.allow_empty)
+            Result::new_deferred_fungible((), e, !conf.allow_empty)
         };
 
         let vv = if conf.use_latin1 {
@@ -595,7 +595,7 @@ impl ParsedKeywords {
                     // Standard key: starts with '$', check that remaining chars
                     // are ASCII
                     if ignore.is_match(&kk) {
-                        Ok(TentativeInner::default())
+                        Result::new_ok(())
                     } else if to_nonstd.is_match(&kk) {
                         insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
                     } else {
@@ -621,14 +621,14 @@ impl ParsedKeywords {
                 // them anyways in case the user cares. If key isn't UTF-8
                 // then give up.
                 self.non_ascii.push((kk, value));
-                Ok(TentativeInner::default())
+                Result::new_ok(())
             } else {
                 self.byte_pairs.push((k.to_vec(), value.into()));
-                Ok(TentativeInner::default())
+                Result::new_ok(())
             }
         } else {
             self.byte_pairs.push((k.to_vec(), v.to_vec()));
-            Ok(TentativeInner::default())
+            Result::new_ok(())
         }
     }
 
@@ -636,23 +636,22 @@ impl ParsedKeywords {
         &mut self,
         new: &HashMap<KeyString, String>,
         allow_nonunique: bool,
-    ) -> MultiMutexResult<(), StdPresent> {
+    ) -> DeferredFungibleErrors<(), StdPresent> {
         new.iter()
             .map(|(k, v)| match self.std.entry(StdKey(k.clone())) {
                 Entry::Occupied(e) => {
                     let key = e.key().clone();
                     let value = v.clone();
                     let w = KeyPresent { key, value };
-                    Result::new_mutex((), w, !allow_nonunique)
+                    Result::new_deferred_fungible((), w, !allow_nonunique)
                 }
                 Entry::Vacant(e) => {
                     e.insert(v.clone());
-                    Ok(TentativeInner::default())
+                    Result::new_ok(())
                 }
             })
-            .gather1()
-            .def_void_passthru()
-            .def_void()
+            .mappend_def()
+            .def_map_value(|_| ())
     }
 }
 
@@ -750,7 +749,7 @@ fn insert_nonunique<K>(
     k: K,
     value: String,
     conf: &ReadHeaderAndTEXTConfig,
-) -> MutexResult<(), KeywordInsertError>
+) -> DeferredFungibleError<(), KeywordInsertError>
 where
     K: Hash + Eq + Clone + AsRef<KeyString>,
     KeywordInsertError: From<KeyPresent<K>>,
@@ -759,7 +758,7 @@ where
         Entry::Occupied(ent) => {
             let key = ent.key().clone();
             let err = KeyPresent { key, value };
-            Result::new_mutex((), err.into(), !conf.allow_nonunique)
+            Result::new_deferred_fungible((), err.into(), !conf.allow_nonunique)
         }
         Entry::Vacant(ent) => {
             let v = conf
@@ -768,7 +767,7 @@ where
                 .map(ToString::to_string)
                 .unwrap_or(value);
             ent.insert(v);
-            Ok(TentativeInner::default())
+            Result::new_ok(())
         }
     }
 }

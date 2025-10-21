@@ -19,6 +19,9 @@ pub type RecoverableErrorsResult<V, I> = ErrorsResult<V, (), I>;
 pub type ErrorResult<V, P, E> = NowarnResult<V, P, E, NullFamily>;
 pub type ErrorsResult<V, P, E> = NowarnResult<V, P, E, VecFamily>;
 
+pub type IOErrorResult<V, P, E> = ErrorResult<V, P, ImpureError<E>>;
+pub type IOErrorsResult<V, P, E> = ErrorsResult<V, P, ImpureError<E>>;
+
 pub type FungibleErrorResult<V, P, E> = NonCmtFungibleResult<V, P, E, NullFamily>;
 pub type FungibleErrorsResult<V, P, E> = NonCmtFungibleResult<V, P, E, VecFamily>;
 
@@ -32,6 +35,11 @@ pub type WarningsAndErrorResult<V, P, W, E> = CmtResult<V, P, W, E, VecFamily, N
 pub type WarningAndErrorsResult<V, P, W, E> = CmtResult<V, P, W, E, OptFamily, VecFamily>;
 pub type WarningsAndErrorsResult<V, P, W, E> = CmtResult<V, P, W, E, VecFamily, VecFamily>;
 
+pub type IOWarningAndErrorResult<V, P, W, E> = WarningAndErrorResult<V, P, W, ImpureError<E>>;
+pub type IOWarningsAndErrorResult<V, P, W, E> = WarningsAndErrorResult<V, P, W, ImpureError<E>>;
+pub type IOWarningAndErrorsResult<V, P, W, E> = WarningAndErrorsResult<V, P, W, ImpureError<E>>;
+pub type IOWarningsAndErrorsResult<V, P, W, E> = WarningsAndErrorsResult<V, P, W, ImpureError<E>>;
+
 pub type CmtFungibleErrorResult<V, P, E> = WarningAndErrorResult<V, P, E, E>;
 pub type CmtFungibleErrorsResult<V, P, E> = WarningsAndErrorsResult<V, P, E, E>;
 
@@ -39,6 +47,9 @@ pub type CmtFungibleErrorsResult<V, P, E> = WarningsAndErrorsResult<V, P, E, E>;
 
 pub type DeferredError<V, E> = NowarnResult<V, V, E, NullFamily>;
 pub type DeferredErrors<V, E> = NowarnResult<V, V, E, VecFamily>;
+
+pub type DeferredIOError<V, E> = DeferredError<V, ImpureError<E>>;
+pub type DeferredIOErrors<V, E> = DeferredErrors<V, ImpureError<E>>;
 
 pub type DeferredWarningAndError<V, W, E> = WarningAndErrorResult<V, V, W, E>;
 pub type DeferredWarningsAndError<V, W, E> = WarningsAndErrorResult<V, V, W, E>;
@@ -1107,6 +1118,7 @@ where
     }
 
     /// Lift Result with no warnings to commutative Result
+    // TODO misleading name since technically nowarn is also commutative
     fn nowarn_into_cmt<Wf, LWCf>(self) -> CmtResult<Self::V, Self::P, Wf, Self::E, LWCf, Self::EC>
     where
         LWCf: ZeroOrMore,

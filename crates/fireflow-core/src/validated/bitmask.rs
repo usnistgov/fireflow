@@ -1,6 +1,9 @@
 //! Types to represent the $PnB and $PnR values for a uint column.
 
 use crate::error::{BiTentative, ErrorIter as _, MultiResult};
+use crate::error1::{
+    CmtResultIter as _, DeferredFungibleError, ErrorsResult, GenericResultExt as _, ResultExt as _,
+};
 use crate::text::index::MeasIndex;
 use crate::text::keywords::{IntRangeError, Range};
 
@@ -80,10 +83,10 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
         (e, b.min(value))
     }
 
-    pub(crate) fn from_native_tnt(
+    pub(crate) fn try_from_native(
         value: T,
         disallow_trunc: bool,
-    ) -> BiTentative<Self, BitmaskTruncationError>
+    ) -> DeferredFungibleError<Self, BitmaskTruncationError>
     where
         T: PrimInt,
         u64: From<T>,
@@ -93,7 +96,9 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
             bytes: Self::bits(),
             value: u64::from(value),
         });
-        BiTentative::new_either1(bitmask, error, disallow_trunc)
+        error.map_or(Result::new_ok(bitmask), |e| {
+            Result::new_deferred_fungible(bitmask, e, disallow_trunc)
+        })
     }
 
     // fn from_u64_tnt(value: u64, notrunc: bool) -> BiTentative<Self, BitmaskTruncationError>
@@ -166,14 +171,19 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
     pub(crate) fn try_from_many<E, X>(
         xs: Vec<X>,
         starting_index: usize,
-    ) -> MultiResult<Vec<Self>, (MeasIndex, E)>
+    ) -> ErrorsResult<Vec<Self>, (), (MeasIndex, E)>
     where
         Self: TryFrom<X, Error = E>,
     {
         xs.into_iter()
             .enumerate()
-            .map(|(i, c)| Self::try_from(c).map_err(|e| ((i + starting_index).into(), e)))
-            .gather()
+            .map(|(i, c)| {
+                Self::try_from(c)
+                    .map_err(|e| ((i + starting_index).into(), e))
+                    .into_nowarn1()
+                    .repack()
+            })
+            .mappend_cmt()
     }
 }
 

@@ -17,6 +17,7 @@ use crate::error::{
     MultiResultExt as _, PassthruExt as _, PassthruResult, ResultExt as _, Tentative,
     TentativeInner, Terminal, TerminalExt as _, TerminalResult, VecFamily,
 };
+use crate::error1::ErrorsResult;
 use crate::header::{
     HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
 };
@@ -5296,7 +5297,7 @@ type OpticalConvertResult<M> = DeferredResult<M, OpticalConvertWarning, OpticalC
 
 type TemporalConvertTentative<M> = BiTentative<M, TemporalConvertError>;
 
-pub(crate) type LayoutConvertResult<L> = MultiResult<L, LayoutConvertError>;
+pub(crate) type LayoutConvertResult<L> = ErrorsResult<L, (), LayoutConvertError>;
 
 #[derive(From, Display, Debug, Error)]
 pub enum OpticalConvertError {

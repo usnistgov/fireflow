@@ -1855,33 +1855,33 @@ where
     /// be a semigroup (which here means Option<T> must be converted to Vec<T>
     /// prior to calling). The latter will be converted to a Vec<T> since
     /// there could be more than one errors.
-    fn zip_cmt<V1>(
+    fn zip_cmt<V1, P1>(
         self,
-        a: CmtResult<V1, Self::P, Self::LW, Self::E, Self::LWC, Self::EC>,
+        a: CmtResult<V1, P1, Self::LW, Self::E, Self::LWC, Self::EC>,
     ) -> CmtResult<(Self::V, V1), (), Self::LW, Self::E, Self::LWC, VecFamily>
     where
         Self::EC: IntoZeroOrMore<VecFamily>,
         <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Semigroup,
-        Self: CommutativeResultExt<P = ()>,
+        Self: CommutativeResultExt,
     {
         match (self.into_result(), a) {
             (Ok(ax), Ok(bx)) => Ok(ax.zip_with(bx, |x, y| (x, y))),
-            (Ok(ax), Err(bx)) => Err(ax.with_failure(bx, |_, ()| ()).repack_errors()),
-            (Err(ax), Ok(bx)) => Err(ax.with_success(bx, |(), _| ()).repack_errors()),
-            (Err(ax), Err(bx)) => Err(ax.zip_with(bx, |(), ()| ())),
+            (Ok(ax), Err(bx)) => Err(ax.with_failure(bx, |_, _| ()).repack_errors()),
+            (Err(ax), Ok(bx)) => Err(ax.with_success(bx, |_, _| ()).repack_errors()),
+            (Err(ax), Err(bx)) => Err(ax.zip_with(bx, |_, _| ())),
         }
     }
 
     /// Combine two commutative results.
-    fn zip3_cmt<V1, V2>(
+    fn zip3_cmt<V1, V2, P1, P2>(
         self,
-        a: CmtResult<V1, Self::P, Self::LW, Self::E, Self::LWC, Self::EC>,
-        b: CmtResult<V2, Self::P, Self::LW, Self::E, Self::LWC, Self::EC>,
+        a: CmtResult<V1, P1, Self::LW, Self::E, Self::LWC, Self::EC>,
+        b: CmtResult<V2, P2, Self::LW, Self::E, Self::LWC, Self::EC>,
     ) -> CmtResult<(Self::V, V1, V2), (), Self::LW, Self::E, Self::LWC, VecFamily>
     where
         Self::EC: IntoZeroOrMore<VecFamily>,
         <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Semigroup,
-        Self: CommutativeResultExt<P = ()>,
+        Self: CommutativeResultExt,
     {
         self.zip_cmt(a)
             .zip_cmt(b.repack())

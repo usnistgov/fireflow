@@ -358,6 +358,13 @@ impl<V, W, WC: ZeroOrMore> Success<V, W, WC> {
         Success::new(self.value, WC::map(self.warnings, f))
     }
 
+    pub(crate) fn set_warnings<Wf, WCf>(self, ws: WCf::Wrapper<Wf>) -> Success<V, Wf, WCf>
+    where
+        WCf: ZeroOrMore,
+    {
+        Success::new(self.value, ws)
+    }
+
     pub(crate) fn push_warning(&mut self, w: W)
     where
         WC::Wrapper<W>: Extend<W>,
@@ -536,6 +543,13 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         F: FnOnce(P) -> ToP,
     {
         Failure::new(self.warnings, self.errors, f(self.passthru))
+    }
+
+    fn set_warnings<Wf, WCf>(self, ws: WCf::Wrapper<Wf>) -> Failure<P, Wf, E, WCf, EC>
+    where
+        WCf: ZeroOrMore,
+    {
+        Failure::new(ws, self.errors, self.passthru)
     }
 
     fn push_warning(&mut self, w: W)
@@ -1167,28 +1181,33 @@ where
         self.into_result().map_err(|e| e.map_passthru(f))
     }
 
-    /// Set value of Ok side to `()`.
-    fn void_value(
+    /// Set value of Ok Result
+    fn set_value<Vf>(
         self,
-    ) -> GenericResult<(), Self::P, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
+        x: Vf,
+    ) -> GenericResult<Vf, Self::P, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
     {
-        self.map_value(|_| ())
+        self.map_value(|_| x)
     }
 
-    /// Set value of Error side to `()`.
-    fn void_passthru(
+    /// Set value of Error Result
+    fn set_passthru<Pf>(
         self,
-    ) -> GenericResult<Self::V, (), Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
+        x: Pf,
+    ) -> GenericResult<Self::V, Pf, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
     {
-        self.map_passthru(|_| ())
+        self.map_passthru(|_| x)
     }
 
-    /// Set value of deferred result to `()`
-    fn def_void(self) -> Deferred<(), Self::LW, Self::E, Self::LWC, Self::EC>
+    /// Set value of deferred Result
+    fn set_def_value<Vf>(self, x: Vf) -> Deferred<Vf, Self::LW, Self::E, Self::LWC, Self::EC>
     where
         Self: DeferredExt,
     {
-        self.def_map_value(|_| ())
+        match self.into_result() {
+            Ok(s) => Ok(s.map_value(|_| x)),
+            Err(e) => Err(e.map_passthru(|_| x)),
+        }
     }
 
     /// Convert warnings of a non-commutative Result
@@ -1397,9 +1416,9 @@ where
             };
             ret.nowarn_into_cmt()
         } else if conf.hide_warnings {
-            res.remove_warnings().nowarn_into_cmt().void_passthru()
+            res.remove_warnings().nowarn_into_cmt().set_passthru(())
         } else {
-            res.void_passthru()
+            res.set_passthru(())
         }
     }
 
@@ -1430,16 +1449,16 @@ where
     //     }
     // }
 
-    /// Map warnings in deferred Result to errors
-    fn def_warnings_to_errors<F>(self, f: F) -> DeferredNowarn<Self::V, Self::E, Self::EC>
-    where
-        F: Fn(Self::LW) -> Self::E,
-        Self::LWC: IntoZeroOrMore<Self::EC>,
-        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
-        Self: DeferredExt,
-    {
-        self.warnings_to_errors(f, |x| x, |x| x)
-    }
+    // /// Map warnings in deferred Result to errors
+    // fn def_warnings_to_errors<F>(self, f: F) -> DeferredNowarn<Self::V, Self::E, Self::EC>
+    // where
+    //     F: Fn(Self::LW) -> Self::E,
+    //     Self::LWC: IntoZeroOrMore<Self::EC>,
+    //     <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
+    //     Self: DeferredExt,
+    // {
+    //     self.warnings_to_errors(f, |x| x, |x| x)
+    // }
 
     /// Aggregate non-fungible errors into one error.
     fn aggregate_non_fung_errors<F, Ef>(
@@ -1623,6 +1642,33 @@ where
             Ok(s) => s.eval_warning(f),
             Err(e) => e.eval_warning(f),
         }
+    }
+
+    /// Set warnings in both Ok and Error sides of Result
+    fn set_cmt_warnings<W, WC>(
+        self,
+        ws: WC::Wrapper<W>,
+    ) -> CmtResult<Self::V, Self::P, W, Self::E, WC, Self::EC>
+    where
+        WC: ZeroOrMore,
+        Self: NowarnExt,
+    {
+        match self.into_result() {
+            Ok(s) => Ok(s.set_warnings(ws)),
+            Err(e) => Err(e.set_warnings(ws)),
+        }
+    }
+
+    /// Set warnings in Ok side of Result with no warnings
+    fn set_non_cmt_warnings<W, WC>(
+        self,
+        ws: WC::Wrapper<W>,
+    ) -> NonCmtResult<Self::V, Self::P, W, Self::E, WC, Self::EC>
+    where
+        WC: ZeroOrMore,
+        Self: NowarnExt,
+    {
+        self.into_result().map(|s| s.set_warnings(ws))
     }
 
     /// Push a warning to a commutative Result.
@@ -2089,8 +2135,8 @@ impl<V, P, E, RW, LWC: ZeroOrMore, RWC: ZeroOrMore> ResolvableExt
 ///
 /// The wrapper for warning must be a semigroup and wrapper for error must be
 /// extendable since it might hold more than one error.
-pub(crate) trait CmtResultIter<T, W, E, WC, EC>:
-    Iterator<Item = CmtResult<T, (), W, E, WC, EC>> + Sized
+pub(crate) trait CmtResultIter<T, P, W, E, WC, EC>:
+    Iterator<Item = CmtResult<T, P, W, E, WC, EC>> + Sized
 where
     WC: ZeroOrMore,
     EC: ZeroOrMore,
@@ -2135,9 +2181,9 @@ where
     }
 }
 
-impl<I, V, W, E, WC, EC> CmtResultIter<V, W, E, WC, EC> for I
+impl<I, V, P, W, E, WC, EC> CmtResultIter<V, P, W, E, WC, EC> for I
 where
-    I: Iterator<Item = CmtResult<V, (), W, E, WC, EC>>,
+    I: Iterator<Item = CmtResult<V, P, W, E, WC, EC>>,
     WC: ZeroOrMore,
     EC: ZeroOrMore,
 {

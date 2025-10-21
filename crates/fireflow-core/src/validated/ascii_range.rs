@@ -92,15 +92,15 @@ impl AsciiRange {
     ) -> WarningsAndErrorsResult<Self, (), IntRangeError<()>, NewAsciiRangeError> {
         let rng_res = range
             .into_uint(disallow_trunc)
-            .non_fung_errors_into()
-            .void_passthru()
+            .map_non_fung_errors(NewAsciiRangeError::from)
+            .set_passthru(())
             .repack::<_, _, VecFamily>();
         let chars_res = Chars::try_from(width)
             .map_err(NewAsciiRangeError::from)
             .into_generic();
         rng_res.zip_cmt(chars_res).and_then_cmt(|(range, chars)| {
             Self::try_new(range, chars)
-                .map_err(Into::into)
+                .map_err(NewAsciiRangeError::from)
                 .into_generic()
         })
     }

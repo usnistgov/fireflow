@@ -137,7 +137,7 @@ impl<T> HeaderSegments<T> {
             self.as_generics()
                 .map(|x| x.overlaps(&q).into_generic())
                 .mappend_def()
-                .def_void()
+                .set_def_value(())
         } else {
             Result::new_ok(())
         }
@@ -150,7 +150,7 @@ impl<T> HeaderSegments<T> {
     {
         let x = self.overlapping_segments().non_fung_errors_into();
         let y = self.contains_header_segments().non_fung_errors_into();
-        x.zip_def(y).def_void()
+        x.zip_def(y).set_def_value(())
     }
 
     fn contains_header_segments(&self) -> DeferredErrors<(), InHeaderError>
@@ -166,7 +166,7 @@ impl<T> HeaderSegments<T> {
             .chain(os)
             .map(|x| x.into_generic())
             .mappend_def()
-            .def_void()
+            .set_def_value(())
     }
 
     fn contains_header_segment<I, S, T0>(&self, s: &Segment<I, S, T0>) -> Result<(), InHeaderError>

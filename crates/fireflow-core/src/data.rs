@@ -1005,6 +1005,18 @@ trait FloatFromBytes<const LEN: usize>: NumProps + OrderedFromBytes<LEN> {
     }
 }
 
+macro_rules! match_any_uint {
+    ($value:expr, $root:ident, $inner:ident, $action:block) => {
+        match_many_to_one!(
+            $value,
+            $root,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            $inner,
+            $action
+        )
+    };
+}
+
 macro_rules! match_any_mixed {
     ($value:expr, $inner:ident, $action:block) => {
         match_many_to_one!($value, MixedType, [Ascii, Uint, F32, F64], $inner, $action)
@@ -1013,16 +1025,7 @@ macro_rules! match_any_mixed {
 
 impl fmt::Debug for AnyNullBitmask {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Uint08(x) => write!(f, "Uint08({x:?})"),
-            Self::Uint16(x) => write!(f, "Uint16({x:?})"),
-            Self::Uint24(x) => write!(f, "Uint24({x:?})"),
-            Self::Uint32(x) => write!(f, "Uint32({x:?})"),
-            Self::Uint40(x) => write!(f, "Uint40({x:?})"),
-            Self::Uint48(x) => write!(f, "Uint48({x:?})"),
-            Self::Uint56(x) => write!(f, "Uint56({x:?})"),
-            Self::Uint64(x) => write!(f, "Uint64({x:?})"),
-        }
+        match_any_uint!(self, Self, x, { write!(f, "Uint{}({x:?})", x.bits_()) })
     }
 }
 
@@ -1294,18 +1297,6 @@ impl ColumnFamily for ColumnReaderFamily {
 
 impl<'a> ColumnFamily for ColumnWriterFamily<'a> {
     type ColumnWrapper<C, T, S> = ColumnWriter<'a, C, T, S>;
-}
-
-macro_rules! match_any_uint {
-    ($value:expr, $root:ident, $inner:ident, $action:block) => {
-        match_many_to_one!(
-            $value,
-            $root,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            $inner,
-            $action
-        )
-    };
 }
 
 impl From<&NullMixedType> for Range {
@@ -1906,49 +1897,40 @@ impl<D> EndianLayout<NullMixedType, D> {
     pub(crate) fn try_into_ordered<T>(
         self,
     ) -> ErrorsResult<AnyOrderedLayout<T>, (), MixedToOrderedLayoutError> {
+        macro_rules! from_columns {
+            ($i:expr) => {
+                $i.into_iter()
+                    .enumerate()
+                    .map(|(i, c)| {
+                        c.try_into()
+                            .map_err(|e| MixedColumnConvertError::new(i + 1, e))
+                            .into_generic()
+                    })
+                    .mappend_cmt()
+            };
+        }
+
         if let Some(ne_cols) = NonEmpty::from_vec(self.columns) {
             let c0 = ne_cols.head;
             let cs = ne_cols.tail;
             let endian = self.byte_layout;
             match c0 {
-                MixedType::Ascii(x) => cs
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, c)| {
-                        c.try_into()
-                            .map_err(|e| MixedColumnConvertError::new(i + 1, e))
-                            .into_generic()
-                    })
-                    .mappend_cmt()
-                    .map_value(|xs| {
-                        AnyAsciiLayout::Fixed(FixedLayout::new1(x, xs, NoByteOrd)).into()
-                    }),
                 MixedType::Uint(x) => x
                     .try_into_one_size(cs, endian, 1)
-                    .map_value(Into::into)
+                    .map_value(AnyOrderedLayout::from)
                     .map_non_fung_errors(|(index, error)| {
                         MixedColumnConvertError::new(index, error)
                     }),
-                MixedType::F32(x) => cs
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, c)| {
-                        c.try_into()
-                            .map_err(|e| MixedColumnConvertError::new(i + 1, e))
-                            .into_generic()
-                    })
-                    .mappend_cmt()
-                    .map_value(|xs| FixedLayout::new1(x, xs, endian.into()).into()),
-                MixedType::F64(x) => cs
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, c)| {
-                        c.try_into()
-                            .map_err(|e| MixedColumnConvertError::new(i + 1, e))
-                            .into_generic()
-                    })
-                    .mappend_cmt()
-                    .map_value(|xs| FixedLayout::new1(x, xs, endian.into()).into()),
+                MixedType::Ascii(x) => from_columns!(cs)
+                    .map_value(|xs| FixedLayout::new1(x, xs, NoByteOrd))
+                    .map_value(AnyAsciiLayout::from)
+                    .map_value(AnyOrderedLayout::from),
+                MixedType::F32(x) => from_columns!(cs)
+                    .map_value(|xs| FixedLayout::new1(x, xs, endian.into()))
+                    .map_value(AnyOrderedLayout::from),
+                MixedType::F64(x) => from_columns!(cs)
+                    .map_value(|xs| FixedLayout::new1(x, xs, endian.into()))
+                    .map_value(AnyOrderedLayout::from),
             }
         } else {
             let b: SizedByteOrd<4> = self.byte_layout.into();
@@ -1960,6 +1942,16 @@ impl<D> EndianLayout<NullMixedType, D> {
         self,
     ) -> ErrorsResult<NonMixedEndianLayout<NoMeasDatatype>, (), MixedToNonMixedLayoutError> {
         if let Some(ne_cols) = NonEmpty::from_vec(self.columns) {
+            macro_rules! from_iter {
+                ($iter:expr, $head:expr, $byte_layout:expr) => {
+                    $iter
+                        .map(|(i, c)| c.try_into().map_err(|e| (i, e)).into_generic())
+                        .mappend_cmt()
+                        .map_value(|xs| FixedLayout::new1($head, xs, $byte_layout))
+                        .map_value(NonMixedEndianLayout::from)
+                };
+            }
+
             let c0 = ne_cols.head;
             let it = ne_cols.tail.into_iter().enumerate();
             let byte_layout = self.byte_layout;
@@ -1969,18 +1961,9 @@ impl<D> EndianLayout<NullMixedType, D> {
                     .mappend_cmt()
                     .map_value(|xs| FixedLayout::new1(x, xs, NoByteOrd))
                     .map_value(|l| AnyAsciiLayout::Fixed(l).into()),
-                MixedType::Uint(x) => it
-                    .map(|(i, c)| c.try_into().map_err(|e| (i, e)).into_generic())
-                    .mappend_cmt()
-                    .map_value(|xs| FixedLayout::new1(x, xs, byte_layout).into()),
-                MixedType::F32(x) => it
-                    .map(|(i, c)| c.try_into().map_err(|e| (i, e)).into_generic())
-                    .mappend_cmt()
-                    .map_value(|xs| FixedLayout::new1(x, xs, byte_layout).into()),
-                MixedType::F64(x) => it
-                    .map(|(i, c)| c.try_into().map_err(|e| (i, e)).into_generic())
-                    .mappend_cmt()
-                    .map_value(|xs| FixedLayout::new1(x, xs, byte_layout).into()),
+                MixedType::Uint(x) => from_iter!(it, x, byte_layout),
+                MixedType::F32(x) => from_iter!(it, x, byte_layout),
+                MixedType::F64(x) => from_iter!(it, x, byte_layout),
             }
             .map_non_fung_errors(|(i, error)| MixedColumnConvertError::new(i + 1, error))
         } else {
@@ -2091,26 +2074,23 @@ impl NullMixedType {
         datatype: Option<NumType>,
         disallow_trunc: bool,
     ) -> WarningsAndErrorsResult<Self, (), NewMixedTypeWarning, NewMixedTypeError> {
+        macro_rules! from {
+            ($t:ident, $width:expr, $range:expr, $disallow_trunc:expr) => {
+                $t::from_width_and_range($width, $range, $disallow_trunc)
+                    .map_value(Self::from)
+                    .cmt_warnings_into()
+                    .non_fung_errors_into()
+            };
+        }
+
         if let Some(dt) = datatype {
             match dt {
-                NumType::Integer => AnyBitmask::from_width_and_range(width, range, disallow_trunc)
-                    .map_value(Self::Uint)
-                    .cmt_warnings_into()
-                    .non_fung_errors_into(),
-                NumType::Float => F32Range::from_width_and_range(width, range, disallow_trunc)
-                    .map_value(Self::F32)
-                    .cmt_warnings_into()
-                    .non_fung_errors_into(),
-                NumType::Double => F64Range::from_width_and_range(width, range, disallow_trunc)
-                    .map_value(Self::F64)
-                    .cmt_warnings_into()
-                    .non_fung_errors_into(),
+                NumType::Integer => from!(AnyBitmask, width, range, disallow_trunc),
+                NumType::Float => from!(F32Range, width, range, disallow_trunc),
+                NumType::Double => from!(F64Range, width, range, disallow_trunc),
             }
         } else {
-            AsciiRange::from_width_and_range(width, range, disallow_trunc)
-                .map_value(Self::Ascii)
-                .cmt_warnings_into()
-                .non_fung_errors_into()
+            from!(AsciiRange, width, range, disallow_trunc)
         }
     }
 
@@ -3586,35 +3566,43 @@ impl VersionedDataLayout for DataLayout3_2 {
     where
         C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
     {
+        macro_rules! from {
+            ($i:expr) => {
+                $i.map_cmt_warnings(LookupLayoutWarning::from)
+                    .map_non_fung_errors(LookupLayoutError::from)
+            };
+        }
+
         let d = AlphaNumType::lookup_req_check_ascii(kws);
         let e = ByteOrd3_1::lookup_req(kws);
         let cs = HasMeasDatatype::lookup_all(kws, par, conf.as_ref());
-        d.zip3_cmt(e, cs)
-            .map_cmt_warnings(LookupLayoutWarning::from)
-            .map_non_fung_errors(LookupLayoutError::from)
-            .and_then_cmt(|(datatype, endian, columns)| {
-                Self::try_new(datatype, endian, columns, conf.as_ref())
-                    .map_cmt_warnings(LookupLayoutWarning::from)
-                    .map_non_fung_errors(LookupLayoutError::from)
-            })
+
+        from!(d.zip3_cmt(e, cs)).and_then_cmt(|(datatype, endian, columns)| {
+            from!(Self::try_new(datatype, endian, columns, conf.as_ref()))
+        })
     }
 
     fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self> {
-        let d = AlphaNumType::get_metaroot_req(kws)
-            .map_err(RawParsedError::from)
-            .into_generic();
-        let e = ByteOrd3_1::get_metaroot_req(kws)
-            .map_err(RawParsedError::from)
-            .into_generic();
-        let cs = HasMeasDatatype::lookup_ro_all(kws);
-        d.zip3_cmt(e, cs)
-            .map_cmt_warnings(RawToLayoutWarning::from)
-            .map_non_fung_errors(RawToLayoutError::from)
-            .and_then_cmt(|(datatype, endian, columns)| {
-                Self::try_new(datatype, endian, columns, conf)
-                    .map_cmt_warnings(RawToLayoutWarning::from)
+        macro_rules! from1 {
+            ($i:expr) => {
+                $i.map_err(RawParsedError::from).into_generic()
+            };
+        }
+
+        macro_rules! from2 {
+            ($i:expr) => {
+                $i.map_cmt_warnings(RawToLayoutWarning::from)
                     .map_non_fung_errors(RawToLayoutError::from)
-            })
+            };
+        }
+
+        let d = from1!(AlphaNumType::get_metaroot_req(kws));
+        let e = from1!(ByteOrd3_1::get_metaroot_req(kws));
+        let cs = HasMeasDatatype::lookup_ro_all(kws);
+
+        from2!(d.zip3_cmt(e, cs)).and_then_cmt(|(datatype, endian, columns)| {
+            from2!(Self::try_new(datatype, endian, columns, conf))
+        })
     }
 
     fn new_empty(datatype: AlphaNumType) -> Self {
@@ -3813,35 +3801,43 @@ impl<T> AnyOrderedLayout<T> {
     where
         C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
     {
+        macro_rules! from {
+            ($i:expr) => {
+                $i.map_cmt_warnings(LookupLayoutWarning::from)
+                    .map_non_fung_errors(LookupLayoutError::from)
+            };
+        }
+
         let cs = NoMeasDatatype::lookup_all(kws, par, conf.as_ref());
         let d = AlphaNumType::lookup_req(kws);
         let b = ByteOrd2_0::lookup_req(kws);
-        d.zip3_cmt(b, cs)
-            .map_cmt_warnings(LookupLayoutWarning::from)
-            .map_non_fung_errors(LookupLayoutError::from)
-            .and_then_cmt(|(datatype, byteord, columns)| {
-                Self::try_new(datatype, byteord, columns, conf.as_ref())
-                    .map_cmt_warnings(LookupLayoutWarning::from)
-                    .map_non_fung_errors(LookupLayoutError::from)
-            })
+
+        from!(d.zip3_cmt(b, cs)).and_then_cmt(|(datatype, byteord, columns)| {
+            from!(Self::try_new(datatype, byteord, columns, conf.as_ref()))
+        })
     }
 
     fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self> {
-        let cs = NoMeasDatatype::lookup_ro_all(kws);
-        let d = AlphaNumType::get_metaroot_req(kws)
-            .map_err(RawParsedError::from)
-            .into_generic();
-        let b = ByteOrd2_0::get_metaroot_req(kws)
-            .map_err(RawParsedError::from)
-            .into_generic();
-        d.zip3_cmt(b, cs)
-            .map_cmt_warnings(RawToLayoutWarning::from)
-            .map_non_fung_errors(RawToLayoutError::from)
-            .and_then_cmt(|(datatype, byteord, columns)| {
-                Self::try_new(datatype, byteord, columns, conf)
-                    .map_cmt_warnings(RawToLayoutWarning::from)
+        macro_rules! from1 {
+            ($i:expr) => {
+                $i.map_err(RawParsedError::from).into_generic()
+            };
+        }
+
+        macro_rules! from2 {
+            ($i:expr) => {
+                $i.map_cmt_warnings(RawToLayoutWarning::from)
                     .map_non_fung_errors(RawToLayoutError::from)
-            })
+            };
+        }
+
+        let d = from1!(AlphaNumType::get_metaroot_req(kws));
+        let b = from1!(ByteOrd2_0::get_metaroot_req(kws));
+        let cs = NoMeasDatatype::lookup_ro_all(kws);
+
+        from2!(d.zip3_cmt(b, cs)).and_then_cmt(|(datatype, byteord, columns)| {
+            from2!(Self::try_new(datatype, byteord, columns, conf))
+        })
     }
 
     #[must_use]
@@ -3892,40 +3888,35 @@ impl<T> AnyOrderedLayout<T> {
         conf: &ReadLayoutConfig,
     ) -> WarningsAndErrorsResult<Self, (), ColumnError<NewMixedTypeWarning>, NewDataLayoutError>
     {
+        macro_rules! from {
+            ($i:expr) => {
+                $i.map_non_fung_errors(NewDataLayoutError::from)
+                    .map_cmt_warnings(ColumnError::inner_into)
+                    .map_value(Self::from)
+            };
+        }
+
+        macro_rules! go_float {
+            ($t:ident, $notrunc:expr) => {
+                byteord
+                    .try_into()
+                    .map_err(NewDataLayoutError::from)
+                    .into_generic()
+                    .and_then_cmt(|b| {
+                        from! {FixedLayout::try_new(columns, b, |c| {
+                            $t::from_width_and_range(c.width, c.range, $notrunc)
+                        })}
+                    })
+            };
+        }
+
         let notrunc = conf.disallow_range_truncation;
 
-        let try_from_byteord = || {
-            byteord
-                .try_into()
-                .map_err(NewDataLayoutError::from)
-                .into_generic()
-        };
-
         match datatype {
-            AlphaNumType::Ascii => AnyAsciiLayout::try_new(columns, notrunc)
-                .map_non_fung_errors(NewDataLayoutError::from)
-                .map_cmt_warnings(ColumnError::inner_into)
-                .map_value(Self::from),
-            AlphaNumType::Integer => AnyOrderedUintLayout::try_new(columns, byteord, conf)
-                .map_non_fung_errors(NewDataLayoutError::from)
-                .map_cmt_warnings(ColumnError::inner_into)
-                .map_value(Self::from),
-            AlphaNumType::Float => try_from_byteord().and_then_cmt(|b| {
-                FixedLayout::try_new(columns, b, |c| {
-                    F32Range::from_width_and_range(c.width, c.range, notrunc)
-                })
-                .map_non_fung_errors(NewDataLayoutError::from)
-                .map_cmt_warnings(ColumnError::inner_into)
-                .map_value(Self::from)
-            }),
-            AlphaNumType::Double => try_from_byteord().and_then_cmt(|b| {
-                FixedLayout::try_new(columns, b, |c| {
-                    F32Range::from_width_and_range(c.width, c.range, notrunc)
-                })
-                .map_non_fung_errors(NewDataLayoutError::from)
-                .map_cmt_warnings(ColumnError::inner_into)
-                .map_value(Self::from)
-            }),
+            AlphaNumType::Ascii => from!(AnyAsciiLayout::try_new(columns, notrunc)),
+            AlphaNumType::Integer => from!(AnyOrderedUintLayout::try_new(columns, byteord, conf)),
+            AlphaNumType::Float => go_float!(F32Range, notrunc),
+            AlphaNumType::Double => go_float!(F64Range, notrunc),
         }
     }
 

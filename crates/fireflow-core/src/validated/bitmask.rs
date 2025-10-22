@@ -1,6 +1,5 @@
 //! Types to represent the $PnB and $PnR values for a uint column.
 
-use crate::error::{BiTentative, ErrorIter as _, MultiResult};
 use crate::error1::{
     CmtResultIter as _, DeferredFungibleError, ErrorsResult, GenericResultExt as _, ResultExt as _,
 };
@@ -166,6 +165,10 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
 
     fn bits() -> u8 {
         Self::bytes() * 8
+    }
+
+    pub(crate) fn bits_(&self) -> u8 {
+        Self::bits()
     }
 
     pub(crate) fn try_from_many<E, X>(

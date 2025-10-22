@@ -147,7 +147,7 @@ pub(crate) trait CheckMaybe: Sized + IsDefault {
         }
     }
 
-    fn check_indexed_key_transfer_tnt<E>(
+    fn check_indexed_key_transfer_fungible<E>(
         &self,
         i: impl Into<IndexFromOne>,
         allow_loss: bool,

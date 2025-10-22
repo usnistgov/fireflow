@@ -1371,6 +1371,34 @@ where
             .repack_errors()
     }
 
+    fn into_semigroup<LWC, RWC>(
+        self,
+    ) -> GenericResult<Self::V, Self::P, Self::LW, Self::RW, Self::E, LWC, RWC, VecFamily>
+    where
+        LWC: ZeroOrMore,
+        RWC: ZeroOrMore,
+        LWC::Wrapper<Self::LW>: Semigroup,
+        RWC::Wrapper<Self::RW>: Semigroup,
+        Self::LWC: IntoZeroOrMore<LWC>,
+        Self::RWC: IntoZeroOrMore<RWC>,
+        Self::EC: IntoZeroOrMore<VecFamily>,
+    {
+        self.repack()
+    }
+
+    fn repack_warnings<WCf>(
+        self,
+    ) -> GenericResult<Self::V, Self::P, Self::LW, Self::RW, Self::E, WCf, WCf, Self::EC>
+    where
+        Self::LWC: IntoZeroOrMore<WCf>,
+        Self::RWC: IntoZeroOrMore<WCf>,
+        WCf: ZeroOrMore,
+    {
+        self.into_result()
+            .repack_right_warnings()
+            .repack_left_warnings()
+    }
+
     fn repack_left_warnings<LWCf>(
         self,
     ) -> GenericResult<Self::V, Self::P, Self::LW, Self::RW, Self::E, LWCf, Self::RWC, Self::EC>
@@ -1800,6 +1828,33 @@ where
         }
     }
 
+    /// Push non-fungible error to a deferred Result based on its value.
+    ///
+    /// If Result is Ok, the result will be converted to an error.
+    ///
+    /// This must be deferred because the value type will be the same
+    /// if the Result needs to flip from Ok to Error.
+    fn eval_def_non_fung_error<F, E>(
+        mut self,
+        is_error: bool,
+        f: F,
+    ) -> Deferred<Self::V, Self::LW, Self::E, Self::LWC, Self::EC>
+    where
+        F: FnOnce(&Self::V) -> Option<E>,
+        E: Into<Self::E>,
+        E: Into<Self::LW>,
+        <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Extend<Self::LW>,
+        <Self::EC as ZeroOrMore>::Wrapper<Self::E>: Extend<Self::E>,
+        Self: DeferredExt,
+    {
+        if is_error {
+            self.eval_def_error(|x| f(x).map(Into::into))
+        } else {
+            self.eval_def_warning(|x| f(x).map(Into::into));
+            self.into_result()
+        }
+    }
+
     /// Push fungible error to a deferred Result.
     ///
     /// If Result is Ok, the result will be converted to an error.
@@ -1838,9 +1893,9 @@ where
         Self::EC: FungibleErrorFamily,
     {
         if is_error {
-            self.extend_def_errors(xs.into_iter().map(Into::into))
+            self.extend_def_errors(xs.into_iter())
         } else {
-            self.extend_cmt_warnings(xs.into_iter().map(Into::into));
+            self.extend_cmt_warnings(xs.into_iter());
             self.into_result()
         }
     }
@@ -2293,7 +2348,7 @@ where
         }
     }
 
-    fn mappend_def_void(mut self) -> Deferred<(), W, E, WC, EC>
+    fn mappend_def_void(self) -> Deferred<(), W, E, WC, EC>
     where
         WC::Wrapper<W>: Semigroup,
         EC::Wrapper<E>: Extend<E>,

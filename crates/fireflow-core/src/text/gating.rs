@@ -529,7 +529,7 @@ impl AppliedGates3_2 {
             |k, i| Region::lookup(k, i, par, false, conf),
             conf,
         )
-        .def_map_value(Self)
+        .map_def_value(Self)
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -592,7 +592,7 @@ impl GatedMeasurement {
         scale
             .zip4_def(filter, shortname, perc_emit)
             .zip5_def(rng, longname, det_type, det_volt)
-            .def_map_value(|((e, f, n, p), r, s, t, v)| Self::new(e, f, n, p, r, s, t, v))
+            .map_def_value(|((e, f, n, p), r, s, t, v)| Self::new(e, f, n, p, r, s, t, v))
     }
 
     pub(crate) fn opt_keywords(&self, i: GateIndex) -> impl Iterator<Item = (String, String)> {
@@ -687,7 +687,7 @@ impl<I> GatingScheme<I> {
                 .map_or(Result::new_ok_def(), |g| {
                     g.region_indices()
                         .into_iter()
-                        .map(|ri| lookup_region(kws, ri).def_map_value(|x| x.map(|y| (ri, y))))
+                        .map(|ri| lookup_region(kws, ri).map_def_value(|x| x.map(|y| (ri, y))))
                         .mappend_def()
                 })
                 .and_then_def(|rs| {
@@ -924,7 +924,7 @@ impl GatedMeasurements {
                 (0..n.0)
                     .map(|i| GatedMeasurement::lookup(kws, i.into(), is_deprecated, conf))
                     .mappend_def()
-                    .def_map_value(Self)
+                    .map_def_value(Self)
             } else {
                 Result::new_ok_def()
             }

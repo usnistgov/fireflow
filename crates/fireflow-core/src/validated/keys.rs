@@ -651,7 +651,7 @@ impl ParsedKeywords {
                 }
             })
             .mappend_def()
-            .def_map_value(|_| ())
+            .map_def_value(|_| ())
     }
 }
 

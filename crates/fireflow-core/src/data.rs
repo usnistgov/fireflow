@@ -576,7 +576,7 @@ pub trait LayoutOps<'a, T>: Sized {
                 Result::new_non_fungible((), (), ColumnError::new(i, e), is_err)
             })
             .mappend_def()
-            .def_map_value(|_| ())
+            .map_def_value(|_| ())
     }
 
     // TODO return type seems wonky, doesn't this just return warnings?
@@ -2159,14 +2159,14 @@ impl AnyNullBitmask {
         disallow_trunc: bool,
     ) -> DeferredFungibleErrors<Self, BitmaskError> {
         match width {
-            Bytes::B1 => Bitmask08::from_range(range, disallow_trunc).def_map_value(Into::into),
-            Bytes::B2 => Bitmask16::from_range(range, disallow_trunc).def_map_value(Into::into),
-            Bytes::B3 => Bitmask24::from_range(range, disallow_trunc).def_map_value(Into::into),
-            Bytes::B4 => Bitmask32::from_range(range, disallow_trunc).def_map_value(Into::into),
-            Bytes::B5 => Bitmask40::from_range(range, disallow_trunc).def_map_value(Into::into),
-            Bytes::B6 => Bitmask48::from_range(range, disallow_trunc).def_map_value(Into::into),
-            Bytes::B7 => Bitmask56::from_range(range, disallow_trunc).def_map_value(Into::into),
-            Bytes::B8 => Bitmask64::from_range(range, disallow_trunc).def_map_value(Into::into),
+            Bytes::B1 => Bitmask08::from_range(range, disallow_trunc).map_def_value(Into::into),
+            Bytes::B2 => Bitmask16::from_range(range, disallow_trunc).map_def_value(Into::into),
+            Bytes::B3 => Bitmask24::from_range(range, disallow_trunc).map_def_value(Into::into),
+            Bytes::B4 => Bitmask32::from_range(range, disallow_trunc).map_def_value(Into::into),
+            Bytes::B5 => Bitmask40::from_range(range, disallow_trunc).map_def_value(Into::into),
+            Bytes::B6 => Bitmask48::from_range(range, disallow_trunc).map_def_value(Into::into),
+            Bytes::B7 => Bitmask56::from_range(range, disallow_trunc).map_def_value(Into::into),
+            Bytes::B8 => Bitmask64::from_range(range, disallow_trunc).map_def_value(Into::into),
         }
     }
 
@@ -2294,7 +2294,7 @@ where
                     .into_generic()
             })
             .mappend_def()
-            .def_map_value(|_| ())
+            .map_def_value(|_| ())
     }
 
     fn h_write_df_inner<W: Write>(
@@ -2928,7 +2928,7 @@ impl<C> EndianLayout<C, HasMeasDatatype> {
         NullMixedType: From<C>,
         NonMixedEndianLayout<HasMeasDatatype>: From<Self>,
     {
-        NullMixedType::from_range(range, disallow_trunc).def_map_value(|col| match col.try_into() {
+        NullMixedType::from_range(range, disallow_trunc).map_def_value(|col| match col.try_into() {
             Ok(c) => {
                 self.insert_column(index, c);
                 DataLayout3_2::NonMixed(self.into())
@@ -2951,7 +2951,7 @@ impl<C> EndianLayout<C, HasMeasDatatype> {
         NullMixedType: From<C>,
         NonMixedEndianLayout<HasMeasDatatype>: From<Self>,
     {
-        NullMixedType::from_range(range, disallow_trunc).def_map_value(|col| match col.try_into() {
+        NullMixedType::from_range(range, disallow_trunc).map_def_value(|col| match col.try_into() {
             Ok(c) => {
                 self.push_column(c);
                 DataLayout3_2::NonMixed(self.into())
@@ -3083,7 +3083,7 @@ where
     fn from_range(range: Range, disallow_trunc: bool) -> DeferredFungibleErrors<Self, Self::Error> {
         range
             .into_float(disallow_trunc)
-            .def_map_value(Self::new)
+            .map_def_value(Self::new)
             .repack()
     }
 }
@@ -3098,7 +3098,7 @@ impl FromRange for AsciiRange {
     fn from_range(range: Range, disallow_trunc: bool) -> DeferredFungibleErrors<Self, Self::Error> {
         range
             .into_uint::<u64>(disallow_trunc)
-            .def_map_value(Self::from)
+            .map_def_value(Self::from)
             .repack()
     }
 }
@@ -3114,7 +3114,7 @@ impl FromRange for AnyNullBitmask {
         // TODO there is probably a better place to do this subtraction
         (range - Range::from(1_u8))
             .into_uint(disallow_trunc)
-            .def_map_value(|x: u64| Self::from(x))
+            .map_def_value(|x: u64| Self::from(x))
             .repack()
     }
 }
@@ -3132,7 +3132,7 @@ impl FromRange for NullMixedType {
     fn from_range(range: Range, disallow_trunc: bool) -> DeferredFungibleErrors<Self, Self::Error> {
         if range.0.is_integer() {
             AnyBitmask::from_range(range, disallow_trunc)
-                .def_map_value(Self::Uint)
+                .map_def_value(Self::Uint)
                 .map_cmt_fung_errors(AnyRangeError::from)
         } else {
             let res = FloatDecimal::<f32>::try_from(range.0)
@@ -3700,7 +3700,7 @@ impl InterLayoutOps<HasMeasDatatype> for DataLayout3_2 {
                 NonMixedEndianLayout::F64(y) => y.insert_mixed(index, range, disallow_trunc),
             },
         }
-        .def_map_value(|newself| {
+        .map_def_value(|newself| {
             *self = newself;
         })
     }
@@ -3721,7 +3721,7 @@ impl InterLayoutOps<HasMeasDatatype> for DataLayout3_2 {
                 NonMixedEndianLayout::F64(y) => y.push_mixed(range, disallow_trunc),
             },
         }
-        .def_map_value(|newself| {
+        .map_def_value(|newself| {
             *self = newself;
         })
     }

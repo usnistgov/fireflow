@@ -130,7 +130,7 @@ pub(crate) trait Optional: Sized {
     {
         kws.remove(&k)
             .map_or(Result::new_ok(Self::Outer::default()), |v| {
-                f(k, v).def_map_value(|x| x.map(Into::into).unwrap_or_default())
+                f(k, v).map_def_value(|x| x.map(Into::into).unwrap_or_default())
             })
     }
 }

@@ -939,6 +939,10 @@ pub trait ResultExt: Sized {
         self.into_generic()
     }
 
+    fn into_nowarn(self) -> NowarnResult<Self::Ok, (), Self::Error, VecFamily> {
+        self.into_generic()
+    }
+
     fn into_warn1(self) -> NowarnResult<Self::Ok, (), Self::Error, NullFamily> {
         self.into_generic()
     }
@@ -1001,7 +1005,7 @@ pub trait ResultExt: Sized {
     {
         self.into_result()
             .into_deferred_fungible_opt(is_error)
-            .def_map_value(|v| v.unwrap_or(default))
+            .map_def_value(|v| v.unwrap_or(default))
     }
 
     fn into_succ<P, RW, E, LWC, RWC, EC>(
@@ -1337,7 +1341,7 @@ where
     }
 
     /// Map function over Ok and Error value of result (assumed same type).
-    fn def_map_value<F, Vf>(
+    fn map_def_value<F, Vf>(
         self,
         f: F,
     ) -> GenericResult<Vf, Vf, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
@@ -1514,18 +1518,8 @@ where
     where
         Self: GenericResultExt<E = Infallible>,
     {
-        // NOTE dirty hack because rust can't tell that the error side can never
-        // happen when E is Infallible. The error side has one field with type
-        // E that isn't wrapped (which means it can't be PhantomData<E>) and
-        // thus can't be instantiated with Infallible by definition.
         let Ok(ret) = self.into_result();
         Ok(ret)
-        // let ret = match self.into_result() {
-        //     Ok(tnt) => Some(Success::new(tnt.value, tnt.warnings)),
-        //     Err(_) => None,
-        // }
-        // .expect("infallible result should not happen");
-        // Ok(ret)
     }
 
     /// Resolve Result with no warnings into regular Result type.
@@ -1930,7 +1924,7 @@ where
         }
     }
 
-    /// Combine two commutative results.
+    /// Combine three commutative results.
     fn zip3_cmt<V1, V2, P1, P2>(
         self,
         a: CmtResult<V1, P1, Self::LW, Self::E, Self::LWC, Self::EC>,
@@ -1944,6 +1938,60 @@ where
         self.zip_cmt(a)
             .zip_cmt(b.repack())
             .map_value(|((ax, bx), cx)| (ax, bx, cx))
+    }
+
+    /// Combine four commutative results.
+    fn zip4_cmt<V1, V2, V3, P1, P2, P3>(
+        self,
+        a: CmtResult<V1, P1, Self::LW, Self::E, Self::LWC, Self::EC>,
+        b: CmtResult<V2, P2, Self::LW, Self::E, Self::LWC, Self::EC>,
+        c: CmtResult<V3, P3, Self::LW, Self::E, Self::LWC, Self::EC>,
+    ) -> CmtResult<(Self::V, V1, V2, V3), (), Self::LW, Self::E, Self::LWC, VecFamily>
+    where
+        Self::EC: IntoZeroOrMore<VecFamily>,
+        <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Semigroup,
+        Self: CommutativeResultExt,
+    {
+        self.zip3_cmt(a, b)
+            .zip_cmt(c.repack())
+            .map_value(|((ax, bx, cx), dx)| (ax, bx, cx, dx))
+    }
+
+    /// Combine five commutative results.
+    fn zip5_cmt<V1, V2, V3, V4, P1, P2, P3, P4>(
+        self,
+        a: CmtResult<V1, P1, Self::LW, Self::E, Self::LWC, Self::EC>,
+        b: CmtResult<V2, P2, Self::LW, Self::E, Self::LWC, Self::EC>,
+        c: CmtResult<V3, P3, Self::LW, Self::E, Self::LWC, Self::EC>,
+        d: CmtResult<V4, P4, Self::LW, Self::E, Self::LWC, Self::EC>,
+    ) -> CmtResult<(Self::V, V1, V2, V3, V4), (), Self::LW, Self::E, Self::LWC, VecFamily>
+    where
+        Self::EC: IntoZeroOrMore<VecFamily>,
+        <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Semigroup,
+        Self: CommutativeResultExt,
+    {
+        self.zip4_cmt(a, b, c)
+            .zip_cmt(d.repack())
+            .map_value(|((ax, bx, cx, dx), ex)| (ax, bx, cx, dx, ex))
+    }
+
+    /// Combine six commutative results.
+    fn zip6_cmt<V1, V2, V3, V4, V5, P1, P2, P3, P4, P5>(
+        self,
+        a: CmtResult<V1, P1, Self::LW, Self::E, Self::LWC, Self::EC>,
+        b: CmtResult<V2, P2, Self::LW, Self::E, Self::LWC, Self::EC>,
+        c: CmtResult<V3, P3, Self::LW, Self::E, Self::LWC, Self::EC>,
+        d: CmtResult<V4, P4, Self::LW, Self::E, Self::LWC, Self::EC>,
+        e: CmtResult<V5, P5, Self::LW, Self::E, Self::LWC, Self::EC>,
+    ) -> CmtResult<(Self::V, V1, V2, V3, V4, V5), (), Self::LW, Self::E, Self::LWC, VecFamily>
+    where
+        Self::EC: IntoZeroOrMore<VecFamily>,
+        <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Semigroup,
+        Self: CommutativeResultExt,
+    {
+        self.zip5_cmt(a, b, c, d)
+            .zip_cmt(e.repack())
+            .map_value(|((ax, bx, cx, dx, ex), fx)| (ax, bx, cx, dx, ex, fx))
     }
 
     /// Combine two deferred results.
@@ -1985,7 +2033,7 @@ where
     {
         self.zip_def(a)
             .zip_def(b.repack())
-            .def_map_value(|((ax, bx), cx)| (ax, bx, cx))
+            .map_def_value(|((ax, bx), cx)| (ax, bx, cx))
     }
 
     /// Combine four deferred results.
@@ -2002,7 +2050,7 @@ where
     {
         self.zip3_def(a, b)
             .zip_def(c.repack())
-            .def_map_value(|((ax, bx, cx), dx)| (ax, bx, cx, dx))
+            .map_def_value(|((ax, bx, cx), dx)| (ax, bx, cx, dx))
     }
 
     /// Combine five deferred results.
@@ -2020,7 +2068,7 @@ where
     {
         self.zip4_def(a, b, c)
             .zip_def(d.repack())
-            .def_map_value(|((ax, bx, cx, dx), ex)| (ax, bx, cx, dx, ex))
+            .map_def_value(|((ax, bx, cx, dx), ex)| (ax, bx, cx, dx, ex))
     }
 
     /// Combine six deferred results.
@@ -2039,7 +2087,7 @@ where
     {
         self.zip5_def(a, b, c, d)
             .zip_def(e.repack())
-            .def_map_value(|((ax, bx, cx, dx, ex), fx)| (ax, bx, cx, dx, ex, fx))
+            .map_def_value(|((ax, bx, cx, dx, ex), fx)| (ax, bx, cx, dx, ex, fx))
     }
 }
 
@@ -2243,6 +2291,14 @@ where
         } else {
             Ok(Success::new(vs, ws))
         }
+    }
+
+    fn mappend_def_void(mut self) -> Deferred<(), W, E, WC, EC>
+    where
+        WC::Wrapper<W>: Semigroup,
+        EC::Wrapper<E>: Extend<E>,
+    {
+        self.mappend_def().set_def_value(())
     }
 }
 

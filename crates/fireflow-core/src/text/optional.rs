@@ -1,5 +1,6 @@
 use crate::core::{AnyMetarootKeyLossError, IndexedKeyLossError, UnitaryKeyLossError};
-use crate::error::{BiTentative, DeferredFailureInner, SingletonResult, Tentative, TentativeInner};
+use crate::error1::{DeferredError, DeferredFungibleError, ResultExt};
+// use crate::error::{BiTentative, DeferredFailureInner, SingletonResult, Tentative, TentativeInner};
 use crate::validated::keys::{IndexedKey, Key, MeasHeader};
 
 use super::index::IndexFromOne;
@@ -131,14 +132,18 @@ pub(crate) trait KeywordPairMaybe: IsDefault + DisplayMaybe {
 pub(crate) trait CheckMaybe: Sized + IsDefault {
     type Inner;
 
-    fn check_key_transfer(&self, allow_loss: bool) -> BiTentative<(), AnyMetarootKeyLossError>
+    fn check_key_transfer(
+        &self,
+        allow_loss: bool,
+    ) -> DeferredFungibleError<(), AnyMetarootKeyLossError>
     where
         AnyMetarootKeyLossError: From<UnitaryKeyLossError<Self::Inner>>,
     {
         if self.is_default() {
-            Tentative::default()
+            Result::new_ok(())
         } else {
-            Tentative::new_vec_either((), [UnitaryKeyLossError::<Self::Inner>::new()], !allow_loss)
+            let e = UnitaryKeyLossError::<Self::Inner>::new().into();
+            Result::new_deferred_fungible((), e, !allow_loss)
         }
     }
 
@@ -146,28 +151,24 @@ pub(crate) trait CheckMaybe: Sized + IsDefault {
         &self,
         i: impl Into<IndexFromOne>,
         allow_loss: bool,
-    ) -> BiTentative<(), E>
+    ) -> DeferredFungibleError<(), E>
     where
         E: From<IndexedKeyLossError<Self::Inner>>,
     {
         if self.is_default() {
-            Tentative::default()
+            Result::new_ok(())
         } else {
-            let e = IndexedKeyLossError::<Self::Inner>::new(i);
-            Tentative::new_vec_either((), [e], !allow_loss)
+            let e = IndexedKeyLossError::<Self::Inner>::new(i).into();
+            Result::new_deferred_fungible((), e, !allow_loss)
         }
     }
 
-    fn check_indexed_key_transfer<E>(&self, i: impl Into<IndexFromOne>) -> SingletonResult<(), E>
+    fn check_indexed_key_transfer<E>(&self, i: impl Into<IndexFromOne>) -> DeferredError<(), E>
     where
         E: From<IndexedKeyLossError<Self::Inner>>,
     {
-        if self.is_default() {
-            Ok(TentativeInner::default())
-        } else {
-            let e = IndexedKeyLossError::<Self::Inner>::new(i);
-            Err(DeferredFailureInner::new1(e))
-        }
+        let e = IndexedKeyLossError::<Self::Inner>::new(i).into();
+        Result::new_non_fungible((), (), e, self.is_default())
     }
 }
 

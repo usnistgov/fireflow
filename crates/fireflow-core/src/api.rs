@@ -14,7 +14,8 @@ use crate::data::{NewDataReaderError, NewDataReaderWarning, RawToLayoutError, Ra
 use crate::error1::{
     CmtResultIter as _, DeferredErrors, DeferredFungibleErrors, DeferredIter as _,
     DeferredWarningAndError, DeferredWarningsAndErrors, ErrorsResult, GenericResultExt as _,
-    ImpureError, ResultExt, WarningAndErrorResult, WarningsAndErrorsResult,
+    IOWarningsAndErrorsResult, ImpureError, ResultExt, WarningAndErrorResult,
+    WarningsAndErrorsResult,
 };
 // use crate::error::{
 //     DeferredExt as _, DeferredFailure, DeferredResult, ErrorIter1 as _, IODeferredExt as _,
@@ -198,11 +199,11 @@ pub fn fcs_read_std_dataset_with_keywords(
     analysis_seg: HeaderAnalysisSegment,
     other_segs: &[OtherSegment20],
     conf: &ReadStdDatasetFromKeywordsConfig,
-) -> WarningsAndErrorsResult<
+) -> IOWarningsAndErrorsResult<
     (AnyCoreDataset, StdDatasetWithKwsOutput),
     (),
     StdDatasetFromRawWarning,
-    ImpureError<StdDatasetFromRawError>,
+    StdDatasetFromRawError,
 > {
     ReadState::open(p, conf)
         .into_generic()
@@ -619,7 +620,7 @@ impl RawTEXTOutput {
             header.analysis,
             st,
         )
-        .def_map_value(|(standardized, extra, offsets)| {
+        .map_def_value(|(standardized, extra, offsets)| {
             (
                 standardized,
                 StdTEXTOutput {
@@ -756,7 +757,7 @@ where
 
             nextdata_res
                 .zip_def(repair_res)
-                .void_passthru()
+                .set_passthru(())
                 .map_value(|(nextdata, ())| {
                     let parse = RawTEXTParseData::new(
                         header.segments,
@@ -941,7 +942,7 @@ fn split_raw_text_literal_delim(
         .into_iter()
         .map(|r| r.repack())
         .mappend_def()
-        .def_void()
+        .set_def_value(())
 }
 
 fn split_raw_text_escaped_delim(
@@ -1061,7 +1062,7 @@ fn split_raw_text_escaped_delim(
         .into_iter()
         .map(|r| r.repack())
         .mappend_def()
-        .def_void()
+        .set_def_value(())
 }
 
 fn lookup_stext_offsets<C>(
@@ -1179,7 +1180,7 @@ impl RawTEXTParseData {
                 .non_fung_errors_into();
             x.zip_def(y)
                 .map_non_fung_errors(|e| ParseRawTEXTError::from(Box::new(e)))
-                .def_void()
+                .set_def_value(())
         } else {
             Result::new_ok(())
         }

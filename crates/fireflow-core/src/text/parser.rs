@@ -542,7 +542,7 @@ pub(crate) fn lookup_temporal_scale_3_0(
         nonstd.transfer_demoted(kws, TemporalScale::std(i));
         Result::new_ok(())
     } else {
-        TemporalScale3_0::lookup_req(kws, i).set_value(())
+        TemporalScale3_0::lookup_req(kws, i).set_ok_value(())
     }
 }
 

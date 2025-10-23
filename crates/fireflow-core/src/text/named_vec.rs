@@ -1,9 +1,7 @@
 use crate::data::ColumnError;
-use crate::error::{
-    CanHoldOne, DeferredExt as _, DeferredFailure, DeferredFailureInner, DeferredResult,
-    DeferredResultInner, ErrorIter as _, ErrorIter1 as _, InfalliblePassthruExt as _, MultiResult,
-    MultiResultExt as _, PassthruExt as _, PassthruResult, PassthruResultInner, ResultExt as _,
-    Tentative, TentativeInner, ZeroOrMore,
+use crate::error1::{
+    CanHoldOne, CmtResult, CmtResultIter as _, ErrorsResult, GenericResult, GenericResultExt as _,
+    IntoZeroOrMore, NullFamily, ResultExt as _, Semigroup, VecFamily, ZeroOrMore,
 };
 use crate::text::optional::MightHave;
 use crate::validated::shortname::Shortname;
@@ -64,7 +62,7 @@ pub struct IndexedElement<K, V> {
     pub value: V,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SplitVec<K, U, V> {
     left: PairedVec<K, V>,
@@ -72,7 +70,7 @@ pub struct SplitVec<K, U, V> {
     right: PairedVec<K, V>,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct UnsplitVec<K, V> {
     members: PairedVec<K, V>,
@@ -347,27 +345,30 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         Ok(x)
     }
 
-    pub(crate) fn alter_elements_zip<F, G, X, Y, R>(
+    pub(crate) fn alter_elements_zip<Fnoncenter, Fcenter, X, Y, R>(
         &mut self,
         xs: Vec<Element<X, Y>>,
-        f: F,
-        g: G,
-    ) -> MultiResult<Vec<R>, SetElementsError>
+        f_noncenter: Fnoncenter,
+        f_center: Fcenter,
+    ) -> ErrorsResult<Vec<R>, (), SetElementsError>
     where
-        F: Fn(IndexedElement<&K::Wrapper<Shortname>, &mut V>, Y) -> R,
-        G: Fn(IndexedElement<&Shortname, &mut U>, X) -> R,
+        Fnoncenter: Fn(IndexedElement<&K::Wrapper<Shortname>, &mut V>, Y) -> R,
+        Fcenter: Fn(IndexedElement<&Shortname, &mut U>, X) -> R,
     {
-        self.check_keys_length(&xs[..], true).into_mult()?;
-        let go = |zs, ys, offset| Self::alter_paired_vec(zs, ys, offset, &f);
+        let go = |zs, ys, offset| Self::alter_paired_vec(zs, ys, offset, &f_noncenter);
+
         let check_optical = |ys: Vec<Element<X, Y>>| {
             ys.into_iter()
                 .enumerate()
-                .map(|(i, x)| x.both(|_| Err(i), Ok))
-                .gather()
-                .mult_map_errors(|i| ColumnError::new(i, OpticalMismatchError::new(false)))
-                .mult_errors_into()
+                .map(|(i, x)| x.both(|_| Result::new_err1(i), Result::new_ok))
+                .mappend_cmt()
+                .map_non_fung_errors(|i| ColumnError::new(i, OpticalMismatchError::new(false)))
         };
-        let x = match self {
+
+        self.check_keys_length(&xs[..], true)
+            .map_err(SetElementsError::from)?;
+
+        let res = match self {
             Self::Split(s, _) => {
                 let nleft = s.left.len();
                 let mut it = xs.into_iter();
@@ -379,28 +380,26 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 let center_res = x_center
                     .center()
                     .ok_or(ColumnError::new(nleft, OpticalMismatchError::new(false)))
-                    .into_mult();
+                    .into_generic();
                 let right_res = check_optical(xs_right);
-                let (ys_left, y_center, ys_right) = left_res.mult_zip3(center_res, right_res)?;
-                let left_out = go(&mut s.left, ys_left, 0);
-                let c = &mut s.center;
-                let center_out = g(
-                    IndexedElement::new(nleft.into(), &c.key, &mut c.value),
-                    y_center,
-                );
-                let right_out = go(&mut s.right, ys_right, 1 + nleft);
-                left_out
-                    .into_iter()
-                    .chain([center_out])
-                    .chain(right_out)
-                    .collect()
+                left_res.zip3_cmt(center_res, right_res).map_ok_value(
+                    |(ys_left, y_center, ys_right)| {
+                        let left_out = go(&mut s.left, ys_left, 0);
+                        let c = &mut s.center;
+                        let center_index = IndexedElement::new(nleft.into(), &c.key, &mut c.value);
+                        let center_out = f_center(center_index, y_center);
+                        let right_out = go(&mut s.right, ys_right, 1 + nleft);
+                        left_out
+                            .into_iter()
+                            .chain([center_out])
+                            .chain(right_out)
+                            .collect()
+                    },
+                )
             }
-            Self::Unsplit(u) => {
-                let ys = check_optical(xs)?;
-                go(&mut u.members, ys, 0)
-            }
+            Self::Unsplit(u) => check_optical(xs).map_ok_value(|ys| go(&mut u.members, ys, 0)),
         };
-        Ok(x)
+        res.map_non_fung_errors(SetElementsError::from)
     }
 
     /// Apply function(s) to all values, altering them in place.
@@ -479,12 +478,24 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
 
     /// Apply function over center value, possibly changing it's type
     #[allow(clippy::type_complexity)]
-    pub(crate) fn map_center_value<F, X, W, E>(
+    pub(crate) fn map_center_value<F, X, LW, RW, E, LWC, RWC, EC>(
         self,
         f: F,
-    ) -> DeferredResult<NamedVec<K, K::Wrapper<Shortname>, X, V>, W, IndexedElementError<E>>
+    ) -> GenericResult<
+        NamedVec<K, K::Wrapper<Shortname>, X, V>,
+        U,
+        LW,
+        RW,
+        IndexedElementError<E>,
+        LWC,
+        RWC,
+        EC,
+    >
     where
-        F: Fn(IndexedElement<&Shortname, U>) -> DeferredResult<X, W, E>,
+        F: Fn(IndexedElement<&Shortname, U>) -> GenericResult<X, U, LW, RW, E, LWC, RWC, EC>,
+        LWC: ZeroOrMore,
+        RWC: ZeroOrMore,
+        EC: ZeroOrMore,
     {
         match self {
             Self::Split(s, _) => {
@@ -492,23 +503,28 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 let index = s.left.len().into();
                 let ckey = c.key;
                 let e = IndexedElement::new(index, &ckey, c.value);
-                f(e).def_map_value(|value| {
+                f(e).map_ok_value(|value| {
                     let center = Pair { value, key: ckey };
                     NamedVec::new_split(s.left, center, s.right)
                 })
-                .def_map_errors(|error| IndexedElementError { error, index })
+                .map_non_fung_errors(|error| IndexedElementError::new(error, index))
             }
-            Self::Unsplit(u) => Ok(Tentative::new1(NamedVec::Unsplit(u))),
+            Self::Unsplit(u) => Result::new_ok(NamedVec::Unsplit(u)),
         }
     }
 
     /// Apply function over non-center values, possibly changing their type
-    pub(crate) fn map_non_center_values<E, F, W, ToV>(
+    pub(crate) fn map_non_center_values<F, P, Vf, W, E, WC, EC>(
         self,
         f: F,
-    ) -> DeferredResult<WrappedNamedVec<K, U, ToV>, W, IndexedElementError<E>>
+    ) -> CmtResult<WrappedNamedVec<K, U, Vf>, (), W, IndexedElementError<E>, WC, VecFamily>
     where
-        F: Fn(MeasIndex, V) -> DeferredResult<ToV, W, E>,
+        F: Fn(MeasIndex, V) -> CmtResult<Vf, (), W, E, WC, EC>,
+        WC: ZeroOrMore,
+        WC::Wrapper<W>: Semigroup,
+        EC: IntoZeroOrMore<VecFamily>,
+        EC: ZeroOrMore,
+        EC::Wrapper<IndexedElementError<E>>: Extend<IndexedElementError<E>>,
     {
         let go = |xs: WrappedPairedVec<K, V>, offset: usize| {
             xs.into_iter()
@@ -516,26 +532,22 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 .map(|(i, p)| {
                     let j = i + offset;
                     f(j.into(), p.value)
-                        .def_map_value(|value| Pair { key: p.key, value })
-                        .def_map_errors(|error| IndexedElementError {
-                            index: j.into(),
-                            error,
-                        })
+                        .map_ok_value(|value| Pair::new(p.key, value))
+                        .map_non_fung_errors(|error| IndexedElementError::new(error, j.into()))
                 })
-                .gather1()
-                .def_void_passthru()
+                .mappend_cmt()
         };
         match self {
             Self::Split(s, _) => {
                 let nleft = s.left.len();
                 let lres = go(s.left, 0);
                 let rres = go(s.right, nleft + 1);
-                lres.def_zip(rres)
-                    .def_map_value(|(left, right)| NamedVec::new_split(left, *s.center, right))
+                lres.zip_cmt(rres)
+                    .map_ok_value(|(left, right)| NamedVec::new_split(left, *s.center, right))
             }
-            Self::Unsplit(u) => {
-                go(u.members, 0).def_map_value(|members| NamedVec::new_unsplit(members))
-            }
+            Self::Unsplit(u) => go(u.members, 0)
+                .map_ok_value(|members| NamedVec::new_unsplit(members))
+                .repack_errors(),
         }
     }
 
@@ -1051,21 +1063,22 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         Ok(mapping)
     }
 
-    // TODO make this generic
     /// Replace any value with a center value with name.
-    pub(crate) fn replace_center_by_name<F, W, E>(
+    pub(crate) fn replace_center_by_name<F, LW, RW, E, LWC, RWC, EC>(
         &mut self,
         n: &Shortname,
         value: U,
         to_v: F,
-    ) -> DeferredResult<Element<U, V>, W, E>
+    ) -> GenericResult<Element<U, V>, (), LW, RW, E, LWC, RWC, EC>
     where
-        F: FnOnce(MeasIndex, U) -> PassthruResult<V, Box<U>, W, E>,
-        // TODO set center error is not needed since we get the index from name
-        E: From<SetCenterError> + From<KeyNotFoundError>,
+        F: FnOnce(MeasIndex, U) -> GenericResult<V, Box<U>, LW, RW, E, LWC, RWC, EC>,
+        E: From<KeyNotFoundError>,
+        LWC: ZeroOrMore,
+        RWC: ZeroOrMore,
+        EC: ZeroOrMore,
     {
         let index = self.find_with_name(n).map_err(E::from)?;
-        self.replace_center_at(index, value, to_v)
+        self.replace_center_at_inner(index, value, to_v)
     }
 
     /// Replace any value with a center value with name.
@@ -1093,30 +1106,32 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Fail if name at index to be converted is blank or
     /// if the previous center value cannot be converted back to a non-center
     /// value.
-    pub(crate) fn replace_center_at<F, W, E>(
+    pub(crate) fn replace_center_at<F, W, E, WC, EC>(
         &mut self,
         index: MeasIndex,
         value: U,
         to_v: F,
-    ) -> DeferredResult<Element<U, V>, W, E>
+    ) -> CmtResult<Element<U, V>, (), W, E, WC, EC>
     where
-        F: FnOnce(MeasIndex, U) -> PassthruResult<V, Box<U>, W, E>,
+        F: FnOnce(MeasIndex, U) -> CmtResult<V, Box<U>, W, E, WC, EC>,
         E: From<SetCenterError>,
+        WC: ZeroOrMore,
+        EC: ZeroOrMore,
+        WC::Wrapper<W>: Semigroup,
     {
         if !self
             .get(index)
             .unwrap()
             .both(|_| true, |(n, _)| K::as_opt(n).is_some())
         {
-            return Err(DeferredFailure::new1(SetCenterError::NoName));
+            return Result::new_err1(SetCenterError::NoName.into());
         }
 
-        let tnt = self
-            .check_element_index(index, true)
+        self.check_element_index(index, true)
             .map_err(SetCenterError::Index)
-            .into_deferred()?;
-
-        tnt.and_maybe(|i| self.replace_center_at_inner(i.into(), value, to_v))
+            .map_err(E::from)
+            .into_generic()
+            .and_then_cmt(|i| self.replace_center_at_inner(i.into(), value, to_v))
     }
 
     /// Replace any value with a center value under index.
@@ -1148,12 +1163,10 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
 
         let i = self.check_element_index(index, true)?;
 
-        let ret = self
-            .replace_center_at_inner(i.into(), value, |j, u| {
-                Ok(Tentative::new_infallible(to_v(j, u)))
-            })
-            .def_unwrap_infallible();
-        Ok(ret)
+        let go = |j, u| Result::new_ok::<_, _, _, _, _, NullFamily>(to_v(j, u));
+
+        let res = self.replace_center_at_inner(i.into(), value, go);
+        Ok(res.from_infallible_nowarn())
     }
 
     fn alter_paired_vec<X, F, R>(
@@ -1178,87 +1191,45 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             .collect()
     }
 
-    fn replace_center_at_inner<F, W, E>(
+    fn replace_center_at_inner<F, LW, RW, E, LWC, RWC, EC>(
         &mut self,
         index: MeasIndex,
         value: U,
         to_v: F,
-    ) -> DeferredResult<Element<U, V>, W, E>
+    ) -> GenericResult<Element<U, V>, (), LW, RW, E, LWC, RWC, EC>
     where
-        F: FnOnce(MeasIndex, U) -> PassthruResult<V, Box<U>, W, E>,
+        F: FnOnce(MeasIndex, U) -> GenericResult<V, Box<U>, LW, RW, E, LWC, RWC, EC>,
+        LWC: ZeroOrMore,
+        RWC: ZeroOrMore,
+        EC: ZeroOrMore,
     {
         let res = match mem::replace(self, dummy()) {
             Self::Split(s, _) => match split_at_index::<K, U, V>(s, index.into()) {
-                PartialSplit::Left(left, center, right) => {
-                    let center_key = center.key;
-                    match to_v(index, center.value) {
-                        Ok(pass) => Ok(pass.map(|old_center_value| {
-                            let sp = Self::new_split_from_left(
-                                left.left,
-                                left.selected.key,
-                                value,
-                                left.right,
-                                center_key,
-                                old_center_value,
-                                right,
-                            )
-                            .unwrap();
-                            (sp, Element::NonCenter(left.selected.value))
-                        })),
-                        Err(fail) => Err(fail.map_passthru(|center_value| {
-                            Self::recover_split_from_left(
-                                left.left,
-                                left.selected.key,
-                                left.selected.value,
-                                left.right,
-                                center_key,
-                                *center_value,
-                                right,
-                            )
-                        })),
-                    }
-                }
+                PartialSplit::Left(split) => to_v(index, split.center_value)
+                    .inject_value((split.stable, split.selected_left_value))
+                    .map_ok_value(|(new_right_val, (stable, old_left_val))| {
+                        let sp = Self::new_split_from_left(value, new_right_val, stable).unwrap();
+                        (sp, Element::NonCenter(old_left_val))
+                    })
+                    .map_err_value(|(center_val, (stable, old_left_val))| {
+                        Self::recover_split_from_left(old_left_val, *center_val, stable)
+                    }),
 
                 PartialSplit::Center(x) => {
-                    let center = Pair {
-                        key: x.center.key,
-                        value,
-                    };
-                    Ok(Tentative::new1((
-                        Self::new_split(x.left, center, x.right),
-                        Element::Center(x.center.value),
-                    )))
+                    let center = Pair::new(x.center.key, value);
+                    let sp = Self::new_split(x.left, center, x.right);
+                    Result::new_ok((sp, Element::Center(x.center.value)))
                 }
 
-                PartialSplit::Right(left, center, right) => {
-                    let center_key = center.key;
-                    match to_v(index, center.value) {
-                        Ok(pass) => Ok(pass.map(|old_center_value| {
-                            let sp = Self::new_split_from_right(
-                                left,
-                                center_key,
-                                old_center_value,
-                                right.left,
-                                right.selected.key,
-                                value,
-                                right.right,
-                            )
-                            .unwrap();
-                            (sp, Element::NonCenter(right.selected.value))
-                        })),
-                        Err(fail) => Err(fail.map_passthru(|center_value| {
-                            Self::recover_split_from_right(
-                                left,
-                                center_key,
-                                *center_value,
-                                right.left,
-                                right.selected.key,
-                                right.selected.value,
-                                right.right,
-                            )
-                        })),
-                    }
-                }
+                PartialSplit::Right(split) => to_v(index, split.center_value)
+                    .inject_value((split.stable, split.selected_right_value))
+                    .map_ok_value(|(new_left_val, (stable, old_right_val))| {
+                        let sp = Self::new_split_from_right(value, new_left_val, stable).unwrap();
+                        (sp, Element::NonCenter(old_right_val))
+                    })
+                    .map_err_value(|(center_val, (stable, old_right_val))| {
+                        Self::recover_split_from_right(old_right_val, *center_val, stable)
+                    }),
             },
 
             Self::Unsplit(u) => {
@@ -1268,82 +1239,62 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                     key: K::to_opt(x.selected.key).unwrap(),
                     value,
                 };
-                Ok(Tentative::new1((
+                Result::new_ok((
                     Self::new_split(x.left, center, x.right),
                     Element::NonCenter(ret),
-                )))
+                ))
             }
         };
 
-        match res {
-            Ok(pass) => Ok(pass.map(|(newself, ret)| {
-                *self = newself;
-                ret
-            })),
-            Err(fail) => Err(fail.map_passthru(|newself| {
-                *self = newself;
-            })),
-        }
+        res.map_ok_value(|(newself, ret)| {
+            *self = newself;
+            ret
+        })
+        .map_err_value(|newself| *self = newself)
     }
 
     /// Set center to be the element with name if it exists.
-    pub(crate) fn set_center_by_name<Fswap, FtoU, W, E, TWI, TEI, FWI, FEI>(
+    pub(crate) fn set_center_by_name<Fswap, FtoU, LW, RW, E, LWC, RWC, EC>(
         &mut self,
         n: &Shortname,
         swap: Fswap,
         to_u: FtoU,
-    ) -> DeferredResultInner<bool, W, E, TWI, TEI, FWI, FEI>
+    ) -> GenericResult<bool, (), LW, RW, E, LWC, RWC, EC>
     where
-        Fswap: FnOnce(
-            MeasIndex,
-            U,
-            V,
-        )
-            -> PassthruResultInner<(V, U), Box<(U, V)>, W, E, TWI, TEI, FWI, FEI>,
-        FtoU: FnOnce(MeasIndex, V) -> PassthruResultInner<U, Box<V>, W, E, TWI, TEI, FWI, FEI>,
+        Fswap:
+            FnOnce(MeasIndex, U, V) -> GenericResult<(V, U), Box<(U, V)>, LW, RW, E, LWC, RWC, EC>,
+        FtoU: FnOnce(MeasIndex, V) -> GenericResult<U, Box<V>, LW, RW, E, LWC, RWC, EC>,
         E: From<SetCenterError> + From<KeyNotFoundError>,
-        TWI: ZeroOrMore,
-        TEI: ZeroOrMore,
-        FWI: ZeroOrMore + CanHoldOne,
-        FEI: ZeroOrMore + CanHoldOne,
-        TWI::Wrapper<W>: Default,
-        TEI::Wrapper<E>: Default,
-        FWI::Wrapper<W>: Default,
+        LWC: ZeroOrMore,
+        RWC: ZeroOrMore + CanHoldOne,
+        EC: ZeroOrMore + CanHoldOne,
     {
         let index = self.find_with_name(n).map_err(E::from)?;
         self.set_center_by_index(index, swap, to_u)
     }
 
     /// Set center to be the element with index if it exists.
-    pub(crate) fn set_center_by_index<Fswap, FtoU, W, E, TWI, TEI, FWI, FEI>(
+    pub(crate) fn set_center_by_index<Fswap, FtoU, LW, RW, E, LWC, RWC, EC>(
         &mut self,
         index: MeasIndex,
         swap: Fswap,
         to_u: FtoU,
-    ) -> DeferredResultInner<bool, W, E, TWI, TEI, FWI, FEI>
+    ) -> GenericResult<bool, (), LW, RW, E, LWC, RWC, EC>
     where
-        Fswap: FnOnce(
-            MeasIndex,
-            U,
-            V,
-        )
-            -> PassthruResultInner<(V, U), Box<(U, V)>, W, E, TWI, TEI, FWI, FEI>,
-        FtoU: FnOnce(MeasIndex, V) -> PassthruResultInner<U, Box<V>, W, E, TWI, TEI, FWI, FEI>,
+        Fswap:
+            FnOnce(MeasIndex, U, V) -> GenericResult<(V, U), Box<(U, V)>, LW, RW, E, LWC, RWC, EC>,
+        FtoU: FnOnce(MeasIndex, V) -> GenericResult<U, Box<V>, LW, RW, E, LWC, RWC, EC>,
         E: From<SetCenterError>,
-        TWI: ZeroOrMore,
-        TEI: ZeroOrMore,
-        FWI: ZeroOrMore + CanHoldOne,
-        FEI: ZeroOrMore + CanHoldOne,
-        TWI::Wrapper<W>: Default,
-        TEI::Wrapper<E>: Default,
-        FWI::Wrapper<W>: Default,
+        LWC: ZeroOrMore,
+        RWC: ZeroOrMore + CanHoldOne,
+        EC: ZeroOrMore + CanHoldOne,
     {
         if !self
             .get(index)
             .unwrap()
             .both(|_| true, |(n, _)| K::as_opt(n).is_some())
         {
-            return Err(DeferredFailureInner::new1(SetCenterError::NoName));
+            return Result::new_err1(SetCenterError::NoName.into());
         }
         let i = self
             .check_element_index(index, true)
@@ -1352,140 +1303,96 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
 
         let res = match mem::replace(self, dummy()) {
             Self::Split(s, p) => match split_at_index::<K, U, V>(s, i) {
-                PartialSplit::Left(left, center, right) => {
-                    let center_key = center.key;
-                    match swap(i.into(), center.value, left.selected.value) {
-                        Ok(tnt) => Ok(tnt.map(|(right_value, center_value)| {
-                            let sp = Self::new_split_from_left(
-                                left.left,
-                                left.selected.key,
-                                center_value,
-                                left.right,
-                                center_key,
-                                right_value,
-                                right,
-                            )
-                            .unwrap();
-                            (sp, true)
-                        })),
-                        Err(fail) => Err(fail.map_passthru(|x| *x).map_passthru(
-                            |(center_value, left_value)| {
-                                Self::recover_split_from_left(
-                                    left.left,
-                                    left.selected.key,
-                                    left_value,
-                                    left.right,
-                                    center_key,
-                                    center_value,
-                                    right,
-                                )
-                            },
-                        )),
-                    }
+                PartialSplit::Left(split) => {
+                    swap(i.into(), split.center_value, split.selected_left_value)
+                        .map_err_value(|x| *x)
+                        .inject_value(split.stable)
+                        .map_ok_value(|((new_right_val, new_center_val), stable)| {
+                            let sp =
+                                Self::new_split_from_left(new_center_val, new_right_val, stable);
+                            (sp.unwrap(), true)
+                        })
+                        .map_err_value(|((old_center_val, old_left_val), stable)| {
+                            Self::recover_split_from_left(old_left_val, old_center_val, stable)
+                        })
                 }
 
-                PartialSplit::Center(sc) => Ok(TentativeInner::new1((Self::Split(sc, p), false))),
+                PartialSplit::Center(sc) => Result::new_ok((Self::Split(sc, p), false)),
 
-                PartialSplit::Right(left, center, right) => {
-                    let center_key = center.key;
-                    match swap(i.into(), center.value, right.selected.value) {
-                        Ok(tnt) => Ok(tnt.map(|(right_value, center_value)| {
-                            let sp = Self::new_split_from_right(
-                                left,
-                                center_key,
-                                right_value,
-                                right.left,
-                                right.selected.key,
-                                center_value,
-                                right.right,
-                            )
-                            .unwrap();
-                            (sp, true)
-                        })),
-                        Err(fail) => Err(fail.map_passthru(|x| *x).map_passthru(
-                            |(center_value, right_value)| {
-                                Self::recover_split_from_right(
-                                    left,
-                                    center_key,
-                                    center_value,
-                                    right.left,
-                                    right.selected.key,
-                                    right_value,
-                                    right.right,
-                                )
-                            },
-                        )),
-                    }
+                PartialSplit::Right(split) => {
+                    swap(i.into(), split.center_value, split.selected_right_value)
+                        .map_err_value(|x| *x)
+                        .inject_value(split.stable)
+                        .map_ok_value(|((new_right_val, new_center_val), stable)| {
+                            let sp =
+                                Self::new_split_from_right(new_center_val, new_right_val, stable);
+                            (sp.unwrap(), true)
+                        })
+                        .map_err_value(|((old_center_val, old_right_val), stable)| {
+                            Self::recover_split_from_right(old_right_val, old_center_val, stable)
+                        })
                 }
             },
 
             Self::Unsplit(u) => {
                 let x = split_paired_vec::<K, V>(u.members, i);
-                match to_u(i.into(), x.selected.value) {
-                    Ok(tnt) => Ok(tnt.map(|new_value| {
-                        let center = Pair::new(K::to_opt(x.selected.key).unwrap(), new_value);
-                        (Self::new_split(x.left, center, x.right), true)
-                    })),
-                    Err(fail) => Err(fail.map_passthru(|old_value| {
-                        let center = Pair::new(x.selected.key, *old_value);
-                        let new = x.left.into_iter().chain([center]).chain(x.right).collect();
+                to_u(i.into(), x.selected.value)
+                    .inject_value((x.left, x.selected.key, x.right))
+                    .map_ok_value(|(new_value, (left, key, right))| {
+                        let center = Pair::new(K::to_opt(key).unwrap(), new_value);
+                        (Self::new_split(left, center, right), true)
+                    })
+                    .map_err_value(|(old_value, (left, key, right))| {
+                        let center = Pair::new(key, *old_value);
+                        let new = left.into_iter().chain([center]).chain(right).collect();
                         Self::new_unsplit(new)
-                    })),
-                }
+                    })
             }
         };
-        // TODO make these methods generic
-        res.map(|tnt| {
-            tnt.map(|(newself, flag)| {
-                *self = newself;
-                flag
-            })
+        res.map_ok_value(|(newself, flag)| {
+            *self = newself;
+            flag
         })
-        .map_err(|e| e.map_passthru(|newself| *self = newself).void())
+        .map_err_value(|newself| *self = newself)
     }
 
-    // TODO make this generic
     /// Convert the center element into a non-center element.
     ///
     /// Has no effect if there already is no center element.
     ///
     /// Return old center element if vector is updated.
-    pub(crate) fn unset_center<F, W, E, X>(&mut self, to_v: F) -> DeferredResult<Option<X>, W, E>
+    pub(crate) fn unset_center<F, X, LW, RW, E, LWC, RWC, EC>(
+        &mut self,
+        to_v: F,
+    ) -> GenericResult<Option<X>, (), LW, RW, E, LWC, RWC, EC>
     where
-        F: FnOnce(MeasIndex, U) -> PassthruResult<(V, X), Box<U>, W, E>,
+        F: FnOnce(MeasIndex, U) -> GenericResult<(V, X), Box<U>, LW, RW, E, LWC, RWC, EC>,
+        LWC: ZeroOrMore,
+        RWC: ZeroOrMore,
+        EC: ZeroOrMore,
     {
         match mem::replace(self, dummy()) {
             Self::Split(s, _) => {
-                let center_key = s.center.key;
                 let index = (s.left.len()).into();
-                match to_v(index, s.center.value) {
-                    Ok(tnt) => Ok(tnt.map(|(value, ret)| {
+                to_v(index, s.center.value)
+                    .inject_value((s.left, s.center.key, s.right))
+                    .map_ok_value(|((value, ret), (left, center_key, right))| {
                         let non_center = Pair::new(K::wrap(center_key), value);
-                        let members = s
-                            .left
-                            .into_iter()
-                            .chain([non_center])
-                            .chain(s.right)
-                            .collect();
+                        let members = left.into_iter().chain([non_center]).chain(right).collect();
                         (Self::new_unsplit(members), Some(ret))
-                    })),
-                    Err(fail) => Err(fail.map_passthru(|value| {
+                    })
+                    .map_err_value(|(value, (left, center_key, right))| {
                         let center = Pair::new(center_key, *value);
-                        Self::new_split(s.left, center, s.right)
-                    })),
-                }
+                        Self::new_split(left, center, right)
+                    })
             }
-            Self::Unsplit(u) => Ok(TentativeInner::new1((Self::Unsplit(u), None))),
+            Self::Unsplit(u) => Result::new_ok((Self::Unsplit(u), None)),
         }
-        .def_map_value(|(newself, flag)| {
+        .map_ok_value(|(newself, flag)| {
             *self = newself;
             flag
         })
-        .map_err(|e| {
-            e.map_passthru(|newself| {
-                *self = newself;
-            })
-        })
+        .map_err_value(|newself| *self = newself)
     }
 
     /// Unwrap and rewrap the non-center names of vector.
@@ -1494,8 +1401,9 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     #[allow(clippy::type_complexity)]
     pub(crate) fn try_rewrapped<J>(
         self,
-    ) -> MultiResult<
+    ) -> ErrorsResult<
         WrappedNamedVec<J, U, V>,
+        (),
         IndexedElementError<<J::Wrapper<Shortname> as TryFrom<K::Wrapper<Shortname>>>::Error>,
     >
     where
@@ -1506,24 +1414,22 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             xs.into_iter()
                 .enumerate()
                 .map(|(i, p)| {
-                    Self::try_into_wrapper::<J>(p).map_err(|error| IndexedElementError {
-                        error,
-                        index: (i + offset).into(),
-                    })
+                    Self::try_into_wrapper::<J>(p)
+                        .map_err(|error| IndexedElementError::new(error, (i + offset).into()))
+                        .into_nowarn()
                 })
-                .gather()
+                .mappend_cmt()
         };
-        let x = match self {
+        match self {
             Self::Split(s, _) => {
                 let offset = s.left.len() + 1;
                 let lres = go(s.left, 0);
                 let rres = go(s.right, offset);
-                let (left, right) = lres.mult_zip(rres)?;
-                NamedVec::new_split(left, *s.center, right)
+                lres.zip_cmt(rres)
+                    .map_ok_value(|(left, right)| NamedVec::new_split(left, *s.center, right))
             }
-            Self::Unsplit(u) => NamedVec::new_unsplit(go(u.members, 0)?),
-        };
-        Ok(x)
+            Self::Unsplit(u) => go(u.members, 0).map_ok_value(NamedVec::new_unsplit),
+        }
     }
 
     #[allow(clippy::type_complexity)]
@@ -1659,129 +1565,71 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         center: Center<U>,
         right: WrappedPairedVec<K, V>,
     ) -> Self {
-        Self::Split(
-            SplitVec {
-                left,
-                center: Box::new(center),
-                right,
-            },
-            PhantomData,
-        )
+        Self::Split(SplitVec::new(left, Box::new(center), right), PhantomData)
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn new_split_from_left(
-        left_left: WrappedPairedVec<K, V>,
-        new_center_name: K::Wrapper<Shortname>,
         new_center_value: U,
-        left_right: WrappedPairedVec<K, V>,
-        old_center_name: Shortname,
-        old_center_value: V,
-        right: WrappedPairedVec<K, V>,
+        new_right_value: V,
+        stable: LeftSplitStable<K, V>,
     ) -> Option<Self> {
-        let new_center = Pair {
-            key: K::to_opt(new_center_name)?,
-            value: new_center_value,
-        };
-        let new_right = Pair {
-            key: K::wrap(old_center_name),
-            value: old_center_value,
-        };
-        Some(Self::new_split(
-            left_left,
-            new_center,
-            left_right
-                .into_iter()
-                .chain([new_right])
-                .chain(right)
-                .collect(),
-        ))
+        let new_center = Pair::new(K::to_opt(stable.selected_left_key)?, new_center_value);
+        let new_right_value = Pair::new(K::wrap(stable.center_key), new_right_value);
+        let new_right = stable
+            .left_right
+            .into_iter()
+            .chain([new_right_value])
+            .chain(stable.right)
+            .collect();
+        Some(Self::new_split(stable.left_left, new_center, new_right))
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn recover_split_from_left(
-        left_left: WrappedPairedVec<K, V>,
-        left_key: K::Wrapper<Shortname>,
-        left_value: V,
-        left_right: WrappedPairedVec<K, V>,
-        center_key: Shortname,
-        center_value: U,
-        right: WrappedPairedVec<K, V>,
+        old_left_value: V,
+        old_center_value: U,
+        stable: LeftSplitStable<K, V>,
     ) -> Self {
-        let center = Pair {
-            key: center_key,
-            value: center_value,
-        };
-        let new_left = Pair {
-            key: left_key,
-            value: left_value,
-        };
-        Self::new_split(
-            left_left
-                .into_iter()
-                .chain([new_left])
-                .chain(left_right)
-                .collect(),
-            center,
-            right,
-        )
+        let center = Pair::new(stable.center_key, old_center_value);
+        let new_left_value = Pair::new(stable.selected_left_key, old_left_value);
+        let new_left = stable
+            .left_left
+            .into_iter()
+            .chain([new_left_value])
+            .chain(stable.left_right)
+            .collect();
+        Self::new_split(new_left, center, stable.right)
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn new_split_from_right(
-        left: WrappedPairedVec<K, V>,
-        old_center_name: Shortname,
-        old_center_value: V,
-        right_left: WrappedPairedVec<K, V>,
-        new_center_key: K::Wrapper<Shortname>,
         new_center_value: U,
-        right_right: WrappedPairedVec<K, V>,
+        new_left_value: V,
+        stable: RightSplitStable<K, V>,
     ) -> Option<Self> {
-        let new_center = Pair {
-            key: K::to_opt(new_center_key)?,
-            value: new_center_value,
-        };
-        let new_left = Pair {
-            key: K::wrap(old_center_name),
-            value: old_center_value,
-        };
-        Some(Self::new_split(
-            left.into_iter()
-                .chain([new_left])
-                .chain(right_left)
-                .collect(),
-            new_center,
-            right_right,
-        ))
+        let new_center = Pair::new(K::to_opt(stable.selected_right_key)?, new_center_value);
+        let new_left_value = Pair::new(K::wrap(stable.center_key), new_left_value);
+        let new_left = stable
+            .left
+            .into_iter()
+            .chain([new_left_value])
+            .chain(stable.right_left)
+            .collect();
+        Some(Self::new_split(new_left, new_center, stable.right_right))
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn recover_split_from_right(
-        left: WrappedPairedVec<K, V>,
-        center_key: Shortname,
-        center_value: U,
-        right_left: WrappedPairedVec<K, V>,
-        right_key: K::Wrapper<Shortname>,
-        right_value: V,
-        right_right: WrappedPairedVec<K, V>,
+        old_right_value: V,
+        old_center_value: U,
+        stable: RightSplitStable<K, V>,
     ) -> Self {
-        let center = Pair {
-            key: center_key,
-            value: center_value,
-        };
-        let new_right = Pair {
-            key: right_key,
-            value: right_value,
-        };
-        Self::new_split(
-            left,
-            center,
-            right_left
-                .into_iter()
-                .chain([new_right])
-                .chain(right_right)
-                .collect(),
-        )
+        let center = Pair::new(stable.center_key, old_center_value);
+        let new_right_value = Pair::new(stable.selected_right_key, old_right_value);
+        let new_right = stable
+            .right_left
+            .into_iter()
+            .chain([new_right_value])
+            .chain(stable.right_right)
+            .collect();
+        Self::new_split(stable.left, center, new_right)
     }
 
     fn new_unsplit(members: WrappedPairedVec<K, V>) -> Self {
@@ -1950,10 +1798,44 @@ fn dummy<K, W, U, V>() -> NamedVec<K, W, U, V> {
     NamedVec::Unsplit(UnsplitVec { members: vec![] })
 }
 
-enum PartialSplit<K, U, V> {
-    Left(PairedSplit<K, V>, Box<Center<U>>, PairedVec<K, V>),
-    Center(SplitVec<K, U, V>),
-    Right(PairedVec<K, V>, Box<Center<U>>, PairedSplit<K, V>),
+enum PartialSplit<K: MightHave, U, V> {
+    // Left(PairedSplit<K, V>, Box<Center<U>>, PairedVec<K, V>),
+    Left(LeftSplit<K, U, V>),
+    Center(SplitVec<<K as MightHave>::Wrapper<Shortname>, U, V>),
+    // Right(PairedVec<K, V>, Box<Center<U>>, PairedSplit<K, V>),
+    Right(RightSplit<K, U, V>),
+}
+
+#[derive(new)]
+struct LeftSplit<K: MightHave, U, V> {
+    selected_left_value: V,
+    center_value: U,
+    stable: LeftSplitStable<K, V>,
+}
+
+#[derive(new)]
+struct RightSplit<K: MightHave, U, V> {
+    selected_right_value: V,
+    center_value: U,
+    stable: RightSplitStable<K, V>,
+}
+
+#[derive(new)]
+struct LeftSplitStable<K: MightHave, V> {
+    left_left: WrappedPairedVec<K, V>,
+    selected_left_key: K::Wrapper<Shortname>,
+    left_right: WrappedPairedVec<K, V>,
+    center_key: Shortname,
+    right: WrappedPairedVec<K, V>,
+}
+
+#[derive(new)]
+struct RightSplitStable<K: MightHave, V> {
+    left: WrappedPairedVec<K, V>,
+    center_key: Shortname,
+    right_left: WrappedPairedVec<K, V>,
+    selected_right_key: K::Wrapper<Shortname>,
+    right_right: WrappedPairedVec<K, V>,
 }
 
 struct PairedSplit<K, V> {
@@ -1977,16 +1859,34 @@ fn split_paired_vec<K: MightHave, V>(
 fn split_at_index<K: MightHave, U, V>(
     s: SplitVec<<K as MightHave>::Wrapper<Shortname>, U, V>,
     index: usize,
-) -> PartialSplit<<K as MightHave>::Wrapper<Shortname>, U, V> {
+) -> PartialSplit<K, U, V> {
     let nleft = s.left.len();
     match index.cmp(&nleft) {
-        Less => PartialSplit::Left(split_paired_vec::<K, V>(s.left, index), s.center, s.right),
+        Less => {
+            let split_left = split_paired_vec::<K, V>(s.left, index);
+            let stable = LeftSplitStable::new(
+                split_left.left,
+                split_left.selected.key,
+                split_left.right,
+                s.center.key,
+                s.right,
+            );
+            let split = LeftSplit::new(split_left.selected.value, s.center.value, stable);
+            PartialSplit::Left(split)
+        }
         Equal => PartialSplit::Center(s),
-        Greater => PartialSplit::Right(
-            s.left,
-            s.center,
-            split_paired_vec::<K, V>(s.right, index - nleft - 1),
-        ),
+        Greater => {
+            let split_right = split_paired_vec::<K, V>(s.right, index);
+            let stable = RightSplitStable::new(
+                s.left,
+                s.center.key,
+                split_right.left,
+                split_right.selected.key,
+                split_right.right,
+            );
+            let split = RightSplit::new(split_right.selected.value, s.center.value, stable);
+            PartialSplit::Right(split)
+        }
     }
 }
 
@@ -2085,7 +1985,7 @@ pub enum NewNamedVecError {
     MultiCenter,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, new)]
 #[error("error for element {index}: {error}")]
 pub struct IndexedElementError<E> {
     error: E,

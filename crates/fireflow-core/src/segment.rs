@@ -390,7 +390,7 @@ where
                     succ
                 } else {
                     Result::new_err(es)
-                        .map_passthru(|_| def)
+                        .map_err_value(|_| def)
                         .non_fung_errors_into()
                 }
             },
@@ -410,7 +410,7 @@ where
     ) -> RecoverableErrorsResult<Option<(Self::B, Self::E)>, OptKeyError<ParseIntError>> {
         let x0 = Self::B::get_metaroot_opt(kws).into_nowarn1();
         let x1 = Self::E::get_metaroot_opt(kws).into_nowarn1();
-        x0.zip_cmt(x1).map_value(|(x, y)| x.zip(y))
+        x0.zip_cmt(x1).map_ok_value(|(x, y)| x.zip(y))
     }
 
     fn remove_pair(
@@ -418,7 +418,7 @@ where
     ) -> RecoverableErrorsResult<Option<(Self::B, Self::E)>, OptKeyError<ParseIntError>> {
         let x0 = Self::B::remove_metaroot_opt(kws).into_nowarn1();
         let x1 = Self::E::remove_metaroot_opt(kws).into_nowarn1();
-        x0.zip_cmt(x1).map_value(|(x, y)| x.zip(y))
+        x0.zip_cmt(x1).map_ok_value(|(x, y)| x.zip(y))
     }
 }
 

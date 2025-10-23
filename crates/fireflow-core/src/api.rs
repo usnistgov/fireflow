@@ -78,7 +78,7 @@ pub fn fcs_read_raw_text(
 ) -> WarningsAndErrorsResult<RawTEXTOutput, (), ParseRawTEXTWarning, ImpureError<HeaderOrRawError>>
 {
     read_fcs_raw_text_inner(p, conf)
-        .map_value(|(x, _, _)| x)
+        .map_ok_value(|(x, _, _)| x)
         .cmt_warnings_to_errors(&conf.shared, |w| ImpureError::Pure(w.into()))
 }
 
@@ -93,7 +93,7 @@ pub fn fcs_read_std_text(
     ImpureError<StdTEXTError>,
 > {
     read_fcs_raw_text_inner(p, conf)
-        .map_value(|(x, _, st)| (x, st))
+        .map_ok_value(|(x, _, st)| (x, st))
         .cmt_warnings_into()
         .map_non_fung_errors(|e| e.inner_into())
         .and_then_cmt(|(raw, st)| {
@@ -123,7 +123,7 @@ pub fn fcs_read_raw_dataset(
                 &raw.parse.header_segments.other[..],
                 &st,
             )
-            .map_value(|dataset| RawDatasetOutput { text: raw, dataset })
+            .map_ok_value(|dataset| RawDatasetOutput { text: raw, dataset })
             .cmt_warnings_into()
             .map_non_fung_errors(|e| e.inner_into())
         })
@@ -543,7 +543,7 @@ where
         .non_fung_errors_into()
         .and_then_cmt(|(st, file)| {
             let mut h = BufReader::new(file);
-            RawTEXTOutput::h_read(&mut h, &st).map_value(|x| (x, h, st))
+            RawTEXTOutput::h_read(&mut h, &st).map_ok_value(|x| (x, h, st))
         })
 }
 
@@ -572,7 +572,7 @@ where
             or.h_read(h)
                 .into_generic()
                 .map_non_fung_errors(|e| ImpureError::IO(e.into()))
-                .map_value(|others| {
+                .map_ok_value(|others| {
                     RawDatasetWithKwsOutput::new(data, analysis, others, dataset_segments)
                 })
         })
@@ -659,7 +659,7 @@ impl RawTEXTOutput {
             &self.parse.header_segments.other[..],
             st,
         )
-        .map_value(|(core, out)| (core, StdDatasetOutput::new(out, self.parse)))
+        .map_ok_value(|(core, out)| (core, StdDatasetOutput::new(out, self.parse)))
     }
 }
 
@@ -714,7 +714,7 @@ where
                 .map_cmt_warnings(ParseRawTEXTWarning::from)
                 .map_non_fung_errors(ParseRawTEXTError::from)
                 .map_non_fung_errors(ImpureError::Pure)
-                .map_value(|_| (kws, delim))
+                .map_ok_value(|_| (kws, delim))
         })
         .and_then_cmt(|(mut kws, delim)| {
             if conf.ignore_supp_text {
@@ -733,7 +733,7 @@ where
                         h_read_raw_supp_text(h, &seg, &mut kws, &mut buf, delim, conf)
                             .map_cmt_warnings(ParseRawTEXTWarning::from)
                             .map_non_fung_errors(|e| e.inner_into())
-                            .map_value(|_| (delim, kws, seg))
+                            .map_ok_value(|_| (delim, kws, seg))
                     })
             }
         })
@@ -757,8 +757,8 @@ where
 
             nextdata_res
                 .zip_def(repair_res)
-                .set_passthru(())
-                .map_value(|(nextdata, ())| {
+                .set_err_value(())
+                .map_ok_value(|(nextdata, ())| {
                     let parse = RawTEXTParseData::new(
                         header.segments,
                         supp_text_seg,
@@ -780,7 +780,7 @@ where
                 .mappend_cmt()
                 .map_non_fung_errors(ImpureError::Pure)
                 .nowarn_into_cmt()
-                .map_value(|_| raw)
+                .map_ok_value(|_| raw)
         })
 }
 
@@ -1093,7 +1093,7 @@ where
         Version::FCS3_2 => KeyedOptSegment::get(kws, &seg_conf).recover_or_default(),
     };
     let x = res
-        .map_passthru(|_| None)
+        .map_err_value(|_| None)
         .cmt_warnings_into()
         .non_fung_errors_into();
     x.and_then_def(|x| {
@@ -1128,8 +1128,8 @@ fn lookup_nextdata(
     if enforce {
         get_req(kws, k)
             .into_generic()
-            .map_value(Some)
-            .map_passthru(|_| None)
+            .map_ok_value(Some)
+            .map_err_value(|_| None)
     } else {
         get_opt(kws, k).into_succ()
     }

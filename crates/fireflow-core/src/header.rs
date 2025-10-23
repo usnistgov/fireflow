@@ -255,7 +255,7 @@ impl Header {
                 .map_or(Result::new_ok(vec![]), |earliest_begin| {
                     h_read_other_segments(h, *earliest_begin, st)
                 })
-                .map_value(|other| {
+                .map_ok_value(|other| {
                     Self::new(version, HeaderSegments::new(text, data, analysis, other))
                 })
                 .and_then_cmt(|hdr| {
@@ -264,7 +264,7 @@ impl Header {
                         .map_non_fung_errors(Box::new)
                         .map_non_fung_errors(HeaderError::Validation)
                         .map_non_fung_errors(ImpureError::Pure)
-                        .map_value(|_| hdr)
+                        .map_ok_value(|_| hdr)
                 })
         })
     }
@@ -301,7 +301,7 @@ where
         .map_non_fung_errors(|e| e.map_inner(HeaderError::Segment));
     vers_res
         .zip3_cmt(space_res, offset_res)
-        .map_value(|(version, (), (text, data, analysis))| (version, text, data, analysis))
+        .map_ok_value(|(version, (), (text, data, analysis))| (version, text, data, analysis))
 }
 
 fn h_read_spaces<R: Read>(h: &mut BufReader<R>) -> Result<(), ImpureError<HeaderError>> {
@@ -375,13 +375,13 @@ where
                 Result::new_ok(None)
             } else {
                 OtherSegment::parse_other(&buf0, &buf1, conf.allow_negative, &seg_conf)
-                    .map_value(Some)
+                    .map_ok_value(Some)
                     .map_non_fung_errors(HeaderError::Segment)
                     .map_non_fung_errors(ImpureError::Pure)
             }
         })
         .mappend_cmt()
-        .map_value(|os| os.into_iter().flatten().collect())
+        .map_ok_value(|os| os.into_iter().flatten().collect())
 }
 
 impl Version {

@@ -97,7 +97,7 @@ pub struct Success<V, W, I: ZeroOrMore> {
 pub struct Failure<P, W, E, WC: ZeroOrMore, EC: ZeroOrMore> {
     warnings: WC::Wrapper<W>,
     errors: GenNonEmpty<E, EC>,
-    passthru: P,
+    value: P,
 }
 
 #[derive(new)]
@@ -412,7 +412,7 @@ impl<V, W, WC: ZeroOrMore> Success<V, W, WC> {
             }
             Err(e) => {
                 let ws = self.warnings.concat(e.warnings);
-                Err(Failure::new(ws, e.errors, e.passthru))
+                Err(Failure::new(ws, e.errors, e.value))
             }
         }
     }
@@ -436,7 +436,7 @@ impl<V, W, WC: ZeroOrMore> Success<V, W, WC> {
         WC::Wrapper<W>: Concatable<Out = WCf::Wrapper<W>>,
     {
         let ws = self.warnings.concat(other.warnings);
-        Failure::new(ws, other.errors, f(self.value, other.passthru))
+        Failure::new(ws, other.errors, f(self.value, other.value))
     }
 
     pub(crate) fn zip_with<F, V0, VF, WCf>(
@@ -492,12 +492,12 @@ impl<V> Success<V, (), NullFamily> {
 }
 
 impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
-    pub(crate) fn new_from_one(error: E, passthru: P) -> Self {
-        Self::new_from_many(GenNonEmpty::new1(error), passthru)
+    pub(crate) fn new_from_one(error: E, value: P) -> Self {
+        Self::new_from_many(GenNonEmpty::new1(error), value)
     }
 
-    pub(crate) fn new_from_many(errors: GenNonEmpty<E, EC>, passthru: P) -> Self {
-        Self::new(WC::Wrapper::<W>::default(), errors.into(), passthru)
+    pub(crate) fn new_from_many(errors: GenNonEmpty<E, EC>, value: P) -> Self {
+        Self::new(WC::Wrapper::<W>::default(), errors.into(), value)
     }
 
     fn repack_warnings<WIF>(self) -> Failure<P, W, E, WIF, EC>
@@ -508,7 +508,7 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         Failure::new(
             WC::into_zero_or_more(self.warnings),
             self.errors,
-            self.passthru,
+            self.value,
         )
     }
 
@@ -517,7 +517,7 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         EC: IntoZeroOrMore<ECf>,
         ECf: ZeroOrMore,
     {
-        Failure::new(self.warnings, self.errors.repack(), self.passthru)
+        Failure::new(self.warnings, self.errors.repack(), self.value)
     }
 
     fn map_warnings<F, Wf>(self, f: F) -> Failure<P, Wf, E, WC, EC>
@@ -527,7 +527,7 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         Failure {
             warnings: WC::map(self.warnings, f),
             errors: self.errors,
-            passthru: self.passthru,
+            value: self.value,
         }
     }
 
@@ -535,21 +535,21 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
     where
         F: Fn(E) -> Ef,
     {
-        Failure::new(self.warnings, self.errors.map(f), self.passthru)
+        Failure::new(self.warnings, self.errors.map(f), self.value)
     }
 
-    fn map_passthru<F, ToP>(self, f: F) -> Failure<ToP, W, E, WC, EC>
+    fn map_value<F, ToP>(self, f: F) -> Failure<ToP, W, E, WC, EC>
     where
         F: FnOnce(P) -> ToP,
     {
-        Failure::new(self.warnings, self.errors, f(self.passthru))
+        Failure::new(self.warnings, self.errors, f(self.value))
     }
 
     fn set_warnings<Wf, WCf>(self, ws: WCf::Wrapper<Wf>) -> Failure<P, Wf, E, WCf, EC>
     where
         WCf: ZeroOrMore,
     {
-        Failure::new(ws, self.errors, self.passthru)
+        Failure::new(ws, self.errors, self.value)
     }
 
     fn push_warning(&mut self, w: W)
@@ -564,7 +564,7 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         F: FnOnce(&P) -> Option<W>,
         WC::Wrapper<W>: Extend<W>,
     {
-        if let Some(e) = f(&self.passthru) {
+        if let Some(e) = f(&self.value) {
             self.push_warning(e);
         }
     }
@@ -595,19 +595,19 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         F: FnOnce(&P) -> Option<E>,
         EC::Wrapper<E>: Extend<E>,
     {
-        if let Some(e) = f(&self.passthru) {
+        if let Some(e) = f(&self.value) {
             self.push_error(e);
         }
     }
 
-    fn with_passthru<F, V, Pf, WCf>(mut self, f: F) -> CmtResult<V, Pf, W, E, WCf, EC>
+    fn with_value<F, V, Pf, WCf>(mut self, f: F) -> CmtResult<V, Pf, W, E, WCf, EC>
     where
         F: FnOnce(P) -> CmtResult<V, Pf, W, E, WC, EC>,
         WCf: ZeroOrMore,
         WC::Wrapper<W>: Concatable<Out = WCf::Wrapper<W>>,
         EC::Wrapper<E>: Extend<E>,
     {
-        match f(self.passthru) {
+        match f(self.value) {
             Ok(s) => {
                 let ws = self.warnings.concat(s.warnings);
                 Ok(Success::new(s.value, ws))
@@ -615,7 +615,7 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
             Err(e) => {
                 let ws = self.warnings.concat(e.warnings);
                 self.errors.extend(e.errors);
-                Err(Failure::new(ws, self.errors, e.passthru))
+                Err(Failure::new(ws, self.errors, e.value))
             }
         }
     }
@@ -636,14 +636,14 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         let ws = self.warnings.concat(other.warnings);
         let mut es = self.errors.into_zero_or_more();
         es.extend(other.errors);
-        Failure::new(ws, es, f(self.passthru, other.passthru))
+        Failure::new(ws, es, f(self.value, other.value))
     }
 
     fn aggregate_warnings<F, Wf>(self, f: F) -> Failure<P, Wf, E, OptFamily, EC>
     where
         F: FnOnce(WC::Wrapper<W>) -> Wf,
     {
-        Failure::new(Some(f(self.warnings)), self.errors, self.passthru)
+        Failure::new(Some(f(self.warnings)), self.errors, self.value)
     }
 
     fn aggregate_errors<F, EF>(self, f: F) -> Failure<P, W, EF, WC, NullFamily>
@@ -651,7 +651,7 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         F: FnOnce(GenNonEmpty<E, EC>) -> EF,
     {
         let es = GenNonEmpty::new1(f(self.errors));
-        Failure::new(self.warnings, es, self.passthru)
+        Failure::new(self.warnings, es, self.value)
     }
 
     fn summarize_errors<S>(self, summary: S) -> Failure<P, W, ErrorSummary<E, S>, WC, NullFamily>
@@ -672,11 +672,11 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         WC::Wrapper<W>: Concatable<Out = WCf::Wrapper<W>>,
     {
         let ws = self.warnings.concat(other.warnings);
-        Failure::new(ws, self.errors, f(self.passthru, other.value))
+        Failure::new(ws, self.errors, f(self.value, other.value))
     }
 
     fn remove_warnings(self) -> Failure<P, (), E, NullFamily, EC> {
-        Failure::new(NeverValue::default(), self.errors, self.passthru)
+        Failure::new(NeverValue::default(), self.errors, self.value)
     }
 
     fn warnings_to_errors<F>(mut self, f: F) -> Failure<P, (), E, NullFamily, EC>
@@ -685,13 +685,13 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         EC::Wrapper<E>: Extend<E>,
     {
         self.errors.extend(WC::map(self.warnings, f));
-        Failure::new_from_many(self.errors, self.passthru)
+        Failure::new_from_many(self.errors, self.value)
     }
 }
 
 impl<P, E, EC: ZeroOrMore> Failure<P, (), E, NullFamily, EC> {
     fn lift_simple<W, WC: ZeroOrMore>(self) -> Failure<P, W, E, WC, EC> {
-        Failure::new_from_many(self.errors, self.passthru)
+        Failure::new_from_many(self.errors, self.value)
     }
 }
 
@@ -801,7 +801,7 @@ pub trait OptionExt: Sized {
         EC: ZeroOrMore,
     {
         self.into_option()
-            .map_or(Result::new_ok(None), |x| x.map_value(Some))
+            .map_or(Result::new_ok(None), |x| x.map_ok_value(Some))
     }
 }
 
@@ -1044,7 +1044,7 @@ pub trait ResultExt: Sized {
         RWC: ZeroOrMore,
         EC: ZeroOrMore,
     {
-        self.into_succ_opt().map_value(|x| x.unwrap_or(default))
+        self.into_succ_opt().map_ok_value(|x| x.unwrap_or(default))
     }
 
     // TODO versions of the above that go to errors?
@@ -1160,11 +1160,11 @@ where
     where
         Vf: From<Self::V>,
     {
-        self.map_value(Into::into)
+        self.map_ok_value(Into::into)
     }
 
     /// Map function over Ok value of Result
-    fn map_value<F, Vf>(
+    fn map_ok_value<F, Vf>(
         self,
         f: F,
     ) -> GenericResult<Vf, Self::P, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
@@ -1175,32 +1175,32 @@ where
     }
 
     /// Map function over Error value of Result
-    fn map_passthru<F, Pf>(
+    fn map_err_value<F, Pf>(
         self,
         f: F,
     ) -> GenericResult<Self::V, Pf, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
     where
         F: FnOnce(Self::P) -> Pf,
     {
-        self.into_result().map_err(|e| e.map_passthru(f))
+        self.into_result().map_err(|e| e.map_value(f))
     }
 
     /// Set value of Ok Result
-    fn set_value<Vf>(
+    fn set_ok_value<Vf>(
         self,
         x: Vf,
     ) -> GenericResult<Vf, Self::P, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
     {
-        self.map_value(|_| x)
+        self.map_ok_value(|_| x)
     }
 
     /// Set value of Error Result
-    fn set_passthru<Pf>(
+    fn set_err_value<Pf>(
         self,
         x: Pf,
     ) -> GenericResult<Self::V, Pf, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
     {
-        self.map_passthru(|_| x)
+        self.map_err_value(|_| x)
     }
 
     /// Set value of deferred Result
@@ -1210,7 +1210,33 @@ where
     {
         match self.into_result() {
             Ok(s) => Ok(s.map_value(|_| x)),
-            Err(e) => Err(e.map_passthru(|_| x)),
+            Err(e) => Err(e.map_value(|_| x)),
+        }
+    }
+
+    /// Add a member to both the Ok and Error value, returning both as a tuple.
+    ///
+    /// This seems weird but is useful for cases where we need to use a non-Copy
+    /// variable in two closures for both branches but one closure will "eat"
+    /// (move) the value before the other can use it. This function will move
+    /// the value once depending on the branch where is can be consumed by
+    /// both closures as an argument.
+    fn inject_value<X>(
+        self,
+        x: X,
+    ) -> GenericResult<
+        (Self::V, X),
+        (Self::P, X),
+        Self::LW,
+        Self::RW,
+        Self::E,
+        Self::LWC,
+        Self::RWC,
+        Self::EC,
+    > {
+        match self.into_result() {
+            Ok(s) => Ok(s.map_value(|v| (v, x))),
+            Err(e) => Err(e.map_value(|v| (v, x))),
         }
     }
 
@@ -1351,7 +1377,7 @@ where
     {
         match self.into_result() {
             Ok(s) => Ok(s.map_value(f)),
-            Err(e) => Err(e.map_passthru(f)),
+            Err(e) => Err(e.map_value(f)),
         }
     }
 
@@ -1444,13 +1470,13 @@ where
         if conf.warnings_are_errors {
             let ret = match res {
                 Ok(s) => s.warnings_to_errors(f, |_| ()),
-                Err(e) => Err(e.warnings_to_errors(f).map_passthru(|_| ())),
+                Err(e) => Err(e.warnings_to_errors(f).map_value(|_| ())),
             };
             ret.nowarn_into_cmt()
         } else if conf.hide_warnings {
-            res.remove_warnings().nowarn_into_cmt().set_passthru(())
+            res.remove_warnings().nowarn_into_cmt().set_err_value(())
         } else {
-            res.set_passthru(())
+            res.set_err_value(())
         }
     }
 
@@ -1548,6 +1574,14 @@ where
     {
         let Ok(ret) = self.into_result();
         Ok(ret)
+    }
+
+    fn from_infallible_nowarn(self) -> Self::V
+    where
+        Self: NowarnExt<E = Infallible>,
+    {
+        let Ok(ret) = self.into_result();
+        ret.value
     }
 
     /// Resolve Result with no warnings into regular Result type.
@@ -1739,7 +1773,7 @@ where
                 None => Ok(succ),
             },
             Err(mut err) => {
-                if let Some(e) = f(&err.passthru) {
+                if let Some(e) = f(&err.value) {
                     err.push_error(e);
                 };
                 Err(err)
@@ -1949,7 +1983,7 @@ where
     {
         match self.into_result() {
             Ok(s) => s.and_maybe(f),
-            Err(e) => e.with_passthru(f),
+            Err(e) => e.with_value(f),
         }
     }
 
@@ -1992,7 +2026,7 @@ where
     {
         self.zip_cmt(a)
             .zip_cmt(b.repack())
-            .map_value(|((ax, bx), cx)| (ax, bx, cx))
+            .map_ok_value(|((ax, bx), cx)| (ax, bx, cx))
     }
 
     /// Combine four commutative results.
@@ -2009,7 +2043,7 @@ where
     {
         self.zip3_cmt(a, b)
             .zip_cmt(c.repack())
-            .map_value(|((ax, bx, cx), dx)| (ax, bx, cx, dx))
+            .map_ok_value(|((ax, bx, cx), dx)| (ax, bx, cx, dx))
     }
 
     /// Combine five commutative results.
@@ -2027,7 +2061,7 @@ where
     {
         self.zip4_cmt(a, b, c)
             .zip_cmt(d.repack())
-            .map_value(|((ax, bx, cx, dx), ex)| (ax, bx, cx, dx, ex))
+            .map_ok_value(|((ax, bx, cx, dx), ex)| (ax, bx, cx, dx, ex))
     }
 
     /// Combine six commutative results.
@@ -2046,7 +2080,7 @@ where
     {
         self.zip5_cmt(a, b, c, d)
             .zip_cmt(e.repack())
-            .map_value(|((ax, bx, cx, dx, ex), fx)| (ax, bx, cx, dx, ex, fx))
+            .map_ok_value(|((ax, bx, cx, dx, ex), fx)| (ax, bx, cx, dx, ex, fx))
     }
 
     /// Combine two deferred results.
@@ -2327,7 +2361,7 @@ where
             }
         }
         if let Some(h) = error_head {
-            vs.push(h.passthru);
+            vs.push(h.value);
             let mut es = h.errors;
             for x in self {
                 match x {
@@ -2336,7 +2370,7 @@ where
                         ws = ws.concat(y.warnings);
                     }
                     Err(y) => {
-                        vs.push(y.passthru);
+                        vs.push(y.value);
                         ws = ws.concat(y.warnings);
                         es.extend(y.errors);
                     }

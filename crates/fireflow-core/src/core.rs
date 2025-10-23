@@ -1370,7 +1370,7 @@ pub trait Versioned {
                 let analysis_res = ar.h_read(h).map_err(ImpureError::IO).into_generic();
                 data_res
                     .zip_cmt(analysis_res)
-                    .map_value(|(d, a)| (d, a, *dataset_segs))
+                    .map_ok_value(|(d, a)| (d, a, *dataset_segs))
             })
     }
 }
@@ -1712,8 +1712,8 @@ impl<T> Temporal<T> {
     {
         T::lookup_specific(std, i, &mut nonstd, conf).and_then_cmt(|specific| {
             CommonMeasurement::lookup(std, i, nonstd, conf)
-                .map_value(|common| Self::new(common, specific))
-                .set_passthru(())
+                .map_ok_value(|common| Self::new(common, specific))
+                .set_err_value(())
                 .non_fung_errors_into()
         })
     }
@@ -1756,7 +1756,7 @@ impl<O> Optical<O> {
         i: MeasIndex,
         allow_loss: bool,
     ) -> OpticalConvertResult<Optical<ToP>> {
-        ToP::convert_from_optical(self.specific, i, allow_loss).map_value(|specific| {
+        ToP::convert_from_optical(self.specific, i, allow_loss).map_ok_value(|specific| {
             Optical::new(
                 self.common,
                 self.filter,
@@ -1791,8 +1791,8 @@ impl<O> Optical<O> {
             .zip6_cmt(power, det_type, perc_emit, det_volt, common)
             .non_fung_errors_into()
             .and_then_cmt(|(f, p, d, e, v, c)| {
-                let x =
-                    O::lookup_specific(std, i, conf).map_value(|s| Self::new(c, f, p, d, e, v, s));
+                let x = O::lookup_specific(std, i, conf)
+                    .map_ok_value(|s| Self::new(c, f, p, d, e, v, s));
                 x
             })
     }
@@ -1927,7 +1927,7 @@ where
         self,
         allow_loss: bool,
     ) -> MetarootConvertResult<Metaroot<ToM>> {
-        ToM::convert_from_metaroot(self.specific, allow_loss).map_value(|specific| {
+        ToM::convert_from_metaroot(self.specific, allow_loss).map_ok_value(|specific| {
             Metaroot::new(
                 self.abrt,
                 self.com,
@@ -1980,7 +1980,7 @@ where
             .zip5_cmt(smno_res, src_res, sys_res, tr_res)
             .map_non_fung_errors(LookupKeysError::from)
             .zip_cmt(spec_res)
-            .map_value(
+            .map_ok_value(
                 |(
                     (((abrt, com, cells, exp, fil), inst, lost, op, proj), smno, src, sys, tr),
                     specific,
@@ -2380,7 +2380,7 @@ where
     ) -> Result<(), KeyLengthError> {
         self.measurements
             .alter_common_values_zip(xs, |_, y: &mut HashMap<_, _>, x| *y = x)
-            .void()
+            .map(|_| ())
     }
 
     /// Replace optical measurement at index.
@@ -2626,7 +2626,7 @@ where
                 |m, x| *m.value.as_mut() = x,
                 |m, x| *m.value.as_mut() = x,
             )
-            .void()
+            .map(|_| ())
     }
 
     /// Return field from all optical measurements as an iterator
@@ -2664,15 +2664,14 @@ where
     pub fn set_optical<X>(
         &mut self,
         xs: Vec<NonCenterElement<X>>,
-    ) -> TerminalResult<(), Infallible, SetElementsError, SetOpticalFailure>
+    ) -> ErrorsResult<(), SetElementsError>
     where
         Optical<M::Optical>: AsMut<X>,
     {
         let ys = xs.into_iter().map(|x| x.0).collect();
         self.measurements
             .alter_elements_zip(ys, |m, x| *m.value.as_mut() = x, |_, ()| ())
-            .void()
-            .mult_terminate_def()
+            .map(|_| ())
     }
 
     /// Get field which is on both optical and temporal measurement types
@@ -3273,9 +3272,9 @@ where
                 self.layout
                     .push(r, disallow_trunc)
                     .map_non_fung_errors(PushOpticalError::from)
-                    .set_value(ret)
+                    .set_ok_value(ret)
             })
-            .map_value(|ret| {
+            .map_ok_value(|ret| {
                 let i = self.par().0.into();
                 self.metaroot.specific.insert_meas_index_inner(i);
                 ret
@@ -3298,9 +3297,9 @@ where
                 self.layout
                     .insert_nocheck(i, r, disallow_trunc)
                     .map_non_fung_errors(InsertOpticalError::from)
-                    .set_value(ret)
+                    .set_ok_value(ret)
             })
-            .map_value(|ret| {
+            .map_ok_value(|ret| {
                 self.metaroot.specific.insert_meas_index_inner(i);
                 ret
             })
@@ -3350,7 +3349,7 @@ where
     {
         layout
             .check_measurement_vector(&self.measurements)
-            .map_value(|()| self.layout = layout)
+            .map_ok_value(|()| self.layout = layout)
     }
 
     /// Set measurements and layout
@@ -3381,9 +3380,9 @@ where
                 layout
                     .check_measurement_vector(&ms)
                     .map_non_fung_errors(SetMeasurementsError::from)
-                    .set_value(ms)
+                    .set_ok_value(ms)
             })
-            .map_value(|ms| {
+            .map_ok_value(|ms| {
                 self.measurements = ms;
                 self.layout = layout;
             })
@@ -3411,9 +3410,9 @@ where
                 self.layout
                     .check_measurement_vector(&ms)
                     .map_non_fung_errors(SetMeasurementsError::from)
-                    .set_value(ms)
+                    .set_ok_value(ms)
             })
-            .map_value(|ms| {
+            .map_ok_value(|ms| {
                 self.measurements = ms;
             })
     }
@@ -4423,7 +4422,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                     .map_non_fung_errors(NewCoreError::from);
                 link_res
                     .zip_cmt(layout_res)
-                    .map_value(|((), ())| Self::new(metaroot, ms, layout, (), (), ()))
+                    .map_ok_value(|((), ())| Self::new(metaroot, ms, layout, (), (), ()))
             })
     }
 
@@ -5111,8 +5110,8 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical2_0 {
         ScaleTransform::try_convert_to_scale(value.scale, i, allow_loss)
             .map_cmt_warnings(OpticalConvertWarning::from)
             .map_non_fung_errors(OpticalConvertError::from)
-            .map_value(|scale| Self::new(Some(scale), value.wavelength, value.peak))
-            .set_passthru(())
+            .map_ok_value(|scale| Self::new(Some(scale), value.wavelength, value.peak))
+            .set_err_value(())
             .repack()
     }
 }
@@ -5148,7 +5147,7 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical2_0 {
             .into_semigroup();
         check_res
             .zip3_cmt(xform, wave)
-            .map_value(|(_, scale, wavelength)| Self::new(Some(scale), wavelength, value.peak))
+            .map_ok_value(|(_, scale, wavelength)| Self::new(Some(scale), wavelength, value.peak))
     }
 }
 
@@ -5198,7 +5197,7 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical2_0 {
 
         check_res
             .zip3_cmt(xform, w)
-            .map_value(|((), scale, wavelength)| {
+            .map_ok_value(|((), scale, wavelength)| {
                 Self::new(Some(scale), wavelength, PeakData::default())
             })
     }
@@ -5246,7 +5245,7 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_0 {
 
         check_res
             .zip_cmt(wave)
-            .map_value(|(_, wavelength)| Self::new(value.scale, wavelength, value.peak));
+            .map_ok_value(|(_, wavelength)| Self::new(value.scale, wavelength, value.peak));
     }
 }
 
@@ -5292,7 +5291,7 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_0 {
 
         check_res
             .zip_cmt(wave)
-            .map_value(|(_, wavelength)| Self::new(value.scale, wavelength, PeakData::default()))
+            .map_ok_value(|(_, wavelength)| Self::new(value.scale, wavelength, PeakData::default()))
     }
 }
 
@@ -5348,7 +5347,7 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_1 {
             .mappend_def_void()
             .map_cmt_warnings(OpticalConvertWarning::Xfer)
             .map_non_fung_errors(OpticalConvertError::Xfer)
-            .map_value(|()| {
+            .map_ok_value(|()| {
                 Self::new(
                     value.scale,
                     value.wavelengths,
@@ -5407,7 +5406,7 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical3_2 {
             .check_loss(i, allow_loss)
             .map_cmt_warnings(OpticalConvertWarning::from)
             .map_non_fung_errors(OpticalConvertError::from)
-            .map_value(|()| {
+            .map_ok_value(|()| {
                 Self::new(
                     value.scale,
                     wave,
@@ -5434,7 +5433,7 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_2 {
             .check_loss(i, allow_loss)
             .map_cmt_warnings(OpticalConvertWarning::Xfer)
             .map_non_fung_errors(OpticalConvertError::Xfer)
-            .map_value(|()| {
+            .map_ok_value(|()| {
                 Self::new(
                     value.scale,
                     value.wavelengths,
@@ -5745,8 +5744,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
                     .try_into_2_0(allow_loss)
                     .map_cmt_warnings(MetarootConvertWarning::from)
                     .map_non_fung_errors(MetarootConvertError::from)
-                    .set_passthru(())
-                    .map_value(|ag| {
+                    .set_err_value(())
+                    .map_ok_value(|ag| {
                         Self::new(
                             value.mode,
                             value.cyt,
@@ -5783,8 +5782,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
                     .try_into_2_0(allow_loss)
                     .map_cmt_warnings(MetarootConvertWarning::from)
                     .map_non_fung_errors(MetarootConvertError::from)
-                    .set_passthru(())
-                    .map_value(|applied_gates| {
+                    .set_err_value(())
+                    .map_ok_value(|applied_gates| {
                         Self::new(
                             value.mode,
                             value.cyt,
@@ -5822,7 +5821,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
             .eval_def_non_fung_error(!allow_loss, |()| {
                 (!value.applied_gates.is_empty()).then_some(gating::AppliedGates3_2To2_0Error)
             })
-            .map_value(|()| {
+            .map_ok_value(|()| {
                 Self::new(
                     Mode::List,
                     value.cyt,
@@ -5862,7 +5861,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_0 {
             .mappend_def_void()
             .map_cmt_warnings(MetarootConvertWarning::from)
             .map_non_fung_errors(MetarootConvertError::from)
-            .map_value(|()| {
+            .map_ok_value(|()| {
                 Self::new(
                     value.mode,
                     value.cyt,
@@ -5897,7 +5896,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
             .mappend_def_void()
             .map_cmt_warnings(MetarootConvertWarning::from)
             .map_non_fung_errors(MetarootConvertError::from)
-            .map_value(|()| {
+            .map_ok_value(|()| {
                 Self::new(
                     Mode::List,
                     value.cyt,
@@ -5921,7 +5920,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_1 {
             .eval_def_non_fung_error(!allow_loss, |()| {
                 value.comp.is_some().then_some(Comp2_0TransferError)
             })
-            .map_value(|()| {
+            .map_ok_value(|()| {
                 Self::new(
                     value.mode,
                     value.cyt,
@@ -5951,7 +5950,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_1 {
             .mappend_def_void()
             .map_cmt_warnings(MetarootConvertWarning::from)
             .map_non_fung_errors(MetarootConvertError::from)
-            .map_value(|()| {
+            .map_ok_value(|()| {
                 Self::new(
                     value.mode,
                     value.cyt,
@@ -5985,7 +5984,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
             .mappend_def_void()
             .map_cmt_warnings(MetarootConvertWarning::from)
             .map_non_fung_errors(MetarootConvertError::from)
-            .map_value(|()| {
+            .map_ok_value(|()| {
                 Self::new(
                     Mode::List,
                     value.cyt,
@@ -6028,7 +6027,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
 
         check_res
             .zip3_cmt(mode_res, cyt_res)
-            .map_value(|((), mode, cyt)| {
+            .map_ok_value(|((), mode, cyt)| {
                 Self::new(
                     mode,
                     value.timestamps.map(Into::into),
@@ -6079,9 +6078,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
             .map_err(MetarootConvertError::from)
             .into_generic();
 
-        check_res
-            .zip4_cmt(mode_res, ag_res, cyt_res)
-            .map_value(|((), mode, applied_gates, cyt)| {
+        check_res.zip4_cmt(mode_res, ag_res, cyt_res).map_ok_value(
+            |((), mode, applied_gates, cyt)| {
                 Self::new(
                     mode,
                     value.timestamps.map(Into::into),
@@ -6097,7 +6095,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
                     Flowrate::default(),
                     applied_gates,
                 )
-            })
+            },
+        )
     }
 }
 
@@ -6128,7 +6127,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
             .into_generic();
 
         ss.zip4_cmt(ag_res, mode_rs, cyt_res)
-            .map_value(|((), applied_gates, mode, cyt)| {
+            .map_ok_value(|((), applied_gates, mode, cyt)| {
                 Self::new(
                     mode,
                     value.timestamps,
@@ -6175,7 +6174,7 @@ impl ScaleTransform {
     fn lookup(kws: &mut StdKeywords, i: MeasIndex, conf: &StdTextReadConfig) -> LookupResult<Self> {
         Gain::lookup_meas_opt(kws, i, false, conf)
             .non_fung_errors_into()
-            .set_passthru(())
+            .set_err_value(())
             .and_then_cmt(|g| {
                 Scale::lookup_req_st(kws, i, (), conf)
                     .and_then_cmt(|s| Self::try_from((s, g)).into_generic().non_fung_errors_into())
@@ -6443,13 +6442,13 @@ impl ConvertFromLayout<DataLayout3_0> for DataLayout2_0 {
 
 impl ConvertFromLayout<DataLayout3_1> for DataLayout2_0 {
     fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
-        value.into_ordered().map_value(Into::into)
+        value.into_ordered().map_ok_value(Into::into)
     }
 }
 
 impl ConvertFromLayout<DataLayout3_2> for DataLayout2_0 {
     fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
-        value.into_ordered().map_value(Into::into)
+        value.into_ordered().map_ok_value(Into::into)
     }
 }
 
@@ -6461,13 +6460,13 @@ impl ConvertFromLayout<DataLayout2_0> for DataLayout3_0 {
 
 impl ConvertFromLayout<DataLayout3_1> for DataLayout3_0 {
     fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
-        value.into_ordered().map_value(Into::into)
+        value.into_ordered().map_ok_value(Into::into)
     }
 }
 
 impl ConvertFromLayout<DataLayout3_2> for DataLayout3_0 {
     fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
-        value.into_ordered().map_value(Into::into)
+        value.into_ordered().map_ok_value(Into::into)
     }
 }
 
@@ -6489,7 +6488,7 @@ impl ConvertFromLayout<DataLayout3_2> for DataLayout3_1 {
             DataLayout3_2::NonMixed(x) => Result::new_ok(Self(x.phantom_into())),
             DataLayout3_2::Mixed(x) => x
                 .try_into_non_mixed()
-                .map_value(Self)
+                .map_ok_value(Self)
                 .non_fung_errors_into(),
         }
     }
@@ -6585,7 +6584,7 @@ impl LookupOptical for InnerOptical2_0 {
         scale
             .zip3_cmt(wave, peak)
             .map_non_fung_errors(LookupKeysError::from)
-            .map_value(|(si, wi, pi)| Self::new(si, wi, pi))
+            .map_ok_value(|(si, wi, pi)| Self::new(si, wi, pi))
     }
 }
 
@@ -6600,7 +6599,7 @@ impl LookupOptical for InnerOptical3_0 {
         wave.zip_cmt(peak)
             .map_non_fung_errors(LookupKeysError::from)
             .and_then_cmt(|(wi, pi)| {
-                ScaleTransform::lookup(kws, i, conf).map_value(|s| Self::new(s, wi, pi))
+                ScaleTransform::lookup(kws, i, conf).map_ok_value(|s| Self::new(s, wi, pi))
             })
     }
 }
@@ -6619,7 +6618,7 @@ impl LookupOptical for InnerOptical3_1 {
             .map_non_fung_errors(LookupKeysError::from)
             .and_then_cmt(|(wi, ci, di, pi)| {
                 ScaleTransform::lookup(kws, i, conf)
-                    .map_value(|scale| Self::new(scale, wi, ci, di, pi))
+                    .map_ok_value(|scale| Self::new(scale, wi, ci, di, pi))
             })
     }
 }
@@ -6643,7 +6642,7 @@ impl LookupOptical for InnerOptical3_2 {
             .map_non_fung_errors(LookupKeysError::from)
             .and_then_cmt(|((w, c, d, n), t, m, f, a)| {
                 ScaleTransform::lookup(kws, i, conf)
-                    .map_value(|s| Self::new(s, w, c, d, a, f, m, t, n))
+                    .map_ok_value(|s| Self::new(s, w, c, d, a, f, m, t, n))
             })
     }
 }
@@ -6666,7 +6665,7 @@ impl LookupTemporal for InnerTemporal2_0 {
         scale
             .zip_cmt(peak)
             .map_non_fung_errors(LookupKeysError::from)
-            .map_value(|(s, p)| Self::new(s, p))
+            .map_ok_value(|(s, p)| Self::new(s, p))
     }
 }
 
@@ -6685,7 +6684,9 @@ impl LookupTemporal for InnerTemporal3_0 {
             .and_then_cmt(|(_, p)| {
                 let scale = lookup_temporal_scale_3_0(std, i, nonstd, conf);
                 let timestep = Timestep::lookup_req(std);
-                scale.zip_cmt(timestep).map_value(|((), t)| Self::new(t, p))
+                scale
+                    .zip_cmt(timestep)
+                    .map_ok_value(|((), t)| Self::new(t, p))
             })
     }
 }
@@ -6708,7 +6709,7 @@ impl LookupTemporal for InnerTemporal3_1 {
                 let timestep = Timestep::lookup_req(std);
                 scale
                     .zip_cmt(timestep)
-                    .map_value(|((), t)| Self::new(t, d, p))
+                    .map_ok_value(|((), t)| Self::new(t, d, p))
             })
     }
 }
@@ -6731,7 +6732,7 @@ impl LookupTemporal for InnerTemporal3_2 {
                 let timestep = Timestep::lookup_req(std);
                 scale
                     .zip_cmt(timestep)
-                    .map_value(|((), t)| Self::new(t, d, m))
+                    .map_ok_value(|((), t)| Self::new(t, d, m))
             })
     }
 }
@@ -7021,7 +7022,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
         Tot::remove_metaroot_opt(kws)
             .into_succ()
             .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
-            .map_value(|tot| {
+            .map_ok_value(|tot| {
                 let s = DatasetSegments::new(data.into_any(), analysis.into_any());
                 TEXTOffsets::new(s, tot).into()
             })
@@ -7039,7 +7040,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
         Tot::get_metaroot_opt(kws)
             .into_succ()
             .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
-            .map_value(|tot| {
+            .map_ok_value(|tot| {
                 let s = DatasetSegments::new(data.into_any(), analysis.into_any());
                 TEXTOffsets::new(s, tot).into()
             })
@@ -7105,7 +7106,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         .map_non_fung_errors(LookupTEXTOffsetsError::from);
         tot_res
             .zip3_cmt(data_res, analysis_res)
-            .map_value(|(tot, d, a)| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
+            .map_ok_value(|(tot, d, a)| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
     }
 
     fn lookup_ro<C>(
@@ -7152,7 +7153,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         .map_non_fung_errors(LookupTEXTOffsetsError::from);
         tot_res
             .zip3_cmt(data_res, analysis_res)
-            .map_value(|(tot, d, a)| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
+            .map_ok_value(|(tot, d, a)| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
     }
 
     fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot {
@@ -7209,10 +7210,10 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
                     conf.truncate_text_offsets,
                 ),
             )
-            .set_passthru(())
+            .set_err_value(())
             .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
             .map_non_fung_errors(LookupTEXTOffsetsError::from)
-            .map_value(|a| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
+            .map_ok_value(|a| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
         })
     }
 
@@ -7258,10 +7259,10 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
                     conf.truncate_text_offsets,
                 ),
             )
-            .set_passthru(())
+            .set_err_value(())
             .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
             .map_non_fung_errors(LookupTEXTOffsetsError::from)
-            .map_value(|a| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
+            .map_ok_value(|a| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
         })
     }
 
@@ -7454,7 +7455,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         conf: &StdTextReadConfig,
     ) -> LookupResult<<Self::Name as MightHave>::Wrapper<Shortname>> {
         Shortname::lookup_meas_opt(kws, i, false, conf)
-            .set_passthru(())
+            .set_err_value(())
             .map_non_fung_errors(LookupKeysError::from)
     }
 
@@ -7472,7 +7473,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         comp.zip4_cmt(cytn, ts, ag)
             .map_non_fung_errors(LookupKeysError::from)
             .and_then_cmt(|(co, cy, t, g)| {
-                Mode::lookup_req(kws).map_value(|mo| Self::new(mo, cy, co, t, g))
+                Mode::lookup_req(kws).map_ok_value(|mo| Self::new(mo, cy, co, t, g))
             })
     }
 }
@@ -7484,7 +7485,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         conf: &StdTextReadConfig,
     ) -> LookupResult<<Self::Name as MightHave>::Wrapper<Shortname>> {
         Shortname::lookup_meas_opt(kws, i, false, conf)
-            .set_passthru(())
+            .set_err_value(())
             .map_non_fung_errors(LookupKeysError::from)
     }
 
@@ -7506,7 +7507,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
             .zip4_cmt(ts, uni, ag)
             .map_non_fung_errors(LookupKeysError::from)
             .and_then_cmt(|((co, cy, sn, su), t, u, g)| {
-                Mode::lookup_req(kws).map_value(|mo| Self::new(mo, cy, co, t, sn, u, su, g))
+                Mode::lookup_req(kws).map_ok_value(|mo| Self::new(mo, cy, co, t, sn, u, su, g))
             })
     }
 }
@@ -7517,7 +7518,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         i: MeasIndex,
         _: &StdTextReadConfig,
     ) -> LookupResult<<Self::Name as MightHave>::Wrapper<Shortname>> {
-        Shortname::lookup_req(kws, i).map_value(AlwaysValue)
+        Shortname::lookup_req(kws, i).map_ok_value(AlwaysValue)
     }
 
     fn lookup_specific(
@@ -7560,7 +7561,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
             .and_then_cmt(|((c, sp, sn, su, md), p, t, v, g)| {
                 Mode::lookup_req(kws)
                     .and_then_cmt(process_mode)
-                    .map_value(|mo| Self::new(mo, c, t, sn, sp, md, p, v, su, g))
+                    .map_ok_value(|mo| Self::new(mo, c, t, sn, sp, md, p, v, su, g))
             })
     }
 }
@@ -7571,7 +7572,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         i: MeasIndex,
         _: &StdTextReadConfig,
     ) -> LookupResult<<Self::Name as MightHave>::Wrapper<Shortname>> {
-        Shortname::lookup_req(kws, i).map_value(AlwaysValue)
+        Shortname::lookup_req(kws, i).map_ok_value(AlwaysValue)
     }
 
     fn lookup_specific(
@@ -7600,7 +7601,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
             .map_non_fung_errors(LookupKeysError::from)
             .and_then_cmt(
                 |(((ca_, d_, f_, md_, mo_, sp_), sn_, p_, t_, u_, v_), ag_)| {
-                    Cyt3_2::lookup_req(kws).map_value(|c_| {
+                    Cyt3_2::lookup_req(kws).map_ok_value(|c_| {
                         Self::new(mo_, t_, d_, c_, sp_, sn_, md_, p_, v_, ca_, u_, f_, ag_)
                     })
                 },

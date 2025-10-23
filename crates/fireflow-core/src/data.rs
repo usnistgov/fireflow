@@ -1947,8 +1947,8 @@ impl<D> EndianLayout<NullMixedType, D> {
                     $iter
                         .map(|(i, c)| c.try_into().map_err(|e| (i, e)).into_generic())
                         .mappend_cmt()
-                        .map_value(|xs| FixedLayout::new1($head, xs, $byte_layout))
-                        .map_value(NonMixedEndianLayout::from)
+                        .map_ok_value(|xs| FixedLayout::new1($head, xs, $byte_layout))
+                        .map_ok_value(NonMixedEndianLayout::from)
                 };
             }
 
@@ -2077,7 +2077,7 @@ impl NullMixedType {
         macro_rules! from {
             ($t:ident, $width:expr, $range:expr, $disallow_trunc:expr) => {
                 $t::from_width_and_range($width, $range, $disallow_trunc)
-                    .map_value(Self::from)
+                    .map_ok_value(Self::from)
                     .cmt_warnings_into()
                     .non_fung_errors_into()
             };
@@ -3892,7 +3892,7 @@ impl<T> AnyOrderedLayout<T> {
             ($i:expr) => {
                 $i.map_non_fung_errors(NewDataLayoutError::from)
                     .map_cmt_warnings(ColumnError::inner_into)
-                    .map_value(Self::from)
+                    .map_ok_value(Self::from)
             };
         }
 
@@ -4012,7 +4012,7 @@ impl NonMixedEndianLayout<NoMeasDatatype> {
             ($x:expr) => {
                 $x.map_non_fung_errors(NewDataLayoutError::from)
                     .map_cmt_warnings(ColumnError::inner_into)
-                    .map_value(Self::from)
+                    .map_ok_value(Self::from)
             };
         }
 

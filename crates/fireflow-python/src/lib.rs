@@ -54,7 +54,6 @@
 //!   and can't cause compile errors. This is also almost-necessary since the
 //!   internal proc-macro code has rendering logic for sphinx rst syntax, which
 //!   would be a pain to keep in sync at the macro call level.
-
 use fireflow_core::api;
 use fireflow_core::config as cfg;
 use fireflow_core::core;
@@ -63,11 +62,9 @@ use fireflow_core::data::{
     DataLayout3_0, DataLayout3_1, DataLayout3_2, DelimAsciiLayout, EndianLayout, F32Range,
     F64Range, FixedAsciiLayout, KnownTot, LayoutOps as _, NoMeasDatatype, NonMixedEndianLayout,
 };
-use fireflow_core::error::{MultiResultExt as _, ResultExt as _};
+use fireflow_core::error1::LogResultExt as _;
 use fireflow_core::header;
-use fireflow_core::python::exceptions::{
-    PyTerminalNoErrorResultExt as _, PyTerminalNoWarnResultExt as _, PyTerminalResultExt as _,
-};
+use fireflow_core::python::exceptions::PyResultExt as _;
 use fireflow_core::text::gating::{
     AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, BivariateRegion, GatedMeasurement,
     GatingScheme, Region, UnivariateRegion,

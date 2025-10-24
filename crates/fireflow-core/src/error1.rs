@@ -3,6 +3,7 @@ use crate::text::optional::NeverValue;
 
 use derive_new::new;
 use std::convert::Infallible;
+use std::fmt;
 use std::io;
 use std::iter;
 use std::marker::PhantomData;
@@ -111,8 +112,8 @@ pub struct Failure<P, W, E, WC: ZeroOrMore, EC: ZeroOrMore> {
 
 #[derive(new)]
 pub struct ErrorSummary<E, S> {
-    summary: S,
-    errors: GenNonEmpty<E, VecFamily>,
+    pub summary: S,
+    pub errors: GenNonEmpty<E, VecFamily>,
 }
 
 // TODO eventually will want to make a boxable version of this, which will
@@ -1611,7 +1612,26 @@ where
         Self: LogResultExt<EC = VecFamily>,
         S: Default,
     {
-        self.aggregate_non_fung_errors(|es| ErrorSummary::new(S::default(), es))
+        self.summarize_errors_with(S::default())
+    }
+
+    fn summarize_errors_with<S>(
+        self,
+        s: S,
+    ) -> LogResult<
+        Self::V,
+        Self::P,
+        Self::LW,
+        Self::RW,
+        ErrorSummary<Self::E, S>,
+        Self::LWC,
+        Self::RWC,
+        NullFamily,
+    >
+    where
+        Self: LogResultExt<EC = VecFamily>,
+    {
+        self.aggregate_non_fung_errors(|es| ErrorSummary::new(s, es))
     }
 
     /// Aggregate non-commutative/fungible errors into one error.
@@ -1662,6 +1682,15 @@ where
         Ok(ret)
     }
 
+    fn from_infallible_with_warn<F, Wres>(self, f: F) -> (Self::V, Wres)
+    where
+        F: FnOnce(<Self::LWC as ZeroOrMore>::Wrapper<Self::LW>) -> Wres,
+        Self: LogResultExt<E = Infallible>,
+    {
+        let Ok(ret) = self.into_result();
+        (ret.value, f(ret.warnings))
+    }
+
     fn from_infallible_nowarn(self) -> Self::V
     where
         Self: NowarnExt<E = Infallible>,
@@ -1681,7 +1710,7 @@ where
             .map_err(|e| f(e.errors.head))
     }
 
-    /// Resolve non-commutative Result with into regular Result type.
+    /// Resolve non-commutative Result with regular Result type.
     ///
     /// Warnings will be given on the Ok side since non-commutative Result's
     /// by definition cannot have warnings in the Err branch.
@@ -2414,10 +2443,10 @@ impl<V, P, E, EC: ZeroOrMore> NowarnExt for NowarnResult<V, P, E, EC> {}
 ///
 /// The only requirement is that there must only be one error, which will be
 /// used to map to a regular result.
-pub trait ResolvableExt: LogResultExt<EC = NullFamily> {}
+pub trait ResolvableExt: LogResultExt<P = (), EC = NullFamily> {}
 
-impl<V, P, E, RW, LWC: ZeroOrMore, RWC: ZeroOrMore> ResolvableExt
-    for LogResult<V, P, E, RW, E, LWC, RWC, NullFamily>
+impl<V, E, LW, RW, LWC: ZeroOrMore, RWC: ZeroOrMore> ResolvableExt
+    for LogResult<V, (), LW, RW, E, LWC, RWC, NullFamily>
 {
 }
 
@@ -2597,11 +2626,27 @@ where
     }
 }
 
+impl<E: fmt::Display, S: fmt::Display> fmt::Display for ErrorSummary<E, S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        writeln!(f, "Toplevel Error: {}", self.summary)?;
+        let es = &self.errors;
+        for e in iter::once(&es.head).chain(es.tail.iter()) {
+            for l in e.to_string().lines() {
+                writeln!(f, "  {l}")?;
+            }
+        }
+        Ok(())
+    }
+}
+
 #[cfg(feature = "python")]
 mod python {
-    use super::ImpureError;
+    use crate::python::exceptions::PyreflowException;
+
+    use super::{ErrorSummary, ImpureError};
 
     use pyo3::prelude::*;
+    use std::fmt::Display;
 
     impl<T: Into<Self>> From<ImpureError<T>> for PyErr {
         fn from(value: ImpureError<T>) -> Self {
@@ -2610,6 +2655,12 @@ mod python {
                 // This should be an OSError of some kind
                 ImpureError::IO(e) => e.into(),
             }
+        }
+    }
+
+    impl<E: Display, S: Display> From<ErrorSummary<E, S>> for PyErr {
+        fn from(value: ErrorSummary<E, S>) -> Self {
+            PyreflowException::new_err(value.to_string())
         }
     }
 }

@@ -1,13 +1,13 @@
-use crate::error::{GenNonEmpty, Terminal, TerminalFailure, TerminalResult, VecFamily};
+use crate::error1::{
+    CommutativeResultExt, LogResult, LogResultExt, NowarnExt, NullFamily, ResolvableExt, ZeroOrMore,
+};
 
-use itertools::Itertools as _;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyWarning};
 use pyo3::prelude::*;
 use std::convert::Infallible;
 use std::ffi::CString;
 use std::fmt;
-use std::iter::once;
 
 create_exception!(
     _pyreflow,
@@ -23,79 +23,43 @@ create_exception!(
     "Warning created by internal pyreflow."
 );
 
-// TODO make this work on generic version
-pub trait PyTerminalResultExt {
-    type V;
+pub trait PyResultExt: LogResultExt {
+    fn py_termfail_resolve(self) -> PyResult<Self::V>
+    where
+        Self: CommutativeResultExt + ResolvableExt,
+        Self::LW: fmt::Display,
+        Self::E: Into<PyErr>,
+    {
+        let (warn, res) = self.resolve_cmt(emit_warnings, Into::into);
+        warn?;
+        res
+    }
 
-    fn py_termfail_resolve(self) -> PyResult<Self::V>;
-}
+    fn py_termfail_resolve_nowarn(self) -> PyResult<Self::V>
+    where
+        Self: NowarnExt + ResolvableExt,
+        Self::E: Into<PyErr>,
+    {
+        self.resolve_nowarn(Into::into)
+    }
 
-impl<V, W: fmt::Display, E: fmt::Display, T: fmt::Display> PyTerminalResultExt
-    for TerminalResult<V, W, E, T>
-{
-    type V = V;
-
-    fn py_termfail_resolve(self) -> PyResult<Self::V> {
-        self.map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+    fn py_term_resolve_noerror(self) -> PyResult<Self::V>
+    where
+        Self::LW: fmt::Display,
+        Self: LogResultExt<E = Infallible, P = ()>,
+    {
+        let (value, warn) = self.from_infallible_with_warn(emit_warnings);
+        warn?;
+        Ok(value)
     }
 }
 
-pub trait PyTerminalNoWarnResultExt {
-    type V;
-
-    fn py_termfail_resolve_nowarn(self) -> PyResult<Self::V>;
-}
-
-impl<V, E: fmt::Display, T: fmt::Display> PyTerminalNoWarnResultExt
-    for TerminalResult<V, Infallible, E, T>
+impl<V, P, E, LW, RW, LWC: ZeroOrMore, RWC: ZeroOrMore> PyResultExt
+    for LogResult<V, P, LW, RW, E, LWC, RWC, NullFamily>
 {
-    type V = V;
-
-    fn py_termfail_resolve_nowarn(self) -> PyResult<Self::V> {
-        self.map_err(handle_failure_nowarn).map(Terminal::inner)
-    }
 }
 
-pub trait PyTerminalNoErrorResultExt {
-    type V;
-
-    fn py_term_resolve_noerror(self) -> PyResult<Self::V>;
-}
-
-impl<V, W: fmt::Display> PyTerminalNoErrorResultExt for Terminal<V, W> {
-    type V = V;
-
-    fn py_term_resolve_noerror(self) -> PyResult<Self::V> {
-        handle_warnings(self)
-    }
-}
-
-fn handle_warnings<X, W>(t: Terminal<X, W>) -> PyResult<X>
-where
-    W: fmt::Display,
-{
-    let (x, warn_res) = t.resolve(emit_warnings);
-    warn_res?;
-    Ok(x)
-}
-
-// TODO python has a way of handling multiple exceptions (ExceptionGroup)
-// starting in 3.11
-fn handle_failure<W, E, T>(f: TerminalFailure<W, E, T>) -> PyErr
-where
-    E: fmt::Display,
-    T: fmt::Display,
-    W: fmt::Display,
-{
-    let (warn_res, e) = f.resolve(emit_warnings, emit_failure);
-    if let Err(w) = warn_res {
-        w
-    } else {
-        e
-    }
-}
-
-fn emit_warnings<W>(ws: Vec<W>) -> PyResult<()>
+fn emit_warnings<W>(ws: impl IntoIterator<Item = W>) -> PyResult<()>
 where
     W: fmt::Display,
 {
@@ -107,23 +71,4 @@ where
         }
         Ok(())
     })
-}
-
-fn handle_failure_nowarn<E, T>(f: TerminalFailure<Infallible, E, T>) -> PyErr
-where
-    E: fmt::Display,
-    T: fmt::Display,
-{
-    f.resolve(|_| (), emit_failure).1
-}
-
-fn emit_failure<E, T>(es: GenNonEmpty<E, VecFamily>, r: T) -> PyErr
-where
-    E: fmt::Display,
-    T: fmt::Display,
-{
-    let s = once(format!("Toplevel Error: {r}"))
-        .chain(es.into_iter().map(|x| x.to_string()))
-        .join("\n");
-    PyreflowException::new_err(s)
 }

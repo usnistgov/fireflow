@@ -1,7 +1,7 @@
 use crate::data::ColumnError;
 use crate::error1::{
-    CanHoldOne, CmtResult, CmtResultIter as _, ErrorsResult, LogResult, LogResultExt as _,
-    IntoZeroOrMore, NullFamily, ResultExt as _, Semigroup, VecFamily, ZeroOrMore,
+    CanHoldOne, CmtResult, CmtResultIter as _, ErrorsResult, IntoZeroOrMore, LogResult,
+    LogResultExt as _, NullFamily, ResultExt as _, Semigroup, VecFamily, ZeroOrMore,
 };
 use crate::text::optional::MightHave;
 use crate::validated::shortname::Shortname;
@@ -1262,8 +1262,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         to_u: FtoU,
     ) -> LogResult<bool, (), LW, RW, E, LWC, RWC, EC>
     where
-        Fswap:
-            FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, LW, RW, E, LWC, RWC, EC>,
+        Fswap: FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, LW, RW, E, LWC, RWC, EC>,
         FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, LW, RW, E, LWC, RWC, EC>,
         E: From<SetCenterError> + From<KeyNotFoundError>,
         LWC: ZeroOrMore,
@@ -1282,8 +1281,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         to_u: FtoU,
     ) -> LogResult<bool, (), LW, RW, E, LWC, RWC, EC>
     where
-        Fswap:
-            FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, LW, RW, E, LWC, RWC, EC>,
+        Fswap: FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, LW, RW, E, LWC, RWC, EC>,
         FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, LW, RW, E, LWC, RWC, EC>,
         E: From<SetCenterError>,
         LWC: ZeroOrMore,

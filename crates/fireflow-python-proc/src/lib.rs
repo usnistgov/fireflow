@@ -939,7 +939,10 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let coretext_new = |fun_args| {
         quote! {
             fn new(#fun_args) -> PyResult<Self> {
-                Ok(#fun(#coretext_inner_args).mult_head()?.into())
+                let ret = #fun(#coretext_inner_args)
+                    .summarize_errors_with(fireflow_core::core::NewCoreTEXTFailure)
+                    .py_termfail_resolve_nowarn()?;
+                Ok(ret.into())
             }
         }
     };
@@ -947,7 +950,10 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let coredataset_new = |fun_args| {
         quote! {
             fn new(#fun_args) -> PyResult<Self> {
-                let x = #fun(#coretext_inner_args).mult_head()?;
+                // TODO hide this in core.rs
+                let x = #fun(#coretext_inner_args)
+                    .summarize_errors_with(fireflow_core::core::NewCoreDatasetFailure)
+                    .py_termfail_resolve_nowarn()?;
                 Ok(x.into_coredataset(data.0.try_into()?, analysis, others)?.into())
             }
         }
@@ -1224,7 +1230,7 @@ pub fn impl_core_all_shortnames_attr(input: TokenStream) -> TokenStream {
         "all_shortnames",
         true,
         |_, _| quote!(self.0.all_shortnames()),
-        |n, _| quote!(Ok(self.0.set_all_shortnames(#n).void()?)),
+        |n, _| quote!(Ok(self.0.set_all_shortnames(#n).map(|_| ())?)),
     )
     .into()
 }
@@ -1253,7 +1259,7 @@ pub fn impl_core_all_shortnames_maybe_attr(input: TokenStream) -> TokenStream {
                     .collect()
             }
         },
-        |n, _| quote!(Ok(self.0.set_measurement_shortnames_maybe(#n).void()?)),
+        |n, _| quote!(Ok(self.0.set_measurement_shortnames_maybe(#n).map(|_| ())?)),
     )
     .into()
 }
@@ -1698,7 +1704,7 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
                 self.0
                     .push_optical(#opt_inner_args)
                     .py_termfail_resolve()
-                    .void()
+                    .map(|_| ())
             }
 
             #tmp_doc
@@ -1823,7 +1829,7 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
                 self.0
                     .insert_optical(#opt_inner_args)
                     .py_termfail_resolve()
-                    .void()
+                    .map(|_| ())
             }
 
             #tmp_doc

@@ -1,5 +1,5 @@
 use crate::error1::{
-    DeferredErrors, DeferredFungibleErrors, ErrorsResult, LogResultExt, ImpureError,
+    DeferredErrors, DeferredFungibleErrors, ErrorsResult, ImpureError, LogResultExt,
     OptionExt as _, RecoverableErrorsResult, ResultExt, WarningsAndErrorsResult,
 };
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};

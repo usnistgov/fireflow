@@ -2109,7 +2109,7 @@ where
         h: &mut BufWriter<W>,
         delim: TEXTDelim,
         big_other: bool,
-    ) -> IOErrorResult<(), (), Uint8DigitOverflow>
+    ) -> Result<(), ImpureError<Uint8DigitOverflow>>
     where
         Version: From<M::Ver>,
     {
@@ -2124,7 +2124,7 @@ where
         &self,
         h: &mut BufWriter<W>,
         delim: TEXTDelim,
-    ) -> IOErrorResult<(), (), Uint8DigitOverflow>
+    ) -> Result<(), ImpureError<Uint8DigitOverflow>>
     where
         Version: From<M::Ver>,
         T: Zero + TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
@@ -2140,7 +2140,7 @@ where
         data_len: u64,
         analysis_len: u64,
         other_segs: &[Other],
-    ) -> IOErrorResult<(), (), Uint8DigitOverflow>
+    ) -> Result<(), ImpureError<Uint8DigitOverflow>>
     where
         Version: From<M::Ver>,
         T: Zero + TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
@@ -2150,13 +2150,11 @@ where
             .iter()
             .map(|s| u64::try_from(s.0.len()).expect("OTHER segment length exceeds 2^64"))
             .collect();
-        self.header_and_raw_keywords(tot, data_len, analysis_len, &other_lens[..], false)
-            .map_err(ImpureError::Pure)
-            .into_nowarn1()
-            .and_then_cmt(|hdr_kws: HeaderKeywordsToWrite<T>| {
-                hdr_kws.h_write(h, M::Ver::fcs_version().into(), delim, other_segs)?;
-                Result::new_ok(())
-            })
+        let hdr_kws: HeaderKeywordsToWrite<T> = self
+            .header_and_raw_keywords(tot, data_len, analysis_len, &other_lens[..], false)
+            .map_err(ImpureError::Pure)?;
+        hdr_kws.h_write(h, M::Ver::fcs_version().into(), delim, other_segs)?;
+        Ok(())
     }
 
     /// Return all keywords as an ordered list of pairs
@@ -2687,7 +2685,8 @@ where
     pub fn set_temporal_optical2<X, Y>(
         &mut self,
         xs: Vec<Element<X, Y>>,
-    ) -> ErrorsResult<(), (), SetElementsError>
+        // TODO failure struct could be more specific
+    ) -> SummaryResult<(), SetElementsError, SetOpticalFailure>
     where
         Temporal<M::Temporal>: AsMut<X>,
         Optical<M::Optical>: AsMut<Y>,
@@ -2699,6 +2698,7 @@ where
                 |m, y| *m.value.as_mut() = y,
             )
             .set_ok_value(())
+            .summarize_errors()
     }
 
     /// Get value for $BTIM as a [`NaiveTime`]
@@ -4174,9 +4174,7 @@ where
                         others,
                     )
                 };
-                res.map_non_fung_errors(ImpureError::inner_into)
-                    .nowarn_into_warn()
-                    .repack_errors()
+                res.map_err(ImpureError::inner_into).into_log()
             })
             // write DATA; conversion check flag is flipped from above since
             // we want to emit warnings as we are writing if we did not run
@@ -8709,6 +8707,12 @@ pub struct GatingMeasLinkError(NonEmpty<MeasIndex>);
 #[error("$CSVnFLAGS must not be empty")]
 pub struct NewCSVFlagsError;
 
+#[cfg(feature = "python")]
+def_failure!(NewCoreTEXTFailure, "could not make new CoreTEXT");
+
+#[cfg(feature = "python")]
+def_failure!(NewCoreDatasetFailure, "could not make new CoreDataset");
+
 def_failure!(ConvertFailure, "could not change FCS version");
 
 def_failure!(SetLayoutFailure, "could not set data layout");
@@ -8814,6 +8818,7 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
+    use crate::macros::def_failure;
     use crate::python::exceptions::PyreflowException;
     use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
     use crate::text::ranged_float::PositiveFloat;

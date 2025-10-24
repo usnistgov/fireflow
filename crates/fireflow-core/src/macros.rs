@@ -32,8 +32,8 @@ macro_rules! def_failure {
         #[derive(Default)]
         pub struct $failname;
 
-        impl fmt::Display for $failname {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        impl std::fmt::Display for $failname {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
                 write!(f, $msg)
             }
         }

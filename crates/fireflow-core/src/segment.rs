@@ -247,23 +247,23 @@ where
     where
         Self: Copy,
     {
-        res.recover_with(
-            |es| {
+        res.nowarn_into_warn().recover_with(
+            |_, es| {
                 if allow_missing {
-                    let mut succ = Result::new_ok(default.into_any());
-                    succ.extend_cmt_warnings(es.into_iter().map(Into::into));
-                    succ.push_cmt_warning(SegmentDefaultWarning::default().into());
-                    succ
+                    let w = SegmentDefaultWarning::default().into();
+                    let ws = es.into_iter().map(Into::into).chain([w]).collect();
+                    Result::new_ok(default.into_any()).set_cmt_warnings(ws)
                 } else {
-                    Result::new_err(es).non_fung_errors_into()
+                    Result::new_err(es).map_non_fung_errors(ReqSegmentWithDefaultError::from)
                 }
             },
             |other| {
                 let (seg, warn) = default.unless(other);
                 warn.map_or(Result::new_ok(seg), |w| {
                     Result::new_fungible(seg, (), w, !allow_mismatch)
-                        .non_fung_errors_into()
-                        .cmt_warnings_into()
+                        .non_cmt_into_cmt()
+                        .map_cmt_warnings(ReqSegmentWithDefaultWarning::from)
+                        .map_non_fung_errors(ReqSegmentWithDefaultError::from)
                 })
             },
         )
@@ -382,16 +382,15 @@ where
         Self: Copy,
     {
         let def = default.into_any();
-        res.recover_with(
-            |es| {
+        res.nowarn_into_warn().recover_with(
+            |_, es| {
                 if allow_dropping {
-                    let mut succ = Result::new_ok(def);
-                    succ.extend_cmt_warnings(es.into_iter().map(Into::into));
-                    succ
+                    let ws = es.into_iter().map(Into::into).collect();
+                    Result::new_ok(def).set_cmt_warnings(ws)
                 } else {
                     Result::new_err(es)
-                        .map_err_value(|_| def)
-                        .non_fung_errors_into()
+                        .set_err_value(def)
+                        .map_non_fung_errors(Into::into)
                 }
             },
             |other| {

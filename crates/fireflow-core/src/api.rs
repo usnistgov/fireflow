@@ -588,7 +588,7 @@ impl RawTEXTOutput {
         C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<HeaderConfigInner>,
     {
         Header::h_read(h, st)
-            .nowarn_into_cmt()
+            .nowarn_into_warn()
             .map_non_fung_errors(|e| e.inner_into())
             .and_then_cmt(|mut header| {
                 let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
@@ -779,7 +779,7 @@ where
                 .into_iter()
                 .mappend_cmt()
                 .map_non_fung_errors(ImpureError::Pure)
-                .nowarn_into_cmt()
+                .nowarn_into_warn()
                 .map_ok_value(|_| raw)
         })
 }

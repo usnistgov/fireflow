@@ -460,11 +460,23 @@ impl<V, W, WC: ZeroOrMore> Success<V, W, WC> {
         Success::new(self.value, Some(f(self.warnings)))
     }
 
-    fn remove_warnings(self) -> Success<V, (), NullFamily> {
-        Success::new1(self.value)
+    /// Remove warnings while maintaining the warning type.
+    ///
+    /// This is useful for cases where warnings might be optionally removed
+    /// so we can't just set them to `()`
+    fn remove_warnings(self) -> Self {
+        Self::new1(self.value)
     }
 
-    fn warnings_to_errors<E, F, G, EC, P>(self, f: F, g: G) -> NowarnResult<V, P, E, EC>
+    /// Convert warnings to errors while maintaining the warning type.
+    ///
+    /// This is useful for cases where warnings might be optionally converted
+    /// so we can't just set them to `()`
+    fn warnings_to_errors<E, F, G, EC, P>(
+        self,
+        f: F,
+        g: G,
+    ) -> GenericResult<V, P, W, W, E, WC, WC, EC>
     where
         F: Fn(W) -> E,
         G: FnOnce(V) -> P,
@@ -486,7 +498,7 @@ impl<V, W, WC: ZeroOrMore> Success<V, W, WC> {
 }
 
 impl<V> Success<V, (), NullFamily> {
-    fn lift_simple<W, WC: ZeroOrMore>(self) -> Success<V, W, WC> {
+    fn nowarn_into_warn<W, WC: ZeroOrMore>(self) -> Success<V, W, WC> {
         Success::new1(self.value)
     }
 }
@@ -675,11 +687,19 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         Failure::new(ws, self.errors, f(self.value, other.value))
     }
 
-    fn remove_warnings(self) -> Failure<P, (), E, NullFamily, EC> {
-        Failure::new(NeverValue::default(), self.errors, self.value)
+    /// Remove warnings while maintaining the warning type
+    ///
+    /// This is useful for cases where warnings might be optionally removed
+    /// so we can't just set them to `()`
+    fn remove_warnings(self) -> Self {
+        Failure::new(WC::Wrapper::<W>::default(), self.errors, self.value)
     }
 
-    fn warnings_to_errors<F>(mut self, f: F) -> Failure<P, (), E, NullFamily, EC>
+    /// Convert warnings to errors while maintaining the warning type.
+    ///
+    /// This is useful for cases where warnings might be optionally converted
+    /// so we can't just set them to `()`
+    fn warnings_to_errors<F>(mut self, f: F) -> Failure<P, W, E, WC, EC>
     where
         F: Fn(W) -> E,
         EC::Wrapper<E>: Extend<E>,
@@ -690,7 +710,7 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
 }
 
 impl<P, E, EC: ZeroOrMore> Failure<P, (), E, NullFamily, EC> {
-    fn lift_simple<W, WC: ZeroOrMore>(self) -> Failure<P, W, E, WC, EC> {
+    fn nowarn_into_warn<W, WC: ZeroOrMore>(self) -> Failure<P, W, E, WC, EC> {
         Failure::new_from_many(self.errors, self.value)
     }
 }
@@ -918,6 +938,25 @@ pub trait ResultExt: Sized {
         }
     }
 
+    // // TODO make generic with above
+    // fn new_fungible_many<P, W, RWC, EC>(
+    //     value: Self::Ok,
+    //     default: P,
+    //     errors: GenNonEmpty<Self::Error, EC>,
+    //     is_error: bool,
+    // ) -> FungibleResult<Self::Ok, P, W, Self::Error, VecFamily, EC>
+    // where
+    //     RWC: ZeroOrMore,
+    //     EC: FungibleErrorFamily,
+    //     EC::WarnFam: CanHoldOne,
+    // {
+    //     if is_error {
+    //         Err(Failure::new_from_many(errors, default))
+    //     } else {
+    //         Ok(Success::new(value, errors.into_iter().collect()))
+    //     }
+    // }
+
     fn new_deferred_fungible<W, RWC, EC>(
         value: Self::Ok,
         error: Self::Error,
@@ -1084,73 +1123,82 @@ where
     type RWC: ZeroOrMore;
     type EC: ZeroOrMore;
 
-    fn recover_or<RW, RWC>(
-        self,
-        default: Self::V,
-    ) -> FungibleResult<Self::V, (), RW, Self::E, RWC, Self::EC>
+    fn recover_or<P>(self, default: Self::V) -> CmtFungibleResult<Self::V, P, Self::E, Self::EC>
     where
-        RWC: ZeroOrMore,
-        Self: GenericResultExt<P = ()>,
+        Self: CommutativeResultExt + FungibleExt,
         Self::EC: FungibleErrorFamily,
+        <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Concatable<
+            Out = <<Self::EC as FungibleErrorFamily>::WarnFam as ZeroOrMore>::Wrapper<Self::LW>,
+        >,
     {
         self.recover_with(
-            |es| Ok(Success::new(default, Self::EC::errors_to_warnings(es))),
+            |_, es| Ok(Success::new(default, Self::EC::errors_to_warnings(es))),
             |v| Ok(Success::new1(v)),
         )
     }
 
-    fn recover_or_default<RW, RWC>(self) -> FungibleResult<Self::V, (), RW, Self::E, RWC, Self::EC>
+    fn recover_or_default<P>(self) -> CmtFungibleResult<Self::V, P, Self::E, Self::EC>
     where
-        Self::V: Default,
-        RWC: ZeroOrMore,
-        Self: GenericResultExt<P = ()>,
+        Self: CommutativeResultExt + FungibleExt,
         Self::EC: FungibleErrorFamily,
+        <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Concatable<
+            Out = <<Self::EC as FungibleErrorFamily>::WarnFam as ZeroOrMore>::Wrapper<Self::LW>,
+        >,
+        Self::V: Default,
     {
         self.recover_or(Self::V::default())
     }
 
-    // TODO this function smells funny
-    fn recover_with<Ferr, Fsucc, X>(self, f_err: Ferr, f_succ: Fsucc) -> X
+    fn recover_with<Ferr, Fsucc, V, P, E, WC, EC>(
+        self,
+        f_err: Ferr,
+        f_succ: Fsucc,
+    ) -> CmtResult<V, P, Self::LW, E, WC, EC>
     where
-        Fsucc: FnOnce(Self::V) -> X,
-        Ferr: FnOnce(GenNonEmpty<Self::E, Self::EC>) -> X,
-        Self: GenericResultExt<P = ()>,
-        Self::EC: FungibleErrorFamily,
-        X: GenericResultExt,
+        Fsucc: FnOnce(Self::V) -> CmtResult<V, P, Self::LW, E, Self::LWC, EC>,
+        Ferr: FnOnce(
+            Self::P,
+            GenNonEmpty<Self::E, Self::EC>,
+        ) -> CmtResult<V, P, Self::LW, E, Self::LWC, EC>,
+        Self: CommutativeResultExt,
+        WC: ZeroOrMore,
+        EC: ZeroOrMore,
+        <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Concatable<Out = WC::Wrapper<Self::LW>>,
     {
         match self.into_result() {
-            Ok(s) => f_succ(s.value),
-            Err(f) => f_err(f.errors),
+            Ok(s) => s.and_maybe(f_succ),
+            Err(f) => Success::new(f.value, f.warnings).and_maybe(|v| f_err(v, f.errors)),
         }
     }
 
     /// Lift Result with no warnings to non-commutative Result
-    fn nowarn_into_non_cmt<Wf, LWCf>(
+    fn nowarn_into_non_cmt_warn<Wf, LWCf>(
         self,
     ) -> NonCmtResult<Self::V, Self::P, Wf, Self::E, LWCf, Self::EC>
     where
         LWCf: ZeroOrMore,
         Self: NowarnExt,
     {
-        self.into_result().map(|s| s.lift_simple())
+        self.into_result().map(|s| s.nowarn_into_warn())
     }
 
     /// Lift Result with no warnings to commutative Result
-    // TODO misleading name since technically nowarn is also commutative
-    fn nowarn_into_cmt<Wf, LWCf>(self) -> CmtResult<Self::V, Self::P, Wf, Self::E, LWCf, Self::EC>
+    fn nowarn_into_warn<Wf, LWCf>(self) -> CmtResult<Self::V, Self::P, Wf, Self::E, LWCf, Self::EC>
     where
-        LWCf: ZeroOrMore,
+        LWCf: ZeroOrMore + CanHoldOne,
         Self: NowarnExt,
     {
-        self.into_result().map(|s| s.lift_simple()).into_cmt()
+        self.into_result()
+            .map(|s| s.nowarn_into_warn())
+            .non_cmt_into_cmt()
     }
 
     /// Lift non-commutative Result into commutative Result
-    fn into_cmt(self) -> CmtResult<Self::V, Self::P, Self::LW, Self::E, Self::LWC, Self::EC>
+    fn non_cmt_into_cmt(self) -> CmtResult<Self::V, Self::P, Self::LW, Self::E, Self::LWC, Self::EC>
     where
         Self: NonCommutativeResultExt,
     {
-        self.into_result().map_err(|e| e.lift_simple())
+        self.into_result().map_err(|e| e.nowarn_into_warn())
     }
 
     /// Convert Ok value of Result
@@ -1468,23 +1516,24 @@ where
     {
         let res = self.into_result();
         if conf.warnings_are_errors {
-            let ret = match res {
+            match res {
                 Ok(s) => s.warnings_to_errors(f, |_| ()),
                 Err(e) => Err(e.warnings_to_errors(f).map_value(|_| ())),
-            };
-            ret.nowarn_into_cmt()
+            }
         } else if conf.hide_warnings {
-            res.remove_warnings().nowarn_into_cmt().set_err_value(())
+            res.map(|s| s.remove_warnings())
+                .map_err(|e| e.remove_warnings())
+                .set_err_value(())
         } else {
             res.set_err_value(())
         }
     }
 
-    fn remove_warnings(self) -> NowarnResult<Self::V, Self::P, Self::E, Self::EC> {
-        self.into_result()
-            .map(|s| s.remove_warnings())
-            .map_err(|e| e.remove_warnings())
-    }
+    // fn remove_warnings(self) -> NowarnResult<Self::V, Self::P, Self::E, Self::EC> {
+    //     self.into_result()
+    //         .map(|s| s.remove_warnings())
+    //         .map_err(|e| e.remove_warnings())
+    // }
 
     // TODO private? this seems wonky to have in the external api
     // fn warnings_to_errors<F0, F1, F2, P>(
@@ -1566,11 +1615,13 @@ where
         }
     }
 
-    fn from_infallible<PF, EF>(
+    fn from_infallible<P, RW, RWC, E, EC>(
         self,
-    ) -> GenericResult<Self::V, PF, Self::LW, Self::RW, EF, Self::LWC, Self::RWC, Self::EC>
+    ) -> GenericResult<Self::V, P, Self::LW, RW, E, Self::LWC, RWC, EC>
     where
         Self: GenericResultExt<E = Infallible>,
+        RWC: ZeroOrMore,
+        EC: ZeroOrMore,
     {
         let Ok(ret) = self.into_result();
         Ok(ret)

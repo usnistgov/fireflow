@@ -347,6 +347,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
 
     pub(crate) fn alter_elements_zip<Fnoncenter, Fcenter, X, Y, R>(
         &mut self,
+        // TODO make this (and others like it) take an iterator
         xs: Vec<Element<X, Y>>,
         f_noncenter: Fnoncenter,
         f_center: Fcenter,
@@ -478,12 +479,12 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
 
     /// Apply function over center value, possibly changing it's type
     #[allow(clippy::type_complexity)]
-    pub(crate) fn map_center_value<F, X, LW, RW, E, LWC, RWC, EC>(
+    pub(crate) fn map_center_value<F, X, Y, LW, RW, E, LWC, RWC, EC>(
         self,
         f: F,
     ) -> GenericResult<
         NamedVec<K, K::Wrapper<Shortname>, X, V>,
-        U,
+        Y,
         LW,
         RW,
         IndexedElementError<E>,
@@ -492,7 +493,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         EC,
     >
     where
-        F: Fn(IndexedElement<&Shortname, U>) -> GenericResult<X, U, LW, RW, E, LWC, RWC, EC>,
+        F: Fn(IndexedElement<&Shortname, U>) -> GenericResult<X, Y, LW, RW, E, LWC, RWC, EC>,
         LWC: ZeroOrMore,
         RWC: ZeroOrMore,
         EC: ZeroOrMore,
@@ -514,7 +515,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Apply function over non-center values, possibly changing their type
-    pub(crate) fn map_non_center_values<F, P, Vf, W, E, WC, EC>(
+    pub(crate) fn map_non_center_values<F, Vf, W, E, WC, EC>(
         self,
         f: F,
     ) -> CmtResult<WrappedNamedVec<K, U, Vf>, (), W, IndexedElementError<E>, WC, VecFamily>
@@ -1266,8 +1267,8 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         FtoU: FnOnce(MeasIndex, V) -> GenericResult<U, Box<V>, LW, RW, E, LWC, RWC, EC>,
         E: From<SetCenterError> + From<KeyNotFoundError>,
         LWC: ZeroOrMore,
-        RWC: ZeroOrMore + CanHoldOne,
-        EC: ZeroOrMore + CanHoldOne,
+        RWC: ZeroOrMore,
+        EC: ZeroOrMore,
     {
         let index = self.find_with_name(n).map_err(E::from)?;
         self.set_center_by_index(index, swap, to_u)
@@ -1286,8 +1287,8 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         FtoU: FnOnce(MeasIndex, V) -> GenericResult<U, Box<V>, LW, RW, E, LWC, RWC, EC>,
         E: From<SetCenterError>,
         LWC: ZeroOrMore,
-        RWC: ZeroOrMore + CanHoldOne,
-        EC: ZeroOrMore + CanHoldOne,
+        RWC: ZeroOrMore,
+        EC: ZeroOrMore,
     {
         if !self
             .get(index)

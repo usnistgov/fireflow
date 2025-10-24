@@ -10,19 +10,13 @@ use crate::data::{
     RawToLayoutWarning, ReadDataframeError, ReadDataframeWarning, TotDefinition,
     VersionedDataLayout,
 };
-// use crate::error::{
-//     BiTentative, DeferredExt as _, DeferredFailure, DeferredResult, ErrorIter as _,
-//     ErrorIter1 as _, IODeferredExt as _, IODeferredResult, IOResult, IOTerminalResult, ImpureError,
-//     InfalliblePassthruExt as _, InfalliblePassthruExt1 as _, MultiResult, MultiResult1,
-//     MultiResultExt as _, PassthruExt as _, PassthruResult, ResultExt as _, Tentative,
-//     TentativeInner, Terminal, TerminalExt as _, TerminalResult, VecFamily,
-// };
 use crate::error1::{
-    DeferredError, DeferredErrors, DeferredFungibleError, DeferredFungibleErrors,
-    DeferredIter as _, DeferredWarningAndErrors, DeferredWarningsAndError,
-    DeferredWarningsAndErrors, ErrorsResult, GenericResultExt as _, IOErrorResult,
-    IOWarningAndErrorResult, IOWarningsAndErrorsResult, ImpureError, ResultExt as _, VecFamily,
-    WarningAndErrorResult, WarningsAndErrorsResult,
+    CmtFungibleErrorsResult, CmtResult, CmtResultIter as _, DeferredError, DeferredErrors,
+    DeferredFungibleError, DeferredFungibleErrors, DeferredIter as _, DeferredWarningAndErrors,
+    DeferredWarningsAndError, DeferredWarningsAndErrors, ErrorsResult, FungibleErrorsResult,
+    GenericResultExt, IOErrorResult, IOWarningAndErrorResult, IOWarningsAndErrorsResult,
+    ImpureError, NullFamily, ResultExt as _, VecFamily, WarningAndErrorResult,
+    WarningsAndErrorsResult, ZeroOrMore,
 };
 use crate::header::{
     HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
@@ -1415,7 +1409,7 @@ where
         value: T,
         i: MeasIndex,
         allow_loss: bool,
-    ) -> TemporalConvertTentative<Self>;
+    ) -> TemporalConvertResult<Self>;
 }
 
 pub trait ConvertFromLayout<T>: Sized
@@ -1473,46 +1467,50 @@ pub trait VersionedMetaroot: Sized {
         o: Optical<Self::Optical>,
         i: MeasIndex,
         allow_loss: bool,
-    ) -> PassthruResult<
+    ) -> CmtFungibleErrorsResult<
         (Optical<Self::Optical>, Temporal<Self::Temporal>),
         Box<(Temporal<Self::Temporal>, Optical<Self::Optical>)>,
-        SwapOpticalTemporalError,
         SwapOpticalTemporalError,
     > {
         let go = |old_t: Temporal<Self::Temporal>, old_o: Optical<Self::Optical>| {
             let (so, st) = Self::swap_optical_temporal_inner(old_t.specific, old_o.specific);
-            let new_o = Optical::new(
-                old_t.common,
-                Filter::default(),
-                None,
-                DetectorType::default(),
-                None,
-                None,
-                so,
-            );
+            let f = Filter::default();
+            let d = DetectorType::default();
+            let new_o = Optical::new(old_t.common, f, None, d, None, None, so);
             let new_t = Temporal::new(old_o.common, st);
             (new_o, new_t)
         };
-        let t_res = o.specific.can_convert_to_temporal(i).def_errors_into();
-        let o_specific_res = t.specific.can_convert_to_optical_swap(i);
+
+        let t_res = o
+            .specific
+            .can_convert_to_temporal(i)
+            .map_non_fung_errors(SwapOpticalTemporalError::from)
+            .into_semigroup();
+        let o_specific_res = t
+            .specific
+            .can_convert_to_optical_swap(i)
+            .map_non_fung_errors(SwapOpticalTemporalError::from)
+            .into_semigroup();
         let o_common_res = o
             .check_keys_transfer(i)
-            .def_errors_into::<OpticalToTemporalError>()
-            .def_errors_into();
-        match t_res.def_zip3(o_specific_res, o_common_res) {
-            Ok(_) => Ok(Tentative::new1(go(t, o))),
-            // TODO need a path to downgrade the errors from above into warnings
-            // and return a left Result with result from 'go'
-            // Err(es) => {
-            Err(_) => {
-                unimplemented!()
-                // if allow_loss {
-                //     Ok(Tentative::new_vec(go(t, o), es, []))
-                // } else {
-                //     Err(DeferredFailure::new_vec([], es, Box::new((t, o))))
-                // }
-            }
-        }
+            .map_non_fung_errors(OpticalToTemporalError::from)
+            .map_non_fung_errors(SwapOpticalTemporalError::from);
+
+        t_res
+            .zip3_def(o_specific_res, o_common_res)
+            .inject_value((t, o))
+            .nowarn_into_warn::<_, VecFamily>()
+            .recover_with(
+                |(_, (t, o)), es| {
+                    if allow_loss {
+                        let ws = es.into_iter().collect();
+                        Result::new_ok(go(t, o)).set_cmt_warnings(ws)
+                    } else {
+                        Result::new_err(es).set_err_value(Box::new((t, o)))
+                    }
+                },
+                |(_, (t, o))| Result::new_ok(go(t, o)),
+            )
     }
 
     fn swap_optical_temporal_inner(
@@ -1547,7 +1545,9 @@ pub trait LookupOptical: Sized + VersionedOptical {
 
 pub trait VersionedTemporal: Sized {
     type Ver: Versioned;
-    type Err;
+    type Warning;
+    type WarningFam: ZeroOrMore;
+    type Error;
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)>;
 
@@ -1555,7 +1555,7 @@ pub trait VersionedTemporal: Sized {
 
     fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)>;
 
-    fn can_convert_to_optical(&self, i: MeasIndex) -> DeferredError<(), Self::Err>;
+    fn can_convert_to_optical(&self, i: MeasIndex) -> DeferredError<(), Self::Error>;
 
     fn can_convert_to_optical_swap(
         &self,
@@ -1580,32 +1580,31 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
         i: MeasIndex,
         d: Self::TData,
         allow_loss: bool,
-    ) -> PassthruResult<
-        Temporal<Self>,
-        Box<Optical<O>>,
-        OpticalToTemporalError,
-        OpticalToTemporalError,
-    > {
+    ) -> CmtFungibleErrorsResult<Temporal<Self>, Box<Optical<O>>, OpticalToTemporalError> {
         let opt_common_res = o
             .check_keys_transfer(i)
-            .def_errors_into::<OpticalToTemporalError>();
-        let opt_specific_res = o.specific.can_convert_to_temporal(i).def_errors_into();
-        match opt_common_res.def_zip(opt_specific_res) {
-            Ok(_) => Ok(Tentative::new1(Self::from_optical_unchecked(o, d))),
-            // Err(es) => {
-            Err(_) => {
-                unimplemented!()
-                // if allow_loss {
-                //     Ok(Tentative::new_vec(
-                //         Self::from_optical_unchecked(o, d),
-                //         es,
-                //         [],
-                //     ))
-                // } else {
-                //     Err(DeferredFailure::new_vec([], es, Box::new(o)))
-                // }
-            }
-        }
+            .map_non_fung_errors(OpticalToTemporalError::from);
+        let opt_specific_res = o
+            .specific
+            .can_convert_to_temporal(i)
+            .map_non_fung_errors(OpticalToTemporalError::from);
+
+        opt_common_res
+            .zip_cmt(opt_specific_res)
+            .inject_value((o, d))
+            .nowarn_into_warn::<_, VecFamily>()
+            .recover_with(
+                |(_, (o, d)), es| {
+                    if allow_loss {
+                        let v = Self::from_optical_unchecked(o, d);
+                        let ws: Vec<_> = es.into_iter().collect();
+                        Result::new_ok(v).set_cmt_warnings(ws)
+                    } else {
+                        Result::new_err(es).set_err_value(Box::new(o))
+                    }
+                },
+                |(_, (o, d))| Result::new_ok(Self::from_optical_unchecked(o, d)),
+            )
     }
 
     fn from_optical_unchecked(o: Optical<O>, d: Self::TData) -> Temporal<Self> {
@@ -1624,7 +1623,14 @@ pub trait OpticalFromTemporal<T: VersionedTemporal>: Sized {
         t: Temporal<T>,
         i: MeasIndex,
         allow_loss: Self::Loss,
-    ) -> PassthruResult<(Optical<Self>, Self::TData), Box<Temporal<T>>, T::Err, T::Err>;
+    ) -> CmtResult<
+        (Optical<Self>, Self::TData),
+        Box<Temporal<T>>,
+        T::Warning,
+        T::Error,
+        T::WarningFam,
+        VecFamily,
+    >;
 
     fn from_temporal_unchecked(t: Temporal<T>) -> (Optical<Self>, Self::TData) {
         let (specific, td) = Self::from_temporal_inner(t.specific);
@@ -1718,7 +1724,7 @@ impl<T> Temporal<T> {
         })
     }
 
-    fn convert<ToT>(self, i: MeasIndex, allow_loss: bool) -> TemporalConvertTentative<Temporal<ToT>>
+    fn convert<ToT>(self, i: MeasIndex, allow_loss: bool) -> TemporalConvertResult<Temporal<ToT>>
     where
         ToT: ConvertFromTemporal<T>,
     {
@@ -1751,12 +1757,12 @@ impl<T> Temporal<T> {
 }
 
 impl<O> Optical<O> {
-    fn try_convert<ToP: ConvertFromOptical<O>>(
+    fn try_convert<Of: ConvertFromOptical<O>>(
         self,
         i: MeasIndex,
         allow_loss: bool,
-    ) -> OpticalConvertResult<Optical<ToP>> {
-        ToP::convert_from_optical(self.specific, i, allow_loss).map_ok_value(|specific| {
+    ) -> OpticalConvertResult<Optical<Of>> {
+        Of::convert_from_optical(self.specific, i, allow_loss).map_ok_value(|specific| {
             Optical::new(
                 self.common,
                 self.filter,
@@ -2266,28 +2272,25 @@ where
         n: &Shortname,
         timestep: <M::Temporal as TemporalFromOptical<M::Optical>>::TData,
         allow_loss: bool,
-    ) -> TerminalResult<bool, SetTemporalError, SetTemporalError, SetTemporalFailure>
+    ) -> CmtFungibleErrorsResult<bool, (), SetTemporalError>
     where
         M::Temporal: TemporalFromOptical<M::Optical>,
     {
         // TODO the inner methods in this generate multiple errors that should
         // be displayed at once but should be independent of the other errors
         // here (like not finding the name)
-        self.measurements
-            .set_center_by_name(
-                n,
-                |i, old_o, old_t| {
-                    M::swap_optical_temporal(old_o, old_t, i, allow_loss).def_inner_into()
-                },
-                |i, old_o| {
-                    <M::Temporal as TemporalFromOptical<M::Optical>>::from_optical(
-                        old_o, i, timestep, allow_loss,
-                    )
-                    .def_inner_into::<SwapOpticalTemporalError, SwapOpticalTemporalError>()
-                    .def_inner_into()
-                },
-            )
-            .def_terminate_def()
+        self.measurements.set_center_by_name(
+            n,
+            |i, old_o, old_t| {
+                M::swap_optical_temporal(old_o, old_t, i, allow_loss)
+                    .map_cmt_fung_errors(SetTemporalError::from)
+            },
+            |i, old_o| {
+                M::Temporal::from_optical(old_o, i, timestep, allow_loss)
+                    .map_cmt_fung_errors(SwapOpticalTemporalError::from)
+                    .map_cmt_fung_errors(SetTemporalError::from)
+            },
+        )
     }
 
     /// Set the measurement at given index to the time measurement.
@@ -2296,26 +2299,23 @@ where
         index: MeasIndex,
         timestep: <M::Temporal as TemporalFromOptical<M::Optical>>::TData,
         allow_loss: bool,
-    ) -> TerminalResult<bool, SetTemporalError, SetTemporalError, SetTemporalFailure>
+    ) -> CmtFungibleErrorsResult<bool, (), SetTemporalError>
     where
         M::Temporal: TemporalFromOptical<M::Optical>,
     {
         // TODO ditto above
-        self.measurements
-            .set_center_by_index(
-                index,
-                |i, old_o, old_t| {
-                    M::swap_optical_temporal(old_o, old_t, i, allow_loss).def_inner_into()
-                },
-                |i, old_o| {
-                    <M::Temporal as TemporalFromOptical<M::Optical>>::from_optical(
-                        old_o, i, timestep, allow_loss,
-                    )
-                    .def_inner_into::<SwapOpticalTemporalError, SwapOpticalTemporalError>()
-                    .def_inner_into()
-                },
-            )
-            .def_terminate_def()
+        self.measurements.set_center_by_index(
+            index,
+            |i, old_o, old_t| {
+                M::swap_optical_temporal(old_o, old_t, i, allow_loss)
+                    .map_cmt_fung_errors(SetTemporalError::from)
+            },
+            |i, old_o| {
+                M::Temporal::from_optical(old_o, i, timestep, allow_loss)
+                    .map_cmt_fung_errors(SwapOpticalTemporalError::from)
+                    .map_cmt_fung_errors(SetTemporalError::from)
+            },
+        )
     }
 
     /// Convert time measurement to optical measurement.
@@ -2327,13 +2327,12 @@ where
     ) -> Option<<M::Optical as OpticalFromTemporal<M::Temporal>>::TData>
     where
         M::Optical: OpticalFromTemporal<M::Temporal, Loss = ()>,
-        M::Temporal: VersionedTemporal<Err = Infallible>,
+        M::Temporal: VersionedTemporal<Warning = (), WarningFam = NullFamily, Error = Infallible>,
     {
-        self.measurements
-            .unset_center(|i, old_t| {
-                <M::Optical as OpticalFromTemporal<M::Temporal>>::from_temporal(old_t, i, ())
-            })
-            .def_unwrap_infallible()
+        let x = self
+            .measurements
+            .unset_center(|i, old_t| M::Optical::from_temporal(old_t, i, ()));
+        x.from_infallible_nowarn()
     }
 
     /// Convert time measurement to optical measurement.
@@ -2344,24 +2343,22 @@ where
     pub fn unset_temporal_lossy(
         &mut self,
         allow_loss: bool,
-    ) -> TerminalResult<
+    ) -> CmtFungibleErrorsResult<
         Option<<M::Optical as OpticalFromTemporal<M::Temporal>>::TData>,
+        (),
         TemporalToOpticalError,
-        TemporalToOpticalError,
-        UnsetTemporalFailure,
     >
     where
         M::Optical: OpticalFromTemporal<M::Temporal, Loss = bool>,
-        M::Temporal: VersionedTemporal<Err = TemporalToOpticalError>,
+        M::Temporal: VersionedTemporal<
+            Warning = TemporalToOpticalError,
+            WarningFam = VecFamily,
+            Error = TemporalToOpticalError,
+        >,
     {
         // TODO ditto above
         self.measurements
-            .unset_center(|i, old_t| {
-                <M::Optical as OpticalFromTemporal<M::Temporal>>::from_temporal(
-                    old_t, i, allow_loss,
-                )
-            })
-            .def_terminate_def()
+            .unset_center(|i, old_t| M::Optical::from_temporal(old_t, i, allow_loss))
     }
 
     /// Read nonstandard key/value pairs for each measurement.
@@ -2420,13 +2417,13 @@ where
     ) -> Result<Element<Temporal<M::Temporal>, Optical<M::Optical>>, SetCenterError>
     where
         M::Optical: OpticalFromTemporal<M::Temporal, Loss = ()>,
-        M::Temporal: VersionedTemporal<Err = Infallible>,
+        M::Temporal: VersionedTemporal<Warning = (), WarningFam = NullFamily, Error = Infallible>,
     {
         self.measurements
             .replace_center_at_nofail(index, m, |i, old_t| {
-                <M::Optical as OpticalFromTemporal<M::Temporal>>::from_temporal(old_t, i, ())
-                    .def_void_passthru()
-                    .def_unwrap_infallible()
+                M::Optical::from_temporal(old_t, i, ())
+                    .set_err_value(())
+                    .from_infallible_nowarn()
                     .0
             })
     }
@@ -2438,25 +2435,24 @@ where
         index: MeasIndex,
         m: Temporal<M::Temporal>,
         allow_loss: bool,
-    ) -> TerminalResult<
+    ) -> CmtFungibleErrorsResult<
         Element<Temporal<M::Temporal>, Optical<M::Optical>>,
+        (),
         ReplaceTemporalError,
-        ReplaceTemporalError,
-        ReplaceTemporalFailure,
     >
     where
         M::Optical: OpticalFromTemporal<M::Temporal, Loss = bool>,
-        M::Temporal: VersionedTemporal<Err = TemporalToOpticalError>,
+        M::Temporal: VersionedTemporal<
+            Warning = TemporalToOpticalError,
+            WarningFam = VecFamily,
+            Error = TemporalToOpticalError,
+        >,
     {
-        self.measurements
-            .replace_center_at(index, m, |i, old_t| {
-                <M::Optical as OpticalFromTemporal<M::Temporal>>::from_temporal(
-                    old_t, i, allow_loss,
-                )
-                .def_inner_into()
-                .def_map_value(|(x, _)| x)
-            })
-            .def_terminate_def()
+        self.measurements.replace_center_at(index, m, |i, old_t| {
+            M::Optical::from_temporal(old_t, i, allow_loss)
+                .map_ok_value(|(x, _)| x)
+                .map_cmt_fung_errors(ReplaceTemporalError::from)
+        })
     }
 
     /// Replace temporal measurement at index.
@@ -2468,13 +2464,13 @@ where
     ) -> Result<Element<Temporal<M::Temporal>, Optical<M::Optical>>, KeyNotFoundError>
     where
         M::Optical: OpticalFromTemporal<M::Temporal, Loss = ()>,
-        M::Temporal: VersionedTemporal<Err = Infallible>,
+        M::Temporal: VersionedTemporal<Warning = (), WarningFam = NullFamily, Error = Infallible>,
     {
         self.measurements
             .replace_center_by_name_nofail(name, m, |i, old_t| {
-                <M::Optical as OpticalFromTemporal<M::Temporal>>::from_temporal(old_t, i, ())
-                    .def_void_passthru()
-                    .def_unwrap_infallible()
+                M::Optical::from_temporal(old_t, i, ())
+                    .set_err_value(())
+                    .from_infallible_nowarn()
                     .0
             })
     }
@@ -2486,25 +2482,25 @@ where
         name: &Shortname,
         m: Temporal<M::Temporal>,
         allow_loss: bool,
-    ) -> TerminalResult<
+    ) -> CmtFungibleErrorsResult<
         Element<Temporal<M::Temporal>, Optical<M::Optical>>,
+        (),
         ReplaceTemporalError,
-        ReplaceTemporalError,
-        ReplaceTemporalFailure,
     >
     where
         M::Optical: OpticalFromTemporal<M::Temporal, Loss = bool>,
-        M::Temporal: VersionedTemporal<Err = TemporalToOpticalError>,
+        M::Temporal: VersionedTemporal<
+            Warning = TemporalToOpticalError,
+            WarningFam = VecFamily,
+            Error = TemporalToOpticalError,
+        >,
     {
         self.measurements
             .replace_center_by_name(name, m, |i, old_t| {
-                <M::Optical as OpticalFromTemporal<M::Temporal>>::from_temporal(
-                    old_t, i, allow_loss,
-                )
-                .def_inner_into()
-                .def_map_value(|(x, _)| x)
+                M::Optical::from_temporal(old_t, i, allow_loss)
+                    .map_ok_value(|(x, _)| x)
+                    .map_cmt_fung_errors(ReplaceTemporalError::from)
             })
-            .def_terminate_def()
     }
 
     /// Rename a measurement
@@ -2664,14 +2660,14 @@ where
     pub fn set_optical<X>(
         &mut self,
         xs: Vec<NonCenterElement<X>>,
-    ) -> ErrorsResult<(), SetElementsError>
+    ) -> ErrorsResult<(), (), SetElementsError>
     where
         Optical<M::Optical>: AsMut<X>,
     {
         let ys = xs.into_iter().map(|x| x.0).collect();
         self.measurements
             .alter_elements_zip(ys, |m, x| *m.value.as_mut() = x, |_, ()| ())
-            .map(|_| ())
+            .set_ok_value(())
     }
 
     /// Get field which is on both optical and temporal measurement types
@@ -2699,14 +2695,14 @@ where
                 |m, x| *m.value.as_mut() = x,
                 |m, x| *m.value.as_mut() = x,
             )
-            .void()
+            .map(|_| ())
     }
 
     /// Set field which is on both optical and temporal measurement types
     pub fn set_temporal_optical2<X, Y>(
         &mut self,
         xs: Vec<Element<X, Y>>,
-    ) -> TerminalResult<(), Infallible, SetElementsError, SetOpticalFailure>
+    ) -> ErrorsResult<(), (), SetElementsError>
     where
         Temporal<M::Temporal>: AsMut<X>,
         Optical<M::Optical>: AsMut<Y>,
@@ -2717,8 +2713,7 @@ where
                 |m, x| *m.value.as_mut() = x,
                 |m, y| *m.value.as_mut() = y,
             )
-            .void()
-            .mult_terminate_def()
+            .set_ok_value(())
     }
 
     /// Get value for $BTIM as a [`NaiveTime`]
@@ -2923,24 +2918,23 @@ where
     pub fn set_unstained_centers(
         &mut self,
         us: UnstainedCenters,
-    ) -> TerminalResult<(), Infallible, MissingMeasurementNameError, SetUnstainedFailure>
+    ) -> ErrorsResult<(), (), MissingMeasurementNameError>
     where
         M: HasUnstainedCenters,
     {
         let ms = self.measurement_names();
         let ns = us.names();
-        NonEmpty::collect(
-            ns.difference(&ms)
-                .copied()
-                .cloned()
-                .map(MissingMeasurementNameError),
-        )
-        .map_or(Ok(()), Err)?;
-        *self
-            .metaroot
-            .specific
-            .unstainedcenters_mut(private::NoTouchy) = us;
-        Ok(Terminal::default())
+        let it = ns
+            .difference(&ms)
+            .copied()
+            .cloned()
+            .map(MissingMeasurementNameError);
+        Result::new_err_from_iter(it, ()).map_ok_value(|()| {
+            *self
+                .metaroot
+                .specific
+                .unstainedcenters_mut(private::NoTouchy) = us;
+        })
     }
 
     /// Return $PnE (2.0)
@@ -2967,71 +2961,71 @@ where
     }
 
     /// Set $PnE (2.0)
-    pub fn set_scales(
-        &mut self,
-        scales: Vec<Option<Scale>>,
-    ) -> TerminalResult<(), Infallible, SetScalesError, SetScalesFailure>
+    pub fn set_scales(&mut self, scales: Vec<Option<Scale>>) -> ErrorsResult<(), (), SetScalesError>
     where
         M::Optical: HasScale,
     {
-        let go = || {
-            let l = &self.layout;
-            let xforms: Vec<_> = scales
-                .iter()
-                .copied()
-                .map(|s| s.map(ScaleTransform::from).unwrap_or_default())
-                .collect();
-            l.check_transforms_and_len(&xforms[..]).mult_errors_into()?;
-            // ASSUME this won't panic because we checked length above
-            if let Some(i) = self.measurements.center_index().map(usize::from)
-                && scales[i] != Some(Scale::Linear)
-            {
-                return Err(NonEmpty::new(NonLinearTemporalScaleError.into()));
-            }
-            // ASSUME this won't fail because we checked the length and time
-            // index first
+        let center_scale_not_linear = || {
             self.measurements
-                .alter_values_zip(
-                    scales,
-                    |m, x| *m.value.specific.scale_mut(private::NoTouchy) = x,
-                    |_, _| (),
-                )
-                .void()
-                .unwrap();
-            Ok(())
+                .center_index()
+                .map(usize::from)
+                .and_then(|i| scales.get(i).map(Option::as_ref))
+                .flatten()
+                .is_some_and(|&s| s != Scale::Linear)
+                .then_some(NonLinearTemporalScaleError.into())
         };
-        go().mult_terminate_def()
+
+        let l = &self.layout;
+        let xforms: Vec<_> = scales
+            .iter()
+            .copied()
+            .map(|s| s.map(ScaleTransform::from).unwrap_or_default())
+            .collect();
+        l.check_transforms_and_len(&xforms[..])
+            .map_non_fung_errors(SetScalesError::from)
+            .eval_def_error(|()| center_scale_not_linear())?;
+        // ASSUME this won't fail because we checked the length and
+        // time index first
+        self.measurements
+            .alter_values_zip(
+                scales,
+                |m, x| *m.value.specific.scale_mut(private::NoTouchy) = x,
+                |_, _| (),
+            )
+            .unwrap();
+        Result::new_ok(())
     }
 
     /// Set $PnE/$PnG (3.0+)
     pub fn set_transforms(
         &mut self,
         xforms: Vec<ScaleTransform>,
-    ) -> TerminalResult<(), Infallible, SetTransformsError, SetTransformsFailure>
+    ) -> ErrorsResult<(), (), SetTransformsError>
     where
         M::Optical: HasScaleTransform,
     {
-        let go = || {
-            let l = &self.layout;
-            l.check_transforms_and_len(&xforms[..]).mult_errors_into()?;
-            // ASSUME this won't panic because we checked length first
-            if let Some(i) = self.measurements.center_index().map(usize::from)
-                && !xforms[i].is_noop()
-            {
-                return Err(NonEmpty::new(NonLinearTemporalTransformError.into()));
-            }
-            // ASSUME this won't fail because we checked the length first
+        let center_xform_not_noop = || {
             self.measurements
-                .alter_values_zip(
-                    xforms,
-                    |m, x| *m.value.specific.transform_mut(private::NoTouchy) = x,
-                    |_, _| (),
-                )
-                .void()
-                .unwrap();
-            Ok(())
+                .center_index()
+                .map(usize::from)
+                .and_then(|i| xforms.get(i))
+                .is_some_and(|s| s.is_noop())
+                .then_some(NonLinearTemporalTransformError.into())
         };
-        go().mult_terminate_def()
+
+        let l = &self.layout;
+        l.check_transforms_and_len(&xforms[..])
+            .map_non_fung_errors(SetTransformsError::from)
+            .eval_def_error(|_| center_xform_not_noop())?;
+        // ASSUME this won't fail because we checked the length first
+        self.measurements
+            .alter_values_zip(
+                xforms,
+                |m, x| *m.value.specific.transform_mut(private::NoTouchy) = x,
+                |_, _| (),
+            )
+            .unwrap();
+        Result::new_ok(())
     }
 
     /// Return $PAR, which is simply the number of measurements in this struct
@@ -3089,11 +3083,11 @@ where
     pub fn try_convert<ToM>(
         self,
         allow_loss: bool,
-    ) -> TerminalResult<
+    ) -> WarningsAndErrorsResult<
         VersionedCore<A, D, O, ToM>,
+        (),
         MetarootConvertWarning,
         VersionedConvertError<M::Name, ToM::Name>,
-        ConvertFailure,
     >
     where
         Version: From<M::Ver> + From<ToM::Ver>,
@@ -3106,30 +3100,32 @@ where
         <ToM::Name as MightHave>::Wrapper<Shortname>:
             TryFrom<<M::Name as MightHave>::Wrapper<Shortname>>,
     {
-        let m = self
+        let root_res = self
             .metaroot
             .try_convert(allow_loss)
-            .def_map_errors(ConvertErrorInner::Meta);
-        let ps = self
+            .map_non_fung_errors(ConvertErrorInner::Meta);
+        let meas_res = self
             .measurements
-            .map_center_value(|y| Ok(y.value.convert(y.index, allow_loss)))
-            .def_map_errors(ConvertErrorInner::Temporal)
-            .def_warnings_into()
-            .def_and_maybe(|xs| {
-                xs.map_non_center_values(|i, v| v.try_convert(i, allow_loss))
-                    .def_map_errors(ConvertErrorInner::Optical)
-                    .def_warnings_into()
+            .map_center_value(|v| v.value.convert(v.index, allow_loss))
+            .set_err_value(())
+            .map_non_fung_errors(ConvertErrorInner::Temporal)
+            .map_cmt_warnings(MetarootConvertWarning::from)
+            .and_then_cmt(|meas| {
+                meas.map_non_center_values(|i, v| v.try_convert(i, allow_loss))
+                    .map_non_fung_errors(ConvertErrorInner::Optical)
+                    .map_cmt_warnings(MetarootConvertWarning::from)
             })
-            .def_and_maybe(|x| {
-                x.try_rewrapped()
-                    .mult_map_errors(ConvertErrorInner::Rewrap)
-                    .mult_to_deferred()
+            .and_then_cmt(|meas| {
+                meas.try_rewrapped()
+                    .map_non_fung_errors(ConvertErrorInner::Rewrap)
+                    .nowarn_into_warn()
             });
-        let lres = ConvertFromLayout::convert_from_layout(self.layout)
-            .mult_map_errors(ConvertErrorInner::Layout)
-            .mult_to_deferred();
-        m.def_zip3(ps, lres)
-            .def_map_value(|(metaroot, measurements, layout)| {
+        let layout_res = ConvertFromLayout::convert_from_layout(self.layout)
+            .map_non_fung_errors(ConvertErrorInner::Layout)
+            .nowarn_into_warn();
+        root_res
+            .zip3_cmt(meas_res, layout_res)
+            .map_ok_value(|(metaroot, measurements, layout)| {
                 Core::new(
                     metaroot,
                     measurements,
@@ -3139,10 +3135,9 @@ where
                     self.others,
                 )
             })
-            .def_map_errors(|error| {
+            .map_non_fung_errors(|error| {
                 ConvertError::new(M::Ver::fcs_version(), ToM::Ver::fcs_version(), error)
             })
-            .def_terminate_def()
     }
 
     fn named_compensation(&self) -> Option<(Vec<Shortname>, DMatrix<f32>)>
@@ -3579,8 +3574,9 @@ where
         par: Par,
         nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> DeferredResult<
+    ) -> WarningsAndErrorsResult<
         Measurements<M::Name, M::Temporal, M::Optical>,
+        (),
         LookupMeasWarning,
         LookupKeysError,
     >
@@ -3595,8 +3591,8 @@ where
         // pattern is wrong for one measurement it is probably wrong for all of
         // them.
         let blank_meas_nonstd = || vec![HashMap::new(); par.0];
-        let tnt = conf.nonstandard_measurement_pattern.as_ref().map_or(
-            Tentative::new1(blank_meas_nonstd()),
+        let ns_res = conf.nonstandard_measurement_pattern.as_ref().map_or(
+            Result::new_ok(blank_meas_nonstd()),
             |pat| {
                 (0..par.0)
                     .map(|n| {
@@ -3606,12 +3602,13 @@ where
                         })
                     })
                     .collect::<Result<Vec<_>, _>>()
-                    .into_tentative_warn(blank_meas_nonstd())
+                    .map_err(LookupMeasWarning::from)
+                    .into_succ_or(blank_meas_nonstd())
             },
         );
 
         // then iterate over each measurement and look for standardized keys
-        tnt.warnings_into().and_maybe(|meas_nonstds| {
+        ns_res.and_then_cmt(|meas_nonstds| {
             meas_nonstds
                 .into_iter()
                 .enumerate()
@@ -3621,7 +3618,7 @@ where
                     // totally fail if not found since this is required. If it
                     // does exist, also check if it matches the time pattern and
                     // use it as the time measurement if it does.
-                    M::lookup_shortname(std, i, conf).def_and_maybe(|wrapped| {
+                    M::lookup_shortname(std, i, conf).and_then_cmt(|wrapped| {
                         // TODO if more than one name matches the time pattern
                         // this will give a cryptic "cannot find $TIMESTEP" for
                         // each subsequent match, which is not helpful. Probably
@@ -3647,23 +3644,23 @@ where
                             // TODO add switch to "downgrade" failed time
                             // channel to optical channel, which is more general
                             Ok(name) => Temporal::lookup_temporal(std, i, meas_nonstd, conf)
-                                .map_def_value(|t| Element::Center((name, t))),
+                                .map_ok_value(|t| Element::Center((name, t))),
                             Err(k) => Optical::lookup_optical(std, i, meas_nonstd, conf)
-                                .map_def_value(|m| Element::NonCenter((k, m))),
+                                .map_ok_value(|m| Element::NonCenter((k, m))),
                         }
                     })
                 })
-                .gather()
-                .map_err(DeferredFailure::mconcat)
-                .map(Tentative::mconcat)
-                .def_and_maybe(|xs| {
-                    // Finally, attempt to put our proto-measurement binary soup
-                    // into a named vector, which will have a special element
-                    // for the time measurement if it exists, and will scream if
-                    // we have more than one time measurement.
-                    NamedVec::try_new(xs.into()).into_deferred()
+                .mappend_cmt()
+                // Finally, attempt to put our proto-measurement binary soup
+                // into a named vector, which will have a special element for
+                // the time measurement if it exists, and will scream if we have
+                // more than one time measurement.
+                .and_then_cmt(|xs| {
+                    NamedVec::try_new(xs.into())
+                        .into_generic()
+                        .map_non_fung_errors(LookupKeysError::from)
                 })
-                .def_warnings_into()
+                .map_cmt_warnings(LookupMeasWarning::from)
         })
     }
 
@@ -3743,8 +3740,9 @@ where
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
         st: &ReadState<C>,
-    ) -> DeferredResult<
+    ) -> WarningsAndErrorsResult<
         (Self, ExtraStdKeywords, <M::Ver as Versioned>::Offsets),
+        (),
         StdTEXTFromRawWarning,
         StdTEXTFromRawError,
     >
@@ -3761,7 +3759,7 @@ where
         // ANALYSIS, and processing these keywords now will make it easier to
         // determine if TEXT is totally standardized or not.
         let offsets_res = <M::Ver as Versioned>::Offsets::lookup(&mut kws.std, data, analysis, st)
-            .def_inner_into();
+            .map_non_fung_errors(StdTEXTFromRawError::from);
 
         Self::lookup_inner(kws, &st.conf)
             .def_zip(offsets_res)
@@ -3800,7 +3798,12 @@ where
     fn lookup_inner<C>(
         mut kws: ValidKeywords,
         conf: &C,
-    ) -> DeferredResult<(Self, ExtraStdKeywords), StdTEXTFromRawWarning, StdTEXTFromRawError>
+    ) -> WarningsAndErrorsResult<
+        (Self, ExtraStdKeywords),
+        (),
+        StdTEXTFromRawWarning,
+        StdTEXTFromRawError,
+    >
     where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
@@ -3817,26 +3820,31 @@ where
         let _ = kws.std.remove(&Endstext::std());
 
         // Lookup $PAR first since we need this to get the measurements
-        let par_res = Par::lookup_req(&mut kws.std).def_inner_into();
+        let par_res = Par::lookup_req(&mut kws.std)
+            .map_cmt_warnings(StdTEXTFromRawWarning::from)
+            .map_non_fung_errors(StdTEXTFromRawError::from);
 
         let version = Version::from(M::Ver::fcs_version());
         let std_conf = conf.as_ref();
 
-        par_res.def_and_maybe(|par| {
+        par_res.and_then_cmt(|par| {
             // Lookup measurements/layout/metaroot with $PAR
             let meas_res = Self::lookup_measurements(&mut kws.std, par, &mut kws.nonstd, std_conf)
-                .def_inner_into();
+                .map_cmt_warnings(StdTEXTFromRawWarning::from)
+                .map_non_fung_errors(StdTEXTFromRawError::from);
             let layout_res = <M::Ver as Versioned>::Layout::lookup(&mut kws.std, conf, par)
-                .def_map_errors(Box::new)
-                .def_inner_into();
+                .map_cmt_warnings(StdTEXTFromRawWarning::from)
+                .map_non_fung_errors(Box::new)
+                .map_non_fung_errors(StdTEXTFromRawError::from);
             meas_res
-                .def_zip(layout_res)
-                .def_and_maybe(|(ms, layout)| {
+                .zip_cmt(layout_res)
+                .and_then_cmt(|(ms, layout)| {
                     Metaroot::lookup_metaroot(&mut kws.std, &ms, kws.nonstd, std_conf)
-                        .map_def_value(|metaroot| Self::new_unchecked(metaroot, ms, layout))
-                        .def_inner_into()
+                        .map_ok_value(|metaroot| Self::new_unchecked(metaroot, ms, layout))
+                        .map_cmt_warnings(StdTEXTFromRawWarning::from)
+                        .map_non_fung_errors(StdTEXTFromRawError::from)
                 })
-                .map(|mut tnt_core| {
+                .map_ok_value(|mut tnt_core| {
                     // Check that the time measurement is present if we want
                     // it and the measurement vector is non-empty
                     let go = |core: &Self| {
@@ -5455,7 +5463,7 @@ type MetarootConvertResult<M> =
 type OpticalConvertResult<M> =
     WarningsAndErrorsResult<M, (), OpticalConvertWarning, OpticalConvertError>;
 
-type TemporalConvertTentative<M> = DeferredFungibleErrors<M, TemporalConvertError>;
+type TemporalConvertResult<M> = DeferredFungibleErrors<M, TemporalConvertError>;
 
 pub(crate) type LayoutConvertResult<L> = ErrorsResult<L, (), LayoutConvertError>;
 
@@ -6254,7 +6262,7 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal2_0 {
         value: InnerTemporal3_0,
         _: MeasIndex,
         allow_loss: bool,
-    ) -> TemporalConvertTentative<Self> {
+    ) -> TemporalConvertResult<Self> {
         value
             .timestep
             .check_conversion(allow_loss)
@@ -6269,7 +6277,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal2_0 {
         value: InnerTemporal3_1,
         i: MeasIndex,
         allow_loss: bool,
-    ) -> TemporalConvertTentative<Self> {
+    ) -> TemporalConvertResult<Self> {
         let t = value
             .timestep
             .check_conversion(allow_loss)
@@ -6289,7 +6297,7 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal2_0 {
         value: InnerTemporal3_2,
         i: MeasIndex,
         allow_loss: bool,
-    ) -> TemporalConvertTentative<Self> {
+    ) -> TemporalConvertResult<Self> {
         let di = value
             .display
             .check_indexed_key_transfer_fungible(i, allow_loss)
@@ -6315,7 +6323,7 @@ impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_0 {
         value: InnerTemporal2_0,
         _: MeasIndex,
         _: bool,
-    ) -> TemporalConvertTentative<Self> {
+    ) -> TemporalConvertResult<Self> {
         Result::new_ok(Self::new(Timestep::default(), value.peak))
     }
 }
@@ -6325,7 +6333,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_0 {
         value: InnerTemporal3_1,
         i: MeasIndex,
         allow_loss: bool,
-    ) -> TemporalConvertTentative<Self> {
+    ) -> TemporalConvertResult<Self> {
         value
             .display
             .check_indexed_key_transfer_fungible(i, allow_loss)
@@ -6340,7 +6348,7 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_0 {
         value: InnerTemporal3_2,
         i: MeasIndex,
         allow_loss: bool,
-    ) -> TemporalConvertTentative<Self> {
+    ) -> TemporalConvertResult<Self> {
         let di = value
             .display
             .check_indexed_key_transfer_fungible::<AnyMeasKeyLossError>(i, allow_loss)
@@ -6361,7 +6369,7 @@ impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_1 {
         value: InnerTemporal2_0,
         _: MeasIndex,
         _: bool,
-    ) -> TemporalConvertTentative<Self> {
+    ) -> TemporalConvertResult<Self> {
         Result::new_ok(Self::new(Timestep::default(), None, value.peak))
     }
 }
@@ -6371,7 +6379,7 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal3_1 {
         value: InnerTemporal3_0,
         _: MeasIndex,
         _: bool,
-    ) -> TemporalConvertTentative<Self> {
+    ) -> TemporalConvertResult<Self> {
         Result::new_ok(Self::new(value.timestep, None, value.peak))
     }
 }
@@ -6381,7 +6389,7 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_1 {
         value: InnerTemporal3_2,
         i: MeasIndex,
         allow_loss: bool,
-    ) -> TemporalConvertTentative<Self> {
+    ) -> TemporalConvertResult<Self> {
         value
             .measurement_type
             .check_indexed_key_transfer_fungible(i, allow_loss)
@@ -6396,7 +6404,7 @@ impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_2 {
         value: InnerTemporal2_0,
         i: MeasIndex,
         allow_loss: bool,
-    ) -> TemporalConvertTentative<Self> {
+    ) -> TemporalConvertResult<Self> {
         value
             .peak
             .check_loss(i, allow_loss)
@@ -6411,7 +6419,7 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal3_2 {
         value: InnerTemporal3_0,
         i: MeasIndex,
         allow_loss: bool,
-    ) -> TemporalConvertTentative<Self> {
+    ) -> TemporalConvertResult<Self> {
         value
             .peak
             .check_loss(i, allow_loss)
@@ -6425,7 +6433,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_2 {
         value: InnerTemporal3_1,
         i: MeasIndex,
         allow_loss: bool,
-    ) -> TemporalConvertTentative<Self> {
+    ) -> TemporalConvertResult<Self> {
         value
             .peak
             .check_loss(i, allow_loss)
@@ -6884,7 +6892,9 @@ impl VersionedOptical for InnerOptical3_2 {
 
 impl VersionedTemporal for InnerTemporal2_0 {
     type Ver = Version2_0;
-    type Err = Infallible;
+    type Warning = ();
+    type WarningFam = NullFamily;
+    type Error = Infallible;
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
         [].into_iter()
@@ -6902,7 +6912,7 @@ impl VersionedTemporal for InnerTemporal2_0 {
             .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
-    fn can_convert_to_optical(&self, _: MeasIndex) -> DeferredError<(), Self::Err> {
+    fn can_convert_to_optical(&self, _: MeasIndex) -> DeferredError<(), Self::Error> {
         Result::new_ok(())
     }
 
@@ -6916,7 +6926,9 @@ impl VersionedTemporal for InnerTemporal2_0 {
 
 impl VersionedTemporal for InnerTemporal3_0 {
     type Ver = Version3_0;
-    type Err = Infallible;
+    type Warning = ();
+    type WarningFam = NullFamily;
+    type Error = Infallible;
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
         [self.timestep.pair()].into_iter()
@@ -6932,7 +6944,7 @@ impl VersionedTemporal for InnerTemporal3_0 {
             .filter_map(|(_, k, v)| v.map(|x| (k, x)))
     }
 
-    fn can_convert_to_optical(&self, _: MeasIndex) -> DeferredError<(), Self::Err> {
+    fn can_convert_to_optical(&self, _: MeasIndex) -> DeferredError<(), Self::Error> {
         Result::new_ok(())
     }
 
@@ -6946,7 +6958,9 @@ impl VersionedTemporal for InnerTemporal3_0 {
 
 impl VersionedTemporal for InnerTemporal3_1 {
     type Ver = Version3_1;
-    type Err = Infallible;
+    type Warning = ();
+    type WarningFam = NullFamily;
+    type Error = Infallible;
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
         [self.timestep.pair()].into_iter()
@@ -6964,7 +6978,7 @@ impl VersionedTemporal for InnerTemporal3_1 {
             .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
-    fn can_convert_to_optical(&self, _: MeasIndex) -> DeferredError<(), Self::Err> {
+    fn can_convert_to_optical(&self, _: MeasIndex) -> DeferredError<(), Self::Error> {
         Result::new_ok(())
     }
 
@@ -6978,7 +6992,9 @@ impl VersionedTemporal for InnerTemporal3_1 {
 
 impl VersionedTemporal for InnerTemporal3_2 {
     type Ver = Version3_2;
-    type Err = TemporalToOpticalError;
+    type Warning = TemporalToOpticalError;
+    type WarningFam = VecFamily;
+    type Error = TemporalToOpticalError;
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
         [self.timestep.pair()].into_iter()
@@ -6992,7 +7008,7 @@ impl VersionedTemporal for InnerTemporal3_2 {
         once(self.display.meas_opt_pair(i)).filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
-    fn can_convert_to_optical(&self, i: MeasIndex) -> DeferredError<(), Self::Err> {
+    fn can_convert_to_optical(&self, i: MeasIndex) -> DeferredError<(), Self::Error> {
         self.measurement_type
             .check_indexed_key_transfer(i)
             .map_non_fung_errors(TemporalToOpticalError::Loss)
@@ -7285,18 +7301,12 @@ impl OpticalFromTemporal<InnerTemporal2_0> for InnerOptical2_0 {
         t: Temporal<InnerTemporal2_0>,
         i: MeasIndex,
         (): Self::Loss,
-    ) -> PassthruResult<
-        (Optical<Self>, Self::TData),
-        Box<Temporal<InnerTemporal2_0>>,
-        Infallible,
-        Infallible,
-    > {
-        // TODO ???
+    ) -> ErrorsResult<(Optical<Self>, Self::TData), Box<Temporal<InnerTemporal2_0>>, Infallible>
+    {
         t.specific
             .can_convert_to_optical(i)
-            .def_unwrap_infallible1::<Infallible>();
-        // .unwrap_or_else(|e| match e {});
-        Ok(Tentative::new1(Self::from_temporal_unchecked(t)))
+            .from_infallible()
+            .set_ok_value(Self::from_temporal_unchecked(t))
     }
 
     fn from_temporal_inner(t: InnerTemporal2_0) -> (Self, Self::TData) {
@@ -7314,17 +7324,12 @@ impl OpticalFromTemporal<InnerTemporal3_0> for InnerOptical3_0 {
         t: Temporal<InnerTemporal3_0>,
         i: MeasIndex,
         (): Self::Loss,
-    ) -> PassthruResult<
-        (Optical<Self>, Self::TData),
-        Box<Temporal<InnerTemporal3_0>>,
-        Infallible,
-        Infallible,
-    > {
+    ) -> ErrorsResult<(Optical<Self>, Self::TData), Box<Temporal<InnerTemporal3_0>>, Infallible>
+    {
         t.specific
             .can_convert_to_optical(i)
-            .def_unwrap_infallible1::<Infallible>();
-        // .unwrap_or_else(|e| match e {});
-        Ok(Tentative::new1(Self::from_temporal_unchecked(t)))
+            .from_infallible()
+            .set_ok_value(Self::from_temporal_unchecked(t))
     }
 
     fn from_temporal_inner(t: InnerTemporal3_0) -> (Self, Self::TData) {
@@ -7342,17 +7347,12 @@ impl OpticalFromTemporal<InnerTemporal3_1> for InnerOptical3_1 {
         t: Temporal<InnerTemporal3_1>,
         i: MeasIndex,
         (): Self::Loss,
-    ) -> PassthruResult<
-        (Optical<Self>, Self::TData),
-        Box<Temporal<InnerTemporal3_1>>,
-        Infallible,
-        Infallible,
-    > {
+    ) -> ErrorsResult<(Optical<Self>, Self::TData), Box<Temporal<InnerTemporal3_1>>, Infallible>
+    {
         t.specific
             .can_convert_to_optical(i)
-            .def_unwrap_infallible1::<Infallible>();
-        // .unwrap_or_else(|e| match e {});
-        Ok(Tentative::new1(Self::from_temporal_unchecked(t)))
+            .from_infallible()
+            .set_ok_value(Self::from_temporal_unchecked(t))
     }
 
     fn from_temporal_inner(t: InnerTemporal3_1) -> (Self, Self::TData) {
@@ -7376,24 +7376,28 @@ impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
         t: Temporal<InnerTemporal3_2>,
         i: MeasIndex,
         allow_loss: Self::Loss,
-    ) -> PassthruResult<
+    ) -> CmtFungibleErrorsResult<
         (Optical<Self>, Self::TData),
         Box<Temporal<InnerTemporal3_2>>,
         TemporalToOpticalError,
-        TemporalToOpticalError,
     > {
-        match t.specific.can_convert_to_optical(i) {
-            Ok(_) => Ok(Tentative::new1(Self::from_temporal_unchecked(t))),
-            // TODO fixme
-            Err(_) => unimplemented!(),
-            // Err(es) => {
-            //     if allow_loss {
-            //         Ok(Tentative::new_vec(Self::from_temporal_unchecked(t), es, []))
-            //     } else {
-            //         Err(DeferredFailure::new_vec([], es, Box::new(t)))
-            //     }
-            // }
-        }
+        t.specific
+            .can_convert_to_optical(i)
+            .inject_value(t)
+            .nowarn_into_warn::<_, VecFamily>()
+            .repack_errors()
+            .recover_with(
+                |(_, t), es| {
+                    if allow_loss {
+                        let ws = es.into_iter().collect();
+                        let o = Self::from_temporal_unchecked(t);
+                        Result::new_ok(o).set_cmt_warnings(ws)
+                    } else {
+                        Result::new_err(es).set_err_value(Box::new(t))
+                    }
+                },
+                |(_, t)| Result::new_ok(Self::from_temporal_unchecked(t)),
+            )
     }
 
     fn from_temporal_inner(t: InnerTemporal3_2) -> (Self, Self::TData) {

@@ -441,7 +441,7 @@ pub trait MeasDatatypeDef {
             .map_err(RawParsedError::from)
             .into_nowarn1();
         w.zip_cmt(r)
-            .nowarn_into_cmt()
+            .nowarn_into_warn()
             .and_then_cmt(|(width, range)| {
                 Self::lookup_datatype_ro(kws, i)
                     .repack()
@@ -2278,7 +2278,7 @@ where
                     .map_non_fung_errors(ImpureError::inner_into)
             },
         );
-        res.nowarn_into_cmt().repack_errors()
+        res.nowarn_into_warn().repack_errors()
     }
 
     // TODO aren't these always warnings?
@@ -2614,7 +2614,7 @@ where
             .map_non_cmt_warnings(ReadDataframeWarning::from)
             .map_non_fung_errors(ReadDataframeError::from)
             .map_non_fung_errors(ImpureError::Pure)
-            .into_cmt()
+            .non_cmt_into_cmt()
             .repack()
             .and_then_cmt(|n| {
                 let check_res = T::check_tot(n, tot, conf.allow_tot_mismatch)
@@ -2625,7 +2625,7 @@ where
                 let nn = usize::try_from(n).expect("nrows exceeds usize");
                 let read_res = self
                     .h_read_unchecked_df(h, nn, buf)
-                    .nowarn_into_cmt()
+                    .nowarn_into_warn()
                     .repack_errors();
                 check_res.zip_cmt(read_res).map_ok_value(|((), df)| df)
             })
@@ -3361,7 +3361,7 @@ impl<T> AnyOrderedUintLayout<T> {
             });
 
         width_res
-            .nowarn_into_cmt()
+            .nowarn_into_warn()
             .map_non_fung_errors(NewFixedIntLayoutError::from)
             .zip_cmt(layout_res)
             .map_ok_value(|(_, layout)| layout)

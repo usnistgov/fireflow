@@ -3,7 +3,7 @@ use fireflow_core::api::{
 };
 use fireflow_core::config;
 use fireflow_core::core::AnyCoreDataset;
-use fireflow_core::error::{GenNonEmpty, Terminal, TerminalFailure, VecFamily};
+use fireflow_core::error1::GenericResultExt as _;
 use fireflow_core::header::Version;
 use fireflow_core::segment::HeaderCorrection;
 use fireflow_core::text::byteord::ByteOrd2_0;
@@ -672,7 +672,7 @@ fn main() -> Result<(), ()> {
             let conf = parse_header_config(sargs);
             let filepath = parse_input_path(sargs);
             fcs_read_header(filepath, &conf.into())
-                .map(|h| print_json(&h.inner()))
+                .map_ok_value(|h| print_json(&h.inner()))
                 .map_err(handle_failure_nowarn)
         }
 

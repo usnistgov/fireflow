@@ -12,11 +12,9 @@ use crate::data::{
 };
 use crate::error1::{
     CmtFungibleErrorsResult, CmtResult, CmtResultIter as _, DeferredError, DeferredErrors,
-    DeferredFungibleError, DeferredFungibleErrors, DeferredIter as _, DeferredWarningAndErrors,
-    DeferredWarningsAndError, DeferredWarningsAndErrors, ErrorsResult, FungibleErrorsResult,
-    GenericResultExt, IOErrorResult, IOWarningAndErrorResult, IOWarningsAndErrorsResult,
-    ImpureError, NullFamily, ResultExt as _, VecFamily, WarningAndErrorResult,
-    WarningsAndErrorsResult, ZeroOrMore,
+    DeferredFungibleError, DeferredFungibleErrors, DeferredIter as _, DeferredWarningsAndErrors,
+    ErrorsResult, GenericResultExt, IOErrorResult, IOWarningsAndErrorsResult, ImpureError,
+    NullFamily, ResultExt as _, VecFamily, WarningsAndErrorsResult, ZeroOrMore,
 };
 use crate::header::{
     HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
@@ -427,7 +425,7 @@ impl AnyCoreTEXT {
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
         st: &ReadState<C>,
-    ) -> WarningAndErrorResult<
+    ) -> WarningsAndErrorsResult<
         (Self, ExtraStdKeywords, TEXTOffsets<Option<Tot>>),
         (),
         StdTEXTFromRawWarning,
@@ -436,15 +434,17 @@ impl AnyCoreTEXT {
     where
         C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
     {
+        macro_rules! go {
+            ($t:ident) => {
+                $t::new_from_keywords_with_offsets(kws, data, analysis, st)
+                    .map_ok_value(|(x, y, z)| (x.into(), y, z.into_common()))
+            };
+        }
         match version {
-            Version::FCS2_0 => CoreTEXT2_0::new_from_keywords_with_offsets(kws, data, analysis, st)
-                .def_map_value(|(x, y, z)| (x.into(), y, z.into_common())),
-            Version::FCS3_0 => CoreTEXT3_0::new_from_keywords_with_offsets(kws, data, analysis, st)
-                .def_map_value(|(x, y, z)| (x.into(), y, z.into_common())),
-            Version::FCS3_1 => CoreTEXT3_1::new_from_keywords_with_offsets(kws, data, analysis, st)
-                .def_map_value(|(x, y, z)| (x.into(), y, z.into_common())),
-            Version::FCS3_2 => CoreTEXT3_2::new_from_keywords_with_offsets(kws, data, analysis, st)
-                .def_map_value(|(x, y, z)| (x.into(), y, z.into_common())),
+            Version::FCS2_0 => go!(CoreTEXT2_0),
+            Version::FCS3_0 => go!(CoreTEXT3_0),
+            Version::FCS3_1 => go!(CoreTEXT3_1),
+            Version::FCS3_2 => go!(CoreTEXT3_2),
         }
     }
 }
@@ -464,7 +464,7 @@ impl AnyCoreDataset {
         analysis_seg: HeaderAnalysisSegment,
         other_segs: &[OtherSegment20],
         conf: &ReadState<C>,
-    ) -> IOWarningAndErrorResult<
+    ) -> IOWarningsAndErrorsResult<
         (Self, StdDatasetWithKwsOutput),
         (),
         StdDatasetFromRawWarning,
@@ -477,43 +477,17 @@ impl AnyCoreDataset {
             + AsRef<ReaderConfig>
             + AsRef<ReadTEXTOffsetsConfig>,
     {
+        macro_rules! go {
+            ($t:ident) => {
+                $t::new_from_keywords_inner(h, kws, data_seg, analysis_seg, other_segs, conf)
+                    .map_ok_value(|(x, y)| (x.into(), y))
+            };
+        }
         match version {
-            Version::FCS2_0 => CoreDataset2_0::new_from_keywords_inner(
-                h,
-                kws,
-                data_seg,
-                analysis_seg,
-                other_segs,
-                conf,
-            )
-            .def_map_value(|(x, y)| (x.into(), y)),
-            Version::FCS3_0 => CoreDataset3_0::new_from_keywords_inner(
-                h,
-                kws,
-                data_seg,
-                analysis_seg,
-                other_segs,
-                conf,
-            )
-            .def_map_value(|(x, y)| (x.into(), y)),
-            Version::FCS3_1 => CoreDataset3_1::new_from_keywords_inner(
-                h,
-                kws,
-                data_seg,
-                analysis_seg,
-                other_segs,
-                conf,
-            )
-            .def_map_value(|(x, y)| (x.into(), y)),
-            Version::FCS3_2 => CoreDataset3_2::new_from_keywords_inner(
-                h,
-                kws,
-                data_seg,
-                analysis_seg,
-                other_segs,
-                conf,
-            )
-            .def_map_value(|(x, y)| (x.into(), y)),
+            Version::FCS2_0 => go!(CoreDataset2_0),
+            Version::FCS3_0 => go!(CoreDataset3_0),
+            Version::FCS3_1 => go!(CoreDataset3_1),
+            Version::FCS3_2 => go!(CoreDataset3_2),
         }
     }
 }
@@ -3759,11 +3733,12 @@ where
         // ANALYSIS, and processing these keywords now will make it easier to
         // determine if TEXT is totally standardized or not.
         let offsets_res = <M::Ver as Versioned>::Offsets::lookup(&mut kws.std, data, analysis, st)
+            .map_cmt_warnings(StdTEXTFromRawWarning::from)
             .map_non_fung_errors(StdTEXTFromRawError::from);
 
         Self::lookup_inner(kws, &st.conf)
-            .def_zip(offsets_res)
-            .def_map_value(|((x, y), z)| (x, y, z))
+            .zip_cmt(offsets_res)
+            .map_ok_value(|((x, y), z)| (x, y, z))
     }
 
     /// Make a new CoreTEXT from raw keywords.
@@ -3776,11 +3751,11 @@ where
     pub fn new_from_keywords<C>(
         kws: ValidKeywords,
         conf: &C,
-    ) -> TerminalResult<
+    ) -> WarningsAndErrorsResult<
         (Self, ExtraStdKeywords),
+        (),
         StdTEXTFromRawWarning,
         StdTEXTFromKeywordsError,
-        CoreTEXTFromKeywordsFailure,
     >
     where
         M: LookupMetaroot,
@@ -3790,9 +3765,7 @@ where
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
         C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<SharedConfig>,
     {
-        Self::lookup_inner(kws, conf)
-            .def_errors_into()
-            .def_terminate_maybe_warn(CoreTEXTFromKeywordsFailure, conf.as_ref(), Into::into)
+        Self::lookup_inner(kws, conf).map_non_fung_errors(StdTEXTFromKeywordsError::from)
     }
 
     fn lookup_inner<C>(
@@ -3832,50 +3805,70 @@ where
             let meas_res = Self::lookup_measurements(&mut kws.std, par, &mut kws.nonstd, std_conf)
                 .map_cmt_warnings(StdTEXTFromRawWarning::from)
                 .map_non_fung_errors(StdTEXTFromRawError::from);
+
             let layout_res = <M::Ver as Versioned>::Layout::lookup(&mut kws.std, conf, par)
                 .map_cmt_warnings(StdTEXTFromRawWarning::from)
                 .map_non_fung_errors(Box::new)
                 .map_non_fung_errors(StdTEXTFromRawError::from);
-            meas_res
-                .zip_cmt(layout_res)
-                .and_then_cmt(|(ms, layout)| {
-                    Metaroot::lookup_metaroot(&mut kws.std, &ms, kws.nonstd, std_conf)
-                        .map_ok_value(|metaroot| Self::new_unchecked(metaroot, ms, layout))
-                        .map_cmt_warnings(StdTEXTFromRawWarning::from)
-                        .map_non_fung_errors(StdTEXTFromRawError::from)
-                })
-                .map_ok_value(|mut tnt_core| {
-                    // Check that the time measurement is present if we want
-                    // it and the measurement vector is non-empty
-                    let go = |core: &Self| {
-                        if let Some(pat) = std_conf.time_meas_pattern.as_ref()
-                            && core.measurements.as_center().is_none()
-                            && !core.measurements.is_empty()
-                        {
-                            return Some(LookupKeysWarning::from(MissingTime(pat.clone())));
-                        }
-                        None
-                    };
-                    if std_conf.allow_missing_time {
-                        tnt_core.eval_warning(go);
-                    } else {
-                        tnt_core.eval_error(|c| go(c).map(LookupKeysError::WarnAsError));
-                    }
-                    let esks = match version {
-                        Version::FCS2_0 => ExtraStdKeywords::split_2_0(kws.std),
-                        Version::FCS3_0 => ExtraStdKeywords::split_3_0(kws.std),
-                        Version::FCS3_1 => ExtraStdKeywords::split_3_1(kws.std),
-                        Version::FCS3_2 => ExtraStdKeywords::split_3_2(kws.std),
-                    };
 
-                    let ps = esks.pseudostandard.keys().cloned().map(PseudostandardError);
-                    tnt_core.extend_errors_or_warnings(ps, !std_conf.allow_pseudostandard);
+            let mut root_res = meas_res.zip_cmt(layout_res).and_then_cmt(|(ms, layout)| {
+                Metaroot::lookup_metaroot(&mut kws.std, &ms, kws.nonstd, std_conf)
+                    .map_ok_value(|metaroot| Self::new_unchecked(metaroot, ms, layout))
+                    .map_cmt_warnings(StdTEXTFromRawWarning::from)
+                    .map_non_fung_errors(StdTEXTFromRawError::from)
+            });
 
-                    let us = esks.unused.keys().cloned().map(UnusedStandardError);
-                    tnt_core.extend_errors_or_warnings(us, !std_conf.allow_unused_standard);
+            // Check that the time measurement is present if we want
+            // it and the measurement vector is non-empty
+            let go = |core: &Self| {
+                if let Some(pat) = std_conf.time_meas_pattern.as_ref()
+                    && core.measurements.as_center().is_none()
+                    && !core.measurements.is_empty()
+                {
+                    return Some(LookupKeysWarning::from(MissingTime(pat.clone())));
+                }
+                None
+            };
+            // TODO clean up this function
+            if std_conf.allow_missing_time {
+                root_res.eval_non_def_warning(|c| go(c).map(StdTEXTFromRawWarning::from))
+            } else {
+                root_res = root_res.eval_non_def_error(|c| {
+                    go(c)
+                        .map(LookupKeysError::from)
+                        .map(StdTEXTFromRawError::from)
+                });
+            }
 
-                    tnt_core.map(|x| (x, esks))
-                })
+            // Push pseudostandard/unused warnings/errors
+            let esks = match version {
+                Version::FCS2_0 => ExtraStdKeywords::split_2_0(kws.std),
+                Version::FCS3_0 => ExtraStdKeywords::split_3_0(kws.std),
+                Version::FCS3_1 => ExtraStdKeywords::split_3_1(kws.std),
+                Version::FCS3_2 => ExtraStdKeywords::split_3_2(kws.std),
+            };
+
+            let ps = esks.pseudostandard.keys().cloned().map(PseudostandardError);
+            let us = esks.unused.keys().cloned().map(UnusedStandardError);
+
+            root_res
+                .extend_fung_errors(
+                    ps,
+                    |_v| (),
+                    |_p| (),
+                    StdTEXTFromRawWarning::from,
+                    StdTEXTFromRawError::from,
+                    !std_conf.allow_pseudostandard,
+                )
+                .extend_fung_errors(
+                    us,
+                    |_v| (),
+                    |_p| (),
+                    StdTEXTFromRawWarning::from,
+                    StdTEXTFromRawError::from,
+                    !std_conf.allow_unused_standard,
+                )
+                .map_ok_value(|x| (x, esks))
         })
     }
 
@@ -3913,21 +3906,22 @@ where
     /// Add time measurement to the end of the measurement vector.
     ///
     /// Return error if time measurement already exists or name is non-unique.
+    // TODO terminate
     pub fn push_temporal(
         &mut self,
         n: Shortname,
         m: Temporal<M::Temporal>,
         r: Range,
         disallow_trunc: bool,
-    ) -> TerminalResult<(), AnyRangeError, InsertTemporalError, PushTemporalFailure> {
+    ) -> WarningsAndErrorsResult<(), (), AnyRangeError, InsertTemporalError> {
         self.push_temporal_inner(n, m, r, disallow_trunc)
-            .def_terminate_def()
     }
 
     /// Add time measurement at the given position
     ///
     /// Return error if time measurement already exists, name is non-unique, or
     /// index is out of bounds.
+    // TODO terminate
     pub fn insert_temporal(
         &mut self,
         i: MeasIndex,
@@ -3935,28 +3929,28 @@ where
         m: Temporal<M::Temporal>,
         r: Range,
         disallow_trunc: bool,
-    ) -> TerminalResult<(), AnyRangeError, InsertTemporalError, InsertTemporalFailure> {
+    ) -> WarningsAndErrorsResult<(), (), AnyRangeError, InsertTemporalError> {
         self.insert_temporal_inner(i, n, m, r, disallow_trunc)
-            .def_terminate_def()
     }
 
     /// Add optical measurement to the end of the measurement vector
     ///
     /// Return error if name is non-unique.
+    // TODO terminate
     pub fn push_optical(
         &mut self,
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
         r: Range,
         disallow_trunc: bool,
-    ) -> TerminalResult<Shortname, AnyRangeError, PushOpticalError, PushOpticalFailure> {
+    ) -> WarningsAndErrorsResult<Shortname, (), AnyRangeError, PushOpticalError> {
         self.push_optical_inner(n, m, r, disallow_trunc)
-            .def_terminate_def()
     }
 
     /// Add optical measurement at a given position
     ///
     /// Return error if name is non-unique, or index is out of bounds.
+    // TODO terminate
     pub fn insert_optical(
         &mut self,
         i: MeasIndex,
@@ -3964,9 +3958,8 @@ where
         m: Optical<M::Optical>,
         r: Range,
         disallow_trunc: bool,
-    ) -> TerminalResult<Shortname, AnyRangeError, InsertOpticalError, InsertOpticalFailure> {
+    ) -> WarningsAndErrorsResult<Shortname, (), AnyRangeError, InsertOpticalError> {
         self.insert_optical_inner(i, n, m, r, disallow_trunc)
-            .def_terminate_def()
     }
 
     /// Remove measurements
@@ -4015,6 +4008,7 @@ where
     M::Name: Clone,
     <M::Ver as Versioned>::Layout: VersionedDataLayout,
 {
+    // TODO terminate
     pub fn new_from_keywords<C>(
         p: PathBuf,
         kws: ValidKeywords,
@@ -4022,11 +4016,11 @@ where
         analysis_seg: HeaderAnalysisSegment,
         other_segs: &[OtherSegment20],
         conf: &C,
-    ) -> IOTerminalResult<
+    ) -> IOWarningsAndErrorsResult<
         (Self, StdDatasetWithKwsOutput),
+        (),
         StdDatasetFromRawWarning,
         StdDatasetFromRawError,
-        StdDatasetWithKwsFailure,
     >
     where
         M: LookupMetaroot,
@@ -4044,12 +4038,13 @@ where
             .read(true)
             .open(p)
             .and_then(|file| ReadState::init(&file, conf).map(|st| (st, file)))
-            .into_deferred()
-            .def_and_maybe(|(st, file)| {
+            .map_err(ImpureError::IO)
+            .into_generic()
+            .and_then_cmt(|(st, file)| {
                 let mut h = BufReader::new(file);
                 Self::new_from_keywords_inner(&mut h, kws, data_seg, analysis_seg, other_segs, &st)
             })
-            .def_terminate_maybe_warn(StdDatasetWithKwsFailure, conf.as_ref(), |w| {
+            .cmt_warnings_to_errors(conf.as_ref(), |w| {
                 ImpureError::Pure(StdDatasetFromRawError::from(w))
             })
     }
@@ -4061,8 +4056,9 @@ where
         analysis_seg: HeaderAnalysisSegment,
         other_segs: &[OtherSegment20],
         st: &ReadState<C>,
-    ) -> IODeferredResult<
+    ) -> IOWarningsAndErrorsResult<
         (Self, StdDatasetWithKwsOutput),
+        (),
         StdDatasetFromRawWarning,
         StdDatasetFromRawError,
     >
@@ -4079,10 +4075,11 @@ where
             + AsRef<ReadTEXTOffsetsConfig>,
     {
         VersionedCoreTEXT::<M>::new_from_keywords_with_offsets(kws, data_seg, analysis_seg, st)
-            .def_map_errors(Box::new)
-            .def_inner_into()
-            .def_errors_liftio()
-            .def_and_maybe(|(text, extra, offsets)| {
+            .map_non_fung_errors(Box::new)
+            .map_cmt_warnings(StdDatasetFromRawWarning::from)
+            .map_non_fung_errors(StdDatasetFromRawError::from)
+            .map_non_fung_errors(ImpureError::Pure)
+            .and_then_cmt(|(text, extra, offsets)| {
                 let dataset_segs = offsets.as_ref();
                 let or = OthersReader::new(other_segs);
                 let ar = AnalysisReader::new(dataset_segs.analysis);
@@ -4090,12 +4087,12 @@ where
                 let data_res = text
                     .layout
                     .h_read_df(h, offsets.tot(), dataset_segs.data, read_conf)
-                    .def_warnings_into()
-                    .def_map_errors(ImpureError::inner_into);
-                let analysis_res = ar.h_read(h).into_deferred();
-                let others_res = or.h_read(h).into_deferred();
+                    .map_cmt_warnings(StdDatasetFromRawWarning::from)
+                    .map_non_fung_errors(ImpureError::inner_into);
+                let analysis_res = ar.h_read(h).map_err(ImpureError::IO).into_generic();
+                let others_res = or.h_read(h).map_err(ImpureError::IO).into_generic();
                 let out = StdDatasetWithKwsOutput::new(*dataset_segs, extra);
-                data_res.def_zip3(analysis_res, others_res).def_map_value(
+                data_res.zip3_cmt(analysis_res, others_res).map_ok_value(
                     |(data, analysis, others)| {
                         let c = text.into_coredataset_unchecked(data, analysis, others);
                         (c, out)
@@ -4105,11 +4102,12 @@ where
     }
 
     /// Write this dataset (HEADER+TEXT+DATA+ANALYSIS+OTHER) to a handle
+    // TODO terminate
     pub fn h_write_dataset<W: Write>(
         &self,
         h: &mut BufWriter<W>,
         conf: &WriteConfig,
-    ) -> IOTerminalResult<(), StdWriterWarning, StdWriterError, WriteDatasetFailure>
+    ) -> IOWarningsAndErrorsResult<(), (), StdWriterWarning, StdWriterError>
     where
         Version: From<M::Ver>,
     {
@@ -4122,20 +4120,20 @@ where
         let others = &self.others.0[..];
 
         let check_res = if conf.skip_conversion_check {
-            Ok(Tentative::default())
+            Result::new_ok(())
         } else {
             layout
                 .check_writer(df)
-                .map_err(DeferredFailure::new2)
-                .map(|()| Tentative::default())
-                .def_errors_into()
-                .def_errors_liftio()
+                .map_non_fung_errors(StdWriterError::from)
+                .map_non_fung_errors(ImpureError::Pure)
+                .map_cmt_warnings(StdWriterWarning::from)
         };
 
         check_res
-            .def_and_maybe(|()| {
+            // write HEADER+TEXT+OTHER(s) first
+            .and_then_cmt(|()| {
                 let data_len = layout.nbytes(df);
-                if conf.big_other {
+                let res = if conf.big_other {
                     self.h_write_text_inner::<_, UintSpacePad20>(
                         h,
                         delim,
@@ -4153,22 +4151,27 @@ where
                         analysis_len,
                         others,
                     )
-                }
-                .map_err(ImpureError::inner_into)?;
-
-                // write DATA; conversion check flag is flipped from above since
-                // we want to emit warnings as we are writing if we did not run
-                // through the data once at the beginning and check for
-                // conversion loss.
+                };
+                res.map_non_fung_errors(ImpureError::inner_into)
+                    .nowarn_into_warn()
+                    .repack_errors()
+            })
+            // write DATA; conversion check flag is flipped from above since
+            // we want to emit warnings as we are writing if we did not run
+            // through the data once at the beginning and check for
+            // conversion loss.
+            .and_then_cmt(|()| {
                 layout
                     .h_write_df(h, df, !conf.skip_conversion_check)
-                    .def_warnings_into()
-                    .def_map_errors(ImpureError::IO)?;
-
-                // write ANALYSIS
-                h.write_all(&self.analysis.0).into_deferred()
+                    .map_cmt_warnings(StdWriterWarning::from)
+                    .map_non_fung_errors(ImpureError::IO)
+                    .repack_errors()
             })
-            .def_terminate_def()
+            // write ANALYSIS
+            .and_then_cmt(|()| {
+                h.write_all(&self.analysis.0)?;
+                Result::new_ok(())
+            })
     }
 
     /// Return reference to DATA segment as dataframe.
@@ -4224,10 +4227,11 @@ where
     ///
     /// This will copy the entire dataframe regardless of whether or not the
     /// data needs to be truncated. This will hopefully be fixed in the future.
+    // TODO terminate
     pub fn truncate_data(
         &mut self,
         skip_conv_check: bool,
-    ) -> Terminal<(), ColumnError<AnyLossError>> {
+    ) -> WarningsAndErrorsResult<(), (), ColumnError<AnyLossError>, Infallible> {
         // TODO this function is hilariously not-optimized; each column will be
         // cast into a totally new vector even if they are they exact same
         // type with no possible truncation. This also means that the new
@@ -4237,10 +4241,10 @@ where
         // otherwise do something else.
         self.layout
             .truncate_df(&self.data, skip_conv_check)
-            .map(|data| {
+            .map_ok_value(|data| {
                 self.data = data;
             })
-            .into_terminal()
+            .set_err_value(())
     }
 
     // TODO add function to append event(s)?
@@ -4284,6 +4288,7 @@ where
     /// Add time measurement to the end of the measurement vector.
     ///
     /// Return error if time measurement already exists or name is non-unique.
+    // TODO terminate
     pub fn push_temporal(
         &mut self,
         n: Shortname,
@@ -4291,17 +4296,22 @@ where
         col: AnyFCSColumn,
         r: Range,
         disallow_trunc: bool,
-    ) -> TerminalResult<(), AnyRangeError, PushTemporalToDatasetError, PushTemporalFailure> {
+    ) -> WarningsAndErrorsResult<(), (), AnyRangeError, PushTemporalToDatasetError> {
         self.push_temporal_inner(n, m, r, disallow_trunc)
-            .def_errors_into()
-            .def_and_maybe(|()| self.data.push_column(col).into_deferred())
-            .def_terminate_def()
+            .map_non_fung_errors(PushTemporalToDatasetError::from)
+            .and_then_cmt(|()| {
+                self.data
+                    .push_column(col)
+                    .map_err(PushTemporalToDatasetError::from)
+                    .into_generic()
+            })
     }
 
     /// Add time measurement at the given position
     ///
     /// Return error if time measurement already exists, name is non-unique, or
     /// index is out of bounds.
+    // TODO terminate
     pub fn insert_temporal(
         &mut self,
         i: MeasIndex,
@@ -4310,22 +4320,22 @@ where
         col: AnyFCSColumn,
         r: Range,
         disallow_trunc: bool,
-    ) -> TerminalResult<(), AnyRangeError, InsertTemporalToDatasetError, InsertTemporalFailure>
-    {
+    ) -> WarningsAndErrorsResult<(), (), AnyRangeError, InsertTemporalToDatasetError> {
         self.insert_temporal_inner(i, n, m, r, disallow_trunc)
-            .def_errors_into()
-            .def_and_maybe(|()| {
+            .map_non_fung_errors(InsertTemporalToDatasetError::from)
+            .and_then_cmt(|()| {
                 // ASSUME index is within bounds here since it was checked above
                 self.data
                     .insert_column_nocheck(i.into(), col)
-                    .into_deferred()
+                    .map_err(InsertTemporalToDatasetError::from)
+                    .into_generic()
             })
-            .def_terminate_def()
     }
 
     /// Add measurement to the end of the measurement vector
     ///
     /// Return error if name is non-unique.
+    // TODO terminate
     pub fn push_optical(
         &mut self,
         n: <M::Name as MightHave>::Wrapper<Shortname>,
@@ -4333,22 +4343,22 @@ where
         col: AnyFCSColumn,
         r: Range,
         disallow_trunc: bool,
-    ) -> TerminalResult<Shortname, AnyRangeError, PushOpticalToDatasetError, PushOpticalFailure>
-    {
+    ) -> WarningsAndErrorsResult<Shortname, (), AnyRangeError, PushOpticalToDatasetError> {
         self.push_optical_inner(n, m, r, disallow_trunc)
-            .def_errors_into()
-            .def_and_maybe(|k| {
+            .map_non_fung_errors(PushOpticalToDatasetError::from)
+            .and_then_cmt(|k| {
                 self.data
                     .push_column(col)
-                    .into_deferred()
-                    .def_map_value(|()| k)
+                    .map_err(PushOpticalToDatasetError::from)
+                    .into_generic()
+                    .set_ok_value(k)
             })
-            .def_terminate_def()
     }
 
     /// Add measurement at a given position
     ///
     /// Return error if name is non-unique, or index is out of bounds.
+    // TODO terminate
     pub fn insert_optical(
         &mut self,
         i: MeasIndex,
@@ -4357,18 +4367,17 @@ where
         col: AnyFCSColumn,
         r: Range,
         disallow_trunc: bool,
-    ) -> TerminalResult<Shortname, AnyRangeError, InsertOpticalInDatasetError, InsertOpticalFailure>
-    {
+    ) -> WarningsAndErrorsResult<Shortname, (), AnyRangeError, InsertOpticalInDatasetError> {
         self.insert_optical_inner(i, n, m, r, disallow_trunc)
-            .def_errors_into()
-            .def_and_maybe(|k| {
+            .map_non_fung_errors(InsertOpticalInDatasetError::from)
+            .and_then_cmt(|k| {
                 // ASSUME index is within bounds here since it was checked above
                 self.data
                     .insert_column_nocheck(i.into(), col)
-                    .into_deferred()
-                    .def_map_value(|()| k)
+                    .map_err(InsertOpticalInDatasetError::from)
+                    .into_generic()
+                    .set_ok_value(k)
             })
-            .def_terminate_def()
     }
 
     /// Convert this struct into a CoreTEXT.
@@ -4382,28 +4391,29 @@ where
     /// Set measurements and dataframe together
     ///
     /// Length of measurements must match the width of the input dataframe.
+    // TOOD terminate
     pub fn set_measurements_and_data(
         &mut self,
         xs: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         df: FCSDataFrame,
         allow_shared_names: bool,
         skip_index_check: bool,
-    ) -> TerminalResult<(), Infallible, SetMeasurementsAndDataError, SetMeasurementsAndDataFailure>
+    ) -> ErrorsResult<(), (), SetMeasurementsAndDataError>
     where
         M::Optical: AsScaleTransform,
     {
-        let go = || {
-            let meas_n = xs.0.len();
-            let data_n = df.ncols();
-            if meas_n != data_n {
-                return Err(MeasDataMismatchError { meas_n, data_n }).into_mult();
-            }
-            self.set_measurements_inner(xs, allow_shared_names, skip_index_check)
-                .mult_errors_into()?;
-            self.data = df;
-            Ok(())
-        };
-        go().mult_terminate_def()
+        let meas_n = xs.0.len();
+        let data_n = df.ncols();
+        if meas_n != data_n {
+            let e = MeasDataMismatchError { meas_n, data_n };
+            return Result::new_err1(e.into());
+        }
+        self.set_measurements_inner(xs, allow_shared_names, skip_index_check)
+            .map_non_fung_errors(SetMeasurementsAndDataError::from)
+            // TODO make a when_ok function which just executes stuff on Ok
+            .map_ok_value(|()| {
+                self.data = df;
+            })
     }
 }
 
@@ -5253,7 +5263,7 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_0 {
 
         check_res
             .zip_cmt(wave)
-            .map_ok_value(|(_, wavelength)| Self::new(value.scale, wavelength, value.peak));
+            .map_ok_value(|(_, wavelength)| Self::new(value.scale, wavelength, value.peak))
     }
 }
 
@@ -5297,9 +5307,9 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_0 {
             .map_non_fung_errors(OpticalConvertError::from)
             .into_semigroup();
 
-        check_res
-            .zip_cmt(wave)
-            .map_ok_value(|(_, wavelength)| Self::new(value.scale, wavelength, PeakData::default()))
+        check_res.zip_cmt(wave).map_ok_value(|((), wavelength)| {
+            Self::new(value.scale, wavelength, PeakData::default())
+        })
     }
 }
 

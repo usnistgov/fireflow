@@ -14,7 +14,7 @@ use crate::data::{NewDataReaderError, NewDataReaderWarning, RawToLayoutError, Ra
 use crate::error1::{
     CmtResultIter as _, DeferredErrors, DeferredFungibleErrors, DeferredIter as _,
     DeferredWarningAndError, DeferredWarningsAndErrors, ErrorsResult, GenericResultExt as _,
-    IOWarningsAndErrorsResult, ImpureError, ResultExt, WarningAndErrorResult,
+    IOWarningsAndErrorsResult, ImpureError, ResultExt, VecFamily, WarningAndErrorResult,
     WarningsAndErrorsResult,
 };
 // use crate::error::{
@@ -240,7 +240,7 @@ pub struct RawTEXTOutput {
 }
 
 /// Output of parsing the TEXT segment and standardizing keywords.
-#[derive(Clone, new, PartialEq)]
+#[derive(Clone, PartialEq, new)]
 pub struct StdTEXTOutput {
     /// TEXT value for $TOT
     ///
@@ -620,16 +620,9 @@ impl RawTEXTOutput {
             header.analysis,
             st,
         )
-        .map_def_value(|(standardized, extra, offsets)| {
-            (
-                standardized,
-                StdTEXTOutput {
-                    parse: self.parse,
-                    tot: offsets.tot,
-                    dataset_segments: *offsets.as_ref(),
-                    extra,
-                },
-            )
+        .map_ok_value(|(standardized, extra, offsets)| {
+            let out = StdTEXTOutput::new(offsets.tot, *offsets.as_ref(), extra, self.parse);
+            (standardized, out)
         })
     }
 
@@ -1086,27 +1079,39 @@ where
     );
     let res = match version {
         Version::FCS2_0 => Result::new_ok(None),
-        // Version::FCS3_0 | Version::FCS3_1 => KeyedReqSegment::get(kws, &seg_conf).recover_with(
-        //     |es| Result::new_deferred_fungible(None, es, !conf.allow_missing_supp_text),
-        //     |t| Result::new_ok(Some(t)),
-        // ),
-        Version::FCS3_2 => KeyedOptSegment::get(kws, &seg_conf).recover_or_default(),
+        Version::FCS3_0 | Version::FCS3_1 => KeyedReqSegment::get(kws, &seg_conf)
+            .nowarn_into_warn()
+            .recover_with(
+                |(), es| {
+                    let is_err = !conf.allow_missing_supp_text;
+                    let x = Result::new_ok(None)
+                        .extend_def_fung_errors(es, is_err)
+                        .map_non_fung_errors(STextSegmentError::from)
+                        .map_cmt_warnings(STextSegmentWarning::from);
+                    x
+                },
+                |t| Result::new_ok(Some(t)),
+            ),
+        Version::FCS3_2 => {
+            let x = KeyedOptSegment::get(kws, &seg_conf)
+                .nowarn_into_warn::<_, VecFamily>()
+                .recover_with(
+                    |_, es| {
+                        let ws: Vec<_> = es.into_iter().map(STextSegmentWarning::from).collect();
+                        Result::new_ok(None).set_cmt_warnings(ws)
+                    },
+                    Result::new_ok,
+                );
+            x
+        }
     };
-    let x = res
-        .map_err_value(|_| None)
-        .cmt_warnings_into()
-        .non_fung_errors_into();
-    x.and_then_def(|x| {
+    res.and_then_def(|x| {
         x.map_or(Result::new_ok(None), |seg| {
             if seg.same_coords(&text_segment) {
-                let x = Result::new_deferred_fungible(
-                    None,
-                    DuplicatedSuppTEXT,
-                    !conf.allow_duplicated_supp_text,
-                )
-                .non_fung_errors_into()
-                .cmt_warnings_into();
-                x
+                let is_err = !conf.allow_duplicated_supp_text;
+                let res = Result::new_deferred_fungible(None, DuplicatedSuppTEXT, is_err);
+                res.map_non_fung_errors(STextSegmentError::from)
+                    .map_cmt_warnings(STextSegmentWarning::from)
             } else {
                 Result::new_ok(Some(seg))
             }

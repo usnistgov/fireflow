@@ -13,7 +13,7 @@ use crate::core::{
 use crate::data::{NewDataReaderError, NewDataReaderWarning, RawToLayoutError, RawToLayoutWarning};
 use crate::error1::{
     CmtResultIter as _, DeferredErrors, DeferredFungibleErrors, DeferredIter as _,
-    DeferredWarningAndError, DeferredWarningsAndErrors, ErrorsResult, GenericResultExt as _,
+    DeferredWarningAndError, DeferredWarningsAndErrors, ErrorsResult, LogResultExt as _,
     IOWarningsAndErrorsResult, ImpureError, ResultExt, VecFamily, WarningAndErrorResult,
     WarningsAndErrorsResult,
 };
@@ -63,7 +63,7 @@ pub fn fcs_read_header(
     conf: &ReadHeaderConfig,
 ) -> ErrorsResult<Header, (), ImpureError<HeaderError>> {
     ReadState::open(p, conf)
-        .into_generic()
+        .into_log()
         .non_fung_errors_into()
         .and_then_cmt(|(st, file)| {
             let mut reader = BufReader::new(file);
@@ -171,7 +171,7 @@ pub fn fcs_read_raw_dataset_with_keywords(
     ImpureError<LookupAndReadDataAnalysisError>,
 > {
     ReadState::open(p, conf)
-        .into_generic()
+        .into_log()
         .non_fung_errors_into()
         .and_then_cmt(|(st, file)| {
             let mut h = BufReader::new(file);
@@ -206,7 +206,7 @@ pub fn fcs_read_std_dataset_with_keywords(
     StdDatasetFromRawError,
 > {
     ReadState::open(p, conf)
-        .into_generic()
+        .into_log()
         .non_fung_errors_into()
         .and_then_cmt(|(st, file)| {
             let mut h = BufReader::new(file);
@@ -539,7 +539,7 @@ where
     C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<HeaderConfigInner>,
 {
     ReadState::open(p, conf)
-        .into_generic()
+        .into_log()
         .non_fung_errors_into()
         .and_then_cmt(|(st, file)| {
             let mut h = BufReader::new(file);
@@ -570,7 +570,7 @@ where
         .and_then_cmt(|(data, analysis, dataset_segments)| {
             let or = OthersReader { segs: other_segs };
             or.h_read(h)
-                .into_generic()
+                .into_log()
                 .map_non_fung_errors(|e| ImpureError::IO(e.into()))
                 .map_ok_value(|others| {
                     RawDatasetWithKwsOutput::new(data, analysis, others, dataset_segments)
@@ -1132,7 +1132,7 @@ fn lookup_nextdata(
     let k = Nextdata::std();
     if enforce {
         get_req(kws, k)
-            .into_generic()
+            .into_log()
             .map_ok_value(Some)
             .map_err_value(|_| None)
     } else {
@@ -1178,7 +1178,7 @@ impl RawTEXTParseData {
                 .header_segments
                 .contains_text_segment(&s)
                 .map_err(Into::into)
-                .into_generic();
+                .into_log();
             let y = self
                 .header_segments
                 .overlaps_with(&s)

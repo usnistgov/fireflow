@@ -1,5 +1,5 @@
 use crate::error1::{
-    DeferredErrors, DeferredFungibleErrors, ErrorsResult, GenericResultExt, ImpureError,
+    DeferredErrors, DeferredFungibleErrors, ErrorsResult, LogResultExt, ImpureError,
     OptionExt as _, RecoverableErrorsResult, ResultExt, WarningsAndErrorsResult,
 };
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
@@ -198,7 +198,7 @@ where
             .and_then_cmt(|(y0, y1)| {
                 Segment::try_new(y0, y1, conf)
                     .map_err(Into::into)
-                    .into_generic()
+                    .into_log()
             })
     }
 
@@ -234,7 +234,7 @@ where
             .and_then_cmt(|(y0, y1)| {
                 Segment::try_new(y0, y1, conf)
                     .map_err(Into::into)
-                    .into_generic()
+                    .into_log()
             })
     }
 
@@ -329,10 +329,10 @@ where
             .and_then_cmt(|pair| {
                 pair.map(|(z0, z1)| {
                     Segment::try_new(z0, z1, conf)
-                        .into_generic()
+                        .into_log()
                         .non_fung_errors_into()
                 })
-                .transpose_generic_result()
+                .transpose_log_result()
             })
     }
 
@@ -366,9 +366,9 @@ where
                 pair.map(|(z0, z1)| {
                     Segment::try_new(z0, z1, conf)
                         .map_err(Into::into)
-                        .into_generic()
+                        .into_log()
                 })
-                .transpose_generic_result()
+                .transpose_log_result()
             })
     }
 
@@ -777,7 +777,7 @@ impl<I: Copy> HeaderSegment<I> {
         let end_res = parse_one(bs1, false).into_nowarn1();
         begin_res.zip_cmt(end_res).and_then_cmt(|(begin, end)| {
             Self::try_new_squish(begin, end, squish_offsets, conf)
-                .into_generic()
+                .into_log()
                 .non_fung_errors_into()
         })
     }
@@ -838,7 +838,7 @@ impl OtherSegment20 {
         let end_res = parse_one(bs1, false).into_nowarn1();
         begin_res.zip_cmt(end_res).and_then_cmt(|(begin, end)| {
             Self::try_new(begin, end, conf)
-                .into_generic()
+                .into_log()
                 .non_fung_errors_into()
         })
     }

@@ -1,5 +1,5 @@
 use crate::config::StdTextReadConfig;
-use crate::error1::{GenericResultExt as _, ResultExt as _};
+use crate::error1::{LogResultExt as _, ResultExt as _};
 use crate::validated::keys::{BiIndexedKey as _, StdKey, StdKeywords};
 
 use super::index::MeasIndex;

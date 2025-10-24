@@ -1,6 +1,6 @@
 use crate::config::StdTextReadConfig;
 use crate::core::{AnyMetarootKeyLossError, UnitaryKeyLossError};
-use crate::error1::{DeferredFungibleErrors, GenericResultExt as _, ResultExt as _};
+use crate::error1::{DeferredFungibleErrors, LogResultExt as _, ResultExt as _};
 use crate::validated::keys::StdKeywords;
 
 use super::optional::KeywordPairMaybe as _;

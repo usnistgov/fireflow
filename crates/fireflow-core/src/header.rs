@@ -1,6 +1,6 @@
 use crate::config::{HeaderConfigInner, ReadState};
 use crate::error1::{
-    CmtResultIter as _, DeferredErrors, DeferredIter as _, ErrorsResult, GenericResultExt as _,
+    CmtResultIter as _, DeferredErrors, DeferredIter as _, ErrorsResult, LogResultExt as _,
     ImpureError, ResultExt as _,
 };
 use crate::segment::{
@@ -135,7 +135,7 @@ impl<T> HeaderSegments<T> {
     {
         if let Some(q) = s.try_as_generic() {
             self.as_generics()
-                .map(|x| x.overlaps(&q).into_generic())
+                .map(|x| x.overlaps(&q).into_log())
                 .mappend_def()
                 .set_def_value(())
         } else {
@@ -164,7 +164,7 @@ impl<T> HeaderSegments<T> {
         [t, d, a]
             .into_iter()
             .chain(os)
-            .map(|x| x.into_generic())
+            .map(|x| x.into_log())
             .mappend_def()
             .set_def_value(())
     }

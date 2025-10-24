@@ -1,5 +1,5 @@
 use crate::config::StdTextReadConfig;
-use crate::error1::{DeferredFungibleError, GenericResultExt as _, ResultExt as _};
+use crate::error1::{DeferredFungibleError, LogResultExt as _, ResultExt as _};
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
 use crate::validated::ascii_uint::UintZeroPad20;
@@ -851,7 +851,7 @@ impl<I> RegionGateIndex<I> {
             } else {
                 Result::new_ok_def()
             }
-            .value_into()
+            .map_ok_value(Into::into)
         })
     }
 

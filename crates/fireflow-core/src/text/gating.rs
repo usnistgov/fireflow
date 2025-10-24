@@ -1,7 +1,5 @@
 use crate::config::StdTextReadConfig;
-use crate::error1::{
-    DeferredFungibleErrors, DeferredIter as _, GenericResultExt as _, ResultExt as _,
-};
+use crate::error1::{DeferredFungibleErrors, DeferredIter as _, LogResultExt as _, ResultExt as _};
 use crate::nonempty::FCSNonEmpty;
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keywords::{
@@ -780,7 +778,7 @@ impl<I> Region<I> {
                     .into_deferred_fungible_opt(!conf.allow_optional_dropping)
                     .cmt_fung_errors_into()
             })
-            .value_into()
+            .map_ok_value(Into::into)
     }
 
     pub(crate) fn opt_keywords(&self, i: RegionIndex) -> impl Iterator<Item = (String, String)>

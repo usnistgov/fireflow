@@ -1,7 +1,7 @@
 //! Types to represent the $PnB and $PnR values for a uint column.
 
 use crate::error1::{
-    CmtResultIter as _, DeferredFungibleError, ErrorsResult, GenericResultExt as _, ResultExt as _,
+    CmtResultIter as _, DeferredFungibleError, ErrorsResult, LogResultExt as _, ResultExt as _,
 };
 use crate::text::index::MeasIndex;
 use crate::text::keywords::{IntRangeError, Range};

@@ -10,6 +10,15 @@ use std::mem;
 use std::vec;
 use thiserror::Error;
 
+pub type WarningsAndIOSummaryResult<V, W, E, S> = WarningsAndSummaryResult<V, W, ImpureError<E>, S>;
+
+pub type WarningsAndSummaryResult<V, W, E, S> =
+    WarningsAndErrorResult<V, Term, W, ErrorSummary<E, S>>;
+
+pub type SummaryResult<V, E, S> = ErrorResult<V, Term, ErrorSummary<E, S>>;
+
+pub type IOSummaryResult<V, E, S> = SummaryResult<V, ImpureError<E>, S>;
+
 // TODO maybe add wrapper type for Success which roughly means "result with
 // issues that may be errors"
 
@@ -74,14 +83,14 @@ pub type DeferredNowarn<V, E, EC> = NowarnResult<V, V, E, EC>;
 
 pub type DeferredFungible<V, E, EC> = Deferred<V, E, E, <EC as FungibleErrorFamily>::WarnFam, EC>;
 
-pub type CmtResult<V, P, W, E, WC, EC> = GenericResult<V, P, W, W, E, WC, WC, EC>;
+pub type CmtResult<V, P, W, E, WC, EC> = LogResult<V, P, W, W, E, WC, WC, EC>;
 
-pub type NonCmtResult<V, P, W, E, WC, EC> = GenericResult<V, P, W, (), E, WC, NullFamily, EC>;
+pub type NonCmtResult<V, P, W, E, WC, EC> = LogResult<V, P, W, (), E, WC, NullFamily, EC>;
 
 pub type FungibleResult<V, P, W, E, RWC, EC> =
-    GenericResult<V, P, E, W, E, <EC as FungibleErrorFamily>::WarnFam, RWC, EC>;
+    LogResult<V, P, E, W, E, <EC as FungibleErrorFamily>::WarnFam, RWC, EC>;
 
-pub type GenericResult<V, P, LW, RW, E, LWC, RWC, EC> =
+pub type LogResult<V, P, LW, RW, E, LWC, RWC, EC> =
     Result<Success<V, LW, LWC>, Failure<P, RW, E, RWC, EC>>;
 
 // pub struct Tentative<V, P, I, IC: ZeroOrMore>(NowarnResult<V, P, I, IC>);
@@ -123,6 +132,14 @@ pub enum ImpureError<E> {
     #[error("{0}")]
     Pure(E),
 }
+
+/// Named unit type to use as the Err value at the top of the call stack.
+///
+/// This is to prevent ambiguous return types like `ErrorsResult<(), (), E>`
+/// which technically is a deferred result and thus the Err side could be
+/// accidentally executed.
+#[derive(Default)]
+pub struct Term;
 
 pub struct OptFamily;
 
@@ -473,11 +490,7 @@ impl<V, W, WC: ZeroOrMore> Success<V, W, WC> {
     ///
     /// This is useful for cases where warnings might be optionally converted
     /// so we can't just set them to `()`
-    fn warnings_to_errors<E, F, G, EC, P>(
-        self,
-        f: F,
-        g: G,
-    ) -> GenericResult<V, P, W, W, E, WC, WC, EC>
+    fn warnings_to_errors<E, F, G, EC, P>(self, f: F, g: G) -> LogResult<V, P, W, W, E, WC, WC, EC>
     where
         F: Fn(W) -> E,
         G: FnOnce(V) -> P,
@@ -812,11 +825,11 @@ pub trait OptionExt: Sized {
     //         .map_or(Success::new1(None), |x| x.map_value(Some))
     // }
 
-    fn transpose_generic_result<V, P, LW, RW, E, LWC, RWC, EC>(
+    fn transpose_log_result<V, P, LW, RW, E, LWC, RWC, EC>(
         self,
-    ) -> GenericResult<Option<V>, P, LW, RW, E, LWC, RWC, EC>
+    ) -> LogResult<Option<V>, P, LW, RW, E, LWC, RWC, EC>
     where
-        Self: OptionExt<Inner = GenericResult<V, P, LW, RW, E, LWC, RWC, EC>>,
+        Self: OptionExt<Inner = LogResult<V, P, LW, RW, E, LWC, RWC, EC>>,
         LWC: ZeroOrMore,
         RWC: ZeroOrMore,
         EC: ZeroOrMore,
@@ -846,7 +859,7 @@ pub trait ResultExt: Sized {
 
     fn new_ok<P, LW, RW, LWC, RWC, EC>(
         value: Self::Ok,
-    ) -> GenericResult<Self::Ok, P, LW, RW, Self::Error, LWC, RWC, EC>
+    ) -> LogResult<Self::Ok, P, LW, RW, Self::Error, LWC, RWC, EC>
     where
         LWC: ZeroOrMore,
         RWC: ZeroOrMore,
@@ -856,7 +869,7 @@ pub trait ResultExt: Sized {
     }
 
     fn new_ok_def<P, LW, RW, LWC, RWC, EC>(
-    ) -> GenericResult<Self::Ok, P, LW, RW, Self::Error, LWC, RWC, EC>
+    ) -> LogResult<Self::Ok, P, LW, RW, Self::Error, LWC, RWC, EC>
     where
         Self::Ok: Default,
         LWC: ZeroOrMore,
@@ -868,7 +881,7 @@ pub trait ResultExt: Sized {
 
     fn new_err1<LW, RW, LWC, RWC, EC>(
         error: Self::Error,
-    ) -> GenericResult<Self::Ok, (), LW, RW, Self::Error, LWC, RWC, EC>
+    ) -> LogResult<Self::Ok, (), LW, RW, Self::Error, LWC, RWC, EC>
     where
         LWC: ZeroOrMore,
         RWC: ZeroOrMore,
@@ -880,7 +893,7 @@ pub trait ResultExt: Sized {
     // TODO generic input?
     fn new_err<LW, RW, LWC, RWC, EC>(
         error: GenNonEmpty<Self::Error, EC>,
-    ) -> GenericResult<Self::Ok, (), LW, RW, Self::Error, LWC, RWC, EC>
+    ) -> LogResult<Self::Ok, (), LW, RW, Self::Error, LWC, RWC, EC>
     where
         LWC: ZeroOrMore,
         RWC: ZeroOrMore,
@@ -892,7 +905,7 @@ pub trait ResultExt: Sized {
     fn new_err_from_iter<I, LW, RW, LWC, RWC, EC>(
         errors: I,
         default: Self::Ok,
-    ) -> GenericResult<Self::Ok, (), LW, RW, Self::Error, LWC, RWC, EC>
+    ) -> LogResult<Self::Ok, (), LW, RW, Self::Error, LWC, RWC, EC>
     where
         I: IntoIterator<Item = Self::Error>,
         LWC: ZeroOrMore,
@@ -908,7 +921,7 @@ pub trait ResultExt: Sized {
         default: P,
         error: Self::Error,
         is_error: bool,
-    ) -> GenericResult<Self::Ok, P, LW, RW, Self::Error, LWC, RWC, EC>
+    ) -> LogResult<Self::Ok, P, LW, RW, Self::Error, LWC, RWC, EC>
     where
         LWC: ZeroOrMore,
         RWC: ZeroOrMore,
@@ -976,20 +989,20 @@ pub trait ResultExt: Sized {
     }
 
     fn into_nowarn1(self) -> NowarnResult<Self::Ok, (), Self::Error, NullFamily> {
-        self.into_generic()
+        self.into_log()
     }
 
     fn into_nowarn(self) -> NowarnResult<Self::Ok, (), Self::Error, VecFamily> {
-        self.into_generic()
+        self.into_log()
     }
 
     fn into_warn1(self) -> NowarnResult<Self::Ok, (), Self::Error, NullFamily> {
-        self.into_generic()
+        self.into_log()
     }
 
-    fn into_generic<LW, RW, LWC, RWC, EC>(
+    fn into_log<LW, RW, LWC, RWC, EC>(
         self,
-    ) -> GenericResult<Self::Ok, (), LW, RW, Self::Error, LWC, RWC, EC>
+    ) -> LogResult<Self::Ok, (), LW, RW, Self::Error, LWC, RWC, EC>
     where
         LWC: ZeroOrMore,
         RWC: ZeroOrMore,
@@ -998,6 +1011,19 @@ pub trait ResultExt: Sized {
         self.into_result()
             .map(Success::new1)
             .map_err(|e| Failure::new_from_one(e, ()))
+    }
+
+    fn into_log_term<LW, RW, LWC, RWC, EC>(
+        self,
+    ) -> LogResult<Self::Ok, Term, LW, RW, Self::Error, LWC, RWC, EC>
+    where
+        LWC: ZeroOrMore,
+        RWC: ZeroOrMore,
+        EC: ZeroOrMore,
+    {
+        self.into_result()
+            .map(Success::new1)
+            .map_err(|e| Failure::new_from_one(e, Term))
     }
 
     fn into_deferred_fungible<EC>(
@@ -1050,7 +1076,7 @@ pub trait ResultExt: Sized {
 
     fn into_succ<P, RW, E, LWC, RWC, EC>(
         self,
-    ) -> GenericResult<Self::Ok, P, Self::Error, RW, E, LWC, RWC, EC>
+    ) -> LogResult<Self::Ok, P, Self::Error, RW, E, LWC, RWC, EC>
     where
         Self::Ok: Default,
         LWC: ZeroOrMore + CanHoldOne,
@@ -1066,7 +1092,7 @@ pub trait ResultExt: Sized {
 
     fn into_succ_opt<P, RW, E, LWC, RWC, EC>(
         self,
-    ) -> GenericResult<Option<Self::Ok>, P, Self::Error, RW, E, LWC, RWC, EC>
+    ) -> LogResult<Option<Self::Ok>, P, Self::Error, RW, E, LWC, RWC, EC>
     where
         LWC: ZeroOrMore + CanHoldOne,
         RWC: ZeroOrMore,
@@ -1078,7 +1104,7 @@ pub trait ResultExt: Sized {
     fn into_succ_or<P, RW, E, LWC, RWC, EC>(
         self,
         default: Self::Ok,
-    ) -> GenericResult<Self::Ok, P, Self::Error, RW, E, LWC, RWC, EC>
+    ) -> LogResult<Self::Ok, P, Self::Error, RW, E, LWC, RWC, EC>
     where
         LWC: ZeroOrMore + CanHoldOne,
         RWC: ZeroOrMore,
@@ -1107,7 +1133,7 @@ impl<V, E> ResultExt for Result<V, E> {
     }
 }
 
-pub trait GenericResultExt
+pub trait LogResultExt
 where
     Self: Sized
         + ResultExt<
@@ -1202,32 +1228,36 @@ where
         self.into_result().map_err(|e| e.nowarn_into_warn())
     }
 
-    /// Convert Ok value of Result
-    fn value_into<Vf>(
-        self,
-    ) -> GenericResult<Vf, Self::P, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
-    where
-        Vf: From<Self::V>,
-    {
-        self.map_ok_value(Into::into)
-    }
-
     /// Map function over Ok value of Result
     fn map_ok_value<F, Vf>(
         self,
         f: F,
-    ) -> GenericResult<Vf, Self::P, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
+    ) -> LogResult<Vf, Self::P, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
     where
         F: FnOnce(Self::V) -> Vf,
     {
         self.into_result().map(|s| s.map_value(f))
     }
 
+    /// Run function when result is Ok
+    fn when_ok<F>(
+        self,
+        f: F,
+    ) -> LogResult<Self::V, Self::P, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
+    where
+        F: FnOnce(),
+    {
+        self.map_ok_value(|v| {
+            f();
+            v
+        })
+    }
+
     /// Map function over Error value of Result
     fn map_err_value<F, Pf>(
         self,
         f: F,
-    ) -> GenericResult<Self::V, Pf, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
+    ) -> LogResult<Self::V, Pf, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
     where
         F: FnOnce(Self::P) -> Pf,
     {
@@ -1238,8 +1268,7 @@ where
     fn set_ok_value<Vf>(
         self,
         x: Vf,
-    ) -> GenericResult<Vf, Self::P, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
-    {
+    ) -> LogResult<Vf, Self::P, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC> {
         self.map_ok_value(|_| x)
     }
 
@@ -1247,8 +1276,7 @@ where
     fn set_err_value<Pf>(
         self,
         x: Pf,
-    ) -> GenericResult<Self::V, Pf, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
-    {
+    ) -> LogResult<Self::V, Pf, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC> {
         self.map_err_value(|_| x)
     }
 
@@ -1273,7 +1301,7 @@ where
     fn inject_value<X>(
         self,
         x: X,
-    ) -> GenericResult<
+    ) -> LogResult<
         (Self::V, X),
         (Self::P, X),
         Self::LW,
@@ -1292,7 +1320,7 @@ where
     /// Convert warnings of a non-commutative Result
     fn non_cmt_warnings_into<Wf>(
         self,
-    ) -> GenericResult<Self::V, Self::P, Wf, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
+    ) -> LogResult<Self::V, Self::P, Wf, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
     where
         Self: NonCommutativeResultExt,
         Wf: From<Self::LW>,
@@ -1304,7 +1332,7 @@ where
     fn map_non_cmt_warnings<F, Wf>(
         self,
         f: F,
-    ) -> GenericResult<Self::V, Self::P, Wf, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
+    ) -> LogResult<Self::V, Self::P, Wf, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
     where
         Self: NonCommutativeResultExt,
         F: Fn(Self::LW) -> Wf,
@@ -1343,7 +1371,7 @@ where
     /// if they are the same type as errors.
     fn non_fung_errors_into<Ef>(
         self,
-    ) -> GenericResult<Self::V, Self::P, Self::LW, Self::RW, Ef, Self::LWC, Self::RWC, Self::EC>
+    ) -> LogResult<Self::V, Self::P, Self::LW, Self::RW, Ef, Self::LWC, Self::RWC, Self::EC>
     where
         Self::E: Into<Ef>,
     {
@@ -1359,7 +1387,7 @@ where
     fn map_non_fung_errors<F, ToE>(
         self,
         f: F,
-    ) -> GenericResult<Self::V, Self::P, Self::LW, Self::RW, ToE, Self::LWC, Self::RWC, Self::EC>
+    ) -> LogResult<Self::V, Self::P, Self::LW, Self::RW, ToE, Self::LWC, Self::RWC, Self::EC>
     where
         F: Fn(Self::E) -> ToE,
     {
@@ -1419,7 +1447,7 @@ where
     fn map_def_value<F, Vf>(
         self,
         f: F,
-    ) -> GenericResult<Vf, Vf, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
+    ) -> LogResult<Vf, Vf, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, Self::EC>
     where
         F: FnOnce(Self::V) -> Vf,
         Self: DeferredExt,
@@ -1432,7 +1460,7 @@ where
 
     fn repack<LWCf, RWCf, ECf>(
         self,
-    ) -> GenericResult<Self::V, Self::P, Self::LW, Self::RW, Self::E, LWCf, RWCf, ECf>
+    ) -> LogResult<Self::V, Self::P, Self::LW, Self::RW, Self::E, LWCf, RWCf, ECf>
     where
         Self::LWC: IntoZeroOrMore<LWCf>,
         LWCf: ZeroOrMore,
@@ -1448,7 +1476,7 @@ where
 
     fn into_semigroup<LWC, RWC>(
         self,
-    ) -> GenericResult<Self::V, Self::P, Self::LW, Self::RW, Self::E, LWC, RWC, VecFamily>
+    ) -> LogResult<Self::V, Self::P, Self::LW, Self::RW, Self::E, LWC, RWC, VecFamily>
     where
         LWC: ZeroOrMore,
         RWC: ZeroOrMore,
@@ -1463,7 +1491,7 @@ where
 
     fn repack_warnings<WCf>(
         self,
-    ) -> GenericResult<Self::V, Self::P, Self::LW, Self::RW, Self::E, WCf, WCf, Self::EC>
+    ) -> LogResult<Self::V, Self::P, Self::LW, Self::RW, Self::E, WCf, WCf, Self::EC>
     where
         Self::LWC: IntoZeroOrMore<WCf>,
         Self::RWC: IntoZeroOrMore<WCf>,
@@ -1476,7 +1504,7 @@ where
 
     fn repack_left_warnings<LWCf>(
         self,
-    ) -> GenericResult<Self::V, Self::P, Self::LW, Self::RW, Self::E, LWCf, Self::RWC, Self::EC>
+    ) -> LogResult<Self::V, Self::P, Self::LW, Self::RW, Self::E, LWCf, Self::RWC, Self::EC>
     where
         Self::LWC: IntoZeroOrMore<LWCf>,
         LWCf: ZeroOrMore,
@@ -1486,7 +1514,7 @@ where
 
     fn repack_right_warnings<RWCf>(
         self,
-    ) -> GenericResult<Self::V, Self::P, Self::LW, Self::RW, Self::E, Self::LWC, RWCf, Self::EC>
+    ) -> LogResult<Self::V, Self::P, Self::LW, Self::RW, Self::E, Self::LWC, RWCf, Self::EC>
     where
         Self::RWC: IntoZeroOrMore<RWCf>,
         RWCf: ZeroOrMore,
@@ -1496,7 +1524,7 @@ where
 
     fn repack_errors<ECf>(
         self,
-    ) -> GenericResult<Self::V, Self::P, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, ECf>
+    ) -> LogResult<Self::V, Self::P, Self::LW, Self::RW, Self::E, Self::LWC, Self::RWC, ECf>
     where
         Self::EC: IntoZeroOrMore<ECf>,
         ECf: ZeroOrMore,
@@ -1572,12 +1600,31 @@ where
     fn aggregate_non_fung_errors<F, Ef>(
         self,
         f: F,
-    ) -> GenericResult<Self::V, Self::P, Self::LW, Self::RW, Ef, Self::LWC, Self::RWC, NullFamily>
+    ) -> LogResult<Self::V, Self::P, Self::LW, Self::RW, Ef, Self::LWC, Self::RWC, NullFamily>
     where
         // NOTE pretend there is a negative trait bound for "non-fungible"
         F: FnOnce(GenNonEmpty<Self::E, Self::EC>) -> Ef,
     {
         self.into_result().map_err(|e| e.aggregate_errors(f))
+    }
+
+    fn summarize_errors<S>(
+        self,
+    ) -> LogResult<
+        Self::V,
+        Self::P,
+        Self::LW,
+        Self::RW,
+        ErrorSummary<Self::E, S>,
+        Self::LWC,
+        Self::RWC,
+        NullFamily,
+    >
+    where
+        Self: LogResultExt<EC = VecFamily>,
+        S: Default,
+    {
+        self.aggregate_non_fung_errors(|es| ErrorSummary::new(S::default(), es))
     }
 
     /// Aggregate non-commutative/fungible errors into one error.
@@ -1618,9 +1665,9 @@ where
 
     fn from_infallible<P, RW, RWC, E, EC>(
         self,
-    ) -> GenericResult<Self::V, P, Self::LW, RW, E, Self::LWC, RWC, EC>
+    ) -> LogResult<Self::V, P, Self::LW, RW, E, Self::LWC, RWC, EC>
     where
-        Self: GenericResultExt<E = Infallible>,
+        Self: LogResultExt<E = Infallible>,
         RWC: ZeroOrMore,
         EC: ZeroOrMore,
     {
@@ -2049,6 +2096,15 @@ where
         }
     }
 
+    fn and_cmt<F>(self, f: F) -> CmtResult<Self::V, Self::P, Self::LW, Self::E, Self::LWC, Self::EC>
+    where
+        F: FnOnce() -> CmtResult<(), Self::P, Self::LW, Self::E, Self::LWC, Self::EC>,
+        <Self::LWC as ZeroOrMore>::Wrapper<Self::LW>: Semigroup,
+        Self: CommutativeResultExt,
+    {
+        self.and_then_cmt(|v| f().map_ok_value(|()| v))
+    }
+
     /// Monad-ically chain commutative result operations.
     ///
     /// Function will be called on value if result is Ok. Original error will
@@ -2295,8 +2351,7 @@ where
     }
 }
 
-impl<V, P, LW, RW, E, LWC, RWC, EC> GenericResultExt
-    for GenericResult<V, P, LW, RW, E, LWC, RWC, EC>
+impl<V, P, LW, RW, E, LWC, RWC, EC> LogResultExt for LogResult<V, P, LW, RW, E, LWC, RWC, EC>
 where
     LWC: ZeroOrMore,
     RWC: ZeroOrMore,
@@ -2315,7 +2370,7 @@ where
 /// Constraint for non-commutative results.
 ///
 /// Warnings on the Error side must be an empty set.
-pub trait NonCommutativeResultExt: GenericResultExt<RW = (), RWC = NullFamily> {}
+pub trait NonCommutativeResultExt: LogResultExt<RW = (), RWC = NullFamily> {}
 
 impl<V, P, W, E, WC: ZeroOrMore, EC: ZeroOrMore> NonCommutativeResultExt
     for NonCmtResult<V, P, W, E, WC, EC>
@@ -2326,7 +2381,7 @@ impl<V, P, W, E, WC: ZeroOrMore, EC: ZeroOrMore> NonCommutativeResultExt
 ///
 /// Warning cardinality and type must match between Ok and Error sides
 pub trait CommutativeResultExt:
-    GenericResultExt<RW = <Self as GenericResultExt>::LW, RWC = <Self as GenericResultExt>::LWC>
+    LogResultExt<RW = <Self as LogResultExt>::LW, RWC = <Self as LogResultExt>::LWC>
 {
 }
 
@@ -2338,7 +2393,7 @@ impl<V, P, W, E, WC: ZeroOrMore, EC: ZeroOrMore> CommutativeResultExt
 /// Constraint for deferred results.
 ///
 /// In addition to being commutative, value must match between Ok and Error.
-pub trait DeferredExt: CommutativeResultExt<V = <Self as GenericResultExt>::P> {}
+pub trait DeferredExt: CommutativeResultExt<V = <Self as LogResultExt>::P> {}
 
 impl<V, W, E, WC: ZeroOrMore, EC: ZeroOrMore> DeferredExt for Deferred<V, W, E, WC, EC> {}
 
@@ -2346,9 +2401,9 @@ impl<V, W, E, WC: ZeroOrMore, EC: ZeroOrMore> DeferredExt for Deferred<V, W, E, 
 ///
 /// Error and warning must have the same cardinality and type.
 pub trait FungibleExt:
-    GenericResultExt<
-    LW = <Self as GenericResultExt>::E,
-    LWC = <<Self as GenericResultExt>::EC as FungibleErrorFamily>::WarnFam,
+    LogResultExt<
+    LW = <Self as LogResultExt>::E,
+    LWC = <<Self as LogResultExt>::EC as FungibleErrorFamily>::WarnFam,
 >
 where
     Self::EC: FungibleErrorFamily,
@@ -2356,7 +2411,7 @@ where
 }
 
 impl<V, P, E, RW, RWC: ZeroOrMore, EC: FungibleErrorFamily> FungibleExt
-    for GenericResult<V, P, E, RW, E, EC::WarnFam, RWC, EC>
+    for LogResult<V, P, E, RW, E, EC::WarnFam, RWC, EC>
 {
 }
 
@@ -2372,10 +2427,10 @@ impl<V, P, E, EC: ZeroOrMore> NowarnExt for NowarnResult<V, P, E, EC> {}
 ///
 /// The only requirement is that there must only be one error, which will be
 /// used to map to a regular result.
-pub trait ResolvableExt: GenericResultExt<EC = NullFamily> {}
+pub trait ResolvableExt: LogResultExt<EC = NullFamily> {}
 
 impl<V, P, E, RW, LWC: ZeroOrMore, RWC: ZeroOrMore> ResolvableExt
-    for GenericResult<V, P, E, RW, E, LWC, RWC, NullFamily>
+    for LogResult<V, P, E, RW, E, LWC, RWC, NullFamily>
 {
 }
 
@@ -2533,22 +2588,41 @@ where
 {
 }
 
-impl<W, E, WC, EC> From<io::Error> for Failure<(), W, ImpureError<E>, WC, EC>
+impl<P, W, E, WC, EC> From<io::Error> for Failure<P, W, ImpureError<E>, WC, EC>
 where
     WC: ZeroOrMore,
     EC: ZeroOrMore,
+    P: Default,
 {
     fn from(value: io::Error) -> Self {
-        Self::new_from_one(value.into(), ())
+        Self::new_from_one(value.into(), P::default())
     }
 }
 
-impl<W, E, WC, EC> From<E> for Failure<(), W, E, WC, EC>
+impl<P, W, E, WC, EC> From<E> for Failure<P, W, E, WC, EC>
 where
     WC: ZeroOrMore,
     EC: ZeroOrMore,
+    P: Default,
 {
     fn from(value: E) -> Self {
-        Self::new_from_one(value, ())
+        Self::new_from_one(value, P::default())
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::ImpureError;
+
+    use pyo3::prelude::*;
+
+    impl<T: Into<Self>> From<ImpureError<T>> for PyErr {
+        fn from(value: ImpureError<T>) -> Self {
+            match value {
+                ImpureError::Pure(e) => e.into(),
+                // This should be an OSError of some kind
+                ImpureError::IO(e) => e.into(),
+            }
+        }
     }
 }

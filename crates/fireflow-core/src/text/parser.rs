@@ -2,7 +2,7 @@ use crate::config::{StdTextReadConfig, TimeMeasNamePattern};
 use crate::core::{NewCSVFlagsError, ScaleTransformError};
 // use crate::error::{BiTentative, DeferredResult, ResultExt as _, Tentative, VecFamily};
 use crate::error1::{
-    DeferredFungibleErrors, DeferredWarningsAndErrors, GenericResultExt as _, ResultExt as _,
+    DeferredFungibleErrors, DeferredWarningsAndErrors, LogResultExt as _, ResultExt as _,
     WarningsAndErrorsResult,
 };
 use crate::validated::keys::{
@@ -162,7 +162,7 @@ pub(crate) trait ReqMetarootKey: Sized + Required + Key {
             .map_err(ReqKeyError::inner_into)
             .map_err(Box::new)
             .map_err(Into::into)
-            .into_generic()
+            .into_log()
     }
 
     // fn lookup_req_st(
@@ -215,7 +215,7 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
             .map_err(ReqKeyError::inner_into)
             .map_err(Box::new)
             .map_err(Into::into)
-            .into_generic()
+            .into_log()
     }
 
     fn lookup_req_st(
@@ -235,7 +235,7 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
         .map_err(ReqKeyError::inner_into)
         .map_err(Box::new)
         .map_err(Into::into)
-        .into_generic()
+        .into_log()
     }
 
     fn triple(&self, i: impl Into<IndexFromOne>) -> (MeasHeader, String, String)

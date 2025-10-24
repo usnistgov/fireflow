@@ -1,6 +1,6 @@
 use crate::config::ReadHeaderAndTEXTConfig;
 use crate::error1::{
-    DeferredFungibleError, DeferredFungibleErrors, DeferredIter as _, GenericResultExt as _,
+    DeferredFungibleError, DeferredFungibleErrors, DeferredIter as _, LogResultExt as _,
     ResultExt as _,
 };
 use crate::text::index::IndexFromOne;

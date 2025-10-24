@@ -1,6 +1,6 @@
 use crate::data::ColumnError;
 use crate::error1::{
-    CanHoldOne, CmtResult, CmtResultIter as _, ErrorsResult, GenericResult, GenericResultExt as _,
+    CanHoldOne, CmtResult, CmtResultIter as _, ErrorsResult, LogResult, LogResultExt as _,
     IntoZeroOrMore, NullFamily, ResultExt as _, Semigroup, VecFamily, ZeroOrMore,
 };
 use crate::text::optional::MightHave;
@@ -381,7 +381,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 let center_res = x_center
                     .center()
                     .ok_or(ColumnError::new(nleft, OpticalMismatchError::new(false)))
-                    .into_generic();
+                    .into_log();
                 let right_res = check_optical(xs_right);
                 left_res.zip3_cmt(center_res, right_res).map_ok_value(
                     |(ys_left, y_center, ys_right)| {
@@ -482,7 +482,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     pub(crate) fn map_center_value<F, X, Y, LW, RW, E, LWC, RWC, EC>(
         self,
         f: F,
-    ) -> GenericResult<
+    ) -> LogResult<
         NamedVec<K, K::Wrapper<Shortname>, X, V>,
         Y,
         LW,
@@ -493,7 +493,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         EC,
     >
     where
-        F: Fn(IndexedElement<&Shortname, U>) -> GenericResult<X, Y, LW, RW, E, LWC, RWC, EC>,
+        F: Fn(IndexedElement<&Shortname, U>) -> LogResult<X, Y, LW, RW, E, LWC, RWC, EC>,
         LWC: ZeroOrMore,
         RWC: ZeroOrMore,
         EC: ZeroOrMore,
@@ -1070,9 +1070,9 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         n: &Shortname,
         value: U,
         to_v: F,
-    ) -> GenericResult<Element<U, V>, (), LW, RW, E, LWC, RWC, EC>
+    ) -> LogResult<Element<U, V>, (), LW, RW, E, LWC, RWC, EC>
     where
-        F: FnOnce(MeasIndex, U) -> GenericResult<V, Box<U>, LW, RW, E, LWC, RWC, EC>,
+        F: FnOnce(MeasIndex, U) -> LogResult<V, Box<U>, LW, RW, E, LWC, RWC, EC>,
         E: From<KeyNotFoundError>,
         LWC: ZeroOrMore,
         RWC: ZeroOrMore,
@@ -1131,7 +1131,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         self.check_element_index(index, true)
             .map_err(SetCenterError::Index)
             .map_err(E::from)
-            .into_generic()
+            .into_log()
             .and_then_cmt(|i| self.replace_center_at_inner(i.into(), value, to_v))
     }
 
@@ -1197,9 +1197,9 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         index: MeasIndex,
         value: U,
         to_v: F,
-    ) -> GenericResult<Element<U, V>, (), LW, RW, E, LWC, RWC, EC>
+    ) -> LogResult<Element<U, V>, (), LW, RW, E, LWC, RWC, EC>
     where
-        F: FnOnce(MeasIndex, U) -> GenericResult<V, Box<U>, LW, RW, E, LWC, RWC, EC>,
+        F: FnOnce(MeasIndex, U) -> LogResult<V, Box<U>, LW, RW, E, LWC, RWC, EC>,
         LWC: ZeroOrMore,
         RWC: ZeroOrMore,
         EC: ZeroOrMore,
@@ -1260,11 +1260,11 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         n: &Shortname,
         swap: Fswap,
         to_u: FtoU,
-    ) -> GenericResult<bool, (), LW, RW, E, LWC, RWC, EC>
+    ) -> LogResult<bool, (), LW, RW, E, LWC, RWC, EC>
     where
         Fswap:
-            FnOnce(MeasIndex, U, V) -> GenericResult<(V, U), Box<(U, V)>, LW, RW, E, LWC, RWC, EC>,
-        FtoU: FnOnce(MeasIndex, V) -> GenericResult<U, Box<V>, LW, RW, E, LWC, RWC, EC>,
+            FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, LW, RW, E, LWC, RWC, EC>,
+        FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, LW, RW, E, LWC, RWC, EC>,
         E: From<SetCenterError> + From<KeyNotFoundError>,
         LWC: ZeroOrMore,
         RWC: ZeroOrMore,
@@ -1280,11 +1280,11 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         index: MeasIndex,
         swap: Fswap,
         to_u: FtoU,
-    ) -> GenericResult<bool, (), LW, RW, E, LWC, RWC, EC>
+    ) -> LogResult<bool, (), LW, RW, E, LWC, RWC, EC>
     where
         Fswap:
-            FnOnce(MeasIndex, U, V) -> GenericResult<(V, U), Box<(U, V)>, LW, RW, E, LWC, RWC, EC>,
-        FtoU: FnOnce(MeasIndex, V) -> GenericResult<U, Box<V>, LW, RW, E, LWC, RWC, EC>,
+            FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, LW, RW, E, LWC, RWC, EC>,
+        FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, LW, RW, E, LWC, RWC, EC>,
         E: From<SetCenterError>,
         LWC: ZeroOrMore,
         RWC: ZeroOrMore,
@@ -1365,9 +1365,9 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     pub(crate) fn unset_center<F, X, LW, RW, E, LWC, RWC, EC>(
         &mut self,
         to_v: F,
-    ) -> GenericResult<Option<X>, (), LW, RW, E, LWC, RWC, EC>
+    ) -> LogResult<Option<X>, (), LW, RW, E, LWC, RWC, EC>
     where
-        F: FnOnce(MeasIndex, U) -> GenericResult<(V, X), Box<U>, LW, RW, E, LWC, RWC, EC>,
+        F: FnOnce(MeasIndex, U) -> LogResult<(V, X), Box<U>, LW, RW, E, LWC, RWC, EC>,
         LWC: ZeroOrMore,
         RWC: ZeroOrMore,
         EC: ZeroOrMore,

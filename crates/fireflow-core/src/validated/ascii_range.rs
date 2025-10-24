@@ -1,6 +1,6 @@
 //! Types representing $PnR/$PnB keys for an Ascii column.
 
-use crate::error1::{GenericResultExt as _, ResultExt as _, VecFamily, WarningsAndErrorsResult};
+use crate::error1::{LogResultExt as _, ResultExt as _, VecFamily, WarningsAndErrorsResult};
 use crate::text::byteord::{Width, WidthToCharsError};
 use crate::text::keywords::{IntRangeError, Range};
 
@@ -97,11 +97,11 @@ impl AsciiRange {
             .repack::<_, _, VecFamily>();
         let chars_res = Chars::try_from(width)
             .map_err(NewAsciiRangeError::from)
-            .into_generic();
+            .into_log();
         rng_res.zip_cmt(chars_res).and_then_cmt(|(range, chars)| {
             Self::try_new(range, chars)
                 .map_err(NewAsciiRangeError::from)
-                .into_generic()
+                .into_log()
         })
     }
 

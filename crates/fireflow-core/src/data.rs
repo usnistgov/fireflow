@@ -58,9 +58,8 @@ use crate::core::{AsScaleTransform, LayoutConvertResult, Measurements, ScaleTran
 use crate::error1::{
     CmtResultIter as _, DeferredErrors, DeferredFungibleError, DeferredFungibleErrors,
     DeferredIOError, DeferredIter as _, DeferredWarningAndError, DeferredWarningsAndError,
-    DeferredWarningsAndErrors, ErrorsResult, GenericResultExt, IOErrorResult,
-    IOWarningsAndErrorsResult, ImpureError, ResultExt as _, VecFamily, WarningOrErrorResult,
-    WarningsAndErrorsResult,
+    DeferredWarningsAndErrors, ErrorsResult, IOErrorResult, IOWarningsAndErrorsResult, ImpureError,
+    LogResultExt, ResultExt as _, VecFamily, WarningOrErrorResult, WarningsAndErrorsResult,
 };
 use crate::macros::match_many_to_one;
 use crate::nonempty::FCSNonEmpty;
@@ -401,7 +400,7 @@ pub trait MeasDatatypeDef {
         RawParsedError,
     > {
         Par::get_metaroot_req(kws)
-            .into_generic()
+            .into_log()
             .map_non_fung_errors(RawParsedError::from)
             .and_then_cmt(|par| {
                 (0..par.0)
@@ -580,11 +579,11 @@ pub trait LayoutOps<'a, T>: Sized {
     }
 
     // TODO return type seems wonky, doesn't this just return warnings?
-    fn truncate_df<E>(
+    fn truncate_df(
         &self,
         df: &'a FCSDataFrame,
         skip_conv_check: bool,
-    ) -> DeferredWarningsAndErrors<FCSDataFrame, ColumnError<AnyLossError>, E>;
+    ) -> DeferredWarningsAndError<FCSDataFrame, ColumnError<AnyLossError>, Infallible>;
 }
 
 #[delegatable_trait]
@@ -1904,7 +1903,7 @@ impl<D> EndianLayout<NullMixedType, D> {
                     .map(|(i, c)| {
                         c.try_into()
                             .map_err(|e| MixedColumnConvertError::new(i + 1, e))
-                            .into_generic()
+                            .into_log()
                     })
                     .mappend_cmt()
             };
@@ -1945,7 +1944,7 @@ impl<D> EndianLayout<NullMixedType, D> {
             macro_rules! from_iter {
                 ($iter:expr, $head:expr, $byte_layout:expr) => {
                     $iter
-                        .map(|(i, c)| c.try_into().map_err(|e| (i, e)).into_generic())
+                        .map(|(i, c)| c.try_into().map_err(|e| (i, e)).into_log())
                         .mappend_cmt()
                         .map_ok_value(|xs| FixedLayout::new1($head, xs, $byte_layout))
                         .map_ok_value(NonMixedEndianLayout::from)
@@ -1957,7 +1956,7 @@ impl<D> EndianLayout<NullMixedType, D> {
             let byte_layout = self.byte_layout;
             match c0 {
                 MixedType::Ascii(x) => it
-                    .map(|(i, c)| c.try_into().map_err(|e| (i, e)).into_generic())
+                    .map(|(i, c)| c.try_into().map_err(|e| (i, e)).into_log())
                     .mappend_cmt()
                     .map_ok_value(|xs| FixedLayout::new1(x, xs, NoByteOrd))
                     .map_ok_value(|l| AnyAsciiLayout::Fixed(l).into()),
@@ -2051,7 +2050,7 @@ impl<T, const LEN: usize> FloatRange<T, LEN> {
         T: HasFloatBounds,
     {
         Bytes::try_from(width)
-            .into_generic()
+            .into_log()
             .non_fung_errors_into()
             .and_then_cmt(|bytes| {
                 if usize::from(u8::from(bytes)) == LEN {
@@ -2143,7 +2142,7 @@ impl AnyNullBitmask {
     ) -> WarningsAndErrorsResult<Self, (), BitmaskError, NewUintTypeError> {
         width
             .try_into()
-            .into_generic()
+            .into_log()
             .map_non_fung_errors(NewUintTypeError::from)
             .and_then_cmt(|bytes| {
                 Self::new1(bytes, range, disallow_trunc)
@@ -2291,7 +2290,7 @@ where
             .map(|(i, c)| {
                 c.check_writer::<_, _, u64>(|_| None)
                     .map_err(|error| ColumnError::new(i, AnyLossError::Int(error)))
-                    .into_generic()
+                    .into_log()
             })
             .mappend_def()
             .map_def_value(|_| ())
@@ -2335,11 +2334,11 @@ where
         }
     }
 
-    fn truncate_df<E>(
+    fn truncate_df(
         &self,
         df: &FCSDataFrame,
         skip_conv_check: bool,
-    ) -> DeferredWarningsAndErrors<FCSDataFrame, ColumnError<AnyLossError>, E> {
+    ) -> DeferredWarningsAndError<FCSDataFrame, ColumnError<AnyLossError>, Infallible> {
         let nrows = df.nrows();
         let (columns, warnings): (Vec<_>, Vec<_>) = df
             .iter_columns()
@@ -2645,7 +2644,7 @@ where
                 col_type
                     .check_writer(col_data)
                     .map_err(|error| ColumnError::new(i, error))
-                    .into_generic()
+                    .into_log()
             })
             .mappend_cmt()
             .set_ok_value(())
@@ -2690,11 +2689,11 @@ where
 
     // TODO confusing that this returns a result when no trait impls for this
     // method can fail
-    fn truncate_df<E>(
+    fn truncate_df(
         &self,
         df: &'a FCSDataFrame,
         skip_conv_check: bool,
-    ) -> DeferredWarningsAndErrors<FCSDataFrame, ColumnError<AnyLossError>, E> {
+    ) -> DeferredWarningsAndError<FCSDataFrame, ColumnError<AnyLossError>, Infallible> {
         // ASSUME df has same number of columns as layout
         let (new_columns, warnings): (Vec<_>, Vec<_>) = self
             .columns
@@ -3328,7 +3327,7 @@ impl<T> AnyOrderedUintLayout<T> {
             cs.iter()
                 .map(|c| c.width)
                 .map(Bytes::try_from)
-                .map(Result::into_generic)
+                .map(Result::into_log)
                 .mappend_cmt()
                 .map_non_fung_errors(SingleFixedWidthError::from)
                 .and_then_cmt(|widths| {
@@ -3585,7 +3584,7 @@ impl VersionedDataLayout for DataLayout3_2 {
     fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self> {
         macro_rules! from1 {
             ($i:expr) => {
-                $i.map_err(RawParsedError::from).into_generic()
+                $i.map_err(RawParsedError::from).into_log()
             };
         }
 
@@ -3820,7 +3819,7 @@ impl<T> AnyOrderedLayout<T> {
     fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self> {
         macro_rules! from1 {
             ($i:expr) => {
-                $i.map_err(RawParsedError::from).into_generic()
+                $i.map_err(RawParsedError::from).into_log()
             };
         }
 
@@ -3901,7 +3900,7 @@ impl<T> AnyOrderedLayout<T> {
                 byteord
                     .try_into()
                     .map_err(NewDataLayoutError::from)
-                    .into_generic()
+                    .into_log()
                     .and_then_cmt(|b| {
                         from! {FixedLayout::try_new(columns, b, |c| {
                             $t::from_width_and_range(c.width, c.range, $notrunc)
@@ -3933,15 +3932,12 @@ impl<T> AnyOrderedLayout<T> {
                 $i.phantom_into()
                     .byte_layout_try_into()
                     .map(NonMixedEndianLayout::from)
-                    .into_generic()
+                    .into_log()
             };
         }
         let res = match self {
             Self::Ascii(x) => Result::new_ok(NonMixedEndianLayout::from(x.phantom_into())),
-            Self::Integer(x) => x
-                .into_endian()
-                .map(NonMixedEndianLayout::from)
-                .into_generic(),
+            Self::Integer(x) => x.into_endian().map(NonMixedEndianLayout::from).into_log(),
             Self::F32(x) => go_float!(x),
             Self::F64(x) => go_float!(x),
         };
@@ -3979,10 +3975,10 @@ impl NonMixedEndianLayout<NoMeasDatatype> {
         let cs = NoMeasDatatype::lookup_ro_all(kws);
         let d = AlphaNumType::get_metaroot_req(kws)
             .map_err(RawParsedError::from)
-            .into_generic();
+            .into_log();
         let n = ByteOrd3_1::get_metaroot_req(kws)
             .map_err(RawParsedError::from)
-            .into_generic();
+            .into_log();
         d.zip3_cmt(n, cs)
             .map_cmt_warnings(RawToLayoutWarning::from)
             .map_non_fung_errors(RawToLayoutError::from)

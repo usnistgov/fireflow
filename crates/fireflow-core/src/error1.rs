@@ -13,9 +13,9 @@ use thiserror::Error;
 pub type WarningsAndIOSummaryResult<V, W, E, S> = WarningsAndSummaryResult<V, W, ImpureError<E>, S>;
 
 pub type WarningsAndSummaryResult<V, W, E, S> =
-    WarningsAndErrorResult<V, Term, W, ErrorSummary<E, S>>;
+    WarningsAndErrorResult<V, (), W, ErrorSummary<E, S>>;
 
-pub type SummaryResult<V, E, S> = ErrorResult<V, Term, ErrorSummary<E, S>>;
+pub type SummaryResult<V, E, S> = ErrorResult<V, (), ErrorSummary<E, S>>;
 
 pub type IOSummaryResult<V, E, S> = SummaryResult<V, ImpureError<E>, S>;
 
@@ -133,13 +133,13 @@ pub enum ImpureError<E> {
     Pure(E),
 }
 
-/// Named unit type to use as the Err value at the top of the call stack.
-///
-/// This is to prevent ambiguous return types like `ErrorsResult<(), (), E>`
-/// which technically is a deferred result and thus the Err side could be
-/// accidentally executed.
-#[derive(Default)]
-pub struct Term;
+// /// Named unit type to use as the Err value at the top of the call stack.
+// ///
+// /// This is to prevent ambiguous return types like `ErrorsResult<(), (), E>`
+// /// which technically is a deferred result and thus the Err side could be
+// /// accidentally executed.
+// #[derive(Default)]
+// pub struct Term;
 
 pub struct OptFamily;
 
@@ -1011,19 +1011,6 @@ pub trait ResultExt: Sized {
         self.into_result()
             .map(Success::new1)
             .map_err(|e| Failure::new_from_one(e, ()))
-    }
-
-    fn into_log_term<LW, RW, LWC, RWC, EC>(
-        self,
-    ) -> LogResult<Self::Ok, Term, LW, RW, Self::Error, LWC, RWC, EC>
-    where
-        LWC: ZeroOrMore,
-        RWC: ZeroOrMore,
-        EC: ZeroOrMore,
-    {
-        self.into_result()
-            .map(Success::new1)
-            .map_err(|e| Failure::new_from_one(e, Term))
     }
 
     fn into_deferred_fungible<EC>(

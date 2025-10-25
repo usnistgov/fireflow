@@ -2307,7 +2307,7 @@ where
         let x = self
             .measurements
             .unset_center(|i, old_t| M::Optical::from_temporal(old_t, i, ()));
-        x.from_infallible_nowarn()
+        x.infallible_nowarn_into()
     }
 
     /// Convert time measurement to optical measurement.
@@ -2400,7 +2400,7 @@ where
             .replace_center_at_nofail(index, m, |i, old_t| {
                 M::Optical::from_temporal(old_t, i, ())
                     .set_err_value(())
-                    .from_infallible_nowarn()
+                    .infallible_nowarn_into()
                     .0
             })
     }
@@ -2450,7 +2450,7 @@ where
             .replace_center_by_name_nofail(name, m, |i, old_t| {
                 M::Optical::from_temporal(old_t, i, ())
                     .set_err_value(())
-                    .from_infallible_nowarn()
+                    .infallible_nowarn_into()
                     .0
             })
     }
@@ -6971,7 +6971,7 @@ impl VersionedTemporal for InnerTemporal2_0 {
         &self,
         i: MeasIndex,
     ) -> DeferredError<(), SwapOpticalTemporalError> {
-        self.can_convert_to_optical(i).from_infallible()
+        self.can_convert_to_optical(i).infallible_into()
     }
 }
 
@@ -7003,7 +7003,7 @@ impl VersionedTemporal for InnerTemporal3_0 {
         &self,
         i: MeasIndex,
     ) -> DeferredError<(), SwapOpticalTemporalError> {
-        self.can_convert_to_optical(i).from_infallible()
+        self.can_convert_to_optical(i).infallible_into()
     }
 }
 
@@ -7037,7 +7037,7 @@ impl VersionedTemporal for InnerTemporal3_1 {
         &self,
         i: MeasIndex,
     ) -> DeferredError<(), SwapOpticalTemporalError> {
-        self.can_convert_to_optical(i).from_infallible()
+        self.can_convert_to_optical(i).infallible_into()
     }
 }
 
@@ -7356,7 +7356,7 @@ impl OpticalFromTemporal<InnerTemporal2_0> for InnerOptical2_0 {
     {
         tmp.specific
             .can_convert_to_optical(i)
-            .from_infallible()
+            .infallible_into()
             .set_ok_value(Self::from_temporal_unchecked(tmp))
     }
 
@@ -7379,7 +7379,7 @@ impl OpticalFromTemporal<InnerTemporal3_0> for InnerOptical3_0 {
     {
         tmp.specific
             .can_convert_to_optical(i)
-            .from_infallible()
+            .infallible_into()
             .set_ok_value(Self::from_temporal_unchecked(tmp))
     }
 
@@ -7402,7 +7402,7 @@ impl OpticalFromTemporal<InnerTemporal3_1> for InnerOptical3_1 {
     {
         tmp.specific
             .can_convert_to_optical(i)
-            .from_infallible()
+            .infallible_into()
             .set_ok_value(Self::from_temporal_unchecked(tmp))
     }
 

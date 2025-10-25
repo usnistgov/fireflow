@@ -48,7 +48,7 @@ pub trait PyResultExt: LogResultExt {
         Self::LW: fmt::Display,
         Self: LogResultExt<E = Infallible, P = ()>,
     {
-        let (value, warn) = self.from_infallible_with_warn(emit_warnings);
+        let (value, warn) = self.infallible_with_warn_into(emit_warnings);
         warn?;
         Ok(value)
     }

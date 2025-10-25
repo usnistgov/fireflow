@@ -1167,7 +1167,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         let go = |j, u| Result::new_ok::<_, _, _, _, _, NullFamily>(to_v(j, u));
 
         let res = self.replace_center_at_inner(i.into(), value, go);
-        Ok(res.from_infallible_nowarn())
+        Ok(res.infallible_nowarn_into())
     }
 
     fn alter_paired_vec<X, F, R>(

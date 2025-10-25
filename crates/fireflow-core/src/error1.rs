@@ -158,10 +158,6 @@ pub trait ZeroOrMore: Sized {
     fn map<F, X, Y>(t: Self::Wrapper<X>, f: F) -> Self::Wrapper<Y>
     where
         F: Fn(X) -> Y;
-
-    fn try_into_one_and_iter<X>(x: Self::Wrapper<X>) -> Option<(X, Self::IterOne<X>)>;
-
-    fn try_into_one_or_more<X>(x: Self::Wrapper<X>) -> Option<GenNonEmpty<X, Self>>;
 }
 
 pub trait IntoZeroOrMore<Other: ZeroOrMore>: ZeroOrMore {
@@ -197,14 +193,6 @@ impl ZeroOrMore for NullFamily {
     {
         NeverValue(PhantomData)
     }
-
-    fn try_into_one_and_iter<X>(_: Self::Wrapper<X>) -> Option<(X, Self::IterOne<X>)> {
-        None
-    }
-
-    fn try_into_one_or_more<X>(_: Self::Wrapper<X>) -> Option<GenNonEmpty<X, Self>> {
-        None
-    }
 }
 
 impl ZeroOrMore for OptFamily {
@@ -217,15 +205,6 @@ impl ZeroOrMore for OptFamily {
     {
         t.map(f)
     }
-
-    #[allow(clippy::single_option_map)]
-    fn try_into_one_and_iter<X>(x: Self::Wrapper<X>) -> Option<(X, Self::IterOne<X>)> {
-        x.map(|y| (y, iter::empty()))
-    }
-
-    fn try_into_one_or_more<X>(x: Self::Wrapper<X>) -> Option<GenNonEmpty<X, Self>> {
-        Self::try_into_one_and_iter(x).map(|(y, _)| GenNonEmpty::new(y, None))
-    }
 }
 
 impl ZeroOrMore for VecFamily {
@@ -237,15 +216,6 @@ impl ZeroOrMore for VecFamily {
         F: Fn(X) -> Y,
     {
         t.into_iter().map(f).collect()
-    }
-
-    fn try_into_one_and_iter<X>(x: Self::Wrapper<X>) -> Option<(X, Self::IterOne<X>)> {
-        let mut it = x.into_iter();
-        it.by_ref().next().map(|x0| (x0, it))
-    }
-
-    fn try_into_one_or_more<X>(x: Self::Wrapper<X>) -> Option<GenNonEmpty<X, Self>> {
-        Self::try_into_one_and_iter(x).map(|(y, ys)| GenNonEmpty::new(y, ys.collect()))
     }
 }
 
@@ -497,10 +467,11 @@ impl<V, W, WC: ZeroOrMore> Success<V, W, WC> {
         G: FnOnce(V) -> P,
         EC: ZeroOrMore,
         WC: IntoZeroOrMore<EC>,
+        EC::Wrapper<E>: Extend<E>,
     {
-        match WC::try_into_one_or_more(self.warnings) {
+        match GenNonEmpty::<E, EC>::collect(self.warnings.into_iter().map(f)) {
             None => Ok(Success::new1(self.value)),
-            Some(ws) => Err(Failure::new_from_many(ws.map(f).repack(), g(self.value))),
+            Some(ws) => Err(Failure::new_from_many(ws.repack(), g(self.value))),
         }
     }
 

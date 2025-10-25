@@ -1,5 +1,5 @@
 use crate::config::StdTextReadConfig;
-use crate::error1::{DeferredFungibleError, LogResultExt as _, ResultExt as _};
+use crate::logging::{DeferredFungibleError, LogResultExt as _, ResultExt as _};
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
 use crate::validated::ascii_uint::UintZeroPad20;

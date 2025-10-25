@@ -1,5 +1,5 @@
 use crate::config::{HeaderConfigInner, ReadState};
-use crate::error1::{
+use crate::logging::{
     CmtResultIter as _, DeferredErrors, DeferredIter as _, ErrorsResult, ImpureError,
     LogResultExt as _, ResultExt as _,
 };

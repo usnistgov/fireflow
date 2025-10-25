@@ -1,5 +1,5 @@
 use crate::core::{AnyMetarootKeyLossError, IndexedKeyLossError, UnitaryKeyLossError};
-use crate::error1::{DeferredError, DeferredFungibleError, ResultExt};
+use crate::logging::{DeferredError, DeferredFungibleError, ResultExt};
 use crate::validated::keys::{IndexedKey, Key, MeasHeader};
 
 use super::index::IndexFromOne;

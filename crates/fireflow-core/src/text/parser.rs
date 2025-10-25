@@ -1,6 +1,6 @@
 use crate::config::{StdTextReadConfig, TimeMeasNamePattern};
 use crate::core::{NewCSVFlagsError, ScaleTransformError};
-use crate::error1::{
+use crate::logging::{
     DeferredFungibleErrors, DeferredWarningsAndErrors, LogResultExt as _, ResultExt as _,
     WarningsAndErrorsResult,
 };

@@ -1,6 +1,6 @@
-use crate::error1::{
-    DeferredErrors, DeferredFungibleErrors, ErrorsResult, ImpureError, LogResultExt,
-    OptionExt as _, RecoverableErrorsResult, ResultExt, WarningsAndErrorsResult,
+use crate::logging::{
+    DeferredErrors, DeferredFungibleErrors, ErrorsResult, ImpureError, LogResultExt as _,
+    OptionExt as _, RecoverableErrorsResult, ResultExt as _, WarningsAndErrorsResult,
 };
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
 use crate::text::parser::{OptKeyError, OptMetarootKey, Optional, ReqKeyError, ReqMetarootKey};
@@ -248,7 +248,7 @@ where
         Self: Copy,
     {
         res.nowarn_into_warn().recover_with(
-            |_, es| {
+            |(), es| {
                 if allow_missing {
                     let w = SegmentDefaultWarning::default().into();
                     let ws = es.into_iter().map(Into::into).chain([w]).collect();
@@ -383,7 +383,7 @@ where
     {
         let def = default.into_any();
         res.nowarn_into_warn().recover_with(
-            |_, es| {
+            |(), es| {
                 if allow_dropping {
                     let ws = es.into_iter().map(Into::into).collect();
                     Result::new_ok(def).set_cmt_warnings(ws)

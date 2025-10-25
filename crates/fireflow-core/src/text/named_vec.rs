@@ -1,5 +1,5 @@
 use crate::data::ColumnError;
-use crate::error1::{
+use crate::logging::{
     CanHoldOne, CmtResult, CmtResultIter as _, ErrorsResult, IntoZeroOrMore, LogResult,
     LogResultExt as _, NullFamily, ResultExt as _, Semigroup, VecFamily, ZeroOrMore,
 };

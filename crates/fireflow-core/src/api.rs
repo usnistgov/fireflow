@@ -11,7 +11,7 @@ use crate::core::{
     StdTEXTFromRawError, StdTEXTFromRawWarning, Versioned as _,
 };
 use crate::data::{NewDataReaderError, NewDataReaderWarning, RawToLayoutError, RawToLayoutWarning};
-use crate::error1::{
+use crate::logging::{
     CmtResultIter as _, DeferredErrors, DeferredFungibleErrors, DeferredIter as _,
     DeferredWarningAndError, DeferredWarningsAndErrors, IOSummaryResult, ImpureError, LogResultExt,
     ResultExt as _, VecFamily, WarningAndErrorResult, WarningsAndErrorsResult,

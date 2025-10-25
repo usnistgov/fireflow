@@ -2,8 +2,8 @@ pub mod api;
 pub mod config;
 pub mod core;
 pub mod data;
-pub mod error1;
 pub mod header;
+pub mod logging;
 mod macros;
 pub mod nonempty;
 #[cfg(feature = "python")]

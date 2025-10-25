@@ -1,5 +1,5 @@
 use crate::config::StdTextReadConfig;
-use crate::error1::{DeferredFungibleErrors, DeferredIter as _, LogResultExt as _, ResultExt as _};
+use crate::logging::{DeferredFungibleErrors, DeferredIter as _, LogResultExt as _, ResultExt as _};
 use crate::nonempty::FCSNonEmpty;
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keywords::{

@@ -1,5 +1,5 @@
 use crate::config::StdTextReadConfig;
-use crate::error1::{LogResultExt as _, ResultExt as _};
+use crate::logging::{LogResultExt as _, ResultExt as _};
 use crate::validated::keys::{Key, StdKeywords};
 use crate::validated::timepattern::ParseWithTimePatternError;
 

@@ -8818,7 +8818,6 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::macros::def_failure;
     use crate::python::exceptions::PyreflowException;
     use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
     use crate::text::ranged_float::PositiveFloat;

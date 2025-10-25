@@ -50,11 +50,6 @@
 
 use crate::config::{ReadLayoutConfig, ReaderConfig, StdTextReadConfig};
 use crate::core::{AsScaleTransform, LayoutConvertResult, Measurements, ScaleTransform};
-// use crate::error::{
-//     BiDeferredResult, BiTentative, DeferredExt as _, DeferredFailure, DeferredResult,
-//     ErrorIter as _, IODeferredResult, IOResult, ImpureError, MultiResult, MultiResultExt as _,
-//     PassthruExt as _, ResultExt as _, Tentative,
-// };
 use crate::error1::{
     CmtResultIter as _, DeferredErrors, DeferredFungibleError, DeferredFungibleErrors,
     DeferredIOError, DeferredIter as _, DeferredWarningAndError, DeferredWarningsAndError,

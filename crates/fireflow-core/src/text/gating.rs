@@ -302,7 +302,7 @@ impl AppliedGates2_0 {
         let gm = GatedMeasurements::lookup(kws, false, conf);
         ag.zip_def(gm).and_then_def(|(scheme, gated_measurements)| {
             Self::try_new(gated_measurements.0, scheme)
-                .into_deferred_fungible(!conf.allow_optional_dropping)
+                .into_deferred_fungible::<Vec<_>>(!conf.allow_optional_dropping)
                 .cmt_fung_errors_into()
         })
     }
@@ -414,7 +414,7 @@ impl AppliedGates3_0 {
         let ms = lookup_meas(kws);
         s.zip_def(ms).and_then_def(|(scheme, gated_measurements)| {
             Self::try_new(gated_measurements.0, scheme)
-                .into_succ()
+                .into_succ::<_, _, Vec<_>, _, _>()
                 .cmt_warnings_into()
         })
     }
@@ -445,11 +445,11 @@ impl AppliedGates3_0 {
         // TODO this should be an error based on if we want to drop optional
         // keywords
         GatingScheme::try_new(self.scheme.gating, regions)
-            .into_succ_opt()
+            .into_succ_opt::<_, _, Vec<_>, _, _>()
             .cmt_warnings_into()
             .and_then_def(|scheme| match scheme {
                 Some(s) => AppliedGates2_0::try_new(self.gated_measurements.0, s)
-                    .into_deferred_fungible(true)
+                    .into_deferred_fungible::<Vec<_>>(true)
                     .cmt_fung_errors_into(),
                 None => Result::new_ok_def(),
             })
@@ -471,7 +471,7 @@ impl AppliedGates3_0 {
             .map(|(ri, r)| r.try_map(TryInto::try_into).map(|x| (ri, x)))
             .partition_result();
         let res = AppliedGates3_2::try_new(self.scheme.gating, regions)
-            .into_deferred_fungible(true)
+            .into_deferred_fungible::<Vec<_>>(true)
             .cmt_fung_errors_into()
             .extend_def_fung_errors(
                 es.into_iter().map(AppliedGates3_0To3_2Error::Index),
@@ -693,7 +693,7 @@ impl<I> GatingScheme<I> {
                 .and_then_def(|rs| {
                     let regions = rs.into_iter().flatten().collect();
                     Self::try_new(gating, regions)
-                        .into_deferred_fungible(!conf.allow_optional_dropping)
+                        .into_deferred_fungible::<Vec<_>>(!conf.allow_optional_dropping)
                         .cmt_fung_errors_into()
                 })
         })
@@ -777,7 +777,7 @@ impl<I> Region<I> {
                 n_.zip(y_)
                     .and_then(|(gi, win)| Self::try_new(gi, win).map(Self::inner_into))
                     .ok_or(MismatchedIndexAndWindowError)
-                    .into_deferred_fungible_opt(!conf.allow_optional_dropping)
+                    .into_deferred_fungible_opt::<Vec<_>>(!conf.allow_optional_dropping)
                     .cmt_fung_errors_into()
             })
             .map_ok_value(Into::into)

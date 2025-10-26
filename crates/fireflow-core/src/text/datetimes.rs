@@ -91,7 +91,7 @@ impl Datetimes {
         let e = EndDateTime::lookup_metaroot_opt(kws, false, conf);
         b.zip_def(e).and_then_def(|(begin, end)| {
             Self::try_new(begin, end)
-                .into_deferred_fungible(!conf.allow_optional_dropping)
+                .into_deferred_fungible::<Vec<_>>(!conf.allow_optional_dropping)
                 .cmt_fung_errors_into()
         })
     }

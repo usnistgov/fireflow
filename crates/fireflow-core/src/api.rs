@@ -58,7 +58,7 @@ pub fn fcs_read_header(
     conf: &ReadHeaderConfig,
 ) -> IOSummaryResult<Header, HeaderError, HeaderFailure> {
     ReadState::open(p, conf)
-        .into_log()
+        .into_log::<_, _, Vec<_>>()
         .non_fung_errors_into()
         .and_then_cmt(|(st, file)| {
             let mut reader = BufReader::new(file);

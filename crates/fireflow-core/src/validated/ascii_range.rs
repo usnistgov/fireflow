@@ -94,7 +94,7 @@ impl AsciiRange {
             .into_uint(disallow_trunc)
             .map_non_fung_errors(NewAsciiRangeError::from)
             .set_err_value(())
-            .repack::<_, _, VecFamily>();
+            .repack::<_, _, Vec<_>>();
         let chars_res = Chars::try_from(width)
             .map_err(NewAsciiRangeError::from)
             .into_log();

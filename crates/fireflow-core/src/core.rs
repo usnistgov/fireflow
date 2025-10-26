@@ -16,9 +16,9 @@ use crate::header::{
 use crate::logging::{
     CmtFungibleErrorsResult, CmtResult, CmtResultIter as _, DeferredError, DeferredErrors,
     DeferredFungibleError, DeferredFungibleErrors, DeferredIter as _, ErrorResult, ErrorSummary,
-    ErrorsResult, IOErrorResult, IOWarningsAndErrorsResult, ImpureError, LogResultExt, NullFamily,
-    ResultExt as _, SummaryResult, VecFamily, WarningsAndErrorResult, WarningsAndErrorsResult,
-    WarningsAndIOSummaryResult, WarningsAndSummaryResult, ZeroOrMore,
+    ErrorsResult, IOErrorResult, IOWarningsAndErrorsResult, ImpureError, LogResultExt,
+    ResultExt as _, SummaryResult, WarningsAndErrorResult, WarningsAndErrorsResult,
+    WarningsAndIOSummaryResult, WarningsAndSummaryResult,
 };
 use crate::macros::{def_failure, match_many_to_one};
 use crate::segment::{
@@ -28,6 +28,7 @@ use crate::segment::{
     ReqSegmentWithDefaultWarning, SegmentMismatchWarning,
 };
 
+use crate::text::optional::NeverValue;
 use crate::text::{
     byteord::OrderedToEndianError,
     compensation::{Compensation, Compensation2_0, Compensation3_0},
@@ -1474,7 +1475,7 @@ pub trait VersionedMetaroot: Sized {
         t_res
             .zip3_def(o_specific_res, o_common_res)
             .inject_value((tmp, opt))
-            .nowarn_into_warn::<_, VecFamily>()
+            .nowarn_into_warn::<_, Vec<_>>()
             .recover_with(
                 |(_, (t, o)), es| {
                     if allow_loss {
@@ -1521,7 +1522,7 @@ pub trait LookupOptical: Sized + VersionedOptical {
 pub trait VersionedTemporal: Sized {
     type Ver: Versioned;
     type Warning;
-    type WarningFam: ZeroOrMore;
+    type WarningFam;
     type Error;
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)>;
@@ -1567,7 +1568,7 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
         opt_common_res
             .zip_cmt(opt_specific_res)
             .inject_value((opt, data))
-            .nowarn_into_warn::<_, VecFamily>()
+            .nowarn_into_warn()
             .recover_with(
                 |((), (o, d)), es| {
                     if allow_loss {
@@ -1601,10 +1602,9 @@ pub trait OpticalFromTemporal<T: VersionedTemporal>: Sized {
     ) -> CmtResult<
         (Optical<Self>, Self::TData),
         Box<Temporal<T>>,
-        T::Warning,
         T::Error,
         T::WarningFam,
-        VecFamily,
+        Vec<T::Error>,
     >;
 
     fn from_temporal_unchecked(t: Temporal<T>) -> (Optical<Self>, Self::TData) {
@@ -2302,7 +2302,7 @@ where
     ) -> Option<<M::Optical as OpticalFromTemporal<M::Temporal>>::TData>
     where
         M::Optical: OpticalFromTemporal<M::Temporal, Loss = ()>,
-        M::Temporal: VersionedTemporal<Warning = (), WarningFam = NullFamily, Error = Infallible>,
+        M::Temporal: VersionedTemporal<WarningFam = NeverValue<()>, Error = Infallible>,
     {
         let x = self
             .measurements
@@ -2327,8 +2327,7 @@ where
     where
         M::Optical: OpticalFromTemporal<M::Temporal, Loss = bool>,
         M::Temporal: VersionedTemporal<
-            Warning = TemporalToOpticalError,
-            WarningFam = VecFamily,
+            WarningFam = Vec<TemporalToOpticalError>,
             Error = TemporalToOpticalError,
         >,
     {
@@ -2394,7 +2393,7 @@ where
     ) -> Result<Element<Temporal<M::Temporal>, Optical<M::Optical>>, SetCenterError>
     where
         M::Optical: OpticalFromTemporal<M::Temporal, Loss = ()>,
-        M::Temporal: VersionedTemporal<Warning = (), WarningFam = NullFamily, Error = Infallible>,
+        M::Temporal: VersionedTemporal<WarningFam = NeverValue<()>, Error = Infallible>,
     {
         self.measurements
             .replace_center_at_nofail(index, m, |i, old_t| {
@@ -2421,8 +2420,7 @@ where
     where
         M::Optical: OpticalFromTemporal<M::Temporal, Loss = bool>,
         M::Temporal: VersionedTemporal<
-            Warning = TemporalToOpticalError,
-            WarningFam = VecFamily,
+            WarningFam = Vec<TemporalToOpticalError>,
             Error = TemporalToOpticalError,
         >,
     {
@@ -2444,7 +2442,7 @@ where
     ) -> Result<Element<Temporal<M::Temporal>, Optical<M::Optical>>, KeyNotFoundError>
     where
         M::Optical: OpticalFromTemporal<M::Temporal, Loss = ()>,
-        M::Temporal: VersionedTemporal<Warning = (), WarningFam = NullFamily, Error = Infallible>,
+        M::Temporal: VersionedTemporal<WarningFam = NeverValue<()>, Error = Infallible>,
     {
         self.measurements
             .replace_center_by_name_nofail(name, m, |i, old_t| {
@@ -2471,8 +2469,7 @@ where
     where
         M::Optical: OpticalFromTemporal<M::Temporal, Loss = bool>,
         M::Temporal: VersionedTemporal<
-            Warning = TemporalToOpticalError,
-            WarningFam = VecFamily,
+            WarningFam = Vec<TemporalToOpticalError>,
             Error = TemporalToOpticalError,
         >,
     {
@@ -6076,7 +6073,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
             });
 
         let mode_res = Mode3_2::try_from(value.mode)
-            .into_deferred_fungible_opt::<VecFamily>(!allow_loss)
+            .into_deferred_fungible_opt(!allow_loss)
             .map_cmt_warnings(MetarootConvertWarning::from)
             .map_non_fung_errors(MetarootConvertError::from);
 
@@ -6944,7 +6941,7 @@ impl VersionedOptical for InnerOptical3_2 {
 impl VersionedTemporal for InnerTemporal2_0 {
     type Ver = Version2_0;
     type Warning = ();
-    type WarningFam = NullFamily;
+    type WarningFam = NeverValue<()>;
     type Error = Infallible;
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
@@ -6978,7 +6975,7 @@ impl VersionedTemporal for InnerTemporal2_0 {
 impl VersionedTemporal for InnerTemporal3_0 {
     type Ver = Version3_0;
     type Warning = ();
-    type WarningFam = NullFamily;
+    type WarningFam = NeverValue<()>;
     type Error = Infallible;
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
@@ -7010,7 +7007,7 @@ impl VersionedTemporal for InnerTemporal3_0 {
 impl VersionedTemporal for InnerTemporal3_1 {
     type Ver = Version3_1;
     type Warning = ();
-    type WarningFam = NullFamily;
+    type WarningFam = NeverValue<()>;
     type Error = Infallible;
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
@@ -7044,7 +7041,7 @@ impl VersionedTemporal for InnerTemporal3_1 {
 impl VersionedTemporal for InnerTemporal3_2 {
     type Ver = Version3_2;
     type Warning = TemporalToOpticalError;
-    type WarningFam = VecFamily;
+    type WarningFam = Vec<TemporalToOpticalError>;
     type Error = TemporalToOpticalError;
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
@@ -7435,8 +7432,8 @@ impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
         tmp.specific
             .can_convert_to_optical(i)
             .inject_value(tmp)
-            .nowarn_into_warn::<_, VecFamily>()
-            .repack_errors::<VecFamily>()
+            .nowarn_into_warn()
+            .repack_errors()
             .recover_with(
                 |((), t), es| {
                     if allow_loss {

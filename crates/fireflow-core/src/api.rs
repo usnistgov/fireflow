@@ -11,15 +11,15 @@ use crate::core::{
     StdTEXTFromRawError, StdTEXTFromRawWarning, Versioned as _,
 };
 use crate::data::{NewDataReaderError, NewDataReaderWarning, RawToLayoutError, RawToLayoutWarning};
+use crate::header::{
+    Header, HeaderError, HeaderSegments, HeaderValidationError, Version, Version2_0, Version3_0,
+    Version3_1, Version3_2,
+};
 use crate::logging::{
     CmtResultIter as _, DeferredErrors, DeferredFungibleErrors, DeferredIter as _,
     DeferredWarningAndError, DeferredWarningsAndErrors, IOSummaryResult, ImpureError, LogResultExt,
     ResultExt as _, VecFamily, WarningAndErrorResult, WarningsAndErrorsResult,
     WarningsAndIOSummaryResult,
-};
-use crate::header::{
-    Header, HeaderError, HeaderSegments, HeaderValidationError, Version, Version2_0, Version3_0,
-    Version3_1, Version3_2,
 };
 use crate::macros::def_failure;
 use crate::segment::{

@@ -107,14 +107,14 @@ pub struct Success<V, W, I: ZeroOrMore> {
 #[derive(new)]
 pub struct Failure<P, W, E, WC: ZeroOrMore, EC: ZeroOrMore> {
     warnings: WC::Wrapper<W>,
-    errors: GenNonEmpty<E, EC>,
+    errors: GenNonEmpty<E, EC::Wrapper<E>>,
     value: P,
 }
 
 #[derive(new)]
 pub struct ErrorSummary<E, S> {
     pub summary: S,
-    pub errors: GenNonEmpty<E, VecFamily>,
+    pub errors: GenNonEmpty<E, Vec<E>>,
 }
 
 // TODO eventually will want to make a boxable version of this, which will
@@ -122,9 +122,9 @@ pub struct ErrorSummary<E, S> {
 // wrapper. tail doesn't need box because the only two values (for now) are
 // vec and nevervalue, and the former is heap anyways.
 #[derive(new)]
-pub struct GenNonEmpty<X, C: ZeroOrMore> {
+pub struct GenNonEmpty<X, C> {
     head: X,
-    tail: C::Wrapper<X>,
+    tail: C,
 }
 
 #[derive(Debug, Error)]
@@ -180,7 +180,7 @@ pub trait FungibleErrorFamily: ZeroOrMore {
     type WarnFam: ZeroOrMore;
 
     fn errors_to_warnings<E>(
-        errors: GenNonEmpty<E, Self>,
+        errors: GenNonEmpty<E, Self::Wrapper<E>>,
     ) -> <Self::WarnFam as ZeroOrMore>::Wrapper<E>;
 }
 
@@ -220,9 +220,9 @@ impl ZeroOrMore for VecFamily {
     }
 }
 
-impl<E, EI: ZeroOrMore> IntoIterator for GenNonEmpty<E, EI> {
+impl<E, EC: IntoIterator<Item = E>> IntoIterator for GenNonEmpty<E, EC> {
     type Item = E;
-    type IntoIter = iter::Chain<iter::Once<E>, <EI::Wrapper<E> as IntoIterator>::IntoIter>;
+    type IntoIter = iter::Chain<iter::Once<E>, <EC as IntoIterator>::IntoIter>;
     fn into_iter(self) -> Self::IntoIter {
         iter::once(self.head).chain(self.tail)
     }
@@ -293,7 +293,7 @@ impl<T> Semigroup for NeverValue<T> {}
 impl FungibleErrorFamily for VecFamily {
     type WarnFam = Self;
 
-    fn errors_to_warnings<E>(errors: GenNonEmpty<E, Self>) -> Vec<E> {
+    fn errors_to_warnings<E>(errors: GenNonEmpty<E, Self::Wrapper<E>>) -> Vec<E> {
         errors.into_iter().collect()
     }
 }
@@ -301,7 +301,7 @@ impl FungibleErrorFamily for VecFamily {
 impl FungibleErrorFamily for NullFamily {
     type WarnFam = OptFamily;
 
-    fn errors_to_warnings<E>(errors: GenNonEmpty<E, Self>) -> Option<E> {
+    fn errors_to_warnings<E>(errors: GenNonEmpty<E, Self::Wrapper<E>>) -> Option<E> {
         Some(errors.head)
     }
 }
@@ -399,7 +399,10 @@ impl<V, W, WC: ZeroOrMore> Success<V, W, WC> {
         }
     }
 
-    pub(crate) fn fail<E, EC>(self, errors: GenNonEmpty<E, EC>) -> Failure<V, W, E, WC, EC>
+    pub(crate) fn fail<E, EC>(
+        self,
+        errors: GenNonEmpty<E, EC::Wrapper<E>>,
+    ) -> Failure<V, W, E, WC, EC>
     where
         EC: ZeroOrMore,
     {
@@ -460,11 +463,11 @@ impl<V, W, WC: ZeroOrMore> Success<V, W, WC> {
         G: FnOnce(V) -> P,
         EC: ZeroOrMore,
         WC: IntoZeroOrMore<EC>,
-        EC::Wrapper<E>: Extend<E>,
+        EC::Wrapper<E>: Extend<E> + Default,
     {
-        match GenNonEmpty::<E, EC>::collect(self.warnings.into_iter().map(f)) {
+        match GenNonEmpty::<E, EC::Wrapper<E>>::collect(self.warnings.into_iter().map(f)) {
             None => Ok(Self::new1(self.value)),
-            Some(ws) => Err(Failure::new_from_many(ws.repack(), g(self.value))),
+            Some(es) => Err(Failure::new_from_many(es, g(self.value))),
         }
     }
 
@@ -487,7 +490,7 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         Self::new_from_many(GenNonEmpty::new1(error), value)
     }
 
-    pub(crate) fn new_from_many(errors: GenNonEmpty<E, EC>, value: P) -> Self {
+    pub(crate) fn new_from_many(errors: GenNonEmpty<E, EC::Wrapper<E>>, value: P) -> Self {
         Self::new(WC::Wrapper::<W>::default(), errors, value)
     }
 
@@ -508,7 +511,7 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         EC: IntoZeroOrMore<ECf>,
         ECf: ZeroOrMore,
     {
-        Failure::new(self.warnings, self.errors.repack(), self.value)
+        Failure::new(self.warnings, self.errors.repack::<EC, ECf>(), self.value)
     }
 
     fn map_warnings<F, Wf>(self, f: F) -> Failure<P, Wf, E, WC, EC>
@@ -526,7 +529,7 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
     where
         F: Fn(E) -> Ef,
     {
-        Failure::new(self.warnings, self.errors.map(f), self.value)
+        Failure::new(self.warnings, self.errors.map::<_, _, EC>(f), self.value)
     }
 
     fn map_value<F, ToP>(self, f: F) -> Failure<ToP, W, E, WC, EC>
@@ -625,7 +628,7 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
         ECf::Wrapper<E>: Extend<E>,
     {
         let ws = self.warnings.concat(other.warnings);
-        let mut es = self.errors.into_zero_or_more();
+        let mut es = self.errors.repack::<EC, ECf>();
         es.extend(other.errors);
         Failure::new(ws, es, f(self.value, other.value))
     }
@@ -639,7 +642,7 @@ impl<W, E, P, WC: ZeroOrMore, EC: ZeroOrMore> Failure<P, W, E, WC, EC> {
 
     fn aggregate_errors<F, EF>(self, f: F) -> Failure<P, W, EF, WC, NullFamily>
     where
-        F: FnOnce(GenNonEmpty<E, EC>) -> EF,
+        F: FnOnce(GenNonEmpty<E, EC::Wrapper<E>>) -> EF,
     {
         let es = GenNonEmpty::new1(f(self.errors));
         Failure::new(self.warnings, es, self.value)
@@ -704,9 +707,9 @@ impl<P, E, EC: ZeroOrMore> Failure<P, (), E, NullFamily, EC> {
 //     }
 // }
 
-impl<T, C: ZeroOrMore> Extend<T> for GenNonEmpty<T, C>
+impl<T, C> Extend<T> for GenNonEmpty<T, C>
 where
-    C::Wrapper<T>: Extend<T>,
+    C: Extend<T>,
 {
     fn extend<I>(&mut self, iter: I)
     where
@@ -716,10 +719,10 @@ where
     }
 }
 
-impl<T, C: ZeroOrMore> GenNonEmpty<T, C> {
+impl<T, C> GenNonEmpty<T, C> {
     fn collect(xs: impl IntoIterator<Item = T>) -> Option<Self>
     where
-        C::Wrapper<T>: Extend<T>,
+        C: Extend<T> + Default,
     {
         let mut it = xs.into_iter();
         it.by_ref().next().map(|x0| {
@@ -729,22 +732,27 @@ impl<T, C: ZeroOrMore> GenNonEmpty<T, C> {
         })
     }
 
-    fn new1(x: T) -> Self {
-        Self::new(x, C::Wrapper::<T>::default())
+    fn new1(x: T) -> Self
+    where
+        C: Default,
+    {
+        Self::new(x, C::default())
     }
 
-    fn map<X, F>(self, f: F) -> GenNonEmpty<X, C>
+    fn map<X, F, Fam>(self, f: F) -> GenNonEmpty<X, Fam::Wrapper<X>>
     where
+        Fam: ZeroOrMore<Wrapper<T> = C>,
         F: Fn(T) -> X,
     {
-        GenNonEmpty::new(f(self.head), C::map(self.tail, f))
+        GenNonEmpty::new(f(self.head), Fam::map(self.tail, f))
     }
 
-    fn repack<EIF: ZeroOrMore>(self) -> GenNonEmpty<T, EIF>
+    fn repack<Fi, Ff>(self) -> GenNonEmpty<T, Ff::Wrapper<T>>
     where
-        C: IntoZeroOrMore<EIF>,
+        Ff: ZeroOrMore,
+        Fi: IntoZeroOrMore<Ff> + ZeroOrMore<Wrapper<T> = C>,
     {
-        GenNonEmpty::new(self.head, C::into_zero_or_more(self.tail))
+        GenNonEmpty::new(self.head, Fi::into_zero_or_more(self.tail))
     }
 
     // fn prepend<I>(&mut self, other: I)
@@ -761,17 +769,17 @@ impl<T, C: ZeroOrMore> GenNonEmpty<T, C> {
     //     }
     // }
 
-    fn into_zero_or_more<CF>(self) -> GenNonEmpty<T, CF>
-    where
-        CF: ZeroOrMore,
-        C: IntoZeroOrMore<CF>,
-    {
-        GenNonEmpty::new(self.head, C::into_zero_or_more(self.tail))
-    }
+    // fn into_zero_or_more<Fi, Ff>(self) -> GenNonEmpty<T, Ff::Wrapper<T>>
+    // where
+    //     Ff: ZeroOrMore,
+    //     Fi: IntoZeroOrMore<Ff> + ZeroOrMore<Wrapper<T> = C>,
+    // {
+    //     GenNonEmpty::new(self.head, C::into_zero_or_more(self.tail))
+    // }
 }
 
-impl<E, EI: ZeroOrMore> From<(E, EI::Wrapper<E>)> for GenNonEmpty<E, EI> {
-    fn from(value: (E, EI::Wrapper<E>)) -> Self {
+impl<E, C> From<(E, C)> for GenNonEmpty<E, C> {
+    fn from(value: (E, C)) -> Self {
         Self::new(value.0, value.1)
     }
 }
@@ -857,7 +865,7 @@ pub trait ResultExt: Sized {
 
     // TODO generic input?
     fn new_err<LW, RW, LWC, RWC, EC>(
-        error: GenNonEmpty<Self::Error, EC>,
+        error: GenNonEmpty<Self::Error, EC::Wrapper<Self::Error>>,
     ) -> LogResult<Self::Ok, (), LW, RW, Self::Error, LWC, RWC, EC>
     where
         LWC: ZeroOrMore,
@@ -1111,7 +1119,7 @@ where
         Fsucc: FnOnce(Self::V) -> CmtResult<V, P, Self::LW, E, Self::LWC, EC>,
         Ferr: FnOnce(
             Self::P,
-            GenNonEmpty<Self::E, Self::EC>,
+            GenNonEmpty<Self::E, <Self::EC as ZeroOrMore>::Wrapper<Self::E>>,
         ) -> CmtResult<V, P, Self::LW, E, Self::LWC, EC>,
         Self: CommutativeResultExt,
         WC: ZeroOrMore,
@@ -1529,7 +1537,7 @@ where
     ) -> LogResult<Self::V, Self::P, Self::LW, Self::RW, Ef, Self::LWC, Self::RWC, NullFamily>
     where
         // NOTE pretend there is a negative trait bound for "non-fungible"
-        F: FnOnce(GenNonEmpty<Self::E, Self::EC>) -> Ef,
+        F: FnOnce(GenNonEmpty<Self::E, <Self::EC as ZeroOrMore>::Wrapper<Self::E>>) -> Ef,
     {
         self.into_result().map_err(|e| e.aggregate_errors(f))
     }
@@ -1580,7 +1588,7 @@ where
     ) -> NonCmtFungibleResult<Self::V, Self::P, Ef, NullFamily>
     where
         F: FnOnce(<Self::LWC as ZeroOrMore>::Wrapper<Self::E>) -> Ef,
-        G: FnOnce(GenNonEmpty<Self::E, Self::EC>) -> Ef,
+        G: FnOnce(GenNonEmpty<Self::E, <Self::EC as ZeroOrMore>::Wrapper<Self::E>>) -> Ef,
         Self: NonCommutativeResultExt + FungibleExt,
         Self::EC: FungibleErrorFamily,
     {
@@ -1598,7 +1606,7 @@ where
     ) -> CmtFungibleResult<Self::V, Self::P, Ef, NullFamily>
     where
         F: FnOnce(<Self::LWC as ZeroOrMore>::Wrapper<Self::E>) -> Ef,
-        G: FnOnce(GenNonEmpty<Self::E, Self::EC>) -> Ef,
+        G: FnOnce(GenNonEmpty<Self::E, <Self::EC as ZeroOrMore>::Wrapper<Self::E>>) -> Ef,
         Self: CommutativeResultExt + FungibleExt,
         Self::EC: FungibleErrorFamily,
     {

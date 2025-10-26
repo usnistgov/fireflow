@@ -10,15 +10,15 @@ use crate::data::{
     RawToLayoutWarning, ReadDataframeError, ReadDataframeWarning, TotDefinition,
     VersionedDataLayout,
 };
+use crate::header::{
+    HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
+};
 use crate::logging::{
     CmtFungibleErrorsResult, CmtResult, CmtResultIter as _, DeferredError, DeferredErrors,
     DeferredFungibleError, DeferredFungibleErrors, DeferredIter as _, ErrorResult, ErrorSummary,
     ErrorsResult, IOErrorResult, IOWarningsAndErrorsResult, ImpureError, LogResultExt, NullFamily,
     ResultExt as _, SummaryResult, VecFamily, WarningsAndErrorResult, WarningsAndErrorsResult,
     WarningsAndIOSummaryResult, WarningsAndSummaryResult, ZeroOrMore,
-};
-use crate::header::{
-    HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use crate::macros::{def_failure, match_many_to_one};
 use crate::segment::{
@@ -7436,7 +7436,7 @@ impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
             .can_convert_to_optical(i)
             .inject_value(tmp)
             .nowarn_into_warn::<_, VecFamily>()
-            .repack_errors()
+            .repack_errors::<VecFamily>()
             .recover_with(
                 |((), t), es| {
                     if allow_loss {

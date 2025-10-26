@@ -151,6 +151,10 @@ pub trait Kind1 {
     type Inner<X>;
 }
 
+pub trait InFamily {
+    type Family;
+}
+
 pub trait Functor: Sized + Kind1 {
     fn fmap<F, X, Y>(t: Self::Inner<X>, f: F) -> Self::Inner<Y>
     where
@@ -203,6 +207,18 @@ impl Kind1 for OptFamily {
 
 impl Kind1 for VecFamily {
     type Inner<T> = Vec<T>;
+}
+
+impl<T> InFamily for NeverValue<T> {
+    type Family = NullFamily;
+}
+
+impl<T> InFamily for Vec<T> {
+    type Family = VecFamily;
+}
+
+impl<T> InFamily for Option<T> {
+    type Family = OptFamily;
 }
 
 impl Functor for NullFamily {
@@ -370,12 +386,13 @@ impl<V, WC> Success<V, WC> {
         Success::new(f(self.value), self.warnings)
     }
 
-    pub(crate) fn map_warnings<F, W, Wf, WFam>(self, f: F) -> Success<V, WFam::Inner<Wf>>
+    pub(crate) fn map_warnings<F, W, Wf>(self, f: F) -> Success<V, <WC::Family as Kind1>::Inner<Wf>>
     where
-        WFam: Functor<Inner<W> = WC>,
+        WC::Family: Functor<Inner<W> = WC>,
+        WC: InFamily,
         F: Fn(W) -> Wf,
     {
-        Success::new(self.value, WFam::fmap(self.warnings, f))
+        Success::new(self.value, WC::Family::fmap(self.warnings, f))
     }
 
     pub(crate) fn set_warnings<WCf>(self, ws: WCf) -> Success<V, WCf> {
@@ -541,20 +558,22 @@ impl<P, E, WC, EC> Failure<P, E, WC, EC> {
         Failure::new(self.warnings, self.errors.repack(), self.value)
     }
 
-    fn map_warnings<F, W, Wf, WFam>(self, f: F) -> Failure<P, E, WFam::Inner<Wf>, EC>
+    fn map_warnings<F, W, Wf>(self, f: F) -> Failure<P, E, <WC::Family as Kind1>::Inner<Wf>, EC>
     where
         F: Fn(W) -> Wf,
-        WFam: Functor<Inner<W> = WC>,
+        WC: InFamily,
+        WC::Family: Functor<Inner<W> = WC>,
     {
-        Failure::new(WFam::fmap(self.warnings, f), self.errors, self.value)
+        Failure::new(WC::Family::fmap(self.warnings, f), self.errors, self.value)
     }
 
-    fn map_errors<F, Ef, EFam>(self, f: F) -> Failure<P, Ef, WC, EFam::Inner<Ef>>
+    fn map_errors<F, Ef>(self, f: F) -> Failure<P, Ef, WC, <EC::Family as Kind1>::Inner<Ef>>
     where
-        EFam: Functor<Inner<E> = EC>,
         F: Fn(E) -> Ef,
+        EC: InFamily,
+        EC::Family: Functor<Inner<E> = EC>,
     {
-        Failure::new(self.warnings, self.errors.map::<_, _, EFam>(f), self.value)
+        Failure::new(self.warnings, self.errors.map(f), self.value)
     }
 
     fn map_value<F, Pf>(self, f: F) -> Failure<Pf, E, WC, EC>
@@ -761,12 +780,13 @@ impl<T, C> GenNonEmpty<T, C> {
         Self::new(x, C::default())
     }
 
-    fn map<X, F, Fam>(self, f: F) -> GenNonEmpty<X, Fam::Inner<X>>
+    fn map<X, F>(self, f: F) -> GenNonEmpty<X, <C::Family as Kind1>::Inner<X>>
     where
-        Fam: Functor<Inner<T> = C>,
+        C: InFamily,
+        C::Family: Functor<Inner<T> = C>,
         F: Fn(T) -> X,
     {
-        GenNonEmpty::new(f(self.head), Fam::fmap(self.tail, f))
+        GenNonEmpty::new(f(self.head), C::Family::fmap(self.tail, f))
     }
 
     fn repack<Cf>(self) -> GenNonEmpty<T, Cf>
@@ -1075,6 +1095,8 @@ impl<V, E> ResultExt for Result<V, E> {
     }
 }
 
+type FunctorOut<C, T> = <<C as InFamily>::Family as Kind1>::Inner<T>;
+
 pub trait LogResultExt
 where
     Self: Sized
@@ -1220,56 +1242,59 @@ where
     }
 
     /// Convert warnings of a non-commutative Result
-    fn non_cmt_warnings_into<W, Wf, WFam>(
+    fn non_cmt_warnings_into<W, Wf>(
         self,
-    ) -> LogResult<Self::V, Self::P, Self::E, WFam::Inner<Wf>, Self::RWC, Self::EC>
+    ) -> LogResult<Self::V, Self::P, Self::E, FunctorOut<Self::LWC, Wf>, Self::RWC, Self::EC>
     where
         Self: NonCommutativeResultExt,
-        WFam: Functor<Inner<W> = Self::LWC>,
         W: Into<Wf>,
+        Self::LWC: InFamily,
+        <Self::LWC as InFamily>::Family: Functor<Inner<W> = Self::LWC>,
     {
-        self.map_non_cmt_warnings::<_, W, Wf, WFam>(Into::into)
+        self.map_non_cmt_warnings::<_, W, Wf>(Into::into)
     }
 
     /// Map function over warnings of a non-commutative Result
-    fn map_non_cmt_warnings<F, W, Wf, WFam>(
+    fn map_non_cmt_warnings<F, W, Wf>(
         self,
         f: F,
-    ) -> LogResult<Self::V, Self::P, Self::E, WFam::Inner<Wf>, Self::RWC, Self::EC>
+    ) -> LogResult<Self::V, Self::P, Self::E, FunctorOut<Self::LWC, Wf>, Self::RWC, Self::EC>
     where
         Self: NonCommutativeResultExt,
         F: Fn(W) -> Wf,
-        WFam: Functor<Inner<W> = Self::LWC>,
+        Self::LWC: InFamily,
+        <Self::LWC as InFamily>::Family: Functor<Inner<W> = Self::LWC>,
     {
-        self.into_result()
-            .map(|s| s.map_warnings::<_, _, _, WFam>(f))
+        self.into_result().map(|s| s.map_warnings(f))
     }
 
     /// Convert warnings of commutative Result
-    fn cmt_warnings_into<W, Wf, WFam>(
+    fn cmt_warnings_into<W, Wf>(
         self,
-    ) -> CmtResult<Self::V, Self::P, Self::E, WFam::Inner<Wf>, Self::EC>
+    ) -> CmtResult<Self::V, Self::P, Self::E, FunctorOut<Self::LWC, Wf>, Self::EC>
     where
         W: Into<Wf>,
         Self: CommutativeResultExt,
-        WFam: Functor<Inner<W> = Self::LWC>,
+        Self::LWC: InFamily,
+        <Self::LWC as InFamily>::Family: Functor<Inner<W> = Self::LWC>,
     {
-        self.map_cmt_warnings::<_, W, Wf, WFam>(Into::into)
+        self.map_cmt_warnings::<_, W, Wf>(Into::into)
     }
 
     /// Map function over warnings of commutative Result
-    fn map_cmt_warnings<F, W, Wf, WFam>(
+    fn map_cmt_warnings<F, W, Wf>(
         self,
         f: F,
-    ) -> CmtResult<Self::V, Self::P, Self::E, WFam::Inner<Wf>, Self::EC>
+    ) -> CmtResult<Self::V, Self::P, Self::E, FunctorOut<Self::LWC, Wf>, Self::EC>
     where
         F: Fn(W) -> Wf,
         Self: CommutativeResultExt,
-        WFam: Functor<Inner<W> = Self::LWC>,
+        Self::LWC: InFamily,
+        <Self::LWC as InFamily>::Family: Functor<Inner<W> = Self::LWC>,
     {
         self.into_result()
-            .map(|s| s.map_warnings::<_, _, _, WFam>(&f))
-            .map_err(|e| e.map_warnings::<_, _, _, WFam>(f))
+            .map(|s| s.map_warnings(&f))
+            .map_err(|e| e.map_warnings(f))
     }
 
     /// Convert errors in Result
@@ -1278,14 +1303,15 @@ where
     /// Result to non-fungible one, which is generally not a good idea.
     /// See [`*_fung_errors_into`] for functions that will map over warnings
     /// if they are the same type as errors.
-    fn non_fung_errors_into<Ef, EFam>(
+    fn non_fung_errors_into<Ef>(
         self,
-    ) -> LogResult<Self::V, Self::P, Ef, Self::LWC, Self::RWC, EFam::Inner<Ef>>
+    ) -> LogResult<Self::V, Self::P, Ef, Self::LWC, Self::RWC, FunctorOut<Self::EC, Ef>>
     where
         Self::E: Into<Ef>,
-        EFam: Functor<Inner<Self::E> = Self::EC>,
+        Self::EC: InFamily,
+        <Self::EC as InFamily>::Family: Functor<Inner<Self::E> = Self::EC>,
     {
-        self.map_non_fung_errors::<_, _, EFam>(Into::into)
+        self.map_non_fung_errors(Into::into)
     }
 
     /// Map function over errors in Result
@@ -1294,85 +1320,115 @@ where
     /// Result to non-fungible one, which is generally not a good idea.
     /// See [`map_*_fung_errors`] for functions that will map over warnings
     /// if they are the same type as errors.
-    fn map_non_fung_errors<F, Ef, EFam>(
+    fn map_non_fung_errors<F, Ef>(
         self,
         f: F,
-    ) -> LogResult<Self::V, Self::P, Ef, Self::LWC, Self::RWC, EFam::Inner<Ef>>
+    ) -> LogResult<Self::V, Self::P, Ef, Self::LWC, Self::RWC, FunctorOut<Self::EC, Ef>>
     where
         F: Fn(Self::E) -> Ef,
-        EFam: Functor<Inner<Self::E> = Self::EC>,
+        Self::EC: InFamily,
+        <Self::EC as InFamily>::Family: Functor<Inner<Self::E> = Self::EC>,
     {
-        self.into_result()
-            .map_err(|e| e.map_errors::<_, _, EFam>(f))
+        self.into_result().map_err(|e| e.map_errors(f))
     }
 
     /// Convert errors in commutative/fungible Results
-    fn non_cmt_fung_errors_into<Ef, WFam, EFam>(
+    fn non_cmt_fung_errors_into<Ef>(
         self,
-    ) -> LogResult<Self::V, Self::P, Ef, WFam::Inner<Ef>, NeverValue<()>, EFam::Inner<Ef>>
+    ) -> LogResult<
+        Self::V,
+        Self::P,
+        Ef,
+        FunctorOut<Self::LWC, Ef>,
+        NeverValue<()>,
+        FunctorOut<Self::EC, Ef>,
+    >
     where
         Self::E: Into<Ef>,
         Self: NonCommutativeResultExt + FungibleExt,
-        Self::EC: FungibleError<Self::E>,
-        EFam: Functor<Inner<Self::E> = Self::EC>,
-        EFam::Inner<Ef>: FungibleError<Ef>,
-        WFam: Functor<Inner<Self::E> = <Self::EC as FungibleError<Self::E>>::Warn>,
+        Self::EC: FungibleError<Self::E> + InFamily,
+        <Self::EC as InFamily>::Family: Functor<Inner<Self::E> = Self::EC>,
+        <Self::EC as FungibleError<Self::E>>::Warn: InFamily,
+        <<Self::EC as FungibleError<Self::E>>::Warn as InFamily>::Family:
+            Functor<Inner<Self::E> = Self::LWC>,
     {
-        self.map_non_cmt_fung_errors::<_, _, WFam, EFam>(Into::into)
+        self.map_non_cmt_fung_errors(Into::into)
     }
 
     /// Map function over errors in commutative/fungible Results
-    fn cmt_fung_errors_into<Ef, WFam, EFam>(
+    fn cmt_fung_errors_into<Ef>(
         self,
-    ) -> LogResult<Self::V, Self::P, Ef, WFam::Inner<Ef>, WFam::Inner<Ef>, EFam::Inner<Ef>>
+    ) -> LogResult<
+        Self::V,
+        Self::P,
+        Ef,
+        FunctorOut<Self::LWC, Ef>,
+        FunctorOut<Self::LWC, Ef>,
+        FunctorOut<Self::EC, Ef>,
+    >
     where
         Self::E: Into<Ef>,
         Self: CommutativeResultExt + FungibleExt,
-        Self::EC: FungibleError<Self::E>,
-        EFam: Functor<Inner<Self::E> = Self::EC>,
-        EFam::Inner<Ef>: FungibleError<Ef>,
-        WFam: Functor<Inner<Self::E> = <Self::EC as FungibleError<Self::E>>::Warn>,
+        Self::EC: FungibleError<Self::E> + InFamily,
+        <Self::EC as InFamily>::Family: Functor<Inner<Self::E> = Self::EC>,
+        <Self::EC as FungibleError<Self::E>>::Warn: InFamily,
+        <<Self::EC as FungibleError<Self::E>>::Warn as InFamily>::Family:
+            Functor<Inner<Self::E> = Self::LWC>,
     {
-        self.map_cmt_fung_errors::<_, _, WFam, EFam>(Into::into)
+        self.map_cmt_fung_errors(Into::into)
     }
 
     /// Convert errors in non-commutative/fungible Results
-    fn map_non_cmt_fung_errors<F, Ef, WFam, EFam>(
+    fn map_non_cmt_fung_errors<F, Ef>(
         self,
         f: F,
-    ) -> LogResult<Self::V, Self::P, Ef, WFam::Inner<Ef>, NeverValue<()>, EFam::Inner<Ef>>
+    ) -> LogResult<
+        Self::V,
+        Self::P,
+        Ef,
+        FunctorOut<Self::LWC, Ef>,
+        NeverValue<()>,
+        FunctorOut<Self::EC, Ef>,
+    >
     where
         F: Fn(Self::E) -> Ef,
         Self: NonCommutativeResultExt + FungibleExt,
-        Self::EC: FungibleError<Self::E>,
-        EFam: Functor<Inner<Self::E> = Self::EC>,
-        EFam::Inner<Ef>: FungibleError<Ef>,
-        WFam: Functor<Inner<Self::E> = <Self::EC as FungibleError<Self::E>>::Warn>,
+        Self::EC: FungibleError<Self::E> + InFamily,
+        <Self::EC as InFamily>::Family: Functor<Inner<Self::E> = Self::EC>,
+        <Self::EC as FungibleError<Self::E>>::Warn: InFamily,
+        <<Self::EC as FungibleError<Self::E>>::Warn as InFamily>::Family:
+            Functor<Inner<Self::E> = Self::LWC>,
     {
         match self.into_result() {
-            Ok(s) => Ok(s.map_warnings::<_, _, _, WFam>(f)),
-            Err(e) => Err(e.map_errors::<_, _, EFam>(f)),
+            Ok(s) => Ok(s.map_warnings(f)),
+            Err(e) => Err(e.map_errors(f)),
         }
     }
 
     /// Map function over errors in non-commutative/fungible Results
-    fn map_cmt_fung_errors<F, Ef, WFam, EFam>(
+    fn map_cmt_fung_errors<F, Ef>(
         self,
         f: F,
-    ) -> LogResult<Self::V, Self::P, Ef, WFam::Inner<Ef>, WFam::Inner<Ef>, EFam::Inner<Ef>>
+    ) -> LogResult<
+        Self::V,
+        Self::P,
+        Ef,
+        FunctorOut<Self::LWC, Ef>,
+        FunctorOut<Self::LWC, Ef>,
+        FunctorOut<Self::EC, Ef>,
+    >
     where
         F: Fn(Self::E) -> Ef,
         Self: CommutativeResultExt + FungibleExt,
-        Self::EC: FungibleError<Self::E>,
-        EFam: Functor<Inner<Self::E> = Self::EC>,
-        EFam::Inner<Ef>: FungibleError<Ef>,
-        WFam: Functor<Inner<Self::E> = <Self::EC as FungibleError<Self::E>>::Warn>,
+        Self::EC: FungibleError<Self::E> + InFamily,
+        <Self::EC as InFamily>::Family: Functor<Inner<Self::E> = Self::EC>,
+        <Self::EC as FungibleError<Self::E>>::Warn: InFamily,
+        <<Self::EC as FungibleError<Self::E>>::Warn as InFamily>::Family:
+            Functor<Inner<Self::E> = Self::LWC>,
     {
         match self.into_result() {
-            Ok(s) => Ok(s.map_warnings::<_, _, _, WFam>(f)),
-            Err(e) => Err(e
-                .map_errors::<_, _, EFam>(&f)
-                .map_warnings::<_, _, _, WFam>(f)),
+            Ok(s) => Ok(s.map_warnings(f)),
+            Err(e) => Err(e.map_errors(&f).map_warnings(f)),
         }
     }
 

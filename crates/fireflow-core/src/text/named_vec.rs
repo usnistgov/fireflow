@@ -1,7 +1,7 @@
 use crate::data::ColumnError;
 use crate::logging::{
-    CmtResult, CmtResultIter as _, ErrorsResult, Functor, FunctorOut, IntoZeroOrMore, IsKind1,
-    Kind1, LogResult, LogResultExt as _, Pure, ResultExt as _, Semigroup,
+    CmtResult, CmtResultIter as _, ErrorsResult, Functor, FunctorOut, IntoZeroOrMore, Kind1,
+    LogResult, LogResultExt as _, ResultExt as _, Semigroup,
 };
 use crate::text::optional::MightHave;
 use crate::validated::shortname::Shortname;
@@ -494,8 +494,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     >
     where
         F: Fn(IndexedElement<&Shortname, U>) -> LogResult<X, Y, E, LWC, RWC, EC>,
-        EC: IsKind1,
-        EC::Family: Functor<Inner<E> = EC>,
+        EC: Functor<E>,
         LWC: Default,
     {
         match self {
@@ -528,8 +527,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     where
         F: Fn(MeasIndex, V) -> CmtResult<Vf, (), E, WC, EC>,
         WC: Default + Semigroup,
-        EC: IsKind1,
-        EC::Family: Functor<Inner<E> = EC>,
+        EC: Functor<E>,
         <EC::Family as Kind1>::Inner<IndexedElementError<E>>: IntoIterator<Item = IndexedElementError<E>>
             + Extend<IndexedElementError<E>>
             + IntoZeroOrMore<Vec<IndexedElementError<E>>>,
@@ -1573,11 +1571,11 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         stable: LeftSplitStable<K, V>,
     ) -> Option<Self> {
         let new_center = Pair::new(K::to_opt(stable.selected_left_key)?, new_center_value);
-        let new_right_value = Pair::new(K::wrap(stable.center_key), new_right_value);
+        let new_right_pair = Pair::new(K::wrap(stable.center_key), new_right_value);
         let new_right = stable
             .left_right
             .into_iter()
-            .chain([new_right_value])
+            .chain([new_right_pair])
             .chain(stable.right)
             .collect();
         Some(Self::new_split(stable.left_left, new_center, new_right))
@@ -1605,11 +1603,11 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         stable: RightSplitStable<K, V>,
     ) -> Option<Self> {
         let new_center = Pair::new(K::to_opt(stable.selected_right_key)?, new_center_value);
-        let new_left_value = Pair::new(K::wrap(stable.center_key), new_left_value);
+        let new_left_pair = Pair::new(K::wrap(stable.center_key), new_left_value);
         let new_left = stable
             .left
             .into_iter()
-            .chain([new_left_value])
+            .chain([new_left_pair])
             .chain(stable.right_left)
             .collect();
         Some(Self::new_split(new_left, new_center, stable.right_right))

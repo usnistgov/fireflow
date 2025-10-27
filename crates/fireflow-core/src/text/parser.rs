@@ -433,7 +433,7 @@ where
                 maybe.map_or(Result::new_ok(None), |x| {
                     Self::check_link(&x, names)
                         .map(|()| x)
-                        .into_deferred_fungible_opt(!conf.allow_optional_dropping)
+                        .into_deferred_fungible_opt::<Vec<_>>(!conf.allow_optional_dropping)
                         .cmt_fung_errors_into()
                 })
             })
@@ -460,7 +460,7 @@ where
 {
     parse_opt(k.clone(), v)
         .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
-        .into_deferred_fungible_opt(!conf.allow_optional_dropping)
+        .into_deferred_fungible_opt::<Vec<_>>(!conf.allow_optional_dropping)
         .cmt_fung_errors_into()
         .eval_def_fung_error(!conf.disallow_deprecated, |val| {
             (is_deprecated && val.is_some())
@@ -489,7 +489,7 @@ where
 {
     parse_opt_st(k.clone(), v, data, conf)
         .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
-        .into_deferred_fungible_opt(!conf.allow_optional_dropping)
+        .into_deferred_fungible_opt::<Vec<_>>(!conf.allow_optional_dropping)
         .cmt_fung_errors_into()
         .eval_def_fung_error(!conf.disallow_deprecated, |val| {
             (is_deprecated && val.is_some())

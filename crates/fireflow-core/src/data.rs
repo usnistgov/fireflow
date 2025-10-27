@@ -53,8 +53,8 @@ use crate::core::{AsScaleTransform, LayoutConvertResult, Measurements, ScaleTran
 use crate::logging::{
     CmtResultIter as _, DeferredErrors, DeferredFungibleError, DeferredFungibleErrors,
     DeferredIOError, DeferredIter as _, DeferredWarningAndError, DeferredWarningsAndError,
-    DeferredWarningsAndErrors, ErrorsResult, IOErrorResult, IOWarningsAndErrorsResult, ImpureError,
-    LogResultExt, ResultExt as _, VecFamily, WarningOrErrorResult, WarningsAndErrorsResult,
+    ErrorsResult, IOErrorResult, IOWarningsAndErrorsResult, ImpureError, LogResultExt,
+    ResultExt as _, WarningOrErrorResult, WarningsAndErrorsResult,
 };
 use crate::macros::match_many_to_one;
 use crate::nonempty::FCSNonEmpty;
@@ -63,6 +63,7 @@ use crate::segment::{
     SegmentMismatchWarning,
 };
 
+use crate::text::optional::NeverValue;
 use crate::text::{
     byteord::{
         BitsOrChars, ByteOrd2_0, ByteOrd3_1, ByteOrdToSizedEndianError, ByteOrdToSizedError, Bytes,
@@ -395,8 +396,8 @@ pub trait MeasDatatypeDef {
         RawParsedError,
     > {
         Par::get_metaroot_req(kws)
+            .map_err(RawParsedError::from)
             .into_log()
-            .map_non_fung_errors(RawParsedError::from)
             .and_then_cmt(|par| {
                 (0..par.0)
                     .map(|i| Self::lookup_one_ro(kws, i.into()))
@@ -438,7 +439,7 @@ pub trait MeasDatatypeDef {
             .nowarn_into_warn()
             .and_then_cmt(|(width, range)| {
                 Self::lookup_datatype_ro(kws, i)
-                    .repack()
+                    .repack::<_, _, Vec<_>>()
                     .map_ok_value(|datatype| ColumnLayoutValues::new(width, range, datatype))
                     .map_non_fung_errors(RawParsedError::from)
                     .set_err_value(())
@@ -1951,7 +1952,7 @@ impl<D> EndianLayout<NullMixedType, D> {
             let byte_layout = self.byte_layout;
             match c0 {
                 MixedType::Ascii(x) => it
-                    .map(|(i, c)| c.try_into().map_err(|e| (i, e)).into_log())
+                    .map(|(i, c)| c.try_into().map_err(|e| (i, e)).into_log::<_, _, Vec<_>>())
                     .mappend_cmt()
                     .map_ok_value(|xs| FixedLayout::new1(x, xs, NoByteOrd))
                     .map_ok_value(|l| AnyAsciiLayout::Fixed(l).into()),
@@ -2045,7 +2046,7 @@ impl<T, const LEN: usize> FloatRange<T, LEN> {
         T: HasFloatBounds,
     {
         Bytes::try_from(width)
-            .into_log()
+            .into_log::<_, _, Vec<_>>()
             .non_fung_errors_into()
             .and_then_cmt(|bytes| {
                 if usize::from(u8::from(bytes)) == LEN {
@@ -2137,7 +2138,7 @@ impl AnyNullBitmask {
     ) -> WarningsAndErrorsResult<Self, (), BitmaskError, NewUintTypeError> {
         width
             .try_into()
-            .into_log()
+            .into_log::<_, _, Vec<_>>()
             .map_non_fung_errors(NewUintTypeError::from)
             .and_then_cmt(|bytes| {
                 Self::new1(bytes, range, disallow_trunc)
@@ -2615,7 +2616,7 @@ where
                     .map_cmt_warnings(ReadDataframeWarning::from)
                     .map_non_fung_errors(ReadDataframeError::from)
                     .map_non_fung_errors(ImpureError::Pure)
-                    .repack::<_, _, VecFamily>();
+                    .repack::<_, _, Vec<_>>();
                 let nn = usize::try_from(n).expect("nrows exceeds usize");
                 let read_res = self
                     .h_read_unchecked_df(h, nn, buf)
@@ -2902,7 +2903,8 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             if remainder > 0 {
                 let e = UnevenEventWidth::new(w, n, remainder);
                 let is_err = !conf.allow_uneven_event_width;
-                Result::new_fungible(total_events, (), e, is_err).non_fung_errors_into()
+                Result::new_fungible::<_, _, NeverValue<_>>(total_events, (), e, is_err)
+                    .non_fung_errors_into()
             } else {
                 Result::new_ok(total_events)
             }
@@ -3143,7 +3145,7 @@ impl FromRange for NullMixedType {
                             f64::min_decimal()
                         };
                         let f = Self::F64(FloatRange::new(m));
-                        Result::new_deferred_fungible(f, e, disallow_trunc)
+                        Result::new_deferred_fungible::<_, Vec<_>>(f, e, disallow_trunc)
                     },
                     Result::new_ok,
                 );
@@ -3322,14 +3324,14 @@ impl<T> AnyOrderedUintLayout<T> {
             cs.iter()
                 .map(|c| c.width)
                 .map(Bytes::try_from)
-                .map(Result::into_log)
+                .map(Result::into_log::<_, _, Vec<_>>)
                 .mappend_cmt()
                 .map_non_fung_errors(SingleFixedWidthError::from)
                 .and_then_cmt(|widths| {
                     let ws = widths.into_iter().filter(|&w| w != n);
                     if let Some(mismatches) = NonEmpty::collect(ws) {
                         let e = WidthMismatchError::new(real_bo, mismatches);
-                        Result::new_err1(SingleFixedWidthError::from(e))
+                        Result::new_err1::<_, _, Vec<_>>(SingleFixedWidthError::from(e))
                     } else {
                         Result::new_ok(())
                     }
@@ -3932,7 +3934,10 @@ impl<T> AnyOrderedLayout<T> {
         }
         let res = match self {
             Self::Ascii(x) => Result::new_ok(NonMixedEndianLayout::from(x.phantom_into())),
-            Self::Integer(x) => x.into_endian().map(NonMixedEndianLayout::from).into_log(),
+            Self::Integer(x) => x
+                .into_endian()
+                .map(NonMixedEndianLayout::from)
+                .into_log::<_, _, Vec<_>>(),
             Self::F32(x) => go_float!(x),
             Self::F64(x) => go_float!(x),
         };

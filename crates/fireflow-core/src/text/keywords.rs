@@ -846,7 +846,7 @@ impl<I> RegionGateIndex<I> {
             if let Some(x) = maybe {
                 Self::check_link(&x, par)
                     .map(|()| x)
-                    .into_deferred_fungible_opt(!conf.allow_optional_dropping)
+                    .into_deferred_fungible_opt::<Vec<_>>(!conf.allow_optional_dropping)
                     .cmt_fung_errors_into()
             } else {
                 Result::new_ok_def()

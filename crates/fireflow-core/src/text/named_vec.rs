@@ -1,6 +1,6 @@
 use crate::data::ColumnError;
 use crate::logging::{
-    CmtResult, CmtResultIter as _, ErrorsResult, Functor, FunctorOut, InFamily, IntoZeroOrMore,
+    CmtResult, CmtResultIter as _, ErrorsResult, Functor, FunctorOut, IntoZeroOrMore, IsKind1,
     Kind1, LogResult, LogResultExt as _, Pure, ResultExt as _, Semigroup,
 };
 use crate::text::optional::MightHave;
@@ -494,7 +494,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     >
     where
         F: Fn(IndexedElement<&Shortname, U>) -> LogResult<X, Y, E, LWC, RWC, EC>,
-        EC: InFamily,
+        EC: IsKind1,
         EC::Family: Functor<Inner<E> = EC>,
         LWC: Default,
     {
@@ -528,7 +528,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     where
         F: Fn(MeasIndex, V) -> CmtResult<Vf, (), E, WC, EC>,
         WC: Default + Semigroup,
-        EC: InFamily,
+        EC: IsKind1,
         EC::Family: Functor<Inner<E> = EC>,
         <EC::Family as Kind1>::Inner<IndexedElementError<E>>: IntoIterator<Item = IndexedElementError<E>>
             + Extend<IndexedElementError<E>>

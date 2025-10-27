@@ -260,7 +260,7 @@ where
             |other| {
                 let (seg, warn) = default.unless(other);
                 warn.map_or(Result::new_ok(seg), |w| {
-                    Result::new_fungible(seg, (), w, !allow_mismatch)
+                    Result::new_fungible::<_, _, Vec<_>>(seg, (), w, !allow_mismatch)
                         .non_cmt_into_cmt()
                         .map_cmt_warnings(ReqSegmentWithDefaultWarning::from)
                         .map_non_fung_errors(ReqSegmentWithDefaultError::from)
@@ -329,8 +329,8 @@ where
             .and_then_cmt(|pair| {
                 pair.map(|(z0, z1)| {
                     Segment::try_new(z0, z1, conf)
+                        .map_err(OptSegmentError::from)
                         .into_log()
-                        .non_fung_errors_into()
                 })
                 .transpose_log_result()
             })
@@ -397,7 +397,7 @@ where
                 other.map_or(Result::new_ok(def), |o| {
                     let (seg, warn) = default.unless(o);
                     warn.map_or(Result::new_ok(seg), |w| {
-                        Result::new_fungible(seg, def, w.into(), !allow_mismatch)
+                        Result::new_fungible::<_, _, Vec<_>>(seg, def, w.into(), !allow_mismatch)
                     })
                 })
             },
@@ -777,8 +777,8 @@ impl<I: Copy> HeaderSegment<I> {
         let end_res = parse_one(bs1, false).into_nowarn1();
         begin_res.zip_cmt(end_res).and_then_cmt(|(begin, end)| {
             Self::try_new_squish(begin, end, squish_offsets, conf)
+                .map_err(HeaderSegmentError::from)
                 .into_log()
-                .non_fung_errors_into()
         })
     }
 
@@ -838,8 +838,8 @@ impl OtherSegment20 {
         let end_res = parse_one(bs1, false).into_nowarn1();
         begin_res.zip_cmt(end_res).and_then_cmt(|(begin, end)| {
             Self::try_new(begin, end, conf)
+                .map_err(HeaderSegmentError::from)
                 .into_log()
-                .non_fung_errors_into()
         })
     }
 }

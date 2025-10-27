@@ -1,7 +1,7 @@
 #![allow(clippy::type_complexity)]
 
 use crate::config::SharedConfig;
-use crate::text::optional::NeverValue;
+use crate::text::optional::{AlwaysValue, NeverValue};
 
 use derive_new::new;
 use std::convert::Infallible;
@@ -112,10 +112,6 @@ pub struct ErrorSummary<E, S> {
     pub errors: GenNonEmpty<E, Vec<E>>,
 }
 
-// TODO eventually will want to make a boxable version of this, which will
-// likely involve a higher-kinded type which is either a box or dumb newtype
-// wrapper. tail doesn't need box because the only two values (for now) are
-// vec and nevervalue, and the former is heap anyways.
 #[derive(new)]
 pub struct GenNonEmpty<X, C> {
     head: X,
@@ -130,7 +126,31 @@ pub enum ImpureError<E> {
     Pure(E),
 }
 
+// TODO remove this once rust gets specialization, which will allow implementing
+// Functor on the inner type itself while allowing the non-inner-Functor impl
+// to exist without conflict
+#[derive(Clone, Default)]
+pub struct BoxedOption<T>(pub Option<Box<T>>);
+
+impl<T> From<BoxedOption<T>> for Option<T> {
+    fn from(value: BoxedOption<T>) -> Self {
+        value.0.map(|x| *x)
+    }
+}
+
+impl<T> From<Option<T>> for BoxedOption<T> {
+    fn from(value: Option<T>) -> Self {
+        Self(value.map(Box::new))
+    }
+}
+
 pub struct OptFamily;
+
+pub struct BoxedOptFamily;
+
+pub struct BoxFamily;
+
+pub struct IdFamily;
 
 pub struct VecFamily;
 
@@ -151,7 +171,7 @@ pub trait Functor<X>: Sized + IsKind1 {
 }
 
 pub trait Pure<X>: Functor<X> {
-    fn wrap(x: X) -> Self;
+    fn pure(x: X) -> Self;
 }
 
 pub trait Concatable {
@@ -161,54 +181,38 @@ pub trait Concatable {
 
 pub trait Semigroup: Concatable<Out = Self> {}
 
-pub trait FungibleError<E>: Sized {
-    type Warn;
+pub trait FungibleError<E>: Sized + IsKind1 {
+    type Warn: Pure<E>;
 
     fn errors_to_warnings(errors: GenNonEmpty<E, Self>) -> Self::Warn;
 
-    // reinvention of Pure without the need to use a type family which will
-    // probably be simpler for most cases where this is used
-    fn error_to_warning(error: E) -> Self::Warn;
+    fn error_to_warning(error: E) -> Self::Warn {
+        Self::Warn::pure(error)
+    }
 }
-
-// pub trait FungibleErrorFamily: Kind1 {
-//     type WarnFam: Kind1;
-
-//     fn errors_to_warnings<E>(
-//         errors: GenNonEmpty<E, Self::Inner<E>>,
-//     ) -> <Self::WarnFam as Kind1>::Inner<E>
-//     where
-//         Self::WarnFam: Kind1<Inner<E> = <Self::Inner<E> as FungibleError>::Warn>,
-//         Self::Inner<E>: FungibleError;
-// }
 
 pub trait IntoZeroOrMore<Other> {
     fn into_zero_or_more(self) -> Other;
 }
 
-impl Kind1 for NullFamily {
-    type Inner<T> = NeverValue<T>;
+macro_rules! impl_kind1 {
+    ($f:ident, $t:ident) => {
+        impl Kind1 for $f {
+            type Inner<T> = $t<T>;
+        }
+
+        impl<T> IsKind1 for $t<T> {
+            type Family = $f;
+        }
+    };
 }
 
-impl Kind1 for OptFamily {
-    type Inner<T> = Option<T>;
-}
-
-impl Kind1 for VecFamily {
-    type Inner<T> = Vec<T>;
-}
-
-impl<T> IsKind1 for NeverValue<T> {
-    type Family = NullFamily;
-}
-
-impl<T> IsKind1 for Vec<T> {
-    type Family = VecFamily;
-}
-
-impl<T> IsKind1 for Option<T> {
-    type Family = OptFamily;
-}
+impl_kind1!(NullFamily, NeverValue);
+impl_kind1!(IdFamily, AlwaysValue);
+impl_kind1!(BoxFamily, Box);
+impl_kind1!(BoxedOptFamily, BoxedOption);
+impl_kind1!(OptFamily, Option);
+impl_kind1!(VecFamily, Vec);
 
 impl<X> Functor<X> for NeverValue<X> {
     fn fmap<F, Y>(self, _: F) -> NeverValue<Y>
@@ -219,12 +223,39 @@ impl<X> Functor<X> for NeverValue<X> {
     }
 }
 
+impl<X> Functor<X> for AlwaysValue<X> {
+    fn fmap<F, Y>(self, f: F) -> AlwaysValue<Y>
+    where
+        F: Fn(X) -> Y,
+    {
+        AlwaysValue(f(self.0))
+    }
+}
+
+impl<X> Functor<X> for Box<X> {
+    fn fmap<F, Y>(self, f: F) -> Box<Y>
+    where
+        F: Fn(X) -> Y,
+    {
+        Box::new(f(*self))
+    }
+}
+
 impl<X> Functor<X> for Option<X> {
     fn fmap<F, Y>(self, f: F) -> Option<Y>
     where
         F: Fn(X) -> Y,
     {
         self.map(f)
+    }
+}
+
+impl<X> Functor<X> for BoxedOption<X> {
+    fn fmap<F, Y>(self, f: F) -> BoxedOption<Y>
+    where
+        F: Fn(X) -> Y,
+    {
+        Option::from(self).fmap(f).into()
     }
 }
 
@@ -269,14 +300,44 @@ impl<T> IntoZeroOrMore<Vec<T>> for Option<T> {
     }
 }
 
+impl<T> IntoZeroOrMore<Vec<T>> for BoxedOption<T> {
+    fn into_zero_or_more(self) -> Vec<T> {
+        Option::from(self).into_zero_or_more()
+    }
+}
+
+impl<T> IntoZeroOrMore<Box<T>> for AlwaysValue<T> {
+    fn into_zero_or_more(self) -> Box<T> {
+        Box::new(self.0)
+    }
+}
+
+impl<T> IntoZeroOrMore<AlwaysValue<T>> for Box<T> {
+    fn into_zero_or_more(self) -> AlwaysValue<T> {
+        AlwaysValue(*self)
+    }
+}
+
+impl<X> Pure<X> for AlwaysValue<X> {
+    fn pure(x: X) -> Self {
+        Self(x)
+    }
+}
+
 impl<X> Pure<X> for Option<X> {
-    fn wrap(x: X) -> Self {
+    fn pure(x: X) -> Self {
         Some(x)
     }
 }
 
+impl<X> Pure<X> for BoxedOption<X> {
+    fn pure(x: X) -> Self {
+        Some(x).into()
+    }
+}
+
 impl<X> Pure<X> for Vec<X> {
-    fn wrap(x: X) -> Self {
+    fn pure(x: X) -> Self {
         vec![x]
     }
 }
@@ -292,6 +353,13 @@ impl<T> Concatable for Option<T> {
     type Out = Vec<T>;
     fn concat(self, other: Self) -> Self::Out {
         self.into_iter().chain(other).collect()
+    }
+}
+
+impl<T> Concatable for BoxedOption<T> {
+    type Out = Vec<T>;
+    fn concat(self, other: Self) -> Self::Out {
+        Option::from(self).concat(Option::from(other))
     }
 }
 
@@ -937,7 +1005,7 @@ pub trait ResultExt: Sized {
         LWC: Default + Pure<Self::Error>,
     {
         let ret = self.into_result().map_or_else(
-            |e| Success::new(Self::Ok::default(), LWC::wrap(e)),
+            |e| Success::new(Self::Ok::default(), LWC::pure(e)),
             Success::new1,
         );
         Ok(ret)

@@ -92,10 +92,8 @@ pub type FungibleResult<V, P, E, RWC, EC> =
 
 pub type LogResult<V, P, E, LWC, RWC, EF> = Result<Success<V, LWC>, Failure<P, E, RWC, EF>>;
 
-// pub struct Tentative<V, P, I, IC: ZeroOrMore>(NowarnResult<V, P, I, IC>);
-
 #[derive(new)]
-// #[new(visibility = "")]
+#[new(visibility = "")]
 pub struct Success<V, WC> {
     value: V,
     warnings: WC,
@@ -131,14 +129,6 @@ pub enum ImpureError<E> {
     #[error("{0}")]
     Pure(E),
 }
-
-// /// Named unit type to use as the Err value at the top of the call stack.
-// ///
-// /// This is to prevent ambiguous return types like `ErrorsResult<(), (), E>`
-// /// which technically is a deferred result and thus the Err side could be
-// /// accidentally executed.
-// #[derive(Default)]
-// pub struct Term;
 
 pub struct OptFamily;
 
@@ -341,31 +331,6 @@ impl<E> FungibleError<E> for Vec<E> {
     }
 }
 
-// impl FungibleErrorFamily for VecFamily {
-//     fn errors_to_warnings<E>(errors: GenNonEmpty<E, Self::Inner<E>>) -> Vec<E> {
-//         errors.into_iter().collect()
-//     }
-// }
-
-// impl FungibleErrorFamily for NullFamily {
-//     fn errors_to_warnings<E>(errors: GenNonEmpty<E, Self::Inner<E>>) -> Option<E> {
-//         Some(errors.head)
-//     }
-// }
-
-// impl<V, I, IC: ZeroOrMore> Tentative<V, I, IC> {
-//     pub(crate) fn into_ok<RW, RWC>(self, default: V) -> FungibleResult<V, (), RW, I, RWC, IC>
-//     where
-//         RWC: ZeroOrMore,
-//     {
-//         let ret = match self.0 {
-//             Ok(s) => Success::new(s.value, s.warnings),
-//             Err(f) => Success::new(default, f.errors),
-//         };
-//         Ok(ret)
-//     }
-// }
-
 impl<V, WC> Success<V, WC> {
     pub(crate) fn new1(value: V) -> Self
     where
@@ -420,15 +385,6 @@ impl<V, WC> Success<V, WC> {
             self.push_warning(e);
         }
     }
-
-    // pub(crate) fn and_then<F, Vf>(self, f: F) -> Success<Vf, W, WC>
-    // where
-    //     F: FnOnce(V) -> Success<Vf, W, WC>,
-    //     WC::Inner<W>: Semigroup,
-    // {
-    //     let other = f(self.value);
-    //     Success::new(other.value, self.warnings.concat(other.warnings))
-    // }
 
     pub(crate) fn and_maybe<F, ToV, P, E, WCf, EC>(self, f: F) -> CmtResult<ToV, P, E, WCf, EC>
     where
@@ -621,16 +577,6 @@ impl<P, E, WC, EC> Failure<P, E, WC, EC> {
         self.errors.extend(es);
     }
 
-    // fn eval_error<F>(&mut self, f: F)
-    // where
-    //     F: FnOnce(&P) -> Option<E>,
-    //     EC::Inner<E>: Extend<E>,
-    // {
-    //     if let Some(e) = f(&self.value) {
-    //         self.push_error(e);
-    //     }
-    // }
-
     fn with_value<F, V, Pf, WCf, EC1>(mut self, f: F) -> CmtResult<V, Pf, E, WCf, EC>
     where
         F: FnOnce(P) -> CmtResult<V, Pf, E, WC, EC1>,
@@ -683,13 +629,6 @@ impl<P, E, WC, EC> Failure<P, E, WC, EC> {
         Failure::new(self.warnings, es, self.value)
     }
 
-    // fn summarize_errors<S>(self, summary: S) -> Failure<P, W, ErrorSummary<E, S>, WC, NullFamily>
-    // where
-    //     EC: IntoZeroOrMore<VecFamily>,
-    // {
-    //     self.aggregate_errors(|es| ErrorSummary::new(summary, es.into_zero_or_more()))
-    // }
-
     fn with_success<F, V, PF, WCf>(self, other: Success<V, WC>, f: F) -> Failure<PF, E, WCf, EC>
     where
         F: FnOnce(P, V) -> PF,
@@ -733,16 +672,6 @@ impl<P, E, EC> Failure<P, E, NeverValue<()>, EC> {
         Failure::new_from_many(self.errors, self.value)
     }
 }
-
-// impl<W, E, P, WC: ZeroOrMore> Failure<P, W, E, WC, NullFamily> {
-//     fn resolve<F, G, X, Y>(self, f: F, g: G) -> (X, Y)
-//     where
-//         F: FnOnce(WC::Inner<W>) -> X,
-//         G: FnOnce(E) -> Y,
-//     {
-//         (f(self.warnings), g(self.errors.head))
-//     }
-// }
 
 impl<T, C> Extend<T> for GenNonEmpty<T, C>
 where
@@ -790,28 +719,6 @@ impl<T, C> GenNonEmpty<T, C> {
     {
         GenNonEmpty::new(self.head, self.tail.into_zero_or_more())
     }
-
-    // fn prepend<I>(&mut self, other: I)
-    // where
-    //     I: IntoIterator<Item = T>,
-    //     C::Inner<T>: Extend<T>,
-    // {
-    //     let mut it = other.into_iter();
-    //     if let Some(x0) = it.by_ref().next() {
-    //         let mut new = GenNonEmpty::new1(x0);
-    //         new.extend(it);
-    //         let oldself = mem::replace(self, new);
-    //         self.extend(oldself.into_iter());
-    //     }
-    // }
-
-    // fn into_zero_or_more<Fi, Ff>(self) -> GenNonEmpty<T, Ff::Inner<T>>
-    // where
-    //     Ff: ZeroOrMore,
-    //     Fi: IntoZeroOrMore<Ff> + ZeroOrMore<Inner<T> = C>,
-    // {
-    //     GenNonEmpty::new(self.head, C::into_zero_or_more(self.tail))
-    // }
 }
 
 impl<E, C> From<(E, C)> for GenNonEmpty<E, C> {
@@ -824,15 +731,6 @@ pub trait OptionExt: Sized {
     type Inner;
 
     fn into_option(self) -> Option<Self::Inner>;
-
-    // fn transpose_success<V, W, WC>(self) -> Success<Option<V>, W, WC>
-    // where
-    //     Self: OptionExt<Inner = Success<V, W, WC>>,
-    //     WC: ZeroOrMore,
-    // {
-    //     self.into_option()
-    //         .map_or(Success::new1(None), |x| x.map_value(Some))
-    // }
 
     fn transpose_log_result<V, P, E, LWC, RWC, EC>(self) -> LogResult<Option<V>, P, E, LWC, RWC, EC>
     where
@@ -1082,7 +980,7 @@ impl<V, E> ResultExt for Result<V, E> {
     }
 }
 
-pub(crate) type FunctorOut<C, T> = <<C as IsKind1>::Family as Kind1>::Inner<T>;
+pub(crate) type Mapped<C, T> = <<C as IsKind1>::Family as Kind1>::Inner<T>;
 
 pub trait LogResultExt
 where
@@ -1231,7 +1129,7 @@ where
     /// Convert warnings of a non-commutative Result
     fn non_cmt_warnings_into<W, Wf>(
         self,
-    ) -> LogResult<Self::V, Self::P, Self::E, FunctorOut<Self::LWC, Wf>, Self::RWC, Self::EC>
+    ) -> LogResult<Self::V, Self::P, Self::E, Mapped<Self::LWC, Wf>, Self::RWC, Self::EC>
     where
         Self: NonCommutativeResultExt,
         W: Into<Wf>,
@@ -1244,7 +1142,7 @@ where
     fn map_non_cmt_warnings<F, W, Wf>(
         self,
         f: F,
-    ) -> LogResult<Self::V, Self::P, Self::E, FunctorOut<Self::LWC, Wf>, Self::RWC, Self::EC>
+    ) -> LogResult<Self::V, Self::P, Self::E, Mapped<Self::LWC, Wf>, Self::RWC, Self::EC>
     where
         Self: NonCommutativeResultExt,
         F: Fn(W) -> Wf,
@@ -1256,7 +1154,7 @@ where
     /// Convert warnings of commutative Result
     fn cmt_warnings_into<W, Wf>(
         self,
-    ) -> CmtResult<Self::V, Self::P, Self::E, FunctorOut<Self::LWC, Wf>, Self::EC>
+    ) -> CmtResult<Self::V, Self::P, Self::E, Mapped<Self::LWC, Wf>, Self::EC>
     where
         W: Into<Wf>,
         Self: CommutativeResultExt,
@@ -1269,7 +1167,7 @@ where
     fn map_cmt_warnings<F, W, Wf>(
         self,
         f: F,
-    ) -> CmtResult<Self::V, Self::P, Self::E, FunctorOut<Self::LWC, Wf>, Self::EC>
+    ) -> CmtResult<Self::V, Self::P, Self::E, Mapped<Self::LWC, Wf>, Self::EC>
     where
         F: Fn(W) -> Wf,
         Self: CommutativeResultExt,
@@ -1288,7 +1186,7 @@ where
     /// if they are the same type as errors.
     fn non_fung_errors_into<Ef>(
         self,
-    ) -> LogResult<Self::V, Self::P, Ef, Self::LWC, Self::RWC, FunctorOut<Self::EC, Ef>>
+    ) -> LogResult<Self::V, Self::P, Ef, Self::LWC, Self::RWC, Mapped<Self::EC, Ef>>
     where
         Self::E: Into<Ef>,
         Self::EC: Functor<Self::E>,
@@ -1305,7 +1203,7 @@ where
     fn map_non_fung_errors<F, Ef>(
         self,
         f: F,
-    ) -> LogResult<Self::V, Self::P, Ef, Self::LWC, Self::RWC, FunctorOut<Self::EC, Ef>>
+    ) -> LogResult<Self::V, Self::P, Ef, Self::LWC, Self::RWC, Mapped<Self::EC, Ef>>
     where
         F: Fn(Self::E) -> Ef,
         Self::EC: Functor<Self::E>,
@@ -1316,14 +1214,7 @@ where
     /// Convert errors in commutative/fungible Results
     fn non_cmt_fung_errors_into<Ef>(
         self,
-    ) -> LogResult<
-        Self::V,
-        Self::P,
-        Ef,
-        FunctorOut<Self::LWC, Ef>,
-        NeverValue<()>,
-        FunctorOut<Self::EC, Ef>,
-    >
+    ) -> LogResult<Self::V, Self::P, Ef, Mapped<Self::LWC, Ef>, NeverValue<()>, Mapped<Self::EC, Ef>>
     where
         Self::E: Into<Ef>,
         Self: NonCommutativeResultExt + FungibleExt,
@@ -1340,9 +1231,9 @@ where
         Self::V,
         Self::P,
         Ef,
-        FunctorOut<Self::LWC, Ef>,
-        FunctorOut<Self::LWC, Ef>,
-        FunctorOut<Self::EC, Ef>,
+        Mapped<Self::LWC, Ef>,
+        Mapped<Self::LWC, Ef>,
+        Mapped<Self::EC, Ef>,
     >
     where
         Self::E: Into<Ef>,
@@ -1357,14 +1248,7 @@ where
     fn map_non_cmt_fung_errors<F, Ef>(
         self,
         f: F,
-    ) -> LogResult<
-        Self::V,
-        Self::P,
-        Ef,
-        FunctorOut<Self::LWC, Ef>,
-        NeverValue<()>,
-        FunctorOut<Self::EC, Ef>,
-    >
+    ) -> LogResult<Self::V, Self::P, Ef, Mapped<Self::LWC, Ef>, NeverValue<()>, Mapped<Self::EC, Ef>>
     where
         F: Fn(Self::E) -> Ef,
         Self: NonCommutativeResultExt + FungibleExt,
@@ -1385,9 +1269,9 @@ where
         Self::V,
         Self::P,
         Ef,
-        FunctorOut<Self::LWC, Ef>,
-        FunctorOut<Self::LWC, Ef>,
-        FunctorOut<Self::EC, Ef>,
+        Mapped<Self::LWC, Ef>,
+        Mapped<Self::LWC, Ef>,
+        Mapped<Self::EC, Ef>,
     >
     where
         F: Fn(Self::E) -> Ef,
@@ -1710,35 +1594,6 @@ where
             s.eval_warning(f);
         }
     }
-
-    // /// Push a warning based on the Ok value of a non-commutative Result.
-    // ///
-    // /// Does nothing if result is Error since warnings cannot be stored on
-    // /// the error side by definition.
-    // fn eval_non_cmt_warning<F>(&mut self, f: F)
-    // where
-    //     F: FnOnce(&Self::V) -> Option<Self::LW>,
-    //     <Self::LWC as ZeroOrMore>::Inner<Self::LW>: Extend<Self::LW>,
-    //     Self: NonCommutativeResultExt,
-    // {
-    //     if let Ok(s) = self.as_result_mut() {
-    //         s.eval_warning(f)
-    //     }
-    // }
-
-    // TODO this function likely is nonsense because it does nothing by
-    // definition for the Error side despite a warning being explicitly given,
-    // which suggests the warning is legit and should be recorded.
-
-    // fn push_non_cmt_warning(&mut self, w: Self::LW)
-    // where
-    //     <Self::LWC as ZeroOrMore>::Inner<Self::LW>: Extend<Self::LW>,
-    //     Self: NonCommutativeResultExt,
-    // {
-    //     if let Ok(s) = self.as_result_mut() {
-    //         s.push_warning(w)
-    //     }
-    // }
 
     /// Push a warning based on the value in a deferred Result.
     ///

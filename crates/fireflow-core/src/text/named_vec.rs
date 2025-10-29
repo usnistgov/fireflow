@@ -104,7 +104,7 @@ type Either<K, U, V> = Element<(Shortname, U), (K, V)>;
 
 pub type EitherPair<K, U, V> = Element<Pair<Shortname, U>, Pair<K, V>>;
 
-#[derive(From, Into)]
+#[derive(Clone, From, Into)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 pub struct Eithers<K, U, V>(pub Vec<Either<K, U, V>>);
 
@@ -1680,17 +1680,6 @@ impl<K, U, V> NamedVec<K, U, V> {
 
     fn new_unsplit(members: PairedVec<K, V>) -> Self {
         Self::Unsplit(UnsplitVec { members })
-    }
-}
-
-impl<K, U, V> Clone for Eithers<K, U, V>
-where
-    K: Clone,
-    U: Clone,
-    V: Clone,
-{
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
     }
 }
 

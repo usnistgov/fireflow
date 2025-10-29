@@ -1,5 +1,5 @@
 use crate::config::StdTextReadConfig;
-use crate::logging::{DeferredFungibleError, LogResultExt as _, ResultExt as _};
+use crate::logging::{DeferredFungibleError, LogResult, ResultExt as _};
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
 use crate::validated::ascii_uint::UintZeroPad20;
@@ -15,7 +15,8 @@ use super::gating;
 use super::index::{GateIndex, MeasIndex, RegionIndex};
 use super::named_vec::NameMapping;
 use super::optional::{
-    CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString, OptionalZST,
+    AlwaysValue, CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString,
+    OptionalZST,
 };
 use super::parser::{
     DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful, LookupKeysWarning,
@@ -83,9 +84,9 @@ impl Timestep {
         allow_loss: bool,
     ) -> DeferredFungibleError<(), TimestepLossError> {
         if !self.0.is_one() {
-            Result::new_deferred_fungible((), TimestepLossError(self), !allow_loss)
+            LogResult::new_deferred_fungible((), TimestepLossError(self), !allow_loss)
         } else {
-            Result::new_ok(())
+            LogResult::new_ok(())
         }
     }
 }
@@ -555,13 +556,13 @@ impl Wavelengths {
         self,
         allow_loss: bool,
     ) -> DeferredFungibleError<Option<Wavelength>, WavelengthsLossError> {
-        NonEmpty::from_vec(self.0).map_or(Result::new_ok_def(), |ws| {
+        NonEmpty::from_vec(self.0).map_or(LogResult::new_ok_def(), |ws| {
             let ret = Some(Wavelength(ws.head));
             let n = ws.len();
             if n > 1 {
-                Result::new_deferred_fungible(ret, WavelengthsLossError(n), !allow_loss)
+                LogResult::new_deferred_fungible(ret, WavelengthsLossError(n), !allow_loss)
             } else {
-                Result::new_ok(ret)
+                LogResult::new_ok(ret)
             }
         })
     }
@@ -846,10 +847,12 @@ impl<I> RegionGateIndex<I> {
             if let Some(x) = maybe {
                 Self::check_link(&x, par)
                     .map(|()| x)
-                    .into_deferred_fungible_opt::<Vec<_>>(!conf.allow_optional_dropping)
+                    .into_deferred_fungible_opt::<AlwaysValue<_>, Vec<_>>(
+                        !conf.allow_optional_dropping,
+                    )
                     .cmt_fung_errors_into()
             } else {
-                Result::new_ok_def()
+                LogResult::new_ok_def()
             }
             .map_ok_value(Into::into)
         })
@@ -1345,8 +1348,8 @@ impl Range {
             },
             |x| (x, None),
         );
-        err.map_or(Result::new_ok(b), |e| {
-            Result::new_deferred_fungible(b, e, disallow_trunc)
+        err.map_or(LogResult::new_ok(b), |e| {
+            LogResult::new_deferred_fungible(b, e, disallow_trunc)
         })
     }
 
@@ -1370,8 +1373,8 @@ impl Range {
             |x| (x, None),
         );
         match err {
-            None => Result::new_ok(x),
-            Some(e) => Result::new_deferred_fungible(x, e, disallow_trunc),
+            None => LogResult::new_ok(x),
+            Some(e) => LogResult::new_deferred_fungible(x, e, disallow_trunc),
         }
     }
 }

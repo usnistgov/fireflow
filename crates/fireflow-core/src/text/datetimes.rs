@@ -1,9 +1,9 @@
 use crate::config::StdTextReadConfig;
 use crate::core::{AnyMetarootKeyLossError, UnitaryKeyLossError};
-use crate::logging::{DeferredFungibleErrors, LogResultExt as _, ResultExt as _};
+use crate::logging::{DeferredFungibleErrors, LogResult, ResultExt as _};
 use crate::validated::keys::StdKeywords;
 
-use super::optional::KeywordPairMaybe as _;
+use super::optional::{AlwaysValue, KeywordPairMaybe as _};
 use super::parser::{LookupTentative, OptMetarootKey as _};
 
 use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeZone as _};
@@ -91,7 +91,7 @@ impl Datetimes {
         let e = EndDateTime::lookup_metaroot_opt(kws, false, conf);
         b.zip_def(e).and_then_def(|(begin, end)| {
             Self::try_new(begin, end)
-                .into_deferred_fungible::<Vec<_>>(!conf.allow_optional_dropping)
+                .into_deferred_fungible::<AlwaysValue<_>, Vec<_>>(!conf.allow_optional_dropping)
                 .cmt_fung_errors_into()
         })
     }
@@ -106,7 +106,7 @@ impl Datetimes {
         self,
         allow_loss: bool,
     ) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
-        let mut res = Result::new_ok(());
+        let mut res = LogResult::new_ok(());
         if self.begin.is_some() {
             let e = UnitaryKeyLossError::<BeginDateTime>::new().into();
             res = res.push_def_fung_error(e, allow_loss);

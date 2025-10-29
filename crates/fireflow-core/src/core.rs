@@ -16,8 +16,8 @@ use crate::header::{
 use crate::logging::{
     CmtFungibleErrorsResult, CmtResult, CmtResultIter as _, DeferredError, DeferredErrors,
     DeferredFungibleError, DeferredFungibleErrors, DeferredIter as _, ErrorResult, ErrorSummary,
-    ErrorsResult, IOWarningsAndErrorsResult, ImpureError, LogResultExt, ResultExt as _,
-    SummaryResult, WarningsAndErrorResult, WarningsAndErrorsResult, WarningsAndIOSummaryResult,
+    ErrorsResult, IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _, SummaryResult,
+    WarningsAndErrorResult, WarningsAndErrorsResult, WarningsAndIOSummaryResult,
     WarningsAndSummaryResult,
 };
 use crate::macros::{def_failure, match_many_to_one};
@@ -1479,12 +1479,12 @@ pub trait VersionedMetaroot: Sized {
                 |(_, (t, o)), es| {
                     if allow_loss {
                         let ws: Vec<_> = es.into_iter().collect();
-                        Result::new_ok(go(t, o)).set_cmt_warnings(ws)
+                        LogResult::new_ok(go(t, o)).set_cmt_warnings(ws)
                     } else {
-                        Result::new_err(es).set_err_value(Box::new((t, o)))
+                        LogResult::new_err(es).set_err_value(Box::new((t, o)))
                     }
                 },
-                |(_, (t, o))| Result::new_ok(go(t, o)),
+                |(_, (t, o))| LogResult::new_ok(go(t, o)),
             )
     }
 
@@ -1573,12 +1573,12 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
                     if allow_loss {
                         let v = Self::from_optical_unchecked(o, d);
                         let ws: Vec<_> = es.into_iter().collect();
-                        Result::new_ok(v).set_cmt_warnings(ws)
+                        LogResult::new_ok(v).set_cmt_warnings(ws)
                     } else {
-                        Result::new_err(es).set_err_value(Box::new(o))
+                        LogResult::new_err(es).set_err_value(Box::new(o))
                     }
                 },
-                |(_, (o, d))| Result::new_ok(Self::from_optical_unchecked(o, d)),
+                |(_, (o, d))| LogResult::new_ok(Self::from_optical_unchecked(o, d)),
             )
     }
 
@@ -1891,7 +1891,7 @@ impl<O> Optical<O> {
         let det_volt = self.detector_voltage.check_indexed_key_transfer(i);
         [filter, power, det_type, per_emit, det_volt]
             .into_iter()
-            .map(LogResultExt::repack_errors)
+            .map(LogResult::repack_errors)
             .mappend_def()
             .set_def_value(())
     }
@@ -2910,7 +2910,7 @@ where
             .copied()
             .cloned()
             .map(MissingMeasurementNameError);
-        Result::new_err_from_iter(it, ())
+        LogResult::new_err_from_iter(it, ())
             .when_ok(|| {
                 *self
                     .metaroot
@@ -3579,7 +3579,7 @@ where
         // them.
         let blank_meas_nonstd = || vec![HashMap::new(); par.0];
         let ns_res = conf.nonstandard_measurement_pattern.as_ref().map_or(
-            Result::new_ok(blank_meas_nonstd()),
+            LogResult::new_ok(blank_meas_nonstd()),
             |pat| {
                 (0..par.0)
                     .map(|n| {
@@ -4138,7 +4138,7 @@ where
         let others = &self.others.0[..];
 
         let check_res = if conf.skip_conversion_check {
-            Result::new_ok(())
+            LogResult::new_ok(())
         } else {
             layout
                 .check_writer(df)
@@ -4186,7 +4186,7 @@ where
             // write ANALYSIS
             .and_cmt(|| {
                 h.write_all(&self.analysis.0)?;
-                Result::new_ok(())
+                LogResult::new_ok(())
             })
             .summarize_errors()
     }
@@ -4432,7 +4432,7 @@ where
         let meas_n = xs.0.len();
         let data_n = df.ncols();
         let e = MeasDataMismatchError { meas_n, data_n };
-        Result::new_non_fungible((), (), e.into(), meas_n != data_n)
+        LogResult::new_non_fungible((), (), e.into(), meas_n != data_n)
             .and_cmt(|| {
                 self.set_measurements_inner(xs, allow_shared_names, skip_index_check)
                     .map_non_fung_errors(SetMeasurementsAndDataError::from)
@@ -4885,7 +4885,7 @@ impl UnstainedData {
         let i = self.unstainedinfo.check_key_transfer(allow_loss);
         [c, i]
             .into_iter()
-            .map(LogResultExt::into_semigroup)
+            .map(LogResult::into_semigroup)
             .mappend_def_void()
     }
 }
@@ -4925,13 +4925,13 @@ impl CSVFlags {
                         if flags.is_empty() {
                             let is_err = !conf.allow_optional_dropping;
                             let e = NewCSVFlagsError.into();
-                            Result::new_deferred_fungible(flags, e, is_err)
+                            LogResult::new_deferred_fungible(flags, e, is_err)
                         } else {
-                            Result::new_ok(flags)
+                            LogResult::new_ok(flags)
                         }
                     })
                 } else {
-                    Result::new_ok(vec![])
+                    LogResult::new_ok(vec![])
                 }
             })
             .map_def_value(Self)
@@ -4991,7 +4991,7 @@ impl ModificationData {
         let o = self.originality.check_key_transfer(allow_loss);
         [d, r, o]
             .into_iter()
-            .map(LogResultExt::into_semigroup)
+            .map(LogResult::into_semigroup)
             .mappend_def_void()
     }
 }
@@ -5023,7 +5023,7 @@ impl CarrierData {
         let l = self.locationid.check_key_transfer(allow_loss);
         [i, t, l]
             .into_iter()
-            .map(LogResultExt::into_semigroup)
+            .map(LogResult::into_semigroup)
             .mappend_def_void()
     }
 }
@@ -5057,7 +5057,7 @@ impl PlateData {
         let w = self.wellid.check_key_transfer(allow_loss);
         [n, i, w]
             .into_iter()
-            .map(LogResultExt::into_semigroup)
+            .map(LogResult::into_semigroup)
             .mappend_def_void()
     }
 }
@@ -5091,7 +5091,7 @@ impl PeakData {
         let s = self.size.check_indexed_key_transfer_fungible(i, allow_loss);
         [b, s]
             .into_iter()
-            .map(LogResultExt::into_semigroup)
+            .map(LogResult::into_semigroup)
             .mappend_def_void()
     }
 }
@@ -5188,7 +5188,7 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical2_0 {
             .check_indexed_key_transfer_fungible(i, allow_loss);
         let check_res = [cal, dpy]
             .into_iter()
-            .map(LogResultExt::into_semigroup::<Vec<_>, Vec<_>>)
+            .map(LogResult::into_semigroup::<Vec<_>, Vec<_>>)
             .mappend_def_void()
             .map_cmt_warnings(OpticalConvertWarning::Xfer)
             .map_non_fung_errors(OpticalConvertError::Xfer);
@@ -5236,7 +5236,7 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical2_0 {
             .check_indexed_key_transfer_fungible(i, allow_loss);
         let check_res = [cal, dpy, anal, feat, meas, tag, det_name]
             .into_iter()
-            .map(LogResultExt::into_semigroup::<Vec<_>, Vec<_>>)
+            .map(LogResult::into_semigroup::<Vec<_>, Vec<_>>)
             .mappend_def_void()
             .map_cmt_warnings(OpticalConvertWarning::Xfer)
             .map_non_fung_errors(OpticalConvertError::Xfer);
@@ -5289,7 +5289,7 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_0 {
             .check_indexed_key_transfer_fungible(i, allow_loss);
         let check_res = [cal, dpy]
             .into_iter()
-            .map(LogResultExt::into_semigroup::<Vec<_>, Vec<_>>)
+            .map(LogResult::into_semigroup::<Vec<_>, Vec<_>>)
             .mappend_def_void()
             .map_cmt_warnings(OpticalConvertWarning::Xfer)
             .map_non_fung_errors(OpticalConvertError::Xfer);
@@ -5335,7 +5335,7 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_0 {
 
         let check_res = [cal, dpy, anal, feat, meas, tag, det_name]
             .into_iter()
-            .map(LogResultExt::into_semigroup::<Vec<_>, Vec<_>>)
+            .map(LogResult::into_semigroup::<Vec<_>, Vec<_>>)
             .mappend_def_void()
             .map_cmt_warnings(OpticalConvertWarning::Xfer)
             .map_non_fung_errors(OpticalConvertError::Xfer);
@@ -5375,7 +5375,7 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical3_1 {
         _: bool,
     ) -> OpticalConvertResult<Self> {
         let wave = value.wavelength.map(Wavelengths::from).unwrap_or_default();
-        Result::new_ok(Self::new(value.scale, wave, None, None, value.peak))
+        LogResult::new_ok(Self::new(value.scale, wave, None, None, value.peak))
     }
 }
 
@@ -5401,7 +5401,7 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_1 {
 
         [anal, feat, meas, tag, det_name]
             .into_iter()
-            .map(LogResultExt::into_semigroup::<Vec<_>, Vec<_>>)
+            .map(LogResult::into_semigroup::<Vec<_>, Vec<_>>)
             .mappend_def_void()
             .map_cmt_warnings(OpticalConvertWarning::Xfer)
             .map_non_fung_errors(OpticalConvertError::Xfer)
@@ -5791,7 +5791,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
         let s = value.subset.check_loss(allow_loss);
         [c, u]
             .into_iter()
-            .map(LogResultExt::into_semigroup)
+            .map(LogResult::into_semigroup)
             .chain([s])
             .mappend_def_void()
             .map_cmt_warnings(MetarootConvertWarning::from)
@@ -5829,7 +5829,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
         let modi = value.modification.check_loss(allow_loss);
         [cytsn, vol, spill]
             .into_iter()
-            .map(LogResultExt::into_semigroup)
+            .map(LogResult::into_semigroup)
             .chain([subset, plate, modi])
             .mappend_def_void()
             .map_cmt_warnings(MetarootConvertWarning::from)
@@ -5871,7 +5871,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
 
         [cytsn, vol, spill, flow]
             .into_iter()
-            .map(LogResultExt::into_semigroup)
+            .map(LogResult::into_semigroup)
             .chain([plate, modi, dt, carrier, us])
             .mappend_def_void()
             .map_cmt_warnings(MetarootConvertWarning::from)
@@ -5893,7 +5893,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
 
 impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_0 {
     fn convert_from_metaroot(value: InnerMetaroot2_0, _: bool) -> MetarootConvertResult<Self> {
-        Result::new_ok(Self::new(
+        LogResult::new_ok(Self::new(
             value.mode,
             value.cyt,
             value.comp.map(|x| x.0.into()),
@@ -5948,7 +5948,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
         let us = value.unstained.check_loss(allow_loss);
         [vol, flow]
             .into_iter()
-            .map(LogResultExt::into_semigroup)
+            .map(LogResult::into_semigroup)
             .chain([modi, plate, dt, carrier, us])
             .mappend_def_void()
             .map_cmt_warnings(MetarootConvertWarning::from)
@@ -5973,7 +5973,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_1 {
         value: InnerMetaroot2_0,
         allow_loss: bool,
     ) -> MetarootConvertResult<Self> {
-        Result::new_ok(())
+        LogResult::new_ok(())
             .eval_def_non_fung_error(!allow_loss, |()| {
                 value.comp.is_some().then_some(Comp2_0TransferError)
             })
@@ -6003,7 +6003,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_1 {
         let us = value.unicode.check_key_transfer(allow_loss);
         [comp, us]
             .into_iter()
-            .map(LogResultExt::into_semigroup::<Vec<_>, Vec<_>>)
+            .map(LogResult::into_semigroup::<Vec<_>, Vec<_>>)
             .mappend_def_void()
             .map_cmt_warnings(MetarootConvertWarning::from)
             .map_non_fung_errors(MetarootConvertError::from)
@@ -6063,7 +6063,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
         value: InnerMetaroot2_0,
         allow_loss: bool,
     ) -> MetarootConvertResult<Self> {
-        let check_res = Result::new_ok(())
+        let check_res = LogResult::new_ok(())
             .eval_def_non_fung_error(!allow_loss, |()| {
                 (!value.applied_gates.is_empty()).then_some(gating::AppliedGates2_0To3_2Error)
             })
@@ -6114,7 +6114,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
         let subset = value.subset.check_loss(allow_loss);
         let check_res = [uni, comp]
             .into_iter()
-            .map(LogResultExt::into_semigroup)
+            .map(LogResult::into_semigroup)
             .chain([subset])
             .mappend_def_void()
             .map_cmt_warnings(MetarootConvertWarning::from)
@@ -6219,12 +6219,12 @@ impl ScaleTransform {
             Self::Lin(x) => {
                 if x.is_one() {
                     let e = IndexedKeyLossError::<Gain>::new(i).into();
-                    Result::new_deferred_fungible(Scale::Linear, e, !allow_loss)
+                    LogResult::new_deferred_fungible(Scale::Linear, e, !allow_loss)
                 } else {
-                    Result::new_ok(Scale::Linear)
+                    LogResult::new_ok(Scale::Linear)
                 }
             }
-            Self::Log(x) => Result::new_ok(Scale::Log(x)),
+            Self::Log(x) => LogResult::new_ok(Scale::Log(x)),
         }
     }
 
@@ -6376,7 +6376,7 @@ impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_0 {
         _: MeasIndex,
         _: bool,
     ) -> TemporalConvertResult<Self> {
-        Result::new_ok(Self::new(Timestep::default(), value.peak))
+        LogResult::new_ok(Self::new(Timestep::default(), value.peak))
     }
 }
 
@@ -6422,7 +6422,7 @@ impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_1 {
         _: MeasIndex,
         _: bool,
     ) -> TemporalConvertResult<Self> {
-        Result::new_ok(Self::new(Timestep::default(), None, value.peak))
+        LogResult::new_ok(Self::new(Timestep::default(), None, value.peak))
     }
 }
 
@@ -6432,7 +6432,7 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal3_1 {
         _: MeasIndex,
         _: bool,
     ) -> TemporalConvertResult<Self> {
-        Result::new_ok(Self::new(value.timestep, None, value.peak))
+        LogResult::new_ok(Self::new(value.timestep, None, value.peak))
     }
 }
 
@@ -6496,7 +6496,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_2 {
 
 impl ConvertFromLayout<DataLayout3_0> for DataLayout2_0 {
     fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
-        Result::new_ok(Self(value.0.phantom_into()))
+        LogResult::new_ok(Self(value.0.phantom_into()))
     }
 }
 
@@ -6514,7 +6514,7 @@ impl ConvertFromLayout<DataLayout3_2> for DataLayout2_0 {
 
 impl ConvertFromLayout<DataLayout2_0> for DataLayout3_0 {
     fn convert_from_layout(value: DataLayout2_0) -> LayoutConvertResult<Self> {
-        Result::new_ok(Self(value.0.phantom_into()))
+        LogResult::new_ok(Self(value.0.phantom_into()))
     }
 }
 
@@ -6545,7 +6545,7 @@ impl ConvertFromLayout<DataLayout3_0> for DataLayout3_1 {
 impl ConvertFromLayout<DataLayout3_2> for DataLayout3_1 {
     fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
         match value {
-            DataLayout3_2::NonMixed(x) => Result::new_ok(Self(x.phantom_into())),
+            DataLayout3_2::NonMixed(x) => LogResult::new_ok(Self(x.phantom_into())),
             DataLayout3_2::Mixed(x) => x
                 .try_into_non_mixed()
                 .map_ok_value(Self)
@@ -6568,7 +6568,7 @@ impl ConvertFromLayout<DataLayout3_0> for DataLayout3_2 {
 
 impl ConvertFromLayout<DataLayout3_1> for DataLayout3_2 {
     fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
-        Result::new_ok(Self::NonMixed(value.0.phantom_into()))
+        LogResult::new_ok(Self::NonMixed(value.0.phantom_into()))
     }
 }
 
@@ -6716,7 +6716,7 @@ impl LookupTemporal for InnerTemporal2_0 {
     ) -> LookupResult<Self> {
         let scale = if conf.force_time_linear {
             nonstd.transfer_demoted(std, TemporalScale::std(i));
-            Result::new_ok(true.into())
+            LogResult::new_ok(true.into())
         } else {
             TemporalScale::lookup_meas_opt(std, i, false, conf)
         };
@@ -6888,7 +6888,7 @@ impl VersionedOptical for InnerOptical3_1 {
         let w = self.wavelengths.check_indexed_key_transfer(i);
         [c, w]
             .into_iter()
-            .map(LogResultExt::repack_errors::<Vec<_>>)
+            .map(LogResult::repack_errors::<Vec<_>>)
             .mappend_def_void()
             .map_non_fung_errors(OpticalToTemporalError::Loss)
             .eval_def_error(|()| (!self.scale.is_noop()).then_some(OpticalNonLinearError.into()))
@@ -6933,7 +6933,7 @@ impl VersionedOptical for InnerOptical3_2 {
 
         [cal, wave, meas, anal, tag, det_name, feat]
             .into_iter()
-            .map(LogResultExt::repack_errors::<Vec<_>>)
+            .map(LogResult::repack_errors::<Vec<_>>)
             .mappend_def_void()
             .map_non_fung_errors(OpticalToTemporalError::Loss)
             .eval_def_error(|()| (!self.scale.is_noop()).then_some(OpticalNonLinearError.into()))
@@ -6963,7 +6963,7 @@ impl VersionedTemporal for InnerTemporal2_0 {
     }
 
     fn can_convert_to_optical(&self, _: MeasIndex) -> DeferredError<(), Self::Error> {
-        Result::new_ok(())
+        LogResult::new_ok(())
     }
 
     fn can_convert_to_optical_swap(
@@ -6995,7 +6995,7 @@ impl VersionedTemporal for InnerTemporal3_0 {
     }
 
     fn can_convert_to_optical(&self, _: MeasIndex) -> DeferredError<(), Self::Error> {
-        Result::new_ok(())
+        LogResult::new_ok(())
     }
 
     fn can_convert_to_optical_swap(
@@ -7029,7 +7029,7 @@ impl VersionedTemporal for InnerTemporal3_1 {
     }
 
     fn can_convert_to_optical(&self, _: MeasIndex) -> DeferredError<(), Self::Error> {
-        Result::new_ok(())
+        LogResult::new_ok(())
     }
 
     fn can_convert_to_optical_swap(
@@ -7441,12 +7441,12 @@ impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
                     if allow_loss {
                         let ws: Vec<_> = es.into_iter().collect();
                         let o = Self::from_temporal_unchecked(t);
-                        Result::new_ok(o).set_cmt_warnings(ws)
+                        LogResult::new_ok(o).set_cmt_warnings(ws)
                     } else {
-                        Result::new_err(es).set_err_value(Box::new(t))
+                        LogResult::new_err(es).set_err_value(Box::new(t))
                     }
                 },
-                |((), t)| Result::new_ok(Self::from_temporal_unchecked(t)),
+                |((), t)| LogResult::new_ok(Self::from_temporal_unchecked(t)),
             )
     }
 
@@ -7590,9 +7590,9 @@ impl LookupMetaroot for InnerMetaroot3_1 {
             };
             let res = if let Some(e) = err {
                 let is_err = conf.disallow_deprecated;
-                Result::new_fungible::<_, _, Vec<_>>(mode, (), DeprecatedError::Value(e), is_err)
+                LogResult::new_fungible(mode, (), DeprecatedError::Value(e), is_err)
             } else {
-                Result::new_ok(mode)
+                LogResult::new_ok(mode)
             };
             res.map_cmt_warnings(LookupKeysWarning::from)
                 .map_non_fung_errors(LookupKeysWarning::from)

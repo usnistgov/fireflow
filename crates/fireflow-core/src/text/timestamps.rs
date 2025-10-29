@@ -1,9 +1,9 @@
 use crate::config::StdTextReadConfig;
-use crate::logging::{LogResultExt as _, ResultExt as _};
+use crate::logging::{LogResult, ResultExt as _};
 use crate::validated::keys::{Key, StdKeywords};
 use crate::validated::timepattern::ParseWithTimePatternError;
 
-use super::optional::KeywordPairMaybe;
+use super::optional::{AlwaysValue, KeywordPairMaybe};
 use super::parser::{FromStrStateful, LookupTentative, OptMetarootKey, Optional, ParseOptKeyError};
 
 use chrono::{NaiveDate, NaiveTime, Timelike as _};
@@ -175,7 +175,7 @@ impl<X> Timestamps<X> {
         let d = FCSDate::lookup_metatroot_opt_st(kws, is_deprecated, (), conf);
         b.zip3_def(e, d).and_then_def(|(btim, etim, date)| {
             Self::try_new(btim, etim, date)
-                .into_deferred_fungible::<Vec<_>>(!conf.allow_optional_dropping)
+                .into_deferred_fungible::<AlwaysValue<_>, Vec<_>>(!conf.allow_optional_dropping)
                 .cmt_fung_errors_into()
         })
     }

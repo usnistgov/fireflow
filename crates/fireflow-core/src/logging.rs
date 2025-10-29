@@ -8,6 +8,7 @@ use std::convert::Infallible;
 use std::fmt;
 use std::io;
 use std::iter;
+use std::marker::PhantomData;
 use std::vec;
 use thiserror::Error;
 
@@ -26,71 +27,147 @@ pub type IOSummaryResult<V, E, S> = SummaryResult<V, ImpureError<E>, S>;
 pub type RecoverableErrorResult<V, I> = ErrorResult<V, (), I>;
 pub type RecoverableErrorsResult<V, I> = ErrorsResult<V, (), I>;
 
-pub type ErrorResult<V, P, E> = NowarnResult<V, P, E, NeverValue<E>>;
-pub type ErrorsResult<V, P, E> = NowarnResult<V, P, E, Vec<E>>;
+//
+// Results without warnings
+//
+
+pub type ErrorResult<V, P, E> = NowarnResult<V, P, AlwaysValue<E>, NeverValue<E>>;
+pub type ErrorsResult<V, P, E> = NowarnResult<V, P, AlwaysValue<E>, Vec<E>>;
+
+pub type BoxedErrorsResult<V, P, E> = NowarnResult<V, P, Box<E>, Vec<E>>;
 
 pub type IOErrorResult<V, P, E> = ErrorResult<V, P, ImpureError<E>>;
 pub type IOErrorsResult<V, P, E> = ErrorsResult<V, P, ImpureError<E>>;
 
-pub type FungibleErrorResult<V, P, E> = NonCmtFungibleResult<V, P, E, NeverValue<E>>;
-pub type FungibleErrorsResult<V, P, E> = NonCmtFungibleResult<V, P, E, Vec<E>>;
+pub type IOBoxedErrorResult<V, P, E> = ErrorResult<V, P, ImpureError<E>>;
+pub type IOBoxedErrorsResult<V, P, E> = ErrorsResult<V, P, ImpureError<E>>;
 
-pub type WarningOrErrorResult<V, P, W, E> = NonCmtResult<V, P, E, Option<W>, NeverValue<E>>;
-pub type WarningsOrErrorResult<V, P, W, E> = NonCmtResult<V, P, E, Vec<W>, NeverValue<E>>;
-pub type WarningOrErrorsResult<V, P, W, E> = NonCmtResult<V, P, E, Option<W>, Vec<E>>;
-pub type WarningsOrErrorsResult<V, P, W, E> = NonCmtResult<V, P, E, Vec<W>, Vec<E>>;
+//
+// Results with errors which can also be warnings but are not commutable.
+//
+// NOTE: None of these have boxed versions because the error type is also on
+// the warning side (in an option, which makes it insignificantly larger).
+// Thus the stack space required for either is about the same.
+//
 
-pub type WarningAndErrorResult<V, P, W, E> = CmtResult<V, P, E, Option<W>, NeverValue<E>>;
-pub type WarningsAndErrorResult<V, P, W, E> = CmtResult<V, P, E, Vec<W>, NeverValue<E>>;
-pub type WarningAndErrorsResult<V, P, W, E> = CmtResult<V, P, E, Option<W>, Vec<E>>;
-pub type WarningsAndErrorsResult<V, P, W, E> = CmtResult<V, P, E, Vec<W>, Vec<E>>;
+pub type FungibleErrorResult<V, P, E> = NonCmtFungibleResult<V, P, AlwaysValue<E>, NeverValue<E>>;
+pub type FungibleErrorsResult<V, P, E> = NonCmtFungibleResult<V, P, AlwaysValue<E>, Vec<E>>;
+
+//
+// Results with warnings and errors of differing types which are not commutable
+//
+
+pub type WarningOrErrorResult<V, P, W, E> =
+    NonCmtResult<V, P, Option<W>, AlwaysValue<E>, NeverValue<E>>;
+pub type WarningsOrErrorResult<V, P, W, E> =
+    NonCmtResult<V, P, Vec<W>, AlwaysValue<E>, NeverValue<E>>;
+pub type WarningOrErrorsResult<V, P, W, E> = NonCmtResult<V, P, Option<W>, AlwaysValue<E>, Vec<E>>;
+pub type WarningsOrErrorsResult<V, P, W, E> = NonCmtResult<V, P, Vec<W>, AlwaysValue<E>, Vec<E>>;
+
+pub type WarningOrBoxedErrorResult<V, P, W, E> =
+    NonCmtResult<V, P, Option<W>, Box<E>, NeverValue<E>>;
+pub type WarningsOrBoxedErrorResult<V, P, W, E> = NonCmtResult<V, P, Vec<W>, Box<E>, NeverValue<E>>;
+pub type WarningOrBoxedErrorsResult<V, P, W, E> = NonCmtResult<V, P, Option<W>, Box<E>, Vec<E>>;
+pub type WarningsOrBoxedErrorsResult<V, P, W, E> = NonCmtResult<V, P, Vec<W>, Box<E>, Vec<E>>;
+
+//
+// Results with warnings and errors of differing types which are commutable
+//
+
+pub type WarningAndErrorResult<V, P, W, E> =
+    CmtResult<V, P, Option<W>, AlwaysValue<E>, NeverValue<E>>;
+pub type WarningsAndErrorResult<V, P, W, E> =
+    CmtResult<V, P, Vec<W>, AlwaysValue<E>, NeverValue<E>>;
+pub type WarningAndErrorsResult<V, P, W, E> = CmtResult<V, P, Option<W>, AlwaysValue<E>, Vec<E>>;
+pub type WarningsAndErrorsResult<V, P, W, E> = CmtResult<V, P, Vec<W>, AlwaysValue<E>, Vec<E>>;
+
+pub type WarningAndBoxedErrorResult<V, P, W, E> = CmtResult<V, P, Option<W>, Box<E>, NeverValue<E>>;
+pub type WarningsAndBoxedErrorResult<V, P, W, E> = CmtResult<V, P, Vec<W>, Box<E>, NeverValue<E>>;
+pub type WarningAndBoxedErrorsResult<V, P, W, E> = CmtResult<V, P, Option<W>, Box<E>, Vec<E>>;
+pub type WarningsAndBoxedErrorsResult<V, P, W, E> = CmtResult<V, P, Vec<W>, Box<E>, Vec<E>>;
 
 pub type IOWarningAndErrorResult<V, P, W, E> = WarningAndErrorResult<V, P, W, ImpureError<E>>;
 pub type IOWarningsAndErrorResult<V, P, W, E> = WarningsAndErrorResult<V, P, W, ImpureError<E>>;
 pub type IOWarningAndErrorsResult<V, P, W, E> = WarningAndErrorsResult<V, P, W, ImpureError<E>>;
 pub type IOWarningsAndErrorsResult<V, P, W, E> = WarningsAndErrorsResult<V, P, W, ImpureError<E>>;
 
+pub type IOWarningAndBoxedErrorResult<V, P, W, E> =
+    WarningAndBoxedErrorResult<V, P, W, ImpureError<E>>;
+pub type IOWarningsAndBoxedErrorResult<V, P, W, E> =
+    WarningsAndBoxedErrorResult<V, P, W, ImpureError<E>>;
+pub type IOWarningAndBoxedErrorsResult<V, P, W, E> =
+    WarningAndBoxedErrorsResult<V, P, W, ImpureError<E>>;
+pub type IOWarningsAndBoxedErrorsResult<V, P, W, E> =
+    WarningsAndBoxedErrorsResult<V, P, W, ImpureError<E>>;
+
+//
+// Results with errors which can be warnings and is also commutable
+//
+
 pub type CmtFungibleErrorResult<V, P, E> = WarningAndErrorResult<V, P, E, E>;
 pub type CmtFungibleErrorsResult<V, P, E> = WarningsAndErrorsResult<V, P, E, E>;
 
+pub type CmtFungibleBoxedErrorResult<V, P, E> = WarningAndBoxedErrorResult<V, P, E, E>;
+pub type CmtFungibleBoxedErrorsResult<V, P, E> = WarningsAndBoxedErrorsResult<V, P, E, E>;
+
+//
+// Deferred versions of the above types (ie the value on both sides is equal)
 //
 
-pub type DeferredError<V, E> = NowarnResult<V, V, E, NeverValue<E>>;
-pub type DeferredErrors<V, E> = NowarnResult<V, V, E, Vec<E>>;
+pub type DeferredError<V, E> = ErrorResult<V, V, E>;
+pub type DeferredErrors<V, E> = ErrorsResult<V, V, E>;
+pub type DeferredBoxedErrors<V, E> = BoxedErrorsResult<V, V, E>;
 
 pub type DeferredIOError<V, E> = DeferredError<V, ImpureError<E>>;
 pub type DeferredIOErrors<V, E> = DeferredErrors<V, ImpureError<E>>;
+pub type DeferredIOBoxedErrors<V, E> = DeferredBoxedErrors<V, ImpureError<E>>;
 
 pub type DeferredWarningAndError<V, W, E> = WarningAndErrorResult<V, V, W, E>;
 pub type DeferredWarningsAndError<V, W, E> = WarningsAndErrorResult<V, V, W, E>;
 pub type DeferredWarningAndErrors<V, W, E> = WarningAndErrorsResult<V, V, W, E>;
 pub type DeferredWarningsAndErrors<V, W, E> = WarningsAndErrorsResult<V, V, W, E>;
 
+pub type DeferredWarningAndBoxedError<V, W, E> = WarningAndBoxedErrorResult<V, V, W, E>;
+pub type DeferredWarningsAndBoxedError<V, W, E> = WarningsAndBoxedErrorResult<V, V, W, E>;
+pub type DeferredWarningAndBoxedErrors<V, W, E> = WarningAndBoxedErrorsResult<V, V, W, E>;
+pub type DeferredWarningsAndBoxedErrors<V, W, E> = WarningsAndBoxedErrorsResult<V, V, W, E>;
+
 pub type DeferredFungibleError<V, E> = CmtFungibleErrorResult<V, V, E>;
 pub type DeferredFungibleErrors<V, E> = CmtFungibleErrorsResult<V, V, E>;
 
+pub type DeferredFungibleBoxedError<V, E> = CmtFungibleBoxedErrorResult<V, V, E>;
+pub type DeferredFungibleBoxedErrors<V, E> = CmtFungibleBoxedErrorsResult<V, V, E>;
+
+//
+// helper types for constructing the "complete" types above
 //
 
-pub type NonCmtFungibleResult<V, P, E, EC> =
-    NonCmtResult<V, P, E, <EC as FungibleError<E>>::Warn, EC>;
-pub type CmtFungibleResult<V, P, E, EC> = CmtResult<V, P, E, <EC as FungibleError<E>>::Warn, EC>;
+pub type NonCmtFungibleResult<V, P, EC0, ECn> =
+    NonCmtResult<V, P, <ECn as FungibleError>::Warn, EC0, ECn>;
+pub type CmtFungibleResult<V, P, EC0, ECn> =
+    CmtResult<V, P, <ECn as FungibleError>::Warn, EC0, ECn>;
 
-pub type NowarnResult<V, P, E, EC> = CmtResult<V, P, E, NeverValue<()>, EC>;
+pub type NowarnResult<V, P, EC0, ECn> = CmtResult<V, P, NeverValue<()>, EC0, ECn>;
 
-pub type Deferred<V, E, WC, EC> = CmtResult<V, V, E, WC, EC>;
+pub type Deferred<V, WC, EC0, ECn> = CmtResult<V, V, WC, EC0, ECn>;
 
-pub type DeferredNowarn<V, E, EC> = NowarnResult<V, V, E, EC>;
+pub type DeferredNowarn<V, EC0, ECn> = NowarnResult<V, V, EC0, ECn>;
 
-pub type DeferredFungible<V, E, EC> = Deferred<V, E, <EC as FungibleError<E>>::Warn, EC>;
+pub type DeferredFungible<V, EC0, ECn> = Deferred<V, <ECn as FungibleError>::Warn, EC0, ECn>;
 
-pub type CmtResult<V, P, E, WC, EC> = LogResult<V, P, E, WC, WC, EC>;
+pub type CmtResult<V, P, WC, EC0, ECn> = LogResult<V, P, WC, WC, EC0, ECn>;
 
-pub type NonCmtResult<V, P, E, WC, EC> = LogResult<V, P, E, WC, NeverValue<()>, EC>;
+pub type NonCmtResult<V, P, WC, EC0, ECn> = LogResult<V, P, WC, NeverValue<()>, EC0, ECn>;
 
-pub type FungibleResult<V, P, E, RWC, EC> =
-    LogResult<V, P, E, <EC as FungibleError<E>>::Warn, RWC, EC>;
+pub type FungibleResult<V, P, RWC, EC0, ECn> =
+    LogResult<V, P, <ECn as FungibleError>::Warn, RWC, EC0, ECn>;
 
-pub type LogResult<V, P, E, LWC, RWC, EF> = Result<Success<V, LWC>, Failure<P, E, RWC, EF>>;
+pub enum LogResult<V, P, LWC, RWC, EC0, ECn> {
+    Succ(Success<V, LWC>),
+    Fail(Failure<P, RWC, EC0, ECn>),
+}
+
+use LogResult::{Fail, Succ};
 
 #[derive(new)]
 #[new(visibility = "")]
@@ -100,22 +177,22 @@ pub struct Success<V, WC> {
 }
 
 #[derive(new)]
-pub struct Failure<P, E, WC, EC> {
+pub struct Failure<P, WC, EC0, ECn> {
     warnings: WC,
-    errors: GenNonEmpty<E, EC>,
+    errors: GenNonEmpty<EC0, ECn>,
     value: P,
 }
 
 #[derive(new)]
 pub struct ErrorSummary<E, S> {
     pub summary: S,
-    pub errors: GenNonEmpty<E, Vec<E>>,
+    pub errors: GenNonEmpty<AlwaysValue<E>, Vec<E>>,
 }
 
 #[derive(new)]
-pub struct GenNonEmpty<X, C> {
-    head: X,
-    tail: C,
+pub struct GenNonEmpty<C0, Cn> {
+    head: C0,
+    tail: Cn,
 }
 
 #[derive(Debug, Error)]
@@ -126,27 +203,7 @@ pub enum ImpureError<E> {
     Pure(E),
 }
 
-// TODO remove this once rust gets specialization, which will allow implementing
-// Functor on the inner type itself while allowing the non-inner-Functor impl
-// to exist without conflict
-#[derive(Clone, Default)]
-pub struct BoxedOption<T>(pub Option<Box<T>>);
-
-impl<T> From<BoxedOption<T>> for Option<T> {
-    fn from(value: BoxedOption<T>) -> Self {
-        value.0.map(|x| *x)
-    }
-}
-
-impl<T> From<Option<T>> for BoxedOption<T> {
-    fn from(value: Option<T>) -> Self {
-        Self(value.map(Box::new))
-    }
-}
-
 pub struct OptFamily;
-
-pub struct BoxedOptFamily;
 
 pub struct BoxFamily;
 
@@ -156,22 +213,60 @@ pub struct VecFamily;
 
 pub struct NullFamily;
 
+pub struct GenNonEmptyFamilyInner<C0, C>(PhantomData<C0>, PhantomData<C>);
+
+pub struct GenNonEmptyFamilyOuter;
+
+pub struct LogResultFamily<LWC, RWC, EC0, ECn>(
+    PhantomData<LWC>,
+    PhantomData<RWC>,
+    PhantomData<EC0>,
+    PhantomData<ECn>,
+);
+
+pub type Sibling1<T, A> = <<T as IsKind1>::Family as Kind1>::Type<A>;
+pub type Sibling2<T, A, B> = <<T as IsKind2>::Family as Kind2>::Type<A, B>;
+
 pub trait Kind1 {
-    type Inner<X>: IsKind1<Family = Self>;
+    type Type<X>: IsKind1<Family = Self>;
+}
+
+trait Kind2 {
+    type Type<A, B>: IsKind2<Family = Self>;
 }
 
 pub trait IsKind1 {
     type Family: Kind1;
 }
 
+trait IsKind2 {
+    type Family: Kind2;
+}
+
 pub trait Functor<X>: Sized + IsKind1 {
-    fn fmap<F, Y>(self, f: F) -> <Self::Family as Kind1>::Inner<Y>
+    fn fmap<F, Y>(self, f: F) -> Sibling1<Self, Y>
     where
         F: Fn(X) -> Y;
 }
 
-pub trait Pure<X>: Functor<X> {
-    fn pure(x: X) -> Self;
+trait BiFunctor<A, B>: Sized + IsKind2 {
+    fn bimap<F, G, C, D>(self, f: F, g: G) -> <Self::Family as Kind2>::Type<C, D>
+    where
+        F: Fn(A) -> C,
+        G: Fn(B) -> D;
+}
+
+pub trait Applicative<A>: Functor<A> {
+    fn pure(a: A) -> Self;
+    // TODO add lift_a2...but call it zip_a2 because rust
+}
+
+pub trait Comonad<X>: Functor<X> {
+    fn cm_extract(self) -> X;
+
+    fn cm_extract_ref(&self) -> &X;
+
+    // TODO add cm_extend
 }
 
 pub trait Concatable {
@@ -181,24 +276,31 @@ pub trait Concatable {
 
 pub trait Semigroup: Concatable<Out = Self> {}
 
-pub trait FungibleError<E>: Sized + IsKind1 {
-    type Warn: Pure<E>;
+pub trait FungibleError: Sized {
+    type Inner;
+    type Warn: Applicative<Self::Inner>;
 
-    fn errors_to_warnings(errors: GenNonEmpty<E, Self>) -> Self::Warn;
+    fn errors_to_warnings<EC0>(errors: GenNonEmpty<EC0, Self>) -> Self::Warn
+    where
+        EC0: Comonad<Self::Inner>;
 
-    fn error_to_warning(error: E) -> Self::Warn {
+    fn error_to_warning(error: Self::Inner) -> Self::Warn {
         Self::Warn::pure(error)
     }
 }
 
-pub trait IntoZeroOrMore<Other> {
-    fn into_zero_or_more(self) -> Other;
+pub trait IntoNewCardinality<Other> {
+    fn into_new_cardinality(self) -> Other;
+}
+
+pub trait IntoNewWrapper<Other> {
+    fn into_new_wrapper(self) -> Other;
 }
 
 macro_rules! impl_kind1 {
     ($f:ident, $t:ident) => {
         impl Kind1 for $f {
-            type Inner<T> = $t<T>;
+            type Type<T> = $t<T>;
         }
 
         impl<T> IsKind1 for $t<T> {
@@ -210,135 +312,186 @@ macro_rules! impl_kind1 {
 impl_kind1!(NullFamily, NeverValue);
 impl_kind1!(IdFamily, AlwaysValue);
 impl_kind1!(BoxFamily, Box);
-impl_kind1!(BoxedOptFamily, BoxedOption);
 impl_kind1!(OptFamily, Option);
 impl_kind1!(VecFamily, Vec);
 
+impl<C0: Kind1, C: Kind1> Kind1 for GenNonEmptyFamilyInner<C0, C> {
+    type Type<T> = GenNonEmpty<C0::Type<T>, C::Type<T>>;
+}
+
+impl<C: IsKind1, C0: IsKind1> IsKind1 for GenNonEmpty<C0, C> {
+    type Family = GenNonEmptyFamilyInner<C0::Family, C::Family>;
+}
+
+impl Kind2 for GenNonEmptyFamilyOuter {
+    type Type<A, B> = GenNonEmpty<A, B>;
+}
+
+impl<C0, C> IsKind2 for GenNonEmpty<C0, C> {
+    type Family = GenNonEmptyFamilyOuter;
+}
+
+impl<LWC, RWC, EC0, ECn> Kind2 for LogResultFamily<LWC, RWC, EC0, ECn> {
+    type Type<A, B> = LogResult<A, B, LWC, RWC, EC0, ECn>;
+}
+
+impl<A, B, LWC, RWC, EC0, ECn> IsKind2 for LogResult<A, B, LWC, RWC, EC0, ECn> {
+    type Family = LogResultFamily<LWC, RWC, EC0, ECn>;
+}
+
 impl<X> Functor<X> for NeverValue<X> {
-    fn fmap<F, Y>(self, _: F) -> NeverValue<Y>
-    where
-        F: Fn(X) -> Y,
-    {
+    fn fmap<F: Fn(X) -> Y, Y>(self, _: F) -> NeverValue<Y> {
         NeverValue::default()
     }
 }
 
 impl<X> Functor<X> for AlwaysValue<X> {
-    fn fmap<F, Y>(self, f: F) -> AlwaysValue<Y>
-    where
-        F: Fn(X) -> Y,
-    {
+    fn fmap<F: Fn(X) -> Y, Y>(self, f: F) -> AlwaysValue<Y> {
         AlwaysValue(f(self.0))
     }
 }
 
 impl<X> Functor<X> for Box<X> {
-    fn fmap<F, Y>(self, f: F) -> Box<Y>
-    where
-        F: Fn(X) -> Y,
-    {
+    fn fmap<F: Fn(X) -> Y, Y>(self, f: F) -> Box<Y> {
         Box::new(f(*self))
     }
 }
 
 impl<X> Functor<X> for Option<X> {
-    fn fmap<F, Y>(self, f: F) -> Option<Y>
-    where
-        F: Fn(X) -> Y,
-    {
+    fn fmap<F: Fn(X) -> Y, Y>(self, f: F) -> Option<Y> {
         self.map(f)
     }
 }
 
-impl<X> Functor<X> for BoxedOption<X> {
-    fn fmap<F, Y>(self, f: F) -> BoxedOption<Y>
-    where
-        F: Fn(X) -> Y,
-    {
-        Option::from(self).fmap(f).into()
-    }
-}
-
 impl<X> Functor<X> for Vec<X> {
-    fn fmap<F, Y>(self, f: F) -> Vec<Y>
-    where
-        F: Fn(X) -> Y,
-    {
+    fn fmap<F: Fn(X) -> Y, Y>(self, f: F) -> Vec<Y> {
         self.into_iter().map(f).collect()
     }
 }
 
-impl<E, EC: IntoIterator<Item = E>> IntoIterator for GenNonEmpty<E, EC> {
-    type Item = E;
-    type IntoIter = iter::Chain<iter::Once<E>, <EC as IntoIterator>::IntoIter>;
-    fn into_iter(self) -> Self::IntoIter {
-        iter::once(self.head).chain(self.tail)
+impl<A, C0: Functor<A>, Cn: Functor<A>> Functor<A> for GenNonEmpty<C0, Cn> {
+    fn fmap<F: Fn(A) -> B, B>(self, f: F) -> Sibling1<Self, B> {
+        GenNonEmpty::new(self.head.fmap(&f), self.tail.fmap(f))
     }
 }
 
-impl<T> IntoZeroOrMore<T> for T {
-    fn into_zero_or_more(self) -> T {
+impl<A, B> BiFunctor<A, B> for GenNonEmpty<A, B> {
+    fn bimap<F, G, C, D>(self, f: F, g: G) -> Sibling2<Self, C, D>
+    where
+        F: Fn(A) -> C,
+        G: Fn(B) -> D,
+    {
+        GenNonEmpty::new(f(self.head), g(self.tail))
+    }
+}
+
+impl<X> Comonad<X> for AlwaysValue<X> {
+    fn cm_extract(self) -> X {
+        self.0
+    }
+
+    fn cm_extract_ref(&self) -> &X {
+        &self.0
+    }
+}
+
+impl<X> Comonad<X> for Box<X> {
+    fn cm_extract(self) -> X {
+        *self
+    }
+
+    fn cm_extract_ref(&self) -> &X {
+        self.as_ref()
+    }
+}
+
+impl<E, EC0, EC> IntoIterator for GenNonEmpty<EC0, EC>
+where
+    EC0: Comonad<E>,
+    EC: IntoIterator<Item = E>,
+{
+    type Item = E;
+    type IntoIter = iter::Chain<iter::Once<E>, <EC as IntoIterator>::IntoIter>;
+    fn into_iter(self) -> Self::IntoIter {
+        iter::once(self.head.cm_extract()).chain(self.tail)
+    }
+}
+
+impl<T> IntoNewCardinality<T> for T {
+    fn into_new_cardinality(self) -> T {
         self
     }
 }
 
-impl<T> IntoZeroOrMore<Vec<T>> for NeverValue<T> {
-    fn into_zero_or_more(self) -> Vec<T> {
+impl<T> IntoNewCardinality<Vec<T>> for NeverValue<T> {
+    fn into_new_cardinality(self) -> Vec<T> {
         vec![]
     }
 }
 
-impl<T> IntoZeroOrMore<Option<T>> for NeverValue<T> {
-    fn into_zero_or_more(self) -> Option<T> {
+impl<T> IntoNewCardinality<Option<T>> for NeverValue<T> {
+    fn into_new_cardinality(self) -> Option<T> {
         None
     }
 }
 
-impl<T> IntoZeroOrMore<Vec<T>> for Option<T> {
-    fn into_zero_or_more(self) -> Vec<T> {
+impl<T> IntoNewCardinality<Vec<T>> for Option<T> {
+    fn into_new_cardinality(self) -> Vec<T> {
         self.into_iter().collect()
     }
 }
 
-impl<T> IntoZeroOrMore<Vec<T>> for BoxedOption<T> {
-    fn into_zero_or_more(self) -> Vec<T> {
-        Option::from(self).into_zero_or_more()
+impl<T> IntoNewWrapper<T> for T {
+    fn into_new_wrapper(self) -> T {
+        self
     }
 }
 
-impl<T> IntoZeroOrMore<Box<T>> for AlwaysValue<T> {
-    fn into_zero_or_more(self) -> Box<T> {
+impl<T> IntoNewWrapper<Box<T>> for AlwaysValue<T> {
+    fn into_new_wrapper(self) -> Box<T> {
         Box::new(self.0)
     }
 }
 
-impl<T> IntoZeroOrMore<AlwaysValue<T>> for Box<T> {
-    fn into_zero_or_more(self) -> AlwaysValue<T> {
+impl<T> IntoNewWrapper<AlwaysValue<T>> for Box<T> {
+    fn into_new_wrapper(self) -> AlwaysValue<T> {
         AlwaysValue(*self)
     }
 }
 
-impl<X> Pure<X> for AlwaysValue<X> {
-    fn pure(x: X) -> Self {
-        Self(x)
+impl<A> Applicative<A> for NeverValue<A> {
+    fn pure(_: A) -> Self {
+        Self::default()
     }
 }
 
-impl<X> Pure<X> for Option<X> {
-    fn pure(x: X) -> Self {
-        Some(x)
+impl<A> Applicative<A> for AlwaysValue<A> {
+    fn pure(a: A) -> Self {
+        Self(a)
     }
 }
 
-impl<X> Pure<X> for BoxedOption<X> {
-    fn pure(x: X) -> Self {
-        Some(x).into()
+impl<A> Applicative<A> for Option<A> {
+    fn pure(a: A) -> Self {
+        Some(a)
     }
 }
 
-impl<X> Pure<X> for Vec<X> {
-    fn pure(x: X) -> Self {
-        vec![x]
+impl<X> Applicative<X> for Box<X> {
+    fn pure(a: X) -> Self {
+        Self::new(a)
+    }
+}
+
+impl<X> Applicative<X> for Vec<X> {
+    fn pure(a: X) -> Self {
+        vec![a]
+    }
+}
+
+impl<A, C0: Applicative<A>, Cn: Applicative<A> + Default> Applicative<A> for GenNonEmpty<C0, Cn> {
+    fn pure(a: A) -> Self {
+        Self::new(C0::pure(a), Cn::default())
     }
 }
 
@@ -356,13 +509,6 @@ impl<T> Concatable for Option<T> {
     }
 }
 
-impl<T> Concatable for BoxedOption<T> {
-    type Out = Vec<T>;
-    fn concat(self, other: Self) -> Self::Out {
-        Option::from(self).concat(Option::from(other))
-    }
-}
-
 impl<T> Concatable for Vec<T> {
     type Out = Self;
     fn concat(mut self, other: Self) -> Self::Out {
@@ -375,11 +521,15 @@ impl<T> Semigroup for Vec<T> {}
 
 impl<T> Semigroup for NeverValue<T> {}
 
-impl<E> FungibleError<E> for NeverValue<E> {
+impl<E> FungibleError for NeverValue<E> {
+    type Inner = E;
     type Warn = Option<E>;
 
-    fn errors_to_warnings(errors: GenNonEmpty<E, Self>) -> Self::Warn {
-        Some(errors.head)
+    fn errors_to_warnings<EC0>(errors: GenNonEmpty<EC0, Self>) -> Self::Warn
+    where
+        EC0: Comonad<E>,
+    {
+        Some(errors.head.cm_extract())
     }
 
     fn error_to_warning(error: E) -> Self::Warn {
@@ -387,10 +537,14 @@ impl<E> FungibleError<E> for NeverValue<E> {
     }
 }
 
-impl<E> FungibleError<E> for Vec<E> {
+impl<E> FungibleError for Vec<E> {
+    type Inner = E;
     type Warn = Self;
 
-    fn errors_to_warnings(errors: GenNonEmpty<E, Self>) -> Self::Warn {
+    fn errors_to_warnings<EC0>(errors: GenNonEmpty<EC0, Self>) -> Self::Warn
+    where
+        EC0: Comonad<E>,
+    {
         errors.into_iter().collect()
     }
 
@@ -400,7 +554,7 @@ impl<E> FungibleError<E> for Vec<E> {
 }
 
 impl<V, WC> Success<V, WC> {
-    pub(crate) fn new1(value: V) -> Self
+    pub fn new1(value: V) -> Self
     where
         WC: Default,
     {
@@ -409,16 +563,16 @@ impl<V, WC> Success<V, WC> {
 
     pub(crate) fn repack<WCf>(self) -> Success<V, WCf>
     where
-        WC: IntoZeroOrMore<WCf>,
+        WC: IntoNewCardinality<WCf>,
     {
-        Success::new(self.value, self.warnings.into_zero_or_more())
+        Success::new(self.value, self.warnings.into_new_cardinality())
     }
 
     pub(crate) fn map_value<F: FnOnce(V) -> X, X>(self, f: F) -> Success<X, WC> {
         Success::new(f(self.value), self.warnings)
     }
 
-    pub(crate) fn map_warnings<F, W, Wf>(self, f: F) -> Success<V, <WC::Family as Kind1>::Inner<Wf>>
+    pub(crate) fn map_warnings<F, W, Wf>(self, f: F) -> Success<V, Sibling1<WC, Wf>>
     where
         WC: Functor<W>,
         F: Fn(W) -> Wf,
@@ -454,32 +608,35 @@ impl<V, WC> Success<V, WC> {
         }
     }
 
-    pub(crate) fn and_maybe<F, ToV, P, E, WCf, EC>(self, f: F) -> CmtResult<ToV, P, E, WCf, EC>
+    pub(crate) fn and_maybe<F, ToV, P, EC0, WCf, ECn>(
+        self,
+        f: F,
+    ) -> CmtResult<ToV, P, WCf, EC0, ECn>
     where
-        F: FnOnce(V) -> CmtResult<ToV, P, E, WC, EC>,
+        F: FnOnce(V) -> CmtResult<ToV, P, WC, EC0, ECn>,
         WC: Concatable<Out = WCf>,
     {
         match f(self.value) {
-            Ok(s) => {
+            Succ(s) => {
                 let ws = self.warnings.concat(s.warnings);
-                Ok(Success::new(s.value, ws))
+                Succ(Success::new(s.value, ws))
             }
-            Err(e) => {
+            Fail(e) => {
                 let ws = self.warnings.concat(e.warnings);
-                Err(Failure::new(ws, e.errors, e.value))
+                Fail(Failure::new(ws, e.errors, e.value))
             }
         }
     }
 
-    pub(crate) fn fail<E, EC>(self, errors: GenNonEmpty<E, EC>) -> Failure<V, E, WC, EC> {
+    pub(crate) fn fail<E, EC>(self, errors: GenNonEmpty<E, EC>) -> Failure<V, WC, E, EC> {
         Failure::new(self.warnings, errors, self.value)
     }
 
     pub(crate) fn with_failure<F, P, PF, E, WCf, EC>(
         self,
-        other: Failure<P, E, WC, EC>,
+        other: Failure<P, WC, E, EC>,
         f: F,
-    ) -> Failure<PF, E, WCf, EC>
+    ) -> Failure<PF, WCf, E, EC>
     where
         F: FnOnce(V, P) -> PF,
         WC: Concatable<Out = WCf>,
@@ -519,16 +676,21 @@ impl<V, WC> Success<V, WC> {
     ///
     /// This is useful for cases where warnings might be optionally converted
     /// so we can't just set them to `()`
-    fn warnings_to_errors<W, E, F, G, EC, P>(self, f: F, g: G) -> LogResult<V, P, E, WC, WC, EC>
+    fn warnings_to_errors<E, W, P, EC0, EC, F, G>(
+        self,
+        f: F,
+        g: G,
+    ) -> LogResult<V, P, WC, WC, EC0, EC>
     where
         F: Fn(W) -> E,
         G: FnOnce(V) -> P,
+        EC0: Applicative<E>,
         EC: Extend<E> + Default,
         WC: Default + IntoIterator<Item = W>,
     {
-        match GenNonEmpty::<E, EC>::collect(self.warnings.into_iter().map(f)) {
-            None => Ok(Self::new1(self.value)),
-            Some(es) => Err(Failure::new_from_many(es, g(self.value))),
+        match GenNonEmpty::<EC0, EC>::collect(self.warnings.into_iter().map(f)) {
+            None => Succ(Self::new1(self.value)),
+            Some(es) => Fail(Failure::new_from_many(es, g(self.value))),
         }
     }
 
@@ -546,41 +708,51 @@ impl<V> Success<V, NeverValue<()>> {
     }
 }
 
-impl<P, E, WC, EC> Failure<P, E, WC, EC> {
-    pub(crate) fn new_from_one(error: E, value: P) -> Self
+impl<P, EC0, WC, ECn> Failure<P, WC, EC0, ECn> {
+    // TODO this is just pure which wraps NonEmpty which wraps EC0
+    pub(crate) fn new_from_one<E>(error: E, value: P) -> Self
     where
-        EC: Default,
+        EC0: Applicative<E>,
+        ECn: Default,
         WC: Default,
     {
-        Self::new_from_many(GenNonEmpty::new1(error), value)
+        Self::new_from_many(GenNonEmpty::new1(EC0::pure(error)), value)
     }
 
-    pub(crate) fn new_from_many(errors: GenNonEmpty<E, EC>, value: P) -> Self
+    pub(crate) fn new_from_many(errors: GenNonEmpty<EC0, ECn>, value: P) -> Self
     where
         WC: Default,
     {
         Self::new(WC::default(), errors, value)
     }
 
-    fn repack_warnings<WCf>(self) -> Failure<P, E, WCf, EC>
+    fn repack_warnings<WCf>(self) -> Failure<P, WCf, EC0, ECn>
     where
-        WC: IntoZeroOrMore<WCf>,
+        WC: IntoNewCardinality<WCf>,
     {
         Failure::new(
-            WC::into_zero_or_more(self.warnings),
+            WC::into_new_cardinality(self.warnings),
             self.errors,
             self.value,
         )
     }
 
-    fn repack_errors<ECf>(self) -> Failure<P, E, WC, ECf>
+    fn repack_error<EC0f>(self) -> Failure<P, WC, EC0f, ECn>
     where
-        EC: IntoZeroOrMore<ECf>,
+        EC0: IntoNewWrapper<EC0f>,
+    {
+        let es = self.errors.bimap(|e| e.into_new_wrapper(), |x| x);
+        Failure::new(self.warnings, es, self.value)
+    }
+
+    fn repack_errors<ECf>(self) -> Failure<P, WC, EC0, ECf>
+    where
+        ECn: IntoNewCardinality<ECf>,
     {
         Failure::new(self.warnings, self.errors.repack(), self.value)
     }
 
-    fn map_warnings<F, W, Wf>(self, f: F) -> Failure<P, E, <WC::Family as Kind1>::Inner<Wf>, EC>
+    fn map_warnings<F, W, Wf>(self, f: F) -> Failure<P, Sibling1<WC, Wf>, EC0, ECn>
     where
         F: Fn(W) -> Wf,
         WC: Functor<W>,
@@ -588,22 +760,23 @@ impl<P, E, WC, EC> Failure<P, E, WC, EC> {
         Failure::new(self.warnings.fmap(f), self.errors, self.value)
     }
 
-    fn map_errors<F, Ef>(self, f: F) -> Failure<P, Ef, WC, <EC::Family as Kind1>::Inner<Ef>>
+    fn map_errors<F, Ei, Ef>(self, f: F) -> Failure<P, WC, Sibling1<EC0, Ef>, Sibling1<ECn, Ef>>
     where
-        F: Fn(E) -> Ef,
-        EC: Functor<E>,
+        F: Fn(Ei) -> Ef,
+        EC0: Functor<Ei>,
+        ECn: Functor<Ei>,
     {
         Failure::new(self.warnings, self.errors.map(f), self.value)
     }
 
-    fn map_value<F, Pf>(self, f: F) -> Failure<Pf, E, WC, EC>
+    fn map_value<F, Pf>(self, f: F) -> Failure<Pf, WC, EC0, ECn>
     where
         F: FnOnce(P) -> Pf,
     {
         Failure::new(self.warnings, self.errors, f(self.value))
     }
 
-    fn set_warnings<WCf>(self, ws: WCf) -> Failure<P, E, WCf, EC> {
+    fn set_warnings<WCf>(self, ws: WCf) -> Failure<P, WCf, EC0, ECn> {
         Failure::new(ws, self.errors, self.value)
     }
 
@@ -631,48 +804,50 @@ impl<P, E, WC, EC> Failure<P, E, WC, EC> {
         self.warnings.extend(ws);
     }
 
-    fn push_error(&mut self, e: E)
+    fn push_error<E>(&mut self, e: E)
     where
-        EC: Extend<E>,
+        ECn: Extend<E>,
     {
         self.errors.extend(iter::once(e));
     }
 
-    fn extend_errors(&mut self, es: impl IntoIterator<Item = E>)
+    fn extend_errors<E>(&mut self, es: impl IntoIterator<Item = E>)
     where
-        EC: Extend<E>,
+        ECn: Extend<E>,
     {
         self.errors.extend(es);
     }
 
-    fn with_value<F, V, Pf, WCf, EC1>(mut self, f: F) -> CmtResult<V, Pf, E, WCf, EC>
+    fn with_value<F, V, E, Pf, WCf, ECn1>(mut self, f: F) -> CmtResult<V, Pf, WCf, EC0, ECn>
     where
-        F: FnOnce(P) -> CmtResult<V, Pf, E, WC, EC1>,
+        F: FnOnce(P) -> CmtResult<V, Pf, WC, EC0, ECn1>,
         WC: Concatable<Out = WCf>,
-        EC: Extend<E> + IntoIterator<Item = E>,
-        EC1: IntoIterator<Item = E>,
+        EC0: Comonad<E>,
+        ECn: Extend<E> + IntoIterator<Item = E>,
+        ECn1: IntoIterator<Item = E>,
     {
         match f(self.value) {
-            Ok(s) => {
+            Succ(s) => {
                 let ws = self.warnings.concat(s.warnings);
-                Ok(Success::new(s.value, ws))
+                Succ(Success::new(s.value, ws))
             }
-            Err(e) => {
+            Fail(e) => {
                 let ws = self.warnings.concat(e.warnings);
                 self.errors.extend(e.errors);
-                Err(Failure::new(ws, self.errors, e.value))
+                Fail(Failure::new(ws, self.errors, e.value))
             }
         }
     }
 
-    fn zip_with<F, P0, Pf, WCf, ECf>(
+    fn zip_with<F, E, P0, Pf, WCf, ECf>(
         self,
-        other: Failure<P0, E, WC, EC>,
+        other: Failure<P0, WC, EC0, ECn>,
         f: F,
-    ) -> Failure<Pf, E, WCf, ECf>
+    ) -> Failure<Pf, WCf, EC0, ECf>
     where
         F: FnOnce(P, P0) -> Pf,
-        EC: IntoZeroOrMore<ECf> + IntoIterator<Item = E>,
+        EC0: Comonad<E>,
+        ECn: IntoNewCardinality<ECf> + IntoIterator<Item = E>,
         WC: Concatable<Out = WCf>,
         ECf: Extend<E>,
     {
@@ -682,22 +857,23 @@ impl<P, E, WC, EC> Failure<P, E, WC, EC> {
         Failure::new(ws, es, f(self.value, other.value))
     }
 
-    fn aggregate_warnings<F, Wf>(self, f: F) -> Failure<P, E, Option<Wf>, EC>
+    fn aggregate_warnings<F, Wf>(self, f: F) -> Failure<P, Option<Wf>, EC0, ECn>
     where
         F: FnOnce(WC) -> Wf,
     {
         Failure::new(Some(f(self.warnings)), self.errors, self.value)
     }
 
-    fn aggregate_errors<F, Ef>(self, f: F) -> Failure<P, Ef, WC, NeverValue<Ef>>
+    fn aggregate_errors<F, E>(self, f: F) -> Failure<P, WC, EC0, NeverValue<E>>
     where
-        F: FnOnce(GenNonEmpty<E, EC>) -> Ef,
+        EC0: Applicative<E>,
+        F: FnOnce(GenNonEmpty<EC0, ECn>) -> E,
     {
-        let es = GenNonEmpty::new1(f(self.errors));
+        let es = GenNonEmpty::new1(EC0::pure(f(self.errors)));
         Failure::new(self.warnings, es, self.value)
     }
 
-    fn with_success<F, V, PF, WCf>(self, other: Success<V, WC>, f: F) -> Failure<PF, E, WCf, EC>
+    fn with_success<F, V, PF, WCf>(self, other: Success<V, WC>, f: F) -> Failure<PF, WCf, EC0, ECn>
     where
         F: FnOnce(P, V) -> PF,
         WC: Concatable<Out = WCf>,
@@ -721,10 +897,11 @@ impl<P, E, WC, EC> Failure<P, E, WC, EC> {
     ///
     /// This is useful for cases where warnings might be optionally converted
     /// so we can't just set them to `()`
-    fn warnings_to_errors<W, F>(mut self, f: F) -> Self
+    fn warnings_to_errors<E, W, F>(mut self, f: F) -> Self
     where
         F: Fn(W) -> E,
-        EC: Extend<E>,
+        EC0: Applicative<E>,
+        ECn: Extend<E>,
         WC: IntoIterator<Item = W> + Default,
     {
         self.errors.extend(self.warnings.into_iter().map(f));
@@ -732,8 +909,8 @@ impl<P, E, WC, EC> Failure<P, E, WC, EC> {
     }
 }
 
-impl<P, E, EC> Failure<P, E, NeverValue<()>, EC> {
-    fn nowarn_into_warn<WC>(self) -> Failure<P, E, WC, EC>
+impl<P, E, EC> Failure<P, NeverValue<()>, E, EC> {
+    fn nowarn_into_warn<WC>(self) -> Failure<P, WC, E, EC>
     where
         WC: Default,
     {
@@ -741,51 +918,53 @@ impl<P, E, EC> Failure<P, E, NeverValue<()>, EC> {
     }
 }
 
-impl<T, C> Extend<T> for GenNonEmpty<T, C>
+impl<X, C0, C> Extend<X> for GenNonEmpty<C0, C>
 where
-    C: Extend<T>,
+    C: Extend<X>,
 {
     fn extend<I>(&mut self, iter: I)
     where
-        I: IntoIterator<Item = T>,
+        I: IntoIterator<Item = X>,
     {
         self.tail.extend(iter);
     }
 }
 
-impl<T, C> GenNonEmpty<T, C> {
-    fn collect(xs: impl IntoIterator<Item = T>) -> Option<Self>
+impl<C0, C> GenNonEmpty<C0, C> {
+    fn collect<X>(xs: impl IntoIterator<Item = X>) -> Option<Self>
     where
-        C: Extend<T> + Default,
+        C0: Applicative<X>,
+        C: Extend<X> + Default,
     {
         let mut it = xs.into_iter();
         it.by_ref().next().map(|x0| {
-            let mut ret = Self::new1(x0);
+            let mut ret = Self::new1(C0::pure(x0));
             ret.extend(it);
             ret
         })
     }
 
-    fn new1(x: T) -> Self
+    fn new1(x: C0) -> Self
     where
         C: Default,
     {
         Self::new(x, C::default())
     }
 
-    fn map<X, F>(self, f: F) -> GenNonEmpty<X, <C::Family as Kind1>::Inner<X>>
+    fn map<X, Y, F>(self, f: F) -> GenNonEmpty<Sibling1<C0, Y>, Sibling1<C, Y>>
     where
-        C: Functor<T>,
-        F: Fn(T) -> X,
+        C0: Functor<X>,
+        C: Functor<X>,
+        F: Fn(X) -> Y,
     {
-        GenNonEmpty::new(f(self.head), self.tail.fmap(f))
+        GenNonEmpty::new(self.head.fmap(&f), self.tail.fmap(f))
     }
 
-    fn repack<Cf>(self) -> GenNonEmpty<T, Cf>
+    fn repack<Cf>(self) -> GenNonEmpty<C0, Cf>
     where
-        C: IntoZeroOrMore<Cf>,
+        C: IntoNewCardinality<Cf>,
     {
-        GenNonEmpty::new(self.head, self.tail.into_zero_or_more())
+        GenNonEmpty::new(self.head, self.tail.into_new_cardinality())
     }
 }
 
@@ -800,13 +979,15 @@ pub trait OptionExt: Sized {
 
     fn into_option(self) -> Option<Self::Inner>;
 
-    fn transpose_log_result<V, P, E, LWC, RWC, EC>(self) -> LogResult<Option<V>, P, E, LWC, RWC, EC>
+    fn transpose_log_result<V, P, LWC, RWC, EC0, ECn>(
+        self,
+    ) -> LogResult<Option<V>, P, LWC, RWC, EC0, ECn>
     where
-        Self: OptionExt<Inner = LogResult<V, P, E, LWC, RWC, EC>>,
+        Self: OptionExt<Inner = LogResult<V, P, LWC, RWC, EC0, ECn>>,
         LWC: Default,
     {
         self.into_option()
-            .map_or(Result::new_ok(None), |x| x.map_ok_value(Some))
+            .map_or(LogResult::new_ok(None), |x| x.map_ok_value(Some))
     }
 }
 
@@ -828,202 +1009,118 @@ pub trait ResultExt: Sized {
 
     fn as_result_mut(&mut self) -> Result<&mut Self::Ok, &mut Self::Error>;
 
-    fn new_ok<P, LWC, RWC, EC>(value: Self::Ok) -> LogResult<Self::Ok, P, Self::Error, LWC, RWC, EC>
+    fn into_nowarn1<EC0>(self) -> NowarnResult<Self::Ok, (), EC0, NeverValue<Self::Error>>
     where
-        LWC: Default,
+        EC0: Applicative<Self::Error>,
     {
-        Ok(Success::new1(value))
-    }
-
-    fn new_ok_def<P, LWC, RWC, EC>() -> LogResult<Self::Ok, P, Self::Error, LWC, RWC, EC>
-    where
-        Self::Ok: Default,
-        LWC: Default,
-    {
-        Self::new_ok(Self::Ok::default())
-    }
-
-    fn new_err1<LWC, RWC, EC>(
-        error: Self::Error,
-    ) -> LogResult<Self::Ok, (), Self::Error, LWC, RWC, EC>
-    where
-        RWC: Default,
-        EC: Default,
-    {
-        Err(Failure::new_from_one(error, ()))
-    }
-
-    // TODO generic input?
-    fn new_err<LWC, RWC, EC>(
-        error: GenNonEmpty<Self::Error, EC>,
-    ) -> LogResult<Self::Ok, (), Self::Error, LWC, RWC, EC>
-    where
-        RWC: Default,
-        EC: Default,
-    {
-        Err(Failure::new_from_many(error, ()))
-    }
-
-    fn new_err_from_iter<I, LWC, RWC, EC>(
-        errors: I,
-        default: Self::Ok,
-    ) -> LogResult<Self::Ok, (), Self::Error, LWC, RWC, EC>
-    where
-        I: IntoIterator<Item = Self::Error>,
-        EC: Extend<Self::Error> + Default,
-        RWC: Default,
-        LWC: Default,
-    {
-        GenNonEmpty::collect(errors).map_or(Result::new_ok(default), Result::new_err)
-    }
-
-    fn new_non_fungible<P, LWC, RWC, EC>(
-        value: Self::Ok,
-        default: P,
-        error: Self::Error,
-        is_error: bool,
-    ) -> LogResult<Self::Ok, P, Self::Error, LWC, RWC, EC>
-    where
-        LWC: Default,
-        RWC: Default,
-        EC: Default,
-    {
-        if is_error {
-            Err(Failure::new_from_one(error, default))
-        } else {
-            Ok(Success::new1(value))
-        }
-    }
-
-    fn new_fungible<P, RWC, EC>(
-        value: Self::Ok,
-        default: P,
-        error: Self::Error,
-        is_error: bool,
-    ) -> FungibleResult<Self::Ok, P, Self::Error, RWC, EC>
-    where
-        EC: FungibleError<Self::Error> + Default,
-        RWC: Default,
-    {
-        if is_error {
-            Err(Failure::new_from_one(error, default))
-        } else {
-            Ok(Success::new(value, EC::error_to_warning(error)))
-        }
-    }
-
-    fn new_deferred_fungible<RWC, EC>(
-        value: Self::Ok,
-        error: Self::Error,
-        is_error: bool,
-    ) -> FungibleResult<Self::Ok, Self::Ok, Self::Error, RWC, EC>
-    where
-        EC: FungibleError<Self::Error> + Default,
-        RWC: Default,
-    {
-        if is_error {
-            Err(Failure::new_from_one(error, value))
-        } else {
-            Ok(Success::new(value, EC::error_to_warning(error)))
-        }
-    }
-
-    fn into_nowarn1(self) -> NowarnResult<Self::Ok, (), Self::Error, NeverValue<Self::Error>> {
         self.into_log()
     }
 
-    fn into_nowarn(self) -> NowarnResult<Self::Ok, (), Self::Error, Vec<Self::Error>> {
-        self.into_log()
-    }
-
-    fn into_warn1(self) -> NowarnResult<Self::Ok, (), Self::Error, NeverValue<Self::Error>> {
-        self.into_log()
-    }
-
-    fn into_log<LWC, RWC, EC>(self) -> LogResult<Self::Ok, (), Self::Error, LWC, RWC, EC>
+    fn into_nowarn<EC0>(self) -> NowarnResult<Self::Ok, (), EC0, Vec<Self::Error>>
     where
-        EC: Default,
+        EC0: Applicative<Self::Error>,
+    {
+        self.into_log()
+    }
+
+    fn into_warn1<EC0>(self) -> NowarnResult<Self::Ok, (), EC0, NeverValue<Self::Error>>
+    where
+        EC0: Applicative<Self::Error>,
+    {
+        self.into_log()
+    }
+
+    fn into_log<LWC, RWC, EC0, ECn>(self) -> LogResult<Self::Ok, (), LWC, RWC, EC0, ECn>
+    where
+        EC0: Applicative<Self::Error>,
+        ECn: Default,
         LWC: Default,
         RWC: Default,
     {
-        self.into_result()
-            .map(Success::new1)
-            .map_err(|e| Failure::new_from_one(e, ()))
+        self.into_result().map_or_else(
+            |e| Fail(Failure::new_from_one(e, ())),
+            |s| Succ(Success::new1(s)),
+        )
     }
 
-    fn into_deferred_fungible<EC>(
+    fn into_deferred_fungible<EC0, ECn>(
         self,
         is_error: bool,
-    ) -> DeferredFungible<Self::Ok, Self::Error, EC>
+    ) -> DeferredFungible<Self::Ok, EC0, ECn>
     where
         Self::Ok: Default,
-        EC: FungibleError<Self::Error> + Default,
-        EC::Warn: Default,
+        EC0: Applicative<Self::Error>,
+        ECn: FungibleError<Inner = Self::Error> + Default,
+        ECn::Warn: Default,
     {
         match self.into_result() {
-            Ok(s) => Ok(Success::new1(s)),
+            Ok(s) => Succ(Success::new1(s)),
             Err(e) => {
                 if is_error {
-                    Err(Failure::new_from_one(e, Self::Ok::default()))
+                    Fail(Failure::new_from_one(e, Self::Ok::default()))
                 } else {
-                    Ok(Success::new(Self::Ok::default(), EC::error_to_warning(e)))
+                    Succ(Success::new(Self::Ok::default(), ECn::error_to_warning(e)))
                 }
             }
         }
     }
 
-    fn into_deferred_fungible_opt<EC>(
+    fn into_deferred_fungible_opt<EC0, ECn>(
         self,
         is_error: bool,
-    ) -> DeferredFungible<Option<Self::Ok>, Self::Error, EC>
+    ) -> DeferredFungible<Option<Self::Ok>, EC0, ECn>
     where
-        EC: FungibleError<Self::Error> + Default,
-        EC::Warn: Default,
+        EC0: Applicative<Self::Error>,
+        ECn: FungibleError<Inner = Self::Error> + Default,
+        ECn::Warn: Default,
     {
         self.into_result()
             .map(Some)
-            .into_deferred_fungible::<EC>(is_error)
+            .into_deferred_fungible(is_error)
     }
 
-    fn into_deferred_fungible_def<EC>(
+    fn into_deferred_fungible_def<EC0, ECn>(
         self,
         default: Self::Ok,
         is_error: bool,
-    ) -> DeferredFungible<Self::Ok, Self::Error, EC>
+    ) -> DeferredFungible<Self::Ok, EC0, ECn>
     where
-        EC: FungibleError<Self::Error> + Default,
-        EC::Warn: Default,
+        EC0: Applicative<Self::Error>,
+        ECn: FungibleError<Inner = Self::Error> + Default,
+        ECn::Warn: Default,
     {
         self.into_result()
             .into_deferred_fungible_opt(is_error)
             .map_def_value(|v| v.unwrap_or(default))
     }
 
-    fn into_succ<P, E, LWC, RWC, EC>(self) -> LogResult<Self::Ok, P, E, LWC, RWC, EC>
+    fn into_succ<P, LWC, RWC, EC0, ECn>(self) -> LogResult<Self::Ok, P, LWC, RWC, EC0, ECn>
     where
         Self::Ok: Default,
-        LWC: Default + Pure<Self::Error>,
+        LWC: Default + Applicative<Self::Error>,
     {
         let ret = self.into_result().map_or_else(
             |e| Success::new(Self::Ok::default(), LWC::pure(e)),
             Success::new1,
         );
-        Ok(ret)
+        Succ(ret)
     }
 
-    fn into_succ_opt<P, E, LWC, RWC, EC>(self) -> LogResult<Option<Self::Ok>, P, E, LWC, RWC, EC>
+    fn into_succ_opt<P, LWC, RWC, EC0, ECn>(
+        self,
+    ) -> LogResult<Option<Self::Ok>, P, LWC, RWC, EC0, ECn>
     where
-        LWC: Default + Pure<Self::Error>,
+        LWC: Default + Applicative<Self::Error>,
     {
         self.into_result().map(Some).into_succ()
     }
 
-    fn into_succ_or<P, E, LWC, RWC, EC>(
+    fn into_succ_or<P, LWC, RWC, EC0, ECn>(
         self,
         default: Self::Ok,
-    ) -> LogResult<Self::Ok, P, E, LWC, RWC, EC>
+    ) -> LogResult<Self::Ok, P, LWC, RWC, EC0, ECn>
     where
-        LWC: Pure<Self::Error> + Default,
+        LWC: Applicative<Self::Error> + Default,
     {
         self.into_succ_opt().map_ok_value(|x| x.unwrap_or(default))
     }
@@ -1048,399 +1145,86 @@ impl<V, E> ResultExt for Result<V, E> {
     }
 }
 
-pub(crate) type Mapped<C, T> = <<C as IsKind1>::Family as Kind1>::Inner<T>;
-
-pub trait LogResultExt
+// fungible
+impl<V, P, LWC, RWC, EC0, ECn> LogResult<V, P, LWC, RWC, EC0, ECn>
 where
-    Self: Sized
-        + ResultExt<
-            Ok = Success<Self::V, Self::LWC>,
-            Error = Failure<Self::P, Self::E, Self::RWC, Self::EC>,
-        >,
+    ECn: FungibleError<Warn = LWC>,
 {
-    type V;
-    type P;
-    type E;
-    type LWC;
-    type RWC;
-    type EC;
+    pub(crate) fn new_fungible<E>(
+        value: V,
+        default: P,
+        error: E,
+        is_error: bool,
+    ) -> FungibleResult<V, P, RWC, EC0, ECn>
+    where
+        EC0: Applicative<E>,
+        ECn: FungibleError<Inner = E> + Default,
+        RWC: Default,
+    {
+        if is_error {
+            Fail(Failure::new_from_one(error, default))
+        } else {
+            Succ(Success::new(value, ECn::error_to_warning(error)))
+        }
+    }
+}
 
-    fn recover_with<Ferr, Fsucc, V, P, E, WC, EC>(
+// commutative
+impl<V, P, WC, EC0, ECn> CmtResult<V, P, WC, EC0, ECn> {
+    pub(crate) fn recover_with<Ferr, Fsucc, EC0f, WCf, ECnf>(
         self,
         f_err: Ferr,
         f_succ: Fsucc,
-    ) -> CmtResult<V, P, E, WC, EC>
+    ) -> CmtResult<V, P, WCf, EC0f, ECnf>
     where
-        Fsucc: FnOnce(Self::V) -> CmtResult<V, P, E, Self::LWC, EC>,
-        Ferr: FnOnce(Self::P, GenNonEmpty<Self::E, Self::EC>) -> CmtResult<V, P, E, Self::LWC, EC>,
-        Self: CommutativeResultExt,
-        Self::LWC: Concatable<Out = WC>,
+        Fsucc: FnOnce(V) -> CmtResult<V, P, WC, EC0f, ECnf>,
+        Ferr: FnOnce(P, GenNonEmpty<EC0, ECn>) -> CmtResult<V, P, WC, EC0f, ECnf>,
+        WC: Concatable<Out = WCf>,
     {
-        match self.into_result() {
-            Ok(s) => s.and_maybe(f_succ),
-            Err(f) => Success::new(f.value, f.warnings).and_maybe(|v| f_err(v, f.errors)),
+        match self {
+            Succ(s) => s.and_maybe(f_succ),
+            Fail(f) => Success::new(f.value, f.warnings).and_maybe(|v| f_err(v, f.errors)),
         }
-    }
-
-    /// Lift Result with no warnings to non-commutative Result
-    fn nowarn_into_non_cmt_warn<Wf, LWCf>(
-        self,
-    ) -> NonCmtResult<Self::V, Self::P, Self::E, LWCf, Self::EC>
-    where
-        Self: NowarnExt,
-        LWCf: Default,
-    {
-        self.into_result().map(Success::nowarn_into_warn)
-    }
-
-    /// Lift Result with no warnings to commutative Result
-    fn nowarn_into_warn<LWCf>(self) -> CmtResult<Self::V, Self::P, Self::E, LWCf, Self::EC>
-    where
-        Self: NowarnExt,
-        Self::LWC: Default,
-        LWCf: Default,
-    {
-        self.into_result()
-            .map(Success::nowarn_into_warn)
-            .non_cmt_into_cmt()
-    }
-
-    /// Lift non-commutative Result into commutative Result
-    fn non_cmt_into_cmt(self) -> CmtResult<Self::V, Self::P, Self::E, Self::LWC, Self::EC>
-    where
-        Self: NonCommutativeResultExt,
-        Self::LWC: Default,
-    {
-        self.into_result().map_err(Failure::nowarn_into_warn)
-    }
-
-    /// Map function over Ok value of Result
-    fn map_ok_value<F, Vf>(
-        self,
-        f: F,
-    ) -> LogResult<Vf, Self::P, Self::E, Self::LWC, Self::RWC, Self::EC>
-    where
-        F: FnOnce(Self::V) -> Vf,
-    {
-        self.into_result().map(|s| s.map_value(f))
-    }
-
-    /// Run function when result is Ok
-    fn when_ok<F>(
-        self,
-        f: F,
-    ) -> LogResult<Self::V, Self::P, Self::E, Self::LWC, Self::RWC, Self::EC>
-    where
-        F: FnOnce(),
-    {
-        self.map_ok_value(|v| {
-            f();
-            v
-        })
-    }
-
-    /// Map function over Error value of Result
-    fn map_err_value<F, Pf>(
-        self,
-        f: F,
-    ) -> LogResult<Self::V, Pf, Self::E, Self::LWC, Self::RWC, Self::EC>
-    where
-        F: FnOnce(Self::P) -> Pf,
-    {
-        self.into_result().map_err(|e| e.map_value(f))
-    }
-
-    /// Set value of Ok Result
-    fn set_ok_value<Vf>(
-        self,
-        x: Vf,
-    ) -> LogResult<Vf, Self::P, Self::E, Self::LWC, Self::RWC, Self::EC> {
-        self.map_ok_value(|_| x)
-    }
-
-    /// Set value of Error Result
-    fn set_err_value<Pf>(
-        self,
-        x: Pf,
-    ) -> LogResult<Self::V, Pf, Self::E, Self::LWC, Self::RWC, Self::EC> {
-        self.map_err_value(|_| x)
-    }
-
-    /// Set value of deferred Result
-    fn set_def_value<Vf>(self, x: Vf) -> Deferred<Vf, Self::E, Self::LWC, Self::EC>
-    where
-        Self: DeferredExt,
-    {
-        match self.into_result() {
-            Ok(s) => Ok(s.map_value(|_| x)),
-            Err(e) => Err(e.map_value(|_| x)),
-        }
-    }
-
-    /// Add a member to both the Ok and Error value, returning both as a tuple.
-    ///
-    /// This seems weird but is useful for cases where we need to use a non-Copy
-    /// variable in two closures for both branches but one closure will "eat"
-    /// (move) the value before the other can use it. This function will move
-    /// the value once depending on the branch where is can be consumed by
-    /// both closures as an argument.
-    fn inject_value<X>(
-        self,
-        x: X,
-    ) -> LogResult<(Self::V, X), (Self::P, X), Self::E, Self::LWC, Self::RWC, Self::EC> {
-        match self.into_result() {
-            Ok(s) => Ok(s.map_value(|v| (v, x))),
-            Err(e) => Err(e.map_value(|v| (v, x))),
-        }
-    }
-
-    /// Convert warnings of a non-commutative Result
-    fn non_cmt_warnings_into<W, Wf>(
-        self,
-    ) -> LogResult<Self::V, Self::P, Self::E, Mapped<Self::LWC, Wf>, Self::RWC, Self::EC>
-    where
-        Self: NonCommutativeResultExt,
-        W: Into<Wf>,
-        Self::LWC: Functor<W>,
-    {
-        self.map_non_cmt_warnings(Into::into)
-    }
-
-    /// Map function over warnings of a non-commutative Result
-    fn map_non_cmt_warnings<F, W, Wf>(
-        self,
-        f: F,
-    ) -> LogResult<Self::V, Self::P, Self::E, Mapped<Self::LWC, Wf>, Self::RWC, Self::EC>
-    where
-        Self: NonCommutativeResultExt,
-        F: Fn(W) -> Wf,
-        Self::LWC: Functor<W>,
-    {
-        self.into_result().map(|s| s.map_warnings(f))
     }
 
     /// Convert warnings of commutative Result
-    fn cmt_warnings_into<W, Wf>(
-        self,
-    ) -> CmtResult<Self::V, Self::P, Self::E, Mapped<Self::LWC, Wf>, Self::EC>
+    pub(crate) fn cmt_warnings_into<W, Wf>(self) -> CmtResult<V, P, Sibling1<WC, Wf>, EC0, ECn>
     where
         W: Into<Wf>,
-        Self: CommutativeResultExt,
-        Self::LWC: Functor<W>,
+        WC: Functor<W>,
     {
         self.map_cmt_warnings::<_, W, Wf>(Into::into)
     }
 
     /// Map function over warnings of commutative Result
-    fn map_cmt_warnings<F, W, Wf>(
+    pub(crate) fn map_cmt_warnings<F, W, Wf>(
         self,
         f: F,
-    ) -> CmtResult<Self::V, Self::P, Self::E, Mapped<Self::LWC, Wf>, Self::EC>
+    ) -> CmtResult<V, P, Sibling1<WC, Wf>, EC0, ECn>
     where
         F: Fn(W) -> Wf,
-        Self: CommutativeResultExt,
-        Self::LWC: Functor<W>,
+        WC: Functor<W>,
     {
-        self.into_result()
-            .map(|s| s.map_warnings(&f))
+        self.map(|s| s.map_warnings(&f))
             .map_err(|e| e.map_warnings(f))
     }
 
-    /// Convert errors in Result
-    ///
-    /// This function will work on any Result type but may change a fungible
-    /// Result to non-fungible one, which is generally not a good idea.
-    /// See [`*_fung_errors_into`] for functions that will map over warnings
-    /// if they are the same type as errors.
-    fn non_fung_errors_into<Ef>(
-        self,
-    ) -> LogResult<Self::V, Self::P, Ef, Self::LWC, Self::RWC, Mapped<Self::EC, Ef>>
-    where
-        Self::E: Into<Ef>,
-        Self::EC: Functor<Self::E>,
-    {
-        self.map_non_fung_errors(Into::into)
-    }
-
-    /// Map function over errors in Result
-    ///
-    /// This function will work on any Result type but may change a fungible
-    /// Result to non-fungible one, which is generally not a good idea.
-    /// See [`map_*_fung_errors`] for functions that will map over warnings
-    /// if they are the same type as errors.
-    fn map_non_fung_errors<F, Ef>(
-        self,
-        f: F,
-    ) -> LogResult<Self::V, Self::P, Ef, Self::LWC, Self::RWC, Mapped<Self::EC, Ef>>
-    where
-        F: Fn(Self::E) -> Ef,
-        Self::EC: Functor<Self::E>,
-    {
-        self.into_result().map_err(|e| e.map_errors(f))
-    }
-
-    /// Convert errors in commutative/fungible Results
-    fn non_cmt_fung_errors_into<Ef>(
-        self,
-    ) -> LogResult<Self::V, Self::P, Ef, Mapped<Self::LWC, Ef>, NeverValue<()>, Mapped<Self::EC, Ef>>
-    where
-        Self::E: Into<Ef>,
-        Self: NonCommutativeResultExt + FungibleExt,
-        Self::EC: FungibleError<Self::E> + Functor<Self::E>,
-        <Self::EC as FungibleError<Self::E>>::Warn: Functor<Self::E>,
-    {
-        self.map_non_cmt_fung_errors(Into::into)
-    }
-
-    /// Map function over errors in commutative/fungible Results
-    fn cmt_fung_errors_into<Ef>(
-        self,
-    ) -> LogResult<
-        Self::V,
-        Self::P,
-        Ef,
-        Mapped<Self::LWC, Ef>,
-        Mapped<Self::LWC, Ef>,
-        Mapped<Self::EC, Ef>,
-    >
-    where
-        Self::E: Into<Ef>,
-        Self: CommutativeResultExt + FungibleExt,
-        Self::EC: FungibleError<Self::E> + Functor<Self::E>,
-        <Self::EC as FungibleError<Self::E>>::Warn: Functor<Self::E>,
-    {
-        self.map_cmt_fung_errors(Into::into)
-    }
-
-    /// Convert errors in non-commutative/fungible Results
-    fn map_non_cmt_fung_errors<F, Ef>(
-        self,
-        f: F,
-    ) -> LogResult<Self::V, Self::P, Ef, Mapped<Self::LWC, Ef>, NeverValue<()>, Mapped<Self::EC, Ef>>
-    where
-        F: Fn(Self::E) -> Ef,
-        Self: NonCommutativeResultExt + FungibleExt,
-        Self::EC: FungibleError<Self::E> + Functor<Self::E>,
-        <Self::EC as FungibleError<Self::E>>::Warn: Functor<Self::E>,
-    {
-        match self.into_result() {
-            Ok(s) => Ok(s.map_warnings(f)),
-            Err(e) => Err(e.map_errors(f)),
-        }
-    }
-
-    /// Map function over errors in non-commutative/fungible Results
-    fn map_cmt_fung_errors<F, Ef>(
-        self,
-        f: F,
-    ) -> LogResult<
-        Self::V,
-        Self::P,
-        Ef,
-        Mapped<Self::LWC, Ef>,
-        Mapped<Self::LWC, Ef>,
-        Mapped<Self::EC, Ef>,
-    >
-    where
-        F: Fn(Self::E) -> Ef,
-        Self: CommutativeResultExt + FungibleExt,
-        Self::EC: FungibleError<Self::E> + Functor<Self::E>,
-        <Self::EC as FungibleError<Self::E>>::Warn: Functor<Self::E>,
-    {
-        match self.into_result() {
-            Ok(s) => Ok(s.map_warnings(f)),
-            Err(e) => Err(e.map_errors(&f).map_warnings(f)),
-        }
-    }
-
-    /// Map function over Ok and Error value of result (assumed same type).
-    fn map_def_value<F, Vf>(
-        self,
-        f: F,
-    ) -> LogResult<Vf, Vf, Self::E, Self::LWC, Self::RWC, Self::EC>
-    where
-        F: FnOnce(Self::V) -> Vf,
-        Self: DeferredExt,
-    {
-        match self.into_result() {
-            Ok(s) => Ok(s.map_value(f)),
-            Err(e) => Err(e.map_value(f)),
-        }
-    }
-
-    fn repack<LWCf, RWCf, ECf>(self) -> LogResult<Self::V, Self::P, Self::E, LWCf, RWCf, ECf>
-    where
-        Self::LWC: IntoZeroOrMore<LWCf>,
-        Self::RWC: IntoZeroOrMore<RWCf>,
-        Self::EC: IntoZeroOrMore<ECf>,
-    {
-        self.repack_left_warnings()
-            .repack_right_warnings()
-            .repack_errors()
-    }
-
-    fn into_semigroup<LWC, RWC>(
-        self,
-    ) -> LogResult<Self::V, Self::P, Self::E, LWC, RWC, Vec<Self::E>>
-    where
-        Self::LWC: IntoZeroOrMore<LWC>,
-        Self::RWC: IntoZeroOrMore<RWC>,
-        Self::EC: IntoZeroOrMore<Vec<Self::E>>,
-    {
-        self.repack()
-    }
-
-    fn repack_warnings<WCf>(self) -> LogResult<Self::V, Self::P, Self::E, WCf, WCf, Self::EC>
-    where
-        Self::LWC: IntoZeroOrMore<WCf>,
-        Self::RWC: IntoZeroOrMore<WCf>,
-    {
-        self.into_result()
-            .repack_right_warnings()
-            .repack_left_warnings()
-    }
-
-    fn repack_left_warnings<LWCf>(
-        self,
-    ) -> LogResult<Self::V, Self::P, Self::E, LWCf, Self::RWC, Self::EC>
-    where
-        Self::LWC: IntoZeroOrMore<LWCf>,
-    {
-        self.into_result().map(Success::repack)
-    }
-
-    fn repack_right_warnings<RWCf>(
-        self,
-    ) -> LogResult<Self::V, Self::P, Self::E, Self::LWC, RWCf, Self::EC>
-    where
-        Self::RWC: IntoZeroOrMore<RWCf>,
-    {
-        self.into_result().map_err(Failure::repack_warnings)
-    }
-
-    fn repack_errors<ECf>(self) -> LogResult<Self::V, Self::P, Self::E, Self::LWC, Self::RWC, ECf>
-    where
-        Self::EC: IntoZeroOrMore<ECf>,
-    {
-        self.into_result().map_err(Failure::repack_errors)
-    }
-
-    fn cmt_warnings_to_errors<F, W>(
+    pub(crate) fn cmt_warnings_to_errors<F, W, E>(
         self,
         conf: &SharedConfig,
         f: F,
-    ) -> CmtResult<Self::V, (), Self::E, Self::RWC, Self::EC>
+    ) -> CmtResult<V, (), WC, EC0, ECn>
     where
-        F: Fn(W) -> Self::E,
-        Self: CommutativeResultExt,
-        Self::EC: Extend<Self::E> + Default,
-        Self::LWC: IntoIterator<Item = W> + Default,
+        F: Fn(W) -> E,
+        EC0: Applicative<E>,
+        ECn: Extend<E> + Default,
+        WC: IntoIterator<Item = W> + Default,
     {
-        let res = self.into_result();
+        let res = self;
         if conf.warnings_are_errors {
             match res {
-                Ok(s) => s.warnings_to_errors(f, |_| ()),
-                Err(e) => Err(e.warnings_to_errors(f).map_value(|_| ())),
+                Succ(s) => s.warnings_to_errors(f, |_| ()),
+                Fail(e) => Fail(e.warnings_to_errors(f).map_value(|_| ())),
             }
         } else if conf.hide_warnings {
             res.map(Success::remove_warnings)
@@ -1451,8 +1235,1094 @@ where
         }
     }
 
+    /// Push a warning to a commutative Result.
+    pub(crate) fn push_cmt_warning<W>(&mut self, w: W)
+    where
+        WC: Extend<W>,
+    {
+        match self {
+            Succ(s) => s.push_warning(w),
+            Fail(e) => e.push_warning(w),
+        }
+    }
+
+    /// Add warnings to a commutative Result.
+    pub(crate) fn extend_cmt_warnings<W>(&mut self, ws: impl IntoIterator<Item = W>)
+    where
+        WC: Extend<W>,
+    {
+        match self {
+            Succ(s) => s.extend_warnings(ws),
+            Fail(e) => e.extend_warnings(ws),
+        }
+    }
+
+    /// Push an error based on the value in non-deferred Result.
+    ///
+    /// If Result is Ok and the evaluation returns an error, the result will
+    /// be converted to an error. If already an error, do nothing since
+    /// there is no value to use.
+    ///
+    /// This must be commutative since and OK might flip to an error, and thus
+    /// the warnings must match.
+    pub(crate) fn eval_non_def_error<F>(self, f: F) -> CmtResult<V, (), WC, EC0, ECn>
+    where
+        F: FnOnce(&V) -> Option<EC0>,
+        ECn: Extend<EC0> + Default,
+    {
+        match self.set_err_value(()) {
+            Succ(x) => match f(&x.value) {
+                Some(e) => Fail(x.fail(GenNonEmpty::new1(e)).map_value(|_| ())),
+                None => Succ(x),
+            },
+            Fail(x) => Fail(x),
+        }
+    }
+
+    pub(crate) fn extend_fung_errors<M, E, W, Fv, Fp, Fw, Fe>(
+        mut self,
+        errors: impl IntoIterator<Item = M>,
+        fv: Fv,
+        fp: Fp,
+        fw: Fw,
+        fe: Fe,
+        is_error: bool,
+    ) -> Self
+    where
+        Fv: FnOnce(V) -> P,
+        Fp: FnOnce(P) -> P,
+        Fe: Fn(M) -> E,
+        Fw: Fn(M) -> W,
+        WC: Extend<W>,
+        EC0: Applicative<E>,
+        ECn: Extend<E> + Default + FungibleError<Inner = E>,
+    {
+        if is_error {
+            let mut it = errors.into_iter().map(fe);
+            match self {
+                Succ(succ) => {
+                    if let Some(e0) = it.by_ref().next() {
+                        let mut es_ = GenNonEmpty::new1(EC0::pure(e0));
+                        es_.extend(it);
+                        Fail(succ.fail(es_).map_value(fv))
+                    } else {
+                        Succ(succ)
+                    }
+                }
+                Fail(mut err) => {
+                    err.extend_errors(it);
+                    Fail(err.map_value(fp))
+                }
+            }
+        } else {
+            self.extend_cmt_warnings(errors.into_iter().map(fw));
+            self.map_err_value(fp)
+        }
+    }
+
+    pub(crate) fn and_cmt<F>(self, f: F) -> CmtResult<V, P, WC, EC0, ECn>
+    where
+        F: FnOnce() -> CmtResult<(), P, WC, EC0, ECn>,
+        WC: Semigroup,
+    {
+        self.and_then_cmt(|v| f().map_ok_value(|()| v))
+    }
+
+    /// Monad-ically chain commutative result operations.
+    ///
+    /// Function will be called on value if result is Ok. Original error will
+    /// be returned otherwise.
+    ///
+    /// This only works on commutative results since the warnings from the
+    /// original result need to be considered if the provided function
+    /// returns error.
+    ///
+    /// Inner for warnings must be a semigroup, which specifically means
+    /// that Option<T> must be converted to a vector before calling this.
+    pub(crate) fn and_then_cmt<F, Vf>(self, f: F) -> CmtResult<Vf, P, WC, EC0, ECn>
+    where
+        F: FnOnce(V) -> CmtResult<Vf, P, WC, EC0, ECn>,
+        WC: Semigroup,
+    {
+        match self {
+            Succ(x) => x.and_maybe(f),
+            Fail(x) => Fail(x),
+        }
+    }
+
+    /// Combine two commutative results.
+    ///
+    /// Ok values will be wrapped in a tuple. Error values if they exist will
+    /// be voided.
+    ///
+    /// Inners for warnings and errors must be the same. The former must
+    /// be a semigroup (which here means Option<T> must be converted to Vec<T>
+    /// prior to calling). The latter will be converted to a Vec<T> since
+    /// there could be more than one errors.
+    pub(crate) fn zip_cmt<E, V1, P1>(
+        self,
+        a: CmtResult<V1, P1, WC, EC0, ECn>,
+    ) -> CmtResult<(V, V1), (), WC, EC0, Vec<E>>
+    where
+        EC0: Comonad<E>,
+        ECn: IntoNewCardinality<Vec<E>> + IntoIterator<Item = E>,
+        WC: Semigroup,
+    {
+        match (self, a) {
+            (Succ(ax), Succ(bx)) => Succ(ax.zip_with(bx, |x, y| (x, y))),
+            (Succ(ax), Fail(bx)) => Fail(ax.with_failure(bx, |_, _| ()).repack_errors()),
+            (Fail(ax), Succ(bx)) => Fail(ax.with_success(bx, |_, _| ()).repack_errors()),
+            (Fail(ax), Fail(bx)) => Fail(ax.zip_with(bx, |_, _| ())),
+        }
+    }
+
+    /// Combine three commutative results.
+    pub(crate) fn zip3_cmt<E, V1, V2, P1, P2>(
+        self,
+        a: CmtResult<V1, P1, WC, EC0, ECn>,
+        b: CmtResult<V2, P2, WC, EC0, ECn>,
+    ) -> CmtResult<(V, V1, V2), (), WC, EC0, Vec<E>>
+    where
+        EC0: Comonad<E>,
+        ECn: IntoNewCardinality<Vec<E>> + IntoIterator<Item = E>,
+        WC: Semigroup,
+    {
+        self.zip_cmt(a)
+            .zip_cmt(b.repack())
+            .map_ok_value(|((ax, bx), cx)| (ax, bx, cx))
+    }
+
+    /// Combine four commutative results.
+    pub(crate) fn zip4_cmt<E, V1, V2, V3, P1, P2, P3>(
+        self,
+        a: CmtResult<V1, P1, WC, EC0, ECn>,
+        b: CmtResult<V2, P2, WC, EC0, ECn>,
+        c: CmtResult<V3, P3, WC, EC0, ECn>,
+    ) -> CmtResult<(V, V1, V2, V3), (), WC, EC0, Vec<E>>
+    where
+        EC0: Comonad<E>,
+        ECn: IntoNewCardinality<Vec<E>> + IntoIterator<Item = E>,
+        WC: Semigroup,
+    {
+        self.zip3_cmt(a, b)
+            .zip_cmt(c.repack())
+            .map_ok_value(|((ax, bx, cx), dx)| (ax, bx, cx, dx))
+    }
+
+    /// Combine five commutative results.
+    pub(crate) fn zip5_cmt<E, V1, V2, V3, V4, P1, P2, P3, P4>(
+        self,
+        a: CmtResult<V1, P1, WC, EC0, ECn>,
+        b: CmtResult<V2, P2, WC, EC0, ECn>,
+        c: CmtResult<V3, P3, WC, EC0, ECn>,
+        d: CmtResult<V4, P4, WC, EC0, ECn>,
+    ) -> CmtResult<(V, V1, V2, V3, V4), (), WC, EC0, Vec<E>>
+    where
+        EC0: Comonad<E>,
+        ECn: IntoNewCardinality<Vec<E>> + IntoIterator<Item = E>,
+        WC: Semigroup,
+    {
+        self.zip4_cmt(a, b, c)
+            .zip_cmt(d.repack())
+            .map_ok_value(|((ax, bx, cx, dx), ex)| (ax, bx, cx, dx, ex))
+    }
+
+    /// Combine six commutative results.
+    pub(crate) fn zip6_cmt<E, V1, V2, V3, V4, V5, P1, P2, P3, P4, P5>(
+        self,
+        x1: CmtResult<V1, P1, WC, EC0, ECn>,
+        x2: CmtResult<V2, P2, WC, EC0, ECn>,
+        x3: CmtResult<V3, P3, WC, EC0, ECn>,
+        x4: CmtResult<V4, P4, WC, EC0, ECn>,
+        x5: CmtResult<V5, P5, WC, EC0, ECn>,
+    ) -> CmtResult<(V, V1, V2, V3, V4, V5), (), WC, EC0, Vec<E>>
+    where
+        EC0: Comonad<E>,
+        ECn: IntoNewCardinality<Vec<E>> + IntoIterator<Item = E>,
+        WC: Semigroup,
+    {
+        self.zip5_cmt(x1, x2, x3, x4)
+            .zip_cmt(x5.repack())
+            .map_ok_value(|((y0, y1, y2, y3, y4), y5)| (y0, y1, y2, y3, y4, y5))
+    }
+}
+
+// commutative/resolvable
+impl<V, WC, EC0, E> CmtResult<V, (), WC, EC0, NeverValue<E>> {
+    /// Resolve commutative Result with into regular Result type.
+    ///
+    /// Warnings will be given outside the result since commutative Results by
+    /// definition allow the same warnings in both Succ and Failor branches.
+    pub(crate) fn resolve_cmt<Fwarn, Ferr, WarnRes, FailRes>(
+        self,
+        f_warnings: Fwarn,
+        f_errors: Ferr,
+    ) -> (WarnRes, Result<V, FailRes>)
+    where
+        EC0: Comonad<E>,
+        Fwarn: FnOnce(WC) -> WarnRes,
+        Ferr: FnOnce(E) -> FailRes,
+    {
+        match self {
+            Succ(s) => {
+                let (v, warn_res) = s.resolve(f_warnings);
+                (warn_res, Ok(v))
+            }
+            Fail(e) => (
+                f_warnings(e.warnings),
+                Err(f_errors(e.errors.head.cm_extract())),
+            ),
+        }
+    }
+}
+
+// deferred
+impl<V, WC, EC0, ECn> LogResult<V, V, WC, WC, EC0, ECn> {
+    /// Set value of deferred Result
+    pub(crate) fn set_def_value<Vf>(self, x: Vf) -> Deferred<Vf, WC, EC0, ECn> {
+        self.map_def_value(|_| x)
+    }
+
+    /// Map function over Succ and Failor value of result (assumed same type).
+    pub(crate) fn map_def_value<F, Vf>(self, f: F) -> Deferred<Vf, WC, EC0, ECn>
+    where
+        F: FnOnce(V) -> Vf,
+    {
+        match self {
+            Succ(s) => Succ(s.map_value(f)),
+            Fail(e) => Fail(e.map_value(f)),
+        }
+    }
+
+    /// Push a warning based on the value in a deferred Result.
+    ///
+    /// This must be a deferred result because the same value type must exist
+    /// on both Succ and Failor sides.
+    pub(crate) fn eval_def_warning<W, F>(&mut self, f: F)
+    where
+        F: FnOnce(&V) -> Option<W>,
+        WC: Extend<W>,
+    {
+        match self {
+            Succ(s) => s.eval_warning(f),
+            Fail(e) => e.eval_warning(f),
+        }
+    }
+
+    /// Push an error based on the value in a deferred Result.
+    ///
+    /// If Result is Ok and the evaluation returns an error, the result will
+    /// be converted to an error.
+    ///
+    /// This must be a deferred result because the same value type must exist
+    /// on both Ok and Error sides.
+    pub(crate) fn eval_def_error<E, F>(self, f: F) -> Deferred<V, WC, EC0, ECn>
+    where
+        F: FnOnce(&V) -> Option<E>,
+        EC0: Applicative<E>,
+        ECn: Extend<E> + Default,
+    {
+        match self {
+            Succ(succ) => match f(&succ.value) {
+                Some(e) => Fail(succ.fail(GenNonEmpty::new1(EC0::pure(e)))),
+                None => Succ(succ),
+            },
+            Fail(mut err) => {
+                if let Some(e) = f(&err.value) {
+                    err.push_error(e);
+                }
+                Fail(err)
+            }
+        }
+    }
+
+    /// Push an error to a deferred Result.
+    ///
+    /// If Result is Ok, the result will be converted to an error.
+    ///
+    /// This must be deferred because the value type will be the same
+    /// if the Result needs to flip from Ok to Error.
+    pub(crate) fn push_def_error(self, e: EC0) -> Deferred<V, WC, EC0, ECn>
+    where
+        ECn: Extend<EC0> + Default,
+    {
+        match self {
+            Succ(succ) => Fail(succ.fail(GenNonEmpty::new1(e))),
+            Fail(mut err) => {
+                err.push_error(e);
+                Fail(err)
+            }
+        }
+    }
+
+    /// Push errors to a deferred Result.
+    ///
+    /// If Result is Ok, the result will be converted to an error.
+    ///
+    /// This must be deferred because the value type will be the same
+    /// if the Result needs to flip from Ok to Error.
+    pub(crate) fn extend_def_errors<E>(
+        self,
+        es: impl IntoIterator<Item = E>,
+    ) -> Deferred<V, WC, EC0, ECn>
+    where
+        EC0: Applicative<E>,
+        ECn: Extend<E> + Default,
+    {
+        match self {
+            Succ(succ) => {
+                let mut it = es.into_iter();
+                if let Some(e0) = it.by_ref().next() {
+                    let mut es_ = GenNonEmpty::new1(EC0::pure(e0));
+                    es_.extend(it);
+                    Fail(succ.fail(es_))
+                } else {
+                    Succ(succ)
+                }
+            }
+            Fail(mut err) => {
+                err.extend_errors(es);
+                Fail(err)
+            }
+        }
+    }
+
+    /// Push non-fungible error to a deferred Result based on its value.
+    ///
+    /// If Result is Ok, the result will be converted to an error.
+    ///
+    /// This must be deferred because the value type will be the same
+    /// if the Result needs to flip from Ok to Error.
+    pub(crate) fn eval_def_non_fung_error<F, W, E>(
+        mut self,
+        is_error: bool,
+        f: F,
+    ) -> Deferred<V, WC, EC0, ECn>
+    where
+        F: FnOnce(&V) -> Option<E>,
+        E: Into<E> + Into<W>,
+        WC: Extend<W>,
+        EC0: Applicative<E>,
+        ECn: Extend<E> + Default,
+    {
+        if is_error {
+            self.eval_def_error(|x| f(x).map(Into::into))
+        } else {
+            self.eval_def_warning(|x| f(x).map(Into::into));
+            self
+        }
+    }
+
+    /// Monad-ically apply commutative result operation to deferred result.
+    ///
+    /// Function will be called on value of either the Ok or Error branch
+    /// depending on the input Result. Warnings and errors from input Result
+    /// will be aggregated with the Result returned by the provided function.
+    ///
+    /// Input Result must be deferred because the value types match between
+    /// Ok and Error. The output does not necessarily need to be deferred
+    /// (although it likely will be in many cases).
+    ///
+    /// Inner for warnings must be a semigroup, which specifically means
+    /// that Option<T> must be converted to a vector before calling this.
+    ///
+    /// Inner for errors must be able to hold multiple values.
+    pub(crate) fn and_then_def<F, E, Vf, Pf>(self, f: F) -> CmtResult<Vf, Pf, WC, EC0, ECn>
+    where
+        F: FnOnce(V) -> CmtResult<Vf, Pf, WC, EC0, ECn>,
+        EC0: Comonad<E>,
+        WC: Semigroup,
+        ECn: Extend<E> + IntoIterator<Item = E>,
+    {
+        match self {
+            Succ(s) => s.and_maybe(f),
+            Fail(e) => e.with_value(f),
+        }
+    }
+
+    /// Combine two deferred results.
+    ///
+    /// Ok and Error values will be wrapped in a tuple. Inputs must be
+    /// deferred to ensure value types match between Ok and Error branches.
+    ///
+    /// Inners for warnings and errors must be the same. The former must
+    /// be a semigroup (which here means Option<T> must be converted to Vec<T>
+    /// prior to calling). The latter will be converted to a Vec<T> since
+    /// there could be more than one errors.
+    pub(crate) fn zip_def<E, V1>(
+        self,
+        a: Deferred<V1, WC, EC0, ECn>,
+    ) -> Deferred<(V, V1), WC, EC0, Vec<E>>
+    where
+        EC0: Comonad<E>,
+        ECn: IntoNewCardinality<Vec<E>> + IntoIterator<Item = E>,
+        WC: Semigroup,
+    {
+        match (self, a) {
+            (Succ(ax), Succ(bx)) => Succ(ax.zip_with(bx, |x, y| (x, y))),
+            (Succ(ax), Fail(bx)) => Fail(ax.with_failure(bx, |x, y| (x, y)).repack_errors()),
+            (Fail(ax), Succ(bx)) => Fail(ax.with_success(bx, |x, y| (x, y)).repack_errors()),
+            (Fail(ax), Fail(bx)) => Fail(ax.zip_with(bx, |x, y| (x, y))),
+        }
+    }
+
+    /// Combine three deferred results.
+    pub(crate) fn zip3_def<E, V1, V2>(
+        self,
+        a: Deferred<V1, WC, EC0, ECn>,
+        b: Deferred<V2, WC, EC0, ECn>,
+    ) -> Deferred<(V, V1, V2), WC, EC0, Vec<E>>
+    where
+        EC0: Comonad<E>,
+        ECn: IntoNewCardinality<Vec<E>> + IntoIterator<Item = E>,
+        WC: Semigroup,
+    {
+        self.zip_def(a)
+            .zip_def(b.repack())
+            .map_def_value(|((ax, bx), cx)| (ax, bx, cx))
+    }
+
+    /// Combine four deferred results.
+    pub(crate) fn zip4_def<E, V1, V2, V3>(
+        self,
+        a: Deferred<V1, WC, EC0, ECn>,
+        b: Deferred<V2, WC, EC0, ECn>,
+        c: Deferred<V3, WC, EC0, ECn>,
+    ) -> Deferred<(V, V1, V2, V3), WC, EC0, Vec<E>>
+    where
+        EC0: Comonad<E>,
+        ECn: IntoNewCardinality<Vec<E>> + IntoIterator<Item = E>,
+        WC: Semigroup,
+    {
+        self.zip3_def(a, b)
+            .zip_def(c.repack())
+            .map_def_value(|((ax, bx, cx), dx)| (ax, bx, cx, dx))
+    }
+
+    /// Combine five deferred results.
+    pub(crate) fn zip5_def<E, V1, V2, V3, V4>(
+        self,
+        a: Deferred<V1, WC, EC0, ECn>,
+        b: Deferred<V2, WC, EC0, ECn>,
+        c: Deferred<V3, WC, EC0, ECn>,
+        d: Deferred<V4, WC, EC0, ECn>,
+    ) -> Deferred<(V, V1, V2, V3, V4), WC, EC0, Vec<E>>
+    where
+        EC0: Comonad<E>,
+        ECn: IntoNewCardinality<Vec<E>> + IntoIterator<Item = E>,
+        WC: Semigroup,
+    {
+        self.zip4_def(a, b, c)
+            .zip_def(d.repack())
+            .map_def_value(|((ax, bx, cx, dx), ex)| (ax, bx, cx, dx, ex))
+    }
+
+    /// Combine six deferred results.
+    pub(crate) fn zip6_def<E, V1, V2, V3, V4, V5>(
+        self,
+        x1: Deferred<V1, WC, EC0, ECn>,
+        x2: Deferred<V2, WC, EC0, ECn>,
+        x3: Deferred<V3, WC, EC0, ECn>,
+        x4: Deferred<V4, WC, EC0, ECn>,
+        x5: Deferred<V5, WC, EC0, ECn>,
+    ) -> Deferred<(V, V1, V2, V3, V4, V5), WC, EC0, Vec<E>>
+    where
+        EC0: Comonad<E>,
+        ECn: IntoNewCardinality<Vec<E>> + IntoIterator<Item = E>,
+        WC: Semigroup,
+    {
+        self.zip5_def(x1, x2, x3, x4)
+            .zip_def(x5.repack())
+            .map_def_value(|((y0, y1, x2, x3, x4), x5)| (y0, y1, x2, x3, x4, x5))
+    }
+}
+
+// nowarn
+impl<V, P, EC0, ECn> LogResult<V, P, NeverValue<()>, NeverValue<()>, EC0, ECn> {
+    /// Lift Result with no warnings to non-commutative Result
+    pub(crate) fn nowarn_into_non_cmt_warn<Wf, LWCf>(self) -> NonCmtResult<V, P, LWCf, EC0, ECn>
+    where
+        LWCf: Default,
+    {
+        self.map_either(Success::nowarn_into_warn, |x| x)
+    }
+
+    /// Lift Result with no warnings to commutative Result
+    pub(crate) fn nowarn_into_warn<LWCf>(self) -> CmtResult<V, P, LWCf, EC0, ECn>
+    where
+        LWCf: Default,
+    {
+        self.map_either(Success::nowarn_into_warn, |x| x)
+            .non_cmt_into_cmt()
+    }
+
+    pub(crate) fn infallible_nowarn_into(self) -> V
+    where
+        EC0: IsKind1,
+        EC0::Family: Kind1<Type<Infallible> = EC0>,
+    {
+        let ret = match self {
+            Succ(x) => Some(x),
+            Fail(_) => None,
+        };
+        ret.expect("should be infallible").value
+    }
+
+    /// Set warnings in Succ side of Result with no warnings
+    pub(crate) fn set_non_cmt_warnings<WC>(self, ws: WC) -> NonCmtResult<V, P, WC, EC0, ECn> {
+        self.map(|s| s.set_warnings(ws))
+    }
+
+    /// Set warnings in both Succ and Error sides of Result
+    pub(crate) fn set_cmt_warnings<WC>(self, ws: WC) -> CmtResult<V, P, WC, EC0, ECn> {
+        match self {
+            Succ(s) => Succ(s.set_warnings(ws)),
+            Fail(e) => Fail(e.set_warnings(ws)),
+        }
+    }
+}
+
+impl<V, EC0, E> LogResult<V, (), NeverValue<()>, NeverValue<()>, EC0, NeverValue<E>> {
+    /// Resolve Result with no warnings into regular Result type.
+    pub(crate) fn resolve_nowarn<F, FailRes>(self, f: F) -> Result<V, FailRes>
+    where
+        EC0: Comonad<E>,
+        F: FnOnce(E) -> FailRes,
+    {
+        match self {
+            Succ(s) => Ok(s.value),
+            Fail(x) => Err(f(x.errors.head.cm_extract())),
+        }
+    }
+}
+
+// non-cummutative
+impl<V, P, LWC, EC0, ECn> LogResult<V, P, LWC, NeverValue<()>, EC0, ECn> {
+    /// Lift non-commutative Result into commutative Result
+    pub(crate) fn non_cmt_into_cmt(self) -> CmtResult<V, P, LWC, EC0, ECn>
+    where
+        LWC: Default,
+    {
+        self.map_err(Failure::nowarn_into_warn)
+    }
+
+    /// Convert warnings of a non-commutative Result
+    pub(crate) fn non_cmt_warnings_into<W, Wf>(
+        self,
+    ) -> NonCmtResult<V, P, Sibling1<LWC, Wf>, EC0, ECn>
+    where
+        W: Into<Wf>,
+        LWC: Functor<W>,
+    {
+        self.map_non_cmt_warnings(Into::into)
+    }
+
+    /// Map function over warnings of a non-commutative Result
+    pub(crate) fn map_non_cmt_warnings<F, W, Wf>(
+        self,
+        f: F,
+    ) -> NonCmtResult<V, P, Sibling1<LWC, Wf>, EC0, ECn>
+    where
+        F: Fn(W) -> Wf,
+        LWC: Functor<W>,
+    {
+        self.map(|s| s.map_warnings(f))
+    }
+
+    /// Aggregate non-commutative/fungible errors into one error.
+    pub(crate) fn aggregate_non_cmt_fung_errors<F, G, E>(
+        self,
+        f: F,
+        g: G,
+    ) -> NonCmtFungibleResult<V, P, EC0, NeverValue<E>>
+    where
+        F: FnOnce(LWC) -> E,
+        G: FnOnce(GenNonEmpty<EC0, ECn>) -> E,
+        // Self: NonCommutativeResultExt + FungibleExt,
+        EC0: Applicative<E>,
+        ECn: FungibleError<Inner = E>,
+    {
+        match self {
+            Succ(s) => Succ(s.aggregate_warnings(f)),
+            Fail(e) => Fail(e.aggregate_errors(g)),
+        }
+    }
+}
+
+// non-commutative/resolveable
+impl<V, LWC, EC0, E> LogResult<V, (), LWC, NeverValue<()>, EC0, NeverValue<E>> {
+    /// Resolve non-commutative Result with regular Result type.
+    ///
+    /// Warnings will be given on the Succ side since non-commutative Result's
+    /// by definition cannot have warnings in the Fail branch.
+    pub(crate) fn resolve_non_cmt<Fwarn, Ferr, WarnRes, FailRes>(
+        self,
+        f_warnings: Fwarn,
+        f_errors: Ferr,
+    ) -> Result<(V, WarnRes), FailRes>
+    where
+        EC0: Comonad<E>,
+        Fwarn: FnOnce(LWC) -> WarnRes,
+        Ferr: FnOnce(E) -> FailRes,
+    {
+        match self {
+            Succ(x) => Ok(x.resolve(f_warnings)),
+            Fail(x) => Err(f_errors(x.errors.head.cm_extract())),
+        }
+    }
+}
+
+// non-cummutative/fungible
+impl<V, P, LWC, EC0, ECn> LogResult<V, P, LWC, NeverValue<()>, EC0, ECn>
+where
+    ECn: FungibleError<Warn = LWC>,
+{
+    /// Convert errors in commutative/fungible Results
+    pub(crate) fn non_cmt_fung_errors_into<Ei, Ef>(
+        self,
+    ) -> LogResult<V, P, Sibling1<LWC, Ef>, NeverValue<()>, Sibling1<EC0, Ef>, Sibling1<ECn, Ef>>
+    where
+        Ei: Into<Ef>,
+        EC0: Functor<Ei>,
+        ECn: FungibleError<Inner = Ei> + Functor<Ei>,
+        <ECn as FungibleError>::Warn: Functor<Ei>,
+    {
+        self.map_non_cmt_fung_errors(Into::into)
+    }
+
+    /// Convert errors in non-commutative/fungible Results
+    pub(crate) fn map_non_cmt_fung_errors<F, Ei, Ef>(
+        self,
+        f: F,
+    ) -> LogResult<V, P, Sibling1<LWC, Ef>, NeverValue<()>, Sibling1<EC0, Ef>, Sibling1<ECn, Ef>>
+    where
+        F: Fn(Ei) -> Ef,
+        EC0: Functor<Ei>,
+        ECn: FungibleError<Inner = Ei> + Functor<Ei>,
+        <ECn as FungibleError>::Warn: Functor<Ei>,
+    {
+        match self {
+            Succ(s) => Succ(s.map_warnings(f)),
+            Fail(e) => Fail(e.map_errors(f)),
+        }
+    }
+}
+
+// commutative/fungible
+impl<V, P, WC, EC0, ECn> LogResult<V, P, WC, WC, EC0, ECn>
+where
+    ECn: FungibleError<Warn = WC>,
+{
+    /// Map function over errors in commutative/fungible Results
+    pub(crate) fn cmt_fung_errors_into<Ei, Ef>(
+        self,
+    ) -> CmtResult<V, P, Sibling1<WC, Ef>, Sibling1<EC0, Ef>, Sibling1<ECn, Ef>>
+    where
+        Ei: Into<Ef>,
+        EC0: Functor<Ei>,
+        ECn: FungibleError<Inner = Ei> + Functor<Ei>,
+        <ECn as FungibleError>::Warn: Functor<Ei>,
+    {
+        self.map_cmt_fung_errors(Into::into)
+    }
+
+    /// Map function over errors in non-commutative/fungible Results
+    pub(crate) fn map_cmt_fung_errors<F, Ei, Ef>(
+        self,
+        f: F,
+    ) -> CmtResult<V, P, Sibling1<WC, Ef>, Sibling1<EC0, Ef>, Sibling1<ECn, Ef>>
+    where
+        F: Fn(Ei) -> Ef,
+        EC0: Functor<Ei>,
+        ECn: FungibleError<Inner = Ei> + Functor<Ei>,
+        <ECn as FungibleError>::Warn: Functor<Ei>,
+    {
+        match self {
+            Succ(s) => Succ(s.map_warnings(f)),
+            Fail(e) => Fail(e.map_errors(&f).map_warnings(f)),
+        }
+    }
+
+    /// Aggregate commutative/fungible errors into one error.
+    pub(crate) fn aggregate_cmt_fung_errors<F, G, E>(
+        self,
+        f: F,
+        g: G,
+    ) -> CmtFungibleResult<V, P, EC0, NeverValue<E>>
+    where
+        F: FnOnce(WC) -> E,
+        G: FnOnce(GenNonEmpty<EC0, ECn>) -> E,
+        EC0: Applicative<E>,
+        ECn: FungibleError<Inner = E>,
+    {
+        match self {
+            Succ(s) => Succ(s.aggregate_warnings(f)),
+            Fail(e) => Fail(e.aggregate_errors(g).aggregate_warnings(f)),
+        }
+    }
+}
+
+// deferred/fungible
+impl<V, WC, EC0, ECn> LogResult<V, V, WC, WC, EC0, ECn>
+where
+    ECn: FungibleError<Warn = WC>,
+{
+    pub(crate) fn new_deferred_fungible<E>(
+        value: V,
+        error: E,
+        is_error: bool,
+    ) -> Deferred<V, WC, EC0, ECn>
+    where
+        EC0: Applicative<E>,
+        ECn: FungibleError<Inner = E> + Default,
+        WC: Default,
+    {
+        if is_error {
+            Fail(Failure::new_from_one(error, value))
+        } else {
+            Succ(Success::new(value, ECn::error_to_warning(error)))
+        }
+    }
+
+    /// Push fungible error to a deferred Result based on its value.
+    ///
+    /// If Result is Ok, the result will be converted to an error.
+    ///
+    /// This must be deferred because the value type will be the same
+    /// if the Result needs to flip from Ok to Error.
+    pub(crate) fn eval_def_fung_error<E, F>(
+        mut self,
+        is_error: bool,
+        f: F,
+    ) -> DeferredFungible<V, EC0, ECn>
+    where
+        F: FnOnce(&V) -> Option<E>,
+        WC: Extend<E>,
+        EC0: Applicative<E>,
+        ECn: Extend<E> + Default + FungibleError,
+    {
+        if is_error {
+            self.eval_def_error(f)
+        } else {
+            self.eval_def_warning(f);
+            self
+        }
+    }
+
+    /// Push fungible error to a deferred Result.
+    ///
+    /// If Result is Ok, the result will be converted to an error.
+    ///
+    /// This must be deferred because the value type will be the same
+    /// if the Result needs to flip from Ok to Error.
+    pub(crate) fn push_def_fung_error<E>(
+        self,
+        e: E,
+        is_error: bool,
+    ) -> DeferredFungible<V, EC0, ECn>
+    where
+        EC0: Applicative<E>,
+        WC: Extend<E>,
+        ECn: Extend<E> + FungibleError<Inner = E> + Default,
+    {
+        self.extend_def_fung_errors(iter::once(e), is_error)
+    }
+
+    /// Push fungible errors to a deferred Result.
+    ///
+    /// If Result is Ok, the result will be converted to an error.
+    ///
+    /// This must be deferred because the value type will be the same
+    /// if the Result needs to flip from Ok to Error.
+    pub(crate) fn extend_def_fung_errors<E>(
+        mut self,
+        xs: impl IntoIterator<Item = E>,
+        is_error: bool,
+    ) -> DeferredFungible<V, EC0, ECn>
+    where
+        EC0: Applicative<E>,
+        WC: Extend<E>,
+        ECn: Extend<E> + Default + FungibleError<Inner = E>,
+    {
+        if is_error {
+            self.extend_def_errors(xs)
+        } else {
+            self.extend_cmt_warnings(xs);
+            self
+        }
+    }
+}
+
+impl<V, LWC, RWC, EC0, ECn> LogResult<V, (), LWC, RWC, EC0, ECn> {
+    pub(crate) fn new_err1<E>(error: E) -> Self
+    where
+        RWC: Default,
+        EC0: Applicative<E>,
+        ECn: Default,
+    {
+        Fail(Failure::new_from_one(error, ()))
+    }
+
+    // TODO generic input?
+    pub(crate) fn new_err<E>(error: GenNonEmpty<EC0, ECn>) -> Self
+    where
+        RWC: Default,
+        EC0: Applicative<E>,
+        ECn: Default,
+    {
+        Fail(Failure::new_from_many(error, ()))
+    }
+
+    pub(crate) fn new_err_from_iter<I, E>(
+        errors: I,
+        default: V,
+    ) -> LogResult<V, (), LWC, RWC, EC0, ECn>
+    where
+        I: IntoIterator<Item = E>,
+        EC0: Applicative<E>,
+        ECn: Extend<E> + Default,
+        RWC: Default,
+        LWC: Default,
+    {
+        match GenNonEmpty::collect(errors) {
+            None => LogResult::new_ok(default),
+            Some(e) => LogResult::<_, (), _, _, _, _>::new_err(e),
+        }
+    }
+}
+
+impl<V, P, LWC, RWC, EC0, ECn> LogResult<V, P, LWC, RWC, EC0, ECn> {
+    pub(crate) fn map_either<F, G, Vf, Pf, LWCf, RWCf, EC0f, ECnf>(
+        self,
+        f: F,
+        g: G,
+    ) -> LogResult<Vf, Pf, LWCf, RWCf, EC0f, ECnf>
+    where
+        F: FnOnce(Success<V, LWC>) -> Success<Vf, LWCf>,
+        G: FnOnce(Failure<P, RWC, EC0, ECn>) -> Failure<Pf, RWCf, EC0f, ECnf>,
+    {
+        match self {
+            Succ(s) => Succ(f(s)),
+            Fail(e) => Fail(g(e)),
+        }
+    }
+
+    pub(crate) fn map<F, Vf, LWCf>(self, f: F) -> LogResult<Vf, P, LWCf, RWC, EC0, ECn>
+    where
+        F: FnOnce(Success<V, LWC>) -> Success<Vf, LWCf>,
+    {
+        self.map_either(f, |x| x)
+    }
+
+    pub(crate) fn map_err<F, Pf, RWCf, EC0f, ECnf>(
+        self,
+        f: F,
+    ) -> LogResult<V, Pf, LWC, RWCf, EC0f, ECnf>
+    where
+        F: FnOnce(Failure<P, RWC, EC0, ECn>) -> Failure<Pf, RWCf, EC0f, ECnf>,
+    {
+        self.map_either(|x| x, f)
+    }
+
+    pub(crate) fn new_ok(value: V) -> Self
+    where
+        LWC: Default,
+    {
+        Succ(Success::new1(value))
+    }
+
+    pub(crate) fn new_ok_def() -> Self
+    where
+        V: Default,
+        LWC: Default,
+    {
+        Self::new_ok(V::default())
+    }
+
+    pub(crate) fn new_non_fungible<E>(value: V, default: P, error: E, is_error: bool) -> Self
+    where
+        LWC: Default,
+        RWC: Default,
+        EC0: Applicative<E>,
+        ECn: Default,
+    {
+        if is_error {
+            Fail(Failure::new_from_one(error, default))
+        } else {
+            Succ(Success::new1(value))
+        }
+    }
+
+    /// Map function over Succ value of Result
+    pub(crate) fn map_ok_value<F, Vf>(self, f: F) -> LogResult<Vf, P, LWC, RWC, EC0, ECn>
+    where
+        F: FnOnce(V) -> Vf,
+    {
+        self.map(|s| s.map_value(f))
+    }
+
+    /// Run function when result is Succ
+    pub(crate) fn when_ok<F>(self, f: F) -> LogResult<V, P, LWC, RWC, EC0, ECn>
+    where
+        F: FnOnce(),
+    {
+        self.map_ok_value(|v| {
+            f();
+            v
+        })
+    }
+
+    /// Map function over Failor value of Result
+    pub(crate) fn map_err_value<F, Pf>(self, f: F) -> LogResult<V, Pf, LWC, RWC, EC0, ECn>
+    where
+        F: FnOnce(P) -> Pf,
+    {
+        self.map_err(|e| e.map_value(f))
+    }
+
+    /// Set value of Succ Result
+    pub(crate) fn set_ok_value<Vf>(self, x: Vf) -> LogResult<Vf, P, LWC, RWC, EC0, ECn> {
+        self.map_ok_value(|_| x)
+    }
+
+    /// Set value of Failor Result
+    pub(crate) fn set_err_value<Pf>(self, x: Pf) -> LogResult<V, Pf, LWC, RWC, EC0, ECn> {
+        self.map_err_value(|_| x)
+    }
+
+    /// Add a member to both the Succ and Failor value, returning both as a tuple.
+    ///
+    /// This seems weird but is useful for cases where we need to use a non-Copy
+    /// variable in two closures for both branches but one closure will "eat"
+    /// (move) the value before the other can use it. This function will move
+    /// the value once depending on the branch where is can be consumed by
+    /// both closures as an argument.
+    pub(crate) fn inject_value<X>(self, x: X) -> LogResult<(V, X), (P, X), LWC, RWC, EC0, ECn> {
+        match self {
+            Succ(s) => Succ(s.map_value(|v| (v, x))),
+            Fail(e) => Fail(e.map_value(|v| (v, x))),
+        }
+    }
+
+    pub(crate) fn infallible_into<RWCf, EC0f, ECnf>(self) -> LogResult<V, P, LWC, RWCf, EC0f, ECnf>
+    where
+        EC0: IsKind1,
+        EC0::Family: Kind1<Type<Infallible> = EC0>,
+    {
+        let ret = match self {
+            Succ(x) => Some(x),
+            Fail(_) => None,
+        };
+        Succ(ret.expect("should be infallible"))
+    }
+
+    pub(crate) fn infallible_with_warn_into<F, Wres>(self, f: F) -> (V, Wres)
+    where
+        F: FnOnce(LWC) -> Wres,
+        EC0: IsKind1,
+        EC0::Family: Kind1<Type<Infallible> = EC0>,
+    {
+        let ret = match self {
+            Succ(x) => Some(x),
+            Fail(_) => None,
+        };
+        let ret_ = ret.expect("should be infallible");
+        (ret_.value, f(ret_.warnings))
+    }
+
+    /// Convert errors in Result
+    ///
+    /// This function will work on any Result type but may change a fungible
+    /// Result to non-fungible one, which is generally not a good idea.
+    /// See [`*_fung_errors_into`] for functions that will map over warnings
+    /// if they are the same type as errors.
+    pub(crate) fn non_fung_errors_into<Ei, Ef>(
+        self,
+    ) -> LogResult<V, P, LWC, RWC, Sibling1<EC0, Ef>, Sibling1<ECn, Ef>>
+    where
+        Ei: Into<Ef>,
+        EC0: Functor<Ei>,
+        ECn: Functor<Ei>,
+    {
+        self.map_non_fung_errors(Into::into)
+    }
+
+    /// Map function over errors in Result
+    ///
+    /// This function will work on any Result type but may change a fungible
+    /// Result to non-fungible one, which is generally not a good idea.
+    /// See [`map_*_fung_errors`] for functions that will map over warnings
+    /// if they are the same type as errors.
+    pub(crate) fn map_non_fung_errors<F, Ei, Ef>(
+        self,
+        f: F,
+    ) -> LogResult<V, P, LWC, RWC, Sibling1<EC0, Ef>, Sibling1<ECn, Ef>>
+    where
+        F: Fn(Ei) -> Ef,
+        EC0: Functor<Ei>,
+        ECn: Functor<Ei>,
+    {
+        self.map_err(|e| e.map_errors(f))
+    }
+
+    pub(crate) fn repack<LWCf, RWCf, ECf>(self) -> LogResult<V, P, LWCf, RWCf, EC0, ECf>
+    where
+        LWC: IntoNewCardinality<LWCf>,
+        RWC: IntoNewCardinality<RWCf>,
+        ECn: IntoNewCardinality<ECf>,
+    {
+        self.repack_left_warnings()
+            .repack_right_warnings()
+            .repack_errors()
+    }
+
+    pub(crate) fn into_semigroup<E, LWCf, RWCf>(self) -> LogResult<V, P, LWCf, RWCf, EC0, Vec<E>>
+    where
+        LWC: IntoNewCardinality<LWCf>,
+        RWC: IntoNewCardinality<RWCf>,
+        ECn: IntoNewCardinality<Vec<E>>,
+    {
+        self.repack()
+    }
+
+    pub(crate) fn repack_warnings<WCf>(self) -> LogResult<V, P, WCf, WCf, EC0, ECn>
+    where
+        LWC: IntoNewCardinality<WCf>,
+        RWC: IntoNewCardinality<WCf>,
+    {
+        self.repack_right_warnings().repack_left_warnings()
+    }
+
+    pub(crate) fn repack_left_warnings<LWCf>(self) -> LogResult<V, P, LWCf, RWC, EC0, ECn>
+    where
+        LWC: IntoNewCardinality<LWCf>,
+    {
+        self.map(Success::repack)
+    }
+
+    pub(crate) fn repack_right_warnings<RWCf>(self) -> LogResult<V, P, LWC, RWCf, EC0, ECn>
+    where
+        RWC: IntoNewCardinality<RWCf>,
+    {
+        self.map_err(Failure::repack_warnings)
+    }
+
+    pub(crate) fn repack_errors<ECf>(self) -> LogResult<V, P, LWC, RWC, EC0, ECf>
+    where
+        ECn: IntoNewCardinality<ECf>,
+    {
+        self.map_err(Failure::repack_errors)
+    }
+
+    pub(crate) fn repack_error<EC0f>(self) -> LogResult<V, P, LWC, RWC, EC0f, ECn>
+    where
+        EC0: IntoNewWrapper<EC0f>,
+    {
+        self.map_err(Failure::repack_error)
+    }
+
     // fn remove_warnings(self) -> NowarnResult<Self::V, Self::P, Self::E, Self::EC> {
-    //     self.into_result()
+    //     self
     //         .map(|s| s.remove_warnings())
     //         .map_err(|e| e.remove_warnings())
     // }
@@ -1472,9 +2342,9 @@ where
     //     <Self::EC as ZeroOrMore>::Inner<Self::E>: Extend<Self::E>,
     //     Self: CommutativeResultExt,
     // {
-    //     match self.into_result() {
-    //         Ok(s) => s.warnings_to_errors(f0, f1),
-    //         Err(e) => Err(e.warnings_to_errors(f0).map_passthru(f2)),
+    //     match self {
+    //         Succ(s) => s.warnings_to_errors(f0, f1),
+    //         Fail(e) => Fail(e.warnings_to_errors(f0).map_passthru(f2)),
     //     }
     // }
 
@@ -1490,782 +2360,60 @@ where
     // }
 
     /// Aggregate non-fungible errors into one error.
-    fn aggregate_non_fung_errors<F, Ef>(
+    pub(crate) fn aggregate_non_fung_errors<F, E>(
         self,
         f: F,
-    ) -> LogResult<Self::V, Self::P, Ef, Self::LWC, Self::RWC, NeverValue<Ef>>
+    ) -> LogResult<V, P, LWC, RWC, EC0, NeverValue<E>>
     where
         // NOTE pretend there is a negative trait bound for "non-fungible"
-        F: FnOnce(GenNonEmpty<Self::E, Self::EC>) -> Ef,
+        EC0: Applicative<E>,
+        F: FnOnce(GenNonEmpty<EC0, ECn>) -> E,
     {
-        self.into_result().map_err(|e| e.aggregate_errors(f))
+        self.map_err(|e| e.aggregate_errors(f))
     }
 
-    fn summarize_errors<S>(
+    pub(crate) fn summarize_errors<E, S>(
         self,
-    ) -> LogResult<
-        Self::V,
-        Self::P,
-        ErrorSummary<Self::E, S>,
-        Self::LWC,
-        Self::RWC,
-        NeverValue<ErrorSummary<Self::E, S>>,
-    >
+    ) -> LogResult<V, P, LWC, RWC, EC0, NeverValue<ErrorSummary<E, S>>>
     where
-        Self: LogResultExt<EC = Vec<<Self as LogResultExt>::E>>,
+        EC0: Applicative<ErrorSummary<E, S>> + IntoNewWrapper<AlwaysValue<E>>,
+        ECn: IntoNewCardinality<Vec<E>>,
         S: Default,
     {
         self.summarize_errors_with(S::default())
     }
 
-    fn summarize_errors_with<S>(
+    pub(crate) fn summarize_errors_with<E, S>(
         self,
         s: S,
-    ) -> LogResult<
-        Self::V,
-        Self::P,
-        ErrorSummary<Self::E, S>,
-        Self::LWC,
-        Self::RWC,
-        NeverValue<ErrorSummary<Self::E, S>>,
-    >
+    ) -> LogResult<V, P, LWC, RWC, EC0, NeverValue<ErrorSummary<E, S>>>
     where
-        Self: LogResultExt<EC = Vec<<Self as LogResultExt>::E>>,
+        EC0: Applicative<ErrorSummary<E, S>> + IntoNewWrapper<AlwaysValue<E>>,
+        ECn: IntoNewCardinality<Vec<E>>,
     {
-        self.aggregate_non_fung_errors(|es| ErrorSummary::new(s, es))
+        self.aggregate_non_fung_errors(|es| {
+            let xs = es.bimap(
+                IntoNewWrapper::into_new_wrapper,
+                IntoNewCardinality::into_new_cardinality,
+            );
+            ErrorSummary::new(s, xs)
+        })
     }
 
-    /// Aggregate non-commutative/fungible errors into one error.
-    fn aggregate_non_cmt_fung_errors<F, G, Ef>(
-        self,
-        f: F,
-        g: G,
-    ) -> NonCmtFungibleResult<Self::V, Self::P, Ef, NeverValue<Ef>>
-    where
-        F: FnOnce(Self::LWC) -> Ef,
-        G: FnOnce(GenNonEmpty<Self::E, Self::EC>) -> Ef,
-        Self: NonCommutativeResultExt + FungibleExt,
-        Self::EC: FungibleError<Self::E>,
-    {
-        match self.into_result() {
-            Ok(s) => Ok(s.aggregate_warnings(f)),
-            Err(e) => Err(e.aggregate_errors(g)),
-        }
-    }
-
-    /// Aggregate commutative/fungible errors into one error.
-    fn aggregate_cmt_fung_errors<F, G, Ef>(
-        self,
-        f: F,
-        g: G,
-    ) -> CmtFungibleResult<Self::V, Self::P, Ef, NeverValue<Ef>>
-    where
-        F: FnOnce(Self::LWC) -> Ef,
-        G: FnOnce(GenNonEmpty<Self::E, Self::EC>) -> Ef,
-        Self: CommutativeResultExt + FungibleExt,
-        Self::EC: FungibleError<Self::E>,
-    {
-        match self.into_result() {
-            Ok(s) => Ok(s.aggregate_warnings(f)),
-            Err(e) => Err(e.aggregate_errors(g).aggregate_warnings(f)),
-        }
-    }
-
-    fn infallible_into<P, RWC, E, EC>(self) -> LogResult<Self::V, P, E, Self::LWC, RWC, EC>
-    where
-        Self: LogResultExt<E = Infallible>,
-    {
-        let Ok(ret) = self.into_result();
-        Ok(ret)
-    }
-
-    fn infallible_with_warn_into<F, Wres>(self, f: F) -> (Self::V, Wres)
-    where
-        F: FnOnce(Self::LWC) -> Wres,
-        Self: LogResultExt<E = Infallible>,
-    {
-        let Ok(ret) = self.into_result();
-        (ret.value, f(ret.warnings))
-    }
-
-    fn infallible_nowarn_into(self) -> Self::V
-    where
-        Self: NowarnExt<E = Infallible>,
-    {
-        let Ok(ret) = self.into_result();
-        ret.value
-    }
-
-    /// Resolve Result with no warnings into regular Result type.
-    fn resolve_nowarn<F, ErrRes>(self, f: F) -> Result<Self::V, ErrRes>
-    where
-        Self: NowarnExt + ResolvableExt,
-        F: FnOnce(Self::E) -> ErrRes,
-    {
-        self.into_result()
-            .map(|s| s.value)
-            .map_err(|e| f(e.errors.head))
-    }
-
-    /// Resolve non-commutative Result with regular Result type.
+    /// Push a warning based on the Succ value of a non-deferred Result.
     ///
-    /// Warnings will be given on the Ok side since non-commutative Result's
-    /// by definition cannot have warnings in the Err branch.
-    fn resolve_non_cmt<Fwarn, Ferr, WarnRes, ErrRes>(
-        self,
-        f_warnings: Fwarn,
-        f_errors: Ferr,
-    ) -> Result<(Self::V, WarnRes), ErrRes>
-    where
-        Self: NonCommutativeResultExt + ResolvableExt,
-        Fwarn: FnOnce(Self::LWC) -> WarnRes,
-        Ferr: FnOnce(Self::E) -> ErrRes,
-    {
-        self.into_result()
-            .map(|s| s.resolve(f_warnings))
-            .map_err(|e| f_errors(e.errors.head))
-    }
-
-    /// Resolve commutative Result with into regular Result type.
-    ///
-    /// Warnings will be given outside the result since commutative Results by
-    /// definition allow the same warnings in both Ok and Error branches.
-    fn resolve_cmt<Fwarn, Ferr, WarnRes, ErrRes>(
-        self,
-        f_warnings: Fwarn,
-        f_errors: Ferr,
-    ) -> (WarnRes, Result<Self::V, ErrRes>)
-    where
-        Self: CommutativeResultExt + ResolvableExt,
-        Fwarn: FnOnce(Self::LWC) -> WarnRes,
-        Ferr: FnOnce(Self::E) -> ErrRes,
-    {
-        match self.into_result() {
-            Ok(s) => {
-                let (v, warn_res) = s.resolve(f_warnings);
-                (warn_res, Ok(v))
-            }
-            Err(e) => (f_warnings(e.warnings), Err(f_errors(e.errors.head))),
-        }
-    }
-
-    /// Push a warning based on the Ok value of a non-deferred Result.
-    ///
-    /// Will only store warning on the Ok side since the value isn't present
+    /// Will only store warning on the Succ side since the value isn't present
     /// on the error side to be evaluated.
-    fn eval_non_def_warning<W, F>(&mut self, f: F)
+    pub(crate) fn eval_non_def_warning<W, F>(&mut self, f: F)
     where
-        F: FnOnce(&Self::V) -> Option<W>,
-        Self::LWC: Extend<W>,
+        F: FnOnce(&V) -> Option<W>,
+        LWC: Extend<W>,
     {
-        if let Ok(s) = self.as_result_mut() {
+        if let Succ(s) = self {
             s.eval_warning(f);
         }
     }
-
-    /// Push a warning based on the value in a deferred Result.
-    ///
-    /// This must be a deferred result because the same value type must exist
-    /// on both Ok and Error sides.
-    fn eval_def_warning<W, F>(&mut self, f: F)
-    where
-        F: FnOnce(&Self::V) -> Option<W>,
-        Self::LWC: Extend<W>,
-        Self: DeferredExt,
-    {
-        match self.as_result_mut() {
-            Ok(s) => s.eval_warning(f),
-            Err(e) => e.eval_warning(f),
-        }
-    }
-
-    /// Set warnings in both Ok and Error sides of Result
-    fn set_cmt_warnings<WC>(self, ws: WC) -> CmtResult<Self::V, Self::P, Self::E, WC, Self::EC>
-    where
-        Self: NowarnExt,
-    {
-        match self.into_result() {
-            Ok(s) => Ok(s.set_warnings(ws)),
-            Err(e) => Err(e.set_warnings(ws)),
-        }
-    }
-
-    /// Set warnings in Ok side of Result with no warnings
-    fn set_non_cmt_warnings<WC>(
-        self,
-        ws: WC,
-    ) -> NonCmtResult<Self::V, Self::P, Self::E, WC, Self::EC>
-    where
-        Self: NowarnExt,
-    {
-        self.into_result().map(|s| s.set_warnings(ws))
-    }
-
-    /// Push a warning to a commutative Result.
-    fn push_cmt_warning<W>(&mut self, w: W)
-    where
-        Self::LWC: Extend<W>,
-        Self: CommutativeResultExt,
-    {
-        match self.as_result_mut() {
-            Ok(s) => s.push_warning(w),
-            Err(e) => e.push_warning(w),
-        }
-    }
-
-    /// Add warnings to a commutative Result.
-    fn extend_cmt_warnings<W>(&mut self, ws: impl IntoIterator<Item = W>)
-    where
-        Self::LWC: Extend<W>,
-        Self: CommutativeResultExt,
-    {
-        match self.as_result_mut() {
-            Ok(s) => s.extend_warnings(ws),
-            Err(e) => e.extend_warnings(ws),
-        }
-    }
-
-    /// Push an error based on the value in a deferred Result.
-    ///
-    /// If Result is Ok and the evaluation returns an error, the result will
-    /// be converted to an error.
-    ///
-    /// This must be a deferred result because the same value type must exist
-    /// on both Ok and Error sides.
-    fn eval_def_error<F>(self, f: F) -> CmtResult<Self::V, Self::P, Self::E, Self::LWC, Self::EC>
-    where
-        F: FnOnce(&Self::V) -> Option<Self::E>,
-        Self::EC: Extend<Self::E> + Default,
-        Self: DeferredExt,
-    {
-        match self.into_result() {
-            Ok(succ) => match f(&succ.value) {
-                Some(e) => Err(succ.fail(GenNonEmpty::new1(e))),
-                None => Ok(succ),
-            },
-            Err(mut err) => {
-                if let Some(e) = f(&err.value) {
-                    err.push_error(e);
-                }
-                Err(err)
-            }
-        }
-    }
-
-    /// Push an error based on the value in non-deferred Result.
-    ///
-    /// If Result is Ok and the evaluation returns an error, the result will
-    /// be converted to an error. If already an error, do nothing since
-    /// there is no value to use.
-    ///
-    /// This must be commutative since and OK might flip to an error, and thus
-    /// the warnings must match.
-    fn eval_non_def_error<F>(self, f: F) -> CmtResult<Self::V, (), Self::E, Self::LWC, Self::EC>
-    where
-        F: FnOnce(&Self::V) -> Option<Self::E>,
-        Self::EC: Extend<Self::E> + Default,
-        Self: CommutativeResultExt,
-    {
-        let succ = self.into_result().set_err_value(())?;
-        match f(&succ.value) {
-            Some(e) => Err(succ.fail(GenNonEmpty::new1(e)).map_value(|_| ())),
-            None => Ok(succ),
-        }
-    }
-
-    /// Push an error to a deferred Result.
-    ///
-    /// If Result is Ok, the result will be converted to an error.
-    ///
-    /// This must be deferred because the value type will be the same
-    /// if the Result needs to flip from Ok to Error.
-    fn push_def_error(self, e: Self::E) -> CmtResult<Self::V, Self::P, Self::E, Self::LWC, Self::EC>
-    where
-        Self::EC: Extend<Self::E> + Default,
-        Self: DeferredExt,
-    {
-        match self.into_result() {
-            Ok(succ) => Err(succ.fail(GenNonEmpty::new1(e))),
-            Err(mut err) => {
-                err.push_error(e);
-                Err(err)
-            }
-        }
-    }
-
-    /// Push errors to a deferred Result.
-    ///
-    /// If Result is Ok, the result will be converted to an error.
-    ///
-    /// This must be deferred because the value type will be the same
-    /// if the Result needs to flip from Ok to Error.
-    fn extend_def_errors(
-        self,
-        es: impl IntoIterator<Item = Self::E>,
-    ) -> CmtResult<Self::V, Self::P, Self::E, Self::LWC, Self::EC>
-    where
-        Self::EC: Extend<Self::E> + Default,
-        Self: DeferredExt,
-    {
-        match self.into_result() {
-            Ok(succ) => {
-                let mut it = es.into_iter();
-                if let Some(e0) = it.by_ref().next() {
-                    let mut es_ = GenNonEmpty::new1(e0);
-                    es_.extend(it);
-                    Err(succ.fail(es_))
-                } else {
-                    Ok(succ)
-                }
-            }
-            Err(mut err) => {
-                err.extend_errors(es);
-                Err(err)
-            }
-        }
-    }
-
-    /// Push fungible error to a deferred Result based on its value.
-    ///
-    /// If Result is Ok, the result will be converted to an error.
-    ///
-    /// This must be deferred because the value type will be the same
-    /// if the Result needs to flip from Ok to Error.
-    fn eval_def_fung_error<F>(
-        mut self,
-        is_error: bool,
-        f: F,
-    ) -> DeferredFungible<Self::V, Self::E, Self::EC>
-    where
-        F: FnOnce(&Self::V) -> Option<Self::E>,
-        Self::LWC: Extend<Self::E>,
-        Self::EC: Extend<Self::E> + Default + FungibleError<Self::E>,
-        Self: FungibleExt + DeferredExt,
-    {
-        if is_error {
-            self.eval_def_error(f)
-        } else {
-            self.eval_def_warning(f);
-            self.into_result()
-        }
-    }
-
-    /// Push non-fungible error to a deferred Result based on its value.
-    ///
-    /// If Result is Ok, the result will be converted to an error.
-    ///
-    /// This must be deferred because the value type will be the same
-    /// if the Result needs to flip from Ok to Error.
-    fn eval_def_non_fung_error<F, W, E>(
-        mut self,
-        is_error: bool,
-        f: F,
-    ) -> Deferred<Self::V, Self::E, Self::LWC, Self::EC>
-    where
-        F: FnOnce(&Self::V) -> Option<E>,
-        E: Into<Self::E> + Into<W>,
-        Self::LWC: Extend<W>,
-        Self::EC: Extend<Self::E> + Default,
-        Self: DeferredExt,
-    {
-        if is_error {
-            self.eval_def_error(|x| f(x).map(Into::into))
-        } else {
-            self.eval_def_warning(|x| f(x).map(Into::into));
-            self.into_result()
-        }
-    }
-
-    /// Push fungible error to a deferred Result.
-    ///
-    /// If Result is Ok, the result will be converted to an error.
-    ///
-    /// This must be deferred because the value type will be the same
-    /// if the Result needs to flip from Ok to Error.
-    fn push_def_fung_error(
-        self,
-        e: Self::E,
-        is_error: bool,
-    ) -> DeferredFungible<Self::V, Self::E, Self::EC>
-    where
-        Self::LWC: Extend<Self::E>,
-        Self::EC: Extend<Self::E> + FungibleError<Self::E> + Default,
-        Self: FungibleExt + DeferredExt,
-    {
-        self.extend_def_fung_errors(iter::once(e), is_error)
-    }
-
-    fn extend_fung_errors<W, Fv, Fp, Fw, Fe, P, E>(
-        mut self,
-        errors: impl IntoIterator<Item = E>,
-        fv: Fv,
-        fp: Fp,
-        fw: Fw,
-        fe: Fe,
-        is_error: bool,
-    ) -> CmtResult<Self::V, P, Self::E, Self::LWC, Self::EC>
-    where
-        Fv: FnOnce(Self::V) -> P,
-        Fp: FnOnce(Self::P) -> P,
-        Fe: Fn(E) -> Self::E,
-        Fw: Fn(E) -> W,
-        Self::LWC: Extend<W>,
-        Self::EC: Extend<Self::E> + Default + FungibleError<Self::E>,
-        Self: CommutativeResultExt,
-    {
-        if is_error {
-            let mut it = errors.into_iter().map(fe);
-            match self.into_result() {
-                Ok(succ) => {
-                    if let Some(e0) = it.by_ref().next() {
-                        let mut es_ = GenNonEmpty::new1(e0);
-                        es_.extend(it);
-                        Err(succ.fail(es_).map_value(fv))
-                    } else {
-                        Ok(succ)
-                    }
-                }
-                Err(mut err) => {
-                    err.extend_errors(it);
-                    Err(err.map_value(fp))
-                }
-            }
-        } else {
-            self.extend_cmt_warnings(errors.into_iter().map(fw));
-            self.into_result().map_err_value(fp)
-        }
-    }
-
-    /// Push fungible errors to a deferred Result.
-    ///
-    /// If Result is Ok, the result will be converted to an error.
-    ///
-    /// This must be deferred because the value type will be the same
-    /// if the Result needs to flip from Ok to Error.
-    fn extend_def_fung_errors(
-        mut self,
-        xs: impl IntoIterator<Item = Self::E>,
-        is_error: bool,
-    ) -> DeferredFungible<Self::V, Self::E, Self::EC>
-    where
-        Self::LWC: Extend<Self::E>,
-        Self::EC: Extend<Self::E> + Default + FungibleError<Self::E>,
-        Self: FungibleExt + DeferredExt,
-    {
-        if is_error {
-            self.extend_def_errors(xs)
-        } else {
-            self.extend_cmt_warnings(xs);
-            self.into_result()
-        }
-    }
-
-    fn and_cmt<F>(self, f: F) -> CmtResult<Self::V, Self::P, Self::E, Self::LWC, Self::EC>
-    where
-        F: FnOnce() -> CmtResult<(), Self::P, Self::E, Self::LWC, Self::EC>,
-        Self::LWC: Semigroup,
-        Self: CommutativeResultExt,
-    {
-        self.and_then_cmt(|v| f().map_ok_value(|()| v))
-    }
-
-    /// Monad-ically chain commutative result operations.
-    ///
-    /// Function will be called on value if result is Ok. Original error will
-    /// be returned otherwise.
-    ///
-    /// This only works on commutative results since the warnings from the
-    /// original result need to be considered if the provided function
-    /// returns error.
-    ///
-    /// Inner for warnings must be a semigroup, which specifically means
-    /// that Option<T> must be converted to a vector before calling this.
-    fn and_then_cmt<F, Vf>(self, f: F) -> CmtResult<Vf, Self::P, Self::E, Self::LWC, Self::EC>
-    where
-        F: FnOnce(Self::V) -> CmtResult<Vf, Self::P, Self::E, Self::LWC, Self::EC>,
-        Self::LWC: Semigroup,
-        Self: CommutativeResultExt,
-    {
-        self.into_result()?.and_maybe(f)
-    }
-
-    /// Monad-ically apply commutative result operation to deferred result.
-    ///
-    /// Function will be called on value of either the Ok or Error branch
-    /// depending on the input Result. Warnings and errors from input Result
-    /// will be aggregated with the Result returned by the provided function.
-    ///
-    /// Input Result must be deferred because the value types match between
-    /// Ok and Error. The output does not necessarily need to be deferred
-    /// (although it likely will be in many cases).
-    ///
-    /// Inner for warnings must be a semigroup, which specifically means
-    /// that Option<T> must be converted to a vector before calling this.
-    ///
-    /// Inner for errors must be able to hold multiple values.
-    fn and_then_def<F, Vf, Pf>(self, f: F) -> CmtResult<Vf, Pf, Self::E, Self::LWC, Self::EC>
-    where
-        F: FnOnce(Self::V) -> CmtResult<Vf, Pf, Self::E, Self::LWC, Self::EC>,
-        Self: DeferredExt,
-        Self::LWC: Semigroup,
-        Self::EC: Extend<Self::E> + IntoIterator<Item = Self::E>,
-    {
-        match self.into_result() {
-            Ok(s) => s.and_maybe(f),
-            Err(e) => e.with_value(f),
-        }
-    }
-
-    /// Combine two commutative results.
-    ///
-    /// Ok values will be wrapped in a tuple. Error values if they exist will
-    /// be voided.
-    ///
-    /// Inners for warnings and errors must be the same. The former must
-    /// be a semigroup (which here means Option<T> must be converted to Vec<T>
-    /// prior to calling). The latter will be converted to a Vec<T> since
-    /// there could be more than one errors.
-    fn zip_cmt<V1, P1>(
-        self,
-        a: CmtResult<V1, P1, Self::E, Self::LWC, Self::EC>,
-    ) -> CmtResult<(Self::V, V1), (), Self::E, Self::LWC, Vec<Self::E>>
-    where
-        Self::EC: IntoZeroOrMore<Vec<Self::E>> + IntoIterator<Item = Self::E>,
-        Self::LWC: Semigroup,
-        Self: CommutativeResultExt,
-    {
-        match (self.into_result(), a) {
-            (Ok(ax), Ok(bx)) => Ok(ax.zip_with(bx, |x, y| (x, y))),
-            (Ok(ax), Err(bx)) => Err(ax.with_failure(bx, |_, _| ()).repack_errors()),
-            (Err(ax), Ok(bx)) => Err(ax.with_success(bx, |_, _| ()).repack_errors()),
-            (Err(ax), Err(bx)) => Err(ax.zip_with(bx, |_, _| ())),
-        }
-    }
-
-    /// Combine three commutative results.
-    fn zip3_cmt<V1, V2, P1, P2>(
-        self,
-        a: CmtResult<V1, P1, Self::E, Self::LWC, Self::EC>,
-        b: CmtResult<V2, P2, Self::E, Self::LWC, Self::EC>,
-    ) -> CmtResult<(Self::V, V1, V2), (), Self::E, Self::LWC, Vec<Self::E>>
-    where
-        Self::EC: IntoZeroOrMore<Vec<Self::E>> + IntoIterator<Item = Self::E>,
-        Self::LWC: Semigroup,
-        Self: CommutativeResultExt,
-    {
-        self.zip_cmt(a)
-            .zip_cmt(b.repack())
-            .map_ok_value(|((ax, bx), cx)| (ax, bx, cx))
-    }
-
-    /// Combine four commutative results.
-    fn zip4_cmt<V1, V2, V3, P1, P2, P3>(
-        self,
-        a: CmtResult<V1, P1, Self::E, Self::LWC, Self::EC>,
-        b: CmtResult<V2, P2, Self::E, Self::LWC, Self::EC>,
-        c: CmtResult<V3, P3, Self::E, Self::LWC, Self::EC>,
-    ) -> CmtResult<(Self::V, V1, V2, V3), (), Self::E, Self::LWC, Vec<Self::E>>
-    where
-        Self::EC: IntoZeroOrMore<Vec<Self::E>> + IntoIterator<Item = Self::E>,
-        Self::LWC: Semigroup,
-        Self: CommutativeResultExt,
-    {
-        self.zip3_cmt(a, b)
-            .zip_cmt(c.repack())
-            .map_ok_value(|((ax, bx, cx), dx)| (ax, bx, cx, dx))
-    }
-
-    /// Combine five commutative results.
-    fn zip5_cmt<V1, V2, V3, V4, P1, P2, P3, P4>(
-        self,
-        a: CmtResult<V1, P1, Self::E, Self::LWC, Self::EC>,
-        b: CmtResult<V2, P2, Self::E, Self::LWC, Self::EC>,
-        c: CmtResult<V3, P3, Self::E, Self::LWC, Self::EC>,
-        d: CmtResult<V4, P4, Self::E, Self::LWC, Self::EC>,
-    ) -> CmtResult<(Self::V, V1, V2, V3, V4), (), Self::E, Self::LWC, Vec<Self::E>>
-    where
-        Self::EC: IntoZeroOrMore<Vec<Self::E>> + IntoIterator<Item = Self::E>,
-        Self::LWC: Semigroup,
-        Self: CommutativeResultExt,
-    {
-        self.zip4_cmt(a, b, c)
-            .zip_cmt(d.repack())
-            .map_ok_value(|((ax, bx, cx, dx), ex)| (ax, bx, cx, dx, ex))
-    }
-
-    /// Combine six commutative results.
-    fn zip6_cmt<V1, V2, V3, V4, V5, P1, P2, P3, P4, P5>(
-        self,
-        a: CmtResult<V1, P1, Self::E, Self::LWC, Self::EC>,
-        b: CmtResult<V2, P2, Self::E, Self::LWC, Self::EC>,
-        c: CmtResult<V3, P3, Self::E, Self::LWC, Self::EC>,
-        d: CmtResult<V4, P4, Self::E, Self::LWC, Self::EC>,
-        e: CmtResult<V5, P5, Self::E, Self::LWC, Self::EC>,
-    ) -> CmtResult<(Self::V, V1, V2, V3, V4, V5), (), Self::E, Self::LWC, Vec<Self::E>>
-    where
-        Self::EC: IntoZeroOrMore<Vec<Self::E>> + IntoIterator<Item = Self::E>,
-        Self::LWC: Semigroup,
-        Self: CommutativeResultExt,
-    {
-        self.zip5_cmt(a, b, c, d)
-            .zip_cmt(e.repack())
-            .map_ok_value(|((ax, bx, cx, dx, ex), fx)| (ax, bx, cx, dx, ex, fx))
-    }
-
-    /// Combine two deferred results.
-    ///
-    /// Ok and Error values will be wrapped in a tuple. Inputs must be
-    /// deferred to ensure value types match between Ok and Error branches.
-    ///
-    /// Inners for warnings and errors must be the same. The former must
-    /// be a semigroup (which here means Option<T> must be converted to Vec<T>
-    /// prior to calling). The latter will be converted to a Vec<T> since
-    /// there could be more than one errors.
-    fn zip_def<V1>(
-        self,
-        a: Deferred<V1, Self::E, Self::LWC, Self::EC>,
-    ) -> Deferred<(Self::V, V1), Self::E, Self::LWC, Vec<Self::E>>
-    where
-        Self::EC: IntoZeroOrMore<Vec<Self::E>> + IntoIterator<Item = Self::E>,
-        Self::LWC: Semigroup,
-        Self: DeferredExt,
-    {
-        match (self.into_result(), a) {
-            (Ok(ax), Ok(bx)) => Ok(ax.zip_with(bx, |x, y| (x, y))),
-            (Ok(ax), Err(bx)) => Err(ax.with_failure(bx, |x, y| (x, y)).repack_errors()),
-            (Err(ax), Ok(bx)) => Err(ax.with_success(bx, |x, y| (x, y)).repack_errors()),
-            (Err(ax), Err(bx)) => Err(ax.zip_with(bx, |x, y| (x, y))),
-        }
-    }
-
-    /// Combine three deferred results.
-    fn zip3_def<V1, V2>(
-        self,
-        a: Deferred<V1, Self::E, Self::LWC, Self::EC>,
-        b: Deferred<V2, Self::E, Self::LWC, Self::EC>,
-    ) -> Deferred<(Self::V, V1, V2), Self::E, Self::LWC, Vec<Self::E>>
-    where
-        Self::EC: IntoZeroOrMore<Vec<Self::E>> + IntoIterator<Item = Self::E>,
-        Self::LWC: Semigroup,
-        Self: DeferredExt,
-    {
-        self.zip_def(a)
-            .zip_def(b.repack())
-            .map_def_value(|((ax, bx), cx)| (ax, bx, cx))
-    }
-
-    /// Combine four deferred results.
-    fn zip4_def<V1, V2, V3>(
-        self,
-        a: Deferred<V1, Self::E, Self::LWC, Self::EC>,
-        b: Deferred<V2, Self::E, Self::LWC, Self::EC>,
-        c: Deferred<V3, Self::E, Self::LWC, Self::EC>,
-    ) -> Deferred<(Self::V, V1, V2, V3), Self::E, Self::LWC, Vec<Self::E>>
-    where
-        Self::EC: IntoZeroOrMore<Vec<Self::E>> + IntoIterator<Item = Self::E>,
-        Self::LWC: Semigroup,
-        Self: DeferredExt,
-    {
-        self.zip3_def(a, b)
-            .zip_def(c.repack())
-            .map_def_value(|((ax, bx, cx), dx)| (ax, bx, cx, dx))
-    }
-
-    /// Combine five deferred results.
-    fn zip5_def<V1, V2, V3, V4>(
-        self,
-        a: Deferred<V1, Self::E, Self::LWC, Self::EC>,
-        b: Deferred<V2, Self::E, Self::LWC, Self::EC>,
-        c: Deferred<V3, Self::E, Self::LWC, Self::EC>,
-        d: Deferred<V4, Self::E, Self::LWC, Self::EC>,
-    ) -> Deferred<(Self::V, V1, V2, V3, V4), Self::E, Self::LWC, Vec<Self::E>>
-    where
-        Self::EC: IntoZeroOrMore<Vec<Self::E>> + IntoIterator<Item = Self::E>,
-        Self::LWC: Semigroup,
-        Self: DeferredExt,
-    {
-        self.zip4_def(a, b, c)
-            .zip_def(d.repack())
-            .map_def_value(|((ax, bx, cx, dx), ex)| (ax, bx, cx, dx, ex))
-    }
-
-    /// Combine six deferred results.
-    fn zip6_def<V1, V2, V3, V4, V5>(
-        self,
-        a: Deferred<V1, Self::E, Self::LWC, Self::EC>,
-        b: Deferred<V2, Self::E, Self::LWC, Self::EC>,
-        c: Deferred<V3, Self::E, Self::LWC, Self::EC>,
-        d: Deferred<V4, Self::E, Self::LWC, Self::EC>,
-        e: Deferred<V5, Self::E, Self::LWC, Self::EC>,
-    ) -> Deferred<(Self::V, V1, V2, V3, V4, V5), Self::E, Self::LWC, Vec<Self::E>>
-    where
-        Self::EC: IntoZeroOrMore<Vec<Self::E>> + IntoIterator<Item = Self::E>,
-        Self::LWC: Semigroup,
-        Self: DeferredExt,
-    {
-        self.zip5_def(a, b, c, d)
-            .zip_def(e.repack())
-            .map_def_value(|((ax, bx, cx, dx, ex), fx)| (ax, bx, cx, dx, ex, fx))
-    }
 }
-
-impl<V, P, E, LWC, RWC, EC> LogResultExt for LogResult<V, P, E, LWC, RWC, EC> {
-    type V = V;
-    type P = P;
-    type E = E;
-    type LWC = LWC;
-    type RWC = RWC;
-    type EC = EC;
-}
-
-/// Constraint for non-commutative results.
-///
-/// Warnings on the Error side must be an empty set.
-pub trait NonCommutativeResultExt: LogResultExt<RWC = NeverValue<()>> {}
-
-impl<V, P, E, WC, EC> NonCommutativeResultExt for NonCmtResult<V, P, E, WC, EC> {}
-
-/// Constraint for commutative results.
-///
-/// Warning cardinality and type must match between Ok and Error sides
-pub trait CommutativeResultExt: LogResultExt<RWC = <Self as LogResultExt>::LWC> {}
-
-impl<V, P, E, WC, EC> CommutativeResultExt for CmtResult<V, P, E, WC, EC> {}
-
-/// Constraint for deferred results.
-///
-/// In addition to being commutative, value must match between Ok and Error.
-pub trait DeferredExt: CommutativeResultExt<V = <Self as LogResultExt>::P> {}
-
-impl<V, E, WC, EC> DeferredExt for Deferred<V, E, WC, EC> {}
-
-/// Constraint for fungible results.
-///
-/// Error and warning must have the same cardinality and type.
-pub trait FungibleExt:
-    LogResultExt<LWC = <<Self as LogResultExt>::EC as FungibleError<<Self as LogResultExt>::E>>::Warn>
-where
-    Self::EC: FungibleError<Self::E>,
-{
-}
-
-impl<V, P, E, RWC, EC: FungibleError<E>> FungibleExt for LogResult<V, P, E, EC::Warn, RWC, EC> {}
-
-/// Constraint for results with no warnings.
-///
-/// In addition to be non-commutative, warnings on the Ok side must be an empty
-/// set.
-pub trait NowarnExt: NonCommutativeResultExt<LWC = NeverValue<()>> {}
-
-impl<V, P, E, EC> NowarnExt for NowarnResult<V, P, E, EC> {}
-
-/// Constraint for results which can be resolved.
-///
-/// The only requirement is that there must only be one error, which will be
-/// used to map to a regular result.
-pub trait ResolvableExt: LogResultExt<P = (), EC = NeverValue<<Self as LogResultExt>::E>> {}
-
-impl<V, E, LWC, RWC> ResolvableExt for LogResult<V, (), E, LWC, RWC, NeverValue<E>> {}
 
 /// Monoid-ically combine commutative results.
 ///
@@ -2275,24 +2423,25 @@ impl<V, E, LWC, RWC> ResolvableExt for LogResult<V, (), E, LWC, RWC, NeverValue<
 ///
 /// The wrapper for warning must be a semigroup and wrapper for error must be
 /// extendable since it might hold more than one error.
-pub(crate) trait CmtResultIter<T, P, E, WC, EC>:
-    Iterator<Item = CmtResult<T, P, E, WC, EC>> + Sized
+pub(crate) trait CmtResultIter<T, P, WC, EC0, ECn>:
+    Iterator<Item = CmtResult<T, P, WC, EC0, ECn>> + Sized
 {
-    fn mappend_cmt(mut self) -> CmtResult<Vec<T>, (), E, WC, EC>
+    fn mappend_cmt<E>(mut self) -> CmtResult<Vec<T>, (), WC, EC0, ECn>
     where
         WC: Semigroup + Default,
-        EC: Extend<E> + IntoIterator<Item = E>,
+        EC0: Comonad<E>,
+        ECn: Extend<E> + IntoIterator<Item = E>,
     {
         let mut left_vs = vec![];
         let mut ws = WC::default();
         let mut error_head = None;
         for x in self.by_ref() {
             match x {
-                Ok(y) => {
+                Succ(y) => {
                     left_vs.push(y.value);
                     ws = ws.concat(y.warnings);
                 }
-                Err(y) => {
+                Fail(y) => {
                     error_head = Some(y);
                     break;
                 }
@@ -2302,24 +2451,24 @@ pub(crate) trait CmtResultIter<T, P, E, WC, EC>:
             let mut es = h.errors;
             for x in self {
                 match x {
-                    Ok(y) => {
+                    Succ(y) => {
                         ws = ws.concat(y.warnings);
                     }
-                    Err(y) => {
+                    Fail(y) => {
                         ws = ws.concat(y.warnings);
                         es.extend(y.errors);
                     }
                 }
             }
-            Err(Failure::new(ws, es, ()))
+            Fail(Failure::new(ws, es, ()))
         } else {
-            Ok(Success::new(left_vs, ws))
+            Succ(Success::new(left_vs, ws))
         }
     }
 }
 
-impl<I, V, P, E, WC, EC> CmtResultIter<V, P, E, WC, EC> for I where
-    I: Iterator<Item = CmtResult<V, P, E, WC, EC>>
+impl<I, V, P, WC, EC0, ECn> CmtResultIter<V, P, WC, EC0, ECn> for I where
+    I: Iterator<Item = CmtResult<V, P, WC, EC0, ECn>>
 {
 }
 
@@ -2330,25 +2479,26 @@ impl<I, V, P, E, WC, EC> CmtResultIter<V, P, E, WC, EC> for I where
 ///
 /// The wrapper for warning must be a semigroup and wrapper for error must be
 /// extendable since it might hold more than one error.
-pub(crate) trait DeferredIter<T, E, WC, EC>:
-    Iterator<Item = Deferred<T, E, WC, EC>> + Sized
+pub(crate) trait DeferredIter<T, WC, EC0, ECn>:
+    Iterator<Item = Deferred<T, WC, EC0, ECn>> + Sized
 {
     // TODO not DRY
-    fn mappend_def(mut self) -> Deferred<Vec<T>, E, WC, EC>
+    fn mappend_def<E>(mut self) -> Deferred<Vec<T>, WC, EC0, ECn>
     where
         WC: Semigroup + Default,
-        EC: Extend<E> + IntoIterator<Item = E>,
+        EC0: Comonad<E>,
+        ECn: Extend<E> + IntoIterator<Item = E>,
     {
         let mut vs = vec![];
         let mut ws = WC::default();
         let mut error_head = None;
         for x in self.by_ref() {
             match x {
-                Ok(y) => {
+                Succ(y) => {
                     vs.push(y.value);
                     ws = ws.concat(y.warnings);
                 }
-                Err(y) => {
+                Fail(y) => {
                     error_head = Some(y);
                     break;
                 }
@@ -2359,27 +2509,28 @@ pub(crate) trait DeferredIter<T, E, WC, EC>:
             let mut es = h.errors;
             for x in self {
                 match x {
-                    Ok(y) => {
+                    Succ(y) => {
                         vs.push(y.value);
                         ws = ws.concat(y.warnings);
                     }
-                    Err(y) => {
+                    Fail(y) => {
                         vs.push(y.value);
                         ws = ws.concat(y.warnings);
                         es.extend(y.errors);
                     }
                 }
             }
-            Err(Failure::new(ws, es, vs))
+            Fail(Failure::new(ws, es, vs))
         } else {
-            Ok(Success::new(vs, ws))
+            Succ(Success::new(vs, ws))
         }
     }
 
-    fn mappend_def_void(self) -> Deferred<(), E, WC, EC>
+    fn mappend_def_void<E>(self) -> Deferred<(), WC, EC0, ECn>
     where
         WC: Semigroup + Default,
-        EC: Extend<E> + IntoIterator<Item = E>,
+        EC0: Comonad<E>,
+        ECn: Extend<E> + IntoIterator<Item = E>,
     {
         self.mappend_def().set_def_value(())
     }
@@ -2404,38 +2555,64 @@ impl<E> ImpureError<E> {
     }
 }
 
-impl<I, V, E, WC, EC> DeferredIter<V, E, WC, EC> for I where
-    I: Iterator<Item = Deferred<V, E, WC, EC>>
+impl<I, V, WC, EC0, ECn> DeferredIter<V, WC, EC0, ECn> for I where
+    I: Iterator<Item = Deferred<V, WC, EC0, ECn>>
 {
 }
 
-impl<P, E, WC, EC> From<io::Error> for Failure<P, ImpureError<E>, WC, EC>
+impl<P, E, WC, ECn> From<io::Error> for Failure<P, WC, AlwaysValue<ImpureError<E>>, ECn>
 where
     P: Default,
     WC: Default,
-    EC: Default,
+    ECn: Default,
 {
     fn from(value: io::Error) -> Self {
         Self::new_from_one(value.into(), P::default())
     }
 }
 
-impl<P, E, WC, EC> From<E> for Failure<P, E, WC, EC>
+impl<P, E, WC, ECn> From<io::Error> for Failure<P, WC, Box<ImpureError<E>>, ECn>
 where
     P: Default,
     WC: Default,
-    EC: Default,
+    ECn: Default,
+{
+    fn from(value: io::Error) -> Self {
+        Self::new_from_one(value.into(), P::default())
+    }
+}
+
+impl<P, E, WC, ECn> From<E> for Failure<P, WC, Box<E>, ECn>
+where
+    P: Default,
+    WC: Default,
+    ECn: Default,
 {
     fn from(value: E) -> Self {
         Self::new_from_one(value, P::default())
     }
 }
 
-impl<E: fmt::Display, S: fmt::Display> fmt::Display for ErrorSummary<E, S> {
+impl<P, E, WC, ECn> From<E> for Failure<P, WC, AlwaysValue<E>, ECn>
+where
+    P: Default,
+    WC: Default,
+    ECn: Default,
+{
+    fn from(value: E) -> Self {
+        Self::new_from_one(value, P::default())
+    }
+}
+
+impl<E, S> fmt::Display for ErrorSummary<E, S>
+where
+    E: fmt::Display,
+    S: fmt::Display,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         writeln!(f, "Toplevel Error: {}", self.summary)?;
         let es = &self.errors;
-        for e in iter::once(&es.head).chain(es.tail.iter()) {
+        for e in iter::once(&es.head.0).chain(es.tail.iter()) {
             for l in e.to_string().lines() {
                 writeln!(f, "  {l}")?;
             }
@@ -2446,11 +2623,18 @@ impl<E: fmt::Display, S: fmt::Display> fmt::Display for ErrorSummary<E, S> {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::exceptions::PyreflowException;
+    use crate::{
+        python::exceptions::{PyreflowException, PyreflowWarning},
+        text::optional::NeverValue,
+    };
 
-    use super::{ErrorSummary, ImpureError};
+    use super::{
+        CmtResult, Comonad, ErrorSummary, ImpureError, IsKind1, Kind1, LogResult, NowarnResult,
+    };
 
     use pyo3::prelude::*;
+    use std::convert::Infallible;
+    use std::ffi::CString;
     use std::fmt::Display;
 
     impl<T: Into<Self>> From<ImpureError<T>> for PyErr {
@@ -2463,9 +2647,65 @@ mod python {
         }
     }
 
-    impl<E: Display, S: Display> From<ErrorSummary<E, S>> for PyErr {
+    impl<E, S> From<ErrorSummary<E, S>> for PyErr
+    where
+        E: Display,
+        S: Display,
+    {
         fn from(value: ErrorSummary<E, S>) -> Self {
             PyreflowException::new_err(value.to_string())
         }
+    }
+
+    impl<V, WC, EC0, E> CmtResult<V, (), WC, EC0, NeverValue<E>> {
+        fn py_termfail_resolve<W>(self) -> PyResult<V>
+        where
+            WC: IntoIterator<Item = W>,
+            W: Display,
+            E: Into<PyErr>,
+            EC0: Comonad<E>,
+        {
+            let (warn, res) = self.resolve_cmt(emit_warnings, Into::into);
+            warn?;
+            res
+        }
+    }
+
+    impl<V, EC0, E> NowarnResult<V, (), EC0, NeverValue<E>> {
+        fn py_termfail_resolve_nowarn(self) -> PyResult<V>
+        where
+            E: Into<PyErr>,
+            EC0: Comonad<E>,
+        {
+            self.resolve_nowarn(Into::into)
+        }
+    }
+
+    impl<V, LWC, RWC, EC0, E> LogResult<V, (), LWC, RWC, EC0, NeverValue<E>> {
+        fn py_term_resolve_noerror<W>(self) -> PyResult<V>
+        where
+            LWC: IntoIterator<Item = W>,
+            W: Display,
+            EC0: IsKind1,
+            EC0::Family: Kind1<Type<Infallible> = EC0>,
+        {
+            let (value, warn) = self.infallible_with_warn_into(emit_warnings);
+            warn?;
+            Ok(value)
+        }
+    }
+
+    fn emit_warnings<W>(ws: impl IntoIterator<Item = W>) -> PyResult<()>
+    where
+        W: Display,
+    {
+        Python::with_gil(|py| -> PyResult<()> {
+            let wt = py.get_type::<PyreflowWarning>();
+            for w in ws {
+                let s = CString::new(w.to_string())?;
+                PyErr::warn(py, &wt, &s, 0)?;
+            }
+            Ok(())
+        })
     }
 }

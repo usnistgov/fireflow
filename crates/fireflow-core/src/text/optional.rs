@@ -1,5 +1,5 @@
 use crate::core::{AnyMetarootKeyLossError, IndexedKeyLossError, UnitaryKeyLossError};
-use crate::logging::{DeferredError, DeferredFungibleError, ResultExt};
+use crate::logging::{DeferredError, DeferredFungibleError, LogResult, ResultExt};
 use crate::validated::keys::{IndexedKey, Key, MeasHeader};
 
 use super::index::IndexFromOne;
@@ -139,10 +139,10 @@ pub(crate) trait CheckMaybe: Sized + IsDefault {
         AnyMetarootKeyLossError: From<UnitaryKeyLossError<Self::Inner>>,
     {
         if self.is_default() {
-            Result::new_ok(())
+            LogResult::new_ok(())
         } else {
             let e = UnitaryKeyLossError::<Self::Inner>::new().into();
-            Result::new_deferred_fungible((), e, !allow_loss)
+            LogResult::new_deferred_fungible((), e, !allow_loss)
         }
     }
 
@@ -155,10 +155,10 @@ pub(crate) trait CheckMaybe: Sized + IsDefault {
         E: From<IndexedKeyLossError<Self::Inner>>,
     {
         if self.is_default() {
-            Result::new_ok(())
+            LogResult::new_ok(())
         } else {
             let e = IndexedKeyLossError::<Self::Inner>::new(i).into();
-            Result::new_deferred_fungible((), e, !allow_loss)
+            LogResult::new_deferred_fungible((), e, !allow_loss)
         }
     }
 
@@ -167,7 +167,7 @@ pub(crate) trait CheckMaybe: Sized + IsDefault {
         E: From<IndexedKeyLossError<Self::Inner>>,
     {
         let e = IndexedKeyLossError::<Self::Inner>::new(i).into();
-        Result::new_non_fungible((), (), e, self.is_default())
+        LogResult::new_non_fungible((), (), e, self.is_default())
     }
 }
 

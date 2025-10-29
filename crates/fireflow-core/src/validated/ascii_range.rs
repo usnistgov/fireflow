@@ -1,6 +1,6 @@
 //! Types representing $PnR/$PnB keys for an Ascii column.
 
-use crate::logging::{LogResultExt as _, ResultExt as _, VecFamily, WarningsAndErrorsResult};
+use crate::logging::{LogResult, ResultExt as _, VecFamily, WarningsAndErrorsResult};
 use crate::text::byteord::{Width, WidthToCharsError};
 use crate::text::keywords::{IntRangeError, Range};
 

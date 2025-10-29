@@ -1,7 +1,7 @@
 use crate::config::{HeaderConfigInner, ReadState};
 use crate::logging::{
-    CmtResultIter as _, DeferredErrors, DeferredIter as _, ErrorsResult, ImpureError,
-    LogResultExt as _, ResultExt as _,
+    CmtResultIter as _, DeferredErrors, DeferredIter as _, ErrorsResult, ImpureError, LogResult,
+    ResultExt as _,
 };
 use crate::segment::{
     GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderCorrection,
@@ -139,7 +139,7 @@ impl<T> HeaderSegments<T> {
                 .mappend_def()
                 .set_def_value(())
         } else {
-            Result::new_ok(())
+            LogResult::new_ok(())
         }
     }
 
@@ -252,7 +252,7 @@ impl Header {
                 .flatten()
                 .map(|(x, _)| x)
                 .min()
-                .map_or(Result::new_ok(vec![]), |earliest_begin| {
+                .map_or(LogResult::new_ok(vec![]), |earliest_begin| {
                     h_read_other_segments(h, *earliest_begin, st)
                 })
                 .map_ok_value(|other| {
@@ -372,7 +372,7 @@ where
             );
             // If any regions are entirely blank, just ignore them
             if buf0.iter().chain(buf1.iter()).all(|x| *x == 32) {
-                Result::new_ok(None)
+                LogResult::new_ok(None)
             } else {
                 OtherSegment::parse_other(&buf0, &buf1, conf.allow_negative, &seg_conf)
                     .map_ok_value(Some)

@@ -1,13 +1,13 @@
 use crate::data::ColumnError;
 use crate::logging::{
-    CmtResult, CmtResultIter as _, ErrorsResult, Functor, Mapped, IntoZeroOrMore, Kind1,
-    LogResult, LogResultExt as _, ResultExt as _, Semigroup,
+    Applicative, CmtResult, CmtResultIter as _, ErrorsResult, Functor, IntoNewCardinality, Kind1,
+    LogResult, ResultExt as _, Semigroup, Sibling1,
 };
 use crate::text::optional::MightHave;
 use crate::validated::shortname::Shortname;
 
 use super::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
-use super::optional::NeverValue;
+use super::optional::{AlwaysValue, NeverValue};
 
 use derive_more::{Display, From, Into};
 use derive_new::new;
@@ -363,7 +363,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         let check_optical = |ys: Vec<Element<X, Y>>| {
             ys.into_iter()
                 .enumerate()
-                .map(|(i, x)| x.both(|_| Result::new_err1::<_, _, Vec<_>>(i), Result::new_ok))
+                .map(|(i, x)| x.both(|_| LogResult::new_err1(i), LogResult::new_ok))
                 .mappend_cmt()
                 .map_non_fung_errors(|i| ColumnError::new(i, OpticalMismatchError::new(false)))
         };
@@ -481,20 +481,21 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
 
     /// Apply function over center value, possibly changing it's type
     #[allow(clippy::type_complexity)]
-    pub(crate) fn map_center_value<F, X, Y, E, LWC, RWC, EC>(
+    pub(crate) fn map_center_value<F, X, Y, E, LWC, RWC, EC0, ECn>(
         self,
         f: F,
     ) -> LogResult<
         NamedVec<K, K::Wrapper<Shortname>, X, V>,
         Y,
-        IndexedElementError<E>,
         LWC,
         RWC,
-        Mapped<EC, IndexedElementError<E>>,
+        Sibling1<EC0, IndexedElementError<E>>,
+        Sibling1<ECn, IndexedElementError<E>>,
     >
     where
-        F: Fn(IndexedElement<&Shortname, U>) -> LogResult<X, Y, E, LWC, RWC, EC>,
-        EC: Functor<E>,
+        F: Fn(IndexedElement<&Shortname, U>) -> LogResult<X, Y, LWC, RWC, EC0, ECn>,
+        EC0: Functor<E>,
+        ECn: Functor<E>,
         LWC: Default,
     {
         match self {
@@ -509,28 +510,29 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 })
                 .map_non_fung_errors(|error| IndexedElementError::new(error, index))
             }
-            Self::Unsplit(u) => Result::new_ok(NamedVec::Unsplit(u)),
+            Self::Unsplit(u) => LogResult::new_ok(NamedVec::Unsplit(u)),
         }
     }
 
     /// Apply function over non-center values, possibly changing their type
-    pub(crate) fn map_non_center_values<F, Vf, E, WC, EC>(
+    pub(crate) fn map_non_center_values<F, Vf, WC, E, EC0, ECn>(
         self,
         f: F,
     ) -> CmtResult<
         WrappedNamedVec<K, U, Vf>,
         (),
-        IndexedElementError<E>,
         WC,
+        Sibling1<EC0, IndexedElementError<E>>,
         Vec<IndexedElementError<E>>,
     >
     where
-        F: Fn(MeasIndex, V) -> CmtResult<Vf, (), E, WC, EC>,
+        F: Fn(MeasIndex, V) -> CmtResult<Vf, (), WC, EC0, ECn>,
         WC: Default + Semigroup,
-        EC: Functor<E>,
-        <EC::Family as Kind1>::Inner<IndexedElementError<E>>: IntoIterator<Item = IndexedElementError<E>>
+        EC0: Functor<E>,
+        ECn: Functor<E>,
+        <ECn::Family as Kind1>::Type<IndexedElementError<E>>: IntoIterator<Item = IndexedElementError<E>>
             + Extend<IndexedElementError<E>>
-            + IntoZeroOrMore<Vec<IndexedElementError<E>>>,
+            + IntoNewCardinality<Vec<IndexedElementError<E>>>,
     {
         let go = |xs: WrappedPairedVec<K, V>, offset: usize| {
             xs.into_iter()
@@ -1070,21 +1072,24 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Replace any value with a center value with name.
-    pub(crate) fn replace_center_by_name<F, E, LWC, RWC, EC>(
+    pub(crate) fn replace_center_by_name<F, E, LWC, RWC, EC0, ECn>(
         &mut self,
         n: &Shortname,
         value: U,
         to_v: F,
-    ) -> LogResult<Element<U, V>, (), E, LWC, RWC, EC>
+    ) -> LogResult<Element<U, V>, (), LWC, RWC, EC0, ECn>
     where
-        F: FnOnce(MeasIndex, U) -> LogResult<V, Box<U>, E, LWC, RWC, EC>,
+        F: FnOnce(MeasIndex, U) -> LogResult<V, Box<U>, LWC, RWC, EC0, ECn>,
         E: From<KeyNotFoundError>,
-        EC: Default,
+        EC0: Applicative<E>,
+        ECn: Default,
         RWC: Default,
         LWC: Default,
     {
-        let index = self.find_with_name(n).map_err(E::from)?;
-        self.replace_center_at_inner(index, value, to_v)
+        self.find_with_name(n)
+            .map_err(EC0::from)
+            .into_log()
+            .and_then_cmt(|index| self.replace_center_at_inner(index, value, to_v))
     }
 
     /// Replace any value with a center value with name.
@@ -1112,30 +1117,31 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Fail if name at index to be converted is blank or
     /// if the previous center value cannot be converted back to a non-center
     /// value.
-    pub(crate) fn replace_center_at<F, E, WC, EC>(
+    pub(crate) fn replace_center_at<F, WC, E, EC0, ECn>(
         &mut self,
         index: MeasIndex,
         value: U,
         to_v: F,
-    ) -> CmtResult<Element<U, V>, (), E, WC, EC>
+    ) -> CmtResult<Element<U, V>, (), WC, EC0, ECn>
     where
-        F: FnOnce(MeasIndex, U) -> CmtResult<V, Box<U>, E, WC, EC>,
+        F: FnOnce(MeasIndex, U) -> CmtResult<V, Box<U>, WC, EC0, ECn>,
         E: From<SetCenterError>,
         WC: Default + Semigroup,
-        EC: Default,
+        EC0: Applicative<E>,
+        ECn: Default,
     {
         if !self
             .get(index)
             .unwrap()
             .both(|_| true, |(n, _)| K::as_opt(n).is_some())
         {
-            return Result::new_err1(SetCenterError::NoName.into());
+            return LogResult::new_err1(SetCenterError::NoName.into());
         }
 
         self.check_element_index(index, true)
             .map_err(SetCenterError::Index)
             .map_err(E::from)
-            .into_log::<_, _, EC>()
+            .into_log()
             .and_then_cmt(|i| self.replace_center_at_inner(i.into(), value, to_v))
     }
 
@@ -1168,7 +1174,11 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
 
         let i = self.check_element_index(index, true)?;
 
-        let go = |j, u| Result::new_ok::<_, _, _, NeverValue<Infallible>>(to_v(j, u));
+        let go = |j, u| {
+            LogResult::<_, _, _, _, AlwaysValue<Infallible>, NeverValue<Infallible>>::new_ok(to_v(
+                j, u,
+            ))
+        };
 
         let res = self.replace_center_at_inner(i.into(), value, go);
         Ok(res.infallible_nowarn_into())
@@ -1196,14 +1206,14 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             .collect()
     }
 
-    fn replace_center_at_inner<F, E, LWC, RWC, EC>(
+    fn replace_center_at_inner<F, LWC, RWC, EC0, ECn>(
         &mut self,
         index: MeasIndex,
         value: U,
         to_v: F,
-    ) -> LogResult<Element<U, V>, (), E, LWC, RWC, EC>
+    ) -> LogResult<Element<U, V>, (), LWC, RWC, EC0, ECn>
     where
-        F: FnOnce(MeasIndex, U) -> LogResult<V, Box<U>, E, LWC, RWC, EC>,
+        F: FnOnce(MeasIndex, U) -> LogResult<V, Box<U>, LWC, RWC, EC0, ECn>,
         LWC: Default,
     {
         let res = match mem::replace(self, dummy()) {
@@ -1221,7 +1231,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 PartialSplit::Center(x) => {
                     let center = Pair::new(x.center.key, value);
                     let sp = Self::new_split(x.left, center, x.right);
-                    Result::new_ok((sp, Element::Center(x.center.value)))
+                    LogResult::new_ok((sp, Element::Center(x.center.value)))
                 }
 
                 PartialSplit::Right(split) => to_v(index, split.center_value)
@@ -1243,7 +1253,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                     value,
                 };
                 let sp = Self::new_split(x.left, center, x.right);
-                Result::new_ok((sp, Element::NonCenter(ret)))
+                LogResult::new_ok((sp, Element::NonCenter(ret)))
             }
         };
 
@@ -1255,36 +1265,45 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Set center to be the element with name if it exists.
-    pub(crate) fn set_center_by_name<Fswap, FtoU, E, LWC, RWC, EC>(
+    pub(crate) fn set_center_by_name<Fswap, FtoU, E, LWC, RWC, EC0, ECn>(
         &mut self,
         n: &Shortname,
         swap: Fswap,
         to_u: FtoU,
-    ) -> LogResult<bool, (), E, LWC, RWC, EC>
+    ) -> LogResult<bool, (), LWC, RWC, EC0, ECn>
     where
-        Fswap: FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, E, LWC, RWC, EC>,
-        FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, E, LWC, RWC, EC>,
+        Fswap: FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, LWC, RWC, EC0, ECn>,
+        FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, LWC, RWC, EC0, ECn>,
         E: From<SetCenterError> + From<KeyNotFoundError>,
-        EC: Default,
+        EC0: Applicative<E>,
+        ECn: Default,
         RWC: Default,
         LWC: Default,
     {
-        let index = self.find_with_name(n).map_err(E::from)?;
-        self.set_center_by_index(index, swap, to_u)
+        let x = self
+            .find_with_name(n)
+            .map_err(E::from)
+            .into_log()
+            .and_then_cmt(|index| {
+                let x = self.set_center_by_index(index, swap, to_u);
+                x
+            });
+        x
     }
 
     /// Set center to be the element with index if it exists.
-    pub(crate) fn set_center_by_index<Fswap, FtoU, E, LWC, RWC, EC>(
+    pub(crate) fn set_center_by_index<Fswap, FtoU, E, LWC, RWC, EC0, ECn>(
         &mut self,
         index: MeasIndex,
         swap: Fswap,
         to_u: FtoU,
-    ) -> LogResult<bool, (), E, LWC, RWC, EC>
+    ) -> LogResult<bool, (), LWC, RWC, EC0, ECn>
     where
-        Fswap: FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, E, LWC, RWC, EC>,
-        FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, E, LWC, RWC, EC>,
+        Fswap: FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, LWC, RWC, EC0, ECn>,
+        FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, LWC, RWC, EC0, ECn>,
         E: From<SetCenterError>,
-        EC: Default,
+        EC0: Applicative<E>,
+        ECn: Default,
         RWC: Default,
         LWC: Default,
     {
@@ -1293,7 +1312,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             .unwrap()
             .both(|_| true, |(n, _)| K::as_opt(n).is_some())
         {
-            return Result::new_err1(SetCenterError::NoName.into());
+            return LogResult::new_err1(SetCenterError::NoName.into());
         }
         let i = self
             .check_element_index(index, true)
@@ -1316,7 +1335,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                         })
                 }
 
-                PartialSplit::Center(sc) => Result::new_ok((Self::Split(sc, p), false)),
+                PartialSplit::Center(sc) => LogResult::new_ok((Self::Split(sc, p), false)),
 
                 PartialSplit::Right(split) => {
                     swap(i.into(), split.center_value, split.selected_right_value)
@@ -1360,12 +1379,12 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Has no effect if there already is no center element.
     ///
     /// Return old center element if vector is updated.
-    pub(crate) fn unset_center<F, X, E, LWC, RWC, EC>(
+    pub(crate) fn unset_center<F, X, LWC, RWC, EC0, ECn>(
         &mut self,
         to_v: F,
-    ) -> LogResult<Option<X>, (), E, LWC, RWC, EC>
+    ) -> LogResult<Option<X>, (), LWC, RWC, EC0, ECn>
     where
-        F: FnOnce(MeasIndex, U) -> LogResult<(V, X), Box<U>, E, LWC, RWC, EC>,
+        F: FnOnce(MeasIndex, U) -> LogResult<(V, X), Box<U>, LWC, RWC, EC0, ECn>,
         LWC: Default,
     {
         match mem::replace(self, dummy()) {
@@ -1383,7 +1402,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                         Self::new_split(left, center, right)
                     })
             }
-            Self::Unsplit(u) => Result::new_ok((Self::Unsplit(u), None)),
+            Self::Unsplit(u) => LogResult::new_ok((Self::Unsplit(u), None)),
         }
         .map_ok_value(|(newself, flag)| {
             *self = newself;

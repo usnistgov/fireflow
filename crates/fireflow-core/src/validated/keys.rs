@@ -1,8 +1,5 @@
 use crate::config::ReadHeaderAndTEXTConfig;
-use crate::logging::{
-    DeferredFungibleError, DeferredFungibleErrors, DeferredIter as _, LogResultExt as _,
-    ResultExt as _,
-};
+use crate::logging::{DeferredFungibleError, DeferredFungibleErrors, DeferredIter as _, LogResult};
 use crate::text::index::IndexFromOne;
 
 use derive_more::{AsRef, Display, From};
@@ -543,7 +540,7 @@ impl ParsedKeywords {
 
         let blank_err = || {
             let e = KeywordInsertError::from(BlankValueError(k.to_vec()));
-            Result::new_deferred_fungible((), e, !conf.allow_empty)
+            LogResult::new_deferred_fungible((), e, !conf.allow_empty)
         };
 
         let vv = if conf.use_latin1 {
@@ -595,7 +592,7 @@ impl ParsedKeywords {
                     // Standard key: starts with '$', check that remaining chars
                     // are ASCII
                     if ignore.is_match(&kk) {
-                        Result::new_ok(())
+                        LogResult::new_ok(())
                     } else if to_nonstd.is_match(&kk) {
                         insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
                     } else {
@@ -621,14 +618,14 @@ impl ParsedKeywords {
                 // them anyways in case the user cares. If key isn't UTF-8
                 // then give up.
                 self.non_ascii.push((kk, value));
-                Result::new_ok(())
+                LogResult::new_ok(())
             } else {
                 self.byte_pairs.push((k.to_vec(), value.into()));
-                Result::new_ok(())
+                LogResult::new_ok(())
             }
         } else {
             self.byte_pairs.push((k.to_vec(), v.to_vec()));
-            Result::new_ok(())
+            LogResult::new_ok(())
         }
     }
 
@@ -643,11 +640,11 @@ impl ParsedKeywords {
                     let key = e.key().clone();
                     let value = v.clone();
                     let w = KeyPresent { key, value };
-                    Result::new_deferred_fungible((), w, !allow_nonunique)
+                    LogResult::new_deferred_fungible((), w, !allow_nonunique)
                 }
                 Entry::Vacant(e) => {
                     e.insert(v.clone());
-                    Result::new_ok(())
+                    LogResult::new_ok(())
                 }
             })
             .mappend_def()
@@ -758,7 +755,7 @@ where
         Entry::Occupied(ent) => {
             let key = ent.key().clone();
             let err = KeyPresent { key, value };
-            Result::new_deferred_fungible((), err.into(), !conf.allow_nonunique)
+            LogResult::new_deferred_fungible((), err.into(), !conf.allow_nonunique)
         }
         Entry::Vacant(ent) => {
             let v = conf
@@ -767,7 +764,7 @@ where
                 .map(ToString::to_string)
                 .unwrap_or(value);
             ent.insert(v);
-            Result::new_ok(())
+            LogResult::new_ok(())
         }
     }
 }

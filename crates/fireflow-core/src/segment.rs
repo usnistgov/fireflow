@@ -1,6 +1,6 @@
 use crate::logging::{
-    DeferredErrors, DeferredFungibleErrors, ErrorsResult, ImpureError, LogResultExt as _,
-    OptionExt as _, RecoverableErrorsResult, ResultExt as _, WarningsAndErrorsResult,
+    DeferredErrors, DeferredFungibleErrors, ErrorsResult, ImpureError, LogResult, OptionExt as _,
+    RecoverableErrorsResult, ResultExt as _, WarningsAndErrorsResult,
 };
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
 use crate::text::parser::{OptKeyError, OptMetarootKey, Optional, ReqKeyError, ReqMetarootKey};
@@ -182,7 +182,7 @@ where
         Self: Copy,
     {
         if force_default {
-            Result::new_ok(default.into_any())
+            LogResult::new_ok(default.into_any())
         } else {
             let res = Self::get(kws, conf);
             Self::default_or(res, default, allow_mismatch, allow_missing)
@@ -218,7 +218,7 @@ where
         // return the default segment
         if force_default {
             let _ = Self::remove_pair(kws);
-            Result::new_ok(default.into_any())
+            LogResult::new_ok(default.into_any())
         } else {
             let res = Self::remove(kws, conf);
             Self::default_or(res, default, allow_mismatch, allow_missing)
@@ -252,15 +252,15 @@ where
                 if allow_missing {
                     let w = SegmentDefaultWarning::default().into();
                     let ws = es.into_iter().map(Into::into).chain([w]).collect();
-                    Result::new_ok(default.into_any()).set_cmt_warnings(ws)
+                    LogResult::new_ok(default.into_any()).set_cmt_warnings(ws)
                 } else {
-                    Result::new_err(es).map_non_fung_errors(ReqSegmentWithDefaultError::from)
+                    LogResult::new_err(es).map_non_fung_errors(ReqSegmentWithDefaultError::from)
                 }
             },
             |other| {
                 let (seg, warn) = default.unless(other);
-                warn.map_or(Result::new_ok(seg), |w| {
-                    Result::new_fungible::<_, _, Vec<_>>(seg, (), w, !allow_mismatch)
+                warn.map_or(LogResult::new_ok(seg), |w| {
+                    LogResult::new_fungible(seg, (), w, !allow_mismatch)
                         .non_cmt_into_cmt()
                         .map_cmt_warnings(ReqSegmentWithDefaultWarning::from)
                         .map_non_fung_errors(ReqSegmentWithDefaultError::from)
@@ -313,7 +313,7 @@ where
         Self::E: OptMetarootKey,
     {
         if force_default {
-            Result::new_ok(default.into_any())
+            LogResult::new_ok(default.into_any())
         } else {
             let res = Self::get(kws, conf);
             Self::default_or(res, default, allow_mismatch, allow_dropping)
@@ -349,7 +349,7 @@ where
     {
         if force_default {
             let _ = Self::remove_pair(kws);
-            Result::new_ok(default.into_any())
+            LogResult::new_ok(default.into_any())
         } else {
             let res = Self::remove(kws, conf);
             Self::default_or(res, default, allow_mismatch, allow_dropping)
@@ -386,18 +386,18 @@ where
             |(), es| {
                 if allow_dropping {
                     let ws = es.into_iter().map(Into::into).collect();
-                    Result::new_ok(def).set_cmt_warnings(ws)
+                    LogResult::new_ok(def).set_cmt_warnings(ws)
                 } else {
-                    Result::new_err(es)
+                    LogResult::new_err(es)
                         .set_err_value(def)
                         .map_non_fung_errors(Into::into)
                 }
             },
             |other| {
-                other.map_or(Result::new_ok(def), |o| {
+                other.map_or(LogResult::new_ok(def), |o| {
                     let (seg, warn) = default.unless(o);
-                    warn.map_or(Result::new_ok(seg), |w| {
-                        Result::new_fungible::<_, _, Vec<_>>(seg, def, w.into(), !allow_mismatch)
+                    warn.map_or(LogResult::new_ok(seg), |w| {
+                        LogResult::new_fungible(seg, def, w.into(), !allow_mismatch)
                     })
                 })
             },
@@ -692,9 +692,9 @@ impl GenericSegment {
                     prev = z;
                 }
             }
-            Result::new_err_from_iter(errors, ())
+            LogResult::new_err_from_iter(errors, ())
         } else {
-            Result::new_ok(())
+            LogResult::new_ok(())
         }
     }
 }

@@ -15,7 +15,7 @@ use super::gating;
 use super::index::{GateIndex, MeasIndex, RegionIndex};
 use super::named_vec::NameMapping;
 use super::optional::{
-    AlwaysValue, CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString,
+    Identity, CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString,
     OptionalZST,
 };
 use super::parser::{
@@ -847,7 +847,7 @@ impl<I> RegionGateIndex<I> {
             if let Some(x) = maybe {
                 Self::check_link(&x, par)
                     .map(|()| x)
-                    .into_deferred_fungible_opt::<AlwaysValue<_>, Vec<_>>(
+                    .into_deferred_fungible_opt::<Identity<_>, Vec<_>>(
                         !conf.allow_optional_dropping,
                     )
                     .cmt_fung_errors_into()

@@ -1,4 +1,4 @@
-use crate::text::optional::{AlwaysValue, NeverValue};
+use crate::text::optional::{Identity, Nothing};
 
 pub type Sibling1<T, A> = <<T as IsKind1>::Family as Kind1>::Type<A>;
 pub type Sibling2<T, A, B> = <<T as IsKind2>::Family as Kind2>::Type<A, B>;
@@ -82,21 +82,21 @@ pub struct VecFamily;
 
 pub struct NullFamily;
 
-impl_kind1!(NullFamily, NeverValue);
-impl_kind1!(IdFamily, AlwaysValue);
+impl_kind1!(NullFamily, Nothing);
+impl_kind1!(IdFamily, Identity);
 impl_kind1!(BoxFamily, Box);
 impl_kind1!(OptFamily, Option);
 impl_kind1!(VecFamily, Vec);
 
-impl<X> Functor<X> for NeverValue<X> {
-    fn fmap<F: Fn(X) -> Y, Y>(self, _: F) -> NeverValue<Y> {
-        NeverValue::default()
+impl<X> Functor<X> for Nothing<X> {
+    fn fmap<F: Fn(X) -> Y, Y>(self, _: F) -> Nothing<Y> {
+        Nothing::default()
     }
 }
 
-impl<X> Functor<X> for AlwaysValue<X> {
-    fn fmap<F: Fn(X) -> Y, Y>(self, f: F) -> AlwaysValue<Y> {
-        AlwaysValue(f(self.0))
+impl<X> Functor<X> for Identity<X> {
+    fn fmap<F: Fn(X) -> Y, Y>(self, f: F) -> Identity<Y> {
+        Identity(f(self.0))
     }
 }
 
@@ -118,7 +118,7 @@ impl<X> Functor<X> for Vec<X> {
     }
 }
 
-impl<X> Comonad<X> for AlwaysValue<X> {
+impl<X> Comonad<X> for Identity<X> {
     fn cm_extract(self) -> X {
         self.0
     }
@@ -138,13 +138,13 @@ impl<X> Comonad<X> for Box<X> {
     }
 }
 
-impl<A> Applicative<A> for NeverValue<A> {
+impl<A> Applicative<A> for Nothing<A> {
     fn pure(_: A) -> Self {
         Self::default()
     }
 }
 
-impl<A> Applicative<A> for AlwaysValue<A> {
+impl<A> Applicative<A> for Identity<A> {
     fn pure(a: A) -> Self {
         Self(a)
     }

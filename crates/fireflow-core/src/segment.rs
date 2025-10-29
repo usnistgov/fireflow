@@ -3,7 +3,7 @@ use crate::logging::{
     RecoverableErrorsResult, ResultExt as _, WarningsAndErrorsResult,
 };
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
-use crate::text::optional::AlwaysValue;
+use crate::text::optional::Identity;
 use crate::text::parser::{OptKeyError, OptMetarootKey, Optional, ReqKeyError, ReqMetarootKey};
 use crate::validated::ascii_uint::{
     HeaderString, ParseFixedUintError, UintSpacePad20, UintSpacePad8, UintZeroPad20,
@@ -261,7 +261,7 @@ where
             |other| {
                 let (seg, warn) = default.unless(other);
                 warn.map_or(LogResult::new_ok(seg), |w| {
-                    LogResult::<_, _, _, _, AlwaysValue<_>, Vec<_>>::new_fungible(
+                    LogResult::<_, _, _, _, Identity<_>, Vec<_>>::new_fungible(
                         seg,
                         (),
                         w,

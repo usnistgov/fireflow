@@ -12,7 +12,7 @@ use crate::segment::{
 use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, Nextdata,
 };
-use crate::text::optional::AlwaysValue;
+use crate::text::optional::Identity;
 use crate::text::parser::ReqMetarootKey as _;
 use crate::validated::ascii_uint::{
     HeaderString, Uint8DigitOverflow, UintSpacePad20, UintSpacePad8, UintZeroPad20,
@@ -290,7 +290,7 @@ where
 {
     let conf = &st.conf.as_ref();
     let vers_res = Version::h_read(h)
-        .into_nowarn1::<AlwaysValue<_>>()
+        .into_nowarn1::<Identity<_>>()
         .map_non_fung_errors(|e| e.map_inner(HeaderError::Version))
         .repack();
     let space_res = h_read_spaces(h).into_nowarn1().repack();

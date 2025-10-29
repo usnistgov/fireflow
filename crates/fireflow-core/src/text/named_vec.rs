@@ -8,7 +8,7 @@ use crate::type_families::{Applicative, Comonad, Functor, Sibling1};
 use crate::validated::shortname::Shortname;
 
 use super::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
-use super::optional::{AlwaysValue, NeverValue};
+use super::optional::{Identity, Nothing};
 
 use derive_more::{Display, From, Into};
 use derive_new::new;
@@ -357,7 +357,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                 .enumerate()
                 .map(|(i, x)| {
                     x.both(
-                        |_| LogResult::<_, _, _, _, AlwaysValue<_>, Vec<_>>::new_err1(i),
+                        |_| LogResult::<_, _, _, _, Identity<_>, Vec<_>>::new_err1(i),
                         LogResult::new_ok,
                     )
                 })
@@ -1183,7 +1183,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         K: MightHave<Shortname>,
     {
         let go = |j, u| {
-            LogResult::<_, _, _, _, AlwaysValue<Infallible>, NeverValue<Infallible>>::new_ok(to_v(
+            LogResult::<_, _, _, _, Identity<Infallible>, Nothing<Infallible>>::new_ok(to_v(
                 j, u,
             ))
         };

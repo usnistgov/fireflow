@@ -1,5 +1,5 @@
 use crate::config::SharedConfig;
-use crate::text::optional::{AlwaysValue, NeverValue};
+use crate::text::optional::{Identity, Nothing};
 use crate::type_families::{
     Applicative, BiFunctor, Comonad, Functor, IsKind1, IsKind2, Kind1, Kind2, Sibling1, Sibling2,
 };
@@ -38,8 +38,8 @@ pub type RecoverableErrorsResult<V, I> = ErrorsResult<V, (), I>;
 // Results without warnings
 //
 
-pub type ErrorResult<V, P, E> = NowarnResult<V, P, AlwaysValue<E>, NeverValue<E>>;
-pub type ErrorsResult<V, P, E> = NowarnResult<V, P, AlwaysValue<E>, Vec<E>>;
+pub type ErrorResult<V, P, E> = NowarnResult<V, P, Identity<E>, Nothing<E>>;
+pub type ErrorsResult<V, P, E> = NowarnResult<V, P, Identity<E>, Vec<E>>;
 
 pub type BoxedErrorsResult<V, P, E> = NowarnResult<V, P, Box<E>, Vec<E>>;
 
@@ -57,23 +57,23 @@ pub type IOBoxedErrorsResult<V, P, E> = ErrorsResult<V, P, ImpureError<E>>;
 // Thus the stack space required for either is about the same.
 //
 
-pub type FungibleErrorResult<V, P, E> = NonCmtFungibleResult<V, P, AlwaysValue<E>, NeverValue<E>>;
-pub type FungibleErrorsResult<V, P, E> = NonCmtFungibleResult<V, P, AlwaysValue<E>, Vec<E>>;
+pub type FungibleErrorResult<V, P, E> = NonCmtFungibleResult<V, P, Identity<E>, Nothing<E>>;
+pub type FungibleErrorsResult<V, P, E> = NonCmtFungibleResult<V, P, Identity<E>, Vec<E>>;
 
 //
 // Results with warnings and errors of differing types which are not commutable
 //
 
 pub type WarningOrErrorResult<V, P, W, E> =
-    NonCmtResult<V, P, Option<W>, AlwaysValue<E>, NeverValue<E>>;
+    NonCmtResult<V, P, Option<W>, Identity<E>, Nothing<E>>;
 pub type WarningsOrErrorResult<V, P, W, E> =
-    NonCmtResult<V, P, Vec<W>, AlwaysValue<E>, NeverValue<E>>;
-pub type WarningOrErrorsResult<V, P, W, E> = NonCmtResult<V, P, Option<W>, AlwaysValue<E>, Vec<E>>;
-pub type WarningsOrErrorsResult<V, P, W, E> = NonCmtResult<V, P, Vec<W>, AlwaysValue<E>, Vec<E>>;
+    NonCmtResult<V, P, Vec<W>, Identity<E>, Nothing<E>>;
+pub type WarningOrErrorsResult<V, P, W, E> = NonCmtResult<V, P, Option<W>, Identity<E>, Vec<E>>;
+pub type WarningsOrErrorsResult<V, P, W, E> = NonCmtResult<V, P, Vec<W>, Identity<E>, Vec<E>>;
 
 pub type WarningOrBoxedErrorResult<V, P, W, E> =
-    NonCmtResult<V, P, Option<W>, Box<E>, NeverValue<E>>;
-pub type WarningsOrBoxedErrorResult<V, P, W, E> = NonCmtResult<V, P, Vec<W>, Box<E>, NeverValue<E>>;
+    NonCmtResult<V, P, Option<W>, Box<E>, Nothing<E>>;
+pub type WarningsOrBoxedErrorResult<V, P, W, E> = NonCmtResult<V, P, Vec<W>, Box<E>, Nothing<E>>;
 pub type WarningOrBoxedErrorsResult<V, P, W, E> = NonCmtResult<V, P, Option<W>, Box<E>, Vec<E>>;
 pub type WarningsOrBoxedErrorsResult<V, P, W, E> = NonCmtResult<V, P, Vec<W>, Box<E>, Vec<E>>;
 
@@ -82,14 +82,14 @@ pub type WarningsOrBoxedErrorsResult<V, P, W, E> = NonCmtResult<V, P, Vec<W>, Bo
 //
 
 pub type WarningAndErrorResult<V, P, W, E> =
-    CmtResult<V, P, Option<W>, AlwaysValue<E>, NeverValue<E>>;
+    CmtResult<V, P, Option<W>, Identity<E>, Nothing<E>>;
 pub type WarningsAndErrorResult<V, P, W, E> =
-    CmtResult<V, P, Vec<W>, AlwaysValue<E>, NeverValue<E>>;
-pub type WarningAndErrorsResult<V, P, W, E> = CmtResult<V, P, Option<W>, AlwaysValue<E>, Vec<E>>;
-pub type WarningsAndErrorsResult<V, P, W, E> = CmtResult<V, P, Vec<W>, AlwaysValue<E>, Vec<E>>;
+    CmtResult<V, P, Vec<W>, Identity<E>, Nothing<E>>;
+pub type WarningAndErrorsResult<V, P, W, E> = CmtResult<V, P, Option<W>, Identity<E>, Vec<E>>;
+pub type WarningsAndErrorsResult<V, P, W, E> = CmtResult<V, P, Vec<W>, Identity<E>, Vec<E>>;
 
-pub type WarningAndBoxedErrorResult<V, P, W, E> = CmtResult<V, P, Option<W>, Box<E>, NeverValue<E>>;
-pub type WarningsAndBoxedErrorResult<V, P, W, E> = CmtResult<V, P, Vec<W>, Box<E>, NeverValue<E>>;
+pub type WarningAndBoxedErrorResult<V, P, W, E> = CmtResult<V, P, Option<W>, Box<E>, Nothing<E>>;
+pub type WarningsAndBoxedErrorResult<V, P, W, E> = CmtResult<V, P, Vec<W>, Box<E>, Nothing<E>>;
 pub type WarningAndBoxedErrorsResult<V, P, W, E> = CmtResult<V, P, Option<W>, Box<E>, Vec<E>>;
 pub type WarningsAndBoxedErrorsResult<V, P, W, E> = CmtResult<V, P, Vec<W>, Box<E>, Vec<E>>;
 
@@ -154,7 +154,7 @@ pub type NonCmtFungibleResult<V, P, EC0, ECn> =
 pub type CmtFungibleResult<V, P, EC0, ECn> =
     CmtResult<V, P, <ECn as FungibleError>::Warn, EC0, ECn>;
 
-pub type NowarnResult<V, P, EC0, ECn> = CmtResult<V, P, NeverValue<()>, EC0, ECn>;
+pub type NowarnResult<V, P, EC0, ECn> = CmtResult<V, P, Nothing<()>, EC0, ECn>;
 
 pub type Deferred<V, WC, EC0, ECn> = CmtResult<V, V, WC, EC0, ECn>;
 
@@ -164,7 +164,7 @@ pub type DeferredFungible<V, EC0, ECn> = Deferred<V, <ECn as FungibleError>::War
 
 pub type CmtResult<V, P, WC, EC0, ECn> = LogResult<V, P, WC, WC, EC0, ECn>;
 
-pub type NonCmtResult<V, P, WC, EC0, ECn> = LogResult<V, P, WC, NeverValue<()>, EC0, ECn>;
+pub type NonCmtResult<V, P, WC, EC0, ECn> = LogResult<V, P, WC, Nothing<()>, EC0, ECn>;
 
 pub type FungibleResult<V, P, RWC, EC0, ECn> =
     LogResult<V, P, <ECn as FungibleError>::Warn, RWC, EC0, ECn>;
@@ -193,7 +193,7 @@ pub struct Failure<P, WC, EC0, ECn> {
 #[derive(new)]
 pub struct ErrorSummary<E, S> {
     pub summary: S,
-    pub errors: GenNonEmpty<AlwaysValue<E>, Vec<E>>,
+    pub errors: GenNonEmpty<Identity<E>, Vec<E>>,
 }
 
 #[derive(new)]
@@ -309,13 +309,13 @@ impl<T> IntoNewCardinality<T> for T {
     }
 }
 
-impl<T> IntoNewCardinality<Vec<T>> for NeverValue<T> {
+impl<T> IntoNewCardinality<Vec<T>> for Nothing<T> {
     fn into_new_cardinality(self) -> Vec<T> {
         vec![]
     }
 }
 
-impl<T> IntoNewCardinality<Option<T>> for NeverValue<T> {
+impl<T> IntoNewCardinality<Option<T>> for Nothing<T> {
     fn into_new_cardinality(self) -> Option<T> {
         None
     }
@@ -333,15 +333,15 @@ impl<T> IntoNewWrapper<T> for T {
     }
 }
 
-impl<T> IntoNewWrapper<Box<T>> for AlwaysValue<T> {
+impl<T> IntoNewWrapper<Box<T>> for Identity<T> {
     fn into_new_wrapper(self) -> Box<T> {
         Box::new(self.0)
     }
 }
 
-impl<T> IntoNewWrapper<AlwaysValue<T>> for Box<T> {
-    fn into_new_wrapper(self) -> AlwaysValue<T> {
-        AlwaysValue(*self)
+impl<T> IntoNewWrapper<Identity<T>> for Box<T> {
+    fn into_new_wrapper(self) -> Identity<T> {
+        Identity(*self)
     }
 }
 
@@ -351,7 +351,7 @@ impl<A, C0: Applicative<A>, Cn: Applicative<A> + Default> Applicative<A> for Gen
     }
 }
 
-impl<T> Concatable for NeverValue<T> {
+impl<T> Concatable for Nothing<T> {
     type Out = Self;
     fn concat(self, _: Self) -> Self::Out {
         self
@@ -375,9 +375,9 @@ impl<T> Concatable for Vec<T> {
 
 impl<T> Semigroup for Vec<T> {}
 
-impl<T> Semigroup for NeverValue<T> {}
+impl<T> Semigroup for Nothing<T> {}
 
-impl<E> FungibleError for NeverValue<E> {
+impl<E> FungibleError for Nothing<E> {
     type Inner = E;
     type Warn = Option<E>;
 
@@ -558,7 +558,7 @@ impl<V, WC> Success<V, WC> {
     }
 }
 
-impl<V> Success<V, NeverValue<()>> {
+impl<V> Success<V, Nothing<()>> {
     fn nowarn_into_warn<WC: Default>(self) -> Success<V, WC> {
         Success::new1(self.value)
     }
@@ -720,7 +720,7 @@ impl<P, EC0, WC, ECn> Failure<P, WC, EC0, ECn> {
         Failure::new(Some(f(self.warnings)), self.errors, self.value)
     }
 
-    fn aggregate_errors<F, E>(self, f: F) -> Failure<P, WC, Sibling1<EC0, E>, NeverValue<E>>
+    fn aggregate_errors<F, E>(self, f: F) -> Failure<P, WC, Sibling1<EC0, E>, Nothing<E>>
     where
         EC0: IsKind1,
         Sibling1<EC0, E>: Applicative<E>,
@@ -766,7 +766,7 @@ impl<P, EC0, WC, ECn> Failure<P, WC, EC0, ECn> {
     }
 }
 
-impl<P, E, EC> Failure<P, NeverValue<()>, E, EC> {
+impl<P, E, EC> Failure<P, Nothing<()>, E, EC> {
     fn nowarn_into_warn<WC>(self) -> Failure<P, WC, E, EC>
     where
         WC: Default,
@@ -866,7 +866,7 @@ pub trait ResultExt: Sized {
 
     fn as_result_mut(&mut self) -> Result<&mut Self::Ok, &mut Self::Error>;
 
-    fn into_nowarn1<EC0>(self) -> NowarnResult<Self::Ok, (), EC0, NeverValue<Self::Error>>
+    fn into_nowarn1<EC0>(self) -> NowarnResult<Self::Ok, (), EC0, Nothing<Self::Error>>
     where
         EC0: Applicative<Self::Error>,
     {
@@ -880,7 +880,7 @@ pub trait ResultExt: Sized {
         self.into_log()
     }
 
-    fn into_warn1<EC0>(self) -> NowarnResult<Self::Ok, (), EC0, NeverValue<Self::Error>>
+    fn into_warn1<EC0>(self) -> NowarnResult<Self::Ok, (), EC0, Nothing<Self::Error>>
     where
         EC0: Applicative<Self::Error>,
     {
@@ -1315,7 +1315,7 @@ impl<V, P, WC, EC0, ECn> CmtResult<V, P, WC, EC0, ECn> {
 }
 
 // commutative/resolvable
-impl<V, WC, EC0, E> CmtResult<V, (), WC, EC0, NeverValue<E>> {
+impl<V, WC, EC0, E> CmtResult<V, (), WC, EC0, Nothing<E>> {
     /// Resolve commutative Result with into regular Result type.
     ///
     /// Warnings will be given outside the result since commutative Results by
@@ -1601,7 +1601,7 @@ impl<V, WC, EC0, ECn> Deferred<V, WC, EC0, ECn> {
 }
 
 // nowarn
-impl<V, P, EC0, ECn> LogResult<V, P, NeverValue<()>, NeverValue<()>, EC0, ECn> {
+impl<V, P, EC0, ECn> LogResult<V, P, Nothing<()>, Nothing<()>, EC0, ECn> {
     /// Lift Result with no warnings to non-commutative Result
     pub(crate) fn nowarn_into_non_cmt_warn<LWCf>(self) -> NonCmtResult<V, P, LWCf, EC0, ECn>
     where
@@ -1669,7 +1669,7 @@ impl<V, P, EC0, ECn> LogResult<V, P, NeverValue<()>, NeverValue<()>, EC0, ECn> {
     }
 }
 
-impl<V, EC0, E> LogResult<V, (), NeverValue<()>, NeverValue<()>, EC0, NeverValue<E>> {
+impl<V, EC0, E> LogResult<V, (), Nothing<()>, Nothing<()>, EC0, Nothing<E>> {
     /// Resolve Result with no warnings into regular Result type.
     pub fn resolve_nowarn<F, FailRes>(self, f: F) -> Result<V, FailRes>
     where
@@ -1684,7 +1684,7 @@ impl<V, EC0, E> LogResult<V, (), NeverValue<()>, NeverValue<()>, EC0, NeverValue
 }
 
 // non-cummutative
-impl<V, P, LWC, EC0, ECn> LogResult<V, P, LWC, NeverValue<()>, EC0, ECn> {
+impl<V, P, LWC, EC0, ECn> LogResult<V, P, LWC, Nothing<()>, EC0, ECn> {
     /// Lift non-commutative Result into commutative Result
     pub(crate) fn non_cmt_into_cmt(self) -> CmtResult<V, P, LWC, EC0, ECn>
     where
@@ -1721,7 +1721,7 @@ impl<V, P, LWC, EC0, ECn> LogResult<V, P, LWC, NeverValue<()>, EC0, ECn> {
         self,
         f: F,
         g: G,
-    ) -> NonCmtFungibleResult<V, P, Sibling1<EC0, E>, NeverValue<E>>
+    ) -> NonCmtFungibleResult<V, P, Sibling1<EC0, E>, Nothing<E>>
     where
         F: FnOnce(LWC) -> E,
         G: FnOnce(GenNonEmpty<EC0, ECn>) -> E,
@@ -1737,7 +1737,7 @@ impl<V, P, LWC, EC0, ECn> LogResult<V, P, LWC, NeverValue<()>, EC0, ECn> {
 }
 
 // non-commutative/resolveable
-impl<V, LWC, EC0, E> LogResult<V, (), LWC, NeverValue<()>, EC0, NeverValue<E>> {
+impl<V, LWC, EC0, E> LogResult<V, (), LWC, Nothing<()>, EC0, Nothing<E>> {
     /// Resolve non-commutative Result with regular Result type.
     ///
     /// Warnings will be given on the Succ side since non-commutative Result's
@@ -1760,7 +1760,7 @@ impl<V, LWC, EC0, E> LogResult<V, (), LWC, NeverValue<()>, EC0, NeverValue<E>> {
 }
 
 // non-cummutative/fungible
-impl<V, P, LWC, EC0, ECn> LogResult<V, P, LWC, NeverValue<()>, EC0, ECn>
+impl<V, P, LWC, EC0, ECn> LogResult<V, P, LWC, Nothing<()>, EC0, ECn>
 where
     ECn: FungibleError<Warn = LWC>,
 {
@@ -1768,7 +1768,7 @@ where
     #[allow(clippy::type_complexity)]
     pub(crate) fn non_cmt_fung_errors_into<Ei, Ef>(
         self,
-    ) -> LogResult<V, P, Sibling1<LWC, Ef>, NeverValue<()>, Sibling1<EC0, Ef>, Sibling1<ECn, Ef>>
+    ) -> LogResult<V, P, Sibling1<LWC, Ef>, Nothing<()>, Sibling1<EC0, Ef>, Sibling1<ECn, Ef>>
     where
         Ei: Into<Ef>,
         EC0: Functor<Ei>,
@@ -1783,7 +1783,7 @@ where
     pub(crate) fn map_non_cmt_fung_errors<F, Ei, Ef>(
         self,
         f: F,
-    ) -> LogResult<V, P, Sibling1<LWC, Ef>, NeverValue<()>, Sibling1<EC0, Ef>, Sibling1<ECn, Ef>>
+    ) -> LogResult<V, P, Sibling1<LWC, Ef>, Nothing<()>, Sibling1<EC0, Ef>, Sibling1<ECn, Ef>>
     where
         F: Fn(Ei) -> Ef,
         EC0: Functor<Ei>,
@@ -1839,7 +1839,7 @@ where
         self,
         f: F,
         g: G,
-    ) -> CmtFungibleResult<V, P, Sibling1<EC0, E>, NeverValue<E>>
+    ) -> CmtFungibleResult<V, P, Sibling1<EC0, E>, Nothing<E>>
     where
         F: FnOnce(ECn::Warn) -> E,
         G: FnOnce(GenNonEmpty<EC0, ECn>) -> E,
@@ -2242,7 +2242,7 @@ impl<V, P, LWC, RWC, EC0, ECn> LogResult<V, P, LWC, RWC, EC0, ECn> {
     pub(crate) fn aggregate_non_fung_errors<F, E>(
         self,
         f: F,
-    ) -> LogResult<V, P, LWC, RWC, Sibling1<EC0, E>, NeverValue<E>>
+    ) -> LogResult<V, P, LWC, RWC, Sibling1<EC0, E>, Nothing<E>>
     where
         // NOTE pretend there is a negative trait bound for "non-fungible"
         EC0: IsKind1,
@@ -2255,9 +2255,9 @@ impl<V, P, LWC, RWC, EC0, ECn> LogResult<V, P, LWC, RWC, EC0, ECn> {
     #[allow(clippy::type_complexity)]
     pub(crate) fn summarize_errors<E, S>(
         self,
-    ) -> LogResult<V, P, LWC, RWC, Sibling1<EC0, ErrorSummary<E, S>>, NeverValue<ErrorSummary<E, S>>>
+    ) -> LogResult<V, P, LWC, RWC, Sibling1<EC0, ErrorSummary<E, S>>, Nothing<ErrorSummary<E, S>>>
     where
-        EC0: IsKind1 + IntoNewWrapper<AlwaysValue<E>>,
+        EC0: IsKind1 + IntoNewWrapper<Identity<E>>,
         Sibling1<EC0, ErrorSummary<E, S>>: Applicative<ErrorSummary<E, S>>,
         ECn: IntoNewCardinality<Vec<E>>,
         S: Default,
@@ -2270,9 +2270,9 @@ impl<V, P, LWC, RWC, EC0, ECn> LogResult<V, P, LWC, RWC, EC0, ECn> {
     pub fn summarize_errors_with<E, S>(
         self,
         s: S,
-    ) -> LogResult<V, P, LWC, RWC, Sibling1<EC0, ErrorSummary<E, S>>, NeverValue<ErrorSummary<E, S>>>
+    ) -> LogResult<V, P, LWC, RWC, Sibling1<EC0, ErrorSummary<E, S>>, Nothing<ErrorSummary<E, S>>>
     where
-        EC0: IsKind1 + IntoNewWrapper<AlwaysValue<E>>,
+        EC0: IsKind1 + IntoNewWrapper<Identity<E>>,
         Sibling1<EC0, ErrorSummary<E, S>>: Applicative<ErrorSummary<E, S>>,
         ECn: IntoNewCardinality<Vec<E>>,
     {
@@ -2466,7 +2466,7 @@ where
 mod python {
     use crate::{
         python::exceptions::{PyreflowException, PyreflowWarning},
-        text::optional::NeverValue,
+        text::optional::Nothing,
     };
 
     use super::{
@@ -2498,7 +2498,7 @@ mod python {
         }
     }
 
-    impl<V, WC, EC0, E> CmtResult<V, (), WC, EC0, NeverValue<E>> {
+    impl<V, WC, EC0, E> CmtResult<V, (), WC, EC0, Nothing<E>> {
         pub fn py_termfail_resolve<W>(self) -> PyResult<V>
         where
             WC: IntoIterator<Item = W>,
@@ -2512,7 +2512,7 @@ mod python {
         }
     }
 
-    impl<V, EC0, E> NowarnResult<V, (), EC0, NeverValue<E>> {
+    impl<V, EC0, E> NowarnResult<V, (), EC0, Nothing<E>> {
         pub fn py_termfail_resolve_nowarn(self) -> PyResult<V>
         where
             E: Into<PyErr>,
@@ -2522,7 +2522,7 @@ mod python {
         }
     }
 
-    impl<V, LWC, RWC, EC0, E> LogResult<V, (), LWC, RWC, EC0, NeverValue<E>> {
+    impl<V, LWC, RWC, EC0, E> LogResult<V, (), LWC, RWC, EC0, Nothing<E>> {
         pub fn py_term_resolve_noerror<W>(self) -> PyResult<V>
         where
             LWC: IntoIterator<Item = W>,

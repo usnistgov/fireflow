@@ -26,7 +26,7 @@ use crate::segment::{
     OptSegmentError, OtherSegment20, PrimaryTextSegment, ReqSegmentError, SupplementalTextSegment,
 };
 use crate::text::keywords::{Beginstext, Endstext, Nextdata, Tot};
-use crate::text::optional::{AlwaysValue, NeverValue};
+use crate::text::optional::{Identity, Nothing};
 use crate::text::parser::{
     get_opt, get_req, truncate_string, ExtraStdKeywords, OptKeyError, ReqKeyError,
 };
@@ -823,7 +823,7 @@ fn split_first_delim<'a>(
         } else {
             let e = DelimCharError(*delim);
             let is_err = !conf.allow_non_ascii_delim;
-            LogResult::<_, _, _, _, AlwaysValue<_>, NeverValue<_>>::new_fungible(x, (), e, is_err)
+            LogResult::<_, _, _, _, Identity<_>, Nothing<_>>::new_fungible(x, (), e, is_err)
                 .map_non_fung_errors(DelimVerifyError::from)
         }
     } else {
@@ -1101,7 +1101,7 @@ where
             .recover_with(
                 |(), es| {
                     let is_err = !conf.allow_missing_supp_text;
-                    LogResult::<_, _, Vec<_>, _, AlwaysValue<_>, Vec<_>>::new_ok(None)
+                    LogResult::<_, _, Vec<_>, _, Identity<_>, Vec<_>>::new_ok(None)
                         .extend_def_fung_errors(es, is_err)
                         .map_non_fung_errors(STextSegmentError::from)
                         .map_cmt_warnings(STextSegmentWarning::from)
@@ -1122,7 +1122,7 @@ where
         x.map_or(LogResult::new_ok(None), |seg| {
             if seg.same_coords(&text_segment) {
                 let is_err = !conf.allow_duplicated_supp_text;
-                LogResult::<_, _, _, _, AlwaysValue<_>, Vec<_>>::new_deferred_fungible(
+                LogResult::<_, _, _, _, Identity<_>, Vec<_>>::new_deferred_fungible(
                     None,
                     DuplicatedSuppTEXT,
                     is_err,

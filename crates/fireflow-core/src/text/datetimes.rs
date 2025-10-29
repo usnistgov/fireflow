@@ -3,7 +3,7 @@ use crate::core::{AnyMetarootKeyLossError, UnitaryKeyLossError};
 use crate::logging::{DeferredFungibleErrors, LogResult, ResultExt as _};
 use crate::validated::keys::StdKeywords;
 
-use super::optional::{AlwaysValue, KeywordPairMaybe as _};
+use super::optional::{Identity, KeywordPairMaybe as _};
 use super::parser::{LookupTentative, OptMetarootKey as _};
 
 use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeZone as _};
@@ -91,7 +91,7 @@ impl Datetimes {
         let e = EndDateTime::lookup_metaroot_opt(kws, false, conf);
         b.zip_def(e).and_then_def(|(begin, end)| {
             Self::try_new(begin, end)
-                .into_deferred_fungible::<AlwaysValue<_>, Vec<_>>(!conf.allow_optional_dropping)
+                .into_deferred_fungible::<Identity<_>, Vec<_>>(!conf.allow_optional_dropping)
                 .cmt_fung_errors_into()
         })
     }

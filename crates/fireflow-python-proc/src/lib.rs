@@ -5484,7 +5484,7 @@ impl<E: From<PyException>> PyType<E> {
             PyOpt::new(PyStr::new_shortname()).into()
         } else {
             let inner = quote!(fireflow_core::validated::shortname::Shortname);
-            let outer = parse_quote!(fireflow_core::text::optional::AlwaysValue<#inner>);
+            let outer = parse_quote!(fireflow_core::text::optional::Identity<#inner>);
             PyStr::new_shortname().rstype(outer).into()
         }
     }

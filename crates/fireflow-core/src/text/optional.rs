@@ -22,9 +22,9 @@ use pyo3::prelude::*;
 #[derive(Clone, PartialEq, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
-pub struct AlwaysValue<T>(pub T);
+pub struct Identity<T>(pub T);
 
-impl<T> IntoIterator for AlwaysValue<T> {
+impl<T> IntoIterator for Identity<T> {
     type Item = T;
     type IntoIter = iter::Once<T>;
     fn into_iter(self) -> Self::IntoIter {
@@ -32,12 +32,12 @@ impl<T> IntoIterator for AlwaysValue<T> {
     }
 }
 
-/// A value that always exists.
+/// A value that never exists.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct NeverValue<T>(pub PhantomData<T>);
+pub struct Nothing<T>(pub PhantomData<T>);
 
-impl<T> IntoIterator for NeverValue<T> {
+impl<T> IntoIterator for Nothing<T> {
     type Item = T;
     type IntoIter = iter::Empty<T>;
     fn into_iter(self) -> Self::IntoIter {
@@ -45,7 +45,7 @@ impl<T> IntoIterator for NeverValue<T> {
     }
 }
 
-impl<T> Default for NeverValue<T> {
+impl<T> Default for Nothing<T> {
     fn default() -> Self {
         Self(PhantomData)
     }
@@ -260,15 +260,15 @@ impl<A> MightHave<A> for Option<A> {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AlwaysFamily;
 
-impl<A> MightHave<A> for AlwaysValue<A> {
+impl<A> MightHave<A> for Identity<A> {
     const INFALLABLE: bool = true;
 
     fn unwrap(self) -> Result<A, Self> {
         Ok(self.0)
     }
 
-    fn as_ref(&self) -> AlwaysValue<&A> {
-        AlwaysValue(&self.0)
+    fn as_ref(&self) -> Identity<&A> {
+        Identity(&self.0)
     }
 
     fn as_opt(&self) -> Option<&A> {
@@ -276,21 +276,21 @@ impl<A> MightHave<A> for AlwaysValue<A> {
     }
 }
 
-impl<T> From<T> for AlwaysValue<T> {
+impl<T> From<T> for Identity<T> {
     fn from(value: T) -> Self {
         Self(value)
     }
 }
 
-impl<T> TryFrom<Option<T>> for AlwaysValue<T> {
+impl<T> TryFrom<Option<T>> for Identity<T> {
     type Error = MaybeToAlwaysError;
     fn try_from(value: Option<T>) -> Result<Self, Self::Error> {
-        value.ok_or(MaybeToAlwaysError).map(AlwaysValue)
+        value.ok_or(MaybeToAlwaysError).map(Identity)
     }
 }
 
-impl<T> From<AlwaysValue<T>> for Option<T> {
-    fn from(value: AlwaysValue<T>) -> Self {
+impl<T> From<Identity<T>> for Option<T> {
+    fn from(value: Identity<T>) -> Self {
         Some(value.0)
     }
 }
@@ -301,13 +301,13 @@ pub struct MaybeToAlwaysError;
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{AlwaysValue, OptionalZST};
+    use super::{Identity, OptionalZST};
 
     use pyo3::prelude::*;
     use pyo3::types::PyBool;
     use std::convert::Infallible;
 
-    impl<'py, T> FromPyObject<'py> for AlwaysValue<T>
+    impl<'py, T> FromPyObject<'py> for Identity<T>
     where
         T: FromPyObject<'py>,
     {

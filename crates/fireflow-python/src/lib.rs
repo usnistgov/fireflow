@@ -62,9 +62,7 @@ use fireflow_core::data::{
     DataLayout3_0, DataLayout3_1, DataLayout3_2, DelimAsciiLayout, EndianLayout, F32Range,
     F64Range, FixedAsciiLayout, KnownTot, LayoutOps as _, NoMeasDatatype, NonMixedEndianLayout,
 };
-use fireflow_core::logging::LogResultExt as _;
 use fireflow_core::header;
-use fireflow_core::python::exceptions::PyResultExt as _;
 use fireflow_core::text::gating::{
     AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, BivariateRegion, GatedMeasurement,
     GatingScheme, Region, UnivariateRegion,

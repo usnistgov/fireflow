@@ -26,7 +26,7 @@ use crate::segment::{
     OptSegmentError, OtherSegment20, PrimaryTextSegment, ReqSegmentError, SupplementalTextSegment,
 };
 use crate::text::keywords::{Beginstext, Endstext, Nextdata, Tot};
-use crate::text::optional::NeverValue;
+use crate::text::optional::{AlwaysValue, NeverValue};
 use crate::text::parser::{
     get_opt, get_req, truncate_string, ExtraStdKeywords, OptKeyError, ReqKeyError,
 };
@@ -58,8 +58,8 @@ pub fn fcs_read_header(
     conf: &ReadHeaderConfig,
 ) -> IOSummaryResult<Header, HeaderError, HeaderFailure> {
     ReadState::open(p, conf)
+        .map_err(ImpureError::IO)
         .into_log()
-        .non_fung_errors_into()
         .and_then_cmt(|(st, file)| {
             let mut reader = BufReader::new(file);
             Header::h_read(&mut reader, &st)
@@ -699,12 +699,18 @@ where
     let conf = st.conf.as_ref();
     let mut buf = vec![];
     let ptext_seg = header.segments.text;
-    ptext_seg.h_read_contents(h, &mut buf)?;
 
-    let delim_res = split_first_delim(&buf, conf)
-        .map_non_fung_errors(|e| ImpureError::Pure(e.into()))
-        .cmt_warnings_into()
-        .repack();
+    let delim_res = ptext_seg
+        .h_read_contents(h, &mut buf)
+        .into_io_log()
+        .and_then_cmt(|()| {
+            // buffer is filled above by side effect, and this won't run if the
+            // read step has an error
+            split_first_delim(&buf, conf)
+                .map_non_fung_errors(|e| ImpureError::Pure(e.into()))
+                .cmt_warnings_into()
+                .repack()
+        });
 
     delim_res
         .and_then_cmt(|(delim, bytes)| {
@@ -792,11 +798,15 @@ fn h_read_raw_supp_text<R: Read + Seek>(
     conf: &ReadHeaderAndTEXTConfig,
 ) -> DeferredWarningsAndErrors<(), ParseKeywordsIssue, ImpureError<ParseSupplementalTEXTError>> {
     if let Some(seg) = maybe_seg {
-        seg.h_read_contents(h, buf)?;
-        split_raw_supp_text(kws, delim, buf, conf)
-            .map_non_fung_errors(ImpureError::Pure)
-            .cmt_warnings_into()
-            .map_non_fung_errors(ImpureError::inner_into)
+        seg.h_read_contents(h, buf)
+            .into_io_log()
+            .and_then_cmt(|()| {
+                // buffer is read above by side effect
+                split_raw_supp_text(kws, delim, buf, conf)
+                    .map_non_fung_errors(ImpureError::Pure)
+                    .cmt_warnings_into()
+                    .map_non_fung_errors(ImpureError::inner_into)
+            })
     } else {
         LogResult::new_ok(())
     }
@@ -812,7 +822,9 @@ fn split_first_delim<'a>(
             LogResult::new_ok(x)
         } else {
             let e = DelimCharError(*delim);
-            LogResult::new_fungible(x, (), e, !conf.allow_non_ascii_delim).non_fung_errors_into()
+            let is_err = !conf.allow_non_ascii_delim;
+            LogResult::<_, _, _, _, AlwaysValue<_>, NeverValue<_>>::new_fungible(x, (), e, is_err)
+                .map_non_fung_errors(DelimVerifyError::from)
         }
     } else {
         LogResult::new_err1(EmptyTEXTError.into())
@@ -1089,7 +1101,7 @@ where
             .recover_with(
                 |(), es| {
                     let is_err = !conf.allow_missing_supp_text;
-                    LogResult::new_ok(None)
+                    LogResult::<_, _, Vec<_>, _, AlwaysValue<_>, Vec<_>>::new_ok(None)
                         .extend_def_fung_errors(es, is_err)
                         .map_non_fung_errors(STextSegmentError::from)
                         .map_cmt_warnings(STextSegmentWarning::from)
@@ -1110,9 +1122,13 @@ where
         x.map_or(LogResult::new_ok(None), |seg| {
             if seg.same_coords(&text_segment) {
                 let is_err = !conf.allow_duplicated_supp_text;
-                LogResult::new_deferred_fungible(None, DuplicatedSuppTEXT, is_err)
-                    .map_non_fung_errors(STextSegmentError::from)
-                    .map_cmt_warnings(STextSegmentWarning::from)
+                LogResult::<_, _, _, _, AlwaysValue<_>, Vec<_>>::new_deferred_fungible(
+                    None,
+                    DuplicatedSuppTEXT,
+                    is_err,
+                )
+                .map_non_fung_errors(STextSegmentError::from)
+                .map_cmt_warnings(STextSegmentWarning::from)
             } else {
                 LogResult::new_ok(Some(seg))
             }

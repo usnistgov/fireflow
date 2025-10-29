@@ -3,8 +3,8 @@ use fireflow_core::api::{
 };
 use fireflow_core::config;
 use fireflow_core::core::AnyCoreDataset;
-use fireflow_core::logging::{ErrorSummary, LogResultExt as _};
 use fireflow_core::header::Version;
+use fireflow_core::logging::{ErrorSummary, ResultExt};
 use fireflow_core::segment::HeaderCorrection;
 use fireflow_core::text::byteord::ByteOrd2_0;
 use fireflow_core::validated::datepattern::DatePattern;

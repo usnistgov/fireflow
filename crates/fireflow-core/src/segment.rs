@@ -3,6 +3,7 @@ use crate::logging::{
     RecoverableErrorsResult, ResultExt as _, WarningsAndErrorsResult,
 };
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
+use crate::text::optional::AlwaysValue;
 use crate::text::parser::{OptKeyError, OptMetarootKey, Optional, ReqKeyError, ReqMetarootKey};
 use crate::validated::ascii_uint::{
     HeaderString, ParseFixedUintError, UintSpacePad20, UintSpacePad8, UintZeroPad20,
@@ -251,7 +252,7 @@ where
             |(), es| {
                 if allow_missing {
                     let w = SegmentDefaultWarning::default().into();
-                    let ws = es.into_iter().map(Into::into).chain([w]).collect();
+                    let ws: Vec<_> = es.into_iter().map(Into::into).chain([w]).collect();
                     LogResult::new_ok(default.into_any()).set_cmt_warnings(ws)
                 } else {
                     LogResult::new_err(es).map_non_fung_errors(ReqSegmentWithDefaultError::from)
@@ -260,10 +261,15 @@ where
             |other| {
                 let (seg, warn) = default.unless(other);
                 warn.map_or(LogResult::new_ok(seg), |w| {
-                    LogResult::new_fungible(seg, (), w, !allow_mismatch)
-                        .non_cmt_into_cmt()
-                        .map_cmt_warnings(ReqSegmentWithDefaultWarning::from)
-                        .map_non_fung_errors(ReqSegmentWithDefaultError::from)
+                    LogResult::<_, _, _, _, AlwaysValue<_>, Vec<_>>::new_fungible(
+                        seg,
+                        (),
+                        w,
+                        !allow_mismatch,
+                    )
+                    .non_cmt_into_cmt()
+                    .map_cmt_warnings(ReqSegmentWithDefaultWarning::from)
+                    .map_non_fung_errors(ReqSegmentWithDefaultError::from)
                 })
             },
         )
@@ -743,17 +749,20 @@ impl<I: Copy> HeaderSegment<I> {
     {
         let mut buf0 = [0_u8; 8];
         let mut buf1 = [0_u8; 8];
-        h.read_exact(&mut buf0)?;
-        h.read_exact(&mut buf1)?;
-        Self::parse(
-            buf0,
-            buf1,
-            allow_blank,
-            allow_negative,
-            squish_offsets,
-            conf,
-        )
-        .map_non_fung_errors(ImpureError::Pure)
+        h.read_exact(&mut buf0)
+            .into_io_log()
+            .and_then_cmt(|()| h.read_exact(&mut buf1).into_io_log())
+            .and_then_cmt(|()| {
+                Self::parse(
+                    buf0,
+                    buf1,
+                    allow_blank,
+                    allow_negative,
+                    squish_offsets,
+                    conf,
+                )
+                .map_non_fung_errors(ImpureError::Pure)
+            })
     }
 
     pub(crate) fn parse(

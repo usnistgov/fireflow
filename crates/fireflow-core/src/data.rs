@@ -52,9 +52,9 @@ use crate::config::{ReadLayoutConfig, ReaderConfig, StdTextReadConfig};
 use crate::core::{AsScaleTransform, LayoutConvertResult, Measurements, ScaleTransform};
 use crate::logging::{
     CmtResultIter as _, DeferredErrors, DeferredFungibleError, DeferredFungibleErrors,
-    DeferredIOError, DeferredIter as _, DeferredWarningAndError, DeferredWarningsAndError,
-    ErrorsResult, IOErrorResult, IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _,
-    WarningOrErrorResult, WarningsAndErrorsResult,
+    DeferredIter as _, DeferredWarningAndError, DeferredWarningsAndError, ErrorsResult, IOResult,
+    IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _, WarningOrErrorResult,
+    WarningsAndErrorsResult,
 };
 use crate::macros::match_many_to_one;
 use crate::nonempty::FCSNonEmpty;
@@ -655,13 +655,15 @@ where
         // more complex. Good enough to pass the buffer and only use it when
         // needed.
         let mut buf = vec![];
-        seg.as_u64()
-            .try_coords()
-            // TODO why return default rather than fail?
-            .map_or(LogResult::new_ok(FCSDataFrame::default()), |(begin, _)| {
-                h.seek(SeekFrom::Start(begin))?;
-                self.h_read_df_inner(h, &mut buf, tot, seg, conf)
-            })
+        // TODO why return default rather than fail?
+        seg.as_u64().try_coords().map_or(
+            LogResult::new_ok(FCSDataFrame::default()),
+            |(begin, _)| {
+                h.seek(SeekFrom::Start(begin))
+                    .into_io_log()
+                    .and_then_nowarn(|_| self.h_read_df_inner(h, &mut buf, tot, seg, conf))
+            },
+        )
     }
 
     fn h_write_df<W>(
@@ -769,7 +771,7 @@ trait NativeReadable<S>: HasNativeType {
         h: &mut BufReader<R>,
         byte_layout: S,
         buf: &mut Vec<u8>,
-    ) -> IOErrorResult<Self::Native, (), ReadDataframeError>;
+    ) -> IOResult<Self::Native, ReadDataframeError>;
 }
 
 /// A column which may be transformed into a writer for a rust numeric type
@@ -820,7 +822,7 @@ trait Readable<S> {
         row: usize,
         byte_layout: S,
         buf: &mut Vec<u8>,
-    ) -> DeferredIOError<(), ReadDataframeError>;
+    ) -> IOResult<(), ReadDataframeError>;
 }
 
 trait NativeWritable<S>: HasNativeType {
@@ -1350,10 +1352,8 @@ where
         h: &mut BufReader<R>,
         byte_layout: Endian,
         _: &mut Vec<u8>,
-    ) -> IOErrorResult<T, (), ReadDataframeError> {
-        T::h_read_endian(h, byte_layout)
-            .map_err(ImpureError::IO)
-            .into_log()
+    ) -> IOResult<T, ReadDataframeError> {
+        Ok(T::h_read_endian(h, byte_layout)?)
     }
 }
 
@@ -1367,10 +1367,8 @@ where
         h: &mut BufReader<R>,
         byte_layout: SizedByteOrd<LEN>,
         _: &mut Vec<u8>,
-    ) -> IOErrorResult<T, (), ReadDataframeError> {
-        T::h_read_ordered(h, byte_layout)
-            .map_err(ImpureError::IO)
-            .into_log()
+    ) -> IOResult<T, ReadDataframeError> {
+        Ok(T::h_read_ordered(h, byte_layout)?)
     }
 }
 
@@ -1384,10 +1382,8 @@ where
         h: &mut BufReader<R>,
         byte_layout: Endian,
         _: &mut Vec<u8>,
-    ) -> IOErrorResult<T, (), ReadDataframeError> {
-        T::h_read_endian(h, byte_layout)
-            .map_err(ImpureError::IO)
-            .into_log()
+    ) -> IOResult<T, ReadDataframeError> {
+        Ok(T::h_read_endian(h, byte_layout)?)
     }
 }
 
@@ -1401,10 +1397,8 @@ where
         h: &mut BufReader<R>,
         byte_layout: SizedByteOrd<LEN>,
         _: &mut Vec<u8>,
-    ) -> IOErrorResult<T, (), ReadDataframeError> {
-        T::h_read_ordered(h, byte_layout)
-            .map_err(ImpureError::IO)
-            .into_log()
+    ) -> IOResult<T, ReadDataframeError> {
+        Ok(T::h_read_ordered(h, byte_layout)?)
     }
 }
 
@@ -1414,13 +1408,12 @@ impl<const ORD: bool> NativeReadable<NoByteOrd<ORD>> for AsciiRange {
         h: &mut BufReader<R>,
         _: NoByteOrd<ORD>,
         buf: &mut Vec<u8>,
-    ) -> IOErrorResult<Self::Native, (), ReadDataframeError> {
+    ) -> IOResult<Self::Native, ReadDataframeError> {
         buf.clear();
         h.take(u8::from(self.chars()).into()).read_to_end(buf)?;
         ascii_to_uint(buf)
             .map_err(ReadDataframeError::from)
             .map_err(ImpureError::Pure)
-            .into_nowarn1()
     }
 }
 
@@ -1468,12 +1461,10 @@ where
         row: usize,
         byte_layout: S,
         buf: &mut Vec<u8>,
-    ) -> DeferredIOError<(), ReadDataframeError> {
-        self.column_type
-            .h_read_native(h, byte_layout, buf)
-            .map_ok_value(|x| {
-                self.data[row] = x;
-            })
+    ) -> IOResult<(), ReadDataframeError> {
+        let x = self.column_type.h_read_native(h, byte_layout, buf)?;
+        self.data[row] = x;
+        Ok(())
     }
 }
 
@@ -1488,7 +1479,7 @@ impl Readable<Endian> for ReaderMixedType {
         row: usize,
         byte_layout: Endian,
         buf: &mut Vec<u8>,
-    ) -> DeferredIOError<(), ReadDataframeError> {
+    ) -> IOResult<(), ReadDataframeError> {
         match self {
             Self::Ascii(c) => c.h_read(h, row, NoByteOrd, buf),
             Self::Uint(c) => c.h_read(h, row, byte_layout, buf),
@@ -1509,7 +1500,7 @@ impl Readable<Endian> for AnyReaderBitmask {
         row: usize,
         byte_layout: Endian,
         buf: &mut Vec<u8>,
-    ) -> DeferredIOError<(), ReadDataframeError> {
+    ) -> IOResult<(), ReadDataframeError> {
         match_any_uint!(self, AnyBitmask, c, { c.h_read(h, row, byte_layout, buf) })
     }
 }
@@ -1960,7 +1951,11 @@ impl<D> EndianLayout<NullMixedType, D> {
             let byte_layout = self.byte_layout;
             match c0 {
                 MixedType::Ascii(x) => it
-                    .map(|(i, c)| c.try_into().map_err(|e| (i, e)).into_log())
+                    .map(|(i, c)| {
+                        c.try_into()
+                            .map_err(|e| (i, e))
+                            .into_log::<_, _, AlwaysValue<_>, Vec<_>>()
+                    })
                     .mappend_cmt()
                     .map_ok_value(|xs| FixedLayout::new1(x, xs, NoByteOrd))
                     .map_ok_value(|l| AnyAsciiLayout::Fixed(l).into()),
@@ -2272,16 +2267,10 @@ where
         let res = T::with_tot(
             h,
             tot,
-            |h_, t| {
-                h_read_delim_with_rows(rs, h_, t, nbytes)
-                    .map_non_fung_errors(ImpureError::inner_into)
-            },
-            |h_| {
-                h_read_delim_without_rows(rs, h_, nbytes)
-                    .map_non_fung_errors(ImpureError::inner_into)
-            },
+            |h_, t| h_read_delim_with_rows(rs, h_, t, nbytes).map_err(ImpureError::inner_into),
+            |h_| h_read_delim_without_rows(rs, h_, nbytes).map_err(ImpureError::inner_into),
         );
-        res.nowarn_into_warn().repack_errors()
+        res.into_log()
     }
 
     // TODO aren't these always warnings?
@@ -2311,30 +2300,39 @@ where
         // ASSUME dataframe has correct number of columns
         let mut column_srcs: Vec<_> = df.iter_columns().map(AnySource::<'_, u64>::new).collect();
         let mut loss_ws = vec![None; column_srcs.len()];
-        for row in 0..nrows {
-            for (col, xs) in column_srcs.iter_mut().enumerate() {
-                let x = xs.next().unwrap();
-                let s = x.new.to_string();
-                loss_ws[col] = mem::take(&mut loss_ws[col]).or(x.as_err());
-                let buf = s.as_bytes();
-                h.write_all(buf)?;
-                // write delimiter after all but last value
-                if !(row == nrows - 1 && col == ncols - 1) {
-                    h.write_all(&[32])?; // 32 = space in ASCII
+
+        let mut go = || -> Result<(), io::Error> {
+            for row in 0..nrows {
+                for (col, xs) in column_srcs.iter_mut().enumerate() {
+                    let x = xs.next().unwrap();
+                    let s = x.new.to_string();
+                    loss_ws[col] = mem::take(&mut loss_ws[col]).or(x.as_err());
+                    let buf = s.as_bytes();
+                    h.write_all(buf)?;
+                    // write delimiter after all but last value
+                    if !(row == nrows - 1 && col == ncols - 1) {
+                        h.write_all(&[32])?; // 32 = space in ASCII
+                    }
                 }
             }
-        }
+            Ok(())
+        };
+
+        let write_res = go().into_nowarn1();
+
         if skip_conv_check {
-            LogResult::new_ok(())
+            write_res.nowarn_into_warn()
         } else {
             let cs: Vec<_> = loss_ws
                 .into_iter()
                 .enumerate()
-                .flat_map(|(i, warn)| {
-                    warn.map(|w| ColumnError::new(i, AnyLossError::Ascii(LossError::Cast(w))))
+                .filter_map(|(i, warn)| {
+                    warn.map(LossError::Cast)
+                        .map(AnyLossError::Ascii)
+                        .map(|w| ColumnError::new(i, w))
                 })
                 .collect();
-            LogResult::new_ok(()).set_cmt_warnings(cs)
+            write_res.set_cmt_warnings(cs)
         }
     }
 
@@ -2413,7 +2411,7 @@ fn h_read_delim_with_rows<R: Read>(
     h: &mut BufReader<R>,
     tot: Tot,
     nbytes: usize,
-) -> IOErrorResult<FCSDataFrame, (), ReadDelimWithRowsAsciiError> {
+) -> Result<FCSDataFrame, ImpureError<ReadDelimWithRowsAsciiError>> {
     let mut buf = Vec::new();
     let mut last_was_delim = false;
     let nrows = tot.0;
@@ -2421,7 +2419,7 @@ fn h_read_delim_with_rows<R: Read>(
     // TODO emit a real error here since this means something is probably
     // screwy with the file
     if (nrows == 0 || ncols == 0) && nbytes > 0 {
-        return LogResult::new_ok(FCSDataFrame::default());
+        return Ok(FCSDataFrame::default());
     }
     // Here we have $TOT so initialize vectors to required length
     let mut data = vec![vec![0; nrows]; ncols];
@@ -2437,7 +2435,7 @@ fn h_read_delim_with_rows<R: Read>(
         // exit if we encounter more rows than expected.
         if row == nrows {
             let e = ReadDelimWithRowsAsciiError::RowsExceeded(RowsExceededError(nrows));
-            return LogResult::new_err1(ImpureError::Pure(e));
+            return Err(ImpureError::Pure(e));
         }
         if is_ascii_delim(byte) {
             if !last_was_delim {
@@ -2461,7 +2459,7 @@ fn h_read_delim_with_rows<R: Read>(
     if !(col == 0 && row == nrows) {
         let e = DelimIncompleteError { col, row, nrows };
         let ee = ImpureError::Pure(ReadDelimWithRowsAsciiError::Incomplete(e));
-        return LogResult::new_err1(ee);
+        return Err(ee);
     }
     // The spec isn't clear if the last value should be a delim or
     // not, so flush the buffer if it has anything in it since we
@@ -2478,14 +2476,14 @@ fn h_read_delim_with_rows<R: Read>(
         .collect();
     // ASSUME this will never fail because all columns should be the same
     // length
-    LogResult::new_ok(FCSDataFrame::try_new(cs).unwrap())
+    Ok(FCSDataFrame::try_new(cs).unwrap())
 }
 
 fn h_read_delim_without_rows<R: Read>(
     ranges: &[u64],
     h: &mut BufReader<R>,
     nbytes: usize,
-) -> IOErrorResult<FCSDataFrame, (), ReadDelimAsciiWithoutRowsError> {
+) -> Result<FCSDataFrame, ImpureError<ReadDelimAsciiWithoutRowsError>> {
     let mut buf = Vec::new();
     // Here we don't have $TOT so init to empty vectors
     let mut data: Vec<_> = ranges.iter().map(|_| vec![]).collect();
@@ -2493,7 +2491,7 @@ fn h_read_delim_without_rows<R: Read>(
     // TODO emit a real error here since this means something is probably
     // screwy with the file
     if ncols == 0 && nbytes > 0 {
-        return LogResult::new_ok(FCSDataFrame::default());
+        return Ok(FCSDataFrame::default());
     }
     let mut col = 0;
     let mut last_was_delim = false;
@@ -2528,8 +2526,7 @@ fn h_read_delim_without_rows<R: Read>(
         }
     }
     if data.iter().map(Vec::len).unique().count() > 1 {
-        let e = ImpureError::Pure(ReadDelimAsciiWithoutRowsError::Unequal);
-        return LogResult::new_err1(e);
+        return Err(ImpureError::Pure(ReadDelimAsciiWithoutRowsError::Unequal));
     }
     // The spec isn't clear if the last value should be a delim or
     // not, so flush the buffer if it has anything in it since we
@@ -2544,7 +2541,7 @@ fn h_read_delim_without_rows<R: Read>(
         .collect();
     // ASSUME this will never fail because all columns should be the same
     // length
-    LogResult::new_ok(FCSDataFrame::try_new(cs).unwrap())
+    Ok(FCSDataFrame::try_new(cs).unwrap())
 }
 
 impl<C, S: Default, T, D> Default for FixedLayout<C, S, T, D> {
@@ -2626,10 +2623,7 @@ where
                     .map_non_fung_errors(ImpureError::Pure)
                     .repack::<_, _, Vec<_>>();
                 let nn = usize::try_from(n).expect("nrows exceeds usize");
-                let read_res = self
-                    .h_read_unchecked_df(h, nn, buf)
-                    .nowarn_into_warn()
-                    .repack_errors();
+                let read_res = self.h_read_unchecked_df(h, nn, buf).into_log();
                 check_res.zip_cmt(read_res).map_ok_value(|((), df)| df)
             })
     }
@@ -2668,11 +2662,18 @@ where
             .zip(df.iter_columns())
             .map(|(col_type, col_data)| col_type.clone().into_writer(col_data))
             .collect();
-        for _ in 0..nrows {
-            for c in &mut cs {
-                c.h_write(h, self.byte_layout)?;
+
+        let mut go = || {
+            for _ in 0..nrows {
+                for c in &mut cs {
+                    c.h_write(h, self.byte_layout)?;
+                }
             }
-        }
+            Ok(())
+        };
+
+        let write_res = go().into_nowarn1();
+
         // TODO perhaps a microoptization, if we don't need conversion warnings
         // might as well not check for them when writing each value in the first
         // place. This may be optimized away by the compiler in case this flag
@@ -2680,14 +2681,14 @@ where
         // its mostly just a conditional check which will be fast with branch
         // prediction. On the other hand, this is a very tight loop.
         if skip_conv_check {
-            LogResult::new_ok(())
+            write_res.nowarn_into_warn()
         } else {
             let ws = cs
                 .iter()
                 .enumerate()
                 .filter_map(|(i, c)| c.as_err(i.into()))
                 .collect();
-            LogResult::new_ok(()).set_cmt_warnings(ws)
+            write_res.set_cmt_warnings(ws)
         }
     }
 
@@ -2808,8 +2809,8 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             .enumerate()
             .map(|(i, c)| {
                 new_col_f(c)
-                    .map_non_fung_errors(|error| ColumnError::new(i, error).into())
-                    .map_cmt_warnings(|error| ColumnError::new(i, error).into())
+                    .map_non_fung_errors(|error| ColumnError::new(i, error))
+                    .map_cmt_warnings(|error| ColumnError::new(i, error))
             })
             .mappend_cmt()
             .map_ok_value(|columns| Self::new(columns, byte_layout))
@@ -2820,7 +2821,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         h: &mut BufReader<R>,
         nrows: usize,
         buf: &mut Vec<u8>,
-    ) -> IOErrorResult<FCSDataFrame, (), ReadDataframeError>
+    ) -> IOResult<FCSDataFrame, ReadDataframeError>
     where
         S: Copy,
         C: IsFixed + Clone + IntoReader<S>,
@@ -2840,7 +2841,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             .into_iter()
             .map(Readable::into_dataframe_column)
             .collect();
-        LogResult::new_ok(FCSDataFrame::try_new(data).unwrap())
+        Ok(FCSDataFrame::try_new(data).unwrap())
     }
 
     fn insert_column(&mut self, index: MeasIndex, col: C) {
@@ -2911,7 +2912,13 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             if remainder > 0 {
                 let e = UnevenEventWidth::new(w, n, remainder);
                 let is_err = !conf.allow_uneven_event_width;
-                LogResult::new_fungible(total_events, (), e, is_err).non_fung_errors_into()
+                LogResult::<_, _, _, _, AlwaysValue<_>, NeverValue<_>>::new_fungible(
+                    total_events,
+                    (),
+                    e,
+                    is_err,
+                )
+                .map_non_fung_errors(EventWidthError::from)
             } else {
                 LogResult::new_ok(total_events)
             }
@@ -3154,7 +3161,7 @@ impl FromRange for NullMixedType {
                         let f = Self::F64(FloatRange::new(m));
                         LogResult::new_deferred_fungible(f, e, disallow_trunc)
                     },
-                    LogResult::new_ok,
+                    LogResult::<_, _, _, _, AlwaysValue<_>, Vec<_>>::new_ok,
                 );
             res.map_cmt_fung_errors(AnyRangeError::from)
         }
@@ -3331,7 +3338,7 @@ impl<T> AnyOrderedUintLayout<T> {
             cs.iter()
                 .map(|c| c.width)
                 .map(Bytes::try_from)
-                .map(Result::into_log)
+                .map(Result::into_log::<_, _, AlwaysValue<_>, Vec<_>>)
                 .mappend_cmt()
                 .map_non_fung_errors(SingleFixedWidthError::from)
                 .and_then_cmt(|widths| {
@@ -3367,7 +3374,7 @@ impl<T> AnyOrderedUintLayout<T> {
             .nowarn_into_warn()
             .map_non_fung_errors(NewFixedIntLayoutError::from)
             .zip_cmt(layout_res)
-            .map_ok_value(|(_, layout)| layout)
+            .map_ok_value(|((), layout)| layout)
     }
 }
 
@@ -3936,7 +3943,7 @@ impl<T> AnyOrderedLayout<T> {
                 $i.phantom_into()
                     .byte_layout_try_into()
                     .map(NonMixedEndianLayout::from)
-                    .into_log()
+                    .into_log::<_, _, AlwaysValue<_>, Vec<_>>()
             };
         }
         let res = match self {

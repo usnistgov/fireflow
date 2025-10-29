@@ -160,7 +160,6 @@ pub(crate) trait ReqMetarootKey: Sized + Required + Key {
     {
         Self::remove_metaroot_req(kws)
             .map_err(ReqKeyError::inner_into)
-            .map_err(Box::new)
             .map_err(Into::into)
             .into_log()
     }
@@ -213,7 +212,6 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
     {
         Self::remove_meas_req(kws, i)
             .map_err(ReqKeyError::inner_into)
-            .map_err(Box::new)
             .map_err(Into::into)
             .into_log()
     }
@@ -233,7 +231,6 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
                 .map_err(|e| ParseKeyError::new(e, k, v).into())
         })
         .map_err(ReqKeyError::inner_into)
-        .map_err(Box::new)
         .map_err(Into::into)
         .into_log()
     }
@@ -588,7 +585,7 @@ pub(crate) type LookupOptional<V> = LookupTentative<Option<V>>;
 /// if configuration permits.
 #[derive(From, Display, Debug, Error)]
 pub enum LookupKeysError {
-    Parse(Box<ReqKeyError<ParseReqKeyError>>),
+    Parse(ReqKeyError<ParseReqKeyError>),
     NamedVec(NewNamedVecError),
     InvalidScale(ScaleTransformError),
     WarnAsError(LookupKeysWarning),

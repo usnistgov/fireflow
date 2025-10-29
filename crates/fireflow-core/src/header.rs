@@ -12,6 +12,7 @@ use crate::segment::{
 use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, Nextdata,
 };
+use crate::text::optional::AlwaysValue;
 use crate::text::parser::ReqMetarootKey as _;
 use crate::validated::ascii_uint::{
     HeaderString, Uint8DigitOverflow, UintSpacePad20, UintSpacePad8, UintZeroPad20,
@@ -289,7 +290,7 @@ where
 {
     let conf = &st.conf.as_ref();
     let vers_res = Version::h_read(h)
-        .into_nowarn1()
+        .into_nowarn1::<AlwaysValue<_>>()
         .map_non_fung_errors(|e| e.map_inner(HeaderError::Version))
         .repack();
     let space_res = h_read_spaces(h).into_nowarn1().repack();
@@ -361,24 +362,30 @@ where
         .chain(repeat(OffsetCorrection::default()))
         .take(conf.max_other.map_or(n_segs, |x| x.min(n_segs)))
         .map(|corr| {
-            buf0.clear();
-            buf1.clear();
-            h.take(u64::from(w)).read_to_end(&mut buf0)?;
-            h.take(u64::from(w)).read_to_end(&mut buf1)?;
             let seg_conf = NewSegmentConfig::new(
                 corr,
                 Some(UintSpacePad20(st.file_len)),
                 conf.truncate_offsets,
             );
-            // If any regions are entirely blank, just ignore them
-            if buf0.iter().chain(buf1.iter()).all(|x| *x == 32) {
-                LogResult::new_ok(None)
-            } else {
-                OtherSegment::parse_other(&buf0, &buf1, conf.allow_negative, &seg_conf)
-                    .map_ok_value(Some)
-                    .map_non_fung_errors(HeaderError::Segment)
-                    .map_non_fung_errors(ImpureError::Pure)
-            }
+            let mut readbuf = |buf: &mut Vec<_>| {
+                buf.clear();
+                h.take(u64::from(w))
+                    .read_to_end(buf)
+                    .into_io_log::<_, _, _, _, Vec<_>>()
+            };
+            let res0 = readbuf(&mut buf0);
+            let res1 = readbuf(&mut buf1);
+            res0.zip_cmt(res1).and_then_cmt(|_| {
+                // If any regions are entirely blank, just ignore them
+                if buf0.iter().chain(buf1.iter()).all(|x| *x == 32) {
+                    LogResult::new_ok(None)
+                } else {
+                    OtherSegment::parse_other(&buf0, &buf1, conf.allow_negative, &seg_conf)
+                        .map_ok_value(Some)
+                        .map_non_fung_errors(HeaderError::Segment)
+                        .map_non_fung_errors(ImpureError::Pure)
+                }
+            })
         })
         .mappend_cmt()
         .map_ok_value(|os| os.into_iter().flatten().collect())

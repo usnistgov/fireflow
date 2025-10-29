@@ -1,5 +1,3 @@
-#![allow(clippy::type_complexity)]
-
 use crate::config::SharedConfig;
 use crate::text::optional::{AlwaysValue, NeverValue};
 
@@ -16,6 +14,12 @@ pub type WarningsAndIOSummaryResult<V, W, E, S> = WarningsAndSummaryResult<V, W,
 
 pub type WarningsAndSummaryResult<V, W, E, S> =
     WarningsAndErrorResult<V, (), W, ErrorSummary<E, S>>;
+
+pub type WarningsAndIOBoxedSummaryResult<V, W, E, S> =
+    WarningsAndBoxedSummaryResult<V, W, ImpureError<E>, S>;
+
+pub type WarningsAndBoxedSummaryResult<V, W, E, S> =
+    WarningsAndBoxedErrorResult<V, (), W, ErrorSummary<E, S>>;
 
 pub type SummaryResult<V, E, S> = ErrorResult<V, (), ErrorSummary<E, S>>;
 
@@ -195,6 +199,8 @@ pub struct GenNonEmpty<C0, Cn> {
     tail: Cn,
 }
 
+pub type IOResult<T, E> = Result<T, ImpureError<E>>;
+
 #[derive(Debug, Error)]
 pub enum ImpureError<E> {
     #[error("IO error: {0}")]
@@ -231,7 +237,7 @@ pub trait Kind1 {
     type Type<X>: IsKind1<Family = Self>;
 }
 
-trait Kind2 {
+pub trait Kind2 {
     type Type<A, B>: IsKind2<Family = Self>;
 }
 
@@ -239,7 +245,7 @@ pub trait IsKind1 {
     type Family: Kind1;
 }
 
-trait IsKind2 {
+pub trait IsKind2 {
     type Family: Kind2;
 }
 
@@ -741,7 +747,7 @@ impl<P, EC0, WC, ECn> Failure<P, WC, EC0, ECn> {
     where
         EC0: IntoNewWrapper<EC0f>,
     {
-        let es = self.errors.bimap(|e| e.into_new_wrapper(), |x| x);
+        let es = self.errors.bimap(IntoNewWrapper::into_new_wrapper, |x| x);
         Failure::new(self.warnings, es, self.value)
     }
 
@@ -864,12 +870,13 @@ impl<P, EC0, WC, ECn> Failure<P, WC, EC0, ECn> {
         Failure::new(Some(f(self.warnings)), self.errors, self.value)
     }
 
-    fn aggregate_errors<F, E>(self, f: F) -> Failure<P, WC, EC0, NeverValue<E>>
+    fn aggregate_errors<F, E>(self, f: F) -> Failure<P, WC, Sibling1<EC0, E>, NeverValue<E>>
     where
-        EC0: Applicative<E>,
+        EC0: IsKind1,
+        Sibling1<EC0, E>: Applicative<E>,
         F: FnOnce(GenNonEmpty<EC0, ECn>) -> E,
     {
-        let es = GenNonEmpty::new1(EC0::pure(f(self.errors)));
+        let es = GenNonEmpty::new1(Sibling1::<EC0, E>::pure(f(self.errors)));
         Failure::new(self.warnings, es, self.value)
     }
 
@@ -1043,6 +1050,17 @@ pub trait ResultExt: Sized {
         )
     }
 
+    fn into_io_log<E, LWC, RWC, EC0, ECn>(self) -> LogResult<Self::Ok, (), LWC, RWC, EC0, ECn>
+    where
+        Self: ResultExt<Error = io::Error>,
+        EC0: Applicative<ImpureError<E>>,
+        ECn: Default,
+        LWC: Default,
+        RWC: Default,
+    {
+        self.into_result().map_err(ImpureError::IO).into_log()
+    }
+
     fn into_deferred_fungible<EC0, ECn>(
         self,
         is_error: bool,
@@ -1146,16 +1164,11 @@ impl<V, E> ResultExt for Result<V, E> {
 }
 
 // fungible
-impl<V, P, LWC, RWC, EC0, ECn> LogResult<V, P, LWC, RWC, EC0, ECn>
+impl<V, P, RWC, EC0, ECn> LogResult<V, P, ECn::Warn, RWC, EC0, ECn>
 where
-    ECn: FungibleError<Warn = LWC>,
+    ECn: FungibleError,
 {
-    pub(crate) fn new_fungible<E>(
-        value: V,
-        default: P,
-        error: E,
-        is_error: bool,
-    ) -> FungibleResult<V, P, RWC, EC0, ECn>
+    pub(crate) fn new_fungible<E>(value: V, default: P, error: E, is_error: bool) -> Self
     where
         EC0: Applicative<E>,
         ECn: FungibleError<Inner = E> + Default,
@@ -1171,14 +1184,14 @@ where
 
 // commutative
 impl<V, P, WC, EC0, ECn> CmtResult<V, P, WC, EC0, ECn> {
-    pub(crate) fn recover_with<Ferr, Fsucc, EC0f, WCf, ECnf>(
+    pub(crate) fn recover_with<Ferr, Fsucc, Vf, Pf, EC0f, WCf, ECnf>(
         self,
         f_err: Ferr,
         f_succ: Fsucc,
-    ) -> CmtResult<V, P, WCf, EC0f, ECnf>
+    ) -> CmtResult<Vf, Pf, WCf, EC0f, ECnf>
     where
-        Fsucc: FnOnce(V) -> CmtResult<V, P, WC, EC0f, ECnf>,
-        Ferr: FnOnce(P, GenNonEmpty<EC0, ECn>) -> CmtResult<V, P, WC, EC0f, ECnf>,
+        Fsucc: FnOnce(V) -> CmtResult<Vf, Pf, WC, EC0f, ECnf>,
+        Ferr: FnOnce(P, GenNonEmpty<EC0, ECn>) -> CmtResult<Vf, Pf, WC, EC0f, ECnf>,
         WC: Concatable<Out = WCf>,
     {
         match self {
@@ -1193,7 +1206,7 @@ impl<V, P, WC, EC0, ECn> CmtResult<V, P, WC, EC0, ECn> {
         W: Into<Wf>,
         WC: Functor<W>,
     {
-        self.map_cmt_warnings::<_, W, Wf>(Into::into)
+        self.map_cmt_warnings(Into::into)
     }
 
     /// Map function over warnings of commutative Result
@@ -1265,14 +1278,15 @@ impl<V, P, WC, EC0, ECn> CmtResult<V, P, WC, EC0, ECn> {
     ///
     /// This must be commutative since and OK might flip to an error, and thus
     /// the warnings must match.
-    pub(crate) fn eval_non_def_error<F>(self, f: F) -> CmtResult<V, (), WC, EC0, ECn>
+    pub(crate) fn eval_non_def_error<E, F>(self, f: F) -> CmtResult<V, (), WC, EC0, ECn>
     where
-        F: FnOnce(&V) -> Option<EC0>,
-        ECn: Extend<EC0> + Default,
+        F: FnOnce(&V) -> Option<E>,
+        EC0: Applicative<E>,
+        ECn: Extend<E> + Default,
     {
         match self.set_err_value(()) {
             Succ(x) => match f(&x.value) {
-                Some(e) => Fail(x.fail(GenNonEmpty::new1(e)).map_value(|_| ())),
+                Some(e) => Fail(x.fail(GenNonEmpty::new1(EC0::pure(e))).map_value(|_| ())),
                 None => Succ(x),
             },
             Fail(x) => Fail(x),
@@ -1320,7 +1334,7 @@ impl<V, P, WC, EC0, ECn> CmtResult<V, P, WC, EC0, ECn> {
         }
     }
 
-    pub(crate) fn and_cmt<F>(self, f: F) -> CmtResult<V, P, WC, EC0, ECn>
+    pub(crate) fn and_cmt<F>(self, f: F) -> Self
     where
         F: FnOnce() -> CmtResult<(), P, WC, EC0, ECn>,
         WC: Semigroup,
@@ -1393,6 +1407,7 @@ impl<V, P, WC, EC0, ECn> CmtResult<V, P, WC, EC0, ECn> {
     }
 
     /// Combine four commutative results.
+    #[allow(clippy::type_complexity)]
     pub(crate) fn zip4_cmt<E, V1, V2, V3, P1, P2, P3>(
         self,
         a: CmtResult<V1, P1, WC, EC0, ECn>,
@@ -1410,6 +1425,7 @@ impl<V, P, WC, EC0, ECn> CmtResult<V, P, WC, EC0, ECn> {
     }
 
     /// Combine five commutative results.
+    #[allow(clippy::type_complexity)]
     pub(crate) fn zip5_cmt<E, V1, V2, V3, V4, P1, P2, P3, P4>(
         self,
         a: CmtResult<V1, P1, WC, EC0, ECn>,
@@ -1428,6 +1444,7 @@ impl<V, P, WC, EC0, ECn> CmtResult<V, P, WC, EC0, ECn> {
     }
 
     /// Combine six commutative results.
+    #[allow(clippy::type_complexity)]
     pub(crate) fn zip6_cmt<E, V1, V2, V3, V4, V5, P1, P2, P3, P4, P5>(
         self,
         x1: CmtResult<V1, P1, WC, EC0, ECn>,
@@ -1453,7 +1470,7 @@ impl<V, WC, EC0, E> CmtResult<V, (), WC, EC0, NeverValue<E>> {
     ///
     /// Warnings will be given outside the result since commutative Results by
     /// definition allow the same warnings in both Succ and Failor branches.
-    pub(crate) fn resolve_cmt<Fwarn, Ferr, WarnRes, FailRes>(
+    pub fn resolve_cmt<Fwarn, Ferr, WarnRes, FailRes>(
         self,
         f_warnings: Fwarn,
         f_errors: Ferr,
@@ -1477,7 +1494,7 @@ impl<V, WC, EC0, E> CmtResult<V, (), WC, EC0, NeverValue<E>> {
 }
 
 // deferred
-impl<V, WC, EC0, ECn> LogResult<V, V, WC, WC, EC0, ECn> {
+impl<V, WC, EC0, ECn> Deferred<V, WC, EC0, ECn> {
     /// Set value of deferred Result
     pub(crate) fn set_def_value<Vf>(self, x: Vf) -> Deferred<Vf, WC, EC0, ECn> {
         self.map_def_value(|_| x)
@@ -1516,7 +1533,7 @@ impl<V, WC, EC0, ECn> LogResult<V, V, WC, WC, EC0, ECn> {
     ///
     /// This must be a deferred result because the same value type must exist
     /// on both Ok and Error sides.
-    pub(crate) fn eval_def_error<E, F>(self, f: F) -> Deferred<V, WC, EC0, ECn>
+    pub(crate) fn eval_def_error<E, F>(self, f: F) -> Self
     where
         F: FnOnce(&V) -> Option<E>,
         EC0: Applicative<E>,
@@ -1542,7 +1559,7 @@ impl<V, WC, EC0, ECn> LogResult<V, V, WC, WC, EC0, ECn> {
     ///
     /// This must be deferred because the value type will be the same
     /// if the Result needs to flip from Ok to Error.
-    pub(crate) fn push_def_error(self, e: EC0) -> Deferred<V, WC, EC0, ECn>
+    pub(crate) fn push_def_error(self, e: EC0) -> Self
     where
         ECn: Extend<EC0> + Default,
     {
@@ -1561,10 +1578,7 @@ impl<V, WC, EC0, ECn> LogResult<V, V, WC, WC, EC0, ECn> {
     ///
     /// This must be deferred because the value type will be the same
     /// if the Result needs to flip from Ok to Error.
-    pub(crate) fn extend_def_errors<E>(
-        self,
-        es: impl IntoIterator<Item = E>,
-    ) -> Deferred<V, WC, EC0, ECn>
+    pub(crate) fn extend_def_errors<E>(self, es: impl IntoIterator<Item = E>) -> Self
     where
         EC0: Applicative<E>,
         ECn: Extend<E> + Default,
@@ -1593,14 +1607,10 @@ impl<V, WC, EC0, ECn> LogResult<V, V, WC, WC, EC0, ECn> {
     ///
     /// This must be deferred because the value type will be the same
     /// if the Result needs to flip from Ok to Error.
-    pub(crate) fn eval_def_non_fung_error<F, W, E>(
-        mut self,
-        is_error: bool,
-        f: F,
-    ) -> Deferred<V, WC, EC0, ECn>
+    pub(crate) fn eval_def_non_fung_error<F, M, W, E>(mut self, is_error: bool, f: F) -> Self
     where
-        F: FnOnce(&V) -> Option<E>,
-        E: Into<E> + Into<W>,
+        F: FnOnce(&V) -> Option<M>,
+        M: Into<E> + Into<W>,
         WC: Extend<W>,
         EC0: Applicative<E>,
         ECn: Extend<E> + Default,
@@ -1683,6 +1693,7 @@ impl<V, WC, EC0, ECn> LogResult<V, V, WC, WC, EC0, ECn> {
     }
 
     /// Combine four deferred results.
+    #[allow(clippy::type_complexity)]
     pub(crate) fn zip4_def<E, V1, V2, V3>(
         self,
         a: Deferred<V1, WC, EC0, ECn>,
@@ -1700,6 +1711,7 @@ impl<V, WC, EC0, ECn> LogResult<V, V, WC, WC, EC0, ECn> {
     }
 
     /// Combine five deferred results.
+    #[allow(clippy::type_complexity)]
     pub(crate) fn zip5_def<E, V1, V2, V3, V4>(
         self,
         a: Deferred<V1, WC, EC0, ECn>,
@@ -1718,6 +1730,7 @@ impl<V, WC, EC0, ECn> LogResult<V, V, WC, WC, EC0, ECn> {
     }
 
     /// Combine six deferred results.
+    #[allow(clippy::type_complexity)]
     pub(crate) fn zip6_def<E, V1, V2, V3, V4, V5>(
         self,
         x1: Deferred<V1, WC, EC0, ECn>,
@@ -1733,14 +1746,14 @@ impl<V, WC, EC0, ECn> LogResult<V, V, WC, WC, EC0, ECn> {
     {
         self.zip5_def(x1, x2, x3, x4)
             .zip_def(x5.repack())
-            .map_def_value(|((y0, y1, x2, x3, x4), x5)| (y0, y1, x2, x3, x4, x5))
+            .map_def_value(|((y0, y1, y2, y3, y4), y5)| (y0, y1, y2, y3, y4, y5))
     }
 }
 
 // nowarn
 impl<V, P, EC0, ECn> LogResult<V, P, NeverValue<()>, NeverValue<()>, EC0, ECn> {
     /// Lift Result with no warnings to non-commutative Result
-    pub(crate) fn nowarn_into_non_cmt_warn<Wf, LWCf>(self) -> NonCmtResult<V, P, LWCf, EC0, ECn>
+    pub(crate) fn nowarn_into_non_cmt_warn<LWCf>(self) -> NonCmtResult<V, P, LWCf, EC0, ECn>
     where
         LWCf: Default,
     {
@@ -1780,11 +1793,35 @@ impl<V, P, EC0, ECn> LogResult<V, P, NeverValue<()>, NeverValue<()>, EC0, ECn> {
             Fail(e) => Fail(e.set_warnings(ws)),
         }
     }
+
+    /// Monad-ically (kinda) chain a LogResult with no warnings.
+    ///
+    /// This is more generally than the commutative case because there we can't
+    /// assume that the warnings on either side are empty. If the function
+    /// returns Fail and the input is Succ, then the warnings from the input
+    /// need to be appended to those in the Fail type, which means their types
+    /// need to match.
+    ///
+    /// If we know there are no warnings, then the function can return a
+    /// non-commutative result type.
+    pub(crate) fn and_then_nowarn<F, Vf, LWC, RWC>(
+        self,
+        f: F,
+    ) -> LogResult<Vf, P, LWC, RWC, EC0, ECn>
+    where
+        F: FnOnce(V) -> LogResult<Vf, P, LWC, RWC, EC0, ECn>,
+        RWC: Default,
+    {
+        match self {
+            Succ(x) => f(x.value),
+            Fail(x) => Fail(x.nowarn_into_warn()),
+        }
+    }
 }
 
 impl<V, EC0, E> LogResult<V, (), NeverValue<()>, NeverValue<()>, EC0, NeverValue<E>> {
     /// Resolve Result with no warnings into regular Result type.
-    pub(crate) fn resolve_nowarn<F, FailRes>(self, f: F) -> Result<V, FailRes>
+    pub fn resolve_nowarn<F, FailRes>(self, f: F) -> Result<V, FailRes>
     where
         EC0: Comonad<E>,
         F: FnOnce(E) -> FailRes,
@@ -1834,12 +1871,12 @@ impl<V, P, LWC, EC0, ECn> LogResult<V, P, LWC, NeverValue<()>, EC0, ECn> {
         self,
         f: F,
         g: G,
-    ) -> NonCmtFungibleResult<V, P, EC0, NeverValue<E>>
+    ) -> NonCmtFungibleResult<V, P, Sibling1<EC0, E>, NeverValue<E>>
     where
         F: FnOnce(LWC) -> E,
         G: FnOnce(GenNonEmpty<EC0, ECn>) -> E,
-        // Self: NonCommutativeResultExt + FungibleExt,
-        EC0: Applicative<E>,
+        EC0: IsKind1,
+        Sibling1<EC0, E>: Applicative<E>,
         ECn: FungibleError<Inner = E>,
     {
         match self {
@@ -1878,6 +1915,7 @@ where
     ECn: FungibleError<Warn = LWC>,
 {
     /// Convert errors in commutative/fungible Results
+    #[allow(clippy::type_complexity)]
     pub(crate) fn non_cmt_fung_errors_into<Ei, Ef>(
         self,
     ) -> LogResult<V, P, Sibling1<LWC, Ef>, NeverValue<()>, Sibling1<EC0, Ef>, Sibling1<ECn, Ef>>
@@ -1891,6 +1929,7 @@ where
     }
 
     /// Convert errors in non-commutative/fungible Results
+    #[allow(clippy::type_complexity)]
     pub(crate) fn map_non_cmt_fung_errors<F, Ei, Ef>(
         self,
         f: F,
@@ -1909,33 +1948,35 @@ where
 }
 
 // commutative/fungible
-impl<V, P, WC, EC0, ECn> LogResult<V, P, WC, WC, EC0, ECn>
+impl<V, P, EC0, ECn> LogResult<V, P, ECn::Warn, ECn::Warn, EC0, ECn>
 where
-    ECn: FungibleError<Warn = WC>,
+    ECn: FungibleError,
 {
     /// Map function over errors in commutative/fungible Results
+    #[allow(clippy::type_complexity)]
     pub(crate) fn cmt_fung_errors_into<Ei, Ef>(
         self,
-    ) -> CmtResult<V, P, Sibling1<WC, Ef>, Sibling1<EC0, Ef>, Sibling1<ECn, Ef>>
+    ) -> CmtResult<V, P, Sibling1<ECn::Warn, Ef>, Sibling1<EC0, Ef>, Sibling1<ECn, Ef>>
     where
         Ei: Into<Ef>,
         EC0: Functor<Ei>,
         ECn: FungibleError<Inner = Ei> + Functor<Ei>,
-        <ECn as FungibleError>::Warn: Functor<Ei>,
+        ECn::Warn: Functor<Ei>,
     {
         self.map_cmt_fung_errors(Into::into)
     }
 
     /// Map function over errors in non-commutative/fungible Results
+    #[allow(clippy::type_complexity)]
     pub(crate) fn map_cmt_fung_errors<F, Ei, Ef>(
         self,
         f: F,
-    ) -> CmtResult<V, P, Sibling1<WC, Ef>, Sibling1<EC0, Ef>, Sibling1<ECn, Ef>>
+    ) -> CmtResult<V, P, Sibling1<ECn::Warn, Ef>, Sibling1<EC0, Ef>, Sibling1<ECn, Ef>>
     where
         F: Fn(Ei) -> Ef,
         EC0: Functor<Ei>,
         ECn: FungibleError<Inner = Ei> + Functor<Ei>,
-        <ECn as FungibleError>::Warn: Functor<Ei>,
+        ECn::Warn: Functor<Ei>,
     {
         match self {
             Succ(s) => Succ(s.map_warnings(f)),
@@ -1948,11 +1989,12 @@ where
         self,
         f: F,
         g: G,
-    ) -> CmtFungibleResult<V, P, EC0, NeverValue<E>>
+    ) -> CmtFungibleResult<V, P, Sibling1<EC0, E>, NeverValue<E>>
     where
-        F: FnOnce(WC) -> E,
+        F: FnOnce(ECn::Warn) -> E,
         G: FnOnce(GenNonEmpty<EC0, ECn>) -> E,
-        EC0: Applicative<E>,
+        EC0: IsKind1,
+        Sibling1<EC0, E>: Applicative<E>,
         ECn: FungibleError<Inner = E>,
     {
         match self {
@@ -1963,19 +2005,15 @@ where
 }
 
 // deferred/fungible
-impl<V, WC, EC0, ECn> LogResult<V, V, WC, WC, EC0, ECn>
+impl<V, EC0, ECn> Deferred<V, ECn::Warn, EC0, ECn>
 where
-    ECn: FungibleError<Warn = WC>,
+    ECn: FungibleError,
 {
-    pub(crate) fn new_deferred_fungible<E>(
-        value: V,
-        error: E,
-        is_error: bool,
-    ) -> Deferred<V, WC, EC0, ECn>
+    pub(crate) fn new_deferred_fungible<E>(value: V, error: E, is_error: bool) -> Self
     where
         EC0: Applicative<E>,
         ECn: FungibleError<Inner = E> + Default,
-        WC: Default,
+        ECn::Warn: Default,
     {
         if is_error {
             Fail(Failure::new_from_one(error, value))
@@ -1990,16 +2028,12 @@ where
     ///
     /// This must be deferred because the value type will be the same
     /// if the Result needs to flip from Ok to Error.
-    pub(crate) fn eval_def_fung_error<E, F>(
-        mut self,
-        is_error: bool,
-        f: F,
-    ) -> DeferredFungible<V, EC0, ECn>
+    pub(crate) fn eval_def_fung_error<E, F>(mut self, is_error: bool, f: F) -> Self
     where
         F: FnOnce(&V) -> Option<E>,
-        WC: Extend<E>,
         EC0: Applicative<E>,
         ECn: Extend<E> + Default + FungibleError,
+        ECn::Warn: Extend<E>,
     {
         if is_error {
             self.eval_def_error(f)
@@ -2015,15 +2049,11 @@ where
     ///
     /// This must be deferred because the value type will be the same
     /// if the Result needs to flip from Ok to Error.
-    pub(crate) fn push_def_fung_error<E>(
-        self,
-        e: E,
-        is_error: bool,
-    ) -> DeferredFungible<V, EC0, ECn>
+    pub(crate) fn push_def_fung_error<E>(self, e: E, is_error: bool) -> Self
     where
         EC0: Applicative<E>,
-        WC: Extend<E>,
         ECn: Extend<E> + FungibleError<Inner = E> + Default,
+        ECn::Warn: Extend<E>,
     {
         self.extend_def_fung_errors(iter::once(e), is_error)
     }
@@ -2038,11 +2068,11 @@ where
         mut self,
         xs: impl IntoIterator<Item = E>,
         is_error: bool,
-    ) -> DeferredFungible<V, EC0, ECn>
+    ) -> Self
     where
         EC0: Applicative<E>,
-        WC: Extend<E>,
         ECn: Extend<E> + Default + FungibleError<Inner = E>,
+        ECn::Warn: Extend<E>,
     {
         if is_error {
             self.extend_def_errors(xs)
@@ -2073,10 +2103,7 @@ impl<V, LWC, RWC, EC0, ECn> LogResult<V, (), LWC, RWC, EC0, ECn> {
         Fail(Failure::new_from_many(error, ()))
     }
 
-    pub(crate) fn new_err_from_iter<I, E>(
-        errors: I,
-        default: V,
-    ) -> LogResult<V, (), LWC, RWC, EC0, ECn>
+    pub(crate) fn new_err_from_iter<I, E>(errors: I, default: V) -> Self
     where
         I: IntoIterator<Item = E>,
         EC0: Applicative<E>,
@@ -2085,8 +2112,8 @@ impl<V, LWC, RWC, EC0, ECn> LogResult<V, (), LWC, RWC, EC0, ECn> {
         LWC: Default,
     {
         match GenNonEmpty::collect(errors) {
-            None => LogResult::new_ok(default),
-            Some(e) => LogResult::<_, (), _, _, _, _>::new_err(e),
+            None => Self::new_ok(default),
+            Some(e) => Self::new_err(e),
         }
     }
 }
@@ -2162,7 +2189,7 @@ impl<V, P, LWC, RWC, EC0, ECn> LogResult<V, P, LWC, RWC, EC0, ECn> {
     }
 
     /// Run function when result is Succ
-    pub(crate) fn when_ok<F>(self, f: F) -> LogResult<V, P, LWC, RWC, EC0, ECn>
+    pub(crate) fn when_ok<F>(self, f: F) -> Self
     where
         F: FnOnce(),
     {
@@ -2204,7 +2231,9 @@ impl<V, P, LWC, RWC, EC0, ECn> LogResult<V, P, LWC, RWC, EC0, ECn> {
         }
     }
 
-    pub(crate) fn infallible_into<RWCf, EC0f, ECnf>(self) -> LogResult<V, P, LWC, RWCf, EC0f, ECnf>
+    pub(crate) fn infallible_into<Pf, RWCf, EC0f, ECnf>(
+        self,
+    ) -> LogResult<V, Pf, LWC, RWCf, EC0f, ECnf>
     where
         EC0: IsKind1,
         EC0::Family: Kind1<Type<Infallible> = EC0>,
@@ -2363,32 +2392,38 @@ impl<V, P, LWC, RWC, EC0, ECn> LogResult<V, P, LWC, RWC, EC0, ECn> {
     pub(crate) fn aggregate_non_fung_errors<F, E>(
         self,
         f: F,
-    ) -> LogResult<V, P, LWC, RWC, EC0, NeverValue<E>>
+    ) -> LogResult<V, P, LWC, RWC, Sibling1<EC0, E>, NeverValue<E>>
     where
         // NOTE pretend there is a negative trait bound for "non-fungible"
-        EC0: Applicative<E>,
+        EC0: IsKind1,
+        Sibling1<EC0, E>: Applicative<E>,
         F: FnOnce(GenNonEmpty<EC0, ECn>) -> E,
     {
         self.map_err(|e| e.aggregate_errors(f))
     }
 
+    #[allow(clippy::type_complexity)]
     pub(crate) fn summarize_errors<E, S>(
         self,
-    ) -> LogResult<V, P, LWC, RWC, EC0, NeverValue<ErrorSummary<E, S>>>
+    ) -> LogResult<V, P, LWC, RWC, Sibling1<EC0, ErrorSummary<E, S>>, NeverValue<ErrorSummary<E, S>>>
     where
-        EC0: Applicative<ErrorSummary<E, S>> + IntoNewWrapper<AlwaysValue<E>>,
+        EC0: IsKind1 + IntoNewWrapper<AlwaysValue<E>>,
+        Sibling1<EC0, ErrorSummary<E, S>>: Applicative<ErrorSummary<E, S>>,
         ECn: IntoNewCardinality<Vec<E>>,
         S: Default,
     {
         self.summarize_errors_with(S::default())
     }
 
-    pub(crate) fn summarize_errors_with<E, S>(
+    // TODO pub only needed for python interface
+    #[allow(clippy::type_complexity)]
+    pub fn summarize_errors_with<E, S>(
         self,
         s: S,
-    ) -> LogResult<V, P, LWC, RWC, EC0, NeverValue<ErrorSummary<E, S>>>
+    ) -> LogResult<V, P, LWC, RWC, Sibling1<EC0, ErrorSummary<E, S>>, NeverValue<ErrorSummary<E, S>>>
     where
-        EC0: Applicative<ErrorSummary<E, S>> + IntoNewWrapper<AlwaysValue<E>>,
+        EC0: IsKind1 + IntoNewWrapper<AlwaysValue<E>>,
+        Sibling1<EC0, ErrorSummary<E, S>>: Applicative<ErrorSummary<E, S>>,
         ECn: IntoNewCardinality<Vec<E>>,
     {
         self.aggregate_non_fung_errors(|es| {
@@ -2560,50 +2595,6 @@ impl<I, V, WC, EC0, ECn> DeferredIter<V, WC, EC0, ECn> for I where
 {
 }
 
-impl<P, E, WC, ECn> From<io::Error> for Failure<P, WC, AlwaysValue<ImpureError<E>>, ECn>
-where
-    P: Default,
-    WC: Default,
-    ECn: Default,
-{
-    fn from(value: io::Error) -> Self {
-        Self::new_from_one(value.into(), P::default())
-    }
-}
-
-impl<P, E, WC, ECn> From<io::Error> for Failure<P, WC, Box<ImpureError<E>>, ECn>
-where
-    P: Default,
-    WC: Default,
-    ECn: Default,
-{
-    fn from(value: io::Error) -> Self {
-        Self::new_from_one(value.into(), P::default())
-    }
-}
-
-impl<P, E, WC, ECn> From<E> for Failure<P, WC, Box<E>, ECn>
-where
-    P: Default,
-    WC: Default,
-    ECn: Default,
-{
-    fn from(value: E) -> Self {
-        Self::new_from_one(value, P::default())
-    }
-}
-
-impl<P, E, WC, ECn> From<E> for Failure<P, WC, AlwaysValue<E>, ECn>
-where
-    P: Default,
-    WC: Default,
-    ECn: Default,
-{
-    fn from(value: E) -> Self {
-        Self::new_from_one(value, P::default())
-    }
-}
-
 impl<E, S> fmt::Display for ErrorSummary<E, S>
 where
     E: fmt::Display,
@@ -2658,7 +2649,7 @@ mod python {
     }
 
     impl<V, WC, EC0, E> CmtResult<V, (), WC, EC0, NeverValue<E>> {
-        fn py_termfail_resolve<W>(self) -> PyResult<V>
+        pub fn py_termfail_resolve<W>(self) -> PyResult<V>
         where
             WC: IntoIterator<Item = W>,
             W: Display,
@@ -2672,7 +2663,7 @@ mod python {
     }
 
     impl<V, EC0, E> NowarnResult<V, (), EC0, NeverValue<E>> {
-        fn py_termfail_resolve_nowarn(self) -> PyResult<V>
+        pub fn py_termfail_resolve_nowarn(self) -> PyResult<V>
         where
             E: Into<PyErr>,
             EC0: Comonad<E>,
@@ -2682,7 +2673,7 @@ mod python {
     }
 
     impl<V, LWC, RWC, EC0, E> LogResult<V, (), LWC, RWC, EC0, NeverValue<E>> {
-        fn py_term_resolve_noerror<W>(self) -> PyResult<V>
+        pub fn py_term_resolve_noerror<W>(self) -> PyResult<V>
         where
             LWC: IntoIterator<Item = W>,
             W: Display,

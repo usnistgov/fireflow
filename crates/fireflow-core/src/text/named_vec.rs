@@ -119,10 +119,9 @@ impl<K, U, V> NamedVec<K, U, V> {
     where
         K: MightHave<Shortname>,
     {
-        let names: Vec<_> =
+        let names =
             xs.0.iter()
-                .map(|x| x.as_ref().both(|e| Some(&e.0), |o| o.0.as_opt()))
-                .collect();
+                .map(|x| x.as_ref().both(|e| Some(&e.0), |o| o.0.as_opt()));
         if !all_unique_names(names) {
             return Err(NewNamedVecError::NonUnique);
         }
@@ -132,10 +131,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         for x in xs.0 {
             match x {
                 Element::NonCenter(y) => {
-                    let p = Pair {
-                        key: y.0,
-                        value: y.1,
-                    };
+                    let p = Pair::new(y.0, y.1);
                     if center.is_none() {
                         left.push(p);
                     } else {
@@ -144,10 +140,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                 }
                 Element::Center(y) => {
                     if center.is_none() {
-                        let cp = Pair {
-                            key: y.0,
-                            value: y.1,
-                        };
+                        let cp = Pair::new(y.0, y.1);
                         center = Some(cp);
                     } else {
                         return Err(NewNamedVecError::MultiCenter);
@@ -514,7 +507,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                 let ckey = c.key;
                 let e = IndexedElement::new(index, &ckey, c.value);
                 f(e).map_ok_value(|value| {
-                    let center = Pair { value, key: ckey };
+                    let center = Pair::new(ckey, value);
                     NamedVec::new_split(s.left, center, s.right)
                 })
                 .map_non_fung_errors(|error| IndexedElementError::new(error, index))
@@ -577,7 +570,9 @@ impl<K, U, V> NamedVec<K, U, V> {
 
     /// Return number of non-center elements.
     pub(crate) fn len_non_center(&self) -> usize {
-        self.iter().filter(Element::is_non_center).count()
+        self.iter()
+            .filter(|e| matches!(e, Element::NonCenter(_)))
+            .count()
     }
 
     /// Return true if there are no contained elements.
@@ -689,7 +684,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     {
         let index = self.len().into();
         let (ckey, name) = self.check_key(key, index)?;
-        let p = Pair { key: ckey, value };
+        let p = Pair::new(ckey, value);
         match self {
             Self::Split(s) => s.right.push(p),
             Self::Unsplit(u) => u.members.push(p),
@@ -711,7 +706,7 @@ impl<K, U, V> NamedVec<K, U, V> {
             .check_boundary_index(index)
             .map_err(InsertError::Index)?;
         let (ckey, name) = self.check_key(key, index).map_err(InsertError::NonUnique)?;
-        let p = Pair { key: ckey, value };
+        let p = Pair::new(ckey, value);
         match self {
             Self::Split(s) => {
                 let ln = s.left.len();
@@ -740,7 +735,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         K: Applicative<Shortname>,
     {
         let i = self.check_element_index(index, true)?;
-        let (newself, ret) = match mem::replace(self, dummy()) {
+        let (newself, ret) = match mem::take(self) {
             Self::Split(mut s) => {
                 let ln = s.left.len();
                 match i.cmp(&ln) {
@@ -753,7 +748,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                         let members = s
                             .left
                             .into_iter()
-                            .chain([Pair { key, value }])
+                            .chain([Pair::new(key, value)])
                             .chain(s.right)
                             .collect();
                         (Self::new_unsplit(members), Element::Center(s.center.value))
@@ -853,8 +848,8 @@ impl<K, U, V> NamedVec<K, U, V> {
             .check_name(name)
             .map_err(InsertError::NonUnique)
             .map_err(InsertCenterError::Insert)?;
-        let p = Pair { key, value };
-        let (newself, ret) = match mem::replace(self, dummy()) {
+        let p = Pair::new(key, value);
+        let (newself, ret) = match mem::take(self) {
             Self::Unsplit(u) => (Self::new_split(u.members, p, vec![]), Ok(())),
             s @ Self::Split(_) => (s, Err(InsertCenterError::Present)),
         };
@@ -882,8 +877,8 @@ impl<K, U, V> NamedVec<K, U, V> {
             .check_name(name)
             .map_err(InsertError::NonUnique)
             .map_err(InsertCenterError::Insert)?;
-        let p = Pair { key, value };
-        let (newself, ret) = match mem::replace(self, dummy()) {
+        let p = Pair::new(key, value);
+        let (newself, ret) = match mem::take(self) {
             Self::Unsplit(u) => {
                 let mut it = u.members.into_iter();
                 let left: Vec<_> = it.by_ref().take(i).collect();
@@ -902,7 +897,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         index: MeasIndex,
     ) -> Result<EitherPair<K, U, V>, ElementIndexError> {
         let i = self.check_element_index(index, true)?;
-        let (newself, ret) = match mem::replace(self, dummy()) {
+        let (newself, ret) = match mem::take(self) {
             Self::Split(mut s) => {
                 let nleft = s.left.len();
                 match i.cmp(&nleft) {
@@ -945,7 +940,7 @@ impl<K, U, V> NamedVec<K, U, V> {
             let p = xs.remove(i);
             Ok((i.into(), p.value))
         };
-        let (newself, ret) = match mem::replace(self, dummy()) {
+        let (newself, ret) = match mem::take(self) {
             Self::Split(mut s) => {
                 if let Ok((i, v)) = go(&mut s.left).or(go(&mut s.right)) {
                     (Self::Split(s), Ok((i, Element::NonCenter(v))))
@@ -982,7 +977,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     {
         self.check_keys_length(&ks[..], true)
             .map_err(SetNamesError::Length)?;
-        if !all_unique_names(ks.iter().map(MightHave::as_opt).collect()) {
+        if !all_unique_names(ks.iter().map(MightHave::as_opt)) {
             return Err(SetNamesError::NonUnique.into());
         }
         let mut mapping = HashMap::new();
@@ -1230,8 +1225,8 @@ impl<K, U, V> NamedVec<K, U, V> {
         LWC: Default,
         K: MightHave<Shortname>,
     {
-        let res = match mem::replace(self, dummy()) {
-            Self::Split(s) => match split_at_index::<K, U, V>(s, index.into()) {
+        let res = match mem::take(self) {
+            Self::Split(s) => match s.split_at_index(index.into()) {
                 PartialSplit::Left(split) => to_v(index, split.center_value)
                     .inject_value((split.stable, split.selected_left_value))
                     .map_ok_value(|(new_right_val, (stable, old_left_val))| {
@@ -1260,7 +1255,7 @@ impl<K, U, V> NamedVec<K, U, V> {
             },
 
             Self::Unsplit(u) => {
-                let x = split_paired_vec::<K, V>(u.members, index.into());
+                let x = split_paired_vec(u.members, index.into());
                 let ret = x.selected.value;
                 let center = Pair::new(x.selected.key.to_opt().unwrap(), value);
                 let sp = Self::new_split(x.left, center, x.right);
@@ -1337,8 +1332,8 @@ impl<K, U, V> NamedVec<K, U, V> {
         K: MightHave<Shortname>,
     {
         // ASSUME index is valid
-        let res = match mem::replace(self, dummy()) {
-            Self::Split(s) => match split_at_index::<K, U, V>(s, index) {
+        let res = match mem::take(self) {
+            Self::Split(s) => match s.split_at_index(index) {
                 PartialSplit::Left(split) => {
                     swap(index.into(), split.center_value, split.selected_left_value)
                         .map_err_value(|x| *x)
@@ -1371,7 +1366,7 @@ impl<K, U, V> NamedVec<K, U, V> {
             },
 
             Self::Unsplit(u) => {
-                let x = split_paired_vec::<K, V>(u.members, index);
+                let x = split_paired_vec(u.members, index);
                 to_u(index.into(), x.selected.value)
                     .inject_value((x.left, x.selected.key, x.right))
                     .map_ok_value(|(new_value, (left, key, right))| {
@@ -1406,7 +1401,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         LWC: Default,
         K: Applicative<Shortname>,
     {
-        match mem::replace(self, dummy()) {
+        match mem::take(self) {
             Self::Split(s) => {
                 let index = (s.left.len()).into();
                 to_v(index, s.center.value)
@@ -1467,10 +1462,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     where
         J: TryFrom<K>,
     {
-        Ok(Pair {
-            key: p.key.try_into()?,
-            value: p.value,
-        })
+        Ok(Pair::new(p.key.try_into()?, p.value))
     }
 
     // fn from_center(p: Center<U>) -> Pair<K, V>
@@ -1808,20 +1800,6 @@ impl<U, V> Element<U, V> {
             Self::NonCenter(_) => None,
         }
     }
-
-    pub fn is_non_center(&self) -> bool {
-        match self {
-            Self::Center(_) => false,
-            Self::NonCenter(_) => true,
-        }
-    }
-
-    pub fn is_center(&self) -> bool {
-        match self {
-            Self::Center(_) => true,
-            Self::NonCenter(_) => false,
-        }
-    }
 }
 
 impl<X> Element<X, X> {
@@ -1834,8 +1812,7 @@ fn to_opt_or_indexed(x: Option<&Shortname>, i: MeasIndex) -> Shortname {
     x.cloned().unwrap_or(i.into())
 }
 
-// TODO use iterator here
-fn all_unique_names(xs: Vec<Option<&Shortname>>) -> bool {
+fn all_unique_names<'a>(xs: impl IntoIterator<Item = Option<&'a Shortname>>) -> bool {
     all_unique(
         xs.into_iter()
             .enumerate()
@@ -1852,12 +1829,6 @@ fn all_unique<'a, T: Hash + Eq>(xs: impl Iterator<Item = T> + 'a) -> bool {
         unique.insert(x);
     }
     true
-}
-
-// TODO just use default
-// dummy value to use when mutating NamedVec in place
-fn dummy<K, U, V>() -> NamedVec<K, U, V> {
-    NamedVec::Unsplit(UnsplitVec { members: vec![] })
 }
 
 enum PartialSplit<K, U, V> {
@@ -1913,33 +1884,35 @@ fn split_paired_vec<K, V>(xs: PairedVec<K, V>, index: usize) -> PairedSplit<K, V
     }
 }
 
-fn split_at_index<K, U, V>(s: SplitVec<K, U, V>, index: usize) -> PartialSplit<K, U, V> {
-    let nleft = s.left.len();
-    match index.cmp(&nleft) {
-        Less => {
-            let split_left = split_paired_vec::<K, V>(s.left, index);
-            let stable = LeftSplitStable::new(
-                split_left.left,
-                split_left.selected.key,
-                split_left.right,
-                s.center.key,
-                s.right,
-            );
-            let split = LeftSplit::new(split_left.selected.value, s.center.value, stable);
-            PartialSplit::Left(split)
-        }
-        Equal => PartialSplit::Center(s),
-        Greater => {
-            let split_right = split_paired_vec::<K, V>(s.right, index);
-            let stable = RightSplitStable::new(
-                s.left,
-                s.center.key,
-                split_right.left,
-                split_right.selected.key,
-                split_right.right,
-            );
-            let split = RightSplit::new(split_right.selected.value, s.center.value, stable);
-            PartialSplit::Right(split)
+impl<K, U, V> SplitVec<K, U, V> {
+    fn split_at_index(self, index: usize) -> PartialSplit<K, U, V> {
+        let nleft = self.left.len();
+        match index.cmp(&nleft) {
+            Less => {
+                let split_left = split_paired_vec(self.left, index);
+                let stable = LeftSplitStable::new(
+                    split_left.left,
+                    split_left.selected.key,
+                    split_left.right,
+                    self.center.key,
+                    self.right,
+                );
+                let split = LeftSplit::new(split_left.selected.value, self.center.value, stable);
+                PartialSplit::Left(split)
+            }
+            Equal => PartialSplit::Center(self),
+            Greater => {
+                let split_right = split_paired_vec(self.right, index);
+                let stable = RightSplitStable::new(
+                    self.left,
+                    self.center.key,
+                    split_right.left,
+                    split_right.selected.key,
+                    split_right.right,
+                );
+                let split = RightSplit::new(split_right.selected.value, self.center.value, stable);
+                PartialSplit::Right(split)
+            }
         }
     }
 }

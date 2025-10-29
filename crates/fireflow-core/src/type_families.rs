@@ -30,6 +30,20 @@ pub trait BiFunctor<A, B>: Sized + IsKind2 {
     where
         F: Fn(A) -> C,
         G: Fn(B) -> D;
+
+    fn first<F, C>(self, f: F) -> <Self::Family as Kind2>::Type<C, B>
+    where
+        F: Fn(A) -> C,
+    {
+        self.bimap(f, |x| x)
+    }
+
+    fn second<F, C>(self, f: F) -> <Self::Family as Kind2>::Type<A, C>
+    where
+        F: Fn(B) -> C,
+    {
+        self.bimap(|x| x, f)
+    }
 }
 
 pub trait Applicative<A>: Functor<A> {

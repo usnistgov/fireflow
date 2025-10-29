@@ -245,34 +245,81 @@ pub enum AnyOrderedUintLayout<T> {
 pub type OrderedLayout<C, T> = FixedLayout<C, <C as HasNativeWidth>::Order, T, NoMeasDatatype>;
 
 /// The type of a non-delimited column in the DATA segment for 3.2
-pub enum MixedType<F: ColumnFamily> {
-    Ascii(F::ColumnWrapper<AsciiRange, u64, NoByteOrd3_1>),
-    Uint(AnyBitmask<F>),
-    F32(F::ColumnWrapper<F32Range, f32, Endian>),
-    F64(F::ColumnWrapper<F64Range, f64, Endian>),
+#[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum MixedType<A, U, F, D> {
+    Ascii(A),
+    Uint(U),
+    F32(F),
+    F64(D),
 }
 
-pub type NullMixedType = MixedType<ColumnNullFamily>;
-type ReaderMixedType = MixedType<ColumnReaderFamily>;
-type WriterMixedType<'a> = MixedType<ColumnWriterFamily<'a>>;
+pub type NullMixedType = MixedType<AsciiRange, AnyNullBitmask, F32Range, F64Range>;
+
+type ReaderMixedType = MixedType<
+    ColumnReader<AsciiRange, u64, NoByteOrd3_1>,
+    AnyReaderBitmask,
+    ColumnReader<F32Range, f32, Endian>,
+    ColumnReader<F64Range, f64, Endian>,
+>;
+
+type WriterMixedType<'a> = MixedType<
+    ColumnWriter<'a, AsciiRange, u64, NoByteOrd3_1>,
+    AnyWriterBitmask<'a>,
+    ColumnWriter<'a, F32Range, f32, Endian>,
+    ColumnWriter<'a, F64Range, f64, Endian>,
+>;
 
 /// A big or little-endian integer column of some size (1-8 bytes)
-#[derive(PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum AnyBitmask<F: ColumnFamily> {
-    Uint08(F::ColumnWrapper<Bitmask08, u8, Endian>),
-    Uint16(F::ColumnWrapper<Bitmask16, u16, Endian>),
-    Uint24(F::ColumnWrapper<Bitmask24, u32, Endian>),
-    Uint32(F::ColumnWrapper<Bitmask32, u32, Endian>),
-    Uint40(F::ColumnWrapper<Bitmask40, u64, Endian>),
-    Uint48(F::ColumnWrapper<Bitmask48, u64, Endian>),
-    Uint56(F::ColumnWrapper<Bitmask56, u64, Endian>),
-    Uint64(F::ColumnWrapper<Bitmask64, u64, Endian>),
+pub enum AnyBitmask<C08, C16, C24, C32, C40, C48, C56, C64> {
+    Uint08(C08),
+    Uint16(C16),
+    Uint24(C24),
+    Uint32(C32),
+    Uint40(C40),
+    Uint48(C48),
+    Uint56(C56),
+    Uint64(C64),
 }
 
-pub type AnyNullBitmask = AnyBitmask<ColumnNullFamily>;
-type AnyReaderBitmask = AnyBitmask<ColumnReaderFamily>;
-type AnyWriterBitmask<'a> = AnyBitmask<ColumnWriterFamily<'a>>;
+pub type AnyNullBitmask = AnyBitmask<
+    Bitmask08,
+    Bitmask16,
+    Bitmask24,
+    Bitmask32,
+    Bitmask40,
+    Bitmask48,
+    Bitmask56,
+    Bitmask64,
+>;
+
+type AnyReaderBitmask = AnyBitmask<
+    UintColumnReader<Bitmask08>,
+    UintColumnReader<Bitmask16>,
+    UintColumnReader<Bitmask24>,
+    UintColumnReader<Bitmask32>,
+    UintColumnReader<Bitmask40>,
+    UintColumnReader<Bitmask48>,
+    UintColumnReader<Bitmask56>,
+    UintColumnReader<Bitmask64>,
+>;
+
+type AnyWriterBitmask<'a> = AnyBitmask<
+    UintColumnWriter<'a, Bitmask08>,
+    UintColumnWriter<'a, Bitmask16>,
+    UintColumnWriter<'a, Bitmask24>,
+    UintColumnWriter<'a, Bitmask32>,
+    UintColumnWriter<'a, Bitmask40>,
+    UintColumnWriter<'a, Bitmask48>,
+    UintColumnWriter<'a, Bitmask56>,
+    UintColumnWriter<'a, Bitmask64>,
+>;
+
+type UintColumnReader<C> = ColumnReader<C, <C as HasNativeType>::Native, Endian>;
+
+type UintColumnWriter<'a, C> = ColumnWriter<'a, C, <C as HasNativeType>::Native, Endian>;
 
 /// The type of any floating point column in all versions
 #[derive(PartialEq, Clone, new, Debug)]
@@ -292,8 +339,6 @@ struct ColumnReader<C, T, S> {
     byte_layout: PhantomData<S>,
 }
 
-type UintColumnReader<C> = ColumnReader<C, <C as HasNativeType>::Native, Endian>;
-
 /// Instructions to write one column using an iterator
 #[derive(new)]
 struct ColumnWriter<'a, C, T, S> {
@@ -308,18 +353,6 @@ impl<C, T, S> ColumnWriter<'_, C, T, S> {
         self.loss.as_ref().map(|&error| ColumnError::new(i, error))
     }
 }
-
-type UintColumnWriter<'a, C> = ColumnWriter<'a, C, <C as HasNativeType>::Native, Endian>;
-
-/// Marker type for columns which are used in a layout (non-reader/writer)
-#[derive(Clone, Copy, PartialEq)]
-pub struct ColumnNullFamily;
-
-/// Marker type for columns which are in a layout and have data for reading
-struct ColumnReaderFamily;
-
-/// Marker type for columns which are in a layout and have data for writing
-struct ColumnWriterFamily<'a>(PhantomData<&'a ()>);
 
 /// Marker type for layouts that might have $TOT
 #[derive(Clone, PartialEq)]
@@ -354,14 +387,6 @@ pub struct ColumnLayoutValues<D> {
 
 type ColumnLayoutValues2_0 = ColumnLayoutValues<NullMeasDatatype>;
 type ColumnLayoutValues3_2 = ColumnLayoutValues<Option<NumType>>;
-
-/// A type which represents a column which may have associated data.
-///
-/// Used to implement a higher-kinded type interface for columns that can be
-/// by themselves or associated with reader or writer data.
-pub trait ColumnFamily {
-    type ColumnWrapper<C, T, S>;
-}
 
 pub trait MeasDatatypeDef {
     type MeasDatatype;
@@ -1020,53 +1045,6 @@ macro_rules! match_any_mixed {
     };
 }
 
-impl fmt::Debug for AnyNullBitmask {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match_any_uint!(self, Self, x, { write!(f, "Uint{}({x:?})", x.bits_()) })
-    }
-}
-
-impl fmt::Debug for NullMixedType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Ascii(x) => write!(f, "Ascii({x:?})"),
-            Self::Uint(x) => write!(f, "Uint({x:?})"),
-            Self::F32(x) => write!(f, "F32({x:?})"),
-            Self::F64(x) => write!(f, "F64({x:?})"),
-        }
-    }
-}
-
-impl PartialEq for NullMixedType {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Ascii(x), Self::Ascii(y)) => x == y,
-            (Self::Uint(x), Self::Uint(y)) => x == y,
-            (Self::F32(x), Self::F32(y)) => x == y,
-            (Self::F64(x), Self::F64(y)) => x == y,
-            _ => false,
-        }
-    }
-}
-
-impl Clone for NullMixedType {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Ascii(x) => (*x).into(),
-            Self::Uint(x) => (*x).into(),
-            Self::F32(x) => x.clone().into(),
-            Self::F64(x) => x.clone().into(),
-        }
-    }
-}
-
-#[cfg(feature = "serde")]
-impl Serialize for NullMixedType {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match_any_mixed!(self, x, { x.serialize(serializer) })
-    }
-}
-
 macro_rules! impl_any_uint {
     ($var:ident, $bitmask:path) => {
         impl From<$bitmask> for AnyNullBitmask {
@@ -1282,18 +1260,6 @@ impl TotDefinition for KnownTot {
     {
         tot_f(input, tot)
     }
-}
-
-impl ColumnFamily for ColumnNullFamily {
-    type ColumnWrapper<C, T, S> = C;
-}
-
-impl ColumnFamily for ColumnReaderFamily {
-    type ColumnWrapper<C, T, S> = ColumnReader<C, T, S>;
-}
-
-impl<'a> ColumnFamily for ColumnWriterFamily<'a> {
-    type ColumnWrapper<C, T, S> = ColumnWriter<'a, C, T, S>;
 }
 
 impl From<&NullMixedType> for Range {

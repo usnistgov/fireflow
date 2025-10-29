@@ -1723,7 +1723,8 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
-    let family_path = versioned_family_path(version);
+    let name_pytype = PyType::new_versioned_shortname(version);
+    let name_rspath = name_pytype.as_rust_type();
     let element_path = quote!(fireflow_core::text::named_vec::Element);
 
     let by_name_doc = DocString::new_method("Remove a measurement with a given name.")
@@ -1740,11 +1741,8 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
         .para("Raise exception if ``index`` not found.")
         .arg(DocArg::new_index_param("Index to remove."))
         .returns(
-            DocReturn::new(
-                PyTuple::new1(PyType::new_versioned_shortname(version))
-                    .add(PyUnion::new_measurement(version)),
-            )
-            .desc("Name and measurement object."),
+            DocReturn::new(PyTuple::new1(name_pytype).add(PyUnion::new_measurement(version)))
+                .desc("Name and measurement object."),
         );
 
     let name_arg = by_name_doc.fun_args();
@@ -1776,7 +1774,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
                 #index_arg
             ) -> PyResult<#index_ret> {
                 let r = self.0.remove_measurement_by_index(#index_ident)?;
-                let (n, v) = #element_path::unzip::<#family_path>(r);
+                let (n, v) = #element_path::unzip::<#name_rspath>(r);
                 Ok((n, v.inner_into()))
             }
         }
@@ -5234,21 +5232,12 @@ impl<E: From<PyException>> PyTuple<E> {
     }
 
     fn new_meas(version: Version) -> Self {
-        let (fam_ident, name_pytype) = if version < Version::FCS3_1 {
-            (
-                format_ident!("MaybeFamily"),
-                PyOpt::new(PyStr::<E>::new_shortname()).into(),
-            )
-        } else {
-            (
-                format_ident!("AlwaysFamily"),
-                PyType::from(PyStr::new_shortname()),
-            )
-        };
-        let fam_path = quote!(fireflow_core::text::optional::#fam_ident);
+        let name_pytype = PyType::new_versioned_shortname(version);
+        let name_rstype = name_pytype.as_rust_type();
         let meas_opt_pyname = pyoptical(version);
         let meas_tmp_pyname = pytemporal(version);
-        let meas_argtype = parse_quote!(PyEithers<#fam_path, #meas_tmp_pyname, #meas_opt_pyname>);
+        let meas_argtype =
+            parse_quote!(PyEithers<#name_rstype, #meas_tmp_pyname, #meas_opt_pyname>);
         Self::new1(name_pytype)
             .add(PyUnion::new_measurement(version))
             .rstype(meas_argtype)
@@ -7737,14 +7726,6 @@ fn correction_path(is_header: bool, id: &str) -> Path {
 fn config_path(n: &str) -> Path {
     let t = format_ident!("{n}");
     parse_quote!(fireflow_core::config::#t)
-}
-
-fn versioned_family_path(version: Version) -> Path {
-    let root = quote!(fireflow_core::text::optional);
-    match version {
-        Version::FCS2_0 | Version::FCS3_0 => parse_quote!(#root::MaybeFamily),
-        _ => parse_quote!(#root::AlwaysFamily),
-    }
 }
 
 fn pyoptical(version: Version) -> Ident {

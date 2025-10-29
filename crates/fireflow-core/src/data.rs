@@ -75,7 +75,7 @@ use crate::text::{
     keywords::{
         AlphaNumType, AlphaNumTypeError, IntRangeError, NumType, NumTypeError, Par, Range, Tot,
     },
-    optional::{KeywordPairMaybe as _, MightHave},
+    optional::KeywordPairMaybe as _,
     parser::{
         LookupKeysError, LookupKeysWarning, LookupResult, LookupTentative, OptIndexedKey as _,
         OptKeyError, ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _,
@@ -687,7 +687,7 @@ where
         self.h_write_df_inner(h, df, skip_conv_check)
     }
 
-    fn check_measurement_vector<N: MightHave, T, O: AsScaleTransform>(
+    fn check_measurement_vector<N, T, O: AsScaleTransform>(
         &self,
         meas: &Measurements<N, T, O>,
     ) -> DeferredErrors<(), MeasLayoutMismatchError> {

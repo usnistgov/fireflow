@@ -1,5 +1,6 @@
 use crate::core::{AnyMetarootKeyLossError, IndexedKeyLossError, UnitaryKeyLossError};
-use crate::logging::{DeferredError, DeferredFungibleError, LogResult, ResultExt};
+use crate::logging::{DeferredError, DeferredFungibleError, LogResult};
+use crate::type_families::{Applicative, Sibling1};
 use crate::validated::keys::{IndexedKey, Key, MeasHeader};
 
 use super::index::IndexFromOne;
@@ -18,7 +19,7 @@ use serde::Serialize;
 use pyo3::prelude::*;
 
 /// A value that always exists.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct AlwaysValue<T>(pub T);
@@ -214,67 +215,44 @@ impl<T: fmt::Display + PartialEq> CheckMaybe for Option<T> {
 /// Encodes a type which might have something in it.
 ///
 /// Intended to be used as a "type family" pattern.
-pub trait MightHave {
-    /// Concrete wrapper type which might have something
-    type Wrapper<T>: From<T>;
-
+pub trait MightHave<A>: Applicative<A> {
     /// If true, the wrapper will always have a value.
     ///
     /// Obviously, the implementation needs to ensure this is in sync with the
     /// meaning of Wrapper<T>.
     const INFALLABLE: bool;
 
-    /// Consume a value and return it as a wrapped value
-    fn wrap<T>(n: T) -> Self::Wrapper<T> {
-        n.into()
-    }
-
     /// Consume a wrapped value and possibly return its contents.
     ///
     /// If no contents exist, return the original input so the caller can
     /// take back ownership.
-    fn unwrap<T>(x: Self::Wrapper<T>) -> Result<T, Self::Wrapper<T>>;
+    fn unwrap(self) -> Result<A, Self>;
 
     /// Borrow a wrapped value and return a new wrapper with borrowed contents.
-    fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T>;
+    fn as_ref(&self) -> Sibling1<Self, &A>;
 
     /// Consume a wrapped value and possibly return its contents.
-    fn to_opt<T>(x: Self::Wrapper<T>) -> Option<T> {
-        Self::unwrap(x).ok()
+    fn to_opt(self) -> Option<A> {
+        self.unwrap().ok()
     }
 
     /// Borrow a wrapped value and possibly return borrowed contents.
-    fn as_opt<T>(x: &Self::Wrapper<T>) -> Option<&T> {
-        Self::to_opt(Self::as_ref(x))
-    }
-
-    /// Apply function to inner value.
-    fn map<T, T0, F>(x: Self::Wrapper<T>, f: F) -> Self::Wrapper<T0>
-    where
-        F: FnOnce(T) -> T0;
+    fn as_opt(&self) -> Option<&A>;
 }
 
-#[derive(Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct MaybeFamily;
+impl<A> MightHave<A> for Option<A> {
+    const INFALLABLE: bool = true;
 
-impl MightHave for MaybeFamily {
-    type Wrapper<T> = Option<T>;
-    const INFALLABLE: bool = false;
-
-    fn unwrap<T>(x: Self::Wrapper<T>) -> Result<T, Self::Wrapper<T>> {
-        x.ok_or(None)
+    fn unwrap(self) -> Result<A, Self> {
+        self.ok_or(None)
     }
 
-    fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T> {
-        x.as_ref()
+    fn as_ref(&self) -> Option<&A> {
+        Self::as_ref(self)
     }
 
-    fn map<T, T0, F>(x: Self::Wrapper<T>, f: F) -> Self::Wrapper<T0>
-    where
-        F: FnOnce(T) -> T0,
-    {
-        x.map(f)
+    fn as_opt(&self) -> Option<&A> {
+        Self::as_ref(self)
     }
 }
 
@@ -282,23 +260,19 @@ impl MightHave for MaybeFamily {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AlwaysFamily;
 
-impl MightHave for AlwaysFamily {
-    type Wrapper<T> = AlwaysValue<T>;
+impl<A> MightHave<A> for AlwaysValue<A> {
     const INFALLABLE: bool = true;
 
-    fn unwrap<T>(x: Self::Wrapper<T>) -> Result<T, Self::Wrapper<T>> {
-        Ok(x.0)
+    fn unwrap(self) -> Result<A, Self> {
+        Ok(self.0)
     }
 
-    fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T> {
-        AlwaysValue(&x.0)
+    fn as_ref(&self) -> AlwaysValue<&A> {
+        AlwaysValue(&self.0)
     }
 
-    fn map<T, T0, F>(x: Self::Wrapper<T>, f: F) -> Self::Wrapper<T0>
-    where
-        F: FnOnce(T) -> T0,
-    {
-        AlwaysValue(f(x.0))
+    fn as_opt(&self) -> Option<&A> {
+        Some(&self.0)
     }
 }
 

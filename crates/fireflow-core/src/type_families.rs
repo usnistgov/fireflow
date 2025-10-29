@@ -34,6 +34,7 @@ pub trait BiFunctor<A, B>: Sized + IsKind2 {
 
 pub trait Applicative<A>: Functor<A> {
     fn pure(a: A) -> Self;
+
     // TODO add lift_a2...but call it zip_a2 because rust
 }
 

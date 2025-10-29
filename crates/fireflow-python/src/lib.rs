@@ -70,11 +70,9 @@ use fireflow_core::text::gating::{
 use fireflow_core::text::index::{GateIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::Eithers;
-use fireflow_core::text::optional::MightHave;
 use fireflow_core::text::parser;
 use fireflow_core::validated::ascii_uint::UintSpacePad20;
 use fireflow_core::validated::keys;
-use fireflow_core::validated::shortname::Shortname;
 
 use fireflow_python_proc::def_fcs_read_std_dataset_with_keywords;
 use fireflow_python_proc::{
@@ -484,12 +482,11 @@ impl_new_gate_bi_regions!(BivariateRegion<kws::MeasOrGateIndex>);
 // Implement __new__ and attributes for PyBivariate3_2
 impl_new_gate_bi_regions!(BivariateRegion<kws::PrefixedMeasIndex>);
 
-struct PyEithers<K: MightHave, U, V>(Eithers<K, U, V>);
+struct PyEithers<K, U, V>(Eithers<K, U, V>);
 
 impl<'py, K, U, V> FromPyObject<'py> for PyEithers<K, U, V>
 where
-    K: MightHave,
-    K::Wrapper<Shortname>: FromPyObject<'py>,
+    K: FromPyObject<'py>,
     U: FromPyObject<'py>,
     V: FromPyObject<'py>,
 {
@@ -501,7 +498,6 @@ where
 
 impl<K, U, V, X, Y> From<PyEithers<K, U, V>> for Eithers<K, X, Y>
 where
-    K: MightHave,
     X: From<U>,
     Y: From<V>,
 {

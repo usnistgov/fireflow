@@ -52,9 +52,7 @@ use crate::text::{
         NewNamedVecError, NonCenterElement, NonUniqueKeyError, RenameError, SetCenterError,
         SetElementsError, SetKeysError, SetNamesError,
     },
-    optional::{
-        AlwaysFamily, AlwaysValue, CheckMaybe as _, KeywordPairMaybe as _, MaybeFamily, MightHave,
-    },
+    optional::{AlwaysValue, CheckMaybe as _, KeywordPairMaybe as _, MightHave},
     parser::{
         lookup_temporal_gain_3_0, lookup_temporal_scale_3_0, DepValueWarning, DeprecatedError,
         ExtraStdKeywords, LookupKeysError, LookupKeysWarning, LookupResult, LookupTentative,
@@ -71,6 +69,7 @@ use crate::text::{
     },
 };
 
+use crate::type_families::Applicative;
 use crate::validated::{
     ascii_uint::{HeaderString, Uint8DigitOverflow, UintSpacePad20, UintSpacePad8},
     dataframe as df,
@@ -130,7 +129,7 @@ use pyo3::prelude::*;
 #[new(visibility = "")]
 // NOTE fields are private since metaroot, measurements, and layout are all
 // related to each other and must be kept in sync
-pub struct Core<A, D, O, M, T, P, N, W, L> {
+pub struct Core<A, D, O, M, T, P, N, L> {
     /// Metaroot TEXT keywords.
     ///
     /// This includes all keywords that are not part of measurements or the data
@@ -142,7 +141,7 @@ pub struct Core<A, D, O, M, T, P, N, W, L> {
     /// Specifically these are denoted by "$Pn*" keywords where "n" is the index
     /// of the measurement which also corresponds to its column in the DATA
     /// segment. The index of each measurement in this vector is n - 1.
-    measurements: NamedVec<N, W, Temporal<T>, Optical<P>>,
+    measurements: NamedVec<N, Temporal<T>, Optical<P>>,
 
     /// The byte layout of the DATA segment
     ///
@@ -1136,10 +1135,10 @@ pub type Optical3_0 = Optical<InnerOptical3_0>;
 pub type Optical3_1 = Optical<InnerOptical3_1>;
 pub type Optical3_2 = Optical<InnerOptical3_2>;
 
-pub type Measurements2_0 = Measurements<MaybeFamily, InnerTemporal2_0, InnerOptical2_0>;
-pub type Measurements3_0 = Measurements<MaybeFamily, InnerTemporal3_0, InnerOptical3_0>;
-pub type Measurements3_1 = Measurements<AlwaysFamily, InnerTemporal3_1, InnerOptical3_1>;
-pub type Measurements3_2 = Measurements<AlwaysFamily, InnerTemporal3_2, InnerOptical3_2>;
+pub type Measurements2_0 = Measurements<Option<Shortname>, InnerTemporal2_0, InnerOptical2_0>;
+pub type Measurements3_0 = Measurements<Option<Shortname>, InnerTemporal3_0, InnerOptical3_0>;
+pub type Measurements3_1 = Measurements<AlwaysValue<Shortname>, InnerTemporal3_1, InnerOptical3_1>;
+pub type Measurements3_2 = Measurements<AlwaysValue<Shortname>, InnerTemporal3_2, InnerOptical3_2>;
 
 pub type Metaroot2_0 = Metaroot<InnerMetaroot2_0>;
 pub type Metaroot3_0 = Metaroot<InnerMetaroot3_0>;
@@ -1147,10 +1146,10 @@ pub type Metaroot3_1 = Metaroot<InnerMetaroot3_1>;
 pub type Metaroot3_2 = Metaroot<InnerMetaroot3_2>;
 
 /// A minimal representation of the TEXT segment
-pub type CoreTEXT<M, T, P, N, W, L> = Core<(), (), (), M, T, P, N, W, L>;
+pub type CoreTEXT<M, T, P, N, L> = Core<(), (), (), M, T, P, N, L>;
 
 /// A minimal representation of the TEXT+DATA+ANALYSIS segments
-pub type CoreDataset<M, T, P, N, W, L> = Core<Analysis, FCSDataFrame, Others, M, T, P, N, W, L>;
+pub type CoreDataset<M, T, P, N, L> = Core<Analysis, FCSDataFrame, Others, M, T, P, N, L>;
 
 pub type Core2_0<A, D, O> = Core<
     A,
@@ -1159,7 +1158,6 @@ pub type Core2_0<A, D, O> = Core<
     InnerMetaroot2_0,
     InnerTemporal2_0,
     InnerOptical2_0,
-    MaybeFamily,
     Option<Shortname>,
     DataLayout2_0,
 >;
@@ -1170,7 +1168,6 @@ pub type Core3_0<A, D, O> = Core<
     InnerMetaroot3_0,
     InnerTemporal3_0,
     InnerOptical3_0,
-    MaybeFamily,
     Option<Shortname>,
     DataLayout3_0,
 >;
@@ -1181,7 +1178,6 @@ pub type Core3_1<A, D, O> = Core<
     InnerMetaroot3_1,
     InnerTemporal3_1,
     InnerOptical3_1,
-    AlwaysFamily,
     AlwaysValue<Shortname>,
     DataLayout3_1,
 >;
@@ -1192,7 +1188,6 @@ pub type Core3_2<A, D, O> = Core<
     InnerMetaroot3_2,
     InnerTemporal3_2,
     InnerOptical3_2,
-    AlwaysFamily,
     AlwaysValue<Shortname>,
     DataLayout3_2,
 >;
@@ -1349,7 +1344,7 @@ pub trait LookupMetaroot: Sized + VersionedMetaroot {
         kws: &mut StdKeywords,
         i: MeasIndex,
         conf: &StdTextReadConfig,
-    ) -> LookupResult<<Self::Name as MightHave>::Wrapper<Shortname>>;
+    ) -> LookupResult<Self::Name>;
 
     fn lookup_specific(
         kws: &mut StdKeywords,
@@ -1398,7 +1393,7 @@ pub trait VersionedMetaroot: Sized {
     type Ver: Versioned;
     type Optical: VersionedOptical<Ver = Self::Ver>;
     type Temporal: VersionedTemporal<Ver = Self::Ver>;
-    type Name: MightHave;
+    type Name: MightHave<Shortname>;
 
     /// Return error if any data in this struct links to given list of names.
     fn check_meas_named_links_inner(
@@ -2063,8 +2058,7 @@ where
     }
 }
 
-pub(crate) type Measurements<N, T, O> =
-    NamedVec<N, <N as MightHave>::Wrapper<Shortname>, Temporal<T>, Optical<O>>;
+pub(crate) type Measurements<N, T, O> = NamedVec<N, Temporal<T>, Optical<O>>;
 
 pub(crate) type VersionedCore<A, D, O, M> = Core<
     A,
@@ -2074,7 +2068,6 @@ pub(crate) type VersionedCore<A, D, O, M> = Core<
     <M as VersionedMetaroot>::Temporal,
     <M as VersionedMetaroot>::Optical,
     <M as VersionedMetaroot>::Name,
-    <<M as VersionedMetaroot>::Name as MightHave>::Wrapper<Shortname>,
     <<M as VersionedMetaroot>::Ver as Versioned>::Layout,
 >;
 
@@ -2082,11 +2075,7 @@ pub(crate) type VersionedCoreTEXT<M> = VersionedCore<(), (), (), M>;
 
 pub(crate) type VersionedCoreDataset<M> = VersionedCore<Analysis, FCSDataFrame, Others, M>;
 
-pub(crate) type VersionedConvertError<N, ToN> = ConvertError<
-    <<ToN as MightHave>::Wrapper<Shortname> as TryFrom<
-        <N as MightHave>::Wrapper<Shortname>,
-    >>::Error,
->;
+pub(crate) type VersionedConvertError<N, ToN> = ConvertError<<ToN as TryFrom<N>>::Error>;
 
 impl<M, A, D, O> VersionedCore<A, D, O, M>
 where
@@ -2489,7 +2478,7 @@ where
     pub fn rename_measurement(
         &mut self,
         index: MeasIndex,
-        key: <M::Name as MightHave>::Wrapper<Shortname>,
+        key: M::Name,
     ) -> Result<(Shortname, Shortname), RenameError> {
         self.measurements.rename(index, key).map(|(old, new)| {
             let mapping = once((old.clone(), new.clone())).collect();
@@ -2506,9 +2495,7 @@ where
     /// Apply functions to measurement values
     pub fn alter_measurements<F, G, R>(&mut self, f: F, g: G) -> Vec<R>
     where
-        F: Fn(
-            IndexedElement<&<M::Name as MightHave>::Wrapper<Shortname>, &mut Optical<M::Optical>>,
-        ) -> R,
+        F: Fn(IndexedElement<&M::Name, &mut Optical<M::Optical>>) -> R,
         G: Fn(IndexedElement<&Shortname, &mut Temporal<M::Temporal>>) -> R,
     {
         self.measurements.alter_values(f, g)
@@ -2522,10 +2509,7 @@ where
         g: G,
     ) -> Result<Vec<R>, KeyLengthError>
     where
-        F: Fn(
-            IndexedElement<&<M::Name as MightHave>::Wrapper<Shortname>, &mut Optical<M::Optical>>,
-            X,
-        ) -> R,
+        F: Fn(IndexedElement<&M::Name, &mut Optical<M::Optical>>, X) -> R,
         G: Fn(IndexedElement<&Shortname, &mut Temporal<M::Temporal>>, X) -> R,
     {
         self.measurements.alter_values_zip(xs, f, g)
@@ -3084,10 +3068,8 @@ where
         ToM: VersionedMetaroot + ConvertFromMetaroot<M>,
         ToM::Optical: VersionedOptical + ConvertFromOptical<M::Optical>,
         ToM::Temporal: VersionedTemporal + ConvertFromTemporal<M::Temporal>,
-        ToM::Name: MightHave + Clone,
+        ToM::Name: MightHave<Shortname> + Clone + TryFrom<M::Name>,
         <ToM::Ver as Versioned>::Layout: ConvertFromLayout<<M::Ver as Versioned>::Layout>,
-        <ToM::Name as MightHave>::Wrapper<Shortname>:
-            TryFrom<<M::Name as MightHave>::Wrapper<Shortname>>,
     {
         let root_res = self
             .metaroot
@@ -3244,7 +3226,7 @@ where
 
     fn push_optical_inner(
         &mut self,
-        n: <M::Name as MightHave>::Wrapper<Shortname>,
+        n: M::Name,
         m: Optical<M::Optical>,
         r: Range,
         disallow_trunc: bool,
@@ -3268,7 +3250,7 @@ where
     fn insert_optical_inner(
         &mut self,
         i: MeasIndex,
-        n: <M::Name as MightHave>::Wrapper<Shortname>,
+        n: M::Name,
         m: Optical<M::Optical>,
         r: Range,
         disallow_trunc: bool,
@@ -3570,6 +3552,7 @@ where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical,
+        M::Name: Applicative<Shortname>,
         Version: From<M::Ver>,
     {
         // Use nonstandard measurement pattern to assign keyvals to their
@@ -3618,7 +3601,7 @@ where
                             {
                                 return Ok(name);
                             }
-                            Err(M::Name::wrap(name))
+                            Err(M::Name::pure(name))
                         });
                         // Once we checked $PnN, pull all the rest of the
                         // standardized keywords from the hashtable and collect
@@ -3954,7 +3937,7 @@ where
     /// Return error if name is non-unique.
     pub fn push_optical(
         &mut self,
-        n: <M::Name as MightHave>::Wrapper<Shortname>,
+        n: M::Name,
         m: Optical<M::Optical>,
         r: Range,
         disallow_trunc: bool,
@@ -3970,7 +3953,7 @@ where
     pub fn insert_optical(
         &mut self,
         i: MeasIndex,
-        n: <M::Name as MightHave>::Wrapper<Shortname>,
+        n: M::Name,
         m: Optical<M::Optical>,
         r: Range,
         disallow_trunc: bool,
@@ -4353,7 +4336,7 @@ where
     /// Return error if name is non-unique.
     pub fn push_optical(
         &mut self,
-        n: <M::Name as MightHave>::Wrapper<Shortname>,
+        n: M::Name,
         m: Optical<M::Optical>,
         col: AnyFCSColumn,
         r: Range,
@@ -4381,7 +4364,7 @@ where
     pub fn insert_optical(
         &mut self,
         i: MeasIndex,
-        n: <M::Name as MightHave>::Wrapper<Shortname>,
+        n: M::Name,
         m: Optical<M::Optical>,
         col: AnyFCSColumn,
         r: Range,
@@ -4552,7 +4535,7 @@ impl HasAppliedGates3_2 for InnerMetaroot3_2 {
 
 impl<M, A, D, O> VersionedCore<A, D, O, M>
 where
-    M: VersionedMetaroot<Name = MaybeFamily>,
+    M: VersionedMetaroot<Name = Option<Shortname>>,
 {
     /// Set all $PnN keywords to list of names.
     pub fn set_measurement_shortnames_maybe(
@@ -4568,7 +4551,11 @@ where
 impl CoreTEXT2_0 {
     #[allow(clippy::too_many_arguments)]
     pub fn try_new_2_0(
-        measurements: Eithers<MaybeFamily, Temporal<InnerTemporal2_0>, Optical<InnerOptical2_0>>,
+        measurements: Eithers<
+            Option<Shortname>,
+            Temporal<InnerTemporal2_0>,
+            Optical<InnerOptical2_0>,
+        >,
         layout: DataLayout2_0,
         mode: Mode,
         cyt: Cyt,
@@ -4623,7 +4610,11 @@ impl CoreTEXT2_0 {
 impl CoreTEXT3_0 {
     #[allow(clippy::too_many_arguments)]
     pub fn try_new_3_0(
-        measurements: Eithers<MaybeFamily, Temporal<InnerTemporal3_0>, Optical<InnerOptical3_0>>,
+        measurements: Eithers<
+            Option<Shortname>,
+            Temporal<InnerTemporal3_0>,
+            Optical<InnerOptical3_0>,
+        >,
         layout: DataLayout3_0,
         mode: Mode,
         cyt: Cyt,
@@ -4692,7 +4683,11 @@ impl CoreTEXT3_0 {
 impl CoreTEXT3_1 {
     #[allow(clippy::too_many_arguments)]
     pub fn try_new_3_1(
-        measurements: Eithers<AlwaysFamily, Temporal<InnerTemporal3_1>, Optical<InnerOptical3_1>>,
+        measurements: Eithers<
+            AlwaysValue<Shortname>,
+            Temporal<InnerTemporal3_1>,
+            Optical<InnerOptical3_1>,
+        >,
         layout: DataLayout3_1,
         mode: Mode,
         cyt: Cyt,
@@ -4769,7 +4764,11 @@ impl CoreTEXT3_1 {
 impl CoreTEXT3_2 {
     #[allow(clippy::too_many_arguments)]
     pub fn try_new_3_2(
-        measurements: Eithers<AlwaysFamily, Temporal<InnerTemporal3_2>, Optical<InnerOptical3_2>>,
+        measurements: Eithers<
+            AlwaysValue<Shortname>,
+            Temporal<InnerTemporal3_2>,
+            Optical<InnerOptical3_2>,
+        >,
         layout: DataLayout3_2,
         cyt: Cyt3_2,
         mode: Option<Mode3_2>,
@@ -7499,7 +7498,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         kws: &mut StdKeywords,
         i: MeasIndex,
         conf: &StdTextReadConfig,
-    ) -> LookupResult<<Self::Name as MightHave>::Wrapper<Shortname>> {
+    ) -> LookupResult<Self::Name> {
         Shortname::lookup_meas_opt(kws, i, false, conf)
             .set_err_value(())
             .map_non_fung_errors(LookupKeysError::from)
@@ -7529,7 +7528,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         kws: &mut StdKeywords,
         i: MeasIndex,
         conf: &StdTextReadConfig,
-    ) -> LookupResult<<Self::Name as MightHave>::Wrapper<Shortname>> {
+    ) -> LookupResult<Self::Name> {
         Shortname::lookup_meas_opt(kws, i, false, conf)
             .set_err_value(())
             .map_non_fung_errors(LookupKeysError::from)
@@ -7563,7 +7562,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         kws: &mut StdKeywords,
         i: MeasIndex,
         _: &StdTextReadConfig,
-    ) -> LookupResult<<Self::Name as MightHave>::Wrapper<Shortname>> {
+    ) -> LookupResult<Self::Name> {
         Shortname::lookup_req(kws, i).map_ok_value(AlwaysValue)
     }
 
@@ -7617,7 +7616,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         kws: &mut StdKeywords,
         i: MeasIndex,
         _: &StdTextReadConfig,
-    ) -> LookupResult<<Self::Name as MightHave>::Wrapper<Shortname>> {
+    ) -> LookupResult<Self::Name> {
         Shortname::lookup_req(kws, i).map_ok_value(AlwaysValue)
     }
 
@@ -7659,7 +7658,7 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
     type Ver = Version2_0;
     type Optical = InnerOptical2_0;
     type Temporal = InnerTemporal2_0;
-    type Name = MaybeFamily;
+    type Name = Option<Shortname>;
 
     fn check_meas_named_links_inner(
         &self,
@@ -7719,7 +7718,7 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
     type Ver = Version3_0;
     type Optical = InnerOptical3_0;
     type Temporal = InnerTemporal3_0;
-    type Name = MaybeFamily;
+    type Name = Option<Shortname>;
 
     fn check_meas_named_links_inner(
         &self,
@@ -7784,7 +7783,7 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
     type Ver = Version3_1;
     type Optical = InnerOptical3_1;
     type Temporal = InnerTemporal3_1;
-    type Name = AlwaysFamily;
+    type Name = AlwaysValue<Shortname>;
 
     fn check_meas_named_links_inner(
         &self,
@@ -7862,7 +7861,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
     type Ver = Version3_2;
     type Optical = InnerOptical3_2;
     type Temporal = InnerTemporal3_2;
-    type Name = AlwaysFamily;
+    type Name = AlwaysValue<Shortname>;
 
     fn check_meas_named_links_inner(
         &self,

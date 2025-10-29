@@ -1,5 +1,8 @@
 use crate::config::SharedConfig;
 use crate::text::optional::{AlwaysValue, NeverValue};
+use crate::type_families::{
+    Applicative, BiFunctor, Comonad, Functor, IsKind1, IsKind2, Kind1, Kind2, Sibling1, Sibling2,
+};
 
 use derive_new::new;
 use std::convert::Infallible;
@@ -209,16 +212,6 @@ pub enum ImpureError<E> {
     Pure(E),
 }
 
-pub struct OptFamily;
-
-pub struct BoxFamily;
-
-pub struct IdFamily;
-
-pub struct VecFamily;
-
-pub struct NullFamily;
-
 pub struct GenNonEmptyFamilyInner<C0, C>(PhantomData<C0>, PhantomData<C>);
 
 pub struct GenNonEmptyFamilyOuter;
@@ -229,51 +222,6 @@ pub struct LogResultFamily<LWC, RWC, EC0, ECn>(
     PhantomData<EC0>,
     PhantomData<ECn>,
 );
-
-pub type Sibling1<T, A> = <<T as IsKind1>::Family as Kind1>::Type<A>;
-pub type Sibling2<T, A, B> = <<T as IsKind2>::Family as Kind2>::Type<A, B>;
-
-pub trait Kind1 {
-    type Type<X>: IsKind1<Family = Self>;
-}
-
-pub trait Kind2 {
-    type Type<A, B>: IsKind2<Family = Self>;
-}
-
-pub trait IsKind1 {
-    type Family: Kind1;
-}
-
-pub trait IsKind2 {
-    type Family: Kind2;
-}
-
-pub trait Functor<X>: Sized + IsKind1 {
-    fn fmap<F, Y>(self, f: F) -> Sibling1<Self, Y>
-    where
-        F: Fn(X) -> Y;
-}
-
-trait BiFunctor<A, B>: Sized + IsKind2 {
-    fn bimap<F, G, C, D>(self, f: F, g: G) -> <Self::Family as Kind2>::Type<C, D>
-    where
-        F: Fn(A) -> C,
-        G: Fn(B) -> D;
-}
-
-pub trait Applicative<A>: Functor<A> {
-    fn pure(a: A) -> Self;
-    // TODO add lift_a2...but call it zip_a2 because rust
-}
-
-pub trait Comonad<X>: Functor<X> {
-    fn cm_extract(self) -> X;
-
-    fn cm_extract_ref(&self) -> &X;
-
-    // TODO add cm_extend
-}
 
 pub trait Concatable {
     type Out;
@@ -303,24 +251,6 @@ pub trait IntoNewWrapper<Other> {
     fn into_new_wrapper(self) -> Other;
 }
 
-macro_rules! impl_kind1 {
-    ($f:ident, $t:ident) => {
-        impl Kind1 for $f {
-            type Type<T> = $t<T>;
-        }
-
-        impl<T> IsKind1 for $t<T> {
-            type Family = $f;
-        }
-    };
-}
-
-impl_kind1!(NullFamily, NeverValue);
-impl_kind1!(IdFamily, AlwaysValue);
-impl_kind1!(BoxFamily, Box);
-impl_kind1!(OptFamily, Option);
-impl_kind1!(VecFamily, Vec);
-
 impl<C0: Kind1, C: Kind1> Kind1 for GenNonEmptyFamilyInner<C0, C> {
     type Type<T> = GenNonEmpty<C0::Type<T>, C::Type<T>>;
 }
@@ -345,36 +275,6 @@ impl<A, B, LWC, RWC, EC0, ECn> IsKind2 for LogResult<A, B, LWC, RWC, EC0, ECn> {
     type Family = LogResultFamily<LWC, RWC, EC0, ECn>;
 }
 
-impl<X> Functor<X> for NeverValue<X> {
-    fn fmap<F: Fn(X) -> Y, Y>(self, _: F) -> NeverValue<Y> {
-        NeverValue::default()
-    }
-}
-
-impl<X> Functor<X> for AlwaysValue<X> {
-    fn fmap<F: Fn(X) -> Y, Y>(self, f: F) -> AlwaysValue<Y> {
-        AlwaysValue(f(self.0))
-    }
-}
-
-impl<X> Functor<X> for Box<X> {
-    fn fmap<F: Fn(X) -> Y, Y>(self, f: F) -> Box<Y> {
-        Box::new(f(*self))
-    }
-}
-
-impl<X> Functor<X> for Option<X> {
-    fn fmap<F: Fn(X) -> Y, Y>(self, f: F) -> Option<Y> {
-        self.map(f)
-    }
-}
-
-impl<X> Functor<X> for Vec<X> {
-    fn fmap<F: Fn(X) -> Y, Y>(self, f: F) -> Vec<Y> {
-        self.into_iter().map(f).collect()
-    }
-}
-
 impl<A, C0: Functor<A>, Cn: Functor<A>> Functor<A> for GenNonEmpty<C0, Cn> {
     fn fmap<F: Fn(A) -> B, B>(self, f: F) -> Sibling1<Self, B> {
         GenNonEmpty::new(self.head.fmap(&f), self.tail.fmap(f))
@@ -388,26 +288,6 @@ impl<A, B> BiFunctor<A, B> for GenNonEmpty<A, B> {
         G: Fn(B) -> D,
     {
         GenNonEmpty::new(f(self.head), g(self.tail))
-    }
-}
-
-impl<X> Comonad<X> for AlwaysValue<X> {
-    fn cm_extract(self) -> X {
-        self.0
-    }
-
-    fn cm_extract_ref(&self) -> &X {
-        &self.0
-    }
-}
-
-impl<X> Comonad<X> for Box<X> {
-    fn cm_extract(self) -> X {
-        *self
-    }
-
-    fn cm_extract_ref(&self) -> &X {
-        self.as_ref()
     }
 }
 
@@ -462,36 +342,6 @@ impl<T> IntoNewWrapper<Box<T>> for AlwaysValue<T> {
 impl<T> IntoNewWrapper<AlwaysValue<T>> for Box<T> {
     fn into_new_wrapper(self) -> AlwaysValue<T> {
         AlwaysValue(*self)
-    }
-}
-
-impl<A> Applicative<A> for NeverValue<A> {
-    fn pure(_: A) -> Self {
-        Self::default()
-    }
-}
-
-impl<A> Applicative<A> for AlwaysValue<A> {
-    fn pure(a: A) -> Self {
-        Self(a)
-    }
-}
-
-impl<A> Applicative<A> for Option<A> {
-    fn pure(a: A) -> Self {
-        Some(a)
-    }
-}
-
-impl<X> Applicative<X> for Box<X> {
-    fn pure(a: X) -> Self {
-        Self::new(a)
-    }
-}
-
-impl<X> Applicative<X> for Vec<X> {
-    fn pure(a: X) -> Self {
-        vec![a]
     }
 }
 

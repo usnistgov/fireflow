@@ -1,6 +1,6 @@
 //! Types representing $PnR/$PnB keys for an Ascii column.
 
-use crate::logging::{LogResult, ResultExt as _, VecFamily, WarningsAndErrorsResult};
+use crate::logging::{ResultExt as _, WarningsAndErrorsResult};
 use crate::text::byteord::{Width, WidthToCharsError};
 use crate::text::keywords::{IntRangeError, Range};
 
@@ -98,8 +98,8 @@ impl AsciiRange {
         let chars_res = Chars::try_from(width)
             .map_err(NewAsciiRangeError::from)
             .into_log();
-        rng_res.zip_cmt(chars_res).and_then_cmt(|(range, chars)| {
-            Self::try_new(range, chars)
+        rng_res.zip_cmt(chars_res).and_then_cmt(|(rng, chars)| {
+            Self::try_new(rng, chars)
                 .map_err(NewAsciiRangeError::from)
                 .into_log()
         })

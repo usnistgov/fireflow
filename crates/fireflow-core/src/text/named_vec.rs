@@ -1,9 +1,10 @@
 use crate::data::ColumnError;
 use crate::logging::{
-    Applicative, CmtResult, CmtResultIter as _, Comonad, ErrorsResult, Functor, IntoNewCardinality,
-    LogResult, ResultExt as _, Semigroup, Sibling1,
+    CmtResult, CmtResultIter as _, ErrorsResult, IntoNewCardinality, LogResult, ResultExt as _,
+    Semigroup,
 };
 use crate::text::optional::MightHave;
+use crate::type_families::{Applicative, Comonad, Functor, Sibling1};
 use crate::validated::shortname::Shortname;
 
 use super::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};

@@ -63,7 +63,7 @@ use crate::segment::{
     SegmentMismatchWarning,
 };
 
-use crate::text::optional::{Identity, Nothing};
+use crate::text::optional::Nothing;
 use crate::text::{
     byteord::{
         BitsOrChars, ByteOrd2_0, ByteOrd3_1, ByteOrdToSizedEndianError, ByteOrdToSizedError, Bytes,
@@ -1915,11 +1915,7 @@ impl<D> EndianLayout<NullMixedType, D> {
             let byte_layout = self.byte_layout;
             match c0 {
                 MixedType::Ascii(x) => it
-                    .map(|(i, c)| {
-                        c.try_into()
-                            .map_err(|e| (i, e))
-                            .into_log::<_, _, Identity<_>, Vec<_>>()
-                    })
+                    .map(|(i, c)| c.try_into().map_err(|e| (i, e)).into_log::<_, _, Vec<_>>())
                     .mappend_cmt()
                     .map_ok_value(|xs| FixedLayout::new1(x, xs, NoByteOrd))
                     .map_ok_value(|l| AnyAsciiLayout::Fixed(l).into()),
@@ -2013,7 +2009,7 @@ impl<T, const LEN: usize> FloatRange<T, LEN> {
         T: HasFloatBounds,
     {
         Bytes::try_from(width)
-            .into_log::<_, _, Identity<_>, Vec<_>>()
+            .into_log::<_, _, Vec<_>>()
             .errors_into()
             .and_then_cmt(|bytes| {
                 if usize::from(u8::from(bytes)) == LEN {
@@ -2105,7 +2101,7 @@ impl AnyNullBitmask {
     ) -> WarningsAndErrorsResult<Self, (), BitmaskError, NewUintTypeError> {
         width
             .try_into()
-            .into_log::<_, _, Identity<_>, Vec<_>>()
+            .into_log::<_, _, Vec<_>>()
             .map_errors(NewUintTypeError::from)
             .and_then_cmt(|bytes| {
                 Self::new1(bytes, range, disallow_trunc)
@@ -2876,13 +2872,8 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             if remainder > 0 {
                 let e = UnevenEventWidth::new(w, n, remainder);
                 let is_err = !conf.allow_uneven_event_width;
-                LogResult::<_, _, _, _, Identity<_>, Nothing<_>>::new_fungible(
-                    total_events,
-                    (),
-                    e,
-                    is_err,
-                )
-                .map_errors(EventWidthError::from)
+                LogResult::<_, _, _, _, _, Nothing<_>>::new_fungible(total_events, (), e, is_err)
+                    .map_errors(EventWidthError::from)
             } else {
                 LogResult::new_ok(total_events)
             }
@@ -3125,7 +3116,7 @@ impl FromRange for NullMixedType {
                         let f = Self::F64(FloatRange::new(m));
                         LogResult::new_deferred_fungible(f, e, disallow_trunc)
                     },
-                    LogResult::<_, _, _, _, Identity<_>, Vec<_>>::new_ok,
+                    LogResult::<_, _, _, _, _, Vec<_>>::new_ok,
                 );
             res.map_cmt_fung_errors(AnyRangeError::from)
         }
@@ -3302,7 +3293,7 @@ impl<T> AnyOrderedUintLayout<T> {
             cs.iter()
                 .map(|c| c.width)
                 .map(Bytes::try_from)
-                .map(Result::into_log::<_, _, Identity<_>, Vec<_>>)
+                .map(Result::into_log::<_, _, Vec<_>>)
                 .mappend_cmt()
                 .map_errors(SingleFixedWidthError::from)
                 .and_then_cmt(|widths| {
@@ -3906,7 +3897,7 @@ impl<T> AnyOrderedLayout<T> {
                 $i.phantom_into()
                     .byte_layout_try_into()
                     .map(NonMixedEndianLayout::from)
-                    .into_log::<_, _, Identity<_>, Vec<_>>()
+                    .into_log::<_, _, Vec<_>>()
             };
         }
         let res = match self {

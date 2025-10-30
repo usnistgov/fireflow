@@ -290,7 +290,7 @@ where
 {
     let conf = &st.conf.as_ref();
     let vers_res = Version::h_read(h)
-        .into_nowarn1::<Identity<_>>()
+        .into_nowarn1()
         .map_errors(|e| e.map_inner(HeaderError::Version))
         .repack();
     let space_res = h_read_spaces(h).into_nowarn1().repack();
@@ -371,11 +371,11 @@ where
                 buf.clear();
                 h.take(u64::from(w))
                     .read_to_end(buf)
-                    .into_io_log::<_, _, _, _, Vec<_>>()
+                    .into_io_log::<_, _, _, Vec<_>>()
             };
             let res0 = readbuf(&mut buf0);
             let res1 = readbuf(&mut buf1);
-            res0.zip_cmt(res1).and_then_cmt(|_| {
+            res0.zip_cmt(res1).and_then_nowarn(|_| {
                 // If any regions are entirely blank, just ignore them
                 if buf0.iter().chain(buf1.iter()).all(|x| *x == 32) {
                     LogResult::new_ok(None)

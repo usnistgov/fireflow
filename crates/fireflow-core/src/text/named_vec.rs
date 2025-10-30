@@ -4,7 +4,7 @@ use crate::logging::{
     Semigroup,
 };
 use crate::text::optional::MightHave;
-use crate::type_families::{Applicative, Comonad, Functor, Sibling1};
+use crate::type_families::{Applicative, Functor, Sibling1};
 use crate::validated::shortname::Shortname;
 
 use super::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
@@ -357,7 +357,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                 .enumerate()
                 .map(|(i, x)| {
                     x.both(
-                        |_| LogResult::<_, _, _, _, Identity<_>, Vec<_>>::new_err1(i),
+                        |_| LogResult::<_, _, _, _, _, Vec<_>>::new_err1(i),
                         LogResult::new_ok,
                     )
                 })
@@ -483,7 +483,7 @@ impl<K, U, V> NamedVec<K, U, V> {
 
     /// Apply function over center value, possibly changing it's type
     #[allow(clippy::type_complexity)]
-    pub(crate) fn map_center_value<F, X, Y, E, LWC, RWC, EC0, ECn>(
+    pub(crate) fn map_center_value<F, X, Y, LWC, RWC, E, EC>(
         self,
         f: F,
     ) -> LogResult<
@@ -491,13 +491,12 @@ impl<K, U, V> NamedVec<K, U, V> {
         Y,
         LWC,
         RWC,
-        Sibling1<EC0, IndexedElementError<E>>,
-        Sibling1<ECn, IndexedElementError<E>>,
+        IndexedElementError<E>,
+        Sibling1<EC, IndexedElementError<E>>,
     >
     where
-        F: Fn(IndexedElement<&Shortname, U>) -> LogResult<X, Y, LWC, RWC, EC0, ECn>,
-        EC0: Functor<E>,
-        ECn: Functor<E>,
+        F: Fn(IndexedElement<&Shortname, U>) -> LogResult<X, Y, LWC, RWC, E, EC>,
+        EC: Functor<E>,
         LWC: Default,
     {
         match self {
@@ -518,23 +517,15 @@ impl<K, U, V> NamedVec<K, U, V> {
 
     /// Apply function over non-center values, possibly changing their type
     #[allow(clippy::type_complexity)]
-    pub(crate) fn map_non_center_values<F, Vf, WC, E, EC0, ECn>(
+    pub(crate) fn map_non_center_values<F, Vf, WC, E, EC>(
         self,
         f: F,
-    ) -> CmtResult<
-        NamedVec<K, U, Vf>,
-        (),
-        WC,
-        Sibling1<EC0, IndexedElementError<E>>,
-        Vec<IndexedElementError<E>>,
-    >
+    ) -> CmtResult<NamedVec<K, U, Vf>, (), WC, IndexedElementError<E>, Vec<IndexedElementError<E>>>
     where
-        F: Fn(MeasIndex, V) -> CmtResult<Vf, (), WC, EC0, ECn>,
+        F: Fn(MeasIndex, V) -> CmtResult<Vf, (), WC, E, EC>,
         WC: Default + Semigroup,
-        EC0: Functor<E>,
-        ECn: Functor<E>,
-        Sibling1<EC0, IndexedElementError<E>>: Comonad<IndexedElementError<E>>,
-        Sibling1<ECn, IndexedElementError<E>>: IntoIterator<Item = IndexedElementError<E>>
+        EC: Functor<E>,
+        Sibling1<EC, IndexedElementError<E>>: IntoIterator<Item = IndexedElementError<E>>
             + Extend<IndexedElementError<E>>
             + IntoNewCardinality<Vec<IndexedElementError<E>>>,
     {
@@ -1094,17 +1085,16 @@ impl<K, U, V> NamedVec<K, U, V> {
     }
 
     /// Replace any value with a center value with name.
-    pub(crate) fn replace_center_by_name<F, E, LWC, RWC, EC0, ECn>(
+    pub(crate) fn replace_center_by_name<F, LWC, RWC, E, EC>(
         &mut self,
         n: &Shortname,
         value: U,
         to_v: F,
-    ) -> LogResult<Element<U, V>, (), LWC, RWC, EC0, ECn>
+    ) -> LogResult<Element<U, V>, (), LWC, RWC, E, EC>
     where
-        F: FnOnce(MeasIndex, U) -> LogResult<V, Box<U>, LWC, RWC, EC0, ECn>,
+        F: FnOnce(MeasIndex, U) -> LogResult<V, Box<U>, LWC, RWC, E, EC>,
         E: From<KeyNotFoundError>,
-        EC0: Applicative<E>,
-        ECn: Default,
+        EC: Default,
         LWC: Default,
         RWC: Default,
         K: MightHave<Shortname>,
@@ -1141,19 +1131,18 @@ impl<K, U, V> NamedVec<K, U, V> {
     /// Fail if name at index to be converted is blank or
     /// if the previous center value cannot be converted back to a non-center
     /// value.
-    pub(crate) fn replace_center_at<F, LWC, RWC, E, EC0, ECn>(
+    pub(crate) fn replace_center_at<F, LWC, RWC, E, EC>(
         &mut self,
         index: MeasIndex,
         value: U,
         to_v: F,
-    ) -> LogResult<Element<U, V>, (), LWC, RWC, EC0, ECn>
+    ) -> LogResult<Element<U, V>, (), LWC, RWC, E, EC>
     where
-        F: FnOnce(MeasIndex, U) -> LogResult<V, Box<U>, LWC, RWC, EC0, ECn>,
+        F: FnOnce(MeasIndex, U) -> LogResult<V, Box<U>, LWC, RWC, E, EC>,
         E: From<SetCenterError>,
         LWC: Default,
         RWC: Default,
-        EC0: Applicative<E>,
-        ECn: Default,
+        EC: Default,
         K: MightHave<Shortname>,
     {
         self.get_index_if_named(index)
@@ -1182,11 +1171,8 @@ impl<K, U, V> NamedVec<K, U, V> {
         F: FnOnce(MeasIndex, U) -> V,
         K: MightHave<Shortname>,
     {
-        let go = |j, u| {
-            LogResult::<_, _, _, _, Identity<Infallible>, Nothing<Infallible>>::new_ok(to_v(
-                j, u,
-            ))
-        };
+        let go =
+            |j, u| LogResult::<_, _, _, _, Infallible, Nothing<Infallible>>::new_ok(to_v(j, u));
 
         self.get_index_if_named(index).map(|i| {
             let res = self.replace_center_at_inner(i.into(), value, go);
@@ -1214,14 +1200,14 @@ impl<K, U, V> NamedVec<K, U, V> {
             .collect()
     }
 
-    fn replace_center_at_inner<F, LWC, RWC, EC0, ECn>(
+    fn replace_center_at_inner<F, LWC, RWC, E, EC>(
         &mut self,
         index: MeasIndex,
         value: U,
         to_v: F,
-    ) -> LogResult<Element<U, V>, (), LWC, RWC, EC0, ECn>
+    ) -> LogResult<Element<U, V>, (), LWC, RWC, E, EC>
     where
-        F: FnOnce(MeasIndex, U) -> LogResult<V, Box<U>, LWC, RWC, EC0, ECn>,
+        F: FnOnce(MeasIndex, U) -> LogResult<V, Box<U>, LWC, RWC, E, EC>,
         LWC: Default,
         K: MightHave<Shortname>,
     {
@@ -1271,18 +1257,17 @@ impl<K, U, V> NamedVec<K, U, V> {
     }
 
     /// Set center to be the element with name if it exists.
-    pub(crate) fn set_center_by_name<Fswap, FtoU, E, LWC, RWC, EC0, ECn>(
+    pub(crate) fn set_center_by_name<Fswap, FtoU, LWC, RWC, E, EC>(
         &mut self,
         n: &Shortname,
         swap: Fswap,
         to_u: FtoU,
-    ) -> LogResult<bool, (), LWC, RWC, EC0, ECn>
+    ) -> LogResult<bool, (), LWC, RWC, E, EC>
     where
-        Fswap: FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, LWC, RWC, EC0, ECn>,
-        FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, LWC, RWC, EC0, ECn>,
+        Fswap: FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, LWC, RWC, E, EC>,
+        FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, LWC, RWC, E, EC>,
         E: From<KeyNotFoundError>,
-        EC0: Applicative<E>,
-        ECn: Default,
+        EC: Default,
         LWC: Default,
         RWC: Default,
         K: MightHave<Shortname>,
@@ -1294,18 +1279,17 @@ impl<K, U, V> NamedVec<K, U, V> {
     }
 
     /// Set center to be the element with index if it exists.
-    pub(crate) fn set_center_by_index<Fswap, FtoU, E, LWC, RWC, EC0, ECn>(
+    pub(crate) fn set_center_by_index<Fswap, FtoU, LWC, RWC, E, EC>(
         &mut self,
         index: MeasIndex,
         swap: Fswap,
         to_u: FtoU,
-    ) -> LogResult<bool, (), LWC, RWC, EC0, ECn>
+    ) -> LogResult<bool, (), LWC, RWC, E, EC>
     where
-        Fswap: FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, LWC, RWC, EC0, ECn>,
-        FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, LWC, RWC, EC0, ECn>,
+        Fswap: FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, LWC, RWC, E, EC>,
+        FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, LWC, RWC, E, EC>,
         E: From<SetCenterError>,
-        EC0: Applicative<E>,
-        ECn: Default,
+        EC: Default,
         RWC: Default,
         LWC: Default,
         K: MightHave<Shortname>,
@@ -1316,17 +1300,16 @@ impl<K, U, V> NamedVec<K, U, V> {
             .and_then_nowarn(|i| self.set_center_by_index_inner(i, swap, to_u))
     }
 
-    fn set_center_by_index_inner<Fswap, FtoU, E, LWC, RWC, EC0, ECn>(
+    fn set_center_by_index_inner<Fswap, FtoU, LWC, RWC, E, EC>(
         &mut self,
         index: usize,
         swap: Fswap,
         to_u: FtoU,
-    ) -> LogResult<bool, (), LWC, RWC, EC0, ECn>
+    ) -> LogResult<bool, (), LWC, RWC, E, EC>
     where
-        Fswap: FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, LWC, RWC, EC0, ECn>,
-        FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, LWC, RWC, EC0, ECn>,
-        EC0: Applicative<E>,
-        ECn: Default,
+        Fswap: FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, LWC, RWC, E, EC>,
+        FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, LWC, RWC, E, EC>,
+        EC: Default,
         RWC: Default,
         LWC: Default,
         K: MightHave<Shortname>,
@@ -1392,12 +1375,12 @@ impl<K, U, V> NamedVec<K, U, V> {
     /// Has no effect if there already is no center element.
     ///
     /// Return old center element if vector is updated.
-    pub(crate) fn unset_center<F, X, LWC, RWC, EC0, ECn>(
+    pub(crate) fn unset_center<F, X, LWC, RWC, E, EC>(
         &mut self,
         to_v: F,
-    ) -> LogResult<Option<X>, (), LWC, RWC, EC0, ECn>
+    ) -> LogResult<Option<X>, (), LWC, RWC, E, EC>
     where
-        F: FnOnce(MeasIndex, U) -> LogResult<(V, X), Box<U>, LWC, RWC, EC0, ECn>,
+        F: FnOnce(MeasIndex, U) -> LogResult<(V, X), Box<U>, LWC, RWC, E, EC>,
         LWC: Default,
         K: Applicative<Shortname>,
     {

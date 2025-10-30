@@ -822,7 +822,7 @@ fn split_first_delim<'a>(
         } else {
             let e = DelimCharError(*delim);
             let is_err = !conf.allow_non_ascii_delim;
-            LogResult::<_, _, _, _, Identity<_>, Nothing<_>>::new_fungible(x, (), e, is_err)
+            LogResult::<_, _, _, _, _, Nothing<_>>::new_fungible(x, (), e, is_err)
                 .map_errors(DelimVerifyError::from)
         }
     } else {
@@ -1100,7 +1100,7 @@ where
             .recover_with(
                 |(), es| {
                     let is_err = !conf.allow_missing_supp_text;
-                    LogResult::<_, _, Vec<_>, _, Identity<_>, Vec<_>>::new_ok(None)
+                    LogResult::<_, _, Vec<_>, _, _, Vec<_>>::new_ok(None)
                         .extend_deferred_fungible_errors(es, is_err)
                         .map_errors(STextSegmentError::from)
                         .map_cmt_warnings(STextSegmentWarning::from)
@@ -1121,7 +1121,7 @@ where
         x.map_or(LogResult::new_ok(None), |seg| {
             if seg.same_coords(&text_segment) {
                 let is_err = !conf.allow_duplicated_supp_text;
-                LogResult::<_, _, _, _, Identity<_>, Vec<_>>::new_deferred_fungible(
+                LogResult::<_, _, _, _, _, Vec<_>>::new_deferred_fungible(
                     None,
                     DuplicatedSuppTEXT,
                     is_err,

@@ -194,13 +194,11 @@ where
         kws: &StdKeywords,
         conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> RecoverableErrorsResult<TEXTSegment<Self>, ReqSegmentError> {
-        Self::get_pair(kws)
-            .errors_into()
-            .and_then_cmt(|(y0, y1)| {
-                Segment::try_new(y0, y1, conf)
-                    .map_err(Into::into)
-                    .into_log()
-            })
+        Self::get_pair(kws).errors_into().and_then_cmt(|(y0, y1)| {
+            Segment::try_new(y0, y1, conf)
+                .map_err(Into::into)
+                .into_log()
+        })
     }
 
     fn remove_or(
@@ -261,15 +259,10 @@ where
             |other| {
                 let (seg, warn) = default.unless(other);
                 warn.map_or(LogResult::new_ok(seg), |w| {
-                    LogResult::<_, _, _, _, Identity<_>, Vec<_>>::new_fungible(
-                        seg,
-                        (),
-                        w,
-                        !allow_mismatch,
-                    )
-                    .non_cmt_into_cmt()
-                    .map_cmt_warnings(ReqSegmentWithDefaultWarning::from)
-                    .map_errors(ReqSegmentWithDefaultError::from)
+                    LogResult::<_, _, _, _, _, Vec<_>>::new_fungible(seg, (), w, !allow_mismatch)
+                        .non_cmt_into_cmt()
+                        .map_cmt_warnings(ReqSegmentWithDefaultWarning::from)
+                        .map_errors(ReqSegmentWithDefaultError::from)
                 })
             },
         )
@@ -330,16 +323,14 @@ where
         kws: &StdKeywords,
         conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> RecoverableErrorsResult<Option<TEXTSegment<Self>>, OptSegmentError> {
-        Self::get_pair(kws)
-            .errors_into()
-            .and_then_cmt(|pair| {
-                pair.map(|(z0, z1)| {
-                    Segment::try_new(z0, z1, conf)
-                        .map_err(OptSegmentError::from)
-                        .into_log()
-                })
-                .transpose_log_result()
+        Self::get_pair(kws).errors_into().and_then_cmt(|pair| {
+            pair.map(|(z0, z1)| {
+                Segment::try_new(z0, z1, conf)
+                    .map_err(OptSegmentError::from)
+                    .into_log()
             })
+            .transpose_log_result()
+        })
     }
 
     fn remove_or(
@@ -366,16 +357,14 @@ where
         kws: &mut StdKeywords,
         conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> RecoverableErrorsResult<Option<TEXTSegment<Self>>, OptSegmentError> {
-        Self::remove_pair(kws)
-            .errors_into()
-            .and_then_cmt(|pair| {
-                pair.map(|(z0, z1)| {
-                    Segment::try_new(z0, z1, conf)
-                        .map_err(Into::into)
-                        .into_log()
-                })
-                .transpose_log_result()
+        Self::remove_pair(kws).errors_into().and_then_cmt(|pair| {
+            pair.map(|(z0, z1)| {
+                Segment::try_new(z0, z1, conf)
+                    .map_err(Into::into)
+                    .into_log()
             })
+            .transpose_log_result()
+        })
     }
 
     fn default_or(

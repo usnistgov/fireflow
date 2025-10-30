@@ -28,7 +28,6 @@ use super::keywords::{
     WavelengthsError,
 };
 use super::named_vec::{NameMapping, NewNamedVecError};
-use super::optional::Identity;
 use super::ranged_float::RangedFloatError;
 use super::scale::{Scale, ScaleError};
 use super::spillover::{ParseSpilloverError, SpilloverIndexError};
@@ -431,9 +430,7 @@ where
                 maybe.map_or(LogResult::new_ok(None), |x| {
                     Self::check_link(&x, names)
                         .map(|()| x)
-                        .into_deferred_fungible_opt::<Identity<_>, Vec<_>>(
-                            !conf.allow_optional_dropping,
-                        )
+                        .into_deferred_fungible_opt::<Vec<_>>(!conf.allow_optional_dropping)
                         .cmt_fung_errors_into()
                 })
             })
@@ -460,7 +457,7 @@ where
 {
     parse_opt(k.clone(), v)
         .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
-        .into_deferred_fungible_opt::<Identity<_>, Vec<_>>(!conf.allow_optional_dropping)
+        .into_deferred_fungible_opt::<Vec<_>>(!conf.allow_optional_dropping)
         .cmt_fung_errors_into()
         .eval_deferred_fungible_error(!conf.disallow_deprecated, |val| {
             (is_deprecated && val.is_some()).then_some(DeprecatedError::Key(DepKeyWarning(k)))
@@ -488,7 +485,7 @@ where
 {
     parse_opt_st(k.clone(), v, data, conf)
         .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
-        .into_deferred_fungible_opt::<Identity<_>, Vec<_>>(!conf.allow_optional_dropping)
+        .into_deferred_fungible_opt::<Vec<_>>(!conf.allow_optional_dropping)
         .cmt_fung_errors_into()
         .eval_deferred_fungible_error(!conf.disallow_deprecated, |val| {
             (is_deprecated && val.is_some()).then_some(DeprecatedError::Key(DepKeyWarning(k)))

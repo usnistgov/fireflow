@@ -1,9 +1,9 @@
 use crate::config::StdTextReadConfig;
-use crate::error::ResultExt as _;
 use crate::text::parser::{FromStrDelim, FromStrStateful};
 use crate::text::ranged_float::PositiveFloat;
 
 use derive_more::Display;
+use derive_new::new;
 use num_traits::identities::One as _;
 use std::num::ParseFloatError;
 use std::str::FromStr;
@@ -27,7 +27,7 @@ pub enum Scale {
     Log(LogScale),
 }
 
-#[derive(Clone, Copy, PartialEq, Debug, Display)]
+#[derive(Clone, Copy, PartialEq, Debug, Display, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[display("{decades},{offset}")]
 pub struct LogScale {
@@ -46,13 +46,13 @@ impl TryFrom<(f32, f32)> for LogScale {
 
     fn try_from(value: (f32, f32)) -> Result<Self, Self::Error> {
         let (d0, o0) = value;
-        PositiveFloat::try_from(d0)
-            .zip(PositiveFloat::try_from(o0))
-            .map(|(decades, offset)| Self { decades, offset })
-            .map_err(|_| LogRangeError {
-                decades: d0,
-                offset: o0,
-            })
+        if let (Ok(decades), Ok(offset)) =
+            (PositiveFloat::try_from(d0), PositiveFloat::try_from(o0))
+        {
+            Ok(Self::new(decades, offset))
+        } else {
+            Err(LogRangeError::new(d0, o0))
+        }
     }
 }
 
@@ -118,7 +118,7 @@ pub enum ScaleError {
     WrongFormat,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, new)]
 #[error("decades/offset must both be positive, got '{decades},{offset}'")]
 pub struct LogRangeError {
     decades: f32,

@@ -1,5 +1,4 @@
 use crate::config::StdTextReadConfig;
-use crate::error::ErrorIter as _;
 use crate::validated::shortname::Shortname;
 
 use super::index::MeasIndex;
@@ -80,16 +79,22 @@ impl GenericSpillover<MeasIndex> {
         self,
         names: &[&Shortname],
     ) -> Result<Spillover, SpilloverIndexError> {
-        let ms = self
-            .measurements
-            .into_iter()
-            .map(|i| names.get(usize::from(i)).ok_or(i).map(|&x| x.clone()))
-            .gather()
-            .map_err(SpilloverIndexError)?;
-        Ok(Spillover {
-            measurements: ms,
-            matrix: self.matrix,
-        })
+        let mut it = self.measurements.into_iter();
+        let mut ms = vec![];
+        let mut missing = None;
+        for i in it.by_ref() {
+            if let Some(&n) = names.get(usize::from(i)) {
+                ms.push(n.clone());
+            } else {
+                missing = Some(i);
+                break;
+            }
+        }
+        if let Some(i) = missing {
+            let es = NonEmpty::from((i, it.collect::<Vec<_>>()));
+            return Err(SpilloverIndexError(es));
+        }
+        Ok(Spillover::new(ms, self.matrix))
     }
 }
 

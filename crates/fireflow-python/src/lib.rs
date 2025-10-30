@@ -54,7 +54,6 @@
 //!   and can't cause compile errors. This is also almost-necessary since the
 //!   internal proc-macro code has rendering logic for sphinx rst syntax, which
 //!   would be a pain to keep in sync at the macro call level.
-
 use fireflow_core::api;
 use fireflow_core::config as cfg;
 use fireflow_core::core;
@@ -63,11 +62,7 @@ use fireflow_core::data::{
     DataLayout3_0, DataLayout3_1, DataLayout3_2, DelimAsciiLayout, EndianLayout, F32Range,
     F64Range, FixedAsciiLayout, KnownTot, LayoutOps as _, NoMeasDatatype, NonMixedEndianLayout,
 };
-use fireflow_core::error::{MultiResultExt as _, ResultExt as _};
 use fireflow_core::header;
-use fireflow_core::python::exceptions::{
-    PyTerminalNoErrorResultExt as _, PyTerminalNoWarnResultExt as _, PyTerminalResultExt as _,
-};
 use fireflow_core::text::gating::{
     AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, BivariateRegion, GatedMeasurement,
     GatingScheme, Region, UnivariateRegion,
@@ -75,11 +70,9 @@ use fireflow_core::text::gating::{
 use fireflow_core::text::index::{GateIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::Eithers;
-use fireflow_core::text::optional::MightHave;
 use fireflow_core::text::parser;
 use fireflow_core::validated::ascii_uint::UintSpacePad20;
 use fireflow_core::validated::keys;
-use fireflow_core::validated::shortname::Shortname;
 
 use fireflow_python_proc::def_fcs_read_std_dataset_with_keywords;
 use fireflow_python_proc::{
@@ -489,12 +482,11 @@ impl_new_gate_bi_regions!(BivariateRegion<kws::MeasOrGateIndex>);
 // Implement __new__ and attributes for PyBivariate3_2
 impl_new_gate_bi_regions!(BivariateRegion<kws::PrefixedMeasIndex>);
 
-struct PyEithers<K: MightHave, U, V>(Eithers<K, U, V>);
+struct PyEithers<K, U, V>(Eithers<K, U, V>);
 
 impl<'py, K, U, V> FromPyObject<'py> for PyEithers<K, U, V>
 where
-    K: MightHave,
-    K::Wrapper<Shortname>: FromPyObject<'py>,
+    K: FromPyObject<'py>,
     U: FromPyObject<'py>,
     V: FromPyObject<'py>,
 {
@@ -506,7 +498,6 @@ where
 
 impl<K, U, V, X, Y> From<PyEithers<K, U, V>> for Eithers<K, X, Y>
 where
-    K: MightHave,
     X: From<U>,
     Y: From<V>,
 {

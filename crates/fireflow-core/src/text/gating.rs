@@ -1,7 +1,5 @@
 use crate::config::StdTextReadConfig;
-use crate::error::{
-    BiDeferredResult, DeferredExt as _, PassthruExt as _, ResultExt as _, Tentative,
-};
+use crate::logging::{DeferredFungibleErrors, DeferredIter as _, LogResult, ResultExt as _};
 use crate::nonempty::FCSNonEmpty;
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keywords::{
@@ -300,10 +298,10 @@ impl AppliedGates2_0 {
             conf,
         );
         let gm = GatedMeasurements::lookup(kws, false, conf);
-        ag.zip(gm).and_tentatively(|(scheme, gated_measurements)| {
+        ag.zip_def(gm).and_then_def(|(scheme, gated_measurements)| {
             Self::try_new(gated_measurements.0, scheme)
-                .into_tentative_def(!conf.allow_optional_dropping)
-                .inner_into()
+                .into_deferred_fungible::<Vec<_>>(!conf.allow_optional_dropping)
+                .cmt_fung_errors_into()
         })
     }
 
@@ -412,10 +410,10 @@ impl AppliedGates3_0 {
     {
         let s = lookup_scheme(kws);
         let ms = lookup_meas(kws);
-        s.zip(ms).and_tentatively(|(scheme, gated_measurements)| {
+        s.zip_def(ms).and_then_def(|(scheme, gated_measurements)| {
             Self::try_new(gated_measurements.0, scheme)
-                .into_tentative_warn_def()
-                .warnings_into()
+                .into_succ::<_, _, Vec<_>, _, _>()
+                .cmt_warnings_into()
         })
     }
 
@@ -434,7 +432,7 @@ impl AppliedGates3_0 {
     pub(crate) fn try_into_2_0(
         self,
         allow_loss: bool,
-    ) -> BiDeferredResult<AppliedGates2_0, AppliedGates3_0To2_0Error> {
+    ) -> DeferredFungibleErrors<AppliedGates2_0, AppliedGates3_0To2_0Error> {
         // ASSUME region indices will still be unique in new hash table
         let (regions, es): (HashMap<_, _>, Vec<_>) = self
             .scheme
@@ -442,21 +440,27 @@ impl AppliedGates3_0 {
             .into_iter()
             .map(|(ri, r)| r.try_map(TryInto::try_into).map(|x| (ri, x)))
             .partition_result();
-        let mut res = GatingScheme::try_new(self.scheme.gating, regions)
-            .into_deferred()
-            .def_and_maybe(|scheme| {
-                AppliedGates2_0::try_new(self.gated_measurements.0, scheme).into_deferred()
-            });
-        for e in es {
-            res.def_push_error_or_warning(AppliedGates3_0To2_0Error::Index(e), !allow_loss);
-        }
-        res
+        // TODO this should be an error based on if we want to drop optional
+        // keywords
+        GatingScheme::try_new(self.scheme.gating, regions)
+            .into_succ_opt::<_, _, Vec<_>, _, _>()
+            .cmt_warnings_into()
+            .and_then_def(|scheme| match scheme {
+                Some(s) => AppliedGates2_0::try_new(self.gated_measurements.0, s)
+                    .into_deferred_fungible::<Vec<_>>(true)
+                    .cmt_fung_errors_into(),
+                None => LogResult::new_ok_def(),
+            })
+            .extend_deferred_fungible_errors(
+                es.into_iter().map(AppliedGates3_0To2_0Error::Index),
+                !allow_loss,
+            )
     }
 
     pub(crate) fn try_into_3_2(
         self,
         allow_loss: bool,
-    ) -> BiDeferredResult<AppliedGates3_2, AppliedGates3_0To3_2Error> {
+    ) -> DeferredFungibleErrors<AppliedGates3_2, AppliedGates3_0To3_2Error> {
         // ASSUME region indices will still be unique in new hash table
         let (regions, es): (HashMap<_, _>, Vec<_>) = self
             .scheme
@@ -464,18 +468,17 @@ impl AppliedGates3_0 {
             .into_iter()
             .map(|(ri, r)| r.try_map(TryInto::try_into).map(|x| (ri, x)))
             .partition_result();
-        let mut res = AppliedGates3_2::try_new(self.scheme.gating, regions).into_deferred();
-        for e in es {
-            res.def_push_error_or_warning(AppliedGates3_0To3_2Error::Index(e), !allow_loss);
-        }
-        let n_gates = self.gated_measurements.0.len();
-        if n_gates > 0 {
-            res.def_push_error_or_warning(
-                AppliedGates3_0To3_2Error::HasGates(n_gates),
+        AppliedGates3_2::try_new(self.scheme.gating, regions)
+            .into_deferred_fungible::<Vec<_>>(true)
+            .cmt_fung_errors_into()
+            .extend_deferred_fungible_errors(
+                es.into_iter().map(AppliedGates3_0To3_2Error::Index),
                 !allow_loss,
-            );
-        }
-        res
+            )
+            .eval_deferred_fungible_error(!allow_loss, |_| {
+                let n_gates = self.gated_measurements.0.len();
+                (n_gates > 0).then_some(AppliedGates3_0To3_2Error::HasGates(n_gates))
+            })
     }
 }
 
@@ -522,7 +525,7 @@ impl AppliedGates3_2 {
             |k, i| Region::lookup(k, i, par, false, conf),
             conf,
         )
-        .map(Self)
+        .map_def_value(Self)
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -583,9 +586,9 @@ impl GatedMeasurement {
         let det_type = lookup_det_type(kws, i);
         let det_volt = lookup_det_volt(kws, i);
         scale
-            .zip4(filter, shortname, perc_emit)
-            .zip5(rng, longname, det_type, det_volt)
-            .map(|((e, f, n, p), r, s, t, v)| Self::new(e, f, n, p, r, s, t, v))
+            .zip4_def(filter, shortname, perc_emit)
+            .zip5_def(rng, longname, det_type, det_volt)
+            .map_def_value(|((e, f, n, p), r, s, t, v)| Self::new(e, f, n, p, r, s, t, v))
     }
 
     pub(crate) fn opt_keywords(&self, i: GateIndex) -> impl Iterator<Item = (String, String)> {
@@ -674,22 +677,20 @@ impl<I> GatingScheme<I> {
         F0: Fn(&mut StdKeywords) -> LookupOptional<Gating>,
         F1: Fn(&mut StdKeywords, RegionIndex) -> LookupOptional<Region<I>>,
     {
-        lookup_gating(kws).and_tentatively(|gating| {
+        lookup_gating(kws).and_then_def(|gating| {
             gating
                 .as_ref()
-                .map(|g| {
-                    Tentative::mconcat(
-                        g.region_indices()
-                            .into_iter()
-                            .map(|ri| lookup_region(kws, ri).map(|x| x.map(|y| (ri, y)))),
-                    )
+                .map_or(LogResult::new_ok_def(), |g| {
+                    g.region_indices()
+                        .into_iter()
+                        .map(|ri| lookup_region(kws, ri).map_def_value(|x| x.map(|y| (ri, y))))
+                        .mappend_def()
                 })
-                .unwrap_or_default()
-                .and_tentatively(|rs| {
+                .and_then_def(|rs| {
                     let regions = rs.into_iter().flatten().collect();
                     Self::try_new(gating, regions)
-                        .into_tentative_def(!conf.allow_optional_dropping)
-                        .inner_into()
+                        .into_deferred_fungible::<Vec<_>>(!conf.allow_optional_dropping)
+                        .cmt_fung_errors_into()
                 })
         })
     }
@@ -767,15 +768,15 @@ impl<I> Region<I> {
     {
         let n = lookup_index(kws, i);
         let w = lookup_window(kws, i.into());
-        n.zip(w)
-            .and_tentatively(|(n_, y_)| {
+        n.zip_def(w)
+            .and_then_def(|(n_, y_)| {
                 n_.zip(y_)
                     .and_then(|(gi, win)| Self::try_new(gi, win).map(Self::inner_into))
                     .ok_or(MismatchedIndexAndWindowError)
-                    .into_tentative_opt(!conf.allow_optional_dropping)
-                    .inner_into()
+                    .into_deferred_fungible_opt::<Vec<_>>(!conf.allow_optional_dropping)
+                    .cmt_fung_errors_into()
             })
-            .value_into()
+            .map_ok_value(Into::into)
     }
 
     pub(crate) fn opt_keywords(&self, i: RegionIndex) -> impl Iterator<Item = (String, String)>
@@ -914,13 +915,15 @@ impl GatedMeasurements {
         is_deprecated: bool,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self> {
-        Gate::lookup_metaroot_opt(kws, is_deprecated, conf).and_tentatively(|maybe| {
+        Gate::lookup_metaroot_opt(kws, is_deprecated, conf).and_then_def(|maybe| {
             if let Some(n) = maybe {
-                let xs =
-                    (0..n.0).map(|i| GatedMeasurement::lookup(kws, i.into(), is_deprecated, conf));
-                return Tentative::mconcat(xs).map(Self);
+                (0..n.0)
+                    .map(|i| GatedMeasurement::lookup(kws, i.into(), is_deprecated, conf))
+                    .mappend_def()
+                    .map_def_value(Self)
+            } else {
+                LogResult::new_ok_def()
             }
-            Tentative::default()
         })
     }
 }

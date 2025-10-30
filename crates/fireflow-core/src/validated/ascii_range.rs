@@ -1,6 +1,6 @@
 //! Types representing $PnR/$PnB keys for an Ascii column.
 
-use crate::error::{DeferredExt as _, DeferredResult, ResultExt as _};
+use crate::logging::{ResultExt as _, WarningsAndErrorsResult};
 use crate::text::byteord::{Width, WidthToCharsError};
 use crate::text::keywords::{IntRangeError, Range};
 
@@ -89,15 +89,20 @@ impl AsciiRange {
         width: Width,
         range: Range,
         disallow_trunc: bool,
-    ) -> DeferredResult<Self, IntRangeError<()>, NewAsciiRangeError> {
-        Chars::try_from(width)
-            .into_deferred()
-            .def_and_maybe(|chars| {
-                range
-                    .into_uint(disallow_trunc)
-                    .inner_into()
-                    .and_maybe(|value| Self::try_new(value, chars).into_deferred())
-            })
+    ) -> WarningsAndErrorsResult<Self, (), IntRangeError<()>, NewAsciiRangeError> {
+        let rng_res = range
+            .into_uint(disallow_trunc)
+            .map_errors(NewAsciiRangeError::from)
+            .set_err_value(())
+            .repack::<_, _, Vec<_>>();
+        let chars_res = Chars::try_from(width)
+            .map_err(NewAsciiRangeError::from)
+            .into_log();
+        rng_res.zip_cmt(chars_res).and_then_cmt(|(rng, chars)| {
+            Self::try_new(rng, chars)
+                .map_err(NewAsciiRangeError::from)
+                .into_log()
+        })
     }
 
     pub(crate) fn chars(&self) -> Chars {

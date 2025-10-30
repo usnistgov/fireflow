@@ -1,5 +1,5 @@
 use crate::config::StdTextReadConfig;
-use crate::error::{ResultExt as _, Tentative};
+use crate::logging::{LogResult, ResultExt as _};
 use crate::validated::keys::{BiIndexedKey as _, StdKey, StdKeywords};
 
 use super::index::MeasIndex;
@@ -63,18 +63,17 @@ impl Compensation2_0 {
                 }
             })
             .unzip();
-        let mut tnt = if xs.iter().all(Option::is_none) || xs.is_empty() {
-            Tentative::default()
+        let res = if xs.iter().all(Option::is_none) || xs.is_empty() {
+            LogResult::new_ok(None)
         } else {
             let ys = xs.into_iter().map(|x| x.unwrap_or(0.0));
             let matrix = DMatrix::from_row_iterator(n, n, ys);
             Compensation::try_from(matrix)
                 .map(|x| Some(Self(x)))
                 .map_err(LookupKeysWarning::Comp)
-                .into_tentative_def(is_err)
+                .into_deferred_fungible(is_err)
         };
-        tnt.extend_errors_or_warnings(warnings.into_iter().flatten(), is_err);
-        tnt
+        res.extend_deferred_fungible_errors(warnings.into_iter().flatten(), is_err)
     }
 
     #[must_use]

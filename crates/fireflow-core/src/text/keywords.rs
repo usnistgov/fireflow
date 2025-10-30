@@ -1,5 +1,5 @@
 use crate::config::StdTextReadConfig;
-use crate::error::{BiTentative, PassthruExt as _, ResultExt as _, Tentative};
+use crate::logging::{DeferredFungibleError, LogResult, ResultExt as _};
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
 use crate::validated::ascii_uint::UintZeroPad20;
@@ -78,12 +78,15 @@ impl Default for Timestep {
 }
 
 impl Timestep {
-    pub(crate) fn check_conversion(self, allow_loss: bool) -> BiTentative<(), TimestepLossError> {
-        let mut tnt = Tentative::default();
-        if !self.0.is_one() {
-            tnt.push_error_or_warning(TimestepLossError(self), !allow_loss);
+    pub(crate) fn check_conversion(
+        self,
+        allow_loss: bool,
+    ) -> DeferredFungibleError<(), TimestepLossError> {
+        if self.0.is_one() {
+            LogResult::new_ok(())
+        } else {
+            LogResult::new_deferred_fungible((), TimestepLossError(self), !allow_loss)
         }
-        tnt
     }
 }
 
@@ -319,7 +322,7 @@ pub enum AlphaNumType {
 impl AlphaNumType {
     pub(crate) fn lookup_req_check_ascii(kws: &mut StdKeywords) -> LookupResult<Self> {
         let mut d = Self::lookup_req(kws);
-        d.def_eval_warning(|v| check_datatype_ascii(*v));
+        d.eval_warning(|v| check_datatype_ascii(*v));
         d
     }
 }
@@ -551,14 +554,15 @@ impl Wavelengths {
     pub(crate) fn into_wavelength(
         self,
         allow_loss: bool,
-    ) -> Tentative<Option<Wavelength>, WavelengthsLossError, WavelengthsLossError> {
-        NonEmpty::from_vec(self.0).map_or(Tentative::default(), |ws| {
+    ) -> DeferredFungibleError<Option<Wavelength>, WavelengthsLossError> {
+        NonEmpty::from_vec(self.0).map_or(LogResult::new_ok_def(), |ws| {
+            let ret = Some(Wavelength(ws.head));
             let n = ws.len();
-            let mut tnt = Tentative::new1(Some(Wavelength(ws.head)));
             if n > 1 {
-                tnt.push_error_or_warning(WavelengthsLossError(n), !allow_loss);
+                LogResult::new_deferred_fungible(ret, WavelengthsLossError(n), !allow_loss)
+            } else {
+                LogResult::new_ok(ret)
             }
-            tnt
         })
     }
 }
@@ -838,16 +842,16 @@ impl<I> RegionGateIndex<I> {
         for<'a> Self: fmt::Display + FromStrStateful<Payload<'a> = ()>,
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
-        Self::lookup_meas_opt_st(kws, i, is_deprecated, (), conf).and_tentatively(|maybe| {
+        Self::lookup_meas_opt_st(kws, i, is_deprecated, (), conf).and_then_def(|maybe| {
             if let Some(x) = maybe {
                 Self::check_link(&x, par)
                     .map(|()| x)
-                    .into_tentative_opt(!conf.allow_optional_dropping)
-                    .inner_into()
+                    .into_deferred_fungible_opt::<Vec<_>>(!conf.allow_optional_dropping)
+                    .cmt_fung_errors_into()
             } else {
-                Tentative::default()
+                LogResult::new_ok_def()
             }
-            .value_into()
+            .map_ok_value(Into::into)
         })
     }
 
@@ -1326,11 +1330,14 @@ pub enum GatingError {
 pub struct Range(pub BigDecimal);
 
 impl Range {
-    pub(crate) fn into_uint<T>(self, disallow_trunc: bool) -> BiTentative<T, IntRangeError<()>>
+    pub(crate) fn into_uint<T>(
+        self,
+        disallow_trunc: bool,
+    ) -> DeferredFungibleError<T, IntRangeError<()>>
     where
         T: TryFrom<Self, Error = IntRangeError<T>> + PrimInt,
     {
-        let (b, e) = self.try_into().map_or_else(
+        let (b, err) = self.try_into().map_or_else(
             |e: IntRangeError<T>| match e.error_kind {
                 IntRangeErrorKind::Overrange => (T::max_value(), Some(e.void())),
                 IntRangeErrorKind::Underrange => (T::zero(), Some(e.void())),
@@ -1338,18 +1345,20 @@ impl Range {
             },
             |x| (x, None),
         );
-        BiTentative::new_either1(b, e, disallow_trunc)
+        err.map_or(LogResult::new_ok(b), |e| {
+            LogResult::new_deferred_fungible(b, e, disallow_trunc)
+        })
     }
 
     pub(crate) fn into_float<T>(
         self,
         disallow_trunc: bool,
-    ) -> BiTentative<FloatDecimal<T>, DecimalToFloatError>
+    ) -> DeferredFungibleError<FloatDecimal<T>, DecimalToFloatError>
     where
         FloatDecimal<T>: TryFrom<BigDecimal, Error = DecimalToFloatError>,
         T: HasFloatBounds,
     {
-        let (x, e) = FloatDecimal::try_from(self.0).map_or_else(
+        let (x, err) = FloatDecimal::try_from(self.0).map_or_else(
             |e| {
                 let m = if e.over {
                     T::max_decimal()
@@ -1360,7 +1369,10 @@ impl Range {
             },
             |x| (x, None),
         );
-        BiTentative::new_either1(x, e, disallow_trunc)
+        match err {
+            None => LogResult::new_ok(x),
+            Some(e) => LogResult::new_deferred_fungible(x, e, disallow_trunc),
+        }
     }
 }
 

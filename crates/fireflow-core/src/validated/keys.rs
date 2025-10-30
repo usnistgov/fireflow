@@ -1,5 +1,5 @@
 use crate::config::ReadHeaderAndTEXTConfig;
-use crate::error::{ErrorIter as _, Leveled, MultiResult, ResultExt as _};
+use crate::logging::{DeferredFungibleError, DeferredFungibleErrors, DeferredIter as _, LogResult};
 use crate::text::index::IndexFromOne;
 
 use derive_more::{AsRef, Display, From};
@@ -528,7 +528,7 @@ impl ParsedKeywords {
         k: &[u8],
         v: &[u8],
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> Result<(), Leveled<KeywordInsertError>> {
+    ) -> DeferredFungibleError<(), KeywordInsertError> {
         // ASSUME key and value are never blank since we checked both prior to
         // calling this. The FCS standards do not allow either to be blank.
         let to_std = conf.promote_to_standard.as_matcher();
@@ -539,8 +539,8 @@ impl ParsedKeywords {
         let renames = &conf.rename_standard_keys.0;
 
         let blank_err = || {
-            let w = BlankValueError(k.to_vec());
-            Leveled::<KeywordInsertError>::new(w.into(), !conf.allow_empty)
+            let e = KeywordInsertError::from(BlankValueError(k.to_vec()));
+            LogResult::new_deferred_fungible((), e, !conf.allow_empty)
         };
 
         let vv = if conf.use_latin1 {
@@ -551,7 +551,7 @@ impl ParsedKeywords {
                     .take_while(|x| !x.is_ascii_whitespace())
                     .collect();
                 if trimmed.is_empty() {
-                    return Err(blank_err());
+                    return blank_err();
                 }
                 Ok(trimmed)
             } else {
@@ -563,7 +563,7 @@ impl ParsedKeywords {
                     if conf.trim_value_whitespace {
                         let trimmed = vv.trim();
                         if trimmed.is_empty() {
-                            return Err(blank_err());
+                            return blank_err();
                         }
                         Ok(trimmed.into())
                     } else {
@@ -592,7 +592,7 @@ impl ParsedKeywords {
                     // Standard key: starts with '$', check that remaining chars
                     // are ASCII
                     if ignore.is_match(&kk) {
-                        Ok(())
+                        LogResult::new_ok(())
                     } else if to_nonstd.is_match(&kk) {
                         insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
                     } else {
@@ -618,14 +618,14 @@ impl ParsedKeywords {
                 // them anyways in case the user cares. If key isn't UTF-8
                 // then give up.
                 self.non_ascii.push((kk, value));
-                Ok(())
+                LogResult::new_ok(())
             } else {
                 self.byte_pairs.push((k.to_vec(), value.into()));
-                Ok(())
+                LogResult::new_ok(())
             }
         } else {
             self.byte_pairs.push((k.to_vec(), v.to_vec()));
-            Ok(())
+            LogResult::new_ok(())
         }
     }
 
@@ -633,22 +633,22 @@ impl ParsedKeywords {
         &mut self,
         new: &HashMap<KeyString, String>,
         allow_nonunique: bool,
-    ) -> MultiResult<(), Leveled<StdPresent>> {
+    ) -> DeferredFungibleErrors<(), StdPresent> {
         new.iter()
             .map(|(k, v)| match self.std.entry(StdKey(k.clone())) {
                 Entry::Occupied(e) => {
                     let key = e.key().clone();
                     let value = v.clone();
                     let w = KeyPresent { key, value };
-                    Err(Leveled::new(w, !allow_nonunique))
+                    LogResult::new_deferred_fungible((), w, !allow_nonunique)
                 }
                 Entry::Vacant(e) => {
                     e.insert(v.clone());
-                    Ok(())
+                    LogResult::new_ok(())
                 }
             })
-            .gather()
-            .void()
+            .mappend_def()
+            .map_def_value(|_| ())
     }
 }
 
@@ -746,25 +746,25 @@ fn insert_nonunique<K>(
     k: K,
     value: String,
     conf: &ReadHeaderAndTEXTConfig,
-) -> Result<(), Leveled<KeywordInsertError>>
+) -> DeferredFungibleError<(), KeywordInsertError>
 where
     K: Hash + Eq + Clone + AsRef<KeyString>,
     KeywordInsertError: From<KeyPresent<K>>,
 {
     match kws.entry(k) {
-        Entry::Occupied(e) => {
-            let key = e.key().clone();
-            let w = KeyPresent { key, value };
-            Err(Leveled::new(w.into(), !conf.allow_nonunique))
+        Entry::Occupied(ent) => {
+            let key = ent.key().clone();
+            let err = KeyPresent { key, value };
+            LogResult::new_deferred_fungible((), err.into(), !conf.allow_nonunique)
         }
-        Entry::Vacant(e) => {
+        Entry::Vacant(ent) => {
             let v = conf
                 .replace_standard_key_values
-                .get(e.key().as_ref())
+                .get(ent.key().as_ref())
                 .map(ToString::to_string)
                 .unwrap_or(value);
-            e.insert(v);
-            Ok(())
+            ent.insert(v);
+            LogResult::new_ok(())
         }
     }
 }

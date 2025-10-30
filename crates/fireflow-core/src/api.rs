@@ -750,8 +750,8 @@ where
 
             let repair_res = kws
                 .append_std(&conf.append_standard_keywords, conf.allow_nonunique)
-                .map_cmt_fung_errors(KeywordInsertError::from)
-                .map_cmt_fung_errors(ParseKeywordsIssue::from)
+                .map_commutative_fungible_errors(KeywordInsertError::from)
+                .map_commutative_fungible_errors(ParseKeywordsIssue::from)
                 .map_cmt_warnings(ParseRawTEXTWarning::from)
                 .map_errors(ParsePrimaryTEXTError::from)
                 .map_errors(ParseRawTEXTError::from)

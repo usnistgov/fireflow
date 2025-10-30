@@ -14,11 +14,11 @@ use crate::header::{
     HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use crate::logging::{
-    CmtFungibleErrorsResult, CmtResult, CmtResultIter as _, DeferredError, DeferredErrors,
-    DeferredFungibleError, DeferredFungibleErrors, DeferredIter as _, ErrorResult, ErrorSummary,
-    ErrorsResult, IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _, SummaryResult,
-    WarningsAndErrorResult, WarningsAndErrorsResult, WarningsAndIOSummaryResult,
-    WarningsAndSummaryResult,
+    CmtFungibleErrorResult, CmtFungibleErrorsResult, CmtResult, CmtResultIter as _, DeferredError,
+    DeferredErrors, DeferredFungibleError, DeferredFungibleErrors, DeferredIter as _, ErrorResult,
+    ErrorSummary, ErrorsResult, IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _,
+    SummaryResult, WarningAndErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
+    WarningsAndIOSummaryResult, WarningsAndSummaryResult,
 };
 use crate::macros::{def_failure, match_many_to_one};
 use crate::segment::{
@@ -1437,10 +1437,10 @@ pub trait VersionedMetaroot: Sized {
         opt: Optical<Self::Optical>,
         i: MeasIndex,
         allow_loss: bool,
-    ) -> CmtFungibleErrorsResult<
+    ) -> CmtFungibleErrorResult<
         (Optical<Self::Optical>, Temporal<Self::Temporal>),
         Box<(Temporal<Self::Temporal>, Optical<Self::Optical>)>,
-        SwapOpticalTemporalError,
+        SwapOpticalTemporalSummary,
     > {
         let go = |old_t: Temporal<Self::Temporal>, old_o: Optical<Self::Optical>| {
             let (so, st) = Self::swap_optical_temporal_inner(old_t.specific, old_o.specific);
@@ -1480,6 +1480,10 @@ pub trait VersionedMetaroot: Sized {
                     }
                 },
                 |(_, (t, o))| LogResult::new_ok(go(t, o)),
+            )
+            .aggregate_commutative_fungible_errors(
+                |ws| NonEmpty::collect(ws.into_iter()).map(SwapOpticalTemporalSummary),
+                |es| SwapOpticalTemporalSummary(NonEmpty::from(es)),
             )
     }
 
@@ -1549,7 +1553,7 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
         i: MeasIndex,
         data: Self::TData,
         allow_loss: bool,
-    ) -> CmtFungibleErrorsResult<Temporal<Self>, Box<Optical<O>>, OpticalToTemporalError> {
+    ) -> CmtFungibleErrorResult<Temporal<Self>, Box<Optical<O>>, OpticalToTemporalSummary> {
         let opt_common_res = opt
             .check_keys_transfer(i)
             .map_errors(OpticalToTemporalError::from);
@@ -1573,6 +1577,10 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
                     }
                 },
                 |(_, (o, d))| LogResult::new_ok(Self::from_optical_unchecked(o, d)),
+            )
+            .aggregate_commutative_fungible_errors(
+                |ws| NonEmpty::collect(ws.into_iter()).map(OpticalToTemporalSummary),
+                |es| OpticalToTemporalSummary(NonEmpty::from(es)),
             )
     }
 
@@ -2230,27 +2238,23 @@ where
         n: &Shortname,
         timestep: <M::Temporal as TemporalFromOptical<M::Optical>>::TData,
         allow_loss: bool,
-    ) -> WarningsAndSummaryResult<bool, SetTemporalError, SetTemporalError, SetTemporalFailure>
+    ) -> WarningAndErrorResult<bool, (), SetTemporalSummary, SetTemporalByNameError>
     where
         M::Temporal: TemporalFromOptical<M::Optical>,
     {
-        // TODO the inner methods in this generate multiple errors that should
-        // be displayed at once but should be independent of the other errors
-        // here (like not finding the name)
-        self.measurements
-            .set_center_by_name(
-                n,
-                |i, old_o, old_t| {
-                    M::swap_optical_temporal(old_o, old_t, i, allow_loss)
-                        .map_cmt_fung_errors(SetTemporalError::from)
-                },
-                |i, old_o| {
-                    M::Temporal::from_optical(old_o, i, timestep, allow_loss)
-                        .map_cmt_fung_errors(SwapOpticalTemporalError::from)
-                        .map_cmt_fung_errors(SetTemporalError::from)
-                },
-            )
-            .summarize_errors()
+        self.measurements.set_center_by_name(
+            n,
+            |i, old_o, old_t| {
+                M::swap_optical_temporal(old_o, old_t, i, allow_loss)
+                    .map_commutative_fungible_errors(SetTemporalSummary::from)
+                    .map_errors(SetTemporalByNameError::from)
+            },
+            |i, old_o| {
+                M::Temporal::from_optical(old_o, i, timestep, allow_loss)
+                    .map_commutative_fungible_errors(SetTemporalSummary::from)
+                    .map_errors(SetTemporalByNameError::from)
+            },
+        )
     }
 
     /// Set the measurement at given index to the time measurement.
@@ -2259,25 +2263,24 @@ where
         index: MeasIndex,
         timestep: <M::Temporal as TemporalFromOptical<M::Optical>>::TData,
         allow_loss: bool,
-    ) -> WarningsAndSummaryResult<bool, SetTemporalError, SetTemporalError, SetTemporalFailure>
+    ) -> WarningAndErrorResult<bool, (), SetTemporalSummary, SetTemporalByIndexError>
     where
         M::Temporal: TemporalFromOptical<M::Optical>,
     {
-        // TODO ditto above
-        self.measurements
-            .set_center_by_index(
-                index,
-                |i, old_o, old_t| {
-                    M::swap_optical_temporal(old_o, old_t, i, allow_loss)
-                        .map_cmt_fung_errors(SetTemporalError::from)
-                },
-                |i, old_o| {
-                    M::Temporal::from_optical(old_o, i, timestep, allow_loss)
-                        .map_cmt_fung_errors(SwapOpticalTemporalError::from)
-                        .map_cmt_fung_errors(SetTemporalError::from)
-                },
-            )
-            .summarize_errors()
+        let x = self.measurements.set_center_by_index(
+            index,
+            |i, old_o, old_t| {
+                M::swap_optical_temporal(old_o, old_t, i, allow_loss)
+                    .map_commutative_fungible_errors(SetTemporalSummary::from)
+                    .map_errors(SetTemporalByIndexError::from)
+            },
+            |i, old_o| {
+                M::Temporal::from_optical(old_o, i, timestep, allow_loss)
+                    .map_commutative_fungible_errors(SetTemporalSummary::from)
+                    .map_errors(SetTemporalByIndexError::from)
+            },
+        );
+        x
     }
 
     /// Convert time measurement to optical measurement.
@@ -2415,7 +2418,7 @@ where
             .replace_center_at(index, m, |i, old_t| {
                 M::Optical::from_temporal(old_t, i, allow_loss)
                     .map_ok_value(|(x, _)| x)
-                    .map_cmt_fung_errors(ReplaceTemporalError::from)
+                    .map_commutative_fungible_errors(ReplaceTemporalError::from)
             })
             .summarize_errors()
     }
@@ -2464,7 +2467,7 @@ where
             .replace_center_by_name(name, m, |i, old_t| {
                 M::Optical::from_temporal(old_t, i, allow_loss)
                     .map_ok_value(|(x, _)| x)
-                    .map_cmt_fung_errors(ReplaceTemporalError::from)
+                    .map_commutative_fungible_errors(ReplaceTemporalError::from)
             })
             .summarize_errors()
     }
@@ -6318,7 +6321,7 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal2_0 {
             .timestep
             .check_conversion(allow_loss)
             .map_def_value(|()| Self::new(true, value.peak))
-            .map_cmt_fung_errors(TemporalConvertError::from)
+            .map_commutative_fungible_errors(TemporalConvertError::from)
             .repack()
     }
 }
@@ -6332,12 +6335,12 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal2_0 {
         let t = value
             .timestep
             .check_conversion(allow_loss)
-            .map_cmt_fung_errors(TemporalConvertError::from)
+            .map_commutative_fungible_errors(TemporalConvertError::from)
             .repack_warnings();
         let d = value
             .display
             .check_indexed_key_transfer_fungible::<AnyMeasKeyLossError>(i, allow_loss)
-            .map_cmt_fung_errors(TemporalConvertError::from)
+            .map_commutative_fungible_errors(TemporalConvertError::from)
             .repack_warnings();
         t.zip_def(d).map_def_value(|_| Self::new(true, value.peak))
     }
@@ -6352,17 +6355,17 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal2_0 {
         let di = value
             .display
             .check_indexed_key_transfer_fungible(i, allow_loss)
-            .map_cmt_fung_errors(TemporalConvertError::Xfer)
+            .map_commutative_fungible_errors(TemporalConvertError::Xfer)
             .repack_warnings();
         let m = value
             .measurement_type
             .check_indexed_key_transfer_fungible(i, allow_loss)
-            .map_cmt_fung_errors(TemporalConvertError::Xfer)
+            .map_commutative_fungible_errors(TemporalConvertError::Xfer)
             .repack_warnings();
         let t = value
             .timestep
             .check_conversion(allow_loss)
-            .map_cmt_fung_errors(TemporalConvertError::Timestep)
+            .map_commutative_fungible_errors(TemporalConvertError::Timestep)
             .repack_warnings();
         di.zip3_def(m, t)
             .map_def_value(|_| Self::new(true, PeakData::default()))
@@ -6388,7 +6391,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_0 {
         value
             .display
             .check_indexed_key_transfer_fungible(i, allow_loss)
-            .map_cmt_fung_errors(TemporalConvertError::Xfer)
+            .map_commutative_fungible_errors(TemporalConvertError::Xfer)
             .map_def_value(|()| Self::new(value.timestep, value.peak))
             .repack()
     }
@@ -6403,12 +6406,12 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_0 {
         let di = value
             .display
             .check_indexed_key_transfer_fungible::<AnyMeasKeyLossError>(i, allow_loss)
-            .map_cmt_fung_errors(TemporalConvertError::Xfer)
+            .map_commutative_fungible_errors(TemporalConvertError::Xfer)
             .repack_warnings();
         let m = value
             .measurement_type
             .check_indexed_key_transfer_fungible(i, allow_loss)
-            .map_cmt_fung_errors(TemporalConvertError::Xfer)
+            .map_commutative_fungible_errors(TemporalConvertError::Xfer)
             .repack_warnings();
         di.zip_def(m)
             .map_def_value(|_| Self::new(value.timestep, PeakData::default()))
@@ -6444,7 +6447,7 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_1 {
         value
             .measurement_type
             .check_indexed_key_transfer_fungible(i, allow_loss)
-            .map_cmt_fung_errors(TemporalConvertError::Xfer)
+            .map_commutative_fungible_errors(TemporalConvertError::Xfer)
             .map_def_value(|()| Self::new(value.timestep, value.display, PeakData::default()))
             .repack()
     }
@@ -6459,7 +6462,7 @@ impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_2 {
         value
             .peak
             .check_loss(i, allow_loss)
-            .map_cmt_fung_errors(TemporalConvertError::Xfer)
+            .map_commutative_fungible_errors(TemporalConvertError::Xfer)
             .map_def_value(|()| Self::new(Timestep::default(), None, TemporalType::default()))
             .repack()
     }
@@ -6474,7 +6477,7 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal3_2 {
         value
             .peak
             .check_loss(i, allow_loss)
-            .map_cmt_fung_errors(TemporalConvertError::Xfer)
+            .map_commutative_fungible_errors(TemporalConvertError::Xfer)
             .map_def_value(|()| Self::new(value.timestep, None, TemporalType::default()))
     }
 }
@@ -6488,7 +6491,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_2 {
         value
             .peak
             .check_loss(i, allow_loss)
-            .map_cmt_fung_errors(TemporalConvertError::Xfer)
+            .map_commutative_fungible_errors(TemporalConvertError::Xfer)
             .map_def_value(|()| Self::new(value.timestep, value.display, TemporalType::default()))
     }
 }
@@ -6824,7 +6827,7 @@ impl VersionedOptical for InnerOptical2_0 {
                 self.scale
                     .as_ref()
                     .is_some_and(|s| *s == Scale::Linear)
-                    .then_some(OpticalNonLinearError.into())
+                    .then_some(OpticalNonLinearError(i).into())
             })
     }
 }
@@ -6853,7 +6856,7 @@ impl VersionedOptical for InnerOptical3_0 {
             .map_errors(OpticalToTemporalError::Loss)
             .repack()
             .eval_deferred_error(|()| {
-                (!self.scale.is_noop()).then_some(OpticalNonLinearError.into())
+                (!self.scale.is_noop()).then_some(OpticalNonLinearError(i).into())
             })
     }
 }
@@ -6890,7 +6893,7 @@ impl VersionedOptical for InnerOptical3_1 {
             .mappend_def_void()
             .map_errors(OpticalToTemporalError::Loss)
             .eval_deferred_error(|()| {
-                (!self.scale.is_noop()).then_some(OpticalNonLinearError.into())
+                (!self.scale.is_noop()).then_some(OpticalNonLinearError(i).into())
             })
     }
 }
@@ -6937,7 +6940,7 @@ impl VersionedOptical for InnerOptical3_2 {
             .mappend_def_void()
             .map_errors(OpticalToTemporalError::Loss)
             .eval_deferred_error(|()| {
-                (!self.scale.is_noop()).then_some(OpticalNonLinearError.into())
+                (!self.scale.is_noop()).then_some(OpticalNonLinearError(i).into())
             })
     }
 }
@@ -8467,16 +8470,45 @@ pub enum ReplaceTemporalError {
 }
 
 #[derive(From, Display, Debug, Error)]
-pub enum SetTemporalError {
-    Swap(SwapOpticalTemporalError),
-    Set(SetCenterError),
+pub enum SetTemporalByNameError {
+    Inner(SetTemporalSummary),
     Name(KeyNotFoundError),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum SetTemporalByIndexError {
+    Inner(SetTemporalSummary),
+    Set(SetCenterError),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum SetTemporalSummary {
+    Swap(SwapOpticalTemporalSummary),
+    ToOptical(OpticalToTemporalSummary),
+}
+
+#[derive(From, Debug, Error)]
+pub struct SwapOpticalTemporalSummary(NonEmpty<SwapOpticalTemporalError>);
+
+impl std::fmt::Display for SwapOpticalTemporalSummary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "TODO")
+    }
 }
 
 #[derive(From, Display, Debug, Error)]
 pub enum SwapOpticalTemporalError {
     ToTemporal(OpticalToTemporalError),
     ToOptical(TemporalToOpticalError),
+}
+
+#[derive(From, Debug, Error)]
+pub struct OpticalToTemporalSummary(NonEmpty<OpticalToTemporalError>);
+
+impl std::fmt::Display for OpticalToTemporalSummary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "TODO")
+    }
 }
 
 #[derive(From, Display, Debug, Error)]
@@ -8497,8 +8529,8 @@ pub enum SetTemporalIndexError {
 }
 
 #[derive(Debug, Error)]
-#[error("$PnE must be '0,0' and $PnG must be null or unity to convert to temporal")]
-pub struct OpticalNonLinearError;
+#[error("$P{0}E must be '0,0' and $P{0}G must be null or unity to convert to temporal")]
+pub struct OpticalNonLinearError(MeasIndex);
 
 #[derive(From, Display, Debug, Error)]
 pub enum MetarootConvertError {
@@ -8726,8 +8758,6 @@ def_failure!(
     "could not set scale transforms for optical measurements"
 );
 
-def_failure!(SetTemporalFailure, "could not set temporal measurement");
-
 def_failure!(
     ReplaceTemporalFailure,
     "could not replace temporal measurement"
@@ -8824,7 +8854,8 @@ mod python {
         Analysis, CSVFlags, ColumnsToDataframeError, CompParMismatchError, ExistingLinkError,
         GatingMeasLinkError, MeasDataMismatchError, MissingMeasurementNameError, NewCoreTEXTError,
         Other, Others, RemoveMeasByIndexError, RemoveMeasByNameError, ScaleTransform,
-        SetMeasurementsError, SpilloverLinkError, TriggerLinkError,
+        SetMeasurementsError, SetTemporalByIndexError, SetTemporalByNameError, SpilloverLinkError,
+        TriggerLinkError,
     };
 
     use derive_more::{Display, From};
@@ -8884,6 +8915,8 @@ mod python {
     impl_pyreflow_err!(TriggerLinkError);
     impl_pyreflow_err!(GatingMeasLinkError);
     impl_pyreflow_err!(NewCoreTEXTError);
+    impl_pyreflow_err!(SetTemporalByIndexError);
+    impl_pyreflow_err!(SetTemporalByNameError);
 
     impl From<RemoveMeasByIndexError> for PyErr {
         fn from(value: RemoveMeasByIndexError) -> Self {

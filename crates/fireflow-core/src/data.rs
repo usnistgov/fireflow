@@ -3029,11 +3029,11 @@ where
         // TODO there is probably a better place to do this subtraction
         (range - Range::from(1_u8))
             .into_uint(disallow_trunc)
-            .map_cmt_fung_errors(BitmaskError::from)
+            .map_commutative_fungible_errors(BitmaskError::from)
             .repack()
             .and_then_def(|x| {
                 Self::try_from_native(x, disallow_trunc)
-                    .map_cmt_fung_errors(BitmaskError::from)
+                    .map_commutative_fungible_errors(BitmaskError::from)
                     .repack()
             })
     }
@@ -3098,7 +3098,7 @@ impl FromRange for NullMixedType {
         if range.0.is_integer() {
             AnyBitmask::from_range(range, disallow_trunc)
                 .map_def_value(Self::Uint)
-                .map_cmt_fung_errors(AnyRangeError::from)
+                .map_commutative_fungible_errors(AnyRangeError::from)
         } else {
             let res = FloatDecimal::<f32>::try_from(range.0)
                 .map_or_else(
@@ -3118,7 +3118,7 @@ impl FromRange for NullMixedType {
                     },
                     LogResult::<_, _, _, _, _, Vec<_>>::new_ok,
                 );
-            res.map_cmt_fung_errors(AnyRangeError::from)
+            res.map_commutative_fungible_errors(AnyRangeError::from)
         }
     }
 }

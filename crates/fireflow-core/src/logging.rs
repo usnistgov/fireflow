@@ -3,6 +3,7 @@ use crate::text::optional::Nothing;
 use crate::type_families::{Applicative, Functor, IsKind1, IsKind2, Kind1, Kind2, Sibling1};
 
 use derive_new::new;
+use nonempty::NonEmpty;
 use std::convert::Infallible;
 use std::fmt;
 use std::io;
@@ -148,6 +149,12 @@ pub struct ErrorSummary<E, S> {
 pub struct GenNonEmpty<X, C> {
     head: X,
     tail: C,
+}
+
+impl<E> From<GenNonEmpty<E, Vec<E>>> for NonEmpty<E> {
+    fn from(value: GenNonEmpty<E, Vec<E>>) -> Self {
+        NonEmpty::from((value.head, value.tail))
+    }
 }
 
 pub type IOResult<T, E> = Result<T, ImpureError<E>>;
@@ -406,12 +413,12 @@ impl<V, WC> Success<V, WC> {
         Success::new(f(self.value, other.value), ws)
     }
 
-    // fn aggregate_warnings<F, Wf>(self, f: F) -> Success<V, Option<Wf>>
-    // where
-    //     F: FnOnce(WC) -> Wf,
-    // {
-    //     Success::new(self.value, Some(f(self.warnings)))
-    // }
+    fn aggregate_warnings<F, Wf>(self, f: F) -> Success<V, Option<Wf>>
+    where
+        F: FnOnce(WC) -> Option<Wf>,
+    {
+        Success::new(self.value, f(self.warnings))
+    }
 
     /// Remove warnings while maintaining the warning type.
     ///
@@ -592,12 +599,12 @@ impl<P, E, WC, EC> Failure<P, WC, E, EC> {
         Failure::new(ws, es, f(self.value, other.value))
     }
 
-    // fn aggregate_warnings<F, Wf>(self, f: F) -> Failure<P, Option<Wf>, E, EC>
-    // where
-    //     F: FnOnce(WC) -> Wf,
-    // {
-    //     Failure::new(Some(f(self.warnings)), self.errors, self.value)
-    // }
+    fn aggregate_warnings<F, Wf>(self, f: F) -> Failure<P, Option<Wf>, E, EC>
+    where
+        F: FnOnce(WC) -> Option<Wf>,
+    {
+        Failure::new(f(self.warnings), self.errors, self.value)
+    }
 
     fn aggregate_errors<F, Ef>(self, f: F) -> Failure<P, WC, Ef, Nothing<Ef>>
     where
@@ -683,20 +690,17 @@ impl<X, C> GenNonEmpty<X, C> {
         Self::new(x, C::default())
     }
 
-    // fn map<X, Y, F>(self, f: F) -> GenNonEmpty<Sibling1<X, Y>, Sibling1<C, Y>>
-    // where
-    //     X: Functor<X>,
-    //     C: Functor<X>,
-    //     F: Fn(X) -> Y,
-    // {
-    //     GenNonEmpty::new(self.head.fmap(&f), self.tail.fmap(f))
-    // }
-
     fn repack<Cf>(self) -> GenNonEmpty<X, Cf>
     where
         C: IntoNewCardinality<Cf>,
     {
         GenNonEmpty::new(self.head, self.tail.into_new_cardinality())
+    }
+}
+
+impl<X> GenNonEmpty<X, Nothing<X>> {
+    pub(crate) fn unwrap(self) -> X {
+        self.head
     }
 }
 
@@ -1606,12 +1610,12 @@ where
         EC: FungibleError<Inner = E> + Functor<E>,
         EC::Warn: Functor<E>,
     {
-        self.map_cmt_fung_errors(Into::into)
+        self.map_commutative_fungible_errors(Into::into)
     }
 
     /// Map function over errors in non-commutative/fungible Results
     #[allow(clippy::type_complexity)]
-    pub(crate) fn map_cmt_fung_errors<F, Ef>(
+    pub(crate) fn map_commutative_fungible_errors<F, Ef>(
         self,
         f: F,
     ) -> CmtResult<V, P, Sibling1<EC::Warn, Ef>, Ef, Sibling1<EC, Ef>>
@@ -1626,22 +1630,22 @@ where
         }
     }
 
-    // /// Aggregate commutative/fungible errors into one error.
-    // pub(crate) fn aggregate_cmt_fung_errors<F, G>(
-    //     self,
-    //     f: F,
-    //     g: G,
-    // ) -> CmtFungibleResult<V, P, E, Nothing<E>>
-    // where
-    //     F: FnOnce(EC::Warn) -> E,
-    //     G: FnOnce(GenNonEmpty<E, EC>) -> E,
-    //     EC: FungibleError<Inner = E>,
-    // {
-    //     match self {
-    //         Succ(s) => Succ(s.aggregate_warnings(f)),
-    //         Fail(e) => Fail(e.aggregate_errors(g).aggregate_warnings(f)),
-    //     }
-    // }
+    /// Aggregate commutative/fungible errors into one error.
+    pub(crate) fn aggregate_commutative_fungible_errors<F, G, Ef>(
+        self,
+        f: F,
+        g: G,
+    ) -> CmtFungibleResult<V, P, Ef, Nothing<Ef>>
+    where
+        F: FnOnce(EC::Warn) -> Option<Ef>,
+        G: FnOnce(GenNonEmpty<E, EC>) -> Ef,
+        EC: FungibleError<Inner = E>,
+    {
+        match self {
+            Succ(s) => Succ(s.aggregate_warnings(f)),
+            Fail(e) => Fail(e.aggregate_errors(g).aggregate_warnings(f)),
+        }
+    }
 }
 
 // deferred/fungible

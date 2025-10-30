@@ -1,7 +1,7 @@
 use crate::config::{HeaderConfigInner, ReadState};
 use crate::logging::{
     CmtResultIter as _, DeferredErrors, DeferredIter as _, ErrorsResult, ImpureError, LogResult,
-    ResultExt as _,
+    ResultExt,
 };
 use crate::segment::{
     GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderCorrection,
@@ -12,7 +12,6 @@ use crate::segment::{
 use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, Nextdata,
 };
-use crate::text::optional::Identity;
 use crate::text::parser::ReqMetarootKey as _;
 use crate::validated::ascii_uint::{
     HeaderString, Uint8DigitOverflow, UintSpacePad20, UintSpacePad8, UintZeroPad20,
@@ -165,7 +164,7 @@ impl<T> HeaderSegments<T> {
         [t, d, a]
             .into_iter()
             .chain(os)
-            .map(|x| x.into_log())
+            .map(ResultExt::into_log)
             .mappend_def()
             .set_def_value(())
     }
@@ -265,7 +264,7 @@ impl Header {
                         .map_errors(Box::new)
                         .map_errors(HeaderError::Validation)
                         .map_errors(ImpureError::Pure)
-                        .map_ok_value(|_| hdr)
+                        .map_ok_value(|()| hdr)
                 })
         })
     }

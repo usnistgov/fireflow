@@ -406,12 +406,12 @@ impl<V, WC> Success<V, WC> {
         Success::new(f(self.value, other.value), ws)
     }
 
-    fn aggregate_warnings<F, Wf>(self, f: F) -> Success<V, Option<Wf>>
-    where
-        F: FnOnce(WC) -> Wf,
-    {
-        Success::new(self.value, Some(f(self.warnings)))
-    }
+    // fn aggregate_warnings<F, Wf>(self, f: F) -> Success<V, Option<Wf>>
+    // where
+    //     F: FnOnce(WC) -> Wf,
+    // {
+    //     Success::new(self.value, Some(f(self.warnings)))
+    // }
 
     /// Remove warnings while maintaining the warning type.
     ///
@@ -592,12 +592,12 @@ impl<P, E, WC, EC> Failure<P, WC, E, EC> {
         Failure::new(ws, es, f(self.value, other.value))
     }
 
-    fn aggregate_warnings<F, Wf>(self, f: F) -> Failure<P, Option<Wf>, E, EC>
-    where
-        F: FnOnce(WC) -> Wf,
-    {
-        Failure::new(Some(f(self.warnings)), self.errors, self.value)
-    }
+    // fn aggregate_warnings<F, Wf>(self, f: F) -> Failure<P, Option<Wf>, E, EC>
+    // where
+    //     F: FnOnce(WC) -> Wf,
+    // {
+    //     Failure::new(Some(f(self.warnings)), self.errors, self.value)
+    // }
 
     fn aggregate_errors<F, Ef>(self, f: F) -> Failure<P, WC, Ef, Nothing<Ef>>
     where
@@ -1386,35 +1386,35 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
             .map_def_value(|((ax, bx, cx, dx), ex)| (ax, bx, cx, dx, ex))
     }
 
-    /// Combine six deferred results.
-    #[allow(clippy::type_complexity)]
-    pub(crate) fn zip6_def<V1, V2, V3, V4, V5>(
-        self,
-        x1: Deferred<V1, WC, E, EC>,
-        x2: Deferred<V2, WC, E, EC>,
-        x3: Deferred<V3, WC, E, EC>,
-        x4: Deferred<V4, WC, E, EC>,
-        x5: Deferred<V5, WC, E, EC>,
-    ) -> Deferred<(V, V1, V2, V3, V4, V5), WC, E, Vec<E>>
-    where
-        EC: IntoNewCardinality<Vec<E>> + IntoIterator<Item = E>,
-        WC: Semigroup,
-    {
-        self.zip5_def(x1, x2, x3, x4)
-            .zip_def(x5.repack())
-            .map_def_value(|((y0, y1, y2, y3, y4), y5)| (y0, y1, y2, y3, y4, y5))
-    }
+    // /// Combine six deferred results.
+    // #[allow(clippy::type_complexity)]
+    // pub(crate) fn zip6_def<V1, V2, V3, V4, V5>(
+    //     self,
+    //     x1: Deferred<V1, WC, E, EC>,
+    //     x2: Deferred<V2, WC, E, EC>,
+    //     x3: Deferred<V3, WC, E, EC>,
+    //     x4: Deferred<V4, WC, E, EC>,
+    //     x5: Deferred<V5, WC, E, EC>,
+    // ) -> Deferred<(V, V1, V2, V3, V4, V5), WC, E, Vec<E>>
+    // where
+    //     EC: IntoNewCardinality<Vec<E>> + IntoIterator<Item = E>,
+    //     WC: Semigroup,
+    // {
+    //     self.zip5_def(x1, x2, x3, x4)
+    //         .zip_def(x5.repack())
+    //         .map_def_value(|((y0, y1, y2, y3, y4), y5)| (y0, y1, y2, y3, y4, y5))
+    // }
 }
 
 // nowarn
 impl<V, P, E, EC> LogResult<V, P, Nothing<()>, Nothing<()>, E, EC> {
-    /// Lift Result with no warnings to non-commutative Result
-    pub(crate) fn nowarn_into_non_cmt_warn<LWCf>(self) -> NonCmtResult<V, P, LWCf, E, EC>
-    where
-        LWCf: Default,
-    {
-        self.map_either(Success::nowarn_into_warn, |x| x)
-    }
+    // /// Lift Result with no warnings to non-commutative Result
+    // pub(crate) fn nowarn_into_non_cmt_warn<LWCf>(self) -> NonCmtResult<V, P, LWCf, E, EC>
+    // where
+    //     LWCf: Default,
+    // {
+    //     self.map_either(Success::nowarn_into_warn, |x| x)
+    // }
 
     /// Lift Result with no warnings to commutative Result
     pub(crate) fn nowarn_into_warn<LWCf>(self) -> CmtResult<V, P, LWCf, E, EC>
@@ -1425,10 +1425,10 @@ impl<V, P, E, EC> LogResult<V, P, Nothing<()>, Nothing<()>, E, EC> {
             .non_cmt_into_cmt()
     }
 
-    /// Set warnings in Succ side of Result with no warnings
-    pub(crate) fn set_non_cmt_warnings<WC>(self, ws: WC) -> NonCmtResult<V, P, WC, E, EC> {
-        self.map(|s| s.set_warnings(ws))
-    }
+    // /// Set warnings in Succ side of Result with no warnings
+    // pub(crate) fn set_non_cmt_warnings<WC>(self, ws: WC) -> NonCmtResult<V, P, WC, E, EC> {
+    //     self.map(|s| s.set_warnings(ws))
+    // }
 
     /// Set warnings in both Succ and Error sides of Result
     pub(crate) fn set_cmt_warnings<WC>(self, ws: WC) -> CmtResult<V, P, WC, E, EC> {
@@ -1490,14 +1490,14 @@ impl<V, P, LWC, E, EC> LogResult<V, P, LWC, Nothing<()>, E, EC> {
         self.map_err(Failure::nowarn_into_warn)
     }
 
-    /// Convert warnings of a non-commutative Result
-    pub(crate) fn non_cmt_warnings_into<W, Wf>(self) -> NonCmtResult<V, P, Sibling1<LWC, Wf>, E, EC>
-    where
-        W: Into<Wf>,
-        LWC: Functor<W>,
-    {
-        self.map_non_cmt_warnings(Into::into)
-    }
+    // /// Convert warnings of a non-commutative Result
+    // pub(crate) fn non_cmt_warnings_into<W, Wf>(self) -> NonCmtResult<V, P, Sibling1<LWC, Wf>, E, EC>
+    // where
+    //     W: Into<Wf>,
+    //     LWC: Functor<W>,
+    // {
+    //     self.map_non_cmt_warnings(Into::into)
+    // }
 
     /// Map function over warnings of a non-commutative Result
     pub(crate) fn map_non_cmt_warnings<F, W, Wf>(
@@ -1511,45 +1511,45 @@ impl<V, P, LWC, E, EC> LogResult<V, P, LWC, Nothing<()>, E, EC> {
         self.map(|s| s.map_warnings(f))
     }
 
-    /// Aggregate non-commutative/fungible errors into one error.
-    pub(crate) fn aggregate_non_cmt_fung_errors<F, G>(
-        self,
-        f: F,
-        g: G,
-    ) -> NonCmtFungibleResult<V, P, E, Nothing<E>>
-    where
-        F: FnOnce(LWC) -> E,
-        G: FnOnce(GenNonEmpty<E, EC>) -> E,
-        EC: FungibleError<Inner = E>,
-    {
-        match self {
-            Succ(s) => Succ(s.aggregate_warnings(f)),
-            Fail(e) => Fail(e.aggregate_errors(g)),
-        }
-    }
+    // /// Aggregate non-commutative/fungible errors into one error.
+    // pub(crate) fn aggregate_non_cmt_fung_errors<F, G>(
+    //     self,
+    //     f: F,
+    //     g: G,
+    // ) -> NonCmtFungibleResult<V, P, E, Nothing<E>>
+    // where
+    //     F: FnOnce(LWC) -> E,
+    //     G: FnOnce(GenNonEmpty<E, EC>) -> E,
+    //     EC: FungibleError<Inner = E>,
+    // {
+    //     match self {
+    //         Succ(s) => Succ(s.aggregate_warnings(f)),
+    //         Fail(e) => Fail(e.aggregate_errors(g)),
+    //     }
+    // }
 }
 
-// non-commutative/resolveable
-impl<V, LWC, E> LogResult<V, (), LWC, Nothing<()>, E, Nothing<E>> {
-    /// Resolve non-commutative Result with regular Result type.
-    ///
-    /// Warnings will be given on the Succ side since non-commutative Result's
-    /// by definition cannot have warnings in the Fail branch.
-    pub(crate) fn resolve_non_cmt<Fwarn, Ferr, WarnRes, FailRes>(
-        self,
-        f_warnings: Fwarn,
-        f_errors: Ferr,
-    ) -> Result<(V, WarnRes), FailRes>
-    where
-        Fwarn: FnOnce(LWC) -> WarnRes,
-        Ferr: FnOnce(E) -> FailRes,
-    {
-        match self {
-            Succ(x) => Ok(x.resolve(f_warnings)),
-            Fail(x) => Err(f_errors(x.errors.head)),
-        }
-    }
-}
+// // non-commutative/resolveable
+// impl<V, LWC, E> LogResult<V, (), LWC, Nothing<()>, E, Nothing<E>> {
+//     /// Resolve non-commutative Result with regular Result type.
+//     ///
+//     /// Warnings will be given on the Succ side since non-commutative Result's
+//     /// by definition cannot have warnings in the Fail branch.
+//     pub(crate) fn resolve_non_cmt<Fwarn, Ferr, WarnRes, FailRes>(
+//         self,
+//         f_warnings: Fwarn,
+//         f_errors: Ferr,
+//     ) -> Result<(V, WarnRes), FailRes>
+//     where
+//         Fwarn: FnOnce(LWC) -> WarnRes,
+//         Ferr: FnOnce(E) -> FailRes,
+//     {
+//         match self {
+//             Succ(x) => Ok(x.resolve(f_warnings)),
+//             Fail(x) => Err(f_errors(x.errors.head)),
+//         }
+//     }
+// }
 
 // // non-cummutative/fungible
 // impl<V, P, LWC, E, EC> LogResult<V, P, LWC, Nothing<()>, E, EC>
@@ -1626,22 +1626,22 @@ where
         }
     }
 
-    /// Aggregate commutative/fungible errors into one error.
-    pub(crate) fn aggregate_cmt_fung_errors<F, G>(
-        self,
-        f: F,
-        g: G,
-    ) -> CmtFungibleResult<V, P, E, Nothing<E>>
-    where
-        F: FnOnce(EC::Warn) -> E,
-        G: FnOnce(GenNonEmpty<E, EC>) -> E,
-        EC: FungibleError<Inner = E>,
-    {
-        match self {
-            Succ(s) => Succ(s.aggregate_warnings(f)),
-            Fail(e) => Fail(e.aggregate_errors(g).aggregate_warnings(f)),
-        }
-    }
+    // /// Aggregate commutative/fungible errors into one error.
+    // pub(crate) fn aggregate_cmt_fung_errors<F, G>(
+    //     self,
+    //     f: F,
+    //     g: G,
+    // ) -> CmtFungibleResult<V, P, E, Nothing<E>>
+    // where
+    //     F: FnOnce(EC::Warn) -> E,
+    //     G: FnOnce(GenNonEmpty<E, EC>) -> E,
+    //     EC: FungibleError<Inner = E>,
+    // {
+    //     match self {
+    //         Succ(s) => Succ(s.aggregate_warnings(f)),
+    //         Fail(e) => Fail(e.aggregate_errors(g).aggregate_warnings(f)),
+    //     }
+    // }
 }
 
 // deferred/fungible
@@ -1970,8 +1970,7 @@ impl<V, P, LWC, RWC, E, EC> LogResult<V, P, LWC, RWC, E, EC> {
     {
         self.aggregate_non_fung_errors(|es| {
             let xs = GenNonEmpty::new(es.head, es.tail.into_new_cardinality());
-            let y = ErrorSummary::new(s, xs);
-            y
+            ErrorSummary::new(s, xs)
         })
     }
 
@@ -1996,6 +1995,7 @@ impl<V, P, LWC, RWC, EC> LogResult<V, P, LWC, RWC, Infallible, EC> {
         Succ(ret)
     }
 
+    #[cfg(feature = "python")]
     pub(crate) fn infallible_with_warn_into<F, Wres>(self, f: F) -> (V, Wres)
     where
         F: FnOnce(LWC) -> Wres,

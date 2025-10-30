@@ -3,7 +3,6 @@ use crate::logging::{
     RecoverableErrorsResult, ResultExt as _, WarningsAndErrorsResult,
 };
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
-use crate::text::optional::Identity;
 use crate::text::parser::{OptKeyError, OptMetarootKey, Optional, ReqKeyError, ReqMetarootKey};
 use crate::validated::ascii_uint::{
     HeaderString, ParseFixedUintError, UintSpacePad20, UintSpacePad8, UintZeroPad20,
@@ -399,6 +398,7 @@ where
         )
     }
 
+    #[allow(clippy::type_complexity)]
     fn get_pair(
         kws: &StdKeywords,
     ) -> RecoverableErrorsResult<Option<(Self::B, Self::E)>, OptKeyError<ParseIntError>> {
@@ -407,6 +407,7 @@ where
         x0.zip_cmt(x1).map_ok_value(|(x, y)| x.zip(y))
     }
 
+    #[allow(clippy::type_complexity)]
     fn remove_pair(
         kws: &mut StdKeywords,
     ) -> RecoverableErrorsResult<Option<(Self::B, Self::E)>, OptKeyError<ParseIntError>> {

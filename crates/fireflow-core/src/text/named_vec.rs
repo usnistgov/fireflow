@@ -8,7 +8,7 @@ use crate::type_families::{Applicative, Functor, Sibling1};
 use crate::validated::shortname::Shortname;
 
 use super::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
-use super::optional::{Identity, Nothing};
+use super::optional::Nothing;
 
 use derive_more::{Display, From, Into};
 use derive_new::new;

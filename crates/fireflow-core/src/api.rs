@@ -26,7 +26,7 @@ use crate::segment::{
     OptSegmentError, OtherSegment20, PrimaryTextSegment, ReqSegmentError, SupplementalTextSegment,
 };
 use crate::text::keywords::{Beginstext, Endstext, Nextdata, Tot};
-use crate::text::optional::{Identity, Nothing};
+use crate::text::optional::Nothing;
 use crate::text::parser::{
     get_opt, get_req, truncate_string, ExtraStdKeywords, OptKeyError, ReqKeyError,
 };
@@ -852,7 +852,7 @@ fn split_raw_supp_text(
     if let Some((byte0, rest)) = bytes.split_first() {
         let is_err = !conf.allow_supp_text_own_delim;
         split_raw_text_inner(kws, *byte0, rest, TEXTKind::Supplemental, conf)
-            .eval_deferred_fungible_error(is_err, |_| {
+            .eval_deferred_fungible_error(is_err, |()| {
                 (*byte0 != delim).then_some(DelimMismatch::new(delim, *byte0))
             })
             .map_errors(ParseSupplementalTEXTError::from)

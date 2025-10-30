@@ -167,10 +167,6 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
         Self::bytes() * 8
     }
 
-    pub(crate) fn bits_(&self) -> u8 {
-        Self::bits()
-    }
-
     pub(crate) fn try_from_many<E, X>(
         xs: Vec<X>,
         starting_index: usize,

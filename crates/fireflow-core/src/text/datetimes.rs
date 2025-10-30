@@ -3,7 +3,7 @@ use crate::core::{AnyMetarootKeyLossError, UnitaryKeyLossError};
 use crate::logging::{DeferredFungibleErrors, LogResult, ResultExt as _};
 use crate::validated::keys::StdKeywords;
 
-use super::optional::{Identity, KeywordPairMaybe as _};
+use super::optional::KeywordPairMaybe as _;
 use super::parser::{LookupTentative, OptMetarootKey as _};
 
 use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeZone as _};

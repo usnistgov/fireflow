@@ -1,9 +1,9 @@
 use crate::config::StdTextReadConfig;
-use crate::logging::{LogResult, ResultExt as _};
+use crate::logging::ResultExt as _;
 use crate::validated::keys::{Key, StdKeywords};
 use crate::validated::timepattern::ParseWithTimePatternError;
 
-use super::optional::{Identity, KeywordPairMaybe};
+use super::optional::KeywordPairMaybe;
 use super::parser::{FromStrStateful, LookupTentative, OptMetarootKey, Optional, ParseOptKeyError};
 
 use chrono::{NaiveDate, NaiveTime, Timelike as _};

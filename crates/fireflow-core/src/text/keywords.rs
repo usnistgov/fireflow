@@ -82,10 +82,10 @@ impl Timestep {
         self,
         allow_loss: bool,
     ) -> DeferredFungibleError<(), TimestepLossError> {
-        if !self.0.is_one() {
-            LogResult::new_deferred_fungible((), TimestepLossError(self), !allow_loss)
-        } else {
+        if self.0.is_one() {
             LogResult::new_ok(())
+        } else {
+            LogResult::new_deferred_fungible((), TimestepLossError(self), !allow_loss)
         }
     }
 }

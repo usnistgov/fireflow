@@ -1,5 +1,5 @@
 use crate::config::StdTextReadConfig;
-use crate::logging::{DeferredFungibleErrors, DeferredIter as _, LogResultExt as _, ResultExt as _};
+use crate::logging::{DeferredFungibleErrors, DeferredIter as _, LogResult, ResultExt as _};
 use crate::nonempty::FCSNonEmpty;
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keywords::{
@@ -300,7 +300,7 @@ impl AppliedGates2_0 {
         let gm = GatedMeasurements::lookup(kws, false, conf);
         ag.zip_def(gm).and_then_def(|(scheme, gated_measurements)| {
             Self::try_new(gated_measurements.0, scheme)
-                .into_deferred_fungible(!conf.allow_optional_dropping)
+                .into_deferred_fungible::<Vec<_>>(!conf.allow_optional_dropping)
                 .cmt_fung_errors_into()
         })
     }
@@ -412,7 +412,7 @@ impl AppliedGates3_0 {
         let ms = lookup_meas(kws);
         s.zip_def(ms).and_then_def(|(scheme, gated_measurements)| {
             Self::try_new(gated_measurements.0, scheme)
-                .into_succ()
+                .into_succ::<_, _, Vec<_>, _, _>()
                 .cmt_warnings_into()
         })
     }
@@ -443,15 +443,15 @@ impl AppliedGates3_0 {
         // TODO this should be an error based on if we want to drop optional
         // keywords
         GatingScheme::try_new(self.scheme.gating, regions)
-            .into_succ_opt()
+            .into_succ_opt::<_, _, Vec<_>, _, _>()
             .cmt_warnings_into()
             .and_then_def(|scheme| match scheme {
                 Some(s) => AppliedGates2_0::try_new(self.gated_measurements.0, s)
-                    .into_deferred_fungible(true)
+                    .into_deferred_fungible::<Vec<_>>(true)
                     .cmt_fung_errors_into(),
-                None => Result::new_ok_def(),
+                None => LogResult::new_ok_def(),
             })
-            .extend_def_fung_errors(
+            .extend_deferred_fungible_errors(
                 es.into_iter().map(AppliedGates3_0To2_0Error::Index),
                 !allow_loss,
             )
@@ -468,19 +468,17 @@ impl AppliedGates3_0 {
             .into_iter()
             .map(|(ri, r)| r.try_map(TryInto::try_into).map(|x| (ri, x)))
             .partition_result();
-        let res = AppliedGates3_2::try_new(self.scheme.gating, regions)
-            .into_deferred_fungible(true)
+        AppliedGates3_2::try_new(self.scheme.gating, regions)
+            .into_deferred_fungible::<Vec<_>>(true)
             .cmt_fung_errors_into()
-            .extend_def_fung_errors(
+            .extend_deferred_fungible_errors(
                 es.into_iter().map(AppliedGates3_0To3_2Error::Index),
                 !allow_loss,
-            );
-        let n_gates = self.gated_measurements.0.len();
-        if n_gates > 0 {
-            res.push_def_fung_error(AppliedGates3_0To3_2Error::HasGates(n_gates), !allow_loss)
-        } else {
-            res
-        }
+            )
+            .eval_deferred_fungible_error(!allow_loss, |_| {
+                let n_gates = self.gated_measurements.0.len();
+                (n_gates > 0).then_some(AppliedGates3_0To3_2Error::HasGates(n_gates))
+            })
     }
 }
 
@@ -682,7 +680,7 @@ impl<I> GatingScheme<I> {
         lookup_gating(kws).and_then_def(|gating| {
             gating
                 .as_ref()
-                .map_or(Result::new_ok_def(), |g| {
+                .map_or(LogResult::new_ok_def(), |g| {
                     g.region_indices()
                         .into_iter()
                         .map(|ri| lookup_region(kws, ri).map_def_value(|x| x.map(|y| (ri, y))))
@@ -691,7 +689,7 @@ impl<I> GatingScheme<I> {
                 .and_then_def(|rs| {
                     let regions = rs.into_iter().flatten().collect();
                     Self::try_new(gating, regions)
-                        .into_deferred_fungible(!conf.allow_optional_dropping)
+                        .into_deferred_fungible::<Vec<_>>(!conf.allow_optional_dropping)
                         .cmt_fung_errors_into()
                 })
         })
@@ -775,7 +773,7 @@ impl<I> Region<I> {
                 n_.zip(y_)
                     .and_then(|(gi, win)| Self::try_new(gi, win).map(Self::inner_into))
                     .ok_or(MismatchedIndexAndWindowError)
-                    .into_deferred_fungible_opt(!conf.allow_optional_dropping)
+                    .into_deferred_fungible_opt::<Vec<_>>(!conf.allow_optional_dropping)
                     .cmt_fung_errors_into()
             })
             .map_ok_value(Into::into)
@@ -924,7 +922,7 @@ impl GatedMeasurements {
                     .mappend_def()
                     .map_def_value(Self)
             } else {
-                Result::new_ok_def()
+                LogResult::new_ok_def()
             }
         })
     }

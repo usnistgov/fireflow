@@ -1,5 +1,5 @@
 use crate::config::StdTextReadConfig;
-use crate::logging::{DeferredFungibleError, LogResultExt as _, ResultExt as _};
+use crate::logging::{DeferredFungibleError, LogResult, ResultExt as _};
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
 use crate::validated::ascii_uint::UintZeroPad20;
@@ -82,10 +82,10 @@ impl Timestep {
         self,
         allow_loss: bool,
     ) -> DeferredFungibleError<(), TimestepLossError> {
-        if !self.0.is_one() {
-            Result::new_deferred_fungible((), TimestepLossError(self), !allow_loss)
+        if self.0.is_one() {
+            LogResult::new_ok(())
         } else {
-            Result::new_ok(())
+            LogResult::new_deferred_fungible((), TimestepLossError(self), !allow_loss)
         }
     }
 }
@@ -322,7 +322,7 @@ pub enum AlphaNumType {
 impl AlphaNumType {
     pub(crate) fn lookup_req_check_ascii(kws: &mut StdKeywords) -> LookupResult<Self> {
         let mut d = Self::lookup_req(kws);
-        d.eval_non_def_warning(|v| check_datatype_ascii(*v));
+        d.eval_warning(|v| check_datatype_ascii(*v));
         d
     }
 }
@@ -555,13 +555,13 @@ impl Wavelengths {
         self,
         allow_loss: bool,
     ) -> DeferredFungibleError<Option<Wavelength>, WavelengthsLossError> {
-        NonEmpty::from_vec(self.0).map_or(Result::new_ok_def(), |ws| {
+        NonEmpty::from_vec(self.0).map_or(LogResult::new_ok_def(), |ws| {
             let ret = Some(Wavelength(ws.head));
             let n = ws.len();
             if n > 1 {
-                Result::new_deferred_fungible(ret, WavelengthsLossError(n), !allow_loss)
+                LogResult::new_deferred_fungible(ret, WavelengthsLossError(n), !allow_loss)
             } else {
-                Result::new_ok(ret)
+                LogResult::new_ok(ret)
             }
         })
     }
@@ -846,10 +846,10 @@ impl<I> RegionGateIndex<I> {
             if let Some(x) = maybe {
                 Self::check_link(&x, par)
                     .map(|()| x)
-                    .into_deferred_fungible_opt(!conf.allow_optional_dropping)
+                    .into_deferred_fungible_opt::<Vec<_>>(!conf.allow_optional_dropping)
                     .cmt_fung_errors_into()
             } else {
-                Result::new_ok_def()
+                LogResult::new_ok_def()
             }
             .map_ok_value(Into::into)
         })
@@ -1345,8 +1345,8 @@ impl Range {
             },
             |x| (x, None),
         );
-        err.map_or(Result::new_ok(b), |e| {
-            Result::new_deferred_fungible(b, e, disallow_trunc)
+        err.map_or(LogResult::new_ok(b), |e| {
+            LogResult::new_deferred_fungible(b, e, disallow_trunc)
         })
     }
 
@@ -1370,8 +1370,8 @@ impl Range {
             |x| (x, None),
         );
         match err {
-            None => Result::new_ok(x),
-            Some(e) => Result::new_deferred_fungible(x, e, disallow_trunc),
+            None => LogResult::new_ok(x),
+            Some(e) => LogResult::new_deferred_fungible(x, e, disallow_trunc),
         }
     }
 }

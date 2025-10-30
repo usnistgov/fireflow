@@ -1,7 +1,7 @@
 //! Types to represent the $PnB and $PnR values for a uint column.
 
 use crate::logging::{
-    CmtResultIter as _, DeferredFungibleError, ErrorsResult, LogResultExt as _, ResultExt as _,
+    CmtResultIter as _, DeferredFungibleError, ErrorsResult, LogResult, ResultExt as _,
 };
 use crate::text::index::MeasIndex;
 use crate::text::keywords::{IntRangeError, Range};
@@ -95,8 +95,8 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
             bytes: Self::bits(),
             value: u64::from(value),
         });
-        error.map_or(Result::new_ok(bitmask), |e| {
-            Result::new_deferred_fungible(bitmask, e, disallow_trunc)
+        error.map_or(LogResult::new_ok(bitmask), |e| {
+            LogResult::new_deferred_fungible(bitmask, e, disallow_trunc)
         })
     }
 
@@ -165,10 +165,6 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
 
     fn bits() -> u8 {
         Self::bytes() * 8
-    }
-
-    pub(crate) fn bits_(&self) -> u8 {
-        Self::bits()
     }
 
     pub(crate) fn try_from_many<E, X>(

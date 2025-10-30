@@ -1,5 +1,5 @@
 use crate::config::StdTextReadConfig;
-use crate::logging::{LogResultExt as _, ResultExt as _};
+use crate::logging::{LogResult, ResultExt as _};
 use crate::validated::keys::{BiIndexedKey as _, StdKey, StdKeywords};
 
 use super::index::MeasIndex;
@@ -64,7 +64,7 @@ impl Compensation2_0 {
             })
             .unzip();
         let res = if xs.iter().all(Option::is_none) || xs.is_empty() {
-            Result::new_ok(None)
+            LogResult::new_ok(None)
         } else {
             let ys = xs.into_iter().map(|x| x.unwrap_or(0.0));
             let matrix = DMatrix::from_row_iterator(n, n, ys);
@@ -73,7 +73,7 @@ impl Compensation2_0 {
                 .map_err(LookupKeysWarning::Comp)
                 .into_deferred_fungible(is_err)
         };
-        res.extend_def_fung_errors(warnings.into_iter().flatten(), is_err)
+        res.extend_deferred_fungible_errors(warnings.into_iter().flatten(), is_err)
     }
 
     #[must_use]

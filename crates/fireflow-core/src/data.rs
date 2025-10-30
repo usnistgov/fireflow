@@ -52,9 +52,9 @@ use crate::config::{ReadLayoutConfig, ReaderConfig, StdTextReadConfig};
 use crate::core::{AsScaleTransform, LayoutConvertResult, Measurements, ScaleTransform};
 use crate::logging::{
     CmtResultIter as _, DeferredErrors, DeferredFungibleError, DeferredFungibleErrors,
-    DeferredIOError, DeferredIter as _, DeferredWarningAndError, DeferredWarningsAndError,
-    DeferredWarningsAndErrors, ErrorsResult, IOErrorResult, IOWarningsAndErrorsResult, ImpureError,
-    LogResultExt, ResultExt as _, VecFamily, WarningOrErrorResult, WarningsAndErrorsResult,
+    DeferredIter as _, DeferredWarningAndError, DeferredWarningsAndError, ErrorsResult, IOResult,
+    IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _, WarningOrErrorResult,
+    WarningsAndErrorsResult,
 };
 use crate::macros::match_many_to_one;
 use crate::nonempty::FCSNonEmpty;
@@ -63,6 +63,7 @@ use crate::segment::{
     SegmentMismatchWarning,
 };
 
+use crate::text::optional::Nothing;
 use crate::text::{
     byteord::{
         BitsOrChars, ByteOrd2_0, ByteOrd3_1, ByteOrdToSizedEndianError, ByteOrdToSizedError, Bytes,
@@ -74,7 +75,7 @@ use crate::text::{
     keywords::{
         AlphaNumType, AlphaNumTypeError, IntRangeError, NumType, NumTypeError, Par, Range, Tot,
     },
-    optional::{KeywordPairMaybe as _, MightHave},
+    optional::KeywordPairMaybe as _,
     parser::{
         LookupKeysError, LookupKeysWarning, LookupResult, LookupTentative, OptIndexedKey as _,
         OptKeyError, ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _,
@@ -244,34 +245,81 @@ pub enum AnyOrderedUintLayout<T> {
 pub type OrderedLayout<C, T> = FixedLayout<C, <C as HasNativeWidth>::Order, T, NoMeasDatatype>;
 
 /// The type of a non-delimited column in the DATA segment for 3.2
-pub enum MixedType<F: ColumnFamily> {
-    Ascii(F::ColumnWrapper<AsciiRange, u64, NoByteOrd3_1>),
-    Uint(AnyBitmask<F>),
-    F32(F::ColumnWrapper<F32Range, f32, Endian>),
-    F64(F::ColumnWrapper<F64Range, f64, Endian>),
+#[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum MixedType<A, U, F, D> {
+    Ascii(A),
+    Uint(U),
+    F32(F),
+    F64(D),
 }
 
-pub type NullMixedType = MixedType<ColumnNullFamily>;
-type ReaderMixedType = MixedType<ColumnReaderFamily>;
-type WriterMixedType<'a> = MixedType<ColumnWriterFamily<'a>>;
+pub type NullMixedType = MixedType<AsciiRange, AnyNullBitmask, F32Range, F64Range>;
+
+type ReaderMixedType = MixedType<
+    ColumnReader<AsciiRange, u64, NoByteOrd3_1>,
+    AnyReaderBitmask,
+    ColumnReader<F32Range, f32, Endian>,
+    ColumnReader<F64Range, f64, Endian>,
+>;
+
+type WriterMixedType<'a> = MixedType<
+    ColumnWriter<'a, AsciiRange, u64, NoByteOrd3_1>,
+    AnyWriterBitmask<'a>,
+    ColumnWriter<'a, F32Range, f32, Endian>,
+    ColumnWriter<'a, F64Range, f64, Endian>,
+>;
 
 /// A big or little-endian integer column of some size (1-8 bytes)
-#[derive(PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum AnyBitmask<F: ColumnFamily> {
-    Uint08(F::ColumnWrapper<Bitmask08, u8, Endian>),
-    Uint16(F::ColumnWrapper<Bitmask16, u16, Endian>),
-    Uint24(F::ColumnWrapper<Bitmask24, u32, Endian>),
-    Uint32(F::ColumnWrapper<Bitmask32, u32, Endian>),
-    Uint40(F::ColumnWrapper<Bitmask40, u64, Endian>),
-    Uint48(F::ColumnWrapper<Bitmask48, u64, Endian>),
-    Uint56(F::ColumnWrapper<Bitmask56, u64, Endian>),
-    Uint64(F::ColumnWrapper<Bitmask64, u64, Endian>),
+pub enum AnyBitmask<C08, C16, C24, C32, C40, C48, C56, C64> {
+    Uint08(C08),
+    Uint16(C16),
+    Uint24(C24),
+    Uint32(C32),
+    Uint40(C40),
+    Uint48(C48),
+    Uint56(C56),
+    Uint64(C64),
 }
 
-pub type AnyNullBitmask = AnyBitmask<ColumnNullFamily>;
-type AnyReaderBitmask = AnyBitmask<ColumnReaderFamily>;
-type AnyWriterBitmask<'a> = AnyBitmask<ColumnWriterFamily<'a>>;
+pub type AnyNullBitmask = AnyBitmask<
+    Bitmask08,
+    Bitmask16,
+    Bitmask24,
+    Bitmask32,
+    Bitmask40,
+    Bitmask48,
+    Bitmask56,
+    Bitmask64,
+>;
+
+type AnyReaderBitmask = AnyBitmask<
+    UintColumnReader<Bitmask08>,
+    UintColumnReader<Bitmask16>,
+    UintColumnReader<Bitmask24>,
+    UintColumnReader<Bitmask32>,
+    UintColumnReader<Bitmask40>,
+    UintColumnReader<Bitmask48>,
+    UintColumnReader<Bitmask56>,
+    UintColumnReader<Bitmask64>,
+>;
+
+type AnyWriterBitmask<'a> = AnyBitmask<
+    UintColumnWriter<'a, Bitmask08>,
+    UintColumnWriter<'a, Bitmask16>,
+    UintColumnWriter<'a, Bitmask24>,
+    UintColumnWriter<'a, Bitmask32>,
+    UintColumnWriter<'a, Bitmask40>,
+    UintColumnWriter<'a, Bitmask48>,
+    UintColumnWriter<'a, Bitmask56>,
+    UintColumnWriter<'a, Bitmask64>,
+>;
+
+type UintColumnReader<C> = ColumnReader<C, <C as HasNativeType>::Native, Endian>;
+
+type UintColumnWriter<'a, C> = ColumnWriter<'a, C, <C as HasNativeType>::Native, Endian>;
 
 /// The type of any floating point column in all versions
 #[derive(PartialEq, Clone, new, Debug)]
@@ -291,8 +339,6 @@ struct ColumnReader<C, T, S> {
     byte_layout: PhantomData<S>,
 }
 
-type UintColumnReader<C> = ColumnReader<C, <C as HasNativeType>::Native, Endian>;
-
 /// Instructions to write one column using an iterator
 #[derive(new)]
 struct ColumnWriter<'a, C, T, S> {
@@ -307,18 +353,6 @@ impl<C, T, S> ColumnWriter<'_, C, T, S> {
         self.loss.as_ref().map(|&error| ColumnError::new(i, error))
     }
 }
-
-type UintColumnWriter<'a, C> = ColumnWriter<'a, C, <C as HasNativeType>::Native, Endian>;
-
-/// Marker type for columns which are used in a layout (non-reader/writer)
-#[derive(Clone, Copy, PartialEq)]
-pub struct ColumnNullFamily;
-
-/// Marker type for columns which are in a layout and have data for reading
-struct ColumnReaderFamily;
-
-/// Marker type for columns which are in a layout and have data for writing
-struct ColumnWriterFamily<'a>(PhantomData<&'a ()>);
 
 /// Marker type for layouts that might have $TOT
 #[derive(Clone, PartialEq)]
@@ -354,14 +388,6 @@ pub struct ColumnLayoutValues<D> {
 type ColumnLayoutValues2_0 = ColumnLayoutValues<NullMeasDatatype>;
 type ColumnLayoutValues3_2 = ColumnLayoutValues<Option<NumType>>;
 
-/// A type which represents a column which may have associated data.
-///
-/// Used to implement a higher-kinded type interface for columns that can be
-/// by themselves or associated with reader or writer data.
-pub trait ColumnFamily {
-    type ColumnWrapper<C, T, S>;
-}
-
 pub trait MeasDatatypeDef {
     type MeasDatatype;
 
@@ -395,8 +421,8 @@ pub trait MeasDatatypeDef {
         RawParsedError,
     > {
         Par::get_metaroot_req(kws)
+            .map_err(RawParsedError::from)
             .into_log()
-            .map_non_fung_errors(RawParsedError::from)
             .and_then_cmt(|par| {
                 (0..par.0)
                     .map(|i| Self::lookup_one_ro(kws, i.into()))
@@ -414,7 +440,7 @@ pub trait MeasDatatypeDef {
         w.zip_cmt(r).and_then_cmt(|(width, range)| {
             Self::lookup_datatype(kws, i, conf)
                 .map_ok_value(|datatype| ColumnLayoutValues::new(width, range, datatype))
-                .non_fung_errors_into()
+                .errors_into()
                 .set_err_value(())
         })
     }
@@ -438,9 +464,9 @@ pub trait MeasDatatypeDef {
             .nowarn_into_warn()
             .and_then_cmt(|(width, range)| {
                 Self::lookup_datatype_ro(kws, i)
-                    .repack()
+                    .repack::<_, _, Vec<_>>()
                     .map_ok_value(|datatype| ColumnLayoutValues::new(width, range, datatype))
-                    .map_non_fung_errors(RawParsedError::from)
+                    .map_errors(RawParsedError::from)
                     .set_err_value(())
             })
     }
@@ -464,7 +490,7 @@ pub trait TotDefinition {
             (),
             tot,
             |(), t| Self::check_tot_inner(total_events, t, allow_mismatch),
-            |()| Result::new_ok(()),
+            |()| LogResult::new_ok(()),
         )
     }
 
@@ -477,10 +503,10 @@ pub trait TotDefinition {
         let count = usize::try_from(total_events)
             .expect("event count exceeded maximum platform pointer size");
         if tot.0 == count {
-            Result::new_ok(())
+            LogResult::new_ok(())
         } else {
             let i = TotEventMismatch { tot, total_events };
-            Result::new_fungible((), (), i, !allow_mismatch)
+            LogResult::new_fungible((), (), i, !allow_mismatch)
         }
     }
 }
@@ -542,10 +568,10 @@ pub trait LayoutOps<'a, T>: Sized {
         let layout_n = self.ncols();
         if meas_n != layout_n {
             let e = MeasLayoutLengthsError { meas_n, layout_n };
-            return Result::new_err1(e.into());
+            return LogResult::new_err1(e.into());
         }
         self.check_transforms(xforms)
-            .map_non_fung_errors(MeasLayoutMismatchError::from)
+            .map_errors(MeasLayoutMismatchError::from)
     }
 
     // TODO this should be private
@@ -567,7 +593,7 @@ pub trait LayoutOps<'a, T>: Sized {
                 // floating point types to keep the logic simple.
                 let is_err = datatype != AlphaNumType::Integer && !scale.is_noop();
                 let e = ScaleMismatchTransformError { datatype, scale };
-                Result::new_non_fungible((), (), ColumnError::new(i, e), is_err)
+                LogResult::new_non_fungible((), (), ColumnError::new(i, e), is_err)
             })
             .mappend_def()
             .map_def_value(|_| ())
@@ -654,13 +680,15 @@ where
         // more complex. Good enough to pass the buffer and only use it when
         // needed.
         let mut buf = vec![];
-        seg.as_u64()
-            .try_coords()
-            // TODO why return default rather than fail?
-            .map_or(Result::new_ok(FCSDataFrame::default()), |(begin, _)| {
-                h.seek(SeekFrom::Start(begin))?;
-                self.h_read_df_inner(h, &mut buf, tot, seg, conf)
-            })
+        // TODO why return default rather than fail?
+        seg.as_u64().try_coords().map_or(
+            LogResult::new_ok(FCSDataFrame::default()),
+            |(begin, _)| {
+                h.seek(SeekFrom::Start(begin))
+                    .into_io_log()
+                    .and_then_nowarn(|_| self.h_read_df_inner(h, &mut buf, tot, seg, conf))
+            },
+        )
     }
 
     fn h_write_df<W>(
@@ -684,7 +712,7 @@ where
         self.h_write_df_inner(h, df, skip_conv_check)
     }
 
-    fn check_measurement_vector<N: MightHave, T, O: AsScaleTransform>(
+    fn check_measurement_vector<N, T, O: AsScaleTransform>(
         &self,
         meas: &Measurements<N, T, O>,
     ) -> DeferredErrors<(), MeasLayoutMismatchError> {
@@ -768,7 +796,7 @@ trait NativeReadable<S>: HasNativeType {
         h: &mut BufReader<R>,
         byte_layout: S,
         buf: &mut Vec<u8>,
-    ) -> IOErrorResult<Self::Native, (), ReadDataframeError>;
+    ) -> IOResult<Self::Native, ReadDataframeError>;
 }
 
 /// A column which may be transformed into a writer for a rust numeric type
@@ -819,7 +847,7 @@ trait Readable<S> {
         row: usize,
         byte_layout: S,
         buf: &mut Vec<u8>,
-    ) -> DeferredIOError<(), ReadDataframeError>;
+    ) -> IOResult<(), ReadDataframeError>;
 }
 
 trait NativeWritable<S>: HasNativeType {
@@ -1017,53 +1045,6 @@ macro_rules! match_any_mixed {
     };
 }
 
-impl fmt::Debug for AnyNullBitmask {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match_any_uint!(self, Self, x, { write!(f, "Uint{}({x:?})", x.bits_()) })
-    }
-}
-
-impl fmt::Debug for NullMixedType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Ascii(x) => write!(f, "Ascii({x:?})"),
-            Self::Uint(x) => write!(f, "Uint({x:?})"),
-            Self::F32(x) => write!(f, "F32({x:?})"),
-            Self::F64(x) => write!(f, "F64({x:?})"),
-        }
-    }
-}
-
-impl PartialEq for NullMixedType {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Ascii(x), Self::Ascii(y)) => x == y,
-            (Self::Uint(x), Self::Uint(y)) => x == y,
-            (Self::F32(x), Self::F32(y)) => x == y,
-            (Self::F64(x), Self::F64(y)) => x == y,
-            _ => false,
-        }
-    }
-}
-
-impl Clone for NullMixedType {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Ascii(x) => (*x).into(),
-            Self::Uint(x) => (*x).into(),
-            Self::F32(x) => x.clone().into(),
-            Self::F64(x) => x.clone().into(),
-        }
-    }
-}
-
-#[cfg(feature = "serde")]
-impl Serialize for NullMixedType {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match_any_mixed!(self, x, { x.serialize(serializer) })
-    }
-}
-
 macro_rules! impl_any_uint {
     ($var:ident, $bitmask:path) => {
         impl From<$bitmask> for AnyNullBitmask {
@@ -1220,7 +1201,7 @@ impl MeasDatatypeDef for NoMeasDatatype {
         _: MeasIndex,
         _: &StdTextReadConfig,
     ) -> LookupTentative<Self::MeasDatatype> {
-        Result::new_ok(NullMeasDatatype)
+        LogResult::new_ok(NullMeasDatatype)
     }
 
     fn lookup_datatype_ro(
@@ -1228,7 +1209,7 @@ impl MeasDatatypeDef for NoMeasDatatype {
         _: MeasIndex,
     ) -> DeferredWarningAndError<Self::MeasDatatype, OptKeyError<NumTypeError>, RawParsedError>
     {
-        Result::new_ok(NullMeasDatatype)
+        LogResult::new_ok(NullMeasDatatype)
     }
 }
 
@@ -1279,18 +1260,6 @@ impl TotDefinition for KnownTot {
     {
         tot_f(input, tot)
     }
-}
-
-impl ColumnFamily for ColumnNullFamily {
-    type ColumnWrapper<C, T, S> = C;
-}
-
-impl ColumnFamily for ColumnReaderFamily {
-    type ColumnWrapper<C, T, S> = ColumnReader<C, T, S>;
-}
-
-impl<'a> ColumnFamily for ColumnWriterFamily<'a> {
-    type ColumnWrapper<C, T, S> = ColumnWriter<'a, C, T, S>;
 }
 
 impl From<&NullMixedType> for Range {
@@ -1349,8 +1318,8 @@ where
         h: &mut BufReader<R>,
         byte_layout: Endian,
         _: &mut Vec<u8>,
-    ) -> IOErrorResult<T, (), ReadDataframeError> {
-        Result::new_ok(T::h_read_endian(h, byte_layout)?)
+    ) -> IOResult<T, ReadDataframeError> {
+        Ok(T::h_read_endian(h, byte_layout)?)
     }
 }
 
@@ -1364,8 +1333,8 @@ where
         h: &mut BufReader<R>,
         byte_layout: SizedByteOrd<LEN>,
         _: &mut Vec<u8>,
-    ) -> IOErrorResult<T, (), ReadDataframeError> {
-        Result::new_ok(T::h_read_ordered(h, byte_layout)?)
+    ) -> IOResult<T, ReadDataframeError> {
+        Ok(T::h_read_ordered(h, byte_layout)?)
     }
 }
 
@@ -1379,8 +1348,8 @@ where
         h: &mut BufReader<R>,
         byte_layout: Endian,
         _: &mut Vec<u8>,
-    ) -> IOErrorResult<T, (), ReadDataframeError> {
-        Result::new_ok(T::h_read_endian(h, byte_layout)?)
+    ) -> IOResult<T, ReadDataframeError> {
+        Ok(T::h_read_endian(h, byte_layout)?)
     }
 }
 
@@ -1394,8 +1363,8 @@ where
         h: &mut BufReader<R>,
         byte_layout: SizedByteOrd<LEN>,
         _: &mut Vec<u8>,
-    ) -> IOErrorResult<T, (), ReadDataframeError> {
-        Result::new_ok(T::h_read_ordered(h, byte_layout)?)
+    ) -> IOResult<T, ReadDataframeError> {
+        Ok(T::h_read_ordered(h, byte_layout)?)
     }
 }
 
@@ -1405,13 +1374,12 @@ impl<const ORD: bool> NativeReadable<NoByteOrd<ORD>> for AsciiRange {
         h: &mut BufReader<R>,
         _: NoByteOrd<ORD>,
         buf: &mut Vec<u8>,
-    ) -> IOErrorResult<Self::Native, (), ReadDataframeError> {
+    ) -> IOResult<Self::Native, ReadDataframeError> {
         buf.clear();
         h.take(u8::from(self.chars()).into()).read_to_end(buf)?;
         ascii_to_uint(buf)
             .map_err(ReadDataframeError::from)
             .map_err(ImpureError::Pure)
-            .into_nowarn1()
     }
 }
 
@@ -1459,12 +1427,10 @@ where
         row: usize,
         byte_layout: S,
         buf: &mut Vec<u8>,
-    ) -> DeferredIOError<(), ReadDataframeError> {
-        self.column_type
-            .h_read_native(h, byte_layout, buf)
-            .map_ok_value(|x| {
-                self.data[row] = x;
-            })
+    ) -> IOResult<(), ReadDataframeError> {
+        let x = self.column_type.h_read_native(h, byte_layout, buf)?;
+        self.data[row] = x;
+        Ok(())
     }
 }
 
@@ -1479,7 +1445,7 @@ impl Readable<Endian> for ReaderMixedType {
         row: usize,
         byte_layout: Endian,
         buf: &mut Vec<u8>,
-    ) -> DeferredIOError<(), ReadDataframeError> {
+    ) -> IOResult<(), ReadDataframeError> {
         match self {
             Self::Ascii(c) => c.h_read(h, row, NoByteOrd, buf),
             Self::Uint(c) => c.h_read(h, row, byte_layout, buf),
@@ -1500,7 +1466,7 @@ impl Readable<Endian> for AnyReaderBitmask {
         row: usize,
         byte_layout: Endian,
         buf: &mut Vec<u8>,
-    ) -> DeferredIOError<(), ReadDataframeError> {
+    ) -> IOResult<(), ReadDataframeError> {
         match_any_uint!(self, AnyBitmask, c, { c.h_read(h, row, byte_layout, buf) })
     }
 }
@@ -1878,11 +1844,11 @@ impl<D> EndianLayout<AnyNullBitmask, D> {
         if let Some(cs) = NonEmpty::from_vec(self.columns) {
             cs.head
                 .try_into_one_size(cs.tail, self.byte_layout, 1)
-                .map_non_fung_errors(|(index, error)| ConvertWidthError { index, error })
-                .non_fung_errors_into()
+                .map_errors(|(index, error)| ConvertWidthError { index, error })
+                .errors_into()
         } else {
             let b: SizedByteOrd<4> = self.byte_layout.into();
-            Result::new_ok(FixedLayout::new(vec![], b).into())
+            LogResult::new_ok(FixedLayout::new(vec![], b).into())
         }
     }
 }
@@ -1912,9 +1878,7 @@ impl<D> EndianLayout<NullMixedType, D> {
                 MixedType::Uint(x) => x
                     .try_into_one_size(cs, endian, 1)
                     .map_ok_value(AnyOrderedLayout::from)
-                    .map_non_fung_errors(|(index, error)| {
-                        MixedColumnConvertError::new(index, error)
-                    }),
+                    .map_errors(|(index, error)| MixedColumnConvertError::new(index, error)),
                 MixedType::Ascii(x) => from_columns!(cs)
                     .map_ok_value(|xs| FixedLayout::new1(x, xs, NoByteOrd))
                     .map_ok_value(AnyAsciiLayout::from)
@@ -1928,7 +1892,7 @@ impl<D> EndianLayout<NullMixedType, D> {
             }
         } else {
             let b: SizedByteOrd<4> = self.byte_layout.into();
-            Result::new_ok(FixedLayout::new(vec![], b).into())
+            LogResult::new_ok(FixedLayout::new(vec![], b).into())
         }
     }
 
@@ -1951,7 +1915,7 @@ impl<D> EndianLayout<NullMixedType, D> {
             let byte_layout = self.byte_layout;
             match c0 {
                 MixedType::Ascii(x) => it
-                    .map(|(i, c)| c.try_into().map_err(|e| (i, e)).into_log())
+                    .map(|(i, c)| c.try_into().map_err(|e| (i, e)).into_log::<_, _, Vec<_>>())
                     .mappend_cmt()
                     .map_ok_value(|xs| FixedLayout::new1(x, xs, NoByteOrd))
                     .map_ok_value(|l| AnyAsciiLayout::Fixed(l).into()),
@@ -1959,10 +1923,10 @@ impl<D> EndianLayout<NullMixedType, D> {
                 MixedType::F32(x) => from_iter!(it, x, byte_layout),
                 MixedType::F64(x) => from_iter!(it, x, byte_layout),
             }
-            .map_non_fung_errors(|(i, error)| MixedColumnConvertError::new(i + 1, error))
+            .map_errors(|(i, error)| MixedColumnConvertError::new(i + 1, error))
         } else {
             let l = FixedLayout::new(vec![], self.byte_layout);
-            Result::new_ok(NonMixedEndianLayout::Integer(l))
+            LogResult::new_ok(NonMixedEndianLayout::Integer(l))
         }
     }
 }
@@ -2045,16 +2009,16 @@ impl<T, const LEN: usize> FloatRange<T, LEN> {
         T: HasFloatBounds,
     {
         Bytes::try_from(width)
-            .into_log()
-            .non_fung_errors_into()
+            .into_log::<_, _, Vec<_>>()
+            .errors_into()
             .and_then_cmt(|bytes| {
                 if usize::from(u8::from(bytes)) == LEN {
                     Self::from_range(range, disallow_trunc)
                         .set_err_value(())
-                        .non_fung_errors_into()
+                        .errors_into()
                 } else {
                     let e = FloatWidthError::from(WrongFloatWidth::new(bytes, LEN));
-                    Result::new_err1(e)
+                    LogResult::new_err1(e)
                 }
             })
     }
@@ -2073,7 +2037,7 @@ impl NullMixedType {
                 $t::from_width_and_range($width, $range, $disallow_trunc)
                     .map_ok_value(Self::from)
                     .cmt_warnings_into()
-                    .non_fung_errors_into()
+                    .errors_into()
             };
         }
 
@@ -2137,11 +2101,11 @@ impl AnyNullBitmask {
     ) -> WarningsAndErrorsResult<Self, (), BitmaskError, NewUintTypeError> {
         width
             .try_into()
-            .into_log()
-            .map_non_fung_errors(NewUintTypeError::from)
+            .into_log::<_, _, Vec<_>>()
+            .map_errors(NewUintTypeError::from)
             .and_then_cmt(|bytes| {
                 Self::new1(bytes, range, disallow_trunc)
-                    .map_non_fung_errors(NewUintTypeError::from)
+                    .map_errors(NewUintTypeError::from)
                     .set_err_value(())
             })
     }
@@ -2263,16 +2227,10 @@ where
         let res = T::with_tot(
             h,
             tot,
-            |h_, t| {
-                h_read_delim_with_rows(rs, h_, t, nbytes)
-                    .map_non_fung_errors(ImpureError::inner_into)
-            },
-            |h_| {
-                h_read_delim_without_rows(rs, h_, nbytes)
-                    .map_non_fung_errors(ImpureError::inner_into)
-            },
+            |h_, t| h_read_delim_with_rows(rs, h_, t, nbytes).map_err(ImpureError::inner_into),
+            |h_| h_read_delim_without_rows(rs, h_, nbytes).map_err(ImpureError::inner_into),
         );
-        res.nowarn_into_warn().repack_errors()
+        res.into_log()
     }
 
     // TODO aren't these always warnings?
@@ -2302,30 +2260,39 @@ where
         // ASSUME dataframe has correct number of columns
         let mut column_srcs: Vec<_> = df.iter_columns().map(AnySource::<'_, u64>::new).collect();
         let mut loss_ws = vec![None; column_srcs.len()];
-        for row in 0..nrows {
-            for (col, xs) in column_srcs.iter_mut().enumerate() {
-                let x = xs.next().unwrap();
-                let s = x.new.to_string();
-                loss_ws[col] = mem::take(&mut loss_ws[col]).or(x.as_err());
-                let buf = s.as_bytes();
-                h.write_all(buf)?;
-                // write delimiter after all but last value
-                if !(row == nrows - 1 && col == ncols - 1) {
-                    h.write_all(&[32])?; // 32 = space in ASCII
+
+        let mut go = || -> Result<(), io::Error> {
+            for row in 0..nrows {
+                for (col, xs) in column_srcs.iter_mut().enumerate() {
+                    let x = xs.next().unwrap();
+                    let s = x.new.to_string();
+                    loss_ws[col] = mem::take(&mut loss_ws[col]).or(x.as_err());
+                    let buf = s.as_bytes();
+                    h.write_all(buf)?;
+                    // write delimiter after all but last value
+                    if !(row == nrows - 1 && col == ncols - 1) {
+                        h.write_all(&[32])?; // 32 = space in ASCII
+                    }
                 }
             }
-        }
+            Ok(())
+        };
+
+        let write_res = go().into_nowarn1();
+
         if skip_conv_check {
-            Result::new_ok(())
+            write_res.nowarn_into_warn()
         } else {
             let cs: Vec<_> = loss_ws
                 .into_iter()
                 .enumerate()
-                .flat_map(|(i, warn)| {
-                    warn.map(|w| ColumnError::new(i, AnyLossError::Ascii(LossError::Cast(w))))
+                .filter_map(|(i, warn)| {
+                    warn.map(LossError::Cast)
+                        .map(AnyLossError::Ascii)
+                        .map(|w| ColumnError::new(i, w))
                 })
                 .collect();
-            Result::new_ok(()).set_cmt_warnings(cs)
+            write_res.set_cmt_warnings(cs)
         }
     }
 
@@ -2354,7 +2321,7 @@ where
             })
             .unzip();
         let ws: Vec<_> = warnings.into_iter().flatten().collect();
-        Result::new_ok(FCSDataFrame::try_new(columns).unwrap()).set_cmt_warnings(ws)
+        LogResult::new_ok(FCSDataFrame::try_new(columns).unwrap()).set_cmt_warnings(ws)
     }
 }
 
@@ -2404,7 +2371,7 @@ fn h_read_delim_with_rows<R: Read>(
     h: &mut BufReader<R>,
     tot: Tot,
     nbytes: usize,
-) -> IOErrorResult<FCSDataFrame, (), ReadDelimWithRowsAsciiError> {
+) -> Result<FCSDataFrame, ImpureError<ReadDelimWithRowsAsciiError>> {
     let mut buf = Vec::new();
     let mut last_was_delim = false;
     let nrows = tot.0;
@@ -2412,7 +2379,7 @@ fn h_read_delim_with_rows<R: Read>(
     // TODO emit a real error here since this means something is probably
     // screwy with the file
     if (nrows == 0 || ncols == 0) && nbytes > 0 {
-        return Result::new_ok(FCSDataFrame::default());
+        return Ok(FCSDataFrame::default());
     }
     // Here we have $TOT so initialize vectors to required length
     let mut data = vec![vec![0; nrows]; ncols];
@@ -2428,7 +2395,7 @@ fn h_read_delim_with_rows<R: Read>(
         // exit if we encounter more rows than expected.
         if row == nrows {
             let e = ReadDelimWithRowsAsciiError::RowsExceeded(RowsExceededError(nrows));
-            return Result::new_err1(ImpureError::Pure(e));
+            return Err(ImpureError::Pure(e));
         }
         if is_ascii_delim(byte) {
             if !last_was_delim {
@@ -2452,7 +2419,7 @@ fn h_read_delim_with_rows<R: Read>(
     if !(col == 0 && row == nrows) {
         let e = DelimIncompleteError { col, row, nrows };
         let ee = ImpureError::Pure(ReadDelimWithRowsAsciiError::Incomplete(e));
-        return Result::new_err1(ee);
+        return Err(ee);
     }
     // The spec isn't clear if the last value should be a delim or
     // not, so flush the buffer if it has anything in it since we
@@ -2469,14 +2436,14 @@ fn h_read_delim_with_rows<R: Read>(
         .collect();
     // ASSUME this will never fail because all columns should be the same
     // length
-    Result::new_ok(FCSDataFrame::try_new(cs).unwrap())
+    Ok(FCSDataFrame::try_new(cs).unwrap())
 }
 
 fn h_read_delim_without_rows<R: Read>(
     ranges: &[u64],
     h: &mut BufReader<R>,
     nbytes: usize,
-) -> IOErrorResult<FCSDataFrame, (), ReadDelimAsciiWithoutRowsError> {
+) -> Result<FCSDataFrame, ImpureError<ReadDelimAsciiWithoutRowsError>> {
     let mut buf = Vec::new();
     // Here we don't have $TOT so init to empty vectors
     let mut data: Vec<_> = ranges.iter().map(|_| vec![]).collect();
@@ -2484,7 +2451,7 @@ fn h_read_delim_without_rows<R: Read>(
     // TODO emit a real error here since this means something is probably
     // screwy with the file
     if ncols == 0 && nbytes > 0 {
-        return Result::new_ok(FCSDataFrame::default());
+        return Ok(FCSDataFrame::default());
     }
     let mut col = 0;
     let mut last_was_delim = false;
@@ -2519,8 +2486,7 @@ fn h_read_delim_without_rows<R: Read>(
         }
     }
     if data.iter().map(Vec::len).unique().count() > 1 {
-        let e = ImpureError::Pure(ReadDelimAsciiWithoutRowsError::Unequal);
-        return Result::new_err1(e);
+        return Err(ImpureError::Pure(ReadDelimAsciiWithoutRowsError::Unequal));
     }
     // The spec isn't clear if the last value should be a delim or
     // not, so flush the buffer if it has anything in it since we
@@ -2535,7 +2501,7 @@ fn h_read_delim_without_rows<R: Read>(
         .collect();
     // ASSUME this will never fail because all columns should be the same
     // length
-    Result::new_ok(FCSDataFrame::try_new(cs).unwrap())
+    Ok(FCSDataFrame::try_new(cs).unwrap())
 }
 
 impl<C, S: Default, T, D> Default for FixedLayout<C, S, T, D> {
@@ -2606,21 +2572,18 @@ where
     {
         self.compute_nrows(seg, conf)
             .map_non_cmt_warnings(ReadDataframeWarning::from)
-            .map_non_fung_errors(ReadDataframeError::from)
-            .map_non_fung_errors(ImpureError::Pure)
+            .map_errors(ReadDataframeError::from)
+            .map_errors(ImpureError::Pure)
             .non_cmt_into_cmt()
             .repack()
             .and_then_cmt(|n| {
                 let check_res = T::check_tot(n, tot, conf.allow_tot_mismatch)
                     .map_cmt_warnings(ReadDataframeWarning::from)
-                    .map_non_fung_errors(ReadDataframeError::from)
-                    .map_non_fung_errors(ImpureError::Pure)
-                    .repack::<_, _, VecFamily>();
+                    .map_errors(ReadDataframeError::from)
+                    .map_errors(ImpureError::Pure)
+                    .repack::<_, _, Vec<_>>();
                 let nn = usize::try_from(n).expect("nrows exceeds usize");
-                let read_res = self
-                    .h_read_unchecked_df(h, nn, buf)
-                    .nowarn_into_warn()
-                    .repack_errors();
+                let read_res = self.h_read_unchecked_df(h, nn, buf).into_log();
                 check_res.zip_cmt(read_res).map_ok_value(|((), df)| df)
             })
     }
@@ -2659,11 +2622,18 @@ where
             .zip(df.iter_columns())
             .map(|(col_type, col_data)| col_type.clone().into_writer(col_data))
             .collect();
-        for _ in 0..nrows {
-            for c in &mut cs {
-                c.h_write(h, self.byte_layout)?;
+
+        let mut go = || {
+            for _ in 0..nrows {
+                for c in &mut cs {
+                    c.h_write(h, self.byte_layout)?;
+                }
             }
-        }
+            Ok(())
+        };
+
+        let write_res = go().into_nowarn1();
+
         // TODO perhaps a microoptization, if we don't need conversion warnings
         // might as well not check for them when writing each value in the first
         // place. This may be optimized away by the compiler in case this flag
@@ -2671,14 +2641,14 @@ where
         // its mostly just a conditional check which will be fast with branch
         // prediction. On the other hand, this is a very tight loop.
         if skip_conv_check {
-            Result::new_ok(())
+            write_res.nowarn_into_warn()
         } else {
             let ws = cs
                 .iter()
                 .enumerate()
                 .filter_map(|(i, c)| c.as_err(i.into()))
                 .collect();
-            Result::new_ok(()).set_cmt_warnings(ws)
+            write_res.set_cmt_warnings(ws)
         }
     }
 
@@ -2706,7 +2676,7 @@ where
             .enumerate()
             .filter_map(|(i, e)| e.map(|f| ColumnError::new(i, f)))
             .collect();
-        Result::new_ok(FCSDataFrame::try_new(new_columns).unwrap()).set_cmt_warnings(ws)
+        LogResult::new_ok(FCSDataFrame::try_new(new_columns).unwrap()).set_cmt_warnings(ws)
     }
 }
 
@@ -2799,8 +2769,8 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             .enumerate()
             .map(|(i, c)| {
                 new_col_f(c)
-                    .map_non_fung_errors(|error| ColumnError::new(i, error).into())
-                    .map_cmt_warnings(|error| ColumnError::new(i, error).into())
+                    .map_errors(|error| ColumnError::new(i, error))
+                    .map_cmt_warnings(|error| ColumnError::new(i, error))
             })
             .mappend_cmt()
             .map_ok_value(|columns| Self::new(columns, byte_layout))
@@ -2811,7 +2781,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         h: &mut BufReader<R>,
         nrows: usize,
         buf: &mut Vec<u8>,
-    ) -> IOErrorResult<FCSDataFrame, (), ReadDataframeError>
+    ) -> IOResult<FCSDataFrame, ReadDataframeError>
     where
         S: Copy,
         C: IsFixed + Clone + IntoReader<S>,
@@ -2831,7 +2801,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             .into_iter()
             .map(Readable::into_dataframe_column)
             .collect();
-        Result::new_ok(FCSDataFrame::try_new(data).unwrap())
+        Ok(FCSDataFrame::try_new(data).unwrap())
     }
 
     fn insert_column(&mut self, index: MeasIndex, col: C) {
@@ -2895,16 +2865,17 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         // TODO is this always not zero?
         let w = self.event_width();
         if w == 0 {
-            Result::new_err1(EventWidthError::from(ZeroEventWidth::new(n)))
+            LogResult::new_err1(EventWidthError::from(ZeroEventWidth::new(n)))
         } else {
             let total_events = n / w;
             let remainder = n % w;
             if remainder > 0 {
                 let e = UnevenEventWidth::new(w, n, remainder);
                 let is_err = !conf.allow_uneven_event_width;
-                Result::new_fungible(total_events, (), e, is_err).non_fung_errors_into()
+                LogResult::<_, _, _, _, _, Nothing<_>>::new_fungible(total_events, (), e, is_err)
+                    .map_errors(EventWidthError::from)
             } else {
-                Result::new_ok(total_events)
+                LogResult::new_ok(total_events)
             }
         }
     }
@@ -3143,9 +3114,9 @@ impl FromRange for NullMixedType {
                             f64::min_decimal()
                         };
                         let f = Self::F64(FloatRange::new(m));
-                        Result::new_deferred_fungible(f, e, disallow_trunc)
+                        LogResult::new_deferred_fungible(f, e, disallow_trunc)
                     },
-                    Result::new_ok,
+                    LogResult::<_, _, _, _, _, Vec<_>>::new_ok,
                 );
             res.map_cmt_fung_errors(AnyRangeError::from)
         }
@@ -3317,21 +3288,21 @@ impl<T> AnyOrderedUintLayout<T> {
         // are all the same number of bytes as ByteOrd. Skip this step if we
         // are ignoring $PnB for width and simply using the length of $BYTEORD.
         let width_res = if conf.integer_widths_from_byteord {
-            Result::new_ok(())
+            LogResult::new_ok(())
         } else {
             cs.iter()
                 .map(|c| c.width)
                 .map(Bytes::try_from)
-                .map(Result::into_log)
+                .map(Result::into_log::<_, _, Vec<_>>)
                 .mappend_cmt()
-                .map_non_fung_errors(SingleFixedWidthError::from)
+                .map_errors(SingleFixedWidthError::from)
                 .and_then_cmt(|widths| {
                     let ws = widths.into_iter().filter(|&w| w != n);
                     if let Some(mismatches) = NonEmpty::collect(ws) {
                         let e = WidthMismatchError::new(real_bo, mismatches);
-                        Result::new_err1(SingleFixedWidthError::from(e))
+                        LogResult::new_err1(SingleFixedWidthError::from(e))
                     } else {
-                        Result::new_ok(())
+                        LogResult::new_ok(())
                     }
                 })
         };
@@ -3346,19 +3317,18 @@ impl<T> AnyOrderedUintLayout<T> {
         let layout_res =
             match_many_to_one!(real_bo, ByteOrd2_0, [O1, O2, O3, O4, O5, O6, O7, O8], o, {
                 FixedLayout::try_new(cs, o, |c| {
-                    Bitmask::from_range(c.range, notrunc)
-                        .map_non_fung_errors(IntOrderedColumnError::from)
+                    Bitmask::from_range(c.range, notrunc).map_errors(IntOrderedColumnError::from)
                 })
                 .set_err_value(())
-                .map_non_fung_errors(NewFixedIntLayoutError::from)
+                .map_errors(NewFixedIntLayoutError::from)
                 .map_ok_value(Self::from)
             });
 
         width_res
             .nowarn_into_warn()
-            .map_non_fung_errors(NewFixedIntLayoutError::from)
+            .map_errors(NewFixedIntLayoutError::from)
             .zip_cmt(layout_res)
-            .map_ok_value(|(_, layout)| layout)
+            .map_ok_value(|((), layout)| layout)
     }
 }
 
@@ -3396,8 +3366,8 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
                     c.range
                         .into_uint::<u64>(disallow_trunc)
                         .map_cmt_warnings(|e| ColumnError::new(i, e))
-                        .map_non_fung_errors(NewAsciiRangeError::from)
-                        .map_non_fung_errors(|e| ColumnError::new(i, e))
+                        .map_errors(NewAsciiRangeError::from)
+                        .map_errors(|e| ColumnError::new(i, e))
                         .repack()
                 })
                 .mappend_def()
@@ -3563,7 +3533,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         macro_rules! from {
             ($i:expr) => {
                 $i.map_cmt_warnings(LookupLayoutWarning::from)
-                    .map_non_fung_errors(LookupLayoutError::from)
+                    .map_errors(LookupLayoutError::from)
             };
         }
 
@@ -3586,7 +3556,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         macro_rules! from2 {
             ($i:expr) => {
                 $i.map_cmt_warnings(RawToLayoutWarning::from)
-                    .map_non_fung_errors(RawToLayoutError::from)
+                    .map_errors(RawToLayoutError::from)
             };
         }
 
@@ -3621,7 +3591,7 @@ impl VersionedDataLayout for DataLayout3_2 {
             // default layout is
             //
             // ASSUME this matches with Self::new_empty above
-            [] => Result::new_ok(NonMixedEndianLayout::new_empty1(datatype, byteord.0).into()),
+            [] => LogResult::new_ok(NonMixedEndianLayout::new_empty1(datatype, byteord.0).into()),
             // has columns with one datatype, use nonmixed layout
             [dt] => {
                 let ds = columns
@@ -3638,7 +3608,7 @@ impl VersionedDataLayout for DataLayout3_2 {
                     MixedType::from_width_and_range(c.width, c.range, c.datatype, notrunc)
                 };
                 FixedLayout::try_new(columns, byteord.0, go)
-                    .map_non_fung_errors(NewDataLayoutError::from)
+                    .map_errors(NewDataLayoutError::from)
                     .map_ok_value(Self::from)
             }
         }
@@ -3741,7 +3711,7 @@ impl DataLayout3_2 {
     pub(crate) fn into_ordered<T>(self) -> LayoutConvertResult<AnyOrderedLayout<T>> {
         match self {
             Self::NonMixed(x) => x.into_ordered(),
-            Self::Mixed(x) => x.try_into_ordered().non_fung_errors_into(),
+            Self::Mixed(x) => x.try_into_ordered().errors_into(),
         }
     }
 
@@ -3798,7 +3768,7 @@ impl<T> AnyOrderedLayout<T> {
         macro_rules! from {
             ($i:expr) => {
                 $i.map_cmt_warnings(LookupLayoutWarning::from)
-                    .map_non_fung_errors(LookupLayoutError::from)
+                    .map_errors(LookupLayoutError::from)
             };
         }
 
@@ -3821,7 +3791,7 @@ impl<T> AnyOrderedLayout<T> {
         macro_rules! from2 {
             ($i:expr) => {
                 $i.map_cmt_warnings(RawToLayoutWarning::from)
-                    .map_non_fung_errors(RawToLayoutError::from)
+                    .map_errors(RawToLayoutError::from)
             };
         }
 
@@ -3884,7 +3854,7 @@ impl<T> AnyOrderedLayout<T> {
     {
         macro_rules! from {
             ($i:expr) => {
-                $i.map_non_fung_errors(NewDataLayoutError::from)
+                $i.map_errors(NewDataLayoutError::from)
                     .map_cmt_warnings(ColumnError::inner_into)
                     .map_ok_value(Self::from)
             };
@@ -3927,16 +3897,16 @@ impl<T> AnyOrderedLayout<T> {
                 $i.phantom_into()
                     .byte_layout_try_into()
                     .map(NonMixedEndianLayout::from)
-                    .into_log()
+                    .into_log::<_, _, Vec<_>>()
             };
         }
         let res = match self {
-            Self::Ascii(x) => Result::new_ok(NonMixedEndianLayout::from(x.phantom_into())),
+            Self::Ascii(x) => LogResult::new_ok(NonMixedEndianLayout::from(x.phantom_into())),
             Self::Integer(x) => x.into_endian().map(NonMixedEndianLayout::from).into_log(),
             Self::F32(x) => go_float!(x),
             Self::F64(x) => go_float!(x),
         };
-        res.non_fung_errors_into()
+        res.errors_into()
     }
 
     pub(crate) fn into_3_1(self) -> LayoutConvertResult<DataLayout3_1> {
@@ -3958,11 +3928,11 @@ impl NonMixedEndianLayout<NoMeasDatatype> {
         let n = ByteOrd3_1::lookup_req(kws);
         d.zip3_cmt(n, cs)
             .map_cmt_warnings(LookupLayoutWarning::from)
-            .map_non_fung_errors(LookupLayoutError::from)
+            .map_errors(LookupLayoutError::from)
             .and_then_cmt(|(datatype, byteord, columns)| {
                 Self::try_new(datatype, byteord.0, columns, conf.as_ref())
                     .map_cmt_warnings(LookupLayoutWarning::from)
-                    .map_non_fung_errors(LookupLayoutError::from)
+                    .map_errors(LookupLayoutError::from)
             })
     }
 
@@ -3976,11 +3946,11 @@ impl NonMixedEndianLayout<NoMeasDatatype> {
             .into_log();
         d.zip3_cmt(n, cs)
             .map_cmt_warnings(RawToLayoutWarning::from)
-            .map_non_fung_errors(RawToLayoutError::from)
+            .map_errors(RawToLayoutError::from)
             .and_then_cmt(|(datatype, byteord, columns)| {
                 Self::try_new(datatype, byteord.0, columns, conf)
                     .map_cmt_warnings(RawToLayoutWarning::from)
-                    .map_non_fung_errors(RawToLayoutError::from)
+                    .map_errors(RawToLayoutError::from)
             })
     }
 
@@ -4001,7 +3971,7 @@ impl NonMixedEndianLayout<NoMeasDatatype> {
 
         macro_rules! from {
             ($x:expr) => {
-                $x.map_non_fung_errors(NewDataLayoutError::from)
+                $x.map_errors(NewDataLayoutError::from)
                     .map_cmt_warnings(ColumnError::inner_into)
                     .map_ok_value(Self::from)
             };
@@ -4059,10 +4029,10 @@ impl<D> NonMixedEndianLayout<D> {
 
     pub(crate) fn into_ordered<T>(self) -> LayoutConvertResult<AnyOrderedLayout<T>> {
         match self {
-            Self::Ascii(x) => Result::new_ok(x.phantom_into().into()),
+            Self::Ascii(x) => LogResult::new_ok(x.phantom_into().into()),
             Self::Integer(x) => x.uint_try_into_ordered().map_ok_value(Into::into),
-            Self::F32(x) => Result::new_ok(x.phantom_into().byte_layout_into().into()),
-            Self::F64(x) => Result::new_ok(x.phantom_into().byte_layout_into().into()),
+            Self::F32(x) => LogResult::new_ok(x.phantom_into().byte_layout_into().into()),
+            Self::F64(x) => LogResult::new_ok(x.phantom_into().byte_layout_into().into()),
         }
     }
 

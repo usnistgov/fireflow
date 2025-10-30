@@ -73,7 +73,7 @@ impl Compensation2_0 {
                 .map_err(LookupKeysWarning::Comp)
                 .into_deferred_fungible(is_err)
         };
-        res.extend_def_fung_errors(warnings.into_iter().flatten(), is_err)
+        res.extend_deferred_fungible_errors(warnings.into_iter().flatten(), is_err)
     }
 
     #[must_use]

@@ -92,11 +92,11 @@ pub fn fcs_read_std_text(
     read_fcs_raw_text_inner(p, conf)
         .map_ok_value(|(x, _, st)| (x, st))
         .cmt_warnings_into()
-        .map_non_fung_errors(ImpureError::inner_into)
+        .map_errors(ImpureError::inner_into)
         .and_then_cmt(|(raw, st)| {
             raw.into_std_text(&st)
                 .cmt_warnings_into()
-                .map_non_fung_errors(|e| ImpureError::Pure(e.into()))
+                .map_errors(|e| ImpureError::Pure(e.into()))
         })
         .cmt_warnings_to_errors(&conf.shared, |w| ImpureError::Pure(StdTEXTError::from(w)))
         .summarize_errors()
@@ -114,7 +114,7 @@ pub fn fcs_read_raw_dataset(
 > {
     read_fcs_raw_text_inner(p, conf)
         .cmt_warnings_into()
-        .map_non_fung_errors(ImpureError::inner_into)
+        .map_errors(ImpureError::inner_into)
         .and_then_cmt(|(raw, mut h, st)| {
             h_read_dataset_from_kws(
                 &mut h,
@@ -127,7 +127,7 @@ pub fn fcs_read_raw_dataset(
             )
             .map_ok_value(|dataset| RawDatasetOutput::new(raw, dataset))
             .cmt_warnings_into()
-            .map_non_fung_errors(ImpureError::inner_into)
+            .map_errors(ImpureError::inner_into)
         })
         .cmt_warnings_to_errors(&conf.shared, |w| {
             ImpureError::Pure(RawDatasetError::from(w))
@@ -147,11 +147,11 @@ pub fn fcs_read_std_dataset(
 > {
     read_fcs_raw_text_inner(p, conf)
         .cmt_warnings_into()
-        .map_non_fung_errors(ImpureError::inner_into)
+        .map_errors(ImpureError::inner_into)
         .and_then_cmt(|(raw, mut h, st)| {
             raw.into_std_dataset(&mut h, &st)
                 .cmt_warnings_into()
-                .map_non_fung_errors(ImpureError::inner_into)
+                .map_errors(ImpureError::inner_into)
         })
         .cmt_warnings_to_errors(&conf.shared, |w| {
             ImpureError::Pure(StdDatasetError::from(w))
@@ -572,7 +572,7 @@ where
     C: AsRef<ReadLayoutConfig> + AsRef<ReaderConfig> + AsRef<ReadTEXTOffsetsConfig>,
 {
     kws_to_df_analysis(version, h, kws, data_seg, analysis_seg, st)
-        .map_non_fung_errors(ImpureError::inner_into)
+        .map_errors(ImpureError::inner_into)
         .and_then_cmt(|(data, analysis, dataset_segments)| {
             OthersReader::new(other_segs)
                 .h_read(h)
@@ -595,14 +595,13 @@ impl RawTEXTOutput {
     {
         Header::h_read(h, st)
             .nowarn_into_warn()
-            .map_non_fung_errors(ImpureError::inner_into)
+            .map_errors(ImpureError::inner_into)
             .and_then_cmt(|mut header| {
                 let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
                 if let Some(v) = conf.version_override {
                     header.version = v;
                 }
-                h_read_raw_text_from_header(h, header, st)
-                    .map_non_fung_errors(ImpureError::inner_into)
+                h_read_raw_text_from_header(h, header, st).map_errors(ImpureError::inner_into)
             })
     }
 
@@ -707,7 +706,7 @@ where
             // buffer is filled above by side effect, and this won't run if the
             // read step has an error
             split_first_delim(&buf, conf)
-                .map_non_fung_errors(|e| ImpureError::Pure(e.into()))
+                .map_errors(|e| ImpureError::Pure(e.into()))
                 .cmt_warnings_into()
                 .repack()
         });
@@ -717,8 +716,8 @@ where
             let mut kws = ParsedKeywords::default();
             split_raw_primary_text(&mut kws, delim, bytes, conf)
                 .map_cmt_warnings(ParseRawTEXTWarning::from)
-                .map_non_fung_errors(ParseRawTEXTError::from)
-                .map_non_fung_errors(ImpureError::Pure)
+                .map_errors(ParseRawTEXTError::from)
+                .map_errors(ImpureError::Pure)
                 .map_ok_value(|()| (kws, delim))
         })
         .and_then_cmt(|(mut kws, delim)| {
@@ -731,13 +730,13 @@ where
             } else {
                 lookup_stext_offsets(&kws.std, header.version, ptext_seg, st)
                     .map_cmt_warnings(ParseRawTEXTWarning::from)
-                    .map_non_fung_errors(ParseRawTEXTError::from)
-                    .map_non_fung_errors(ImpureError::Pure)
+                    .map_errors(ParseRawTEXTError::from)
+                    .map_errors(ImpureError::Pure)
                     .and_then_def(|seg| {
                         buf.clear();
                         h_read_raw_supp_text(h, seg.as_ref(), &mut kws, &mut buf, delim, conf)
                             .map_cmt_warnings(ParseRawTEXTWarning::from)
-                            .map_non_fung_errors(ImpureError::inner_into)
+                            .map_errors(ImpureError::inner_into)
                             .map_ok_value(|()| (delim, kws, seg))
                     })
             }
@@ -745,8 +744,8 @@ where
         .and_then_cmt(|(delim, mut kws, supp_text_seg)| {
             let nextdata_res = lookup_nextdata(&kws.std, conf.allow_missing_nextdata)
                 .map_cmt_warnings(ParseRawTEXTWarning::from)
-                .map_non_fung_errors(ParseRawTEXTError::from)
-                .map_non_fung_errors(ImpureError::Pure)
+                .map_errors(ParseRawTEXTError::from)
+                .map_errors(ImpureError::Pure)
                 .repack();
 
             let repair_res = kws
@@ -754,9 +753,9 @@ where
                 .map_cmt_fung_errors(KeywordInsertError::from)
                 .map_cmt_fung_errors(ParseKeywordsIssue::from)
                 .map_cmt_warnings(ParseRawTEXTWarning::from)
-                .map_non_fung_errors(ParsePrimaryTEXTError::from)
-                .map_non_fung_errors(ParseRawTEXTError::from)
-                .map_non_fung_errors(ImpureError::Pure);
+                .map_errors(ParsePrimaryTEXTError::from)
+                .map_errors(ParseRawTEXTError::from)
+                .map_errors(ImpureError::Pure);
 
             let vkws = ValidKeywords::new(kws.std, kws.nonstd);
 
@@ -777,13 +776,13 @@ where
         })
         .and_then_cmt(|raw| {
             let p = &raw.parse;
-            let na = p.as_non_ascii_errors(conf).non_fung_errors_into();
-            let be = p.as_byte_errors(conf).non_fung_errors_into();
-            let os = p.as_overlapping_segment_error().non_fung_errors_into();
+            let na = p.as_non_ascii_errors(conf).errors_into();
+            let be = p.as_byte_errors(conf).errors_into();
+            let os = p.as_overlapping_segment_error().errors_into();
             [na, be, os]
                 .into_iter()
                 .mappend_cmt()
-                .map_non_fung_errors(ImpureError::Pure)
+                .map_errors(ImpureError::Pure)
                 .nowarn_into_warn()
                 .map_ok_value(|_| raw)
         })
@@ -803,9 +802,9 @@ fn h_read_raw_supp_text<R: Read + Seek>(
             .and_then_cmt(|()| {
                 // buffer is read above by side effect
                 split_raw_supp_text(kws, delim, buf, conf)
-                    .map_non_fung_errors(ImpureError::Pure)
+                    .map_errors(ImpureError::Pure)
                     .cmt_warnings_into()
-                    .map_non_fung_errors(ImpureError::inner_into)
+                    .map_errors(ImpureError::inner_into)
             })
     } else {
         LogResult::new_ok(())
@@ -824,7 +823,7 @@ fn split_first_delim<'a>(
             let e = DelimCharError(*delim);
             let is_err = !conf.allow_non_ascii_delim;
             LogResult::<_, _, _, _, Identity<_>, Nothing<_>>::new_fungible(x, (), e, is_err)
-                .map_non_fung_errors(DelimVerifyError::from)
+                .map_errors(DelimVerifyError::from)
         }
     } else {
         LogResult::new_err1(EmptyTEXTError.into())
@@ -840,7 +839,7 @@ fn split_raw_primary_text(
     if bytes.is_empty() {
         LogResult::new_err1(NoTEXTWordsError.into())
     } else {
-        split_raw_text_inner(kws, delim, bytes, TEXTKind::Primary, conf).non_fung_errors_into()
+        split_raw_text_inner(kws, delim, bytes, TEXTKind::Primary, conf).errors_into()
     }
 }
 
@@ -851,12 +850,12 @@ fn split_raw_supp_text(
     conf: &ReadHeaderAndTEXTConfig,
 ) -> DeferredWarningsAndErrors<(), ParseKeywordsIssue, ParseSupplementalTEXTError> {
     if let Some((byte0, rest)) = bytes.split_first() {
-        let mut res = split_raw_text_inner(kws, *byte0, rest, TEXTKind::Supplemental, conf);
-        if *byte0 != delim {
-            let e = DelimMismatch::new(delim, *byte0).into();
-            res = res.push_def_fung_error(e, !conf.allow_supp_text_own_delim);
-        }
-        res.non_fung_errors_into()
+        let is_err = !conf.allow_supp_text_own_delim;
+        split_raw_text_inner(kws, *byte0, rest, TEXTKind::Supplemental, conf)
+            .eval_deferred_fungible_error(is_err, |_| {
+                (*byte0 != delim).then_some(DelimMismatch::new(delim, *byte0))
+            })
+            .map_errors(ParseSupplementalTEXTError::from)
     } else {
         // if empty do nothing, this is expected for most files
         LogResult::new_ok(())
@@ -1102,8 +1101,8 @@ where
                 |(), es| {
                     let is_err = !conf.allow_missing_supp_text;
                     LogResult::<_, _, Vec<_>, _, Identity<_>, Vec<_>>::new_ok(None)
-                        .extend_def_fung_errors(es, is_err)
-                        .map_non_fung_errors(STextSegmentError::from)
+                        .extend_deferred_fungible_errors(es, is_err)
+                        .map_errors(STextSegmentError::from)
                         .map_cmt_warnings(STextSegmentWarning::from)
                 },
                 |t| LogResult::new_ok(Some(t)),
@@ -1127,7 +1126,7 @@ where
                     DuplicatedSuppTEXT,
                     is_err,
                 )
-                .map_non_fung_errors(STextSegmentError::from)
+                .map_errors(STextSegmentError::from)
                 .map_cmt_warnings(STextSegmentWarning::from)
             } else {
                 LogResult::new_ok(Some(seg))
@@ -1196,12 +1195,9 @@ impl RawTEXTParseData {
                 .contains_text_segment(&s)
                 .map_err(Into::into)
                 .into_log();
-            let y = self
-                .header_segments
-                .overlaps_with(&s)
-                .non_fung_errors_into();
+            let y = self.header_segments.overlaps_with(&s).errors_into();
             x.zip_def(y)
-                .map_non_fung_errors(|e| ParseRawTEXTError::from(Box::new(e)))
+                .map_errors(|e| ParseRawTEXTError::from(Box::new(e)))
                 .set_def_value(())
         } else {
             LogResult::new_ok(())

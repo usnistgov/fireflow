@@ -106,16 +106,15 @@ impl Datetimes {
         self,
         allow_loss: bool,
     ) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
-        let mut res = LogResult::new_ok(());
-        if self.begin.is_some() {
-            let e = UnitaryKeyLossError::<BeginDateTime>::new().into();
-            res = res.push_def_fung_error(e, allow_loss);
-        }
-        if self.end.is_some() {
-            let e = UnitaryKeyLossError::<EndDateTime>::new().into();
-            res = res.push_def_fung_error(e, allow_loss);
-        }
-        res
+        LogResult::new_ok(())
+            .eval_deferred_fungible_error(!allow_loss, |()| {
+                let e = UnitaryKeyLossError::<BeginDateTime>::new();
+                self.begin.is_some().then_some(e)
+            })
+            .eval_deferred_fungible_error(!allow_loss, |()| {
+                let e = UnitaryKeyLossError::<EndDateTime>::new();
+                self.end.is_some().then_some(e)
+            })
     }
 }
 

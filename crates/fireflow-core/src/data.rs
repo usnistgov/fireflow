@@ -440,7 +440,7 @@ pub trait MeasDatatypeDef {
         w.zip_cmt(r).and_then_cmt(|(width, range)| {
             Self::lookup_datatype(kws, i, conf)
                 .map_ok_value(|datatype| ColumnLayoutValues::new(width, range, datatype))
-                .non_fung_errors_into()
+                .errors_into()
                 .set_err_value(())
         })
     }
@@ -466,7 +466,7 @@ pub trait MeasDatatypeDef {
                 Self::lookup_datatype_ro(kws, i)
                     .repack::<_, _, Vec<_>>()
                     .map_ok_value(|datatype| ColumnLayoutValues::new(width, range, datatype))
-                    .map_non_fung_errors(RawParsedError::from)
+                    .map_errors(RawParsedError::from)
                     .set_err_value(())
             })
     }
@@ -571,7 +571,7 @@ pub trait LayoutOps<'a, T>: Sized {
             return LogResult::new_err1(e.into());
         }
         self.check_transforms(xforms)
-            .map_non_fung_errors(MeasLayoutMismatchError::from)
+            .map_errors(MeasLayoutMismatchError::from)
     }
 
     // TODO this should be private
@@ -1844,8 +1844,8 @@ impl<D> EndianLayout<AnyNullBitmask, D> {
         if let Some(cs) = NonEmpty::from_vec(self.columns) {
             cs.head
                 .try_into_one_size(cs.tail, self.byte_layout, 1)
-                .map_non_fung_errors(|(index, error)| ConvertWidthError { index, error })
-                .non_fung_errors_into()
+                .map_errors(|(index, error)| ConvertWidthError { index, error })
+                .errors_into()
         } else {
             let b: SizedByteOrd<4> = self.byte_layout.into();
             LogResult::new_ok(FixedLayout::new(vec![], b).into())
@@ -1878,9 +1878,7 @@ impl<D> EndianLayout<NullMixedType, D> {
                 MixedType::Uint(x) => x
                     .try_into_one_size(cs, endian, 1)
                     .map_ok_value(AnyOrderedLayout::from)
-                    .map_non_fung_errors(|(index, error)| {
-                        MixedColumnConvertError::new(index, error)
-                    }),
+                    .map_errors(|(index, error)| MixedColumnConvertError::new(index, error)),
                 MixedType::Ascii(x) => from_columns!(cs)
                     .map_ok_value(|xs| FixedLayout::new1(x, xs, NoByteOrd))
                     .map_ok_value(AnyAsciiLayout::from)
@@ -1929,7 +1927,7 @@ impl<D> EndianLayout<NullMixedType, D> {
                 MixedType::F32(x) => from_iter!(it, x, byte_layout),
                 MixedType::F64(x) => from_iter!(it, x, byte_layout),
             }
-            .map_non_fung_errors(|(i, error)| MixedColumnConvertError::new(i + 1, error))
+            .map_errors(|(i, error)| MixedColumnConvertError::new(i + 1, error))
         } else {
             let l = FixedLayout::new(vec![], self.byte_layout);
             LogResult::new_ok(NonMixedEndianLayout::Integer(l))
@@ -2016,12 +2014,12 @@ impl<T, const LEN: usize> FloatRange<T, LEN> {
     {
         Bytes::try_from(width)
             .into_log::<_, _, Identity<_>, Vec<_>>()
-            .non_fung_errors_into()
+            .errors_into()
             .and_then_cmt(|bytes| {
                 if usize::from(u8::from(bytes)) == LEN {
                     Self::from_range(range, disallow_trunc)
                         .set_err_value(())
-                        .non_fung_errors_into()
+                        .errors_into()
                 } else {
                     let e = FloatWidthError::from(WrongFloatWidth::new(bytes, LEN));
                     LogResult::new_err1(e)
@@ -2043,7 +2041,7 @@ impl NullMixedType {
                 $t::from_width_and_range($width, $range, $disallow_trunc)
                     .map_ok_value(Self::from)
                     .cmt_warnings_into()
-                    .non_fung_errors_into()
+                    .errors_into()
             };
         }
 
@@ -2108,10 +2106,10 @@ impl AnyNullBitmask {
         width
             .try_into()
             .into_log::<_, _, Identity<_>, Vec<_>>()
-            .map_non_fung_errors(NewUintTypeError::from)
+            .map_errors(NewUintTypeError::from)
             .and_then_cmt(|bytes| {
                 Self::new1(bytes, range, disallow_trunc)
-                    .map_non_fung_errors(NewUintTypeError::from)
+                    .map_errors(NewUintTypeError::from)
                     .set_err_value(())
             })
     }
@@ -2578,15 +2576,15 @@ where
     {
         self.compute_nrows(seg, conf)
             .map_non_cmt_warnings(ReadDataframeWarning::from)
-            .map_non_fung_errors(ReadDataframeError::from)
-            .map_non_fung_errors(ImpureError::Pure)
+            .map_errors(ReadDataframeError::from)
+            .map_errors(ImpureError::Pure)
             .non_cmt_into_cmt()
             .repack()
             .and_then_cmt(|n| {
                 let check_res = T::check_tot(n, tot, conf.allow_tot_mismatch)
                     .map_cmt_warnings(ReadDataframeWarning::from)
-                    .map_non_fung_errors(ReadDataframeError::from)
-                    .map_non_fung_errors(ImpureError::Pure)
+                    .map_errors(ReadDataframeError::from)
+                    .map_errors(ImpureError::Pure)
                     .repack::<_, _, Vec<_>>();
                 let nn = usize::try_from(n).expect("nrows exceeds usize");
                 let read_res = self.h_read_unchecked_df(h, nn, buf).into_log();
@@ -2775,7 +2773,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             .enumerate()
             .map(|(i, c)| {
                 new_col_f(c)
-                    .map_non_fung_errors(|error| ColumnError::new(i, error))
+                    .map_errors(|error| ColumnError::new(i, error))
                     .map_cmt_warnings(|error| ColumnError::new(i, error))
             })
             .mappend_cmt()
@@ -2884,7 +2882,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
                     e,
                     is_err,
                 )
-                .map_non_fung_errors(EventWidthError::from)
+                .map_errors(EventWidthError::from)
             } else {
                 LogResult::new_ok(total_events)
             }
@@ -3306,7 +3304,7 @@ impl<T> AnyOrderedUintLayout<T> {
                 .map(Bytes::try_from)
                 .map(Result::into_log::<_, _, Identity<_>, Vec<_>>)
                 .mappend_cmt()
-                .map_non_fung_errors(SingleFixedWidthError::from)
+                .map_errors(SingleFixedWidthError::from)
                 .and_then_cmt(|widths| {
                     let ws = widths.into_iter().filter(|&w| w != n);
                     if let Some(mismatches) = NonEmpty::collect(ws) {
@@ -3328,17 +3326,16 @@ impl<T> AnyOrderedUintLayout<T> {
         let layout_res =
             match_many_to_one!(real_bo, ByteOrd2_0, [O1, O2, O3, O4, O5, O6, O7, O8], o, {
                 FixedLayout::try_new(cs, o, |c| {
-                    Bitmask::from_range(c.range, notrunc)
-                        .map_non_fung_errors(IntOrderedColumnError::from)
+                    Bitmask::from_range(c.range, notrunc).map_errors(IntOrderedColumnError::from)
                 })
                 .set_err_value(())
-                .map_non_fung_errors(NewFixedIntLayoutError::from)
+                .map_errors(NewFixedIntLayoutError::from)
                 .map_ok_value(Self::from)
             });
 
         width_res
             .nowarn_into_warn()
-            .map_non_fung_errors(NewFixedIntLayoutError::from)
+            .map_errors(NewFixedIntLayoutError::from)
             .zip_cmt(layout_res)
             .map_ok_value(|((), layout)| layout)
     }
@@ -3378,8 +3375,8 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
                     c.range
                         .into_uint::<u64>(disallow_trunc)
                         .map_cmt_warnings(|e| ColumnError::new(i, e))
-                        .map_non_fung_errors(NewAsciiRangeError::from)
-                        .map_non_fung_errors(|e| ColumnError::new(i, e))
+                        .map_errors(NewAsciiRangeError::from)
+                        .map_errors(|e| ColumnError::new(i, e))
                         .repack()
                 })
                 .mappend_def()
@@ -3545,7 +3542,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         macro_rules! from {
             ($i:expr) => {
                 $i.map_cmt_warnings(LookupLayoutWarning::from)
-                    .map_non_fung_errors(LookupLayoutError::from)
+                    .map_errors(LookupLayoutError::from)
             };
         }
 
@@ -3568,7 +3565,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         macro_rules! from2 {
             ($i:expr) => {
                 $i.map_cmt_warnings(RawToLayoutWarning::from)
-                    .map_non_fung_errors(RawToLayoutError::from)
+                    .map_errors(RawToLayoutError::from)
             };
         }
 
@@ -3620,7 +3617,7 @@ impl VersionedDataLayout for DataLayout3_2 {
                     MixedType::from_width_and_range(c.width, c.range, c.datatype, notrunc)
                 };
                 FixedLayout::try_new(columns, byteord.0, go)
-                    .map_non_fung_errors(NewDataLayoutError::from)
+                    .map_errors(NewDataLayoutError::from)
                     .map_ok_value(Self::from)
             }
         }
@@ -3723,7 +3720,7 @@ impl DataLayout3_2 {
     pub(crate) fn into_ordered<T>(self) -> LayoutConvertResult<AnyOrderedLayout<T>> {
         match self {
             Self::NonMixed(x) => x.into_ordered(),
-            Self::Mixed(x) => x.try_into_ordered().non_fung_errors_into(),
+            Self::Mixed(x) => x.try_into_ordered().errors_into(),
         }
     }
 
@@ -3780,7 +3777,7 @@ impl<T> AnyOrderedLayout<T> {
         macro_rules! from {
             ($i:expr) => {
                 $i.map_cmt_warnings(LookupLayoutWarning::from)
-                    .map_non_fung_errors(LookupLayoutError::from)
+                    .map_errors(LookupLayoutError::from)
             };
         }
 
@@ -3803,7 +3800,7 @@ impl<T> AnyOrderedLayout<T> {
         macro_rules! from2 {
             ($i:expr) => {
                 $i.map_cmt_warnings(RawToLayoutWarning::from)
-                    .map_non_fung_errors(RawToLayoutError::from)
+                    .map_errors(RawToLayoutError::from)
             };
         }
 
@@ -3866,7 +3863,7 @@ impl<T> AnyOrderedLayout<T> {
     {
         macro_rules! from {
             ($i:expr) => {
-                $i.map_non_fung_errors(NewDataLayoutError::from)
+                $i.map_errors(NewDataLayoutError::from)
                     .map_cmt_warnings(ColumnError::inner_into)
                     .map_ok_value(Self::from)
             };
@@ -3918,7 +3915,7 @@ impl<T> AnyOrderedLayout<T> {
             Self::F32(x) => go_float!(x),
             Self::F64(x) => go_float!(x),
         };
-        res.non_fung_errors_into()
+        res.errors_into()
     }
 
     pub(crate) fn into_3_1(self) -> LayoutConvertResult<DataLayout3_1> {
@@ -3940,11 +3937,11 @@ impl NonMixedEndianLayout<NoMeasDatatype> {
         let n = ByteOrd3_1::lookup_req(kws);
         d.zip3_cmt(n, cs)
             .map_cmt_warnings(LookupLayoutWarning::from)
-            .map_non_fung_errors(LookupLayoutError::from)
+            .map_errors(LookupLayoutError::from)
             .and_then_cmt(|(datatype, byteord, columns)| {
                 Self::try_new(datatype, byteord.0, columns, conf.as_ref())
                     .map_cmt_warnings(LookupLayoutWarning::from)
-                    .map_non_fung_errors(LookupLayoutError::from)
+                    .map_errors(LookupLayoutError::from)
             })
     }
 
@@ -3958,11 +3955,11 @@ impl NonMixedEndianLayout<NoMeasDatatype> {
             .into_log();
         d.zip3_cmt(n, cs)
             .map_cmt_warnings(RawToLayoutWarning::from)
-            .map_non_fung_errors(RawToLayoutError::from)
+            .map_errors(RawToLayoutError::from)
             .and_then_cmt(|(datatype, byteord, columns)| {
                 Self::try_new(datatype, byteord.0, columns, conf)
                     .map_cmt_warnings(RawToLayoutWarning::from)
-                    .map_non_fung_errors(RawToLayoutError::from)
+                    .map_errors(RawToLayoutError::from)
             })
     }
 
@@ -3983,7 +3980,7 @@ impl NonMixedEndianLayout<NoMeasDatatype> {
 
         macro_rules! from {
             ($x:expr) => {
-                $x.map_non_fung_errors(NewDataLayoutError::from)
+                $x.map_errors(NewDataLayoutError::from)
                     .map_cmt_warnings(ColumnError::inner_into)
                     .map_ok_value(Self::from)
             };

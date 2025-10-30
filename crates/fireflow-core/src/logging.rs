@@ -64,15 +64,12 @@ pub type FungibleErrorsResult<V, P, E> = NonCmtFungibleResult<V, P, Identity<E>,
 // Results with warnings and errors of differing types which are not commutable
 //
 
-pub type WarningOrErrorResult<V, P, W, E> =
-    NonCmtResult<V, P, Option<W>, Identity<E>, Nothing<E>>;
-pub type WarningsOrErrorResult<V, P, W, E> =
-    NonCmtResult<V, P, Vec<W>, Identity<E>, Nothing<E>>;
+pub type WarningOrErrorResult<V, P, W, E> = NonCmtResult<V, P, Option<W>, Identity<E>, Nothing<E>>;
+pub type WarningsOrErrorResult<V, P, W, E> = NonCmtResult<V, P, Vec<W>, Identity<E>, Nothing<E>>;
 pub type WarningOrErrorsResult<V, P, W, E> = NonCmtResult<V, P, Option<W>, Identity<E>, Vec<E>>;
 pub type WarningsOrErrorsResult<V, P, W, E> = NonCmtResult<V, P, Vec<W>, Identity<E>, Vec<E>>;
 
-pub type WarningOrBoxedErrorResult<V, P, W, E> =
-    NonCmtResult<V, P, Option<W>, Box<E>, Nothing<E>>;
+pub type WarningOrBoxedErrorResult<V, P, W, E> = NonCmtResult<V, P, Option<W>, Box<E>, Nothing<E>>;
 pub type WarningsOrBoxedErrorResult<V, P, W, E> = NonCmtResult<V, P, Vec<W>, Box<E>, Nothing<E>>;
 pub type WarningOrBoxedErrorsResult<V, P, W, E> = NonCmtResult<V, P, Option<W>, Box<E>, Vec<E>>;
 pub type WarningsOrBoxedErrorsResult<V, P, W, E> = NonCmtResult<V, P, Vec<W>, Box<E>, Vec<E>>;
@@ -81,10 +78,8 @@ pub type WarningsOrBoxedErrorsResult<V, P, W, E> = NonCmtResult<V, P, Vec<W>, Bo
 // Results with warnings and errors of differing types which are commutable
 //
 
-pub type WarningAndErrorResult<V, P, W, E> =
-    CmtResult<V, P, Option<W>, Identity<E>, Nothing<E>>;
-pub type WarningsAndErrorResult<V, P, W, E> =
-    CmtResult<V, P, Vec<W>, Identity<E>, Nothing<E>>;
+pub type WarningAndErrorResult<V, P, W, E> = CmtResult<V, P, Option<W>, Identity<E>, Nothing<E>>;
+pub type WarningsAndErrorResult<V, P, W, E> = CmtResult<V, P, Vec<W>, Identity<E>, Nothing<E>>;
 pub type WarningAndErrorsResult<V, P, W, E> = CmtResult<V, P, Option<W>, Identity<E>, Vec<E>>;
 pub type WarningsAndErrorsResult<V, P, W, E> = CmtResult<V, P, Vec<W>, Identity<E>, Vec<E>>;
 
@@ -1098,19 +1093,8 @@ impl<V, P, WC, EC0, ECn> CmtResult<V, P, WC, EC0, ECn> {
         }
     }
 
-    /// Push a warning to a commutative Result.
-    pub(crate) fn push_cmt_warning<W>(&mut self, w: W)
-    where
-        WC: Extend<W>,
-    {
-        match self {
-            Succ(s) => s.push_warning(w),
-            Fail(e) => e.push_warning(w),
-        }
-    }
-
     /// Add warnings to a commutative Result.
-    pub(crate) fn extend_cmt_warnings<W>(&mut self, ws: impl IntoIterator<Item = W>)
+    pub(crate) fn extend_commutative_warnings<W>(&mut self, ws: impl IntoIterator<Item = W>)
     where
         WC: Extend<W>,
     {
@@ -1128,22 +1112,29 @@ impl<V, P, WC, EC0, ECn> CmtResult<V, P, WC, EC0, ECn> {
     ///
     /// This must be commutative since and OK might flip to an error, and thus
     /// the warnings must match.
-    pub(crate) fn eval_non_def_error<E, F>(self, f: F) -> CmtResult<V, (), WC, EC0, ECn>
+    pub(crate) fn eval_commutative_error<E, Pf, Fe, Fv, Fp>(
+        self,
+        fv: Fv,
+        fp: Fp,
+        fe: Fe,
+    ) -> CmtResult<V, Pf, WC, EC0, ECn>
     where
-        F: FnOnce(&V) -> Option<E>,
+        Fe: FnOnce(&V) -> Option<E>,
+        Fv: FnOnce(V) -> Pf,
+        Fp: FnOnce(P) -> Pf,
         EC0: Applicative<E>,
         ECn: Extend<E> + Default,
     {
-        match self.set_err_value(()) {
-            Succ(x) => match f(&x.value) {
-                Some(e) => Fail(x.fail(GenNonEmpty::new1(EC0::pure(e))).map_value(|_| ())),
+        match self {
+            Succ(x) => match fe(&x.value) {
+                Some(e) => Fail(x.fail(GenNonEmpty::new1(EC0::pure(e))).map_value(fv)),
                 None => Succ(x),
             },
-            Fail(x) => Fail(x),
+            Fail(x) => Fail(x.map_value(fp)),
         }
     }
 
-    pub(crate) fn extend_fung_errors<M, E, W, Fv, Fp, Fw, Fe>(
+    pub(crate) fn extend_fungible_errors<M, E, W, Fv, Fp, Fw, Fe>(
         mut self,
         errors: impl IntoIterator<Item = M>,
         fv: Fv,
@@ -1179,7 +1170,7 @@ impl<V, P, WC, EC0, ECn> CmtResult<V, P, WC, EC0, ECn> {
                 }
             }
         } else {
-            self.extend_cmt_warnings(errors.into_iter().map(fw));
+            self.extend_commutative_warnings(errors.into_iter().map(fw));
             self.map_err_value(fp)
         }
     }
@@ -1383,7 +1374,7 @@ impl<V, WC, EC0, ECn> Deferred<V, WC, EC0, ECn> {
     ///
     /// This must be a deferred result because the same value type must exist
     /// on both Ok and Error sides.
-    pub(crate) fn eval_def_error<E, F>(self, f: F) -> Self
+    pub(crate) fn eval_deferred_error<E, F>(self, f: F) -> Self
     where
         F: FnOnce(&V) -> Option<E>,
         EC0: Applicative<E>,
@@ -1403,70 +1394,51 @@ impl<V, WC, EC0, ECn> Deferred<V, WC, EC0, ECn> {
         }
     }
 
-    /// Push an error to a deferred Result.
-    ///
-    /// If Result is Ok, the result will be converted to an error.
-    ///
-    /// This must be deferred because the value type will be the same
-    /// if the Result needs to flip from Ok to Error.
-    pub(crate) fn push_def_error(self, e: EC0) -> Self
-    where
-        ECn: Extend<EC0> + Default,
-    {
-        match self {
-            Succ(succ) => Fail(succ.fail(GenNonEmpty::new1(e))),
-            Fail(mut err) => {
-                err.push_error(e);
-                Fail(err)
-            }
-        }
-    }
+    // /// Push errors to a deferred Result.
+    // ///
+    // /// If Result is Ok, the result will be converted to an error.
+    // ///
+    // /// This must be deferred because the value type will be the same
+    // /// if the Result needs to flip from Ok to Error.
+    // pub(crate) fn extend_deferred_errors<E>(self, es: impl IntoIterator<Item = E>) -> Self
+    // where
+    //     EC0: Applicative<E>,
+    //     ECn: Extend<E> + Default,
+    // {
+    //     match self {
+    //         Succ(succ) => {
+    //             let mut it = es.into_iter();
+    //             if let Some(e0) = it.by_ref().next() {
+    //                 let mut es_ = GenNonEmpty::new1(EC0::pure(e0));
+    //                 es_.extend(it);
+    //                 Fail(succ.fail(es_))
+    //             } else {
+    //                 Succ(succ)
+    //             }
+    //         }
+    //         Fail(mut err) => {
+    //             err.extend_errors(es);
+    //             Fail(err)
+    //         }
+    //     }
+    // }
 
-    /// Push errors to a deferred Result.
+    /// Push fungible error to a deferred Result based on its value.
     ///
     /// If Result is Ok, the result will be converted to an error.
     ///
     /// This must be deferred because the value type will be the same
     /// if the Result needs to flip from Ok to Error.
-    pub(crate) fn extend_def_errors<E>(self, es: impl IntoIterator<Item = E>) -> Self
-    where
-        EC0: Applicative<E>,
-        ECn: Extend<E> + Default,
-    {
-        match self {
-            Succ(succ) => {
-                let mut it = es.into_iter();
-                if let Some(e0) = it.by_ref().next() {
-                    let mut es_ = GenNonEmpty::new1(EC0::pure(e0));
-                    es_.extend(it);
-                    Fail(succ.fail(es_))
-                } else {
-                    Succ(succ)
-                }
-            }
-            Fail(mut err) => {
-                err.extend_errors(es);
-                Fail(err)
-            }
-        }
-    }
-
-    /// Push non-fungible error to a deferred Result based on its value.
-    ///
-    /// If Result is Ok, the result will be converted to an error.
-    ///
-    /// This must be deferred because the value type will be the same
-    /// if the Result needs to flip from Ok to Error.
-    pub(crate) fn eval_def_non_fung_error<F, M, W, E>(mut self, is_error: bool, f: F) -> Self
+    pub(crate) fn eval_deferred_fungible_error<M, E, W, F>(mut self, is_error: bool, f: F) -> Self
     where
         F: FnOnce(&V) -> Option<M>,
         M: Into<E> + Into<W>,
-        WC: Extend<W>,
         EC0: Applicative<E>,
-        ECn: Extend<E> + Default,
+        ECn: Extend<E> + Default + FungibleError,
+        WC: Extend<W>,
     {
         if is_error {
-            self.eval_def_error(|x| f(x).map(Into::into))
+            self.eval_deferred_error(|x| f(x).map(Into::into))
         } else {
             self.eval_def_warning(|x| f(x).map(Into::into));
             self
@@ -1759,43 +1731,45 @@ impl<V, LWC, EC0, E> LogResult<V, (), LWC, Nothing<()>, EC0, Nothing<E>> {
     }
 }
 
-// non-cummutative/fungible
-impl<V, P, LWC, EC0, ECn> LogResult<V, P, LWC, Nothing<()>, EC0, ECn>
-where
-    ECn: FungibleError<Warn = LWC>,
-{
-    /// Convert errors in commutative/fungible Results
-    #[allow(clippy::type_complexity)]
-    pub(crate) fn non_cmt_fung_errors_into<Ei, Ef>(
-        self,
-    ) -> LogResult<V, P, Sibling1<LWC, Ef>, Nothing<()>, Sibling1<EC0, Ef>, Sibling1<ECn, Ef>>
-    where
-        Ei: Into<Ef>,
-        EC0: Functor<Ei>,
-        ECn: FungibleError<Inner = Ei> + Functor<Ei>,
-        <ECn as FungibleError>::Warn: Functor<Ei>,
-    {
-        self.map_non_cmt_fung_errors(Into::into)
-    }
+// // non-cummutative/fungible
+// impl<V, P, LWC, EC0, ECn> LogResult<V, P, LWC, Nothing<()>, EC0, ECn>
+// where
+//     ECn: FungibleError<Warn = LWC>,
+// {
+//     // /// Convert errors in commutative/fungible Results
+//     // #[allow(clippy::type_complexity)]
+//     // pub(crate) fn non_cmt_fung_errors_into<Ei, Ef>(
+//     //     self,
+//     // ) -> LogResult<V, P, Sibling1<LWC, Ef>, Nothing<()>, Sibling1<EC0, Ef>, Sibling1<ECn, Ef>>
+//     // where
+//     //     Ei: Into<Ef>,
+//     //     EC0: Functor<Ei>,
+//     //     ECn: FungibleError<Inner = Ei> + Functor<Ei>,
+//     //     <ECn as FungibleError>::Warn: Functor<Ei>,
+//     // {
+//     //     self.map_non_cmt_fung_errors(Into::into)
+//     // }
 
-    /// Convert errors in non-commutative/fungible Results
-    #[allow(clippy::type_complexity)]
-    pub(crate) fn map_non_cmt_fung_errors<F, Ei, Ef>(
-        self,
-        f: F,
-    ) -> LogResult<V, P, Sibling1<LWC, Ef>, Nothing<()>, Sibling1<EC0, Ef>, Sibling1<ECn, Ef>>
-    where
-        F: Fn(Ei) -> Ef,
-        EC0: Functor<Ei>,
-        ECn: FungibleError<Inner = Ei> + Functor<Ei>,
-        <ECn as FungibleError>::Warn: Functor<Ei>,
-    {
-        match self {
-            Succ(s) => Succ(s.map_warnings(f)),
-            Fail(e) => Fail(e.map_errors(f)),
-        }
-    }
-}
+//     // /// Convert errors in non-commutative/fungible Results
+//     // #[allow(clippy::type_complexity)]
+//     // pub(crate) fn map_non_cmt_fung_errors<F, Ei, Ef>(
+//     //     self,
+//     //     f: F,
+//     // ) -> LogResult<V, P, Sibling1<LWC, Ef>, Nothing<()>, Sibling1<EC0, Ef>, Sibling1<ECn, Ef>>
+//     // where
+//     //     F: Fn(Ei) -> Ef,
+//     //     EC0: Functor<Ei>,
+//     //     ECn: FungibleError<Inner = Ei> + Functor<Ei>,
+//     //     <ECn as FungibleError>::Warn: Functor<Ei>,
+//     // {
+//     //     match self {
+//     //         Succ(s) => Succ(s.map_warnings(f)),
+//     //         Fail(e) => Fail(e.map_errors(f)),
+//     //     }
+//     // }
+
+//     // TODO add error eval
+// }
 
 // commutative/fungible
 impl<V, P, EC0, ECn> LogResult<V, P, ECn::Warn, ECn::Warn, EC0, ECn>
@@ -1872,51 +1846,15 @@ where
         }
     }
 
-    /// Push fungible error to a deferred Result based on its value.
-    ///
-    /// If Result is Ok, the result will be converted to an error.
-    ///
-    /// This must be deferred because the value type will be the same
-    /// if the Result needs to flip from Ok to Error.
-    pub(crate) fn eval_def_fung_error<E, F>(mut self, is_error: bool, f: F) -> Self
-    where
-        F: FnOnce(&V) -> Option<E>,
-        EC0: Applicative<E>,
-        ECn: Extend<E> + Default + FungibleError,
-        ECn::Warn: Extend<E>,
-    {
-        if is_error {
-            self.eval_def_error(f)
-        } else {
-            self.eval_def_warning(f);
-            self
-        }
-    }
-
-    /// Push fungible error to a deferred Result.
-    ///
-    /// If Result is Ok, the result will be converted to an error.
-    ///
-    /// This must be deferred because the value type will be the same
-    /// if the Result needs to flip from Ok to Error.
-    pub(crate) fn push_def_fung_error<E>(self, e: E, is_error: bool) -> Self
-    where
-        EC0: Applicative<E>,
-        ECn: Extend<E> + FungibleError<Inner = E> + Default,
-        ECn::Warn: Extend<E>,
-    {
-        self.extend_def_fung_errors(iter::once(e), is_error)
-    }
-
     /// Push fungible errors to a deferred Result.
     ///
     /// If Result is Ok, the result will be converted to an error.
     ///
     /// This must be deferred because the value type will be the same
     /// if the Result needs to flip from Ok to Error.
-    pub(crate) fn extend_def_fung_errors<E>(
-        mut self,
-        xs: impl IntoIterator<Item = E>,
+    pub(crate) fn extend_deferred_fungible_errors<E>(
+        self,
+        errors: impl IntoIterator<Item = E>,
         is_error: bool,
     ) -> Self
     where
@@ -1924,12 +1862,7 @@ where
         ECn: Extend<E> + Default + FungibleError<Inner = E>,
         ECn::Warn: Extend<E>,
     {
-        if is_error {
-            self.extend_def_errors(xs)
-        } else {
-            self.extend_cmt_warnings(xs);
-            self
-        }
+        self.extend_fungible_errors(errors, |v| v, |p| p, |w| w, |e| e, is_error)
     }
 }
 
@@ -2115,7 +2048,7 @@ impl<V, P, LWC, RWC, EC0, ECn> LogResult<V, P, LWC, RWC, EC0, ECn> {
     /// Result to non-fungible one, which is generally not a good idea.
     /// See [`*_fung_errors_into`] for functions that will map over warnings
     /// if they are the same type as errors.
-    pub(crate) fn non_fung_errors_into<Ei, Ef>(
+    pub(crate) fn errors_into<Ei, Ef>(
         self,
     ) -> LogResult<V, P, LWC, RWC, Sibling1<EC0, Ef>, Sibling1<ECn, Ef>>
     where
@@ -2123,7 +2056,7 @@ impl<V, P, LWC, RWC, EC0, ECn> LogResult<V, P, LWC, RWC, EC0, ECn> {
         EC0: Functor<Ei>,
         ECn: Functor<Ei>,
     {
-        self.map_non_fung_errors(Into::into)
+        self.map_errors(Into::into)
     }
 
     /// Map function over errors in Result
@@ -2132,7 +2065,7 @@ impl<V, P, LWC, RWC, EC0, ECn> LogResult<V, P, LWC, RWC, EC0, ECn> {
     /// Result to non-fungible one, which is generally not a good idea.
     /// See [`map_*_fung_errors`] for functions that will map over warnings
     /// if they are the same type as errors.
-    pub(crate) fn map_non_fung_errors<F, Ei, Ef>(
+    pub(crate) fn map_errors<F, Ei, Ef>(
         self,
         f: F,
     ) -> LogResult<V, P, LWC, RWC, Sibling1<EC0, Ef>, Sibling1<ECn, Ef>>
@@ -2289,7 +2222,7 @@ impl<V, P, LWC, RWC, EC0, ECn> LogResult<V, P, LWC, RWC, EC0, ECn> {
     ///
     /// Will only store warning on the Succ side since the value isn't present
     /// on the error side to be evaluated.
-    pub(crate) fn eval_non_def_warning<W, F>(&mut self, f: F)
+    pub(crate) fn eval_warning<W, F>(&mut self, f: F)
     where
         F: FnOnce(&V) -> Option<W>,
         LWC: Extend<W>,

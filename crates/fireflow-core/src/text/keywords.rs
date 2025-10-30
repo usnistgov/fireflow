@@ -323,7 +323,7 @@ pub enum AlphaNumType {
 impl AlphaNumType {
     pub(crate) fn lookup_req_check_ascii(kws: &mut StdKeywords) -> LookupResult<Self> {
         let mut d = Self::lookup_req(kws);
-        d.eval_non_def_warning(|v| check_datatype_ascii(*v));
+        d.eval_warning(|v| check_datatype_ascii(*v));
         d
     }
 }

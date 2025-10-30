@@ -195,7 +195,7 @@ where
         conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> RecoverableErrorsResult<TEXTSegment<Self>, ReqSegmentError> {
         Self::get_pair(kws)
-            .non_fung_errors_into()
+            .errors_into()
             .and_then_cmt(|(y0, y1)| {
                 Segment::try_new(y0, y1, conf)
                     .map_err(Into::into)
@@ -231,7 +231,7 @@ where
         conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> RecoverableErrorsResult<TEXTSegment<Self>, ReqSegmentError> {
         Self::remove_pair(kws)
-            .non_fung_errors_into()
+            .errors_into()
             .and_then_cmt(|(y0, y1)| {
                 Segment::try_new(y0, y1, conf)
                     .map_err(Into::into)
@@ -255,7 +255,7 @@ where
                     let ws: Vec<_> = es.into_iter().map(Into::into).chain([w]).collect();
                     LogResult::new_ok(default.into_any()).set_cmt_warnings(ws)
                 } else {
-                    LogResult::new_err(es).map_non_fung_errors(ReqSegmentWithDefaultError::from)
+                    LogResult::new_err(es).map_errors(ReqSegmentWithDefaultError::from)
                 }
             },
             |other| {
@@ -269,7 +269,7 @@ where
                     )
                     .non_cmt_into_cmt()
                     .map_cmt_warnings(ReqSegmentWithDefaultWarning::from)
-                    .map_non_fung_errors(ReqSegmentWithDefaultError::from)
+                    .map_errors(ReqSegmentWithDefaultError::from)
                 })
             },
         )
@@ -331,7 +331,7 @@ where
         conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> RecoverableErrorsResult<Option<TEXTSegment<Self>>, OptSegmentError> {
         Self::get_pair(kws)
-            .non_fung_errors_into()
+            .errors_into()
             .and_then_cmt(|pair| {
                 pair.map(|(z0, z1)| {
                     Segment::try_new(z0, z1, conf)
@@ -367,7 +367,7 @@ where
         conf: &NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>,
     ) -> RecoverableErrorsResult<Option<TEXTSegment<Self>>, OptSegmentError> {
         Self::remove_pair(kws)
-            .non_fung_errors_into()
+            .errors_into()
             .and_then_cmt(|pair| {
                 pair.map(|(z0, z1)| {
                     Segment::try_new(z0, z1, conf)
@@ -396,7 +396,7 @@ where
                 } else {
                     LogResult::new_err(es)
                         .set_err_value(def)
-                        .map_non_fung_errors(Into::into)
+                        .map_errors(Into::into)
                 }
             },
             |other| {
@@ -761,7 +761,7 @@ impl<I: Copy> HeaderSegment<I> {
                     squish_offsets,
                     conf,
                 )
-                .map_non_fung_errors(ImpureError::Pure)
+                .map_errors(ImpureError::Pure)
             })
     }
 

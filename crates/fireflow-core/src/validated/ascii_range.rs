@@ -92,7 +92,7 @@ impl AsciiRange {
     ) -> WarningsAndErrorsResult<Self, (), IntRangeError<()>, NewAsciiRangeError> {
         let rng_res = range
             .into_uint(disallow_trunc)
-            .map_non_fung_errors(NewAsciiRangeError::from)
+            .map_errors(NewAsciiRangeError::from)
             .set_err_value(())
             .repack::<_, _, Vec<_>>();
         let chars_res = Chars::try_from(width)

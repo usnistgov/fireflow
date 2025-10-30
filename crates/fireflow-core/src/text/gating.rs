@@ -453,7 +453,7 @@ impl AppliedGates3_0 {
                     .cmt_fung_errors_into(),
                 None => LogResult::new_ok_def(),
             })
-            .extend_def_fung_errors(
+            .extend_deferred_fungible_errors(
                 es.into_iter().map(AppliedGates3_0To2_0Error::Index),
                 !allow_loss,
             )
@@ -470,19 +470,17 @@ impl AppliedGates3_0 {
             .into_iter()
             .map(|(ri, r)| r.try_map(TryInto::try_into).map(|x| (ri, x)))
             .partition_result();
-        let res = AppliedGates3_2::try_new(self.scheme.gating, regions)
+        AppliedGates3_2::try_new(self.scheme.gating, regions)
             .into_deferred_fungible::<Identity<_>, Vec<_>>(true)
             .cmt_fung_errors_into()
-            .extend_def_fung_errors(
+            .extend_deferred_fungible_errors(
                 es.into_iter().map(AppliedGates3_0To3_2Error::Index),
                 !allow_loss,
-            );
-        let n_gates = self.gated_measurements.0.len();
-        if n_gates > 0 {
-            res.push_def_fung_error(AppliedGates3_0To3_2Error::HasGates(n_gates), !allow_loss)
-        } else {
-            res
-        }
+            )
+            .eval_deferred_fungible_error(!allow_loss, |_| {
+                let n_gates = self.gated_measurements.0.len();
+                (n_gates > 0).then_some(AppliedGates3_0To3_2Error::HasGates(n_gates))
+            })
     }
 }
 

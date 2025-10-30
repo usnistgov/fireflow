@@ -362,7 +362,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                     )
                 })
                 .mappend_cmt()
-                .map_non_fung_errors(|i| ColumnError::new(i, OpticalMismatchError::new(false)))
+                .map_errors(|i| ColumnError::new(i, OpticalMismatchError::new(false)))
         };
 
         self.check_keys_length(&xs[..], true)
@@ -403,7 +403,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                         check_optical(xs).map_ok_value(|ys| go(&mut u.members, ys, 0))
                     }
                 };
-                res.map_non_fung_errors(SetElementsError::from)
+                res.map_errors(SetElementsError::from)
             })
     }
 
@@ -510,7 +510,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                     let center = Pair::new(ckey, value);
                     NamedVec::new_split(s.left, center, s.right)
                 })
-                .map_non_fung_errors(|error| IndexedElementError::new(error, index))
+                .map_errors(|error| IndexedElementError::new(error, index))
             }
             Self::Unsplit(u) => LogResult::new_ok(NamedVec::Unsplit(u)),
         }
@@ -545,7 +545,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                     let j = i + offset;
                     f(j.into(), p.value)
                         .map_ok_value(|value| Pair::new(p.key, value))
-                        .map_non_fung_errors(|error| IndexedElementError::new(error, j.into()))
+                        .map_errors(|error| IndexedElementError::new(error, j.into()))
                 })
                 .mappend_cmt()
         };

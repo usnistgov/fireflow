@@ -149,8 +149,8 @@ impl<T> HeaderSegments<T> {
     where
         T: Copy + Into<u64> + HeaderString,
     {
-        let x = self.overlapping_segments().non_fung_errors_into();
-        let y = self.contains_header_segments().non_fung_errors_into();
+        let x = self.overlapping_segments().errors_into();
+        let y = self.contains_header_segments().errors_into();
         x.zip_def(y).set_def_value(())
     }
 
@@ -262,9 +262,9 @@ impl Header {
                 .and_then_cmt(|hdr| {
                     hdr.segments
                         .validate()
-                        .map_non_fung_errors(Box::new)
-                        .map_non_fung_errors(HeaderError::Validation)
-                        .map_non_fung_errors(ImpureError::Pure)
+                        .map_errors(Box::new)
+                        .map_errors(HeaderError::Validation)
+                        .map_errors(ImpureError::Pure)
                         .map_ok_value(|_| hdr)
                 })
         })
@@ -291,7 +291,7 @@ where
     let conf = &st.conf.as_ref();
     let vers_res = Version::h_read(h)
         .into_nowarn1::<Identity<_>>()
-        .map_non_fung_errors(|e| e.map_inner(HeaderError::Version))
+        .map_errors(|e| e.map_inner(HeaderError::Version))
         .repack();
     let space_res = h_read_spaces(h).into_nowarn1().repack();
     let text_res = h_read_primary_segment(h, false, conf.text_correction, st);
@@ -299,7 +299,7 @@ where
     let anal_res = h_read_primary_segment(h, true, conf.analysis_correction, st);
     let offset_res = text_res
         .zip3_cmt(data_res, anal_res)
-        .map_non_fung_errors(|e| e.map_inner(HeaderError::Segment));
+        .map_errors(|e| e.map_inner(HeaderError::Segment));
     vers_res
         .zip3_cmt(space_res, offset_res)
         .map_ok_value(|(version, (), (text, data, analysis))| (version, text, data, analysis))
@@ -382,8 +382,8 @@ where
                 } else {
                     OtherSegment::parse_other(&buf0, &buf1, conf.allow_negative, &seg_conf)
                         .map_ok_value(Some)
-                        .map_non_fung_errors(HeaderError::Segment)
-                        .map_non_fung_errors(ImpureError::Pure)
+                        .map_errors(HeaderError::Segment)
+                        .map_errors(ImpureError::Pure)
                 }
             })
         })

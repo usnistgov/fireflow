@@ -39,6 +39,9 @@ use thiserror::Error;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
+#[cfg(feature = "python")]
+use crate::python::macros::impl_from_py_transparent;
+
 #[derive(Default, Clone, AsRef, From)]
 pub struct ReadHeaderConfig(pub HeaderConfigInner);
 
@@ -699,13 +702,37 @@ pub struct SharedConfig {
     pub hide_warnings: bool,
 }
 
-#[derive(From, Clone, Copy, Default)]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
-pub struct DisallowRangeTrunc(pub bool);
+pub trait ErrorFlag {
+    fn is_error(&self) -> bool;
+}
 
-#[derive(From, Clone, Copy, Default)]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
-pub struct AllowLoss(pub bool);
+macro_rules! impl_error_flag {
+    (true_is_error $n:ident) => {
+        impl_error_flag!($n, true);
+    };
+
+    (false_is_error $n:ident) => {
+        impl_error_flag!($n, false);
+    };
+
+    ($n:ident, $true_is_error:expr) => {
+        #[derive(From, Clone, Copy, Default)]
+        #[cfg_attr(feature = "python", derive(IntoPyObject))]
+        pub struct $n(pub bool);
+
+        #[cfg(feature = "python")]
+        impl_from_py_transparent!($n);
+
+        impl ErrorFlag for $n {
+            fn is_error(&self) -> bool {
+                self.0 == $true_is_error
+            }
+        }
+    };
+}
+
+impl_error_flag!(true_is_error DisallowRangeTrunc);
+impl_error_flag!(false_is_error AllowLoss);
 
 /// A pattern to match the $PnN for the time measurement.
 ///
@@ -829,24 +856,16 @@ impl<C> ReadState<C> {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::{
-        impl_from_py_transparent, impl_from_py_via_fromstr, impl_value_err,
-    };
+    use crate::python::macros::{impl_from_py_via_fromstr, impl_value_err};
     use crate::segment::OffsetCorrection;
 
-    use super::{
-        AllowLoss, DisallowRangeTrunc, ParseTemporalOpticalKeyError, TemporalOpticalKey,
-        TimeMeasNamePattern,
-    };
+    use super::{ParseTemporalOpticalKeyError, TemporalOpticalKey, TimeMeasNamePattern};
 
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
 
     impl_from_py_via_fromstr!(TemporalOpticalKey);
     impl_value_err!(ParseTemporalOpticalKeyError);
-
-    impl_from_py_transparent!(DisallowRangeTrunc);
-    impl_from_py_transparent!(AllowLoss);
 
     impl<'py> FromPyObject<'py> for TimeMeasNamePattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {

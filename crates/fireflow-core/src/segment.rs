@@ -270,16 +270,16 @@ where
     fn get_pair(
         kws: &StdKeywords,
     ) -> RecoverableErrorsResult<(Self::B, Self::E), ReqKeyError<ParseIntError>> {
-        let x0 = Self::B::get_metaroot_req(kws).into_nowarn1();
-        let x1 = Self::E::get_metaroot_req(kws).into_nowarn1();
+        let x0 = Self::B::get_metaroot_req(kws).into_nowarn();
+        let x1 = Self::E::get_metaroot_req(kws).into_nowarn();
         x0.zip_cmt(x1)
     }
 
     fn remove_pair(
         kws: &mut StdKeywords,
     ) -> RecoverableErrorsResult<(Self::B, Self::E), ReqKeyError<ParseIntError>> {
-        let x0 = Self::B::remove_metaroot_req(kws).into_nowarn1();
-        let x1 = Self::E::remove_metaroot_req(kws).into_nowarn1();
+        let x0 = Self::B::remove_metaroot_req(kws).into_nowarn();
+        let x1 = Self::E::remove_metaroot_req(kws).into_nowarn();
         x0.zip_cmt(x1)
     }
 }
@@ -402,8 +402,8 @@ where
     fn get_pair(
         kws: &StdKeywords,
     ) -> RecoverableErrorsResult<Option<(Self::B, Self::E)>, OptKeyError<ParseIntError>> {
-        let x0 = Self::B::get_metaroot_opt(kws).into_nowarn1();
-        let x1 = Self::E::get_metaroot_opt(kws).into_nowarn1();
+        let x0 = Self::B::get_metaroot_opt(kws).into_nowarn();
+        let x1 = Self::E::get_metaroot_opt(kws).into_nowarn();
         x0.zip_cmt(x1).map_ok_value(|(x, y)| x.zip(y))
     }
 
@@ -411,8 +411,8 @@ where
     fn remove_pair(
         kws: &mut StdKeywords,
     ) -> RecoverableErrorsResult<Option<(Self::B, Self::E)>, OptKeyError<ParseIntError>> {
-        let x0 = Self::B::remove_metaroot_opt(kws).into_nowarn1();
-        let x1 = Self::E::remove_metaroot_opt(kws).into_nowarn1();
+        let x0 = Self::B::remove_metaroot_opt(kws).into_nowarn();
+        let x1 = Self::E::remove_metaroot_opt(kws).into_nowarn();
         x0.zip_cmt(x1).map_ok_value(|(x, y)| x.zip(y))
     }
 }
@@ -772,8 +772,8 @@ impl<I: Copy> HeaderSegment<I> {
             })
         };
 
-        let begin_res = parse_one(bs0, true).into_nowarn1();
-        let end_res = parse_one(bs1, false).into_nowarn1();
+        let begin_res = parse_one(bs0, true).into_nowarn();
+        let end_res = parse_one(bs1, false).into_nowarn();
         begin_res.zip_cmt(end_res).and_then_cmt(|(begin, end)| {
             Self::try_new_squish(begin, end, squish_offsets, conf)
                 .map_err(HeaderSegmentError::from)
@@ -833,8 +833,8 @@ impl OtherSegment20 {
             })
         };
 
-        let begin_res = parse_one(bs0, true).into_nowarn1();
-        let end_res = parse_one(bs1, false).into_nowarn1();
+        let begin_res = parse_one(bs0, true).into_nowarn();
+        let end_res = parse_one(bs1, false).into_nowarn();
         begin_res.zip_cmt(end_res).and_then_cmt(|(begin, end)| {
             Self::try_new(begin, end, conf)
                 .map_err(HeaderSegmentError::from)

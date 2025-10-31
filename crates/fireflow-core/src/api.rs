@@ -30,6 +30,7 @@ use crate::text::optional::Nothing;
 use crate::text::parser::{
     get_opt, get_req, truncate_string, ExtraStdKeywords, OptKeyError, ReqKeyError,
 };
+use crate::type_families::ApplyOnce;
 use crate::validated::ascii_uint::UintSpacePad20;
 use crate::validated::dataframe::FCSDataFrame;
 use crate::validated::keys::{
@@ -760,7 +761,7 @@ where
             let vkws = ValidKeywords::new(kws.std, kws.nonstd);
 
             nextdata_res
-                .zip_def(repair_res)
+                .zip_f2_once(repair_res)
                 .set_err_value(())
                 .map_ok_value(|(nextdata, ())| {
                     let parse = RawTEXTParseData::new(
@@ -1196,9 +1197,8 @@ impl RawTEXTParseData {
                 .map_err(Into::into)
                 .into_log();
             let y = self.header_segments.overlaps_with(&s).errors_into();
-            x.zip_def(y)
+            x.lift_f2_once(y, |(), ()| ())
                 .map_errors(|e| ParseRawTEXTError::from(Box::new(e)))
-                .set_def_value(())
         } else {
             LogResult::new_ok(())
         }

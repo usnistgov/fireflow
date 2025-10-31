@@ -11,6 +11,7 @@ use crate::text::optional::KeywordPairMaybe as _;
 use crate::text::parser::{
     LookupOptional, LookupTentative, OptIndexedKey as _, OptMetarootKey, ParseOptKeyError,
 };
+use crate::type_families::ApplyOnce as _;
 use crate::validated::keys::StdKeywords;
 
 use derive_more::{AsRef, Display, From};
@@ -298,11 +299,12 @@ impl AppliedGates2_0 {
             conf,
         );
         let gm = GatedMeasurements::lookup(kws, false, conf);
-        ag.zip_def(gm).and_then_def(|(scheme, gated_measurements)| {
-            Self::try_new(gated_measurements.0, scheme)
-                .into_deferred_fungible::<Vec<_>>(!conf.allow_optional_dropping)
-                .cmt_fung_errors_into()
-        })
+        ag.zip_f2_once(gm)
+            .and_then_def(|(scheme, gated_measurements)| {
+                Self::try_new(gated_measurements.0, scheme)
+                    .into_deferred_fungible::<Vec<_>>(!conf.allow_optional_dropping)
+                    .cmt_fung_errors_into()
+            })
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -410,11 +412,12 @@ impl AppliedGates3_0 {
     {
         let s = lookup_scheme(kws);
         let ms = lookup_meas(kws);
-        s.zip_def(ms).and_then_def(|(scheme, gated_measurements)| {
-            Self::try_new(gated_measurements.0, scheme)
-                .into_succ::<_, _, Vec<_>, _, _>()
-                .cmt_warnings_into()
-        })
+        s.zip_f2_once(ms)
+            .and_then_def(|(scheme, gated_measurements)| {
+                Self::try_new(gated_measurements.0, scheme)
+                    .into_succ::<_, _, Vec<_>, _, _>()
+                    .cmt_warnings_into()
+            })
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -586,8 +589,8 @@ impl GatedMeasurement {
         let det_type = lookup_det_type(kws, i);
         let det_volt = lookup_det_volt(kws, i);
         scale
-            .zip4_def(filter, shortname, perc_emit)
-            .zip5_def(rng, longname, det_type, det_volt)
+            .zip_f4_once(filter, shortname, perc_emit)
+            .zip_f5_once(rng, longname, det_type, det_volt)
             .map_def_value(|((e, f, n, p), r, s, t, v)| Self::new(e, f, n, p, r, s, t, v))
     }
 
@@ -768,7 +771,7 @@ impl<I> Region<I> {
     {
         let n = lookup_index(kws, i);
         let w = lookup_window(kws, i.into());
-        n.zip_def(w)
+        n.zip_f2_once(w)
             .and_then_def(|(n_, y_)| {
                 n_.zip(y_)
                     .and_then(|(gi, win)| Self::try_new(gi, win).map(Self::inner_into))

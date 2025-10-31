@@ -27,6 +27,7 @@ use crate::segment::{
     OptSegmentWithDefaultWarning, OtherSegment20, ReqSegmentWithDefaultError,
     ReqSegmentWithDefaultWarning, SegmentMismatchWarning,
 };
+use crate::type_families::ApplyOnce as _;
 
 use crate::text::optional::Nothing;
 use crate::text::{
@@ -1467,11 +1468,10 @@ pub trait VersionedMetaroot: Sized {
             .map_errors(SwapOpticalTemporalError::from);
 
         t_res
-            .zip3_def(o_specific_res, o_common_res)
-            .inject_value((tmp, opt))
+            .lift_f3_once(o_specific_res, o_common_res, |(), (), ()| (tmp, opt))
             .nowarn_into_warn()
             .recover_with(
-                |(_, (t, o)), es| {
+                |(t, o), es| {
                     if allow_loss {
                         let ws: Vec<_> = es.into_iter().collect();
                         LogResult::new_ok(go(t, o)).set_cmt_warnings(ws)
@@ -1479,10 +1479,10 @@ pub trait VersionedMetaroot: Sized {
                         LogResult::new_err(es).set_err_value(Box::new((t, o)))
                     }
                 },
-                |(_, (t, o))| LogResult::new_ok(go(t, o)),
+                |(t, o)| LogResult::new_ok(go(t, o)),
             )
             .aggregate_commutative_fungible_errors(
-                |ws| NonEmpty::collect(ws.into_iter()).map(SwapOpticalTemporalSummary),
+                |ws| NonEmpty::collect(ws).map(SwapOpticalTemporalSummary),
                 |es| SwapOpticalTemporalSummary(NonEmpty::from(es)),
             )
     }
@@ -4867,10 +4867,7 @@ impl UnstainedData {
     ) -> LookupTentative<Self> {
         let c = UnstainedCenters::lookup_opt_linked_st(kws, names, (), conf);
         let i = UnstainedInfo::lookup_metaroot_opt(kws, false, conf);
-        c.zip_def(i)
-            .map_def_value(|(unstainedcenters, unstainedinfo)| {
-                Self::new(unstainedcenters, unstainedinfo)
-            })
+        c.lift_f2_once(i, |uc, ui| Self::new(uc, ui))
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -4897,8 +4894,7 @@ impl SubsetData {
         let f = CSVFlags::lookup(kws, conf);
         let b = CSVBits::lookup_metaroot_opt(kws, false, conf);
         let t = CSTot::lookup_metaroot_opt(kws, false, conf);
-        f.zip3_def(b, t)
-            .map_def_value(|(flags, bits, tot)| Self::new(bits, tot, flags))
+        f.lift_f3_once(b, t, |flags, bits, tot| Self::new(bits, tot, flags))
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -4911,7 +4907,7 @@ impl SubsetData {
     fn check_loss(self, allow_loss: bool) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
         let f = self.flags.check_loss(allow_loss);
         let b = self.bits.check_key_transfer(allow_loss).repack();
-        f.zip_def(b).set_def_value(())
+        f.lift_f2_once(b, |(), ()| ())
     }
 }
 
@@ -4970,11 +4966,7 @@ impl ModificationData {
         let last_mod = LastModifier::lookup_metaroot_opt(kws, false, conf);
         let last_mod_date = LastModified::lookup_metaroot_opt(kws, false, conf);
         let ori = Originality::lookup_metaroot_opt(kws, false, conf);
-        last_mod.zip3_def(last_mod_date, ori).map_def_value(
-            |(last_modifier, last_modified, originality)| {
-                Self::new(last_modifier, last_modified, originality)
-            },
-        )
+        last_mod.lift_f3_once(last_mod_date, ori, |m, d, o| Self::new(m, d, o))
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -5003,10 +4995,7 @@ impl CarrierData {
         let l = Locationid::lookup_metaroot_opt(kws, false, conf);
         let i = Carrierid::lookup_metaroot_opt(kws, false, conf);
         let t = Carriertype::lookup_metaroot_opt(kws, false, conf);
-        l.zip3_def(i, t)
-            .map_def_value(|(locationid, carrierid, carriertype)| {
-                Self::new(carrierid, carriertype, locationid)
-            })
+        l.lift_f3_once(i, t, |lx, cx, tx| Self::new(cx, tx, lx))
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -5039,8 +5028,7 @@ impl PlateData {
         let w = Wellid::lookup_metaroot_opt(kws, is_deprecated, conf);
         let n = Platename::lookup_metaroot_opt(kws, is_deprecated, conf);
         let i = Plateid::lookup_metaroot_opt(kws, is_deprecated, conf);
-        w.zip3_def(n, i)
-            .map_def_value(|(wellid, platename, plateid)| Self::new(plateid, platename, wellid))
+        w.lift_f3_once(n, i, |wx, nx, ix| Self::new(ix, nx, wx))
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -5073,8 +5061,7 @@ impl PeakData {
     ) -> LookupTentative<Self> {
         let b = PeakBin::lookup_meas_opt(kws, i, is_deprecated, conf);
         let s = PeakIndex::lookup_meas_opt(kws, i, is_deprecated, conf);
-        b.zip_def(s)
-            .map_def_value(|(bin, size)| Self::new(bin, size))
+        b.lift_f2_once(s, |bin, size| Self::new(bin, size))
     }
 
     pub(crate) fn opt_keywords(
@@ -6336,13 +6323,13 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal2_0 {
             .timestep
             .check_conversion(allow_loss)
             .map_commutative_fungible_errors(TemporalConvertError::from)
-            .repack_warnings();
+            .into_semigroup();
         let d = value
             .display
             .check_indexed_key_transfer_fungible::<AnyMeasKeyLossError>(i, allow_loss)
             .map_commutative_fungible_errors(TemporalConvertError::from)
-            .repack_warnings();
-        t.zip_def(d).map_def_value(|_| Self::new(true, value.peak))
+            .into_semigroup();
+        t.lift_f2_once(d, |(), ()| Self::new(true, value.peak))
     }
 }
 
@@ -6356,19 +6343,18 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal2_0 {
             .display
             .check_indexed_key_transfer_fungible(i, allow_loss)
             .map_commutative_fungible_errors(TemporalConvertError::Xfer)
-            .repack_warnings();
+            .into_semigroup();
         let m = value
             .measurement_type
             .check_indexed_key_transfer_fungible(i, allow_loss)
             .map_commutative_fungible_errors(TemporalConvertError::Xfer)
-            .repack_warnings();
+            .into_semigroup();
         let t = value
             .timestep
             .check_conversion(allow_loss)
             .map_commutative_fungible_errors(TemporalConvertError::Timestep)
-            .repack_warnings();
-        di.zip3_def(m, t)
-            .map_def_value(|_| Self::new(true, PeakData::default()))
+            .into_semigroup();
+        di.lift_f3_once(m, t, |(), (), ()| Self::new(true, PeakData::default()))
     }
 }
 
@@ -6407,14 +6393,13 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_0 {
             .display
             .check_indexed_key_transfer_fungible::<AnyMeasKeyLossError>(i, allow_loss)
             .map_commutative_fungible_errors(TemporalConvertError::Xfer)
-            .repack_warnings();
+            .into_semigroup();
         let m = value
             .measurement_type
             .check_indexed_key_transfer_fungible(i, allow_loss)
             .map_commutative_fungible_errors(TemporalConvertError::Xfer)
-            .repack_warnings();
-        di.zip_def(m)
-            .map_def_value(|_| Self::new(value.timestep, PeakData::default()))
+            .into_semigroup();
+        di.lift_f2_once(m, |(), ()| Self::new(value.timestep, PeakData::default()))
     }
 }
 
@@ -6696,7 +6681,7 @@ impl LookupOptical for InnerOptical3_2 {
         let meas = OpticalType::lookup_meas_opt(kws, i, false, conf);
         let feat = Feature::lookup_meas_opt(kws, i, false, conf);
         let anal = Analyte::lookup_meas_opt(kws, i, false, conf);
-        wave.zip4_def(cal, dpy, det_name)
+        wave.zip_f4_once(cal, dpy, det_name)
             .zip5_cmt(tag, meas, feat, anal)
             .map_errors(LookupKeysError::from)
             .and_then_cmt(|((w, c, d, n), t, m, f, a)| {

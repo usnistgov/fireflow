@@ -13,6 +13,7 @@ use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, Nextdata,
 };
 use crate::text::parser::ReqMetarootKey as _;
+use crate::type_families::ApplyOnce as _;
 use crate::validated::ascii_uint::{
     HeaderString, Uint8DigitOverflow, UintSpacePad20, UintSpacePad8, UintZeroPad20,
 };
@@ -150,7 +151,7 @@ impl<T> HeaderSegments<T> {
     {
         let x = self.overlapping_segments().errors_into();
         let y = self.contains_header_segments().errors_into();
-        x.zip_def(y).set_def_value(())
+        x.lift_f2_once(y, |(), ()| ())
     }
 
     fn contains_header_segments(&self) -> DeferredErrors<(), InHeaderError>
@@ -165,8 +166,7 @@ impl<T> HeaderSegments<T> {
             .into_iter()
             .chain(os)
             .map(ResultExt::into_log)
-            .mappend_def()
-            .set_def_value(())
+            .mappend_def_void()
     }
 
     fn contains_header_segment<I, S, T0>(&self, s: &Segment<I, S, T0>) -> Result<(), InHeaderError>

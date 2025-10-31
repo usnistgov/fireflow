@@ -456,10 +456,10 @@ pub trait MeasDatatypeDef {
     > {
         let w = Width::get_meas_req(kws, i)
             .map_err(RawParsedError::from)
-            .into_nowarn1();
+            .into_nowarn();
         let r = Range::get_meas_req(kws, i)
             .map_err(RawParsedError::from)
-            .into_nowarn1();
+            .into_nowarn();
         w.zip_cmt(r)
             .nowarn_into_warn()
             .and_then_cmt(|(width, range)| {

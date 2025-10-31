@@ -1,5 +1,6 @@
 use crate::config::StdTextReadConfig;
 use crate::logging::ResultExt as _;
+use crate::type_families::ApplyOnce as _;
 use crate::validated::keys::{Key, StdKeywords};
 use crate::validated::timepattern::ParseWithTimePatternError;
 
@@ -173,7 +174,7 @@ impl<X> Timestamps<X> {
         let b = Btim::lookup_metatroot_opt_st(kws, is_deprecated, (), conf);
         let e = Etim::lookup_metatroot_opt_st(kws, is_deprecated, (), conf);
         let d = FCSDate::lookup_metatroot_opt_st(kws, is_deprecated, (), conf);
-        b.zip3_def(e, d).and_then_def(|(btim, etim, date)| {
+        b.zip_f3_once(e, d).and_then_def(|(btim, etim, date)| {
             Self::try_new(btim, etim, date)
                 .into_deferred_fungible::<Vec<_>>(!conf.allow_optional_dropping)
                 .cmt_fung_errors_into()

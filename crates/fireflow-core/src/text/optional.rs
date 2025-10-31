@@ -1,5 +1,8 @@
 use crate::core::{AnyMetarootKeyLossError, IndexedKeyLossError, UnitaryKeyLossError};
-use crate::logging::{DeferredError, DeferredFungibleError, LogResult};
+use crate::logging::{
+    DeferredError, ErrorResult, FungibleErrorResult, LogResult, WarningAndErrorResult,
+    WarningOrErrorResult,
+};
 use crate::type_families::{Applicative, Sibling1};
 use crate::validated::keys::{IndexedKey, Key, MeasHeader};
 
@@ -135,7 +138,7 @@ pub(crate) trait CheckMaybe: Sized + IsDefault {
     fn check_key_transfer(
         &self,
         allow_loss: bool,
-    ) -> DeferredFungibleError<(), AnyMetarootKeyLossError>
+    ) -> WarningAndErrorResult<(), (), AnyMetarootKeyLossError, AnyMetarootKeyLossError>
     where
         AnyMetarootKeyLossError: From<UnitaryKeyLossError<Self::Inner>>,
     {
@@ -143,7 +146,7 @@ pub(crate) trait CheckMaybe: Sized + IsDefault {
             LogResult::new_ok(())
         } else {
             let e = UnitaryKeyLossError::<Self::Inner>::new().into();
-            LogResult::new_deferred_fungible((), e, !allow_loss)
+            LogResult::new_fungible((), (), e, !allow_loss)
         }
     }
 
@@ -151,7 +154,7 @@ pub(crate) trait CheckMaybe: Sized + IsDefault {
         &self,
         i: impl Into<IndexFromOne>,
         allow_loss: bool,
-    ) -> DeferredFungibleError<(), E>
+    ) -> WarningAndErrorResult<(), (), E, E>
     where
         E: From<IndexedKeyLossError<Self::Inner>>,
     {
@@ -159,11 +162,11 @@ pub(crate) trait CheckMaybe: Sized + IsDefault {
             LogResult::new_ok(())
         } else {
             let e = IndexedKeyLossError::<Self::Inner>::new(i).into();
-            LogResult::new_deferred_fungible((), e, !allow_loss)
+            LogResult::new_fungible((), (), e, !allow_loss)
         }
     }
 
-    fn check_indexed_key_transfer<E>(&self, i: impl Into<IndexFromOne>) -> DeferredError<(), E>
+    fn check_indexed_key_transfer<E>(&self, i: impl Into<IndexFromOne>) -> ErrorResult<(), (), E>
     where
         E: From<IndexedKeyLossError<Self::Inner>>,
     {

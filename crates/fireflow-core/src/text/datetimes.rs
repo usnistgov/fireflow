@@ -1,6 +1,7 @@
 use crate::config::StdTextReadConfig;
 use crate::core::{AnyMetarootKeyLossError, UnitaryKeyLossError};
 use crate::logging::{DeferredFungibleErrors, LogResult, ResultExt as _};
+use crate::type_families::ApplyOnce as _;
 use crate::validated::keys::StdKeywords;
 
 use super::optional::KeywordPairMaybe as _;
@@ -89,7 +90,7 @@ impl Datetimes {
     pub(crate) fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
         let b = BeginDateTime::lookup_metaroot_opt(kws, false, conf);
         let e = EndDateTime::lookup_metaroot_opt(kws, false, conf);
-        b.zip_def(e).and_then_def(|(begin, end)| {
+        b.zip_f2_once(e).and_then_def(|(begin, end)| {
             Self::try_new(begin, end)
                 .into_deferred_fungible::<Vec<_>>(!conf.allow_optional_dropping)
                 .cmt_fung_errors_into()

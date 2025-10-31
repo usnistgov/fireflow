@@ -1,10 +1,9 @@
 use crate::data::ColumnError;
 use crate::logging::{
     CmtResult, CmtResultIter as _, ErrorsResult, IntoNewCardinality, LogResult, ResultExt as _,
-    Semigroup,
 };
 use crate::text::optional::MightHave;
-use crate::type_families::{Applicative, Functor, Sibling1};
+use crate::type_families::{Applicative, Functor, Monoid, Sibling1};
 use crate::validated::shortname::Shortname;
 
 use super::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
@@ -520,14 +519,19 @@ impl<K, U, V> NamedVec<K, U, V> {
     pub(crate) fn map_non_center_values<F, Vf, WC, E, EC>(
         self,
         f: F,
-    ) -> CmtResult<NamedVec<K, U, Vf>, (), WC, IndexedElementError<E>, Vec<IndexedElementError<E>>>
+    ) -> CmtResult<
+        NamedVec<K, U, Vf>,
+        (),
+        WC,
+        IndexedElementError<E>,
+        Sibling1<EC, IndexedElementError<E>>,
+    >
     where
         F: Fn(MeasIndex, V) -> CmtResult<Vf, (), WC, E, EC>,
-        WC: Default + Semigroup,
+        WC: Monoid,
         EC: Functor<E>,
-        Sibling1<EC, IndexedElementError<E>>: IntoIterator<Item = IndexedElementError<E>>
-            + Extend<IndexedElementError<E>>
-            + IntoNewCardinality<Vec<IndexedElementError<E>>>,
+        Sibling1<EC, IndexedElementError<E>>:
+            IntoIterator<Item = IndexedElementError<E>> + Extend<IndexedElementError<E>>,
     {
         let go = |xs: PairedVec<K, V>, offset: usize| {
             xs.into_iter()
@@ -548,9 +552,9 @@ impl<K, U, V> NamedVec<K, U, V> {
                 lres.zip_cmt(rres)
                     .map_ok_value(|(left, right)| NamedVec::new_split(left, *s.center, right))
             }
-            Self::Unsplit(u) => go(u.members, 0)
-                .map_ok_value(|members| NamedVec::new_unsplit(members))
-                .repack_errors(),
+            Self::Unsplit(u) => {
+                go(u.members, 0).map_ok_value(|members| NamedVec::new_unsplit(members))
+            }
         }
     }
 

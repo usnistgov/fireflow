@@ -1,7 +1,7 @@
 use fireflow_core::api::{
     fcs_read_header, fcs_read_raw_text, fcs_read_std_dataset, fcs_read_std_text,
 };
-use fireflow_core::config;
+use fireflow_core::config::{self, DisallowRangeTrunc};
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::header::Version;
 use fireflow_core::logging::ErrorSummary;
@@ -933,10 +933,11 @@ fn parse_layout_config(sargs: &ArgMatches) -> config::ReadLayoutConfig {
     let integer_byteord_override = sargs
         .get_one::<String>(INT_BYTEORD_OVERRIDE)
         .map(|s| s.parse::<ByteOrd2_0>().unwrap());
+    let drt = DisallowRangeTrunc(sargs.get_flag(DISALLOW_RANGE_TRUNCATION));
     config::ReadLayoutConfig {
         integer_widths_from_byteord: sargs.get_flag(INT_WIDTHS_FROM_BYTEORD),
         integer_byteord_override,
-        disallow_range_truncation: sargs.get_flag(DISALLOW_RANGE_TRUNCATION),
+        disallow_range_truncation: drt,
     }
 }
 

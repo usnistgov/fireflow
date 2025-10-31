@@ -1,5 +1,6 @@
 //! Types representing $PnR/$PnB keys for an Ascii column.
 
+use crate::config::DisallowRangeTrunc;
 use crate::logging::{ResultExt as _, WarningsAndErrorsResult};
 use crate::text::byteord::{Width, WidthToCharsError};
 use crate::text::keywords::{IntRangeError, Range};
@@ -88,10 +89,10 @@ impl AsciiRange {
     pub(crate) fn from_width_and_range(
         width: Width,
         range: Range,
-        disallow_trunc: bool,
+        flag: DisallowRangeTrunc,
     ) -> WarningsAndErrorsResult<Self, (), IntRangeError<()>, NewAsciiRangeError> {
         let rng_res = range
-            .into_uint(disallow_trunc)
+            .into_uint(flag)
             .map_errors(NewAsciiRangeError::from)
             .set_err_value(())
             .repack::<_, _, Vec<_>>();

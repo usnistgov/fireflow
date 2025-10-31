@@ -1,6 +1,6 @@
 use crate::config::{
-    ReadLayoutConfig, ReadState, ReadTEXTOffsetsConfig, ReaderConfig, SharedConfig,
-    StdTextReadConfig, TemporalOpticalKey, WriteConfig,
+    DisallowRangeTrunc, ReadLayoutConfig, ReadState, ReadTEXTOffsetsConfig, ReaderConfig,
+    SharedConfig, StdTextReadConfig, TemporalOpticalKey, WriteConfig,
 };
 use crate::data::{
     AnyLossError, AnyRangeError, ColumnError, ConvertWidthError, DataLayout2_0, DataLayout3_0,
@@ -1579,7 +1579,7 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
                 |(_, (o, d))| LogResult::new_ok(Self::from_optical_unchecked(o, d)),
             )
             .aggregate_commutative_fungible_errors(
-                |ws| NonEmpty::collect(ws.into_iter()).map(OpticalToTemporalSummary),
+                |ws| NonEmpty::collect(ws).map(OpticalToTemporalSummary),
                 |es| OpticalToTemporalSummary(NonEmpty::from(es)),
             )
     }
@@ -2267,7 +2267,7 @@ where
     where
         M::Temporal: TemporalFromOptical<M::Optical>,
     {
-        let x = self.measurements.set_center_by_index(
+        self.measurements.set_center_by_index(
             index,
             |i, old_o, old_t| {
                 M::swap_optical_temporal(old_o, old_t, i, allow_loss)
@@ -2279,8 +2279,7 @@ where
                     .map_commutative_fungible_errors(SetTemporalSummary::from)
                     .map_errors(SetTemporalByIndexError::from)
             },
-        );
-        x
+        )
     }
 
     /// Convert time measurement to optical measurement.
@@ -2294,10 +2293,9 @@ where
         M::Optical: OpticalFromTemporal<M::Temporal, Loss = ()>,
         M::Temporal: VersionedTemporal<Warning = Nothing<()>, Error = Infallible>,
     {
-        let x = self
-            .measurements
-            .unset_center(|i, old_t| M::Optical::from_temporal(old_t, i, ()));
-        x.infallible_nowarn_into()
+        self.measurements
+            .unset_center(|i, old_t| M::Optical::from_temporal(old_t, i, ()))
+            .infallible_nowarn_into()
     }
 
     /// Convert time measurement to optical measurement.
@@ -3189,7 +3187,7 @@ where
         n: Shortname,
         m: Temporal<M::Temporal>,
         r: Range,
-        disallow_trunc: bool,
+        flag: DisallowRangeTrunc,
     ) -> WarningsAndErrorsResult<(), (), AnyRangeError, InsertTemporalError> {
         self.measurements
             .push_center(n, m)
@@ -3197,7 +3195,7 @@ where
             .into_log()
             .and_cmt(|| {
                 self.layout
-                    .push(r, disallow_trunc)
+                    .push(r, flag)
                     .map_errors(InsertTemporalError::from)
             })
             .when_ok(|| {
@@ -3213,7 +3211,7 @@ where
         n: Shortname,
         m: Temporal<M::Temporal>,
         r: Range,
-        disallow_trunc: bool,
+        flag: DisallowRangeTrunc,
     ) -> WarningsAndErrorsResult<(), (), AnyRangeError, InsertTemporalError> {
         self.measurements
             .insert_center(i, n, m)
@@ -3221,7 +3219,7 @@ where
             .into_log()
             .and_cmt(|| {
                 self.layout
-                    .insert_nocheck(i, r, disallow_trunc)
+                    .insert_nocheck(i, r, flag)
                     .map_errors(InsertTemporalError::from)
             })
             .when_ok(|| self.metaroot.specific.insert_meas_index_inner(i))
@@ -3232,17 +3230,13 @@ where
         n: M::Name,
         m: Optical<M::Optical>,
         r: Range,
-        disallow_trunc: bool,
+        flag: DisallowRangeTrunc,
     ) -> WarningsAndErrorsResult<Shortname, (), AnyRangeError, PushOpticalError> {
         self.measurements
             .push(n, m)
             .map_err(PushOpticalError::from)
             .into_log()
-            .and_cmt(|| {
-                self.layout
-                    .push(r, disallow_trunc)
-                    .map_errors(PushOpticalError::from)
-            })
+            .and_cmt(|| self.layout.push(r, flag).map_errors(PushOpticalError::from))
             .map_ok_value(|ret| {
                 let i = self.par().0.into();
                 self.metaroot.specific.insert_meas_index_inner(i);
@@ -3256,7 +3250,7 @@ where
         n: M::Name,
         m: Optical<M::Optical>,
         r: Range,
-        disallow_trunc: bool,
+        flag: DisallowRangeTrunc,
     ) -> WarningsAndErrorsResult<Shortname, (), AnyRangeError, InsertOpticalError> {
         self.measurements
             .insert(i, n, m)
@@ -3264,7 +3258,7 @@ where
             .into_log()
             .and_cmt(|| {
                 self.layout
-                    .insert_nocheck(i, r, disallow_trunc)
+                    .insert_nocheck(i, r, flag)
                     .map_errors(InsertOpticalError::from)
             })
             .when_ok(|| self.metaroot.specific.insert_meas_index_inner(i))
@@ -3918,7 +3912,7 @@ where
         disallow_trunc: bool,
     ) -> WarningsAndSummaryResult<(), AnyRangeError, InsertTemporalError, InsertTemporalFailure>
     {
-        self.push_temporal_inner(n, m, r, disallow_trunc)
+        self.push_temporal_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
             .summarize_errors()
     }
 
@@ -3935,7 +3929,7 @@ where
         disallow_trunc: bool,
     ) -> WarningsAndSummaryResult<(), AnyRangeError, InsertTemporalError, InsertTemporalFailure>
     {
-        self.insert_temporal_inner(i, n, m, r, disallow_trunc)
+        self.insert_temporal_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
             .summarize_errors()
     }
 
@@ -3950,7 +3944,7 @@ where
         disallow_trunc: bool,
     ) -> WarningsAndSummaryResult<Shortname, AnyRangeError, PushOpticalError, PushOpticalFailure>
     {
-        self.push_optical_inner(n, m, r, disallow_trunc)
+        self.push_optical_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
             .summarize_errors()
     }
 
@@ -3966,7 +3960,7 @@ where
         disallow_trunc: bool,
     ) -> WarningsAndSummaryResult<Shortname, AnyRangeError, InsertOpticalError, InsertOpticalFailure>
     {
-        self.insert_optical_inner(i, n, m, r, disallow_trunc)
+        self.insert_optical_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
             .summarize_errors()
     }
 
@@ -4297,7 +4291,7 @@ where
         disallow_trunc: bool,
     ) -> WarningsAndSummaryResult<(), AnyRangeError, PushTemporalToDatasetError, PushTemporalFailure>
     {
-        self.push_temporal_inner(n, m, r, disallow_trunc)
+        self.push_temporal_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
             .map_errors(PushTemporalToDatasetError::from)
             .and_cmt(|| {
                 self.data
@@ -4326,7 +4320,7 @@ where
         InsertTemporalToDatasetError,
         InsertTemporalFailure,
     > {
-        self.insert_temporal_inner(i, n, m, r, disallow_trunc)
+        self.insert_temporal_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
             .map_errors(InsertTemporalToDatasetError::from)
             .and_cmt(|| {
                 // ASSUME index is within bounds here since it was checked above
@@ -4354,7 +4348,7 @@ where
         PushOpticalToDatasetError,
         PushOpticalFailure,
     > {
-        self.push_optical_inner(n, m, r, disallow_trunc)
+        self.push_optical_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
             .map_errors(PushOpticalToDatasetError::from)
             .and_cmt(|| {
                 self.data
@@ -4382,7 +4376,7 @@ where
         InsertOpticalInDatasetError,
         InsertOpticalFailure,
     > {
-        self.insert_optical_inner(i, n, m, r, disallow_trunc)
+        self.insert_optical_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
             .map_errors(InsertOpticalInDatasetError::from)
             // ASSUME index is within bounds here since it was checked above
             .and_cmt(|| {
@@ -4867,7 +4861,7 @@ impl UnstainedData {
     ) -> LookupTentative<Self> {
         let c = UnstainedCenters::lookup_opt_linked_st(kws, names, (), conf);
         let i = UnstainedInfo::lookup_metaroot_opt(kws, false, conf);
-        c.lift_f2_once(i, |uc, ui| Self::new(uc, ui))
+        c.lift_f2_once(i, Self::new)
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -4966,7 +4960,7 @@ impl ModificationData {
         let last_mod = LastModifier::lookup_metaroot_opt(kws, false, conf);
         let last_mod_date = LastModified::lookup_metaroot_opt(kws, false, conf);
         let ori = Originality::lookup_metaroot_opt(kws, false, conf);
-        last_mod.lift_f3_once(last_mod_date, ori, |m, d, o| Self::new(m, d, o))
+        last_mod.lift_f3_once(last_mod_date, ori, Self::new)
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -5061,7 +5055,7 @@ impl PeakData {
     ) -> LookupTentative<Self> {
         let b = PeakBin::lookup_meas_opt(kws, i, is_deprecated, conf);
         let s = PeakIndex::lookup_meas_opt(kws, i, is_deprecated, conf);
-        b.lift_f2_once(s, |bin, size| Self::new(bin, size))
+        b.lift_f2_once(s, Self::new)
     }
 
     pub(crate) fn opt_keywords(

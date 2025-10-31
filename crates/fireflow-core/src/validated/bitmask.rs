@@ -1,5 +1,6 @@
 //! Types to represent the $PnB and $PnR values for a uint column.
 
+use crate::config::DisallowRangeTrunc;
 use crate::logging::{
     CmtResultIter as _, DeferredFungibleError, ErrorsResult, LogResult, ResultExt as _,
 };
@@ -84,7 +85,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
 
     pub(crate) fn try_from_native(
         value: T,
-        disallow_trunc: bool,
+        flag: DisallowRangeTrunc,
     ) -> DeferredFungibleError<Self, BitmaskTruncationError>
     where
         T: PrimInt,
@@ -96,7 +97,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
             value: u64::from(value),
         });
         error.map_or(LogResult::new_ok(bitmask), |e| {
-            LogResult::new_deferred_fungible(bitmask, e, disallow_trunc)
+            LogResult::new_deferred_fungible(bitmask, e, flag.0)
         })
     }
 

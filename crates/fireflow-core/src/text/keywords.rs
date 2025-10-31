@@ -1,4 +1,4 @@
-use crate::config::StdTextReadConfig;
+use crate::config::{DisallowRangeTrunc, StdTextReadConfig};
 use crate::logging::{DeferredFungibleError, LogResult, ResultExt as _};
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
@@ -1332,7 +1332,7 @@ pub struct Range(pub BigDecimal);
 impl Range {
     pub(crate) fn into_uint<T>(
         self,
-        disallow_trunc: bool,
+        flag: DisallowRangeTrunc,
     ) -> DeferredFungibleError<T, IntRangeError<()>>
     where
         T: TryFrom<Self, Error = IntRangeError<T>> + PrimInt,
@@ -1346,13 +1346,13 @@ impl Range {
             |x| (x, None),
         );
         err.map_or(LogResult::new_ok(b), |e| {
-            LogResult::new_deferred_fungible(b, e, disallow_trunc)
+            LogResult::new_deferred_fungible(b, e, flag.0)
         })
     }
 
     pub(crate) fn into_float<T>(
         self,
-        disallow_trunc: bool,
+        flag: DisallowRangeTrunc,
     ) -> DeferredFungibleError<FloatDecimal<T>, DecimalToFloatError>
     where
         FloatDecimal<T>: TryFrom<BigDecimal, Error = DecimalToFloatError>,
@@ -1371,7 +1371,7 @@ impl Range {
         );
         match err {
             None => LogResult::new_ok(x),
-            Some(e) => LogResult::new_deferred_fungible(x, e, disallow_trunc),
+            Some(e) => LogResult::new_deferred_fungible(x, e, flag.0),
         }
     }
 }

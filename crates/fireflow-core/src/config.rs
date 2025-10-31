@@ -36,6 +36,9 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use thiserror::Error;
 
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
 #[derive(Default, Clone, AsRef, From)]
 pub struct ReadHeaderConfig(pub HeaderConfigInner);
 
@@ -683,7 +686,7 @@ pub struct ReadLayoutConfig {
     ///
     /// Note: this flag has nothing to do with the bitmask being applied to the
     /// actual data being read. This will happen regardless.
-    pub disallow_range_truncation: bool,
+    pub disallow_range_truncation: DisallowRangeTrunc,
 }
 
 /// Configuration options for both reading and writing
@@ -695,6 +698,10 @@ pub struct SharedConfig {
     /// If true, do not emit warnings.
     pub hide_warnings: bool,
 }
+
+#[derive(From, Clone, Copy, Default)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct DisallowRangeTrunc(pub bool);
 
 /// A pattern to match the $PnN for the time measurement.
 ///
@@ -818,16 +825,23 @@ impl<C> ReadState<C> {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::{impl_from_py_via_fromstr, impl_value_err};
+    use crate::python::macros::{
+        impl_from_py_transparent, impl_from_py_via_fromstr, impl_value_err,
+    };
     use crate::segment::OffsetCorrection;
 
-    use super::{ParseTemporalOpticalKeyError, TemporalOpticalKey, TimeMeasNamePattern};
+    use super::{
+        DisallowRangeTrunc, ParseTemporalOpticalKeyError, TemporalOpticalKey,
+        TimeMeasNamePattern,
+    };
 
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
 
     impl_from_py_via_fromstr!(TemporalOpticalKey);
     impl_value_err!(ParseTemporalOpticalKeyError);
+
+    impl_from_py_transparent!(DisallowRangeTrunc);
 
     impl<'py> FromPyObject<'py> for TimeMeasNamePattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {

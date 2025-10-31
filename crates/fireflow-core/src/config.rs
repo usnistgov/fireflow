@@ -28,6 +28,7 @@ use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
 
 use derive_more::{AsRef, Display, From, FromStr};
+use derive_new::new;
 use regex::Regex;
 use std::collections::HashSet;
 use std::fs::File;
@@ -59,7 +60,7 @@ pub struct ReadRawTEXTConfig {
 #[derive(Default, Clone, AsRef)]
 pub struct ReadStdTEXTConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
-    // #[as_ref(TruncateOffsets)]
+    #[as_ref(TruncateOffsets)]
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub raw: ReadHeaderAndTEXTConfig,
 
@@ -67,13 +68,6 @@ pub struct ReadStdTEXTConfig {
     pub standard: StdTextReadConfig,
 
     #[as_ref(ReadTEXTOffsetsConfig)]
-    #[as_ref(TruncateOffsets)]
-    #[as_ref(TEXTCorrection<DataSegmentId>)]
-    #[as_ref(TEXTCorrection<AnalysisSegmentId>)]
-    #[as_ref(IgnoreTEXTDataOffsets)]
-    #[as_ref(IgnoreTEXTAnalysisOffsets)]
-    #[as_ref(AllowHeaderTEXTOffsetMismatch)]
-    #[as_ref(AllowMissingRequiredOffsets)]
     pub offsets: ReadTEXTOffsetsConfig,
 
     #[as_ref(ReadLayoutConfig)]
@@ -85,7 +79,7 @@ pub struct ReadStdTEXTConfig {
 #[derive(Default, Clone, AsRef)]
 pub struct ReadRawDatasetConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
-    // #[as_ref(TruncateOffsets)]
+    #[as_ref(TruncateOffsets)]
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub raw: ReadHeaderAndTEXTConfig,
 
@@ -93,13 +87,6 @@ pub struct ReadRawDatasetConfig {
     pub layout: ReadLayoutConfig,
 
     #[as_ref(ReadTEXTOffsetsConfig)]
-    #[as_ref(TruncateOffsets)]
-    #[as_ref(TEXTCorrection<DataSegmentId>)]
-    #[as_ref(TEXTCorrection<AnalysisSegmentId>)]
-    #[as_ref(IgnoreTEXTDataOffsets)]
-    #[as_ref(IgnoreTEXTAnalysisOffsets)]
-    #[as_ref(AllowHeaderTEXTOffsetMismatch)]
-    #[as_ref(AllowMissingRequiredOffsets)]
     pub offsets: ReadTEXTOffsetsConfig,
 
     #[as_ref(ReaderConfig)]
@@ -123,7 +110,7 @@ pub struct NewCoreTEXTConfig {
 #[derive(Default, Clone, AsRef)]
 pub struct ReadStdDatasetConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
-    // #[as_ref(TruncateOffsets)]
+    #[as_ref(TruncateOffsets)]
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub raw: ReadHeaderAndTEXTConfig,
 
@@ -134,13 +121,6 @@ pub struct ReadStdDatasetConfig {
     pub layout: ReadLayoutConfig,
 
     #[as_ref(ReadTEXTOffsetsConfig)]
-    #[as_ref(TruncateOffsets)]
-    #[as_ref(TEXTCorrection<DataSegmentId>)]
-    #[as_ref(TEXTCorrection<AnalysisSegmentId>)]
-    #[as_ref(IgnoreTEXTDataOffsets)]
-    #[as_ref(IgnoreTEXTAnalysisOffsets)]
-    #[as_ref(AllowHeaderTEXTOffsetMismatch)]
-    #[as_ref(AllowMissingRequiredOffsets)]
     pub offsets: ReadTEXTOffsetsConfig,
 
     #[as_ref(ReaderConfig)]
@@ -158,13 +138,6 @@ pub struct ReadRawDatasetFromKeywordsConfig {
     pub data: ReaderConfig,
 
     #[as_ref(ReadTEXTOffsetsConfig)]
-    #[as_ref(TruncateOffsets)]
-    #[as_ref(TEXTCorrection<DataSegmentId>)]
-    #[as_ref(TEXTCorrection<AnalysisSegmentId>)]
-    #[as_ref(IgnoreTEXTDataOffsets)]
-    #[as_ref(IgnoreTEXTAnalysisOffsets)]
-    #[as_ref(AllowHeaderTEXTOffsetMismatch)]
-    #[as_ref(AllowMissingRequiredOffsets)]
     pub offsets: ReadTEXTOffsetsConfig,
 
     pub shared: SharedConfig,
@@ -179,13 +152,6 @@ pub struct ReadStdDatasetFromKeywordsConfig {
     pub layout: ReadLayoutConfig,
 
     #[as_ref(ReadTEXTOffsetsConfig)]
-    #[as_ref(TruncateOffsets)]
-    #[as_ref(TEXTCorrection<DataSegmentId>)]
-    #[as_ref(TEXTCorrection<AnalysisSegmentId>)]
-    #[as_ref(IgnoreTEXTDataOffsets)]
-    #[as_ref(IgnoreTEXTAnalysisOffsets)]
-    #[as_ref(AllowHeaderTEXTOffsetMismatch)]
-    #[as_ref(AllowMissingRequiredOffsets)]
     pub offsets: ReadTEXTOffsetsConfig,
 
     #[as_ref(ReaderConfig)]
@@ -933,6 +899,7 @@ impl Default for TimeMeasNamePattern {
 }
 
 /// State pertinent to reading a file
+#[derive(new)]
 pub struct ReadState<C> {
     pub(crate) file_len: u64,
     pub(crate) conf: C,
@@ -945,10 +912,14 @@ impl<C> ReadState<C> {
     }
 
     pub(crate) fn init(f: &File, conf: C) -> io::Result<Self> {
-        f.metadata().map(|m| Self {
-            file_len: m.len(),
-            conf,
-        })
+        f.metadata().map(|m| Self::new(m.len(), conf))
+    }
+
+    pub(crate) fn as_innner_ref<X>(&self) -> ReadState<&X>
+    where
+        C: AsRef<X>,
+    {
+        ReadState::new(self.file_len, self.conf.as_ref())
     }
 }
 

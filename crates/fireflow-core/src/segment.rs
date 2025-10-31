@@ -7,6 +7,7 @@ use crate::logging::{
     DeferredErrors, DeferredFungibleErrors, ErrorsResult, ImpureError, LogResult, OptionExt as _,
     RecoverableErrorsResult, ResultExt as _, WarningsAndErrorsResult,
 };
+use crate::macros;
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
 use crate::text::parser::{OptKeyError, OptMetarootKey, Optional, ReqKeyError, ReqMetarootKey};
 use crate::validated::ascii_uint::{
@@ -159,8 +160,8 @@ struct NonEmptySegment<T> {
 
 /// Operations to obtain optional segment from TEXT keywords
 pub(crate) trait KeyedSegment: Sized + Copy {
-    type B: Key;
-    type E: Key;
+    type B: Key + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
+    type E: Key + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
 
     fn segment_conf<C>(st: &ReadState<C>) -> NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>
     where
@@ -173,13 +174,12 @@ pub(crate) trait KeyedSegment: Sized + Copy {
 }
 
 /// Operations to obtain required segment from TEXT keywords
-pub(crate) trait KeyedReqSegment
+pub(crate) trait KeyedReqSegment: KeyedSegment + HasRegion
 where
-    Self: KeyedSegment + HasRegion + Copy,
-    Self::B: Into<UintZeroPad20> + ReqMetarootKey + FromStr<Err = ParseIntError>,
-    Self::E: Into<UintZeroPad20> + ReqMetarootKey + FromStr<Err = ParseIntError>,
+    Self::B: ReqMetarootKey,
+    Self::E: ReqMetarootKey,
 {
-    type IgnoreFlag: ConfigFlag + Copy;
+    type IgnoreFlag: ConfigFlag;
 
     fn get_or<C>(
         kws: &StdKeywords,
@@ -187,18 +187,39 @@ where
         st: &ReadState<C>,
     ) -> ReqSegResult<Self>
     where
-        C: AsRef<TruncateOffsets>
-            + AsRef<TEXTCorrection<Self>>
-            + AsRef<Self::IgnoreFlag>
-            + AsRef<AllowMissingRequiredOffsets>
-            + AsRef<AllowHeaderTEXTOffsetMismatch>,
+        C: AsRef<ReadTEXTOffsetsConfig>,
+        ReadTEXTOffsetsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
     {
-        let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref();
+        let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
         if ignore_flag.is_set() {
             LogResult::new_ok(default.into_any())
         } else {
-            let res = Self::get(kws, st);
-            Self::default_or(res, default, &st.conf)
+            let inner_st = st.as_innner_ref::<ReadTEXTOffsetsConfig>();
+            let res = Self::get(kws, &inner_st);
+            Self::default_or(res, default, st.conf.as_ref())
+        }
+    }
+
+    fn remove_or<C>(
+        kws: &mut StdKeywords,
+        default: HeaderSegment<Self>,
+        st: &ReadState<C>,
+    ) -> ReqSegResult<Self>
+    where
+        C: AsRef<ReadTEXTOffsetsConfig>,
+        ReadTEXTOffsetsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
+    {
+        // if we want to totally ignore the TEXT offsets, just blindly remove
+        // them so we don't trigger any pseudostandard false positives later and
+        // return the default segment
+        let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
+        if ignore_flag.is_set() {
+            let _ = Self::remove_pair(kws);
+            LogResult::new_ok(default.into_any())
+        } else {
+            let inner_st = st.as_innner_ref::<ReadTEXTOffsetsConfig>();
+            let res = Self::remove(kws, &inner_st);
+            Self::default_or(res, default, st.conf.as_ref())
         }
     }
 
@@ -215,31 +236,6 @@ where
                 .map_err(Into::into)
                 .into_log()
         })
-    }
-
-    fn remove_or<C>(
-        kws: &mut StdKeywords,
-        default: HeaderSegment<Self>,
-        st: &ReadState<C>,
-    ) -> ReqSegResult<Self>
-    where
-        C: AsRef<TruncateOffsets>
-            + AsRef<TEXTCorrection<Self>>
-            + AsRef<Self::IgnoreFlag>
-            + AsRef<AllowMissingRequiredOffsets>
-            + AsRef<AllowHeaderTEXTOffsetMismatch>,
-    {
-        // if we want to totally ignore the TEXT offsets, just blindly remove
-        // them so we don't trigger any pseudostandard false positives later and
-        // return the default segment
-        let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref();
-        if ignore_flag.is_set() {
-            let _ = Self::remove_pair(kws);
-            LogResult::new_ok(default.into_any())
-        } else {
-            let res = Self::remove(kws, st);
-            Self::default_or(res, default, &st.conf)
-        }
     }
 
     fn remove<C>(
@@ -259,16 +255,13 @@ where
             })
     }
 
-    fn default_or<C>(
+    fn default_or(
         res: RecoverableErrorsResult<TEXTSegment<Self>, ReqSegmentError>,
         default: HeaderSegment<Self>,
-        conf: &C,
-    ) -> ReqSegResult<Self>
-    where
-        C: AsRef<AllowHeaderTEXTOffsetMismatch> + AsRef<AllowMissingRequiredOffsets>,
-    {
-        let mismatch_flag: &AllowHeaderTEXTOffsetMismatch = conf.as_ref();
-        let missing_flag: &AllowMissingRequiredOffsets = conf.as_ref();
+        conf: &ReadTEXTOffsetsConfig,
+    ) -> ReqSegResult<Self> {
+        let mismatch_flag = conf.allow_header_text_offset_mismatch;
+        let missing_flag = conf.allow_missing_required_offsets;
         res.nowarn_into_warn().recover_with(
             |(), es| {
                 if missing_flag.is_error() {
@@ -282,7 +275,7 @@ where
             |other| {
                 let (seg, warn) = default.unless(other);
                 warn.map_or(LogResult::new_ok(seg), |w| {
-                    LogResult::<_, _, _, _, _, Vec<_>>::new_fungible(seg, (), w, *mismatch_flag)
+                    LogResult::<_, _, _, _, _, Vec<_>>::new_fungible(seg, (), w, mismatch_flag)
                         .non_cmt_into_cmt()
                         .map_cmt_warnings(ReqSegmentWithDefaultWarning::from)
                         .map_errors(ReqSegmentWithDefaultError::from)
@@ -309,17 +302,10 @@ where
 }
 
 /// Operations to obtain optional segment from TEXT keywords
-pub(crate) trait KeyedOptSegment
+pub(crate) trait KeyedOptSegment: KeyedSegment + HasRegion
 where
-    Self: KeyedSegment + HasRegion,
-    Self::B: Into<UintZeroPad20>
-        + OptMetarootKey
-        + Optional<Outer = Option<Self::B>>
-        + FromStr<Err = ParseIntError>,
-    Self::E: Into<UintZeroPad20>
-        + OptMetarootKey
-        + Optional<Outer = Option<Self::E>>
-        + FromStr<Err = ParseIntError>,
+    Self::B: OptMetarootKey + Optional<Outer = Option<Self::B>>,
+    Self::E: OptMetarootKey + Optional<Outer = Option<Self::E>>,
 {
     type IgnoreFlag: ConfigFlag;
 
@@ -329,19 +315,44 @@ where
         st: &ReadState<C>,
     ) -> OptSegTentative<Self>
     where
-        Self::B: OptMetarootKey,
-        Self::E: OptMetarootKey,
-        C: AsRef<TruncateOffsets>
-            + AsRef<TEXTCorrection<Self>>
-            + AsRef<Self::IgnoreFlag>
-            + AsRef<AllowHeaderTEXTOffsetMismatch>,
+        C: AsRef<ReadTEXTOffsetsConfig>,
+        ReadTEXTOffsetsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
+        // C: AsRef<TruncateOffsets>
+        //     + AsRef<TEXTCorrection<Self>>
+        //     + AsRef<Self::IgnoreFlag>
+        //     + AsRef<AllowHeaderTEXTOffsetMismatch>,
     {
-        let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref();
+        let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
         if ignore_flag.is_set() {
             LogResult::new_ok(default.into_any())
         } else {
-            let res = Self::get(kws, st);
-            Self::default_or(res, default, &st.conf)
+            let inner_st = st.as_innner_ref::<ReadTEXTOffsetsConfig>();
+            let res = Self::get(kws, &inner_st);
+            Self::default_or(res, default, st.conf.as_ref())
+        }
+    }
+
+    fn remove_or<C>(
+        kws: &mut StdKeywords,
+        default: HeaderSegment<Self>,
+        st: &ReadState<C>,
+    ) -> OptSegTentative<Self>
+    where
+        C: AsRef<ReadTEXTOffsetsConfig>,
+        ReadTEXTOffsetsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
+        // C: AsRef<TruncateOffsets>
+        //     + AsRef<TEXTCorrection<Self>>
+        //     + AsRef<Self::IgnoreFlag>
+        //     + AsRef<AllowHeaderTEXTOffsetMismatch>,
+    {
+        let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
+        if ignore_flag.is_set() {
+            let _ = Self::remove_pair(kws);
+            LogResult::new_ok(default.into_any())
+        } else {
+            let inner_st = st.as_innner_ref::<ReadTEXTOffsetsConfig>();
+            let res = Self::remove(kws, &inner_st);
+            Self::default_or(res, default, st.conf.as_ref())
         }
     }
 
@@ -361,27 +372,6 @@ where
             })
             .transpose_log_result()
         })
-    }
-
-    fn remove_or<C>(
-        kws: &mut StdKeywords,
-        default: HeaderSegment<Self>,
-        st: &ReadState<C>,
-    ) -> OptSegTentative<Self>
-    where
-        C: AsRef<TruncateOffsets>
-            + AsRef<TEXTCorrection<Self>>
-            + AsRef<Self::IgnoreFlag>
-            + AsRef<AllowHeaderTEXTOffsetMismatch>,
-    {
-        let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref();
-        if ignore_flag.is_set() {
-            let _ = Self::remove_pair(kws);
-            LogResult::new_ok(default.into_any())
-        } else {
-            let res = Self::remove(kws, st);
-            Self::default_or(res, default, &st.conf)
-        }
     }
 
     fn remove<C>(
@@ -436,6 +426,7 @@ where
         )
     }
 
+    // TODO what if I don't want to drop optional keywords on error?
     #[allow(clippy::type_complexity)]
     fn get_pair(
         kws: &StdKeywords,

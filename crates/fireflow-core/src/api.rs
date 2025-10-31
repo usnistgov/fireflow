@@ -576,16 +576,7 @@ fn h_read_dataset_from_kws<C, R>(
 >
 where
     R: Read + Seek,
-    C: AsRef<ReadLayoutConfig>
-        + AsRef<ReaderConfig>
-        + AsRef<ReadTEXTOffsetsConfig>
-        + AsRef<TruncateOffsets>
-        + AsRef<TEXTCorrection<DataSegmentId>>
-        + AsRef<TEXTCorrection<AnalysisSegmentId>>
-        + AsRef<IgnoreTEXTDataOffsets>
-        + AsRef<IgnoreTEXTAnalysisOffsets>
-        + AsRef<AllowHeaderTEXTOffsetMismatch>
-        + AsRef<AllowMissingRequiredOffsets>,
+    C: AsRef<ReadLayoutConfig> + AsRef<ReaderConfig> + AsRef<ReadTEXTOffsetsConfig>,
 {
     kws_to_df_analysis(version, h, kws, data_seg, analysis_seg, st)
         .map_errors(ImpureError::inner_into)
@@ -634,16 +625,7 @@ impl RawTEXTOutput {
         StdTEXTFromRawError,
     >
     where
-        C: AsRef<StdTextReadConfig>
-            + AsRef<ReadLayoutConfig>
-            + AsRef<ReadTEXTOffsetsConfig>
-            + AsRef<TruncateOffsets>
-            + AsRef<TEXTCorrection<DataSegmentId>>
-            + AsRef<TEXTCorrection<AnalysisSegmentId>>
-            + AsRef<IgnoreTEXTDataOffsets>
-            + AsRef<IgnoreTEXTAnalysisOffsets>
-            + AsRef<AllowHeaderTEXTOffsetMismatch>
-            + AsRef<AllowMissingRequiredOffsets>,
+        C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
     {
         let header = &self.parse.header_segments;
         AnyCoreTEXT::parse_raw(
@@ -674,14 +656,7 @@ impl RawTEXTOutput {
         C: AsRef<StdTextReadConfig>
             + AsRef<ReadLayoutConfig>
             + AsRef<ReaderConfig>
-            + AsRef<ReadTEXTOffsetsConfig>
-            + AsRef<TruncateOffsets>
-            + AsRef<TEXTCorrection<DataSegmentId>>
-            + AsRef<TEXTCorrection<AnalysisSegmentId>>
-            + AsRef<IgnoreTEXTDataOffsets>
-            + AsRef<IgnoreTEXTAnalysisOffsets>
-            + AsRef<AllowHeaderTEXTOffsetMismatch>
-            + AsRef<AllowMissingRequiredOffsets>,
+            + AsRef<ReadTEXTOffsetsConfig>,
     {
         AnyCoreDataset::new_from_keywords(
             h,
@@ -711,16 +686,7 @@ fn kws_to_df_analysis<C, R>(
 >
 where
     R: Read + Seek,
-    C: AsRef<ReadLayoutConfig>
-        + AsRef<ReaderConfig>
-        + AsRef<ReadTEXTOffsetsConfig>
-        + AsRef<TruncateOffsets>
-        + AsRef<TEXTCorrection<DataSegmentId>>
-        + AsRef<TEXTCorrection<AnalysisSegmentId>>
-        + AsRef<IgnoreTEXTDataOffsets>
-        + AsRef<IgnoreTEXTAnalysisOffsets>
-        + AsRef<AllowHeaderTEXTOffsetMismatch>
-        + AsRef<AllowMissingRequiredOffsets>,
+    C: AsRef<ReadLayoutConfig> + AsRef<ReaderConfig> + AsRef<ReadTEXTOffsetsConfig>,
 {
     match version {
         Version::FCS2_0 => Version2_0::h_lookup_and_read(h, kws, data, analysis, st),

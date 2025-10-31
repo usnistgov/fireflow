@@ -49,6 +49,8 @@ pub struct ReadHeaderConfig(pub HeaderConfigInner);
 #[derive(Default, Clone, AsRef)]
 pub struct ReadRawTEXTConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
+    #[as_ref(TruncateOffsets)]
+    #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub raw: ReadHeaderAndTEXTConfig,
 
     pub shared: SharedConfig,
@@ -57,12 +59,21 @@ pub struct ReadRawTEXTConfig {
 #[derive(Default, Clone, AsRef)]
 pub struct ReadStdTEXTConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
+    // #[as_ref(TruncateOffsets)]
+    #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub raw: ReadHeaderAndTEXTConfig,
 
     #[as_ref(StdTextReadConfig)]
     pub standard: StdTextReadConfig,
 
     #[as_ref(ReadTEXTOffsetsConfig)]
+    #[as_ref(TruncateOffsets)]
+    #[as_ref(TEXTCorrection<DataSegmentId>)]
+    #[as_ref(TEXTCorrection<AnalysisSegmentId>)]
+    #[as_ref(IgnoreTEXTDataOffsets)]
+    #[as_ref(IgnoreTEXTAnalysisOffsets)]
+    #[as_ref(AllowHeaderTEXTOffsetMismatch)]
+    #[as_ref(AllowMissingRequiredOffsets)]
     pub offsets: ReadTEXTOffsetsConfig,
 
     #[as_ref(ReadLayoutConfig)]
@@ -74,12 +85,21 @@ pub struct ReadStdTEXTConfig {
 #[derive(Default, Clone, AsRef)]
 pub struct ReadRawDatasetConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
+    // #[as_ref(TruncateOffsets)]
+    #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub raw: ReadHeaderAndTEXTConfig,
 
     #[as_ref(ReadLayoutConfig)]
     pub layout: ReadLayoutConfig,
 
     #[as_ref(ReadTEXTOffsetsConfig)]
+    #[as_ref(TruncateOffsets)]
+    #[as_ref(TEXTCorrection<DataSegmentId>)]
+    #[as_ref(TEXTCorrection<AnalysisSegmentId>)]
+    #[as_ref(IgnoreTEXTDataOffsets)]
+    #[as_ref(IgnoreTEXTAnalysisOffsets)]
+    #[as_ref(AllowHeaderTEXTOffsetMismatch)]
+    #[as_ref(AllowMissingRequiredOffsets)]
     pub offsets: ReadTEXTOffsetsConfig,
 
     #[as_ref(ReaderConfig)]
@@ -103,6 +123,8 @@ pub struct NewCoreTEXTConfig {
 #[derive(Default, Clone, AsRef)]
 pub struct ReadStdDatasetConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
+    // #[as_ref(TruncateOffsets)]
+    #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub raw: ReadHeaderAndTEXTConfig,
 
     #[as_ref(StdTextReadConfig)]
@@ -112,6 +134,13 @@ pub struct ReadStdDatasetConfig {
     pub layout: ReadLayoutConfig,
 
     #[as_ref(ReadTEXTOffsetsConfig)]
+    #[as_ref(TruncateOffsets)]
+    #[as_ref(TEXTCorrection<DataSegmentId>)]
+    #[as_ref(TEXTCorrection<AnalysisSegmentId>)]
+    #[as_ref(IgnoreTEXTDataOffsets)]
+    #[as_ref(IgnoreTEXTAnalysisOffsets)]
+    #[as_ref(AllowHeaderTEXTOffsetMismatch)]
+    #[as_ref(AllowMissingRequiredOffsets)]
     pub offsets: ReadTEXTOffsetsConfig,
 
     #[as_ref(ReaderConfig)]
@@ -129,6 +158,13 @@ pub struct ReadRawDatasetFromKeywordsConfig {
     pub data: ReaderConfig,
 
     #[as_ref(ReadTEXTOffsetsConfig)]
+    #[as_ref(TruncateOffsets)]
+    #[as_ref(TEXTCorrection<DataSegmentId>)]
+    #[as_ref(TEXTCorrection<AnalysisSegmentId>)]
+    #[as_ref(IgnoreTEXTDataOffsets)]
+    #[as_ref(IgnoreTEXTAnalysisOffsets)]
+    #[as_ref(AllowHeaderTEXTOffsetMismatch)]
+    #[as_ref(AllowMissingRequiredOffsets)]
     pub offsets: ReadTEXTOffsetsConfig,
 
     pub shared: SharedConfig,
@@ -143,6 +179,13 @@ pub struct ReadStdDatasetFromKeywordsConfig {
     pub layout: ReadLayoutConfig,
 
     #[as_ref(ReadTEXTOffsetsConfig)]
+    #[as_ref(TruncateOffsets)]
+    #[as_ref(TEXTCorrection<DataSegmentId>)]
+    #[as_ref(TEXTCorrection<AnalysisSegmentId>)]
+    #[as_ref(IgnoreTEXTDataOffsets)]
+    #[as_ref(IgnoreTEXTAnalysisOffsets)]
+    #[as_ref(AllowHeaderTEXTOffsetMismatch)]
+    #[as_ref(AllowMissingRequiredOffsets)]
     pub offsets: ReadTEXTOffsetsConfig,
 
     #[as_ref(ReaderConfig)]
@@ -214,7 +257,7 @@ pub struct WriteConfig {
     pub big_other: bool,
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, AsRef)]
 pub struct HeaderConfigInner {
     /// Corrections for primary TEXT segment
     pub text_correction: HeaderCorrection<PrimaryTextSegmentId>,
@@ -283,6 +326,7 @@ pub struct HeaderConfigInner {
     /// In many cases, such offsets likely mean the file was incompletely
     /// written, which is a larger problem itself. Setting this to true will at
     /// least allow these files to be read.
+    #[as_ref(TruncateOffsets)]
     pub truncate_offsets: TruncateOffsets,
 }
 
@@ -293,12 +337,14 @@ pub struct HeaderConfigInner {
 pub struct ReadHeaderAndTEXTConfig {
     /// Config for reading HEADER
     #[as_ref(HeaderConfigInner)]
+    #[as_ref(TruncateOffsets)]
     pub header: HeaderConfigInner,
 
     /// Override the version
     pub version_override: Option<Version>,
 
     /// Corrections for supplemental TEXT segment
+    #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub supp_text_correction: TEXTCorrection<SupplementalTextSegmentId>,
 
     /// If true, allow STEXT to exactly match the HEADER offsets for TEXT.
@@ -536,6 +582,7 @@ pub struct ReadTEXTOffsetsConfig {
     /// In many cases, such offsets likely mean the file was incompletely
     /// written, which is a larger problem itself. Setting this to true will at
     /// least allow these files to be read.
+    #[as_ref(TruncateOffsets)]
     pub truncate_text_offsets: TruncateOffsets,
 }
 

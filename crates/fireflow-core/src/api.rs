@@ -1,14 +1,15 @@
 use crate::config::{
-    ConfigFlag as _, ErrorFlag, HeaderConfigInner, ReadHeaderAndTEXTConfig, ReadHeaderConfig,
-    ReadLayoutConfig, ReadRawDatasetConfig, ReadRawDatasetFromKeywordsConfig, ReadRawTEXTConfig,
-    ReadState, ReadStdDatasetConfig, ReadStdDatasetFromKeywordsConfig, ReadStdTEXTConfig,
-    ReadTEXTOffsetsConfig, ReaderConfig, StdTextReadConfig, TruncateOffsets,
+    AllowHeaderTEXTOffsetMismatch, AllowMissingRequiredOffsets, ConfigFlag as _, ErrorFlag,
+    HeaderConfigInner, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets, ReadHeaderAndTEXTConfig,
+    ReadHeaderConfig, ReadLayoutConfig, ReadRawDatasetConfig, ReadRawDatasetFromKeywordsConfig,
+    ReadRawTEXTConfig, ReadState, ReadStdDatasetConfig, ReadStdDatasetFromKeywordsConfig,
+    ReadStdTEXTConfig, ReadTEXTOffsetsConfig, ReaderConfig, StdTextReadConfig, TruncateOffsets,
 };
 use crate::core::{
-    Analysis, AnyCoreDataset, AnyCoreTEXT, AsRefOffsetLookup, DatasetSegments,
-    LookupAndReadDataAnalysisError, LookupAndReadDataAnalysisWarning, Others, OthersReader,
-    StdDatasetFromRawError, StdDatasetFromRawWarning, StdDatasetWithKwsFailure,
-    StdDatasetWithKwsOutput, StdTEXTFromRawError, StdTEXTFromRawWarning, Versioned as _,
+    Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
+    LookupAndReadDataAnalysisWarning, Others, OthersReader, StdDatasetFromRawError,
+    StdDatasetFromRawWarning, StdDatasetWithKwsFailure, StdDatasetWithKwsOutput,
+    StdTEXTFromRawError, StdTEXTFromRawWarning, Versioned as _,
 };
 use crate::data::{NewDataReaderError, NewDataReaderWarning, RawToLayoutError, RawToLayoutWarning};
 use crate::header::{
@@ -23,9 +24,9 @@ use crate::logging::{
 };
 use crate::macros::def_failure;
 use crate::segment::{
-    HeaderAnalysisSegment, HeaderDataSegment, KeyedOptSegment, KeyedReqSegment, NewSegmentConfig,
-    OptSegmentError, OtherSegment20, PrimaryTextSegment, ReqSegmentError, SupplementalTextSegment,
-    SupplementalTextSegmentId, TEXTCorrection,
+    AnalysisSegmentId, DataSegmentId, HeaderAnalysisSegment, HeaderDataSegment, KeyedOptSegment,
+    KeyedReqSegment, NewSegmentConfig, OptSegmentError, OtherSegment20, PrimaryTextSegment,
+    ReqSegmentError, SupplementalTextSegment, SupplementalTextSegmentId, TEXTCorrection,
 };
 use crate::text::keywords::{Beginstext, Endstext, Nextdata, Tot};
 use crate::text::optional::Nothing;
@@ -545,7 +546,10 @@ fn read_fcs_raw_text_inner<C>(
     ImpureError<HeaderOrRawError>,
 >
 where
-    C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<HeaderConfigInner>,
+    C: AsRef<ReadHeaderAndTEXTConfig>
+        + AsRef<HeaderConfigInner>
+        + AsRef<TruncateOffsets>
+        + AsRef<TEXTCorrection<SupplementalTextSegmentId>>,
 {
     ReadState::open(p, conf)
         .map_err(ImpureError::IO)
@@ -575,7 +579,13 @@ where
     C: AsRef<ReadLayoutConfig>
         + AsRef<ReaderConfig>
         + AsRef<ReadTEXTOffsetsConfig>
-        + AsRefOffsetLookup,
+        + AsRef<TruncateOffsets>
+        + AsRef<TEXTCorrection<DataSegmentId>>
+        + AsRef<TEXTCorrection<AnalysisSegmentId>>
+        + AsRef<IgnoreTEXTDataOffsets>
+        + AsRef<IgnoreTEXTAnalysisOffsets>
+        + AsRef<AllowHeaderTEXTOffsetMismatch>
+        + AsRef<AllowMissingRequiredOffsets>,
 {
     kws_to_df_analysis(version, h, kws, data_seg, analysis_seg, st)
         .map_errors(ImpureError::inner_into)
@@ -597,7 +607,10 @@ impl RawTEXTOutput {
     ) -> WarningsAndErrorsResult<Self, (), ParseRawTEXTWarning, ImpureError<HeaderOrRawError>>
     where
         R: Read + Seek,
-        C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<HeaderConfigInner>,
+        C: AsRef<ReadHeaderAndTEXTConfig>
+            + AsRef<HeaderConfigInner>
+            + AsRef<TruncateOffsets>
+            + AsRef<TEXTCorrection<SupplementalTextSegmentId>>,
     {
         Header::h_read(h, st)
             .nowarn_into_warn()
@@ -621,7 +634,16 @@ impl RawTEXTOutput {
         StdTEXTFromRawError,
     >
     where
-        C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<StdTextReadConfig>
+            + AsRef<ReadLayoutConfig>
+            + AsRef<ReadTEXTOffsetsConfig>
+            + AsRef<TruncateOffsets>
+            + AsRef<TEXTCorrection<DataSegmentId>>
+            + AsRef<TEXTCorrection<AnalysisSegmentId>>
+            + AsRef<IgnoreTEXTDataOffsets>
+            + AsRef<IgnoreTEXTAnalysisOffsets>
+            + AsRef<AllowHeaderTEXTOffsetMismatch>
+            + AsRef<AllowMissingRequiredOffsets>,
     {
         let header = &self.parse.header_segments;
         AnyCoreTEXT::parse_raw(
@@ -652,7 +674,14 @@ impl RawTEXTOutput {
         C: AsRef<StdTextReadConfig>
             + AsRef<ReadLayoutConfig>
             + AsRef<ReaderConfig>
-            + AsRef<ReadTEXTOffsetsConfig>,
+            + AsRef<ReadTEXTOffsetsConfig>
+            + AsRef<TruncateOffsets>
+            + AsRef<TEXTCorrection<DataSegmentId>>
+            + AsRef<TEXTCorrection<AnalysisSegmentId>>
+            + AsRef<IgnoreTEXTDataOffsets>
+            + AsRef<IgnoreTEXTAnalysisOffsets>
+            + AsRef<AllowHeaderTEXTOffsetMismatch>
+            + AsRef<AllowMissingRequiredOffsets>,
     {
         AnyCoreDataset::new_from_keywords(
             h,
@@ -685,7 +714,13 @@ where
     C: AsRef<ReadLayoutConfig>
         + AsRef<ReaderConfig>
         + AsRef<ReadTEXTOffsetsConfig>
-        + AsRefOffsetLookup,
+        + AsRef<TruncateOffsets>
+        + AsRef<TEXTCorrection<DataSegmentId>>
+        + AsRef<TEXTCorrection<AnalysisSegmentId>>
+        + AsRef<IgnoreTEXTDataOffsets>
+        + AsRef<IgnoreTEXTAnalysisOffsets>
+        + AsRef<AllowHeaderTEXTOffsetMismatch>
+        + AsRef<AllowMissingRequiredOffsets>,
 {
     match version {
         Version::FCS2_0 => Version2_0::h_lookup_and_read(h, kws, data, analysis, st),
@@ -702,7 +737,9 @@ fn h_read_raw_text_from_header<C, R>(
 ) -> WarningsAndErrorsResult<RawTEXTOutput, (), ParseRawTEXTWarning, ImpureError<ParseRawTEXTError>>
 where
     R: Read + Seek,
-    C: AsRef<ReadHeaderAndTEXTConfig>,
+    C: AsRef<ReadHeaderAndTEXTConfig>
+        + AsRef<TEXTCorrection<SupplementalTextSegmentId>>
+        + AsRef<TruncateOffsets>,
 {
     let conf = st.conf.as_ref();
     let mut buf = vec![];
@@ -1112,12 +1149,6 @@ where
         + AsRef<TEXTCorrection<SupplementalTextSegmentId>>
         + AsRef<ReadHeaderAndTEXTConfig>,
 {
-    // let conf = st.conf.as_ref();
-    // let seg_conf = NewSegmentConfig::new(
-    //     conf.supp_text_correction,
-    //     Some(st.file_len.into()),
-    //     conf.header.truncate_offsets,
-    // );
     let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
     let res = match version {
         Version::FCS2_0 => LogResult::new_ok(None),

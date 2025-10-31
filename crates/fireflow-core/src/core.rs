@@ -435,7 +435,15 @@ impl AnyCoreTEXT {
         StdTEXTFromRawError,
     >
     where
-        C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<StdTextReadConfig>
+            + AsRef<ReadLayoutConfig>
+            + AsRef<TruncateOffsets>
+            + AsRef<TEXTCorrection<DataSegmentId>>
+            + AsRef<TEXTCorrection<AnalysisSegmentId>>
+            + AsRef<IgnoreTEXTDataOffsets>
+            + AsRef<IgnoreTEXTAnalysisOffsets>
+            + AsRef<AllowHeaderTEXTOffsetMismatch>
+            + AsRef<AllowMissingRequiredOffsets>,
     {
         macro_rules! go {
             ($t:ident) => {
@@ -478,7 +486,13 @@ impl AnyCoreDataset {
         C: AsRef<StdTextReadConfig>
             + AsRef<ReadLayoutConfig>
             + AsRef<ReaderConfig>
-            + AsRef<ReadTEXTOffsetsConfig>,
+            + AsRef<TruncateOffsets>
+            + AsRef<TEXTCorrection<DataSegmentId>>
+            + AsRef<TEXTCorrection<AnalysisSegmentId>>
+            + AsRef<IgnoreTEXTDataOffsets>
+            + AsRef<IgnoreTEXTAnalysisOffsets>
+            + AsRef<AllowHeaderTEXTOffsetMismatch>
+            + AsRef<AllowMissingRequiredOffsets>,
     {
         macro_rules! go {
             ($t:ident) => {
@@ -1318,7 +1332,13 @@ pub trait Versioned {
         C: AsRef<ReadLayoutConfig>
             + AsRef<ReaderConfig>
             + AsRef<ReadTEXTOffsetsConfig>
-            + AsRefOffsetLookup,
+            + AsRef<TruncateOffsets>
+            + AsRef<TEXTCorrection<DataSegmentId>>
+            + AsRef<TEXTCorrection<AnalysisSegmentId>>
+            + AsRef<IgnoreTEXTDataOffsets>
+            + AsRef<IgnoreTEXTAnalysisOffsets>
+            + AsRef<AllowHeaderTEXTOffsetMismatch>
+            + AsRef<AllowMissingRequiredOffsets>,
     {
         let layout_res = Self::Layout::lookup_ro(kws, st.conf.as_ref())
             .map_cmt_warnings(LookupAndReadDataAnalysisWarning::from)
@@ -1629,18 +1649,6 @@ pub trait OpticalFromTemporal<T: VersionedTemporal>: Sized {
     fn from_temporal_inner(t: T) -> (Self, Self::TData);
 }
 
-pub trait AsRefOffsetLookup:
-    AsRef<TruncateOffsets>
-    + AsRef<TEXTCorrection<DataSegmentId>>
-    + AsRef<TEXTCorrection<AnalysisSegmentId>>
-    + AsRef<IgnoreTEXTDataOffsets>
-    + AsRef<IgnoreTEXTAnalysisOffsets>
-    + AsRef<AllowOptionalDropping>
-    + AsRef<AllowHeaderTEXTOffsetMismatch>
-    + AsRef<AllowMissingRequiredOffsets>
-{
-}
-
 pub trait VersionedTEXTOffsets: Sized {
     type TotDef: TotDefinition;
 
@@ -1651,7 +1659,13 @@ pub trait VersionedTEXTOffsets: Sized {
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
-        C: AsRefOffsetLookup;
+        C: AsRef<TruncateOffsets>
+            + AsRef<TEXTCorrection<DataSegmentId>>
+            + AsRef<TEXTCorrection<AnalysisSegmentId>>
+            + AsRef<IgnoreTEXTDataOffsets>
+            + AsRef<IgnoreTEXTAnalysisOffsets>
+            + AsRef<AllowHeaderTEXTOffsetMismatch>
+            + AsRef<AllowMissingRequiredOffsets>;
 
     fn lookup_ro<C>(
         kws: &StdKeywords,
@@ -1660,7 +1674,13 @@ pub trait VersionedTEXTOffsets: Sized {
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
-        C: AsRefOffsetLookup;
+        C: AsRef<TruncateOffsets>
+            + AsRef<TEXTCorrection<DataSegmentId>>
+            + AsRef<TEXTCorrection<AnalysisSegmentId>>
+            + AsRef<IgnoreTEXTDataOffsets>
+            + AsRef<IgnoreTEXTAnalysisOffsets>
+            + AsRef<AllowHeaderTEXTOffsetMismatch>
+            + AsRef<AllowMissingRequiredOffsets>;
 
     fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot;
 
@@ -3739,8 +3759,13 @@ where
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
         C: AsRef<StdTextReadConfig>
             + AsRef<ReadLayoutConfig>
-            + AsRef<ReadTEXTOffsetsConfig>
-            + AsRefOffsetLookup,
+            + AsRef<TruncateOffsets>
+            + AsRef<TEXTCorrection<DataSegmentId>>
+            + AsRef<TEXTCorrection<AnalysisSegmentId>>
+            + AsRef<IgnoreTEXTDataOffsets>
+            + AsRef<IgnoreTEXTAnalysisOffsets>
+            + AsRef<AllowHeaderTEXTOffsetMismatch>
+            + AsRef<AllowMissingRequiredOffsets>,
     {
         // Lookup DATA/ANALYSIS offsets and $TOT; these are not stored in the
         // Core struct but they will be needed later for parsing DATA and
@@ -4054,8 +4079,14 @@ where
         C: AsRef<StdTextReadConfig>
             + AsRef<ReadLayoutConfig>
             + AsRef<ReaderConfig>
-            + AsRef<ReadTEXTOffsetsConfig>
-            + AsRef<SharedConfig>,
+            + AsRef<SharedConfig>
+            + AsRef<TruncateOffsets>
+            + AsRef<TEXTCorrection<DataSegmentId>>
+            + AsRef<TEXTCorrection<AnalysisSegmentId>>
+            + AsRef<IgnoreTEXTDataOffsets>
+            + AsRef<IgnoreTEXTAnalysisOffsets>
+            + AsRef<AllowHeaderTEXTOffsetMismatch>
+            + AsRef<AllowMissingRequiredOffsets>,
     {
         File::options()
             .read(true)
@@ -4096,7 +4127,13 @@ where
         C: AsRef<StdTextReadConfig>
             + AsRef<ReadLayoutConfig>
             + AsRef<ReaderConfig>
-            + AsRef<ReadTEXTOffsetsConfig>,
+            + AsRef<TruncateOffsets>
+            + AsRef<TEXTCorrection<DataSegmentId>>
+            + AsRef<TEXTCorrection<AnalysisSegmentId>>
+            + AsRef<IgnoreTEXTDataOffsets>
+            + AsRef<IgnoreTEXTAnalysisOffsets>
+            + AsRef<AllowHeaderTEXTOffsetMismatch>
+            + AsRef<AllowMissingRequiredOffsets>,
     {
         VersionedCoreTEXT::<M>::new_from_keywords_with_offsets(kws, data_seg, analysis_seg, st)
             .map_errors(Box::new)
@@ -7059,7 +7096,13 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
         _: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
-        C: AsRefOffsetLookup,
+        C: AsRef<TruncateOffsets>
+            + AsRef<TEXTCorrection<DataSegmentId>>
+            + AsRef<TEXTCorrection<AnalysisSegmentId>>
+            + AsRef<IgnoreTEXTDataOffsets>
+            + AsRef<IgnoreTEXTAnalysisOffsets>
+            + AsRef<AllowHeaderTEXTOffsetMismatch>
+            + AsRef<AllowMissingRequiredOffsets>,
     {
         Tot::remove_metaroot_opt(kws)
             .into_succ::<_, _, Vec<_>, _, _>()
@@ -7077,7 +7120,13 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
         _: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
-        C: AsRefOffsetLookup,
+        C: AsRef<TruncateOffsets>
+            + AsRef<TEXTCorrection<DataSegmentId>>
+            + AsRef<TEXTCorrection<AnalysisSegmentId>>
+            + AsRef<IgnoreTEXTDataOffsets>
+            + AsRef<IgnoreTEXTAnalysisOffsets>
+            + AsRef<AllowHeaderTEXTOffsetMismatch>
+            + AsRef<AllowMissingRequiredOffsets>,
     {
         Tot::get_metaroot_opt(kws)
             .into_succ::<_, _, Vec<_>, _, _>()
@@ -7111,7 +7160,13 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
-        C: AsRefOffsetLookup,
+        C: AsRef<TruncateOffsets>
+            + AsRef<TEXTCorrection<DataSegmentId>>
+            + AsRef<TEXTCorrection<AnalysisSegmentId>>
+            + AsRef<IgnoreTEXTDataOffsets>
+            + AsRef<IgnoreTEXTAnalysisOffsets>
+            + AsRef<AllowHeaderTEXTOffsetMismatch>
+            + AsRef<AllowMissingRequiredOffsets>,
     {
         let tot_res = Tot::remove_metaroot_req(kws)
             .map_err(LookupTEXTOffsetsError::from)
@@ -7134,7 +7189,13 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
-        C: AsRefOffsetLookup,
+        C: AsRef<TruncateOffsets>
+            + AsRef<TEXTCorrection<DataSegmentId>>
+            + AsRef<TEXTCorrection<AnalysisSegmentId>>
+            + AsRef<IgnoreTEXTDataOffsets>
+            + AsRef<IgnoreTEXTAnalysisOffsets>
+            + AsRef<AllowHeaderTEXTOffsetMismatch>
+            + AsRef<AllowMissingRequiredOffsets>,
     {
         let tot_res = Tot::get_metaroot_req(kws)
             .map_err(LookupTEXTOffsetsError::from)
@@ -7170,7 +7231,13 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
-        C: AsRefOffsetLookup,
+        C: AsRef<TruncateOffsets>
+            + AsRef<TEXTCorrection<DataSegmentId>>
+            + AsRef<TEXTCorrection<AnalysisSegmentId>>
+            + AsRef<IgnoreTEXTDataOffsets>
+            + AsRef<IgnoreTEXTAnalysisOffsets>
+            + AsRef<AllowHeaderTEXTOffsetMismatch>
+            + AsRef<AllowMissingRequiredOffsets>,
     {
         let tot_res = Tot::remove_metaroot_req(kws)
             .map_err(LookupTEXTOffsetsError::from)
@@ -7194,7 +7261,13 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
-        C: AsRefOffsetLookup,
+        C: AsRef<TruncateOffsets>
+            + AsRef<TEXTCorrection<DataSegmentId>>
+            + AsRef<TEXTCorrection<AnalysisSegmentId>>
+            + AsRef<IgnoreTEXTDataOffsets>
+            + AsRef<IgnoreTEXTAnalysisOffsets>
+            + AsRef<AllowHeaderTEXTOffsetMismatch>
+            + AsRef<AllowMissingRequiredOffsets>,
     {
         let tot_res = Tot::get_metaroot_req(kws)
             .map_err(LookupTEXTOffsetsError::from)

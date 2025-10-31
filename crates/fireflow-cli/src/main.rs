@@ -1,7 +1,7 @@
 use fireflow_core::api::{
     fcs_read_header, fcs_read_raw_text, fcs_read_std_dataset, fcs_read_std_text,
 };
-use fireflow_core::config::{self, DisallowRangeTrunc};
+use fireflow_core::config;
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::header::Version;
 use fireflow_core::logging::ErrorSummary;
@@ -765,7 +765,7 @@ fn parse_header_config(sargs: &ArgMatches) -> config::HeaderConfigInner {
         other_width,
         squish_offsets: sargs.get_flag(SQUISH_OFFSETS),
         allow_negative: sargs.get_flag(ALLOW_NEGATIVE),
-        truncate_offsets: sargs.get_flag(TRUNCATE_OFFSETS),
+        truncate_offsets: sargs.get_flag(TRUNCATE_OFFSETS).into(),
     }
 }
 
@@ -807,20 +807,20 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
         header: parse_header_config(sargs),
         version_override,
         supp_text_correction,
-        allow_duplicated_supp_text: sargs.get_flag(ALLOW_DUP_SUPP_TEXT),
-        ignore_supp_text: sargs.get_flag(IGNORE_SUPP_TEXT),
+        allow_duplicated_supp_text: sargs.get_flag(ALLOW_DUP_SUPP_TEXT).into(),
+        ignore_supp_text: sargs.get_flag(IGNORE_SUPP_TEXT).into(),
         use_literal_delims: sargs.get_flag(LIT_DELIMS),
-        allow_non_ascii_delim: sargs.get_flag(ALLOW_NON_ASCII_DELIM),
-        allow_missing_final_delim: sargs.get_flag(ALLOW_MISSING_FINAL_DELIM),
-        allow_nonunique: sargs.get_flag(ALLOW_NON_UNIQUE),
-        allow_odd: sargs.get_flag(ALLOW_ODD),
-        allow_empty: sargs.get_flag(ALLOW_EMPTY),
-        allow_delim_at_boundary: sargs.get_flag(ALLOW_DELIM_AT_BOUNDARY),
+        allow_non_ascii_delim: sargs.get_flag(ALLOW_NON_ASCII_DELIM).into(),
+        allow_missing_final_delim: sargs.get_flag(ALLOW_MISSING_FINAL_DELIM).into(),
+        allow_nonunique: sargs.get_flag(ALLOW_NON_UNIQUE).into(),
+        allow_odd: sargs.get_flag(ALLOW_ODD).into(),
+        allow_empty: sargs.get_flag(ALLOW_EMPTY).into(),
+        allow_delim_at_boundary: sargs.get_flag(ALLOW_DELIM_AT_BOUNDARY).into(),
         allow_non_utf8: sargs.get_flag(ALLOW_NON_UTF8),
         use_latin1: sargs.get_flag(USE_LATIN1),
         allow_non_ascii_keywords: sargs.get_flag(ALLOW_NON_ASCII_KEYWORDS),
-        allow_missing_supp_text: sargs.get_flag(ALLOW_MISSING_SUPP_TEXT),
-        allow_supp_text_own_delim: sargs.get_flag(ALLOW_SUPP_TEXT_OWN_DELIM),
+        allow_missing_supp_text: sargs.get_flag(ALLOW_MISSING_SUPP_TEXT).into(),
+        allow_supp_text_own_delim: sargs.get_flag(ALLOW_SUPP_TEXT_OWN_DELIM).into(),
         allow_missing_nextdata: sargs.get_flag(ALLOW_MISSING_NEXTDATA),
         trim_value_whitespace: sargs.get_flag(TRIM_VALUE_WHITESPACE),
         ignore_standard_keys,
@@ -872,10 +872,10 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::StdTextReadConfig {
         parse_indexed_spillover: sargs.get_flag(PARSE_INDEXED_SPILLOVER),
         date_pattern,
         time_pattern,
-        allow_pseudostandard: sargs.get_flag(ALLOW_PSEUDOSTANDARD),
-        allow_unused_standard: sargs.get_flag(ALLOW_UNUSED_STANDARD),
-        allow_optional_dropping: sargs.get_flag(ALLOW_OPTIONAL_DROPPING),
-        disallow_deprecated: sargs.get_flag(DISALLOW_DEPRECATED),
+        allow_pseudostandard: sargs.get_flag(ALLOW_PSEUDOSTANDARD).into(),
+        allow_unused_standard: sargs.get_flag(ALLOW_UNUSED_STANDARD).into(),
+        allow_optional_dropping: sargs.get_flag(ALLOW_OPTIONAL_DROPPING).into(),
+        disallow_deprecated: sargs.get_flag(DISALLOW_DEPRECATED).into(),
         fix_log_scale_offsets: sargs.get_flag(FIX_LOG_SCALE_OFFSETS),
         nonstandard_measurement_pattern,
     }
@@ -921,11 +921,11 @@ fn parse_offsets_config(sargs: &ArgMatches) -> config::ReadTEXTOffsetsConfig {
     config::ReadTEXTOffsetsConfig {
         text_data_correction,
         text_analysis_correction,
-        ignore_text_data_offsets: sargs.get_flag(IGNORE_TEXT_DATA_OFFSETS),
-        ignore_text_analysis_offsets: sargs.get_flag(IGNORE_TEXT_ANALYSIS_OFFSETS),
-        allow_header_text_offset_mismatch: sargs.get_flag(ALLOW_HEADER_TEXT_OFFSET_MISMATCH),
-        allow_missing_required_offsets: sargs.get_flag(ALLOW_MISSING_REQUIRED_OFFSETS),
-        truncate_text_offsets: sargs.get_flag(TRUNCATE_TEXT_OFFSETS),
+        ignore_text_data_offsets: sargs.get_flag(IGNORE_TEXT_DATA_OFFSETS).into(),
+        ignore_text_analysis_offsets: sargs.get_flag(IGNORE_TEXT_ANALYSIS_OFFSETS).into(),
+        allow_header_text_offset_mismatch: sargs.get_flag(ALLOW_HEADER_TEXT_OFFSET_MISMATCH).into(),
+        allow_missing_required_offsets: sargs.get_flag(ALLOW_MISSING_REQUIRED_OFFSETS).into(),
+        truncate_text_offsets: sargs.get_flag(TRUNCATE_TEXT_OFFSETS).into(),
     }
 }
 
@@ -933,18 +933,17 @@ fn parse_layout_config(sargs: &ArgMatches) -> config::ReadLayoutConfig {
     let integer_byteord_override = sargs
         .get_one::<String>(INT_BYTEORD_OVERRIDE)
         .map(|s| s.parse::<ByteOrd2_0>().unwrap());
-    let drt = DisallowRangeTrunc(sargs.get_flag(DISALLOW_RANGE_TRUNCATION));
     config::ReadLayoutConfig {
         integer_widths_from_byteord: sargs.get_flag(INT_WIDTHS_FROM_BYTEORD),
         integer_byteord_override,
-        disallow_range_truncation: drt,
+        disallow_range_truncation: sargs.get_flag(DISALLOW_RANGE_TRUNCATION).into(),
     }
 }
 
 fn parse_dataset_inner_config(sargs: &ArgMatches) -> config::ReaderConfig {
     config::ReaderConfig {
-        allow_tot_mismatch: sargs.get_flag(ALLOW_TOT_MISMATCH),
-        allow_uneven_event_width: sargs.get_flag(ALLOW_UNEVEN_EVENT_WIDTH),
+        allow_tot_mismatch: sargs.get_flag(ALLOW_TOT_MISMATCH).into(),
+        allow_uneven_event_width: sargs.get_flag(ALLOW_UNEVEN_EVENT_WIDTH).into(),
     }
 }
 

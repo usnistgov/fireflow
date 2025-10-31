@@ -334,7 +334,6 @@ where
         C: AsRef<TruncateOffsets>
             + AsRef<TEXTCorrection<Self>>
             + AsRef<Self::IgnoreFlag>
-            + AsRef<AllowOptionalDropping>
             + AsRef<AllowHeaderTEXTOffsetMismatch>,
     {
         let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref();
@@ -373,7 +372,6 @@ where
         C: AsRef<TruncateOffsets>
             + AsRef<TEXTCorrection<Self>>
             + AsRef<Self::IgnoreFlag>
-            + AsRef<AllowOptionalDropping>
             + AsRef<AllowHeaderTEXTOffsetMismatch>,
     {
         let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref();
@@ -410,9 +408,10 @@ where
         conf: &C,
     ) -> OptSegTentative<Self>
     where
-        C: AsRef<AllowOptionalDropping> + AsRef<AllowHeaderTEXTOffsetMismatch>,
+        C: AsRef<AllowHeaderTEXTOffsetMismatch>,
     {
-        let drop_flag: &AllowOptionalDropping = conf.as_ref();
+        // TODO configure this
+        let drop_flag = AllowOptionalDropping(true);
         let mismatch_flag: &AllowHeaderTEXTOffsetMismatch = conf.as_ref();
         let def = default.into_any();
         res.nowarn_into_warn().recover_with(

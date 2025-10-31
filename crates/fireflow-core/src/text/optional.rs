@@ -1,9 +1,6 @@
 use crate::config::AllowLoss;
 use crate::core::{AnyMetarootKeyLossError, IndexedKeyLossError, UnitaryKeyLossError};
-use crate::logging::{
-    DeferredError, ErrorResult, FungibleErrorResult, LogResult, WarningAndErrorResult,
-    WarningOrErrorResult,
-};
+use crate::logging::{ErrorResult, LogResult, WarningAndErrorResult};
 use crate::type_families::{Applicative, Sibling1};
 use crate::validated::keys::{IndexedKey, Key, MeasHeader};
 
@@ -147,7 +144,7 @@ pub(crate) trait CheckMaybe: Sized + IsDefault {
             LogResult::new_ok(())
         } else {
             let e = UnitaryKeyLossError::<Self::Inner>::new().into();
-            LogResult::new_fungible((), (), e, !allow_loss.0)
+            LogResult::new_fungible((), (), e, allow_loss)
         }
     }
 
@@ -163,7 +160,7 @@ pub(crate) trait CheckMaybe: Sized + IsDefault {
             LogResult::new_ok(())
         } else {
             let e = IndexedKeyLossError::<Self::Inner>::new(i).into();
-            LogResult::new_fungible((), (), e, !allow_loss.0)
+            LogResult::new_fungible((), (), e, allow_loss)
         }
     }
 

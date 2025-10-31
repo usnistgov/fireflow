@@ -1,4 +1,4 @@
-use crate::config::ReadHeaderAndTEXTConfig;
+use crate::config::{AllowNonunique, ReadHeaderAndTEXTConfig};
 use crate::logging::{DeferredFungibleError, DeferredFungibleErrors, DeferredIter as _, LogResult};
 use crate::text::index::IndexFromOne;
 
@@ -540,7 +540,7 @@ impl ParsedKeywords {
 
         let blank_err = || {
             let e = KeywordInsertError::from(BlankValueError(k.to_vec()));
-            LogResult::new_deferred_fungible((), e, !conf.allow_empty)
+            LogResult::new_deferred_fungible((), e, conf.allow_empty)
         };
 
         let vv = if conf.use_latin1 {
@@ -632,7 +632,7 @@ impl ParsedKeywords {
     pub(crate) fn append_std(
         &mut self,
         new: &HashMap<KeyString, String>,
-        allow_nonunique: bool,
+        flag: AllowNonunique,
     ) -> DeferredFungibleErrors<(), StdPresent> {
         new.iter()
             .map(|(k, v)| match self.std.entry(StdKey(k.clone())) {
@@ -640,7 +640,7 @@ impl ParsedKeywords {
                     let key = e.key().clone();
                     let value = v.clone();
                     let w = KeyPresent { key, value };
-                    LogResult::new_deferred_fungible((), w, !allow_nonunique)
+                    LogResult::new_deferred_fungible((), w, flag)
                 }
                 Entry::Vacant(e) => {
                     e.insert(v.clone());
@@ -755,7 +755,7 @@ where
         Entry::Occupied(ent) => {
             let key = ent.key().clone();
             let err = KeyPresent { key, value };
-            LogResult::new_deferred_fungible((), err.into(), !conf.allow_nonunique)
+            LogResult::new_deferred_fungible((), err.into(), conf.allow_nonunique)
         }
         Entry::Vacant(ent) => {
             let v = conf

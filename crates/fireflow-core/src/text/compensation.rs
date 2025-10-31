@@ -52,7 +52,7 @@ impl Compensation2_0 {
         // row = target measurement
         // These are "flipped" in 2.0, where "column" goes TO the "row"
         let n = par.0;
-        let is_err = !conf.allow_optional_dropping;
+        let flag = conf.allow_optional_dropping;
         let (xs, warnings): (Vec<_>, Vec<_>) = (0..n)
             .cartesian_product(0..n)
             .map(|(r, c)| {
@@ -71,9 +71,9 @@ impl Compensation2_0 {
             Compensation::try_from(matrix)
                 .map(|x| Some(Self(x)))
                 .map_err(LookupKeysWarning::Comp)
-                .into_deferred_fungible(is_err)
+                .into_deferred_fungible(flag)
         };
-        res.extend_deferred_fungible_errors(warnings.into_iter().flatten(), is_err)
+        res.extend_deferred_fungible_errors(warnings.into_iter().flatten(), flag)
     }
 
     #[must_use]

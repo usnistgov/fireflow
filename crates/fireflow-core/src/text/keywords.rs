@@ -85,7 +85,7 @@ impl Timestep {
         if self.0.is_one() {
             LogResult::new_ok(())
         } else {
-            LogResult::new_deferred_fungible((), TimestepLossError(self), !flag.0)
+            LogResult::new_deferred_fungible((), TimestepLossError(self), flag)
         }
     }
 }
@@ -559,7 +559,7 @@ impl Wavelengths {
             let ret = Some(Wavelength(ws.head));
             let n = ws.len();
             if n > 1 {
-                LogResult::new_deferred_fungible(ret, WavelengthsLossError(n), !flag.0)
+                LogResult::new_deferred_fungible(ret, WavelengthsLossError(n), flag)
             } else {
                 LogResult::new_ok(ret)
             }
@@ -846,7 +846,7 @@ impl<I> RegionGateIndex<I> {
             if let Some(x) = maybe {
                 Self::check_link(&x, par)
                     .map(|()| x)
-                    .into_deferred_fungible_opt::<Vec<_>>(!conf.allow_optional_dropping)
+                    .into_deferred_fungible_opt::<_, Vec<_>>(conf.allow_optional_dropping)
                     .cmt_fung_errors_into()
             } else {
                 LogResult::new_ok_def()
@@ -1346,7 +1346,7 @@ impl Range {
             |x| (x, None),
         );
         err.map_or(LogResult::new_ok(b), |e| {
-            LogResult::new_deferred_fungible(b, e, flag.0)
+            LogResult::new_deferred_fungible(b, e, flag)
         })
     }
 
@@ -1371,7 +1371,7 @@ impl Range {
         );
         match err {
             None => LogResult::new_ok(x),
-            Some(e) => LogResult::new_deferred_fungible(x, e, flag.0),
+            Some(e) => LogResult::new_deferred_fungible(x, e, flag),
         }
     }
 }

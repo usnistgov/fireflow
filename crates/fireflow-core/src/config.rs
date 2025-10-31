@@ -173,7 +173,7 @@ pub struct ReaderConfig {
     /// offsets are incorrect.
     ///
     /// Does not apply to delimited ASCII, which does not have a fixed width.
-    pub allow_uneven_event_width: bool,
+    pub allow_uneven_event_width: AllowUnevenEventWidth,
 
     /// If `true`, allow $TOT to not match number of events in DATA.
     ///
@@ -181,7 +181,7 @@ pub struct ReaderConfig {
     /// computed by dividing the bytes in DATA by the event width computed from
     /// all $PnB. If $TOT does not match this, it may indicate an issue. If
     /// `false`, throw an error on mismatch, and warning otherwise.
-    pub allow_tot_mismatch: bool,
+    pub allow_tot_mismatch: AllowTotMismatch,
 }
 
 /// Configuration for writing an FCS file
@@ -310,7 +310,7 @@ pub struct ReadHeaderAndTEXTConfig {
     ///
     /// The STEXT offsets will be regardless of this flag if they are
     /// duplicated.
-    pub allow_duplicated_supp_text: bool,
+    pub allow_duplicated_supp_text: AllowDuplicatedSuppTEXT,
 
     /// If true, totally ignore STEXT and its offsets.
     ///
@@ -333,23 +333,23 @@ pub struct ReadHeaderAndTEXTConfig {
     pub use_literal_delims: bool,
 
     /// If true, allow delimiter to be character outside 1-126.
-    pub allow_non_ascii_delim: bool,
+    pub allow_non_ascii_delim: AllowNonAsciiDelim,
 
     /// If true, allow TEXT to not end with a delimiter.
-    pub allow_missing_final_delim: bool,
+    pub allow_missing_final_delim: AllowMissingFinalDelim,
 
     /// If true, allow non-unique keys to be present in TEXT.
     ///
     /// In any case, only the first value for a given key will be used. Setting
     /// this to true merely changes a duplicate key to emit a warning and not
     /// an error.
-    pub allow_nonunique: bool,
+    pub allow_nonunique: AllowNonunique,
 
     /// If true, allow TEXT to contain an odd number of words.
     ///
     /// Regardless, the final "dangling" word in the case of an odd number
     /// will be dropped as it has no obvious interpretation.
-    pub allow_odd: bool,
+    pub allow_odd: AllowOdd,
 
     /// If true, allow keys with blank values.
     ///
@@ -357,7 +357,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// cannot exist when delimiters are escaped. Blank values will be dropped
     /// regardless of this flag; setting it to false will trigger an error,
     /// otherwise a warning.
-    pub allow_empty: bool,
+    pub allow_empty: AllowEmpty,
 
     /// If true, allow delimiters at word boundaries.
     ///
@@ -369,7 +369,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// Regardless of this value, delimiters at word boundaries will not be
     /// included due to their ambiguity. Setting this to true will emit an
     /// error rather than a warning if this is encountered.
-    pub allow_delim_at_boundary: bool,
+    pub allow_delim_at_boundary: AllowDelimAtBoundary,
 
     /// If true, allow non-utf8 byte sequences in TEXT.
     ///
@@ -393,10 +393,10 @@ pub struct ReadHeaderAndTEXTConfig {
     /// If true, allow STEXT offsets to be missing from TEXT.
     ///
     /// Does not affect FCS 3.2 since STEXT is optional there.
-    pub allow_missing_supp_text: bool,
+    pub allow_missing_supp_text: AllowMissingSuppTEXT,
 
     /// If true, allow STEXT to use a different delimiter than TEXT.
-    pub allow_supp_text_own_delim: bool,
+    pub allow_supp_text_own_delim: AllowSuppTEXTOwnDelim,
 
     /// If true, allow $NEXTDATA to be missing.
     ///
@@ -597,21 +597,21 @@ pub struct StdTextReadConfig {
     /// the version in the HEADER is wrong and that the file actually follows a
     /// different FCS standard (usually higher) in which these keywords are
     /// standard.
-    pub allow_pseudostandard: bool,
+    pub allow_pseudostandard: AllowPseudostandard,
 
     /// If true, allow unused standard keywords.
     ///
     /// These may arise if some $Pn* keywords are present which exceed $PAR or
     /// if $TIMESTEP is present but no time measurement is present.
-    pub allow_unused_standard: bool,
+    pub allow_unused_standard: AllowUnusedStandard,
 
     /// If true, allow optional keys to be dropped on error with a warning.
-    pub allow_optional_dropping: bool,
+    pub allow_optional_dropping: AllowOptionalDropping,
 
     /// If true, throw an error if TEXT includes any deprecated features.
     ///
     /// If false, merely throw a warning.
-    pub disallow_deprecated: bool,
+    pub disallow_deprecated: DisallowDeprecated,
 
     /// If true, try to fix log-scale $PnE and $GnE keywords.
     ///
@@ -731,7 +731,26 @@ macro_rules! impl_error_flag {
     };
 }
 
+impl_error_flag!(true_is_error AllowUnevenEventWidth);
+impl_error_flag!(true_is_error AllowTotMismatch);
+
+impl_error_flag!(false_is_error AllowDuplicatedSuppTEXT);
+impl_error_flag!(false_is_error AllowNonAsciiDelim);
+impl_error_flag!(false_is_error AllowMissingFinalDelim);
+impl_error_flag!(false_is_error AllowNonunique);
+impl_error_flag!(false_is_error AllowOdd);
+impl_error_flag!(false_is_error AllowEmpty);
+impl_error_flag!(false_is_error AllowDelimAtBoundary);
+impl_error_flag!(false_is_error AllowMissingSuppTEXT);
+impl_error_flag!(false_is_error AllowSuppTEXTOwnDelim);
+
+impl_error_flag!(false_is_error AllowPseudostandard);
+impl_error_flag!(false_is_error AllowUnusedStandard);
+impl_error_flag!(false_is_error AllowOptionalDropping);
+impl_error_flag!(true_is_error DisallowDeprecated);
+
 impl_error_flag!(true_is_error DisallowRangeTrunc);
+
 impl_error_flag!(false_is_error AllowLoss);
 
 /// A pattern to match the $PnN for the time measurement.

@@ -97,7 +97,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
             value: u64::from(value),
         });
         error.map_or(LogResult::new_ok(bitmask), |e| {
-            LogResult::new_deferred_fungible(bitmask, e, flag.0)
+            LogResult::new_deferred_fungible(bitmask, e, flag)
         })
     }
 

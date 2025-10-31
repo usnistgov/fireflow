@@ -1,5 +1,5 @@
 use crate::config::{
-    HeaderConfigInner, ReadHeaderAndTEXTConfig, ReadHeaderConfig, ReadLayoutConfig,
+    ErrorFlag, HeaderConfigInner, ReadHeaderAndTEXTConfig, ReadHeaderConfig, ReadLayoutConfig,
     ReadRawDatasetConfig, ReadRawDatasetFromKeywordsConfig, ReadRawTEXTConfig, ReadState,
     ReadStdDatasetConfig, ReadStdDatasetFromKeywordsConfig, ReadStdTEXTConfig,
     ReadTEXTOffsetsConfig, ReaderConfig, StdTextReadConfig,
@@ -16,9 +16,10 @@ use crate::header::{
     Version3_1, Version3_2,
 };
 use crate::logging::{
-    CmtResultIter as _, DeferredErrors, DeferredFungibleErrors, DeferredIter as _,
-    DeferredWarningAndError, DeferredWarningsAndErrors, IOSummaryResult, ImpureError, LogResult,
-    ResultExt as _, WarningAndErrorResult, WarningsAndErrorsResult, WarningsAndIOSummaryResult,
+    CmtResultIter as _, DeferredErrors, DeferredFungibleError, DeferredFungibleErrors,
+    DeferredIter as _, DeferredWarningAndError, DeferredWarningsAndErrors, IOSummaryResult,
+    ImpureError, LogResult, ResultExt as _, WarningAndErrorResult, WarningsAndErrorsResult,
+    WarningsAndIOSummaryResult,
 };
 use crate::macros::def_failure;
 use crate::segment::{
@@ -822,7 +823,7 @@ fn split_first_delim<'a>(
             LogResult::new_ok(x)
         } else {
             let e = DelimCharError(*delim);
-            let is_err = !conf.allow_non_ascii_delim;
+            let is_err = conf.allow_non_ascii_delim;
             LogResult::<_, _, _, _, _, Nothing<_>>::new_fungible(x, (), e, is_err)
                 .map_errors(DelimVerifyError::from)
         }
@@ -851,9 +852,9 @@ fn split_raw_supp_text(
     conf: &ReadHeaderAndTEXTConfig,
 ) -> DeferredWarningsAndErrors<(), ParseKeywordsIssue, ParseSupplementalTEXTError> {
     if let Some((byte0, rest)) = bytes.split_first() {
-        let is_err = !conf.allow_supp_text_own_delim;
+        let flag = conf.allow_supp_text_own_delim;
         split_raw_text_inner(kws, *byte0, rest, TEXTKind::Supplemental, conf)
-            .eval_deferred_fungible_error(is_err, |()| {
+            .eval_deferred_fungible_error(flag, |()| {
                 (*byte0 != delim).then_some(DelimMismatch::new(delim, *byte0))
             })
             .map_errors(ParseSupplementalTEXTError::from)
@@ -886,14 +887,19 @@ fn split_raw_text_literal_delim(
     tk: TEXTKind,
     conf: &ReadHeaderAndTEXTConfig,
 ) -> DeferredFungibleErrors<(), ParseKeywordsIssue> {
+    type LogType = DeferredFungibleError<(), ParseKeywordsIssue>;
+
+    fn push_issue<X>(res: &mut Vec<LogType>, flag: X, error: ParseKeywordsIssue)
+    where
+        X: ErrorFlag,
+    {
+        res.push(LogResult::new_deferred_fungible((), error, flag));
+    }
+
     // TODO probably more elegant way to do this. This method will allocate
     // a vector of results which themselves have vectors which store the errors
     // which then get mappend-ed at the end.
     let mut results = vec![];
-
-    let push_issue = |res: &mut Vec<_>, is_warning: bool, error: ParseKeywordsIssue| {
-        res.push(LogResult::new_deferred_fungible((), error, !is_warning));
-    };
 
     // ASSUME input slice does not start with delim
     let mut it = bytes.split(|x| *x == delim);
@@ -962,11 +968,20 @@ fn split_raw_text_escaped_delim(
     tk: TEXTKind,
     conf: &ReadHeaderAndTEXTConfig,
 ) -> DeferredFungibleErrors<(), ParseKeywordsIssue> {
-    let mut results = vec![];
+    // let push_issue = |res: &mut Vec<_>, is_warning: bool, error: ParseKeywordsIssue| {
+    //     res.push(LogResult::new_deferred_fungible((), error, !is_warning));
+    // };
 
-    let push_issue = |res: &mut Vec<_>, is_warning: bool, error: ParseKeywordsIssue| {
-        res.push(LogResult::new_deferred_fungible((), error, !is_warning));
-    };
+    type LogType = DeferredFungibleError<(), ParseKeywordsIssue>;
+
+    fn push_issue<X>(res: &mut Vec<LogType>, flag: X, error: ParseKeywordsIssue)
+    where
+        X: ErrorFlag,
+    {
+        res.push(LogResult::new_deferred_fungible((), error, flag));
+    }
+
+    let mut results = vec![];
 
     let mut push_pair = |res: &mut Vec<_>, kb: &Vec<_>, vb: &Vec<_>| {
         let e = kws.insert(kb, vb, conf).cmt_fung_errors_into();
@@ -1100,9 +1115,9 @@ where
             .nowarn_into_warn::<Vec<_>>()
             .recover_with(
                 |(), es| {
-                    let is_err = !conf.allow_missing_supp_text;
+                    let flag = conf.allow_missing_supp_text;
                     LogResult::<_, _, Vec<_>, _, _, Vec<_>>::new_ok(None)
-                        .extend_deferred_fungible_errors(es, is_err)
+                        .extend_deferred_fungible_errors(es, flag)
                         .map_errors(STextSegmentError::from)
                         .map_cmt_warnings(STextSegmentWarning::from)
                 },
@@ -1121,11 +1136,11 @@ where
     res.and_then_def(|x| {
         x.map_or(LogResult::new_ok(None), |seg| {
             if seg.same_coords(&text_segment) {
-                let is_err = !conf.allow_duplicated_supp_text;
+                let flag = conf.allow_duplicated_supp_text;
                 LogResult::<_, _, _, _, _, Vec<_>>::new_deferred_fungible(
                     None,
                     DuplicatedSuppTEXT,
-                    is_err,
+                    flag,
                 )
                 .map_errors(STextSegmentError::from)
                 .map_cmt_warnings(STextSegmentWarning::from)

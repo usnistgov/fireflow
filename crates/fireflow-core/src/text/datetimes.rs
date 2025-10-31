@@ -92,7 +92,7 @@ impl Datetimes {
         let e = EndDateTime::lookup_metaroot_opt(kws, false, conf);
         b.zip_f2_once(e).and_then_def(|(begin, end)| {
             Self::try_new(begin, end)
-                .into_deferred_fungible::<Vec<_>>(!conf.allow_optional_dropping)
+                .into_deferred_fungible::<_, Vec<_>>(conf.allow_optional_dropping)
                 .cmt_fung_errors_into()
         })
     }
@@ -109,11 +109,11 @@ impl Datetimes {
     ) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
         // TODO these errors are linked
         LogResult::new_ok(())
-            .eval_deferred_fungible_error(!flag.0, |()| {
+            .eval_deferred_fungible_error(flag, |()| {
                 let e = UnitaryKeyLossError::<BeginDateTime>::new();
                 self.begin.is_some().then_some(e)
             })
-            .eval_deferred_fungible_error(!flag.0, |()| {
+            .eval_deferred_fungible_error(flag, |()| {
                 let e = UnitaryKeyLossError::<EndDateTime>::new();
                 self.end.is_some().then_some(e)
             })

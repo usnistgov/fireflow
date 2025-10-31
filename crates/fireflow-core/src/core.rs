@@ -3858,7 +3858,7 @@ where
                     |_p| (),
                     StdTEXTFromRawWarning::from,
                     StdTEXTFromRawError::from,
-                    !std_conf.allow_pseudostandard,
+                    std_conf.allow_pseudostandard,
                 )
                 .extend_fungible_errors(
                     us,
@@ -3866,7 +3866,7 @@ where
                     |_p| (),
                     StdTEXTFromRawWarning::from,
                     StdTEXTFromRawError::from,
-                    !std_conf.allow_unused_standard,
+                    std_conf.allow_unused_standard,
                 )
                 .map_ok_value(|x| (x, esks))
         })
@@ -4917,9 +4917,9 @@ impl CSVFlags {
                     let fs = (0..n.0).map(|i| CSVFlag::lookup_meas_opt(kws, i, false, conf));
                     fs.mappend_def().and_then_def(|flags| {
                         if flags.is_empty() {
-                            let is_err = !conf.allow_optional_dropping;
+                            let flag = conf.allow_optional_dropping;
                             let e = NewCSVFlagsError.into();
-                            LogResult::new_deferred_fungible(flags, e, is_err)
+                            LogResult::new_deferred_fungible(flags, e, flag)
                         } else {
                             LogResult::new_ok(flags)
                         }
@@ -4948,7 +4948,7 @@ impl CSVFlags {
             .map(|(i, f)| f.check_indexed_key_transfer_fungible(i, flag).repack())
             .mappend_def()
             .set_def_value(())
-            .eval_deferred_fungible_error(!flag.0, |()| {
+            .eval_deferred_fungible_error(flag, |()| {
                 (!self.0.is_empty()).then_some(UnitaryKeyLossError::<CSMode>::new())
             })
     }
@@ -5838,7 +5838,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
             .mappend_def_void()
             .map_cmt_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
-            .eval_deferred_fungible_error(!flag.0, |()| {
+            .eval_deferred_fungible_error(flag, |()| {
                 (!value.applied_gates.is_empty()).then_some(gating::AppliedGates3_2To2_0Error)
             })
             .map_ok_value(|()| {
@@ -5936,7 +5936,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_1 {
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
         LogResult::new_ok(())
-            .eval_deferred_fungible_error(!flag.0, |()| {
+            .eval_deferred_fungible_error(flag, |()| {
                 value.comp.is_some().then_some(Comp2_0TransferError)
             })
             .map_ok_value(|()| {
@@ -6023,15 +6023,15 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
         let check_res = LogResult::new_ok(())
-            .eval_deferred_fungible_error(!flag.0, |()| {
+            .eval_deferred_fungible_error(flag, |()| {
                 (!value.applied_gates.is_empty()).then_some(gating::AppliedGates2_0To3_2Error)
             })
-            .eval_deferred_fungible_error(!flag.0, |()| {
+            .eval_deferred_fungible_error(flag, |()| {
                 value.comp.is_some().then_some(Comp2_0TransferError)
             });
 
         let mode_res = Mode3_2::try_from(value.mode)
-            .into_deferred_fungible_opt::<Vec<_>>(!flag.0)
+            .into_deferred_fungible_opt::<_, Vec<_>>(flag)
             .map_cmt_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
 
@@ -6085,7 +6085,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
             .map_cmt_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
         let mode_res = Mode3_2::try_from(value.mode)
-            .into_deferred_fungible_opt::<Vec<_>>(!flag.0)
+            .into_deferred_fungible_opt::<_, Vec<_>>(flag)
             .map_cmt_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
         let cyt_res = value
@@ -6133,7 +6133,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
             .map_cmt_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
         let mode_rs = Mode3_2::try_from(value.mode)
-            .into_deferred_fungible_opt::<Vec<_>>(!flag.0)
+            .into_deferred_fungible_opt::<_, Vec<_>>(flag)
             .map_cmt_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
         let cyt_res = value
@@ -6178,7 +6178,7 @@ impl ScaleTransform {
             Self::Lin(x) => {
                 if x.is_one() {
                     let e = IndexedKeyLossError::<Gain>::new(i).into();
-                    LogResult::new_deferred_fungible(Scale::Linear, e, !flag.0)
+                    LogResult::new_deferred_fungible(Scale::Linear, e, flag)
                 } else {
                     LogResult::new_ok(Scale::Linear)
                 }
@@ -7545,8 +7545,8 @@ impl LookupMetaroot for InnerMetaroot3_1 {
                 Mode::List => None,
             };
             let res = if let Some(e) = err {
-                let is_err = conf.disallow_deprecated;
-                LogResult::new_fungible(mode, (), DeprecatedError::Value(e), is_err)
+                let flag = conf.disallow_deprecated;
+                LogResult::new_fungible(mode, (), DeprecatedError::Value(e), flag)
             } else {
                 LogResult::<_, _, _, _, _, Vec<_>>::new_ok(mode)
             };

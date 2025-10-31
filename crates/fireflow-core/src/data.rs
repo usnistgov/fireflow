@@ -48,7 +48,9 @@
 //! DATA, hoping that all columns have the same length. For fixed layouts, we
 //! can compute $TOT using $PnB and the length of DATA.
 
-use crate::config::{DisallowRangeTrunc, ReadLayoutConfig, ReaderConfig, StdTextReadConfig};
+use crate::config::{
+    AllowTotMismatch, DisallowRangeTrunc, ReadLayoutConfig, ReaderConfig, StdTextReadConfig,
+};
 use crate::core::{AsScaleTransform, LayoutConvertResult, Measurements, ScaleTransform};
 use crate::logging::{
     CmtResultIter as _, DeferredErrors, DeferredFungibleError, DeferredFungibleErrors,
@@ -484,12 +486,12 @@ pub trait TotDefinition {
     fn check_tot(
         total_events: u64,
         tot: Self::Tot,
-        allow_mismatch: bool,
+        flag: AllowTotMismatch,
     ) -> DeferredFungibleError<(), TotEventMismatch> {
         Self::with_tot(
             (),
             tot,
-            |(), t| Self::check_tot_inner(total_events, t, allow_mismatch),
+            |(), t| Self::check_tot_inner(total_events, t, flag),
             |()| LogResult::new_ok(()),
         )
     }
@@ -498,7 +500,7 @@ pub trait TotDefinition {
     fn check_tot_inner(
         total_events: u64,
         tot: Tot,
-        allow_mismatch: bool,
+        flag: AllowTotMismatch,
     ) -> DeferredFungibleError<(), TotEventMismatch> {
         let count = usize::try_from(total_events)
             .expect("event count exceeded maximum platform pointer size");
@@ -506,7 +508,7 @@ pub trait TotDefinition {
             LogResult::new_ok(())
         } else {
             let i = TotEventMismatch { tot, total_events };
-            LogResult::new_fungible((), (), i, !allow_mismatch)
+            LogResult::new_fungible((), (), i, flag)
         }
     }
 }
@@ -2874,8 +2876,8 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             let remainder = n % w;
             if remainder > 0 {
                 let e = UnevenEventWidth::new(w, n, remainder);
-                let is_err = !conf.allow_uneven_event_width;
-                LogResult::<_, _, _, _, _, Nothing<_>>::new_fungible(total_events, (), e, is_err)
+                let flag = conf.allow_uneven_event_width;
+                LogResult::<_, _, _, _, _, Nothing<_>>::new_fungible(total_events, (), e, flag)
                     .map_errors(EventWidthError::from)
             } else {
                 LogResult::new_ok(total_events)
@@ -3129,7 +3131,7 @@ impl FromRange for NullMixedType {
                             f64::min_decimal()
                         };
                         let f = Self::F64(FloatRange::new(m));
-                        LogResult::new_deferred_fungible(f, e, flag.0)
+                        LogResult::new_deferred_fungible(f, e, flag)
                     },
                     LogResult::<_, _, _, _, _, Vec<_>>::new_ok,
                 );

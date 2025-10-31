@@ -1,4 +1,4 @@
-use crate::config::SharedConfig;
+use crate::config::{ErrorFlag, SharedConfig};
 use crate::text::optional::Nothing;
 use crate::type_families::{
     Applicative, Apply, ApplyOnce, Functor, FunctorOnce, IsKind1, IsKind2, Kind1, Kind2, Monoid,
@@ -872,19 +872,17 @@ pub trait ResultExt: Sized {
         self.into_result().map_err(ImpureError::IO).into_log()
     }
 
-    fn into_deferred_fungible<EC>(
-        self,
-        is_error: bool,
-    ) -> DeferredFungible<Self::Ok, Self::Error, EC>
+    fn into_deferred_fungible<X, EC>(self, flag: X) -> DeferredFungible<Self::Ok, Self::Error, EC>
     where
         Self::Ok: Default,
         EC: FungibleError<Inner = Self::Error> + Default,
         EC::Warn: Default,
+        X: ErrorFlag,
     {
         match self.into_result() {
             Ok(s) => Succ(Success::new1(s)),
             Err(e) => {
-                if is_error {
+                if flag.is_error() {
                     Fail(Failure::new_from_one(e, Self::Ok::default()))
                 } else {
                     Succ(Success::new(Self::Ok::default(), EC::error_to_warning(e)))
@@ -893,30 +891,30 @@ pub trait ResultExt: Sized {
         }
     }
 
-    fn into_deferred_fungible_opt<EC>(
+    fn into_deferred_fungible_opt<X, EC>(
         self,
-        is_error: bool,
+        flag: X,
     ) -> DeferredFungible<Option<Self::Ok>, Self::Error, EC>
     where
         EC: FungibleError<Inner = Self::Error> + Default,
         EC::Warn: Default,
+        X: ErrorFlag,
     {
-        self.into_result()
-            .map(Some)
-            .into_deferred_fungible(is_error)
+        self.into_result().map(Some).into_deferred_fungible(flag)
     }
 
-    fn into_deferred_fungible_def<EC>(
+    fn into_deferred_fungible_def<X, EC>(
         self,
         default: Self::Ok,
-        is_error: bool,
+        flag: X,
     ) -> DeferredFungible<Self::Ok, Self::Error, EC>
     where
         EC: FungibleError<Inner = Self::Error> + Default,
         EC::Warn: Default,
+        X: ErrorFlag,
     {
         self.into_result()
-            .into_deferred_fungible_opt(is_error)
+            .into_deferred_fungible_opt(flag)
             .map_def_value(|v| v.unwrap_or(default))
     }
 
@@ -974,12 +972,13 @@ impl<V, P, RWC, E, EC> LogResult<V, P, EC::Warn, RWC, E, EC>
 where
     EC: FungibleError,
 {
-    pub(crate) fn new_fungible(value: V, default: P, error: E, is_error: bool) -> Self
+    pub(crate) fn new_fungible<X>(value: V, default: P, error: E, flag: X) -> Self
     where
         EC: FungibleError<Inner = E> + Default,
         RWC: Default,
+        X: ErrorFlag,
     {
-        if is_error {
+        if flag.is_error() {
             Fail(Failure::new_from_one(error, default))
         } else {
             Succ(Success::new(value, EC::error_to_warning(error)))
@@ -1089,14 +1088,14 @@ impl<V, P, WC, E, EC> CmtResult<V, P, WC, E, EC> {
         }
     }
 
-    pub(crate) fn extend_fungible_errors<M, W, Fv, Fp, Fw, Fe>(
+    pub(crate) fn extend_fungible_errors<X, M, W, Fv, Fp, Fw, Fe>(
         mut self,
         errors: impl IntoIterator<Item = M>,
         fv: Fv,
         fp: Fp,
         fw: Fw,
         fe: Fe,
-        is_error: bool,
+        flag: X,
     ) -> Self
     where
         Fv: FnOnce(V) -> P,
@@ -1105,8 +1104,9 @@ impl<V, P, WC, E, EC> CmtResult<V, P, WC, E, EC> {
         Fw: Fn(M) -> W,
         WC: Extend<W>,
         EC: Extend<E> + Default + FungibleError<Inner = E>,
+        X: ErrorFlag,
     {
-        if is_error {
+        if flag.is_error() {
             let mut it = errors.into_iter().map(fe);
             match self {
                 Succ(succ) => {
@@ -1366,14 +1366,15 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
     ///
     /// This must be deferred because the value type will be the same
     /// if the Result needs to flip from Ok to Error.
-    pub(crate) fn eval_deferred_fungible_error<M, W, F>(mut self, is_error: bool, f: F) -> Self
+    pub(crate) fn eval_deferred_fungible_error<X, M, W, F>(mut self, flag: X, f: F) -> Self
     where
         F: FnOnce(&V) -> Option<M>,
         M: Into<E> + Into<W>,
         EC: Extend<E> + Default + FungibleError,
         WC: Extend<W>,
+        X: ErrorFlag,
     {
-        if is_error {
+        if flag.is_error() {
             self.eval_deferred_error(|x| f(x).map(Into::into))
         } else {
             self.eval_def_warning(|x| f(x).map(Into::into));
@@ -1649,12 +1650,13 @@ impl<V, E, EC> Deferred<V, EC::Warn, E, EC>
 where
     EC: FungibleError,
 {
-    pub(crate) fn new_deferred_fungible(value: V, error: E, is_error: bool) -> Self
+    pub(crate) fn new_deferred_fungible<X>(value: V, error: E, flag: X) -> Self
     where
         EC: FungibleError<Inner = E> + Default,
         EC::Warn: Default,
+        X: ErrorFlag,
     {
-        if is_error {
+        if flag.is_error() {
             Fail(Failure::new_from_one(error, value))
         } else {
             Succ(Success::new(value, EC::error_to_warning(error)))
@@ -1667,16 +1669,17 @@ where
     ///
     /// This must be deferred because the value type will be the same
     /// if the Result needs to flip from Ok to Error.
-    pub(crate) fn extend_deferred_fungible_errors(
+    pub(crate) fn extend_deferred_fungible_errors<X>(
         self,
         errors: impl IntoIterator<Item = E>,
-        is_error: bool,
+        flag: X,
     ) -> Self
     where
         EC: Extend<E> + Default + FungibleError<Inner = E>,
         EC::Warn: Extend<E>,
+        X: ErrorFlag,
     {
-        self.extend_fungible_errors(errors, |v| v, |p| p, |w| w, |e| e, is_error)
+        self.extend_fungible_errors(errors, |v| v, |p| p, |w| w, |e| e, flag)
     }
 }
 

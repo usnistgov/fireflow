@@ -258,7 +258,7 @@ where
             |other| {
                 let (seg, warn) = default.unless(other);
                 warn.map_or(LogResult::new_ok(seg), |w| {
-                    LogResult::<_, _, _, _, _, Vec<_>>::new_fungible(seg, (), w, !allow_mismatch)
+                    LogResult::<_, _, _, _, _, Vec<_>>::new_fungible(seg, (), w, allow_mismatch)
                         .non_cmt_into_cmt()
                         .map_cmt_warnings(ReqSegmentWithDefaultWarning::from)
                         .map_errors(ReqSegmentWithDefaultError::from)
@@ -391,7 +391,7 @@ where
                 other.map_or(LogResult::new_ok(def), |o| {
                     let (seg, warn) = default.unless(o);
                     warn.map_or(LogResult::new_ok(seg), |w| {
-                        LogResult::new_fungible(seg, def, w.into(), !allow_mismatch)
+                        LogResult::new_fungible(seg, def, w.into(), allow_mismatch)
                     })
                 })
             },
